@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · alerts</title>
+<!-- ============================================================================
+     SCINTILLA COMPONENT · ALERTS — the cockpit ALERTS tab, standalone.
+     Two honest sections, because the DB has two writers with two different
+     health states:
+       FEED HEALTH — feed_alerts (LIVE writer): feed · status · age_sec ·
+         message · delivered · channel · fired_ts.
+       TICKER ALERTS — alert_log (ticker · kind · severity · message · ts):
+         writer last wrote 2026-06-10, so the section wears an honest STALE
+         badge with the real age rather than pretending it is current.
+     Params: ?sections=feed,ticker · ?limit=40 (10-200) · ?sev=high ·
+       ?bg=0 · ?refresh=60 (20-600)
+     DATA — DB reads only, never FMP · scintilla-live. Ticker → /chart.
+     Receipt: HSC-ALERTS-LIVE-001.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; }
+html,body{ margin:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.02em;
+  display:flex; flex-direction:column; overflow:hidden; }
+body.nobg{ background:transparent; }
+.sec{ display:flex; flex-direction:column; min-height:0; flex:1; border-bottom:1px solid var(--line); }
+.sec:last-child{ border-bottom:0; }
+.sh{ flex:none; display:flex; align-items:baseline; gap:9px; padding:8px 14px 6px; border-bottom:1px solid var(--line); }
+.sh .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; }
+.sh .src{ color:var(--dim); font-size:9px; }
+.sh .st{ margin-left:auto; color:var(--mute); font-size:8px; letter-spacing:.12em; text-transform:uppercase; }
+.badge{ color:var(--bear); border:1px dashed rgba(255,45,85,.5); padding:1px 6px; font-size:8px; letter-spacing:.14em; text-transform:uppercase; }
+.badge.ok{ color:var(--bull); border-color:rgba(0,255,163,.45); border-style:solid; }
+.body{ flex:1; overflow-y:auto; scrollbar-width:thin; }
+.r{ display:flex; align-items:baseline; gap:9px; padding:6px 14px; border-bottom:1px solid var(--line); text-decoration:none; color:inherit; }
+.r:hover{ background:var(--panel2); }
+.ago{ flex:none; width:44px; color:var(--mute); font-size:9px; font-variant-numeric:tabular-nums; }
+.tag{ flex:none; font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; padding:1px 6px; border:1px solid var(--line); color:var(--ink3); }
+.tag.up{ color:var(--bull); border-color:rgba(0,255,163,.4); }
+.tag.dn{ color:var(--bear); border-color:rgba(255,45,85,.4); }
+.tag.warn{ color:var(--vol); border-color:rgba(255,138,0,.4); }
+.tk{ flex:none; color:var(--crk); font-size:9.5px; letter-spacing:.1em; }
+.msg{ color:var(--ink2); font-size:10.5px; line-height:1.45; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.empty{ padding:14px; color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; }
+</style>
+</head>
+<body>
+<div id="wrap" style="display:flex;flex-direction:column;height:100%"><div class="empty">loading alerts…</div></div>
+<script>
+"use strict";
+/* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+async function pg(path, _tries) {
+  const tries = _tries == null ? 3 : _tries;
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(SB + "/rest/v1/" + path, { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
+      if (r.ok) return r.json();
+      if (r.status === 503 || r.status === 504 || r.status === 429) lastErr = new Error("pg " + path + " → " + r.status);
+      else throw new Error("pg " + path + " → " + r.status);
+    } catch (e) { lastErr = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 500 * (i + 1) + Math.random() * 300));
+  }
+  throw lastErr;
+}
+const num = (x) => (x == null ? null : Number(x));
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+const QS = new URLSearchParams(location.search);
+const SECTIONS = String(QS.get("sections") || "feed,ticker").toLowerCase().split(",").map((s) => s.trim());
+const LIMIT   = Math.max(10, Math.min(200, +(QS.get("limit") || 40)));
+const SEV     = (QS.get("sev") || "").toLowerCase().replace(/[^a-z]/g, "");
+const REFRESH = Math.max(20, Math.min(600, +(QS.get("refresh") || 60))) * 1000;
+if (QS.get("bg") === "0") document.body.classList.add("nobg");
+
+const ago = (ms) => {
+  const s = Math.max(0, (Date.now() - ms) / 1000);
+  if (s < 90) return Math.round(s) + "s";
+  if (s < 5400) return Math.round(s / 60) + "m";
+  if (s < 129600) return Math.round(s / 3600) + "h";
+  return Math.round(s / 86400) + "d";
+};
+const statusTone = (s) => { const v = String(s || "").toLowerCase();
+  return v.indexOf("ok") === 0 || v === "healthy" || v === "green" ? "up"
+    : v.indexOf("stale") === 0 || v.indexOf("warn") === 0 ? "warn"
+    : v ? "dn" : ""; };
+const sevTone = (s) => { const v = String(s || "").toLowerCase();
+  return v === "high" || v === "critical" ? "dn" : v === "medium" || v === "warn" ? "warn" : ""; };
+
+function section(key, title, source, stampHTML, rowsHTML) {
+  return '<div class="sec"><div class="sh"><span class="k">' + title + '</span>' +
+    '<span class="src">' + source + '</span><span class="st">' + stampHTML + "</span></div>" +
+    '<div class="body">' + rowsHTML + "</div></div>";
+}
+
+async function tick() {
+  const wantF = SECTIONS.indexOf("feed") >= 0, wantT = SECTIONS.indexOf("ticker") >= 0;
+  let q2 = "alert_log?select=ticker,kind,severity,message,ts&order=ts.desc&limit=" + LIMIT;
+  if (SEV) q2 += "&severity=eq." + encodeURIComponent(SEV);
+  const [fa, al] = await Promise.all([
+    wantF ? pg("feed_alerts?select=feed,status,age_sec,message,delivered,channel,fired_ts&order=fired_ts.desc&limit=" + LIMIT).catch(() => null) : null,
+    wantT ? pg(q2).catch(() => null) : null,
+  ]);
+  const out = [];
+
+  if (wantF) {
+    let stamp = "", rows = '<div class="empty">no feed_alerts rows</div>';
+    if (Array.isArray(fa) && fa.length) {
+      const newest = new Date(fa[0].fired_ts).getTime();
+      const mins = (Date.now() - newest) / 60000;
+      stamp = mins > 120 ? 'newest <span class="badge">STALE ' + Math.round(mins / 60) + 'h</span>'
+                         : 'newest ' + ago(newest) + ' ago <span class="badge ok">live</span>';
+      rows = fa.map((r) =>
+        '<div class="r"><span class="ago">' + ago(new Date(r.fired_ts).getTime()) + "</span>" +
+        '<span class="tag ' + statusTone(r.status) + '">' + esc(r.status || "—") + "</span>" +
+        '<span class="tk">' + esc(r.feed || "") + "</span>" +
+        '<span class="msg">' + esc(r.message || "") +
+          (r.age_sec != null ? " · age " + Math.round(num(r.age_sec) / 60) + "m" : "") +
+          (r.channel ? " · " + esc(r.channel) : "") +
+          (r.delivered === false ? " · undelivered" : "") + "</span></div>").join("");
+    }
+    out.push(section("feed", "FEED HEALTH", "feed_alerts", stamp, rows));
+  }
+
+  if (wantT) {
+    let stamp = "", rows = '<div class="empty">no alert_log rows' + (SEV ? " at severity " + esc(SEV) : "") + "</div>";
+    if (Array.isArray(al) && al.length) {
+      const newest = num(al[0].ts) * 1000;
+      const days = (Date.now() - newest) / 86400000;
+      stamp = days > 2 ? 'newest <span class="badge">STALE ' + Math.round(days) + 'd — writer quiet</span>'
+                       : "newest " + ago(newest) + " ago";
+      rows = al.map((r) =>
+        '<a class="r" href="/chart?t=' + encodeURIComponent(r.ticker || "") + '">' +
+        '<span class="ago">' + ago(num(r.ts) * 1000) + "</span>" +
+        '<span class="tag ' + sevTone(r.severity) + '">' + esc(r.severity || r.kind || "—") + "</span>" +
+        '<span class="tk">$' + esc(r.ticker || "") + "</span>" +
+        '<span class="msg">' + esc(r.message || r.kind || "") + "</span></a>").join("");
+    }
+    out.push(section("ticker", "TICKER ALERTS", "alert_log", stamp, rows));
+  }
+
+  document.getElementById("wrap").innerHTML = out.join("") || '<div class="empty">no sections selected</div>';
+}
+tick().catch(() => { document.getElementById("wrap").innerHTML = '<div class="empty">alerts unavailable</div>'; });
+setInterval(() => tick().catch(() => {}), REFRESH);
+</script>
+</body>
+</html>

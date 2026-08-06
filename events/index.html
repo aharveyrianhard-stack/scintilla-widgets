@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · events</title>
+<!-- ============================================================================
+     SCINTILLA COMPONENT · EVENTS — the cockpit EVENTS tab, standalone.
+     Earnings, both directions from today, off earnings_events (9.5k rows,
+     confirmed dates out to Nov 2026): ticker · date · report_time · confirmed ·
+     eps estimate/actual · revenue estimate/actual · surprise_pct ·
+     revenue_surprise_pct · beat · transcript/release links.
+       UPCOMING — next dates first, report time (BMO/AMC) and confirmed flag.
+       RESULTS  — most recent first, EPS + revenue surprise coloured by sign.
+     Cohort-aware: ?cohort=AI_HW filters both lists through ticker_cohorts
+     (is_primary), so the events rail follows the cohort axis like everything
+     else. ?t=MU pins one ticker. ?days=45 window · ?limit=40 · ?bg=0 ·
+     ?sections=upcoming,results · ?refresh=300.
+     DATA — DB reads only, never FMP · scintilla-live. Ticker → /chart.
+     Receipt: HSC-EVENTS-LIVE-001.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; }
+html,body{ margin:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.02em;
+  display:flex; flex-direction:column; overflow:hidden; }
+body.nobg{ background:transparent; }
+#hd{ flex:none; display:flex; align-items:baseline; gap:10px; padding:8px 14px 6px; border-bottom:1px solid var(--line); }
+#hd .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; }
+#hd .f{ color:var(--ink2); font-size:10px; letter-spacing:.08em; text-transform:uppercase; }
+#hd .st{ margin-left:auto; color:var(--mute); font-size:8px; letter-spacing:.12em; text-transform:uppercase; }
+#cols{ flex:1; display:flex; min-height:0; }
+.col{ flex:1; display:flex; flex-direction:column; min-width:0; border-right:1px solid var(--line); }
+.col:last-child{ border-right:0; }
+.ch{ flex:none; padding:6px 12px; color:var(--dim); font-size:8.5px; letter-spacing:.2em; text-transform:uppercase; border-bottom:1px solid var(--line); }
+.body{ flex:1; overflow-y:auto; scrollbar-width:thin; }
+.r{ display:flex; align-items:baseline; gap:8px; padding:6px 12px; border-bottom:1px solid var(--line); text-decoration:none; color:inherit; }
+.r:hover{ background:var(--panel2); }
+.d{ flex:none; width:56px; color:var(--ink3); font-size:9.5px; font-variant-numeric:tabular-nums; }
+.tk{ flex:none; width:52px; color:var(--crk); font-size:10px; letter-spacing:.08em; }
+.rt{ flex:none; font-size:8px; letter-spacing:.12em; color:var(--dim); border:1px solid var(--line); padding:0 4px; text-transform:uppercase; }
+.unconf{ color:var(--vol); border-color:rgba(255,138,0,.4); }
+.sp{ margin-left:auto; font-weight:700; font-variant-numeric:tabular-nums; font-size:11px; }
+.sub{ color:var(--mute); font-size:9px; font-variant-numeric:tabular-nums; }
+.up{ color:var(--bull); } .dn{ color:var(--bear); } .neu{ color:var(--ink3); }
+.empty{ padding:14px; color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; }
+</style>
+</head>
+<body>
+<div id="hd"><span class="k">EVENTS</span><span class="f" id="filt">all</span><span class="st" id="stamp"></span></div>
+<div id="cols"><div class="empty">loading events…</div></div>
+<script>
+"use strict";
+/* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+async function pg(path, _tries) {
+  const tries = _tries == null ? 3 : _tries;
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(SB + "/rest/v1/" + path, { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
+      if (r.ok) return r.json();
+      if (r.status === 503 || r.status === 504 || r.status === 429) lastErr = new Error("pg " + path + " → " + r.status);
+      else throw new Error("pg " + path + " → " + r.status);
+    } catch (e) { lastErr = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 500 * (i + 1) + Math.random() * 300));
+  }
+  throw lastErr;
+}
+const num = (x) => (x == null ? null : Number(x));
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+const QS = new URLSearchParams(location.search);
+const T       = (QS.get("t") || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
+const COHORT  = (QS.get("cohort") || "").toUpperCase().replace(/[^A-Z0-9_]/g, "");
+const DAYS    = Math.max(3, Math.min(180, +(QS.get("days") || 45)));
+const LIMIT   = Math.max(5, Math.min(120, +(QS.get("limit") || 40)));
+const SECT    = String(QS.get("sections") || "upcoming,results").toLowerCase();
+const REFRESH = Math.max(60, Math.min(1800, +(QS.get("refresh") || 300))) * 1000;
+if (QS.get("bg") === "0") document.body.classList.add("nobg");
+el("filt").textContent = T ? "$" + T : COHORT ? COHORT.replace(/_/g, " ") : "all tickers";
+
+const iso = (d) => d.toISOString().slice(0, 10);
+const short = (s) => { const p = String(s).split("-"); return p.length === 3 ? p[1] + "/" + p[2] : s; };
+const pct = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1) + "%";
+const tone = (v) => (v > 0 ? "up" : v < 0 ? "dn" : "neu");
+
+async function tick() {
+  let inList = null;
+  if (COHORT) {
+    const tc = await pg("ticker_cohorts?is_primary=eq.true&cohort=eq." + encodeURIComponent(COHORT) + "&select=ticker").catch(() => null);
+    inList = Array.isArray(tc) ? tc.map((r) => r.ticker).filter(Boolean) : [];
+    if (!inList.length) { el("cols").innerHTML = '<div class="empty">no primary tickers in cohort ' + esc(COHORT) + "</div>"; return; }
+  }
+  const today = iso(new Date()), until = iso(new Date(Date.now() + DAYS * 86400000)), since = iso(new Date(Date.now() - DAYS * 86400000));
+  const filt = (T ? "&ticker=eq." + encodeURIComponent(T) : "") +
+               (inList ? "&ticker=in.(" + inList.map(encodeURIComponent).join(",") + ")" : "");
+  const cols = "ticker,date,report_time,confirmed,eps_estimate,eps_actual,revenue_estimate,revenue_actual,surprise_pct,revenue_surprise_pct,beat";
+  const wantU = SECT.indexOf("upcoming") >= 0, wantR = SECT.indexOf("results") >= 0;
+  const [up, res] = await Promise.all([
+    wantU ? pg("earnings_events?select=" + cols + "&date=gte." + today + "&date=lte." + until + filt + "&order=date.asc&limit=" + LIMIT).catch(() => null) : null,
+    wantR ? pg("earnings_events?select=" + cols + "&date=lt." + today + "&date=gte." + since + filt + "&eps_actual=not.is.null&order=date.desc&limit=" + LIMIT).catch(() => null) : null,
+  ]);
+
+  const upRows = !Array.isArray(up) || !up.length ? '<div class="empty">nothing scheduled in the next ' + DAYS + " days</div>"
+    : up.map((r) => '<a class="r" href="/chart?t=' + encodeURIComponent(r.ticker) + '">' +
+        '<span class="d">' + short(r.date) + '</span><span class="tk">$' + esc(r.ticker) + "</span>" +
+        (r.report_time ? '<span class="rt">' + esc(r.report_time) + "</span>" : "") +
+        (r.confirmed === false ? '<span class="rt unconf">est</span>' : "") +
+        (num(r.eps_estimate) != null ? '<span class="sub sp">est ' + num(r.eps_estimate).toFixed(2) + "</span>" : "") +
+      "</a>").join("");
+
+  const resRows = !Array.isArray(res) || !res.length ? '<div class="empty">no reported results in the last ' + DAYS + " days</div>"
+    : res.map((r) => {
+        const sp = num(r.surprise_pct), rsp = num(r.revenue_surprise_pct);
+        return '<a class="r" href="/chart?t=' + encodeURIComponent(r.ticker) + '">' +
+          '<span class="d">' + short(r.date) + '</span><span class="tk">$' + esc(r.ticker) + "</span>" +
+          (r.beat ? '<span class="rt">' + esc(r.beat) + "</span>" : "") +
+          '<span class="sub">' + (num(r.eps_actual) != null ? "eps " + num(r.eps_actual).toFixed(2) : "") +
+            (num(r.eps_estimate) != null ? " vs " + num(r.eps_estimate).toFixed(2) : "") +
+            (rsp != null ? " · rev " + pct(rsp) : "") + "</span>" +
+          (sp != null ? '<span class="sp ' + tone(sp) + '">' + pct(sp) + "</span>" : "") +
+        "</a>";
+      }).join("");
+
+  const out = [];
+  if (wantU) out.push('<div class="col"><div class="ch">upcoming · next ' + DAYS + 'd</div><div class="body">' + upRows + "</div></div>");
+  if (wantR) out.push('<div class="col"><div class="ch">results · last ' + DAYS + 'd · eps surprise</div><div class="body">' + resRows + "</div></div>");
+  el("cols").innerHTML = out.join("") || '<div class="empty">no sections selected</div>';
+  el("stamp").textContent = "earnings_events · db reads only";
+}
+tick().catch(() => { el("cols").innerHTML = '<div class="empty">events unavailable</div>'; });
+setInterval(() => tick().catch(() => {}), REFRESH);
+</script>
+</body>
+</html>
