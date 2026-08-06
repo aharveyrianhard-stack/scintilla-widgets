@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · chart</title>
+<!-- ============================================================================
+     SCINTILLA WIDGET · CHART — standalone scene module (stage-1 extraction)
+     Extracted from scintilla-hub index.html (SC_BUILD 2026-07-16T0330, repo main
+     aafbc9b): scChart R18 native canvas renderer — scChartHTML/Draw/Load/Scrub/
+     Wire, DB-only fetchChartSeries (R30 — reads ohlcv_history via pg(), NEVER
+     FMP from the page), cache-first chart layer, R22 range ladder, in-app
+     TradingView modal (FIX 5 / R52) — all ported verbatim. Live last-point
+     patch (R22 FIX 8) rides supabase-js realtime on live_quotes, same as the
+     hub. The hub's R20 touch-guard overlay is dropped (a dedicated chart window
+     has no page scroll to trap — the one intentional trim, flagged here).
+     Chrome addition (plumbing only): a ticker field in the range bar, since the
+     widget has no cohort board to click. PRICE BASIS: RAW DB prints
+     (ohlcv_history, unadjusted) + live_quotes ticks — the hub chart's basis.
+     Params: ?t=MU · ?range=1D (15m 30m 1h 2h 3h 4h 6h 12h 1D 3D 1W)
+     LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel:#0D0D14; --panel2:#0F0F1A;
+  --line:#1A1A2A; --line2:#252538; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --coin:#8B5CF6;
+  --bull:#00FFA3; --bear:#FF2D55;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ min-width:0; box-sizing:border-box; }
+html,body{ margin:0; padding:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:12px; letter-spacing:.02em; overflow:hidden; }
+#chartSlot{ position:absolute; inset:0; }
+
+/* SCINTILLA · scChart — ported verbatim */
+.sc-nchart{ position:absolute; inset:0; display:flex; flex-direction:column;
+  min-width:0; overflow:hidden; }
+.sc-nchart__bar{ flex:none; display:flex; align-items:center; gap:4px;
+  padding:6px 10px 4px; min-width:0; overflow-x:auto; overflow-y:hidden;
+  -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+.sc-nchart__bar::-webkit-scrollbar{ display:none; }
+.sc-crange{ flex:none; background:none; border:.6px solid var(--line2); border-radius:3px;
+  cursor:pointer; font-family:var(--mono); font-size:8.5px; letter-spacing:.08em;
+  color:var(--dim); padding:3px 7px; white-space:nowrap; }
+.sc-crange:hover{ color:var(--ink2); }
+.sc-crange.on{ color:var(--crk); border-color:rgba(0,212,255,.45);
+  box-shadow:inset 0 -2px 0 var(--crk); }
+.sc-nchart__bar .sc-tv__pop{ position:static; margin-left:auto; flex:none; }
+.sc-nchart__area{ position:relative; flex:1 1 0; min-height:0; min-width:0; overflow:hidden; }
+.sc-nchart__cv{ position:absolute; inset:0; width:100%; height:100%; display:block;
+  touch-action:pan-y; }
+.sc-nchart__hud{ position:absolute; top:4px; left:50%; z-index:3; pointer-events:none;
+  transform:translateX(-50%); background:var(--panel2); border:.6px solid var(--line2);
+  border-radius:3px; padding:2px 6px; font-family:var(--mono); font-size:8.5px;
+  color:var(--ink); white-space:nowrap; }
+.sc-nchart__msg{ position:absolute; inset:0; z-index:2; display:flex; align-items:center;
+  justify-content:center; color:var(--dim); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
+.sc-nchart__msg[hidden]{ display:none; }
+.sc-tv__pop{ z-index:3;
+  display:inline-flex; align-items:center; gap:4px;
+  font-family:var(--mono); font-size:8px; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--crk); text-decoration:none;
+  background:none; border:0; padding:0; cursor:pointer;
+  filter:drop-shadow(0 0 4px rgba(0,212,255,.4)); }
+.sc-tv__pop:hover{ filter:drop-shadow(0 0 7px rgba(0,212,255,.8)); }
+.sc-tv__pop-lbl{ white-space:nowrap; }
+@media (max-width:640px){ .sc-tv__pop-lbl{ display:none; } }
+
+/* widget ticker field (chrome addition — no cohort board in a standalone window) */
+.sc-ctkin{ flex:none; width:74px; background:var(--panel2); border:.6px solid var(--line2); border-radius:3px;
+  color:var(--ink); font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; outline:none; text-align:center; }
+.sc-ctkin:focus{ border-color:rgba(0,212,255,.45); color:var(--crk); }
+
+/* FIX 5 — IN-APP TradingView modal — ported verbatim */
+body.tvmodal-open{ overflow:hidden; }
+.sc-tvmodal{ position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center;
+  padding:24px; box-sizing:border-box; }
+.sc-tvmodal__backdrop{ position:absolute; inset:0; background:rgba(4,4,10,.78);
+  backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); cursor:pointer; }
+.sc-tvmodal__panel{ position:relative; z-index:1; width:min(1180px,94vw); height:min(760px,88vh);
+  display:flex; flex-direction:column; background:var(--panel2);
+  border:.8px solid var(--hair); border-radius:0; overflow:hidden;
+  box-shadow:0 24px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(0,212,255,.08); }
+.sc-tvmodal__bar{ flex:0 0 auto; display:flex; align-items:center; gap:12px;
+  padding:9px 12px; border-bottom:.8px solid var(--line2); background:var(--panel); }
+.sc-tvmodal__ttl{ font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--crk); text-shadow:0 0 7px rgba(0,212,255,.5); }
+.sc-tvmodal__out{ margin-left:auto; font-family:var(--mono); font-size:9px; letter-spacing:.06em;
+  color:var(--ink3); text-decoration:none; border:.5px solid var(--line2); border-radius:3px; padding:2px 8px; }
+.sc-tvmodal__out:hover{ color:var(--crk); border-color:rgba(0,212,255,.4); }
+.sc-tvmodal__x{ flex:0 0 auto; width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center;
+  background:none; border:.5px solid var(--line2); border-radius:4px; color:var(--ink2);
+  font-size:13px; line-height:1; cursor:pointer; }
+.sc-tvmodal__x:hover{ color:#fff; border-color:var(--crk); background:rgba(0,212,255,.08); }
+.sc-tvmodal__body{ position:relative; flex:1 1 auto; min-height:0; background:var(--bg); }
+.sc-tvmodal__load{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-family:var(--mono); font-size:11px; color:var(--dim); letter-spacing:.06em; }
+.sc-tvmodal__frame{ position:relative; z-index:1; width:100%; height:100%; border:0; display:block; background:var(--bg); }
+.sc-tvmodal__fallback{ display:flex; flex-direction:column; align-items:center; justify-content:center;
+  height:100%; gap:11px; text-align:center; padding:24px; }
+.sc-tvmodal__fallback .ttl{ font-family:var(--mono); font-size:13px; letter-spacing:.06em; color:var(--ink); }
+.sc-tvmodal__fallback .sub{ font-size:11px; color:var(--ink3); line-height:1.5; max-width:360px; }
+.sc-tvmodal__fallback .btn{ margin-top:4px; font-family:var(--mono); font-size:11px; letter-spacing:.06em;
+  color:var(--crk); text-decoration:none; border:.8px solid rgba(0,212,255,.45); border-radius:5px;
+  padding:8px 18px; background:linear-gradient(180deg,rgba(0,212,255,.10),rgba(0,212,255,.02)); }
+.sc-tvmodal__fallback .btn:hover{ background:rgba(0,212,255,.16); border-color:var(--crk); }
+@media (max-width:640px){ .sc-tvmodal{ padding:10px; } .sc-tvmodal__panel{ width:100vw; height:92vh; border-radius:0; } }
+</style>
+</head>
+<body>
+<div id="chartSlot"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+"use strict";
+/* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+const sb   = (typeof supabase !== "undefined" && supabase.createClient)
+               ? supabase.createClient(SB, ANON) : null;
+async function pg(path, _tries) {
+  const tries = _tries == null ? 3 : _tries;
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(SB + "/rest/v1/" + path, {
+        headers: { apikey: ANON, Authorization: "Bearer " + ANON },
+      });
+      if (r.ok) return r.json();
+      if (r.status === 503 || r.status === 504 || r.status === 429) {
+        lastErr = new Error("pg " + path + " → " + r.status);
+      } else {
+        throw new Error("pg " + path + " → " + r.status);
+      }
+    } catch (e) { lastErr = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 500 * (i + 1) + Math.random() * 300));
+  }
+  throw lastErr;
+}
+const num = (x) => (x == null ? null : Number(x));
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+const el = (id) => document.getElementById(id);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+function lsGet(k) { try { return localStorage.getItem(k); } catch (err) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (err) {} }
+const CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
+function cacheGet(k, staleOk) {
+  try {
+    const raw = lsGet(k);
+    if (!raw) return null;
+    const env = JSON.parse(raw);
+    if (!env || typeof env.ts !== "number") return null;
+    if (staleOk === false && (Date.now() - env.ts) > CACHE_MAX_AGE) return null;
+    return env;
+  } catch (err) { return null; }
+}
+function cacheSet(k, payload) {
+  try { lsSet(k, JSON.stringify(Object.assign({ ts: Date.now() }, payload))); } catch (err) {}
+}
+
+/* ---- crypto map + TV symbols — ported verbatim ---- */
+const CB = { "BTC-USD":"BTCUSD", "ETH-USD":"ETHUSD", "SOL-USD":"SOLUSD", "XRP-USD":"XRPUSD",
+             "DOGE-USD":"DOGEUSD", "ADA-USD":"ADAUSD", "AVAX-USD":"AVAXUSD",
+             "LINK-USD":"LINKUSD", "LTC-USD":"LTCUSD" };
+const cryptoSet = new Set(Object.values(CB));
+const TV_MAP = { BTC: "COINBASE:BTCUSD", ETH: "COINBASE:ETHUSD", SOL: "COINBASE:SOLUSD",
+  BTCUSD: "COINBASE:BTCUSD", ETHUSD: "COINBASE:ETHUSD", SOLUSD: "COINBASE:SOLUSD",
+  XRPUSD: "COINBASE:XRPUSD", DOGEUSD: "COINBASE:DOGEUSD", ADAUSD: "COINBASE:ADAUSD",
+  AVAXUSD: "COINBASE:AVAXUSD", LINKUSD: "COINBASE:LINKUSD", LTCUSD: "COINBASE:LTCUSD" };
+const POPOUT_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 5 h5 v5 M19 5 L10 14 M9 5 H5 v14 h14 v-4"/></svg>';
+const CHART_RANGES = ["15m", "30m", "1h", "2h", "3h", "4h", "6h", "12h", "1D", "3D", "1W"];
+
+/* ---- widget state (hub S stub) ---- */
+const QS = new URLSearchParams(location.search);
+const S = {
+  chartT: (QS.get("t") || lsGet("scw_chartT") || "MU").toUpperCase().trim(),
+  chartRange: (function(){ const r = QS.get("range") || lsGet("scw_chartRange"); return CHART_RANGES.includes(r) ? r : "1D"; })(),
+};
+let prevClose = {};
+
+/* ---- chart caches + colors — ported verbatim ---- */
+const chartCache = new Map();
+const CHART_HOSTS = new Set();
+let CH_COL = null;
+function chColors() {
+  if (!CH_COL) {
+    const cs = getComputedStyle(document.documentElement);
+    const v = (n, fb) => (cs.getPropertyValue(n) || fb).trim();
+    CH_COL = { bull: v("--bull", "#00FFA3"), bear: v("--bear", "#FF2D55"),
+               dim: v("--dim", "#868AAA"), ink2: v("--ink2", "#C6C8DE") };
+  }
+  return CH_COL;
+}
+const chFmpSym = (t) => (cryptoSet.has(t) && !t.endsWith("USD") ? t + "USD" : t);
+const chPx = (p) => (p >= 1000 ? Math.round(p).toLocaleString()
+  : p >= 1 ? p.toFixed(2) : p.toFixed(4));
+const chTimeFull = (d) => (d.length > 10 ? d.slice(0, 16) : d);
+const EV_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function chTimeLbl(d, range) {
+  if (range === "15m" || range === "30m") return d.slice(11, 16) || d.slice(5, 10);
+  if (range === "1D" || range === "3D" || range === "1W") return d.slice(0, 7);
+  const m = d.match(/^\d{4}-(\d{2})-(\d{2})/);
+  return m ? (EV_MON[+m[1] - 1] || m[1]) + " " + (+m[2]) : d.slice(5, 10);
+}
+
+/* ---- CACHE-FIRST + DB-ONLY series fetch — ported verbatim (R30) ---- */
+function chartSeriesCached(t, range) {
+  const key = t + "|" + range;
+  const hit = chartCache.get(key);
+  if (hit && hit.pts && hit.pts.length >= 2) return hit.pts;
+  const env = cacheGet("sc_chart_" + key);
+  if (env && Array.isArray(env.pts) && env.pts.length >= 2) {
+    chartCache.set(key, { ts: env.ts || Date.now(), pts: env.pts });
+    return env.pts;
+  }
+  return null;
+}
+async function fetchChartSeries(t, range){
+  const key = t + "|" + range;
+  const hit = chartCache.get(key);
+  if (hit && Date.now() - hit.ts < 300000) return hit.pts;
+  const RTF = {"15m":["15",200],"30m":["30",200],"1h":["60",200],"2h":["120",200],"3h":["180",200],"4h":["240",200],"6h":["6h",200],"12h":["12h",200],"1D":["D",190],"3D":["3D",260],"1W":["W",300]};
+  const e = RTF[range] || RTF["1D"];
+  const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + e[1]);
+  let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
+  pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
+  chartCache.set(key, { ts: Date.now(), pts: pts });
+  if (pts.length >= 2) { try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {} }
+  return pts;
+}
+
+/* ---- scChart — ported verbatim (R20 touch-guard overlay dropped; see header) ---- */
+function scChartHTML(ticker) {
+  const sym = TV_MAP[ticker] || ticker;
+  return '<div class="sc-nchart" data-t="' + esc(ticker) + '">' +
+    '<div class="sc-nchart__bar">' +
+      '<input class="sc-ctkin" id="tkin" value="' + esc(ticker) + '" spellcheck="false" autocomplete="off" title="ticker — Enter to load">' +
+      CHART_RANGES.map((r) =>
+        '<button class="sc-crange' + (r === S.chartRange ? " on" : "") +
+        '" data-act="chartrange" data-r="' + r + '">' + r + "</button>").join("") +
+      '<button type="button" class="sc-tv__pop" data-act="tvmodal" data-sym="' + esc(sym) +
+      '" title="Open ' + esc(ticker) + ' in TradingView with your indicator stack" aria-label="Open in TradingView">' +
+      POPOUT_SVG + "<span class=\"sc-tv__pop-lbl\"> TradingView</span></button>" +
+    "</div>" +
+    '<div class="sc-nchart__area"><canvas class="sc-nchart__cv"></canvas>' +
+    '<div class="sc-nchart__hud" hidden></div>' +
+    '<div class="sc-nchart__msg" hidden></div></div></div>';
+}
+const TV_STUDIES = encodeURIComponent(JSON.stringify([
+  "RSI@tv-basicstudies", "MACD@tv-basicstudies", "WilliamR@tv-basicstudies",
+  "MAExp@tv-basicstudies", "MAExp@tv-basicstudies"
+]));
+const TV_EMBED_URL = (sym) => "https://s.tradingview.com/widgetembed/?symbol=" +
+  encodeURIComponent(sym || "") +
+  "&interval=D&theme=dark&style=1&hide_side_toolbar=0&withdateranges=1&allow_symbol_change=1&save_image=0&locale=en&studies=" + TV_STUDIES;
+const TV_URL = (sym) => "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(sym || "");
+const TV_LOAD_MS = 2600;
+let TV_TIMER = null;
+function tvFallback(url) {
+  const body = document.getElementById("tvModalBody");
+  if (!body) return;
+  body.innerHTML =
+    '<div class="sc-tvmodal__fallback">' +
+      '<div class="ttl">TradingView blocks embedding</div>' +
+      '<div class="sub">This chart can\'t be shown inside the widget — open it in a new window instead.</div>' +
+      '<a class="btn" href="' + esc(url) + '" target="_blank" rel="noopener">Open in a new window →</a>' +
+    "</div>";
+}
+function openTvModal(sym) {
+  const embed = TV_EMBED_URL(sym);
+  const url   = TV_URL(sym);
+  closeTvModal();
+  const wrap = document.createElement("div");
+  wrap.className = "sc-tvmodal";
+  wrap.id = "tvModal";
+  wrap.innerHTML =
+    '<div class="sc-tvmodal__backdrop" data-act="tvmodalclose"></div>' +
+    '<div class="sc-tvmodal__panel" role="dialog" aria-label="TradingView chart">' +
+      '<div class="sc-tvmodal__bar">' +
+        '<span class="sc-tvmodal__ttl">◹ ' + esc(sym || "") + ' · live chart · TradingView</span>' +
+        '<a class="sc-tvmodal__out" href="' + esc(url) + '" target="_blank" rel="noopener" title="Open in a new window">open out ↗</a>' +
+        '<button type="button" class="sc-tvmodal__x" data-act="tvmodalclose" aria-label="Close">✕</button>' +
+      "</div>" +
+      '<div class="sc-tvmodal__body" id="tvModalBody">' +
+        '<div class="sc-tvmodal__load">loading TradingView…</div>' +
+        '<iframe class="sc-tvmodal__frame" id="tvModalFrame" src="' + esc(embed) +
+          '" title="TradingView" frameborder="0" allowtransparency="true" scrolling="no" allow="fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe>' +
+      "</div>" +
+    "</div>";
+  document.body.appendChild(wrap);
+  document.body.classList.add("tvmodal-open");
+  const frame = document.getElementById("tvModalFrame");
+  let loaded = false;
+  if (frame) {
+    frame.addEventListener("load", () => {
+      loaded = true;
+      if (TV_TIMER) { clearTimeout(TV_TIMER); TV_TIMER = null; }
+      const ld = wrap.querySelector(".sc-tvmodal__load"); if (ld) ld.style.display = "none";
+      try {
+        const d = frame.contentDocument;
+        if (d && (d.location.href === "about:blank" || !d.body || !d.body.childNodes.length)) tvFallback(url);
+      } catch (err) { /* cross-origin = widget actually loaded — keep the iframe */ }
+    });
+    frame.addEventListener("error", () => { if (!loaded) tvFallback(url); });
+  }
+  TV_TIMER = setTimeout(() => { if (!loaded) tvFallback(url); }, TV_LOAD_MS);
+}
+function closeTvModal() {
+  if (TV_TIMER) { clearTimeout(TV_TIMER); TV_TIMER = null; }
+  const m = document.getElementById("tvModal");
+  if (m) m.remove();
+  document.body.classList.remove("tvmodal-open");
+}
+
+function scChartDraw(host, scrubIx) {
+  const area = host.querySelector(".sc-nchart__area");
+  const cv = host.querySelector(".sc-nchart__cv");
+  if (!area || !cv) return;
+  const w = area.clientWidth, h = area.clientHeight;
+  if (w < 30 || h < 30) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const pts = host._series;
+  if (!pts || pts.length < 2) return;
+  const col = chColors();
+  const padT = 8, padB = 15, padR = 46, padL = 6;
+  const iw = w - padL - padR, ih = h - padT - padB;
+  if (iw < 10 || ih < 10) return;
+  let lo = Infinity, hi = -Infinity;
+  for (const q of pts) { if (q.p < lo) lo = q.p; if (q.p > hi) hi = q.p; }
+  const ref = (host._ref != null && isFinite(host._ref)) ? host._ref : pts[0].p;
+  let yLo = Math.min(lo, ref), yHi = Math.max(hi, ref);
+  if (yHi === yLo) { yHi += 1; yLo -= 1; }
+  const X = (i) => padL + (i / (pts.length - 1)) * iw;
+  const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * ih;
+  host._plot = { padL, iw };
+  const up = pts[pts.length - 1].p >= ref;
+  const c = up ? col.bull : col.bear;
+  ctx.strokeStyle = col.dim; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(padL, Y(ref)); ctx.lineTo(padL + iw, Y(ref)); ctx.stroke();
+  ctx.setLineDash([]);
+  const trace = () => {
+    ctx.moveTo(X(0), Y(pts[0].p));
+    for (let i = 1; i < pts.length - 1; i++) {
+      const x1 = X(i), y1 = Y(pts[i].p), x2 = X(i + 1), y2 = Y(pts[i + 1].p);
+      ctx.quadraticCurveTo(x1, y1, (x1 + x2) / 2, (y1 + y2) / 2);
+    }
+    ctx.lineTo(X(pts.length - 1), Y(pts[pts.length - 1].p));
+  };
+  const g = ctx.createLinearGradient(0, padT, 0, padT + ih);
+  g.addColorStop(0, c + "3D"); g.addColorStop(1, c + "00");
+  ctx.beginPath(); trace();
+  ctx.lineTo(X(pts.length - 1), padT + ih); ctx.lineTo(X(0), padT + ih); ctx.closePath();
+  ctx.fillStyle = g; ctx.fill();
+  ctx.beginPath(); trace();
+  ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.stroke();
+  ctx.beginPath(); ctx.arc(X(pts.length - 1), Y(pts[pts.length - 1].p), 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = c; ctx.fill();
+  ctx.font = '8.5px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  ctx.fillStyle = col.ink2; ctx.textAlign = "right";
+  ctx.fillText(chPx(hi), w - 3, Math.max(padT + 7, Y(hi) + 3));
+  ctx.fillText(chPx(lo), w - 3, Math.min(h - padB - 1, Y(lo) + 3));
+  ctx.font = '7.5px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  ctx.fillStyle = col.dim;
+  for (let k = 0; k < 4; k++) {
+    const ix = Math.round((k / 3) * (pts.length - 1));
+    ctx.textAlign = k === 0 ? "left" : k === 3 ? "right" : "center";
+    ctx.fillText(chTimeLbl(pts[ix].d, host._range || S.chartRange), X(ix), h - 4);
+  }
+  if (scrubIx != null && pts[scrubIx]) {
+    const sx = X(scrubIx);
+    ctx.strokeStyle = col.dim; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(sx, padT); ctx.lineTo(sx, padT + ih); ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx, Y(pts[scrubIx].p), 3, 0, Math.PI * 2);
+    ctx.fillStyle = c; ctx.fill();
+  }
+}
+
+async function scChartLoad(host) {
+  const t = host.dataset.t, range = S.chartRange;
+  const req = t + "|" + range;
+  host._req = req; host._range = range;
+  const msg = host.querySelector(".sc-nchart__msg");
+  const cachedPts = chartSeriesCached(t, range);
+  if (cachedPts && cachedPts.length >= 2) {
+    host._series = cachedPts;
+    host._ref = (range === "15m" && prevClose[t] != null) ? +prevClose[t] : cachedPts[0].p;
+    if (msg) msg.hidden = true;
+    scChartDraw(host);
+  }
+  try {
+    const pts = await fetchChartSeries(t, range);
+    if (host._req !== req || !host.isConnected) return;
+    if (!pts || pts.length < 2) throw new Error("empty");
+    host._series = pts;
+    host._ref = (range === "15m" && prevClose[t] != null) ? +prevClose[t] : pts[0].p;
+    if (msg) msg.hidden = true;
+    scChartDraw(host);
+  } catch (err) {
+    if (host._req !== req || !host.isConnected) return;
+    if (host._series && host._series.length >= 2) return;
+    host._series = null;
+    const cv = host.querySelector(".sc-nchart__cv");
+    if (cv) { const cx = cv.getContext("2d"); cx.setTransform(1, 0, 0, 1, 0, 0); cx.clearRect(0, 0, cv.width, cv.height); }
+    if (msg) { msg.textContent = "chart data unavailable for " + t; msg.hidden = false; }
+  }
+}
+
+function scChartScrub(host) {
+  const cv = host.querySelector(".sc-nchart__cv");
+  const hud = host.querySelector(".sc-nchart__hud");
+  if (!cv) return;
+  const show = (clientX) => {
+    const pts = host._series, plot = host._plot;
+    if (!pts || pts.length < 2 || !plot) return;
+    const r = cv.getBoundingClientRect();
+    let f = (clientX - r.left - plot.padL) / plot.iw;
+    f = Math.max(0, Math.min(1, f));
+    const ix = Math.round(f * (pts.length - 1));
+    scChartDraw(host, ix);
+    if (hud) {
+      hud.textContent = chPx(pts[ix].p) + " · " + chTimeFull(pts[ix].d);
+      hud.style.left = Math.max(44, Math.min(r.width - 44, plot.padL + f * plot.iw)) + "px";
+      hud.hidden = false;
+    }
+  };
+  const hide = () => { host._down = false; if (hud) hud.hidden = true; if (host._series) scChartDraw(host); };
+  cv.addEventListener("pointerdown", (e) => { host._down = true; show(e.clientX); });
+  cv.addEventListener("pointermove", (e) => { if (host._down || e.pointerType === "mouse") show(e.clientX); });
+  cv.addEventListener("pointerup", hide);
+  cv.addEventListener("pointercancel", hide);
+  cv.addEventListener("pointerleave", hide);
+}
+
+function scChartWire(slot) {
+  if (!slot) return;
+  const host = slot.querySelector(".sc-nchart");
+  if (!host || host._wired) return;
+  host._wired = true;
+  for (const old of CHART_HOSTS)
+    if (!old.isConnected) { if (old._ro) old._ro.disconnect(); CHART_HOSTS.delete(old); }
+  CHART_HOSTS.add(host);
+  const area = host.querySelector(".sc-nchart__area");
+  if (window.ResizeObserver && area) {
+    host._ro = new ResizeObserver(() => scChartDraw(host));
+    host._ro.observe(area);
+  }
+  scChartScrub(host);
+  scChartLoad(host);
+}
+
+function setChartTicker(t) {
+  t = String(t || "").toUpperCase().trim();
+  if (!t) return;
+  S.chartT = t;
+  lsSet("scw_chartT", t);
+  const host = document.querySelector("#chartSlot .sc-nchart");
+  if (!host) return;
+  host.dataset.t = t;
+  host._series = null;
+  const sym = TV_MAP[t] || t;
+  const pop = host.querySelector(".sc-tv__pop");
+  if (pop) pop.dataset.sym = sym;
+  const tin = el("tkin"); if (tin && tin.value.toUpperCase().trim() !== t) tin.value = t;
+  pullPrevClose(t);
+  scChartLoad(host);
+}
+
+/* R22 FIX 8 — live tick → cheap last-point update (ported verbatim) */
+function scChartLive(t, price) {
+  const today = todayISO();
+  for (const host of CHART_HOSTS) {
+    if (!host.isConnected || host.dataset.t !== t) continue;
+    const s = host._series;
+    if (!s || !s.length) continue;
+    if (s[s.length - 1].d.slice(0, 10) !== today) continue;
+    s[s.length - 1].p = price;
+    scChartDraw(host);
+  }
+}
+
+/* prev_close for the 15m reference line — live_quotes served value (hub source) */
+async function pullPrevClose(t) {
+  try {
+    const rows = await pg("live_quotes?ticker=eq." + encodeURIComponent(t) + "&select=ticker,prev_close", 1);
+    if (Array.isArray(rows) && rows[0] && rows[0].prev_close != null) prevClose[t] = +rows[0].prev_close;
+  } catch (_) {}
+}
+
+/* realtime — live_quotes ticks patch the active chart (hub channel, verbatim shape) */
+if (sb) {
+  sb.channel("lq").on("postgres_changes", { event: "*", schema: "public", table: "live_quotes" }, (p) => {
+    if (p.new && p.new.ticker && p.new.price != null) scChartLive(String(p.new.ticker).toUpperCase(), +p.new.price);
+  }).subscribe();
+}
+
+/* delegated actions (hub data-act names) */
+document.addEventListener("click", (e) => {
+  const n = e.target.closest("[data-act]");
+  if (!n) return;
+  const act = n.dataset.act;
+  if (act === "chartrange") {
+    S.chartRange = n.dataset.r;
+    lsSet("scw_chartRange", S.chartRange);
+    document.querySelectorAll(".sc-crange").forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
+    const host = document.querySelector("#chartSlot .sc-nchart");
+    if (host) { host._series = null; scChartLoad(host); }
+  }
+  else if (act === "tvmodal") openTvModal(n.dataset.sym);
+  else if (act === "tvmodalclose") closeTvModal();
+}, true);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeTvModal();
+  if (e.key === "Enter" && document.activeElement && document.activeElement.id === "tkin") {
+    setChartTicker(document.activeElement.value);
+    document.activeElement.blur();
+  }
+});
+
+/* boot */
+el("chartSlot").innerHTML = scChartHTML(S.chartT);
+scChartWire(el("chartSlot"));
+pullPrevClose(S.chartT);
+/* refresh cadence — re-pull the active series every 60 s (DB-only; realtime covers the last point) */
+setInterval(() => { const host = document.querySelector("#chartSlot .sc-nchart"); if (host) scChartLoad(host); }, 60000);
+</script>
+</body>
+</html>
