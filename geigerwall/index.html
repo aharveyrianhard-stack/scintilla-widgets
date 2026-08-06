@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · geiger wall</title>
+<!-- ============================================================================
+     SCINTILLA · GEIGER WALL — the geiger in ALL its states at once.
+     CONSOLIDATION, NOT A NEW COMPONENT. Alan's insight: the geiger reacts to
+     how the set is RANKED — rank one way and one group lights up, rank another
+     and a different group does; and every ranking can run against ALL tickers
+     or against one cohort. This page shows those combinations side by side so
+     no clicking is needed.
+     It REUSES the already-extracted components as iframes — /compare (vertical
+     cohort-composite) and /cohort (horizontal max/median/mean/min). Nothing is
+     rebuilt here: this file owns layout only. Every pane is the live component,
+     so a fix there fixes it here.
+       BAND 1 — ALL TICKERS, RANKED EACH WAY: /compare?stat=median (robust
+         ranking), ?stat=mean (average-pull ranking), ?sort=name (neutral
+         reference ordering — same bars, no ranking bias).
+       BAND 2 — THE SAME GEIGER PER COHORT: one /cohort tile per primary
+         cohort, ordered by median composite (leaders first), so the cohort
+         axis reads top-left → bottom-right.
+     Panes load staggered so the wall doesn't hammer the DB on open.
+     Params: ?cols=4 (2-6) · ?dense=1 (labels off in tiles) · ?only=compare|cohort ·
+       ?refresh=0 (minutes; 0 = never reload panes) · ?bg=0
+     Click any tile header → that component full-bleed.
+     DATA — the panes read DB only (composite_staged tf=D × ticker_cohorts),
+     never FMP, geiger never recomputed. Receipt: HSC-GEIGERWALL-LIVE-001.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; }
+html,body{ margin:0; min-height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.02em; padding:10px 12px 26px; }
+body.nobg{ background:transparent; }
+#hd{ display:flex; align-items:baseline; gap:10px; margin-bottom:8px; }
+#hd .k{ color:var(--crk); font-size:9px; letter-spacing:.24em; text-transform:uppercase; }
+#hd .s{ color:var(--dim); font-size:9px; }
+#hd .st{ margin-left:auto; color:var(--mute); font-size:8px; letter-spacing:.12em; text-transform:uppercase; }
+.bandhd{ display:flex; align-items:baseline; gap:9px; margin:12px 0 6px; border-bottom:1px solid var(--line); padding-bottom:5px; }
+.bandhd .t{ color:var(--crk); font-size:9px; letter-spacing:.22em; text-transform:uppercase; }
+.bandhd .d{ color:var(--dim); font-size:9px; }
+.grid{ display:grid; gap:8px; }
+.cell{ border:1px solid var(--line); background:var(--panel2); display:flex; flex-direction:column; overflow:hidden; }
+.cell:hover{ border-color:var(--hair); }
+.ch{ flex:none; display:flex; align-items:baseline; gap:7px; padding:4px 8px; border-bottom:1px solid var(--line);
+  text-decoration:none; color:var(--ink2); }
+.ch:hover .nm{ color:var(--crk); }
+.ch .nm{ font-size:9px; letter-spacing:.16em; text-transform:uppercase; }
+.ch .rk{ margin-left:auto; color:var(--mute); font-size:8px; letter-spacing:.1em; text-transform:uppercase; }
+.cell iframe{ width:100%; border:0; display:block; background:transparent; }
+.wait{ display:flex; align-items:center; justify-content:center; color:var(--mute);
+  font-size:8.5px; letter-spacing:.14em; text-transform:uppercase; }
+.empty{ padding:20px; color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; }
+#ft{ margin-top:18px; color:var(--mute); font-size:8px; letter-spacing:.12em; text-transform:uppercase; line-height:1.8; }
+</style>
+</head>
+<body>
+<div id="hd">
+  <span class="k">GEIGER WALL</span>
+  <span class="s">every ranking · all tickers, then per cohort · reusing /compare + /cohort</span>
+  <span class="st" id="stamp"></span>
+</div>
+<div id="stage"><div class="empty">building wall…</div></div>
+<div id="ft">
+  consolidation, not a new component — every pane is the live /compare or /cohort route<br>
+  composite_staged tf=D · the one geiger, never recomputed · ticker_cohorts is_primary · db reads only
+</div>
+<script>
+"use strict";
+/* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+async function pg(path, _tries) {
+  const tries = _tries == null ? 3 : _tries;
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(SB + "/rest/v1/" + path, { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
+      if (r.ok) return r.json();
+      if (r.status === 503 || r.status === 504 || r.status === 429) lastErr = new Error("pg " + path + " → " + r.status);
+      else throw new Error("pg " + path + " → " + r.status);
+    } catch (e) { lastErr = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 500 * (i + 1) + Math.random() * 300));
+  }
+  throw lastErr;
+}
+const num = (x) => (x == null ? null : Number(x));
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+const QS = new URLSearchParams(location.search);
+const COLS  = Math.max(2, Math.min(6, +(QS.get("cols") || 4)));
+const DENSE = QS.get("dense") === "1";
+const ONLY  = ["compare", "cohort"].indexOf(QS.get("only")) >= 0 ? QS.get("only") : null;
+const RELOAD = Math.max(0, Math.min(240, +(QS.get("refresh") || 0))) * 60000;
+if (QS.get("bg") === "0") document.body.classList.add("nobg");
+
+/* the panes are the live components — this page only ever composes their URLs */
+const paneArgs = "&bg=0" + (DENSE ? "&labels=0" : "");
+const COMPARE_RANKINGS = [
+  { nm: "ALL · ranked by MEDIAN", rk: "robust", src: "/compare?stat=median&sort=value" },
+  { nm: "ALL · ranked by MEAN",   rk: "average-pull", src: "/compare?stat=mean&sort=value" },
+  { nm: "ALL · unranked (A→Z)",   rk: "reference", src: "/compare?stat=median&sort=name" },
+];
+
+function median(arr){ const a = arr.slice().sort((x,y)=>x-y), n = a.length;
+  return n % 2 ? a[(n-1)/2] : (a[n/2-1] + a[n/2]) / 2; }
+
+/* staggered loader — the wall opens without hammering the DB */
+const QUEUE = [];
+function queuePane(frame, src) { QUEUE.push([frame, src]); }
+function runQueue(stepMs) {
+  let i = 0;
+  const step = () => {
+    if (i >= QUEUE.length) return;
+    const [f, src] = QUEUE[i++];
+    f.src = src;
+    setTimeout(step, stepMs);
+  };
+  step();
+}
+
+function cell(nm, rk, src, h) {
+  const d = document.createElement("div");
+  d.className = "cell";
+  const a = document.createElement("a");
+  a.className = "ch"; a.href = src.replace("&bg=0", "").replace("&labels=0", ""); a.target = "_top";
+  a.innerHTML = '<span class="nm">' + esc(nm) + '</span><span class="rk">' + esc(rk) + "</span>";
+  const f = document.createElement("iframe");
+  f.style.height = h + "px"; f.loading = "lazy"; f.title = nm;
+  d.appendChild(a); d.appendChild(f);
+  queuePane(f, src);
+  return d;
+}
+
+async function build() {
+  const stage = el("stage");
+  const [tc, cs] = await Promise.all([
+    pg("ticker_cohorts?is_primary=eq.true&select=ticker,cohort"),
+    pg("composite_staged?tf=eq.D&select=ticker,composite"),
+  ]);
+  const comp = {};
+  for (const r of (cs || [])) { const v = num(r.composite); if (v != null && isFinite(v)) comp[r.ticker] = v; }
+  const by = {};
+  for (const r of (tc || [])) { const v = comp[r.ticker]; if (v == null) continue; (by[r.cohort] = by[r.cohort] || []).push(v); }
+  const cohorts = Object.keys(by).map((name) => {
+    const c = by[name], g = c.filter((v) => v > 0).length, r = c.filter((v) => v < 0).length;
+    return { name, n: c.length, g, r, med: median(c) };
+  }).filter((c) => c.n).sort((a, b) => b.med - a.med);
+
+  stage.innerHTML = "";
+  QUEUE.length = 0;
+
+  if (ONLY !== "cohort") {
+    const h1 = document.createElement("div");
+    h1.className = "bandhd";
+    h1.innerHTML = '<span class="t">Band 1 · all tickers, ranked each way</span>' +
+      '<span class="d">same bars, three rankings — what leads depends on how you sort</span>';
+    stage.appendChild(h1);
+    const g1 = document.createElement("div");
+    g1.className = "grid";
+    g1.style.gridTemplateColumns = "repeat(" + Math.min(3, COLS) + ", 1fr)";
+    for (const r of COMPARE_RANKINGS) g1.appendChild(cell(r.nm, r.rk, r.src + paneArgs, 240));
+    stage.appendChild(g1);
+  }
+
+  if (ONLY !== "compare") {
+    const h2 = document.createElement("div");
+    h2.className = "bandhd";
+    h2.innerHTML = '<span class="t">Band 2 · the same geiger, per cohort</span>' +
+      '<span class="d">' + cohorts.length + " primary cohorts · leaders first (median composite) · each tile is /cohort</span>";
+    stage.appendChild(h2);
+    if (!cohorts.length) {
+      const e = document.createElement("div"); e.className = "empty"; e.textContent = "no cohort data";
+      stage.appendChild(e);
+    } else {
+      const g2 = document.createElement("div");
+      g2.className = "grid";
+      g2.style.gridTemplateColumns = "repeat(" + COLS + ", 1fr)";
+      for (const c of cohorts) {
+        const rk = c.g + "↑ " + c.r + "↓ · med " + (c.med >= 0 ? "+" : "−") + Math.abs(c.med).toFixed(2);
+        g2.appendChild(cell(c.name.replace(/_/g, " "), rk, "/cohort?c=" + encodeURIComponent(c.name) + paneArgs, DENSE ? 130 : 190));
+      }
+      stage.appendChild(g2);
+    }
+  }
+
+  el("stamp").textContent = (ONLY ? ONLY + " only · " : "") + QUEUE.length + " live panes";
+  runQueue(220);
+}
+
+build().catch(() => { el("stage").innerHTML = '<div class="empty">cohort data unavailable — wall cannot compose</div>'; });
+if (RELOAD) setInterval(() => build().catch(() => {}), RELOAD);
+</script>
+</body>
+</html>
