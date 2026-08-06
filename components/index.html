@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · components — proposal</title>
+<!-- ============================================================================
+     SCINTILLA · COMPONENT EXTRACTION — PROPOSAL (HUB/SURFACE COMMAND).
+     Alan named three hub pieces to become standalone components: the thick
+     type treatment, the Geiger bars, and a table view (which "looks weird"
+     alone and wants a composed look). This page proposes which to expose
+     first, what each needs to stand alone, and the shared contract — the
+     spine between the hub front, the visuals lane, and the TV wall.
+     Grounded in hub source (SC_BUILD 2026-07-16T0330): .big / gs* builders /
+     .mytab + .estsec. Proposal only — nothing built. HSC-COMPONENTS-PROP-001.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel:#0D0D14; --panel2:#0F0F1A;
+  --line:#1A1A2A; --line2:#252538; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00; --heat:#FFE500;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; }
+body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:12px; letter-spacing:.02em;
+  padding:34px 30px 60px; max-width:880px; }
+h1{ font-size:13px; letter-spacing:.3em; text-transform:uppercase; color:var(--crk); font-weight:400; margin:0 0 6px; }
+.sub{ color:var(--dim); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin-bottom:8px; }
+.stamp{ display:inline-block; color:var(--vol); border:1px dashed rgba(255,138,0,.5);
+  font-size:8.5px; letter-spacing:.18em; text-transform:uppercase; padding:2px 8px; margin-bottom:26px; }
+h2{ font-size:11px; letter-spacing:.24em; text-transform:uppercase; color:var(--crk);
+  font-weight:400; margin:34px 0 10px; border-bottom:1px solid var(--line); padding-bottom:7px; }
+h2 .ord{ color:var(--heat); }
+p{ color:var(--ink2); line-height:1.75; margin:0 0 12px; }
+p b{ color:var(--ink); font-weight:600; }
+em{ color:var(--ink3); font-style:normal; border-bottom:1px dotted var(--mute); }
+code{ color:var(--crk); font-size:11px; background:var(--panel2); padding:1px 5px; border:1px solid var(--line); }
+ul{ margin:0 0 12px; padding-left:18px; }
+li{ color:var(--ink2); line-height:1.7; margin-bottom:7px; }
+li b{ color:var(--ink); font-weight:600; }
+.src{ border:.8px solid var(--hair); background:var(--panel2); padding:11px 14px; margin:0 0 14px;
+  color:var(--ink3); font-size:10.5px; line-height:1.7; }
+.src .k{ color:var(--crk); font-size:8.5px; letter-spacing:.2em; text-transform:uppercase; display:block; margin-bottom:4px; }
+.demo-big{ font-weight:700; font-size:26px; color:var(--bull); text-shadow:0 0 14px rgba(0,255,163,.5);
+  font-variant-numeric:tabular-nums; }
+.demo-big.dn{ color:var(--bear); text-shadow:0 0 14px rgba(255,48,96,.5); }
+.foot{ color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; margin-top:44px; line-height:1.9; border-top:1px solid var(--line); padding-top:14px; }
+.foot b{ color:var(--dim); font-weight:400; }
+a{ color:var(--crk); text-decoration:none; }
+a:hover{ text-decoration:underline; }
+</style>
+</head>
+<body>
+<h1>Component Extraction — Proposal</h1>
+<div class="sub">which hub pieces become standalone components first · the shared spine: hub front · visuals lane · tv wall</div>
+<div class="stamp">proposal — nothing built · extraction, not invention · awaiting alan's edits + order</div>
+
+<h2>0 · What "standing alone" means here</h2>
+<p>Every exposed component gets the house widget contract: <b>its own windowable URL</b>, params on the
+index card, <b>data source named in-page</b> (or "driven — no fetch"), profile behavior (wall / laptop /
+narrow, plus <em>tv</em> when that profile lands), a <b>transparent/composed mode</b> so it sits on other
+surfaces without a seam, an <b>embed handle</b> where interactive, honest empty/stale states, and a
+receipt. Extraction is <b>verbatim capture</b> of what the hub does today — the LOOK stays the Visuals
+lane's to change, and the whole point is they get to change it in <em>one</em> place afterward. Cockpit
+untouched throughout: components mirror the hub; the hub adopts them only on your say-so.</p>
+
+<h2><span class="ord">1st</span> · The Numeral — thick type as a component</h2>
+<div class="src"><span class="k">found in hub source</span>
+The thick treatment is real and singular: <code>.big</code> — mono at weight 700, 26px, with the tone glow
+(<code>text-shadow: 0 0 14px</code> at half alpha — green for bull, red for bear), riding a ramp from 9.5px
+tracked-uppercase labels to a 34px top end, <code>tabular-nums</code> in 36 places. Live sample:&nbsp;
+<span class="demo-big">+4.83%</span>&nbsp; <span class="demo-big dn">−2.17%</span>&nbsp;
+One fork worth a ruling: the hub carries <em>two</em> mono stacks (<code>--mono</code> and the geiger
+summary's <code>--gs-mono</code>).</div>
+<p><b>Why first:</b> it's the dependency of the other two — the bars are labeled in it, the table is full
+of it — and it's the piece that makes every surface read as one product. It also carries zero data risk:
+pure tokens plus a formatting contract. And the TV wall lives or dies on it — 10-foot legibility is a
+size-ramp question, and the ramp should belong to the component, not to each page.</p>
+<p><b>To stand alone it needs:</b> a <b>tokens sheet</b> lifted verbatim (both mono stacks — flagged, not
+silently merged — weights, size ramp, tracking scale, tone set, glow recipe); a <b>tiny format contract</b>
+(value · kind: price/pct/signed · tone: auto-by-sign or pinned · size step · the hub's minus and dash
+conventions · tabular-nums always); a hook for the <b>basis chip</b> — when the raw→adjusted ruling
+lands, the numeral is where "adjusted or raw" gets stated everywhere at once; and a <b>specimen route
+/type</b> showing the full ramp and tones on a handful of live prints, so Visuals restyles against one
+page instead of nine.</p>
+
+<h2><span class="ord">2nd</span> · The Geiger Bars — the meter family</h2>
+<div class="src"><span class="k">found in hub source</span>
+The bars are a named builder family, already extracted hub-verbatim inside <a href="/geiger">/geiger</a>:
+<code>gsMbar</code> (composite meter), <code>gsTrend</code> (trend ladder), <code>gsMtf</code> (RSI/W%R
+multi-timeframe), <code>gsMacdHist</code> (histogram), <code>gsVArc/gsVRing</code> (volume rings).
+Data: <code>composite_staged tf=D</code> — THE one Geiger — plus <code>derived_series</code>. Never recomputed.</div>
+<p><b>Why second:</b> the data path is already proven in /geiger; the work is cutting the bar free of the
+6-tile page so one bar can live anywhere at any size — a pulse row, a table cell, a TV pane, a Visuals
+demo.</p>
+<p><b>To stand alone it needs:</b> a <b>bar-only route</b> (<em>/bars</em>) rendering one chosen instrument
+— <code>?bar=composite|trend|mtf|macd|rings</code> for <code>?t=</code> — that fills whatever box it's
+given (percent geometry, the scene system's native language), with <code>?bg=0</code> transparent mode and
+<code>?labels=0</code> for tiny panes; <b>two feed modes</b> — live (fetches its own composite, cache-first
+like /geiger) and <b>driven</b>, an embed handle in the same idiom as the Visuals crossover piece
+(row 89, <code>h.set(v)</code>) so a parent page can push values and the two lanes converge on one embed
+convention instead of growing two; <b>minimum-size honesty</b> per bar type; numerals from component 1
+for its labels; and the house STALE badge when the feed is old.</p>
+
+<h2><span class="ord">3rd</span> · The Board — a table that's never alone</h2>
+<div class="src"><span class="k">found in hub source</span>
+Your instinct matches the code. The hub renders three <code>&lt;table class="mytab"&gt;</code> instances —
+the consensus grids (analyst_estimates) and the ETF holdings table — and <em>none ships naked</em>: every
+one sits under a numbered <code>.estsec</code> band ("01·b Consensus grid") with a source chip, inside a
+zone. The holdings table even carries a <b>bar column</b> — table × bar composition is existing hub
+practice, not a new idea.</div>
+<p><b>Why a bare table "looks weird":</b> it's missing its frame. The component boundary is therefore
+<b>not</b> <code>&lt;table&gt;</code> — it's the <b>board</b>: header band (title · source chip · freshness
+stamp · optional rank/breadth chip) + table + footer, numerals from component 1 in the cells, optional
+inline bar cells from component 2. The rule rides with the component: <em>a board never registers as a
+bare full-bleed scene</em> — its documented pairings (board + pulse; board inside research-style scenes)
+are the composed look you asked for.</p>
+<p><b>Why third:</b> it consumes both earlier components, and it has the widest spec surface.</p>
+<p><b>To stand alone it needs:</b> a <b>declarative column spec</b> (key · label · kind → numeral contract
+· optional bar · link-through to /chart); <b>density profiles</b> (full grid on wall/laptop, card rows on
+narrow — the profile switch already exists); <b>two first instances on proven reads</b> — the
+sector-rotation board (<code>sector_rankings</code>: rank, score, freshness) and the favorites board
+(<code>hub_favorites</code> × <code>live_quotes</code> × composite); and its pairing defaults written into
+the scene fallbacks, so the board arrives already composed.</p>
+
+<h2>4 · Sequence, and why this order</h2>
+<p><b>Numeral → Bars → Board.</b> Each is the next one's ingredient; risk ramps from no-data to
+one-proven-read to multi-read; and every step upgrades all three fronts at once, because the routes
+compose through the existing scene system the moment they exist. Rough weight: the numeral is the
+smallest piece (tokens + contract + specimen), bars and board are each about one queue item. Nothing here
+redesigns anything — the geiger math stays untouched, the look stays yours-and-Visuals', the cockpit
+stays sealed.</p>
+
+<h2>5 · What I need from you</h2>
+<p>An <b>edit or a blessing on the order</b>; a ruling on the <b>two-mono-stack fork</b> (unify or keep
+both); and a <b>go</b> — on the first item alone or the set. Standing note: /type is also the natural
+landing pad for the basis ruling and for whatever Visuals picks as winners — one restyle point instead of
+nine pages.</p>
+
+<div class="foot">
+SCINTILLA · COMPONENT EXTRACTION PROPOSAL · <b>HSC-COMPONENTS-PROP-001</b> · 2026-08-06<br>
+grounded in hub source sc_build 2026-07-16t0330 (.big · gs* builders · .mytab/.estsec) · extraction not invention ·
+db reads only · geiger never recomputed · cockpit untouched · look rides the visuals lane<br>
+relay: spine_events · scintilla-live · <a href="/">← all widgets</a> · <a href="/tvwall">tv wall rec (on hold)</a>
+</div>
+</body>
+</html>
