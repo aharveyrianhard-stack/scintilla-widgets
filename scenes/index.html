@@ -17,8 +17,8 @@
        /scenes                        → scene picker (what Hammerspoon points at)
        /scenes?scene=command-deck     → render one named scene
        /scenes?rotate=all&dwell=120   → cycle scenes (or rotate=a,b,c · &start=name)
-     Params: ?profile=wall|laptop (else auto: viewport ≥1600px → wall) ·
-             ?dwell=120 (scene-level, 15–3600s)
+     Params: ?profile=wall|laptop|narrow (else auto: ≥1600 wall · ≥900 laptop ·
+             else narrow/touch) · ?dwell=120 (scene-level, 15–3600s)
      Controls (rotate mode): hover holds · ←/→ step · space pauses.
      Data: scene_layouts via pg() — DB reads ONLY, never FMP from pages.
      LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
@@ -55,6 +55,11 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   transform-origin:0 0; pointer-events:none; background:var(--bg); }
 .sc-card .prev .lbl{ position:absolute; left:0; top:0; right:0; bottom:0; display:flex; align-items:center;
   justify-content:center; color:var(--mute); font-size:9px; letter-spacing:.18em; text-transform:uppercase; }
+.sc-card .prev svg.schem{ position:absolute; inset:0; width:100%; height:100%; }
+.sc-card .prev .live{ position:absolute; left:5px; top:5px; z-index:2; font-size:8px; letter-spacing:.1em;
+  color:var(--dim); background:rgba(4,4,10,.75); border:.6px solid var(--line2); padding:2px 6px; pointer-events:none; }
+.sc-card .prev .live b{ font-weight:400; }
+.sc-card .row a.chip{ padding:2px 7px; font-size:8.5px; border:1px dashed var(--line2); color:var(--dim); }
 .sc-card .prev:hover::after{ content:"OPEN ⛶"; position:absolute; right:8px; bottom:6px; color:var(--crk);
   font-size:9px; letter-spacing:.16em; background:rgba(4,4,10,.8); border:.6px solid var(--hair); padding:3px 8px; }
 .sc-card .body{ padding:11px 13px 12px; }
@@ -134,31 +139,37 @@ const SCENES_FALLBACK = {
   "market-2-charts": {
     wall:   [{src:"/chart?t=SPY&range=1D",x:0,y:0,w:50,h:92},{src:"/chart?t=MU&range=15m",x:50,y:0,w:50,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
     laptop: [{src:"/chart?t=SPY&range=1D",x:0,y:0,w:100,h:46},{src:"/chart?t=MU&range=15m",x:0,y:46,w:100,h:46},{src:"/ticker",x:0,y:92,w:100,h:8}],
+    narrow: [{src:"/chart?t=SPY&range=1D",x:0,y:0,w:100,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
     note: "IT-deck named layout — two charts side by side + tape strip."
   },
   "command-deck": {
-    wall:   [{src:"/chart?t=MU&range=1D",x:0,y:0,w:62,h:92},{src:"/geiger?auto=1&dwell=15",x:62,y:0,w:38,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
-    laptop: [{src:"/chart?t=MU&range=1D",x:0,y:0,w:100,h:50},{src:"/geiger?auto=1&dwell=15",x:0,y:50,w:100,h:42},{src:"/ticker",x:0,y:92,w:100,h:8}],
-    note: "Chart 62 / rotating geiger 38 / tape strip — the hub dashboard shape as scene modules."
+    wall:   [{src:"/pulse",x:0,y:0,w:100,h:6},{src:"/chart?t=MU&range=1D",x:0,y:6,w:62,h:86},{src:"/geiger?auto=1&dwell=15",x:62,y:6,w:38,h:86},{src:"/ticker",x:0,y:92,w:100,h:8}],
+    laptop: [{src:"/pulse",x:0,y:0,w:100,h:7},{src:"/chart?t=MU&range=1D",x:0,y:7,w:100,h:45},{src:"/geiger?auto=1&dwell=15",x:0,y:52,w:100,h:40},{src:"/ticker",x:0,y:92,w:100,h:8}],
+    narrow: [{src:"/pulse",x:0,y:0,w:100,h:7},{src:"/chart?t=MU&range=1D",x:0,y:7,w:100,h:45},{src:"/geiger?auto=1&dwell=15",x:0,y:52,w:100,h:40},{src:"/ticker",x:0,y:92,w:100,h:8}],
+    note: "Pulse strip · chart 62 / rotating geiger 38 · tape — the hub dashboard shape with market-state at a glance."
   },
   "wall-rotation": {
     wall:   [{src:"/wall?dwell=20&range=1D",x:0,y:0,w:100,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
     laptop: [{src:"/wall?dwell=20&range=1D",x:0,y:0,w:100,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
+    narrow: [{src:"/wall?dwell=20&range=1D",x:0,y:0,w:100,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
     note: "The auto-rotating chart wall as a scene: /wall full-bleed over favorites + tape strip."
   },
   "geiger-board": {
     wall:   [{src:"/geiger?t=MU",x:0,y:0,w:50,h:46},{src:"/geiger?t=NBIS",x:50,y:0,w:50,h:46},{src:"/geiger?t=SNDK",x:0,y:46,w:50,h:46},{src:"/geiger?auto=1&dwell=12",x:50,y:46,w:50,h:46},{src:"/ticker",x:0,y:92,w:100,h:8}],
     laptop: [{src:"/geiger?auto=1&dwell=12",x:0,y:0,w:100,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
+    narrow: [{src:"/geiger?auto=1&dwell=12",x:0,y:0,w:100,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
     note: "Full geiger board — 2×2: three pinned FAV geigers + one auto-rotator, tape strip."
   },
   "research": {
     wall:   [{src:"/chart?t=MU&range=1D",x:0,y:0,w:55,h:92},{src:"/youtube",x:55,y:0,w:45,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
     laptop: [{src:"/chart?t=MU&range=1D",x:0,y:0,w:100,h:46},{src:"/youtube",x:0,y:46,w:100,h:46},{src:"/ticker",x:0,y:92,w:100,h:8}],
+    narrow: [{src:"/youtube",x:0,y:0,w:100,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
     note: "Research: chart 55 + youtube feed 45 + tape — watch and chart at once."
   },
   "overview": {
     wall:   [{src:"/ticker?bands=macro",x:0,y:0,w:100,h:8},{src:"/chart?t=SPY&range=1D",x:0,y:8,w:33.34,h:84},{src:"/chart?t=QQQ&range=1D",x:33.34,y:8,w:33.33,h:84},{src:"/chart?t=SMH&range=1D",x:66.67,y:8,w:33.33,h:84},{src:"/ticker?bands=all",x:0,y:92,w:100,h:8}],
     laptop: [{src:"/ticker?bands=macro",x:0,y:0,w:100,h:8},{src:"/chart?t=SPY&range=1D",x:0,y:8,w:100,h:42},{src:"/chart?t=QQQ&range=1D",x:0,y:50,w:100,h:42},{src:"/ticker?bands=all",x:0,y:92,w:100,h:8}],
+    narrow: [{src:"/ticker?bands=macro",x:0,y:0,w:100,h:8},{src:"/chart?t=SPY&range=1D",x:0,y:8,w:100,h:84},{src:"/ticker?bands=all",x:0,y:92,w:100,h:8}],
     note: "Macro overview, tape-heavy: MACRO band top + SPY/QQQ/SMH dailies + ALL-movers band bottom."
   }
 };
@@ -169,8 +180,10 @@ const SCENE_P  = (QS.get("scene") || "").trim();
 const ROTATE_P = (QS.get("rotate") || "").trim();
 const DWELL    = Math.max(15, Math.min(3600, +(QS.get("dwell") || 120))) * 1000;   // scene-level dwell
 const PROF_P   = (QS.get("profile") || "").trim().toLowerCase();
-const profileNow = () => PROF_P === "wall" || PROF_P === "laptop" ? PROF_P
-  : (window.innerWidth >= 1600 ? "wall" : "laptop");   // wall 1920x1080-class vs laptop 1168x755-class
+const PROFILES = ["wall", "laptop", "narrow"];
+const profileNow = () => PROFILES.includes(PROF_P) ? PROF_P
+  : (window.innerWidth >= 1600 ? "wall" : window.innerWidth >= 900 ? "laptop" : "narrow");
+  /* wall 1920x1080-class · laptop 1168x755-class · narrow = iPad portrait / phone (touch) */
 
 /* ---- state ---- */
 let SCENES = {};            // name → { wall:[panes], laptop:[panes], note }
@@ -199,9 +212,11 @@ async function loadScenes() {
   SCENES = SCENES_FALLBACK;
   return "fallback";
 }
+const PROF_CHAIN = { wall: ["wall","laptop","narrow"], laptop: ["laptop","wall","narrow"], narrow: ["narrow","laptop","wall"] };
 const paneSet = (name, prof) => {
   const s = SCENES[name]; if (!s) return null;
-  return s[prof] || s.wall || s.laptop || null;   // profile falls back to whatever exists
+  for (const p of (PROF_CHAIN[prof] || PROFILES)) if (s[p] && s[p].length) return s[p];
+  return null;   // profile falls back down the chain to whatever exists
 };
 
 /* ---- render a scene into a stage (double-buffered at scene level) ---- */
@@ -316,8 +331,25 @@ window.addEventListener("resize", () => {
   rsz = setTimeout(() => { if (CUR_PROFILE && profileNow() !== CUR_PROFILE && !pendingSwap) showScene(IX, true); }, 300);
 });
 
-/* ---- picker (no params): the CONTROL SURFACE — big cards, live thumbnails,
-       one click full-bleed, one click rotation. What Alan (and Hammerspoon) drive from. ---- */
+/* ---- picker (no params): the CONTROL SURFACE — instant SCHEMATIC thumbnails
+       (percent-true wireframes of each scene) that upgrade to LIVE iframe
+       previews on hover (fine pointers only — touch gets schematics + tap-to-open,
+       no heavy nested frames on pads). One shared live pull tints every card
+       with current geiger breadth. Q1: live-ish, never a static icon. ---- */
+const FINE = !!(window.matchMedia && matchMedia("(hover:hover) and (pointer:fine)").matches);
+const MOD_COLOR = { chart:"#2D9CFF", geiger:"#A24BFF", ticker:"#00D4FF", youtube:"#FF3DBE", wall:"#00FFA3", pulse:"#FF8A00", scenes:"#C8FF00" };
+const modOf = (src) => { const m = String(src || "").replace(/^\//, "").split(/[\/?]/)[0]; return m || "pane"; };
+function schematicSVG(panes) {
+  let inner = "";
+  for (const p of (panes || [])) {
+    const x = (+p.x || 0) * 1.6, y = (+p.y || 0) * 0.9, w = (+p.w || 0) * 1.6, h = (+p.h || 0) * 0.9;
+    const mod = modOf(p.src), c = MOD_COLOR[mod] || "#868AAA";
+    inner += '<rect x="' + (x + 0.6) + '" y="' + (y + 0.6) + '" width="' + Math.max(0, w - 1.2) + '" height="' + Math.max(0, h - 1.2) +
+      '" fill="' + c + '" fill-opacity="0.13" stroke="' + c + '" stroke-opacity="0.5" stroke-width="0.5"/>';
+    if (h >= 10 && w >= 24) inner += '<text x="' + (x + w / 2) + '" y="' + (y + h / 2 + 2) + '" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" font-size="5.5" letter-spacing="1" fill="#868AAA">' + mod.toUpperCase() + '</text>';
+  }
+  return '<svg class="schem" viewBox="0 0 160 90" preserveAspectRatio="none">' + inner + '</svg>';
+}
 function previewScale() {
   const card = document.querySelector(".sc-card .prev");
   return card ? card.clientWidth / 1920 : 0.2;
@@ -326,27 +358,40 @@ function scalePreviews() {
   const sc = previewScale();
   document.querySelectorAll(".sc-card .prev iframe").forEach((f) => { f.style.transform = "scale(" + sc + ")"; });
 }
+async function liveTint() {
+  try {
+    const rows = await pg("composite_staged?tf=eq.D&select=composite", 1);
+    let g = 0, r = 0;
+    for (const row of (rows || [])) { const v = +row.composite; if (v > 0) g++; else if (v < 0) r++; }
+    const net = g - r, tone = net > 0 ? "#00FFA3" : net < 0 ? "#FF2D55" : "#868AAA";
+    document.querySelectorAll(".sc-card .prev .live").forEach((n) => {
+      n.innerHTML = '<b style="color:' + tone + '">●</b> ' + g + '↑ ' + r + '↓';
+    });
+  } catch (_) {}
+}
 function renderPicker(sourceTag) {
   const pk = el("picker");
   pk.hidden = false;
   const names = Object.keys(SCENES);
   let h = '<div class="top"><h1>Scintilla · Scenes</h1>' +
-    '<span class="sub">pick a channel · live previews · percent rects · wall/laptop profiles · source: ' + esc(sourceTag) + '</span>' +
+    '<span class="sub">pick a channel · live-tinted schematics, hover for full live preview · wall/laptop/narrow deep links · source: ' + esc(sourceTag) + '</span>' +
     '<a class="rotall" href="/scenes?rotate=all&dwell=120">▶ ROTATE ALL · 120s</a></div>' +
     '<div class="grid">';
   for (const n of names) {
     const s = SCENES[n];
-    const profs = ["wall", "laptop"].filter((p) => s[p] && s[p].length);
-    const panes = (s[profs[0]] || []);
+    const profs = PROFILES.filter((p) => s[p] && s[p].length);
+    const panes = paneSet(n, "wall") || [];
     h += '<div class="sc-card">' +
-      '<div class="prev" data-scene="' + esc(n) + '" title="open ' + esc(n) + ' full-bleed"><span class="lbl">preview loads in view…</span></div>' +
+      '<div class="prev" data-scene="' + esc(n) + '" title="open ' + esc(n) + ' full-bleed">' +
+        schematicSVG(panes) +
+        '<span class="live"><b style="color:#868AAA">●</b> —</span>' +
+      '</div>' +
       '<div class="body">' +
         '<div class="n">' + esc(n) + '</div>' +
         '<div class="p">' + esc(s.note || "") + '</div>' +
         '<div class="src">' + panes.map((p) => esc(p.src)).join("  ·  ") + '</div>' +
         '<div class="row">' +
-          profs.map((p) => '<span class="chip">' + p + '</span>').join("") +
-          '<span class="chip">' + panes.length + ' panes</span>' +
+          profs.map((p) => '<a class="chip" href="/scenes?scene=' + encodeURIComponent(n) + '&profile=' + p + '" title="deep link · ' + p + ' profile">' + p + '</a>').join("") +
           '<a href="/scenes?rotate=all&start=' + encodeURIComponent(n) + '&dwell=120" title="start the full rotation at this scene">▶ rotate</a>' +
           '<a class="go" href="/scenes?scene=' + encodeURIComponent(n) + '">open ⛶</a>' +
         '</div>' +
@@ -358,21 +403,22 @@ function renderPicker(sourceTag) {
   pk.querySelectorAll(".prev").forEach((node) => {
     node.addEventListener("click", () => { location.href = "/scenes?scene=" + encodeURIComponent(node.dataset.scene); });
   });
-  /* lazy live thumbnails: mount a scaled scene iframe when the card scrolls into view */
-  const io = ("IntersectionObserver" in window) ? new IntersectionObserver((ents) => {
-    for (const en of ents) {
-      if (!en.isIntersecting) continue;
-      const node = en.target;
-      io.unobserve(node);
-      if (node.querySelector("iframe")) continue;
+  /* hover-upgrade: mount the full live scaled preview over the schematic (fine pointers only) */
+  if (FINE) pk.querySelectorAll(".prev").forEach((node) => {
+    node.addEventListener("pointerenter", () => {
+      if (node.querySelector("iframe")) return;
       const f = document.createElement("iframe");
       f.src = "/scenes?scene=" + encodeURIComponent(node.dataset.scene) + "&profile=wall";
-      f.title = node.dataset.scene + " preview";
+      f.title = node.dataset.scene + " live preview";
       f.style.transform = "scale(" + previewScale() + ")";
       node.appendChild(f);
-    }
-  }, { rootMargin: "120px" }) : null;
-  pk.querySelectorAll(".prev").forEach((node) => { if (io) io.observe(node); });
+    });
+    node.addEventListener("pointerleave", () => {
+      node.querySelectorAll("iframe").forEach((f) => f.remove());
+    });
+  });
+  liveTint();
+  if (!window.__tint) window.__tint = setInterval(liveTint, 60000);
   window.addEventListener("resize", () => { clearTimeout(window.__psc); window.__psc = setTimeout(scalePreviews, 200); });
 }
 
