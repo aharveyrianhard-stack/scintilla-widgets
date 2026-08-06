@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · cohort geiger</title>
+<!-- ============================================================================
+     SCINTILLA COMPONENT · COHORT GEIGER — horizontal max/median/mean/min.
+     First component extraction (Alan: geiger bars are the strongest object).
+     One cohort's composite distribution on the hub's gs meter-bar idiom, lifted
+     verbatim from the geiger summary (.gs-mbar track / zone tick / fill / glow
+     thumb, tokens --gs-mom #A24BFF · bull #00FFA3 · bear #FF2D55): min→max
+     band, every member a dot, MEAN = glowing thumb, MEDIAN = notched tick,
+     stats printed max/median/mean/min in house thick type. Fixed honest scale
+     ±1 (clamped, values always printed).
+     DATA — DB reads only, never FMP, never recomputed:
+       ticker_cohorts is_primary=true (membership) ×
+       composite_staged tf='D' (THE one Geiger) · scintilla-live.
+     Params: ?c=CRYPTO (pin) · auto-rotate cohorts by default (?dwell=10) ·
+       ?statorder=desc · ?bg=0 transparent · ?labels=0 · ?refresh=60 (15-600)
+     Composability: bar → /heat?group=cohort&color=geiger · title → /compare.
+     LOOK rides the Visuals sprint — plumbing + verbatim idiom only.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00;
+  --gs-mom:#A24BFF; --gs-ink2:#A6AAC4;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; }
+html,body{ margin:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.03em;
+  display:flex; flex-direction:column; overflow:hidden; padding:10px 14px; }
+body.nobg{ background:transparent; }
+#hd{ display:flex; align-items:baseline; gap:10px; flex:none; margin-bottom:6px; }
+#hd .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; }
+#hd .c{ color:var(--ink); font-size:13px; font-weight:700; letter-spacing:.08em; cursor:pointer; }
+#hd .c:hover{ color:var(--crk); }
+#hd .n{ color:var(--dim); font-size:9px; }
+#hd .up{ color:var(--bull); } #hd .dn{ color:var(--bear); }
+#hd .fresh{ margin-left:auto; color:var(--mute); font-size:8px; letter-spacing:.12em; text-transform:uppercase; }
+.badge{ font-size:8px; letter-spacing:.14em; color:var(--bear); border:1px dashed rgba(255,45,85,.5); padding:1px 6px; text-transform:uppercase; }
+#stage{ flex:1; display:flex; flex-direction:column; justify-content:center; min-height:0; cursor:pointer; }
+/* ---- gs meter idiom, lifted verbatim and scaled up for a standalone pane ---- */
+.gs-mhd{ position:relative; height:10px; margin:0 6px 4px; flex:none; }
+.gs-mhd span{ position:absolute; transform:translateX(-50%); font-size:8px; color:var(--mute); letter-spacing:.06em; }
+.gs-mbar{ position:relative; height:12px; border-radius:6px; background:#15151d; margin:0 6px; }
+.gs-mbar .gs-zt{ position:absolute; top:-2px; bottom:-2px; width:1px; background:rgba(255,255,255,.13); }
+.gs-mbar .gs-band{ position:absolute; top:0; bottom:0; border-radius:6px; background:var(--gs-mom); opacity:.16; }
+.gs-mbar .gs-dot{ position:absolute; top:50%; width:4px; height:4px; border-radius:50%; transform:translate(-50%,-50%); opacity:.4; }
+.gs-mbar .gs-med{ position:absolute; top:-4px; bottom:-4px; width:2px; transform:translateX(-50%); background:var(--ink); opacity:.85; }
+.gs-mbar .gs-mth{ position:absolute; top:50%; width:13px; height:13px; border-radius:50%; transform:translate(-50%,-50%); }
+#stats{ display:flex; gap:22px; justify-content:center; margin-top:12px; flex:none; }
+#stats .s{ text-align:center; }
+#stats .sl{ color:var(--dim); font-size:7.5px; letter-spacing:.2em; text-transform:uppercase; margin-bottom:2px; }
+#stats .sv{ font-weight:700; font-size:17px; font-variant-numeric:tabular-nums; }
+#stats .sv.med{ font-size:20px; }
+.up{ color:var(--bull); text-shadow:0 0 10px rgba(0,255,163,.4); }
+.dn{ color:var(--bear); text-shadow:0 0 10px rgba(255,45,85,.4); }
+.neu{ color:var(--gs-ink2); text-shadow:none; }
+#ft{ flex:none; margin-top:6px; color:var(--mute); font-size:7.5px; letter-spacing:.1em; text-transform:uppercase; text-align:center; }
+.empty{ color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; text-align:center; }
+a{ color:inherit; text-decoration:none; }
+</style>
+</head>
+<body>
+<div id="hd">
+  <span class="k">COHORT GEIGER</span>
+  <span class="c" id="cname" title="open /compare">—</span>
+  <span class="n" id="cmeta"></span>
+  <span class="fresh" id="fresh"></span>
+</div>
+<div id="stage"><div class="empty">loading cohort…</div></div>
+<div id="stats" hidden></div>
+<div id="ft">composite_staged tf=D · the one geiger, never recomputed · ticker_cohorts is_primary · scale ±1 clamped</div>
+<script>
+"use strict";
+/* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+async function pg(path, _tries) {
+  const tries = _tries == null ? 3 : _tries;
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(SB + "/rest/v1/" + path, { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
+      if (r.ok) return r.json();
+      if (r.status === 503 || r.status === 504 || r.status === 429) lastErr = new Error("pg " + path + " → " + r.status);
+      else throw new Error("pg " + path + " → " + r.status);
+    } catch (e) { lastErr = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 500 * (i + 1) + Math.random() * 300));
+  }
+  throw lastErr;
+}
+const num = (x) => (x == null ? null : Number(x));
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+/* ---- params ---- */
+const QS = new URLSearchParams(location.search);
+const PIN     = (QS.get("c") || "").trim().toUpperCase() || null;
+const DWELL   = Math.max(4, Math.min(120, +(QS.get("dwell") || 10))) * 1000;
+const REFRESH = Math.max(15, Math.min(600, +(QS.get("refresh") || 60))) * 1000;
+if (QS.get("bg") === "0") document.body.classList.add("nobg");
+const LABELS  = QS.get("labels") !== "0";
+if (!LABELS) { el("stats").style.display = "none"; el("ft").style.display = "none"; }
+
+/* ---- gs meter geometry — hub-verbatim percent math, fixed honest scale ±1 ---- */
+const SC = { mn: -1, mx: 1 };
+const pct = (v) => Math.max(2, Math.min(98, (v - SC.mn) / (SC.mx - SC.mn) * 100));
+const tone = (v) => (v > 0 ? "up" : v < 0 ? "dn" : "neu");
+const tip  = (v) => (v > 0 ? "var(--bull)" : v < 0 ? "var(--bear)" : "var(--gs-mom)");
+const fmt  = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
+function median(arr) {
+  const a = arr.slice().sort((x, y) => x - y), n = a.length;
+  return n % 2 ? a[(n - 1) / 2] : (a[n / 2 - 1] + a[n / 2]) / 2;
+}
+
+/* ---- state ---- */
+let COHORTS = [];   // [{name, comps:[..], g, r}] sorted by median desc
+let IDX = 0, HOVER = false, MAXTS = null;
+
+async function pull() {
+  const [tc, cs] = await Promise.all([
+    pg("ticker_cohorts?is_primary=eq.true&select=ticker,cohort"),
+    pg("composite_staged?tf=eq.D&select=ticker,composite,updated_ts"),
+  ]);
+  const comp = {}; let maxts = null;
+  for (const r of (cs || [])) {
+    const v = num(r.composite);
+    if (v != null && isFinite(v)) comp[r.ticker] = v;
+    if (r.updated_ts && (!maxts || r.updated_ts > maxts)) maxts = r.updated_ts;
+  }
+  const by = {};
+  for (const r of (tc || [])) {
+    const v = comp[r.ticker];
+    if (v == null) continue;
+    (by[r.cohort] = by[r.cohort] || []).push(v);
+  }
+  MAXTS = maxts;
+  COHORTS = Object.keys(by).map((name) => {
+    const comps = by[name];
+    return { name, comps,
+      g: comps.filter((v) => v > 0).length, r: comps.filter((v) => v < 0).length,
+      min: Math.min.apply(null, comps), max: Math.max.apply(null, comps),
+      mean: comps.reduce((a, b) => a + b, 0) / comps.length, med: median(comps) };
+  }).filter((c) => c.comps.length).sort((a, b) => b.med - a.med);
+}
+
+function freshHTML() {
+  if (!MAXTS) return "";
+  const min = Math.round((Date.now() - new Date(MAXTS).getTime()) / 60000);
+  return min > 30 ? 'geiger <span class="badge">STALE ' + min + 'm</span>' : "geiger " + min + "m ago";
+}
+
+function render() {
+  const c = PIN ? COHORTS.find((x) => x.name.toUpperCase() === PIN) : COHORTS[IDX % COHORTS.length];
+  if (!c) {
+    el("stage").innerHTML = '<div class="empty">' + (PIN ? "no cohort “" + esc(PIN) + "” in ticker_cohorts (is_primary)" : "no cohort data") + "</div>";
+    el("stats").hidden = true; el("cname").textContent = PIN || "—"; el("cmeta").textContent = ""; return;
+  }
+  el("cname").textContent = c.name;
+  el("cmeta").innerHTML = c.comps.length + ' members · <span class="up">' + c.g + '↑</span> <span class="dn">' + c.r + "↓</span>";
+  el("fresh").innerHTML = freshHTML();
+  const dots = c.comps.map((v) => '<span class="gs-dot" style="left:' + pct(v) + '%;background:' + tip(v) + '"></span>').join("");
+  el("stage").innerHTML =
+    '<div class="gs-mhd"><span style="left:2%">−1</span><span style="left:50%">0</span><span style="left:98%">+1</span></div>' +
+    '<div class="gs-mbar">' +
+      '<span class="gs-zt" style="left:50%"></span>' +
+      '<span class="gs-band" style="left:' + pct(c.min) + '%;width:' + Math.max(0.5, pct(c.max) - pct(c.min)) + '%"></span>' +
+      dots +
+      '<span class="gs-med" style="left:' + pct(c.med) + '%" title="median ' + fmt(c.med) + '"></span>' +
+      '<span class="gs-mth" style="left:' + pct(c.mean) + '%;background:' + tip(c.mean) + ';box-shadow:0 0 9px ' + tip(c.mean) + '" title="mean ' + fmt(c.mean) + '"></span>' +
+    '</div>';
+  el("stats").hidden = false;
+  el("stats").innerHTML = [["MAX", c.max, ""], ["MEDIAN", c.med, "med"], ["MEAN", c.mean, ""], ["MIN", c.min, ""]].map(([l, v, x]) =>
+    '<div class="s"><div class="sl">' + l + '</div><div class="sv ' + x + " " + tone(v) + '">' + fmt(v) + "</div></div>").join("");
+}
+
+/* ---- composability clicks ---- */
+el("cname").addEventListener("click", () => { location.href = "/compare"; });
+el("stage").addEventListener("click", () => { location.href = "/heat?group=cohort&color=geiger"; });
+document.body.addEventListener("mouseenter", () => { HOVER = true; });
+document.body.addEventListener("mouseleave", () => { HOVER = false; });
+
+/* ---- loops: rotate (unpinned, hover holds) + refetch ---- */
+(async function init() {
+  try { await pull(); render(); }
+  catch (e) { el("stage").innerHTML = '<div class="empty">cohort data unavailable</div>'; }
+  if (!PIN) setInterval(() => { if (!HOVER && COHORTS.length) { IDX++; render(); } }, DWELL);
+  setInterval(async () => { try { await pull(); render(); } catch (e) {} }, REFRESH);
+})();
+</script>
+</body>
+</html>
