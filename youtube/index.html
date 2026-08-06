@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · youtube feed</title>
+<!-- ============================================================================
+     SCINTILLA WIDGET · YOUTUBE FEED — standalone scene module (stage-1 extraction)
+     Extracted from scintilla-hub index.html (SC_BUILD 2026-07-16T0330, repo main
+     aafbc9b): yt feed CSS + ytTickers/ytAgo/ytMatch/ytCardHTML/ytContinueHTML/
+     renderYT/fillYT feed pull (youtube_feed, DB · master-filled) + cross-device
+     resume (yt_positions REST, verbatim) + watch-later two-way sync via the
+     yt-act edge function — all ported. The hub's full-screen modal player is
+     replaced by a docked in-widget player pane (YouTube IFrame API; resume,
+     4s position saves, auto-advance, not-embeddable skip, Esc/←/→ — hub player
+     behaviors kept). Data: DB reads ONLY via pg(); feed refresh reads what the
+     5-min ingester cadence already pulled — this page NEVER calls YouTube's
+     data API and NEVER calls FMP.
+     Params: ?filt=ALL|SUBS|SHORTS|WATCH|$MU (default ALL)
+     LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel:#0D0D14; --panel2:#0F0F1A;
+  --line:#1A1A2A; --line2:#252538; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ min-width:0; box-sizing:border-box; }
+html,body{ margin:0; padding:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:12px; letter-spacing:.02em;
+  display:flex; flex-direction:column; overflow:hidden; padding:10px 12px; }
+
+/* YouTube feed — ported verbatim from scintilla-hub */
+.sc-yt{ flex:1 1 auto; min-height:0; overflow-y:auto; overscroll-behavior:contain;
+  scrollbar-width:thin; padding-right:4px; }
+.sc-yt__filt{ display:flex; flex-wrap:wrap; border:1px solid var(--line); margin-bottom:18px; }
+.sc-ytf{ font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink2);
+  border:0; border-right:1px solid var(--line); background:transparent; padding:8px 13px; cursor:pointer; white-space:nowrap; }
+.sc-ytf:hover{ color:var(--crk); }
+.sc-ytf.is-on{ color:var(--crk); background:rgba(0,212,255,.08); box-shadow:inset 0 -2px 0 var(--crk); }
+.sc-ytf__c{ color:var(--dim); margin-left:5px; }
+.sc-ytf .s{ color:var(--crk); }
+.sc-yt__grid{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media(min-width:1180px){ .sc-yt__grid{ grid-template-columns:1fr 1fr 1fr; } }
+@media(max-width:680px){ .sc-yt__grid{ grid-template-columns:1fr; } }
+.sc-ytc{ border:.8px solid var(--hair); background:transparent; transition:border-color .15s; }
+.sc-ytc:hover{ border-color:var(--crk); }
+.sc-ytc__thumb{ aspect-ratio:16/9; position:relative; border-bottom:.8px solid var(--line);
+  background:radial-gradient(120% 120% at 30% 20%, rgba(0,212,255,.06), transparent 55%), linear-gradient(135deg,#0e131b,#0a0a0f);
+  background-size:cover; background-position:center; display:flex; align-items:center; justify-content:center; overflow:hidden; cursor:pointer; }
+.sc-ytc__play{ width:44px; height:44px; border:1px solid var(--hair); border-radius:50%; position:relative; opacity:.5; }
+.sc-ytc__play::after{ content:""; position:absolute; left:53%; top:50%; transform:translate(-50%,-50%);
+  border-left:12px solid var(--ink2); border-top:8px solid transparent; border-bottom:8px solid transparent; }
+.sc-ytc:hover .sc-ytc__play{ opacity:.85; border-color:var(--crk); }
+.sc-ytc:hover .sc-ytc__play::after{ border-left-color:var(--crk); }
+.sc-ytc__dur{ position:absolute; right:8px; bottom:8px; font-family:var(--mono); font-size:10px; color:var(--ink);
+  background:rgba(0,0,0,.72); border:1px solid var(--line); padding:1px 6px; }
+.sc-ytc__short{ position:absolute; left:8px; top:8px; font-family:var(--mono); font-size:8.5px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--crk); border:1px dashed var(--hair); padding:2px 7px; }
+.sc-ytc__star{ position:absolute; right:0; top:0; font-size:30px; line-height:1; color:var(--ink2); cursor:pointer; z-index:3;
+  padding:10px 12px 18px 20px; text-shadow:0 1px 6px rgba(0,0,0,.95); }
+.sc-ytc__star:hover{ color:#fff; }
+.sc-ytc__star.is-on{ color:var(--crk); }
+.sc-ytc__body{ padding:11px 13px 14px; }
+.sc-ytc__ttl{ font-family:var(--mono); font-size:11.5px; color:var(--ink); font-weight:600; line-height:1.45; letter-spacing:.04em; text-transform:uppercase; }
+.sc-ytc__chips{ margin-top:9px; display:flex; gap:6px; flex-wrap:wrap; }
+.sc-ytc__tk{ font-family:var(--mono); font-size:10px; letter-spacing:.05em; color:var(--crk); border:1px dashed var(--hair); padding:2px 8px; }
+.sc-ytc__meta{ display:flex; justify-content:space-between; margin-top:10px; font-family:var(--mono); font-size:9.5px;
+  letter-spacing:.05em; text-transform:uppercase; color:var(--dim); }
+.sc-yt__empty{ font-family:var(--mono); font-size:11px; letter-spacing:.04em; color:var(--dim); padding:20px 4px; grid-column:1/-1; }
+.sc-yt__empty b{ color:var(--ink2); }
+
+/* docked in-widget player pane (hub player behaviors, widget chrome) */
+.sc-ytp{ flex:none; display:none; flex-direction:column; border:.8px solid var(--hair); background:var(--panel2); margin-bottom:12px; }
+body.playing .sc-ytp{ display:flex; }
+.sc-ytp__frame{ position:relative; width:100%; aspect-ratio:16/9; max-height:62vh; background:#000; }
+.sc-ytp__frame > div, .sc-ytp__frame iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; }
+.sc-ytp__bar{ display:flex; align-items:center; border-top:1px solid var(--line); }
+.sc-ytp__bar button{ flex:1 1 0; background:transparent; border:0; border-right:1px solid var(--line);
+  color:var(--ink2); font-family:var(--mono); font-size:11px; letter-spacing:.08em; padding:9px 0; cursor:pointer; text-transform:uppercase; }
+.sc-ytp__bar button:last-child{ border-right:0; }
+.sc-ytp__bar button:hover{ color:var(--crk); }
+.sc-ytp__bar button.is-on{ color:var(--crk); }
+.sc-ytp__ttl{ padding:8px 12px 7px; font-size:10.5px; letter-spacing:.06em; color:var(--ink2); text-transform:uppercase;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border-top:1px solid var(--line); }
+.sc-ytflash{ position:fixed; left:50%; top:14%; transform:translateX(-50%); z-index:50; pointer-events:none;
+  font-family:var(--mono); font-size:13px; color:var(--crk); background:rgba(4,4,10,.85); border:1px solid var(--hair);
+  padding:6px 14px; opacity:0; transition:opacity .18s; }
+.sc-ytflash.show{ opacity:1; }
+</style>
+</head>
+<body>
+<div class="sc-ytp" id="ytPane">
+  <div class="sc-ytp__frame"><div id="ytp"></div></div>
+  <div class="sc-ytp__ttl" id="ytpTtl"></div>
+  <div class="sc-ytp__bar">
+    <button data-act="ytprev">◀◀ prev</button>
+    <button data-act="ytseekback">⟲30</button>
+    <button data-act="ytstarcur" id="ytpStar">★ watch later</button>
+    <button data-act="ytseekfwd">30⟳</button>
+    <button data-act="ytnext">next ▶▶</button>
+    <button data-act="ytcloseplayer">✕ close</button>
+  </div>
+</div>
+<div class="sc-yt">
+  <div class="sc-yt__filt" id="ytFilt"></div>
+  <div class="sc-yt__grid" id="ytGrid"><div class="sc-yt__empty">loading youtube feed…</div></div>
+</div>
+<div class="sc-ytflash" id="ytFlash"></div>
+<script>
+"use strict";
+/* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+async function pg(path, _tries) {
+  const tries = _tries == null ? 3 : _tries;
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(SB + "/rest/v1/" + path, {
+        headers: { apikey: ANON, Authorization: "Bearer " + ANON },
+      });
+      if (r.ok) return r.json();
+      if (r.status === 503 || r.status === 504 || r.status === 429) {
+        lastErr = new Error("pg " + path + " → " + r.status);
+      } else {
+        throw new Error("pg " + path + " → " + r.status);
+      }
+    } catch (e) { lastErr = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 500 * (i + 1) + Math.random() * 300));
+  }
+  throw lastErr;
+}
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+const el = (id) => document.getElementById(id);
+
+/* ---- widget state ---- */
+const QS = new URLSearchParams(location.search);
+const S = { ytFilt: (QS.get("filt") || "ALL").toUpperCase() };
+const YT_FEED = [];
+let YT_VIEW = [];
+let YT_IDX = -1;
+let YT_LOADED = false, YT_FETCHED_AT = 0;
+
+/* ---- watch-later + positions — ported verbatim ---- */
+const YT_WL_KEY = "sc_yt_wl_v1", YT_POS_KEY = "sc_yt_pos_v1";
+function ytWLGet() { try { return new Set(JSON.parse(localStorage.getItem(YT_WL_KEY) || "[]")); } catch (_) { return new Set(); } }
+function ytAct(action, payload) {
+  return fetch(SB + "/functions/v1/yt-act", { method: "POST",
+    headers: { apikey: ANON, Authorization: "Bearer " + ANON, "Content-Type": "application/json" },
+    body: JSON.stringify(Object.assign({ action: action }, payload || {})) }).then((r) => r.json()).catch(() => null);
+}
+function ytWLToggle(id) {
+  const s = ytWLGet(); const on = !s.has(id);
+  if (on) s.add(id); else s.delete(id);
+  try { localStorage.setItem(YT_WL_KEY, JSON.stringify([...s])); } catch (_) {}
+  ytAct(on ? "star" : "unstar", { videoId: id });
+  return on;
+}
+function ytPosMapGet() { try { return JSON.parse(localStorage.getItem(YT_POS_KEY) || "{}"); } catch (_) { return {}; } }
+function ytPosGet(id) { return ytPosMapGet()[id] || 0; }
+function ytPosSet(id, sec) { const m = ytPosMapGet(); if (sec > 5) { m[id] = Math.floor(sec); try { localStorage.setItem("sc_yt_last", JSON.stringify({ id: id, ts: Date.now() })); } catch (_) {} } else delete m[id]; try { localStorage.setItem(YT_POS_KEY, JSON.stringify(m)); } catch (_) {} ytPosPush(id, sec); }
+let YT_POS_PUSHED = {};
+function ytPosPush(id, sec) {
+  const now = Date.now(); if (YT_POS_PUSHED[id] && now - YT_POS_PUSHED[id] < 10000) return; YT_POS_PUSHED[id] = now;
+  try { fetch(SB + "/rest/v1/yt_positions", { method: "POST",
+    headers: { apikey: ANON, Authorization: "Bearer " + ANON, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" },
+    body: JSON.stringify({ video_id: id, t: Math.floor(sec), updated: new Date().toISOString() }) }).catch(() => {}); } catch (_) {}
+}
+function ytPosPull() {
+  try { fetch(SB + "/rest/v1/yt_positions?select=video_id,t", { headers: { apikey: ANON, Authorization: "Bearer " + ANON } })
+    .then((r) => r.json()).then((rows) => {
+      if (!Array.isArray(rows)) return; const m = ytPosMapGet();
+      rows.forEach((r) => { if (r.t > 5) m[r.video_id] = Math.floor(r.t); });
+      try { localStorage.setItem(YT_POS_KEY, JSON.stringify(m)); } catch (_) {}
+    }).catch(() => {}); } catch (_) {}
+}
+
+/* ---- feed helpers — ported verbatim ---- */
+function ytTickers(r) {
+  const v = r && r.tickers;
+  if (!v) return [];
+  const arr = Array.isArray(v) ? v : String(v).replace(/[{}"]/g, "").split(",");
+  return arr.map((s) => String(s).trim().toUpperCase().replace(/^\$/, "")).filter(Boolean);
+}
+function ytAgo(iso) {
+  if (!iso) return "";
+  const t = new Date(iso).getTime(); if (isNaN(t)) return "";
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 3600) return Math.max(1, Math.round(s / 60)) + "m ago";
+  if (s < 86400) return Math.round(s / 3600) + "h ago";
+  return Math.round(s / 86400) + "d ago";
+}
+function ytMatch(r) {
+  const f = S.ytFilt;
+  if (f === "ALL") return true;
+  if (f === "SUBS") return !!r.is_sub;
+  if (f === "SHORTS") return !!r.is_short;
+  if (f === "WATCH") return !!r.watch_later;
+  if (f[0] === "$") return ytTickers(r).indexOf(f.slice(1)) !== -1;
+  return true;
+}
+function ytFiltHTML() {
+  const chips = [["ALL", "All"], ["SUBS", "Subs"], ["SHORTS", "Shorts"], ["WATCH", "Watch Later"]];
+  const tks = {};
+  YT_FEED.forEach((r) => ytTickers(r).forEach((t) => { tks[t] = (tks[t] || 0) + 1; }));
+  let h = chips.map(([k, l]) => {
+    const on = S.ytFilt === k ? " is-on" : "";
+    const star = k === "WATCH" ? '<span class="s">★</span> ' : "";
+    return '<button class="sc-ytf' + on + '" data-act="ytfilt" data-f="' + k + '">' + star + l + "</button>";
+  }).join("");
+  Object.keys(tks).sort().forEach((t) => {
+    const on = S.ytFilt === ("$" + t) ? " is-on" : "";
+    h += '<button class="sc-ytf' + on + '" data-act="ytfilt" data-f="$' + t + '">$' + t + '<span class="sc-ytf__c">' + tks[t] + "</span></button>";
+  });
+  h += '<button class="sc-ytf" data-act="ytrefresh" title="reload the feed from the database — shows what the 5-min cadence already pulled (subs + ticker searches); does NOT call YouTube, no quota used">↻ Refresh</button>';
+  return h;
+}
+function ytCardHTML(r, i) {
+  const thumb = r.thumb_url ? ' style="background-image:url(' + esc(r.thumb_url) + ')"' : "";
+  const short = r.is_short ? '<span class="sc-ytc__short">Short</span>' : "";
+  const star = '<span class="sc-ytc__star' + (r.watch_later ? " is-on" : "") + '" data-act="ytstar" data-i="' + i + '">★</span>';
+  const dur = r.duration ? '<span class="sc-ytc__dur">' + esc(r.duration) + "</span>" : "";
+  const chips = ytTickers(r).map((t) => '<span class="sc-ytc__tk">$' + esc(t) + "</span>").join("");
+  return '<div class="sc-ytc"><div class="sc-ytc__thumb"' + thumb + ' data-act="ytopen" data-i="' + i + '">' +
+    '<div class="sc-ytc__play"></div>' + short + star + dur + "</div>" +
+    '<div class="sc-ytc__body"><div class="sc-ytc__ttl">' + esc(r.title || "") + "</div>" +
+    (chips ? '<div class="sc-ytc__chips">' + chips + "</div>" : "") +
+    '<div class="sc-ytc__meta"><span>' + esc(r.channel || "") + "</span><span>" + esc(ytAgo(r.published_at)) + "</span></div></div></div>";
+}
+function ytContinueHTML() {
+  let last = null; try { last = JSON.parse(localStorage.getItem("sc_yt_last") || "null"); } catch (_) {}
+  if (!last || !last.id) return "";
+  const pos = ytPosGet(last.id); if (!(pos > 5)) return "";
+  const idx = YT_VIEW.findIndex((r) => r.video_id === last.id); if (idx < 0) return "";
+  const r = YT_VIEW[idx];
+  const mm = Math.floor(pos / 60), ss = String(Math.floor(pos % 60)).padStart(2, "0");
+  return '<div data-act="ytcontinue" data-i="' + idx + '" style="grid-column:1/-1;flex-basis:100%;width:100%;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:10px 14px;margin-bottom:10px;background:linear-gradient(90deg,rgba(0,212,255,.12),rgba(0,212,255,.02));border:1px solid rgba(0,212,255,.30);border-radius:8px;cursor:pointer">' +
+    '<span style="font-size:20px;color:#00D4FF;line-height:1">▶</span>' +
+    '<div style="flex:1;min-width:0"><div style="color:#00D4FF;font-size:11px;letter-spacing:1px;text-transform:uppercase">Continue watching · ' + mm + ':' + ss + '</div>' +
+    '<div style="color:#C8CCE0;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(r.title || "") + '</div></div>' +
+    '<span data-act="ytcontdismiss" style="color:#6A6C86;font-size:16px;padding:0 6px;cursor:pointer">✕</span></div>';
+}
+function renderYT() {
+  const grid = el("ytGrid"); if (!grid) return;
+  if (!YT_LOADED) return;
+  if (!YT_FEED.length) {
+    grid.innerHTML = '<div class="sc-yt__empty">youtube feed · <b>awaiting feed</b> — the youtube_feed table is empty; cards fill per video when the ingester lands.</div>';
+    YT_VIEW = [];
+    return;
+  }
+  YT_VIEW = YT_FEED.filter(ytMatch);
+  grid.innerHTML = YT_VIEW.length ? (ytContinueHTML() + YT_VIEW.map(ytCardHTML).join(""))
+    : '<div class="sc-yt__empty">no videos in <b>' + esc(S.ytFilt) + "</b>.</div>";
+}
+
+/* ---- feed pull — fillYT ported (S.sec guards dropped; cadence kept) ---- */
+function fillYT() {
+  renderYT();
+  if (!window.__ytPoll) { window.__ytPoll = setInterval(function(){ if (YT_IDX < 0) { YT_LOADED = false; fillYT(); } }, 120000); }
+  if (YT_LOADED && (Date.now() - YT_FETCHED_AT) < 90000) return;
+  pg("youtube_feed?select=video_id,title,channel,channel_id,tickers,duration,is_short,is_sub,watch_later,thumb_url,published_at&order=published_at.desc&limit=200")
+    .then((rows) => {
+      YT_LOADED = true; YT_FETCHED_AT = Date.now(); ytPosPull();
+      if (Array.isArray(rows) && rows.length) { const wl = ytWLGet(); YT_FEED.length = 0; const _seen = new Set(); rows.forEach((r) => { const _k = (r.channel_id || "") + "|" + String(r.title || "").toLowerCase().replace(/\s+/g, " ").trim(); if (_seen.has(r.video_id) || _seen.has(_k)) return; _seen.add(r.video_id); _seen.add(_k); r.watch_later = wl.has(r.video_id); YT_FEED.push(r); }); }
+      /* two-way stars: the SCINTILLA · Watch Later playlist on YouTube is the source of truth */
+      ytAct("list").then((d) => {
+        if (d && d.ok && Array.isArray(d.ids)) {
+          const srv = new Set(d.ids);
+          const localOnly = [...ytWLGet()].filter((v) => !srv.has(v));
+          localOnly.forEach((v) => { srv.add(v); ytAct("star", { videoId: v }); });
+          try { localStorage.setItem(YT_WL_KEY, JSON.stringify([...srv])); } catch (_) {}
+          YT_FEED.forEach((r) => { r.watch_later = srv.has(r.video_id); });
+          const fb = el("ytFilt"); if (fb) fb.innerHTML = ytFiltHTML();
+          renderYT();
+        }
+      });
+      el("ytFilt").innerHTML = ytFiltHTML();
+      renderYT();
+    })
+    .catch(() => { YT_LOADED = true; renderYT(); });
+}
+
+/* ---- docked player (YouTube IFrame API — hub player behaviors) ---- */
+let YT_PLYR = null, YT_PLYR_TMR = null, YT_API_WAIT = null, YT_CUR = null;
+function ytApiReady() { return !!(window.YT && window.YT.Player); }
+function ytLoadApi() { if (ytApiReady() || el("ytApiScript")) return; const s = document.createElement("script"); s.id = "ytApiScript"; s.src = "https://www.youtube.com/iframe_api"; document.head.appendChild(s); }
+function ytFlash(t) { const f = el("ytFlash"); if (!f) return; f.textContent = t; f.classList.add("show"); setTimeout(() => f.classList.remove("show"), 500); }
+function ytSeekBy(s) { try { let t = YT_PLYR.getCurrentTime() + s; if (t < 0) t = 0; YT_PLYR.seekTo(t, true); ytFlash(s < 0 ? "⏪ " + (-s) + "s" : s + "s ⏩"); } catch (_) {} }
+function ytPlayerKill() {
+  if (YT_API_WAIT) { clearInterval(YT_API_WAIT); YT_API_WAIT = null; }
+  if (YT_PLYR_TMR) { clearInterval(YT_PLYR_TMR); YT_PLYR_TMR = null; }
+  if (YT_PLYR) {
+    try { if (YT_CUR && YT_PLYR.getCurrentTime && YT_PLYR.getPlayerState() !== 0) ytPosSet(YT_CUR.video_id, YT_PLYR.getCurrentTime()); } catch (_) {}
+    try { YT_PLYR.destroy(); } catch (_) {}
+    YT_PLYR = null;
+  }
+  const holder = document.querySelector(".sc-ytp__frame");
+  if (holder) holder.innerHTML = '<div id="ytp"></div>';
+}
+function ytOpen(i) {
+  if (i < 0 || i >= YT_VIEW.length) return;
+  const r = YT_VIEW[i];
+  YT_IDX = i; YT_CUR = r;
+  document.body.classList.add("playing");
+  el("ytpTtl").textContent = (r.title || "") + (r.channel ? "  ·  " + r.channel : "");
+  el("ytpStar").classList.toggle("is-on", !!r.watch_later);
+  ytPlayerKill();
+  const start = Math.floor(ytPosGet(r.video_id) || 0);
+  const mk = () => {
+    if (!el("ytp")) return;
+    YT_PLYR = new YT.Player("ytp", { videoId: r.video_id, playerVars: { autoplay: 1, rel: 0, playsinline: 1, start: start },
+      events: { onReady: (ev) => {
+        try { ev.target.playVideo(); } catch (_) {}
+        setTimeout(() => { try {
+          const s = ev.target.getPlayerState();
+          if (s !== 1 && s !== 3) { ev.target.mute(); ev.target.playVideo(); setTimeout(() => { try { ev.target.unMute(); } catch (_) {} }, 900); }
+        } catch (_) {} }, 1100);
+      },
+      onStateChange: (ev) => {
+        if (ev.data === 1) {
+          try { const d = ev.target.getDuration(), t = ev.target.getCurrentTime();
+            if (d > 60 && t > 30 && (d - t) < 8) ev.target.seekTo(0, true); } catch (_) {}
+        }
+        if (ev.data === 0) {
+          if (YT_CUR) ytPosSet(YT_CUR.video_id, 0);
+          if (YT_IDX + 1 < YT_VIEW.length) ytOpen(YT_IDX + 1); else ytClose();
+        } },
+        onError: (ev) => {
+          if (ev.data === 101 || ev.data === 150 || ev.data === 153) {
+            ytFlash("not embeddable — skipping ⏭");
+            setTimeout(() => { if (YT_IDX + 1 < YT_VIEW.length) ytOpen(YT_IDX + 1); }, 900);
+          } } } });
+    YT_PLYR_TMR = setInterval(() => { try {
+      if (YT_PLYR && YT_CUR && YT_PLYR.getCurrentTime && YT_PLYR.getPlayerState() === 1)
+        ytPosSet(YT_CUR.video_id, YT_PLYR.getCurrentTime());
+    } catch (_) {} }, 4000);
+  };
+  if (ytApiReady()) mk();
+  else { ytLoadApi(); YT_API_WAIT = setInterval(() => { if (ytApiReady()) { clearInterval(YT_API_WAIT); YT_API_WAIT = null; mk(); } }, 200); }
+}
+function ytNav(d) { const k = YT_IDX + d; if (k >= 0 && k < YT_VIEW.length) ytOpen(k); }
+function ytClose() {
+  ytPlayerKill();
+  YT_IDX = -1; YT_CUR = null;
+  document.body.classList.remove("playing");
+  renderYT();   // repaint (continue-watching banner picks up the new position)
+}
+
+/* keyboard: Esc closes, ←/→ step through YT_VIEW (ported) */
+document.addEventListener("keydown", (e) => {
+  if (YT_IDX < 0) return;
+  if (e.key === "Escape") { e.preventDefault(); ytClose(); }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); ytNav(-1); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); ytNav(1); }
+});
+
+/* delegated actions (hub data-act names) */
+document.addEventListener("click", (e) => {
+  const n = e.target.closest("[data-act]");
+  if (!n) return;
+  const act = n.dataset.act;
+  if (act === "ytfilt") { S.ytFilt = n.dataset.f; el("ytFilt").innerHTML = ytFiltHTML(); renderYT(); }
+  else if (act === "ytrefresh") { YT_LOADED = false; YT_FETCHED_AT = 0; el("ytGrid").innerHTML = '<div class="sc-yt__empty">reloading…</div>'; YT_LOADED = false; fillYT(); }
+  else if (act === "ytopen" || act === "ytcontinue") { ytOpen(+n.dataset.i); }
+  else if (act === "ytcontdismiss") { e.stopPropagation(); try { localStorage.removeItem("sc_yt_last"); } catch (_) {} renderYT(); }
+  else if (act === "ytstar") { e.stopPropagation(); const r = YT_VIEW[+n.dataset.i]; if (!r) return; r.watch_later = ytWLToggle(r.video_id); n.classList.toggle("is-on", r.watch_later); if (S.ytFilt === "WATCH") renderYT(); }
+  else if (act === "ytprev") ytNav(-1);
+  else if (act === "ytnext") ytNav(1);
+  else if (act === "ytseekback") ytSeekBy(-30);
+  else if (act === "ytseekfwd") ytSeekBy(30);
+  else if (act === "ytcloseplayer") ytClose();
+  else if (act === "ytstarcur") { if (!YT_CUR) return; YT_CUR.watch_later = ytWLToggle(YT_CUR.video_id); el("ytpStar").classList.toggle("is-on", YT_CUR.watch_later); }
+}, true);
+
+/* save position on tab hide/close (best effort) */
+window.addEventListener("pagehide", () => { try { if (YT_PLYR && YT_CUR) ytPosSet(YT_CUR.video_id, YT_PLYR.getCurrentTime()); } catch (_) {} });
+
+fillYT();
+</script>
+</body>
+</html>
