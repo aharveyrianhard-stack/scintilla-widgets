@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · ticker tape</title>
+<!-- ============================================================================
+     SCINTILLA WIDGET · TICKER TAPE — standalone scene module (stage-1 extraction)
+     Extracted from scintilla-hub index.html (SC_BUILD 2026-07-16T0330, repo main
+     aafbc9b): tokens :root, .sc-tape CSS (1.5/1.6 TickerTape FIX 2), MACRO_SET +
+     fetchTapeItems + tapeHTML + renderTapes ported verbatim. Data: DB reads ONLY
+     via pg() (live_quotes + composite_staged tf=D universe) — NEVER FMP from the
+     page. Price basis: live_quotes served prints (raw basis; chg_pct served by DB).
+     Params: ?bands=macro,all (default both) · ?speed=45 (px/s)
+     LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
+     ============================================================================ -->
+<style>
+/* SCINTILLA · APPROVED design tokens — shared by every room component.
+   Source of truth: the deployed cockpit (imaginative-cupcake). Locked 2026-06-10. */
+:root{
+  --bg:#0A0A0F; --panel:#0D0D14; --panel2:#0F0F1A;
+  --line:#1A1A2A; --line2:#252538; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --coin:#8B5CF6;
+  --bull:#00FFA3; --sv1:#00FFA3; --sv2:#C8FF00; --sv3:#FFE500; --sv4:#FF8A00; --sv5:#FF3060;
+  --bear:#FF2D55;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+  --sans:ui-sans-serif,-apple-system,"Helvetica Neue",sans-serif;
+  --radius:4px; --gap:8px;
+  --trend:#2D9CFF; --momentum:#A24BFF; --structure:#FFD400; --volume:#FF8A00; --volatility:#FF3DBE;
+}
+*{ min-width:0; box-sizing:border-box; }
+html,body{ margin:0; padding:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:12px; letter-spacing:.02em;
+  display:flex; flex-direction:column; justify-content:center; overflow:hidden; }
+.bands{ border:0.8px solid rgba(0,212,255,.34); background:var(--panel2); }
+
+/* 1.5 / 1.6 · TickerTape — FIX 2: pinned label cell + separate scrolling window */
+.sc-tape{ display:flex; align-items:stretch; background:var(--panel2); border:.8px solid var(--hair);
+  white-space:nowrap; font-family:var(--mono); font-size:9px; letter-spacing:.04em; }
+.sc-tape__lbl{ flex:0 0 84px; width:84px; display:flex; align-items:center; color:var(--crk); letter-spacing:.16em;
+  padding:8px 0 8px 12px; background:var(--panel2); border-right:1px solid var(--hair);
+  position:relative; z-index:2; }
+.sc-tape__win{ flex:1 1 0; min-width:0; overflow:hidden; position:relative; z-index:1; }
+.sc-tape__track{ display:inline-block; white-space:nowrap; padding:8px 0;
+  animation-name:sc-tape-move; animation-timing-function:linear; animation-iteration-count:infinite; }
+.sc-tape:hover .sc-tape__track{ animation-play-state:paused; }
+.sc-tape__item{ padding:0 3px; color:var(--ink2); }
+.sc-tape__dot{ opacity:.35; padding:0 8px; }
+.sc-tape__item .up{ color:var(--bull); }
+.sc-tape__item .dn{ color:var(--bear); }
+@keyframes sc-tape-move{ from{ transform:translateX(0); } to{ transform:translateX(-50%); } }
+
+/* TAPES: marquee pauses on hover; touch devices can finger-swipe (Alan delta) */
+.bands .sc-tape:hover .sc-tape__track{ animation-play-state:paused; }
+@media (any-pointer:coarse){
+  .bands .sc-tape__win{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .bands .sc-tape:active .sc-tape__track{ animation-play-state:paused; }
+}
+.sc-wstamp{ position:fixed; right:8px; bottom:5px; font-size:8px; letter-spacing:.14em;
+  color:var(--mute); text-transform:uppercase; pointer-events:none; }
+.sc-wstamp b{ color:var(--dim); font-weight:400; }
+</style>
+</head>
+<body>
+<div class="bands" id="bands"><div class="sc-tape"><b class="sc-tape__lbl">TAPE →</b><div class="sc-tape__win"><span class="sc-tape__track" style="padding-left:12px;color:var(--dim)">loading live_quotes…</span></div></div></div>
+<div class="sc-wstamp" id="wstamp">SCINTILLA · <b>TAPE</b> · DB</div>
+<script>
+"use strict";
+/* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+async function pg(path, _tries) {
+  const tries = _tries == null ? 3 : _tries;
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(SB + "/rest/v1/" + path, {
+        headers: { apikey: ANON, Authorization: "Bearer " + ANON },
+      });
+      if (r.ok) return r.json();
+      if (r.status === 503 || r.status === 504 || r.status === 429) {
+        lastErr = new Error("pg " + path + " → " + r.status);
+      } else {
+        throw new Error("pg " + path + " → " + r.status);
+      }
+    } catch (e) { lastErr = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 500 * (i + 1) + Math.random() * 300));
+  }
+  throw lastErr;
+}
+const num = (x) => (x == null ? null : Number(x));
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+const el = (id) => document.getElementById(id);
+const fmtC    = (c) => (c >= 0 ? "+" + c.toFixed(2) + "%" : "(" + Math.abs(c).toFixed(2) + "%)");
+const fmtTapePx = (p) => (p >= 1000 ? Math.round(p).toLocaleString() : p.toFixed(p < 10 ? 2 : 0));
+
+/* ---- widget params ---- */
+const QS = new URLSearchParams(location.search);
+const BANDS = String(QS.get("bands") || "macro,all").toLowerCase().split(",").map(s=>s.trim()).filter(Boolean);
+const SPEED = Math.max(10, Math.min(200, +(QS.get("speed") || 45)));   // px/s (hub constant = 45)
+
+/* ---- tape data — ported verbatim (live_quotes + composite_staged tf=D universe) ---- */
+const MACRO_SET = ["SPY","QQQ","IWM","SMH","GLD","TLT","NVDA","COIN"];
+async function fetchTapeItems() {
+  const [quotes, comp] = await Promise.all([
+    pg("live_quotes?select=ticker,price,change,chg_pct"),   // FIX 2 — DB serves chg_pct
+    pg("composite_staged?select=ticker&tf=eq.D"),
+  ]);
+  const inComp = new Set(comp.map((c) => c.ticker));   // FIX 1 — tape universe = composite_staged tf=D only
+  const all = quotes.filter((q) => q.price != null && inComp.has(q.ticker))
+    .map((q) => ({ t: q.ticker, price: Number(q.price),
+                   pct: (num(q.chg_pct) != null ? num(q.chg_pct) : num(q.change)) || 0 }));
+  const macro = all.filter((q) => MACRO_SET.includes(q.t));
+  const movers = all.slice().sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+  return { macro, all: movers };
+}
+
+/* ---- render — ported verbatim (constant px/s marquee, no restart on same data) ---- */
+const S = { tapes: { macro: [], all: [] } };
+let lastTapes = "";
+function tapeHTML(label, items) {
+  const seg = items.map((it) =>
+    '<span class="sc-tape__item">' + esc(it.t) + " <b>" + fmtTapePx(it.price) + "</b> " +
+    '<span class="' + (it.pct >= 0 ? "up" : "dn") + '">' + fmtC(it.pct) + "</span></span>" +
+    '<span class="sc-tape__dot">·</span>').join("");
+  return '<div class="sc-tape"><b class="sc-tape__lbl">' + label + " →</b>" +
+    '<div class="sc-tape__win"><span class="sc-tape__track">' + seg + seg + "</span></div></div>";
+}
+function renderTapes() {
+  const macro = S.tapes.macro, all = S.tapes.all.slice(0, 30);
+  const parts = [];
+  if (BANDS.includes("macro")) parts.push(tapeHTML("MACRO", macro));
+  if (BANDS.includes("all"))   parts.push(tapeHTML("ALL", all));
+  const j = JSON.stringify(parts);
+  if (j === lastTapes) return;     // don't restart the marquee for identical data
+  lastTapes = j;
+  el("bands").innerHTML = parts.join("");
+  el("bands").querySelectorAll(".sc-tape__track").forEach((track) => {
+    track.style.animationDuration = Math.max(20, (track.scrollWidth / 2) / SPEED) + "s";
+  });
+}
+
+/* boot + 45 s cadence (hub cadence, verbatim) */
+fetchTapeItems().then((t) => { S.tapes = t; renderTapes(); })
+  .catch((e) => { el("bands").innerHTML = '<div class="sc-tape"><b class="sc-tape__lbl">TAPE →</b><div class="sc-tape__win"><span class="sc-tape__track" style="padding-left:12px;color:var(--dim)">tape data unavailable — ' + esc(e.message) + '</span></div></div>'; });
+setInterval(() => fetchTapeItems().then((t) => { S.tapes = t; renderTapes(); }).catch(() => {}), 45000);
+</script>
+</body>
+</html>
