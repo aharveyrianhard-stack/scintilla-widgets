@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · tv</title>
+<!-- ============================================================================
+     SCINTILLA · /tv — Alan's EXISTING Apple TV wall, made permanent.
+     NOT an invention: this is the hand-arranged wall as data —
+       top: two charts, SPY + SNDK, over the MACRO/ALL tapes;
+       bottom: Scintilla YouTube stream · personal golf YouTube · x.com.
+     What embeds, embeds (charts, tapes = our routes; YouTube = the sanctioned
+     IFrame player when an id/url is supplied). What can't embed renders as a
+     labeled DOCK that prints its own pixel rect — park the real logged-in
+     Chrome window on it (x.com always; a YouTube pane too if its embed is off).
+     Nothing is ever re-served. Layout = baked copy of the hand arrangement,
+     overridable from scene_layouts (scene 'tv-wall', profile 'tv') — retune
+     with a DB row, not a deploy.
+     Params: ?c1=SPY ?c2=SNDK ?range=1D · ?yt1= ?yt2= (YouTube video/live id or
+     url; absent → dock) · ?bg=0
+     DB reads only · never FMP · cockpit untouched · receipt HSC-TV-LIVE-001.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00; --heat:#FFE500;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; }
+html,body{ margin:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono); overflow:hidden; }
+body.nobg{ background:transparent; }
+#stage{ position:fixed; inset:0; }
+.pane{ position:absolute; overflow:hidden; }
+.pane iframe{ width:100%; height:100%; border:0; display:block; background:var(--bg); }
+.dock{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px;
+  border:1.2px dashed rgba(0,212,255,.4); background:var(--panel2); text-align:center; padding:16px; }
+.dock .t{ color:var(--crk); font-size:11px; letter-spacing:.24em; text-transform:uppercase; }
+.dock .w{ color:var(--ink2); font-size:10px; letter-spacing:.06em; line-height:1.7; max-width:400px; }
+.dock .r{ color:var(--heat); font-size:10px; font-variant-numeric:tabular-nums; letter-spacing:.08em; }
+.dock .m{ color:var(--mute); font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<script>
+"use strict";
+/* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+async function pg(path, _tries) {
+  const tries = _tries == null ? 3 : _tries;
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(SB + "/rest/v1/" + path, { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
+      if (r.ok) return r.json();
+      if (r.status === 503 || r.status === 504 || r.status === 429) lastErr = new Error("pg " + path + " → " + r.status);
+      else throw new Error("pg " + path + " → " + r.status);
+    } catch (e) { lastErr = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 500 * (i + 1) + Math.random() * 300));
+  }
+  throw lastErr;
+}
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+/* ---- params ---- */
+const QS = new URLSearchParams(location.search);
+const C1 = (QS.get("c1") || "SPY").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
+const C2 = (QS.get("c2") || "SNDK").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
+const RANGE = (QS.get("range") || "1D").replace(/[^A-Za-z0-9]/g, "");
+if (QS.get("bg") === "0") document.body.classList.add("nobg");
+
+/* YouTube id from a raw id, watch?v=, youtu.be/, /live/, /embed/ — sanctioned IFrame player only */
+function ytId(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
+  const m = s.match(/(?:v=|youtu\.be\/|\/live\/|\/embed\/|\/shorts\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+const YT1 = ytId(QS.get("yt1")), YT2 = ytId(QS.get("yt2"));
+
+/* ---- THE HAND ARRANGEMENT, AS DATA (baked mirror of scene_layouts tv-wall/tv) ----
+   Percent rects of Alan's existing wall — top: SPY + SNDK over the tapes;
+   bottom thirds: scintilla stream · golf youtube · x.com. Not invented here. */
+const BAKED = [
+  { key: "c1",   src: "/chart?t=" + C1 + "&range=" + RANGE, x: 0,    y: 0,  w: 50,   h: 46 },
+  { key: "c2",   src: "/chart?t=" + C2 + "&range=" + RANGE, x: 50,   y: 0,  w: 50,   h: 46 },
+  { key: "tape", src: "/ticker?bands=macro,all",            x: 0,    y: 46, w: 100,  h: 11 },
+  { key: "yt1",  src: "dock:SCINTILLA STREAM",              x: 0,    y: 57, w: 33.4, h: 43 },
+  { key: "yt2",  src: "dock:GOLF YOUTUBE",                  x: 33.4, y: 57, w: 33.3, h: 43 },
+  { key: "x",    src: "dock:X — LOGGED-IN WINDOW",          x: 66.7, y: 57, w: 33.3, h: 43 },
+];
+
+function dockHTML(label, key, rect) {
+  const px = () => {
+    const W = innerWidth, H = innerHeight;
+    return Math.round(rect.x / 100 * W) + "," + Math.round(rect.y / 100 * H) + " · " +
+           Math.round(rect.w / 100 * W) + "×" + Math.round(rect.h / 100 * H);
+  };
+  const how = key === "x"
+    ? "x.com never embeds — park your logged-in Chrome window exactly here"
+    : "drop &" + key + "=&lt;youtube id or url&gt; on this page's URL to embed the stream here — or park the real window on this dock";
+  return '<div class="dock" data-px="' + key + '">' +
+    '<div class="t">' + esc(label) + '</div>' +
+    '<div class="w">' + how + '</div>' +
+    '<div class="r">window rect @ this display: <span class="pxv">' + px() + '</span> px</div>' +
+    '<div class="m">x,y · w×h — size the window to these numbers and it sits flush</div>' +
+  '</div>';
+}
+
+function render(panes) {
+  const stage = document.getElementById("stage");
+  stage.innerHTML = "";
+  for (const p of panes) {
+    const d = document.createElement("div");
+    d.className = "pane";
+    d.style.left = p.x + "%"; d.style.top = p.y + "%"; d.style.width = p.w + "%"; d.style.height = p.h + "%";
+    let src = p.src;
+    /* YouTube params upgrade the yt docks into the sanctioned IFrame player */
+    if (p.key === "yt1" && YT1) src = "https://www.youtube.com/embed/" + YT1 + "?autoplay=1&mute=1&playsinline=1";
+    if (p.key === "yt2" && YT2) src = "https://www.youtube.com/embed/" + YT2 + "?autoplay=1&mute=1&playsinline=1";
+    if (src.indexOf("dock:") === 0) d.innerHTML = dockHTML(src.slice(5), p.key, p);
+    else {
+      const f = document.createElement("iframe");
+      f.src = src;
+      f.allow = "autoplay; encrypted-media; picture-in-picture";
+      d.appendChild(f);
+    }
+    stage.appendChild(d);
+  }
+}
+
+/* re-print dock pixel rects on resize (AirPlay renegotiates sizes) */
+let PANES = BAKED;
+addEventListener("resize", () => render(PANES));
+
+/* DB override — scene_layouts ('tv-wall','tv'): retune the wall with a row, not a deploy */
+(async function init() {
+  render(BAKED);
+  try {
+    const rows = await pg("scene_layouts?scene=eq.tv-wall&profile=eq.tv&active=eq.true&select=panes&limit=1");
+    if (Array.isArray(rows) && rows[0] && Array.isArray(rows[0].panes) && rows[0].panes.length) {
+      PANES = rows[0].panes.map((p) => ({ key: p.key || "", src: String(p.src || ""), x: +p.x || 0, y: +p.y || 0, w: +p.w || 0, h: +p.h || 0 }))
+        .map((p) => (p.key === "c1" || p.key === "c2") ? { ...p, src: "/chart?t=" + (p.key === "c1" ? C1 : C2) + "&range=" + RANGE } : p);
+      render(PANES);
+    }
+  } catch (e) { /* baked arrangement already on screen — DB blip changes nothing */ }
+})();
+</script>
+</body>
+</html>

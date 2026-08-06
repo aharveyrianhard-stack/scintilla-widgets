@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · component registry</title>
+<!-- ============================================================================
+     SCINTILLA · COMPONENT REGISTRY — the cockpit, split into its pieces.
+     Alan's spec: "my current cockpit BUT WITH EASY ON/OFF TO EXTRACT
+     COMPONENTS — pull any one out, see it on its own, put it back."
+     Mechanism: PULL OUT = every piece becomes its own live URL below.
+     SEE IT ALONE = open the URL. PUT IT BACK = free, always — the cockpit
+     is never modified, its inline copy never left (cockpit stays OFF-LIMITS
+     to deploy). The one thing that DOES need a cockpit deploy is in-cockpit
+     on/off toggles; that single unlock is Alan's ruling to make, and nothing
+     here waits on it. Board organised by his eight tabs + the cohort axis.
+     Receipt: HSC-REGISTRY-LIVE-001 · spine_events · scintilla-live.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --line2:#252538; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00; --heat:#FFE500;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; }
+body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:12px; letter-spacing:.02em;
+  padding:34px 30px 60px; max-width:900px; }
+h1{ font-size:13px; letter-spacing:.3em; text-transform:uppercase; color:var(--crk); font-weight:400; margin:0 0 6px; }
+.sub{ color:var(--dim); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin-bottom:8px; }
+.stamp{ display:inline-block; color:var(--vol); border:1px dashed rgba(255,138,0,.5);
+  font-size:8.5px; letter-spacing:.18em; text-transform:uppercase; padding:2px 8px; margin-bottom:24px; }
+h2{ font-size:11px; letter-spacing:.24em; text-transform:uppercase; color:var(--crk);
+  font-weight:400; margin:30px 0 10px; border-bottom:1px solid var(--line); padding-bottom:7px; }
+p{ color:var(--ink2); line-height:1.75; margin:0 0 12px; }
+p b{ color:var(--ink); font-weight:600; }
+em{ color:var(--ink3); font-style:normal; border-bottom:1px dotted var(--mute); }
+table{ border-collapse:collapse; width:100%; margin:12px 0 6px; }
+th{ text-align:left; color:var(--dim); font-size:9px; letter-spacing:.18em; text-transform:uppercase;
+  font-weight:400; padding:6px 10px; border-bottom:1px solid var(--line2); }
+td{ padding:8px 10px; border-bottom:1px solid var(--line); color:var(--ink2); font-size:11px;
+  line-height:1.6; vertical-align:top; }
+td a{ color:var(--crk); text-decoration:none; }
+td a:hover{ text-decoration:underline; }
+.tab{ color:var(--heat); font-size:10px; letter-spacing:.18em; }
+.s{ font-size:9px; letter-spacing:.14em; text-transform:uppercase; white-space:nowrap; padding:2px 7px; border:1px solid; }
+.s.live{ color:var(--bull); border-color:rgba(0,255,163,.45); }
+.s.part{ color:var(--vol); border-color:rgba(255,138,0,.45); }
+.s.not{ color:var(--dim); border-color:var(--line2); }
+.s.win{ color:var(--crk); border-color:rgba(0,212,255,.45); }
+.foot{ color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; margin-top:40px; line-height:1.9; border-top:1px solid var(--line); padding-top:14px; }
+a{ color:var(--crk); text-decoration:none; }
+a:hover{ text-decoration:underline; }
+</style>
+</head>
+<body>
+<h1>Component Registry</h1>
+<div class="sub">the cockpit, split into its pieces · pull one out · see it alone · put it back</div>
+<div class="stamp">live board — updates as pieces land · cockpit itself never modified</div>
+
+<h2>0 · How on/off works</h2>
+<p><b>Pull out:</b> a piece is extracted when it has its own live URL below — windowable, scene-composable,
+same data, DB reads only. <b>See it alone:</b> open the URL. <b>Put it back:</b> free, always — extraction
+never modifies the cockpit; its inline copy never left. <em>The one thing that would need a cockpit
+deploy</em> is on/off toggles <em>inside</em> the cockpit's own frame; that single unlock is yours to rule
+on, and no extraction below waits on it.</p>
+
+<h2>1 · The board — by your eight tabs</h2>
+<table>
+<tr><th>cockpit piece</th><th>status</th><th>standalone url / what it needs</th></tr>
+
+<tr><td><span class="tab">DASHBOARD</span> · Cohort Geiger (horizontal max/median/mean/min)</td>
+<td><span class="s live">live</span></td><td><a href="/cohort">/cohort</a> — pin ?c=, rotates cohorts, ?bg=0 composes</td></tr>
+<tr><td><span class="tab">DASHBOARD</span> · Cohort Compare (vertical cohort-composite)</td>
+<td><span class="s live">live</span></td><td><a href="/compare">/compare</a> — median/mean, whiskers, round-trips with /cohort</td></tr>
+<tr><td><span class="tab">DASHBOARD</span> · per-ticker geiger summary (6 tiles)</td>
+<td><span class="s live">live</span></td><td><a href="/geiger">/geiger</a> — ?t= pin or favorites rotation</td></tr>
+<tr><td><span class="tab">DASHBOARD</span> · chart (scChart canvas, DB series)</td>
+<td><span class="s live">live</span></td><td><a href="/chart">/chart</a> — ?t= ?range=</td></tr>
+<tr><td><span class="tab">DASHBOARD</span> · ticker tape (MACRO + ALL)</td>
+<td><span class="s live">live</span></td><td><a href="/ticker">/ticker</a> — ?bands=</td></tr>
+<tr><td><span class="tab">DASHBOARD</span> · sector/cohort heat field</td>
+<td><span class="s live">live</span></td><td><a href="/heat">/heat</a> — ?group= ?color=</td></tr>
+<tr><td><span class="tab">DASHBOARD</span> · market-state strip (breadth · macro · vix)</td>
+<td><span class="s live">live</span></td><td><a href="/pulse">/pulse</a> — ?sections=</td></tr>
+<tr><td><span class="tab">DASHBOARD</span> · thick type (the Numeral) + board table</td>
+<td><span class="s not">not yet</span></td><td>proposed + spec'd at <a href="/components">/components</a> (items 1 &amp; 3) — awaiting your go</td></tr>
+
+<tr><td><span class="tab">SCENES</span> · named multi-widget layouts + rotation</td>
+<td><span class="s live">live</span></td><td><a href="/scenes">/scenes</a> — already extracted wholesale; layouts are DB rows (scene_layouts)</td></tr>
+
+<tr><td><span class="tab">NEWS</span> · news feed (cockpit NEWS tab)</td>
+<td><span class="s not">not yet</span></td><td>extraction = its own route reading the same news table the cockpit reads; schema pull at build time, DB reads only</td></tr>
+
+<tr><td><span class="tab">SOCIAL</span> · YouTube (feed · docked player · resume)</td>
+<td><span class="s live">live</span></td><td><a href="/youtube">/youtube</a> — ?filt=</td></tr>
+<tr><td><span class="tab">SOCIAL</span> · X / x.com</td>
+<td><span class="s win">window</span></td><td>never embeddable (login-walled) — rides as your logged-in Chrome window; dock reserved on <a href="/tv">/tv</a></td></tr>
+
+<tr><td><span class="tab">ALERTS</span> · alerts feed / log</td>
+<td><span class="s not">not yet</span></td><td>proposed as the pulse-alerts tier (spine row 370) — its own route + a /pulse tail section</td></tr>
+
+<tr><td><span class="tab">SCREENER</span> · screener view</td>
+<td><span class="s not">not yet</span></td><td>natural first Board instance (the never-alone table, /components item 3) over its cockpit read</td></tr>
+
+<tr><td><span class="tab">EVENTS</span> · events (incl. cohort events rail)</td>
+<td><span class="s not">not yet</span></td><td>cockpit carries coEvents renderers — extraction = route over the same events read</td></tr>
+
+<tr><td><span class="tab">ECONOMIC</span> · economic calendar/board</td>
+<td><span class="s not">not yet</span></td><td>extraction = route over the cockpit's economic read; schema pull at build time</td></tr>
+
+<tr><td>COHORT AXIS · FAV · ALL · AI HW · AI SW · …</td>
+<td><span class="s part">partial</span></td><td>the cohort dimension is live in <a href="/cohort">/cohort</a> · <a href="/compare">/compare</a> · <a href="/heat?group=cohort">/heat</a>; FAV drives <a href="/wall">/wall</a> + /geiger rotation (hub_favorites) — the selector strip as its own component: not yet</td></tr>
+</table>
+
+<h2>2 · The standing contract</h2>
+<p>Every extracted piece: own windowable URL · params on the card · data source named in-page ·
+DB reads only, never FMP, geiger never recomputed · honest empty/stale states · ?bg=0 composed mode
+where it makes sense · receipt on the spine. LOOK stays the Visuals lane's — extraction captures the
+cockpit's current look verbatim so their restyle lands in one place later.</p>
+
+<div class="foot">
+SCINTILLA · COMPONENT REGISTRY · HSC-REGISTRY-LIVE-001 · 2026-08-06 ·
+board organised by Alan's eight tabs (DASHBOARD · SCENES · NEWS · SOCIAL · ALERTS · SCREENER · EVENTS · ECONOMIC)<br>
+cockpit (scintilla-cockpit) never deployed to · relay: spine_events · scintilla-live ·
+<a href="/">← all widgets</a> · <a href="/tv">/tv — the wall</a> · <a href="/components">extraction proposal</a>
+</div>
+</body>
+</html>
