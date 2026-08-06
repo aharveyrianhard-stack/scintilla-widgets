@@ -16,7 +16,7 @@
      Modes:
        /scenes                        → scene picker (what Hammerspoon points at)
        /scenes?scene=command-deck     → render one named scene
-       /scenes?rotate=all&dwell=120   → cycle scenes (or rotate=a,b,c)
+       /scenes?rotate=all&dwell=120   → cycle scenes (or rotate=a,b,c · &start=name)
      Params: ?profile=wall|laptop (else auto: viewport ≥1600px → wall) ·
              ?dwell=120 (scene-level, 15–3600s)
      Controls (rotate mode): hover holds · ←/→ step · space pauses.
@@ -37,17 +37,37 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .stage{ position:absolute; inset:0; opacity:0; transition:opacity .2s linear; pointer-events:none; }
 .stage.front{ opacity:1; pointer-events:auto; }
 .stage iframe{ position:absolute; border:0; background:var(--bg); }
-/* picker */
-#picker{ position:absolute; inset:0; overflow-y:auto; padding:34px 30px; }
-#picker h1{ font-size:13px; letter-spacing:.3em; text-transform:uppercase; color:var(--crk); font-weight:400; margin:0 0 6px; }
-#picker .sub{ color:var(--dim); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin-bottom:26px; }
-#picker a.s{ display:block; text-decoration:none; color:inherit; border:.8px solid var(--hair); background:var(--panel2);
-  padding:14px 16px; margin-bottom:12px; max-width:720px; transition:border-color .15s; }
-#picker a.s:hover{ border-color:var(--crk); }
-#picker .n{ color:var(--crk); font-size:11px; letter-spacing:.2em; text-transform:uppercase; }
-#picker .r{ color:var(--ink2); font-size:11px; margin:5px 0 4px; }
-#picker .p{ color:var(--dim); font-size:9.5px; letter-spacing:.04em; line-height:1.6; }
-#picker .src{ color:var(--mute); font-size:9px; letter-spacing:.06em; margin-top:5px; }
+/* picker — the control surface: big cards, live thumbnails, channel-picker feel */
+#picker{ position:absolute; inset:0; overflow-y:auto; padding:26px 28px 40px; }
+#picker .top{ display:flex; align-items:baseline; gap:16px; margin-bottom:20px; flex-wrap:wrap; }
+#picker h1{ font-size:13px; letter-spacing:.3em; text-transform:uppercase; color:var(--crk); font-weight:400; margin:0; }
+#picker .sub{ color:var(--dim); font-size:9.5px; letter-spacing:.12em; text-transform:uppercase; }
+#picker .rotall{ margin-left:auto; text-decoration:none; color:var(--crk); font-size:10px; letter-spacing:.16em;
+  text-transform:uppercase; border:.8px solid rgba(0,212,255,.45); padding:8px 16px;
+  background:linear-gradient(180deg,rgba(0,212,255,.10),rgba(0,212,255,.02)); }
+#picker .rotall:hover{ background:rgba(0,212,255,.16); border-color:var(--crk); }
+#picker .grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(380px,1fr)); gap:14px; }
+.sc-card{ border:.8px solid var(--hair); background:var(--panel2); transition:border-color .15s; display:flex; flex-direction:column; }
+.sc-card:hover{ border-color:var(--crk); }
+.sc-card .prev{ position:relative; aspect-ratio:16/9; overflow:hidden; background:#07070c; cursor:pointer;
+  border-bottom:.8px solid var(--line); }
+.sc-card .prev iframe{ position:absolute; left:0; top:0; width:1920px; height:1080px; border:0;
+  transform-origin:0 0; pointer-events:none; background:var(--bg); }
+.sc-card .prev .lbl{ position:absolute; left:0; top:0; right:0; bottom:0; display:flex; align-items:center;
+  justify-content:center; color:var(--mute); font-size:9px; letter-spacing:.18em; text-transform:uppercase; }
+.sc-card .prev:hover::after{ content:"OPEN ⛶"; position:absolute; right:8px; bottom:6px; color:var(--crk);
+  font-size:9px; letter-spacing:.16em; background:rgba(4,4,10,.8); border:.6px solid var(--hair); padding:3px 8px; }
+.sc-card .body{ padding:11px 13px 12px; }
+.sc-card .n{ color:var(--crk); font-size:11px; letter-spacing:.2em; text-transform:uppercase; }
+.sc-card .p{ color:var(--dim); font-size:9.5px; letter-spacing:.04em; line-height:1.6; margin-top:5px; }
+.sc-card .src{ color:var(--mute); font-size:8.5px; letter-spacing:.05em; margin-top:5px; }
+.sc-card .row{ display:flex; gap:8px; margin-top:10px; align-items:center; }
+.sc-card .row .chip{ color:var(--dim); font-size:8.5px; letter-spacing:.12em; text-transform:uppercase;
+  border:1px dashed var(--line2); padding:2px 7px; }
+.sc-card .row a{ text-decoration:none; font-size:9.5px; letter-spacing:.12em; text-transform:uppercase;
+  padding:5px 11px; border:.6px solid var(--line2); color:var(--ink2); }
+.sc-card .row a:hover{ color:var(--crk); border-color:rgba(0,212,255,.45); }
+.sc-card .row a.go{ color:var(--crk); border-color:rgba(0,212,255,.45); margin-left:auto; }
 /* HUD */
 #hud{ position:fixed; right:10px; bottom:8px; z-index:10; display:none; align-items:center; gap:10px;
   font-size:9px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim);
@@ -125,6 +145,21 @@ const SCENES_FALLBACK = {
     wall:   [{src:"/wall?dwell=20&range=1D",x:0,y:0,w:100,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
     laptop: [{src:"/wall?dwell=20&range=1D",x:0,y:0,w:100,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
     note: "The auto-rotating chart wall as a scene: /wall full-bleed over favorites + tape strip."
+  },
+  "geiger-board": {
+    wall:   [{src:"/geiger?t=MU",x:0,y:0,w:50,h:46},{src:"/geiger?t=NBIS",x:50,y:0,w:50,h:46},{src:"/geiger?t=SNDK",x:0,y:46,w:50,h:46},{src:"/geiger?auto=1&dwell=12",x:50,y:46,w:50,h:46},{src:"/ticker",x:0,y:92,w:100,h:8}],
+    laptop: [{src:"/geiger?auto=1&dwell=12",x:0,y:0,w:100,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
+    note: "Full geiger board — 2×2: three pinned FAV geigers + one auto-rotator, tape strip."
+  },
+  "research": {
+    wall:   [{src:"/chart?t=MU&range=1D",x:0,y:0,w:55,h:92},{src:"/youtube",x:55,y:0,w:45,h:92},{src:"/ticker",x:0,y:92,w:100,h:8}],
+    laptop: [{src:"/chart?t=MU&range=1D",x:0,y:0,w:100,h:46},{src:"/youtube",x:0,y:46,w:100,h:46},{src:"/ticker",x:0,y:92,w:100,h:8}],
+    note: "Research: chart 55 + youtube feed 45 + tape — watch and chart at once."
+  },
+  "overview": {
+    wall:   [{src:"/ticker?bands=macro",x:0,y:0,w:100,h:8},{src:"/chart?t=SPY&range=1D",x:0,y:8,w:33.34,h:84},{src:"/chart?t=QQQ&range=1D",x:33.34,y:8,w:33.33,h:84},{src:"/chart?t=SMH&range=1D",x:66.67,y:8,w:33.33,h:84},{src:"/ticker?bands=all",x:0,y:92,w:100,h:8}],
+    laptop: [{src:"/ticker?bands=macro",x:0,y:0,w:100,h:8},{src:"/chart?t=SPY&range=1D",x:0,y:8,w:100,h:42},{src:"/chart?t=QQQ&range=1D",x:0,y:50,w:100,h:42},{src:"/ticker?bands=all",x:0,y:92,w:100,h:8}],
+    note: "Macro overview, tape-heavy: MACRO band top + SPY/QQQ/SMH dailies + ALL-movers band bottom."
   }
 };
 
@@ -281,29 +316,64 @@ window.addEventListener("resize", () => {
   rsz = setTimeout(() => { if (CUR_PROFILE && profileNow() !== CUR_PROFILE && !pendingSwap) showScene(IX, true); }, 300);
 });
 
-/* ---- picker (no params): the directory Hammerspoon points at ---- */
+/* ---- picker (no params): the CONTROL SURFACE — big cards, live thumbnails,
+       one click full-bleed, one click rotation. What Alan (and Hammerspoon) drive from. ---- */
+function previewScale() {
+  const card = document.querySelector(".sc-card .prev");
+  return card ? card.clientWidth / 1920 : 0.2;
+}
+function scalePreviews() {
+  const sc = previewScale();
+  document.querySelectorAll(".sc-card .prev iframe").forEach((f) => { f.style.transform = "scale(" + sc + ")"; });
+}
 function renderPicker(sourceTag) {
   const pk = el("picker");
   pk.hidden = false;
   const names = Object.keys(SCENES);
-  let h = '<h1>Scintilla · Scenes</h1>' +
-    '<div class="sub">named multi-widget layouts · percent rects · wall / laptop profiles · source: ' + esc(sourceTag) + ' (scene_layouts · scintilla-live)</div>';
+  let h = '<div class="top"><h1>Scintilla · Scenes</h1>' +
+    '<span class="sub">pick a channel · live previews · percent rects · wall/laptop profiles · source: ' + esc(sourceTag) + '</span>' +
+    '<a class="rotall" href="/scenes?rotate=all&dwell=120">▶ ROTATE ALL · 120s</a></div>' +
+    '<div class="grid">';
   for (const n of names) {
     const s = SCENES[n];
     const profs = ["wall", "laptop"].filter((p) => s[p] && s[p].length);
     const panes = (s[profs[0]] || []);
-    h += '<a class="s" href="/scenes?scene=' + encodeURIComponent(n) + '">' +
-      '<div class="n">' + esc(n) + '</div>' +
-      '<div class="r">/scenes?scene=' + esc(n) + ' · profiles: ' + profs.join(" + ") + ' · ' + panes.length + ' panes</div>' +
-      '<div class="p">' + esc(s.note || "") + '</div>' +
-      '<div class="src">' + panes.map((p) => esc(p.src)).join("  ·  ") + '</div>' +
-    '</a>';
+    h += '<div class="sc-card">' +
+      '<div class="prev" data-scene="' + esc(n) + '" title="open ' + esc(n) + ' full-bleed"><span class="lbl">preview loads in view…</span></div>' +
+      '<div class="body">' +
+        '<div class="n">' + esc(n) + '</div>' +
+        '<div class="p">' + esc(s.note || "") + '</div>' +
+        '<div class="src">' + panes.map((p) => esc(p.src)).join("  ·  ") + '</div>' +
+        '<div class="row">' +
+          profs.map((p) => '<span class="chip">' + p + '</span>').join("") +
+          '<span class="chip">' + panes.length + ' panes</span>' +
+          '<a href="/scenes?rotate=all&start=' + encodeURIComponent(n) + '&dwell=120" title="start the full rotation at this scene">▶ rotate</a>' +
+          '<a class="go" href="/scenes?scene=' + encodeURIComponent(n) + '">open ⛶</a>' +
+        '</div>' +
+      '</div></div>';
   }
-  h += '<a class="s" href="/scenes?rotate=all&dwell=120">' +
-    '<div class="n">Rotate All · auto</div>' +
-    '<div class="r">/scenes?rotate=all&dwell=120</div>' +
-    '<div class="p">cycles every named scene — the rotating scene wall. hover holds · ←/→ step · space pauses · ?rotate=a,b,c for a subset · ?profile=wall|laptop to force a profile</div></a>';
+  h += '</div>';
   pk.innerHTML = h;
+  /* click preview → full-bleed */
+  pk.querySelectorAll(".prev").forEach((node) => {
+    node.addEventListener("click", () => { location.href = "/scenes?scene=" + encodeURIComponent(node.dataset.scene); });
+  });
+  /* lazy live thumbnails: mount a scaled scene iframe when the card scrolls into view */
+  const io = ("IntersectionObserver" in window) ? new IntersectionObserver((ents) => {
+    for (const en of ents) {
+      if (!en.isIntersecting) continue;
+      const node = en.target;
+      io.unobserve(node);
+      if (node.querySelector("iframe")) continue;
+      const f = document.createElement("iframe");
+      f.src = "/scenes?scene=" + encodeURIComponent(node.dataset.scene) + "&profile=wall";
+      f.title = node.dataset.scene + " preview";
+      f.style.transform = "scale(" + previewScale() + ")";
+      node.appendChild(f);
+    }
+  }, { rootMargin: "120px" }) : null;
+  pk.querySelectorAll(".prev").forEach((node) => { if (io) io.observe(node); });
+  window.addEventListener("resize", () => { clearTimeout(window.__psc); window.__psc = setTimeout(scalePreviews, 200); });
 }
 
 /* ---- boot ---- */
@@ -315,6 +385,9 @@ async function boot() {
   ORDER = ROT
     ? (ROTATE_P === "all" ? names : ROTATE_P.split(",").map((s) => s.trim()).filter((n) => SCENES[n]))
     : [SCENE_P].filter((n) => SCENES[n]);
+  /* ?start=name — begin the rotation at a chosen scene (picker "▶ rotate" buttons) */
+  const startAt = (QS.get("start") || "").trim();
+  if (ROT && startAt && ORDER.includes(startAt)) ORDER = ORDER.slice(ORDER.indexOf(startAt)).concat(ORDER.slice(0, ORDER.indexOf(startAt)));
   if (!ORDER.length) { el("picker").hidden = false; el("picker").innerHTML = '<div class="msg">unknown scene — see /scenes for the list</div>'; return; }
   document.body.classList.add("on");
   if (ROT) document.body.classList.toggle("rot", ORDER.length > 1);
