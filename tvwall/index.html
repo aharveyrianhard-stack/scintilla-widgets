@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · tv wall — recommendation</title>
+<!-- ============================================================================
+     SCINTILLA · TV WALL — RECOMMENDATION (HUB/SURFACE COMMAND).
+     A direction doc, not a build. Alan asked: mixed PiP-style browser wall for
+     the Apple TV — live charts, the hub, YouTube feeds, his X feed — with two
+     hard constraints: (1) we cannot legally re-push YouTube/X streams, so
+     panels are browser embeds/excerpts, never content we serve; (2) the target
+     is a big screen driven honestly. This page says what is technically and
+     legally doable and what V1 looks like. Receipt: HSC-TVWALL-REC-001.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel:#0D0D14; --panel2:#0F0F1A;
+  --line:#1A1A2A; --line2:#252538; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00; --heat:#FFE500;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; }
+body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:12px; letter-spacing:.02em;
+  padding:34px 30px 60px; max-width:860px; }
+h1{ font-size:13px; letter-spacing:.3em; text-transform:uppercase; color:var(--crk); font-weight:400; margin:0 0 6px; }
+.sub{ color:var(--dim); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin-bottom:8px; }
+.stamp{ display:inline-block; color:var(--vol); border:1px dashed rgba(255,138,0,.5);
+  font-size:8.5px; letter-spacing:.18em; text-transform:uppercase; padding:2px 8px; margin-bottom:26px; }
+h2{ font-size:11px; letter-spacing:.24em; text-transform:uppercase; color:var(--crk);
+  font-weight:400; margin:34px 0 10px; border-bottom:1px solid var(--line); padding-bottom:7px; }
+p{ color:var(--ink2); line-height:1.75; margin:0 0 12px; }
+p b{ color:var(--ink); font-weight:600; }
+em{ color:var(--ink3); font-style:normal; border-bottom:1px dotted var(--mute); }
+table{ border-collapse:collapse; width:100%; margin:14px 0 6px; }
+th{ text-align:left; color:var(--dim); font-size:9px; letter-spacing:.18em; text-transform:uppercase;
+  font-weight:400; padding:6px 10px; border-bottom:1px solid var(--line2); }
+td{ padding:8px 10px; border-bottom:1px solid var(--line); color:var(--ink2); font-size:11px;
+  line-height:1.55; vertical-align:top; }
+.v{ font-size:9px; letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; padding:2px 7px; border:1px solid; }
+.v.embed{ color:var(--bull); border-color:rgba(0,255,163,.45); }
+.v.window{ color:var(--crk); border-color:rgba(0,212,255,.45); }
+.v.maybe{ color:var(--vol); border-color:rgba(255,138,0,.45); }
+.v.no{ color:var(--bear); border-color:rgba(255,45,85,.45); }
+.foot{ color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; margin-top:44px; line-height:1.9; border-top:1px solid var(--line); padding-top:14px; }
+.foot b{ color:var(--dim); font-weight:400; }
+a{ color:var(--crk); text-decoration:none; }
+a:hover{ text-decoration:underline; }
+.cut{ color:var(--heat); }
+</style>
+</head>
+<body>
+<h1>TV Wall — Recommendation</h1>
+<div class="sub">mixed pip-style browser wall for the apple tv · hub/surface command</div>
+<div class="stamp">direction doc — nothing heavy built · awaiting go</div>
+
+<h2>1 · The shape, in one paragraph</h2>
+<p>The Apple TV cannot run this by itself: tvOS ships <b>no browser</b>, and third-party TV apps are not
+allowed to render web pages — so "a wall app on the Apple TV" is a dead end, and anyone selling one is
+casting from another device anyway. The honest architecture: <b>a Mac drives the wall, the Apple TV is
+just the screen.</b> The Mac extends its desktop onto the TV over AirPlay (one Control Center click —
+Screen Mirroring → use as extended display; low-latency and plenty for dashboards) or, for the crispest
+permanent install, a plain HDMI cable. On that TV display, Chrome shows two kinds of panel: <b>one hosted
+page from this surface</b> carrying everything that may legally be embedded, and <b>real Chrome windows</b>
+— logged in as you — parked over reserved cutouts for the things that can't be embedded. That's the
+ChatGPT-PiP mental model done with window placement, which Hammerspoon already owns in our stack.</p>
+
+<h2>2 · The legal line</h2>
+<p><b>We never capture, proxy, or re-serve anyone's stream.</b> Two clean lanes only.
+<b>Lane A — sanctioned embeds:</b> YouTube's IFrame player exists precisely so third-party pages can show
+YouTube inside YouTube's own player, ads and all — our <a href="/youtube">/youtube</a> widget already runs
+it. TradingView publishes embed widgets for the same reason. Our own widgets are ours.
+<b>Lane B — browser excerpts:</b> a real Chrome window showing x.com, signed in as you, displayed on a
+screen you own. That is not redistribution — it's a monitor. What we never do: screen-capture-and-restream,
+server-side scraping of feeds, or piping YouTube/X content through our own hosting. AirPlay itself stays
+clean because it's your Mac's local display pipe, not a re-push.</p>
+
+<h2>3 · Panel by panel</h2>
+<table>
+<tr><th>panel</th><th>verdict</th><th>the honest how</th></tr>
+<tr><td>Scintilla widgets — /heat /pulse /chart /geiger /ticker</td><td><span class="v embed">embed</span></td>
+<td>Ours. Already scene-composable; DB reads only, as always.</td></tr>
+<tr><td>The hub (scintilla-cockpit)</td><td><span class="v maybe">embed · test</span></td>
+<td>Ours too — a ten-second iframe test says whether its headers allow framing. If blocked, it rides
+Lane B as a window. Read-only either way; the cockpit stays untouched.</td></tr>
+<tr><td>Live charts (TradingView)</td><td><span class="v embed">embed</span></td>
+<td>Official embed widgets, or our own /chart. Both sanctioned.</td></tr>
+<tr><td>YouTube feeds (×2)</td><td><span class="v embed">embed</span></td>
+<td>IFrame API. Conditions: stream public + uploader left embedding on (most finance streamers do);
+starts <em>muted</em> — browser autoplay law, one click for sound on the pane you want audible. A channel
+that disables embeds simply drops to Lane B as a window.</td></tr>
+<tr><td>Your X home feed</td><td><span class="v window">window</span></td>
+<td>Not embeddable, full stop: X's timeline embeds have been effectively dead since the 2023 API
+shutdown and the login walls that followed — and a <em>home</em> feed is authenticated by definition.
+So: a logged-in Chrome window pinned to the wall's reserved cutout. If you carry Premium+, <b>X Pro</b>
+(old TweetDeck) is the wall-native version — multi-column, auto-refreshing. The paid API route exists
+but is expensive and fragile; wrong tool for a wall.</td></tr>
+<tr><td>Single X posts (callouts)</td><td><span class="v maybe">embed · flaky</span></td>
+<td>Single-post embeds still mostly render in 2026. Fine for pinning one post to the wall; never trust
+them for a live feed.</td></tr>
+<tr><td>Re-pushing YouTube/X through our pipes</td><td><span class="v no">never</span></td>
+<td>Constraint honored by design — nothing above serves their content from our surface.</td></tr>
+</table>
+
+<h2>4 · First working version</h2>
+<p><b>One new hosted route, <span class="cut">/tv</span></b> — a scene page sized for the 1080p-class
+picture AirPlay negotiates: /pulse strip across the top, two YouTube IFrame panes stacked left, /heat or
+/chart as the center field, ticker tape on the floor, and a <b>reserved cutout</b> (right column, ~28%)
+drawn as a labeled dock: <em>"X parks here."</em> The page never pretends to show X — the real window
+covers that hole.</p>
+<p><b>A fourth profile, <span class="cut">tv</span>, in scene_layouts</b> — same percent-rect system the
+wall/laptop/narrow profiles already use. Adding or retuning the TV layout stays a DB row, not a deploy.</p>
+<p><b>/handoff grows a TV section</b> — connect the Apple TV from Control Center, then one Hammerspoon
+save does the rest: full-screen chromeless Chrome window of /tv on the TV display, plus the logged-in
+x.com/home (or X Pro) window placed exactly on the cutout geometry. Commands live in
+<a href="/handoff">/handoff</a>, per house style. Practical honesty: AirPlay wants one reconnect click
+per session, the Mac must stay awake, the TV's sleep timer goes off — and if the wall becomes furniture,
+the endgame is an HDMI run or a spare Mac mini behind the TV, which makes it pixel-perfect and
+always-on.</p>
+<p><b>Proof:</b> the route + scene row + handoff section land with receipts on the spine, as usual.</p>
+
+<h2>5 · What I need from you</h2>
+<p>A <b>go</b>, the <b>two YouTube channels</b> you want on the wall, and whether you carry
+<b>Premium+</b> (decides x.com window vs X Pro columns). With those, V1 is roughly one queue item —
+the pieces (scene engine, profiles, handoff, Hammerspoon patterns) already exist.</p>
+
+<div class="foot">
+SCINTILLA · TV WALL RECOMMENDATION · <b>HSC-TVWALL-REC-001</b> · 2026-08-06<br>
+lane a embeds sanctioned · lane b excerpts are real chrome windows · nothing re-served, ever ·
+our widgets stay db-reads-only · cockpit untouched<br>
+relay: spine_events · scintilla-live · <a href="/">← all widgets</a>
+</div>
+</body>
+</html>
