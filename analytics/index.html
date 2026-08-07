@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCINTILLA · analytics — market regime</title>
+<style>
+  :root{--bg:#0e1116;--surface:#161b22;--surface2:#1c2330;--line:#2a3342;--ink:#e6e9ee;--ink2:#9aa4b2;--ink3:#67707e;
+        --good:#3fb27f;--warn:#d9a13b;--bad:#d96b5b;--accent:#5b9dd9;--mono:'SF Mono',ui-monospace,Menlo,Consolas,monospace}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,'Segoe UI',Roboto,sans-serif;padding:16px 16px 40px;max-width:1360px;margin:0 auto}
+  h1{font-size:16px;letter-spacing:.1em;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  h1 span{color:var(--accent)}
+  h1 .conn{font-size:11px;letter-spacing:.02em;color:var(--ink2);font-weight:400;display:flex;align-items:center;gap:6px;margin-left:auto}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ink3)}
+  .dot.live{background:var(--good);box-shadow:0 0 6px var(--good)}
+  .dot.stale{background:var(--warn)}
+  .dot.err{background:var(--bad)}
+  h2{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink2);margin:22px 0 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  h2 .hint{font-size:10px;letter-spacing:.02em;text-transform:none;color:var(--ink3);font-weight:400}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .k{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)}
+  .v{font-family:var(--mono)}
+  .pill{display:inline-block;font-family:var(--mono);font-size:10px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--ink2)}
+  .pill.basis{color:#111;background:var(--accent);border-color:var(--accent);font-weight:600}
+  .pill.raw{color:var(--warn);border-color:var(--warn)}
+  .pill.blocked{color:var(--bad);border-color:var(--bad)}
+  .pill.stale{color:#111;background:var(--warn);border-color:var(--warn)}
+  .banner{font-size:11px;color:var(--ink2);border:1px dashed var(--line);border-radius:8px;padding:7px 10px;margin:10px 0 4px;line-height:1.6}
+  .banner b{color:var(--ink)}
+  .strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:10px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);text-align:right;padding:4px 8px;border-bottom:1px solid var(--line);cursor:pointer;white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  td{padding:4px 8px;border-bottom:1px solid #1a212c;font-family:var(--mono);text-align:right;white-space:nowrap}
+  td.t{font-family:inherit;text-align:left}
+  tr.click:hover{background:var(--surface2);cursor:pointer}
+  .up{color:var(--good)} .dn{color:var(--bad)} .mut{color:var(--ink3)}
+  .bar{display:inline-block;height:7px;border-radius:3px;background:var(--accent);vertical-align:middle}
+  .bar.neg{background:var(--bad)}
+  select{background:var(--surface2);color:var(--ink);border:1px solid var(--line);border-radius:6px;font:12px var(--mono);padding:3px 6px}
+  .err-box{color:var(--bad);font-family:var(--mono);font-size:11.5px;padding:8px 0}
+  .drawer{position:fixed;top:0;right:-560px;width:min(560px,94vw);height:100vh;background:var(--surface);border-left:1px solid var(--line);z-index:50;transition:right .18s ease;overflow-y:auto;padding:16px}
+  .drawer.open{right:0}
+  .drawer h3{font-size:14px;letter-spacing:.06em;display:flex;gap:8px;align-items:center}
+  .drawer .x{margin-left:auto;cursor:pointer;color:var(--ink3);font-size:18px;padding:2px 8px}
+  .drawer h4{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);margin:14px 0 6px}
+  canvas{width:100%;height:120px;background:var(--surface2);border-radius:6px}
+  footer{margin-top:26px;font-size:10.5px;color:var(--ink3);line-height:1.7;border-top:1px solid var(--line);padding-top:10px}
+  .small{font-size:10.5px;color:var(--ink3)}
+</style>
+</head>
+<body>
+<h1>SCINTILLA · <span>ANALYTICS</span>
+  <span class="pill basis">BASIS: DIV-ADJUSTED (matches Alan's TV)</span>
+  <span class="pill">DB READS ONLY</span>
+  <span class="pill">M-1 CONSOLIDATED</span>
+  <span class="conn"><span class="dot" id="connDot"></span><span id="asof">booting…</span></span>
+</h1>
+<div class="banner"><b>ONE SYSTEM, DOCUMENTED SSOTs:</b> Geiger = <b>composite_staged</b> (0.5×Trend + 0.5×Momentum, tf=D) · Universe = <b>ticker_cohorts + hub_favorites</b> · Value = <b>fundamentals + ratios_history + analyst_estimates</b> · Macro = <b>treasury_rates / vix_term / operator_weights</b> · Bars: <b>eod_adjusted</b> <span class="pill basis">ADJ</span> + <b>ohlcv_history</b> <span class="pill raw">RAW</span> · This page never calls FMP or Yahoo — anon PostgREST reads only, per-ticker fetches on demand (1000-row cap respected). Every number states its basis.</div>
+
+<div class="strip" id="macroStrip"></div>
+
+<h2>GEIGER &amp; SECTOR ROTATION <span class="hint">W4 — sector_rankings (method shown verbatim) + cohort rollup of composite_staged · retires per-module Yahoo geigers</span></h2>
+<div class="grid2">
+  <div class="card"><div class="k" id="secHead">SECTOR RANKINGS</div><div id="sectors"></div></div>
+  <div class="card"><div class="k">COHORT GEIGER ROLLUP <span class="small">(avg composite by cohort — client-side over composite_staged tf=D)</span></div><div id="cohortGeiger"></div></div>
+</div>
+
+<h2>VALUE LAYER <span class="hint">W3 — fundamentals + live_quotes + composite_staged joined; row click → ratios &amp; estimates &amp; ADJ/RAW spark (per-ticker fetch)</span>
+  <span style="margin-left:auto"><select id="cohortSel"></select></span></h2>
+<div class="card" style="overflow-x:auto"><div id="valueTable"></div></div>
+
+<h2>DCF &amp; COMPS <span class="hint">W6 — fundamentals.dcf (FMP model, labeled) vs LIVE price · sector comps from loaded universe · full 3-stage DCF app: allocation /dcf.html</span></h2>
+<div class="grid2">
+  <div class="card"><div class="k">DCF vs PRICE — LARGEST GAPS <span class="small">(FMP DCF from fundamentals table; NOT the 3-stage model)</span></div><div id="dcfGaps"></div></div>
+  <div class="card"><div class="k">SECTOR COMPS — TRAILING PE vs SECTOR MEDIAN</div><div id="comps"></div></div>
+</div>
+
+<h2>ALLOCATION INPUTS <span class="hint">W5 — operator_weights + Geiger-ranked FAV tilt · full engine: scintilla-allocation app · IBKR state NOT read (brokerage hold)</span></h2>
+<div class="grid2">
+  <div class="card"><div class="k">OPERATOR WEIGHTS (enabled)</div><div id="weights"></div></div>
+  <div class="card">
+    <div class="k">FAV TILT — GEIGER-RANKED</div><div id="tilt"></div>
+    <div class="k" style="margin-top:12px">ETF HOLDINGS LOOK-THROUGH</div>
+    <div class="err-box"><span class="pill blocked">BLOCKED: NO DATA</span> etf_holdings holds 69 rows / etf_info 1 ticker (AGIX), stale 2026-07-22 — not a usable SSOT. Never faked; unblocks when a holdings puller lands.</div>
+  </div>
+</div>
+
+<h2>PRICE-BASIS PROOF <span class="hint">W1 — live from both tables every load · volume equality = day alignment · full receipt: spine rows 56/58/73/79</span></h2>
+<div class="card"><div id="proof"></div></div>
+
+<footer>
+  <b>PROVENANCE</b> · Writers: live_quotes ← live-quote-batch · ohlcv_history tf=1 ← bars-1m-refresh v2 (extended) · ohlcv_history tf=D <span class="pill raw">RAW</span> ← ohlcv-backfill · eod_adjusted <span class="pill basis">ADJ</span> ← adj-eod-backfill v1 (nightly smart refresh, cron 201) · Geiger ← composite_staged RPCs · sector_rankings ← refresh_sector_rankings.<br>
+  <b>BASIS DOCTRINE</b> (app_config.price_basis): ADJUSTED = split+dividend adjusted (TV div-toggle ON, Alan's default view) — TA-surface source of truth. RAW = split-adjusted, dividend-unadjusted prints. Factor constant within a day, ≈1.0 at present, compounds backward (SPY 2009 ≈ 0.7346). Volume never adjusts.<br>
+  Receipt CC-MEGA-001 W3–W6 · SCINTILLA Command (Cowork cloud) · page row: desk_html id=analytics · live-deck surfaces untouched.
+</footer>
+
+<div class="drawer" id="drawer"></div>
+
+<script>
+const SB='https://wadinxqplrggagkvrdag.supabase.co/rest/v1';
+/* FEED FIX 2026-08-06 — this page previously sent the sb_publishable_ key as
+   Authorization: Bearer. That string is NOT a JWT, so the gateway rejected
+   EVERY request and every panel rendered FEED ERROR. The working widget routes
+   (/ranks, /reflow) use the legacy anon JWT for both headers. Same pattern here. */
+const KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g';
+const H={'apikey':KEY,'Authorization':'Bearer '+KEY};
+const S={};
+const $=id=>document.getElementById(id);
+/* Retry on the transient codes PostgREST returns when it cannot get a database
+   connection. The estate runs 84 cron jobs against a 90-connection ceiling, so
+   503/504/429 are expected under burst and are NOT a dead feed. Hard errors
+   (400/404) still fail fast and surface honestly. */
+async function j(p,tries){
+  tries=tries==null?3:tries; let last;
+  for(let i=0;i<tries;i++){
+    try{
+      const r=await fetch(SB+'/'+p,{headers:H,cache:'no-store'});
+      if(r.ok) return r.json();
+      const e=new Error(p.split('?')[0]+' HTTP '+r.status);
+      if(r.status===503||r.status===504||r.status===429||r.status===500){last=e;}
+      else throw e;
+    }catch(e){ last=e; }
+    if(i<tries-1) await new Promise(res=>setTimeout(res,500*(i+1)+Math.random()*300));
+  }
+  throw last;
+}
+const fN=(x,d=2)=>x==null?'—':(+x).toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d});
+const fB=x=>x==null?'—':(Math.abs(x)>=1e12?(x/1e12).toFixed(2)+'T':Math.abs(x)>=1e9?(x/1e9).toFixed(2)+'B':Math.abs(x)>=1e6?(x/1e6).toFixed(1)+'M':fN(x,0));
+const fP=x=>x==null?'—':(x>0?'+':'')+(+x).toFixed(2)+'%';
+const cls=x=>x==null?'mut':(x>=0?'up':'dn');
+const agoS=e=>{if(!e)return '—';const s=Math.floor(Date.now()/1000-e);return s<90?s+'s':s<5400?Math.round(s/60)+'m':s<172800?Math.round(s/3600)+'h':Math.round(s/86400)+'d'};
+const agoD=iso=>{if(!iso)return '—';const d=Math.round((Date.now()-new Date(iso+(iso.length<=10?'T00:00:00Z':'')).getTime())/86400000);return d+'d'};
+const fPS=x=>x==null?'—':fP(Math.abs(x)>1.5?x:x*100); // ratio fields: fraction-or-percent tolerant
+function errBox(el,e){el.innerHTML='<div class="err-box">FEED ERROR — '+e.message+' (shown, never faked)</div>'}
+
+async function boot(){
+  const q={
+    cohorts:'ticker_cohorts?select=ticker,cohort,is_primary&limit=1000',
+    fav:'hub_favorites?select=ticker&limit=1000',
+    geiger:'composite_staged?select=ticker,trend,momentum,composite,core,updated_ts&tf=eq.D&limit=1000',
+    quotes:'live_quotes?select=ticker,price,chg_pct,prev_close,volume,updated_ts&limit=1000',
+    funda:'fundamentals?select=ticker,price,market_cap,trailing_pe,adjusted_pe,eps_ttm,revenue_ttm,dcf,updated_ts&limit=1000',
+    prof:'company_profile?select=ticker,name,sector,beta,is_etf&limit=1000',
+    sect:'sector_rankings?select=rank,sector,sector_name,score,trend,momentum,method,updated_at,date&order=rank.asc&limit=100',
+    y10:'treasury_rates?select=date,y10&order=date.desc&limit=1',
+    vix:'vix_term?select=date,vix,vix3m,ratio&order=date.desc&limit=1',
+    wts:'operator_weights?select=dim,key,weight,enabled&limit=100'
+  };
+  const keys=Object.keys(q);
+  const res=await Promise.allSettled(keys.map(k=>j(q[k])));
+  keys.forEach((k,i)=>{S[k]=res[i].status==='fulfilled'?res[i].value:{err:res[i].reason}});
+  S.map={};(S.geiger.err?[]:S.geiger).forEach(r=>S.map[r.ticker]=Object.assign(S.map[r.ticker]||{},{g:r}));
+  (S.quotes.err?[]:S.quotes).forEach(r=>S.map[r.ticker]=Object.assign(S.map[r.ticker]||{},{q:r}));
+  (S.funda.err?[]:S.funda).forEach(r=>S.map[r.ticker]=Object.assign(S.map[r.ticker]||{},{f:r}));
+  (S.prof.err?[]:S.prof).forEach(r=>S.map[r.ticker]=Object.assign(S.map[r.ticker]||{},{p:r}));
+  S.favSet=new Set(S.fav.err?[]:S.fav.map(r=>r.ticker));
+  S.cohortMap={};(S.cohorts.err?[]:S.cohorts).forEach(r=>{(S.cohortMap[r.cohort]=S.cohortMap[r.cohort]||new Set()).add(r.ticker)});
+  const ok=keys.filter(k=>!S[k].err).length;
+  $('connDot').className='dot '+(ok===keys.length?'live':ok>5?'stale':'err');
+  $('asof'). textContent=ok+'/'+keys.length+' feeds · '+new Date().toISOString().slice(11,19)+'Z';
+  renderMacro();renderSectors();renderCohortGeiger();renderCohortSel();renderValue();renderDcf();renderComps();renderWeights();renderTilt();renderProof();
+}
+
+function renderMacro(){
+  const el=$('macroStrip');let h='';
+  const y=S.y10.err?null:S.y10[0];
+  h+='<div class="card"><div class="k">US 10Y</div><div class="v" style="font-size:22px">'+(y?fN(y.y10):'ERR')+'%</div><div class="small">treasury_rates · '+(y?y.date+' ('+agoD(y.date)+')':'feed error')+'</div></div>';
+  const v=S.vix.err?null:S.vix[0];const vStale=v?agoD(v.date):null;
+  h+='<div class="card"><div class="k">VIX / VIX3M</div><div class="v" style="font-size:22px">'+(v?fN(v.vix,1)+' / '+fN(v.vix3m,1):'ERR')+'</div><div class="small">ratio '+(v?fN(v.ratio,3):'—')+' · '+(v?v.date:'')+' '+(v&&parseInt(vStale)>3?'<span class="pill stale">STALE '+vStale+'</span>':'')+'</div></div>';
+  const nT=Object.keys(S.map).length;
+  h+='<div class="card"><div class="k">UNIVERSE</div><div class="v" style="font-size:22px">'+nT+'</div><div class="small">'+Object.keys(S.cohortMap).length+' cohorts · FAV '+S.favSet.size+' · ticker_cohorts+hub_favorites</div></div>';
+  const gMax=S.geiger.err?null:Math.max(...S.geiger.map(r=>r.updated_ts||0));
+  h+='<div class="card"><div class="k">GEIGER FRESH</div><div class="v" style="font-size:22px">'+(gMax?agoS(gMax):'ERR')+'</div><div class="small">composite_staged tf=D · '+(S.geiger.err?'feed error':S.geiger.length+' tickers')+'</div></div>';
+  const qMax=S.quotes.err?null:Math.max(...S.quotes.map(r=>new Date(r.updated_ts).getTime()));
+  h+='<div class="card"><div class="k">QUOTES FRESH</div><div class="v" style="font-size:22px">'+(qMax?Math.round((Date.now()-qMax)/1000)+'s':'ERR')+'</div><div class="small">live_quotes · LIVE lens (raw prints)</div></div>';
+  el.innerHTML=h;
+}
+
+function renderSectors(){
+  const el=$('sectors');if(S.sect.err)return errBox(el,S.sect.err);
+  const mth=S.sect[0]?S.sect[0].method:'';$('secHead').innerHTML='SECTOR RANKINGS <span class="small">method: '+mth+' · '+(S.sect[0]?S.sect[0].date:'')+'</span>';
+  let h='<table><tr><th>#</th><th style="text-align:left">SECTOR</th><th>SCORE</th><th></th><th>TREND</th><th>MOM</th></tr>';
+  S.sect.slice(0,22).forEach(r=>{const w=Math.round(Math.abs(r.score)*60);
+    h+='<tr><td>'+r.rank+'</td><td class="t">'+(r.sector_name||r.sector)+'</td><td class="'+cls(r.score)+'">'+fN(r.score,3)+'</td><td style="text-align:left"><span class="bar'+(r.score<0?' neg':'')+'" style="width:'+w+'px"></span></td><td class="'+cls(r.trend)+'">'+fN(r.trend,2)+'</td><td class="'+cls(r.momentum)+'">'+fN(r.momentum,2)+'</td></tr>'});
+  el.innerHTML=h+'</table>';
+}
+
+function renderCohortGeiger(){
+  const el=$('cohortGeiger');if(S.geiger.err)return errBox(el,S.geiger.err);
+  const rows=Object.entries(S.cohortMap).map(([c,set])=>{
+    const gs=[...set].map(t=>S.map[t]&&S.map[t].g?S.map[t].g.composite:null).filter(x=>x!=null);
+    if(!gs.length)return null;
+    const avg=gs.reduce((a,b)=>a+b,0)/gs.length;
+    return {c,n:gs.length,avg};
+  }).filter(Boolean).sort((a,b)=>b.avg-a.avg);
+  let h='<table><tr><th style="text-align:left">COHORT</th><th>N</th><th>AVG COMPOSITE</th><th></th></tr>';
+  rows.forEach(r=>{const w=Math.round(Math.abs(r.avg)*70);
+    h+='<tr><td class="t">'+r.c+(S.favSet.size&&r.c==='FAV'?'':'')+'</td><td>'+r.n+'</td><td class="'+cls(r.avg)+'">'+fN(r.avg,3)+'</td><td style="text-align:left"><span class="bar'+(r.avg<0?' neg':'')+'" style="width:'+w+'px"></span></td></tr>'});
+  el.innerHTML=h+'</table><div class="small" style="margin-top:6px">THE one Geiger — no per-module recomputation anywhere on this page.</div>';
+}
+
+function renderCohortSel(){
+  const sel=$('cohortSel');
+  let opts='<option value="FAV">FAV ('+S.favSet.size+')</option><option value="ALL">ALL</option>';
+  Object.keys(S.cohortMap).sort().forEach(c=>opts+='<option value="'+c+'">'+c+' ('+S.cohortMap[c].size+')</option>');
+  sel.innerHTML=opts;sel.onchange=renderValue;
+}
+let sortKey='mcap',sortDir=-1;
+function setSort(k){if(sortKey===k)sortDir*=-1;else{sortKey=k;sortDir=-1}renderValue()}
+function renderValue(){
+  const el=$('valueTable');
+  const c=$('cohortSel').value||'FAV';
+  let list=c==='ALL'?Object.keys(S.map):c==='FAV'?[...S.favSet]:[...(S.cohortMap[c]||[])];
+  list=list.filter(t=>S.map[t]);
+  const rows=list.map(t=>{const m=S.map[t];return{
+    t, name:m.p?m.p.name:'', sector:m.p?m.p.sector:'', beta:m.p?m.p.beta:null,
+    px:m.q?m.q.price:(m.f?m.f.price:null), chg:m.q?m.q.chg_pct:null,
+    geig:m.g?m.g.composite:null, pe:m.f?m.f.trailing_pe:null, ape:m.f?m.f.adjusted_pe:null,
+    eps:m.f?m.f.eps_ttm:null, rev:m.f?m.f.revenue_ttm:null, mcap:m.f?m.f.market_cap:null,
+    dcf:m.f?m.f.dcf:null, fAge:m.f?m.f.updated_ts:null}});
+  rows.sort((a,b)=>(((b[sortKey]==null?-1e18:+b[sortKey])-(a[sortKey]==null?-1e18:+a[sortKey]))*(-sortDir)));
+  const th=(k,l)=>'<th onclick="setSort(\''+k+'\')">'+l+(sortKey===k?(sortDir<0?' ▾':' ▴'):'')+'</th>';
+  let h='<table><tr><th onclick="setSort(\'t\')">TICKER</th><th>NAME</th>'+th('px','PRICE·LIVE')+th('chg','CHG%')+th('geig','GEIGER')+th('pe','PE')+th('ape','ADJ-PE')+th('eps','EPS-TTM')+th('rev','REV-TTM')+th('mcap','MCAP')+th('dcf','FMP-DCF')+th('beta','β')+'<th>AGE</th></tr>';
+  rows.forEach(r=>{
+    h+='<tr class="click" onclick="drawer(\''+r.t+'\')"><td class="t"><b>'+r.t+'</b>'+(S.favSet.has(r.t)?' <span class="small">★</span>':'')+'</td><td class="t small">'+(r.name||'').slice(0,22)+'</td><td>'+fN(r.px)+'</td><td class="'+cls(r.chg)+'">'+fP(r.chg)+'</td><td class="'+cls(r.geig)+'">'+fN(r.geig,3)+'</td><td>'+fN(r.pe,1)+'</td><td>'+fN(r.ape,1)+'</td><td>'+fN(r.eps)+'</td><td>'+fB(r.rev)+'</td><td>'+fB(r.mcap)+'</td><td>'+fN(r.dcf)+'</td><td>'+fN(r.beta,2)+'</td><td class="mut">'+agoS(r.fAge)+'</td></tr>'});
+  el.innerHTML=h+'</table><div class="small" style="margin-top:6px">'+rows.length+' tickers · PRICE = live_quotes (LIVE, raw print lens) · fundamentals age in last column · click a row for ratios / estimates / ADJ-vs-RAW spark.</div>';
+}
+
+function renderDcf(){
+  const el=$('dcfGaps');
+  const rows=Object.keys(S.map).map(t=>{const m=S.map[t];if(!m.f||m.f.dcf==null||!(m.q&&m.q.price))return null;
+    const gap=(m.f.dcf-m.q.price)/m.q.price*100;return{t,dcf:m.f.dcf,px:m.q.price,gap}}).filter(Boolean)
+    .sort((a,b)=>Math.abs(b.gap)-Math.abs(a.gap)).slice(0,14);
+  if(!rows.length)return errBox(el,new Error('no dcf data'));
+  let h='<table><tr><th>TICKER</th><th>FMP-DCF</th><th>PRICE·LIVE</th><th>GAP%</th></tr>';
+  rows.forEach(r=>{h+='<tr class="click" onclick="drawer(\''+r.t+'\')"><td class="t"><b>'+r.t+'</b></td><td>'+fN(r.dcf)+'</td><td>'+fN(r.px)+'</td><td class="'+cls(r.gap)+'">'+fP(r.gap)+'</td></tr>'});
+  el.innerHTML=h+'</table><div class="small" style="margin-top:6px">FMP model DCF (fundamentals.dcf) — labeled, not our 3-stage model; that lives at the allocation app /dcf.html reading the same SSOTs.</div>';
+}
+
+function renderComps(){
+  const el=$('comps');
+  const bySec={};
+  Object.keys(S.map).forEach(t=>{const m=S.map[t];if(m.p&&m.p.sector&&m.f&&m.f.trailing_pe>0&&m.f.trailing_pe<400)(bySec[m.p.sector]=bySec[m.p.sector]||[]).push({t,pe:m.f.trailing_pe})});
+  const med=a=>{const s=a.slice().sort((x,y)=>x-y);return s.length?s[Math.floor(s.length/2)]:null};
+  const rows=[];
+  Object.entries(bySec).forEach(([sec,arr])=>{if(arr.length<3)return;const m=med(arr.map(x=>x.pe));
+    arr.forEach(x=>rows.push({t:x.t,sec,pe:x.pe,med:m,prem:(x.pe-m)/m*100}))});
+  rows.sort((a,b)=>Math.abs(b.prem)-Math.abs(a.prem));
+  let h='<table><tr><th>TICKER</th><th>SECTOR</th><th>PE</th><th>SECTOR MED</th><th>PREM/DISC</th></tr>';
+  rows.slice(0,14).forEach(r=>{h+='<tr class="click" onclick="drawer(\''+r.t+'\')"><td class="t"><b>'+r.t+'</b></td><td class="t small">'+r.sec.slice(0,18)+'</td><td>'+fN(r.pe,1)+'</td><td>'+fN(r.med,1)+'</td><td class="'+cls(r.prem)+'">'+fP(r.prem)+'</td></tr>'});
+  el.innerHTML=h+'</table><div class="small" style="margin-top:6px">Client-side medians over the loaded universe (sectors with ≥3 names, PE 0–400 filter). Same fundamentals SSOT — no second data path.</div>';
+}
+
+function renderWeights(){
+  const el=$('weights');if(S.wts.err)return errBox(el,S.wts.err);
+  const dims={};S.wts.filter(w=>w.enabled).forEach(w=>(dims[w.dim]=dims[w.dim]||[]).push(w));
+  let h='';
+  Object.entries(dims).forEach(([d,arr])=>{
+    h+='<div class="k" style="margin-top:8px">'+d+'</div><table>';
+    arr.sort((a,b)=>b.weight-a.weight).slice(0,17).forEach(w=>{
+      h+='<tr><td class="t small">'+w.key+'</td><td>'+fN(w.weight,3)+'</td><td style="text-align:left"><span class="bar" style="width:'+Math.round(Math.abs(w.weight)*80)+'px"></span></td></tr>'});
+    h+='</table>'});
+  el.innerHTML=h||'<div class="small">no enabled weights</div>';
+}
+
+function renderTilt(){
+  const el=$('tilt');
+  const rows=[...S.favSet].map(t=>{const m=S.map[t];return m&&m.g?{t,g:m.g.composite,tr:m.g.trend,mo:m.g.momentum,chg:m.q?m.q.chg_pct:null}:null}).filter(Boolean).sort((a,b)=>b.g-a.g);
+  let h='<table><tr><th>FAV</th><th>COMPOSITE</th><th>TREND</th><th>MOM</th><th>CHG%</th></tr>';
+  rows.slice(0,12).forEach(r=>{h+='<tr class="click" onclick="drawer(\''+r.t+'\')"><td class="t"><b>'+r.t+'</b></td><td class="'+cls(r.g)+'">'+fN(r.g,3)+'</td><td>'+fN(r.tr,2)+'</td><td>'+fN(r.mo,2)+'</td><td class="'+cls(r.chg)+'">'+fP(r.chg)+'</td></tr>'});
+  el.innerHTML=h+'</table><div class="small" style="margin-top:6px">Presentation of allocation INPUTS (weights + Geiger + macro). Position sizing / IBKR state stays in the allocation app — money-adjacent, held.</div>';
+}
+
+async function renderProof(){
+  const el=$('proof');
+  try{
+    const [adj,raw,aLast,rLast]=await Promise.all([
+      j('eod_adjusted?select=d,adj_o,adj_h,adj_l,adj_c,volume&ticker=eq.SPY&d=in.(2009-03-31,2009-04-01)&order=d'),
+      j('ohlcv_history?select=timestamp,open,high,low,close,volume&ticker=eq.SPY&tf=eq.D&source=eq.FMP&timestamp=in.(1238457600,1238544000)&order=timestamp'),
+      j('eod_adjusted?select=d,adj_c&ticker=eq.SPY&order=d.desc&limit=1'),
+      j('ohlcv_history?select=timestamp,close&ticker=eq.SPY&tf=eq.D&source=eq.FMP&order=timestamp.desc&limit=1')
+    ]);
+    let h='<table><tr><th>SPY DAY</th><th>RAW O/H/L/C <span class="pill raw">prints</span></th><th>ADJ O/H/L/C <span class="pill basis">TV</span></th><th>FACTOR</th><th>VOL (both)</th></tr>';
+    raw.forEach((r,i)=>{const a=adj[i];const d=new Date(r.timestamp*1000).toISOString().slice(0,10);
+      const f=(a.adj_c/r.close);
+      h+='<tr><td class="t">'+d+'</td><td>'+fN(r.open)+' / '+fN(r.high)+' / '+fN(r.low)+' / <b>'+fN(r.close)+'</b></td><td>'+fN(a.adj_o)+' / '+fN(a.adj_h)+' / '+fN(a.adj_l)+' / <b>'+fN(a.adj_c)+'</b></td><td>'+f.toFixed(4)+'</td><td>'+fB(r.volume)+'</td></tr>'});
+    const lf=aLast[0]&&rLast[0]?(aLast[0].adj_c/rLast[0].close):null;
+    h+='<tr><td class="t">'+(aLast[0]?aLast[0].d:'—')+' (latest)</td><td><b>'+fN(rLast[0]?rLast[0].close:null)+'</b></td><td><b>'+fN(aLast[0]?aLast[0].adj_c:null)+'</b></td><td>'+(lf?lf.toFixed(4):'—')+'</td><td class="mut">factor → 1.0 at present</td></tr></table>';
+    h+='<div class="small" style="margin-top:6px">Adjusted subtracts every later dividend from history — constant factor within a day, compounding backward (~26% by 2009), zero at the present. ADJUSTED is what Alan\'s TradingView shows (div-toggle ON); RAW is the printed tape. Identical volume proves day alignment. Receipts: spine 56 / 58 / 73 / 79 · SCIN-LEAD\'s /proof.html has the pattern-side proof.</div>';
+    el.innerHTML=h;
+  }catch(e){errBox(el,e)}
+}
+
+async function drawer(t){
+  const d=$('drawer');d.classList.add('open');
+  d.innerHTML='<h3>'+t+' <span class="pill basis">ADJ spark</span><span class="pill raw">RAW ghost</span><span class="x" onclick="this.parentElement.parentElement.classList.remove(\'open\')">×</span></h3><div class="small">loading per-ticker feeds…</div>';
+  const enc=encodeURIComponent(t);
+  try{
+    const [bars,rbars,ratios,est]=await Promise.all([
+      j('eod_adjusted?select=d,adj_c&ticker=eq.'+enc+'&order=d.desc&limit=260'),
+      j('ohlcv_history?select=timestamp,close&ticker=eq.'+enc+'&tf=eq.D&source=eq.FMP&order=timestamp.desc&limit=260'),
+      j('ratios_history?select=fiscal_date,period,pe,pb,ps,net_margin,roe,debt_to_equity,dividend_yield&ticker=eq.'+enc+'&order=fiscal_date.desc&limit=8'),
+      j('analyst_estimates?select=fiscal_date,est_eps_avg,est_revenue_avg,price_target_avg,num_analysts_eps&ticker=eq.'+enc+'&period=eq.annual&order=fiscal_date.desc&limit=6')
+    ]);
+    const m=S.map[t]||{};
+    let h='<h3>'+t+' <span class="small">'+((m.p&&m.p.name)||'')+'</span><span class="x" onclick="this.parentElement.parentElement.classList.remove(\'open\')">×</span></h3>';
+    h+='<div class="small">LIVE '+fN(m.q&&m.q.price)+' ('+fP(m.q&&m.q.chg_pct)+') · Geiger '+fN(m.g&&m.g.composite,3)+' · '+((m.p&&m.p.sector)||'')+'</div>';
+    h+='<h4>1Y CLOSE — <span class="pill basis">ADJUSTED (TV basis)</span> solid · <span class="pill raw">RAW prints</span> ghost</h4><canvas id="spark" width="520" height="120"></canvas>';
+    h+='<h4>RATIOS (ratios_history)</h4><table><tr><th>FISCAL</th><th>PE</th><th>PB</th><th>PS</th><th>NET-M</th><th>ROE</th><th>D/E</th><th>YLD</th></tr>';
+    ratios.forEach(r=>{h+='<tr><td class="t">'+r.fiscal_date+' '+(r.period||'')+'</td><td>'+fN(r.pe,1)+'</td><td>'+fN(r.pb,1)+'</td><td>'+fN(r.ps,1)+'</td><td>'+fPS(r.net_margin)+'</td><td>'+fPS(r.roe)+'</td><td>'+fN(r.debt_to_equity,2)+'</td><td>'+fPS(r.dividend_yield)+'</td></tr>'});
+    h+='</table><h4>ANALYST ESTIMATES (annual)</h4><table><tr><th>FY</th><th>EPS EST</th><th>REV EST</th><th>PT AVG</th><th>PT vs LIVE</th><th>#AN</th></tr>';
+    est.forEach(r=>{const up=(m.q&&m.q.price&&r.price_target_avg)?(r.price_target_avg-m.q.price)/m.q.price*100:null;
+      h+='<tr><td class="t">'+String(r.fiscal_date).slice(0,10)+'</td><td>'+fN(r.est_eps_avg)+'</td><td>'+fB(r.est_revenue_avg)+'</td><td>'+fN(r.price_target_avg)+'</td><td class="'+cls(up)+'">'+fP(up)+'</td><td>'+(r.num_analysts_eps||'—')+'</td></tr>'});
+    h+='</table><div class="small" style="margin-top:8px">Per-ticker fetches on demand (PostgREST 1000-cap safe). Estimates fiscal_date is text in the SSOT — shown as stored.</div>';
+    d.innerHTML=h;
+    const cv=$('spark');const ctx=cv.getContext('2d');
+    const A=bars.slice().reverse(), R=rbars.slice().reverse();
+    const vals=A.map(x=>+x.adj_c).concat(R.map(x=>+x.close));
+    const mn=Math.min(...vals),mx=Math.max(...vals),sp=mx-mn||1;
+    const X=(i,n)=>i/(n-1||1)*510+5, Y=v=>112-((v-mn)/sp)*104;
+    ctx.strokeStyle='#67707e';ctx.globalAlpha=.55;ctx.beginPath();R.forEach((x,i)=>{i?ctx.lineTo(X(i,R.length),Y(+x.close)):ctx.moveTo(X(i,R.length),Y(+x.close))});ctx.stroke();
+    ctx.globalAlpha=1;ctx.strokeStyle='#5b9dd9';ctx.lineWidth=1.6;ctx.beginPath();A.forEach((x,i)=>{i?ctx.lineTo(X(i,A.length),Y(+x.adj_c)):ctx.moveTo(X(i,A.length),Y(+x.adj_c))});ctx.stroke();
+  }catch(e){d.innerHTML+='<div class="err-box">'+e.message+'</div>'}
+}
+boot();
+</script>
+</body>
+</html>
