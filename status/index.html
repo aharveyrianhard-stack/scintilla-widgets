@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0F">
+<title>SCINTILLA · status</title>
+<!-- ============================================================================
+     SCINTILLA · /status — is the machine actually running.
+     Alan listed /status in his route list. It did not exist — the only thing
+     with that name was a loose status-snapshot.html file. Rather than leave a
+     red dot on the front door for a route that was never built, here it is,
+     built the honest way: it asks the DATABASE how fresh each feeder is, and
+     says so. Nothing is inferred, nothing is cached from a build step.
+     Every row is one PostgREST read: newest row, and how long ago that was.
+     DB reads only, never FMP. Geiger is never recomputed — only read.
+     Receipt: HSC-STATUS-001.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --line2:#252538; --hair:rgba(0,212,255,.30);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; -webkit-tap-highlight-color:transparent; }
+body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono);
+  font-size:12px; -webkit-font-smoothing:antialiased; padding-bottom:36px; overflow-x:hidden;
+  -webkit-text-size-adjust:100%; }
+header{ position:sticky; top:0; z-index:5; background:rgba(10,10,15,.94);
+  backdrop-filter:saturate(140%) blur(8px); border-bottom:1px solid var(--line);
+  padding:calc(10px + env(safe-area-inset-top)) 13px 9px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+h1{ font-size:11px; letter-spacing:.3em; text-transform:uppercase; color:var(--crk); font-weight:400; margin:0; }
+.sub{ color:var(--dim); font-size:9px; letter-spacing:.1em; text-transform:uppercase; }
+.btn{ font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; padding:3px 8px;
+  border:1px solid var(--line2); background:var(--panel2); color:var(--ink3); cursor:pointer;
+  text-decoration:none; white-space:nowrap; }
+.btn:hover{ color:var(--ink); border-color:var(--hair); }
+header .r{ margin-left:auto; display:flex; gap:5px; }
+h2{ font-size:9.5px; letter-spacing:.26em; text-transform:uppercase; color:var(--crk);
+  font-weight:400; margin:22px 12px 4px; }
+.wrap{ max-width:900px; margin:0 auto; }
+.row{ display:flex; align-items:baseline; gap:10px; padding:10px 12px; border-bottom:1px solid var(--line); }
+.dot{ flex:none; width:8px; height:8px; border-radius:50%; background:var(--mute); align-self:center; }
+.dot.ok{ background:var(--bull); box-shadow:0 0 7px rgba(0,255,163,.5); }
+.dot.warn{ background:var(--vol); box-shadow:0 0 7px rgba(255,138,0,.45); }
+.dot.bad{ background:var(--bear); box-shadow:0 0 7px rgba(255,45,85,.5); }
+.dot.chk{ background:var(--line2); animation:p 1s infinite; }
+@keyframes p{ 50%{ opacity:.35; } }
+.nm{ flex:1 1 0; min-width:0; color:var(--ink2); font-size:12px; }
+.nm small{ display:block; color:var(--mute); font-size:9px; margin-top:2px; letter-spacing:.04em; }
+.n{ flex:none; color:var(--ink3); font-size:11px; font-variant-numeric:tabular-nums; text-align:right; }
+.age{ flex:none; width:82px; text-align:right; font-size:11px; font-variant-numeric:tabular-nums; color:var(--dim); }
+.age.ok{ color:var(--bull); } .age.warn{ color:var(--vol); } .age.bad{ color:var(--bear); }
+footer{ padding:20px 14px 0; color:var(--mute); font-size:9px; letter-spacing:.09em;
+  text-transform:uppercase; line-height:1.9; text-align:center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Status</h1><span class="sub">is the machine running</span>
+  <span class="r">
+    <span class="btn" id="re">re-check</span>
+    <a class="btn" href="/registry">home</a>
+  </span>
+</header>
+<div class="wrap">
+  <h2>Feeders — how fresh is the newest row</h2>
+  <div id="feeders"></div>
+  <h2>Stock — how much is in there</h2>
+  <div id="stock"></div>
+</div>
+<footer>
+  every number on this page is a live read of the database · never FMP from a page<br>
+  the geiger is read, never recomputed<br>
+  <span id="stamp"></span>
+</footer>
+<script>
+"use strict";
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+async function pgRaw(path, head) {
+  const h = { apikey: ANON, Authorization: "Bearer " + ANON };
+  if (head) h.Prefer = "count=exact";
+  const r = await fetch(SB + "/rest/v1/" + path, { headers: h, method: head ? "HEAD" : "GET" });
+  if (!r.ok) throw new Error("pg " + r.status);
+  return head ? r.headers.get("content-range") : r.json();
+}
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+/* FEEDERS — table, its real timestamp column, how it is stored, and how old
+   is too old. Column names verified against information_schema, not guessed:
+   news uses published_ts (bigint epoch), feed_alerts uses fired_ts, the rest
+   are timestamptz. */
+const FEEDERS = [
+  { t: "live_quotes",     col: "updated_ts",   kind: "ts",    n: "Live quotes",      d: "price and change for the whole board",  warn: 15,   bad: 90 },
+  { t: "spine_events",    col: "at",           kind: "ts",    n: "The spine",        d: "every session's receipts",              warn: 720,  bad: 4320 },
+  { t: "feed_alerts",     col: "fired_ts",     kind: "ts",    n: "Feed alerts",      d: "feed-health warnings",                  warn: 120,  bad: 720 },
+  { t: "youtube_feed",    col: "published_at", kind: "ts",    n: "YouTube mirror",   d: "what feeds A and B read",               warn: 720,  bad: 4320 },
+  { t: "news",            col: "published_ts", kind: "epoch", n: "News",             d: "the wire",                              warn: 180,  bad: 1440 },
+  { t: "composite_staged",col: null,           kind: "none",  n: "Geiger composite", d: "tf=D — read only, never recomputed",    warn: 0,    bad: 0, filt: "&tf=eq.D" },
+];
+/* STOCK — the counts that tell you the shape is intact */
+const STOCK = [
+  { t: "composite_staged", filt: "&tf=eq.D", n: "Geiger rows (tf=D)", d: "one per name on the board" },
+  { t: "board_rsi",        filt: "",         n: "RSI rows",           d: "what /ranks reads for the RSI column" },
+  { t: "ticker_cohorts",   filt: "",         n: "Cohort memberships", d: "the axis you navigate" },
+  { t: "hub_favorites",    filt: "",         n: "Favourites",         d: "the FAV cohort" },
+  { t: "earnings_events",  filt: "",         n: "Earnings events",    d: "what /events reads, both directions" },
+  { t: "econ_calendar",    filt: "",         n: "Econ calendar",      d: "what /econ reads" },
+  { t: "youtube_feed",     filt: "",         n: "Videos mirrored",    d: "feeds A and B" },
+];
+
+function mins(iso) { return (Date.now() - new Date(iso).getTime()) / 60000; }
+function ageLbl(m) {
+  if (m < 90) return Math.round(m) + "m ago";
+  if (m < 2880) return Math.round(m / 60) + "h ago";
+  return Math.round(m / 1440) + "d ago";
+}
+function shell(box, items) {
+  box.innerHTML = items.map((f, i) =>
+    '<div class="row"><span class="dot chk" id="' + box.id + 'd' + i + '"></span>' +
+    '<span class="nm">' + esc(f.n) + "<small>" + esc(f.d) + " · " + esc(f.t) + "</small></span>" +
+    '<span class="n" id="' + box.id + 'n' + i + '"></span>' +
+    '<span class="age" id="' + box.id + 'a' + i + '">checking…</span></div>').join("");
+}
+function set(box, i, state, num, age) {
+  const d = el(box + "d" + i); if (d) d.className = "dot " + state;
+  const n = el(box + "n" + i); if (n && num != null) n.textContent = num;
+  const a = el(box + "a" + i); if (a) { a.textContent = age; a.className = "age " + state; }
+}
+
+async function countOf(t, filt) {
+  const cr = await pgRaw(t + "?select=" + encodeURIComponent(t === "composite_staged" ? "tf" : "*") + (filt || "") + "&limit=1", true);
+  const m = /\/(\d+)$/.exec(cr || "");
+  return m ? +m[1] : null;
+}
+
+async function run() {
+  shell(el("feeders"), FEEDERS);
+  shell(el("stock"), STOCK);
+
+  await Promise.all(FEEDERS.map(async (f, i) => {
+    try {
+      const c = await countOf(f.t, f.filt);
+      if (f.kind === "none") { set("feeders", i, c ? "ok" : "bad", c == null ? "" : c.toLocaleString() + " rows", c ? "present" : "empty"); return; }
+      const rows = await pgRaw(f.t + "?select=" + f.col + (f.filt || "") + "&order=" + f.col + ".desc&limit=1");
+      const v = rows && rows[0] ? rows[0][f.col] : null;
+      if (v == null) { set("feeders", i, "bad", c == null ? "" : c.toLocaleString() + " rows", "no rows"); return; }
+      const m = f.kind === "epoch" ? (Date.now() / 60000 - (+v) / 60) : mins(v);
+      const st = m > f.bad ? "bad" : m > f.warn ? "warn" : "ok";
+      set("feeders", i, st, c == null ? "" : c.toLocaleString() + " rows", ageLbl(m));
+    } catch (e) { set("feeders", i, "bad", "", "unreachable"); }
+  }));
+
+  await Promise.all(STOCK.map(async (s, i) => {
+    try {
+      const c = await countOf(s.t, s.filt);
+      set("stock", i, c ? "ok" : "bad", c == null ? "" : c.toLocaleString(), c ? "present" : "empty");
+    } catch (e) { set("stock", i, "bad", "", "unreachable"); }
+  }));
+
+  el("stamp").textContent = "checked " + new Date().toLocaleTimeString();
+}
+el("re").addEventListener("click", run);
+run();
+</script>
+</body>
+</html>
