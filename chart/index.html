@@ -18,6 +18,8 @@
      widget has no cohort board to click. PRICE BASIS: RAW DB prints
      (ohlcv_history, unadjusted) + live_quotes ticks — the hub chart's basis.
      Params: ?t=MU · ?range=1D (15m 30m 1h 2h 3h 4h 6h 12h 1D 3D 1W)
+       · ?bare=1 (pane mode — see the BARE note in the script)
+       · ?tvrange=1D|5D|1M|3M|6M|YTD|12M|60M|ALL (TradingView opening window)
      LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
      ============================================================================ -->
 <style>
@@ -74,6 +76,9 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   color:var(--ink); font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
   padding:3px 7px; outline:none; text-align:center; }
 .sc-ctkin:focus{ border-color:rgba(0,212,255,.45); color:var(--crk); }
+/* bare mode — the deck owns the timeframe, so the per-chart ladder is hidden here.
+   The ticker field and the TradingView button stay: nothing is lost. */
+html.bare .sc-crange{ display:none; }
 
 /* FIX 5 — IN-APP TradingView modal — ported verbatim */
 body.tvmodal-open{ overflow:hidden; }
@@ -145,7 +150,10 @@ function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){ ret
 const el = (id) => document.getElementById(id);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 function lsGet(k) { try { return localStorage.getItem(k); } catch (err) { return null; } }
-function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (err) {} }
+/* in bare mode we never write — see the BARE note below. Two same-origin
+   chart frames sharing one localStorage key is the whole timeframe bug. */
+let BARE = false;   /* set from ?bare=1 a few lines down */
+function lsSet(k, v) { if (BARE) return; try { localStorage.setItem(k, v); } catch (err) {} }
 const CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
 function cacheGet(k, staleOk) {
   try {
@@ -175,10 +183,20 @@ const CHART_RANGES = ["15m", "30m", "1h", "2h", "3h", "4h", "6h", "12h", "1D", "
 
 /* ---- widget state (hub S stub) ---- */
 const QS = new URLSearchParams(location.search);
+/* BARE MODE (?bare=1) — used when /chart is a pane inside /deck.
+   Two things change, and only these two:
+     1. the per-chart range ladder is hidden, because the deck owns ONE
+        timeframe bar for both charts;
+     2. nothing is written to localStorage. That shared key is exactly why
+        changing the timeframe on one chart used to change the other — two
+        same-origin iframes were writing the same scw_chartRange.
+   Everything else — the canvas, the ticker field, TradingView — is identical. */
+BARE = QS.get("bare") === "1";
 const S = {
-  chartT: (QS.get("t") || lsGet("scw_chartT") || "MU").toUpperCase().trim(),
-  chartRange: (function(){ const r = QS.get("range") || lsGet("scw_chartRange"); return CHART_RANGES.includes(r) ? r : "1D"; })(),
+  chartT: (QS.get("t") || (BARE ? null : lsGet("scw_chartT")) || "MU").toUpperCase().trim(),
+  chartRange: (function(){ const r = QS.get("range") || (BARE ? null : lsGet("scw_chartRange")); return CHART_RANGES.includes(r) ? r : "1D"; })(),
 };
+if (BARE) document.documentElement.classList.add("bare");
 let prevClose = {};
 
 /* ---- chart caches + colors — ported verbatim ---- */
@@ -253,10 +271,35 @@ const TV_STUDIES = encodeURIComponent(JSON.stringify([
   "RSI@tv-basicstudies", "MACD@tv-basicstudies", "WilliamR@tv-basicstudies",
   "MAExp@tv-basicstudies", "MAExp@tv-basicstudies"
 ]));
+/* ---- WHAT WE CAN AND CANNOT CONTROL WHEN WE HAND OFF TO TRADINGVIEW ----
+   CAN (this is the widget embed, and it is ours to configure): symbol, bar
+   interval, theme, chart style, the indicator stack, and — the one Alan
+   asked for — the VISIBLE WINDOW, via &range=. Without it the widget opens
+   pinned to the right edge on a handful of bars, which is the "too zoomed
+   in" he saw. We now open a sensible frame per timeframe: intraday gets
+   5 days, daily gets 12 months. Override with ?tvrange=3M|6M|YTD|12M|60M|ALL.
+   CANNOT: the full tradingview.com/chart site. That opens HIS saved layout
+   with his own indicators and his own zoom, and we deliberately do not
+   touch it — the standing order is that no session manipulates his
+   layouts. We pass the symbol and the interval and stop there. ---------- */
+const TV_INTERVAL = { "15m":"15","30m":"30","1h":"60","2h":"120","3h":"180","4h":"240",
+  "6h":"360","12h":"720","1D":"D","3D":"3D","1W":"W" };
+const TV_RANGES = ["1D","5D","1M","3M","6M","YTD","12M","60M","ALL"];
+function tvFrame() {
+  const q = (QS.get("tvrange") || "").toUpperCase();
+  if (TV_RANGES.includes(q)) return q;
+  const r = S.chartRange;
+  if (r === "1W" || r === "3D") return "60M";      /* weekly bars → five years */
+  if (r === "1D") return "12M";                     /* daily bars → a year */
+  return "5D";                                      /* intraday → a week of context */
+}
 const TV_EMBED_URL = (sym) => "https://s.tradingview.com/widgetembed/?symbol=" +
   encodeURIComponent(sym || "") +
-  "&interval=D&theme=dark&style=1&hide_side_toolbar=0&withdateranges=1&allow_symbol_change=1&save_image=0&locale=en&studies=" + TV_STUDIES;
-const TV_URL = (sym) => "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(sym || "");
+  "&interval=" + (TV_INTERVAL[S.chartRange] || "D") +
+  "&range=" + tvFrame() +
+  "&theme=dark&style=1&hide_side_toolbar=0&withdateranges=1&allow_symbol_change=1&save_image=0&locale=en&studies=" + TV_STUDIES;
+const TV_URL = (sym) => "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(sym || "") +
+  "&interval=" + (TV_INTERVAL[S.chartRange] || "D");
 const TV_LOAD_MS = 2600;
 let TV_TIMER = null;
 function tvFallback(url) {
@@ -524,6 +567,33 @@ document.addEventListener("keydown", (e) => {
     setChartTicker(document.activeElement.value);
     document.activeElement.blur();
   }
+});
+
+/* TICKER FIELD — click in, the old symbol is already selected, so typing
+   replaces it. It never jumbles with what was there. iOS Safari clears the
+   selection on the touch that follows focus, so we re-select on the next
+   frame and again on the click that lands. */
+function selAll(n) { try { n.select(); n.setSelectionRange(0, n.value.length); } catch (err) {} }
+document.addEventListener("focusin", (e) => {
+  const n = e.target;
+  if (n && n.id === "tkin") { selAll(n); requestAnimationFrame(() => selAll(n)); }
+});
+document.addEventListener("click", (e) => {
+  const n = e.target;
+  if (n && n.id === "tkin" && n.selectionStart === n.selectionEnd) selAll(n);
+});
+
+/* the deck (parent frame) drives the timeframe for BOTH charts through one bar */
+addEventListener("message", (e) => {
+  const d = e.data;
+  if (!d || d.sc !== "chart") return;
+  if (d.range && CHART_RANGES.includes(d.range)) {
+    S.chartRange = d.range;
+    document.querySelectorAll(".sc-crange").forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
+    const host = document.querySelector("#chartSlot .sc-nchart");
+    if (host) { host._series = null; scChartLoad(host); }
+  }
+  if (d.ticker) setChartTicker(d.ticker);
 });
 
 /* boot */
