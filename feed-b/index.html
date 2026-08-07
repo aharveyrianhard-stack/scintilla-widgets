@@ -3,72 +3,164 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0F">
 <title>SCINTILLA · feed B — personal</title>
 <!-- ============================================================================
-     SCINTILLA · FEED B — the normal personal YouTube feed.
-     ONE clean surface: a single player at the top, the feed underneath.
-     Nothing to crop out. Its own route. Feed A (market) is /feed-a.
-     FEED SPLIT is real, not invented: youtube_feed rows with NO ticker tags
-     (all of them subscription rows) = the personal feed — 1,024 rows at build
-     time. The market-tagged rows live on /feed-a instead.
-     PICTURE-IN-PICTURE, honestly: the player is YouTube's own iframe with
-     playsinline=1, which is the only legal way to show this content. On iOS a
-     cross-origin iframe cannot be pushed into PiP by our script — the browser
-     forbids it. What works: press play, then use the player's own
-     fullscreen → PiP control. The route's job is to hand you ONE clean video
-     with nothing else fighting it, which it does.
-     MOBILE-SAFE: exactly one iframe, ever. Thumbnails are lazy <img>. No
+     SCINTILLA · FEED B v2 — one clean video surface.
+
+     ---- v2, built on Alan's review -------------------------------------------
+     1. IT NEVER PICKS A VIDEO FOR YOU. v1 called play(rows[0]) on load. That
+        line is gone. The page opens as a LIST. You browse, you choose. The
+        player only exists once you have picked something.
+     2. NO MORE CROPPING. v1 stacked a fixed 16:9 player above the list, so on
+        a short window — an iPad pane, Stage Manager, a deck slot — the player
+        ate the height and the list was squeezed to nothing. v2 measures its
+        OWN container (not the window, which is wrong inside a pane) and goes
+        side by side when it is wide, top-and-bottom when it is tall, with the
+        player and the list each taking a real share. Nothing is ever cropped
+        off the bottom.
+     3. YOUR LISTS ARE HERE, and what is NOT here is said plainly.
+        From the mirror (youtube_feed) we can rebuild, for real: everything,
+        your SUBSCRIPTIONS, the ticker-tagged MARKET videos, SHORTS, and any
+        single CHANNEL or TICKER. Those are live chips below.
+        WATCH LATER and your named PLAYLISTS are NOT in the mirror — the
+        watch_later column exists but has zero rows, and there is no playlist
+        column at all. So instead of showing you an empty list and calling it
+        Watch Later, the "on YouTube" row hands off to the real thing.
+        Nothing is faked and nothing is lost.
+     4. PICTURE-IN-PICTURE, honestly: the player is YouTube's own iframe, the
+        only legal way to show this content. iOS forbids our script from
+        pushing a cross-origin iframe into PiP. Press play, then use the
+        player's own fullscreen → PiP control. On iPhone, "open in YouTube"
+        hands the video to the app, which has real system PiP.
+
+     MOBILE-SAFE: at most ONE iframe, ever, and only after you choose. No
      nested pages, no rotation, no animation loop.
-     Params: ?v=VIDEOID (deep-link a video) · ?limit=40 (10-120) ·
-       ?shorts=1 (include shorts; default off)
+     Params: ?v=VIDEOID (deep-link — the ONE case where a video is preselected,
+       because you asked for it by id) · ?list=all|subs|market|shorts ·
+       ?limit=60 (10-200) · ?t=MU · ?c=CHANNEL
      DB reads only, never FMP · youtube_feed · scintilla-live.
-     Receipt: HSC-FEEDB-LIVE-001.
+     Receipt: HSC-FEEDB-V2-001.
      ============================================================================ -->
 <style>
 :root{
   --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
   --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
-  --crk:#00D4FF; --bull:#00FFA3;
+  --crk:#00D4FF; --bull:#00FFA3; --vol:#FF8A00;
   --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
 }
-*{ box-sizing:border-box; min-width:0; }
+*{ box-sizing:border-box; min-width:0; -webkit-tap-highlight-color:transparent; }
 html,body{ margin:0; height:100%; }
 body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.02em;
   display:flex; flex-direction:column; overflow:hidden; -webkit-text-size-adjust:100%; }
-#hd{ flex:none; display:flex; align-items:baseline; gap:8px; padding:9px 12px 7px;
-  padding-top:calc(9px + env(safe-area-inset-top)); border-bottom:1px solid var(--line); }
+
+#hd{ flex:none; display:flex; align-items:center; gap:8px; padding:7px 11px 6px;
+  padding-top:calc(7px + env(safe-area-inset-top)); border-bottom:1px solid var(--line); }
 #hd .k{ color:var(--crk); font-size:9px; letter-spacing:.22em; text-transform:uppercase; }
 #hd .s{ color:var(--dim); font-size:9px; }
-#hd .o{ margin-left:auto; color:var(--mute); font-size:8px; letter-spacing:.1em; text-transform:uppercase; }
-#hd .o a{ color:var(--crk); text-decoration:none; }
-#player{ flex:none; width:100%; aspect-ratio:16/9; background:#000; border-bottom:1px solid var(--line); }
-#player iframe{ width:100%; height:100%; border:0; display:block; }
-#now{ flex:none; padding:7px 12px; border-bottom:1px solid var(--line); }
-#now .t{ color:var(--ink); font-size:11.5px; line-height:1.4; }
-#now .c{ color:var(--dim); font-size:9px; margin-top:3px; }
-#pip{ flex:none; padding:5px 12px; color:var(--mute); font-size:8px; letter-spacing:.08em;
-  text-transform:uppercase; border-bottom:1px solid var(--line); }
-#list{ flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; }
-.it{ display:flex; gap:9px; padding:7px 12px; border-bottom:1px solid var(--line); cursor:pointer; align-items:flex-start; }
+#hd .o{ margin-left:auto; display:flex; gap:5px; flex:none; }
+.btn{ font-size:8px; letter-spacing:.12em; text-transform:uppercase; padding:3px 8px;
+  border:1px solid var(--line); background:var(--panel2); color:var(--ink3); cursor:pointer;
+  text-decoration:none; white-space:nowrap; display:inline-block; }
+.btn:hover{ color:var(--ink); border-color:var(--hair); }
+.btn.on{ color:var(--crk); border-color:var(--crk); }
+.btn.out{ color:var(--vol); border-color:rgba(255,138,0,.35); }
+
+/* the list chips — YOUR lists, rebuilt from what the mirror actually holds */
+#lists{ flex:none; display:flex; gap:5px; padding:5px 11px; border-bottom:1px solid var(--line);
+  background:rgba(15,15,26,.55); overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+#lists::-webkit-scrollbar{ display:none; }
+#lists .lbl{ flex:none; color:var(--mute); font-size:7.5px; letter-spacing:.16em;
+  text-transform:uppercase; align-self:center; }
+#tools{ flex:none; display:flex; gap:5px; padding:5px 11px; border-bottom:1px solid var(--line); }
+#q{ flex:1 1 0; min-width:0; background:var(--panel2); border:1px solid var(--line); color:var(--ink);
+  font-family:var(--mono); font-size:12px; padding:4px 8px; outline:none; border-radius:0; -webkit-appearance:none; }
+#q:focus{ border-color:var(--crk); }
+#chan{ flex:none; max-width:44%; background:var(--panel2); border:1px solid var(--line); color:var(--ink3);
+  font-family:var(--mono); font-size:9px; padding:4px 6px; border-radius:0; }
+
+/* ---- the split. Measured from THIS page's own box, not the window,
+       because inside a deck pane the window is not the container. ---- */
+#main{ flex:1 1 0; min-height:0; display:flex; flex-direction:column; }
+body.wide #main{ flex-direction:row; }
+#stage{ display:none; min-height:0; min-width:0; flex-direction:column;
+  border-bottom:1px solid var(--line); }
+body.playing #stage{ display:flex; flex:1.15 1 0; }
+body.playing.wide #stage{ flex:1.4 1 0; border-bottom:0; border-right:1px solid var(--line); }
+#video{ flex:1 1 0; min-height:0; position:relative; background:#000; }
+#video iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; }
+#now{ flex:none; padding:6px 11px; background:var(--panel2); border-top:1px solid var(--line);
+  display:flex; align-items:flex-start; gap:8px; }
+#now .m{ flex:1 1 0; min-width:0; }
+#now .t{ color:var(--ink); font-size:11px; line-height:1.35; overflow:hidden;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+#now .c{ color:var(--dim); font-size:8.5px; margin-top:3px; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+#now .acts{ flex:none; display:flex; gap:4px; flex-wrap:wrap; justify-content:flex-end; max-width:46%; }
+
+#list{ flex:1 1 0; min-height:0; min-width:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain; }
+.it{ display:flex; gap:9px; padding:7px 11px; border-bottom:1px solid var(--line); cursor:pointer;
+  align-items:flex-start; }
 .it:hover{ background:var(--panel2); }
-.it.on{ background:rgba(0,212,255,.08); border-left:3px solid var(--crk); padding-left:9px; }
-.it img{ flex:none; width:88px; height:50px; object-fit:cover; background:#12121c; border:1px solid var(--line); }
-.it .m{ flex:1; min-width:0; }
+.it.on{ background:rgba(0,212,255,.08); border-left:3px solid var(--crk); padding-left:8px; }
+.it img{ flex:none; width:86px; height:49px; object-fit:cover; background:#12121c; border:1px solid var(--line); }
+.it .m{ flex:1 1 0; min-width:0; }
 .it .t{ color:var(--ink2); font-size:10.5px; line-height:1.35; overflow:hidden;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-.it .s{ color:var(--mute); font-size:8.5px; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.it .s{ color:var(--mute); font-size:8.5px; margin-top:3px; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
 .it .tk{ color:var(--crk); }
-.empty{ margin:auto; padding:20px; color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; text-align:center; }
+.hint{ padding:9px 11px; color:var(--mute); font-size:8.5px; letter-spacing:.06em; line-height:1.6;
+  border-bottom:1px solid var(--line); background:rgba(15,15,26,.35); }
+.hint b{ color:var(--ink3); font-weight:400; }
+.hint a{ color:var(--crk); text-decoration:none; }
+.empty{ padding:22px 14px; color:var(--mute); font-size:9px; letter-spacing:.14em;
+  text-transform:uppercase; text-align:center; }
+#ft{ flex:none; padding:4px 11px; padding-bottom:calc(4px + env(safe-area-inset-bottom));
+  border-top:1px solid var(--line); color:var(--mute); font-size:7.5px; letter-spacing:.08em;
+  text-transform:uppercase; display:flex; gap:8px; align-items:center; }
+#ft .r{ margin-left:auto; }
 </style>
 </head>
 <body>
-<div id="hd"><span class="k">FEED B</span><span class="s">personal · subscriptions</span>
-  <span class="o"><a href="/feed-a">← feed A</a></span></div>
-<div id="player"></div>
-<div id="now"><div class="t" id="nt">pick a video</div><div class="c" id="nc"></div></div>
-<div id="pip">play, then use the player's own fullscreen → picture-in-picture button · youtube_feed · db reads only</div>
-<div id="list"><div class="empty">loading feed…</div></div>
+<div id="hd">
+  <span class="k">FEED B</span><span class="s">personal · subscriptions</span>
+  <span class="o">
+    <a class="btn" href="/feed-a">← feed A</a>
+    <a class="btn" href="/youtube">grid</a>
+    <a class="btn" href="/registry">home</a>
+  </span>
+</div>
+
+<!-- YOUR LISTS. The live ones are rebuilt from the mirror; the ones the
+     mirror does not carry hand off to YouTube rather than pretending. -->
+<div id="lists"><span class="lbl">lists</span></div>
+<div id="tools">
+  <input id="q" type="search" placeholder="search titles and channels…" autocomplete="off" autocorrect="off" spellcheck="false">
+  <select id="chan"><option value="">every channel</option></select>
+</div>
+
+<div id="main">
+  <div id="stage">
+    <div id="video"></div>
+    <div id="now">
+      <div class="m"><div class="t" id="nt"></div><div class="c" id="nc"></div></div>
+      <div class="acts">
+        <a class="btn out" id="ytlink" target="_blank" rel="noopener">open in YouTube</a>
+        <span class="btn" id="closev">close player</span>
+      </div>
+    </div>
+  </div>
+  <div id="list"><div class="empty">loading feed…</div></div>
+</div>
+
+<div id="ft">
+  <span>db reads only · youtube_feed</span>
+  <span class="r" id="cnt"></span>
+</div>
+
 <script>
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -92,13 +184,31 @@ const el = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
 /* ==== THE ONLY LINE THAT DIFFERS BETWEEN FEED A AND FEED B ==== */
-const FEED = "personal"; /* personal = untagged subscription rows */
+const FEED = "personal";   /* market = ticker-tagged · personal = your subscriptions */
 
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const QS = new URLSearchParams(location.search);
 const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
-const LIMIT  = Math.max(10, Math.min(120, +(QS.get("limit") || 40)));
-const SHORTS = QS.get("shorts") === "1";
+const LIMIT  = Math.max(10, Math.min(200, +(QS.get("limit") || 60)));
 const TICK   = (QS.get("t") || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
+let CHAN     = QS.get("c") || "";
+
+/* THE LISTS. Live ones are real queries against the mirror. The ones the
+   mirror does not hold are hand-offs, labelled as hand-offs. */
+const LISTS = [
+  { id: "default", n: "my feed", q: "" },
+  { id: "subs",    n: "subscriptions",  q: "&is_sub=eq.true" },
+  { id: "market",  n: "market · tagged",q: "&tickers=not.is.null&tickers=neq." },
+  { id: "shorts",  n: "shorts",         q: "&is_short=eq.true" },
+  { id: "all",     n: "everything",     q: "" },
+];
+const HANDOFFS = [
+  { n: "watch later ↗", u: "https://www.youtube.com/playlist?list=WL" },
+  { n: "playlists ↗",   u: "https://www.youtube.com/feed/you" },
+  { n: "subs on YT ↗",  u: "https://www.youtube.com/feed/subscriptions" },
+];
+let LIST = LISTS.some((l) => l.id === QS.get("list")) ? QS.get("list") : "default";
 
 const ago = (iso) => {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -107,38 +217,126 @@ const ago = (iso) => {
   return Math.round(s / 86400) + "d";
 };
 
-/* one iframe for the life of the page — we only ever change its src */
+/* ---- the split, measured from our own box ---- */
+function relayout() {
+  const w = document.documentElement.clientWidth;
+  const h = document.documentElement.clientHeight;
+  /* side by side only when there is genuinely room for both */
+  document.body.classList.toggle("wide", w >= 700 && w > h * 1.25);
+}
+let raf = 0;
+const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; relayout(); }); };
+if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
+addEventListener("resize", nudge);
+addEventListener("orientationchange", nudge);
+if (window.visualViewport) visualViewport.addEventListener("resize", nudge);
+
+/* ---- the player. Only ever created because YOU chose something. ---- */
+let ROWS = [], BYID = {}, CUR = null;
 function play(v) {
-  el("player").innerHTML = '<iframe src="https://www.youtube.com/embed/' + encodeURIComponent(v.video_id) +
+  if (!v) return;
+  CUR = v;
+  document.body.classList.add("playing");
+  el("video").innerHTML = '<iframe src="https://www.youtube.com/embed/' + encodeURIComponent(v.video_id) +
     '?playsinline=1&rel=0&modestbranding=1" title="' + esc(v.title) +
     '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>';
   el("nt").textContent = v.title || v.video_id;
   el("nc").textContent = [v.channel, v.tickers ? "$" + String(v.tickers).replace(/,/g, " $") : "", v.duration || ""]
     .filter(Boolean).join("  ·  ");
+  el("ytlink").href = "https://www.youtube.com/watch?v=" + encodeURIComponent(v.video_id);
+  el("ytlink").textContent = IOS ? "open in the YouTube app" : "open in YouTube";
   for (const n of document.querySelectorAll(".it")) n.classList.toggle("on", n.dataset.v === v.video_id);
+  relayout();
+}
+function closePlayer() {
+  CUR = null;
+  el("video").innerHTML = "";                      /* the iframe is really gone */
+  document.body.classList.remove("playing");
+  for (const n of document.querySelectorAll(".it")) n.classList.remove("on");
+  relayout();
+}
+el("closev").addEventListener("click", closePlayer);
+
+/* ---- lists ---- */
+function paintLists() {
+  const bar = el("lists");
+  bar.innerHTML = '<span class="lbl">lists</span>';
+  for (const l of LISTS) {
+    const b = document.createElement("span");
+    b.className = "btn" + (l.id === LIST ? " on" : "");
+    b.textContent = l.n;
+    b.addEventListener("click", () => { LIST = l.id; paintLists(); load(); });
+    bar.appendChild(b);
+  }
+  const sep = document.createElement("span"); sep.className = "lbl"; sep.textContent = "on youtube";
+  bar.appendChild(sep);
+  for (const h of HANDOFFS) {
+    const a = document.createElement("a");
+    a.className = "btn out"; a.href = h.u; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = h.n;
+    a.title = "not mirrored in our data — this opens the real thing on YouTube";
+    bar.appendChild(a);
+  }
+}
+
+/* ---- render ---- */
+function paint() {
+  const q = el("q").value.trim().toLowerCase();
+  const rows = ROWS.filter((v) => {
+    if (CHAN && v.channel !== CHAN) return false;
+    if (!q) return true;
+    return ((v.title || "") + " " + (v.channel || "") + " " + (v.tickers || "")).toLowerCase().indexOf(q) >= 0;
+  });
+  el("cnt").textContent = rows.length + " of " + ROWS.length;
+  if (!rows.length) { el("list").innerHTML = '<div class="empty">nothing matches</div>'; return; }
+  el("list").innerHTML =
+    '<div class="hint"><b>Nothing is playing and nothing was chosen for you.</b> Tap any row to load it here. ' +
+    'Watch Later and your named playlists are not in our mirror — the orange chips above open the real ones on YouTube.</div>' +
+    rows.map((v) =>
+      '<div class="it' + (CUR && CUR.video_id === v.video_id ? " on" : "") + '" data-v="' + esc(v.video_id) + '">' +
+      (v.thumb_url ? '<img loading="lazy" decoding="async" src="' + esc(v.thumb_url) + '" alt="">' : '<img alt="">') +
+      '<div class="m"><div class="t">' + esc(v.title) + "</div>" +
+      '<div class="s">' + esc(v.channel || "") + (v.published_at ? " · " + ago(v.published_at) : "") +
+        (v.tickers ? ' · <span class="tk">$' + esc(String(v.tickers).split(",")[0]) + "</span>" : "") +
+        (v.duration ? " · " + esc(v.duration) : "") + "</div></div></div>").join("");
+  for (const n of el("list").querySelectorAll(".it"))
+    n.addEventListener("click", () => play(BYID[n.dataset.v]));
 }
 
 async function load() {
-  let q = "youtube_feed?select=video_id,title,channel,tickers,duration,is_short,thumb_url,published_at" +
+  el("list").innerHTML = '<div class="empty">loading…</div>';
+  let q = "youtube_feed?select=video_id,title,channel,tickers,duration,is_short,is_sub,thumb_url,published_at" +
           "&order=published_at.desc&limit=" + LIMIT;
-  q += FEED === "market" ? "&tickers=not.is.null&tickers=neq." : "&or=(tickers.is.null,tickers.eq.)";
-  if (!SHORTS) q += "&is_short=eq.false";
+  const chosen = LISTS.find((l) => l.id === LIST);
+  if (LIST === "default") {
+    q += FEED === "market" ? "&tickers=not.is.null&tickers=neq." : "&or=(tickers.is.null,tickers.eq.)";
+    q += "&is_short=eq.false";
+  } else if (LIST !== "all") {
+    q += chosen.q;
+  }
   if (TICK) q += "&tickers=ilike.*" + encodeURIComponent(TICK) + "*";
-  const rows = await pg(q);
-  if (!Array.isArray(rows) || !rows.length) { el("list").innerHTML = '<div class="empty">no videos in this feed right now</div>'; return; }
-  el("list").innerHTML = rows.map((v) =>
-    '<div class="it" data-v="' + esc(v.video_id) + '">' +
-    (v.thumb_url ? '<img loading="lazy" src="' + esc(v.thumb_url) + '" alt="">' : '<img alt="">') +
-    '<div class="m"><div class="t">' + esc(v.title) + "</div>" +
-    '<div class="s">' + esc(v.channel || "") + (v.published_at ? " · " + ago(v.published_at) : "") +
-      (v.tickers ? ' · <span class="tk">$' + esc(String(v.tickers).split(",")[0]) + "</span>" : "") +
-      (v.duration ? " · " + esc(v.duration) : "") + "</div></div></div>").join("");
-  const byId = {}; for (const v of rows) byId[v.video_id] = v;
-  for (const n of document.querySelectorAll(".it"))
-    n.addEventListener("click", () => play(byId[n.dataset.v]));
-  play(START && byId[START] ? byId[START] : rows[0]);
+  let rows;
+  try { rows = await pg(q); }
+  catch (e) { el("list").innerHTML = '<div class="empty">feed unavailable — the list is still one tap away on YouTube</div>'; return; }
+  ROWS = Array.isArray(rows) ? rows : [];
+  BYID = {}; for (const v of ROWS) BYID[v.video_id] = v;
+
+  /* channel picker — a real list of the channels actually present */
+  const chans = Array.from(new Set(ROWS.map((v) => v.channel).filter(Boolean))).sort();
+  const sel = el("chan");
+  sel.innerHTML = '<option value="">every channel (' + chans.length + ")</option>" +
+    chans.map((c) => '<option value="' + esc(c) + '"' + (c === CHAN ? " selected" : "") + ">" + esc(c) + "</option>").join("");
+
+  paint();
+  /* THE ONLY preselect that ever happens: you asked for a video by id. */
+  if (START && BYID[START]) play(BYID[START]);
 }
-load().catch(() => { el("list").innerHTML = '<div class="empty">feed unavailable</div>'; });
+
+el("q").addEventListener("input", paint);
+el("q").addEventListener("focus", () => el("q").select());
+el("chan").addEventListener("change", () => { CHAN = el("chan").value; paint(); });
+
+paintLists(); relayout(); load();
 </script>
 </body>
 </html>
