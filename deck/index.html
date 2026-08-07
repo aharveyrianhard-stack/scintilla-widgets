@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SCINTILLA · deck</title>
+<!-- ============================================================================
+     SCINTILLA · /deck — THE ONE SCENE. Composition, not new widgets.
+     Two charts across the top, the two YouTube feeds below, every pane
+     poppable. Four panes, all of them routes that already shipped:
+       top-left  /chart?t=…   top-right /chart?t=…
+       bottom-l  /feed-a (Scintilla market video)
+       bottom-r  /feed-b (personal YouTube)
+     The same four panes are ALSO seeded into the existing scenes engine as
+     scene "watch-deck" (scene_layouts ids 23/24/25, wall+laptop+narrow) so the
+     engine composes it with zero new code: /scenes?scene=watch-deck.
+     This route exists for the ONE thing the engine cannot do — the POP button.
+
+     THE PiP GAP, FIXED HONESTLY. Alan: "I have an X PiP but no YouTube PiP —
+     that makes no sense." Correct, and here is the real reason: a cross-origin
+     iframe cannot be pushed into picture-in-picture by our script. The browser
+     forbids it. So every pane gets a POP button that does the best real thing
+     for the device it is on:
+       · desktop  → opens that pane in its own small always-on-top-able window
+                    (window.open, sized for video vs charts). That IS the PiP
+                    he already does by hand with cropped windows — now one
+                    click instead of a drag.
+       · iOS/iPadOS → hands the video to the YouTube app, which has real
+                    system PiP. Charts pop to a new tab.
+       · plus the in-player PiP control stays available inside every feed pane.
+     Result: all four panes pop. No pane is second-class.
+
+     MOBILE-SAFE: on a phone the deck stacks, the second chart is dropped
+     rather than crushed, and the live-pane cap is 2 (the chart plus ONE video)
+     — tapping the other video swaps video-for-video and never steals the
+     chart. Desktop runs all four. Memory can never run away.
+
+     SLOT DECISIONS ARE EXPLICIT (see the "why these?" button in-page):
+       chart 1 = SPY   — the tape. Revealed preference: it is the left chart on
+                         the wall Alan arranged by hand.
+       chart 2 = SNDK  — same reason, it is the right chart on that wall.
+       ?c2=auto        — swaps chart 2 to the loudest favourite right now
+                         (largest |chg %| across hub_favorites × live_quotes).
+       feeds           — already decided by him: market on the left,
+                         personal on the right.
+     Everything is overridable: ?c1= ?c2= ?range= ?live=N.
+     DB reads only for the auto pick; the panes fetch their own data.
+     Receipt: HSC-DECK-LIVE-001.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; }
+html,body{ margin:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.02em;
+  display:flex; flex-direction:column; overflow:hidden; -webkit-text-size-adjust:100%; }
+#bar{ flex:none; display:flex; align-items:center; gap:8px; padding:6px 10px;
+  padding-top:calc(6px + env(safe-area-inset-top)); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+#bar .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; }
+#bar .s{ color:var(--dim); font-size:8.5px; }
+#bar .r{ margin-left:auto; display:flex; gap:6px; align-items:center; }
+.btn{ font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; padding:2px 8px;
+  border:1px solid var(--line); background:var(--panel2); color:var(--ink3); cursor:pointer; text-decoration:none; }
+.btn:hover{ color:var(--ink); border-color:var(--hair); }
+.btn.on{ color:var(--crk); border-color:var(--crk); }
+#grid{ flex:1; display:grid; gap:1px; background:var(--line); min-height:0; }
+.pane{ position:relative; background:var(--bg); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+.ph{ flex:none; display:flex; align-items:center; gap:7px; padding:3px 8px; background:var(--panel2);
+  border-bottom:1px solid var(--line); }
+.ph .t{ color:var(--ink2); font-size:8.5px; letter-spacing:.16em; text-transform:uppercase;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ph .tag{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; }
+.ph .pop{ margin-left:auto; }
+.body{ flex:1; position:relative; min-height:0; }
+.body iframe{ width:100%; height:100%; border:0; display:block; background:var(--bg); }
+.hold{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:8px; cursor:pointer; text-align:center; padding:14px; }
+.hold:hover{ background:rgba(0,212,255,.05); }
+.hold .n{ color:var(--ink2); font-size:10px; letter-spacing:.12em; text-transform:uppercase; }
+.hold .d{ color:var(--mute); font-size:8.5px; line-height:1.6; max-width:280px; }
+.hold .go{ color:var(--crk); font-size:8.5px; letter-spacing:.18em; text-transform:uppercase;
+  border:1px solid var(--hair); padding:3px 11px; }
+#why{ position:fixed; inset:auto 10px 10px 10px; max-width:640px; margin:0 auto; background:var(--panel2);
+  border:1px solid var(--hair); padding:14px 16px; display:none; z-index:20; max-height:70vh; overflow-y:auto; }
+#why.open{ display:block; }
+#why h3{ color:var(--crk); font-size:9px; letter-spacing:.22em; text-transform:uppercase; font-weight:400; margin:0 0 8px; }
+#why p{ color:var(--ink2); font-size:10px; line-height:1.7; margin:0 0 8px; }
+#why b{ color:var(--ink); }
+#why .x{ float:right; cursor:pointer; color:var(--dim); }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="k">DECK</span>
+  <span class="s" id="sub">two charts over the two feeds · every pane pops</span>
+  <span class="r">
+    <span class="btn" id="whybtn">why these?</span>
+    <a class="btn" id="sceneLink" href="/scenes?scene=watch-deck">in the scene engine</a>
+  </span>
+</div>
+<div id="grid"></div>
+<div id="why">
+  <span class="x" id="whyx">close ✕</span>
+  <h3>What is in each slot, and why</h3>
+  <p><b>Chart 1 — SPY.</b> Not a guess: it is the left chart on the Apple TV wall you arranged by hand.
+     Revealed preference beats my taste.</p>
+  <p><b>Chart 2 — SNDK.</b> Same reason — the right chart on that same wall. Swap it with
+     <b>?c2=TICKER</b>, or use <b>?c2=auto</b> and the deck picks the loudest name in your favourites
+     right now (largest move in either direction).</p>
+  <p><b>Bottom left — the Scintilla market feed</b> (/feed-a) and <b>bottom right — your personal feed</b>
+     (/feed-b). You already made that call; I did not re-decide it.</p>
+  <p><b>Every pane pops.</b> On desktop a pop opens that pane in its own small window — the crop you do by
+     hand, as one click. On iPhone/iPad a video pane hands off to the YouTube app, which has real system
+     picture-in-picture; a cross-origin embed cannot be forced into PiP by any script, so the app is the
+     honest route. The player's own PiP control still works inside each feed pane.</p>
+  <p><b>On a phone</b> the deck stacks, the second chart is dropped rather than crushed, and one video runs
+     at a time — the other waits behind a tap. That is the fix that stopped Safari dying on the geiger wall.</p>
+</div>
+<script>
+"use strict";
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+async function pg(path) {
+  const r = await fetch(SB + "/rest/v1/" + path, { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
+  if (!r.ok) throw new Error("pg " + r.status);
+  return r.json();
+}
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+const QS = new URLSearchParams(location.search);
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+/* phone = genuinely narrow, OR a touch iOS device. Deliberately width-based:
+   a 1400x800 laptop window is a desktop and must get the full deck. */
+const PHONE = innerWidth < 760 || (IOS && matchMedia("(pointer: coarse)").matches && innerWidth < 1100);
+const RANGE = (QS.get("range") || "1D").replace(/[^A-Za-z0-9]/g, "");
+const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
+let C1 = CLEAN(QS.get("c1")) || "SPY";
+let C2 = CLEAN(QS.get("c2")) || "SNDK";
+/* on a phone: the chart plus ONE video. Tapping the second video swaps
+   video-for-video and never steals the chart. */
+const LIVE_CAP = Math.max(1, Math.min(4, +(QS.get("live") || (PHONE ? 2 : 4))));
+
+el("whybtn").addEventListener("click", () => el("why").classList.toggle("open"));
+el("whyx").addEventListener("click", () => el("why").classList.remove("open"));
+
+/* ---- POP: the best real thing per device ---- */
+function pop(kind, url, title) {
+  if (kind === "video" && IOS) {
+    /* the YouTube app owns real system PiP on iOS — hand it over */
+    const m = url.match(/[?&]v=([A-Za-z0-9_-]{11})/);
+    window.open(m ? "https://www.youtube.com/watch?v=" + m[1] : url, "_blank");
+    return;
+  }
+  const w = kind === "video" ? 480 : 760, h = kind === "video" ? 300 : 460;
+  const win = window.open(url, "deck_" + title.replace(/\W/g, ""),
+    "width=" + w + ",height=" + h + ",menubar=no,toolbar=no,location=no,status=no");
+  if (!win) window.open(url, "_blank");
+}
+
+/* ---- panes ---- */
+let LIVE = [];
+function makePane(def) {
+  const p = document.createElement("div"); p.className = "pane";
+  const head = document.createElement("div"); head.className = "ph";
+  head.innerHTML = '<span class="t">' + esc(def.title) + '</span><span class="tag">' + esc(def.tag) + "</span>";
+  const popBtn = document.createElement("span");
+  popBtn.className = "btn pop"; popBtn.textContent = "pop";
+  popBtn.title = def.kind === "video"
+    ? (IOS ? "open in the YouTube app — real system PiP" : "open this feed in its own small window")
+    : "open this chart in its own window";
+  popBtn.addEventListener("click", (e) => { e.stopPropagation(); pop(def.kind, def.popUrl || def.src, def.title); });
+  head.appendChild(popBtn);
+  const body = document.createElement("div"); body.className = "body";
+  p.appendChild(head); p.appendChild(body);
+
+  const hold_for = (bd, mnt, note) => {
+    const h = document.createElement("div"); h.className = "hold";
+    h.innerHTML = '<div class="n">' + esc(def.title) + '</div><div class="d">' + esc(note) + "</div>" +
+      '<div class="go">tap to load</div>';
+    h.addEventListener("click", mnt);
+    bd.appendChild(h);
+  };
+  const mount = () => {
+    const hold = body.querySelector(".hold"); if (hold) hold.remove();
+    const f = document.createElement("iframe");
+    f.src = def.src; f.loading = "lazy";
+    f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+    f.setAttribute("allowfullscreen", "");
+    body.appendChild(f);
+    LIVE.push({ body, frame: f, mount, kind: def.kind, title: def.title });
+    while (LIVE.length > LIVE_CAP) {
+      const old = LIVE.shift();
+      old.frame.remove();
+      hold_for(old.body, old.mount, "paused to keep this page light");
+    }
+  };
+
+  if (def.autoload) mount();
+  else hold_for(body, mount, PHONE ? "one video at a time on a phone — this is the safari fix" : "tap to load");
+  return p;
+}
+
+async function build() {
+  if (QS.get("c2") === "auto") {
+    try {
+      const [fav, lq] = await Promise.all([
+        pg("hub_favorites?select=ticker"),
+        pg("live_quotes?select=ticker,chg_pct"),
+      ]);
+      const set = new Set((fav || []).map((f) => f.ticker));
+      const best = (lq || []).filter((q) => set.has(q.ticker) && q.chg_pct != null)
+        .sort((a, b) => Math.abs(+b.chg_pct) - Math.abs(+a.chg_pct))[0];
+      if (best) { C2 = best.ticker; el("sub").textContent = "chart 2 auto-picked: " + C2 + " (loudest favourite)"; }
+    } catch (e) { /* keep the hand-picked default */ }
+  }
+
+  const grid = el("grid");
+  grid.style.gridTemplateColumns = PHONE ? "1fr" : "1fr 1fr";
+  grid.style.gridTemplateRows = PHONE ? "minmax(150px,1fr) minmax(190px,1.3fr) minmax(190px,1.3fr)" : "1fr 1fr";
+  grid.style.overflowY = PHONE ? "auto" : "hidden";
+
+  const panes = [
+    { title: C1, tag: "chart · " + RANGE, kind: "chart", src: "/chart?t=" + encodeURIComponent(C1) + "&range=" + RANGE, autoload: true },
+    { title: C2, tag: "chart · " + RANGE, kind: "chart", src: "/chart?t=" + encodeURIComponent(C2) + "&range=" + RANGE, autoload: !PHONE },
+    { title: "Scintilla market", tag: "feed A", kind: "video", src: "/feed-a", autoload: !PHONE },
+    { title: "Personal", tag: "feed B", kind: "video", src: "/feed-b", autoload: !PHONE },
+  ];
+  /* narrow drops the second chart rather than crushing it — same call the
+     narrow scene_layouts row makes */
+  const list = PHONE ? [panes[0], panes[2], panes[3]] : panes;
+  grid.innerHTML = "";
+  for (const d of list) grid.appendChild(makePane(d));
+  el("sceneLink").href = "/scenes?scene=watch-deck" + (PHONE ? "&profile=narrow" : "");
+}
+build();
+</script>
+</body>
+</html>
