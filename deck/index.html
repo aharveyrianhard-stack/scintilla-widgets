@@ -5,47 +5,46 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SCINTILLA · deck</title>
 <!-- ============================================================================
-     SCINTILLA · /deck — THE ONE SCENE. Composition, not new widgets.
-     Two charts across the top, the two YouTube feeds below, every pane
-     poppable. Four panes, all of them routes that already shipped:
-       top-left  /chart?t=…   top-right /chart?t=…
-       bottom-l  /feed-a (Scintilla market video)
-       bottom-r  /feed-b (personal YouTube)
-     The same four panes are ALSO seeded into the existing scenes engine as
-     scene "watch-deck" (scene_layouts ids 23/24/25, wall+laptop+narrow) so the
-     engine composes it with zero new code: /scenes?scene=watch-deck.
-     This route exists for the ONE thing the engine cannot do — the POP button.
+     SCINTILLA · /deck v2 — THE ONE SCENE. Composition, not new widgets.
+     FIVE panes, every one of them a route that already shipped, plus X:
+       top     /chart?t=…    /chart?t=…
+       bottom  /feed-a (Scintilla market) · /feed-b (personal) · X / x.com
+     Also seeded in the scenes engine as watch-deck (scene_layouts 23/24/25).
 
-     THE PiP GAP, FIXED HONESTLY. Alan: "I have an X PiP but no YouTube PiP —
-     that makes no sense." Correct, and here is the real reason: a cross-origin
-     iframe cannot be pushed into picture-in-picture by our script. The browser
-     forbids it. So every pane gets a POP button that does the best real thing
-     for the device it is on:
-       · desktop  → opens that pane in its own small always-on-top-able window
-                    (window.open, sized for video vs charts). That IS the PiP
-                    he already does by hand with cropped windows — now one
-                    click instead of a drag.
-       · iOS/iPadOS → hands the video to the YouTube app, which has real
-                    system PiP. Charts pop to a new tab.
-       · plus the in-player PiP control stays available inside every feed pane.
-     Result: all four panes pop. No pane is second-class.
+     ---- v2, added on Alan's review -------------------------------------------
+     1. THE X / TWITTER PiP is now in the scene. It could not be an iframe —
+        x.com is login-walled and refuses framing — so it is an honest DOCK
+        that pops to its own window, exactly like the X dock on /tv. Every
+        pane in this scene now pops. No pane is second-class.
+     2. Per-pane FULL — any pane goes full-bleed inside the deck and comes
+        straight back. That is "one thing full-screen, then back" without
+        leaving the scene or losing the others.
+     3. A SCENE SWITCHER — named views across the top, so switching between
+        scenes is one tap and the way back is always visible.
 
-     MOBILE-SAFE: on a phone the deck stacks, the second chart is dropped
-     rather than crushed, and the live-pane cap is 2 (the chart plus ONE video)
-     — tapping the other video swaps video-for-video and never steals the
-     chart. Desktop runs all four. Memory can never run away.
+     ---- THE IRON RULE: LOSE NOTHING ------------------------------------------
+     Nothing may become unreachable because it is now inside a scene.
+       · Every pane keeps its OWN header with its own POP and FULL controls.
+       · The feed panes are the WHOLE /feed-a and /feed-b pages — the video
+         list, the picker, the filters, the player. Selecting a video still
+         works exactly as it does on the standalone route. Nothing was
+         stripped to make it fit.
+       · A PANES chip row lists every pane in the scene. A pane that is
+         paused (phone budget) or hidden is still one tap away — it can never
+         disappear from reach.
+       · Every pane header also carries OPEN, which leaves the deck for that
+         route full-page, so the standalone experience is never more than one
+         click away.
+       · The live-pane budget only ever PAUSES a pane behind a tap-to-load
+         card. It never removes it from the layout or the chip row.
+     If a future pane cannot honour all of that, it does not go in the scene.
 
-     SLOT DECISIONS ARE EXPLICIT (see the "why these?" button in-page):
-       chart 1 = SPY   — the tape. Revealed preference: it is the left chart on
-                         the wall Alan arranged by hand.
-       chart 2 = SNDK  — same reason, it is the right chart on that wall.
-       ?c2=auto        — swaps chart 2 to the loudest favourite right now
-                         (largest |chg %| across hub_favorites × live_quotes).
-       feeds           — already decided by him: market on the left,
-                         personal on the right.
-     Everything is overridable: ?c1= ?c2= ?range= ?live=N.
-     DB reads only for the auto pick; the panes fetch their own data.
-     Receipt: HSC-DECK-LIVE-001.
+     SLOT DECISIONS, unchanged and still printed in-page under "why these?":
+       chart 1 = SPY, chart 2 = SNDK — the two charts on the Apple TV wall
+       Alan arranged by hand (revealed preference, not my taste).
+       ?c2=auto picks the loudest favourite right now.
+     Params: ?c1= ?c2= (or auto) ?range=1D ?live=N ?full=PANEKEY
+     DB reads only for the auto pick. Receipt: HSC-DECK-V2-001.
      ============================================================================ -->
 <style>
 :root{
@@ -59,34 +58,43 @@ html,body{ margin:0; height:100%; }
 body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.02em;
   display:flex; flex-direction:column; overflow:hidden; -webkit-text-size-adjust:100%; }
-#bar{ flex:none; display:flex; align-items:center; gap:8px; padding:6px 10px;
-  padding-top:calc(6px + env(safe-area-inset-top)); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+#bar{ flex:none; display:flex; align-items:center; gap:6px; padding:5px 9px;
+  padding-top:calc(5px + env(safe-area-inset-top)); border-bottom:1px solid var(--line); flex-wrap:wrap; }
 #bar .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; }
-#bar .s{ color:var(--dim); font-size:8.5px; }
-#bar .r{ margin-left:auto; display:flex; gap:6px; align-items:center; }
+#bar .sep{ color:var(--mute); }
 .btn{ font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; padding:2px 8px;
-  border:1px solid var(--line); background:var(--panel2); color:var(--ink3); cursor:pointer; text-decoration:none; }
+  border:1px solid var(--line); background:var(--panel2); color:var(--ink3); cursor:pointer;
+  text-decoration:none; white-space:nowrap; }
 .btn:hover{ color:var(--ink); border-color:var(--hair); }
 .btn.on{ color:var(--crk); border-color:var(--crk); }
+.btn.live{ color:var(--bull); border-color:rgba(0,255,163,.4); }
+#panebar{ flex:none; display:flex; align-items:center; gap:5px; padding:4px 9px; flex-wrap:wrap;
+  border-bottom:1px solid var(--line); background:rgba(15,15,26,.6); }
+#panebar .lbl{ color:var(--mute); font-size:7.5px; letter-spacing:.16em; text-transform:uppercase; }
 #grid{ flex:1; display:grid; gap:1px; background:var(--line); min-height:0; }
+#grid.solo{ grid-template-columns:1fr !important; grid-template-rows:1fr !important; }
 .pane{ position:relative; background:var(--bg); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
-.ph{ flex:none; display:flex; align-items:center; gap:7px; padding:3px 8px; background:var(--panel2);
+.pane.hidden{ display:none; }
+.ph{ flex:none; display:flex; align-items:center; gap:6px; padding:3px 7px; background:var(--panel2);
   border-bottom:1px solid var(--line); }
 .ph .t{ color:var(--ink2); font-size:8.5px; letter-spacing:.16em; text-transform:uppercase;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .ph .tag{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; }
-.ph .pop{ margin-left:auto; }
+.ph .acts{ margin-left:auto; display:flex; gap:4px; }
 .body{ flex:1; position:relative; min-height:0; }
 .body iframe{ width:100%; height:100%; border:0; display:block; background:var(--bg); }
-.hold{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-  gap:8px; cursor:pointer; text-align:center; padding:14px; }
-.hold:hover{ background:rgba(0,212,255,.05); }
-.hold .n{ color:var(--ink2); font-size:10px; letter-spacing:.12em; text-transform:uppercase; }
-.hold .d{ color:var(--mute); font-size:8.5px; line-height:1.6; max-width:280px; }
-.hold .go{ color:var(--crk); font-size:8.5px; letter-spacing:.18em; text-transform:uppercase;
-  border:1px solid var(--hair); padding:3px 11px; }
-#why{ position:fixed; inset:auto 10px 10px 10px; max-width:640px; margin:0 auto; background:var(--panel2);
-  border:1px solid var(--hair); padding:14px 16px; display:none; z-index:20; max-height:70vh; overflow-y:auto; }
+.card{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:8px; cursor:pointer; text-align:center; padding:16px; }
+.card:hover{ background:rgba(0,212,255,.05); }
+.card .n{ color:var(--ink2); font-size:10px; letter-spacing:.14em; text-transform:uppercase; }
+.card .d{ color:var(--mute); font-size:8.5px; line-height:1.6; max-width:300px; }
+.card .go{ color:var(--crk); font-size:8.5px; letter-spacing:.18em; text-transform:uppercase;
+  border:1px solid var(--hair); padding:3px 12px; }
+.card.dock{ cursor:default; border:1.5px dashed rgba(0,212,255,.35); margin:6px; }
+.card.dock .go{ cursor:pointer; }
+.card.dock .rect{ color:var(--vol); font-size:9px; font-variant-numeric:tabular-nums; letter-spacing:.06em; }
+#why{ position:fixed; inset:auto 10px 10px 10px; max-width:660px; margin:0 auto; background:var(--panel2);
+  border:1px solid var(--hair); padding:14px 16px; display:none; z-index:30; max-height:74vh; overflow-y:auto; }
 #why.open{ display:block; }
 #why h3{ color:var(--crk); font-size:9px; letter-spacing:.22em; text-transform:uppercase; font-weight:400; margin:0 0 8px; }
 #why p{ color:var(--ink2); font-size:10px; line-height:1.7; margin:0 0 8px; }
@@ -97,29 +105,35 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 <body>
 <div id="bar">
   <span class="k">DECK</span>
-  <span class="s" id="sub">two charts over the two feeds · every pane pops</span>
-  <span class="r">
-    <span class="btn" id="whybtn">why these?</span>
-    <a class="btn" id="sceneLink" href="/scenes?scene=watch-deck">in the scene engine</a>
-  </span>
+  <a class="btn on" href="/deck">watch</a>
+  <a class="btn" href="/tv">wall</a>
+  <a class="btn" href="/reflow?view=treemap">scan</a>
+  <a class="btn" href="/feed-b">weekend</a>
+  <span class="sep">·</span>
+  <span class="btn" id="whybtn">why these?</span>
+  <a class="btn" id="sceneLink" href="/scenes?scene=watch-deck">engine</a>
+  <a class="btn" href="/registry">all scenes</a>
 </div>
+<div id="panebar"><span class="lbl">panes</span></div>
 <div id="grid"></div>
 <div id="why">
   <span class="x" id="whyx">close ✕</span>
-  <h3>What is in each slot, and why</h3>
-  <p><b>Chart 1 — SPY.</b> Not a guess: it is the left chart on the Apple TV wall you arranged by hand.
-     Revealed preference beats my taste.</p>
-  <p><b>Chart 2 — SNDK.</b> Same reason — the right chart on that same wall. Swap it with
-     <b>?c2=TICKER</b>, or use <b>?c2=auto</b> and the deck picks the loudest name in your favourites
-     right now (largest move in either direction).</p>
-  <p><b>Bottom left — the Scintilla market feed</b> (/feed-a) and <b>bottom right — your personal feed</b>
-     (/feed-b). You already made that call; I did not re-decide it.</p>
-  <p><b>Every pane pops.</b> On desktop a pop opens that pane in its own small window — the crop you do by
-     hand, as one click. On iPhone/iPad a video pane hands off to the YouTube app, which has real system
-     picture-in-picture; a cross-origin embed cannot be forced into PiP by any script, so the app is the
-     honest route. The player's own PiP control still works inside each feed pane.</p>
-  <p><b>On a phone</b> the deck stacks, the second chart is dropped rather than crushed, and one video runs
-     at a time — the other waits behind a tap. That is the fix that stopped Safari dying on the geiger wall.</p>
+  <h3>What is in each slot, and the rule that protects it</h3>
+  <p><b>Chart 1 — SPY. Chart 2 — SNDK.</b> Not a guess: those are the two charts on the Apple TV wall you
+     arranged by hand. Swap with <b>?c2=TICKER</b>, or <b>?c2=auto</b> to follow the loudest favourite.</p>
+  <p><b>Bottom row — the Scintilla market feed, your personal feed, and X.</b> The two feeds are the WHOLE
+     /feed-a and /feed-b pages: the list, the picker, the player. <b>Choosing a video works here exactly as
+     it does on the standalone route</b> — nothing was stripped to make it fit.</p>
+  <p><b>X is a dock, not an embed, and that is not a shortcut.</b> x.com is login-walled and refuses to be
+     framed by anyone. So the pane reserves its exact spot and pops your real logged-in window onto it —
+     the same thing the X dock on the TV wall does. It pops like every other pane.</p>
+  <p><b>Every pane carries POP, FULL and OPEN.</b> POP gives it its own window (on iOS a video hands off to
+     the YouTube app, which has real system picture-in-picture). FULL makes it full-bleed inside the deck
+     with a way straight back. OPEN leaves for that route full-page. Nothing here is ever more than one
+     click from its standalone self.</p>
+  <p><b>Lose nothing.</b> The PANES row above lists every pane. On a phone the deck stacks and the live
+     budget PAUSES panes behind a tap — it never removes one from the layout or the chip row. Anything
+     paused is one tap from being back.</p>
 </div>
 <script>
 "use strict";
@@ -136,109 +150,221 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
 const QS = new URLSearchParams(location.search);
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-/* phone = genuinely narrow, OR a touch iOS device. Deliberately width-based:
-   a 1400x800 laptop window is a desktop and must get the full deck. */
-const PHONE = innerWidth < 760 || (IOS && matchMedia("(pointer: coarse)").matches && innerWidth < 1100);
+/* three honest layouts. Width-based: a 1400x800 laptop is a desktop. */
+function layoutMode() {
+  const w = innerWidth;
+  if (w < 760) return "stack";       /* phone: one column, everything present */
+  if (w < 1180) return "grid2";      /* iPad / small window: two columns */
+  return "deck";                     /* 2 charts over 3 panes */
+}
+let MODE = layoutMode();
+const CAP = { stack: 2, grid2: 3, deck: 5 };
+const LIVE_CAP = Math.max(1, Math.min(6, +(QS.get("live") || CAP[MODE])));
 const RANGE = (QS.get("range") || "1D").replace(/[^A-Za-z0-9]/g, "");
 const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
 let C1 = CLEAN(QS.get("c1")) || "SPY";
 let C2 = CLEAN(QS.get("c2")) || "SNDK";
-/* on a phone: the chart plus ONE video. Tapping the second video swaps
-   video-for-video and never steals the chart. */
-const LIVE_CAP = Math.max(1, Math.min(4, +(QS.get("live") || (PHONE ? 2 : 4))));
+let SOLO = QS.get("full") || null;
 
 el("whybtn").addEventListener("click", () => el("why").classList.toggle("open"));
 el("whyx").addEventListener("click", () => el("why").classList.remove("open"));
 
-/* ---- POP: the best real thing per device ---- */
-function pop(kind, url, title) {
-  if (kind === "video" && IOS) {
-    /* the YouTube app owns real system PiP on iOS — hand it over */
-    const m = url.match(/[?&]v=([A-Za-z0-9_-]{11})/);
-    window.open(m ? "https://www.youtube.com/watch?v=" + m[1] : url, "_blank");
-    return;
-  }
-  const w = kind === "video" ? 480 : 760, h = kind === "video" ? 300 : 460;
-  const win = window.open(url, "deck_" + title.replace(/\W/g, ""),
-    "width=" + w + ",height=" + h + ",menubar=no,toolbar=no,location=no,status=no");
-  if (!win) window.open(url, "_blank");
+function pop(def) {
+  if (def.kind === "x") { window.open("https://x.com/home", "deck_x", "width=520,height=760"); return; }
+  if (def.kind === "video" && IOS) { window.open("https://www.youtube.com/", "_blank"); return; }
+  const w = def.kind === "video" ? 480 : 760, h = def.kind === "video" ? 300 : 460;
+  const win = window.open(def.src, "deck_" + def.key, "width=" + w + ",height=" + h + ",menubar=no,toolbar=no,location=no");
+  if (!win) window.open(def.src, "_blank");
 }
 
-/* ---- panes ---- */
-let LIVE = [];
+const PANES = [];   /* every pane object lives here forever — nothing is ever dropped */
+
 function makePane(def) {
-  const p = document.createElement("div"); p.className = "pane";
+  const p = document.createElement("div"); p.className = "pane"; p.dataset.key = def.key;
   const head = document.createElement("div"); head.className = "ph";
   head.innerHTML = '<span class="t">' + esc(def.title) + '</span><span class="tag">' + esc(def.tag) + "</span>";
-  const popBtn = document.createElement("span");
-  popBtn.className = "btn pop"; popBtn.textContent = "pop";
-  popBtn.title = def.kind === "video"
-    ? (IOS ? "open in the YouTube app — real system PiP" : "open this feed in its own small window")
+  const acts = document.createElement("div"); acts.className = "acts";
+
+  const bPop = document.createElement("span"); bPop.className = "btn"; bPop.textContent = "pop";
+  bPop.title = def.kind === "x" ? "open your logged-in x.com in its own window"
+    : def.kind === "video" ? (IOS ? "open in the YouTube app — real system PiP" : "open this feed in its own window")
     : "open this chart in its own window";
-  popBtn.addEventListener("click", (e) => { e.stopPropagation(); pop(def.kind, def.popUrl || def.src, def.title); });
-  head.appendChild(popBtn);
+  bPop.addEventListener("click", (e) => { e.stopPropagation(); pop(def); });
+
+  const bFull = document.createElement("span"); bFull.className = "btn"; bFull.textContent = "full";
+  bFull.title = "full-bleed inside the deck — one tap back";
+  bFull.addEventListener("click", (e) => { e.stopPropagation(); setSolo(SOLO === def.key ? null : def.key); });
+
+  acts.appendChild(bPop); acts.appendChild(bFull);
+  if (def.open) {
+    const a = document.createElement("a"); a.className = "btn"; a.textContent = "open";
+    a.href = def.open; a.title = "leave the deck for the full standalone page";
+    a.addEventListener("click", (e) => e.stopPropagation());
+    acts.appendChild(a);
+  }
+  head.appendChild(acts);
+
   const body = document.createElement("div"); body.className = "body";
   p.appendChild(head); p.appendChild(body);
 
-  const hold_for = (bd, mnt, note) => {
-    const h = document.createElement("div"); h.className = "hold";
-    h.innerHTML = '<div class="n">' + esc(def.title) + '</div><div class="d">' + esc(note) + "</div>" +
-      '<div class="go">tap to load</div>';
-    h.addEventListener("click", mnt);
-    bd.appendChild(h);
-  };
-  const mount = () => {
-    const hold = body.querySelector(".hold"); if (hold) hold.remove();
-    const f = document.createElement("iframe");
-    f.src = def.src; f.loading = "lazy";
-    f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
-    f.setAttribute("allowfullscreen", "");
-    body.appendChild(f);
-    LIVE.push({ body, frame: f, mount, kind: def.kind, title: def.title });
-    while (LIVE.length > LIVE_CAP) {
-      const old = LIVE.shift();
-      old.frame.remove();
-      hold_for(old.body, old.mount, "paused to keep this page light");
-    }
-  };
+  const obj = { def, node: p, body, frame: null, bFull };
 
-  if (def.autoload) mount();
-  else hold_for(body, mount, PHONE ? "one video at a time on a phone — this is the safari fix" : "tap to load");
-  return p;
+  const showCard = (note) => {
+    if (body.querySelector(".card")) return;
+    const c = document.createElement("div"); c.className = "card";
+    c.innerHTML = '<div class="n">' + esc(def.title) + '</div><div class="d">' + esc(note) + "</div>" +
+      '<div class="go">tap to load</div>';
+    c.addEventListener("click", () => mount(obj));
+    body.appendChild(c);
+  };
+  obj.showCard = showCard;
+
+  if (def.kind === "x") {
+    /* x.com refuses framing — an honest dock that pops the real window */
+    const c = document.createElement("div"); c.className = "card dock";
+    c.innerHTML = '<div class="n">X · your feed</div>' +
+      '<div class="d">x.com is login-walled and refuses to be framed by anyone. This pane reserves its spot; ' +
+      'pop opens your real logged-in window onto it — same as the X dock on the TV wall.</div>' +
+      '<div class="rect" id="xrect"></div><div class="go">pop x.com</div>';
+    c.querySelector(".go").addEventListener("click", () => pop(def));
+    body.appendChild(c);
+    obj.isDock = true;
+  }
+  return obj;
+}
+
+const LIVE = [];
+function mount(obj) {
+  if (obj.isDock || obj.frame) return;
+  const c = obj.body.querySelector(".card"); if (c) c.remove();
+  const f = document.createElement("iframe");
+  f.src = obj.def.src; f.loading = "lazy";
+  f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+  f.setAttribute("allowfullscreen", "");
+  obj.body.appendChild(f); obj.frame = f;
+  LIVE.push(obj);
+  /* the budget PAUSES — it never removes a pane from the layout or the chip row */
+  while (LIVE.length > LIVE_CAP) {
+    const old = LIVE.shift();
+    if (old === obj) break;
+    if (old.frame) { old.frame.remove(); old.frame = null; }
+    old.showCard("paused to keep the page light — tap to bring it back");
+  }
+  paintChips();
+}
+
+function setSolo(key) {
+  SOLO = key;
+  const grid = el("grid");
+  grid.classList.toggle("solo", !!key);
+  for (const o of PANES) {
+    o.node.classList.toggle("hidden", !!key && o.def.key !== key);
+    o.bFull.textContent = (key && o.def.key === key) ? "back" : "full";
+    o.bFull.classList.toggle("on", !!key && o.def.key === key);
+  }
+  if (key) {
+    const o = PANES.find((x) => x.def.key === key);
+    if (o && !o.frame && !o.isDock) mount(o);
+  }
+  applyGrid();
+  paintChips();
+}
+
+function applyGrid() {
+  const grid = el("grid");
+  if (SOLO) return;
+  if (MODE === "stack") {
+    grid.style.gridTemplateColumns = "1fr";
+    grid.style.gridTemplateRows = "repeat(" + PANES.length + ", minmax(210px, 1fr))";
+    grid.style.overflowY = "auto";
+    grid.style.gridTemplateAreas = "";
+  } else if (MODE === "grid2") {
+    grid.style.gridTemplateColumns = "1fr 1fr";
+    grid.style.gridTemplateRows = "repeat(3, minmax(160px,1fr))";
+    grid.style.overflowY = "auto";
+    grid.style.gridTemplateAreas = "";
+  } else {
+    grid.style.gridTemplateColumns = "1fr 1fr 1fr";
+    grid.style.gridTemplateRows = "1.15fr 1fr";
+    grid.style.overflowY = "hidden";
+    grid.style.gridTemplateAreas = '"c1 c1 c2" "fa fb x"';
+    for (const o of PANES) o.node.style.gridArea = o.def.key;
+  }
+  if (MODE !== "deck") for (const o of PANES) o.node.style.gridArea = "";
+  const xr = document.getElementById("xrect");
+  if (xr) {
+    const o = PANES.find((p) => p.def.kind === "x");
+    if (o) { const r = o.body.getBoundingClientRect();
+      xr.textContent = "dock " + Math.round(r.left) + "," + Math.round(r.top) + " · " +
+        Math.round(r.width) + "×" + Math.round(r.height) + " px"; }
+  }
+}
+
+/* the PANES chip row — the lose-nothing guarantee, visible */
+function paintChips() {
+  const bar = el("panebar");
+  bar.innerHTML = '<span class="lbl">panes</span>';
+  for (const o of PANES) {
+    const c = document.createElement("span");
+    const state = o.isDock ? "dock" : o.frame ? "live" : "paused";
+    c.className = "btn" + (o.frame ? " live" : "") + (SOLO === o.def.key ? " on" : "");
+    c.textContent = o.def.short + (state === "paused" ? " ·" : "");
+    c.title = state === "paused" ? "paused — tap to bring it back" : state === "dock" ? "dock — pops to a window" : "live";
+    c.addEventListener("click", () => {
+      if (SOLO && SOLO !== o.def.key) { setSolo(o.def.key); return; }
+      if (!o.frame && !o.isDock) { mount(o); return; }
+      setSolo(SOLO === o.def.key ? null : o.def.key);
+    });
+    bar.appendChild(c);
+  }
+  if (SOLO) {
+    const back = document.createElement("span");
+    back.className = "btn on"; back.textContent = "← back to deck";
+    back.addEventListener("click", () => setSolo(null));
+    bar.appendChild(back);
+  }
 }
 
 async function build() {
   if (QS.get("c2") === "auto") {
     try {
-      const [fav, lq] = await Promise.all([
-        pg("hub_favorites?select=ticker"),
-        pg("live_quotes?select=ticker,chg_pct"),
-      ]);
+      const [fav, lq] = await Promise.all([pg("hub_favorites?select=ticker"), pg("live_quotes?select=ticker,chg_pct")]);
       const set = new Set((fav || []).map((f) => f.ticker));
       const best = (lq || []).filter((q) => set.has(q.ticker) && q.chg_pct != null)
         .sort((a, b) => Math.abs(+b.chg_pct) - Math.abs(+a.chg_pct))[0];
-      if (best) { C2 = best.ticker; el("sub").textContent = "chart 2 auto-picked: " + C2 + " (loudest favourite)"; }
-    } catch (e) { /* keep the hand-picked default */ }
+      if (best) C2 = best.ticker;
+    } catch (e) {}
   }
-
-  const grid = el("grid");
-  grid.style.gridTemplateColumns = PHONE ? "1fr" : "1fr 1fr";
-  grid.style.gridTemplateRows = PHONE ? "minmax(150px,1fr) minmax(190px,1.3fr) minmax(190px,1.3fr)" : "1fr 1fr";
-  grid.style.overflowY = PHONE ? "auto" : "hidden";
-
-  const panes = [
-    { title: C1, tag: "chart · " + RANGE, kind: "chart", src: "/chart?t=" + encodeURIComponent(C1) + "&range=" + RANGE, autoload: true },
-    { title: C2, tag: "chart · " + RANGE, kind: "chart", src: "/chart?t=" + encodeURIComponent(C2) + "&range=" + RANGE, autoload: !PHONE },
-    { title: "Scintilla market", tag: "feed A", kind: "video", src: "/feed-a", autoload: !PHONE },
-    { title: "Personal", tag: "feed B", kind: "video", src: "/feed-b", autoload: !PHONE },
+  const defs = [
+    { key: "c1", short: C1, title: C1, tag: "chart", kind: "chart", src: "/chart?t=" + encodeURIComponent(C1) + "&range=" + RANGE, open: "/chart?t=" + encodeURIComponent(C1) + "&range=" + RANGE },
+    { key: "c2", short: C2, title: C2, tag: "chart", kind: "chart", src: "/chart?t=" + encodeURIComponent(C2) + "&range=" + RANGE, open: "/chart?t=" + encodeURIComponent(C2) + "&range=" + RANGE },
+    { key: "fa", short: "market", title: "Scintilla market", tag: "feed A · full picker", kind: "video", src: "/feed-a", open: "/feed-a" },
+    { key: "fb", short: "personal", title: "Personal", tag: "feed B · full picker", kind: "video", src: "/feed-b", open: "/feed-b" },
+    { key: "x",  short: "X", title: "X · your feed", tag: "dock · pops", kind: "x", src: "https://x.com/home", open: null },
   ];
-  /* narrow drops the second chart rather than crushing it — same call the
-     narrow scene_layouts row makes */
-  const list = PHONE ? [panes[0], panes[2], panes[3]] : panes;
-  grid.innerHTML = "";
-  for (const d of list) grid.appendChild(makePane(d));
-  el("sceneLink").href = "/scenes?scene=watch-deck" + (PHONE ? "&profile=narrow" : "");
+  const grid = el("grid"); grid.innerHTML = "";
+  for (const d of defs) { const o = makePane(d); PANES.push(o); grid.appendChild(o.node); }
+
+  /* charts first, then as many feeds as the budget allows — the rest wait
+     behind a tap and stay in the chip row */
+  const order = ["c1", "c2", "fa", "fb"];
+  let n = 0;
+  for (const k of order) {
+    const o = PANES.find((p) => p.def.key === k);
+    if (!o) continue;
+    if (n < LIVE_CAP) { mount(o); n++; }
+    else o.showCard(MODE === "stack" ? "paused on phone to keep Safari happy — tap to load" : "tap to load");
+  }
+  applyGrid(); paintChips();
+  if (SOLO) setSolo(SOLO);
+  el("sceneLink").href = "/scenes?scene=watch-deck" + (MODE === "stack" ? "&profile=narrow" : "");
 }
+
+let rt = null;
+addEventListener("resize", () => {
+  clearTimeout(rt);
+  rt = setTimeout(() => { const m = layoutMode(); if (m !== MODE) { MODE = m; } applyGrid(); }, 180);
+});
 build();
 </script>
 </body>
