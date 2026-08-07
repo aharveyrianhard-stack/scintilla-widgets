@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · ranks</title>
+<!-- ============================================================================
+     SCINTILLA · RANKS — the same universe ranked every which way, side by side.
+     Alan: EACH RANKING IS ITS OWN INFORMATION. Same tickers, re-sorted and
+     re-coloured green→red by a different metric per column, so the DIFFERENCE
+     reads across columns — green on change but red on RSI is the signal.
+     TAP A TICKER and it highlights in EVERY column at once. That is the read.
+     Columns (each header states exactly what "top" means, so no colour lies):
+       CHG %      top = biggest gain today      live_quotes.chg_pct
+       P/E        top = lowest P/E (cheapest)   ratios_history.pe, latest fiscal row
+       MKT CAP    top = largest                 company_profile.market_cap
+       RSI        top = highest RSI             board_rsi.rsi_raw (live board)
+       GEIGER     top = highest composite       composite_staged tf=D (never recomputed)
+       SECTOR     top = best avg change today   company_profile.sector rolled up
+                                                 over live_quotes, cross-checked
+                                                 against sector_perf_daily
+     MISSING DATA IS GREY AND SAYS "no data" — never coloured, never invented.
+     Coverage is printed in each column header (e.g. "162/213").
+     MOBILE-SAFE BY CONSTRUCTION: no iframes, one fetch set, columns scroll
+     horizontally. Nothing nested — this page cannot spawn browsing contexts.
+     Params: ?cols=chg,pe,mcap,rsi,geiger,sector · ?limit=40 (10-250) ·
+       ?etf=0 (drop ETFs) · ?bg=0 · ?refresh=90 (30-900)
+     DB reads only, never FMP. Receipt: HSC-RANKS-LIVE-001.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; }
+html,body{ margin:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.02em;
+  display:flex; flex-direction:column; overflow:hidden;
+  -webkit-text-size-adjust:100%; }
+body.nobg{ background:transparent; }
+#hd{ flex:none; display:flex; align-items:baseline; gap:9px; padding:8px 12px 6px; border-bottom:1px solid var(--line); }
+#hd .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; }
+#hd .s{ color:var(--dim); font-size:9px; }
+#hd .st{ margin-left:auto; color:var(--mute); font-size:8px; letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; }
+#sel{ flex:none; padding:5px 12px; color:var(--crk); font-size:9.5px; border-bottom:1px solid var(--line); display:none; }
+#sel b{ color:var(--ink); }
+#cols{ flex:1; display:flex; gap:0; min-height:0; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.col{ flex:0 0 148px; display:flex; flex-direction:column; min-height:0; border-right:1px solid var(--line); }
+.col:last-child{ border-right:0; }
+.chd{ flex:none; padding:6px 8px; border-bottom:1px solid var(--line); background:var(--panel2); }
+.chd .t{ color:var(--crk); font-size:9px; letter-spacing:.16em; text-transform:uppercase; }
+.chd .r{ color:var(--dim); font-size:7.5px; letter-spacing:.06em; margin-top:2px; }
+.chd .cv{ color:var(--mute); font-size:7.5px; font-variant-numeric:tabular-nums; }
+.cb{ flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+.cell{ display:flex; align-items:baseline; gap:6px; padding:3px 8px; border-bottom:1px solid rgba(26,26,42,.6);
+  cursor:pointer; border-left:3px solid transparent; }
+.cell .n{ flex:none; width:20px; color:var(--mute); font-size:8px; font-variant-numeric:tabular-nums; }
+.cell .tk{ flex:1; font-size:10px; letter-spacing:.06em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cell .v{ flex:none; font-size:9.5px; font-variant-numeric:tabular-nums; }
+.cell.gap{ opacity:.42; }
+.cell.gap .v{ color:var(--mute); font-size:8px; letter-spacing:.1em; text-transform:uppercase; }
+.cell.on{ border-left-color:var(--crk); background:rgba(0,212,255,.1); }
+.cell.on .tk{ color:var(--crk); }
+#ft{ flex:none; padding:5px 12px; color:var(--mute); font-size:7.5px; letter-spacing:.08em;
+  text-transform:uppercase; border-top:1px solid var(--line); }
+.empty{ margin:auto; color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; }
+</style>
+</head>
+<body>
+<div id="hd"><span class="k">RANKS</span><span class="s">same universe, ranked every which way · tap a ticker to trace it across columns</span><span class="st" id="stamp"></span></div>
+<div id="sel"></div>
+<div id="cols"><div class="empty">loading rankings…</div></div>
+<div id="ft">db reads only · never fmp · geiger never recomputed · grey = no data for that metric, never coloured</div>
+<script>
+"use strict";
+/* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+async function pg(path, _tries) {
+  const tries = _tries == null ? 3 : _tries;
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(SB + "/rest/v1/" + path, { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
+      if (r.ok) return r.json();
+      if (r.status === 503 || r.status === 504 || r.status === 429) lastErr = new Error("pg " + path + " → " + r.status);
+      else throw new Error("pg " + path + " → " + r.status);
+    } catch (e) { lastErr = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 500 * (i + 1) + Math.random() * 300));
+  }
+  throw lastErr;
+}
+const num = (x) => (x == null ? null : Number(x));
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+const QS = new URLSearchParams(location.search);
+const WANT = String(QS.get("cols") || "chg,pe,mcap,rsi,geiger,sector").toLowerCase().split(",").map((s) => s.trim());
+const LIMIT = Math.max(10, Math.min(250, +(QS.get("limit") || 40)));
+const DROP_ETF = QS.get("etf") === "0";
+const REFRESH = Math.max(30, Math.min(900, +(QS.get("refresh") || 90))) * 1000;
+if (QS.get("bg") === "0") document.body.classList.add("nobg");
+
+/* green (best in this ranking) → red (worst), by POSITION in the ranking, so
+   every column is comparable regardless of the metric's own units */
+function rankColor(i, n) {
+  if (n < 2) return "#8a8aa0";
+  const t = i / (n - 1);                     /* 0 = top of ranking, 1 = bottom */
+  const g = [0, 255, 163], r = [255, 45, 85], mid = [120, 120, 140];
+  const mix = (a, b, k) => a.map((v, j) => Math.round(v + (b[j] - v) * k));
+  const c = t < 0.5 ? mix(g, mid, t * 2) : mix(mid, r, (t - 0.5) * 2);
+  return "rgb(" + c.join(",") + ")";
+}
+const fmtPct  = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2) + "%";
+const fmtNum  = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(1));
+const fmtCap  = (v) => v >= 1e12 ? (v / 1e12).toFixed(2) + "T" : v >= 1e9 ? (v / 1e9).toFixed(1) + "B" :
+                       v >= 1e6 ? (v / 1e6).toFixed(0) + "M" : String(Math.round(v));
+
+let SELECTED = null;
+
+function paintSelection() {
+  for (const c of document.querySelectorAll(".cell")) c.classList.toggle("on", !!SELECTED && c.dataset.tk === SELECTED);
+  const box = el("sel");
+  if (!SELECTED) { box.style.display = "none"; return; }
+  const spots = [];
+  for (const c of document.querySelectorAll(".cell.on")) {
+    const col = c.closest(".col"); if (!col) continue;
+    spots.push(col.dataset.label + " #" + c.dataset.rank + (c.dataset.val ? " (" + c.dataset.val + ")" : " no data"));
+  }
+  box.style.display = "block";
+  box.innerHTML = "<b>" + esc(SELECTED) + "</b> — " + esc(spots.join("  ·  ")) + "  ·  tap again to clear";
+}
+
+function column(def, rows) {
+  /* rows: [{tk, v}] already ordered best→worst, gaps last */
+  const good = rows.filter((r) => r.v != null), gaps = rows.filter((r) => r.v == null);
+  const n = good.length;
+  const body = good.map((r, i) =>
+      '<div class="cell" data-tk="' + esc(r.tk) + '" data-rank="' + (i + 1) + '" data-val="' + esc(def.fmt(r.v)) + '">' +
+      '<span class="n">' + (i + 1) + '</span>' +
+      '<span class="tk" style="color:' + rankColor(i, n) + '">' + esc(r.tk) + "</span>" +
+      '<span class="v" style="color:' + rankColor(i, n) + '">' + esc(def.fmt(r.v)) + "</span></div>").join("") +
+    gaps.map((r) =>
+      '<div class="cell gap" data-tk="' + esc(r.tk) + '" data-rank="—" data-val="">' +
+      '<span class="n">—</span><span class="tk">' + esc(r.tk) + '</span><span class="v">no data</span></div>').join("");
+  return '<div class="col" data-label="' + esc(def.t) + '">' +
+    '<div class="chd"><div class="t">' + esc(def.t) + '</div><div class="r">' + esc(def.rule) + "</div>" +
+    '<div class="cv">' + n + "/" + rows.length + " have data</div></div>" +
+    '<div class="cb">' + (rows.length ? body : '<div class="empty">no rows</div>') + "</div></div>";
+}
+
+async function tick() {
+  const [lq, cp, rsi, ratios, comp, sperf] = await Promise.all([
+    pg("live_quotes?select=ticker,chg_pct").catch(() => null),
+    pg("company_profile?select=ticker,sector,market_cap,is_etf").catch(() => null),
+    pg("board_rsi?select=ticker,rsi_raw").catch(() => null),
+    pg("ratios_history?select=ticker,pe,fiscal_date&order=fiscal_date.desc&limit=4000").catch(() => null),
+    pg("composite_staged?tf=eq.D&select=ticker,composite").catch(() => null),
+    pg("sector_perf_daily?select=sector,average_change,date&order=date.desc&limit=60").catch(() => null),
+  ]);
+  if (!Array.isArray(lq) || !lq.length) { el("cols").innerHTML = '<div class="empty">no universe — live_quotes unavailable</div>'; return; }
+
+  const prof = {}; for (const r of (cp || [])) prof[r.ticker] = r;
+  const R = {}; for (const r of (rsi || [])) R[r.ticker] = num(r.rsi_raw);
+  const C = {}; for (const r of (comp || [])) C[r.ticker] = num(r.composite);
+  const PE = {};                                   /* latest fiscal row wins — list is date-desc */
+  for (const r of (ratios || [])) if (!(r.ticker in PE) && num(r.pe) != null) PE[r.ticker] = num(r.pe);
+
+  /* ONE SHARED UNIVERSE — every column ranks the SAME tickers, just ordered
+     differently. This is the whole point: tap a name and trace it across all
+     six rankings. Ordered by market cap so the set is stable between refreshes
+     (falls back to alphabetical when a cap is missing). */
+  let universe = lq.map((q) => q.ticker).filter(Boolean);
+  if (DROP_ETF) universe = universe.filter((t) => !(prof[t] && prof[t].is_etf));
+  universe.sort((a, b) => {
+    const ca = prof[a] ? num(prof[a].market_cap) : null, cb = prof[b] ? num(prof[b].market_cap) : null;
+    if (ca != null && cb != null) return cb - ca;
+    if (ca != null) return -1;
+    if (cb != null) return 1;
+    return a.localeCompare(b);
+  });
+  universe = universe.slice(0, LIMIT);
+  const chg = {}; for (const q of lq) chg[q.ticker] = num(q.chg_pct);
+
+  /* one row set per column: the shared universe sorted best→worst on that
+     metric, with every missing value kept and greyed — never dropped, so the
+     ticker set stays identical across columns */
+  const build = (valOf, dir) => {
+    const rows = universe.map((tk) => ({ tk, v: valOf(tk) }));
+    const have = rows.filter((r) => r.v != null && isFinite(r.v)).sort((a, b) => dir === "asc" ? a.v - b.v : b.v - a.v);
+    const miss = rows.filter((r) => !(r.v != null && isFinite(r.v)));
+    return have.concat(miss);
+  };
+
+  const DEFS = {
+    chg:    { t: "CHG %",   rule: "top = biggest gain today",  fmt: fmtPct, rows: () => build((t) => chg[t], "desc") },
+    pe:     { t: "P/E",     rule: "top = lowest p/e (cheapest)", fmt: fmtNum, rows: () => build((t) => (PE[t] != null && PE[t] > 0 ? PE[t] : null), "asc") },
+    mcap:   { t: "MKT CAP", rule: "top = largest",             fmt: fmtCap, rows: () => build((t) => (prof[t] ? num(prof[t].market_cap) : null), "desc") },
+    rsi:    { t: "RSI",     rule: "top = highest rsi",         fmt: fmtNum, rows: () => build((t) => R[t], "desc") },
+    geiger: { t: "GEIGER",  rule: "top = highest composite",   fmt: (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2), rows: () => build((t) => C[t], "desc") },
+  };
+
+  const out = [];
+  for (const key of WANT) {
+    if (key === "sector") continue;
+    const d = DEFS[key]; if (!d) continue;
+    out.push(column(d, d.rows()));
+  }
+
+  /* SECTOR — roll the same universe up by sector, rank sectors by average chg% */
+  if (WANT.indexOf("sector") >= 0) {
+    const bySec = {};
+    for (const t of universe) {
+      const s = prof[t] && prof[t].sector; const v = chg[t];
+      if (!s || v == null || !isFinite(v)) continue;
+      (bySec[s] = bySec[s] || []).push(v);
+    }
+    const secRows = Object.keys(bySec).map((s) => ({ tk: s + " (" + bySec[s].length + ")",
+      v: bySec[s].reduce((a, b) => a + b, 0) / bySec[s].length }))
+      .sort((a, b) => b.v - a.v);
+    const feedDate = Array.isArray(sperf) && sperf[0] ? sperf[0].date : null;
+    out.push(column({ t: "SECTOR", rule: "top = best avg change" + (feedDate ? " · feed " + feedDate : ""), fmt: fmtPct },
+      secRows.length ? secRows : []));
+  }
+
+  el("cols").innerHTML = out.join("") || '<div class="empty">no columns selected</div>';
+  el("stamp").textContent = universe.length + " tickers · " + out.length + " rankings";
+  for (const c of document.querySelectorAll(".cell")) {
+    c.addEventListener("click", () => {
+      const tk = c.dataset.tk;
+      SELECTED = (SELECTED === tk) ? null : tk;
+      paintSelection();
+    });
+  }
+  paintSelection();
+}
+tick().catch(() => { el("cols").innerHTML = '<div class="empty">rankings unavailable</div>'; });
+setInterval(() => tick().catch(() => {}), REFRESH);
+</script>
+</body>
+</html>
