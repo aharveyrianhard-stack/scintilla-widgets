@@ -8,270 +8,464 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>SCINTILLA</title>
 <!-- ============================================================================
-     SCINTILLA · /registry — THE FRONT DOOR. One URL, pinned on every device.
-     Alan: "everything is built and everything is scattered... every review is
-     an expedition." This page ends that. Open it, everything is one tap away.
-       · grouped by WHAT IT IS FOR, not by who built it
-       · every entry says in a few words what it actually IS
-       · DEAD OR BROKEN ROUTES ARE MARKED ON THE PAGE — a live checker pings
-         every route and paints its dot. Nothing is silently listed.
-       · iPhone first: big tap targets, one column, no horizontal scroll
-       · fast: the status sweep is cached in sessionStorage for 10 minutes, so
-         the twentieth open of the day paints instantly
-       · LOSE NOTHING: every route Alan listed is here, plus the ones he did
-         not list that exist (/ticker /geiger /youtube /components /handoff
-         /tvwall /wall /scenes /health) and the Live Desk endpoints.
-     Receipt: HSC-HOME-001.
+     SCINTILLA · /registry — THE HUB. Not a list of links. A container.
+
+     Alan: "I click something and it opens somewhere I can't find — I have too
+     many windows for that to survive. I ended up copying links out and pasting
+     them into Safari by hand." And: "I can't flip through my own stuff."
+
+     So this is no longer an index. It is the shell everything lives inside.
+
+       · CLICK A VIEW AND IT LOADS IN PLACE. Same origin, embedded, with a
+         back arrow and the browser's own back button both working. Nothing
+         flies off into a window you have to hunt for.
+       · FLIP THROUGH. Once a view is open, ‹ › move to the next thing in the
+         same group — and the arrow keys do too. You can walk the whole
+         system without going back to the menu.
+       · STATE, NOT JUST A NAME. Every entry carries a plain-language line
+         saying what it is and what it is for, plus a live dot: reachable or
+         not, and for the data-backed views, how fresh the table behind it is
+         — live, stale, or empty. Read off the database, not asserted.
+       · OPENS SEPARATELY, AND WHY. The handful of things that genuinely
+         cannot be embedded are labelled with the reason on the card. Nothing
+         silently escapes the shell.
+       · COMPLETE. Every route, every scene, every visual. 30 routes, 9
+         scenes, 27 visuals, 4 Live Desk endpoints.
+
+     MOBILE SAFETY. Exactly one embedded view at a time — the shell never
+     holds two. Worst case on the phone is this shell plus the deck's own two
+     paused-capped panes: three frames, against the fourteen that crashed
+     Safari before.
+
+     Receipt: HSC-HUB-002.
      ============================================================================ -->
 <style>
 :root{
   --bg:#0A0A0F; --panel:#0D0D14; --panel2:#0F0F1A; --line:#1A1A2A; --line2:#252538;
   --hair:rgba(0,212,255,.30);
   --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
-  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00; --viol:#8B5CF6;
   --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
 }
 *{ box-sizing:border-box; min-width:0; -webkit-tap-highlight-color:transparent; }
-html{ -webkit-text-size-adjust:100%; }
-body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono);
+html,body{ margin:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   -webkit-font-smoothing:antialiased; font-size:13px; letter-spacing:.01em;
-  padding:0 0 40px; overflow-x:hidden; }
-header{ position:sticky; top:0; z-index:10; background:rgba(10,10,15,.94);
-  backdrop-filter:saturate(140%) blur(8px); border-bottom:1px solid var(--line);
-  padding:calc(10px + env(safe-area-inset-top)) 14px 8px; }
-h1{ font-size:12px; letter-spacing:.34em; text-transform:uppercase; color:var(--crk);
-  font-weight:400; margin:0 0 2px; }
-.sub{ color:var(--dim); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; }
-#q{ width:100%; margin-top:8px; background:var(--panel2); border:1px solid var(--line2);
-  color:var(--ink); font-family:var(--mono); font-size:15px; padding:9px 11px; border-radius:0;
+  display:flex; flex-direction:column; overflow:hidden; -webkit-text-size-adjust:100%; }
+
+/* ---------- the shell's own bar ---------- */
+#top{ flex:none; display:flex; align-items:center; gap:7px; padding:8px 12px;
+  padding-top:calc(8px + env(safe-area-inset-top)); border-bottom:1px solid var(--line);
+  background:rgba(10,10,15,.96); }
+#brand{ flex:none; color:var(--crk); font-size:11px; letter-spacing:.3em; text-transform:uppercase;
+  cursor:pointer; }
+.btn{ flex:none; font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; padding:5px 9px;
+  border:1px solid var(--line2); background:var(--panel2); color:var(--ink3); cursor:pointer;
+  text-decoration:none; white-space:nowrap; }
+.btn:hover{ color:var(--ink); border-color:var(--hair); }
+.btn.on{ color:var(--crk); border-color:var(--crk); }
+.btn[disabled]{ opacity:.3; pointer-events:none; }
+#now{ flex:1 1 0; min-width:0; color:var(--ink2); font-size:11px; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; display:none; }
+#now b{ color:var(--crk); font-weight:400; }
+#q{ flex:1 1 0; min-width:80px; background:var(--panel2); border:1px solid var(--line2);
+  color:var(--ink); font-family:var(--mono); font-size:15px; padding:6px 9px; border-radius:0;
   -webkit-appearance:none; }
 #q:focus{ outline:none; border-color:var(--crk); }
-#sum{ display:flex; gap:10px; margin-top:7px; color:var(--mute); font-size:9px;
-  letter-spacing:.1em; text-transform:uppercase; flex-wrap:wrap; align-items:center; }
-#sum b{ font-weight:400; }
-#sum .ok{ color:var(--bull); } #sum .bad{ color:var(--bear); } #sum .unk{ color:var(--vol); }
-.recheck{ margin-left:auto; border:1px solid var(--line2); padding:2px 8px; cursor:pointer; color:var(--dim); }
-section{ padding:0 12px; }
+#counts{ flex:none; color:var(--mute); font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; }
+#counts .ok{ color:var(--bull); } #counts .bad{ color:var(--bear); } #counts .unk{ color:var(--vol); }
+
+/* ---------- the browse surface ---------- */
+#browse{ flex:1 1 0; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain; padding:0 0 40px; }
+body.viewing #browse{ display:none; }
+.wrap{ max-width:1400px; margin:0 auto; padding:0 12px; }
 h2{ font-size:10px; letter-spacing:.26em; text-transform:uppercase; color:var(--crk);
-  font-weight:400; margin:26px 0 3px; }
-h2 .h{ color:var(--mute); letter-spacing:.06em; text-transform:none; font-size:9.5px; display:block; margin-top:3px; }
-.row{ display:flex; align-items:flex-start; gap:11px; padding:13px 12px; margin-top:8px;
-  border:1px solid var(--line); background:var(--panel2); text-decoration:none; color:inherit; }
-.row:active{ border-color:var(--crk); background:#12121d; }
+  font-weight:400; margin:22px 0 2px; display:flex; align-items:baseline; gap:8px; }
+h2 .n{ color:var(--mute); letter-spacing:.08em; }
+.h{ color:var(--mute); font-size:10px; margin:0 0 8px; letter-spacing:.02em; }
+.cards{ display:grid; gap:8px; grid-template-columns:repeat(auto-fill,minmax(min(100%,290px),1fr)); }
+.card{ border:1px solid var(--line); background:var(--panel2); padding:11px 12px; cursor:pointer;
+  display:flex; gap:9px; align-items:flex-start; text-align:left; color:inherit;
+  font-family:var(--mono); width:100%; }
+.card:hover{ border-color:var(--hair); background:#11111c; }
+.card:active{ border-color:var(--crk); }
 .dot{ flex:none; width:8px; height:8px; border-radius:50%; margin-top:5px; background:var(--mute); }
 .dot.ok{ background:var(--bull); box-shadow:0 0 7px rgba(0,255,163,.55); }
 .dot.bad{ background:var(--bear); box-shadow:0 0 7px rgba(255,45,85,.55); }
 .dot.unk{ background:var(--vol); }
 .dot.chk{ background:var(--line2); animation:pulse 1s infinite; }
 @keyframes pulse{ 50%{ opacity:.35; } }
-.m{ flex:1; min-width:0; }
-.nm{ color:var(--ink); font-size:14px; letter-spacing:.02em; }
-.nm .rt{ color:var(--crk); font-size:11px; margin-left:7px; }
-.ds{ color:var(--ink3); font-size:11.5px; line-height:1.5; margin-top:3px; }
-.flag{ color:var(--bear); font-size:10px; letter-spacing:.1em; text-transform:uppercase; margin-top:4px; display:none; }
-.row.isbad .flag{ display:block; }
-.row.isbad .nm{ color:var(--ink3); text-decoration:line-through; }
-.chev{ flex:none; color:var(--mute); font-size:15px; margin-top:2px; }
+.m{ flex:1 1 0; min-width:0; }
+.nm{ color:var(--ink); font-size:13.5px; letter-spacing:.01em; }
+.nm .rt{ color:var(--crk); font-size:10.5px; margin-left:6px; }
+.ds{ color:var(--ink3); font-size:11px; line-height:1.5; margin-top:3px; }
+.tags{ display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
+.tag{ font-size:8px; letter-spacing:.1em; text-transform:uppercase; padding:1px 6px;
+  border:1px solid var(--line2); color:var(--mute); }
+.tag.live{ color:var(--bull); border-color:rgba(0,255,163,.4); }
+.tag.stale{ color:var(--vol); border-color:rgba(255,138,0,.4); }
+.tag.empty{ color:var(--bear); border-color:rgba(255,45,85,.4); }
+.tag.doc{ color:var(--viol); border-color:rgba(139,92,246,.4); }
+.tag.sep{ color:var(--vol); border-color:rgba(255,138,0,.55); }
+.card.isbad .nm{ color:var(--ink3); text-decoration:line-through; }
+.flag{ color:var(--bear); font-size:9.5px; letter-spacing:.08em; margin-top:5px; display:none; }
+.card.isbad .flag{ display:block; }
+.why{ color:var(--vol); font-size:9.5px; line-height:1.5; margin-top:5px; display:none; }
+.card.sep .why{ display:block; }
 .hide{ display:none !important; }
-footer{ padding:26px 14px 0; color:var(--mute); font-size:9.5px; letter-spacing:.1em;
-  text-transform:uppercase; line-height:1.9; }
-footer a{ color:var(--dim); }
-@media (min-width: 900px){
-  body{ font-size:13px; }
-  section{ max-width:1180px; margin:0 auto; }
-  .grid{ display:grid; grid-template-columns:1fr 1fr; gap:0 12px; }
-  header{ padding-left:24px; padding-right:24px; }
-  #q{ max-width:520px; }
-}
+footer{ color:var(--mute); font-size:9.5px; letter-spacing:.09em; text-transform:uppercase;
+  line-height:1.9; padding:24px 12px 0; max-width:1400px; margin:0 auto; }
+
+/* ---------- the embedded view ---------- */
+#view{ flex:1 1 0; min-height:0; display:none; position:relative; background:var(--bg); }
+body.viewing #view{ display:block; }
+#view iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; }
+#loading{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  color:var(--mute); font-size:10px; letter-spacing:.18em; text-transform:uppercase;
+  pointer-events:none; }
+#loading.gone{ display:none; }
 </style>
 </head>
 <body>
-<header>
-  <h1>Scintilla</h1>
-  <div class="sub">the front door · everything one tap away</div>
-  <input id="q" type="search" placeholder="filter — type heat, news, chart…" autocomplete="off" autocorrect="off" spellcheck="false">
-  <div id="sum"><span id="counts">checking routes…</span><span class="recheck" id="recheck">re-check</span></div>
-</header>
-<div id="body"></div>
-<footer>
-  status is checked live on this page — a red dot means that route did not answer, and it is never hidden<br>
-  db reads only · geiger never recomputed · cockpit untouched · tradingview layouts never touched<br>
-  <span id="stamp"></span>
-</footer>
+<div id="top">
+  <span id="brand" title="back to everything">SCINTILLA</span>
+  <span class="btn" id="bBack" style="display:none">‹ all</span>
+  <span class="btn" id="bPrev" style="display:none" title="previous in this group — or press ←">‹</span>
+  <span class="btn" id="bNext" style="display:none" title="next in this group — or press →">›</span>
+  <span id="now"></span>
+  <a class="btn" id="bOut" style="display:none" target="_blank" rel="noopener" title="open this view on its own">full page ↗</a>
+  <input id="q" type="search" placeholder="filter — heat, news, geiger, visuals…" autocomplete="off" autocorrect="off" spellcheck="false">
+  <span id="counts">checking…</span>
+</div>
+
+<div id="browse"><div class="wrap" id="wrap"></div>
+  <footer>
+    every dot is checked live on this page · a red dot means that view did not answer, and it is never hidden<br>
+    freshness is read from the table behind the view, not asserted<br>
+    db reads only · geiger never recomputed · cockpit untouched · tradingview layouts never touched<br>
+    <span id="stamp"></span>
+  </footer>
+</div>
+
+<div id="view"><div id="loading">loading…</div></div>
+
 <script>
 "use strict";
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
 const el = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
-/* ============================ THE MAP ============================
-   Grouped by what it is FOR. Every route Alan listed, plus the ones
-   that exist and he did not list. Nothing is dropped, ever. */
+/* ================= THE MAP =================
+   r    route (same origin unless it starts with http)
+   n    the one unambiguous name — see the naming audit
+   d    plain language: what it is and what it is for
+   f    the table behind it, so the card can say live / stale / empty
+   sep  cannot be embedded — the reason is printed on the card         */
 const GROUPS = [
-  { t: "Start here", h: "the three named scenes",
-    items: [
-      { r: "/deck",      n: "The Desk",        d: "the working scene — two charts exactly half and half over your two feeds and X. One timeframe bar drives both." },
-      { r: "/tv",        n: "The Wall",        d: "the Apple TV scene — your hand-arranged wall, held as data so it survives a restart." },
-      { r: "/reflow?view=treemap", n: "The Scan", d: "the whole board as a treemap, re-ranked and re-coloured in motion. The five-minute look." },
-    ] },
-  { t: "Show me the market", h: "what is moving, right now",
-    items: [
-      { r: "/reflow",    n: "Reflow",          d: "the geiger in motion — cells travel and recolour as you change the ranking. Matrix or treemap." },
-      { r: "/ranks",     n: "Ranks",           d: "one universe ranked six ways side by side. Tap a name to trace it across every ranking." },
-      { r: "/heat",      n: "Heat Map",        d: "the whole universe as a colour field, grouped by sector rotation rank." },
-      { r: "/pulse",     n: "Pulse",           d: "market state in one strip — breadth, macro direction, VIX posture." },
-      { r: "/chart",     n: "Chart",           d: "single chart off our own price history. ?t=MU ?range=1D" },
-      { r: "/ticker",    n: "Ticker Tape",     d: "the macro and all-names marquee bands." },
-    ] },
-  { t: "Show me the cohorts", h: "how the axis you actually navigate is behaving",
-    items: [
-      { r: "/cohorts",   n: "Cohort Strip",    d: "FAV · ALL · every cohort as chips, tinted by breadth. The navigation row." },
-      { r: "/cohort",    n: "Cohort Geiger",   d: "one cohort's spread — min to max, every member a dot, mean and median marked." },
-      { r: "/compare",   n: "Cohort Compare",  d: "every cohort as a vertical bar off the zero line. Leaders first." },
-      { r: "/geigerwall",n: "Geiger Wall",     d: "every ranking and every cohort at once. Tap-to-load on phone." },
-      { r: "/geiger",    n: "Geiger Summary",  d: "the full six-tile read for one ticker." },
-    ] },
-  { t: "Show me what's happening", h: "words, dates and warnings",
-    items: [
-      { r: "/news",      n: "News",            d: "newest first off the live news table. Filter by ticker or cohort." },
-      { r: "/alerts",    n: "Alerts",          d: "feed health (live) and ticker alerts (that writer has been quiet since June — shown, not hidden)." },
-      { r: "/events",    n: "Events",          d: "earnings both directions — what is coming, what just printed and by how much." },
-      { r: "/econ",      n: "Economic",        d: "headline topline tiles over the economic calendar run." },
-    ] },
-  { t: "Watch", h: "video, on their own clean surfaces",
-    items: [
-      { r: "/feed-a",    n: "Feed A · market",  d: "the Scintilla market video feed. Opens as a list — it never picks a video for you." },
-      { r: "/feed-b",    n: "Feed B · personal",d: "your subscriptions. Same treatment, separate route, same lists." },
-      { r: "/youtube",   n: "YouTube grid",     d: "the full grid with filters, docked player and cross-device resume." },
-    ] },
-  { t: "Show me the machine", h: "is the thing actually running",
-    items: [
-      { r: "/status",    n: "Status · the org",  d: "which session delivered what, and what is waiting on you. Rendered live by the orgstatus function." },
-      { r: "/health",    n: "Health · the data", d: "the other half — how fresh every feeder is and how many rows are in each table, read live." },
-      { r: "/analytics", n: "Analytics",        d: "the market-regime read — cohorts, favourites, fundamentals, ratios, sector rotation, DCF and comps." },
-      { r: "/scenes",    n: "Scene engine",     d: "named layouts stored as data. Built for the wall — open one scene, leave rotation off on a phone." },
-      { r: "/wall",      n: "Chart Wall",       d: "auto-rotating single chart through a ticker list." },
-      { r: "/handoff",   n: "Hammerspoon handoff", d: "the window-placement mapping for the physical wall." },
-    ] },
-  { t: "Show me the work", h: "what is being built, and why",
-    items: [
-      { r: "/visuals",   n: "Visuals",          d: "the visuals lane surface." },
-      { r: "/components",n: "Components",       d: "the extraction proposal — the Numeral, the geiger bars, the board table." },
-      { r: "/tvwall",    n: "TV wall plan",     d: "what embeds vs what has to be a real window, and the permanence plan." },
-      { r: "/registry",  n: "This page",        d: "the front door. Pin it." },
-    ] },
+{ t:"Start here", h:"the three named scenes — the only three, on purpose", items:[
+ {r:"/deck", n:"The Station", d:"Your working scene. Two charts across the top, exactly half and half at any window size, over market video, your subscriptions and your live X feed. One timeframe bar drives both charts. Every pane pops out, floats in picture-in-picture, or goes full-bleed.", f:"live_quotes"},
+ {r:"/tv", n:"The Apple TV Wall", d:"The wall you arranged by hand on the big screen, held as data so it survives a restart. Prints the pixel rectangle of each dock so the window placement can be reproduced.", f:"live_quotes"},
+ {r:"/reflow?view=treemap", n:"The Scan", d:"The five-minute look. The whole board as a treemap sized by market cap; change the ranking and the cells travel and recolour instead of jumping.", f:"composite_staged"},
+]},
+{ t:"Show me the market", h:"what is moving, right now", items:[
+ {r:"/reflow", n:"Reflow", d:"The geiger in motion. Same universe, re-ranked six ways, cells animating to their new positions. Matrix or treemap.", f:"composite_staged"},
+ {r:"/ranks", n:"Six Rankings", d:"One shared universe ranked six ways side by side — change, P/E, market cap, RSI, geiger, sector. Tap a name and it lights up in every column at once, which is the whole point.", f:"composite_staged"},
+ {r:"/heat", n:"Sector Heat Map", d:"The whole universe as one colour field, grouped by sector rotation rank. For seeing where the money is, not which name.", f:"sector_rankings"},
+ {r:"/pulse", n:"Market Pulse", d:"Market state in a single strip — breadth, macro direction, VIX posture. The one-glance answer to “what kind of day is it”.", f:"live_quotes"},
+ {r:"/chart", n:"Single Chart", d:"One price chart drawn from our own history, with a ticker box and a timeframe ladder. Hands off to TradingView with your indicator stack and a sensible zoom. ?t=MU ?range=1D", f:"ohlcv_history"},
+ {r:"/ticker", n:"Ticker Tape", d:"The scrolling marquee bands — macro on one, every tracked name on the other. Ambient, for the edge of a screen.", f:"live_quotes"},
+]},
+{ t:"Show me the cohorts", h:"the axis you actually navigate by", items:[
+ {r:"/cohorts", n:"Cohort Strip", d:"FAV, ALL, AI HW, AI SW and the rest as chips, each tinted by how its members are doing. The navigation row — pick a cohort and go.", f:"ticker_cohorts"},
+ {r:"/cohort", n:"Cohort Spread Bar", d:"One cohort as a horizontal geiger: min to max, every member a dot on the bar, mean and median marked. Shows the spread, not the average.", f:"composite_staged"},
+ {r:"/compare", n:"Cohort Compare Bars", d:"Every cohort as a vertical bar off the zero line, leaders first. Which groups are working today, in one picture.", f:"composite_staged"},
+ {r:"/geigerwall", n:"Geiger Wall", d:"Every ranking against every cohort at once, on one screen. The insight it exists for: the geiger changes meaning depending on how the table is ranked.", f:"composite_staged"},
+ {r:"/geiger", n:"Ticker Geiger", d:"The full six-tile geiger read for a single ticker — the detail view behind every bar elsewhere.", f:"composite_staged"},
+]},
+{ t:"Show me what's happening", h:"words, dates and warnings", items:[
+ {r:"/news", n:"News", d:"Newest first off the live news table, filterable by ticker or cohort. 222k stories behind it.", f:"news"},
+ {r:"/alerts", n:"Alerts", d:"Two things honestly separated: feed-health alerts, which are live, and ticker alerts, whose writer has been quiet since June — shown as quiet rather than hidden.", f:"feed_alerts"},
+ {r:"/events", n:"Earnings", d:"Earnings in both directions — what is coming and when, what just printed and by how much it beat or missed.", f:"earnings_events"},
+ {r:"/econ", n:"Economic Calendar", d:"Headline topline tiles over the full economic calendar run — CPI, jobs, rates, the dates that move everything.", f:"econ_calendar"},
+]},
+{ t:"Watch", h:"video, on their own surfaces", items:[
+ {r:"/pane-video?feed=market", n:"Market Video (pane)", d:"Built for a small box: a thumbnail grid that counts its own columns from its own width, and a video that plays right there when you tap it. This is what sits in The Station.", f:"youtube_feed"},
+ {r:"/pane-video?feed=personal", n:"My Subscriptions (pane)", d:"The same pane over your untagged subscriptions instead of the ticker-tagged market video.", f:"youtube_feed"},
+ {r:"/feed-a", n:"Market Video (full page)", d:"The full-page version — bigger list, channel picker, search, side-by-side player. Opens as a list and never picks a video for you.", f:"youtube_feed"},
+ {r:"/feed-b", n:"My Subscriptions (full page)", d:"The full-page version of your own feed. Same treatment, separate route.", f:"youtube_feed"},
+ {r:"/youtube", n:"YouTube Grid", d:"The original full grid — filters, docked player, cross-device resume. The most featureful of the three; kept because nothing is lost.", f:"youtube_feed"},
+ {r:"/pane-x", n:"X Live", d:"Your real logged-in X feed rendering live in the pane, captured from your own x.com tab — the web-platform version of what X Feed Float does. Zoom and pan to crop to the column, and float it in true picture-in-picture."},
+]},
+{ t:"Show me the machine", h:"is the thing actually running", items:[
+ {r:"/health", n:"Data Health", d:"Is the DATA running. How fresh every feeder is and how many rows are in each table, read live on every open.", f:"live_quotes"},
+ {r:"/status", n:"Org Status", d:"Is the ORG running. Which session delivered what, what is waiting on you, what has filed nothing. Rendered by the orgstatus function, owned by the orchestrator lane.", f:"spine_events"},
+ {r:"/analytics", n:"Regime Analytics", d:"The market-regime read — cohorts, favourites, value fundamentals, ratios and estimates, sector rotation, DCF and comps, allocation inputs. The heaviest single page.", f:"ratios_history"},
+ {r:"/scenes", n:"Scene Engine", d:"The machinery behind the three named scenes: nine named layouts stored as data, four device profiles each, panes as percentage rectangles so a scene survives a restart and a screen change.", f:"scene_layouts"},
+ {r:"/wall", n:"Rotating Chart Wall", d:"One chart, full-bleed, auto-rotating through a ticker list. For a screen you glance at rather than work on. Not the Apple TV wall — that is The Apple TV Wall.", f:"live_quotes"},
+ {r:"/handoff", n:"Hammerspoon Handoff", d:"The window-placement mapping that puts real Mac windows where the scene says they go. Waiting on the Accessibility permission.", doc:1},
+]},
+{ t:"The visuals lab", h:"27 pieces · the design lane, and it was invisible from here until now", items:[
+ {r:"/visuals", n:"The Visuals Lab", d:"The way in to all 27 pieces — the index page for everything below, grouped the way the lab groups it.", doc:1},
+ {r:"/visuals/gallery", n:"The Gallery", d:"Every visual, one per screen, rendered live. Tap to mark and move on; swipe left for no, right for yes. Your shortlist is saved. This is the flip-through for the design work.", doc:1},
+ {r:"/visuals/menu", n:"The Finishes Menu", d:"45 squares: nine finishes down the side, five kinds of surface across the top, every square running live at the same setting. Pick squares and they become a written order.", doc:1},
+ {r:"/visuals/images", n:"The Image Menu", d:"The same prompt through five image models side by side, each scored for how straight it keeps its geometry — plus a bench that combines two of them.", doc:1},
+ {r:"/visuals/open?p=motion-menu.html", n:"The Motion Menu", d:"47 motion treatments across seven families. The original catalogue everything else in the lab draws from.", doc:1},
+ {r:"/visuals/open?p=lookboard.html", n:"The Lookboard", d:"120 looks: twelve unrelated subjects each run through ten treatments, to prove the treatments do not care what they are applied to.", doc:1},
+ {r:"/visuals/open?p=vero-range.html", n:"Vero — Range Sheet Nº1", d:"One subject, the golf swing wake, through fourteen treatments on a single shared clock so they can be compared honestly.", doc:1},
+ {r:"/visuals/open?p=vero-wake.html", n:"Vero — The Wake", d:"The machined-gold reference build: pendulum sweep through impact, measurements resolving, the datum landing at 0.000.", doc:1},
+ {r:"/visuals/open?p=vero-glitter.html", n:"Vero — Glitter Studio", d:"Eight different sparkle physics on one shared swing, club removed, so you can pick the material.", doc:1},
+ {r:"/visuals/open?p=vero-arc.html", n:"Vero — The Swing Arc", d:"Six candidate arc geometries for the mark's path. WAITING ON YOU — it cannot become components until you pick a shape.", doc:1},
+ {r:"/visuals/open?p=anima-range.html", n:"Anima — Range Sheet Nº2", d:"One pacing engine driving fourteen treatments in unison; change the breathing pattern and the whole wall changes together.", doc:1},
+ {r:"/visuals/open?p=anima-breath.html", n:"Anima — The Living Core", d:"A core that actually breathes rather than pulsing — a real lung curve, air drawn and released, phase rings, a hook for haptics.", doc:1},
+ {r:"/visuals/open?p=breath-full.html", n:"Breath — The Full Pattern", d:"The complete cycle carried visually: inhale, hold, exhale, hold. Box breathing, relaxing, and coherent patterns.", doc:1},
+ {r:"/visuals/open?p=charts.html", n:"Charts, Graphs and Tables", d:"Fourteen chart types animating real data — candles forming live, bar race, sankey with travelling particles, volume profile, treemap reflow, and a table that re-ranks itself as numbers move. The nearest thing to a spec for our own charts.", doc:1},
+ {r:"/visuals/open?p=geiger-crossover.html", n:"Geiger — Crossover (held)", d:"An early sketch of the green-to-red state change, made before the real market geiger had been seen. Deliberately unfinished, waiting on your screenshot. Kept because nothing here is thrown away.", doc:1},
+ {r:"/visuals/open?p=photo.html", n:"Photograph Treatments", d:"The house treatments run over real photographs instead of abstract subjects.", doc:1},
+ {r:"/visuals/open?p=widgets.html", n:"Widgets, Haptics and Tones", d:"The small interface pieces — dials, meters, toggles, readouts — with hooks for haptic feedback and subtle tones.", doc:1},
+ {r:"/visuals/open?p=layers.html", n:"The Layer Grammar", d:"Background, subject, telemetry and type as separate layers, so any look can be written down as a stack rather than shown as a picture.", doc:1},
+ {r:"/visuals/open?p=dimension.html", n:"Dimension — in 3D", d:"The same grammar with real depth: true perspective, depth sorting, depth-cued light. Drag a tile to orbit it.", doc:1},
+ {r:"/visuals/theme", n:"The URTH Theme", d:"A whole theme taken to detail level — nine colours read off real material, five type roles, shown on the mark, a photograph, a chart and an interface panel.", doc:1},
+ {r:"/visuals/bench", n:"The Bench", d:"One treatment on four kinds of surface at exactly the same measured level, proving a quality setting carries across. Legibility limits enforced by the engine.", doc:1},
+ {r:"/visuals/template", n:"The Port", d:"The written procedure for moving a finish onto a surface it was not designed for: six steps, the contract, a live four-stage pipeline, and a sign-off checklist.", doc:1},
+ {r:"/visuals/open?p=proposal.html", n:"The Brand Proposal", d:"The full brand revamp as a living document rather than a deck — thesis, foundation, motion grammar, layer architecture, rollout, and the decisions needed from you.", doc:1},
+ {r:"/visuals/archive", n:"The Old Catalogue", d:"The previous index, with a live thumbnail for every piece and a table of which treatments mix with which. Superseded as the way in, but still the best place to see everything moving at once.", doc:1},
+ {r:"/visuals/open?p=port-v1.html", n:"The Bench — first version", d:"The original bench, before legibility limits were built into the engine. Kept so the change is visible.", doc:1},
+ {r:"/visuals/open?p=layers-v1.html", n:"The Compositor — first version", d:"The earlier layer piece: four canvases wired together like command-line tools, where every composite is a recipe you can write down.", doc:1},
+ {r:"/visuals/open?p=index-v1.html", n:"First index page", d:"The very first way in, from before the catalogue existed. Superseded, kept.", doc:1},
+ {r:"/visuals/open?p=index-v2.html", n:"Second index page", d:"The second attempt at a way in, kept alongside the first.", doc:1},
+]},
+{ t:"The saved scenes", h:"9 named layouts in scene_layouts · open one through the engine", items:[
+ {r:"/scenes?scene=watch-deck", n:"Scene · watch-deck", d:"The layout behind The Station: two charts across the top, the two video panes and X below. Three profiles — wall, laptop, narrow.", f:"scene_layouts"},
+ {r:"/scenes?scene=tv-wall", n:"Scene · tv-wall", d:"The Apple TV arrangement as data, six panes. The only scene with a tv profile, and the only one you arranged by hand.", f:"scene_layouts"},
+ {r:"/scenes?scene=command-deck", n:"Scene · command-deck", d:"Pulse strip, chart at 62% beside a rotating geiger at 38%, tape underneath. The original working layout.", f:"scene_layouts"},
+ {r:"/scenes?scene=market-2-charts", n:"Scene · market-2-charts", d:"Two charts side by side over a tape strip. The simplest one.", f:"scene_layouts"},
+ {r:"/scenes?scene=geiger-board", n:"Scene · geiger-board", d:"Three pinned favourite geigers plus one rotating, 2×2 on the wall, one auto-rotating on a laptop.", f:"scene_layouts"},
+ {r:"/scenes?scene=heat-board", n:"Scene · heat-board", d:"Pulse strip over the full sector heat map. For rotation days.", f:"scene_layouts"},
+ {r:"/scenes?scene=overview", n:"Scene · overview", d:"Macro-heavy and tape-heavy: a macro band on top, SPY, QQQ and SMH beneath, tape below.", f:"scene_layouts"},
+ {r:"/scenes?scene=research", n:"Scene · research", d:"Chart at 55% beside a video feed at 45%, tape below — watch and read at the same time.", f:"scene_layouts"},
+ {r:"/scenes?scene=wall-rotation", n:"Scene · wall-rotation", d:"The rotating chart wall wrapped as a scene, so it can be switched to like any other.", f:"scene_layouts"},
+]},
+{ t:"Show me the work", h:"proposals and plans — read, not run", items:[
+ {r:"/components", n:"Component Extraction Proposal", d:"Which hub pieces become standalone components first, and what each needs to stand alone: the Numeral (thick type), the Geiger Bars, the Board table. Proposal only — nothing built from it yet.", doc:1},
+ {r:"/tvwall", n:"TV Wall Plan", d:"What can legally be embedded on the big screen versus what has to be a real window, panel by panel, plus the permanence plan. The reasoning behind The Apple TV Wall.", doc:1},
+ {r:"/", n:"The Widget Index", d:"The original flat list of every widget route, from before this shell existed. Kept as the plainest possible view of what is deployed.", doc:1},
+ {r:"/registry", n:"This Hub", d:"You are here. The container everything else opens inside, and the only page you need to keep pinned.", doc:1},
+]},
+{ t:"Opens separately", h:"these genuinely cannot be embedded — the reason is on each card", items:[
+ {r:"https://x.com/home", n:"x.com", d:"Your real X feed on the real site, logged in.", sep:"x.com sends headers that forbid any site from framing it, permanently and to everyone. That is why the X pane captures your tab instead. No workaround exists for a web page."},
+ {r:"https://www.youtube.com/feed/subscriptions", n:"YouTube Subscriptions", d:"Your real subscriptions page on YouTube.", sep:"YouTube refuses framing outside its own /embed player. Our video panes use /embed, which is the sanctioned path; the rest of the site is not embeddable."},
+ {r:"https://www.youtube.com/playlist?list=WL", n:"YouTube Watch Later", d:"Your Watch Later list, on YouTube.", sep:"Not in our mirror at all — the watch_later column exists with zero rows and there is no playlist column — and YouTube refuses framing. So this is a hand-off, not a list we can show."},
+ {r:"https://www.tradingview.com/chart/", n:"TradingView", d:"Your own saved layouts, with your own indicators.", sep:"TradingView blocks framing of the full site, and we deliberately do not touch your layouts. The in-app modal on /chart uses their sanctioned widget embed instead."},
+ {r:"https://scintilla-desk.vercel.app/proof.html", n:"Live Desk Proof Surface", d:"The other front — the Live Desk lane's proof pages.", sep:"Different origin, and not ours to frame. Listed so it is not lost."},
+]},
+{ t:"Live Desk endpoints", h:"raw data functions — for reference, they return JSON not pages", items:[
+ {r:"https://wadinxqplrggagkvrdag.supabase.co/functions/v1/chartread?ticker=MU&tf=180", n:"chartread", d:"Chart series read. Sample call shown.", fn:1, sep:"A JSON endpoint, not a view — there is no page to embed. Listed so the address is never lost."},
+ {r:"https://wadinxqplrggagkvrdag.supabase.co/functions/v1/pivotunion", n:"pivotunion", d:"The union of pivot sets across timeframes.", fn:1, sep:"JSON endpoint, not a page."},
+ {r:"https://wadinxqplrggagkvrdag.supabase.co/functions/v1/pivotatlas", n:"pivotatlas", d:"The full pivot atlas across the tracked universe — the anchor set the pivot work is built on.", fn:1, sep:"JSON endpoint, not a page."},
+ {r:"https://wadinxqplrggagkvrdag.supabase.co/functions/v1/pivotpine", n:"pivotpine", d:"The Pine-side pivot service, for the TradingView indicator chain.", fn:1, sep:"JSON endpoint, not a page."},
+]},
 ];
 
-/* Live Desk endpoints — different host, so they are checked but never marked
-   dead on a CORS failure. Honesty over false red dots. */
-const LIVEDESK = {
-  t: "Live Desk endpoints", h: "the data functions behind the charts (Supabase)",
-  base: "https://wadinxqplrggagkvrdag.supabase.co/functions/v1/",
-  items: [
-    { r: "chartread?ticker=MU&tf=180", n: "chartread",   d: "chart series read. Sample: ?ticker=MU&tf=180" },
-    { r: "pivotunion",                 n: "pivotunion",  d: "the union of pivot sets." },
-    { r: "pivotatlas",                 n: "pivotatlas",  d: "the pivot atlas." },
-    { r: "pivotpine",                  n: "pivotpine",   d: "the Pine-side pivot service." },
-  ],
+/* freshness thresholds per table, in minutes: [stale after, empty/dead after] */
+const FRESH = {
+  live_quotes:[20,180], spine_events:[1440,10080], feed_alerts:[240,1440],
+  youtube_feed:[1440,10080], news:[360,2880], composite_staged:[2880,20160],
+  ohlcv_history:[2880,20160], earnings_events:[100000,1000000],
+  econ_calendar:[100000,1000000], ticker_cohorts:[100000,1000000],
+  sector_rankings:[2880,20160], scene_layouts:[100000,1000000], ratios_history:[100000,1000000],
+};
+const FCOL = {
+  live_quotes:"updated_ts", spine_events:"at", feed_alerts:"fired_ts",
+  youtube_feed:"published_at", news:"published_ts", composite_staged:null,
+  ohlcv_history:null, earnings_events:null, econ_calendar:null, ticker_cohorts:null,
+  sector_rankings:null, scene_layouts:null, ratios_history:null,
 };
 
-/* ---------- render ---------- */
-function rowHTML(it, href, id) {
-  return '<a class="row" href="' + esc(href) + '" data-id="' + id + '" data-s="' +
-    esc((it.n + " " + it.r + " " + it.d).toLowerCase()) + '">' +
-    '<span class="dot chk" data-dot="' + id + '"></span>' +
-    '<span class="m"><span class="nm">' + esc(it.n) + '<span class="rt">' + esc(it.r) + "</span></span>" +
-    '<span class="ds">' + esc(it.d) + "</span>" +
-    '<span class="flag">not answering — reported, not hidden</span></span>' +
-    '<span class="chev">›</span></a>';
-}
+/* ---------- build ---------- */
 const ALL = [];
+function cardHTML(it, id) {
+  const abs = /^https?:/i.test(it.r);
+  return '<button class="card' + (it.sep ? " sep" : "") + '" data-id="' + id + '">' +
+    '<span class="dot chk" data-dot="' + id + '"></span>' +
+    '<span class="m"><span class="nm">' + esc(it.n) + '<span class="rt">' + esc(abs ? "↗" : it.r) + "</span></span>" +
+    '<span class="ds">' + esc(it.d) + "</span>" +
+    '<span class="tags" data-tags="' + id + '">' + (it.doc ? '<span class="tag doc">reading</span>' : "") +
+      (it.sep ? '<span class="tag sep">opens separately</span>' : "") + "</span>" +
+    '<span class="why">Why it can’t be embedded: ' + esc(it.sep || "") + "</span>" +
+    '<span class="flag">not answering — reported, not hidden</span></span></button>';
+}
 function render() {
   let h = "";
   for (const g of GROUPS) {
-    h += '<section><h2>' + esc(g.t) + '<span class="h">' + esc(g.h) + "</span></h2><div class=\"grid\">";
-    for (const it of g.items) { const id = ALL.length; ALL.push({ it, url: it.r, kind: "route" }); h += rowHTML(it, it.r, id); }
-    h += "</div></section>";
+    h += '<h2>' + esc(g.t) + '<span class="n">' + g.items.length + "</span></h2>" +
+         '<div class="h">' + esc(g.h) + "</div><div class=\"cards\">";
+    for (const it of g.items) {
+      const id = ALL.length;
+      ALL.push({ it, group: g.t, url: it.r, idx: id });
+      h += cardHTML(it, id);
+    }
+    h += "</div>";
   }
-  h += '<section><h2>' + esc(LIVEDESK.t) + '<span class="h">' + esc(LIVEDESK.h) + "</span></h2><div class=\"grid\">";
-  for (const it of LIVEDESK.items) {
-    const id = ALL.length; const url = LIVEDESK.base + it.r;
-    ALL.push({ it, url, kind: "fn" });
-    h += rowHTML(it, url, id);
-  }
-  h += "</div></section>";
-  el("body").innerHTML = h;
+  el("wrap").innerHTML = h;
+  for (const b of el("wrap").querySelectorAll(".card"))
+    b.addEventListener("click", () => openView(+b.dataset.id));
 }
 
-/* ---------- the status sweep: nothing is silently listed ---------- */
-const CACHE_KEY = "sc_home_status_v2", TTL = 10 * 60 * 1000;
-function setDot(id, state) {
-  const d = document.querySelector('[data-dot="' + id + '"]');
-  if (!d) return;
-  d.className = "dot " + state;
-  const row = d.closest(".row");
-  if (row) row.classList.toggle("isbad", state === "bad");
+/* ---------- THE SHELL: open a view IN PLACE ---------- */
+let CUR = -1;
+function groupOf(i) { return ALL.filter((a) => a.group === ALL[i].group); }
+function openView(i) {
+  const a = ALL[i]; if (!a) return;
+  if (a.it.sep) { window.open(a.url, "_blank", "noopener"); return; }
+  CUR = i;
+  document.body.classList.add("viewing");
+  const v = el("view");
+  const old = v.querySelector("iframe"); if (old) old.remove();     /* only ever ONE */
+  el("loading").classList.remove("gone");
+  const f = document.createElement("iframe");
+  f.src = a.url;
+  f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen; display-capture";
+  f.setAttribute("allowfullscreen", "");
+  f.addEventListener("load", () => el("loading").classList.add("gone"));
+  v.appendChild(f);
+  el("now").style.display = ""; el("now").innerHTML = "<b>" + esc(a.it.n) + "</b> · " + esc(a.group);
+  el("q").style.display = "none"; el("counts").style.display = "none";
+  for (const b of ["bBack", "bPrev", "bNext", "bOut"]) el(b).style.display = "";
+  el("bOut").href = a.url;
+  const g = groupOf(i), p = g.findIndex((x) => x.idx === i);
+  el("bPrev").disabled = p <= 0; el("bNext").disabled = p >= g.length - 1;
+  history.replaceState(null, "", "?v=" + encodeURIComponent(a.it.n));
 }
-function counts(states) {
-  const ok = states.filter((s) => s === "ok").length;
-  const bad = states.filter((s) => s === "bad").length;
-  const unk = states.filter((s) => s === "unk").length;
-  el("counts").innerHTML = '<b class="ok">' + ok + " live</b>" +
-    (bad ? ' · <b class="bad">' + bad + " not answering</b>" : "") +
-    (unk ? ' · <b class="unk">' + unk + " unknown</b>" : "");
+function closeView() {
+  CUR = -1;
+  document.body.classList.remove("viewing");
+  const old = el("view").querySelector("iframe"); if (old) old.remove();
+  el("now").style.display = "none";
+  el("q").style.display = ""; el("counts").style.display = "";
+  for (const b of ["bBack", "bPrev", "bNext", "bOut"]) el(b).style.display = "none";
+  history.replaceState(null, "", location.pathname);
 }
-async function probe(entry) {
-  /* HEAD, not GET — we want the status code, not 25 pages of HTML down a
-     phone connection. This is the difference between a front door that
-     paints in a second and one that costs a megabyte every time. */
+function step(d) {
+  if (CUR < 0) return;
+  const g = groupOf(CUR), p = g.findIndex((x) => x.idx === CUR);
+  const n = g[p + d]; if (n) openView(n.idx);
+}
+el("bBack").addEventListener("click", closeView);
+el("brand").addEventListener("click", closeView);
+el("bPrev").addEventListener("click", () => step(-1));
+el("bNext").addEventListener("click", () => step(1));
+addEventListener("keydown", (e) => {
+  if (document.activeElement === el("q")) return;
+  if (e.key === "Escape" && CUR >= 0) closeView();
+  if (e.key === "ArrowLeft" && CUR >= 0) step(-1);
+  if (e.key === "ArrowRight" && CUR >= 0) step(1);
+});
+/* the phone's own back gesture closes the view rather than leaving the hub */
+addEventListener("popstate", () => { if (CUR >= 0) closeView(); });
+
+/* ---------- reachability: nothing is silently listed ---------- */
+const CKEY = "sc_hub_v2", TTL = 10 * 60 * 1000;
+function setDot(id, s) {
+  const d = document.querySelector('[data-dot="' + id + '"]'); if (!d) return;
+  d.className = "dot " + s;
+  const c = d.closest(".card"); if (c) c.classList.toggle("isbad", s === "bad");
+}
+function counts(st) {
+  const ok = st.filter((s) => s === "ok").length, bad = st.filter((s) => s === "bad").length,
+        unk = st.filter((s) => s === "unk").length;
+  el("counts").innerHTML = '<span class="ok">' + ok + " live</span>" +
+    (bad ? ' · <span class="bad">' + bad + " down</span>" : "") +
+    (unk ? ' · <span class="unk">' + unk + " unknown</span>" : "");
+}
+async function probe(a) {
+  if (a.it.sep || /^https?:/i.test(a.url)) return "unk";   /* off-origin: cannot judge honestly */
   try {
-    const r = await fetch(entry.url, { method: "HEAD", cache: "no-store", redirect: "follow" });
-    /* an authenticated function answering 401/403 IS alive — it answered */
-    if (entry.kind === "fn") return (r.status === 401 || r.status === 403 || r.ok) ? "ok" : "bad";
-    if (r.status === 405 || r.status === 501) {          /* HEAD refused — ask properly */
-      const g = await fetch(entry.url, { method: "GET", cache: "no-store", redirect: "follow" });
-      return g.ok ? "ok" : "bad";
-    }
+    const r = await fetch(a.url, { method: "HEAD", cache: "no-store", redirect: "follow" });
+    if (r.status === 405 || r.status === 501) return (await fetch(a.url, { method: "GET", cache: "no-store" })).ok ? "ok" : "bad";
     return r.ok ? "ok" : "bad";
-  } catch (e) {
-    /* cross-origin or offline — say unknown, never a false red */
-    return entry.kind === "fn" ? "unk" : "bad";
-  }
+  } catch (e) { return "bad"; }
 }
 async function sweep(force) {
-  let cached = null;
-  try { cached = JSON.parse(sessionStorage.getItem(CACHE_KEY) || "null"); } catch (e) {}
-  if (!force && cached && Date.now() - cached.t < TTL && cached.s.length === ALL.length) {
-    cached.s.forEach((st, i) => setDot(i, st));
-    counts(cached.s);
-    el("stamp").textContent = "status from cache · re-check to refresh";
+  let c = null; try { c = JSON.parse(sessionStorage.getItem(CKEY) || "null"); } catch (e) {}
+  if (!force && c && Date.now() - c.t < TTL && c.s.length === ALL.length) {
+    c.s.forEach((s, i) => setDot(i, s)); counts(c.s);
+    el("stamp").textContent = "checked within the last ten minutes";
     return;
   }
-  const states = new Array(ALL.length).fill("chk");
+  const st = new Array(ALL.length).fill("chk");
   let i = 0;
-  const worker = async () => {
-    while (i < ALL.length) {
-      const my = i++;
-      const st = await probe(ALL[my]);
-      states[my] = st; setDot(my, st); counts(states);
-    }
-  };
-  await Promise.all([worker(), worker(), worker(), worker()]);   /* 4 at a time — kind to a phone */
-  try { sessionStorage.setItem(CACHE_KEY, JSON.stringify({ t: Date.now(), s: states })); } catch (e) {}
-  el("stamp").textContent = "status checked just now";
+  const worker = async () => { while (i < ALL.length) { const my = i++; st[my] = await probe(ALL[my]); setDot(my, st[my]); counts(st); } };
+  await Promise.all([worker(), worker(), worker(), worker(), worker()]);
+  try { sessionStorage.setItem(CKEY, JSON.stringify({ t: Date.now(), s: st })); } catch (e) {}
+  el("stamp").textContent = "checked just now";
+}
+
+/* ---------- STATE: is it live, stale, or empty — read off the table ---------- */
+async function freshness() {
+  const tables = Array.from(new Set(ALL.map((a) => a.it.f).filter(Boolean)));
+  const out = {};
+  await Promise.all(tables.map(async (t) => {
+    const h = { apikey: ANON, Authorization: "Bearer " + ANON, Prefer: "count=exact" };
+    try {
+      const rc = await fetch(SB + "/rest/v1/" + t + "?select=*&limit=1", { method: "HEAD", headers: h });
+      const m = /\/(\d+)$/.exec(rc.headers.get("content-range") || "");
+      const n = m ? +m[1] : null;
+      if (!n) { out[t] = { s: "empty", n: 0 }; return; }
+      const col = FCOL[t];
+      if (!col) { out[t] = { s: "live", n: n }; return; }
+      const r = await fetch(SB + "/rest/v1/" + t + "?select=" + col + "&order=" + col + ".desc&limit=1",
+        { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
+      const rows = await r.json();
+      const v = rows && rows[0] ? rows[0][col] : null;
+      if (v == null) { out[t] = { s: "empty", n: n }; return; }
+      const mins = (t === "news") ? (Date.now() / 60000 - (+v) / 60) : (Date.now() - new Date(v).getTime()) / 60000;
+      const th = FRESH[t] || [1440, 10080];
+      out[t] = { s: mins > th[1] ? "empty" : mins > th[0] ? "stale" : "live", n: n, mins: mins };
+    } catch (e) { out[t] = null; }
+  }));
+  for (const a of ALL) {
+    if (!a.it.f) continue;
+    const st = out[a.it.f]; if (!st) continue;
+    const box = document.querySelector('[data-tags="' + a.idx + '"]'); if (!box) continue;
+    const s = document.createElement("span");
+    s.className = "tag " + st.s;
+    const age = st.mins == null ? "" : st.mins < 90 ? Math.round(st.mins) + "m"
+      : st.mins < 2880 ? Math.round(st.mins / 60) + "h" : Math.round(st.mins / 1440) + "d";
+    s.textContent = st.s + (age ? " · " + age : "") + " · " + st.n.toLocaleString() + " rows";
+    s.title = "read from " + a.it.f;
+    box.appendChild(s);
+  }
 }
 
 /* ---------- filter ---------- */
 el("q").addEventListener("input", () => {
   const v = el("q").value.trim().toLowerCase();
-  for (const r of document.querySelectorAll(".row")) r.classList.toggle("hide", !!v && r.dataset.s.indexOf(v) < 0);
-  for (const s of document.querySelectorAll("section"))
-    s.classList.toggle("hide", !!v && s.querySelectorAll(".row:not(.hide)").length === 0);
+  for (const c of document.querySelectorAll(".card")) {
+    const a = ALL[+c.dataset.id];
+    const hay = (a.it.n + " " + a.it.r + " " + a.it.d + " " + a.group).toLowerCase();
+    c.classList.toggle("hide", !!v && hay.indexOf(v) < 0);
+  }
+  for (const h2 of document.querySelectorAll("h2")) {
+    const hh = h2.nextElementSibling, cards = hh && hh.nextElementSibling;
+    if (!cards) continue;
+    const any = cards.querySelectorAll(".card:not(.hide)").length > 0;
+    h2.classList.toggle("hide", !any); hh.classList.toggle("hide", !any); cards.classList.toggle("hide", !any);
+  }
 });
 el("q").addEventListener("focus", () => el("q").select());
-el("recheck").addEventListener("click", () => { el("counts").textContent = "re-checking…"; sweep(true); });
 
 render();
 sweep(false);
+freshness();
+/* deep link: /registry?v=The%20Station */
+(function () {
+  const want = new URLSearchParams(location.search).get("v");
+  if (!want) return;
+  const hit = ALL.findIndex((a) => a.it.n.toLowerCase() === want.toLowerCase());
+  if (hit >= 0) openView(hit);
+})();
 </script>
 </body>
 </html>
