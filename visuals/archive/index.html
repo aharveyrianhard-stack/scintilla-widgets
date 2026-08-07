@@ -19,15 +19,15 @@
 (function(){
  "use strict";
  var SRC = "https://wadinxqplrggagkvrdag.supabase.co/functions/v1/lab";
- var PAGE = "index.html";
- /* Readable routes, mapped to the pages behind them. Any link inside a
-    loaded page that points at something we have a route for is rewritten,
-    so the readable address survives navigation instead of falling back to
-    the machine one. */
+ var FIXED = "index.html";
+ /* Readable routes, mapped to the pages behind them. */
  var ROUTES = {"menu-v1.html":"/visuals/menu","imagegen-v1.html":"/visuals/images",
   "port-v2.html":"/visuals/bench","port-guide-v1.html":"/visuals/template",
   "urth-theme-v1.html":"/visuals/theme","index.html":"/visuals/archive",
   "catalog.html":"/visuals/archive"};
+ var q = new URLSearchParams(location.search);
+ var PAGE = FIXED || q.get("p") || "index.html";
+ if (!/^[A-Za-z0-9._-]+$/.test(PAGE)) PAGE = "index.html";
  var msg = document.getElementById("msg");
  function fail(why){
   var sp = document.querySelector(".sp"); if (sp) sp.style.display = "none";
@@ -41,11 +41,17 @@
    /* A base tag makes every relative reference in the page - images and
       links alike - resolve against the shelf, so nothing 404s. */
    var base = '<base href="' + SRC + '">';
+   /* Every internal link is kept on the readable domain: a named route
+      when one exists, otherwise the generic reader. Nobody following a
+      link from here can land on a machine URL. */
    var inject = "<scr" + "ipt>(function(){document.addEventListener('click',function(e){" +
      "var a = e.target && e.target.closest ? e.target.closest('a') : null; if(!a) return;" +
-     "var h = a.getAttribute('href') || ''; var m = h.match(/[?&]p=([^&]+)/); if(!m) return;" +
-     "var R = " + JSON.stringify(ROUTES) + "; var t = R[decodeURIComponent(m[1])];" +
-     "if(t){ e.preventDefault(); location.href = t; }});})();</scr" + "ipt>";
+     "var h = a.getAttribute('href') || ''; var m = h.match(/[?&]p=([^&#]+)/); if(!m) return;" +
+     "var n = decodeURIComponent(m[1]);" +
+     "var R = " + JSON.stringify(ROUTES) + ";" +
+     "if(/\\.(jpg|jpeg|png|webp|gif|svg|json)$/i.test(n)) return;" +
+     "e.preventDefault(); location.href = R[n] || ('/visuals/open?p=' + encodeURIComponent(n));" +
+     "});})();</scr" + "ipt>";
    if (/<head[^>]*>/i.test(html)) html = html.replace(/<head([^>]*)>/i, "<head$1>" + base);
    else html = base + html;
    if (/<\/body>/i.test(html)) html = html.replace(/<\/body>/i, inject + "</body>");
