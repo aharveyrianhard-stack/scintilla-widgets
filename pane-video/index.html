@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0F">
+<title>SCINTILLA · video pane</title>
+<!-- ============================================================================
+     SCINTILLA · /pane-video — BUILT FOR THE PANE, not a page squeezed into one.
+
+     Why this exists. /feed-a and /feed-b are full pages. Dropped into a deck
+     slot they spend their height on chrome — header, chip row, tools row, a
+     hint paragraph, a footer — and the videos end up below the fold. Alan
+     opened the deck and saw "Nothing is playing and nothing was chosen for
+     you" with no video to click. The data was fine (2,980 videos, every one
+     with a thumbnail). The layout was the bug.
+
+     So this is a different thing, sized for a box:
+       · THUMBNAILS FIRST. A grid that counts its own columns from its own
+         width — 1 column in a phone slot, 5 across an Apple TV third. The
+         first thing in the pane is always a picture of a video.
+       · ONE thin bar of chrome. Nothing else competes for height.
+       · CLICK ONE AND IT PLAYS IN PLACE. The grid gives way to the player
+         inside the same box. Back is one tap and you are on the grid again.
+       · IT STILL NEVER PICKS FOR YOU. Opens on the grid. ?v= is the only
+         preselect, because that is you asking by id.
+
+     PICTURE-IN-PICTURE. The pane keeps the chosen video in its own URL
+     (?v=), so whatever hosts it can lift the exact same view — same video —
+     into a floating Document Picture-in-Picture window. The deck's PiP
+     button does that. Where the browser supports Document PiP and we are
+     top-level, the button here does it directly.
+
+     Params: ?feed=market|personal · ?list=all|subs|market|shorts · ?v=VIDEOID
+             · ?autoplay=1 · ?limit=60 (10-200) · ?t=MU · ?cols=N (force)
+     DB reads only, never FMP · youtube_feed · scintilla-live.
+     Receipt: HSC-PANEVIDEO-001.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --vol:#FF8A00;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; -webkit-tap-highlight-color:transparent; }
+html,body{ margin:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:11px; display:flex; flex-direction:column;
+  overflow:hidden; -webkit-text-size-adjust:100%; }
+
+/* ---- ONE thin bar. This is the entire chrome budget. ---- */
+#bar{ flex:none; display:flex; align-items:center; gap:4px; padding:4px 6px;
+  padding-top:calc(4px + env(safe-area-inset-top)); border-bottom:1px solid var(--line);
+  background:var(--panel2); overflow-x:auto; scrollbar-width:none; }
+#bar::-webkit-scrollbar{ display:none; }
+.k{ flex:none; color:var(--crk); font-size:7.5px; letter-spacing:.18em; text-transform:uppercase; }
+.btn{ flex:none; font-size:8px; letter-spacing:.1em; text-transform:uppercase; padding:3px 7px;
+  border:1px solid var(--line); background:var(--bg); color:var(--ink3); cursor:pointer;
+  text-decoration:none; white-space:nowrap; }
+.btn:hover{ color:var(--ink); border-color:var(--hair); }
+.btn.on{ color:var(--crk); border-color:var(--crk); }
+.btn.out{ color:var(--vol); border-color:rgba(255,138,0,.35); }
+#q{ flex:1 1 90px; min-width:70px; background:var(--bg); border:1px solid var(--line);
+  color:var(--ink); font-family:var(--mono); font-size:11px; padding:3px 6px; outline:none;
+  border-radius:0; -webkit-appearance:none; }
+#q:focus{ border-color:var(--crk); }
+
+/* ---- THE GRID. Thumbnails, counted from our own width. ---- */
+#grid{ flex:1 1 0; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain; display:grid; gap:1px; align-content:start;
+  grid-template-columns:repeat(var(--cols,2), minmax(0,1fr)); background:var(--line); }
+.card{ background:var(--bg); cursor:pointer; display:flex; flex-direction:column; min-width:0; }
+.card:hover{ background:var(--panel2); }
+.card.on{ outline:1px solid var(--crk); outline-offset:-1px; }
+.thumb{ position:relative; width:100%; aspect-ratio:16/9; background:#12121c; overflow:hidden; }
+.thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+.dur{ position:absolute; right:3px; bottom:3px; background:rgba(0,0,0,.82); color:#fff;
+  font-size:8px; padding:1px 4px; letter-spacing:.02em; }
+.tk{ position:absolute; left:3px; top:3px; background:rgba(0,212,255,.9); color:#04040a;
+  font-size:8px; padding:1px 4px; letter-spacing:.04em; font-weight:600; }
+.cap{ padding:4px 5px 6px; }
+.cap .t{ color:var(--ink2); font-size:9.5px; line-height:1.3; overflow:hidden;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.cap .s{ color:var(--mute); font-size:8px; margin-top:2px; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+/* very small slots: drop the caption, the picture is the interface */
+body.tiny .cap .s{ display:none; }
+body.tiny .cap{ padding:3px 4px 4px; }
+body.tiny .cap .t{ -webkit-line-clamp:1; font-size:9px; }
+
+/* ---- THE PLAYER. Same box, no navigation away. ---- */
+#stage{ display:none; flex:1 1 0; min-height:0; flex-direction:column; }
+body.playing #stage{ display:flex; }
+body.playing #grid{ display:none; }
+#video{ flex:1 1 0; min-height:0; position:relative; background:#000; }
+#video iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; }
+#nowbar{ flex:none; display:flex; align-items:center; gap:4px; padding:4px 6px;
+  background:var(--panel2); border-top:1px solid var(--line); }
+#nowt{ flex:1 1 0; min-width:0; color:var(--ink2); font-size:9px; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.msg{ grid-column:1/-1; padding:16px 12px; color:var(--mute); font-size:9px; letter-spacing:.12em;
+  text-transform:uppercase; text-align:center; background:var(--bg); }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="k" id="kk">FEED</span>
+  <span class="btn" id="bBack" style="display:none">‹ grid</span>
+  <span class="btn" id="bPip" style="display:none" title="float this video in its own always-on-top window">pip</span>
+  <a class="btn out" id="bYt" style="display:none" target="_blank" rel="noopener">youtube ↗</a>
+  <input id="q" type="search" placeholder="search…" autocomplete="off" autocorrect="off" spellcheck="false">
+  <span id="chips" style="display:flex;gap:4px"></span>
+</div>
+<div id="grid"><div class="msg">loading…</div></div>
+<div id="stage">
+  <div id="video"></div>
+  <div id="nowbar"><span id="nowt"></span></div>
+</div>
+<script>
+"use strict";
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+async function pg(path, _tries) {
+  const tries = _tries == null ? 3 : _tries; let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(SB + "/rest/v1/" + path, { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
+      if (r.ok) return r.json();
+      if (r.status === 503 || r.status === 504 || r.status === 429) lastErr = new Error("pg " + r.status);
+      else throw new Error("pg " + r.status);
+    } catch (e) { lastErr = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 400 * (i + 1) + Math.random() * 250));
+  }
+  throw lastErr;
+}
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+const QS = new URLSearchParams(location.search);
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const FEED   = QS.get("feed") === "personal" ? "personal" : "market";
+const LIMIT  = Math.max(10, Math.min(200, +(QS.get("limit") || 60)));
+const TICK   = (QS.get("t") || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
+const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
+const AUTO   = QS.get("autoplay") === "1";
+const FORCE  = +(QS.get("cols") || 0);
+
+/* the lists we can honestly rebuild from the mirror. Watch Later has zero
+   rows and there is no playlist column, so those are hand-offs, not lists. */
+const LISTS = [
+  { id: "default", n: FEED === "market" ? "market" : "mine", q: "" },
+  { id: "subs",    n: "subs",   q: "&is_sub=eq.true" },
+  { id: "shorts",  n: "shorts", q: "&is_short=eq.true" },
+  { id: "all",     n: "all",    q: "" },
+];
+let LIST = LISTS.some((l) => l.id === QS.get("list")) ? QS.get("list") : "default";
+el("kk").textContent = FEED === "market" ? "MARKET" : "MINE";
+
+let ROWS = [], BYID = {}, CUR = null;
+
+/* ---- columns counted from OUR width, not the window ---- */
+function relayout() {
+  const w = document.documentElement.clientWidth;
+  let cols = FORCE || (w < 210 ? 1 : w < 340 ? 2 : w < 520 ? 3 : w < 760 ? 4 : w < 1100 ? 5 : 6);
+  document.body.classList.toggle("tiny", w < 340);
+  el("grid").style.setProperty("--cols", cols);
+}
+let raf = 0;
+const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; relayout(); }); };
+if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
+addEventListener("resize", nudge); addEventListener("orientationchange", nudge);
+
+/* ---- play IN PLACE ---- */
+function syncUrl() {
+  const p = new URLSearchParams(location.search);
+  if (CUR) p.set("v", CUR.video_id); else p.delete("v");
+  p.set("feed", FEED); p.set("list", LIST);
+  history.replaceState(null, "", "?" + p.toString());
+}
+function play(v, auto) {
+  if (!v) return;
+  CUR = v;
+  document.body.classList.add("playing");
+  el("video").innerHTML = '<iframe src="https://www.youtube.com/embed/' + encodeURIComponent(v.video_id) +
+    "?playsinline=1&rel=0&modestbranding=1&enablejsapi=1" + (auto ? "&autoplay=1" : "") +
+    '" title="' + esc(v.title) +
+    '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>';
+  el("nowt").textContent = (v.title || v.video_id) + (v.channel ? "  ·  " + v.channel : "");
+  el("bBack").style.display = "";
+  el("bYt").style.display = ""; el("bYt").href = "https://www.youtube.com/watch?v=" + encodeURIComponent(v.video_id);
+  el("bYt").textContent = IOS ? "app ↗" : "youtube ↗";
+  el("bPip").style.display = canPip() ? "" : "none";
+  syncUrl();
+}
+function back() {
+  CUR = null;
+  el("video").innerHTML = "";                 /* the iframe is really gone */
+  document.body.classList.remove("playing");
+  for (const b of ["bBack", "bPip", "bYt"]) el(b).style.display = "none";
+  syncUrl(); paint();
+}
+el("bBack").addEventListener("click", back);
+
+/* ---- PICTURE-IN-PICTURE ----
+   Document PiP hosts real DOM, so it can carry the YouTube player into a
+   floating always-on-top window. It needs a top-level context, so inside a
+   deck pane this button hides and the DECK's pip button does the same job
+   from the top level using this pane's own ?v= URL. */
+function canPip() {
+  try { return !!window.documentPictureInPicture && window.top === window.self; } catch (e) { return false; }
+}
+el("bPip").addEventListener("click", async () => {
+  if (!CUR || !canPip()) return;
+  try {
+    const w = await documentPictureInPicture.requestWindow({ width: 480, height: 300 });
+    const d = w.document;
+    d.body.style.cssText = "margin:0;background:#000;height:100%";
+    d.documentElement.style.height = "100%";
+    const f = d.createElement("iframe");
+    f.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0";
+    f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+    f.src = "https://www.youtube.com/embed/" + encodeURIComponent(CUR.video_id) +
+            "?playsinline=1&rel=0&modestbranding=1&autoplay=1";
+    d.body.appendChild(f);
+  } catch (e) { /* user dismissed, or the browser said no */ }
+});
+
+/* ---- render ---- */
+function paint() {
+  const q = el("q").value.trim().toLowerCase();
+  const rows = q ? ROWS.filter((v) => ((v.title || "") + " " + (v.channel || "") + " " + (v.tickers || "")).toLowerCase().indexOf(q) >= 0) : ROWS;
+  if (!rows.length) { el("grid").innerHTML = '<div class="msg">' + (q ? "nothing matches" : "no videos in this list") + "</div>"; return; }
+  el("grid").innerHTML = rows.map((v) =>
+    '<div class="card' + (CUR && CUR.video_id === v.video_id ? " on" : "") + '" data-v="' + esc(v.video_id) + '">' +
+      '<div class="thumb"><img loading="lazy" decoding="async" src="' +
+        esc(v.thumb_url || ("https://i.ytimg.com/vi/" + v.video_id + "/mqdefault.jpg")) + '" alt="">' +
+        (v.tickers ? '<span class="tk">' + esc(String(v.tickers).split(",")[0]) + "</span>" : "") +
+        (v.duration ? '<span class="dur">' + esc(v.duration) + "</span>" : "") +
+      "</div>" +
+      '<div class="cap"><div class="t">' + esc(v.title) + "</div>" +
+      '<div class="s">' + esc(v.channel || "") + "</div></div>" +
+    "</div>").join("");
+  for (const n of el("grid").querySelectorAll(".card"))
+    n.addEventListener("click", () => play(BYID[n.dataset.v], true));
+}
+
+function paintChips() {
+  const box = el("chips"); box.innerHTML = "";
+  for (const l of LISTS) {
+    const b = document.createElement("span");
+    b.className = "btn" + (l.id === LIST ? " on" : "");
+    b.textContent = l.n;
+    b.addEventListener("click", () => { LIST = l.id; paintChips(); load(); });
+    box.appendChild(b);
+  }
+  /* not mirrored — hand off rather than show an empty list wearing the name */
+  for (const h of [["WL ↗", "https://www.youtube.com/playlist?list=WL"],
+                   ["lists ↗", "https://www.youtube.com/feed/you"]]) {
+    const a = document.createElement("a");
+    a.className = "btn out"; a.href = h[1]; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = h[0]; a.title = "not in our mirror — opens the real one on YouTube";
+    box.appendChild(a);
+  }
+}
+
+async function load() {
+  el("grid").innerHTML = '<div class="msg">loading…</div>';
+  let q = "youtube_feed?select=video_id,title,channel,tickers,duration,is_short,thumb_url,published_at" +
+          "&order=published_at.desc&limit=" + LIMIT;
+  const chosen = LISTS.find((l) => l.id === LIST);
+  if (LIST === "default") {
+    q += FEED === "market" ? "&tickers=not.is.null&tickers=neq." : "&or=(tickers.is.null,tickers.eq.)";
+    q += "&is_short=eq.false";
+  } else if (LIST !== "all") { q += chosen.q; }
+  if (TICK) q += "&tickers=ilike.*" + encodeURIComponent(TICK) + "*";
+  let rows;
+  try { rows = await pg(q); }
+  catch (e) { el("grid").innerHTML = '<div class="msg">feed unavailable</div>'; return; }
+  ROWS = Array.isArray(rows) ? rows : [];
+  BYID = {}; for (const v of ROWS) BYID[v.video_id] = v;
+  paint(); relayout();
+  /* the ONLY preselect: you asked for a video by id */
+  if (START && BYID[START]) play(BYID[START], AUTO);
+}
+
+el("q").addEventListener("input", paint);
+el("q").addEventListener("focus", () => el("q").select());
+paintChips(); relayout(); load();
+</script>
+</body>
+</html>

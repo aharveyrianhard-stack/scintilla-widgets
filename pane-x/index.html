@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0F">
+<title>SCINTILLA · X pane</title>
+<!-- ============================================================================
+     SCINTILLA · /pane-x — your live X feed, scrolling, INSIDE the pane.
+
+     ---- WHAT I FOUND, AND WHY THIS IS BUILT THIS WAY ------------------------
+     Alan said the thing already exists as a Chrome extension built with
+     ChatGPT and that there would be notes. There are. It is:
+
+         X FEED FLOAT 0.6.7  ·  built in Codex on the MacBook  ·  unpublished
+         Drive: X-Feed-Float-0.6.7.zip  1BgAZhVqYU6K5gUTxsTKeKie2HKPYFVSj
+         Notes: SITREP — X Feed PiP / Scintilla Scenes — 2026-08-03
+                13P3umxXiQQ9bLden_0zoT2TnBnUQp_AMdaLHD1R1i0o
+         manifest v3 · permissions activeTab, scripting, storage, tabCapture,
+         windows · host_permissions x.com, twitter.com · shortcut Alt+Shift+P
+
+     And here is the important part — HOW it solved the embedding problem.
+     It does NOT strip X-Frame-Options. It does NOT iframe x.com. Those
+     strings appear nowhere in the shipped zip. What it actually does:
+
+         chrome.tabCapture  →  MediaStream of the real, logged-in x.com tab
+         Region Capture (CropTarget) → cropped to the timeline column
+         → drawn to a <canvas>
+         → shown in a documentPictureInPicture window
+
+     x.com is never framed. The real tab renders it; the extension captures
+     and crops the pixels. That is why it works, and it is the only technique
+     that can work — x.com refuses framing to everyone, permanently.
+
+     ---- SO WHAT CAN A WEB PAGE DO -------------------------------------------
+     The same thing, through the web platform's own door. tabCapture is an
+     extension API, but getDisplayMedia is its public equivalent: you pick
+     your x.com tab once, and this pane renders that live stream. Same
+     pipeline, same result — your real feed, live, scrolling, in the pane —
+     with one extra click (the browser's picker) because a web page is not
+     allowed to grab a tab silently. That is a browser rule, not a shortcut.
+
+     What this pane adds on top: zoom and pan so you can crop to the column
+     the way Region Capture does, and real Picture-in-Picture — the stream is
+     a genuine <video>, so requestPictureInPicture() gives a true floating
+     always-on-top window.
+
+     What it CANNOT do, said plainly: auto-scroll. The extension scrolls X by
+     injecting a content script into the x.com tab. A web page cannot reach
+     into another tab — no page can. For hands-off scrolling, X Feed Float is
+     still the tool, and it is one keystroke away: Alt/Option+Shift+P.
+
+     iOS/iPadOS Safari has no getDisplayMedia at all, so on iPhone and iPad
+     this pane says so and hands off rather than pretending.
+
+     Params: ?auto=1 (prompt for the tab immediately on a user gesture)
+     No data is sent anywhere. The stream never leaves the browser.
+     Receipt: HSC-PANEX-001.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --vol:#FF8A00; --bear:#FF2D55;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; -webkit-tap-highlight-color:transparent; }
+html,body{ margin:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:11px; display:flex; flex-direction:column;
+  overflow:hidden; -webkit-text-size-adjust:100%; }
+#bar{ flex:none; display:flex; align-items:center; gap:4px; padding:4px 6px;
+  padding-top:calc(4px + env(safe-area-inset-top)); border-bottom:1px solid var(--line);
+  background:var(--panel2); overflow-x:auto; scrollbar-width:none; }
+#bar::-webkit-scrollbar{ display:none; }
+.k{ flex:none; color:var(--crk); font-size:7.5px; letter-spacing:.18em; text-transform:uppercase; }
+.btn{ flex:none; font-size:8px; letter-spacing:.1em; text-transform:uppercase; padding:3px 7px;
+  border:1px solid var(--line); background:var(--bg); color:var(--ink3); cursor:pointer;
+  text-decoration:none; white-space:nowrap; }
+.btn:hover{ color:var(--ink); border-color:var(--hair); }
+.btn.go{ color:var(--crk); border-color:var(--crk); }
+.btn.out{ color:var(--vol); border-color:rgba(255,138,0,.35); }
+input[type=range]{ flex:none; width:64px; accent-color:var(--crk); }
+.lbl{ flex:none; color:var(--mute); font-size:7.5px; letter-spacing:.1em; text-transform:uppercase; }
+
+#body{ flex:1 1 0; min-height:0; position:relative; background:#000; overflow:hidden; }
+#v{ position:absolute; top:50%; left:50%; transform-origin:center center; display:none;
+  max-width:none; background:#000; }
+body.live #v{ display:block; }
+body.live #card{ display:none; }
+
+#card{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:9px; text-align:center; padding:14px; background:var(--bg); }
+#card .n{ color:var(--ink2); font-size:10px; letter-spacing:.14em; text-transform:uppercase; }
+#card .d{ color:var(--mute); font-size:8.5px; line-height:1.65; max-width:330px; }
+#card .d b{ color:var(--ink3); font-weight:400; }
+#card .go{ color:var(--crk); font-size:9px; letter-spacing:.16em; text-transform:uppercase;
+  border:1px solid var(--crk); padding:6px 14px; cursor:pointer; }
+#card .go:hover{ background:rgba(0,212,255,.08); }
+#card .alt{ display:flex; gap:5px; flex-wrap:wrap; justify-content:center; }
+#err{ color:var(--bear); font-size:8.5px; line-height:1.5; max-width:330px; display:none; }
+/* small slots: the prose would eat the box */
+body.tiny #card .d{ display:none; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="k">X · LIVE</span>
+  <span class="btn go" id="bStart">show my feed</span>
+  <span class="btn" id="bStop" style="display:none">stop</span>
+  <span class="btn" id="bPip" style="display:none" title="float this in its own always-on-top window">pip</span>
+  <span class="lbl" id="lz" style="display:none">zoom</span>
+  <input type="range" id="z" min="100" max="400" value="150" style="display:none">
+  <span class="lbl" id="lx" style="display:none">pan</span>
+  <input type="range" id="px" min="-50" max="50" value="0" style="display:none">
+  <a class="btn out" href="https://x.com/home" target="_blank" rel="noopener">open x ↗</a>
+</div>
+
+<div id="body">
+  <video id="v" autoplay muted playsinline></video>
+  <div id="card">
+    <div class="n">Your X feed, live, in this pane</div>
+    <div class="d">Tap below and pick your <b>x.com</b> tab. Its live pixels render here — your real logged-in
+      feed, scrolling as it scrolls. Nothing is sent anywhere; the stream never leaves this browser.
+      Then <b>zoom</b> and <b>pan</b> to crop to the timeline column.</div>
+    <div class="go" id="bGo">choose my x.com tab</div>
+    <div class="d" id="hint"><b>For hands-off auto-scroll</b> use your own extension — X Feed Float 0.6.7,
+      <b>Option+Shift+P</b>. A web page cannot scroll another tab; only an extension can reach in.</div>
+    <div class="alt">
+      <a class="btn" href="https://x.com/home" target="_blank" rel="noopener">open x.com first</a>
+      <span class="btn" id="bWin">pop a window instead</span>
+    </div>
+    <div id="err"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const el = (id) => document.getElementById(id);
+const QS = new URLSearchParams(location.search);
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const CAN = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !IOS;
+
+let stream = null;
+
+function fit() {
+  const host = document.getElementById("body");
+  const v = el("v");
+  if (!host || !v || !v.videoWidth) return;
+  /* cover the pane at zoom 100, then the slider magnifies from there — this
+     is our stand-in for Region Capture's crop to the timeline column */
+  const hw = host.clientWidth, hh = host.clientHeight;
+  const scale = Math.max(hw / v.videoWidth, hh / v.videoHeight) * (+el("z").value / 100);
+  const panX = (+el("px").value / 100) * hw;
+  v.style.width = v.videoWidth + "px";
+  v.style.height = v.videoHeight + "px";
+  v.style.transform = "translate(-50%,-50%) translateX(" + panX + "px) scale(" + scale + ")";
+}
+let raf = 0;
+const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; tiny(); fit(); }); };
+function tiny() { document.body.classList.toggle("tiny", document.documentElement.clientHeight < 240); }
+if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
+addEventListener("resize", nudge); addEventListener("orientationchange", nudge);
+el("z").addEventListener("input", fit);
+el("px").addEventListener("input", fit);
+
+function showErr(m) { const e = el("err"); e.textContent = m; e.style.display = "block"; }
+
+function controls(on) {
+  for (const id of ["bStop", "bPip", "lz", "z", "lx", "px"]) el(id).style.display = on ? "" : "none";
+  el("bStart").style.display = on ? "none" : "";
+  el("bPip").style.display = (on && document.pictureInPictureEnabled) ? "" : "none";
+}
+
+async function start() {
+  if (!CAN) {
+    showErr(IOS
+      ? "Safari on iPhone and iPad has no screen-capture API at all, so no web page can render your X feed here. Use X Feed Float on the Mac, or the pop-out below."
+      : "This browser does not expose getDisplayMedia, so the live pane is not available here. Use the pop-out below.");
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: "browser", frameRate: { ideal: 30, max: 60 } },
+      audio: false, preferCurrentTab: false, selfBrowserSurface: "exclude",
+      systemAudio: "exclude", surfaceSwitching: "include",
+    });
+  } catch (e) {
+    if (e && e.name === "NotAllowedError") return;    /* user cancelled — say nothing */
+    showErr("Could not start the capture: " + (e && e.name ? e.name : "unknown") + ".");
+    return;
+  }
+  const v = el("v");
+  v.srcObject = stream;
+  document.body.classList.add("live");
+  controls(true);
+  v.addEventListener("loadedmetadata", fit, { once: true });
+  v.addEventListener("resize", fit);
+  stream.getVideoTracks()[0].addEventListener("ended", stop);
+  setTimeout(fit, 120);
+}
+function stop() {
+  if (stream) { for (const t of stream.getTracks()) t.stop(); stream = null; }
+  el("v").srcObject = null;
+  document.body.classList.remove("live");
+  controls(false);
+}
+el("bGo").addEventListener("click", start);
+el("bStart").addEventListener("click", start);
+el("bStop").addEventListener("click", stop);
+el("bWin").addEventListener("click", () => {
+  window.open("https://x.com/home", "sc_x", "width=520,height=820,menubar=no,toolbar=no,location=no");
+});
+
+/* REAL picture-in-picture. The capture is a genuine <video>, so this is the
+   browser's own always-on-top window — not an imitation of one. */
+el("bPip").addEventListener("click", async () => {
+  const v = el("v");
+  try {
+    if (document.pictureInPictureElement) await document.exitPictureInPicture();
+    else await v.requestPictureInPicture();
+  } catch (e) { showErr("Picture-in-picture was refused: " + (e && e.name ? e.name : "unknown") + "."); }
+});
+
+if (!CAN) {
+  el("bGo").textContent = IOS ? "not available in safari" : "not available here";
+  el("bGo").style.borderColor = "var(--mute)";
+  el("bGo").style.color = "var(--mute)";
+  el("hint").innerHTML = IOS
+    ? "<b>Why:</b> Safari on iOS and iPadOS ships no screen-capture API, so no web page can do this here. On the Mac it works, and your own extension — <b>X Feed Float 0.6.7, Option+Shift+P</b> — does it with auto-scroll on top."
+    : "<b>Why:</b> this browser exposes no getDisplayMedia.";
+}
+tiny();
+if (QS.get("auto") === "1" && CAN) el("bGo").focus();
+</script>
+</body>
+</html>
