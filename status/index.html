@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SCINTILLA · the org, live</title>
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --line2:#252538;
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00; --heat:#FFE500;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; }
+html,body{ max-width:100%; overflow-x:hidden; }
+body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:12px; letter-spacing:.02em;
+  padding:28px 16px 60px; max-width:900px; -webkit-text-size-adjust:100%; }
+h1{ font-size:13px; letter-spacing:.3em; text-transform:uppercase; color:var(--crk); font-weight:400; margin:0 0 6px; }
+.sub{ color:var(--dim); font-size:10px; letter-spacing:.12em; text-transform:uppercase; margin-bottom:8px; }
+.stamp{ display:inline-block; color:var(--vol); border:1px dashed rgba(255,138,0,.5);
+  font-size:8.5px; letter-spacing:.16em; text-transform:uppercase; padding:2px 8px; margin-bottom:22px; }
+h2{ font-size:11px; letter-spacing:.24em; text-transform:uppercase; color:var(--crk);
+  font-weight:400; margin:30px 0 10px; border-bottom:1px solid var(--line); padding-bottom:7px; }
+p{ color:var(--ink2); line-height:1.7; margin:0 0 12px; }
+em{ color:var(--ink3); font-style:normal; }
+a{ color:var(--crk); text-decoration:none; }
+.none{ color:var(--mute); }
+.note{ font-size:10px; color:var(--dim); line-height:1.7; }
+.clear{ color:var(--ink3); border-left:2px solid var(--line2); padding-left:10px; }
+
+.esc{ border:1px solid rgba(255,45,85,.5); background:rgba(255,45,85,.06);
+  padding:12px 13px; margin:0 0 10px; }
+.esc-q{ color:var(--bear); font-size:11.5px; line-height:1.6; margin-bottom:6px; }
+.esc-w{ color:var(--dim); font-size:9px; letter-spacing:.14em; text-transform:uppercase; margin-bottom:6px; }
+.esc-c{ color:var(--ink2); font-size:10.5px; line-height:1.6; margin-bottom:8px; }
+.ord b{ color:var(--crk); font-weight:400; }
+.esc-o{ color:var(--ink2); font-size:10.5px; line-height:1.8; }
+.esc-o b{ color:var(--heat); }
+
+.tiles{ display:flex; gap:8px; flex-wrap:wrap; margin:12px 0 10px; }
+.tile{ flex:1 1 96px; border:1px solid var(--line2); padding:12px 10px; }
+.tile .n{ font-size:22px; line-height:1; margin-bottom:5px; }
+.tile .l{ font-size:8.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim); }
+.tile.built .n{ color:var(--bull); }
+.tile.desc  .n{ color:var(--vol); }
+.tile.silent .n{ color:var(--bear); }
+
+.pos{ border:1px solid var(--line); border-left:2px solid var(--mute);
+  padding:11px 12px; margin:0 0 8px; background:var(--panel2); }
+.pos.built{ border-left-color:var(--bull); }
+.pos.described{ border-left-color:var(--vol); }
+.pos.silent,.pos.no-link{ border-left-color:var(--bear); }
+.pos-h{ display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; margin-bottom:4px; }
+.pos-n{ color:var(--ink); font-size:11.5px; }
+.tag{ font-size:8px; letter-spacing:.14em; text-transform:uppercase; padding:1px 6px; border:1px solid; white-space:nowrap; }
+.tag.built{ color:var(--bull); border-color:rgba(0,255,163,.45); }
+.tag.described{ color:var(--vol); border-color:rgba(255,138,0,.45); }
+.tag.silent,.tag.no-link{ color:var(--bear); border-color:rgba(255,45,85,.45); }
+.pos-r{ color:var(--dim); font-size:9.5px; line-height:1.6; margin-bottom:6px; }
+.pos-d{ color:var(--ink2); font-size:11px; line-height:1.6; }
+.pos-d.gap{ color:var(--bear); }
+.pos-m{ color:var(--mute); font-size:9px; letter-spacing:.12em; text-transform:uppercase; margin-top:5px; }
+.pos-l{ margin-top:6px; font-size:10.5px; }
+
+.sec{ color:var(--dim); font-size:9px; letter-spacing:.18em; text-transform:uppercase; margin:16px 0 8px; }
+.links{ display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:6px; }
+.lk{ border:1px solid var(--line2); padding:9px 10px; display:block; }
+.lk b{ display:block; color:var(--crk); font-size:11px; font-weight:400; margin-bottom:3px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lk span{ display:block; color:var(--dim); font-size:9px; line-height:1.5; }
+.lk:active{ background:rgba(0,212,255,.08); }
+
+.ord{ border-left:2px solid var(--crk); padding:8px 11px; margin:0 0 6px;
+  background:var(--panel2); color:var(--ink2); font-size:10.5px; line-height:1.6; }
+.foot{ color:var(--mute); font-size:9px; letter-spacing:.12em; text-transform:uppercase;
+  margin-top:40px; line-height:1.9; border-top:1px solid var(--line); padding-top:14px; }
+@media (max-width:420px){
+  body{ padding:22px 12px 50px; }
+  .links{ grid-template-columns:1fr 1fr; }
+}
+</style>
+</head>
+<body>
+<h1>The Org, Live</h1>
+<div class="sub">every position · every surface · every question waiting on you</div>
+<div class="stamp">rendered 2026-08-06 23:59 ET · reads only · a gap shows as a gap</div>
+<h2>1 · Waiting on you</h2>
+<p class="clear">Nothing is queued as a question for you.<br><em>relay_escalations holds 0 row(s). That is the honest reading of the table — not a claim that nothing needs your attention. If sessions are asking you things in chat instead of filing them here, this panel cannot see it.</em></p>
+<h2>2 · Built vs described</h2>
+<div class="tiles">
+<div class="tile built"><div class="n">3</div><div class="l">you can open it</div></div>
+<div class="tile desc"><div class="n">3</div><div class="l">written up only</div></div>
+<div class="tile silent"><div class="n">6</div><div class="l">nothing filed</div></div>
+</div>
+<p class="note">Counted from each position's most recent spine row. "You can open it" means the receipt points at a live surface. "Written up only" means it points at a document. Neither is a judgement about quality — only about whether there is something to look at.</p>
+<h2>3 · Every position</h2>
+<div class="pos built">
+<div class="pos-h"><span class="pos-n">Hub Surface Command</span><span class="tag built">live surface</span></div>
+<div class="pos-r">surface composition owner · owns widget extraction into windowable routes, named layouts, scene-wall composition</div>
+<div class="pos-d">/reflow — the geiger that moves: same universe re-ranked with FLIP reorder + colour bleed, matrix and treemap</div>
+<div class="pos-m">33 min ago · widget.route.live</div>
+<div class="pos-l"><a href="https://scintilla-widgets.vercel.app/reflow" target="_blank" rel="noopener">open it</a></div>
+</div>
+<div class="pos described">
+<div class="pos-h"><span class="pos-n">iMac Command</span><span class="tag described">doc or repo</span></div>
+<div class="pos-r">device mirror · owns iMac estate, Urth-acct sources, device supplement</div>
+<div class="pos-d">ORCHESTRATOR CLI v1 — built, tested, committed, pushed, demo relay proven on all four surfaces</div>
+<div class="pos-m">1h ago · sprint.complete</div>
+<div class="pos-l"><a href="https://github.com/aharveyrianhard-stack/orchestrator-cli" target="_blank" rel="noopener">open it</a></div>
+</div>
+<div class="pos built">
+<div class="pos-h"><span class="pos-n">Live Desk / SCINTILLA Lead</span><span class="tag built">live surface</span></div>
+<div class="pos-r">proof surface owner · owns live deck + proof pages, TradingView extraction chain, Trendoscope reimplementation, lens-divergence proof</div>
+<div class="pos-d">Q4 DONE — honest open items on the page: geiger-history raw; P-19 snapshot drift</div>
+<div class="pos-m">22h ago · proof.q4.open_items_live</div>
+<div class="pos-l"><a href="https://scintilla-desk.vercel.app/proof.html" target="_blank" rel="noopener">open it</a></div>
+</div>
+<div class="pos built">
+<div class="pos-h"><span class="pos-n">Claude Command</span><span class="tag built">live surface</span></div>
+<div class="pos-r">primary execution command · owns Command lane: consolidation sprints, receipts, board, price-basis doctrine, adj-eod writer</div>
+<div class="pos-d">scintilla-sector — Jul-30 DB migration landed + rankings published</div>
+<div class="pos-m">1d ago · consolidation.sector.wired</div>
+<div class="pos-l"><a href="https://sectorrotation.scintillahub.ai" target="_blank" rel="noopener">open it</a></div>
+</div>
+<div class="pos described">
+<div class="pos-h"><span class="pos-n">SCINTILLA Market-Data &amp; Hub</span><span class="tag described">doc or repo</span></div>
+<div class="pos-r">backend data integrity · owns chg lane, hub deploys, R46</div>
+<div class="pos-d">chg_pct single-writer / Q-008 padder / sort-key</div>
+<div class="pos-m">1d ago · verification</div>
+<div class="pos-l"><a href="https://docs.google.com/document/d/1ah5rIolbI5F5ZNvidDEx9SyaYm8G0iDb1zmkApmdfYU/edit" target="_blank" rel="noopener">open it</a></div>
+</div>
+<div class="pos silent">
+<div class="pos-h"><span class="pos-n">AIOS HQ / Chief of Staff</span><span class="tag silent">no delivery filed</span></div>
+<div class="pos-r">blueprint authority, operator board · owns cross-domain priorities</div>
+<div class="pos-d gap">No spine row matches this position. Either it has not filed, or it files under a name that does not match the roster.</div>
+<div class="pos-l">last known: <a href="https://docs.google.com/spreadsheets/d/1EbLdV8PaR7Ec9RuvNN06MROChsP563KlbxJcOuSOCh0" target="_blank" rel="noopener">open</a></div>
+</div>
+<div class="pos silent">
+<div class="pos-h"><span class="pos-n">Codex Remediation</span><span class="tag silent">no delivery filed</span></div>
+<div class="pos-r">independent reviewer · owns FMP guard PRs P1-P6</div>
+<div class="pos-d gap">No spine row matches this position. Either it has not filed, or it files under a name that does not match the roster.</div>
+<div class="pos-l">last known: <a href="https://docs.google.com/document/d/1zHDrP3KCye3ckX4hhFiGOTARvkhp6CB7b6y-megmCyY" target="_blank" rel="noopener">open</a></div>
+</div>
+<div class="pos silent">
+<div class="pos-h"><span class="pos-n">Hub Front Transition / visuals</span><span class="tag silent">no delivery filed</span></div>
+<div class="pos-r">front-end visual owner · owns hub design, visuals engine</div>
+<div class="pos-d gap">No spine row matches this position. Either it has not filed, or it files under a name that does not match the roster.</div>
+<div class="pos-l">last known: <a href="https://docs.google.com/document/d/1Bl9lVET-i_jyjYpFc3t91XAiaLS3fONo_AhmkMz_IiM" target="_blank" rel="noopener">open</a></div>
+</div>
+<div class="pos silent">
+<div class="pos-h"><span class="pos-n">Sector Rotation</span><span class="tag silent">no delivery filed</span></div>
+<div class="pos-r">lane specialist · owns scintilla-sector</div>
+<div class="pos-d gap">No spine row matches this position. Either it has not filed, or it files under a name that does not match the roster.</div>
+<div class="pos-l">last known: <a href="https://docs.google.com/document/d/1-CBPzAsfaUxMlXwWT9g2CSZEi5KfspahHUIgebT6pAg" target="_blank" rel="noopener">open</a></div>
+</div>
+<div class="pos silent">
+<div class="pos-h"><span class="pos-n">Allocation Module</span><span class="tag silent">no delivery filed</span></div>
+<div class="pos-r">lane specialist · owns scintilla-allocation</div>
+<div class="pos-d gap">No spine row matches this position. Either it has not filed, or it files under a name that does not match the roster.</div>
+<div class="pos-l">last known: <a href="https://docs.google.com/document/d/1Jsa1orOCfivcP-hq5NzVkqCzCwU94dyJV6uCGpZPtBQ" target="_blank" rel="noopener">open</a></div>
+</div>
+<div class="pos described">
+<div class="pos-h"><span class="pos-n">Urth Property Brain</span><span class="tag described">doc or repo</span></div>
+<div class="pos-r">Urth systems · owns property brain, apps.urthlandscaping.com</div>
+<div class="pos-d">Name-collision disambiguation + reply routing Site-Marks CAD asks</div>
+<div class="pos-m">unknown · relay.reply</div>
+<div class="pos-l"><a href="https://github.com/aharveyrianhard-stack/urth-property-brain" target="_blank" rel="noopener">open it</a></div>
+</div>
+<div class="pos silent">
+<div class="pos-h"><span class="pos-n">Pine Builder + Technical Assurance</span><span class="tag silent">no delivery filed</span></div>
+<div class="pos-r">Pine estate · owns indicator recovery, screener parity</div>
+<div class="pos-d gap">No spine row matches this position. Either it has not filed, or it files under a name that does not match the roster.</div>
+</div>
+<h2>4 · Everything you can open</h2>
+<div class="sec">The cockpit</div><div class="links">
+<a class="lk" href="https://scintilla-widgets.vercel.app/" target="_blank" rel="noopener"><b>/</b><span>the cockpit itself</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/registry" target="_blank" rel="noopener"><b>/registry</b><span>every component, split out</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/ranks" target="_blank" rel="noopener"><b>/ranks</b><span>six rankings, same universe</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/reflow" target="_blank" rel="noopener"><b>/reflow</b><span>the geiger in motion</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/geigerwall" target="_blank" rel="noopener"><b>/geigerwall</b><span>the wall</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/geiger" target="_blank" rel="noopener"><b>/geiger</b><span>the geiger</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/heat" target="_blank" rel="noopener"><b>/heat</b><span>heatmap</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/pulse" target="_blank" rel="noopener"><b>/pulse</b><span>pulse</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/cohort" target="_blank" rel="noopener"><b>/cohort</b><span>cohort geiger</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/compare" target="_blank" rel="noopener"><b>/compare</b><span>cohort compare</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/feed-a" target="_blank" rel="noopener"><b>/feed-a</b><span>feed A</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/feed-b" target="_blank" rel="noopener"><b>/feed-b</b><span>feed B</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/visuals" target="_blank" rel="noopener"><b>/visuals</b><span>the visuals door</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/scenes" target="_blank" rel="noopener"><b>/scenes</b><span>named scenes</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/chart" target="_blank" rel="noopener"><b>/chart</b><span>chart</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/ticker" target="_blank" rel="noopener"><b>/ticker</b><span>ticker</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/news" target="_blank" rel="noopener"><b>/news</b><span>news</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/econ" target="_blank" rel="noopener"><b>/econ</b><span>econ</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/events" target="_blank" rel="noopener"><b>/events</b><span>events</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/alerts" target="_blank" rel="noopener"><b>/alerts</b><span>alerts</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/youtube" target="_blank" rel="noopener"><b>/youtube</b><span>youtube</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/tv" target="_blank" rel="noopener"><b>/tv</b><span>tradingview</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/wall" target="_blank" rel="noopener"><b>/wall</b><span>wall</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/cohorts" target="_blank" rel="noopener"><b>/cohorts</b><span>cohorts</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/components" target="_blank" rel="noopener"><b>/components</b><span>components</span></a>
+</div>
+<div class="sec">The other fronts</div><div class="links">
+<a class="lk" href="https://scintilla-desk.vercel.app/proof.html" target="_blank" rel="noopener"><b>the proof surface</b><span>live desk · ACP-scope proof</span></a>
+<a class="lk" href="https://apps.urthlandscaping.com" target="_blank" rel="noopener"><b>URTH property brain</b><span>plant library · designer · engine</span></a>
+<a class="lk" href="https://apps.urthlandscaping.com/front.html" target="_blank" rel="noopener"><b>URTH front prototype</b><span>the restructure, clickable</span></a>
+<a class="lk" href="https://apps.urthlandscaping.com/site-marks.html" target="_blank" rel="noopener"><b>Site-Marks</b><span>the field tool</span></a>
+<a class="lk" href="https://sectorrotation.scintillahub.ai" target="_blank" rel="noopener"><b>sector rotation</b><span>rankings, published hourly</span></a>
+</div>
+<div class="sec">Latest delivery from each position</div><div class="links">
+<a class="lk" href="https://sectorrotation.scintillahub.ai" target="_blank" rel="noopener"><b>Claude Command</b><span>https://sectorrotation.scintillahub.ai</span></a>
+<a class="lk" href="https://scintilla-widgets.vercel.app/reflow" target="_blank" rel="noopener"><b>Hub Surface Command</b><span>https://scintilla-widgets.vercel.app/reflow</span></a>
+<a class="lk" href="https://scintilla-desk.vercel.app/proof.html" target="_blank" rel="noopener"><b>Live Desk / SCINTILLA Lead</b><span>https://scintilla-desk.vercel.app/proof.html</span></a>
+</div>
+<h2>5 · The relay</h2>
+<div class="sec">Orders queued and not yet delivered</div>
+<div class="ord"><b>relay-cli-build</b> · priority 1<br>BUILD THE RELAY CLI v1. Full brief: Drive doc 1BpY-lYszXmGARrZsSIZOb85OGr_7n6MZ9TwFuwWCeBY in day folder. Tables relay_inbox, relay_orders, relay_escalations already exist in scintilla-live — do not recreate them, build against them.</div>
+<div class="ord"><b>live-desk</b> · priority 2<br>SPRINT: pivots to the universe. Extend pivot_union beyond MU to all tracked tickers and timeframes, anchor states derived at scale, per-tf confirm window, coverage table as the deliverable. Chunk every query — database is under a live ceiling fix.</div>
+<div class="ord"><b>ta-orchestration</b> · priority 2<br>SPRINT: triangles to the universe. Fold the six rulings, run fitter v2 wide, store slope and absolute anchors, position-within-pattern for every triangle, deliver the census. Take anchors from pivot_union, do not build a second pivot source.</div>
+<div class="ord"><b>scintilla-command</b> · priority 2<br>NEXT: the windowed rollup rewrite is now URGENT — job 142 was the only builder of equity 5m/15m/30m/60m and those timeframes are ~38h stale. Rebuild it with high-water-mark windowing so it can actually complete. Then r5 and r6. r7 resize is HELD — costs money, Alan calls it.</div>
+<div class="sec">Deliveries filed to relay_inbox, not yet processed</div>
+<p class="clear">relay_inbox is empty — 0 row(s) in the table.<br><em>This is the gap worth looking at. The orchestrator is built to read deliveries from here, and nothing is writing to it yet; every delivery on this page was reconstructed from spine_events instead.</em></p>
+<div class="foot">rendered by the orchestrator CLI · reads only, writes nothing · source: session_registry, spine_events, relay_orders, relay_escalations · if a number here looks wrong, the table is wrong, not the page</div>
+</body></html>
