@@ -5,50 +5,51 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0A0A0F">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>SCINTILLA · The Desk</title>
+<title>SCINTILLA · The Station</title>
 <!-- ============================================================================
-     SCINTILLA · /deck v3 — "THE DESK". Composition, not new widgets.
-       top     /chart /chart          — always EXACTLY half and half
-       bottom  /feed-a · /feed-b · X  — three equal columns
+     SCINTILLA · /deck v4 — "THE STATION". Composition, not new widgets.
+       top     /chart /chart              — always EXACTLY half and half
+       bottom  video · video · X live     — three equal columns
 
-     ---- v3, built on Alan's iPad / Mac / Apple TV review ----------------------
-     1. RESIZING. This was the big one, and it was my bug, not the PWA's.
-        v2 laid the deck out with CSS grid template AREAS: "c1 c1 c2" over
-        "fa fb x" on a three-column grid — which literally gave chart 1 two
-        columns and chart 2 one. 67/33, never 50/50. It only looked right
-        when the window happened to be wide enough to hide it.
-        v3 throws the grid away. The deck is now nested FLEX: a top row with
-        two children at flex:1 1 0, a bottom row with three children at
-        flex:1 1 0. Equal by construction, at every width, with no
-        breakpoint deciding it and nothing to zoom-fiddle.
-        Layout is driven by a ResizeObserver on the deck itself, not by the
-        window resize event — Stage Manager and Split View resize the
-        ELEMENT without always firing a useful window resize, which is what
-        made it feel janky. It also listens to visualViewport, so pinch-zoom
-        and the iPad keyboard are handled.
-     2. TICKER FIELDS select their contents the moment you click in, here and
-        inside /chart. Click, type, Enter. No jumbling with the old symbol.
-     3. ONE TIMEFRAME BAR. It sits in the deck header and drives BOTH charts.
-        The per-chart ladders are hidden inside the deck (?bare=1). The old
-        behaviour — changing one chart's timeframe changed the other — was
-        two same-origin frames writing the same localStorage key. Bare mode
-        writes nothing, so the only thing setting a timeframe is this bar.
-     4. THE FEEDS open list-first and never pick a video for you.
-     5. X is a dock. x.com is login-walled and refuses framing by anyone, so
-        the pane holds its exact spot and pops your real logged-in window.
+     ---- v4 -------------------------------------------------------------------
+     The two video slots now run /pane-video, which is built for a box: a
+     thumbnail grid that counts its own columns from its own width and plays
+     in place when you tap. The old slots ran the full /feed-a and /feed-b
+     pages, whose chrome pushed the videos below the fold in a small pane —
+     which is why the pane read "nothing was chosen for you" with nothing to
+     click. The X slot is no longer a dock with a button: it runs /pane-x,
+     which renders your real logged-in x.com tab live, in place.
+     Every pane header now carries PIP — real Document Picture-in-Picture,
+     driven from here because that API needs a top-level context.
+
+     ---- v3, the resize fix ---------------------------------------------------
+     v2 laid the deck out with CSS grid template AREAS: "c1 c1 c2" over
+     "fa fb x" on a three-column grid — which literally gave chart 1 two
+     columns and chart 2 one. 67/33, never 50/50. It only looked right when
+     the window happened to be wide enough to hide it.
+     v3 threw the grid away. The deck is nested FLEX: a top row with two
+     children at flex:1 1 0, a bottom row with three children at flex:1 1 0.
+     Equal by construction, at every width, with no breakpoint deciding it
+     and nothing to zoom-fiddle. Layout is driven by a ResizeObserver, not by
+     the window resize event — Stage Manager and Split View resize the
+     ELEMENT without always firing a useful window resize, which is what made
+     it feel janky. visualViewport covers pinch-zoom and the iPad keyboard.
+     Ticker fields select their contents on click. ONE timeframe bar drives
+     BOTH charts; inside the deck the charts run ?bare=1, which hides their
+     own ladders and stops them writing the shared localStorage key that used
+     to make one chart change the other.
 
      ---- THE IRON RULE: LOSE NOTHING ------------------------------------------
      Nothing becomes unreachable because it is now inside a scene.
-       · Every pane keeps POP, FULL and OPEN.
-       · The feed panes are the WHOLE /feed-a and /feed-b pages — list,
-         filters, picker, player. Choosing a video works exactly as it does
-         standalone. Nothing was stripped to make it fit.
+       · Every pane keeps POP, PIP, FULL and OPEN.
+       · OPEN still goes to the full /feed-a and /feed-b pages, so the bigger
+         list, the channel picker and the search are one tap away.
        · The PANES chip row lists every pane. A paused pane is one tap back.
        · The live budget only ever PAUSES. It never removes a pane from the
          layout or from the chip row.
 
      Params: ?c1= ?c2= (or auto) ?range=1D ?live=N ?full=PANEKEY
-     DB reads only. Receipt: HSC-DECK-V3-001.
+     DB reads only. Receipt: HSC-DECK-V4-001.
      ============================================================================ -->
 <style>
 :root{
@@ -144,11 +145,11 @@ body.solo .deckrow.empty{ display:none; }
 </head>
 <body>
 <div id="bar">
-  <span class="k">THE DESK</span>
-  <a class="btn on" href="/deck">desk</a>
+  <span class="k">THE STATION</span>
+  <a class="btn on" href="/deck">station</a>
   <a class="btn" href="/tv">wall</a>
   <a class="btn" href="/reflow?view=treemap">scan</a>
-  <a class="btn" href="/registry">all scenes</a>
+  <a class="btn" href="/registry">the hub</a>
   <span class="sep">·</span>
   <span class="btn" id="whybtn">why these?</span>
   <a class="btn" id="sceneLink" href="/scenes?scene=watch-deck">engine</a>
@@ -179,14 +180,22 @@ body.solo .deckrow.empty{ display:none; }
   <p><b>One timeframe bar, not two.</b> It sits above and drives both charts. Inside the deck the charts run
      in bare mode, which also stops them writing the shared setting that used to make one chart change the
      other.</p>
-  <p><b>Bottom row — the Scintilla market feed, your personal feed, and X.</b> The feeds are the WHOLE
-     /feed-a and /feed-b pages: lists, filters, picker, player. They open list-first and <b>never pick a
-     video for you</b>.</p>
-  <p><b>X is a dock, not an embed, and that is not a shortcut.</b> x.com is login-walled and refuses to be
-     framed by anyone. The pane reserves its exact spot and pops your real logged-in window onto it.</p>
-  <p><b>Lose nothing.</b> Every pane carries POP, FULL and OPEN. The PANES row lists every pane. On a phone
-     the deck stacks and the live budget PAUSES panes behind a tap — it never removes one from the layout
-     or the chip row.</p>
+  <p><b>Bottom row — market video, your subscriptions, and X live.</b> The two video panes are built for
+     this box, not full pages squeezed into it: a thumbnail grid that counts its own columns from its own
+     width, and a video that <b>plays right there in the pane</b> when you tap it. It still never picks one
+     for you.</p>
+  <p><b>X is a live capture, not a button.</b> x.com refuses to be framed by anyone, permanently — so your
+     own extension, X Feed Float 0.6.7, never framed it either. It captures the real logged-in tab and crops
+     it. This pane does the same thing through the web platform's own door: pick your x.com tab once and its
+     live pixels render here, scrolling as it scrolls, with zoom and pan to crop to the column. The one thing
+     a web page cannot do is <b>scroll that tab for you</b> — only an extension can reach into another tab.
+     For hands-off scrolling, X Feed Float is still the tool: <b>Option+Shift+P</b>.</p>
+  <p><b>Picture-in-picture is real.</b> Every pane has a PIP button that lifts it into a browser-owned
+     always-on-top window — the same Document Picture-in-Picture API your extension uses. The video pane
+     carries the chosen video across; the X pane floats the live stream.</p>
+  <p><b>Lose nothing.</b> Every pane carries POP, PIP, FULL and OPEN. The PANES row lists every pane. On a
+     phone the deck stacks and the live budget PAUSES panes behind a tap — it never removes one from the
+     layout or the chip row. The full /feed-a and /feed-b pages are still there, one tap away on OPEN.</p>
 </div>
 
 <script>
@@ -219,15 +228,42 @@ const STACK_AT = 720;          /* below this a row of three is dishonest */
 let STACKED = innerWidth < STACK_AT;   /* decided BEFORE anything mounts */
 /* the live-pane budget. On a phone two frames is the ceiling that survived
    the Safari crash work; everything above that is paused behind a tap and
-   stays in the chip row. Read as a function — never frozen before we know
-   which layout we are in, which is a bug v3 caught in its own test sweep. */
+   stays in the chip row. Never frozen before we know which layout we are
+   in, which is a bug v3 caught in its own test sweep. */
 const LIVE_CAP = Math.max(1, Math.min(6, +(QS.get("live") || 0) || (STACKED ? 2 : 5)));
 
 const PANES = [];
 const LIVE = [];
+const FRAME_ALLOW = "autoplay; encrypted-media; picture-in-picture; fullscreen; display-capture";
+
+/* Document Picture-in-Picture — a real always-on-top window owned by the
+   browser. Only available at top level, which the deck is. */
+const HAS_DOCPIP = (function () { try { return !!window.documentPictureInPicture; } catch (e) { return false; } })();
+async function pip(obj) {
+  if (!HAS_DOCPIP) return;
+  /* the pane keeps its state in its own URL (which video is playing, which
+     list) and it is same-origin, so we can lift the exact current view */
+  let src = obj.def.src;
+  try { if (obj.frame && obj.frame.contentWindow) src = obj.frame.contentWindow.location.pathname + obj.frame.contentWindow.location.search; } catch (e) {}
+  if (obj.def.kind === "video" && src.indexOf("autoplay=") < 0) src += (src.indexOf("?") < 0 ? "?" : "&") + "autoplay=1";
+  try {
+    const w = await documentPictureInPicture.requestWindow({
+      width: obj.def.kind === "chart" ? 620 : 480,
+      height: obj.def.kind === "chart" ? 400 : 320 });
+    const d = w.document;
+    d.documentElement.style.height = "100%";
+    d.body.style.cssText = "margin:0;height:100%;background:#0A0A0F";
+    const f = d.createElement("iframe");
+    f.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0";
+    f.allow = FRAME_ALLOW;
+    f.setAttribute("allowfullscreen", "");
+    f.src = src;
+    d.body.appendChild(f);
+  } catch (e) { /* dismissed, or the browser said no */ }
+}
 
 function pop(def) {
-  if (def.kind === "x") { window.open("https://x.com/home", "deck_x", "width=520,height=760"); return; }
+  if (def.kind === "x") { window.open("/pane-x", "deck_x", "width=520,height=820,menubar=no,toolbar=no,location=no"); return; }
   if (def.kind === "video" && IOS) { window.open(def.open || "/feed-a", "_blank"); return; }
   const w = def.kind === "video" ? 520 : 780, h = def.kind === "video" ? 640 : 480;
   const win = window.open(def.src, "deck_" + def.key, "width=" + w + ",height=" + h + ",menubar=no,toolbar=no,location=no");
@@ -241,7 +277,7 @@ function makePane(def) {
   const acts = document.createElement("div"); acts.className = "acts";
 
   const bPop = document.createElement("span"); bPop.className = "btn"; bPop.textContent = "pop";
-  bPop.title = def.kind === "x" ? "open your logged-in x.com in its own window"
+  bPop.title = def.kind === "x" ? "open the live X pane in its own window"
     : def.kind === "video" ? (IOS ? "open the feed in its own tab — pick a video, then use system PiP" : "open this feed in its own window")
     : "open this chart in its own window";
   bPop.addEventListener("click", (e) => { e.stopPropagation(); pop(def); });
@@ -250,7 +286,16 @@ function makePane(def) {
   bFull.title = "full-bleed inside the deck — one tap back";
   bFull.addEventListener("click", (e) => { e.stopPropagation(); setSolo(SOLO === def.key ? null : def.key); });
 
-  acts.appendChild(bPop); acts.appendChild(bFull);
+  /* PICTURE-IN-PICTURE, per pane. Document PiP needs a top-level context, so
+     the deck does it — it reads the pane's own live URL (same origin, so we
+     can) and reopens exactly that view, chosen video and all, in a real
+     always-on-top window. Same API X Feed Float uses for its viewer. */
+  const bPip = document.createElement("span"); bPip.className = "btn"; bPip.textContent = "pip";
+  bPip.title = "float this pane in its own always-on-top window";
+  bPip.style.display = HAS_DOCPIP ? "" : "none";
+  bPip.addEventListener("click", (e) => { e.stopPropagation(); pip(obj); });
+
+  acts.appendChild(bPop); acts.appendChild(bPip); acts.appendChild(bFull);
   if (def.open) {
     const a = document.createElement("a"); a.className = "btn"; a.textContent = "open";
     a.href = def.open; a.title = "leave the deck for the full standalone page";
@@ -272,16 +317,6 @@ function makePane(def) {
     body.appendChild(c);
   };
 
-  if (def.kind === "x") {
-    const c = document.createElement("div"); c.className = "card dock";
-    c.innerHTML = '<div class="n">X · your feed</div>' +
-      '<div class="d">x.com is login-walled and refuses to be framed by anyone. This pane reserves its spot; ' +
-      'pop opens your real logged-in window onto it — same as the X dock on the TV wall.</div>' +
-      '<div class="rect" id="xrect"></div><div class="go">pop x.com</div>';
-    c.querySelector(".go").addEventListener("click", () => pop(def));
-    body.appendChild(c);
-    obj.isDock = true;
-  }
   return obj;
 }
 
@@ -290,7 +325,9 @@ function mount(obj) {
   const c = obj.body.querySelector(".card"); if (c) c.remove();
   const f = document.createElement("iframe");
   f.src = obj.def.src; f.loading = "lazy";
-  f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+  /* display-capture is what lets the X pane render your real x.com tab from
+     inside this frame; without it getDisplayMedia is blocked in an iframe */
+  f.allow = FRAME_ALLOW;
   f.setAttribute("allowfullscreen", "");
   obj.body.appendChild(f); obj.frame = f;
   LIVE.push(obj);
@@ -376,7 +413,7 @@ function paintChips() {
   }
   if (SOLO) {
     const back = document.createElement("span");
-    back.className = "btn on"; back.textContent = "← back to the desk";
+    back.className = "btn on"; back.textContent = "← back to the station";
     back.addEventListener("click", () => setSolo(null));
     bar.appendChild(back);
   }
@@ -457,12 +494,18 @@ async function build() {
       src: chartSrc(C1), open: "/chart?t=" + encodeURIComponent(C1) + "&range=" + RANGE },
     { row: 0, key: "c2", short: C2, title: C2, tag: "chart", kind: "chart",
       src: chartSrc(C2), open: "/chart?t=" + encodeURIComponent(C2) + "&range=" + RANGE },
-    { row: 1, key: "fa", short: "market", title: "Scintilla market", tag: "feed A · full picker",
-      kind: "video", src: "/feed-a", open: "/feed-a" },
-    { row: 1, key: "fb", short: "personal", title: "Personal", tag: "feed B · full picker",
-      kind: "video", src: "/feed-b", open: "/feed-b" },
-    { row: 1, key: "x", short: "X", title: "X · your feed", tag: "dock · pops",
-      kind: "x", src: "https://x.com/home", open: null },
+    /* v4: purpose-built panes, not full pages squeezed into a slot.
+       /pane-video is a thumbnail grid that counts its own columns and plays
+       in place. /pane-x renders the real live x.com tab via getDisplayMedia
+       — the web-platform equivalent of the tabCapture pipeline X Feed Float
+       uses — so the feed actually scrolls in the pane instead of offering a
+       button. Both are embedded; neither is a dock. */
+    { row: 1, key: "fa", short: "market", title: "Market video", tag: "grid · plays in place",
+      kind: "video", src: "/pane-video?feed=market", open: "/feed-a" },
+    { row: 1, key: "fb", short: "mine", title: "My subscriptions", tag: "grid · plays in place",
+      kind: "video", src: "/pane-video?feed=personal", open: "/feed-b" },
+    { row: 1, key: "x", short: "X", title: "X · live", tag: "live capture",
+      kind: "x", src: "/pane-x", open: "/pane-x" },
   ];
 
   /* TWO FLEX ROWS. Two children up top, three below. Nothing else decides
@@ -479,7 +522,7 @@ async function build() {
   wireTicker("t1", 1); wireTicker("t2", 2);
   relayout();
 
-  const order = ["c1", "c2", "fa", "fb"];
+  const order = ["c1", "c2", "fa", "fb", "x"];
   let n = 0;
   for (const k of order) {
     const o = PANES.find((p) => p.def.key === k); if (!o) continue;
