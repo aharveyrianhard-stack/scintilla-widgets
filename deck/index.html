@@ -3,48 +3,52 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>SCINTILLA · deck</title>
+<meta name="theme-color" content="#0A0A0F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>SCINTILLA · The Desk</title>
 <!-- ============================================================================
-     SCINTILLA · /deck v2 — THE ONE SCENE. Composition, not new widgets.
-     FIVE panes, every one of them a route that already shipped, plus X:
-       top     /chart?t=…    /chart?t=…
-       bottom  /feed-a (Scintilla market) · /feed-b (personal) · X / x.com
-     Also seeded in the scenes engine as watch-deck (scene_layouts 23/24/25).
+     SCINTILLA · /deck v3 — "THE DESK". Composition, not new widgets.
+       top     /chart /chart          — always EXACTLY half and half
+       bottom  /feed-a · /feed-b · X  — three equal columns
 
-     ---- v2, added on Alan's review -------------------------------------------
-     1. THE X / TWITTER PiP is now in the scene. It could not be an iframe —
-        x.com is login-walled and refuses framing — so it is an honest DOCK
-        that pops to its own window, exactly like the X dock on /tv. Every
-        pane in this scene now pops. No pane is second-class.
-     2. Per-pane FULL — any pane goes full-bleed inside the deck and comes
-        straight back. That is "one thing full-screen, then back" without
-        leaving the scene or losing the others.
-     3. A SCENE SWITCHER — named views across the top, so switching between
-        scenes is one tap and the way back is always visible.
+     ---- v3, built on Alan's iPad / Mac / Apple TV review ----------------------
+     1. RESIZING. This was the big one, and it was my bug, not the PWA's.
+        v2 laid the deck out with CSS grid template AREAS: "c1 c1 c2" over
+        "fa fb x" on a three-column grid — which literally gave chart 1 two
+        columns and chart 2 one. 67/33, never 50/50. It only looked right
+        when the window happened to be wide enough to hide it.
+        v3 throws the grid away. The deck is now nested FLEX: a top row with
+        two children at flex:1 1 0, a bottom row with three children at
+        flex:1 1 0. Equal by construction, at every width, with no
+        breakpoint deciding it and nothing to zoom-fiddle.
+        Layout is driven by a ResizeObserver on the deck itself, not by the
+        window resize event — Stage Manager and Split View resize the
+        ELEMENT without always firing a useful window resize, which is what
+        made it feel janky. It also listens to visualViewport, so pinch-zoom
+        and the iPad keyboard are handled.
+     2. TICKER FIELDS select their contents the moment you click in, here and
+        inside /chart. Click, type, Enter. No jumbling with the old symbol.
+     3. ONE TIMEFRAME BAR. It sits in the deck header and drives BOTH charts.
+        The per-chart ladders are hidden inside the deck (?bare=1). The old
+        behaviour — changing one chart's timeframe changed the other — was
+        two same-origin frames writing the same localStorage key. Bare mode
+        writes nothing, so the only thing setting a timeframe is this bar.
+     4. THE FEEDS open list-first and never pick a video for you.
+     5. X is a dock. x.com is login-walled and refuses framing by anyone, so
+        the pane holds its exact spot and pops your real logged-in window.
 
      ---- THE IRON RULE: LOSE NOTHING ------------------------------------------
-     Nothing may become unreachable because it is now inside a scene.
-       · Every pane keeps its OWN header with its own POP and FULL controls.
-       · The feed panes are the WHOLE /feed-a and /feed-b pages — the video
-         list, the picker, the filters, the player. Selecting a video still
-         works exactly as it does on the standalone route. Nothing was
-         stripped to make it fit.
-       · A PANES chip row lists every pane in the scene. A pane that is
-         paused (phone budget) or hidden is still one tap away — it can never
-         disappear from reach.
-       · Every pane header also carries OPEN, which leaves the deck for that
-         route full-page, so the standalone experience is never more than one
-         click away.
-       · The live-pane budget only ever PAUSES a pane behind a tap-to-load
-         card. It never removes it from the layout or the chip row.
-     If a future pane cannot honour all of that, it does not go in the scene.
+     Nothing becomes unreachable because it is now inside a scene.
+       · Every pane keeps POP, FULL and OPEN.
+       · The feed panes are the WHOLE /feed-a and /feed-b pages — list,
+         filters, picker, player. Choosing a video works exactly as it does
+         standalone. Nothing was stripped to make it fit.
+       · The PANES chip row lists every pane. A paused pane is one tap back.
+       · The live budget only ever PAUSES. It never removes a pane from the
+         layout or from the chip row.
 
-     SLOT DECISIONS, unchanged and still printed in-page under "why these?":
-       chart 1 = SPY, chart 2 = SNDK — the two charts on the Apple TV wall
-       Alan arranged by hand (revealed preference, not my taste).
-       ?c2=auto picks the loudest favourite right now.
      Params: ?c1= ?c2= (or auto) ?range=1D ?live=N ?full=PANEKEY
-     DB reads only for the auto pick. Receipt: HSC-DECK-V2-001.
+     DB reads only. Receipt: HSC-DECK-V3-001.
      ============================================================================ -->
 <style>
 :root{
@@ -53,88 +57,138 @@
   --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00;
   --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
 }
-*{ box-sizing:border-box; min-width:0; }
+*{ box-sizing:border-box; min-width:0; -webkit-tap-highlight-color:transparent; }
 html,body{ margin:0; height:100%; }
 body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.02em;
   display:flex; flex-direction:column; overflow:hidden; -webkit-text-size-adjust:100%; }
+
+/* ---- header: scene switcher, ticker fields, ONE timeframe bar ---- */
 #bar{ flex:none; display:flex; align-items:center; gap:6px; padding:5px 9px;
-  padding-top:calc(5px + env(safe-area-inset-top)); border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  padding-top:calc(5px + env(safe-area-inset-top)); border-bottom:1px solid var(--line);
+  flex-wrap:wrap; }
 #bar .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; }
 #bar .sep{ color:var(--mute); }
-.btn{ font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; padding:2px 8px;
+#tfbar{ flex:none; display:flex; align-items:center; gap:5px; padding:4px 9px; flex-wrap:wrap;
+  border-bottom:1px solid var(--line); background:rgba(15,15,26,.6); }
+#tfbar .lbl{ color:var(--mute); font-size:7.5px; letter-spacing:.16em; text-transform:uppercase; }
+#tfbar .tf{ display:flex; gap:3px; flex-wrap:wrap; }
+#panebar{ flex:none; display:flex; align-items:center; gap:5px; padding:4px 9px; flex-wrap:wrap;
+  border-bottom:1px solid var(--line); background:rgba(15,15,26,.35); }
+#panebar .lbl{ color:var(--mute); font-size:7.5px; letter-spacing:.16em; text-transform:uppercase; }
+.btn{ font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; padding:3px 8px;
   border:1px solid var(--line); background:var(--panel2); color:var(--ink3); cursor:pointer;
   text-decoration:none; white-space:nowrap; }
 .btn:hover{ color:var(--ink); border-color:var(--hair); }
 .btn.on{ color:var(--crk); border-color:var(--crk); }
 .btn.live{ color:var(--bull); border-color:rgba(0,255,163,.4); }
-#panebar{ flex:none; display:flex; align-items:center; gap:5px; padding:4px 9px; flex-wrap:wrap;
-  border-bottom:1px solid var(--line); background:rgba(15,15,26,.6); }
-#panebar .lbl{ color:var(--mute); font-size:7.5px; letter-spacing:.16em; text-transform:uppercase; }
-#grid{ flex:1; display:grid; gap:1px; background:var(--line); min-height:0; }
-#grid.solo{ grid-template-columns:1fr !important; grid-template-rows:1fr !important; }
-.pane{ position:relative; background:var(--bg); display:flex; flex-direction:column; min-height:0; overflow:hidden; }
-.pane.hidden{ display:none; }
+.tkin{ width:72px; background:var(--panel2); border:1px solid var(--line); color:var(--ink);
+  font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+  padding:3px 6px; text-align:center; outline:none; -webkit-appearance:none; border-radius:0; }
+.tkin:focus{ border-color:var(--crk); color:var(--crk); }
+
+/* ---- THE DECK ITSELF — nested flex. Equal by construction. ----
+   No grid-template-areas. No column maths. Two children in the top row at
+   flex:1 1 0 are 50/50 at 320px and at 3840px, identically. */
+#grid{ flex:1 1 0; min-height:0; display:flex; flex-direction:column; gap:1px;
+  background:var(--line); }
+.deckrow{ flex:1 1 0; min-height:0; min-width:0; display:flex; flex-direction:row; gap:1px; }
+#rowTop{ flex:1.12 1 0; }         /* charts get a little more height than the feeds */
+.deckrow > .pane{ flex:1 1 0; min-width:0; min-height:0; }
+
+/* PHONE / very narrow: one honest column that scrolls. Same panes, same order. */
+body.stack #grid{ flex-direction:column; overflow-y:auto; -webkit-overflow-scrolling:touch; }
+body.stack .deckrow{ flex:none; flex-direction:column; }
+body.stack .deckrow > .pane{ flex:none; height:56vh; min-height:230px; }
+
+/* SOLO: one pane full-bleed inside the deck, one tap back */
+body.solo .deckrow{ flex:1 1 0; }
+body.solo .pane.hidden{ display:none; }
+body.solo .deckrow.empty{ display:none; }
+
+.pane{ position:relative; background:var(--bg); display:flex; flex-direction:column;
+  min-height:0; min-width:0; overflow:hidden; }
 .ph{ flex:none; display:flex; align-items:center; gap:6px; padding:3px 7px; background:var(--panel2);
   border-bottom:1px solid var(--line); }
 .ph .t{ color:var(--ink2); font-size:8.5px; letter-spacing:.16em; text-transform:uppercase;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.ph .tag{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; }
-.ph .acts{ margin-left:auto; display:flex; gap:4px; }
-.body{ flex:1; position:relative; min-height:0; }
-.body iframe{ width:100%; height:100%; border:0; display:block; background:var(--bg); }
-.card{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
-  gap:8px; cursor:pointer; text-align:center; padding:16px; }
+.ph .tag{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; }
+.ph .acts{ margin-left:auto; display:flex; gap:4px; flex:none; }
+.body{ flex:1 1 0; position:relative; min-height:0; min-width:0; }
+.body iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block;
+  background:var(--bg); }
+.card{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:8px; cursor:pointer; text-align:center; padding:16px; }
 .card:hover{ background:rgba(0,212,255,.05); }
 .card .n{ color:var(--ink2); font-size:10px; letter-spacing:.14em; text-transform:uppercase; }
 .card .d{ color:var(--mute); font-size:8.5px; line-height:1.6; max-width:300px; }
 .card .go{ color:var(--crk); font-size:8.5px; letter-spacing:.18em; text-transform:uppercase;
-  border:1px solid var(--hair); padding:3px 12px; }
+  border:1px solid var(--hair); padding:4px 12px; }
 .card.dock{ cursor:default; border:1.5px dashed rgba(0,212,255,.35); margin:6px; }
 .card.dock .go{ cursor:pointer; }
 .card.dock .rect{ color:var(--vol); font-size:9px; font-variant-numeric:tabular-nums; letter-spacing:.06em; }
-#why{ position:fixed; inset:auto 10px 10px 10px; max-width:660px; margin:0 auto; background:var(--panel2);
+/* narrow panes: drop the prose so a 250px column still reads */
+.pane.tight .card .d{ display:none; }
+.pane.tight .ph .tag{ display:none; }
+
+#why{ position:fixed; inset:auto 10px 10px 10px; max-width:680px; margin:0 auto; background:var(--panel2);
   border:1px solid var(--hair); padding:14px 16px; display:none; z-index:30; max-height:74vh; overflow-y:auto; }
 #why.open{ display:block; }
 #why h3{ color:var(--crk); font-size:9px; letter-spacing:.22em; text-transform:uppercase; font-weight:400; margin:0 0 8px; }
 #why p{ color:var(--ink2); font-size:10px; line-height:1.7; margin:0 0 8px; }
 #why b{ color:var(--ink); }
 #why .x{ float:right; cursor:pointer; color:var(--dim); }
+#size{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; margin-left:auto; white-space:nowrap; }
 </style>
 </head>
 <body>
 <div id="bar">
-  <span class="k">DECK</span>
-  <a class="btn on" href="/deck">watch</a>
+  <span class="k">THE DESK</span>
+  <a class="btn on" href="/deck">desk</a>
   <a class="btn" href="/tv">wall</a>
   <a class="btn" href="/reflow?view=treemap">scan</a>
-  <a class="btn" href="/feed-b">weekend</a>
+  <a class="btn" href="/registry">all scenes</a>
   <span class="sep">·</span>
   <span class="btn" id="whybtn">why these?</span>
   <a class="btn" id="sceneLink" href="/scenes?scene=watch-deck">engine</a>
-  <a class="btn" href="/registry">all scenes</a>
+  <span id="size"></span>
 </div>
+
+<!-- ONE timeframe bar. It drives both charts. There is no second one. -->
+<div id="tfbar">
+  <span class="lbl">charts</span>
+  <input class="tkin" id="t1" spellcheck="false" autocomplete="off" autocorrect="off" title="chart 1 ticker — Enter to load">
+  <input class="tkin" id="t2" spellcheck="false" autocomplete="off" autocorrect="off" title="chart 2 ticker — Enter to load">
+  <span class="lbl">timeframe · both</span>
+  <span class="tf" id="tf"></span>
+</div>
+
 <div id="panebar"><span class="lbl">panes</span></div>
 <div id="grid"></div>
+
 <div id="why">
   <span class="x" id="whyx">close ✕</span>
-  <h3>What is in each slot, and the rule that protects it</h3>
+  <h3>What is in each slot, and the rules that protect it</h3>
   <p><b>Chart 1 — SPY. Chart 2 — SNDK.</b> Not a guess: those are the two charts on the Apple TV wall you
-     arranged by hand. Swap with <b>?c2=TICKER</b>, or <b>?c2=auto</b> to follow the loudest favourite.</p>
-  <p><b>Bottom row — the Scintilla market feed, your personal feed, and X.</b> The two feeds are the WHOLE
-     /feed-a and /feed-b pages: the list, the picker, the player. <b>Choosing a video works here exactly as
-     it does on the standalone route</b> — nothing was stripped to make it fit.</p>
+     arranged by hand. Type over either field above, or use <b>?c2=auto</b> to follow the loudest favourite.</p>
+  <p><b>The two charts are exactly half and half at every window size.</b> The row is flex with two children
+     at <b>flex:1 1 0</b> — equal by construction, not by a breakpoint. v2 used a three-column grid with the
+     areas <b>"c1 c1 c2"</b>, which gave chart 1 two thirds. That is the split you saw on the Apple TV, and
+     it is gone.</p>
+  <p><b>One timeframe bar, not two.</b> It sits above and drives both charts. Inside the deck the charts run
+     in bare mode, which also stops them writing the shared setting that used to make one chart change the
+     other.</p>
+  <p><b>Bottom row — the Scintilla market feed, your personal feed, and X.</b> The feeds are the WHOLE
+     /feed-a and /feed-b pages: lists, filters, picker, player. They open list-first and <b>never pick a
+     video for you</b>.</p>
   <p><b>X is a dock, not an embed, and that is not a shortcut.</b> x.com is login-walled and refuses to be
-     framed by anyone. So the pane reserves its exact spot and pops your real logged-in window onto it —
-     the same thing the X dock on the TV wall does. It pops like every other pane.</p>
-  <p><b>Every pane carries POP, FULL and OPEN.</b> POP gives it its own window (on iOS a video hands off to
-     the YouTube app, which has real system picture-in-picture). FULL makes it full-bleed inside the deck
-     with a way straight back. OPEN leaves for that route full-page. Nothing here is ever more than one
-     click from its standalone self.</p>
-  <p><b>Lose nothing.</b> The PANES row above lists every pane. On a phone the deck stacks and the live
-     budget PAUSES panes behind a tap — it never removes one from the layout or the chip row. Anything
-     paused is one tap from being back.</p>
+     framed by anyone. The pane reserves its exact spot and pops your real logged-in window onto it.</p>
+  <p><b>Lose nothing.</b> Every pane carries POP, FULL and OPEN. The PANES row lists every pane. On a phone
+     the deck stacks and the live budget PAUSES panes behind a tap — it never removes one from the layout
+     or the chip row.</p>
 </div>
+
 <script>
 "use strict";
 const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
@@ -150,34 +204,35 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
 const QS = new URLSearchParams(location.search);
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-/* three honest layouts. Width-based: a 1400x800 laptop is a desktop. */
-function layoutMode() {
-  const w = innerWidth;
-  if (w < 760) return "stack";       /* phone: one column, everything present */
-  if (w < 1180) return "grid2";      /* iPad / small window: two columns */
-  return "deck";                     /* 2 charts over 3 panes */
-}
-let MODE = layoutMode();
-const CAP = { stack: 2, grid2: 3, deck: 5 };
-const LIVE_CAP = Math.max(1, Math.min(6, +(QS.get("live") || CAP[MODE])));
-const RANGE = (QS.get("range") || "1D").replace(/[^A-Za-z0-9]/g, "");
-const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
+const RANGES = ["15m","30m","1h","2h","3h","4h","6h","12h","1D","3D","1W"];
+const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 10);
 let C1 = CLEAN(QS.get("c1")) || "SPY";
 let C2 = CLEAN(QS.get("c2")) || "SNDK";
+let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "1D";
 let SOLO = QS.get("full") || null;
 
-el("whybtn").addEventListener("click", () => el("why").classList.toggle("open"));
-el("whyx").addEventListener("click", () => el("why").classList.remove("open"));
+/* ------------------------------------------------------------------ *
+ * LAYOUT — width only decides STACK vs DECK. It never decides how the
+ * charts split; flex:1 1 0 does that, identically at every size.
+ * ------------------------------------------------------------------ */
+const STACK_AT = 720;          /* below this a row of three is dishonest */
+let STACKED = innerWidth < STACK_AT;   /* decided BEFORE anything mounts */
+/* the live-pane budget. On a phone two frames is the ceiling that survived
+   the Safari crash work; everything above that is paused behind a tap and
+   stays in the chip row. Read as a function — never frozen before we know
+   which layout we are in, which is a bug v3 caught in its own test sweep. */
+const LIVE_CAP = Math.max(1, Math.min(6, +(QS.get("live") || 0) || (STACKED ? 2 : 5)));
+
+const PANES = [];
+const LIVE = [];
 
 function pop(def) {
   if (def.kind === "x") { window.open("https://x.com/home", "deck_x", "width=520,height=760"); return; }
-  if (def.kind === "video" && IOS) { window.open("https://www.youtube.com/", "_blank"); return; }
-  const w = def.kind === "video" ? 480 : 760, h = def.kind === "video" ? 300 : 460;
+  if (def.kind === "video" && IOS) { window.open(def.open || "/feed-a", "_blank"); return; }
+  const w = def.kind === "video" ? 520 : 780, h = def.kind === "video" ? 640 : 480;
   const win = window.open(def.src, "deck_" + def.key, "width=" + w + ",height=" + h + ",menubar=no,toolbar=no,location=no");
   if (!win) window.open(def.src, "_blank");
 }
-
-const PANES = [];   /* every pane object lives here forever — nothing is ever dropped */
 
 function makePane(def) {
   const p = document.createElement("div"); p.className = "pane"; p.dataset.key = def.key;
@@ -187,7 +242,7 @@ function makePane(def) {
 
   const bPop = document.createElement("span"); bPop.className = "btn"; bPop.textContent = "pop";
   bPop.title = def.kind === "x" ? "open your logged-in x.com in its own window"
-    : def.kind === "video" ? (IOS ? "open in the YouTube app — real system PiP" : "open this feed in its own window")
+    : def.kind === "video" ? (IOS ? "open the feed in its own tab — pick a video, then use system PiP" : "open this feed in its own window")
     : "open this chart in its own window";
   bPop.addEventListener("click", (e) => { e.stopPropagation(); pop(def); });
 
@@ -206,10 +261,9 @@ function makePane(def) {
 
   const body = document.createElement("div"); body.className = "body";
   p.appendChild(head); p.appendChild(body);
-
   const obj = { def, node: p, body, frame: null, bFull };
 
-  const showCard = (note) => {
+  obj.showCard = (note) => {
     if (body.querySelector(".card")) return;
     const c = document.createElement("div"); c.className = "card";
     c.innerHTML = '<div class="n">' + esc(def.title) + '</div><div class="d">' + esc(note) + "</div>" +
@@ -217,10 +271,8 @@ function makePane(def) {
     c.addEventListener("click", () => mount(obj));
     body.appendChild(c);
   };
-  obj.showCard = showCard;
 
   if (def.kind === "x") {
-    /* x.com refuses framing — an honest dock that pops the real window */
     const c = document.createElement("div"); c.className = "card dock";
     c.innerHTML = '<div class="n">X · your feed</div>' +
       '<div class="d">x.com is login-walled and refuses to be framed by anyone. This pane reserves its spot; ' +
@@ -233,7 +285,6 @@ function makePane(def) {
   return obj;
 }
 
-const LIVE = [];
 function mount(obj) {
   if (obj.isDock || obj.frame) return;
   const c = obj.body.querySelector(".card"); if (c) c.remove();
@@ -255,43 +306,42 @@ function mount(obj) {
 
 function setSolo(key) {
   SOLO = key;
-  const grid = el("grid");
-  grid.classList.toggle("solo", !!key);
+  document.body.classList.toggle("solo", !!key);
   for (const o of PANES) {
     o.node.classList.toggle("hidden", !!key && o.def.key !== key);
     o.bFull.textContent = (key && o.def.key === key) ? "back" : "full";
     o.bFull.classList.toggle("on", !!key && o.def.key === key);
   }
+  for (const r of document.querySelectorAll(".deckrow"))
+    r.classList.toggle("empty", !!key && !r.querySelector(".pane:not(.hidden)"));
   if (key) {
     const o = PANES.find((x) => x.def.key === key);
     if (o && !o.frame && !o.isDock) mount(o);
   }
-  applyGrid();
-  paintChips();
+  measure(); paintChips();
 }
 
-function applyGrid() {
-  const grid = el("grid");
-  if (SOLO) return;
-  if (MODE === "stack") {
-    grid.style.gridTemplateColumns = "1fr";
-    grid.style.gridTemplateRows = "repeat(" + PANES.length + ", minmax(210px, 1fr))";
-    grid.style.overflowY = "auto";
-    grid.style.gridTemplateAreas = "";
-  } else if (MODE === "grid2") {
-    grid.style.gridTemplateColumns = "1fr 1fr";
-    grid.style.gridTemplateRows = "repeat(3, minmax(160px,1fr))";
-    grid.style.overflowY = "auto";
-    grid.style.gridTemplateAreas = "";
-  } else {
-    grid.style.gridTemplateColumns = "1fr 1fr 1fr";
-    grid.style.gridTemplateRows = "1.15fr 1fr";
-    grid.style.overflowY = "hidden";
-    grid.style.gridTemplateAreas = '"c1 c1 c2" "fa fb x"';
-    for (const o of PANES) o.node.style.gridArea = o.def.key;
-  }
-  if (MODE !== "deck") for (const o of PANES) o.node.style.gridArea = "";
-  const xr = document.getElementById("xrect");
+/* ---- the resize path. ResizeObserver on the deck, not window resize. ----
+   Stage Manager and Split View change the element's box without always
+   giving a useful window resize; visualViewport covers pinch and keyboard. */
+function relayout() {
+  const w = el("grid").clientWidth || innerWidth;
+  STACKED = w < STACK_AT;
+  document.body.classList.toggle("stack", STACKED);   /* set every time — the
+     initial value is already computed, so a conditional toggle would skip the
+     very first paint on a phone and leave it in deck layout */
+  /* a pane narrower than this cannot carry prose — trim it, do not hide it */
+  for (const o of PANES) o.node.classList.toggle("tight", o.node.clientWidth < 260);
+  measure();
+}
+function measure() {
+  const a = PANES.find((p) => p.def.key === "c1"), b = PANES.find((p) => p.def.key === "c2");
+  if (!a || !b) return;
+  const wa = Math.round(a.node.getBoundingClientRect().width);
+  const wb = Math.round(b.node.getBoundingClientRect().width);
+  el("size").textContent = Math.round(innerWidth) + "×" + Math.round(innerHeight) +
+    (STACKED ? " · stacked" : " · charts " + wa + "/" + wb);
+  const xr = el("xrect");
   if (xr) {
     const o = PANES.find((p) => p.def.kind === "x");
     if (o) { const r = o.body.getBoundingClientRect();
@@ -299,8 +349,14 @@ function applyGrid() {
         Math.round(r.width) + "×" + Math.round(r.height) + " px"; }
   }
 }
+let raf = 0;
+const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; relayout(); }); };
+if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
+addEventListener("resize", nudge);
+addEventListener("orientationchange", nudge);
+if (window.visualViewport) { visualViewport.addEventListener("resize", nudge); visualViewport.addEventListener("scroll", nudge); }
 
-/* the PANES chip row — the lose-nothing guarantee, visible */
+/* ---- the PANES chip row — the lose-nothing guarantee, visible ---- */
 function paintChips() {
   const bar = el("panebar");
   bar.innerHTML = '<span class="lbl">panes</span>';
@@ -309,7 +365,8 @@ function paintChips() {
     const state = o.isDock ? "dock" : o.frame ? "live" : "paused";
     c.className = "btn" + (o.frame ? " live" : "") + (SOLO === o.def.key ? " on" : "");
     c.textContent = o.def.short + (state === "paused" ? " ·" : "");
-    c.title = state === "paused" ? "paused — tap to bring it back" : state === "dock" ? "dock — pops to a window" : "live";
+    c.title = state === "paused" ? "paused — tap to bring it back"
+      : state === "dock" ? "dock — pops to a window" : "live";
     c.addEventListener("click", () => {
       if (SOLO && SOLO !== o.def.key) { setSolo(o.def.key); return; }
       if (!o.frame && !o.isDock) { mount(o); return; }
@@ -319,11 +376,71 @@ function paintChips() {
   }
   if (SOLO) {
     const back = document.createElement("span");
-    back.className = "btn on"; back.textContent = "← back to deck";
+    back.className = "btn on"; back.textContent = "← back to the desk";
     back.addEventListener("click", () => setSolo(null));
     bar.appendChild(back);
   }
 }
+
+/* ---- ONE timeframe bar, driving both charts ---- */
+function chartSrc(t) {
+  return "/chart?bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE);
+}
+function paintTf() {
+  const box = el("tf"); box.innerHTML = "";
+  for (const r of RANGES) {
+    const b = document.createElement("span");
+    b.className = "btn" + (r === RANGE ? " on" : "");
+    b.textContent = r;
+    b.addEventListener("click", () => setRange(r));
+    box.appendChild(b);
+  }
+}
+function setRange(r) {
+  if (!RANGES.includes(r) || r === RANGE) return;
+  RANGE = r; paintTf();
+  for (const k of ["c1", "c2"]) {
+    const o = PANES.find((p) => p.def.key === k); if (!o) continue;
+    o.def.src = chartSrc(k === "c1" ? C1 : C2);
+    o.def.open = o.def.src.replace("bare=1&", "");
+    const a = o.node.querySelector(".acts a"); if (a) a.href = o.def.open;
+    /* postMessage first — it repaints without a reload; the src is kept in
+       sync so a paused pane comes back on the right timeframe */
+    if (o.frame) { try { o.frame.contentWindow.postMessage({ sc: "chart", range: RANGE }, location.origin); } catch (e) { o.frame.src = o.def.src; } }
+  }
+  history.replaceState(null, "", "?c1=" + C1 + "&c2=" + C2 + "&range=" + RANGE);
+}
+
+/* ---- ticker fields: click in and the old symbol is already selected ---- */
+function selAll(n) { try { n.select(); n.setSelectionRange(0, n.value.length); } catch (e) {} }
+function wireTicker(id, which) {
+  const n = el(id);
+  n.value = which === 1 ? C1 : C2;
+  n.addEventListener("focus", () => { selAll(n); requestAnimationFrame(() => selAll(n)); });
+  n.addEventListener("click", () => { if (n.selectionStart === n.selectionEnd) selAll(n); });
+  const commit = () => {
+    const v = CLEAN(n.value);
+    if (!v) { n.value = which === 1 ? C1 : C2; return; }
+    if (which === 1) C1 = v; else C2 = v;
+    n.value = v;
+    const o = PANES.find((p) => p.def.key === (which === 1 ? "c1" : "c2"));
+    if (o) {
+      o.def.src = chartSrc(v);
+      o.def.open = o.def.src.replace("bare=1&", "");
+      o.def.short = v; o.def.title = v;
+      const t = o.node.querySelector(".ph .t"); if (t) t.textContent = v;
+      const a = o.node.querySelector(".acts a"); if (a) a.href = o.def.open;
+      if (o.frame) { try { o.frame.contentWindow.postMessage({ sc: "chart", ticker: v }, location.origin); } catch (e) { o.frame.src = o.def.src; } }
+      paintChips();
+    }
+    history.replaceState(null, "", "?c1=" + C1 + "&c2=" + C2 + "&range=" + RANGE);
+  };
+  n.addEventListener("keydown", (e) => { if (e.key === "Enter") { commit(); n.blur(); } });
+  n.addEventListener("change", commit);
+}
+
+el("whybtn").addEventListener("click", () => el("why").classList.toggle("open"));
+el("whyx").addEventListener("click", () => el("why").classList.remove("open"));
 
 async function build() {
   if (QS.get("c2") === "auto") {
@@ -336,35 +453,44 @@ async function build() {
     } catch (e) {}
   }
   const defs = [
-    { key: "c1", short: C1, title: C1, tag: "chart", kind: "chart", src: "/chart?t=" + encodeURIComponent(C1) + "&range=" + RANGE, open: "/chart?t=" + encodeURIComponent(C1) + "&range=" + RANGE },
-    { key: "c2", short: C2, title: C2, tag: "chart", kind: "chart", src: "/chart?t=" + encodeURIComponent(C2) + "&range=" + RANGE, open: "/chart?t=" + encodeURIComponent(C2) + "&range=" + RANGE },
-    { key: "fa", short: "market", title: "Scintilla market", tag: "feed A · full picker", kind: "video", src: "/feed-a", open: "/feed-a" },
-    { key: "fb", short: "personal", title: "Personal", tag: "feed B · full picker", kind: "video", src: "/feed-b", open: "/feed-b" },
-    { key: "x",  short: "X", title: "X · your feed", tag: "dock · pops", kind: "x", src: "https://x.com/home", open: null },
+    { row: 0, key: "c1", short: C1, title: C1, tag: "chart", kind: "chart",
+      src: chartSrc(C1), open: "/chart?t=" + encodeURIComponent(C1) + "&range=" + RANGE },
+    { row: 0, key: "c2", short: C2, title: C2, tag: "chart", kind: "chart",
+      src: chartSrc(C2), open: "/chart?t=" + encodeURIComponent(C2) + "&range=" + RANGE },
+    { row: 1, key: "fa", short: "market", title: "Scintilla market", tag: "feed A · full picker",
+      kind: "video", src: "/feed-a", open: "/feed-a" },
+    { row: 1, key: "fb", short: "personal", title: "Personal", tag: "feed B · full picker",
+      kind: "video", src: "/feed-b", open: "/feed-b" },
+    { row: 1, key: "x", short: "X", title: "X · your feed", tag: "dock · pops",
+      kind: "x", src: "https://x.com/home", open: null },
   ];
-  const grid = el("grid"); grid.innerHTML = "";
-  for (const d of defs) { const o = makePane(d); PANES.push(o); grid.appendChild(o.node); }
 
-  /* charts first, then as many feeds as the budget allows — the rest wait
-     behind a tap and stay in the chip row */
+  /* TWO FLEX ROWS. Two children up top, three below. Nothing else decides
+     the split — that is the whole fix. */
+  const grid = el("grid"); grid.innerHTML = "";
+  const rows = [document.createElement("div"), document.createElement("div")];
+  rows[0].className = "deckrow"; rows[0].id = "rowTop";
+  rows[1].className = "deckrow"; rows[1].id = "rowBot";
+  grid.appendChild(rows[0]); grid.appendChild(rows[1]);
+
+  for (const d of defs) { const o = makePane(d); PANES.push(o); rows[d.row].appendChild(o.node); }
+
+  paintTf();
+  wireTicker("t1", 1); wireTicker("t2", 2);
+  relayout();
+
   const order = ["c1", "c2", "fa", "fb"];
   let n = 0;
   for (const k of order) {
-    const o = PANES.find((p) => p.def.key === k);
-    if (!o) continue;
+    const o = PANES.find((p) => p.def.key === k); if (!o) continue;
     if (n < LIVE_CAP) { mount(o); n++; }
-    else o.showCard(MODE === "stack" ? "paused on phone to keep Safari happy — tap to load" : "tap to load");
+    else o.showCard(STACKED ? "paused on phone to keep Safari happy — tap to load" : "tap to load");
   }
-  applyGrid(); paintChips();
+  paintChips();
   if (SOLO) setSolo(SOLO);
-  el("sceneLink").href = "/scenes?scene=watch-deck" + (MODE === "stack" ? "&profile=narrow" : "");
+  el("sceneLink").href = "/scenes?scene=watch-deck" + (STACKED ? "&profile=narrow" : "");
+  relayout();
 }
-
-let rt = null;
-addEventListener("resize", () => {
-  clearTimeout(rt);
-  rt = setTimeout(() => { const m = layoutMode(); if (m !== MODE) { MODE = m; } applyGrid(); }, 180);
-});
 build();
 </script>
 </body>
