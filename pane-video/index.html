@@ -31,7 +31,7 @@
      button does that. Where the browser supports Document PiP and we are
      top-level, the button here does it directly.
 
-     Params: ?feed=market|personal · ?list=all|subs|market|shorts · ?v=VIDEOID
+     Params: ?feed=personal|scintilla|market · ?list=default|all|shorts|watch · ?v=VIDEOID
              · ?autoplay=1 · ?limit=60 (10-200) · ?t=MU · ?cols=N (force)
      DB reads only, never FMP · youtube_feed · scintilla-live.
      Receipt: HSC-PANEVIDEO-001.
@@ -148,33 +148,34 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
 const QS = new URLSearchParams(location.search);
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-const FEED   = QS.get("feed") === "personal" ? "personal" : "market";
+const FEED   = ["personal", "scintilla", "market"].includes(QS.get("feed")) ? QS.get("feed") : "personal";
 const LIMIT  = Math.max(10, Math.min(200, +(QS.get("limit") || 60)));
 const TICK   = (QS.get("t") || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
 const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
 const AUTO   = QS.get("autoplay") === "1";
 const FORCE  = +(QS.get("cols") || 0);
 
-/* A pane keeps its lane through every local filter. The old shared `subs`,
-   `shorts` and `all` switches let either pane become the other one, which
-   made two correctly partitioned data sets look duplicated in the Station.
-   Watch Later is one shared cross-device list and therefore lives in the
-   personal pane. Its authority is the private SCINTILLA · Watch Later
-   YouTube playlist managed by yt-act — never the inaccessible native WL. */
+/* A pane keeps its identity through every local filter. Personal and
+   SCINTILLA are two intentionally separate authorized subscription feeds.
+   The old market-search lane remains available, but it is not used as a
+   substitute for either identity. Watch Later is one Station-wide list;
+   its authority is the private SCINTILLA · Watch Later playlist. */
 const LISTS = FEED === "market" ? [
   { id: "default", n: "market",     q: "&tickers=not.is.null&tickers=neq.&is_short=eq.false" },
   { id: "shorts",  n: "shorts",     q: "&tickers=not.is.null&tickers=neq.&is_short=eq.true" },
   { id: "all",     n: "all market", q: "&tickers=not.is.null&tickers=neq." },
 ] : [
-  { id: "default", n: "mine",     q: "&is_sub=eq.true&is_short=eq.false" },
-  { id: "shorts",  n: "shorts",   q: "&is_sub=eq.true&is_short=eq.true" },
-  { id: "all",     n: "all mine", q: "&is_sub=eq.true" },
+  { id: "default", n: "mine",     q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") + "&is_short=eq.false" },
+  { id: "shorts",  n: "shorts",   q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") + "&is_short=eq.true" },
+  { id: "all",     n: "all mine", q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") },
   { id: "watch",   n: "★ later",  q: "" },
 ];
 let LIST = LISTS.some((l) => l.id === QS.get("list")) ? QS.get("list") : "default";
-el("kk").textContent = FEED === "market" ? "MARKET SEARCH" : "MY SUBSCRIPTIONS";
+el("kk").textContent = FEED === "market" ? "MARKET SEARCH" :
+  FEED === "scintilla" ? "SCINTILLA" : "PERSONAL";
 
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
+let AUTH_STATUS = null;
 
 async function ytAct(action, payload) {
   const r = await fetch(SB + "/functions/v1/yt-act", {
@@ -196,39 +197,41 @@ async function syncWatch(force) {
   return WATCH;
 }
 
-async function oauth(step) {
-  const r = await fetch(SB + "/functions/v1/yt-oauth?step=" + step, { headers: { apikey: PUBLIC } });
+async function oauth(step, account) {
+  const suffix = account ? "&account=" + encodeURIComponent(account) : "";
+  const r = await fetch(SB + "/functions/v1/yt-oauth?step=" + step + suffix, { headers: { apikey: PUBLIC } });
   let d = {}; try { d = await r.json(); } catch (e) {}
   if (!r.ok || d.error) throw new Error(d.error || ("yt-oauth " + r.status));
   return d;
 }
 
-async function pollOauth(interval, expiresAt) {
+async function pollOauth(account, interval, expiresAt) {
   if (Date.now() >= expiresAt) { el("auth").textContent = "code expired · reconnect"; return; }
   let d;
-  try { d = await oauth("poll"); }
+  try { d = await oauth("poll", account); }
   catch (e) { el("auth").textContent = "reconnect failed"; return; }
   if (d.connected) {
-    el("auth").textContent = "YouTube connected";
+    el("auth").textContent = (d.channel_title || account) + " connected";
+    try { AUTH_STATUS = await oauth("status"); } catch (e) {}
     WATCH_ERROR = ""; WATCH_READY = false;
     try { await syncWatch(true); } catch (e) { WATCH_ERROR = e.message || "Watch Later unavailable"; }
     paintChips(); load(true);
     return;
   }
   if (d.status === "authorization_pending" || d.status === "slow_down" || d.status === "pending") {
-    setTimeout(() => pollOauth(interval + (d.status === "slow_down" ? 5000 : 0), expiresAt), interval);
+    setTimeout(() => pollOauth(account, interval + (d.status === "slow_down" ? 5000 : 0), expiresAt), interval);
   } else el("auth").textContent = "reconnect: " + (d.status || "failed");
 }
 
-async function connectYouTube() {
-  const popup = window.open("about:blank", "sc_youtube_connect", "width=560,height=760");
-  el("auth").textContent = "starting Google connection…";
+async function connectYouTube(account) {
+  const popup = window.open("about:blank", "sc_youtube_connect_" + account, "width=560,height=760");
+  el("auth").textContent = "connecting " + account + "…";
   try {
-    const d = await oauth("start");
-    el("auth").textContent = "GOOGLE CODE " + d.user_code + " · waiting";
+    const d = await oauth("start", account);
+    el("auth").textContent = account + " · CODE " + d.user_code + " · waiting";
     if (popup) popup.location = d.url; else window.open(d.url, "_blank", "noopener");
     const interval = Math.max(5000, +(d.interval || 5) * 1000);
-    pollOauth(interval, Date.now() + +(d.expires_in || 1800) * 1000);
+    pollOauth(account, interval, Date.now() + +(d.expires_in || 1800) * 1000);
   } catch (e) {
     if (popup) popup.close();
     el("auth").textContent = "reconnect failed";
@@ -353,11 +356,19 @@ function paintChips() {
     a.textContent = h[0]; a.title = "open YouTube";
     box.appendChild(a);
   }
-  if (FEED === "personal" && WATCH_ERROR) {
+  const own = AUTH_STATUS && AUTH_STATUS.accounts && AUTH_STATUS.accounts[FEED];
+  if (FEED !== "market" && own && !own.connected) {
     const b = document.createElement("span");
-    b.className = "btn out"; b.textContent = "reconnect";
-    b.title = WATCH_ERROR + " — reconnect the YouTube account";
-    b.addEventListener("click", connectYouTube);
+    b.className = "btn out"; b.textContent = "connect " + FEED;
+    b.title = "connect the " + FEED + " YouTube identity";
+    b.addEventListener("click", () => connectYouTube(FEED));
+    box.appendChild(b);
+  }
+  if (WATCH_ERROR) {
+    const b = document.createElement("span");
+    b.className = "btn out"; b.textContent = "reconnect SCINTILLA";
+    b.title = WATCH_ERROR + " — Watch Later is owned by SCINTILLA";
+    b.addEventListener("click", () => connectYouTube("scintilla"));
     box.appendChild(b);
   }
 }
@@ -369,7 +380,7 @@ async function load(forceWatch) {
     WATCH_READY = false; WATCH_ERROR = e.message || "Watch Later unavailable";
     paintChips();
   }
-  let q = "youtube_feed?select=video_id,title,channel,tickers,duration,is_short,thumb_url,published_at" +
+  let q = "youtube_feed?select=video_id,title,channel,tickers,duration,is_short,thumb_url,published_at,subscription_accounts" +
           "&order=published_at.desc&limit=" + LIMIT;
   const chosen = LISTS.find((l) => l.id === LIST);
   if (LIST === "watch") {
@@ -394,7 +405,11 @@ async function load(forceWatch) {
 
 el("q").addEventListener("input", paint);
 el("q").addEventListener("focus", () => el("q").select());
-paintChips(); relayout(); load();
+async function start() {
+  try { AUTH_STATUS = await oauth("status"); } catch (e) {}
+  paintChips(); relayout(); load();
+}
+start();
 </script>
 </body>
 </html>
