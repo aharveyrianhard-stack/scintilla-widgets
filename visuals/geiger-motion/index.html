@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>GEIGER — how a re-sort should move</title>
+<style>
+:root{--bg:#070a0d;--pan:#0b0f14;--line:#161c25;--dim:#5d6877;--dimmer:#3c4551;
+ --txt:#c9d2dd;--up:#2bff9b;--dn:#ff2f55;--cy:#3fd0ff;--neu:#4a90c2;
+ --mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);
+ font:400 14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;
+ -webkit-font-smoothing:antialiased}
+body{padding:14px 12px 40px;max-width:760px;margin:0 auto}
+h1{font-family:var(--mono);font-size:11px;letter-spacing:.22em;color:var(--cy);
+ margin:0 0 6px;font-weight:500}
+.lede{color:var(--dim);font-size:13px;margin:0 0 16px;max-width:56ch}
+.lede b{color:var(--txt);font-weight:600}
+
+.block{margin:0 0 12px;padding:10px 10px 11px;background:var(--pan);
+ border:1px solid var(--line);border-radius:9px}
+.blab{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--dimmer);
+ margin:0 0 8px}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+button{appearance:none;background:#101620;color:var(--dim);border:1px solid var(--line);
+ border-radius:7px;padding:9px 11px;font-family:var(--mono);font-size:10px;
+ letter-spacing:.11em;cursor:pointer;min-height:38px;transition:background .12s,color .12s,border-color .12s}
+button:active{transform:translateY(1px)}
+button.on{background:#12222e;color:var(--cy);border-color:#1d4256}
+button.act{background:#13251c;color:var(--up);border-color:#1d4a34}
+.why{margin-top:8px;font-size:12px;color:var(--dim);min-height:32px}
+.why b{color:var(--txt);font-weight:600}
+
+/* table */
+.tbl{position:relative;background:var(--pan);border:1px solid var(--line);
+ border-radius:9px;padding:8px 0 8px;overflow:hidden}
+.thead{display:flex;align-items:center;padding:0 12px 8px;font-family:var(--mono);
+ font-size:9px;letter-spacing:.18em;color:var(--dimmer);border-bottom:1px solid var(--line);
+ margin-bottom:6px}
+.thead .h1c{width:52px}.thead .h2c{width:58px;text-align:right}
+.thead .h3c{flex:1;text-align:center;color:var(--cy)}
+.rows{position:relative}
+.row{position:absolute;left:0;right:0;height:34px;display:flex;align-items:center;
+ padding:0 12px;will-change:transform}
+.tk{width:52px;font-family:var(--mono);font-size:12px;letter-spacing:.06em;color:var(--txt)}
+.val{width:58px;text-align:right;font-family:var(--mono);font-size:11px;
+ color:var(--dim);padding-right:10px}
+.track{flex:1;position:relative;height:16px;background:#0d1218;border-radius:3px;overflow:hidden}
+.track:before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;
+ background:#28323e}
+.track.mag:before{left:0}
+.bar{position:absolute;top:2px;bottom:2px;border-radius:2.5px;display:block}
+.gh{position:absolute;top:1px;bottom:1px;width:1px;background:#57646f;opacity:.75}
+.rk{width:30px;text-align:right;font-family:var(--mono);font-size:9px;
+ letter-spacing:.06em;color:var(--dimmer);opacity:0;transition:opacity .3s}
+.rk.show{opacity:1}
+.trail{position:absolute;width:3px;border-radius:2px;left:6px;pointer-events:none}
+
+.note{margin-top:14px;font-size:12px;color:var(--dim);border-left:2px solid var(--line);
+ padding-left:10px}
+.note b{color:var(--txt);font-weight:600}
+.foot{margin-top:20px;font-family:var(--mono);font-size:9px;letter-spacing:.14em;
+ color:var(--dimmer)}
+</style></head><body>
+
+<h1>GEIGER · HOW A RE-SORT SHOULD MOVE</h1>
+<p class="lede">Same rows, same data, every time. The only thing that changes is
+<b>how the table gets from one order to the next.</b> Change the column, then change
+the movement, and watch the same re-sort again. Nothing here is live — it is your
+thirteen names with fixed numbers so the motion is the only variable.</p>
+
+<div class="block">
+ <div class="blab">1 · SORT BY WHICH COLUMN</div>
+ <div class="btns" id="cols"></div>
+ <div class="why" id="whyc"></div>
+</div>
+
+<div class="block">
+ <div class="blab">2 · HOW THE CHANGE MOVES</div>
+ <div class="btns" id="modes"></div>
+ <div class="why" id="whym"></div>
+</div>
+
+<div class="block">
+ <div class="blab">3 · SPEED</div>
+ <div class="btns" id="speeds"></div>
+</div>
+
+<div class="block">
+ <div class="blab">4 · RULES YOU CAN TURN OFF</div>
+ <div class="btns">
+  <button id="tNorm">EVERY COLUMN AS ±1</button>
+  <button id="tDead">HOLD NEAR-TIES</button>
+  <button id="tGhost">GHOST OF LAST ORDER</button>
+ </div>
+ <div class="why" id="whyt"></div>
+</div>
+
+<div class="block">
+ <div class="blab">5 · MAKE IT MOVE</div>
+ <div class="btns">
+  <button id="tick">SIMULATE A LIVE TICK</button>
+  <button id="replay">REPLAY LAST CHANGE</button>
+  <button id="reset">RESET</button>
+ </div>
+ <div class="why">A tick nudges every value a little, the way a real feed would.
+ Same measure, new numbers — so the order should stay continuous. Changing the
+ column above is a different animal: that is a new measure, and continuity would be a lie.</div>
+</div>
+
+<div class="tbl">
+ <div class="thead">
+  <span class="h1c">TICKER</span><span class="h2c" id="hval">GEIGER</span>
+  <span class="h3c" id="hcol">GEIGER · BULL ◄ ► BEAR</span>
+ </div>
+ <div class="rows" id="rows"></div>
+</div>
+
+<p class="note"><b>What to look for.</b> With <b>EVERY COLUMN AS ±1</b> off, switching
+columns also switches the visual language — a left-anchored magnitude bar for P/E or
+volume, a centred signed bar for change and geiger. The transition becomes a jump cut
+and tells you nothing. Turn it on and every column is the same grammar: distance from
+that column's own middle, green above, red below. Now switching columns is only a
+re-rank, so the movement itself is the message. That is the thing you were circling.</p>
+
+<p class="foot">DUMMY DATA · NOTHING LIVE · BUILT TO COMPARE MOVEMENT ONLY</p>
+
+<script>
+(function(){
+var D=[
+ {t:"C",   last:135.16, chg:0.87,  pe:11.6, rsi:37, vol:0.9, g:0.40},
+ {t:"SLB", last:50.55,  chg:-1.96, pe:17.0, rsi:39, vol:1.4, g:0.38},
+ {t:"AXP", last:341.63, chg:-0.49, pe:18.2, rsi:61, vol:0.9, g:0.36},
+ {t:"GS",  last:1045.99,chg:0.68,  pe:16.8, rsi:51, vol:0.9, g:0.35},
+ {t:"ABBV",last:245.60, chg:0.89,  pe:17.5, rsi:50, vol:0.3, g:0.31},
+ {t:"COP", last:115.81, chg:0.73,  pe:12.1, rsi:58, vol:0.9, g:0.30},
+ {t:"DPZ", last:349.75, chg:-2.09, pe:18.4, rsi:58, vol:0.9, g:0.22},
+ {t:"CVX", last:186.65, chg:-1.41, pe:13.0, rsi:64, vol:0.9, g:0.05},
+ {t:"IBM", last:237.10, chg:1.65,  pe:18.5, rsi:31, vol:0.9, g:-0.04},
+ {t:"PG",  last:145.87, chg:-0.82, pe:20.8, rsi:53, vol:0.8, g:-0.12},
+ {t:"MCD", last:274.53, chg:-0.64, pe:20.3, rsi:43, vol:0.7, g:-0.14},
+ {t:"COST",last:947.00, chg:-0.14, pe:42.8, rsi:47, vol:0.9, g:-0.30},
+ {t:"CAT", last:843.02, chg:-1.72, pe:31.8, rsi:40, vol:0.9, g:-0.55}
+];
+var BASE=D.map(function(r){var c={};for(var k in r)c[k]=r[k];return c});
+
+var COLS=[
+ {k:"g",   n:"GEIGER", head:"GEIGER · BULL ◄ ► BEAR", signed:true,
+  why:"The composite. Already signed, already centred — the shape you sent."},
+ {k:"chg", n:"CHG %",  head:"CHANGE ON THE DAY", signed:true,
+  why:"Also naturally signed. Switching between two signed columns is the easy case — same grammar, order just moves."},
+ {k:"rsi", n:"RSI",    head:"RSI · 50 IS THE MIDDLE", signed:false,
+  why:"Not signed by nature. Off = a magnitude bar growing from the left. On = distance from 50, which is what RSI actually means."},
+ {k:"pe",  n:"FWD P/E",head:"FORWARD P/E", signed:false,
+  why:"Cheap or expensive is only meaningful against the group. Off = raw size. On = distance from the cohort median."},
+ {k:"vol", n:"VOL×",n2:"VOL", head:"VOLUME × NORMAL", signed:false,
+  why:"1.0× is the natural middle. Off = a bar from the left, which buries that. On = above or below normal."}
+];
+var MODES=[
+ {k:"cut",  n:"CUT",
+  why:"<b>No animation.</b> The control case. Everything lands at once and you cannot tell whether a name rose or its neighbours fell. This is what to beat."},
+ {k:"sr",   n:"SETTLE → REFLOW",
+  why:"<b>Values first, then order.</b> Bars change in place while the ranking is briefly stale, then the rows slide. Two readings out of one update — what changed, then what it did to the standings."},
+ {k:"rs",   n:"REFLOW → SETTLE",
+  why:"<b>Order first, then values.</b> Reads better when the ranking <i>is</i> the message and the exact numbers are secondary. Worse when a small move causes a big jump — the slide looks unearned until the bar catches up."},
+ {k:"carry",n:"CARRY (TRAIL)",
+  why:"<b>Both at once, with a trail.</b> Fastest, and still traceable because every mover leaves a wake in the direction it came from. Gets noisy when many rows move at once."},
+ {k:"col",  n:"COLLAPSE & REBUILD",
+  why:"<b>Bars retract to the line, rows reorder flat, bars grow back.</b> Loses who-moved-where entirely — which is correct when you switch to a different measure, because continuity there would be a lie."}
+];
+var SPEEDS=[{k:"slow",n:"GRADUAL",v:460,r:760},{k:"med",n:"MEDIUM",v:230,r:400},
+            {k:"fast",n:"FAST",v:110,r:190}];
+
+var col="g", mode="sr", sp=SPEEDS[1], NORM=false, DEAD=true, GHOST=false;
+var order=D.map(function(_,i){return i}), prevOrder=order.slice(), lastAct=null;
+var RH=34, rowEls={}, ghostY={};
+
+/* ---- normalising ---------------------------------------------------- */
+function median(a){var s=a.slice().sort(function(x,y){return x-y});var m=s.length>>1;
+ return s.length%2?s[m]:(s[m-1]+s[m])/2}
+function values(k){return D.map(function(r){return r[k]})}
+/* signed: -1..1 around the column's own middle. */
+function signedVals(k){
+ var v=values(k), mid;
+ if(k==="g"||k==="chg") mid=0; else if(k==="rsi") mid=50; else if(k==="vol") mid=1;
+ else mid=median(v);
+ var dev=v.map(function(x){return x-mid});
+ var mx=Math.max.apply(null,dev.map(Math.abs))||1;
+ return dev.map(function(d){return d/mx})}
+/* magnitude: 0..1 from the left, the "natural" rendering for unsigned columns */
+function magVals(k){var v=values(k),mx=Math.max.apply(null,v.map(Math.abs))||1;
+ return v.map(function(x){return Math.abs(x)/mx})}
+function isSigned(){var c=COLS.filter(function(c){return c.k===col})[0];
+ return NORM||c.signed}
+function drawVals(){return isSigned()?signedVals(col):magVals(col)}
+function sortKeyVals(){var c=COLS.filter(function(c){return c.k===col})[0];
+ return (NORM||c.signed)?signedVals(col):values(col).map(function(x){return Math.abs(x)})}
+
+function fmt(k,r){
+ if(k==="g")return (r.g>=0?"+":"")+r.g.toFixed(2);
+ if(k==="chg")return (r.chg>=0?"+":"")+r.chg.toFixed(2)+"%";
+ if(k==="rsi")return String(Math.round(r.rsi));
+ if(k==="pe")return r.pe.toFixed(1)+"×";
+ return r.vol.toFixed(1)+"×"}
+
+/* ---- build ----------------------------------------------------------- */
+var rowsEl=document.getElementById("rows");
+rowsEl.style.height=(D.length*RH)+"px";
+D.forEach(function(r,i){
+ var el=document.createElement("div"); el.className="row";
+ el.innerHTML='<span class="tk"></span><span class="val"></span>'+
+  '<div class="track"><i class="bar"></i></div><span class="rk"></span>';
+ el.querySelector(".tk").textContent=r.t;
+ rowsEl.appendChild(el); rowEls[i]=el;
+});
+
+function place(dur){
+ order.forEach(function(di,pos){
+  var el=rowEls[di];
+  el.style.transition=dur?("transform "+dur+"ms cubic-bezier(.34,.02,.2,1)"):"none";
+  el.style.transform="translateY("+(pos*RH)+"px)";
+ });
+}
+function paint(dur,zero){
+ var dv=drawVals(), signed=isSigned();
+ D.forEach(function(r,i){
+  var el=rowEls[i], bar=el.querySelector(".bar"), track=el.querySelector(".track");
+  track.className="track"+(signed?"":" mag");
+  el.querySelector(".val").textContent=fmt(col,r);
+  var v=zero?0:dv[i], L, W, c;
+  if(signed){ if(v>=0){L=50;W=v*50} else {L=50+v*50;W=-v*50}
+   c=v>=0?"var(--up)":"var(--dn)"; }
+  else { L=0; W=v*100; c="var(--neu)"; }
+  bar.style.transition=dur?("left "+dur+"ms ease-out, width "+dur+"ms ease-out, background "+
+    Math.round(dur*.4)+"ms linear"):"none";
+  bar.style.left=L+"%"; bar.style.width=Math.max(v?0.8:0,W)+"%"; bar.style.background=c;
+ });
+}
+function ranks(newOrder){
+ var was={},now={};
+ prevOrder.forEach(function(d,i){was[d]=i}); newOrder.forEach(function(d,i){now[d]=i});
+ D.forEach(function(_,i){
+  var el=rowEls[i], rk=el.querySelector(".rk"), d=(was[i]-now[i]);
+  if(d===0){rk.classList.remove("show");rk.textContent="";return}
+  rk.textContent=(d>0?"▲":"▼")+Math.abs(d);
+  rk.style.color=d>0?"var(--up)":"var(--dn)";
+  rk.classList.add("show");
+  setTimeout(function(){rk.classList.remove("show")},1400);
+ });
+}
+function trails(newOrder){
+ var was={}; prevOrder.forEach(function(d,i){was[d]=i});
+ newOrder.forEach(function(di,pos){
+  var from=was[di]; if(from===undefined||from===pos)return;
+  var a=Math.min(from,pos)*RH+8, b=Math.max(from,pos)*RH+26;
+  var tr=document.createElement("div"); tr.className="trail";
+  tr.style.top=a+"px"; tr.style.height=(b-a)+"px";
+  tr.style.background="linear-gradient(180deg,"+(pos<from?
+   "rgba(43,255,155,0),rgba(43,255,155,.5)":"rgba(255,47,85,.5),rgba(255,47,85,0)")+")";
+  tr.style.transition="opacity 420ms linear"; rowsEl.appendChild(tr);
+  requestAnimationFrame(function(){tr.style.opacity="0"});
+  setTimeout(function(){tr.remove()},460);
+ });
+}
+function ghosts(){
+ document.querySelectorAll(".gh").forEach(function(g){g.remove()});
+ if(!GHOST)return;
+ order.forEach(function(di,pos){
+  if(ghostY[di]===undefined||ghostY[di]===pos)return;
+  var el=rowEls[di], g=document.createElement("i"); g.className="gh";
+  g.style.left=(isSigned()?50:0)+"%";
+  el.querySelector(".track").appendChild(g);
+ });
+}
+
+/* ---- the five movements --------------------------------------------- */
+function computeOrder(){
+ var v=sortKeyVals();
+ var idx=D.map(function(_,i){return i});
+ idx.sort(function(a,b){return v[b]-v[a]});
+ if(DEAD){                       /* near-ties keep their previous relative order */
+  var pos={}; prevOrder.forEach(function(d,i){pos[d]=i});
+  for(var p=0;p<idx.length-1;p++){
+   var a=idx[p],b=idx[p+1];
+   if(Math.abs(v[a]-v[b])<0.03 && pos[b]<pos[a]){idx[p]=b;idx[p+1]=a}
+  }
+ }
+ return idx;
+}
+function apply(newOrder,isColSwitch){
+ prevOrder=order.slice();
+ var V=sp.v, R=sp.r, M=isColSwitch?"col":mode;
+ if(mode!=="col"&&isColSwitch&&NORM) M=mode;   /* same grammar → keep continuity */
+ order=newOrder;
+ if(M==="cut"){ paint(0); place(0); ranks(order); }
+ else if(M==="sr"){ paint(V); setTimeout(function(){place(R);ranks(order);ghosts()},V+20) }
+ else if(M==="rs"){ place(R); ranks(order); setTimeout(function(){paint(V);ghosts()},R+20) }
+ else if(M==="carry"){ paint(V); place(R); trails(order); ranks(order); ghosts() }
+ else { paint(Math.round(V*.6),true);
+        setTimeout(function(){place(R);ranks(order);
+          setTimeout(function(){paint(V);ghosts()},R+20)},Math.round(V*.6)+20) }
+ order.forEach(function(d,i){ghostY[d]=i});
+}
+
+/* ---- controls -------------------------------------------------------- */
+function mkBtns(host,list,cur,cb){
+ host.innerHTML="";
+ list.forEach(function(o){
+  var b=document.createElement("button"); b.textContent=o.n; b.dataset.k=o.k;
+  if(o.k===cur)b.className="on";
+  b.onclick=function(){
+   [].forEach.call(host.children,function(c){c.className=""});
+   b.className="on"; cb(o);
+  };
+  host.appendChild(b);
+ });
+}
+var whyc=document.getElementById("whyc"), whym=document.getElementById("whym"),
+    whyt=document.getElementById("whyt");
+mkBtns(document.getElementById("cols"),COLS,col,function(o){
+ col=o.k; whyc.innerHTML=o.why;
+ document.getElementById("hcol").textContent=o.head;
+ document.getElementById("hval").textContent=o.n;
+ lastAct={colSwitch:true}; apply(computeOrder(),!(NORM||o.signed));
+});
+mkBtns(document.getElementById("modes"),MODES,mode,function(o){
+ mode=o.k; whym.innerHTML=o.why;
+});
+mkBtns(document.getElementById("speeds"),SPEEDS,sp.k,function(o){sp=o});
+whyc.innerHTML=COLS[0].why; whym.innerHTML=MODES[1].why;
+
+function toggle(id,get,set,on,off){
+ var b=document.getElementById(id);
+ function sync(){b.className=get()?"act":""}
+ b.onclick=function(){set(!get());sync();whyt.innerHTML=get()?on:off;
+  lastAct={colSwitch:false}; apply(computeOrder(),false); paint(sp.v); ghosts()};
+ sync(); return b;
+}
+toggle("tNorm",function(){return NORM},function(v){NORM=v},
+ "<b>On.</b> Every column is now distance from its own middle — green above, red below. Switching columns is a re-rank, not a change of language.",
+ "<b>Off.</b> Unsigned columns draw as a magnitude bar from the left. Switch between a signed and an unsigned column and watch the transition stop meaning anything.");
+toggle("tDead",function(){return DEAD},function(v){DEAD=v},
+ "<b>On.</b> Rows within 0.03 of each other keep the order they already had. Tick a few times and the table stays calm.",
+ "<b>Off.</b> Near-ties swap on every tick. Hit SIMULATE A LIVE TICK a few times — this flicker is what makes a board feel untrustworthy.");
+toggle("tGhost",function(){return GHOST},function(v){GHOST=v},
+ "<b>On.</b> A faint tick marks where a row's bar sat before the last change. The gap is velocity, read without a second chart.",
+ "<b>Off.</b> No history on the track — only where things stand right now.");
+whyt.innerHTML="Turn one on and the table re-sorts so you can see what the rule does.";
+
+document.getElementById("tick").onclick=function(){
+ D.forEach(function(r){
+  r.g =Math.max(-1,Math.min(1, r.g + (Math.random()-.5)*.18));
+  r.chg=r.chg+(Math.random()-.5)*.6;
+  r.rsi=Math.max(4,Math.min(96,r.rsi+(Math.random()-.5)*7));
+  r.pe =Math.max(4,r.pe+(Math.random()-.5)*.7);
+  r.vol=Math.max(.1,r.vol+(Math.random()-.5)*.18);
+ });
+ lastAct={colSwitch:false}; apply(computeOrder(),false);
+};
+document.getElementById("replay").onclick=function(){
+ var cur=order.slice(); prevOrder=cur.slice();
+ var shuffled=cur.slice(); order=shuffled;
+ paint(0);place(0);
+ setTimeout(function(){apply(computeOrder(),lastAct&&lastAct.colSwitch)},60);
+};
+document.getElementById("reset").onclick=function(){
+ D=BASE.map(function(r){var c={};for(var k in r)c[k]=r[k];return c});
+ prevOrder=order.slice(); apply(computeOrder(),false);
+};
+
+/* first paint */
+order=computeOrder(); prevOrder=order.slice();
+order.forEach(function(d,i){ghostY[d]=i});
+paint(0); place(0);
+})();
+</script>
+</body></html>
