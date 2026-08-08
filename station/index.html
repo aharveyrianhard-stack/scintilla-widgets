@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>SCINTILLA STATION</title>
+<meta name="theme-color" content="#0e1116">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="STATION">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+  :root{--bg:#0e1116;--surface:#161b22;--surface2:#1c2330;--line:#2a3342;
+        --ink:#e6e9ee;--ink2:#9aa4b2;--ink3:#67707e;
+        --good:#3fb27f;--warn:#d9a13b;--bad:#d96b5b;--accent:#5b9dd9;
+        --mono:'SF Mono',ui-monospace,Menlo,Consolas,monospace}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);
+       font:14px/1.5 -apple-system,'Segoe UI',Roboto,sans-serif;
+       padding:calc(env(safe-area-inset-top) + 18px) 14px calc(env(safe-area-inset-bottom) + 40px);
+       max-width:760px;margin:0 auto;-webkit-text-size-adjust:100%}
+  h1{font:600 15px/1 var(--mono);letter-spacing:.16em;display:flex;align-items:center;gap:9px}
+  h1 span{color:var(--accent)}
+  .sub{color:var(--ink3);font:11px/1.5 var(--mono);letter-spacing:.02em;margin-top:7px}
+  .status{margin-left:auto;font:10px/1 var(--mono);letter-spacing:.04em;color:var(--ink2);
+          display:flex;align-items:center;gap:6px}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--ink3)}
+  .dot.live{background:var(--good);box-shadow:0 0 6px var(--good)}
+  .dot.err{background:var(--bad)}
+
+  h2{font:600 10px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;
+     color:var(--ink3);margin:26px 0 9px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:8px}
+  a.tile{display:flex;flex-direction:column;gap:3px;text-decoration:none;color:inherit;
+         background:var(--surface);border:1px solid var(--line);border-radius:4px;
+         padding:12px 12px 11px;min-height:74px;transition:border-color .12s,background .12s}
+  a.tile:hover,a.tile:focus-visible{border-color:var(--accent);background:var(--surface2)}
+  a.tile:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .tile .top{display:flex;align-items:center;gap:8px}
+  .tile .ic{color:var(--accent);font:14px/1 var(--mono);width:15px;flex:none}
+  .tile .lb{font-size:13.5px;font-weight:600;letter-spacing:-.005em}
+  .tile .bl{color:var(--ink2);font-size:11.5px;line-height:1.35}
+  .tile .host{color:var(--ink3);font:9.5px/1 var(--mono);letter-spacing:.02em;margin-top:auto;padding-top:6px}
+
+  .empty{color:var(--ink3);font:12px/1.6 var(--mono);padding:18px 0}
+  footer{margin-top:34px;padding-top:14px;border-top:1px solid var(--line);
+         color:var(--ink3);font:11px/1.6 var(--mono)}
+  footer b{color:var(--ink2);font-weight:600}
+</style>
+</head>
+<body>
+<h1>SCINTILLA <span>STATION</span>
+  <span class="status"><span class="dot" id="dot"></span><span id="stat">reading registry</span></span>
+</h1>
+<div class="sub">Everything with a real URL, in one place. Add to Home Screen.</div>
+
+<main id="out"><div class="empty">loading…</div></main>
+
+<footer>
+  <p>This page reads the <b>surfaces</b> table in scintilla-live. It is not a hand-written
+  list — add a row there and it appears here on next load. Nothing is listed that did not
+  answer HTTP 200 when it was registered.</p>
+</footer>
+
+<script>
+const SB='https://wadinxqplrggagkvrdag.supabase.co';
+const AK='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g';
+const GROUPS={scintilla:'The desk',data:'Numbers',urth:'URTH',build:'System'};
+const out=document.getElementById('out'), dot=document.getElementById('dot'), stat=document.getElementById('stat');
+
+function host(u){try{return new URL(u).host.replace(/^www\./,'')}catch(e){return ''}}
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+
+fetch(SB+'/rest/v1/surfaces?select=slug,label,url,grp,blurb,icon,sort&active=eq.true&order=sort.asc',
+      {headers:{apikey:AK,Authorization:'Bearer '+AK}})
+ .then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})
+ .then(rows=>{
+   if(!rows.length){out.innerHTML='<div class="empty">registry is empty</div>';return}
+   const by={};
+   rows.forEach(r=>{(by[r.grp]=by[r.grp]||[]).push(r)});
+   let h='';
+   Object.keys(GROUPS).forEach(g=>{
+     if(!by[g])return;
+     h+='<h2>'+GROUPS[g]+'</h2><div class="grid">';
+     by[g].forEach(r=>{
+       h+='<a class="tile" href="'+esc(r.url)+'" target="_blank" rel="noopener">'
+        +'<span class="top"><span class="ic">'+esc(r.icon||'▸')+'</span>'
+        +'<span class="lb">'+esc(r.label)+'</span></span>'
+        +(r.blurb?'<span class="bl">'+esc(r.blurb)+'</span>':'')
+        +'<span class="host">'+esc(host(r.url))+'</span></a>';
+     });
+     h+='</div>';
+   });
+   out.innerHTML=h;
+   dot.className='dot live'; stat.textContent=rows.length+' surfaces';
+ })
+ .catch(e=>{
+   out.innerHTML='<div class="empty">Could not read the registry — '+esc(e.message)
+     +'<br>The surfaces are still there; this page could not reach the database.</div>';
+   dot.className='dot err'; stat.textContent='registry unreachable';
+ });
+</script>
+</body>
+</html>
