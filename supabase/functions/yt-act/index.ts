@@ -1,6 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SB_URL = Deno.env.get("SUPABASE_URL") || "";
+const ACCOUNTS = ["personal", "scintilla"] as const;
+type Account = typeof ACCOUNTS[number];
+const WATCH_ACCOUNT: Account = "scintilla";
 
 function adminKey() {
   const current = Deno.env.get("SUPABASE_SECRET_KEYS");
@@ -39,24 +42,27 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
   "Content-Type": "application/json",
 };
-const J = (o: unknown) => new Response(JSON.stringify(o), { headers: CORS });
+const J = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: CORS });
 
-// v6: prefer Supabase's current secret-key environment over the legacy
-// service-role key. This restores the admin client used to read the OAuth
-// configuration behind RLS while keeping a legacy fallback. Gateway JWT
-// verification is disabled because current publishable keys are not JWTs;
-// the handler accepts only this project's own public keys instead.
-async function accessToken(sb: ReturnType<typeof createClient>) {
-  const { data: cfg, error } = await sb
-    .from("app_config")
+function validAccount(value: unknown, fallback: Account = WATCH_ACCOUNT): Account {
+  return ACCOUNTS.includes(value as Account) ? value as Account : fallback;
+}
+
+function configName(prefix: string, account: Account) {
+  return prefix + "_" + account.toUpperCase();
+}
+
+async function accessToken(sb: any, account: Account) {
+  const refreshKey = configName("YT_REFRESH_TOKEN", account);
+  const { data: cfg, error } = await sb.from("app_config")
     .select("key,value")
-    .in("key", ["YT_OAUTH_CLIENT_ID", "YT_OAUTH_CLIENT_SECRET", "YT_REFRESH_TOKEN"]);
+    .in("key", ["YT_OAUTH_CLIENT_ID", "YT_OAUTH_CLIENT_SECRET", refreshKey]);
   if (error) return { error: "oauth config unavailable" };
 
   const c: Record<string, string> = {};
   for (const row of cfg || []) c[row.key] = row.value;
-  if (!c.YT_OAUTH_CLIENT_ID || !c.YT_OAUTH_CLIENT_SECRET || !c.YT_REFRESH_TOKEN) {
-    return { error: "not connected" };
+  if (!c.YT_OAUTH_CLIENT_ID || !c.YT_OAUTH_CLIENT_SECRET || !c[refreshKey]) {
+    return { error: account + " YouTube is not connected" };
   }
 
   const r = await fetch("https://oauth2.googleapis.com/token", {
@@ -65,13 +71,17 @@ async function accessToken(sb: ReturnType<typeof createClient>) {
     body: new URLSearchParams({
       client_id: c.YT_OAUTH_CLIENT_ID,
       client_secret: c.YT_OAUTH_CLIENT_SECRET,
-      refresh_token: c.YT_REFRESH_TOKEN,
+      refresh_token: c[refreshKey],
       grant_type: "refresh_token",
     }),
   });
   const body = await r.json();
   if (!r.ok || !body.access_token) {
-    return { error: "youtube authorization unavailable", status: r.status, code: body.error || null };
+    return {
+      error: account + " YouTube authorization unavailable",
+      status: r.status,
+      code: body.error || null,
+    };
   }
   return { token: body.access_token as string };
 }
@@ -90,15 +100,30 @@ async function yt(token: string, method: string, path: string, body?: unknown) {
   }
 }
 
-async function logSub(sb: ReturnType<typeof createClient>, channelId: string, title: string, action: string) {
+async function logSub(
+  sb: any,
+  channelId: string,
+  title: string,
+  action: string,
+  account: Account,
+) {
   try {
-    await sb.from("yt_sub_log").insert({ channel_id: channelId, channel_title: title || null, action });
+    await sb.from("yt_sub_log").insert({
+      channel_id: channelId,
+      channel_title: title || null,
+      action: action + ":" + account,
+    });
   } catch (_) {}
 }
 
-async function ensurePlaylist(sb: ReturnType<typeof createClient>, token: string) {
-  const { data: saved } = await sb.from("app_config").select("value").eq("key", "yt_wl_playlist").maybeSingle();
-  if (saved?.value) return saved.value as string;
+async function ensurePlaylist(sb: any, token: string) {
+  const { data: cfg } = await sb.from("app_config")
+    .select("key,value")
+    .in("key", ["yt_wl_playlist_scintilla", "yt_wl_playlist"]);
+  const saved: Record<string, string> = {};
+  for (const row of cfg || []) saved[row.key] = row.value;
+  const existingId = saved.yt_wl_playlist_scintilla || saved.yt_wl_playlist;
+  if (existingId) return existingId;
 
   const mine = await yt(token, "GET", "playlists?part=snippet&mine=true&maxResults=50");
   const found = (mine.body?.items || []).find(
@@ -107,36 +132,40 @@ async function ensurePlaylist(sb: ReturnType<typeof createClient>, token: string
   let id = found?.id as string | undefined;
   if (!id) {
     const made = await yt(token, "POST", "playlists?part=snippet,status", {
-      snippet: { title: "SCINTILLA · Watch Later", description: "Saved from the SCINTILLA hub" },
+      snippet: { title: "SCINTILLA · Watch Later", description: "Saved from the SCINTILLA Station" },
       status: { privacyStatus: "private" },
     });
     id = made.body?.id;
   }
-  if (id) await sb.from("app_config").upsert({ key: "yt_wl_playlist", value: id });
+  if (id) {
+    await sb.from("app_config").upsert({ key: "yt_wl_playlist_scintilla", value: id });
+  }
   return id || null;
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
-  if (!CALLER_KEYS.has(req.headers.get("apikey") || "")) {
-    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: CORS });
-  }
-  if (!SB_URL || !SB_KEY) return J({ error: "backend credentials unavailable" });
+  if (!CALLER_KEYS.has(req.headers.get("apikey") || "")) return J({ error: "unauthorized" }, 401);
+  if (!SB_URL || !SB_KEY) return J({ error: "backend credentials unavailable" }, 503);
 
   const sb = createClient(SB_URL, SB_KEY);
-  const auth = await accessToken(sb);
-  if (!auth.token) return J({ error: auth.error, status: auth.status || null, code: auth.code || null });
-  const token = auth.token;
-
   let input: Record<string, string> = {};
   try {
     input = await req.json();
   } catch (_) {}
   const action = input.action || new URL(req.url).searchParams.get("action") || "";
+  const account = ["list", "star", "unstar"].includes(action)
+    ? WATCH_ACCOUNT
+    : validAccount(input.account);
+  const auth = await accessToken(sb, account);
+  if (!auth.token) {
+    return J({ error: auth.error, account, status: auth.status || null, code: auth.code || null });
+  }
+  const token = auth.token;
 
   if (action === "list") {
     const playlist = await ensurePlaylist(sb, token);
-    if (!playlist) return J({ error: "no playlist" });
+    if (!playlist) return J({ error: "no playlist", account: WATCH_ACCOUNT });
     const ids: string[] = [];
     let pageToken = "";
     for (let page = 0; page < 4; page++) {
@@ -144,9 +173,9 @@ Deno.serve(async (req) => {
         token,
         "GET",
         "playlistItems?part=contentDetails&maxResults=50&playlistId=" + playlist +
-          (pageToken ? "&pageToken=" + pageToken : ""),
+          (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : ""),
       );
-      if (r.status >= 300) return J({ error: "playlist read failed", status: r.status });
+      if (r.status >= 300) return J({ error: "playlist read failed", status: r.status, account: WATCH_ACCOUNT });
       for (const item of r.body?.items || []) {
         const videoId = item.contentDetails?.videoId;
         if (videoId) ids.push(videoId);
@@ -154,40 +183,41 @@ Deno.serve(async (req) => {
       pageToken = r.body?.nextPageToken || "";
       if (!pageToken) break;
     }
-    return J({ ok: true, ids });
+    return J({ ok: true, account: WATCH_ACCOUNT, ids });
   }
 
   if (action === "star") {
     if (!input.videoId) return J({ error: "no videoId" });
     const playlist = await ensurePlaylist(sb, token);
-    if (!playlist) return J({ error: "no playlist" });
+    if (!playlist) return J({ error: "no playlist", account: WATCH_ACCOUNT });
     const existing = await yt(
       token,
       "GET",
       "playlistItems?part=id&playlistId=" + playlist + "&videoId=" + input.videoId + "&maxResults=1",
     );
-    if (existing.body?.items?.[0]) return J({ ok: true, already: true });
+    if (existing.body?.items?.[0]) return J({ ok: true, already: true, account: WATCH_ACCOUNT });
     const added = await yt(token, "POST", "playlistItems?part=snippet", {
       snippet: { playlistId: playlist, resourceId: { kind: "youtube#video", videoId: input.videoId } },
     });
-    return J({ ok: added.status < 300, status: added.status });
+    return J({ ok: added.status < 300, status: added.status, account: WATCH_ACCOUNT });
   }
 
   if (action === "unstar") {
     if (!input.videoId) return J({ error: "no videoId" });
     const playlist = await ensurePlaylist(sb, token);
-    if (!playlist) return J({ error: "no playlist" });
+    if (!playlist) return J({ error: "no playlist", account: WATCH_ACCOUNT });
     const found = await yt(
       token,
       "GET",
       "playlistItems?part=id&playlistId=" + playlist + "&videoId=" + input.videoId + "&maxResults=1",
     );
     const item = found.body?.items?.[0];
-    if (!item) return J({ ok: true, note: "not in playlist" });
+    if (!item) return J({ ok: true, note: "not in playlist", account: WATCH_ACCOUNT });
     const removed = await yt(token, "DELETE", "playlistItems?id=" + item.id);
-    return J({ ok: removed.status < 300, status: removed.status });
+    return J({ ok: removed.status < 300, status: removed.status, account: WATCH_ACCOUNT });
   }
 
+  const cacheKey = "yt_sub_channels_" + account;
   if (action === "sub") {
     if (!input.channelId) return J({ error: "no channelId" });
     const added = await yt(token, "POST", "subscriptions?part=snippet", {
@@ -196,17 +226,11 @@ Deno.serve(async (req) => {
     const duplicate = !!(added.body?.error && /subscriptionDuplicate/.test(JSON.stringify(added.body.error)));
     const ok = added.status < 300 || duplicate;
     if (ok) {
-      try {
-        const { data: saved } = await sb.from("app_config").select("value").eq("key", "yt_sub_channels").maybeSingle();
-        const channels = saved?.value ? JSON.parse(saved.value) : { ids: [], ts: 0 };
-        if (!channels.ids.includes(input.channelId)) {
-          channels.ids = [...channels.ids, input.channelId];
-          await sb.from("app_config").upsert({ key: "yt_sub_channels", value: JSON.stringify(channels) });
-        }
-      } catch (_) {}
-      await logSub(sb, input.channelId, input.channelTitle || "", duplicate ? "sub_dup" : "sub");
+      // Force the next collector run to refresh this account's authoritative list.
+      await sb.from("app_config").upsert({ key: cacheKey, value: "" });
+      await logSub(sb, input.channelId, input.channelTitle || "", duplicate ? "sub_dup" : "sub", account);
     }
-    return J({ ok, already: duplicate, status: added.status });
+    return J({ ok, already: duplicate, status: added.status, account });
   }
 
   if (action === "unsub") {
@@ -225,16 +249,11 @@ Deno.serve(async (req) => {
       status = removed.status;
     }
     if (ok) {
-      try {
-        const { data: saved } = await sb.from("app_config").select("value").eq("key", "yt_sub_channels").maybeSingle();
-        const channels = saved?.value ? JSON.parse(saved.value) : { ids: [], ts: 0 };
-        channels.ids = channels.ids.filter((id: string) => id !== input.channelId);
-        await sb.from("app_config").upsert({ key: "yt_sub_channels", value: JSON.stringify(channels) });
-      } catch (_) {}
-      await logSub(sb, input.channelId, input.channelTitle || "", "unsub");
+      await sb.from("app_config").upsert({ key: cacheKey, value: "" });
+      await logSub(sb, input.channelId, input.channelTitle || "", "unsub", account);
     }
-    return J({ ok, status });
+    return J({ ok, status, account });
   }
 
-  return J({ error: "unknown action" });
+  return J({ error: "unknown action" }, 400);
 });
