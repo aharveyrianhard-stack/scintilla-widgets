@@ -1,186 +1,453 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>SCINTILLA · cohort compare</title>
-<!-- ============================================================================
-     SCINTILLA COMPONENT · COHORT COMPARE — vertical cohort-composite.
-     Second component extraction (Alan: geiger bars first). Every primary
-     cohort as one vertical bar from the zero line — the hub's MACD-histogram
-     idiom lifted verbatim (rect from center, green #00FFA3 / red #FF2D55 by
-     sign, leader wears the glow) — bar height = the cohort composite
-     (?stat=median default, robust · ?stat=mean flips; the other stat rides as
-     a notch on each bar), thin min→max whisker behind each bar. Fixed honest
-     scale ±1, values always printed.
-     DATA — DB reads only, never FMP, never recomputed:
-       ticker_cohorts is_primary=true × composite_staged tf='D' (THE one
-       Geiger) · scintilla-live.
-     Params: ?stat=median|mean · ?sort=value|name · ?bg=0 · ?labels=0 ·
-       ?refresh=60 (15-600)
-     Composability: bar click → /cohort?c=NAME (the horizontal distribution).
-     LOOK rides the Visuals sprint — plumbing + verbatim idiom only.
-     ============================================================================ -->
+<meta name="theme-color" content="#0e1116">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
-:root{
-  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
-  --ink:#F2F2F8; --ink2:#C6C8DE; --dim:#868AAA; --mute:#3A3A52;
-  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55;
-  --gs-mom:#A24BFF; --gs-ink2:#A6AAC4;
-  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
-}
-*{ box-sizing:border-box; min-width:0; }
-html,body{ margin:0; height:100%; }
-body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
-  -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.03em;
-  display:flex; flex-direction:column; overflow:hidden; padding:10px 14px; }
-body.nobg{ background:transparent; }
-#hd{ display:flex; align-items:baseline; gap:10px; flex:none; margin-bottom:4px; }
-#hd .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; }
-#hd .m{ color:var(--dim); font-size:9px; }
-#hd .fresh{ margin-left:auto; color:var(--mute); font-size:8px; letter-spacing:.12em; text-transform:uppercase; }
-.badge{ font-size:8px; letter-spacing:.14em; color:var(--bear); border:1px dashed rgba(255,45,85,.5); padding:1px 6px; text-transform:uppercase; }
-#field{ flex:1; display:flex; align-items:stretch; gap:6px; min-height:0; padding:14px 2px 2px; }
-.col{ flex:1; display:flex; flex-direction:column; min-width:0; cursor:pointer; }
-.col:hover .nm{ color:var(--crk); }
-.vals{ flex:none; height:14px; text-align:center; font-size:10px; font-weight:700; font-variant-numeric:tabular-nums; }
-.plot{ flex:1; position:relative; min-height:0; }
-.plot .zero{ position:absolute; left:0; right:0; top:50%; height:1px; background:rgba(255,255,255,.12); }
-.plot .whisk{ position:absolute; left:50%; width:1px; transform:translateX(-50%); background:var(--gs-mom); opacity:.3; }
-.plot .bar{ position:absolute; left:50%; width:58%; max-width:34px; transform:translateX(-50%); border-radius:2px; opacity:.85; }
-.plot .bar.lead{ opacity:1; }
-.plot .tick{ position:absolute; left:50%; width:70%; max-width:42px; height:2px; transform:translateX(-50%); background:var(--ink); opacity:.55; }
-.nm{ flex:none; padding-top:5px; text-align:center; color:var(--gs-ink2); font-size:8px; letter-spacing:.08em; text-transform:uppercase;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.cnt{ text-align:center; color:var(--mute); font-size:7.5px; }
-.up{ color:var(--bull); } .dn{ color:var(--bear); } .neu{ color:var(--gs-ink2); }
-#ft{ flex:none; margin-top:5px; color:var(--mute); font-size:7.5px; letter-spacing:.1em; text-transform:uppercase; text-align:center; }
-.empty{ margin:auto; color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; }
+  :root{--bg:#0e1116;--surface:#161b22;--surface2:#1c2330;--line:#2a3342;
+        --ink:#e6e9ee;--ink2:#9aa4b2;--ink3:#67707e;
+        --bull:#3fb27f;--bear:#d96b5b;--warn:#d9a13b;--accent:#5b9dd9;
+        --mono:'SF Mono',ui-monospace,Menlo,Consolas,monospace;
+        --rh:44px}
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--ink);
+       font:14px/1.4 -apple-system,'Segoe UI',Roboto,sans-serif;
+       -webkit-text-size-adjust:100%;-webkit-font-smoothing:antialiased}
+  body{padding:calc(env(safe-area-inset-top) + 12px) 12px calc(env(safe-area-inset-bottom) + 108px);
+       max-width:760px;margin:0 auto;overflow-x:hidden}
+  body.nobg{background:transparent}
+
+  h1{font:600 12px/1 var(--mono);letter-spacing:.16em;display:flex;align-items:center;gap:8px}
+  h1 b{color:var(--accent);font-weight:600}
+  .meta{color:var(--ink3);font:10px/1.5 var(--mono);margin-top:6px}
+  .meta .warn{color:var(--warn)}
+
+  /* ── measure selector: choosing a different one is a NEW MEASURE, so it CUTS ── */
+  .cols{display:flex;gap:6px;margin:12px 0 6px;flex-wrap:wrap}
+  .cols button{background:var(--surface);border:1px solid var(--line);color:var(--ink2);
+    font:600 10px/1 var(--mono);letter-spacing:.08em;padding:8px 10px;border-radius:3px;
+    cursor:pointer;-webkit-tap-highlight-color:transparent}
+  .cols button[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:var(--surface2)}
+  .cols button:disabled{opacity:.32;cursor:not-allowed}
+
+  .toggles{display:flex;gap:14px;margin:4px 0 14px;color:var(--ink3);font:10px/1 var(--mono)}
+  .toggles label{display:flex;align-items:center;gap:5px;cursor:pointer;letter-spacing:.06em}
+  .toggles input{accent-color:var(--accent);width:13px;height:13px}
+
+  /* ── the ranked rows ── */
+  #wall{position:relative;will-change:height}
+  .row{position:absolute;left:0;right:0;height:var(--rh);
+       display:grid;grid-template-columns:22px 108px 1fr 64px;align-items:center;gap:8px;
+       will-change:transform;backface-visibility:hidden}
+  .rk{font:600 10px/1 var(--mono);color:var(--ink3);text-align:right}
+  .nm{font:600 11.5px/1.2 var(--mono);letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nm i{display:block;font-style:normal;font-size:9px;color:var(--ink3);letter-spacing:.02em;margin-top:2px}
+  .track{position:relative;height:16px;background:var(--surface);border-radius:2px;overflow:visible}
+  .track::after{content:"";position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--line)}
+  .track.mag::after{left:0}
+  .bar{position:absolute;top:2px;bottom:2px;border-radius:1px;
+       transition:left .5s cubic-bezier(.34,.02,.2,1),width .5s cubic-bezier(.34,.02,.2,1),background .3s}
+  .val{font:600 11px/1 var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+  .up{color:var(--bull)} .dn{color:var(--bear)} .neu{color:var(--ink3)}
+  .gh{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink3);opacity:.4;border-radius:1px}
+
+  .row.stale .nm,.row.stale .val{opacity:.45}
+  .row.stale .track{opacity:.45}
+  .row.stale .nm::after{content:"";position:absolute}
+  .strike{position:absolute;left:22px;right:0;top:50%;height:1px;background:var(--warn);opacity:.55}
+
+  /* ── the rewind ── */
+  .rw{position:fixed;left:0;right:0;bottom:0;background:linear-gradient(to top,var(--bg) 72%,transparent);
+      padding:14px 12px calc(env(safe-area-inset-bottom) + 12px);z-index:9}
+  .rw .inner{max-width:736px;margin:0 auto}
+  .dt{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .dt .when{font:600 11px/1 var(--mono);color:var(--accent);letter-spacing:.06em}
+  .dt .note{font:9.5px/1 var(--mono);color:var(--ink3);letter-spacing:.04em}
+  .dt .note.bad{color:var(--warn)}
+  .det{position:relative;height:34px}
+  .det .line{position:absolute;left:6px;right:6px;top:16px;height:1px;background:var(--line)}
+  .det .fillline{position:absolute;left:6px;top:16px;height:1px;background:var(--accent);
+       transition:width .28s cubic-bezier(.34,.02,.2,1)}
+  .det button{position:absolute;top:0;transform:translateX(-50%);
+    background:none;border:0;color:var(--ink3);font:600 9.5px/1 var(--mono);letter-spacing:.08em;
+    padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent;width:52px}
+  .det button .dot{display:block;width:9px;height:9px;border-radius:50%;background:var(--line);
+    margin:12px auto 5px;transition:background .2s,transform .2s}
+  .det button[aria-pressed="true"]{color:var(--accent)}
+  .det button[aria-pressed="true"] .dot{background:var(--accent);transform:scale(1.35)}
+  .det button:disabled{opacity:.3;cursor:not-allowed}
+
+  .status{margin-top:20px;color:var(--ink3);font:10px/1.6 var(--mono);letter-spacing:.03em}
+  .status b{color:var(--ink2);font-weight:600}
+  @media (prefers-reduced-motion:reduce){.row,.bar,.fillline{transition:none!important}}
 </style>
 </head>
 <body>
-<div id="hd">
-  <span class="k">COHORT COMPARE</span>
-  <span class="m" id="meta">—</span>
-  <span class="fresh" id="fresh"></span>
+
+<h1>COHORT <b>COMPARE</b></h1>
+<div class="meta" id="meta">loading…</div>
+
+<div class="cols" id="cols"></div>
+<div class="toggles">
+  <label><input type="checkbox" id="tNorm" checked> EVERY COLUMN AS ±1</label>
+  <label><input type="checkbox" id="tHold" checked> HOLD NEAR-TIES</label>
+  <label><input type="checkbox" id="tGhost"> GHOST OF LAST ORDER</label>
 </div>
-<div id="field"><div class="empty">loading cohorts…</div></div>
-<div id="ft">composite_staged tf=D · the one geiger, never recomputed · ticker_cohorts is_primary · scale ±1 · bar = <span id="ftstat">median</span>, notch = <span id="ftalt">mean</span> · whisker = min→max · click a bar → its cohort geiger</div>
+
+<div id="wall"></div>
+
+<div class="status" id="status"></div>
+
+<div class="rw">
+  <div class="inner">
+    <div class="dt">
+      <span class="when" id="when">LIVE</span>
+      <span class="note" id="note"></span>
+    </div>
+    <div class="det" id="det">
+      <span class="line"></span><span class="fillline" id="fill"></span>
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
-/* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
-const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
-const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
-async function pg(path, _tries) {
-  const tries = _tries == null ? 3 : _tries;
-  let lastErr;
-  for (let i = 0; i < tries; i++) {
-    try {
-      const r = await fetch(SB + "/rest/v1/" + path, { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
-      if (r.ok) return r.json();
-      if (r.status === 503 || r.status === 504 || r.status === 429) lastErr = new Error("pg " + path + " → " + r.status);
-      else throw new Error("pg " + path + " → " + r.status);
-    } catch (e) { lastErr = e; }
-    if (i < tries - 1) await new Promise((res) => setTimeout(res, 500 * (i + 1) + Math.random() * 300));
+/* ═══════════════════════════════════════════════════════════════════════════
+   COHORT COMPARE — the geiger, on real data, with the rewind.
+   Grammar is the one settled in the lab at /visuals/geiger-motion:
+     · every column as ±1: deviation from that column's OWN middle, normalised
+     · hold near-ties, so rows do not shuffle on noise
+     · ghost of the last order
+     · SAME MEASURE, NEW NUMBERS -> ANIMATES.  A NEW MEASURE -> CUTS.
+       Animating a discontinuity implies a relationship that does not exist.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+const SB="https://wadinxqplrggagkvrdag.supabase.co";
+const ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+
+async function pg(path,tries){
+  tries=tries==null?3:tries; let last;
+  for(let i=0;i<tries;i++){
+    try{
+      const r=await fetch(SB+"/rest/v1/"+path,{headers:{apikey:ANON,Authorization:"Bearer "+ANON}});
+      if(r.ok) return r.json();
+      if([429,503,504].indexOf(r.status)<0) throw new Error("pg "+r.status);
+      last=new Error("pg "+r.status);
+    }catch(e){last=e}
+    if(i<tries-1) await new Promise(r=>setTimeout(r,400*(i+1)));
   }
-  throw lastErr;
+  throw last;
 }
-const num = (x) => (x == null ? null : Number(x));
-const el = (id) => document.getElementById(id);
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
-
-/* ---- params ---- */
-const QS = new URLSearchParams(location.search);
-const STAT    = QS.get("stat") === "mean" ? "mean" : "med";
-const ALT     = STAT === "med" ? "mean" : "med";
-const SORT    = QS.get("sort") === "name" ? "name" : "value";
-const REFRESH = Math.max(15, Math.min(600, +(QS.get("refresh") || 60))) * 1000;
-if (QS.get("bg") === "0") document.body.classList.add("nobg");
-const LABELS  = QS.get("labels") !== "0";
-if (!LABELS) el("ft").style.display = "none";
-el("ftstat").textContent = STAT === "med" ? "median" : "mean";
-el("ftalt").textContent  = STAT === "med" ? "mean" : "median";
-
-/* ---- fixed honest scale ±1 (hub-verbatim clamp idiom) ---- */
-const SCALE = 1;
-const frac = (v) => Math.max(-0.98, Math.min(0.98, v / SCALE));      /* signed fraction of half-height */
-const tone = (v) => (v > 0 ? "up" : v < 0 ? "dn" : "neu");
-const col  = (v) => (v >= 0 ? "var(--bull)" : "var(--bear)");
-const fmt  = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
-function median(arr) {
-  const a = arr.slice().sort((x, y) => x - y), n = a.length;
-  return n % 2 ? a[(n - 1) / 2] : (a[n / 2 - 1] + a[n / 2]) / 2;
-}
-
-let COHORTS = [], MAXTS = null;
-
-async function pull() {
-  const [tc, cs] = await Promise.all([
-    pg("ticker_cohorts?is_primary=eq.true&select=ticker,cohort"),
-    pg("composite_staged?tf=eq.D&select=ticker,composite,updated_ts"),
-  ]);
-  const comp = {}; let maxts = null;
-  for (const r of (cs || [])) {
-    const v = num(r.composite);
-    if (v != null && isFinite(v)) comp[r.ticker] = v;
-    if (r.updated_ts && (!maxts || r.updated_ts > maxts)) maxts = r.updated_ts;
+/* PostgREST caps a page at 1000 rows; walk until short. */
+async function pgAll(path,cap){
+  cap=cap||24000; let out=[],off=0;
+  for(;;){
+    const page=await pg(path+"&limit=1000&offset="+off);
+    out=out.concat(page);
+    if(page.length<1000||out.length>=cap) break;
+    off+=1000;
   }
-  const by = {};
-  for (const r of (tc || [])) {
-    const v = comp[r.ticker];
-    if (v == null) continue;
-    (by[r.cohort] = by[r.cohort] || []).push(v);
+  return out;
+}
+const el=id=>document.getElementById(id);
+const median=a=>{const s=a.slice().sort((x,y)=>x-y),n=s.length;return n?(n%2?s[(n-1)/2]:(s[n/2-1]+s[n/2])/2):0};
+const DAY=86400;
+
+/* ── the measures. `live` means it only exists at the LIVE detent. ────────── */
+const COLS=[
+  {k:"composite",label:"COMPOSITE",mid:0,   signed:true, live:true,  unit:""},
+  {k:"r1m",      label:"1M RETURN",mid:0,   signed:true, live:false, unit:"%"},
+  {k:"r3m",      label:"3M RETURN",mid:0,   signed:true, live:false, unit:"%"},
+  {k:"breadth",  label:"BREADTH",  mid:50,  signed:true, live:false, unit:"%"}
+];
+const DETENTS=[
+  {k:"LIVE",off:0},
+  {k:"1W",off:7*DAY},
+  {k:"1M",off:30*DAY},
+  {k:"1Q",off:91*DAY},
+  {k:"1Y",off:365*DAY}
+];
+
+let MEMBERS={};            /* cohort -> [ticker] */
+let COHORTS=[];            /* ordered cohort names */
+let col="composite";
+let detent=0;
+let NORM=true, HOLD=true, GHOST=false;
+let rowEls={}, order=[], prevOrder=[], ghostPos={};
+let DATA={};               /* measureKey -> {cohort:value} for the CURRENT detent */
+let BADDATES=new Set();    /* session dates that session_continuity calls HOLED/MISSING */
+let lastMeasureSig=null;   /* measure identity: changing it CUTS */
+const cache={};
+
+/* ── bootstrap ───────────────────────────────────────────────────────────── */
+(async function init(){
+  try{
+    const [tc,bad]=await Promise.all([
+      pgAll("ticker_cohorts?is_primary=eq.true&select=ticker,cohort"),
+      pg("session_continuity?verdict=neq.OK&select=session_date&limit=4000")
+    ]);
+    (bad||[]).forEach(r=>BADDATES.add(r.session_date));
+    const by={};
+    (tc||[]).forEach(r=>{(by[r.cohort]=by[r.cohort]||[]).push(r.ticker)});
+    /* drop the tiny alias cohort so it does not read as a real peer */
+    delete by["AI_HW"];
+    MEMBERS=by;
+    COHORTS=Object.keys(by).sort();
+    buildCols(); buildDetents(); buildRows();
+    await load();
+  }catch(e){
+    el("meta").innerHTML='<span class="warn">could not reach the database — '+String(e.message||e)+'</span>';
   }
-  MAXTS = maxts;
-  COHORTS = Object.keys(by).map((name) => {
-    const c = by[name];
-    return { name, n: c.length,
-      min: Math.min.apply(null, c), max: Math.max.apply(null, c),
-      mean: c.reduce((a, b) => a + b, 0) / c.length, med: median(c) };
-  }).filter((c) => c.n);
-  COHORTS.sort(SORT === "name" ? (a, b) => a.name.localeCompare(b.name) : (a, b) => b[STAT] - a[STAT]);
-}
-
-function freshHTML() {
-  if (!MAXTS) return "";
-  const min = Math.round((Date.now() - new Date(MAXTS).getTime()) / 60000);
-  return min > 30 ? 'geiger <span class="badge">STALE ' + min + 'm</span>' : "geiger " + min + "m ago";
-}
-
-/* y-geometry: top of a positive bar sits at 50%·(1−frac) of plot height */
-const yPct = (v) => 50 - frac(v) * 50;
-
-function render() {
-  if (!COHORTS.length) { el("field").innerHTML = '<div class="empty">no cohort data</div>'; el("meta").textContent = "—"; return; }
-  const leadName = COHORTS.slice().sort((a, b) => Math.abs(b[STAT]) - Math.abs(a[STAT]))[0].name;
-  el("meta").textContent = COHORTS.length + " primary cohorts · bar = " + (STAT === "med" ? "median" : "mean") + " composite";
-  el("fresh").innerHTML = freshHTML();
-  el("field").innerHTML = COHORTS.map((c) => {
-    const v = c[STAT], a = c[ALT], up = v >= 0;
-    const yv = yPct(v), y0 = 50;
-    const top = up ? yv : y0, hgt = Math.max(0.8, Math.abs(yv - y0));
-    const wTop = Math.min(yPct(c.max), yPct(c.min)), wHgt = Math.abs(yPct(c.max) - yPct(c.min));
-    const lead = c.name === leadName;
-    return '<div class="col" data-c="' + esc(c.name) + '" title="' + esc(c.name) + " · median " + fmt(c.med) + " · mean " + fmt(c.mean) + " · min " + fmt(c.min) + " · max " + fmt(c.max) + '">' +
-      '<div class="vals ' + tone(v) + '">' + (LABELS ? fmt(v) : "") + "</div>" +
-      '<div class="plot">' +
-        '<span class="zero"></span>' +
-        '<span class="whisk" style="top:' + wTop + "%;height:" + Math.max(0.8, wHgt) + '%"></span>' +
-        '<span class="bar' + (lead ? " lead" : "") + '" style="top:' + top + "%;height:" + hgt + "%;background:" + col(v) + (lead ? ";box-shadow:0 0 9px " + col(v) : "") + '"></span>' +
-        '<span class="tick" style="top:' + yPct(a) + '%" title="' + (STAT === "med" ? "mean " + fmt(c.mean) : "median " + fmt(c.med)) + '"></span>' +
-      "</div>" +
-      (LABELS ? '<div class="nm">' + esc(c.name) + '</div><div class="cnt">' + c.n + "</div>" : "") +
-    "</div>";
-  }).join("");
-  for (const node of document.querySelectorAll(".col"))
-    node.addEventListener("click", () => { location.href = "/cohort?c=" + encodeURIComponent(node.dataset.c); });
-}
-
-(async function init() {
-  try { await pull(); render(); }
-  catch (e) { el("field").innerHTML = '<div class="empty">cohort data unavailable</div>'; }
-  setInterval(async () => { try { await pull(); render(); } catch (e) {} }, REFRESH);
 })();
+
+function buildCols(){
+  const c=el("cols"); c.innerHTML="";
+  COLS.forEach(m=>{
+    const b=document.createElement("button");
+    b.textContent=m.label; b.setAttribute("aria-pressed",m.k===col);
+    b.onclick=()=>{ if(b.disabled)return; col=m.k; syncCols(); load(); };
+    c.appendChild(b);
+  });
+  syncCols();
+}
+function syncCols(){
+  [...el("cols").children].forEach((b,i)=>{
+    const m=COLS[i];
+    b.setAttribute("aria-pressed",m.k===col);
+    /* a live-only measure cannot be shown in the past — say so by disabling it */
+    b.disabled = m.live && detent!==0;
+    b.title = b.disabled ? "composite is stored current-only; it has no past to show" : "";
+  });
+}
+function buildDetents(){
+  const d=el("det");
+  DETENTS.forEach((dt,i)=>{
+    const b=document.createElement("button");
+    b.style.left=(6+i*(100-12)/(DETENTS.length-1))+"%";
+    b.innerHTML='<span class="dot"></span>'+dt.k;
+    b.setAttribute("aria-pressed",i===detent);
+    b.onclick=()=>{ detent=i; syncDetents(); if(COLS.find(c=>c.k===col).live&&detent!==0) col="r1m"; syncCols(); load(); };
+    d.appendChild(b);
+  });
+  syncDetents();
+}
+function syncDetents(){
+  [...el("det").querySelectorAll("button")].forEach((b,i)=>b.setAttribute("aria-pressed",i===detent));
+  el("fill").style.width=(detent*(100-12)/(DETENTS.length-1))+"%";
+}
+function buildRows(){
+  const w=el("wall"); w.innerHTML=""; rowEls={};
+  COHORTS.forEach(name=>{
+    const r=document.createElement("div"); r.className="row";
+    r.innerHTML='<span class="rk"></span>'+
+      '<span class="nm">'+name.replace(/_/g," ")+'<i>'+MEMBERS[name].length+' tickers</i></span>'+
+      '<span class="track"><span class="bar"></span></span>'+
+      '<span class="val"></span>';
+    w.appendChild(r); rowEls[name]=r;
+  });
+  w.style.height=(COHORTS.length*44)+"px";
+  order=COHORTS.slice(); prevOrder=order.slice();
+  place(0);
+}
+
+/* ── the date under the handle ────────────────────────────────────────────── */
+function detentDate(){
+  const t=Math.floor(Date.now()/1000)-DETENTS[detent].off;
+  return new Date(t*1000);
+}
+function iso(d){return d.toISOString().slice(0,10)}
+
+/* ── load the selected measure at the selected date ───────────────────────── */
+async function load(){
+  const m=COLS.find(c=>c.k===col);
+  const when=detentDate(), dstr=iso(when);
+  el("when").textContent = detent===0 ? "LIVE" : DETENTS[detent].k+" · "+dstr;
+
+  const sig=col+"@"+detent;               /* measure identity for the motion rule */
+  const isNewMeasure = lastMeasureSig!==null && lastMeasureSig.split("@")[0]!==col;
+  el("status").innerHTML="<b>reading…</b>";
+
+  try{
+    let vals;
+    if(m.live){ vals=await liveComposite(); }
+    else if(m.k==="breadth"){ vals=await breadthAt(when); }
+    else { vals=await returnAt(when, m.k==="r1m"?30:91); }
+    DATA=vals;
+  }catch(e){
+    el("status").innerHTML='<b style="color:var(--warn)">could not load — '+String(e.message||e)+"</b>";
+    return;
+  }
+
+  /* honesty: is the window we just read sitting on known-bad sessions? */
+  const bad = detent!==0 && windowHasHoles(when, m.k==="r3m"?91:30);
+  el("note").className="note"+(bad?" bad":"");
+  el("note").textContent = detent===0
+    ? "live composite · "+Object.keys(DATA).length+" cohorts"
+    : (bad ? "window covers sessions the continuity scan calls HOLED or MISSING"
+           : "computed from daily bars held to "+dstr);
+
+  render(isNewMeasure, bad);
+  lastMeasureSig=sig;
+}
+
+function windowHasHoles(end,days){
+  for(let i=0;i<days;i++){
+    const d=new Date(end.getTime()-i*DAY*1000);
+    if(BADDATES.has(iso(d))) return true;
+  }
+  return false;
+}
+
+async function liveComposite(){
+  const rows=await pgAll("composite_staged?tf=eq.D&select=ticker,composite");
+  const byT={}; rows.forEach(r=>{ if(r.composite!=null) byT[r.ticker]=+r.composite });
+  const out={};
+  COHORTS.forEach(c=>{
+    const v=MEMBERS[c].map(t=>byT[t]).filter(x=>x!=null&&isFinite(x));
+    if(v.length) out[c]=median(v);
+  });
+  return out;
+}
+
+/* closes at (or just before) a date, one padded window, cached */
+async function closesAt(when){
+  const key="c"+iso(when);
+  if(cache[key]) return cache[key];
+  const hi=Math.floor(when.getTime()/1000), lo=hi-12*DAY;
+  const rows=await pgAll("ohlcv_history?tf=eq.D&timestamp=gte."+lo+"&timestamp=lte."+hi+"&select=ticker,timestamp,close");
+  const last={};
+  rows.forEach(r=>{
+    const t=r.ticker, ts=+r.timestamp;
+    if(r.close==null) return;
+    if(!last[t]||ts>last[t].ts) last[t]={ts,c:+r.close};
+  });
+  const out={}; Object.keys(last).forEach(t=>out[t]=last[t].c);
+  cache[key]=out; return out;
+}
+async function returnAt(when,days){
+  const [now,then]=await Promise.all([closesAt(when), closesAt(new Date(when.getTime()-days*DAY*1000))]);
+  const out={};
+  COHORTS.forEach(c=>{
+    const v=[];
+    MEMBERS[c].forEach(t=>{
+      const a=then[t],b=now[t];
+      if(a&&b&&isFinite(a)&&isFinite(b)&&a>0) v.push((b-a)/a*100);
+    });
+    if(v.length) out[c]=median(v);
+  });
+  return out;
+}
+async function breadthAt(when){
+  const [now,then]=await Promise.all([closesAt(when), closesAt(new Date(when.getTime()-30*DAY*1000))]);
+  const out={};
+  COHORTS.forEach(c=>{
+    let up=0,n=0;
+    MEMBERS[c].forEach(t=>{
+      const a=then[t],b=now[t];
+      if(a&&b&&isFinite(a)&&isFinite(b)&&a>0){n++; if(b>a) up++}
+    });
+    if(n) out[c]=up/n*100;
+  });
+  return out;
+}
+
+/* ── the grammar: ±1 from the measure's own middle ────────────────────────── */
+function normed(){
+  const m=COLS.find(c=>c.k===col);
+  const names=COHORTS.filter(c=>DATA[c]!=null);
+  const raw=names.map(c=>DATA[c]);
+  if(!raw.length) return {};
+  const mid = m.mid!=null ? m.mid : median(raw);
+  const dev = raw.map(x=>x-mid);
+  const mx  = Math.max.apply(null,dev.map(Math.abs))||1;
+  const out={};
+  names.forEach((c,i)=>out[c]= NORM ? dev[i]/mx : dev[i]);
+  return out;
+}
+function computeOrder(n){
+  const names=Object.keys(n);
+  names.sort((a,b)=>n[b]-n[a]);
+  if(HOLD){
+    const pos={}; prevOrder.forEach((d,i)=>pos[d]=i);
+    for(let p=0;p<names.length-1;p++){
+      const a=names[p],b=names[p+1];
+      if(Math.abs(n[a]-n[b])<0.03 && pos[b]<pos[a]){names[p]=b;names[p+1]=a}
+    }
+  }
+  return names;
+}
+function place(dur){
+  order.forEach((name,pos)=>{
+    const e=rowEls[name]; if(!e) return;
+    e.style.transition = dur ? ("transform "+dur+"ms cubic-bezier(.34,.02,.2,1)") : "none";
+    e.style.transform  = "translateY("+(pos*44)+"px)";
+  });
+}
+function render(isNewMeasure, bad){
+  const m=COLS.find(c=>c.k===col);
+  const n=normed();
+  prevOrder=order.slice();
+  order=computeOrder(n);
+
+  /* values, colour, bar geometry */
+  COHORTS.forEach(name=>{
+    const e=rowEls[name]; if(!e) return;
+    const raw=DATA[name], v=n[name];
+    const track=e.querySelector(".track"), bar=e.querySelector(".bar"), val=e.querySelector(".val");
+    e.querySelectorAll(".gh,.strike").forEach(x=>x.remove());
+    if(raw==null){ e.style.opacity=".25"; bar.style.width="0"; val.textContent="—"; return; }
+    e.style.opacity="1";
+    track.classList.toggle("mag",!NORM&&!m.signed);
+    const f=Math.max(-0.98,Math.min(0.98,v));
+    if(f>=0){ bar.style.left="50%"; bar.style.width=(f*50)+"%" }
+    else    { bar.style.left=(50+f*50)+"%"; bar.style.width=(-f*50)+"%" }
+    bar.style.background = raw>=m.mid ? "var(--bull)" : "var(--bear)";
+    val.className="val "+(raw>m.mid?"up":raw<m.mid?"dn":"neu");
+    val.textContent=(raw>=0?"+":"−")+Math.abs(raw).toFixed(2)+m.unit;
+    e.classList.toggle("stale",!!bad);
+    if(bad){ const s=document.createElement("i"); s.className="strike"; e.appendChild(s) }
+  });
+
+  /* rank numerals */
+  order.forEach((name,i)=>{ const e=rowEls[name]; if(e) e.querySelector(".rk").textContent=(i+1) });
+
+  /* ghost of the last order */
+  if(GHOST){
+    order.forEach((name,pos)=>{
+      const was=ghostPos[name];
+      if(was==null||was===pos) return;
+      const e=rowEls[name]; if(!e) return;
+      const g=document.createElement("i"); g.className="gh";
+      g.style.left=(was<pos?"6px":"calc(100% - 8px)");
+      e.querySelector(".track").appendChild(g);
+    });
+  }
+  order.forEach((name,pos)=>ghostPos[name]=pos);
+
+  /* ★ THE RULE. Same measure, new numbers -> animate. New measure -> cut. */
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  place(isNewMeasure||reduce ? 0 : 620);
+
+  const m2=COLS.find(c=>c.k===col);
+  el("status").innerHTML="<b>"+order.length+"</b> cohorts ranked by <b>"+m2.label+"</b>"+
+    (isNewMeasure?" · <b>cut</b> — a new measure has no continuity with the last":" · animated")+
+    (detent===0?"":" · as of <b>"+iso(detentDate())+"</b>");
+  el("meta").innerHTML = detent===0
+    ? "live composite from composite_staged · "+COHORTS.length+" cohorts"
+    : "median "+(col==="breadth"?"breadth":"return")+" per cohort, computed from daily bars"+
+      (bad?' · <span class="warn">this window covers known-holed sessions</span>':"");
+}
+
+el("tNorm").onchange=e=>{NORM=e.target.checked; render(true,false)};
+el("tHold").onchange=e=>{HOLD=e.target.checked; render(false,false)};
+el("tGhost").onchange=e=>{GHOST=e.target.checked; render(false,false)};
+
+/* live refresh only while LIVE is selected and the tab is visible */
+setInterval(()=>{ if(detent===0 && !document.hidden) load() }, 60000);
 </script>
 </body>
 </html>
