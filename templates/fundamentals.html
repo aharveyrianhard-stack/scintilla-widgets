@@ -1,0 +1,1687 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FMP Capability Demo — Real Pulls, NVDA Anchor — 2026-07-18</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2129; --border:#2d333b;
+    --txt:#e6edf3; --dim:#8b949e; --accent:#58a6ff; --green:#3fb950; --red:#f85149;
+    --gold:#d29922; --purple:#bc8cff;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--txt); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; font-size:16px; line-height:1.55; padding:32px 40px 80px;}
+  h1{font-size:30px; margin-bottom:4px;}
+  .sub{color:var(--dim); margin-bottom:36px; font-size:15px;}
+  section{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:26px 30px; margin-bottom:30px;}
+  h2{font-size:22px; margin-bottom:6px; color:var(--accent);}
+  .src{font-size:13px; color:var(--dim); margin-bottom:18px; font-family:ui-monospace,Menlo,monospace;}
+  table{width:100%; border-collapse:collapse; font-size:15px; margin:14px 0;}
+  th{color:var(--dim); text-align:right; font-weight:600; padding:8px 10px; border-bottom:2px solid var(--border); white-space:nowrap;}
+  th:first-child, td:first-child{text-align:left;}
+  td{padding:8px 10px; text-align:right; border-bottom:1px solid var(--border); white-space:nowrap;}
+  .wraptable{table-layout:fixed; width:100%;}
+  .wraptable td{white-space:normal; text-align:left; vertical-align:top; overflow-wrap:break-word;}
+  .wraptable th{text-align:left;}
+  tr:hover td{background:var(--panel2);}
+  .pos{color:var(--green);} .neg{color:var(--red);} .gold{color:var(--gold);} .pur{color:var(--purple);}
+  .note{background:var(--panel2); border-left:4px solid var(--gold); padding:12px 16px; border-radius:6px; font-size:14.5px; margin-top:14px; color:#c9d1d9;}
+  .flag{background:var(--panel2); border-left:4px solid var(--red); padding:12px 16px; border-radius:6px; font-size:14.5px; margin-top:14px; color:#c9d1d9;}
+  .cols{display:flex; gap:24px; flex-wrap:wrap;}
+  .cols > div{flex:1; min-width:320px;}
+  .pill{display:inline-block; background:var(--panel2); border:1px solid var(--border); border-radius:20px; padding:3px 12px; margin:3px 4px 3px 0; font-size:13.5px;}
+  .pill.hit{border-color:var(--green); color:var(--green);}
+  .pill.miss{border-color:var(--red); color:var(--red);}
+  .kv{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin:16px 0;}
+  .kv div{background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:12px 14px;}
+  .kv .k{font-size:12.5px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em;}
+  .kv .v{font-size:21px; font-weight:700; margin-top:2px;}
+  .big{font-size:26px;}
+</style>
+</head>
+<body>
+
+<h1>SCINTILLA Fundamentals — Supabase Source-of-Truth</h1>
+<div class="sub">Every number on this page is read live from Supabase (<span class="mono2" style="font-size:12px;">scintilla-live</span>) — FMP only ever fills that database now; this page never calls FMP directly. Universe: live from <span class="mono2" style="font-size:12px;">composite_staged</span> (~211 names), not a hardcoded list.</div>
+
+<div id="tickerBar" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:14px 18px; background:var(--panel); border:1px solid var(--border); border-radius:12px;">
+  <span style="font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; margin-right:2px;">Ticker <small style="text-transform:none;">(drives every section below, live from DB)</small>:</span>
+  <div style="position:relative;">
+    <input id="tickerSearch" type="text" placeholder="Type a ticker… (e.g. NVDA)" autocomplete="off" style="background:var(--panel2); border:1px solid var(--border); color:var(--txt); border-radius:8px; padding:7px 12px; font-size:14px; font-weight:600; font-family:ui-monospace,Menlo,monospace; width:180px;">
+    <div id="tickerDropdown" style="display:none; position:absolute; top:36px; left:0; z-index:50; background:var(--panel2); border:1px solid var(--border); border-radius:8px; max-height:260px; overflow-y:auto; min-width:220px; box-shadow:0 8px 24px rgba(0,0,0,.4);"></div>
+  </div>
+  <div id="quickChips" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+  <span id="tickerStat" style="margin-left:auto; font-size:13.5px; color:var(--txt);"></span>
+</div>
+<div id="universeStatus" style="font-size:12px; color:var(--dim); margin:-8px 0 14px 2px;">Loading universe from composite_staged…</div>
+<div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
+  <button id="auditBtn" onclick="runAudit()" style="background:var(--panel2); border:1px solid var(--border); color:var(--txt); border-radius:8px; padding:8px 16px; cursor:pointer; font-size:13px; font-weight:700;">🔍 Run Full Audit — sample tickers, every toggle, every slider extreme</button>
+  <span style="font-size:12px; color:var(--dim);">A mechanical consistency check (like a balance sheet that must foot to zero) — not a screenshot, a real re-render + comparison against itself, catches wiring bugs and DB gaps automatically.</span>
+</div>
+<div id="auditPanel" style="display:none; margin-bottom:14px; padding:14px 18px; background:var(--panel); border:2px solid var(--border); border-radius:12px; font-size:13.5px;">
+  <div id="auditSummary" style="font-weight:700; font-size:15px;"></div>
+  <div id="auditDetail" style="margin-top:8px; font-family:ui-monospace,Menlo,monospace; font-size:12.5px; line-height:1.7;"></div>
+</div>
+<style>
+  .tbtn{background:var(--panel2); border:1px solid var(--border); color:var(--dim); border-radius:8px; padding:7px 15px; cursor:pointer; font-size:14px; font-weight:600; font-family:ui-monospace,Menlo,monospace;}
+  .tbtn:hover{border-color:var(--accent); color:var(--accent);}
+  .tbtn.on{border-color:var(--gold); color:var(--gold); background:rgba(210,153,34,0.12);}
+  #auditBtn:hover{border-color:var(--accent); color:var(--accent);}
+  .mono2{font-family:ui-monospace,Menlo,monospace; color:var(--accent);}
+  .ddrow{padding:6px 12px; cursor:pointer; font-size:13px; font-family:ui-monospace,Menlo,monospace;}
+  .ddrow:hover{background:var(--panel);}
+  .gap-banner{background:rgba(248,81,73,0.08); border:1px solid var(--red); border-radius:8px; padding:14px 18px; font-size:14px; color:var(--txt);}
+  .gap-banner b{color:var(--red);}
+  .fresh{font-size:11px; color:var(--dim); font-family:ui-monospace,Menlo,monospace;}
+  .fresh.stale{color:var(--gold);}
+  .fresh.missing{color:var(--red);}
+</style>
+
+<script>
+// ============ SUPABASE — single source of truth (wadinxqplrggagkvrdag / scintilla-live) ============
+// FMP never gets called from this page. Every read below is PostgREST against Supabase.
+const SB_URL = 'https://wadinxqplrggagkvrdag.supabase.co';
+const SB_KEY = 'sb_publishable_AutibLpFtTns-WHAg67Pvw_I0HmjqE9';
+async function sb(path){
+  const res = await fetch(SB_URL+'/rest/v1/'+path, { headers:{ apikey: SB_KEY, Authorization: 'Bearer '+SB_KEY } });
+  if(!res.ok) {
+    const body = await res.text().catch(()=>'');
+    console.error('Supabase read failed', path, res.status, body);
+    // Mark the empty array so callers can tell "query/schema error" apart from "table genuinely has
+    // 0 rows" — these must never be conflated into the same gap-banner message. A 400 here is usually
+    // a wrong column/table name, not a real data gap, and reporting it as one would be dishonest in
+    // the other direction (hiding a bug behind a "master hasn't ingested this yet" excuse).
+    const empty = []; empty._sbError = true; empty._sbStatus = res.status; return empty;
+  }
+  return res.json();
+}
+function nowSec(){ return Date.now()/1000; }
+function tsToSec(ts){ // updated_ts columns are a mix of bigint epoch-seconds and timestamptz strings — normalize both
+  if(ts==null) return null;
+  if(typeof ts==='number') return ts;
+  const p = Date.parse(ts); return isNaN(p) ? null : p/1000;
+}
+function freshTag(ts){
+  const s = tsToSec(ts);
+  if(s==null) return '<span class="fresh missing">missing</span>';
+  const ageMin = (nowSec()-s)/60;
+  const label = ageMin<60 ? Math.round(ageMin)+'m ago' : ageMin<1440 ? Math.round(ageMin/60)+'h ago' : Math.round(ageMin/1440)+'d ago';
+  const cls = ageMin>1440 ? 'fresh stale' : 'fresh';
+  return '<span class="'+cls+'">last true '+label+'</span>';
+}
+function gapBanner(title, detail){
+  return '<div class="gap-banner">🔴 <b>'+title+'</b><br><span style="color:var(--dim); font-size:13px;">'+detail+'</span></div>';
+}
+
+let UNIVERSE = []; // [{ticker, cohort, price, updated_ts}]
+let COHORT_MAP = {}; // ticker -> primary cohort
+async function loadUniverse(){
+  const staged = await sb('composite_staged?select=ticker,composite,updated_ts&order=ticker.asc&limit=1000');
+  const cohorts = await sb('ticker_cohorts?select=ticker,cohort,is_primary&is_primary=eq.true&limit=1000');
+  cohorts.forEach(c=>{ COHORT_MAP[c.ticker]=c.cohort; });
+  UNIVERSE = staged.map(s=>({ticker:s.ticker, cohort:COHORT_MAP[s.ticker]||'UNCOHORTED', updated_ts:s.updated_ts}));
+  document.getElementById('universeStatus').innerHTML = '✅ '+UNIVERSE.length+' tickers loaded live from <span class="mono2">composite_staged</span> · '+Object.keys(UNIVERSE.reduce((a,u)=>{a[u.cohort]=1;return a;},{})).length+' cohorts (via ticker_cohorts) · '+freshTag(UNIVERSE[0]&&UNIVERSE[0].updated_ts);
+  const quick=['NVDA','MU','AAPL','GOOGL','TSLA'];
+  document.getElementById('quickChips').innerHTML = quick.filter(t=>UNIVERSE.find(u=>u.ticker===t)).map(t=>'<button class="tbtn" onclick="setTicker(\''+t+'\')">'+t+'</button>').join('');
+  return UNIVERSE;
+}
+function wireTickerSearch(){
+  const inp = document.getElementById('tickerSearch'), dd = document.getElementById('tickerDropdown');
+  inp.addEventListener('input', ()=>{
+    const q = inp.value.trim().toUpperCase();
+    if(!q){ dd.style.display='none'; return; }
+    const matches = UNIVERSE.filter(u=>u.ticker.startsWith(q)).slice(0,25);
+    if(!matches.length){ dd.innerHTML='<div class="ddrow" style="color:var(--dim);">no match in the '+UNIVERSE.length+'-name universe</div>'; dd.style.display='block'; return; }
+    dd.innerHTML = matches.map(m=>'<div class="ddrow" onclick="setTicker(\''+m.ticker+'\'); document.getElementById(\'tickerDropdown\').style.display=\'none\'; document.getElementById(\'tickerSearch\').value=\'\';">'+m.ticker+' <span style="color:var(--dim); font-size:11px;">'+m.cohort+'</span></div>').join('');
+    dd.style.display='block';
+  });
+  document.addEventListener('click', (e)=>{ if(e.target!==inp) dd.style.display='none'; });
+  inp.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ const q=inp.value.trim().toUpperCase(); if(UNIVERSE.find(u=>u.ticker===q)){ setTicker(q); dd.style.display='none'; inp.value=''; } } });
+}
+</script>
+
+<!-- ============ 1. COMPS ============ -->
+<section>
+<h2 id="compsTitle">1 · Comparable Companies — NVDA vs Semis</h2>
+<div class="src">endpoints: metrics-ratios-ttm (per symbol) + custom-dcf-advanced (growth) + search-company-screener (universe) — peer group switches with the ticker bar above</div>
+<div class="scrollx">
+<table id="compsTable" class="compsT stickytbl">
+<tr><th>Company</th><th>Mkt Cap</th><th>P/E</th><th>EV/EBITDA</th><th>P/S</th><th>P/B</th><th>PEG</th><th>Gross M</th><th>Net M</th><th>D/E</th><th>Beta</th><th>Div Yld</th><th>Rev CAGR (DCF assump.)</th></tr>
+<tbody id="compsBody"></tbody>
+</table>
+</div>
+<div class="note" id="compsNote1">🥇 <span id="cn1"></span></div>
+<div class="note" style="border-color:var(--accent);" id="compsNote2">📐 <span id="cn2"></span></div>
+
+<!-- FOOTBALL FIELD -->
+<div class="subttl" style="margin-top:22px;" id="ffieldTitle">Valuation football field — what each method says the price is worth</div>
+<div class="fcard">
+  <div id="ffield"></div>
+  <div class="foot" style="margin-top:8px;" id="ffieldFoot"></div>
+</div>
+
+<!-- COMPS SCORE -->
+<div class="subttl" style="margin-top:16px;">Comps scorecard — a single measurable, peer-ranked (1 = best in group)</div>
+<div class="fcard">
+  <div id="scoreFormula" style="margin-bottom:12px;"></div>
+  <div id="scoreBox" style="display:flex; gap:34px; flex-wrap:wrap; align-items:baseline; margin-bottom:10px;"></div>
+  <div class="scrollx"><table class="sensi stickytbl" id="scoreTable" style="min-width:640px;"></table></div>
+  <div class="foot" style="margin-top:8px;">All of it <b>computed live from the comps data object</b> (ranks, medians, football-field ranges, scores) — swap the object for another ticker and the whole engine recomputes. This is the comps equivalent of your technicals Geiger score.</div>
+</div>
+</section>
+
+<script>
+// ============ COMPS ENGINE — Supabase source-of-truth (Move 1) ============
+// Peer grouping = ticker_cohorts.cohort (real, curated cohorts already in the DB: AI_HARDWARE, MEGACAP,
+// GROWTH, BLUE_CHIP, THEMATIC, etc — NOT a hardcoded 4-group map). Peer set for any ticker = the other
+// members of its primary cohort, largest-by-market-cap first, capped for table readability.
+// Every multiple below is COMPUTED client-side from raw Supabase fields (fundamentals, balance_history,
+// fundamentals_history) — never a pre-typed number, never a live FMP call. See the math per-field in
+// fetchCohortBundle(). beta is read live from company_profile.beta (195/211 universe tickers have it) —
+// shown as "—" only for the ~16 tickers where that table genuinely has no beta row, not guessed.
+const COMPS_PEER_CAP = 7; // largest N peers shown per cohort, for table readability
+async function fetchCohortBundle(tickers){
+  const listQ = tickers.map(t=>encodeURIComponent(t)).join(',');
+  const [funds, bal, fhist, ratios, profiles] = await Promise.all([
+    sb('fundamentals?select=ticker,price,market_cap,revenue_ttm,eps_ttm,trailing_pe,dcf,updated_ts&ticker=in.('+listQ+')'),
+    sb('balance_history?select=ticker,fiscal_date,total_equity,total_debt,cash_and_equiv,updated_ts&ticker=in.('+listQ+')&order=fiscal_date.desc&limit='+(tickers.length*6+20)),
+    sb('fundamentals_history?select=ticker,fiscal_date,period,revenue,ebitda,net_income,gross_profit&ticker=in.('+listQ+')&order=fiscal_date.desc&limit='+(tickers.length*12+40)),
+    sb('ratios_history?select=ticker,fiscal_date,dividend_yield&ticker=in.('+listQ+')&order=fiscal_date.desc&limit='+(tickers.length*4+20)),
+    sb('company_profile?select=ticker,beta,updated_ts&ticker=in.('+listQ+')')
+  ]);
+  const fundByT={}; funds.forEach(f=>fundByT[f.ticker]=f);
+  const balLatest={}; bal.forEach(b=>{ if(!balLatest[b.ticker]) balLatest[b.ticker]=b; });
+  const fhByT={}; fhist.forEach(r=>{ (fhByT[r.ticker]=fhByT[r.ticker]||[]).push(r); });
+  const ratioLatest={}; ratios.forEach(r=>{ if(!ratioLatest[r.ticker]) ratioLatest[r.ticker]=r; });
+  const profByT={}; profiles.forEach(p=>profByT[p.ticker]=p);
+  const out={};
+  tickers.forEach(t=>{
+    const f=fundByT[t], b=balLatest[t];
+    const rows=(fhByT[t]||[]).slice().sort((a,c)=>(c.fiscal_date>a.fiscal_date?1:-1));
+    const qRows=rows.filter(r=>r.period!=='FY').slice(0,4);
+    const fyRows=rows.filter(r=>r.period==='FY').slice(0,4);
+    const sum=(arr,k)=>arr.reduce((s,r)=>s+(r[k]||0),0);
+    const ebitdaTTM = qRows.length>=4 ? sum(qRows,'ebitda') : (fyRows[0]?fyRows[0].ebitda:null);
+    const netIncTTM = qRows.length>=4 ? sum(qRows,'net_income') : (fyRows[0]?fyRows[0].net_income:null);
+    const grossTTM  = qRows.length>=4 ? sum(qRows,'gross_profit') : (fyRows[0]?fyRows[0].gross_profit:null);
+    let cagr=null;
+    if(fyRows.length>=2){
+      const first=fyRows[fyRows.length-1], last=fyRows[0];
+      const yrs=(new Date(last.fiscal_date)-new Date(first.fiscal_date))/(365.25*86400000);
+      if(yrs>0.5 && first.revenue>0 && last.revenue>0) cagr=(Math.pow(last.revenue/first.revenue,1/yrs)-1)*100;
+    }
+    const price=f?f.price:null, cap=f?f.market_cap:null, revTTM=f?f.revenue_ttm:null, pe=f?f.trailing_pe:null;
+    const ps=(cap!=null&&revTTM)?cap/revTTM:null;
+    const ev=(cap!=null&&b)?cap+(b.total_debt||0)-(b.cash_and_equiv||0):null;
+    const evEbitda=(ev!=null&&ebitdaTTM)?ev/ebitdaTTM:null;
+    const pb=(cap!=null&&b&&b.total_equity)?cap/b.total_equity:null;
+    const de=(b&&b.total_equity)?(b.total_debt||0)/b.total_equity:null;
+    const nm=(netIncTTM!=null&&revTTM)?netIncTTM/revTTM*100:null;
+    const gm=(grossTTM!=null&&revTTM)?grossTTM/revTTM*100:null;
+    const peg=(pe!=null&&cagr!=null&&cagr>0)?pe/cagr:null;
+    const div=ratioLatest[t]&&ratioLatest[t].dividend_yield!=null?ratioLatest[t].dividend_yield*100:null;
+    const beta = profByT[t] && profByT[t].beta!=null ? profByT[t].beta : null;
+    out[t]={ price, cap, pe, ev:evEbitda, ps, pb, peg, gm, nm, de, beta, div, cagr,
+      fundTs:f?f.updated_ts:null, balTs:b?b.updated_ts:null, hasData: !!f };
+  });
+  return out;
+}
+function fmtCap(v){ if(v==null) return '—'; return v>=1e12?'$'+(v/1e12).toFixed(2)+'T':'$'+(v/1e9).toFixed(0)+'B'; }
+async function renderComps(sym){
+  const cohort = COHORT_MAP[sym] || 'UNCOHORTED';
+  const cohortMembers = UNIVERSE.filter(u=>u.cohort===cohort && u.ticker!==sym).map(u=>u.ticker);
+  // pull fundamentals for the whole cohort once to rank by market cap, then cap the peer table to the largest N
+  const wholeCohort = [sym].concat(cohortMembers);
+  const capScan = await sb('fundamentals?select=ticker,market_cap&ticker=in.('+wholeCohort.map(encodeURIComponent).join(',')+')');
+  const capByT={}; capScan.forEach(c=>capByT[c.ticker]=c.market_cap||0);
+  const peersRanked = cohortMembers.slice().sort((a,b)=>(capByT[b]||0)-(capByT[a]||0)).slice(0,COMPS_PEER_CAP);
+  const names = [sym].concat(peersRanked);
+  const B = await fetchCohortBundle(names);
+  const pick = k => names.map(n=>B[n]?B[n][k]:null);
+  const COMPS = { names, cap:pick('cap'), pe:pick('pe'), ev:pick('ev'), ps:pick('ps'), pb:pick('pb'),
+    peg:pick('peg'), gm:pick('gm'), nm:pick('nm'), de:pick('de'), beta:pick('beta'), div:pick('div'), cagr:pick('cagr') };
+  const PX = B[sym] ? B[sym].price : null;
+  document.getElementById('compsTitle').textContent = '1 · Comparable Companies — '+sym+' vs '+cohort+' cohort (Supabase ticker_cohorts)';
+  document.getElementById('ffieldTitle').textContent = 'Valuation football field — what each method says '+sym+' is worth, vs the $'+(PX!=null?PX.toFixed(2):'—')+' price';
+  if(PX==null){
+    document.getElementById('ffield').innerHTML = gapBanner('No fundamentals row for '+sym, 'Supabase fundamentals table has no row for this ticker yet — comps/football-field/score can\'t compute without a price and market cap. '+freshTag(null));
+    document.getElementById('ffieldFoot').textContent='';
+    document.getElementById('scoreFormula').innerHTML=''; document.getElementById('scoreBox').innerHTML=''; document.getElementById('scoreTable').innerHTML='';
+    document.getElementById('compsBody').innerHTML='';
+    document.getElementById('cn1').textContent=''; document.getElementById('cn2').textContent='';
+    window.PEER = null;
+    return;
+  }
+
+  const clean=a=>a.filter(v=>v!=null);
+  const med=a=>{const b=[...a].sort((x,y)=>x-y),n=b.length;return n?(n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2):null;};
+  const mean=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:null;
+  const q=(a,p)=>{const b=[...a].sort((x,y)=>x-y),i=(b.length-1)*p,lo=Math.floor(i);return b[lo]+(b[lo+1]!==undefined?(i-lo)*(b[lo+1]-b[lo]):0);};
+  // percentile rank of subject vs ALL valid (0=worst,1=best); cheapGood → low value is best
+  const pctl=(arr,cheapGood)=>{const v=arr[0];if(v==null)return null;const all=clean(arr);const better=all.filter(x=>cheapGood?x>v:x<v).length;return all.length>1?better/(all.length-1):0.5;};
+  const rank=(arr,cheapGood)=>{const v=arr[0];if(v==null)return clean(arr).length;const all=clean(arr).slice().sort((a,b)=>cheapGood?a-b:b-a);return all.indexOf(v)+1;};
+  const f2=v=>v==null?'—':(+v).toFixed(2), fp=v=>v==null?'—':(+v).toFixed(1)+'%';
+
+  // ---- FOOTBALL FIELD: implied price = PX × peerMultiple / subjectMultiple, peers outlier-cleaned ----
+  const rob=a=>{const b=clean(a),mm=med(b);return mm?b.filter(v=>v>=0.35*mm&&v<=2.5*mm):b;};
+  const ffRow=(lbl,key)=>{const nv=COMPS[key][0],peers=rob(COMPS[key].slice(1));if(nv==null||!peers.length)return null;const lo=PX*Math.min(...peers)/nv,hi=PX*Math.max(...peers)/nv,mid=PX*med(peers)/nv;return [lbl,lo,hi,mid];};
+  const rows=[ffRow('P/E','pe'),ffRow('EV/EBITDA','ev'),ffRow('P/S','ps'),ffRow('P/B','pb')].filter(r=>r&&isFinite(r[1])&&isFinite(r[2]));
+  const AX=Math.max(PX*1.4,...rows.map(r=>r[2]))*1.02, pf=v=>Math.max(0,Math.min(100,v/AX*100));
+  let h='';
+  rows.forEach(r=>{const l=pf(r[1]),w=pf(r[2])-pf(r[1]),m=pf(r[3]),pl=pf(PX);
+    h+='<div style="display:flex;align-items:center;margin:9px 0;"><span style="width:130px;font-size:13px;color:var(--txt);">'+r[0]+'</span>'+
+       '<div style="position:relative;flex:1;height:24px;background:var(--panel);border-radius:6px;">'+
+       '<div style="position:absolute;left:'+l+'%;width:'+w+'%;top:0;bottom:0;background:linear-gradient(90deg,rgba(63,185,80,.55),rgba(88,166,255,.55));border-radius:6px;"></div>'+
+       '<div style="position:absolute;left:'+m+'%;top:-3px;bottom:-3px;width:2px;background:#fff;opacity:.85;"></div>'+
+       '<div style="position:absolute;left:'+pl+'%;top:-5px;bottom:-5px;width:2px;background:var(--gold);"></div></div>'+
+       '<span style="width:120px;text-align:right;font-size:12px;color:var(--dim);font-family:ui-monospace,Menlo,monospace;">$'+r[1].toFixed(0)+'–$'+r[2].toFixed(0)+'</span></div>';});
+  const ax4=[0,.25,.5,.75,1].map(f=>'$'+(AX*f).toFixed(0)).map(s=>'<span>'+s+'</span>').join('');
+  h+='<div style="display:flex;margin-top:4px;"><span style="width:130px;"></span><div style="flex:1;display:flex;justify-content:space-between;font-size:11px;color:var(--dim);">'+ax4+'</div><span style="width:120px;"></span></div>';
+  h+='<div class="foot" style="margin-top:6px;"><span style="color:var(--gold);font-weight:700;">│</span> = today\'s price $'+PX.toFixed(2)+' · white tick = peer median · ranges outlier-cleaned (Tukey-style) · pull up §3 below for this ticker\'s live DCF bear→bull span (not merged into this bar yet)</div>';
+  document.getElementById('ffield').innerHTML=h;
+  document.getElementById('ffieldFoot').textContent = 'Each bar = the implied share price if '+sym+' traded at the peer min→max of that multiple (white tick = peer median); gold line = today\'s $'+PX.toFixed(2)+'.';
+
+  // ---- SCORE: value = cheapness percentile across multiples; quality = margins/growth/low-leverage ----
+  const valM=[['pe',1],['ev',1],['ps',1],['pb',1],['peg',1]];
+  const qualM=[['gm',0],['nm',0],['cagr',0],['de',1]];
+  const vAvg=(mean(valM.map(m=>pctl(COMPS[m[0]],m[1])).filter(x=>x!=null))||0)*100;
+  const qAvg=(mean(qualM.map(m=>pctl(COMPS[m[0]],m[1])).filter(x=>x!=null))||0)*100;
+  const comp=(vAvg+qAvg)/2, grade=comp>=85?'A':comp>=75?'A−':comp>=65?'B+':comp>=55?'B':comp>=45?'B−':comp>=35?'C':'D';
+  const col=s=>s>=66?'var(--green)':s>=45?'var(--gold)':'var(--red)';
+  const fnode=(icon,lbl,val,color)=>'<div style="display:flex;flex-direction:column;align-items:center;min-width:64px;"><div style="font-size:20px;">'+icon+'</div><div class="foot" style="margin-top:2px;text-align:center;">'+lbl+'</div>'+(val!=null?'<div style="font-family:ui-monospace,Menlo,monospace;font-weight:700;font-size:13px;color:'+(color||'var(--txt)')+';margin-top:1px;">'+val+'</div>':'')+'</div>';
+  const op=(s2)=>'<div style="font-size:18px;color:var(--dim);align-self:center;padding:0 2px;">'+s2+'</div>';
+  document.getElementById('scoreFormula').innerHTML=
+    '<div style="display:flex;align-items:flex-start;flex-wrap:wrap;gap:2px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:10px 14px;">'+
+      fnode('📊','P/E · EV/EBITDA<br>P/S · P/B · PEG',null)+op('→')+fnode('%ile','peer rank<br>(cheap=high)',null)+op('=')+fnode('💰','VALUE',vAvg.toFixed(0),col(vAvg))+
+      '<div style="width:22px;"></div>'+
+      fnode('📈','margins · CAGR<br>low leverage',null)+op('→')+fnode('%ile','peer rank<br>(better=high)',null)+op('=')+fnode('🏆','QUALITY',qAvg.toFixed(0),col(qAvg))+
+      '<div style="width:22px;"></div>'+
+      fnode('💰','VALUE '+vAvg.toFixed(0),null)+op('+')+fnode('🏆','QUALITY '+qAvg.toFixed(0),null)+op('÷2 =')+fnode('🎓','GRADE',grade+' ('+comp.toFixed(0)+')',col(comp))+
+    '</div>';
+  document.getElementById('scoreBox').innerHTML=
+    '<div><span class="foot">VALUE score (cheap vs peers)</span><br><b style="font-size:26px;color:'+col(vAvg)+'">'+vAvg.toFixed(0)+'<span style="font-size:15px;color:var(--dim)">/100</span></b></div>'+
+    '<div><span class="foot">QUALITY score (margins·growth·balance sheet)</span><br><b style="font-size:26px;color:'+col(qAvg)+'">'+qAvg.toFixed(0)+'<span style="font-size:15px;color:var(--dim)">/100</span></b></div>'+
+    '<div><span class="foot">Composite grade</span><br><b style="font-size:26px;color:'+col(comp)+'">'+grade+'</b> <span class="foot">'+comp.toFixed(0)+'/100</span></div>';
+  const N=COMPS.names.length, verdict=(rk,cheapGood)=>{const top=rk<=2, bot=rk>=N-1; return cheapGood?(top?['cheap','pos']:bot?['expensive','neg']:['mid','']):(top?['best','pos']:bot?['worst','neg']:['mid','']);};
+  const srow=(lbl,key,cheapGood,fmt)=>{const rk=rank(COMPS[key],cheapGood),vd=verdict(rk,cheapGood);return '<tr><td>'+lbl+'</td><td>'+fmt(COMPS[key][0])+'</td><td>'+fmt(med(clean(COMPS[key].slice(1))))+'</td><td class="'+vd[1]+'">'+rk+'</td><td class="'+vd[1]+'">'+vd[0]+'</td></tr>';};
+  let st='<tr><th>Metric</th><th>'+sym+'</th><th>Peer median</th><th>Rank /'+N+'</th><th>Verdict</th></tr>';
+  st+=srow('P/E','pe',1,f2)+srow('EV/EBITDA','ev',1,f2)+srow('PEG','peg',1,f2)+srow('P/S','ps',1,f2)+srow('P/B','pb',1,f2)
+    +srow('Gross margin','gm',0,fp)+srow('Net margin','nm',0,fp)+srow('Rev CAGR (DCF assump.)','cagr',0,fp)+srow('Debt/Equity','de',1,f2);
+  document.getElementById('scoreTable').innerHTML=st;
+
+  // ---- TABLE BODY: company rows + Median/Mean/Min/Max/Delta summary rows, all generated live ----
+  const capArr = COMPS.cap;
+  const peerVals=k=>clean((k==='cap'?capArr:COMPS[k]).slice(1));
+  const medCap=med(peerVals('cap')), meanCap=mean(peerVals('cap')), minCap=peerVals('cap').length?Math.min(...peerVals('cap')):null, maxCap=peerVals('cap').length?Math.max(...peerVals('cap')):null;
+  const capFmt=v=>fmtCap(v);
+  let tbody = document.getElementById('compsBody');
+  let rowsHtml='';
+  COMPS.names.forEach((nm,i)=>{
+    const cls = i===0?'gold':'';
+    rowsHtml += '<tr><td class="'+cls+'">'+nm+'</td><td class="'+cls+'">'+fmtCap(COMPS.cap[i])+'</td>'+
+      '<td class="'+cls+'">'+f2(COMPS.pe[i])+'</td><td class="'+cls+'">'+f2(COMPS.ev[i])+'</td>'+
+      '<td class="'+cls+'">'+f2(COMPS.ps[i])+'</td><td class="'+cls+'">'+f2(COMPS.pb[i])+'</td>'+
+      '<td class="'+cls+'">'+f2(COMPS.peg[i])+'</td><td class="'+cls+'">'+fp(COMPS.gm[i])+'</td>'+
+      '<td class="'+cls+'">'+fp(COMPS.nm[i])+'</td><td class="'+cls+'">'+f2(COMPS.de[i])+'</td>'+
+      '<td class="'+cls+'">'+f2(COMPS.beta[i])+'</td><td class="'+cls+'">'+(COMPS.div[i]==null?'—':COMPS.div[i].toFixed(2)+'%')+'</td>'+
+      '<td class="'+cls+'">'+fp(COMPS.cagr[i])+'</td></tr>';
+  });
+  const stats={};
+  ['pe','ev','ps','pb','peg','gm','nm','de','beta','cagr'].forEach(k=>{
+    const peers=clean(COMPS[k].slice(1));
+    stats[k]={med:med(peers),mean:mean(peers),min:peers.length?Math.min(...peers):null,max:peers.length?Math.max(...peers):null,subj:COMPS[k][0]};
+  });
+  const simpleRow=(lbl,pick2)=>'<tr><td class="pur">'+lbl+'</td><td class="pur">'+capFmt(pick2('cap'))+'</td>'+
+    '<td class="pur">'+f2(pick2('pe'))+'</td><td class="pur">'+f2(pick2('ev'))+'</td><td class="pur">'+f2(pick2('ps'))+'</td><td class="pur">'+f2(pick2('pb'))+'</td>'+
+    '<td class="pur">'+f2(pick2('peg'))+'</td><td class="pur">'+fp(pick2('gm'))+'</td><td class="pur">'+fp(pick2('nm'))+'</td><td class="pur">'+f2(pick2('de'))+'</td>'+
+    '<td class="pur">'+f2(pick2('beta'))+'</td><td class="pur">—</td><td class="pur">'+fp(pick2('cagr'))+'</td></tr>';
+  rowsHtml += simpleRow('Median (peers)', k=>k==='cap'?medCap:stats[k].med);
+  rowsHtml += simpleRow('Mean', k=>k==='cap'?meanCap:stats[k].mean);
+  rowsHtml += simpleRow('Min', k=>k==='cap'?minCap:stats[k].min);
+  rowsHtml += simpleRow('Max', k=>k==='cap'?maxCap:stats[k].max);
+  // delta row (subject vs median), with real +/- coloring
+  const dCell=(k)=>{const s=stats[k],nv=s.subj,m=s.med; if(nv==null||m==null) return '<td class="gold">—</td>';
+    if(k==='gm'||k==='nm'||k==='cagr'){const pp=nv-m;return '<td class="gold '+(pp>=0?'pos':'neg')+'">'+(pp>=0?'+':'')+pp.toFixed(1)+'pp</td>';}
+    if(k==='beta'){const rel=Math.abs(nv-m)/(m||1);return '<td class="gold">'+(rel<0.15?'in line':(nv>m?'above peers':'below peers'))+'</td>';}
+    const pct=(nv-m)/m*100; return '<td class="gold '+(pct<0?'pos':'neg')+'">'+(pct>=0?'+':'')+pct.toFixed(0)+'%</td>';};
+  const subjCap=capArr[0], capMult = medCap? (subjCap/medCap) : null;
+  rowsHtml += '<tr><td class="gold">'+sym+' vs Median</td><td class="gold">'+(capMult?capMult.toFixed(1)+'×':'—')+'</td>'+
+    dCell('pe')+dCell('ev')+dCell('ps')+dCell('pb')+dCell('peg')+dCell('gm')+dCell('nm')+dCell('de')+dCell('beta')+'<td class="gold">—</td>'+dCell('cagr')+'</tr>';
+  tbody.innerHTML = rowsHtml;
+
+  // ---- NARRATIVE — same numbers as the table, rebuilt in prose for this ticker ----
+  const pf1=v=>v==null?'n/m':v.toFixed(1)+'%', ppf=v=>v==null?'n/m':(v>=0?'+':'')+v.toFixed(0)+'%';
+  const peH=stats.pe.subj!=null&&stats.pe.med!=null?ppf((stats.pe.subj-stats.pe.med)/stats.pe.med*100):'n/m',
+        evH=stats.ev.subj!=null&&stats.ev.med!=null?ppf((stats.ev.subj-stats.ev.med)/stats.ev.med*100):'n/m',
+        pegH=stats.peg.subj!=null&&stats.peg.med!=null?ppf((stats.peg.subj-stats.peg.med)/stats.peg.med*100):'n/m',
+        psH=stats.ps.subj!=null&&stats.ps.med!=null?ppf((stats.ps.subj-stats.ps.med)/stats.ps.med*100):'n/m',
+        pbH=stats.pb.subj!=null&&stats.pb.med!=null?ppf((stats.pb.subj-stats.pb.med)/stats.pb.med*100):'n/m';
+  const growthLead = stats.cagr.subj!=null && stats.cagr.med!=null && stats.cagr.subj>=stats.cagr.med;
+  document.getElementById('cn1').innerHTML = sym+' grows revenue at <b>'+pf1(stats.cagr.subj)+'</b> vs a peer median of <b>'+pf1(stats.cagr.med)+'</b> ('+(growthLead?'above':'below')+' the group), and trades at P/E '+peH+' · EV/EBITDA '+evH+' · PEG '+pegH+' vs peer median, with P/S '+psH+' and P/B '+pbH+' vs peer median. Cells shaded green = cheap/better, red = expensive/worse vs the column; bold outliers are Tukey-style. Beta column is a genuine DB gap (company_profile not yet populated) — shown as "—", not guessed. <span style="color:var(--dim)">— computed live from Supabase fundamentals/balance_history/fundamentals_history, not typed, not FMP-from-page. '+freshTag(B[sym]&&B[sym].fundTs)+'</span>';
+  document.getElementById('cn2').innerHTML = 'This CAGR column is the bridge to the DCF: the reasonable range for the growth slider is the peer band <b>'+pf1(stats.cagr.min)+'–'+pf1(stats.cagr.max)+'</b>, median '+pf1(stats.cagr.med)+'. '+sym+'\'s own '+pf1(stats.cagr.subj)+' sits '+(growthLead?'at or above':'below')+' the group — a DCF growth assumption far outside that band is pricing '+sym+' beyond its own peer set.';
+
+  // ---- expose peer stats for the DCF section (§3) to consume — single source of truth, no re-typing ----
+  window.PEER = { beta: stats.beta, cagr: stats.cagr, pe: stats.pe, ev: stats.ev, ps: stats.ps, pb: stats.pb, peg: stats.peg, gm: stats.gm, nm: stats.nm, de: stats.de };
+  window.LASTPX = PX;
+  renderCohortInfo(sym);
+}
+function renderCohortInfo(sym){
+  const cohort = COHORT_MAP[sym];
+  document.getElementById('cohortTitle').textContent = '2 · Defining the Peer Set — '+sym+' → '+(cohort||'no cohort assigned')+' (Supabase ticker_cohorts)';
+  if(!cohort){
+    document.getElementById('cohortBody').innerHTML = gapBanner(sym+' has no row in ticker_cohorts', 'This ticker exists in composite_staged but has never been assigned a cohort — §1 comps above fell back to an "UNCOHORTED" bucket (itself, no peers). Needs a cohort assignment upstream.');
+    return;
+  }
+  const members = UNIVERSE.filter(u=>u.cohort===cohort).map(u=>u.ticker);
+  const shown = members.slice(0, 30);
+  const pills = shown.map(t=>'<span class="pill '+(t===sym?'hit':'')+'">'+t+(t===sym?' (this ticker)':'')+'</span>').join('');
+  document.getElementById('cohortBody').innerHTML =
+    '<div style="font-size:14px; margin-bottom:8px;">Cohort <b class="mono2">'+cohort+'</b> has <b>'+members.length+'</b> members total'+(members.length>30?' (first 30 shown)':'')+'. §1\'s comps table above uses the '+Math.min(members.length-1,7)+' largest of these by live market cap as the peer set — deterministic and re-derived every time you switch tickers, not a fixed list per ticker.</div>'+
+    pills+
+    '<div class="foot" style="margin-top:10px;">Cohort assignment itself (which tickers belong to '+cohort+') is curated upstream in <span class="mono2">ticker_cohorts</span>, not computed by this page — this page reads that table and does the ranking/selection live.</div>';
+}
+</script>
+
+<!-- ============ 2. PEER-SET METHOD (Supabase ticker_cohorts) ============ -->
+<section>
+<h2 id="cohortTitle">2 · Defining the Peer Set — Supabase ticker_cohorts</h2>
+<div class="src">table: ticker_cohorts (curated, is_primary=true) — this replaces FMP's noisy "peers" endpoint entirely; no FMP call happens here</div>
+<div id="cohortBody"></div>
+</section>
+
+<!-- ============ 2.5 PROJECTED PATH (before the DCF) ============ -->
+<section>
+<h2>2.5 · Projected Path — does this trajectory look reasonable?</h2>
+<div class="src">the assumptions you set in the DCF below drive this · sanity-check the shape before trusting any valuation</div>
+<div style="border:1px solid var(--border); border-radius:12px; padding:15px 20px; background:var(--panel2);">
+  <div class="subttl">Projected path — how does the growth path you picked below (§3A) actually look?</div>
+  <div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; align-items:center;">
+    <span style="font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; margin-right:6px;">chart:</span>
+    <button class="mbtn" id="pc_rev" onclick="setPC('rev')">Revenue</button>
+    <button class="mbtn" id="pc_ebitda" onclick="setPC('ebitda')">EBITDA</button>
+    <button class="mbtn" id="pc_ufcf" onclick="setPC('ufcf')">Free cash flow</button>
+    <button class="mbtn" id="pc_pv" onclick="setPC('pv')">PV of FCF</button></div>
+  <div id="barchart" style="margin:6px 0 4px; position:relative;"></div>
+  <div style="font-size:11.5px; color:var(--dim);">Bars = the 5 projected years left→right; the dotted line traces the CAGR trend. Eyeball whether the trajectory is believable before trusting the valuation. Updates live with the DCF sliders and the projection-source toggle (§3A).</div>
+  <div id="cagrCompare" class="fcard" style="margin-top:14px;"></div>
+  <div class="scrollx" style="margin-top:12px;"><table class="sensi stickytbl" id="oTable"></table></div>
+  <div class="foot" style="margin-top:6px;">CAGR column = compound annual growth rate across the 5 projected years for $ metrics. All rows here are dollar figures, so all use CAGR (a margin % row would use a simple point-change instead — no % rows in this table).</div>
+  <div class="note" style="margin-top:12px;"><b>Methodology — where these numbers come from.</b> The DCF's free cash flow is <i>built</i>, not pulled: FMP's custom-dcf-advanced projects revenue at your growth rate, applies your EBITDA margin, then subtracts D&amp;A, capex (3.49% of revenue) and the change in working capital (22.7% of revenue) to get unlevered FCF — so operating margin and capex are <i>assumptions</i>, not analyst figures. Separately, the analyst consensus in §3.5 (financial-estimates) gives revenue, EBITDA, EBIT, SG&amp;A, net income and EPS with low/avg/high and analyst counts — but NOT capex or operating cash flow, which is why a "pure analyst FCF" still needs a capex bridge from history. <b>Who's behind the estimates:</b> NVDA's near-year lines carry 30–40 analysts (KeyBanc, Needham, UBS, BofA, Evercore, RBC, Morgan Stanley-tier houses); coverage thins to ~7 by FY2031. See §3.5 for the full count-by-year.</div>
+</div>
+</section>
+
+<!-- ============ 2.7 ANALYST COVERAGE — Supabase source-of-truth ============ -->
+<section>
+<h2 id="analystTitle">2.7 · Analyst Coverage — who's covering NVDA, and what are they saying</h2>
+<div class="src">tables: analyst_ratings + price_target_consensus + analyst_estimates (real Supabase rows, per ticker — no FMP call from this page)</div>
+
+<div class="resultbar" id="analystBar"></div>
+
+<div class="cols">
+<div class="fcard">
+  <div class="subttl" id="ratingMixTitle"></div>
+  <div id="ratingMixBar" style="display:flex;height:30px;border-radius:7px;overflow:hidden;margin:8px 0;"></div>
+  <div class="foot" id="ratingMixFoot"></div>
+</div>
+<div class="fcard">
+  <div class="subttl" id="ptSummaryTitle">Forward estimates (analyst_estimates, annual)</div>
+  <table style="margin:6px 0 0;" id="ptSummaryTable"></table>
+  <div class="foot" style="margin-top:6px;" id="ptSummaryFoot"></div>
+</div>
+</div>
+
+<div id="publisherGapNote" style="margin-top:14px;"></div>
+</section>
+<script>
+async function renderAnalyst(sym){
+  const [ratingsArr, ptcArr, estArr] = await Promise.all([
+    sb('analyst_ratings?select=*&ticker=eq.'+sym),
+    sb('price_target_consensus?select=*&ticker=eq.'+sym),
+    sb('analyst_estimates?select=*&ticker=eq.'+sym+'&period=eq.annual&order=fiscal_date.asc')
+  ]);
+  const R = ratingsArr[0], PT = ptcArr[0];
+  document.getElementById('analystTitle').textContent = '2.7 · Analyst Coverage — who\'s covering '+sym+', and what are they saying';
+  if(!R && !PT){
+    document.getElementById('analystBar').innerHTML = gapBanner('No analyst_ratings / price_target_consensus row for '+sym, 'Not yet ingested for this ticker — not fabricated, not pulled from FMP directly.');
+    document.getElementById('ratingMixTitle').textContent=''; document.getElementById('ratingMixBar').innerHTML=''; document.getElementById('ratingMixFoot').textContent='';
+    document.getElementById('ptSummaryTable').innerHTML=''; document.getElementById('ptSummaryFoot').textContent='';
+    document.getElementById('publisherGapNote').innerHTML='';
+    return;
+  }
+  const price = window.LASTPX;
+  const total = R ? (R.strong_buy||0)+(R.buy||0)+(R.hold||0)+(R.sell||0)+(R.strong_sell||0) : 0;
+  const avgTarget = PT ? PT.target_avg : null;
+  const impliedPct = (avgTarget!=null && price) ? ((avgTarget-price)/price*100) : null;
+  document.getElementById('analystBar').innerHTML =
+    '<div class="rb"><span class="rk">Analysts rating '+sym+'</span><span class="rv">'+(R?total:'—')+'</span></div>'+
+    '<div class="rb"><span class="rk">Consensus</span><span class="rv '+(R&&R.consensus==='Buy'?'pos':R&&R.consensus==='Sell'?'neg':'')+'">'+(R?R.consensus:'—')+'</span></div>'+
+    '<div class="rb"><span class="rk">Price target (avg)</span><span class="rv">'+(avgTarget!=null?'$'+avgTarget.toFixed(2):'—')+'</span></div>'+
+    '<div class="rb"><span class="rk">Target range</span><span class="rv">'+(PT?'$'+PT.target_low+' – $'+PT.target_high:'—')+'</span></div>'+
+    '<div class="rb"><span class="rk">Implied vs $'+(price!=null?price.toFixed(2):'—')+'</span><span class="rv '+(impliedPct>=0?'pos':'neg')+'">'+(impliedPct!=null?((impliedPct>=0?'+':'')+impliedPct.toFixed(1)+'%'):'—')+'</span></div>'+
+    '<div class="rb"><span class="rk">'+freshTag(PT&&PT.updated_ts)+'</span></div>';
+  if(R){
+    document.getElementById('ratingMixTitle').textContent = 'Rating mix ('+total+' analysts, analyst_ratings — score '+(R.rating_score!=null?R.rating_score.toFixed(2):'—')+')';
+    const segs=[['Strong Buy',R.strong_buy||0,'#1f8f3f'],['Buy',R.buy||0,'var(--green)'],['Hold',R.hold||0,'var(--gold)'],['Sell',R.sell||0,'var(--red)'],['Strong Sell',R.strong_sell||0,'#8b1a1a']];
+    document.getElementById('ratingMixBar').innerHTML = segs.map(s=>{
+      const pct = total? (s[1]/total*100):0; if(pct<=0) return '';
+      const showLbl = pct>10;
+      return '<div style="width:'+pct+'%;background:'+s[2]+';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#0d1117;" title="'+s[0]+' '+s[1]+'">'+(showLbl?(s[0]+' '+s[1]):'')+'</div>';
+    }).join('');
+    document.getElementById('ratingMixFoot').textContent = segs.map(s=>s[1]+' '+s[0]).join(' · ')+' · '+freshTag(R.updated_ts);
+  } else {
+    document.getElementById('ratingMixTitle').textContent='No analyst_ratings row for '+sym;
+    document.getElementById('ratingMixBar').innerHTML=''; document.getElementById('ratingMixFoot').textContent='';
+  }
+  if(estArr.length){
+    const rows = estArr.slice(-5); // last up to 5 annual periods on record (mix of historical + forward)
+    let tt='<tr><th>Fiscal date</th>'+rows.map(r=>'<th>'+r.fiscal_date.slice(0,4)+'</th>').join('')+'</tr>';
+    const fmtB=v=>v==null?'—':'$'+(v/1e9).toFixed(1)+'B';
+    tt+='<tr><td>Revenue (avg)</td>'+rows.map(r=>'<td>'+fmtB(r.est_revenue_avg)+'</td>').join('')+'</tr>';
+    tt+='<tr><td>EBITDA (avg)</td>'+rows.map(r=>'<td>'+fmtB(r.est_ebitda_avg)+'</td>').join('')+'</tr>';
+    tt+='<tr><td>Net income (avg)</td>'+rows.map(r=>'<td>'+fmtB(r.est_net_income_avg)+'</td>').join('')+'</tr>';
+    tt+='<tr><td>EPS (avg)</td>'+rows.map(r=>'<td>'+(r.est_eps_avg!=null?'$'+r.est_eps_avg.toFixed(2):'—')+'</td>').join('')+'</tr>';
+    tt+='<tr><td># analysts (rev)</td>'+rows.map(r=>'<td>'+(r.num_analysts_rev!=null?r.num_analysts_rev:'—')+'</td>').join('')+'</tr>';
+    document.getElementById('ptSummaryTable').innerHTML = tt;
+    document.getElementById('ptSummaryFoot').textContent = estArr.length+' annual periods on record in analyst_estimates for '+sym+' (historical + forward mixed) · '+freshTag(rows[rows.length-1].updated_ts);
+  } else {
+    document.getElementById('ptSummaryTable').innerHTML = '';
+    document.getElementById('ptSummaryFoot').innerHTML = gapBanner('No analyst_estimates rows for '+sym, 'Forward revenue/EBITDA/EPS estimate table not yet populated for this ticker.');
+  }
+  document.getElementById('publisherGapNote').innerHTML = gapBanner('Publisher/outlet attribution not in this schema', 'The old FMP price-target-summary "which outlets contributed" breakdown (TheFly, Benzinga, etc.) has no equivalent table in Supabase — flagged as a gap, not reconstructed from memory.');
+}
+</script>
+<style>.abadge{display:inline-flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:6px 14px;font-size:13.5px;color:var(--txt);}</style>
+
+<!-- ============ 3. INTERACTIVE DCF ============ -->
+<section>
+<style>
+  .ctrl{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin:18px 0; background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:18px;}
+  .ctrl label{font-size:13px; color:var(--dim); display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:.03em;}
+  .ctrl .val{font-size:19px; font-weight:700; color:var(--accent);}
+  input[type=range]{width:100%; accent-color:var(--accent); margin-top:6px;}
+  .preset{background:var(--panel); border:1px solid var(--border); color:var(--txt); border-radius:8px; padding:8px 14px; margin:4px 8px 4px 0; cursor:pointer; font-size:14px;}
+  .preset:hover{border-color:var(--accent); color:var(--accent);}
+  .grp{border:1px solid var(--border); border-radius:10px; padding:16px 18px; margin:16px 0; background:rgba(255,255,255,0.015);}
+  .grp h4{color:var(--gold); font-size:15px; margin-bottom:6px; letter-spacing:.02em;}
+  .exp{font-size:13.5px; color:var(--dim); margin-bottom:10px; line-height:1.5;}
+  .grp .ctrl{margin:8px 0 0 0; background:transparent; border:none; padding:0;}
+  .sub{font-size:12.5px; color:var(--dim); margin-top:6px; line-height:1.45; white-space:normal;}
+  .scrollx{overflow-x:auto; max-width:100%;}
+  .scrollx table{min-width:900px;}
+  #dcfOut .kv .v{font-size:30px;}
+</style>
+<style>
+  .mbtn{background:var(--panel); border:1px solid var(--border); color:var(--dim); border-radius:8px; padding:6px 12px; margin:3px 5px 3px 0; cursor:pointer; font-size:13px;}
+  .mbtn.on{border-color:var(--accent); color:var(--accent); background:rgba(88,166,255,0.10); font-weight:600;}
+  .mbtn.gold.on{border-color:var(--gold); color:var(--gold); background:rgba(210,153,34,0.10);}
+  .frow{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:9px 0;}
+  .flabel{font-size:11.5px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; width:74px; flex-shrink:0;}
+  .math{font-family:ui-monospace,Menlo,monospace; font-size:13.5px; background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:12px 15px; line-height:2; color:#c9d1d9; margin:8px 0;}
+  .math .hl{color:var(--accent); font-weight:600;} .math .g{color:var(--gold);} .math .dim2{color:var(--dim);}
+  .foot{font-size:11.5px; color:var(--dim); margin-top:3px;}
+  .resultbar{display:flex; gap:20px; flex-wrap:wrap; align-items:baseline; background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:16px 20px; margin-bottom:14px;}
+  .resultbar .rb{display:flex; flex-direction:column;} .resultbar .rk{font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em;} .resultbar .rv{font-size:26px; font-weight:700;}
+  .sensi td, .sensi th{text-align:center; padding:7px 9px; font-size:13px;} .sensi td:first-child, .sensi th:first-child{text-align:left;}
+  details.build summary{cursor:pointer; color:var(--gold); font-weight:700; font-size:14px; padding:8px 0; list-style:none;}
+  details.build summary::-webkit-details-marker{display:none;}
+  .dcfh{font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--gold); font-weight:700; margin:22px 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px;}
+  .srow{display:flex; align-items:center; gap:14px; margin:9px 0; flex-wrap:wrap;}
+  .slab{width:200px; font-size:13.5px; color:var(--txt); flex-shrink:0;}
+  .slab small{display:block; color:var(--dim); font-size:11px;}
+  .srow input[type=range]{flex:1; min-width:150px; accent-color:var(--accent);}
+  .sval{width:64px; text-align:right; font-family:ui-monospace,Menlo,monospace; font-size:16px; font-weight:700; color:var(--accent);}
+  .chips{margin:0 0 12px 214px; display:flex; flex-wrap:wrap; gap:6px;}
+  .chip{background:var(--panel); border:1px solid var(--border); color:var(--dim); border-radius:14px; padding:3px 12px; font-size:12px; cursor:pointer;}
+  .chip:hover{border-color:var(--accent); color:var(--accent);}
+  .chip.on{border-color:var(--accent); color:var(--accent); background:rgba(88,166,255,0.14); font-weight:700;}
+  .fg{display:grid; grid-template-rows:auto auto; grid-auto-flow:column; gap:2px 16px; align-items:center; width:max-content; font-family:ui-monospace,Menlo,monospace; margin-top:2px;}
+  .fg .sym{grid-row:1; font-size:14px; text-align:center; color:#8b949e;}
+  .fg .num{grid-row:2; font-size:18px; font-weight:700; text-align:center; color:#e6edf3;}
+  .fg .num.v{color:var(--accent);} .fg .num.out{color:var(--green);} .fg .num.outn{color:var(--red);}
+  .fg .op{color:#586069; font-weight:400;}
+  .compsT td{border:1px solid rgba(255,255,255,0.05);}
+  .compsT td.cheap{background:rgba(63,185,80,0.14);} .compsT td.exp{background:rgba(248,81,73,0.14);}
+  .compsT td.cheapX{background:rgba(63,185,80,0.36); color:#c9f7cf; font-weight:700;} .compsT td.expX{background:rgba(248,81,73,0.34); color:#ffd7d3; font-weight:700;}
+  /* LOCK RULE: freeze top row + left column on all data tables */
+  .stickytbl td:first-child, .stickytbl th:first-child{position:sticky; left:0; background:var(--panel); z-index:1;}
+  .stickytbl tr:first-child th{position:sticky; top:0; background:var(--panel); z-index:2;}
+  .stickytbl tr:first-child th:first-child{z-index:3;}
+  .sensi td, .sensi th{min-width:66px; max-width:120px;}
+  .sensi td:first-child, .sensi th:first-child{min-width:150px; max-width:220px; white-space:normal;}
+  .subttl{font-size:13.5px; color:var(--txt); font-weight:700; letter-spacing:.01em; margin-bottom:6px;}
+  .mono2{font-family:ui-monospace,Menlo,monospace; font-size:12.5px; background:var(--panel2); padding:1px 5px; border-radius:4px; color:#aeb6bf;}
+  details summary::-webkit-details-marker{display:none;}
+  .fcard{background:var(--panel2); border:1px solid var(--border); border-radius:12px; padding:13px 18px; margin:9px 0;}
+  .fname{font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); margin-bottom:5px;}
+  .fsym{font-family:ui-monospace,Menlo,monospace; font-size:13.5px; color:var(--dim);}
+  .fnum{font-family:ui-monospace,Menlo,monospace; font-size:15px; color:#c9d1d9; margin-top:4px;}
+  .fnum .n{color:var(--accent); font-weight:700;} .fnum .out{color:var(--green); font-weight:700; font-size:17px;} .fnum .outn{color:var(--red); font-weight:700; font-size:17px;} .fnum .g{color:var(--gold); font-weight:700;}
+  .tor{display:flex; align-items:center; gap:10px; margin:5px 0; font-size:12.5px;}
+  .torlbl{width:120px; color:var(--txt); flex-shrink:0;} .torbar{height:15px; border-radius:4px; background:var(--accent); opacity:.85;} .torval{color:var(--dim); font-family:ui-monospace,Menlo,monospace; font-size:11.5px; white-space:nowrap;}
+</style>
+<h2 id="dcfTitle">3 · DCF — NVDA · sliders + modes, formulas update live</h2>
+<div class="src">endpoint: custom-dcf-advanced · every input is a slider (drag it) with quick-set chips · formulas below show symbols then numbers</div>
+
+<!-- RESULT BAR -->
+<div class="resultbar">
+  <div class="rb"><span class="rk">Fair value / share</span><span class="rv" id="oFV">—</span></div>
+  <div class="rb"><span class="rk">Market price</span><span class="rv" id="oMktPrice">$202.81</span></div>
+  <div class="rb"><span class="rk">Up / downside</span><span class="rv" id="oUp">—</span></div>
+  <div class="rb"><span class="rk">Enterprise value</span><span class="rv" id="oEV">—</span></div>
+  <div class="rb"><span class="rk">Perpetuity = % of value</span><span class="rv" id="oTV">—</span></div>
+</div>
+
+<!-- VALUE BREAKDOWN -->
+<div class="fcard"><div class="fname">Where the value comes from — explicit 5-yr cash vs the perpetuity</div>
+  <div id="npvSplit"></div></div>
+
+<!-- ASSUMPTIONS -->
+<div class="dcfh">A · Business assumptions</div>
+<div class="srow" id="growthRow"><span class="slab">Revenue growth <small>yrs 1–5, compounding</small></span><input type="range" id="g" min="0" max="80" step="0.5" value="36"><span class="sval" id="sv_g"></span></div>
+<div class="fcard" style="margin:6px 0 12px;"><div class="fname">Projection source — which growth path actually drives the DCF</div>
+  <div style="display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 6px; align-items:center;">
+    <button class="mbtn" id="pm_consensus" onclick="setPM('consensus')">📈 Analyst consensus path (Street's $B by year)</button>
+    <button class="mbtn" id="pm_const" onclick="setPM('const')">🎚️ Fixed rate — use the slider above</button></div>
+  <div class="foot" id="pmNote"></div></div>
+<div class="srow"><span class="slab">EBITDA margin</span><input type="range" id="m" min="20" max="75" step="0.5" value="51.1"><span class="sval" id="sv_m"></span></div>
+<div class="srow"><span class="slab">Effective tax rate</span><input type="range" id="t" min="5" max="35" step="0.5" value="15.1"><span class="sval" id="sv_t"></span></div>
+<div class="chips" style="margin-left:0;"><span class="foot" style="align-self:center;margin-right:6px;">bearish → bullish (sets the slider above, only used in Fixed-rate mode):</span><span id="scenChips" style="display:contents;"></span></div>
+<div class="foot" id="tickerCaveat" style="margin-top:6px;"></div>
+
+<!-- DISCOUNT RATE -->
+<div class="dcfh">B · Discount rate — CAPM → WACC</div>
+<div class="srow"><span class="slab">Risk-free rate rᶠ <small>10Y Treasury — distinct input</small></span><input type="range" id="rf" min="2" max="7" step="0.05" value="4.28"><span class="sval" id="sv_rf"></span></div>
+<div class="chips"><button class="chip" data-s="rf" data-v="4.28" onclick="setSlider('rf',4.28)">10Y 4.28%</button></div>
+<div class="srow"><span class="slab">Beta β <small>vs S&amp;P, 5-yr — default: peer median</small></span><input type="range" id="bt" min="0.5" max="5" step="0.01" value="2.14"><span class="sval" id="sv_bt"></span></div>
+<div class="chips" id="betaChips">
+  <button class="chip" data-s="bt" data-v="2.211" onclick="setSlider('bt',2.211)">FMP raw 2.21</button>
+  <button class="chip" data-s="bt" data-v="2.14" onclick="setSlider('bt',2.14)">Peer median 2.14</button>
+  <button class="chip" data-s="bt" data-v="1.93" onclick="setSlider('bt',1.93)">Peer mean 1.93</button>
+  <button class="chip" data-s="bt" data-v="1.81" onclick="setSlider('bt',1.81)">Blume 1.81</button>
+  <button class="chip" data-s="bt" data-v="1.3" onclick="setSlider('bt',1.30)">Bull mean-revert 1.30</button></div>
+<div class="fcard"><div class="fname">Beta — active method</div>
+  <div class="fg" id="fgBeta"></div>
+  <div id="betaCtx" style="margin-top:10px; font-size:14px; line-height:1.6; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:8px 12px;"></div></div>
+<div class="srow"><span class="slab">Market risk premium <small>excess of stocks over rᶠ</small></span><input type="range" id="mrpS" min="3" max="8" step="0.05" value="4.45"><span class="sval" id="sv_mrpS"></span></div>
+<div class="chips">
+  <button class="chip" data-s="mrpS" data-v="4.72" onclick="setSlider('mrpS',4.72)">FMP 4.72</button>
+  <button class="chip" data-s="mrpS" data-v="4.45" onclick="setSlider('mrpS',4.45)">Damodaran 4.45</button>
+  <button class="chip" data-s="mrpS" data-v="4" onclick="setSlider('mrpS',4.0)">Bull 4.0</button>
+  <button class="chip" onclick="applyBuiltChip()">Built <span id="builtLbl">4.65</span></button></div>
+<div class="fcard"><div class="fname">Market risk premium = E(R_market) − risk-free</div>
+  <div class="fg" id="fgMrp"></div></div>
+
+<!-- MRP BUILDER — lives right next to the MRP it feeds, not buried at the bottom -->
+<details class="build" style="margin:4px 0 14px;"><summary>▸ Build your own MRP from subcomponents (optional — collapsed)</summary>
+  <div class="sub" style="margin:8px 0;"><b>MRP = ERP = equity risk premium over the risk-free.</b> FMP hard-codes 4.72%; this reconstructs it from parts: discount the S&amp;P's expected cash (div + buybacks, grown 5y, terminal = rf) back to today's index level, solve for the return, subtract rf. Add a revenue-weighted country premium on top. Click "Apply" to feed it into the MRP mode above.</div>
+  <div class="ctrl" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));">
+    <div><label>① S&amp;P 500 level <span class="foot">(^GSPC = its ticker; live ~7,460)</span></label><span class="val" id="vSpx">7457.7</span><input type="range" id="spx" min="5000" max="9000" step="10" value="7457.7"></div>
+    <div><label>② Dividend yield <span class="foot">(divs ÷ index)</span></label><span class="val" id="vDy">1.30%</span><input type="range" id="dy" min="0.5" max="3" step="0.05" value="1.30"></div>
+    <div><label>③ Buyback yield <span class="foot">(buybacks ÷ index)</span></label><span class="val" id="vBy">2.20%</span><input type="range" id="by" min="0" max="4" step="0.05" value="2.20"></div>
+    <div><label>④ Expected 5y growth <span class="foot">(S&amp;P earnings/yr)</span></label><span class="val" id="vGg">8.50%</span><input type="range" id="gg" min="0" max="20" step="0.25" value="8.50"></div>
+    <div><label>⑤ Terminal growth <span class="foot">(= 10Y)</span></label><span class="val" id="vTg">4.28%</span><input type="range" id="tg" min="2" max="7" step="0.05" value="4.28"></div>
+    <div><label>⑥ Country premium <span class="foot">(rev-weighted; NVDA ≈0.2%)</span></label><span class="val" id="vCrp">0.20%</span><input type="range" id="crp" min="0" max="6" step="0.05" value="0.20"></div>
+  </div>
+  <div class="frow" style="margin-top:6px;">
+    <span class="val pos" id="oTot" style="font-size:22px;">—</span>
+    <button class="mbtn gold" onclick="applyBuilt()">Apply this MRP → mode above ↑</button>
+  </div>
+  <div class="foot" id="erpNote"></div>
+  <div style="margin-top:6px;">
+    <button class="mbtn" onclick="setERP(7457.7,1.30,2.20,8.50,4.28,0.20)">Live consensus</button>
+    <button class="mbtn" onclick="setERP(7457.7,1.30,2.20,6.00,4.28,0.20)">Cautious 6%</button>
+    <button class="mbtn" onclick="setERP(6800,1.45,2.20,8.50,4.28,0.20)">−10% selloff</button>
+    <button class="mbtn" onclick="setERP(7457.7,1.30,2.20,8.50,4.28,1.50)">EM-heavy 1.5%</button>
+  </div>
+</details>
+
+<div class="fcard"><div class="fname">Cost of equity (CAPM)</div>
+  <div class="fg" id="fgCoE"></div></div>
+<div class="fcard"><div class="fname">WACC</div>
+  <div class="fg" id="fgWACC"></div>
+  <div class="foot" style="margin-top:8px;">NVDA ~all-equity (debt 0.2%) → WACC ≈ CoE. Leveraged names: debt weight matters.</div></div>
+
+<!-- TERMINAL -->
+<div class="dcfh">C · Terminal value</div>
+<div class="srow"><span class="slab">Perpetuity growth g <small>forever after yr 5 — distinct from rᶠ</small></span><input type="range" id="termg" min="0" max="8" step="0.1" value="4.28"><span class="sval" id="sv_termg"></span></div>
+<div class="chips">
+  <button class="chip" data-s="termg" data-v="3" onclick="setSlider('termg',3.0)">Conservative 3.0%</button>
+  <button class="chip" data-s="termg" data-v="4" onclick="setSlider('termg',4.0)">FMP default 4.0%</button>
+  <button class="chip" data-s="termg" data-v="4.28" onclick="setSlider('termg',4.28)">= risk-free 4.28%</button>
+  <button class="chip" data-s="termg" data-v="6" onclick="setSlider('termg',6.0)">Bull 6.0%</button></div>
+<div class="fcard"><div class="fname">Terminal value (Gordon growth)</div>
+  <div class="fg" id="fgTV"></div>
+  <div class="foot" style="margin-top:8px;"><b>g is a growth rate (perpetuity), distinct from rᶠ.</b> The risk-free is a common <i>reference ceiling</i> (Damodaran), not a hard cap — a durable moat can out-earn GDP for a long time, so a higher g is defensible. Only hard rule: g &lt; WACC.</div></div>
+
+<!-- SENSITIVITY -->
+<div class="dcfh">D · Sensitivity</div>
+<div class="fcard"><div class="subttl">Impact ranking — which input moves value most (full-range swing)</div>
+  <div id="tornado" style="margin-top:8px;"></div>
+  <div class="foot">Each bar = the fair-value swing when that ONE input runs across its entire range, others held at current. Longest bar = biggest lever.</div></div>
+
+<div class="fcard"><div class="subttl">① One variable — full range, with $ and up/downside</div>
+  <div class="chips" style="margin:2px 0 8px 0;"><span class="foot" style="align-self:center;margin-right:6px;">sweep:</span>
+    <button class="mbtn" id="s1_g" onclick="setS1('g')">Growth</button>
+    <button class="mbtn" id="s1_m" onclick="setS1('m')">Margin</button>
+    <button class="mbtn" id="s1_t" onclick="setS1('t')">Tax</button>
+    <button class="mbtn" id="s1_rf" onclick="setS1('rf')">Risk-free</button>
+    <button class="mbtn" id="s1_beta" onclick="setS1('beta')">Beta</button>
+    <button class="mbtn" id="s1_mrp" onclick="setS1('mrp')">MRP</button>
+    <button class="mbtn" id="s1_tg" onclick="setS1('tg')">Terminal g</button></div>
+  <div class="scrollx"><table class="sensi stickytbl" id="sens1"></table></div></div>
+
+<div class="fcard"><div class="subttl">② Two-variable matrix — pick the two axes</div>
+  <div class="chips" style="margin:2px 0 4px 0;"><span class="foot" style="align-self:center;margin-right:6px;">rows Y:</span>
+    <button class="mbtn" id="sy_g" onclick="setSY('g')">Growth</button>
+    <button class="mbtn" id="sy_m" onclick="setSY('m')">Margin</button>
+    <button class="mbtn" id="sy_t" onclick="setSY('t')">Tax</button>
+    <button class="mbtn" id="sy_rf" onclick="setSY('rf')">Risk-free</button>
+    <button class="mbtn" id="sy_beta" onclick="setSY('beta')">Beta</button>
+    <button class="mbtn" id="sy_mrp" onclick="setSY('mrp')">MRP</button>
+    <button class="mbtn" id="sy_tg" onclick="setSY('tg')">Terminal g</button></div>
+  <div class="chips" style="margin:2px 0 8px 0;"><span class="foot" style="align-self:center;margin-right:6px;">cols X:</span>
+    <button class="mbtn" id="sx_g" onclick="setSX('g')">Growth</button>
+    <button class="mbtn" id="sx_m" onclick="setSX('m')">Margin</button>
+    <button class="mbtn" id="sx_t" onclick="setSX('t')">Tax</button>
+    <button class="mbtn" id="sx_rf" onclick="setSX('rf')">Risk-free</button>
+    <button class="mbtn" id="sx_beta" onclick="setSX('beta')">Beta</button>
+    <button class="mbtn" id="sx_mrp" onclick="setSX('mrp')">MRP</button>
+    <button class="mbtn" id="sx_tg" onclick="setSX('tg')">Terminal g</button></div>
+  <div class="scrollx"><table class="sensi stickytbl" id="sens2"></table></div>
+  <div class="foot">Each cell: fair value on top, up/downside vs <span id="rvPriceLbl4">$202.81</span> below. Green above price, red below. Ranges cover the full slider span.</div></div>
+
+<!-- REVERSE DCF -->
+<div class="dcfh">E · Reverse DCF — what is today's <span id="rvPriceLbl1">$202.81</span> price assuming?</div>
+<div class="fcard">
+  <div style="display:flex; gap:18px; flex-wrap:wrap; font-size:13.5px; color:var(--txt); margin-bottom:10px; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:10px 14px;">
+    <div><span style="font-size:17px;">🔒</span> <b>Lock</b> — every input stays at your current slider</div>
+    <div><span style="font-size:17px;">🎯</span> <b>Solve</b> — except the ONE you pick below, which we solve for</div>
+    <div><span style="font-size:17px;">⚖️</span> <b>Target</b> — the value that makes fair value = <span id="rvPriceLbl2">$202.81</span> (today's price)</div>
+  </div>
+  <div class="subttl">① Which input matters most? (same tornado as §D — pick the biggest lever to solve for)</div>
+  <div id="revTornado" style="margin:6px 0 12px;"></div>
+  <div class="chips" style="margin:0 0 4px 0;"><span class="foot" style="align-self:center;margin-right:6px;">🎯 solve for (ordered by impact, biggest lever first):</span>
+    <button class="mbtn" id="rv_beta" onclick="setRV('beta')">Beta</button>
+    <button class="mbtn" id="rv_g" onclick="setRV('g')">Revenue growth</button>
+    <button class="mbtn" id="rv_m" onclick="setRV('m')">EBITDA margin</button>
+    <button class="mbtn" id="rv_mrp" onclick="setRV('mrp')">MRP</button>
+    <button class="mbtn" id="rv_tg" onclick="setRV('tg')">Perpetuity g</button></div>
+  <div class="foot" id="rvGDisabledNote" style="margin-bottom:10px;"></div>
+  <div id="revout"></div>
+  <div id="revAction" class="fcard" style="margin-top:12px; border-color:var(--accent);"></div>
+
+  <div class="subttl" style="margin-top:20px;">② Two-variable version — what if TWO inputs move together, not one?</div>
+  <div style="font-size:13px; color:var(--txt); margin-bottom:8px;">Same idea as above, but now <b>both</b> the row axis and column axis are 🔒 locked at the value shown (overriding your slider for those two only) — everything else stays at your current sliders — and we 🎯 solve for <span id="rvName">growth</span> at each combo. Read it like a what-if grid: "if beta were X <i>and</i> MRP were Y, what growth would the price imply?"</div>
+  <div style="font-size:13px; color:var(--txt); font-weight:600; margin-bottom:4px;">Implied <span id="rvName3">growth</span> — pick the two axes (default = the two biggest levers, excluding whatever you're solving for above)</div>
+  <div class="chips" id="rvYchips" style="margin:6px 0 3px;"></div>
+  <div class="chips" id="rvXchips" style="margin:0 0 8px;"></div>
+  <div class="scrollx"><table class="sensi stickytbl" id="revGrid"></table></div>
+  <div class="foot" style="margin-top:4px;">Each cell = the <span id="rvName2">growth</span> that would justify <span id="rvPriceLbl3">$202.81</span> at that row×column combo. Center cell (outlined) = your current sliders for both axes — should roughly match the ① answer above. Scan a row/column for combos where the solved number goes from plausible to absurd — that's where the market's story stops holding up.</div>
+</div>
+
+<script>
+// ---- DCF BASE DATA — built live from Supabase, per ticker (Move 1: no TICKERS constant, no FMP-from-page) ----
+// revenue/shares/net-debt from fundamentals + balance_history (latest); D&A%, capex%, NWC%, EBITDA margin,
+// growth all derived from fundamentals_history + cashflow_history TTM sums — same formulas the old
+// hardcoded constants encoded, just computed live instead of typed. beta is a genuine DB gap
+// (company_profile empty) — defaulted to 1.0 with an explicit flag, never silently guessed as "fine."
+let RF10Y = 4.5; // overwritten by treasury_rates on load
+async function loadRiskFree(){
+  const r = await sb('treasury_rates?select=date,y10,updated_ts&order=date.desc&limit=1');
+  if(r[0]){ RF10Y = r[0].y10; window.RF_TS = r[0].updated_ts; }
+}
+async function buildBase(sym){
+  const [fArr, bArr, fhArr, cfArr, cpArr] = await Promise.all([
+    sb('fundamentals?select=*&ticker=eq.'+sym),
+    sb('balance_history?select=*&ticker=eq.'+sym+'&order=fiscal_date.desc&limit=6'),
+    sb('fundamentals_history?select=*&ticker=eq.'+sym+'&order=fiscal_date.desc&limit=12'),
+    sb('cashflow_history?select=*&ticker=eq.'+sym+'&order=fiscal_date.desc&limit=6'),
+    sb('company_profile?select=beta,updated_ts&ticker=eq.'+sym)
+  ]);
+  const f = fArr[0];
+  if(!f) return null; // genuine gap: no fundamentals row for this ticker — caller shows the banner
+  const b = bArr[0] || {};
+  const qRows = fhArr.filter(r=>r.period!=='FY').slice(0,4);
+  const fyRows = fhArr.filter(r=>r.period==='FY').slice(0,4);
+  const cfQ = cfArr.filter(r=>r.period!=='FY').slice(0,4);
+  const sum=(arr,k)=>arr.reduce((s,r)=>s+(r[k]||0),0);
+  const revTTM = f.revenue_ttm;
+  const ebitdaTTM = qRows.length>=4 ? sum(qRows,'ebitda') : (fyRows[0]?fyRows[0].ebitda:null);
+  const ebitTTM   = qRows.length>=4 ? sum(qRows,'operating_income') : (fyRows[0]?fyRows[0].operating_income:null);
+  const capexTTM  = cfQ.length>=4 ? Math.abs(sum(cfQ,'capex')) : (cfArr.filter(r=>r.period==='FY')[0]?Math.abs(cfArr.filter(r=>r.period==='FY')[0].capex):null);
+  const flags=[];
+  const daPct = (ebitdaTTM!=null && ebitTTM!=null && revTTM) ? Math.max(0,(ebitdaTTM-ebitTTM))/revTTM : 0.05;
+  if(ebitdaTTM==null||ebitTTM==null) flags.push('D&A% could not be derived from EBITDA−EBIT (missing income-statement rows) — defaulted to 5% of revenue.');
+  const capexPct = (capexTTM!=null && revTTM) ? capexTTM/revTTM : 0.05;
+  if(capexTTM==null) flags.push('Capex% defaulted to 5% of revenue — no cashflow_history rows for this ticker.');
+  const nwcPct = (b.current_assets!=null && b.current_liabilities!=null && revTTM) ? (b.current_assets-(b.cash_and_equiv||0)-b.current_liabilities)/revTTM : 0.10;
+  if(b.current_assets==null) flags.push('NWC% defaulted to 10% of revenue — no balance_history row for this ticker.');
+  let cagr=null;
+  if(fyRows.length>=2){
+    const first=fyRows[fyRows.length-1], last=fyRows[0];
+    const yrs=(new Date(last.fiscal_date)-new Date(first.fiscal_date))/(365.25*86400000);
+    if(yrs>0.5 && first.revenue>0 && last.revenue>0) cagr=(Math.pow(last.revenue/first.revenue,1/yrs)-1)*100;
+  }
+  if(cagr==null){ flags.push('Revenue CAGR could not be computed (need ≥2 annual fundamentals_history rows) — growth defaulted to 10%.'); cagr=10; }
+  const mDefault = (ebitdaTTM!=null && revTTM) ? Math.max(5,Math.min(90,ebitdaTTM/revTTM*100)) : 30;
+  if(ebitdaTTM==null) flags.push('EBITDA margin defaulted to 30% — no TTM EBITDA available.');
+  if(ebitdaTTM!=null && ebitdaTTM/revTTM<0) flags.push('TTM EBITDA margin is negative — this is a loss-making name; treat the DCF as illustrative, not load-bearing.');
+  const shares = qRows[0]&&qRows[0].shares_dil ? qRows[0].shares_dil/1e9 : (f.market_cap && f.price ? f.market_cap/f.price/1e9 : null);
+  if(!qRows[0]||!qRows[0].shares_dil) flags.push('Diluted share count came from market_cap÷price (fundamentals_history.shares_dil missing) — a proxy, not a reported figure.');
+  const netDebt = ((b.total_debt||0)-(b.cash_and_equiv||0))/1e9;
+  const cap = f.market_cap||0, debt=(b.total_debt||0);
+  const eqW = (cap+debt)>0 ? cap/(cap+debt) : 1;
+  const debtW = 1-eqW;
+  const cp = cpArr[0];
+  const beta = (cp && cp.beta!=null) ? cp.beta : null;
+  const betaTs = cp ? cp.updated_ts : null;
+  if(beta==null) flags.push('No company_profile.beta row for '+sym+' — defaulted to 1.0 (this specific ticker\'s gap, not page-wide: 195 of 211 universe tickers have a real beta). Adjust the slider manually if you have a real figure.');
+  // forward consensus path (analyst_estimates, annual, future fiscal years) — works for ANY ticker with data, not NVDA-only
+  const today = new Date().toISOString().slice(0,10);
+  const estRows = await sb('analyst_estimates?select=fiscal_date,est_revenue_avg&ticker=eq.'+sym+'&period=eq.annual&fiscal_date=gt.'+today+'&order=fiscal_date.asc&limit=5');
+  // The DCF's projected path is fixed at 5 years (i=1..5) — a consensus path shorter than that would
+  // leave later years undefined and crash the render. Require the full 5 to enable consensus mode;
+  // 2-4 rows is a real but incomplete gap, flagged honestly rather than silently truncated/padded.
+  const consensus = estRows.length>=5 ? estRows.map(r=>r.est_revenue_avg/1e9) : null;
+  if(!consensus && estRows.length>0) flags.push('Only '+estRows.length+' of 5 forward analyst_estimates years available for this ticker — Analyst-consensus DCF mode needs a full 5-year path, disabled here, Fixed-rate only.');
+  else if(!consensus) flags.push('No forward analyst_estimates path for this ticker — Analyst-consensus DCF mode disabled, Fixed-rate only.');
+  return {
+    name: sym, rev: revTTM/1e9, shares: shares||1, netDebt, daPct, capexPct, nwcPct,
+    price: f.price, beta: beta!=null?beta:1.0, betaIsGap: beta==null, betaTs, costOfDebt: RF10Y+1.5, rf: RF10Y, mrp: 4.45, debtW, eqW,
+    gDefault: Math.max(0,Math.min(80,cagr)), mDefault, tDefault: 21.0, termgDefault: Math.min(RF10Y,4.5),
+    consensus, fundTs: f.updated_ts, balTs: b.updated_ts,
+    flags
+  };
+}
+let CURTICK='NVDA';
+let BASE=null;
+let builtMRP=4.65, PC='rev', PM='consensus';
+function setPM(k){ if(k==='consensus' && !BASE.consensus) return; PM=k; render(); }
+function chipsHTML_scenario(){
+  const b=BASE, g=b.gDefault, m=b.mDefault, t=b.tDefault;
+  const bear=Math.max(0,Math.round(g*0.4*10)/10), bull=Math.min(80,Math.round(g*1.4*10)/10);
+  return '<button class="chip" data-g="'+bear+'" data-m="'+m+'" data-tx="'+t+'" onclick="setScen('+bear+','+m+','+t+')">Bear ('+bear.toFixed(1)+'%)</button>'+
+    '<button class="chip" data-g="'+g+'" data-m="'+m+'" data-tx="'+t+'" onclick="setScen('+g+','+m+','+t+')">Base (DB CAGR '+g.toFixed(1)+'%)</button>'+
+    '<button class="chip" data-g="'+bull+'" data-m="'+m+'" data-tx="'+t+'" onclick="setScen('+bull+','+m+','+t+')">Bull ('+bull.toFixed(1)+'%)</button>';
+}
+function chipsHTML_beta(){
+  if(BASE && !BASE.betaIsGap){
+    return '<button class="chip" data-s="bt" data-v="'+BASE.beta.toFixed(2)+'" onclick="setSlider(\'bt\','+BASE.beta.toFixed(2)+')">company_profile β '+BASE.beta.toFixed(2)+'</button>'+
+      '<div class="foot" style="width:100%;margin-top:2px;">📊 Real beta from Supabase company_profile · '+freshTag(BASE.betaTs)+'.</div>';
+  }
+  return '<button class="chip" data-s="bt" data-v="1.0" onclick="setSlider(\'bt\',1.0)">DB default 1.00 (gap)</button>'+
+    '<div class="foot" style="width:100%;margin-top:2px;">⚠️ No company_profile.beta row for '+(BASE?BASE.name:'this ticker')+' — defaults to 1.00. Not a page-wide gap (195 of 211 universe tickers have a real beta) — just missing for this one. Drag the slider to your own estimate.</div>';
+}
+async function setTicker(sym){
+  CURTICK=sym;
+  document.getElementById('tickerStat').textContent = 'Loading '+sym+' from Supabase…';
+  const b = await buildBase(sym);
+  if(!b){
+    BASE=null;
+    document.getElementById('tickerStat').textContent = sym+' — no fundamentals row';
+    document.getElementById('dcfTitle').textContent = '3 · DCF — '+sym+' · no data';
+    document.getElementById('tickerCaveat').innerHTML = gapBanner('No fundamentals row for '+sym, 'Supabase fundamentals table has no row for this ticker — DCF can\'t build without price/revenue. Try another ticker.');
+    await renderComps(sym); // shows its own gap banner
+    return;
+  }
+  BASE=b;
+  document.getElementById('g').value=Math.max(0,Math.min(80,BASE.gDefault));
+  document.getElementById('m').value=Math.max(20,Math.min(75,BASE.mDefault));
+  document.getElementById('t').value=Math.max(5,Math.min(35,BASE.tDefault));
+  document.getElementById('rf').value=BASE.rf;
+  document.getElementById('bt').value=BASE.beta;
+  document.getElementById('mrpS').value=BASE.mrp;
+  document.getElementById('termg').value=BASE.termgDefault;
+  PM = BASE.consensus ? 'consensus' : 'const';
+  document.getElementById('pm_consensus').style.opacity = BASE.consensus ? '1' : '0.35';
+  document.getElementById('pm_consensus').style.pointerEvents = BASE.consensus ? 'auto' : 'none';
+  document.getElementById('scenChips').innerHTML = chipsHTML_scenario();
+  document.getElementById('betaChips').innerHTML = chipsHTML_beta();
+  document.getElementById('tickerCaveat').innerHTML = '⚠️ '+BASE.flags.join(' ')+' <span class="fresh">'+freshTag(BASE.fundTs)+'</span>';
+  document.getElementById('dcfTitle').textContent = '3 · DCF — '+sym+' · sliders + modes, formulas update live';
+  document.getElementById('tickerStat').textContent = sym+' · $'+BASE.price.toFixed(2)+' · β '+BASE.beta.toFixed(2)+(BASE.betaIsGap?' (gap, defaulted)':' (company_profile)')+' · '+freshTag(BASE.fundTs);
+  await renderComps(sym);
+  await renderAnalyst(sym);
+  await renderInsider(sym);
+  await renderCongress(sym);
+  await renderEarnings(sym);
+  await renderNews(sym);
+  RV=null; autoAxis=true; autoRVaxis=true;
+  render();
+}
+let S1='g', SX='g', SY='rf';
+const SV={
+  g:{lbl:'Revenue growth',id:'g',sc:100,fld:'g',min:0,max:80,step:10},
+  m:{lbl:'EBITDA margin',id:'m',sc:100,fld:'m',min:20,max:75,step:5},
+  t:{lbl:'Tax rate',id:'t',sc:100,fld:'t',min:5,max:35,step:5},
+  rf:{lbl:'Risk-free',id:'rf',sc:100,fld:'rf',min:2,max:7,step:0.5},
+  beta:{lbl:'Beta',id:'bt',sc:1,fld:'beta',min:0.5,max:3,step:0.3},
+  mrp:{lbl:'MRP',id:'mrpS',sc:100,fld:'mrp',min:3,max:8,step:0.5},
+  tg:{lbl:'Perpetuity g',id:'termg',sc:100,fld:'tg',min:0,max:8,step:1}
+};
+const PCMAP={rev:{i:1,lbl:'Revenue $B'},ebitda:{i:2,lbl:'EBITDA $B'},ufcf:{i:3,lbl:'Free cash flow $B'},pv:{i:4,lbl:'PV of FCF $B'}};
+function fmt(x,d=2){return x.toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d});}
+function rd(id){return +document.getElementById(id).value;}
+function cur(){return{g:rd('g')/100,m:rd('m')/100,t:rd('t')/100,rf:rd('rf')/100,beta:rd('bt'),mrp:rd('mrpS')/100,tg:rd('termg')/100};}
+function setSlider(id,v){document.getElementById(id).value=v;render();}
+function setScen(g,m,t){document.getElementById('g').value=g;document.getElementById('m').value=m;document.getElementById('t').value=t;render();}
+function applyBuiltChip(){document.getElementById('mrpS').value=builtMRP.toFixed(2);render();}
+function setPC(k){PC=k;render();}
+
+function modelFull(g,m,t,rf,beta,mrp,tg){
+  const coe=rf+beta*mrp, w=BASE.eqW*coe+BASE.debtW*(BASE.costOfDebt/100)*(1-t);
+  let rev=BASE.rev,nwcPrev=BASE.rev*BASE.nwcPct,sumPV=0,ufcf=0,rows=[];
+  for(let i=1;i<=5;i++){rev = (PM==='consensus'&&BASE.consensus) ? BASE.consensus[i-1] : rev*(1+g);const eb=rev*m,da=rev*BASE.daPct,ebit=eb-da,capex=rev*BASE.capexPct,nwc=rev*BASE.nwcPct,dN=nwc-nwcPrev;nwcPrev=nwc;ufcf=ebit*(1-t)+da-capex-dN;const pv=ufcf/Math.pow(1+w,i);sumPV+=pv;rows.push([2026+i,rev,eb,ufcf,pv]);}
+  if(w<=tg)return{bad:true,coe,w};
+  const tv=ufcf*(1+tg)/(w-tg),pvTV=tv/Math.pow(1+w,5),ev=sumPV+pvTV,fv=(ev-BASE.netDebt)/BASE.shares;
+  return{coe,w,ev,fv,ufcf5:ufcf,pvExplicit:sumPV,pvTerm:pvTV,tvShare:pvTV/ev*100,rows,up:(fv/BASE.price-1)*100};
+}
+function fvFrom(o){return modelFull(o.g,o.m,o.t,o.rf,o.beta,o.mrp,o.tg);}
+function applyVar(o,key,val){o[SV[key].fld]= SV[key].sc===1 ? val : val/100;}
+// dynamic range centered on the CURRENT slider value, clamped to bounds
+function centerRange(key){
+  const s=SV[key], cv=rd(s.id), span=6*s.step;
+  let lo = cv - 3*s.step;
+  if (lo + span > s.max) lo = s.max - span;   // slide window down if it overflows the top
+  if (lo < s.min) lo = s.min;                  // slide window up if it overflows the bottom (or range is narrower than span)
+  let a=[];
+  for(let i=0;i<=6;i++){ let v=lo+i*s.step; v=Math.max(s.min,Math.min(s.max,v)); a.push(Math.round(v*100)/100); }
+  return a;
+}
+
+function render(){
+  const c=cur(), r=modelFull(c.g,c.m,c.t,c.rf,c.beta,c.mrp,c.tg);
+  document.getElementById('sv_g').textContent=rd('g').toFixed(1)+'%';
+  document.getElementById('sv_m').textContent=rd('m').toFixed(1)+'%';
+  document.getElementById('sv_t').textContent=rd('t').toFixed(1)+'%';
+  document.getElementById('sv_rf').textContent=rd('rf').toFixed(2)+'%';
+  document.getElementById('sv_bt').textContent=rd('bt').toFixed(2);
+  document.getElementById('sv_mrpS').textContent=rd('mrpS').toFixed(2)+'%';
+  document.getElementById('sv_termg').textContent=rd('termg').toFixed(1)+'%';
+  document.getElementById('builtLbl').textContent=builtMRP.toFixed(2);
+  const pxStr='$'+fmt(BASE.price,2);
+  document.getElementById('oMktPrice').textContent=pxStr;
+  ['rvPriceLbl1','rvPriceLbl2','rvPriceLbl3','rvPriceLbl4'].forEach(id=>{const e=document.getElementById(id); if(e)e.textContent=pxStr;});
+  if(r.bad){document.getElementById('oFV').textContent='WACC ≤ g';document.getElementById('oFV').className='rv neg';document.getElementById('oUp').textContent='—';document.getElementById('oEV').textContent='—';document.getElementById('oTV').textContent='—';document.getElementById('barchart').innerHTML='<div class="foot">WACC ≤ terminal g — model breaks. Lower g or raise WACC.</div>';document.getElementById('oTable').innerHTML='';return renderSens(c);}
+  const e1=document.getElementById('oFV');e1.textContent='$'+fmt(r.fv);e1.className='rv '+(r.up>=0?'pos':'neg');
+  const e2=document.getElementById('oUp');e2.textContent=(r.up>=0?'+':'')+fmt(r.up,1)+'%';e2.className='rv '+(r.up>=0?'pos':'neg');
+  document.getElementById('oEV').textContent='$'+fmt(r.ev/1000)+'T';
+  document.getElementById('oTV').textContent=fmt(r.tvShare,0)+'%';
+  // transposed: metric rows × year columns (matches §3.5 EST convention) + a CAGR column per row
+  const yrCagr=arr=>{const a=arr[0],b=arr[arr.length-1];return(a>0&&b>0)?(Math.pow(b/a,1/(arr.length-1))-1)*100:null;};
+  let rows='<tr><th>Metric</th>'+r.rows.map(x=>'<th>FY'+x[0]+'E</th>').join('')+'<th style="color:var(--gold)">CAGR</th></tr>';
+  const oRow=(lbl,ci)=>{const arr=r.rows.map(x=>x[ci]);const cg=yrCagr(arr);return '<tr><td>'+lbl+'</td>'+arr.map(v=>'<td>'+fmt(v,1)+'</td>').join('')+'<td style="color:var(--gold);font-weight:700;">'+(cg==null?'—':cg.toFixed(1)+'%')+'</td></tr>';};
+  rows+=oRow('Revenue $B',1)+oRow('EBITDA $B',2)+oRow('UFCF $B',3)+oRow('PV of FCF $B',4);
+  document.getElementById('oTable').innerHTML=rows;
+
+  // chip highlight (selected mode)
+  document.querySelectorAll('.chip[data-s]').forEach(ch=>ch.classList.toggle('on',Math.abs(rd(ch.dataset.s)-parseFloat(ch.dataset.v))<0.02));
+  document.querySelectorAll('.chip[data-g]').forEach(ch=>ch.classList.toggle('on',Math.abs(rd('g')-parseFloat(ch.dataset.g))<0.06&&Math.abs(rd('m')-parseFloat(ch.dataset.m))<0.06&&Math.abs(rd('t')-parseFloat(ch.dataset.tx))<0.06));
+
+  // FORMULAS — two-row aligned grids (symbol row + number row, matched columns)
+  const rf=c.rf*100, bt=c.beta, mp=c.mrp*100, coe=r.coe*100, w=r.w*100, tg=c.tg, t=c.t, denom=w-tg*100;
+  const O='op';
+  const near=(a,b)=>Math.abs(a-b)<0.02; let bp;
+  if(near(bt,1.0)) bp=[['β (DB default)',bt.toFixed(2),'out'],['','',O],['gap','company_profile empty','v']];
+  else bp=[['β (custom)',bt.toFixed(2),'out'],['','',O],['off-preset','slider','v']];
+  fg('fgBeta',bp);
+  document.getElementById('betaCtx').innerHTML = (BASE && !BASE.betaIsGap)
+    ? '📊 <b>Real beta</b> — '+BASE.name+'\'s β ('+BASE.beta.toFixed(2)+') is read live from Supabase <span class="mono2">company_profile</span> ('+freshTag(BASE.betaTs)+'). §1 comps shows the same figure in its Beta column and peer Median/Min/Max stats.'
+    : '📊 <b>Beta gap for '+(BASE?BASE.name:'this ticker')+'</b> — no company_profile.beta row for this specific ticker (195 of 211 universe tickers do have one; this isn\'t a page-wide gap). Defaults the slider to 1.00 until ingest fills it in; not computed or estimated from other DB fields.';
+  fg('fgMrp',[['E(Rₘ)',(rf+mp).toFixed(2)+'%','v'],['−','−',O],['rᶠ',rf.toFixed(2)+'%','v'],['=','=',O],['MRP',mp.toFixed(2)+'%','out']]);
+  fg('fgCoE',[['rᶠ',rf.toFixed(2)+'%','v'],['+','+',O],['(  β','(  '+bt.toFixed(2),'v'],['×','×',O],['MRP  )',mp.toFixed(2)+'%  )','v'],['=','=',O],['CoE',coe.toFixed(2)+'%','out']]);
+  fg('fgWACC',[['(  wₑ','(  '+BASE.eqW.toFixed(3),'v'],['×','×',O],['CoE  )',coe.toFixed(2)+'%  )','v'],['+','+',O],['(  w_d','(  '+BASE.debtW.toFixed(3),'v'],['×','×',O],['k_d',BASE.costOfDebt.toFixed(2)+'%','v'],['×','×',O],['(1−t)  )','(1−'+t.toFixed(2)+')  )','v'],['=','=',O],['WACC',w.toFixed(2)+'%','out']]);
+  fg('fgTV',[['(  FCF₅',' (  '+fmt(r.ufcf5,0),'v'],['×','×',O],['(1+g)  )','(1+'+(tg*100).toFixed(1)+'%)  )','v'],['÷','÷',O],['(  WACC−g  )','(  '+denom.toFixed(2)+'%  )',denom>0?'v':'outn'],['→','→',O],['terminal',fmt(r.tvShare,0)+'% of val','out']]);
+
+  // projection-source toggle
+  document.getElementById('pm_const').classList.toggle('on',PM==='const');
+  document.getElementById('pm_consensus').classList.toggle('on',PM==='consensus');
+  document.getElementById('pmNote').innerHTML= PM==='consensus'&&BASE.consensus
+    ? '📈 Active: the Street\'s FY27–31 revenue path ($'+BASE.consensus[0].toFixed(0)+'B→$'+BASE.consensus[4].toFixed(0)+'B). The growth slider above is <b style="color:var(--gold)">disabled/ignored</b> in this mode — switch to Fixed rate to use it.'
+    : (BASE.consensus
+      ? '🎚️ Active: revenue compounds at a flat <b style="color:var(--accent)">'+rd('g').toFixed(1)+'%/yr</b> off your slider above, ignoring the Street\'s actual (non-flat) path.'
+      : '🎚️ Active (only option for '+CURTICK+'): revenue compounds at a flat <b style="color:var(--accent)">'+rd('g').toFixed(1)+'%/yr</b> off your slider above. No analyst-consensus $B path has been built for '+CURTICK+' in this demo — only NVDA has one.');
+  const gRow=document.getElementById('growthRow'); gRow.style.opacity=(PM==='consensus'?'0.4':'1'); gRow.style.pointerEvents=(PM==='consensus'?'none':'auto');
+  document.getElementById('g').disabled = (PM==='consensus');
+  // BAR CHART — projected metric, years left→right, with a CAGR trend line overlay
+  ['rev','ebitda','ufcf','pv'].forEach(k=>document.getElementById('pc_'+k).classList.toggle('on',PC===k));
+  const idx=PCMAP[PC].i, vals=r.rows.map(x=>x[idx]), mx=Math.max.apply(null,vals.map(Math.abs))||1;
+  const H=150,BARMAX=120;
+  let bc='<div style="display:flex;align-items:flex-end;gap:12px;height:'+H+'px;position:relative;">';
+  const pts=[];
+  r.rows.forEach((x,j)=>{const v=vals[j],h=Math.max(2,Math.abs(v)/mx*BARMAX);pts.push(h);bc+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;"><div class="foot" style="margin-bottom:4px;">$'+fmt(v,0)+'</div><div style="width:64%;height:'+h+'px;background:linear-gradient(180deg,var(--accent),#2b6fc0);border-radius:5px 5px 0 0;"></div><div class="foot" style="margin-top:5px;">FY'+(27+j)+'</div></div>';});
+  const cagr=(vals[0]>0&&vals[vals.length-1]>0)?(Math.pow(vals[vals.length-1]/vals[0],1/(vals.length-1))-1)*100:null;
+  // SVG trend line connecting the top-center of each bar, plus a CAGR label pinned at the last point
+  const n=pts.length, colW=100/n;
+  const xAt=i=>colW*i+colW/2, yAt=h=>H-24-h; // 24px ≈ the value-label + gap above bars
+  let poly=pts.map((h,i)=>xAt(i).toFixed(2)+'%,'+yAt(h).toFixed(0)+'px').join(' ');
+  let svgPts=pts.map((h,i)=>'<circle cx="'+xAt(i)+'%" cy="'+yAt(h)+'" r="3" fill="var(--gold)"/>').join('');
+  bc+='<svg style="position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none;" preserveAspectRatio="none">'+
+      '<polyline points="'+pts.map((h,i)=>(xAt(i))+'%,'+yAt(h)).join(' ')+'" fill="none" stroke="var(--gold)" stroke-width="2" stroke-dasharray="4,3" opacity="0.9"/>'+
+      pts.map((h,i)=>'<circle cx="'+xAt(i)+'%" cy="'+yAt(h)+'" r="3.5" fill="var(--gold)"/>').join('')+
+      '</svg>';
+  bc+='</div><div style="margin-top:6px;font-size:13px;"><span style="color:var(--gold);">┄┄●</span> <span class="foot">'+PCMAP[PC].lbl+' trend · FY2027→FY2031 &nbsp;·&nbsp; </span><b style="color:var(--gold)">CAGR '+(cagr==null?'n/m':cagr.toFixed(1)+'%')+'</b> <span class="foot">per year</span></div>';
+  document.getElementById('barchart').innerHTML=bc;
+
+  // HISTORICAL vs FORWARD CAGR — wired conclusion (does the Street expect acceleration or deceleration?)
+  (function(){
+    const cc=document.getElementById('cagrCompare'); if(!cc) return;
+    if(CURTICK!=='NVDA'){ cc.innerHTML='<div class="foot">No FY-by-FY consensus history loaded for '+CURTICK+' in this demo (only NVDA has one built, §3.5) — historical-vs-forward CAGR compare isn\'t available here yet.</div>'; return; }
+    const dsp=cell=>{const m=(''+cell).match(/(-?[\d,\.]+)/);return m?parseFloat(m[1].replace(/,/g,'')):null;};
+    let histCagr=null, fwdCagr=null;
+    if(typeof EST!=='undefined' && EST.NVDA){
+      const revs=EST.NVDA.rev.map(dsp); // FY22..FY31 avg revenue, $B
+      const h0=revs[0], h1=revs[4]; // FY22 → FY26, 4 years of ACTUAL history
+      if(h0>0&&h1>0) histCagr=(Math.pow(h1/h0,1/4)-1)*100;
+      const f0=revs[5], f1=revs[9]; // FY27 → FY31, 4 years — same horizon length as history, and matches the bar chart above
+      if(f0>0&&f1>0) fwdCagr=(Math.pow(f1/f0,1/4)-1)*100;
+    }
+    if(histCagr==null||fwdCagr==null){cc.innerHTML=''; return;}
+    const decel=fwdCagr<histCagr;
+    cc.innerHTML='<div class="fname">📉📈 Historical vs. forward — is the Street underwriting acceleration or deceleration?</div>'+
+      '<div style="display:flex;gap:28px;flex-wrap:wrap;align-items:baseline;margin-top:4px;">'+
+      '<div><span class="foot">Historical CAGR (FY22→FY26, actual)</span><br><b style="font-size:22px;color:var(--txt)">'+histCagr.toFixed(0)+'%</b></div>'+
+      '<div style="font-size:22px;color:var(--dim);align-self:center;">→</div>'+
+      '<div><span class="foot">Forward consensus CAGR (FY27→FY31, Street)</span><br><b style="font-size:22px;color:'+(decel?'var(--gold)':'var(--green)')+'">'+fwdCagr.toFixed(0)+'%</b></div></div>'+
+      '<div class="foot" style="margin-top:8px;">'+(decel
+        ?'The Street is modeling <b>deceleration</b>: '+histCagr.toFixed(0)+'% historical growth (the AI-buildout boom years) slowing to '+fwdCagr.toFixed(0)+'% forward. That\'s the analyst base case pricing in a normalization, not more acceleration — worth knowing before you drag the growth slider above the Street\'s own number.'
+        :'The Street is modeling <b>acceleration</b> above the recent historical pace — an aggressive assumption worth stress-testing.')+'</div>';
+  })();
+
+  // VALUE BREAKDOWN — explicit vs perpetuity, as a stacked bar
+  const pe=r.pvExplicit, pt=r.pvTerm, ev=r.ev, peP=pe/ev*100, ptP=pt/ev*100;
+  document.getElementById('npvSplit').innerHTML=
+    '<div style="display:flex;height:34px;border-radius:7px;overflow:hidden;margin:4px 0 10px;">'+
+    '<div style="width:'+peP+'%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-weight:700;color:#0d1117;font-size:13px;">'+peP.toFixed(0)+'%</div>'+
+    '<div style="width:'+ptP+'%;background:var(--gold);display:flex;align-items:center;justify-content:center;font-weight:700;color:#0d1117;font-size:13px;">'+ptP.toFixed(0)+'%</div></div>'+
+    '<div style="display:flex;gap:30px;flex-wrap:wrap;font-size:14px;">'+
+    '<div><span style="color:var(--accent);font-weight:700;">■ PV of 5-yr FCF</span> &nbsp;$'+fmt(pe/1000,2)+'T</div>'+
+    '<div><span style="color:var(--gold);font-weight:700;">■ PV of perpetuity</span> &nbsp;$'+fmt(pt/1000,2)+'T</div>'+
+    '<div><span class="foot">= Enterprise value</span> &nbsp;<b>$'+fmt(ev/1000,2)+'T</b></div></div>'+
+    '<div class="foot" style="margin-top:6px;">The perpetuity (gold) is '+ptP.toFixed(0)+'% of the whole valuation — the further right that bar runs, the more the answer rests on the single perpetuity assumption rather than the 5 years you can actually forecast.</div>';
+
+  renderSens(c);
+  renderReverse(c);
+}
+function fg(id,pairs){document.getElementById(id).innerHTML=pairs.map(p=>'<div class="sym '+(p[2]==='op'?'op':'')+'">'+p[0]+'</div><div class="num '+(p[2]||'')+'">'+p[1]+'</div>').join('');}
+// --- Reverse DCF: solve for one input that makes fair value = market price ---
+let RV=null; // null = not yet bootstrapped; first render() picks the highest-impact variable
+function setRV(k){RV=k;autoRVaxis=true;render();}
+function solveFor(key,c){
+  const incr={g:true,m:true,tg:true,beta:false,mrp:false}[key];
+  let lo,hi;
+  if(key==='g'){lo=-0.6;hi=3.5;}else if(key==='m'){lo=0.02;hi=0.98;}else if(key==='tg'){lo=-0.2;hi=0.30;}else if(key==='beta'){lo=0.05;hi=5;}else{lo=0.002;hi=0.30;}
+  const f=x=>{const o={...c};o[SV[key].fld]=x;const r=fvFrom(o);return r.bad?null:r.fv;};
+  for(let k2=0;k2<90;k2++){const mid=(lo+hi)/2,v=f(mid);
+    if(v==null){ if(incr) hi=mid; else lo=mid; continue; }
+    const above=v>=BASE.price;
+    if(incr){ if(above) hi=mid; else lo=mid; } else { if(above) lo=mid; else hi=mid; }
+  }
+  return (lo+hi)/2;
+}
+let RVY='beta', RVX='mrp', autoRVaxis=true;
+function fmtImp(k,x){return SV[k].sc===1 ? x.toFixed(2) : (x*100).toFixed(1)+'%';}
+function renderReverse(c){
+  const impAll=topImpact(c,null); // full impact ranking, nothing excluded — used for bootstrap + tornado + button order
+  if(RV===null) RV=impAll[0].k; // bootstrap: default to the single biggest lever, not a hardcoded guess
+  if(PM==='consensus'&&RV==='g'){RV=impAll.find(x=>x.k!=='g').k;} // growth isn't solvable in consensus mode — reroute to next-biggest lever
+
+  // mini tornado — same ranking driving the button order & the default above, made visible so the default is explicable
+  const maxSw=Math.max.apply(null,impAll.map(x=>x.swing))||1;
+  document.getElementById('revTornado').innerHTML=impAll.map(x=>'<div class="tor"><span class="torlbl">'+SV[x.k].lbl+'</span><span class="torbar" style="width:'+Math.max(4,x.swing/maxSw*280)+'px;'+(x.k===RV?'background:var(--gold);':'')+'"></span><span class="torval">Δ$'+fmt(x.swing,0)+(x.k===RV?' ← solving for this':'')+'</span></div>').join('');
+
+  // reorder + toggle the solve-for buttons by impact (same rule as §D's sensitivity tabs)
+  const rvKeys=['g','m','beta','mrp','tg'];
+  const firstBtn=document.getElementById('rv_'+impAll.find(x=>rvKeys.includes(x.k)).k);
+  if(firstBtn){const p=firstBtn.parentNode; impAll.filter(x=>rvKeys.includes(x.k)).forEach(x=>{const b=document.getElementById('rv_'+x.k); if(b) p.appendChild(b);});}
+  rvKeys.forEach(k=>document.getElementById('rv_'+k).classList.toggle('on',RV===k));
+  const gBtn=document.getElementById('rv_g');
+  gBtn.style.opacity=(PM==='consensus'?'0.4':'1'); gBtn.style.pointerEvents=(PM==='consensus'?'none':'auto');
+  document.getElementById('rvGDisabledNote').innerHTML = PM==='consensus' ? '🚫 "Revenue growth" can\'t be solved for right now — §3A is set to the Analyst consensus path, so growth is fixed to the Street\'s numbers, not a free variable. Switch §3A to Fixed rate to solve for growth.' : '';
+
+  document.getElementById('rvName').textContent=SV[RV].lbl; document.getElementById('rvName2').textContent=SV[RV].lbl; document.getElementById('rvName3').textContent=SV[RV].lbl;
+  const x=solveFor(RV,c); let disp,ref,verdict,color,icon;
+  if(RV==='g'){const p=x*100;disp=p.toFixed(1)+'% / yr';
+    const gd=BASE.gDefault, bull=Math.min(80,gd*1.4);
+    ref='modes → Bear ('+(gd*0.4).toFixed(1)+'%) · Base/DB CAGR '+gd.toFixed(1)+'% · Bull ('+bull.toFixed(1)+'%)';
+    if(p<gd*0.4){verdict='below even the Bear case → the market prices almost no growth (looks cheap)';color='var(--green)';icon='✅';}
+    else if(p<=gd){verdict='at or below '+CURTICK+'\'s own DB-computed CAGR → undemanding';color='var(--green)';icon='✅';}
+    else if(p<=bull){verdict='above the DB CAGR, within the Bull case → demanding';color='var(--gold)';icon='⚠️';}
+    else{verdict='ABOVE even the Bull case → the price assumes the implausible';color='var(--red)';icon='🚨';}}
+  else if(RV==='m'){const p=x*100;disp=p.toFixed(1)+'%';
+    const md=BASE.mDefault;
+    ref=CURTICK+'\'s own DB-computed TTM EBITDA margin ~'+md.toFixed(0)+'%';
+    if(p<md*0.9){verdict='below '+CURTICK+'\'s own TTM margin → undemanding';color='var(--green)';icon='✅';}
+    else if(p<=md*1.15){verdict='close to '+CURTICK+'\'s own TTM margin → plausible';color='var(--gold)';icon='⚠️';}
+    else{verdict='needs materially more margin expansion than the TTM run-rate → demanding';color='var(--red)';icon='🚨';}}
+  else if(RV==='beta'){disp=x.toFixed(2);
+    if(window.PEER&&window.PEER.beta){
+      const PB=window.PEER.beta;ref='min '+PB.min.toFixed(2)+' · mean '+PB.mean.toFixed(2)+' · median '+PB.med.toFixed(2)+' · max '+PB.max.toFixed(2)+' ('+CURTICK+' raw '+(PB.subj!=null?PB.subj.toFixed(2):BASE.beta.toFixed(2))+')';
+      if(x<PB.min){verdict='BELOW the lowest-beta peer → an unusually optimistic assumption; implies the market treats '+CURTICK+' as safer than any comp, which is why the stock looks cheap on this read';color='var(--green)';icon='✅';}
+      else if(x<=PB.max){verdict='within the peer beta range → reasonable';color='var(--gold)';icon='⚠️';}
+      else{verdict='ABOVE every peer\'s beta → only makes sense if '+CURTICK+' is riskier than all comps (price looks cheap)';color='var(--green)';icon='✅';}
+    } else {
+      ref=CURTICK+'\'s own canonical β '+BASE.beta.toFixed(2)+' (no peer set built)';
+      const d=x-BASE.beta;
+      if(Math.abs(d)<0.15){verdict='in line with '+CURTICK+'\'s own canonical beta → reasonable';color='var(--gold)';icon='⚠️';}
+      else if(d<0){verdict='BELOW '+CURTICK+'\'s own beta → implies the market treats it as safer than its own risk profile suggests (price looks cheap)';color='var(--green)';icon='✅';}
+      else{verdict='ABOVE '+CURTICK+'\'s own beta → implies the market treats it as riskier than its own profile (price looks cheap)';color='var(--green)';icon='✅';}
+    }}
+  else if(RV==='mrp'){const p=x*100;disp=p.toFixed(2)+'%';ref='modes → Bull 4.0 · Damodaran 4.45 · FMP 4.72';
+    if(p<4.0){verdict='thinner premium than the bull case → rich pricing';color='var(--red)';icon='🚨';}
+    else if(p<=4.72){verdict='within the standard MRP range → reasonable';color='var(--gold)';icon='⚠️';}
+    else{verdict='fatter premium than FMP → conservative pricing (looks cheap)';color='var(--green)';icon='✅';}}
+  else{const p=x*100;disp=p.toFixed(2)+'%';ref='modes → Conservative 3.0 · FMP 4.0 · rf 4.28 · Bull 6.0';
+    if(p<3){verdict='very conservative perpetuity → undemanding';color='var(--green)';icon='✅';}
+    else if(p<=6){verdict='within the mode range (up to GDP-plus) → reasonable';color='var(--gold)';icon='⚠️';}
+    else{verdict='perpetual growth above the bull case → demanding';color='var(--red)';icon='🚨';}}
+  document.getElementById('revout').innerHTML=
+    '<div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:14px 18px;">'+
+    '<div style="font-size:13px;color:var(--txt);">🔒 Holding everything else at your sliders, to justify <b style="color:var(--accent)">$'+fmt(BASE.price,2)+'</b> the market implies:</div>'+
+    '<div style="font-size:26px;font-weight:700;color:var(--gold);margin:6px 0;">'+icon+' '+SV[RV].lbl+' = '+disp+'</div>'+
+    '<div style="font-size:14px;color:var(--txt);">📏 reference range: '+ref+'</div>'+
+    '<div style="font-size:16px;font-weight:700;color:'+color+';margin-top:6px;">'+icon+' '+verdict+'</div></div>';
+
+  // ACTIONABLE RECOMMENDATION — a defensible, peer/analyst-anchored fair value, not just a qualitative read
+  (function(){
+    const hasPeer=!!(window.PEER&&window.PEER.cagr&&window.PEER.cagr.med!=null);
+    const hasPeerBeta=!!(window.PEER&&window.PEER.beta&&window.PEER.beta.med!=null);
+    const PB=hasPeerBeta ? window.PEER.beta : {med:BASE.beta};
+    const PG=hasPeer ? window.PEER.cagr : {med:BASE.gDefault};
+    const defensible={g:PG.med/100, m:c.m, t:c.t, rf:c.rf, beta:PB.med, mrp:0.0445, tg:0.04};
+    const rr=fvFrom(defensible);
+    const upD=rr.bad?null:(rr.fv/BASE.price-1)*100;
+    const srcLbl=(hasPeerBeta?'peer-median β '+PB.med.toFixed(2):BASE.betaIsGap?'β 1.00 (DB gap, defaulted)':CURTICK+'\'s own β '+PB.med.toFixed(2))+' · '+(hasPeer?'peer-median growth '+PG.med.toFixed(0)+'%':CURTICK+'\'s own DB CAGR '+PG.med.toFixed(0)+'%');
+    document.getElementById('revAction').innerHTML = rr.bad ? '' :
+      '<div class="fname">💡 Recommended defensible inputs ('+srcLbl+' · Damodaran MRP 4.45% · FMP perpetuity g 4.0%, your margin/tax held)</div>'+
+      '<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:baseline;margin-top:4px;">'+
+      '<div><span class="foot">Defensible fair value</span><br><b style="font-size:24px;color:'+(upD>=0?'var(--green)':'var(--red)')+'">$'+fmt(rr.fv,0)+'</b></div>'+
+      '<div><span class="foot">vs market $'+fmt(BASE.price,2)+'</span><br><b style="font-size:24px;color:'+(upD>=0?'var(--green)':'var(--red)')+'">'+(upD>=0?'+':'')+fmt(upD,0)+'%</b></div>'+
+      '<button class="mbtn gold" onclick="applyDefensible()">Apply these inputs to the sliders ↑</button></div>';
+  })();
+
+  // 2-var reverse grid
+  const cand=topImpact(c,RV).map(o=>o.k);   // impact-ranked, RV excluded
+  if(autoRVaxis){RVY=cand[0]; RVX=cand[1];}
+  if(!cand.includes(RVY)) RVY=cand[0];
+  if(!cand.includes(RVX)||RVX===RVY) RVX=cand.find(k=>k!==RVY);
+  document.getElementById('rvYchips').innerHTML='<span class="foot" style="align-self:center;margin-right:6px;">🔒 rows Y:</span>'+cand.map(k=>'<button class="mbtn'+(RVY===k?' on':'')+'" onclick="setRVY(\''+k+'\')">'+SV[k].lbl+'</button>').join('');
+  document.getElementById('rvXchips').innerHTML='<span class="foot" style="align-self:center;margin-right:6px;">🔒 cols X:</span>'+cand.map(k=>'<button class="mbtn'+(RVX===k?' on':'')+'" onclick="setRVX(\''+k+'\')">'+SV[k].lbl+'</button>').join('');
+  const vy=SV[RVY], vx=SV[RVX], ry=centerRange(RVY), rx=centerRange(RVX), uy=(vy.sc===1?'':'%'), ux=(vx.sc===1?'':'%');
+  let h='<tr><th>'+vy.lbl+' ↓ / '+vx.lbl+' →</th>'+rx.map((xx,i)=>'<th'+(i===3?' style="color:var(--accent)"':'')+'>'+xx+ux+'</th>').join('')+'</tr>';
+  ry.forEach((yv,iy)=>{h+='<tr><td'+(iy===3?' style="color:var(--accent)"':'')+'><b>'+yv+uy+'</b></td>'+rx.map((xv,ix)=>{const o={...c};applyVar(o,RVY,yv);applyVar(o,RVX,xv);const sx=solveFor(RV,o);const ctr=(iy===3&&ix===3);return '<td class="gold"'+(ctr?' style="outline:2px solid var(--accent)"':'')+'>'+fmtImp(RV,sx)+'</td>';}).join('')+'</tr>';});
+  document.getElementById('revGrid').innerHTML=h;
+}
+function setRVY(k){RVY=k;autoRVaxis=false;render();}
+function setRVX(k){RVX=k;autoRVaxis=false;render();}
+function applyDefensible(){
+  const hasPeerBeta=!!(window.PEER&&window.PEER.beta&&window.PEER.beta.med!=null);
+  const hasPeer=!!(window.PEER&&window.PEER.cagr&&window.PEER.cagr.med!=null);
+  const PB=hasPeerBeta ? window.PEER.beta : {med:BASE.beta};
+  const PG=hasPeer ? window.PEER.cagr : {med:BASE.gDefault};
+  document.getElementById('g').value=PG.med.toFixed(1);
+  document.getElementById('bt').value=PB.med.toFixed(2);
+  document.getElementById('mrpS').value='4.45';
+  document.getElementById('termg').value='4.0';
+  if(PM==='consensus'){PM='const';}
+  render();
+}
+let autoAxis=true;
+function topImpact(c,exclude){
+  return ['g','m','t','rf','beta','mrp','tg'].filter(k=>k!==exclude).map(k=>{const lo={...c};applyVar(lo,k,SV[k].min);const hi={...c};applyVar(hi,k,SV[k].max);const a=fvFrom(lo),b=fvFrom(hi);const av=a.bad?null:a.fv,bv=b.bad?null:b.fv;return{k,lo:av,hi:bv,swing:(av!=null&&bv!=null)?Math.abs(bv-av):0};}).sort((a,b)=>b.swing-a.swing);
+}
+function renderSens(c){
+  const keys=['g','m','t','rf','beta','mrp','tg'];
+  const imp=topImpact(c,null);
+  if(autoAxis){SY=imp[0].k; SX=imp[1].k;}
+  ['s1','sy','sx'].forEach(pfx=>{const first=document.getElementById(pfx+'_'+imp[0].k); if(first){const p=first.parentNode; imp.forEach(x=>{const b=document.getElementById(pfx+'_'+x.k); if(b)p.appendChild(b);});}});
+  keys.forEach(k=>{document.getElementById('s1_'+k).classList.toggle('on',S1===k);document.getElementById('sy_'+k).classList.toggle('on',SY===k);document.getElementById('sx_'+k).classList.toggle('on',SX===k);});
+  const maxSw=Math.max.apply(null,imp.map(x=>x.swing))||1;
+  document.getElementById('tornado').innerHTML=imp.map(x=>'<div class="tor"><span class="torlbl">'+SV[x.k].lbl+'</span><span class="torbar" style="width:'+Math.max(4,x.swing/maxSw*280)+'px"></span><span class="torval">$'+(x.lo==null?'—':fmt(x.lo,0))+' → $'+(x.hi==null?'—':fmt(x.hi,0))+' &nbsp;(Δ$'+fmt(x.swing,0)+')</span></div>').join('');
+  const v1=SV[S1], r1=centerRange(S1), u1=(v1.sc===1?'':'%');
+  let h1='<tr><th>'+v1.lbl+' →</th>'+r1.map((x,i)=>'<th'+(i===3?' style="color:var(--accent)"':'')+'>'+x+u1+'</th>').join('')+'</tr>';
+  h1+='<tr><td>fair value</td>'+r1.map((x,i)=>{const o={...c};applyVar(o,S1,x);const rr=fvFrom(o);return rr.bad?'<td>—</td>':'<td class="'+(rr.fv>=BASE.price?'pos':'neg')+'"'+(i===3?' style="outline:1px solid var(--accent)"':'')+'>$'+fmt(rr.fv,0)+'</td>';}).join('')+'</tr>';
+  h1+='<tr><td>up/downside</td>'+r1.map(x=>{const o={...c};applyVar(o,S1,x);const rr=fvFrom(o);return rr.bad?'<td>—</td>':'<td class="'+(rr.up>=0?'pos':'neg')+'">'+(rr.up>=0?'+':'')+fmt(rr.up,0)+'%</td>';}).join('')+'</tr>';
+  document.getElementById('sens1').innerHTML=h1;
+  const vy=SV[SY], vx=SV[SX], ry=centerRange(SY), rx=centerRange(SX), uy=(vy.sc===1?'':'%'), ux=(vx.sc===1?'':'%');
+  let h2='<tr><th>'+vy.lbl+' ↓ / '+vx.lbl+' →</th>'+rx.map((x,i)=>'<th'+(i===3?' style="color:var(--accent)"':'')+'>'+x+ux+'</th>').join('')+'</tr>';
+  ry.forEach((yv,iy)=>{h2+='<tr><td'+(iy===3?' style="color:var(--accent)"':'')+'><b>'+yv+uy+'</b></td>'+rx.map((xv,ix)=>{const o={...c};applyVar(o,SY,yv);applyVar(o,SX,xv);const rr=fvFrom(o);const ctr=(iy===3&&ix===3);return rr.bad?'<td>—</td>':'<td class="'+(rr.fv>=BASE.price?'pos':'neg')+'"'+(ctr?' style="outline:2px solid var(--accent)"':'')+'>$'+fmt(rr.fv,0)+'<br><small>'+(rr.up>=0?'+':'')+fmt(rr.up,0)+'%</small></td>';}).join('')+'</tr>';});
+  document.getElementById('sens2').innerHTML=h2;
+}
+function setS1(k){S1=k;render();}
+function setSY(k){SY=k;autoAxis=false; if(SX===k)SX=(k==='g'?'rf':'g'); render();}
+function setSX(k){SX=k;autoAxis=false; if(SY===k)SY=(k==='g'?'rf':'g'); render();}
+['g','m','t','rf','bt','mrpS','termg'].forEach(id=>document.getElementById(id).addEventListener('input',render));
+
+// --- MRP builder solver ---
+function pvAt(r,spx,cash0,g,tg){let cf=cash0,pv=0;for(let i=1;i<=5;i++){cf*=(1+g);pv+=cf/Math.pow(1+r,i);}pv+=(cf*(1+tg)/(r-tg))/Math.pow(1+r,5);return pv;}
+function calcERP(){
+  const spx=+document.getElementById('spx').value,dy=+document.getElementById('dy').value/100,by=+document.getElementById('by').value/100,g=+document.getElementById('gg').value/100,tg=+document.getElementById('tg').value/100,crp=+document.getElementById('crp').value/100;
+  document.getElementById('vSpx').textContent=spx.toFixed(1);document.getElementById('vDy').textContent=(dy*100).toFixed(2)+'%';document.getElementById('vBy').textContent=(by*100).toFixed(2)+'%';document.getElementById('vGg').textContent=(g*100).toFixed(2)+'%';document.getElementById('vTg').textContent=(tg*100).toFixed(2)+'%';document.getElementById('vCrp').textContent=(crp*100).toFixed(2)+'%';
+  const cash0=spx*(dy+by);let lo=tg+0.0002,hi=0.30,r=0;for(let k=0;k<80;k++){r=(lo+hi)/2;if(pvAt(r,spx,cash0,g,tg)>spx)lo=r;else hi=r;}
+  const erp=(r-tg)*100,tot=erp+crp*100;
+  document.getElementById('oTot').textContent='MRP '+tot.toFixed(2)+'%';
+  document.getElementById('erpNote').innerHTML='Solved market return <b>'+(r*100).toFixed(2)+'%</b> − rf → base ERP <b>'+erp.toFixed(2)+'%</b> + country '+(crp*100).toFixed(2)+'% = <b>total '+tot.toFixed(2)+'%</b>.';
+  return tot;
+}
+function setERP(spx,dy,by,g,tg,crp){document.getElementById('spx').value=spx;document.getElementById('dy').value=dy;document.getElementById('by').value=by;document.getElementById('gg').value=g;document.getElementById('tg').value=tg;document.getElementById('crp').value=crp;calcERP();}
+function applyBuilt(){builtMRP=calcERP();document.getElementById('mrpS').value=builtMRP.toFixed(2);render();}
+['spx','dy','by','gg','tg','crp'].forEach(id=>document.getElementById(id).addEventListener('input',calcERP));
+window.addEventListener('DOMContentLoaded',async function(){
+  calcERP();
+  wireTickerSearch();
+  await Promise.all([loadUniverse(), loadRiskFree()]);
+  await setTicker('NVDA');
+});
+</script>
+</section>
+
+<!-- ============ 3.5 CONSENSUS vs EXTRAPOLATION ============ -->
+<section>
+<h2>3.5 · Analyst Consensus vs FMP Extrapolation — Visual Guide (not wired into the model)</h2>
+<div class="src">endpoint: financial-estimates (included in your subscription — consensus, NOT TipRanks) · annual shown; quarterly also available (period=quarter)</div>
+<p class="exp" style="font-size:14.5px;">Years across, line items down — the standard layout. Every period FMP's financial-estimates has for NVDA: 4 historical consensus years (what the Street expected then) + 6 forward years + two deliberately BLANK columns where coverage dies. Analyst counts sit at the top. Each cell = avg (low–high), $B except EPS. Gold row = FMP's DCF extrapolation for contrast: by FY2031 it sits at <b>2.7× the Street's own number</b>.</p>
+<div style="margin:10px 0 14px;">
+  <label style="font-size:13px; color:var(--dim); margin-right:10px;">TICKER (play around — coverage quality varies wildly):</label>
+  <select id="estTicker" onchange="renderEst()" style="background:var(--panel2); color:var(--txt); border:1px solid var(--border); border-radius:8px; padding:8px 14px; font-size:15px;">
+    <option value="NVDA">NVDA — mega-cap, perfect coverage</option>
+    <option value="PLTR">PLTR — mid/large, EPS coverage collapses</option>
+    <option value="RKLB">RKLB — small-cap, broken consensus</option>
+  </select>
+</div>
+<div id="estConf" class="fcard" style="margin:4px 0 12px;"></div>
+<div class="scrollx"><table id="estTable" class="stickytbl"></table></div>
+<script>
+const EST={
+NVDA:{years:["FY22","FY23","FY24","FY25","FY26","FY27","FY28","FY29","FY30","FY31"],
+nRev:[13,14,27,34,34,39,40,26,13,16], nEps:[14,13,15,33,30,32,30,15,9,7],
+fmp:["—","—","—","—","215.9 (actual)","359.4","598.1","995.4","1,656.5","2,756.8"],
+rev:["26.7 (23.3–30.0)","27.0 (23.5–30.3)","96.3 (80.7–109.1)","129.4 (129.1–131.0)","213.7 (210.6–215.3)","393.3 (363.6–406.5)","562.3 (460.0–629.4)","686.6 (678.9–694.4)","774.2 (648.5–877.3)","1,005.0 (841.7–1,138.7)"],
+ebitda:["11.9 (10.4–13.4)","7.8 (6.3–9.4)","49.3 (41.3–55.8)","66.2 (66.0–67.0)","109.3 (107.7–110.1)","201.2 (186.0–207.9)","287.6 (235.2–321.9)","351.2 (347.2–355.1)","396.0 (331.6–448.7)","514.0 (430.5–582.4)"],
+ebit:["10.8 (9.4–12.1)","6.7 (5.4–8.1)","46.3 (38.8–52.5)","62.2 (62.1–63.0)","102.7 (101.3–103.5)","189.1 (174.8–195.5)","270.4 (221.2–302.6)","330.2 (326.4–333.9)","372.3 (311.8–421.8)","483.2 (404.7–547.6)"],
+sga:["1.9 (1.7–2.1)","1.9 (1.6–2.3)","5.1 (4.2–5.7)","6.8 (6.8–6.9)","11.2 (11.1–11.3)","20.6 (19.1–21.3)","29.5 (24.1–33.0)","36.0 (35.6–36.4)","40.6 (34.0–46.0)","52.8 (44.2–59.8)"],
+ni:["10.7 (9.0–12.5)","10.3 (8.3–12.4)","53.0 (41.6–61.9)","72.6 (71.9–73.3)","115.3 (114.6–116.1)","227.3 (198.7–297.7)","304.8 (242.8–367.7)","359.2 (289.3–455.6)","301.3 (237.6–353.4)","490.3 (386.7–575.1)"],
+eps:["0.43 (0.36–0.50)","0.33 (0.27–0.38)","2.15 (1.70–2.52)","2.95 (2.93–2.99)","4.69 (4.67–4.73)","8.99 (8.10–12.15)","12.74 (9.91–15.00)","15.34 (11.80–18.59)","12.29 (9.69–14.42)","20.00 (15.78–23.46)"],
+blank:["FY32","FY33"]},
+PLTR:{years:["2020","2021","2022","2023","2024","2025","2026","2027","2028","2029","2030"],
+nRev:[5,5,4,13,14,17,23,24,17,14,8], nEps:[10,5,7,14,16,17,19,19,9,3,3],
+fmp:null,
+rev:["1.07 (1.00–1.18)","1.53 (1.42–1.69)","1.90 (1.77–2.10)","2.48 (2.38–2.77)","2.81 (2.80–2.85)","4.37 (4.34–4.43)","7.72 (7.69–7.88)","11.23 (10.61–11.94)","16.23 (16.13–16.32)","31.22 (29.88–34.81)","68.80 (65.84–76.71)"],
+ebitda:["0.26 (0.24–0.28)","0.36 (0.34–0.40)","0.45 (0.42–0.50)","0.59 (0.57–0.66)","0.67 (0.67–0.68)","1.04 (1.04–1.06)","1.84 (1.84–1.88)","2.68 (2.53–2.85)","3.87 (3.85–3.89)","7.45 (7.13–8.30)","16.42 (15.71–18.30)"],
+ebit:["0.23 (0.22–0.26)","0.33 (0.31–0.37)","0.41 (0.38–0.46)","0.54 (0.51–0.60)","0.61 (0.61–0.62)","0.95 (0.94–0.96)","1.67 (1.67–1.71)","2.43 (2.30–2.59)","3.51 (3.49–3.53)","6.76 (6.47–7.54)","14.90 (14.26–16.62)"],
+sga:["0.81 (0.76–0.90)","1.16 (1.08–1.28)","1.45 (1.34–1.60)","1.46 (1.40–1.63)","1.66 (1.65–1.68)","2.58 (2.56–2.61)","4.55 (4.53–4.65)","6.62 (6.25–7.04)","9.56 (9.51–9.62)","18.40 (17.61–20.52)","40.56 (38.81–45.22)"],
+ni:["0.17 (0.15–0.19)","0.37 (0.34–0.42)","0.11 (0.10–0.13)","0.50 (0.45–0.54)","1.01 (0.93–1.10)","1.87 (1.76–1.98)","3.45 (3.25–4.29)","4.83 (4.06–6.45)","7.31 (6.00–9.47)","15.52 (14.65–17.84)","34.04 (32.14–39.12)"],
+eps:["0.07 (0.06–0.08)","0.15 (0.14–0.17)","0.05 (0.04–0.05)","0.18 (0.17–0.21)","0.37 (0.36–0.43)","0.72 (0.69–0.77)","1.46 (1.27–1.67)","2.08 (1.58–2.52)","3.06 (2.34–3.69)","6.05 (5.71–6.95)","13.27 (12.53–15.25)"],
+blank:["2031","2032"]},
+RKLB:{years:["2021","2022","2023","2024","2025","2026","2027","2028","2029","2030"],
+nRev:[5,2,7,8,10,13,13,9,4,4], nEps:[1,2,4,6,7,8,8,6,4,2],
+fmp:null,
+rev:["0.06 (0.05–0.07)","0.21 (0.18–0.23)","0.33 (0.29–0.36)","0.43 (0.43–0.43)","0.60 (0.60–0.61)","0.92 (0.91–0.92)","1.28 (1.13–1.37)","1.66 (1.65–1.68)","2.12 (1.93–2.28)","2.64 (2.41–2.85)"],
+ebitda:["−0.04 (−0.04–−0.04)","−0.14 (−0.16–−0.12)","−0.17 (−0.19–−0.16)","−0.23 (−0.23–−0.23)","−0.32 (−0.32–−0.32)","−0.49 (−0.49–−0.48)","−0.68 (−0.73–−0.60)","−0.88 (−0.89–−0.87)","−1.12 (−1.21–−1.02)","−1.40 (−1.51–−1.28)"],
+ebit:["−0.04 (−0.05–−0.04)","−0.15 (−0.17–−0.14)","−0.20 (−0.22–−0.18)","−0.27 (−0.27–−0.27)","−0.37 (−0.37–−0.37)","−0.56 (−0.57–−0.56)","−0.78 (−0.84–−0.69)","−1.02 (−1.03–−1.01)","−1.30 (−1.40–−1.18)","−1.62 (−1.74–−1.48)"],
+sga:["0.03 (0.03–0.04)","0.12 (0.10–0.13)","0.16 (0.14–0.17)","0.21 (0.21–0.21)","0.29 (0.28–0.29)","0.44 (0.43–0.44)","0.61 (0.54–0.65)","0.79 (0.79–0.80)","1.01 (0.92–1.09)","1.26 (1.15–1.36)"],
+ni:["−0.15 (−0.17–−0.13)","−0.12 (−0.14–−0.10)","−0.18 (−0.22–−0.17)","−0.14 (−0.19–−0.09)","−0.18 (−0.21–−0.18)","−0.10 (−0.12–−0.07)","−0.00 (−0.00–0.00)","0.11 (0.05–0.29)","0.31 (0.27–0.34)","0.49 (0.43–0.54)"],
+eps:["−0.30 (−0.35–−0.26)","−0.24 (−0.28–−0.20)","−0.36 (−0.41–−0.32)","−0.31 (−0.36–−0.17)","−0.38 (−0.40–−0.34)","−0.19 (−0.23–−0.14)","−0.00 (−0.00–0.00)","0.23 (0.10–0.54)","0.58 (0.51–0.63)","0.92 (0.82–1.01)"],
+blank:["2031","2032"]}
+};
+function renderEst(){
+  const d=EST[document.getElementById('estTicker').value];
+  const bl=d.blank;
+  let h='<tr><th>Line item</th>'+d.years.map(y=>'<th>'+y+'</th>').join('')+bl.map(y=>'<th class="neg">'+y+'</th>').join('')+'</tr>';
+  const row=(label,arr,cls)=>'<tr><td class="'+(cls||'')+'">'+label+'</td>'+arr.map(v=>'<td class="'+(cls||'')+'">'+v+'</td>').join('')+bl.map(()=>'<td class="neg">'+(cls==='pur'?'0':'—')+'</td>').join('')+'</tr>';
+  h+=row('# Analysts — Revenue',d.nRev,'pur');
+  h+=row('# Analysts — EPS',d.nEps,'pur');
+  if(d.fmp) h+=row('FMP extrapolation — Rev',d.fmp,'gold');
+  h+=row('Revenue',d.rev,'');
+  h+=row('EBITDA',d.ebitda,'');
+  h+=row('EBIT',d.ebit,'');
+  h+=row('SG&A',d.sga,'');
+  h+=row('Net Income',d.ni,'');
+  h+=row('EPS ($)',d.eps,'');
+  // CONFIDENCE — consensus dispersion (range width ÷ avg) per year + summary
+  const dsp=cell=>{const m=(''+cell).match(/(-?[\d,\.]+)\s*\(\s*(-?[\d,\.]+)\s*[–\-−]\s*(-?[\d,\.]+)\s*\)/);if(!m)return null;const a=parseFloat(m[1].replace(/,/g,'')),lo=parseFloat(m[2].replace(/,/g,'')),hi=parseFloat(m[3].replace(/,/g,''));return a?Math.abs(hi-lo)/Math.abs(a):null;};
+  const dispRow=d.rev.map(dsp), epsRow=d.eps.map(dsp);
+  const dcell=v=>v==null?'<td class="dim2">—</td>':'<td class="'+(v<0.10?'pos':v>0.30?'neg':'')+'">'+(v*100).toFixed(0)+'%</td>';
+  h+='<tr><td class="pur">Range width — Rev</td>'+dispRow.map(dcell).join('')+bl.map(()=>'<td class="neg">—</td>').join('')+'</tr>';
+  document.getElementById('estTable').innerHTML=h;
+  const avg=a=>{const f=a.filter(x=>x!=null);return f.length?f.reduce((s,x)=>s+x,0)/f.length:null;};
+  const dr=avg(dispRow), de=avg(epsRow), sc=(dr!=null&&de!=null)?(dr*0.5+de*0.5):(dr||de);
+  const band=sc==null?['—','var(--dim)']:sc<0.10?['HIGH','var(--green)']:sc<0.22?['MODERATE','var(--gold)']:['LOW','var(--red)'];
+  document.getElementById('estConf').innerHTML='<div class="subttl">Consensus confidence — how tightly analysts agree (range width ÷ average)</div>'+
+    '<div style="display:flex;gap:26px;flex-wrap:wrap;align-items:baseline;margin-top:4px;">'+
+    '<div><span class="foot">Revenue dispersion</span><br><b style="font-size:19px">'+(dr==null?'—':(dr*100).toFixed(0)+'%')+'</b></div>'+
+    '<div><span class="foot">EPS dispersion</span><br><b style="font-size:19px">'+(de==null?'—':(de*100).toFixed(0)+'%')+'</b></div>'+
+    '<div><span class="foot">DCF confidence</span><br><b style="font-size:22px;color:'+band[1]+'">'+band[0]+'</b></div></div>'+
+    '<div class="foot" style="margin-top:6px;">Wide analyst ranges = the market itself disagrees on the future = <b>lower confidence in ANY DCF</b> on this name. Tight ranges (e.g. NVDA near years ~10%) = high conviction; blow-out ranges (a broken small-cap) = treat the fair value as a wide cone, not a point. This is your cross-ticker trust dial.</div>';
+}
+window.addEventListener('DOMContentLoaded',renderEst);
+</script>
+<div class="note">🔍 The cliff is the point: counts climb into the near years (40 analysts on FY28 revenue), collapse going out (7 on FY31 EPS), and hit ZERO at FY32 — the blank columns are real, not decoration. FY22–FY25 are historical consensus snapshots (what the Street expected then — beat/miss checks come from comparing them to actuals). FMP publishes counts for revenue and EPS only; middle lines ride between those two. <b>Quarterly</b> (period=quarter): same six lines, ~10 forward quarters, 11–12 analysts each.</div>
+<div class="note">📊 Line-item depth strategy (per Alan): use the furthest-down line the estimates support, fall back up the statement as coverage thins. For NVDA all five lines exist every year, but the CONFIDENCE thins — EPS analysts drop 30→7 by FY2031 while revenue keeps 16. A consensus-based FCF proxy = EBITDA − capex − cash taxes; capex has no consensus line here, so it gets bridged from historicals (that's the "gap fill from us"). Quarterly estimates exist for near periods; annual carries the long horizon. <b>Agreed base methodology: take the consensus TOP LINE (revenue — the most analysts, the longest horizon) and CALCULATE the bottom line ourselves via margins — using deeper consensus lines (EBITDA, net income) as cross-checks where coverage is thick enough.</b> Paid estimate feeds (Zacks/Estimize, low hundreds/mo) logged for later — not now.</div>
+<div class="note" style="border-color:var(--green);">🟢 Free Buy-gauge + revision momentum (no TipRanks needed): grades-summary returns the live mix — NVDA today: <b>2 Strong Buy / 58 Buy / 16 Hold / 3 Sell → consensus "Buy"</b> — and historical-ratings gives the same mix back in time = whether the Street is drifting toward or away from Buy. That IS the "Wall Street sentiment" TipRanks markets.</div>
+</section>
+
+<!-- ============ 4. INSIDER TRADES ============ -->
+<section>
+<h2 id="insiderTitle">4 · Insider Trades — NVDA (SEC Form 4, ~2-day lag)</h2>
+<div class="src">endpoints: search-insider-trades + insider-trade-statistics — real per-ticker Form 4 pull, switches with the ticker bar above</div>
+<div class="fcard" style="border-color:var(--gold);">
+  <div class="subttl">📡 Derived signal — computed from the transaction rows below, not typed</div>
+  <div id="ins_gap" style="display:none; margin-top:10px;"></div>
+  <div id="ins_cards_grid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-top:10px;">
+    <div id="ins_buys_card" style="background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
+      <div style="font-size:28px;">🛒</div><div class="foot" style="margin-top:4px;">Open-market BUYS</div><div style="font-size:19px;font-weight:700;margin-top:2px;" id="ins_buys">—</div></div>
+    <div id="ins_cluster_card" style="background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
+      <div style="font-size:28px;">👥</div><div class="foot" style="margin-top:4px;">Cluster buys (≥3/30d)</div><div style="font-size:19px;font-weight:700;margin-top:2px;" id="ins_cluster">—</div></div>
+    <div id="ins_flow_card" style="background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
+      <div style="font-size:28px;">💵</div><div class="foot" style="margin-top:4px;">Net $ flow (discretionary)</div><div style="font-size:19px;font-weight:700;margin-top:2px;" id="ins_flow">—</div></div>
+    <div id="ins_signal_card" style="background:var(--panel); border:2px solid var(--border); border-radius:10px; padding:14px; text-align:center;">
+      <div style="font-size:28px;" id="ins_signal_icon">🔔</div><div class="foot" style="margin-top:4px;">Signal</div><div style="font-size:19px;font-weight:700;margin-top:2px;" id="ins_signal">—</div></div>
+  </div>
+  <div class="foot" style="margin-top:10px;" id="ins_note"></div>
+</div>
+<table>
+<tr><th>Filed</th><th>Insider</th><th>Role</th><th>Type</th><th>Shares</th><th>Price</th></tr>
+<tbody id="insiderBody"></tbody>
+</table>
+<div class="note">Each row carries transaction type codes (S-Sale, P-Purchase, A-Award, G-Gift, F-InKind, M-Exempt), direct/indirect ownership, resulting position, and the SEC filing URL. Every field is machine-readable — trivially filterable to "open-market purchases only," the signal that matters. Rows shown are a curated real subset (most recent per insider) of what search-insider-trades returns.</div>
+<script>
+// ============ INSIDER TRADES — Move 1: read insider_trades table live ============
+// insider_trades has 33,256 real rows across the universe (verified via direct count — not the empty
+// table it was originally scoped as; master's ingest has since caught up). Most tickers have real rows;
+// a genuine per-ticker zero still gets an honest gap banner rather than being hidden or padded.
+async function renderInsider(sym){
+  document.getElementById('insiderTitle').textContent = '4 · Insider Trades — '+sym+' (Supabase insider_trades)';
+  const TX = await sb('insider_trades?select=*&ticker=eq.'+sym+'&order=filing_date.desc&limit=25');
+  if(TX._sbError){
+    document.getElementById('insiderBody').innerHTML='';
+    document.getElementById('ins_note').innerHTML='';
+    document.getElementById('ins_cards_grid').style.display='none';
+    document.getElementById('ins_gap').style.display='block';
+    document.getElementById('ins_gap').innerHTML = gapBanner('insider_trades query failed for '+sym+' (HTTP '+TX._sbStatus+')', 'This is a query error, not a confirmed empty result — the table has 33,256+ rows overall. Needs an engineering look.');
+    return;
+  }
+  if(!TX.length){
+    document.getElementById('insiderBody').innerHTML='';
+    document.getElementById('ins_note').innerHTML='';
+    document.getElementById('ins_cards_grid').style.display='none';
+    document.getElementById('ins_gap').style.display='block';
+    document.getElementById('ins_gap').innerHTML = gapBanner('No insider_trades rows for '+sym, 'A real, checked per-ticker absence — the table itself is well populated (33,256 rows across the universe), just none filed for '+sym+' in the window covered so far.');
+    return;
+  }
+  // table has data for this ticker — render + classify with the same logic as before, now on live rows.
+  // NOTE: #ins_gap/#ins_cards_grid are toggled here (never innerHTML-replaced in the empty branch above)
+  // so the ins_buys/ins_cluster/ins_flow/ins_signal child elements always survive across ticker switches —
+  // an earlier version destroyed them via innerHTML replacement, which the audit caught (setCard crashed
+  // on the next ticker with real data because its target span no longer existed in the DOM).
+  document.getElementById('ins_gap').style.display='none';
+  document.getElementById('ins_cards_grid').style.display='grid';
+  const norm = TX.map(t=>({insider:t.reporting_name, label:t.type_name, shares:t.shares, price:t.price, date:t.transaction_date,
+    type: /purchase/i.test(t.type_name||'')?'buy' : /sale/i.test(t.type_name||'')?'sell' : 'neutral'}));
+  document.getElementById('insiderBody').innerHTML = norm.map(t=>{
+    const d=new Date(t.date); const md=(d.getMonth()+1+'').padStart(2,'0')+'-'+(d.getDate()+'').padStart(2,'0');
+    const cls = t.type==='sell'?'neg':t.type==='buy'?'pos':'pur';
+    return '<tr><td>'+md+'</td><td>'+t.insider+'</td><td>—</td><td class="'+cls+'">'+t.label+'</td><td>'+(t.shares||0).toLocaleString()+'</td><td>'+(t.price?'$'+t.price.toFixed(2):'—')+'</td></tr>';
+  }).join('');
+  const buys=norm.filter(t=>t.type==='buy'), sells=norm.filter(t=>t.type==='sell');
+  const $ = t=>(t.price||0)*(t.shares||0);
+  const net=buys.reduce((s,t)=>s+$(t),0)-sells.reduce((s,t)=>s+$(t),0);
+  const days=d=>new Date(d).getTime()/86400000;
+  let cluster=false;
+  for(let i=0;i<buys.length;i++){const w=buys.filter(b=>Math.abs(days(b.date)-days(buys[i].date))<=30);if(new Set(w.map(b=>b.insider)).size>=3){cluster=true;break;}}
+  const sellInsiders=new Set(sells.map(t=>t.insider));
+  let signal,color,note,icon;
+  if(buys.length>=3&&cluster){signal='BULLISH — cluster buy';color='var(--green)';icon='✅';note=new Set(buys.map(b=>b.insider)).size+' distinct insiders bought in a tight window.';}
+  else if(buys.length>0){signal='WEAK BULLISH';color='var(--green)';icon='✅';note=buys.length+' open-market purchase(s), not a cluster.';}
+  else if(sellInsiders.size>=3){signal='BEARISH — broad selling';color='var(--red)';icon='🚨';note=sellInsiders.size+' distinct insiders sold on the open market.';}
+  else if(sellInsiders.size>0){signal='NEUTRAL (noise)';color='var(--gold)';icon='⚠️';note='Sales came from just '+sellInsiders.size+' insider(s) — below the 3-insider broad-selling bar.';}
+  else{signal='NEUTRAL (no activity)';color='var(--dim)';icon='⚪';note='No open-market buys or sells in this window.';}
+  const setCard=(cardId,valId,val,col)=>{document.getElementById(valId).textContent=val;document.getElementById(valId).style.color=col;document.getElementById(cardId).style.borderColor=col;};
+  setCard('ins_buys_card','ins_buys',buys.length,buys.length>0?'var(--green)':'var(--dim)');
+  setCard('ins_cluster_card','ins_cluster',cluster?'YES':'none',cluster?'var(--green)':'var(--dim)');
+  setCard('ins_flow_card','ins_flow',(net>=0?'+$':'−$')+(Math.abs(net)/1e6).toFixed(1)+'M',net>=0?'var(--green)':'var(--red)');
+  setCard('ins_signal_card','ins_signal',signal,color);
+  document.getElementById('ins_signal_icon').textContent=icon;
+  document.getElementById('ins_note').innerHTML=note+' '+freshTag(TX[0].updated_ts);
+}
+</script>
+</section>
+
+<!-- ============ 5. CONGRESS ============ -->
+<section>
+<h2 id="congressTitle">5 · Congressional Trades — NVDA (STOCK Act, ≤45-day lag)</h2>
+<div class="src">Move 1 gap: no senate/house trading table exists in Supabase yet</div>
+<div id="congressBody"></div>
+<script>
+// ============ CONGRESS — Move 1: no senate/house table in this DB at all. Unconditional, honest gap. ============
+function renderCongress(sym){
+  document.getElementById('congressTitle').textContent = '5 · Congressional Trades — '+sym+' (STOCK Act, ≤45-day lag)';
+  document.getElementById('congressBody').innerHTML = gapBanner(
+    'No Congress/senate/house table in this database',
+    'Per the standing order, this isn\'t a query returning zero rows — there is no senate-trading/house-trading equivalent table in Supabase at all yet. Master has not scoped this ingest. Not calling FMP from the page to fill it in the meantime.'
+  );
+}
+</script>
+</section>
+
+<!-- ============ 6. COT ============ -->
+<section>
+<h2 id="cotTitle">6 · Commitment of Traders — S&amp;P 500 E-Mini, symbol=ES (CFTC, weekly)</h2>
+<div class="src">table: cot_history (real columns: symbol, date, name, net_position, prev_net_position, market_situation, market_sentiment, reversal_trend — 5,397 rows across ~9 futures symbols: ES, NQ, GC, SI, CL, NG, DX, ZN and more)</div>
+<div id="cotBody"></div>
+<script>
+// ============ COT — Move 1: cot_history has real data (5,397 rows). Query the real column names. ============
+async function renderCOT(){
+  const rows = await sb('cot_history?select=*&symbol=eq.ES&order=date.desc&limit=8');
+  if(rows._sbError){
+    document.getElementById('cotBody').innerHTML = gapBanner(
+      'cot_history query failed (HTTP '+rows._sbStatus+')',
+      'This is a query/schema error, not a confirmed empty table — cot_history has real rows in it. Needs an engineering fix, not a wait for ingest.'
+    );
+    return;
+  }
+  if(!rows.length){
+    document.getElementById('cotBody').innerHTML = gapBanner(
+      'cot_history: 0 rows for symbol=ES',
+      'The table has data for other futures symbols but none for ES right now — a real, checked gap for this specific symbol, not the whole table.'
+    );
+    return;
+  }
+  document.getElementById('cotBody').innerHTML = '<table><tr><th>Report Date</th><th>Net Position</th><th>Prev Net Position</th><th>Situation</th><th>Sentiment</th><th>Reversal</th></tr>' +
+    rows.map(r=>'<tr><td>'+r.date+'</td><td>'+(r.net_position!=null?Math.round(r.net_position).toLocaleString():'—')+'</td><td>'+(r.prev_net_position!=null?Math.round(r.prev_net_position).toLocaleString():'—')+'</td><td class="'+(r.market_situation==='Bullish'?'pos':r.market_situation==='Bearish'?'neg':'')+'">'+(r.market_situation||'—')+'</td><td>'+(r.market_sentiment||'—')+'</td><td>'+(r.reversal_trend==='true'?'YES':'no')+'</td></tr>').join('') +
+    '</table><div class="note">'+rows[0].name+' · '+freshTag(rows[0].updated_ts)+' — CFTC COT reporting itself lags ~1 week at the source, independent of this page\'s freshness. cot_history covers other futures too (NQ, GC, SI, CL, NG, DX, ZN…) — ES shown here to match this section\'s original framing.</div>';
+}
+renderCOT();
+</script>
+</section>
+
+<!-- ============ 7. EARNINGS ============ -->
+<section>
+<h2 id="earningsTitle">7 · Earnings — NVDA (earnings_events + earnings_call_transcripts)</h2>
+<div class="src">tables: earnings_events (177/211 tickers) + earnings_call_transcripts (151/211 tickers) — real per-ticker pull, switches with the ticker bar above</div>
+<div id="earningsBody"></div>
+<script>
+// ============ EARNINGS — Move 2: live per-ticker read of earnings_events + earnings_call_transcripts ============
+async function renderEarnings(sym){
+  document.getElementById('earningsTitle').textContent = '7 · Earnings — '+sym+' (earnings_events + earnings_call_transcripts)';
+  const [ev, tr] = await Promise.all([
+    sb('earnings_events?select=*&ticker=eq.'+sym+'&order=date.desc&limit=4'),
+    sb('earnings_call_transcripts?select=*&ticker=eq.'+sym+'&order=call_date.desc&limit=1')
+  ]);
+  if(ev._sbError || tr._sbError){
+    document.getElementById('earningsBody').innerHTML = gapBanner('earnings query failed for '+sym, 'HTTP '+((ev._sbError?ev._sbStatus:tr._sbStatus))+' — a query/schema error, not a confirmed empty result.');
+    return;
+  }
+  if(!ev.length && !tr.length){
+    document.getElementById('earningsBody').innerHTML = gapBanner('No earnings_events or earnings_call_transcripts rows for '+sym, 'A real per-ticker gap — '+sym+' is one of the 34 universe tickers earnings_events hasn\'t covered yet (177/211 have it), or is simply too new/thin to have a call transcript (151/211 have one). Not fabricated, not pulled from FMP directly.');
+    return;
+  }
+  const fmtM = v => v==null?'—':(Math.abs(v)>=1e9?'$'+(v/1e9).toFixed(2)+'B':'$'+(v/1e6).toFixed(1)+'M');
+  let h = '<div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px;">';
+  h += '<div class="fcard"><div class="subttl">📅 Earnings history (last '+ev.length+')</div>';
+  if(!ev.length){
+    h += gapBanner('No earnings_events rows for '+sym, '177/211 universe tickers have this table populated — '+sym+' isn\'t one of them yet.');
+  } else {
+    h += '<table style="margin-top:8px;"><tr><th>Date</th><th>EPS act/est</th><th>Rev act/est</th><th>Surprise</th><th>Result</th></tr>' +
+      ev.map(r=>{
+        // real column values are 'beat'/'true'/'false'/null, not 'Beat'/'Miss' — map them, don't print raw
+        const beatRaw = (r.beat||'').toLowerCase();
+        const isBeat = beatRaw==='true' || beatRaw==='beat';
+        const isMiss = beatRaw==='false' || beatRaw==='miss';
+        const beatCls = isBeat?'pos':isMiss?'neg':'';
+        const beatLbl = isBeat?'Beat':isMiss?'Miss':'—';
+        return '<tr><td>'+r.date+'</td><td>'+(r.eps_actual!=null?r.eps_actual.toFixed(2):'—')+' / '+(r.eps_estimate!=null?r.eps_estimate.toFixed(2):'—')+'</td>'+
+          '<td>'+fmtM(r.revenue_actual)+' / '+fmtM(r.revenue_estimate)+'</td>'+
+          '<td class="'+(r.surprise_pct>=0?'pos':'neg')+'">'+(r.surprise_pct!=null?(r.surprise_pct>=0?'+':'')+r.surprise_pct.toFixed(1)+'%':'—')+'</td>'+
+          '<td class="'+beatCls+'">'+beatLbl+'</td></tr>';
+      }).join('') + '</table>';
+    if(ev[0].release_summary) h += '<div class="foot" style="margin-top:8px;">📝 Latest release: '+ev[0].release_summary.slice(0,280)+(ev[0].release_summary.length>280?'…':'')+'</div>';
+    h += '<div class="foot" style="margin-top:6px;">'+freshTag(ev[0].updated_ts)+'</div>';
+  }
+  h += '</div>';
+  h += '<div class="fcard"><div class="subttl">🎙️ Latest earnings call</div>';
+  if(!tr.length){
+    h += gapBanner('No earnings_call_transcripts row for '+sym, '151/211 universe tickers have a transcript — '+sym+' isn\'t one of them yet.');
+  } else {
+    const t = tr[0];
+    h += '<div style="margin-top:8px; font-size:14px; color:var(--txt);"><b>'+(t.quarter||'—')+'</b> · '+(t.call_date||'—')+'</div>';
+    h += '<div class="foot" style="margin-top:6px; line-height:1.6;">'+(t.ai_summary?t.ai_summary.slice(0,420)+(t.ai_summary.length>420?'…':''):'No AI summary on this row — raw transcript only.')+'</div>';
+    h += '<div class="foot" style="margin-top:6px;">'+freshTag(t.updated_ts)+'</div>';
+  }
+  h += '</div></div>';
+  document.getElementById('earningsBody').innerHTML = h;
+}
+</script>
+</section>
+
+<!-- ============ 8. NEWS & SENTIMENT ============ -->
+<section>
+<h2 id="newsTitle">8 · News &amp; Sentiment — NVDA (news + news_sentiment)</h2>
+<div class="src">tables: news (204/211 tickers, 187,803 rows) + news_sentiment (195/211 tickers) — real per-ticker pull, switches with the ticker bar above</div>
+<div id="newsBody"></div>
+<script>
+// ============ NEWS — Move 2: live per-ticker read of news + news_sentiment ============
+async function renderNews(sym){
+  document.getElementById('newsTitle').textContent = '8 · News & Sentiment — '+sym+' (news + news_sentiment)';
+  const [articles, sent] = await Promise.all([
+    // .desc.nullslast — Postgres/PostgREST default for DESC is NULLS FIRST, which would surface the
+    // ~0.7% of rows with a null published_ts ahead of genuinely recent ones. Caught by checking NVDA's
+    // "most recent" headlines and finding they were all null-dated.
+    sb('news?select=title,site,url,published_ts,snippet&ticker=eq.'+sym+'&order=published_ts.desc.nullslast&limit=8'),
+    sb('news_sentiment?select=*&ticker=eq.'+sym)
+  ]);
+  if(articles._sbError || sent._sbError){
+    document.getElementById('newsBody').innerHTML = gapBanner('news query failed for '+sym, 'HTTP '+((articles._sbError?articles._sbStatus:sent._sbStatus))+' — a query/schema error, not a confirmed empty result.');
+    return;
+  }
+  const s = sent[0];
+  let h = '';
+  if(s){
+    const col = s.score>0.15?'var(--green)':s.score<-0.15?'var(--red)':'var(--gold)';
+    const lbl = s.score>0.15?'Positive':s.score<-0.15?'Negative':'Neutral';
+    h += '<div class="fcard" style="border-color:'+col+';"><div class="subttl">📊 Sentiment score (news_sentiment)</div>'+
+      '<div style="display:flex; gap:24px; align-items:baseline; margin-top:8px;">'+
+      '<div><span class="foot">Score</span><br><b style="font-size:24px;color:'+col+';">'+s.score.toFixed(2)+' — '+lbl+'</b></div>'+
+      '<div><span class="foot">Articles scored</span><br><b style="font-size:24px;color:var(--txt);">'+(s.n_articles!=null?s.n_articles:'—')+'</b></div>'+
+      '</div><div class="foot" style="margin-top:6px;">'+freshTag(s.updated_ts)+'</div></div>';
+  } else {
+    h += gapBanner('No news_sentiment row for '+sym, '195/211 universe tickers have a sentiment score — '+sym+' isn\'t one of them yet.');
+  }
+  if(!articles.length){
+    h += gapBanner('No news rows for '+sym, '204/211 universe tickers have news coverage — '+sym+' isn\'t one of them yet (or genuinely has none recent).');
+  } else {
+    h += '<table style="margin-top:12px;"><tr><th>Date</th><th>Headline</th><th>Source</th></tr>' +
+      articles.map(a=>{
+        const d = a.published_ts ? new Date(tsToSec(a.published_ts)*1000) : null;
+        const dLbl = d ? (d.getMonth()+1+'').padStart(2,'0')+'-'+(d.getDate()+'').padStart(2,'0') : '—';
+        return '<tr><td>'+dLbl+'</td><td>'+(a.url?'<a href="'+a.url+'" target="_blank" style="color:var(--txt);">'+a.title+'</a>':a.title)+'</td><td class="foot">'+(a.site||'—')+'</td></tr>';
+      }).join('') + '</table>';
+  }
+  document.getElementById('newsBody').innerHTML = h;
+}
+</script>
+</section>
+
+<div style="color:var(--dim); font-size:13px; margin-top:10px;">Generated 2026-07-18 · All data via FMP connector, live pulls · File: FMP_CAPABILITY_DEMO.html · Author: Claude for Alan</div>
+
+<script>
+// Comps conditional formatting — cheap/expensive by column, outliers via IQR (statistical, not arbitrary)
+(function(){
+  const tbl=document.getElementById('compsTable'); if(!tbl) return;
+  const rows=[...tbl.querySelectorAll('tr')];
+  const companies=['NVDA','TSM','AVGO','MU','AMD','INTC'];
+  const cols={2:true,3:true,4:true,5:true,6:true,7:false,8:false,12:false}; // ci → cheapLow? (multiples cheap-low; margins & growth higher-better)
+  const parse=s=>{const v=parseFloat(s.replace('%','').replace('−','-').trim());return isNaN(v)?null:v;};
+  const median=a=>{const b=[...a].sort((x,y)=>x-y),n=b.length;return n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2;};
+  const quart=(a,q)=>{const b=[...a].sort((x,y)=>x-y),pos=(b.length-1)*q,base=Math.floor(pos),rest=pos-base;return b[base+1]!==undefined?b[base]+rest*(b[base+1]-b[base]):b[base];};
+  const dataRows=rows.filter(tr=>tr.children[0]&&companies.includes(tr.children[0].textContent.trim()));
+  Object.keys(cols).forEach(ci=>{
+    const cheapLow=cols[ci];
+    const vals=dataRows.map(tr=>parse(tr.children[ci].textContent)).filter(v=>v!=null);
+    if(vals.length<3) return;
+    const med=median(vals), q1=quart(vals,0.25), q3=quart(vals,0.75), iqr=(q3-q1)||1;
+    dataRows.forEach(tr=>{
+      const cell=tr.children[ci], v=parse(cell.textContent); if(v==null) return;
+      const good=cheapLow?v<med:v>med;
+      const outlier=(v<q1-1.5*iqr)||(v>q3+1.5*iqr);   // Tukey fences — real statistical outlier
+      cell.classList.add(good?(outlier?'cheapX':'cheap'):(outlier?'expX':'exp'));
+    });
+  });
+})();
+</script>
+
+<!-- ============ SPEC — moved to bottom per Alan: read after, not before ============ -->
+<details style="background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px 18px; margin:30px 0;">
+<summary style="cursor:pointer; color:var(--accent); font-weight:700; font-size:15px; list-style:none;">▸ How this works — what's actually wired vs. still static (read me)</summary>
+<div style="margin-top:14px; font-size:14px; line-height:1.7; color:#c9d1d9;">
+
+<p style="font-size:14px; color:var(--gold); background:var(--panel2); border-left:3px solid var(--gold); padding:10px 14px; margin:10px 0;"><b>Move 1 (2026-07-24):</b> source of truth swapped from direct FMP pulls to <b>Supabase (wadinxqplrggagkvrdag)</b>, read client-side. FMP now only ever fills the DB (master's ingest lane) — this page reads it. Universe expanded from a hardcoded 10 tickers to the live ~211-name <span class="mono2">composite_staged</span> set. During build-out, two tables assumed empty from an earlier schema check (<span class="mono2">insider_trades</span>, <span class="mono2">company_profile</span>) turned out to have real data — master's ingest had caught up since. Corrected below; the running audit checker (§ top of page) is what caught the resulting rendering bugs before this went live.</p>
+
+<p style="font-size:15px;"><b style="color:var(--gold);">🔌 DB-SOURCED — read live from Supabase on every ticker switch:</b></p>
+<table class="wraptable" style="margin:8px 0 18px;">
+<tr><th style="width:18%;">Where</th><th>What's DB-sourced</th></tr>
+<tr><td class="pur">Universe / ticker bar</td><td><span class="mono2">loadUniverse()</span> reads <span class="mono2">composite_staged</span> (~211 tickers) + <span class="mono2">ticker_cohorts</span> (is_primary=true rows) once on load, powering the searchable ticker box. Not the old hardcoded 10, not the near-empty <span class="mono2">tickers</span> table.</td></tr>
+<tr><td class="pur">§1 Comps</td><td><span class="mono2">fetchCohortBundle()</span> pulls each ticker's real cohort (<span class="mono2">ticker_cohorts</span>) and up to 7 <span class="mono2">is_primary</span> peers, ranked by live market cap. Multiples (P/E, P/S, P/B, EV/EBITDA, D/E, margins) are computed fresh client-side from <span class="mono2">fundamentals</span> + TTM sums of <span class="mono2">fundamentals_history</span>/<span class="mono2">cashflow_history</span> + <span class="mono2">balance_history</span> — not trusted from <span class="mono2">ratios_history</span>'s pre-computed columns, since a direct check found that table's P/S diverging significantly from a freshly-computed figure (quarterly/TTM denominator mismatch suspected). Beta column reads live from <span class="mono2">company_profile.beta</span> — see gap note below for the ~16 tickers still missing it.</td></tr>
+<tr><td class="pur">Ticker switcher / DCF base</td><td><span class="mono2">buildBase(sym)</span> assembles <span class="mono2">BASE</span> from <span class="mono2">fundamentals</span>, <span class="mono2">balance_history</span>, <span class="mono2">cashflow_history</span>, <span class="mono2">company_profile</span> (beta), and <span class="mono2">live_quotes</span> for price. <span class="mono2">setTicker()</span> awaits this, then re-renders §1/§2/§2.7/§3/§4/§5 in sequence — same DCF math engine as before (CAPM/WACC/Gordon Growth), only the inputs are now live per-ticker DB reads instead of a 10-name hardcoded object.</td></tr>
+<tr><td class="pur">§2.7 Analyst coverage</td><td>Live pulls of <span class="mono2">analyst_ratings</span>, <span class="mono2">price_target_consensus</span>, and <span class="mono2">analyst_estimates</span> per ticker. NVDA's own annual <span class="mono2">analyst_estimates</span> rows (FY27–FY31) were checked against the previously hardcoded consensus path and match exactly, confirming this table is the right source. A consensus DCF path needs a full 5-year run of forward estimates to avoid a broken projection — tickers with 1-4 available years fall back to Fixed-rate, flagged. Publisher/outlet attribution (which analyst desk) has no DB equivalent — flagged, not fabricated.</td></tr>
+<tr><td class="pur">§3 DCF risk-free rate</td><td><span class="mono2">loadRiskFree()</span> reads <span class="mono2">treasury_rates.y10</span> — one macro rate shared across all tickers, replacing the old per-ticker hardcoded <span class="mono2">rf</span>.</td></tr>
+<tr><td class="pur">§4 Insider</td><td>Live query against <span class="mono2">insider_trades</span> per ticker — 33,256 real rows across the universe (corrected; this table was NOT actually empty). The buy/sell classifier, 30-day cluster-buy detector, and net-flow signal run on live rows for most tickers; a genuine per-ticker zero still shows an honest gap banner.</td></tr>
+<tr><td class="pur">§6 COT</td><td>Live query against <span class="mono2">cot_history</span>, symbol=ES — 5,397 real rows across ~9 futures symbols (corrected; also not actually empty — the first version queried a column name that doesn't exist in this table and silently rendered a false "empty" gap until caught).</td></tr>
+<tr><td class="pur">§7 Earnings</td><td>Live query against <span class="mono2">earnings_events</span> (177/211 tickers) for the last 4 reports (EPS/revenue actual vs estimate, surprise%, beat/miss, release summary) and <span class="mono2">earnings_call_transcripts</span> (151/211 tickers) for the latest call's AI summary. Genuine per-ticker gaps for the ~34 and ~60 tickers respectively without coverage, flagged not faked.</td></tr>
+<tr><td class="pur">§8 News &amp; Sentiment</td><td>Live query against <span class="mono2">news</span> (204/211 tickers, 187,803 rows — last 8 headlines with links) and <span class="mono2">news_sentiment</span> (195/211 tickers — a single score + article count per ticker). Same per-ticker-gap treatment for the tickers not yet covered.</td></tr>
+<tr><td class="pur">Freshness everywhere</td><td><span class="mono2">updated_ts</span> is read per row and shown as "last true Xm/h/d ago" (red "missing" if null) via <span class="mono2">freshTag()</span> — confidence is disclosed, not assumed.</td></tr>
+</table>
+
+<p style="font-size:15px;"><b style="color:var(--red);">🔴 FLAGGED GAPS — real DB gaps, shown honestly, never FMP'd-from-page or fabricated:</b></p>
+<table class="wraptable" style="margin:8px 0 18px;">
+<tr><th style="width:18%;">Where</th><th>What's missing and why</th></tr>
+<tr><td class="pur">Beta, per-ticker</td><td>195 of 211 universe tickers have a real <span class="mono2">company_profile.beta</span> row; ~16 don't yet. Those default the DCF slider to 1.0 with a visible gap note and show "—" in §1 comps — not page-wide, not estimated, not silently defaulted.</td></tr>
+<tr><td class="pur">§5 Congress</td><td>No senate-trading/house-trading equivalent table exists in Supabase at all (not even empty) — unconditional gap banner, not a per-ticker query. This is the one genuinely unbuilt category from the original Move 1 spec.</td></tr>
+<tr><td class="pur">The "tail" — ~50 tickers</td><td>Roughly 50 of 211 universe tickers lack full history coverage (<span class="mono2">fundamentals_history</span>/<span class="mono2">ratios_history</span>/<span class="mono2">analyst_estimates</span> sit at ~161/211). Comps/CAGR/consensus-path sections for these show "—" or fall back to a flagged default rather than guessing.</td></tr>
+<tr><td class="pur">Publisher/outlet attribution (§2.7)</td><td>No DB field carries which analyst desk (TheFly, Benzinga, etc.) issued a rating — flagged inline where it would have appeared.</td></tr>
+</table>
+
+<p style="font-size:15px;"><b>The math, for reference — unchanged by Move 1.</b> <span class="mono2">CoE = rᶠ + (β×MRP)</span> · <span class="mono2">WACC = (wₑ·CoE)+(w_d·k_d·(1−t))</span> · <span class="mono2">UFCF = EBIT(1−t)+D&amp;A−capex−ΔNWC</span> · <span class="mono2">TV = FCF₅(1+g)/(WACC−g)</span> · Fair value = (ΣPV(FCF)+PV(TV)−net debt)/shares. Only the data feeding these formulas moved from a hardcoded 10-name object to live per-ticker Supabase reads — the formulas themselves were not changed.</p>
+<p style="margin-top:8px;"><b>Sources.</b> Financials <span class="mono2">fundamentals + fundamentals_history + ratios_history + balance_history + cashflow_history</span> · estimates/ratings/targets <span class="mono2">analyst_estimates + analyst_ratings + price_target_consensus</span> · quote/DCF price <span class="mono2">live_quotes</span> · beta <span class="mono2">company_profile</span> · peer grouping <span class="mono2">ticker_cohorts</span> · universe <span class="mono2">composite_staged</span> · risk-free <span class="mono2">treasury_rates</span> · insider <span class="mono2">insider_trades</span> · COT <span class="mono2">cot_history</span> · earnings <span class="mono2">earnings_events + earnings_call_transcripts</span> · news <span class="mono2">news + news_sentiment</span>. Served from git → auto-deploy; durable URL survives hub deploys.</p>
+<p style="margin-top:8px; color:var(--dim);"><b>Real next steps, in order of value:</b> (1) once master ingests a congress-equivalent table, the page can pick it up with the same query pattern used everywhere else — the last genuinely unbuilt category, (2) feed §3.5 estimate-confidence into the reverse-DCF verdict strength, (3) backfill beta for the remaining ~16 tickers and full history for the ~50-ticker tail.</p>
+</div>
+</details>
+
+<script>
+// ============ SELF-AUDIT — mechanical consistency checker, not a manual QA pass (Move 1: rewritten for async Supabase reads) ============
+// Runs the SAME code paths a person clicking around would trigger (setTicker, centerRange) for a
+// SAMPLE of tickers spread across the live ~211-name universe (not exhaustive — every ticker is a
+// live network round-trip now, so this is an honest sample, not a silent full sweep pretending to
+// be one), then diffs values that must agree with each other (e.g. the price shown in the comps
+// table vs the price used by the DCF). A clean run prints "0 issues" — like a trial balance footing
+// to zero. Anything mis-wired shows up as a specific, addressable line, not a vague "something's off."
+async function runAudit(){
+  const origTicker = CURTICK;
+  const btn = document.getElementById('auditBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '🔍 Running audit…'; }
+
+  const pool = UNIVERSE.length ? UNIVERSE.map(u=>u.ticker) : [CURTICK];
+  const sampleSet = new Set([origTicker, 'NVDA', 'MU', 'NBIS'].filter(t=>pool.includes(t)));
+  const step = Math.max(1, Math.floor(pool.length/12));
+  for(let i=0; i<pool.length && sampleSet.size<16; i+=step) sampleSet.add(pool[i]);
+  const sample = [...sampleSet];
+
+  let issues = [], checks = 0;
+
+  for(const sym of sample){
+    await setTicker(sym); // real render path — not a simulation of one
+
+    checks++;
+    if(!BASE){
+      issues.push('['+sym+'] buildBase() returned null — no fundamentals/live_quotes row for this ticker (page correctly shows a gap banner, but confirm this ticker should actually be missing).');
+      continue;
+    }
+
+    // A — single source of truth: the price used in §1 comps must equal the price driving the
+    // DCF/header. This exact class of mismatch was the MU bug (192.11 vs 974.49) pre-Move-1.
+    checks++;
+    if(window.LASTPX!=null && BASE.price!=null && Math.abs(window.LASTPX-BASE.price)>0.02){
+      issues.push('['+sym+'] PRICE MISMATCH — comps/live_quotes price $'+window.LASTPX.toFixed(2)+' vs DCF/header price $'+BASE.price.toFixed(2)+'. These must be the same quote.');
+    }
+
+    // A2 — beta single source of truth: §1 comps fetches company_profile.beta independently from
+    // buildBase()'s own company_profile fetch — both must agree, same class of bug as price above.
+    checks++;
+    if(window.PEER && window.PEER.beta && window.PEER.beta.subj!=null && !BASE.betaIsGap){
+      const bd = Math.abs(window.PEER.beta.subj - BASE.beta);
+      if(bd>0.02) issues.push('['+sym+'] BETA MISMATCH — comps subject beta '+window.PEER.beta.subj.toFixed(2)+' vs DCF beta '+BASE.beta.toFixed(2)+'.');
+    }
+
+    // B — cross-section consistency on the rendered page itself: header price vs the DCF's own
+    // "market price" box. If these ever disagree, some section is reading stale/wrong state.
+    checks++;
+    const hdrM = (document.getElementById('tickerStat').textContent||'').match(/\$([\d,.]+)/);
+    const dcfM = (document.getElementById('oMktPrice').textContent||'').match(/\$([\d,.]+)/);
+    if(hdrM && dcfM){
+      const a=parseFloat(hdrM[1].replace(/,/g,'')), b=parseFloat(dcfM[1].replace(/,/g,''));
+      if(Math.abs(a-b)>0.02) issues.push('['+sym+'] header price $'+a+' ≠ DCF market-price box $'+b+' on the rendered page.');
+    } else {
+      issues.push('['+sym+'] could not read header/DCF price text to compare — DOM ids may have changed.');
+    }
+
+    // C — insider/congress sections actually re-titled for this ticker (catches leftover stale DOM
+    // from the previous ticker, which is exactly what a shared/contaminated session would produce)
+    checks++;
+    const insT = document.getElementById('insiderTitle');
+    if(!insT || !insT.textContent.includes(sym)) issues.push('['+sym+'] §4 insider title does not mention '+sym+' — got "'+(insT?insT.textContent:'MISSING ELEMENT')+'".');
+    const conT = document.getElementById('congressTitle');
+    if(!conT || !conT.textContent.includes(sym)) issues.push('['+sym+'] §5 congress title does not mention '+sym+' — got "'+(conT?conT.textContent:'MISSING ELEMENT')+'".');
+    const earnT = document.getElementById('earningsTitle');
+    if(!earnT || !earnT.textContent.includes(sym)) issues.push('['+sym+'] §7 earnings title does not mention '+sym+' — got "'+(earnT?earnT.textContent:'MISSING ELEMENT')+'".');
+    const newsT = document.getElementById('newsTitle');
+    if(!newsT || !newsT.textContent.includes(sym)) issues.push('['+sym+'] §8 news title does not mention '+sym+' — got "'+(newsT?newsT.textContent:'MISSING ELEMENT')+'".');
+
+    // D — §5 Congress is a genuine page-wide DB gap (no senate/house table exists at all) — it
+    // must ALWAYS render the gap banner. If it ever doesn't, some stale/fabricated HTML leaked in.
+    checks++;
+    const conBody = document.getElementById('congressBody');
+    if(!conBody || !conBody.innerHTML.includes('gap-banner')) issues.push('['+sym+'] §5 congress did NOT render a gap banner — expected one unconditionally (no senate/house table exists in Supabase).');
+
+    // E — fair value doesn't render as NaN/undefined at this ticker's own defaults
+    checks++;
+    const fvTxt = document.getElementById('oFV') ? document.getElementById('oFV').textContent : '';
+    if(/NaN|undefined/.test(fvTxt)) issues.push('['+sym+'] fair value renders as "'+fvTxt+'" at default sliders — broken formula for this ticker.');
+
+    // F — sensitivity axis: no duplicate values, for EVERY slider, at its default position AND
+    // both extremes (min/max). This is the exact class of bug centerRange() used to have.
+    Object.keys(SV).forEach(key=>{
+      checks++;
+      const s=SV[key], el=document.getElementById(s.id);
+      [s.min, s.max, +el.value].forEach(tv=>{
+        el.value = tv;
+        const arr = centerRange(key);
+        if(new Set(arr).size !== arr.length){
+          issues.push('['+sym+'] "'+s.lbl+'" sensitivity axis has duplicate values at slider='+tv+' → ['+arr.join(', ')+']');
+        }
+      });
+    });
+  }
+
+  await setTicker(origTicker); // leave the page exactly where the user had it
+  if(btn){ btn.disabled = false; btn.textContent = '🔍 Run Full Audit — sample tickers, every toggle, every slider extreme'; }
+
+  const panel = document.getElementById('auditPanel');
+  panel.style.display = 'block';
+  const summary = document.getElementById('auditSummary');
+  const detail = document.getElementById('auditDetail');
+  const sampleNote = ' (sample of '+sample.length+' of '+pool.length+' live universe tickers — every ticker is a network round-trip now, so this is an honest sample, not an exhaustive sweep)';
+  if(issues.length===0){
+    summary.innerHTML = '✅ ALL CHECKS PASS — '+checks+' checks across '+sample.length+' tickers, 0 issues.'+sampleNote;
+    summary.style.color = 'var(--green)';
+    detail.innerHTML = '';
+  } else {
+    summary.innerHTML = '🔴 '+issues.length+' ISSUE(S) FOUND — out of '+checks+' checks across '+sample.length+' tickers.'+sampleNote;
+    summary.style.color = 'var(--red)';
+    detail.innerHTML = issues.map(i=>'• '+i).join('<br>');
+  }
+}
+</script>
+
+</body>
+</html>

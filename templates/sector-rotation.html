@@ -1,0 +1,1542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCINTILLA — Sector Rotation</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root{
+    --bg:#0A0A0F; --panel:#0D0D14; --panel2:#0F0F1A; --border:#1A1A2A; --line2:#252538;
+    --hair:rgba(0,212,255,.34); --text:#F2F2F8; --ink2:#C6C8DE; --dim:#868AAA; --mute:#6B6E90;
+    --crk:#00D4FF; --green:#00FFA3; --red:#FF2D55; --yellow:#FFE500; --blue:#2D9CFF; --purple:#8B5CF6;
+    --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+    --sans:ui-sans-serif,-apple-system,"Helvetica Neue",sans-serif;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--text); font-family:var(--sans); padding:22px 26px 60px; min-height:100vh;}
+  header{display:flex; align-items:baseline; gap:16px; flex-wrap:wrap; margin-bottom:14px;}
+  h1{font-family:var(--mono); font-size:16px; font-weight:400; letter-spacing:.22em; text-transform:uppercase; color:var(--text);}
+  h1 span{color:var(--crk);}
+  .status{font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--dim);}
+  .status b{color:var(--green);}
+  .status.err b{color:var(--red);}
+  .controls{display:flex; flex-wrap:wrap; align-items:stretch; margin-bottom:14px; border:1px solid var(--border); background:var(--panel);}
+  .cgroup{display:flex; align-items:stretch; border-right:1px solid var(--line2);}
+  .cgroup:last-child{border-right:none;}
+  .clabel{font-family:var(--mono); font-size:8px; letter-spacing:.3em; text-transform:uppercase; color:var(--mute); display:flex; align-items:center; padding:0 10px 0 14px; border-right:1px solid var(--border);}
+  .btn{font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; background:transparent; border:none; border-right:1px solid var(--border); color:var(--ink2); padding:10px 14px; border-radius:0; cursor:pointer; user-select:none;}
+  .btn:hover{color:var(--text);}
+  .btn.active{color:var(--crk); background:rgba(0,212,255,.08); box-shadow:inset 0 -2px 0 var(--crk); font-weight:600;}
+  #chips{display:flex; flex-wrap:wrap; align-items:center; gap:4px; padding:5px 10px; border-right:1px solid var(--border);}
+  .chip{display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10px; letter-spacing:.04em; color:var(--dim); border:1px dashed var(--border); padding:4px 9px; border-radius:0; cursor:pointer; user-select:none;}
+  .chip.on{color:#fff; font-weight:700; border-color:var(--crk);}
+  .chip .dot{width:7px; height:7px; border-radius:50%;}
+  .divider{display:none;}
+  .grid{display:grid; gap:12px;
+    grid-template-columns:240px 1fr 1.35fr;
+    grid-template-rows:minmax(300px,38vh) minmax(260px,32vh) minmax(340px,44vh) minmax(700px,90vh) minmax(280px,auto) minmax(240px,auto) minmax(320px,auto);
+    grid-template-areas:"cards aum aum" "heat heat heat" "lines lines lines" "rrg rrg rrg" "table table table" "regime regime regime" "detail detail detail";}
+  #p-cards{grid-area:cards} #p-aum{grid-area:aum} #p-heat{grid-area:heat} #p-lines{grid-area:lines} #p-table{grid-area:table} #p-rrg{grid-area:rrg} #p-regime{grid-area:regime} #p-detail{grid-area:detail}
+  .panel{background:var(--panel); border:.8px solid rgba(0,212,255,.20); border-radius:0; padding:12px; display:flex; flex-direction:column; overflow:hidden;}
+  .panel h2{font-family:var(--mono); font-size:12px; font-weight:400; color:var(--crk); text-transform:uppercase; letter-spacing:.14em; border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:10px; display:flex; justify-content:space-between; gap:10px;}
+  .panel h2 .sub{font-size:10px; letter-spacing:.06em; color:var(--ink2); align-self:center; text-transform:uppercase;}
+  .aumLegend{position:absolute; right:10px; bottom:8px; z-index:3; font-family:var(--mono); font-size:9.5px; color:var(--ink2); background:rgba(10,10,15,.72); border:1px solid var(--line2); padding:5px 9px; pointer-events:none; display:flex; align-items:center; gap:6px;}
+  .aumLegend .swatch{width:22px; height:6px; background:linear-gradient(90deg, transparent, var(--crk)); display:inline-block;}
+  .lmodeGroup{display:flex; border:1px solid var(--border); flex:0 0 auto; align-self:center;}
+  .lmodeBtn{font-family:var(--mono); font-size:9px; letter-spacing:.08em; text-transform:uppercase; background:transparent; border:none; border-right:1px solid var(--border); color:var(--dim); padding:5px 10px; cursor:pointer;}
+  .lmodeBtn:last-child{border-right:none;}
+  .lmodeBtn:hover{color:var(--ink2);}
+  .lmodeBtn.active{color:var(--crk); background:rgba(0,212,255,.08); font-weight:600;}
+  /* heatmap */
+  #heatcards{flex:1; display:flex; flex-direction:column; gap:2px; overflow:hidden;}
+  .lrow{flex:1; min-height:0; display:flex; align-items:center; gap:8px; padding:2px 9px 2px 14px; cursor:pointer; font-family:var(--mono); font-size:10px; border:1px solid transparent; border-left-width:4px; box-shadow:inset 5px 0 0 0 var(--bg);}
+  .lrow:hover{border-color:var(--line2);}
+  .lrow .info{display:flex; flex-direction:column; justify-content:center; line-height:1.2; min-width:0;}
+  .lrow .tk{font-size:11px; font-weight:700; color:var(--text);}
+  .lrow .nm{font-size:7px; letter-spacing:.05em; text-transform:uppercase; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .lrow .pc{font-weight:700; font-variant-numeric:tabular-nums; margin-left:auto; font-size:11px;}
+  #treemap{flex:1; position:relative;}
+  .tmtile{position:absolute; border:2px solid var(--bg); border-radius:0; overflow:hidden; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; line-height:1.15; font-family:var(--mono); transition:filter .1s; box-shadow:inset 0 0 0 3px var(--bg);}
+  .tmtile:hover{filter:brightness(1.3);}
+  .tmtile .tk{font-weight:700; color:#fff;}
+  .tmtile .nm{opacity:.7; text-transform:uppercase; letter-spacing:.05em;}
+  .tmtile .pc{font-weight:700;}
+  /* lines */
+  #lines{flex:1; position:relative;}
+  #linesAum{position:absolute; inset:0; width:100%; height:100%; z-index:1; pointer-events:none;}
+  #linesChart{position:absolute; inset:0; z-index:2;}
+  /* rrg */
+  #rrgWrap{flex:1; position:relative;}
+  #rrg{position:absolute; inset:0; width:100%; height:100%;}
+  /* table */
+  #qtable{flex:1; overflow-y:auto;}
+  table{width:100%; border-collapse:collapse; font-size:12px;}
+  th{text-align:left; font-family:var(--mono); color:var(--dim); font-size:9px; text-transform:uppercase; letter-spacing:.1em; padding:8px 10px; border-bottom:1px solid var(--line2); position:sticky; top:0; background:var(--panel);}
+  td{padding:7px 10px; border-bottom:1px solid var(--border); color:var(--ink2); font-family:var(--mono);}
+  tr:hover td{background:var(--panel2);}
+  .badge{font-family:var(--mono); font-size:9px; font-weight:400; letter-spacing:.08em; padding:2px 7px; border-radius:0; border:1px dashed;}
+  .b-lead{color:var(--green); border-color:rgba(0,255,163,.4);}
+  .b-weak{color:var(--yellow); border-color:rgba(255,229,0,.35);}
+  .b-lag{color:var(--red); border-color:rgba(255,45,85,.4);}
+  .b-impr{color:var(--crk); border-color:var(--hair);}
+  .num{font-variant-numeric:tabular-nums; text-align:right;}
+  .up{color:var(--green);} .dn{color:var(--red);}
+  .llabel{position:absolute; font-family:var(--mono); font-size:10px; font-weight:700; pointer-events:none; transform:translateY(-50%); text-shadow:0 0 4px #0A0A0F, 0 0 4px #0A0A0F; z-index:5;}
+  #banner{display:none; background:rgba(255,45,85,.08); border:1px solid var(--red); color:var(--red); font-family:var(--mono); font-size:11px; letter-spacing:.04em; padding:8px 12px; border-radius:0; margin-bottom:10px;}
+  @media(max-width:700px){.grid{grid-template-columns:1fr; grid-template-rows:repeat(5,minmax(300px,45vh)); grid-template-areas:"cards" "heat" "lines" "rrg" "table";}}
+  #docs{margin-top:14px; display:flex; flex-direction:column; gap:8px;}
+  #docs details{background:var(--panel); border:1px solid var(--border); border-radius:0; padding:12px 16px; font-size:12.5px; color:var(--ink2); line-height:1.65;}
+  #docs summary{cursor:pointer; font-family:var(--mono); color:var(--ink2); font-weight:400; font-size:10.5px; letter-spacing:.14em; text-transform:uppercase;}
+  #docs summary:hover{color:var(--crk);}
+  #docs details>div{margin-top:10px;}
+  #docs code{background:var(--bg); border:1px dashed var(--line2); padding:1px 6px; border-radius:0; font-family:var(--mono); font-size:11px; color:var(--crk);}
+  #docs b{color:var(--text);}
+  /* rrg toolbar */
+  #rrgTools{display:flex; align-items:center; flex-wrap:wrap; gap:14px; padding:8px 10px; border:1px solid var(--border); background:var(--panel2); margin-bottom:10px; font-family:var(--mono);}
+  #rrgTools .rgroup{display:flex; align-items:center; gap:7px;}
+  #rrgTools .rlabel{font-size:8px; letter-spacing:.24em; text-transform:uppercase; color:var(--mute);}
+  #rrgTools .rbtn{font-family:var(--mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase; background:transparent; border:1px solid var(--line2); color:var(--ink2); padding:5px 10px; cursor:pointer;}
+  #rrgTools .rbtn:hover{color:var(--text); border-color:var(--crk);}
+  #rrgTools .rbtn.active{color:var(--crk); border-color:var(--crk); background:rgba(0,212,255,.08);}
+  #rrgTools .rbtn.rec::after{content:'★'; font-size:8px; margin-left:5px; color:var(--yellow); vertical-align:top;}
+  #rrgTools input[type=range]{width:130px; accent-color:var(--crk); background:transparent;}
+  #rrgTools .tailReadout{font-size:11px; color:var(--crk); font-weight:700; min-width:34px; text-align:right;}
+  #rrgTools .rec-tag{font-size:8px; color:var(--dim); letter-spacing:.08em;}
+  #rrgChips{display:flex; flex-wrap:wrap; align-items:center; gap:4px;}
+  #rrgChips .chip{padding:3px 8px; font-size:9px;}
+  /* aum panel */
+  #aumTabs,#detailTabs{display:flex; gap:0; border:1px solid var(--border); margin-bottom:8px; flex:0 0 auto;}
+  #aumTabs .atab,#detailTabs .atab{flex:1; font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; background:transparent; border:none; border-right:1px solid var(--border); color:var(--dim); padding:7px 4px; cursor:pointer;}
+  #aumTabs .atab:last-child,#detailTabs .atab:last-child{border-right:none;}
+  #aumTabs .atab:hover,#detailTabs .atab:hover{color:var(--ink2);}
+  #aumTabs .atab.active,#detailTabs .atab.active{color:var(--crk); background:rgba(0,212,255,.08); box-shadow:inset 0 -2px 0 var(--crk); font-weight:600;}
+  #detailPicker{display:flex; flex-wrap:wrap; gap:4px; margin-bottom:10px;}
+  #detailPicker .dchip{font-family:var(--mono); font-size:10px; letter-spacing:.03em; padding:5px 9px; border:1px solid var(--border); color:var(--ink2); cursor:pointer; display:flex; align-items:center; gap:5px; background:transparent;}
+  #detailPicker .dchip .sw{width:8px; height:8px; border-radius:50%; display:inline-block;}
+  #detailPicker .dchip.on{border-color:var(--crk); color:var(--crk); background:rgba(0,212,255,.08); font-weight:600;}
+  #aumContent{flex:1; position:relative; overflow:hidden; display:flex; flex-direction:column;}
+  .aumBarRow{flex:1; min-height:0; display:flex; align-items:center; gap:10px; padding:0 2px; font-family:var(--mono); font-size:12px;}
+  .aumBarRow .abLabel{width:66px; flex:0 0 auto; line-height:1.2;}
+  .aumBarRow .abLabel b{font-size:13px;}
+  .aumBarRow .abLabel .abNm{display:block; font-size:7px; font-weight:400; letter-spacing:.05em; text-transform:uppercase; color:var(--dim);}
+  .aumBarRow .abTrack{flex:1; height:60%; background:var(--bg); border:1px solid var(--line2); position:relative;}
+  .aumBarRow .abFill{position:absolute; left:0; top:0; bottom:0;}
+  .aumBarRow .abVal{width:38px; flex:0 0 auto; text-align:right; color:var(--ink2); font-size:11px;}
+  #aumTable{width:100%; border-collapse:collapse; font-size:11px;}
+  #aumTable td{padding:4px 6px; border-bottom:1px solid var(--border); font-family:var(--mono); color:var(--ink2);}
+  /* regime panel */
+  #regimeContent{display:flex; flex-direction:column; gap:16px; overflow-y:auto; height:100%;}
+  .regimeTop{display:flex; align-items:center; gap:20px; flex-wrap:wrap;}
+  .regimeBadge{font-family:var(--mono); font-size:22px; font-weight:700; letter-spacing:.08em; padding:11px 20px; border:1px solid; text-transform:uppercase; flex:0 0 auto;}
+  .regimeBadge.on{color:var(--green); border-color:var(--green); background:rgba(0,255,163,.06);}
+  .regimeBadge.off{color:var(--red); border-color:var(--red); background:rgba(255,45,85,.06);}
+  .regimeBadge.mix{color:var(--yellow); border-color:var(--yellow); background:rgba(255,229,0,.06);}
+  .regimeNote{font-family:var(--mono); font-size:12px; color:var(--ink2); line-height:1.7; flex:1; min-width:260px;}
+  .breadthBar{display:flex; height:28px; border:1px solid var(--line2);}
+  .breadthBar span{display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-size:10.5px; font-weight:700; color:#0A0A0F;}
+  .groupCompare{display:flex; gap:24px;}
+  .gcCol{flex:1; min-width:160px;}
+  .gcLabel{font-family:var(--mono); font-size:9px; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); margin-bottom:5px;}
+  .gcCol .gcTrack{height:10px; background:var(--bg); border:1px solid var(--line2); position:relative;}
+  .gcCol .gcFill{position:absolute; left:0; top:0; bottom:0;}
+  .gcCol .gcVal{font-family:var(--mono); font-size:12px; color:var(--ink2); margin-top:3px;}
+  .crossChip{display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:11px; border:1px dashed var(--line2); padding:5px 10px; margin:0 6px 6px 0;}
+  .secHead{font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--crk); font-weight:700; margin-bottom:8px;}
+  /* decision / rules-read block */
+  #detailActionable{border:1px solid var(--crk); background:rgba(0,212,255,.05); padding:12px 16px; margin-bottom:14px; display:flex; gap:16px; align-items:center; flex-wrap:wrap;}
+  #detailActionable .arVerdict{font-family:var(--mono); font-size:16px; font-weight:700; letter-spacing:.04em; padding:8px 16px; border:1px solid currentColor; flex:0 0 auto;}
+  #detailActionable .arWhy{font-family:var(--mono); font-size:11px; color:var(--ink2); line-height:1.6; flex:1; min-width:260px;}
+  .decisionBox{border:1px solid var(--line2); background:var(--panel2); padding:14px 16px;}
+  .ruleRow{display:flex; gap:10px; align-items:flex-start; font-family:var(--mono); font-size:11.5px; color:var(--ink2); line-height:1.6; padding:8px 0; border-bottom:1px solid var(--border);}
+  .ruleRow:last-child{border-bottom:none;}
+  .ruleTag{flex:0 0 auto; font-size:9px; font-weight:700; letter-spacing:.08em; padding:3px 8px; text-transform:uppercase; align-self:flex-start; margin-top:1px;}
+  .ruleTag.watch{color:var(--green); border:1px solid var(--green); background:rgba(0,255,163,.06);}
+  .ruleTag.caution{color:var(--red); border:1px solid var(--red); background:rgba(255,45,85,.06);}
+  .ruleTag.note{color:var(--crk); border:1px solid var(--crk); background:rgba(0,212,255,.06);}
+  /* scorecard (technicals) */
+  .scoreRow{display:flex; align-items:center; gap:10px; font-family:var(--mono); font-size:11px; color:var(--ink2); padding:6px 0; border-bottom:1px solid var(--border);}
+  .scoreRow:last-child{border-bottom:none;}
+  .scoreMark{flex:0 0 18px; height:18px; display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; border-radius:50%;}
+  .scoreMark.pass{color:var(--green); background:rgba(0,255,163,.12); border:1px solid var(--green);}
+  .scoreMark.fail{color:var(--red); background:rgba(255,45,85,.12); border:1px solid var(--red);}
+  .scoreWhy{color:var(--dim); font-size:10px; margin-left:auto; text-align:right;}
+  .geigerArc{display:flex; gap:16px; align-items:center; flex-wrap:wrap;}
+  .geigerBar{display:flex; flex-direction:column; gap:4px; min-width:150px;}
+  .geigerBar .gbLabel{font-family:var(--mono); font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--mute);}
+  .geigerBar .gbTrack{height:10px; background:var(--bg); border:1px solid var(--line2); position:relative;}
+  .geigerBar .gbFill{position:absolute; top:0; bottom:0; }
+  .geigerBar .gbVal{font-family:var(--mono); font-size:11px; color:var(--ink2);}
+</style>
+</head>
+<body>
+<header>
+  <h1>SCINTILLA <span>// SECTOR ROTATION</span></h1>
+  <div class="status" id="status">loading…</div>
+</header>
+<div id="dataSpine" style="display:flex;flex-wrap:wrap;gap:5px;margin:6px 14px 0"></div>
+<div id="rankStrip" style="margin:6px 14px 2px"></div>
+<div id="banner"></div>
+<div class="controls">
+  <span class="cgroup"><span class="clabel">Group</span><button class="btn grp active" data-grp="ALL">All 11</button><button class="btn grp" data-grp="CYC">Cyclicals</button><button class="btn grp" data-grp="DEF">Defensives</button><button class="btn grp" data-grp="GRW">Growth</button></span>
+  <span class="cgroup"><span class="clabel">Range</span><button class="btn rng" data-d="1D">1D</button><button class="btn rng" data-d="5D">5D</button><button class="btn rng" data-d="21">1M</button><button class="btn rng active" data-d="63">3M</button><button class="btn rng" data-d="999">6M</button><button class="btn" id="refreshBtn">Refresh</button></span>
+  <span class="cgroup" style="flex:1"><span class="clabel">Sectors</span><span id="chips"></span></span>
+</div>
+<div class="grid">
+  <div class="panel" id="p-cards"><h2>Leaders <span class="sub" id="hmDate"></span></h2><div id="heatcards"></div></div>
+  <div class="panel" id="p-aum"><h2>Fund Size (AUM) <span class="sub">4 views — pick whichever reads best, it's just a display choice</span></h2>
+    <div id="aumTabs">
+      <button class="atab" data-v="bars">Bars</button>
+      <button class="atab" data-v="donut">Donut</button>
+      <button class="atab active" data-v="bubbles">Bubbles</button>
+      <button class="atab" data-v="table">Table</button>
+    </div>
+    <div id="aumContent"></div>
+  </div>
+  <div class="panel" id="p-heat"><h2>Sector Heatmap <span class="sub">tile size ≈ fund AUM · color = move over selected timeframe · click = toggle</span></h2><div id="treemap"></div></div>
+  <div class="panel" id="p-lines"><h2>Relative Performance % <span class="sub">drag time axis = zoom · rebases % to left edge like TV</span>
+    <span class="lmodeGroup"><button class="lmodeBtn" id="lmodeNormal">Normal</button><button class="lmodeBtn" id="lmodeGlow">Glow (AUM)</button></span></h2>
+    <div id="lines"><canvas id="linesAum"></canvas><div id="linesChart"></div><div class="aumLegend" id="aumLegendEl"><span class="swatch"></span> glow width = fund AUM, thickest at "now" (right) — drawn on the graph itself, behind the price lines, same idea as the RRG tail cones</div></div></div>
+  <div class="panel" id="p-table"><h2>Quadrant Positions</h2><div id="qtable"></div></div>
+  <div class="panel" id="p-rrg"><h2>Rotation Map (RRG) <span class="sub">vs SPY · weekly · 14w RS window</span></h2>
+    <div id="rrgTools">
+      <span class="rgroup"><button class="rbtn" id="rrgAnimate">▶ Animate</button></span>
+      <span class="rgroup"><button class="rbtn" id="rrgFit">Fit</button><button class="rbtn" id="rrgMax">Max</button><button class="rbtn active rec" id="rrgCenter">Center</button></span>
+      <span class="rgroup"><span class="rlabel">Tail Length</span><input type="range" id="tailSlider" min="2" max="26" step="1" value="5"><span class="tailReadout" id="tailReadout">5w</span><button class="rbtn" id="tailReset" title="Reset to recommended">&#8634; 5w</button><span class="rec-tag">recommended: 5w — StockCharts' own default; no universal standard exists</span></span>
+      <span class="rgroup" style="flex:1; justify-content:flex-end"><span class="rlabel">Sectors</span><span id="rrgChips"></span></span>
+    </div>
+    <div id="rrgWrap"><canvas id="rrg"></canvas></div></div>
+  <div class="panel" id="p-regime"><h2>Regime Read <span class="sub">rule-based off the RRG data above — deterministic, not AI-generated</span></h2><div id="regimeContent"></div></div>
+  <div class="panel" id="p-detail"><h2>ETF Detail <span class="sub">sub-industry &amp; holdings are static reference (illustrative, not live) · technicals are live, computed off the daily closes above</span></h2>
+    <div id="detailPicker"></div>
+    <div id="detailActionable"></div>
+    <div id="detailTabs" style="margin-top:2px">
+      <button class="atab active" data-dv="sub">Sub-Industry</button>
+      <button class="atab" data-dv="holdings">Top Holdings</button>
+      <button class="atab" data-dv="tech">Technicals</button>
+      <button class="atab" data-dv="geiger">Geiger</button>
+      <button class="atab" data-dv="fund">Fundamentals</button>
+    </div>
+    <div id="detailContent"></div>
+  </div>
+</div>
+
+<div id="docs">
+  <details><summary>SPECS & DATA SOURCES</summary><div>
+    <b>Universe:</b> 11 SPDR sector ETFs (XLK XLC XLY XLF XLI XLB XLE XLV XLP XLU XLRE) vs benchmark <b>SPY</b>.<br>
+    <b>Source-of-Truth Order (Move 1, Alan, 2026-07-24): Supabase <code>wadinxqplrggagkvrdag</code> is the source of truth. Yahoo is now a flagged fallback only, used exactly where a Supabase table is still empty/unwired. FMP is never used. Never render stale data as live — every DB-sourced number below shows its own <code>updated_ts</code> freshness inline, and missing data shows "missing", never a placeholder value.</b><br>
+    <b>① Supabase</b> (project <code>scintilla-live</code>, same database that feeds scintillahub.ai itself, read via anon/RLS-gated key, eight independent reads, each polled every 5 min, each failure isolated to its own tab/section):<br>
+    &nbsp;&nbsp;• <code>composite_staged</code> (tf='D') — real Geiger composite/trend/momentum/conviction. Geiger tab.<br>
+    &nbsp;&nbsp;• <code>derived_series</code> (tf='1D') — RSI, Williams %R, MACD, CCI, ROC, Stochastic, EMA5/8/13/21/34, SMA50/100/150/200. Feeds Technicals scorecard, Sector Sentiment, Extension Watch, Actionable Read — REPLACES all in-browser EMA/RSI math when a ticker has a row here.<br>
+    &nbsp;&nbsp;• <code>live_quotes</code> — price, chg_pct, volume, prev_close. Feeds the ETF Detail Actionable Read quote line.<br>
+    &nbsp;&nbsp;• <code>regime_state</code> — per-ticker/per-term (SHORT/MID/LONG) bull/bear + score. Feeds the "DB Regime State" block in Regime Read, kept SEPARATE from this page's own RISK-ON/OFF badge (different signal shape — see Chain 2b).<br>
+    &nbsp;&nbsp;• <code>ohlcv_history</code> (tf='D' daily / 'W' weekly / '5' 5-min / '1' 1-min; timestamp = epoch seconds) — OHLCV price bars. <b>PRIMARY price spine (wired 2026-07-30):</b> feeds Chain 1 Relative-Performance % lines, Chain 2a RRG (weekly), heatmap %, Leaders. Replaces the Yahoo relay, which is now flagged-fallback only.<br>
+    &nbsp;&nbsp;• <code>company_profile</code> (<code>avg_volume</code>) — 30-day average volume, populated for all 12. Feeds RVOL = <code>live_quotes.volume ÷ company_profile.avg_volume</code> in the Actionable Read (wired 2026-07-30).<br>
+    &nbsp;&nbsp;• <code>sector_rankings</code> — <b>this tool's PUBLISHED OUTPUT (C7, 2026-08-05):</b> rank/score per sector, written hourly server-side by <code>refresh_sector_rankings()</code> (pg_cron) from <code>composite_staged</code> tf='D', universe-checked against <code>ticker_cohorts</code>. This page reads it back and shows it in the strip under the header — the allocation module consumes the same rows. Deploys for this page now go through the Vercel API directly (serialized), not the shared _queue file.<br>
+    &nbsp;&nbsp;• <code>ticker_cohorts</code> (cohort=MACRO) — THE universe table: boot-time check that all 11 sectors + SPY are present; any missing name is flagged in the badge strip, never silently assumed.<br>
+    <b>② Yahoo Finance</b> (via same-origin relay <code>/api/yahoo</code>; fallbacks: hub relay, direct Yahoo, public proxies) — <code>close-only</code> daily (6mo) and intraday (1m/5m) series. <b>FLAGGED FALLBACK ONLY as of 2026-07-30:</b> the price spine (daily/weekly/1m/5m bars for RRG, Relative Performance % lines, heatmap %, Leaders) now reads Supabase <code>ohlcv_history</code> (①) as PRIMARY and only falls back to Yahoo if that DB read throws. Also still the flagged client-side fallback in Technicals/Sentiment when <code>derived_series</code> doesn't cover a ticker yet.<br>
+    <b>③ Static hand-compiled reference</b> (hardcoded in this file) — fund AUM $B approximations (<code>AUM</code> map), GICS sub-industry lists and illustrative top-holdings/weights (<code>ETF_DETAIL</code>, <code>TOP_HOLD_PCT</code>). BLOCKED from moving to Supabase <code>etf_holdings</code>/<code>etf_info</code> right now — both tables confirmed EMPTY (0 rows) for our tickers as of 2026-07-24. Flagged everywhere it's used.<br>
+    <b>RVOL (WIRED 2026-07-30):</b> ordered formula was <code>live_quotes.volume ÷ etf_info.avg_volume</code>, but <code>etf_info</code> is empty; <code>company_profile.avg_volume</code> IS populated for all 12, so RVOL now = <code>live_quotes.volume ÷ company_profile.avg_volume</code>, shown live in the Actionable Read. Falls back to explicit "missing" (never a fake number) if either input is absent.<br>
+    <b>sector_performance</b> table exists (18k+ rows) but is explicitly NOT used per Alan's order — treated as off-limits regardless of row count.<br>
+    <b>Timeframe buttons:</b> 1D/5D use intraday series (source ②); 1M/3M/6M use daily (source ②). Leaders list, heatmap colors, and the % lines all follow the selected timeframe. RRG always computes on daily→weekly-resampled data from source ②, independent of the timeframe buttons.
+  </div></details>
+  <details><summary>FORMULAS & COMPUTATIONS — what feeds what</summary><div>
+    This section is ordered as dependency chains: raw input → each derived step → what it's displayed as. Source tags: ① Supabase, ② Yahoo, ③ static.<br><br>
+    <b>Chain 1 — Relative Performance %:</b> <code>ohlcv_history</code> daily/intraday closes (①, Yahoo flagged-fallback) → <code>(close_i / close_base − 1) × 100</code>, base = first visible bar, rebases live as you pan/zoom → drawn as the % lines. <b>Normal/Glow toggle:</b> in Glow mode only, the same closes are re-walked to build a taper-width polygon per sector (width ∝ √AUM from source ③, thin at the left edge → full width at "now") drawn on a canvas behind the crisp lines — same underlying % values either way. <i>Migrated 2026-07-30: closes now come from Supabase <code>ohlcv_history</code> (①, tf='D'/'5'/'1') as PRIMARY; Yahoo flagged-fallback only. Same math.</i><br>
+    <b>Chain 2a — RRG (rotation math):</b> <code>ohlcv_history</code> weekly closes (①, tf='W'; ~20y available, 2y window used, Yahoo flagged-fallback) → RS = 100 × sector/SPY → smoothed EMA(4) → <b>RS-Ratio</b> = 100 + z-score of smoothed RS over a rolling 14-week window, <b>RS-Momentum</b> = 100 + z-score of the 4-week change in RS-Ratio over the same window, both finished with EMA(2) → <b>Quadrant</b> (Leading/Weakening/Lagging/Improving off the ≥100/&lt;100 split on both axes) → drawn as the RRG scatter + tails (head size ∝ √AUM from source ③). <i>Migrated 2026-07-30: weekly bars confirmed (tf='W', 1044 bars/ticker ≈ 20y) and now sourced from <code>ohlcv_history</code> (①); Yahoo flagged-fallback only.</i><br>
+    &nbsp;&nbsp;Quadrant series, walked backward → <b>Weeks In</b> + <b>"just crossed"</b> flag (weeks==1) → <b>Regime Read "just crossed" list</b>, labeled lagging/confirmatory (can only fire after a rotation change already happened).<br>
+    &nbsp;&nbsp;RS-Ratio, grouped Cyclicals vs Defensives → averaged per group → <b>spread</b> → <b>RISK-ON/RISK-OFF/MIXED</b> badge (±0.6 threshold) + breadth counts → <b>"What this means" rules block</b>. This badge is THIS PAGE'S OWN basket-wide calc — see Chain 2b for the separate DB regime signal.<br>
+    <b>Chain 2b — DB Regime State (①, NOT computed on this page):</b> Supabase <code>regime_state</code> row per ticker × term (SHORT/MID/LONG) → <code>state</code> (bull/bear) + <code>score</code> (−1..+1) shown as-is in a dedicated "DB Regime State" row under Regime Read. Deliberately kept separate from the RISK-ON/OFF badge above: that badge is one basket-wide call from this page's own RRG breadth math (Chain 2a); this is a different engine's per-ticker/per-term call — showing both, not merging them, so nothing is silently overwritten or reconciled without a visible rule.<br>
+    <b>Chain 2c — Extension Watch (forward-looking overbought/oversold):</b> RSI(14) + Williams %R (both ①, from <code>derived_series</code> when available) + stretchPct = (price/trend-EMA − 1)×100 (Chain 3) → <b>overbought</b> if RSI≥68 OR stretch≥+8% OR Williams %R > −20 (its own overbought zone) → <b>oversold</b> if RSI≤32 OR stretch≤−8% OR Williams %R < −80 (its own oversold zone) → Extension Watch chips + rules text. This is the FORWARD-LOOKING counterpart to the lagging "just crossed" list (Chain 2a) — can fire before any quadrant cross confirms anything, and now has a real Williams %R vote instead of only RSI+stretch.<br>
+    <b>Chain 3 — Technicals scorecard / Sector Sentiment / ETF Detail Actionable Read:</b> <code>derived_series</code> (①, tf='1D') → RSI, Williams %R, MACD (raw + signed), CCI, ROC, Stochastic, EMA21, SMA50, latest price backstopped by <code>live_quotes</code> (①) → up to 9 pass/fail conditions (price vs EMA21, price vs SMA50, EMA21 vs SMA50, RSI bands ×4, Williams %R overbought/oversold, MACD signed) → <b>score</b> = passes minus fails → <b>STRONG BUY…STRONG SELL badge</b>. <i>Flagged Yahoo fallback</i>: if a ticker has no <code>derived_series</code> row yet, falls back to client-computed EMA20/EMA50/RSI(14) from Yahoo closes (②), no Williams %R/MACD in that mode — the Technicals tab visibly states which mode is active. Same RSI + trend-EMA → <b>Sector Sentiment</b> = 50 + 0.8×(RSI−50) + 3×((price/trend-EMA−1)×100), clamped 0–100 (our own composite, not CNN's Fear &amp; Greed). <b>Actionable Read</b> (top of ETF Detail) = Technicals score (this chain) + Geiger composite (Chain 4, ①) + Extension state (Chain 2c) + live quote/chg_pct (①, <code>live_quotes</code>) + RVOL (live: <code>live_quotes.volume ÷ company_profile.avg_volume</code>), reconciled: if Extension flags stretched, that overrides an agreeing Technicals/Geiger read → ALIGNED BULLISH/BEARISH, STRETCHED, or MIXED SIGNALS.<br>
+    <b>Chain 4 — Geiger (①, NOT computed on this page):</b> Supabase <code>composite_staged</code> row (tf='D') → <code>composite = 0.5×trend + 0.5×momentum</code> (momentum = RSI 60% / Williams %R 40%, the "equalizer" mix set on scintillahub.ai itself; structure &amp; volatility archived at 0 in the live system) → STRONG BULLISH…STRONG BEARISH verdict off the composite value. If the fetch fails, falls back to a local approximation using an older, superseded 0.30/0.25/0.20 weighting — clearly flagged, not the real number.<br>
+    <b>Chain 5 — AUM sizing (③, static):</b> <code>AUM</code> $B map → RRG head/tail radius (√AUM), heatmap tile size (squarified treemap), Quadrant table's AUM column, Relative Performance Glow-mode taper width, and the standalone Fund Size panel's 4 display views — no different data underneath, purely a display choice.<br>
+    <b>Chain 6 — Sub-Industry / Top Holdings (③, static, BLOCKED from moving to ①):</b> <code>ETF_DETAIL</code> hand-compiled list + <code>TOP_HOLD_PCT</code> illustrative decay curve → shown as-is, not derived from anything else, not live. Supabase <code>etf_holdings</code>/<code>etf_info</code> are the ordered replacement but both are confirmed EMPTY (0 rows) for our 12 tickers — logged as an outstanding blocker, not silently worked around.<br>
+    <b>Outstanding / logged (see Research_Logs/SECTOR_ROTATION_LOG.json, "move1_sprint_board"):</b> (1) Chain 1 + Chain 2a price-bar migration to <code>ohlcv_history</code> — <b>DONE 2026-07-30</b> (daily tf='D', weekly tf='W', 5m tf='5', 1m tf='1'; Yahoo flagged-fallback only). (2) Chain 6 holdings/fundamentals migration — STILL BLOCKED on empty <code>etf_holdings</code>/<code>etf_info</code>. (3) RVOL — <b>DONE 2026-07-30</b> via <code>company_profile.avg_volume</code>. (4) Fundamentals tab (grade/P-E/yield/growth) still needs FMP, not built, explicit "pending FMP" placeholders (never wired per Alan's FMP-never rule for THIS table's data — Fundamentals tab is the one exception awaiting a future explicit source decision from Alan, not a live claim).
+  </div></details>
+  <details><summary>CODE & DEPLOY</summary><div>
+    <b>Canonical source:</b> <code>/Users/alanharvey/SCINTILLA 0.5/scintilla-sector/index.html</code> — its own standalone Vercel project (<code>scintilla-sector</code>, project id <code>prj_5GJnTOR1uzYH4S7ZMZ5Iuy71y3n7</code>). NOT part of <code>_VERCEL_DEPLOY</code> (the hub) anymore.<br>
+    <b>Live URL:</b> <code>https://sectorrotation.scintillahub.ai</code> — real subdomain, bound directly to this project (no proxy/rewrite in the path). <code>scintillahub.ai/sectorrotation</code> still works as a redirect for old links.<br>
+    <b>Relay:</b> <code>scintilla-sector/api/yahoo.js</code> (its own copy — do not point this page at the hub's relay).<br>
+    <b>Deploy:</b> write <code>/Users/alanharvey/SCINTILLA 0.5/scintilla-sector</code> + a new stamp line into <code>_queue/deploy_request.txt</code> → launchd watcher <code>ai.scintilla.autodeploy</code> runs <code>vercel deploy --prod</code> from that dir only. Log: <code>_queue/deploy_log.txt</code>.
+  </div></details>
+  <details><summary>INSTRUCTIONS FOR OTHER CLAUDE SESSIONS</summary><div>
+    1. <b>This page is fully isolated from the hub.</b> It lives in its own folder (<code>scintilla-sector/</code>) and its own Vercel project, deployed independently. Deploying the hub (<code>_VERCEL_DEPLOY/</code>) CANNOT affect this page, and deploying this page CANNOT affect the hub. Do not merge them back together.<br>
+    2. To change THIS page: edit <code>/Users/alanharvey/SCINTILLA 0.5/scintilla-sector/index.html</code>, then point <code>_queue/deploy_request.txt</code> line 1 at <code>/Users/alanharvey/SCINTILLA 0.5/scintilla-sector</code> (not <code>_VERCEL_DEPLOY</code>). Watcher deploys in ~15s.<br>
+    3. To change the HUB (other pages), deploy <code>_VERCEL_DEPLOY/</code> as before — it will never touch this page.<br>
+    4. Need market data in a page? Use a same-origin relay like <code>api/yahoo.js</code> in your own project folder — don't reach across projects.<br>
+    5. This page's owner-session log: <code>Research_Logs/SECTOR_ROTATION_LOG.json</code>.
+  </div></details>
+</div>
+
+<script>
+/* ============ CONFIG ============ */
+const SECTORS = [   // colors = SCINTILLA design-system tokens only; sh = short abbreviation (memory aid on dense labels)
+  {t:'XLK', n:'Technology',        sh:'Tech',    c:'#00D4FF', g:['GRW']},
+  {t:'XLC', n:'Communications',    sh:'Comm',    c:'#8B5CF6', g:['GRW']},
+  {t:'XLY', n:'Cons. Discretionary',sh:'Disc',   c:'#FF3DBE', g:['CYC']},
+  {t:'XLF', n:'Financials',        sh:'Fin',     c:'#00FFA3', g:['CYC']},
+  {t:'XLI', n:'Industrials',       sh:'Indl',    c:'#FFD400', g:['CYC']},
+  {t:'XLB', n:'Materials',         sh:'Matl',    c:'#C8FF00', g:['CYC']},
+  {t:'XLE', n:'Energy',            sh:'Enrg',    c:'#FF8A00', g:['CYC']},
+  {t:'XLV', n:'Healthcare',        sh:'Health',  c:'#2D9CFF', g:['DEF']},
+  {t:'XLP', n:'Cons. Staples',     sh:'Staples', c:'#F2F2F8', g:['DEF']},
+  {t:'XLU', n:'Utilities',         sh:'Util',    c:'#868AAA', g:['DEF']},
+  {t:'XLRE',n:'Real Estate',       sh:'REIT',    c:'#FF2D55', g:['DEF']},
+];
+const BENCH='SPY';
+const REFRESH_MIN=5;
+const RRG_WIN=14, TAIL_STEP=1; const TAIL_REC=5; let TAIL_PTS=TAIL_REC;   // weekly, JdK-style; tail user-selectable, rec = StockCharts' own default
+const RRG_R_DEFAULT=3.2, RRG_R_MAX=6.5;
+let RRG_R=RRG_R_DEFAULT;              // current half-range of the RRG axes (Center=default, Fit=auto, Max=wide)
+let RRG_VIEW='CENTER';                // CENTER | FIT | MAX — which button is active
+let RRG_ANIM=null;                    // animation timer handle, null = not animating
+let RRG_ANIM_BUILD=null;              // while animating: how many tail points are currently revealed (1 -> TAIL_PTS)
+
+/* ============ STATE ============ */
+let DS={daily:{},intra:{},intra1:{},weekly:{}}; let ACTIVE='daily';
+let selected = JSON.parse(localStorage.getItem('sr_sel')||'null') || SECTORS.map(s=>s.t);
+let lineSeries={}, chart=null, rebaseIdx=-1, rebasing=false;
+
+/* ============ FETCH (own /api/yahoo relay first, then public fallbacks) ============ */
+async function fetchJSON(path,qs){
+  const direct=`https://query1.finance.yahoo.com/${path}?${qs}`;
+  const tries=[
+    `/api/yahoo?path=${encodeURIComponent(path)}&${qs}`,      // same-origin relay (hosted on scintillahub.ai)
+    `https://scintillahub.ai/api/yahoo?path=${encodeURIComponent(path)}&${qs}`, // hub relay (works from local copies too)
+    direct,                                                    // works in some browsers/extensions
+    'https://corsproxy.io/?url='+encodeURIComponent(direct),   // public fallback 1
+    'https://api.allorigins.win/raw?url='+encodeURIComponent(direct)]; // public fallback 2
+  for(const u of tries){
+    try{ const r=await fetch(u,{cache:'no-store'}); if(r.ok){const j=await r.json(); if(j&&!j.error) return j;} }catch(e){}
+  }
+  throw new Error('all fetch routes failed');
+}
+function parseSpark(j){
+  const out={};
+  const put=(sym,ts,cl)=>{
+    const times=[],closes=[];
+    for(let i=0;i<(ts||[]).length;i++){ if(cl[i]!=null){times.push(ts[i]); closes.push(cl[i]);} }
+    if(times.length) out[sym]={times,closes};
+  };
+  const arr=j.spark? j.spark.result : j.result;
+  if(Array.isArray(arr)){
+    for(const r of arr){
+      const resp=r.response&&r.response[0]; if(!resp) continue;
+      put(r.symbol, resp.timestamp, (resp.indicators.quote[0].close)||[]);
+    }
+  }else{
+    for(const sym in j){ const o=j[sym]; if(o&&o.timestamp&&o.close) put(sym,o.timestamp,o.close); }
+  }
+  return out;
+}
+/* ============ PRICE BARS — Supabase ohlcv_history (Move 1 item 4: PRIMARY source) ============ */
+// Replaces the Yahoo spark relay as the PRIMARY price spine feeding Chain 1 Relative-Performance %
+// lines, Chain 2a RRG (weekly), heatmap % and Leaders. Same DS shape as parseSpark() (per-symbol
+// {times,closes}); opens/highs/lows/vols added ADDITIVELY, downstream math unchanged. ohlcv_history
+// .timestamp is bigint epoch SECONDS — same unit as Yahoo spark, so alignment/chart code needs no
+// change. tf map: daily->'D', weekly->'W', 5m->'5', 1m->'1'. Per-ticker order=timestamp.desc&limit=N
+// (then reversed to ascending) mirrors the derived_series per-ticker pattern, stays under PostgREST's
+// 1000-row cap, and reproduces the old Yahoo range bar-counts (6mo / 2y / 5d / 1d).
+const OHLCV_VIEWS=[{view:'daily',tf:'D',lim:130},{view:'weekly',tf:'W',lim:110},{view:'intra',tf:'5',lim:400},{view:'intra1',tf:'1',lim:390}];
+let PRICE_SOURCE='pending';   // 'ohlcv_history' | 'yahoo-fallback' | 'pending'
+/* ---- C7 (2026-08-05): DATA SPINE badges — every data element shows table · freshness · LIVE/STALE/FALLBACK ---- */
+const SPINE={};
+function spineSet(k,ts,mode,note){ SPINE[k]={ts,mode,note}; renderSpine(); }
+function spineAge(ts,staleSec){
+  if(ts==null) return 'LIVE';
+  const es=(typeof ts==='number')?ts:(Date.parse(ts)/1000);
+  return (isFinite(es)&&(Date.now()/1000-es)>staleSec)?'STALE':'LIVE';
+}
+function renderSpine(){
+  const el=document.getElementById('dataSpine'); if(!el) return;
+  const col={LIVE:'#00ffa3',STALE:'#ffb454',FALLBACK:'#ffd166'};
+  el.innerHTML=Object.entries(SPINE).map(([k,v])=>
+    `<span style="border:1px solid ${col[v.mode]||'#555'};color:${col[v.mode]||'#999'};border-radius:5px;padding:1px 7px;font-size:10px;font-family:ui-monospace,monospace" title="${(v.note||'').replace(/"/g,'&quot;')}">${k}${v.ts?' · '+freshText(v.ts):''} · ${v.mode}</span>`).join('');
+}
+/* ---- C7: published OUTPUT read-back — sector_rankings (written hourly server-side from composite_staged
+   via refresh_sector_rankings()/pg_cron; consumed by the allocation module). Shown here so the page
+   displays exactly what it publishes to the rest of the ecosystem. ---- */
+let RANKINGS_LIVE=null;
+async function refreshRankingsLive(){
+  try{
+    const url=`${SB_URL}/rest/v1/sector_rankings?select=date,sector,sector_name,rank,score,method,updated_at&order=date.desc,rank.asc&limit=22`;
+    const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}, cache:'no-store'});
+    if(!res.ok) throw new Error('sector_rankings '+res.status);
+    const rows=await res.json();
+    if(rows.length){
+      const d0=rows[0].date; RANKINGS_LIVE={date:d0, list:rows.filter(r=>r.date===d0), updated_at:rows[0].updated_at};
+      spineSet('sector_rankings',rows[0].updated_at,spineAge(rows[0].updated_at,3*3600),RANKINGS_LIVE.list.length+' sectors @ '+d0+' — THIS TOOL\'S PUBLISHED OUTPUT (read by the allocation module)');
+    } else spineSet('sector_rankings',null,'STALE','table empty');
+  }catch(e){ spineSet('sector_rankings',null,'FALLBACK','read failed: '+e.message); }
+  const el=document.getElementById('rankStrip'); if(!el) return;
+  if(!RANKINGS_LIVE){ el.innerHTML=''; return; }
+  const chips=RANKINGS_LIVE.list.map(r=>{
+    const col=r.rank<=3?'#00ffa3':r.rank>=9?'#ff2d55':'#8a8aa0';
+    return `<span style="border:1px solid #2a2a3a;border-radius:5px;padding:2px 8px;font-size:11px;font-family:ui-monospace,monospace;color:${col}" title="${r.sector_name||''} · ${r.method}">#${r.rank} ${r.sector} ${r.score>=0?'+':''}${(+r.score).toFixed(2)}</span>`;
+  }).join(' ');
+  el.innerHTML=`<div style="font-size:10px;letter-spacing:.08em;color:#8a8aa0;margin-bottom:3px">PUBLISHED RANKING → <code>sector_rankings</code> (hourly, from composite_staged; consumed by the allocation module)</div><div style="display:flex;flex-wrap:wrap;gap:4px">${chips}</div>`;
+}
+/* ---- C7: universe check — the 11 sectors + SPY must exist in ticker_cohorts (THE universe table) ---- */
+async function refreshUniverseCheck(){
+  try{
+    const url=`${SB_URL}/rest/v1/ticker_cohorts?select=ticker,cohort&cohort=eq.MACRO&limit=1000`;
+    const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}, cache:'no-store'});
+    if(!res.ok) throw new Error('ticker_cohorts '+res.status);
+    const rows=await res.json();
+    if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
+    const have=new Set(rows.map(r=>r.ticker));
+    const need=[...SECTORS.map(s=>s.t),BENCH];
+    const missing=need.filter(t=>!have.has(t));
+    spineSet('ticker_cohorts',null,missing.length?'STALE':'LIVE','universe check (MACRO cohort): '+(need.length-missing.length)+'/'+need.length+' present'+(missing.length?' — MISSING: '+missing.join(','):''));
+  }catch(e){ spineSet('ticker_cohorts',null,'FALLBACK','universe check failed: '+e.message); }
+}
+async function fetchOHLCV(tk,tf,lim){
+  const url=`${SB_URL}/rest/v1/ohlcv_history?select=timestamp,open,high,low,close,volume&ticker=eq.${tk}&tf=eq.${tf}&order=timestamp.desc&limit=${lim}`;
+  const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}, cache:'no-store'});
+  if(!res.ok) throw new Error('ohlcv '+tk+' '+tf+' '+res.status);
+  const rows=await res.json(); rows.reverse();   // DB returns newest-first; chart/align code wants oldest-first
+  const times=[],closes=[],opens=[],highs=[],lows=[],vols=[];
+  for(const r of rows){ if(r.close==null) continue; times.push(r.timestamp); closes.push(r.close); opens.push(r.open); highs.push(r.high); lows.push(r.low); vols.push(r.volume); }
+  return times.length? {times,closes,opens,highs,lows,vols} : null;
+}
+async function loadDataDB(){
+  const tickers=[...SECTORS.map(s=>s.t),BENCH];
+  const next={daily:{},intra:{},intra1:{},weekly:{}};
+  await Promise.all(OHLCV_VIEWS.flatMap(v=>tickers.map(async tk=>{
+    try{ const d=await fetchOHLCV(tk,v.tf,v.lim); if(d) next[v.view][tk]=d; }
+    catch(e){ if(v.view==='daily') throw e; /* intraday/weekly gaps are non-fatal */ }
+  })));
+  if(!next.daily[BENCH]||!next.daily[BENCH].closes.length) throw new Error('no benchmark daily bars in ohlcv_history');
+  DS.daily=next.daily; DS.weekly=next.weekly; DS.intra=next.intra; DS.intra1=next.intra1;
+  PRICE_SOURCE='ohlcv_history';
+  const bt=next.daily[BENCH].times, lastBar=bt.length?bt[bt.length-1]:null;
+  spineSet('ohlcv_history',lastBar,spineAge(lastBar,3*86400),'price spine (D/W/5/1) · latest daily bar shown · PRIMARY');
+}
+// PRIMARY = Supabase ohlcv_history; Yahoo relay kept ONLY as a flagged fallback if the DB fetch throws.
+async function loadData(){
+  try{ await loadDataDB(); }
+  catch(e){ console.warn('[price] ohlcv_history fetch failed — falling back to Yahoo relay:',e); await loadDataYahoo(); PRICE_SOURCE='yahoo-fallback'; spineSet('ohlcv_history',null,'FALLBACK','DB read threw — price spine on flagged Yahoo relay: '+e.message); }
+}
+
+async function loadDataYahoo(){
+  const syms=[...SECTORS.map(s=>s.t),BENCH].join(',');
+  const [jd,ji,j1,jw]=await Promise.all([
+    fetchJSON('v8/finance/spark',`symbols=${syms}&range=6mo&interval=1d`),
+    fetchJSON('v8/finance/spark',`symbols=${syms}&range=5d&interval=5m`).catch(()=>null),
+    fetchJSON('v8/finance/spark',`symbols=${syms}&range=1d&interval=1m`).catch(()=>null),
+    fetchJSON('v8/finance/spark',`symbols=${syms}&range=2y&interval=1wk`).catch(()=>null)
+  ]);
+  DS.daily=parseSpark(jd);
+  DS.intra=ji?parseSpark(ji):{};
+  DS.intra1=j1?parseSpark(j1):{};
+  DS.weekly=jw?parseSpark(jw):{};
+  if(!DS.daily[BENCH]) throw new Error('no benchmark data');
+}
+
+/* ============ ALIGN to benchmark timeline ============ */
+function aligned(t,ds){
+  const b=ds[BENCH], s=ds[t]; if(!s||!b) return null;
+  const map=new Map(); s.times.forEach((tm,i)=>map.set(tm,s.closes[i]));
+  const closes=[]; let last=null;
+  for(const tm of b.times){ const v=map.get(tm); last=(v!=null)?v:last; closes.push(last); }
+  return closes;
+}
+
+/* ============ RRG MATH ============ */
+function zLast(arr,w){
+  const n=arr.length; if(n<w) w=n;
+  const win=arr.slice(n-w);
+  const m=win.reduce((a,b)=>a+b,0)/win.length;
+  const sd=Math.sqrt(win.reduce((a,b)=>a+(b-m)*(b-m),0)/win.length)||1e-9;
+  return (arr[n-1]-m)/sd;
+}
+// JdK-style approximation on WEEKLY bars (the way real RRGs are built):
+// RS-Ratio = 100 + z(RS, 14w) ; RS-Momentum = 100 + z(1w ROC of RS-Ratio, 14w)
+function rrgSeries(t){
+  const Wd=DS.weekly; if(!Wd||!Wd[BENCH]) return null;
+  const b=Wd[BENCH].closes, s=aligned(t,Wd); if(!s) return null;
+  const sm=(a,n)=>{const k=2/(n+1);let e=a[0];const o=[e];for(let i=1;i<a.length;i++){e=a[i]*k+e*(1-k);o.push(e);}return o;};
+  const rs=sm(s.map((v,i)=>100*v/b[i]),4);   // 4w EMA on relative strength (JdK-style smoothing)
+  const N=RRG_WIN;
+  const sma=(a,i)=>{const st=Math.max(0,i-N+1);let m=0;for(let k=st;k<=i;k++)m+=a[k];return m/(i-st+1);};
+  const sdv=(a,i,m)=>{const st=Math.max(0,i-N+1);let v=0;for(let k=st;k<=i;k++)v+=(a[k]-m)*(a[k]-m);return Math.sqrt(v/(i-st+1))||1e-9;};
+  const ratio=[],mom=[];
+  for(let i=0;i<rs.length;i++){const m=sma(rs,i);ratio.push(100+(rs[i]-m)/sdv(rs,i,m));}
+  const chg=ratio.map((v,i)=>i>=4? v-ratio[i-4] : 0);   // momentum = 4-week ratio change (smooth, directional)
+  for(let i=0;i<chg.length;i++){const m=sma(chg,i);mom.push(100+(chg[i]-m)/sdv(chg,i,m));}
+  return {ratio:sm(ratio,2),mom:sm(mom,2)};
+}
+function quadrant(x,y){
+  if(x>=100&&y>=100) return ['LEADING','b-lead'];
+  if(x>=100&&y<100)  return ['WEAKENING','b-weak'];
+  if(x<100&&y<100)   return ['LAGGING','b-lag'];
+  return ['IMPROVING','b-impr'];
+}
+
+/* ============ HEATMAP ============ */
+function dayChange(t){
+  const s=DS.daily[t]; if(!s||s.closes.length<2) return 0;
+  const n=s.closes.length;
+  return (s.closes[n-1]/s.closes[n-2]-1)*100;
+}
+function heatColor(p,scale){
+  const a=Math.min(Math.abs(p)/(scale||2.5),1);
+  return p>=0? `rgba(0,255,163,${0.08+0.42*a})` : `rgba(255,45,85,${0.08+0.48*a})`;   // exact --bull / --bear tokens
+}
+function rangeBars(){ return currentRange==='1D'?1 : currentRange==='5D'?5 : currentRange==='21'?21 : currentRange==='63'?63 : 999; }
+function rangeScale(){ return currentRange==='1D'?2.5 : currentRange==='5D'?4 : currentRange==='21'?6 : currentRange==='63'?10 : 15; }
+function rangeLabel(){ return currentRange==='1D'?'1D':currentRange==='5D'?'5D':currentRange==='21'?'1M':currentRange==='63'?'3M':'6M'; }
+function periodChange(t){
+  const s=DS.daily[t]; if(!s||s.closes.length<2) return 0;
+  const n=s.closes.length;
+  const k=Math.min(rangeBars(),n-1);
+  return (s.closes[n-1]/s.closes[n-1-k]-1)*100;
+}
+const AUM={XLK:72,XLF:49,XLV:40,XLE:28,XLY:24,XLC:23,XLI:19,XLU:18,XLP:16,XLRE:8,XLB:6}; // $B approx, relative sizing only
+
+// LIVE Geiger — fetched directly from the same Supabase table (composite_staged) that feeds scintillahub.ai's
+// own Geiger reads, via the project's anon (read-only, RLS-gated) key. NOT computed on this page — this page
+// just displays what the real pipeline already computed elsewhere. Independent of the Yahoo relay above;
+// a failure here does not affect anything else on the page.
+const SB_URL='https://wadinxqplrggagkvrdag.supabase.co';
+const SB_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g';
+let GEIGER_LIVE={}, GEIGER_LIVE_STATUS='pending';   // 'pending' | 'ok' | 'error'
+async function refreshGeigerLive(){
+  try{
+    const tickers=SECTORS.map(s=>s.t).join(',');
+    const url=`${SB_URL}/rest/v1/composite_staged?select=ticker,tf,trend,momentum,structure,conviction,composite,updated_ts&ticker=in.(${tickers})&tf=eq.D`;
+    const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}});
+    if(!res.ok) throw new Error('supabase '+res.status);
+    const rows=await res.json();
+    const map={}; for(const r of rows) map[r.ticker]=r;
+    GEIGER_LIVE=map; GEIGER_LIVE_STATUS='ok';
+    let mx=0; for(const r of rows) if(r.updated_ts>mx) mx=r.updated_ts;
+    spineSet('composite_staged',mx,spineAge(mx,45*60),rows.length+' tickers tf=D — THE Geiger (hub equalizer output)');
+  }catch(e){ GEIGER_LIVE_STATUS='error'; spineSet('composite_staged',null,'FALLBACK','read failed'); }
+  if(DETAIL_TAB==='geiger') renderDetailContent();
+  renderDetailActionable();
+}
+
+// ---- SOURCE-OF-TRUTH MOVE 1 (Alan, 2026-07-24): derived_series / live_quotes / regime_state ----
+// Same Supabase project, same anon/RLS-gated key as Geiger above. Each is independent — a failure in
+// one does not affect the others or the Yahoo-driven chart/RRG/heatmap pipeline.
+function freshText(ts){
+  if(ts==null) return 'no timestamp';
+  // updated_ts comes back in TWO different shapes depending on the table: composite_staged/derived_series/
+  // regime_state store epoch SECONDS (number), live_quotes stores a Postgres timestamptz STRING
+  // ("2026-07-24T21:31:00.379203+00:00") — normalize both to epoch seconds before diffing.
+  const epochSec = (typeof ts==='number') ? ts : (Date.parse(ts)/1000);
+  if(!isFinite(epochSec)) return 'no timestamp';
+  const ageMin=(Date.now()/1000-epochSec)/60;
+  if(ageMin<1) return 'just now';
+  if(ageMin<60) return Math.round(ageMin)+'m ago';
+  return (ageMin/60).toFixed(1)+'h ago';
+}
+// Indicators — REPLACES in-browser EMA/RSI math (Move 1 item 2). tf='1D' (note: different convention
+// from composite_staged's tf='D'). Gives real Williams %R + MACD for the first time on this page.
+let DERIVED_LIVE={}, DERIVED_LIVE_STATUS='pending';
+async function refreshDerivedLive(){
+  // One request per ticker (order=timestamp.desc&limit=1), run in parallel — NOT a single "in.(...)" query.
+  // Root cause found live: derived_series has ~500k rows across our 12 tickers; a single in.(...) query with
+  // order=ticker.asc,timestamp.desc hits PostgREST's default 1000-row cap before reaching any ticker past
+  // 'SPY' alphabetically (S sorts before X), so every XL* sector silently got zero rows. Per-ticker limit=1
+  // avoids the cap entirely and is still a direct anon-key REST read — no new relay.
+  const cols='ticker,tf,timestamp,rsi_raw,wpr_raw,macd_raw,macd_signed,cci_raw,roc_raw,stoch_raw,fan_ema5,fan_ema8,fan_ema13,fan_ema21,fan_ema34,fan_sma50,fan_sma100,fan_sma150,fan_sma200,severity_ob,severity_os,updated_ts';
+  const tickers=SECTORS.map(s=>s.t).concat([BENCH]);
+  try{
+    const results=await Promise.all(tickers.map(async tk=>{
+      const url=`${SB_URL}/rest/v1/derived_series?select=${cols}&ticker=eq.${tk}&tf=eq.1D&order=timestamp.desc&limit=1`;
+      const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}});
+      if(!res.ok) return null;
+      const rows=await res.json();
+      return rows&&rows[0]? rows[0] : null;
+    }));
+    const map={}; results.forEach((r,i)=>{ if(r) map[tickers[i]]=r; });
+    DERIVED_LIVE=map; DERIVED_LIVE_STATUS='ok';
+    let mx=0; for(const r of Object.values(map)) if(r.updated_ts>mx) mx=r.updated_ts;
+    spineSet('derived_series',mx||null,spineAge(mx||null,26*3600),Object.keys(map).length+'/'+tickers.length+' tickers tf=1D (per-ticker parallel reads)');
+  }catch(e){ DERIVED_LIVE_STATUS='error'; spineSet('derived_series',null,'FALLBACK','read failed — client Yahoo indicators in use'); }
+  renderRegime(); if(DETAIL_TAB==='tech') renderDetailContent(); renderDetailActionable();
+}
+// Quote — REPLACES in-browser day-change math for the ETF Detail quote line (Move 1 item 3, quote half).
+// RVOL is BLOCKED: formula is live_quotes.volume ÷ etf_info.avg_volume, but etf_info is empty for our
+// tickers (confirmed 0 rows) — shown as explicit "missing", never a placeholder number.
+let QUOTES_LIVE={}, QUOTES_LIVE_STATUS='pending';
+async function refreshQuotesLive(){
+  try{
+    const tickers=SECTORS.map(s=>s.t).concat([BENCH]).join(',');
+    const url=`${SB_URL}/rest/v1/live_quotes?select=ticker,price,change,chg_pct,volume,prev_close,updated_ts&ticker=in.(${tickers})`;
+    const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}});
+    if(!res.ok) throw new Error('supabase '+res.status);
+    const rows=await res.json();
+    const map={}; for(const r of rows) map[r.ticker]=r;
+    QUOTES_LIVE=map; QUOTES_LIVE_STATUS='ok';
+    let mx=null; for(const r of rows){ const es=Date.parse(r.updated_ts)/1000; if(!mx||es>mx) mx=es; }
+    spineSet('live_quotes',mx,spineAge(mx,30*60),rows.length+' quotes');
+  }catch(e){ QUOTES_LIVE_STATUS='error'; spineSet('live_quotes',null,'FALLBACK','read failed'); }
+  renderDetailActionable();
+}
+// RVOL — UNBLOCKED (Move 1). Ordered formula was live_quotes.volume / etf_info.avg_volume, but etf_info
+// is empty; company_profile.avg_volume IS populated for all 12, so RVOL = live_quotes.volume /
+// company_profile.avg_volume. Own labeled fetch, same anon/RLS pattern; a failure => explicit "missing".
+let PROFILE_LIVE={}, PROFILE_LIVE_STATUS='pending';
+async function refreshProfileLive(){
+  try{
+    const tickers=SECTORS.map(s=>s.t).concat([BENCH]).join(',');
+    const url=`${SB_URL}/rest/v1/company_profile?select=ticker,avg_volume&ticker=in.(${tickers})`;
+    const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}});
+    if(!res.ok) throw new Error('supabase '+res.status);
+    const rows=await res.json();
+    const map={}; for(const r of rows) map[r.ticker]=r;
+    PROFILE_LIVE=map; PROFILE_LIVE_STATUS='ok';
+    spineSet('company_profile',null,'LIVE',rows.length+' avg_volume rows (RVOL denominator)');
+  }catch(e){ PROFILE_LIVE_STATUS='error'; spineSet('company_profile',null,'FALLBACK','read failed — RVOL shows missing'); }
+  renderDetailActionable();
+}
+// Regime state — separate per-ticker/per-term (SHORT/MID/LONG) bull/bear read from the DB's own regime
+// engine (Move 1 item 6). Kept as its OWN labeled block, not merged into the page's RISK-ON/OFF badge:
+// that badge is this page's own RRG-breadth calc (Cyclicals vs Defensives spread, Chain 2) — a different
+// signal shape (one basket-wide call vs per-ticker/per-term calls). sector_performance intentionally unused
+// per Alan's order ("empty — don't depend on it").
+let REGIME_LIVE={}, REGIME_LIVE_STATUS='pending';
+async function refreshRegimeLive(){
+  try{
+    const tickers=SECTORS.map(s=>s.t).concat([BENCH]).join(',');
+    const url=`${SB_URL}/rest/v1/regime_state?select=ticker,term,state,score,since_ts,updated_ts&ticker=in.(${tickers})`;
+    const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}});
+    if(!res.ok) throw new Error('supabase '+res.status);
+    const rows=await res.json();
+    const map={}; for(const r of rows){ if(!map[r.ticker]) map[r.ticker]={}; map[r.ticker][r.term]=r; }
+    REGIME_LIVE=map; REGIME_LIVE_STATUS='ok';
+    let mx=0; for(const t of Object.values(map)) for(const r of Object.values(t)) if(r.updated_ts>mx) mx=r.updated_ts;
+    spineSet('regime_state',mx||null,spineAge(mx||null,26*3600),rows.length+' rows (ticker × SHORT/MID/LONG)');
+  }catch(e){ REGIME_LIVE_STATUS='error'; spineSet('regime_state',null,'FALLBACK','read failed'); }
+  renderRegime();
+}
+
+// STATIC REFERENCE ONLY — illustrative GICS sub-industries + well-known top constituents per sector.
+// Not live weights, not pulled from any feed. Will be replaced by FMP industry-classification + ETF-holdings endpoints once wired.
+const ETF_DETAIL={
+  XLK:{sub:['Semiconductors & Equipment','Software','Technology Hardware & Equipment','IT Services','Communications Equipment'],
+       top:['NVDA','MSFT','AAPL','AVGO','ORCL','CRM','CSCO','ACN','AMD','ADBE']},
+  XLC:{sub:['Interactive Media & Services','Entertainment','Media','Wireless & Diversified Telecom'],
+       top:['META','GOOGL','GOOG','NFLX','TMUS','CMCSA','VZ','T','EA','DIS']},
+  XLY:{sub:['Broadline & Internet Retail','Specialty Retail','Automobiles & Components','Hotels/Restaurants/Leisure','Household Durables'],
+       top:['AMZN','TSLA','HD','MCD','BKNG','LOW','TJX','SBUX','NKE','CMG']},
+  XLF:{sub:['Banks','Capital Markets','Insurance','Consumer Finance','Financial Services'],
+       top:['BRK.B','JPM','V','MA','BAC','WFC','GS','MS','SPGI','AXP']},
+  XLI:{sub:['Aerospace & Defense','Machinery','Industrial Conglomerates','Building Products','Ground Transportation'],
+       top:['GE','CAT','RTX','HON','UNP','ADP','ETN','BA','UPS','DE']},
+  XLB:{sub:['Chemicals','Metals & Mining','Containers & Packaging','Construction Materials'],
+       top:['LIN','SHW','ECL','FCX','APD','NEM','CTVA','DD','NUE','VMC']},
+  XLE:{sub:['Oil & Gas Exploration & Production','Oil & Gas Equipment & Services','Integrated Oil & Gas','Oil & Gas Refining & Marketing'],
+       top:['XOM','CVX','COP','WMB','EOG','KMI','SLB','OKE','PSX','MPC']},
+  XLV:{sub:['Pharmaceuticals','Biotechnology','Health Care Equipment & Supplies','Health Care Providers & Services','Life Sciences Tools & Services'],
+       top:['LLY','JNJ','UNH','ABBV','MRK','TMO','ABT','ISRG','DHR','PFE']},
+  XLP:{sub:['Food & Staples Retailing','Food Products','Beverages','Household Products','Tobacco'],
+       top:['PG','COST','WMT','KO','PEP','PM','MO','MDLZ','CL','TGT']},
+  XLU:{sub:['Electric Utilities','Multi-Utilities','Gas Utilities','Water Utilities','Independent Power Producers'],
+       top:['NEE','SO','DUK','CEG','AEP','SRE','D','EXC','XEL','ED']},
+  XLRE:{sub:['Specialized REITs','Retail REITs','Residential REITs','Industrial REITs','Health Care REITs'],
+       top:['PLD','AMT','EQIX','WELL','SPG','O','PSA','DLR','CCI','VICI']},
+};
+// Illustrative descending weight-% shape applied to any sector's top-10 list above — NOT real per-sector weights,
+// just a plausible concentration curve (heavier at #1, tapering out) so the holdings view isn't a bare ticker list.
+const TOP_HOLD_PCT=[19,14,11,9,7,6,5,4,3.5,3];
+
+// LIVE technicals — computed from the same Yahoo daily closes already loaded (DS.daily). No new data source.
+function emaSeries(arr,period){
+  const k=2/(period+1); let e=arr[0]; const out=[e];
+  for(let i=1;i<arr.length;i++){ e=arr[i]*k+e*(1-k); out.push(e); }
+  return out;
+}
+function rsi14(arr,period){
+  period=period||14;
+  if(arr.length<period+1) return null;
+  let gains=0,losses=0;
+  for(let i=1;i<=period;i++){ const d=arr[i]-arr[i-1]; if(d>=0) gains+=d; else losses-=d; }
+  let avgG=gains/period, avgL=losses/period;
+  for(let i=period+1;i<arr.length;i++){
+    const d=arr[i]-arr[i-1]; const g=d>0?d:0, l=d<0?-d:0;
+    avgG=(avgG*(period-1)+g)/period; avgL=(avgL*(period-1)+l)/period;
+  }
+  if(avgL===0) return 100;
+  const rs=avgG/avgL; return 100-100/(1+rs);
+}
+function technicalRead(t){
+  const dl=DERIVED_LIVE[t];
+  const lq=QUOTES_LIVE[t];
+  const s=DS.daily[t];
+  const useDB = dl && dl.rsi_raw!=null && dl.fan_sma50!=null;
+  let last,le20,le50,r,wpr,macd,macdSigned,cci,roc,stoch,source,updatedTs;
+  if(useDB){
+    const yahooLast = (s&&s.closes&&s.closes.length)? s.closes[s.closes.length-1] : null;
+    last = (lq&&lq.price!=null)? lq.price : yahooLast;
+    if(last==null) return null;
+    le20=dl.fan_ema21; le50=dl.fan_sma50;
+    r=dl.rsi_raw; wpr=dl.wpr_raw; macd=dl.macd_raw; macdSigned=dl.macd_signed; cci=dl.cci_raw; roc=dl.roc_raw; stoch=dl.stoch_raw;
+    source='db'; updatedTs=dl.updated_ts;
+  } else {
+    if(!s||!s.closes||s.closes.length<55) return null;
+    const c=s.closes;
+    const e20s=emaSeries(c,20), e50s=emaSeries(c,50);
+    last=c[c.length-1]; le20=e20s[e20s.length-1]; le50=e50s[e50s.length-1];
+    r=rsi14(c,14); wpr=null; macd=null; macdSigned=null; cci=null; roc=null; stoch=null;
+    source='yahoo'; updatedTs=null;
+  }
+  // transparent, in-house composite — NOT TradingView's or any third party's proprietary technical rating.
+  // Each condition below is a visible, individually-checkable rule; score is just the count of passes minus fails.
+  // Source ='db': EMA21/SMA50 + RSI/Williams%R come straight from Supabase derived_series (Move 1 item 2, no
+  // in-browser math). Source='yahoo': flagged fallback, client-computed EMA20/EMA50/RSI from Yahoo closes only,
+  // used only when derived_series hasn't loaded yet or doesn't have this ticker.
+  const conditions=[
+    {label: source==='db'?'Price above EMA21 (fan_ema21)':'Price above EMA20 (fallback)', pass: last>le20, detail:`${last.toFixed(2)} vs ${le20.toFixed(2)}`, w:1},
+    {label: source==='db'?'Price above SMA50 (fan_sma50)':'Price above EMA50 (fallback)', pass: last>le50, detail:`${last.toFixed(2)} vs ${le50.toFixed(2)}`, w:1},
+    {label: source==='db'?'EMA21 above SMA50 (trend up)':'EMA20 above EMA50 (trend up, fallback)', pass: le20>le50, detail:`${le20.toFixed(2)} vs ${le50.toFixed(2)}`, w:1},
+    {label:'RSI(14) > 55 (momentum positive)', pass: r!=null&&r>55, detail: r!=null?r.toFixed(1):'—', w:1},
+    {label:'RSI(14) > 70 (strong momentum)', pass: r!=null&&r>70, detail: r!=null?r.toFixed(1):'—', w:1},
+    {label:'RSI(14) < 45 (momentum negative — counts against)', pass: r!=null&&r<45, detail: r!=null?r.toFixed(1):'—', w:-1},
+    {label:'RSI(14) < 30 (oversold — counts against)', pass: r!=null&&r<30, detail: r!=null?r.toFixed(1):'—', w:-1},
+  ];
+  if(source==='db' && wpr!=null){
+    conditions.push({label:'Williams %R > −20 (overbought — counts against)', pass: wpr>-20, detail: wpr.toFixed(1), w:-1});
+    conditions.push({label:'Williams %R < −80 (oversold — counts against)', pass: wpr<-80, detail: wpr.toFixed(1), w:-1});
+  }
+  if(source==='db' && macdSigned!=null){
+    conditions.push({label:'MACD signed positive (trend confirming)', pass: macdSigned>0, detail: macdSigned.toFixed(2), w:1});
+  }
+  let score=0;
+  for(const cd of conditions) if(cd.pass) score+=cd.w;
+  let read;
+  if(score>=4) read='STRONG BUY'; else if(score>=2) read='BUY'; else if(score<=-2) read='STRONG SELL'; else if(score<=0) read='SELL'; else read='NEUTRAL';
+  // our own 0-100 "sector sentiment" composite — not CNN's Fear & Greed Index.
+  // Formula: 50 (neutral midpoint) + 0.8×(RSI−50) [momentum tilt] + 3×((price/EMA50 − 1)×100) [trend tilt], clamped 0–100.
+  const rsiTilt=(r!=null?(r-50):0)*0.8;
+  const trendTilt=((last/le50-1)*100)*3;
+  const sentiment=Math.max(0,Math.min(100, 50 + rsiTilt + trendTilt));
+  return {last,e20:le20,e50:le50,rsi:r,wpr,macd,macdSigned,cci,roc,stoch,score,read,sentiment,rsiTilt,trendTilt,conditions,source,updatedTs};
+}
+
+// Approximate, SINGLE-TIMEFRAME (daily) reconstruction of Scintilla's real "Geiger" composite, using the
+// documented v0 weights/formula from repo/EXCEL_GEIGER_TRUTH_v0.0.0.1.md: TREND 0.30 + STRUCTURE 0.25 + MOMENTUM 0.20,
+// blended ADDITIVELY (not renormalized, weights sum to 0.75 not 1.0). The real Geiger runs this across 9–17
+// timeframe "rungs" (15m through weekly) log-weighted by bar-hours; this page only has daily closes, so this is
+// ONE rung of that ladder, not the live multi-rung engine. Clearly an approximation, not a replica.
+function geigerApprox(t){
+  const s=DS.daily[t]; if(!s||!s.closes||s.closes.length<60) return null;
+  const c=s.closes;
+  const e5=emaSeries(c,5), e9=emaSeries(c,9), e21=emaSeries(c,21);
+  const last=c[c.length-1];
+  // TREND: price above/below each EMA -> +1/-1 (never 0), averaged across the 3 EMAs — matches documented formula
+  const trendSigns=[e5,e9,e21].map(e=> last>e[e.length-1]?1:-1);
+  const trend=trendSigns.reduce((a,b)=>a+b,0)/3;
+  // STRUCTURE (HH/LL): the real model hand-enters this per rung; here we derive a rules-based proxy —
+  // compare the most recent 20-day swing high/low to the prior 20-day swing high/low.
+  const n=c.length;
+  const recentHi=Math.max(...c.slice(n-20)), recentLo=Math.min(...c.slice(n-20));
+  const priorHi=Math.max(...c.slice(n-40,n-20)), priorLo=Math.min(...c.slice(n-40,n-20));
+  let structure=0;
+  if(recentHi>priorHi && recentLo>priorLo) structure=1;        // higher-highs + higher-lows
+  else if(recentHi<priorHi && recentLo<priorLo) structure=-1;  // lower-highs + lower-lows
+  // MOMENTUM: SIGN(RSI-50) — Williams %R term is documented as 0 when unavailable (IF(M6="",0,...)), and we
+  // don't have OHLC for Williams %R yet, so we use exactly that documented fallback.
+  const r=rsi14(c,14);
+  const momentum = r!=null ? Math.sign(r-50)/2 : 0;
+  const T=0.30*trend, S=0.25*structure, M=0.20*momentum;
+  const composite=T+S+M;   // additive, not renormalized — matches the real model's B22 = F18+F19+F20
+  let verdict;
+  if(composite>0.35) verdict='STRONG BULLISH'; else if(composite>0.10) verdict='BULLISH';
+  else if(composite<-0.35) verdict='STRONG BEARISH'; else if(composite<-0.10) verdict='BEARISH'; else verdict='NEUTRAL';
+  return {trend,structure,momentum,T,S,M,composite,verdict,rsi:r};
+}
+
+function renderCards(){
+  const el=document.getElementById('heatcards'); el.innerHTML='';
+  const rows=SECTORS.filter(s=>selected.includes(s.t)).map(s=>({...s,p:periodChange(s.t)})).sort((a,b)=>b.p-a.p);
+  for(const s of rows){
+    const d=document.createElement('div');
+    d.className='lrow';
+    d.style.background=heatColor(s.p,rangeScale());
+    d.style.borderLeftColor=s.c;      // sector-color outline — doesn't wash out under the perf-color fill like the old dot did
+    d.innerHTML=`<span class="info"><span class="tk">${s.t}</span><span class="nm">${s.n}</span></span><span class="pc">${s.p>=0?'+':''}${s.p.toFixed(2)}%</span>`;
+    d.onclick=()=>toggle(s.t);
+    el.appendChild(d);
+  }
+  const bp=periodChange(BENCH);
+  document.getElementById('hmDate').textContent=`${rangeLabel()} · SPY ${bp>=0?'+':''}${bp.toFixed(2)}%`;
+}
+/* squarified treemap */
+function worstRatio(row,w,h){
+  const rowVal=row.reduce((a,b)=>a+b.v,0);
+  const side=(w>=h)?h:w;
+  const strip=(w>=h)? w*(rowVal/row.total) : h*(rowVal/row.total);
+  let worst=0;
+  for(const it of row){ const len=side*(it.v/rowVal); const r=Math.max(strip/len,len/strip); worst=Math.max(worst,r); }
+  return worst;
+}
+function layoutTreemap(items,x,y,w,h,out){
+  if(!items.length) return;
+  const total=items.reduce((a,b)=>a+b.v,0);
+  if(items.length===1){ out.push({...items[0],x,y,w,h}); return; }
+  let row=[], rest=[...items], best=Infinity;
+  row.total=total;
+  while(rest.length){
+    const test=[...row,rest[0]]; test.total=total;
+    const wr=worstRatio(test,w,h);
+    if(wr<=best){ row=test; row.total=total; best=wr; rest.shift(); }
+    else break;
+  }
+  const rowVal=row.reduce((a,b)=>a+b.v,0);
+  const frac=rowVal/total;
+  if(w>=h){
+    const sw=w*frac; let cy=y;
+    for(const it of row){ const ih=h*(it.v/rowVal); out.push({...it,x,y:cy,w:sw,h:ih}); cy+=ih; }
+    layoutTreemap(rest,x+sw,y,w-sw,h,out);
+  }else{
+    const sh=h*frac; let cx=x;
+    for(const it of row){ const iw=w*(it.v/rowVal); out.push({...it,x:cx,y,w:iw,h:sh}); cx+=iw; }
+    layoutTreemap(rest,x,y+sh,w,h-sh,out);
+  }
+}
+function renderTreemap(){
+  const el=document.getElementById('treemap'); if(!el) return;
+  el.innerHTML='';
+  const W=el.clientWidth, H=el.clientHeight; if(W<50||H<50) return;
+  const items=SECTORS.filter(s=>selected.includes(s.t)).map(s=>({...s,v:AUM[s.t]||10,p:periodChange(s.t)})).sort((a,b)=>b.v-a.v);
+  if(!items.length) return;
+  const rects=[]; layoutTreemap(items,0,0,W,H,rects);
+  for(const r of rects){
+    const d=document.createElement('div');
+    d.className='tmtile';
+    const gap=3;   // visible background gutter between tiles, on top of the colored outline, so boundaries are easy to see
+    d.style.left=(r.x+gap)+'px'; d.style.top=(r.y+gap)+'px'; d.style.width=Math.max(0,r.w-gap*2)+'px'; d.style.height=Math.max(0,r.h-gap*2)+'px';
+    d.style.background=heatColor(r.p,rangeScale());
+    d.style.borderColor=r.c;   // sector-color outline, independent of the perf-color fill
+    const big=Math.min(r.w,r.h);
+    const fs=Math.max(11,Math.min(26,big/4.5));
+    d.innerHTML=`<div class="tk" style="font-size:${fs}px">${r.t}</div>`+
+      (big>70?`<div class="nm" style="font-size:${Math.max(8,fs*0.38)}px">${r.n}</div>`:'')+
+      `<div class="pc" style="font-size:${Math.max(9,fs*0.55)}px">${r.p>=0?'+':''}${r.p.toFixed(2)}%</div>`;
+    d.onclick=()=>toggle(r.t);
+    el.appendChild(d);
+  }
+}
+function renderHeatmap(){ renderCards(); renderTreemap(); }
+
+/* ============ AUM PANEL (4 selectable views) ============ */
+let AUM_VIEW=localStorage.getItem('sr_aumview')||'bubbles';
+function aumRows(){
+  return SECTORS.filter(s=>selected.includes(s.t)).map(s=>({...s,v:AUM[s.t]||0})).sort((a,b)=>b.v-a.v);
+}
+function renderAumBars(){
+  const rows=aumRows(), max=Math.max(...rows.map(r=>r.v),1);
+  const el=document.getElementById('aumContent');
+  el.innerHTML=`<div style="display:flex;flex-direction:column;height:100%;width:100%">`+
+    rows.map(r=>`<div class="aumBarRow"><span class="abLabel"><b style="color:${r.c}">${r.t}</b><span class="abNm">${r.n}</span></span>
+      <span class="abTrack"><span class="abFill" style="width:${(r.v/max*100).toFixed(1)}%;background:${r.c};opacity:.55"></span></span>
+      <span class="abVal">$${r.v}B</span></div>`).join('')+`</div>`;
+}
+function renderAumTable(){
+  const rows=aumRows(), total=rows.reduce((a,b)=>a+b.v,0)||1;
+  const el=document.getElementById('aumContent');
+  el.innerHTML=`<table id="aumTable"><thead><tr><th style="text-align:left">Sector</th><th style="text-align:left">Name</th><th style="text-align:right">AUM ($B)</th><th style="text-align:right">% of Total</th></tr></thead><tbody>`+
+    rows.map(r=>`<tr><td><span style="color:${r.c}">●</span> <b>${r.t}</b></td><td style="color:var(--dim)">${r.n}</td><td style="text-align:right">${r.v}</td><td style="text-align:right">${(r.v/total*100).toFixed(1)}%</td></tr>`).join('')+
+    `</tbody></table>`;
+}
+function renderAumDonut(){
+  const el=document.getElementById('aumContent');
+  el.innerHTML=`<canvas id="aumDonutCv" style="width:100%;height:100%"></canvas>`;
+  const cv=document.getElementById('aumDonutCv'), wrap=el;
+  const W=wrap.clientWidth,H=wrap.clientHeight, dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+  const rows=aumRows(), total=rows.reduce((a,b)=>a+b.v,0)||1;
+  const cx=Math.min(W*0.34,H*0.5), cy=H/2, R=Math.min(cx,cy)-10, r0=R*0.56;
+  let a0=-Math.PI/2;
+  for(const r of rows){
+    const frac=r.v/total, a1=a0+frac*2*Math.PI;
+    ctx.beginPath(); ctx.arc(cx,cy,R,a0,a1); ctx.arc(cx,cy,r0,a1,a0,true); ctx.closePath();
+    ctx.fillStyle=r.c; ctx.globalAlpha=.85; ctx.fill(); ctx.globalAlpha=1;
+    ctx.strokeStyle='#0A0A0F'; ctx.lineWidth=1.5; ctx.stroke();
+    if(frac>0.035){
+      const am=(a0+a1)/2, lx=cx+Math.cos(am)*(R+14), ly=cy+Math.sin(am)*(R+14);
+      ctx.fillStyle='#C6C8DE'; ctx.font='9px "SF Mono",Menlo,monospace'; ctx.textAlign=Math.cos(am)>=0?'left':'right';
+      ctx.fillText(`${r.t} ${(frac*100).toFixed(0)}%`,lx,ly);
+    }
+    a0=a1;
+  }
+  ctx.textAlign='center'; ctx.fillStyle='#F2F2F8'; ctx.font='700 15px "SF Mono",Menlo,monospace';
+  ctx.fillText('$'+total+'B',cx,cy-3);
+  ctx.fillStyle='#868AAA'; ctx.font='8px "SF Mono",Menlo,monospace'; ctx.fillText('TOTAL AUM',cx,cy+11);
+}
+function renderAumBubbles(){
+  const el=document.getElementById('aumContent');
+  el.innerHTML=`<canvas id="aumBubCv" style="width:100%;height:100%"></canvas>`;
+  const cv=document.getElementById('aumBubCv'), wrap=el;
+  const W=wrap.clientWidth,H=wrap.clientHeight, dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+  const rows=aumRows(); if(!rows.length) return;
+  const sumV=rows.reduce((a,b)=>a+b.v,0)||1;
+  const fillRatio=0.5;                                              // target share of the rectangle's area covered by circles — left room so 11 circles can fully separate, not overlap
+  const kr=Math.sqrt(fillRatio*W*H/(Math.PI*sumV));
+  const circles=rows.map((r,i)=>({...r, rad:Math.max(12,kr*Math.sqrt(r.v)),
+    x:W/2+Math.cos(i*2.4)*i*8, y:H/2+Math.sin(i*2.4)*i*8}));
+  const cx0=W/2, cy0=H/2;
+  // wall + overlap constraints are enforced EVERY iteration (not clamped once at the end) —
+  // a post-hoc clamp was shoving circles back inward after they'd separated, re-creating overlaps.
+  for(let iter=0;iter<700;iter++){
+    for(let i=0;i<circles.length;i++){
+      const a=circles[i];
+      a.x+=(cx0-a.x)*0.0015;   // very weak centering — just enough to keep the cluster from drifting off-canvas
+      a.y+=(cy0-a.y)*0.0015;
+      if(a.x-a.rad<2) a.x=a.rad+2;
+      if(a.x+a.rad>W-2) a.x=W-2-a.rad;
+      if(a.y-a.rad<2) a.y=a.rad+2;
+      if(a.y+a.rad>H-2) a.y=H-2-a.rad;
+      for(let j=i+1;j<circles.length;j++){
+        const b=circles[j];
+        let dx=b.x-a.x, dy=b.y-a.y, d=Math.sqrt(dx*dx+dy*dy)||0.01;
+        const minD=a.rad+b.rad+3;
+        if(d<minD){ const push=(minD-d)/2; dx/=d; dy/=d; a.x-=dx*push; a.y-=dy*push; b.x+=dx*push; b.y+=dy*push; }
+      }
+    }
+  }
+  for(const c of circles){
+    ctx.beginPath(); ctx.arc(c.x,c.y,c.rad,0,7);
+    ctx.fillStyle=c.c; ctx.globalAlpha=.82; ctx.fill(); ctx.globalAlpha=1;
+    ctx.strokeStyle='#0A0A0F'; ctx.lineWidth=1.2; ctx.stroke();
+    ctx.fillStyle='#0A0A0F'; ctx.font=`700 ${Math.max(8,Math.min(13,c.rad*0.42))}px "SF Mono",Menlo,monospace`; ctx.textAlign='center';
+    ctx.fillText(c.t,c.x,c.y+4);
+  }
+}
+function renderAumPanel(){
+  document.querySelectorAll('#aumTabs .atab').forEach(b=>b.classList.toggle('active',b.dataset.v===AUM_VIEW));
+  if(AUM_VIEW==='bars') renderAumBars();
+  else if(AUM_VIEW==='donut') renderAumDonut();
+  else if(AUM_VIEW==='bubbles') renderAumBubbles();
+  else renderAumTable();
+}
+document.querySelectorAll('#aumTabs .atab').forEach(b=>b.onclick=()=>{
+  AUM_VIEW=b.dataset.v; localStorage.setItem('sr_aumview',AUM_VIEW); renderAumPanel();
+});
+document.getElementById('lmodeNormal').onclick=()=>{ LINES_MODE='normal'; localStorage.setItem('sr_linesmode','normal'); renderLinesAum(); };
+document.getElementById('lmodeGlow').onclick=()=>{ LINES_MODE='glow'; localStorage.setItem('sr_linesmode','glow'); renderLinesAum(); };
+
+/* ============ LINES (lightweight-charts, TV-style rebase) ============ */
+function initChart(){
+  const el=document.getElementById('linesChart');
+  chart=LightweightCharts.createChart(el,{
+    layout:{background:{color:'transparent'},textColor:'#868AAA',fontSize:10,fontFamily:'"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace'},
+    grid:{vertLines:{color:'#14141F'},horzLines:{color:'#14141F'}},
+    rightPriceScale:{borderColor:'#252538'},
+    timeScale:{borderColor:'#252538',timeVisible:false},
+    crosshair:{mode:0},
+    autoSize:true,
+    handleScroll:{mouseWheel:false,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:false},
+    handleScale:{mouseWheel:false,pinch:true,axisPressedMouseMove:true,axisDoubleClickReset:true},
+  });
+  chart.timeScale().subscribeVisibleLogicalRangeChange(r=>{
+    if(!r||rebasing) return;
+    const idx=Math.max(0,Math.round(r.from));
+    if(idx!==rebaseIdx){ rebaseIdx=idx; rebaseLines(); } else updateLabels();
+  });
+}
+function rebaseLines(){
+  const b=DS[ACTIVE][BENCH]; if(!b||!chart) return;
+  rebasing=true;
+  const lr=chart.timeScale().getVisibleLogicalRange();
+  for(const s of SECTORS){
+    const closes=aligned(s.t,DS[ACTIVE]); if(!closes){ if(lineSeries[s.t]) lineSeries[s.t].setData([]); continue; }
+    const base=closes[Math.min(rebaseIdx,closes.length-1)]||closes[0];
+    const pts=b.times.map((tm,i)=>({time:tm,value:(closes[i]/base-1)*100}));
+    lineSeries[s.t].setData(selected.includes(s.t)?pts:[]);
+  }
+  if(lr) chart.timeScale().setVisibleLogicalRange(lr);
+  rebasing=false;
+  updateLabels();
+}
+function updateLabels(){
+  const cont=document.getElementById('lines'); if(!cont||!chart) return;
+  cont.querySelectorAll('.llabel').forEach(e=>e.remove());
+  const ds=DS[ACTIVE], b=ds[BENCH]; if(!b) return;
+  const cw=cont.clientWidth;
+  for(const s of SECTORS){
+    if(!selected.includes(s.t)||!lineSeries[s.t]) continue;
+    const closes=aligned(s.t,ds); if(!closes) continue;
+    const base=closes[Math.min(rebaseIdx,closes.length-1)]||closes[0];
+    const v=(closes[closes.length-1]/base-1)*100;
+    const y=lineSeries[s.t].priceToCoordinate(v); if(y==null) continue;
+    let x=chart.timeScale().timeToCoordinate(b.times[b.times.length-1]);
+    const el=document.createElement('div');
+    el.className='llabel'; el.style.color=s.c;
+    el.style.left=((x!=null?Math.min(x+6,cw-96):cw-96))+'px';
+    el.style.top=y+'px';
+    el.innerHTML=`${s.t} <span style="opacity:.55;font-weight:400">${s.sh}</span>`;
+    cont.appendChild(el);
+  }
+  renderLinesAum();
+}
+/* AUM-weighted taper: each sector's line grows thicker (more AUM-based glow) toward the current/right
+   edge and thins toward the left — a "cone" — so bigger funds visually carry more weight without
+   cluttering the crisp lightweight-charts line itself. Drawn on a separate canvas behind the chart.
+   Optional — toggled via the Normal/Glow buttons in the panel header, OFF (Normal) by default since at
+   low opacity it read as invisible; Glow mode bumps opacity so it's actually visible when turned on. */
+let LINES_MODE=localStorage.getItem('sr_linesmode')||'normal';
+function renderLinesAum(){
+  const cv=document.getElementById('linesAum'), cont=document.getElementById('lines');
+  if(!cv||!cont||!chart) return;
+  const W=cont.clientWidth,H=cont.clientHeight, dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px';
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+  const legendEl=document.getElementById('aumLegendEl'); if(legendEl) legendEl.style.display=(LINES_MODE==='glow')?'flex':'none';
+  document.querySelectorAll('.lmodeBtn').forEach(b=>b.classList.toggle('active', b.id===(LINES_MODE==='glow'?'lmodeGlow':'lmodeNormal')));
+  if(LINES_MODE!=='glow') return;   // Normal mode: canvas stays cleared, plain crisp lines only
+  const ds=DS[ACTIVE], b=ds[BENCH]; if(!b) return;
+  const lr=chart.timeScale().getVisibleLogicalRange(); if(!lr) return;
+  const n=b.times.length;
+  const from=Math.max(0,Math.floor(lr.from)), to=Math.min(n-1,Math.ceil(lr.to));
+  if(to<=from) return;
+  const maxAum=Math.max(...Object.values(AUM)), minAum=Math.min(...Object.values(AUM));
+  const maxW=v=>1.5+11*Math.sqrt(((v||10)-minAum)/(maxAum-minAum||1));  // px at the current/right edge
+  for(const s of SECTORS){
+    if(!selected.includes(s.t)||!lineSeries[s.t]) continue;
+    const closes=aligned(s.t,ds); if(!closes) continue;
+    const base=closes[Math.min(rebaseIdx,closes.length-1)]||closes[0];
+    const top=[],bot=[]; const wMax=maxW(AUM[s.t]);
+    for(let i=from;i<=to;i++){
+      if(closes[i]==null) continue;
+      const val=(closes[i]/base-1)*100;
+      const x=chart.timeScale().timeToCoordinate(b.times[i]); const y=lineSeries[s.t].priceToCoordinate(val);
+      if(x==null||y==null) continue;
+      const frac=(i-from)/Math.max(1,to-from);           // 0 at oldest visible bar -> 1 at current
+      const w=0.3+wMax*Math.pow(frac,1.6);                 // thin tail, fuller cone near "now"
+      top.push([x,y-w/2]); bot.push([x,y+w/2]);
+    }
+    if(top.length<2) continue;
+    ctx.beginPath();
+    ctx.moveTo(top[0][0],top[0][1]);
+    for(const p of top) ctx.lineTo(p[0],p[1]);
+    for(let i=bot.length-1;i>=0;i--) ctx.lineTo(bot[i][0],bot[i][1]);
+    ctx.closePath();
+    ctx.fillStyle=s.c; ctx.globalAlpha=0.38; ctx.fill();
+    ctx.globalAlpha=1;
+  }
+}
+function renderLines(){
+  if(!chart) initChart();
+  for(const s of SECTORS){
+    if(!lineSeries[s.t]) lineSeries[s.t]=chart.addLineSeries({color:s.c,lineWidth:2,priceLineVisible:false,lastValueVisible:true});
+  }
+  rebaseIdx=-1;
+  setRange(currentRange);
+}
+let currentRange='63';
+function setRange(rk){
+  currentRange=rk;
+  const want = rk==='1D' ? (DS.intra1[BENCH]?'intra1':'intra') : rk==='5D' ? 'intra' : 'daily';
+  if(DS[want][BENCH]) ACTIVE=want;
+  chart.applyOptions({timeScale:{timeVisible:ACTIVE!=='daily',secondsVisible:false}});
+  const n=DS[ACTIVE][BENCH].times.length;
+  const bars = (rk==='1D'||rk==='5D')? n : Math.min(parseInt(rk),n);
+  const from=Math.max(0,n-Math.min(bars,n));
+  rebaseIdx=from; rebaseLines();
+  chart.timeScale().setVisibleLogicalRange({from:from-0.5,to:n-0.5});
+  renderCards(); renderTreemap();   // leaders + heatmap follow the selected timeframe
+}
+
+/* ============ RRG CANVAS ============ */
+function rrgAutoFitR(){
+  // scan every selected sector's visible tail and size the axes to just contain it
+  let maxDev=0.6;
+  for(const s of SECTORS){
+    if(!selected.includes(s.t)) continue;
+    const rr=rrgSeries(s.t); if(!rr) continue;
+    const n=rr.ratio.length;
+    if(RRG_ANIM_BUILD){
+      // animating: frame f shows the OLDEST f points of the full tail (tail-anchored, walks forward to today)
+      const f=Math.min(RRG_ANIM_BUILD,TAIL_PTS);
+      for(let j=0;j<f;j++){
+        const i=n-1-(TAIL_PTS-1-j)*TAIL_STEP; if(i<0) continue;
+        maxDev=Math.max(maxDev,Math.abs(rr.ratio[i]-100),Math.abs(rr.mom[i]-100));
+      }
+    } else {
+      for(let k=TAIL_PTS-1;k>=0;k--){
+        const i=n-1-k*TAIL_STEP; if(i<0) continue;
+        maxDev=Math.max(maxDev,Math.abs(rr.ratio[i]-100),Math.abs(rr.mom[i]-100));
+      }
+    }
+  }
+  return Math.min(RRG_R_MAX,maxDev*1.18);
+}
+function renderRRG(){
+  const cv=document.getElementById('rrg'), wrap=document.getElementById('rrgWrap');
+  const W=wrap.clientWidth,H=wrap.clientHeight, dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const ctx=cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+  const S=Math.min(W,H), ox=(W-S)/2, oy=(H-S)/2;   // square plot, centered
+  const pad=36, cx=ox+S/2, cy=oy+S/2;
+  const R = RRG_VIEW==='FIT' ? rrgAutoFitR() : RRG_R; // z-range shown
+  const lo=p=>p+pad, hi=p=>p+S-pad;
+  const X=v=>ox+pad+((v-(100-R))/(2*R))*(S-2*pad);
+  const Y=v=>oy+S-pad-((v-(100-R))/(2*R))*(S-2*pad);
+  const maxAum=Math.max(...Object.values(AUM)), minAum=Math.min(...Object.values(AUM));
+  const headR=a=>3.6+5.2*Math.sqrt(((a||10)-minAum)/(maxAum-minAum||1));   // bubble size ∝ sqrt(AUM)
+  // quadrant fills
+  ctx.globalAlpha=.06;
+  ctx.fillStyle='#00FFA3'; ctx.fillRect(cx,lo(oy),hi(ox)-cx,cy-lo(oy));
+  ctx.fillStyle='#FFE500'; ctx.fillRect(cx,cy,hi(ox)-cx,hi(oy)-cy);
+  ctx.fillStyle='#FF2D55'; ctx.fillRect(lo(ox),cy,cx-lo(ox),hi(oy)-cy);
+  ctx.fillStyle='#00D4FF'; ctx.fillRect(lo(ox),lo(oy),cx-lo(ox),cy-lo(oy));
+  ctx.globalAlpha=1;
+  // axes
+  ctx.strokeStyle='#252538'; ctx.beginPath();
+  ctx.moveTo(lo(ox),cy);ctx.lineTo(hi(ox),cy); ctx.moveTo(cx,lo(oy));ctx.lineTo(cx,hi(oy)); ctx.stroke();
+  ctx.fillStyle='#868AAA'; ctx.font='9px "SF Mono",Menlo,monospace';
+  ctx.fillText('LEADING',hi(ox)-48,lo(oy)+12); ctx.fillText('WEAKENING',hi(ox)-62,hi(oy)-4);
+  ctx.fillText('LAGGING',lo(ox)+4,hi(oy)-4); ctx.fillText('IMPROVING',lo(ox)+4,lo(oy)+12);
+  ctx.fillText('RS-RATIO →',cx+6,hi(oy)+14); ctx.save(); ctx.translate(ox+10,cy-8); ctx.rotate(-Math.PI/2); ctx.fillText('RS-MOM →',0,0); ctx.restore();
+  // tails + heads: tail is drawn as a tapered CONE — two edges running from the oldest point (a tip,
+  // width≈0) out to the head, widening to the head's own AUM-sized bubble radius. Not a uniform line.
+  for(const s of SECTORS){
+    if(!selected.includes(s.t)) continue;
+    const rr=rrgSeries(s.t); if(!rr) continue;
+    const n=rr.ratio.length;
+    const pts=[];
+    if(RRG_ANIM_BUILD){
+      // animating: dot STARTS at the tail's oldest point and walks forward through history to today,
+      // with a trailing tail growing behind it — ends exactly at the normal full-tail view.
+      const f=Math.min(RRG_ANIM_BUILD,TAIL_PTS);
+      for(let j=0;j<f;j++){ const i=n-1-(TAIL_PTS-1-j)*TAIL_STEP; if(i>=0) pts.push([rr.ratio[i],rr.mom[i]]); }
+    } else {
+      for(let k=TAIL_PTS-1;k>=0;k--){ const i=n-1-k*TAIL_STEP; if(i>=0) pts.push([rr.ratio[i],rr.mom[i]]); }
+    }
+    if(!pts.length) continue;
+    const hr=headR(AUM[s.t]);
+    const px=pts.map(p=>X(p[0])), py=pts.map(p=>Y(p[1]));
+    if(pts.length>=2){
+      const top=[], bot=[];
+      for(let i=0;i<pts.length;i++){
+        let dx,dy;
+        if(i<pts.length-1){ dx=px[i+1]-px[i]; dy=py[i+1]-py[i]; }
+        else{ dx=px[i]-px[i-1]; dy=py[i]-py[i-1]; }
+        const len=Math.sqrt(dx*dx+dy*dy)||1, nx=-dy/len, ny=dx/len;
+        const frac=i/(pts.length-1);                 // 0 at oldest tip -> 1 at head
+        const w=hr*Math.pow(frac,0.9);                // taper: two edges converging to a point at the tail's start
+        top.push([px[i]+nx*w, py[i]+ny*w]);
+        bot.push([px[i]-nx*w, py[i]-ny*w]);
+      }
+      ctx.beginPath();
+      ctx.moveTo(top[0][0],top[0][1]);
+      for(const p of top) ctx.lineTo(p[0],p[1]);
+      for(let i=bot.length-1;i>=0;i--) ctx.lineTo(bot[i][0],bot[i][1]);
+      ctx.closePath();
+      const grad=ctx.createLinearGradient(px[0],py[0],px[pts.length-1],py[pts.length-1]);
+      grad.addColorStop(0, hexA(s.c,0.04));
+      grad.addColorStop(1, hexA(s.c,0.58));
+      ctx.fillStyle=grad; ctx.fill();
+      ctx.strokeStyle=hexA(s.c,0.5); ctx.lineWidth=0.75; ctx.stroke();
+    }
+    const last=pts[pts.length-1];
+    ctx.fillStyle=s.c; ctx.beginPath(); ctx.arc(X(last[0]),Y(last[1]),hr,0,7); ctx.fill();
+    const lx=X(last[0])+hr+3, ly=Y(last[1])+3;
+    ctx.fillStyle='#F2F2F8'; ctx.font='700 10px "SF Mono",Menlo,monospace';
+    ctx.fillText(s.t,lx,ly);
+    const tW=ctx.measureText(s.t+' ').width;
+    ctx.fillStyle='#868AAA'; ctx.font='9px "SF Mono",Menlo,monospace';
+    ctx.fillText(s.sh,lx+tW,ly);
+  }
+}
+function hexA(hex,a){
+  const h=hex.replace('#',''); const n=h.length===3? h.split('').map(c=>c+c).join(''):h;
+  const r=parseInt(n.slice(0,2),16), g=parseInt(n.slice(2,4),16), b=parseInt(n.slice(4,6),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+/* ============ QUADRANT TABLE ============ */
+function weeksInQuadrant(rr){
+  // walk backward through the weekly series counting consecutive weeks in the SAME quadrant as today —
+  // a simple crossing-detector, no extra data needed beyond the RS-Ratio/RS-Mom series already computed.
+  const n=rr.ratio.length;
+  const qAt=i=>quadrant(rr.ratio[i],rr.mom[i])[0];
+  const cur=qAt(n-1);
+  let weeks=1;
+  for(let i=n-2;i>=0;i--){ if(qAt(i)===cur) weeks++; else break; }
+  return {q:cur,weeks};
+}
+function renderTable(){
+  const order={'LEADING':0,'IMPROVING':1,'WEAKENING':2,'LAGGING':3};
+  const rows=[];
+  for(const s of SECTORS){
+    const rr=rrgSeries(s.t); if(!rr) continue;
+    const x=rr.ratio[rr.ratio.length-1], y=rr.mom[rr.mom.length-1];
+    const [q,cls]=quadrant(x,y);
+    const {weeks}=weeksInQuadrant(rr);
+    rows.push({...s,x,y,q,cls,weeks,p:dayChange(s.t)});
+  }
+  rows.sort((a,b)=>order[a.q]-order[b.q]||b.x-a.x);
+  document.getElementById('qtable').innerHTML=`<table><thead><tr>
+    <th>Sector</th><th>Quadrant</th><th class="num">Weeks In</th><th class="num">RS-Ratio</th><th class="num">RS-Mom</th><th class="num">Day %</th><th class="num">AUM ($B)</th></tr></thead><tbody>`+
+    rows.map(r=>`<tr>
+      <td style="border-left:3px solid ${r.c}; box-shadow:inset 4px 0 0 0 var(--bg); padding-left:12px"><div style="display:flex;flex-direction:column;line-height:1.3"><b>${r.t}</b><span style="color:var(--dim);font-size:9px;text-transform:uppercase;letter-spacing:.04em">${r.n}</span></div></td>
+      <td><span class="badge ${r.cls}">${r.q}</span></td>
+      <td class="num">${r.weeks===1?'<span style="color:var(--crk)">new</span>':r.weeks+'w'}</td>
+      <td class="num">${r.x.toFixed(2)}</td>
+      <td class="num">${r.y.toFixed(2)}</td>
+      <td class="num ${r.p>=0?'up':'dn'}">${r.p>=0?'+':''}${r.p.toFixed(2)}%</td>
+      <td class="num">${AUM[r.t]||'—'}</td></tr>`).join('')+`</tbody></table>`;
+}
+
+/* ============ REGIME READ (Phase 1 — rule-based, derived entirely from data already fetched) ============ */
+function regimeData(){
+  const rows=SECTORS.filter(s=>selected.includes(s.t)).map(s=>{
+    const rr=rrgSeries(s.t); if(!rr) return null;
+    const n=rr.ratio.length;
+    const [q]=quadrant(rr.ratio[n-1],rr.mom[n-1]);
+    const {weeks}=weeksInQuadrant(rr);
+    const t=technicalRead(s.t);
+    const stretchPct = t? (t.last/t.e50-1)*100 : null;
+    return {...s, ratio:rr.ratio[n-1], mom:rr.mom[n-1], q, weeks, rsi:t?t.rsi:null, wpr:t?t.wpr:null, stretchPct};
+  }).filter(Boolean);
+  const cnt=q=>rows.filter(r=>r.q===q).length;
+  const leading=cnt('LEADING'), lagging=cnt('LAGGING'), weakening=cnt('WEAKENING'), improving=cnt('IMPROVING');
+  const cyc=rows.filter(r=>r.g.includes('CYC')), def=rows.filter(r=>r.g.includes('DEF'));
+  const avg=(arr,k)=>arr.length? arr.reduce((a,b)=>a+b[k],0)/arr.length : 100;
+  const cycAvg={ratio:avg(cyc,'ratio'),mom:avg(cyc,'mom')}, defAvg={ratio:avg(def,'ratio'),mom:avg(def,'mom')};
+  const spread=cycAvg.ratio-defAvg.ratio;
+  let regime,regimeNote;
+  if(spread>0.6){ regime='RISK-ON'; regimeNote='Cyclicals (Financials/Industrials/Energy/Materials/Discretionary) are running ahead of Defensives on RS-Ratio — broad-participation rotation, the kind of breadth that usually accompanies a healthy uptrend.'; }
+  else if(spread<-0.6){ regime='RISK-OFF'; regimeNote='Defensives (Healthcare/Staples/Utilities/REITs) are running ahead of Cyclicals — capital rotating toward safety, worth watching for broader weakness.'; }
+  else { regime='MIXED'; regimeNote='Cyclicals and Defensives are close together on RS-Ratio — no clean rotation signal yet, market is likely digesting/consolidating.'; }
+  const crossed=rows.filter(r=>r.weeks<=1);
+  // which breadth bucket is largest -> that's the dominant rotation signal to point at
+  const buckets=[['Leading',leading,'green'],['Improving',improving,'crk'],['Weakening',weakening,'yellow'],['Lagging',lagging,'red']];
+  buckets.sort((a,b)=>b[1]-a[1]);
+  const dominant=buckets[0];
+  // EXTENSION WATCH — forward-looking, not a lagging confirmation: flags sectors stretched far from their
+  // own 50-day trend + RSI extremes, i.e. candidates for a pause/mean-reversion BEFORE any quadrant cross
+  // would confirm it. This directly answers the "crossing is slow" gap — it's meant to fire earlier.
+  const withExt=rows.filter(r=>r.rsi!=null&&r.stretchPct!=null).map(r=>({...r, extScore: Math.abs(r.stretchPct)/10 + Math.abs(r.rsi-50)/50 + (r.wpr!=null? Math.abs(r.wpr+50)/50 : 0)}));
+  withExt.sort((a,b)=>b.extScore-a.extScore);
+  // Williams %R (source ②, derived_series) folded in where available: >-20 = overbought zone, <-80 = oversold
+  // zone — its own dedicated oscillator, not derived from RSI/stretch, so it's an independent confirming vote.
+  const overbought=withExt.filter(r=>r.rsi>=68||r.stretchPct>=8||(r.wpr!=null&&r.wpr>-20)).slice(0,3);
+  const oversold=withExt.filter(r=>r.rsi<=32||r.stretchPct<=-8||(r.wpr!=null&&r.wpr<-80)).slice(0,3);
+  return {rows,leading,lagging,weakening,improving,cycAvg,defAvg,spread,regime,regimeNote,crossed,dominant,overbought,oversold};
+}
+function renderRegime(){
+  const el=document.getElementById('regimeContent'); if(!el) return;
+  const d=regimeData();
+  const cls=d.regime==='RISK-ON'?'on':d.regime==='RISK-OFF'?'off':'mix';
+  const seg=(n,color,label)=> n? `<span style="flex:${n};background:${color}" title="${label}: ${n}">${n}</span>` : '';
+  const pos=v=>Math.min(100,Math.max(0,(v-97)/6*100));
+
+  // ---- rules-based decision walkthrough: deterministic, references the actual numbers above, not a separate model ----
+  const rules=[];
+  const [domName,domCount]=d.dominant;
+  if(domCount>0){
+    if(domName==='Leading') rules.push({tag:'watch',text:`<b>Leading is the largest bucket (${domCount})</b> — these sectors already carry both RS-Ratio ≥100 and RS-Momentum ≥100. Rule: Leading = currently strongest, most confirmed. Worth the most attention for continuation, least attention for "new idea" hunting since the move is already priced in.`});
+    else if(domName==='Improving') rules.push({tag:'watch',text:`<b>Improving is the largest bucket (${domCount})</b> — RS-Momentum ≥100 but RS-Ratio still <100: momentum turning up before relative strength confirms. Rule: Improving = where early rotation shows up first. This is the bucket to watch for names about to cross into Leading.`});
+    else if(domName==='Weakening') rules.push({tag:'caution',text:`<b>Weakening is the largest bucket (${domCount})</b> — RS-Ratio still ≥100 but RS-Momentum has turned <100: strength that's rolling over. Rule: Weakening = still outperforming on the trailing measure but losing the fight on momentum. Worth trimming attention here before Lagging.`});
+    else rules.push({tag:'caution',text:`<b>Lagging is the largest bucket (${domCount})</b> — both RS-Ratio and RS-Momentum <100: confirmed underperformance. Rule: Lagging = lowest priority unless specifically looking for a bottoming/mean-reversion setup.`});
+  }
+  rules.push({tag:'note',text:`<b>Regime call: ${d.regime}.</b> ${d.regimeNote} Rule used: Cyclicals avg RS-Ratio (${d.cycAvg.ratio.toFixed(2)}) vs Defensives avg RS-Ratio (${d.defAvg.ratio.toFixed(2)}), spread = ${d.spread>=0?'+':''}${d.spread.toFixed(2)} — spread beyond ±0.6 calls RISK-ON/RISK-OFF, inside that band calls MIXED.`});
+  for(const r of d.crossed){
+    const bullish=r.q==='LEADING'||r.q==='IMPROVING';
+    rules.push({tag:bullish?'watch':'note', text:`<b>${r.t}</b> (${r.n}) just crossed into <b>${r.q}</b> this week. Rule: a fresh cross confirms a rotation change already happened — it's descriptive/lagging by construction (weekly quadrant data), not a timing signal. ${bullish?'Worth a closer look now that it\'s confirmed.':'Confirms the move, but chasing a fresh Lagging/Weakening cross usually means acting after weakness already showed up — see Extension Watch below for a read that can fire earlier.'}`});
+  }
+  if(!d.crossed.length) rules.push({tag:'note',text:`No sector crossed into a new quadrant this week — current positioning is a continuation of last week's rotation, not a new signal.`});
+  for(const r of d.overbought) rules.push({tag:'caution', text:`<b>${r.t}</b> (${r.n}) looks stretched: RSI(14) ${r.rsi.toFixed(0)}, ${r.stretchPct>=0?'+':''}${r.stretchPct.toFixed(1)}% above its 50-day trend${r.wpr!=null?`, Williams %R ${r.wpr.toFixed(0)}`:''}. Rule: forward-looking extension read (RSI + price-vs-trend distance${r.wpr!=null?' + Williams %R overbought zone (derived_series)':''}), not the quadrant data — moves this stretched often pause or consolidate before continuing, worth watching for a cooldown rather than chasing further strength.`});
+  for(const r of d.oversold) rules.push({tag:'watch', text:`<b>${r.t}</b> (${r.n}) looks stretched to the downside: RSI(14) ${r.rsi.toFixed(0)}, ${r.stretchPct.toFixed(1)}% below its 50-day trend${r.wpr!=null?`, Williams %R ${r.wpr.toFixed(0)}`:''}. Rule: same forward-looking extension read${r.wpr!=null?' (RSI + price-vs-trend + Williams %R oversold zone)':''} — moves this stretched down often see a bounce/consolidation, worth watching for stabilization rather than assuming the decline just continues.`});
+
+  el.innerHTML=`
+    <div class="regimeTop">
+      <div class="regimeBadge ${cls}">${d.regime}</div>
+      <div class="regimeNote">${d.regimeNote}<br>Breadth (of ${d.rows.length} shown): <b style="color:var(--green)">${d.leading}</b> Leading · <b style="color:var(--yellow)">${d.weakening}</b> Weakening · <b style="color:var(--red)">${d.lagging}</b> Lagging · <b style="color:var(--crk)">${d.improving}</b> Improving</div>
+    </div>
+    <div class="breadthBar">${seg(d.leading,'#00FFA3','Leading')}${seg(d.weakening,'#FFE500','Weakening')}${seg(d.lagging,'#FF2D55','Lagging')}${seg(d.improving,'#00D4FF','Improving')}</div>
+    <div class="groupCompare">
+      <div class="gcCol"><div class="gcLabel">Cyclicals avg RS-Ratio</div><div class="gcTrack"><div class="gcFill" style="width:${pos(d.cycAvg.ratio)}%;background:var(--crk)"></div></div><div class="gcVal">${d.cycAvg.ratio.toFixed(2)}</div></div>
+      <div class="gcCol"><div class="gcLabel">Defensives avg RS-Ratio</div><div class="gcTrack"><div class="gcFill" style="width:${pos(d.defAvg.ratio)}%;background:var(--purple)"></div></div><div class="gcVal">${d.defAvg.ratio.toFixed(2)}</div></div>
+    </div>
+    <div>
+      <div class="secHead">Just crossed into a new quadrant this week <span style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0">— confirms a move that already happened (lagging)</span></div>
+      ${d.crossed.length? d.crossed.map(r=>`<span class="crossChip"><span style="color:${r.c}">●</span> <b>${r.t}</b> → ${r.q}</span>`).join('') : '<span style="font-family:var(--mono);font-size:11px;color:var(--dim)">none this week</span>'}
+    </div>
+    <div>
+      <div class="secHead">Extension Watch <span style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0">— forward-looking: stretched RSI / price-vs-50-day, can fire before a quadrant cross confirms anything</span></div>
+      ${(d.overbought.length||d.oversold.length)? [
+        ...d.overbought.map(r=>`<span class="crossChip"><span style="color:${r.c}">●</span> <b>${r.t}</b> stretched up · RSI ${r.rsi.toFixed(0)} · ${r.stretchPct>=0?'+':''}${r.stretchPct.toFixed(1)}% vs 50d</span>`),
+        ...d.oversold.map(r=>`<span class="crossChip"><span style="color:${r.c}">●</span> <b>${r.t}</b> stretched down · RSI ${r.rsi.toFixed(0)} · ${r.stretchPct.toFixed(1)}% vs 50d</span>`)
+      ].join('') : '<span style="font-family:var(--mono);font-size:11px;color:var(--dim)">nothing meaningfully stretched right now</span>'}
+    </div>
+    <div>
+      <div class="secHead">DB Regime State <span style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0">— live, per-ticker/per-term read from Supabase regime_state, a SEPARATE signal from the RISK-ON/OFF badge above (that badge is this page's own RRG-breadth calc; this row is a different engine's directional call, shown as-is)</span></div>
+      ${REGIME_LIVE_STATUS==='ok'? `<div style="display:flex;flex-wrap:wrap;gap:6px">${d.rows.map(r=>{
+        const rg=REGIME_LIVE[r.t]; if(!rg) return `<span class="crossChip"><span style="color:${r.c}">●</span> <b>${r.t}</b> <span style="color:var(--dim)">missing</span></span>`;
+        const terms=['SHORT','MID','LONG'].map(term=>{
+          const x=rg[term]; if(!x) return `${term}:—`;
+          const col=x.state==='bull'?'var(--green)':x.state==='bear'?'var(--red)':'var(--yellow)';
+          return `${term}:<b style="color:${col}">${x.state} ${x.score>=0?'+':''}${x.score}</b>`;
+        }).join(' ');
+        return `<span class="crossChip"><span style="color:${r.c}">●</span> <b>${r.t}</b> ${terms}</span>`;
+      }).join('')}</div>` : REGIME_LIVE_STATUS==='pending'? `<span style="font-family:var(--mono);font-size:11px;color:var(--dim)">fetching from Supabase…</span>` : `<span style="font-family:var(--mono);font-size:11px;color:var(--yellow)">Supabase fetch failed — regime_state unavailable this refresh</span>`}
+    </div>
+    <div>
+      <div class="secHead">What this means — rules applied, in order</div>
+      <div class="decisionBox">${rules.map(r=>`<div class="ruleRow"><span class="ruleTag ${r.tag}">${r.tag==='watch'?'watch':r.tag==='caution'?'caution':'context'}</span><span>${r.text}</span></div>`).join('')}</div>
+    </div>`;
+}
+
+/* ============ ETF DETAIL (Phase 2 — sub-industry/holdings static+illustrative, technicals live, fundamentals placeholder) ============ */
+let DETAIL_FOCUS=localStorage.getItem('sr_detailFocus')||'XLK';
+let DETAIL_TAB='sub';
+function renderDetailPicker(){
+  const el=document.getElementById('detailPicker'); if(!el) return;
+  el.innerHTML='';
+  for(const s of SECTORS){
+    const b=document.createElement('span');
+    b.className='dchip'+(DETAIL_FOCUS===s.t?' on':'');
+    b.innerHTML=`<span class="sw" style="background:${s.c}"></span>${s.t}`;
+    b.onclick=()=>{ DETAIL_FOCUS=s.t; localStorage.setItem('sr_detailFocus',s.t); renderDetailPicker(); renderDetailContent(); renderDetailActionable(); };
+    el.appendChild(b);
+  }
+}
+// Combined actionable read — ties Technicals (rules scorecard) + live Geiger (Supabase) + Extension
+// (RSI/50d stretch) together into one verdict for the focused sector, instead of three separate numbers
+// the person has to reconcile themselves.
+function renderDetailActionable(){
+  const el=document.getElementById('detailActionable'); if(!el) return;
+  const s=SECTORS.find(x=>x.t===DETAIL_FOCUS); if(!s) return;
+  const t=technicalRead(s.t);
+  if(!t){ el.innerHTML=`<div class="arWhy">not enough daily history loaded yet for ${s.t}</div>`; return; }
+  const live=GEIGER_LIVE[s.t];
+  const lq=QUOTES_LIVE[s.t];
+  const stretchPct=(t.last/t.e50-1)*100;
+  const wprHit = t.wpr!=null && (t.wpr>-20||t.wpr<-80);
+  const extended = t.rsi!=null && (t.rsi>=68||stretchPct>=8||(t.wpr!=null&&t.wpr>-20)) ? 'overbought' : (t.rsi!=null && (t.rsi<=32||stretchPct<=-8||(t.wpr!=null&&t.wpr<-80)) ? 'oversold' : null);
+  // votes: technicals score sign, geiger composite sign (if live), extension direction (inverted — extension argues AGAINST chasing the current direction)
+  let votes=0, nVotes=0;
+  if(t.score!=null){ votes += Math.sign(t.score); nVotes++; }
+  if(live){ votes += Math.sign(live.composite); nVotes++; }
+  let verdict, color;
+  if(extended==='overbought'){ verdict='STRETCHED — CAUTION CHASING'; color='var(--yellow)'; }
+  else if(extended==='oversold'){ verdict='STRETCHED — WATCH FOR STABILIZATION'; color='var(--yellow)'; }
+  else if(nVotes>0 && votes>0){ verdict='ALIGNED BULLISH'; color='var(--green)'; }
+  else if(nVotes>0 && votes<0){ verdict='ALIGNED BEARISH'; color='var(--red)'; }
+  else { verdict='MIXED SIGNALS'; color='var(--dim)'; }
+  const parts=[];
+  parts.push(`Technicals: <b style="color:${t.read.includes('BUY')?'var(--green)':t.read.includes('SELL')?'var(--red)':'var(--yellow)'}">${t.read}</b> (score ${t.score>=0?'+':''}${t.score}${t.source==='db'?', DB-sourced':', Yahoo fallback'})`);
+  parts.push(live? `Geiger (live): <b style="color:${live.composite>=0?'var(--green)':'var(--red)'}">${live.composite>=0?'+':''}${live.composite.toFixed(3)}</b>` : `Geiger: <span style="color:var(--dim)">unavailable</span>`);
+  parts.push(`Extension: ${extended? `<b style="color:var(--yellow)">${extended}</b> (RSI ${t.rsi.toFixed(0)}${t.wpr!=null?`, W%R ${t.wpr.toFixed(0)}`:''}, ${stretchPct>=0?'+':''}${stretchPct.toFixed(1)}% vs trend)` : `<span style="color:var(--dim)">not stretched</span>`}`);
+  parts.push(lq&&lq.price!=null? `Quote (live_quotes): <b>${lq.price.toFixed(2)}</b> <span style="color:${lq.chg_pct>=0?'var(--green)':'var(--red)'}">${lq.chg_pct>=0?'+':''}${lq.chg_pct!=null?lq.chg_pct.toFixed(2):'—'}%</span> · updated ${freshText(lq.updated_ts)}` : `Quote: <span style="color:var(--dim)">${QUOTES_LIVE_STATUS==='pending'?'fetching…':'unavailable'}</span>`);
+  const prof=PROFILE_LIVE[s.t]; const avgVol=prof&&prof.avg_volume!=null?prof.avg_volume:null; const curVol=lq&&lq.volume!=null?lq.volume:null;
+  if(curVol!=null&&avgVol){ const rvol=curVol/avgVol; const rc=rvol>=1.5?'var(--green)':rvol<=0.6?'var(--red)':'var(--text)';
+    parts.push(`RVOL: <b style="color:${rc}">${rvol.toFixed(2)}×</b> <span style="color:var(--dim)">(live_quotes.volume ${(curVol/1e6).toFixed(1)}M ÷ company_profile.avg_volume ${(avgVol/1e6).toFixed(1)}M)${lq&&lq.updated_ts?` · updated ${freshText(lq.updated_ts)}`:''}</span>`); }
+  else { parts.push(`RVOL: <span style="color:var(--yellow)">missing — ${curVol==null?'no live_quotes.volume':'no company_profile.avg_volume'} for ${s.t}</span>`); }
+  el.innerHTML=`<div class="arVerdict" style="color:${color}">${verdict}</div><div class="arWhy">${parts.join('<br>')}<br><span style="color:var(--dim)">Rule: agree = ALIGNED, extension overrides both (a stretched read means "don't chase," even if Technicals/Geiger still agree) since extension is the one forward-looking input here.</span></div>`;
+}
+function renderDetailContent(){
+  const s=SECTORS.find(x=>x.t===DETAIL_FOCUS); if(!s) return;
+  const d=ETF_DETAIL[s.t]||{sub:[],top:[]};
+  document.querySelectorAll('#detailTabs .atab').forEach(b=>b.classList.toggle('active',b.dataset.dv===DETAIL_TAB));
+  const el=document.getElementById('detailContent'); if(!el) return;
+  const flag=(txt)=>`<div style="font-family:var(--mono);font-size:10px;color:var(--yellow);margin-bottom:12px;letter-spacing:.06em;text-transform:uppercase;line-height:1.5">${txt}</div>`;
+  if(DETAIL_TAB==='sub'){
+    el.innerHTML=flag(`Static reference — illustrative GICS sub-industries for ${s.t}, will wire to FMP industry classification later`)+
+      `<div style="display:flex;flex-wrap:wrap;gap:8px">${d.sub.map(x=>`<span style="font-family:var(--mono);font-size:11px;color:var(--ink2);border:1px solid var(--border);padding:8px 12px;border-left:3px solid ${s.c}">${x}</span>`).join('')}</div>`;
+  } else if(DETAIL_TAB==='holdings'){
+    el.innerHTML=flag(`Static reference — illustrative top constituents with a plausible weight curve, NOT live holdings/weights, will wire to FMP ETF-holdings endpoint later`)+
+      `<div style="display:flex;flex-direction:column;gap:0;max-width:520px">${d.top.map((x,i)=>{
+        const pct=TOP_HOLD_PCT[i]||1;
+        return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:11px">
+          <span style="color:var(--mute);width:16px">${i+1}</span>
+          <b style="width:56px;color:var(--text)">${x}</b>
+          <span style="flex:1;height:8px;background:var(--bg);border:1px solid var(--line2);position:relative"><span style="position:absolute;left:0;top:0;bottom:0;width:${(pct/19*100).toFixed(0)}%;background:${s.c};opacity:.6"></span></span>
+          <span style="width:44px;text-align:right;color:var(--ink2)">${pct}%</span>
+        </div>`;
+      }).join('')}</div>`;
+  } else if(DETAIL_TAB==='tech'){
+    const t=technicalRead(s.t);
+    if(!t){ el.innerHTML=`<div style="font-family:var(--mono);font-size:11px;color:var(--dim)">not enough daily history loaded yet for ${s.t}</div>`; }
+    else{
+      const readColor=t.read.includes('BUY')?'var(--green)':t.read.includes('SELL')?'var(--red)':'var(--yellow)';
+      const dbFlag = t.source==='db'
+        ? `LIVE, DB-sourced — RSI/Williams %R/MACD/EMA21/SMA50 read directly from Supabase derived_series (tf='1D'), updated ${freshText(t.updatedTs)}. No in-browser indicator math for this ticker. "Read" is Scintilla's own transparent rule set (not TradingView's or any third party's rating): each row below is a pass/fail condition, score = passes minus fails, mapped to the badge.`
+        : `YAHOO FALLBACK — derived_series hasn't loaded yet or doesn't cover ${s.t}; EMA20/EMA50/RSI computed client-side from Yahoo closes instead (no Williams %R/MACD in this mode). "Read" is Scintilla's own transparent rule set: each row below is a pass/fail condition, score = passes minus fails, mapped to the badge.`;
+      el.innerHTML=flag(dbFlag)+
+        `<div style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:8px;flex:0 0 auto">
+            <div style="font-family:var(--mono);font-size:24px;font-weight:700;color:${readColor};border:1px solid ${readColor};padding:14px 22px;text-align:center">${t.read}</div>
+            <div style="font-family:var(--mono);font-size:10px;color:var(--dim)">score: ${t.score>=0?'+':''}${t.score}</div>
+          </div>
+          <div style="flex:1;min-width:280px">
+            ${t.conditions.map(c=>`<div class="scoreRow"><span class="scoreMark ${c.pass?'pass':'fail'}">${c.pass?'✓':'✗'}</span><span>${c.label}</span><span class="scoreWhy">${c.detail}</span></div>`).join('')}
+          </div>
+        </div>
+        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-family:var(--mono);font-size:11px;color:var(--ink2);line-height:1.7">
+          <b style="color:var(--crk)">Sector Sentiment: ${t.sentiment.toFixed(0)}/100</b> — our own composite, not CNN's Fear &amp; Greed. Formula: 50 (neutral) + 0.8×(RSI−50) + 3×((Price/EMA50 − 1)×100), clamped 0–100. Right now that's 50 ${t.rsiTilt>=0?'+':'−'}${Math.abs(t.rsiTilt).toFixed(1)} (RSI tilt) ${t.trendTilt>=0?'+':'−'}${Math.abs(t.trendTilt).toFixed(1)} (trend tilt).<br>
+          <span style="color:var(--dim)">Price: ${t.last.toFixed(2)} · ${t.source==='db'?'EMA21':'EMA20'}: ${t.e20.toFixed(2)} · ${t.source==='db'?'SMA50':'EMA50'}: ${t.e50.toFixed(2)} · RSI(14): ${t.rsi!=null?t.rsi.toFixed(1):'—'}${t.source==='db'?` · Williams %R: ${t.wpr!=null?t.wpr.toFixed(1):'—'} · MACD: ${t.macd!=null?t.macd.toFixed(2):'—'} (signed ${t.macdSigned!=null?t.macdSigned.toFixed(2):'—'}) · CCI: ${t.cci!=null?t.cci.toFixed(1):'—'} · ROC: ${t.roc!=null?t.roc.toFixed(1):'—'} · Stoch: ${t.stoch!=null?t.stoch.toFixed(1):'—'}`:''}</span>
+        </div>`;
+    }
+  } else if(DETAIL_TAB==='geiger'){
+    const live=GEIGER_LIVE[s.t];
+    const barPct=v=>((v+1)/2*100).toFixed(0);   // -1..+1 -> 0..100%
+    if(live){
+      const composite=live.composite, trend=live.trend, momentum=live.momentum, structure=live.structure||0;
+      let verdict; if(composite>0.35) verdict='STRONG BULLISH'; else if(composite>0.10) verdict='BULLISH'; else if(composite<-0.35) verdict='STRONG BEARISH'; else if(composite<-0.10) verdict='BEARISH'; else verdict='NEUTRAL';
+      const vColor=verdict.includes('BULL')?'var(--green)':verdict.includes('BEAR')?'var(--red)':'var(--yellow)';
+      const ageMin=Math.round((Date.now()/1000-live.updated_ts)/60);
+      el.innerHTML=flag(`LIVE — this is the real Geiger, pulled straight from the same Supabase table (composite_staged) that feeds scintillahub.ai's own Geiger reads. Not computed on this page. Current formula: composite = 0.5×Trend + 0.5×Momentum (Momentum = RSI 60% / Williams %R 40%, the "equalizer" mix set on scintillahub.ai). Structure &amp; Volatility are archived (0 weight) in the live system right now, not something this page turned off. Updated ${ageMin<1?'just now':ageMin+'m ago'}.`)+
+        `<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;margin-bottom:16px">
+          <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:${vColor};border:1px solid ${vColor};padding:12px 20px;text-align:center">${verdict}</div>
+          <div style="font-family:var(--mono);font-size:13px;color:var(--ink2)">composite: <b style="color:${vColor}">${composite>=0?'+':''}${composite.toFixed(4)}</b> <span style="color:var(--dim)">conviction: ${live.conviction!=null?live.conviction.toFixed(2):'—'}</span></div>
+        </div>
+        <div class="geigerArc">
+          <div class="geigerBar"><span class="gbLabel">Trend (0.5 wt, daily)</span><div class="gbTrack"><div class="gbFill" style="left:${trend>=0?50:barPct(trend)}%;width:${Math.abs(trend)/2*100}%;background:var(--blue)"></div></div><span class="gbVal">${trend>=0?'+':''}${trend.toFixed(3)} → contributes ${(trend*0.5)>=0?'+':''}${(trend*0.5).toFixed(3)}</span></div>
+          <div class="geigerBar"><span class="gbLabel">Momentum (0.5 wt, RSI 60/W%R 40)</span><div class="gbTrack"><div class="gbFill" style="left:${momentum>=0?50:barPct(momentum)}%;width:${Math.abs(momentum)/2*100}%;background:var(--purple)"></div></div><span class="gbVal">${momentum>=0?'+':''}${momentum.toFixed(3)} → contributes ${(momentum*0.5)>=0?'+':''}${(momentum*0.5).toFixed(3)}</span></div>
+          <div class="geigerBar"><span class="gbLabel">Structure (archived, 0 wt)</span><div class="gbTrack"><div class="gbFill" style="left:50%;width:0%;background:var(--yellow)"></div></div><span class="gbVal">${structure.toFixed(2)} → off</span></div>
+        </div>`;
+    } else if(GEIGER_LIVE_STATUS==='pending'){
+      el.innerHTML=`<div style="font-family:var(--mono);font-size:11px;color:var(--dim)">fetching live Geiger from Supabase…</div>`;
+    } else {
+      const g=geigerApprox(s.t);
+      const fallbackNote=flag(`Live Supabase fetch failed or ${s.t} isn't in composite_staged — showing a local fallback approximation instead (older, superseded 0.30/0.25/0.20 weighting), NOT the real current formula. Retry: refreshGeigerLive() in console, or reload.`);
+      if(!g){ el.innerHTML=fallbackNote+`<div style="font-family:var(--mono);font-size:11px;color:var(--dim)">not enough daily history loaded yet for ${s.t} either.</div>`; }
+      else{
+        const vColor=g.verdict.includes('BULL')?'var(--green)':g.verdict.includes('BEAR')?'var(--red)':'var(--yellow)';
+        el.innerHTML=fallbackNote+
+          `<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center">
+            <div style="font-family:var(--mono);font-size:20px;font-weight:700;color:${vColor};border:1px solid ${vColor};padding:10px 18px">${g.verdict}</div>
+            <div style="font-family:var(--mono);font-size:12px;color:var(--ink2)">fallback composite: <b style="color:${vColor}">${g.composite>=0?'+':''}${g.composite.toFixed(3)}</b></div>
+          </div>`;
+      }
+    }
+  } else {
+    el.innerHTML=flag(`Placeholder — FMP not yet wired into this page. No fake numbers shown.`)+
+      `<table style="width:100%;font-family:var(--mono);font-size:11px;color:var(--ink2);border-collapse:collapse">
+        <tr><td style="padding:7px 0;border-bottom:1px solid var(--border)">Analyst Grade (Buy/Hold/Sell mix)</td><td style="text-align:right;color:var(--dim)">— pending FMP</td></tr>
+        <tr><td style="padding:7px 0;border-bottom:1px solid var(--border)">Trailing P/E (sector representative names)</td><td style="text-align:right;color:var(--dim)">— pending FMP</td></tr>
+        <tr><td style="padding:7px 0;border-bottom:1px solid var(--border)">Forward P/E</td><td style="text-align:right;color:var(--dim)">— pending FMP</td></tr>
+        <tr><td style="padding:7px 0;border-bottom:1px solid var(--border)">Dividend Yield</td><td style="text-align:right;color:var(--dim)">— pending FMP</td></tr>
+        <tr><td style="padding:7px 0;border-bottom:1px solid var(--border)">Revenue Growth (YoY)</td><td style="text-align:right;color:var(--dim)">— pending FMP</td></tr>
+        <tr><td style="padding:7px 0;border-bottom:1px solid var(--border)">Avg forward EPS growth estimate</td><td style="text-align:right;color:var(--dim)">— pending FMP</td></tr>
+        <tr><td style="padding:7px 0">Analyst avg price-target upside</td><td style="text-align:right;color:var(--dim)">— pending FMP</td></tr>
+      </table>`;
+  }
+}
+document.querySelectorAll('#detailTabs .atab').forEach(b=>b.onclick=()=>{ DETAIL_TAB=b.dataset.dv; renderDetailContent(); });
+
+/* ============ CONTROLS ============ */
+function toggle(t){
+  selected=selected.includes(t)? selected.filter(x=>x!==t):[...selected,t];
+  localStorage.setItem('sr_sel',JSON.stringify(selected));
+  renderAll(false);
+}
+function renderChips(){
+  const el=document.getElementById('chips'); el.innerHTML='';
+  for(const s of SECTORS){
+    const c=document.createElement('span');
+    c.className='chip'+(selected.includes(s.t)?' on':'');
+    c.innerHTML=`<span class="dot" style="background:${s.c}"></span>${s.t}`;
+    c.onclick=()=>toggle(s.t);
+    el.appendChild(c);
+  }
+}
+document.querySelectorAll('.grp').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.grp').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+  const g=b.dataset.grp;
+  selected = g==='ALL'? SECTORS.map(s=>s.t) : SECTORS.filter(s=>s.g.includes(g)).map(s=>s.t);
+  localStorage.setItem('sr_sel',JSON.stringify(selected));
+  renderAll(false);
+});
+document.querySelectorAll('.rng').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.rng').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+  setRange(b.dataset.d);
+});
+document.getElementById('refreshBtn').onclick=()=>boot(true);
+
+/* ---- RRG toolbar: tail slider, Fit/Max/Center, Animate, local sector chips ---- */
+function renderRrgChips(){
+  const el=document.getElementById('rrgChips'); if(!el) return; el.innerHTML='';
+  for(const s of SECTORS){
+    const c=document.createElement('span');
+    c.className='chip'+(selected.includes(s.t)?' on':'');
+    c.innerHTML=`<span class="dot" style="background:${s.c}"></span>${s.t}`;
+    c.onclick=()=>toggle(s.t);
+    el.appendChild(c);
+  }
+}
+function setRrgView(v){
+  RRG_VIEW=v;
+  document.querySelectorAll('#rrgTools .rbtn').forEach(b=>{ if(['rrgFit','rrgMax','rrgCenter'].includes(b.id)) b.classList.remove('active'); });
+  if(v==='FIT') document.getElementById('rrgFit').classList.add('active');
+  if(v==='MAX'){ document.getElementById('rrgMax').classList.add('active'); RRG_R=RRG_R_MAX; }
+  if(v==='CENTER'){ document.getElementById('rrgCenter').classList.add('active'); RRG_R=RRG_R_DEFAULT; }
+  renderRRG();
+}
+document.getElementById('rrgFit').onclick=()=>setRrgView('FIT');
+document.getElementById('rrgMax').onclick=()=>setRrgView('MAX');
+document.getElementById('rrgCenter').onclick=()=>setRrgView('CENTER');
+function setTailPts(v){
+  TAIL_PTS=v;
+  document.getElementById('tailSlider').value=v;
+  document.getElementById('tailReadout').textContent=v+'w';
+  renderRRG();
+}
+document.getElementById('tailSlider').oninput=(e)=>setTailPts(+e.target.value);
+document.getElementById('tailReset').onclick=()=>setTailPts(TAIL_REC);
+document.getElementById('rrgAnimate').onclick=function(){
+  const btn=this;
+  if(RRG_ANIM){ clearInterval(RRG_ANIM); RRG_ANIM=null; RRG_ANIM_BUILD=null; btn.textContent='▶ Animate'; btn.classList.remove('active'); renderRRG(); return; }
+  // build-up reveal: starts at the OLDEST point of the current tail (1 point), grows week by week up to
+  // the full length set on the Tail Length slider — i.e. it plays out exactly what "tail" you've configured.
+  btn.textContent='⏸ Pause'; btn.classList.add('active');
+  RRG_ANIM_BUILD=1; renderRRG();   // draw frame 1 synchronously — no flash of the old full state
+  RRG_ANIM=setInterval(()=>{
+    RRG_ANIM_BUILD++; renderRRG();
+    if(RRG_ANIM_BUILD>=TAIL_PTS){ clearInterval(RRG_ANIM); RRG_ANIM=null; RRG_ANIM_BUILD=null; btn.textContent='▶ Animate'; btn.classList.remove('active'); renderRRG(); }
+  },380);
+};
+
+/* ============ BOOT ============ */
+function renderAll(dataChanged){
+  renderChips(); renderRrgChips(); renderHeatmap(); renderAumPanel(); renderRRG(); renderTable(); renderRegime(); renderDetailPicker(); renderDetailContent(); renderDetailActionable();
+  if(dataChanged) renderLines(); else rebaseLines();
+}
+async function boot(manual){
+  const st=document.getElementById('status');
+  try{
+    st.textContent='fetching…';
+    await loadData();
+    renderAll(true);
+    st.classList.remove('err');
+    st.innerHTML=`<b>● LIVE</b> ${PRICE_SOURCE==='ohlcv_history'?'Supabase ohlcv_history':'Yahoo fallback'} daily · updated ${new Date().toLocaleTimeString()} · auto-refresh ${REFRESH_MIN}min`;
+    document.getElementById('banner').style.display='none';
+  }catch(e){
+    st.classList.add('err'); st.innerHTML='<b>● FEED DOWN</b>';
+    const bn=document.getElementById('banner');
+    bn.style.display='block';
+    bn.textContent='Data feed unreachable. On scintillahub.ai this should never happen (own relay) — hard-refresh (Cmd+Shift+R); if still red, tell Claude.';
+  }
+}
+window.addEventListener('resize',()=>{renderRRG(); renderTreemap(); updateLabels(); renderAumPanel();});
+boot();
+refreshGeigerLive();
+refreshDerivedLive();
+refreshQuotesLive();
+refreshProfileLive();
+refreshRegimeLive();
+refreshRankingsLive();
+refreshUniverseCheck();
+setInterval(()=>refreshRankingsLive(),REFRESH_MIN*60*1000);
+setInterval(()=>boot(),REFRESH_MIN*60*1000);
+setInterval(()=>refreshGeigerLive(),REFRESH_MIN*60*1000);
+setInterval(()=>refreshDerivedLive(),REFRESH_MIN*60*1000);
+setInterval(()=>refreshQuotesLive(),REFRESH_MIN*60*1000);
+setInterval(()=>refreshProfileLive(),REFRESH_MIN*60*1000);
+setInterval(()=>refreshRegimeLive(),REFRESH_MIN*60*1000);
+</script>
+</body>
+</html>

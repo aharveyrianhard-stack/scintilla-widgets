@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Morningstar 3-Stage DCF vs Scintilla Single-Stage DCF — NVDA</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2129; --border:#2d333b;
+    --txt:#e6edf3; --dim:#8b949e; --accent:#58a6ff; --green:#3fb950; --red:#f85149;
+    --gold:#d29922; --purple:#bc8cff;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--txt); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; font-size:16px; line-height:1.55; padding:32px 40px 80px;}
+  h1{font-size:28px; margin-bottom:4px;}
+  .sub{color:var(--dim); margin-bottom:32px; font-size:15px;}
+  section{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:26px 30px; margin-bottom:28px;}
+  h2{font-size:21px; margin-bottom:6px; color:var(--accent);}
+  h3{font-size:15px; margin:16px 0 8px; color:var(--gold);}
+  .src{font-size:13px; color:var(--dim); margin-bottom:18px; font-family:ui-monospace,Menlo,monospace;}
+  table{width:100%; border-collapse:collapse; font-size:14.5px; margin:14px 0;}
+  th{color:var(--dim); text-align:right; font-weight:600; padding:8px 10px; border-bottom:2px solid var(--border); white-space:nowrap;}
+  th:first-child, td:first-child{text-align:left;}
+  td{padding:8px 10px; text-align:right; border-bottom:1px solid var(--border); white-space:normal;}
+  tr:hover td{background:var(--panel2);}
+  .pos{color:var(--green);} .neg{color:var(--red);} .gold{color:var(--gold);} .pur{color:var(--purple);}
+  .note{background:var(--panel2); border-left:4px solid var(--gold); padding:12px 16px; border-radius:6px; font-size:14px; margin-top:14px; color:#c9d1d9;}
+  .flag{background:var(--panel2); border-left:4px solid var(--red); padding:12px 16px; border-radius:6px; font-size:14px; margin-top:14px; color:#c9d1d9;}
+  .cols{display:flex; gap:24px; flex-wrap:wrap;}
+  .cols > div{flex:1; min-width:320px;}
+  .kv{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:12px; margin:16px 0;}
+  .kv div{background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:12px 14px;}
+  .kv .k{font-size:12px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em;}
+  .kv .v{font-size:21px; font-weight:700; margin-top:2px;}
+  .fcard{background:var(--panel2); border:1px solid var(--border); border-radius:12px; padding:14px 18px; margin:10px 0;}
+  .fname{font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); margin-bottom:6px;}
+  .subttl{font-size:13.5px; color:var(--txt); font-weight:700; letter-spacing:.01em; margin-bottom:6px;}
+  .foot{font-size:11.5px; color:var(--dim); margin-top:6px;}
+  .stage1{color:var(--accent);} .stage2{color:var(--gold);} .stage3{color:var(--purple);}
+  .resultbar{display:flex; gap:22px; flex-wrap:wrap; align-items:baseline; background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:16px 20px; margin-bottom:14px;}
+  .resultbar .rb{display:flex; flex-direction:column;} .resultbar .rk{font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em;} .resultbar .rv{font-size:24px; font-weight:700;}
+  .scrollx{overflow-x:auto; max-width:100%;}
+</style>
+</head>
+<body>
+
+<h1>Morningstar's 3-Stage DCF vs Scintilla's Single-Stage DCF — NVDA</h1>
+<div class="sub">Comparing the valuation methodology in Morningstar's 6 Jul 2026 NVDA equity report (fair value $280) against the DCF engine in FMP_CAPABILITY_DEMO.html (§3), then building a Morningstar-style 3-stage read for NVDA on top of the same live FMP inputs the demo already pulls. Not investment advice — a methodology exercise.</div>
+
+<!-- ============ 1. METHODOLOGY COMPARISON ============ -->
+<section>
+<h2>1 · Methodology — what each model actually does</h2>
+<div class="src">left: Morningstar "Research Methodology for Valuing Companies" (report pp.20-21) · right: FMP_CAPABILITY_DEMO.html §3 (custom-dcf-advanced)</div>
+
+<div class="scrollx">
+<table>
+<tr><th style="text-align:left;">Dimension</th><th style="text-align:left;">Morningstar (analyst model)</th><th style="text-align:left;">Scintilla / FMP demo (live tool)</th></tr>
+<tr><td>Structure</td><td style="text-align:left;">3 stages: <b>Stage I</b> explicit forecast (5-10yr) → <b>Stage II</b> "fade" (1-15yr, formula-driven) → <b>Stage III</b> perpetuity once ROIC = WACC.</td><td style="text-align:left;">1 explicit stage (5yr) → Gordon-growth terminal value. No fade stage.</td></tr>
+<tr><td>Stage I detail</td><td style="text-align:left;">Full 3-statement build: revenue, margins, taxes, working capital, capex → EBI and NNI, analyst-judgment line by line. NVDA: FY2027-31 revenue $389B→$856B.</td><td style="text-align:left;">Same shape (revenue × margin → EBITDA → EBIT → NOPAT − capex − ΔNWC = UFCF) but every driver is one flat assumption (slider) applied across all 5 years, or a Street consensus $/yr path.</td></tr>
+<tr><td>Stage II ("fade")</td><td style="text-align:left;"><b>Exists explicitly.</b> Length set by moat: no-moat truncates fast, narrow-moat ~10yr, wide-moat 10-20yr (NVDA: 15yr, to FY2046). Approximated via EBI growth rate (NVDA 9.0%), reinvestment/investment rate (NVDA 30.0%), and RONIC declining to WACC.</td><td style="text-align:left;"><b>Does not exist.</b> The model jumps straight from year-5 cash flow to a perpetual Gordon-growth terminal value — economically this assumes ROIC stays constant (or the market re-rates) the instant the explicit window ends.</td></tr>
+<tr><td>Terminal / Stage III</td><td style="text-align:left;">Perpetuity begins only once excess returns (ROIC − WACC) hit zero. Value = EBI/WACC — growth stops mattering because new investment earns exactly its cost of capital (NPV-neutral by construction).</td><td style="text-align:left;">Classic Gordon growth: TV = UFCF₅×(1+g)/(WACC−g). Terminal growth <code>g</code> is a free slider (0-8%, default = risk-free 4.28%) — economically this assumes the firm keeps earning excess returns on ALL future growth, forever. Hard rule enforced: g &lt; WACC.</td></tr>
+<tr><td>Economic moat</td><td style="text-align:left;">First-class input. Assigned rating (NVDA: <b>Wide</b>) mechanically sets how many years of excess ROIC survive in Stage II — moat width is load-bearing in the math, not just a narrative.</td><td style="text-align:left;">No moat concept in the DCF math. §1 comps section computes a "Quality score" (margins/growth/leverage percentile) but it doesn't feed the DCF's fade length or terminal value.</td></tr>
+<tr><td>Discount rate</td><td style="text-align:left;">CAPM cost of equity (9.6%) blended with pre-tax cost of debt (5.5%) → WACC 9.5%. Single point estimate per report, refreshed on quarterly review.</td><td style="text-align:left;">Same CAPM building blocks (rf + β×MRP → CoE → WACC) but every input is a live slider: 5 beta presets (raw/peer-median/peer-mean/Blume/bull mean-revert), 4 MRP presets + a build-your-own ERP tool, tornado + 2-D sensitivity grids, and a reverse-DCF solver.</td></tr>
+<tr><td>Uncertainty / margin of safety</td><td style="text-align:left;">Explicit <b>Uncertainty Rating</b> (Low→Extreme; NVDA = Very High) drives a required discount/premium band (e.g. Very High = 50% discount / 125% premium) that in turn sets the 1-5 star rating vs the single fair-value point estimate.</td><td style="text-align:left;">No formal uncertainty band or star system. The closest equivalents are the bear/consensus/bull scenario chips and the sensitivity tornado — dispersion is shown, not converted into a discount-to-fair-value rule.</td></tr>
+<tr><td>Data cadence</td><td style="text-align:left;">Point-in-time, analyst-published (this report: as of 6 Jul 2026, next scheduled review on earnings/events).</td><td style="text-align:left;">Live pull each render — comps, analyst consensus, insider/congress trades, and DCF base data all refresh from FMP endpoints.</td></tr>
+<tr><td>Output</td><td style="text-align:left;">Single fair value ($280) + star rating + qualitative moat/bull/bear/risk writeup.</td><td style="text-align:left;">A fair value that moves as you drag sliders, plus tornado, 2-way sensitivity matrix, and reverse-DCF ("what does today's price assume").</td></tr>
+</table>
+</div>
+
+<div class="note">The structural gap that matters most: Morningstar's Stage II fade means a wide-moat company gets ~15-20 years of gradually-declining excess returns priced in before the model forces ROIC down to WACC. Scintilla's demo, with only a single 5-year stage, either (a) implicitly assumes those excess returns vanish immediately after year 5 (understating value for a true wide-moat compounder), or (b) bakes them into the terminal growth slider forever if <code>g</code> is set too high (overstating value, since Gordon growth then implies indefinite excess returns). Section 3 below builds the missing middle stage.</div>
+</section>
+
+<!-- ============ 2. NVDA — THREE READS ============ -->
+<section>
+<h2>2 · NVDA — three DCF reads, same company, same Stage I cash flows</h2>
+<div class="src">Stage I inputs for A/B/C below are the FMP demo's own NVDA base data (custom-dcf-advanced): FY2027-31 Street consensus revenue $393.3B→$1,005.0B, 51.1% EBITDA margin, 15.1% tax, 3.06% D&amp;A, 3.49% capex, 22.72% ΔNWC — all % of revenue. Only the discount rate and what happens after year 5 change between scenarios.</div>
+
+<div class="kv">
+  <div><div class="k">NVDA price (FMP, live)</div><div class="v">$213.57</div></div>
+  <div><div class="k">NVDA price (Morningstar quote date)</div><div class="v">$194.83</div></div>
+  <div><div class="k">Morningstar fair value</div><div class="v gold">$280.00</div></div>
+  <div><div class="k">Morningstar rating</div><div class="v">★★★★ Undervalued</div></div>
+</div>
+
+<div class="scrollx">
+<table>
+<tr><th style="text-align:left;">Scenario</th><th style="text-align:left;">Discount rate</th><th style="text-align:left;">Post-year-5 treatment</th><th>Fair value / share</th><th>vs $213.57</th></tr>
+<tr><td style="text-align:left;"><b>A</b> — Scintilla demo, as-shipped defaults</td><td style="text-align:left;">CAPM, β 2.14 × MRP 4.45% + rf 4.28% = <b>13.80%</b></td><td style="text-align:left;">Gordon growth, g = 4.28% (1 stage)</td><td>$114.34</td><td class="neg">−46%</td></tr>
+<tr><td style="text-align:left;"><b>B</b> — Scintilla single-stage, Morningstar's WACC</td><td style="text-align:left;"><b>9.50%</b> (Morningstar's published WACC)</td><td style="text-align:left;">Gordon growth, g = 4.28% (1 stage)</td><td>$218.78</td><td class="pos">+2%</td></tr>
+<tr><td style="text-align:left;"><b>C</b> — Morningstar-style 3-stage, FMP Stage I inputs</td><td style="text-align:left;">9.50% (same as B)</td><td style="text-align:left;">Stage II fade 15yr (EBI +9.0%/yr, 30% reinvestment) → Stage III perpetuity (ROIC=WACC)</td><td class="gold" style="font-weight:700;">$247.90</td><td class="pos">+16%</td></tr>
+<tr><td style="text-align:left;"><b>D</b> — Morningstar's own published model</td><td style="text-align:left;">9.50% (own Stage I forecast, more bullish FY30-31 revenue than Street consensus)</td><td style="text-align:left;">Full 3-stage as filed (fade to FY2046, perpetuity year 2047)</td><td style="font-weight:700;">$280.00</td><td class="pos">+31%</td></tr>
+</table>
+</div>
+
+<div style="border:1px solid var(--border); border-radius:12px; padding:15px 20px; background:var(--panel2); margin-top:16px;">
+<div class="subttl">Football field — same company, four ways of ending the model</div>
+<div id="ff"></div>
+<div class="foot" style="margin-top:8px;">Gold line = today's $213.57. Bars are illustrative ranges (±5% of each point estimate) to make the scenarios readable side by side — these are single-point DCF outputs, not modeled confidence bands.</div>
+</div>
+
+<div class="note"><b>Reading the spread.</b> A→B isolates the discount-rate effect: swapping the demo's raw 5-yr-regression beta (2.14, largely a reflection of NVDA's 2022-2025 volatility) for Morningstar's blended 9.5% WACC alone is worth about +$104/share — beta selection is the single biggest lever in this model, which is exactly what the demo's own tornado chart is built to show. B→C isolates the structural effect: holding the discount rate fixed and replacing the infinite-growth Gordon terminal value with a 15-year fade to zero-excess-return, then a no-growth-premium perpetuity, is worth about +$29/share here — Stage II/III together are 85.5% of total value (below), so how you model "after year 5" dominates the answer for a name still compounding revenue at 50%+. C→D is the remaining gap: Morningstar's own Stage I is more bullish in the back years than Street consensus (FY2031 revenue $856B modeled vs $1,005B consensus — Morningstar is actually more conservative on the top line, but earns it back through opex leverage and a full 10-year explicit build vs this demo's 5).</div>
+</section>
+
+<!-- ============ 3. STAGE BREAKDOWN ============ -->
+<section>
+<h2>3 · Scenario C — Stage I / II / III breakdown</h2>
+<div class="src">Morningstar-style 3-stage engine, run on the FMP demo's NVDA Stage-I drivers · WACC 9.50% throughout</div>
+
+<div class="resultbar">
+  <div class="rb"><span class="rk">Fair value / share</span><span class="rv gold">$247.90</span></div>
+  <div class="rb"><span class="rk">Enterprise value</span><span class="rv">$6,077.9B</span></div>
+  <div class="rb"><span class="rk">Stage I (yrs 1-5)</span><span class="rv stage1">14.5%</span></div>
+  <div class="rb"><span class="rk">Stage II fade (yrs 6-20)</span><span class="rv stage2">43.4%</span></div>
+  <div class="rb"><span class="rk">Stage III perpetuity</span><span class="rv stage3">42.1%</span></div>
+</div>
+
+<h3 class="stage1">Stage I — explicit forecast, FY2027-31 (5 years)</h3>
+<div class="scrollx">
+<table>
+<tr><th style="text-align:left;">Fiscal year</th><th>Revenue $B</th><th>EBI (NOPAT) $B</th><th>Unlevered FCF $B</th><th>PV @ 9.5% $B</th></tr>
+<tr><td style="text-align:left;">FY2027</td><td>393.3</td><td>160.41</td><td>118.42</td><td>108.15</td></tr>
+<tr><td style="text-align:left;">FY2028</td><td>562.3</td><td>229.34</td><td>188.52</td><td>157.23</td></tr>
+<tr><td style="text-align:left;">FY2029</td><td>686.6</td><td>280.04</td><td>248.84</td><td>189.53</td></tr>
+<tr><td style="text-align:left;">FY2030</td><td>774.2</td><td>315.76</td><td>292.53</td><td>203.48</td></tr>
+<tr><td style="text-align:left;">FY2031</td><td>1,005.0</td><td>409.90</td><td>353.14</td><td>224.32</td></tr>
+<tr><td class="gold" style="text-align:left;">PV Stage I total</td><td colspan="3"></td><td class="gold" style="font-weight:700;">882.72</td></tr>
+</table>
+</div>
+<div class="foot">Revenue path = FMP demo's Street-consensus mode; EBI = EBITDA (51.1% margin) − D&amp;A (3.06% rev) taxed at 15.1%; UFCF = EBI + D&amp;A − capex (3.49% rev) − ΔNWC (22.72% rev, delta vs prior year).</div>
+
+<h3 class="stage2">Stage II — fade, FY2032-46 (15 years, wide-moat length)</h3>
+<div class="fcard">
+<div class="fname">Formula (Morningstar's approximation method)</div>
+<div style="font-family:ui-monospace,Menlo,monospace; font-size:14px; line-height:1.9;">
+EBI<sub>t</sub> = EBI<sub>t-1</sub> × (1 + 9.0%) <span style="color:var(--dim);">— Stage II EBI growth rate, held flat for the fade window</span><br>
+FCF<sub>t</sub> = EBI<sub>t</sub> × (1 − 30.0%) <span style="color:var(--dim);">— Stage II investment/reinvestment rate</span><br>
+PV Stage II = Σ FCF<sub>t</sub> / (1.095)<sup>t</sup>, t = 6…20
+</div>
+</div>
+<div class="kv">
+  <div><div class="k">EBI entering fade (FY2031)</div><div class="v">$409.9B</div></div>
+  <div><div class="k">EBI exiting fade (FY2046)</div><div class="v">$1,493.1B</div></div>
+  <div><div class="k">PV Stage II</div><div class="v gold">$2,636.2B</div></div>
+  <div><div class="k">Fade length</div><div class="v">15 yrs</div></div>
+</div>
+<div class="foot">9.0% EBI growth and a 30% investment rate are Morningstar's own disclosed Stage II parameters for NVDA (report p.16, "Key Valuation Drivers") — applied here flat across the window as their published table also presents them, rather than re-deriving a declining RONIC path year by year.</div>
+
+<h3 class="stage3">Stage III — perpetuity, FY2047 onward</h3>
+<div class="fcard">
+<div class="fname">Formula</div>
+<div style="font-family:ui-monospace,Menlo,monospace; font-size:14px; line-height:1.9;">
+Perpetuity value (at yr 20) = EBI<sub>yr20</sub> / WACC <span style="color:var(--dim);">— ROIC = WACC, so growth is NPV-neutral and drops out</span><br>
+= $1,493.1B / 9.5% = <span class="hl" style="color:var(--accent);">$15,716.3B</span><br>
+PV Stage III = $15,716.3B / (1.095)<sup>20</sup> = <span class="gold" style="font-weight:700;">$2,559.0B</span>
+</div>
+</div>
+<div class="foot">This is the piece a single-stage Gordon-growth model can't represent cleanly: value from year 21 onward is priced as if ROIC has fully converged to cost of capital — no excess-return premium — vs. the demo's Gordon terminal value, which (at any g &gt; 0) still prices in excess returns forever.</div>
+</section>
+
+<!-- ============ 4. CAVEATS ============ -->
+<section>
+<h2>4 · What "as best I can" means here — caveats</h2>
+<table>
+<tr><td style="text-align:left; width:30%;">Stage I source</td><td style="text-align:left;">Uses the FMP demo's Street-consensus revenue path, not Morningstar's own (undisclosed, proprietary) year-by-year model — this is why Scenario C ($247.90) lands below Morningstar's filed $280.00 even with matching Stage II/III mechanics.</td></tr>
+<tr><td style="text-align:left;">Stage II investment rate</td><td style="text-align:left;">Applied Morningstar's disclosed 30.0% flat across all 15 fade years. Morningstar's real formula lets RONIC glide from NVDA's current ~90%+ ROIC down to 9.5% over the window, which would make the investment rate rise over time (more reinvestment needed as returns compress) rather than sit flat — 30% is presented as their own disclosed average, not re-derived here.</td></tr>
+<tr><td style="text-align:left;">Perpetuity growth</td><td style="text-align:left;">Held EBI flat into Stage III (no terminal growth) since, mathematically, growth is value-neutral once ROIC=WACC — matches Morningstar's stated logic, sidesteps needing their undisclosed exact terminal EBI figure.</td></tr>
+<tr><td style="text-align:left;">Not a recommendation</td><td style="text-align:left;">Both models are sensitive to beta/WACC choice (see A vs B, +$104/share) and to Stage I assumptions the analyst/tool sets by hand. Treat the $114-$280 range as a demonstration of methodology sensitivity, not a price target.</td></tr>
+</table>
+</section>
+
+<script>
+(function(){
+  const price = 213.57;
+  const scenarios = [
+    {lbl:'A · Demo defaults (13.80% WACC)', v:114.34, color:'#f85149'},
+    {lbl:'B · Single-stage @ MS WACC 9.5%', v:218.78, color:'#58a6ff'},
+    {lbl:'C · MS 3-stage, FMP Stage I', v:247.90, color:'#d29922'},
+    {lbl:'D · Morningstar filed model', v:280.00, color:'#bc8cff'}
+  ];
+  const AX = Math.max(price*1.15, ...scenarios.map(s=>s.v*1.15));
+  const pf = v => Math.max(0, Math.min(100, v/AX*100));
+  let h='';
+  scenarios.forEach(s=>{
+    const lo = s.v*0.95, hi = s.v*1.05;
+    const l = pf(lo), w = pf(hi)-pf(lo), m = pf(s.v), pl = pf(price);
+    h += '<div style="display:flex;align-items:center;margin:10px 0;">'
+      + '<span style="width:250px;font-size:13px;color:var(--txt);">'+s.lbl+'</span>'
+      + '<div style="position:relative;flex:1;height:24px;background:var(--panel);border-radius:6px;">'
+      + '<div style="position:absolute;left:'+l+'%;width:'+w+'%;top:0;bottom:0;background:'+s.color+';opacity:.55;border-radius:6px;"></div>'
+      + '<div style="position:absolute;left:'+m+'%;top:-3px;bottom:-3px;width:2px;background:#fff;opacity:.9;"></div>'
+      + '<div style="position:absolute;left:'+pl+'%;top:-5px;bottom:-5px;width:2px;background:var(--gold);"></div>'
+      + '</div>'
+      + '<span style="width:90px;text-align:right;font-size:13px;color:var(--dim);font-family:ui-monospace,Menlo,monospace;">$'+s.v.toFixed(2)+'</span>'
+      + '</div>';
+  });
+  const ax = [0,.25,.5,.75,1].map(f=>'$'+(AX*f).toFixed(0)).map(s=>'<span>'+s+'</span>').join('');
+  h += '<div style="display:flex;margin-top:4px;"><span style="width:250px;"></span><div style="flex:1;display:flex;justify-content:space-between;font-size:11px;color:var(--dim);">'+ax+'</div><span style="width:90px;"></span></div>';
+  document.getElementById('ff').innerHTML = h;
+})();
+</script>
+
+</body>
+</html>

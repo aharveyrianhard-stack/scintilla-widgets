@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCINTILLA · ALLOCATION</title>
+<style>
+  :root{
+    --bg:#0a0a0f; --panel:#101018; --line:#1c1c28; --txt:#e8e8f0; --dim:#8a8aa0;
+    --cyan:#00d4ff; --orange:#ff8c42; --green:#38e07b; --red:#ff5470; --gold:#ffd166;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--txt); font-family:"SF Mono",ui-monospace,Menlo,monospace; font-size:13px; padding:26px 30px 60px;}
+  h1{font-size:19px; letter-spacing:.28em; font-weight:600;}
+  h1 .dot{color:var(--cyan);}
+  .sub{color:var(--dim); margin-top:4px; font-size:11px; letter-spacing:.08em;}
+  .grid{display:grid; grid-template-columns:1fr; gap:18px; margin-top:22px; align-items:start; max-width:980px;}
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px 18px;}
+  .panel h2{font-size:11px; letter-spacing:.22em; color:var(--cyan); margin-bottom:4px; font-weight:600;}
+  .panel .note{color:var(--dim); font-size:11px; line-height:1.5; margin-bottom:12px;}
+  .full{grid-column:1 / -1;}
+  /* gauge rows */
+  .gauge{display:grid; grid-template-columns:110px 1fr 64px 86px; gap:10px; align-items:center; padding:5px 0; border-bottom:1px solid #14141e;}
+  .gauge:last-child{border-bottom:none;}
+  .gname{color:var(--txt); font-size:12px;}
+  .gname small{color:var(--dim); display:block; font-size:9px; letter-spacing:.05em;}
+  .barwrap{position:relative; height:14px; background:#0d0d15; border-radius:3px; overflow:hidden;}
+  .barwrap .mid{position:absolute; left:50%; top:0; bottom:0; width:1px; background:#2a2a3a;}
+  .bar{position:absolute; top:2px; bottom:2px; border-radius:2px;}
+  .gval{text-align:right; font-size:12px;}
+  .vdesc{color:var(--dim); font-size:10px; line-height:1.55; padding:1px 0 7px; border-bottom:1px solid #14141e;}
+  body.hidedesc .vdesc, body.hidedesc .veffect{display:none;}
+  .veffect{color:var(--cyan); font-size:10px; display:block; margin-top:2px;}
+  .stack{display:flex; height:36px; border-radius:6px; overflow:hidden; margin:4px 0 2px; border:1px solid var(--line);}
+  .seg{display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#0a0a0f; white-space:nowrap; overflow:hidden;}
+  .stacklbl{color:var(--dim); font-size:10px; letter-spacing:.15em; margin-top:10px;}
+  .imap{table-layout:fixed; width:100%;}
+  .imap td{font-size:11px; vertical-align:top; line-height:1.5; word-wrap:break-word;}
+  .imap th:nth-child(1), .imap td:nth-child(1){width:16%;}
+  .imap th:nth-child(2), .imap td:nth-child(2){width:11%;}
+  .imap th:nth-child(3), .imap td:nth-child(3){width:21%;}
+  .imap td.n{color:var(--txt);}
+  .imap td.k{color:var(--gold);}
+  .wt{display:flex; align-items:center; gap:6px;}
+  .wt input[type=range]{width:52px;}
+  .wt span{color:var(--dim); font-size:10px; width:24px;}
+  /* sliders */
+  input[type=range]{-webkit-appearance:none; height:3px; background:#22222f; border-radius:2px; outline:none;}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:13px; height:13px; border-radius:50%; background:var(--cyan); cursor:pointer; box-shadow:0 0 8px rgba(0,212,255,.5);}
+  .ctl{display:grid; grid-template-columns:170px 1fr 64px; gap:12px; align-items:center; padding:6px 0;}
+  .ctl label{color:var(--txt); font-size:12px;}
+  .ctl label small{color:var(--dim); display:block; font-size:9px;}
+  .ctl input[type=range]{width:100%;}
+  .ctl .v{text-align:right; color:var(--cyan);}
+  /* heat headline */
+  .heatline{display:flex; align-items:center; gap:18px; margin:6px 0 10px;}
+  .heatnum{font-size:34px; font-weight:700;}
+  .heatlabel{font-size:15px; letter-spacing:.18em; font-weight:600;}
+  .axis{display:flex; justify-content:space-between; color:var(--dim); font-size:9px; letter-spacing:.12em; margin-top:2px;}
+  canvas{width:100%; height:190px; display:block; margin-top:8px;}
+  #donut{width:auto !important; height:auto !important; max-width:100%; margin:10px auto;}
+  #curve{width:100% !important; height:auto !important;}
+  /* moves */
+  .move{display:grid; grid-template-columns:110px 1fr; gap:12px; padding:10px 0; border-bottom:1px solid #14141e; align-items:center;}
+  .move:last-child{border-bottom:none;}
+  .mname{color:var(--dim); font-size:11px; letter-spacing:.15em;}
+  .mval{font-size:16px; font-weight:600;}
+  .mval small{color:var(--dim); font-size:11px; font-weight:400; margin-left:8px;}
+  .add{color:var(--cyan);} .trim{color:var(--orange);} .flat{color:var(--dim);}
+  /* cohort */
+  table{width:100%; border-collapse:collapse; font-size:12px;}
+  th{color:var(--dim); text-align:left; font-weight:400; font-size:10px; letter-spacing:.14em; padding:4px 6px; border-bottom:1px solid var(--line); cursor:default;}
+  td{padding:4px 6px; border-bottom:1px solid #12121a;}
+  td.r, th.r{text-align:right;}
+  .tag{font-size:9px; letter-spacing:.08em; padding:1px 6px; border-radius:3px; margin-left:6px;}
+  .tag.add{background:rgba(0,212,255,.12); color:var(--cyan); border:1px solid rgba(0,212,255,.35);}
+  .tag.trim{background:rgba(255,140,66,.12); color:var(--orange); border:1px solid rgba(255,140,66,.35);}
+  .cls{color:var(--dim); font-size:10px;}
+  .mini{position:relative; height:10px; width:110px; background:#0d0d15; border-radius:2px; display:inline-block; vertical-align:middle;}
+  .mini .mid{position:absolute; left:50%; top:0; bottom:0; width:1px; background:#2a2a3a;}
+  .mini .b{position:absolute; top:1px; bottom:1px; border-radius:2px;}
+  .status{color:var(--dim); font-size:10px; letter-spacing:.06em; margin-top:6px;}
+  .btn{background:#14141f; color:var(--cyan); border:1px solid var(--line); border-radius:6px; padding:5px 14px; font-family:inherit; font-size:11px; letter-spacing:.1em; cursor:pointer;}
+  .btn:hover{border-color:var(--cyan);}
+  details{margin-top:10px;}
+  summary{color:var(--dim); font-size:10px; letter-spacing:.15em; cursor:pointer;}
+  .updated{color:var(--dim); font-size:10px;}
+  #loading{position:fixed; inset:0; background:rgba(10,10,15,.92); display:flex; align-items:center; justify-content:center; flex-direction:column; gap:14px; z-index:9;}
+  .spin{width:34px; height:34px; border:3px solid #1c1c28; border-top-color:var(--cyan); border-radius:50%; animation:sp 1s linear infinite;}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="loading"><div class="spin"></div><div id="loadmsg" class="status">pulling market feeds…</div></div>
+
+<h1>SCINTILLA <span class="dot">·</span> ALLOCATION</h1>
+<div class="sub" id="stamp">—</div>
+<div id="dataspine" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 2px"></div>
+
+<div class="grid">
+
+  <!-- THE BRIEF -->
+  <div class="panel">
+    <h2>THE BRIEF — desk read, written by the model from the live numbers</h2>
+    <div id="brief" style="color:var(--txt); font-size:12.5px; line-height:1.8;"></div>
+  </div>
+
+  <!-- 1 MACRO HEAT -->
+  <div class="panel">
+    <h2>1 · MACRO HEAT — the voters</h2>
+    <div class="note">Every voter on one scale: −1 washed-out (cold) → +1 stretched (hot). Geigers enter straight; VIX &amp; 10Y are inverted. Drag a weight to change who counts — the score recomputes live.</div>
+    <button id="descToggle" style="background:#14141f;color:var(--cyan);border:1px solid var(--line);border-radius:6px;padding:4px 12px;font-family:inherit;font-size:10px;letter-spacing:.1em;cursor:pointer;margin-bottom:8px">▸ what each voter is (proxy detail)</button>
+    <div id="gauges"></div>
+    <div class="heatline">
+      <div class="heatnum" id="heatnum">—</div>
+      <div style="flex:1">
+        <div class="barwrap" style="height:20px"><div class="mid"></div><div class="bar" id="heatbar"></div></div>
+        <div class="axis"><span>−1 WASHED OUT</span><span>0</span><span>+1 STRETCHED</span></div>
+      </div>
+      <div class="heatlabel" id="heatlabel">—</div>
+    </div>
+    <details>
+      <summary>GEIGER DIALS (approved — touch only if you mean it)</summary>
+      <div class="ctl"><label>Trend / Momentum<small>inside each geiger</small></label><input type="range" id="dTrend" min="0" max="1" step="0.05"><div class="v" id="dTrendV"></div></div>
+      <div class="ctl"><label>RSI / W%R<small>momentum blend</small></label><input type="range" id="dRsi" min="0" max="1" step="0.05"><div class="v" id="dRsiV"></div></div>
+      <div class="note" style="margin:6px 0">TIMEFRAME WEIGHTS — locked to your live hub equalizer (reviewed off the hub, logo menu → Weight Equalizer): 2h 1.2 · 3h 3.6 · 4h 6.7 · 6h 9.3 · 12h 9.3 · 1d 9.3 · 3d 7.6 · 1w 2.9. Families TRND 50 / MOM 50. Change them in the hub and hit SAVE — once operator_weights carries rows, this page reads them live.</div>
+      <div class="ctl"><label>VIX cold ↔ hot<small>−1 at high, +1 at low</small></label><input type="range" id="vixCold" min="20" max="50" step="1"><div class="v" id="vixColdV"></div></div>
+      <div class="ctl"><label>10Y cold end %<small>−1 at this yield</small></label><input type="range" id="tenCold" min="4" max="6" step="0.1"><div class="v" id="tenColdV"></div></div>
+    </details>
+    <div class="note" style="margin-top:10px">MACRO HEAT = the weighted average of the voters above — each voter × its weight, divided by total weight. That is the whole combination step. MA STACK and INTERNALS were removed as voters on Alan's order (MA stack duplicates the ribbon already inside the geiger; internals are retired from the score — macro-feed still computes them server-side if ever wanted back).</div>
+  </div>
+
+  <!-- INPUTS -->
+  <div class="panel">
+    <h2>INPUTS — everything you set is here</h2>
+    <div class="note">The only things you decide. Everything else the data decides. Your current position seeds from IBKR.</div>
+    <div style="color:var(--cyan);font-size:10px;letter-spacing:.18em;margin:8px 0 2px">WHERE YOU ARE (from IBKR)</div>
+    <div class="ctl"><label>Current % invested</label><input type="range" id="curInv" min="0" max="100" step="1"><div class="v" id="curInvV"></div></div>
+    <div class="ctl"><label>…of which Large Cap<small>% of equity in LC</small></label><input type="range" id="curLC" min="0" max="100" step="1"><div class="v" id="curLCV"></div></div>
+    <div style="color:var(--cyan);font-size:10px;letter-spacing:.18em;margin:14px 0 2px">RISK POLICY (how much at the extremes)</div>
+    <div class="ctl"><label>Invested when market washed out<small>your all-in ceiling</small></label><input type="range" id="maxInv" min="0" max="100" step="5"><div class="v" id="maxInvV"></div></div>
+    <div class="ctl"><label>Invested when market stretched<small>your defensive floor</small></label><input type="range" id="minInv" min="0" max="100" step="5"><div class="v" id="minInvV"></div></div>
+    <div style="color:var(--cyan);font-size:10px;letter-spacing:.18em;margin:14px 0 2px">DIVERSIFICATION</div>
+    <div class="ctl"><label>Mode<small>AUTO scales names with the market: names = 2 + (1−heat)/2 × 3, so heat −1 → 5 names (wide, catch the rebound), heat +1 → 2 names (concentrate in the best). Heat ~0 → ~4. MANUAL: you fix it.</small></label><div><button id="divToggle" style="background:#14141f;color:var(--cyan);border:1px solid var(--line);border-radius:6px;padding:5px 14px;font-family:inherit;font-size:11px;cursor:pointer"></button></div><div class="v" id="divModeV"></div></div>
+    <div class="ctl"><label>Hard cap — TOTAL names<small>your portfolio-wide ceiling on how many individual names you'll hold, all sleeves combined. This is the number that caps how many PICKS the comps table lets you keep — so your plan and your buy-list stay consistent.</small></label><input type="range" id="maxTotal" min="2" max="24" step="1"><div class="v" id="maxTotalV"></div></div>
+    <div class="ctl"><label>Max names per sleeve<small>secondary ceiling inside one sleeve. AUTO can widen up to here but never past it. Keeps any single sleeve from hogging the whole book.</small></label><input type="range" id="maxNames" min="1" max="8" step="1"><div class="v" id="maxNamesV"></div></div>
+    <div class="ctl"><label>Concentration lean<small>tilt the AUTO count. LEFT = spread wider (more names), RIGHT = concentrate (fewer, into the best). 0 = let the market decide. Never overrides the hard cap.</small></label><input type="range" id="concLean" min="-1" max="1" step="0.25"><div class="v" id="concLeanV"></div></div>
+    <div class="ctl" id="nPerRow"><label>Names per sleeve<small>manual override</small></label><input type="range" id="nPer" min="1" max="6" step="1"><div class="v" id="nPerV"></div></div>
+    <div id="ibkrnote" class="note" style="margin-top:10px;font-size:10px"></div>
+    <details><summary>SUB-DIAL — heat tilt (optional)</summary>
+      <div class="ctl" style="margin-top:6px"><label>Heat tilt → LC<small>lean large when stretched. 0 = pure data. VIX/10Y/geiger dials live in the MACRO HEAT panel above.</small></label><input type="range" id="lcTilt" min="0" max="0.3" step="0.05"><div class="v" id="lcTiltV"></div></div>
+    </details>
+  </div>
+
+  <!-- 1 MACRO HEAT weights (voters live above already; this panel holds weight sliders) -->
+
+  <!-- 2 TARGET MIX -->
+  <div class="panel">
+    <h2>2 · TARGET MIX — where the money goes</h2>
+    <div class="note">Heat sets HOW MUCH is invested; the sleeves' coldness sets WHERE. Big picture first, detail on demand.</div>
+    <canvas id="donut" width="640" height="300"></canvas>
+    <div id="targets"></div>
+    <details><summary>THE CURVE + split math — human words</summary>
+      <div class="note" id="autosplit" style="margin-top:8px"></div>
+      <canvas id="curve" width="640" height="300"></canvas>
+      <div class="axis"><span>−1 COLD → deploy</span><span>HEAT</span><span>+1 HOT → defend</span></div>
+      <div class="note" style="margin-top:8px;line-height:1.7">% INVESTED = floor + (ceiling − floor) × how-cold. LC/SC split = 50% + (IWM geiger − SPY geiger)×50%, capped 20–80% — colder class earns the bigger sleeve. No hand dials beyond the two policy endpoints.</div>
+    </details>
+  </div>
+
+  <!-- 3 THE MOVES -->
+  <div class="panel">
+    <h2>3 · THE MOVES — what to do, split by schedule</h2>
+    <div class="note">The gap between where you are and the target mix, per sleeve, split into tranches you can actually execute.</div>
+    <div id="moves"></div>
+  </div>
+
+  <!-- 4 MOVE OPTIONS -->
+  <div class="panel full">
+    <h2>4 · MOVE OPTIONS — pick your names, by category</h2>
+    <div class="note">Your favorites with geiger + fundamentals from the SCINTILLA database. Coldest 3 per sleeve are tagged ADD (style-adjusted — cold QQQ lifts growth names). Star a name to send it to COMPARABLES. Volume conviction is NOT wired yet (your volume equalizer is 0 on the hub).</div>
+    <div id="sectorStrip" style="margin-bottom:10px"></div>
+    <div id="catTabs" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+    <table id="cohort"></table>
+    <div class="status"><button class="btn" id="refresh">↻ REFRESH FEEDS</button> <span class="updated" id="cohstamp"></span></div>
+  </div>
+
+  <!-- 4b COMPARABLES -->
+  <div class="panel full">
+    <h2>4b · COMPARABLES — study the suggestions by category</h2>
+    <div class="note">Suggested ADD names, lined up like a comps sheet with median/mean/min/max — judge relative value before acting. Cells are shaded vs the peer median: <span style="color:var(--green)">green = better than peers</span>, <span style="color:var(--orange)">orange = worse</span> (cheaper P/E, higher margins &amp; growth, lower debt = better). <b>Drop</b> greys a row and pulls it out of the stats without deleting it; <b>pick</b> marks your keepers (capped at your TOTAL-names hard cap). Star more names in the table above to add non-suggested candidates.</div>
+    <div id="pickNote" class="note" style="font-size:10px;min-height:12px"></div>
+    <div id="compCat" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+    <table id="comps"></table>
+    <div id="compRestore" style="margin-top:8px"></div>
+  </div>
+
+  <!-- 5 INPUT MAP -->
+  <div class="panel full">
+    <h2>5 · INPUT MAP</h2>
+    <details><summary>every dial in the system, in one place</summary>
+    <div class="note" style="margin-top:8px">The complete list of what you can touch, what kind of input it is, its current value, and its exact mathematical effect.</div>
+    <table class="imap" id="imap"></table></details>
+  </div>
+
+  <!-- 6 STATE & ROADMAP -->
+  <div class="panel full">
+    <h2>6 · STATE &amp; ROADMAP</h2>
+    <details><summary>read this first if you are a new session</summary>
+    <div class="note" style="line-height:1.75">
+    <b style="color:var(--txt)">WHAT THIS IS.</b> The SCINTILLA allocation module: market heat → % invested → LC/SC split → moves in % of equity / class / position, with ★FAV candidates ranked by their own geigers. Percent-only, never dollars. Canonical source: GitHub aharveyrianhard-stack/scintilla-allocation (main auto-deploys here). Served at scintillahub.ai/allocation and allocation.scintillahub.ai — same page.<br><br>
+    <b style="color:var(--txt)">DATA POLICY.</b> Test lane = YAHOO via Supabase functions macro-feed + cohort-feed (5-min server cache). Symbol map: BTCUSD→BTC-USD, GCUSD→GC=F, SIUSD→SI=F, CLUSD→CL=F. Proven voters graduate to the SCINTILLA database as primary with Yahoo as fallback. FMP is PROHIBITED everywhere in this module.<br><br>
+    <b style="color:var(--txt)">CONSOLIDATION (2026-08-05 · C7).</b> This module now reads the shared SCINTILLA source-of-truth directly: GEIGER = <code>composite_staged</code> (tf=D, the hub equalizer output — the client no longer computes scoring geigers; cohort-feed Yahoo primitives remain only as a flagged FALLBACK). UNIVERSE = <code>ticker_cohorts</code> + <code>hub_favorites</code> (hardcoded TICKER_STYLES retained only as fallback). QUOTE+RVOL = <code>live_quotes</code> ÷ <code>company_profile.avg_volume</code>. MACRO = <code>treasury_rates</code> (10Y) + <code>vix_term</code> (VIX; Yahoo fallback flagged when stale). SECTOR = <code>sector_rankings</code>, published hourly by the sector-rotation tool from the same composite_staged — displayed as a ranking strip and a per-name SECT chip (display/annotation only, no score-math change). Every data element carries a freshness/source badge in the strip under the title. etf_holdings/etf_info remain empty — nothing faked.<br><br>
+    <b style="color:var(--txt)">PROXY MENU.</b> LC→SPY · SC→IWM · Growth→QQQ · Value→RSP · Semis→SMH · Crypto→BTC-USD · Oil→CL=F (LIVE as its own independent voter, inverted — per Alan; no other commodity voters unless Alan asks) · Defensives→XLP+XLU. Mechanics when added: SLEEVES are sized by relative coldness — colder sleeve earns more, its coldest favorites get ADD-tagged. STYLES (growth/value — cross-cap by nature) never become sleeves; they re-rank candidates INSIDE sleeves (cold QQQ pushes growth names up the ADD list in both classes). Sector geigers (already in macro-feed, all 11) will re-rank by sector the same way — integrates with the hub sectorrotation tool.<br><br>
+    <b style="color:var(--txt)">PARITY — EQUALIZER REVIEWED ON THE HUB 2026-07-19 (logo menu → Weight Equalizer).</b> Read-back of the live surface: TF curve 2h 1.2 · 3h 3.6 · 4h 6.7 · 6h 9.3 · 12h 9.3 · 1d 9.3 · 3d 7.6 · 1w 2.9 (1m–1h and 2w–1M at 0) · families TRND 50 / MOM 50 (only those two carry weight live) · momentum mix 60 RSI / 40 Williams · SAVE persists to operator_weights (currently 0 rows = hub running these defaults). THIS MODULE NOW RUNS THAT EXACT CURVE: cohort-feed v4 computes the primitives per TF, intraday resampled from Yahoo 60m bars (2h=2×60m, 3h=3, 4h=4, 6h=6, 12h=13 bars — test-lane approximation; database bars replace them on graduation). Remaining differences vs the hub can only come from Yahoo data lag/timestamps — by design, per Alan's doctrine. When operator_weights gains rows, read it live and drop the hardcoded curve.<br><br>
+    <b style="color:var(--txt)">RSI LEVELS — verified vs GOOGL_GEIGER_v2 (GEIGER!A24):</b> momentum is "mapped straight from its range to −1…+1". 23/77 are the ends of the map, not gates — every intermediate RSI level feeds proportionally, continuously.<br><br>
+    <b style="color:var(--txt)">PARITY TEST — RUN 2026-07-20, vs database table board_rsi.</b> RSI: EXACT match 3/3 to the decimal (SPY 48.42=48.42 · QQQ 42.00=42.00 · GOOGL 42.23=42.23) — same Wilder math, same close-series convention, Alan's post-market worry cleared (DB bar = Friday close; Google Finance's SPY ~752 was the outlier quote, Yahoo+hub+DB all agree). Williams %R: fixed to TRUE bar highs/lows in cohort-feed v5 (was close-only); QQQ now −85.4 vs DB −83.2. Residual gap on SPY/GOOGL (−33 vs −52 · −64 vs −82) is the LOOKBACK convention: this module uses 25 bars per the approved GOOGL_GEIGER_v2 spec; board_rsi appears to use a different period. RESOLVED BY ALAN 2026-07-20: indicators are calculated as normally calculated — Williams %R = standard 14-period on true highs/lows. With that, parity is EXACT 6/6 (RSI and W%R, SPY/QQQ/GOOGL all match the database to the decimal). Still open: wire operator_weights when it gains rows.<br><br>
+    <b style="color:var(--txt)">YOUR STATE / IBKR.</b> Panel 3 seeds from storage file inbox/ibkr-state.json (percentages only, never dollars). It updates ONLY when Alan tells a session "sync IBKR" (scheduled auto-sync was proposed and REJECTED — do not create one). IBKR connector is read-only OAuth; never touch orders.<br><br>
+    <b style="color:var(--txt)">ARCHITECTURE (v11, Alan doctrine): SCORE = HOW MUCH (total risk from heat); SLEEVES = WHERE (GROWTH/SMALL/BROAD/SEMIS/CRYPTO/CMDTY, shares proportional to coldness, capped 5-35%). Every proxy does real work in WHERE regardless of its score weight. Tickers can live in several sleeves. LC/SC survives as a lens readout only. Per-sleeve CURRENT arrives with IBKR position sync (all-cash today, so every sleeve reads BUILD). Schedule is multi-factor (vol + heat + breadth + style discounts), not VIX-only. Open on Alan word: breadth voters as RATIO geigers (IWM/SPY, RSP/SPY from macro-feed) instead of straight geigers.</b><br><br>
+    <b style="color:var(--txt)">STYLE LAYER — LIVE (2026-07-20): style proxies vs SPY (GROWTH=QQQ, SEMIS=SMH, VALUE=RSP, CRYPTO=BTC, DEFENSIVE=XLP+XLU) produce STYLE TILTS in the MOVES panel (lean into / avoid on adds) and re-rank the candidate list by style-adjusted coldness (geiger + 0.5 × avg style spread). Styles tilt WITHIN sleeves; sleeves remain LC/SC. Cold QQQ literally pushes growth names up the ADD list. THE BRIEF panel at the top is generated from the same numbers.</b><br><br>\n    <b style="color:var(--txt)">AGREED BASE (2026-07-20, starting point for testing):</b> weights SPY 1 · QQQ 1 · IWM 0.5 · SMH 0.5 · VIX 0.5 · US10Y 0.5 · OIL 0.5 · VALUE 0 (reading) · CRYPTO 0.25 · DEF 0.25. Policy: invested 100% at max cold, 15% at max hot, linear. LC/SC split data-driven (IWM vs SPY), tilt OFF. Positions 4 LC / 2 SC. All of it testable, none of it sacred.<br><br>
+    <b style="color:var(--gold)">ECOSYSTEM DIRECTION — ALAN 2026-07-23 (the tool must become one connected system, not stacked panels).</b> Core problem Alan named: nothing flows downstream — TARGET MIX is pure sleeve-coldness % and ignores his PICKS; PICK only highlights; the cap doesn't reach the pie; sleeves don't "compete." The spine to build: HEAT → total %invested → SLEEVES COMPETE (coldness + undervaluation) for the % → within each sleeve your PICKED names split that sleeve's % → cadence front-loads the most undervalued sleeves/names → the pies redraw live as you pick. Phases:<br>
+    &nbsp;&nbsp;<b>P1 legibility</b> — dials show a live readout of their effect; explain why manual names-per-sleeve greys under AUTO; label the build cadence explicitly as TRANCHES.<br>
+    &nbsp;&nbsp;<b>P2 close the loop (priority)</b> — PICKS flow into TARGET MIX. Two-ring donut: outer = sleeves (WHERE), inner = your actual picked names sized inside each sleeve. Fewer names → bigger each; TOTAL cap limits count; diversification flows downstream so the pie moves as you select.<br>
+    &nbsp;&nbsp;<b>P3 selection workflow</b> — PICK opens a dedicated SELECTION stage: cards of the tickers, slide through to finalize takers, then it generates the per-name tranche plan in a visual way (Alan wants it to look cool, maybe its own pies).<br>
+    &nbsp;&nbsp;<b>P4 smarter cadence</b> — replace blind thirds. Build leans toward the MORE UNDERVALUED sleeves first; same per-name (which name is better to buy right now). Needs value signal (P5) + more data; Alan: "you don't have everything to decide with confidence, but you will."<br>
+    &nbsp;&nbsp;<b>P5 sleeves compete + VALUE OVERLAY</b> — fundamentals (P/E, P/S, rev growth, margins, D/E — Alan's list) enter ranking as a value axis alongside geiger; sleeves compete on cold + cheap, more automatically. Kept separate from geiger. Answers the SNDK-vs-MU question. Also parked here: ETF fund-level fundamentals (weighted P/E, P/B, yield, expense) so a sleeve proxy can sit in comps; empty-sleeve targets pulled from the hub-at-large by theme (not just blue-chips; RSP is the blue-chip case), favorites tagged.<br><br>
+    <b style="color:var(--txt)">AWAITING ALAN'S GO:</b> multi-class sleeve engine (classes beyond LC/SC) · style re-ranking wiring · sector re-ranking wiring · database graduation of voters · volume conviction coefficient (proposal exists: RVOL time-of-day, VWAP position, volume shelves — scales loudness + gates execution, never votes direction).
+    </div></details>
+  </div>
+
+  <!-- 7 AUDIT TRACE -->
+  <div class="panel full">
+    <h2>7 · AUDIT TRACE</h2>
+    <details>
+      <summary>Full arithmetic chain with today's numbers — for Claude sessions and audits, skip freely</summary>
+      <pre id="trace" style="font-size:11.5px; line-height:1.75; color:var(--txt); white-space:pre-wrap; margin-top:8px;"></pre>
+    </details>
+  </div>
+
+</div>
+
+<script>
+const SB = 'https://wadinxqplrggagkvrdag.supabase.co/functions/v1';
+/* ===================== C7 SSOT LAYER (2026-08-05) =====================
+   Direct anon (read-only, publishable-key) PostgREST reads of the shared SCINTILLA truth tables.
+   NEVER FMP from this page. Yahoo edge-feeds are FALLBACK ONLY and flagged when used.
+   Every read lands a freshness/source badge in #dataspine (table · age · LIVE/STALE/FALLBACK).
+   PostgREST caps responses at 1000 rows: every read here is either a guarded small-slice
+   (asserts rows<1000) or a per-key limited fetch — never an unguarded giant in.() query. */
+const SB_REST='https://wadinxqplrggagkvrdag.supabase.co/rest/v1';
+const SB_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g';
+async function sbGet(path){
+  const r=await fetch(SB_REST+'/'+path,{headers:{apikey:SB_ANON,Authorization:'Bearer '+SB_ANON},cache:'no-store'});
+  if(!r.ok) throw new Error(path.split('?')[0]+' '+r.status);
+  return r.json();
+}
+let COMPOSITE={}, COMPOSITE_STATUS='pending';           // ticker -> {trend,momentum,composite,updated_ts}  THE geiger
+let UNIVERSE={cohorts:{}, favs:new Set(), status:'pending'};  // THE universe: ticker_cohorts + hub_favorites
+let QUOTES={}, PROFILES={}, TREAS=null, VIXDB=null, SECTOR_RANKS=null, OPW=null;
+const SPINE={};
+function spineSet(k,ts,mode,note){ SPINE[k]={ts,mode,note}; }
+function freshTxt(ts){
+  if(ts==null) return '';
+  const es=(typeof ts==='number')?ts:(Date.parse(ts)/1000);
+  if(!isFinite(es)) return '';
+  const m=(Date.now()/1000-es)/60;
+  return m<1?'just now':m<60?Math.round(m)+'m ago':m<60*48?(m/60).toFixed(1)+'h ago':Math.round(m/1440)+'d ago';
+}
+function ageMode(ts,staleSec){
+  if(ts==null) return 'LIVE';
+  const es=(typeof ts==='number')?ts:(Date.parse(ts)/1000);
+  return (isFinite(es)&&(Date.now()/1000-es)>staleSec)?'STALE':'LIVE';
+}
+function renderSpine(){
+  const el=document.getElementById('dataspine'); if(!el) return;
+  const col={LIVE:'#38e07b',STALE:'var(--orange)',FALLBACK:'var(--gold)'};
+  el.innerHTML=Object.entries(SPINE).map(([k,v])=>
+    `<span style="border:1px solid ${col[v.mode]||'var(--line)'};color:${col[v.mode]||'var(--dim)'};border-radius:5px;padding:2px 8px;font-size:10px;letter-spacing:.04em" title="${(v.note||'').replace(/"/g,'&quot;')}">${k}${v.ts?' · '+freshTxt(v.ts):''} · ${v.mode}</span>`).join('');
+}
+async function refreshSSOT(){
+  const J=[];
+  // THE universe
+  J.push(sbGet('ticker_cohorts?select=ticker,cohort&limit=1000').then(rows=>{
+    if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
+    const m={}; for(const r of rows)(m[r.ticker]=m[r.ticker]||[]).push(r.cohort);
+    UNIVERSE.cohorts=m; UNIVERSE.status='ok';
+    spineSet('ticker_cohorts',null,'LIVE',rows.length+' rows — THE universe');
+  }).catch(e=>{UNIVERSE.status='error';spineSet('ticker_cohorts',null,'FALLBACK','read failed ('+e.message+') — hardcoded TICKER_STYLES in use');}));
+  J.push(sbGet('hub_favorites?select=ticker,added_at&limit=1000').then(rows=>{
+    UNIVERSE.favs=new Set(rows.map(r=>r.ticker));
+    spineSet('hub_favorites',null,'LIVE',rows.length+' favorites');
+  }).catch(e=>spineSet('hub_favorites',null,'FALLBACK','read failed')));
+  // THE geiger — composite_staged tf=D (~211 rows, guarded well under the 1000 cap)
+  J.push(sbGet('composite_staged?select=ticker,trend,momentum,composite,updated_ts&tf=eq.D&limit=1000').then(rows=>{
+    if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
+    const m={}; let mx=0; for(const r of rows){m[r.ticker]=r; if(r.updated_ts>mx)mx=r.updated_ts;}
+    COMPOSITE=m; COMPOSITE_STATUS='ok';
+    spineSet('composite_staged',mx,ageMode(mx,45*60),rows.length+' tickers tf=D — THE geiger (0.5×trend+0.5×momentum, hub equalizer output)');
+  }).catch(e=>{COMPOSITE_STATUS='error';spineSet('composite_staged',null,'FALLBACK','read failed ('+e.message+') — client Yahoo geiger in use');}));
+  // quote + RVOL inputs
+  J.push(sbGet('live_quotes?select=ticker,price,chg_pct,volume,prev_close,updated_ts&limit=1000').then(rows=>{
+    if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
+    const m={}; let mx=null; for(const r of rows){m[r.ticker]=r; const es=Date.parse(r.updated_ts)/1000; if(!mx||es>mx)mx=es;}
+    QUOTES=m; spineSet('live_quotes',mx,ageMode(mx,30*60),rows.length+' quotes');
+  }).catch(e=>spineSet('live_quotes',null,'FALLBACK','read failed — cohort-feed prices in use')));
+  J.push(sbGet('company_profile?select=ticker,sector,market_cap,avg_volume,is_etf&limit=1000').then(rows=>{
+    if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
+    const m={}; for(const r of rows)m[r.ticker]=r;
+    PROFILES=m; spineSet('company_profile',null,'LIVE',rows.length+' profiles (sector · mcap · avg_volume)');
+  }).catch(e=>spineSet('company_profile',null,'FALLBACK','read failed — RVOL/sector chips unavailable')));
+  // macro truth
+  J.push(sbGet('treasury_rates?select=date,y10,updated_ts&order=date.desc&limit=1').then(rows=>{
+    if(rows[0]){TREAS=rows[0]; const age=(Date.now()-Date.parse(TREAS.date))/864e5;
+      spineSet('treasury_rates',TREAS.updated_ts,age>5?'STALE':'LIVE','10Y '+TREAS.y10+'% @ '+TREAS.date);}
+  }).catch(e=>spineSet('treasury_rates',null,'FALLBACK','read failed — Yahoo ^TNX in use')));
+  J.push(sbGet('vix_term?select=date,vix,vix3m,ratio,updated_ts&order=date.desc&limit=1').then(rows=>{
+    if(rows[0]){VIXDB=rows[0]; VIXDB.fresh=(Date.now()-Date.parse(VIXDB.date))/864e5<=3;
+      spineSet('vix_term',null,VIXDB.fresh?'LIVE':'STALE','VIX '+VIXDB.vix+' @ '+VIXDB.date+(VIXDB.fresh?'':' — stale, Yahoo VIX voting instead (flagged)'));}
+  }).catch(e=>spineSet('vix_term',null,'FALLBACK','read failed — Yahoo VIX in use')));
+  // published sector rotation (written by the sector tool from the same composite_staged)
+  J.push(sbGet('sector_rankings?select=date,sector,sector_name,rank,score,method,updated_at&order=date.desc,rank.asc&limit=22').then(rows=>{
+    if(rows.length){const d0=rows[0].date; const list=rows.filter(r=>r.date===d0);
+      SECTOR_RANKS={date:d0,list,bySector:Object.fromEntries(list.map(r=>[r.sector,r])),updated_at:rows[0].updated_at};
+      spineSet('sector_rankings',rows[0].updated_at,ageMode(rows[0].updated_at,3*3600),list.length+' sectors @ '+d0+' — published by the sector-rotation tool');}
+    else spineSet('sector_rankings',null,'STALE','table empty');
+  }).catch(e=>spineSet('sector_rankings',null,'FALLBACK','read failed — sector lens off')));
+  // operator weights (hub applies these upstream inside composite_staged; read for transparency)
+  J.push(sbGet('operator_weights?select=dim,key,weight,enabled&limit=100').then(rows=>{
+    OPW={rows:rows.length}; spineSet('operator_weights',null,'LIVE',rows.length+' rows — applied upstream by the hub inside composite_staged');
+  }).catch(e=>spineSet('operator_weights',null,'FALLBACK','read failed')));
+  await Promise.all(J);
+  renderSpine();
+}
+// THE geiger accessor: composite_staged first, client Yahoo geiger strictly as flagged fallback
+function tickerG(sym){
+  const r=COMPOSITE[sym];
+  if(r&&r.composite!=null) return {g:Math.max(-1,Math.min(1,r.composite)),src:'db'};
+  const c=COHORT[sym];
+  if(c) return {g:geiger(c),src:'fallback'};
+  return null;
+}
+function gv(sym){ const r=tickerG(sym); return r?r.g:null; }
+// FMP-style profile sector names -> GICS sector ETF
+const SECTOR_ETF={'Technology':'XLK','Communication Services':'XLC','Consumer Cyclical':'XLY','Consumer Discretionary':'XLY','Financial Services':'XLF','Financials':'XLF','Industrials':'XLI','Basic Materials':'XLB','Materials':'XLB','Energy':'XLE','Healthcare':'XLV','Health Care':'XLV','Consumer Defensive':'XLP','Consumer Staples':'XLP','Utilities':'XLU','Real Estate':'XLRE'};
+function sectorChip(sym){
+  const p=PROFILES[sym]; if(!p||!p.sector) return '<span class="cls">—</span>';
+  const etf=SECTOR_ETF[p.sector]; const sr=SECTOR_RANKS&&etf?SECTOR_RANKS.bySector[etf]:null;
+  if(!sr) return '<span class="cls">'+p.sector.slice(0,12)+'</span>';
+  const col=sr.rank<=3?'var(--green)':sr.rank>=9?'var(--orange)':'var(--dim)';
+  return '<span style="color:'+col+'" title="'+p.sector+' · '+etf+' rank '+sr.rank+'/11 · score '+(+sr.score).toFixed(2)+' · sector_rankings (published by the sector-rotation tool)">#'+sr.rank+' '+etf+'</span>';
+}
+function rvolTxt(sym){
+  const q=QUOTES[sym],p=PROFILES[sym];
+  if(!q||!p||!q.volume||!p.avg_volume) return '<span class="cls">—</span>';
+  const rv=q.volume/p.avg_volume;
+  const col=rv>=1.5?'var(--gold)':rv>=1?'var(--txt)':'var(--dim)';
+  return '<span style="color:'+col+'" title="RVOL = live_quotes.volume ÷ company_profile.avg_volume">'+rv.toFixed(2)+'×</span>';
+}
+function renderSectorStrip(){
+  const el=document.getElementById('sectorStrip'); if(!el) return;
+  if(!SECTOR_RANKS){ el.innerHTML='<span class="cls">sector_rankings unavailable — sector lens off</span>'; return; }
+  const chips=SECTOR_RANKS.list.map(r=>{
+    const col=r.rank<=3?'var(--green)':r.rank>=9?'var(--orange)':'var(--dim)';
+    return '<span style="border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-size:11px;color:'+col+'" title="'+(r.sector_name||'')+' · '+r.method+'">#'+r.rank+' '+r.sector+' '+(r.score>=0?'+':'')+(+r.score).toFixed(2)+'</span>';
+  }).join(' ');
+  el.innerHTML='<div class="cls" style="font-size:10px;letter-spacing:.08em;margin-bottom:4px">SECTOR ROTATION — published ranking · <code>sector_rankings</code> (sector tool, same composite_staged geiger) · '+freshTxt(SECTOR_RANKS.updated_at)+' · annotation lens only, no score-math change</div><div style="display:flex;flex-wrap:wrap;gap:5px">'+chips+'</div>';
+}
+function candidateSyms(){
+  // THE universe = ticker_cohorts (pick cohorts) + hub_favorites. Legacy cohort-feed set only as fallback.
+  const pickCohorts=new Set(['GROWTH','AI_HARDWARE','AI_HW','AI_SOFTWARE','CRYPTO','MEGACAP','BLUE_CHIP','THEMATIC','INTL']);
+  const out=new Set();
+  for(const [sym,cs] of Object.entries(UNIVERSE.cohorts)) if(cs.some(c=>pickCohorts.has(c))) out.add(sym);
+  for(const f of UNIVERSE.favs) out.add(f);
+  for(const s of CMDTY_SYMS) if(COMPOSITE[s]||COHORT[s]) out.add(s);
+  if(!out.size) for(const s of Object.keys(COHORT)) out.add(s);   // FALLBACK universe (spine flags it)
+  return [...out];
+}
+/* =================== end C7 SSOT LAYER =================== */
+const CLASSES = {ANET:'LC',AMD:'LC',SPY:'IDX',CRDO:'SC',PSTG:'SC',ALAB:'SC',NVDA:'LC',QQQ:'IDX',SNDK:'SC',AMAT:'LC',AVGO:'LC',ASML:'LC',AMZN:'LC',LRCX:'LC',MU:'LC',TSM:'LC',GOOGL:'LC',NBIS:'SC',ARM:'LC',CIFR:'SC',DRAM:'IDX',MRVL:'LC',TSLA:'LC',USO:'ETF',CLUSD:'CMD',MSFT:'LC',WULF:'SC',BTCUSD:'CRY',PLTR:'LC',CRWV:'SC',RKLB:'SC',APLD:'SC',USAR:'SC',IREN:'SC',SLV:'ETF',ASTS:'SC',OKLO:'SC',GCUSD:'CMD',SIUSD:'CMD',MSTR:'SC',IWM:'IDX',SMH:'IDX'};
+const CLASSNAME = {LC:'Large Cap',SC:'Small Cap',IDX:'Index',ETF:'ETF',CMD:'Commodity',CRY:'Crypto'};
+// STYLE LAYER: proxies vs SPY decide which styles are discounted; styles never become sleeves — they tilt MOVES and re-rank candidates.
+const TICKER_STYLES = {NVDA:['GROWTH','SEMIS'],AMD:['GROWTH','SEMIS'],AVGO:['SEMIS'],ASML:['SEMIS'],AMAT:['SEMIS'],LRCX:['SEMIS'],MU:['SEMIS'],TSM:['SEMIS'],MRVL:['SEMIS'],SNDK:['SEMIS'],CRDO:['SEMIS'],ALAB:['SEMIS'],ANET:['GROWTH'],ARM:['GROWTH','SEMIS'],TSLA:['GROWTH'],PLTR:['GROWTH'],AMZN:['GROWTH'],GOOGL:['GROWTH'],MSFT:['GROWTH'],NBIS:['GROWTH'],CRWV:['GROWTH'],PSTG:['GROWTH'],ASTS:['GROWTH'],OKLO:['GROWTH'],RKLB:['GROWTH'],APLD:['CRYPTO'],IREN:['CRYPTO'],CIFR:['CRYPTO'],WULF:['CRYPTO'],MSTR:['CRYPTO'],BTCUSD:['CRYPTO'],USO:['CMDTY'],SLV:['CMDTY'],CLUSD:['CMDTY'],GCUSD:['CMDTY'],SIUSD:['CMDTY']};
+function styleSpreads(){
+  const gS = gv('SPY');                                  // SSOT: composite_staged
+  if (gS == null) return {};
+  const sp = {};
+  const pair = (name, sym) => { const g = gv(sym); if (g != null) sp[name] = g - gS; };
+  pair('GROWTH','QQQ'); pair('SEMIS','SMH'); pair('VALUE','RSP'); pair('CRYPTO','BTCUSD');
+  const gp = gv('XLP'), gu = gv('XLU');
+  if (gp != null && gu != null) sp['DEFENSIVE'] = (gp+gu)/2 - gS;
+  return sp;
+}
+function styleAdj(sym, spreads){
+  const tags = TICKER_STYLES[sym] || [];
+  if (!tags.length) return 0;
+  let t = 0, n = 0;
+  for (const tg of tags) if (spreads[tg] != null) { t += spreads[tg]; n++; }
+  return n ? 0.5 * t / n : 0;
+}
+// SLEEVE ENGINE — the WHERE. Sleeves are themes (a ticker can live in several). Each sleeve has a proxy geiger;
+// the COLDER the sleeve, the BIGGER its share of invested. Shares capped 5-35% and renormalized. Score = HOW MUCH; sleeves = WHERE.
+const SLEEVES = {GROWTH:['QQQ'], SMALL:['IWM'], BROAD:['RSP'], SEMIS:['SMH'], CRYPTO:['BTCUSD'], CMDTY:['GCUSD','SIUSD','CLUSD']};
+const SLEEVE_COLOR = {GROWTH:'#00d4ff', SMALL:'#7dd3fc', BROAD:'#ffd166', SEMIS:'#a78bfa', CRYPTO:'#ff8c42', CMDTY:'#38e07b', CASH:'#23233a'};
+function sleeveG(name){
+  const syms = SLEEVES[name].filter(x => gv(x) != null); // SSOT: composite_staged
+  if (!syms.length) return null;
+  return syms.reduce((t,x) => t + gv(x), 0) / syms.length;
+}
+function sleeveShares(){
+  const raw = {};
+  let tot = 0;
+  for (const k of Object.keys(SLEEVES)) { const g = sleeveG(k); if (g == null) continue; raw[k] = Math.max(0.05, 1 - g); tot += raw[k]; }
+  if (!tot) return {};
+  for (const k of Object.keys(raw)) raw[k] = raw[k] / tot;
+  let capTot = 0;
+  for (const k of Object.keys(raw)) { raw[k] = Math.min(0.35, Math.max(0.05, raw[k])); capTot += raw[k]; }
+  for (const k of Object.keys(raw)) raw[k] = raw[k] / capTot;
+  return raw;
+}
+// SSOT: sleeve membership derives from ticker_cohorts (DB); TICKER_STYLES only as flagged fallback.
+const COHORT_SLEEVE = {AI_HARDWARE:'SEMIS', AI_HW:'SEMIS', AI_SOFTWARE:'GROWTH', GROWTH:'GROWTH', THEMATIC:'GROWTH', CRYPTO:'CRYPTO', MEGACAP:'BROAD', BLUE_CHIP:'BROAD', INTL:'BROAD'};
+const CMDTY_SYMS = new Set(['GCUSD','SIUSD','CLUSD','USO','SLV']);
+function tickerCls(sym){
+  const p = PROFILES[sym];
+  if (p && p.market_cap != null && !p.is_etf) return p.market_cap < 10e9 ? 'SC' : 'LC';  // DB-driven cap class
+  return CLASSES[sym] || null;
+}
+function tickerSleeves(sym){
+  const out = new Set();
+  if (CMDTY_SYMS.has(sym)) out.add('CMDTY');
+  const dbc = UNIVERSE.cohorts[sym];
+  if (dbc && dbc.length) {
+    for (const c of dbc) { const sl = COHORT_SLEEVE[c]; if (sl) out.add(sl); }
+  } else {
+    for (const t of (TICKER_STYLES[sym] || [])) if (SLEEVES[t]) out.add(t);   // FALLBACK map
+  }
+  const cls = tickerCls(sym);
+  if (cls === 'SC') out.add('SMALL');
+  if (!out.size && cls === 'LC') out.add('BROAD');
+  return [...out];
+}
+// internals direction & weight (mirrors the sheet's Feed map)
+const INTERNALS = {'RSP/SPY':[1,1],'IWM/SPY':[1,1],'QQQ/SPY':[1,1],'XLY/XLP':[1,1],'HYG/LQD':[1,1],'SMH/SPY':[1,1],'XLU/SPY':[-1,1],'BTC-USD':[1,1],'VIX':[-1,1],'VIX3M':[-1,0],'MOVE':[-1,1],'SKEW':[-1,1],'VVIX':[-1,1],'US10Y':[-1,1],'US5Y':[-1,0],'US3M':[-1,0],'US30Y':[-1,0],'CYC_DEF':[1,1]};
+
+const DEFAULTS = {
+  dTrend:0.5, dRsi:0.6, dTf:0.763,          // approved geiger + equalizer 3.1785/0.9875
+  vixCold:30, tenCold:4.8,                   // hot ends fixed at 12 / 3.5
+  maxInv:100, minInv:15, nLC:4, nSC:2, nPer:2, divAuto:1, lcTilt:0, maxTotal:12, maxNames:6, concLean:0,
+  curInv:0, curLC:0,
+  wts:{SPY:1, QQQ:1, IWM:0.5, SMH:0.5, VIX:0.5, US10Y:0.5, OIL:0.5, VALUE:0, CRYPTO:0.25, DEF:0.25}
+};
+const VOTER_DESC = {
+  SPY: 'PROXY: SPY (composite_staged · db; Yahoo fallback). The approved geiger on the S&P across your full equalizer curve (2h→1w): ribbon order 50% + momentum 50% (RSI 60 / W%R 40, straight 23→77 map — every level in between feeds, per GOOGL_GEIGER_v2). WHEN it reads positive the market is stretched and it pushes the score UP toward Overbought; negative = washed out, pushes DOWN toward Oversold.',
+  QQQ: 'PROXY: QQQ (composite_staged · db; Yahoo fallback). Same geiger on the Nasdaq-100. When growth is the stretched side it pushes the score UP; when growth is the beaten-down side (like now) it pulls the score DOWN. Watch it vs SPY: the gap says which side is discounted.',
+  IWM: 'PROXY: IWM (composite_staged · db; Yahoo fallback). Same geiger on small caps. As a voter it adds breadth: a rally without small caps reads cooler. NOTE: whether weighted or not, IWM-vs-SPY always drives the LC/SC split in panel 2.',
+  SMH: 'PROXY: SMH (composite_staged · db; Yahoo fallback). Same geiger on semis, the current leadership. Weighted in, a stretched semi complex pushes the score UP (leadership froth) and a broken one drags it DOWN.',
+  VIX: 'PROXY: VIX level (vix_term · db when fresh; Yahoo fallback flagged when stale), not a geiger. HOW IT VOTES: below ~21 it votes hot (+) — calm/complacency, pushes the score UP; above ~21 it votes cold (−) — fear, pulls it DOWN; at 12 it maxes at +1, at your cold endpoint (30) it floors at −1, clamped beyond. Today 18.8 → +0.25: mildly complacent. KNOWN LIMIT: level-only is v1-simplistic — term structure (VIX vs VIX3M) and rate-of-change are roadmap upgrades.',
+  US10Y: 'PROXY: US 10Y yield (treasury_rates.y10 · db; Yahoo fallback), not a geiger. HOW IT VOTES: below ~4.15% yields are fuel — pushes the score UP; above ~4.15% they are a headwind — pulls it DOWN; +1 at 3.5%, −1 at 4.8%. Today 4.54% → −0.60: rates are a drag. Same v1-simplistic caveat as VIX — a yield-trend geiger is a roadmap upgrade.',
+  OIL: 'PROXY: CLUSD crude (composite_staged · db; Yahoo fallback), its own independent voter — never lumped with other commodities. INVERTED geiger: oil trending hot = inflation pressure = pulls the score DOWN; oil breaking down = relief = pushes UP. Base weight 0.5 because it matters now; dial to 0 the day it stops.',
+  VALUE: 'PROXY: RSP equal-weight S&P (composite_staged · db). The value/breadth style. Straight geiger: a hot equal-weight tape = broad strength pushes the score UP; a cold one = narrow market, pulls DOWN. Base weight 0 — reading only for now; as a STYLE it will re-rank candidates rather than vote, per the roadmap.',
+  CRYPTO: 'PROXY: BTCUSD (composite_staged · db). The risk-appetite tell. Straight geiger: BTC running hot = speculative appetite = pushes the score UP; BTC breaking = risk coming off = pulls DOWN. Base weight 0.25 — a tell, not a driver.',
+  DEF: 'PROXY: XLP+XLU average (composite_staged · db), INVERTED. When defensives are the hot trade, money is hiding — that is risk-off, so it pulls the score DOWN; defensives cold = nobody paying up for safety = pushes UP. Base weight 0.25.'
+};
+let S = JSON.parse(localStorage.getItem('alloc-module-v1') || 'null') || structuredClone(DEFAULTS);
+S.wts = Object.assign(structuredClone(DEFAULTS.wts), S.wts || {});
+if (!S._v4) { S.lcTilt = 0; S._v4 = 1; }   // v4: tilt ships OFF — data decides unless you turn it on
+if (!S._v5) { S.wts = structuredClone(DEFAULTS.wts); S._v5 = 1; }  // v5: the agreed BASE weights (2026-07-20) applied once
+if (S.nPer==null) S.nPer=2;
+if (S.divAuto==null) S.divAuto=1;
+if (S.maxTotal==null) S.maxTotal=12;
+if (S.maxNames==null) S.maxNames=6;
+if (S.concLean==null) S.concLean=0;
+function save(){ localStorage.setItem('alloc-module-v1', JSON.stringify(S)); }
+
+let COHORT = {};
+let COMPS = {};  // sym -> fundamentals from comps-feed (SCINTILLA database)   // sym -> {price,day,td,rd,gd,tw,rw,gw,ma,maN}
+let MACRO = {};    // name -> {value,trend,rsi,range}
+let STAMPS = {cohort:'', macro:''};
+
+function parseCSV(text){
+  const lines = text.trim().split('\n'); const head = lines[0].split(',');
+  return lines.slice(1).map(l => { const c = l.split(','); const o = {}; head.forEach((h,i)=>o[h]=c[i]); return o; });
+}
+// THE EQUALIZER CURVE — read off the live hub equalizer (logo menu) on 2026-07-19. SAVE writes operator_weights; when that table has rows we read it live instead.
+const EQ_W = {'2h':1.2, '3h':3.6, '4h':6.7, '6h':9.3, '12h':9.3, '1d':9.3, '3d':7.6, '1w':2.9};
+const TFS = Object.keys(EQ_W);
+function ingest(mr, cr){
+  for (const r of parseCSV(mr)) {
+    MACRO[r.name] = {value:+r.value, trend:r.trend===''?null:+r.trend, rsi:r.rsi_s===''?null:+r.rsi_s, range:r.range_s===''?null:+r.range_s};
+    STAMPS.macro = r.updated_utc;
+  }
+  for (const r of parseCSV(cr)) {
+    if (r.price === '' || r.t_1d === undefined) continue;
+    const [ma, maN] = (r.ma10||'0/10').split('/').map(Number);
+    const tf = {};
+    for (const t of TFS) tf[t] = {t: r['t_'+t]===''?null:+r['t_'+t], r: r['r_'+t]===''?null:+r['r_'+t], g: r['g_'+t]===''?null:+r['g_'+t]};
+    COHORT[r.sym] = {price:+r.price, day:+r.day_pct, tf, ma, maN};
+    STAMPS.cohort = r.updated_utc;
+  }
+}
+async function loadFeeds(){
+  // instant paint from last data, refresh in background (server also caches geigers 5 min)
+  const cached = JSON.parse(localStorage.getItem('alloc-data-v1') || 'null');
+  const haveCache = cached && cached.mr && cached.cr;
+  if (haveCache) { ingest(cached.mr, cached.cr); document.getElementById('loading').style.display='none'; render(); }
+  else document.getElementById('loading').style.display='flex';
+  document.getElementById('loadmsg').textContent = 'pulling SSOT tables (composite_staged · cohorts · quotes) + fallback feeds…';
+  document.getElementById('refresh').textContent = '↻ REFRESHING…';
+  const ssotP = refreshSSOT();   // SSOT DB reads run in parallel with the legacy fallback feeds
+  try {
+    const [mr, cr] = await Promise.all([
+      fetch(SB + '/macro-feed?v=5').then(r=>r.text()),
+      fetch(SB + '/cohort-feed').then(r=>r.text())
+    ]);
+    localStorage.setItem('alloc-data-v1', JSON.stringify({mr, cr}));
+    ingest(mr, cr);
+  } catch(e) { /* keep cached view — SSOT reads are primary now */ }
+  try { await ssotP; } catch(e) { /* per-table spine badges carry their own error state */ }
+  // comps value layer from the SCINTILLA database (fundamentals / ratios_history / analyst_estimates via comps-feed; never FMP)
+  try {
+    const syms = candidateSyms();
+    const batches = []; for (let i = 0; i < syms.length; i += 60) batches.push(syms.slice(i, i+60).join(','));
+    const texts = await Promise.all(batches.map(b => fetch(SB + '/comps-feed?syms=' + encodeURIComponent(b)).then(r=>r.text())));
+    for (const ct of texts) {
+      const L = ct.trim().split('\n'); const head = L[0].split(',');
+      for (const line of L.slice(1)) { const c = line.split(','); const o = {}; head.forEach((h,i)=>o[h]=c[i]===''?null:+c[i]); COMPS[c[0]] = o; }
+    }
+    spineSet('comps-feed', null, 'LIVE', Object.keys(COMPS).length+' tickers — fundamentals/ratios_history/analyst_estimates (db)');
+  } catch(e) { spineSet('comps-feed', null, 'FALLBACK', 'comps read failed'); }
+  renderSpine();
+  // IBKR state handoff: a Claude session syncs percentages (never dollars) to this file on schedule.
+  try {
+    const ib = await fetch('https://wadinxqplrggagkvrdag.supabase.co/storage/v1/object/public/inbox/ibkr-state.json', {cache:'no-store'}).then(r => r.ok ? r.json() : null);
+    if (ib && ib.ts && ib.ts !== S.ibkrTs) {
+      S.curInv = Math.round(ib.invested_pct); S.curLC = Math.round(ib.lc_pct); S.ibkrTs = ib.ts; save();
+    }
+    if (ib && ib.ts) document.getElementById('ibkrnote').innerHTML = `YES — connected to your Interactive Brokers account (read-only, via your IBKR connector). <b style="color:var(--txt)">Last sync: ${ib.ts.slice(0,16).replace('T',' ')}Z · ${Math.round(ib.invested_pct)}% invested</b>. A Claude session refreshes this file on schedule (percentages only, never dollars). The sliders seed from it; slide to override any time.`;
+  } catch(e) { /* note keeps its default text */ }
+  document.getElementById('loading').style.display='none';
+  document.getElementById('refresh').textContent = '↻ REFRESH FEEDS';
+  render();
+}
+
+// ---- math (approved geiger, client dials) ----
+const clamp = x => Math.max(-1, Math.min(1, x));
+// diversification: AUTO scales names with regime — HOT (defend) concentrate in best few, COLD (deploy) cast wider for the rebound.
+function namesPer(h){ const cap=S.maxNames??6; let n; if(!S.divAuto){ n=S.nPer; } else { const base=2 + (1-(h??0))/2 * 3; n=Math.round(base - (S.concLean??0)*1.5); } return Math.max(1, Math.min(cap, n)); } // AUTO: 2+(1-heat)/2*3, leaned by concLean, clamped 1..maxNames
+function geiger(c){
+  // Full equalizer: per-TF geiger = TRND 50% + MOM 50% (RSI 60 / W%R 40), weighted by the live curve.
+  let num = 0, den = 0;
+  for (const t of TFS) {
+    const p = c.tf?.[t]; if (!p || p.t == null || p.r == null || p.g == null) continue;
+    const g = p.t * S.dTrend + (p.r * S.dRsi + p.g * (1 - S.dRsi)) * (1 - S.dTrend);
+    num += g * EQ_W[t]; den += EQ_W[t];
+  }
+  return den ? clamp(num / den) : 0;
+}
+function rowGeiger(m){ // macro-feed row with primitives (daily-only series)
+  if (m.trend == null) return null;
+  return clamp(m.trend * S.dTrend + (m.rsi * S.dRsi + m.range * (1 - S.dRsi)) * (1 - S.dTrend));
+}
+function internalsScore(){
+  let num = 0, den = 0;
+  for (const [name, [dir, w]] of Object.entries(INTERNALS)) {
+    const m = MACRO[name]; if (!m || !w) continue;
+    const g = rowGeiger(m); if (g == null) continue;
+    num += dir * g * w; den += w;
+  }
+  const sect = MACRO['SECT_PCT_ABOVE_200D'];
+  if (sect && isFinite(sect.value)) { num += (sect.value * 2 - 1); den += 1; }
+  return den ? num / den : 0;
+}
+function voters(){
+  const v = [];
+  const idx = sym => gv(sym);                                            // SSOT: composite_staged
+  const gsrc = sym => COMPOSITE[sym] ? 'composite_staged · db' : (COHORT[sym] ? 'FALLBACK client geiger (yahoo)' : '—');
+  v.push({key:'SPY', name:'SPY GEIGER', sub:gsrc('SPY'), val:idx('SPY')});
+  v.push({key:'QQQ', name:'QQQ GEIGER', sub:gsrc('QQQ'), val:idx('QQQ')});
+  v.push({key:'IWM', name:'IWM GEIGER', sub:'small caps · '+gsrc('IWM'), val:idx('IWM')});
+  v.push({key:'SMH', name:'SMH GEIGER', sub:'semis · '+gsrc('SMH'), val:idx('SMH')});
+  let vix = null, vixSub = '—';
+  if (VIXDB && VIXDB.fresh && VIXDB.vix != null) { vix = VIXDB.vix; vixSub = vix.toFixed(1)+' · vix_term (db) '+VIXDB.date; }
+  else if (MACRO['VIX']) { vix = MACRO['VIX'].value; vixSub = vix.toFixed(1)+' · FALLBACK yahoo'+(VIXDB&&VIXDB.date?' (vix_term stale @ '+VIXDB.date+')':''); }
+  v.push({key:'VIX', name:'VIX (inv)', sub: vixSub, val: vix!=null ? clamp(((S.vixCold+12)/2 - vix) / ((S.vixCold-12)/2)) : null});
+  let ten = null, tenSub = '—';
+  if (TREAS && TREAS.y10 != null) { ten = TREAS.y10; tenSub = ten.toFixed(2)+'% · treasury_rates (db) '+TREAS.date; }
+  else if (MACRO['US10Y']) { ten = MACRO['US10Y'].value; tenSub = ten.toFixed(2)+'% · FALLBACK yahoo'; }
+  v.push({key:'US10Y', name:'US 10Y (inv)', sub: tenSub, val: ten!=null ? clamp(((+S.tenCold+3.5)/2 - ten) / ((+S.tenCold-3.5)/2)) : null});
+  const oil = gv('CLUSD');
+  v.push({key:'OIL', name:'OIL (inv)', sub: oil!=null ? 'CL · '+gsrc('CLUSD') : '—', val: oil!=null ? clamp(-oil) : null});
+  const rsp = gv('RSP');
+  v.push({key:'VALUE', name:'VALUE (RSP)', sub:'equal-weight · '+gsrc('RSP'), val: rsp});
+  const btc = gv('BTCUSD');
+  v.push({key:'CRYPTO', name:'CRYPTO (BTC)', sub:'risk appetite · '+gsrc('BTCUSD'), val: btc});
+  const gp2 = gv('XLP'), gu2 = gv('XLU');
+  v.push({key:'DEF', name:'DEFENSIVES (inv)', sub:'XLP+XLU · '+(COMPOSITE['XLP']?'db':'fallback'), val: (gp2!=null && gu2!=null) ? clamp(-(gp2+gu2)/2) : null});
+  return v;
+}
+function heat(){
+  let num = 0, den = 0;
+  for (const v of voters()) { if (v.val == null) continue; const w = S.wts[v.key] ?? 0; num += v.val * w; den += w; }
+  return den ? num / den : 0;
+}
+function heatWith(vlist, key, w){ // counterfactual: heat if this one voter's weight were w
+  let num = 0, den = 0;
+  for (const v of vlist) { if (v.val == null) continue; const wt = v.key === key ? w : (S.wts[v.key] ?? 0); num += v.val * wt; den += wt; }
+  return den ? num / den : 0;
+}
+function investedAt(h){ const x = (1 - h) / 2; return (S.minInv + (S.maxInv - S.minInv) * x) / 100; }
+// LC/SC split: DATA-DRIVEN. Colder class gets the bigger sleeve, sized by the geiger spread.
+// Optional sub-dial: heat tilt — when overall heat is high, lean extra toward large caps (better holds when stretched).
+function lcShareAuto(h){
+  const s = gv('SPY'), i = gv('IWM');                    // SSOT: composite_staged
+  if (s == null || i == null) return 0.5;
+  return Math.min(.8, Math.max(.2, 0.5 + (i - s) * 0.5 + (S.lcTilt || 0) * (h || 0)));
+}
+function heatLabel(h){
+  if (h >= .5) return ['DEEP OVERBOUGHT', 'var(--red)'];
+  if (h >= .2) return ['OVERBOUGHT', 'var(--orange)'];
+  if (h <= -.5) return ['DEEP OVERSOLD', 'var(--green)'];
+  if (h <= -.2) return ['OVERSOLD', 'var(--cyan)'];
+  return ['NEUTRAL', 'var(--dim)'];
+}
+const pct = (x, d=1) => (x*100).toFixed(d) + '%';
+const spct = (x, d=1) => (x>=0?'+':'') + (x*100).toFixed(d) + '%';
+
+// ---- render ----
+function barCSS(el, val, scale=50){
+  const w = Math.min(50, Math.abs(val) * scale);
+  el.style.left = val < 0 ? (50 - w) + '%' : '50%';
+  el.style.width = w + '%';
+  el.style.background = val >= 0 ? 'var(--cyan)' : 'var(--orange)';
+}
+function render(){
+  // gauges
+  const gd = document.getElementById('gauges'); gd.innerHTML = '';
+  for (const v of voters()) {
+    const row = document.createElement('div'); row.className = 'gauge';
+    const val = v.val == null ? 0 : v.val;
+    row.innerHTML = `<div class="gname">${v.name}<small>${v.sub}</small></div>
+      <div class="barwrap"><div class="mid"></div><div class="bar"></div></div>
+      <div class="gval">${v.val==null?'—':(val>=0?'+':'')+val.toFixed(2)}</div>
+      <div class="wt"><input type="range" min="0" max="1" step="0.25" value="${S.wts[v.key]??0}"><span>w ${S.wts[v.key]??0}</span></div>`;
+    barCSS(row.querySelector('.bar'), val);
+    row.querySelector('input').oninput = e => { S.wts[v.key] = +e.target.value; save(); render(); };
+    gd.appendChild(row);
+    if (VOTER_DESC[v.key]) {
+      const d = document.createElement('div'); d.className = 'vdesc';
+      const allV = voters(), hNow = (() => { let n=0,dd=0; for (const x of allV){ if(x.val==null) continue; const w=S.wts[x.key]??0; n+=x.val*w; dd+=w; } return dd?n/dd:0; })();
+      const cur = S.wts[v.key] ?? 0;
+      const alt = cur > 0 ? 0 : 1;
+      const hAlt = heatWith(allV, v.key, alt);
+      const fmt2 = x => (x>=0?'+':'')+x.toFixed(2);
+      const dEff = hAlt - hNow, mag = Math.abs(dEff);
+      const dir = dEff > 0.005 ? 'UP ⬆' : dEff < -0.005 ? 'DOWN ⬇' : 'nowhere —';
+      const strength = mag < 0.005 ? '' : mag < 0.02 ? 'barely' : mag < 0.06 ? 'a little' : mag < 0.12 ? 'noticeably' : 'a LOT';
+      d.innerHTML = VOTER_DESC[v.key] + (v.val==null ? '' :
+        `<span class="veffect">${cur>0 ? `ON. Mute it and the score goes ${dir} ${strength} (${fmt2(hNow)} → ${fmt2(hAlt)}).` : `OFF. Turn it on and the score goes ${dir} ${strength} (${fmt2(hNow)} → ${fmt2(hAlt)}).`}</span>`);
+      gd.appendChild(d);
+    }
+  }
+  const h = heat(), [lbl, color] = heatLabel(h);
+  document.getElementById('heatnum').textContent = (h>=0?'+':'') + h.toFixed(2);
+  document.getElementById('heatnum').style.color = color;
+  const hb = document.getElementById('heatbar'); barCSS(hb, h);
+  const hl = document.getElementById('heatlabel'); hl.textContent = lbl; hl.style.color = color;
+
+  // dials display
+  const set = (id, v, fmt) => { const e = document.getElementById(id); e.value = v; document.getElementById(id+'V').textContent = fmt; };
+  set('dTrend', S.dTrend, S.dTrend.toFixed(2)+' / '+(1-S.dTrend).toFixed(2));
+  set('dRsi', S.dRsi, S.dRsi.toFixed(2)+' / '+(1-S.dRsi).toFixed(2));
+  set('vixCold', S.vixCold, '−1 @ '+S.vixCold+' · +1 @ 12');
+  set('tenCold', S.tenCold, '−1 @ '+(+S.tenCold).toFixed(1)+'% · +1 @ 3.5%');
+  set('maxInv', S.maxInv, S.maxInv+'%');
+  set('minInv', S.minInv, S.minInv+'%');
+  set('nPer', S.nPer, S.nPer+' names');
+  set('maxTotal', S.maxTotal, S.maxTotal+' total');
+  set('maxNames', S.maxNames, S.maxNames+' / sleeve');
+  set('concLean', S.concLean, (S.concLean===0?'neutral':(S.concLean<0?'wider ':'tighter ')+Math.abs(S.concLean).toFixed(2)));
+  const effN = namesPer(h);
+  const dt=document.getElementById('divToggle'); if(dt){ dt.textContent = S.divAuto?('AUTO · '+effN+' names now'):'MANUAL'; dt.onclick=()=>{ S.divAuto=S.divAuto?0:1; save(); render(); }; }
+  const npr=document.getElementById('nPerRow'); if(npr) npr.style.opacity = S.divAuto?0.4:1;
+  const dmv=document.getElementById('divModeV'); if(dmv) dmv.textContent = S.divAuto?'auto':'manual';
+  set('lcTilt', S.lcTilt ?? 0, (S.lcTilt ?? 0) === 0 ? 'OFF' : '+'+((S.lcTilt)*100).toFixed(0)+'%/heat');
+  const ibn=document.getElementById('ibkrnote'); if(ibn) ibn.innerHTML='IBKR read-only: last pull <b style="color:var(--txt)">100% cash</b>. Slide to match reality — never dollars.';
+  set('curInv', S.curInv, S.curInv+'%');
+  set('curLC', S.curLC, S.curLC+'%');
+  document.getElementById('curLC').max = S.curInv;
+  if (S.curLC > S.curInv) S.curLC = S.curInv;
+
+  drawCurve(h);
+
+  // data-driven split readout
+  const gS = gv('SPY'), gI = gv('IWM');                  // SSOT: composite_staged
+  if (gS != null && gI != null) {
+    const lcs = lcShareAuto(h);
+    const tiltTerm = (S.lcTilt || 0) * h;
+    document.getElementById('autosplit').innerHTML = `<b style="color:var(--gold)">LC/SC SPLIT — set by the data:</b> SPY geiger ${(gS>=0?'+':'')+gS.toFixed(2)} vs IWM geiger ${(gI>=0?'+':'')+gI.toFixed(2)} → LC share = 50% + (IWM ${(gI>=0?'+':'')+gI.toFixed(2)} − SPY ${(gS>=0?'+':'')+gS.toFixed(2)})×50%${S.lcTilt?` + heat-tilt ${(tiltTerm>=0?'+':'')+(tiltTerm*100).toFixed(1)}%`:''} = <b style="color:var(--txt)">${pct(lcs,0)} LC / ${pct(1-lcs,0)} SC</b>. The colder class earns the bigger sleeve — ${gI<gS?'small caps read colder today':'large caps read colder today'}${Math.abs(gI-gS)<0.06?' (barely: the two classes are near-even)':''}. Rails: LC is capped between 20% and 80% so one hot print can never zero out a whole class.`;
+  }
+  // internals breakdown
+  const ib = document.getElementById('intbreak');
+  if (ib) {
+    let rows2 = '<table style="margin-top:6px"><tr><th>INTERNAL</th><th class="r">VALUE</th><th class="r">DIR</th><th class="r">SCORE</th></tr>';
+    for (const [name, [dir, w]] of Object.entries(INTERNALS)) {
+      const m = MACRO[name]; if (!m || !w) continue;
+      const g = rowGeiger(m); if (g == null) continue;
+      const sc2 = dir * g;
+      rows2 += `<tr><td>${name}</td><td class="r cls">${(+m.value).toFixed(name.includes('/')?4:2)}</td><td class="r cls">${dir>0?'+':'−'}</td><td class="r" style="color:${sc2>=0?'var(--cyan)':'var(--orange)'}">${(sc2>=0?'+':'')+sc2.toFixed(2)}</td></tr>`;
+    }
+    const sect2 = MACRO['SECT_PCT_ABOVE_200D'];
+    if (sect2) rows2 += `<tr><td>SECTOR BREADTH</td><td class="r cls">${(sect2.value*100).toFixed(0)}% above 200d</td><td class="r cls">+</td><td class="r" style="color:${(sect2.value*2-1)>=0?'var(--cyan)':'var(--orange)'}">${((sect2.value*2-1)>=0?'+':'')+(sect2.value*2-1).toFixed(2)}</td></tr>`;
+    ib.innerHTML = rows2 + '</table>';
+  }
+
+  // targets
+  const inv = investedAt(h), lc = lcShareAuto(h), sc = 1 - lc;
+  const lcEq = inv*lc, scEq = inv*sc;
+  const perLC = lcEq / S.nLC, perSC = scEq / S.nSC;
+  const SH = sleeveShares();
+  const sleeveRows = Object.entries(SH).sort((a,b)=>b[1]-a[1]).map(([k,sh]) => {
+    const gk = sleeveG(k), eq = sh * inv;
+    return `<div class="move"><div class="mname" style="color:${SLEEVE_COLOR[k]}">${k}</div><div class="mval">${pct(eq)}<small>of equity · ${pct(sh,0)} of invested · geiger ${(gk>=0?'+':'')+gk.toFixed(2)} · ${namesPer(h)} names × ${pct(eq/namesPer(h))}</small></div></div>`;
+  }).join('');
+  document.getElementById('targets').innerHTML = `
+    <div class="move"><div class="mname">INVESTED</div><div class="mval">${pct(inv)}<small>cash ${pct(1-inv)} — HOW MUCH comes from the heat score; WHERE comes from the sleeves below</small></div></div>
+    ${sleeveRows}
+    <div class="move"><div class="mname">LC/SC LENS</div><div class="mval" style="font-size:12px">${pct(lc,0)} / ${pct(1-lc,0)}<small>the same book read as large-vs-small (IWM vs SPY) — a lens, not the mix</small></div></div>`;
+
+  // moves
+  const cInv = S.curInv/100, cLC = S.curLC/100, cSC = cInv - cLC;
+  const dTot = inv - cInv, dLC = lcEq - cLC, dSC = scEq - cSC;
+  const cls = x => Math.abs(x) < .005 ? 'flat' : (x > 0 ? 'add' : 'trim');
+  const word = x => Math.abs(x) < .005 ? 'HOLD' : (x > 0 ? 'ADD' : 'TRIM');
+  const SPR = styleSpreads();
+  const SH2 = sleeveShares();
+  const vixVote = voters().find(x=>x.key==='VIX');
+  const gI2b = COHORT['IWM'] ? geiger(COHORT['IWM']) : null, gR2b = COHORT['RSP'] ? geiger(COHORT['RSP']) : null;
+  const breadthAvg = (gI2b!=null && gR2b!=null) ? (gI2b+gR2b)/2 : null;
+  let urgency = 0, factors = [];
+  if (vixVote && vixVote.val != null) { urgency += (vixVote.val < 0 ? 1 : -1); factors.push('volatility ' + (vixVote.val<0?'fear':'complacent')); }
+  urgency += (h < -0.15 ? 1 : h > 0.15 ? -1 : 0); factors.push('heat ' + (h<-0.15?'cold':h>0.15?'hot':'neutral'));
+  if (breadthAvg != null) { urgency += (breadthAvg < -0.15 ? 1 : 0); factors.push('breadth ' + (breadthAvg<-0.15?'washed':'intact')); }
+  const deepDisc = Object.values(SPR).some(v => v < -0.35); if (deepDisc) { urgency += 1; factors.push('deep style discount'); }
+  const tranchePlan = urgency >= 2 ? [[0.5,'NOW'],[0.5,'on confirmation']]
+    : urgency >= 0 ? [[0.5,'NOW'],[0.5,'on −3% / vol spike']]
+    : [[0.34,'NOW'],[0.33,'on −3% pullback'],[0.33,'on vol spike']];
+  const cadence = urgency>=2?'URGENT — front-load':urgency>=0?'BALANCED — halves':'PATIENT — thirds (cheap without fear tends to get cheaper)';
+  const scheduleNote = dTot > .005 ? `<div style="color:var(--dim);font-size:11px;margin:2px 0 6px">CADENCE <b style="color:var(--txt)">${cadence}</b> — [${factors.join(' · ')}]. Each BUILD below is split into these tranches.</div>` : dTot < -.005 ? '<div style="color:var(--orange);font-size:11px;margin:2px 0 6px">Trims execute immediately — de-risking does not wait.</div>' : '';
+  const sleeveMoves = Object.entries(SH2).sort((a,b)=>b[1]-a[1]).map(([k,sh]) => {
+    const d = sh * inv;
+    const col = SLEEVE_COLOR[k];
+    if (d <= 0.005) return `<div style="border-left:3px solid ${col};padding:10px 14px;opacity:.45;background:rgba(255,255,255,.01);border-radius:0 8px 8px 0"><b style="color:${col}">${k}</b> <span class="cls">HOLD</span></div>`;
+    const tr = tranchePlan.map(([frac,lbl],i)=>`<span style="display:inline-flex;align-items:center;gap:5px;margin:6px 10px 0 0;font-size:11px;color:var(--dim)"><span style="background:${col};opacity:${(1-i*0.2).toFixed(2)};color:#0a0a0f;font-weight:700;border-radius:4px;padding:2px 8px">${spct(d*frac)}</span>${lbl}</span>`).join('');
+    return `<div style="border-left:3px solid ${col};padding:10px 14px;background:rgba(255,255,255,.02);border-radius:0 8px 8px 0">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px"><b style="color:${col};font-size:14px;letter-spacing:.1em">${k}</b><span style="color:${col};font-size:17px;font-weight:700">BUILD ${spct(d)}</span></div>
+      <div style="display:flex;flex-wrap:wrap">${tr}</div></div>`;
+  }).join('');
+  document.getElementById('moves').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;padding-bottom:8px;border-bottom:1px solid var(--line)"><span class="mname">TOTAL TO DEPLOY</span><span class="mval ${cls(dTot)}" style="font-size:20px">${word(dTot)} ${spct(dTot)}<small>of equity</small></span></div>
+    ${scheduleNote}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px">${sleeveMoves}</div>`;
+
+  drawDonut(sleeveShares(), inv);
+  renderBrief(h, inv, lc, dTot, dLC, dSC);
+  renderInputMap(h);
+  renderCohort(dLC, dSC);
+  renderComps();
+  renderTrace(h, inv, lc, lcEq, scEq, perLC, perSC, cInv, cLC, cSC, dTot, dLC, dSC);
+  const csFresh = SPINE['composite_staged'] && SPINE['composite_staged'].ts ? freshTxt(SPINE['composite_staged'].ts) : '—';
+  document.getElementById('stamp').textContent = 'MACRO HEAT MODULE · geiger SSOT composite_staged (' + csFresh + ') · universe ticker_cohorts+hub_favorites · % only, never dollars';
+  document.getElementById('cohstamp').textContent = 'SSOT: composite_staged + ticker_cohorts/hub_favorites + live_quotes + sector_rankings (db) · comps: fundamentals/ratios_history/analyst_estimates · fallback feeds flagged in the badge strip';
+  renderSpine(); renderSectorStrip();
+  save();
+}
+function drawCurve(h){
+  const cv = document.getElementById('curve'), ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height, L = 40, R = 12, T = 12, B = 26;
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle = '#1c1c28'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) { const y = T + (H-T-B)*i/4; ctx.beginPath(); ctx.moveTo(L,y); ctx.lineTo(W-R,y); ctx.stroke();
+    ctx.fillStyle = '#8a8aa0'; ctx.font = '10px monospace'; ctx.fillText((100 - i*25)+'%', 6, y+3); }
+  const X = x => L + (x + 1) / 2 * (W - L - R);
+  const Y = y => T + (1 - y) * (H - T - B);
+  // invested curve
+  ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 2.5; ctx.beginPath();
+  for (let i = 0; i <= 100; i++) { const hx = -1 + i/50; const p = investedAt(hx); i ? ctx.lineTo(X(hx), Y(p)) : ctx.moveTo(X(hx), Y(p)); }
+  ctx.stroke();
+  // LC share line (data-driven; slopes only if heat-tilt sub-dial is on)
+  const lcs = lcShareAuto(h);
+  ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1.5; ctx.setLineDash([5,4]); ctx.beginPath();
+  for (let i = 0; i <= 100; i++) { const hx = -1 + i/50; const p = lcShareAuto(hx); i ? ctx.lineTo(X(hx), Y(p)) : ctx.moveTo(X(hx), Y(p)); }
+  ctx.stroke(); ctx.setLineDash([]);
+  // now marker
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(X(h), T); ctx.lineTo(X(h), H-B); ctx.stroke(); ctx.setLineDash([]);
+  const iv = investedAt(h);
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(X(h), Y(iv), 4, 0, 7); ctx.fill();
+  ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#ffffff';
+  const lbl = 'TODAY: ' + (iv*100).toFixed(1) + '% invested';
+  const lx = Math.min(W - R - 150, Math.max(L + 4, X(h) + 8));
+  ctx.fillText(lbl, lx, Y(iv) - 10);
+  ctx.font = '10px monospace'; ctx.fillStyle = '#ffd166';
+  ctx.fillText('LC share ' + (lcs*100).toFixed(0) + '% (data-set)', lx, Y(lcs) - 6);
+  ctx.fillStyle = '#8a8aa0'; ctx.font = '10px monospace';
+  ctx.fillText('── invested % target', L+8, T+12); ctx.fillStyle = '#ffd166'; ctx.fillText('╌╌ LC share of invested', L+150, T+12);
+}
+function drawDonut(shares, inv){
+  const cv=document.getElementById('donut'); if(!cv) return;
+  const dpr=window.devicePixelRatio||1; const CSSW=660, CSSH=340;
+  cv.style.width=CSSW+'px'; cv.style.height=CSSH+'px';
+  cv.width=CSSW*dpr; cv.height=CSSH*dpr;
+  const ctx=cv.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,CSSW,CSSH);
+  const cx=170, cy=CSSH/2, r=128, ri=82;
+  const segs=Object.entries(shares).sort((a,b)=>b[1]-a[1]).map(([k,sh])=>[k,sh*inv]); segs.push(['CASH',1-inv]);
+  let a=-Math.PI/2;
+  for(const [k,v] of segs){ if(v<=0.001) continue; const gap=segs.length>1?0.02:0; const a2=a+v*2*Math.PI-gap;
+    ctx.beginPath(); ctx.arc(cx,cy,r,a,a2); ctx.arc(cx,cy,ri,a2,a,true); ctx.closePath();
+    ctx.fillStyle=SLEEVE_COLOR[k]||'#444'; ctx.fill(); a=a2+gap; }
+  ctx.fillStyle='#e8e8f0'; ctx.font='700 42px "SF Mono",monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(Math.round(inv*100)+'%', cx, cy-6);
+  ctx.fillStyle='#8a8aa0'; ctx.font='12px monospace'; ctx.fillText('INVESTED', cx, cy+20);
+  let ly=48; ctx.textAlign='left'; ctx.textBaseline='middle'; const lx=380;
+  for(const [k,v] of segs){ if(v<=0.001) continue;
+    ctx.fillStyle=SLEEVE_COLOR[k]||'#444'; ctx.beginPath(); ctx.roundRect(lx,ly-7,14,14,4); ctx.fill();
+    ctx.fillStyle='#e8e8f0'; ctx.font='13px monospace'; ctx.fillText(k, lx+24, ly);
+    ctx.fillStyle='#8a8aa0'; ctx.textAlign='right'; ctx.fillText((v*100).toFixed(1)+'%', CSSW-8, ly); ctx.textAlign='left';
+    ly+=32; }
+}
+function drawMix(tLC, tSC, tCash, cLC2, cSC2, cCash){
+  const el = document.getElementById('mix'); if (!el) return;
+  const COLORS = {LC: 'var(--gold)', SC: 'var(--cyan)', CASH: '#23233a'};
+  const bar = parts => '<div class="stack">' + parts.map(([k, v]) => {
+    if (v <= 0.001) return '';
+    const lbl = v > 0.09 ? `${k} ${Math.round(v*100)}%` : (v > 0.045 ? Math.round(v*100)+'%' : '');
+    const txtColor = k === 'CASH' ? 'style="color:#8a8aa0;"' : '';
+    return `<div class="seg" ${txtColor} style="width:${v*100}%;background:${COLORS[k]};${k==='CASH'?'color:#8a8aa0;':''}">${lbl}</div>`;
+  }).join('') + '</div>';
+  el.innerHTML =
+    '<div class="stacklbl">YOU NOW</div>' + bar([['LC', cLC2], ['SC', cSC2], ['CASH', cCash]]) +
+    '<div class="stacklbl">TARGET (model)</div>' + bar([['LC', tLC], ['SC', tSC], ['CASH', tCash]]);
+}
+function renderBrief(h, inv, lc, dTot, dLC, dSC){
+  const el = document.getElementById('brief'); if (!el) return;
+  const g = sym => COHORT[sym] ? geiger(COHORT[sym]) : null;
+  const gS = g('SPY'), gQ = g('QQQ'), gI = g('IWM'), gR = g('RSP');
+  const vix = (VIXDB && VIXDB.fresh) ? VIXDB.vix : MACRO['VIX']?.value, ten = (TREAS && TREAS.y10!=null) ? TREAS.y10 : MACRO['US10Y']?.value;
+  const SPR = styleSpreads();
+  const f = x => x==null?'—':(x>=0?'+':'')+x.toFixed(2);
+  const lbl = heatLabel(h)[0];
+  const breadthOK = (gI!=null && gI > -0.1) && (gR!=null && gR > -0.1);
+  const growthDisc = SPR.GROWTH != null && SPR.GROWTH < -0.15;
+  const semisDisc = SPR.SEMIS != null && SPR.SEMIS < -0.15;
+  const complacent = vix != null && vix < 21;
+  const ratesDrag = ten != null && ten > 4.15;
+  const p1 = `Heat reads ${f(h)} — ${lbl.toLowerCase()}. The tape is ${gS>0.15?'holding at the index level':'soft at the index level'} (SPY ${f(gS)})${breadthOK?', and breadth is intact — small caps ('+f(gI)+') and the equal-weight tape ('+f(gR)+') are not confirming any breakdown':', with breadth softening — small caps '+f(gI)+', equal-weight '+f(gR)}. ${growthDisc?'Growth is the discounted side (QQQ '+f(gQ)+', spread '+f(SPR.GROWTH)+' vs SPY)':'Growth is not meaningfully discounted vs the index'}${semisDisc?'; semis likewise ('+f(SPR.SEMIS)+')':''}. ${ratesDrag?'Rates are a headwind at '+ten.toFixed(2)+'%':'Rates are supportive'}${vix!=null?(complacent?', and volatility says complacency (VIX '+vix.toFixed(1)+') — no washout has happened':', and fear is on the tape (VIX '+vix.toFixed(1)+')'):''}.`;
+  const SHB = sleeveShares();
+  const topSleeves = Object.entries(SHB).sort((a,b)=>b[1]-a[1]).slice(0,3).map(([k,sh])=>k+' '+Math.round(sh*inv*100)+'%').join(', ');
+  const p2 = `The model wants ${pct(inv)} invested — biggest sleeves by coldness: ${topSleeves} of equity — ${Math.abs(dTot)<.005?'and you are on target.':dTot>0?'you are under-invested by '+spct(dTot)+' of equity.':'you are over-invested by '+spct(-dTot)+' of equity.'}`;
+  const p3 = dTot>.005 ? (complacent?'Discipline: cheapness without fear tends to get cheaper — stage the adds in thirds, favor the style-discounted names the list ranks on top, and let a vol spike buy the last tranche at better prices.':'Fear is present — adds can be executed faster, front-half now.') : dTot<-.005 ? 'Trims execute now; de-risking is never staged.' : 'No action required — re-read when the score crosses a band.';
+  el.innerHTML = p1 + '<br><br>' + p2 + ' ' + p3;
+}
+function renderInputMap(h){
+  const t = document.getElementById('imap'); if (!t) return;
+  const P = 'MAIN', SUB = 'SUB-DIAL', RAIL = 'RAIL (constant)', APPR = 'APPROVED (don’t touch)';
+  const rows = [
+    ['Voter weights ×8', P, Object.entries(S.wts).map(([k,v])=>k+' '+v).join(' · '), 'Each voter enters MACRO HEAT as value × weight ÷ total weight. Weight 0 = displayed, silent. The EFFECT line under each voter shows the exact Δ of flipping it today.'],
+    ['Invested at max COLD', P, S.maxInv+'%', 'The left end of the invested line: at heat −1 you hold this. Raising it by 10% raises today’s target by 10% × how-cold ('+(((1-h)/2)*100).toFixed(0)+'% today).'],
+    ['Invested at max HOT', P, S.minInv+'%', 'The right end: at heat +1 you hold this floor. Raising it lifts the whole hot side of the line.'],
+    ['Positions LC / SC', P, S.nLC+' / '+S.nSC, 'Divides each sleeve into per-position units — changes nothing about totals, only the size of "one position" that moves are quoted in.'],
+    ['Current % invested + LC%', P, S.curInv+'% / '+S.curLC+'%', 'Your reality (IBKR-seeded). Moves = target − this. No effect on targets.'],
+    ['Heat tilt → LC', SUB, (S.lcTilt||0)===0?'OFF':'+'+((S.lcTilt)*100).toFixed(0)+'% per unit of heat', 'Adds lcTilt × heat to the LC share on top of the data split. At 0.10 and heat +0.50: +5% LC. OFF = pure data.'],
+    ['VIX endpoints', SUB, '−1 @ '+S.vixCold+' · +1 @ 12', 'Moves where the VIX voter reads −1/+1. Widening the cold end makes the voter slower to call fear "cold".'],
+    ['10Y endpoints', SUB, '−1 @ '+(+S.tenCold).toFixed(1)+'% · +1 @ 3.5%', 'Same shape for the yield voter.'],
+    ['LC share rails', RAIL, '20% – 80%', 'Clamp on the data split so one hot print can’t zero a class. Constant, not a dial — stays internal as classes are added.'],
+    ['Momentum clamp anchors', APPR, 'RSI 23 / 77', 'Your geiger levels — where RSI reads fully washed-out / fully stretched.'],
+    ['Trend/Momentum · RSI/W%R', APPR, S.dTrend.toFixed(2)+'/'+(1-S.dTrend).toFixed(2)+' · '+S.dRsi.toFixed(2)+'/'+(1-S.dRsi).toFixed(2), 'The approved geiger family blends (match the hub equalizer: TRND 50/MOM 50, RSI 60/W%R 40). Changing them changes every geiger at once.'],
+    ['Equalizer TF curve', APPR, (OPW && OPW.rows ? 'operator_weights: '+OPW.rows+' rows (read live)' : Object.entries(EQ_W).map(([t,w])=>t+' '+w).join(' · ')), 'Scoring now reads composite_staged directly — the hub applies the equalizer curve (operator_weights) upstream. The hardcoded curve remains only inside the client FALLBACK geiger.'],
+  ];
+  t.innerHTML = '<tr><th>INPUT</th><th>KIND</th><th>NOW</th><th>WHAT IT DOES, MATHEMATICALLY</th></tr>' +
+    rows.map(r => `<tr><td class="n">${r[0]}</td><td class="k">${r[1]}</td><td class="cls">${r[2]}</td><td class="cls">${r[3]}</td></tr>`).join('');
+}
+const CATS=['ALL','GROWTH','SEMIS','SMALL','CRYPTO','CMDTY','BROAD'];
+let CATFILTER='ALL';
+function setCat(c){ CATFILTER=c; render(); }
+function renderCohort(dLC, dSC){
+  const SPR2 = styleSpreads();
+  const PROXY_EXCLUDE = new Set(['IWM','SMH','RSP','XLP','XLU','SPY','QQQ']);
+  let allrows = candidateSyms().filter(s => !PROXY_EXCLUDE.has(s))
+    .map(s => { const tg = tickerG(s); if (!tg) return null;
+      const g = tg.g, adj = g + styleAdj(s, SPR2);
+      const q = QUOTES[s], c = COHORT[s] || {};
+      const price = (q && q.price != null) ? +q.price : c.price;
+      const day = (q && q.chg_pct != null) ? (+q.chg_pct)/100 : c.day;   // chg_pct is percent-units; c.day is a fraction
+      return {sym:s, cls:tickerCls(s)||'?', g, gsrc:tg.src, adj, sleeves:tickerSleeves(s), price, day, fav:UNIVERSE.favs.has(s)}; })
+    .filter(Boolean)
+    .sort((a,b) => a.adj - b.adj);
+  const liveCats = ['ALL', ...CATS.slice(1).filter(c=>allrows.some(r=>r.sleeves.includes(c)))];
+  if(!liveCats.includes(CATFILTER)) CATFILTER='ALL';
+  const tb=document.getElementById('catTabs');
+  if(tb) tb.innerHTML = liveCats.map(c=>`<button onclick="setCat('${c}')" style="background:${c===CATFILTER?'var(--cyan)':'#14141f'};color:${c===CATFILTER?'#0a0a0f':'var(--cyan)'};border:1px solid var(--line);border-radius:6px;padding:5px 12px;font-family:inherit;font-size:11px;letter-spacing:.08em;cursor:pointer;font-weight:${c===CATFILTER?'700':'400'}">${c}</button>`).join('');
+  let rows = (CATFILTER!=='ALL') ? allrows.filter(r=>r.sleeves.includes(CATFILTER)) : allrows;
+  const sleeveRank = {};
+  for (const sl of Object.keys(SLEEVES)) {
+    rows.filter(r => r.sleeves.includes(sl)).slice(0,3).forEach((r,i) => { (sleeveRank[r.sym] = sleeveRank[r.sym] || []).push(sl + ' #' + (i+1)); });
+  }
+  const t = document.getElementById('cohort');
+  let html = '<tr><th></th><th>TICKER</th><th>SLEEVES</th><th>SECT</th><th class="r">PRICE</th><th class="r">DAY</th><th class="r">RVOL</th><th>GEIGER</th><th class="r">SCORE</th><th class="r">P/E</th><th class="r">FWD P/E</th><th class="r">P/S</th><th class="r">REV g</th><th class="r">GROSS</th><th class="r">NET</th><th class="r">D/E</th></tr>';
+  const addN = {LC: dLC > .005 ? 3 : 0, SC: dSC > .005 ? 3 : 0};
+  const trimN = {LC: dLC < -.005 ? 3 : 0, SC: dSC < -.005 ? 3 : 0};
+  const coldRank = {}, hotRank = {};
+  for (const cl of ['LC','SC']) {
+    const inCl = rows.filter(r => r.cls === cl);
+    inCl.slice(0, addN[cl]).forEach((r, i) => coldRank[r.sym] = i + 1);
+    if (trimN[cl]) inCl.slice(-trimN[cl]).reverse().forEach((r, i) => hotRank[r.sym] = i + 1);
+  }
+  for (const r of rows) {
+    let tag = '';
+    if (sleeveRank[r.sym]) { const best = sleeveRank[r.sym][0].split(' '); tag = `<span class="tag add">ADD · ${best[0]} ${best[1]}</span>` + (sleeveRank[r.sym].length>1?` <span class="cls">+${sleeveRank[r.sym].length-1}</span>`:''); }
+    else if (hotRank[r.sym]) tag = `<span class="tag trim">TRIM · #${hotRank[r.sym]} ${r.cls}</span>`;
+    const inC = COMPARE.has(r.sym);
+    const star = `<button class="cmpstar" data-sym="${r.sym}" style="background:${inC?'rgba(255,209,102,.15)':'#14141f'};color:${inC?'var(--gold)':'var(--dim)'};border:1px solid ${inC?'var(--gold)':'var(--line)'};border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer" title="add this name to the COMPARABLES table below (for names not auto-suggested)">${inC?'★ in comps':'+ to comps'}</button>`;
+    const w = Math.min(50, Math.abs(r.g) * 50);
+    const k = COMPS[r.sym] || {};
+    const num = (x,d=1,suf='') => (x==null||!isFinite(x))?'<span class="cls">—</span>':(x.toFixed(d)+suf);
+    const pctc = (x) => (x==null||!isFinite(x))?'<span class="cls">—</span>':((x*100).toFixed(0)+'%');
+    html += `<tr style="${sleeveRank[r.sym]?'background:rgba(0,212,255,.07)':''}"><td>${star}</td><td>${sleeveRank[r.sym]?'<span style=\'color:var(--cyan)\'>▸</span> ':''}<b>${r.sym}</b>${r.fav?' <span style="color:var(--gold)" title="hub_favorites">★</span>':''}${r.gsrc==='fallback'?' <span class="cls" title="composite_staged row missing — client Yahoo geiger fallback">⚠</span>':''}</td><td class="cls">${r.sleeves.join("/")||CLASSNAME[r.cls]||r.cls}</td><td>${sectorChip(r.sym)}</td>
+      <td class="r">${r.price==null?'<span class="cls">—</span>':(+r.price).toLocaleString()}</td>
+      <td class="r" style="color:${r.day>=0?'var(--green)':'var(--red)'}">${r.day==null?'<span class="cls">—</span>':spct(r.day,2)}</td>
+      <td class="r">${rvolTxt(r.sym)}</td>
+      <td><span class="mini"><span class="mid"></span><span class="b" style="left:${r.g<0?50-w:50}%;width:${w}%;background:${r.g>=0?'var(--cyan)':'var(--orange)'}"></span></span></td>
+      <td class="r">${(r.g>=0?'+':'')+r.g.toFixed(2)}</td>
+      <td class="r">${num(k.pe)}</td><td class="r">${num(k.fwd_pe)}</td><td class="r">${num(k.ps)}</td>
+      <td class="r" style="color:${k.rev_growth>0?'var(--green)':k.rev_growth<0?'var(--red)':'var(--dim)'}">${k.rev_growth==null?'<span class=cls>—</span>':spct(k.rev_growth,0)}</td>
+      <td class="r">${pctc(k.gross_m)}</td><td class="r">${pctc(k.net_m)}</td><td class="r">${num(k.de,2)}</td></tr>`;
+  }
+  t.innerHTML = html;
+  t.querySelectorAll('.cmpstar').forEach(el => el.onclick = () => toggleCompare(el.getAttribute('data-sym')));
+}
+let COMPARE = new Set(JSON.parse(localStorage.getItem('alloc-compare')||'[]'));
+function toggleCompare(sym){ if(COMPARE.has(sym)) COMPARE.delete(sym); else COMPARE.add(sym); localStorage.setItem('alloc-compare',JSON.stringify([...COMPARE])); render(); }
+let PICKS = new Set(JSON.parse(localStorage.getItem('alloc-picks')||'[]'));
+let EXCLUDED = new Set(); // session-only: a reload clears drops so nothing is ever lost
+let COMPCAT='ALL';
+function setCompCat(c){ COMPCAT=c; render(); }
+function restoreExcluded(){ EXCLUDED.clear(); render(); }
+window.restoreExcluded=restoreExcluded;
+function renderComps(){
+  const t = document.getElementById('comps'); if (!t) return;
+  // suggested = anything currently ADD-tagged (top-3 coldest per sleeve), gathered from the last cohort render
+  const SPR = styleSpreads();
+  const ranked = candidateSyms().filter(s=>!['IWM','SMH','RSP','XLP','XLU','SPY','QQQ'].includes(s))
+    .map(s=>{ const tg=tickerG(s); return tg ? {sym:s, adj:tg.g+styleAdj(s,SPR), sleeves:tickerSleeves(s)} : null; }).filter(Boolean);
+  const suggested = new Set();
+  for (const sl of Object.keys(SLEEVES)) ranked.filter(r=>r.sleeves.includes(sl)).sort((a,b)=>a.adj-b.adj).slice(0,3).forEach(r=>suggested.add(r.sym));
+  // category switcher — which sleeves have suggestions
+  const cats = ['ALL', ...Object.keys(SLEEVES).filter(sl=>ranked.some(r=>r.sleeves.includes(sl)&&suggested.has(r.sym)))];
+  if (!cats.includes(COMPCAT)) COMPCAT='ALL';
+  const cc=document.getElementById('compCat');
+  if(cc) cc.innerHTML = cats.map(c=>`<button onclick="setCompCat('${c}')" style="background:${c===COMPCAT?'var(--gold)':'#14141f'};color:${c===COMPCAT?'#0a0a0f':'var(--gold)'};border:1px solid var(--line);border-radius:6px;padding:5px 12px;font-family:inherit;font-size:11px;letter-spacing:.08em;cursor:pointer;font-weight:${c===COMPCAT?'700':'400'}">${c}</button>`).join('');
+  let syms = [...new Set([...suggested, ...COMPARE])].filter(x=>(COMPS[x]||COMPOSITE[x]||COHORT[x]));
+  if (COMPCAT!=='ALL') syms = syms.filter(x=>tickerSleeves(x).includes(COMPCAT));
+  // [key,label,fmt,dir] dir: -1 lower-is-better, +1 higher-is-better, 0 neutral. valid: ratios must be >0.
+  const cols = [
+    ['mktcap','MKT CAP',v=>v>=1e12?'$'+(v/1e12).toFixed(2)+'T':v>=1e9?'$'+(v/1e9).toFixed(0)+'B':'$'+(v/1e6).toFixed(0)+'M',0],
+    ['g','GEIGER',v=>(v>=0?'+':'')+v.toFixed(2),-1],
+    ['pe','P/E',v=>v.toFixed(1),-1],['fwd_pe','FWD P/E',v=>v.toFixed(1),-1],['ps','P/S',v=>v.toFixed(1),-1],['pb','P/B',v=>v.toFixed(1),-1],
+    ['rev_growth','REV g',v=>(v*100).toFixed(0)+'%',1],['gross_m','GROSS',v=>(v*100).toFixed(0)+'%',1],['net_m','NET',v=>(v*100).toFixed(0)+'%',1],
+    ['de','D/E',v=>v.toFixed(2),-1],['div_yld','DIV',v=>(v*100).toFixed(2)+'%',0]];
+  const RATIO=new Set(['pe','fwd_pe','ps','pb']);
+  const valid=(key,v)=> v!=null && isFinite(v) && !(RATIO.has(key) && v<=0);
+  // peer medians for conditional formatting (only non-excluded, valid)
+  const data = syms.map(sym=>{ const k=Object.assign({}, COMPS[sym]||{}); k.g = gv(sym); return {sym, k, manual:COMPARE.has(sym) && !suggested.has(sym), excl:EXCLUDED.has(sym)}; });
+  const active=data.filter(d=>!d.excl);
+  const med={}; for(const c of cols){ const vs=active.map(d=>d.k[c[0]]).filter(v=>valid(c[0],v)); if(vs.length){ const b=[...vs].sort((x,y)=>x-y); med[c[0]]=b.length%2?b[b.length>>1]:(b[(b.length>>1)-1]+b[b.length>>1])/2; } }
+  const cellColor=(c,v)=>{ if(!valid(c[0],v)||c[3]===0||med[c[0]]==null) return ''; const better=(v-med[c[0]])*c[3]; return better>0?'color:var(--green)':better<0?'color:var(--orange)':''; };
+  let html = '<tr><th></th><th>NAME</th>'+cols.map(c=>'<th class="r">'+c[1]+'</th>').join('')+'<th></th></tr>';
+  for (const d of data) {
+    const picked = PICKS.has(d.sym);
+    const rmLbl = d.excl ? '↺ restore' : '✕ drop';
+    const rmBtn = `<button class="comprm" data-sym="${d.sym}" title="drop from the stat calc (row stays, greyed)" style="background:none;color:${d.excl?'var(--cyan)':'var(--dim)'};border:1px solid var(--line);border-radius:5px;padding:2px 8px;font-size:11px;cursor:pointer">${rmLbl}</button>`;
+    const pickBtn = `<button class="compick" data-sym="${d.sym}" style="background:${picked?'rgba(56,224,123,.15)':'#14141f'};color:${picked?'var(--green)':'var(--cyan)'};border:1px solid ${picked?'var(--green)':'var(--line)'};border-radius:5px;padding:2px 10px;font-size:11px;cursor:pointer">${picked?'✓ picked':'pick'}</button>`;
+    const rowStyle = d.excl ? 'opacity:.35;text-decoration:line-through' : (picked?'background:rgba(56,224,123,.06)':'');
+    html += `<tr style="${rowStyle}"><td>${rmBtn}</td><td><b>${d.sym}</b>${d.manual?' <span class="cls">(added)</span>':' <span class="tag add" style="margin:0">suggested</span>'}</td>`+
+      cols.map(c=>{ const v=d.k[c[0]]; const ok=valid(c[0],v); return '<td class="r" style="'+(d.excl?'':cellColor(c,v))+'">'+(ok?c[2](v):'<span class="cls">NA</span>')+'</td>'; }).join('')+`<td class="r">${pickBtn}</td></tr>`;
+  }
+  // stat rows
+  const stat = (fn,label,color)=>{ let row=`<tr><td></td><td class="cls" style="color:${color}">${label}</td>`; for(const c of cols){ const vals=active.map(d=>d.k[c[0]]).filter(v=>valid(c[0],v)); row+='<td class="r" style="color:'+color+'">'+(vals.length?c[2](fn(vals)):'NA')+'</td>'; } return row+'<td></td></tr>'; };
+  const median=a=>{const b=[...a].sort((x,y)=>x-y);const m=b.length>>1;return b.length%2?b[m]:(b[m-1]+b[m])/2;};
+  const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
+  if (active.length>1){ html+=stat(median,'MEDIAN','var(--gold)'); html+=stat(mean,'MEAN','var(--gold)'); html+=stat(a=>Math.min(...a),'MIN','#8a8aa0'); html+=stat(a=>Math.max(...a),'MAX','#8a8aa0'); }
+  t.innerHTML = html || '<tr><td class="cls">all suggestions dropped — restore below</td></tr>';
+  const rc=document.getElementById('compRestore');
+  if(rc){ rc.innerHTML = EXCLUDED.size ? `<span class="cls">dropped: ${[...EXCLUDED].join(', ')} · </span><button style="background:none;border:none;color:var(--cyan);cursor:pointer;font-size:11px" onclick="restoreExcluded()">restore all</button>` : ''; }
+  t.querySelectorAll('.comprm').forEach(el=>el.onclick=()=>{ const s=el.getAttribute('data-sym'); if(EXCLUDED.has(s)){EXCLUDED.delete(s);} else {EXCLUDED.add(s); PICKS.delete(s); localStorage.setItem('alloc-picks',JSON.stringify([...PICKS]));} render(); });
+  t.querySelectorAll('.compick').forEach(el=>el.onclick=()=>{ const s=el.getAttribute('data-sym'); if(PICKS.has(s)){ PICKS.delete(s); } else { if(PICKS.size>=(S.maxTotal??12)){ const pn=document.getElementById('pickNote'); if(pn){ pn.textContent='Total-names hard cap reached ('+(S.maxTotal??12)+'). Drop a pick or raise the TOTAL cap in DIVERSIFICATION.'; pn.style.color='var(--orange)'; } return; } PICKS.add(s); } localStorage.setItem('alloc-picks',JSON.stringify([...PICKS])); render(); });
+}
+function renderTrace(h, inv, lc, lcEq, scEq, perLC, perSC, cInv, cLC, cSC, dTot, dLC, dSC){
+  const f2 = x => (x==null||!isFinite(x)) ? '—' : (x>=0?'+':'')+x.toFixed(2);
+  const cy = s => `%c${s}%c`;
+  const L = [];
+  const gTrace = sym => {
+    const r = COMPOSITE[sym];
+    if (r) return `${sym}  composite_staged (tf=D, db): trend ${f2(r.trend)}×0.5 + momentum ${f2(r.momentum)}×0.5 = ${f2(r.composite)}   [${freshTxt(r.updated_ts)}]`;
+    const c = COHORT[sym]; if (!c || !c.tf) return sym+': no data';
+    return `${sym}  FALLBACK client geiger (cohort-feed Yahoo primitives, equalizer curve local) = ${f2(geiger(c))}`;
+  };
+  L.push('STEP A · GEIGER VOTERS (SSOT: composite_staged — the hub equalizer output; client geiger math retired to fallback)');
+  for (const s of ['SPY','QQQ','IWM','SMH']) L.push('  ' + gTrace(s));
+  const vix = (VIXDB && VIXDB.fresh) ? VIXDB.vix : MACRO['VIX']?.value, ten = (TREAS && TREAS.y10!=null) ? TREAS.y10 : MACRO['US10Y']?.value;
+  const vv = voters();
+  L.push('STEP B · LEVEL VOTERS (hostile things flip so hot always means hot)');
+  L.push(`  VIX ${vix?.toFixed(1)}: below ~${((S.vixCold+12)/2).toFixed(0)} votes hot(+), above votes cold(−); +1 @ 12, −1 @ ${S.vixCold} → ${f2(vv[4].val)}`);
+  L.push(`  US10Y ${ten?.toFixed(2)}%: below ~${(((+S.tenCold)+3.5)/2).toFixed(2)}% = fuel(+), above = drag(−); +1 @ 3.5%, −1 @ ${(+S.tenCold).toFixed(1)}% → ${f2(vv[5].val)}`);
+  L.push(`  OIL: crude geiger INVERTED (own independent voter) → ${f2(vv[6].val)}`);
+  L.push(`  VALUE(RSP) straight → ${f2(vv[7].val)} · CRYPTO(BTC) straight → ${f2(vv[8].val)} · DEFENSIVES(XLP+XLU) INVERTED → ${f2(vv[9].val)}`);
+  const used = vv.filter(v => v.val != null && (S.wts[v.key]??0) > 0);
+  L.push('STEP C · MACRO HEAT (weighted average of the voters you turned on)');
+  L.push('  heat = ( ' + used.map(v => `${S.wts[v.key]}×${f2(v.val)}`).join(' + ') + ' ) / ' + used.reduce((t,v)=>t+(S.wts[v.key]??0),0) + ' = ' + f2(h));
+  L.push('STEP D · THE CURVE (methodology, not a table)');
+  L.push(`  invested = ${S.minInv}% + (${S.maxInv}% − ${S.minInv}%) × (1 − ${f2(h)})/2 = ${S.minInv}% + ${S.maxInv-S.minInv}% × ${((1-h)/2).toFixed(3)} = ${pct(inv)}   [linear, no aggressiveness dial]`);
+  const gS2 = COHORT['SPY'] ? geiger(COHORT['SPY']) : 0, gI2 = COHORT['IWM'] ? geiger(COHORT['IWM']) : 0;
+  L.push(`  LC share (DATA-SET) = 50% + (IWM ${f2(gI2)} − SPY ${f2(gS2)})×50%${S.lcTilt?` + tilt ${S.lcTilt}×heat ${f2(h)}`:''} = ${pct(lc,0)} of invested, capped 20–80%  →  LC ${pct(lcEq)} of equity · SC ${pct(scEq)} of equity`);
+  L.push(`  per position: LC ${pct(lcEq)} / ${S.nLC} = ${pct(perLC)} · SC ${pct(scEq)} / ${S.nSC} = ${pct(perSC)}`);
+  L.push('STEP E · YOUR STATE (from IBKR, adjusted by your sliders) → MOVES');
+  L.push(`  current: invested ${pct(cInv,0)} · LC ${pct(cLC,0)} · SC ${pct(cSC,0)}`);
+  L.push(`  TOTAL: ${pct(inv)} − ${pct(cInv,0)} = ${spct(dTot)} of equity`);
+  L.push(`  LARGE CAP: ${pct(lcEq)} − ${pct(cLC,0)} = ${spct(dLC)} of equity` + (lcEq>0?` = ${spct(dLC/lcEq,0)} of the LC sleeve = ${spct(dLC/perLC,0)} of one position`:''));
+  L.push(`  SMALL CAP: ${pct(scEq)} − ${pct(cSC,0)} = ${spct(dSC)} of equity` + (scEq>0?` = ${spct(dSC/scEq,0)} of the SC sleeve = ${spct(dSC/perSC,0)} of one position`:''));
+  L.push('STEP F · CANDIDATES (geiger rank only)');
+  L.push(`  LC move ${spct(dLC)} → ${dLC>.005?'ADD: 3 coldest LC favorites':dLC<-.005?'TRIM: 3 hottest LC favorites':'HOLD: no candidates'} · SC move ${spct(dSC)} → ${dSC>.005?'ADD: 3 coldest SC favorites':dSC<-.005?'TRIM: 3 hottest SC favorites':'HOLD: no candidates'}`);
+  document.getElementById('trace').textContent = L.join('\n');
+}
+// slider wiring
+for (const id of ['dTrend','dRsi','vixCold','tenCold','maxInv','minInv','lcTilt','nPer','maxTotal','maxNames','concLean','curInv','curLC']) {
+  const el=document.getElementById(id); if(!el) continue;
+  document.getElementById(id).oninput = e => { S[id] = +e.target.value; save(); render(); };
+}
+document.getElementById('refresh').onclick = loadFeeds;
+if(localStorage.getItem('alloc-hidedesc')!=='0') document.body.classList.add('hidedesc');  // collapsed by default
+(function(){ const b=document.getElementById('descToggle'); const upd=()=>{ const hid=document.body.classList.contains('hidedesc'); b.textContent=(hid?'▸ ':'▾ ')+'what each voter is (proxy detail)'; }; upd(); b.onclick=()=>{ document.body.classList.toggle('hidedesc'); localStorage.setItem('alloc-hidedesc', document.body.classList.contains('hidedesc')?'1':'0'); upd(); }; })();
+loadFeeds();
+</script>
+</body>
+</html>
