@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scintilla DCF V1.1 — DB-wired · Edge Score · Dispersion Score · 3-Stage Fade</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2129; --border:#2d333b;
+    --txt:#e6edf3; --dim:#8b949e; --accent:#58a6ff; --green:#3fb950; --red:#f85149;
+    --gold:#d29922; --purple:#bc8cff;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:var(--bg); color:var(--txt); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; font-size:16px; line-height:1.55; padding:32px 40px 80px;}
+  h1{font-size:28px; margin-bottom:4px;}
+  .sub{color:var(--dim); margin-bottom:28px; font-size:15px;}
+  section{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:26px 30px; margin-bottom:26px;}
+  h2{font-size:20px; margin-bottom:6px; color:var(--accent);}
+  .src{font-size:13px; color:var(--dim); margin-bottom:16px; font-family:ui-monospace,Menlo,monospace;}
+  table{width:100%; border-collapse:collapse; font-size:14.5px; margin:12px 0;}
+  th{color:var(--dim); text-align:right; font-weight:600; padding:7px 9px; border-bottom:2px solid var(--border); white-space:nowrap;}
+  th:first-child, td:first-child{text-align:left;}
+  td{padding:7px 9px; text-align:right; border-bottom:1px solid var(--border);}
+  .pos{color:var(--green);} .neg{color:var(--red);} .gold{color:var(--gold);} .pur{color:var(--purple);}
+  .note{background:var(--panel2); border-left:4px solid var(--gold); padding:11px 15px; border-radius:6px; font-size:13.5px; margin-top:12px; color:#c9d1d9;}
+  .fcard{background:var(--panel2); border:1px solid var(--border); border-radius:12px; padding:14px 18px; margin:10px 0;}
+  .fname{font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); margin-bottom:6px;}
+  .subttl{font-size:13.5px; color:var(--txt); font-weight:700; margin-bottom:6px;}
+  .foot{font-size:11.5px; color:var(--dim); margin-top:6px;}
+  .kv{display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin:14px 0;}
+  .kv div{background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:11px 13px;}
+  .kv .k{font-size:11.5px; color:var(--dim); text-transform:uppercase; letter-spacing:.04em;}
+  .kv .v{font-size:20px; font-weight:700; margin-top:2px;}
+  .resultbar{display:flex; gap:20px; flex-wrap:wrap; align-items:baseline; background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:15px 20px; margin-bottom:12px;}
+  .resultbar .rb{display:flex; flex-direction:column;} .resultbar .rk{font-size:11px; color:var(--dim); text-transform:uppercase;} .resultbar .rv{font-size:24px; font-weight:700;}
+  .tbtn{background:var(--panel2); border:1px solid var(--border); color:var(--dim); border-radius:8px; padding:7px 15px; cursor:pointer; font-size:14px; font-weight:600; font-family:ui-monospace,Menlo,monospace;}
+  .tbtn:hover{border-color:var(--accent); color:var(--accent);}
+  .tbtn.on{border-color:var(--gold); color:var(--gold); background:rgba(210,153,34,0.12);}
+  .srow{display:flex; align-items:center; gap:14px; margin:9px 0; flex-wrap:wrap;}
+  .slab{width:210px; font-size:13.5px; color:var(--txt); flex-shrink:0;}
+  .slab small{display:block; color:var(--dim); font-size:11px;}
+  .srow input[type=range]{flex:1; min-width:150px; accent-color:var(--accent);}
+  .sval{width:64px; text-align:right; font-family:ui-monospace,Menlo,monospace; font-size:16px; font-weight:700; color:var(--accent);}
+  .dcfh{font-size:12px; letter-spacing:.09em; text-transform:uppercase; color:var(--gold); font-weight:700; margin:20px 0 10px; border-bottom:1px solid var(--border); padding-bottom:6px;}
+  .badge{display:inline-block; padding:4px 12px; border-radius:20px; font-size:13px; font-weight:700; border:1px solid;}
+  .badge.strong{color:var(--green); border-color:var(--green); background:rgba(63,185,80,.12);}
+  .badge.modest{color:var(--gold); border-color:var(--gold); background:rgba(210,153,34,.12);}
+  .badge.thin{color:var(--red); border-color:var(--red); background:rgba(248,81,73,.12);}
+  .badge.tight{color:var(--green); border-color:var(--green); background:rgba(63,185,80,.12);}
+  .badge.moderate{color:var(--accent); border-color:var(--accent); background:rgba(88,166,255,.12);}
+  .badge.elevated{color:var(--gold); border-color:var(--gold); background:rgba(210,153,34,.12);}
+  .badge.high{color:#ff9d4d; border-color:#ff9d4d; background:rgba(255,157,77,.12);}
+  .badge.severe{color:var(--red); border-color:var(--red); background:rgba(248,81,73,.12);}
+</style>
+</head>
+<body>
+
+<h1>Scintilla DCF V1.1 — DB-wired · Edge Score · Dispersion Score · 3-Stage Fade</h1>
+<div class="sub">Same ticker bar / slider structure as FMP_CAPABILITY_DEMO.html §3. Now leads with the actual projected financial statement (line by line, 5 years) before any valuation math — that projection is what everything downstream reads off. Then: (1) an Edge score (ours — not a licensed rating) that auto-sets a fade length, (2) a Dispersion score (ours) that auto-sets a margin-of-safety band, (3) the Stage II fade + Stage III perpetuity math — spot-checked against a published NVDA equity model's numbers to sanity-test the wiring, not copied from it. Comps, insider/congress trades, and the reverse-DCF solver stay in the fundamentals cockpit (scintillahub.ai/fundamentals) — not duplicated here. <b style="color:var(--gold)">V1.1 (2026-08-05, C7):</b> wired to the shared SCINTILLA DB — quote from <code>live_quotes</code>, revenue/mcap from <code>fundamentals</code>, beta/shares from <code>company_profile</code>, consensus revenue from <code>analyst_estimates</code>, risk-free from <code>treasury_rates</code> (10Y). Static Jul-24 numbers remain only as the flagged fallback baseline. Never FMP from this page.</div>
+
+<div id="tickerBar" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:20px; padding:14px 18px; background:var(--panel); border:1px solid var(--border); border-radius:12px;">
+  <span style="font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; margin-right:2px;">Ticker:</span>
+  <button class="tbtn" id="tbtn_NVDA" onclick="setTicker('NVDA')">NVDA</button>
+  <button class="tbtn" id="tbtn_MU" onclick="setTicker('MU')">MU</button>
+  <button class="tbtn" id="tbtn_GOOGL" onclick="setTicker('GOOGL')">GOOGL</button>
+  <button class="tbtn" id="tbtn_NBIS" onclick="setTicker('NBIS')">NBIS</button>
+  <button class="tbtn" id="tbtn_AVGO" onclick="setTicker('AVGO')">AVGO</button>
+  <button class="tbtn" id="tbtn_TSM" onclick="setTicker('TSM')">TSM</button>
+  <button class="tbtn" id="tbtn_AAPL" onclick="setTicker('AAPL')">AAPL</button>
+  <button class="tbtn" id="tbtn_MSFT" onclick="setTicker('MSFT')">MSFT</button>
+  <button class="tbtn" id="tbtn_TSLA" onclick="setTicker('TSLA')">TSLA</button>
+  <button class="tbtn" id="tbtn_IREN" onclick="setTicker('IREN')">IREN</button>
+  <span id="tickerStat" style="margin-left:auto; font-size:13.5px; color:var(--txt);"></span>
+</div>
+<div id="asofBar" style="font-size:11.5px; color:var(--dim); margin:-14px 0 8px; padding:0 4px;"></div>
+<div id="dataspine" style="display:flex;flex-wrap:wrap;gap:6px;margin:0 0 20px;padding:0 4px;"></div>
+
+<!-- ============ PROJECTED FINANCIAL STATEMENTS (the actual projection — everything else is downstream of this) ============ -->
+<section>
+<h2>Projected financial statements — Stage I (yrs 1-5)</h2>
+<div class="src">This IS the model. Revenue → EBITDA → EBIT → taxes → NOPAT → FCF, one line at a time, for the ticker + sliders selected below. The "DCF" further down is just this table's FCF row, discounted and extended — not a separate black box.</div>
+<div class="scrollx" style="overflow-x:auto;"><table id="projTable" style="min-width:820px;"></table></div>
+<div class="foot">$ rows in $B. Growth/margin/tax rows come straight from the sliders in section A below — drag one and this table (and everything after it) recomputes.</div>
+</section>
+
+<!-- ============ RESULT ============ -->
+<section>
+<h2 id="dcfTitle">Fair value — 1-stage vs 3-stage</h2>
+<div class="src">Stage I drivers = same FMP-style base data as the capability demo (revenue path, EBITDA margin, tax, D&amp;A%, capex%, ΔNWC%). Only what happens after year 5 differs between the two result columns below.</div>
+<div class="resultbar">
+  <div class="rb"><span class="rk">Market price</span><span class="rv" id="oPrice">—</span></div>
+  <div class="rb"><span class="rk">1-Stage (Gordon growth)</span><span class="rv" id="oFV1">—</span></div>
+  <div class="rb"><span class="rk">3-Stage (edge-fade)</span><span class="rv gold" id="oFV3">—</span></div>
+  <div class="rb"><span class="rk">Buy-below (margin of safety)</span><span class="rv pos" id="oBuy">—</span></div>
+  <div class="rb"><span class="rk">Trim-above</span><span class="rv neg" id="oTrim">—</span></div>
+</div>
+<div style="border:1px solid var(--border); border-radius:12px; padding:15px 20px; background:var(--panel2);">
+  <div class="subttl">Football field — today's price vs both methods vs the margin-of-safety band</div>
+  <div id="ff"></div>
+</div>
+</section>
+
+<!-- ============ A/B: STAGE I + DISCOUNT RATE ============ -->
+<section>
+<div class="dcfh">A · Stage I — explicit forecast (yrs 1-5)</div>
+<div class="srow"><span class="slab">Revenue growth <small>yrs 1-5, compounding</small></span><input type="range" id="g" min="0" max="80" step="0.5" value="36"><span class="sval" id="sv_g"></span></div>
+<div class="srow"><span class="slab">EBITDA margin</span><input type="range" id="m" min="20" max="75" step="0.5" value="51.1"><span class="sval" id="sv_m"></span></div>
+<div class="srow"><span class="slab">Effective tax rate</span><input type="range" id="t" min="5" max="35" step="0.5" value="15.1"><span class="sval" id="sv_t"></span></div>
+
+<div class="dcfh">B · Discount rate — CAPM → WACC</div>
+<div class="srow"><span class="slab">Risk-free rate</span><input type="range" id="rf" min="2" max="7" step="0.05" value="4.28"><span class="sval" id="sv_rf"></span></div>
+<div class="srow"><span class="slab">Beta</span><input type="range" id="bt" min="0.5" max="5" step="0.01" value="2.14"><span class="sval" id="sv_bt"></span></div>
+<div class="srow"><span class="slab">Market risk premium</span><input type="range" id="mrpS" min="3" max="8" step="0.05" value="4.45"><span class="sval" id="sv_mrpS"></span></div>
+<div class="fcard"><div class="fname">WACC (used for both stage methods)</div><div id="waccOut" style="font-family:ui-monospace,Menlo,monospace; font-size:18px; font-weight:700; color:var(--accent);"></div></div>
+</section>
+
+<!-- ============ C: EDGE SCORE ============ -->
+<section>
+<div class="dcfh">C · Edge score — sets the fade-window length</div>
+<div class="src">computed from data already on the ticker bar: EBITDA margin (40%), 5yr revenue growth (25%), low leverage (20%), low capex-intensity (15%) — ranked against the other 9 tickers on this bar</div>
+<div class="kv">
+  <div><div class="k">Edge score</div><div class="v" id="moatScore">—</div></div>
+  <div><div class="k">Edge tier</div><div class="v" id="moatTier">—</div></div>
+  <div><div class="k">Fade length (auto)</div><div class="v" id="moatFadeAuto">—</div></div>
+</div>
+<div class="srow"><span class="slab">Fade years <small>override the auto tier if you disagree</small></span><input type="range" id="fadeYears" min="0" max="20" step="1" value="15"><span class="sval" id="sv_fadeYears"></span></div>
+<div class="srow"><span class="slab">Stage II EBI growth <small>checked against NVDA's real fade math: 9.0%</small></span><input type="range" id="ebiG" min="0" max="20" step="0.5" value="9"><span class="sval" id="sv_ebiG"></span></div>
+<div class="srow"><span class="slab">Stage II investment rate <small>checked against NVDA's real fade math: 30.0%</small></span><input type="range" id="investR" min="0" max="60" step="1" value="30"><span class="sval" id="sv_investR"></span></div>
+<div class="note" id="moatNote"></div>
+<div class="subttl" style="margin-top:16px;">Fade-window projection (sampled years — not every year of a 20-year table, just the shape)</div>
+<div class="scrollx" style="overflow-x:auto;"><table id="stage2Table" style="min-width:600px;"></table></div>
+<div class="foot">EBI grows at the Stage II rate above, reinvestment rate takes its cut, whatever's left is FCF — same mechanic as the Stage I table, just compressed since it can run 15-20 years.</div>
+</section>
+
+<!-- ============ D: DISPERSION SCORE ============ -->
+<section>
+<div class="dcfh">D · Dispersion score — sets the margin-of-safety band</div>
+<div class="src">computed from: beta percentile vs the ticker bar, +20 if this ticker carries a data-quality flag (broken beta field, negative tax rate, etc.), +20 if EBITDA margin is clamped to the model's loss-making floor</div>
+<div class="kv">
+  <div><div class="k">Dispersion score</div><div class="v" id="uncScore">—</div></div>
+  <div><div class="k">Dispersion tier</div><div class="v" id="uncTier">—</div></div>
+  <div><div class="k">Discount / Premium band</div><div class="v" id="uncBand">—</div></div>
+</div>
+<table>
+<tr><th style="text-align:left;">Tier</th><th>Discount</th><th>Premium</th><th style="text-align:left;">Meaning</th></tr>
+<tr><td style="text-align:left;">Tight</td><td>15%</td><td>20%</td><td style="text-align:left;">Buy meaningfully below FV, trim only well above it</td></tr>
+<tr><td style="text-align:left;">Moderate</td><td>25%</td><td>30%</td><td style="text-align:left;"></td></tr>
+<tr><td style="text-align:left;">Elevated</td><td>35%</td><td>45%</td><td style="text-align:left;"></td></tr>
+<tr><td style="text-align:left;">High</td><td>45%</td><td>65%</td><td style="text-align:left;"></td></tr>
+<tr><td style="text-align:left;">Severe</td><td>65%</td><td>150%</td><td style="text-align:left;">Wide dispersion of outcomes — demand a steep discount</td></tr>
+</table>
+<div class="foot">Our own bands, our own calibration — 5 tiers, escalating discount/premium (same general shape any margin-of-safety table uses — the specific cut points here are ours, tune anytime). Our score decides which row applies.</div>
+</section>
+
+<!-- ============ E: STAGE BREAKDOWN ============ -->
+<section>
+<h2>Stage I / II / III breakdown</h2>
+<table id="stageTable"></table>
+<div class="kv">
+  <div><div class="k">Stage I share of value</div><div class="v" id="s1pct">—</div></div>
+  <div><div class="k">Stage II share of value</div><div class="v" id="s2pct">—</div></div>
+  <div><div class="k">Stage III share of value</div><div class="v" id="s3pct">—</div></div>
+</div>
+</section>
+
+<script>
+const DATA_ASOF = '2026-07-24 (FMP quote/DCF/treasury/ERP pull)';   // STATIC BASELINE vintage — DB overlay below supersedes what it can
+/* ===================== C7 DB WIRING (2026-08-05) =====================
+   Live overlay from Supabase scintilla-live (anon read-only key — publishable). The page NEVER calls FMP.
+   DB-sourced per ticker: price (live_quotes) · revenue_ttm + market_cap (fundamentals) · beta + shares_out
+   (company_profile; shares fallback = market_cap ÷ price) · consensus revenue path (analyst_estimates,
+   annual, next 5 future fiscal years) · risk-free (treasury_rates.y10, uniform).
+   STATIC BASELINE (flagged, as-of DATA_ASOF): netDebt, D&A%, capex%, ΔNWC%, margin/tax defaults, MRP,
+   debt weight — no DB table carries these yet. Every element shows its source in the badge strip. */
+const SB_REST='https://wadinxqplrggagkvrdag.supabase.co/rest/v1';
+const SB_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g';
+async function sbGet(path){
+  const r=await fetch(SB_REST+'/'+path,{headers:{apikey:SB_ANON,Authorization:'Bearer '+SB_ANON},cache:'no-store'});
+  if(!r.ok) throw new Error(path.split('?')[0]+' '+r.status);
+  return r.json();
+}
+const SPINE={}, DB_SRC={};
+let RF_DB=null;
+function spineSet(k,ts,mode,note){ SPINE[k]={ts,mode,note}; }
+function freshTxt(ts){
+  if(ts==null) return '';
+  const es=(typeof ts==='number')?ts:(Date.parse(ts)/1000);
+  if(!isFinite(es)) return '';
+  const m=(Date.now()/1000-es)/60;
+  return m<1?'just now':m<60?Math.round(m)+'m ago':m<60*48?(m/60).toFixed(1)+'h ago':Math.round(m/1440)+'d ago';
+}
+function renderSpine(){
+  const el=document.getElementById('dataspine'); if(!el) return;
+  const col={LIVE:'var(--green)',STALE:'#ff9d4d',FALLBACK:'var(--gold)',STATIC:'var(--dim)'};
+  el.innerHTML=Object.entries(SPINE).map(([k,v])=>
+    `<span style="border:1px solid ${col[v.mode]||'var(--border)'};color:${col[v.mode]||'var(--dim)'};border-radius:5px;padding:2px 9px;font-size:10.5px;font-family:ui-monospace,Menlo,monospace" title="${(v.note||'').replace(/"/g,'&quot;')}">${k}${v.ts?' · '+freshTxt(v.ts):''} · ${v.mode}</span>`).join('');
+}
+async function refreshDB(){
+  const syms=Object.keys(TICKERS);
+  const ok={price:0,fund:0,prof:0,est:0};
+  const J=[];
+  J.push(sbGet('treasury_rates?select=date,y10,updated_ts&order=date.desc&limit=1').then(r=>{
+    if(r[0]&&r[0].y10!=null){ RF_DB=r[0]; for(const s of syms) TICKERS[s].rf=+r[0].y10;
+      spineSet('treasury_rates',r[0].updated_ts,'LIVE','10Y '+r[0].y10+'% @ '+r[0].date+' → risk-free slider (uniform)'); }
+  }).catch(e=>spineSet('treasury_rates',null,'FALLBACK','read failed — static rf '+DATA_ASOF)));
+  for(const s of syms){
+    // per-ticker limited fetches, run in parallel — PostgREST-cap-safe by construction
+    J.push(sbGet(`live_quotes?select=price,updated_ts&ticker=eq.${s}&limit=1`).then(r=>{
+      if(r[0]&&r[0].price!=null){ TICKERS[s].price=+r[0].price; (DB_SRC[s]=DB_SRC[s]||{}).price=r[0].updated_ts; ok.price++; }
+    }).catch(()=>{}));
+    J.push(sbGet(`fundamentals?select=revenue_ttm,market_cap,updated_ts&ticker=eq.${s}&limit=1`).then(r=>{
+      if(r[0]&&r[0].revenue_ttm){ TICKERS[s].rev=r[0].revenue_ttm/1e9; (DB_SRC[s]=DB_SRC[s]||{}).rev=true; ok.fund++; }
+      if(r[0]&&r[0].market_cap) TICKERS[s]._mcap=r[0].market_cap;
+    }).catch(()=>{}));
+    J.push(sbGet(`company_profile?select=beta,shares_out&ticker=eq.${s}&limit=1`).then(r=>{
+      if(r[0]){
+        // MU guard: FMP's broken 4.0 beta documented in this file's own flags — keep canonical if DB still carries it
+        if(r[0].beta!=null && !(s==='MU' && +r[0].beta>3.5)){ TICKERS[s].beta=+r[0].beta; (DB_SRC[s]=DB_SRC[s]||{}).beta=true; }
+        if(r[0].shares_out){ TICKERS[s].shares=+r[0].shares_out/1e9; (DB_SRC[s]=DB_SRC[s]||{}).shares='profile'; }
+        ok.prof++;
+      }
+    }).catch(()=>{}));
+    J.push(sbGet(`analyst_estimates?select=fiscal_date,est_revenue_avg&ticker=eq.${s}&period=eq.annual&order=fiscal_date.asc&limit=12`).then(rows=>{
+      const today=new Date().toISOString().slice(0,10);
+      const fut=rows.filter(r=>r.fiscal_date>today&&r.est_revenue_avg);
+      if(fut.length>=5){ TICKERS[s].consensus=fut.slice(0,5).map(r=>r.est_revenue_avg/1e9); (DB_SRC[s]=DB_SRC[s]||{}).consensus=fut.length; ok.est++; }
+    }).catch(()=>{}));
+  }
+  await Promise.all(J);
+  for(const s of syms){ // shares fallback: market_cap ÷ price when profile shares_out is null
+    if(!(DB_SRC[s]&&DB_SRC[s].shares) && TICKERS[s]._mcap && TICKERS[s].price){
+      TICKERS[s].shares=TICKERS[s]._mcap/TICKERS[s].price/1e9; (DB_SRC[s]=DB_SRC[s]||{}).shares='mcap/price';
+    }
+  }
+  spineSet('live_quotes',null,ok.price?'LIVE':'FALLBACK',ok.price+'/'+syms.length+' prices live');
+  spineSet('fundamentals',null,ok.fund?'LIVE':'FALLBACK',ok.fund+'/'+syms.length+' revenue_ttm/mcap live');
+  spineSet('company_profile',null,ok.prof?'LIVE':'FALLBACK',ok.prof+'/'+syms.length+' beta/shares live (MU broken-beta guard active)');
+  spineSet('analyst_estimates',null,ok.est?'LIVE':'FALLBACK',ok.est+'/'+syms.length+' tickers with ≥5 future-FY consensus revenue');
+  spineSet('static-baseline',null,'STATIC','netDebt · D&A% · capex% · ΔNWC% · margin/tax defaults · MRP · as-of '+DATA_ASOF+' (no DB source yet — honestly flagged, not faked)');
+  renderSpine();
+  document.getElementById('asofBar').textContent='DB overlay: price/beta/shares/revenue/consensus/risk-free live from Supabase (badges below). Static baseline fields as-of '+DATA_ASOF+'. This page never calls FMP.';
+  setTicker(CURTICK);   // re-apply defaults with DB values + rerender
+}
+/* =================== end C7 DB WIRING =================== */
+const TICKERS={
+  NVDA:{name:'NVIDIA', rev:215.938, shares:24.514, netDebt:0.807, daPct:0.0306, capexPct:0.0349, nwcPct:0.2272,
+    price:206.84, beta:2.211, rf:4.71, mrp:4.46, debtW:0.0022,
+    gDefault:66.4, mDefault:51.1, tDefault:15.1, termgDefault:4.0,
+    consensus:[393.4,563.2,686.6,774.2,1005.0], flags:[]},
+  MU:{name:'Micron', rev:37.378, shares:1.125, netDebt:5.636, daPct:0.2947, capexPct:0.12, nwcPct:0.4172,
+    price:920.95, beta:2.14, rf:4.71, mrp:4.46, debtW:0.0145,
+    gDefault:70.0, mDefault:50.0, tDefault:11.6, termgDefault:6.0, consensus:null,
+    flags:["FMP's DCF beta field is broken for MU (returns 4.0) — using canonical 2.14 instead."]},
+  GOOGL:{name:'Alphabet', rev:402.963, shares:12.23, netDebt:28.583, daPct:0.0462, capexPct:0.1378, nwcPct:0.1303,
+    price:319.74, beta:1.247, rf:4.71, mrp:4.46, debtW:0.0149,
+    gDefault:11.9, mDefault:37.1, tDefault:16.8, termgDefault:4.0, consensus:null, flags:[]},
+  NBIS:{name:'Nebius', rev:0.5298, shares:0.253, netDebt:1.295, daPct:0.6962, capexPct:0.8251, nwcPct:0.3618,
+    price:187.77, beta:1.402, rf:4.71, mrp:4.46, debtW:0.0947,
+    gDefault:38.8, mDefault:20, tDefault:21.0, termgDefault:2.0, consensus:null,
+    flags:["Loss-making: negative tax rate (-208%) defaulted to 21% statutory; EBITDA margin clamped to the 20% floor."]},
+  AVGO:{name:'Broadcom', rev:63.887, shares:4.853, netDebt:48.958, daPct:0.1617, capexPct:0.0124, nwcPct:0.1267,
+    price:381.92, beta:1.462, rf:4.71, mrp:4.46, debtW:0.0339,
+    gDefault:24.2, mDefault:53.9, tDefault:21.0, termgDefault:4.0, consensus:null,
+    flags:["FMP's DCF tax-rate field is negative for AVGO (-1.75%) — defaulted to 21% statutory."]},
+  TSM:{name:'TSMC', rev:118.983, shares:5.186, netDebt:-52.660, daPct:0.223, capexPct:0.4245, nwcPct:0.0986,
+    price:403.41, beta:1.246, rf:4.71, mrp:4.46, debtW:0.0155,
+    gDefault:26.2, mDefault:69.9, tDefault:15.9, termgDefault:2.0, consensus:null, flags:[]},
+  AAPL:{name:'Apple', rev:416.161, shares:15.005, netDebt:76.443, daPct:0.0293, capexPct:0.0282, nwcPct:0.0266,
+    price:333.02, beta:1.097, rf:4.71, mrp:4.46, debtW:0.022,
+    gDefault:5.9, mDefault:35.0, tDefault:15.6, termgDefault:4.0, consensus:null, flags:[]},
+  MSFT:{name:'Microsoft', rev:281.724, shares:7.465, netDebt:81.942, daPct:0.084, capexPct:0.1573, nwcPct:0.151,
+    price:381.70, beta:1.13, rf:4.71, mrp:4.46, debtW:0.0379,
+    gDefault:13.9, mDefault:52.4, tDefault:17.6, termgDefault:4.0, consensus:null, flags:[]},
+  TSLA:{name:'Tesla', rev:94.827, shares:3.528, netDebt:-8.137, daPct:0.0678, capexPct:0.107, nwcPct:0.0253,
+    price:313.03, beta:1.802, rf:4.71, mrp:4.46, debtW:0.0075,
+    gDefault:0, mDefault:20, tDefault:28.1, termgDefault:3.5, consensus:null,
+    flags:["Forward revenue growth is roughly flat in FMP's model — clamped to 0% floor. EBITDA margin (16.5%) below the 20% model floor — clamped up."]},
+  IREN:{name:'IREN', rev:0.501, shares:0.223, netDebt:0.4, daPct:0.2654, capexPct:0.9837, nwcPct:-0.0171,
+    price:37.07, beta:4.279, rf:4.71, mrp:4.46, debtW:0.1044,
+    gDefault:82.0, mDefault:20, tDefault:7.0, termgDefault:2.0, consensus:null,
+    flags:["Loss-making hypergrowth miner: EBITDA margin clamped to 20% floor — treat as illustrative only."]}
+};
+let CURTICK='NVDA', BASE=TICKERS[CURTICK];
+function rd(id){return +document.getElementById(id).value;}
+function fmt(x,d=2){return x.toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d});}
+
+// ---- percentile rank helper (cross-sectional vs the 10-ticker bar) ----
+function pctlRank(field, sym, cheapGood){
+  // returns a GOODNESS percentile (0..1, higher = subject ranks better vs the ticker bar)
+  const vals = Object.keys(TICKERS).map(k=>TICKERS[k][field]);
+  const v = TICKERS[sym][field];
+  const worse = vals.filter(x=> cheapGood ? x > v : x < v).length; // peers ranked worse than subject
+  return worse/(vals.length-1); // 0..1
+}
+function computeMoat(sym){
+  const marginP = pctlRank('mDefault', sym, false);   // higher margin better
+  const growthP = pctlRank('gDefault', sym, false);   // higher growth better
+  const leverageP = pctlRank('debtW', sym, true);      // lower debt weight better
+  const capexP = pctlRank('capexPct', sym, true);      // lower capex% better
+  const score = Math.round(100*(0.40*marginP + 0.25*growthP + 0.20*leverageP + 0.15*capexP));
+  let tier, fade, cls;
+  if(score>=70){tier='Strong edge'; fade=18; cls='strong';}
+  else if(score>=45){tier='Modest edge'; fade=10; cls='modest';}
+  else {tier='Thin edge'; fade=3; cls='thin';}
+  return {score, tier, fade, cls, marginP, growthP, leverageP, capexP};
+}
+function computeUncertainty(sym){
+  const betaP = pctlRank('beta', sym, true); // higher beta -> higher uncertainty, so "cheapGood=true" makes low beta rank low (we invert below)
+  const betaScore = (1-betaP)*50; // rescale: high beta -> pushes score up
+  const flagScore = TICKERS[sym].flags.length ? 20 : 0;
+  const marginFloorScore = TICKERS[sym].mDefault<=20.5 ? 20 : 0;
+  const score = Math.min(100, Math.round(betaScore + flagScore + marginFloorScore));
+  let tier, disc, prem, cls;
+  if(score<20){tier='Tight'; disc=0.15; prem=0.20; cls='tight';}
+  else if(score<40){tier='Moderate'; disc=0.25; prem=0.30; cls='moderate';}
+  else if(score<60){tier='Elevated'; disc=0.35; prem=0.45; cls='elevated';}
+  else if(score<80){tier='High'; disc=0.45; prem=0.65; cls='high';}
+  else {tier='Severe'; disc=0.65; prem=1.50; cls='severe';}
+  return {score, tier, disc, prem, cls};
+}
+
+function setTicker(sym){
+  CURTICK=sym; BASE=TICKERS[sym];
+  document.querySelectorAll('.tbtn').forEach(b=>b.classList.toggle('on', b.id==='tbtn_'+sym));
+  document.getElementById('g').value=BASE.gDefault;
+  document.getElementById('m').value=Math.max(20,BASE.mDefault);
+  document.getElementById('t').value=BASE.tDefault;
+  document.getElementById('rf').value=BASE.rf;
+  document.getElementById('bt').value=BASE.beta;
+  document.getElementById('mrpS').value=BASE.mrp;
+  const moat = computeMoat(sym);
+  document.getElementById('fadeYears').value = moat.fade;
+  document.getElementById('ebiG').value = 9;
+  document.getElementById('investR').value = 30;
+  const _src=DB_SRC[sym]||{};
+  document.getElementById('tickerStat').textContent = BASE.name+' · $'+BASE.price.toFixed(2)+(_src.price?' (live_quotes '+freshTxt(_src.price)+')':' (static '+DATA_ASOF.slice(0,10)+')')+' · β '+BASE.beta.toFixed(2)+(_src.beta?' (db)':' (static)')+(_src.consensus?' · consensus: analyst_estimates':'');
+  document.getElementById('dcfTitle').textContent = 'Fair value — 1-stage vs 3-stage · '+sym;
+  render();
+}
+
+function stageI(rev0, shares, netDebt, daPct, capexPct, nwcPct, consensus, g, m, t, wacc){
+  // Full line-item projection: Revenue -> EBITDA -> EBIT -> Taxes -> NOPAT -> FCF, one year at a time.
+  let rows=[], nwcPrev=rev0*nwcPct, sumPV=0, rev=rev0, revPrev=rev0;
+  for(let i=1;i<=5;i++){
+    rev = consensus ? consensus[i-1] : rev*(1+g);
+    const growthPct = (rev/revPrev-1)*100; revPrev = rev;
+    const eb=rev*m, da=rev*daPct, ebit=eb-da, capex=rev*capexPct, nwc=rev*nwcPct, dN=nwc-nwcPrev;
+    nwcPrev=nwc;
+    const taxAmt = ebit*t;
+    const ebi = ebit-taxAmt; // NOPAT
+    const ufcf = ebi+da-capex-dN;
+    const df = Math.pow(1+wacc,i);
+    const pv = ufcf/df;
+    sumPV+=pv;
+    rows.push({year:2026+i, growthPct, rev, eb, ebitdaM:eb/rev*100, da, ebit, ebitM:ebit/rev*100, taxAmt, ebi, capex, nwc, dN, ufcf, df, pv});
+  }
+  return {rows, sumPV};
+}
+
+function render(){
+  document.getElementById('sv_g').textContent=rd('g').toFixed(1)+'%';
+  document.getElementById('sv_m').textContent=rd('m').toFixed(1)+'%';
+  document.getElementById('sv_t').textContent=rd('t').toFixed(1)+'%';
+  document.getElementById('sv_rf').textContent=rd('rf').toFixed(2)+'%';
+  document.getElementById('sv_bt').textContent=rd('bt').toFixed(2);
+  document.getElementById('sv_mrpS').textContent=rd('mrpS').toFixed(2)+'%';
+  document.getElementById('sv_fadeYears').textContent=rd('fadeYears')+' yr';
+  document.getElementById('sv_ebiG').textContent=rd('ebiG').toFixed(1)+'%';
+  document.getElementById('sv_investR').textContent=rd('investR').toFixed(0)+'%';
+
+  const g=rd('g')/100, m=rd('m')/100, t=rd('t')/100, rf=rd('rf')/100, beta=rd('bt'), mrp=rd('mrpS')/100;
+  const wacc = rf + beta*mrp; // NVDA-style near-all-equity approximation used across this V1
+  document.getElementById('waccOut').textContent = (wacc*100).toFixed(2)+'% = '+(rf*100).toFixed(2)+'% + '+beta.toFixed(2)+' × '+(mrp*100).toFixed(2)+'%';
+
+  const {rows, sumPV} = stageI(BASE.rev, BASE.shares, BASE.netDebt, BASE.daPct, BASE.capexPct, BASE.nwcPct, BASE.consensus, g, m, t, wacc);
+  const ufcf5 = rows[4].ufcf, ebi5 = rows[4].ebi;
+  document.getElementById('oPrice').textContent = '$'+BASE.price.toFixed(2);
+
+  // ---- PROJECTED FINANCIAL STATEMENT TABLE (the projection itself) ----
+  const f1=v=>fmt(v,1), fp1=v=>fmt(v,1)+'%';
+  let pt = '<tr><th style="text-align:left;">Fiscal year</th>'+rows.map(r=>'<th>FY'+r.year+'E</th>').join('')+'</tr>';
+  pt += '<tr><td style="text-align:left;">Revenue</td>'+rows.map(r=>'<td>'+f1(r.rev)+'</td>').join('')+'</tr>';
+  pt += '<tr><td style="text-align:left;" class="foot">&nbsp;&nbsp;growth %</td>'+rows.map(r=>'<td class="foot">'+fp1(r.growthPct)+'</td>').join('')+'</tr>';
+  pt += '<tr><td style="text-align:left;">EBITDA</td>'+rows.map(r=>'<td>'+f1(r.eb)+'</td>').join('')+'</tr>';
+  pt += '<tr><td style="text-align:left;" class="foot">&nbsp;&nbsp;margin %</td>'+rows.map(r=>'<td class="foot">'+fp1(r.ebitdaM)+'</td>').join('')+'</tr>';
+  pt += '<tr><td style="text-align:left;">(–) D&amp;A</td>'+rows.map(r=>'<td>'+f1(r.da)+'</td>').join('')+'</tr>';
+  pt += '<tr><td style="text-align:left;">EBIT</td>'+rows.map(r=>'<td>'+f1(r.ebit)+'</td>').join('')+'</tr>';
+  pt += '<tr><td style="text-align:left;" class="foot">&nbsp;&nbsp;margin %</td>'+rows.map(r=>'<td class="foot">'+fp1(r.ebitM)+'</td>').join('')+'</tr>';
+  pt += '<tr><td style="text-align:left;">(–) Taxes @ '+(t*100).toFixed(1)+'%</td>'+rows.map(r=>'<td>'+f1(r.taxAmt)+'</td>').join('')+'</tr>';
+  pt += '<tr><td class="gold" style="text-align:left;">= NOPAT (EBI)</td>'+rows.map(r=>'<td class="gold">'+f1(r.ebi)+'</td>').join('')+'</tr>';
+  pt += '<tr><td style="text-align:left;">(+) D&amp;A</td>'+rows.map(r=>'<td>'+f1(r.da)+'</td>').join('')+'</tr>';
+  pt += '<tr><td style="text-align:left;">(–) Capex</td>'+rows.map(r=>'<td>'+f1(r.capex)+'</td>').join('')+'</tr>';
+  pt += '<tr><td style="text-align:left;">(–) ΔNWC</td>'+rows.map(r=>'<td>'+f1(r.dN)+'</td>').join('')+'</tr>';
+  pt += '<tr><td class="gold" style="text-align:left;">= Unlevered FCF</td>'+rows.map(r=>'<td class="gold">'+f1(r.ufcf)+'</td>').join('')+'</tr>';
+  pt += '<tr><td style="text-align:left;" class="foot">discount factor @ '+(wacc*100).toFixed(2)+'%</td>'+rows.map(r=>'<td class="foot">'+r.df.toFixed(3)+'×</td>').join('')+'</tr>';
+  pt += '<tr><td class="pur" style="text-align:left;">PV of FCF</td>'+rows.map(r=>'<td class="pur">'+f1(r.pv)+'</td>').join('')+'</tr>';
+  document.getElementById('projTable').innerHTML = pt;
+
+  // ---- 1-STAGE (Gordon growth) ----
+  let fv1 = null;
+  if(wacc>BASE.termgDefault/100){
+    const tg=BASE.termgDefault/100;
+    const tv = ufcf5*(1+tg)/(wacc-tg);
+    const pvTV = tv/Math.pow(1+wacc,5);
+    const ev1 = sumPV+pvTV;
+    fv1 = (ev1-BASE.netDebt)/BASE.shares;
+  }
+  document.getElementById('oFV1').textContent = fv1==null?'WACC≤g':'$'+fv1.toFixed(2);
+
+  // ---- MOAT SCORE / TIER ----
+  const moat = computeMoat(CURTICK);
+  document.getElementById('moatScore').textContent = moat.score+'/100';
+  document.getElementById('moatTier').innerHTML = '<span class="badge '+moat.cls+'">'+moat.tier+'</span>';
+  document.getElementById('moatFadeAuto').textContent = moat.fade+' yr';
+  document.getElementById('moatNote').innerHTML = CURTICK+' ranks '+(moat.marginP*100).toFixed(0)+'th pct on margin, '+(moat.growthP*100).toFixed(0)+'th on growth, '+(moat.leverageP*100).toFixed(0)+'th on low leverage, '+(moat.capexP*100).toFixed(0)+'th on low capex-intensity vs the other 9 tickers on this bar. Auto-set the fade slider to '+moat.fade+' yr — drag it yourself if you know something the formula doesn\'t.';
+
+  // ---- 3-STAGE (fade + perpetuity) ----
+  const fadeYears = rd('fadeYears'), ebiG = rd('ebiG')/100, investR = rd('investR')/100;
+  let ebi = ebi5, pvStage2 = 0, stage2Rows=[];
+  for(let yr=1; yr<=fadeYears; yr++){
+    ebi = ebi*(1+ebiG);
+    const fcf = ebi*(1-investR);
+    const totalYear = 5+yr;
+    const pv = fcf/Math.pow(1+wacc,totalYear);
+    pvStage2 += pv;
+    if(yr===1 || yr===fadeYears || yr%5===0) stage2Rows.push({fy:2026+totalYear, ebi, fcf, pv});
+  }
+  if(fadeYears===0){
+    document.getElementById('stage2Table').innerHTML = '<tr><td class="foot">Fade window set to 0 — Thin-edge tickers skip straight from Stage I to the Stage III perpetuity.</td></tr>';
+  } else {
+    let s2='<tr><th style="text-align:left;">Fiscal year</th>'+stage2Rows.map(r=>'<th>FY'+r.fy+'E</th>').join('')+'</tr>';
+    s2+='<tr><td style="text-align:left;">EBI</td>'+stage2Rows.map(r=>'<td>'+f1(r.ebi)+'</td>').join('')+'</tr>';
+    s2+='<tr><td class="gold" style="text-align:left;">FCF (post-reinvestment)</td>'+stage2Rows.map(r=>'<td class="gold">'+f1(r.fcf)+'</td>').join('')+'</tr>';
+    s2+='<tr><td class="pur" style="text-align:left;">PV of FCF</td>'+stage2Rows.map(r=>'<td class="pur">'+f1(r.pv)+'</td>').join('')+'</tr>';
+    document.getElementById('stage2Table').innerHTML = s2;
+  }
+  const ebiEnd = fadeYears>0 ? ebi : ebi5;
+  const perpValueAtEnd = ebiEnd/wacc;
+  const pvStage3 = perpValueAtEnd/Math.pow(1+wacc, 5+fadeYears);
+  const ev3 = sumPV+pvStage2+pvStage3;
+  const fv3 = (ev3-BASE.netDebt)/BASE.shares;
+  document.getElementById('oFV3').textContent = '$'+fv3.toFixed(2);
+
+  document.getElementById('s1pct').textContent = (sumPV/ev3*100).toFixed(1)+'%';
+  document.getElementById('s2pct').textContent = (pvStage2/ev3*100).toFixed(1)+'%';
+  document.getElementById('s3pct').textContent = (pvStage3/ev3*100).toFixed(1)+'%';
+
+  let st='<tr><th style="text-align:left;">Stage</th><th>Years</th><th>PV ($B)</th><th>% of value</th></tr>';
+  st+='<tr><td style="text-align:left;">I — explicit</td><td>1-5</td><td>'+fmt(sumPV)+'</td><td>'+(sumPV/ev3*100).toFixed(1)+'%</td></tr>';
+  st+='<tr><td style="text-align:left;">II — fade</td><td>6-'+(5+fadeYears)+'</td><td>'+fmt(pvStage2)+'</td><td>'+(pvStage2/ev3*100).toFixed(1)+'%</td></tr>';
+  st+='<tr><td style="text-align:left;">III — perpetuity</td><td>'+(6+fadeYears)+'+</td><td>'+fmt(pvStage3)+'</td><td>'+(pvStage3/ev3*100).toFixed(1)+'%</td></tr>';
+  st+='<tr><td class="gold" style="text-align:left;">Total EV</td><td></td><td class="gold">'+fmt(ev3)+'</td><td class="gold">100%</td></tr>';
+  document.getElementById('stageTable').innerHTML = st;
+
+  // ---- UNCERTAINTY SCORE / BAND ----
+  const unc = computeUncertainty(CURTICK);
+  document.getElementById('uncScore').textContent = unc.score+'/100';
+  document.getElementById('uncTier').innerHTML = '<span class="badge '+unc.cls+'">'+unc.tier+'</span>';
+  document.getElementById('uncBand').textContent = '-'+(unc.disc*100).toFixed(0)+'% / +'+(unc.prem*100).toFixed(0)+'%';
+  const buy = fv3*(1-unc.disc), trim = fv3*(1+unc.prem);
+  document.getElementById('oBuy').textContent = '$'+buy.toFixed(2);
+  document.getElementById('oTrim').textContent = '$'+trim.toFixed(2);
+
+  // ---- FOOTBALL FIELD ----
+  const price=BASE.price;
+  const pts = [
+    {lbl:'1-Stage (Gordon growth)', v: fv1==null?price:fv1, color:'#58a6ff'},
+    {lbl:'3-Stage (edge-fade)', v: fv3, color:'#d29922'},
+    {lbl:'Buy-below band', v: buy, color:'#3fb950'},
+    {lbl:'Trim-above band', v: trim, color:'#f85149'}
+  ];
+  const AX = Math.max(price*1.3, ...pts.map(p=>p.v*1.15))*1.02;
+  const pf = v=>Math.max(0,Math.min(100, v/AX*100));
+  let h='';
+  pts.forEach(p=>{
+    const lo=p.v*0.96, hi=p.v*1.04;
+    const l=pf(lo), w=pf(hi)-pf(lo), mm=pf(p.v), pl=pf(price);
+    h+='<div style="display:flex;align-items:center;margin:9px 0;"><span style="width:190px;font-size:13px;color:var(--txt);">'+p.lbl+'</span>'+
+      '<div style="position:relative;flex:1;height:22px;background:var(--panel);border-radius:6px;">'+
+      '<div style="position:absolute;left:'+l+'%;width:'+w+'%;top:0;bottom:0;background:'+p.color+';opacity:.55;border-radius:6px;"></div>'+
+      '<div style="position:absolute;left:'+mm+'%;top:-3px;bottom:-3px;width:2px;background:#fff;opacity:.9;"></div>'+
+      '<div style="position:absolute;left:'+pl+'%;top:-5px;bottom:-5px;width:2px;background:var(--gold);"></div></div>'+
+      '<span style="width:90px;text-align:right;font-size:12.5px;color:var(--dim);font-family:ui-monospace,Menlo,monospace;">$'+p.v.toFixed(2)+'</span></div>';
+  });
+  h+='<div class="foot" style="margin-top:6px;">Gold line = today\'s $'+price.toFixed(2)+'.</div>';
+  document.getElementById('ff').innerHTML = h;
+}
+
+['g','m','t','rf','bt','mrpS','fadeYears','ebiG','investR'].forEach(id=>document.getElementById(id).addEventListener('input', render));
+document.getElementById('asofBar').textContent = 'Static baseline as-of '+DATA_ASOF+' — pulling live DB overlay…';
+setTicker('NVDA');
+refreshDB();
+setInterval(refreshDB, 5*60*1000);
+</script>
+
+</body>
+</html>

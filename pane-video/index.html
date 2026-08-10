@@ -31,7 +31,7 @@
      button does that. Where the browser supports Document PiP and we are
      top-level, the button here does it directly.
 
-     Params: ?feed=market|personal · ?list=all|subs|market|shorts · ?v=VIDEOID
+     Params: ?feed=personal|scintilla|market · ?list=default|all|shorts|watch · ?v=VIDEOID
              · ?autoplay=1 · ?limit=60 (10-200) · ?t=MU · ?cols=N (force)
      DB reads only, never FMP · youtube_feed · scintilla-live.
      Receipt: HSC-PANEVIDEO-001.
@@ -61,6 +61,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .btn:hover{ color:var(--ink); border-color:var(--hair); }
 .btn.on{ color:var(--crk); border-color:var(--crk); }
 .btn.out{ color:var(--vol); border-color:rgba(255,138,0,.35); }
+#auth{ flex:none; color:var(--vol); font-size:8px; letter-spacing:.06em; white-space:nowrap; }
 #q{ flex:1 1 90px; min-width:70px; background:var(--bg); border:1px solid var(--line);
   color:var(--ink); font-family:var(--mono); font-size:11px; padding:3px 6px; outline:none;
   border-radius:0; -webkit-appearance:none; }
@@ -75,6 +76,11 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .card.on{ outline:1px solid var(--crk); outline-offset:-1px; }
 .thumb{ position:relative; width:100%; aspect-ratio:16/9; background:#12121c; overflow:hidden; }
 .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+.star{ position:absolute; top:3px; right:3px; width:24px; height:24px; padding:0; z-index:2;
+  border:1px solid rgba(10,10,15,.7); background:rgba(10,10,15,.82); color:var(--ink3);
+  font:15px/22px var(--mono); cursor:pointer; }
+.star:hover{ color:var(--ink); border-color:var(--hair); }
+.star.on{ color:var(--vol); border-color:rgba(255,138,0,.6); }
 .dur{ position:absolute; right:3px; bottom:3px; background:rgba(0,0,0,.82); color:#fff;
   font-size:8px; padding:1px 4px; letter-spacing:.02em; }
 .tk{ position:absolute; left:3px; top:3px; background:rgba(0,212,255,.9); color:#04040a;
@@ -111,6 +117,7 @@ body.playing #grid{ display:none; }
   <a class="btn out" id="bYt" style="display:none" target="_blank" rel="noopener">youtube ↗</a>
   <input id="q" type="search" placeholder="search…" autocomplete="off" autocorrect="off" spellcheck="false">
   <span id="chips" style="display:flex;gap:4px"></span>
+  <span id="auth"></span>
 </div>
 <div id="grid"><div class="msg">loading…</div></div>
 <div id="stage">
@@ -121,6 +128,7 @@ body.playing #grid{ display:none; }
 "use strict";
 const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+const PUBLIC = "sb_publishable_AutibLpFtTns-WHAg67Pvw_I0HmjqE9";
 async function pg(path, _tries) {
   const tries = _tries == null ? 3 : _tries; let lastErr;
   for (let i = 0; i < tries; i++) {
@@ -140,25 +148,107 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
 const QS = new URLSearchParams(location.search);
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-const FEED   = QS.get("feed") === "personal" ? "personal" : "market";
+const FEED   = ["personal", "scintilla", "market"].includes(QS.get("feed")) ? QS.get("feed") : "personal";
 const LIMIT  = Math.max(10, Math.min(200, +(QS.get("limit") || 60)));
 const TICK   = (QS.get("t") || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
 const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
 const AUTO   = QS.get("autoplay") === "1";
 const FORCE  = +(QS.get("cols") || 0);
 
-/* the lists we can honestly rebuild from the mirror. Watch Later has zero
-   rows and there is no playlist column, so those are hand-offs, not lists. */
-const LISTS = [
-  { id: "default", n: FEED === "market" ? "market" : "mine", q: "" },
-  { id: "subs",    n: "subs",   q: "&is_sub=eq.true" },
-  { id: "shorts",  n: "shorts", q: "&is_short=eq.true" },
-  { id: "all",     n: "all",    q: "" },
+/* A pane keeps its identity through every local filter. Personal and
+   SCINTILLA are two intentionally separate authorized subscription feeds.
+   The old market-search lane remains available, but it is not used as a
+   substitute for either identity. Watch Later is one Station-wide list;
+   its authority is the private SCINTILLA · Watch Later playlist. */
+const LISTS = FEED === "market" ? [
+  { id: "default", n: "market",     q: "&tickers=not.is.null&tickers=neq.&is_short=eq.false" },
+  { id: "shorts",  n: "shorts",     q: "&tickers=not.is.null&tickers=neq.&is_short=eq.true" },
+  { id: "all",     n: "all market", q: "&tickers=not.is.null&tickers=neq." },
+] : [
+  { id: "default", n: "mine",     q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") + "&is_short=eq.false" },
+  { id: "shorts",  n: "shorts",   q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") + "&is_short=eq.true" },
+  { id: "all",     n: "all mine", q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") },
+  { id: "watch",   n: "★ later",  q: "" },
 ];
 let LIST = LISTS.some((l) => l.id === QS.get("list")) ? QS.get("list") : "default";
-el("kk").textContent = FEED === "market" ? "MARKET" : "MINE";
+el("kk").textContent = FEED === "market" ? "MARKET SEARCH" :
+  FEED === "scintilla" ? "SCINTILLA" : "PERSONAL";
 
-let ROWS = [], BYID = {}, CUR = null;
+let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
+let AUTH_STATUS = null;
+
+async function ytAct(action, payload) {
+  const r = await fetch(SB + "/functions/v1/yt-act", {
+    method: "POST",
+    headers: { apikey: PUBLIC, "Content-Type": "application/json" },
+    body: JSON.stringify(Object.assign({ action }, payload || {})),
+  });
+  let d = {}; try { d = await r.json(); } catch (e) {}
+  if (!r.ok || d.error) throw new Error(d.error || ("yt-act " + r.status));
+  return d;
+}
+
+async function syncWatch(force) {
+  if (WATCH_READY && !force) return WATCH;
+  const d = await ytAct("list");
+  WATCH = new Set(Array.isArray(d.ids) ? d.ids : []);
+  WATCH_READY = true;
+  WATCH_ERROR = "";
+  return WATCH;
+}
+
+async function oauth(step, account) {
+  const suffix = account ? "&account=" + encodeURIComponent(account) : "";
+  const r = await fetch(SB + "/functions/v1/yt-oauth?step=" + step + suffix, { headers: { apikey: PUBLIC } });
+  let d = {}; try { d = await r.json(); } catch (e) {}
+  if (!r.ok || d.error) throw new Error(d.error || ("yt-oauth " + r.status));
+  return d;
+}
+
+async function pollOauth(account, interval, expiresAt) {
+  if (Date.now() >= expiresAt) { el("auth").textContent = "code expired · reconnect"; return; }
+  let d;
+  try { d = await oauth("poll", account); }
+  catch (e) { el("auth").textContent = "reconnect failed"; return; }
+  if (d.connected) {
+    el("auth").textContent = (d.channel_title || account) + " connected";
+    try { AUTH_STATUS = await oauth("status"); } catch (e) {}
+    WATCH_ERROR = ""; WATCH_READY = false;
+    try { await syncWatch(true); } catch (e) { WATCH_ERROR = e.message || "Watch Later unavailable"; }
+    paintChips(); load(true);
+    return;
+  }
+  if (d.status === "authorization_pending" || d.status === "slow_down" || d.status === "pending") {
+    setTimeout(() => pollOauth(account, interval + (d.status === "slow_down" ? 5000 : 0), expiresAt), interval);
+  } else el("auth").textContent = "reconnect: " + (d.status || "failed");
+}
+
+async function connectYouTube(account) {
+  const popup = window.open("about:blank", "sc_youtube_connect_" + account, "width=560,height=760");
+  el("auth").textContent = "connecting " + account + "…";
+  try {
+    const d = await oauth("start", account);
+    el("auth").textContent = account + " · CODE " + d.user_code + " · waiting";
+    if (popup) popup.location = d.url; else window.open(d.url, "_blank", "noopener");
+    const interval = Math.max(5000, +(d.interval || 5) * 1000);
+    pollOauth(account, interval, Date.now() + +(d.expires_in || 1800) * 1000);
+  } catch (e) {
+    if (popup) popup.close();
+    el("auth").textContent = "reconnect failed";
+  }
+}
+
+async function toggleWatch(v) {
+  if (!v || !v.video_id) return;
+  const was = WATCH.has(v.video_id), will = !was;
+  if (will) WATCH.add(v.video_id); else WATCH.delete(v.video_id);
+  paint();
+  try { await ytAct(will ? "star" : "unstar", { videoId: v.video_id }); }
+  catch (e) {
+    if (was) WATCH.add(v.video_id); else WATCH.delete(v.video_id);
+    paint();
+  }
+}
 
 /* ---- columns counted from OUR width, not the window ---- */
 function relayout() {
@@ -230,12 +320,15 @@ el("bPip").addEventListener("click", async () => {
 /* ---- render ---- */
 function paint() {
   const q = el("q").value.trim().toLowerCase();
-  const rows = q ? ROWS.filter((v) => ((v.title || "") + " " + (v.channel || "") + " " + (v.tickers || "")).toLowerCase().indexOf(q) >= 0) : ROWS;
+  let rows = LIST === "watch" ? ROWS.filter((v) => WATCH.has(v.video_id)) : ROWS;
+  rows = q ? rows.filter((v) => ((v.title || "") + " " + (v.channel || "") + " " + (v.tickers || "")).toLowerCase().indexOf(q) >= 0) : rows;
   if (!rows.length) { el("grid").innerHTML = '<div class="msg">' + (q ? "nothing matches" : "no videos in this list") + "</div>"; return; }
   el("grid").innerHTML = rows.map((v) =>
     '<div class="card' + (CUR && CUR.video_id === v.video_id ? " on" : "") + '" data-v="' + esc(v.video_id) + '">' +
       '<div class="thumb"><img loading="lazy" decoding="async" src="' +
         esc(v.thumb_url || ("https://i.ytimg.com/vi/" + v.video_id + "/mqdefault.jpg")) + '" alt="">' +
+        '<button class="star' + (WATCH.has(v.video_id) ? " on" : "") + '" data-star="' + esc(v.video_id) +
+          '" title="' + (WATCH.has(v.video_id) ? "remove from" : "save to") + ' SCINTILLA · Watch Later">★</button>' +
         (v.tickers ? '<span class="tk">' + esc(String(v.tickers).split(",")[0]) + "</span>" : "") +
         (v.duration ? '<span class="dur">' + esc(v.duration) + "</span>" : "") +
       "</div>" +
@@ -244,6 +337,8 @@ function paint() {
     "</div>").join("");
   for (const n of el("grid").querySelectorAll(".card"))
     n.addEventListener("click", () => play(BYID[n.dataset.v], true));
+  for (const n of el("grid").querySelectorAll(".star"))
+    n.addEventListener("click", (e) => { e.stopPropagation(); toggleWatch(BYID[n.dataset.star]); });
 }
 
 function paintChips() {
@@ -252,28 +347,51 @@ function paintChips() {
     const b = document.createElement("span");
     b.className = "btn" + (l.id === LIST ? " on" : "");
     b.textContent = l.n;
-    b.addEventListener("click", () => { LIST = l.id; paintChips(); load(); });
+    b.addEventListener("click", () => { LIST = l.id; paintChips(); load(LIST === "watch"); });
     box.appendChild(b);
   }
-  /* not mirrored — hand off rather than show an empty list wearing the name */
-  for (const h of [["WL ↗", "https://www.youtube.com/playlist?list=WL"],
-                   ["lists ↗", "https://www.youtube.com/feed/you"]]) {
+  for (const h of [["youtube ↗", "https://www.youtube.com/feed/you"]]) {
     const a = document.createElement("a");
     a.className = "btn out"; a.href = h[1]; a.target = "_blank"; a.rel = "noopener";
-    a.textContent = h[0]; a.title = "not in our mirror — opens the real one on YouTube";
+    a.textContent = h[0]; a.title = "open YouTube";
     box.appendChild(a);
+  }
+  const own = AUTH_STATUS && AUTH_STATUS.accounts && AUTH_STATUS.accounts[FEED];
+  if (FEED !== "market" && own && !own.connected) {
+    const b = document.createElement("span");
+    b.className = "btn out"; b.textContent = "connect " + FEED;
+    b.title = "connect the " + FEED + " YouTube identity";
+    b.addEventListener("click", () => connectYouTube(FEED));
+    box.appendChild(b);
+  }
+  if (WATCH_ERROR) {
+    const b = document.createElement("span");
+    b.className = "btn out"; b.textContent = "reconnect SCINTILLA";
+    b.title = WATCH_ERROR + " — Watch Later is owned by SCINTILLA";
+    b.addEventListener("click", () => connectYouTube("scintilla"));
+    box.appendChild(b);
   }
 }
 
-async function load() {
+async function load(forceWatch) {
   el("grid").innerHTML = '<div class="msg">loading…</div>';
-  let q = "youtube_feed?select=video_id,title,channel,tickers,duration,is_short,thumb_url,published_at" +
+  try { await syncWatch(!!forceWatch); }
+  catch (e) {
+    WATCH_READY = false; WATCH_ERROR = e.message || "Watch Later unavailable";
+    paintChips();
+  }
+  let q = "youtube_feed?select=video_id,title,channel,tickers,duration,is_short,thumb_url,published_at,subscription_accounts" +
           "&order=published_at.desc&limit=" + LIMIT;
   const chosen = LISTS.find((l) => l.id === LIST);
-  if (LIST === "default") {
-    q += FEED === "market" ? "&tickers=not.is.null&tickers=neq." : "&or=(tickers.is.null,tickers.eq.)";
-    q += "&is_short=eq.false";
-  } else if (LIST !== "all") { q += chosen.q; }
+  if (LIST === "watch") {
+    if (WATCH_ERROR) {
+      ROWS = []; BYID = {};
+      el("grid").innerHTML = '<div class="msg">YouTube reconnect required</div>';
+      relayout(); return;
+    }
+    if (!WATCH.size) { ROWS = []; BYID = {}; paint(); relayout(); return; }
+    q += "&video_id=in.(" + Array.from(WATCH).slice(0, 200).map(encodeURIComponent).join(",") + ")";
+  } else q += chosen.q;
   if (TICK) q += "&tickers=ilike.*" + encodeURIComponent(TICK) + "*";
   let rows;
   try { rows = await pg(q); }
@@ -287,7 +405,11 @@ async function load() {
 
 el("q").addEventListener("input", paint);
 el("q").addEventListener("focus", () => el("q").select());
-paintChips(); relayout(); load();
+async function start() {
+  try { AUTH_STATUS = await oauth("status"); } catch (e) {}
+  paintChips(); relayout(); load();
+}
+start();
 </script>
 </body>
 </html>
