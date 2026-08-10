@@ -51,19 +51,31 @@ test("cohort pagination is lossless and clamps invalid pages", () => {
   assert.equal(sparse.chartCount, 1);
 });
 
-test("deck keeps one X pane and adds same-route scene/install state", () => {
+test("deck keeps one X pane, consumes explicit deep links, and never serializes runtime state", () => {
   const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
   assert.match(deck, /id="sceneMode"/);
-  assert.match(deck, /p\.set\("scene", SCENE\)/);
+  assert.match(deck, /const QS = new URLSearchParams\(location\.search\)/);
+  assert.match(deck, /function consumeStationLaunchUrl\(\)/);
+  assert.equal((deck.match(/history\.replaceState/g) || []).length, 1);
+  assert.doesNotMatch(deck, /p\.set\("scene"/);
+  assert.doesNotMatch(deck, /writeStationUrl/);
   assert.match(deck, /rel="manifest" href="\/station\/manifest\.json"/);
   assert.equal((deck.match(/key: "x"/g) || []).length, 1);
   assert.match(deck, /if \(!active && o\.frame\) \{\s*o\.frame\.remove\(\)/);
 });
 
+test("Vercel serves the canonical Station root through an internal rewrite", () => {
+  const config = JSON.parse(fs.readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.equal(Array.isArray(config.redirects), false);
+  const root = config.rewrites.find((rule) => rule.source === "/");
+  assert.equal(root.destination, "/deck/");
+  assert.deepEqual(root.has, [{ type:"host", value:"station.scintillahub.ai" }]);
+});
+
 test("manifest installs the live canonical route without an offline claim", () => {
   const manifest = JSON.parse(fs.readFileSync(new URL("../station/manifest.json", import.meta.url), "utf8"));
-  assert.equal(manifest.id, "/deck/");
-  assert.equal(manifest.start_url, "/deck/?scene=live");
+  assert.equal(manifest.id, "/");
+  assert.equal(manifest.start_url, "/");
   assert.equal(manifest.scope, "/");
   assert.equal(manifest.display, "standalone");
   assert.equal(manifest.icons.some((icon) => icon.sizes === "any" && icon.type === "image/svg+xml"), true);
