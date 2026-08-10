@@ -69,7 +69,7 @@ html,body{ margin:0; height:100%; }
 body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   -webkit-font-smoothing:antialiased; font-size:11px; display:flex; flex-direction:column;
   overflow:hidden; -webkit-text-size-adjust:100%; }
-#bar{ flex:none; display:flex; align-items:center; gap:4px; padding:4px 6px;
+#bar{ position:relative; flex:none; display:flex; align-items:center; gap:4px; padding:4px 34px 4px 6px;
   padding-top:calc(4px + env(safe-area-inset-top)); border-bottom:1px solid var(--line);
   background:var(--panel2); overflow-x:auto; scrollbar-width:none; }
 #bar::-webkit-scrollbar{ display:none; }
@@ -106,7 +106,8 @@ body.xfloat #cv{ display:block; }
 #err{ color:var(--bear); font-size:8.5px; line-height:1.5; max-width:330px; display:none; }
 /* small slots: the prose would eat the box */
 body.tiny #card .d{ display:none; }
-#bFull{ margin-left:auto; }
+#bFull{ position:absolute; z-index:3; right:5px; top:calc(4px + env(safe-area-inset-top));
+  margin:0; background:var(--panel2); box-shadow:-7px 0 8px var(--panel2); }
 </style>
 </head>
 <body>
@@ -212,10 +213,21 @@ function drawXFloat() {
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, tw, th);
     if (sw > 1 && shAvailable > 1) {
-      const pad = Math.round(Math.max(4, Math.min(8, host.clientWidth * .015)) * ratio);
-      const dw = Math.max(1, tw - pad * 2), s2d = dw / sw;
+      const padCss = Math.max(4, Math.min(8, host.clientWidth * .015));
+      const pad = Math.round(padCss * ratio);
+      /* A narrow pane should use every pixel. When the pane expands across
+         the row, keep the feed at a readable, height-aware width instead of
+         stretching the same X column into billboard-sized text. */
+      const readableCssWidth = Math.max(1, Math.min(
+        host.clientWidth - padCss * 2,
+        Math.max(320, host.clientHeight * 2.6),
+        680
+      ));
+      const dw = Math.max(1, Math.round(readableCssWidth * ratio));
+      const dx = Math.max(pad, Math.round((tw - dw) / 2));
+      const s2d = dw / sw;
       const sh = Math.min(shAvailable, th / s2d), dh = sh * s2d;
-      ctx.drawImage(video, sx, sy, sw, sh, pad, 0, dw, dh);
+      ctx.drawImage(video, sx, sy, sw, sh, dx, 0, dw, dh);
     }
   }
   xfloatFrame = requestAnimationFrame(drawXFloat);

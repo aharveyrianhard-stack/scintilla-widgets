@@ -6,7 +6,8 @@ This is the present-tense record for the active, **UNADMITTED local draft**. It 
 
 ## Open now
 
-- Station: `http://127.0.0.1:4317/deck/?rev=077&charts=3&range=15m&c1=ESUSD&c2=GCUSD&c3=BTCUSD`
+- Station: `http://127.0.0.1:4317/deck/?rev=080&charts=3&range=15m&c1=ESUSD&c2=GCUSD&c3=BTCUSD`
+- Station with X expanded across the lower row: `http://127.0.0.1:4317/deck/?rev=080&charts=3&range=15m&c1=ESUSD&c2=GCUSD&c3=BTCUSD&full=x`
 - Current saved example: three editable 15-minute chart slots currently set to S&P futures, gold futures, and Bitcoin. These are not a fixed bundle; every slot remains independently changeable.
 - The `DISPLAY ↗` control opens the same Station in a dedicated second window. For Apple TV, put that window on an AirPlay **separate display**; ordinary mirroring follows the Mac and does not let the Hub remain independent.
 
@@ -19,9 +20,10 @@ This is the present-tense record for the active, **UNADMITTED local draft**. It 
 - Station chart panes hide the duplicated embedded ticker/timeframe/TradingView bar. The single Station row drives every chart.
 - Personal YouTube is chronological subscriptions. SCINTILLA YouTube has Subscribed and Watch Later. Both grids use two columns.
 - The small star action is replaced by a readable `+ WATCH LATER` / `✓ WATCH LATER` action.
-- X remains the dedicated Station capture, independently of the X Feed Float extension. List, Notifications, −30s, Refresh, hover-pause, and pane expansion remain.
+- X remains the dedicated Station capture, independently of the X Feed Float extension. List, Notifications, −30s, Refresh, hover-pause, and pane expansion remain. The pane-expansion control is pinned at the right edge instead of disappearing into the narrow control-strip overflow.
+- X rendering now recomputes from both pane width and pane height. Narrow panes use the available width; expanded panes center a capped readable feed instead of stretching the same captured column into oversized text.
 - The approved X source capture survives Station reloads, duplicate Station/display tabs, Chrome extension-worker sleep, and an accidental second shortcut press. The generic browser picker is no longer shown inside the X box.
-- Pane expansion now spans the entire Station grid. A separate top-level `⛶` takes the resulting Station view to true browser fullscreen.
+- Pane expansion now spans that pane's own row: an X or YouTube pane absorbs the lower row while charts stay visible, and a chart absorbs the upper row while feeds stay visible. A separate top-level `⛶` takes the resulting Station view to true browser fullscreen.
 - Desktop pane chips and old Wall / Scan / Why These? / Engine navigation are removed from the everyday Station view. The Hub remains linked.
 
 ## Live-market proof and known gap
@@ -36,5 +38,6 @@ The futures aggregate trail is not fully healthy: 2h, 3h, 6h, 12h, daily, 3-day,
 - Real Chrome interaction: the chart selector reached the six-chart 3×2 view and returned to the working view.
 - Real Chrome interaction: ES, gold, and Bitcoin loaded together at 15 minutes.
 - X, Personal YouTube, and SCINTILLA YouTube remained present after reload.
+- Real Chrome interaction: X expanded across the entire lower row and returned without disconnecting the source.
 - Inline JavaScript syntax checks passed for `deck`, `chart`, `pane-video`, and `pane-x`.
 - Station X Bridge tests pass 7/7, including reload, display-tab handoff, extension-worker restart, and accidental-shortcut persistence.

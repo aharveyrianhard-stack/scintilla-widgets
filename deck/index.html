@@ -123,11 +123,10 @@ body.stack #panebar{ display:flex; }
 body.stack .deckrow{ flex:none; display:flex; flex-direction:column; }
 body.stack .deckrow > .pane{ flex:none; height:56vh; min-height:230px; }
 
-/* SOLO: one pane full-bleed inside the deck, one tap back */
-body.solo .deckrow{ flex:1 1 0; }
+/* ROW SOLO: one pane absorbs its siblings while the other row remains visible.
+   Whole-Station fullscreen is a separate control in the top bar. */
 body.solo .pane.hidden{ display:none; }
-body.solo .deckrow.empty{ display:none; }
-body.solo #rowTop > .pane:not(.hidden){ grid-column:1 / -1; }
+body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
 
 .pane{ position:relative; background:var(--bg); display:flex; flex-direction:column;
   min-height:0; min-width:0; overflow:hidden; }
@@ -295,7 +294,7 @@ function makePane(def) {
   const acts = document.createElement("div"); acts.className = "acts";
 
   const bFull = document.createElement("span"); bFull.className = "btn"; bFull.textContent = "⛶";
-  bFull.title = "full-bleed inside the deck — one tap back";
+  bFull.title = "expand across this row — one tap back";
   bFull.addEventListener("click", (e) => { e.stopPropagation(); setSolo(SOLO === def.key ? null : def.key); });
   /* The Station is the destination. Pop/PiP/open duplicated navigation and
      crowded every pane; keep one explicit in-place expansion control. */
@@ -346,8 +345,11 @@ function mount(obj) {
 function setSolo(key) {
   SOLO = key;
   document.body.classList.toggle("solo", !!key);
+  const target = key ? PANES.find((item) => item.def.key === key) : null;
   for (const o of PANES) {
-    o.node.classList.toggle("hidden", !!key && o.def.key !== key);
+    const hideSibling = !!target && o.def.row === target.def.row && o.def.key !== key;
+    o.node.classList.toggle("hidden", hideSibling);
+    o.node.classList.toggle("expanded", !!target && o.def.key === key);
     o.bFull.textContent = (key && o.def.key === key) ? "↙" : "⛶";
     o.bFull.classList.toggle("on", !!key && o.def.key === key);
     if (o.frame) {
@@ -359,8 +361,7 @@ function setSolo(key) {
       } catch (_) {}
     }
   }
-  for (const r of document.querySelectorAll(".deckrow"))
-    r.classList.toggle("empty", !!key && !r.querySelector(".pane:not(.hidden)"));
+  for (const r of document.querySelectorAll(".deckrow")) r.classList.remove("empty");
   if (key) {
     const o = PANES.find((x) => x.def.key === key);
     if (o && !o.frame && !o.isDock) mount(o);
@@ -659,7 +660,7 @@ async function build() {
     { row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",
       kind: "video", src: "/pane-video?feed=scintilla&cols=2&rev=075", open: "/pane-video?feed=scintilla&limit=200&cols=2" },
     { row: 1, key: "x", short: "X", title: "X · live", tag: "live capture",
-      kind: "x", src: "/pane-x?rev=075", open: "/pane-x?rev=075" },
+      kind: "x", src: "/pane-x?rev=078", open: "/pane-x?rev=078" },
   ]);
 
   /* TWO FLEX ROWS. Two children up top, three below. Nothing else decides
