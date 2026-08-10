@@ -1,21 +1,26 @@
 # SCINTILLA Station X Bridge — local unadmitted draft
 
-Status: local development evidence only. This is not installed in Alan's normal Chrome, merged, pushed, or deployed.
+Status: local development evidence only. Alan explicitly loaded this unpacked
+draft in his normal Chrome for same-device proof. It is not merged, pushed, or
+deployed.
 
 ## Product boundary
 
 This is a purpose-built helper for the X box inside SCINTILLA Station. It borrows the useful behavior recovered from X Feed Float—timeline crop, smooth scrolling, pause, refresh, rewind, and source switching—but it is a separate extension with a separate identity and shortcut.
 
-The installed **X Feed Float 0.6.7** remains untouched and can continue running on another screen. The Station helper is **SCINTILLA Station X Bridge 0.7.2** and uses `Option+Shift+S`, not X Feed Float's `Option+Shift+P`.
+The installed **X Feed Float 0.6.7** remains untouched and can continue running on another screen. The Station helper is **SCINTILLA Station X Bridge 0.7.3** and uses `Option+Shift+S`, not X Feed Float's `Option+Shift+P`.
 
 ## Visible behavior
 
 1. Station keeps its existing five-box layout.
 2. A dedicated signed-in `x.com` tab is the Station source.
-3. One `Option+Shift+S` invocation connects that tab after Chrome starts.
+3. One `Option+Shift+S` invocation connects that tab after Chrome starts. A
+   normal Station reload reattaches that approved capture during a short grace
+   period instead of requiring another invocation.
 4. The live feed is cropped and fitted inside the existing fifth box. Alan does not drag, float, or resize it.
-5. Station controls pause/resume, rewind 30 seconds, refresh, and switch the source view.
-6. Hovering the Station pane temporarily pauses scrolling.
+5. Station controls rewind 30 seconds and refresh.
+6. Hovering the Station pane temporarily pauses scrolling; leaving it resumes.
+7. Crop metadata relays at about 30 Hz instead of the former stepped 10 Hz.
 
 Chrome requires a user invocation before `chrome.tabCapture` may start. That one invocation after a browser restart is the remaining browser-security boundary; the pane itself is otherwise hands-off.
 
@@ -46,7 +51,8 @@ The visible proof used a synthetic X-origin feed because the temporary Chrome pr
 ## Current untouched state
 
 - Alan's installed X Feed Float: unchanged.
-- Alan's normal Chrome profile: unchanged.
+- Alan's normal Chrome profile: locally loaded with this unpacked draft by
+  explicit request; no packaged or store installation.
 - Production Station: unchanged.
 - GitHub and Vercel: unchanged.
 - Google/YouTube authorization: unrelated to this X pane and unchanged.

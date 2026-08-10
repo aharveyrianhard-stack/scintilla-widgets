@@ -1762,7 +1762,10 @@
         type: "XFF_STATION_CROP",
         crop: stationCropPayload()
       }).catch(() => {});
-      session.stationRelayTimer = setTimeout(relay, 100);
+      // The Station canvas renders at animation-frame speed. Keep crop
+      // metadata near 30 Hz so the fractional scroll offset advances smoothly
+      // instead of jumping in the old 100 ms / 10 Hz steps.
+      session.stationRelayTimer = setTimeout(relay, 33);
     };
     relay();
   }

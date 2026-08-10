@@ -19,8 +19,9 @@
      which is why the pane read "nothing was chosen for you" with nothing to
      click. The X slot is no longer a dock with a button: it runs /pane-x,
      which renders your real logged-in x.com tab live, in place.
-     Every pane header now carries PIP — real Document Picture-in-Picture,
-     driven from here because that API needs a top-level context.
+     Every pane header carries one in-place FULL control. Window and standalone
+     navigation were removed from the everyday scene after live use proved
+     they added clutter without helping the five-pane workflow.
 
      ---- v3, the resize fix ---------------------------------------------------
      v2 laid the deck out with CSS grid template AREAS: "c1 c1 c2" over
@@ -41,9 +42,7 @@
 
      ---- THE IRON RULE: LOSE NOTHING ------------------------------------------
      Nothing becomes unreachable because it is now inside a scene.
-       · Every pane keeps POP, PIP, FULL and OPEN.
-       · OPEN still goes to the full /feed-a and /feed-b pages, so the bigger
-         list, the channel picker and the search are one tap away.
+       · Every pane keeps one clear in-place FULL/BACK path.
        · The PANES chip row lists every pane. A paused pane is one tap back.
        · The live budget only ever PAUSES. It never removes a pane from the
          layout or from the chip row.
@@ -116,6 +115,7 @@ body.solo .deckrow.empty{ display:none; }
 .ph .tag{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; }
 .ph .acts{ margin-left:auto; display:flex; gap:4px; flex:none; }
+.pane.integrated > .ph{ display:none; }
 .body{ flex:1 1 0; position:relative; min-height:0; min-width:0; }
 .body iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block;
   background:var(--bg); }
@@ -191,12 +191,12 @@ body.solo .deckrow.empty{ display:none; }
      live pixels render here, scrolling as it scrolls, with zoom and pan to crop to the column. The one thing
      a web page cannot do is <b>scroll that tab for you</b> — only an extension can reach into another tab.
      For hands-off scrolling, X Feed Float is still the tool: <b>Option+Shift+P</b>.</p>
-  <p><b>Picture-in-picture is real.</b> Every pane has a PIP button that lifts it into a browser-owned
-     always-on-top window — the same Document Picture-in-Picture API your extension uses. The video pane
-     carries the chosen video across; the X pane floats the live stream.</p>
-  <p><b>Lose nothing.</b> Every pane carries POP, PIP, FULL and OPEN. The PANES row lists every pane. On a
+  <p><b>Keep the scene direct.</b> Each pane has one FULL/BACK path. Separate-window, generic PiP and
+     standalone navigation were removed from this everyday scene after live use showed that they duplicated
+     the fixed Station workflow.</p>
+  <p><b>Lose nothing.</b> The PANES row lists every pane. On a
      phone the deck stacks and the live budget PAUSES panes behind a tap — it never removes one from the
-     layout or the chip row. The full /feed-a and /feed-b pages are still there, one tap away on OPEN.</p>
+     layout or the chip row.</p>
 </div>
 
 <script>
@@ -237,72 +237,19 @@ const PANES = [];
 const LIVE = [];
 const FRAME_ALLOW = "autoplay; encrypted-media; picture-in-picture; fullscreen; display-capture";
 
-/* Document Picture-in-Picture — a real always-on-top window owned by the
-   browser. Only available at top level, which the deck is. */
-const HAS_DOCPIP = (function () { try { return !!window.documentPictureInPicture; } catch (e) { return false; } })();
-async function pip(obj) {
-  if (!HAS_DOCPIP) return;
-  /* the pane keeps its state in its own URL (which video is playing, which
-     list) and it is same-origin, so we can lift the exact current view */
-  let src = obj.def.src;
-  try { if (obj.frame && obj.frame.contentWindow) src = obj.frame.contentWindow.location.pathname + obj.frame.contentWindow.location.search; } catch (e) {}
-  if (obj.def.kind === "video" && src.indexOf("autoplay=") < 0) src += (src.indexOf("?") < 0 ? "?" : "&") + "autoplay=1";
-  try {
-    const w = await documentPictureInPicture.requestWindow({
-      width: obj.def.kind === "chart" ? 620 : 480,
-      height: obj.def.kind === "chart" ? 400 : 320 });
-    const d = w.document;
-    d.documentElement.style.height = "100%";
-    d.body.style.cssText = "margin:0;height:100%;background:#0A0A0F";
-    const f = d.createElement("iframe");
-    f.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0";
-    f.allow = FRAME_ALLOW;
-    f.setAttribute("allowfullscreen", "");
-    f.src = src;
-    d.body.appendChild(f);
-  } catch (e) { /* dismissed, or the browser said no */ }
-}
-
-function pop(def) {
-  if (def.kind === "x") { window.open("/pane-x", "deck_x", "width=520,height=820,menubar=no,toolbar=no,location=no"); return; }
-  if (def.kind === "video" && IOS) { window.open(def.open || "/feed-a", "_blank"); return; }
-  const w = def.kind === "video" ? 520 : 780, h = def.kind === "video" ? 640 : 480;
-  const win = window.open(def.src, "deck_" + def.key, "width=" + w + ",height=" + h + ",menubar=no,toolbar=no,location=no");
-  if (!win) window.open(def.src, "_blank");
-}
-
 function makePane(def) {
   const p = document.createElement("div"); p.className = "pane"; p.dataset.key = def.key;
+  if (def.kind === "video" || def.kind === "x") p.classList.add("integrated");
   const head = document.createElement("div"); head.className = "ph";
   head.innerHTML = '<span class="t">' + esc(def.title) + '</span><span class="tag">' + esc(def.tag) + "</span>";
   const acts = document.createElement("div"); acts.className = "acts";
 
-  const bPop = document.createElement("span"); bPop.className = "btn"; bPop.textContent = "pop";
-  bPop.title = def.kind === "x" ? "open the live X pane in its own window"
-    : def.kind === "video" ? (IOS ? "open the feed in its own tab — pick a video, then use system PiP" : "open this feed in its own window")
-    : "open this chart in its own window";
-  bPop.addEventListener("click", (e) => { e.stopPropagation(); pop(def); });
-
   const bFull = document.createElement("span"); bFull.className = "btn"; bFull.textContent = "full";
   bFull.title = "full-bleed inside the deck — one tap back";
   bFull.addEventListener("click", (e) => { e.stopPropagation(); setSolo(SOLO === def.key ? null : def.key); });
-
-  /* PICTURE-IN-PICTURE, per pane. Document PiP needs a top-level context, so
-     the deck does it — it reads the pane's own live URL (same origin, so we
-     can) and reopens exactly that view, chosen video and all, in a real
-     always-on-top window. Same API X Feed Float uses for its viewer. */
-  const bPip = document.createElement("span"); bPip.className = "btn"; bPip.textContent = "pip";
-  bPip.title = "float this pane in its own always-on-top window";
-  bPip.style.display = HAS_DOCPIP ? "" : "none";
-  bPip.addEventListener("click", (e) => { e.stopPropagation(); pip(obj); });
-
-  acts.appendChild(bPop); acts.appendChild(bPip); acts.appendChild(bFull);
-  if (def.open) {
-    const a = document.createElement("a"); a.className = "btn"; a.textContent = "open";
-    a.href = def.open; a.title = "leave the deck for the full standalone page";
-    a.addEventListener("click", (e) => e.stopPropagation());
-    acts.appendChild(a);
-  }
+  /* The Station is the destination. Pop/PiP/open duplicated navigation and
+     crowded every pane; keep one explicit in-place expansion control. */
+  acts.appendChild(bFull);
   head.appendChild(acts);
 
   const body = document.createElement("div"); body.className = "body";
@@ -349,6 +296,14 @@ function setSolo(key) {
     o.node.classList.toggle("hidden", !!key && o.def.key !== key);
     o.bFull.textContent = (key && o.def.key === key) ? "back" : "full";
     o.bFull.classList.toggle("on", !!key && o.def.key === key);
+    if (o.frame) {
+      try {
+        o.frame.contentWindow.postMessage({
+          type: "SCINTILLA_DECK_FULL_STATE",
+          active: !!key && o.def.key === key
+        }, location.origin);
+      } catch (_) {}
+    }
   }
   for (const r of document.querySelectorAll(".deckrow"))
     r.classList.toggle("empty", !!key && !r.querySelector(".pane:not(.hidden)"));
@@ -358,6 +313,13 @@ function setSolo(key) {
   }
   measure(); paintChips();
 }
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin || event.data?.type !== "SCINTILLA_DECK_TOGGLE_FULL") return;
+  const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
+  if (!pane) return;
+  setSolo(SOLO === pane.def.key ? null : pane.def.key);
+});
 
 /* ---- the resize path. ResizeObserver on the deck, not window resize. ----
    Stage Manager and Split View change the element's box without always
@@ -502,11 +464,11 @@ async function build() {
        uses — so the feed actually scrolls in the pane instead of offering a
        button. Both are embedded; neither is a dock. */
     { row: 1, key: "fb", short: "personal", title: "Personal YouTube", tag: "personal subscriptions",
-      kind: "video", src: "/pane-video?feed=personal", open: "/pane-video?feed=personal&limit=200&cols=5" },
+      kind: "video", src: "/pane-video?feed=personal&rev=074", open: "/pane-video?feed=personal&limit=200&cols=5" },
     { row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",
-      kind: "video", src: "/pane-video?feed=scintilla", open: "/pane-video?feed=scintilla&limit=200&cols=5" },
+      kind: "video", src: "/pane-video?feed=scintilla&rev=074", open: "/pane-video?feed=scintilla&limit=200&cols=5" },
     { row: 1, key: "x", short: "X", title: "X · live", tag: "live capture",
-      kind: "x", src: "/pane-x", open: "/pane-x" },
+      kind: "x", src: "/pane-x?rev=074", open: "/pane-x?rev=074" },
   ];
 
   /* TWO FLEX ROWS. Two children up top, three below. Nothing else decides
