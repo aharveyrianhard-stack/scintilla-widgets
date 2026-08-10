@@ -47,8 +47,8 @@
 
      What it CANNOT do, said plainly: auto-scroll. The extension scrolls X by
      injecting a content script into the x.com tab. A web page cannot reach
-     into another tab — no page can. For hands-off scrolling, X Feed Float is
-     still the tool, and it is one keystroke away: Alt/Option+Shift+P.
+     into another tab — no page can. The separate Station X Bridge supplies
+     the capture and scrolling behavior for this pane.
 
      iOS/iPadOS Safari has no getDisplayMedia at all, so on iPhone and iPad
      this pane says so and hands off rather than pretending.
@@ -86,8 +86,12 @@ input[type=range]{ flex:none; width:64px; accent-color:var(--crk); }
 #body{ flex:1 1 0; min-height:0; position:relative; background:#000; overflow:hidden; }
 #v{ position:absolute; top:50%; left:50%; transform-origin:center center; display:none;
   max-width:none; background:#000; }
+#cv{ position:absolute; inset:0; width:100%; height:100%; display:none; background:#000; }
 body.live #v{ display:block; }
-body.live #card{ display:none; }
+body.live #card, body.xfloat #card{ display:none; }
+body.xfloat #cv{ display:block; }
+.btn.xf{ color:var(--bull); border-color:rgba(0,255,163,.42); }
+.btn.xf.on{ background:rgba(0,255,163,.10); }
 
 #card{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
   justify-content:center; gap:9px; text-align:center; padding:14px; background:var(--bg); }
@@ -105,8 +109,14 @@ body.tiny #card .d{ display:none; }
 </head>
 <body>
 <div id="bar">
-  <span class="k">X · LIVE</span>
-  <span class="btn go" id="bStart">show my feed</span>
+  <span class="k">X · XFLOAT</span>
+  <span class="btn xf" id="xfState">waiting</span>
+  <span class="btn xf" id="bXPause" style="display:none">pause</span>
+  <span class="btn" id="bXBack" style="display:none">−30s</span>
+  <span class="btn" id="bXRefresh" style="display:none">refresh</span>
+  <span class="btn" id="bXTrading" style="display:none">subscribed</span>
+  <span class="btn" id="bXNotify" style="display:none">notifications</span>
+  <span class="btn go" id="bStart">browser picker</span>
   <span class="btn" id="bStop" style="display:none">stop</span>
   <span class="btn" id="bPip" style="display:none" title="float this in its own always-on-top window">pip</span>
   <span class="lbl" id="lz" style="display:none">zoom</span>
@@ -118,14 +128,15 @@ body.tiny #card .d{ display:none; }
 
 <div id="body">
   <video id="v" autoplay muted playsinline></video>
+  <canvas id="cv"></canvas>
   <div id="card">
-    <div class="n">Your X feed, live, in this pane</div>
-    <div class="d">Tap below and pick your <b>x.com</b> tab. Its live pixels render here — your real logged-in
-      feed, scrolling as it scrolls. Nothing is sent anywhere; the stream never leaves this browser.
-      Then <b>zoom</b> and <b>pan</b> to crop to the timeline column.</div>
-    <div class="go" id="bGo">choose my x.com tab</div>
-    <div class="d" id="hint"><b>For hands-off auto-scroll</b> use your own extension — X Feed Float 0.6.7,
-      <b>Option+Shift+P</b>. A web page cannot scroll another tab; only an extension can reach in.</div>
+    <div class="n">Station X is ready for this exact pane</div>
+    <div class="d">Open the dedicated <b>x.com</b> source tab in this Chrome profile and press
+      <b>Option+Shift+S</b> once. The separate Station helper handles crop and smooth scrolling; this box
+      receives the fitted pixels. Your existing X Feed Float remains independent. Nothing is uploaded.</div>
+    <div class="go" id="bGo">browser picker fallback</div>
+    <div class="d" id="hint">The browser-picker fallback still works without the Station helper, but it cannot scroll X.
+      The Station helper is purpose-built for this box and never opens a floating window.</div>
     <div class="alt">
       <a class="btn" href="https://x.com/home" target="_blank" rel="noopener">open x.com first</a>
       <span class="btn" id="bWin">pop a window instead</span>
@@ -143,6 +154,129 @@ const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
 const CAN = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !IOS;
 
 let stream = null;
+let xfloatStream = null;
+let xfloatPeer = null;
+let xfloatCrop = null;
+let xfloatFrame = 0;
+let xfloatPaused = false;
+
+function postXFloat(action, value) {
+  window.postMessage({ type: "XFF_STATION_CONTROL", action, value }, location.origin);
+}
+
+function xfloatControls(on) {
+  for (const id of ["bXPause", "bXBack", "bXRefresh", "bXTrading", "bXNotify"])
+    el(id).style.display = on ? "" : "none";
+  el("bStart").style.display = on ? "none" : "";
+}
+
+function stopXFloat({ notify = true } = {}) {
+  if (xfloatFrame) cancelAnimationFrame(xfloatFrame);
+  xfloatFrame = 0;
+  if (xfloatStream) for (const track of xfloatStream.getTracks()) track.stop();
+  xfloatStream = null;
+  if (xfloatPeer) xfloatPeer.close();
+  xfloatPeer = null;
+  xfloatPaused = false;
+  el("v").srcObject = stream;
+  document.body.classList.remove("xfloat");
+  xfloatControls(false);
+  el("xfState").textContent = "waiting";
+  el("xfState").classList.remove("on");
+  if (notify) window.postMessage({ type: "XFF_STATION_STOP" }, location.origin);
+}
+
+function drawXFloat() {
+  if (!xfloatStream || !xfloatCrop) {
+    xfloatFrame = requestAnimationFrame(drawXFloat);
+    return;
+  }
+  const video = el("v"), canvas = el("cv"), host = el("body");
+  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth) {
+    const viewport = xfloatCrop.viewport || { width: video.videoWidth, height: video.videoHeight };
+    const rect = xfloatCrop.rect || { left: 0, top: 0, width: viewport.width, height: viewport.height };
+    const scaleX = video.videoWidth / Math.max(1, viewport.width);
+    const scaleY = video.videoHeight / Math.max(1, viewport.height);
+    const sx = Math.max(0, rect.left * scaleX);
+    const sy = Math.max(0, (rect.top + (xfloatCrop.fractionalScrollOffset || 0)) * scaleY);
+    const sw = Math.min(video.videoWidth - sx, rect.width * scaleX);
+    const shAvailable = Math.min(video.videoHeight - sy, rect.height * scaleY);
+    const ratio = Math.min(2, devicePixelRatio || 1);
+    const tw = Math.max(280, Math.round(host.clientWidth * ratio));
+    const th = Math.max(220, Math.round(host.clientHeight * ratio));
+    if (canvas.width !== tw || canvas.height !== th) { canvas.width = tw; canvas.height = th; }
+    const ctx = canvas.getContext("2d", { alpha: false });
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, tw, th);
+    if (sw > 1 && shAvailable > 1) {
+      const pad = Math.round(Math.max(4, Math.min(8, host.clientWidth * .015)) * ratio);
+      const dw = Math.max(1, tw - pad * 2), s2d = dw / sw;
+      const sh = Math.min(shAvailable, th / s2d), dh = sh * s2d;
+      ctx.drawImage(video, sx, sy, sw, sh, pad, 0, dw, dh);
+    }
+  }
+  xfloatFrame = requestAnimationFrame(drawXFloat);
+}
+
+async function attachXFloatStream(mediaStream) {
+  if (stream) { for (const track of stream.getTracks()) track.stop(); stream = null; }
+  if (xfloatStream && xfloatStream !== mediaStream) {
+    for (const track of xfloatStream.getTracks()) track.stop();
+  }
+  controls(false);
+  xfloatStream = mediaStream;
+  const video = el("v");
+  video.srcObject = xfloatStream;
+  await video.play();
+  document.body.classList.remove("live");
+  document.body.classList.add("xfloat");
+  xfloatControls(true);
+  el("xfState").textContent = "live";
+  el("xfState").classList.add("on");
+  xfloatStream.getVideoTracks()[0]?.addEventListener("ended", () => stopXFloat({ notify: false }), { once: true });
+  drawXFloat();
+}
+
+async function startXFloat(streamId) {
+  stopXFloat({ notify: false });
+  const mediaStream = await navigator.mediaDevices.getUserMedia({
+    video: { mandatory: {
+      chromeMediaSource: "tab", chromeMediaSourceId: streamId,
+      minWidth: 240, minHeight: 240, maxWidth: 2560, maxHeight: 1440,
+      minFrameRate: 10, maxFrameRate: 60
+    } },
+    audio: false
+  });
+  await attachXFloatStream(mediaStream);
+}
+
+function waitForIceComplete(connection) {
+  if (connection.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise((resolve) => {
+    const onState = () => {
+      if (connection.iceGatheringState !== "complete") return;
+      connection.removeEventListener("icegatheringstatechange", onState);
+      resolve();
+    };
+    connection.addEventListener("icegatheringstatechange", onState);
+  });
+}
+
+async function startXFloatPeer() {
+  stopXFloat({ notify: false });
+  xfloatPeer = new RTCPeerConnection();
+  xfloatPeer.addTransceiver("video", { direction: "recvonly" });
+  xfloatPeer.addEventListener("track", (event) => {
+    const mediaStream = event.streams[0] || new MediaStream([event.track]);
+    attachXFloatStream(mediaStream).catch((error) => showErr("Station X could not render: " + error.message));
+  });
+  await xfloatPeer.setLocalDescription(await xfloatPeer.createOffer());
+  await waitForIceComplete(xfloatPeer);
+  window.postMessage({
+    type: "XFF_STATION_OFFER",
+    offer: xfloatPeer.localDescription.toJSON()
+  }, location.origin);
+}
 
 function fit() {
   const host = document.getElementById("body");
@@ -176,7 +310,7 @@ function controls(on) {
 async function start() {
   if (!CAN) {
     showErr(IOS
-      ? "Safari on iPhone and iPad has no screen-capture API at all, so no web page can render your X feed here. Use X Feed Float on the Mac, or the pop-out below."
+      ? "Safari on iPhone and iPad has no screen-capture API at all, so the Station X source must run from Chrome on the Mac."
       : "This browser does not expose getDisplayMedia, so the live pane is not available here. Use the pop-out below.");
     return;
   }
@@ -213,6 +347,45 @@ el("bWin").addEventListener("click", () => {
   window.open("https://x.com/home", "sc_x", "width=520,height=820,menubar=no,toolbar=no,location=no");
 });
 
+el("bXPause").addEventListener("click", () => {
+  xfloatPaused = !xfloatPaused;
+  postXFloat("pause", xfloatPaused);
+  el("bXPause").textContent = xfloatPaused ? "resume" : "pause";
+});
+el("bXBack").addEventListener("click", () => postXFloat("rewind"));
+el("bXRefresh").addEventListener("click", () => postXFloat("refresh"));
+el("bXTrading").addEventListener("click", () => postXFloat("view", "trading"));
+el("bXNotify").addEventListener("click", () => postXFloat("view", "notifications"));
+el("body").addEventListener("pointerenter", () => { if (xfloatStream) postXFloat("pause", true); });
+el("body").addEventListener("pointerleave", () => { if (xfloatStream && !xfloatPaused) postXFloat("pause", false); });
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window || event.origin !== location.origin) return;
+  if (event.data?.type === "XFF_STATION_BRIDGE_READY" && !xfloatStream) {
+    el("xfState").textContent = "ready";
+  }
+  if (event.data?.type === "XFF_STATION_STREAM" && event.data.streamId) {
+    startXFloat(event.data.streamId).catch((error) => showErr("XFloat could not connect: " + error.message));
+  }
+  if (event.data?.type === "XFF_STATION_WEBRTC_START") {
+    startXFloatPeer().catch((error) => showErr("Station X could not connect: " + error.message));
+  }
+  if (event.data?.type === "XFF_STATION_ANSWER" && event.data.answer && xfloatPeer) {
+    xfloatPeer.setRemoteDescription(event.data.answer)
+      .catch((error) => showErr("Station X answer failed: " + error.message));
+  }
+  if (event.data?.type === "XFF_STATION_CROP") {
+    xfloatCrop = event.data.crop;
+    const paused = Boolean(xfloatCrop?.paused);
+    el("xfState").textContent = paused ? "paused" : "live";
+  }
+  if (event.data?.type === "XFF_STATION_STATUS") {
+    if (event.data.status === "stopped") stopXFloat({ notify: false });
+    else if (event.data.status === "error") showErr(event.data.detail || "Station X could not connect.");
+    else if (!xfloatStream) el("xfState").textContent = event.data.status || "waiting";
+  }
+});
+
 /* REAL picture-in-picture. The capture is a genuine <video>, so this is the
    browser's own always-on-top window — not an imitation of one. */
 el("bPip").addEventListener("click", async () => {
@@ -228,11 +401,13 @@ if (!CAN) {
   el("bGo").style.borderColor = "var(--mute)";
   el("bGo").style.color = "var(--mute)";
   el("hint").innerHTML = IOS
-    ? "<b>Why:</b> Safari on iOS and iPadOS ships no screen-capture API, so no web page can do this here. On the Mac it works, and your own extension — <b>X Feed Float 0.6.7, Option+Shift+P</b> — does it with auto-scroll on top."
+    ? "<b>Why:</b> Safari on iOS and iPadOS ships no screen-capture API. Station X runs from its dedicated Chrome source tab on the Mac; X Feed Float remains a separate tool."
     : "<b>Why:</b> this browser exposes no getDisplayMedia.";
 }
 tiny();
 if (QS.get("auto") === "1" && CAN) el("bGo").focus();
+window.addEventListener("resize", () => postXFloat("resize", { width: innerWidth, height: innerHeight }));
+window.addEventListener("pagehide", () => stopXFloat());
 </script>
 </body>
 </html>
