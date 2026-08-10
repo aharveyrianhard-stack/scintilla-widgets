@@ -81,6 +81,10 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .btn.on{ color:var(--crk); border-color:var(--crk); }
 .btn.go{ color:var(--crk); border-color:var(--crk); }
 .btn.out{ color:var(--vol); border-color:rgba(255,138,0,.35); }
+.btn.icon{ width:24px; height:20px; padding:3px; align-items:center; justify-content:center;
+  appearance:none; font:inherit; line-height:1; }
+.btn.icon svg{ width:12px; height:12px; display:block; fill:none; stroke:currentColor;
+  stroke-width:1.65; stroke-linecap:round; stroke-linejoin:round; }
 input[type=range]{ flex:none; width:64px; accent-color:var(--crk); }
 .lbl{ flex:none; color:var(--mute); font-size:7.5px; letter-spacing:.1em; text-transform:uppercase; }
 
@@ -108,14 +112,22 @@ body.xfloat #cv{ display:block; }
 body.tiny #card .d{ display:none; }
 #bFull{ position:absolute; z-index:3; right:5px; top:calc(4px + env(safe-area-inset-top));
   margin:0; background:var(--panel2); box-shadow:-7px 0 8px var(--panel2); }
+html[data-view="desk"] .btn{ font-size:9px; padding:4px 8px; }
+html[data-view="desk"] .btn.icon{ width:28px; height:23px; padding:4px; }
+html[data-view="compact"] .btn{ font-size:7px; padding:2px 5px; }
+html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
 </style>
 </head>
 <body>
 <div id="bar">
   <span class="k">X · XFLOAT</span>
   <span id="xfState" hidden>waiting</span>
-  <span class="btn" id="bXList" style="display:none">list</span>
-  <span class="btn" id="bXNotify" style="display:none">notifications</span>
+  <button class="btn icon" id="bXList" type="button" style="display:none" title="Trading list" aria-label="Show trading list">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4h8M5 8h8M5 12h8"/><path d="M2.5 4h.01M2.5 8h.01M2.5 12h.01"/></svg>
+  </button>
+  <button class="btn icon" id="bXNotify" type="button" style="display:none" title="Notifications" aria-label="Show notifications">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 11.5h9l-1.1-1.7V7a3.4 3.4 0 0 0-6.8 0v2.8z"/><path d="M6.6 13.2a1.6 1.6 0 0 0 2.8 0"/></svg>
+  </button>
   <span class="btn" id="bXBack" style="display:none">−30s</span>
   <span class="btn" id="bXRefresh" style="display:none">refresh</span>
   <span class="btn go" id="bStart" style="display:none">browser picker</span>
@@ -147,6 +159,9 @@ body.tiny #card .d{ display:none; }
 "use strict";
 const el = (id) => document.getElementById(id);
 const QS = new URLSearchParams(location.search);
+const VIEW_PROFILES = ["auto","desk","display","compact"];
+let VIEW_PROFILE = VIEW_PROFILES.includes(QS.get("view")) ? QS.get("view") : "auto";
+document.documentElement.dataset.view = VIEW_PROFILE;
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const CAN = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !IOS;
@@ -157,6 +172,10 @@ let xfloatPeer = null;
 let xfloatCrop = null;
 let xfloatFrame = 0;
 let xfloatPaused = false;
+let xfloatExpanded = false;
+let xfloatDrawAt = 0;
+let stationTickFrame = 0;
+let stationTickAt = 0;
 
 function postXFloat(action, value) {
   window.postMessage({ type: "XFF_STATION_CONTROL", action, value }, location.origin);
@@ -177,6 +196,9 @@ function xfloatControls(on) {
 function stopXFloat({ notify = true } = {}) {
   if (xfloatFrame) cancelAnimationFrame(xfloatFrame);
   xfloatFrame = 0;
+  if (stationTickFrame) cancelAnimationFrame(stationTickFrame);
+  stationTickFrame = 0;
+  stationTickAt = 0;
   if (xfloatStream) for (const track of xfloatStream.getTracks()) track.stop();
   xfloatStream = null;
   if (xfloatPeer) xfloatPeer.close();
@@ -190,11 +212,16 @@ function stopXFloat({ notify = true } = {}) {
   if (notify) window.postMessage({ type: "XFF_STATION_STOP" }, location.origin);
 }
 
-function drawXFloat() {
+function drawXFloat(at = 0) {
   if (!xfloatStream || !xfloatCrop) {
     xfloatFrame = requestAnimationFrame(drawXFloat);
     return;
   }
+  if (at && at - xfloatDrawAt < 32) {
+    xfloatFrame = requestAnimationFrame(drawXFloat);
+    return;
+  }
+  xfloatDrawAt = at;
   const video = el("v"), canvas = el("cv"), host = el("body");
   if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth) {
     const viewport = xfloatCrop.viewport || { width: video.videoWidth, height: video.videoHeight };
@@ -205,7 +232,7 @@ function drawXFloat() {
     const sy = Math.max(0, (rect.top + (xfloatCrop.fractionalScrollOffset || 0)) * scaleY);
     const sw = Math.min(video.videoWidth - sx, rect.width * scaleX);
     const shAvailable = Math.min(video.videoHeight - sy, rect.height * scaleY);
-    const ratio = Math.min(2, devicePixelRatio || 1);
+    const ratio = Math.min(1.25, devicePixelRatio || 1);
     const tw = Math.max(280, Math.round(host.clientWidth * ratio));
     const th = Math.max(220, Math.round(host.clientHeight * ratio));
     if (canvas.width !== tw || canvas.height !== th) { canvas.width = tw; canvas.height = th; }
@@ -218,19 +245,37 @@ function drawXFloat() {
       /* A narrow pane should use every pixel. When the pane expands across
          the row, keep the feed at a readable, height-aware width instead of
          stretching the same X column into billboard-sized text. */
-      const readableCssWidth = Math.max(1, Math.min(
-        host.clientWidth - padCss * 2,
-        Math.max(320, host.clientHeight * 2.6),
-        680
-      ));
+      const profileScale = VIEW_PROFILE === "desk" ? 1.12 : VIEW_PROFILE === "compact" ? .92 : 1;
+      const sourceWidth = Math.max(1, Math.min(sw, sw / profileScale));
+      const sourceX = Math.max(sx, sx + (sw - sourceWidth) / 2);
+      const readableCssWidth = xfloatExpanded
+        ? Math.max(1, Math.min(host.clientWidth - padCss * 2, Math.max(420, host.clientHeight * 2.15), 540))
+        : Math.max(1, host.clientWidth - padCss * 2);
       const dw = Math.max(1, Math.round(readableCssWidth * ratio));
       const dx = Math.max(pad, Math.round((tw - dw) / 2));
-      const s2d = dw / sw;
+      const s2d = dw / sourceWidth;
       const sh = Math.min(shAvailable, th / s2d), dh = sh * s2d;
-      ctx.drawImage(video, sx, sy, sw, sh, dx, 0, dw, dh);
+      ctx.drawImage(video, sourceX, sy, sourceWidth, sh, dx, 0, dw, dh);
     }
   }
   xfloatFrame = requestAnimationFrame(drawXFloat);
+}
+
+function startStationClock() {
+  if (stationTickFrame) return;
+  const tick = (at) => {
+    if (!xfloatStream) { stationTickFrame = 0; return; }
+    /* The original X Feed Float clocks scrolling from its visible PiP window.
+       Station has no float window, so its visible pane supplies the clock.
+       This prevents Chrome from throttling the hidden X source tab and turning
+       a 3px/s crawl into one large background-tab step. */
+    if (!stationTickAt || at - stationTickAt >= 30) {
+      stationTickAt = at;
+      postXFloat("tick", { at: Date.now() });
+    }
+    stationTickFrame = requestAnimationFrame(tick);
+  };
+  stationTickFrame = requestAnimationFrame(tick);
 }
 
 async function attachXFloatStream(mediaStream) {
@@ -249,6 +294,7 @@ async function attachXFloatStream(mediaStream) {
   el("xfState").textContent = "live";
   el("xfState").classList.add("on");
   xfloatStream.getVideoTracks()[0]?.addEventListener("ended", () => stopXFloat({ notify: false }), { once: true });
+  startStationClock();
   drawXFloat();
 }
 
@@ -397,7 +443,14 @@ window.addEventListener("message", (event) => {
 });
 
 window.addEventListener("message", (event) => {
-  if (event.origin !== location.origin || event.data?.type !== "SCINTILLA_DECK_FULL_STATE") return;
+  if (event.origin !== location.origin) return;
+  if (event.data?.type === "SCINTILLA_VIEW_PROFILE") {
+    VIEW_PROFILE = VIEW_PROFILES.includes(event.data.view) ? event.data.view : "auto";
+    document.documentElement.dataset.view = VIEW_PROFILE;
+    tiny(); return;
+  }
+  if (event.data?.type !== "SCINTILLA_DECK_FULL_STATE") return;
+  xfloatExpanded = !!event.data.active;
   el("bFull").textContent = event.data.active ? "↙" : "⛶";
 });
 

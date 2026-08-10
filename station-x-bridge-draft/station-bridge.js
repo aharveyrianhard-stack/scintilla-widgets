@@ -1,12 +1,22 @@
 (() => {
   "use strict";
 
-  if (window.__XFF_STATION_BRIDGE_V074__) return;
-  window.__XFF_STATION_BRIDGE_V074__ = true;
+  if (window.__XFF_STATION_BRIDGE_V077__) return;
+  window.__XFF_STATION_BRIDGE_V077__ = true;
 
   const ORIGIN = window.location.origin;
   const isPane = /\/pane-x\/?$/.test(window.location.pathname);
   if (!isPane) return;
+  const INSTANCE_ID = crypto.randomUUID();
+
+  function runtimeMessage(message) {
+    try {
+      if (!chrome.runtime?.id) return Promise.resolve({ ok: false });
+      return chrome.runtime.sendMessage(message).catch(() => ({ ok: false }));
+    } catch (_) {
+      return Promise.resolve({ ok: false });
+    }
+  }
 
   function dimensions() {
     return {
@@ -17,10 +27,19 @@
 
   function ready() {
     window.postMessage({ type: "XFF_STATION_BRIDGE_READY" }, ORIGIN);
-    chrome.runtime.sendMessage({
+    runtimeMessage({
       type: "XFF_STATION_READY",
+      instanceId: INSTANCE_ID,
       ...dimensions()
-    }).catch(() => {});
+    }).then((result) => {
+      if (result?.ok && result.active === false) {
+        window.postMessage({
+          type: "XFF_STATION_STATUS",
+          status: "standby",
+          detail: "Mirroring the active Station display."
+        }, ORIGIN);
+      }
+    });
   }
 
   chrome.runtime.onMessage.addListener((message) => {
@@ -62,17 +81,18 @@
   window.addEventListener("message", (event) => {
     if (event.source !== window || event.origin !== ORIGIN) return;
     if (event.data?.type === "XFF_STATION_CONTROL") {
-      chrome.runtime.sendMessage({
+      runtimeMessage({
         type: "XFF_STATION_CONTROL",
+        instanceId: INSTANCE_ID,
         action: event.data.action,
         value: event.data.value
       }).catch(() => {});
     }
     if (event.data?.type === "XFF_STATION_STOP") {
-      chrome.runtime.sendMessage({ type: "XFF_STATION_STOP" }).catch(() => {});
+      runtimeMessage({ type: "XFF_STATION_STOP" });
     }
     if (event.data?.type === "XFF_STATION_OFFER") {
-      chrome.runtime.sendMessage({
+      runtimeMessage({
         type: "XFF_STATION_OFFER",
         offer: event.data.offer
       }).then((result) => {
@@ -91,11 +111,20 @@
   const heartbeat = setInterval(ready, 30000);
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(ready, 120);
+    resizeTimer = setTimeout(() => {
+      runtimeMessage({
+        type: "XFF_STATION_RESIZE",
+        instanceId: INSTANCE_ID,
+        ...dimensions()
+      }).catch(() => {});
+    }, 120);
   });
   window.addEventListener("pagehide", () => {
     clearInterval(heartbeat);
-    chrome.runtime.sendMessage({ type: "XFF_STATION_NOT_READY" }).catch(() => {});
+    runtimeMessage({
+      type: "XFF_STATION_NOT_READY",
+      instanceId: INSTANCE_ID
+    }).catch(() => {});
   });
 
   ready();

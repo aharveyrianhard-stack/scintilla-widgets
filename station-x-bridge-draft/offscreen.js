@@ -1,7 +1,7 @@
 "use strict";
 
 let captureStream = null;
-let peer = null;
+const peers = new Map();
 
 function waitForIceComplete(connection) {
   if (connection.iceGatheringState === "complete") return Promise.resolve();
@@ -16,12 +16,18 @@ function waitForIceComplete(connection) {
 }
 
 function stopCapture() {
-  if (peer) peer.close();
-  peer = null;
+  for (const peer of peers.values()) peer.close();
+  peers.clear();
   if (captureStream) {
     for (const track of captureStream.getTracks()) track.stop();
   }
   captureStream = null;
+}
+
+function dropPeer(peerId) {
+  const peer = peers.get(peerId);
+  if (peer) peer.close();
+  peers.delete(peerId);
 }
 
 async function startCapture(streamId) {
@@ -33,10 +39,10 @@ async function startCapture(streamId) {
         chromeMediaSourceId: streamId,
         minWidth: 240,
         minHeight: 240,
-        maxWidth: 2560,
-        maxHeight: 1440,
+        maxWidth: 1920,
+        maxHeight: 1080,
         minFrameRate: 10,
-        maxFrameRate: 60
+        maxFrameRate: 30
       }
     },
     audio: false
@@ -44,10 +50,13 @@ async function startCapture(streamId) {
   return { ok: true };
 }
 
-async function answerOffer(offer) {
+async function answerOffer(peerId, offer) {
   if (!captureStream) throw new Error("The Station X capture is not running.");
-  if (peer) peer.close();
-  peer = new RTCPeerConnection();
+  if (!peerId) throw new Error("The Station X receiver was not identified.");
+  const previous = peers.get(peerId);
+  if (previous) previous.close();
+  const peer = new RTCPeerConnection();
+  peers.set(peerId, peer);
   for (const track of captureStream.getTracks()) peer.addTrack(track, captureStream);
   await peer.setRemoteDescription(offer);
   await peer.setLocalDescription(await peer.createAnswer());
@@ -66,7 +75,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message.type === "XFF_OFFSCREEN_OFFER") {
-    answerOffer(message.offer)
+    answerOffer(message.peerId, message.offer)
       .then(sendResponse)
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
@@ -74,6 +83,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.type === "XFF_OFFSCREEN_STOP") {
     stopCapture();
+    sendResponse({ ok: true });
+  }
+
+  if (message.type === "XFF_OFFSCREEN_DROP") {
+    dropPeer(message.peerId);
     sendResponse({ ok: true });
   }
 });

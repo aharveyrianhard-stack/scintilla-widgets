@@ -53,6 +53,23 @@
   };
   let settingsReady = null;
 
+  function runtimeMessage(message) {
+    try {
+      if (!chrome.runtime?.id) {
+        return Promise.resolve({ ok: false, error: "Extension context invalidated." });
+      }
+      return chrome.runtime.sendMessage(message).catch((error) => ({
+        ok: false,
+        error: error?.message || "Extension message failed."
+      }));
+    } catch (error) {
+      return Promise.resolve({
+        ok: false,
+        error: error?.message || "Extension context invalidated."
+      });
+    }
+  }
+
   function loadSettings() {
     return new Promise((resolve) => {
       chrome.storage.local.get(STORAGE_KEY, (data) => {
@@ -607,7 +624,7 @@
   }
 
   async function requestCaptureStream() {
-    const response = await chrome.runtime.sendMessage({
+    const response = await runtimeMessage({
       type: "XFF_GET_STREAM_ID"
     });
 
@@ -1277,7 +1294,7 @@
   }
 
   async function showSourceWindow() {
-    const response = await chrome.runtime.sendMessage({
+    const response = await runtimeMessage({
       type: "XFF_SHOW_SOURCE_WINDOW"
     });
     if (!response?.ok) {
@@ -1308,7 +1325,7 @@
   }
 
   async function syncSourceZoom() {
-    const response = await chrome.runtime.sendMessage({ type: "XFF_GET_TAB_ZOOM" });
+    const response = await runtimeMessage({ type: "XFF_GET_TAB_ZOOM" });
     if (!response?.ok) {
       throw new Error(response?.error || "Chrome could not read the X zoom.");
     }
@@ -1325,7 +1342,7 @@
 
   async function setSourceZoom(value) {
     const requestedZoom = Math.max(0.25, Math.min(1, Number(value)));
-    const response = await chrome.runtime.sendMessage({
+    const response = await runtimeMessage({
       type: "XFF_SET_TAB_ZOOM",
       zoomFactor: requestedZoom
     });
@@ -1680,10 +1697,10 @@
     await connectCapture(app);
 
     startScrolling();
-    chrome.runtime.sendMessage({ type: "XFF_BADGE", active: true });
+    runtimeMessage({ type: "XFF_BADGE", active: true });
 
     if (session.settings.minimizeSourceOnOpen) {
-      const response = await chrome.runtime.sendMessage({
+      const response = await runtimeMessage({
         type: "XFF_MINIMIZE_SOURCE_WINDOW"
       });
       if (!response?.ok) {
@@ -1732,7 +1749,7 @@
     session.pointerPause = false;
     session.collapsed = false;
     session.closing = false;
-    chrome.runtime.sendMessage({ type: "XFF_BADGE", active: false });
+    runtimeMessage({ type: "XFF_BADGE", active: false });
   }
 
   function stationCropPayload() {
@@ -1756,28 +1773,33 @@
 
   function startStationRelay() {
     stopStationRelay();
-    const relay = () => {
-      if (!session.stationMode) return;
-      chrome.runtime.sendMessage({
-        type: "XFF_STATION_CROP",
-        crop: stationCropPayload()
-      }).catch(() => {});
-      // The Station canvas renders at animation-frame speed. Keep crop
-      // metadata near 30 Hz so the fractional scroll offset advances smoothly
-      // instead of jumping in the old 100 ms / 10 Hz steps.
-      session.stationRelayTimer = setTimeout(relay, 33);
-    };
-    relay();
+    if (!session.stationMode) return;
+    runtimeMessage({
+      type: "XFF_STATION_CROP",
+      crop: stationCropPayload()
+    }).catch(() => {});
   }
 
   async function startStationSource(consumer) {
     await settingsReady;
     if (session.pipWindow && !session.pipWindow.closed) closeViewer();
-    session.stationMode = true;
-    session.stationConsumer = {
+    const nextConsumer = {
       width: Math.max(1, Number(consumer?.width) || 430),
       height: Math.max(1, Number(consumer?.height) || 690)
     };
+
+    // A Station reload or second display may reattach to the approved capture.
+    // That must be an idempotent consumer update, not a source restart: view
+    // activation and alignment below both move the real X page.
+    if (session.stationMode) {
+      session.stationConsumer = nextConsumer;
+      applyCaptureColumnLayout();
+      scheduleCropTargetUpdate();
+      return;
+    }
+
+    session.stationMode = true;
+    session.stationConsumer = nextConsumer;
     session.pointerPause = false;
     session.activeView = ["trading", "notifications"].includes(session.settings.activeView)
       ? session.settings.activeView
@@ -1793,7 +1815,13 @@
     applyCaptureColumnLayout();
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     alignCaptureToFirstVisiblePost();
-    startScrolling();
+    /* The visible Station pane supplies a 30 Hz wall-clock tick. A hidden X
+       source tab cannot be trusted as the animation clock because Chrome may
+       throttle its requestAnimationFrame loop. */
+    session.scrollEnabled = true;
+    session.lastScrollTimestamp = null;
+    session.scrollCarryPx = 0;
+    updateUi();
     startStationRelay();
   }
 
@@ -1809,7 +1837,23 @@
 
   async function stationControl(action, value) {
     if (!session.stationMode) return;
-    if (action === "pause") {
+    if (action === "tick") {
+      const timestamp = Number(value?.at) || Date.now();
+      if (session.lastScrollTimestamp === null) session.lastScrollTimestamp = timestamp;
+      const elapsedMs = Math.max(0, Math.min(timestamp - session.lastScrollTimestamp, 100));
+      session.lastScrollTimestamp = timestamp;
+      if (!isPaused()) {
+        const root = document.scrollingElement || document.documentElement;
+        session.scrollCarryPx += (session.settings.speedPxPerSecond * elapsedMs) / 1000;
+        const wholePixels = Math.floor(session.scrollCarryPx);
+        if (wholePixels > 0) {
+          const before = root.scrollTop;
+          root.scrollTop = before + wholePixels;
+          session.scrollCarryPx = root.scrollTop > before ? session.scrollCarryPx - wholePixels : 0;
+        }
+      }
+      runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });
+    } else if (action === "pause") {
       setPointerPause(Boolean(value));
     } else if (action === "refresh") {
       await refreshCurrentView();

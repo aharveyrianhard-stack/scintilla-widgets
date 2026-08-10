@@ -53,16 +53,20 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-nchart__bar .sc-tv__pop{ position:static; margin-left:auto; flex:none; }
 .sc-nchart__area{ position:relative; flex:1 1 0; min-height:0; min-width:0; overflow:hidden; }
 .sc-nchart__cv{ position:absolute; inset:0; width:100%; height:100%; display:block;
-  touch-action:pan-y; }
+  touch-action:none; cursor:crosshair; }
+.sc-nchart__cv.is-panning{ cursor:grabbing; }
 .sc-nchart__hud{ position:absolute; top:4px; left:50%; z-index:3; pointer-events:none;
   transform:translateX(-50%); background:var(--panel2); border:.6px solid var(--line2);
   border-radius:3px; padding:2px 6px; font-family:var(--mono); font-size:8.5px;
   color:var(--ink); white-space:nowrap; }
-.sc-nchart__live{ position:absolute; top:5px; right:5px; z-index:3; pointer-events:none;
-  background:rgba(10,10,15,.86); border:.6px solid var(--line2); padding:2px 5px;
-  font:7.5px var(--mono); letter-spacing:.06em; color:var(--dim); white-space:nowrap; }
-.sc-nchart__live[data-fresh="1"]{ color:var(--bull); border-color:rgba(0,255,163,.35); }
-.sc-nchart__live[data-fresh="0"]{ color:var(--vol); border-color:rgba(255,138,0,.35); }
+.sc-nchart__live{ position:absolute; top:7px; right:7px; z-index:3; pointer-events:none;
+  display:flex; flex-direction:column; align-items:flex-end; gap:1px;
+  background:transparent; border:0; padding:0;
+  color:var(--dim); white-space:nowrap; text-shadow:0 1px 3px #000,0 0 8px #000; }
+.sc-nchart__live-price{ font:700 clamp(12px,1.65vw,16px) var(--mono); letter-spacing:.01em; line-height:1; }
+.sc-nchart__live-meta{ display:none; }
+.sc-nchart__live[data-fresh="1"]{ color:var(--bull); }
+.sc-nchart__live[data-fresh="0"]{ color:var(--vol); }
 .sc-nchart__msg{ position:absolute; inset:0; z-index:2; display:flex; align-items:center;
   justify-content:center; color:var(--dim); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
 .sc-nchart__msg[hidden]{ display:none; }
@@ -84,6 +88,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 /* bare mode — the Station owns ticker and timeframe. Hide the duplicated
    chart bar so the actual chart gets the full pane; standalone /chart keeps it. */
 html.bare .sc-nchart__bar{ display:none; }
+html[data-view="desk"] .sc-nchart__live-price{ font-size:18px; }
+html[data-view="compact"] .sc-nchart__live-price{ font-size:11px; }
 
 /* FIX 5 — IN-APP TradingView modal — ported verbatim */
 body.tvmodal-open{ overflow:hidden; }
@@ -189,6 +195,9 @@ const CHART_RANGES = ["15m", "30m", "1h", "2h", "3h", "4h", "6h", "12h", "1D", "
 
 /* ---- widget state (hub S stub) ---- */
 const QS = new URLSearchParams(location.search);
+const VIEW_PROFILES = ["auto","desk","display","compact"];
+let VIEW_PROFILE = VIEW_PROFILES.includes(QS.get("view")) ? QS.get("view") : "auto";
+document.documentElement.dataset.view = VIEW_PROFILE;
 /* BARE MODE (?bare=1) — used when /chart is a pane inside /deck.
    Two things change, and only these two:
      1. the per-chart range ladder is hidden, because the deck owns ONE
@@ -209,6 +218,9 @@ let liveQuote = {};
 /* ---- chart caches + colors — ported verbatim ---- */
 const chartCache = new Map();
 const CHART_HOSTS = new Set();
+const CHART_INITIAL_LIMIT = 400;
+const CHART_HISTORY_PAGE = 800;
+const CHART_DB_RANGE = {"15m":["15",400],"30m":["30",400],"1h":["60",400],"2h":["120",400],"3h":["180",400],"4h":["240",400],"6h":["6h",400],"12h":["12h",400],"1D":["D",400],"3D":["3D",400],"1W":["W",400]};
 let CH_COL = null;
 function chColors() {
   if (!CH_COL) {
@@ -228,15 +240,60 @@ function chApplyLivePoint(t, pts, quote) {
   else if (futureSet.has(t) || cryptoSet.has(t)) pts.push({ d, p:+quote.price });
   return pts;
 }
-const chPx = (p) => (p >= 1000 ? Math.round(p).toLocaleString()
-  : p >= 1 ? p.toFixed(2) : p.toFixed(4));
+const CH_DECIMALS = { GCUSD:1, CLUSD:2, SIUSD:3, DXUSD:3, ESUSD:2, NQUSD:2 };
+const chPx = (p, ticker = "") => {
+  const d = CH_DECIMALS[ticker] ?? (p >= 1 ? 2 : 4);
+  return p.toLocaleString("en-US", { minimumFractionDigits:d, maximumFractionDigits:d });
+};
+const chAxisPx = (p, step) => {
+  const a = Math.abs(p), s = Math.abs(step || 1);
+  if (a >= 10000 && s >= 1000) {
+    const d = s < 10000 ? 1 : 0;
+    return (p / 1000).toFixed(d).replace(/\.0$/, "") + "K";
+  }
+  const d = s >= 1 ? 0 : Math.min(4, Math.max(0, Math.ceil(-Math.log10(s))));
+  return p.toLocaleString("en-US", { minimumFractionDigits:d, maximumFractionDigits:d });
+};
 const chTimeFull = (d) => (d.length > 10 ? d.slice(0, 16) : d);
 const EV_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-function chTimeLbl(d, range) {
-  if (range === "15m" || range === "30m") return d.slice(11, 16) || d.slice(5, 10);
-  if (range === "1D" || range === "3D" || range === "1W") return d.slice(0, 7);
-  const m = d.match(/^\d{4}-(\d{2})-(\d{2})/);
-  return m ? (EV_MON[+m[1] - 1] || m[1]) + " " + (+m[2]) : d.slice(5, 10);
+function chTimeLbl(d, range, compact, spanMs) {
+  const iso = String(d || "");
+  const yr = iso.slice(0, 4);
+  const md = iso.slice(5, 10);
+  const hm = iso.length > 10 ? iso.slice(11, 16) : "";
+  if (["15m","30m","1h","2h","3h","4h","6h","12h"].includes(range)) {
+    if (!hm) return md || iso;
+    if (spanMs <= 36 * 3600000) return hm;
+    if (spanMs <= 45 * 86400000)
+      return compact ? iso.slice(8, 10) + " " + hm : md + " " + hm;
+    return compact ? md : yr + "-" + md;
+  }
+  if (range === "1D") {
+    if (spanMs <= 180 * 86400000) return md || iso.slice(0, 10);
+    if (spanMs <= 4 * 365.25 * 86400000) return iso.slice(0, 7);
+    return yr || iso;
+  }
+  if (range === "3D" || range === "1W")
+    return spanMs > 6 * 365.25 * 86400000 ? yr : iso.slice(0, 7);
+  const m = iso.match(/^\d{4}-(\d{2})-(\d{2})/);
+  return m ? (EV_MON[+m[1] - 1] || m[1]) + " " + (+m[2]) : md;
+}
+function chTimeParts(d, range, compact, spanMs) {
+  const iso = String(d || ""), yr = iso.slice(0, 4), md = iso.slice(5, 10);
+  const hm = iso.length > 10 ? iso.slice(11, 16) : "";
+  const intraday = ["15m","30m","1h","2h","3h","4h","6h","12h"].includes(range);
+  if (intraday && hm) {
+    if (spanMs <= 45 * 86400000) return [compact ? iso.slice(8, 10) : md, hm];
+    return [yr, md];
+  }
+  if (range === "1D") {
+    if (spanMs <= 180 * 86400000) return [yr, md];
+    if (spanMs <= 4 * 365.25 * 86400000) return [yr, iso.slice(5, 7)];
+    return [yr, ""];
+  }
+  if (range === "3D" || range === "1W")
+    return spanMs > 6 * 365.25 * 86400000 ? [yr, ""] : [yr, iso.slice(5, 7)];
+  return [chTimeLbl(iso, range, compact, spanMs), ""];
 }
 
 /* ---- CACHE-FIRST + DB-ONLY series fetch — ported verbatim (R30) ---- */
@@ -251,18 +308,33 @@ function chartSeriesCached(t, range) {
   }
   return null;
 }
-async function fetchChartSeries(t, range){
+async function fetchChartSeries(t, range, requestedLimit){
   const key = t + "|" + range;
   const hit = chartCache.get(key);
-  if (hit && Date.now() - hit.ts < 300000) return chApplyLivePoint(t, hit.pts, liveQuote[t]);
-  const RTF = {"15m":["15",200],"30m":["30",200],"1h":["60",200],"2h":["120",200],"3h":["180",200],"4h":["240",200],"6h":["6h",200],"12h":["12h",200],"1D":["D",190],"3D":["3D",260],"1W":["W",300]};
-  const e = RTF[range] || RTF["1D"];
-  const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + e[1]);
+  const e = CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"];
+  const limit = Math.max(e[1], Math.round(requestedLimit || e[1]));
+  if (hit && Date.now() - hit.ts < 300000 && (hit.limit || hit.pts.length) >= limit)
+    return chApplyLivePoint(t, hit.pts, liveQuote[t]);
+  const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + limit);
   let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
   pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
   chApplyLivePoint(t, pts, liveQuote[t]);
-  chartCache.set(key, { ts: Date.now(), pts: pts });
+  chartCache.set(key, { ts: Date.now(), pts: pts, limit:limit });
   if (pts.length >= 2) { try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {} }
+  return pts;
+}
+
+async function fetchOlderChartSeries(t, range, before, limit) {
+  const e = CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"];
+  const beforeTs = Math.floor(new Date(before).getTime() / 1000);
+  if (!Number.isFinite(beforeTs)) return [];
+  const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) +
+    "&tf=eq." + encodeURIComponent(e[0]) + "&timestamp=lt." + beforeTs +
+    "&select=timestamp,close&order=timestamp.desc&limit=" + Math.max(1, Math.round(limit || CHART_HISTORY_PAGE)));
+  const pts = (Array.isArray(rows) ? rows : []).map((r) => ({
+    d:new Date(r.timestamp * 1000).toISOString(), p:+r.close
+  })).filter((q) => Number.isFinite(q.p) && q.p > 0);
+  pts.sort((a,b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
   return pts;
 }
 
@@ -280,7 +352,7 @@ function scChartHTML(ticker) {
       POPOUT_SVG + "<span class=\"sc-tv__pop-lbl\"> TradingView</span></button>" +
     "</div>" +
     '<div class="sc-nchart__area"><canvas class="sc-nchart__cv"></canvas>' +
-    '<div class="sc-nchart__live" data-fresh="0">checking live…</div>' +
+    '<div class="sc-nchart__live" data-fresh="0"></div>' +
     '<div class="sc-nchart__hud" hidden></div>' +
     '<div class="sc-nchart__msg" hidden></div></div></div>';
 }
@@ -375,6 +447,69 @@ function closeTvModal() {
   document.body.classList.remove("tvmodal-open");
 }
 
+function chartView(host, pts) {
+  const last = Math.max(1, pts.length - 1);
+  let view = host._view;
+  if (!view || !isFinite(view.start) || !isFinite(view.end)) {
+    view = { start:0, end:last };
+    host._followLatest = true;
+  }
+  let span = Math.max(8, Math.min(last, Math.round(view.end - view.start)));
+  let start = Math.round(view.start), end = start + span;
+  if (start < 0) { end -= start; start = 0; }
+  if (end > last) { start -= end - last; end = last; }
+  host._view = { start:Math.max(0, start), end:Math.min(last, end) };
+  return host._view;
+}
+
+function broadcastChartView(host) {
+  if (!BARE || window.parent === window || host._broadcastQueued) return;
+  host._broadcastQueued = true;
+  requestAnimationFrame(() => {
+    host._broadcastQueued = false;
+    const pts = host._series, view = host._view;
+    if (!pts || !view || !pts[view.start] || !pts[view.end]) return;
+    try {
+      parent.postMessage({ sc:"chart-view", ticker:host.dataset.t,
+        from:pts[view.start].d, to:pts[view.end].d,
+        followLatest:host._followLatest !== false }, location.origin);
+    } catch (_) {}
+  });
+}
+
+function setChartView(host, start, end, followLatest, notify) {
+  const pts = host._series;
+  if (!pts || pts.length < 2) return;
+  const last = pts.length - 1;
+  let span = Math.max(8, Math.min(last, Math.round(end - start)));
+  start = Math.round(start); end = start + span;
+  if (start < 0) { end -= start; start = 0; }
+  if (end > last) { start -= end - last; end = last; }
+  host._view = { start:Math.max(0, start), end:Math.min(last, end) };
+  host._followLatest = followLatest == null ? host._view.end >= last : !!followLatest;
+  scChartDraw(host);
+  if (notify !== false) broadcastChartView(host);
+}
+
+function resetChartView(host, notify) {
+  host._view = null;
+  host._followLatest = true;
+  scChartDraw(host);
+  if (notify !== false) broadcastChartView(host);
+}
+
+function chartIndexAt(pts, iso, after) {
+  const target = new Date(iso).getTime();
+  if (!Number.isFinite(target) || !pts.length) return after ? 0 : Math.max(0, pts.length - 1);
+  let lo = 0, hi = pts.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (new Date(pts[mid].d).getTime() < target) lo = mid + 1; else hi = mid;
+  }
+  if (after) return Math.min(pts.length - 1, lo);
+  return Math.max(0, Math.min(pts.length - 1, lo < pts.length && pts[lo].d === iso ? lo : lo - 1));
+}
+
 function scChartDraw(host, scrubIx) {
   const area = host.querySelector(".sc-nchart__area");
   const cv = host.querySelector(".sc-nchart__cv");
@@ -391,50 +526,113 @@ function scChartDraw(host, scrubIx) {
   const pts = host._series;
   if (!pts || pts.length < 2) return;
   const col = chColors();
-  const padT = 8, padB = 15, padR = 46, padL = 6;
+  /* The old 58px price-axis reservation left a conspicuous empty gutter in
+     every small Station chart. Keep the min/max as bare overlay text and give
+     the plotted series almost the full pane instead. */
+  /* Matching compact axis bands give both scales a defined home. The lower
+     band has two rows (date/context above, time/detail below); the right band
+     is wide enough for rounded price ticks without becoming the old gutter. */
+  const axisBand = h < 130 ? 25 : 30;
+  const padT = 8, padB = axisBand, padR = axisBand, padL = 6;
   const iw = w - padL - padR, ih = h - padT - padB;
   if (iw < 10 || ih < 10) return;
+  const view = chartView(host, pts), start = view.start, end = view.end;
   let lo = Infinity, hi = -Infinity;
-  for (const q of pts) { if (q.p < lo) lo = q.p; if (q.p > hi) hi = q.p; }
+  for (let i = start; i <= end; i++) {
+    const q = pts[i]; if (q.p < lo) lo = q.p; if (q.p > hi) hi = q.p;
+  }
   const ref = (host._ref != null && isFinite(host._ref)) ? host._ref : pts[0].p;
-  let yLo = Math.min(lo, ref), yHi = Math.max(hi, ref);
+  let yLo = lo, yHi = hi;
   if (yHi === yLo) { yHi += 1; yLo -= 1; }
-  const X = (i) => padL + (i / (pts.length - 1)) * iw;
+  const yPad = (yHi - yLo) * .055;
+  yLo -= yPad; yHi += yPad;
+  /* TradingView-style right margin: the latest bar stays in a stable place
+     instead of jumping to the canvas edge as the user changes scale. */
+  const rightBars = end >= pts.length - 1 ? Math.max(2, Math.round((end - start) * .035)) : 0;
+  const X = (i) => padL + ((i - start) / Math.max(1, end - start + rightBars)) * iw;
   const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * ih;
-  host._plot = { padL, iw };
-  const up = pts[pts.length - 1].p >= ref;
+  host._plot = { padL, iw, start, end, rightBars };
+  const up = pts[end].p >= ref;
   const c = up ? col.bull : col.bear;
-  ctx.strokeStyle = col.dim; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-  ctx.beginPath(); ctx.moveTo(padL, Y(ref)); ctx.lineTo(padL + iw, Y(ref)); ctx.stroke();
-  ctx.setLineDash([]);
+  /* Use rounded, evenly meaningful price levels rather than labeling only the
+     accidental visible high and low. The levels adapt to pane height without
+     reopening the old empty right gutter. */
+  const wantedPriceTicks = h >= 330 ? 7 : h >= 235 ? 6 : h >= 155 ? 5 : 4;
+  const rawStep = Math.max(Number.EPSILON, (yHi - yLo) / Math.max(2, wantedPriceTicks - 1));
+  const stepPow = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const stepRatio = rawStep / stepPow;
+  const niceRatio = stepRatio <= 1 ? 1 : stepRatio <= 2 ? 2 : stepRatio <= 2.5 ? 2.5 : stepRatio <= 5 ? 5 : 10;
+  const priceStep = niceRatio * stepPow;
+  const priceTicks = [];
+  for (let v = Math.ceil(yLo / priceStep) * priceStep;
+       v <= yHi + priceStep * .001 && priceTicks.length < 10; v += priceStep)
+    priceTicks.push(+v.toPrecision(12));
+  ctx.save();
+  ctx.strokeStyle = col.dim; ctx.lineWidth = 1; ctx.globalAlpha = .12;
+  for (const v of priceTicks) {
+    const yy = Math.round(Y(v)) + .5;
+    ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + iw, yy); ctx.stroke();
+  }
+  ctx.restore();
+  if (ref >= yLo && ref <= yHi) {
+    ctx.strokeStyle = col.dim; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(padL, Y(ref)); ctx.lineTo(padL + iw, Y(ref)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
   const trace = () => {
-    ctx.moveTo(X(0), Y(pts[0].p));
-    for (let i = 1; i < pts.length - 1; i++) {
+    ctx.moveTo(X(start), Y(pts[start].p));
+    for (let i = start + 1; i < end; i++) {
       const x1 = X(i), y1 = Y(pts[i].p), x2 = X(i + 1), y2 = Y(pts[i + 1].p);
       ctx.quadraticCurveTo(x1, y1, (x1 + x2) / 2, (y1 + y2) / 2);
     }
-    ctx.lineTo(X(pts.length - 1), Y(pts[pts.length - 1].p));
+    ctx.lineTo(X(end), Y(pts[end].p));
   };
+  ctx.save(); ctx.beginPath(); ctx.rect(padL, padT, iw, ih); ctx.clip();
   const g = ctx.createLinearGradient(0, padT, 0, padT + ih);
   g.addColorStop(0, c + "3D"); g.addColorStop(1, c + "00");
   ctx.beginPath(); trace();
-  ctx.lineTo(X(pts.length - 1), padT + ih); ctx.lineTo(X(0), padT + ih); ctx.closePath();
+  ctx.lineTo(X(end), padT + ih); ctx.lineTo(X(start), padT + ih); ctx.closePath();
   ctx.fillStyle = g; ctx.fill();
   ctx.beginPath(); trace();
   ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
   ctx.stroke();
-  ctx.beginPath(); ctx.arc(X(pts.length - 1), Y(pts[pts.length - 1].p), 2.5, 0, Math.PI * 2);
-  ctx.fillStyle = c; ctx.fill();
-  ctx.font = '8.5px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-  ctx.fillStyle = col.ink2; ctx.textAlign = "right";
-  ctx.fillText(chPx(hi), w - 3, Math.max(padT + 7, Y(hi) + 3));
-  ctx.fillText(chPx(lo), w - 3, Math.min(h - padB - 1, Y(lo) + 3));
-  ctx.font = '7.5px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  if (end === pts.length - 1) {
+    ctx.beginPath(); ctx.arc(X(end), Y(pts[end].p), 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = c; ctx.fill();
+  }
+  ctx.restore();
+  ctx.save();
+  ctx.font = '9px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  ctx.fillStyle = col.ink2; ctx.globalAlpha = .78; ctx.textAlign = "right";
+  ctx.shadowColor = "#000"; ctx.shadowBlur = 4;
+  for (const v of priceTicks) {
+    const yy = Y(v);
+    if (yy >= padT + 6 && yy <= h - padB - 2) ctx.fillText(chAxisPx(v, priceStep), w - 3, yy + 3);
+  }
+  ctx.restore();
+  const timeFont = VIEW_PROFILE === "desk" ? 9 : VIEW_PROFILE === "compact" ? 7.25 : 8.25;
+  ctx.font = timeFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.fillStyle = col.dim;
-  for (let k = 0; k < 4; k++) {
-    const ix = Math.round((k / 3) * (pts.length - 1));
-    ctx.textAlign = k === 0 ? "left" : k === 3 ? "right" : "center";
-    ctx.fillText(chTimeLbl(pts[ix].d, host._range || S.chartRange), X(ix), h - 4);
+  const firstMs = new Date(pts[start].d).getTime(), lastMs = new Date(pts[end].d).getTime();
+  const visibleSpanMs = Math.max(0, lastMs - firstMs);
+  const intraday = ["15m","30m","1h","2h","3h","4h","6h","12h"].includes(host._range || S.chartRange);
+  const compactAxis = iw < 310;
+  const targetSpacing = intraday ? (compactAxis ? 56 : 76) : (compactAxis ? 48 : 62);
+  const timeTickCount = Math.max(3, Math.min(12, Math.floor(iw / targetSpacing) + 1));
+  const drawnTimes = new Set();
+  for (let k = 0; k < timeTickCount; k++) {
+    const ix = Math.round(start + (k / Math.max(1, timeTickCount - 1)) * (end - start));
+    const parts = chTimeParts(pts[ix].d, host._range || S.chartRange, compactAxis, visibleSpanMs);
+    const key = parts.join("|");
+    if (!parts[0] || drawnTimes.has(key)) continue;
+    drawnTimes.add(key);
+    ctx.textAlign = k === 0 ? "left" : k === timeTickCount - 1 ? "right" : "center";
+    ctx.fillText(parts[0], X(ix), h - padB + 10);
+    if (parts[1]) {
+      ctx.globalAlpha = .78;
+      ctx.fillText(parts[1], X(ix), h - 4);
+      ctx.globalAlpha = 1;
+    }
   }
   if (scrubIx != null && pts[scrubIx]) {
     const sx = X(scrubIx);
@@ -448,6 +646,12 @@ function scChartDraw(host, scrubIx) {
 async function scChartLoad(host) {
   const t = host.dataset.t, range = S.chartRange;
   const req = t + "|" + range;
+  if (host._req !== req) {
+    host._view = null;
+    host._followLatest = true;
+    host._historyLimit = CHART_INITIAL_LIMIT;
+    host._historyExhausted = false;
+  }
   host._req = req; host._range = range;
   const msg = host.querySelector(".sc-nchart__msg");
   const cachedPts = chartSeriesCached(t, range);
@@ -458,10 +662,12 @@ async function scChartLoad(host) {
     scChartDraw(host);
   }
   try {
-    const pts = await fetchChartSeries(t, range);
+    const limit = host._historyLimit || CHART_INITIAL_LIMIT;
+    const pts = await fetchChartSeries(t, range, limit);
     if (host._req !== req || !host.isConnected) return;
     if (!pts || pts.length < 2) throw new Error("empty");
     host._series = pts;
+    host._historyExhausted = pts.length < limit;
     host._ref = (range === "15m" && prevClose[t] != null) ? +prevClose[t] : pts[0].p;
     if (msg) msg.hidden = true;
     scChartDraw(host);
@@ -475,30 +681,149 @@ async function scChartLoad(host) {
   }
 }
 
+async function expandChartHistory(host, targetFrom, notify) {
+  if (host._historyExhausted) return;
+  if (host._historyLoading) return host._historyLoading;
+  host._historyLoading = (async () => {
+    try {
+      let pages = 0;
+      do {
+        const current = host._series || [];
+        if (!current.length) return;
+        const older = await fetchOlderChartSeries(host.dataset.t, host._range || S.chartRange,
+          current[0].d, CHART_HISTORY_PAGE);
+        if (!host.isConnected || !older.length) { host._historyExhausted = true; break; }
+        const merged = new Map();
+        for (const p of older.concat(current)) merged.set(p.d, p);
+        host._series = Array.from(merged.values()).sort((a,b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
+        host._historyLimit = host._series.length;
+        host._historyExhausted = older.length < CHART_HISTORY_PAGE;
+        const key = host.dataset.t + "|" + (host._range || S.chartRange);
+        chartCache.set(key, { ts:Date.now(), pts:host._series, limit:host._series.length });
+        try { cacheSet("sc_chart_" + key, { pts:host._series }); } catch (_) {}
+        pages++;
+      } while (targetFrom && !host._historyExhausted &&
+        new Date(host._series[0].d) > new Date(targetFrom) && pages < 12);
+
+      if (!targetFrom) {
+        host._view = null;
+        host._followLatest = true;
+        scChartDraw(host);
+        if (notify !== false) broadcastChartView(host);
+      }
+    } catch (_) {
+      /* Keep the current usable view if older history is unavailable. */
+    }
+  })();
+  try { await host._historyLoading; } finally { host._historyLoading = null; }
+}
+
+async function applySharedChartView(host, msg) {
+  const token = (host._syncToken || 0) + 1;
+  host._syncToken = token;
+  let attempts = 0;
+  while (host._series?.length && !host._historyExhausted &&
+    new Date(host._series[0].d) > new Date(msg.from) && attempts++ < 2)
+    await expandChartHistory(host, msg.from, false);
+  if (host._syncToken !== token || !host._series?.length) return;
+  const start = chartIndexAt(host._series, msg.from, true);
+  const end = chartIndexAt(host._series, msg.to, false);
+  setChartView(host, start, Math.max(start + 8, end), !!msg.followLatest, false);
+}
+
 function scChartScrub(host) {
   const cv = host.querySelector(".sc-nchart__cv");
   const hud = host.querySelector(".sc-nchart__hud");
   if (!cv) return;
+  const pointers = new Map();
+  let gesture = null;
   const show = (clientX) => {
     const pts = host._series, plot = host._plot;
     if (!pts || pts.length < 2 || !plot) return;
     const r = cv.getBoundingClientRect();
     let f = (clientX - r.left - plot.padL) / plot.iw;
     f = Math.max(0, Math.min(1, f));
-    const ix = Math.round(f * (pts.length - 1));
+    const ix = Math.round(plot.start + f * (plot.end - plot.start));
     scChartDraw(host, ix);
     if (hud) {
-      hud.textContent = chPx(pts[ix].p) + " · " + chTimeFull(pts[ix].d);
+      hud.textContent = chPx(pts[ix].p, host.dataset.t) + " · " + chTimeFull(pts[ix].d);
       hud.style.left = Math.max(44, Math.min(r.width - 44, plot.padL + f * plot.iw)) + "px";
       hud.hidden = false;
     }
   };
-  const hide = () => { host._down = false; if (hud) hud.hidden = true; if (host._series) scChartDraw(host); };
-  cv.addEventListener("pointerdown", (e) => { host._down = true; show(e.clientX); });
-  cv.addEventListener("pointermove", (e) => { if (host._down || e.pointerType === "mouse") show(e.clientX); });
-  cv.addEventListener("pointerup", hide);
-  cv.addEventListener("pointercancel", hide);
-  cv.addEventListener("pointerleave", hide);
+  const hideHud = () => { if (hud) hud.hidden = true; };
+  const snapshot = () => {
+    const pts = host._series || [], v = chartView(host, pts);
+    return { start:v.start, end:v.end };
+  };
+  const pinchStart = () => {
+    const a = Array.from(pointers.values()).slice(0, 2);
+    if (a.length < 2) return;
+    const r = cv.getBoundingClientRect(), v = snapshot();
+    gesture = { type:"pinch", distance:Math.max(1, Math.hypot(a[1].x-a[0].x, a[1].y-a[0].y)),
+      center:(a[0].x+a[1].x)/2, rect:r, view:v };
+    hideHud();
+  };
+  cv.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+    pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if (pointers.size >= 2) pinchStart();
+    else gesture = { type:"pending", x:e.clientX, view:snapshot() };
+  });
+  cv.addEventListener("pointermove", (e) => {
+    if (!pointers.has(e.pointerId)) { if (e.pointerType === "mouse") show(e.clientX); return; }
+    pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if (pointers.size >= 2) {
+      if (!gesture || gesture.type !== "pinch") pinchStart();
+      const a = Array.from(pointers.values()).slice(0, 2);
+      const distance = Math.max(1, Math.hypot(a[1].x-a[0].x, a[1].y-a[0].y));
+      const base = gesture.view, baseSpan = base.end - base.start;
+      const span = Math.max(8, Math.min((host._series?.length || 2)-1, baseSpan * gesture.distance / distance));
+      /* Scale gestures always preserve the newest point. A deliberate drag is
+         still the one explicit way to leave the live edge and inspect history. */
+      const last = (host._series?.length || 1) - 1;
+      setChartView(host, last - span, last, true);
+      return;
+    }
+    const dx = e.clientX - gesture.x;
+    if (gesture.type === "pending" && Math.abs(dx) > 4) gesture.type = "pan";
+    if (gesture.type === "pan") {
+      cv.classList.add("is-panning"); hideHud();
+      const span = gesture.view.end - gesture.view.start;
+      const shift = -dx / Math.max(1, host._plot?.iw || cv.clientWidth) * span;
+      setChartView(host, gesture.view.start + shift, gesture.view.end + shift, false);
+    } else if (e.pointerType === "mouse") show(e.clientX);
+  });
+  const release = (e) => {
+    pointers.delete(e.pointerId); cv.classList.remove("is-panning"); hideHud();
+    if (pointers.size === 1) {
+      const p = Array.from(pointers.values())[0]; gesture = { type:"pending", x:p.x, view:snapshot() };
+    } else gesture = null;
+    if (host._series) scChartDraw(host);
+  };
+  cv.addEventListener("pointerup", release);
+  cv.addEventListener("pointercancel", release);
+  cv.addEventListener("pointerleave", (e) => {
+    if (!pointers.has(e.pointerId)) { hideHud(); if (host._series) scChartDraw(host); }
+  });
+  cv.addEventListener("wheel", (e) => {
+    e.preventDefault(); hideHud();
+    const pts = host._series, plot = host._plot;
+    if (!pts || pts.length < 2 || !plot) return;
+    const oldSpan = plot.end-plot.start;
+    /* A horizontal two-finger gesture pans, as it does on TradingView. */
+    if (Math.abs(e.deltaX) > 2 && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.35) {
+      const shift = e.deltaX / Math.max(1, plot.iw) * oldSpan;
+      setChartView(host, plot.start + shift, plot.end + shift, false);
+      return;
+    }
+    const newSpan = Math.max(8, Math.min(pts.length-1, oldSpan * Math.exp(e.deltaY*.0018)));
+    if (e.deltaY > 0 && newSpan >= pts.length - 2) expandChartHistory(host);
+    const last = pts.length - 1;
+    setChartView(host, last-newSpan, last, true);
+  }, { passive:false });
+  cv.addEventListener("dblclick", (e) => { e.preventDefault(); hideHud(); resetChartView(host); });
 }
 
 function scChartWire(slot) {
@@ -519,6 +844,18 @@ function scChartWire(slot) {
   scChartLoad(host);
 }
 
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin) return;
+  if (event.data?.type === "SCINTILLA_VIEW_PROFILE") {
+    VIEW_PROFILE = VIEW_PROFILES.includes(event.data.view) ? event.data.view : "auto";
+    document.documentElement.dataset.view = VIEW_PROFILE;
+    for (const host of CHART_HOSTS) if (host.isConnected) scChartDraw(host);
+    return;
+  }
+  if (event.data?.type !== "SCINTILLA_CHART_VIEW") return;
+  for (const host of CHART_HOSTS) if (host.isConnected) applySharedChartView(host, event.data);
+});
+
 function setChartTicker(t) {
   t = String(t || "").toUpperCase().trim();
   if (!t) return;
@@ -528,6 +865,7 @@ function setChartTicker(t) {
   if (!host) return;
   host.dataset.t = t;
   host._series = null;
+  host._view = null;
   const sym = TV_MAP[t] || t;
   const pop = host.querySelector(".sc-tv__pop");
   if (pop) pop.dataset.sym = sym;
@@ -544,7 +882,10 @@ function scChartLive(t, price, updatedTs) {
     paintLiveStatus(host, liveQuote[t]);
     const s = host._series;
     if (!s || !s.length) continue;
+    const atRight = !host._view || host._view.end >= s.length - 1;
+    const span = host._view ? host._view.end - host._view.start : 0;
     chApplyLivePoint(t, s, liveQuote[t]);
+    if (atRight && host._view) host._view = { start:Math.max(0, s.length-1-span), end:s.length-1 };
     scChartDraw(host);
   }
 }
@@ -556,9 +897,25 @@ function paintLiveStatus(host, quote) {
   const age = Date.now() - at.getTime();
   const fresh = Number.isFinite(age) && age < 90000;
   badge.dataset.fresh = fresh ? "1" : "0";
-  badge.textContent = chPx(+quote.price) + " · " + (fresh ? "LIVE " : "LAST ") +
+  let price = badge.querySelector(".sc-nchart__live-price");
+  let meta = badge.querySelector(".sc-nchart__live-meta");
+  if (!price || !meta) {
+    badge.replaceChildren();
+    price = document.createElement("strong");
+    price.className = "sc-nchart__live-price";
+    meta = document.createElement("span");
+    meta.className = "sc-nchart__live-meta";
+    badge.append(price, meta);
+  }
+  price.textContent = chPx(+quote.price, host.dataset.t);
+  const quoteKind = futureSet.has(host.dataset.t) ? "DELAYED " : (fresh ? "LIVE " : "LAST ");
+  meta.textContent = quoteKind +
     at.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit", second:"2-digit" });
-  badge.title = "live_quotes · " + at.toISOString();
+  badge.title = (futureSet.has(host.dataset.t) ? "delayed futures quote · database refresh " : "live_quotes · ") + at.toISOString();
+  try {
+    parent.postMessage({ sc:"chart-status", ticker:host.dataset.t, updatedTs:at.toISOString(),
+      fresh, delayed:futureSet.has(host.dataset.t), source:"live_quotes" }, location.origin);
+  } catch (_) {}
 }
 
 /* prev_close for the 15m reference line — live_quotes served value (hub source) */
