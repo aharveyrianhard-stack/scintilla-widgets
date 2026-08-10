@@ -65,8 +65,9 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   color:var(--dim); white-space:nowrap; text-shadow:0 1px 3px #000,0 0 8px #000; }
 .sc-nchart__live-price{ font:700 clamp(12px,1.65vw,16px) var(--mono); letter-spacing:.01em; line-height:1; }
 .sc-nchart__live-meta{ display:none; }
-.sc-nchart__live[data-fresh="1"]{ color:var(--bull); }
-.sc-nchart__live[data-fresh="0"]{ color:var(--vol); }
+.sc-nchart__live[data-up="1"]{ color:var(--bull); }
+.sc-nchart__live[data-up="0"]{ color:var(--bear); }
+.sc-nchart__live[data-fresh="0"]{ opacity:.72; }
 .sc-nchart__msg{ position:absolute; inset:0; z-index:2; display:flex; align-items:center;
   justify-content:center; color:var(--dim); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
 .sc-nchart__msg[hidden]{ display:none; }
@@ -602,15 +603,15 @@ function scChartDraw(host, scrubIx) {
   }
   ctx.restore();
   ctx.save();
-  ctx.font = '9px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-  ctx.fillStyle = col.ink2; ctx.globalAlpha = .78; ctx.textAlign = "right";
+  ctx.font = '8px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  ctx.fillStyle = col.ink2; ctx.globalAlpha = .56; ctx.textAlign = "right";
   ctx.shadowColor = "#000"; ctx.shadowBlur = 4;
   for (const v of priceTicks) {
     const yy = Y(v);
     if (yy >= padT + 6 && yy <= h - padB - 2) ctx.fillText(chAxisPx(v, priceStep), w - 3, yy + 3);
   }
   ctx.restore();
-  const timeFont = VIEW_PROFILE === "desk" ? 9 : VIEW_PROFILE === "compact" ? 7.25 : 8.25;
+  const timeFont = VIEW_PROFILE === "desk" ? 8 : VIEW_PROFILE === "compact" ? 7 : 7.75;
   ctx.font = timeFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.fillStyle = col.dim;
   const firstMs = new Date(pts[start].d).getTime(), lastMs = new Date(pts[end].d).getTime();
@@ -657,7 +658,7 @@ async function scChartLoad(host) {
   const cachedPts = chartSeriesCached(t, range);
   if (cachedPts && cachedPts.length >= 2) {
     host._series = cachedPts;
-    host._ref = (range === "15m" && prevClose[t] != null) ? +prevClose[t] : cachedPts[0].p;
+    host._ref = prevClose[t] != null ? +prevClose[t] : cachedPts[0].p;
     if (msg) msg.hidden = true;
     scChartDraw(host);
   }
@@ -668,7 +669,7 @@ async function scChartLoad(host) {
     if (!pts || pts.length < 2) throw new Error("empty");
     host._series = pts;
     host._historyExhausted = pts.length < limit;
-    host._ref = (range === "15m" && prevClose[t] != null) ? +prevClose[t] : pts[0].p;
+    host._ref = prevClose[t] != null ? +prevClose[t] : pts[0].p;
     if (msg) msg.hidden = true;
     scChartDraw(host);
   } catch (err) {
@@ -879,6 +880,7 @@ function scChartLive(t, price, updatedTs) {
   liveQuote[t] = { price:+price, updated_ts:updatedTs || Date.now() };
   for (const host of CHART_HOSTS) {
     if (!host.isConnected || host.dataset.t !== t) continue;
+    if (prevClose[t] != null && isFinite(prevClose[t])) host._ref = +prevClose[t];
     paintLiveStatus(host, liveQuote[t]);
     const s = host._series;
     if (!s || !s.length) continue;
@@ -897,6 +899,9 @@ function paintLiveStatus(host, quote) {
   const age = Date.now() - at.getTime();
   const fresh = Number.isFinite(age) && age < 90000;
   badge.dataset.fresh = fresh ? "1" : "0";
+  const dayRef = prevClose[host.dataset.t];
+  if (dayRef != null && isFinite(dayRef)) badge.dataset.up = +quote.price >= +dayRef ? "1" : "0";
+  else delete badge.dataset.up;
   let price = badge.querySelector(".sc-nchart__live-price");
   let meta = badge.querySelector(".sc-nchart__live-meta");
   if (!price || !meta) {
@@ -918,7 +923,8 @@ function paintLiveStatus(host, quote) {
   } catch (_) {}
 }
 
-/* prev_close for the 15m reference line — live_quotes served value (hub source) */
+/* Previous regular-session close is the day reference for every timeframe.
+   The visible window controls geometry only; it must not change red/green. */
 async function pullPrevClose(t) {
   try {
     const rows = await pg("live_quotes?ticker=eq." + encodeURIComponent(t) + "&select=ticker,prev_close,price,updated_ts", 1);
