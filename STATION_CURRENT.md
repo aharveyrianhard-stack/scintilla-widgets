@@ -1,20 +1,22 @@
-# SCINTILLA Station — current release candidate
+# SCINTILLA Station — current state
 
 Updated: 2026-08-10 (America/New_York)
 
-This is the present-tense record for the **admitted remote release candidate**. It is pushed to [widgets PR #2](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/2) and has a successful protected Vercel preview, but it is **not yet merged, production, or attached to `station.scintillahub.ai`**. The exact immutable candidate revision and preview deployment are recorded in the corresponding AIOS submission for the current PR head.
+This is the present-tense record for the live Station and the separately admitted Scenes v1 preview. The verified Station release is public at `station.scintillahub.ai`; Scenes v1 remains a review candidate and has not changed production.
 
 ## Remote review and delivery state
 
-- Review: [scintilla-widgets PR #2](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/2)
-- Protected preview: `https://scintilla-widgets-git-age-4d4014-aharveyrianhard-8432s-projects.vercel.app/deck/`
+- Production source: `scintilla-widgets` main at `2a8da57091c2e15cb7d40c5ce0f9844ec3511f0a`
+- Public Station: `https://station.scintillahub.ai/` (routes to `/deck/`)
+- Scenes v1 review: [scintilla-widgets PR #3](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/3)
+- Scenes v1 protected preview: `https://scintilla-widgets-git-age-ede4c4-aharveyrianhard-8432s-projects.vercel.app/deck/`
 - Canonical product route: `/deck/`
-- Intended public URL after independent PASS and production release: `https://station.scintillahub.ai/deck/`
-- Production status: **not yet production**
+- Production status: **live**; Scenes v1 is **preview only** pending independent review
 
 ## Open now
 
-- Local development evidence only (never delivery): `http://127.0.0.1:4317/deck/?rev=082&charts=2&range=2h&c1=SPY&c2=QQQ&c3=BTCUSD&c4=ABNB&c5=ABT&c6=ADBE`
+- Open the live Station: `https://station.scintillahub.ai/`
+- Localhost URLs are development evidence only; they are never delivery.
 - Station with X expanded across the lower row: add `&full=x` to the active Station URL.
 - Current saved example: two visible two-hour charts, SPY and QQQ. Four additional editable slots remain remembered as Bitcoin, Airbnb, Abbott, and Adobe when the chart-count selector is increased; none is a fixed bundle.
 - The `DISPLAY ↗` control opens the same Station in a dedicated second window. For Apple TV, put that window on an AirPlay **separate display**; ordinary mirroring follows the Mac and does not let the Hub remain independent.
@@ -130,10 +132,10 @@ The underlying rows are not mixed: Megyn Kelly and LastWeekTonight/John Oliver e
 
 ## Current X acceptance boundary
 
-The repeating-post diagnosis was reproduced in real Chrome before the `0.7.7` correction: the supplied screen recording shows the offline/reset state at 10.95, 40.95, and 70.95 seconds, matching the old 30-second reconnect behavior. The heartbeat-safe bridge passed sustained monitoring. Version `0.7.14` retains that correction, uses one capture for multiple live Station receivers, deduplicates clock pulses from every viewer, transfers action control to whichever viewer Alan touches, and hardens extension reload recovery. The correction is committed and pushed in [widgets PR #2](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/2), and the Station candidate is remotely previewed at the protected `/deck/` URL above. It is **not yet merged or deployed to production**, and the production-host X path remains pending independent PASS plus exact-host verification. Localhost results are development evidence only; they are not delivery.
+The repeating-post diagnosis was reproduced in real Chrome before the `0.7.7` correction: the supplied screen recording shows the offline/reset state at 10.95, 40.95, and 70.95 seconds, matching the old 30-second reconnect behavior. The heartbeat-safe bridge passed sustained monitoring. Version `0.7.14` retains that correction, uses one capture for multiple live Station receivers, deduplicates clock pulses from every viewer, transfers action control to whichever viewer Alan touches, and hardens extension reload recovery. The verified bridge is live against the exact production host. The separately previewed Scenes v1 work does not modify the bridge or multiply X capture. Localhost results remain development evidence only; they are not delivery.
 
 ## Permanent X architecture direction
 
-The unpacked Chrome helper is the current proof and private fallback, not the desired permanent command-center foundation. A normal web page cannot directly embed, scroll, or read an authenticated X timeline because X blocks framing and the browser isolates another logged-in tab. For continuous viewing, the durable primary is an installed local **Station Bridge** on the always-on iMac: it owns one dedicated authenticated X browser session, captures and scrolls it once, and sends the pixels peer-to-peer to every authorized Station view. `https://station.scintillahub.ai/deck/` is the intended interface after production release; the bridge is an invisible local capability rather than a setup repeated per Station window. The intended visible contract is one `Share X` / `Stop sharing` switch; reconnects, version alignment, stale-context cleanup, additional viewers, and source recovery are automatic.
+The unpacked Chrome helper is the current private bridge, not the desired permanent command-center foundation. A normal web page cannot directly embed, scroll, or read an authenticated X timeline because X blocks framing and the browser isolates another logged-in tab. For continuous viewing, the durable primary is an installed local **Station Bridge** on the always-on iMac: it owns one dedicated authenticated X browser session, captures and scrolls it once, and sends the pixels peer-to-peer to every authorized Station view. `https://station.scintillahub.ai/` is the live interface; the bridge is an invisible local capability rather than a setup repeated per Station window. The intended visible contract is one `Share X` / `Stop sharing` switch; reconnects, version alignment, stale-context cleanup, additional viewers, and source recovery are automatic.
 
 Alan explicitly permits a cloud-held X login for a later structured reader. That reader should extract post text, images, author, timestamps, source view, and provenance on demand or on a bounded schedule, then let Station render native independent panes for iPad and sentiment analysis. It should not be confused with the continuous pixel wall. A live account inspection on 2026-08-10 proved that the existing Cloudflare account is on **Workers Free**, whose Browser Run allowance is 10 minutes/day. Continuous 24/7 Browser Run would require Workers Paid plus roughly 710 metered browser-hours/month (about $64/month at the current $0.09/hour overage, before the $5 plan fee), so it is not the default continuous source. Existing R2 usage does not include or upgrade Browser Run.
