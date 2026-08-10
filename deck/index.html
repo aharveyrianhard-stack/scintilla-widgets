@@ -88,7 +88,14 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .tkin:focus{ border-color:var(--crk); color:var(--crk); }
 .chart-count{ width:54px; background:var(--panel2); border:1px solid var(--line); color:var(--crk);
   font:9px var(--mono); letter-spacing:.08em; padding:3px 5px; border-radius:0; outline:none; }
+.view-mode{ width:78px; background:var(--panel2); border:1px solid var(--line); color:var(--crk);
+  font:8.5px var(--mono); letter-spacing:.06em; padding:3px 5px; border-radius:0; outline:none;
+  text-transform:uppercase; }
 #tickers{ display:flex; gap:4px; flex-wrap:wrap; }
+.ph .tkin{ width:96px; padding:1px 4px; text-align:left; background:transparent;
+  border-color:transparent; color:var(--ink2); font-size:8.5px; }
+.ph .tkin:hover{ border-color:var(--line); }
+.ph .tkin:focus{ border-color:var(--crk); color:var(--crk); background:var(--bg); }
 #symbolGuide{ position:fixed; z-index:80; display:none; width:min(390px,calc(100vw - 18px));
   max-height:300px; overflow:auto; background:var(--panel2); border:1px solid var(--hair);
   box-shadow:0 16px 42px rgba(0,0,0,.65); }
@@ -162,15 +169,30 @@ body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
 #why p{ color:var(--ink2); font-size:10px; line-height:1.7; margin:0 0 8px; }
 #why b{ color:var(--ink); }
 #why .x{ float:right; cursor:pointer; color:var(--dim); }
-#size{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; margin-left:auto; white-space:nowrap; }
+#marketStatus{ color:var(--ink2); font-size:9.5px; font-weight:600; letter-spacing:.07em;
+  margin-left:auto; white-space:nowrap; font-variant-numeric:tabular-nums; }
+#marketStatus[data-fresh="1"]{ color:var(--bull); }
+#marketStatus[data-delayed="1"]{ color:var(--vol); }
+#size{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; white-space:nowrap; }
+body[data-view="desk"] #bar,body[data-view="desk"] #tfbar{ gap:7px; padding-top:6px; padding-bottom:6px; }
+body[data-view="desk"] .btn{ font-size:9.5px; padding:4px 9px; }
+body[data-view="desk"] .tkin{ font-size:10px; }
+body[data-view="compact"] #bar{ padding-top:3px; padding-bottom:3px; }
+body[data-view="compact"] #tfbar{ padding-top:2px; padding-bottom:2px; }
+body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
 </style>
 </head>
 <body>
 <div id="bar">
   <span class="k">THE STATION</span>
   <a class="btn" href="/registry">the hub</a>
+  <select class="view-mode" id="viewMode" title="remembered display density for this Station window">
+    <option value="auto">auto</option><option value="desk">desk</option>
+    <option value="display">display</option><option value="compact">compact</option>
+  </select>
   <span class="btn" id="displayBtn" title="open a dedicated Station window for a separate display">display ↗</span>
   <span class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen">⛶</span>
+  <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
   <span id="size"></span>
 </div>
 
@@ -181,7 +203,6 @@ body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
     <option value="1">1</option><option value="2">2</option><option value="3">3</option>
     <option value="4">4</option><option value="6">6</option>
   </select>
-  <span id="tickers"></span>
   <span class="symbol-note" id="symbolNote">Hub symbols</span>
   <span class="lbl">timeframe · all</span>
   <span class="tf" id="tf"></span>
@@ -246,6 +267,10 @@ const chartCount = (value) => {
   const n = Math.max(1, Math.min(6, +value || 2));
   return n === 5 ? 4 : (CHART_COUNTS.includes(n) ? n : 2);
 };
+const VIEW_MODES = ["auto","desk","display","compact"];
+let VIEW = VIEW_MODES.includes(QS.get("view")) ? QS.get("view") :
+  (VIEW_MODES.includes(sessionStorage.getItem("station.view")) ? sessionStorage.getItem("station.view") : "auto");
+document.body.dataset.view = VIEW;
 let CHART_COUNT = chartCount(QS.get("charts") || remembered("station.chartCount") || 2);
 const CHARTS = Array.from({ length: 6 }, (_, i) => {
   const incoming = QS.get("c" + (i + 1));
@@ -269,6 +294,7 @@ const FUTURE_META = {
 let SYMBOLS = Object.keys(FUTURE_META).map((ticker) => ({ ticker, type:"future", cohort:"", ...FUTURE_META[ticker] }));
 let SYMBOL_SET = new Set(SYMBOLS.map((row) => row.ticker));
 let GUIDE_ROWS = [], GUIDE_AT = 0, GUIDE_INPUT = null;
+const CHART_STATUS = new Map();
 
 /* ------------------------------------------------------------------ *
  * LAYOUT — width only decides STACK vs DECK. It never decides how the
@@ -330,6 +356,9 @@ function mount(obj) {
      inside this frame; without it getDisplayMedia is blocked in an iframe */
   f.allow = FRAME_ALLOW;
   f.setAttribute("allowfullscreen", "");
+  f.addEventListener("load", () => {
+    try { f.contentWindow.postMessage({ type:"SCINTILLA_VIEW_PROFILE", view:VIEW }, location.origin); } catch (_) {}
+  });
   obj.body.appendChild(f); obj.frame = f;
   LIVE.push(obj);
   /* the budget PAUSES — it never removes a pane from the layout or the chip row */
@@ -377,8 +406,43 @@ function focusTickerFor(key) {
   input.focus(); selAll(input); paintSymbolGuide(input);
 }
 
+function paintMarketStatus() {
+  const visible = CHARTS.slice(0, CHART_COUNT).map((ticker) => CHART_STATUS.get(ticker)).filter(Boolean);
+  const n = el("marketStatus"); if (!n) return;
+  if (!visible.length) { n.textContent = "DATA · waiting"; n.dataset.delayed = "0"; n.dataset.fresh = "0"; return; }
+  const oldest = visible.reduce((a,b) => new Date(a.updatedTs) < new Date(b.updatedTs) ? a : b);
+  const delayed = visible.filter((x) => x.delayed);
+  const at = new Date(oldest.updatedTs);
+  const ageSec = Math.max(0, Math.round((Date.now() - at.getTime()) / 1000));
+  const age = ageSec < 60 ? ageSec + "s" : Math.floor(ageSec / 60) + "m";
+  const fresh = ageSec < 90 && !delayed.length;
+  n.textContent = (fresh ? "LIVE" : "DATA") + " · " + age + " · " +
+    at.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" }) +
+    (delayed.length ? " · " + delayed.length + " delayed" : "");
+  n.dataset.delayed = delayed.length ? "1" : "0";
+  n.dataset.fresh = fresh ? "1" : "0";
+  n.title = "Oldest visible quote write: " + at.toLocaleString() + " (" + age + " ago)\n" +
+    visible.map((x) => x.ticker + " · " + (x.delayed ? "delayed provider feed · " : "live_quotes · ") +
+    new Date(x.updatedTs).toLocaleTimeString()).join("\n");
+}
+setInterval(paintMarketStatus, 10000);
 window.addEventListener("message", (event) => {
-  if (event.origin !== location.origin || event.data?.type !== "SCINTILLA_DECK_TOGGLE_FULL") return;
+  if (event.origin !== location.origin) return;
+  if (event.data?.sc === "chart-status") {
+    CHART_STATUS.set(event.data.ticker, event.data); paintMarketStatus(); return;
+  }
+  if (event.data?.sc === "chart-view") {
+    for (const pane of PANES) {
+      if (pane.def.kind !== "chart" || !pane.frame || pane.frame.contentWindow === event.source) continue;
+      try {
+        pane.frame.contentWindow.postMessage({ type:"SCINTILLA_CHART_VIEW",
+          from:event.data.from, to:event.data.to,
+          followLatest:!!event.data.followLatest }, location.origin);
+      } catch (_) {}
+    }
+    return;
+  }
+  if (event.data?.type !== "SCINTILLA_DECK_TOGGLE_FULL") return;
   const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
   if (!pane) return;
   setSolo(SOLO === pane.def.key ? null : pane.def.key);
@@ -444,14 +508,26 @@ function paintChips() {
 
 /* ---- ONE timeframe bar, driving both charts ---- */
 function chartSrc(t) {
-  return "/chart?bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE);
+  return "/chart?rev=085&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
+    "&view=" + encodeURIComponent(VIEW);
 }
 function writeStationUrl() {
   const p = new URLSearchParams(location.search);
-  p.set("charts", String(CHART_COUNT)); p.set("range", RANGE);
+  p.set("charts", String(CHART_COUNT)); p.set("range", RANGE); p.set("view", VIEW);
   CHARTS.forEach((ticker, i) => ticker ? p.set("c" + (i + 1), ticker) : p.delete("c" + (i + 1)));
   if (SOLO) p.set("full", SOLO); else p.delete("full");
   history.replaceState(null, "", "?" + p.toString());
+}
+function applyView(next) {
+  VIEW = VIEW_MODES.includes(next) ? next : "auto";
+  document.body.dataset.view = VIEW;
+  sessionStorage.setItem("station.view", VIEW);
+  el("viewMode").value = VIEW;
+  for (const o of PANES) {
+    if (!o.frame) continue;
+    try { o.frame.contentWindow.postMessage({ type:"SCINTILLA_VIEW_PROFILE", view:VIEW }, location.origin); } catch (_) {}
+  }
+  writeStationUrl(); relayout();
 }
 function paintTf() {
   const box = el("tf"); box.innerHTML = "";
@@ -588,14 +664,15 @@ function wireTicker(n, index) {
   }, 80));
 }
 function paintTickerFields() {
-  const box = el("tickers"); box.innerHTML = "";
   CHARTS.forEach((ticker, i) => {
+    const pane = PANES.find((item) => item.def.key === "c" + (i + 1));
+    const title = pane?.node.querySelector(".ph .t");
+    if (!title) return;
     const n = document.createElement("input");
     n.className = "tkin"; n.id = "t" + (i + 1); n.spellcheck = false;
     n.autocomplete = "off"; n.setAttribute("autocorrect", "off");
     n.placeholder = "symbol"; n.title = "chart " + (i + 1) + " · type a Hub symbol or market alias";
-    n.style.display = i < CHART_COUNT ? "" : "none";
-    box.appendChild(n); wireTicker(n, i);
+    title.replaceWith(n); wireTicker(n, i);
   });
 }
 function applyChartCount(next) {
@@ -604,7 +681,6 @@ function applyChartCount(next) {
   const row = el("rowTop");
   if (row) row.className = "deckrow charts-" + CHART_COUNT;
   CHARTS.forEach((ticker, i) => {
-    const input = el("t" + (i + 1)); if (input) input.style.display = i < CHART_COUNT ? "" : "none";
     const o = PANES.find((p) => p.def.key === "c" + (i + 1)); if (!o) return;
     const active = i < CHART_COUNT; o.node.classList.toggle("chart-off", !active);
     if (!active && o.frame) {
@@ -616,8 +692,10 @@ function applyChartCount(next) {
   writeStationUrl(); relayout(); paintChips();
 }
 el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
+el("viewMode").addEventListener("change", (e) => applyView(e.target.value));
 el("displayBtn").addEventListener("click", () => {
-  window.open(location.href, "scintilla_station_display", "popup,width=1600,height=1000");
+  const u = new URL(location.href); u.searchParams.set("view", "display");
+  window.open(u.href, "scintilla_station_display", "popup,width=1600,height=1000");
 });
 el("stationFullBtn").addEventListener("click", async () => {
   try {
@@ -656,11 +734,11 @@ async function build() {
        uses — so the feed actually scrolls in the pane instead of offering a
        button. Both are embedded; neither is a dock. */
     { row: 1, key: "fb", short: "personal", title: "Personal YouTube", tag: "personal subscriptions",
-      kind: "video", src: "/pane-video?feed=personal&cols=2&rev=075", open: "/pane-video?feed=personal&limit=200&cols=2" },
+      kind: "video", src: "/pane-video?feed=personal&cols=2&rev=077&view=" + encodeURIComponent(VIEW), open: "/pane-video?feed=personal&limit=200&cols=2" },
     { row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",
-      kind: "video", src: "/pane-video?feed=scintilla&cols=2&rev=075", open: "/pane-video?feed=scintilla&limit=200&cols=2" },
+      kind: "video", src: "/pane-video?feed=scintilla&cols=2&rev=077&view=" + encodeURIComponent(VIEW), open: "/pane-video?feed=scintilla&limit=200&cols=2" },
     { row: 1, key: "x", short: "X", title: "X · live", tag: "live capture",
-      kind: "x", src: "/pane-x?rev=078", open: "/pane-x?rev=078" },
+      kind: "x", src: "/pane-x?rev=083&view=" + encodeURIComponent(VIEW), open: "/pane-x?rev=083" },
   ]);
 
   /* TWO FLEX ROWS. Two children up top, three below. Nothing else decides
@@ -673,7 +751,7 @@ async function build() {
 
   for (const d of defs) { const o = makePane(d); PANES.push(o); rows[d.row].appendChild(o.node); }
 
-  paintTf();
+  paintTf(); el("viewMode").value = VIEW;
   paintTickerFields(); el("chartCount").value = String(CHART_COUNT);
   loadSymbolCatalog();
   applyChartCount(CHART_COUNT);

@@ -8,7 +8,7 @@ deployed.
 
 This is a purpose-built helper for the X box inside SCINTILLA Station. It borrows the useful behavior recovered from X Feed Float—timeline crop, smooth scrolling, pause, refresh, rewind, and source switching—but it is a separate extension with a separate identity and shortcut.
 
-The installed **X Feed Float 0.6.7** remains untouched and can continue running on another screen. The Station helper is **SCINTILLA Station X Bridge 0.7.5** and uses `Option+Shift+S`, not X Feed Float's `Option+Shift+P`. Version 0.7.5 keeps the approved X source capture alive across Station reloads, duplicate display tabs, and Chrome extension-worker sleep; repeating the shortcut reconnects instead of toggling the capture off.
+The installed **X Feed Float 0.6.7** remains untouched and can continue running on another screen. The Station helper is **SCINTILLA Station X Bridge 0.7.8** and uses `Option+Shift+S`, not X Feed Float's `Option+Shift+P`. Version 0.7.8 keeps the approved X source capture alive across Station reloads, duplicate display tabs, and Chrome extension-worker sleep; treats same-pane `READY` messages as heartbeats rather than reconnects; and clocks the scroll from the visible Station pane so Chrome cannot throttle it as a hidden-tab animation. Repeating the shortcut reconnects instead of toggling the capture off.
 
 ## Visible behavior
 
@@ -20,7 +20,7 @@ The installed **X Feed Float 0.6.7** remains untouched and can continue running 
 4. The live feed is cropped and fitted inside the existing fifth box. Alan does not drag, float, or resize it.
 5. Station controls rewind 30 seconds and refresh.
 6. Hovering the Station pane temporarily pauses scrolling; leaving it resumes.
-7. Crop metadata relays at about 30 Hz instead of the former stepped 10 Hz.
+7. The visible Station pane supplies a 30 Hz wall clock to both source scrolling and crop metadata. This matches the original float's visible-window clock and avoids background-tab animation throttling.
 
 Chrome requires a user invocation before `chrome.tabCapture` may start. That one invocation after a browser restart is the remaining browser-security boundary; the pane itself is otherwise hands-off.
 

@@ -1,19 +1,51 @@
 const SUPPORTED_HOSTS = new Set(["x.com", "www.x.com", "twitter.com", "www.twitter.com"]);
 const stationConsumers = new Map();
 let stationSourceTabId = null;
+let stationActiveConsumerKey = null;
+let stationLastTickForwardedAt = 0;
+const STATION_TICK_MIN_INTERVAL_MS = 24;
 const STATION_SESSION_KEY = "stationXSessionV1";
+
+function stationConsumerKey(consumer) {
+  if (!consumer) return "";
+  return [consumer.tabId, consumer.frameId, String(consumer.instanceId || "")].join(":");
+}
 
 async function restoreStationSession() {
   try {
     const box = await chrome.storage.session.get(STATION_SESSION_KEY);
     const saved = box?.[STATION_SESSION_KEY];
     if (!saved) return;
-    if (Number.isInteger(saved.sourceTabId)) stationSourceTabId = saved.sourceTabId;
-    for (const entry of saved.consumers || []) {
-      if (Number.isInteger(entry?.tabId) && Number.isInteger(entry?.frameId)) {
-        stationConsumers.set(entry.tabId, entry);
+    if (Number.isInteger(saved.sourceTabId)) {
+      try {
+        await chrome.tabs.get(saved.sourceTabId);
+        stationSourceTabId = saved.sourceTabId;
+      } catch {
+        stationSourceTabId = null;
       }
     }
+    if (typeof saved.activeConsumerKey === "string") {
+      stationActiveConsumerKey = saved.activeConsumerKey;
+    }
+    for (const entry of saved.consumers || []) {
+      if (Number.isInteger(entry?.tabId) && Number.isInteger(entry?.frameId)) {
+        try {
+          await chrome.tabs.get(entry.tabId);
+          stationConsumers.set(entry.tabId, entry);
+        } catch {}
+      }
+    }
+    if (![...stationConsumers.values()].some((entry) =>
+      stationConsumerKey(entry) === stationActiveConsumerKey)) {
+      stationActiveConsumerKey = null;
+    }
+    await chrome.storage.session.set({
+      [STATION_SESSION_KEY]: {
+        sourceTabId: Number.isInteger(stationSourceTabId) ? stationSourceTabId : null,
+        activeConsumerKey: stationActiveConsumerKey,
+        consumers: [...stationConsumers.values()]
+      }
+    });
   } catch {}
 }
 
@@ -22,6 +54,7 @@ async function persistStationSession() {
     await chrome.storage.session.set({
       [STATION_SESSION_KEY]: {
         sourceTabId: Number.isInteger(stationSourceTabId) ? stationSourceTabId : null,
+        activeConsumerKey: stationActiveConsumerKey,
         consumers: [...stationConsumers.values()]
       }
     });
@@ -30,10 +63,57 @@ async function persistStationSession() {
 
 const stationRestore = restoreStationSession();
 
+function activeStationConsumer() {
+  return [...stationConsumers.values()].find((entry) =>
+    stationConsumerKey(entry) === stationActiveConsumerKey &&
+    Date.now() - entry.lastSeen < 10 * 60 * 1000
+  ) || null;
+}
+
 function freshestStationConsumer() {
-  return [...stationConsumers.values()]
+  const fresh = [...stationConsumers.values()]
     .filter((entry) => Date.now() - entry.lastSeen < 10 * 60 * 1000)
-    .sort((a, b) => b.lastSeen - a.lastSeen)[0] || null;
+    .sort((a, b) => b.lastSeen - a.lastSeen);
+  const active = activeStationConsumer();
+  if (active) return active;
+  const fallback = fresh[0] || null;
+  stationActiveConsumerKey = stationConsumerKey(fallback) || null;
+  return fallback;
+}
+
+async function activateStationConsumer(consumer) {
+  if (!consumer) return;
+  const nextKey = stationConsumerKey(consumer);
+  if (nextKey === stationActiveConsumerKey) return;
+  const previous = activeStationConsumer();
+  stationActiveConsumerKey = nextKey;
+  await persistStationSession();
+  if (previous && stationConsumerKey(previous) !== nextKey) {
+    try {
+      await sendToStation(previous, {
+        type: "XFF_STATION_STATUS",
+        status: "standby",
+        detail: "Mirroring the active Station display."
+      });
+    } catch {}
+  }
+}
+
+async function broadcastToStations(message) {
+  const targets = [...stationConsumers.values()].filter((entry) =>
+    Date.now() - entry.lastSeen < 10 * 60 * 1000
+  );
+  await Promise.allSettled(targets.map((consumer) => sendToStation(consumer, message)));
+}
+
+function dropStationPeer(consumer) {
+  const peerId = stationConsumerKey(consumer);
+  if (!peerId) return;
+  chrome.runtime.sendMessage({
+    target: "station-x-offscreen",
+    type: "XFF_OFFSCREEN_DROP",
+    peerId
+  }).catch(() => {});
 }
 
 function sendToStation(consumer, message) {
@@ -77,7 +157,6 @@ function captureStreamId(sourceTabId) {
 }
 
 async function stopStationCapture(detail = "stopped") {
-  const consumer = freshestStationConsumer();
   try {
     await chrome.runtime.sendMessage({
       target: "station-x-offscreen",
@@ -90,27 +169,30 @@ async function stopStationCapture(detail = "stopped") {
         type: "XFF_STOP_STATION_SOURCE"
       });
     } catch {}
-    chrome.action.setBadgeText({ tabId: stationSourceTabId, text: "" });
+    try {
+      await chrome.action.setBadgeText({ tabId: stationSourceTabId, text: "" });
+    } catch {}
   }
-  try {
-    await sendToStation(consumer, {
-      type: "XFF_STATION_STATUS",
-      status: "stopped",
-      detail
-    });
-  } catch {}
+  await broadcastToStations({
+    type: "XFF_STATION_STATUS",
+    status: "stopped",
+    detail
+  });
   stationSourceTabId = null;
+  stationLastTickForwardedAt = 0;
   await persistStationSession();
 }
 
-async function reconnectStationConsumer(consumer) {
+async function reconnectStationConsumer(consumer, { controlSource = false } = {}) {
   if (!stationSourceTabId || !consumer) return;
   const sourceTabId = stationSourceTabId;
-  await ensureContentScript(sourceTabId);
-  await chrome.tabs.sendMessage(sourceTabId, {
-    type: "XFF_START_STATION_SOURCE",
-    consumer: { width: consumer.width, height: consumer.height }
-  });
+  if (controlSource) {
+    await ensureContentScript(sourceTabId);
+    await chrome.tabs.sendMessage(sourceTabId, {
+      type: "XFF_START_STATION_SOURCE",
+      consumer: { width: consumer.width, height: consumer.height }
+    });
+  }
   await sendToStation(consumer, {
     type: "XFF_STATION_WEBRTC_START",
     sourceTabId
@@ -118,14 +200,17 @@ async function reconnectStationConsumer(consumer) {
   await sendToStation(consumer, {
     type: "XFF_STATION_STATUS",
     status: "connecting",
-    detail: "Station X reattached after reload."
+    detail: controlSource
+      ? "Station X reattached after reload."
+      : "Station X mirror attached."
   });
 }
 
 async function startStationCapture(sourceTab, consumer) {
   if (!sourceTab?.id || !consumer) return false;
+  await activateStationConsumer(consumer);
   if (stationSourceTabId === sourceTab.id) {
-    await reconnectStationConsumer(consumer);
+    await reconnectStationConsumer(consumer, { controlSource: true });
     await chrome.tabs.update(consumer.tabId, { active: true });
     await chrome.windows.update(consumer.windowId, { state: "normal", focused: true });
     return true;
@@ -267,17 +352,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     (async () => {
       await stationRestore;
+      const frameId = sender.frameId || 0;
+      const previous = stationConsumers.get(tabId);
+      const activeBefore = activeStationConsumer();
+      const instanceId = String(message.instanceId || "");
+      const sameFrame = previous?.frameId === frameId &&
+        String(previous?.instanceId || "") === instanceId;
       stationConsumers.set(tabId, {
         tabId,
         windowId: sender.tab.windowId,
-        frameId: sender.frameId || 0,
+        frameId,
+        instanceId,
         width: Math.max(1, Number(message.width) || 1),
         height: Math.max(1, Number(message.height) || 1),
         lastSeen: Date.now()
       });
-      await persistStationSession();
-      if (stationSourceTabId) await reconnectStationConsumer(stationConsumers.get(tabId));
-      sendResponse({ ok: true, connected: Boolean(stationSourceTabId) });
+      const consumer = stationConsumers.get(tabId);
+      if (!sameFrame || !activeBefore) {
+        await activateStationConsumer(consumer);
+      } else {
+        await persistStationSession();
+      }
+      // READY is also the pane's 30-second liveness heartbeat. Reconnecting an
+      // already-known frame restarted startStationSource(), which realigned the
+      // X page and repeatedly pulled the feed back to the same post. Only a new
+      // or reloaded frame needs the WebRTC/source reattachment path.
+      if (stationSourceTabId && stationConsumerKey(consumer) === stationActiveConsumerKey &&
+          (!sameFrame || !activeBefore)) {
+        await reconnectStationConsumer(consumer, { controlSource: true });
+      } else if (stationSourceTabId && !sameFrame) {
+        await reconnectStationConsumer(consumer, { controlSource: false });
+      }
+      sendResponse({
+        ok: true,
+        connected: Boolean(stationSourceTabId),
+        active: stationConsumerKey(consumer) === stationActiveConsumerKey
+      });
     })().catch((error) => {
       sendResponse({ ok: false, error: error?.message || "Station X could not register this pane." });
     });
@@ -287,7 +397,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "XFF_STATION_NOT_READY") {
     const tabId = sender.tab?.id;
     const current = stationConsumers.get(tabId);
-    if (current && current.frameId === (sender.frameId || 0)) {
+    const sameInstance = !message.instanceId ||
+      String(current?.instanceId || "") === String(message.instanceId);
+    if (current && current.frameId === (sender.frameId || 0) && sameInstance) {
+      dropStationPeer(current);
+      if (stationConsumerKey(current) === stationActiveConsumerKey) {
+        stationActiveConsumerKey = null;
+      }
       stationConsumers.delete(tabId);
       persistStationSession().catch(() => {});
     }
@@ -295,9 +411,39 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
+  if (message?.type === "XFF_STATION_RESIZE") {
+    const tabId = sender.tab?.id;
+    const current = stationConsumers.get(tabId);
+    const sameInstance = !message.instanceId ||
+      String(current?.instanceId || "") === String(message.instanceId);
+    if (!current || current.frameId !== (sender.frameId || 0) || !sameInstance) {
+      sendResponse({ ok: false, error: "The Station pane was not recognized." });
+      return;
+    }
+    current.width = Math.max(1, Number(message.width) || current.width || 1);
+    current.height = Math.max(1, Number(message.height) || current.height || 1);
+    current.lastSeen = Date.now();
+    persistStationSession().catch(() => {});
+    if (stationConsumerKey(current) !== stationActiveConsumerKey) {
+      sendResponse({ ok: true, connected: Boolean(stationSourceTabId), standby: true });
+      return;
+    }
+    if (!stationSourceTabId) {
+      sendResponse({ ok: true, connected: false });
+      return;
+    }
+    chrome.tabs.sendMessage(stationSourceTabId, {
+      type: "XFF_STATION_CONTROL",
+      action: "resize",
+      value: { width: current.width, height: current.height }
+    }).then(() => sendResponse({ ok: true, connected: true }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
   if (message?.type === "XFF_STATION_CROP") {
     if (sender.tab?.id !== stationSourceTabId) return;
-    sendToStation(freshestStationConsumer(), {
+    broadcastToStations({
       type: "XFF_STATION_CROP",
       crop: message.crop
     }).catch(() => {});
@@ -305,29 +451,63 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "XFF_STATION_CONTROL") {
+    const registered = stationConsumers.get(sender.tab?.id);
+    const sameInstance = !message.instanceId ||
+      String(registered?.instanceId || "") === String(message.instanceId);
+    if (!registered || (sender.frameId || 0) !== registered.frameId || !sameInstance) {
+      sendResponse({ ok: false, error: "The Station pane was not recognized." });
+      return;
+    }
     if (!stationSourceTabId) {
       sendResponse({ ok: false, error: "Station X is not connected." });
       return;
     }
-    chrome.tabs.sendMessage(stationSourceTabId, {
-      type: "XFF_STATION_CONTROL",
-      action: message.action,
-      value: message.value
-    }).then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
+
+    // Every visible Station mirror supplies the same wall-clock pulse. Chrome
+    // may throttle any one background window; accepting pulses from all live
+    // mirrors keeps the shared source moving. Deduplication here prevents two
+    // visible windows from doubling the scroll rate.
+    if (message.action === "tick") {
+      const at = Number(message.value?.at) || Date.now();
+      if (at - stationLastTickForwardedAt < STATION_TICK_MIN_INTERVAL_MS) {
+        sendResponse({ ok: true, deduplicated: true });
+        return;
+      }
+      stationLastTickForwardedAt = at;
+      chrome.tabs.sendMessage(stationSourceTabId, {
+        type: "XFF_STATION_CONTROL",
+        action: "tick",
+        value: { at }
+      }).then(() => sendResponse({ ok: true }))
+        .catch((error) => sendResponse({ ok: false, error: error.message }));
+      return true;
+    }
+
+    // Controls follow interaction. A mirror is never a dead UI: clicking List,
+    // Notifications, refresh, rewind, or pause makes that viewer the action
+    // controller and applies the shared change to every receiver.
+    (async () => {
+      await activateStationConsumer(registered);
+      await chrome.tabs.sendMessage(stationSourceTabId, {
+        type: "XFF_STATION_CONTROL",
+        action: message.action,
+        value: message.value
+      });
+      sendResponse({ ok: true, active: true });
+    })().catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
 
   if (message?.type === "XFF_STATION_OFFER") {
-    const consumer = freshestStationConsumer();
-    if (!consumer || sender.tab?.id !== consumer.tabId ||
-        (sender.frameId || 0) !== consumer.frameId) {
+    const consumer = stationConsumers.get(sender.tab?.id);
+    if (!consumer || (sender.frameId || 0) !== consumer.frameId) {
       sendResponse({ ok: false, error: "The Station pane was not recognized." });
       return;
     }
     chrome.runtime.sendMessage({
       target: "station-x-offscreen",
       type: "XFF_OFFSCREEN_OFFER",
+      peerId: stationConsumerKey(consumer),
       offer: message.offer
     }).then(async (result) => {
       if (!result?.ok || !result.answer) {
@@ -343,6 +523,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "XFF_STATION_STOP") {
+    const consumer = freshestStationConsumer();
+    if (!consumer || sender.tab?.id !== consumer.tabId ||
+        (sender.frameId || 0) !== consumer.frameId) {
+      sendResponse({ ok: false, error: "This Station pane is not the active display." });
+      return;
+    }
     stopStationCapture("Station closed the feed.")
       .then(() => sendResponse({ ok: true }))
       .catch((error) => sendResponse({ ok: false, error: error.message }));
@@ -502,6 +688,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  const removed = stationConsumers.get(tabId);
+  dropStationPeer(removed);
+  if (stationConsumerKey(removed) === stationActiveConsumerKey) {
+    stationActiveConsumerKey = null;
+  }
   stationConsumers.delete(tabId);
   if (tabId === stationSourceTabId) {
     stopStationCapture("The X source tab closed.").catch(() => {});

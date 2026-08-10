@@ -60,6 +60,12 @@ async function harness(sessionSeed = {}) {
     },
     tabs: {
       onRemoved: { addListener(fn) { removedListeners.push(fn); } },
+      async get(tabId) {
+        if ((sessionData.__missingTabIds || []).includes(tabId)) {
+          throw new Error(`No tab with id: ${tabId}.`);
+        }
+        return { id: tabId, windowId: 2 };
+      },
       async sendMessage(tabId, message, options) {
         sent.push({ tabId, message, options });
         return { ok: true };
@@ -143,6 +149,239 @@ test("Station controls relay to the active X source", async () => {
     tabId === 7 && message.type === "XFF_STATION_CONTROL" && message.action === "rewind"));
 });
 
+test("Station resize updates the crop without restarting the live transport", async () => {
+  const h = await harness();
+  const sender = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, sender);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  const reconnects = h.sent.filter(({ message }) => message.type === "XFF_STATION_WEBRTC_START").length;
+
+  const response = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_RESIZE", width: 900, height: 320
+  }, sender);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(response)), { ok: true, connected: true });
+  assert.equal(
+    h.sent.filter(({ message }) => message.type === "XFF_STATION_WEBRTC_START").length,
+    reconnects,
+    "a resize must not replace the active peer connection"
+  );
+  assert.ok(h.sent.some(({ tabId, message }) =>
+      tabId === 7 && message.type === "XFF_STATION_CONTROL" &&
+      message.action === "resize" && message.value.width === 900 && message.value.height === 320));
+});
+
+test("same-frame READY heartbeat renews presence without restarting source or WebRTC", async () => {
+  const h = await harness();
+  const sender = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, sender);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+
+  const sourceStarts = h.sent.filter(({ message }) =>
+    message.type === "XFF_START_STATION_SOURCE").length;
+  const webRtcStarts = h.sent.filter(({ message }) =>
+    message.type === "XFF_STATION_WEBRTC_START").length;
+
+  const response = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, sender);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(response)), { ok: true, connected: true, active: true });
+  assert.equal(h.sent.filter(({ message }) =>
+    message.type === "XFF_START_STATION_SOURCE").length, sourceStarts);
+  assert.equal(h.sent.filter(({ message }) =>
+    message.type === "XFF_STATION_WEBRTC_START").length, webRtcStarts);
+});
+
+test("a new pane instance reattaches even when Chrome reuses the same frame id", async () => {
+  const h = await harness();
+  const sender = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "pane-a", width: 430, height: 260
+  }, sender);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  const sourceStarts = h.sent.filter(({ message }) =>
+    message.type === "XFF_START_STATION_SOURCE").length;
+
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "pane-b", width: 460, height: 280
+  }, sender);
+
+  assert.equal(h.sent.filter(({ message }) =>
+    message.type === "XFF_START_STATION_SOURCE").length, sourceStarts + 1);
+  assert.ok(h.sent.some(({ tabId, message, options }) =>
+    tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
+});
+
+test("two Station tabs attach once each and later heartbeats do not compete", async () => {
+  const h = await harness();
+  const first = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  const second = { tab: { id: 22, windowId: 4 }, frameId: 9 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, first);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 620, height: 360
+  }, second);
+
+  const sourceStarts = h.sent.filter(({ message }) =>
+    message.type === "XFF_START_STATION_SOURCE").length;
+  const webRtcStarts = h.sent.filter(({ message }) =>
+    message.type === "XFF_STATION_WEBRTC_START").length;
+
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, first);
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 620, height: 360
+  }, second);
+
+  assert.equal(h.sent.filter(({ message }) =>
+    message.type === "XFF_START_STATION_SOURCE").length, sourceStarts);
+  assert.equal(h.sent.filter(({ message }) =>
+    message.type === "XFF_STATION_WEBRTC_START").length, webRtcStarts);
+  assert.ok(h.sent.some(({ tabId, message, options }) =>
+    tabId === 11 && message.type === "XFF_STATION_STATUS" &&
+    message.status === "standby" && options.frameId === 5),
+  "the previous Station must keep mirroring when a new display takes control");
+});
+
+test("an old Station heartbeat cannot steal control but its mirror may negotiate", async () => {
+  const h = await harness();
+  const first = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  const display = { tab: { id: 22, windowId: 4 }, frameId: 9 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "desk", width: 430, height: 260
+  }, first);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "display", width: 900, height: 520
+  }, display);
+
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "desk", width: 430, height: 260
+  }, first);
+
+  const oldOffer = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_OFFER", offer: { type: "offer", sdp: "old" }
+  }, first);
+  const displayOffer = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_OFFER", offer: { type: "offer", sdp: "display" }
+  }, display);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(oldOffer)), { ok: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(displayOffer)), { ok: true });
+  const offers = h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_OFFER");
+  assert.ok(offers.some(({ peerId }) => peerId === "11:5:desk"));
+  assert.ok(offers.some(({ peerId }) => peerId === "22:9:display"));
+});
+
+test("standby Station contributes the clock and a click takes action control", async () => {
+  const h = await harness();
+  const desk = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  const display = { tab: { id: 22, windowId: 4 }, frameId: 9 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "desk", width: 430, height: 260
+  }, desk);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "display", width: 900, height: 520
+  }, display);
+  const controlsBefore = h.sent.filter(({ message }) =>
+    message.type === "XFF_STATION_CONTROL").length;
+
+  const tick = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_CONTROL", instanceId: "desk", action: "tick", value: { at: 1000 }
+  }, desk);
+  const control = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_CONTROL", instanceId: "desk", action: "refresh"
+  }, desk);
+  const resize = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_RESIZE", instanceId: "desk", width: 300, height: 200
+  }, desk);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(tick)), { ok: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(control)), {
+    ok: true, active: true
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(resize)), {
+    ok: true, connected: true
+  });
+  const controlsAfter = h.sent.filter(({ message }) =>
+    message.type === "XFF_STATION_CONTROL");
+  assert.equal(controlsAfter.length, controlsBefore + 3);
+  assert.deepEqual(
+    controlsAfter.slice(-3).map(({ message }) => message.action),
+    ["tick", "refresh", "resize"]
+  );
+  assert.equal(h.sessionData.stationXSessionV1.activeConsumerKey, "11:5:desk");
+});
+
+test("simultaneous Station clocks are deduplicated without slowing a surviving mirror", async () => {
+  const h = await harness();
+  const desk = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  const display = { tab: { id: 22, windowId: 4 }, frameId: 9 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "desk", width: 430, height: 260
+  }, desk);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "display", width: 900, height: 520
+  }, display);
+  const before = h.sent.filter(({ message }) =>
+    message.type === "XFF_STATION_CONTROL" && message.action === "tick").length;
+
+  const first = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_CONTROL", instanceId: "desk", action: "tick", value: { at: 1000 }
+  }, desk);
+  const duplicate = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_CONTROL", instanceId: "display", action: "tick", value: { at: 1010 }
+  }, display);
+  const next = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_CONTROL", instanceId: "desk", action: "tick", value: { at: 1033 }
+  }, desk);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(first)), { ok: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(duplicate)), { ok: true, deduplicated: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(next)), { ok: true });
+  const ticks = h.sent.filter(({ message }) =>
+    message.type === "XFF_STATION_CONTROL" && message.action === "tick");
+  assert.equal(ticks.length, before + 2);
+  assert.deepEqual(ticks.slice(-2).map(({ message }) => message.value.at), [1000, 1033]);
+});
+
+test("a standby Station reattaches after the active display closes", async () => {
+  const h = await harness();
+  const desk = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  const display = { tab: { id: 22, windowId: 4 }, frameId: 9 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "desk", width: 430, height: 260
+  }, desk);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "display", width: 900, height: 520
+  }, display);
+  const starts = h.sent.filter(({ message }) =>
+    message.type === "XFF_STATION_WEBRTC_START").length;
+
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_NOT_READY", instanceId: "display"
+  }, display);
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "desk", width: 430, height: 260
+  }, desk);
+
+  assert.equal(h.sent.filter(({ message }) =>
+    message.type === "XFF_STATION_WEBRTC_START").length, starts + 1);
+  assert.ok(h.sent.some(({ tabId, message, options }) =>
+    tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
+});
+
 test("Station offer is answered by the private extension media context", async () => {
   const h = await harness();
   const sender = { tab: { id: 11, windowId: 2 }, frameId: 5 };
@@ -156,11 +395,35 @@ test("Station offer is answered by the private extension media context", async (
   }, sender);
 
   assert.deepEqual(JSON.parse(JSON.stringify(response)), { ok: true });
-  assert.ok(h.runtimeSent.some(({ type, target }) =>
-    type === "XFF_OFFSCREEN_OFFER" && target === "station-x-offscreen"));
+  assert.ok(h.runtimeSent.some(({ type, target, peerId }) =>
+    type === "XFF_OFFSCREEN_OFFER" && target === "station-x-offscreen" &&
+    peerId === "11:5:"));
   assert.ok(h.sent.some(({ tabId, message, options }) =>
     tabId === 11 && message.type === "XFF_STATION_ANSWER" &&
     message.answer.sdp === "fixture-answer" && options.frameId === 5));
+});
+
+test("one source crop is broadcast to every connected Station mirror", async () => {
+  const h = await harness();
+  const desk = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  const display = { tab: { id: 22, windowId: 4 }, frameId: 9 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "desk", width: 430, height: 260
+  }, desk);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "display", width: 900, height: 520
+  }, display);
+
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_CROP", crop: { activeView: "trading", rect: { width: 430 } }
+  }, { tab: { id: 7, windowId: 1 }, frameId: 0 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.ok(h.sent.some(({ tabId, message }) =>
+    tabId === 11 && message.type === "XFF_STATION_CROP"));
+  assert.ok(h.sent.some(({ tabId, message }) =>
+    tabId === 22 && message.type === "XFF_STATION_CROP"));
 });
 
 test("a Station reload reattaches the existing capture without a second user action", async () => {
@@ -249,4 +512,24 @@ test("a restarted Chrome extension worker restores the approved source and Stati
   assert.ok(h.sent.some(({ tabId, message, options }) =>
     tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
   assert.ok(h.tabUpdates.some(({ tabId, options }) => tabId === 11 && options.active));
+});
+
+test("worker restore prunes closed source and consumer tabs", async () => {
+  const h = await harness({
+    __missingTabIds: [7, 22],
+    stationXSessionV1: {
+      sourceTabId: 7,
+      activeConsumerKey: "22:9:closed",
+      consumers: [
+        { tabId: 11, windowId: 2, frameId: 5, instanceId: "open", width: 430, height: 260, lastSeen: Date.now() },
+        { tabId: 22, windowId: 4, frameId: 9, instanceId: "closed", width: 900, height: 520, lastSeen: Date.now() }
+      ]
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const saved = h.sessionData.stationXSessionV1;
+  assert.equal(saved.sourceTabId, null);
+  assert.equal(saved.activeConsumerKey, null);
+  assert.deepEqual(saved.consumers.map(({ tabId }) => tabId), [11]);
 });
