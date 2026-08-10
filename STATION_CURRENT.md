@@ -2,29 +2,31 @@
 
 Updated: 2026-08-10 (America/New_York)
 
-This is the present-tense record for the live Station and the separately admitted Scenes v1 preview. The verified Station release is public at `station.scintillahub.ai`; Scenes v1 remains a review candidate and has not changed production.
+This is the present-tense record for the verified live Station and the separately admitted clean-URL/roadmap correction. Scenes v1 is already production. The clean-URL work is an admitted review candidate only and has not changed production.
 
 ## Remote review and delivery state
 
-- Production source: `scintilla-widgets` main at `2a8da57091c2e15cb7d40c5ce0f9844ec3511f0a`
-- Public Station: `https://station.scintillahub.ai/` (routes to `/deck/`)
-- Scenes v1 review: [scintilla-widgets PR #3](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/3)
-- Scenes v1 protected preview: `https://scintilla-widgets-git-age-ede4c4-aharveyrianhard-8432s-projects.vercel.app/deck/`
-- Canonical product route: `/deck/`
-- Production status: **live**; Scenes v1 is **preview only** pending independent review
+- Production source: `scintilla-widgets` main at `6615e397d55a4c57ec214be13f5d8a7f95015c4b`
+- Public Station: `https://station.scintillahub.ai/`
+- Scenes v1 delivery: [merged scintilla-widgets PR #3](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/3)
+- Scenes v1 production memo: `https://docs.google.com/document/d/1i57VFlXAoMjTAiNf2rLYj0InCxujeWTEr45emMfgGrA`
+- Production route behavior before the clean-URL correction: the root redirects to `/deck/`, and runtime state is serialized into the query string.
+- Clean-URL candidate branch: `agent/station-clean-url-roadmap`, based exactly on the production source above. It changes root handling from redirect to internal rewrite, consumes deliberate deep-link inputs once, stops runtime query serialization, and makes `/` the PWA identity/start URL.
+- Clean-URL candidate status: **review only** under `SCINTILLA-STATION-CLEAN-URL-ROADMAP-001`; not merged, not promoted, and not production.
+- Canonical architecture roadmap: `https://docs.google.com/document/d/1aLDEcIa4647copZrrO-rFsXuNeY98R8YS5Ux3OZQaxQ/edit`
 
 ## Open now
 
 - Open the live Station: `https://station.scintillahub.ai/`
 - Localhost URLs are development evidence only; they are never delivery.
-- Station with X expanded across the lower row: add `&full=x` to the active Station URL.
+- Station with X expanded across the lower row: use the pane-expansion control. An explicit `?full=x` launch input remains supported for deliberate deep links; ordinary runtime state no longer belongs in the address bar in the clean-URL candidate.
 - Current saved example: two visible two-hour charts, SPY and QQQ. Four additional editable slots remain remembered as Bitcoin, Airbnb, Abbott, and Adobe when the chart-count selector is increased; none is a fixed bundle.
 - The `DISPLAY ↗` control opens the same Station in a dedicated second window. For Apple TV, put that window on an AirPlay **separate display**; ordinary mirroring follows the Mac and does not let the Hub remain independent.
 - The same Station surface now has remembered `AUTO`, `DESK`, `DISPLAY`, and `COMPACT` presentation profiles. `DISPLAY ↗` opens the same route with the Display profile; it is not a second product or a separately maintained scene.
 
-## What works in this draft
+## What works in production
 
-- Scenes v1 adds same-route OVERNIGHT (`ESUSD`, `NQUSD`, `CLUSD`) and six-slot INDEX LEADERSHIP (`SPY`, `QQQ`, `IWM`, `MAGS`, `SMH`, `DIA`) presets without remounting the media or X panes. `DIA` is intentionally visible but will remain an honest no-data chart until that ETF is registered and ingested on Hub.
+- Scenes v1 adds same-route OVERNIGHT (`ESUSD`, `NQUSD`, `CLUSD`) and six-slot INDEX LEADERSHIP (`SPY`, `QQQ`, `IWM`, `MAGS`, `SMH`, `DIA`) presets without remounting the media or X panes. `DIA` is registered and has a live quote plus limited intraday history; its 1D pane remains an honest chart-data-unavailable state until daily history exists. `DOW` is never substituted.
 - COHORT FAVORITES is generated from the real favorites/membership intersection, keeps every favorite across pages of six, and uses an empty chart rather than filler when a cohort has no favorites. CUSTOM is remembered separately.
 - One, two, three, four, or six charts. The awkward five-chart geometry is intentionally not offered.
 - Every visible ticker field guides from the current active Hub symbol registry; the count is loaded from the database rather than hard-coded.
@@ -134,7 +136,7 @@ The underlying rows are not mixed: Megyn Kelly and LastWeekTonight/John Oliver e
 
 ## Current X acceptance boundary
 
-The repeating-post diagnosis was reproduced in real Chrome before the `0.7.7` correction: the supplied screen recording shows the offline/reset state at 10.95, 40.95, and 70.95 seconds, matching the old 30-second reconnect behavior. The heartbeat-safe bridge passed sustained monitoring. Version `0.7.14` retains that correction, uses one capture for multiple live Station receivers, deduplicates clock pulses from every viewer, transfers action control to whichever viewer Alan touches, and hardens extension reload recovery. The verified bridge is live against the exact production host. The separately previewed Scenes v1 work does not modify the bridge or multiply X capture. Localhost results remain development evidence only; they are not delivery.
+The repeating-post diagnosis was reproduced in real Chrome before the `0.7.7` correction: the supplied screen recording shows the offline/reset state at 10.95, 40.95, and 70.95 seconds, matching the old 30-second reconnect behavior. The heartbeat-safe bridge passed sustained monitoring. Version `0.7.14` retains that correction, uses one capture for multiple live Station receivers, deduplicates clock pulses from every viewer, transfers action control to whichever viewer Alan touches, and hardens extension reload recovery. The verified bridge is live against the exact production host. The clean-URL candidate does not modify the bridge or multiply X capture. Localhost results remain development evidence only; they are not delivery.
 
 ## Permanent X architecture direction
 
