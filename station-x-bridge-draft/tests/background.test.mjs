@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
 
-async function harness() {
+async function harness(sessionSeed = {}) {
   const runtimeListeners = [];
   const actionListeners = [];
   const removedListeners = [];
@@ -14,6 +14,7 @@ async function harness() {
   const runtimeSent = [];
   const offscreenDocuments = [];
   let offscreenReady = false;
+  const sessionData = structuredClone(sessionSeed);
 
   const chrome = {
     action: {
@@ -42,6 +43,12 @@ async function harness() {
       async createDocument(options) {
         offscreenDocuments.push(options);
         offscreenReady = true;
+      }
+    },
+    storage: {
+      session: {
+        async get(key) { return { [key]: sessionData[key] }; },
+        async set(value) { Object.assign(sessionData, structuredClone(value)); }
       }
     },
     scripting: { async executeScript() {} },
@@ -80,7 +87,7 @@ async function harness() {
   });
   return {
     runtimeListeners, actionListeners, removedListeners, sent, captures,
-    tabUpdates, windowUpdates, runtimeSent, offscreenDocuments
+    tabUpdates, windowUpdates, runtimeSent, offscreenDocuments, sessionData
   };
 }
 
@@ -180,4 +187,66 @@ test("a Station reload reattaches the existing capture without a second user act
     tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
   assert.ok(!h.sent.some(({ tabId, message }) =>
     tabId === 7 && message.type === "XFF_STOP_STATION_SOURCE"));
+});
+
+test("the X source survives all Station tabs closing and attaches to a later display tab", async () => {
+  const h = await harness();
+  const first = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, first);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  const captureCount = h.captures.length;
+  const stopCount = h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length;
+  await dispatchRuntime(h.runtimeListeners, { type: "XFF_STATION_NOT_READY" }, first);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length, stopCount,
+    "closing the Station view must not stop the approved source capture");
+  assert.ok(!h.sent.some(({ tabId, message }) =>
+    tabId === 7 && message.type === "XFF_STOP_STATION_SOURCE"));
+
+  const second = { tab: { id: 22, windowId: 4 }, frameId: 9 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 620, height: 360
+  }, second);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(h.captures.length, captureCount, "a second Station tab must reuse the existing capture");
+  assert.ok(h.sent.some(({ tabId, message, options }) =>
+    tabId === 22 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 9));
+});
+
+test("pressing the Station action again reconnects instead of accidentally toggling capture off", async () => {
+  const h = await harness();
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, { tab: { id: 11, windowId: 2 }, frameId: 5 });
+  const xTab = { id: 7, windowId: 1, url: "https://x.com/home" };
+  await h.actionListeners[0](xTab);
+  const stopCount = h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length;
+  await h.actionListeners[0](xTab);
+
+  assert.equal(h.captures.length, 1, "reconnect must not request a new stream");
+  assert.equal(h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length, stopCount);
+  assert.ok(!h.sent.some(({ tabId, message }) =>
+    tabId === 7 && message.type === "XFF_STOP_STATION_SOURCE"));
+});
+
+test("a restarted Chrome extension worker restores the approved source and Station frame", async () => {
+  const h = await harness({
+    stationXSessionV1: {
+      sourceTabId: 7,
+      consumers: [{
+        tabId: 11, windowId: 2, frameId: 5,
+        width: 430, height: 260, lastSeen: Date.now()
+      }]
+    }
+  });
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+
+  assert.equal(h.captures.length, 0, "worker restart must not request another capture gesture");
+  assert.ok(h.sent.some(({ tabId, message, options }) =>
+    tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
+  assert.ok(h.tabUpdates.some(({ tabId, options }) => tabId === 11 && options.active));
 });

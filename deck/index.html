@@ -113,8 +113,6 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 #rowTop.charts-2 > .pane{ grid-column:span 3; }
 #rowTop.charts-3 > .pane{ grid-column:span 2; }
 #rowTop.charts-4 > .pane{ grid-column:span 3; }
-#rowTop.charts-5 > .pane{ grid-column:span 2; }
-#rowTop.charts-5 > .pane:nth-child(n+4){ grid-column:span 3; }
 #rowTop.charts-6 > .pane{ grid-column:span 2; }
 #rowTop > .pane.chart-off{ display:none; }
 .deckrow > .pane{ flex:1 1 0; min-width:0; min-height:0; }
@@ -129,6 +127,7 @@ body.stack .deckrow > .pane{ flex:none; height:56vh; min-height:230px; }
 body.solo .deckrow{ flex:1 1 0; }
 body.solo .pane.hidden{ display:none; }
 body.solo .deckrow.empty{ display:none; }
+body.solo #rowTop > .pane:not(.hidden){ grid-column:1 / -1; }
 
 .pane{ position:relative; background:var(--bg); display:flex; flex-direction:column;
   min-height:0; min-width:0; overflow:hidden; }
@@ -172,6 +171,7 @@ body.solo .deckrow.empty{ display:none; }
   <span class="k">THE STATION</span>
   <a class="btn" href="/registry">the hub</a>
   <span class="btn" id="displayBtn" title="open a dedicated Station window for a separate display">display ↗</span>
+  <span class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen">⛶</span>
   <span id="size"></span>
 </div>
 
@@ -180,7 +180,7 @@ body.solo .deckrow.empty{ display:none; }
   <span class="lbl">charts</span>
   <select class="chart-count" id="chartCount" title="number of charts">
     <option value="1">1</option><option value="2">2</option><option value="3">3</option>
-    <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+    <option value="4">4</option><option value="6">6</option>
   </select>
   <span id="tickers"></span>
   <span class="symbol-note" id="symbolNote">Hub symbols</span>
@@ -242,7 +242,12 @@ const RANGES = ["15m","30m","1h","2h","3h","4h","6h","12h","1D","3D","1W"];
 const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
 const remembered = (key) => { try { return localStorage.getItem(key) || ""; } catch (_) { return ""; } };
 const remember = (key, value) => { try { localStorage.setItem(key, value); } catch (_) {} };
-let CHART_COUNT = Math.max(1, Math.min(6, +(QS.get("charts") || remembered("station.chartCount") || 2)));
+const CHART_COUNTS = [1,2,3,4,6];
+const chartCount = (value) => {
+  const n = Math.max(1, Math.min(6, +value || 2));
+  return n === 5 ? 4 : (CHART_COUNTS.includes(n) ? n : 2);
+};
+let CHART_COUNT = chartCount(QS.get("charts") || remembered("station.chartCount") || 2);
 const CHARTS = Array.from({ length: 6 }, (_, i) => {
   const incoming = QS.get("c" + (i + 1));
   if (incoming && incoming !== "auto") return CLEAN(incoming);
@@ -305,8 +310,11 @@ function makePane(def) {
     if (body.querySelector(".card")) return;
     const c = document.createElement("div"); c.className = "card";
     c.innerHTML = '<div class="n">' + esc(def.title) + '</div><div class="d">' + esc(note) + "</div>" +
-      '<div class="go">tap to load</div>';
-    c.addEventListener("click", () => mount(obj));
+      '<div class="go">' + (def.kind === "chart" ? "choose ticker" : "load pane") + '</div>';
+    c.addEventListener("click", () => {
+      if (def.kind === "chart" && !def.src) focusTickerFor(def.key);
+      else mount(obj);
+    });
     body.appendChild(c);
   };
 
@@ -358,6 +366,14 @@ function setSolo(key) {
     if (o && !o.frame && !o.isDock) mount(o);
   }
   measure(); paintChips(); writeStationUrl();
+}
+
+function focusTickerFor(key) {
+  const m = String(key || "").match(/^c([1-6])$/);
+  if (!m) return;
+  const input = el("t" + m[1]);
+  if (!input) return;
+  input.focus(); selAll(input); paintSymbolGuide(input);
 }
 
 window.addEventListener("message", (event) => {
@@ -582,7 +598,7 @@ function paintTickerFields() {
   });
 }
 function applyChartCount(next) {
-  CHART_COUNT = Math.max(1, Math.min(6, +next || 2));
+  CHART_COUNT = chartCount(next);
   el("chartCount").value = String(CHART_COUNT); remember("station.chartCount", String(CHART_COUNT));
   const row = el("rowTop");
   if (row) row.className = "deckrow charts-" + CHART_COUNT;
@@ -601,6 +617,17 @@ function applyChartCount(next) {
 el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
 el("displayBtn").addEventListener("click", () => {
   window.open(location.href, "scintilla_station_display", "popup,width=1600,height=1000");
+});
+el("stationFullBtn").addEventListener("click", async () => {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await document.documentElement.requestFullscreen();
+  } catch (_) {}
+});
+document.addEventListener("fullscreenchange", () => {
+  const on = !!document.fullscreenElement;
+  el("stationFullBtn").textContent = on ? "↙" : "⛶";
+  el("stationFullBtn").classList.toggle("on", on);
 });
 document.addEventListener("pointerdown", (e) => {
   if (!e.target.closest("#symbolGuide") && !e.target.closest(".tkin")) closeSymbolGuide();
