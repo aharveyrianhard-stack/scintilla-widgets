@@ -58,6 +58,11 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   transform:translateX(-50%); background:var(--panel2); border:.6px solid var(--line2);
   border-radius:3px; padding:2px 6px; font-family:var(--mono); font-size:8.5px;
   color:var(--ink); white-space:nowrap; }
+.sc-nchart__live{ position:absolute; top:5px; right:5px; z-index:3; pointer-events:none;
+  background:rgba(10,10,15,.86); border:.6px solid var(--line2); padding:2px 5px;
+  font:7.5px var(--mono); letter-spacing:.06em; color:var(--dim); white-space:nowrap; }
+.sc-nchart__live[data-fresh="1"]{ color:var(--bull); border-color:rgba(0,255,163,.35); }
+.sc-nchart__live[data-fresh="0"]{ color:var(--vol); border-color:rgba(255,138,0,.35); }
 .sc-nchart__msg{ position:absolute; inset:0; z-index:2; display:flex; align-items:center;
   justify-content:center; color:var(--dim); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
 .sc-nchart__msg[hidden]{ display:none; }
@@ -275,6 +280,7 @@ function scChartHTML(ticker) {
       POPOUT_SVG + "<span class=\"sc-tv__pop-lbl\"> TradingView</span></button>" +
     "</div>" +
     '<div class="sc-nchart__area"><canvas class="sc-nchart__cv"></canvas>' +
+    '<div class="sc-nchart__live" data-fresh="0">checking live…</div>' +
     '<div class="sc-nchart__hud" hidden></div>' +
     '<div class="sc-nchart__msg" hidden></div></div></div>';
 }
@@ -509,6 +515,7 @@ function scChartWire(slot) {
     host._ro.observe(area);
   }
   scChartScrub(host);
+  paintLiveStatus(host, liveQuote[host.dataset.t]);
   scChartLoad(host);
 }
 
@@ -534,11 +541,24 @@ function scChartLive(t, price, updatedTs) {
   liveQuote[t] = { price:+price, updated_ts:updatedTs || Date.now() };
   for (const host of CHART_HOSTS) {
     if (!host.isConnected || host.dataset.t !== t) continue;
+    paintLiveStatus(host, liveQuote[t]);
     const s = host._series;
     if (!s || !s.length) continue;
     chApplyLivePoint(t, s, liveQuote[t]);
     scChartDraw(host);
   }
+}
+
+function paintLiveStatus(host, quote) {
+  const badge = host?.querySelector(".sc-nchart__live");
+  if (!badge || !quote || !isFinite(+quote.price)) return;
+  const at = new Date(quote.updated_ts || Date.now());
+  const age = Date.now() - at.getTime();
+  const fresh = Number.isFinite(age) && age < 90000;
+  badge.dataset.fresh = fresh ? "1" : "0";
+  badge.textContent = chPx(+quote.price) + " · " + (fresh ? "LIVE " : "LAST ") +
+    at.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit", second:"2-digit" });
+  badge.title = "live_quotes · " + at.toISOString();
 }
 
 /* prev_close for the 15m reference line — live_quotes served value (hub source) */
@@ -613,7 +633,10 @@ addEventListener("message", (e) => {
 el("chartSlot").innerHTML = scChartHTML(S.chartT);
 scChartWire(el("chartSlot"));
 pullPrevClose(S.chartT);
-/* refresh cadence — re-pull the active series every 60 s (DB-only; realtime covers the last point) */
+/* A ten-second read-only heartbeat makes live status dependable even if the
+   browser's realtime socket sleeps. The full history remains a 60-second pull. */
+setInterval(() => pullPrevClose(S.chartT), 10000);
+/* refresh cadence — re-pull the active series every 60 s */
 setInterval(() => { const host = document.querySelector("#chartSlot .sc-nchart"); if (host) scChartLoad(host); }, 60000);
 </script>
 </body>

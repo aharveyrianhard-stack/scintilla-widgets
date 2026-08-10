@@ -1,8 +1,34 @@
 const SUPPORTED_HOSTS = new Set(["x.com", "www.x.com", "twitter.com", "www.twitter.com"]);
 const stationConsumers = new Map();
 let stationSourceTabId = null;
-let stationReloadTimer = null;
-const STATION_RELOAD_GRACE_MS = 4000;
+const STATION_SESSION_KEY = "stationXSessionV1";
+
+async function restoreStationSession() {
+  try {
+    const box = await chrome.storage.session.get(STATION_SESSION_KEY);
+    const saved = box?.[STATION_SESSION_KEY];
+    if (!saved) return;
+    if (Number.isInteger(saved.sourceTabId)) stationSourceTabId = saved.sourceTabId;
+    for (const entry of saved.consumers || []) {
+      if (Number.isInteger(entry?.tabId) && Number.isInteger(entry?.frameId)) {
+        stationConsumers.set(entry.tabId, entry);
+      }
+    }
+  } catch {}
+}
+
+async function persistStationSession() {
+  try {
+    await chrome.storage.session.set({
+      [STATION_SESSION_KEY]: {
+        sourceTabId: Number.isInteger(stationSourceTabId) ? stationSourceTabId : null,
+        consumers: [...stationConsumers.values()]
+      }
+    });
+  } catch {}
+}
+
+const stationRestore = restoreStationSession();
 
 function freshestStationConsumer() {
   return [...stationConsumers.values()]
@@ -51,10 +77,6 @@ function captureStreamId(sourceTabId) {
 }
 
 async function stopStationCapture(detail = "stopped") {
-  if (stationReloadTimer) {
-    clearTimeout(stationReloadTimer);
-    stationReloadTimer = null;
-  }
   const consumer = freshestStationConsumer();
   try {
     await chrome.runtime.sendMessage({
@@ -78,6 +100,7 @@ async function stopStationCapture(detail = "stopped") {
     });
   } catch {}
   stationSourceTabId = null;
+  await persistStationSession();
 }
 
 async function reconnectStationConsumer(consumer) {
@@ -102,7 +125,9 @@ async function reconnectStationConsumer(consumer) {
 async function startStationCapture(sourceTab, consumer) {
   if (!sourceTab?.id || !consumer) return false;
   if (stationSourceTabId === sourceTab.id) {
-    await stopStationCapture("Station X disconnected.");
+    await reconnectStationConsumer(consumer);
+    await chrome.tabs.update(consumer.tabId, { active: true });
+    await chrome.windows.update(consumer.windowId, { state: "normal", focused: true });
     return true;
   }
 
@@ -118,6 +143,7 @@ async function startStationCapture(sourceTab, consumer) {
     throw new Error(capture?.error || "The Station X capture could not start.");
   }
   stationSourceTabId = sourceTab.id;
+  await persistStationSession();
 
   await ensureContentScript(sourceTab.id);
   await chrome.tabs.sendMessage(sourceTab.id, {
@@ -210,6 +236,7 @@ async function focusOrOpenX() {
 
 chrome.action.onClicked.addListener(async (tab) => {
   try {
+    await stationRestore;
     if (!isSupportedUrl(tab?.url)) {
       // Chrome requires the capture/PiP gesture on the actual X tab. The first
       // click brings the most recent X tab forward; the next click opens PiP.
@@ -238,29 +265,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: false, error: "No Station tab was available." });
       return;
     }
-    stationConsumers.set(tabId, {
-      tabId,
-      windowId: sender.tab.windowId,
-      frameId: sender.frameId || 0,
-      width: Math.max(1, Number(message.width) || 1),
-      height: Math.max(1, Number(message.height) || 1),
-      lastSeen: Date.now()
-    });
-    if (stationReloadTimer) {
-      clearTimeout(stationReloadTimer);
-      stationReloadTimer = null;
-    }
-    if (stationSourceTabId) {
-      reconnectStationConsumer(stationConsumers.get(tabId)).catch((error) => {
-        sendToStation(stationConsumers.get(tabId), {
-          type: "XFF_STATION_STATUS",
-          status: "error",
-          detail: error?.message || "Station X could not reattach after reload."
-        }).catch(() => {});
+    (async () => {
+      await stationRestore;
+      stationConsumers.set(tabId, {
+        tabId,
+        windowId: sender.tab.windowId,
+        frameId: sender.frameId || 0,
+        width: Math.max(1, Number(message.width) || 1),
+        height: Math.max(1, Number(message.height) || 1),
+        lastSeen: Date.now()
       });
-    }
-    sendResponse({ ok: true, connected: Boolean(stationSourceTabId) });
-    return;
+      await persistStationSession();
+      if (stationSourceTabId) await reconnectStationConsumer(stationConsumers.get(tabId));
+      sendResponse({ ok: true, connected: Boolean(stationSourceTabId) });
+    })().catch((error) => {
+      sendResponse({ ok: false, error: error?.message || "Station X could not register this pane." });
+    });
+    return true;
   }
 
   if (message?.type === "XFF_STATION_NOT_READY") {
@@ -268,15 +289,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const current = stationConsumers.get(tabId);
     if (current && current.frameId === (sender.frameId || 0)) {
       stationConsumers.delete(tabId);
-      if (stationSourceTabId) {
-        if (stationReloadTimer) clearTimeout(stationReloadTimer);
-        stationReloadTimer = setTimeout(() => {
-          stationReloadTimer = null;
-          if (!freshestStationConsumer()) {
-            stopStationCapture("The Station pane closed.").catch(() => {});
-          }
-        }, STATION_RELOAD_GRACE_MS);
-      }
+      persistStationSession().catch(() => {});
     }
     sendResponse({ ok: true });
     return;
@@ -492,5 +505,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   stationConsumers.delete(tabId);
   if (tabId === stationSourceTabId) {
     stopStationCapture("The X source tab closed.").catch(() => {});
+  } else {
+    persistStationSession().catch(() => {});
   }
 });

@@ -117,7 +117,7 @@ body.tiny #card .d{ display:none; }
   <span class="btn" id="bXNotify" style="display:none">notifications</span>
   <span class="btn" id="bXBack" style="display:none">−30s</span>
   <span class="btn" id="bXRefresh" style="display:none">refresh</span>
-  <span class="btn go" id="bStart">browser picker</span>
+  <span class="btn go" id="bStart" style="display:none">browser picker</span>
   <span class="btn" id="bStop" style="display:none">stop</span>
   <span class="btn" id="bPip" style="display:none" title="float this in its own always-on-top window">pip</span>
   <span class="lbl" id="lz" style="display:none">zoom</span>
@@ -131,16 +131,12 @@ body.tiny #card .d{ display:none; }
   <video id="v" autoplay muted playsinline></video>
   <canvas id="cv"></canvas>
   <div id="card">
-    <div class="n">Station X is ready for this exact pane</div>
+    <div class="n">X source is offline</div>
     <div class="d">Open the dedicated <b>x.com</b> source tab in this Chrome profile and press
-      <b>Option+Shift+S</b> once. The separate Station helper handles crop and smooth scrolling; this box
-      receives the fitted pixels. Your existing X Feed Float remains independent. Nothing is uploaded.</div>
-    <div class="go" id="bGo">browser picker fallback</div>
-    <div class="d" id="hint">The browser-picker fallback still works without the Station helper, but it cannot scroll X.
-      The Station helper is purpose-built for this box and never opens a floating window.</div>
+      <b>Option+Shift+S</b> once. After that, Station keeps the capture alive across Station reloads and
+      duplicate display tabs. Your separate X Feed Float remains independent.</div>
     <div class="alt">
-      <a class="btn" href="https://x.com/home" target="_blank" rel="noopener">open x.com first</a>
-      <span class="btn" id="bWin">pop a window instead</span>
+      <a class="btn" href="https://x.com/home" target="_blank" rel="noopener">open x.com</a>
     </div>
     <div id="err"></div>
   </div>
@@ -174,7 +170,7 @@ function paintXView(view) {
 function xfloatControls(on) {
   for (const id of ["bXList", "bXNotify", "bXBack", "bXRefresh"])
     el(id).style.display = on ? "" : "none";
-  el("bStart").style.display = on ? "none" : "";
+  el("bStart").style.display = "none";
 }
 
 function stopXFloat({ notify = true } = {}) {
@@ -310,7 +306,7 @@ function showErr(m) { const e = el("err"); e.textContent = m; e.style.display = 
 
 function controls(on) {
   for (const id of ["bStop", "bPip", "lz", "z", "lx", "px"]) el(id).style.display = on ? "" : "none";
-  el("bStart").style.display = on ? "none" : "";
+  el("bStart").style.display = "none";
   el("bPip").style.display = (on && document.pictureInPictureEnabled) ? "" : "none";
 }
 
@@ -347,12 +343,8 @@ function stop() {
   document.body.classList.remove("live");
   controls(false);
 }
-el("bGo").addEventListener("click", start);
 el("bStart").addEventListener("click", start);
 el("bStop").addEventListener("click", stop);
-el("bWin").addEventListener("click", () => {
-  window.open("https://x.com/home", "sc_x", "width=520,height=820,menubar=no,toolbar=no,location=no");
-});
 
 el("bXBack").addEventListener("click", () => postXFloat("rewind"));
 el("bXRefresh").addEventListener("click", () => postXFloat("refresh"));
@@ -407,20 +399,11 @@ el("bPip").addEventListener("click", async () => {
   } catch (e) { showErr("Picture-in-picture was refused: " + (e && e.name ? e.name : "unknown") + "."); }
 });
 
-if (!CAN) {
-  el("bGo").textContent = IOS ? "not available in safari" : "not available here";
-  el("bGo").style.borderColor = "var(--mute)";
-  el("bGo").style.color = "var(--mute)";
-  el("hint").innerHTML = IOS
-    ? "<b>Why:</b> Safari on iOS and iPadOS ships no screen-capture API. Station X runs from its dedicated Chrome source tab on the Mac; X Feed Float remains a separate tool."
-    : "<b>Why:</b> this browser exposes no getDisplayMedia.";
-}
 tiny();
-if (QS.get("auto") === "1" && CAN) el("bGo").focus();
 window.addEventListener("resize", () => postXFloat("resize", { width: innerWidth, height: innerHeight }));
-/* An ordinary Station reload also fires pagehide. Tear down only this page's
-   video/canvas objects and let the extension's short reload grace period keep
-   the already user-approved tab capture alive for the replacement frame. */
+/* Tear down only this page's video/canvas objects. The helper keeps the
+   already user-approved source capture alive until an explicit stop or the X
+   source tab itself closes, so Station reloads and display tabs do not drop it. */
 window.addEventListener("pagehide", () => stopXFloat({ notify: false }));
 </script>
 </body>

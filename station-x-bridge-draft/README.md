@@ -8,7 +8,7 @@ deployed.
 
 This is a purpose-built helper for the X box inside SCINTILLA Station. It borrows the useful behavior recovered from X Feed Float—timeline crop, smooth scrolling, pause, refresh, rewind, and source switching—but it is a separate extension with a separate identity and shortcut.
 
-The installed **X Feed Float 0.6.7** remains untouched and can continue running on another screen. The Station helper is **SCINTILLA Station X Bridge 0.7.3** and uses `Option+Shift+S`, not X Feed Float's `Option+Shift+P`.
+The installed **X Feed Float 0.6.7** remains untouched and can continue running on another screen. The Station helper is **SCINTILLA Station X Bridge 0.7.5** and uses `Option+Shift+S`, not X Feed Float's `Option+Shift+P`. Version 0.7.5 keeps the approved X source capture alive across Station reloads, duplicate display tabs, and Chrome extension-worker sleep; repeating the shortcut reconnects instead of toggling the capture off.
 
 ## Visible behavior
 

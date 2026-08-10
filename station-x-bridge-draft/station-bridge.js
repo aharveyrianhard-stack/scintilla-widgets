@@ -1,8 +1,8 @@
 (() => {
   "use strict";
 
-  if (window.__XFF_STATION_BRIDGE_V070__) return;
-  window.__XFF_STATION_BRIDGE_V070__ = true;
+  if (window.__XFF_STATION_BRIDGE_V074__) return;
+  window.__XFF_STATION_BRIDGE_V074__ = true;
 
   const ORIGIN = window.location.origin;
   const isPane = /\/pane-x\/?$/.test(window.location.pathname);
@@ -88,11 +88,13 @@
   });
 
   let resizeTimer = 0;
+  const heartbeat = setInterval(ready, 30000);
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(ready, 120);
   });
   window.addEventListener("pagehide", () => {
+    clearInterval(heartbeat);
     chrome.runtime.sendMessage({ type: "XFF_STATION_NOT_READY" }).catch(() => {});
   });
 
