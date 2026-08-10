@@ -78,9 +78,9 @@ body.searching #q{ display:block; }
 .card.on{ outline:1px solid var(--crk); outline-offset:-1px; }
 .thumb{ position:relative; width:100%; aspect-ratio:16/9; background:#12121c; overflow:hidden; }
 .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
-.star{ position:absolute; top:3px; right:3px; width:24px; height:24px; padding:0; z-index:2;
+.star{ position:absolute; top:3px; right:3px; width:auto; height:22px; padding:0 6px; z-index:2;
   border:1px solid rgba(10,10,15,.7); background:rgba(10,10,15,.82); color:var(--ink3);
-  font:15px/22px var(--mono); cursor:pointer; }
+  font:7px/20px var(--mono); letter-spacing:.06em; text-transform:uppercase; cursor:pointer; }
 .star:hover{ color:var(--ink); border-color:var(--hair); }
 .star.on{ color:var(--vol); border-color:rgba(255,138,0,.6); }
 .dur{ position:absolute; right:3px; bottom:3px; background:rgba(0,0,0,.82); color:#fff;
@@ -117,11 +117,9 @@ body.playing #grid{ display:none; }
   <span class="btn" id="bBack" style="display:none">‹ grid</span>
   <span class="btn" id="bPip" style="display:none" title="float this video in its own always-on-top window">pip</span>
   <a class="btn out" id="bYt" style="display:none" target="_blank" rel="noopener">youtube ↗</a>
-  <span class="btn" id="bSearch" title="filter this loaded feed by title, channel, or ticker">⌕</span>
-  <input id="q" type="search" placeholder="title, channel, ticker…" autocomplete="off" autocorrect="off" spellcheck="false">
   <span id="chips" style="display:flex;gap:4px"></span>
   <span id="auth"></span>
-  <span class="btn" id="bFull">full</span>
+  <span class="btn" id="bFull" title="expand this pane">⛶</span>
 </div>
 <div id="grid"><div class="msg">loading…</div></div>
 <div id="stage">
@@ -325,7 +323,7 @@ el("bPip").addEventListener("click", async () => {
 
 /* ---- render ---- */
 function paint() {
-  const q = el("q").value.trim().toLowerCase();
+  const q = "";
   let rows = LIST === "watch" ? ROWS.filter((v) => WATCH.has(v.video_id)) : ROWS;
   rows = q ? rows.filter((v) => ((v.title || "") + " " + (v.channel || "") + " " + (v.tickers || "")).toLowerCase().indexOf(q) >= 0) : rows;
   if (!rows.length) { el("grid").innerHTML = '<div class="msg">' + (q ? "nothing matches" : "no videos in this list") + "</div>"; return; }
@@ -334,7 +332,8 @@ function paint() {
       '<div class="thumb"><img loading="lazy" decoding="async" src="' +
         esc(v.thumb_url || ("https://i.ytimg.com/vi/" + v.video_id + "/mqdefault.jpg")) + '" alt="">' +
         (FEED === "scintilla" ? '<button class="star' + (WATCH.has(v.video_id) ? " on" : "") + '" data-star="' + esc(v.video_id) +
-          '" title="' + (WATCH.has(v.video_id) ? "remove from" : "save to") + ' SCINTILLA · Watch Later">★</button>' : "") +
+          '" title="' + (WATCH.has(v.video_id) ? "remove from" : "save to") + ' SCINTILLA · Watch Later">' +
+          (WATCH.has(v.video_id) ? "✓ watch later" : "+ watch later") + '</button>' : "") +
         (v.tickers ? '<span class="tk">' + esc(String(v.tickers).split(",")[0]) + "</span>" : "") +
         (v.duration ? '<span class="dur">' + esc(v.duration) + "</span>" : "") +
       "</div>" +
@@ -403,21 +402,12 @@ async function load(forceWatch) {
   if (START && BYID[START]) play(BYID[START], AUTO);
 }
 
-el("q").addEventListener("input", paint);
-el("q").addEventListener("focus", () => el("q").select());
-el("q").addEventListener("blur", () => {
-  if (!el("q").value.trim()) document.body.classList.remove("searching");
-});
-el("bSearch").addEventListener("click", () => {
-  document.body.classList.add("searching");
-  requestAnimationFrame(() => el("q").focus());
-});
 el("bFull").addEventListener("click", () => {
   parent.postMessage({ type: "SCINTILLA_DECK_TOGGLE_FULL" }, location.origin);
 });
 window.addEventListener("message", (event) => {
   if (event.origin !== location.origin || event.data?.type !== "SCINTILLA_DECK_FULL_STATE") return;
-  el("bFull").textContent = event.data.active ? "back" : "full";
+  el("bFull").textContent = event.data.active ? "↙" : "⛶";
 });
 async function start() {
   try { AUTH_STATUS = await oauth("status"); } catch (e) {}

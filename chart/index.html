@@ -76,9 +76,9 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   color:var(--ink); font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
   padding:3px 7px; outline:none; text-align:center; }
 .sc-ctkin:focus{ border-color:rgba(0,212,255,.45); color:var(--crk); }
-/* bare mode — the deck owns the timeframe, so the per-chart ladder is hidden here.
-   The ticker field and the TradingView button stay: nothing is lost. */
-html.bare .sc-crange{ display:none; }
+/* bare mode — the Station owns ticker and timeframe. Hide the duplicated
+   chart bar so the actual chart gets the full pane; standalone /chart keeps it. */
+html.bare .sc-nchart__bar{ display:none; }
 
 /* FIX 5 — IN-APP TradingView modal — ported verbatim */
 body.tvmodal-open{ overflow:hidden; }
@@ -174,6 +174,7 @@ const CB = { "BTC-USD":"BTCUSD", "ETH-USD":"ETHUSD", "SOL-USD":"SOLUSD", "XRP-US
              "DOGE-USD":"DOGEUSD", "ADA-USD":"ADAUSD", "AVAX-USD":"AVAXUSD",
              "LINK-USD":"LINKUSD", "LTC-USD":"LTCUSD" };
 const cryptoSet = new Set(Object.values(CB));
+const futureSet = new Set(["ESUSD","NQUSD","CLUSD","GCUSD","SIUSD","DXUSD"]);
 const TV_MAP = { BTC: "COINBASE:BTCUSD", ETH: "COINBASE:ETHUSD", SOL: "COINBASE:SOLUSD",
   BTCUSD: "COINBASE:BTCUSD", ETHUSD: "COINBASE:ETHUSD", SOLUSD: "COINBASE:SOLUSD",
   XRPUSD: "COINBASE:XRPUSD", DOGEUSD: "COINBASE:DOGEUSD", ADAUSD: "COINBASE:ADAUSD",
@@ -198,6 +199,7 @@ const S = {
 };
 if (BARE) document.documentElement.classList.add("bare");
 let prevClose = {};
+let liveQuote = {};
 
 /* ---- chart caches + colors — ported verbatim ---- */
 const chartCache = new Map();
@@ -213,6 +215,14 @@ function chColors() {
   return CH_COL;
 }
 const chFmpSym = (t) => (cryptoSet.has(t) && !t.endsWith("USD") ? t + "USD" : t);
+function chApplyLivePoint(t, pts, quote) {
+  if (!quote || !Array.isArray(pts) || !pts.length || !isFinite(+quote.price)) return pts;
+  const d = new Date(quote.updated_ts || Date.now()).toISOString();
+  const last = pts[pts.length - 1];
+  if (last.d.slice(0,10) === d.slice(0,10)) last.p = +quote.price;
+  else if (futureSet.has(t) || cryptoSet.has(t)) pts.push({ d, p:+quote.price });
+  return pts;
+}
 const chPx = (p) => (p >= 1000 ? Math.round(p).toLocaleString()
   : p >= 1 ? p.toFixed(2) : p.toFixed(4));
 const chTimeFull = (d) => (d.length > 10 ? d.slice(0, 16) : d);
@@ -228,23 +238,24 @@ function chTimeLbl(d, range) {
 function chartSeriesCached(t, range) {
   const key = t + "|" + range;
   const hit = chartCache.get(key);
-  if (hit && hit.pts && hit.pts.length >= 2) return hit.pts;
+  if (hit && hit.pts && hit.pts.length >= 2) return chApplyLivePoint(t, hit.pts, liveQuote[t]);
   const env = cacheGet("sc_chart_" + key);
   if (env && Array.isArray(env.pts) && env.pts.length >= 2) {
     chartCache.set(key, { ts: env.ts || Date.now(), pts: env.pts });
-    return env.pts;
+    return chApplyLivePoint(t, env.pts, liveQuote[t]);
   }
   return null;
 }
 async function fetchChartSeries(t, range){
   const key = t + "|" + range;
   const hit = chartCache.get(key);
-  if (hit && Date.now() - hit.ts < 300000) return hit.pts;
+  if (hit && Date.now() - hit.ts < 300000) return chApplyLivePoint(t, hit.pts, liveQuote[t]);
   const RTF = {"15m":["15",200],"30m":["30",200],"1h":["60",200],"2h":["120",200],"3h":["180",200],"4h":["240",200],"6h":["6h",200],"12h":["12h",200],"1D":["D",190],"3D":["3D",260],"1W":["W",300]};
   const e = RTF[range] || RTF["1D"];
   const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + e[1]);
   let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
   pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
+  chApplyLivePoint(t, pts, liveQuote[t]);
   chartCache.set(key, { ts: Date.now(), pts: pts });
   if (pts.length >= 2) { try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {} }
   return pts;
@@ -519,14 +530,13 @@ function setChartTicker(t) {
 }
 
 /* R22 FIX 8 — live tick → cheap last-point update (ported verbatim) */
-function scChartLive(t, price) {
-  const today = todayISO();
+function scChartLive(t, price, updatedTs) {
+  liveQuote[t] = { price:+price, updated_ts:updatedTs || Date.now() };
   for (const host of CHART_HOSTS) {
     if (!host.isConnected || host.dataset.t !== t) continue;
     const s = host._series;
     if (!s || !s.length) continue;
-    if (s[s.length - 1].d.slice(0, 10) !== today) continue;
-    s[s.length - 1].p = price;
+    chApplyLivePoint(t, s, liveQuote[t]);
     scChartDraw(host);
   }
 }
@@ -534,15 +544,18 @@ function scChartLive(t, price) {
 /* prev_close for the 15m reference line — live_quotes served value (hub source) */
 async function pullPrevClose(t) {
   try {
-    const rows = await pg("live_quotes?ticker=eq." + encodeURIComponent(t) + "&select=ticker,prev_close", 1);
-    if (Array.isArray(rows) && rows[0] && rows[0].prev_close != null) prevClose[t] = +rows[0].prev_close;
+    const rows = await pg("live_quotes?ticker=eq." + encodeURIComponent(t) + "&select=ticker,prev_close,price,updated_ts", 1);
+    if (Array.isArray(rows) && rows[0]) {
+      if (rows[0].prev_close != null) prevClose[t] = +rows[0].prev_close;
+      if (rows[0].price != null) scChartLive(t, +rows[0].price, rows[0].updated_ts);
+    }
   } catch (_) {}
 }
 
 /* realtime — live_quotes ticks patch the active chart (hub channel, verbatim shape) */
 if (sb) {
   sb.channel("lq").on("postgres_changes", { event: "*", schema: "public", table: "live_quotes" }, (p) => {
-    if (p.new && p.new.ticker && p.new.price != null) scChartLive(String(p.new.ticker).toUpperCase(), +p.new.price);
+    if (p.new && p.new.ticker && p.new.price != null) scChartLive(String(p.new.ticker).toUpperCase(), +p.new.price, p.new.updated_ts);
   }).subscribe();
 }
 
