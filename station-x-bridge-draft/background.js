@@ -1,6 +1,8 @@
 const SUPPORTED_HOSTS = new Set(["x.com", "www.x.com", "twitter.com", "www.twitter.com"]);
 const stationConsumers = new Map();
 let stationSourceTabId = null;
+let stationReloadTimer = null;
+const STATION_RELOAD_GRACE_MS = 4000;
 
 function freshestStationConsumer() {
   return [...stationConsumers.values()]
@@ -49,6 +51,10 @@ function captureStreamId(sourceTabId) {
 }
 
 async function stopStationCapture(detail = "stopped") {
+  if (stationReloadTimer) {
+    clearTimeout(stationReloadTimer);
+    stationReloadTimer = null;
+  }
   const consumer = freshestStationConsumer();
   try {
     await chrome.runtime.sendMessage({
@@ -72,6 +78,25 @@ async function stopStationCapture(detail = "stopped") {
     });
   } catch {}
   stationSourceTabId = null;
+}
+
+async function reconnectStationConsumer(consumer) {
+  if (!stationSourceTabId || !consumer) return;
+  const sourceTabId = stationSourceTabId;
+  await ensureContentScript(sourceTabId);
+  await chrome.tabs.sendMessage(sourceTabId, {
+    type: "XFF_START_STATION_SOURCE",
+    consumer: { width: consumer.width, height: consumer.height }
+  });
+  await sendToStation(consumer, {
+    type: "XFF_STATION_WEBRTC_START",
+    sourceTabId
+  });
+  await sendToStation(consumer, {
+    type: "XFF_STATION_STATUS",
+    status: "connecting",
+    detail: "Station X reattached after reload."
+  });
 }
 
 async function startStationCapture(sourceTab, consumer) {
@@ -221,6 +246,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       height: Math.max(1, Number(message.height) || 1),
       lastSeen: Date.now()
     });
+    if (stationReloadTimer) {
+      clearTimeout(stationReloadTimer);
+      stationReloadTimer = null;
+    }
+    if (stationSourceTabId) {
+      reconnectStationConsumer(stationConsumers.get(tabId)).catch((error) => {
+        sendToStation(stationConsumers.get(tabId), {
+          type: "XFF_STATION_STATUS",
+          status: "error",
+          detail: error?.message || "Station X could not reattach after reload."
+        }).catch(() => {});
+      });
+    }
     sendResponse({ ok: true, connected: Boolean(stationSourceTabId) });
     return;
   }
@@ -231,7 +269,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (current && current.frameId === (sender.frameId || 0)) {
       stationConsumers.delete(tabId);
       if (stationSourceTabId) {
-        stopStationCapture("The Station pane closed.").catch(() => {});
+        if (stationReloadTimer) clearTimeout(stationReloadTimer);
+        stationReloadTimer = setTimeout(() => {
+          stationReloadTimer = null;
+          if (!freshestStationConsumer()) {
+            stopStationCapture("The Station pane closed.").catch(() => {});
+          }
+        }, STATION_RELOAD_GRACE_MS);
       }
     }
     sendResponse({ ok: true });

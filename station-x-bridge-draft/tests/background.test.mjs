@@ -75,7 +75,9 @@ async function harness() {
   };
 
   const source = await readFile(new URL("../background.js", import.meta.url), "utf8");
-  vm.runInNewContext(source, { chrome, console, URL, Set, Map, Date, Promise, Error, setTimeout });
+  vm.runInNewContext(source, {
+    chrome, console, URL, Set, Map, Date, Promise, Error, setTimeout, clearTimeout
+  });
   return {
     runtimeListeners, actionListeners, removedListeners, sent, captures,
     tabUpdates, windowUpdates, runtimeSent, offscreenDocuments
@@ -154,16 +156,28 @@ test("Station offer is answered by the private extension media context", async (
     message.answer.sdp === "fixture-answer" && options.frameId === 5));
 });
 
-test("closing the Station pane stops the source instead of abandoning capture", async () => {
+test("a Station reload reattaches the existing capture without a second user action", async () => {
   const h = await harness();
+  const sender = { tab: { id: 11, windowId: 2 }, frameId: 5 };
   await dispatchRuntime(h.runtimeListeners, {
     type: "XFF_STATION_READY", width: 430, height: 260
-  }, { tab: { id: 11, windowId: 2 }, frameId: 5 });
+  }, sender);
   await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  const captureCount = h.captures.length;
   await dispatchRuntime(h.runtimeListeners, {
     type: "XFF_STATION_NOT_READY"
-  }, { tab: { id: 11, windowId: 2 }, frameId: 5 });
+  }, sender);
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 460, height: 280
+  }, sender);
   await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(h.captures.length, captureCount, "reload must not request a new capture gesture");
   assert.ok(h.sent.some(({ tabId, message }) =>
+    tabId === 7 && message.type === "XFF_START_STATION_SOURCE" &&
+    message.consumer.width === 460 && message.consumer.height === 280));
+  assert.ok(h.sent.some(({ tabId, message, options }) =>
+    tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
+  assert.ok(!h.sent.some(({ tabId, message }) =>
     tabId === 7 && message.type === "XFF_STOP_STATION_SOURCE"));
 });

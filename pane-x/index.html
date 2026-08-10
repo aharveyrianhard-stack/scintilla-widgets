@@ -78,6 +78,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   border:1px solid var(--line); background:var(--bg); color:var(--ink3); cursor:pointer;
   text-decoration:none; white-space:nowrap; }
 .btn:hover{ color:var(--ink); border-color:var(--hair); }
+.btn.on{ color:var(--crk); border-color:var(--crk); }
 .btn.go{ color:var(--crk); border-color:var(--crk); }
 .btn.out{ color:var(--vol); border-color:rgba(255,138,0,.35); }
 input[type=range]{ flex:none; width:64px; accent-color:var(--crk); }
@@ -105,17 +106,17 @@ body.xfloat #cv{ display:block; }
 #err{ color:var(--bear); font-size:8.5px; line-height:1.5; max-width:330px; display:none; }
 /* small slots: the prose would eat the box */
 body.tiny #card .d{ display:none; }
+#bFull{ margin-left:auto; }
 </style>
 </head>
 <body>
 <div id="bar">
   <span class="k">X · XFLOAT</span>
-  <span class="btn xf" id="xfState">waiting</span>
-  <span class="btn xf" id="bXPause" style="display:none">pause</span>
+  <span id="xfState" hidden>waiting</span>
+  <span class="btn" id="bXList" style="display:none">list</span>
+  <span class="btn" id="bXNotify" style="display:none">notifications</span>
   <span class="btn" id="bXBack" style="display:none">−30s</span>
   <span class="btn" id="bXRefresh" style="display:none">refresh</span>
-  <span class="btn" id="bXTrading" style="display:none">subscribed</span>
-  <span class="btn" id="bXNotify" style="display:none">notifications</span>
   <span class="btn go" id="bStart">browser picker</span>
   <span class="btn" id="bStop" style="display:none">stop</span>
   <span class="btn" id="bPip" style="display:none" title="float this in its own always-on-top window">pip</span>
@@ -123,7 +124,7 @@ body.tiny #card .d{ display:none; }
   <input type="range" id="z" min="100" max="400" value="150" style="display:none">
   <span class="lbl" id="lx" style="display:none">pan</span>
   <input type="range" id="px" min="-50" max="50" value="0" style="display:none">
-  <a class="btn out" href="https://x.com/home" target="_blank" rel="noopener">open x ↗</a>
+  <span class="btn" id="bFull">full</span>
 </div>
 
 <div id="body">
@@ -164,8 +165,14 @@ function postXFloat(action, value) {
   window.postMessage({ type: "XFF_STATION_CONTROL", action, value }, location.origin);
 }
 
+function paintXView(view) {
+  const notifications = view === "notifications";
+  el("bXList").classList.toggle("on", !notifications);
+  el("bXNotify").classList.toggle("on", notifications);
+}
+
 function xfloatControls(on) {
-  for (const id of ["bXPause", "bXBack", "bXRefresh", "bXTrading", "bXNotify"])
+  for (const id of ["bXList", "bXNotify", "bXBack", "bXRefresh"])
     el(id).style.display = on ? "" : "none";
   el("bStart").style.display = on ? "none" : "";
 }
@@ -347,15 +354,13 @@ el("bWin").addEventListener("click", () => {
   window.open("https://x.com/home", "sc_x", "width=520,height=820,menubar=no,toolbar=no,location=no");
 });
 
-el("bXPause").addEventListener("click", () => {
-  xfloatPaused = !xfloatPaused;
-  postXFloat("pause", xfloatPaused);
-  el("bXPause").textContent = xfloatPaused ? "resume" : "pause";
-});
 el("bXBack").addEventListener("click", () => postXFloat("rewind"));
 el("bXRefresh").addEventListener("click", () => postXFloat("refresh"));
-el("bXTrading").addEventListener("click", () => postXFloat("view", "trading"));
+el("bXList").addEventListener("click", () => postXFloat("view", "trading"));
 el("bXNotify").addEventListener("click", () => postXFloat("view", "notifications"));
+el("bFull").addEventListener("click", () => {
+  parent.postMessage({ type: "SCINTILLA_DECK_TOGGLE_FULL" }, location.origin);
+});
 el("body").addEventListener("pointerenter", () => { if (xfloatStream) postXFloat("pause", true); });
 el("body").addEventListener("pointerleave", () => { if (xfloatStream && !xfloatPaused) postXFloat("pause", false); });
 
@@ -378,12 +383,18 @@ window.addEventListener("message", (event) => {
     xfloatCrop = event.data.crop;
     const paused = Boolean(xfloatCrop?.paused);
     el("xfState").textContent = paused ? "paused" : "live";
+    paintXView(xfloatCrop?.activeView || "trading");
   }
   if (event.data?.type === "XFF_STATION_STATUS") {
     if (event.data.status === "stopped") stopXFloat({ notify: false });
     else if (event.data.status === "error") showErr(event.data.detail || "Station X could not connect.");
     else if (!xfloatStream) el("xfState").textContent = event.data.status || "waiting";
   }
+});
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin || event.data?.type !== "SCINTILLA_DECK_FULL_STATE") return;
+  el("bFull").textContent = event.data.active ? "back" : "full";
 });
 
 /* REAL picture-in-picture. The capture is a genuine <video>, so this is the
@@ -407,7 +418,10 @@ if (!CAN) {
 tiny();
 if (QS.get("auto") === "1" && CAN) el("bGo").focus();
 window.addEventListener("resize", () => postXFloat("resize", { width: innerWidth, height: innerHeight }));
-window.addEventListener("pagehide", () => stopXFloat());
+/* An ordinary Station reload also fires pagehide. Tear down only this page's
+   video/canvas objects and let the extension's short reload grace period keep
+   the already user-approved tab capture alive for the replacement frame. */
+window.addEventListener("pagehide", () => stopXFloat({ notify: false }));
 </script>
 </body>
 </html>

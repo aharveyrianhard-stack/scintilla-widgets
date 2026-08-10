@@ -62,10 +62,12 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .btn.on{ color:var(--crk); border-color:var(--crk); }
 .btn.out{ color:var(--vol); border-color:rgba(255,138,0,.35); }
 #auth{ flex:none; color:var(--vol); font-size:8px; letter-spacing:.06em; white-space:nowrap; }
-#q{ flex:1 1 90px; min-width:70px; background:var(--bg); border:1px solid var(--line);
+#q{ display:none; flex:1 1 90px; min-width:70px; background:var(--bg); border:1px solid var(--line);
   color:var(--ink); font-family:var(--mono); font-size:11px; padding:3px 6px; outline:none;
   border-radius:0; -webkit-appearance:none; }
+body.searching #q{ display:block; }
 #q:focus{ border-color:var(--crk); }
+#bFull{ margin-left:auto; }
 
 /* ---- THE GRID. Thumbnails, counted from our own width. ---- */
 #grid{ flex:1 1 0; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
@@ -115,9 +117,11 @@ body.playing #grid{ display:none; }
   <span class="btn" id="bBack" style="display:none">‹ grid</span>
   <span class="btn" id="bPip" style="display:none" title="float this video in its own always-on-top window">pip</span>
   <a class="btn out" id="bYt" style="display:none" target="_blank" rel="noopener">youtube ↗</a>
-  <input id="q" type="search" placeholder="search…" autocomplete="off" autocorrect="off" spellcheck="false">
+  <span class="btn" id="bSearch" title="filter this loaded feed by title, channel, or ticker">⌕</span>
+  <input id="q" type="search" placeholder="title, channel, ticker…" autocomplete="off" autocorrect="off" spellcheck="false">
   <span id="chips" style="display:flex;gap:4px"></span>
   <span id="auth"></span>
+  <span class="btn" id="bFull">full</span>
 </div>
 <div id="grid"><div class="msg">loading…</div></div>
 <div id="stage">
@@ -160,16 +164,18 @@ const FORCE  = +(QS.get("cols") || 0);
    The old market-search lane remains available, but it is not used as a
    substitute for either identity. Watch Later is one Station-wide list;
    its authority is the private SCINTILLA · Watch Later playlist. */
+const SUBSCRIBED = {
+  id: "default", n: "subscribed",
+  q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") + "&is_short=eq.false"
+};
 const LISTS = FEED === "market" ? [
   { id: "default", n: "market",     q: "&tickers=not.is.null&tickers=neq.&is_short=eq.false" },
   { id: "shorts",  n: "shorts",     q: "&tickers=not.is.null&tickers=neq.&is_short=eq.true" },
   { id: "all",     n: "all market", q: "&tickers=not.is.null&tickers=neq." },
-] : [
-  { id: "default", n: "mine",     q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") + "&is_short=eq.false" },
-  { id: "shorts",  n: "shorts",   q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") + "&is_short=eq.true" },
-  { id: "all",     n: "all mine", q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") },
-  { id: "watch",   n: "★ later",  q: "" },
-];
+] : FEED === "scintilla" ? [
+  SUBSCRIBED,
+  { id: "watch", n: "watch later", q: "" },
+] : [SUBSCRIBED];
 let LIST = LISTS.some((l) => l.id === QS.get("list")) ? QS.get("list") : "default";
 el("kk").textContent = FEED === "market" ? "MARKET SEARCH" :
   FEED === "scintilla" ? "SCINTILLA" : "PERSONAL";
@@ -327,8 +333,8 @@ function paint() {
     '<div class="card' + (CUR && CUR.video_id === v.video_id ? " on" : "") + '" data-v="' + esc(v.video_id) + '">' +
       '<div class="thumb"><img loading="lazy" decoding="async" src="' +
         esc(v.thumb_url || ("https://i.ytimg.com/vi/" + v.video_id + "/mqdefault.jpg")) + '" alt="">' +
-        '<button class="star' + (WATCH.has(v.video_id) ? " on" : "") + '" data-star="' + esc(v.video_id) +
-          '" title="' + (WATCH.has(v.video_id) ? "remove from" : "save to") + ' SCINTILLA · Watch Later">★</button>' +
+        (FEED === "scintilla" ? '<button class="star' + (WATCH.has(v.video_id) ? " on" : "") + '" data-star="' + esc(v.video_id) +
+          '" title="' + (WATCH.has(v.video_id) ? "remove from" : "save to") + ' SCINTILLA · Watch Later">★</button>' : "") +
         (v.tickers ? '<span class="tk">' + esc(String(v.tickers).split(",")[0]) + "</span>" : "") +
         (v.duration ? '<span class="dur">' + esc(v.duration) + "</span>" : "") +
       "</div>" +
@@ -350,21 +356,15 @@ function paintChips() {
     b.addEventListener("click", () => { LIST = l.id; paintChips(); load(LIST === "watch"); });
     box.appendChild(b);
   }
-  for (const h of [["youtube ↗", "https://www.youtube.com/feed/you"]]) {
-    const a = document.createElement("a");
-    a.className = "btn out"; a.href = h[1]; a.target = "_blank"; a.rel = "noopener";
-    a.textContent = h[0]; a.title = "open YouTube";
-    box.appendChild(a);
-  }
   const own = AUTH_STATUS && AUTH_STATUS.accounts && AUTH_STATUS.accounts[FEED];
-  if (FEED !== "market" && own && !own.connected) {
+  if (FEED !== "market" && LIST === "watch" && own && !own.connected) {
     const b = document.createElement("span");
     b.className = "btn out"; b.textContent = "connect " + FEED;
     b.title = "connect the " + FEED + " YouTube identity";
     b.addEventListener("click", () => connectYouTube(FEED));
     box.appendChild(b);
   }
-  if (WATCH_ERROR) {
+  if (WATCH_ERROR && LIST === "watch") {
     const b = document.createElement("span");
     b.className = "btn out"; b.textContent = "reconnect SCINTILLA";
     b.title = WATCH_ERROR + " — Watch Later is owned by SCINTILLA";
@@ -405,6 +405,20 @@ async function load(forceWatch) {
 
 el("q").addEventListener("input", paint);
 el("q").addEventListener("focus", () => el("q").select());
+el("q").addEventListener("blur", () => {
+  if (!el("q").value.trim()) document.body.classList.remove("searching");
+});
+el("bSearch").addEventListener("click", () => {
+  document.body.classList.add("searching");
+  requestAnimationFrame(() => el("q").focus());
+});
+el("bFull").addEventListener("click", () => {
+  parent.postMessage({ type: "SCINTILLA_DECK_TOGGLE_FULL" }, location.origin);
+});
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin || event.data?.type !== "SCINTILLA_DECK_FULL_STATE") return;
+  el("bFull").textContent = event.data.active ? "back" : "full";
+});
 async function start() {
   try { AUTH_STATUS = await oauth("status"); } catch (e) {}
   paintChips(); relayout(); load();
