@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>GEIGER · IN MOTION</title>
+<meta name="theme-color" content="#0d1218">
+<!-- ============================================================================
+     GEIGER · IN MOTION — live.
+
+     Reads fan_daily (per ticker) and fan_cohort_daily (per cohort) straight from the
+     database. Nothing is mocked. The number is the SCINTILLA fan: thirteen daily-locked
+     lines — EMA 2/3/5/8/13/21/34/50, SMA 50/100/150/200, SMA 200 weekly — scored across
+     ALL 78 pairs, so how far a line has fallen through the fan is visible, not just
+     whether it crossed its neighbour.
+
+     MOTION GRAMMAR — ported from visuals/geiger-motion (the approved proposal):
+       · rank badge sits AFTER the bar, fades in on a move, auto-clears after 1400ms
+       · every mover leaves a TRAIL in the direction it came from
+       · one visual language everywhere: distance from the middle, green above, red below
+     "The movement itself is the message."
+
+     VIEWS: SECTORS (the eleven State Street SPDRs) · COHORTS (cohort vs cohort) ·
+            any single cohort's members racing each other.
+     ============================================================================ -->
+<style>
+:root{--mono:ui-monospace,Menlo,Consolas,monospace;--bg:#0d1218;--pane:#111820;
+ --line:#212932;--ink:#e6e9ee;--dim:#8d96a3;--dimmer:#5a626e;
+ --up:#2a9d98;--dn:#c0392b;--mid:#69737f;--accent:#5b9dd9}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);
+ font:13px/1.45 -apple-system,'Segoe UI',Roboto,sans-serif;
+ padding:calc(env(safe-area-inset-top) + 16px) 14px 30px;max-width:760px;margin:0 auto}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+.t1{font:600 12px/1 var(--mono);letter-spacing:.18em}
+.t2{color:var(--dimmer);font-size:10.5px;margin-top:5px}
+.dt{font:600 14px/1 var(--mono);color:#9db4d0;text-align:right}
+.dsub{font:9.5px/1 var(--mono);color:var(--dimmer);margin-top:5px;text-align:right}
+.tabs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:11px}
+.tab{background:#151d26;border:1px solid var(--line);border-radius:4px;color:var(--dim);
+ font:10px/1 var(--mono);letter-spacing:.09em;padding:6px 9px;cursor:pointer}
+.tab:hover{border-color:var(--accent);color:var(--ink)}
+.tab.on{background:#1b2836;border-color:var(--accent);color:#cfe0f2}
+.rows{position:relative;transition:height .4s}
+.row{position:absolute;left:0;right:0;height:30px;display:flex;align-items:center;
+ will-change:transform;transition:transform .5s cubic-bezier(.32,0,.18,1)}
+.tk{width:66px;font:600 11px/1 var(--mono);color:#b4bdc9;flex:none}
+.track{flex:1;position:relative;height:15px;background:#111820;border-radius:3px}
+.track:after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:#26303c}
+.bar{position:absolute;top:2px;bottom:2px;border-radius:2.5px;
+ transition:left .5s cubic-bezier(.32,0,.18,1),width .5s cubic-bezier(.32,0,.18,1),background .45s}
+.trail{position:absolute;width:3px;top:3px;bottom:3px;border-radius:2px;opacity:.55;
+ pointer-events:none;transition:opacity .9s}
+.val{width:52px;text-align:right;font:11px/1 var(--mono);padding-left:9px;flex:none;
+ transition:color .45s}
+.rk{width:34px;text-align:right;font:9px/1 var(--mono);letter-spacing:.05em;
+ color:var(--dimmer);opacity:0;transition:opacity .3s;flex:none;padding-left:6px}
+.rk.show{opacity:1}
+.ctl{display:flex;align-items:center;gap:9px;margin-top:14px}
+.btn{background:#151d26;color:#9db4d0;border:1px solid var(--line);border-radius:4px;
+ width:32px;height:27px;font-size:12px;cursor:pointer;flex:none}
+.btn:hover{border-color:var(--accent)}
+#sc{flex:1;accent-color:var(--accent);cursor:pointer}
+.spd{font:10px/1 var(--mono);color:var(--dimmer);width:22px;cursor:pointer;flex:none;text-align:center}
+.foot{color:var(--dimmer);font:9.5px/1.6 var(--mono);margin-top:11px;
+ border-top:1px solid var(--line);padding-top:9px}
+.msg{color:var(--dimmer);font:11px/1.6 var(--mono);padding:26px 0;text-align:center}
+</style>
+</head>
+<body>
+<div class="hd">
+  <div><div class="t1">GEIGER · IN MOTION</div>
+    <div class="t2">the fan, day by day · 13 daily-locked lines · 78 pairs</div></div>
+  <div><div class="dt" id="dt">—</div><div class="dsub" id="dsub">&nbsp;</div></div>
+</div>
+
+<div class="tabs" id="tabs"></div>
+<div class="rows" id="rows"><div class="msg" id="msg">loading…</div></div>
+
+<div class="ctl">
+  <button class="btn" id="pl">▶</button>
+  <input type="range" id="sc" min="0" max="0" value="0">
+  <span class="spd" id="sp">1×</span>
+</div>
+<div class="foot" id="foot">
+  green = fan stacked in order · red = fan inverted · badge shows places moved, then fades
+</div>
+
+<script>
+const SB="https://wadinxqplrggagkvrdag.supabase.co";
+const AK="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+const SECTORS=["XLB","XLC","XLE","XLF","XLI","XLK","XLP","XLRE","XLU","XLV","XLY"];
+const VIEWS=[
+ {k:"sectors",  label:"SECTORS",     note:"the eleven State Street SPDRs"},
+ {k:"cohorts",  label:"COHORTS",     note:"cohort vs cohort — average of members"},
+ {k:"MEGACAP",  label:"MEGACAP",     note:"cohort members"},
+ {k:"AI_HARDWARE",label:"AI HARDWARE",note:"cohort members"},
+ {k:"AI_SOFTWARE",label:"AI SOFTWARE",note:"cohort members"},
+ {k:"GROWTH",   label:"GROWTH",      note:"cohort members"},
+ {k:"BLUE_CHIP",label:"BLUE CHIP",   note:"cohort members"},
+ {k:"THEMATIC", label:"THEMATIC",    note:"cohort members"},
+ {k:"INTL",     label:"INTL",        note:"cohort members"},
+ {k:"INDEXES",  label:"INDEXES",     note:"cohort members"}
+];
+async function pg(p){const r=await fetch(SB+"/rest/v1/"+p,{headers:{apikey:AK,Authorization:"Bearer "+AK}});
+ if(!r.ok)throw new Error(r.status+" "+await r.text());return r.json();}
+
+const rowsEl=document.getElementById("rows"),tabsEl=document.getElementById("tabs"),
+ dtEl=document.getElementById("dt"),dsubEl=document.getElementById("dsub"),
+ sc=document.getElementById("sc"),pl=document.getElementById("pl"),sp=document.getElementById("sp"),
+ msg=document.getElementById("msg");
+let DATA={},DATES=[],NAMES=[],el={},prevRank={},idx=0,timer=null,spd=1,view="sectors";
+
+VIEWS.forEach(v=>{const b=document.createElement("div");b.className="tab";b.textContent=v.label;
+ b.onclick=()=>{if(view!==v.k){view=v.k;paintTabs();load();}};b.dataset.k=v.k;tabsEl.appendChild(b);});
+function paintTabs(){[...tabsEl.children].forEach(b=>b.classList.toggle("on",b.dataset.k===view));}
+paintTabs();
+
+async function load(){
+ stop(); rowsEl.innerHTML='<div class="msg">loading…</div>'; DATA={};DATES=[];NAMES=[];el={};prevRank={};
+ const from=new Date(Date.now()-200*864e5).toISOString().slice(0,10);
+ try{
+  let rows;
+  if(view==="cohorts"){
+    rows=await pg("fan_cohort_daily?select=name,asof,read&asof=gte."+from+"&order=asof.asc&limit=20000");
+  }else{
+    const list = view==="sectors" ? SECTORS
+      : (await pg("tickers?select=ticker&active=is.true&cohort=eq."+view)).map(r=>r.ticker);
+    if(!list.length){rowsEl.innerHTML='<div class="msg">no members</div>';return;}
+    rows=await pg("fan_daily?select=ticker,asof,read&asof=gte."+from
+      +"&ticker=in.("+list.join(",")+")&order=asof.asc&limit=40000");
+    rows=rows.map(r=>({name:r.ticker,asof:r.asof,read:r.read}));
+  }
+  if(!rows.length){rowsEl.innerHTML='<div class="msg">no data yet for this view</div>';return;}
+  const ds=new Set();
+  rows.forEach(r=>{ds.add(r.asof);(DATA[r.name]=DATA[r.name]||{})[r.asof]=r.read;});
+  DATES=[...ds].sort();
+  // keep only names present on the latest date, so a half-loaded series never ranks
+  const last=DATES[DATES.length-1];
+  NAMES=Object.keys(DATA).filter(n=>DATA[n][last]!=null).sort();
+  build(); sc.max=DATES.length-1; idx=DATES.length-1; sc.value=idx; draw(idx,false);
+  const v=VIEWS.find(x=>x.k===view); document.getElementById("foot").textContent=
+    "green = fan stacked in order · red = fan inverted · badge shows places moved, then fades — "+v.note;
+ }catch(e){rowsEl.innerHTML='<div class="msg">could not load — '+String(e.message).slice(0,90)+'</div>';}
+}
+function build(){
+ rowsEl.innerHTML=""; rowsEl.style.height=(NAMES.length*30)+"px";
+ NAMES.forEach(n=>{const r=document.createElement("div");r.className="row";
+  r.innerHTML='<span class="tk">'+n.replace(/_/g," ")+'</span>'+
+   '<span class="track"></span><span class="val"></span><span class="rk"></span>';
+  rowsEl.appendChild(r);
+  const tr=r.querySelector(".track"),b=document.createElement("i");b.className="bar";tr.appendChild(b);
+  el[n]={r:r,track:tr,b:b,v:r.querySelector(".val"),rk:r.querySelector(".rk"),t:null};});
+}
+const colr=v=>v<-0.15?"var(--dn)":v<0.30?"var(--mid)":"var(--up)";
+function draw(i,animate){
+ const d=DATES[i]; dtEl.textContent=d;
+ const vals={}; NAMES.forEach(n=>{const s=DATA[n]; let v=s[d];
+   if(v==null){for(let k=i-1;k>=0&&v==null;k--)v=s[DATES[k]];}   // carry last known, never invent
+   vals[n]=v==null?0:v;});
+ const ord=NAMES.slice().sort((a,b)=>vals[b]-vals[a]);
+ dsubEl.textContent=ord.length+" rows · "+(i+1)+"/"+DATES.length;
+ ord.forEach((n,k)=>{
+  const v=vals[n],e=el[n],c=colr(v),w=Math.abs(v)*50;
+  e.r.style.transform="translateY("+(k*30)+"px)";
+  if(animate){ // leave a wake where the bar's leading edge was
+    const pv=e.lastV==null?v:e.lastV;
+    if(Math.abs(v-pv)>0.03){
+      if(e.t&&e.t.parentNode)e.t.parentNode.removeChild(e.t);
+      const t=document.createElement("i");t.className="trail";
+      t.style.left=(pv>=0?50+Math.abs(pv)*50:50-Math.abs(pv)*50)+"%";
+      t.style.background=c; e.track.appendChild(t); e.t=t;
+      setTimeout(()=>{t.style.opacity="0";},40);
+      setTimeout(()=>{if(t.parentNode)t.parentNode.removeChild(t);},950);
+    }
+  }
+  e.lastV=v;
+  e.b.style.width=w+"%"; e.b.style.left=(v>=0?50:50-w)+"%"; e.b.style.background=c;
+  e.v.textContent=(v>=0?"+":"")+v.toFixed(2); e.v.style.color=c;
+  const pr=prevRank[n];
+  if(animate&&pr!==undefined&&pr!==k){
+    const dd=pr-k, rk=e.rk;
+    rk.textContent=(dd>0?"▲":"▼")+Math.abs(dd);
+    rk.style.color=dd>0?"var(--up)":"var(--dn)";
+    rk.classList.add("show");
+    clearTimeout(e.rkT); e.rkT=setTimeout(()=>rk.classList.remove("show"),1400);
+  }
+  prevRank[n]=k;
+ });
+ sc.value=i;
+}
+function stop(){if(timer){clearInterval(timer);timer=null;pl.textContent="▶";}}
+pl.onclick=()=>{ if(timer)return stop();
+ if(idx>=DATES.length-1){idx=0;prevRank={};}
+ timer=setInterval(()=>{idx=idx+1; if(idx>=DATES.length){idx=DATES.length-1;stop();return;} draw(idx,true);},620/spd);
+ pl.textContent="❚❚"; };
+sp.onclick=()=>{spd=spd===1?2:spd===2?4:1;sp.textContent=spd+"×";
+ if(timer){clearInterval(timer);timer=setInterval(()=>{idx++;if(idx>=DATES.length){idx=DATES.length-1;stop();return;}draw(idx,true);},620/spd);}};
+sc.oninput=()=>{stop();idx=+sc.value;draw(idx,true);};
+load();
+</script>
+</body>
+</html>
