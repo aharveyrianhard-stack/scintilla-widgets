@@ -69,7 +69,11 @@ test("Vercel serves the canonical Station root through an internal rewrite", () 
   assert.equal(Array.isArray(config.redirects), false);
   const root = config.rewrites.find((rule) => rule.source === "/");
   assert.equal(root.destination, "/deck/");
-  assert.deepEqual(root.has, [{ type:"host", value:"station.scintillahub.ai" }]);
+  assert.deepEqual(root.has, [{
+    type:"header",
+    key:"host",
+    value:"^station\\.scintillahub\\.ai(?::\\d+)?$"
+  }]);
 });
 
 test("manifest installs the live canonical route without an offline claim", () => {
