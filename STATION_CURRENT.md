@@ -27,7 +27,7 @@ This is the present-tense record for the live Station and the separately admitte
 - Scenes v1 adds same-route OVERNIGHT (`ESUSD`, `NQUSD`, `CLUSD`) and six-slot INDEX LEADERSHIP (`SPY`, `QQQ`, `IWM`, `MAGS`, `SMH`, `DIA`) presets without remounting the media or X panes. `DIA` is intentionally visible but will remain an honest no-data chart until that ETF is registered and ingested on Hub.
 - COHORT FAVORITES is generated from the real favorites/membership intersection, keeps every favorite across pages of six, and uses an empty chart rather than filler when a cohort has no favorites. CUSTOM is remembered separately.
 - One, two, three, four, or six charts. The awkward five-chart geometry is intentionally not offered.
-- Every visible ticker field guides from the 210 active Hub symbols with chart history.
+- Every visible ticker field guides from the current active Hub symbol registry; the count is loaded from the database rather than hard-coded.
 - Each ticker field now lives in its own chart header. Clicking it selects the complete current symbol so the first typed character replaces it; the duplicate ticker row is removed.
 - Empty chart cards open the corresponding ticker guide instead of presenting a dead “tap to load” action.
 - Common external aliases resolve to the canonical Scintilla symbol. Examples: `ES`, `ES=F`, and `ES1!` resolve to `ESUSD`; `GC` and `GC=F` resolve to `GCUSD`; `BTC` resolves to `BTCUSD`.
