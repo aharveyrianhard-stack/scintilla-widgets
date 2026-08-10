@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0A0A0F">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="STATION">
+<link rel="manifest" href="/station/manifest.json">
+<link rel="icon" href="/station/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/station/icon.png">
 <title>SCINTILLA · The Station</title>
 <!-- ============================================================================
      SCINTILLA · /deck v4 — "THE STATION". Composition, not new widgets.
@@ -47,7 +52,10 @@
        · The live budget only ever PAUSES. It never removes a pane from the
          layout or from the chip row.
 
-     Params: ?c1= ?c2= (or auto) ?range=1D ?live=N ?full=PANEKEY
+     Scenes v1 keeps this same route and changes chart state only:
+       ?scene=live|overnight|indexes|cohort|custom
+       ?cohort=AI_HARDWARE&page=1 for lossless six-at-a-time favorites
+     LIVE/CUSTOM also preserve the existing ?c1= ?c2= ?range= ?live= ?full= state.
      DB reads only. Receipt: HSC-DECK-V4-001.
      ============================================================================ -->
 <style>
@@ -91,6 +99,13 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .view-mode{ width:78px; background:var(--panel2); border:1px solid var(--line); color:var(--crk);
   font:8.5px var(--mono); letter-spacing:.06em; padding:3px 5px; border-radius:0; outline:none;
   text-transform:uppercase; }
+.scene-mode{ width:150px; background:var(--panel2); border:1px solid var(--line); color:var(--crk);
+  font:8.5px var(--mono); letter-spacing:.06em; padding:3px 5px; border-radius:0; outline:none;
+  text-transform:uppercase; }
+#cohortControls{ display:none; align-items:center; gap:4px; }
+#cohortControls.on{ display:flex; }
+#cohortSelect{ width:118px; }
+#cohortPage{ min-width:58px; text-align:center; color:var(--ink3); font-size:8px; }
 #tickers{ display:flex; gap:4px; flex-wrap:wrap; }
 .ph .tkin{ width:96px; padding:1px 4px; text-align:left; background:transparent;
   border-color:transparent; color:var(--ink2); font-size:8.5px; }
@@ -186,6 +201,19 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
 <div id="bar">
   <span class="k">THE STATION</span>
   <a class="btn" href="/registry">the hub</a>
+  <select class="scene-mode" id="sceneMode" title="saved chart scene; media panes stay in place">
+    <option value="live">live</option>
+    <option value="overnight">overnight</option>
+    <option value="indexes">index leadership</option>
+    <option value="cohort">cohort favorites</option>
+    <option value="custom">custom</option>
+  </select>
+  <span id="cohortControls">
+    <select class="scene-mode" id="cohortSelect" title="Hub cohort favorites"></select>
+    <span class="btn" id="cohortPrev" title="previous six favorites">‹</span>
+    <span id="cohortPage">0 / 0</span>
+    <span class="btn" id="cohortNext" title="next six favorites">›</span>
+  </span>
   <select class="view-mode" id="viewMode" title="remembered display density for this Station window">
     <option value="auto">auto</option><option value="desk">desk</option>
     <option value="display">display</option><option value="compact">compact</option>
@@ -224,6 +252,10 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
   <p><b>One timeframe bar, not two.</b> It sits above and drives both charts. Inside the deck the charts run
      in bare mode, which also stops them writing the shared setting that used to make one chart change the
      other.</p>
+  <p><b>Scenes change charts, not the Station.</b> LIVE remains the existing editable view. OVERNIGHT and
+     INDEX LEADERSHIP are immutable starting points; editing one branches into remembered CUSTOM. COHORT
+     FAVORITES reads the current Hub favorites and paginates every match without adding filler. Personal
+     YouTube, SCINTILLA YouTube, and X stay mounted while chart scenes change.</p>
   <p><b>Bottom row — personal YouTube, SCINTILLA YouTube, and X live.</b> The two video panes are built for
      this box, not full pages squeezed into it: a thumbnail grid that counts its own columns from its own
      width, and a video that <b>plays right there in the pane</b> when you tap it. It still never picks one
@@ -243,6 +275,7 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
      layout or the chip row.</p>
 </div>
 
+<script src="/deck/scenes.js?rev=001"></script>
 <script>
 "use strict";
 const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
@@ -260,8 +293,10 @@ const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const RANGES = ["15m","30m","1h","2h","3h","4h","6h","12h","1D","3D","1W"];
 const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+const CLEAN_COHORT = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9_]/g, "").slice(0, 32);
 const remembered = (key) => { try { return localStorage.getItem(key) || ""; } catch (_) { return ""; } };
 const remember = (key, value) => { try { localStorage.setItem(key, value); } catch (_) {} };
+const SceneModel = window.StationScenes;
 const CHART_COUNTS = [1,2,3,4,6];
 const chartCount = (value) => {
   const n = Math.max(1, Math.min(6, +value || 2));
@@ -271,13 +306,25 @@ const VIEW_MODES = ["auto","desk","display","compact"];
 let VIEW = VIEW_MODES.includes(QS.get("view")) ? QS.get("view") :
   (VIEW_MODES.includes(sessionStorage.getItem("station.view")) ? sessionStorage.getItem("station.view") : "auto");
 document.body.dataset.view = VIEW;
-let CHART_COUNT = chartCount(QS.get("charts") || remembered("station.chartCount") || 2);
+let SCENE = SceneModel.normalizeScene(QS.get("scene") || remembered("station.scene") || "live");
+let COHORT = CLEAN_COHORT(QS.get("cohort") || remembered("station.cohort") || "AI_HARDWARE");
+let COHORT_PAGE = Math.max(0, +(QS.get("page") || remembered("station.cohortPage") || 1) - 1);
+let COHORT_INDEX = new Map();
+let COHORT_READY = false;
+let APPLYING_SCENE = false;
+
+const statePrefix = () => SCENE === "custom" ? "station.custom" : "station.live";
+const storedState = (suffix) => remembered(statePrefix() + "." + suffix) ||
+  (SCENE === "custom" ? remembered("station.live." + suffix) : "") || remembered("station." + suffix);
+const URL_STATEFUL = SCENE === "live" || SCENE === "custom";
+let CHART_COUNT = chartCount((URL_STATEFUL ? QS.get("charts") : "") || storedState("chartCount") || 2);
 const CHARTS = Array.from({ length: 6 }, (_, i) => {
-  const incoming = QS.get("c" + (i + 1));
+  const incoming = URL_STATEFUL ? QS.get("c" + (i + 1)) : "";
   if (incoming && incoming !== "auto") return CLEAN(incoming);
-  return CLEAN(remembered("station.chart." + (i + 1))) || (i === 0 ? "SPY" : i === 1 ? "SNDK" : "");
+  return CLEAN(storedState("chart." + (i + 1))) || (i === 0 ? "SPY" : i === 1 ? "SNDK" : "");
 });
-let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "1D";
+let RANGE = RANGES.includes(URL_STATEFUL ? QS.get("range") : "") ? QS.get("range") :
+  (RANGES.includes(storedState("range")) ? storedState("range") : "1D");
 let SOLO = QS.get("full") || null;
 
 /* Scintilla's canonical chart symbols come from public.tickers, and all 210
@@ -506,6 +553,137 @@ function paintChips() {
   }
 }
 
+/* ---- SAVED SCENES — chart state only. Media/X panes never remount. ---- */
+const COHORT_ORDER = ["AI_HARDWARE","AI_SOFTWARE","MEGACAP","BLUE_CHIP","GROWTH","CRYPTO","INTL",
+  "MACRO","INDEXES","THEMATIC","METALS","TECH","COMMS","DISCRET","ENERGY","FINANCIALS","HEALTH",
+  "INDUSTRIAL","MATERIALS","REAL_ESTATE","STAPLES","UTILITIES"];
+const hasStoredScene = (scene) => !!remembered("station." + scene + ".chartCount");
+function editableState(scene) {
+  const prefix = "station." + scene;
+  const legacy = scene === "live";
+  const get = (suffix) => remembered(prefix + "." + suffix) || (legacy ? remembered("station." + suffix) : "");
+  const count = chartCount(get("chartCount") || CHART_COUNT);
+  const range = RANGES.includes(get("range")) ? get("range") : RANGE;
+  const charts = Array.from({ length:6 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
+    (scene === "custom" ? CHARTS[i] : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
+  return { charts, chartCount:count, range };
+}
+function rememberEditableState() {
+  if (SCENE !== "live" && SCENE !== "custom") return;
+  const prefix = "station." + SCENE;
+  remember(prefix + ".chartCount", String(CHART_COUNT));
+  remember(prefix + ".range", RANGE);
+  CHARTS.forEach((ticker, i) => remember(prefix + ".chart." + (i + 1), ticker));
+  /* Keep the original LIVE keys current for existing Station links/users. */
+  if (SCENE === "live") {
+    remember("station.chartCount", String(CHART_COUNT));
+    CHARTS.forEach((ticker, i) => remember("station.chart." + (i + 1), ticker));
+  }
+}
+function orderedCohorts() {
+  return Array.from(COHORT_INDEX.keys()).sort((a,b) => {
+    const ai = COHORT_ORDER.indexOf(a), bi = COHORT_ORDER.indexOf(b);
+    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi) || a.localeCompare(b);
+  });
+}
+async function loadCohortFavorites() {
+  if (COHORT_READY) return;
+  const [favorites, primary, legacy] = await Promise.all([
+    pg("hub_favorites?select=ticker&order=added_at.asc"),
+    pg("ticker_cohorts?select=ticker,cohort"),
+    pg("cohorts?select=ticker,cohort")
+  ]);
+  COHORT_INDEX = SceneModel.buildCohortFavorites(favorites, [primary, legacy]);
+  COHORT_READY = true;
+  const names = orderedCohorts();
+  if (!COHORT_INDEX.has(COHORT)) COHORT = names[0] || COHORT;
+}
+function cohortState() {
+  return SceneModel.cohortPage(COHORT_INDEX, COHORT, COHORT_PAGE, 6);
+}
+function paintSceneControls(note) {
+  el("sceneMode").value = SCENE;
+  const box = el("cohortControls"); box.classList.toggle("on", SCENE === "cohort");
+  if (SCENE !== "cohort" || !COHORT_READY) return;
+  const names = orderedCohorts(), select = el("cohortSelect");
+  select.innerHTML = names.map((name) => '<option value="' + esc(name) + '">' +
+    esc(name.replace(/_/g," ")) + " · " + (COHORT_INDEX.get(name) || []).length + "</option>").join("");
+  select.value = COHORT;
+  const page = cohortState();
+  el("cohortPage").textContent = page.totalItems + " · " + (page.page + 1) + " / " + page.totalPages;
+  el("cohortPrev").classList.toggle("on", page.page > 0);
+  el("cohortNext").classList.toggle("on", page.page + 1 < page.totalPages);
+  el("symbolNote").textContent = note || (page.totalItems ?
+    page.totalItems + " " + COHORT.replace(/_/g," ") + " favorites" :
+    "0 favorites · no filler");
+}
+function installSceneState(state) {
+  const charts = (state.charts || state.tickers || []).slice(0, 6);
+  CHARTS.forEach((_, i) => { CHARTS[i] = CLEAN(charts[i] || ""); });
+  CHART_COUNT = chartCount(state.chartCount || SceneModel.chartCountForSize(charts.length));
+  RANGE = RANGES.includes(state.range) ? state.range : RANGE;
+}
+async function primeSceneState() {
+  if (SceneModel.PRESETS[SCENE]) installSceneState(SceneModel.PRESETS[SCENE]);
+  else if (SCENE === "cohort") {
+    try { await loadCohortFavorites(); installSceneState(cohortState()); }
+    catch (_) { COHORT_READY = false; installSceneState({ charts:[], chartCount:1, range:RANGE }); }
+  }
+  remember("station.scene", SCENE);
+}
+function syncChartPanes() {
+  CHART_STATUS.clear();
+  CHARTS.forEach((ticker, i) => {
+    const o = PANES.find((p) => p.def.key === "c" + (i + 1)); if (!o) return;
+    o.def.src = ticker ? chartSrc(ticker) : "";
+    o.def.open = ticker ? o.def.src.replace("bare=1&", "") : "";
+    o.def.short = ticker || "chart " + (i + 1); o.def.title = ticker || "Choose a symbol";
+    const input = el("t" + (i + 1)); if (input) input.value = ticker;
+    if (!ticker && o.frame) {
+      o.frame.remove(); o.frame = null;
+      const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
+      o.showCard("no favorite here — choose a Hub symbol");
+    } else if (ticker && o.frame) {
+      try { o.frame.contentWindow.postMessage({ sc:"chart", ticker, range:RANGE }, location.origin); }
+      catch (_) { o.frame.src = o.def.src; }
+    }
+  });
+}
+async function applyScene(next, options) {
+  const previous = SCENE;
+  const requested = SceneModel.normalizeScene(next);
+  if ((previous === "live" || previous === "custom") && previous !== requested) rememberEditableState();
+  let state;
+  if (SceneModel.PRESETS[requested]) state = SceneModel.PRESETS[requested];
+  else if (requested === "cohort") {
+    try {
+      await loadCohortFavorites();
+      if (options?.cohort) COHORT = CLEAN_COHORT(options.cohort);
+      COHORT_PAGE = Math.max(0, Number(options?.page) || 0);
+      state = cohortState(); COHORT_PAGE = state.page;
+    } catch (_) {
+      COHORT_READY = false; state = { charts:[], chartCount:1, range:RANGE };
+      el("symbolNote").textContent = "cohort favorites unavailable";
+    }
+  } else if (requested === "custom" && !hasStoredScene("custom")) {
+    state = { charts:CHARTS.slice(), chartCount:CHART_COUNT, range:RANGE };
+  } else state = editableState(requested);
+
+  SCENE = requested; APPLYING_SCENE = true; installSceneState(state);
+  syncChartPanes(); applyChartCount(CHART_COUNT, true); paintTf();
+  APPLYING_SCENE = false;
+  remember("station.scene", SCENE);
+  if (SCENE === "cohort") {
+    remember("station.cohort", COHORT); remember("station.cohortPage", String(COHORT_PAGE + 1));
+  }
+  if (SCENE === "live" || SCENE === "custom") rememberEditableState();
+  paintSceneControls(); writeStationUrl(); relayout();
+}
+function moveNamedSceneToCustom() {
+  if (APPLYING_SCENE || SCENE === "live" || SCENE === "custom") return;
+  SCENE = "custom"; remember("station.scene", SCENE); paintSceneControls();
+}
+
 /* ---- ONE timeframe bar, driving both charts ---- */
 function chartSrc(t) {
   return "/chart?rev=085&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
@@ -513,8 +691,15 @@ function chartSrc(t) {
 }
 function writeStationUrl() {
   const p = new URLSearchParams(location.search);
-  p.set("charts", String(CHART_COUNT)); p.set("range", RANGE); p.set("view", VIEW);
-  CHARTS.forEach((ticker, i) => ticker ? p.set("c" + (i + 1), ticker) : p.delete("c" + (i + 1)));
+  p.set("scene", SCENE); p.set("view", VIEW);
+  if (SCENE === "live" || SCENE === "custom") {
+    p.set("charts", String(CHART_COUNT)); p.set("range", RANGE);
+    CHARTS.forEach((ticker, i) => ticker ? p.set("c" + (i + 1), ticker) : p.delete("c" + (i + 1)));
+  } else {
+    p.delete("charts"); p.delete("range"); CHARTS.forEach((_, i) => p.delete("c" + (i + 1)));
+  }
+  if (SCENE === "cohort") { p.set("cohort", COHORT); p.set("page", String(COHORT_PAGE + 1)); }
+  else { p.delete("cohort"); p.delete("page"); }
   if (SOLO) p.set("full", SOLO); else p.delete("full");
   history.replaceState(null, "", "?" + p.toString());
 }
@@ -541,6 +726,7 @@ function paintTf() {
 }
 function setRange(r) {
   if (!RANGES.includes(r) || r === RANGE) return;
+  moveNamedSceneToCustom();
   RANGE = r; paintTf();
   for (let i = 0; i < CHARTS.length; i++) {
     const k = "c" + (i + 1);
@@ -551,7 +737,7 @@ function setRange(r) {
        sync so a paused pane comes back on the right timeframe */
     if (o.frame) { try { o.frame.contentWindow.postMessage({ sc: "chart", range: RANGE }, location.origin); } catch (e) { o.frame.src = o.def.src; } }
   }
-  writeStationUrl();
+  rememberEditableState(); writeStationUrl();
 }
 
 /* ---- Hub-backed symbol guide. Type a ticker, alias, asset name, or cohort. ---- */
@@ -631,9 +817,9 @@ function commitTicker(index, raw, input) {
     el("symbolNote").textContent = "not charted on Hub";
     paintSymbolGuide(n); return false;
   }
+  moveNamedSceneToCustom();
   const original = aliasKey(raw);
   CHARTS[index] = ticker; n.value = ticker;
-  remember("station.chart." + (index + 1), ticker);
   el("symbolNote").textContent = original && original !== ticker ? original + " → " + ticker : "Hub · " + ticker;
   const o = PANES.find((p) => p.def.key === "c" + (index + 1));
   if (o) {
@@ -646,7 +832,7 @@ function commitTicker(index, raw, input) {
       catch (_) { o.frame.src = o.def.src; }
     } else if (index < CHART_COUNT) mount(o);
   }
-  writeStationUrl(); closeSymbolGuide(); paintChips(); return true;
+  rememberEditableState(); writeStationUrl(); closeSymbolGuide(); paintChips(); return true;
 }
 function wireTicker(n, index) {
   n.value = CHARTS[index]; n.dataset.index = String(index);
@@ -675,9 +861,10 @@ function paintTickerFields() {
     title.replaceWith(n); wireTicker(n, i);
   });
 }
-function applyChartCount(next) {
+function applyChartCount(next, fromScene) {
+  if (!fromScene) moveNamedSceneToCustom();
   CHART_COUNT = chartCount(next);
-  el("chartCount").value = String(CHART_COUNT); remember("station.chartCount", String(CHART_COUNT));
+  el("chartCount").value = String(CHART_COUNT);
   const row = el("rowTop");
   if (row) row.className = "deckrow charts-" + CHART_COUNT;
   CHARTS.forEach((ticker, i) => {
@@ -689,9 +876,18 @@ function applyChartCount(next) {
     } else if (active && !o.frame) mount(o);
   });
   if (SOLO && /^c[1-6]$/.test(SOLO) && +SOLO.slice(1) > CHART_COUNT) setSolo(null);
+  if (!fromScene) rememberEditableState();
   writeStationUrl(); relayout(); paintChips();
 }
 el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
+el("sceneMode").addEventListener("change", (e) => applyScene(e.target.value));
+el("cohortSelect").addEventListener("change", (e) => applyScene("cohort", { cohort:e.target.value, page:0 }));
+el("cohortPrev").addEventListener("click", () => {
+  const page = cohortState(); if (page.page > 0) applyScene("cohort", { cohort:COHORT, page:page.page - 1 });
+});
+el("cohortNext").addEventListener("click", () => {
+  const page = cohortState(); if (page.page + 1 < page.totalPages) applyScene("cohort", { cohort:COHORT, page:page.page + 1 });
+});
 el("viewMode").addEventListener("change", (e) => applyView(e.target.value));
 el("displayBtn").addEventListener("click", () => {
   const u = new URL(location.href); u.searchParams.set("view", "display");
@@ -713,7 +909,8 @@ document.addEventListener("pointerdown", (e) => {
 });
 
 async function build() {
-  if (QS.get("c2") === "auto") {
+  await primeSceneState();
+  if (SCENE === "live" && QS.get("c2") === "auto") {
     try {
       const [fav, lq] = await Promise.all([pg("hub_favorites?select=ticker"), pg("live_quotes?select=ticker,chg_pct")]);
       const set = new Set((fav || []).map((f) => f.ticker));
@@ -751,10 +948,10 @@ async function build() {
 
   for (const d of defs) { const o = makePane(d); PANES.push(o); rows[d.row].appendChild(o.node); }
 
-  paintTf(); el("viewMode").value = VIEW;
+  paintTf(); el("viewMode").value = VIEW; paintSceneControls();
   paintTickerFields(); el("chartCount").value = String(CHART_COUNT);
   loadSymbolCatalog();
-  applyChartCount(CHART_COUNT);
+  applyChartCount(CHART_COUNT, true);
   relayout();
 
   const order = CHARTS.map((_, i) => "c" + (i + 1)).slice(0, CHART_COUNT).concat(["fb", "fa", "x"]);
