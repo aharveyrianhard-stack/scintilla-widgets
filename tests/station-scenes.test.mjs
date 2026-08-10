@@ -12,7 +12,8 @@ test("scene ids and immutable named presets are exact", () => {
   assert.deepEqual(Array.from(scenes.IDS), ["live", "overnight", "indexes", "cohort", "custom"]);
   assert.equal(scenes.normalizeScene("not-real"), "live");
   assert.deepEqual(Array.from(scenes.PRESETS.overnight.tickers), ["ESUSD", "NQUSD", "CLUSD"]);
-  assert.deepEqual(Array.from(scenes.PRESETS.indexes.tickers), ["SPY", "QQQ", "IWM", "MAGS"]);
+  assert.deepEqual(Array.from(scenes.PRESETS.indexes.tickers), ["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA"]);
+  assert.equal(scenes.PRESETS.indexes.chartCount, 6);
 });
 
 test("five favorites use the honest six-slot geometry without loss", () => {
