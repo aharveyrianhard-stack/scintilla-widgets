@@ -69,11 +69,11 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   flex-wrap:wrap; }
 #bar .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; }
 #bar .sep{ color:var(--mute); }
-#tfbar{ flex:none; display:flex; align-items:center; gap:5px; padding:4px 9px; flex-wrap:wrap;
+#tfbar{ flex:none; position:relative; display:flex; align-items:center; gap:5px; padding:4px 9px; flex-wrap:wrap;
   border-bottom:1px solid var(--line); background:rgba(15,15,26,.6); }
 #tfbar .lbl{ color:var(--mute); font-size:7.5px; letter-spacing:.16em; text-transform:uppercase; }
 #tfbar .tf{ display:flex; gap:3px; flex-wrap:wrap; }
-#panebar{ flex:none; display:flex; align-items:center; gap:5px; padding:4px 9px; flex-wrap:wrap;
+#panebar{ flex:none; display:none; align-items:center; gap:5px; padding:4px 9px; flex-wrap:wrap;
   border-bottom:1px solid var(--line); background:rgba(15,15,26,.35); }
 #panebar .lbl{ color:var(--mute); font-size:7.5px; letter-spacing:.16em; text-transform:uppercase; }
 .btn{ font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; padding:3px 8px;
@@ -86,6 +86,21 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase;
   padding:3px 6px; text-align:center; outline:none; -webkit-appearance:none; border-radius:0; }
 .tkin:focus{ border-color:var(--crk); color:var(--crk); }
+.chart-count{ width:54px; background:var(--panel2); border:1px solid var(--line); color:var(--crk);
+  font:9px var(--mono); letter-spacing:.08em; padding:3px 5px; border-radius:0; outline:none; }
+#tickers{ display:flex; gap:4px; flex-wrap:wrap; }
+#symbolGuide{ position:fixed; z-index:80; display:none; width:min(390px,calc(100vw - 18px));
+  max-height:300px; overflow:auto; background:var(--panel2); border:1px solid var(--hair);
+  box-shadow:0 16px 42px rgba(0,0,0,.65); }
+#symbolGuide.open{ display:block; }
+.sg-row{ display:flex; align-items:flex-start; gap:10px; padding:7px 9px; cursor:pointer;
+  border-bottom:1px solid var(--line); }
+.sg-row:last-child{ border-bottom:0; }
+.sg-row:hover,.sg-row.on{ background:rgba(0,212,255,.08); }
+.sg-sym{ flex:0 0 66px; color:var(--crk); font-size:10px; letter-spacing:.08em; }
+.sg-copy{ color:var(--ink2); font-size:8.5px; line-height:1.45; }
+.sg-copy small{ display:block; color:var(--mute); font:7.5px var(--mono); letter-spacing:.03em; }
+.symbol-note{ color:var(--mute); font-size:7.5px; letter-spacing:.04em; min-width:78px; }
 
 /* ---- THE DECK ITSELF — nested flex. Equal by construction. ----
    No grid-template-areas. No column maths. Two children in the top row at
@@ -93,12 +108,21 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 #grid{ flex:1 1 0; min-height:0; display:flex; flex-direction:column; gap:1px;
   background:var(--line); }
 .deckrow{ flex:1 1 0; min-height:0; min-width:0; display:flex; flex-direction:row; gap:1px; }
-#rowTop{ flex:1.12 1 0; }         /* charts get a little more height than the feeds */
+#rowTop{ flex:1.12 1 0; display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:1px; }
+#rowTop.charts-1 > .pane{ grid-column:span 6; }
+#rowTop.charts-2 > .pane{ grid-column:span 3; }
+#rowTop.charts-3 > .pane{ grid-column:span 2; }
+#rowTop.charts-4 > .pane{ grid-column:span 3; }
+#rowTop.charts-5 > .pane{ grid-column:span 2; }
+#rowTop.charts-5 > .pane:nth-child(n+4){ grid-column:span 3; }
+#rowTop.charts-6 > .pane{ grid-column:span 2; }
+#rowTop > .pane.chart-off{ display:none; }
 .deckrow > .pane{ flex:1 1 0; min-width:0; min-height:0; }
 
 /* PHONE / very narrow: one honest column that scrolls. Same panes, same order. */
 body.stack #grid{ flex-direction:column; overflow-y:auto; -webkit-overflow-scrolling:touch; }
-body.stack .deckrow{ flex:none; flex-direction:column; }
+body.stack #panebar{ display:flex; }
+body.stack .deckrow{ flex:none; display:flex; flex-direction:column; }
 body.stack .deckrow > .pane{ flex:none; height:56vh; min-height:230px; }
 
 /* SOLO: one pane full-bleed inside the deck, one tap back */
@@ -146,24 +170,24 @@ body.solo .deckrow.empty{ display:none; }
 <body>
 <div id="bar">
   <span class="k">THE STATION</span>
-  <a class="btn on" href="/deck">station</a>
-  <a class="btn" href="/tv">wall</a>
-  <a class="btn" href="/reflow?view=treemap">scan</a>
   <a class="btn" href="/registry">the hub</a>
-  <span class="sep">·</span>
-  <span class="btn" id="whybtn">why these?</span>
-  <a class="btn" id="sceneLink" href="/scenes?scene=watch-deck">engine</a>
+  <span class="btn" id="displayBtn" title="open a dedicated Station window for a separate display">display ↗</span>
   <span id="size"></span>
 </div>
 
 <!-- ONE timeframe bar. It drives both charts. There is no second one. -->
 <div id="tfbar">
   <span class="lbl">charts</span>
-  <input class="tkin" id="t1" spellcheck="false" autocomplete="off" autocorrect="off" title="chart 1 ticker — Enter to load">
-  <input class="tkin" id="t2" spellcheck="false" autocomplete="off" autocorrect="off" title="chart 2 ticker — Enter to load">
-  <span class="lbl">timeframe · both</span>
+  <select class="chart-count" id="chartCount" title="number of charts">
+    <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+    <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+  </select>
+  <span id="tickers"></span>
+  <span class="symbol-note" id="symbolNote">Hub symbols</span>
+  <span class="lbl">timeframe · all</span>
   <span class="tf" id="tf"></span>
 </div>
+<div id="symbolGuide" role="listbox" aria-label="Hub symbol suggestions"></div>
 
 <div id="panebar"><span class="lbl">panes</span></div>
 <div id="grid"></div>
@@ -215,11 +239,32 @@ const QS = new URLSearchParams(location.search);
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const RANGES = ["15m","30m","1h","2h","3h","4h","6h","12h","1D","3D","1W"];
-const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 10);
-let C1 = CLEAN(QS.get("c1")) || "SPY";
-let C2 = CLEAN(QS.get("c2")) || "SNDK";
+const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+const remembered = (key) => { try { return localStorage.getItem(key) || ""; } catch (_) { return ""; } };
+const remember = (key, value) => { try { localStorage.setItem(key, value); } catch (_) {} };
+let CHART_COUNT = Math.max(1, Math.min(6, +(QS.get("charts") || remembered("station.chartCount") || 2)));
+const CHARTS = Array.from({ length: 6 }, (_, i) => {
+  const incoming = QS.get("c" + (i + 1));
+  if (incoming && incoming !== "auto") return CLEAN(incoming);
+  return CLEAN(remembered("station.chart." + (i + 1))) || (i === 0 ? "SPY" : i === 1 ? "SNDK" : "");
+});
 let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "1D";
 let SOLO = QS.get("full") || null;
+
+/* Scintilla's canonical chart symbols come from public.tickers, and all 210
+   active rows have ohlcv_history. Cross-platform names are aliases only: the
+   field always settles on the real Scintilla symbol after selection. */
+const FUTURE_META = {
+  ESUSD:{ name:"E-mini S&P 500 futures", aliases:["ES","ES=F","ES1!","S&P FUTURES","S&P 500 FUTURES"] },
+  NQUSD:{ name:"E-mini Nasdaq-100 futures", aliases:["NQ","NQ=F","NQ1!","NASDAQ FUTURES","NASDAQ 100 FUTURES"] },
+  CLUSD:{ name:"WTI crude-oil futures", aliases:["CL","CL=F","CL1!","CRUDE FUTURES","OIL FUTURES"] },
+  GCUSD:{ name:"Gold futures", aliases:["GC","GC=F","GC1!","GOLD FUTURES"] },
+  SIUSD:{ name:"Silver futures", aliases:["SI","SI=F","SI1!","SILVER FUTURES"] },
+  DXUSD:{ name:"U.S. Dollar Index futures", aliases:["DX","DX=F","DX1!","DOLLAR INDEX FUTURES"] },
+};
+let SYMBOLS = Object.keys(FUTURE_META).map((ticker) => ({ ticker, type:"future", cohort:"", ...FUTURE_META[ticker] }));
+let SYMBOL_SET = new Set(SYMBOLS.map((row) => row.ticker));
+let GUIDE_ROWS = [], GUIDE_AT = 0, GUIDE_INPUT = null;
 
 /* ------------------------------------------------------------------ *
  * LAYOUT — width only decides STACK vs DECK. It never decides how the
@@ -231,7 +276,7 @@ let STACKED = innerWidth < STACK_AT;   /* decided BEFORE anything mounts */
    the Safari crash work; everything above that is paused behind a tap and
    stays in the chip row. Never frozen before we know which layout we are
    in, which is a bug v3 caught in its own test sweep. */
-const LIVE_CAP = Math.max(1, Math.min(6, +(QS.get("live") || 0) || (STACKED ? 2 : 5)));
+const LIVE_CAP = Math.max(1, Math.min(9, +(QS.get("live") || 0) || (STACKED ? 2 : 9)));
 
 const PANES = [];
 const LIVE = [];
@@ -244,7 +289,7 @@ function makePane(def) {
   head.innerHTML = '<span class="t">' + esc(def.title) + '</span><span class="tag">' + esc(def.tag) + "</span>";
   const acts = document.createElement("div"); acts.className = "acts";
 
-  const bFull = document.createElement("span"); bFull.className = "btn"; bFull.textContent = "full";
+  const bFull = document.createElement("span"); bFull.className = "btn"; bFull.textContent = "⛶";
   bFull.title = "full-bleed inside the deck — one tap back";
   bFull.addEventListener("click", (e) => { e.stopPropagation(); setSolo(SOLO === def.key ? null : def.key); });
   /* The Station is the destination. Pop/PiP/open duplicated navigation and
@@ -270,6 +315,7 @@ function makePane(def) {
 
 function mount(obj) {
   if (obj.isDock || obj.frame) return;
+  if (!obj.def.src) { obj.showCard("choose a Hub symbol above"); return; }
   const c = obj.body.querySelector(".card"); if (c) c.remove();
   const f = document.createElement("iframe");
   f.src = obj.def.src; f.loading = "lazy";
@@ -294,7 +340,7 @@ function setSolo(key) {
   document.body.classList.toggle("solo", !!key);
   for (const o of PANES) {
     o.node.classList.toggle("hidden", !!key && o.def.key !== key);
-    o.bFull.textContent = (key && o.def.key === key) ? "back" : "full";
+    o.bFull.textContent = (key && o.def.key === key) ? "↙" : "⛶";
     o.bFull.classList.toggle("on", !!key && o.def.key === key);
     if (o.frame) {
       try {
@@ -311,7 +357,7 @@ function setSolo(key) {
     const o = PANES.find((x) => x.def.key === key);
     if (o && !o.frame && !o.isDock) mount(o);
   }
-  measure(); paintChips();
+  measure(); paintChips(); writeStationUrl();
 }
 
 window.addEventListener("message", (event) => {
@@ -335,12 +381,8 @@ function relayout() {
   measure();
 }
 function measure() {
-  const a = PANES.find((p) => p.def.key === "c1"), b = PANES.find((p) => p.def.key === "c2");
-  if (!a || !b) return;
-  const wa = Math.round(a.node.getBoundingClientRect().width);
-  const wb = Math.round(b.node.getBoundingClientRect().width);
   el("size").textContent = Math.round(innerWidth) + "×" + Math.round(innerHeight) +
-    (STACKED ? " · stacked" : " · charts " + wa + "/" + wb);
+    (STACKED ? " · stacked" : " · " + CHART_COUNT + (CHART_COUNT === 1 ? " chart" : " charts"));
   const xr = el("xrect");
   if (xr) {
     const o = PANES.find((p) => p.def.kind === "x");
@@ -361,6 +403,7 @@ function paintChips() {
   const bar = el("panebar");
   bar.innerHTML = '<span class="lbl">panes</span>';
   for (const o of PANES) {
+    if (/^c[1-6]$/.test(o.def.key) && +o.def.key.slice(1) > CHART_COUNT) continue;
     const c = document.createElement("span");
     const state = o.isDock ? "dock" : o.frame ? "live" : "paused";
     c.className = "btn" + (o.frame ? " live" : "") + (SOLO === o.def.key ? " on" : "");
@@ -386,6 +429,13 @@ function paintChips() {
 function chartSrc(t) {
   return "/chart?bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE);
 }
+function writeStationUrl() {
+  const p = new URLSearchParams(location.search);
+  p.set("charts", String(CHART_COUNT)); p.set("range", RANGE);
+  CHARTS.forEach((ticker, i) => ticker ? p.set("c" + (i + 1), ticker) : p.delete("c" + (i + 1)));
+  if (SOLO) p.set("full", SOLO); else p.delete("full");
+  history.replaceState(null, "", "?" + p.toString());
+}
 function paintTf() {
   const box = el("tf"); box.innerHTML = "";
   for (const r of RANGES) {
@@ -399,48 +449,162 @@ function paintTf() {
 function setRange(r) {
   if (!RANGES.includes(r) || r === RANGE) return;
   RANGE = r; paintTf();
-  for (const k of ["c1", "c2"]) {
+  for (let i = 0; i < CHARTS.length; i++) {
+    const k = "c" + (i + 1);
     const o = PANES.find((p) => p.def.key === k); if (!o) continue;
-    o.def.src = chartSrc(k === "c1" ? C1 : C2);
+    o.def.src = CHARTS[i] ? chartSrc(CHARTS[i]) : "";
     o.def.open = o.def.src.replace("bare=1&", "");
-    const a = o.node.querySelector(".acts a"); if (a) a.href = o.def.open;
     /* postMessage first — it repaints without a reload; the src is kept in
        sync so a paused pane comes back on the right timeframe */
     if (o.frame) { try { o.frame.contentWindow.postMessage({ sc: "chart", range: RANGE }, location.origin); } catch (e) { o.frame.src = o.def.src; } }
   }
-  history.replaceState(null, "", "?c1=" + C1 + "&c2=" + C2 + "&range=" + RANGE);
+  writeStationUrl();
 }
 
-/* ---- ticker fields: click in and the old symbol is already selected ---- */
+/* ---- Hub-backed symbol guide. Type a ticker, alias, asset name, or cohort. ---- */
 function selAll(n) { try { n.select(); n.setSelectionRange(0, n.value.length); } catch (e) {} }
-function wireTicker(id, which) {
-  const n = el(id);
-  n.value = which === 1 ? C1 : C2;
-  n.addEventListener("focus", () => { selAll(n); requestAnimationFrame(() => selAll(n)); });
-  n.addEventListener("click", () => { if (n.selectionStart === n.selectionEnd) selAll(n); });
-  const commit = () => {
-    const v = CLEAN(n.value);
-    if (!v) { n.value = which === 1 ? C1 : C2; return; }
-    if (which === 1) C1 = v; else C2 = v;
-    n.value = v;
-    const o = PANES.find((p) => p.def.key === (which === 1 ? "c1" : "c2"));
-    if (o) {
-      o.def.src = chartSrc(v);
-      o.def.open = o.def.src.replace("bare=1&", "");
-      o.def.short = v; o.def.title = v;
-      const t = o.node.querySelector(".ph .t"); if (t) t.textContent = v;
-      const a = o.node.querySelector(".acts a"); if (a) a.href = o.def.open;
-      if (o.frame) { try { o.frame.contentWindow.postMessage({ sc: "chart", ticker: v }, location.origin); } catch (e) { o.frame.src = o.def.src; } }
-      paintChips();
-    }
-    history.replaceState(null, "", "?c1=" + C1 + "&c2=" + C2 + "&range=" + RANGE);
-  };
-  n.addEventListener("keydown", (e) => { if (e.key === "Enter") { commit(); n.blur(); } });
-  n.addEventListener("change", commit);
+const aliasKey = (value) => String(value || "").toUpperCase().trim().replace(/\s+/g, " ");
+function symbolScore(row, raw) {
+  const q = aliasKey(raw), compact = q.replace(/\s+/g, "");
+  const aliases = row.aliases || [];
+  if (row.ticker === q || aliases.some((a) => aliasKey(a) === q)) return 0;
+  if (row.ticker.replace(/USD$/, "") === q) return 1;
+  if (row.ticker.startsWith(compact)) return 2;
+  if (aliases.some((a) => aliasKey(a).startsWith(q))) return 3;
+  const hay = [row.ticker, row.name, row.type, row.cohort].concat(aliases).filter(Boolean).join(" ").toUpperCase();
+  return hay.includes(q) ? 4 : 99;
 }
-
-el("whybtn").addEventListener("click", () => el("why").classList.toggle("open"));
-el("whyx").addEventListener("click", () => el("why").classList.remove("open"));
+function symbolMatches(raw) {
+  const q = aliasKey(raw);
+  const rows = SYMBOLS.map((row) => ({ row, score:symbolScore(row, q) })).filter((x) => x.score < 99);
+  rows.sort((a,b) => a.score - b.score || a.row.ticker.localeCompare(b.row.ticker));
+  return rows.slice(0, 10).map((x) => x.row);
+}
+function resolveSymbol(raw) {
+  const q = aliasKey(raw);
+  for (const row of SYMBOLS) {
+    if (row.ticker === q || (row.aliases || []).some((a) => aliasKey(a) === q)) return row.ticker;
+  }
+  const cleaned = CLEAN(q);
+  if (SYMBOL_SET.has(cleaned)) return cleaned;
+  if (SYMBOL_SET.has(cleaned + "USD")) return cleaned + "USD";
+  return "";
+}
+function closeSymbolGuide() {
+  el("symbolGuide").classList.remove("open"); GUIDE_ROWS = []; GUIDE_INPUT = null; GUIDE_AT = 0;
+}
+function paintSymbolGuide(input) {
+  GUIDE_INPUT = input; GUIDE_ROWS = symbolMatches(input.value); GUIDE_AT = 0;
+  const box = el("symbolGuide");
+  if (!GUIDE_ROWS.length) { box.innerHTML = '<div class="sg-row"><span class="sg-copy">No charted Hub symbol matches.</span></div>'; }
+  else box.innerHTML = GUIDE_ROWS.map((row, i) => {
+    const aliases = (row.aliases || []).join(" · ");
+    const description = row.name || [row.type, row.cohort].filter(Boolean).join(" · ") || "Hub chart";
+    return '<div class="sg-row' + (i === 0 ? " on" : "") + '" data-i="' + i + '">' +
+      '<span class="sg-sym">' + esc(row.ticker) + '</span><span class="sg-copy">' + esc(description) +
+      (aliases ? '<small>' + esc(aliases) + '</small>' : "") + '</span></div>';
+  }).join("");
+  const r = input.getBoundingClientRect();
+  box.style.left = Math.max(9, Math.min(innerWidth - Math.min(390, innerWidth - 18) - 9, r.left)) + "px";
+  box.style.top = Math.min(innerHeight - 80, r.bottom + 4) + "px";
+  box.classList.add("open");
+  for (const row of box.querySelectorAll(".sg-row[data-i]")) {
+    row.addEventListener("pointerdown", (e) => {
+      e.preventDefault(); const chosen = GUIDE_ROWS[+row.dataset.i];
+      if (chosen && GUIDE_INPUT) commitTicker(+GUIDE_INPUT.dataset.index, chosen.ticker, GUIDE_INPUT);
+    });
+  }
+}
+function moveGuide(delta) {
+  if (!GUIDE_ROWS.length) return;
+  GUIDE_AT = (GUIDE_AT + delta + GUIDE_ROWS.length) % GUIDE_ROWS.length;
+  el("symbolGuide").querySelectorAll(".sg-row[data-i]").forEach((n, i) => n.classList.toggle("on", i === GUIDE_AT));
+}
+async function loadSymbolCatalog() {
+  try {
+    const rows = await pg("tickers?active=eq.true&select=ticker,type,cohort&order=ticker.asc");
+    if (Array.isArray(rows) && rows.length) {
+      SYMBOLS = rows.map((row) => Object.assign({}, row, FUTURE_META[row.ticker] || {}));
+      SYMBOL_SET = new Set(SYMBOLS.map((row) => row.ticker));
+      el("symbolNote").textContent = SYMBOLS.length + " Hub symbols";
+    }
+  } catch (_) { el("symbolNote").textContent = "Hub symbols offline"; }
+}
+function commitTicker(index, raw, input) {
+  const n = input || el("t" + (index + 1));
+  let ticker = resolveSymbol(raw);
+  if (!ticker && GUIDE_INPUT === n && GUIDE_ROWS[GUIDE_AT]) ticker = GUIDE_ROWS[GUIDE_AT].ticker;
+  if (!ticker) {
+    el("symbolNote").textContent = "not charted on Hub";
+    paintSymbolGuide(n); return false;
+  }
+  const original = aliasKey(raw);
+  CHARTS[index] = ticker; n.value = ticker;
+  remember("station.chart." + (index + 1), ticker);
+  el("symbolNote").textContent = original && original !== ticker ? original + " → " + ticker : "Hub · " + ticker;
+  const o = PANES.find((p) => p.def.key === "c" + (index + 1));
+  if (o) {
+    o.def.src = chartSrc(ticker); o.def.open = o.def.src.replace("bare=1&", "");
+    o.def.short = ticker; o.def.title = ticker;
+    const t = o.node.querySelector(".ph .t"); if (t) t.textContent = ticker;
+    const card = o.body.querySelector(".card"); if (card) card.remove();
+    if (o.frame) {
+      try { o.frame.contentWindow.postMessage({ sc:"chart", ticker }, location.origin); }
+      catch (_) { o.frame.src = o.def.src; }
+    } else if (index < CHART_COUNT) mount(o);
+  }
+  writeStationUrl(); closeSymbolGuide(); paintChips(); return true;
+}
+function wireTicker(n, index) {
+  n.value = CHARTS[index]; n.dataset.index = String(index);
+  n.addEventListener("focus", () => { selAll(n); requestAnimationFrame(() => selAll(n)); });
+  n.addEventListener("click", () => { if (n.selectionStart === n.selectionEnd) selAll(n); paintSymbolGuide(n); });
+  n.addEventListener("input", () => paintSymbolGuide(n));
+  n.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); moveGuide(e.key === "ArrowDown" ? 1 : -1); }
+    else if (e.key === "Escape") closeSymbolGuide();
+    else if (e.key === "Enter") { e.preventDefault(); if (commitTicker(index, n.value, n)) n.blur(); }
+  });
+  n.addEventListener("blur", () => setTimeout(() => {
+    if (GUIDE_INPUT === n) closeSymbolGuide();
+    if (!n.value.trim()) n.value = CHARTS[index];
+  }, 80));
+}
+function paintTickerFields() {
+  const box = el("tickers"); box.innerHTML = "";
+  CHARTS.forEach((ticker, i) => {
+    const n = document.createElement("input");
+    n.className = "tkin"; n.id = "t" + (i + 1); n.spellcheck = false;
+    n.autocomplete = "off"; n.setAttribute("autocorrect", "off");
+    n.placeholder = "symbol"; n.title = "chart " + (i + 1) + " · type a Hub symbol or market alias";
+    n.style.display = i < CHART_COUNT ? "" : "none";
+    box.appendChild(n); wireTicker(n, i);
+  });
+}
+function applyChartCount(next) {
+  CHART_COUNT = Math.max(1, Math.min(6, +next || 2));
+  el("chartCount").value = String(CHART_COUNT); remember("station.chartCount", String(CHART_COUNT));
+  const row = el("rowTop");
+  if (row) row.className = "deckrow charts-" + CHART_COUNT;
+  CHARTS.forEach((ticker, i) => {
+    const input = el("t" + (i + 1)); if (input) input.style.display = i < CHART_COUNT ? "" : "none";
+    const o = PANES.find((p) => p.def.key === "c" + (i + 1)); if (!o) return;
+    const active = i < CHART_COUNT; o.node.classList.toggle("chart-off", !active);
+    if (!active && o.frame) {
+      o.frame.remove(); o.frame = null;
+      const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
+    } else if (active && !o.frame) mount(o);
+  });
+  if (SOLO && /^c[1-6]$/.test(SOLO) && +SOLO.slice(1) > CHART_COUNT) setSolo(null);
+  writeStationUrl(); relayout(); paintChips();
+}
+el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
+el("displayBtn").addEventListener("click", () => {
+  window.open(location.href, "scintilla_station_display", "popup,width=1600,height=1000");
+});
+document.addEventListener("pointerdown", (e) => {
+  if (!e.target.closest("#symbolGuide") && !e.target.closest(".tkin")) closeSymbolGuide();
+});
 
 async function build() {
   if (QS.get("c2") === "auto") {
@@ -449,14 +613,14 @@ async function build() {
       const set = new Set((fav || []).map((f) => f.ticker));
       const best = (lq || []).filter((q) => set.has(q.ticker) && q.chg_pct != null)
         .sort((a, b) => Math.abs(+b.chg_pct) - Math.abs(+a.chg_pct))[0];
-      if (best) C2 = best.ticker;
+      if (best) CHARTS[1] = best.ticker;
     } catch (e) {}
   }
-  const defs = [
-    { row: 0, key: "c1", short: C1, title: C1, tag: "chart", kind: "chart",
-      src: chartSrc(C1), open: "/chart?t=" + encodeURIComponent(C1) + "&range=" + RANGE },
-    { row: 0, key: "c2", short: C2, title: C2, tag: "chart", kind: "chart",
-      src: chartSrc(C2), open: "/chart?t=" + encodeURIComponent(C2) + "&range=" + RANGE },
+  const defs = CHARTS.map((ticker, i) => ({
+    row:0, key:"c" + (i + 1), short:ticker || "chart " + (i + 1), title:ticker || "Choose a symbol",
+    tag:"chart", kind:"chart", src:ticker ? chartSrc(ticker) : "",
+    open:ticker ? "/chart?t=" + encodeURIComponent(ticker) + "&range=" + RANGE : ""
+  })).concat([
     /* v4: purpose-built panes, not full pages squeezed into a slot.
        /pane-video is a thumbnail grid that counts its own columns and plays
        in place. /pane-x renders the real live x.com tab via getDisplayMedia
@@ -464,28 +628,30 @@ async function build() {
        uses — so the feed actually scrolls in the pane instead of offering a
        button. Both are embedded; neither is a dock. */
     { row: 1, key: "fb", short: "personal", title: "Personal YouTube", tag: "personal subscriptions",
-      kind: "video", src: "/pane-video?feed=personal&rev=074", open: "/pane-video?feed=personal&limit=200&cols=5" },
+      kind: "video", src: "/pane-video?feed=personal&cols=2&rev=075", open: "/pane-video?feed=personal&limit=200&cols=2" },
     { row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",
-      kind: "video", src: "/pane-video?feed=scintilla&rev=074", open: "/pane-video?feed=scintilla&limit=200&cols=5" },
+      kind: "video", src: "/pane-video?feed=scintilla&cols=2&rev=075", open: "/pane-video?feed=scintilla&limit=200&cols=2" },
     { row: 1, key: "x", short: "X", title: "X · live", tag: "live capture",
-      kind: "x", src: "/pane-x?rev=074", open: "/pane-x?rev=074" },
-  ];
+      kind: "x", src: "/pane-x?rev=075", open: "/pane-x?rev=075" },
+  ]);
 
   /* TWO FLEX ROWS. Two children up top, three below. Nothing else decides
      the split — that is the whole fix. */
   const grid = el("grid"); grid.innerHTML = "";
   const rows = [document.createElement("div"), document.createElement("div")];
-  rows[0].className = "deckrow"; rows[0].id = "rowTop";
+  rows[0].className = "deckrow charts-" + CHART_COUNT; rows[0].id = "rowTop";
   rows[1].className = "deckrow"; rows[1].id = "rowBot";
   grid.appendChild(rows[0]); grid.appendChild(rows[1]);
 
   for (const d of defs) { const o = makePane(d); PANES.push(o); rows[d.row].appendChild(o.node); }
 
   paintTf();
-  wireTicker("t1", 1); wireTicker("t2", 2);
+  paintTickerFields(); el("chartCount").value = String(CHART_COUNT);
+  loadSymbolCatalog();
+  applyChartCount(CHART_COUNT);
   relayout();
 
-  const order = ["c1", "c2", "fb", "fa", "x"];
+  const order = CHARTS.map((_, i) => "c" + (i + 1)).slice(0, CHART_COUNT).concat(["fb", "fa", "x"]);
   let n = 0;
   for (const k of order) {
     const o = PANES.find((p) => p.def.key === k); if (!o) continue;
@@ -494,7 +660,6 @@ async function build() {
   }
   paintChips();
   if (SOLO) setSolo(SOLO);
-  el("sceneLink").href = "/scenes?scene=watch-deck" + (STACKED ? "&profile=narrow" : "");
   relayout();
 }
 build();
