@@ -357,6 +357,44 @@ let RANGE = RANGES.includes(URL_STATEFUL ? QS.get("range") : "") ? QS.get("range
   (RANGES.includes(storedState("range")) ? storedState("range") : "3h");
 let SOLO = QS.get("full") || null;
 
+/* CUSTOM is a manual workspace, but a stale count must never manufacture
+   empty chart cards. Read its own saved slots (not LIVE fallbacks), compact
+   the real symbols in their saved order, and show only as many slots as it
+   can honestly fill. A completely empty/stale CUSTOM state is not a useful
+   workspace, so reopen LIVE instead. */
+function savedCustomCharts() {
+  return Array.from({ length:6 }, (_, i) => CLEAN(remembered("station.custom.chart." + (i + 1))));
+}
+function compactCustomState(state) {
+  const charts = (state.charts || []).map(CLEAN).filter(Boolean).slice(0, 6);
+  if (!charts.length) return null;
+  return {
+    charts: charts.concat(Array(Math.max(0, 6 - charts.length)).fill("")),
+    chartCount: SceneModel.chartCountForSize(Math.min(chartCount(state.chartCount), charts.length)),
+    range: RANGES.includes(state.range) ? state.range : RANGE
+  };
+}
+function recoverInitialCustomState() {
+  if (SCENE !== "custom") return;
+  const recovered = compactCustomState({
+    charts: savedCustomCharts(),
+    chartCount: remembered("station.custom.chartCount") || CHART_COUNT,
+    range: remembered("station.custom.range") || RANGE
+  });
+  /* A legacy ?scene=custom launch can itself supply only two symbols plus a
+     stale six-card count. Keep those real symbols, but recover to LIVE at an
+     honest effective size instead of presenting four empty cards. */
+  const fallback = compactCustomState({ charts:CHARTS, chartCount:CHART_COUNT, range:RANGE }) || {
+    charts:["SPY", "SNDK", "", "", "", ""], chartCount:2, range:RANGE
+  };
+  const usable = recovered || fallback;
+  if (!recovered) SCENE = "live";
+  CHARTS.forEach((_, i) => { CHARTS[i] = usable.charts[i]; });
+  CHART_COUNT = usable.chartCount;
+  RANGE = usable.range;
+}
+recoverInitialCustomState();
+
 /* Scintilla's canonical chart symbols come from the current active rows in
    public.tickers. Cross-platform names are aliases only: the field always
    settles on the real Scintilla symbol after selection. */
@@ -590,7 +628,9 @@ function paintChips() {
 const COHORT_ORDER = ["AI_HARDWARE","AI_SOFTWARE","MEGACAP","BLUE_CHIP","GROWTH","CRYPTO","INTL",
   "MACRO","INDEXES","THEMATIC","METALS","TECH","COMMS","DISCRET","ENERGY","FINANCIALS","HEALTH",
   "INDUSTRIAL","MATERIALS","REAL_ESTATE","STAPLES","UTILITIES"];
-const hasStoredScene = (scene) => !!remembered("station." + scene + ".chartCount");
+const hasStoredScene = (scene) => scene === "custom"
+  ? savedCustomCharts().some(Boolean)
+  : !!remembered("station." + scene + ".chartCount");
 function editableState(scene) {
   const prefix = "station." + scene;
   const legacy = scene === "live";
@@ -598,7 +638,8 @@ function editableState(scene) {
   const count = chartCount(get("chartCount") || CHART_COUNT);
   const range = RANGES.includes(get("range")) ? get("range") : RANGE;
   const charts = Array.from({ length:6 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
-    (scene === "custom" ? CHARTS[i] : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
+    (scene === "custom" ? "" : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
+  if (scene === "custom") return compactCustomState({ charts, chartCount:count, range });
   return { charts, chartCount:count, range };
 }
 function rememberEditableState() {
@@ -725,8 +766,16 @@ async function applyScene(next, options) {
       el("symbolNote").textContent = "cohort favorites unavailable";
     }
   } else if (requested === "custom" && !hasStoredScene("custom")) {
-    state = { charts:CHARTS.slice(), chartCount:CHART_COUNT, range:RANGE };
+    state = compactCustomState({ charts:CHARTS, chartCount:CHART_COUNT, range:RANGE });
   } else state = editableState(requested);
+
+  /* A stale saved CUSTOM state can be selected from an old root/bookmark.
+     Never turn that into six empty cards: choose LIVE, which is the durable
+     usable Station state, when recovery has no real chart symbols. */
+  if (requested === "custom" && !state) {
+    SCENE = "live";
+    return applyScene("live", options);
+  }
 
   SCENE = requested; APPLYING_SCENE = true; installSceneState(state);
   syncChartPanes(); applyChartCount(CHART_COUNT, true); paintTf();
@@ -925,7 +974,13 @@ function applyChartCount(next, fromScene) {
       syncChartPanes();
     }
   } else if (!fromScene) moveNamedSceneToCustom();
-  CHART_COUNT = chartCount(next);
+  /* CUSTOM has no synthetic filler. Its selector may only expose the real
+     saved workspace, so asking a two-symbol CUSTOM for six charts remains an
+     honest two-chart layout rather than creating four blank cards. */
+  const requestedCount = chartCount(next);
+  CHART_COUNT = SCENE === "custom"
+    ? SceneModel.chartCountForSize(Math.min(requestedCount, CHARTS.filter(Boolean).length))
+    : requestedCount;
   el("chartCount").value = String(CHART_COUNT);
   const row = el("rowTop");
   if (row) {

@@ -45,3 +45,29 @@ test("Scenes V2 stays local-only and preserves the current iPad companion", () =
   assert.match(deck, /\/pane-x\?remote=1/);
   assert.match(deck, /SCENE !== "live" && SCENE !== "custom"/);
 });
+
+test("CUSTOM recovery compacts the screenshot-shaped sparse six-card workspace", () => {
+  const match = deck.match(/function compactCustomState\(state\) \{[\s\S]*?\n\}/);
+  assert.ok(match, "CUSTOM recovery helper is present in the rendered Station source");
+  const customContext = {
+    CLEAN: (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12),
+    RANGES: ["15m","30m","1h","2h","3h","4h","6h","12h","1D","3D","1W"],
+    RANGE: "3h",
+    chartCount: (value) => Math.max(1, Math.min(6, Number(value) || 2)),
+    SceneModel: { chartCountForSize: scenes.chartCountForSize }
+  };
+  vm.runInNewContext(`${match[0]}; globalThis.compact = compactCustomState;`, customContext);
+  const recovered = customContext.compact({
+    charts: ["TSM", "WULF", "", "", "", ""],
+    chartCount: 6,
+    range: "3h"
+  });
+  assert.equal(recovered.chartCount, 2);
+  assert.deepEqual(Array.from(recovered.charts), ["TSM", "WULF", "", "", "", ""]);
+  assert.equal(recovered.charts.slice(0, recovered.chartCount).includes(""), false);
+  assert.equal(customContext.compact({ charts:["", "", ""], chartCount:6, range:"3h" }), null);
+  assert.match(deck, /const fallback = compactCustomState\(\{ charts:CHARTS, chartCount:CHART_COUNT, range:RANGE \}\)/);
+  assert.match(deck, /if \(!recovered\) SCENE = "live"/);
+  assert.match(deck, /state = compactCustomState\(\{ charts:CHARTS, chartCount:CHART_COUNT, range:RANGE \}\)/);
+  assert.match(deck, /SCENE === "custom"\n    \? SceneModel\.chartCountForSize\(Math\.min\(requestedCount, CHARTS\.filter\(Boolean\)\.length\)\)/);
+});
