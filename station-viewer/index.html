@@ -26,6 +26,9 @@ const ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI
 const token=new URLSearchParams(location.hash.slice(1)).get("pair")||"";
 const sharedCode=new URLSearchParams(location.hash.slice(1)).get("code")||"";
 const state=document.getElementById("state"), video=document.getElementById("video"), canvas=document.getElementById("canvas");
+/* The full-page receiver keeps the entire captured rectangle visible.  The
+   Companion asks for the desk-style fill crop so its X tile matches Station. */
+const fillFrame=new URLSearchParams(location.search).get("fit")==="cover";
 let socket, peer, crop, offerRetry, reconnectTimer, pairRoom, activeCode="", connecting=false, hiddenAt=0;
 function report(status){if(parent!==window)parent.postMessage({type:"SCINTILLA_IPAD_VIEWER_STATUS",status},location.origin)}
 function say(text,bad=false){state.textContent=text;state.classList.toggle("bad",bad);if(bad)report("RECONNECTING")}
@@ -41,7 +44,7 @@ function channel(){
     socket.addEventListener("error",()=>reject(new Error("The pairing room could not connect.")));
   });
 }
-function draw(){if(!crop||video.readyState<2||!video.videoWidth)return;const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(2,devicePixelRatio||1);canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);const c=canvas.getContext("2d");const v=crop.viewport||{width:video.videoWidth,height:video.videoHeight},r=crop.rect||{left:0,top:0,width:v.width,height:v.height};const sx=r.left*video.videoWidth/v.width,sy=(r.top+(crop.fractionalScrollOffset||0))*video.videoHeight/v.height,sw=r.width*video.videoWidth/v.width,sh=r.height*video.videoHeight/v.height;c.fillStyle="#000";c.fillRect(0,0,canvas.width,canvas.height);const scale=Math.min(canvas.width/sw,canvas.height/sh),dw=sw*scale,dh=sh*scale;c.drawImage(video,sx,sy,sw,sh,(canvas.width-dw)/2,(canvas.height-dh)/2,dw,dh);requestAnimationFrame(draw)}
+function draw(){if(!crop||video.readyState<2||!video.videoWidth)return;const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(2,devicePixelRatio||1);canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);const c=canvas.getContext("2d");const v=crop.viewport||{width:video.videoWidth,height:video.videoHeight},r=crop.rect||{left:0,top:0,width:v.width,height:v.height};const sx=r.left*video.videoWidth/v.width,sy=(r.top+(crop.fractionalScrollOffset||0))*video.videoHeight/v.height,sw=r.width*video.videoWidth/v.width,sh=r.height*video.videoHeight/v.height;c.fillStyle="#000";c.fillRect(0,0,canvas.width,canvas.height);const scale=(fillFrame?Math.max:Math.min)(canvas.width/sw,canvas.height/sh),dw=sw*scale,dh=sh*scale;c.drawImage(video,sx,sy,sw,sh,(canvas.width-dw)/2,(canvas.height-dh)/2,dw,dh);requestAnimationFrame(draw)}
 function closeConnection(){clearInterval(offerRetry);clearTimeout(reconnectTimer);offerRetry=null;reconnectTimer=null;try{socket?.close();peer?.close()}catch(_){}socket=null;peer=null}
 function scheduleReconnect(){if(document.visibilityState==="hidden")return;clearTimeout(reconnectTimer);reconnectTimer=setTimeout(()=>connectToImax(true),700)}
 async function connectToImax(force=false){

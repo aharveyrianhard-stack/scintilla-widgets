@@ -18,7 +18,7 @@
 <header><div class="brand">SCINTILLA · STATION IPAD</div><div id="state" class="state">CONNECTING TO IMAC</div></header>
 <main id="grid">
   <section class="row top"><article class="pane"><div class="label">SPY · 1D</div><iframe src="/chart/?bare=1&t=SPY&range=1D" title="SPY chart"></iframe></article><article class="pane"><div class="label">QQQ · 1D</div><iframe src="/chart/?bare=1&t=QQQ&range=1D" title="QQQ chart"></iframe></article></section>
-  <section class="row bottom"><article class="pane"><div class="label">SCINTILLA VIDEO</div><iframe src="/pane-video?feed=scintilla&cols=2&view=compact" title="Scintilla video"></iframe></article><article class="pane"><div class="label">PERSONAL VIDEO</div><iframe src="/pane-video?feed=personal&cols=2&view=compact" title="Personal video"></iframe></article><article class="pane" id="xPane"><div class="label">LIVE X <span class="source">IMAC SOURCE</span></div><iframe id="xviewer" allow="autoplay" title="Live X from iMac"></iframe><div class="controls"><button data-action="view" data-value="trading">LIST</button><button data-action="view" data-value="notifications">ALERTS</button><button data-action="rewind">−30S</button><button data-action="refresh">REFRESH</button></div></article></section>
+  <section class="row bottom"><article class="pane"><div class="label">SCINTILLA VIDEO</div><iframe data-src="/pane-video?feed=scintilla&cols=2&view=compact" title="Scintilla video"></iframe></article><article class="pane"><div class="label">PERSONAL VIDEO</div><iframe data-src="/pane-video?feed=personal&cols=2&view=compact" title="Personal video"></iframe></article><article class="pane" id="xPane"><div class="label">LIVE X <span class="source">IMAC SOURCE</span></div><iframe id="xviewer" allow="autoplay" title="Live X from iMac"></iframe><div class="controls"><button data-action="view" data-value="trading">LIST</button><button data-action="view" data-value="notifications">ALERTS</button><button data-action="rewind">−30S</button><button data-action="refresh">REFRESH</button></div></article></section>
 </main>
 <section id="notice" class="notice"><div><b>STATION IPAD NEEDS ITS TRUSTED LINK</b><br>Open the Companion link from your iMac once.</div></section>
 <script>
@@ -26,7 +26,11 @@
 const key="scintilla.station.ipad-companion-link.v1",viewer=document.getElementById("xviewer"),state=document.getElementById("state"),notice=document.getElementById("notice");
 const validHash=h=>{const p=new URLSearchParams((h||"").replace(/^#/,""));return /^[A-Za-z0-9_-]{32,}$/.test(p.get("pair")||"")&&/^[0-9]{6}$/.test(p.get("code")||"")};
 let pairHash=validHash(location.hash)?location.hash:"";if(pairHash)try{localStorage.setItem(key,pairHash)}catch(_){};if(!pairHash)try{pairHash=localStorage.getItem(key)||""}catch(_){};
-if(validHash(pairHash)){viewer.src="/station-viewer/"+pairHash}else{notice.classList.add("on");state.textContent="IPAD LINK NEEDED"}
+if(validHash(pairHash)){viewer.src="/station-viewer/?fit=cover"+pairHash}else{notice.classList.add("on");state.textContent="IPAD LINK NEEDED"}
+/* Let the live feed and market charts claim the first network/CPU burst.
+   Video feeds are still loaded automatically a moment later. */
+const loadVideos=()=>document.querySelectorAll("iframe[data-src]").forEach(frame=>{frame.src=frame.dataset.src;frame.removeAttribute("data-src")});
+if("requestIdleCallback" in window)requestIdleCallback(loadVideos,{timeout:1100});else setTimeout(loadVideos,700);
 document.querySelectorAll("button[data-action]").forEach(button=>button.addEventListener("click",()=>viewer.contentWindow?.postMessage({type:"SCINTILLA_IPAD_CONTROL",action:button.dataset.action,value:button.dataset.value||null},location.origin)));
 addEventListener("message",event=>{if(event.origin!==location.origin||event.data?.type!=="SCINTILLA_IPAD_VIEWER_STATUS")return;state.textContent=event.data.status;state.classList.toggle("live",event.data.status==="IMAC LIVE")});
 </script>
