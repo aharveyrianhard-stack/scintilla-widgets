@@ -2,7 +2,13 @@
 
 Updated: 2026-08-10 (America/New_York)
 
-This is the present-tense record for the verified live Station and the separately admitted clean-URL/roadmap correction. Scenes v1 is already production. The clean-URL work is an admitted review candidate only and has not changed production.
+This is the present-tense record for the verified live Station and its separately admitted review candidates. Scenes v1 is production. The local-only Scenes v2 delivery is a review candidate only and has not changed production.
+
+## Scenes v2 local delivery candidate
+
+- Candidate branch: `agent/station-scenes-v2-local-delivery-001`, based exactly on `03b3289a4fca018f239c3d2259524c4b819aabe9`.
+- Scope: the eleven curated chart scenes, New York session-aware INDEX NOW leaders, fixed `CLUSD` third slot, three-hour fast defaults, honest unavailable cards, lossless basket expansion, and the shared lower axis in four/six-chart grids.
+- The candidate preserves the existing iPad Companion / X/media mounting path. It does not add shared ticker state, passwordless sign-in, authentication UI, backend/schema work, routing work, or a production change.
 
 ## Remote review and delivery state
 
