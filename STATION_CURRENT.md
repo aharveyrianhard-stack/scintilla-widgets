@@ -2,18 +2,29 @@
 
 Updated: 2026-08-10 (America/New_York)
 
-This is the present-tense record for the verified live Station and the separately admitted clean-URL/roadmap correction. Scenes v1 is already production. The clean-URL work is an admitted review candidate only and has not changed production.
+This is the present-tense record for the verified live Station and the separately admitted Scenes V2 navigation candidate. Scenes V1 and the clean-root baseline are already production. Station routing, Hub, iMac/X Bridge, database, and indicators are outside this candidate.
 
 ## Remote review and delivery state
 
-- Production source: `scintilla-widgets` main at `6615e397d55a4c57ec214be13f5d8a7f95015c4b`
+- Production source: `scintilla-widgets` main at `5b59353e9ccad8221886e59d15611c9816c72c53`
+- Production deployment: `dpl_WnX6dRuG8hqdM3xaEDJfw3iQVVJR`
 - Public Station: `https://station.scintillahub.ai/`
 - Scenes v1 delivery: [merged scintilla-widgets PR #3](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/3)
 - Scenes v1 production memo: `https://docs.google.com/document/d/1i57VFlXAoMjTAiNf2rLYj0InCxujeWTEr45emMfgGrA`
-- Production route behavior before the clean-URL correction: the root redirects to `/deck/`, and runtime state is serialized into the query string.
-- Clean-URL candidate branch: `agent/station-clean-url-roadmap`, based exactly on the production source above. It changes root handling from redirect to internal rewrite, consumes deliberate deep-link inputs once, stops runtime query serialization, and makes `/` the PWA identity/start URL.
-- Clean-URL candidate status: **review only** under `SCINTILLA-STATION-CLEAN-URL-ROADMAP-001`; not merged, not promoted, and not production.
+- The clean-root baseline consumes deliberate deep-link inputs once, keeps runtime scene state out of the address bar, and uses `/` as the PWA identity/start URL.
+- A separate routing-only correction remains owned by the Station routing workstream and is not part of Scenes V2.
 - Canonical architecture roadmap: `https://docs.google.com/document/d/1aLDEcIa4647copZrrO-rFsXuNeY98R8YS5Ux3OZQaxQ/edit`
+- Scenes V2 curated-baseline preview job: `SCINTILLA-STATION-SCENES-V2-CURATED-BASELINE-001`
+- Scenes V2 candidate branch: `agent/station-scenes-v2-curated-baseline-001`, based exactly on production `37eae113d2c1956e71a412848ce73f2cdf686047`
+- Scenes V2 status: **preview only**. No production merge or promotion is authorized by this job.
+
+## Shared-state integration candidate
+
+- Job: `SCINTILLA-STATION-SCENES-V2-SHARED-STATE-INTEGRATION-001`; this branch is preview-only and has no production authority.
+- Base: `e97bde42b965e59667c926d5c1c5a9529fa41f05`. It integrates the existing protected `public.station_shared_state` row only; it does not add or alter database schema, RLS, grants, Auth, APIs, routing, Hub, iPad/iMac, Bridge, or X Feed Float.
+- The authenticated owner row carries only `active_scene`, `flex3_ticker`, ordered named-scene `ticker_overrides`, and a revision number. Writes compare the expected revision and refresh rather than silently overwriting another device.
+- There is no anonymous or browser-local ticker/FLEX fallback. If Station has no verified existing Supabase Auth session, it shows `shared · sign in required`, keeps the fixed curated display honest, and does not claim cross-device sync. Zoom, pan, density, viewport, chart-count, and timeframe presentation remain device-local.
+- The first authenticated owner row starts FLEX 3 at `CLUSD` as the user-selected flexible commodity slot. INDEX NOW still replaces only slots 1–2 by New York time: SPY/QQQ from 08:00–18:00 and ESUSD/NQUSD from 18:00–08:00.
 
 ## Open now
 
@@ -23,6 +34,17 @@ This is the present-tense record for the verified live Station and the separatel
 - Current saved example: two visible two-hour charts, SPY and QQQ. Four additional editable slots remain remembered as Bitcoin, Airbnb, Abbott, and Adobe when the chart-count selector is increased; none is a fixed bundle.
 - The `DISPLAY ↗` control opens the same Station in a dedicated second window. For Apple TV, put that window on an AirPlay **separate display**; ordinary mirroring follows the Mac and does not let the Hub remain independent.
 - The same Station surface now has remembered `AUTO`, `DESK`, `DISPLAY`, and `COMPACT` presentation profiles. `DISPLAY ↗` opens the same route with the Display profile; it is not a second product or a separately maintained scene.
+
+## Scenes V2 preview candidate
+
+- Replaces the raw cohort dropdown with a small purpose-first list: LIVE, INDEX NOW, INDEX LEADERSHIP, COMPANY LEADERSHIP, FOCUS 2, MACRO CROSS-ASSET, INTERNALS FAST, INTERNALS SLOW, SECTOR FAMILIES, THEME FAMILIES, and CUSTOM.
+- Uses the reviewed fixed baskets from the governing Scenes V2 placement record. Exact INDEX LEADERSHIP ordering is SPY, QQQ, IWM, MAGS, SMH, DIA, RSP, and a visible INDEX 8 placeholder; DOW Inc. is never substituted.
+- INDEX NOW changes only its first two slots at 08:00/18:00 America/New_York: SPY/QQQ by day and ESUSD/NQUSD overnight. FLEX 3 remains a clearly labeled protected shared-state slot in this baseline; it is not silently stored per device.
+- COMPANY LEADERSHIP, MACRO CROSS-ASSET, both INTERNALS scenes, two SECTOR families, and three THEME families now have their approved ordered baskets. Missing source coverage is named visibly rather than dropped or substituted.
+- Basket membership is separate from presentation. Paging retains the first visible member, reaches every member in order, and never activates an empty `Choose a symbol` tile. Named-scene ticker editing is locked pending the separate central shared-state capability; existing LIVE/CUSTOM behavior remains intact.
+- Four- and six-chart synchronized grids render one shared bottom time axis and mask the redundant top-row time labels. Chart zoom and pan remain local to the viewing device.
+- Preserves the existing five-pane LIVE surface, keeps Personal YouTube / SCINTILLA YouTube / X mounted, and retains visible-only chart mounting and one X pane.
+- This first candidate deliberately keeps 1/2/3/4/6 chart structures. Eight-chart layouts, MA/RSI panes, automatic rotation, movers/volume ranking, cross-device sync, and indicator work require separate reviewed jobs.
 
 ## What works in production
 
@@ -136,7 +158,7 @@ The underlying rows are not mixed: Megyn Kelly and LastWeekTonight/John Oliver e
 
 ## Current X acceptance boundary
 
-The repeating-post diagnosis was reproduced in real Chrome before the `0.7.7` correction: the supplied screen recording shows the offline/reset state at 10.95, 40.95, and 70.95 seconds, matching the old 30-second reconnect behavior. The heartbeat-safe bridge passed sustained monitoring. Version `0.7.14` retains that correction, uses one capture for multiple live Station receivers, deduplicates clock pulses from every viewer, transfers action control to whichever viewer Alan touches, and hardens extension reload recovery. The verified bridge is live against the exact production host. The clean-URL candidate does not modify the bridge or multiply X capture. Localhost results remain development evidence only; they are not delivery.
+The repeating-post diagnosis was reproduced in real Chrome before the `0.7.7` correction: the supplied screen recording shows the offline/reset state at 10.95, 40.95, and 70.95 seconds, matching the old 30-second reconnect behavior. The heartbeat-safe bridge passed sustained monitoring. Version `0.7.14` retains that correction, uses one capture for multiple live Station receivers, deduplicates clock pulses from every viewer, transfers action control to whichever viewer Alan touches, and hardens extension reload recovery. The verified bridge is live against the exact production host. The Scenes V2 preview candidate does not modify the bridge or multiply X capture. Localhost results remain development evidence only; they are not delivery.
 
 ## Permanent X architecture direction
 

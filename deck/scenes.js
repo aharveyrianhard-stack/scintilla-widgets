@@ -1,29 +1,149 @@
 (function (root) {
   "use strict";
 
-  const IDS = ["live", "overnight", "indexes", "cohort", "custom"];
+  const NIGHT_OPEN_HOUR_NY = 8;
+  const NIGHT_CLOSE_HOUR_NY = 18;
+  const SESSION_ZONE = "America/New_York";
+  const INDEX_NOW_FLEX_DEFAULT = "FLEX3";
+
+  const IDS = [
+    "live", "indexNow", "indexLeadership", "companyLeadership", "focus2",
+    "macroCrossAsset", "internalsFast", "internalsSlow", "sectorFamilies",
+    "themeFamilies", "custom"
+  ];
+
+  const SCENES = Object.freeze({
+    live: Object.freeze({ label:"LIVE", kind:"working", horizon:"working", session:"any" }),
+    indexNow: Object.freeze({ label:"INDEX NOW", kind:"basket", horizon:"fast-short", session:"regular" }),
+    indexLeadership: Object.freeze({ label:"INDEX LEADERSHIP", kind:"basket", horizon:"fast-short", session:"regular" }),
+    companyLeadership: Object.freeze({ label:"COMPANY LEADERSHIP", kind:"basket", horizon:"fast-short", session:"regular" }),
+    focus2: Object.freeze({ label:"FOCUS 2", kind:"working", horizon:"fast-short", session:"regular" }),
+    macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", kind:"basket", horizon:"slow-long", session:"any" }),
+    internalsFast: Object.freeze({ label:"INTERNALS FAST", kind:"basket", horizon:"fast-short", session:"any" }),
+    internalsSlow: Object.freeze({ label:"INTERNALS SLOW", kind:"basket", horizon:"slow-long", session:"any" }),
+    sectorFamilies: Object.freeze({ label:"SECTOR FAMILIES", kind:"family", horizon:"medium", session:"regular" }),
+    themeFamilies: Object.freeze({ label:"THEME FAMILIES", kind:"family", horizon:"medium", session:"regular" }),
+    custom: Object.freeze({ label:"CUSTOM", kind:"working", horizon:"working", session:"any" })
+  });
+
   const PRESETS = Object.freeze({
-    overnight: Object.freeze({
-      label: "OVERNIGHT",
-      tickers: Object.freeze(["ESUSD", "NQUSD", "CLUSD"]),
+    indexNow: Object.freeze({
+      label: "INDEX NOW",
+      tickers: Object.freeze(["ESUSD", "NQUSD", INDEX_NOW_FLEX_DEFAULT]),
       chartCount: 3,
-      range: "15m"
+      range: "3h"
     }),
-    indexes: Object.freeze({
+    indexLeadership: Object.freeze({
       label: "INDEX LEADERSHIP",
-      tickers: Object.freeze(["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA"]),
+      tickers: Object.freeze(["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA", "RSP", "INDEX8"]),
       chartCount: 6,
+      range: "3h"
+    }),
+    focus2: Object.freeze({
+      label: "FOCUS 2",
+      tickers: Object.freeze(["MU", "SNDK"]),
+      chartCount: 2,
+      range: "3h"
+    }),
+    companyLeadership: Object.freeze({
+      label: "COMPANY LEADERSHIP",
+      tickers: Object.freeze(["AAPL", "MSFT", "META", "AMZN", "GOOGL", "TSLA"]),
+      chartCount: 6,
+      range: "3h"
+    }),
+    macroCrossAsset: Object.freeze({
+      label: "MACRO CROSS-ASSET",
+      tickers: Object.freeze(["US10Y", "DXUSD", "GCUSD", "SIUSD"]),
+      chartCount: 4,
+      range: "3D"
+    }),
+    internalsFast: Object.freeze({
+      label: "INTERNALS FAST",
+      tickers: Object.freeze(["VIX", "ADD", "PCC", "CUMTICK"]),
+      chartCount: 4,
+      range: "3h"
+    }),
+    internalsSlow: Object.freeze({
+      label: "INTERNALS SLOW",
+      tickers: Object.freeze(["TICK", "TRIN"]),
+      chartCount: 2,
       range: "1D"
     })
   });
 
-  const normalizeScene = (value) => IDS.includes(value) ? value : "live";
+  /* Reviewed family order only. Raw backend cohort keys never become primary
+     navigation automatically; a family appears only when it is both listed
+     here and has real favorite-backed coverage. */
+  const FAMILY_BASKETS = Object.freeze({
+    sectorFamilies: Object.freeze([
+      Object.freeze({ id:"CYCLICAL", label:"CYCLICAL / LEADERSHIP", tickers:Object.freeze(["XLK", "XLC", "XLY", "XLI", "XLF", "XLE"]), range:"1D" }),
+      Object.freeze({ id:"DEFENSIVE", label:"DEFENSIVE / BALLAST", tickers:Object.freeze(["XLP", "XLV", "XLU", "XLRE", "XLB", "SECTOR12"]), range:"1D" })
+    ]),
+    themeFamilies: Object.freeze([
+      Object.freeze({ id:"AI_COMPUTE", label:"AI COMPUTE CORE", tickers:Object.freeze(["NVDA", "TSM", "AVGO", "MU", "SNDK", "ASML"]), range:"1h" }),
+      Object.freeze({ id:"AI_INFRA", label:"AI INFRASTRUCTURE", tickers:Object.freeze(["NBIS", "CRDO", "ANET", "CRWV", "APLD", "ALAB"]), range:"1h" }),
+      Object.freeze({ id:"AI_POWER", label:"AI POWER / SPECULATIVE", tickers:Object.freeze(["CIFR", "IREN", "WULF", "BE", "OKLO", "USAR"]), range:"1h" })
+    ])
+  });
+
+  const LEGACY_SCENES = Object.freeze({
+    overnight: "indexNow",
+    indexes: "indexLeadership",
+    company: "companyLeadership",
+    macro_short: "macroCrossAsset",
+    macro_long: "macroCrossAsset",
+    sectors: "sectorFamilies",
+    themes: "themeFamilies",
+    cohort: "themeFamilies"
+  });
+
+  function nyHourNow(at, zone = SESSION_ZONE) {
+    const d = at instanceof Date ? at : new Date(at);
+    if (Number.isNaN(d.getTime())) return new Date().getHours();
+    try {
+      const s = new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "2-digit", hour12: false }).format(d);
+      return Number(s);
+    } catch (_) {
+      return d.getHours();
+    }
+  }
+
+  function indexNowLeaders(at) {
+    const hour = nyHourNow(at);
+    return hour >= NIGHT_OPEN_HOUR_NY && hour < NIGHT_CLOSE_HOUR_NY ?
+      Object.freeze(["SPY", "QQQ"]) :
+      Object.freeze(["ESUSD", "NQUSD"]);
+  }
+
+  function sanitizeTickerSymbol(value) {
+    return String(value || INDEX_NOW_FLEX_DEFAULT).toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12) || INDEX_NOW_FLEX_DEFAULT;
+  }
+
+  function indexNowTickersFor(at, flexSymbol) {
+    const flex = sanitizeTickerSymbol(flexSymbol);
+    const leaders = indexNowLeaders(at);
+    return Object.freeze([leaders[0], leaders[1], flex]);
+  }
+
+  // Backward-compatible names kept for legacy callers.
+  const overnightLeaders = indexNowLeaders;
+  const overnightTickersFor = indexNowTickersFor;
+
+  const normalizeScene = (value) => {
+    const candidate = LEGACY_SCENES[value] || value;
+    return IDS.includes(candidate) ? candidate : "live";
+  };
 
   function chartCountForSize(size) {
     const n = Math.max(0, Math.min(6, Number(size) || 0));
     if (n <= 1) return 1;
     if (n <= 4) return n;
     return 6;
+  }
+
+  function usesSharedBottomAxis(size) {
+    const count = chartCountForSize(size);
+    return count === 4 || count === 6;
   }
 
   function buildCohortFavorites(favoriteRows, membershipGroups) {
@@ -41,29 +161,81 @@
     return new Map(Array.from(byCohort, ([cohort, tickers]) => [cohort, Array.from(tickers).sort()]));
   }
 
+  function curatedFamilies(_index, scene) {
+    return (FAMILY_BASKETS[normalizeScene(scene)] || []).map((family) => family.id);
+  }
+
+  function curatedFamilyOptions(scene) {
+    return (FAMILY_BASKETS[normalizeScene(scene)] || []).slice();
+  }
+
+  function curatedFamilyBasket(scene, id) {
+    const options = curatedFamilyOptions(scene);
+    return options.find((option) => option.id === String(id || "").toUpperCase()) || options[0] || null;
+  }
+
+  function basketWindow(members, requestedOffset, requestedCount) {
+    const all = (members || []).slice();
+    const requested = Math.max(1, chartCountForSize(requestedCount || 6));
+    if (!all.length) {
+      return {
+        offset: 0,
+        requestedCount: requested,
+        chartCount: 1,
+        totalItems: 0,
+        start: 0,
+        end: 0,
+        hasPrevious: false,
+        hasNext: false,
+        tickers: [],
+        empty: true
+      };
+    }
+
+    const maxOffset = Math.max(0, Math.floor((all.length - 1) / requested) * requested);
+    const offset = Math.max(0, Math.min(maxOffset, Number(requestedOffset) || 0));
+    const tickers = all.slice(offset, offset + requested);
+    return {
+      offset,
+      requestedCount: requested,
+      chartCount: chartCountForSize(tickers.length),
+      totalItems: all.length,
+      start: tickers.length ? offset + 1 : 0,
+      end: tickers.length ? offset + tickers.length : 0,
+      hasPrevious: offset > 0,
+      hasNext: offset < maxOffset,
+      tickers,
+      empty: false
+    };
+  }
+
   function cohortPage(index, cohort, requestedPage, pageSize) {
-    const size = Math.max(1, Math.min(6, Number(pageSize) || 6));
+    const size = chartCountForSize(pageSize || 6);
     const key = String(cohort || "").toUpperCase();
     const all = (index?.get(key) || []).slice();
     const totalPages = Math.max(1, Math.ceil(all.length / size));
     const page = Math.max(0, Math.min(totalPages - 1, Number(requestedPage) || 0));
-    const tickers = all.slice(page * size, page * size + size);
-    return {
-      cohort: key,
-      page,
-      totalPages,
-      totalItems: all.length,
-      tickers,
-      chartCount: chartCountForSize(tickers.length)
-    };
+    const visible = basketWindow(all, page * size, size);
+    return Object.assign({ cohort:key, page, totalPages }, visible);
   }
 
   root.StationScenes = Object.freeze({
     IDS: Object.freeze(IDS.slice()),
+    SCENES,
     PRESETS,
+    FAMILY_BASKETS,
     normalizeScene,
     chartCountForSize,
+    usesSharedBottomAxis,
+    indexNowTickersFor,
+    indexNowLeaders,
+    overnightTickersFor,
+    overnightLeaders,
     buildCohortFavorites,
+    curatedFamilies,
+    curatedFamilyOptions,
+    curatedFamilyBasket,
+    basketWindow,
     cohortPage
   });
 })(typeof globalThis === "object" ? globalThis : window);
