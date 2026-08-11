@@ -1,6 +1,11 @@
 (function (root) {
   "use strict";
 
+  const NIGHT_OPEN_HOUR_NY = 8;
+  const NIGHT_CLOSE_HOUR_NY = 18;
+  const SESSION_ZONE = "America/New_York";
+  const OVERNIGHT_FLEX_DEFAULT = "FLEX3";
+
   const IDS = [
     "live", "overnight", "indexes", "company", "macro_short",
     "macro_long", "sectors", "themes", "custom"
@@ -21,7 +26,7 @@
   const PRESETS = Object.freeze({
     overnight: Object.freeze({
       label: "OVERNIGHT",
-      tickers: Object.freeze(["ESUSD", "NQUSD", "CLUSD"]),
+      tickers: Object.freeze(["ESUSD", "NQUSD", OVERNIGHT_FLEX_DEFAULT]),
       chartCount: 3,
       range: "15m"
     }),
@@ -48,6 +53,30 @@
   });
 
   const LEGACY_SCENES = Object.freeze({ cohort:"themes" });
+
+  function nyHourNow(at, zone = SESSION_ZONE) {
+    const d = at instanceof Date ? at : new Date(at);
+    if (Number.isNaN(d.getTime())) return new Date().getHours();
+    try {
+      const s = new Intl.DateTimeFormat("en-US", { timeZone: zone, hour: "2-digit", hour12: false }).format(d);
+      return Number(s);
+    } catch (_) {
+      return d.getHours();
+    }
+  }
+
+  function overnightLeaders(at) {
+    const hour = nyHourNow(at);
+    return hour >= NIGHT_OPEN_HOUR_NY && hour < NIGHT_CLOSE_HOUR_NY ?
+      Object.freeze(["SPY", "QQQ"]) :
+      Object.freeze(["ESUSD", "NQUSD"]);
+  }
+
+  function overnightTickersFor(at, flexSymbol) {
+    const flex = String(flexSymbol || OVERNIGHT_FLEX_DEFAULT).toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12) || OVERNIGHT_FLEX_DEFAULT;
+    const leaders = overnightLeaders(at);
+    return Object.freeze([leaders[0], leaders[1], flex]);
+  }
   const normalizeScene = (value) => {
     const candidate = LEGACY_SCENES[value] || value;
     return IDS.includes(candidate) ? candidate : "live";
@@ -120,6 +149,8 @@
     FAMILY_GROUPS,
     normalizeScene,
     chartCountForSize,
+    overnightTickersFor,
+    overnightLeaders,
     buildCohortFavorites,
     curatedFamilies,
     basketWindow,
