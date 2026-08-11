@@ -1,8 +1,8 @@
 (() => {
   "use strict";
 
-  if (window.__XFF_STATION_BRIDGE_V077__) return;
-  window.__XFF_STATION_BRIDGE_V077__ = true;
+  if (window.__XFF_STATION_BRIDGE_V078__) return;
+  window.__XFF_STATION_BRIDGE_V078__ = true;
 
   const ORIGIN = window.location.origin;
   const isPane = /\/pane-x\/?$/.test(window.location.pathname);
@@ -62,6 +62,14 @@
       }, ORIGIN);
     }
 
+    if (message?.type === "XFF_STATION_REMOTE_ANSWER") {
+      window.postMessage({
+        type: "XFF_STATION_REMOTE_ANSWER",
+        pairId: message.pairId,
+        answer: message.answer
+      }, ORIGIN);
+    }
+
     if (message?.type === "XFF_STATION_CROP") {
       window.postMessage({
         type: "XFF_STATION_CROP",
@@ -104,6 +112,21 @@
           }, ORIGIN);
         }
       }).catch(() => {});
+    }
+    if (event.data?.type === "XFF_STATION_REMOTE_OFFER") {
+      runtimeMessage({
+        type: "XFF_STATION_REMOTE_OFFER",
+        pairId: event.data.pairId,
+        offer: event.data.offer
+      }).then((result) => {
+        if (result?.ok === false) window.postMessage({
+          type: "XFF_STATION_STATUS", status: "error",
+          detail: result.error || "The iPad viewer could not connect."
+        }, ORIGIN);
+      }).catch(() => {});
+    }
+    if (event.data?.type === "XFF_STATION_REMOTE_DROP") {
+      runtimeMessage({ type:"XFF_STATION_REMOTE_DROP", pairId:event.data.pairId }).catch(() => {});
     }
   });
 

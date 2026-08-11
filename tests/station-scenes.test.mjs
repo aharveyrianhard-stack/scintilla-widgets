@@ -84,3 +84,15 @@ test("manifest installs the live canonical route without an offline claim", () =
   assert.equal(manifest.display, "standalone");
   assert.equal(manifest.icons.some((icon) => icon.sizes === "any" && icon.type === "image/svg+xml"), true);
 });
+
+test("temporary iPad viewer is capability-paired and does not receive X credentials", () => {
+  const pane = fs.readFileSync(new URL("../pane-x/index.html", import.meta.url), "utf8");
+  const viewer = fs.readFileSync(new URL("../station-viewer/index.html", import.meta.url), "utf8");
+  const bridge = fs.readFileSync(new URL("../station-x-bridge-draft/station-bridge.js", import.meta.url), "utf8");
+  assert.match(pane, /expires in 5 min/);
+  assert.match(pane, /XFF_STATION_REMOTE_OFFER/);
+  assert.match(viewer, /six-digit code/);
+  assert.match(viewer, /iceServers:\[\]/);
+  assert.doesNotMatch(viewer, /x\.com|cookie|password/i);
+  assert.match(bridge, /XFF_STATION_REMOTE_ANSWER/);
+});

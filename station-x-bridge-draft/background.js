@@ -263,6 +263,16 @@ function isSupportedUrl(url) {
   }
 }
 
+function isStationPageUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" &&
+      (parsed.hostname === "station.scintillahub.ai" || parsed.hostname.endsWith(".vercel.app"));
+  } catch {
+    return false;
+  }
+}
+
 async function ensureContentScript(tabId) {
   try {
     await chrome.tabs.sendMessage(tabId, { type: "XFF_PING" });
@@ -322,6 +332,15 @@ async function focusOrOpenX() {
 chrome.action.onClicked.addListener(async (tab) => {
   try {
     await stationRestore;
+    // A protected Vercel preview is intentionally not a permanent host
+    // permission. activeTab lets an explicit toolbar click inject the exact
+    // pane bridge for this one review tab without widening extension access.
+    if (isStationPageUrl(tab?.url)) {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true }, files: ["station-bridge.js"]
+      });
+      return;
+    }
     if (!isSupportedUrl(tab?.url)) {
       // Chrome requires the capture/PiP gesture on the actual X tab. The first
       // click brings the most recent X tab forward; the next click opens PiP.
@@ -520,6 +539,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
     }).catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
+  }
+
+  if (message?.type === "XFF_STATION_REMOTE_OFFER") {
+    const consumer = stationConsumers.get(sender.tab?.id);
+    const pairId = String(message.pairId || "");
+    if (!consumer || (sender.frameId || 0) !== consumer.frameId || !/^[A-Za-z0-9_-]{32,}$/.test(pairId) || !message.offer) {
+      sendResponse({ ok: false, error: "The temporary iPad pairing was not recognized." });
+      return;
+    }
+    chrome.runtime.sendMessage({
+      target: "station-x-offscreen",
+      type: "XFF_OFFSCREEN_OFFER",
+      peerId: "ipad:" + pairId,
+      offer: message.offer
+    }).then(async (result) => {
+      if (!result?.ok || !result.answer) throw new Error(result?.error || "Station X could not answer the iPad viewer.");
+      await sendToStation(consumer, { type: "XFF_STATION_REMOTE_ANSWER", pairId, answer: result.answer });
+      sendResponse({ ok: true });
+    }).catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "XFF_STATION_REMOTE_DROP") {
+    const consumer = stationConsumers.get(sender.tab?.id);
+    const pairId = String(message.pairId || "");
+    if (consumer && (sender.frameId || 0) === consumer.frameId && /^[A-Za-z0-9_-]{32,}$/.test(pairId)) {
+      chrome.runtime.sendMessage({ target:"station-x-offscreen", type:"XFF_OFFSCREEN_DROP", peerId:"ipad:" + pairId }).catch(() => {});
+    }
+    sendResponse({ ok: true });
+    return;
   }
 
   if (message?.type === "XFF_STATION_STOP") {
