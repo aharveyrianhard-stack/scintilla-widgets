@@ -190,6 +190,7 @@ let stationPair = null;
 let remoteSocket = null;
 let remotePeer = null;
 let remoteOfferRetry = null;
+let remoteReconnect = null;
 const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
 
 function pairingToken() {
@@ -456,15 +457,23 @@ async function startRemoteStationViewer() {
   if (!REMOTE_MODE) return;
   let ref = 0, joined = false;
   remotePeer = new RTCPeerConnection({ iceServers: [] });
+  const activeRemotePeer = remotePeer;
   remotePeer.addTransceiver("video", { direction:"recvonly" });
   remotePeer.addEventListener("track", event => {
+    if (remotePeer !== activeRemotePeer) return;
+    clearErr();
     attachXFloatStream(event.streams[0] || new MediaStream([event.track]))
       .catch(error => showErr("iMac X could not render: " + error.message));
   });
   remotePeer.addEventListener("connectionstatechange", () => {
-    if (["failed", "disconnected"].includes(remotePeer?.connectionState)) showErr("iMac X connection paused — reopen Station iPad to reconnect.");
+    if (remotePeer !== activeRemotePeer) return;
+    if (["failed", "disconnected"].includes(activeRemotePeer.connectionState)) {
+      showErr("Reconnecting to the iMac X source…");
+      scheduleRemoteStationReconnect();
+    }
   });
   remoteSocket = new WebSocket("wss://wadinxqplrggagkvrdag.supabase.co/realtime/v1/websocket?apikey=" + encodeURIComponent("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g") + "&vsn=1.0.0");
+  const activeRemoteSocket = remoteSocket;
   const send = (event, payload) => remoteSocket?.readyState === WebSocket.OPEN && remoteSocket.send(JSON.stringify({ topic:"realtime:station-ipad:" + REMOTE_PAIR, event, payload, ref:String(++ref), join_ref:"1" }));
   remoteSocket.addEventListener("open", () => send("phx_join", { config:{ broadcast:{ self:false, ack:true }, presence:{ key:"" }, private:false }, access_token:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdWJhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g" }));
   remoteSocket.addEventListener("message", async event => {
@@ -493,7 +502,14 @@ async function startRemoteStationViewer() {
     }).catch(error => showErr("iMac X answer failed: " + error.message));
     if (payload.event === "crop") { xfloatCrop = payload.payload; paintXView(xfloatCrop?.activeView || "trading"); drawXFloat(); }
   });
-  remoteSocket.addEventListener("error", () => showErr("The iMac pairing room could not connect."));
+  remoteSocket.addEventListener("error", () => {
+    if (remoteSocket !== activeRemoteSocket) return;
+    showErr("Reconnecting to the iMac X source…");
+    scheduleRemoteStationReconnect();
+  });
+  remoteSocket.addEventListener("close", () => {
+    if (remoteSocket === activeRemoteSocket) scheduleRemoteStationReconnect();
+  });
 }
 
 function fit() {
@@ -518,6 +534,19 @@ el("z").addEventListener("input", fit);
 el("px").addEventListener("input", fit);
 
 function showErr(m) { const e = el("err"); e.textContent = m; e.style.display = "block"; }
+function clearErr() { const e = el("err"); e.textContent = ""; e.style.display = "none"; }
+
+/* Safari may suspend a WebRTC/WebSocket page while the iPad is locked.  This
+   replaces only this receiver peer when it wakes; it never touches the iMac
+   capture, X tab, or any other Station viewer. */
+function scheduleRemoteStationReconnect() {
+  if (!REMOTE_MODE || document.visibilityState === "hidden" || remoteReconnect) return;
+  remoteReconnect = setTimeout(() => {
+    stopXFloat({ notify:false });
+    remoteReconnect = null;
+    startRemoteStationViewer().catch(error => showErr("iMac X could not reconnect: " + error.message));
+  }, 800);
+}
 
 function controls(on) {
   for (const id of ["bStop", "bPip", "lz", "z", "lx", "px"]) el(id).style.display = on ? "" : "none";
@@ -635,6 +664,9 @@ window.addEventListener("resize", () => postXFloat("resize", { width: innerWidth
    source tab itself closes, so Station reloads and display tabs do not drop it. */
 window.addEventListener("pagehide", () => stopXFloat({ notify: false }));
 window.addEventListener("pagehide", () => stopStationPairing());
+window.addEventListener("visibilitychange", () => {
+  if (REMOTE_MODE && document.visibilityState === "visible") scheduleRemoteStationReconnect();
+});
 if (REMOTE_MODE) startRemoteStationViewer().catch(error => showErr("iMac X could not connect: " + error.message));
 else if (savedTrustedIpadPair()) startStationPairing();
 </script>
