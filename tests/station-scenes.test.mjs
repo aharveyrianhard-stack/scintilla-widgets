@@ -20,7 +20,7 @@ test("curated scene ids and immutable named presets are exact", () => {
   assert.equal(scenes.normalizeScene("not-real"), "live");
   assert.deepEqual(Array.from(scenes.PRESETS.indexNow.tickers), ["ESUSD", "NQUSD", "FLEX3"]);
   assert.equal(scenes.PRESETS.indexNow.range, "3h");
-  assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA"]);
+  assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA", "RSP", "INDEX8"]);
   assert.deepEqual(Array.from(scenes.PRESETS.companyLeadership.tickers), ["AAPL", "MSFT", "META", "AMZN", "GOOGL", "TSLA"]);
   assert.deepEqual(Array.from(scenes.PRESETS.macroCrossAsset.tickers), ["US10Y", "DXUSD", "GCUSD", "SIUSD"]);
   assert.deepEqual(Array.from(scenes.PRESETS.internalsFast.tickers), ["VIX", "ADD", "PCC", "CUMTICK"]);

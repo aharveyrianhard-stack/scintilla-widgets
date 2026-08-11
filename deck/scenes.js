@@ -35,7 +35,7 @@
     }),
     indexLeadership: Object.freeze({
       label: "INDEX LEADERSHIP",
-      tickers: Object.freeze(["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA"]),
+      tickers: Object.freeze(["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA", "RSP", "INDEX8"]),
       chartCount: 6,
       range: "3h"
     }),
