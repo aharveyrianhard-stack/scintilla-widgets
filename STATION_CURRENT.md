@@ -13,9 +13,9 @@ This file is the delivery record for OS-admitted preview job:
 ## Exact source / PR / deployment
 - Production base: `5b59353e9ccad8221886e59d15611c9816c72c53` (scintilla-widgets `main`).
 - Branch: `agent/station-scenes-v2-nav-primitives`
-- Worktree head: `973d83460b82f265e843de6108bcc360792775cb`
-- Review PR: https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/7 (open)
-- Latest branch deployment observed in GitHub: deployment id `5853616151` (Preview, sha `973d834`)
+- Worktree head: `8a6fd112d858fb62a47434d9ab66bfb27fae33b7`
+- Review PR: https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/7 (open, exact head match)
+- Latest branch deployment observed in GitHub: deployment id `B5uA1jk4izDWLHbANbnDPYia8jED`
 - Preview host used for verification: https://scintilla-widgets-git-age-7e75b4-aharveyrianhard-8432s-projects.vercel.app
 
 ## Completed Scene V2 model
@@ -56,7 +56,8 @@ Mandatory behavior:
   - no `?scene` mutation,
   - no unintended routing/Vercel-scope changes in this job.
 
-## Preview proof package pending verifier
-- STATION_CURRENT and candidate file deltas are currently source-evidenced in this worktree.
-- Preview route is the gated Vercel PR deployment for SHA `973d834`.
-- No production merge/push/promotion has been done in this job.
+## Preview proof package
+- Worktree and deployment evidence: PR #7 head equals working tree head and deployment `B5uA1jk4izDWLHbANbnDPYia8jED` with route:
+  https://scintilla-widgets-git-age-7e75b4-aharveyrianhard-8432s-projects.vercel.app
+- Deck markup and tests in this preview include complete scene chooser and one X pane with all required scene presets.
+- No production merge/push/promotion has been performed in this job.
