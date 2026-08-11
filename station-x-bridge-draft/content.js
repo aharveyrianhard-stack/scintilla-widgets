@@ -49,6 +49,7 @@
     stationMode: false,
     stationConsumer: null,
     stationRelayTimer: null,
+    stationHoverShield: null,
     ui: {}
   };
   let settingsReady = null;
@@ -271,7 +272,69 @@
       session.pointerPause = false;
       session.resumeTimer = null;
       updateUi();
+      if (session.stationMode) installStationHoverShield();
     }, session.settings.resumeDelayMs);
+  }
+
+  function pointerIsInsideStationCrop(event, rect) {
+    const x = Number(event?.clientX);
+    const y = Number(event?.clientY);
+    return Number.isFinite(x) && Number.isFinite(y) &&
+      x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }
+
+  // The shield pauses unattended source scrolling while hovered. A deliberate
+  // first pointerdown removes it before the next native click/tap, so ordinary
+  // X interaction remains an explicit separate action rather than a synthetic
+  // replay. The shield is armed again only after automatic scrolling resumes.
+  function installStationHoverShield() {
+    if (!session.stationMode || session.stationHoverShield) return;
+    const rect = calculateCropRect();
+    const shield = document.createElement("div");
+    shield.id = "x-feed-float-station-hover-shield";
+    shield.setAttribute("aria-hidden", "true");
+    Object.assign(shield.style, {
+      position: "fixed",
+      pointerEvents: "auto",
+      zIndex: "2147483645",
+      left: `${Math.round(rect.left)}px`,
+      top: `${Math.round(rect.top)}px`,
+      width: `${Math.round(rect.width)}px`,
+      height: `${Math.round(rect.height)}px`,
+      background: "transparent",
+      cursor: "default"
+    });
+    const beginNativeInteraction = () => {
+      if (!session.stationMode) return;
+      const exitObserver = (event) => {
+        if (pointerIsInsideStationCrop(event, calculateCropRect())) return;
+        document.removeEventListener("pointermove", exitObserver, true);
+        if (session.stationHoverShield?.exitObserver === exitObserver) {
+          session.stationHoverShield = null;
+        }
+        setPointerPause(false);
+      };
+      shield.remove();
+      session.stationHoverShield = { exitObserver };
+      document.addEventListener("pointermove", exitObserver, true);
+      setPointerPause(true);
+    };
+    shield.addEventListener("pointerenter", () => setPointerPause(true));
+    shield.addEventListener("pointerleave", () => setPointerPause(false));
+    shield.addEventListener("pointerdown", beginNativeInteraction, { once: true });
+    document.documentElement.appendChild(shield);
+    session.stationHoverShield = { element: shield };
+  }
+
+  function removeStationHoverShield() {
+    const shield = session.stationHoverShield;
+    if (shield) {
+      shield.element?.remove();
+      if (shield.exitObserver) {
+        document.removeEventListener("pointermove", shield.exitObserver, true);
+      }
+    }
+    session.stationHoverShield = null;
   }
 
   function findPrimaryColumn() {
@@ -1794,6 +1857,7 @@
     if (session.stationMode) {
       session.stationConsumer = nextConsumer;
       applyCaptureColumnLayout();
+      installStationHoverShield();
       scheduleCropTargetUpdate();
       return;
     }
@@ -1813,6 +1877,7 @@
       session.activeView = "current";
     }
     applyCaptureColumnLayout();
+    installStationHoverShield();
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     alignCaptureToFirstVisiblePost();
     /* The visible Station pane supplies a 30 Hz wall-clock tick. A hidden X
@@ -1830,6 +1895,7 @@
     session.stationMode = false;
     session.stationConsumer = null;
     session.pointerPause = false;
+    removeStationHoverShield();
     removeCaptureColumnLayout();
     removeCropTargetElement();
     stopScrolling();
