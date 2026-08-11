@@ -1,8 +1,17 @@
 (() => {
   "use strict";
 
-  if (window.__XFF_STATION_BRIDGE_V079__) return;
-  window.__XFF_STATION_BRIDGE_V079__ = true;
+  /* A Chrome extension reload creates a new background worker but leaves the
+     already-open Station frame alive.  V079 used one permanent page marker,
+     so a reinjection after that reload returned before announcing the frame to
+     the fresh worker.  Keep this receiver generation-specific: the first V080
+     injection can recover a V079 page, while a second V080 injection merely
+     reannounces the same receiver. */
+  const existing = window.__XFF_STATION_BRIDGE_V080__;
+  if (existing?.reannounce) {
+    existing.reannounce();
+    return;
+  }
 
   const ORIGIN = window.location.origin;
   const isPane = /\/pane-x\/?$/.test(window.location.pathname);
@@ -41,6 +50,8 @@
       }
     });
   }
+
+  window.__XFF_STATION_BRIDGE_V080__ = { reannounce: ready };
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === "XFF_STATION_STREAM") {
