@@ -22,7 +22,7 @@
 <script>
 "use strict";
 const SB="https://wadinxqplrggagkvrdag.supabase.co";
-const ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+const ANON="sb_publishable_AutibLpFtTns-WHAg67Pvw_I0HmjqE9";
 const token=new URLSearchParams(location.hash.slice(1)).get("pair")||"";
 const sharedCode=new URLSearchParams(location.hash.slice(1)).get("code")||"";
 const state=document.getElementById("state"), video=document.getElementById("video"), canvas=document.getElementById("canvas");
@@ -39,7 +39,7 @@ function channel(){
   const send=(event,payload)=>socket.send(JSON.stringify({topic,event,payload,ref:String(++ref),join_ref:"1"}));
   return new Promise((resolve,reject)=>{
     const timer=setTimeout(()=>reject(new Error("The pairing room did not open.")),9000);
-    socket.addEventListener("open",()=>send("phx_join",{config:{broadcast:{self:false,ack:true},presence:{key:""},private:false},access_token:ANON}));
+    socket.addEventListener("open",()=>send("phx_join",{config:{broadcast:{self:false,ack:true},presence:{key:""},private:false}}));
     socket.addEventListener("message",async e=>{const m=JSON.parse(e.data);if(m.event==="phx_reply"&&m.ref==="1"){if(m.payload?.status!=="ok")return reject(new Error("The pairing room was refused."));clearTimeout(timer);resolve({send:(event,payload)=>send("broadcast",{type:"broadcast",event,payload})});return}if(m.event!=="broadcast")return;const p=m.payload||{};if(p.event==="answer"&&peer&&p.payload?.answer){await peer.setRemoteDescription(p.payload.answer);clearInterval(offerRetry);say("Live from your iMac");report("IMAC LIVE");}if(p.event==="expired")say("This pairing expired. Start a new one on the iMac.",true);if(p.event==="crop"){crop=p.payload;draw();}});
     socket.addEventListener("error",()=>reject(new Error("The pairing room could not connect.")));
   });
