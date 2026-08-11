@@ -160,7 +160,7 @@ html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
     <div id="err"></div>
   </div>
 </div>
-<div id="pairInfo" role="status"><b>iPad pairing ready</b> · expires in 30 min · <span id="pairState">waiting for iPad</span><br><span id="pairLink"></span></div>
+<div id="pairInfo" role="status"><b>trusted iPad display</b> · <span id="pairState">waiting for iPad</span> · <button id="bPairReset" type="button">replace iPad link</button><br><span id="pairLink"></span></div>
 
 <script>
 "use strict";
@@ -184,6 +184,7 @@ let xfloatDrawAt = 0;
 let stationTickFrame = 0;
 let stationTickAt = 0;
 let stationPair = null;
+const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
 
 function pairingToken() {
   const bytes = new Uint8Array(24); crypto.getRandomValues(bytes);
@@ -191,6 +192,23 @@ function pairingToken() {
 }
 
 function pairingCode() { return String(Math.floor(100000 + Math.random() * 900000)); }
+
+function trustedIpadPair() {
+  try {
+    const existing = JSON.parse(localStorage.getItem(TRUSTED_IPAD_KEY) || "null");
+    if (/^[A-Za-z0-9_-]{32,}$/.test(existing?.token || "") && /^[0-9]{6}$/.test(existing?.code || "")) return existing;
+  } catch (_) {}
+  const created = { token: pairingToken(), code: pairingCode() };
+  try { localStorage.setItem(TRUSTED_IPAD_KEY, JSON.stringify(created)); } catch (_) {}
+  return created;
+}
+
+function savedTrustedIpadPair() {
+  try {
+    const existing = JSON.parse(localStorage.getItem(TRUSTED_IPAD_KEY) || "null");
+    return /^[A-Za-z0-9_-]{32,}$/.test(existing?.token || "") && /^[0-9]{6}$/.test(existing?.code || "") ? existing : null;
+  } catch (_) { return null; }
+}
 
 function stationRealtimeRoom(pair) {
   const topic = "realtime:station-ipad:" + pair.token;
@@ -206,7 +224,7 @@ function stationRealtimeRoom(pair) {
     if (message.event === "phx_reply" && message.ref === "1") { joined = message.payload?.status === "ok"; return; }
     if (!joined || message.event !== "broadcast") return;
     const payload = message.payload || {};
-    if (payload.event === "offer" && stationPair && Date.now() < stationPair.expires && payload.payload?.code === stationPair.code && payload.payload?.offer) {
+    if (payload.event === "offer" && stationPair && payload.payload?.code === stationPair.code && payload.payload?.offer) {
       el("pairState").textContent = "iPad request received";
       window.postMessage({ type:"XFF_STATION_REMOTE_OFFER", pairId:stationPair.token, offer:payload.payload.offer }, location.origin);
     }
@@ -217,24 +235,31 @@ function stationRealtimeRoom(pair) {
   };
 }
 
-function stopStationPairing(expired = false) {
+function stopStationPairing() {
   if (!stationPair) return;
-  if (expired) stationPair.room?.publish("expired", { at:Date.now() });
   window.postMessage({ type:"XFF_STATION_REMOTE_DROP", pairId:stationPair.token }, location.origin);
   stationPair.room?.close(); stationPair = null;
   el("pairInfo").style.display = "none"; el("bPair").textContent = "pair iPad";
 }
 
 function startStationPairing() {
-  stopStationPairing();
-  const token = pairingToken();
-  stationPair = { token, code:pairingCode(), expires:Date.now() + 30 * 60 * 1000, room:null };
+  if (stationPair) {
+    navigator.clipboard?.writeText(el("pairLink").textContent).catch(() => {});
+    return;
+  }
+  const { token, code } = trustedIpadPair();
+  stationPair = { token, code, room:null };
   stationPair.room = stationRealtimeRoom(stationPair);
-  const link = location.origin + "/station-viewer/?fresh=" + Date.now() + "#pair=" + encodeURIComponent(token) + "&code=" + encodeURIComponent(stationPair.code);
+  const link = location.origin + "/station-viewer/#pair=" + encodeURIComponent(token) + "&code=" + encodeURIComponent(stationPair.code);
   el("pairState").textContent = "waiting for iPad"; el("pairLink").textContent = link;
-  el("pairInfo").style.display = "block"; el("bPair").textContent = "pairing active";
+  el("pairInfo").style.display = "block"; el("bPair").textContent = "copy iPad link";
   navigator.clipboard?.writeText(link).catch(() => {});
-  setTimeout(() => { if (stationPair && Date.now() >= stationPair.expires) stopStationPairing(true); }, 30 * 60 * 1000 + 100);
+}
+
+function resetTrustedIpadPair() {
+  stopStationPairing();
+  try { localStorage.removeItem(TRUSTED_IPAD_KEY); } catch (_) {}
+  startStationPairing();
 }
 
 function postXFloat(action, value) {
@@ -467,6 +492,7 @@ function stop() {
 el("bStart").addEventListener("click", start);
 el("bStop").addEventListener("click", stop);
 el("bPair").addEventListener("click", startStationPairing);
+el("bPairReset").addEventListener("click", resetTrustedIpadPair);
 
 el("bXBack").addEventListener("click", () => postXFloat("rewind"));
 el("bXRefresh").addEventListener("click", () => postXFloat("refresh"));
@@ -494,7 +520,7 @@ window.addEventListener("message", (event) => {
       .catch((error) => showErr("Station X answer failed: " + error.message));
   }
   if (event.data?.type === "XFF_STATION_REMOTE_ANSWER" && event.data.answer && stationPair &&
-      event.data.pairId === stationPair.token && Date.now() < stationPair.expires) {
+      event.data.pairId === stationPair.token) {
     stationPair.room?.publish("answer", { answer:event.data.answer, at:Date.now() });
     el("pairState").textContent = "iPad connected";
   }
@@ -503,7 +529,7 @@ window.addEventListener("message", (event) => {
     const paused = Boolean(xfloatCrop?.paused);
     el("xfState").textContent = paused ? "paused" : "live";
     paintXView(xfloatCrop?.activeView || "trading");
-    if (stationPair && Date.now() < stationPair.expires) stationPair.room?.publish("crop", xfloatCrop);
+    if (stationPair) stationPair.room?.publish("crop", xfloatCrop);
   }
   if (event.data?.type === "XFF_STATION_STATUS") {
     if (event.data.status === "stopped") stopXFloat({ notify: false });
@@ -541,6 +567,7 @@ window.addEventListener("resize", () => postXFloat("resize", { width: innerWidth
    source tab itself closes, so Station reloads and display tabs do not drop it. */
 window.addEventListener("pagehide", () => stopXFloat({ notify: false }));
 window.addEventListener("pagehide", () => stopStationPairing());
+if (savedTrustedIpadPair()) startStationPairing();
 </script>
 </body>
 </html>
