@@ -16,6 +16,7 @@ This is the present-tense record for the verified live Station and the separatel
 - Canonical architecture roadmap: `https://docs.google.com/document/d/1aLDEcIa4647copZrrO-rFsXuNeY98R8YS5Ux3OZQaxQ/edit`
 - Scenes V2 preview job: `SCINTILLA-STATION-SCENES-V2-NAV-PRIMITIVES-001`
 - Scenes V2 candidate branch: `agent/station-scenes-v2-nav-primitives`, based exactly on production `5b59353e...`
+- Scenes V2 review: [draft scintilla-widgets PR #7](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/7); implementation commit `8343269`.
 - Scenes V2 status: **preview only**. No production merge or promotion is authorized by this job.
 
 ## Open now
