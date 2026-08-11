@@ -194,6 +194,8 @@ let remoteSocket = null;
 let remotePeer = null;
 let remoteOfferRetry = null;
 let remoteReconnect = null;
+let remoteFrameAt = 0;
+let remoteVisibilityCheck = null;
 const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
 
 function pairingToken() {
@@ -315,6 +317,7 @@ function stopXFloat({ notify = true } = {}) {
   remoteOfferRetry = null;
   if (remoteSocket) remoteSocket.close();
   remoteSocket = null;
+  remoteFrameAt = 0;
   xfloatPaused = false;
   el("v").srcObject = stream;
   document.body.classList.remove("xfloat");
@@ -402,6 +405,15 @@ async function attachXFloatStream(mediaStream) {
   const video = el("v");
   video.srcObject = xfloatStream;
   await video.play();
+  if (REMOTE_MODE && typeof video.requestVideoFrameCallback === "function") {
+    remoteFrameAt = performance.now();
+    const noteRemoteFrame = () => {
+      if (video.srcObject !== mediaStream) return;
+      remoteFrameAt = performance.now();
+      video.requestVideoFrameCallback(noteRemoteFrame);
+    };
+    video.requestVideoFrameCallback(noteRemoteFrame);
+  }
   document.body.classList.remove("live");
   document.body.classList.add("xfloat");
   xfloatControls(true);
@@ -668,7 +680,16 @@ window.addEventListener("resize", () => postXFloat("resize", { width: innerWidth
 window.addEventListener("pagehide", () => stopXFloat({ notify: false }));
 window.addEventListener("pagehide", () => stopStationPairing());
 window.addEventListener("visibilitychange", () => {
-  if (REMOTE_MODE && document.visibilityState === "visible") scheduleRemoteStationReconnect();
+  if (!REMOTE_MODE || document.visibilityState !== "visible") return;
+  clearTimeout(remoteVisibilityCheck);
+  /* Give Safari a moment to resume a healthy peer.  Reconnect only if its
+     actual video-frame clock remains stalled, avoiding an offline flash each
+     time the user switches back to the Companion. */
+  remoteVisibilityCheck = setTimeout(() => {
+    const staleFrame = !remoteFrameAt || performance.now() - remoteFrameAt > 2500;
+    const badPeer = !remotePeer || ["failed", "disconnected", "closed"].includes(remotePeer.connectionState);
+    if (staleFrame || badPeer) scheduleRemoteStationReconnect();
+  }, 2800);
 });
 if (REMOTE_MODE) startRemoteStationViewer().catch(error => showErr("iMac X could not connect: " + error.message));
 else if (savedTrustedIpadPair()) startStationPairing();
