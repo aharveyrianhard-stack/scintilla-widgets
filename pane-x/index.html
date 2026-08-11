@@ -160,7 +160,7 @@ html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
     <div id="err"></div>
   </div>
 </div>
-<div id="pairInfo" role="status"><b>iPad pairing ready</b> · code <b id="pairCode"></b> · expires in 5 min<br><span id="pairLink"></span></div>
+<div id="pairInfo" role="status"><b>iPad pairing ready</b> · expires in 5 min · <span id="pairState">waiting for iPad</span><br><span id="pairLink"></span></div>
 
 <script>
 "use strict";
@@ -207,6 +207,7 @@ function stationRealtimeRoom(pair) {
     if (!joined || message.event !== "broadcast") return;
     const payload = message.payload || {};
     if (payload.event === "offer" && stationPair && Date.now() < stationPair.expires && payload.payload?.code === stationPair.code && payload.payload?.offer) {
+      el("pairState").textContent = "iPad request received";
       window.postMessage({ type:"XFF_STATION_REMOTE_OFFER", pairId:stationPair.token, offer:payload.payload.offer }, location.origin);
     }
   });
@@ -229,8 +230,8 @@ function startStationPairing() {
   const token = pairingToken();
   stationPair = { token, code:pairingCode(), expires:Date.now() + 5 * 60 * 1000, room:null };
   stationPair.room = stationRealtimeRoom(stationPair);
-  const link = location.origin + "/station-viewer/#pair=" + encodeURIComponent(token);
-  el("pairCode").textContent = stationPair.code; el("pairLink").textContent = link;
+  const link = location.origin + "/station-viewer/?fresh=" + Date.now() + "#pair=" + encodeURIComponent(token) + "&code=" + encodeURIComponent(stationPair.code);
+  el("pairState").textContent = "waiting for iPad"; el("pairLink").textContent = link;
   el("pairInfo").style.display = "block"; el("bPair").textContent = "pairing active";
   navigator.clipboard?.writeText(link).catch(() => {});
   setTimeout(() => { if (stationPair && Date.now() >= stationPair.expires) stopStationPairing(true); }, 5 * 60 * 1000 + 100);
@@ -495,6 +496,7 @@ window.addEventListener("message", (event) => {
   if (event.data?.type === "XFF_STATION_REMOTE_ANSWER" && event.data.answer && stationPair &&
       event.data.pairId === stationPair.token && Date.now() < stationPair.expires) {
     stationPair.room?.publish("answer", { answer:event.data.answer, at:Date.now() });
+    el("pairState").textContent = "iPad connected";
   }
   if (event.data?.type === "XFF_STATION_CROP") {
     xfloatCrop = event.data.crop;
