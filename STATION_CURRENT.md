@@ -13,8 +13,8 @@ This file is the delivery record for OS-admitted preview job:
 ## Exact source / PR / deployment
 - Production base: `5b59353e9ccad8221886e59d15611c9816c72c53` (scintilla-widgets `main`).
 - Branch: `agent/station-scenes-v2-nav-primitives`
-- Worktree head: `a87ab325a3b71b67bc8b153ed788d7e48c1aac3c`
-- Review PR: https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/7 (open, exact head match)
+- Review PR: https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/7 (open; its displayed head is the canonical exact review revision).
+- This document deliberately does not repeat a static commit SHA: it is itself versioned in the review branch, so a literal SHA inside it would become stale the moment this record is corrected. The PR's displayed head is the authoritative exact revision for each preview check.
 - Latest branch deployment observed in GitHub: deployment id `5853800566` (preview URL: https://scintilla-widgets-n5zuvw9jt-aharveyrianhard-8432s-projects.vercel.app)
 - Preview host used for verification: https://scintilla-widgets-n5zuvw9jt-aharveyrianhard-8432s-projects.vercel.app
 
