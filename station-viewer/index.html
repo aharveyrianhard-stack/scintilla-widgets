@@ -14,7 +14,7 @@
 <main class="card" id="card">
   <div class="mark">SCINTILLA · TEMPORARY VIEWER</div>
   <div class="title">Connect this iPad</div>
-  <div class="copy">Open the pairing link from your iMac Station, then enter the six-digit code shown there. This viewer expires in five minutes and never receives your X login.</div>
+  <div class="copy">Open the pairing link from your iMac Station, then tap connect. This viewer expires in five minutes and never receives your X login.</div>
   <div class="row"><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"><button id="connect">connect</button></div>
   <div class="state" id="state" aria-live="polite"></div>
 </main>
@@ -24,6 +24,7 @@
 const SB="https://wadinxqplrggagkvrdag.supabase.co";
 const ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
 const token=new URLSearchParams(location.hash.slice(1)).get("pair")||"";
+const sharedCode=new URLSearchParams(location.hash.slice(1)).get("code")||"";
 const state=document.getElementById("state"), video=document.getElementById("video"), canvas=document.getElementById("canvas");
 let socket, peer, crop, offerRetry;
 function say(text,bad=false){state.textContent=text;state.classList.toggle("bad",bad)}
@@ -41,9 +42,10 @@ function channel(){
 }
 function draw(){if(!crop||video.readyState<2||!video.videoWidth)return;const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(2,devicePixelRatio||1);canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);const c=canvas.getContext("2d");const v=crop.viewport||{width:video.videoWidth,height:video.videoHeight},r=crop.rect||{left:0,top:0,width:v.width,height:v.height};const sx=r.left*video.videoWidth/v.width,sy=(r.top+(crop.fractionalScrollOffset||0))*video.videoHeight/v.height,sw=r.width*video.videoWidth/v.width,sh=r.height*video.videoHeight/v.height;c.fillStyle="#000";c.fillRect(0,0,canvas.width,canvas.height);const scale=Math.min(canvas.width/sw,canvas.height/sh),dw=sw*scale,dh=sh*scale;c.drawImage(video,sx,sy,sw,sh,(canvas.width-dw)/2,(canvas.height-dh)/2,dw,dh);requestAnimationFrame(draw)}
 document.getElementById("connect").onclick=async()=>{
-  const code=document.getElementById("code").value.replace(/\D/g,"");if(!/^[0-9]{6}$/.test(code))return say("Enter the six-digit code from the iMac.",true);if(!/^[A-Za-z0-9_-]{32,}$/.test(token))return say("This pairing link is invalid.",true);
+  const code=(sharedCode||document.getElementById("code").value).replace(/\D/g,"");if(!/^[0-9]{6}$/.test(code))return say("Enter the six-digit code from the iMac.",true);if(!/^[A-Za-z0-9_-]{32,}$/.test(token))return say("This pairing link is invalid.",true);
   try{say("Opening secure pairing…");const room=await channel();peer=new RTCPeerConnection({iceServers:[]});peer.addTransceiver("video",{direction:"recvonly"});peer.addEventListener("track",e=>{video.srcObject=e.streams[0]||new MediaStream([e.track]);document.getElementById("card").style.display="none";document.getElementById("stage").style.display="block";video.play().then(draw).catch(()=>{});});await peer.setLocalDescription(await peer.createOffer());await waitIce(peer);const sendOffer=()=>{if(!peer?.remoteDescription)room.send("offer",{code,offer:peer.localDescription.toJSON(),at:Date.now()})};sendOffer();offerRetry=setInterval(sendOffer,2000);say("Waiting for the iMac…");setTimeout(()=>{clearInterval(offerRetry);if(!peer.remoteDescription)say("Pairing timed out. Start a new one on the iMac.",true)},5*60*1000)}catch(e){say(e.message||"Pairing failed.",true)}};
 addEventListener("pagehide",()=>{clearInterval(offerRetry);try{socket?.close();peer?.close()}catch(_){}});
+if(/^[0-9]{6}$/.test(sharedCode))document.getElementById("code").value=sharedCode;
 </script>
 </body>
 </html>
