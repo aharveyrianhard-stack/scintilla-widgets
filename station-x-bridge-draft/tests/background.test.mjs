@@ -533,3 +533,25 @@ test("worker restore prunes closed source and consumer tabs", async () => {
   assert.equal(saved.activeConsumerKey, null);
   assert.deepEqual(saved.consumers.map(({ tabId }) => tabId), [11]);
 });
+
+test("a temporary iPad offer fans out from the existing capture without restarting X", async () => {
+  const h = await harness();
+  const station = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, station);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  const captures = h.captures.length;
+  const response = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_REMOTE_OFFER",
+    pairId: "a".repeat(32),
+    offer: { type: "offer", sdp: "fixture-offer" }
+  }, station);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(response)), { ok: true });
+  assert.equal(h.captures.length, captures, "an iPad viewer must reuse the one approved X capture");
+  assert.ok(h.runtimeSent.some((message) =>
+    message.type === "XFF_OFFSCREEN_OFFER" && message.peerId === "ipad:" + "a".repeat(32)));
+  assert.ok(h.sent.some(({ tabId, message }) =>
+    tabId === 11 && message.type === "XFF_STATION_REMOTE_ANSWER"));
+});
