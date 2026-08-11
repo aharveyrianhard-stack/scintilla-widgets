@@ -13,9 +13,9 @@ This file is the delivery record for OS-admitted preview job:
 ## Exact source / PR / deployment
 - Production base: `5b59353e9ccad8221886e59d15611c9816c72c53` (scintilla-widgets `main`).
 - Branch: `agent/station-scenes-v2-nav-primitives`
-- Worktree head: `8a6fd112d858fb62a47434d9ab66bfb27fae33b7`
+- Worktree head: `ecd6d53e7a90e913e961c86c8ea0d651820bfe38`
 - Review PR: https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/7 (open, exact head match)
-- Latest branch deployment observed in GitHub: deployment id `B5uA1jk4izDWLHbANbnDPYia8jED`
+- Latest branch deployment observed in GitHub: deployment id `D3RPLCx6VwKdeV95qSJp2b3SCsij`
 - Preview host used for verification: https://scintilla-widgets-git-age-7e75b4-aharveyrianhard-8432s-projects.vercel.app
 
 ## Completed Scene V2 model
@@ -57,7 +57,7 @@ Mandatory behavior:
   - no unintended routing/Vercel-scope changes in this job.
 
 ## Preview proof package
-- Worktree and deployment evidence: PR #7 head equals working tree head and deployment `B5uA1jk4izDWLHbANbnDPYia8jED` with route:
+- Worktree and deployment evidence: PR #7 head equals working tree head and deployment `D3RPLCx6VwKdeV95qSJp2b3SCsij` with route:
   https://scintilla-widgets-git-age-7e75b4-aharveyrianhard-8432s-projects.vercel.app
 - Deck markup and tests in this preview include complete scene chooser and one X pane with all required scene presets.
 - No production merge/push/promotion has been performed in this job.
