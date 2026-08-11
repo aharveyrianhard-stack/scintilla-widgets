@@ -610,11 +610,26 @@ function rememberEditableState() {
 function rememberPresentationState() {
   remember(sceneKey(SCENE, "chartCount"), String(PRESENTATION_COUNT));
   remember(sceneKey(SCENE, "range"), RANGE);
+  if (SCENE === "overnight") {
+    remember(sceneKey(SCENE, "flex3"), overnightFlexSymbol(CHARTS[2] || SceneModel.PRESETS.overnight.tickers[2]));
+  }
   if (isFamilyScene(SCENE)) {
     remember(sceneKey(SCENE, "family"), FAMILY);
     remember(sceneKey(SCENE, "offset"), String(BASKET_OFFSET));
   }
 }
+
+function overnightFlexSymbol(defaultValue) {
+  return String(defaultValue || SceneModel.PRESETS.overnight.tickers[2] || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12) || "FLEX3";
+}
+
+function resolveOvernightPresentation() {
+  const preset = Object.assign({}, SceneModel.PRESETS.overnight);
+  const flex = overnightFlexSymbol(remember(sceneKey("overnight", "flex3")));
+  preset.tickers = SceneModel.overnightTickersFor(new Date(), flex);
+  return Object.assign({}, preset, scenePresentation("overnight", preset));
+}
+
 function scenePresentation(scene, defaults) {
   return {
     requestedCount: storedPresentationCount(scene, defaults?.chartCount || 6),
@@ -686,7 +701,8 @@ function installSceneState(state) {
 }
 async function primeSceneState() {
   if (SceneModel.PRESETS[SCENE]) {
-    const preset = SceneModel.PRESETS[SCENE], presentation = scenePresentation(SCENE, preset);
+    const preset = SCENE === "overnight" ? resolveOvernightPresentation() : SceneModel.PRESETS[SCENE];
+    const presentation = scenePresentation(SCENE, preset);
     installSceneState(Object.assign({}, preset, presentation));
   } else if (isFamilyScene(SCENE)) {
     try {
@@ -734,7 +750,7 @@ async function applyScene(next, options) {
   }
   let state;
   if (SceneModel.PRESETS[requested]) {
-    const preset = SceneModel.PRESETS[requested];
+    const preset = requested === "overnight" ? resolveOvernightPresentation() : SceneModel.PRESETS[requested];
     state = Object.assign({}, preset, scenePresentation(requested, preset));
   } else if (isFamilyScene(requested)) {
     try {
@@ -898,9 +914,12 @@ function commitTicker(index, raw, input) {
     el("symbolNote").textContent = "not charted on Hub";
     paintSymbolGuide(n); return false;
   }
-  moveNamedSceneToCustom();
   const original = aliasKey(raw);
   CHARTS[index] = ticker; n.value = ticker;
+  if (SCENE === "overnight" && index === 2) {
+    remember(sceneKey("overnight", "flex3"), overnightFlexSymbol(CHARTS[index]));
+  }
+  moveNamedSceneToCustom();
   el("symbolNote").textContent = original && original !== ticker ? original + " → " + ticker : "Hub · " + ticker;
   const o = PANES.find((p) => p.def.key === "c" + (index + 1));
   if (o) {

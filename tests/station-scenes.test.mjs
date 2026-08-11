@@ -15,13 +15,29 @@ test("curated scene ids and immutable named presets are exact", () => {
   ]);
   assert.equal(scenes.normalizeScene("cohort"), "themes");
   assert.equal(scenes.normalizeScene("not-real"), "live");
-  assert.deepEqual(Array.from(scenes.PRESETS.overnight.tickers), ["ESUSD", "NQUSD", "CLUSD"]);
+  assert.deepEqual(Array.from(scenes.PRESETS.overnight.tickers), ["ESUSD", "NQUSD", "FLEX3"]);
   assert.deepEqual(Array.from(scenes.PRESETS.indexes.tickers), ["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA"]);
   assert.equal(scenes.PRESETS.indexes.chartCount, 6);
   assert.equal(scenes.PRESETS.indexes.tickers.includes("DOW"), false);
   assert.equal(scenes.SCENES.macro_short.horizon, "fast-short");
   assert.equal(scenes.SCENES.macro_long.horizon, "slow-long");
   assert.equal(scenes.SCENES.overnight.session, "overnight");
+});
+
+test("OVERNIGHT flex leaders follow America/New_York session boundaries", () => {
+  const mk = (nyHour) => new Date(Date.UTC(2026, 7, 11, nyHour + 4, 0, 0)); // NY summer offset currently -4
+  assert.deepEqual(Array.from(scenes.overnightLeaders(mk(12))), ["SPY", "QQQ"]);
+  assert.deepEqual(Array.from(scenes.overnightLeaders(mk(17))), ["SPY", "QQQ"]);
+  assert.deepEqual(Array.from(scenes.overnightLeaders(mk(18))), ["ESUSD", "NQUSD"]);
+  assert.deepEqual(Array.from(scenes.overnightLeaders(mk(7))), ["ESUSD", "NQUSD"]);
+});
+
+test("overnight ticker list is dynamic and sanitizes slot-3 flex edits", () => {
+  const pre = scenes.overnightTickersFor(new Date(Date.UTC(2026, 7, 11, 12 + 4, 0, 0)), "flex3");
+  assert.deepEqual(Array.from(pre), ["SPY", "QQQ", "FLEX3"]);
+
+  const preCl = scenes.overnightTickersFor(new Date(Date.UTC(2026, 7, 11, 20 + 4, 0, 0)), "cl usd");
+  assert.deepEqual(Array.from(preCl), ["ESUSD", "NQUSD", "CLUSD"]);
 });
 
 test("chart geometry remains bounded to 1, 2, 3, 4, or 6", () => {
@@ -111,7 +127,9 @@ test("deck keeps curated navigation, presentation state, and one X pane", () => 
   assert.match(deck, /function familyState\(requestedCount\)/);
   assert.match(deck, /PRESENTATION_COUNT = chartCount\(next\)/);
   assert.match(deck, /state\.tickers\.slice\(0, 6\)/);
-  assert.match(deck, /moveNamedSceneToCustom\(\);[\s\S]{0,120}const original = aliasKey\(raw\)/);
+  assert.doesNotMatch(deck, /moveNamedSceneToCustom\(\);\n\s*const original = aliasKey\(raw\);/);
+  assert.match(deck, /moveNamedSceneToCustom\(\);/);
+  assert.match(deck, /const original = aliasKey\(raw\);/);
   assert.doesNotMatch(deck.match(/function setRange[\s\S]*?\n}/)?.[0] || "", /moveNamedSceneToCustom/);
   assert.doesNotMatch(deck.match(/function applyChartCount[\s\S]*?\nel\("chartCount"\)/)?.[0] || "", /moveNamedSceneToCustom/);
   assert.match(deck, /const QS = new URLSearchParams\(location\.search\)/);
