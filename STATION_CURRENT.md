@@ -15,8 +15,8 @@ This file is the delivery record for OS-admitted preview job:
 - Branch: `agent/station-scenes-v2-nav-primitives`
 - Worktree head: `a87ab325a3b71b67bc8b153ed788d7e48c1aac3c`
 - Review PR: https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/7 (open, exact head match)
-- Latest branch deployment observed in GitHub: deployment id `D3RPLCx6VwKdeV95qSJp2b3SCsij`
-- Preview host used for verification: https://scintilla-widgets-git-age-7e75b4-aharveyrianhard-8432s-projects.vercel.app
+- Latest branch deployment observed in GitHub: deployment id `5853800566` (preview URL: https://scintilla-widgets-n5zuvw9jt-aharveyrianhard-8432s-projects.vercel.app)
+- Preview host used for verification: https://scintilla-widgets-n5zuvw9jt-aharveyrianhard-8432s-projects.vercel.app
 
 ## Completed Scene V2 model
 Implemented complete curated chooser in one pass:
@@ -57,7 +57,7 @@ Mandatory behavior:
   - no unintended routing/Vercel-scope changes in this job.
 
 ## Preview proof package
-- Worktree and deployment evidence: PR #7 head equals working tree head and deployment `D3RPLCx6VwKdeV95qSJp2b3SCsij` with route:
-  https://scintilla-widgets-git-age-7e75b4-aharveyrianhard-8432s-projects.vercel.app
+- Worktree and deployment evidence: PR #7 head equals working tree head and latest preview deployment `5853800566` with route:
+  https://scintilla-widgets-n5zuvw9jt-aharveyrianhard-8432s-projects.vercel.app
 - Deck markup and tests in this preview include complete scene chooser and one X pane with all required scene presets.
 - No production merge/push/promotion has been performed in this job.
