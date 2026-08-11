@@ -13,7 +13,7 @@ This file is the delivery record for OS-admitted preview job:
 ## Exact source / PR / deployment
 - Production base: `5b59353e9ccad8221886e59d15611c9816c72c53` (scintilla-widgets `main`).
 - Branch: `agent/station-scenes-v2-nav-primitives`
-- Worktree head: `ecd6d53e7a90e913e961c86c8ea0d651820bfe38`
+- Worktree head: `a87ab325a3b71b67bc8b153ed788d7e48c1aac3c`
 - Review PR: https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/7 (open, exact head match)
 - Latest branch deployment observed in GitHub: deployment id `D3RPLCx6VwKdeV95qSJp2b3SCsij`
 - Preview host used for verification: https://scintilla-widgets-git-age-7e75b4-aharveyrianhard-8432s-projects.vercel.app
