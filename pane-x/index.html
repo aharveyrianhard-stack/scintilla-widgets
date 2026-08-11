@@ -189,6 +189,7 @@ let stationTickAt = 0;
 let stationPair = null;
 let remoteSocket = null;
 let remotePeer = null;
+let remoteOfferRetry = null;
 const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
 
 function pairingToken() {
@@ -303,6 +304,8 @@ function stopXFloat({ notify = true } = {}) {
   xfloatPeer = null;
   if (remotePeer) remotePeer.close();
   remotePeer = null;
+  if (remoteOfferRetry) clearInterval(remoteOfferRetry);
+  remoteOfferRetry = null;
   if (remoteSocket) remoteSocket.close();
   remoteSocket = null;
   xfloatPaused = false;
@@ -468,12 +471,23 @@ async function startRemoteStationViewer() {
       joined = true;
       await remotePeer.setLocalDescription(await remotePeer.createOffer());
       await waitForIceComplete(remotePeer);
-      send("broadcast", { type:"broadcast", event:"offer", payload:{ code:REMOTE_CODE, offer:remotePeer.localDescription.toJSON(), at:Date.now() } });
+      /* The iMac extension can be reattaching after a Station reload.  Mirror
+         the original viewer's proven offer retry instead of treating one
+         missed broadcast as an offline source. */
+      const sendOffer = () => {
+        if (remotePeer?.remoteDescription) return;
+        send("broadcast", { type:"broadcast", event:"offer", payload:{ code:REMOTE_CODE, offer:remotePeer.localDescription.toJSON(), at:Date.now() } });
+      };
+      sendOffer();
+      remoteOfferRetry = setInterval(sendOffer, 2000);
       return;
     }
     if (!joined || message.event !== "broadcast") return;
     const payload = message.payload || {};
-    if (payload.event === "answer" && payload.payload?.answer) remotePeer.setRemoteDescription(payload.payload.answer).catch(error => showErr("iMac X answer failed: " + error.message));
+    if (payload.event === "answer" && payload.payload?.answer) remotePeer.setRemoteDescription(payload.payload.answer).then(() => {
+      if (remoteOfferRetry) clearInterval(remoteOfferRetry);
+      remoteOfferRetry = null;
+    }).catch(error => showErr("iMac X answer failed: " + error.message));
     if (payload.event === "crop") { xfloatCrop = payload.payload; paintXView(xfloatCrop?.activeView || "trading"); drawXFloat(); }
   });
   remoteSocket.addEventListener("error", () => showErr("The iMac pairing room could not connect."));
