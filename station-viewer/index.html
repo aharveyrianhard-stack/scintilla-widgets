@@ -26,7 +26,7 @@ const ANON="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI
 const token=new URLSearchParams(location.hash.slice(1)).get("pair")||"";
 const sharedCode=new URLSearchParams(location.hash.slice(1)).get("code")||"";
 const state=document.getElementById("state"), video=document.getElementById("video"), canvas=document.getElementById("canvas");
-let socket, peer, crop, offerRetry;
+let socket, peer, crop, offerRetry, reconnectTimer, connecting=false, hiddenAt=0;
 function say(text,bad=false){state.textContent=text;state.classList.toggle("bad",bad)}
 function waitIce(pc){if(pc.iceGatheringState==="complete")return Promise.resolve();return new Promise(resolve=>pc.addEventListener("icegatheringstatechange",function done(){if(pc.iceGatheringState!=="complete")return;pc.removeEventListener("icegatheringstatechange",done);resolve()}));}
 function channel(){
@@ -41,11 +41,15 @@ function channel(){
   });
 }
 function draw(){if(!crop||video.readyState<2||!video.videoWidth)return;const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(2,devicePixelRatio||1);canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);const c=canvas.getContext("2d");const v=crop.viewport||{width:video.videoWidth,height:video.videoHeight},r=crop.rect||{left:0,top:0,width:v.width,height:v.height};const sx=r.left*video.videoWidth/v.width,sy=(r.top+(crop.fractionalScrollOffset||0))*video.videoHeight/v.height,sw=r.width*video.videoWidth/v.width,sh=r.height*video.videoHeight/v.height;c.fillStyle="#000";c.fillRect(0,0,canvas.width,canvas.height);const scale=Math.min(canvas.width/sw,canvas.height/sh),dw=sw*scale,dh=sh*scale;c.drawImage(video,sx,sy,sw,sh,(canvas.width-dw)/2,(canvas.height-dh)/2,dw,dh);requestAnimationFrame(draw)}
-document.getElementById("connect").onclick=async()=>{
+function closeConnection(){clearInterval(offerRetry);clearTimeout(reconnectTimer);offerRetry=null;reconnectTimer=null;try{socket?.close();peer?.close()}catch(_){}socket=null;peer=null}
+function scheduleReconnect(){if(document.visibilityState==="hidden")return;clearTimeout(reconnectTimer);reconnectTimer=setTimeout(()=>connectToImax(true),700)}
+async function connectToImax(force=false){
   const code=(sharedCode||document.getElementById("code").value).replace(/\D/g,"");if(!/^[0-9]{6}$/.test(code))return say("Enter the six-digit code from the iMac.",true);if(!/^[A-Za-z0-9_-]{32,}$/.test(token))return say("This pairing link is invalid.",true);
-  try{say("Opening secure pairing…");const room=await channel();peer=new RTCPeerConnection({iceServers:[]});peer.addTransceiver("video",{direction:"recvonly"});peer.addEventListener("track",e=>{video.srcObject=e.streams[0]||new MediaStream([e.track]);document.getElementById("card").style.display="none";document.getElementById("stage").style.display="block";video.play().then(draw).catch(()=>{});});await peer.setLocalDescription(await peer.createOffer());await waitIce(peer);const sendOffer=()=>{if(!peer?.remoteDescription)room.send("offer",{code,offer:peer.localDescription.toJSON(),at:Date.now()})};sendOffer();offerRetry=setInterval(sendOffer,2000);say("Waiting for the iMac…");setTimeout(()=>{clearInterval(offerRetry);if(!peer.remoteDescription)say("Pairing timed out. Start a new one on the iMac.",true)},30*60*1000)}catch(e){say(e.message||"Pairing failed.",true)}};
-addEventListener("pagehide",()=>{clearInterval(offerRetry);try{socket?.close();peer?.close()}catch(_){}});
-if(/^[0-9]{6}$/.test(sharedCode))document.getElementById("code").value=sharedCode;
+  if(connecting)return;if(!force&&peer?.connectionState==="connected"){video.play().then(draw).catch(()=>{});return}connecting=true;clearInterval(offerRetry);try{try{socket?.close();peer?.close()}catch(_){}socket=null;peer=null;say("Opening secure pairing…");const room=await channel();const activePeer=peer=new RTCPeerConnection({iceServers:[]});activePeer.addTransceiver("video",{direction:"recvonly"});activePeer.addEventListener("connectionstatechange",()=>{if(activePeer!==peer)return;if(["failed","disconnected","closed"].includes(activePeer.connectionState)){say("Reconnecting to your iMac…");scheduleReconnect()}});activePeer.addEventListener("track",e=>{video.srcObject=e.streams[0]||new MediaStream([e.track]);document.getElementById("card").style.display="none";document.getElementById("stage").style.display="block";video.play().then(draw).catch(()=>{})});await activePeer.setLocalDescription(await activePeer.createOffer());await waitIce(activePeer);const sendOffer=()=>{if(peer===activePeer&&!activePeer.remoteDescription)room.send("offer",{code,offer:activePeer.localDescription.toJSON(),at:Date.now()})};sendOffer();offerRetry=setInterval(sendOffer,2000);say("Waiting for the iMac…");setTimeout(()=>{if(peer===activePeer&&!activePeer.remoteDescription){clearInterval(offerRetry);say("Pairing timed out. Start a new one on the iMac.",true)}},30*60*1000)}catch(e){say(e.message||"Pairing failed.",true);scheduleReconnect()}finally{connecting=false}}
+document.getElementById("connect").onclick=()=>connectToImax(true);
+addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden"){hiddenAt=Date.now();return}video.play().then(draw).catch(()=>{});if(hiddenAt&&Date.now()-hiddenAt>1000){say("Reconnecting to your iMac…");scheduleReconnect()}});
+addEventListener("pagehide",closeConnection);
+if(/^[0-9]{6}$/.test(sharedCode)){document.getElementById("code").value=sharedCode;setTimeout(()=>connectToImax(),0)}
 </script>
 </body>
 </html>
