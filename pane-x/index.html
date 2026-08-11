@@ -160,7 +160,7 @@ html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
     <div id="err"></div>
   </div>
 </div>
-<div id="pairInfo" role="status"><b>trusted iPad display</b> · <span id="pairState">waiting for iPad</span> · <button id="bPairReset" type="button">replace iPad link</button><br><span id="pairLink"></span></div>
+<div id="pairInfo" hidden><span id="pairState">waiting for iPad</span><span id="pairLink"></span></div>
 
 <script>
 "use strict";
@@ -239,7 +239,7 @@ function stopStationPairing() {
   if (!stationPair) return;
   window.postMessage({ type:"XFF_STATION_REMOTE_DROP", pairId:stationPair.token }, location.origin);
   stationPair.room?.close(); stationPair = null;
-  el("pairInfo").style.display = "none"; el("bPair").textContent = "pair iPad";
+  el("bPair").textContent = "copy iPad link";
 }
 
 function startStationPairing() {
@@ -252,14 +252,8 @@ function startStationPairing() {
   stationPair.room = stationRealtimeRoom(stationPair);
   const link = location.origin + "/station-viewer/#pair=" + encodeURIComponent(token) + "&code=" + encodeURIComponent(stationPair.code);
   el("pairState").textContent = "waiting for iPad"; el("pairLink").textContent = link;
-  el("pairInfo").style.display = "block"; el("bPair").textContent = "copy iPad link";
+  el("bPair").textContent = "copy iPad link";
   navigator.clipboard?.writeText(link).catch(() => {});
-}
-
-function resetTrustedIpadPair() {
-  stopStationPairing();
-  try { localStorage.removeItem(TRUSTED_IPAD_KEY); } catch (_) {}
-  startStationPairing();
 }
 
 function postXFloat(action, value) {
@@ -492,7 +486,6 @@ function stop() {
 el("bStart").addEventListener("click", start);
 el("bStop").addEventListener("click", stop);
 el("bPair").addEventListener("click", startStationPairing);
-el("bPairReset").addEventListener("click", resetTrustedIpadPair);
 
 el("bXBack").addEventListener("click", () => postXFloat("rewind"));
 el("bXRefresh").addEventListener("click", () => postXFloat("refresh"));
