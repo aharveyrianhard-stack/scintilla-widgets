@@ -203,6 +203,10 @@ body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
   margin-left:auto; white-space:nowrap; font-variant-numeric:tabular-nums; }
 #marketStatus[data-fresh="1"]{ color:var(--bull); }
 #marketStatus[data-delayed="1"]{ color:var(--vol); }
+#sharedStateStatus{ color:var(--mute); font-size:8.5px; font-weight:600; letter-spacing:.06em;
+  white-space:nowrap; font-variant-numeric:tabular-nums; }
+#sharedStateStatus[data-state="ready"]{ color:var(--bull); }
+#sharedStateStatus[data-state="unavailable"],#sharedStateStatus[data-state="conflict"]{ color:var(--vol); }
 #size{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; white-space:nowrap; }
 body[data-view="desk"] #bar,body[data-view="desk"] #tfbar{ gap:7px; padding-top:6px; padding-bottom:6px; }
 body[data-view="desk"] .btn{ font-size:9.5px; padding:4px 9px; }
@@ -246,6 +250,7 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
   </select>
   <span class="btn" id="displayBtn" title="open a dedicated Station window for a separate display">display ↗</span>
   <span class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen">⛶</span>
+  <span id="sharedStateStatus" data-state="checking" title="shared Station scene and ticker state">shared · checking</span>
   <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
   <span id="size"></span>
 </div>
@@ -302,7 +307,7 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
      layout or the chip row.</p>
 </div>
 
-<script src="/deck/scenes.js?rev=002"></script>
+<script src="/deck/scenes.js?rev=003"></script>
 <script>
 "use strict";
 const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
@@ -314,6 +319,179 @@ async function pg(path) {
 }
 const el = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+/* Shared Station choices are deliberately narrow.  They travel only through
+   the existing owner-scoped state row and only with a verified user token.
+   Presentation (zoom, pan, density and viewport) remains in this browser. */
+const SHARED_STATE_TABLE = "station_shared_state";
+const SHARED_AUTH_STORAGE = "sb-wadinxqplrggagkvrdag-auth-token";
+const SHARED_DEFAULT_FLEX = "CLUSD";
+const SHARED_SCENE_DB = Object.freeze({
+  live:"live", indexNow:"index_now", indexLeadership:"index_leadership",
+  companyLeadership:"company_leadership", focus2:"focus_2",
+  macroCrossAsset:"macro_cross_asset", internalsFast:"internals_fast",
+  internalsSlow:"internals_slow", sectorFamilies:"sectors", themeFamilies:"themes",
+  custom:"custom"
+});
+const SharedStation = {
+  status: "checking", session: null, ownerId: "", row: null,
+  applying: false, writing: false, poll: 0
+};
+const cleanSharedTicker = (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+const sharedSceneFromDb = (value) => {
+  const match = Object.entries(SHARED_SCENE_DB).find(([, stored]) => stored === value);
+  return SceneModel.normalizeScene(match ? match[0] : value);
+};
+const sharedSceneToDb = (scene) => SHARED_SCENE_DB[SceneModel.normalizeScene(scene)] || "live";
+function paintSharedStatus(status, copy) {
+  SharedStation.status = status;
+  const target = el("sharedStateStatus"); if (!target) return;
+  target.dataset.state = status;
+  target.textContent = copy || (status === "ready" ? "shared · live" : "shared · unavailable");
+}
+function readStoredAuthSession() {
+  try {
+    const keys = Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).filter(Boolean);
+    const key = keys.find((candidate) => candidate === SHARED_AUTH_STORAGE) ||
+      keys.find((candidate) => candidate.includes("wadinxqplrggagkvrdag") && candidate.endsWith("auth-token"));
+    if (!key) return null;
+    const raw = JSON.parse(localStorage.getItem(key) || "null");
+    const candidate = raw?.currentSession || raw?.data?.session || raw;
+    return candidate?.access_token ? candidate : null;
+  } catch (_) { return null; }
+}
+async function authenticatedStationUser(session) {
+  const response = await fetch(SB + "/auth/v1/user", {
+    headers: { apikey: ANON, Authorization: "Bearer " + session.access_token }
+  });
+  if (!response.ok) throw new Error("auth " + response.status);
+  const user = await response.json();
+  if (!user?.id) throw new Error("auth user missing");
+  return user;
+}
+async function sharedRequest(path, options = {}) {
+  if (!SharedStation.session?.access_token) throw new Error("shared auth unavailable");
+  const headers = Object.assign({
+    apikey: ANON,
+    Authorization: "Bearer " + SharedStation.session.access_token,
+    Accept: "application/json"
+  }, options.headers || {});
+  const response = await fetch(SB + "/rest/v1/" + path, Object.assign({}, options, { headers }));
+  if (!response.ok) throw new Error("shared state " + response.status);
+  return response;
+}
+function normalizeSharedRow(row) {
+  if (!row || typeof row !== "object") return null;
+  const overrides = row.ticker_overrides && typeof row.ticker_overrides === "object" && !Array.isArray(row.ticker_overrides) ? row.ticker_overrides : {};
+  return {
+    owner_id: String(row.owner_id || ""),
+    active_scene: sharedSceneFromDb(row.active_scene),
+    flex3_ticker: cleanSharedTicker(row.flex3_ticker) || SHARED_DEFAULT_FLEX,
+    ticker_overrides: overrides,
+    revision: Math.max(1, Number(row.revision) || 1),
+    updated_at: row.updated_at || ""
+  };
+}
+function sharedOverride(scene, absoluteIndex) {
+  const overrides = SharedStation.row?.ticker_overrides?.[scene];
+  const value = overrides && typeof overrides === "object" ? overrides[String(absoluteIndex)] : "";
+  return cleanSharedTicker(value);
+}
+function namedSceneEditable() {
+  return SharedStation.status === "ready" && !!SharedStation.row && !SharedStation.applying;
+}
+async function loadSharedState({ apply = false } = {}) {
+  if (!SharedStation.ownerId) return null;
+  const path = SHARED_STATE_TABLE + "?owner_id=eq." + encodeURIComponent(SharedStation.ownerId) +
+    "&select=owner_id,active_scene,flex3_ticker,ticker_overrides,revision,updated_at";
+  const response = await sharedRequest(path);
+  const rows = await response.json();
+  const row = normalizeSharedRow(rows?.[0]);
+  if (!row) throw new Error("shared state row missing");
+  const changed = !SharedStation.row || SharedStation.row.revision !== row.revision;
+  SharedStation.row = row; paintSharedStatus("ready", "shared · live");
+  if (apply && changed && !SharedStation.writing && !SharedStation.applying) {
+    SharedStation.applying = true;
+    await applyScene(row.active_scene, { shared: true, force: true });
+    SharedStation.applying = false;
+    paintTickerFields(); paintSceneControls();
+  }
+  return row;
+}
+async function createSharedState() {
+  const payload = {
+    owner_id: SharedStation.ownerId,
+    active_scene: "live",
+    flex3_ticker: SHARED_DEFAULT_FLEX,
+    ticker_overrides: {}
+  };
+  const response = await sharedRequest(SHARED_STATE_TABLE, {
+    method: "POST",
+    headers: { "Content-Type":"application/json", Prefer:"return=representation" },
+    body: JSON.stringify(payload)
+  });
+  const rows = await response.json();
+  const row = normalizeSharedRow(rows?.[0]);
+  if (!row) throw new Error("shared state create failed");
+  SharedStation.row = row;
+  return row;
+}
+async function initializeSharedState() {
+  const session = readStoredAuthSession();
+  if (!session) {
+    paintSharedStatus("unavailable", "shared · sign in required");
+    return null;
+  }
+  try {
+    const user = await authenticatedStationUser(session);
+    SharedStation.session = session; SharedStation.ownerId = user.id;
+    try { await loadSharedState(); }
+    catch (error) {
+      if (!/(row missing| 404$)/.test(String(error.message))) throw error;
+      await createSharedState();
+    }
+    paintSharedStatus("ready", "shared · live");
+    return SharedStation.row;
+  } catch (_) {
+    SharedStation.session = null; SharedStation.ownerId = ""; SharedStation.row = null;
+    paintSharedStatus("unavailable", "shared · sign in required");
+    return null;
+  }
+}
+async function writeSharedState(patch) {
+  if (!namedSceneEditable()) throw new Error("shared state unavailable");
+  const current = SharedStation.row;
+  const next = Object.assign({}, current, patch, {
+    revision: current.revision + 1,
+    updated_at: new Date().toISOString()
+  });
+  SharedStation.writing = true;
+  try {
+    const path = SHARED_STATE_TABLE + "?owner_id=eq." + encodeURIComponent(SharedStation.ownerId) +
+      "&revision=eq." + encodeURIComponent(current.revision);
+    const response = await sharedRequest(path, {
+      method: "PATCH",
+      headers: { "Content-Type":"application/json", Prefer:"return=representation" },
+      body: JSON.stringify({
+        active_scene: sharedSceneToDb(next.active_scene),
+        flex3_ticker: next.flex3_ticker,
+        ticker_overrides: next.ticker_overrides,
+        revision: next.revision,
+        updated_at: next.updated_at
+      })
+    });
+    const rows = await response.json();
+    const written = normalizeSharedRow(rows?.[0]);
+    if (!written) throw new Error("shared revision conflict");
+    SharedStation.row = written; paintSharedStatus("ready", "shared · live");
+    return written;
+  } catch (_) {
+    paintSharedStatus("conflict", "shared · changed elsewhere");
+    SharedStation.writing = false;
+    try { await loadSharedState({ apply:true }); } catch (_) {}
+    throw new Error("shared revision conflict");
+  } finally { SharedStation.writing = false; }
+}
 
 /* Query parameters are accepted as one-time launch inputs for explicit deep
    links. They are deliberately not the Station's state store. The canonical
@@ -502,7 +680,7 @@ function setSolo(key) {
 }
 
 function focusTickerFor(key) {
-  if (SCENE !== "live" && SCENE !== "custom") return;
+  if (!namedSceneEditable()) return;
   const m = String(key || "").match(/^c([1-6])$/);
   if (!m) return;
   const input = el("t" + m[1]);
@@ -655,8 +833,10 @@ function editableState(scene) {
   const get = (suffix) => remembered(prefix + "." + suffix) || (legacy ? remembered("station." + suffix) : "");
   const count = chartCount(get("chartCount") || (scene === "custom" ? 6 : CHART_COUNT));
   const range = RANGES.includes(get("range")) ? get("range") : (scene === "custom" ? "3h" : RANGE);
-  const charts = Array.from({ length:6 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
-    (scene === "custom" ? CUSTOM_SEED[i] : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
+  const charts = Array.from({ length:6 }, (_, i) => {
+    const fixed = scene === "custom" ? CUSTOM_SEED[i] : i === 0 ? "SPY" : i === 1 ? "SNDK" : "";
+    return sharedOverride(scene, i) || fixed;
+  });
   return { charts, chartCount:count, requestedCount:count, range };
 }
 function rememberEditableState() {
@@ -664,11 +844,10 @@ function rememberEditableState() {
   const prefix = "station." + SCENE;
   remember(prefix + ".chartCount", String(CHART_COUNT));
   remember(prefix + ".range", RANGE);
-  CHARTS.forEach((ticker, i) => remember(prefix + ".chart." + (i + 1), ticker));
-  /* Keep the original LIVE keys current for existing Station links/users. */
+  /* Tickers are deliberately excluded: owner-scoped shared state is the
+     only durable source for them, so one device cannot impersonate a sync. */
   if (SCENE === "live") {
     remember("station.chartCount", String(CHART_COUNT));
-    CHARTS.forEach((ticker, i) => remember("station.chart." + (i + 1), ticker));
   }
 }
 function rememberPresentationState() {
@@ -678,12 +857,13 @@ function rememberPresentationState() {
 }
 
 function indexNowFlexSymbol(defaultValue) {
-  return String(defaultValue || SceneModel.PRESETS.indexNow.tickers[2] || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12) || "FLEX3";
+  if (SharedStation.status !== "ready") return "FLEX3";
+  return cleanSharedTicker(SharedStation.row?.flex3_ticker || defaultValue || SHARED_DEFAULT_FLEX) || SHARED_DEFAULT_FLEX;
 }
 
 function resolveIndexNowPresentation() {
   const preset = Object.assign({}, SceneModel.PRESETS.indexNow);
-  preset.tickers = SceneModel.indexNowTickersFor(new Date(), SceneModel.PRESETS.indexNow.tickers[2]);
+  preset.tickers = SceneModel.indexNowTickersFor(new Date(), indexNowFlexSymbol(SHARED_DEFAULT_FLEX));
   return Object.assign({}, preset, scenePresentation("indexNow", preset));
 }
 
@@ -703,13 +883,19 @@ function ensureFamily(scene) {
 }
 function familyState(requestedCount, scene = SCENE) {
   const family = SceneModel.curatedFamilyBasket(scene, FAMILY);
-  return Object.assign({ family:FAMILY, label:family?.label || "CURATED FAMILY", range:family?.range || "1D" },
-    SceneModel.basketWindow(family?.tickers || [], BASKET_OFFSET, requestedCount || PRESENTATION_COUNT));
+  const page = SceneModel.basketWindow(family?.tickers || [], BASKET_OFFSET, requestedCount || PRESENTATION_COUNT);
+  const tickers = page.tickers.map((ticker, localIndex) => sharedOverride(scene, page.offset + localIndex) || ticker);
+  return Object.assign({ family:FAMILY, label:family?.label || "CURATED FAMILY", range:family?.range || "1D" }, page, { tickers });
 }
 function presetState(scene, requestedCount) {
   const preset = scene === "indexNow" ? resolveIndexNowPresentation() : SceneModel.PRESETS[scene];
   const page = SceneModel.basketWindow(preset?.tickers || [], BASKET_OFFSET, requestedCount || preset?.chartCount || 6);
-  return Object.assign({}, preset, page, { charts:page.tickers, range:preset?.range || "3h" });
+  const tickers = page.tickers.map((ticker, localIndex) => {
+    const absoluteIndex = page.offset + localIndex;
+    if (scene === "indexNow" && absoluteIndex === 2) return indexNowFlexSymbol(ticker);
+    return sharedOverride(scene, absoluteIndex) || ticker;
+  });
+  return Object.assign({}, preset, page, { tickers, charts:tickers, range:preset?.range || "3h" });
 }
 function paintSceneControls(note) {
   el("sceneMode").value = SCENE;
@@ -724,7 +910,8 @@ function paintSceneControls(note) {
       el("basketNext").classList.toggle("on", state.hasNext);
     }
     const catalogNote = ["live","custom"].includes(SCENE) && SYMBOLS.length ? SYMBOLS.length + " Hub symbols" : "";
-    const copy = note || EMPTY_SCENE_NOTE || (SceneModel.PRESETS[SCENE] ? "curated basket · edits pending shared state" : catalogNote);
+    const copy = note || EMPTY_SCENE_NOTE || (SceneModel.PRESETS[SCENE] ?
+      (namedSceneEditable() ? "curated basket · shared" : "shared state unavailable · sign in required") : catalogNote);
     if (copy) el("symbolNote").textContent = copy;
     return;
   }
@@ -762,12 +949,11 @@ async function primeSceneState() {
     const presentation = scenePresentation(SCENE, { chartCount:6, range:seed?.range || "1D" });
     const state = familyState(presentation.requestedCount); BASKET_OFFSET = state.offset;
     installSceneState(Object.assign({}, state, { charts:state.tickers, range:state.range }));
-  }
-  if (SCENE === "live" || SCENE === "custom") remember("station.scene", SCENE);
+  } else installSceneState(editableState(SCENE));
 }
 
 function unavailableChartNote(ticker) {
-  if (ticker === "FLEX3") return "FLEX 3 · shared selection pending";
+  if (ticker === "FLEX3") return "FLEX 3 · shared state unavailable";
   if (ticker === "INDEX8") return "INDEX 8 · reserved pending selection";
   if (ticker === "SECTOR12") return "SECTOR 12 · reserved pending selection";
   if (ticker === "CUMTICK") return "CUMULATIVE TICK · registered source pending";
@@ -796,6 +982,13 @@ function syncChartPanes() {
 async function applyScene(next, options) {
   const previous = SCENE;
   const requested = SceneModel.normalizeScene(next);
+  const sceneChanged = previous !== requested;
+  if (sceneChanged && !options?.shared && !namedSceneEditable()) {
+    el("sceneMode").value = previous;
+    paintSharedStatus("unavailable", "shared · sign in required");
+    el("symbolNote").textContent = "shared state unavailable · sign in required";
+    return false;
+  }
   if (previous !== requested) {
     rememberPresentationState();
     if (previous === "live" || previous === "custom") rememberEditableState();
@@ -822,10 +1015,14 @@ async function applyScene(next, options) {
   SCENE = requested; APPLYING_SCENE = true; installSceneState(state);
   syncChartPanes(); applyChartCount(PRESENTATION_COUNT, true); paintTf();
   APPLYING_SCENE = false;
-  if (SCENE === "live" || SCENE === "custom") remember("station.scene", SCENE);
   rememberPresentationState();
   if (SCENE === "live" || SCENE === "custom") rememberEditableState();
   paintSceneControls(); relayout();
+  if (sceneChanged && !options?.shared && !SharedStation.applying) {
+    try { await writeSharedState({ active_scene: requested }); }
+    catch (_) { return false; }
+  }
+  return true;
 }
 function moveNamedSceneToCustom() {
   return false;
@@ -925,7 +1122,7 @@ function paintSymbolGuide(input) {
   for (const row of box.querySelectorAll(".sg-row[data-i]")) {
     row.addEventListener("pointerdown", (e) => {
       e.preventDefault(); const chosen = GUIDE_ROWS[+row.dataset.i];
-      if (chosen && GUIDE_INPUT) commitTicker(+GUIDE_INPUT.dataset.index, chosen.ticker, GUIDE_INPUT);
+      if (chosen && GUIDE_INPUT) void commitTicker(+GUIDE_INPUT.dataset.index, chosen.ticker, GUIDE_INPUT);
     });
   }
 }
@@ -944,11 +1141,11 @@ async function loadSymbolCatalog() {
     }
   } catch (_) { if (["live","custom"].includes(SCENE)) el("symbolNote").textContent = "Hub symbols offline"; }
 }
-function commitTicker(index, raw, input) {
+async function commitTicker(index, raw, input) {
   const n = input || el("t" + (index + 1));
-  if (SCENE !== "live" && SCENE !== "custom") {
+  if (!namedSceneEditable()) {
     if (n) n.value = CHARTS[index] || "";
-    el("symbolNote").textContent = "curated basket · shared edits pending";
+    el("symbolNote").textContent = "shared state unavailable · sign in required";
     return false;
   }
   let ticker = resolveSymbol(raw);
@@ -971,7 +1168,19 @@ function commitTicker(index, raw, input) {
       catch (_) { o.frame.src = o.def.src; }
     } else if (index < CHART_COUNT) mount(o);
   }
-  rememberEditableState(); closeSymbolGuide(); paintChips(); return true;
+  const absoluteIndex = BASKET_OFFSET + index;
+  const overrides = Object.assign({}, SharedStation.row?.ticker_overrides || {});
+  if (SCENE === "indexNow" && absoluteIndex === 2) {
+    try { await writeSharedState({ flex3_ticker:ticker }); }
+    catch (_) { return false; }
+  } else {
+    const sceneOverrides = Object.assign({}, overrides[SCENE] || {});
+    sceneOverrides[String(absoluteIndex)] = ticker;
+    overrides[SCENE] = sceneOverrides;
+    try { await writeSharedState({ ticker_overrides:overrides }); }
+    catch (_) { return false; }
+  }
+  closeSymbolGuide(); paintChips(); return true;
 }
 function wireTicker(n, index) {
   n.value = CHARTS[index]; n.dataset.index = String(index);
@@ -981,7 +1190,7 @@ function wireTicker(n, index) {
   n.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); moveGuide(e.key === "ArrowDown" ? 1 : -1); }
     else if (e.key === "Escape") closeSymbolGuide();
-    else if (e.key === "Enter") { e.preventDefault(); if (commitTicker(index, n.value, n)) n.blur(); }
+    else if (e.key === "Enter") { e.preventDefault(); void commitTicker(index, n.value, n).then((ok) => { if (ok) n.blur(); }); }
   });
   n.addEventListener("blur", () => setTimeout(() => {
     if (GUIDE_INPUT === n) closeSymbolGuide();
@@ -999,11 +1208,11 @@ function paintTickerFields() {
     n.placeholder = "symbol"; n.title = "chart " + (i + 1) + " · type a Hub symbol or market alias";
     title.replaceWith(n); wireTicker(n, i);
   });
-  const editable = SCENE === "live" || SCENE === "custom";
+  const editable = namedSceneEditable();
   for (let i = 1; i <= 6; i++) {
     const n = el("t" + i); if (!n) continue;
     n.readOnly = !editable; n.classList.toggle("locked", !editable);
-    if (!editable) n.title = "curated basket · shared editing comes next";
+    if (!editable) n.title = "shared state unavailable · sign in on Station";
   }
 }
 function applyChartCount(next, fromScene) {
@@ -1086,16 +1295,9 @@ document.addEventListener("pointerdown", (e) => {
 });
 
 async function build() {
+  const shared = await initializeSharedState();
+  if (shared) SCENE = shared.active_scene;
   await primeSceneState();
-  if (SCENE === "live" && QS.get("c2") === "auto") {
-    try {
-      const [fav, lq] = await Promise.all([pg("hub_favorites?select=ticker"), pg("live_quotes?select=ticker,chg_pct")]);
-      const set = new Set((fav || []).map((f) => f.ticker));
-      const best = (lq || []).filter((q) => set.has(q.ticker) && q.chg_pct != null)
-        .sort((a, b) => Math.abs(+b.chg_pct) - Math.abs(+a.chg_pct))[0];
-      if (best) CHARTS[1] = best.ticker;
-    } catch (e) {}
-  }
   const defs = CHARTS.map((ticker, i) => {
     const placeholder = unavailableChartNote(ticker);
     return {
@@ -1132,7 +1334,7 @@ async function build() {
 
   paintTf(); el("viewMode").value = VIEW; paintSceneControls();
   paintTickerFields(); el("chartCount").value = String(PRESENTATION_COUNT);
-  loadSymbolCatalog();
+  await loadSymbolCatalog();
   applyChartCount(PRESENTATION_COUNT, true);
   relayout();
 
@@ -1146,6 +1348,13 @@ async function build() {
   paintChips();
   if (SOLO) setSolo(SOLO);
   relayout();
+  if (SharedStation.status === "ready") {
+    SharedStation.poll = setInterval(() => {
+      if (document.visibilityState === "visible" && !SharedStation.writing) {
+        loadSharedState({ apply:true }).catch(() => paintSharedStatus("unavailable", "shared · reconnecting"));
+      }
+    }, 15000);
+  }
 }
 build();
 </script>

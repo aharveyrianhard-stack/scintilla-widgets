@@ -18,6 +18,14 @@ This is the present-tense record for the verified live Station and the separatel
 - Scenes V2 candidate branch: `agent/station-scenes-v2-curated-baseline-001`, based exactly on production `37eae113d2c1956e71a412848ce73f2cdf686047`
 - Scenes V2 status: **preview only**. No production merge or promotion is authorized by this job.
 
+## Shared-state integration candidate
+
+- Job: `SCINTILLA-STATION-SCENES-V2-SHARED-STATE-INTEGRATION-001`; this branch is preview-only and has no production authority.
+- Base: `e97bde42b965e59667c926d5c1c5a9529fa41f05`. It integrates the existing protected `public.station_shared_state` row only; it does not add or alter database schema, RLS, grants, Auth, APIs, routing, Hub, iPad/iMac, Bridge, or X Feed Float.
+- The authenticated owner row carries only `active_scene`, `flex3_ticker`, ordered named-scene `ticker_overrides`, and a revision number. Writes compare the expected revision and refresh rather than silently overwriting another device.
+- There is no anonymous or browser-local ticker/FLEX fallback. If Station has no verified existing Supabase Auth session, it shows `shared · sign in required`, keeps the fixed curated display honest, and does not claim cross-device sync. Zoom, pan, density, viewport, chart-count, and timeframe presentation remain device-local.
+- The first authenticated owner row starts FLEX 3 at `CLUSD` as the user-selected flexible commodity slot. INDEX NOW still replaces only slots 1–2 by New York time: SPY/QQQ from 08:00–18:00 and ESUSD/NQUSD from 18:00–08:00.
+
 ## Open now
 
 - Open the live Station: `https://station.scintillahub.ai/`
