@@ -49,6 +49,8 @@
     stationMode: false,
     stationConsumer: null,
     stationRelayTimer: null,
+    stationHoverGuard: null,
+    stationHoverStyle: null,
     ui: {}
   };
   let settingsReady = null;
@@ -150,6 +152,50 @@
 
   function isPaused() {
     return !session.scrollEnabled || session.pointerPause;
+  }
+
+  function setStationHoverGuard(enabled) {
+    const root = document.documentElement;
+    root.classList.toggle("xff-station-hover-guard", Boolean(enabled));
+
+    if (enabled && !session.stationHoverStyle) {
+      const style = document.createElement("style");
+      style.id = "xff-station-hover-guard";
+      style.textContent = `
+        html.xff-station-hover-guard [data-testid="HoverCard"],
+        html.xff-station-hover-guard [data-testid="hoverCard"] {
+          display: none !important;
+        }
+      `;
+      document.head.append(style);
+      session.stationHoverStyle = style;
+    }
+
+    if (enabled && !session.stationHoverGuard) {
+      session.stationHoverGuard = (event) => {
+        if (!session.stationMode || isPaused()) return;
+        // The source page scrolls underneath a stationary desktop cursor. X
+        // treats those incidental pointer transitions as profile/link hovers.
+        // Suppress hover-only events in capture phase; click/tap events remain
+        // unmodified for ordinary source interaction.
+        event.stopImmediatePropagation();
+      };
+      for (const type of ["pointerover", "pointermove", "mouseover", "mousemove"]) {
+        document.addEventListener(type, session.stationHoverGuard, true);
+      }
+      return;
+    }
+
+    if (!enabled && session.stationHoverGuard) {
+      for (const type of ["pointerover", "pointermove", "mouseover", "mousemove"]) {
+        document.removeEventListener(type, session.stationHoverGuard, true);
+      }
+      session.stationHoverGuard = null;
+    }
+    if (!enabled && session.stationHoverStyle) {
+      session.stationHoverStyle.remove();
+      session.stationHoverStyle = null;
+    }
   }
 
   function pauseLabel() {
@@ -1799,6 +1845,7 @@
     }
 
     session.stationMode = true;
+    setStationHoverGuard(true);
     session.stationConsumer = nextConsumer;
     session.pointerPause = false;
     session.activeView = ["trading", "notifications"].includes(session.settings.activeView)
@@ -1828,6 +1875,7 @@
   function stopStationSource() {
     stopStationRelay();
     session.stationMode = false;
+    setStationHoverGuard(false);
     session.stationConsumer = null;
     session.pointerPause = false;
     removeCaptureColumnLayout();
