@@ -152,6 +152,13 @@ test("deck keeps curated navigation, presentation state, and one X pane", () => 
   assert.doesNotMatch(deck, /remember\(sceneKey\(/);
   assert.match(deck, /const SHARED_STATE_TABLE = "station_shared_state"/);
   assert.match(deck, /async function initializeSharedState\(\)/);
+  assert.match(deck, /async function requestPasswordlessSignIn\(email\)/);
+  assert.match(deck, /\/auth\/v1\/otp/);
+  assert.match(deck, /emailRedirectTo: authRedirectUrl\(\)/);
+  assert.match(deck, /function consumePasswordlessCallback\(\)/);
+  assert.match(deck, /function refreshStoredAuthSession\(session\)/);
+  assert.match(deck, /id="sharedAuthBtn"/);
+  assert.match(deck, /id="sharedAuthPanel"/);
   assert.match(deck, /async function writeSharedState\(patch\)/);
   assert.match(deck, /revision=eq\./);
   assert.match(deck, /indexNow:"index_now"/);

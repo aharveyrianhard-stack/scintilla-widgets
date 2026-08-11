@@ -207,6 +207,16 @@ body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
   white-space:nowrap; font-variant-numeric:tabular-nums; }
 #sharedStateStatus[data-state="ready"]{ color:var(--bull); }
 #sharedStateStatus[data-state="unavailable"],#sharedStateStatus[data-state="conflict"]{ color:var(--vol); }
+#sharedAuthBtn{ display:none; }
+#sharedAuthPanel{ display:none; position:fixed; z-index:50; top:42px; right:10px; width:min(330px,calc(100vw - 20px));
+  padding:10px; background:var(--panel2); border:1px solid var(--hair); box-shadow:0 12px 32px rgba(0,0,0,.35); }
+#sharedAuthPanel.open{ display:block; }
+#sharedAuthPanel .auth-copy{ color:var(--ink2); font-size:9px; line-height:1.5; margin-bottom:7px; }
+#sharedAuthPanel .auth-row{ display:flex; gap:6px; }
+#sharedAuthEmail{ min-width:0; flex:1; background:var(--bg); border:1px solid var(--hair); color:var(--ink); padding:6px 7px; font:inherit; font-size:10px; }
+#sharedAuthResult{ min-height:14px; color:var(--mute); font-size:8.5px; line-height:1.4; margin-top:6px; }
+#sharedAuthResult[data-state="error"]{ color:var(--vol); }
+#sharedAuthResult[data-state="sent"]{ color:var(--bull); }
 #size{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; white-space:nowrap; }
 body[data-view="desk"] #bar,body[data-view="desk"] #tfbar{ gap:7px; padding-top:6px; padding-bottom:6px; }
 body[data-view="desk"] .btn{ font-size:9.5px; padding:4px 9px; }
@@ -251,9 +261,15 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
   <span class="btn" id="displayBtn" title="open a dedicated Station window for a separate display">display ↗</span>
   <span class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen">⛶</span>
   <span id="sharedStateStatus" data-state="checking" title="shared Station scene and ticker state">shared · checking</span>
+  <span class="btn" id="sharedAuthBtn" title="sign in once to share named scenes and ticker choices">sign in</span>
   <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
   <span id="size"></span>
 </div>
+<form id="sharedAuthPanel" novalidate>
+  <div class="auth-copy">Sign in once to share named scenes, FLEX 3, and approved ticker changes across your devices. Zoom and presentation remain local.</div>
+  <div class="auth-row"><input id="sharedAuthEmail" type="email" autocomplete="email" placeholder="your email" required><button class="btn" type="submit">send link</button></div>
+  <div id="sharedAuthResult" aria-live="polite"></div>
+</form>
 
 <!-- ONE timeframe bar. It drives both charts. There is no second one. -->
 <div id="tfbar">
@@ -348,6 +364,47 @@ function paintSharedStatus(status, copy) {
   const target = el("sharedStateStatus"); if (!target) return;
   target.dataset.state = status;
   target.textContent = copy || (status === "ready" ? "shared · live" : "shared · unavailable");
+  const auth = el("sharedAuthBtn");
+  if (auth) auth.style.display = status === "ready" ? "none" : "";
+}
+function authRedirectUrl() {
+  const url = new URL(location.href);
+  url.search = ""; url.hash = "";
+  return url.href;
+}
+function paintAuthResult(state, copy) {
+  const target = el("sharedAuthResult"); if (!target) return;
+  target.dataset.state = state || ""; target.textContent = copy || "";
+}
+function persistAuthSession(session) {
+  if (!session?.access_token) return null;
+  try { localStorage.setItem(SHARED_AUTH_STORAGE, JSON.stringify({ currentSession: session })); } catch (_) {}
+  return session;
+}
+function consumePasswordlessCallback() {
+  const fragment = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const accessToken = fragment.get("access_token");
+  if (!accessToken) return false;
+  persistAuthSession({
+    access_token: accessToken,
+    refresh_token: fragment.get("refresh_token") || "",
+    expires_in: Number(fragment.get("expires_in") || 0),
+    expires_at: Number(fragment.get("expires_at") || 0),
+    token_type: fragment.get("token_type") || "bearer"
+  });
+  consumeStationLaunchUrl();
+  return true;
+}
+async function refreshStoredAuthSession(session) {
+  const expiresAt = Number(session?.expires_at || 0);
+  if (!session?.refresh_token || !expiresAt || expiresAt > Math.floor(Date.now() / 1000) + 60) return session;
+  const response = await fetch(SB + "/auth/v1/token?grant_type=refresh_token", {
+    method: "POST",
+    headers: { apikey: ANON, "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: session.refresh_token })
+  });
+  if (!response.ok) throw new Error("auth refresh " + response.status);
+  return persistAuthSession(await response.json());
 }
 function readStoredAuthSession() {
   try {
@@ -437,12 +494,14 @@ async function createSharedState() {
   return row;
 }
 async function initializeSharedState() {
-  const session = readStoredAuthSession();
+  const callbackAccepted = consumePasswordlessCallback();
+  let session = readStoredAuthSession();
   if (!session) {
     paintSharedStatus("unavailable", "shared · sign in required");
     return null;
   }
   try {
+    session = await refreshStoredAuthSession(session);
     const user = await authenticatedStationUser(session);
     SharedStation.session = session; SharedStation.ownerId = user.id;
     try { await loadSharedState(); }
@@ -451,12 +510,27 @@ async function initializeSharedState() {
       await createSharedState();
     }
     paintSharedStatus("ready", "shared · live");
+    if (callbackAccepted) paintAuthResult("sent", "Signed in. Shared Station choices are live.");
     return SharedStation.row;
   } catch (_) {
     SharedStation.session = null; SharedStation.ownerId = ""; SharedStation.row = null;
     paintSharedStatus("unavailable", "shared · sign in required");
     return null;
   }
+}
+async function requestPasswordlessSignIn(email) {
+  const normalized = String(email || "").trim();
+  if (!/^\S+@\S+\.\S+$/.test(normalized)) throw new Error("Enter a valid email address.");
+  const response = await fetch(SB + "/auth/v1/otp", {
+    method: "POST",
+    headers: { apikey: ANON, "Content-Type": "application/json" },
+    body: JSON.stringify({ email: normalized, options: { emailRedirectTo: authRedirectUrl() } })
+  });
+  if (!response.ok) {
+    let detail = ""; try { detail = (await response.json())?.message || ""; } catch (_) {}
+    throw new Error(detail || "Could not send the sign-in link.");
+  }
+  return true;
 }
 async function writeSharedState(patch) {
   if (!namedSceneEditable()) throw new Error("shared state unavailable");
@@ -508,7 +582,7 @@ const IPAD_COMPANION = !!(IPAD_PAIR && IPAD_CODE);
 function consumeStationLaunchUrl() {
   const canonical = location.hostname === "station.scintillahub.ai";
   const cleanPath = canonical ? "/" : location.pathname;
-  if (location.search || (canonical && location.pathname !== "/")) {
+  if (location.search || location.hash || (canonical && location.pathname !== "/")) {
     history.replaceState(null, "", cleanPath + location.hash);
   }
 }
@@ -1284,6 +1358,22 @@ el("stationFullBtn").addEventListener("click", async () => {
     if (document.fullscreenElement) await document.exitFullscreen();
     else await document.documentElement.requestFullscreen();
   } catch (_) {}
+});
+el("sharedAuthBtn").addEventListener("click", () => {
+  const panel = el("sharedAuthPanel");
+  panel.classList.toggle("open");
+  if (panel.classList.contains("open")) el("sharedAuthEmail").focus();
+});
+el("sharedAuthPanel").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector("button[type=submit]");
+  button.disabled = true; paintAuthResult("", "Sending secure sign-in link…");
+  try {
+    await requestPasswordlessSignIn(el("sharedAuthEmail").value);
+    paintAuthResult("sent", "Check your email, then open the link on this device.");
+  } catch (error) {
+    paintAuthResult("error", error?.message || "Could not send the sign-in link.");
+  } finally { button.disabled = false; }
 });
 document.addEventListener("fullscreenchange", () => {
   const on = !!document.fullscreenElement;
