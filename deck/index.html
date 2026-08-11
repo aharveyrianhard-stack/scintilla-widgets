@@ -741,8 +741,7 @@ function syncChartPanes() {
       const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
       o.showCard("no favorite here — choose a Hub symbol");
     } else if (ticker && o.frame) {
-      try { o.frame.contentWindow.postMessage({ sc:"chart", ticker, range:RANGE }, location.origin); }
-      catch (_) { o.frame.src = o.def.src; }
+      syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE });
     }
   });
 }
@@ -797,6 +796,24 @@ function chartSrc(t) {
   return "/chart?rev=085&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
     "&view=" + encodeURIComponent(VIEW);
 }
+/* The chart app accepts a fast postMessage update, but a mounted iframe can
+   miss it during a scene switch.  Its URL is the durable identity of the
+   frame, so replace the frame whenever that identity changes; only use the
+   message optimization after the URL already agrees with the displayed pane. */
+function syncChartFrame(frame, nextSrc, message) {
+  if (!frame || !nextSrc) return false;
+  if (frame.getAttribute("src") !== nextSrc) {
+    frame.setAttribute("src", nextSrc);
+    return true;
+  }
+  try {
+    frame.contentWindow.postMessage(message, location.origin);
+    return false;
+  } catch (_) {
+    frame.setAttribute("src", nextSrc);
+    return true;
+  }
+}
 function applyView(next) {
   VIEW = VIEW_MODES.includes(next) ? next : "auto";
   document.body.dataset.view = VIEW;
@@ -828,9 +845,7 @@ function setRange(r) {
     const o = PANES.find((p) => p.def.key === k); if (!o) continue;
     o.def.src = CHARTS[i] ? chartSrc(CHARTS[i]) : "";
     o.def.open = o.def.src.replace("bare=1&", "");
-    /* postMessage first — it repaints without a reload; the src is kept in
-       sync so a paused pane comes back on the right timeframe */
-    if (o.frame) { try { o.frame.contentWindow.postMessage({ sc: "chart", range: RANGE }, location.origin); } catch (e) { o.frame.src = o.def.src; } }
+    if (o.frame) syncChartFrame(o.frame, o.def.src, { sc:"chart", range:RANGE });
   }
   rememberEditableState();
 }
@@ -928,8 +943,7 @@ function commitTicker(index, raw, input) {
     const t = o.node.querySelector(".ph .t"); if (t) t.textContent = ticker;
     const card = o.body.querySelector(".card"); if (card) card.remove();
     if (o.frame) {
-      try { o.frame.contentWindow.postMessage({ sc:"chart", ticker }, location.origin); }
-      catch (_) { o.frame.src = o.def.src; }
+      syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE });
     } else if (index < CHART_COUNT) mount(o);
   }
   rememberEditableState(); closeSymbolGuide(); paintChips(); return true;

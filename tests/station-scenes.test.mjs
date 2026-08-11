@@ -9,6 +9,19 @@ vm.runInNewContext(source, context);
 const scenes = context.globalThis.StationScenes;
 const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
 
+function functionFromDeck(name, bindings = {}) {
+  const start = deck.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `${name} must exist`);
+  let depth = 0;
+  let end = -1;
+  for (let index = deck.indexOf("{", start); index < deck.length; index += 1) {
+    if (deck[index] === "{") depth += 1;
+    if (deck[index] === "}") depth -= 1;
+    if (depth === 0) { end = index + 1; break; }
+  }
+  return vm.runInNewContext(`(${deck.slice(start, end)})`, bindings);
+}
+
 test("all eleven curated scenes are present with fixed baskets", () => {
   assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","custom"]);
   assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY","QQQ","IWM","MAGS","SMH","DIA"]);
@@ -70,4 +83,32 @@ test("CUSTOM recovery compacts the screenshot-shaped sparse six-card workspace",
   assert.match(deck, /if \(!recovered\) SCENE = "live"/);
   assert.match(deck, /state = compactCustomState\(\{ charts:CHARTS, chartCount:CHART_COUNT, range:RANGE \}\)/);
   assert.match(deck, /SCENE === "custom"\n    \? SceneModel\.chartCountForSize\(Math\.min\(requestedCount, CHARTS\.filter\(Boolean\)\.length\)\)/);
+});
+
+test("a scene transition reloads a mounted frame whose URL has an old ticker", () => {
+  const syncChartFrame = functionFromDeck("syncChartFrame", { location: { origin:"https://station.test" } });
+  const priorSrc = "/chart?bare=1&t=SPY&range=3h";
+  const macroSrc = "/chart?bare=1&t=US10Y&range=3D";
+  const calls = [];
+  const frame = {
+    getAttribute: (name) => name === "src" ? priorSrc : null,
+    setAttribute: (name, value) => calls.push({ name, value }),
+    contentWindow: { postMessage: () => calls.push({ name:"postMessage" }) }
+  };
+  assert.equal(syncChartFrame(frame, macroSrc, { sc:"chart", ticker:"US10Y", range:"3D" }), true);
+  assert.deepEqual(calls, [{ name:"src", value:macroSrc }]);
+});
+
+test("a frame whose URL already matches can use the fast chart message", () => {
+  const syncChartFrame = functionFromDeck("syncChartFrame", { location: { origin:"https://station.test" } });
+  const src = "/chart?bare=1&t=GCUSD&range=3D";
+  const calls = [];
+  const frame = {
+    getAttribute: () => src,
+    setAttribute: (name, value) => calls.push({ name, value }),
+    contentWindow: { postMessage: (message, origin) => calls.push({ message, origin }) }
+  };
+  assert.equal(syncChartFrame(frame, src, { sc:"chart", ticker:"GCUSD", range:"3D" }), false);
+  assert.deepEqual(calls, [{ message:{ sc:"chart", ticker:"GCUSD", range:"3D" }, origin:"https://station.test" }]);
+  assert.match(deck, /syncChartFrame\(o\.frame, o\.def\.src, \{ sc:"chart", ticker, range:RANGE \}\)/);
 });

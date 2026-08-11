@@ -11,6 +11,7 @@ async function harness(sessionSeed = {}) {
   const captures = [];
   const tabUpdates = [];
   const windowUpdates = [];
+  const badgeTexts = [];
   const runtimeSent = [];
   const offscreenDocuments = [];
   const scriptInjections = [];
@@ -21,7 +22,7 @@ async function harness(sessionSeed = {}) {
     action: {
       onClicked: { addListener(fn) { actionListeners.push(fn); } },
       setBadgeBackgroundColor() {},
-      setBadgeText() {}
+      setBadgeText(options) { badgeTexts.push(options); }
     },
     runtime: {
       lastError: null,
@@ -94,7 +95,7 @@ async function harness(sessionSeed = {}) {
   });
   return {
     runtimeListeners, actionListeners, removedListeners, sent, captures,
-    tabUpdates, windowUpdates, runtimeSent, offscreenDocuments, sessionData,
+    tabUpdates, windowUpdates, badgeTexts, runtimeSent, offscreenDocuments, sessionData,
     scriptInjections
   };
 }
@@ -109,6 +110,41 @@ function dispatchRuntime(listeners, message, sender) {
     if (!asyncResponse) queueMicrotask(() => resolve(undefined));
     setTimeout(() => reject(new Error(`No response for ${message.type}`)), 500);
   });
+}
+
+async function reinjectLegacyV079Pane(h, sender) {
+  const source = await readFile(new URL("../station-bridge.js", import.meta.url), "utf8");
+  const runtimeListeners = [];
+  const events = [];
+  let readyResolve;
+  const ready = new Promise((resolve) => { readyResolve = resolve; });
+  const paneWindow = {
+    __XFF_STATION_BRIDGE_V079__: true,
+    location: { origin:"https://station.scintillahub.ai", pathname:"/pane-x" },
+    innerWidth: 430,
+    innerHeight: 260,
+    postMessage(message) { events.push(message); },
+    addEventListener() {}
+  };
+  const chrome = {
+    runtime: {
+      id: "fixture",
+      sendMessage(message) {
+        if (message.type !== "XFF_STATION_READY") return Promise.resolve({ ok:true });
+        return dispatchRuntime(h.runtimeListeners, message, sender).then((response) => {
+          readyResolve(response);
+          return response;
+        });
+      },
+      onMessage: { addListener(fn) { runtimeListeners.push(fn); } }
+    }
+  };
+  vm.runInNewContext(source, {
+    window: paneWindow, chrome, crypto: { randomUUID: () => "v080-recovery" },
+    Promise, setInterval: () => 1, clearInterval() {}
+  });
+  await ready;
+  return { paneWindow, events, runtimeListeners };
 }
 
 test("one X action binds the exact source tab to the ready Station frame", async () => {
@@ -514,6 +550,29 @@ test("a restarted Chrome extension worker restores the approved source and Stati
   assert.ok(h.sent.some(({ tabId, message, options }) =>
     tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
   assert.ok(h.tabUpdates.some(({ tabId, options }) => tabId === 11 && options.active));
+});
+
+test("a V079 pane reinjected after a background reload reannounces before the next X action", async () => {
+  const h = await harness({
+    stationXSessionV1: { sourceTabId: 7, activeConsumerKey: null, consumers: [] }
+  });
+  const sender = {
+    tab: { id: 11, windowId: 2, url: "https://station.scintillahub.ai/" },
+    frameId: 5,
+    url: "https://station.scintillahub.ai/pane-x"
+  };
+  const pane = await reinjectLegacyV079Pane(h, sender);
+
+  assert.ok(pane.paneWindow.__XFF_STATION_BRIDGE_V080__, "the new receiver must recover a V079-marked page");
+  assert.ok(pane.events.some(({ type }) => type === "XFF_STATION_BRIDGE_READY"));
+
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+
+  assert.ok(h.sent.some(({ tabId, message }) =>
+    tabId === 7 && message.type === "XFF_START_STATION_SOURCE"),
+  "the next existing X action must reattach the source");
+  assert.ok(!h.badgeTexts.some(({ text }) => text === "WAIT"),
+  "a recovered receiver must prevent the offline WAIT path");
 });
 
 test("worker restore prunes closed source and consumer tabs", async () => {
