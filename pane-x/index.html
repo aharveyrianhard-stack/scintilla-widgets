@@ -169,6 +169,9 @@ const QS = new URLSearchParams(location.search);
 const VIEW_PROFILES = ["auto","desk","display","compact"];
 let VIEW_PROFILE = VIEW_PROFILES.includes(QS.get("view")) ? QS.get("view") : "auto";
 document.documentElement.dataset.view = VIEW_PROFILE;
+const REMOTE_PAIR = /^[A-Za-z0-9_-]{32,}$/.test(QS.get("pair") || "") ? QS.get("pair") : "";
+const REMOTE_CODE = /^[0-9]{6}$/.test(QS.get("code") || "") ? QS.get("code") : "";
+const REMOTE_MODE = QS.get("remote") === "1" && !!REMOTE_PAIR && !!REMOTE_CODE;
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const CAN = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !IOS;
@@ -184,6 +187,8 @@ let xfloatDrawAt = 0;
 let stationTickFrame = 0;
 let stationTickAt = 0;
 let stationPair = null;
+let remoteSocket = null;
+let remotePeer = null;
 const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
 
 function pairingToken() {
@@ -264,6 +269,12 @@ function startStationPairing() {
 }
 
 function postXFloat(action, value) {
+  if (REMOTE_MODE) {
+    if (["view", "rewind", "refresh"].includes(action) && remoteSocket?.readyState === WebSocket.OPEN) {
+      remoteSocket.send(JSON.stringify({ topic:"realtime:station-ipad:" + REMOTE_PAIR, event:"broadcast", payload:{ type:"broadcast", event:"control", payload:{ code:REMOTE_CODE, action, value } }, ref:String(Date.now()), join_ref:"1" }));
+    }
+    return;
+  }
   window.postMessage({ type: "XFF_STATION_CONTROL", action, value }, location.origin);
 }
 
@@ -277,7 +288,7 @@ function xfloatControls(on) {
   for (const id of ["bXList", "bXNotify", "bXBack", "bXRefresh"])
     el(id).style.display = on ? "" : "none";
   el("bStart").style.display = "none";
-  el("bPair").style.display = on ? "" : "none";
+  el("bPair").style.display = on && !REMOTE_MODE ? "" : "none";
 }
 
 function stopXFloat({ notify = true } = {}) {
@@ -290,6 +301,10 @@ function stopXFloat({ notify = true } = {}) {
   xfloatStream = null;
   if (xfloatPeer) xfloatPeer.close();
   xfloatPeer = null;
+  if (remotePeer) remotePeer.close();
+  remotePeer = null;
+  if (remoteSocket) remoteSocket.close();
+  remoteSocket = null;
   xfloatPaused = false;
   el("v").srcObject = stream;
   document.body.classList.remove("xfloat");
@@ -426,6 +441,42 @@ async function startXFloatPeer() {
     type: "XFF_STATION_OFFER",
     offer: xfloatPeer.localDescription.toJSON()
   }, location.origin);
+}
+
+/* iPad Companion consumes the same iMac WebRTC media and the same crop data,
+   then runs it through this exact pane renderer.  Thus the deck and controls
+   stay byte-for-byte the normal Station UI. */
+async function startRemoteStationViewer() {
+  if (!REMOTE_MODE) return;
+  let ref = 0, joined = false;
+  remotePeer = new RTCPeerConnection({ iceServers: [] });
+  remotePeer.addTransceiver("video", { direction:"recvonly" });
+  remotePeer.addEventListener("track", event => {
+    attachXFloatStream(event.streams[0] || new MediaStream([event.track]))
+      .catch(error => showErr("iMac X could not render: " + error.message));
+  });
+  remotePeer.addEventListener("connectionstatechange", () => {
+    if (["failed", "disconnected"].includes(remotePeer?.connectionState)) showErr("iMac X connection paused — reopen Station iPad to reconnect.");
+  });
+  remoteSocket = new WebSocket("wss://wadinxqplrggagkvrdag.supabase.co/realtime/v1/websocket?apikey=" + encodeURIComponent("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpYXVCJ9.eyJpc3MiOiJzdWJhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g") + "&vsn=1.0.0");
+  const send = (event, payload) => remoteSocket?.readyState === WebSocket.OPEN && remoteSocket.send(JSON.stringify({ topic:"realtime:station-ipad:" + REMOTE_PAIR, event, payload, ref:String(++ref), join_ref:"1" }));
+  remoteSocket.addEventListener("open", () => send("phx_join", { config:{ broadcast:{ self:false, ack:true }, presence:{ key:"" }, private:false }, access_token:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdWJhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g" }));
+  remoteSocket.addEventListener("message", async event => {
+    let message; try { message = JSON.parse(event.data); } catch (_) { return; }
+    if (message.event === "phx_reply" && message.ref === "1") {
+      if (message.payload?.status !== "ok") return showErr("The iMac pairing room was refused.");
+      joined = true;
+      await remotePeer.setLocalDescription(await remotePeer.createOffer());
+      await waitForIceComplete(remotePeer);
+      send("broadcast", { type:"broadcast", event:"offer", payload:{ code:REMOTE_CODE, offer:remotePeer.localDescription.toJSON(), at:Date.now() } });
+      return;
+    }
+    if (!joined || message.event !== "broadcast") return;
+    const payload = message.payload || {};
+    if (payload.event === "answer" && payload.payload?.answer) remotePeer.setRemoteDescription(payload.payload.answer).catch(error => showErr("iMac X answer failed: " + error.message));
+    if (payload.event === "crop") { xfloatCrop = payload.payload; paintXView(xfloatCrop?.activeView || "trading"); drawXFloat(); }
+  });
+  remoteSocket.addEventListener("error", () => showErr("The iMac pairing room could not connect."));
 }
 
 function fit() {
@@ -567,7 +618,8 @@ window.addEventListener("resize", () => postXFloat("resize", { width: innerWidth
    source tab itself closes, so Station reloads and display tabs do not drop it. */
 window.addEventListener("pagehide", () => stopXFloat({ notify: false }));
 window.addEventListener("pagehide", () => stopStationPairing());
-if (savedTrustedIpadPair()) startStationPairing();
+if (REMOTE_MODE) startRemoteStationViewer().catch(error => showErr("iMac X could not connect: " + error.message));
+else if (savedTrustedIpadPair()) startStationPairing();
 </script>
 </body>
 </html>

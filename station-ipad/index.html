@@ -11,28 +11,18 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/station-ipad/icon.png">
 <title>SCINTILLA · Station iPad</title>
 <style>
-:root{--bg:#0a0a0f;--panel:#0f0f1a;--line:#1a1a2a;--ink:#f2f2f8;--muted:#9a9ab6;--cyan:#00d4ff;--green:#00ffa3;--mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace}*{box-sizing:border-box;min-width:0}html,body{width:100%;height:100%;margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);-webkit-text-size-adjust:100%}body{display:flex;flex-direction:column;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);overflow:hidden}header{flex:none;width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:7px 10px;border-bottom:1px solid var(--line);background:rgba(15,15,26,.94)}.brand{font-size:10px;letter-spacing:.18em;color:var(--cyan);white-space:nowrap}.state{font-size:8px;letter-spacing:.13em;color:var(--muted);text-align:right}.state.live{color:var(--green)}#grid{flex:1 1 0;min-height:0;width:100%;display:grid;grid-template-rows:1.08fr 1fr;gap:1px;background:var(--line)}.row{min-height:0;display:grid;gap:1px}.top{grid-template-columns:repeat(2,minmax(0,1fr))}.bottom{grid-template-columns:repeat(3,minmax(0,1fr))}.pane{min-height:0;display:flex;flex-direction:column;background:var(--panel)}.label{flex:none;display:flex;align-items:center;justify-content:space-between;min-height:25px;padding:5px 8px;border-bottom:1px solid var(--line);color:var(--muted);font-size:8px;letter-spacing:.14em}.source{color:var(--green)}iframe{display:block;width:100%;min-height:0;flex:1 1 0;border:0;background:#07070d}.controls{flex:none;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line)}button{appearance:none;border:0;background:var(--panel);color:var(--cyan);font:8px var(--mono);letter-spacing:.08em;padding:8px 2px}.notice{position:fixed;inset:0;z-index:5;display:none;place-items:center;padding:28px;background:rgba(10,10,15,.97);color:var(--muted);font-size:13px;line-height:1.6;text-align:center}.notice.on{display:grid}.notice b{color:var(--cyan)}@media (orientation:portrait){body{overflow:auto}#grid{display:flex;flex:none;min-height:calc(100vh - 40px);flex-direction:column}.row{display:flex;flex-direction:column}.top .pane{height:42vh}.bottom .pane{height:56vh}.bottom #xPane{order:-1}}
+html,body{width:100%;height:100%;margin:0;background:#0A0A0F}iframe{display:block;width:100%;height:100%;border:0;background:#0A0A0F}.notice{position:fixed;inset:0;display:none;place-items:center;padding:28px;background:#0A0A0F;color:#9A9AB6;font:13px/1.6 "SF Mono",ui-monospace,monospace;text-align:center}.notice.on{display:grid}.notice b{color:#00D4FF}
 </style>
 </head>
 <body>
-<header><div class="brand">SCINTILLA · STATION IPAD</div><div id="state" class="state">CONNECTING TO IMAC</div></header>
-<main id="grid">
-  <section class="row top"><article class="pane"><div class="label">SPY · 1D</div><iframe src="/chart/?bare=1&t=SPY&range=1D" title="SPY chart"></iframe></article><article class="pane"><div class="label">QQQ · 1D</div><iframe src="/chart/?bare=1&t=QQQ&range=1D" title="QQQ chart"></iframe></article></section>
-  <section class="row bottom"><article class="pane"><div class="label">SCINTILLA VIDEO</div><iframe data-src="/pane-video?feed=scintilla&cols=2&view=compact" title="Scintilla video"></iframe></article><article class="pane"><div class="label">PERSONAL VIDEO</div><iframe data-src="/pane-video?feed=personal&cols=2&view=compact" title="Personal video"></iframe></article><article class="pane" id="xPane"><div class="label">LIVE X <span class="source">IMAC SOURCE</span></div><iframe id="xviewer" allow="autoplay" title="Live X from iMac"></iframe><div class="controls"><button data-action="view" data-value="trading">LIST</button><button data-action="view" data-value="notifications">ALERTS</button><button data-action="rewind">−30S</button><button data-action="refresh">REFRESH</button></div></article></section>
-</main>
+<iframe id="deck" title="SCINTILLA Station iPad"></iframe>
 <section id="notice" class="notice"><div><b>STATION IPAD NEEDS ITS TRUSTED LINK</b><br>Open the Companion link from your iMac once.</div></section>
 <script>
 "use strict";
-const key="scintilla.station.ipad-companion-link.v1",viewer=document.getElementById("xviewer"),state=document.getElementById("state"),notice=document.getElementById("notice");
+const key="scintilla.station.ipad-companion-link.v1",deck=document.getElementById("deck"),notice=document.getElementById("notice");
 const validHash=h=>{const p=new URLSearchParams((h||"").replace(/^#/,""));return /^[A-Za-z0-9_-]{32,}$/.test(p.get("pair")||"")&&/^[0-9]{6}$/.test(p.get("code")||"")};
 let pairHash=validHash(location.hash)?location.hash:"";if(pairHash)try{localStorage.setItem(key,pairHash)}catch(_){};if(!pairHash)try{pairHash=localStorage.getItem(key)||""}catch(_){};
-if(validHash(pairHash)){viewer.src="/station-viewer/?fit=cover"+pairHash}else{notice.classList.add("on");state.textContent="IPAD LINK NEEDED"}
-/* Let the live feed and market charts claim the first network/CPU burst.
-   Video feeds are still loaded automatically a moment later. */
-const loadVideos=()=>document.querySelectorAll("iframe[data-src]").forEach(frame=>{frame.src=frame.dataset.src;frame.removeAttribute("data-src")});
-if("requestIdleCallback" in window)requestIdleCallback(loadVideos,{timeout:1100});else setTimeout(loadVideos,700);
-document.querySelectorAll("button[data-action]").forEach(button=>button.addEventListener("click",()=>viewer.contentWindow?.postMessage({type:"SCINTILLA_IPAD_CONTROL",action:button.dataset.action,value:button.dataset.value||null},location.origin)));
-addEventListener("message",event=>{if(event.origin!==location.origin||event.data?.type!=="SCINTILLA_IPAD_VIEWER_STATUS")return;state.textContent=event.data.status;state.classList.toggle("live",event.data.status==="IMAC LIVE")});
+if(validHash(pairHash)){const p=new URLSearchParams(pairHash.slice(1));deck.src="/deck/?ipadPair="+encodeURIComponent(p.get("pair"))+"&ipadCode="+encodeURIComponent(p.get("code"))+"&view=desk"}else notice.classList.add("on");
 </script>
 </body>
 </html>

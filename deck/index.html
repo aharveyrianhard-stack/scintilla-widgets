@@ -294,6 +294,12 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
    address; protected previews keep their /deck/ path but lose query noise.
    All subsequent scene/chart/view state is remembered locally below. */
 const QS = new URLSearchParams(location.search);
+/* iPad Companion deliberately reuses this exact deck.  Its only substitution
+   is the X pane: iPad receives the already-approved iMac capture instead of
+   trying to create a second browser capture. */
+const IPAD_PAIR = (/^[A-Za-z0-9_-]{32,}$/.test(QS.get("ipadPair") || "")) ? QS.get("ipadPair") : "";
+const IPAD_CODE = (/^[0-9]{6}$/.test(QS.get("ipadCode") || "")) ? QS.get("ipadCode") : "";
+const IPAD_COMPANION = !!(IPAD_PAIR && IPAD_CODE);
 function consumeStationLaunchUrl() {
   const canonical = location.hostname === "station.scintillahub.ai";
   const cleanPath = canonical ? "/" : location.pathname;
@@ -934,7 +940,9 @@ async function build() {
     { row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",
       kind: "video", src: "/pane-video?feed=scintilla&cols=2&rev=077&view=" + encodeURIComponent(VIEW), open: "/pane-video?feed=scintilla&limit=200&cols=2" },
     { row: 1, key: "x", short: "X", title: "X · live", tag: "live capture",
-      kind: "x", src: "/pane-x?rev=088&view=" + encodeURIComponent(VIEW), open: "/pane-x?rev=088" },
+      kind: "x", src: IPAD_COMPANION
+        ? "/pane-x?remote=1&pair=" + encodeURIComponent(IPAD_PAIR) + "&code=" + encodeURIComponent(IPAD_CODE) + "&view=" + encodeURIComponent(VIEW)
+        : "/pane-x?rev=088&view=" + encodeURIComponent(VIEW), open: "/pane-x?rev=088" },
   ]);
 
   /* TWO FLEX ROWS. Two children up top, three below. Nothing else decides
