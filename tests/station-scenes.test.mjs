@@ -165,7 +165,8 @@ test("deck keeps curated navigation, presentation state, and one X pane", () => 
   assert.doesNotMatch(deck, /writeStationUrl/);
   assert.match(deck, /rel="manifest" href="\/station\/manifest\.json"/);
   assert.equal((deck.match(/key: "x"/g) || []).length, 1);
-  assert.match(deck, /if \(!active && o\.frame\) \{\s*o\.frame\.remove\(\);/);
+  assert.match(deck, /if \(!active\) \{\s*if \(o\.frame\) \{/);
+  assert.match(deck, /o\.body\.querySelector\("\.card"\)\?\.remove\(\);/);
 });
 
 test("Vercel routing remains byte-for-byte outside Scenes V2 scope", () => {

@@ -1029,9 +1029,12 @@ function applyChartCount(next, fromScene) {
   CHARTS.forEach((ticker, i) => {
     const o = PANES.find((p) => p.def.key === "c" + (i + 1)); if (!o) return;
     const active = i < CHART_COUNT; o.node.classList.toggle("chart-off", !active);
-    if (!active && o.frame) {
-      o.frame.remove(); o.frame = null;
-      const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
+    if (!active) {
+      if (o.frame) {
+        o.frame.remove(); o.frame = null;
+        const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
+      }
+      o.body.querySelector(".card")?.remove();
     } else if (active && !o.frame) mount(o);
   });
   if (SOLO && /^c[1-6]$/.test(SOLO) && +SOLO.slice(1) > CHART_COUNT) setSolo(null);
