@@ -13,6 +13,7 @@ async function harness(sessionSeed = {}) {
   const windowUpdates = [];
   const runtimeSent = [];
   const offscreenDocuments = [];
+  const scriptInjections = [];
   let offscreenReady = false;
   const sessionData = structuredClone(sessionSeed);
 
@@ -51,7 +52,7 @@ async function harness(sessionSeed = {}) {
         async set(value) { Object.assign(sessionData, structuredClone(value)); }
       }
     },
-    scripting: { async executeScript() {} },
+    scripting: { async executeScript(options) { scriptInjections.push(options); } },
     tabCapture: {
       getMediaStreamId(options, callback) {
         captures.push(options);
@@ -93,7 +94,8 @@ async function harness(sessionSeed = {}) {
   });
   return {
     runtimeListeners, actionListeners, removedListeners, sent, captures,
-    tabUpdates, windowUpdates, runtimeSent, offscreenDocuments, sessionData
+    tabUpdates, windowUpdates, runtimeSent, offscreenDocuments, sessionData,
+    scriptInjections
   };
 }
 
@@ -532,4 +534,50 @@ test("worker restore prunes closed source and consumer tabs", async () => {
   assert.equal(saved.sourceTabId, null);
   assert.equal(saved.activeConsumerKey, null);
   assert.deepEqual(saved.consumers.map(({ tabId }) => tabId), [11]);
+});
+
+test("one iPad pair fans out to distinct viewer peers without restarting X capture", async () => {
+  const h = await harness();
+  const station = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, station);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  const captures = h.captures.length;
+  const pairId = "a".repeat(32);
+  const firstViewer = "b".repeat(24);
+  const secondViewer = "c".repeat(24);
+
+  for (const viewerId of [firstViewer, secondViewer, firstViewer]) {
+    const response = await dispatchRuntime(h.runtimeListeners, {
+      type: "XFF_STATION_REMOTE_OFFER",
+      pairId,
+      viewerId,
+      offer: { type: "offer", sdp: "fixture-offer-" + viewerId }
+    }, station);
+    assert.deepEqual(JSON.parse(JSON.stringify(response)), { ok: true });
+  }
+
+  assert.equal(h.captures.length, captures, "fan-out must reuse the one approved X capture");
+  const peers = h.runtimeSent
+    .filter((message) => message.type === "XFF_OFFSCREEN_OFFER")
+    .map((message) => message.peerId);
+  assert.ok(peers.includes("ipad:" + pairId + ":" + firstViewer));
+  assert.ok(peers.includes("ipad:" + pairId + ":" + secondViewer));
+  assert.equal(new Set(peers).size, 2, "a viewer reload replaces only its own peer key");
+  assert.ok(h.sent.filter(({ message }) => message.type === "XFF_STATION_REMOTE_ANSWER").every(({ message }) =>
+    [firstViewer, secondViewer].includes(message.viewerId)));
+});
+
+test("an explicit preview click injects only the Station bridge into that preview tab", async () => {
+  const h = await harness();
+  await h.actionListeners[0]({
+    id: 11,
+    windowId: 2,
+    url: "https://scintilla-widgets-git-review-aharveyrianhard-8432s-projects.vercel.app/deck/"
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(h.scriptInjections)), [{
+    target: { tabId: 11, allFrames: true },
+    files: ["station-bridge.js"]
+  }]);
 });
