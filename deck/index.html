@@ -367,7 +367,10 @@ const CHART_STATUS = new Map();
  * charts split; flex:1 1 0 does that, identically at every size.
  * ------------------------------------------------------------------ */
 const STACK_AT = 720;          /* below this a row of three is dishonest */
-let STACKED = innerWidth < STACK_AT;   /* decided BEFORE anything mounts */
+/* The trusted iPad Companion explicitly requests the desk presentation.  It
+   must mount the complete Station deck—including its remote X pane—rather
+   than silently applying the phone's two-live-pane safety cap. */
+let STACKED = VIEW !== "desk" && innerWidth < STACK_AT;   /* decided BEFORE anything mounts */
 /* the live-pane budget. On a phone two frames is the ceiling that survived
    the Safari crash work; everything above that is paused behind a tap and
    stays in the chip row. Never frozen before we know which layout we are
@@ -519,7 +522,7 @@ window.addEventListener("message", (event) => {
    giving a useful window resize; visualViewport covers pinch and keyboard. */
 function relayout() {
   const w = el("grid").clientWidth || innerWidth;
-  STACKED = w < STACK_AT;
+  STACKED = VIEW !== "desk" && w < STACK_AT;
   document.body.classList.toggle("stack", STACKED);   /* set every time — the
      initial value is already computed, so a conditional toggle would skip the
      very first paint on a phone and leave it in deck layout */
