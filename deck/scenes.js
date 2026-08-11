@@ -1,7 +1,23 @@
 (function (root) {
   "use strict";
 
-  const IDS = ["live", "overnight", "indexes", "cohort", "custom"];
+  const IDS = [
+    "live", "overnight", "indexes", "company", "macro_short",
+    "macro_long", "sectors", "themes", "custom"
+  ];
+
+  const SCENES = Object.freeze({
+    live: Object.freeze({ label:"LIVE", kind:"working", horizon:"working", session:"any" }),
+    overnight: Object.freeze({ label:"OVERNIGHT", kind:"basket", horizon:"fast-short", session:"overnight" }),
+    indexes: Object.freeze({ label:"INDEX LEADERSHIP", kind:"basket", horizon:"fast-short", session:"regular" }),
+    company: Object.freeze({ label:"COMPANY LEADERSHIP", kind:"placeholder", horizon:"fast-short", session:"regular" }),
+    macro_short: Object.freeze({ label:"MACRO SHORT", kind:"placeholder", horizon:"fast-short", session:"any" }),
+    macro_long: Object.freeze({ label:"MACRO LONG", kind:"placeholder", horizon:"slow-long", session:"any" }),
+    sectors: Object.freeze({ label:"SECTORS", kind:"family", horizon:"medium", session:"regular" }),
+    themes: Object.freeze({ label:"THEMES", kind:"family", horizon:"medium", session:"regular" }),
+    custom: Object.freeze({ label:"CUSTOM", kind:"working", horizon:"working", session:"any" })
+  });
+
   const PRESETS = Object.freeze({
     overnight: Object.freeze({
       label: "OVERNIGHT",
@@ -17,7 +33,25 @@
     })
   });
 
-  const normalizeScene = (value) => IDS.includes(value) ? value : "live";
+  /* Reviewed family order only. Raw backend cohort keys never become primary
+     navigation automatically; a family appears only when it is both listed
+     here and has real favorite-backed coverage. */
+  const FAMILY_GROUPS = Object.freeze({
+    sectors: Object.freeze([
+      "TECH", "COMMS", "DISCRET", "ENERGY", "FINANCIALS", "HEALTH",
+      "INDUSTRIAL", "MATERIALS", "REAL_ESTATE", "STAPLES", "UTILITIES"
+    ]),
+    themes: Object.freeze([
+      "AI_HARDWARE", "AI_SOFTWARE", "MEGACAP", "BLUE_CHIP", "GROWTH",
+      "CRYPTO", "INTL", "THEMATIC", "METALS"
+    ])
+  });
+
+  const LEGACY_SCENES = Object.freeze({ cohort:"themes" });
+  const normalizeScene = (value) => {
+    const candidate = LEGACY_SCENES[value] || value;
+    return IDS.includes(candidate) ? candidate : "live";
+  };
 
   function chartCountForSize(size) {
     const n = Math.max(0, Math.min(6, Number(size) || 0));
@@ -41,29 +75,54 @@
     return new Map(Array.from(byCohort, ([cohort, tickers]) => [cohort, Array.from(tickers).sort()]));
   }
 
+  function curatedFamilies(index, scene) {
+    const allowed = FAMILY_GROUPS[normalizeScene(scene)] || [];
+    return allowed.filter((family) => (index?.get(family) || []).length > 0);
+  }
+
+  function basketWindow(members, requestedOffset, requestedCount) {
+    const all = (members || []).slice();
+    const requested = chartCountForSize(requestedCount || 6);
+    const maxOffset = Math.max(0, all.length - 1);
+    const offset = Math.max(0, Math.min(maxOffset, Number(requestedOffset) || 0));
+    const tickers = all.slice(offset, offset + requested);
+    const end = tickers.length ? offset + tickers.length : 0;
+    return {
+      offset,
+      requestedCount: requested,
+      chartCount: chartCountForSize(tickers.length),
+      totalItems: all.length,
+      start: tickers.length ? offset + 1 : 0,
+      end,
+      hasPrevious: offset > 0,
+      hasNext: end < all.length,
+      tickers,
+      empty: all.length === 0
+    };
+  }
+
+  /* Kept as a compatibility helper for old tests/deep links. New UI state is
+     offset-based so changing display count never abandons or skips a basket. */
   function cohortPage(index, cohort, requestedPage, pageSize) {
-    const size = Math.max(1, Math.min(6, Number(pageSize) || 6));
+    const size = chartCountForSize(pageSize || 6);
     const key = String(cohort || "").toUpperCase();
     const all = (index?.get(key) || []).slice();
     const totalPages = Math.max(1, Math.ceil(all.length / size));
     const page = Math.max(0, Math.min(totalPages - 1, Number(requestedPage) || 0));
-    const tickers = all.slice(page * size, page * size + size);
-    return {
-      cohort: key,
-      page,
-      totalPages,
-      totalItems: all.length,
-      tickers,
-      chartCount: chartCountForSize(tickers.length)
-    };
+    const visible = basketWindow(all, page * size, size);
+    return Object.assign({ cohort:key, page, totalPages }, visible);
   }
 
   root.StationScenes = Object.freeze({
     IDS: Object.freeze(IDS.slice()),
+    SCENES,
     PRESETS,
+    FAMILY_GROUPS,
     normalizeScene,
     chartCountForSize,
     buildCohortFavorites,
+    curatedFamilies,
+    basketWindow,
     cohortPage
   });
 })(typeof globalThis === "object" ? globalThis : window);

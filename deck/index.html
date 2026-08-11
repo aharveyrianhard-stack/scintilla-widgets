@@ -52,9 +52,9 @@
        · The live budget only ever PAUSES. It never removes a pane from the
          layout or from the chip row.
 
-     Scenes v1 keeps this same route and changes chart state only:
-       ?scene=live|overnight|indexes|cohort|custom
-       ?cohort=AI_HARDWARE&page=1 for lossless six-at-a-time favorites
+     Scenes v2 keeps this same route and changes chart state only:
+       ?scene=live|overnight|indexes|company|macro_short|macro_long|sectors|themes|custom
+       ?family=AI_HARDWARE&offset=0 is accepted once; runtime state stays local.
      LIVE/CUSTOM also preserve the existing ?c1= ?c2= ?range= ?live= ?full= state.
      DB reads only. Receipt: HSC-DECK-V4-001.
      ============================================================================ -->
@@ -102,10 +102,10 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .scene-mode{ width:150px; background:var(--panel2); border:1px solid var(--line); color:var(--crk);
   font:8.5px var(--mono); letter-spacing:.06em; padding:3px 5px; border-radius:0; outline:none;
   text-transform:uppercase; }
-#cohortControls{ display:none; align-items:center; gap:4px; }
-#cohortControls.on{ display:flex; }
-#cohortSelect{ width:118px; }
-#cohortPage{ min-width:58px; text-align:center; color:var(--ink3); font-size:8px; }
+#familyControls{ display:none; align-items:center; gap:4px; }
+#familyControls.on{ display:flex; }
+#familySelect{ width:128px; }
+#familyPosition{ min-width:72px; text-align:center; color:var(--ink3); font-size:8px; }
 #tickers{ display:flex; gap:4px; flex-wrap:wrap; }
 .ph .tkin{ width:96px; padding:1px 4px; text-align:left; background:transparent;
   border-color:transparent; color:var(--ink2); font-size:8.5px; }
@@ -205,14 +205,18 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
     <option value="live">live</option>
     <option value="overnight">overnight</option>
     <option value="indexes">index leadership</option>
-    <option value="cohort">cohort favorites</option>
+    <option value="company">company leadership</option>
+    <option value="macro_short">macro short</option>
+    <option value="macro_long">macro long</option>
+    <option value="sectors">sectors</option>
+    <option value="themes">themes</option>
     <option value="custom">custom</option>
   </select>
-  <span id="cohortControls">
-    <select class="scene-mode" id="cohortSelect" title="Hub cohort favorites"></select>
-    <span class="btn" id="cohortPrev" title="previous six favorites">‹</span>
-    <span id="cohortPage">0 / 0</span>
-    <span class="btn" id="cohortNext" title="next six favorites">›</span>
+  <span id="familyControls">
+    <select class="scene-mode" id="familySelect" title="reviewed family with real Hub coverage"></select>
+    <span class="btn" id="familyPrev" title="previous covered symbols">‹</span>
+    <span id="familyPosition">0 of 0</span>
+    <span class="btn" id="familyNext" title="next covered symbols">›</span>
   </span>
   <select class="view-mode" id="viewMode" title="remembered display density for this Station window">
     <option value="auto">auto</option><option value="desk">desk</option>
@@ -252,9 +256,10 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
   <p><b>One timeframe bar, not two.</b> It sits above and drives both charts. Inside the deck the charts run
      in bare mode, which also stops them writing the shared setting that used to make one chart change the
      other.</p>
-  <p><b>Scenes change charts, not the Station.</b> LIVE remains the existing editable view. OVERNIGHT and
-     INDEX LEADERSHIP are immutable starting points; editing one branches into remembered CUSTOM. COHORT
-     FAVORITES reads the current Hub favorites and paginates every match without adding filler. Personal
+  <p><b>Scenes change charts, not the Station.</b> LIVE remains the five-pane default. OVERNIGHT and INDEX
+     LEADERSHIP are curated baskets. SECTORS and THEMES expose only reviewed families with real favorite-backed
+     coverage, using lossless previous/next windows without filler. Chart count and timeframe change presentation
+     without abandoning the scene; editing a ticker copies the visible view into remembered CUSTOM. Personal
      YouTube, SCINTILLA YouTube, and X stay mounted while chart scenes change.</p>
   <p><b>Bottom row — personal YouTube, SCINTILLA YouTube, and X live.</b> The two video panes are built for
      this box, not full pages squeezed into it: a thumbnail grid that counts its own columns from its own
@@ -326,24 +331,37 @@ let VIEW = VIEW_MODES.includes(QS.get("view")) ? QS.get("view") :
   (VIEW_MODES.includes(sessionStorage.getItem("station.view")) ? sessionStorage.getItem("station.view") : "auto");
 document.body.dataset.view = VIEW;
 let SCENE = SceneModel.normalizeScene(QS.get("scene") || remembered("station.scene") || "live");
-let COHORT = CLEAN_COHORT(QS.get("cohort") || remembered("station.cohort") || "AI_HARDWARE");
-let COHORT_PAGE = Math.max(0, +(QS.get("page") || remembered("station.cohortPage") || 1) - 1);
-let COHORT_INDEX = new Map();
-let COHORT_READY = false;
+const isFamilyScene = (scene) => scene === "sectors" || scene === "themes";
+const sceneKey = (scene, suffix) => "station.scene." + scene + "." + suffix;
+const defaultFamily = (scene) => scene === "sectors" ? "TECH" : "AI_HARDWARE";
+let FAMILY = CLEAN_COHORT(QS.get("family") || QS.get("cohort") ||
+  remembered(sceneKey(SCENE, "family")) || defaultFamily(SCENE));
+let BASKET_OFFSET = Math.max(0, +(QS.get("offset") || remembered(sceneKey(SCENE, "offset")) || 0));
+let FAMILY_INDEX = new Map();
+let FAMILY_READY = false;
 let APPLYING_SCENE = false;
+let EMPTY_SCENE_NOTE = "";
 
 const statePrefix = () => SCENE === "custom" ? "station.custom" : "station.live";
 const storedState = (suffix) => remembered(statePrefix() + "." + suffix) ||
   (SCENE === "custom" ? remembered("station.live." + suffix) : "") || remembered("station." + suffix);
 const URL_STATEFUL = SCENE === "live" || SCENE === "custom";
-let CHART_COUNT = chartCount((URL_STATEFUL ? QS.get("charts") : "") || storedState("chartCount") || 2);
+const storedPresentationCount = (scene, fallback) => chartCount(remembered(sceneKey(scene, "chartCount")) || fallback);
+let PRESENTATION_COUNT = URL_STATEFUL ? chartCount(QS.get("charts") || storedState("chartCount") || 2) :
+  storedPresentationCount(SCENE, SceneModel.PRESETS[SCENE]?.chartCount || 6);
+let CHART_COUNT = PRESENTATION_COUNT;
 const CHARTS = Array.from({ length: 6 }, (_, i) => {
   const incoming = URL_STATEFUL ? QS.get("c" + (i + 1)) : "";
   if (incoming && incoming !== "auto") return CLEAN(incoming);
   return CLEAN(storedState("chart." + (i + 1))) || (i === 0 ? "SPY" : i === 1 ? "SNDK" : "");
 });
+const storedPresentationRange = (scene, fallback) => {
+  const value = remembered(sceneKey(scene, "range"));
+  return RANGES.includes(value) ? value : fallback;
+};
 let RANGE = RANGES.includes(URL_STATEFUL ? QS.get("range") : "") ? QS.get("range") :
-  (RANGES.includes(storedState("range")) ? storedState("range") : "1D");
+  (URL_STATEFUL ? (RANGES.includes(storedState("range")) ? storedState("range") : "1D") :
+    storedPresentationRange(SCENE, SceneModel.PRESETS[SCENE]?.range || "1D"));
 let SOLO = QS.get("full") || null;
 
 /* Scintilla's canonical chart symbols come from the current active rows in
@@ -572,11 +590,7 @@ function paintChips() {
   }
 }
 
-/* ---- SAVED SCENES — chart state only. Media/X panes never remount. ---- */
-const COHORT_ORDER = ["AI_HARDWARE","AI_SOFTWARE","MEGACAP","BLUE_CHIP","GROWTH","CRYPTO","INTL",
-  "MACRO","INDEXES","THEMATIC","METALS","TECH","COMMS","DISCRET","ENERGY","FINANCIALS","HEALTH",
-  "INDUSTRIAL","MATERIALS","REAL_ESTATE","STAPLES","UTILITIES"];
-const hasStoredScene = (scene) => !!remembered("station." + scene + ".chartCount");
+/* ---- SAVED SCENES — basket and presentation are separate. Media/X panes never remount. ---- */
 function editableState(scene) {
   const prefix = "station." + scene;
   const legacy = scene === "live";
@@ -585,7 +599,7 @@ function editableState(scene) {
   const range = RANGES.includes(get("range")) ? get("range") : RANGE;
   const charts = Array.from({ length:6 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
     (scene === "custom" ? CHARTS[i] : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
-  return { charts, chartCount:count, range };
+  return { charts, chartCount:count, requestedCount:count, range };
 }
 function rememberEditableState() {
   if (SCENE !== "live" && SCENE !== "custom") return;
@@ -599,54 +613,103 @@ function rememberEditableState() {
     CHARTS.forEach((ticker, i) => remember("station.chart." + (i + 1), ticker));
   }
 }
-function orderedCohorts() {
-  return Array.from(COHORT_INDEX.keys()).sort((a,b) => {
-    const ai = COHORT_ORDER.indexOf(a), bi = COHORT_ORDER.indexOf(b);
-    return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi) || a.localeCompare(b);
-  });
+function rememberPresentationState() {
+  remember(sceneKey(SCENE, "chartCount"), String(PRESENTATION_COUNT));
+  remember(sceneKey(SCENE, "range"), RANGE);
+  if (isFamilyScene(SCENE)) {
+    remember(sceneKey(SCENE, "family"), FAMILY);
+    remember(sceneKey(SCENE, "offset"), String(BASKET_OFFSET));
+  }
 }
-async function loadCohortFavorites() {
-  if (COHORT_READY) return;
+function scenePresentation(scene, defaults) {
+  return {
+    requestedCount: storedPresentationCount(scene, defaults?.chartCount || 6),
+    range: storedPresentationRange(scene, defaults?.range || "1D")
+  };
+}
+async function loadFamilyFavorites() {
+  if (FAMILY_READY) return;
   const [favorites, primary, legacy] = await Promise.all([
     pg("hub_favorites?select=ticker&order=added_at.asc"),
     pg("ticker_cohorts?select=ticker,cohort"),
     pg("cohorts?select=ticker,cohort")
   ]);
-  COHORT_INDEX = SceneModel.buildCohortFavorites(favorites, [primary, legacy]);
-  COHORT_READY = true;
-  const names = orderedCohorts();
-  if (!COHORT_INDEX.has(COHORT)) COHORT = names[0] || COHORT;
+  FAMILY_INDEX = SceneModel.buildCohortFavorites(favorites, [primary, legacy]);
+  FAMILY_READY = true;
 }
-function cohortState() {
-  return SceneModel.cohortPage(COHORT_INDEX, COHORT, COHORT_PAGE, 6);
+function availableFamilies(scene) {
+  return SceneModel.curatedFamilies(FAMILY_INDEX, scene);
+}
+function ensureFamily(scene) {
+  const names = availableFamilies(scene);
+  const rememberedFamily = CLEAN_COHORT(remembered(sceneKey(scene, "family")));
+  if (!names.includes(FAMILY) && rememberedFamily && names.includes(rememberedFamily)) FAMILY = rememberedFamily;
+  if (!names.includes(FAMILY)) FAMILY = names[0] || defaultFamily(scene);
+  return names;
+}
+function familyState(requestedCount) {
+  const members = FAMILY_INDEX.get(FAMILY) || [];
+  return Object.assign({ family:FAMILY }, SceneModel.basketWindow(members, BASKET_OFFSET, requestedCount || PRESENTATION_COUNT));
 }
 function paintSceneControls(note) {
   el("sceneMode").value = SCENE;
-  const box = el("cohortControls"); box.classList.toggle("on", SCENE === "cohort");
-  if (SCENE !== "cohort" || !COHORT_READY) return;
-  const names = orderedCohorts(), select = el("cohortSelect");
-  select.innerHTML = names.map((name) => '<option value="' + esc(name) + '">' +
-    esc(name.replace(/_/g," ")) + " · " + (COHORT_INDEX.get(name) || []).length + "</option>").join("");
-  select.value = COHORT;
-  const page = cohortState();
-  el("cohortPage").textContent = page.totalItems + " · " + (page.page + 1) + " / " + page.totalPages;
-  el("cohortPrev").classList.toggle("on", page.page > 0);
-  el("cohortNext").classList.toggle("on", page.page + 1 < page.totalPages);
-  el("symbolNote").textContent = note || (page.totalItems ?
-    page.totalItems + " " + COHORT.replace(/_/g," ") + " favorites" :
-    "0 favorites · no filler");
+  const familyScene = isFamilyScene(SCENE);
+  const box = el("familyControls"); box.classList.toggle("on", familyScene);
+  if (!familyScene) {
+    const catalogNote = ["live","custom"].includes(SCENE) && SYMBOLS.length ? SYMBOLS.length + " Hub symbols" : "";
+    const copy = note || EMPTY_SCENE_NOTE || catalogNote;
+    if (copy) el("symbolNote").textContent = copy;
+    return;
+  }
+  const select = el("familySelect");
+  if (!FAMILY_READY) {
+    select.innerHTML = '<option value="">coverage unavailable</option>';
+    select.disabled = true;
+    el("familyPosition").textContent = "0 of 0";
+    el("symbolNote").textContent = note || "coverage unavailable";
+    return;
+  }
+  const names = ensureFamily(SCENE);
+  select.disabled = names.length === 0;
+  select.innerHTML = names.length ? names.map((name) => '<option value="' + esc(name) + '">' +
+    esc(name.replace(/_/g," ")) + " · " + (FAMILY_INDEX.get(name) || []).length + "</option>").join("") :
+    '<option value="">coverage TBD</option>';
+  if (names.length) select.value = FAMILY;
+  const state = familyState();
+  el("familyPosition").textContent = state.totalItems ? state.start + "–" + state.end + " of " + state.totalItems : "0 of 0";
+  el("familyPrev").classList.toggle("on", state.hasPrevious);
+  el("familyNext").classList.toggle("on", state.hasNext);
+  el("symbolNote").textContent = note || (state.totalItems ?
+    state.totalItems + " " + FAMILY.replace(/_/g," ") + " favorites" : "coverage TBD · no filler");
 }
 function installSceneState(state) {
   const charts = (state.charts || state.tickers || []).slice(0, 6);
   CHARTS.forEach((_, i) => { CHARTS[i] = CLEAN(charts[i] || ""); });
+  PRESENTATION_COUNT = chartCount(state.requestedCount || state.chartCount || SceneModel.chartCountForSize(charts.length));
   CHART_COUNT = chartCount(state.chartCount || SceneModel.chartCountForSize(charts.length));
   RANGE = RANGES.includes(state.range) ? state.range : RANGE;
+  EMPTY_SCENE_NOTE = state.emptyNote || "";
 }
 async function primeSceneState() {
-  if (SceneModel.PRESETS[SCENE]) installSceneState(SceneModel.PRESETS[SCENE]);
-  else if (SCENE === "cohort") {
-    try { await loadCohortFavorites(); installSceneState(cohortState()); }
-    catch (_) { COHORT_READY = false; installSceneState({ charts:[], chartCount:1, range:RANGE }); }
+  if (SceneModel.PRESETS[SCENE]) {
+    const preset = SceneModel.PRESETS[SCENE], presentation = scenePresentation(SCENE, preset);
+    installSceneState(Object.assign({}, preset, presentation));
+  } else if (isFamilyScene(SCENE)) {
+    try {
+      await loadFamilyFavorites(); ensureFamily(SCENE);
+      const presentation = scenePresentation(SCENE, { chartCount:6, range:"1D" });
+      PRESENTATION_COUNT = presentation.requestedCount; RANGE = presentation.range;
+      BASKET_OFFSET = Math.max(0, +(remembered(sceneKey(SCENE, "offset")) || BASKET_OFFSET));
+      const state = familyState(PRESENTATION_COUNT); BASKET_OFFSET = state.offset;
+      installSceneState(Object.assign({}, state, { range:RANGE, emptyNote:SCENE.toUpperCase() + " · coverage TBD" }));
+    } catch (_) {
+      FAMILY_READY = false;
+      installSceneState({ charts:[], chartCount:1, requestedCount:6, range:RANGE, emptyNote:SCENE.toUpperCase() + " · coverage unavailable" });
+    }
+  } else if (["company","macro_short","macro_long"].includes(SCENE)) {
+    const presentation = scenePresentation(SCENE, { chartCount:2, range:"1D" });
+    installSceneState({ charts:[], chartCount:1, requestedCount:presentation.requestedCount, range:presentation.range,
+      emptyNote:SceneModel.SCENES[SCENE].label + " · basket TBD" });
   }
   remember("station.scene", SCENE);
 }
@@ -661,7 +724,7 @@ function syncChartPanes() {
     if (!ticker && o.frame) {
       o.frame.remove(); o.frame = null;
       const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
-      o.showCard("no favorite here — choose a Hub symbol");
+      o.showCard(EMPTY_SCENE_NOTE || "no covered symbol here");
     } else if (ticker && o.frame) {
       try { o.frame.contentWindow.postMessage({ sc:"chart", ticker, range:RANGE }, location.origin); }
       catch (_) { o.frame.src = o.def.src; }
@@ -671,36 +734,55 @@ function syncChartPanes() {
 async function applyScene(next, options) {
   const previous = SCENE;
   const requested = SceneModel.normalizeScene(next);
-  if ((previous === "live" || previous === "custom") && previous !== requested) rememberEditableState();
+  if (previous !== requested) {
+    rememberPresentationState();
+    if (previous === "live" || previous === "custom") rememberEditableState();
+  }
   let state;
-  if (SceneModel.PRESETS[requested]) state = SceneModel.PRESETS[requested];
-  else if (requested === "cohort") {
+  if (SceneModel.PRESETS[requested]) {
+    const preset = SceneModel.PRESETS[requested];
+    state = Object.assign({}, preset, scenePresentation(requested, preset));
+  } else if (isFamilyScene(requested)) {
     try {
-      await loadCohortFavorites();
-      if (options?.cohort) COHORT = CLEAN_COHORT(options.cohort);
-      COHORT_PAGE = Math.max(0, Number(options?.page) || 0);
-      state = cohortState(); COHORT_PAGE = state.page;
+      await loadFamilyFavorites();
+      if (options?.family) FAMILY = CLEAN_COHORT(options.family);
+      ensureFamily(requested);
+      BASKET_OFFSET = options?.offset == null ? Math.max(0, +(remembered(sceneKey(requested, "offset")) || 0)) :
+        Math.max(0, Number(options.offset) || 0);
+      const presentation = scenePresentation(requested, { chartCount:6, range:"1D" });
+      PRESENTATION_COUNT = presentation.requestedCount; RANGE = presentation.range;
+      state = Object.assign({}, familyState(PRESENTATION_COUNT), { range:RANGE,
+        emptyNote:SceneModel.SCENES[requested].label + " · coverage TBD" });
+      BASKET_OFFSET = state.offset;
     } catch (_) {
-      COHORT_READY = false; state = { charts:[], chartCount:1, range:RANGE };
-      el("symbolNote").textContent = "cohort favorites unavailable";
+      FAMILY_READY = false;
+      state = { charts:[], chartCount:1, requestedCount:6, range:RANGE,
+        emptyNote:SceneModel.SCENES[requested].label + " · coverage unavailable" };
     }
-  } else if (requested === "custom" && !hasStoredScene("custom")) {
-    state = { charts:CHARTS.slice(), chartCount:CHART_COUNT, range:RANGE };
+  } else if (["company","macro_short","macro_long"].includes(requested)) {
+    const presentation = scenePresentation(requested, { chartCount:2, range:"1D" });
+    state = { charts:[], chartCount:1, requestedCount:presentation.requestedCount, range:presentation.range,
+      emptyNote:SceneModel.SCENES[requested].label + " · basket TBD" };
   } else state = editableState(requested);
 
   SCENE = requested; APPLYING_SCENE = true; installSceneState(state);
-  syncChartPanes(); applyChartCount(CHART_COUNT, true); paintTf();
+  syncChartPanes(); applyChartCount(PRESENTATION_COUNT, true); paintTf();
   APPLYING_SCENE = false;
   remember("station.scene", SCENE);
-  if (SCENE === "cohort") {
-    remember("station.cohort", COHORT); remember("station.cohortPage", String(COHORT_PAGE + 1));
-  }
+  rememberPresentationState();
   if (SCENE === "live" || SCENE === "custom") rememberEditableState();
   paintSceneControls(); relayout();
 }
 function moveNamedSceneToCustom() {
   if (APPLYING_SCENE || SCENE === "live" || SCENE === "custom") return;
-  SCENE = "custom"; remember("station.scene", SCENE); paintSceneControls();
+  rememberPresentationState();
+  SCENE = "custom";
+  PRESENTATION_COUNT = CHART_COUNT;
+  CHARTS.forEach((_, i) => { if (i >= CHART_COUNT) CHARTS[i] = ""; });
+  remember("station.scene", SCENE);
+  rememberEditableState();
+  rememberPresentationState();
+  paintSceneControls("custom copy");
 }
 
 /* ---- ONE timeframe bar, driving both charts ---- */
@@ -731,7 +813,6 @@ function paintTf() {
 }
 function setRange(r) {
   if (!RANGES.includes(r) || r === RANGE) return;
-  moveNamedSceneToCustom();
   RANGE = r; paintTf();
   for (let i = 0; i < CHARTS.length; i++) {
     const k = "c" + (i + 1);
@@ -742,6 +823,7 @@ function setRange(r) {
        sync so a paused pane comes back on the right timeframe */
     if (o.frame) { try { o.frame.contentWindow.postMessage({ sc: "chart", range: RANGE }, location.origin); } catch (e) { o.frame.src = o.def.src; } }
   }
+  rememberPresentationState();
   rememberEditableState();
 }
 
@@ -810,9 +892,9 @@ async function loadSymbolCatalog() {
     if (Array.isArray(rows) && rows.length) {
       SYMBOLS = rows.map((row) => Object.assign({}, row, FUTURE_META[row.ticker] || {}));
       SYMBOL_SET = new Set(SYMBOLS.map((row) => row.ticker));
-      if (SCENE !== "cohort") el("symbolNote").textContent = SYMBOLS.length + " Hub symbols";
+      if (["live","custom"].includes(SCENE)) el("symbolNote").textContent = SYMBOLS.length + " Hub symbols";
     }
-  } catch (_) { if (SCENE !== "cohort") el("symbolNote").textContent = "Hub symbols offline"; }
+  } catch (_) { if (["live","custom"].includes(SCENE)) el("symbolNote").textContent = "Hub symbols offline"; }
 }
 function commitTicker(index, raw, input) {
   const n = input || el("t" + (index + 1));
@@ -867,9 +949,23 @@ function paintTickerFields() {
   });
 }
 function applyChartCount(next, fromScene) {
-  if (!fromScene) moveNamedSceneToCustom();
-  CHART_COUNT = chartCount(next);
-  el("chartCount").value = String(CHART_COUNT);
+  PRESENTATION_COUNT = chartCount(next);
+  if (isFamilyScene(SCENE)) {
+    const state = familyState(PRESENTATION_COUNT);
+    BASKET_OFFSET = state.offset;
+    const charts = state.tickers.slice(0, 6);
+    CHARTS.forEach((_, i) => { CHARTS[i] = CLEAN(charts[i] || ""); });
+    CHART_COUNT = state.chartCount;
+    EMPTY_SCENE_NOTE = SceneModel.SCENES[SCENE].label + " · coverage TBD";
+    syncChartPanes();
+  } else if (SceneModel.PRESETS[SCENE]) {
+    const available = SceneModel.PRESETS[SCENE].tickers.length;
+    CHART_COUNT = SceneModel.chartCountForSize(Math.min(PRESENTATION_COUNT, available));
+  } else if (["company","macro_short","macro_long"].includes(SCENE)) {
+    CHART_COUNT = 1;
+  } else CHART_COUNT = PRESENTATION_COUNT;
+
+  el("chartCount").value = String(PRESENTATION_COUNT);
   const row = el("rowTop");
   if (row) row.className = "deckrow charts-" + CHART_COUNT;
   CHARTS.forEach((ticker, i) => {
@@ -881,17 +977,23 @@ function applyChartCount(next, fromScene) {
     } else if (active && !o.frame) mount(o);
   });
   if (SOLO && /^c[1-6]$/.test(SOLO) && +SOLO.slice(1) > CHART_COUNT) setSolo(null);
-  if (!fromScene) rememberEditableState();
+  if (!fromScene) {
+    rememberPresentationState();
+    rememberEditableState();
+    paintSceneControls();
+  }
   relayout(); paintChips();
 }
 el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
 el("sceneMode").addEventListener("change", (e) => applyScene(e.target.value));
-el("cohortSelect").addEventListener("change", (e) => applyScene("cohort", { cohort:e.target.value, page:0 }));
-el("cohortPrev").addEventListener("click", () => {
-  const page = cohortState(); if (page.page > 0) applyScene("cohort", { cohort:COHORT, page:page.page - 1 });
+el("familySelect").addEventListener("change", (e) => applyScene(SCENE, { family:e.target.value, offset:0 }));
+el("familyPrev").addEventListener("click", () => {
+  const state = familyState();
+  if (state.hasPrevious) applyScene(SCENE, { family:FAMILY, offset:Math.max(0, state.offset - PRESENTATION_COUNT) });
 });
-el("cohortNext").addEventListener("click", () => {
-  const page = cohortState(); if (page.page + 1 < page.totalPages) applyScene("cohort", { cohort:COHORT, page:page.page + 1 });
+el("familyNext").addEventListener("click", () => {
+  const state = familyState();
+  if (state.hasNext) applyScene(SCENE, { family:FAMILY, offset:state.offset + PRESENTATION_COUNT });
 });
 el("viewMode").addEventListener("change", (e) => applyView(e.target.value));
 el("displayBtn").addEventListener("click", () => {
@@ -956,9 +1058,9 @@ async function build() {
   for (const d of defs) { const o = makePane(d); PANES.push(o); rows[d.row].appendChild(o.node); }
 
   paintTf(); el("viewMode").value = VIEW; paintSceneControls();
-  paintTickerFields(); el("chartCount").value = String(CHART_COUNT);
+  paintTickerFields(); el("chartCount").value = String(PRESENTATION_COUNT);
   loadSymbolCatalog();
-  applyChartCount(CHART_COUNT, true);
+  applyChartCount(PRESENTATION_COUNT, true);
   relayout();
 
   const order = CHARTS.map((_, i) => "c" + (i + 1)).slice(0, CHART_COUNT).concat(["fb", "fa", "x"]);

@@ -2,18 +2,21 @@
 
 Updated: 2026-08-10 (America/New_York)
 
-This is the present-tense record for the verified live Station and the separately admitted clean-URL/roadmap correction. Scenes v1 is already production. The clean-URL work is an admitted review candidate only and has not changed production.
+This is the present-tense record for the verified live Station and the separately admitted Scenes V2 navigation candidate. Scenes V1 and the clean-root baseline are already production. Station routing, Hub, iMac/X Bridge, database, and indicators are outside this candidate.
 
 ## Remote review and delivery state
 
-- Production source: `scintilla-widgets` main at `6615e397d55a4c57ec214be13f5d8a7f95015c4b`
+- Production source: `scintilla-widgets` main at `5b59353e9ccad8221886e59d15611c9816c72c53`
+- Production deployment: `dpl_WnX6dRuG8hqdM3xaEDJfw3iQVVJR`
 - Public Station: `https://station.scintillahub.ai/`
 - Scenes v1 delivery: [merged scintilla-widgets PR #3](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/3)
 - Scenes v1 production memo: `https://docs.google.com/document/d/1i57VFlXAoMjTAiNf2rLYj0InCxujeWTEr45emMfgGrA`
-- Production route behavior before the clean-URL correction: the root redirects to `/deck/`, and runtime state is serialized into the query string.
-- Clean-URL candidate branch: `agent/station-clean-url-roadmap`, based exactly on the production source above. It changes root handling from redirect to internal rewrite, consumes deliberate deep-link inputs once, stops runtime query serialization, and makes `/` the PWA identity/start URL.
-- Clean-URL candidate status: **review only** under `SCINTILLA-STATION-CLEAN-URL-ROADMAP-001`; not merged, not promoted, and not production.
+- The clean-root baseline consumes deliberate deep-link inputs once, keeps runtime scene state out of the address bar, and uses `/` as the PWA identity/start URL.
+- A separate routing-only correction remains owned by the Station routing workstream and is not part of Scenes V2.
 - Canonical architecture roadmap: `https://docs.google.com/document/d/1aLDEcIa4647copZrrO-rFsXuNeY98R8YS5Ux3OZQaxQ/edit`
+- Scenes V2 preview job: `SCINTILLA-STATION-SCENES-V2-NAV-PRIMITIVES-001`
+- Scenes V2 candidate branch: `agent/station-scenes-v2-nav-primitives`, based exactly on production `5b59353e...`
+- Scenes V2 status: **preview only**. No production merge or promotion is authorized by this job.
 
 ## Open now
 
@@ -23,6 +26,19 @@ This is the present-tense record for the verified live Station and the separatel
 - Current saved example: two visible two-hour charts, SPY and QQQ. Four additional editable slots remain remembered as Bitcoin, Airbnb, Abbott, and Adobe when the chart-count selector is increased; none is a fixed bundle.
 - The `DISPLAY ↗` control opens the same Station in a dedicated second window. For Apple TV, put that window on an AirPlay **separate display**; ordinary mirroring follows the Mac and does not let the Hub remain independent.
 - The same Station surface now has remembered `AUTO`, `DESK`, `DISPLAY`, and `COMPACT` presentation profiles. `DISPLAY ↗` opens the same route with the Display profile; it is not a second product or a separately maintained scene.
+
+## Scenes V2 preview candidate
+
+- Replaces the raw, oversized cohort dropdown with a small purpose-first scene list: LIVE, OVERNIGHT, INDEX LEADERSHIP, COMPANY LEADERSHIP, MACRO SHORT, MACRO LONG, SECTORS, THEMES, and CUSTOM.
+- Keeps basket membership separate from presentation. Chart count, timeframe, density, and paging no longer abandon a named scene or silently turn it into CUSTOM.
+- Fixes the concrete 2→6 failure: a covered family expands from the same basket offset and fills the next real members instead of activating empty `Choose a symbol` slots.
+- Uses a compact secondary selector only inside SECTORS and THEMES. It exposes only explicitly reviewed family keys with real favorite-backed coverage; raw backend cohorts, zero-member cohorts, and unreviewed names do not enter normal navigation automatically.
+- Keeps exact INDEX LEADERSHIP order: SPY, QQQ, IWM, MAGS, SMH, DIA. DOW Inc. is never substituted.
+- Leaves COMPANY LEADERSHIP, MACRO SHORT, and MACRO LONG as honest `basket TBD` states until Alan approves exact ordered membership. It invents no tickers.
+- Uses offset windows with explicit `x–y of total` status. Changing count preserves the first visible member; sparse baskets use a smaller effective layout; empty baskets show one honest state and do not mount a chart iframe.
+- Direct ticker editing from a curated named scene copies only the visible view into device-local CUSTOM. LIVE remains the existing editable workspace, and curated definitions cannot be overwritten from the Station UI.
+- Preserves the existing five-pane LIVE surface, keeps Personal YouTube / SCINTILLA YouTube / X mounted, and retains visible-only chart mounting and one X pane.
+- This first candidate deliberately keeps 1/2/3/4/6 chart structures. Eight-chart layouts, MA/RSI panes, automatic rotation, movers/volume ranking, cross-device sync, and indicator work require separate reviewed jobs.
 
 ## What works in production
 
@@ -136,7 +152,7 @@ The underlying rows are not mixed: Megyn Kelly and LastWeekTonight/John Oliver e
 
 ## Current X acceptance boundary
 
-The repeating-post diagnosis was reproduced in real Chrome before the `0.7.7` correction: the supplied screen recording shows the offline/reset state at 10.95, 40.95, and 70.95 seconds, matching the old 30-second reconnect behavior. The heartbeat-safe bridge passed sustained monitoring. Version `0.7.14` retains that correction, uses one capture for multiple live Station receivers, deduplicates clock pulses from every viewer, transfers action control to whichever viewer Alan touches, and hardens extension reload recovery. The verified bridge is live against the exact production host. The clean-URL candidate does not modify the bridge or multiply X capture. Localhost results remain development evidence only; they are not delivery.
+The repeating-post diagnosis was reproduced in real Chrome before the `0.7.7` correction: the supplied screen recording shows the offline/reset state at 10.95, 40.95, and 70.95 seconds, matching the old 30-second reconnect behavior. The heartbeat-safe bridge passed sustained monitoring. Version `0.7.14` retains that correction, uses one capture for multiple live Station receivers, deduplicates clock pulses from every viewer, transfers action control to whichever viewer Alan touches, and hardens extension reload recovery. The verified bridge is live against the exact production host. The Scenes V2 preview candidate does not modify the bridge or multiply X capture. Localhost results remain development evidence only; they are not delivery.
 
 ## Permanent X architecture direction
 
