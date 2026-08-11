@@ -70,9 +70,8 @@ test("Vercel serves the canonical Station root through an internal rewrite", () 
   const root = config.rewrites.find((rule) => rule.source === "/");
   assert.equal(root.destination, "/deck/");
   assert.deepEqual(root.has, [{
-    type:"header",
-    key:"host",
-    value:"^station\\.scintillahub\\.ai(?::\\d+)?$"
+    type:"host",
+    value:"station.scintillahub.ai"
   }]);
 });
 
