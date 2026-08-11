@@ -263,7 +263,10 @@ function startStationPairing() {
   const { token, code } = trustedIpadPair();
   stationPair = { token, code, room:null };
   stationPair.room = stationRealtimeRoom(stationPair);
-  const link = location.origin + "/station-viewer/#pair=" + encodeURIComponent(token) + "&code=" + encodeURIComponent(stationPair.code);
+  /* This is the durable Companion route.  Its saved trusted pair survives a
+     Safari refresh/wake; the legacy station-viewer route was a one-purpose
+     full-frame receiver with a 30-minute timeout. */
+  const link = location.origin + "/station-ipad/#pair=" + encodeURIComponent(token) + "&code=" + encodeURIComponent(stationPair.code);
   el("pairState").textContent = "waiting for iPad"; el("pairLink").textContent = link;
   el("bPair").textContent = "copy iPad link";
   navigator.clipboard?.writeText(link).catch(() => {});
@@ -461,7 +464,7 @@ async function startRemoteStationViewer() {
   remotePeer.addEventListener("connectionstatechange", () => {
     if (["failed", "disconnected"].includes(remotePeer?.connectionState)) showErr("iMac X connection paused — reopen Station iPad to reconnect.");
   });
-  remoteSocket = new WebSocket("wss://wadinxqplrggagkvrdag.supabase.co/realtime/v1/websocket?apikey=" + encodeURIComponent("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpYXVCJ9.eyJpc3MiOiJzdWJhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g") + "&vsn=1.0.0");
+  remoteSocket = new WebSocket("wss://wadinxqplrggagkvrdag.supabase.co/realtime/v1/websocket?apikey=" + encodeURIComponent("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g") + "&vsn=1.0.0");
   const send = (event, payload) => remoteSocket?.readyState === WebSocket.OPEN && remoteSocket.send(JSON.stringify({ topic:"realtime:station-ipad:" + REMOTE_PAIR, event, payload, ref:String(++ref), join_ref:"1" }));
   remoteSocket.addEventListener("open", () => send("phx_join", { config:{ broadcast:{ self:false, ack:true }, presence:{ key:"" }, private:false }, access_token:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdWJhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g" }));
   remoteSocket.addEventListener("message", async event => {
