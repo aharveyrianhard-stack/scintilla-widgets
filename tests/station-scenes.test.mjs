@@ -64,16 +64,16 @@ test("deck keeps one X pane, consumes explicit deep links, and never serializes 
   assert.match(deck, /if \(!active && o\.frame\) \{\s*o\.frame\.remove\(\)/);
 });
 
-test("Vercel serves the canonical Station root through an internal rewrite", () => {
+test("Vercel serves only the canonical Station root through an internal rewrite", () => {
   const config = JSON.parse(fs.readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
   assert.equal(Array.isArray(config.redirects), false);
   const root = config.rewrites.find((rule) => rule.source === "/");
   assert.equal(root.destination, "/deck/");
   assert.deepEqual(root.has, [{
-    type:"header",
-    key:"host",
-    value:"^station\\.scintillahub\\.ai(?::\\d+)?$"
+    type:"host",
+    value:"station.scintillahub.ai"
   }]);
+  assert.equal(config.rewrites.filter((rule) => rule.source === "/").length, 1);
 });
 
 test("manifest installs the live canonical route without an offline claim", () => {
