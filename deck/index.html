@@ -53,7 +53,7 @@
          layout or from the chip row.
 
      Scenes v2 keeps this same route and changes chart state only:
-       ?scene=live|overnight|indexes|company|macro_short|macro_long|sectors|themes|custom
+       ?scene=live|indexNow|indexLeadership|companyLeadership|focus2|macroCrossAsset|internalsFast|internalsSlow|sectorFamilies|themeFamilies|custom
        ?family=AI_HARDWARE&offset=0 is accepted once; runtime state stays local.
      LIVE/CUSTOM also preserve the existing ?c1= ?c2= ?range= ?live= ?full= state.
      DB reads only. Receipt: HSC-DECK-V4-001.
@@ -202,15 +202,17 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
   <span class="k">THE STATION</span>
   <a class="btn" href="/registry">the hub</a>
   <select class="scene-mode" id="sceneMode" title="saved chart scene; media panes stay in place">
-    <option value="live">live</option>
-    <option value="overnight">overnight</option>
-    <option value="indexes">index leadership</option>
-    <option value="company">company leadership</option>
-    <option value="macro_short">macro short</option>
-    <option value="macro_long">macro long</option>
-    <option value="sectors">sectors</option>
-    <option value="themes">themes</option>
-    <option value="custom">custom</option>
+  <option value="live">live</option>
+  <option value="indexNow">index now</option>
+  <option value="indexLeadership">index leadership</option>
+  <option value="companyLeadership">company leadership</option>
+  <option value="focus2">focus 2</option>
+  <option value="macroCrossAsset">macro cross-asset</option>
+  <option value="internalsFast">internals fast</option>
+  <option value="internalsSlow">internals slow</option>
+  <option value="sectorFamilies">sector families</option>
+  <option value="themeFamilies">theme families</option>
+  <option value="custom">custom</option>
   </select>
   <span id="familyControls">
     <select class="scene-mode" id="familySelect" title="reviewed family with real Hub coverage"></select>
@@ -325,9 +327,9 @@ let VIEW = VIEW_MODES.includes(QS.get("view")) ? QS.get("view") :
   (VIEW_MODES.includes(sessionStorage.getItem("station.view")) ? sessionStorage.getItem("station.view") : "auto");
 document.body.dataset.view = VIEW;
 let SCENE = SceneModel.normalizeScene(QS.get("scene") || remembered("station.scene") || "live");
-const isFamilyScene = (scene) => scene === "sectors" || scene === "themes";
+const isFamilyScene = (scene) => scene === "sectorFamilies" || scene === "themeFamilies";
 const sceneKey = (scene, suffix) => "station.scene." + scene + "." + suffix;
-const defaultFamily = (scene) => scene === "sectors" ? "TECH" : "AI_HARDWARE";
+const defaultFamily = (scene) => scene === "sectorFamilies" ? "TECH" : "AI_HARDWARE";
 let FAMILY = CLEAN_COHORT(QS.get("family") || QS.get("cohort") ||
   remembered(sceneKey(SCENE, "family")) || defaultFamily(SCENE));
 let BASKET_OFFSET = Math.max(0, +(QS.get("offset") || remembered(sceneKey(SCENE, "offset")) || 0));
@@ -610,8 +612,8 @@ function rememberEditableState() {
 function rememberPresentationState() {
   remember(sceneKey(SCENE, "chartCount"), String(PRESENTATION_COUNT));
   remember(sceneKey(SCENE, "range"), RANGE);
-  if (SCENE === "overnight") {
-    remember(sceneKey(SCENE, "flex3"), overnightFlexSymbol(CHARTS[2] || SceneModel.PRESETS.overnight.tickers[2]));
+  if (SCENE === "indexNow") {
+    remember(sceneKey(SCENE, "flex3"), indexNowFlexSymbol(CHARTS[2] || SceneModel.PRESETS.indexNow.tickers[2]));
   }
   if (isFamilyScene(SCENE)) {
     remember(sceneKey(SCENE, "family"), FAMILY);
@@ -619,15 +621,15 @@ function rememberPresentationState() {
   }
 }
 
-function overnightFlexSymbol(defaultValue) {
-  return String(defaultValue || SceneModel.PRESETS.overnight.tickers[2] || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12) || "FLEX3";
+function indexNowFlexSymbol(defaultValue) {
+  return String(defaultValue || SceneModel.PRESETS.indexNow.tickers[2] || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12) || "FLEX3";
 }
 
-function resolveOvernightPresentation() {
-  const preset = Object.assign({}, SceneModel.PRESETS.overnight);
-  const flex = overnightFlexSymbol(remember(sceneKey("overnight", "flex3")));
-  preset.tickers = SceneModel.overnightTickersFor(new Date(), flex);
-  return Object.assign({}, preset, scenePresentation("overnight", preset));
+function resolveIndexNowPresentation() {
+  const preset = Object.assign({}, SceneModel.PRESETS.indexNow);
+  const flex = indexNowFlexSymbol(remember(sceneKey("indexNow", "flex3")));
+  preset.tickers = SceneModel.indexNowTickersFor(new Date(), flex);
+  return Object.assign({}, preset, scenePresentation("indexNow", preset));
 }
 
 function scenePresentation(scene, defaults) {
@@ -701,7 +703,7 @@ function installSceneState(state) {
 }
 async function primeSceneState() {
   if (SceneModel.PRESETS[SCENE]) {
-    const preset = SCENE === "overnight" ? resolveOvernightPresentation() : SceneModel.PRESETS[SCENE];
+    const preset = SCENE === "indexNow" ? resolveIndexNowPresentation() : SceneModel.PRESETS[SCENE];
     const presentation = scenePresentation(SCENE, preset);
     installSceneState(Object.assign({}, preset, presentation));
   } else if (isFamilyScene(SCENE)) {
@@ -716,7 +718,7 @@ async function primeSceneState() {
       FAMILY_READY = false;
       installSceneState({ charts:[], chartCount:1, requestedCount:6, range:RANGE, emptyNote:SCENE.toUpperCase() + " · coverage unavailable" });
     }
-  } else if (["company","macro_short","macro_long"].includes(SCENE)) {
+  } else if (["companyLeadership","macroCrossAsset","internalsFast","internalsSlow"].includes(SCENE)) {
     const presentation = scenePresentation(SCENE, { chartCount:2, range:"1D" });
     installSceneState({ charts:[], chartCount:1, requestedCount:presentation.requestedCount, range:presentation.range,
       emptyNote:SceneModel.SCENES[SCENE].label + " · basket TBD" });
@@ -750,7 +752,7 @@ async function applyScene(next, options) {
   }
   let state;
   if (SceneModel.PRESETS[requested]) {
-    const preset = requested === "overnight" ? resolveOvernightPresentation() : SceneModel.PRESETS[requested];
+    const preset = requested === "indexNow" ? resolveIndexNowPresentation() : SceneModel.PRESETS[requested];
     state = Object.assign({}, preset, scenePresentation(requested, preset));
   } else if (isFamilyScene(requested)) {
     try {
@@ -769,7 +771,7 @@ async function applyScene(next, options) {
       state = { charts:[], chartCount:1, requestedCount:6, range:RANGE,
         emptyNote:SceneModel.SCENES[requested].label + " · coverage unavailable" };
     }
-  } else if (["company","macro_short","macro_long"].includes(requested)) {
+  } else if (["companyLeadership","macroCrossAsset","internalsFast","internalsSlow"].includes(requested)) {
     const presentation = scenePresentation(requested, { chartCount:2, range:"1D" });
     state = { charts:[], chartCount:1, requestedCount:presentation.requestedCount, range:presentation.range,
       emptyNote:SceneModel.SCENES[requested].label + " · basket TBD" };
@@ -916,8 +918,8 @@ function commitTicker(index, raw, input) {
   }
   const original = aliasKey(raw);
   CHARTS[index] = ticker; n.value = ticker;
-  if (SCENE === "overnight" && index === 2) {
-    remember(sceneKey("overnight", "flex3"), overnightFlexSymbol(CHARTS[index]));
+  if (SCENE === "indexNow" && index === 2) {
+    remember(sceneKey("indexNow", "flex3"), indexNowFlexSymbol(CHARTS[index]));
   }
   moveNamedSceneToCustom();
   el("symbolNote").textContent = original && original !== ticker ? original + " → " + ticker : "Hub · " + ticker;
@@ -974,7 +976,7 @@ function applyChartCount(next, fromScene) {
   } else if (SceneModel.PRESETS[SCENE]) {
     const available = SceneModel.PRESETS[SCENE].tickers.length;
     CHART_COUNT = SceneModel.chartCountForSize(Math.min(PRESENTATION_COUNT, available));
-  } else if (["company","macro_short","macro_long"].includes(SCENE)) {
+  } else if (["companyLeadership","macroCrossAsset","internalsFast","internalsSlow"].includes(SCENE)) {
     CHART_COUNT = 1;
   } else CHART_COUNT = PRESENTATION_COUNT;
 

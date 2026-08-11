@@ -8,36 +8,49 @@ const context = { globalThis: {} };
 vm.runInNewContext(source, context);
 const scenes = context.globalThis.StationScenes;
 
+const mkTime = (nyHour) => new Date(Date.UTC(2026, 7, 11, nyHour + 4, 0, 0)); // NYC summer offset is currently -4
+
 test("curated scene ids and immutable named presets are exact", () => {
   assert.deepEqual(Array.from(scenes.IDS), [
-    "live", "overnight", "indexes", "company", "macro_short",
-    "macro_long", "sectors", "themes", "custom"
+    "live", "indexNow", "indexLeadership", "companyLeadership", "focus2",
+    "macroCrossAsset", "internalsFast", "internalsSlow", "sectorFamilies",
+    "themeFamilies", "custom"
   ]);
-  assert.equal(scenes.normalizeScene("cohort"), "themes");
+  assert.equal(scenes.normalizeScene("cohort"), "themeFamilies");
   assert.equal(scenes.normalizeScene("not-real"), "live");
-  assert.deepEqual(Array.from(scenes.PRESETS.overnight.tickers), ["ESUSD", "NQUSD", "FLEX3"]);
-  assert.deepEqual(Array.from(scenes.PRESETS.indexes.tickers), ["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA"]);
-  assert.equal(scenes.PRESETS.indexes.chartCount, 6);
-  assert.equal(scenes.PRESETS.indexes.tickers.includes("DOW"), false);
-  assert.equal(scenes.SCENES.macro_short.horizon, "fast-short");
-  assert.equal(scenes.SCENES.macro_long.horizon, "slow-long");
-  assert.equal(scenes.SCENES.overnight.session, "overnight");
+  assert.deepEqual(Array.from(scenes.PRESETS.indexNow.tickers), ["ESUSD", "NQUSD", "FLEX3"]);
+  assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA"]);
+  assert.equal(scenes.PRESETS.indexLeadership.chartCount, 6);
+  assert.equal(scenes.PRESETS.indexLeadership.tickers.includes("DOW"), false);
+  assert.equal(scenes.SCENES.macroCrossAsset.horizon, "fast-short");
+  assert.equal(scenes.SCENES.internalsSlow.horizon, "slow-long");
+  assert.equal(scenes.SCENES.indexNow.session, "regular");
+  assert.deepEqual(Array.from(scenes.indexNowTickersFor(mkTime(12), "  flex 3 ")), ["SPY", "QQQ", "FLEX3"]);
 });
 
-test("OVERNIGHT flex leaders follow America/New_York session boundaries", () => {
-  const mk = (nyHour) => new Date(Date.UTC(2026, 7, 11, nyHour + 4, 0, 0)); // NY summer offset currently -4
-  assert.deepEqual(Array.from(scenes.overnightLeaders(mk(12))), ["SPY", "QQQ"]);
-  assert.deepEqual(Array.from(scenes.overnightLeaders(mk(17))), ["SPY", "QQQ"]);
-  assert.deepEqual(Array.from(scenes.overnightLeaders(mk(18))), ["ESUSD", "NQUSD"]);
-  assert.deepEqual(Array.from(scenes.overnightLeaders(mk(7))), ["ESUSD", "NQUSD"]);
+test("INDEX NOW leaders follow America/New_York session boundaries", () => {
+  assert.deepEqual(Array.from(scenes.indexNowLeaders(mkTime(12))), ["SPY", "QQQ"]);
+  assert.deepEqual(Array.from(scenes.indexNowLeaders(mkTime(17))), ["SPY", "QQQ"]);
+  assert.deepEqual(Array.from(scenes.indexNowLeaders(mkTime(18))), ["ESUSD", "NQUSD"]);
+  assert.deepEqual(Array.from(scenes.indexNowLeaders(mkTime(7))), ["ESUSD", "NQUSD"]);
 });
 
-test("overnight ticker list is dynamic and sanitizes slot-3 flex edits", () => {
-  const pre = scenes.overnightTickersFor(new Date(Date.UTC(2026, 7, 11, 12 + 4, 0, 0)), "flex3");
+test("INDEX NOW ticker list is dynamic and sanitizes slot-3 flex edits", () => {
+  const pre = scenes.indexNowTickersFor(new Date(Date.UTC(2026, 7, 11, 12 + 4, 0, 0)), "flex3");
   assert.deepEqual(Array.from(pre), ["SPY", "QQQ", "FLEX3"]);
 
-  const preCl = scenes.overnightTickersFor(new Date(Date.UTC(2026, 7, 11, 20 + 4, 0, 0)), "cl usd");
+  const preCl = scenes.indexNowTickersFor(new Date(Date.UTC(2026, 7, 11, 20 + 4, 0, 0)), "cl usd");
   assert.deepEqual(Array.from(preCl), ["ESUSD", "NQUSD", "CLUSD"]);
+});
+
+test("legacy scene keys normalize through governing mapping", () => {
+  assert.equal(scenes.normalizeScene("overnight"), "indexNow");
+  assert.equal(scenes.normalizeScene("indexes"), "indexLeadership");
+  assert.equal(scenes.normalizeScene("company"), "companyLeadership");
+  assert.equal(scenes.normalizeScene("macro_short"), "macroCrossAsset");
+  assert.equal(scenes.normalizeScene("macro_long"), "macroCrossAsset");
+  assert.equal(scenes.normalizeScene("sectors"), "sectorFamilies");
+  assert.equal(scenes.normalizeScene("themes"), "themeFamilies");
 });
 
 test("chart geometry remains bounded to 1, 2, 3, 4, or 6", () => {
@@ -70,9 +83,9 @@ test("normal navigation exposes only reviewed non-empty sector/theme families", 
     ["TRAVEL_AND_LODGING", ["CCC"]],
     ["AI_SOFTWARE", []]
   ]);
-  assert.deepEqual(Array.from(scenes.curatedFamilies(index, "themes")), ["AI_HARDWARE"]);
-  assert.deepEqual(Array.from(scenes.curatedFamilies(index, "sectors")), ["TECH"]);
-  assert.equal(scenes.curatedFamilies(index, "themes").includes("TRAVEL_AND_LODGING"), false);
+  assert.deepEqual(Array.from(scenes.curatedFamilies(index, "themeFamilies")), ["AI_HARDWARE"]);
+  assert.deepEqual(Array.from(scenes.curatedFamilies(index, "sectorFamilies")), ["TECH"]);
+  assert.equal(scenes.curatedFamilies(index, "themeFamilies").includes("TRAVEL_AND_LODGING"), false);
 });
 
 test("expanding a 20-member basket from two to six fills real members without blanks", () => {
@@ -111,15 +124,17 @@ test("sparse and empty baskets use honest effective layouts", () => {
   assert.equal(empty.empty, true);
   assert.equal(empty.totalItems, 0);
   assert.equal(empty.chartCount, 1);
+  assert.equal(empty.end, 0);
   assert.deepEqual(Array.from(empty.tickers), []);
 });
 
 test("deck keeps curated navigation, presentation state, and one X pane", () => {
   const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
-  const sceneOptions = Array.from(deck.matchAll(/<option value="(live|overnight|indexes|company|macro_short|macro_long|sectors|themes|custom)">/g), (match) => match[1]);
+  const sceneOptions = Array.from(deck.matchAll(/<option value="(live|indexNow|indexLeadership|companyLeadership|focus2|macroCrossAsset|internalsFast|internalsSlow|sectorFamilies|themeFamilies|custom)">/g), (match) => match[1]);
   assert.deepEqual(sceneOptions, [
-    "live", "overnight", "indexes", "company", "macro_short",
-    "macro_long", "sectors", "themes", "custom"
+    "live", "indexNow", "indexLeadership", "companyLeadership", "focus2",
+    "macroCrossAsset", "internalsFast", "internalsSlow", "sectorFamilies",
+    "themeFamilies", "custom"
   ]);
   assert.doesNotMatch(deck, /<option value="cohort">/);
   assert.doesNotMatch(deck, /const COHORT_ORDER/);
@@ -139,7 +154,7 @@ test("deck keeps curated navigation, presentation state, and one X pane", () => 
   assert.doesNotMatch(deck, /writeStationUrl/);
   assert.match(deck, /rel="manifest" href="\/station\/manifest\.json"/);
   assert.equal((deck.match(/key: "x"/g) || []).length, 1);
-  assert.match(deck, /if \(!active && o\.frame\) \{\s*o\.frame\.remove\(\)/);
+  assert.match(deck, /if \(!active && o\.frame\) \{\s*o\.frame\.remove\(\);/);
 });
 
 test("Vercel routing remains byte-for-byte outside Scenes V2 scope", () => {
