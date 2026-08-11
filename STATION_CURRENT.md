@@ -1,8 +1,14 @@
 # SCINTILLA Station — current state
 
-Updated: 2026-08-10 (America/New_York)
+Updated: 2026-08-11 (America/New_York)
 
 This is the present-tense record for the verified live Station and its separately admitted review candidates. Scenes v1 is production. The local-only Scenes v2 delivery is a review candidate only and has not changed production.
+
+## CUSTOM recovery hotfix candidate
+
+- Candidate branch: `agent/station-scenes-custom-recovery-001`, based exactly on `7442d6cb126915dfb38cae0d3f0ad1a83d219a99`.
+- Scope: recover a stale or sparse remembered CUSTOM workspace without rendering “Choose a symbol” cards. A six-chart TSM/WULF workspace compacts to two real chart slots; an empty stale CUSTOM workspace falls back to usable LIVE.
+- This is a review-only hotfix. It changes neither X/iPad behavior, routing, Hub/backend/auth state, nor production.
 
 ## Scenes v2 local delivery candidate
 
