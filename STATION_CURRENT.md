@@ -1,6 +1,6 @@
 # SCINTILLA Station — current state
 
-Updated: 2026-08-10 (America/New_York)
+Updated: 2026-08-11 (America/New_York)
 
 This is the present-tense record for the verified live Station and the separately admitted Scenes V2 navigation candidate. Scenes V1 and the clean-root baseline are already production. Station routing, Hub, iMac/X Bridge, database, and indicators are outside this candidate.
 
@@ -16,7 +16,7 @@ This is the present-tense record for the verified live Station and the separatel
 - Canonical architecture roadmap: `https://docs.google.com/document/d/1aLDEcIa4647copZrrO-rFsXuNeY98R8YS5Ux3OZQaxQ/edit`
 - Scenes V2 preview job: `SCINTILLA-STATION-SCENES-V2-NAV-PRIMITIVES-001`
 - Scenes V2 candidate branch: `agent/station-scenes-v2-nav-primitives`, based exactly on production `5b59353e...`
-- Scenes V2 review: [draft scintilla-widgets PR #7](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/7); implementation commit `8343269`.
+- Scenes V2 review: [draft scintilla-widgets PR #7](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/7); implementation commit `e2b806c`.
 - Scenes V2 status: **preview only**. No production merge or promotion is authorized by this job.
 
 ## Open now
@@ -30,20 +30,20 @@ This is the present-tense record for the verified live Station and the separatel
 
 ## Scenes V2 preview candidate
 
-- Replaces the raw, oversized cohort dropdown with a small purpose-first scene list: LIVE, OVERNIGHT, INDEX LEADERSHIP, COMPANY LEADERSHIP, MACRO SHORT, MACRO LONG, SECTORS, THEMES, and CUSTOM.
+- Replaces the raw, oversized cohort dropdown with a small purpose-first scene list: LIVE, INDEX NOW, INDEX LEADERSHIP, COMPANY LEADERSHIP, FOCUS 2, MACRO CROSS-ASSET, INTERNALS FAST, INTERNALS SLOW, SECTOR FAMILIES, THEME FAMILIES, and CUSTOM.
 - Keeps basket membership separate from presentation. Chart count, timeframe, density, and paging no longer abandon a named scene or silently turn it into CUSTOM.
 - Fixes the concrete 2→6 failure: a covered family expands from the same basket offset and fills the next real members instead of activating empty `Choose a symbol` slots.
 - Uses a compact secondary selector only inside SECTORS and THEMES. It exposes only explicitly reviewed family keys with real favorite-backed coverage; raw backend cohorts, zero-member cohorts, and unreviewed names do not enter normal navigation automatically.
 - Keeps exact INDEX LEADERSHIP order: SPY, QQQ, IWM, MAGS, SMH, DIA. DOW Inc. is never substituted.
-- Leaves COMPANY LEADERSHIP, MACRO SHORT, and MACRO LONG as honest `basket TBD` states until Alan approves exact ordered membership. It invents no tickers.
+- Leaves COMPANY LEADERSHIP, MACRO CROSS-ASSET, INTERNALS FAST, and INTERNALS SLOW as honest `basket TBD` states until Alan approves exact ordered membership. It invents no tickers.
 - Uses offset windows with explicit `x–y of total` status. Changing count preserves the first visible member; sparse baskets use a smaller effective layout; empty baskets show one honest state and do not mount a chart iframe.
 - Direct ticker editing from a curated named scene copies only the visible view into device-local CUSTOM. LIVE remains the existing editable workspace, and curated definitions cannot be overwritten from the Station UI.
 - Preserves the existing five-pane LIVE surface, keeps Personal YouTube / SCINTILLA YouTube / X mounted, and retains visible-only chart mounting and one X pane.
-- This first candidate deliberately keeps 1/2/3/4/6 chart structures. Eight-chart layouts, MA/RSI panes, automatic rotation, movers/volume ranking, cross-device sync, and indicator work require separate reviewed jobs.
+- INDEX NOW keeps dynamic session awareness in slots 1–2 (08:00-18:00 NY: SPY/QQQ; overnight: ESUSD/NQUSD), with manual FLEX 3 in slot 3. This first candidate keeps 1/2/3/4/6 chart structures. Eight-chart layouts, MA/RSI panes, automatic rotation, movers/volume ranking, cross-device sync, and indicator work require separate reviewed jobs.
 
 ## What works in production
 
-- Scenes v1 adds same-route OVERNIGHT (`ESUSD`, `NQUSD`, `CLUSD`) and six-slot INDEX LEADERSHIP (`SPY`, `QQQ`, `IWM`, `MAGS`, `SMH`, `DIA`) presets without remounting the media or X panes. `DIA` is registered and has a live quote plus limited intraday history; its 1D pane remains an honest chart-data-unavailable state until daily history exists. `DOW` is never substituted.
+- Scenes v1 adds same-route INDEX NOW presets and six-slot INDEX LEADERSHIP (`SPY`, `QQQ`, `IWM`, `MAGS`, `SMH`, `DIA`) presets without remounting the media or X panes. Index-now daytime (`08:00`–`18:00` NY) uses `SPY`, `QQQ`, plus manual `FLEX 3`; overnight uses `ESUSD`, `NQUSD`, plus manual `FLEX 3`. `DIA` is registered and has a live quote plus limited intraday history; its 1D pane remains an honest chart-data-unavailable state until daily history exists. `DOW` is never substituted.
 - COHORT FAVORITES is generated from the real favorites/membership intersection, keeps every favorite across pages of six, and uses an empty chart rather than filler when a cohort has no favorites. CUSTOM is remembered separately.
 - One, two, three, four, or six charts. The awkward five-chart geometry is intentionally not offered.
 - Every visible ticker field guides from the current active Hub symbol registry; the count is loaded from the database rather than hard-coded.
