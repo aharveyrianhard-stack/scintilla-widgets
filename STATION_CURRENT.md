@@ -4,6 +4,12 @@ Updated: 2026-08-11 (America/New_York)
 
 This is the present-tense record for the verified live Station and its separately admitted review candidates. Scenes v1 is production. The local-only Scenes v2 delivery is a review candidate only and has not changed production.
 
+## Chart-load resilience candidate
+
+- Candidate branch: `agent/station-chart-load-resilience-001`, based exactly on production `3f1f790a5406ccd186c1abec1869e839b9ed1924`.
+- Scope: keep the last cached chart visible in a fresh Station window, persist the data cache for bare Station panes without persisting selected ticker or range, abort a hung data read after 4.5 seconds, coalesce duplicate same-chart requests, and show a retryable delayed-data state instead of an indefinite black/waiting pane.
+- This is a review-only client resilience change. It does not repair, migrate, tune, or otherwise change the live database/service; a separate read-only diagnosis found authenticated data-plane reads can queue well beyond the normal chart startup window.
+
 ## CUSTOM recovery hotfix candidate
 
 - Candidate branch: `agent/station-scenes-custom-recovery-001`, based exactly on `7442d6cb126915dfb38cae0d3f0ad1a83d219a99`.
