@@ -16,11 +16,11 @@
     live: Object.freeze({ label:"LIVE", kind:"working", horizon:"working", session:"any" }),
     indexNow: Object.freeze({ label:"INDEX NOW", kind:"basket", horizon:"fast-short", session:"regular" }),
     indexLeadership: Object.freeze({ label:"INDEX LEADERSHIP", kind:"basket", horizon:"fast-short", session:"regular" }),
-    companyLeadership: Object.freeze({ label:"COMPANY LEADERSHIP", kind:"placeholder", horizon:"fast-short", session:"regular" }),
+    companyLeadership: Object.freeze({ label:"COMPANY LEADERSHIP", kind:"basket", horizon:"fast-short", session:"regular" }),
     focus2: Object.freeze({ label:"FOCUS 2", kind:"working", horizon:"fast-short", session:"regular" }),
-    macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", kind:"placeholder", horizon:"fast-short", session:"any" }),
-    internalsFast: Object.freeze({ label:"INTERNALS FAST", kind:"placeholder", horizon:"fast-short", session:"any" }),
-    internalsSlow: Object.freeze({ label:"INTERNALS SLOW", kind:"placeholder", horizon:"slow-long", session:"any" }),
+    macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", kind:"basket", horizon:"slow-long", session:"any" }),
+    internalsFast: Object.freeze({ label:"INTERNALS FAST", kind:"basket", horizon:"fast-short", session:"any" }),
+    internalsSlow: Object.freeze({ label:"INTERNALS SLOW", kind:"basket", horizon:"slow-long", session:"any" }),
     sectorFamilies: Object.freeze({ label:"SECTOR FAMILIES", kind:"family", horizon:"medium", session:"regular" }),
     themeFamilies: Object.freeze({ label:"THEME FAMILIES", kind:"family", horizon:"medium", session:"regular" }),
     custom: Object.freeze({ label:"CUSTOM", kind:"working", horizon:"working", session:"any" })
@@ -31,17 +31,41 @@
       label: "INDEX NOW",
       tickers: Object.freeze(["ESUSD", "NQUSD", INDEX_NOW_FLEX_DEFAULT]),
       chartCount: 3,
-      range: "15m"
+      range: "3h"
     }),
     indexLeadership: Object.freeze({
       label: "INDEX LEADERSHIP",
       tickers: Object.freeze(["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA"]),
       chartCount: 6,
-      range: "1D"
+      range: "3h"
     }),
     focus2: Object.freeze({
       label: "FOCUS 2",
-      tickers: Object.freeze(["SPY", "QQQ"]),
+      tickers: Object.freeze(["MU", "SNDK"]),
+      chartCount: 2,
+      range: "3h"
+    }),
+    companyLeadership: Object.freeze({
+      label: "COMPANY LEADERSHIP",
+      tickers: Object.freeze(["AAPL", "MSFT", "META", "AMZN", "GOOGL", "TSLA"]),
+      chartCount: 6,
+      range: "3h"
+    }),
+    macroCrossAsset: Object.freeze({
+      label: "MACRO CROSS-ASSET",
+      tickers: Object.freeze(["US10Y", "DXUSD", "GCUSD", "SIUSD"]),
+      chartCount: 4,
+      range: "3D"
+    }),
+    internalsFast: Object.freeze({
+      label: "INTERNALS FAST",
+      tickers: Object.freeze(["VIX", "ADD", "PCC", "CUMTICK"]),
+      chartCount: 4,
+      range: "3h"
+    }),
+    internalsSlow: Object.freeze({
+      label: "INTERNALS SLOW",
+      tickers: Object.freeze(["TICK", "TRIN"]),
       chartCount: 2,
       range: "1D"
     })
@@ -50,14 +74,15 @@
   /* Reviewed family order only. Raw backend cohort keys never become primary
      navigation automatically; a family appears only when it is both listed
      here and has real favorite-backed coverage. */
-  const FAMILY_GROUPS = Object.freeze({
+  const FAMILY_BASKETS = Object.freeze({
     sectorFamilies: Object.freeze([
-      "TECH", "COMMS", "DISCRET", "ENERGY", "FINANCIALS", "HEALTH",
-      "INDUSTRIAL", "MATERIALS", "REAL_ESTATE", "STAPLES", "UTILITIES"
+      Object.freeze({ id:"CYCLICAL", label:"CYCLICAL / LEADERSHIP", tickers:Object.freeze(["XLK", "XLC", "XLY", "XLI", "XLF", "XLE"]), range:"1D" }),
+      Object.freeze({ id:"DEFENSIVE", label:"DEFENSIVE / BALLAST", tickers:Object.freeze(["XLP", "XLV", "XLU", "XLRE", "XLB", "SECTOR12"]), range:"1D" })
     ]),
     themeFamilies: Object.freeze([
-      "AI_HARDWARE", "AI_SOFTWARE", "MEGACAP", "BLUE_CHIP", "GROWTH",
-      "CRYPTO", "INTL", "THEMATIC", "METALS"
+      Object.freeze({ id:"AI_COMPUTE", label:"AI COMPUTE CORE", tickers:Object.freeze(["NVDA", "TSM", "AVGO", "MU", "SNDK", "ASML"]), range:"1h" }),
+      Object.freeze({ id:"AI_INFRA", label:"AI INFRASTRUCTURE", tickers:Object.freeze(["NBIS", "CRDO", "ANET", "CRWV", "APLD", "ALAB"]), range:"1h" }),
+      Object.freeze({ id:"AI_POWER", label:"AI POWER / SPECULATIVE", tickers:Object.freeze(["CIFR", "IREN", "WULF", "BE", "OKLO", "USAR"]), range:"1h" })
     ])
   });
 
@@ -116,6 +141,11 @@
     return 6;
   }
 
+  function usesSharedBottomAxis(size) {
+    const count = chartCountForSize(size);
+    return count === 4 || count === 6;
+  }
+
   function buildCohortFavorites(favoriteRows, membershipGroups) {
     const favorites = new Set((favoriteRows || []).map((row) => String(row?.ticker || "").toUpperCase()).filter(Boolean));
     const byCohort = new Map();
@@ -131,9 +161,17 @@
     return new Map(Array.from(byCohort, ([cohort, tickers]) => [cohort, Array.from(tickers).sort()]));
   }
 
-  function curatedFamilies(index, scene) {
-    const allowed = FAMILY_GROUPS[normalizeScene(scene)] || [];
-    return allowed.filter((family) => (index?.get(family) || []).length > 0);
+  function curatedFamilies(_index, scene) {
+    return (FAMILY_BASKETS[normalizeScene(scene)] || []).map((family) => family.id);
+  }
+
+  function curatedFamilyOptions(scene) {
+    return (FAMILY_BASKETS[normalizeScene(scene)] || []).slice();
+  }
+
+  function curatedFamilyBasket(scene, id) {
+    const options = curatedFamilyOptions(scene);
+    return options.find((option) => option.id === String(id || "").toUpperCase()) || options[0] || null;
   }
 
   function basketWindow(members, requestedOffset, requestedCount) {
@@ -185,15 +223,18 @@
     IDS: Object.freeze(IDS.slice()),
     SCENES,
     PRESETS,
-    FAMILY_GROUPS,
+    FAMILY_BASKETS,
     normalizeScene,
     chartCountForSize,
+    usesSharedBottomAxis,
     indexNowTickersFor,
     indexNowLeaders,
     overnightTickersFor,
     overnightLeaders,
     buildCohortFavorites,
     curatedFamilies,
+    curatedFamilyOptions,
+    curatedFamilyBasket,
     basketWindow,
     cohortPage
   });

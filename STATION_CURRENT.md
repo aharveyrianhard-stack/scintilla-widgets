@@ -14,8 +14,8 @@ This is the present-tense record for the verified live Station and the separatel
 - The clean-root baseline consumes deliberate deep-link inputs once, keeps runtime scene state out of the address bar, and uses `/` as the PWA identity/start URL.
 - A separate routing-only correction remains owned by the Station routing workstream and is not part of Scenes V2.
 - Canonical architecture roadmap: `https://docs.google.com/document/d/1aLDEcIa4647copZrrO-rFsXuNeY98R8YS5Ux3OZQaxQ/edit`
-- Scenes V2 preview job: `SCINTILLA-STATION-SCENES-V2-NAV-PRIMITIVES-001`
-- Scenes V2 candidate branch: `agent/station-scenes-v2-nav-primitives`, based exactly on production `5b59353e...`
+- Scenes V2 curated-baseline preview job: `SCINTILLA-STATION-SCENES-V2-CURATED-BASELINE-001`
+- Scenes V2 candidate branch: `agent/station-scenes-v2-curated-baseline-001`, based exactly on production `37eae113d2c1956e71a412848ce73f2cdf686047`
 - Scenes V2 status: **preview only**. No production merge or promotion is authorized by this job.
 
 ## Open now
@@ -29,14 +29,12 @@ This is the present-tense record for the verified live Station and the separatel
 
 ## Scenes V2 preview candidate
 
-- Replaces the raw, oversized cohort dropdown with a small purpose-first scene list: LIVE, OVERNIGHT, INDEX LEADERSHIP, COMPANY LEADERSHIP, MACRO SHORT, MACRO LONG, SECTORS, THEMES, and CUSTOM.
-- Keeps basket membership separate from presentation. Chart count, timeframe, density, and paging no longer abandon a named scene or silently turn it into CUSTOM.
-- Fixes the concrete 2→6 failure: a covered family expands from the same basket offset and fills the next real members instead of activating empty `Choose a symbol` slots.
-- Uses a compact secondary selector only inside SECTORS and THEMES. It exposes only explicitly reviewed family keys with real favorite-backed coverage; raw backend cohorts, zero-member cohorts, and unreviewed names do not enter normal navigation automatically.
-- Keeps exact INDEX LEADERSHIP order: SPY, QQQ, IWM, MAGS, SMH, DIA. DOW Inc. is never substituted.
-- Leaves COMPANY LEADERSHIP, MACRO SHORT, and MACRO LONG as honest `basket TBD` states until Alan approves exact ordered membership. It invents no tickers.
-- Uses offset windows with explicit `x–y of total` status. Changing count preserves the first visible member; sparse baskets use a smaller effective layout; empty baskets show one honest state and do not mount a chart iframe.
-- Direct ticker editing from a curated named scene copies only the visible view into device-local CUSTOM. LIVE remains the existing editable workspace, and curated definitions cannot be overwritten from the Station UI.
+- Replaces the raw cohort dropdown with a small purpose-first list: LIVE, INDEX NOW, INDEX LEADERSHIP, COMPANY LEADERSHIP, FOCUS 2, MACRO CROSS-ASSET, INTERNALS FAST, INTERNALS SLOW, SECTOR FAMILIES, THEME FAMILIES, and CUSTOM.
+- Uses the reviewed fixed baskets from the governing Scenes V2 placement record. Exact INDEX LEADERSHIP ordering is SPY, QQQ, IWM, MAGS, SMH, DIA, RSP, and a visible INDEX 8 placeholder; DOW Inc. is never substituted.
+- INDEX NOW changes only its first two slots at 08:00/18:00 America/New_York: SPY/QQQ by day and ESUSD/NQUSD overnight. FLEX 3 remains a clearly labeled protected shared-state slot in this baseline; it is not silently stored per device.
+- COMPANY LEADERSHIP, MACRO CROSS-ASSET, both INTERNALS scenes, two SECTOR families, and three THEME families now have their approved ordered baskets. Missing source coverage is named visibly rather than dropped or substituted.
+- Basket membership is separate from presentation. Paging retains the first visible member, reaches every member in order, and never activates an empty `Choose a symbol` tile. Named-scene ticker editing is locked pending the separate central shared-state capability; existing LIVE/CUSTOM behavior remains intact.
+- Four- and six-chart synchronized grids render one shared bottom time axis and mask the redundant top-row time labels. Chart zoom and pan remain local to the viewing device.
 - Preserves the existing five-pane LIVE surface, keeps Personal YouTube / SCINTILLA YouTube / X mounted, and retains visible-only chart mounting and one X pane.
 - This first candidate deliberately keeps 1/2/3/4/6 chart structures. Eight-chart layouts, MA/RSI panes, automatic rotation, movers/volume ranking, cross-device sync, and indicator work require separate reviewed jobs.
 

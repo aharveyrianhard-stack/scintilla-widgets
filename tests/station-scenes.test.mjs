@@ -19,10 +19,16 @@ test("curated scene ids and immutable named presets are exact", () => {
   assert.equal(scenes.normalizeScene("cohort"), "themeFamilies");
   assert.equal(scenes.normalizeScene("not-real"), "live");
   assert.deepEqual(Array.from(scenes.PRESETS.indexNow.tickers), ["ESUSD", "NQUSD", "FLEX3"]);
+  assert.equal(scenes.PRESETS.indexNow.range, "3h");
   assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA"]);
-  assert.equal(scenes.PRESETS.indexLeadership.chartCount, 6);
+  assert.deepEqual(Array.from(scenes.PRESETS.companyLeadership.tickers), ["AAPL", "MSFT", "META", "AMZN", "GOOGL", "TSLA"]);
+  assert.deepEqual(Array.from(scenes.PRESETS.macroCrossAsset.tickers), ["US10Y", "DXUSD", "GCUSD", "SIUSD"]);
+  assert.deepEqual(Array.from(scenes.PRESETS.internalsFast.tickers), ["VIX", "ADD", "PCC", "CUMTICK"]);
+  assert.deepEqual(Array.from(scenes.PRESETS.internalsSlow.tickers), ["TICK", "TRIN"]);
+  assert.deepEqual(Array.from(scenes.PRESETS.focus2.tickers), ["MU", "SNDK"]);
+  assert.equal(scenes.PRESETS.indexLeadership.range, "3h");
   assert.equal(scenes.PRESETS.indexLeadership.tickers.includes("DOW"), false);
-  assert.equal(scenes.SCENES.macroCrossAsset.horizon, "fast-short");
+  assert.equal(scenes.SCENES.macroCrossAsset.horizon, "slow-long");
   assert.equal(scenes.SCENES.internalsSlow.horizon, "slow-long");
   assert.equal(scenes.SCENES.indexNow.session, "regular");
   assert.deepEqual(Array.from(scenes.indexNowTickersFor(mkTime(12), "  flex 3 ")), ["SPY", "QQQ", "FLEX3"]);
@@ -60,6 +66,9 @@ test("chart geometry remains bounded to 1, 2, 3, 4, or 6", () => {
   assert.equal(scenes.chartCountForSize(5), 6);
   assert.equal(scenes.chartCountForSize(6), 6);
   assert.equal(scenes.chartCountForSize(8), 6);
+  assert.equal(scenes.usesSharedBottomAxis(4), true);
+  assert.equal(scenes.usesSharedBottomAxis(6), true);
+  assert.equal(scenes.usesSharedBottomAxis(3), false);
 });
 
 test("favorite-backed families intersect memberships, dedupe, and retain source honesty", () => {
@@ -76,16 +85,13 @@ test("favorite-backed families intersect memberships, dedupe, and retain source 
   assert.deepEqual(Array.from(index.get("TECH")), ["CCC"]);
 });
 
-test("normal navigation exposes only reviewed non-empty sector/theme families", () => {
-  const index = new Map([
-    ["AI_HARDWARE", ["AAA"]],
-    ["TECH", ["BBB"]],
-    ["TRAVEL_AND_LODGING", ["CCC"]],
-    ["AI_SOFTWARE", []]
-  ]);
-  assert.deepEqual(Array.from(scenes.curatedFamilies(index, "themeFamilies")), ["AI_HARDWARE"]);
-  assert.deepEqual(Array.from(scenes.curatedFamilies(index, "sectorFamilies")), ["TECH"]);
-  assert.equal(scenes.curatedFamilies(index, "themeFamilies").includes("TRAVEL_AND_LODGING"), false);
+test("normal navigation exposes only fixed reviewed sector/theme families", () => {
+  assert.deepEqual(Array.from(scenes.curatedFamilies(null, "sectorFamilies")), ["CYCLICAL", "DEFENSIVE"]);
+  assert.deepEqual(Array.from(scenes.curatedFamilies(null, "themeFamilies")), ["AI_COMPUTE", "AI_INFRA", "AI_POWER"]);
+  assert.deepEqual(Array.from(scenes.curatedFamilyBasket("sectorFamilies", "CYCLICAL").tickers), ["XLK", "XLC", "XLY", "XLI", "XLF", "XLE"]);
+  assert.deepEqual(Array.from(scenes.curatedFamilyBasket("sectorFamilies", "DEFENSIVE").tickers), ["XLP", "XLV", "XLU", "XLRE", "XLB", "SECTOR12"]);
+  assert.deepEqual(Array.from(scenes.curatedFamilyBasket("themeFamilies", "AI_INFRA").tickers), ["NBIS", "CRDO", "ANET", "CRWV", "APLD", "ALAB"]);
+  assert.equal(scenes.curatedFamilies(null, "themeFamilies").includes("TRAVEL_AND_LODGING"), false);
 });
 
 test("expanding a 20-member basket from two to six fills real members without blanks", () => {
@@ -139,11 +145,16 @@ test("deck keeps curated navigation, presentation state, and one X pane", () => 
   assert.doesNotMatch(deck, /<option value="cohort">/);
   assert.doesNotMatch(deck, /const COHORT_ORDER/);
   assert.match(deck, /function rememberPresentationState\(\)/);
-  assert.match(deck, /function familyState\(requestedCount\)/);
+  assert.match(deck, /function familyState\(requestedCount, scene = SCENE\)/);
+  assert.match(deck, /function presetState\(scene, requestedCount\)/);
   assert.match(deck, /PRESENTATION_COUNT = chartCount\(next\)/);
   assert.match(deck, /state\.tickers\.slice\(0, 6\)/);
-  assert.doesNotMatch(deck, /moveNamedSceneToCustom\(\);\n\s*const original = aliasKey\(raw\);/);
-  assert.match(deck, /moveNamedSceneToCustom\(\);/);
+  assert.doesNotMatch(deck, /remember\(sceneKey\(/);
+  assert.match(deck, /curated basket · shared edits pending/);
+  assert.match(deck, /FLEX 3 · shared selection pending/);
+  assert.match(deck, /function syncSharedBottomAxis\(\)/);
+  assert.match(deck, /#sharedTimeAxis/);
+  assert.match(deck, /SceneModel\.usesSharedBottomAxis\(CHART_COUNT\)/);
   assert.match(deck, /const original = aliasKey\(raw\);/);
   assert.doesNotMatch(deck.match(/function setRange[\s\S]*?\n}/)?.[0] || "", /moveNamedSceneToCustom/);
   assert.doesNotMatch(deck.match(/function applyChartCount[\s\S]*?\nel\("chartCount"\)/)?.[0] || "", /moveNamedSceneToCustom/);
@@ -162,11 +173,7 @@ test("Vercel routing remains byte-for-byte outside Scenes V2 scope", () => {
   assert.equal(Array.isArray(config.redirects), false);
   const root = config.rewrites.find((rule) => rule.source === "/");
   assert.equal(root.destination, "/deck/");
-  assert.deepEqual(root.has, [{
-    type:"header",
-    key:"host",
-    value:"^station\\.scintillahub\\.ai(?::\\d+)?$"
-  }]);
+  assert.deepEqual(root.has, [{ type:"host", value:"station.scintillahub.ai" }]);
 });
 
 test("manifest installs the live canonical route without an offline claim", () => {

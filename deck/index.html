@@ -54,8 +54,9 @@
 
      Scenes v2 keeps this same route and changes chart state only:
        ?scene=live|indexNow|indexLeadership|companyLeadership|focus2|macroCrossAsset|internalsFast|internalsSlow|sectorFamilies|themeFamilies|custom
-       ?family=AI_HARDWARE&offset=0 is accepted once; runtime state stays local.
-     LIVE/CUSTOM also preserve the existing ?c1= ?c2= ?range= ?live= ?full= state.
+       ?family=CYCLICAL&offset=0 is accepted once; named baskets remain fixed.
+     LIVE/CUSTOM retain their existing local workspace behavior; shared editable
+     Scene state is intentionally a separate implementation.
      DB reads only. Receipt: HSC-DECK-V4-001.
      ============================================================================ -->
 <style>
@@ -104,13 +105,16 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   text-transform:uppercase; }
 #familyControls{ display:none; align-items:center; gap:4px; }
 #familyControls.on{ display:flex; }
+#basketControls{ display:none; align-items:center; gap:4px; }
+#basketControls.on{ display:flex; }
 #familySelect{ width:128px; }
-#familyPosition{ min-width:72px; text-align:center; color:var(--ink3); font-size:8px; }
+#familyPosition,#basketPosition{ min-width:72px; text-align:center; color:var(--ink3); font-size:8px; }
 #tickers{ display:flex; gap:4px; flex-wrap:wrap; }
 .ph .tkin{ width:96px; padding:1px 4px; text-align:left; background:transparent;
   border-color:transparent; color:var(--ink2); font-size:8.5px; }
 .ph .tkin:hover{ border-color:var(--line); }
 .ph .tkin:focus{ border-color:var(--crk); color:var(--crk); background:var(--bg); }
+.ph .tkin.locked{ color:var(--ink2); cursor:default; pointer-events:none; }
 #symbolGuide{ position:fixed; z-index:80; display:none; width:min(390px,calc(100vw - 18px));
   max-height:300px; overflow:auto; background:var(--panel2); border:1px solid var(--hair);
   box-shadow:0 16px 42px rgba(0,0,0,.65); }
@@ -137,6 +141,17 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 #rowTop.charts-4 > .pane{ grid-column:span 3; }
 #rowTop.charts-6 > .pane{ grid-column:span 2; }
 #rowTop > .pane.chart-off{ display:none; }
+/* A synchronized 2×2 or 3×2 chart grid has one time scale. The deck masks
+   duplicate frame labels and draws a single shared scale without changing
+   the chart data or its local zoom/pan interaction. */
+#rowTop.shared-axis{ position:relative; padding-bottom:25px; }
+#rowTop.shared-axis > .pane::after{ content:""; position:absolute; z-index:5;
+  left:0; right:0; bottom:0; height:25px; background:var(--bg); pointer-events:none; }
+#sharedTimeAxis{ display:none; position:absolute; z-index:6; left:6px; right:30px; bottom:2px;
+  height:20px; align-items:flex-end; justify-content:space-between; pointer-events:none;
+  color:var(--mute); font-size:7.5px; letter-spacing:.04em; font-variant-numeric:tabular-nums; }
+#rowTop.shared-axis #sharedTimeAxis{ display:flex; }
+#sharedTimeAxis .mid{ text-align:center; }
 .deckrow > .pane{ flex:1 1 0; min-width:0; min-height:0; }
 
 /* PHONE / very narrow: one honest column that scrolls. Same panes, same order. */
@@ -220,6 +235,11 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
     <span id="familyPosition">0 of 0</span>
     <span class="btn" id="familyNext" title="next covered symbols">›</span>
   </span>
+  <span id="basketControls">
+    <span class="btn" id="basketPrev" title="previous basket page">‹</span>
+    <span id="basketPosition">1–6 of 6</span>
+    <span class="btn" id="basketNext" title="next basket page">›</span>
+  </span>
   <select class="view-mode" id="viewMode" title="remembered display density for this Station window">
     <option value="auto">auto</option><option value="desk">desk</option>
     <option value="display">display</option><option value="compact">compact</option>
@@ -261,7 +281,7 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
   <p><b>Scenes change charts, not the Station.</b> LIVE remains the five-pane default. OVERNIGHT and INDEX
      LEADERSHIP are curated baskets. SECTORS and THEMES expose only reviewed families with real favorite-backed
      coverage, using lossless previous/next windows without filler. Chart count and timeframe change presentation
-     without abandoning the scene; editing a ticker copies the visible view into remembered CUSTOM. Personal
+     without abandoning the scene; named baskets stay locked until shared editing is delivered. Personal
      YouTube, SCINTILLA YouTube, and X stay mounted while chart scenes change.</p>
   <p><b>Bottom row — personal YouTube, SCINTILLA YouTube, and X live.</b> The two video panes are built for
      this box, not full pages squeezed into it: a thumbnail grid that counts its own columns from its own
@@ -282,7 +302,7 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
      layout or the chip row.</p>
 </div>
 
-<script src="/deck/scenes.js?rev=001"></script>
+<script src="/deck/scenes.js?rev=002"></script>
 <script>
 "use strict";
 const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
@@ -332,15 +352,12 @@ const VIEW_MODES = ["auto","desk","display","compact"];
 let VIEW = VIEW_MODES.includes(QS.get("view")) ? QS.get("view") :
   (VIEW_MODES.includes(sessionStorage.getItem("station.view")) ? sessionStorage.getItem("station.view") : "auto");
 document.body.dataset.view = VIEW;
-let SCENE = SceneModel.normalizeScene(QS.get("scene") || remembered("station.scene") || "live");
+let SCENE = SceneModel.normalizeScene(QS.get("scene") || "live");
 const isFamilyScene = (scene) => scene === "sectorFamilies" || scene === "themeFamilies";
 const sceneKey = (scene, suffix) => "station.scene." + scene + "." + suffix;
-const defaultFamily = (scene) => scene === "sectorFamilies" ? "TECH" : "AI_HARDWARE";
-let FAMILY = CLEAN_COHORT(QS.get("family") || QS.get("cohort") ||
-  remembered(sceneKey(SCENE, "family")) || defaultFamily(SCENE));
-let BASKET_OFFSET = Math.max(0, +(QS.get("offset") || remembered(sceneKey(SCENE, "offset")) || 0));
-let FAMILY_INDEX = new Map();
-let FAMILY_READY = false;
+const defaultFamily = (scene) => SceneModel.curatedFamilyOptions(scene)[0]?.id || "";
+let FAMILY = CLEAN_COHORT(QS.get("family") || QS.get("cohort") || defaultFamily(SCENE));
+let BASKET_OFFSET = Math.max(0, +(QS.get("offset") || 0));
 let APPLYING_SCENE = false;
 let EMPTY_SCENE_NOTE = "";
 
@@ -348,7 +365,7 @@ const statePrefix = () => SCENE === "custom" ? "station.custom" : "station.live"
 const storedState = (suffix) => remembered(statePrefix() + "." + suffix) ||
   (SCENE === "custom" ? remembered("station.live." + suffix) : "") || remembered("station." + suffix);
 const URL_STATEFUL = SCENE === "live" || SCENE === "custom";
-const storedPresentationCount = (scene, fallback) => chartCount(remembered(sceneKey(scene, "chartCount")) || fallback);
+const storedPresentationCount = (_scene, fallback) => chartCount(fallback);
 let PRESENTATION_COUNT = URL_STATEFUL ? chartCount(QS.get("charts") || storedState("chartCount") || 2) :
   storedPresentationCount(SCENE, SceneModel.PRESETS[SCENE]?.chartCount || 6);
 let CHART_COUNT = PRESENTATION_COUNT;
@@ -357,13 +374,10 @@ const CHARTS = Array.from({ length: 6 }, (_, i) => {
   if (incoming && incoming !== "auto") return CLEAN(incoming);
   return CLEAN(storedState("chart." + (i + 1))) || (i === 0 ? "SPY" : i === 1 ? "SNDK" : "");
 });
-const storedPresentationRange = (scene, fallback) => {
-  const value = remembered(sceneKey(scene, "range"));
-  return RANGES.includes(value) ? value : fallback;
-};
+const storedPresentationRange = (_scene, fallback) => fallback;
 let RANGE = RANGES.includes(URL_STATEFUL ? QS.get("range") : "") ? QS.get("range") :
-  (URL_STATEFUL ? (RANGES.includes(storedState("range")) ? storedState("range") : "1D") :
-    storedPresentationRange(SCENE, SceneModel.PRESETS[SCENE]?.range || "1D"));
+  (URL_STATEFUL ? (RANGES.includes(storedState("range")) ? storedState("range") : "3h") :
+    storedPresentationRange(SCENE, SceneModel.PRESETS[SCENE]?.range || "3h"));
 let SOLO = QS.get("full") || null;
 
 /* Scintilla's canonical chart symbols come from the current active rows in
@@ -420,9 +434,10 @@ function makePane(def) {
   obj.showCard = (note) => {
     if (body.querySelector(".card")) return;
     const c = document.createElement("div"); c.className = "card";
+    const fixed = !!def.placeholder;
     c.innerHTML = '<div class="n">' + esc(def.title) + '</div><div class="d">' + esc(note) + "</div>" +
-      '<div class="go">' + (def.kind === "chart" ? "choose ticker" : "load pane") + '</div>';
-    c.addEventListener("click", () => {
+      '<div class="go">' + (fixed ? "data pending" : def.kind === "chart" ? "choose ticker" : "load pane") + '</div>';
+    if (!fixed) c.addEventListener("click", () => {
       if (def.kind === "chart" && !def.src) focusTickerFor(def.key);
       else mount(obj);
     });
@@ -434,7 +449,7 @@ function makePane(def) {
 
 function mount(obj) {
   if (obj.isDock || obj.frame) return;
-  if (!obj.def.src) { obj.showCard("choose a Hub symbol above"); return; }
+  if (!obj.def.src) { obj.showCard(obj.def.placeholder || "choose a Hub symbol above"); return; }
   const c = obj.body.querySelector(".card"); if (c) c.remove();
   const f = document.createElement("iframe");
   f.src = obj.def.src; f.loading = "lazy";
@@ -444,6 +459,8 @@ function mount(obj) {
   f.setAttribute("allowfullscreen", "");
   f.addEventListener("load", () => {
     try { f.contentWindow.postMessage({ type:"SCINTILLA_VIEW_PROFILE", view:VIEW }, location.origin); } catch (_) {}
+    setTimeout(() => readSharedAxisFromFrame(f), 700);
+    setTimeout(() => readSharedAxisFromFrame(f), 2200);
   });
   obj.body.appendChild(f); obj.frame = f;
   LIVE.push(obj);
@@ -485,11 +502,48 @@ function setSolo(key) {
 }
 
 function focusTickerFor(key) {
+  if (SCENE !== "live" && SCENE !== "custom") return;
   const m = String(key || "").match(/^c([1-6])$/);
   if (!m) return;
   const input = el("t" + m[1]);
   if (!input) return;
   input.focus(); selAll(input); paintSymbolGuide(input);
+}
+
+function axisDateLabel(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const intraday = ["15m","30m","1h","2h","3h","4h","6h","12h"].includes(RANGE);
+  return new Intl.DateTimeFormat(undefined, intraday ?
+    { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" } :
+    { month:"short", day:"numeric", year:"2-digit" }).format(d);
+}
+function paintSharedTimeAxis(from, to) {
+  const axis = el("sharedTimeAxis");
+  if (!axis) return;
+  const start = axisDateLabel(from), end = axisDateLabel(to);
+  const middle = from && to ? axisDateLabel((new Date(from).getTime() + new Date(to).getTime()) / 2) : "";
+  axis.innerHTML = '<span>' + esc(start) + '</span><span class="mid">' + esc(middle) + '</span><span>' + esc(end) + '</span>';
+}
+function syncSharedBottomAxis() {
+  const row = el("rowTop"); if (!row) return;
+  const shared = SceneModel.usesSharedBottomAxis(CHART_COUNT) && !STACKED;
+  row.classList.toggle("shared-axis", shared);
+  let axis = el("sharedTimeAxis");
+  if (shared && !axis) {
+    axis = document.createElement("div"); axis.id = "sharedTimeAxis";
+    row.appendChild(axis);
+  }
+  if (shared) paintSharedTimeAxis();
+}
+function readSharedAxisFromFrame(frame) {
+  if (!SceneModel.usesSharedBottomAxis(CHART_COUNT) || STACKED) return;
+  try {
+    const chart = frame.contentDocument?.querySelector("#chartSlot .sc-nchart");
+    const points = chart?._series, view = chart?._view;
+    if (points?.length) paintSharedTimeAxis(points[view?.start || 0]?.d, points[view?.end ?? points.length - 1]?.d);
+  } catch (_) {}
 }
 
 function paintMarketStatus() {
@@ -518,6 +572,7 @@ window.addEventListener("message", (event) => {
     CHART_STATUS.set(event.data.ticker, event.data); paintMarketStatus(); return;
   }
   if (event.data?.sc === "chart-view") {
+    paintSharedTimeAxis(event.data.from, event.data.to);
     for (const pane of PANES) {
       if (pane.def.kind !== "chart" || !pane.frame || pane.frame.contentWindow === event.source) continue;
       try {
@@ -545,7 +600,7 @@ function relayout() {
      very first paint on a phone and leave it in deck layout */
   /* a pane narrower than this cannot carry prose — trim it, do not hide it */
   for (const o of PANES) o.node.classList.toggle("tight", o.node.clientWidth < 260);
-  measure();
+  syncSharedBottomAxis(); measure();
 }
 function measure() {
   el("size").textContent = Math.round(innerWidth) + "×" + Math.round(innerHeight) +
@@ -616,15 +671,9 @@ function rememberEditableState() {
   }
 }
 function rememberPresentationState() {
-  remember(sceneKey(SCENE, "chartCount"), String(PRESENTATION_COUNT));
-  remember(sceneKey(SCENE, "range"), RANGE);
-  if (SCENE === "indexNow") {
-    remember(sceneKey(SCENE, "flex3"), indexNowFlexSymbol(CHARTS[2] || SceneModel.PRESETS.indexNow.tickers[2]));
-  }
-  if (isFamilyScene(SCENE)) {
-    remember(sceneKey(SCENE, "family"), FAMILY);
-    remember(sceneKey(SCENE, "offset"), String(BASKET_OFFSET));
-  }
+  /* Curated baskets are fixed in this baseline. Shared editable scene state
+     is a separate product capability, so named-scene choices are never
+     written into browser storage and never presented as synchronized. */
 }
 
 function indexNowFlexSymbol(defaultValue) {
@@ -633,8 +682,7 @@ function indexNowFlexSymbol(defaultValue) {
 
 function resolveIndexNowPresentation() {
   const preset = Object.assign({}, SceneModel.PRESETS.indexNow);
-  const flex = indexNowFlexSymbol(remember(sceneKey("indexNow", "flex3")));
-  preset.tickers = SceneModel.indexNowTickersFor(new Date(), flex);
+  preset.tickers = SceneModel.indexNowTickersFor(new Date(), SceneModel.PRESETS.indexNow.tickers[2]);
   return Object.assign({}, preset, scenePresentation("indexNow", preset));
 }
 
@@ -644,60 +692,53 @@ function scenePresentation(scene, defaults) {
     range: storedPresentationRange(scene, defaults?.range || "1D")
   };
 }
-async function loadFamilyFavorites() {
-  if (FAMILY_READY) return;
-  const [favorites, primary, legacy] = await Promise.all([
-    pg("hub_favorites?select=ticker&order=added_at.asc"),
-    pg("ticker_cohorts?select=ticker,cohort"),
-    pg("cohorts?select=ticker,cohort")
-  ]);
-  FAMILY_INDEX = SceneModel.buildCohortFavorites(favorites, [primary, legacy]);
-  FAMILY_READY = true;
-}
 function availableFamilies(scene) {
-  return SceneModel.curatedFamilies(FAMILY_INDEX, scene);
+  return SceneModel.curatedFamilyOptions(scene);
 }
 function ensureFamily(scene) {
-  const names = availableFamilies(scene);
-  const rememberedFamily = CLEAN_COHORT(remembered(sceneKey(scene, "family")));
-  if (!names.includes(FAMILY) && rememberedFamily && names.includes(rememberedFamily)) FAMILY = rememberedFamily;
-  if (!names.includes(FAMILY)) FAMILY = names[0] || defaultFamily(scene);
-  return names;
+  const options = availableFamilies(scene);
+  if (!options.some((option) => option.id === FAMILY)) FAMILY = options[0]?.id || defaultFamily(scene);
+  return options;
 }
-function familyState(requestedCount) {
-  const members = FAMILY_INDEX.get(FAMILY) || [];
-  return Object.assign({ family:FAMILY }, SceneModel.basketWindow(members, BASKET_OFFSET, requestedCount || PRESENTATION_COUNT));
+function familyState(requestedCount, scene = SCENE) {
+  const family = SceneModel.curatedFamilyBasket(scene, FAMILY);
+  return Object.assign({ family:FAMILY, label:family?.label || "CURATED FAMILY", range:family?.range || "1D" },
+    SceneModel.basketWindow(family?.tickers || [], BASKET_OFFSET, requestedCount || PRESENTATION_COUNT));
+}
+function presetState(scene, requestedCount) {
+  const preset = scene === "indexNow" ? resolveIndexNowPresentation() : SceneModel.PRESETS[scene];
+  const page = SceneModel.basketWindow(preset?.tickers || [], BASKET_OFFSET, requestedCount || preset?.chartCount || 6);
+  return Object.assign({}, preset, page, { charts:page.tickers, range:preset?.range || "3h" });
 }
 function paintSceneControls(note) {
   el("sceneMode").value = SCENE;
   const familyScene = isFamilyScene(SCENE);
   const box = el("familyControls"); box.classList.toggle("on", familyScene);
+  const basketBox = el("basketControls"); basketBox.classList.toggle("on", !familyScene && !!SceneModel.PRESETS[SCENE]);
   if (!familyScene) {
+    if (SceneModel.PRESETS[SCENE]) {
+      const state = presetState(SCENE, PRESENTATION_COUNT);
+      el("basketPosition").textContent = state.totalItems ? state.start + "–" + state.end + " of " + state.totalItems : "0 of 0";
+      el("basketPrev").classList.toggle("on", state.hasPrevious);
+      el("basketNext").classList.toggle("on", state.hasNext);
+    }
     const catalogNote = ["live","custom"].includes(SCENE) && SYMBOLS.length ? SYMBOLS.length + " Hub symbols" : "";
-    const copy = note || EMPTY_SCENE_NOTE || catalogNote;
+    const copy = note || EMPTY_SCENE_NOTE || (SceneModel.PRESETS[SCENE] ? "curated basket · edits pending shared state" : catalogNote);
     if (copy) el("symbolNote").textContent = copy;
     return;
   }
   const select = el("familySelect");
-  if (!FAMILY_READY) {
-    select.innerHTML = '<option value="">coverage unavailable</option>';
-    select.disabled = true;
-    el("familyPosition").textContent = "0 of 0";
-    el("symbolNote").textContent = note || "coverage unavailable";
-    return;
-  }
   const names = ensureFamily(SCENE);
   select.disabled = names.length === 0;
-  select.innerHTML = names.length ? names.map((name) => '<option value="' + esc(name) + '">' +
-    esc(name.replace(/_/g," ")) + " · " + (FAMILY_INDEX.get(name) || []).length + "</option>").join("") :
+  select.innerHTML = names.length ? names.map((family) => '<option value="' + esc(family.id) + '">' +
+    esc(family.label) + " · " + family.tickers.length + "</option>").join("") :
     '<option value="">coverage TBD</option>';
   if (names.length) select.value = FAMILY;
   const state = familyState();
   el("familyPosition").textContent = state.totalItems ? state.start + "–" + state.end + " of " + state.totalItems : "0 of 0";
   el("familyPrev").classList.toggle("on", state.hasPrevious);
   el("familyNext").classList.toggle("on", state.hasNext);
-  el("symbolNote").textContent = note || (state.totalItems ?
-    state.totalItems + " " + FAMILY.replace(/_/g," ") + " favorites" : "coverage TBD · no filler");
+  el("symbolNote").textContent = note || (state.totalItems ? state.label : "coverage TBD · no filler");
 }
 function installSceneState(state) {
   const charts = (state.charts || state.tickers || []).slice(0, 6);
@@ -711,39 +752,41 @@ async function primeSceneState() {
   if (SceneModel.PRESETS[SCENE]) {
     const preset = SCENE === "indexNow" ? resolveIndexNowPresentation() : SceneModel.PRESETS[SCENE];
     const presentation = scenePresentation(SCENE, preset);
-    installSceneState(Object.assign({}, preset, presentation));
+    const state = presetState(SCENE, presentation.requestedCount);
+    BASKET_OFFSET = state.offset;
+    installSceneState(state);
   } else if (isFamilyScene(SCENE)) {
-    try {
-      await loadFamilyFavorites(); ensureFamily(SCENE);
-      const presentation = scenePresentation(SCENE, { chartCount:6, range:"1D" });
-      PRESENTATION_COUNT = presentation.requestedCount; RANGE = presentation.range;
-      BASKET_OFFSET = Math.max(0, +(remembered(sceneKey(SCENE, "offset")) || BASKET_OFFSET));
-      const state = familyState(PRESENTATION_COUNT); BASKET_OFFSET = state.offset;
-      installSceneState(Object.assign({}, state, { range:RANGE, emptyNote:SCENE.toUpperCase() + " · coverage TBD" }));
-    } catch (_) {
-      FAMILY_READY = false;
-      installSceneState({ charts:[], chartCount:1, requestedCount:6, range:RANGE, emptyNote:SCENE.toUpperCase() + " · coverage unavailable" });
-    }
-  } else if (["companyLeadership","macroCrossAsset","internalsFast","internalsSlow"].includes(SCENE)) {
-    const presentation = scenePresentation(SCENE, { chartCount:2, range:"1D" });
-    installSceneState({ charts:[], chartCount:1, requestedCount:presentation.requestedCount, range:presentation.range,
-      emptyNote:SceneModel.SCENES[SCENE].label + " · basket TBD" });
+    ensureFamily(SCENE);
+    const seed = SceneModel.curatedFamilyBasket(SCENE, FAMILY);
+    const presentation = scenePresentation(SCENE, { chartCount:6, range:seed?.range || "1D" });
+    const state = familyState(presentation.requestedCount); BASKET_OFFSET = state.offset;
+    installSceneState(Object.assign({}, state, { charts:state.tickers, range:state.range }));
   }
-  remember("station.scene", SCENE);
+  if (SCENE === "live" || SCENE === "custom") remember("station.scene", SCENE);
+}
+
+function unavailableChartNote(ticker) {
+  if (ticker === "FLEX3") return "FLEX 3 · shared selection pending";
+  if (ticker === "INDEX8") return "INDEX 8 · reserved pending selection";
+  if (ticker === "SECTOR12") return "SECTOR 12 · reserved pending selection";
+  if (ticker === "CUMTICK") return "CUMULATIVE TICK · registered source pending";
+  if (ticker === "DIA" && ["3h","4h","6h","12h","3D","1W"].includes(RANGE)) return "DIA · " + RANGE + " history unavailable";
+  return "";
 }
 function syncChartPanes() {
   CHART_STATUS.clear();
   CHARTS.forEach((ticker, i) => {
     const o = PANES.find((p) => p.def.key === "c" + (i + 1)); if (!o) return;
-    o.def.src = ticker ? chartSrc(ticker) : "";
+    o.def.placeholder = unavailableChartNote(ticker);
+    o.def.src = ticker && !o.def.placeholder ? chartSrc(ticker) : "";
     o.def.open = ticker ? o.def.src.replace("bare=1&", "") : "";
-    o.def.short = ticker || "chart " + (i + 1); o.def.title = ticker || "Choose a symbol";
+    o.def.short = ticker || "chart " + (i + 1); o.def.title = ticker || "curated placeholder";
     const input = el("t" + (i + 1)); if (input) input.value = ticker;
-    if (!ticker && o.frame) {
+    if ((!ticker || o.def.placeholder) && o.frame) {
       o.frame.remove(); o.frame = null;
       const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
-      o.showCard(EMPTY_SCENE_NOTE || "no covered symbol here");
-    } else if (ticker && o.frame) {
+      o.showCard(o.def.placeholder || EMPTY_SCENE_NOTE || "no covered symbol here");
+    } else if (ticker && !o.def.placeholder && o.frame) {
       try { o.frame.contentWindow.postMessage({ sc:"chart", ticker, range:RANGE }, location.origin); }
       catch (_) { o.frame.src = o.def.src; }
     }
@@ -755,52 +798,36 @@ async function applyScene(next, options) {
   if (previous !== requested) {
     rememberPresentationState();
     if (previous === "live" || previous === "custom") rememberEditableState();
+    BASKET_OFFSET = 0;
+    if (isFamilyScene(requested)) FAMILY = defaultFamily(requested);
   }
   let state;
   if (SceneModel.PRESETS[requested]) {
+    if (options?.offset != null) BASKET_OFFSET = Math.max(0, Number(options.offset) || 0);
     const preset = requested === "indexNow" ? resolveIndexNowPresentation() : SceneModel.PRESETS[requested];
-    state = Object.assign({}, preset, scenePresentation(requested, preset));
+    const presentation = scenePresentation(requested, preset);
+    state = presetState(requested, presentation.requestedCount); BASKET_OFFSET = state.offset;
   } else if (isFamilyScene(requested)) {
-    try {
-      await loadFamilyFavorites();
-      if (options?.family) FAMILY = CLEAN_COHORT(options.family);
-      ensureFamily(requested);
-      BASKET_OFFSET = options?.offset == null ? Math.max(0, +(remembered(sceneKey(requested, "offset")) || 0)) :
-        Math.max(0, Number(options.offset) || 0);
-      const presentation = scenePresentation(requested, { chartCount:6, range:"1D" });
-      PRESENTATION_COUNT = presentation.requestedCount; RANGE = presentation.range;
-      state = Object.assign({}, familyState(PRESENTATION_COUNT), { range:RANGE,
-        emptyNote:SceneModel.SCENES[requested].label + " · coverage TBD" });
-      BASKET_OFFSET = state.offset;
-    } catch (_) {
-      FAMILY_READY = false;
-      state = { charts:[], chartCount:1, requestedCount:6, range:RANGE,
-        emptyNote:SceneModel.SCENES[requested].label + " · coverage unavailable" };
-    }
-  } else if (["companyLeadership","macroCrossAsset","internalsFast","internalsSlow"].includes(requested)) {
-    const presentation = scenePresentation(requested, { chartCount:2, range:"1D" });
-    state = { charts:[], chartCount:1, requestedCount:presentation.requestedCount, range:presentation.range,
-      emptyNote:SceneModel.SCENES[requested].label + " · basket TBD" };
+    if (options?.family) FAMILY = CLEAN_COHORT(options.family);
+    ensureFamily(requested);
+    BASKET_OFFSET = options?.offset == null ? 0 : Math.max(0, Number(options.offset) || 0);
+    const seed = SceneModel.curatedFamilyBasket(requested, FAMILY);
+    const presentation = scenePresentation(requested, { chartCount:6, range:seed?.range || "1D" });
+    const familyPage = familyState(presentation.requestedCount, requested);
+    state = Object.assign({}, familyPage, { charts:familyPage.tickers });
+    BASKET_OFFSET = state.offset;
   } else state = editableState(requested);
 
   SCENE = requested; APPLYING_SCENE = true; installSceneState(state);
   syncChartPanes(); applyChartCount(PRESENTATION_COUNT, true); paintTf();
   APPLYING_SCENE = false;
-  remember("station.scene", SCENE);
+  if (SCENE === "live" || SCENE === "custom") remember("station.scene", SCENE);
   rememberPresentationState();
   if (SCENE === "live" || SCENE === "custom") rememberEditableState();
   paintSceneControls(); relayout();
 }
 function moveNamedSceneToCustom() {
-  if (APPLYING_SCENE || SCENE === "live" || SCENE === "custom") return;
-  rememberPresentationState();
-  SCENE = "custom";
-  PRESENTATION_COUNT = CHART_COUNT;
-  CHARTS.forEach((_, i) => { if (i >= CHART_COUNT) CHARTS[i] = ""; });
-  remember("station.scene", SCENE);
-  rememberEditableState();
-  rememberPresentationState();
-  paintSceneControls("custom copy");
+  return false;
 }
 
 /* ---- ONE timeframe bar, driving both charts ---- */
@@ -835,12 +862,14 @@ function setRange(r) {
   for (let i = 0; i < CHARTS.length; i++) {
     const k = "c" + (i + 1);
     const o = PANES.find((p) => p.def.key === k); if (!o) continue;
-    o.def.src = CHARTS[i] ? chartSrc(CHARTS[i]) : "";
+    o.def.placeholder = unavailableChartNote(CHARTS[i]);
+    o.def.src = CHARTS[i] && !o.def.placeholder ? chartSrc(CHARTS[i]) : "";
     o.def.open = o.def.src.replace("bare=1&", "");
     /* postMessage first — it repaints without a reload; the src is kept in
        sync so a paused pane comes back on the right timeframe */
     if (o.frame) { try { o.frame.contentWindow.postMessage({ sc: "chart", range: RANGE }, location.origin); } catch (e) { o.frame.src = o.def.src; } }
   }
+  syncChartPanes();
   rememberPresentationState();
   rememberEditableState();
 }
@@ -916,6 +945,11 @@ async function loadSymbolCatalog() {
 }
 function commitTicker(index, raw, input) {
   const n = input || el("t" + (index + 1));
+  if (SCENE !== "live" && SCENE !== "custom") {
+    if (n) n.value = CHARTS[index] || "";
+    el("symbolNote").textContent = "curated basket · shared edits pending";
+    return false;
+  }
   let ticker = resolveSymbol(raw);
   if (!ticker && GUIDE_INPUT === n && GUIDE_ROWS[GUIDE_AT]) ticker = GUIDE_ROWS[GUIDE_AT].ticker;
   if (!ticker) {
@@ -924,10 +958,6 @@ function commitTicker(index, raw, input) {
   }
   const original = aliasKey(raw);
   CHARTS[index] = ticker; n.value = ticker;
-  if (SCENE === "indexNow" && index === 2) {
-    remember(sceneKey("indexNow", "flex3"), indexNowFlexSymbol(CHARTS[index]));
-  }
-  moveNamedSceneToCustom();
   el("symbolNote").textContent = original && original !== ticker ? original + " → " + ticker : "Hub · " + ticker;
   const o = PANES.find((p) => p.def.key === "c" + (index + 1));
   if (o) {
@@ -944,7 +974,7 @@ function commitTicker(index, raw, input) {
 }
 function wireTicker(n, index) {
   n.value = CHARTS[index]; n.dataset.index = String(index);
-  n.addEventListener("focus", () => { selAll(n); requestAnimationFrame(() => selAll(n)); });
+  n.addEventListener("focus", () => { if (n.readOnly) return; selAll(n); requestAnimationFrame(() => selAll(n)); });
   n.addEventListener("click", () => { if (n.selectionStart === n.selectionEnd) selAll(n); paintSymbolGuide(n); });
   n.addEventListener("input", () => paintSymbolGuide(n));
   n.addEventListener("keydown", (e) => {
@@ -968,6 +998,12 @@ function paintTickerFields() {
     n.placeholder = "symbol"; n.title = "chart " + (i + 1) + " · type a Hub symbol or market alias";
     title.replaceWith(n); wireTicker(n, i);
   });
+  const editable = SCENE === "live" || SCENE === "custom";
+  for (let i = 1; i <= 6; i++) {
+    const n = el("t" + i); if (!n) continue;
+    n.readOnly = !editable; n.classList.toggle("locked", !editable);
+    if (!editable) n.title = "curated basket · shared editing comes next";
+  }
 }
 function applyChartCount(next, fromScene) {
   PRESENTATION_COUNT = chartCount(next);
@@ -980,10 +1016,11 @@ function applyChartCount(next, fromScene) {
     EMPTY_SCENE_NOTE = SceneModel.SCENES[SCENE].label + " · coverage TBD";
     syncChartPanes();
   } else if (SceneModel.PRESETS[SCENE]) {
-    const available = SceneModel.PRESETS[SCENE].tickers.length;
-    CHART_COUNT = SceneModel.chartCountForSize(Math.min(PRESENTATION_COUNT, available));
-  } else if (["companyLeadership","macroCrossAsset","internalsFast","internalsSlow"].includes(SCENE)) {
-    CHART_COUNT = 1;
+    const state = presetState(SCENE, PRESENTATION_COUNT);
+    BASKET_OFFSET = state.offset;
+    CHARTS.forEach((_, i) => { CHARTS[i] = CLEAN(state.tickers[i] || ""); });
+    CHART_COUNT = state.chartCount;
+    syncChartPanes();
   } else CHART_COUNT = PRESENTATION_COUNT;
 
   el("chartCount").value = String(PRESENTATION_COUNT);
@@ -1003,7 +1040,7 @@ function applyChartCount(next, fromScene) {
     rememberEditableState();
     paintSceneControls();
   }
-  relayout(); paintChips();
+  paintTickerFields(); relayout(); paintChips();
 }
 el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
 el("sceneMode").addEventListener("change", (e) => applyScene(e.target.value));
@@ -1015,6 +1052,14 @@ el("familyPrev").addEventListener("click", () => {
 el("familyNext").addEventListener("click", () => {
   const state = familyState();
   if (state.hasNext) applyScene(SCENE, { family:FAMILY, offset:state.offset + PRESENTATION_COUNT });
+});
+el("basketPrev").addEventListener("click", () => {
+  const state = presetState(SCENE, PRESENTATION_COUNT);
+  if (state.hasPrevious) applyScene(SCENE, { offset:Math.max(0, state.offset - PRESENTATION_COUNT) });
+});
+el("basketNext").addEventListener("click", () => {
+  const state = presetState(SCENE, PRESENTATION_COUNT);
+  if (state.hasNext) applyScene(SCENE, { offset:state.offset + PRESENTATION_COUNT });
 });
 el("viewMode").addEventListener("change", (e) => applyView(e.target.value));
 el("displayBtn").addEventListener("click", () => {
@@ -1047,11 +1092,14 @@ async function build() {
       if (best) CHARTS[1] = best.ticker;
     } catch (e) {}
   }
-  const defs = CHARTS.map((ticker, i) => ({
-    row:0, key:"c" + (i + 1), short:ticker || "chart " + (i + 1), title:ticker || "Choose a symbol",
-    tag:"chart", kind:"chart", src:ticker ? chartSrc(ticker) : "",
-    open:ticker ? "/chart?t=" + encodeURIComponent(ticker) + "&range=" + RANGE : ""
-  })).concat([
+  const defs = CHARTS.map((ticker, i) => {
+    const placeholder = unavailableChartNote(ticker);
+    return {
+      row:0, key:"c" + (i + 1), short:ticker || "chart " + (i + 1), title:ticker || "Choose a symbol",
+      tag:"chart", kind:"chart", placeholder, src:ticker && !placeholder ? chartSrc(ticker) : "",
+      open:ticker && !placeholder ? "/chart?t=" + encodeURIComponent(ticker) + "&range=" + RANGE : ""
+    };
+  }).concat([
     /* v4: purpose-built panes, not full pages squeezed into a slot.
        /pane-video is a thumbnail grid that counts its own columns and plays
        in place. /pane-x renders the real live x.com tab via getDisplayMedia
