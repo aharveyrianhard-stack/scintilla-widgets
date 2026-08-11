@@ -228,6 +228,13 @@ function stationRealtimeRoom(pair) {
       el("pairState").textContent = "iPad request received";
       window.postMessage({ type:"XFF_STATION_REMOTE_OFFER", pairId:stationPair.token, offer:payload.payload.offer }, location.origin);
     }
+    if (payload.event === "control" && stationPair && payload.payload?.code === stationPair.code) {
+      const action = payload.payload?.action;
+      const value = payload.payload?.value;
+      if (["view", "rewind", "refresh"].includes(action)) {
+        window.postMessage({ type:"XFF_STATION_CONTROL", action, value }, location.origin);
+      }
+    }
   });
   return {
     publish(event, payload) { send("broadcast", { type:"broadcast", event, payload }); },

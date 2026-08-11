@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="STATION IPAD">
+<link rel="icon" href="/station-ipad/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" sizes="180x180" href="/station-ipad/icon.png">
+<title>SCINTILLA · iPad Companion</title>
+<style>
+:root{--bg:#0a0a0f;--panel:#0f0f1a;--line:#25253a;--ink:#f2f2f8;--muted:#9a9ab6;--cyan:#00d4ff;--green:#00ffa3;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:var(--mono);-webkit-text-size-adjust:100%}body{padding:env(safe-area-inset-top) 10px max(16px,env(safe-area-inset-bottom)}header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 2px 8px}.brand{font-size:11px;letter-spacing:.2em;color:var(--cyan)}.state{font-size:9px;letter-spacing:.1em;color:var(--muted)}.state.live{color:var(--green)}main{display:grid;gap:10px}.card{border:1px solid var(--line);background:var(--panel)}.label{padding:8px 10px;border-bottom:1px solid var(--line);font-size:9px;letter-spacing:.14em;color:var(--muted)}.xframe{display:block;width:100%;height:54vh;min-height:340px;border:0;background:#000}.controls{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line)}button{appearance:none;border:0;background:var(--panel);color:var(--cyan);font:10px var(--mono);letter-spacing:.08em;padding:13px 4px}.charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line)}.chart{height:220px;border:0;width:100%;background:#0a0a0f}.media{display:grid;gap:10px}.media iframe{height:300px;width:100%;border:0;background:#0a0a0f}.notice{display:none;padding:16px;line-height:1.6;color:var(--muted);font-size:12px}.notice.on{display:block}@media (min-width:900px){body{max-width:1180px;margin:auto}.xframe{height:62vh}.media{grid-template-columns:1fr 1fr}.media iframe{height:360px}}
+</style>
+</head>
+<body>
+<header><div class="brand">SCINTILLA · IPAD COMPANION</div><div id="state" class="state">CONNECTING TO IMAC</div></header>
+<main id="app">
+  <section class="card"><div class="label">LIVE X · IMAC SOURCE</div><iframe id="xviewer" class="xframe" allow="autoplay" title="Live X from iMac"></iframe><div class="controls"><button data-action="view" data-value="trading">LIST</button><button data-action="view" data-value="notifications">ALERTS</button><button data-action="rewind">−30S</button><button data-action="refresh">REFRESH</button></div></section>
+  <section class="card"><div class="label">MARKETS</div><div class="charts"><iframe class="chart" src="/chart/?bare=1&t=SPY&range=1D" title="SPY chart"></iframe><iframe class="chart" src="/chart/?bare=1&t=QQQ&range=1D" title="QQQ chart"></iframe></div></section>
+  <section class="media"><div class="card"><div class="label">SCINTILLA VIDEO</div><iframe src="/pane-video?feed=scintilla&cols=2&view=compact" title="Scintilla video"></iframe></div><div class="card"><div class="label">PERSONAL VIDEO</div><iframe src="/pane-video?feed=personal&cols=2&view=compact" title="Personal video"></iframe></div></section>
+  <section id="notice" class="notice card">Open this Companion from its trusted iPad link once so it can connect to your iMac source.</section>
+</main>
+<script>
+"use strict";
+const key="scintilla.station.ipad-companion-link.v1",viewer=document.getElementById("xviewer"),state=document.getElementById("state"),notice=document.getElementById("notice");
+const validHash=h=>{const p=new URLSearchParams((h||"").replace(/^#/,""));return /^[A-Za-z0-9_-]{32,}$/.test(p.get("pair")||"")&&/^[0-9]{6}$/.test(p.get("code")||"")};
+let pairHash=validHash(location.hash)?location.hash:"";if(pairHash)try{localStorage.setItem(key,pairHash)}catch(_){};if(!pairHash)try{pairHash=localStorage.getItem(key)||""}catch(_){};
+if(validHash(pairHash)){viewer.src="/station-viewer/"+pairHash}else{viewer.style.display="none";notice.classList.add("on");state.textContent="IPAD LINK NEEDED"}
+document.querySelectorAll("button[data-action]").forEach(button=>button.addEventListener("click",()=>viewer.contentWindow?.postMessage({type:"SCINTILLA_IPAD_CONTROL",action:button.dataset.action,value:button.dataset.value||null},location.origin)));
+addEventListener("message",event=>{if(event.origin!==location.origin||event.data?.type!=="SCINTILLA_IPAD_VIEWER_STATUS")return;state.textContent=event.data.status;state.classList.toggle("live",event.data.status==="IMAC LIVE")});
+</script>
+</body>
+</html>
