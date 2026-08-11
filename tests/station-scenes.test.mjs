@@ -153,6 +153,7 @@ test("deck keeps curated navigation, presentation state, and one X pane", () => 
   assert.match(deck, /curated basket · shared edits pending/);
   assert.match(deck, /FLEX 3 · shared selection pending/);
   assert.match(deck, /const CUSTOM_SEED = \["NBIS", "MU", "NVDA", "SNDK", "US10Y", "GCUSD"\]/);
+  assert.match(deck, /scene === "custom" \? 6 : CHART_COUNT/);
   assert.match(deck, /function syncSharedBottomAxis\(\)/);
   assert.match(deck, /#sharedTimeAxis/);
   assert.match(deck, /SceneModel\.usesSharedBottomAxis\(CHART_COUNT\)/);
