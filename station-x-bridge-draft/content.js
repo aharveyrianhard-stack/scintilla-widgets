@@ -31,12 +31,27 @@
     cropResizeObserver: null,
     cropMutationObserver: null,
     cropUpdateFrame: null,
+    cropGeometryTimer: null,
+    stationCropGeometry: null,
+    stationCropGeometryDirty: true,
     notificationMutationObserver: null,
     notificationFilterFrame: null,
     scrollFrame: null,
     scrollFrameWindow: null,
     lastScrollTimestamp: null,
     scrollCarryPx: 0,
+    stationRenderedOffset: 0,
+    stationScrollGeneration: 0,
+    stationPendingScrollGeneration: 0,
+    stationSettleFrame: null,
+    stationMetrics: {
+      ticks: 0,
+      integerScrolls: 0,
+      deferredOffsetSettles: 0,
+      geometryMeasures: 0,
+      geometryInvalidations: 0,
+      negativeCommitOffsets: 0
+    },
     scrollEnabled: false,
     pointerPause: false,
     resumeTimer: null,
@@ -252,7 +267,7 @@
   function stopScrolling() {
     session.scrollEnabled = false;
     session.lastScrollTimestamp = null;
-    session.scrollCarryPx = 0;
+    resetStationScrollComposite();
     updateUi();
   }
 
@@ -553,6 +568,107 @@
     return candidates[Math.floor(candidates.length / 2)];
   }
 
+  // The Station renderer can crop a captured X frame by a fractional offset.
+  // Keep that fractional state separate from the source page's integer
+  // scrollTop: on an integer move the capture pipeline can still be painting
+  // the pre-scroll frame for a couple of source frames. Replacing .9 with .2
+  // at that instant is the backwards "bounce" the viewers were seeing.
+  function nextStationScrollState(state, elapsedMs, speedPxPerSecond, appliedPixels) {
+    const accrued = Math.max(0, Number(state.carryPx) || 0) +
+      (Math.max(0, Number(speedPxPerSecond) || 0) * Math.max(0, Number(elapsedMs) || 0)) / 1000;
+    const requestedPixels = Math.floor(accrued);
+    const movedPixels = Math.max(0, Math.min(requestedPixels, Number(appliedPixels) || 0));
+
+    if (requestedPixels > 0 && movedPixels === 0) {
+      return {
+        carryPx: 0,
+        renderedOffset: 0,
+        generation: Number(state.generation) || 0,
+        requestedPixels,
+        movedPixels,
+        needsSettle: false
+      };
+    }
+
+    const carryPx = requestedPixels > 0 ? accrued - movedPixels : accrued;
+    const integerMove = movedPixels > 0;
+    return {
+      carryPx,
+      // Do not replace the currently rendered fractional crop until the
+      // source has passed its post-scroll capture-frame settle barrier.
+      renderedOffset: integerMove ? (Number(state.renderedOffset) || 0) : carryPx,
+      generation: (Number(state.generation) || 0) + (integerMove ? 1 : 0),
+      requestedPixels,
+      movedPixels,
+      needsSettle: integerMove
+    };
+  }
+
+  function refreshStationCropGeometry({ force = false } = {}) {
+    if (!force && !session.stationCropGeometryDirty && session.stationCropGeometry) {
+      return session.stationCropGeometry;
+    }
+    session.stationCropGeometry = calculateCropRect();
+    session.stationCropGeometryDirty = false;
+    session.stationMetrics.geometryMeasures += 1;
+    return session.stationCropGeometry;
+  }
+
+  function invalidateStationCropGeometry() {
+    session.stationCropGeometryDirty = true;
+    session.stationMetrics.geometryInvalidations += 1;
+    if (session.cropGeometryTimer) {
+      return;
+    }
+
+    // X virtualizes its timeline aggressively. Coalesce its mutation bursts
+    // so a 10 Hz Station clock never forces a fresh DOM geometry scan.
+    session.cropGeometryTimer = setTimeout(() => {
+      session.cropGeometryTimer = null;
+      if (!session.cropTargetElement && !session.stationMode) {
+        return;
+      }
+      if (session.cropUpdateFrame) {
+        return;
+      }
+      session.cropUpdateFrame = requestAnimationFrame(() => {
+        session.cropUpdateFrame = null;
+        applyCropTargetGeometry();
+      });
+    }, 120);
+  }
+
+  function scheduleStationCaptureSettle(generation) {
+    if (session.stationSettleFrame) {
+      cancelAnimationFrame(session.stationSettleFrame);
+      session.stationSettleFrame = null;
+    }
+
+    // Two source rAFs is the minimum safe barrier before publishing the new
+    // fractional crop after changing X's integer scroll position.
+    session.stationSettleFrame = requestAnimationFrame(() => {
+      session.stationSettleFrame = requestAnimationFrame(() => {
+        session.stationSettleFrame = null;
+        if (generation !== session.stationPendingScrollGeneration) {
+          return;
+        }
+        session.stationRenderedOffset = session.scrollCarryPx;
+        session.stationPendingScrollGeneration = 0;
+        session.stationMetrics.deferredOffsetSettles += 1;
+      });
+    });
+  }
+
+  function resetStationScrollComposite() {
+    if (session.stationSettleFrame) {
+      cancelAnimationFrame(session.stationSettleFrame);
+      session.stationSettleFrame = null;
+    }
+    session.scrollCarryPx = 0;
+    session.stationRenderedOffset = 0;
+    session.stationPendingScrollGeneration = 0;
+  }
+
   function calculateCropRect() {
     const column = findPrimaryColumn();
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
@@ -600,7 +716,7 @@
       return;
     }
 
-    const rect = calculateCropRect();
+    const rect = refreshStationCropGeometry({ force: true });
     Object.assign(session.cropTargetElement.style, {
       left: `${Math.round(rect.left)}px`,
       top: `${Math.round(rect.top)}px`,
@@ -610,13 +726,7 @@
   }
 
   function scheduleCropTargetUpdate() {
-    if (session.cropUpdateFrame) {
-      cancelAnimationFrame(session.cropUpdateFrame);
-    }
-    session.cropUpdateFrame = requestAnimationFrame(() => {
-      session.cropUpdateFrame = null;
-      applyCropTargetGeometry();
-    });
+    invalidateStationCropGeometry();
   }
 
   function createCropTargetElement() {
@@ -644,14 +754,12 @@
 
     const observeCurrentColumn = () => {
       const column = findPrimaryColumn();
-      if (column === session.cropColumn) {
-        return;
-      }
-
-      session.cropResizeObserver?.disconnect();
-      session.cropColumn = column;
-      if (column) {
-        session.cropResizeObserver?.observe(column);
+      if (column !== session.cropColumn) {
+        session.cropResizeObserver?.disconnect();
+        session.cropColumn = column;
+        if (column) {
+          session.cropResizeObserver?.observe(column);
+        }
       }
       scheduleCropTargetUpdate();
     };
@@ -681,6 +789,12 @@
       cancelAnimationFrame(session.cropUpdateFrame);
       session.cropUpdateFrame = null;
     }
+    if (session.cropGeometryTimer) {
+      clearTimeout(session.cropGeometryTimer);
+      session.cropGeometryTimer = null;
+    }
+    session.stationCropGeometry = null;
+    session.stationCropGeometryDirty = true;
 
     session.cropTargetElement?.remove();
     session.cropTargetElement = null;
@@ -1349,7 +1463,7 @@
   function rewindFeed() {
     const root = document.scrollingElement || document.documentElement;
     const thirtySeconds = Math.round(session.settings.speedPxPerSecond * 30);
-    session.scrollCarryPx = 0;
+    resetStationScrollComposite();
     root.scrollBy({
       top: -Math.max(1, thirtySeconds),
       behavior: "smooth"
@@ -1380,7 +1494,7 @@
     }
 
     const root = document.scrollingElement || document.documentElement;
-    session.scrollCarryPx = 0;
+    resetStationScrollComposite();
     root.scrollBy({
       top: firstVisiblePost.getBoundingClientRect().top - visibleTop - 1,
       behavior: "auto"
@@ -1819,9 +1933,9 @@
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
     return {
-      rect: calculateCropRect(),
+      rect: refreshStationCropGeometry(),
       viewport: { width: viewportWidth, height: viewportHeight },
-      fractionalScrollOffset: session.scrollCarryPx,
+      fractionalScrollOffset: session.stationRenderedOffset,
       activeView: session.activeView,
       paused: isPaused()
     };
@@ -1885,7 +1999,7 @@
        throttle its requestAnimationFrame loop. */
     session.scrollEnabled = true;
     session.lastScrollTimestamp = null;
-    session.scrollCarryPx = 0;
+    resetStationScrollComposite();
     updateUi();
     startStationRelay();
   }
@@ -1910,12 +2024,37 @@
       session.lastScrollTimestamp = timestamp;
       if (!isPaused()) {
         const root = document.scrollingElement || document.documentElement;
-        session.scrollCarryPx += (session.settings.speedPxPerSecond * elapsedMs) / 1000;
-        const wholePixels = Math.floor(session.scrollCarryPx);
+        const accrued = session.scrollCarryPx +
+          (session.settings.speedPxPerSecond * elapsedMs) / 1000;
+        const wholePixels = Math.floor(accrued);
+        let appliedPixels = 0;
         if (wholePixels > 0) {
           const before = root.scrollTop;
           root.scrollTop = before + wholePixels;
-          session.scrollCarryPx = root.scrollTop > before ? session.scrollCarryPx - wholePixels : 0;
+          appliedPixels = Math.max(0, root.scrollTop - before);
+        }
+        const next = nextStationScrollState(
+          {
+            carryPx: session.scrollCarryPx,
+            renderedOffset: session.stationRenderedOffset,
+            generation: session.stationScrollGeneration
+          },
+          elapsedMs,
+          session.settings.speedPxPerSecond,
+          appliedPixels
+        );
+        session.stationMetrics.ticks += 1;
+        if (next.renderedOffset < session.stationRenderedOffset) {
+          session.stationMetrics.negativeCommitOffsets += 1;
+        }
+        session.scrollCarryPx = next.carryPx;
+        session.stationScrollGeneration = next.generation;
+        if (next.needsSettle) {
+          session.stationMetrics.integerScrolls += 1;
+          session.stationPendingScrollGeneration = next.generation;
+          scheduleStationCaptureSettle(next.generation);
+        } else if (!session.stationPendingScrollGeneration) {
+          session.stationRenderedOffset = next.renderedOffset;
         }
       }
       runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });

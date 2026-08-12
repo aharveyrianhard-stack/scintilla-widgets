@@ -44,3 +44,48 @@ test("Station source maintains and removes the hover shield with its capture lif
   assert.match(stop, /removeStationHoverShield\(\)/);
   assert.match(source, /document\.removeEventListener\("pointermove", shield\.exitObserver, true\)/);
 });
+
+test("Station keeps the rendered fractional crop through an integer source scroll", () => {
+  const advance = functionFromSource("nextStationScrollState");
+  const beforeBoundary = {
+    carryPx: 0.9,
+    renderedOffset: 0.9,
+    generation: 12
+  };
+  const afterBoundary = advance(beforeBoundary, 100, 3, 1);
+
+  assert.equal(afterBoundary.requestedPixels, 1);
+  assert.equal(afterBoundary.movedPixels, 1);
+  assert.ok(Math.abs(afterBoundary.carryPx - 0.2) < 1e-9);
+  assert.equal(afterBoundary.renderedOffset, 0.9);
+  assert.equal(afterBoundary.generation, 13);
+  assert.equal(afterBoundary.needsSettle, true);
+  assert.ok(
+    afterBoundary.renderedOffset >= beforeBoundary.renderedOffset,
+    "an integer scroll must not publish a backwards composite crop move"
+  );
+});
+
+test("Station crop geometry is cached outside bounded observer-driven refreshes", () => {
+  const payload = source.slice(
+    source.indexOf("function stationCropPayload"),
+    source.indexOf("function stopStationRelay")
+  );
+  assert.match(payload, /rect: refreshStationCropGeometry\(\)/);
+  assert.doesNotMatch(payload, /calculateCropRect\(\)/);
+  assert.match(source, /new ResizeObserver\(scheduleCropTargetUpdate\)/);
+  assert.match(source, /new MutationObserver\(observeCurrentColumn\)/);
+  assert.match(source, /setTimeout\([\s\S]{0,700}\}, 120\)/);
+  assert.match(source, /requestAnimationFrame\(\(\) => \{[\s\S]{0,500}requestAnimationFrame/);
+});
+
+test("Station retains one 10 Hz source tick path while deferring crop replacement", () => {
+  const control = source.slice(
+    source.indexOf("async function stationControl"),
+    source.indexOf("function showError")
+  );
+  assert.match(control, /session\.stationPendingScrollGeneration = next\.generation/);
+  assert.match(control, /scheduleStationCaptureSettle\(next\.generation\)/);
+  assert.match(control, /else if \(!session\.stationPendingScrollGeneration\)/);
+  assert.match(control, /Math\.min\(timestamp - session\.lastScrollTimestamp, 100\)/);
+});
