@@ -142,6 +142,30 @@ test("rotation is limited to curated scenes and wraps with an explicit pause con
   assert.match(deck, /setTimeout\(/);
 });
 
+test("header groups scene, page, and compact auto-rotate controls without changing their actions", () => {
+  assert.match(deck, /class="control-group scene-controls"/);
+  assert.match(deck, /id="resetScene"[^>]*aria-label="Reset scene preset"/);
+  assert.match(deck, /class="control-group rotate-controls"/);
+  assert.match(deck, /<span class="control-label">auto rotate<\/span>/);
+  assert.match(deck, /toggle\.textContent = running \? "pause" : "start"/);
+  assert.match(deck, /class="control-group page-controls" id="cohortControls"/);
+  assert.match(deck, /aria-label="Previous basket page"/);
+  assert.match(deck, /aria-label="Next basket page"/);
+  assert.match(deck, /textContent = "page " \+ namedPage \+ " \/ " \+ namedPages/);
+  assert.match(deck, /textContent = "page " \+ \(page\.page \+ 1\) \+ " \/ " \+ page\.totalPages/);
+  assert.match(deck, /el\("cohortPrev"\)\.addEventListener\("click"/);
+  assert.match(deck, /el\("cohortNext"\)\.addEventListener\("click"/);
+});
+
+test("display window action stays separate from the remembered layout chooser", () => {
+  assert.match(deck, /<option value="display" hidden data-display-only="true">display<\/option>/,
+    "display remains a valid route profile without appearing as a second layout choice");
+  assert.match(deck, /id="displayBtn"[^>]*aria-label="Open dedicated Station display window"/);
+  assert.match(deck, /u\.searchParams\.set\("view", "display"\)/,
+    "the external display action retains its dedicated-window behavior");
+  assert.match(deck, /const VIEW_MODES = \["auto","desk","ipad","display","compact"\]/);
+});
+
 test("Scenes V2 stays local-only and preserves the current iPad companion", () => {
   assert.doesNotMatch(deck, /passwordless|signInWithOtp|station_shared_state/i);
   assert.match(deck, /IPAD_COMPANION/);
