@@ -1,6 +1,9 @@
 "use strict";
 
 let captureStream = null;
+let captureVideo = null;
+let pendingCaptureGeneration = 0;
+let captureFrameWaitScheduled = false;
 const peers = new Map();
 
 function waitForIceComplete(connection) {
@@ -22,6 +25,14 @@ function stopCapture() {
     for (const track of captureStream.getTracks()) track.stop();
   }
   captureStream = null;
+  pendingCaptureGeneration = 0;
+  captureFrameWaitScheduled = false;
+  if (captureVideo) {
+    captureVideo.pause();
+    captureVideo.srcObject = null;
+    captureVideo.remove();
+    captureVideo = null;
+  }
 }
 
 function dropPeer(peerId) {
@@ -47,7 +58,33 @@ async function startCapture(streamId) {
     },
     audio: false
   });
+  /* This hidden decoder is intentionally not a second capture or renderer.
+     requestVideoFrameCallback is the only reliable proof that the tab-capture
+     stream—not merely the source page rAF—has crossed a scroll boundary. */
+  captureVideo = document.createElement("video");
+  captureVideo.muted = true;
+  captureVideo.playsInline = true;
+  captureVideo.srcObject = captureStream;
+  await captureVideo.play();
   return { ok: true };
+}
+
+function acknowledgeCapturedFrame(generation) {
+  pendingCaptureGeneration = Math.max(pendingCaptureGeneration, Number(generation) || 0);
+  if (!captureVideo || captureFrameWaitScheduled || !pendingCaptureGeneration) return;
+  captureFrameWaitScheduled = true;
+  const afterFrame = () => {
+    captureFrameWaitScheduled = false;
+    const confirmedGeneration = pendingCaptureGeneration;
+    pendingCaptureGeneration = 0;
+    chrome.runtime.sendMessage({
+      type: "XFF_STATION_CAPTURE_FRAME",
+      generation: confirmedGeneration
+    }).catch(() => {});
+  };
+  if (typeof captureVideo.requestVideoFrameCallback === "function") {
+    captureVideo.requestVideoFrameCallback(afterFrame);
+  }
 }
 
 async function answerOffer(peerId, offer) {
@@ -88,6 +125,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message.type === "XFF_OFFSCREEN_DROP") {
     dropPeer(message.peerId);
+    sendResponse({ ok: true });
+  }
+
+  if (message.type === "XFF_OFFSCREEN_WAIT_CAPTURE_FRAME") {
+    acknowledgeCapturedFrame(message.generation);
     sendResponse({ ok: true });
   }
 });

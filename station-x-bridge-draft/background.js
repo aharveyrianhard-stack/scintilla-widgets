@@ -4,6 +4,8 @@ const remoteViewerGenerations = new Map();
 let stationSourceTabId = null;
 let stationActiveConsumerKey = null;
 let stationLastTickForwardedAt = 0;
+let stationLastCaptureFrameGeneration = 0;
+let stationPendingCaptureGeneration = 0;
 const STATION_TICK_MIN_INTERVAL_MS = 24;
 const STATION_SESSION_KEY = "stationXSessionV1";
 
@@ -182,6 +184,8 @@ async function stopStationCapture(detail = "stopped") {
   stationSourceTabId = null;
   remoteViewerGenerations.clear();
   stationLastTickForwardedAt = 0;
+  stationLastCaptureFrameGeneration = 0;
+  stationPendingCaptureGeneration = 0;
   await persistStationSession();
 }
 
@@ -487,6 +491,31 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     broadcastToStations({
       type: "XFF_STATION_CROP",
       crop: message.crop
+    }).catch(() => {});
+    return;
+  }
+
+  if (message?.type === "XFF_STATION_SCROLL_GENERATION") {
+    if (sender.tab?.id !== stationSourceTabId) return;
+    const generation = Math.max(0, Number(message.generation) || 0);
+    if (!generation) return;
+    stationPendingCaptureGeneration = Math.max(stationPendingCaptureGeneration, generation);
+    chrome.runtime.sendMessage({
+      target: "station-x-offscreen",
+      type: "XFF_OFFSCREEN_WAIT_CAPTURE_FRAME",
+      generation
+    }).catch(() => {});
+    return;
+  }
+
+  if (message?.type === "XFF_STATION_CAPTURE_FRAME") {
+    const generation = Math.max(0, Number(message.generation) || 0);
+    if (!stationSourceTabId || !generation || generation !== stationPendingCaptureGeneration ||
+        generation <= stationLastCaptureFrameGeneration) return;
+    stationLastCaptureFrameGeneration = generation;
+    stationPendingCaptureGeneration = 0;
+    chrome.tabs.sendMessage(stationSourceTabId, {
+      type: "XFF_STATION_CAPTURE_FRAME", generation
     }).catch(() => {});
     return;
   }

@@ -766,6 +766,35 @@ test("Viewer A refresh renews its peer generation and a late old drop cannot evi
     type === "XFF_OFFSCREEN_OFFER" && peerId === "ipad:" + pairId + ":" + viewerB));
 });
 
+test("only a new offscreen capture frame releases the current source scroll generation", async () => {
+  const h = await harness();
+  const station = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "pane", width: 430, height: 260
+  }, station);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  const source = { tab: { id: 7, windowId: 1 }, frameId: 0 };
+
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_SCROLL_GENERATION", generation: 12
+  }, source);
+  assert.ok(h.runtimeSent.some(({ type, generation }) =>
+    type === "XFF_OFFSCREEN_WAIT_CAPTURE_FRAME" && generation === 12));
+
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_CAPTURE_FRAME", generation: 11
+  }, {});
+  assert.equal(h.sent.filter(({ message }) => message.type === "XFF_STATION_CAPTURE_FRAME").length, 0,
+    "an older decoded capture frame cannot release a newer crop offset");
+
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_CAPTURE_FRAME", generation: 12
+  }, {});
+  const acknowledgements = h.sent.filter(({ tabId, message }) =>
+    tabId === 7 && message.type === "XFF_STATION_CAPTURE_FRAME");
+  assert.deepEqual(acknowledgements.map(({ message }) => message.generation), [12]);
+});
+
 test("an explicit preview click injects only the Station bridge into that preview tab", async () => {
   const h = await harness();
   await h.actionListeners[0]({

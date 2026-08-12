@@ -43,11 +43,10 @@
     stationRenderedOffset: 0,
     stationScrollGeneration: 0,
     stationPendingScrollGeneration: 0,
-    stationSettleFrame: null,
     stationMetrics: {
       ticks: 0,
       integerScrolls: 0,
-      deferredOffsetSettles: 0,
+      confirmedCaptureFrames: 0,
       geometryMeasures: 0,
       geometryInvalidations: 0,
       negativeCommitOffsets: 0
@@ -638,32 +637,23 @@
     }, 120);
   }
 
-  function scheduleStationCaptureSettle(generation) {
-    if (session.stationSettleFrame) {
-      cancelAnimationFrame(session.stationSettleFrame);
-      session.stationSettleFrame = null;
-    }
+  function requestStationCaptureFrame(generation) {
+    runtimeMessage({ type: "XFF_STATION_SCROLL_GENERATION", generation }).catch(() => {});
+  }
 
-    // Two source rAFs is the minimum safe barrier before publishing the new
-    // fractional crop after changing X's integer scroll position.
-    session.stationSettleFrame = requestAnimationFrame(() => {
-      session.stationSettleFrame = requestAnimationFrame(() => {
-        session.stationSettleFrame = null;
-        if (generation !== session.stationPendingScrollGeneration) {
-          return;
-        }
-        session.stationRenderedOffset = session.scrollCarryPx;
-        session.stationPendingScrollGeneration = 0;
-        session.stationMetrics.deferredOffsetSettles += 1;
-      });
-    });
+  function confirmStationCaptureFrame(generation) {
+    const confirmed = Math.max(0, Number(generation) || 0);
+    /* A late frame belongs to a scroll position we have already superseded.
+       Keep the last confirmed crop until the newest generation is decoded. */
+    if (!confirmed || confirmed !== session.stationPendingScrollGeneration) return false;
+    session.stationRenderedOffset = session.scrollCarryPx;
+    session.stationPendingScrollGeneration = 0;
+    session.stationMetrics.confirmedCaptureFrames += 1;
+    runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });
+    return true;
   }
 
   function resetStationScrollComposite() {
-    if (session.stationSettleFrame) {
-      cancelAnimationFrame(session.stationSettleFrame);
-      session.stationSettleFrame = null;
-    }
     session.scrollCarryPx = 0;
     session.stationRenderedOffset = 0;
     session.stationPendingScrollGeneration = 0;
@@ -2052,7 +2042,7 @@
         if (next.needsSettle) {
           session.stationMetrics.integerScrolls += 1;
           session.stationPendingScrollGeneration = next.generation;
-          scheduleStationCaptureSettle(next.generation);
+          requestStationCaptureFrame(next.generation);
         } else if (!session.stationPendingScrollGeneration) {
           session.stationRenderedOffset = next.renderedOffset;
         }
@@ -2137,6 +2127,11 @@
         .then(() => sendResponse({ ok: true }))
         .catch((error) => sendResponse({ ok: false, error: error.message }));
       return true;
+    }
+    if (message?.type === "XFF_STATION_CAPTURE_FRAME") {
+      confirmStationCaptureFrame(message.generation);
+      sendResponse({ ok: true });
+      return;
     }
 
   });
