@@ -5,7 +5,7 @@ import vm from "node:vm";
 
 const source = await readFile(new URL("../../pane-x/index.html", import.meta.url), "utf8");
 
-function functionFromSource(name) {
+function functionFromSource(name, context = {}) {
   const start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} must exist`);
   let depth = 0;
@@ -15,7 +15,7 @@ function functionFromSource(name) {
     if (source[index] === "}") depth -= 1;
     if (depth === 0) { end = index + 1; break; }
   }
-  return vm.runInNewContext(`(${source.slice(start, end)})`);
+  return vm.runInNewContext(`(${source.slice(start, end)})`, context);
 }
 
 test("a paired viewer keeps its identity through a browser-session reload", () => {
@@ -44,4 +44,58 @@ test("the iMac pane buffers offers until one exact Bridge generation accepts the
   assert.match(source, /type === "XFF_STATION_BRIDGE_REANNOUNCING"/);
   assert.match(source, /String\(event\.data\.instanceId \|\| ""\) === stationBridgeInstanceId/);
   assert.match(source, /clearStationRemoteOffer\(event\.data\.pairId, event\.data\.viewerId\)/);
+});
+
+test("the iMac pairing room renews its existing trusted pair after a Realtime disconnect", () => {
+  assert.match(source, /let stationPairReconnect = null;/);
+  assert.match(source, /function reconnectStationPairRoom\(pair\)/);
+  assert.match(source, /socket\.addEventListener\("error", \(\) =>/);
+  assert.match(source, /socket\.addEventListener\("close", disconnect\)/);
+  assert.match(source, /pair\.room = stationRealtimeRoom\(pair, \(\) => reconnectStationPairRoom\(pair\)\)/);
+  assert.match(source, /clearTimeout\(stationPairReconnect\); stationPairReconnect = null;/);
+});
+
+test("a silent open join times out, reconnects, and lets the next offer reach Bridge", () => {
+  const sockets = [], timers = [], offers = [];
+  class FakeWebSocket {
+    static OPEN = 1;
+    constructor(url) { this.url = url; this.readyState = FakeWebSocket.OPEN; this.sent = []; this.listeners = new Map(); sockets.push(this); }
+    addEventListener(type, listener) { this.listeners.set(type, listener); }
+    send(message) { this.sent.push(JSON.parse(message)); }
+    close() { this.closed = true; this.readyState = 3; }
+    emit(type, event = {}) { this.listeners.get(type)?.(event); }
+  }
+  const pair = { token:"a".repeat(32), code:"123456" };
+  let disconnects = 0;
+  const room = functionFromSource("stationRealtimeRoom", {
+    STATION_REALTIME_URL:"wss://station.test/socket/websocket",
+    STATION_REALTIME_KEY:"test-key",
+    STATION_JOIN_TIMEOUT_MS:5000,
+    WebSocket:FakeWebSocket,
+    stationPair:pair,
+    el:() => ({ textContent:"" }),
+    queueStationRemoteOffer:(pairId, viewerId, offer) => offers.push({ pairId, viewerId, offer }),
+    clearStationRemoteOffer:() => {},
+    window:{ postMessage:() => {} },
+    location:{ origin:"https://station.test" },
+    setTimeout:(fn, ms) => { const timer = { fn, ms, cleared:false }; timers.push(timer); return timer; },
+    clearTimeout:(timer) => { if (timer) timer.cleared = true; }
+  });
+  room(pair, () => { disconnects += 1; });
+  const first = sockets[0];
+  first.emit("open");
+  assert.equal(first.sent[0].event, "phx_join");
+  assert.equal(timers[0].ms, 5000);
+  timers[0].fn();
+  assert.equal(first.closed, true, "an OPEN socket without phx_join acknowledgement is closed");
+  assert.equal(disconnects, 1, "caller is told to rejoin the trusted room");
+
+  room(pair, () => { disconnects += 1; });
+  const second = sockets[1];
+  second.emit("open");
+  second.emit("message", { data:JSON.stringify({ event:"phx_reply", ref:"1", payload:{ status:"ok" } }) });
+  second.emit("message", { data:JSON.stringify({ event:"broadcast", payload:{ event:"offer", payload:{
+    code:pair.code, viewerId:"b".repeat(24), offer:{ type:"offer", sdp:"test" }
+  } } }) });
+  assert.deepEqual(JSON.parse(JSON.stringify(offers)), [{ pairId:pair.token, viewerId:"b".repeat(24), offer:{ type:"offer", sdp:"test" } }]);
 });
