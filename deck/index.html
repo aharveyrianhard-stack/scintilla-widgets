@@ -269,7 +269,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   <span class="lbl">charts</span>
   <select class="chart-count" id="chartCount" title="number of charts">
     <option value="1">1</option><option value="2">2</option><option value="3">3</option>
-    <option value="4">4</option><option value="6">6</option><option value="8">8</option>
+    <option value="6">6</option><option value="8">8</option>
   </select>
   <span class="symbol-note" id="symbolNote">Hub symbols</span>
   <span class="lbl">timeframe · all</span>
@@ -359,10 +359,17 @@ const sessionRemembered = (key) => { try { return sessionStorage.getItem(key) ||
 const sessionRemember = (key, value) => { try { sessionStorage.setItem(key, value); } catch (_) {} };
 const forgetSession = (key) => { try { sessionStorage.removeItem(key); } catch (_) {} };
 const SceneModel = window.StationScenes;
-const CHART_COUNTS = [1,2,3,4,6,8];
+const CHART_COUNTS = [1,2,3,6,8];
 const chartCount = (value) => {
   const n = Math.max(1, Math.min(8, +value || 2));
-  return n === 5 ? 4 : (CHART_COUNTS.includes(n) ? n : 2);
+  return n === 4 || n === 5 ? 2 : (CHART_COUNTS.includes(n) ? n : 2);
+};
+/* CUSTOM deliberately exposes only 2 / 6 / 8.  A remembered four-up wall is
+   a migration case: retain its four chosen slots and widen it to six editable
+   positions; never invent replacements. */
+const customChartCount = (value) => {
+  const n = Math.max(1, Math.min(8, +value || 2));
+  return n <= 2 ? 2 : n <= 6 ? 6 : 8;
 };
 const CUSTOM_WALL_STARTERS = Object.freeze(["SPY","QQQ","IWM","MAGS","SMH","AAPL","MSFT","AMZN"]);
 const ROTATE_SCENES = SceneModel.ROTATION_IDS;
@@ -388,7 +395,9 @@ const URL_STATEFUL = SCENE === "live" || SCENE === "custom";
    prior Custom/LIVE workspace or the generic SPY/SNDK defaults. */
 const DIRECT_CUSTOM_WORKSPACE = SCENE === "custom" &&
   Array.from({ length:8 }, (_, i) => QS.has("c" + (i + 1))).some(Boolean);
-let CHART_COUNT = chartCount((URL_STATEFUL ? QS.get("charts") : "") || storedState("chartCount") || 2);
+let CHART_COUNT = (SCENE === "custom" ? customChartCount : chartCount)(
+  (URL_STATEFUL ? QS.get("charts") : "") || storedState("chartCount") || 2
+);
 function initialWorkspaceChart(incoming, stored, index, directCustom) {
   if (directCustom) return incoming && incoming !== "auto" ? CLEAN(incoming) : "";
   if (incoming && incoming !== "auto") return CLEAN(incoming);
@@ -425,7 +434,7 @@ function savedCustomCharts() {
 function preservedCustomState(state) {
   return {
     charts: Array.from({ length:8 }, (_, i) => CLEAN((state.charts || [])[i] || "")),
-    chartCount: chartCount(state.chartCount),
+    chartCount: customChartCount(state.chartCount),
     range: RANGES.includes(state.range) ? state.range : RANGE
   };
 }
@@ -447,7 +456,7 @@ function fillCustomWall(charts, requestedCount) {
   return next;
 }
 function customWallState(state, requestedCount) {
-  const count = chartCount(requestedCount || state?.chartCount || 6);
+  const count = customChartCount(requestedCount || state?.chartCount || 6);
   const charts = fillCustomWall(state?.charts, count);
   return {
     charts,
@@ -861,7 +870,9 @@ function paintSceneControls(note) {
 function installSceneState(state) {
   const charts = (state.charts || state.tickers || []).slice(0, 8);
   CHARTS.forEach((_, i) => { CHARTS[i] = CLEAN(charts[i] || ""); });
-  CHART_COUNT = chartCount(state.chartCount || SceneModel.chartCountForSize(charts.length));
+  CHART_COUNT = (SCENE === "custom" ? customChartCount : chartCount)(
+    state.chartCount || SceneModel.chartCountForSize(charts.length)
+  );
   RANGE = RANGES.includes(state.range) ? state.range : RANGE;
 }
 function fixedSceneState(scene, requestedCount) {
@@ -962,7 +973,10 @@ async function applyScene(next, options) {
   let state;
   if (fixedSceneState(requested)) {
     BASKET_OFFSET = Math.max(0, Number(options?.offset) || 0);
-    state = !options?.reset && !options?.rotate && hasStoredScene(requested)
+    /* Pagination is a deliberate return to a named basket page.  A prior
+       editable visit must not pin the arrows to its old first-page symbols. */
+    const namedPage = Object.prototype.hasOwnProperty.call(options || {}, "offset");
+    state = !options?.reset && !options?.rotate && !namedPage && hasStoredScene(requested)
       ? editableState(requested) : fixedSceneState(requested);
   }
   else if (requested === "cohort") {
@@ -1218,8 +1232,16 @@ function paintTickerFields() {
     title.replaceWith(n); wireTicker(n, i);
   });
 }
+function paintChartCountChoices() {
+  const custom = SCENE === "custom";
+  for (const option of el("chartCount").options) {
+    const allowed = !custom || [2,6,8].includes(+option.value);
+    option.hidden = !allowed;
+    option.disabled = !allowed;
+  }
+}
 function applyChartCount(next, fromScene, transitionGeneration) {
-  const requestedCount = chartCount(next);
+  const requestedCount = SCENE === "custom" ? customChartCount(next) : chartCount(next);
   if (SCENE === "custom" && requestedCount >= 6) {
     /* Growing an existing Custom workspace creates intentional editable slots;
        it never reseeds, replaces, or evicts a symbol the user already chose. */
@@ -1231,7 +1253,7 @@ function applyChartCount(next, fromScene, transitionGeneration) {
       ? SceneModel.chartCountForSize(Math.min(requestedCount, CHARTS.filter(Boolean).length))
       : requestedCount;
   }
-  el("chartCount").value = String(CHART_COUNT);
+  paintChartCountChoices(); el("chartCount").value = String(CHART_COUNT);
   const row = el("rowTop");
   if (row) row.className = "deckrow charts-" + CHART_COUNT;
   /* Count is now final, so active pane URLs can switch shared-axis mode
