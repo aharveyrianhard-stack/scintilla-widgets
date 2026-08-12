@@ -44,12 +44,42 @@ test("larger curated grids page real basket members without blank cards", () => 
   assert.equal(scenes.basketWindow([], 0, 6).empty, true);
 });
 
-test("four and six chart grids use one shared lower axis", () => {
+test("four, six, and eight chart grids use one shared lower axis", () => {
   assert.equal(scenes.usesSharedBottomAxis(4), true);
   assert.equal(scenes.usesSharedBottomAxis(6), true);
+  assert.equal(scenes.chartCountForSize(8), 8);
+  assert.equal(scenes.usesSharedBottomAxis(8), true);
   assert.equal(scenes.usesSharedBottomAxis(3), false);
+  assert.match(deck, /#rowTop\.charts-8/);
   assert.match(deck, /axis\.id = "sharedTimeAxis"/);
   assert.match(deck, /row\.classList\.toggle\("shared-axis"/);
+});
+
+test("CUSTOM six and eight chart walls begin with real editable symbols", () => {
+  const fillCustomWall = functionFromDeck("fillCustomWall", {
+    CLEAN: (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12),
+    chartCount: scenes.chartCountForSize,
+    CUSTOM_WALL_STARTERS: ["SPY","QQQ","IWM","MAGS","SMH","AAPL","MSFT","AMZN"]
+  });
+  const six = fillCustomWall([], 6);
+  assert.deepEqual(Array.from(six.slice(0, 6)), ["SPY","QQQ","IWM","MAGS","SMH","AAPL"]);
+  assert.equal(six.slice(0, 6).includes(""), false);
+  const eight = fillCustomWall(["TSM", "WULF"], 8);
+  assert.deepEqual(Array.from(eight.slice(0, 2)), ["TSM", "WULF"]);
+  assert.equal(eight.slice(0, 8).includes(""), false);
+  assert.equal(new Set(eight.slice(0, 8)).size, 8, "starter fill must not duplicate a manual symbol");
+  assert.match(deck, /option value="8"/);
+  assert.match(deck, /countOption\.disabled = SCENE !== "custom"/);
+});
+
+test("rotation is limited to curated scenes and wraps with an explicit pause control", () => {
+  assert.deepEqual(Array.from(scenes.ROTATION_IDS), ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]);
+  assert.equal(scenes.nextRotatingScene("live"), "indexNow");
+  assert.equal(scenes.nextRotatingScene("themeFamilies"), "indexNow");
+  assert.match(deck, /ROTATE_SECONDS = \[30,60,120\]/);
+  assert.match(deck, /id="rotateToggle"/);
+  assert.match(deck, /setRotationPaused\(!ROTATE_PAUSED\)/);
+  assert.match(deck, /setTimeout\(/);
 });
 
 test("Scenes V2 stays local-only and preserves the current iPad companion", () => {
@@ -66,7 +96,7 @@ test("CUSTOM recovery compacts the screenshot-shaped sparse six-card workspace",
     CLEAN: (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12),
     RANGES: ["15m","30m","1h","2h","3h","4h","6h","12h","1D","3D","1W"],
     RANGE: "3h",
-    chartCount: (value) => Math.max(1, Math.min(6, Number(value) || 2)),
+    chartCount: scenes.chartCountForSize,
     SceneModel: { chartCountForSize: scenes.chartCountForSize }
   };
   vm.runInNewContext(`${match[0]}; globalThis.compact = compactCustomState;`, customContext);
@@ -76,13 +106,13 @@ test("CUSTOM recovery compacts the screenshot-shaped sparse six-card workspace",
     range: "3h"
   });
   assert.equal(recovered.chartCount, 2);
-  assert.deepEqual(Array.from(recovered.charts), ["TSM", "WULF", "", "", "", ""]);
+  assert.deepEqual(Array.from(recovered.charts), ["TSM", "WULF", "", "", "", "", "", ""]);
   assert.equal(recovered.charts.slice(0, recovered.chartCount).includes(""), false);
   assert.equal(customContext.compact({ charts:["", "", ""], chartCount:6, range:"3h" }), null);
-  assert.match(deck, /const fallback = compactCustomState\(\{ charts:CHARTS, chartCount:CHART_COUNT, range:RANGE \}\)/);
-  assert.match(deck, /if \(!recovered\) SCENE = "live"/);
-  assert.match(deck, /state = compactCustomState\(\{ charts:CHARTS, chartCount:CHART_COUNT, range:RANGE \}\)/);
-  assert.match(deck, /SCENE === "custom"\n    \? SceneModel\.chartCountForSize\(Math\.min\(requestedCount, CHARTS\.filter\(Boolean\)\.length\)\)/);
+  assert.match(deck, /const fallback = customWallState\(\{ charts:\[\], range:RANGE \}, 6\)/);
+  assert.match(deck, /if \(SCENE === "custom" && requestedCount >= 6\)/);
+  assert.match(deck, /CHART_COUNT = wall\.chartCount;[\s\S]*?syncChartPanes\(\);/,
+    "growing a saved Custom wall must refresh the mounted pane definitions");
 });
 
 test("a scene transition reloads a mounted frame whose URL has an old ticker", () => {
