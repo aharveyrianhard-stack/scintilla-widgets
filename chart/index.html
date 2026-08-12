@@ -138,14 +138,28 @@ const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
 const sb   = (typeof supabase !== "undefined" && supabase.createClient)
                ? supabase.createClient(SB, ANON) : null;
+/* A stalled data-plane read used to leave each pane waiting forever. Keep an
+   individual request short, then let the chart-level retry use one measured
+   backoff rather than multiplying hanging fetches. */
+const PG_TIMEOUT_MS = 4500;
+async function pgRequest(path) {
+  const controller = typeof AbortController === "undefined" ? null : new AbortController();
+  const timer = controller ? setTimeout(() => controller.abort(), PG_TIMEOUT_MS) : null;
+  try {
+    return await fetch(SB + "/rest/v1/" + path, {
+      headers: { apikey: ANON, Authorization: "Bearer " + ANON },
+      signal: controller?.signal,
+    });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 async function pg(path, _tries) {
-  const tries = _tries == null ? 3 : _tries;
+  const tries = _tries == null ? 1 : _tries;
   let lastErr;
   for (let i = 0; i < tries; i++) {
     try {
-      const r = await fetch(SB + "/rest/v1/" + path, {
-        headers: { apikey: ANON, Authorization: "Bearer " + ANON },
-      });
+      const r = await pgRequest(path);
       if (r.ok) return r.json();
       if (r.status === 503 || r.status === 504 || r.status === 429) {
         lastErr = new Error("pg " + path + " → " + r.status);
@@ -178,7 +192,10 @@ function cacheGet(k, staleOk) {
   } catch (err) { return null; }
 }
 function cacheSet(k, payload) {
-  try { lsSet(k, JSON.stringify(Object.assign({ ts: Date.now() }, payload))); } catch (err) {}
+  /* Bare Station panes must not persist selected ticker/range, but their
+     ticker-and-range keyed data cache is safe to share and lets a fresh
+     Station window draw before a slow database refresh returns. */
+  try { localStorage.setItem(k, JSON.stringify(Object.assign({ ts: Date.now() }, payload))); } catch (err) {}
 }
 
 /* ---- crypto map + TV symbols — ported verbatim ---- */
@@ -218,9 +235,11 @@ let liveQuote = {};
 
 /* ---- chart caches + colors — ported verbatim ---- */
 const chartCache = new Map();
+const chartInflight = new Map();
 const CHART_HOSTS = new Set();
 const CHART_INITIAL_LIMIT = 400;
 const CHART_HISTORY_PAGE = 800;
+const CHART_RETRY_MS = 3000;
 const CHART_DB_RANGE = {"15m":["15",400],"30m":["30",400],"1h":["60",400],"2h":["120",400],"3h":["180",400],"4h":["240",400],"6h":["6h",400],"12h":["12h",400],"1D":["D",400],"3D":["3D",400],"1W":["W",400]};
 let CH_COL = null;
 function chColors() {
@@ -316,13 +335,20 @@ async function fetchChartSeries(t, range, requestedLimit){
   const limit = Math.max(e[1], Math.round(requestedLimit || e[1]));
   if (hit && Date.now() - hit.ts < 300000 && (hit.limit || hit.pts.length) >= limit)
     return chApplyLivePoint(t, hit.pts, liveQuote[t]);
-  const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + limit);
-  let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
-  pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
-  chApplyLivePoint(t, pts, liveQuote[t]);
-  chartCache.set(key, { ts: Date.now(), pts: pts, limit:limit });
-  if (pts.length >= 2) { try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {} }
-  return pts;
+  const inflightKey = key + "|" + limit;
+  if (chartInflight.has(inflightKey)) return chartInflight.get(inflightKey);
+  const work = (async () => {
+    const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + limit);
+    let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
+    pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
+    chApplyLivePoint(t, pts, liveQuote[t]);
+    chartCache.set(key, { ts: Date.now(), pts: pts, limit:limit });
+    if (pts.length >= 2) { try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {} }
+    return pts;
+  })();
+  chartInflight.set(inflightKey, work);
+  try { return await work; }
+  finally { if (chartInflight.get(inflightKey) === work) chartInflight.delete(inflightKey); }
 }
 
 async function fetchOlderChartSeries(t, range, before, limit) {
@@ -644,6 +670,31 @@ function scChartDraw(host, scrubIx) {
   }
 }
 
+function clearChartRetry(host) {
+  if (host._retryTimer) clearTimeout(host._retryTimer);
+  host._retryTimer = null;
+  host._retryReq = null;
+}
+function showChartDelayed(host, ticker) {
+  host.dataset.dataState = "delayed";
+  if (host._series && host._series.length >= 2) return;
+  const msg = host.querySelector(".sc-nchart__msg");
+  if (msg) { msg.textContent = "data delayed · retrying"; msg.hidden = false; }
+}
+function retryChartLoad(host, req) {
+  if (host._retryTimer && host._retryReq === req) return;
+  clearChartRetry(host);
+  host._retryReq = req;
+  host._retryTimer = setTimeout(() => {
+    host._retryTimer = null;
+    if (host.isConnected && host._req === req) {
+      /* Keep the retry state painted during the next bounded request. This is
+         essential when several fresh panes all hit the same delayed backend. */
+      showChartDelayed(host, host.dataset.t);
+      scChartLoad(host);
+    }
+  }, CHART_RETRY_MS);
+}
 async function scChartLoad(host) {
   const t = host.dataset.t, range = S.chartRange;
   const req = t + "|" + range;
@@ -661,6 +712,9 @@ async function scChartLoad(host) {
     host._ref = prevClose[t] != null ? +prevClose[t] : cachedPts[0].p;
     if (msg) msg.hidden = true;
     scChartDraw(host);
+  } else if (host.dataset.dataState === "delayed") {
+    /* A new bounded attempt must not make an uncached pane look blank again. */
+    showChartDelayed(host, t);
   }
   try {
     const limit = host._historyLimit || CHART_INITIAL_LIMIT;
@@ -670,15 +724,21 @@ async function scChartLoad(host) {
     host._series = pts;
     host._historyExhausted = pts.length < limit;
     host._ref = prevClose[t] != null ? +prevClose[t] : pts[0].p;
+    clearChartRetry(host);
+    delete host.dataset.dataState;
     if (msg) msg.hidden = true;
     scChartDraw(host);
   } catch (err) {
     if (host._req !== req || !host.isConnected) return;
-    if (host._series && host._series.length >= 2) return;
-    host._series = null;
-    const cv = host.querySelector(".sc-nchart__cv");
-    if (cv) { const cx = cv.getContext("2d"); cx.setTransform(1, 0, 0, 1, 0, 0); cx.clearRect(0, 0, cv.width, cv.height); }
-    if (msg) { msg.textContent = "chart data unavailable for " + t; msg.hidden = false; }
+    showChartDelayed(host, t);
+    if (host._series && host._series.length >= 2) {
+      /* A stale but usable chart is better than a black pane while the next
+         bounded attempt is waiting. */
+      if (msg) msg.hidden = true;
+      retryChartLoad(host, req);
+      return;
+    }
+    retryChartLoad(host, req);
   }
 }
 
