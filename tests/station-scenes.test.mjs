@@ -133,6 +133,19 @@ test("CUSTOM preserves the screenshot-shaped sparse six-slot workspace", () => {
     "growing Custom preserves intentionally empty slots instead of reseeding them");
 });
 
+test("a direct Custom URL is authoritative over saved and default symbols", () => {
+  const initialChart = functionFromDeck("initialWorkspaceChart", {
+    CLEAN: (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12)
+  });
+  const direct = ["TSM", "WULF", "", "", "", ""].map((incoming, index) =>
+    initialChart(incoming, ["AAPL","NVDA","SPY","QQQ","IWM","MAGS"][index], index, true));
+  assert.deepEqual(Array.from(direct), ["TSM", "WULF", "", "", "", ""],
+    "direct c1/c2 URLs never inherit saved/default c3–c6 values");
+  assert.equal(initialChart("", "SPY", 2, false), "SPY",
+    "saved workspaces retain their existing behavior when no direct Custom URL is supplied");
+  assert.match(deck, /const DIRECT_CUSTOM_WORKSPACE = SCENE === "custom"/);
+});
+
 test("Custom uses a complete desk budget and explicit empty versus paused cards", () => {
   assert.match(deck, /const LIVE_CAP = STACKED \? 2 : 11;/);
   assert.match(deck, /empty editable slot/);
