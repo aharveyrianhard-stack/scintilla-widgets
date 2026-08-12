@@ -55,8 +55,12 @@
     return 8;
   }
 
-  function usesSharedBottomAxis(size) {
+  function usesPairedColumnAxis(size) {
     return [4, 6, 8].includes(chartCountForSize(size));
+  }
+  function hidesTopChartAxis(index, size) {
+    const count = chartCountForSize(size);
+    return usesPairedColumnAxis(count) && Number(index) >= 0 && Number(index) < count / 2;
   }
   function nextRotatingScene(scene) {
     const index = ROTATION_IDS.indexOf(normalizeScene(scene));
@@ -111,7 +115,8 @@
     PRESETS,
     normalizeScene,
     chartCountForSize,
-    usesSharedBottomAxis,
+    usesPairedColumnAxis,
+    hidesTopChartAxis,
     nextRotatingScene,
     indexNowLeaders,
     indexNowTickersFor,
