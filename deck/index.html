@@ -141,7 +141,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 #rowTop > .pane.chart-off{ display:none; }
 #rowTop.shared-axis{ position:relative; padding-bottom:19px; }
 #sharedTimeAxis{ display:none; position:absolute; left:7px; right:28px; bottom:2px; height:14px; z-index:7;
-  justify-content:space-between; color:var(--mute); font-size:7px; letter-spacing:.08em; pointer-events:none; }
+  justify-content:space-between; align-items:center; color:var(--mute); font-size:clamp(8px,.62vw,10px);
+  line-height:1; letter-spacing:.06em; pointer-events:none; -webkit-text-size-adjust:100%; }
 #rowTop.shared-axis #sharedTimeAxis{ display:flex; }
 .deckrow > .pane{ flex:1 1 0; min-width:0; min-height:0; }
 
@@ -166,6 +167,9 @@ body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
   overflow:hidden; text-overflow:ellipsis; }
 .ph .acts{ margin-left:auto; display:flex; gap:4px; flex:none; }
 .pane.integrated > .ph{ display:none; }
+.pane > .body{ position:relative; }
+.chart-full{ position:absolute; top:6px; right:7px; z-index:9; min-width:24px; min-height:24px;
+  display:grid; place-items:center; padding:2px 5px; background:rgba(7,10,16,.72); }
 .body{ flex:1 1 0; position:relative; min-height:0; min-width:0; }
 .body iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block;
   background:var(--bg); }
@@ -487,16 +491,17 @@ function makePane(def) {
   head.innerHTML = '<span class="t">' + esc(def.title) + '</span><span class="tag">' + esc(def.tag) + "</span>";
   const acts = document.createElement("div"); acts.className = "acts";
 
-  const bFull = document.createElement("span"); bFull.className = "btn"; bFull.textContent = "⛶";
+  const bFull = document.createElement("button"); bFull.type = "button"; bFull.className = "btn"; bFull.textContent = "⛶";
   bFull.title = "expand across this row — one tap back";
   bFull.addEventListener("click", (e) => { e.stopPropagation(); setSolo(SOLO === def.key ? null : def.key); });
   /* The Station is the destination. Pop/PiP/open duplicated navigation and
      crowded every pane; keep one explicit in-place expansion control. */
-  acts.appendChild(bFull);
-  head.appendChild(acts);
-
   const body = document.createElement("div"); body.className = "body";
+  if (def.kind === "chart") bFull.classList.add("chart-full");
+  else acts.appendChild(bFull);
+  if (def.kind !== "chart") head.appendChild(acts);
   p.appendChild(head); p.appendChild(body);
+  if (def.kind === "chart") body.appendChild(bFull);
   const obj = { def, node: p, body, frame: null, bFull };
 
   obj.showCard = (note) => {
@@ -599,6 +604,11 @@ window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
   if (event.data?.sc === "chart-status") {
     CHART_STATUS.set(event.data.ticker, event.data); paintMarketStatus(); return;
+  }
+  if (event.data?.sc === "chart-focus-ticker") {
+    const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
+    if (pane) focusTickerFor(pane.def.key);
+    return;
   }
   if (event.data?.sc === "chart-view") {
     for (const pane of PANES) {
@@ -882,7 +892,7 @@ function setRotationInterval(seconds) {
 
 /* ---- ONE timeframe bar, driving both charts ---- */
 function chartSrc(t) {
-  return "/chart?rev=085&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
+  return "/chart?rev=086&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
     "&view=" + encodeURIComponent(VIEW) +
     (SceneModel.usesSharedBottomAxis(CHART_COUNT) ? "&sharedAxis=1" : "");
 }

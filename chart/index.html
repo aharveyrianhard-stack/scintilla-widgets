@@ -59,12 +59,17 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   transform:translateX(-50%); background:var(--panel2); border:.6px solid var(--line2);
   border-radius:3px; padding:2px 6px; font-family:var(--mono); font-size:8.5px;
   color:var(--ink); white-space:nowrap; }
-.sc-nchart__live{ position:absolute; top:7px; left:8px; z-index:3; pointer-events:none;
-  display:flex; flex-direction:column; align-items:flex-start; gap:1px;
-  background:transparent; border:0; padding:0;
-  color:var(--dim); white-space:nowrap; text-shadow:0 1px 3px #000,0 0 8px #000; }
-.sc-nchart__live-price{ font:700 clamp(12px,1.65vw,16px) var(--mono); letter-spacing:.01em; line-height:1; }
-.sc-nchart__live-change{ font:600 9px var(--mono); letter-spacing:.04em; line-height:1; }
+.sc-nchart__live{ position:absolute; top:7px; left:8px; z-index:3; pointer-events:auto;
+  display:inline-flex; align-items:baseline; gap:.42em; max-width:calc(100% - 52px);
+  background:transparent; border:0; padding:0; color:var(--dim); white-space:nowrap;
+  font:700 clamp(12px,1.65vw,16px) var(--mono); letter-spacing:.01em; line-height:1;
+  text-shadow:0 1px 3px #000,0 0 8px #000; }
+.sc-nchart__live:hover{ filter:brightness(1.18); }
+.sc-nchart__live-ticker{ appearance:none; border:0; background:transparent; color:inherit; padding:0;
+  font:inherit; letter-spacing:inherit; line-height:inherit; cursor:text; text-decoration:underline;
+  text-decoration-color:rgba(255,255,255,.26); text-underline-offset:3px; }
+.sc-nchart__live-price,.sc-nchart__live-change{ font:inherit; letter-spacing:inherit; line-height:inherit; }
+.sc-nchart__live-change{ font-weight:700; }
 .sc-nchart__live[data-change="up"]{ color:var(--bull); }
 .sc-nchart__live[data-change="down"]{ color:var(--bear); }
 .sc-nchart__live[data-change="flat"]{ color:var(--dim); }
@@ -90,8 +95,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 /* bare mode — the Station owns ticker and timeframe. Hide the duplicated
    chart bar so the actual chart gets the full pane; standalone /chart keeps it. */
 html.bare .sc-nchart__bar{ display:none; }
-html[data-view="desk"] .sc-nchart__live-price{ font-size:18px; }
-html[data-view="compact"] .sc-nchart__live-price{ font-size:11px; }
+html[data-view="desk"] .sc-nchart__live{ font-size:18px; }
+html[data-view="compact"] .sc-nchart__live{ font-size:11px; }
 
 /* FIX 5 — IN-APP TradingView modal — ported verbatim */
 body.tvmodal-open{ overflow:hidden; }
@@ -381,7 +386,7 @@ function scChartHTML(ticker) {
       POPOUT_SVG + "<span class=\"sc-tv__pop-lbl\"> TradingView</span></button>" +
     "</div>" +
     '<div class="sc-nchart__area"><canvas class="sc-nchart__cv"></canvas>' +
-    '<div class="sc-nchart__live" data-fresh="0"></div>' +
+    '<div class="sc-nchart__live" data-fresh="0" title="Edit ticker"></div>' +
     '<div class="sc-nchart__hud" hidden></div>' +
     '<div class="sc-nchart__msg" hidden></div></div></div>';
 }
@@ -963,7 +968,8 @@ function chDayChange(price, previousClose) {
     return { text:"—", tone:"flat" };
   const pct = ((+price - +previousClose) / +previousClose) * 100;
   if (Math.abs(pct) < .005) return { text:"0.00%", tone:"flat" };
-  return { text:(pct > 0 ? "+" : "") + pct.toFixed(2) + "%", tone:pct > 0 ? "up" : "down" };
+  return { text:pct > 0 ? "+" + pct.toFixed(2) + "%" : "(" + Math.abs(pct).toFixed(2) + "%)",
+    tone:pct > 0 ? "up" : "down" };
 }
 
 function paintLiveStatus(host, quote) {
@@ -976,16 +982,25 @@ function paintLiveStatus(host, quote) {
   const dayRef = prevClose[host.dataset.t];
   const day = chDayChange(+quote.price, dayRef);
   badge.dataset.change = day.tone;
+  let ticker = badge.querySelector(".sc-nchart__live-ticker");
   let price = badge.querySelector(".sc-nchart__live-price");
   let change = badge.querySelector(".sc-nchart__live-change");
-  if (!price || !change) {
+  if (!ticker || !price || !change) {
     badge.replaceChildren();
+    ticker = document.createElement("button");
+    ticker.type = "button";
+    ticker.className = "sc-nchart__live-ticker";
+    ticker.title = "Edit ticker";
+    ticker.addEventListener("click", () => {
+      try { parent.postMessage({ sc:"chart-focus-ticker" }, location.origin); } catch (_) {}
+    });
     price = document.createElement("strong");
     price.className = "sc-nchart__live-price";
     change = document.createElement("span");
     change.className = "sc-nchart__live-change";
-    badge.append(price, change);
+    badge.append(ticker, price, change);
   }
+  ticker.textContent = host.dataset.t;
   price.textContent = chPx(+quote.price, host.dataset.t);
   change.textContent = day.text;
   badge.title = (futureSet.has(host.dataset.t) ? "delayed futures quote · database refresh " : "live_quotes · ") + at.toISOString();
