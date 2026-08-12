@@ -193,6 +193,22 @@ const REMOTE_VIEWER = stableRemoteViewerId(REMOTE_PAIR, sessionStorage, createRe
 /* New per receiver document: stable viewer identity is retained across a
    refresh, while this generation prevents a late old-page signal winning. */
 const REMOTE_RECEIVER_GENERATION = createRemoteViewerId();
+/* Station mirrors receive the same stream, but only one visible direct
+   receiver should drive the source's scroll clock.  Remote iPad viewers never
+   issue source ticks, so they deliberately stay outside this local election. */
+const VIEWER_CLOCK_ID = createRemoteViewerId();
+const VIEWER_CLOCK_HEARTBEAT_MS = 1000;
+const VIEWER_CLOCK_STALE_MS = 2600;
+const VIEWER_PAINT_INTERVAL_MS = 80;  /* 12.5fps: readable motion, lighter canvas work */
+const STATION_TICK_INTERVAL_MS = 100; /* 10Hz: source scroll cadence */
+
+function clockOwnerFor(selfId, peers, now, selfVisible = true) {
+  const candidates = selfVisible ? [selfId] : [];
+  for (const [id, peer] of peers.entries()) {
+    if (peer?.visible && now - Number(peer.seenAt || 0) <= VIEWER_CLOCK_STALE_MS) candidates.push(id);
+  }
+  return candidates.sort()[0] || selfId;
+}
 const STATION_REALTIME_URL = "wss://wadinxqplrggagkvrdag.supabase.co/realtime/v1/websocket";
 /* Publishable browser key verified against the live Realtime endpoint. */
 const STATION_REALTIME_KEY = "sb_publishable_AutibLpFtTns-WHAg67Pvw_I0HmjqE9";
@@ -210,6 +226,13 @@ let xfloatExpanded = false;
 let xfloatDrawAt = 0;
 let stationTickFrame = 0;
 let stationTickAt = 0;
+let viewerClockOwner = true;
+const viewerClockPeers = new Map();
+const viewerCadence = { paintFrames:0, paintSkipped:0, tickAttempts:0, tickSent:0, ownerChanges:0,
+  lastPaintAt:0, lastTickAt:0, viewerId:VIEWER_CLOCK_ID, ownerId:VIEWER_CLOCK_ID };
+const viewerClockChannel = !REMOTE_MODE && typeof BroadcastChannel === "function"
+  ? new BroadcastChannel("scintilla.station.x-clock.v1") : null;
+let viewerClockHeartbeat = 0;
 let stationPair = null;
 let stationPairReconnect = null;
 let stationBridgeInstanceId = "";
@@ -222,6 +245,44 @@ let remoteFrameAt = 0;
 let remoteVisibilityCheck = null;
 const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
 const STATION_JOIN_TIMEOUT_MS = 5000;
+
+function publishViewerCadence() {
+  /* Read-only diagnostics for the performance pass.  No user setting or
+     persistent state is created; tests and a live inspector can read this. */
+  window.__SCINTILLA_X_CADENCE = Object.assign({}, viewerCadence, {
+    owner:viewerClockOwner,
+    visible:document.visibilityState === "visible"
+  });
+}
+
+function refreshViewerClock(visible = document.visibilityState === "visible") {
+  if (REMOTE_MODE) return;
+  const now = Date.now();
+  viewerClockPeers.set(VIEWER_CLOCK_ID, { visible, seenAt:now });
+  const nextOwner = clockOwnerFor(VIEWER_CLOCK_ID, viewerClockPeers, now, visible);
+  if ((nextOwner === VIEWER_CLOCK_ID) !== viewerClockOwner) viewerCadence.ownerChanges += 1;
+  viewerClockOwner = nextOwner === VIEWER_CLOCK_ID;
+  viewerCadence.ownerId = nextOwner;
+  publishViewerCadence();
+}
+
+function announceViewerClock(visible = document.visibilityState === "visible") {
+  if (REMOTE_MODE) return;
+  viewerClockChannel?.postMessage({ type:"presence", id:VIEWER_CLOCK_ID, visible, at:Date.now() });
+  refreshViewerClock(visible);
+}
+
+if (viewerClockChannel) {
+  viewerClockChannel.addEventListener("message", (event) => {
+    const payload = event.data;
+    if (payload?.type !== "presence" || payload.id === VIEWER_CLOCK_ID ||
+        !/^[A-Za-z0-9_-]{16,}$/.test(String(payload.id || ""))) return;
+    viewerClockPeers.set(payload.id, { visible:Boolean(payload.visible), seenAt:Number(payload.at) || Date.now() });
+    refreshViewerClock();
+  });
+  viewerClockHeartbeat = setInterval(() => announceViewerClock(), VIEWER_CLOCK_HEARTBEAT_MS);
+}
+announceViewerClock();
 
 function stationRemoteKey(pairId, viewerId) {
   return String(pairId || "") + ":" + String(viewerId || "");
@@ -431,6 +492,7 @@ function stopXFloat({ notify = true } = {}) {
   if (stationTickFrame) cancelAnimationFrame(stationTickFrame);
   stationTickFrame = 0;
   stationTickAt = 0;
+  xfloatDrawAt = 0;
   if (xfloatStream) for (const track of xfloatStream.getTracks()) track.stop();
   xfloatStream = null;
   if (xfloatPeer) xfloatPeer.close();
@@ -465,11 +527,16 @@ function drawXFloat(at = 0) {
     xfloatFrame = requestAnimationFrame(drawXFloat);
     return;
   }
-  if (at && at - xfloatDrawAt < 32) {
+  if (at && at - xfloatDrawAt < VIEWER_PAINT_INTERVAL_MS) {
+    viewerCadence.paintSkipped += 1;
+    publishViewerCadence();
     xfloatFrame = requestAnimationFrame(drawXFloat);
     return;
   }
   xfloatDrawAt = at;
+  viewerCadence.paintFrames += 1;
+  viewerCadence.lastPaintAt = at;
+  publishViewerCadence();
   const video = el("v"), canvas = el("cv"), host = el("body");
   if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth) {
     const viewport = xfloatCrop.viewport || { width: video.videoWidth, height: video.videoHeight };
@@ -512,16 +579,24 @@ function drawXFloat(at = 0) {
 }
 
 function startStationClock() {
-  if (stationTickFrame) return;
+  if (REMOTE_MODE || stationTickFrame || document.visibilityState !== "visible") return;
+  announceViewerClock(true);
   const tick = (at) => {
-    if (!xfloatStream) { stationTickFrame = 0; return; }
+    if (!xfloatStream || document.visibilityState !== "visible") { stationTickFrame = 0; return; }
     /* The original X Feed Float clocks scrolling from its visible PiP window.
        Station has no float window, so its visible pane supplies the clock.
        This prevents Chrome from throttling the hidden X source tab and turning
        a 3px/s crawl into one large background-tab step. */
-    if (!stationTickAt || at - stationTickAt >= 30) {
+    if (!stationTickAt || at - stationTickAt >= STATION_TICK_INTERVAL_MS) {
       stationTickAt = at;
-      postXFloat("tick", { at: Date.now() });
+      viewerCadence.tickAttempts += 1;
+      announceViewerClock(true);
+      if (viewerClockOwner) {
+        viewerCadence.tickSent += 1;
+        viewerCadence.lastTickAt = at;
+        postXFloat("tick", { at: Date.now() });
+      }
+      publishViewerCadence();
     }
     stationTickFrame = requestAnimationFrame(tick);
   };
@@ -835,6 +910,10 @@ window.addEventListener("resize", () => postXFloat("resize", { width: innerWidth
 window.addEventListener("pagehide", () => stopXFloat({ notify: false }));
 window.addEventListener("pagehide", () => stopStationPairing());
 window.addEventListener("visibilitychange", () => {
+  if (!REMOTE_MODE) {
+    announceViewerClock(document.visibilityState === "visible");
+    if (document.visibilityState === "visible" && xfloatStream) startStationClock();
+  }
   if (!REMOTE_MODE || document.visibilityState !== "visible") return;
   clearTimeout(remoteVisibilityCheck);
   /* Give Safari a moment to resume a healthy peer.  Reconnect only if its
