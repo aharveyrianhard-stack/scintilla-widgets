@@ -63,6 +63,7 @@
   --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
   --crk:#00D4FF; --bull:#00FFA3; --vol:#FF8A00; --bear:#FF2D55;
   --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+  --ipad-btn-size:8px; --ipad-btn-pad-y:3px; --ipad-btn-pad-x:7px; --ipad-icon-size:24px; --ipad-icon-height:20px;
 }
 *{ box-sizing:border-box; min-width:0; -webkit-tap-highlight-color:transparent; }
 html,body{ margin:0; height:100%; }
@@ -119,8 +120,8 @@ body.tiny #card .d{ display:none; }
   margin:0; background:var(--panel2); box-shadow:-7px 0 8px var(--panel2); }
 html[data-view="desk"] .btn{ font-size:9px; padding:4px 8px; }
 html[data-view="desk"] .btn.icon{ width:28px; height:23px; padding:4px; }
-html[data-view="ipad"] .btn{ font-size:8px; padding:3px 7px; }
-html[data-view="ipad"] .btn.icon{ width:24px; height:20px; padding:3px; }
+html[data-view="ipad"] .btn{ font-size:var(--ipad-btn-size); padding:var(--ipad-btn-pad-y) var(--ipad-btn-pad-x); }
+html[data-view="ipad"] .btn.icon{ width:var(--ipad-icon-size); height:var(--ipad-icon-height); padding:var(--ipad-btn-pad-y); }
 html[data-view="compact"] .btn{ font-size:7px; padding:2px 5px; }
 html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
 </style>
@@ -171,6 +172,18 @@ const QS = new URLSearchParams(location.search);
 const VIEW_PROFILES = ["auto","desk","ipad","display","compact"];
 let VIEW_PROFILE = VIEW_PROFILES.includes(QS.get("view")) ? QS.get("view") : "auto";
 document.documentElement.dataset.view = VIEW_PROFILE;
+function applyIpadPaneScale(forced) {
+  const raw = Math.min(innerWidth / 410, innerHeight / 180);
+  const scale = VIEW_PROFILE === "ipad"
+    ? Math.max(.72, Math.min(1.08, Number.isFinite(+forced) ? +forced : raw)) : 1;
+  const root = document.documentElement.style;
+  root.setProperty("--ipad-btn-size", (8 * scale).toFixed(2) + "px");
+  root.setProperty("--ipad-btn-pad-y", (3 * scale).toFixed(2) + "px");
+  root.setProperty("--ipad-btn-pad-x", (7 * scale).toFixed(2) + "px");
+  root.setProperty("--ipad-icon-size", Math.max(20, 24 * scale).toFixed(2) + "px");
+  root.setProperty("--ipad-icon-height", Math.max(18, 20 * scale).toFixed(2) + "px");
+}
+applyIpadPaneScale();
 const REMOTE_PAIR = /^[A-Za-z0-9_-]{32,}$/.test(QS.get("pair") || "") ? QS.get("pair") : "";
 const REMOTE_CODE = /^[0-9]{6}$/.test(QS.get("code") || "") ? QS.get("code") : "";
 const REMOTE_MODE = QS.get("remote") === "1" && !!REMOTE_PAIR && !!REMOTE_CODE;
@@ -758,7 +771,7 @@ function fit() {
   v.style.transform = "translate(-50%,-50%) translateX(" + panX + "px) scale(" + scale + ")";
 }
 let raf = 0;
-const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; tiny(); fit(); }); };
+const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; applyIpadPaneScale(); tiny(); fit(); }); };
 function tiny() { document.body.classList.toggle("tiny", document.documentElement.clientHeight < 240); }
 if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
 addEventListener("resize", nudge); addEventListener("orientationchange", nudge);
@@ -887,6 +900,7 @@ window.addEventListener("message", (event) => {
   if (event.data?.type === "SCINTILLA_VIEW_PROFILE") {
     VIEW_PROFILE = VIEW_PROFILES.includes(event.data.view) ? event.data.view : "auto";
     document.documentElement.dataset.view = VIEW_PROFILE;
+    applyIpadPaneScale(event.data.scale);
     tiny(); return;
   }
   if (event.data?.type !== "SCINTILLA_DECK_FULL_STATE") return;

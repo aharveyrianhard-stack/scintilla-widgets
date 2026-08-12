@@ -93,7 +93,7 @@ test("six and eight chart grids pair each top chart with its column's lower axis
   assert.match(deck, /sharedAxis=1/);
   assert.match(chart, /const SHARED_TIME_AXIS = QS\.get\("sharedAxis"\) === "1"/);
   assert.match(chart, /if \(!SHARED_TIME_AXIS\) \{/);
-  assert.match(chart, /padB = SHARED_TIME_AXIS \? 5 : axisBand/);
+  assert.match(chart, /padB = SHARED_TIME_AXIS \? 5 \* scale : axisBand/);
   assert.doesNotMatch(chart, /chart-axis/);
 });
 
@@ -149,15 +149,21 @@ test("Scenes V2 stays local-only and preserves the current iPad companion", () =
   assert.match(deck, /const sessionRemembered = \(key\) =>/);
 });
 
-test("iPad profile keeps the complete Station wall with normalized child typography", () => {
+test("iPad profile keeps the complete Station wall with proportional child typography", () => {
   const xPane = fs.readFileSync(new URL("../pane-x/index.html", import.meta.url), "utf8");
   assert.match(deck, /const VIEW_MODES = \["auto","desk","ipad","display","compact"\]/);
   assert.match(deck, /<option value="ipad">iPad<\/option>/);
   assert.match(deck, /const keepsCompleteWall = \(\) => VIEW === "desk" \|\| VIEW === "ipad"/);
   assert.match(deck, /text-size-adjust:100%/);
   assert.match(chart, /-webkit-text-size-adjust:100%; text-size-adjust:100%/);
-  assert.match(chart, /html\[data-view="ipad"\] \.sc-nchart__live\{[^}]*font-size:14px/);
+  assert.match(chart, /html\[data-view="ipad"\] \.sc-nchart__live\{[^}]*font-size:var\(--ipad-live-size\)/);
   assert.match(chart, /const ipadProfile = VIEW_PROFILE === "ipad"/);
+  assert.match(deck, /function paintIpadDensity\(\)/);
+  assert.match(deck, /function boundedIpadScale\(width, height, referenceWidth, referenceHeight\)/);
+  assert.match(deck, /type:"SCINTILLA_VIEW_PROFILE", view:VIEW, scale/);
+  assert.match(chart, /function applyIpadPaneScale\(forced\)/);
+  assert.match(videoPane, /function applyIpadPaneScale\(forced\)/);
+  assert.match(xPane, /function applyIpadPaneScale\(forced\)/);
   assert.match(videoPane, /VIEW_PROFILES = \["auto","desk","ipad","display","compact"\]/);
   assert.match(xPane, /VIEW_PROFILES = \["auto","desk","ipad","display","compact"\]/);
 });
@@ -309,18 +315,20 @@ test("chart identity focuses the existing deck ticker editor and fullscreen live
   assert.match(deck, /focusTickerFor\(pane\.def\.key\)/);
   assert.match(deck, /bFull\.classList\.add\("chart-full"\)/);
   assert.match(deck, /\.chart-full\{ position:absolute; top:6px; right:7px/);
-  assert.match(chart, /const timeFont = VIEW_PROFILE === "desk" \? 7\.5/);
+  assert.match(deck, /top:var\(--pane-full-top,6px\)/);
+  assert.match(deck, /right:var\(--pane-full-right,7px\)/);
+  assert.match(chart, /const timeFont = \(VIEW_PROFILE === "desk" \? 7\.5/);
   assert.match(deck, /\.chart-pane > \.ph\{ position:absolute/);
   assert.doesNotMatch(deck, /sharedTimeAxis/);
   assert.match(deck, /else n\.value = CHARTS\[index\] \|\| ""/);
 });
 
 test("paired column axes stay legible while using compact plot bands", () => {
-  assert.match(chart, /const axisBand = ipadProfile \? \(h < 130 \? 15 : 18\) : \(h < 130 \? 17 : 21\)/);
-  assert.match(chart, /padR = ipadProfile \? \(h < 130 \? 18 : 21\) : \(h < 130 \? 20 : 24\)/);
+  assert.match(chart, /const axisBand = ipadProfile \? \(h < 130 \? 15 : 18\) \* scale/);
+  assert.match(chart, /padR = ipadProfile \? \(h < 130 \? 18 : 21\) \* scale/);
   assert.match(chart, /ctx\.lineWidth = \.5; ctx\.globalAlpha = \.09/,
     "horizontal separators remain visible but intentionally subtle");
-  assert.match(chart, /ctx\.font = \(ipadProfile \? '6\.5' : '7'\) \+ 'px "SF Mono"/,
+  assert.match(chart, /ctx\.font = \(\(ipadProfile \? 6\.5 : 7\) \* scale\) \+ 'px "SF Mono"/,
     "right price labels use a compact distinct band");
   assert.match(chart, /ctx\.fillText\(parts\[0\], X\(ix\), h - padB \+ 8\)/,
     "the lower card retains its actual shared date/time labels");
