@@ -87,7 +87,8 @@ test("CUSTOM six and eight chart walls begin with real editable symbols", () => 
   assert.equal(eight.slice(0, 8).includes(""), false);
   assert.equal(new Set(eight.slice(0, 8)).size, 8, "starter fill must not duplicate a manual symbol");
   assert.match(deck, /option value="8"/);
-  assert.match(deck, /countOption\.disabled = SCENE !== "custom"/);
+  assert.doesNotMatch(deck, /countOption\.disabled/,
+    "all scenes can use the full chart-count selector during the flexible phase");
 });
 
 test("rotation is limited to curated scenes and wraps with an explicit pause control", () => {
@@ -104,7 +105,7 @@ test("Scenes V2 stays local-only and preserves the current iPad companion", () =
   assert.doesNotMatch(deck, /passwordless|signInWithOtp|station_shared_state/i);
   assert.match(deck, /IPAD_COMPANION/);
   assert.match(deck, /\/pane-x\?remote=1/);
-  assert.match(deck, /SCENE !== "live" && SCENE !== "custom"/);
+  assert.match(deck, /const sessionRemembered = \(key\) =>/);
 });
 
 test("CUSTOM preserves the screenshot-shaped sparse six-slot workspace", () => {
@@ -144,6 +145,19 @@ test("a direct Custom URL is authoritative over saved and default symbols", () =
   assert.equal(initialChart("", "SPY", 2, false), "SPY",
     "saved workspaces retain their existing behavior when no direct Custom URL is supplied");
   assert.match(deck, /const DIRECT_CUSTOM_WORKSPACE = SCENE === "custom"/);
+});
+
+test("named scenes are editable device-session presets with an explicit reset", () => {
+  assert.match(deck, /const sessionRemembered = \(key\) => \{ try \{ return sessionStorage\.getItem/);
+  assert.match(deck, /const prefix = localWorkspace \? "station\." \+ SCENE : "station\.flex\." \+ SCENE/);
+  assert.match(deck, /state = !options\?\.reset && !options\?\.rotate && hasStoredScene\(requested\)/);
+  assert.match(deck, /installSceneState\(hasStoredScene\(SCENE\) \? editableState\(SCENE\) : fixedSceneState\(SCENE\)\)/);
+  assert.match(deck, /id="resetScene"/);
+  assert.match(deck, /el\("resetScene"\)\.addEventListener\("click"/);
+  assert.doesNotMatch(deck, /edits are not enabled/);
+  assert.doesNotMatch(deck, /n\.readOnly = SCENE/);
+  assert.doesNotMatch(deck, /if \(SCENE !== "live" && SCENE !== "custom"\) \{/,
+    "named scenes no longer reject slot edits");
 });
 
 test("Custom uses a complete desk budget and explicit empty versus paused cards", () => {

@@ -223,6 +223,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
     <option value="themeFamilies">theme families</option>
     <option value="custom">custom</option>
   </select>
+  <span class="btn" id="resetScene" title="restore this scene's original preset">reset preset</span>
   <span class="lbl">rotate</span>
   <select class="scene-mode" id="rotateEvery" title="curated scene rotation timing">
     <option value="30">30s</option><option value="60" selected>60s</option><option value="120">120s</option>
@@ -335,6 +336,9 @@ const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").
 const CLEAN_COHORT = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9_]/g, "").slice(0, 32);
 const remembered = (key) => { try { return localStorage.getItem(key) || ""; } catch (_) { return ""; } };
 const remember = (key, value) => { try { localStorage.setItem(key, value); } catch (_) {} };
+const sessionRemembered = (key) => { try { return sessionStorage.getItem(key) || ""; } catch (_) { return ""; } };
+const sessionRemember = (key, value) => { try { sessionStorage.setItem(key, value); } catch (_) {} };
+const forgetSession = (key) => { try { sessionStorage.removeItem(key); } catch (_) {} };
 const SceneModel = window.StationScenes;
 const CHART_COUNTS = [1,2,3,4,6,8];
 const chartCount = (value) => {
@@ -677,11 +681,14 @@ const COHORT_ORDER = ["AI_HARDWARE","AI_SOFTWARE","MEGACAP","BLUE_CHIP","GROWTH"
   "INDUSTRIAL","MATERIALS","REAL_ESTATE","STAPLES","UTILITIES"];
 const hasStoredScene = (scene) => scene === "custom"
   ? savedCustomCharts().some(Boolean)
-  : !!remembered("station." + scene + ".chartCount");
+  : scene === "live"
+    ? !!remembered("station.live.chartCount")
+    : !!sessionRemembered("station.flex." + scene + ".chartCount");
 function editableState(scene) {
-  const prefix = "station." + scene;
+  const prefix = scene === "live" || scene === "custom" ? "station." + scene : "station.flex." + scene;
   const legacy = scene === "live";
-  const get = (suffix) => remembered(prefix + "." + suffix) || (legacy ? remembered("station." + suffix) : "");
+  const get = (suffix) => (scene === "live" || scene === "custom" ? remembered(prefix + "." + suffix) : sessionRemembered(prefix + "." + suffix)) ||
+    (legacy ? remembered("station." + suffix) : "");
   const count = chartCount(get("chartCount") || CHART_COUNT);
   const range = RANGES.includes(get("range")) ? get("range") : RANGE;
   const charts = Array.from({ length:8 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
@@ -690,11 +697,12 @@ function editableState(scene) {
   return { charts, chartCount:count, range };
 }
 function rememberEditableState() {
-  if (SCENE !== "live" && SCENE !== "custom") return;
-  const prefix = "station." + SCENE;
-  remember(prefix + ".chartCount", String(CHART_COUNT));
-  remember(prefix + ".range", RANGE);
-  CHARTS.forEach((ticker, i) => remember(prefix + ".chart." + (i + 1), ticker));
+  const localWorkspace = SCENE === "live" || SCENE === "custom";
+  const prefix = localWorkspace ? "station." + SCENE : "station.flex." + SCENE;
+  const save = localWorkspace ? remember : sessionRemember;
+  save(prefix + ".chartCount", String(CHART_COUNT));
+  save(prefix + ".range", RANGE);
+  CHARTS.forEach((ticker, i) => save(prefix + ".chart." + (i + 1), ticker));
   /* Keep the original LIVE keys current for existing Station links/users. */
   if (SCENE === "live") {
     remember("station.chartCount", String(CHART_COUNT));
@@ -724,8 +732,9 @@ function cohortState() {
 }
 function paintSceneControls(note) {
   el("sceneMode").value = SCENE;
-  const countOption = el("chartCount").querySelector('option[value="8"]');
-  if (countOption) countOption.disabled = SCENE !== "custom";
+  const resettable = !!fixedSceneState(SCENE) || SCENE === "cohort";
+  el("resetScene").classList.toggle("on", resettable);
+  el("resetScene").style.display = resettable ? "" : "none";
   const box = el("cohortControls");
   const named = fixedSceneState(SCENE, CHART_COUNT);
   box.classList.toggle("on", SCENE === "cohort" || !!named);
@@ -734,7 +743,7 @@ function paintSceneControls(note) {
     el("cohortPage").textContent = named.totalItems + " · " + (named.offset + 1) + "–" + (named.offset + named.tickers.length);
     el("cohortPrev").classList.toggle("on", named.hasPrevious);
     el("cohortNext").classList.toggle("on", named.hasNext);
-    el("symbolNote").textContent = note || "curated basket · edits are not enabled";
+    el("symbolNote").textContent = note || "preset · edit any slot or reset";
     return;
   }
   el("cohortSelect").style.display = "";
@@ -770,9 +779,9 @@ function fixedSceneState(scene, requestedCount) {
   return preset ? Object.assign({}, preset, SceneModel.basketWindow(preset.tickers, BASKET_OFFSET, requestedCount || preset.chartCount), { range:preset.range }) : null;
 }
 async function primeSceneState() {
-  if (fixedSceneState(SCENE)) installSceneState(fixedSceneState(SCENE));
+  if (fixedSceneState(SCENE)) installSceneState(hasStoredScene(SCENE) ? editableState(SCENE) : fixedSceneState(SCENE));
   else if (SCENE === "cohort") {
-    try { await loadCohortFavorites(); installSceneState(cohortState()); }
+    try { await loadCohortFavorites(); installSceneState(hasStoredScene("cohort") ? editableState("cohort") : cohortState()); }
     catch (_) { COHORT_READY = false; installSceneState({ charts:[], chartCount:1, range:RANGE }); }
   }
   remember("station.scene", SCENE);
@@ -797,18 +806,21 @@ function syncChartPanes() {
 async function applyScene(next, options) {
   const previous = SCENE;
   const requested = SceneModel.normalizeScene(next);
-  if ((previous === "live" || previous === "custom") && previous !== requested) rememberEditableState();
+  if (previous !== requested) rememberEditableState();
   let state;
   if (fixedSceneState(requested)) {
     BASKET_OFFSET = Math.max(0, Number(options?.offset) || 0);
-    state = fixedSceneState(requested);
+    state = !options?.reset && !options?.rotate && hasStoredScene(requested)
+      ? editableState(requested) : fixedSceneState(requested);
   }
   else if (requested === "cohort") {
     try {
       await loadCohortFavorites();
       if (options?.cohort) COHORT = CLEAN_COHORT(options.cohort);
       COHORT_PAGE = Math.max(0, Number(options?.page) || 0);
-      state = cohortState(); COHORT_PAGE = state.page;
+      state = !options?.reset && !options?.rotate && hasStoredScene("cohort")
+        ? editableState("cohort") : cohortState();
+      COHORT_PAGE = state.page ?? COHORT_PAGE;
     } catch (_) {
       COHORT_READY = false; state = { charts:[], chartCount:1, range:RANGE };
       el("symbolNote").textContent = "cohort favorites unavailable";
@@ -820,16 +832,16 @@ async function applyScene(next, options) {
   SCENE = requested; APPLYING_SCENE = true; installSceneState(state);
   applyChartCount(CHART_COUNT, true); paintTf();
   APPLYING_SCENE = false;
-  if (SCENE === "live" || SCENE === "custom") remember("station.scene", SCENE);
+  remember("station.scene", SCENE);
   if (SCENE === "cohort") {
     remember("station.cohort", COHORT); remember("station.cohortPage", String(COHORT_PAGE + 1));
   }
-  if (SCENE === "live" || SCENE === "custom") rememberEditableState();
+  rememberEditableState();
   paintSceneControls(); relayout();
 }
 function moveNamedSceneToCustom() {
-  if (APPLYING_SCENE || SCENE === "live" || SCENE === "custom") return;
-  SCENE = "custom"; remember("station.scene", SCENE); paintSceneControls();
+  /* Named scenes are now editable launch presets. Their active device-local
+     work stays with the selected scene until reset; never coerce it to Custom. */
 }
 
 /* ---- CURATED SCENE ROTATION — intentionally opt-in and always pausable. ---- */
@@ -915,8 +927,6 @@ function paintTf() {
 }
 function setRange(r) {
   if (!RANGES.includes(r) || r === RANGE) return;
-  if (SCENE !== "live" && SCENE !== "custom") return;
-  moveNamedSceneToCustom();
   RANGE = r; paintTf();
   for (let i = 0; i < CHARTS.length; i++) {
     const k = "c" + (i + 1);
@@ -999,18 +1009,12 @@ async function loadSymbolCatalog() {
 }
 function commitTicker(index, raw, input) {
   const n = input || el("t" + (index + 1));
-  if (SCENE !== "live" && SCENE !== "custom") {
-    if (n) n.value = CHARTS[index] || "";
-    el("symbolNote").textContent = "curated basket · edits are not enabled";
-    return false;
-  }
   let ticker = resolveSymbol(raw);
   if (!ticker && GUIDE_INPUT === n && GUIDE_ROWS[GUIDE_AT]) ticker = GUIDE_ROWS[GUIDE_AT].ticker;
   if (!ticker) {
     el("symbolNote").textContent = "not charted on Hub";
     paintSymbolGuide(n); return false;
   }
-  moveNamedSceneToCustom();
   const original = aliasKey(raw);
   CHARTS[index] = ticker; n.value = ticker;
   el("symbolNote").textContent = original && original !== ticker ? original + " → " + ticker : "Hub · " + ticker;
@@ -1051,21 +1055,9 @@ function paintTickerFields() {
     n.autocomplete = "off"; n.setAttribute("autocorrect", "off");
     n.placeholder = "symbol"; n.title = "chart " + (i + 1) + " · type a Hub symbol or market alias";
     title.replaceWith(n); wireTicker(n, i);
-    n.readOnly = SCENE !== "live" && SCENE !== "custom";
-    if (n.readOnly) n.title = "curated basket · edits are not enabled";
   });
 }
 function applyChartCount(next, fromScene) {
-  if (!fromScene && SCENE !== "live" && SCENE !== "custom") {
-    const prior = CHARTS.findIndex(Boolean);
-    const state = fixedSceneState(SCENE, next);
-    if (state) {
-      BASKET_OFFSET = Math.max(0, prior);
-      const paged = fixedSceneState(SCENE, next);
-      installSceneState(paged);
-      syncChartPanes();
-    }
-  } else if (!fromScene) moveNamedSceneToCustom();
   const requestedCount = chartCount(next);
   if (SCENE === "custom" && requestedCount >= 6) {
     /* Growing an existing Custom workspace creates intentional editable slots;
@@ -1106,6 +1098,18 @@ el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.valu
 el("sceneMode").addEventListener("change", (e) => {
   if (e.target.value === "live" || e.target.value === "custom") setRotationPaused(true);
   applyScene(e.target.value);
+});
+el("resetScene").addEventListener("click", () => {
+  if (SCENE === "cohort") {
+    ["chartCount", "range"].forEach((suffix) => forgetSession("station.flex.cohort." + suffix));
+    Array.from({ length:8 }, (_, i) => forgetSession("station.flex.cohort.chart." + (i + 1)));
+    applyScene("cohort", { cohort:COHORT, page:0, reset:true });
+    return;
+  }
+  if (!fixedSceneState(SCENE)) return;
+  ["chartCount", "range"].forEach((suffix) => forgetSession("station.flex." + SCENE + "." + suffix));
+  Array.from({ length:8 }, (_, i) => forgetSession("station.flex." + SCENE + ".chart." + (i + 1)));
+  applyScene(SCENE, { reset:true });
 });
 el("rotateEvery").addEventListener("change", (e) => setRotationInterval(e.target.value));
 el("rotateToggle").addEventListener("click", () => setRotationPaused(!ROTATE_PAUSED));
