@@ -60,7 +60,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   border-radius:3px; padding:2px 6px; font-family:var(--mono); font-size:8.5px;
   color:var(--ink); white-space:nowrap; }
 .sc-nchart__live{ position:absolute; top:7px; left:8px; z-index:3; pointer-events:auto;
-  display:inline-flex; align-items:baseline; gap:.42em; max-width:calc(100% - 52px);
+  display:flex; flex-direction:column; align-items:flex-start; gap:3px; max-width:calc(100% - 52px);
   background:transparent; border:0; padding:0; color:var(--dim); white-space:nowrap;
   font:700 clamp(12px,1.65vw,16px) var(--mono); letter-spacing:.01em; line-height:1;
   text-shadow:0 1px 3px #000,0 0 8px #000; }
@@ -68,8 +68,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-nchart__live-ticker{ appearance:none; border:0; background:transparent; color:inherit; padding:0;
   font:inherit; letter-spacing:inherit; line-height:inherit; cursor:text; text-decoration:underline;
   text-decoration-color:rgba(255,255,255,.26); text-underline-offset:3px; }
-.sc-nchart__live-price,.sc-nchart__live-change{ font:inherit; letter-spacing:inherit; line-height:inherit; }
-.sc-nchart__live-change{ font-weight:700; }
+.sc-nchart__live-price{ font:inherit; letter-spacing:inherit; line-height:inherit; }
+.sc-nchart__live-change{ font:700 .86em var(--mono); letter-spacing:.02em; line-height:1; }
 .sc-nchart__live[data-change="up"]{ color:var(--bull); }
 .sc-nchart__live[data-change="down"]{ color:var(--bear); }
 .sc-nchart__live[data-change="flat"]{ color:var(--dim); }
@@ -321,6 +321,19 @@ function chTimeParts(d, range, compact, spanMs) {
   if (range === "3D" || range === "1W")
     return spanMs > 6 * 365.25 * 86400000 ? [yr, ""] : [yr, iso.slice(5, 7)];
   return [chTimeLbl(iso, range, compact, spanMs), ""];
+}
+function sharedAxisTicks(pts, start, end, range, width) {
+  const firstMs = new Date(pts[start].d).getTime(), lastMs = new Date(pts[end].d).getTime();
+  const spanMs = Math.max(0, lastMs - firstMs);
+  const count = Math.max(3, Math.min(6, Math.floor(width / 130) + 1));
+  const labels = [];
+  for (let k = 0; k < count; k++) {
+    const ix = Math.round(start + (k / Math.max(1, count - 1)) * (end - start));
+    const parts = chTimeParts(pts[ix].d, range, false, spanMs).filter(Boolean);
+    const label = parts.join(" ");
+    if (label && labels[labels.length - 1] !== label) labels.push(label);
+  }
+  return labels;
 }
 
 /* ---- CACHE-FIRST + DB-ONLY series fetch — ported verbatim (R30) ---- */
@@ -669,6 +682,13 @@ function scChartDraw(host, scrubIx) {
         ctx.globalAlpha = 1;
       }
     }
+  } else {
+    const ticks = sharedAxisTicks(pts, start, end, host._range || S.chartRange, iw);
+    const stamp = ticks.join("|");
+    if (host._sharedAxisStamp !== stamp) {
+      host._sharedAxisStamp = stamp;
+      try { parent.postMessage({ sc:"chart-axis", ticks }, location.origin); } catch (_) {}
+    }
   }
   if (scrubIx != null && pts[scrubIx]) {
     const sx = X(scrubIx);
@@ -968,7 +988,7 @@ function chDayChange(price, previousClose) {
     return { text:"—", tone:"flat" };
   const pct = ((+price - +previousClose) / +previousClose) * 100;
   if (Math.abs(pct) < .005) return { text:"0.00%", tone:"flat" };
-  return { text:pct > 0 ? "+" + pct.toFixed(2) + "%" : "(" + Math.abs(pct).toFixed(2) + "%)",
+  return { text:pct > 0 ? pct.toFixed(2) + "%" : "(" + Math.abs(pct).toFixed(2) + "%)",
     tone:pct > 0 ? "up" : "down" };
 }
 

@@ -167,6 +167,12 @@ body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
   overflow:hidden; text-overflow:ellipsis; }
 .ph .acts{ margin-left:auto; display:flex; gap:4px; flex:none; }
 .pane.integrated > .ph{ display:none; }
+.chart-pane > .ph{ position:absolute; top:5px; left:6px; z-index:12; visibility:hidden; padding:0;
+  background:rgba(7,10,16,.92); border:0; box-shadow:none; }
+.chart-pane.editing > .ph{ visibility:visible; }
+.chart-pane > .ph .tag,.chart-pane > .ph .acts{ display:none; }
+.chart-pane.editing > .ph .tkin{ width:104px; padding:4px 7px; background:var(--panel2); border-color:var(--crk);
+  color:var(--crk); font-size:12px; }
 .pane > .body{ position:relative; }
 .chart-full{ position:absolute; top:6px; right:7px; z-index:9; min-width:24px; min-height:24px;
   display:grid; place-items:center; padding:2px 5px; background:rgba(7,10,16,.72); }
@@ -486,6 +492,7 @@ const FRAME_ALLOW = "autoplay; encrypted-media; picture-in-picture; fullscreen; 
 
 function makePane(def) {
   const p = document.createElement("div"); p.className = "pane"; p.dataset.key = def.key;
+  if (def.kind === "chart") p.classList.add("chart-pane");
   if (def.kind === "video" || def.kind === "x") p.classList.add("integrated");
   const head = document.createElement("div"); head.className = "ph";
   head.innerHTML = '<span class="t">' + esc(def.title) + '</span><span class="tag">' + esc(def.tag) + "</span>";
@@ -577,6 +584,7 @@ function focusTickerFor(key) {
   if (!m) return;
   const input = el("t" + m[1]);
   if (!input) return;
+  PANES.find((pane) => pane.def.key === key)?.node.classList.add("editing");
   input.focus(); selAll(input); paintSymbolGuide(input);
 }
 
@@ -608,6 +616,15 @@ window.addEventListener("message", (event) => {
   if (event.data?.sc === "chart-focus-ticker") {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
     if (pane) focusTickerFor(pane.def.key);
+    return;
+  }
+  if (event.data?.sc === "chart-axis") {
+    const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
+    if (pane?.def.key !== "c1" || !Array.isArray(event.data.ticks)) return;
+    const axis = el("sharedTimeAxis");
+    if (axis) axis.replaceChildren(...event.data.ticks.map((tick) => {
+      const label = document.createElement("span"); label.textContent = tick; return label;
+    }));
     return;
   }
   if (event.data?.sc === "chart-view") {
@@ -1047,12 +1064,19 @@ function wireTicker(n, index) {
   n.addEventListener("input", () => paintSymbolGuide(n));
   n.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); moveGuide(e.key === "ArrowDown" ? 1 : -1); }
-    else if (e.key === "Escape") closeSymbolGuide();
+    else if (e.key === "Escape") { n.value = CHARTS[index] || ""; closeSymbolGuide(); n.blur(); }
     else if (e.key === "Enter") { e.preventDefault(); if (commitTicker(index, n.value, n)) n.blur(); }
   });
   n.addEventListener("blur", () => setTimeout(() => {
     if (GUIDE_INPUT === n) closeSymbolGuide();
-    if (!n.value.trim()) n.value = CHARTS[index];
+    const raw = n.value.trim();
+    if (!raw) n.value = CHARTS[index] || "";
+    else if (aliasKey(raw) !== CHARTS[index]) {
+      const resolved = resolveSymbol(raw);
+      if (resolved) commitTicker(index, resolved, n);
+      else n.value = CHARTS[index] || "";
+    }
+    PANES.find((pane) => pane.def.key === "c" + (index + 1))?.node.classList.remove("editing");
   }, 80));
 }
 function paintTickerFields() {
@@ -1087,7 +1111,7 @@ function applyChartCount(next, fromScene) {
     row.classList.toggle("shared-axis", SceneModel.usesSharedBottomAxis(CHART_COUNT));
     let axis = el("sharedTimeAxis");
     if (!axis) { axis = document.createElement("div"); axis.id = "sharedTimeAxis"; row.appendChild(axis); }
-    axis.innerHTML = "<span>earlier</span><span>" + esc(RANGE) + " · shared time axis</span><span>now</span>";
+    axis.textContent = "loading shared time axis…";
   }
   /* Count is now final, so active pane URLs can switch shared-axis mode
      without disturbing their sibling frames. */
