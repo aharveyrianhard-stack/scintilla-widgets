@@ -190,6 +190,9 @@ function stableRemoteViewerId(pair, storage, createId) {
   }
 }
 const REMOTE_VIEWER = stableRemoteViewerId(REMOTE_PAIR, sessionStorage, createRemoteViewerId);
+/* New per receiver document: stable viewer identity is retained across a
+   refresh, while this generation prevents a late old-page signal winning. */
+const REMOTE_RECEIVER_GENERATION = createRemoteViewerId();
 const STATION_REALTIME_URL = "wss://wadinxqplrggagkvrdag.supabase.co/realtime/v1/websocket";
 /* Publishable browser key verified against the live Realtime endpoint. */
 const STATION_REALTIME_KEY = "sb_publishable_AutibLpFtTns-WHAg67Pvw_I0HmjqE9";
@@ -231,12 +234,13 @@ function sendStationRemoteOffer(pending) {
     instanceId:stationBridgeInstanceId,
     pairId:pending.pairId,
     viewerId:pending.viewerId,
+    receiverGeneration:pending.receiverGeneration,
     offer:pending.offer
   }, location.origin);
 }
 
-function queueStationRemoteOffer(pairId, viewerId, offer) {
-  const pending = { pairId, viewerId, offer };
+function queueStationRemoteOffer(pairId, viewerId, receiverGeneration, offer) {
+  const pending = { pairId, viewerId, receiverGeneration, offer };
   stationPendingRemoteOffers.set(stationRemoteKey(pairId, viewerId), pending);
   sendStationRemoteOffer(pending);
 }
@@ -246,8 +250,10 @@ function flushStationRemoteOffers() {
   for (const pending of stationPendingRemoteOffers.values()) sendStationRemoteOffer(pending);
 }
 
-function clearStationRemoteOffer(pairId, viewerId) {
-  stationPendingRemoteOffers.delete(stationRemoteKey(pairId, viewerId));
+function clearStationRemoteOffer(pairId, viewerId, receiverGeneration) {
+  const key = stationRemoteKey(pairId, viewerId), pending = stationPendingRemoteOffers.get(key);
+  if (!pending || !receiverGeneration || pending.receiverGeneration === receiverGeneration)
+    stationPendingRemoteOffers.delete(key);
 }
 
 function pairingToken() {
@@ -324,9 +330,10 @@ function stationRealtimeRoom(pair, onDisconnect) {
     if (!joined || message.event !== "broadcast") return;
     const payload = message.payload || {};
     if (payload.event === "offer" && stationPair && payload.payload?.code === stationPair.code &&
-        /^[A-Za-z0-9_-]{16,}$/.test(payload.payload?.viewerId || "") && payload.payload?.offer) {
+        /^[A-Za-z0-9_-]{16,}$/.test(payload.payload?.viewerId || "") &&
+        /^[A-Za-z0-9_-]{16,}$/.test(payload.payload?.receiverGeneration || "") && payload.payload?.offer) {
       el("pairState").textContent = "iPad request received";
-      queueStationRemoteOffer(stationPair.token, payload.payload.viewerId, payload.payload.offer);
+      queueStationRemoteOffer(stationPair.token, payload.payload.viewerId, payload.payload.receiverGeneration, payload.payload.offer);
     }
     if (payload.event === "control" && stationPair && payload.payload?.code === stationPair.code) {
       const action = payload.payload?.action;
@@ -336,14 +343,16 @@ function stationRealtimeRoom(pair, onDisconnect) {
       }
     }
     if (payload.event === "drop" && stationPair && payload.payload?.code === stationPair.code &&
-        /^[A-Za-z0-9_-]{16,}$/.test(payload.payload?.viewerId || "")) {
-      clearStationRemoteOffer(stationPair.token, payload.payload.viewerId);
+        /^[A-Za-z0-9_-]{16,}$/.test(payload.payload?.viewerId || "") &&
+        /^[A-Za-z0-9_-]{16,}$/.test(payload.payload?.receiverGeneration || "")) {
+      clearStationRemoteOffer(stationPair.token, payload.payload.viewerId, payload.payload.receiverGeneration);
       if (!stationBridgeInstanceId) return;
       window.postMessage({
         type:"XFF_STATION_REMOTE_DROP",
         instanceId:stationBridgeInstanceId,
         pairId:stationPair.token,
-        viewerId:payload.payload.viewerId
+        viewerId:payload.payload.viewerId,
+        receiverGeneration:payload.payload.receiverGeneration
       }, location.origin);
     }
   });
@@ -434,7 +443,8 @@ function stopXFloat({ notify = true } = {}) {
     remoteSocket.send(JSON.stringify({
       topic:"realtime:station-ipad:" + REMOTE_PAIR,
       event:"broadcast",
-      payload:{ type:"broadcast", event:"drop", payload:{ code:REMOTE_CODE, viewerId:REMOTE_VIEWER } },
+      payload:{ type:"broadcast", event:"drop", payload:{ code:REMOTE_CODE, viewerId:REMOTE_VIEWER,
+        receiverGeneration:REMOTE_RECEIVER_GENERATION } },
       ref:String(Date.now()), join_ref:"1"
     }));
   }
@@ -629,6 +639,7 @@ async function startRemoteStationViewer() {
         send("broadcast", { type:"broadcast", event:"offer", payload:{
           code:REMOTE_CODE,
           viewerId:REMOTE_VIEWER,
+          receiverGeneration:REMOTE_RECEIVER_GENERATION,
           offer:remotePeer.localDescription.toJSON(),
           at:Date.now()
         } });
@@ -639,7 +650,8 @@ async function startRemoteStationViewer() {
     }
     if (!joined || message.event !== "broadcast") return;
     const payload = message.payload || {};
-    if (payload.event === "answer" && payload.payload?.viewerId === REMOTE_VIEWER && payload.payload?.answer) remotePeer.setRemoteDescription(payload.payload.answer).then(() => {
+    if (payload.event === "answer" && payload.payload?.viewerId === REMOTE_VIEWER &&
+        payload.payload?.receiverGeneration === REMOTE_RECEIVER_GENERATION && payload.payload?.answer) remotePeer.setRemoteDescription(payload.payload.answer).then(() => {
       if (remoteOfferRetry) clearInterval(remoteOfferRetry);
       remoteOfferRetry = null;
     }).catch(error => showErr("iMac X answer failed: " + error.message));
@@ -758,7 +770,7 @@ window.addEventListener("message", (event) => {
   }
   if (event.data?.type === "XFF_STATION_REMOTE_ACCEPTED" &&
       String(event.data.instanceId || "") === stationBridgeInstanceId) {
-    clearStationRemoteOffer(event.data.pairId, event.data.viewerId);
+    clearStationRemoteOffer(event.data.pairId, event.data.viewerId, event.data.receiverGeneration);
   }
   if (event.data?.type === "XFF_STATION_STREAM" && event.data.streamId) {
     startXFloat(event.data.streamId).catch((error) => showErr("XFloat could not connect: " + error.message));
@@ -772,9 +784,11 @@ window.addEventListener("message", (event) => {
   }
   if (event.data?.type === "XFF_STATION_REMOTE_ANSWER" && event.data.answer && stationPair &&
       String(event.data.instanceId || "") === stationBridgeInstanceId &&
-      event.data.pairId === stationPair.token && /^[A-Za-z0-9_-]{16,}$/.test(event.data.viewerId || "")) {
-    clearStationRemoteOffer(event.data.pairId, event.data.viewerId);
-    stationPair.room?.publish("answer", { viewerId:event.data.viewerId, answer:event.data.answer, at:Date.now() });
+      event.data.pairId === stationPair.token && /^[A-Za-z0-9_-]{16,}$/.test(event.data.viewerId || "") &&
+      /^[A-Za-z0-9_-]{16,}$/.test(event.data.receiverGeneration || "")) {
+    clearStationRemoteOffer(event.data.pairId, event.data.viewerId, event.data.receiverGeneration);
+    stationPair.room?.publish("answer", { viewerId:event.data.viewerId, receiverGeneration:event.data.receiverGeneration,
+      answer:event.data.answer, at:Date.now() });
     el("pairState").textContent = "iPad connected";
   }
   if (event.data?.type === "XFF_STATION_CROP") {

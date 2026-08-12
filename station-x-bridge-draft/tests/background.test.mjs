@@ -607,6 +607,7 @@ test("a stale pane generation requests reannounce without creating a remote peer
     instanceId: "pane-stale",
     pairId: "a".repeat(32),
     viewerId: "b".repeat(24),
+    receiverGeneration: "c".repeat(24),
     offer: { type: "offer", sdp: "stale-offer" }
   }, sender);
 
@@ -628,11 +629,13 @@ test("V080 reannounce accepts the same Viewer A offer for exactly one generation
   const pane = await reinjectLegacyV079Pane(h, sender);
   const pairId = "a".repeat(32);
   const viewerId = "b".repeat(24);
+  const receiverGeneration = "c".repeat(24);
 
   await pane.emitPageMessage({
     type: "XFF_STATION_REMOTE_OFFER",
     pairId,
     viewerId,
+    receiverGeneration,
     offer: { type: "offer", sdp: "viewer-a-offer" }
   });
 
@@ -642,6 +645,7 @@ test("V080 reannounce accepts the same Viewer A offer for exactly one generation
   const relayed = h.sent.find(({ message }) =>
     message.type === "XFF_STATION_REMOTE_ANSWER" && message.viewerId === viewerId);
   assert.equal(relayed.message.instanceId, "v080-recovery");
+  assert.equal(relayed.message.receiverGeneration, receiverGeneration);
 
   for (const listener of pane.runtimeListeners) listener(relayed.message);
   assert.ok(pane.events.some((event) =>
@@ -687,6 +691,7 @@ test("one iPad pair fans out to distinct viewer peers without restarting X captu
       instanceId: "pane",
       pairId,
       viewerId,
+      receiverGeneration: viewerId === firstViewer ? "d".repeat(24) : "e".repeat(24),
       offer: { type: "offer", sdp: "fixture-offer-" + viewerId }
     }, station);
     assert.deepEqual(JSON.parse(JSON.stringify(response)), { ok: true });
@@ -703,7 +708,7 @@ test("one iPad pair fans out to distinct viewer peers without restarting X captu
     [firstViewer, secondViewer].includes(message.viewerId)));
 });
 
-test("Viewer A refresh and drop leave Viewer B's peer untouched", async () => {
+test("Viewer A refresh renews its peer generation and a late old drop cannot evict it", async () => {
   const h = await harness();
   const station = { tab: { id: 11, windowId: 2 }, frameId: 5 };
   await dispatchRuntime(h.runtimeListeners, {
@@ -713,20 +718,45 @@ test("Viewer A refresh and drop leave Viewer B's peer untouched", async () => {
   const viewerA = "b".repeat(24);
   const viewerB = "c".repeat(24);
 
-  for (const viewerId of [viewerA, viewerB, viewerA]) {
+  const oldGeneration = "d".repeat(24);
+  const newGeneration = "e".repeat(24);
+  const viewerBGeneration = "f".repeat(24);
+  for (const [viewerId, receiverGeneration] of [
+    [viewerA, oldGeneration],
+    [viewerB, viewerBGeneration],
+    [viewerA, newGeneration]
+  ]) {
     await dispatchRuntime(h.runtimeListeners, {
       type: "XFF_STATION_REMOTE_OFFER",
       instanceId: "pane",
       pairId,
       viewerId,
+      receiverGeneration,
       offer: { type: "offer", sdp: "offer-" + viewerId }
     }, station);
   }
+  const answers = h.sent.filter(({ message }) => message.type === "XFF_STATION_REMOTE_ANSWER");
+  assert.equal(answers.at(-1).message.viewerId, viewerA);
+  assert.equal(answers.at(-1).message.receiverGeneration, newGeneration,
+    "the renewed offer must receive an answer for the refreshed receiver document");
+
+  const oldDrop = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_REMOTE_DROP",
+    instanceId: "pane",
+    pairId,
+    viewerId: viewerA,
+    receiverGeneration: oldGeneration
+  }, station);
+  assert.deepEqual(JSON.parse(JSON.stringify(oldDrop)), { ok: true, stale: true });
+  assert.equal(h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_DROP").length, 0,
+    "a pagehide from the old receiver must not drop the refreshed peer");
+
   const drop = await dispatchRuntime(h.runtimeListeners, {
     type: "XFF_STATION_REMOTE_DROP",
     instanceId: "pane",
     pairId,
-    viewerId: viewerA
+    viewerId: viewerA,
+    receiverGeneration: newGeneration
   }, station);
 
   assert.deepEqual(JSON.parse(JSON.stringify(drop)), { ok: true });
