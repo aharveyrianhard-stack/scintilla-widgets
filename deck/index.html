@@ -152,6 +152,14 @@ body.stack .deckrow > .pane{ flex:none; height:56vh; min-height:230px; }
 body.solo .pane.hidden{ display:none; }
 body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
 
+/* Media has its own deliberate expansion ladder. Stage one gives the chosen
+   YouTube pane the whole two-video region while X stays visible. Stage two is
+   an explicit choice to cover X; nothing is unmounted or silently evicted. */
+body.media-stage-one #rowBot > .pane.media-hidden,
+body.media-stage-two #rowBot > .pane.media-hidden{ display:none; }
+body.media-stage-one #rowBot > .pane.media-stage-target{ flex:2 1 0; }
+body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
+
 .pane{ position:relative; background:var(--bg); display:flex; flex-direction:column;
   min-height:0; min-width:0; overflow:hidden; }
 .ph{ flex:none; display:flex; align-items:center; gap:6px; padding:3px 7px; background:var(--panel2);
@@ -387,6 +395,8 @@ const CHARTS = Array.from({ length: 8 }, (_, i) => {
 let RANGE = RANGES.includes(URL_STATEFUL ? QS.get("range") : "") ? QS.get("range") :
   (RANGES.includes(storedState("range")) ? storedState("range") : "3h");
 let SOLO = QS.get("full") || null;
+let MEDIA_TARGET = null;
+let MEDIA_STAGE = 0;
 let ROTATE_AT = ROTATE_SECONDS.includes(+remembered("station.rotate.seconds")) ? +remembered("station.rotate.seconds") : 60;
 let ROTATE_PAUSED = remembered("station.rotate.paused") !== "0";
 let rotateTimer = 0;
@@ -548,6 +558,7 @@ function mount(obj) {
 }
 
 function setSolo(key) {
+  if (key && MEDIA_STAGE) resetMediaStage();
   SOLO = key;
   document.body.classList.toggle("solo", !!key);
   const target = key ? PANES.find((item) => item.def.key === key) : null;
@@ -561,7 +572,7 @@ function setSolo(key) {
       try {
         o.frame.contentWindow.postMessage({
           type: "SCINTILLA_DECK_FULL_STATE",
-          active: !!key && o.def.key === key
+          active: !!key && o.def.key === key, stage: 0, canCoverX: false
         }, location.origin);
       } catch (_) {}
     }
@@ -572,6 +583,59 @@ function setSolo(key) {
     if (o && !o.frame && !o.isDock) mount(o);
   }
   measure(); paintChips();
+}
+
+function postMediaStage(o) {
+  if (!o.frame) return;
+  try {
+    o.frame.contentWindow.postMessage({
+      type: "SCINTILLA_DECK_FULL_STATE",
+      active: MEDIA_STAGE > 0 && o.def.key === MEDIA_TARGET,
+      stage: o.def.key === MEDIA_TARGET ? MEDIA_STAGE : 0,
+      canCoverX: o.def.key === MEDIA_TARGET && MEDIA_STAGE === 1
+    }, location.origin);
+  } catch (_) {}
+}
+
+function resetMediaStage() {
+  MEDIA_TARGET = null; MEDIA_STAGE = 0;
+  document.body.classList.remove("media-stage-one", "media-stage-two");
+  for (const o of PANES) {
+    o.node.classList.remove("media-hidden", "media-stage-target");
+    if (o.def.kind === "video") postMediaStage(o);
+  }
+}
+
+function applyMediaStage() {
+  document.body.classList.toggle("media-stage-one", MEDIA_STAGE === 1);
+  document.body.classList.toggle("media-stage-two", MEDIA_STAGE === 2);
+  for (const o of PANES) {
+    const target = MEDIA_STAGE > 0 && o.def.key === MEDIA_TARGET;
+    const hide = MEDIA_STAGE === 1
+      ? o.def.row === 1 && o.def.kind === "video" && !target
+      : MEDIA_STAGE === 2
+        ? o.def.row === 1 && o.def.key !== MEDIA_TARGET
+        : false;
+    o.node.classList.toggle("media-hidden", hide);
+    o.node.classList.toggle("media-stage-target", target);
+    if (o.def.kind === "video") postMediaStage(o);
+  }
+  measure(); paintChips();
+}
+
+function toggleMediaStage(key) {
+  if (SOLO) setSolo(null);
+  if (MEDIA_TARGET !== key) { MEDIA_TARGET = key; MEDIA_STAGE = 1; }
+  else if (MEDIA_STAGE === 2) MEDIA_STAGE = 1;
+  else if (MEDIA_STAGE === 1) resetMediaStage();
+  else { MEDIA_TARGET = key; MEDIA_STAGE = 1; }
+  if (MEDIA_STAGE) applyMediaStage();
+  else { measure(); paintChips(); }
+}
+
+function coverMediaX(key) {
+  if (SOLO) setSolo(null);
+  MEDIA_TARGET = key; MEDIA_STAGE = 2; applyMediaStage();
 }
 
 function focusTickerFor(key) {
@@ -624,10 +688,16 @@ window.addEventListener("message", (event) => {
     }
     return;
   }
+  if (event.data?.type === "SCINTILLA_DECK_MEDIA_COVER_X") {
+    const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
+    if (pane?.def.kind === "video") coverMediaX(pane.def.key);
+    return;
+  }
   if (event.data?.type !== "SCINTILLA_DECK_TOGGLE_FULL") return;
   const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
   if (!pane) return;
-  setSolo(SOLO === pane.def.key ? null : pane.def.key);
+  if (pane.def.kind === "video") toggleMediaStage(pane.def.key);
+  else setSolo(SOLO === pane.def.key ? null : pane.def.key);
 });
 
 /* ---- the resize path. ResizeObserver on the deck, not window resize. ----

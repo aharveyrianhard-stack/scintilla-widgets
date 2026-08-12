@@ -124,8 +124,10 @@ body.playing #grid{ display:none; }
   <span class="btn" id="bBack" style="display:none">‹ grid</span>
   <span class="btn" id="bPip" style="display:none" title="float this video in its own always-on-top window">pip</span>
   <a class="btn out" id="bYt" style="display:none" target="_blank" rel="noopener">youtube ↗</a>
+  <span class="btn on" id="bAuto" title="automatically play the next video when this one ends">auto next</span>
   <span id="chips" style="display:flex;gap:4px"></span>
   <span id="auth"></span>
+  <span class="btn" id="bCover" style="display:none" title="intentionally expand this video across X">cover X</span>
   <span class="btn" id="bFull" title="expand this pane">⛶</span>
 </div>
 <div id="grid"><div class="msg">loading…</div></div>
@@ -164,6 +166,7 @@ const LIMIT  = Math.max(10, Math.min(200, +(QS.get("limit") || 60)));
 const TICK   = (QS.get("t") || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
 const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
 const AUTO   = QS.get("autoplay") === "1";
+let AUTO_NEXT = QS.get("autoNext") !== "0";
 const FORCE  = +(QS.get("cols") || 0);
 
 /* A pane keeps its identity through every local filter. Personal and
@@ -189,6 +192,7 @@ el("kk").textContent = FEED === "market" ? "MARKET SEARCH" :
 
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
 let AUTH_STATUS = null;
+let PLAYER_TOKEN = 0, PLAYER_READY_TOKEN = 0, PLAYER_FALLBACK = 0;
 
 async function ytAct(action, payload) {
   const r = await fetch(SB + "/functions/v1/yt-act", {
@@ -280,24 +284,65 @@ function syncUrl() {
   const p = new URLSearchParams(location.search);
   if (CUR) p.set("v", CUR.video_id); else p.delete("v");
   p.set("feed", FEED); p.set("list", LIST);
+  p.set("autoNext", AUTO_NEXT ? "1" : "0");
   history.replaceState(null, "", "?" + p.toString());
 }
-function play(v, auto) {
+function queueRows(rows, list, watch) {
+  return list === "watch" ? rows.filter((v) => watch.has(v.video_id)) : rows.slice();
+}
+function nextQueuedVideo(rows, currentId, skipped) {
+  const at = rows.findIndex((v) => v.video_id === currentId);
+  for (let i = at + 1; i < rows.length; i += 1) {
+    if (!skipped.has(rows[i].video_id)) return rows[i];
+  }
+  return null;
+}
+function clearPlayerFallback() {
+  if (PLAYER_FALLBACK) clearTimeout(PLAYER_FALLBACK);
+  PLAYER_FALLBACK = 0;
+}
+function advanceQueue(skipped = new Set()) {
+  if (!AUTO_NEXT || !CUR) return;
+  const next = nextQueuedVideo(queueRows(ROWS, LIST, WATCH), CUR.video_id, skipped);
+  if (!next) { el("nowt").textContent = "end of queue · " + (CUR.title || CUR.video_id); return; }
+  play(next, true, true, skipped);
+}
+function armPlayerFallback(token, skipped) {
+  clearPlayerFallback();
+  PLAYER_FALLBACK = setTimeout(() => {
+    if (token !== PLAYER_TOKEN || PLAYER_READY_TOKEN === token || !CUR) return;
+    const nextSkipped = new Set(skipped); nextSkipped.add(CUR.video_id);
+    el("nowt").textContent = "skipping unavailable video…";
+    advanceQueue(nextSkipped);
+  }, 10000);
+}
+function play(v, auto, queued = false, skipped = new Set()) {
   if (!v) return;
+  clearPlayerFallback();
   CUR = v;
+  const token = ++PLAYER_TOKEN;
   document.body.classList.add("playing");
   el("video").innerHTML = '<iframe src="https://www.youtube.com/embed/' + encodeURIComponent(v.video_id) +
-    "?playsinline=1&rel=0&modestbranding=1&enablejsapi=1" + (auto ? "&autoplay=1" : "") +
+    "?playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=" + encodeURIComponent(location.origin) + (auto ? "&autoplay=1" : "") +
     '" title="' + esc(v.title) +
     '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>';
+  const frame = el("video").querySelector("iframe");
+  frame.addEventListener("load", () => {
+    try {
+      frame.contentWindow.postMessage(JSON.stringify({ event:"command", func:"addEventListener", args:["onReady"] }), "https://www.youtube.com");
+      frame.contentWindow.postMessage(JSON.stringify({ event:"command", func:"addEventListener", args:["onStateChange"] }), "https://www.youtube.com");
+    } catch (_) {}
+  });
   el("nowt").textContent = (v.title || v.video_id) + (v.channel ? "  ·  " + v.channel : "");
   el("bBack").style.display = "";
   el("bYt").style.display = ""; el("bYt").href = "https://www.youtube.com/watch?v=" + encodeURIComponent(v.video_id);
   el("bYt").textContent = IOS ? "app ↗" : "youtube ↗";
   el("bPip").style.display = canPip() ? "" : "none";
   syncUrl();
+  if (queued) armPlayerFallback(token, skipped);
 }
 function back() {
+  clearPlayerFallback(); ++PLAYER_TOKEN;
   CUR = null;
   el("video").innerHTML = "";                 /* the iframe is really gone */
   document.body.classList.remove("playing");
@@ -305,6 +350,24 @@ function back() {
   syncUrl(); paint();
 }
 el("bBack").addEventListener("click", back);
+el("bAuto").addEventListener("click", () => {
+  AUTO_NEXT = !AUTO_NEXT;
+  el("bAuto").classList.toggle("on", AUTO_NEXT);
+  el("bAuto").textContent = AUTO_NEXT ? "auto next" : "auto next off";
+  syncUrl();
+});
+el("bAuto").classList.toggle("on", AUTO_NEXT);
+el("bAuto").textContent = AUTO_NEXT ? "auto next" : "auto next off";
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== "https://www.youtube.com") return;
+  const frame = el("video").querySelector("iframe");
+  if (!frame || event.source !== frame.contentWindow) return;
+  let data = event.data;
+  if (typeof data === "string") { try { data = JSON.parse(data); } catch (_) { return; } }
+  if (data?.event === "onReady") { PLAYER_READY_TOKEN = PLAYER_TOKEN; clearPlayerFallback(); }
+  if (data?.event === "onStateChange" && Number(data.info) === 0) advanceQueue();
+});
 
 /* ---- PICTURE-IN-PICTURE ----
    Document PiP hosts real DOM, so it can carry the YouTube player into a
@@ -427,14 +490,21 @@ async function load(forceWatch, quiet) {
 el("bFull").addEventListener("click", () => {
   parent.postMessage({ type: "SCINTILLA_DECK_TOGGLE_FULL" }, location.origin);
 });
+el("bCover").addEventListener("click", () => {
+  parent.postMessage({ type: "SCINTILLA_DECK_MEDIA_COVER_X" }, location.origin);
+});
 window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
   if (event.data?.type === "SCINTILLA_VIEW_PROFILE") {
     document.documentElement.dataset.view = VIEW_PROFILES.includes(event.data.view) ? event.data.view : "auto";
     relayout(); return;
   }
-  if (event.data?.type === "SCINTILLA_DECK_FULL_STATE")
-    el("bFull").textContent = event.data.active ? "↙" : "⛶";
+  if (event.data?.type === "SCINTILLA_DECK_FULL_STATE") {
+    const stage = +event.data.stage || 0;
+    el("bFull").textContent = stage === 2 ? "↙ youtube" : stage === 1 ? "↙ normal" : "⛶";
+    el("bFull").title = stage === 2 ? "return to YouTube region" : stage === 1 ? "return to normal media layout" : "expand across YouTube region";
+    el("bCover").style.display = event.data.canCoverX ? "" : "none";
+  }
 });
 async function start() {
   try { AUTH_STATUS = await oauth("status"); } catch (e) {}
