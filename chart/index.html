@@ -225,6 +225,7 @@ const VIEW_PROFILES = ["auto","desk","ipad","display","compact"];
 let VIEW_PROFILE = VIEW_PROFILES.includes(QS.get("view")) ? QS.get("view") : "auto";
 document.documentElement.dataset.view = VIEW_PROFILE;
 const SHARED_TIME_AXIS = QS.get("sharedAxis") === "1";
+let CHART_TRANSITION_GENERATION = Math.max(0, Number(QS.get("transition")) || 0);
 /* BARE MODE (?bare=1) — used when /chart is a pane inside /deck.
    Two things change, and only these two:
      1. the per-chart range ladder is hidden, because the deck owns ONE
@@ -693,13 +694,13 @@ function showChartDelayed(host, ticker) {
   const msg = host.querySelector(".sc-nchart__msg");
   if (msg) { msg.textContent = "data delayed · retrying"; msg.hidden = false; }
 }
-function retryChartLoad(host, req) {
+function retryChartLoad(host, req, generation) {
   if (host._retryTimer && host._retryReq === req) return;
   clearChartRetry(host);
   host._retryReq = req;
   host._retryTimer = setTimeout(() => {
     host._retryTimer = null;
-    if (host.isConnected && host._req === req) {
+    if (host.isConnected && host._req === req && host._transitionGeneration === generation) {
       /* Keep the retry state painted during the next bounded request. This is
          essential when several fresh panes all hit the same delayed backend. */
       showChartDelayed(host, host.dataset.t);
@@ -717,6 +718,7 @@ async function scChartLoad(host) {
     host._historyExhausted = false;
   }
   host._req = req; host._range = range;
+  const generation = host._transitionGeneration || 0;
   const msg = host.querySelector(".sc-nchart__msg");
   const cachedPts = chartSeriesCached(t, range);
   if (cachedPts && cachedPts.length >= 2) {
@@ -731,7 +733,7 @@ async function scChartLoad(host) {
   try {
     const limit = host._historyLimit || CHART_INITIAL_LIMIT;
     const pts = await fetchChartSeries(t, range, limit);
-    if (host._req !== req || !host.isConnected) return;
+    if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
     if (!pts || pts.length < 2) throw new Error("empty");
     host._series = pts;
     host._historyExhausted = pts.length < limit;
@@ -741,16 +743,16 @@ async function scChartLoad(host) {
     if (msg) msg.hidden = true;
     scChartDraw(host);
   } catch (err) {
-    if (host._req !== req || !host.isConnected) return;
+    if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
     showChartDelayed(host, t);
     if (host._series && host._series.length >= 2) {
       /* A stale but usable chart is better than a black pane while the next
          bounded attempt is waiting. */
       if (msg) msg.hidden = true;
-      retryChartLoad(host, req);
+      retryChartLoad(host, req, generation);
       return;
     }
-    retryChartLoad(host, req);
+    retryChartLoad(host, req, generation);
   }
 }
 
@@ -1072,7 +1074,13 @@ document.addEventListener("click", (e) => {
 /* the deck (parent frame) drives the timeframe for BOTH charts through one bar */
 addEventListener("message", (e) => {
   const d = e.data;
-  if (!d || d.sc !== "chart") return;
+  if (!d) return;
+  if (d.sc === "chart-transition") {
+    const host = document.querySelector("#chartSlot .sc-nchart");
+    if (host) { host._transitionGeneration = Math.max(host._transitionGeneration || 0, Number(d.generation) || 0); clearChartRetry(host); }
+    return;
+  }
+  if (d.sc !== "chart") return;
   if (d.range && CHART_RANGES.includes(d.range)) {
     S.chartRange = d.range;
     document.querySelectorAll(".sc-crange").forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
@@ -1085,6 +1093,8 @@ addEventListener("message", (e) => {
 /* boot */
 el("chartSlot").innerHTML = scChartHTML(S.chartT);
 scChartWire(el("chartSlot"));
+const initialChartHost = document.querySelector("#chartSlot .sc-nchart");
+if (initialChartHost) initialChartHost._transitionGeneration = CHART_TRANSITION_GENERATION;
 pullPrevClose(S.chartT);
 /* A ten-second read-only heartbeat makes live status dependable even if the
    browser's realtime socket sleeps. The full history remains a 60-second pull. */

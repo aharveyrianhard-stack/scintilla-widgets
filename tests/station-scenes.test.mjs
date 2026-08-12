@@ -75,7 +75,7 @@ test("four, six, and eight chart grids pair each top chart with its column's low
   assert.equal(scenes.hidesTopChartAxis(4, 8), false);
   assert.match(deck, /#rowTop\.charts-8/);
   assert.doesNotMatch(deck, /sharedTimeAxis/);
-  assert.match(deck, /function chartSrc\(t, index\)/);
+  assert.match(deck, /function chartSrc\(t, index, transitionGeneration\)/);
   assert.match(deck, /SceneModel\.hidesTopChartAxis\(index, CHART_COUNT\)/);
   assert.match(deck, /sharedAxis=1/);
   assert.match(chart, /const SHARED_TIME_AXIS = QS\.get\("sharedAxis"\) === "1"/);
@@ -189,8 +189,23 @@ test("Custom uses a complete desk budget and explicit empty versus paused cards"
   assert.match(deck, /empty editable slot/);
   assert.match(deck, /resume chart/);
   assert.match(deck, /\^c\(\[1-8\]\)\$/);
-  assert.match(deck, /syncChartPanes\(\);\n  CHARTS\.forEach/,
+  assert.match(deck, /syncChartPanes\(transitionGeneration\);\n  CHARTS\.forEach/,
     "count changes synchronize chart URLs before mounting active panes");
+});
+
+test("rotation stages only two cold chart frames and fences outgoing retries", () => {
+  assert.match(deck, /const ROTATION_COLD_LOAD_LIMIT = 2;/);
+  assert.match(deck, /while \(rotationColdLoads < ROTATION_COLD_LOAD_LIMIT && rotationLoadQueue\.length\)/);
+  assert.match(deck, /job\.generation !== ROTATION_GENERATION/,
+    "stale queued document loads are discarded before they mount");
+  assert.match(deck, /function beginRotationChartTransition\(\)/);
+  assert.match(deck, /cancelChartFrameTransition\(pane\.frame, ROTATION_GENERATION\)/,
+    "existing frames are told to cancel their older retry lifecycle");
+  assert.match(deck, /chartCachedInBrowser\(ticker, RANGE\)/,
+    "cached panes are allowed through without consuming a cold-load slot");
+  assert.match(chart, /host\._transitionGeneration !== generation/,
+    "a response or retry from an older transition cannot repaint the current chart");
+  assert.match(chart, /d\.sc === "chart-transition"/);
 });
 
 test("top cards suppress their own dates while each lower card paints its column axis", () => {
