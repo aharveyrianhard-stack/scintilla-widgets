@@ -72,11 +72,19 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   display:flex; flex-direction:column; overflow:hidden; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
 
 /* ---- header: scene switcher, ticker fields, ONE timeframe bar ---- */
-#bar{ flex:none; display:flex; align-items:center; gap:6px; padding:5px 9px;
+#bar{ flex:none; display:flex; align-items:center; gap:8px; padding:6px 10px;
   padding-top:calc(5px + env(safe-area-inset-top)); border-bottom:1px solid var(--line);
   flex-wrap:wrap; }
 #bar .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; }
 #bar .sep{ color:var(--mute); }
+#bar .control-group{ display:flex; align-items:center; gap:5px; min-height:25px; padding-left:8px;
+  border-left:1px solid var(--line); }
+#bar .control-label{ color:var(--mute); font-size:7px; letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; }
+#bar .rotate-controls{ gap:4px; }
+#bar .rotate-controls .scene-mode{ width:58px; }
+#bar .page-controls{ gap:4px; }
+#bar .page-controls .btn{ min-width:25px; padding-left:6px; padding-right:6px; text-align:center; }
+#bar .page-controls:not(.on){ display:none; }
 #tfbar{ flex:none; position:relative; display:flex; align-items:center; gap:5px; padding:4px 9px; flex-wrap:wrap;
   border-bottom:1px solid var(--line); background:rgba(15,15,26,.6); }
 #tfbar .lbl{ color:var(--mute); font-size:7.5px; letter-spacing:.16em; text-transform:uppercase; }
@@ -231,36 +239,45 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 <div id="bar">
   <span class="k">THE STATION</span>
   <a class="btn" href="/registry">the hub</a>
-  <select class="scene-mode" id="sceneMode" title="saved chart scene; media panes stay in place">
-    <option value="live">live</option>
-    <option value="indexNow">index now</option>
-    <option value="indexLeadership">index leadership</option>
-    <option value="companyLeadership">company leadership</option>
-    <option value="focus2">focus 2</option>
-    <option value="macroCrossAsset">macro cross-asset</option>
-    <option value="internalsFast">internals fast</option>
-    <option value="internalsSlow">internals slow</option>
-    <option value="sectorFamilies">sector families</option>
-    <option value="themeFamilies">theme families</option>
-    <option value="custom">custom</option>
-  </select>
-  <span class="btn" id="resetScene" title="restore this scene's original preset">reset preset</span>
-  <span class="lbl">rotate</span>
-  <select class="scene-mode" id="rotateEvery" title="curated scene rotation timing">
-    <option value="30">30s</option><option value="60" selected>60s</option><option value="120">120s</option>
-  </select>
-  <span class="btn" id="rotateToggle" title="start or pause curated scene rotation">start rotate</span>
-  <span id="cohortControls">
-    <select class="scene-mode" id="cohortSelect" title="Hub cohort favorites"></select>
-    <span class="btn" id="cohortPrev" title="previous six favorites">‹</span>
-    <span id="cohortPage">0 / 0</span>
-    <span class="btn" id="cohortNext" title="next six favorites">›</span>
+  <span class="control-group scene-controls">
+    <span class="control-label">scene</span>
+    <select class="scene-mode" id="sceneMode" title="choose a chart scene; media panes stay in place" aria-label="Station scene">
+      <option value="live">live</option>
+      <option value="indexNow">index now</option>
+      <option value="indexLeadership">index leadership</option>
+      <option value="companyLeadership">company leadership</option>
+      <option value="focus2">focus 2</option>
+      <option value="macroCrossAsset">macro cross-asset</option>
+      <option value="internalsFast">internals fast</option>
+      <option value="internalsSlow">internals slow</option>
+      <option value="sectorFamilies">sector families</option>
+      <option value="themeFamilies">theme families</option>
+      <option value="custom">custom</option>
+    </select>
+    <span class="btn" id="resetScene" title="restore this scene's original preset" aria-label="Reset scene preset">reset preset</span>
   </span>
-  <select class="view-mode" id="viewMode" title="remembered display density for this Station window">
-    <option value="auto">auto</option><option value="desk">desk</option>
-    <option value="ipad">iPad</option><option value="display">display</option><option value="compact">compact</option>
-  </select>
-  <span class="btn" id="displayBtn" title="open a dedicated Station window for a separate display">display ↗</span>
+  <span class="control-group rotate-controls">
+    <span class="control-label">auto rotate</span>
+    <select class="scene-mode" id="rotateEvery" title="rotation interval" aria-label="Auto rotate interval">
+      <option value="30">30s</option><option value="60" selected>60s</option><option value="120">120s</option>
+    </select>
+    <span class="btn" id="rotateToggle" title="start or pause curated scene rotation" aria-label="Start auto rotate">start</span>
+  </span>
+  <span class="control-group page-controls" id="cohortControls" aria-label="Scene basket pages">
+    <select class="scene-mode" id="cohortSelect" title="Hub cohort favorites"></select>
+    <span class="btn" id="cohortPrev" title="Previous basket page" aria-label="Previous basket page">‹</span>
+    <span id="cohortPage" aria-live="polite">page 0 / 0</span>
+    <span class="btn" id="cohortNext" title="Next basket page" aria-label="Next basket page">›</span>
+  </span>
+  <span class="control-group presentation-controls">
+    <span class="control-label">layout</span>
+    <select class="view-mode" id="viewMode" title="remembered layout for this Station window" aria-label="Station layout">
+      <option value="auto">auto</option><option value="desk">desk</option>
+      <option value="ipad">iPad</option><option value="compact">compact</option>
+      <option value="display" hidden data-display-only="true">display</option>
+    </select>
+    <span class="btn" id="displayBtn" title="open Station in a dedicated display window" aria-label="Open dedicated Station display window">display ↗</span>
+  </span>
   <span class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen">⛶</span>
   <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
   <span id="size"></span>
@@ -898,9 +915,13 @@ function paintSceneControls(note) {
   box.classList.toggle("on", SCENE === "cohort" || !!named);
   if (named) {
     el("cohortSelect").style.display = "none";
-    el("cohortPage").textContent = named.totalItems + " · " + (named.offset + 1) + "–" + (named.offset + named.tickers.length);
+    const namedPages = Math.max(1, Math.ceil(named.totalItems / CHART_COUNT));
+    const namedPage = Math.floor(named.offset / CHART_COUNT) + 1;
+    el("cohortPage").textContent = "page " + namedPage + " / " + namedPages;
     el("cohortPrev").classList.toggle("on", named.hasPrevious);
     el("cohortNext").classList.toggle("on", named.hasNext);
+    el("cohortPrev").setAttribute("aria-disabled", String(!named.hasPrevious));
+    el("cohortNext").setAttribute("aria-disabled", String(!named.hasNext));
     el("symbolNote").textContent = note || "preset · edit any slot or reset";
     return;
   }
@@ -911,9 +932,11 @@ function paintSceneControls(note) {
     esc(name.replace(/_/g," ")) + " · " + (COHORT_INDEX.get(name) || []).length + "</option>").join("");
   select.value = COHORT;
   const page = cohortState();
-  el("cohortPage").textContent = page.totalItems + " · " + (page.page + 1) + " / " + page.totalPages;
+  el("cohortPage").textContent = "page " + (page.page + 1) + " / " + page.totalPages;
   el("cohortPrev").classList.toggle("on", page.page > 0);
   el("cohortNext").classList.toggle("on", page.page + 1 < page.totalPages);
+  el("cohortPrev").setAttribute("aria-disabled", String(page.page === 0));
+  el("cohortNext").setAttribute("aria-disabled", String(page.page + 1 >= page.totalPages));
   el("symbolNote").textContent = note || (page.totalItems ?
     page.totalItems + " " + COHORT.replace(/_/g," ") + " favorites" :
     "0 favorites · no filler");
@@ -1067,9 +1090,10 @@ function paintRotateControls() {
   const timing = el("rotateEvery"), toggle = el("rotateToggle");
   timing.value = String(ROTATE_AT);
   const running = !ROTATE_PAUSED;
-  toggle.textContent = running ? "pause rotate" : "start rotate";
+  toggle.textContent = running ? "pause" : "start";
   toggle.classList.toggle("on", running);
   toggle.title = running ? "pause curated scene rotation" : "start curated scene rotation";
+  toggle.setAttribute("aria-label", running ? "Pause auto rotate" : "Start auto rotate");
 }
 function clearRotateTimer() {
   if (rotateTimer) clearTimeout(rotateTimer);
