@@ -124,7 +124,6 @@ body.playing #grid{ display:none; }
   <span class="btn" id="bBack" style="display:none">‹ grid</span>
   <span class="btn" id="bPip" style="display:none" title="float this video in its own always-on-top window">pip</span>
   <a class="btn out" id="bYt" style="display:none" target="_blank" rel="noopener">youtube ↗</a>
-  <span class="btn on" id="bAuto" title="automatically play the next video when this one ends">auto next</span>
   <span id="chips" style="display:flex;gap:4px"></span>
   <span id="auth"></span>
   <span class="btn" id="bCover" style="display:none" title="intentionally expand this video across X">cover X</span>
@@ -166,7 +165,6 @@ const LIMIT  = Math.max(10, Math.min(200, +(QS.get("limit") || 60)));
 const TICK   = (QS.get("t") || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
 const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
 const AUTO   = QS.get("autoplay") === "1";
-let AUTO_NEXT = QS.get("autoNext") !== "0";
 const FORCE  = +(QS.get("cols") || 0);
 
 /* A pane keeps its identity through every local filter. Personal and
@@ -284,7 +282,6 @@ function syncUrl() {
   const p = new URLSearchParams(location.search);
   if (CUR) p.set("v", CUR.video_id); else p.delete("v");
   p.set("feed", FEED); p.set("list", LIST);
-  p.set("autoNext", AUTO_NEXT ? "1" : "0");
   history.replaceState(null, "", "?" + p.toString());
 }
 function queueRows(rows, list, watch) {
@@ -302,7 +299,7 @@ function clearPlayerFallback() {
   PLAYER_FALLBACK = 0;
 }
 function advanceQueue(skipped = new Set()) {
-  if (!AUTO_NEXT || !CUR) return;
+  if (!CUR) return;
   const next = nextQueuedVideo(queueRows(ROWS, LIST, WATCH), CUR.video_id, skipped);
   if (!next) { el("nowt").textContent = "end of queue · " + (CUR.title || CUR.video_id); return; }
   play(next, true, true, skipped);
@@ -350,15 +347,6 @@ function back() {
   syncUrl(); paint();
 }
 el("bBack").addEventListener("click", back);
-el("bAuto").addEventListener("click", () => {
-  AUTO_NEXT = !AUTO_NEXT;
-  el("bAuto").classList.toggle("on", AUTO_NEXT);
-  el("bAuto").textContent = AUTO_NEXT ? "auto next" : "auto next off";
-  syncUrl();
-});
-el("bAuto").classList.toggle("on", AUTO_NEXT);
-el("bAuto").textContent = AUTO_NEXT ? "auto next" : "auto next off";
-
 window.addEventListener("message", (event) => {
   if (event.origin !== "https://www.youtube.com") return;
   const frame = el("video").querySelector("iframe");

@@ -267,7 +267,7 @@ test("media expansion is an explicit two-stage ladder that preserves X until ask
     "covering X is a separate explicit second stage");
 });
 
-test("video auto-next queues the next visible item and skips an unavailable embed", () => {
+test("video auto-next silently advances the next visible item and skips an unavailable embed", () => {
   const queue = functionFromSource(videoPane, "queueRows");
   const next = functionFromSource(videoPane, "nextQueuedVideo");
   const rows = [{ video_id:"a" }, { video_id:"b" }, { video_id:"c" }];
@@ -276,9 +276,12 @@ test("video auto-next queues the next visible item and skips an unavailable embe
   assert.equal(next(rows, "a", new Set()).video_id, "b");
   assert.equal(next(rows, "a", new Set(["b"])).video_id, "c");
   assert.equal(next(rows, "c", new Set()), null);
-  assert.match(videoPane, /id="bAuto"/);
   assert.match(videoPane, /args:\s*\["onStateChange"\]/);
   assert.match(videoPane, /Number\(data\.info\) === 0/);
+  assert.match(videoPane, /advanceQueue\(\);/,
+    "a YouTube ENDED event advances without a user toggle");
   assert.match(videoPane, /skipping unavailable video/);
   assert.match(videoPane, /id="bCover"/);
+  assert.doesNotMatch(videoPane, /bAuto|autoNext|AUTO_NEXT/,
+    "auto-next is always on and adds no visible control or URL state");
 });
