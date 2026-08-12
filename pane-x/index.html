@@ -218,6 +218,7 @@ let remoteReconnect = null;
 let remoteFrameAt = 0;
 let remoteVisibilityCheck = null;
 const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
+const STATION_JOIN_TIMEOUT_MS = 5000;
 
 function stationRemoteKey(pairId, viewerId) {
   return String(pairId || "") + ":" + String(viewerId || "");
@@ -277,16 +278,33 @@ function stationRealtimeRoom(pair, onDisconnect) {
   const topic = "realtime:station-ipad:" + pair.token;
   const socket = new WebSocket(STATION_REALTIME_URL + "?apikey=" +
     encodeURIComponent(STATION_REALTIME_KEY) + "&vsn=1.0.0");
-  let ref = 0, joined = false, deliberatelyClosed = false, disconnected = false;
+  let ref = 0, joined = false, deliberatelyClosed = false, disconnected = false, joinTimeout = null;
+  const clearJoinTimeout = () => {
+    if (joinTimeout) clearTimeout(joinTimeout);
+    joinTimeout = null;
+  };
   const disconnect = () => {
     if (deliberatelyClosed || disconnected) return;
     disconnected = true;
+    clearJoinTimeout();
     onDisconnect?.();
   };
-  const send = (event, payload) => socket.readyState === WebSocket.OPEN && socket.send(JSON.stringify({
-    topic, event, payload, ref: String(++ref), join_ref: "1"
-  }));
-  socket.addEventListener("open", () => send("phx_join", { config:{ broadcast:{ self:false, ack:true }, presence:{ key:"" }, private:false } }));
+  const send = (event, payload) => {
+    if (socket.readyState !== WebSocket.OPEN) return false;
+    socket.send(JSON.stringify({ topic, event, payload, ref: String(++ref), join_ref: "1" }));
+    return true;
+  };
+  const awaitJoin = () => {
+    clearJoinTimeout();
+    joinTimeout = setTimeout(() => {
+      if (joined || deliberatelyClosed) return;
+      disconnect();
+      try { socket.close(); } catch (_) {}
+    }, STATION_JOIN_TIMEOUT_MS);
+  };
+  socket.addEventListener("open", () => {
+    if (send("phx_join", { config:{ broadcast:{ self:false, ack:true }, presence:{ key:"" }, private:false } })) awaitJoin();
+  });
   socket.addEventListener("error", () => {
     disconnect();
     try { socket.close(); } catch (_) {}
@@ -296,6 +314,7 @@ function stationRealtimeRoom(pair, onDisconnect) {
     let message; try { message = JSON.parse(event.data); } catch (_) { return; }
     if (message.event === "phx_reply" && message.ref === "1") {
       joined = message.payload?.status === "ok";
+      clearJoinTimeout();
       if (!joined) {
         disconnect();
         try { socket.close(); } catch (_) {}
@@ -332,6 +351,7 @@ function stationRealtimeRoom(pair, onDisconnect) {
     publish(event, payload) { send("broadcast", { type:"broadcast", event, payload }); },
     close() {
       deliberatelyClosed = true;
+      clearJoinTimeout();
       try { send("phx_leave", {}); socket.close(); } catch (_) {}
     }
   };
