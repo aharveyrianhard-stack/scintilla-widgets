@@ -80,7 +80,7 @@ test("four, six, and eight chart grids pair each top chart with its column's low
   assert.match(deck, /sharedAxis=1/);
   assert.match(chart, /const SHARED_TIME_AXIS = QS\.get\("sharedAxis"\) === "1"/);
   assert.match(chart, /if \(!SHARED_TIME_AXIS\) \{/);
-  assert.match(chart, /padB = SHARED_TIME_AXIS \? 8 : axisBand/);
+  assert.match(chart, /padB = SHARED_TIME_AXIS \? 5 : axisBand/);
   assert.doesNotMatch(chart, /chart-axis/);
 });
 
@@ -221,10 +221,21 @@ test("chart identity focuses the existing deck ticker editor and fullscreen live
   assert.match(deck, /focusTickerFor\(pane\.def\.key\)/);
   assert.match(deck, /bFull\.classList\.add\("chart-full"\)/);
   assert.match(deck, /\.chart-full\{ position:absolute; top:6px; right:7px/);
-  assert.match(chart, /const timeFont = VIEW_PROFILE === "desk" \? 8/);
+  assert.match(chart, /const timeFont = VIEW_PROFILE === "desk" \? 7\.5/);
   assert.match(deck, /\.chart-pane > \.ph\{ position:absolute/);
   assert.doesNotMatch(deck, /sharedTimeAxis/);
   assert.match(deck, /else n\.value = CHARTS\[index\] \|\| ""/);
+});
+
+test("paired column axes stay legible while using compact plot bands", () => {
+  assert.match(chart, /const axisBand = h < 130 \? 17 : 21/);
+  assert.match(chart, /padR = h < 130 \? 20 : 24/);
+  assert.match(chart, /ctx\.lineWidth = \.5; ctx\.globalAlpha = \.09/,
+    "horizontal separators remain visible but intentionally subtle");
+  assert.match(chart, /ctx\.font = '7px "SF Mono"/,
+    "right price labels use a compact distinct band");
+  assert.match(chart, /ctx\.fillText\(parts\[0\], X\(ix\), h - padB \+ 8\)/,
+    "the lower card retains its actual shared date/time labels");
 });
 
 test("a scene transition reloads a mounted frame whose URL has an old ticker", () => {
