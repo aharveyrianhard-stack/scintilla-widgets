@@ -255,6 +255,12 @@ test("fixed price overlay reports daily performance honestly", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(dayChange(100, 100))), { text:"0.00%", tone:"flat" });
   assert.deepEqual(JSON.parse(JSON.stringify(dayChange(105, null))), { text:"—", tone:"flat" });
   assert.match(chart, /\.sc-nchart__live\{ position:absolute; top:7px; left:8px/);
+  assert.match(chart, /display:flex; flex-direction:row; align-items:baseline; gap:8px/,
+    "the readout is one compact horizontal line");
+  assert.match(chart, /background:rgba\(5,6,12,\.76\)[\s\S]*?padding:5px 7px/,
+    "a restrained translucent backing keeps chart lines out of the readout");
+  assert.doesNotMatch(chart, /\.sc-nchart__live\{[^}]*flex-direction:column/,
+    "the vertical ticker/price/change stack is removed");
   assert.match(chart, /sc-nchart__live-ticker/);
   assert.match(chart, /parent\.postMessage\(\{ sc:"chart-focus-ticker" \}/);
   assert.match(chart, /\.sc-nchart__live-change/);
