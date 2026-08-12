@@ -40,10 +40,10 @@ function functionFromSource(sourceText, name, bindings = {}) {
 
 test("all eleven curated scenes are present with fixed baskets", () => {
   assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","custom"]);
-  assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY","QQQ","IWM","MAGS","SMH","DIA"]);
+  assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY","QQQ","DIA","IWM","MAGS","SMH"]);
   assert.equal(scenes.PRESETS.companyLeadership.range, "3h");
-  assert.equal(scenes.PRESETS.macroCrossAsset.chartCount, 2);
-  assert.equal(scenes.PRESETS.internalsFast.chartCount, 2);
+  assert.equal(scenes.PRESETS.macroCrossAsset.chartCount, 6);
+  assert.equal(scenes.PRESETS.internalsFast.chartCount, 6);
   assert.equal(scenes.PRESETS.internalsSlow.range, "1D");
   assert.equal(scenes.PRESETS.macroCrossAsset.range, "3D");
 });
@@ -62,18 +62,14 @@ test("larger curated grids page real basket members without blank cards", () => 
   assert.equal(scenes.basketWindow([], 0, 6).empty, true);
 });
 
-test("four-member Macro and Internals baskets use honest two-up pages", () => {
+test("Macro and Internals are complete honest six-up screens", () => {
   const macro = Array.from(scenes.PRESETS.macroCrossAsset.tickers);
   const internals = Array.from(scenes.PRESETS.internalsFast.tickers);
-  assert.deepEqual(Array.from(scenes.basketWindow(macro, 0, 2).tickers), ["US10Y","DXUSD"]);
-  assert.deepEqual(Array.from(scenes.basketWindow(macro, 2, 2).tickers), ["GCUSD","SIUSD"]);
-  assert.deepEqual(Array.from(scenes.basketWindow(internals, 0, 2).tickers), ["VIX","ADD"]);
-  assert.deepEqual(Array.from(scenes.basketWindow(internals, 2, 2).tickers), ["PCC","CUMTICK"]);
-  assert.equal(scenes.basketWindow(macro, 0, 2).chartCount, 2);
-  assert.equal(scenes.basketWindow(macro, 0, 2).tickers.includes(""), false);
+  assert.deepEqual(macro, ["US10Y","DXUSD","GCUSD","SIUSD","CLUSD","ESUSD"]);
+  assert.deepEqual(internals, ["VIX","ADD","PCC","CUMTICK","TICK","TRIN"]);
+  assert.equal(scenes.basketWindow(macro, 0, 6).chartCount, 6);
+  assert.equal(scenes.basketWindow(internals, 0, 6).tickers.includes(""), false);
   assert.equal(scenes.chartCountForSize(4), 2, "retired four-up inputs normalize to two-up");
-  assert.match(deck, /const namedPage = Object\.prototype\.hasOwnProperty\.call\(options \|\| \{\}, "offset"\)/,
-    "a named-scene page turn cannot be pinned to a remembered editable first page");
 });
 
 test("six and eight chart grids pair each top chart with its column's lower axis", () => {
@@ -132,35 +128,34 @@ test("normal wall chooser is two, six, or eight while INDEX NOW keeps its launch
     "the INDEX NOW state remains representable without being shown in the menu");
 });
 
-test("rotation is limited to curated scenes and wraps with an explicit pause control", () => {
-  assert.deepEqual(Array.from(scenes.ROTATION_IDS), ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]);
-  assert.equal(scenes.nextRotatingScene("live"), "indexNow");
-  assert.equal(scenes.nextRotatingScene("themeFamilies"), "indexNow");
+test("global screen navigation and rotation share the same curated sequence", () => {
+  assert.deepEqual(Array.from(scenes.ROTATION_IDS), ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies"]);
+  assert.equal(scenes.nextScreen("live").scene, "indexNow");
+  assert.equal(scenes.nextScreen("themeFamilies").scene, "indexNow");
+  assert.equal(scenes.previousScreen("live").scene, "themeFamilies");
+  assert.equal(scenes.screenForScene("custom"), null, "manual Custom is excluded from global navigation");
   assert.match(deck, /ROTATE_SECONDS = \[30,60,120\]/);
   assert.match(deck, /id="rotateToggle"/);
   assert.match(deck, /setRotationPaused\(!ROTATE_PAUSED\)/);
   assert.match(deck, /setTimeout\(/);
+  assert.match(deck, /const next = SceneModel\.nextScreen\(SCENE\);\n    try \{ await applyScene\(next\.scene, \{ rotate:true, screen:true \}\); \}/,
+    "Auto Rotate takes the exact same next-screen path as the header control");
+  assert.match(deck, /el\("screenNext"\)\.addEventListener\("click", \(\) => applyScene\(SceneModel\.nextScreen\(SCENE\)\.scene, \{ screen:true \}\)\)/);
 });
 
-test("header groups scene, page, and compact auto-rotate controls without changing their actions", () => {
+test("header exposes one global screen control instead of basket pagers", () => {
   assert.match(deck, /class="control-group scene-controls"/);
   assert.match(deck, /id="resetScene"[^>]*aria-label="Reset scene preset"/);
   assert.match(deck, /class="control-group rotate-controls"/);
   assert.match(deck, /<span class="control-label">auto rotate<\/span>/);
   assert.match(deck, /toggle\.textContent = running \? "pause" : "start"/);
-  assert.match(deck, /class="control-group page-controls" id="cohortControls"/);
-  assert.match(deck, /aria-label="Previous basket page"/);
-  assert.match(deck, /aria-label="Next basket page"/);
-  assert.match(deck, /textContent = "page " \+ namedPage \+ " \/ " \+ namedPages/);
-  assert.match(deck, /textContent = "page " \+ \(page\.page \+ 1\) \+ " \/ " \+ page\.totalPages/);
-  assert.match(deck, /box\.classList\.toggle\("on", namedPages > 1\)/,
-    "single-page named baskets do not leave pager noise in the header");
-  assert.match(deck, /box\.classList\.toggle\("on", page\.totalPages > 1\)/,
-    "cohort pager appears only when its basket has more than one page");
-  assert.match(deck, /box\.classList\.remove\("on"\);\n    return;/,
-    "non-paged scenes remove the page group before the header reflows");
-  assert.match(deck, /el\("cohortPrev"\)\.addEventListener\("click"/);
-  assert.match(deck, /el\("cohortNext"\)\.addEventListener\("click"/);
+  assert.match(deck, /id="screenControls" aria-label="Global Station screens"/);
+  assert.match(deck, /aria-label="Previous screen"/);
+  assert.match(deck, /aria-label="Next screen"/);
+  assert.match(deck, /"screen " \+ \(SceneModel\.SCREENS\.indexOf\(screen\) \+ 1\)/);
+  assert.match(deck, /el\("screenPrev"\)\.addEventListener\("click"/);
+  assert.match(deck, /el\("screenNext"\)\.addEventListener\("click"/);
+  assert.doesNotMatch(deck, /id="cohortControls"/);
 });
 
 test("display window action stays separate from the remembered layout chooser", () => {
@@ -264,7 +259,8 @@ test("a direct Custom URL is authoritative over saved and default symbols", () =
 test("named scenes are editable device-session presets with an explicit reset", () => {
   assert.match(deck, /const sessionRemembered = \(key\) => \{ try \{ return sessionStorage\.getItem/);
   assert.match(deck, /const prefix = localWorkspace \? "station\." \+ SCENE : "station\.flex\." \+ SCENE/);
-  assert.match(deck, /state = !options\?\.reset && !options\?\.rotate && !namedPage && hasStoredScene\(requested\)/);
+  assert.match(deck, /state = !options\?\.reset && !namedPage && hasStoredScene\(requested\)/,
+    "navigation and rotation preserve working scene edits until Reset Preset");
   assert.match(deck, /installSceneState\(hasStoredScene\(SCENE\) \? editableState\(SCENE\) : fixedSceneState\(SCENE\)\)/);
   assert.match(deck, /id="resetScene"/);
   assert.match(deck, /el\("resetScene"\)\.addEventListener\("click"/);
