@@ -119,6 +119,19 @@ test("Scenes V2 stays local-only and preserves the current iPad companion", () =
   assert.match(deck, /const sessionRemembered = \(key\) =>/);
 });
 
+test("iPad profile keeps the complete Station wall with normalized child typography", () => {
+  const xPane = fs.readFileSync(new URL("../pane-x/index.html", import.meta.url), "utf8");
+  assert.match(deck, /const VIEW_MODES = \["auto","desk","ipad","display","compact"\]/);
+  assert.match(deck, /<option value="ipad">iPad<\/option>/);
+  assert.match(deck, /const keepsCompleteWall = \(\) => VIEW === "desk" \|\| VIEW === "ipad"/);
+  assert.match(deck, /text-size-adjust:100%/);
+  assert.match(chart, /-webkit-text-size-adjust:100%; text-size-adjust:100%/);
+  assert.match(chart, /html\[data-view="ipad"\] \.sc-nchart__live\{[^}]*font-size:14px/);
+  assert.match(chart, /const ipadProfile = VIEW_PROFILE === "ipad"/);
+  assert.match(videoPane, /VIEW_PROFILES = \["auto","desk","ipad","display","compact"\]/);
+  assert.match(xPane, /VIEW_PROFILES = \["auto","desk","ipad","display","compact"\]/);
+});
+
 test("CUSTOM preserves the screenshot-shaped sparse six-slot workspace", () => {
   const match = deck.match(/function preservedCustomState\(state\) \{[\s\S]*?\n\}/);
   assert.ok(match, "CUSTOM recovery helper is present in the rendered Station source");
@@ -228,11 +241,11 @@ test("chart identity focuses the existing deck ticker editor and fullscreen live
 });
 
 test("paired column axes stay legible while using compact plot bands", () => {
-  assert.match(chart, /const axisBand = h < 130 \? 17 : 21/);
-  assert.match(chart, /padR = h < 130 \? 20 : 24/);
+  assert.match(chart, /const axisBand = ipadProfile \? \(h < 130 \? 15 : 18\) : \(h < 130 \? 17 : 21\)/);
+  assert.match(chart, /padR = ipadProfile \? \(h < 130 \? 18 : 21\) : \(h < 130 \? 20 : 24\)/);
   assert.match(chart, /ctx\.lineWidth = \.5; ctx\.globalAlpha = \.09/,
     "horizontal separators remain visible but intentionally subtle");
-  assert.match(chart, /ctx\.font = '7px "SF Mono"/,
+  assert.match(chart, /ctx\.font = \(ipadProfile \? '6\.5' : '7'\) \+ 'px "SF Mono"/,
     "right price labels use a compact distinct band");
   assert.match(chart, /ctx\.fillText\(parts\[0\], X\(ix\), h - padB \+ 8\)/,
     "the lower card retains its actual shared date/time labels");
