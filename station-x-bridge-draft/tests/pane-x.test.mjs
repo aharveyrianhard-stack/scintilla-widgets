@@ -31,6 +31,28 @@ test("a paired viewer keeps its identity through a browser-session reload", () =
   assert.equal(creates, 1);
 });
 
+test("visible direct viewers elect exactly one stable scroll-clock owner", () => {
+  const clockOwnerFor = functionFromSource("clockOwnerFor", { VIEWER_CLOCK_STALE_MS:2600 });
+  const now = 50_000;
+  const peers = new Map([
+    ["b".repeat(24), { visible:true, seenAt:now }],
+    ["c".repeat(24), { visible:false, seenAt:now }],
+    ["d".repeat(24), { visible:true, seenAt:now - 2601 }]
+  ]);
+  const self = "a".repeat(24);
+  assert.equal(clockOwnerFor(self, peers, now), self, "the deterministic first visible viewer owns the tick");
+  peers.set(self, { visible:false, seenAt:now });
+  assert.equal(clockOwnerFor(self, peers, now, false), "b".repeat(24), "a hidden viewer yields to a live mirror");
+});
+
+test("viewer cadence is capped locally while remote iPad viewers never drive source ticks", () => {
+  assert.match(source, /const VIEWER_PAINT_INTERVAL_MS = 80;/);
+  assert.match(source, /const STATION_TICK_INTERVAL_MS = 100;/);
+  assert.match(source, /if \(REMOTE_MODE \|\| stationTickFrame \|\| document\.visibilityState !== "visible"\) return;/);
+  assert.match(source, /if \(viewerClockOwner\) \{/);
+  assert.match(source, /window\.__SCINTILLA_X_CADENCE/);
+});
+
 test("the current paired-viewer path sends its stable viewer identity with offers", () => {
   assert.match(source, /viewerId:REMOTE_VIEWER/);
   assert.match(source, /const REMOTE_RECEIVER_GENERATION = createRemoteViewerId\(\)/);
