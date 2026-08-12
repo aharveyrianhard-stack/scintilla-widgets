@@ -468,6 +468,17 @@ let SYMBOLS = Object.keys(FUTURE_META).map((ticker) => ({ ticker, type:"future",
 let SYMBOL_SET = new Set(SYMBOLS.map((row) => row.ticker));
 let GUIDE_ROWS = [], GUIDE_AT = 0, GUIDE_INPUT = null;
 const CHART_STATUS = new Map();
+let SHARED_AXIS_TICKS = [];
+
+function paintSharedTimeAxis(ticks) {
+  SHARED_AXIS_TICKS = Array.isArray(ticks) ? ticks.filter(Boolean) : [];
+  const axis = el("sharedTimeAxis");
+  if (!axis) return;
+  if (!SHARED_AXIS_TICKS.length) { axis.textContent = "loading shared time axis…"; return; }
+  axis.replaceChildren(...SHARED_AXIS_TICKS.map((tick) => {
+    const label = document.createElement("span"); label.textContent = tick; return label;
+  }));
+}
 
 /* ------------------------------------------------------------------ *
  * LAYOUT — width only decides STACK vs DECK. It never decides how the
@@ -621,10 +632,7 @@ window.addEventListener("message", (event) => {
   if (event.data?.sc === "chart-axis") {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
     if (pane?.def.key !== "c1" || !Array.isArray(event.data.ticks)) return;
-    const axis = el("sharedTimeAxis");
-    if (axis) axis.replaceChildren(...event.data.ticks.map((tick) => {
-      const label = document.createElement("span"); label.textContent = tick; return label;
-    }));
+    paintSharedTimeAxis(event.data.ticks);
     return;
   }
   if (event.data?.sc === "chart-view") {
@@ -1111,7 +1119,7 @@ function applyChartCount(next, fromScene) {
     row.classList.toggle("shared-axis", SceneModel.usesSharedBottomAxis(CHART_COUNT));
     let axis = el("sharedTimeAxis");
     if (!axis) { axis = document.createElement("div"); axis.id = "sharedTimeAxis"; row.appendChild(axis); }
-    axis.textContent = "loading shared time axis…";
+    paintSharedTimeAxis(SHARED_AXIS_TICKS);
   }
   /* Count is now final, so active pane URLs can switch shared-axis mode
      without disturbing their sibling frames. */

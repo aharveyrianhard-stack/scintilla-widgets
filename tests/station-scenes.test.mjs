@@ -214,6 +214,8 @@ test("chart identity focuses the existing deck ticker editor and fullscreen live
   assert.match(deck, /font-size:clamp\(8px,\.62vw,10px\)/);
   assert.match(deck, /\.chart-pane > \.ph\{ position:absolute/);
   assert.match(deck, /pane\?\.def\.key !== "c1"/);
+  assert.match(deck, /let SHARED_AXIS_TICKS = \[\]/);
+  assert.match(deck, /paintSharedTimeAxis\(SHARED_AXIS_TICKS\)/);
   assert.match(deck, /else n\.value = CHARTS\[index\] \|\| ""/);
 });
 
