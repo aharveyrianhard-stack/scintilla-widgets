@@ -76,16 +76,27 @@ test("Station crop geometry is cached outside bounded observer-driven refreshes"
   assert.match(source, /new ResizeObserver\(scheduleCropTargetUpdate\)/);
   assert.match(source, /new MutationObserver\(observeCurrentColumn\)/);
   assert.match(source, /setTimeout\([\s\S]{0,700}\}, 120\)/);
-  assert.match(source, /requestAnimationFrame\(\(\) => \{[\s\S]{0,500}requestAnimationFrame/);
+  assert.match(source, /requestAnimationFrame\(\(\) => \{[\s\S]{0,500}applyCropTargetGeometry/,
+    "geometry invalidation remains coalesced independently of capture-frame acknowledgement");
 });
 
-test("Station retains one 10 Hz source tick path while deferring crop replacement", () => {
+test("Station retains one 10 Hz source tick path while waiting for a captured video frame", () => {
   const control = source.slice(
     source.indexOf("async function stationControl"),
     source.indexOf("function showError")
   );
   assert.match(control, /session\.stationPendingScrollGeneration = next\.generation/);
-  assert.match(control, /scheduleStationCaptureSettle\(next\.generation\)/);
+  assert.match(control, /requestStationCaptureFrame\(next\.generation\)/);
   assert.match(control, /else if \(!session\.stationPendingScrollGeneration\)/);
   assert.match(control, /Math\.min\(timestamp - session\.lastScrollTimestamp, 100\)/);
+});
+
+test("a post-scroll crop is released only by the current captured-frame generation", () => {
+  assert.match(source, /function confirmStationCaptureFrame\(generation\)/);
+  assert.match(source, /confirmed !== session\.stationPendingScrollGeneration/,
+    "late capture acknowledgements must be ignored");
+  assert.match(source, /session\.stationRenderedOffset = session\.scrollCarryPx/);
+  assert.match(source, /type: "XFF_STATION_CROP", crop: stationCropPayload\(\)/,
+    "the next offset is broadcast only after the matching decoded frame");
+  assert.match(source, /message\?\.type === "XFF_STATION_CAPTURE_FRAME"/);
 });
