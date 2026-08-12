@@ -115,6 +115,8 @@ function dispatchRuntime(listeners, message, sender) {
 async function reinjectLegacyV079Pane(h, sender) {
   const source = await readFile(new URL("../station-bridge.js", import.meta.url), "utf8");
   const runtimeListeners = [];
+  const messageListeners = [];
+  const bridgeSent = [];
   const events = [];
   let readyResolve;
   const ready = new Promise((resolve) => { readyResolve = resolve; });
@@ -124,27 +126,44 @@ async function reinjectLegacyV079Pane(h, sender) {
     innerWidth: 430,
     innerHeight: 260,
     postMessage(message) { events.push(message); },
-    addEventListener() {}
+    addEventListener(type, listener) {
+      if (type === "message") messageListeners.push(listener);
+    }
   };
   const chrome = {
     runtime: {
       id: "fixture",
       sendMessage(message) {
-        if (message.type !== "XFF_STATION_READY") return Promise.resolve({ ok:true });
+        bridgeSent.push(structuredClone(message));
         return dispatchRuntime(h.runtimeListeners, message, sender).then((response) => {
-          readyResolve(response);
+          if (message.type === "XFF_STATION_READY") readyResolve(response);
           return response;
         });
       },
       onMessage: { addListener(fn) { runtimeListeners.push(fn); } }
     }
   };
-  vm.runInNewContext(source, {
+  const context = vm.createContext({
     window: paneWindow, chrome, crypto: { randomUUID: () => "v080-recovery" },
     Promise, setInterval: () => 1, clearInterval() {}
   });
+  vm.runInContext(source, context);
   await ready;
-  return { paneWindow, events, runtimeListeners };
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  return {
+    paneWindow,
+    events,
+    bridgeSent,
+    runtimeListeners,
+    async emitPageMessage(data) {
+      context.pageMessageData = data;
+      const event = vm.runInContext("({ source:window, origin:window.location.origin, data:pageMessageData, stopImmediatePropagation(){} })", context);
+      for (const listener of messageListeners) {
+        listener(event);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  };
 }
 
 test("one X action binds the exact source tab to the ready Station frame", async () => {
@@ -575,6 +594,61 @@ test("a V079 pane reinjected after a background reload reannounces before the ne
   "a recovered receiver must prevent the offline WAIT path");
 });
 
+test("a stale pane generation requests reannounce without creating a remote peer", async () => {
+  const h = await harness();
+  const sender = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "pane-current", width: 430, height: 260
+  }, sender);
+  const offersBefore = h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_OFFER").length;
+
+  const response = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_REMOTE_OFFER",
+    instanceId: "pane-stale",
+    pairId: "a".repeat(32),
+    viewerId: "b".repeat(24),
+    offer: { type: "offer", sdp: "stale-offer" }
+  }, sender);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(response)), {
+    retryable: true,
+    code: "STATION_RECEIVER_REANNOUNCING",
+    error: "The Station receiver is reannouncing."
+  });
+  assert.equal(h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_OFFER").length, offersBefore);
+});
+
+test("V080 reannounce accepts the same Viewer A offer for exactly one generation", async () => {
+  const h = await harness();
+  const sender = {
+    tab: { id: 11, windowId: 2, url: "https://station.scintillahub.ai/" },
+    frameId: 5,
+    url: "https://station.scintillahub.ai/pane-x"
+  };
+  const pane = await reinjectLegacyV079Pane(h, sender);
+  const pairId = "a".repeat(32);
+  const viewerId = "b".repeat(24);
+
+  await pane.emitPageMessage({
+    type: "XFF_STATION_REMOTE_OFFER",
+    pairId,
+    viewerId,
+    offer: { type: "offer", sdp: "viewer-a-offer" }
+  });
+
+  const offers = h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_OFFER");
+  assert.equal(offers.length, 1);
+  assert.equal(offers[0].peerId, "ipad:" + pairId + ":" + viewerId);
+  const relayed = h.sent.find(({ message }) =>
+    message.type === "XFF_STATION_REMOTE_ANSWER" && message.viewerId === viewerId);
+  assert.equal(relayed.message.instanceId, "v080-recovery");
+
+  for (const listener of pane.runtimeListeners) listener(relayed.message);
+  assert.ok(pane.events.some((event) =>
+    event.type === "XFF_STATION_REMOTE_ANSWER" &&
+    event.instanceId === "v080-recovery" && event.viewerId === viewerId));
+});
+
 test("worker restore prunes closed source and consumer tabs", async () => {
   const h = await harness({
     __missingTabIds: [7, 22],
@@ -599,7 +673,7 @@ test("one iPad pair fans out to distinct viewer peers without restarting X captu
   const h = await harness();
   const station = { tab: { id: 11, windowId: 2 }, frameId: 5 };
   await dispatchRuntime(h.runtimeListeners, {
-    type: "XFF_STATION_READY", width: 430, height: 260
+    type: "XFF_STATION_READY", instanceId: "pane", width: 430, height: 260
   }, station);
   await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
   const captures = h.captures.length;
@@ -610,6 +684,7 @@ test("one iPad pair fans out to distinct viewer peers without restarting X captu
   for (const viewerId of [firstViewer, secondViewer, firstViewer]) {
     const response = await dispatchRuntime(h.runtimeListeners, {
       type: "XFF_STATION_REMOTE_OFFER",
+      instanceId: "pane",
       pairId,
       viewerId,
       offer: { type: "offer", sdp: "fixture-offer-" + viewerId }
@@ -626,6 +701,39 @@ test("one iPad pair fans out to distinct viewer peers without restarting X captu
   assert.equal(new Set(peers).size, 2, "a viewer reload replaces only its own peer key");
   assert.ok(h.sent.filter(({ message }) => message.type === "XFF_STATION_REMOTE_ANSWER").every(({ message }) =>
     [firstViewer, secondViewer].includes(message.viewerId)));
+});
+
+test("Viewer A refresh and drop leave Viewer B's peer untouched", async () => {
+  const h = await harness();
+  const station = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "pane", width: 430, height: 260
+  }, station);
+  const pairId = "a".repeat(32);
+  const viewerA = "b".repeat(24);
+  const viewerB = "c".repeat(24);
+
+  for (const viewerId of [viewerA, viewerB, viewerA]) {
+    await dispatchRuntime(h.runtimeListeners, {
+      type: "XFF_STATION_REMOTE_OFFER",
+      instanceId: "pane",
+      pairId,
+      viewerId,
+      offer: { type: "offer", sdp: "offer-" + viewerId }
+    }, station);
+  }
+  const drop = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_REMOTE_DROP",
+    instanceId: "pane",
+    pairId,
+    viewerId: viewerA
+  }, station);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(drop)), { ok: true });
+  const drops = h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_DROP");
+  assert.deepEqual(drops.map(({ peerId }) => peerId), ["ipad:" + pairId + ":" + viewerA]);
+  assert.ok(h.runtimeSent.some(({ type, peerId }) =>
+    type === "XFF_OFFSCREEN_OFFER" && peerId === "ipad:" + pairId + ":" + viewerB));
 });
 
 test("an explicit preview click injects only the Station bridge into that preview tab", async () => {

@@ -35,3 +35,13 @@ test("the current paired-viewer path sends its stable viewer identity with offer
   assert.match(source, /viewerId:REMOTE_VIEWER/);
   assert.match(source, /event:"drop", payload:\{ code:REMOTE_CODE, viewerId:REMOTE_VIEWER \}/);
 });
+
+test("the iMac pane buffers offers until one exact Bridge generation accepts them", () => {
+  assert.match(source, /const stationPendingRemoteOffers = new Map\(\);/);
+  assert.match(source, /function queueStationRemoteOffer\(pairId, viewerId, offer\)/);
+  assert.match(source, /function flushStationRemoteOffers\(\)/);
+  assert.match(source, /type === "XFF_STATION_BRIDGE_READY" && event\.data\.instanceId/);
+  assert.match(source, /type === "XFF_STATION_BRIDGE_REANNOUNCING"/);
+  assert.match(source, /String\(event\.data\.instanceId \|\| ""\) === stationBridgeInstanceId/);
+  assert.match(source, /clearStationRemoteOffer\(event\.data\.pairId, event\.data\.viewerId\)/);
+});
