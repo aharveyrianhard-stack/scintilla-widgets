@@ -136,6 +136,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 #rowTop.charts-3 > .pane{ grid-column:span 2; }
 #rowTop.charts-4 > .pane{ grid-column:span 3; }
 #rowTop.charts-6 > .pane{ grid-column:span 2; }
+#rowTop.charts-8{ grid-template-columns:repeat(4,minmax(0,1fr)); }
+#rowTop.charts-8 > .pane{ grid-column:span 1; }
 #rowTop > .pane.chart-off{ display:none; }
 #rowTop.shared-axis{ position:relative; padding-bottom:19px; }
 #sharedTimeAxis{ display:none; position:absolute; left:7px; right:28px; bottom:2px; height:14px; z-index:7;
@@ -199,6 +201,9 @@ body[data-view="desk"] .tkin{ font-size:10px; }
 body[data-view="compact"] #bar{ padding-top:3px; padding-bottom:3px; }
 body[data-view="compact"] #tfbar{ padding-top:2px; padding-bottom:2px; }
 body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
+/* Eight charts remain a real four-by-two wall on a compact desktop.  Below
+   STACK_AT the existing single-column safety layout takes over instead. */
+body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minmax(0,1fr)); }
 </style>
 </head>
 <body>
@@ -218,6 +223,11 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
     <option value="themeFamilies">theme families</option>
     <option value="custom">custom</option>
   </select>
+  <span class="lbl">rotate</span>
+  <select class="scene-mode" id="rotateEvery" title="curated scene rotation timing">
+    <option value="30">30s</option><option value="60" selected>60s</option><option value="120">120s</option>
+  </select>
+  <span class="btn" id="rotateToggle" title="start or pause curated scene rotation">start rotate</span>
   <span id="cohortControls">
     <select class="scene-mode" id="cohortSelect" title="Hub cohort favorites"></select>
     <span class="btn" id="cohortPrev" title="previous six favorites">‹</span>
@@ -239,7 +249,7 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
   <span class="lbl">charts</span>
   <select class="chart-count" id="chartCount" title="number of charts">
     <option value="1">1</option><option value="2">2</option><option value="3">3</option>
-    <option value="4">4</option><option value="6">6</option>
+    <option value="4">4</option><option value="6">6</option><option value="8">8</option>
   </select>
   <span class="symbol-note" id="symbolNote">Hub symbols</span>
   <span class="lbl">timeframe · all</span>
@@ -326,11 +336,14 @@ const CLEAN_COHORT = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9_]/g,
 const remembered = (key) => { try { return localStorage.getItem(key) || ""; } catch (_) { return ""; } };
 const remember = (key, value) => { try { localStorage.setItem(key, value); } catch (_) {} };
 const SceneModel = window.StationScenes;
-const CHART_COUNTS = [1,2,3,4,6];
+const CHART_COUNTS = [1,2,3,4,6,8];
 const chartCount = (value) => {
-  const n = Math.max(1, Math.min(6, +value || 2));
+  const n = Math.max(1, Math.min(8, +value || 2));
   return n === 5 ? 4 : (CHART_COUNTS.includes(n) ? n : 2);
 };
+const CUSTOM_WALL_STARTERS = Object.freeze(["SPY","QQQ","IWM","MAGS","SMH","AAPL","MSFT","AMZN"]);
+const ROTATE_SCENES = SceneModel.ROTATION_IDS;
+const ROTATE_SECONDS = [30,60,120];
 const VIEW_MODES = ["auto","desk","display","compact"];
 let VIEW = VIEW_MODES.includes(QS.get("view")) ? QS.get("view") :
   (VIEW_MODES.includes(sessionStorage.getItem("station.view")) ? sessionStorage.getItem("station.view") : "auto");
@@ -348,7 +361,7 @@ const storedState = (suffix) => remembered(statePrefix() + "." + suffix) ||
   (SCENE === "custom" ? remembered("station.live." + suffix) : "") || remembered("station." + suffix);
 const URL_STATEFUL = SCENE === "live" || SCENE === "custom";
 let CHART_COUNT = chartCount((URL_STATEFUL ? QS.get("charts") : "") || storedState("chartCount") || 2);
-const CHARTS = Array.from({ length: 6 }, (_, i) => {
+const CHARTS = Array.from({ length: 8 }, (_, i) => {
   const incoming = URL_STATEFUL ? QS.get("c" + (i + 1)) : "";
   if (incoming && incoming !== "auto") return CLEAN(incoming);
   return CLEAN(storedState("chart." + (i + 1))) || (i === 0 ? "SPY" : i === 1 ? "SNDK" : "");
@@ -356,6 +369,10 @@ const CHARTS = Array.from({ length: 6 }, (_, i) => {
 let RANGE = RANGES.includes(URL_STATEFUL ? QS.get("range") : "") ? QS.get("range") :
   (RANGES.includes(storedState("range")) ? storedState("range") : "3h");
 let SOLO = QS.get("full") || null;
+let ROTATE_AT = ROTATE_SECONDS.includes(+remembered("station.rotate.seconds")) ? +remembered("station.rotate.seconds") : 60;
+let ROTATE_PAUSED = remembered("station.rotate.paused") !== "0";
+let rotateTimer = 0;
+let ROTATE_BUSY = false;
 
 /* CUSTOM is a manual workspace, but a stale count must never manufacture
    empty chart cards. Read its own saved slots (not LIVE fallbacks), compact
@@ -363,15 +380,41 @@ let SOLO = QS.get("full") || null;
    can honestly fill. A completely empty/stale CUSTOM state is not a useful
    workspace, so reopen LIVE instead. */
 function savedCustomCharts() {
-  return Array.from({ length:6 }, (_, i) => CLEAN(remembered("station.custom.chart." + (i + 1))));
+  return Array.from({ length:8 }, (_, i) => CLEAN(remembered("station.custom.chart." + (i + 1))));
 }
 function compactCustomState(state) {
-  const charts = (state.charts || []).map(CLEAN).filter(Boolean).slice(0, 6);
+  const charts = (state.charts || []).map(CLEAN).filter(Boolean).slice(0, 8);
   if (!charts.length) return null;
   return {
-    charts: charts.concat(Array(Math.max(0, 6 - charts.length)).fill("")),
+    charts: charts.concat(Array(Math.max(0, 8 - charts.length)).fill("")),
     chartCount: SceneModel.chartCountForSize(Math.min(chartCount(state.chartCount), charts.length)),
     range: RANGES.includes(state.range) ? state.range : RANGE
+  };
+}
+/* A Custom wall is a real editable starting workspace, never a sparse grid.
+   Existing manual symbols always win; only genuinely empty requested slots
+   receive the stable starter basket. */
+function fillCustomWall(charts, requestedCount) {
+  const requested = chartCount(requestedCount);
+  const next = Array.from({ length:8 }, (_, i) => CLEAN((charts || [])[i] || ""));
+  if (requested < 6) return next;
+  const used = new Set(next.filter(Boolean));
+  let seedAt = 0;
+  for (let i = 0; i < requested; i += 1) {
+    if (next[i]) continue;
+    while (CUSTOM_WALL_STARTERS[seedAt] && used.has(CUSTOM_WALL_STARTERS[seedAt])) seedAt += 1;
+    const seed = CUSTOM_WALL_STARTERS[seedAt] || "";
+    if (seed) { next[i] = seed; used.add(seed); seedAt += 1; }
+  }
+  return next;
+}
+function customWallState(state, requestedCount) {
+  const count = chartCount(requestedCount || state?.chartCount || 6);
+  const charts = fillCustomWall(state?.charts, count);
+  return {
+    charts,
+    chartCount: count,
+    range: RANGES.includes(state?.range) ? state.range : RANGE
   };
 }
 function recoverInitialCustomState() {
@@ -384,11 +427,8 @@ function recoverInitialCustomState() {
   /* A legacy ?scene=custom launch can itself supply only two symbols plus a
      stale six-card count. Keep those real symbols, but recover to LIVE at an
      honest effective size instead of presenting four empty cards. */
-  const fallback = compactCustomState({ charts:CHARTS, chartCount:CHART_COUNT, range:RANGE }) || {
-    charts:["SPY", "SNDK", "", "", "", ""], chartCount:2, range:RANGE
-  };
+  const fallback = customWallState({ charts:[], range:RANGE }, 6);
   const usable = recovered || fallback;
-  if (!recovered) SCENE = "live";
   CHARTS.forEach((_, i) => { CHARTS[i] = usable.charts[i]; });
   CHART_COUNT = usable.chartCount;
   RANGE = usable.range;
@@ -602,7 +642,7 @@ function paintChips() {
   const bar = el("panebar");
   bar.innerHTML = '<span class="lbl">panes</span>';
   for (const o of PANES) {
-    if (/^c[1-6]$/.test(o.def.key) && +o.def.key.slice(1) > CHART_COUNT) continue;
+    if (/^c[1-8]$/.test(o.def.key) && +o.def.key.slice(1) > CHART_COUNT) continue;
     const c = document.createElement("span");
     const state = o.isDock ? "dock" : o.frame ? "live" : "paused";
     c.className = "btn" + (o.frame ? " live" : "") + (SOLO === o.def.key ? " on" : "");
@@ -637,7 +677,7 @@ function editableState(scene) {
   const get = (suffix) => remembered(prefix + "." + suffix) || (legacy ? remembered("station." + suffix) : "");
   const count = chartCount(get("chartCount") || CHART_COUNT);
   const range = RANGES.includes(get("range")) ? get("range") : RANGE;
-  const charts = Array.from({ length:6 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
+  const charts = Array.from({ length:8 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
     (scene === "custom" ? "" : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
   if (scene === "custom") return compactCustomState({ charts, chartCount:count, range });
   return { charts, chartCount:count, range };
@@ -677,6 +717,8 @@ function cohortState() {
 }
 function paintSceneControls(note) {
   el("sceneMode").value = SCENE;
+  const countOption = el("chartCount").querySelector('option[value="8"]');
+  if (countOption) countOption.disabled = SCENE !== "custom";
   const box = el("cohortControls");
   const named = fixedSceneState(SCENE, CHART_COUNT);
   box.classList.toggle("on", SCENE === "cohort" || !!named);
@@ -703,7 +745,7 @@ function paintSceneControls(note) {
     "0 favorites · no filler");
 }
 function installSceneState(state) {
-  const charts = (state.charts || state.tickers || []).slice(0, 6);
+  const charts = (state.charts || state.tickers || []).slice(0, 8);
   CHARTS.forEach((_, i) => { CHARTS[i] = CLEAN(charts[i] || ""); });
   CHART_COUNT = chartCount(state.chartCount || SceneModel.chartCountForSize(charts.length));
   RANGE = RANGES.includes(state.range) ? state.range : RANGE;
@@ -765,7 +807,7 @@ async function applyScene(next, options) {
       el("symbolNote").textContent = "cohort favorites unavailable";
     }
   } else if (requested === "custom" && !hasStoredScene("custom")) {
-    state = compactCustomState({ charts:CHARTS, chartCount:CHART_COUNT, range:RANGE });
+    state = customWallState({ charts:[], range:RANGE }, 6);
   } else state = editableState(requested);
 
   /* A stale saved CUSTOM state can be selected from an old root/bookmark.
@@ -789,6 +831,42 @@ async function applyScene(next, options) {
 function moveNamedSceneToCustom() {
   if (APPLYING_SCENE || SCENE === "live" || SCENE === "custom") return;
   SCENE = "custom"; remember("station.scene", SCENE); paintSceneControls();
+}
+
+/* ---- CURATED SCENE ROTATION — intentionally opt-in and always pausable. ---- */
+function paintRotateControls() {
+  const timing = el("rotateEvery"), toggle = el("rotateToggle");
+  timing.value = String(ROTATE_AT);
+  const running = !ROTATE_PAUSED;
+  toggle.textContent = running ? "pause rotate" : "start rotate";
+  toggle.classList.toggle("on", running);
+  toggle.title = running ? "pause curated scene rotation" : "start curated scene rotation";
+}
+function clearRotateTimer() {
+  if (rotateTimer) clearTimeout(rotateTimer);
+  rotateTimer = 0;
+}
+function scheduleRotation() {
+  clearRotateTimer(); paintRotateControls();
+  if (ROTATE_PAUSED) return;
+  rotateTimer = setTimeout(async () => {
+    if (ROTATE_PAUSED || ROTATE_BUSY) return scheduleRotation();
+    ROTATE_BUSY = true;
+    const next = SceneModel.nextRotatingScene(SCENE);
+    try { await applyScene(next, { rotate:true }); }
+    finally { ROTATE_BUSY = false; scheduleRotation(); }
+  }, ROTATE_AT * 1000);
+}
+function setRotationPaused(paused) {
+  ROTATE_PAUSED = !!paused;
+  remember("station.rotate.paused", ROTATE_PAUSED ? "1" : "0");
+  scheduleRotation();
+}
+function setRotationInterval(seconds) {
+  if (!ROTATE_SECONDS.includes(+seconds)) return;
+  ROTATE_AT = +seconds;
+  remember("station.rotate.seconds", String(ROTATE_AT));
+  scheduleRotation();
 }
 
 /* ---- ONE timeframe bar, driving both charts ---- */
@@ -988,13 +1066,22 @@ function applyChartCount(next, fromScene) {
       syncChartPanes();
     }
   } else if (!fromScene) moveNamedSceneToCustom();
-  /* CUSTOM has no synthetic filler. Its selector may only expose the real
-     saved workspace, so asking a two-symbol CUSTOM for six charts remains an
-     honest two-chart layout rather than creating four blank cards. */
   const requestedCount = chartCount(next);
-  CHART_COUNT = SCENE === "custom"
-    ? SceneModel.chartCountForSize(Math.min(requestedCount, CHARTS.filter(Boolean).length))
-    : requestedCount;
+  if (SCENE === "custom" && requestedCount >= 6) {
+    const wall = customWallState({ charts:CHARTS, chartCount:requestedCount, range:RANGE }, requestedCount);
+    CHARTS.forEach((_, i) => { CHARTS[i] = wall.charts[i]; });
+    CHART_COUNT = wall.chartCount;
+    /* A saved six-chart Custom wall can grow to eight after its panes already
+       exist.  Refresh pane definitions before mounting so the two new cards
+       receive their seeded symbols rather than retaining their old blank UI. */
+    syncChartPanes();
+  } else {
+    /* Below the intentional six/eight walls, preserve a smaller manual
+       workspace exactly as it is instead of manufacturing blank cards. */
+    CHART_COUNT = SCENE === "custom"
+      ? SceneModel.chartCountForSize(Math.min(requestedCount, CHARTS.filter(Boolean).length))
+      : requestedCount;
+  }
   el("chartCount").value = String(CHART_COUNT);
   const row = el("rowTop");
   if (row) {
@@ -1012,12 +1099,17 @@ function applyChartCount(next, fromScene) {
       const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
     } else if (active && !o.frame) mount(o);
   });
-  if (SOLO && /^c[1-6]$/.test(SOLO) && +SOLO.slice(1) > CHART_COUNT) setSolo(null);
+  if (SOLO && /^c[1-8]$/.test(SOLO) && +SOLO.slice(1) > CHART_COUNT) setSolo(null);
   if (!fromScene) rememberEditableState();
   relayout(); paintChips();
 }
 el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
-el("sceneMode").addEventListener("change", (e) => applyScene(e.target.value));
+el("sceneMode").addEventListener("change", (e) => {
+  if (e.target.value === "live" || e.target.value === "custom") setRotationPaused(true);
+  applyScene(e.target.value);
+});
+el("rotateEvery").addEventListener("change", (e) => setRotationInterval(e.target.value));
+el("rotateToggle").addEventListener("click", () => setRotationPaused(!ROTATE_PAUSED));
 el("cohortSelect").addEventListener("change", (e) => applyScene("cohort", { cohort:e.target.value, page:0 }));
 el("cohortPrev").addEventListener("click", () => {
   const named = fixedSceneState(SCENE, CHART_COUNT);
@@ -1105,6 +1197,7 @@ async function build() {
     else o.showCard(STACKED ? "paused on phone to keep Safari happy — tap to load" : "tap to load");
   }
   paintChips();
+  scheduleRotation();
   if (SOLO) setSolo(SOLO);
   relayout();
 }

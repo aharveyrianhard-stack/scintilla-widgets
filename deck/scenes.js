@@ -2,6 +2,7 @@
   "use strict";
 
   const IDS = ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","custom"];
+  const ROTATION_IDS = Object.freeze(["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]);
   const NY = "America/New_York";
   const FAMILIES = Object.freeze({
     sectorFamilies: Object.freeze([
@@ -47,13 +48,20 @@
   }
 
   function chartCountForSize(size) {
-    const n = Math.max(0, Math.min(6, Number(size) || 0));
+    const n = Math.max(0, Math.min(8, Number(size) || 0));
     if (n <= 1) return 1;
     if (n <= 4) return n;
-    return 6;
+    if (n <= 6) return 6;
+    return 8;
   }
 
-  function usesSharedBottomAxis(size) { return chartCountForSize(size) === 4 || chartCountForSize(size) === 6; }
+  function usesSharedBottomAxis(size) {
+    return [4, 6, 8].includes(chartCountForSize(size));
+  }
+  function nextRotatingScene(scene) {
+    const index = ROTATION_IDS.indexOf(normalizeScene(scene));
+    return ROTATION_IDS[(index + 1 + ROTATION_IDS.length) % ROTATION_IDS.length];
+  }
   function basketWindow(members, offset, requestedCount) {
     const all = (members || []).slice(), size = chartCountForSize(requestedCount || 6);
     if (!all.length) return { tickers:[], chartCount:1, offset:0, totalItems:0, hasPrevious:false, hasNext:false, empty:true };
@@ -99,10 +107,12 @@
 
   root.StationScenes = Object.freeze({
     IDS: Object.freeze(IDS.slice()),
+    ROTATION_IDS,
     PRESETS,
     normalizeScene,
     chartCountForSize,
     usesSharedBottomAxis,
+    nextRotatingScene,
     indexNowLeaders,
     indexNowTickersFor,
     FAMILIES,

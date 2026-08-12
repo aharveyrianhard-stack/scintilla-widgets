@@ -4,6 +4,14 @@ Updated: 2026-08-11 (America/New_York)
 
 This is the present-tense record for the verified live Station and its separately admitted review candidates. Scenes v1 is production. The local-only Scenes v2 delivery is a review candidate only and has not changed production.
 
+## Custom wall and rotation candidate
+
+- Candidate branch: `agent/station-custom-wall-rotate-preview-001`, based exactly on production `e18e72f83d558096425ff559a0ff67b5582ad030`.
+- Scope: Custom alone gains intentional, editable six- and eight-chart walls. A new Custom workspace begins with real symbols (`SPY`, `QQQ`, `IWM`, `MAGS`, `SMH`, `AAPL`, then `MSFT`, `AMZN` for eight); existing manual symbols remain first and win over starter symbols. Named curated scenes stay fixed and cannot become editable eight-card grids.
+- The eight-chart wall is a legible four-by-two desktop grid with the existing shared lower time axis. Narrow displays retain the Station's existing stacked safety layout rather than squeezing eight unreadable cards together.
+- Curated scene rotation is device-local and opt-in: its obvious Start/Pause button supports 30-, 60-, and 120-second cycles. It rotates only curated named scenes; Live and Custom stay manual workspaces.
+- This candidate has no iPad, Bridge, X, shared-state/auth, backend, Hub, routing, or production change.
+
 ## Chart-load resilience candidate
 
 - Candidate branch: `agent/station-chart-load-resilience-001`, based exactly on production `3f1f790a5406ccd186c1abec1869e839b9ed1924`.
