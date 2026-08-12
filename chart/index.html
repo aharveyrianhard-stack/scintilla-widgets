@@ -30,6 +30,8 @@
   --crk:#00D4FF; --coin:#8B5CF6;
   --bull:#00FFA3; --bear:#FF2D55;
   --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+  --ipad-live-top:6px; --ipad-live-left:7px; --ipad-live-gap:6px;
+  --ipad-live-pad-y:4px; --ipad-live-pad-x:6px; --ipad-live-size:14px;
 }
 *{ min-width:0; box-sizing:border-box; }
 html,body{ margin:0; padding:0; height:100%; }
@@ -98,7 +100,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
    chart bar so the actual chart gets the full pane; standalone /chart keeps it. */
 html.bare .sc-nchart__bar{ display:none; }
 html[data-view="desk"] .sc-nchart__live{ font-size:18px; }
-html[data-view="ipad"] .sc-nchart__live{ top:6px; left:7px; gap:6px; padding:4px 6px; font-size:14px; max-width:calc(100% - 44px); }
+html[data-view="ipad"] .sc-nchart__live{ top:var(--ipad-live-top); left:var(--ipad-live-left); gap:var(--ipad-live-gap); padding:var(--ipad-live-pad-y) var(--ipad-live-pad-x); font-size:var(--ipad-live-size); max-width:calc(100% - 44px); }
 html[data-view="compact"] .sc-nchart__live{ font-size:11px; }
 
 /* FIX 5 — IN-APP TradingView modal — ported verbatim */
@@ -225,6 +227,25 @@ const QS = new URLSearchParams(location.search);
 const VIEW_PROFILES = ["auto","desk","ipad","display","compact"];
 let VIEW_PROFILE = VIEW_PROFILES.includes(QS.get("view")) ? QS.get("view") : "auto";
 document.documentElement.dataset.view = VIEW_PROFILE;
+let PANE_UI_SCALE = 1;
+function boundedPaneScale(width, height) {
+  const raw = Math.min(width / 410, height / 210);
+  return Math.round(Math.max(.72, Math.min(1.08, raw)) * 100) / 100;
+}
+function applyIpadPaneScale(forced) {
+  const root = document.documentElement;
+  const scale = VIEW_PROFILE === "ipad"
+    ? (Number.isFinite(+forced) ? Math.max(.72, Math.min(1.08, +forced)) : boundedPaneScale(innerWidth, innerHeight))
+    : 1;
+  PANE_UI_SCALE = scale;
+  root.style.setProperty("--ipad-live-top", (6 * scale).toFixed(2) + "px");
+  root.style.setProperty("--ipad-live-left", (7 * scale).toFixed(2) + "px");
+  root.style.setProperty("--ipad-live-gap", (6 * scale).toFixed(2) + "px");
+  root.style.setProperty("--ipad-live-pad-y", (4 * scale).toFixed(2) + "px");
+  root.style.setProperty("--ipad-live-pad-x", (6 * scale).toFixed(2) + "px");
+  root.style.setProperty("--ipad-live-size", (14 * scale).toFixed(2) + "px");
+}
+applyIpadPaneScale();
 const SHARED_TIME_AXIS = QS.get("sharedAxis") === "1";
 let CHART_TRANSITION_GENERATION = Math.max(0, Number(QS.get("transition")) || 0);
 /* BARE MODE (?bare=1) — used when /chart is a pane inside /deck.
@@ -569,10 +590,10 @@ function scChartDraw(host, scrubIx) {
   /* The paired lower cards own their column's shared timeline. Keep that
      actual date/time readable, but make its band a compact annotation rather
      than a second panel. The right price scale follows the same tighter rule. */
-  const ipadProfile = VIEW_PROFILE === "ipad";
-  const axisBand = ipadProfile ? (h < 130 ? 15 : 18) : (h < 130 ? 17 : 21);
-  const padT = ipadProfile ? 7 : 8, padB = SHARED_TIME_AXIS ? 5 : axisBand,
-    padR = ipadProfile ? (h < 130 ? 18 : 21) : (h < 130 ? 20 : 24), padL = 6;
+  const ipadProfile = VIEW_PROFILE === "ipad", scale = ipadProfile ? PANE_UI_SCALE : 1;
+  const axisBand = ipadProfile ? (h < 130 ? 15 : 18) * scale : (h < 130 ? 17 : 21);
+  const padT = (ipadProfile ? 7 : 8) * scale, padB = SHARED_TIME_AXIS ? 5 * scale : axisBand,
+    padR = ipadProfile ? (h < 130 ? 18 : 21) * scale : (h < 130 ? 20 : 24), padL = 6 * scale;
   const iw = w - padL - padR, ih = h - padT - padB;
   if (iw < 10 || ih < 10) return;
   const view = chartView(host, pts), start = view.start, end = view.end;
@@ -641,7 +662,7 @@ function scChartDraw(host, scrubIx) {
   }
   ctx.restore();
   ctx.save();
-  ctx.font = (ipadProfile ? '6.5' : '7') + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  ctx.font = ((ipadProfile ? 6.5 : 7) * scale) + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.fillStyle = col.ink2; ctx.globalAlpha = .47; ctx.textAlign = "right";
   ctx.shadowColor = "#000"; ctx.shadowBlur = 4;
   for (const v of priceTicks) {
@@ -650,7 +671,7 @@ function scChartDraw(host, scrubIx) {
   }
   ctx.restore();
   if (!SHARED_TIME_AXIS) {
-    const timeFont = VIEW_PROFILE === "desk" ? 7.5 : VIEW_PROFILE === "ipad" ? 6.75 : VIEW_PROFILE === "compact" ? 6.75 : 7.25;
+    const timeFont = (VIEW_PROFILE === "desk" ? 7.5 : VIEW_PROFILE === "ipad" ? 6.75 : VIEW_PROFILE === "compact" ? 6.75 : 7.25) * scale;
     ctx.font = timeFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
     ctx.fillStyle = col.dim;
     const firstMs = new Date(pts[start].d).getTime(), lastMs = new Date(pts[end].d).getTime();
@@ -912,7 +933,7 @@ function scChartWire(slot) {
   CHART_HOSTS.add(host);
   const area = host.querySelector(".sc-nchart__area");
   if (window.ResizeObserver && area) {
-    host._ro = new ResizeObserver(() => scChartDraw(host));
+    host._ro = new ResizeObserver(() => { applyIpadPaneScale(); scChartDraw(host); });
     host._ro.observe(area);
   }
   scChartScrub(host);
@@ -925,6 +946,7 @@ window.addEventListener("message", (event) => {
   if (event.data?.type === "SCINTILLA_VIEW_PROFILE") {
     VIEW_PROFILE = VIEW_PROFILES.includes(event.data.view) ? event.data.view : "auto";
     document.documentElement.dataset.view = VIEW_PROFILE;
+    applyIpadPaneScale(event.data.scale);
     for (const host of CHART_HOSTS) if (host.isConnected) scChartDraw(host);
     return;
   }

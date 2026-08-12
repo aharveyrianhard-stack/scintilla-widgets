@@ -213,10 +213,12 @@ body[data-view="desk"] .btn{ font-size:9.5px; padding:4px 9px; }
 body[data-view="desk"] .tkin{ font-size:10px; }
 /* iPad keeps the complete wall, but its chart cells need calmer chrome than a
    room-sized display. The child panes receive the same explicit profile. */
-body[data-view="ipad"] #bar,body[data-view="ipad"] #tfbar{ gap:5px; padding-top:4px; padding-bottom:4px; }
-body[data-view="ipad"] .btn{ font-size:8px; padding:3px 7px; }
-body[data-view="ipad"] .tkin{ font-size:9px; padding:3px 5px; }
-body[data-view="ipad"] .scene-mode{ width:134px; font-size:8px; }
+body[data-view="ipad"] #bar,body[data-view="ipad"] #tfbar{ gap:var(--deck-gap,5px); padding-top:var(--deck-pad-y,4px); padding-bottom:var(--deck-pad-y,4px); }
+body[data-view="ipad"] .btn{ font-size:var(--deck-btn-size,8px); padding:var(--deck-btn-pad-y,3px) var(--deck-btn-pad-x,7px); }
+body[data-view="ipad"] .tkin{ font-size:var(--deck-input-size,9px); padding:var(--deck-btn-pad-y,3px) var(--deck-input-pad-x,5px); }
+body[data-view="ipad"] .scene-mode{ width:var(--deck-select-width,134px); font-size:var(--deck-btn-size,8px); }
+body[data-view="ipad"] .chart-full{ top:var(--pane-full-top,6px); right:var(--pane-full-right,7px);
+  min-width:var(--pane-full-size,24px); min-height:var(--pane-full-size,24px); }
 body[data-view="compact"] #bar{ padding-top:3px; padding-bottom:3px; }
 body[data-view="compact"] #tfbar{ padding-top:2px; padding-bottom:2px; }
 body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
@@ -573,7 +575,7 @@ function mount(obj) {
   f.allow = FRAME_ALLOW;
   f.setAttribute("allowfullscreen", "");
   f.addEventListener("load", () => {
-    try { f.contentWindow.postMessage({ type:"SCINTILLA_VIEW_PROFILE", view:VIEW }, location.origin); } catch (_) {}
+    postViewProfile(obj);
   });
   obj.body.appendChild(f); obj.frame = f;
   LIVE.push(obj);
@@ -585,6 +587,48 @@ function mount(obj) {
     old.showCard("paused to keep the page light — tap to bring it back");
   }
   paintChips();
+}
+
+/* The deck bar and each child pane are different boxes.  iPad density must
+   follow those boxes—not the whole screen—because rotation changes their
+   dimensions without necessarily changing the viewport. */
+function boundedIpadScale(width, height, referenceWidth, referenceHeight) {
+  const raw = Math.min(width / referenceWidth, height / referenceHeight);
+  return Math.round(Math.max(.72, Math.min(1.08, raw)) * 100) / 100;
+}
+function paneIpadScale(obj) {
+  if (VIEW !== "ipad" || !obj?.node) return 1;
+  const r = obj.node.getBoundingClientRect();
+  const referenceHeight = obj.def?.kind === "chart" ? 210 : 180;
+  return boundedIpadScale(r.width, r.height, 410, referenceHeight);
+}
+function postViewProfile(obj) {
+  if (!obj?.frame) return;
+  const scale = paneIpadScale(obj);
+  try { obj.frame.contentWindow.postMessage({ type:"SCINTILLA_VIEW_PROFILE", view:VIEW, scale }, location.origin); } catch (_) {}
+}
+function paintIpadDensity() {
+  const grid = el("grid");
+  if (!grid) return;
+  const deckScale = VIEW === "ipad"
+    ? boundedIpadScale(grid.clientWidth || innerWidth, Math.max(180, innerHeight), 1024, 700)
+    : 1;
+  const root = document.body.style;
+  root.setProperty("--deck-gap", (5 * deckScale).toFixed(2) + "px");
+  root.setProperty("--deck-pad-y", (4 * deckScale).toFixed(2) + "px");
+  root.setProperty("--deck-btn-size", (8 * deckScale).toFixed(2) + "px");
+  root.setProperty("--deck-btn-pad-y", (3 * deckScale).toFixed(2) + "px");
+  root.setProperty("--deck-btn-pad-x", (7 * deckScale).toFixed(2) + "px");
+  root.setProperty("--deck-input-size", (9 * deckScale).toFixed(2) + "px");
+  root.setProperty("--deck-input-pad-x", (5 * deckScale).toFixed(2) + "px");
+  root.setProperty("--deck-select-width", (134 * deckScale).toFixed(2) + "px");
+  for (const obj of PANES) {
+    const scale = paneIpadScale(obj);
+    obj.node.style.setProperty("--pane-full-top", (6 * scale).toFixed(2) + "px");
+    obj.node.style.setProperty("--pane-full-right", (7 * scale).toFixed(2) + "px");
+    obj.node.style.setProperty("--pane-full-size", Math.max(20, 24 * scale).toFixed(2) + "px");
+    if (obj.frame && obj._ipadScale !== scale) { obj._ipadScale = scale; postViewProfile(obj); }
+  }
 }
 
 function setSolo(key) {
@@ -741,6 +785,7 @@ function relayout() {
      very first paint on a phone and leave it in deck layout */
   /* a pane narrower than this cannot carry prose — trim it, do not hide it */
   for (const o of PANES) o.node.classList.toggle("tight", o.node.clientWidth < 260);
+  paintIpadDensity();
   measure();
 }
 function measure() {
@@ -1085,7 +1130,7 @@ function applyView(next) {
   el("viewMode").value = VIEW;
   for (const o of PANES) {
     if (!o.frame) continue;
-    try { o.frame.contentWindow.postMessage({ type:"SCINTILLA_VIEW_PROFILE", view:VIEW }, location.origin); } catch (_) {}
+    o._ipadScale = null; postViewProfile(o);
   }
   relayout();
 }

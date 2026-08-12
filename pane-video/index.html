@@ -42,6 +42,8 @@
   --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
   --crk:#00D4FF; --bull:#00FFA3; --vol:#FF8A00;
   --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+  --ipad-btn-size:8px; --ipad-btn-pad-y:3px; --ipad-btn-pad-x:7px;
+  --ipad-title-size:9.5px; --ipad-caption-size:8px;
 }
 *{ box-sizing:border-box; min-width:0; -webkit-tap-highlight-color:transparent; }
 html,body{ margin:0; height:100%; }
@@ -101,9 +103,9 @@ body.tiny .cap .t{ -webkit-line-clamp:2; font-size:9px; }
 html[data-view="desk"] .btn{ font-size:9px; padding:4px 8px; }
 html[data-view="desk"] .cap .t{ font-size:11px; }
 html[data-view="desk"] .cap .s{ font-size:8.5px; }
-html[data-view="ipad"] .btn{ font-size:8px; padding:3px 7px; }
-html[data-view="ipad"] .cap .t{ font-size:9.5px; }
-html[data-view="ipad"] .cap .s{ font-size:8px; }
+html[data-view="ipad"] .btn{ font-size:var(--ipad-btn-size); padding:var(--ipad-btn-pad-y) var(--ipad-btn-pad-x); }
+html[data-view="ipad"] .cap .t{ font-size:var(--ipad-title-size); }
+html[data-view="ipad"] .cap .s{ font-size:var(--ipad-caption-size); }
 html[data-view="compact"] .btn{ font-size:7px; padding:2px 5px; }
 html[data-view="compact"] .cap .t{ font-size:8.5px; }
 
@@ -160,7 +162,20 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
 
 const QS = new URLSearchParams(location.search);
 const VIEW_PROFILES = ["auto","desk","ipad","display","compact"];
-document.documentElement.dataset.view = VIEW_PROFILES.includes(QS.get("view")) ? QS.get("view") : "auto";
+let VIEW_PROFILE = VIEW_PROFILES.includes(QS.get("view")) ? QS.get("view") : "auto";
+document.documentElement.dataset.view = VIEW_PROFILE;
+function applyIpadPaneScale(forced) {
+  const raw = Math.min(innerWidth / 410, innerHeight / 180);
+  const scale = VIEW_PROFILE === "ipad"
+    ? Math.max(.72, Math.min(1.08, Number.isFinite(+forced) ? +forced : raw)) : 1;
+  const root = document.documentElement.style;
+  root.setProperty("--ipad-btn-size", (8 * scale).toFixed(2) + "px");
+  root.setProperty("--ipad-btn-pad-y", (3 * scale).toFixed(2) + "px");
+  root.setProperty("--ipad-btn-pad-x", (7 * scale).toFixed(2) + "px");
+  root.setProperty("--ipad-title-size", (9.5 * scale).toFixed(2) + "px");
+  root.setProperty("--ipad-caption-size", (8 * scale).toFixed(2) + "px");
+}
+applyIpadPaneScale();
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const FEED   = ["personal", "scintilla", "market"].includes(QS.get("feed")) ? QS.get("feed") : "personal";
@@ -276,7 +291,7 @@ function relayout() {
   el("grid").style.setProperty("--cols", cols);
 }
 let raf = 0;
-const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; relayout(); }); };
+const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; applyIpadPaneScale(); relayout(); }); };
 if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
 addEventListener("resize", nudge); addEventListener("orientationchange", nudge);
 
@@ -487,7 +502,9 @@ el("bCover").addEventListener("click", () => {
 window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
   if (event.data?.type === "SCINTILLA_VIEW_PROFILE") {
-    document.documentElement.dataset.view = VIEW_PROFILES.includes(event.data.view) ? event.data.view : "auto";
+    VIEW_PROFILE = VIEW_PROFILES.includes(event.data.view) ? event.data.view : "auto";
+    document.documentElement.dataset.view = VIEW_PROFILE;
+    applyIpadPaneScale(event.data.scale);
     relayout(); return;
   }
   if (event.data?.type === "SCINTILLA_DECK_FULL_STATE") {
