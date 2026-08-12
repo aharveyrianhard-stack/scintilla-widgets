@@ -45,3 +45,12 @@ test("the iMac pane buffers offers until one exact Bridge generation accepts the
   assert.match(source, /String\(event\.data\.instanceId \|\| ""\) === stationBridgeInstanceId/);
   assert.match(source, /clearStationRemoteOffer\(event\.data\.pairId, event\.data\.viewerId\)/);
 });
+
+test("the iMac pairing room renews its existing trusted pair after a Realtime disconnect", () => {
+  assert.match(source, /let stationPairReconnect = null;/);
+  assert.match(source, /function reconnectStationPairRoom\(pair\)/);
+  assert.match(source, /socket\.addEventListener\("error", \(\) =>/);
+  assert.match(source, /socket\.addEventListener\("close", disconnect\)/);
+  assert.match(source, /pair\.room = stationRealtimeRoom\(pair, \(\) => reconnectStationPairRoom\(pair\)\)/);
+  assert.match(source, /clearTimeout\(stationPairReconnect\); stationPairReconnect = null;/);
+});
