@@ -374,20 +374,16 @@ let ROTATE_PAUSED = remembered("station.rotate.paused") !== "0";
 let rotateTimer = 0;
 let ROTATE_BUSY = false;
 
-/* CUSTOM is a manual workspace, but a stale count must never manufacture
-   empty chart cards. Read its own saved slots (not LIVE fallbacks), compact
-   the real symbols in their saved order, and show only as many slots as it
-   can honestly fill. A completely empty/stale CUSTOM state is not a useful
-   workspace, so reopen LIVE instead. */
+/* CUSTOM is a manual workspace. Its requested 6/8 slots are meaningful even
+   when some are deliberately empty: a blank slot is editable, not evidence
+   that the rest of the wall should be compacted or remounted. */
 function savedCustomCharts() {
   return Array.from({ length:8 }, (_, i) => CLEAN(remembered("station.custom.chart." + (i + 1))));
 }
-function compactCustomState(state) {
-  const charts = (state.charts || []).map(CLEAN).filter(Boolean).slice(0, 8);
-  if (!charts.length) return null;
+function preservedCustomState(state) {
   return {
-    charts: charts.concat(Array(Math.max(0, 8 - charts.length)).fill("")),
-    chartCount: SceneModel.chartCountForSize(Math.min(chartCount(state.chartCount), charts.length)),
+    charts: Array.from({ length:8 }, (_, i) => CLEAN((state.charts || [])[i] || "")),
+    chartCount: chartCount(state.chartCount),
     range: RANGES.includes(state.range) ? state.range : RANGE
   };
 }
@@ -419,16 +415,15 @@ function customWallState(state, requestedCount) {
 }
 function recoverInitialCustomState() {
   if (SCENE !== "custom") return;
-  const recovered = compactCustomState({
-    charts: savedCustomCharts(),
-    chartCount: remembered("station.custom.chartCount") || CHART_COUNT,
-    range: remembered("station.custom.range") || RANGE
-  });
-  /* A legacy ?scene=custom launch can itself supply only two symbols plus a
-     stale six-card count. Keep those real symbols, but recover to LIVE at an
-     honest effective size instead of presenting four empty cards. */
-  const fallback = customWallState({ charts:[], range:RANGE }, 6);
-  const usable = recovered || fallback;
+  const hasIncomingSlots = Array.from({ length:8 }, (_, i) => QS.has("c" + (i + 1))).some(Boolean);
+  /* A direct Custom URL is a complete workspace instruction. Preserve every
+     supplied symbol and every intentional empty slot exactly as requested. */
+  if (hasIncomingSlots) return;
+  const stored = savedCustomCharts();
+  const usable = stored.some(Boolean)
+    ? preservedCustomState({ charts:stored, chartCount:remembered("station.custom.chartCount") || CHART_COUNT,
+      range:remembered("station.custom.range") || RANGE })
+    : customWallState({ charts:[], range:RANGE }, 6);
   CHARTS.forEach((_, i) => { CHARTS[i] = usable.charts[i]; });
   CHART_COUNT = usable.chartCount;
   RANGE = usable.range;
@@ -464,7 +459,9 @@ let STACKED = VIEW !== "desk" && innerWidth < STACK_AT;   /* decided BEFORE anyt
    the Safari crash work; everything above that is paused behind a tap and
    stays in the chip row. Never frozen before we know which layout we are
    in, which is a bug v3 caught in its own test sweep. */
-const LIVE_CAP = Math.max(1, Math.min(9, +(QS.get("live") || 0) || (STACKED ? 2 : 9)));
+/* Desk keeps a complete Custom 8 wall: eight charts, two video panes, and X.
+   Phone retains its separately proven two-frame safety ceiling. */
+const LIVE_CAP = STACKED ? 2 : 11;
 
 const PANES = [];
 const LIVE = [];
@@ -492,8 +489,9 @@ function makePane(def) {
   obj.showCard = (note) => {
     if (body.querySelector(".card")) return;
     const c = document.createElement("div"); c.className = "card";
+    const emptyChart = def.kind === "chart" && !def.src;
     c.innerHTML = '<div class="n">' + esc(def.title) + '</div><div class="d">' + esc(note) + "</div>" +
-      '<div class="go">' + (def.kind === "chart" ? "choose ticker" : "load pane") + '</div>';
+      '<div class="go">' + (emptyChart ? "choose a symbol" : def.kind === "chart" ? "resume chart" : "load pane") + '</div>';
     c.addEventListener("click", () => {
       if (def.kind === "chart" && !def.src) focusTickerFor(def.key);
       else mount(obj);
@@ -506,7 +504,7 @@ function makePane(def) {
 
 function mount(obj) {
   if (obj.isDock || obj.frame) return;
-  if (!obj.def.src) { obj.showCard("choose a Hub symbol above"); return; }
+  if (!obj.def.src) { obj.showCard("empty editable slot"); return; }
   const c = obj.body.querySelector(".card"); if (c) c.remove();
   const f = document.createElement("iframe");
   f.src = obj.def.src; f.loading = "lazy";
@@ -557,7 +555,7 @@ function setSolo(key) {
 }
 
 function focusTickerFor(key) {
-  const m = String(key || "").match(/^c([1-6])$/);
+  const m = String(key || "").match(/^c([1-8])$/);
   if (!m) return;
   const input = el("t" + m[1]);
   if (!input) return;
@@ -679,7 +677,7 @@ function editableState(scene) {
   const range = RANGES.includes(get("range")) ? get("range") : RANGE;
   const charts = Array.from({ length:8 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
     (scene === "custom" ? "" : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
-  if (scene === "custom") return compactCustomState({ charts, chartCount:count, range });
+  if (scene === "custom") return preservedCustomState({ charts, chartCount:count, range });
   return { charts, chartCount:count, range };
 }
 function rememberEditableState() {
@@ -781,7 +779,7 @@ function syncChartPanes() {
     if (!ticker && o.frame) {
       o.frame.remove(); o.frame = null;
       const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
-      o.showCard("no favorite here — choose a Hub symbol");
+      o.showCard("empty editable slot");
     } else if (ticker && o.frame) {
       syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE });
     }
@@ -810,16 +808,8 @@ async function applyScene(next, options) {
     state = customWallState({ charts:[], range:RANGE }, 6);
   } else state = editableState(requested);
 
-  /* A stale saved CUSTOM state can be selected from an old root/bookmark.
-     Never turn that into six empty cards: choose LIVE, which is the durable
-     usable Station state, when recovery has no real chart symbols. */
-  if (requested === "custom" && !state) {
-    SCENE = "live";
-    return applyScene("live", options);
-  }
-
   SCENE = requested; APPLYING_SCENE = true; installSceneState(state);
-  syncChartPanes(); applyChartCount(CHART_COUNT, true); paintTf();
+  applyChartCount(CHART_COUNT, true); paintTf();
   APPLYING_SCENE = false;
   if (SCENE === "live" || SCENE === "custom") remember("station.scene", SCENE);
   if (SCENE === "cohort") {
@@ -872,7 +862,8 @@ function setRotationInterval(seconds) {
 /* ---- ONE timeframe bar, driving both charts ---- */
 function chartSrc(t) {
   return "/chart?rev=085&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
-    "&view=" + encodeURIComponent(VIEW);
+    "&view=" + encodeURIComponent(VIEW) +
+    (SceneModel.usesSharedBottomAxis(CHART_COUNT) ? "&sharedAxis=1" : "");
 }
 /* The chart app accepts a fast postMessage update, but a mounted iframe can
    miss it during a scene switch.  Its URL is the durable identity of the
@@ -1068,13 +1059,9 @@ function applyChartCount(next, fromScene) {
   } else if (!fromScene) moveNamedSceneToCustom();
   const requestedCount = chartCount(next);
   if (SCENE === "custom" && requestedCount >= 6) {
-    const wall = customWallState({ charts:CHARTS, chartCount:requestedCount, range:RANGE }, requestedCount);
-    CHARTS.forEach((_, i) => { CHARTS[i] = wall.charts[i]; });
-    CHART_COUNT = wall.chartCount;
-    /* A saved six-chart Custom wall can grow to eight after its panes already
-       exist.  Refresh pane definitions before mounting so the two new cards
-       receive their seeded symbols rather than retaining their old blank UI. */
-    syncChartPanes();
+    /* Growing an existing Custom workspace creates intentional editable slots;
+       it never reseeds, replaces, or evicts a symbol the user already chose. */
+    CHART_COUNT = requestedCount;
   } else {
     /* Below the intentional six/eight walls, preserve a smaller manual
        workspace exactly as it is instead of manufacturing blank cards. */
@@ -1091,6 +1078,9 @@ function applyChartCount(next, fromScene) {
     if (!axis) { axis = document.createElement("div"); axis.id = "sharedTimeAxis"; row.appendChild(axis); }
     axis.innerHTML = "<span>earlier</span><span>" + esc(RANGE) + " · shared time axis</span><span>now</span>";
   }
+  /* Count is now final, so active pane URLs can switch shared-axis mode
+     without disturbing their sibling frames. */
+  syncChartPanes();
   CHARTS.forEach((ticker, i) => {
     const o = PANES.find((p) => p.def.key === "c" + (i + 1)); if (!o) return;
     const active = i < CHART_COUNT; o.node.classList.toggle("chart-off", !active);
