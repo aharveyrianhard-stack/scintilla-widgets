@@ -118,6 +118,20 @@ test("CUSTOM six and eight chart walls preserve their manual symbols", () => {
     "Custom presents only the purposeful two, six, and eight chart choices");
 });
 
+test("normal wall chooser is two, six, or eight while INDEX NOW keeps its launch trio", () => {
+  assert.doesNotMatch(deck, /option value="1"/,
+    "one-chart detail is not offered as a normal wall choice");
+  assert.match(deck, /option value="3" hidden data-preset-only="true"/,
+    "three-chart INDEX NOW remains a hidden preset state, not a global manual choice");
+  assert.match(deck, /const CHART_COUNTS = \[2,6,8\]/);
+  assert.match(deck, /scene === "indexNow" && \+value === 3 \? 3 : chartCount\(value\)/,
+    "only a preset-driven INDEX NOW launch retains its coherent three symbols");
+  assert.match(deck, /sceneChartCount\(next, SCENE, !!fromScene\)/,
+    "manual count changes still normalize through the regular 2\/6\/8 chooser");
+  assert.match(deck, /const presetOnly = option\.dataset\.presetOnly === "true"/,
+    "the INDEX NOW state remains representable without being shown in the menu");
+});
+
 test("rotation is limited to curated scenes and wraps with an explicit pause control", () => {
   assert.deepEqual(Array.from(scenes.ROTATION_IDS), ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]);
   assert.equal(scenes.nextRotatingScene("live"), "indexNow");
