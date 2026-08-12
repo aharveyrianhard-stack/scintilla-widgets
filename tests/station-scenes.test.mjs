@@ -10,6 +10,7 @@ const scenes = context.globalThis.StationScenes;
 const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
 const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
 const videoPane = fs.readFileSync(new URL("../pane-video/index.html", import.meta.url), "utf8");
+const ipadCompanion = fs.readFileSync(new URL("../station-ipad/index.html", import.meta.url), "utf8");
 
 function functionFromDeck(name, bindings = {}) {
   const start = deck.indexOf(`function ${name}(`);
@@ -130,6 +131,24 @@ test("iPad profile keeps the complete Station wall with normalized child typogra
   assert.match(chart, /const ipadProfile = VIEW_PROFILE === "ipad"/);
   assert.match(videoPane, /VIEW_PROFILES = \["auto","desk","ipad","display","compact"\]/);
   assert.match(xPane, /VIEW_PROFILES = \["auto","desk","ipad","display","compact"\]/);
+});
+
+test("generated paired iPad companion routes carry the iPad profile through the wall", () => {
+  const pairedDeckUrl = functionFromSource(ipadCompanion, "pairedDeckUrl", { URLSearchParams, encodeURIComponent });
+  const pair = "a".repeat(32);
+  const src = pairedDeckUrl(`#pair=${pair}&code=123456`);
+  assert.equal(src, `/deck/?ipadPair=${pair}&ipadCode=123456&view=ipad`);
+  assert.doesNotMatch(src, /view=desk/);
+  const companionChartSrc = functionFromDeck("chartSrc", {
+    encodeURIComponent,
+    RANGE: "3h",
+    VIEW: "ipad",
+    CHART_COUNT: 3,
+    SceneModel: { hidesTopChartAxis: () => false }
+  });
+  assert.match(companionChartSrc("SPY", 0), /view=ipad/);
+  assert.match(deck, /\/pane-video\?feed=personal[^\n]*&view=" \+ encodeURIComponent\(VIEW\)/);
+  assert.match(deck, /\/pane-x\?remote=1[^\n]*&view=" \+ encodeURIComponent\(VIEW\)/);
 });
 
 test("CUSTOM preserves the screenshot-shaped sparse six-slot workspace", () => {
