@@ -43,6 +43,8 @@
     stationRenderedOffset: 0,
     stationScrollGeneration: 0,
     stationPendingScrollGeneration: 0,
+    stationConfirmedCaptureGeneration: 0,
+    stationCropSequence: 0,
     stationMetrics: {
       ticks: 0,
       integerScrolls: 0,
@@ -648,6 +650,7 @@
     if (!confirmed || confirmed !== session.stationPendingScrollGeneration) return false;
     session.stationRenderedOffset = session.scrollCarryPx;
     session.stationPendingScrollGeneration = 0;
+    session.stationConfirmedCaptureGeneration = confirmed;
     session.stationMetrics.confirmedCaptureFrames += 1;
     runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });
     return true;
@@ -657,6 +660,8 @@
     session.scrollCarryPx = 0;
     session.stationRenderedOffset = 0;
     session.stationPendingScrollGeneration = 0;
+    session.stationConfirmedCaptureGeneration = 0;
+    session.stationCropSequence = 0;
   }
 
   function calculateCropRect() {
@@ -1926,6 +1931,11 @@
       rect: refreshStationCropGeometry(),
       viewport: { width: viewportWidth, height: viewportHeight },
       fractionalScrollOffset: session.stationRenderedOffset,
+      /* The crop is only eligible for a viewer after this source generation
+         has crossed the offscreen capture-frame acknowledgement.  Sequence
+         still advances for sub-pixel crops inside the same source frame. */
+      captureGeneration: session.stationConfirmedCaptureGeneration,
+      sequence: ++session.stationCropSequence,
       activeView: session.activeView,
       paused: isPaused()
     };

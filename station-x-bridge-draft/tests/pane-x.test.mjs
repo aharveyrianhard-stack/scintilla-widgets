@@ -53,6 +53,73 @@ test("viewer cadence is capped locally while remote iPad viewers never drive sou
   assert.match(source, /window\.__SCINTILLA_X_CADENCE/);
 });
 
+test("a newer crop waits for two decoded viewer frames and stale crops cannot win", () => {
+  const cropGenerationFor = functionFromSource("cropGenerationFor");
+  const cropSequenceFor = functionFromSource("cropSequenceFor");
+  const receive = functionFromSource("receiveViewerCropState", { cropGenerationFor, cropSequenceFor, Object });
+  const advance = functionFromSource("advanceViewerCropState", { Object });
+  let state = { confirmedCrop:null, confirmedGeneration:0, confirmedSequence:0,
+    pendingCrop:null, videoFrames:0, receivedGeneration:0, pendingDrops:0, staleDrops:0 };
+  const initial = { sequence:1, rect:{ top:10 }, fractionalScrollOffset:.9 };
+  state = receive(state, initial);
+  assert.equal(state.confirmedCrop, initial, "initial ungated crop is available for first paint");
+
+  const firstBoundary = { captureGeneration:1, sequence:2, rect:{ top:10 }, fractionalScrollOffset:.2 };
+  state = receive(state, firstBoundary);
+  assert.equal(state.confirmedCrop, initial, "old video continues using the old crop before the frame barrier");
+  state = advance(state);
+  assert.equal(state.confirmedCrop, initial, "one decoded frame is not enough to advance the crop");
+
+  const newerBoundary = { captureGeneration:2, sequence:3, rect:{ top:10 }, fractionalScrollOffset:.5 };
+  state = receive(state, newerBoundary);
+  assert.equal(state.pendingDrops, 1, "a superseded pending generation is dropped");
+  state = advance(state);
+  assert.equal(state.confirmedCrop, initial, "a new generation resets the two-frame barrier");
+  state = advance(state);
+  assert.equal(state.confirmedGeneration, 2);
+  assert.equal(state.confirmedCrop, newerBoundary, "only the newest generation is promoted");
+
+  state = receive(state, { captureGeneration:1, sequence:99, rect:{ top:10 } });
+  assert.equal(state.confirmedGeneration, 2);
+  assert.equal(state.staleDrops, 1, "a late old generation cannot replace the visible crop");
+});
+
+test("a viewer without rVFC advances the crop barrier on two real media-time updates", () => {
+  const observe = functionFromSource("observeViewerVideoFrames", { Number });
+  const listeners = new Map();
+  const video = {
+    srcObject:{ id:"stream" }, currentTime:0,
+    addEventListener:(type, listener) => listeners.set(type, listener),
+    removeEventListener:(type, listener) => { if (listeners.get(type) === listener) listeners.delete(type); }
+  };
+  let frames = 0;
+  const stop = observe(video, video.srcObject, () => { frames += 1; });
+  assert.equal(listeners.size, 1, "unsupported rVFC installs one timeupdate fallback listener");
+  listeners.get("timeupdate")();
+  assert.equal(frames, 0, "unchanged currentTime is not a decoded-frame signal");
+  video.currentTime = .08; listeners.get("timeupdate")();
+  assert.equal(frames, 1);
+  video.currentTime = .16; listeners.get("timeupdate")();
+  assert.equal(frames, 2, "two true media-time advances satisfy the same barrier");
+  stop();
+  assert.equal(listeners.size, 0, "disconnect removes the single fallback listener");
+});
+
+test("viewer crop barrier retains the existing one-owner clock and paint caps", () => {
+  assert.match(source, /const STATION_TICK_INTERVAL_MS = 100;/);
+  assert.match(source, /const VIEWER_PAINT_INTERVAL_MS = 80;/);
+  assert.match(source, /function receiveViewerCrop\(crop\)/);
+  assert.match(source, /function noteViewerVideoFrame\(\)/);
+  assert.match(source, /function observeViewerVideoFrames\(video, mediaStream, onFrame\)/);
+  assert.match(source, /typeof video\?\.requestVideoFrameCallback === "function"/,
+    "rVFC remains the preferred decoded-frame path");
+  assert.match(source, /video\.addEventListener\("timeupdate", onTimeUpdate\)/,
+    "only unsupported rVFC gets the conservative media-time fallback");
+  assert.match(source, /if \(stopViewerFrameObserver\) stopViewerFrameObserver\(\);/,
+    "direct and remote stream teardown clean up the observer");
+  assert.match(source, /promoteAtVideoFrame:\(current\.videoFrames \|\| 0\) \+ 2/);
+});
+
 test("the current paired-viewer path sends its stable viewer identity with offers", () => {
   assert.match(source, /viewerId:REMOTE_VIEWER/);
   assert.match(source, /const REMOTE_RECEIVER_GENERATION = createRemoteViewerId\(\)/);
