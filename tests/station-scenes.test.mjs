@@ -9,6 +9,7 @@ vm.runInNewContext(source, context);
 const scenes = context.globalThis.StationScenes;
 const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
 const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
+const videoPane = fs.readFileSync(new URL("../pane-video/index.html", import.meta.url), "utf8");
 
 function functionFromDeck(name, bindings = {}) {
   const start = deck.indexOf(`function ${name}(`);
@@ -252,4 +253,32 @@ test("a frame whose URL already matches can use the fast chart message", () => {
   assert.equal(syncChartFrame(frame, src, { sc:"chart", ticker:"GCUSD", range:"3D" }), false);
   assert.deepEqual(calls, [{ message:{ sc:"chart", ticker:"GCUSD", range:"3D" }, origin:"https://station.test" }]);
   assert.match(deck, /syncChartFrame\(o\.frame, o\.def\.src, \{ sc:"chart", ticker, range:RANGE \}\)/);
+});
+
+test("media expansion is an explicit two-stage ladder that preserves X until asked", () => {
+  assert.match(deck, /body\.media-stage-one #rowBot > \.pane\.media-hidden/);
+  assert.match(deck, /body\.media-stage-one #rowBot > \.pane\.media-stage-target\{ flex:2 1 0/);
+  assert.match(deck, /function toggleMediaStage\(key\)/);
+  assert.match(deck, /function coverMediaX\(key\)/);
+  assert.match(deck, /SCINTILLA_DECK_MEDIA_COVER_X/);
+  assert.match(deck, /o\.def\.row === 1 && o\.def\.kind === "video" && !target/,
+    "stage one hides only the other YouTube pane, never X");
+  assert.match(deck, /MEDIA_STAGE === 2[\s\S]*?o\.def\.key !== MEDIA_TARGET/,
+    "covering X is a separate explicit second stage");
+});
+
+test("video auto-next queues the next visible item and skips an unavailable embed", () => {
+  const queue = functionFromSource(videoPane, "queueRows");
+  const next = functionFromSource(videoPane, "nextQueuedVideo");
+  const rows = [{ video_id:"a" }, { video_id:"b" }, { video_id:"c" }];
+  assert.deepEqual(JSON.parse(JSON.stringify(queue(rows, "default", new Set()))), rows);
+  assert.deepEqual(JSON.parse(JSON.stringify(queue(rows, "watch", new Set(["b"])))), [{ video_id:"b" }]);
+  assert.equal(next(rows, "a", new Set()).video_id, "b");
+  assert.equal(next(rows, "a", new Set(["b"])).video_id, "c");
+  assert.equal(next(rows, "c", new Set()), null);
+  assert.match(videoPane, /id="bAuto"/);
+  assert.match(videoPane, /args:\s*\["onStateChange"\]/);
+  assert.match(videoPane, /Number\(data\.info\) === 0/);
+  assert.match(videoPane, /skipping unavailable video/);
+  assert.match(videoPane, /id="bCover"/);
 });
