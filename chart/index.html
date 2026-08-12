@@ -34,7 +34,8 @@
 *{ min-width:0; box-sizing:border-box; }
 html,body{ margin:0; padding:0; height:100%; }
 body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
-  -webkit-font-smoothing:antialiased; font-size:12px; letter-spacing:.02em; overflow:hidden; }
+  -webkit-font-smoothing:antialiased; font-size:12px; letter-spacing:.02em; overflow:hidden;
+  -webkit-text-size-adjust:100%; text-size-adjust:100%; }
 #chartSlot{ position:absolute; inset:0; }
 
 /* SCINTILLA · scChart — ported verbatim */
@@ -96,6 +97,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
    chart bar so the actual chart gets the full pane; standalone /chart keeps it. */
 html.bare .sc-nchart__bar{ display:none; }
 html[data-view="desk"] .sc-nchart__live{ font-size:18px; }
+html[data-view="ipad"] .sc-nchart__live{ top:6px; left:7px; gap:2px; font-size:14px; max-width:calc(100% - 44px); }
 html[data-view="compact"] .sc-nchart__live{ font-size:11px; }
 
 /* FIX 5 — IN-APP TradingView modal — ported verbatim */
@@ -219,7 +221,7 @@ const CHART_RANGES = ["15m", "30m", "1h", "2h", "3h", "4h", "6h", "12h", "1D", "
 
 /* ---- widget state (hub S stub) ---- */
 const QS = new URLSearchParams(location.search);
-const VIEW_PROFILES = ["auto","desk","display","compact"];
+const VIEW_PROFILES = ["auto","desk","ipad","display","compact"];
 let VIEW_PROFILE = VIEW_PROFILES.includes(QS.get("view")) ? QS.get("view") : "auto";
 document.documentElement.dataset.view = VIEW_PROFILE;
 const SHARED_TIME_AXIS = QS.get("sharedAxis") === "1";
@@ -565,8 +567,10 @@ function scChartDraw(host, scrubIx) {
   /* The paired lower cards own their column's shared timeline. Keep that
      actual date/time readable, but make its band a compact annotation rather
      than a second panel. The right price scale follows the same tighter rule. */
-  const axisBand = h < 130 ? 17 : 21;
-  const padT = 8, padB = SHARED_TIME_AXIS ? 5 : axisBand, padR = h < 130 ? 20 : 24, padL = 6;
+  const ipadProfile = VIEW_PROFILE === "ipad";
+  const axisBand = ipadProfile ? (h < 130 ? 15 : 18) : (h < 130 ? 17 : 21);
+  const padT = ipadProfile ? 7 : 8, padB = SHARED_TIME_AXIS ? 5 : axisBand,
+    padR = ipadProfile ? (h < 130 ? 18 : 21) : (h < 130 ? 20 : 24), padL = 6;
   const iw = w - padL - padR, ih = h - padT - padB;
   if (iw < 10 || ih < 10) return;
   const view = chartView(host, pts), start = view.start, end = view.end;
@@ -635,7 +639,7 @@ function scChartDraw(host, scrubIx) {
   }
   ctx.restore();
   ctx.save();
-  ctx.font = '7px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  ctx.font = (ipadProfile ? '6.5' : '7') + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.fillStyle = col.ink2; ctx.globalAlpha = .47; ctx.textAlign = "right";
   ctx.shadowColor = "#000"; ctx.shadowBlur = 4;
   for (const v of priceTicks) {
@@ -644,13 +648,13 @@ function scChartDraw(host, scrubIx) {
   }
   ctx.restore();
   if (!SHARED_TIME_AXIS) {
-    const timeFont = VIEW_PROFILE === "desk" ? 7.5 : VIEW_PROFILE === "compact" ? 6.75 : 7.25;
+    const timeFont = VIEW_PROFILE === "desk" ? 7.5 : VIEW_PROFILE === "ipad" ? 6.75 : VIEW_PROFILE === "compact" ? 6.75 : 7.25;
     ctx.font = timeFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
     ctx.fillStyle = col.dim;
     const firstMs = new Date(pts[start].d).getTime(), lastMs = new Date(pts[end].d).getTime();
     const visibleSpanMs = Math.max(0, lastMs - firstMs);
     const intraday = ["15m","30m","1h","2h","3h","4h","6h","12h"].includes(host._range || S.chartRange);
-    const compactAxis = iw < 310;
+    const compactAxis = iw < 310 || ipadProfile;
     const targetSpacing = intraday ? (compactAxis ? 56 : 76) : (compactAxis ? 48 : 62);
     const timeTickCount = Math.max(3, Math.min(12, Math.floor(iw / targetSpacing) + 1));
     const drawnTimes = new Set();

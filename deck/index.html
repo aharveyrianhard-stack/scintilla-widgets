@@ -69,7 +69,7 @@
 html,body{ margin:0; height:100%; }
 body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.02em;
-  display:flex; flex-direction:column; overflow:hidden; -webkit-text-size-adjust:100%; }
+  display:flex; flex-direction:column; overflow:hidden; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
 
 /* ---- header: scene switcher, ticker fields, ONE timeframe bar ---- */
 #bar{ flex:none; display:flex; align-items:center; gap:6px; padding:5px 9px;
@@ -211,6 +211,12 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
 body[data-view="desk"] #bar,body[data-view="desk"] #tfbar{ gap:7px; padding-top:6px; padding-bottom:6px; }
 body[data-view="desk"] .btn{ font-size:9.5px; padding:4px 9px; }
 body[data-view="desk"] .tkin{ font-size:10px; }
+/* iPad keeps the complete wall, but its chart cells need calmer chrome than a
+   room-sized display. The child panes receive the same explicit profile. */
+body[data-view="ipad"] #bar,body[data-view="ipad"] #tfbar{ gap:5px; padding-top:4px; padding-bottom:4px; }
+body[data-view="ipad"] .btn{ font-size:8px; padding:3px 7px; }
+body[data-view="ipad"] .tkin{ font-size:9px; padding:3px 5px; }
+body[data-view="ipad"] .scene-mode{ width:134px; font-size:8px; }
 body[data-view="compact"] #bar{ padding-top:3px; padding-bottom:3px; }
 body[data-view="compact"] #tfbar{ padding-top:2px; padding-bottom:2px; }
 body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
@@ -250,7 +256,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   </span>
   <select class="view-mode" id="viewMode" title="remembered display density for this Station window">
     <option value="auto">auto</option><option value="desk">desk</option>
-    <option value="display">display</option><option value="compact">compact</option>
+    <option value="ipad">iPad</option><option value="display">display</option><option value="compact">compact</option>
   </select>
   <span class="btn" id="displayBtn" title="open a dedicated Station window for a separate display">display ↗</span>
   <span class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen">⛶</span>
@@ -361,7 +367,7 @@ const chartCount = (value) => {
 const CUSTOM_WALL_STARTERS = Object.freeze(["SPY","QQQ","IWM","MAGS","SMH","AAPL","MSFT","AMZN"]);
 const ROTATE_SCENES = SceneModel.ROTATION_IDS;
 const ROTATE_SECONDS = [30,60,120];
-const VIEW_MODES = ["auto","desk","display","compact"];
+const VIEW_MODES = ["auto","desk","ipad","display","compact"];
 let VIEW = VIEW_MODES.includes(QS.get("view")) ? QS.get("view") :
   (VIEW_MODES.includes(sessionStorage.getItem("station.view")) ? sessionStorage.getItem("station.view") : "auto");
 document.body.dataset.view = VIEW;
@@ -482,7 +488,8 @@ const STACK_AT = 720;          /* below this a row of three is dishonest */
 /* The trusted iPad Companion explicitly requests the desk presentation.  It
    must mount the complete Station deck—including its remote X pane—rather
    than silently applying the phone's two-live-pane safety cap. */
-let STACKED = VIEW !== "desk" && innerWidth < STACK_AT;   /* decided BEFORE anything mounts */
+const keepsCompleteWall = () => VIEW === "desk" || VIEW === "ipad";
+let STACKED = !keepsCompleteWall() && innerWidth < STACK_AT;   /* decided BEFORE anything mounts */
 /* the live-pane budget. On a phone two frames is the ceiling that survived
    the Safari crash work; everything above that is paused behind a tap and
    stays in the chip row. Never frozen before we know which layout we are
@@ -705,7 +712,7 @@ window.addEventListener("message", (event) => {
    giving a useful window resize; visualViewport covers pinch and keyboard. */
 function relayout() {
   const w = el("grid").clientWidth || innerWidth;
-  STACKED = VIEW !== "desk" && w < STACK_AT;
+  STACKED = !keepsCompleteWall() && w < STACK_AT;
   document.body.classList.toggle("stack", STACKED);   /* set every time — the
      initial value is already computed, so a conditional toggle would skip the
      very first paint on a phone and leave it in deck layout */
