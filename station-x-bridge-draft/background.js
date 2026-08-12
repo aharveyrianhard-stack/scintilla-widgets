@@ -1,5 +1,6 @@
 const SUPPORTED_HOSTS = new Set(["x.com", "www.x.com", "twitter.com", "www.twitter.com"]);
 const stationConsumers = new Map();
+const remoteViewerGenerations = new Map();
 let stationSourceTabId = null;
 let stationActiveConsumerKey = null;
 let stationLastTickForwardedAt = 0;
@@ -179,6 +180,7 @@ async function stopStationCapture(detail = "stopped") {
     detail
   });
   stationSourceTabId = null;
+  remoteViewerGenerations.clear();
   stationLastTickForwardedAt = 0;
   await persistStationSession();
 }
@@ -565,8 +567,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const consumer = stationConsumers.get(sender.tab?.id);
     const pairId = String(message.pairId || "");
     const viewerId = String(message.viewerId || "");
+    const receiverGeneration = String(message.receiverGeneration || "");
     if (!/^[A-Za-z0-9_-]{32,}$/.test(pairId) ||
-        !/^[A-Za-z0-9_-]{16,}$/.test(viewerId) || !message.offer) {
+        !/^[A-Za-z0-9_-]{16,}$/.test(viewerId) ||
+        !/^[A-Za-z0-9_-]{16,}$/.test(receiverGeneration) || !message.offer) {
       sendResponse({ ok: false, error: "The iPad viewer was not recognized." });
       return;
     }
@@ -575,6 +579,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
     const peerId = remoteViewerPeerId(pairId, viewerId);
+    remoteViewerGenerations.set(peerId, receiverGeneration);
     chrome.runtime.sendMessage({
       target: "station-x-offscreen",
       type: "XFF_OFFSCREEN_OFFER",
@@ -594,11 +599,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         sendResponse(receiverReannouncing());
         return;
       }
+      if (remoteViewerGenerations.get(peerId) !== receiverGeneration) {
+        sendResponse({ ok: true, stale: true });
+        return;
+      }
       await sendToStation(consumer, {
         type: "XFF_STATION_REMOTE_ANSWER",
         instanceId: consumer.instanceId,
         pairId,
         viewerId,
+        receiverGeneration,
         answer: result.answer
       });
       sendResponse({ ok: true });
@@ -610,7 +620,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const consumer = stationConsumers.get(sender.tab?.id);
     const pairId = String(message.pairId || "");
     const viewerId = String(message.viewerId || "");
-    if (!/^[A-Za-z0-9_-]{32,}$/.test(pairId) || !/^[A-Za-z0-9_-]{16,}$/.test(viewerId)) {
+    const receiverGeneration = String(message.receiverGeneration || ""), peerId = remoteViewerPeerId(pairId, viewerId);
+    if (!/^[A-Za-z0-9_-]{32,}$/.test(pairId) || !/^[A-Za-z0-9_-]{16,}$/.test(viewerId) ||
+        !/^[A-Za-z0-9_-]{16,}$/.test(receiverGeneration)) {
       sendResponse({ ok: false, error: "The iPad viewer was not recognized." });
       return;
     }
@@ -618,10 +630,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse(receiverReannouncing());
       return;
     }
+    if (remoteViewerGenerations.get(peerId) !== receiverGeneration) {
+      sendResponse({ ok: true, stale: true });
+      return true;
+    }
+    remoteViewerGenerations.delete(peerId);
     chrome.runtime.sendMessage({
       target: "station-x-offscreen",
       type: "XFF_OFFSCREEN_DROP",
-      peerId: remoteViewerPeerId(pairId, viewerId)
+      peerId
     }).catch(() => {});
     sendResponse({ ok: true });
     return true;

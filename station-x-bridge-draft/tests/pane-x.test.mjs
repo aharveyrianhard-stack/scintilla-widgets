@@ -33,17 +33,21 @@ test("a paired viewer keeps its identity through a browser-session reload", () =
 
 test("the current paired-viewer path sends its stable viewer identity with offers", () => {
   assert.match(source, /viewerId:REMOTE_VIEWER/);
-  assert.match(source, /event:"drop", payload:\{ code:REMOTE_CODE, viewerId:REMOTE_VIEWER \}/);
+  assert.match(source, /const REMOTE_RECEIVER_GENERATION = createRemoteViewerId\(\)/);
+  assert.match(source, /receiverGeneration:REMOTE_RECEIVER_GENERATION/);
+  assert.match(source, /payload\.payload\?\.receiverGeneration === REMOTE_RECEIVER_GENERATION/);
+  assert.match(source, /event:"drop", payload:\{ code:REMOTE_CODE, viewerId:REMOTE_VIEWER,\s*receiverGeneration:REMOTE_RECEIVER_GENERATION \}/);
 });
 
 test("the iMac pane buffers offers until one exact Bridge generation accepts them", () => {
   assert.match(source, /const stationPendingRemoteOffers = new Map\(\);/);
-  assert.match(source, /function queueStationRemoteOffer\(pairId, viewerId, offer\)/);
+  assert.match(source, /function queueStationRemoteOffer\(pairId, viewerId, receiverGeneration, offer\)/);
   assert.match(source, /function flushStationRemoteOffers\(\)/);
   assert.match(source, /type === "XFF_STATION_BRIDGE_READY" && event\.data\.instanceId/);
   assert.match(source, /type === "XFF_STATION_BRIDGE_REANNOUNCING"/);
   assert.match(source, /String\(event\.data\.instanceId \|\| ""\) === stationBridgeInstanceId/);
-  assert.match(source, /clearStationRemoteOffer\(event\.data\.pairId, event\.data\.viewerId\)/);
+  assert.match(source, /clearStationRemoteOffer\(event\.data\.pairId, event\.data\.viewerId, event\.data\.receiverGeneration\)/);
+  assert.match(source, /flushStationRemoteOffers\(\);/);
 });
 
 test("the iMac pairing room renews its existing trusted pair after a Realtime disconnect", () => {
@@ -74,7 +78,7 @@ test("a silent open join times out, reconnects, and lets the next offer reach Br
     WebSocket:FakeWebSocket,
     stationPair:pair,
     el:() => ({ textContent:"" }),
-    queueStationRemoteOffer:(pairId, viewerId, offer) => offers.push({ pairId, viewerId, offer }),
+    queueStationRemoteOffer:(pairId, viewerId, receiverGeneration, offer) => offers.push({ pairId, viewerId, receiverGeneration, offer }),
     clearStationRemoteOffer:() => {},
     window:{ postMessage:() => {} },
     location:{ origin:"https://station.test" },
@@ -95,7 +99,7 @@ test("a silent open join times out, reconnects, and lets the next offer reach Br
   second.emit("open");
   second.emit("message", { data:JSON.stringify({ event:"phx_reply", ref:"1", payload:{ status:"ok" } }) });
   second.emit("message", { data:JSON.stringify({ event:"broadcast", payload:{ event:"offer", payload:{
-    code:pair.code, viewerId:"b".repeat(24), offer:{ type:"offer", sdp:"test" }
+    code:pair.code, viewerId:"b".repeat(24), receiverGeneration:"c".repeat(24), offer:{ type:"offer", sdp:"test" }
   } } }) });
-  assert.deepEqual(JSON.parse(JSON.stringify(offers)), [{ pairId:pair.token, viewerId:"b".repeat(24), offer:{ type:"offer", sdp:"test" } }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(offers)), [{ pairId:pair.token, viewerId:"b".repeat(24), receiverGeneration:"c".repeat(24), offer:{ type:"offer", sdp:"test" } }]);
 });

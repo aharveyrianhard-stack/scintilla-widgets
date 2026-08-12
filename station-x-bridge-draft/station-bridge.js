@@ -85,6 +85,7 @@
         instanceId: INSTANCE_ID,
         pairId: message.pairId,
         viewerId: message.viewerId,
+        receiverGeneration: message.receiverGeneration,
         answer: message.answer
       }, ORIGIN);
     }
@@ -146,6 +147,7 @@
         instanceId: INSTANCE_ID,
         pairId: event.data.pairId,
         viewerId: event.data.viewerId,
+        receiverGeneration: event.data.receiverGeneration,
         offer: event.data.offer
       }).then((result) => {
         if (result?.ok) {
@@ -153,7 +155,8 @@
             type: "XFF_STATION_REMOTE_ACCEPTED",
             instanceId: INSTANCE_ID,
             pairId: event.data.pairId,
-            viewerId: event.data.viewerId
+            viewerId: event.data.viewerId,
+            receiverGeneration: event.data.receiverGeneration
           }, ORIGIN);
           return;
         }
@@ -177,7 +180,8 @@
         type: "XFF_STATION_REMOTE_DROP",
         instanceId: INSTANCE_ID,
         pairId: event.data.pairId,
-        viewerId: event.data.viewerId
+        viewerId: event.data.viewerId,
+        receiverGeneration: event.data.receiverGeneration
       }).then((result) => {
         if (!result?.retryable) return;
         window.postMessage({
