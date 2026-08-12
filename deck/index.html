@@ -139,11 +139,6 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 #rowTop.charts-8{ grid-template-columns:repeat(4,minmax(0,1fr)); }
 #rowTop.charts-8 > .pane{ grid-column:span 1; }
 #rowTop > .pane.chart-off{ display:none; }
-#rowTop.shared-axis{ position:relative; padding-bottom:19px; }
-#sharedTimeAxis{ display:none; position:absolute; left:7px; right:28px; bottom:2px; height:14px; z-index:7;
-  justify-content:space-between; align-items:center; color:var(--mute); font-size:clamp(8px,.62vw,10px);
-  line-height:1; letter-spacing:.06em; pointer-events:none; -webkit-text-size-adjust:100%; }
-#rowTop.shared-axis #sharedTimeAxis{ display:flex; }
 .deckrow > .pane{ flex:1 1 0; min-width:0; min-height:0; }
 
 /* PHONE / very narrow: one honest column that scrolls. Same panes, same order. */
@@ -468,17 +463,6 @@ let SYMBOLS = Object.keys(FUTURE_META).map((ticker) => ({ ticker, type:"future",
 let SYMBOL_SET = new Set(SYMBOLS.map((row) => row.ticker));
 let GUIDE_ROWS = [], GUIDE_AT = 0, GUIDE_INPUT = null;
 const CHART_STATUS = new Map();
-let SHARED_AXIS_TICKS = [];
-
-function paintSharedTimeAxis(ticks) {
-  SHARED_AXIS_TICKS = Array.isArray(ticks) ? ticks.filter(Boolean) : [];
-  const axis = el("sharedTimeAxis");
-  if (!axis) return;
-  if (!SHARED_AXIS_TICKS.length) { axis.textContent = "loading shared time axis…"; return; }
-  axis.replaceChildren(...SHARED_AXIS_TICKS.map((tick) => {
-    const label = document.createElement("span"); label.textContent = tick; return label;
-  }));
-}
 
 /* ------------------------------------------------------------------ *
  * LAYOUT — width only decides STACK vs DECK. It never decides how the
@@ -627,12 +611,6 @@ window.addEventListener("message", (event) => {
   if (event.data?.sc === "chart-focus-ticker") {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
     if (pane) focusTickerFor(pane.def.key);
-    return;
-  }
-  if (event.data?.sc === "chart-axis") {
-    const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
-    if (pane?.def.key !== "c1" || !Array.isArray(event.data.ticks)) return;
-    paintSharedTimeAxis(event.data.ticks);
     return;
   }
   if (event.data?.sc === "chart-view") {
@@ -825,7 +803,7 @@ function syncChartPanes() {
   CHART_STATUS.clear();
   CHARTS.forEach((ticker, i) => {
     const o = PANES.find((p) => p.def.key === "c" + (i + 1)); if (!o) return;
-    o.def.src = ticker ? chartSrc(ticker) : "";
+    o.def.src = ticker ? chartSrc(ticker, i) : "";
     o.def.open = ticker ? o.def.src.replace("bare=1&", "") : "";
     o.def.short = ticker || "chart " + (i + 1); o.def.title = ticker || "Choose a symbol";
     const input = el("t" + (i + 1)); if (input) input.value = ticker;
@@ -916,10 +894,10 @@ function setRotationInterval(seconds) {
 }
 
 /* ---- ONE timeframe bar, driving both charts ---- */
-function chartSrc(t) {
+function chartSrc(t, index) {
   return "/chart?rev=086&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
     "&view=" + encodeURIComponent(VIEW) +
-    (SceneModel.usesSharedBottomAxis(CHART_COUNT) ? "&sharedAxis=1" : "");
+    (SceneModel.hidesTopChartAxis(index, CHART_COUNT) ? "&sharedAxis=1" : "");
 }
 /* The chart app accepts a fast postMessage update, but a mounted iframe can
    miss it during a scene switch.  Its URL is the durable identity of the
@@ -966,7 +944,7 @@ function setRange(r) {
   for (let i = 0; i < CHARTS.length; i++) {
     const k = "c" + (i + 1);
     const o = PANES.find((p) => p.def.key === k); if (!o) continue;
-    o.def.src = CHARTS[i] ? chartSrc(CHARTS[i]) : "";
+    o.def.src = CHARTS[i] ? chartSrc(CHARTS[i], i) : "";
     o.def.open = o.def.src.replace("bare=1&", "");
     if (o.frame) syncChartFrame(o.frame, o.def.src, { sc:"chart", range:RANGE });
   }
@@ -1055,7 +1033,7 @@ function commitTicker(index, raw, input) {
   el("symbolNote").textContent = original && original !== ticker ? original + " → " + ticker : "Hub · " + ticker;
   const o = PANES.find((p) => p.def.key === "c" + (index + 1));
   if (o) {
-    o.def.src = chartSrc(ticker); o.def.open = o.def.src.replace("bare=1&", "");
+    o.def.src = chartSrc(ticker, index); o.def.open = o.def.src.replace("bare=1&", "");
     o.def.short = ticker; o.def.title = ticker;
     const t = o.node.querySelector(".ph .t"); if (t) t.textContent = ticker;
     const card = o.body.querySelector(".card"); if (card) card.remove();
@@ -1114,13 +1092,7 @@ function applyChartCount(next, fromScene) {
   }
   el("chartCount").value = String(CHART_COUNT);
   const row = el("rowTop");
-  if (row) {
-    row.className = "deckrow charts-" + CHART_COUNT;
-    row.classList.toggle("shared-axis", SceneModel.usesSharedBottomAxis(CHART_COUNT));
-    let axis = el("sharedTimeAxis");
-    if (!axis) { axis = document.createElement("div"); axis.id = "sharedTimeAxis"; row.appendChild(axis); }
-    paintSharedTimeAxis(SHARED_AXIS_TICKS);
-  }
+  if (row) row.className = "deckrow charts-" + CHART_COUNT;
   /* Count is now final, so active pane URLs can switch shared-axis mode
      without disturbing their sibling frames. */
   syncChartPanes();
@@ -1199,7 +1171,7 @@ async function build() {
   }
   const defs = CHARTS.map((ticker, i) => ({
     row:0, key:"c" + (i + 1), short:ticker || "chart " + (i + 1), title:ticker || "Choose a symbol",
-    tag:"chart", kind:"chart", src:ticker ? chartSrc(ticker) : "",
+    tag:"chart", kind:"chart", src:ticker ? chartSrc(ticker, i) : "",
     open:ticker ? "/chart?t=" + encodeURIComponent(ticker) + "&range=" + RANGE : ""
   })).concat([
     /* v4: purpose-built panes, not full pages squeezed into a slot.

@@ -58,19 +58,29 @@ test("larger curated grids page real basket members without blank cards", () => 
   assert.equal(scenes.basketWindow([], 0, 6).empty, true);
 });
 
-test("four, six, and eight chart grids use one shared lower axis", () => {
-  assert.equal(scenes.usesSharedBottomAxis(4), true);
-  assert.equal(scenes.usesSharedBottomAxis(6), true);
+test("four, six, and eight chart grids pair each top chart with its column's lower axis", () => {
+  assert.equal(scenes.usesPairedColumnAxis(4), true);
+  assert.equal(scenes.usesPairedColumnAxis(6), true);
   assert.equal(scenes.chartCountForSize(8), 8);
-  assert.equal(scenes.usesSharedBottomAxis(8), true);
-  assert.equal(scenes.usesSharedBottomAxis(3), false);
+  assert.equal(scenes.usesPairedColumnAxis(8), true);
+  assert.equal(scenes.usesPairedColumnAxis(3), false);
+  assert.equal(scenes.hidesTopChartAxis(0, 4), true);
+  assert.equal(scenes.hidesTopChartAxis(1, 4), true);
+  assert.equal(scenes.hidesTopChartAxis(2, 4), false);
+  assert.equal(scenes.hidesTopChartAxis(3, 4), false);
+  assert.equal(scenes.hidesTopChartAxis(2, 6), true);
+  assert.equal(scenes.hidesTopChartAxis(3, 6), false);
+  assert.equal(scenes.hidesTopChartAxis(3, 8), true);
+  assert.equal(scenes.hidesTopChartAxis(4, 8), false);
   assert.match(deck, /#rowTop\.charts-8/);
-  assert.match(deck, /axis\.id = "sharedTimeAxis"/);
-  assert.match(deck, /row\.classList\.toggle\("shared-axis"/);
+  assert.doesNotMatch(deck, /sharedTimeAxis/);
+  assert.match(deck, /function chartSrc\(t, index\)/);
+  assert.match(deck, /SceneModel\.hidesTopChartAxis\(index, CHART_COUNT\)/);
   assert.match(deck, /sharedAxis=1/);
   assert.match(chart, /const SHARED_TIME_AXIS = QS\.get\("sharedAxis"\) === "1"/);
   assert.match(chart, /if \(!SHARED_TIME_AXIS\) \{/);
   assert.match(chart, /padB = SHARED_TIME_AXIS \? 8 : axisBand/);
+  assert.doesNotMatch(chart, /chart-axis/);
 });
 
 test("CUSTOM six and eight chart walls begin with real editable symbols", () => {
@@ -169,24 +179,25 @@ test("Custom uses a complete desk budget and explicit empty versus paused cards"
     "count changes synchronize chart URLs before mounting active panes");
 });
 
-test("shared-axis query follows only synchronized chart counts", () => {
+test("top cards suppress their own dates while each lower card paints its column axis", () => {
   const chartSrc = functionFromDeck("chartSrc", {
     RANGE: "3h",
     VIEW: "desk",
     CHART_COUNT: 6,
     encodeURIComponent,
-    SceneModel: { usesSharedBottomAxis: scenes.usesSharedBottomAxis }
+    SceneModel: { hidesTopChartAxis: scenes.hidesTopChartAxis }
   });
-  assert.match(chartSrc("TSM"), /t=TSM/);
-  assert.match(chartSrc("TSM"), /sharedAxis=1/);
+  assert.match(chartSrc("TSM", 0), /t=TSM/);
+  assert.match(chartSrc("TSM", 0), /sharedAxis=1/);
+  assert.doesNotMatch(chartSrc("TSM", 3), /sharedAxis=1/);
   const localAxisChartSrc = functionFromDeck("chartSrc", {
     RANGE: "3h",
     VIEW: "desk",
     CHART_COUNT: 3,
     encodeURIComponent,
-    SceneModel: { usesSharedBottomAxis: scenes.usesSharedBottomAxis }
+    SceneModel: { hidesTopChartAxis: scenes.hidesTopChartAxis }
   });
-  assert.doesNotMatch(localAxisChartSrc("TSM"), /sharedAxis=1/);
+  assert.doesNotMatch(localAxisChartSrc("TSM", 0), /sharedAxis=1/);
 });
 
 test("fixed price overlay reports daily performance honestly", () => {
@@ -198,8 +209,6 @@ test("fixed price overlay reports daily performance honestly", () => {
   assert.match(chart, /\.sc-nchart__live\{ position:absolute; top:7px; left:8px/);
   assert.match(chart, /sc-nchart__live-ticker/);
   assert.match(chart, /parent\.postMessage\(\{ sc:"chart-focus-ticker" \}/);
-  assert.match(chart, /function sharedAxisTicks\(/);
-  assert.match(chart, /parent\.postMessage\(\{ sc:"chart-axis", ticks \}/);
   assert.match(chart, /\.sc-nchart__live-change/);
   assert.match(chart, /badge\.dataset\.change = day\.tone/);
   assert.doesNotMatch(chart, /sc-nchart__live-meta/,
@@ -211,11 +220,9 @@ test("chart identity focuses the existing deck ticker editor and fullscreen live
   assert.match(deck, /focusTickerFor\(pane\.def\.key\)/);
   assert.match(deck, /bFull\.classList\.add\("chart-full"\)/);
   assert.match(deck, /\.chart-full\{ position:absolute; top:6px; right:7px/);
-  assert.match(deck, /font-size:clamp\(8px,\.62vw,10px\)/);
+  assert.match(chart, /const timeFont = VIEW_PROFILE === "desk" \? 8/);
   assert.match(deck, /\.chart-pane > \.ph\{ position:absolute/);
-  assert.match(deck, /pane\?\.def\.key !== "c1"/);
-  assert.match(deck, /let SHARED_AXIS_TICKS = \[\]/);
-  assert.match(deck, /paintSharedTimeAxis\(SHARED_AXIS_TICKS\)/);
+  assert.doesNotMatch(deck, /sharedTimeAxis/);
   assert.match(deck, /else n\.value = CHARTS\[index\] \|\| ""/);
 });
 

@@ -322,20 +322,6 @@ function chTimeParts(d, range, compact, spanMs) {
     return spanMs > 6 * 365.25 * 86400000 ? [yr, ""] : [yr, iso.slice(5, 7)];
   return [chTimeLbl(iso, range, compact, spanMs), ""];
 }
-function sharedAxisTicks(pts, start, end, range, width) {
-  const firstMs = new Date(pts[start].d).getTime(), lastMs = new Date(pts[end].d).getTime();
-  const spanMs = Math.max(0, lastMs - firstMs);
-  const count = Math.max(3, Math.min(6, Math.floor(width / 130) + 1));
-  const labels = [];
-  for (let k = 0; k < count; k++) {
-    const ix = Math.round(start + (k / Math.max(1, count - 1)) * (end - start));
-    const parts = chTimeParts(pts[ix].d, range, false, spanMs).filter(Boolean);
-    const label = parts.join(" ");
-    if (label && labels[labels.length - 1] !== label) labels.push(label);
-  }
-  return labels;
-}
-
 /* ---- CACHE-FIRST + DB-ONLY series fetch — ported verbatim (R30) ---- */
 function chartSeriesCached(t, range) {
   const key = t + "|" + range;
@@ -681,13 +667,6 @@ function scChartDraw(host, scrubIx) {
         ctx.fillText(parts[1], X(ix), h - 4);
         ctx.globalAlpha = 1;
       }
-    }
-  } else {
-    const ticks = sharedAxisTicks(pts, start, end, host._range || S.chartRange, iw);
-    const stamp = ticks.join("|");
-    if (host._sharedAxisStamp !== stamp) {
-      host._sharedAxisStamp = stamp;
-      try { parent.postMessage({ sc:"chart-axis", ticks }, location.origin); } catch (_) {}
     }
   }
   if (scrubIx != null && pts[scrubIx]) {
