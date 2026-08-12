@@ -82,9 +82,6 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 #bar .control-label{ color:var(--mute); font-size:7px; letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; }
 #bar .rotate-controls{ gap:4px; }
 #bar .rotate-controls .scene-mode{ width:58px; }
-#bar .page-controls{ gap:4px; }
-#bar .page-controls .btn{ min-width:25px; padding-left:6px; padding-right:6px; text-align:center; }
-#bar .page-controls:not(.on){ display:none; }
 #tfbar{ flex:none; position:relative; display:flex; align-items:center; gap:5px; padding:4px 9px; flex-wrap:wrap;
   border-bottom:1px solid var(--line); background:rgba(15,15,26,.6); }
 #tfbar .lbl{ color:var(--mute); font-size:7.5px; letter-spacing:.16em; text-transform:uppercase; }
@@ -110,10 +107,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .scene-mode{ width:150px; background:var(--panel2); border:1px solid var(--line); color:var(--crk);
   font:8.5px var(--mono); letter-spacing:.06em; padding:3px 5px; border-radius:0; outline:none;
   text-transform:uppercase; }
-#cohortControls{ display:none; align-items:center; gap:4px; }
-#cohortControls.on{ display:flex; }
-#cohortSelect{ width:118px; }
-#cohortPage{ min-width:58px; text-align:center; color:var(--ink3); font-size:8px; }
+#screenControls{ align-items:center; gap:4px; }
+#screenIndicator{ min-width:142px; text-align:center; color:var(--ink3); font-size:8px; letter-spacing:.08em; text-transform:uppercase; }
 #tickers{ display:flex; gap:4px; flex-wrap:wrap; }
 .ph .tkin{ width:96px; padding:1px 4px; text-align:left; background:transparent;
   border-color:transparent; color:var(--ink2); font-size:8.5px; }
@@ -263,11 +258,10 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
     </select>
     <span class="btn" id="rotateToggle" title="start or pause curated scene rotation" aria-label="Start auto rotate">start</span>
   </span>
-  <span class="control-group page-controls" id="cohortControls" aria-label="Scene basket pages">
-    <select class="scene-mode" id="cohortSelect" title="Hub cohort favorites"></select>
-    <span class="btn" id="cohortPrev" title="Previous basket page" aria-label="Previous basket page">‹</span>
-    <span id="cohortPage" aria-live="polite">page 0 / 0</span>
-    <span class="btn" id="cohortNext" title="Next basket page" aria-label="Next basket page">›</span>
+  <span class="control-group" id="screenControls" aria-label="Global Station screens">
+    <span class="btn" id="screenPrev" title="Previous screen" aria-label="Previous screen">‹</span>
+    <span id="screenIndicator" aria-live="polite">screen 1 / 8 · index now</span>
+    <span class="btn" id="screenNext" title="Next screen" aria-label="Next screen">›</span>
   </span>
   <span class="control-group presentation-controls">
     <span class="control-label">layout</span>
@@ -910,40 +904,13 @@ function paintSceneControls(note) {
   const resettable = !!fixedSceneState(SCENE) || SCENE === "cohort";
   el("resetScene").classList.toggle("on", resettable);
   el("resetScene").style.display = resettable ? "" : "none";
-  const box = el("cohortControls");
-  const named = fixedSceneState(SCENE, CHART_COUNT);
-  if (named) {
-    el("cohortSelect").style.display = "none";
-    const namedPages = Math.max(1, Math.ceil(named.totalItems / CHART_COUNT));
-    const namedPage = Math.floor(named.offset / CHART_COUNT) + 1;
-    box.classList.toggle("on", namedPages > 1);
-    el("cohortPage").textContent = "page " + namedPage + " / " + namedPages;
-    el("cohortPrev").classList.toggle("on", named.hasPrevious);
-    el("cohortNext").classList.toggle("on", named.hasNext);
-    el("cohortPrev").setAttribute("aria-disabled", String(!named.hasPrevious));
-    el("cohortNext").setAttribute("aria-disabled", String(!named.hasNext));
-    el("symbolNote").textContent = note || "preset · edit any slot or reset";
-    return;
-  }
-  el("cohortSelect").style.display = "";
-  if (SCENE !== "cohort" || !COHORT_READY) {
-    box.classList.remove("on");
-    return;
-  }
-  const names = orderedCohorts(), select = el("cohortSelect");
-  select.innerHTML = names.map((name) => '<option value="' + esc(name) + '">' +
-    esc(name.replace(/_/g," ")) + " · " + (COHORT_INDEX.get(name) || []).length + "</option>").join("");
-  select.value = COHORT;
-  const page = cohortState();
-  box.classList.toggle("on", page.totalPages > 1);
-  el("cohortPage").textContent = "page " + (page.page + 1) + " / " + page.totalPages;
-  el("cohortPrev").classList.toggle("on", page.page > 0);
-  el("cohortNext").classList.toggle("on", page.page + 1 < page.totalPages);
-  el("cohortPrev").setAttribute("aria-disabled", String(page.page === 0));
-  el("cohortNext").setAttribute("aria-disabled", String(page.page + 1 >= page.totalPages));
-  el("symbolNote").textContent = note || (page.totalItems ?
-    page.totalItems + " " + COHORT.replace(/_/g," ") + " favorites" :
-    "0 favorites · no filler");
+  const screen = SceneModel.screenForScene(SCENE);
+  el("screenIndicator").textContent = screen
+    ? "screen " + (SceneModel.SCREENS.indexOf(screen) + 1) + " / " + SceneModel.SCREENS.length + " · " + screen.label.toLowerCase()
+    : "manual · " + (SceneModel.PRESETS[SCENE]?.label || SCENE).toLowerCase();
+  el("symbolNote").textContent = note || (fixedSceneState(SCENE)
+    ? "preset · edit any slot or reset"
+    : "manual workspace · edit any slot");
 }
 function installSceneState(state) {
   const charts = (state.charts || state.tickers || []).slice(0, 8);
@@ -1051,10 +1018,9 @@ async function applyScene(next, options) {
   let state;
   if (fixedSceneState(requested)) {
     BASKET_OFFSET = Math.max(0, Number(options?.offset) || 0);
-    /* Pagination is a deliberate return to a named basket page.  A prior
-       editable visit must not pin the arrows to its old first-page symbols. */
+    /* Reset Preset is the only action that discards a working scene. */
     const namedPage = Object.prototype.hasOwnProperty.call(options || {}, "offset");
-    state = !options?.reset && !options?.rotate && !namedPage && hasStoredScene(requested)
+    state = !options?.reset && !namedPage && hasStoredScene(requested)
       ? editableState(requested) : fixedSceneState(requested);
   }
   else if (requested === "cohort") {
@@ -1109,8 +1075,8 @@ function scheduleRotation() {
   rotateTimer = setTimeout(async () => {
     if (ROTATE_PAUSED || ROTATE_BUSY) return scheduleRotation();
     ROTATE_BUSY = true;
-    const next = SceneModel.nextRotatingScene(SCENE);
-    try { await applyScene(next, { rotate:true }); }
+    const next = SceneModel.nextScreen(SCENE);
+    try { await applyScene(next.scene, { rotate:true, screen:true }); }
     finally { ROTATE_BUSY = false; scheduleRotation(); }
   }, ROTATE_AT * 1000);
 }
@@ -1375,17 +1341,8 @@ el("resetScene").addEventListener("click", () => {
 });
 el("rotateEvery").addEventListener("change", (e) => setRotationInterval(e.target.value));
 el("rotateToggle").addEventListener("click", () => setRotationPaused(!ROTATE_PAUSED));
-el("cohortSelect").addEventListener("change", (e) => applyScene("cohort", { cohort:e.target.value, page:0 }));
-el("cohortPrev").addEventListener("click", () => {
-  const named = fixedSceneState(SCENE, CHART_COUNT);
-  if (named) { if (named.hasPrevious) applyScene(SCENE, { offset:Math.max(0, named.offset - CHART_COUNT) }); return; }
-  const page = cohortState(); if (page.page > 0) applyScene("cohort", { cohort:COHORT, page:page.page - 1 });
-});
-el("cohortNext").addEventListener("click", () => {
-  const named = fixedSceneState(SCENE, CHART_COUNT);
-  if (named) { if (named.hasNext) applyScene(SCENE, { offset:named.offset + CHART_COUNT }); return; }
-  const page = cohortState(); if (page.page + 1 < page.totalPages) applyScene("cohort", { cohort:COHORT, page:page.page + 1 });
-});
+el("screenPrev").addEventListener("click", () => applyScene(SceneModel.previousScreen(SCENE).scene, { screen:true }));
+el("screenNext").addEventListener("click", () => applyScene(SceneModel.nextScreen(SCENE).scene, { screen:true }));
 el("viewMode").addEventListener("change", (e) => applyView(e.target.value));
 el("displayBtn").addEventListener("click", () => {
   const u = new URL(location.href); u.searchParams.set("view", "display");

@@ -2,7 +2,19 @@
   "use strict";
 
   const IDS = ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","custom"];
-  const ROTATION_IDS = Object.freeze(["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]);
+  /* Screens are the deliberate navigable sequence.  LIVE, CUSTOM, and the
+     two-chart slow-internals inspection remain direct/manual destinations. */
+  const SCREENS = Object.freeze([
+    Object.freeze({ id:"indexNow", scene:"indexNow", label:"INDEX NOW" }),
+    Object.freeze({ id:"indexLeadership", scene:"indexLeadership", label:"INDEX LEADERSHIP" }),
+    Object.freeze({ id:"companyLeadership", scene:"companyLeadership", label:"COMPANY LEADERSHIP" }),
+    Object.freeze({ id:"focus2", scene:"focus2", label:"FOCUS 2" }),
+    Object.freeze({ id:"macroCrossAsset", scene:"macroCrossAsset", label:"MACRO CROSS-ASSET" }),
+    Object.freeze({ id:"internals", scene:"internalsFast", label:"INTERNALS" }),
+    Object.freeze({ id:"sectorFamilies", scene:"sectorFamilies", label:"SECTOR FAMILIES" }),
+    Object.freeze({ id:"themeFamilies", scene:"themeFamilies", label:"THEME FAMILIES" })
+  ]);
+  const ROTATION_IDS = Object.freeze(SCREENS.map((screen) => screen.scene));
   const NY = "America/New_York";
   const FAMILIES = Object.freeze({
     sectorFamilies: Object.freeze([
@@ -10,9 +22,9 @@
       Object.freeze({ id:"DEFENSIVE", label:"DEFENSIVE / BALLAST", tickers:Object.freeze(["XLP","XLV","XLU","XLRE","XLB","SECTOR12"]), range:"1D" })
     ]),
     themeFamilies: Object.freeze([
-      Object.freeze({ id:"AI_COMPUTE", label:"AI COMPUTE CORE", tickers:Object.freeze(["NVDA","TSM","AVGO","MU","SNDK","ASML"]), range:"3h" }),
-      Object.freeze({ id:"AI_INFRA", label:"AI INFRASTRUCTURE", tickers:Object.freeze(["NBIS","CRDO","ANET","CRWV","APLD","ALAB"]), range:"3h" }),
-      Object.freeze({ id:"AI_POWER", label:"AI POWER / SPECULATIVE", tickers:Object.freeze(["CIFR","IREN","WULF","BE","OKLO","USAR"]), range:"3h" })
+      Object.freeze({ id:"AI_COMPUTE", label:"AI COMPUTE CORE", tickers:Object.freeze(["NVDA","TSM","AVGO","ASML","MU","SNDK"]), range:"3h" }),
+      Object.freeze({ id:"AI_INFRA", label:"AI INFRASTRUCTURE", tickers:Object.freeze(["ANET","CRWV","NBIS","CRDO","APLD","ALAB"]), range:"3h" }),
+      Object.freeze({ id:"AI_POWER", label:"AI POWER / SPECULATIVE", tickers:Object.freeze(["OKLO","IREN","CIFR","BE","WULF","USAR"]), range:"3h" })
     ])
   });
   const PRESETS = Object.freeze({
@@ -24,14 +36,14 @@
     }),
     indexLeadership: Object.freeze({
       label: "INDEX LEADERSHIP",
-      tickers: Object.freeze(["SPY", "QQQ", "IWM", "MAGS", "SMH", "DIA"]),
+      tickers: Object.freeze(["SPY", "QQQ", "DIA", "IWM", "MAGS", "SMH"]),
       chartCount: 6,
       range: "3h"
     }),
-    companyLeadership: Object.freeze({ label:"COMPANY LEADERSHIP", tickers:Object.freeze(["AAPL","MSFT","META","AMZN","GOOGL","TSLA"]), chartCount:6, range:"3h" }),
+    companyLeadership: Object.freeze({ label:"COMPANY LEADERSHIP", tickers:Object.freeze(["AAPL","MSFT","AMZN","GOOGL","META","TSLA"]), chartCount:6, range:"3h" }),
     focus2: Object.freeze({ label:"FOCUS 2", tickers:Object.freeze(["MU","SNDK"]), chartCount:2, range:"3h" }),
-    macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", tickers:Object.freeze(["US10Y","DXUSD","GCUSD","SIUSD"]), chartCount:2, range:"3D" }),
-    internalsFast: Object.freeze({ label:"INTERNALS FAST", tickers:Object.freeze(["VIX","ADD","PCC","CUMTICK"]), chartCount:2, range:"3h" }),
+    macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", tickers:Object.freeze(["US10Y","DXUSD","GCUSD","SIUSD","CLUSD","ESUSD"]), chartCount:6, range:"3D" }),
+    internalsFast: Object.freeze({ label:"INTERNALS", tickers:Object.freeze(["VIX","ADD","PCC","CUMTICK","TICK","TRIN"]), chartCount:6, range:"3h" }),
     internalsSlow: Object.freeze({ label:"INTERNALS SLOW", tickers:Object.freeze(["TICK","TRIN"]), chartCount:2, range:"1D" })
   });
 
@@ -67,6 +79,17 @@
   function nextRotatingScene(scene) {
     const index = ROTATION_IDS.indexOf(normalizeScene(scene));
     return ROTATION_IDS[(index + 1 + ROTATION_IDS.length) % ROTATION_IDS.length];
+  }
+  function screenForScene(scene) {
+    return SCREENS.find((screen) => screen.scene === normalizeScene(scene)) || null;
+  }
+  function nextScreen(scene) {
+    const index = SCREENS.findIndex((screen) => screen.scene === normalizeScene(scene));
+    return SCREENS[(index + 1 + SCREENS.length) % SCREENS.length];
+  }
+  function previousScreen(scene) {
+    const index = SCREENS.findIndex((screen) => screen.scene === normalizeScene(scene));
+    return SCREENS[(index < 0 ? SCREENS.length - 1 : index - 1 + SCREENS.length) % SCREENS.length];
   }
   function basketWindow(members, offset, requestedCount) {
     const all = (members || []).slice();
@@ -118,6 +141,7 @@
 
   root.StationScenes = Object.freeze({
     IDS: Object.freeze(IDS.slice()),
+    SCREENS,
     ROTATION_IDS,
     PRESETS,
     normalizeScene,
@@ -125,6 +149,9 @@
     usesPairedColumnAxis,
     hidesTopChartAxis,
     nextRotatingScene,
+    screenForScene,
+    nextScreen,
+    previousScreen,
     indexNowLeaders,
     indexNowTickersFor,
     FAMILIES,
