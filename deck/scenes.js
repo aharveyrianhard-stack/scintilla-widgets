@@ -30,8 +30,8 @@
     }),
     companyLeadership: Object.freeze({ label:"COMPANY LEADERSHIP", tickers:Object.freeze(["AAPL","MSFT","META","AMZN","GOOGL","TSLA"]), chartCount:6, range:"3h" }),
     focus2: Object.freeze({ label:"FOCUS 2", tickers:Object.freeze(["MU","SNDK"]), chartCount:2, range:"3h" }),
-    macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", tickers:Object.freeze(["US10Y","DXUSD","GCUSD","SIUSD"]), chartCount:4, range:"3D" }),
-    internalsFast: Object.freeze({ label:"INTERNALS FAST", tickers:Object.freeze(["VIX","ADD","PCC","CUMTICK"]), chartCount:4, range:"3h" }),
+    macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", tickers:Object.freeze(["US10Y","DXUSD","GCUSD","SIUSD"]), chartCount:2, range:"3D" }),
+    internalsFast: Object.freeze({ label:"INTERNALS FAST", tickers:Object.freeze(["VIX","ADD","PCC","CUMTICK"]), chartCount:2, range:"3h" }),
     internalsSlow: Object.freeze({ label:"INTERNALS SLOW", tickers:Object.freeze(["TICK","TRIN"]), chartCount:2, range:"1D" })
   });
 
@@ -50,13 +50,15 @@
   function chartCountForSize(size) {
     const n = Math.max(0, Math.min(8, Number(size) || 0));
     if (n <= 1) return 1;
-    if (n <= 4) return n;
+    if (n <= 2) return 2;
+    if (n === 3) return 3;
+    if (n === 4) return 2;
     if (n <= 6) return 6;
     return 8;
   }
 
   function usesPairedColumnAxis(size) {
-    return [4, 6, 8].includes(chartCountForSize(size));
+    return [6, 8].includes(chartCountForSize(size));
   }
   function hidesTopChartAxis(index, size) {
     const count = chartCountForSize(size);
@@ -67,7 +69,11 @@
     return ROTATION_IDS[(index + 1 + ROTATION_IDS.length) % ROTATION_IDS.length];
   }
   function basketWindow(members, offset, requestedCount) {
-    const all = (members || []).slice(), size = chartCountForSize(requestedCount || 6);
+    const all = (members || []).slice();
+    const requested = chartCountForSize(requestedCount || 6);
+    /* A short four/five-member basket must page honestly rather than create a
+       retired four-up wall or render empty cards in a six-up wall. */
+    const size = requested === 6 && all.length > 3 && all.length < 6 ? 2 : requested;
     if (!all.length) return { tickers:[], chartCount:1, offset:0, totalItems:0, hasPrevious:false, hasNext:false, empty:true };
     const max = Math.max(0, Math.floor((all.length - 1) / size) * size);
     const start = Math.max(0, Math.min(max, Number(offset) || 0));
@@ -93,9 +99,10 @@
   }
 
   function cohortPage(index, cohort, requestedPage, pageSize) {
-    const size = Math.max(1, Math.min(6, Number(pageSize) || 6));
     const key = String(cohort || "").toUpperCase();
     const all = (index?.get(key) || []).slice();
+    const requested = Math.max(1, Math.min(6, Number(pageSize) || 6));
+    const size = requested === 6 && all.length > 3 && all.length < 6 ? 2 : requested;
     const totalPages = Math.max(1, Math.ceil(all.length / size));
     const page = Math.max(0, Math.min(totalPages - 1, Number(requestedPage) || 0));
     const tickers = all.slice(page * size, page * size + size);

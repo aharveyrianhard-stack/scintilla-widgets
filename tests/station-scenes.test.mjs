@@ -42,6 +42,8 @@ test("all eleven curated scenes are present with fixed baskets", () => {
   assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","custom"]);
   assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY","QQQ","IWM","MAGS","SMH","DIA"]);
   assert.equal(scenes.PRESETS.companyLeadership.range, "3h");
+  assert.equal(scenes.PRESETS.macroCrossAsset.chartCount, 2);
+  assert.equal(scenes.PRESETS.internalsFast.chartCount, 2);
   assert.equal(scenes.PRESETS.internalsSlow.range, "1D");
   assert.equal(scenes.PRESETS.macroCrossAsset.range, "3D");
 });
@@ -60,16 +62,26 @@ test("larger curated grids page real basket members without blank cards", () => 
   assert.equal(scenes.basketWindow([], 0, 6).empty, true);
 });
 
-test("four, six, and eight chart grids pair each top chart with its column's lower axis", () => {
-  assert.equal(scenes.usesPairedColumnAxis(4), true);
+test("four-member Macro and Internals baskets use honest two-up pages", () => {
+  const macro = Array.from(scenes.PRESETS.macroCrossAsset.tickers);
+  const internals = Array.from(scenes.PRESETS.internalsFast.tickers);
+  assert.deepEqual(Array.from(scenes.basketWindow(macro, 0, 2).tickers), ["US10Y","DXUSD"]);
+  assert.deepEqual(Array.from(scenes.basketWindow(macro, 2, 2).tickers), ["GCUSD","SIUSD"]);
+  assert.deepEqual(Array.from(scenes.basketWindow(internals, 0, 2).tickers), ["VIX","ADD"]);
+  assert.deepEqual(Array.from(scenes.basketWindow(internals, 2, 2).tickers), ["PCC","CUMTICK"]);
+  assert.equal(scenes.basketWindow(macro, 0, 2).chartCount, 2);
+  assert.equal(scenes.basketWindow(macro, 0, 2).tickers.includes(""), false);
+  assert.equal(scenes.chartCountForSize(4), 2, "retired four-up inputs normalize to two-up");
+  assert.match(deck, /const namedPage = Object\.prototype\.hasOwnProperty\.call\(options \|\| \{\}, "offset"\)/,
+    "a named-scene page turn cannot be pinned to a remembered editable first page");
+});
+
+test("six and eight chart grids pair each top chart with its column's lower axis", () => {
+  assert.equal(scenes.usesPairedColumnAxis(4), false);
   assert.equal(scenes.usesPairedColumnAxis(6), true);
   assert.equal(scenes.chartCountForSize(8), 8);
   assert.equal(scenes.usesPairedColumnAxis(8), true);
   assert.equal(scenes.usesPairedColumnAxis(3), false);
-  assert.equal(scenes.hidesTopChartAxis(0, 4), true);
-  assert.equal(scenes.hidesTopChartAxis(1, 4), true);
-  assert.equal(scenes.hidesTopChartAxis(2, 4), false);
-  assert.equal(scenes.hidesTopChartAxis(3, 4), false);
   assert.equal(scenes.hidesTopChartAxis(2, 6), true);
   assert.equal(scenes.hidesTopChartAxis(3, 6), false);
   assert.equal(scenes.hidesTopChartAxis(3, 8), true);
@@ -85,7 +97,7 @@ test("four, six, and eight chart grids pair each top chart with its column's low
   assert.doesNotMatch(chart, /chart-axis/);
 });
 
-test("CUSTOM six and eight chart walls begin with real editable symbols", () => {
+test("CUSTOM six and eight chart walls preserve their manual symbols", () => {
   const fillCustomWall = functionFromDeck("fillCustomWall", {
     CLEAN: (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12),
     chartCount: scenes.chartCountForSize,
@@ -99,8 +111,11 @@ test("CUSTOM six and eight chart walls begin with real editable symbols", () => 
   assert.equal(eight.slice(0, 8).includes(""), false);
   assert.equal(new Set(eight.slice(0, 8)).size, 8, "starter fill must not duplicate a manual symbol");
   assert.match(deck, /option value="8"/);
-  assert.doesNotMatch(deck, /countOption\.disabled/,
-    "all scenes can use the full chart-count selector during the flexible phase");
+  assert.doesNotMatch(deck, /option value="4"/,
+    "the retired four-up choice is not offered");
+  assert.match(deck, /function paintChartCountChoices\(\)/);
+  assert.match(deck, /\[2,6,8\]\.includes\(\+option\.value\)/,
+    "Custom presents only the purposeful two, six, and eight chart choices");
 });
 
 test("rotation is limited to curated scenes and wraps with an explicit pause control", () => {
@@ -158,7 +173,7 @@ test("CUSTOM preserves the screenshot-shaped sparse six-slot workspace", () => {
     CLEAN: (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12),
     RANGES: ["15m","30m","1h","2h","3h","4h","6h","12h","1D","3D","1W"],
     RANGE: "3h",
-    chartCount: scenes.chartCountForSize,
+    customChartCount: (value) => +value <= 2 ? 2 : +value <= 6 ? 6 : 8,
     SceneModel: { chartCountForSize: scenes.chartCountForSize }
   };
   vm.runInNewContext(`${match[0]}; globalThis.preserve = preservedCustomState;`, customContext);
@@ -170,6 +185,12 @@ test("CUSTOM preserves the screenshot-shaped sparse six-slot workspace", () => {
   assert.equal(recovered.chartCount, 6);
   assert.deepEqual(Array.from(recovered.charts), ["TSM", "WULF", "", "", "", "", "", ""]);
   assert.equal(recovered.charts.slice(0, recovered.chartCount).filter(Boolean).length, 2);
+  const migratedFour = customContext.preserve({
+    charts: ["TSM", "WULF", "SPY", "QQQ"], chartCount:4, range:"3h"
+  });
+  assert.equal(migratedFour.chartCount, 6, "a stored four-up Custom wall widens to six");
+  assert.deepEqual(Array.from(migratedFour.charts), ["TSM", "WULF", "SPY", "QQQ", "", "", "", ""],
+    "migration retains all four saved positions and creates only editable empty slots");
   assert.match(deck, /const hasIncomingSlots = Array\.from\(\{ length:8 \}, \(_, i\) => QS\.has\("c" \+ \(i \+ 1\)\)\)\.some\(Boolean\)/);
   assert.match(deck, /if \(hasIncomingSlots\) return;/);
   assert.match(deck, /if \(SCENE === "custom" && requestedCount >= 6\)/);
@@ -193,7 +214,7 @@ test("a direct Custom URL is authoritative over saved and default symbols", () =
 test("named scenes are editable device-session presets with an explicit reset", () => {
   assert.match(deck, /const sessionRemembered = \(key\) => \{ try \{ return sessionStorage\.getItem/);
   assert.match(deck, /const prefix = localWorkspace \? "station\." \+ SCENE : "station\.flex\." \+ SCENE/);
-  assert.match(deck, /state = !options\?\.reset && !options\?\.rotate && hasStoredScene\(requested\)/);
+  assert.match(deck, /state = !options\?\.reset && !options\?\.rotate && !namedPage && hasStoredScene\(requested\)/);
   assert.match(deck, /installSceneState\(hasStoredScene\(SCENE\) \? editableState\(SCENE\) : fixedSceneState\(SCENE\)\)/);
   assert.match(deck, /id="resetScene"/);
   assert.match(deck, /el\("resetScene"\)\.addEventListener\("click"/);
