@@ -59,14 +59,15 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   transform:translateX(-50%); background:var(--panel2); border:.6px solid var(--line2);
   border-radius:3px; padding:2px 6px; font-family:var(--mono); font-size:8.5px;
   color:var(--ink); white-space:nowrap; }
-.sc-nchart__live{ position:absolute; top:7px; right:7px; z-index:3; pointer-events:none;
-  display:flex; flex-direction:column; align-items:flex-end; gap:1px;
+.sc-nchart__live{ position:absolute; top:7px; left:8px; z-index:3; pointer-events:none;
+  display:flex; flex-direction:column; align-items:flex-start; gap:1px;
   background:transparent; border:0; padding:0;
   color:var(--dim); white-space:nowrap; text-shadow:0 1px 3px #000,0 0 8px #000; }
 .sc-nchart__live-price{ font:700 clamp(12px,1.65vw,16px) var(--mono); letter-spacing:.01em; line-height:1; }
-.sc-nchart__live-meta{ display:none; }
-.sc-nchart__live[data-up="1"]{ color:var(--bull); }
-.sc-nchart__live[data-up="0"]{ color:var(--bear); }
+.sc-nchart__live-change{ font:600 9px var(--mono); letter-spacing:.04em; line-height:1; }
+.sc-nchart__live[data-change="up"]{ color:var(--bull); }
+.sc-nchart__live[data-change="down"]{ color:var(--bear); }
+.sc-nchart__live[data-change="flat"]{ color:var(--dim); }
 .sc-nchart__live[data-fresh="0"]{ opacity:.72; }
 .sc-nchart__msg{ position:absolute; inset:0; z-index:2; display:flex; align-items:center;
   justify-content:center; color:var(--dim); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
@@ -216,6 +217,7 @@ const QS = new URLSearchParams(location.search);
 const VIEW_PROFILES = ["auto","desk","display","compact"];
 let VIEW_PROFILE = VIEW_PROFILES.includes(QS.get("view")) ? QS.get("view") : "auto";
 document.documentElement.dataset.view = VIEW_PROFILE;
+const SHARED_TIME_AXIS = QS.get("sharedAxis") === "1";
 /* BARE MODE (?bare=1) — used when /chart is a pane inside /deck.
    Two things change, and only these two:
      1. the per-chart range ladder is hidden, because the deck owns ONE
@@ -560,7 +562,7 @@ function scChartDraw(host, scrubIx) {
      band has two rows (date/context above, time/detail below); the right band
      is wide enough for rounded price ticks without becoming the old gutter. */
   const axisBand = h < 130 ? 25 : 30;
-  const padT = 8, padB = axisBand, padR = axisBand, padL = 6;
+  const padT = 8, padB = SHARED_TIME_AXIS ? 8 : axisBand, padR = axisBand, padL = 6;
   const iw = w - padL - padR, ih = h - padT - padB;
   if (iw < 10 || ih < 10) return;
   const view = chartView(host, pts), start = view.start, end = view.end;
@@ -637,28 +639,30 @@ function scChartDraw(host, scrubIx) {
     if (yy >= padT + 6 && yy <= h - padB - 2) ctx.fillText(chAxisPx(v, priceStep), w - 3, yy + 3);
   }
   ctx.restore();
-  const timeFont = VIEW_PROFILE === "desk" ? 8 : VIEW_PROFILE === "compact" ? 7 : 7.75;
-  ctx.font = timeFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-  ctx.fillStyle = col.dim;
-  const firstMs = new Date(pts[start].d).getTime(), lastMs = new Date(pts[end].d).getTime();
-  const visibleSpanMs = Math.max(0, lastMs - firstMs);
-  const intraday = ["15m","30m","1h","2h","3h","4h","6h","12h"].includes(host._range || S.chartRange);
-  const compactAxis = iw < 310;
-  const targetSpacing = intraday ? (compactAxis ? 56 : 76) : (compactAxis ? 48 : 62);
-  const timeTickCount = Math.max(3, Math.min(12, Math.floor(iw / targetSpacing) + 1));
-  const drawnTimes = new Set();
-  for (let k = 0; k < timeTickCount; k++) {
-    const ix = Math.round(start + (k / Math.max(1, timeTickCount - 1)) * (end - start));
-    const parts = chTimeParts(pts[ix].d, host._range || S.chartRange, compactAxis, visibleSpanMs);
-    const key = parts.join("|");
-    if (!parts[0] || drawnTimes.has(key)) continue;
-    drawnTimes.add(key);
-    ctx.textAlign = k === 0 ? "left" : k === timeTickCount - 1 ? "right" : "center";
-    ctx.fillText(parts[0], X(ix), h - padB + 10);
-    if (parts[1]) {
-      ctx.globalAlpha = .78;
-      ctx.fillText(parts[1], X(ix), h - 4);
-      ctx.globalAlpha = 1;
+  if (!SHARED_TIME_AXIS) {
+    const timeFont = VIEW_PROFILE === "desk" ? 8 : VIEW_PROFILE === "compact" ? 7 : 7.75;
+    ctx.font = timeFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+    ctx.fillStyle = col.dim;
+    const firstMs = new Date(pts[start].d).getTime(), lastMs = new Date(pts[end].d).getTime();
+    const visibleSpanMs = Math.max(0, lastMs - firstMs);
+    const intraday = ["15m","30m","1h","2h","3h","4h","6h","12h"].includes(host._range || S.chartRange);
+    const compactAxis = iw < 310;
+    const targetSpacing = intraday ? (compactAxis ? 56 : 76) : (compactAxis ? 48 : 62);
+    const timeTickCount = Math.max(3, Math.min(12, Math.floor(iw / targetSpacing) + 1));
+    const drawnTimes = new Set();
+    for (let k = 0; k < timeTickCount; k++) {
+      const ix = Math.round(start + (k / Math.max(1, timeTickCount - 1)) * (end - start));
+      const parts = chTimeParts(pts[ix].d, host._range || S.chartRange, compactAxis, visibleSpanMs);
+      const key = parts.join("|");
+      if (!parts[0] || drawnTimes.has(key)) continue;
+      drawnTimes.add(key);
+      ctx.textAlign = k === 0 ? "left" : k === timeTickCount - 1 ? "right" : "center";
+      ctx.fillText(parts[0], X(ix), h - padB + 10);
+      if (parts[1]) {
+        ctx.globalAlpha = .78;
+        ctx.fillText(parts[1], X(ix), h - 4);
+        ctx.globalAlpha = 1;
+      }
     }
   }
   if (scrubIx != null && pts[scrubIx]) {
@@ -952,6 +956,16 @@ function scChartLive(t, price, updatedTs) {
   }
 }
 
+/* Stable Station overlay: daily performance is measured from the regular
+   previous close, never from the visible chart window. */
+function chDayChange(price, previousClose) {
+  if (!Number.isFinite(+price) || !Number.isFinite(+previousClose) || +previousClose === 0)
+    return { text:"—", tone:"flat" };
+  const pct = ((+price - +previousClose) / +previousClose) * 100;
+  if (Math.abs(pct) < .005) return { text:"0.00%", tone:"flat" };
+  return { text:(pct > 0 ? "+" : "") + pct.toFixed(2) + "%", tone:pct > 0 ? "up" : "down" };
+}
+
 function paintLiveStatus(host, quote) {
   const badge = host?.querySelector(".sc-nchart__live");
   if (!badge || !quote || !isFinite(+quote.price)) return;
@@ -960,22 +974,20 @@ function paintLiveStatus(host, quote) {
   const fresh = Number.isFinite(age) && age < 90000;
   badge.dataset.fresh = fresh ? "1" : "0";
   const dayRef = prevClose[host.dataset.t];
-  if (dayRef != null && isFinite(dayRef)) badge.dataset.up = +quote.price >= +dayRef ? "1" : "0";
-  else delete badge.dataset.up;
+  const day = chDayChange(+quote.price, dayRef);
+  badge.dataset.change = day.tone;
   let price = badge.querySelector(".sc-nchart__live-price");
-  let meta = badge.querySelector(".sc-nchart__live-meta");
-  if (!price || !meta) {
+  let change = badge.querySelector(".sc-nchart__live-change");
+  if (!price || !change) {
     badge.replaceChildren();
     price = document.createElement("strong");
     price.className = "sc-nchart__live-price";
-    meta = document.createElement("span");
-    meta.className = "sc-nchart__live-meta";
-    badge.append(price, meta);
+    change = document.createElement("span");
+    change.className = "sc-nchart__live-change";
+    badge.append(price, change);
   }
   price.textContent = chPx(+quote.price, host.dataset.t);
-  const quoteKind = futureSet.has(host.dataset.t) ? "DELAYED " : (fresh ? "LIVE " : "LAST ");
-  meta.textContent = quoteKind +
-    at.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit", second:"2-digit" });
+  change.textContent = day.text;
   badge.title = (futureSet.has(host.dataset.t) ? "delayed futures quote · database refresh " : "live_quotes · ") + at.toISOString();
   try {
     parent.postMessage({ sc:"chart-status", ticker:host.dataset.t, updatedTs:at.toISOString(),

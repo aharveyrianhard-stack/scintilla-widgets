@@ -8,6 +8,7 @@ const context = { globalThis:{} };
 vm.runInNewContext(source, context);
 const scenes = context.globalThis.StationScenes;
 const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
+const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
 
 function functionFromDeck(name, bindings = {}) {
   const start = deck.indexOf(`function ${name}(`);
@@ -20,6 +21,19 @@ function functionFromDeck(name, bindings = {}) {
     if (depth === 0) { end = index + 1; break; }
   }
   return vm.runInNewContext(`(${deck.slice(start, end)})`, bindings);
+}
+
+function functionFromSource(sourceText, name, bindings = {}) {
+  const start = sourceText.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `${name} exists`);
+  let depth = 0, end = -1;
+  for (let i = sourceText.indexOf("{", start); i < sourceText.length; i++) {
+    if (sourceText[i] === "{") depth++;
+    else if (sourceText[i] === "}" && --depth === 0) { end = i + 1; break; }
+  }
+  const context = { globalThis:{}, ...bindings };
+  vm.runInNewContext(`${sourceText.slice(start, end)}; globalThis.fn = ${name};`, context);
+  return context.globalThis.fn;
 }
 
 test("all eleven curated scenes are present with fixed baskets", () => {
@@ -53,6 +67,10 @@ test("four, six, and eight chart grids use one shared lower axis", () => {
   assert.match(deck, /#rowTop\.charts-8/);
   assert.match(deck, /axis\.id = "sharedTimeAxis"/);
   assert.match(deck, /row\.classList\.toggle\("shared-axis"/);
+  assert.match(deck, /sharedAxis=1/);
+  assert.match(chart, /const SHARED_TIME_AXIS = QS\.get\("sharedAxis"\) === "1"/);
+  assert.match(chart, /if \(!SHARED_TIME_AXIS\) \{/);
+  assert.match(chart, /padB = SHARED_TIME_AXIS \? 8 : axisBand/);
 });
 
 test("CUSTOM six and eight chart walls begin with real editable symbols", () => {
@@ -89,8 +107,8 @@ test("Scenes V2 stays local-only and preserves the current iPad companion", () =
   assert.match(deck, /SCENE !== "live" && SCENE !== "custom"/);
 });
 
-test("CUSTOM recovery compacts the screenshot-shaped sparse six-card workspace", () => {
-  const match = deck.match(/function compactCustomState\(state\) \{[\s\S]*?\n\}/);
+test("CUSTOM preserves the screenshot-shaped sparse six-slot workspace", () => {
+  const match = deck.match(/function preservedCustomState\(state\) \{[\s\S]*?\n\}/);
   assert.ok(match, "CUSTOM recovery helper is present in the rendered Station source");
   const customContext = {
     CLEAN: (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12),
@@ -99,20 +117,62 @@ test("CUSTOM recovery compacts the screenshot-shaped sparse six-card workspace",
     chartCount: scenes.chartCountForSize,
     SceneModel: { chartCountForSize: scenes.chartCountForSize }
   };
-  vm.runInNewContext(`${match[0]}; globalThis.compact = compactCustomState;`, customContext);
-  const recovered = customContext.compact({
+  vm.runInNewContext(`${match[0]}; globalThis.preserve = preservedCustomState;`, customContext);
+  const recovered = customContext.preserve({
     charts: ["TSM", "WULF", "", "", "", ""],
     chartCount: 6,
     range: "3h"
   });
-  assert.equal(recovered.chartCount, 2);
+  assert.equal(recovered.chartCount, 6);
   assert.deepEqual(Array.from(recovered.charts), ["TSM", "WULF", "", "", "", "", "", ""]);
-  assert.equal(recovered.charts.slice(0, recovered.chartCount).includes(""), false);
-  assert.equal(customContext.compact({ charts:["", "", ""], chartCount:6, range:"3h" }), null);
-  assert.match(deck, /const fallback = customWallState\(\{ charts:\[\], range:RANGE \}, 6\)/);
+  assert.equal(recovered.charts.slice(0, recovered.chartCount).filter(Boolean).length, 2);
+  assert.match(deck, /const hasIncomingSlots = Array\.from\(\{ length:8 \}, \(_, i\) => QS\.has\("c" \+ \(i \+ 1\)\)\)\.some\(Boolean\)/);
+  assert.match(deck, /if \(hasIncomingSlots\) return;/);
   assert.match(deck, /if \(SCENE === "custom" && requestedCount >= 6\)/);
-  assert.match(deck, /CHART_COUNT = wall\.chartCount;[\s\S]*?syncChartPanes\(\);/,
-    "growing a saved Custom wall must refresh the mounted pane definitions");
+  assert.match(deck, /CHART_COUNT = requestedCount;/,
+    "growing Custom preserves intentionally empty slots instead of reseeding them");
+});
+
+test("Custom uses a complete desk budget and explicit empty versus paused cards", () => {
+  assert.match(deck, /const LIVE_CAP = STACKED \? 2 : 11;/);
+  assert.match(deck, /empty editable slot/);
+  assert.match(deck, /resume chart/);
+  assert.match(deck, /\^c\(\[1-8\]\)\$/);
+  assert.match(deck, /syncChartPanes\(\);\n  CHARTS\.forEach/,
+    "count changes synchronize chart URLs before mounting active panes");
+});
+
+test("shared-axis query follows only synchronized chart counts", () => {
+  const chartSrc = functionFromDeck("chartSrc", {
+    RANGE: "3h",
+    VIEW: "desk",
+    CHART_COUNT: 6,
+    encodeURIComponent,
+    SceneModel: { usesSharedBottomAxis: scenes.usesSharedBottomAxis }
+  });
+  assert.match(chartSrc("TSM"), /t=TSM/);
+  assert.match(chartSrc("TSM"), /sharedAxis=1/);
+  const localAxisChartSrc = functionFromDeck("chartSrc", {
+    RANGE: "3h",
+    VIEW: "desk",
+    CHART_COUNT: 3,
+    encodeURIComponent,
+    SceneModel: { usesSharedBottomAxis: scenes.usesSharedBottomAxis }
+  });
+  assert.doesNotMatch(localAxisChartSrc("TSM"), /sharedAxis=1/);
+});
+
+test("fixed price overlay reports daily performance honestly", () => {
+  const dayChange = functionFromSource(chart, "chDayChange", { Number, Math });
+  assert.deepEqual(JSON.parse(JSON.stringify(dayChange(105, 100))), { text:"+5.00%", tone:"up" });
+  assert.deepEqual(JSON.parse(JSON.stringify(dayChange(95, 100))), { text:"-5.00%", tone:"down" });
+  assert.deepEqual(JSON.parse(JSON.stringify(dayChange(100, 100))), { text:"0.00%", tone:"flat" });
+  assert.deepEqual(JSON.parse(JSON.stringify(dayChange(105, null))), { text:"—", tone:"flat" });
+  assert.match(chart, /\.sc-nchart__live\{ position:absolute; top:7px; left:8px/);
+  assert.match(chart, /\.sc-nchart__live-change/);
+  assert.match(chart, /badge\.dataset\.change = day\.tone/);
+  assert.doesNotMatch(chart, /sc-nchart__live-meta/,
+    "the overlay keeps price plus daily change, not last-time/OHLC clutter");
 });
 
 test("a scene transition reloads a mounted frame whose URL has an old ticker", () => {
