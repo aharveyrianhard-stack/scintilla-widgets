@@ -192,14 +192,24 @@ test("shared-axis query follows only synchronized chart counts", () => {
 test("fixed price overlay reports daily performance honestly", () => {
   const dayChange = functionFromSource(chart, "chDayChange", { Number, Math });
   assert.deepEqual(JSON.parse(JSON.stringify(dayChange(105, 100))), { text:"+5.00%", tone:"up" });
-  assert.deepEqual(JSON.parse(JSON.stringify(dayChange(95, 100))), { text:"-5.00%", tone:"down" });
+  assert.deepEqual(JSON.parse(JSON.stringify(dayChange(95, 100))), { text:"(5.00%)", tone:"down" });
   assert.deepEqual(JSON.parse(JSON.stringify(dayChange(100, 100))), { text:"0.00%", tone:"flat" });
   assert.deepEqual(JSON.parse(JSON.stringify(dayChange(105, null))), { text:"—", tone:"flat" });
   assert.match(chart, /\.sc-nchart__live\{ position:absolute; top:7px; left:8px/);
+  assert.match(chart, /sc-nchart__live-ticker/);
+  assert.match(chart, /parent\.postMessage\(\{ sc:"chart-focus-ticker" \}/);
   assert.match(chart, /\.sc-nchart__live-change/);
   assert.match(chart, /badge\.dataset\.change = day\.tone/);
   assert.doesNotMatch(chart, /sc-nchart__live-meta/,
     "the overlay keeps price plus daily change, not last-time/OHLC clutter");
+});
+
+test("chart identity focuses the existing deck ticker editor and fullscreen lives in the chart corner", () => {
+  assert.match(deck, /event\.data\?\.sc === "chart-focus-ticker"/);
+  assert.match(deck, /focusTickerFor\(pane\.def\.key\)/);
+  assert.match(deck, /bFull\.classList\.add\("chart-full"\)/);
+  assert.match(deck, /\.chart-full\{ position:absolute; top:6px; right:7px/);
+  assert.match(deck, /font-size:clamp\(8px,\.62vw,10px\)/);
 });
 
 test("a scene transition reloads a mounted frame whose URL has an old ticker", () => {
