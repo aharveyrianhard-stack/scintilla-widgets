@@ -473,7 +473,7 @@ test("one source crop is broadcast to every connected Station mirror", async () 
   }, display);
 
   await dispatchRuntime(h.runtimeListeners, {
-    type: "XFF_STATION_CROP", crop: { activeView: "trading", rect: { width: 430 } }
+    type: "XFF_STATION_CROP", crop: { activeView: "trading", rect: { width: 430 }, captureGeneration: 12, sequence: 44 }
   }, { tab: { id: 7, windowId: 1 }, frameId: 0 });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -481,6 +481,9 @@ test("one source crop is broadcast to every connected Station mirror", async () 
     tabId === 11 && message.type === "XFF_STATION_CROP"));
   assert.ok(h.sent.some(({ tabId, message }) =>
     tabId === 22 && message.type === "XFF_STATION_CROP"));
+  const relayed = h.sent.find(({ tabId, message }) => tabId === 11 && message.type === "XFF_STATION_CROP");
+  assert.equal(relayed.message.crop.captureGeneration, 12);
+  assert.equal(relayed.message.crop.sequence, 44);
 });
 
 test("a Station reload reattaches the existing capture without a second user action", async () => {

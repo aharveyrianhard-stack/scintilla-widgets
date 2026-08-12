@@ -235,6 +235,8 @@ let stream = null;
 let xfloatStream = null;
 let xfloatPeer = null;
 let xfloatCrop = null;
+let viewerCropState = { confirmedCrop:null, confirmedGeneration:0, confirmedSequence:0,
+  pendingCrop:null, videoFrames:0, receivedGeneration:0, pendingDrops:0, staleDrops:0 };
 let xfloatFrame = 0;
 let xfloatPaused = false;
 let xfloatExpanded = false;
@@ -243,7 +245,8 @@ let stationTickFrame = 0;
 let stationTickAt = 0;
 let viewerClockOwner = true;
 const viewerClockPeers = new Map();
-const viewerCadence = { paintFrames:0, paintSkipped:0, tickAttempts:0, tickSent:0, ownerChanges:0,
+const viewerCadence = { paintFrames:0, paintSkipped:0, videoFrames:0, tickAttempts:0, tickSent:0, ownerChanges:0,
+  receivedGeneration:0, confirmedGeneration:0, pendingDrops:0, staleCropDrops:0,
   lastPaintAt:0, lastTickAt:0, viewerId:VIEWER_CLOCK_ID, ownerId:VIEWER_CLOCK_ID };
 const viewerClockChannel = !REMOTE_MODE && typeof BroadcastChannel === "function"
   ? new BroadcastChannel("scintilla.station.x-clock.v1") : null;
@@ -258,6 +261,7 @@ let remoteOfferRetry = null;
 let remoteReconnect = null;
 let remoteFrameAt = 0;
 let remoteVisibilityCheck = null;
+let stopViewerFrameObserver = null;
 const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
 const STATION_JOIN_TIMEOUT_MS = 5000;
 
@@ -268,6 +272,111 @@ function publishViewerCadence() {
     owner:viewerClockOwner,
     visible:document.visibilityState === "visible"
   });
+}
+
+/* A capture acknowledgement says the source/offscreen pair has crossed a
+   scroll boundary.  It does not mean this viewer has decoded that frame yet.
+   Keep the last safe crop through two local video frames so a fresh crop never
+   composes with an older WebRTC frame. */
+function cropGenerationFor(crop) { return Math.max(0, Number(crop?.captureGeneration) || 0); }
+function cropSequenceFor(crop) { return Math.max(0, Number(crop?.sequence) || 0); }
+function receiveViewerCropState(state, crop) {
+  const current = Object.assign({}, state);
+  const generation = cropGenerationFor(crop), sequence = cropSequenceFor(crop);
+  current.receivedGeneration = Math.max(current.receivedGeneration || 0, generation);
+  if (!generation) {
+    if ((current.confirmedGeneration || 0) || current.pendingCrop) {
+      current.staleDrops = (current.staleDrops || 0) + 1;
+      return current;
+    }
+    current.confirmedCrop = crop; current.confirmedSequence = sequence;
+    return current;
+  }
+  if (generation < (current.confirmedGeneration || 0) ||
+      (generation === (current.confirmedGeneration || 0) && sequence < (current.confirmedSequence || 0))) {
+    current.staleDrops = (current.staleDrops || 0) + 1;
+    return current;
+  }
+  if (generation === (current.confirmedGeneration || 0) && !current.pendingCrop) {
+    current.confirmedCrop = crop; current.confirmedSequence = sequence;
+    return current;
+  }
+  if (current.pendingCrop && generation < current.pendingCrop.generation) {
+    current.staleDrops = (current.staleDrops || 0) + 1;
+    return current;
+  }
+  if (current.pendingCrop && generation === current.pendingCrop.generation) {
+    if (sequence < current.pendingCrop.sequence) {
+      current.staleDrops = (current.staleDrops || 0) + 1;
+      return current;
+    }
+    /* Preserve the original two-frame barrier while taking the newest
+       sub-pixel crop from this same confirmed source generation. */
+    current.pendingCrop = Object.assign({}, current.pendingCrop, { crop, sequence });
+    return current;
+  }
+  if (current.pendingCrop && generation > current.pendingCrop.generation) {
+    current.pendingDrops = (current.pendingDrops || 0) + 1;
+  }
+  current.pendingCrop = { crop, generation, sequence, promoteAtVideoFrame:(current.videoFrames || 0) + 2 };
+  return current;
+}
+function advanceViewerCropState(state) {
+  const current = Object.assign({}, state, { videoFrames:(state.videoFrames || 0) + 1 });
+  const pending = current.pendingCrop;
+  if (pending && current.videoFrames >= pending.promoteAtVideoFrame) {
+    current.confirmedCrop = pending.crop;
+    current.confirmedGeneration = pending.generation;
+    current.confirmedSequence = pending.sequence;
+    current.pendingCrop = null;
+  }
+  return current;
+}
+function receiveViewerCrop(crop) {
+  viewerCropState = receiveViewerCropState(viewerCropState, crop);
+  xfloatCrop = viewerCropState.confirmedCrop;
+  viewerCadence.receivedGeneration = viewerCropState.receivedGeneration;
+  viewerCadence.confirmedGeneration = viewerCropState.confirmedGeneration;
+  viewerCadence.pendingDrops = viewerCropState.pendingDrops;
+  viewerCadence.staleCropDrops = viewerCropState.staleDrops;
+  publishViewerCadence();
+  return xfloatCrop;
+}
+function noteViewerVideoFrame() {
+  viewerCropState = advanceViewerCropState(viewerCropState);
+  xfloatCrop = viewerCropState.confirmedCrop;
+  viewerCadence.videoFrames = viewerCropState.videoFrames;
+  viewerCadence.confirmedGeneration = viewerCropState.confirmedGeneration;
+  publishViewerCadence();
+  return xfloatCrop;
+}
+function observeViewerVideoFrames(video, mediaStream, onFrame) {
+  let stopped = false;
+  const active = () => !stopped && video?.srcObject === mediaStream;
+  if (typeof video?.requestVideoFrameCallback === "function") {
+    const afterFrame = () => {
+      if (!active()) return;
+      onFrame();
+      video.requestVideoFrameCallback(afterFrame);
+    };
+    video.requestVideoFrameCallback(afterFrame);
+    return () => { stopped = true; };
+  }
+  /* Older viewers have no rVFC.  `timeupdate` is a real media-time advance,
+     unlike rAF, so it retains the two decoded-frame safety barrier. */
+  let lastTime = Number(video?.currentTime) || 0;
+  const onTimeUpdate = () => {
+    if (!active()) return;
+    const nextTime = Number(video.currentTime) || 0;
+    if (nextTime <= lastTime) return;
+    lastTime = nextTime;
+    onFrame();
+  };
+  video.addEventListener("timeupdate", onTimeUpdate);
+  return () => {
+    stopped = true;
+    video.removeEventListener("timeupdate", onTimeUpdate);
+  };
 }
 
 function refreshViewerClock(visible = document.visibilityState === "visible") {
@@ -508,6 +617,8 @@ function stopXFloat({ notify = true } = {}) {
   stationTickFrame = 0;
   stationTickAt = 0;
   xfloatDrawAt = 0;
+  if (stopViewerFrameObserver) stopViewerFrameObserver();
+  stopViewerFrameObserver = null;
   if (xfloatStream) for (const track of xfloatStream.getTracks()) track.stop();
   xfloatStream = null;
   if (xfloatPeer) xfloatPeer.close();
@@ -528,6 +639,9 @@ function stopXFloat({ notify = true } = {}) {
   if (remoteSocket) remoteSocket.close();
   remoteSocket = null;
   remoteFrameAt = 0;
+  viewerCropState = { confirmedCrop:null, confirmedGeneration:0, confirmedSequence:0,
+    pendingCrop:null, videoFrames:0, receivedGeneration:0, pendingDrops:0, staleDrops:0 };
+  xfloatCrop = null;
   xfloatPaused = false;
   el("v").srcObject = stream;
   document.body.classList.remove("xfloat");
@@ -628,15 +742,11 @@ async function attachXFloatStream(mediaStream) {
   const video = el("v");
   video.srcObject = xfloatStream;
   await video.play();
-  if (REMOTE_MODE && typeof video.requestVideoFrameCallback === "function") {
+  if (stopViewerFrameObserver) stopViewerFrameObserver();
+  stopViewerFrameObserver = observeViewerVideoFrames(video, mediaStream, () => {
     remoteFrameAt = performance.now();
-    const noteRemoteFrame = () => {
-      if (video.srcObject !== mediaStream) return;
-      remoteFrameAt = performance.now();
-      video.requestVideoFrameCallback(noteRemoteFrame);
-    };
-    video.requestVideoFrameCallback(noteRemoteFrame);
-  }
+    noteViewerVideoFrame();
+  });
   document.body.classList.remove("live");
   document.body.classList.add("xfloat");
   xfloatControls(true);
@@ -745,7 +855,7 @@ async function startRemoteStationViewer() {
       if (remoteOfferRetry) clearInterval(remoteOfferRetry);
       remoteOfferRetry = null;
     }).catch(error => showErr("iMac X answer failed: " + error.message));
-    if (payload.event === "crop") { xfloatCrop = payload.payload; paintXView(xfloatCrop?.activeView || "trading"); drawXFloat(); }
+    if (payload.event === "crop") { receiveViewerCrop(payload.payload); paintXView(xfloatCrop?.activeView || "trading"); drawXFloat(); }
   });
   remoteSocket.addEventListener("error", () => {
     if (remoteSocket !== activeRemoteSocket) return;
@@ -882,7 +992,7 @@ window.addEventListener("message", (event) => {
     el("pairState").textContent = "iPad connected";
   }
   if (event.data?.type === "XFF_STATION_CROP") {
-    xfloatCrop = event.data.crop;
+    receiveViewerCrop(event.data.crop);
     const paused = Boolean(xfloatCrop?.paused);
     el("xfState").textContent = paused ? "paused" : "live";
     paintXView(xfloatCrop?.activeView || "trading");

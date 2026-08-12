@@ -488,9 +488,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "XFF_STATION_CROP") {
     if (sender.tab?.id !== stationSourceTabId) return;
+    const crop = message.crop && typeof message.crop === "object"
+      ? Object.assign({}, message.crop, {
+        captureGeneration: Math.max(0, Number(message.crop.captureGeneration) || 0),
+        sequence: Math.max(0, Number(message.crop.sequence) || 0)
+      })
+      : message.crop;
     broadcastToStations({
       type: "XFF_STATION_CROP",
-      crop: message.crop
+      crop
     }).catch(() => {});
     return;
   }

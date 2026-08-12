@@ -72,6 +72,8 @@ test("Station crop geometry is cached outside bounded observer-driven refreshes"
     source.indexOf("function stopStationRelay")
   );
   assert.match(payload, /rect: refreshStationCropGeometry\(\)/);
+  assert.match(payload, /captureGeneration: session\.stationConfirmedCaptureGeneration/);
+  assert.match(payload, /sequence: \+\+session\.stationCropSequence/);
   assert.doesNotMatch(payload, /calculateCropRect\(\)/);
   assert.match(source, /new ResizeObserver\(scheduleCropTargetUpdate\)/);
   assert.match(source, /new MutationObserver\(observeCurrentColumn\)/);
@@ -96,6 +98,7 @@ test("a post-scroll crop is released only by the current captured-frame generati
   assert.match(source, /confirmed !== session\.stationPendingScrollGeneration/,
     "late capture acknowledgements must be ignored");
   assert.match(source, /session\.stationRenderedOffset = session\.scrollCarryPx/);
+  assert.match(source, /session\.stationConfirmedCaptureGeneration = confirmed/);
   assert.match(source, /type: "XFF_STATION_CROP", crop: stationCropPayload\(\)/,
     "the next offset is broadcast only after the matching decoded frame");
   assert.match(source, /message\?\.type === "XFF_STATION_CAPTURE_FRAME"/);
