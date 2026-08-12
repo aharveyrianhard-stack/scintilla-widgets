@@ -35,19 +35,24 @@
   }
 
   function ready() {
-    window.postMessage({ type: "XFF_STATION_BRIDGE_READY" }, ORIGIN);
-    runtimeMessage({
+    return runtimeMessage({
       type: "XFF_STATION_READY",
       instanceId: INSTANCE_ID,
       ...dimensions()
     }).then((result) => {
-      if (result?.ok && result.active === false) {
+      if (!result?.ok) return result;
+      window.postMessage({
+        type: "XFF_STATION_BRIDGE_READY",
+        instanceId: INSTANCE_ID
+      }, ORIGIN);
+      if (result.active === false) {
         window.postMessage({
           type: "XFF_STATION_STATUS",
           status: "standby",
           detail: "Mirroring the active Station display."
         }, ORIGIN);
       }
+      return result;
     });
   }
 
@@ -74,8 +79,10 @@
     }
 
     if (message?.type === "XFF_STATION_REMOTE_ANSWER") {
+      if (String(message.instanceId || "") !== INSTANCE_ID) return;
       window.postMessage({
         type: "XFF_STATION_REMOTE_ANSWER",
+        instanceId: INSTANCE_ID,
         pairId: message.pairId,
         viewerId: message.viewerId,
         answer: message.answer
@@ -100,6 +107,14 @@
 
   window.addEventListener("message", (event) => {
     if (event.source !== window || event.origin !== ORIGIN) return;
+    if (event.data?.type === "XFF_STATION_REMOTE_OFFER" ||
+        event.data?.type === "XFF_STATION_REMOTE_DROP") {
+      /* A V079 listener can still exist in the already-open page after the
+         extension reload, but its runtime belongs to the retired worker.
+         Claim generation-bound remote signaling in capture phase so that
+         stale listener cannot emit a false error or duplicate the offer. */
+      event.stopImmediatePropagation();
+    }
     if (event.data?.type === "XFF_STATION_CONTROL") {
       runtimeMessage({
         type: "XFF_STATION_CONTROL",
@@ -128,25 +143,51 @@
     if (event.data?.type === "XFF_STATION_REMOTE_OFFER") {
       runtimeMessage({
         type: "XFF_STATION_REMOTE_OFFER",
+        instanceId: INSTANCE_ID,
         pairId: event.data.pairId,
         viewerId: event.data.viewerId,
         offer: event.data.offer
       }).then((result) => {
-        if (result?.ok === false) window.postMessage({
+        if (result?.ok) {
+          window.postMessage({
+            type: "XFF_STATION_REMOTE_ACCEPTED",
+            instanceId: INSTANCE_ID,
+            pairId: event.data.pairId,
+            viewerId: event.data.viewerId
+          }, ORIGIN);
+          return;
+        }
+        if (result?.retryable) {
+          window.postMessage({
+            type: "XFF_STATION_BRIDGE_REANNOUNCING",
+            instanceId: INSTANCE_ID
+          }, ORIGIN);
+          ready().catch(() => {});
+          return;
+        }
+        window.postMessage({
           type: "XFF_STATION_STATUS",
           status: "error",
-          detail: result.error || "The iPad viewer could not connect."
+          detail: result?.error || "The iPad viewer could not connect."
         }, ORIGIN);
       }).catch(() => {});
     }
     if (event.data?.type === "XFF_STATION_REMOTE_DROP") {
       runtimeMessage({
         type: "XFF_STATION_REMOTE_DROP",
+        instanceId: INSTANCE_ID,
         pairId: event.data.pairId,
         viewerId: event.data.viewerId
+      }).then((result) => {
+        if (!result?.retryable) return;
+        window.postMessage({
+          type: "XFF_STATION_BRIDGE_REANNOUNCING",
+          instanceId: INSTANCE_ID
+        }, ORIGIN);
+        ready().catch(() => {});
       }).catch(() => {});
     }
-  });
+  }, true);
 
   let resizeTimer = 0;
   const heartbeat = setInterval(ready, 30000);

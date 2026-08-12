@@ -208,6 +208,8 @@ let xfloatDrawAt = 0;
 let stationTickFrame = 0;
 let stationTickAt = 0;
 let stationPair = null;
+let stationBridgeInstanceId = "";
+const stationPendingRemoteOffers = new Map();
 let remoteSocket = null;
 let remotePeer = null;
 let remoteOfferRetry = null;
@@ -215,6 +217,36 @@ let remoteReconnect = null;
 let remoteFrameAt = 0;
 let remoteVisibilityCheck = null;
 const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
+
+function stationRemoteKey(pairId, viewerId) {
+  return String(pairId || "") + ":" + String(viewerId || "");
+}
+
+function sendStationRemoteOffer(pending) {
+  if (!stationBridgeInstanceId || !pending) return;
+  window.postMessage({
+    type:"XFF_STATION_REMOTE_OFFER",
+    instanceId:stationBridgeInstanceId,
+    pairId:pending.pairId,
+    viewerId:pending.viewerId,
+    offer:pending.offer
+  }, location.origin);
+}
+
+function queueStationRemoteOffer(pairId, viewerId, offer) {
+  const pending = { pairId, viewerId, offer };
+  stationPendingRemoteOffers.set(stationRemoteKey(pairId, viewerId), pending);
+  sendStationRemoteOffer(pending);
+}
+
+function flushStationRemoteOffers() {
+  if (!stationBridgeInstanceId) return;
+  for (const pending of stationPendingRemoteOffers.values()) sendStationRemoteOffer(pending);
+}
+
+function clearStationRemoteOffer(pairId, viewerId) {
+  stationPendingRemoteOffers.delete(stationRemoteKey(pairId, viewerId));
+}
 
 function pairingToken() {
   const bytes = new Uint8Array(24); crypto.getRandomValues(bytes);
@@ -257,12 +289,7 @@ function stationRealtimeRoom(pair) {
     if (payload.event === "offer" && stationPair && payload.payload?.code === stationPair.code &&
         /^[A-Za-z0-9_-]{16,}$/.test(payload.payload?.viewerId || "") && payload.payload?.offer) {
       el("pairState").textContent = "iPad request received";
-      window.postMessage({
-        type:"XFF_STATION_REMOTE_OFFER",
-        pairId:stationPair.token,
-        viewerId:payload.payload.viewerId,
-        offer:payload.payload.offer
-      }, location.origin);
+      queueStationRemoteOffer(stationPair.token, payload.payload.viewerId, payload.payload.offer);
     }
     if (payload.event === "control" && stationPair && payload.payload?.code === stationPair.code) {
       const action = payload.payload?.action;
@@ -273,8 +300,11 @@ function stationRealtimeRoom(pair) {
     }
     if (payload.event === "drop" && stationPair && payload.payload?.code === stationPair.code &&
         /^[A-Za-z0-9_-]{16,}$/.test(payload.payload?.viewerId || "")) {
+      clearStationRemoteOffer(stationPair.token, payload.payload.viewerId);
+      if (!stationBridgeInstanceId) return;
       window.postMessage({
         type:"XFF_STATION_REMOTE_DROP",
+        instanceId:stationBridgeInstanceId,
         pairId:stationPair.token,
         viewerId:payload.payload.viewerId
       }, location.origin);
@@ -289,6 +319,7 @@ function stationRealtimeRoom(pair) {
 function stopStationPairing() {
   if (!stationPair) return;
   window.postMessage({ type:"XFF_STATION_REMOTE_DROP", pairId:stationPair.token }, location.origin);
+  stationPendingRemoteOffers.clear();
   stationPair.room?.close(); stationPair = null;
   el("bPair").textContent = "copy iPad link";
 }
@@ -663,8 +694,19 @@ el("body").addEventListener("pointerleave", () => { if (xfloatStream && !xfloatP
 
 window.addEventListener("message", (event) => {
   if (event.source !== window || event.origin !== location.origin) return;
-  if (event.data?.type === "XFF_STATION_BRIDGE_READY" && !xfloatStream) {
-    el("xfState").textContent = "ready";
+  if (event.data?.type === "XFF_STATION_BRIDGE_READY" && event.data.instanceId) {
+    stationBridgeInstanceId = String(event.data.instanceId);
+    flushStationRemoteOffers();
+    if (!xfloatStream) el("xfState").textContent = "ready";
+  }
+  if (event.data?.type === "XFF_STATION_BRIDGE_REANNOUNCING" &&
+      String(event.data.instanceId || "") === stationBridgeInstanceId) {
+    stationBridgeInstanceId = "";
+    if (stationPair) el("pairState").textContent = "receiver reannouncing";
+  }
+  if (event.data?.type === "XFF_STATION_REMOTE_ACCEPTED" &&
+      String(event.data.instanceId || "") === stationBridgeInstanceId) {
+    clearStationRemoteOffer(event.data.pairId, event.data.viewerId);
   }
   if (event.data?.type === "XFF_STATION_STREAM" && event.data.streamId) {
     startXFloat(event.data.streamId).catch((error) => showErr("XFloat could not connect: " + error.message));
@@ -677,7 +719,9 @@ window.addEventListener("message", (event) => {
       .catch((error) => showErr("Station X answer failed: " + error.message));
   }
   if (event.data?.type === "XFF_STATION_REMOTE_ANSWER" && event.data.answer && stationPair &&
+      String(event.data.instanceId || "") === stationBridgeInstanceId &&
       event.data.pairId === stationPair.token && /^[A-Za-z0-9_-]{16,}$/.test(event.data.viewerId || "")) {
+    clearStationRemoteOffer(event.data.pairId, event.data.viewerId);
     stationPair.room?.publish("answer", { viewerId:event.data.viewerId, answer:event.data.answer, at:Date.now() });
     el("pairState").textContent = "iPad connected";
   }
