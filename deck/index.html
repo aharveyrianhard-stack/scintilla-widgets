@@ -360,11 +360,20 @@ const statePrefix = () => SCENE === "custom" ? "station.custom" : "station.live"
 const storedState = (suffix) => remembered(statePrefix() + "." + suffix) ||
   (SCENE === "custom" ? remembered("station.live." + suffix) : "") || remembered("station." + suffix);
 const URL_STATEFUL = SCENE === "live" || SCENE === "custom";
+/* A direct Custom URL is a complete manual workspace. Once it supplies any
+   cN slot, omitted slots are deliberately empty—not permission to inherit a
+   prior Custom/LIVE workspace or the generic SPY/SNDK defaults. */
+const DIRECT_CUSTOM_WORKSPACE = SCENE === "custom" &&
+  Array.from({ length:8 }, (_, i) => QS.has("c" + (i + 1))).some(Boolean);
 let CHART_COUNT = chartCount((URL_STATEFUL ? QS.get("charts") : "") || storedState("chartCount") || 2);
+function initialWorkspaceChart(incoming, stored, index, directCustom) {
+  if (directCustom) return incoming && incoming !== "auto" ? CLEAN(incoming) : "";
+  if (incoming && incoming !== "auto") return CLEAN(incoming);
+  return CLEAN(stored) || (index === 0 ? "SPY" : index === 1 ? "SNDK" : "");
+}
 const CHARTS = Array.from({ length: 8 }, (_, i) => {
   const incoming = URL_STATEFUL ? QS.get("c" + (i + 1)) : "";
-  if (incoming && incoming !== "auto") return CLEAN(incoming);
-  return CLEAN(storedState("chart." + (i + 1))) || (i === 0 ? "SPY" : i === 1 ? "SNDK" : "");
+  return initialWorkspaceChart(incoming, storedState("chart." + (i + 1)), i, DIRECT_CUSTOM_WORKSPACE);
 });
 let RANGE = RANGES.includes(URL_STATEFUL ? QS.get("range") : "") ? QS.get("range") :
   (RANGES.includes(storedState("range")) ? storedState("range") : "3h");
