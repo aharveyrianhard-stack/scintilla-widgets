@@ -912,11 +912,11 @@ function paintSceneControls(note) {
   el("resetScene").style.display = resettable ? "" : "none";
   const box = el("cohortControls");
   const named = fixedSceneState(SCENE, CHART_COUNT);
-  box.classList.toggle("on", SCENE === "cohort" || !!named);
   if (named) {
     el("cohortSelect").style.display = "none";
     const namedPages = Math.max(1, Math.ceil(named.totalItems / CHART_COUNT));
     const namedPage = Math.floor(named.offset / CHART_COUNT) + 1;
+    box.classList.toggle("on", namedPages > 1);
     el("cohortPage").textContent = "page " + namedPage + " / " + namedPages;
     el("cohortPrev").classList.toggle("on", named.hasPrevious);
     el("cohortNext").classList.toggle("on", named.hasNext);
@@ -926,12 +926,16 @@ function paintSceneControls(note) {
     return;
   }
   el("cohortSelect").style.display = "";
-  if (SCENE !== "cohort" || !COHORT_READY) return;
+  if (SCENE !== "cohort" || !COHORT_READY) {
+    box.classList.remove("on");
+    return;
+  }
   const names = orderedCohorts(), select = el("cohortSelect");
   select.innerHTML = names.map((name) => '<option value="' + esc(name) + '">' +
     esc(name.replace(/_/g," ")) + " · " + (COHORT_INDEX.get(name) || []).length + "</option>").join("");
   select.value = COHORT;
   const page = cohortState();
+  box.classList.toggle("on", page.totalPages > 1);
   el("cohortPage").textContent = "page " + (page.page + 1) + " / " + page.totalPages;
   el("cohortPrev").classList.toggle("on", page.page > 0);
   el("cohortNext").classList.toggle("on", page.page + 1 < page.totalPages);

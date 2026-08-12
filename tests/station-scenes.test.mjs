@@ -153,6 +153,12 @@ test("header groups scene, page, and compact auto-rotate controls without changi
   assert.match(deck, /aria-label="Next basket page"/);
   assert.match(deck, /textContent = "page " \+ namedPage \+ " \/ " \+ namedPages/);
   assert.match(deck, /textContent = "page " \+ \(page\.page \+ 1\) \+ " \/ " \+ page\.totalPages/);
+  assert.match(deck, /box\.classList\.toggle\("on", namedPages > 1\)/,
+    "single-page named baskets do not leave pager noise in the header");
+  assert.match(deck, /box\.classList\.toggle\("on", page\.totalPages > 1\)/,
+    "cohort pager appears only when its basket has more than one page");
+  assert.match(deck, /box\.classList\.remove\("on"\);\n    return;/,
+    "non-paged scenes remove the page group before the header reflows");
   assert.match(deck, /el\("cohortPrev"\)\.addEventListener\("click"/);
   assert.match(deck, /el\("cohortNext"\)\.addEventListener\("click"/);
 });
