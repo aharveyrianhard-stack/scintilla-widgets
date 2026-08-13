@@ -441,6 +441,37 @@ test("Station range is run-wide, starts at 3h after reload, and scenes cannot ov
     "a fresh child chart also defaults to 3h");
 });
 
+test("the deck owns one deduplicated visible quote feed for embedded charts", () => {
+  const selectVisibleQuoteRows = functionFromDeck("selectVisibleQuoteRows", {
+    CLEAN: (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12),
+    Map, Set, Date
+  });
+  const selected = selectVisibleQuoteRows([
+    { ticker:"SPY", price:772.49, prev_close:770.56, updated_ts:"2026-08-13T17:00:00Z" },
+    { ticker:"QQQ", price:621.20, prev_close:620.10, updated_ts:"2026-08-13T17:00:00Z" },
+    { ticker:"OTHER", price:1, prev_close:1, updated_ts:"2026-08-13T17:00:00Z" }
+  ], ["SPY", "SPY", "QQQ"]);
+  assert.deepEqual(JSON.parse(JSON.stringify(Array.from(selected))), [
+    ["SPY", { ticker:"SPY", price:772.49, prev_close:770.56, updated_ts:"2026-08-13T17:00:00Z" }],
+    ["QQQ", { ticker:"QQQ", price:621.2, prev_close:620.1, updated_ts:"2026-08-13T17:00:00Z" }]
+  ]);
+  assert.match(deck, /const DECK_QUOTES = new Map\(\)/);
+  assert.match(deck, /station-deck-lq/);
+  assert.match(deck, /live_quotes\?ticker=in\.\(/,
+    "one deck request fetches the deduplicated visible ticker set");
+  assert.match(deck, /const DECK_QUOTE_TIMEOUT_MS = 4500/,
+    "the wall quote request has the same bounded timeout as a chart request");
+  assert.match(deck, /if \(deckQuoteInFlight\) \{ deckQuoteRerun = true; return; \}/,
+    "a heartbeat cannot overlap a stalled active quote request");
+  assert.match(chart, /const DECK_QUOTE_MODE = BARE && window\.parent !== window/);
+  assert.match(chart, /if \(sb && !DECK_QUOTE_MODE\)/,
+    "embedded charts do not open sibling realtime subscriptions");
+  assert.match(chart, /if \(!DECK_QUOTE_MODE\) setInterval\(\(\) => pullPrevClose\(S\.chartT\), 10000\)/,
+    "embedded charts do not run independent ten-second quote polls");
+  assert.match(chart, /d\.sc === "deck-quote"/,
+    "a cached parent quote reaches the matching child before it would poll");
+});
+
 test("a scene transition reloads a mounted frame whose URL has an old ticker", () => {
   const syncChartFrame = functionFromDeck("syncChartFrame", { location: { origin:"https://station.test" } });
   const priorSrc = "/chart?bare=1&t=SPY&range=3h";
