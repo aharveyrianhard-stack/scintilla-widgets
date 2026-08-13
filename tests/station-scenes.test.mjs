@@ -654,6 +654,8 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "the shared playlist has one durable cache for immediate cross-device reads");
   assert.match(ytAction, /if \(cached\) return J\(\{ ok: true, account, ids: cached, cached: true \}\)/,
     "Watch Later returns the verified shared cache before an unreliable Google playlist read can delay the pane");
+  assert.match(ytAction, /if \(action === "list"\) \{\s*const cached = await readWatchCache\(sb\);\s*if \(cached\) return J\([\s\S]*?const auth = await accessToken/,
+    "a cached Watch Later read bypasses the Google OAuth refresh too");
   assert.match(ytAction, /updateWatchCache\(sb, input\.videoId, true\)/,
     "a save updates the same shared cache immediately");
   assert.match(ytAction, /updateWatchCache\(sb, input\.videoId, false\)/,

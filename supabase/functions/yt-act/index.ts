@@ -269,15 +269,14 @@ Deno.serve(async (req) => {
   } catch (_) {}
   const action = input.action || new URL(req.url).searchParams.get("action") || "";
   const account = ACTION_ACCOUNT;
-  const auth = await accessToken(sb, account);
-  if (!auth.token) {
-    return J({ error: auth.error, account, status: auth.status || null, code: auth.code || null });
-  }
-  const token = auth.token;
-
   if (action === "list") {
     const cached = await readWatchCache(sb);
     if (cached) return J({ ok: true, account, ids: cached, cached: true });
+    const auth = await accessToken(sb, account);
+    if (!auth.token) {
+      return J({ error: auth.error, account, status: auth.status || null, code: auth.code || null });
+    }
+    const token = auth.token;
     const playlist = await ensurePlaylist(sb, token);
     if (!playlist) return J({ error: "no playlist", account });
     const listed = await playlistVideoIds(token, playlist);
@@ -285,6 +284,12 @@ Deno.serve(async (req) => {
     await writeWatchCache(sb, listed.ids);
     return J({ ok: true, account, ids: listed.ids });
   }
+
+  const auth = await accessToken(sb, account);
+  if (!auth.token) {
+    return J({ error: auth.error, account, status: auth.status || null, code: auth.code || null });
+  }
+  const token = auth.token;
 
   if (action === "star") {
     if (!input.videoId) return J({ error: "no videoId" });
