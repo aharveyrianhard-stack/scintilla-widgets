@@ -426,8 +426,9 @@ const CHARTS = Array.from({ length: 8 }, (_, i) => {
   const incoming = URL_STATEFUL ? QS.get("c" + (i + 1)) : "";
   return initialWorkspaceChart(incoming, storedState("chart." + (i + 1)), i, DIRECT_CUSTOM_WORKSPACE);
 });
-let RANGE = RANGES.includes(URL_STATEFUL ? QS.get("range") : "") ? QS.get("range") :
-  (RANGES.includes(storedState("range")) ? storedState("range") : "3h");
+/* One range for the loaded Station run. It never belongs to a scene preset:
+   URL wins at launch; otherwise every fresh reload starts at 3h. */
+let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "3h";
 let SOLO = QS.get("full") || null;
 let MEDIA_TARGET = null;
 let MEDIA_STAGE = 0;
@@ -533,7 +534,7 @@ function recoverInitialCustomState() {
   const stored = savedCustomCharts();
   const usable = stored.some(Boolean)
     ? preservedCustomState({ charts:stored, chartCount:remembered("station.custom.chartCount") || CHART_COUNT,
-      range:remembered("station.custom.range") || RANGE })
+      range:RANGE })
     : customWallState({ charts:[], range:RANGE }, 6);
   CHARTS.forEach((_, i) => { CHARTS[i] = usable.charts[i]; });
   CHART_COUNT = usable.chartCount;
@@ -929,7 +930,7 @@ function editableState(scene) {
   const get = (suffix) => (scene === "live" || scene === "custom" ? remembered(prefix + "." + suffix) : sessionRemembered(prefix + "." + suffix)) ||
     (legacy ? remembered("station." + suffix) : "");
   const count = sceneChartCount(get("chartCount") || CHART_COUNT, scene, scene === "indexNow");
-  const range = RANGES.includes(get("range")) ? get("range") : RANGE;
+  const range = RANGE;
   const charts = Array.from({ length:8 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
     (scene === "custom" ? "" : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
   if (scene === "custom") return preservedCustomState({ charts, chartCount:count, range });
@@ -940,7 +941,6 @@ function rememberEditableState() {
   const prefix = localWorkspace ? "station." + SCENE : "station.flex." + SCENE;
   const save = localWorkspace ? remember : sessionRemember;
   save(prefix + ".chartCount", String(CHART_COUNT));
-  save(prefix + ".range", RANGE);
   CHARTS.forEach((ticker, i) => save(prefix + ".chart." + (i + 1), ticker));
   /* Keep the original LIVE keys current for existing Station links/users. */
   if (SCENE === "live") {
@@ -988,7 +988,6 @@ function installSceneState(state) {
   CHART_COUNT = (SCENE === "custom" ? customChartCount : sceneChartCount)(
     state.chartCount || SceneModel.chartCountForSize(charts.length), SCENE, SCENE === "indexNow"
   );
-  RANGE = RANGES.includes(state.range) ? state.range : RANGE;
 }
 function fixedSceneState(scene, requestedCount) {
   if (scene === "indexNow") {
@@ -1400,13 +1399,13 @@ el("sceneMode").addEventListener("change", (e) => {
 });
 el("resetScene").addEventListener("click", () => {
   if (SCENE === "cohort") {
-    ["chartCount", "range"].forEach((suffix) => forgetSession("station.flex.cohort." + suffix));
+    ["chartCount"].forEach((suffix) => forgetSession("station.flex.cohort." + suffix));
     Array.from({ length:8 }, (_, i) => forgetSession("station.flex.cohort.chart." + (i + 1)));
     applyScene("cohort", { cohort:COHORT, page:0, reset:true });
     return;
   }
   if (!fixedSceneState(SCENE)) return;
-  ["chartCount", "range"].forEach((suffix) => forgetSession("station.flex." + SCENE + "." + suffix));
+  ["chartCount"].forEach((suffix) => forgetSession("station.flex." + SCENE + "." + suffix));
   Array.from({ length:8 }, (_, i) => forgetSession("station.flex." + SCENE + ".chart." + (i + 1)));
   applyScene(SCENE, { reset:true });
 });

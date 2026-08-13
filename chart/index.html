@@ -58,10 +58,6 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-nchart__cv{ position:absolute; inset:0; width:100%; height:100%; display:block;
   touch-action:none; cursor:crosshair; }
 .sc-nchart__cv.is-panning{ cursor:grabbing; }
-.sc-nchart__hud{ position:absolute; top:4px; left:50%; z-index:3; pointer-events:none;
-  transform:translateX(-50%); background:var(--panel2); border:.6px solid var(--line2);
-  border-radius:3px; padding:2px 6px; font-family:var(--mono); font-size:8.5px;
-  color:var(--ink); white-space:nowrap; }
 .sc-nchart__live{ position:absolute; top:7px; left:8px; z-index:3; pointer-events:auto;
   display:flex; flex-direction:row; align-items:baseline; gap:8px; max-width:calc(100% - 52px);
   background:rgba(5,6,12,.76); border:.6px solid rgba(151,166,198,.2); border-radius:4px;
@@ -259,7 +255,9 @@ let CHART_TRANSITION_GENERATION = Math.max(0, Number(QS.get("transition")) || 0)
 BARE = QS.get("bare") === "1";
 const S = {
   chartT: (QS.get("t") || (BARE ? null : lsGet("scw_chartT")) || "MU").toUpperCase().trim(),
-  chartRange: (function(){ const r = QS.get("range") || (BARE ? null : lsGet("scw_chartRange")); return CHART_RANGES.includes(r) ? r : "1D"; })(),
+  /* The Station owns one run-wide range. A reload begins at 3h unless its
+     URL explicitly names a range; never revive a stale local preference. */
+  chartRange: (function(){ const r = QS.get("range"); return CHART_RANGES.includes(r) ? r : "3h"; })(),
 };
 if (BARE) document.documentElement.classList.add("bare");
 let prevClose = {};
@@ -309,8 +307,16 @@ const chAxisPx = (p, step) => {
   const d = s >= 1 ? 0 : Math.min(4, Math.max(0, Math.ceil(-Math.log10(s))));
   return p.toLocaleString("en-US", { minimumFractionDigits:d, maximumFractionDigits:d });
 };
-const chTimeFull = (d) => (d.length > 10 ? d.slice(0, 16) : d);
 const EV_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function chHoverTime(d, range) {
+  const iso = String(d || "");
+  const mon = EV_MON[+iso.slice(5, 7) - 1] || iso.slice(5, 7);
+  const day = String(+iso.slice(8, 10) || "");
+  const year = iso.slice(0, 4);
+  const time = iso.length > 15 ? iso.slice(11, 16) : "";
+  return [mon, day && mon ? day + "," : "", year].filter(Boolean).join(" ") +
+    (time && ["15m","30m","1h","2h","3h","4h","6h","12h"].includes(range) ? " · " + time : "");
+}
 function chTimeLbl(d, range, compact, spanMs) {
   const iso = String(d || "");
   const yr = iso.slice(0, 4);
@@ -414,7 +420,6 @@ function scChartHTML(ticker) {
     "</div>" +
     '<div class="sc-nchart__area"><canvas class="sc-nchart__cv"></canvas>' +
     '<div class="sc-nchart__live" data-fresh="0" title="Edit ticker"></div>' +
-    '<div class="sc-nchart__hud" hidden></div>' +
     '<div class="sc-nchart__msg" hidden></div></div></div>';
 }
 const TV_STUDIES = encodeURIComponent(JSON.stringify([
@@ -571,7 +576,7 @@ function chartIndexAt(pts, iso, after) {
   return Math.max(0, Math.min(pts.length - 1, lo < pts.length && pts[lo].d === iso ? lo : lo - 1));
 }
 
-function scChartDraw(host, scrubIx) {
+function scChartDraw(host, scrub) {
   const area = host.querySelector(".sc-nchart__area");
   const cv = host.querySelector(".sc-nchart__cv");
   if (!area || !cv) return;
@@ -614,7 +619,7 @@ function scChartDraw(host, scrubIx) {
   const rightBars = end >= pts.length - 1 ? Math.max(2, Math.round((end - start) * .035)) : 0;
   const X = (i) => padL + ((i - start) / Math.max(1, end - start + rightBars)) * iw;
   const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * ih;
-  host._plot = { padL, iw, start, end, rightBars };
+  host._plot = { padL, padT, iw, ih, start, end, rightBars, yLo, yHi };
   const up = pts[end].p >= ref;
   const c = up ? col.bull : col.bear;
   /* Use rounded, evenly meaningful price levels rather than labeling only the
@@ -637,11 +642,6 @@ function scChartDraw(host, scrubIx) {
     ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + iw, yy); ctx.stroke();
   }
   ctx.restore();
-  if (ref >= yLo && ref <= yHi) {
-    ctx.strokeStyle = col.dim; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-    ctx.beginPath(); ctx.moveTo(padL, Y(ref)); ctx.lineTo(padL + iw, Y(ref)); ctx.stroke();
-    ctx.setLineDash([]);
-  }
   const trace = () => {
     ctx.moveTo(X(start), Y(pts[start].p));
     for (let i = start + 1; i < end; i++) {
@@ -699,12 +699,34 @@ function scChartDraw(host, scrubIx) {
       }
     }
   }
-  if (scrubIx != null && pts[scrubIx]) {
-    const sx = X(scrubIx);
-    ctx.strokeStyle = col.dim; ctx.lineWidth = 1;
+  if (scrub && pts[scrub.ix]) {
+    const sx = Math.max(padL, Math.min(padL + iw, scrub.x));
+    const sy = Math.max(padT, Math.min(padT + ih, scrub.y));
+    const price = yLo + (1 - (sy - padT) / ih) * (yHi - yLo);
+    const markerFont = Math.max(6.5, (ipadProfile ? 7 : 7.5) * scale);
+    const priceText = chPx(price, host.dataset.t);
+    const timeText = chHoverTime(pts[scrub.ix].d, host._range || S.chartRange);
+    ctx.save();
+    ctx.strokeStyle = col.ink2; ctx.globalAlpha = .62; ctx.lineWidth = .75;
     ctx.beginPath(); ctx.moveTo(sx, padT); ctx.lineTo(sx, padT + ih); ctx.stroke();
-    ctx.beginPath(); ctx.arc(sx, Y(pts[scrubIx].p), 3, 0, Math.PI * 2);
-    ctx.fillStyle = c; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(padL, sy); ctx.lineTo(padL + iw, sy); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.font = markerFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+    ctx.textBaseline = "middle";
+    const priceW = Math.ceil(ctx.measureText(priceText).width) + 8;
+    const priceX = Math.max(padL, w - priceW - 2);
+    ctx.fillStyle = "rgba(5,6,12,.92)";
+    ctx.fillRect(priceX, Math.max(padT, Math.min(padT + ih - 12, sy - 6)), priceW, 12);
+    ctx.fillStyle = col.ink2; ctx.textAlign = "right";
+    ctx.fillText(priceText, w - 5, sy);
+    const timeW = Math.ceil(ctx.measureText(timeText).width) + 8;
+    const timeX = Math.max(padL, Math.min(padL + iw - timeW, sx - timeW / 2));
+    const timeY = Math.max(padT + 12, padT + ih - 7);
+    ctx.fillStyle = "rgba(5,6,12,.92)";
+    ctx.fillRect(timeX, timeY - 6, timeW, 12);
+    ctx.fillStyle = col.ink2; ctx.textAlign = "center";
+    ctx.fillText(timeText, timeX + timeW / 2, timeY);
+    ctx.restore();
   }
 }
 
@@ -884,25 +906,19 @@ async function applySharedChartView(host, msg) {
 
 function scChartScrub(host) {
   const cv = host.querySelector(".sc-nchart__cv");
-  const hud = host.querySelector(".sc-nchart__hud");
   if (!cv) return;
   const pointers = new Map();
   let gesture = null;
-  const show = (clientX) => {
+  const show = (clientX, clientY) => {
     const pts = host._series, plot = host._plot;
     if (!pts || pts.length < 2 || !plot) return;
     const r = cv.getBoundingClientRect();
     let f = (clientX - r.left - plot.padL) / plot.iw;
     f = Math.max(0, Math.min(1, f));
     const ix = Math.round(plot.start + f * (plot.end - plot.start));
-    scChartDraw(host, ix);
-    if (hud) {
-      hud.textContent = chPx(pts[ix].p, host.dataset.t) + " · " + chTimeFull(pts[ix].d);
-      hud.style.left = Math.max(44, Math.min(r.width - 44, plot.padL + f * plot.iw)) + "px";
-      hud.hidden = false;
-    }
+    scChartDraw(host, { ix, x:clientX - r.left, y:clientY - r.top });
   };
-  const hideHud = () => { if (hud) hud.hidden = true; };
+  const hideScrub = () => { if (host._series) scChartDraw(host); };
   const snapshot = () => {
     const pts = host._series || [], v = chartView(host, pts);
     return { start:v.start, end:v.end };
@@ -913,7 +929,7 @@ function scChartScrub(host) {
     const r = cv.getBoundingClientRect(), v = snapshot();
     gesture = { type:"pinch", distance:Math.max(1, Math.hypot(a[1].x-a[0].x, a[1].y-a[0].y)),
       center:(a[0].x+a[1].x)/2, rect:r, view:v };
-    hideHud();
+    hideScrub();
   };
   cv.addEventListener("pointerdown", (e) => {
     e.preventDefault();
@@ -923,7 +939,7 @@ function scChartScrub(host) {
     else gesture = { type:"pending", x:e.clientX, view:snapshot() };
   });
   cv.addEventListener("pointermove", (e) => {
-    if (!pointers.has(e.pointerId)) { if (e.pointerType === "mouse") show(e.clientX); return; }
+    if (!pointers.has(e.pointerId)) { if (e.pointerType === "mouse") show(e.clientX, e.clientY); return; }
     pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
     if (pointers.size >= 2) {
       if (!gesture || gesture.type !== "pinch") pinchStart();
@@ -940,14 +956,14 @@ function scChartScrub(host) {
     const dx = e.clientX - gesture.x;
     if (gesture.type === "pending" && Math.abs(dx) > 4) gesture.type = "pan";
     if (gesture.type === "pan") {
-      cv.classList.add("is-panning"); hideHud();
+      cv.classList.add("is-panning"); hideScrub();
       const span = gesture.view.end - gesture.view.start;
       const shift = -dx / Math.max(1, host._plot?.iw || cv.clientWidth) * span;
       setChartView(host, gesture.view.start + shift, gesture.view.end + shift, false);
-    } else if (e.pointerType === "mouse") show(e.clientX);
+    } else if (e.pointerType === "mouse") show(e.clientX, e.clientY);
   });
   const release = (e) => {
-    pointers.delete(e.pointerId); cv.classList.remove("is-panning"); hideHud();
+    pointers.delete(e.pointerId); cv.classList.remove("is-panning"); hideScrub();
     if (pointers.size === 1) {
       const p = Array.from(pointers.values())[0]; gesture = { type:"pending", x:p.x, view:snapshot() };
     } else gesture = null;
@@ -956,10 +972,10 @@ function scChartScrub(host) {
   cv.addEventListener("pointerup", release);
   cv.addEventListener("pointercancel", release);
   cv.addEventListener("pointerleave", (e) => {
-    if (!pointers.has(e.pointerId)) { hideHud(); if (host._series) scChartDraw(host); }
+    if (!pointers.has(e.pointerId)) hideScrub();
   });
   cv.addEventListener("wheel", (e) => {
-    e.preventDefault(); hideHud();
+    e.preventDefault(); hideScrub();
     const pts = host._series, plot = host._plot;
     if (!pts || pts.length < 2 || !plot) return;
     const oldSpan = plot.end-plot.start;
@@ -974,7 +990,7 @@ function scChartScrub(host) {
     const last = pts.length - 1;
     setChartView(host, last-newSpan, last, true);
   }, { passive:false });
-  cv.addEventListener("dblclick", (e) => { e.preventDefault(); hideHud(); resetChartView(host); });
+  cv.addEventListener("dblclick", (e) => { e.preventDefault(); hideScrub(); resetChartView(host); });
 }
 
 function scChartWire(slot) {
@@ -1129,7 +1145,6 @@ document.addEventListener("click", (e) => {
   const act = n.dataset.act;
   if (act === "chartrange") {
     S.chartRange = n.dataset.r;
-    lsSet("scw_chartRange", S.chartRange);
     document.querySelectorAll(".sc-crange").forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
     const host = document.querySelector("#chartSlot .sc-nchart");
     if (host) { host._series = null; scChartLoad(host); }
