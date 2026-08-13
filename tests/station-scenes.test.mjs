@@ -565,4 +565,10 @@ test("video resume remains local, bounded, and clears completion before auto-nex
     "completion clears continuation before the existing auto-next path");
   assert.match(videoPane, /visibilitychange[\s\S]*?saveActiveVideoPosition\(true\)/);
   assert.match(videoPane, /pagehide[\s\S]*?saveActiveVideoPosition\(true\)/);
+  assert.match(videoPane, /func:"getCurrentTime"[\s\S]*?func:"getDuration"/,
+    "the player is periodically asked for real playback progress");
+  assert.match(videoPane, /startPlayerPositionPoll\(PLAYER_TOKEN, frame\)/,
+    "the bounded progress probe starts only after the embedded player is ready");
+  assert.match(videoPane, /clearPlayerPositionPoll\(\);[\s\S]*?CUR = null/,
+    "leaving a video removes its one local progress probe");
 });
