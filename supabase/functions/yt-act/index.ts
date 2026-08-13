@@ -7,6 +7,9 @@ type Account = typeof ACCOUNTS[number];
    personal refresh token is the single durable authority for Watch Later and
    channel subscriptions; never surface a second device-code connection. */
 const ACTION_ACCOUNT: Account = "personal";
+/* This is the existing cross-device list used by the Hub Social YouTube
+   surface.  Station must attach to it, never fork a second Station list. */
+const WATCH_LATER_PLAYLIST_TITLE = "SCINTILLA · Watch Later";
 
 function adminKey() {
   const current = Deno.env.get("SUPABASE_SECRET_KEYS");
@@ -124,18 +127,20 @@ async function ensurePlaylist(sb: any, token: string) {
   /* A playlist id can survive after the YouTube account that created it is
      changed or disconnected. Never let that stale id brick Watch Later. */
   if (existingId) {
-    const check = await yt(token, "GET", "playlists?part=id&id=" + encodeURIComponent(existingId));
-    if (check.status < 300 && check.body?.items?.[0]?.id === existingId) return existingId;
+    const check = await yt(token, "GET", "playlists?part=id,snippet&id=" + encodeURIComponent(existingId));
+    const existing = check.body?.items?.[0];
+    if (check.status < 300 && existing?.id === existingId &&
+        existing?.snippet?.title === WATCH_LATER_PLAYLIST_TITLE) return existingId;
   }
 
   const mine = await yt(token, "GET", "playlists?part=snippet&mine=true&maxResults=50");
   const found = (mine.body?.items || []).find(
-    (item: { snippet?: { title?: string } }) => item.snippet?.title === "Station Watch Later",
+    (item: { snippet?: { title?: string } }) => item.snippet?.title === WATCH_LATER_PLAYLIST_TITLE,
   );
   let id = found?.id as string | undefined;
   if (!id) {
     const made = await yt(token, "POST", "playlists?part=snippet,status", {
-      snippet: { title: "Station Watch Later", description: "Saved from SCINTILLA Station" },
+      snippet: { title: WATCH_LATER_PLAYLIST_TITLE, description: "Saved from SCINTILLA" },
       status: { privacyStatus: "private" },
     });
     id = made.body?.id;

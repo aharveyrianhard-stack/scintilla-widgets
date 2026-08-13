@@ -613,7 +613,9 @@ test("Shorts stay out of Personal and do not leak Personal subscriptions into SC
   assert.match(videoPane, /ytAct\("sub", \{ channelId, channelTitle: v\.channel \|\| "", account:YOUTUBE_ACCOUNT \}\)/,
     "Subscribe invokes the one durable YouTube identity rather than the visual feed");
   assert.match(videoPane, /id="bSubscribe"/,
-    "Subscribe is available next to the playing video rather than on crowded discovery cards");
+    "Subscribe is available while a video is playing rather than on crowded discovery cards");
+  assert.match(videoPane, /id="bYt"[^\n]*\n\s*<span class="btn" id="bSubscribe"[^\n]*\n\s*<span id="chips"/,
+    "Subscribe sits in the always-visible player header before the scrolling discovery chips");
   assert.match(videoPane, /refreshSubscribeButton\(v\);[\s\S]*?syncUrl\(\);/,
     "playing a video immediately exposes the corresponding channel action");
   assert.doesNotMatch(videoPane, /class="sub/,
@@ -637,9 +639,11 @@ test("visible video feeds share one durable Personal YouTube action identity", (
   assert.match(ytAction, /const ACTION_ACCOUNT: Account = "personal"/,
     "the server ignores visual feed identity for YouTube mutations");
   assert.match(ytAction, /yt_wl_playlist_personal/,
-    "Watch Later owns a Personal-account playlist and cannot reuse the disconnected playlist id");
-  assert.match(ytAction, /playlists\?part=id&id=/,
-    "a saved Watch Later id is validated and cannot strand the working account on a stale playlist");
+    "Watch Later owns the one Personal-account playlist pointer");
+  assert.match(ytAction, /WATCH_LATER_PLAYLIST_TITLE = "SCINTILLA · Watch Later"/,
+    "Station targets the existing Hub Watch Later list rather than a new Station-only list");
+  assert.match(ytAction, /playlists\?part=id,snippet&id=/,
+    "a saved Watch Later id is validated against the canonical list title before reuse");
   assert.doesNotMatch(ytAction, /WATCH_ACCOUNT|validAccount/,
     "there is no fallback to the disconnected SCINTILLA OAuth identity");
 });
