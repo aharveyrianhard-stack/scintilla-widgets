@@ -3,7 +3,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SB_URL = Deno.env.get("SUPABASE_URL") || "";
 const ACCOUNTS = ["personal", "scintilla"] as const;
 type Account = typeof ACCOUNTS[number];
-const WATCH_ACCOUNT: Account = "scintilla";
+/* Station has two visible stored feeds, but one real YouTube identity.  The
+   personal refresh token is the single durable authority for Watch Later and
+   channel subscriptions; never surface a second device-code connection. */
+const ACTION_ACCOUNT: Account = "personal";
 
 function adminKey() {
   const current = Deno.env.get("SUPABASE_SECRET_KEYS");
@@ -43,10 +46,6 @@ const CORS = {
   "Content-Type": "application/json",
 };
 const J = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: CORS });
-
-function validAccount(value: unknown, fallback: Account = WATCH_ACCOUNT): Account {
-  return ACCOUNTS.includes(value as Account) ? value as Account : fallback;
-}
 
 function configName(prefix: string, account: Account) {
   return prefix + "_" + account.toUpperCase();
@@ -118,27 +117,26 @@ async function logSub(
 
 async function ensurePlaylist(sb: any, token: string) {
   const { data: cfg } = await sb.from("app_config")
-    .select("key,value")
-    .in("key", ["yt_wl_playlist_scintilla", "yt_wl_playlist"]);
+    .select("key,value").eq("key", "yt_wl_playlist_personal");
   const saved: Record<string, string> = {};
   for (const row of cfg || []) saved[row.key] = row.value;
-  const existingId = saved.yt_wl_playlist_scintilla || saved.yt_wl_playlist;
+  const existingId = saved.yt_wl_playlist_personal;
   if (existingId) return existingId;
 
   const mine = await yt(token, "GET", "playlists?part=snippet&mine=true&maxResults=50");
   const found = (mine.body?.items || []).find(
-    (item: { snippet?: { title?: string } }) => item.snippet?.title === "SCINTILLA · Watch Later",
+    (item: { snippet?: { title?: string } }) => item.snippet?.title === "Station Watch Later",
   );
   let id = found?.id as string | undefined;
   if (!id) {
     const made = await yt(token, "POST", "playlists?part=snippet,status", {
-      snippet: { title: "SCINTILLA · Watch Later", description: "Saved from the SCINTILLA Station" },
+      snippet: { title: "Station Watch Later", description: "Saved from SCINTILLA Station" },
       status: { privacyStatus: "private" },
     });
     id = made.body?.id;
   }
   if (id) {
-    await sb.from("app_config").upsert({ key: "yt_wl_playlist_scintilla", value: id });
+    await sb.from("app_config").upsert({ key: "yt_wl_playlist_personal", value: id });
   }
   return id || null;
 }
@@ -154,9 +152,7 @@ Deno.serve(async (req) => {
     input = await req.json();
   } catch (_) {}
   const action = input.action || new URL(req.url).searchParams.get("action") || "";
-  const account = ["list", "star", "unstar"].includes(action)
-    ? WATCH_ACCOUNT
-    : validAccount(input.account);
+  const account = ACTION_ACCOUNT;
   const auth = await accessToken(sb, account);
   if (!auth.token) {
     return J({ error: auth.error, account, status: auth.status || null, code: auth.code || null });
@@ -165,7 +161,7 @@ Deno.serve(async (req) => {
 
   if (action === "list") {
     const playlist = await ensurePlaylist(sb, token);
-    if (!playlist) return J({ error: "no playlist", account: WATCH_ACCOUNT });
+    if (!playlist) return J({ error: "no playlist", account });
     const ids: string[] = [];
     let pageToken = "";
     for (let page = 0; page < 4; page++) {
@@ -175,7 +171,7 @@ Deno.serve(async (req) => {
         "playlistItems?part=contentDetails&maxResults=50&playlistId=" + playlist +
           (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : ""),
       );
-      if (r.status >= 300) return J({ error: "playlist read failed", status: r.status, account: WATCH_ACCOUNT });
+      if (r.status >= 300) return J({ error: "playlist read failed", status: r.status, account });
       for (const item of r.body?.items || []) {
         const videoId = item.contentDetails?.videoId;
         if (videoId) ids.push(videoId);
@@ -183,38 +179,38 @@ Deno.serve(async (req) => {
       pageToken = r.body?.nextPageToken || "";
       if (!pageToken) break;
     }
-    return J({ ok: true, account: WATCH_ACCOUNT, ids });
+    return J({ ok: true, account, ids });
   }
 
   if (action === "star") {
     if (!input.videoId) return J({ error: "no videoId" });
     const playlist = await ensurePlaylist(sb, token);
-    if (!playlist) return J({ error: "no playlist", account: WATCH_ACCOUNT });
+    if (!playlist) return J({ error: "no playlist", account });
     const existing = await yt(
       token,
       "GET",
       "playlistItems?part=id&playlistId=" + playlist + "&videoId=" + input.videoId + "&maxResults=1",
     );
-    if (existing.body?.items?.[0]) return J({ ok: true, already: true, account: WATCH_ACCOUNT });
+    if (existing.body?.items?.[0]) return J({ ok: true, already: true, account });
     const added = await yt(token, "POST", "playlistItems?part=snippet", {
       snippet: { playlistId: playlist, resourceId: { kind: "youtube#video", videoId: input.videoId } },
     });
-    return J({ ok: added.status < 300, status: added.status, account: WATCH_ACCOUNT });
+    return J({ ok: added.status < 300, status: added.status, account });
   }
 
   if (action === "unstar") {
     if (!input.videoId) return J({ error: "no videoId" });
     const playlist = await ensurePlaylist(sb, token);
-    if (!playlist) return J({ error: "no playlist", account: WATCH_ACCOUNT });
+    if (!playlist) return J({ error: "no playlist", account });
     const found = await yt(
       token,
       "GET",
       "playlistItems?part=id&playlistId=" + playlist + "&videoId=" + input.videoId + "&maxResults=1",
     );
     const item = found.body?.items?.[0];
-    if (!item) return J({ ok: true, note: "not in playlist", account: WATCH_ACCOUNT });
+    if (!item) return J({ ok: true, note: "not in playlist", account });
     const removed = await yt(token, "DELETE", "playlistItems?id=" + item.id);
-    return J({ ok: removed.status < 300, status: removed.status, account: WATCH_ACCOUNT });
+    return J({ ok: removed.status < 300, status: removed.status, account });
   }
 
   const cacheKey = "yt_sub_channels_" + account;
