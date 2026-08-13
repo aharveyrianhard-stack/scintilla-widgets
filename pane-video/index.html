@@ -65,9 +65,6 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .btn.out{ color:var(--vol); border-color:rgba(255,138,0,.35); }
 #chips{ flex:1 1 0; min-width:0; display:flex; gap:4px; overflow-x:auto; scrollbar-width:none; }
 #chips::-webkit-scrollbar{ display:none; }
-#auth{ flex:0 1 108px; min-width:0; max-width:108px; overflow:hidden; text-overflow:ellipsis;
-  color:var(--vol); font-size:8px; letter-spacing:.06em; white-space:nowrap; }
-#auth:empty{ display:none; }
 #q{ display:none; flex:1 1 90px; min-width:70px; background:var(--bg); border:1px solid var(--line);
   color:var(--ink); font-family:var(--mono); font-size:11px; padding:3px 6px; outline:none;
   border-radius:0; -webkit-appearance:none; }
@@ -135,7 +132,6 @@ body.playing #grid{ display:none; }
   <span class="btn" id="bPip" style="display:none" title="float this video in its own always-on-top window">pip</span>
   <a class="btn out" id="bYt" style="display:none" target="_blank" rel="noopener">youtube ↗</a>
   <span id="chips"></span>
-  <span id="auth"></span>
   <span class="btn" id="bCover" style="display:none" title="intentionally expand this video across X">cover X</span>
   <span class="btn" id="bFull" title="expand this pane">⛶</span>
 </div>
@@ -184,6 +180,10 @@ applyIpadPaneScale();
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const FEED   = ["personal", "scintilla", "market"].includes(QS.get("feed")) ? QS.get("feed") : "personal";
+/* The on-screen panes are independent stored feeds.  YouTube actions are not:
+   Watch Later and Subscribe deliberately use Alan's one healthy Personal
+   Google connection, never a second SCINTILLA device-code connection. */
+const YOUTUBE_ACCOUNT = "personal";
 const LIMIT  = Math.max(10, Math.min(200, +(QS.get("limit") || 60)));
 const TICK   = (QS.get("t") || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
 const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
@@ -193,8 +193,8 @@ const FORCE  = +(QS.get("cols") || 0);
 /* A pane keeps its identity through every local filter. Personal and
    SCINTILLA are two intentionally separate authorized subscription feeds.
    The old market-search lane remains available, but it is not used as a
-   substitute for either identity. Watch Later is one Station-wide list;
-   its authority is the private SCINTILLA · Watch Later playlist. */
+   substitute for either identity. Watch Later is one Station-wide list in
+   the connected Personal YouTube account. */
 const SUBSCRIBED = {
   id: "default", n: "subscribed",
   q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") + "&is_short=eq.false"
@@ -218,7 +218,6 @@ el("kk").textContent = FEED === "market" ? "MARKET SEARCH" :
 
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
 const LOCAL_SUBSCRIBED_CHANNELS = new Set(), SUBSCRIBE_PENDING = new Set();
-let AUTH_STATUS = null;
 let PLAYER_TOKEN = 0, PLAYER_READY_TOKEN = 0, PLAYER_FALLBACK = 0, PLAYER_POSITION_POLL = 0;
 /* Local-only continuation state. It belongs to this device/browser, never to
    a Station scene, account, or backend record. */
@@ -294,52 +293,11 @@ async function ytAct(action, payload) {
 
 async function syncWatch(force) {
   if (WATCH_READY && !force) return WATCH;
-  const d = await ytAct("list");
+  const d = await ytAct("list", { account:YOUTUBE_ACCOUNT });
   WATCH = new Set(Array.isArray(d.ids) ? d.ids : []);
   WATCH_READY = true;
   WATCH_ERROR = "";
   return WATCH;
-}
-
-async function oauth(step, account) {
-  const suffix = account ? "&account=" + encodeURIComponent(account) : "";
-  const r = await fetch(SB + "/functions/v1/yt-oauth?step=" + step + suffix, { headers: { apikey: PUBLIC } });
-  let d = {}; try { d = await r.json(); } catch (e) {}
-  if (!r.ok || d.error) throw new Error(d.error || ("yt-oauth " + r.status));
-  return d;
-}
-
-async function pollOauth(account, interval, expiresAt) {
-  if (Date.now() >= expiresAt) { el("auth").textContent = "code expired · reconnect"; return; }
-  let d;
-  try { d = await oauth("poll", account); }
-  catch (e) { el("auth").textContent = "reconnect failed"; return; }
-  if (d.connected) {
-    el("auth").textContent = (d.channel_title || account) + " connected";
-    try { AUTH_STATUS = await oauth("status"); } catch (e) {}
-    WATCH_ERROR = ""; WATCH_READY = false;
-    try { await syncWatch(true); } catch (e) { WATCH_ERROR = e.message || "Watch Later unavailable"; }
-    paintChips(); load(true);
-    return;
-  }
-  if (d.status === "authorization_pending" || d.status === "slow_down" || d.status === "pending") {
-    setTimeout(() => pollOauth(account, interval + (d.status === "slow_down" ? 5000 : 0), expiresAt), interval);
-  } else el("auth").textContent = "reconnect: " + (d.status || "failed");
-}
-
-async function connectYouTube(account) {
-  const popup = window.open("about:blank", "sc_youtube_connect_" + account, "width=560,height=760");
-  el("auth").textContent = "connecting " + account + "…";
-  try {
-    const d = await oauth("start", account);
-    el("auth").textContent = account + " · CODE " + d.user_code + " · waiting";
-    if (popup) popup.location = d.url; else window.open(d.url, "_blank", "noopener");
-    const interval = Math.max(5000, +(d.interval || 5) * 1000);
-    pollOauth(account, interval, Date.now() + +(d.expires_in || 1800) * 1000);
-  } catch (e) {
-    if (popup) popup.close();
-    el("auth").textContent = "reconnect failed";
-  }
 }
 
 async function toggleWatch(v) {
@@ -347,30 +305,27 @@ async function toggleWatch(v) {
   const was = WATCH.has(v.video_id), will = !was;
   if (will) WATCH.add(v.video_id); else WATCH.delete(v.video_id);
   paint();
-  try { await ytAct(will ? "star" : "unstar", { videoId: v.video_id }); }
+  try { await ytAct(will ? "star" : "unstar", { videoId:v.video_id, account:YOUTUBE_ACCOUNT }); }
   catch (e) {
     if (was) WATCH.add(v.video_id); else WATCH.delete(v.video_id);
     paint();
   }
 }
 
-function channelSubscribed(v, feed = FEED) {
-  const accountMatch = Array.isArray(v?.subscription_accounts) && v.subscription_accounts.includes(feed);
+function channelSubscribed(v, account = YOUTUBE_ACCOUNT) {
+  const accountMatch = Array.isArray(v?.subscription_accounts) && v.subscription_accounts.includes(account);
   return accountMatch || LOCAL_SUBSCRIBED_CHANNELS.has(String(v?.channel_id || ""));
 }
 
 async function subscribeToChannel(v) {
   const channelId = String(v?.channel_id || "");
-  if (!channelId || FEED === "market" || channelSubscribed(v) || SUBSCRIBE_PENDING.has(channelId)) return;
+  if (!channelId || channelSubscribed(v) || SUBSCRIBE_PENDING.has(channelId)) return;
   SUBSCRIBE_PENDING.add(channelId); refreshSubscribeButton();
   try {
-    const d = await ytAct("sub", { channelId, channelTitle: v.channel || "", account: FEED });
+    const d = await ytAct("sub", { channelId, channelTitle: v.channel || "", account:YOUTUBE_ACCOUNT });
     if (!d.ok) throw new Error("YouTube subscribe failed");
     LOCAL_SUBSCRIBED_CHANNELS.add(channelId);
-    el("auth").textContent = (v.channel || "channel") + " subscribed";
-  } catch (e) {
-    el("auth").textContent = "subscribe failed";
-  } finally {
+  } catch (e) { } finally {
     SUBSCRIBE_PENDING.delete(channelId); refreshSubscribeButton();
   }
 }
@@ -378,7 +333,7 @@ async function subscribeToChannel(v) {
 function refreshSubscribeButton(v = CUR) {
   const b = el("bSubscribe");
   const channelId = String(v?.channel_id || "");
-  const eligible = !!channelId && FEED !== "market";
+  const eligible = !!channelId;
   b.style.display = eligible ? "" : "none";
   if (!eligible) return;
   const done = channelSubscribed(v), pending = SUBSCRIBE_PENDING.has(channelId);
@@ -563,32 +518,14 @@ function paintChips() {
     b.addEventListener("click", () => { LIST = l.id; paintChips(); load(LIST === "watch"); });
     box.appendChild(b);
   }
-  const own = AUTH_STATUS && AUTH_STATUS.accounts && AUTH_STATUS.accounts[FEED];
-  if (FEED !== "market" && LIST === "watch" && own && !own.connected) {
-    const b = document.createElement("span");
-    b.className = "btn out"; b.textContent = "connect " + FEED;
-    b.title = "connect the " + FEED + " YouTube identity";
-    b.addEventListener("click", () => connectYouTube(FEED));
-    box.appendChild(b);
-  }
-  if (WATCH_ERROR && LIST === "watch") {
-    const b = document.createElement("span");
-    b.className = "btn out"; b.textContent = "reconnect SCINTILLA";
-    b.title = WATCH_ERROR + " — Watch Later is owned by SCINTILLA";
-    b.addEventListener("click", () => connectYouTube("scintilla"));
-    box.appendChild(b);
-  }
 }
 
 async function load(forceWatch, quiet) {
   if (!quiet && !ROWS.length) el("grid").innerHTML = '<div class="msg">loading…</div>';
-  /* Personal is subscriptions-only. Do not involve that pane in the private
-     SCINTILLA Watch Later credential or show it reconnect noise. */
-  if (FEED === "scintilla" && LIST === "watch") {
+  if (LIST === "watch") {
     try { await syncWatch(!!forceWatch); }
     catch (e) {
       WATCH_READY = false; WATCH_ERROR = e.message || "Watch Later unavailable";
-      paintChips();
     }
   }
   let q = "youtube_feed?select=video_id,title,channel,channel_id,tickers,duration,is_short,thumb_url,published_at,subscription_accounts" +
@@ -645,11 +582,9 @@ window.addEventListener("message", (event) => {
   }
 });
 async function start() {
-  try { AUTH_STATUS = await oauth("status"); } catch (e) {}
   paintChips(); relayout(); load();
-  /* Keep the account-scoped feed current without touching the YouTube API on
-     every pass. load(false) reuses the already-synced Watch Later set and
-     rereads only the database while this pane is visible and idle. */
+  /* Keep the stored feed current without touching the YouTube API on every
+     pass. Watch Later is fetched only when that explicit list is selected. */
   setInterval(() => {
     if (document.visibilityState === "visible" && !CUR) load(false, true);
   }, 120000);
