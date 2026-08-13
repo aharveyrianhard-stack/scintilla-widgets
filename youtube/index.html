@@ -190,6 +190,15 @@ function ytTickers(r) {
   const arr = Array.isArray(v) ? v : String(v).replace(/[{}"]/g, "").split(",");
   return arr.map((s) => String(s).trim().toUpperCase().replace(/^\$/, "")).filter(Boolean);
 }
+function ytAccounts(r) {
+  const value = r && r.subscription_accounts;
+  const accounts = Array.isArray(value) ? value : String(value || "").replace(/[{}\[\]"]/g, "").split(",");
+  return accounts.map((account) => String(account).trim().toLowerCase()).filter(Boolean);
+}
+function ytHubAllowed(r) {
+  const accounts = ytAccounts(r);
+  return !accounts.length || accounts.includes("scintilla");
+}
 function ytAgo(iso) {
   if (!iso) return "";
   const t = new Date(iso).getTime(); if (isNaN(t)) return "";
@@ -264,10 +273,10 @@ function fillYT() {
   renderYT();
   if (!window.__ytPoll) { window.__ytPoll = setInterval(function(){ if (YT_IDX < 0) { YT_LOADED = false; fillYT(); } }, 120000); }
   if (YT_LOADED && (Date.now() - YT_FETCHED_AT) < 90000) return;
-  pg("youtube_feed?select=video_id,title,channel,channel_id,tickers,duration,is_short,is_sub,watch_later,thumb_url,published_at&order=published_at.desc&limit=200")
+  pg("youtube_feed?select=video_id,title,channel,channel_id,tickers,duration,is_short,is_sub,subscription_accounts,watch_later,thumb_url,published_at&order=published_at.desc&limit=200")
     .then((rows) => {
       YT_LOADED = true; YT_FETCHED_AT = Date.now(); ytPosPull();
-      if (Array.isArray(rows) && rows.length) { const wl = ytWLGet(); YT_FEED.length = 0; const _seen = new Set(); rows.forEach((r) => { const _k = (r.channel_id || "") + "|" + String(r.title || "").toLowerCase().replace(/\s+/g, " ").trim(); if (_seen.has(r.video_id) || _seen.has(_k)) return; _seen.add(r.video_id); _seen.add(_k); r.watch_later = wl.has(r.video_id); YT_FEED.push(r); }); }
+      if (Array.isArray(rows) && rows.length) { const wl = ytWLGet(); YT_FEED.length = 0; const _seen = new Set(); rows.forEach((r) => { if (!ytHubAllowed(r)) return; const _k = (r.channel_id || "") + "|" + String(r.title || "").toLowerCase().replace(/\s+/g, " ").trim(); if (_seen.has(r.video_id) || _seen.has(_k)) return; _seen.add(r.video_id); _seen.add(_k); r.watch_later = wl.has(r.video_id); YT_FEED.push(r); }); }
       /* One shared Station table carries the saved set.  It is updated only
          after the authoritative YouTube add/remove succeeds, so grids can
          render instantly without waiting on Google's slow playlist reads. */

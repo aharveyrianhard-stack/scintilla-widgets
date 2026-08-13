@@ -612,20 +612,24 @@ test("video resume is shared with Hub, bounded, and clears completion before aut
     "leaving a video removes its one local progress probe");
 });
 
-test("Shorts stay out of Personal and do not leak Personal subscriptions into SCINTILLA discovery", () => {
-  const subscribed = functionFromSource(videoPane, "channelSubscribed", { YOUTUBE_ACCOUNT:"personal", LOCAL_SUBSCRIBED_CHANNELS:new Set() });
+test("Personal subscriptions and the shared Scintilla discovery feed stay correctly scoped", () => {
+  const subscribed = functionFromSource(videoPane, "channelSubscribed", { SUBSCRIPTION_ACCOUNT:"personal", LOCAL_SUBSCRIBED_CHANNELS:new Set() });
   assert.equal(subscribed({ channel_id:"channel-a", subscription_accounts:[] }), false);
   assert.equal(subscribed({ channel_id:"channel-a", subscription_accounts:["personal"] }), true);
   assert.match(videoPane, /const ALL_SHORTS = \{ id: "shorts", n: "shorts", q: "&is_short=eq\.true" \}/,
     "SCINTILLA discovery uses the same global Shorts list as Hub");
   assert.match(videoPane, /FEED === "scintilla" \? \[\s*\{ id: "default", n: "grid", q: "" \},\s*ALL_SHORTS,\s*\{ id: "watch"/,
     "the SCINTILLA pane is the shared Hub discovery grid, with global Shorts and shared Watch Later");
+  assert.match(videoPane, /return !accounts\.length \|\| accounts\.includes\("scintilla"\)/,
+    "the Station discovery grid excludes Personal-only videos while retaining unscoped and Scintilla videos");
+  assert.match(youtubeHub, /function ytHubAllowed\(r\)[\s\S]*?accounts\.includes\("scintilla"\)/,
+    "Hub social uses the same Scintilla grid rule as Station");
   assert.match(videoPane, /\] : \[SUBSCRIBED\];/,
     "the Personal pane remains its own subscription feed without Shorts mixed in");
   assert.match(videoPane, /select=video_id,title,channel,channel_id,tickers/,
     "the pane reads the channel id necessary for a real subscribe action");
-  assert.match(videoPane, /ytAct\("sub", \{ channelId, channelTitle: v\.channel \|\| "", account:YOUTUBE_ACCOUNT \}\)/,
-    "Subscribe invokes the one durable YouTube identity rather than the visual feed");
+  assert.match(videoPane, /ytAct\("sub", \{ channelId, channelTitle: v\.channel \|\| "", account:SUBSCRIPTION_ACCOUNT \}\)/,
+    "Subscribe retains the visible feed identity");
   assert.match(videoPane, /id="bSubscribe"/,
     "Subscribe is available while a video is playing rather than on crowded discovery cards");
   assert.match(videoPane, /id="bYt"[^\n]*\n\s*<span class="btn" id="bSubscribe"[^\n]*\n\s*<span id="chips"/,
@@ -643,7 +647,7 @@ test("Shorts stay out of Personal and do not leak Personal subscriptions into SC
 test("visible video feeds share one durable Personal YouTube action identity", () => {
   const ytAction = fs.readFileSync(new URL("../supabase/functions/yt-act/index.ts", import.meta.url), "utf8");
   assert.match(videoPane, /const YOUTUBE_ACCOUNT = "personal"/,
-    "the separate Personal and SCINTILLA grids do not demand separate Google logins");
+    "shared Watch Later keeps its one healthy Personal YouTube identity");
   assert.match(videoPane, /pg\("yt_watch_later\?select=video_id"\)/,
     "Station reads the one shared saved-video state directly instead of waiting on Google");
   assert.match(videoPane, /syncWatch\(\)\.catch\(\(\) => \{ WATCH_READY = false; \}\)/,
@@ -652,12 +656,18 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "Hub keeps Watch Later only in page memory while the shared source loads");
   assert.doesNotMatch(youtubeHub, /sc_yt_wl_v1|localStorage\.setItem\(YT_WL_KEY/,
     "Hub does not retain a device-local Watch Later list");
-  assert.match(videoPane, /account:YOUTUBE_ACCOUNT/,
-    "playing-channel Subscribe uses that same account");
+  assert.match(videoPane, /const SUBSCRIPTION_ACCOUNT = FEED === "scintilla" \? "scintilla" : "personal"/,
+    "Subscribe retains the visual feed identity instead of rewriting SCINTILLA into Personal");
+  assert.match(videoPane, /account:SUBSCRIPTION_ACCOUNT/,
+    "playing-channel Subscribe targets the visible feed");
   assert.doesNotMatch(videoPane, /connectYouTube|pollOauth|reconnect SCINTILLA|id="auth"/,
     "the unusable device-code reconnect controls are absent from Station");
-  assert.match(ytAction, /const ACTION_ACCOUNT: Account = "personal"/,
-    "the server ignores visual feed identity for YouTube mutations");
+  assert.match(ytAction, /action === "sub" && input\.account === "scintilla"/,
+    "the server stores a SCINTILLA channel subscription directly in the durable feed list");
+  assert.match(ytAction, /config\[cacheKey\] \|\| config\.yt_sub_channels/,
+    "the first new SCINTILLA subscription retains the established channel list");
+  assert.match(ytAction, /target: "scintilla_feed"/,
+    "SCINTILLA subscription reports its actual durable destination");
   assert.match(ytAction, /yt_wl_playlist_personal/,
     "Watch Later owns the one Personal-account playlist pointer");
   assert.match(ytAction, /WATCH_LATER_PLAYLIST_TITLE = "SCINTILLA · Watch Later"/,

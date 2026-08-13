@@ -3,9 +3,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SB_URL = Deno.env.get("SUPABASE_URL") || "";
 const ACCOUNTS = ["personal", "scintilla"] as const;
 type Account = typeof ACCOUNTS[number];
-/* Station has two visible stored feeds, but one real YouTube identity.  The
-   personal refresh token is the single durable authority for Watch Later and
-   channel subscriptions; never surface a second device-code connection. */
+/* Watch Later is the one real Personal YouTube identity. SCINTILLA feed
+   subscriptions are project-side RSS channel membership, not a browser OAuth
+   flow and not a second device-code connection. */
 const ACTION_ACCOUNT: Account = "personal";
 /* This is the existing cross-device list used by the Hub Social YouTube
    surface.  Station must attach to it, never fork a second Station list. */
@@ -277,6 +277,25 @@ Deno.serve(async (req) => {
     input = await req.json();
   } catch (_) {}
   const action = input.action || new URL(req.url).searchParams.get("action") || "";
+  if (action === "sub" && input.account === "scintilla") {
+    const channelId = String(input.channelId || "");
+    if (!channelId) return J({ error: "no channelId" });
+    const cacheKey = "yt_sub_channels_scintilla";
+    const { data: saved } = await sb.from("app_config").select("key,value")
+      .in("key", [cacheKey, "yt_sub_channels"]);
+    const config: Record<string, string> = {};
+    for (const row of saved || []) config[row.key] = row.value;
+    let ids: string[] = [];
+    try { const parsed = JSON.parse(config[cacheKey] || config.yt_sub_channels || "{}"); ids = Array.isArray(parsed.ids) ? parsed.ids.filter((id) => typeof id === "string") : []; } catch (_) {}
+    const already = ids.includes(channelId);
+    if (!already) ids.push(channelId);
+    await sb.from("app_config").upsert({
+      key: cacheKey,
+      value: JSON.stringify({ ids: Array.from(new Set(ids)), ts: Math.floor(Date.now() / 1000) }),
+    });
+    if (!already) await logSub(sb, channelId, input.channelTitle || "", "feed_sub", "scintilla");
+    return J({ ok: true, already, account: "scintilla", target: "scintilla_feed" });
+  }
   const account = ACTION_ACCOUNT;
   if (action === "list") {
     const cached = await readWatchCache(sb);

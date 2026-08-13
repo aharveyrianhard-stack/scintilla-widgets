@@ -191,9 +191,10 @@ const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
 const AUTO   = QS.get("autoplay") === "1";
 const FORCE  = +(QS.get("cols") || 0);
 
-/* Personal is the one authorized subscription feed.  SCINTILLA is the same
-   shared discovery grid as the Hub social page: subscriptions from that grid
-   add a channel to Personal rather than creating a second private feed. */
+/* Personal is its own subscribed feed.  SCINTILLA is the shared Hub social
+   discovery grid: unscoped discovery plus channels deliberately subscribed
+   to SCINTILLA.  Its Subscribe action adds a channel to that durable feed;
+   it never asks the browser for Google device-code authorization. */
 const SUBSCRIBED = {
   id: "default", n: "subscribed",
   q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") + "&is_short=eq.false"
@@ -216,6 +217,7 @@ el("kk").textContent = FEED === "market" ? "MARKET SEARCH" :
 
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
 const LOCAL_SUBSCRIBED_CHANNELS = new Set(), SUBSCRIBE_PENDING = new Set();
+const SUBSCRIPTION_ACCOUNT = FEED === "scintilla" ? "scintilla" : "personal";
 let PLAYER_TOKEN = 0, PLAYER_READY_TOKEN = 0, PLAYER_FALLBACK = 0, PLAYER_POSITION_POLL = 0;
 /* The database is the sole saved resume authority.  This Map is page memory
    only; closing or switching devices cannot create a second private history. */
@@ -338,9 +340,9 @@ async function toggleWatch(v) {
   }
 }
 
-function channelSubscribed(v, account = YOUTUBE_ACCOUNT) {
+function channelSubscribed(v, account = SUBSCRIPTION_ACCOUNT) {
   const accountMatch = Array.isArray(v?.subscription_accounts) && v.subscription_accounts.includes(account);
-  return accountMatch || LOCAL_SUBSCRIBED_CHANNELS.has(String(v?.channel_id || ""));
+  return accountMatch || LOCAL_SUBSCRIBED_CHANNELS.has(account + ":" + String(v?.channel_id || ""));
 }
 
 async function subscribeToChannel(v) {
@@ -348,9 +350,9 @@ async function subscribeToChannel(v) {
   if (!channelId || channelSubscribed(v) || SUBSCRIBE_PENDING.has(channelId)) return;
   SUBSCRIBE_PENDING.add(channelId); refreshSubscribeButton();
   try {
-    const d = await ytAct("sub", { channelId, channelTitle: v.channel || "", account:YOUTUBE_ACCOUNT });
+    const d = await ytAct("sub", { channelId, channelTitle: v.channel || "", account:SUBSCRIPTION_ACCOUNT });
     if (!d.ok) throw new Error("YouTube subscribe failed");
-    LOCAL_SUBSCRIBED_CHANNELS.add(channelId);
+    LOCAL_SUBSCRIBED_CHANNELS.add(SUBSCRIPTION_ACCOUNT + ":" + channelId);
   } catch (e) { } finally {
     SUBSCRIBE_PENDING.delete(channelId); refreshSubscribeButton();
   }
@@ -575,7 +577,13 @@ async function load(forceWatch, quiet) {
     if (!quiet || !ROWS.length) el("grid").innerHTML = '<div class="msg">feed unavailable</div>';
     return;
   }
-  const nextRows = Array.isArray(rows) ? rows : [];
+  const accountsFor = (video) => Array.isArray(video?.subscription_accounts)
+    ? video.subscription_accounts.map((account) => String(account).toLowerCase()) : [];
+  const nextRows = (Array.isArray(rows) ? rows : []).filter((video) => {
+    if (FEED !== "scintilla" || LIST === "watch") return true;
+    const accounts = accountsFor(video);
+    return !accounts.length || accounts.includes("scintilla");
+  });
   const signature = (items) => items.map((v) => [v.video_id, v.title, v.channel, v.published_at,
     Array.isArray(v.subscription_accounts) ? v.subscription_accounts.join("+") : ""].join("|")).join("\n");
   const changed = signature(nextRows) !== signature(ROWS);
