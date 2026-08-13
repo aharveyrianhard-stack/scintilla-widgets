@@ -253,6 +253,7 @@ let CHART_TRANSITION_GENERATION = Math.max(0, Number(QS.get("transition")) || 0)
         same-origin iframes were writing the same scw_chartRange.
    Everything else — the canvas, the ticker field, TradingView — is identical. */
 BARE = QS.get("bare") === "1";
+const DECK_QUOTE_MODE = BARE && window.parent !== window;
 const S = {
   chartT: (QS.get("t") || (BARE ? null : lsGet("scw_chartT")) || "MU").toUpperCase().trim(),
   /* The Station owns one run-wide range. A reload begins at 3h unless its
@@ -1038,12 +1039,13 @@ function setChartTicker(t) {
   const pop = host.querySelector(".sc-tv__pop");
   if (pop) pop.dataset.sym = sym;
   const tin = el("tkin"); if (tin && tin.value.toUpperCase().trim() !== t) tin.value = t;
-  pullPrevClose(t);
+  if (DECK_QUOTE_MODE) requestDeckQuote(t); else pullPrevClose(t);
   scChartLoad(host);
 }
 
 /* R22 FIX 8 — live tick → cheap last-point update (ported verbatim) */
-function scChartLive(t, price, updatedTs) {
+function scChartLive(t, price, updatedTs, previousClose) {
+  if (previousClose != null && isFinite(+previousClose)) prevClose[t] = +previousClose;
   liveQuote[t] = { price:+price, updated_ts:updatedTs || Date.now() };
   for (const host of CHART_HOSTS) {
     if (!host.isConnected || host.dataset.t !== t) continue;
@@ -1116,6 +1118,7 @@ function paintLiveStatus(host, quote) {
 /* Previous regular-session close is the day reference for every timeframe.
    The visible window controls geometry only; it must not change red/green. */
 async function pullPrevClose(t) {
+  if (DECK_QUOTE_MODE) { requestDeckQuote(t); return; }
   try {
     const rows = await pg("live_quotes?ticker=eq." + encodeURIComponent(t) + "&select=ticker,prev_close,price,updated_ts", 1);
     if (Array.isArray(rows) && rows[0]) {
@@ -1132,10 +1135,23 @@ async function pullPrevClose(t) {
 }
 
 /* realtime — live_quotes ticks patch the active chart (hub channel, verbatim shape) */
-if (sb) {
+if (sb && !DECK_QUOTE_MODE) {
   sb.channel("lq").on("postgres_changes", { event: "*", schema: "public", table: "live_quotes" }, (p) => {
     if (p.new && p.new.ticker && p.new.price != null) scChartLive(String(p.new.ticker).toUpperCase(), +p.new.price, p.new.updated_ts);
   }).subscribe();
+}
+
+function requestDeckQuote(ticker) {
+  try { parent.postMessage({ sc:"chart-quote-ready", ticker:String(ticker || "").toUpperCase().trim() }, location.origin); } catch (_) {}
+}
+function applyDeckQuote(ticker, quote, state) {
+  const clean = String(ticker || "").toUpperCase().trim();
+  const hosts = Array.from(CHART_HOSTS).filter((host) => host.isConnected && host.dataset.t === clean);
+  if (!quote || !isFinite(+quote.price)) {
+    for (const host of hosts) { paintLiveStatus(host, null); reportChartDataState(host, { quote:state === "delayed" ? "delayed" : "loading" }); }
+    return;
+  }
+  scChartLive(clean, +quote.price, quote.updated_ts, quote.prev_close);
 }
 
 /* delegated actions (hub data-act names) */
@@ -1178,6 +1194,7 @@ document.addEventListener("click", (e) => {
 addEventListener("message", (e) => {
   const d = e.data;
   if (!d) return;
+  if (d.sc === "deck-quote") { applyDeckQuote(d.ticker, d.quote, d.state); return; }
   if (d.sc === "chart-load-grant") {
     const grant = chartLoadPermits.get(d.token);
     if (grant) { chartLoadPermits.delete(d.token); grant(); }
@@ -1203,10 +1220,11 @@ el("chartSlot").innerHTML = scChartHTML(S.chartT);
 const initialChartHost = document.querySelector("#chartSlot .sc-nchart");
 if (initialChartHost) initialChartHost._transitionGeneration = CHART_TRANSITION_GENERATION;
 scChartWire(el("chartSlot"));
-pullPrevClose(S.chartT);
+if (DECK_QUOTE_MODE) requestDeckQuote(S.chartT);
+else pullPrevClose(S.chartT);
 /* A ten-second read-only heartbeat makes live status dependable even if the
    browser's realtime socket sleeps. The full history remains a 60-second pull. */
-setInterval(() => pullPrevClose(S.chartT), 10000);
+if (!DECK_QUOTE_MODE) setInterval(() => pullPrevClose(S.chartT), 10000);
 /* refresh cadence — re-pull the active series every 60 s */
 setInterval(() => { const host = document.querySelector("#chartSlot .sc-nchart"); if (host) scChartLoad(host); }, 60000);
 </script>

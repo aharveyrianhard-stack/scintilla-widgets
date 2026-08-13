@@ -329,6 +329,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 </div>
 
 <script src="/deck/scenes.js?rev=001"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 "use strict";
 const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
@@ -429,6 +430,87 @@ const CHARTS = Array.from({ length: 8 }, (_, i) => {
 /* One range for the loaded Station run. It never belongs to a scene preset:
    URL wins at launch; otherwise every fresh reload starts at 3h. */
 let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "3h";
+/* The whole wall shares one quote cache/realtime channel.  Chart frames keep
+   their history work, but never multiply the same live quote request. */
+const deckSb = (typeof supabase !== "undefined" && supabase.createClient)
+  ? supabase.createClient(SB, ANON) : null;
+const DECK_QUOTES = new Map();
+const DECK_QUOTE_FAILED = new Set();
+const DECK_QUOTE_HEARTBEAT_MS = 10000;
+const DECK_QUOTE_TIMEOUT_MS = 4500;
+let deckQuoteRequest = 0;
+let deckQuoteInFlight = false;
+let deckQuoteRerun = false;
+function visibleChartTickers() {
+  return Array.from(new Set(CHARTS.slice(0, CHART_COUNT).map(CLEAN).filter(Boolean)));
+}
+function deckQuoteFor(ticker) { return DECK_QUOTES.get(CLEAN(ticker)) || null; }
+function postDeckQuote(frame, ticker) {
+  if (!frame?.contentWindow) return;
+  const clean = CLEAN(ticker);
+  const state = DECK_QUOTES.has(clean) ? "ready" : DECK_QUOTE_FAILED.has(clean) ? "delayed" : "loading";
+  try { frame.contentWindow.postMessage({ sc:"deck-quote", ticker:clean, quote:deckQuoteFor(clean), state }, location.origin); } catch (_) {}
+}
+function fanoutDeckQuote(ticker) {
+  const clean = CLEAN(ticker);
+  for (const pane of PANES) if (pane.def.kind === "chart" && pane.frame && CLEAN(pane.def.ticker) === clean)
+    postDeckQuote(pane.frame, clean);
+}
+function selectVisibleQuoteRows(rows, tickers) {
+  const allowed = new Set((tickers || []).map(CLEAN));
+  const selected = new Map();
+  for (const row of rows || []) {
+    const ticker = CLEAN(row?.ticker);
+    if (!ticker || !allowed.has(ticker) || row?.price == null) continue;
+    selected.set(ticker, { ticker, price:+row.price,
+      prev_close:row.prev_close == null ? null : +row.prev_close,
+      updated_ts:row.updated_ts || new Date().toISOString() });
+  }
+  return selected;
+}
+async function fetchDeckQuotes(tickers) {
+  const controller = typeof AbortController === "undefined" ? null : new AbortController();
+  const timer = controller ? setTimeout(() => controller.abort(), DECK_QUOTE_TIMEOUT_MS) : null;
+  try {
+    const query = "live_quotes?ticker=in.(" + tickers.map(encodeURIComponent).join(",") + ")&select=ticker,price,prev_close,updated_ts";
+    const response = await fetch(SB + "/rest/v1/" + query, {
+      headers:{ apikey:ANON, Authorization:"Bearer " + ANON }, signal:controller?.signal
+    });
+    if (!response.ok) throw new Error("live_quotes " + response.status);
+    return response.json();
+  } finally { if (timer) clearTimeout(timer); }
+}
+async function refreshDeckQuotes() {
+  deckQuoteRequest += 1;
+  if (deckQuoteInFlight) { deckQuoteRerun = true; return; }
+  const tickers = visibleChartTickers();
+  if (!tickers.length) return;
+  const request = deckQuoteRequest;
+  deckQuoteInFlight = true;
+  try {
+    const rows = await fetchDeckQuotes(tickers);
+    if (request !== deckQuoteRequest) return;
+    const selected = selectVisibleQuoteRows(rows, tickers);
+    for (const ticker of tickers) {
+      const quote = selected.get(ticker);
+      if (quote) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); }
+      else { DECK_QUOTES.delete(ticker); DECK_QUOTE_FAILED.add(ticker); }
+      fanoutDeckQuote(ticker);
+    }
+  } catch (_) {
+    if (request !== deckQuoteRequest) return;
+    for (const ticker of tickers) { DECK_QUOTE_FAILED.add(ticker); fanoutDeckQuote(ticker); }
+  } finally {
+    deckQuoteInFlight = false;
+    if (deckQuoteRerun) { deckQuoteRerun = false; refreshDeckQuotes(); }
+  }
+}
+if (deckSb) deckSb.channel("station-deck-lq").on("postgres_changes", {
+  event:"*", schema:"public", table:"live_quotes"
+}, (event) => {
+  const selected = selectVisibleQuoteRows([event.new], visibleChartTickers());
+  for (const [ticker, quote] of selected) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); fanoutDeckQuote(ticker); }
+}).subscribe();
 let SOLO = QS.get("full") || null;
 let MEDIA_TARGET = null;
 let MEDIA_STAGE = 0;
@@ -629,6 +711,7 @@ function mount(obj) {
   f.setAttribute("allowfullscreen", "");
   f.addEventListener("load", () => {
     postViewProfile(obj);
+    if (obj.def.kind === "chart") postDeckQuote(f, obj.def.ticker);
   });
   obj.body.appendChild(f); obj.frame = f;
   LIVE.push(obj);
@@ -813,6 +896,7 @@ function paintMarketStatus() {
     new Date(x.updatedTs).toLocaleTimeString()).join("\n");
 }
 setInterval(paintMarketStatus, 10000);
+setInterval(refreshDeckQuotes, DECK_QUOTE_HEARTBEAT_MS);
 window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
   if (event.data?.sc === "chart-load-request") {
@@ -823,6 +907,11 @@ window.addEventListener("message", (event) => {
   if (event.data?.sc === "chart-data-state") {
     const current = CHART_STATUS.get(event.data.ticker) || {};
     CHART_STATUS.set(event.data.ticker, Object.assign({}, current, event.data)); paintMarketStatus(); return;
+  }
+  if (event.data?.sc === "chart-quote-ready") {
+    const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
+    if (pane?.def.kind === "chart") { postDeckQuote(pane.frame, pane.def.ticker); refreshDeckQuotes(); }
+    return;
   }
   if (event.data?.sc === "chart-status") {
     const current = CHART_STATUS.get(event.data.ticker) || {};
@@ -1080,6 +1169,7 @@ function syncChartPanes(transitionGeneration) {
       else syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE });
     }
   });
+  refreshDeckQuotes();
 }
 async function applyScene(next, options) {
   const previous = SCENE;
@@ -1311,7 +1401,7 @@ function commitTicker(index, raw, input) {
       syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE });
     } else if (index < CHART_COUNT) mount(o);
   }
-  rememberEditableState(); closeSymbolGuide(); paintChips(); return true;
+  refreshDeckQuotes(); rememberEditableState(); closeSymbolGuide(); paintChips(); return true;
 }
 function wireTicker(n, index) {
   n.value = CHARTS[index]; n.dataset.index = String(index);
@@ -1390,7 +1480,7 @@ function applyChartCount(next, fromScene, transitionGeneration) {
   });
   if (SOLO && /^c[1-8]$/.test(SOLO) && +SOLO.slice(1) > CHART_COUNT) setSolo(null);
   if (!fromScene) rememberEditableState();
-  relayout(); paintChips();
+  relayout(); paintChips(); refreshDeckQuotes();
 }
 el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
 el("sceneMode").addEventListener("change", (e) => {
