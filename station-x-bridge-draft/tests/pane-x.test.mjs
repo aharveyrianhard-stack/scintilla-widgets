@@ -99,7 +99,7 @@ test("only same-capture fractional crop motion eases between confirmed viewer fr
   const offset = functionFromSource("cropOffsetFor");
   const canEase = functionFromSource("cropsCanEase", { cropGenerationFor:generation, cropOffsetFor:offset, Math });
   const atMotion = functionFromSource("cropAtMotion", { cropOffsetFor:offset, Math, Object });
-  const begin = functionFromSource("beginCropMotion", { cropAtMotion:atMotion, cropsCanEase:canEase, VIEWER_CROP_EASE_MS:72 });
+  const begin = functionFromSource("beginCropMotion", { cropAtMotion:atMotion, cropsCanEase:canEase, VIEWER_CROP_EASE_MS:120 });
   const prior = { captureGeneration:7, rect:{ left:1, top:2, width:3, height:4 }, fractionalScrollOffset:.1 };
   const next = { captureGeneration:7, rect:{ left:1, top:2, width:3, height:4 }, fractionalScrollOffset:.4 };
   const motion = begin(null, prior, 0);
@@ -107,7 +107,12 @@ test("only same-capture fractional crop motion eases between confirmed viewer fr
   assert.equal(atMotion(eased, 10).fractionalScrollOffset, .1, "easing starts from the exact visible crop");
   assert.ok(atMotion(eased, 46).fractionalScrollOffset > .1 && atMotion(eased, 46).fractionalScrollOffset < .4,
     "a confirmed sub-pixel move has an in-between visual position");
-  assert.equal(atMotion(eased, 82).fractionalScrollOffset, .4);
+  assert.ok(atMotion(eased, 82).fractionalScrollOffset > .1 && atMotion(eased, 82).fractionalScrollOffset < .4,
+    "the blend remains in motion past the old 72ms endpoint");
+  assert.equal(atMotion(eased, 130).fractionalScrollOffset, .4);
+  const continual = begin(eased, Object.assign({}, next, { fractionalScrollOffset:.7 }), 110);
+  assert.ok(atMotion(continual, 110).fractionalScrollOffset < .4,
+    "the next source crop starts from the still-moving visual position without a 10Hz hold");
   const boundary = Object.assign({}, next, { captureGeneration:8, fractionalScrollOffset:.05 });
   assert.equal(begin(eased, boundary, 20).duration, 0,
     "a capture-generation boundary is never interpolated across frames");
@@ -141,6 +146,8 @@ test("viewer crop barrier retains the existing one-owner clock and paint caps", 
   assert.match(source, /const VIEWER_PAINT_INTERVAL_MS = 80;/);
   assert.match(source, /const VIEWER_MOTION_PAINT_INTERVAL_MS = 40;/,
     "only already-confirmed sub-pixel crop motion gets a lighter temporary paint cadence");
+  assert.match(source, /const VIEWER_CROP_EASE_MS = 120;/,
+    "a blend spans the following source tick rather than stopping early");
   assert.match(source, /function receiveViewerCrop\(crop\)/);
   assert.match(source, /function noteViewerVideoFrame\(\)/);
   assert.match(source, /function observeViewerVideoFrames\(video, mediaStream, onFrame\)/);
