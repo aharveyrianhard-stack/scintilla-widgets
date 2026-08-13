@@ -167,10 +167,19 @@ async function writeWatchCache(sb: any, ids: string[]) {
 
 async function updateWatchCache(sb: any, videoId: string, include: boolean) {
   const cached = await readWatchCache(sb);
-  if (!cached) return;
-  const next = new Set(cached);
-  if (include) next.add(videoId); else next.delete(videoId);
-  await writeWatchCache(sb, Array.from(next));
+  if (cached) {
+    const next = new Set(cached);
+    if (include) next.add(videoId); else next.delete(videoId);
+    await writeWatchCache(sb, Array.from(next));
+  }
+  /* This is the fast, cross-device read model.  Google remains the authority
+     for writes, but Station and Hub never wait on its playlist endpoint just
+     to render a saved-video list. */
+  if (include) {
+    await sb.from("yt_watch_later").upsert({ video_id: videoId, updated_at: new Date().toISOString() });
+  } else {
+    await sb.from("yt_watch_later").delete().eq("video_id", videoId);
+  }
 }
 
 async function migrateLegacyWatchLater(

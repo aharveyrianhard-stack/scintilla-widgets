@@ -630,8 +630,10 @@ test("visible video feeds share one durable Personal YouTube action identity", (
   const ytAction = fs.readFileSync(new URL("../supabase/functions/yt-act/index.ts", import.meta.url), "utf8");
   assert.match(videoPane, /const YOUTUBE_ACCOUNT = "personal"/,
     "the separate Personal and SCINTILLA grids do not demand separate Google logins");
-  assert.match(videoPane, /ytAct\("list", \{ account:YOUTUBE_ACCOUNT \}\)/,
-    "Watch Later uses the one durable account");
+  assert.match(videoPane, /pg\("yt_watch_later\?select=video_id"\)/,
+    "Station reads the one shared saved-video state directly instead of waiting on Google");
+  assert.match(videoPane, /syncWatch\(\)\.catch\(\(\) => \{ WATCH_READY = false; \}\)/,
+    "Station begins the local saved-set read alongside its normal feed, not only after Watch Later is clicked");
   assert.match(videoPane, /account:YOUTUBE_ACCOUNT/,
     "playing-channel Subscribe uses that same account");
   assert.doesNotMatch(videoPane, /connectYouTube|pollOauth|reconnect SCINTILLA|id="auth"/,
@@ -660,6 +662,10 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "a save updates the same shared cache immediately");
   assert.match(ytAction, /updateWatchCache\(sb, input\.videoId, false\)/,
     "a removal updates the same shared cache immediately");
+  assert.match(ytAction, /from\("yt_watch_later"\)\.upsert/,
+    "a successful YouTube save updates the shared read model");
+  assert.match(ytAction, /from\("yt_watch_later"\)\.delete\(\)\.eq\("video_id", videoId\)/,
+    "a successful YouTube removal updates the shared read model");
   assert.doesNotMatch(ytAction, /WATCH_ACCOUNT|validAccount/,
     "there is no fallback to the disconnected SCINTILLA OAuth identity");
 });
