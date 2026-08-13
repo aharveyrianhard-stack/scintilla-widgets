@@ -105,16 +105,17 @@ test("Station retains one 10 Hz source tick path while waiting for a captured vi
   );
   assert.match(control, /session\.stationPendingScrollGeneration = next\.generation/);
   assert.match(control, /requestStationCaptureFrame\(next\.generation\)/);
-  assert.match(control, /else if \(!session\.stationPendingScrollGeneration\)/);
+  assert.match(control, /else if \(!session\.stationPendingScrollGeneration && !session\.stationPostAckAnchor\)/);
   assert.match(control, /Math\.min\(timestamp - session\.lastScrollTimestamp, 100\)/);
 });
 
-test("a post-scroll crop is released only by the current captured-frame generation", () => {
+test("a post-scroll crop is released only by the current captured-frame generation after late-anchor settling", () => {
   assert.match(source, /function confirmStationCaptureFrame\(generation\)/);
   assert.match(source, /confirmed !== session\.stationPendingScrollGeneration/,
     "late capture acknowledgements must be ignored");
-  assert.match(source, /session\.stationRenderedOffset = session\.scrollCarryPx/);
-  assert.match(source, /session\.stationConfirmedCaptureGeneration = confirmed/);
+  assert.match(source, /session\.stationPostAckAnchor = \{ generation:confirmed, anchor, checks:0 \}/);
+  assert.match(source, /function observeStationPostAckAnchor\(generation\)/);
+  assert.match(source, /session\.stationConfirmedCaptureGeneration = generation/);
   assert.match(source, /type: "XFF_STATION_CROP", crop: stationCropPayload\(\)/,
     "the next offset is broadcast only after the matching decoded frame");
   assert.match(source, /message\?\.type === "XFF_STATION_CAPTURE_FRAME"/);
@@ -142,13 +143,14 @@ test("Station records source scroll/height/geometry at capture confirmation and 
     source.indexOf("function stopStationRelay")
   );
   assert.match(payload, /sourceScroll: session\.stationLastConfirmedScroll \|\| stationScrollSnapshot\(\)/);
-  assert.match(payload, /sourceMetrics:[\s\S]{0,320}anchorCorrections/);
+  assert.match(payload, /sourceMetrics:[\s\S]{0,420}lateAnchorCorrections/);
   assert.match(source, /function applyStationSourceScroll\(root, pixels, snapshot = stationScrollSnapshot\)/);
   assert.match(source, /root\.scrollTop = before\.scrollTop \+ requestedPixels/);
   assert.match(source, /const movement = applyStationSourceScroll\(root, wholePixels\)/);
   assert.match(source, /appliedScrollTop: after\.scrollTop/);
   assert.match(source, /session\.stationPendingScrollAnchor = scrollAnchor/);
-  assert.match(source, /const disposition = stationAnchorDisposition\(anchor, snapshot\)/);
-  assert.match(source, /if \(disposition\.hold\)[\s\S]{0,650}session\.scrollCarryPx = session\.stationRenderedOffset/);
+  assert.match(source, /const disposition = stationAnchorDisposition\(pending\.anchor, snapshot\)/);
+  assert.match(source, /session\.stationMetrics\.lateAnchorChecks \+= 1/);
+  assert.match(source, /if \(disposition\.hold\) return holdStationAnchor\(pending\.anchor, disposition, \{ late:true \}\)/);
   assert.match(source, /session\.stationLastConfirmedScroll = snapshot/);
 });

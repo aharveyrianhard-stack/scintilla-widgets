@@ -44,6 +44,8 @@
     stationScrollGeneration: 0,
     stationPendingScrollGeneration: 0,
     stationPendingScrollAnchor: null,
+    stationPostAckAnchor: null,
+    stationPostAckTimer: null,
     stationConfirmedCaptureGeneration: 0,
     stationCropSequence: 0,
     stationGeometryVersion: 0,
@@ -56,7 +58,9 @@
       geometryInvalidations: 0,
       negativeCommitOffsets: 0,
       anchorCorrections: 0,
-      anchorReflowHeightChanges: 0
+      anchorReflowHeightChanges: 0,
+      lateAnchorChecks: 0,
+      lateAnchorCorrections: 0
     },
     scrollEnabled: false,
     pointerPause: false,
@@ -684,6 +688,46 @@
     runtimeMessage({ type: "XFF_STATION_SCROLL_GENERATION", generation }).catch(() => {});
   }
 
+  function clearStationPostAckAnchor() {
+    if (session.stationPostAckTimer) clearTimeout(session.stationPostAckTimer);
+    session.stationPostAckTimer = null;
+    session.stationPostAckAnchor = null;
+  }
+
+  function holdStationAnchor(anchor, disposition, { late = false } = {}) {
+    clearStationPostAckAnchor();
+    session.scrollCarryPx = session.stationRenderedOffset;
+    session.stationMetrics.anchorCorrections += 1;
+    if (late) session.stationMetrics.lateAnchorCorrections += 1;
+    if (disposition.reflowed) session.stationMetrics.anchorReflowHeightChanges += 1;
+    return false;
+  }
+
+  /* The offscreen capture acknowledgement proves the source stream saw the
+     scroll, but X may still apply one last virtualized anchor correction.
+     Hold two short post-ack observations before exposing a new crop.  These
+     timers deliberately do not rely on rAF: the source tab is often hidden. */
+  function observeStationPostAckAnchor(generation) {
+    const pending = session.stationPostAckAnchor;
+    if (!pending || pending.generation !== generation || session.stationPendingScrollGeneration) return false;
+    const snapshot = stationScrollSnapshot();
+    const disposition = stationAnchorDisposition(pending.anchor, snapshot);
+    pending.checks += 1;
+    session.stationMetrics.lateAnchorChecks += 1;
+    if (disposition.hold) return holdStationAnchor(pending.anchor, disposition, { late:true });
+    if (pending.checks < 2) {
+      session.stationPostAckTimer = setTimeout(() => observeStationPostAckAnchor(generation), 16);
+      return false;
+    }
+    clearStationPostAckAnchor();
+    session.stationRenderedOffset = session.scrollCarryPx;
+    session.stationConfirmedCaptureGeneration = generation;
+    session.stationLastConfirmedScroll = snapshot;
+    session.stationMetrics.confirmedCaptureFrames += 1;
+    runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });
+    return true;
+  }
+
   function confirmStationCaptureFrame(generation) {
     const confirmed = Math.max(0, Number(generation) || 0);
     /* A late frame belongs to a scroll position we have already superseded.
@@ -698,22 +742,18 @@
       // no backwards crop is emitted to either viewer.
       session.stationPendingScrollGeneration = 0;
       session.stationPendingScrollAnchor = null;
-      session.scrollCarryPx = session.stationRenderedOffset;
-      session.stationMetrics.anchorCorrections += 1;
-      if (disposition.reflowed) session.stationMetrics.anchorReflowHeightChanges += 1;
-      return false;
+      return holdStationAnchor(anchor, disposition);
     }
-    session.stationRenderedOffset = session.scrollCarryPx;
     session.stationPendingScrollGeneration = 0;
     session.stationPendingScrollAnchor = null;
-    session.stationConfirmedCaptureGeneration = confirmed;
-    session.stationLastConfirmedScroll = snapshot;
-    session.stationMetrics.confirmedCaptureFrames += 1;
-    runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });
+    clearStationPostAckAnchor();
+    session.stationPostAckAnchor = { generation:confirmed, anchor, checks:0 };
+    session.stationPostAckTimer = setTimeout(() => observeStationPostAckAnchor(confirmed), 16);
     return true;
   }
 
   function resetStationScrollComposite() {
+    clearStationPostAckAnchor();
     session.scrollCarryPx = 0;
     session.stationRenderedOffset = 0;
     session.stationPendingScrollGeneration = 0;
@@ -1999,7 +2039,9 @@
       sourceScroll: session.stationLastConfirmedScroll || stationScrollSnapshot(),
       sourceMetrics: {
         anchorCorrections: session.stationMetrics.anchorCorrections,
-        anchorReflowHeightChanges: session.stationMetrics.anchorReflowHeightChanges
+        anchorReflowHeightChanges: session.stationMetrics.anchorReflowHeightChanges,
+        lateAnchorChecks: session.stationMetrics.lateAnchorChecks,
+        lateAnchorCorrections: session.stationMetrics.lateAnchorCorrections
       },
       sequence: ++session.stationCropSequence,
       activeView: session.activeView,
@@ -2131,7 +2173,7 @@
           session.stationPendingScrollGeneration = next.generation;
           session.stationPendingScrollAnchor = scrollAnchor;
           requestStationCaptureFrame(next.generation);
-        } else if (!session.stationPendingScrollGeneration) {
+        } else if (!session.stationPendingScrollGeneration && !session.stationPostAckAnchor) {
           session.stationRenderedOffset = next.renderedOffset;
         }
       }
