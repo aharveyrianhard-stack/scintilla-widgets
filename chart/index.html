@@ -1002,14 +1002,7 @@ function chDayChange(price, previousClose) {
 
 function paintLiveStatus(host, quote) {
   const badge = host?.querySelector(".sc-nchart__live");
-  if (!badge || !quote || !isFinite(+quote.price)) return;
-  const at = new Date(quote.updated_ts || Date.now());
-  const age = Date.now() - at.getTime();
-  const fresh = Number.isFinite(age) && age < 90000;
-  badge.dataset.fresh = fresh ? "1" : "0";
-  const dayRef = prevClose[host.dataset.t];
-  const day = chDayChange(+quote.price, dayRef);
-  badge.dataset.change = day.tone;
+  if (!badge) return;
   let ticker = badge.querySelector(".sc-nchart__live-ticker");
   let price = badge.querySelector(".sc-nchart__live-price");
   let change = badge.querySelector(".sc-nchart__live-change");
@@ -1029,6 +1022,21 @@ function paintLiveStatus(host, quote) {
     badge.append(ticker, price, change);
   }
   ticker.textContent = host.dataset.t;
+  if (!quote || !isFinite(+quote.price)) {
+    badge.dataset.fresh = "0";
+    badge.dataset.change = "flat";
+    price.textContent = "—";
+    change.textContent = "";
+    badge.title = "live quote unavailable";
+    return;
+  }
+  const at = new Date(quote.updated_ts || Date.now());
+  const age = Date.now() - at.getTime();
+  const fresh = Number.isFinite(age) && age < 90000;
+  badge.dataset.fresh = fresh ? "1" : "0";
+  const dayRef = prevClose[host.dataset.t];
+  const day = chDayChange(+quote.price, dayRef);
+  badge.dataset.change = day.tone;
   price.textContent = chPx(+quote.price, host.dataset.t);
   change.textContent = day.text;
   badge.title = (futureSet.has(host.dataset.t) ? "delayed futures quote · database refresh " : "live_quotes · ") + at.toISOString();
