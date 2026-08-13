@@ -53,6 +53,16 @@ test("viewer cadence is capped locally while remote iPad viewers never drive sou
   assert.match(source, /window\.__SCINTILLA_X_CADENCE/);
 });
 
+test("crop broadcasts preserve one canvas animation loop", () => {
+  const context = { xfloatFrame:0, drawXFloat:() => {}, requestVideoFrameCallback:undefined };
+  let scheduled = 0;
+  context.requestAnimationFrame = () => { scheduled += 1; return 91; };
+  const ensure = functionFromSource("ensureXFloatDraw", context);
+  ensure(); ensure(); ensure();
+  assert.equal(scheduled, 1, "several crop arrivals share one scheduled canvas draw");
+  assert.equal(context.xfloatFrame, 91);
+});
+
 test("a newer crop waits for one decoded viewer frame and stale crops cannot win", () => {
   const cropGenerationFor = functionFromSource("cropGenerationFor");
   const cropSequenceFor = functionFromSource("cropSequenceFor");
@@ -162,6 +172,10 @@ test("viewer crop barrier retains the existing one-owner clock and paint caps", 
   assert.match(source, /const VIEWER_CROP_EASE_MS = 120;/,
     "a blend spans the following source tick rather than stopping early");
   assert.match(source, /function receiveViewerCrop\(crop\)/);
+  assert.match(source, /function ensureXFloatDraw\(\)/,
+    "crop messages schedule the existing canvas loop instead of spawning another one");
+  assert.doesNotMatch(source, /payload\.event === "crop"[^\n]*drawXFloat\(\)/,
+    "a remote crop cannot create a duplicate requestAnimationFrame chain");
   assert.match(source, /function noteViewerVideoFrame\(\)/);
   assert.match(source, /function observeViewerVideoFrames\(video, mediaStream, onFrame\)/);
   assert.match(source, /typeof video\?\.requestVideoFrameCallback === "function"/,
