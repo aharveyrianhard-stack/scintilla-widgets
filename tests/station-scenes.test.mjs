@@ -644,6 +644,12 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "Station targets the existing Hub Watch Later list rather than a new Station-only list");
   assert.match(ytAction, /playlists\?part=id,snippet&id=/,
     "a saved Watch Later id is validated against the canonical list title before reuse");
+  assert.match(ytAction, /LEGACY_WATCH_LATER_PLAYLIST_TITLES = new Set\(\["Station Watch Later"\]\)/,
+    "the accidental legacy Station list is recognized for one-time recovery");
+  assert.match(ytAction, /migrateLegacyWatchLater/,
+    "legacy Hub or Station entries are copied into the one canonical cross-device playlist");
+  assert.match(ytAction, /yt_wl_playlist_personal_migration_v1/,
+    "the migration is marked after completion so normal Watch Later reads stay cheap");
   assert.doesNotMatch(ytAction, /WATCH_ACCOUNT|validAccount/,
     "there is no fallback to the disconnected SCINTILLA OAuth identity");
 });

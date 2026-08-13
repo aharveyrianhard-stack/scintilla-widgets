@@ -10,6 +10,8 @@ const ACTION_ACCOUNT: Account = "personal";
 /* This is the existing cross-device list used by the Hub Social YouTube
    surface.  Station must attach to it, never fork a second Station list. */
 const WATCH_LATER_PLAYLIST_TITLE = "SCINTILLA · Watch Later";
+const LEGACY_WATCH_LATER_PLAYLIST_TITLES = new Set(["Station Watch Later"]);
+const WATCH_LATER_MIGRATION_KEY = "yt_wl_playlist_personal_migration_v1";
 
 function adminKey() {
   const current = Deno.env.get("SUPABASE_SECRET_KEYS");
@@ -118,37 +120,109 @@ async function logSub(
   } catch (_) {}
 }
 
+async function playlistVideoIds(token: string, playlistId: string) {
+  const ids: string[] = [];
+  let pageToken = "";
+  for (let page = 0; page < 4; page++) {
+    const r = await yt(
+      token,
+      "GET",
+      "playlistItems?part=contentDetails&maxResults=50&playlistId=" + encodeURIComponent(playlistId) +
+        (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : ""),
+    );
+    if (r.status >= 300) return { ok: false, ids };
+    for (const item of r.body?.items || []) {
+      const videoId = item.contentDetails?.videoId;
+      if (videoId) ids.push(videoId);
+    }
+    pageToken = r.body?.nextPageToken || "";
+    if (!pageToken) break;
+  }
+  return { ok: true, ids };
+}
+
+async function migrateLegacyWatchLater(
+  sb: any,
+  token: string,
+  canonicalId: string,
+  legacyIds: string[],
+  migrationMark: string,
+) {
+  if (!legacyIds.length || migrationMark === canonicalId + ":" + legacyIds.join(",")) return;
+  const canonical = await playlistVideoIds(token, canonicalId);
+  if (!canonical.ok) return;
+  const already = new Set(canonical.ids);
+  let complete = true;
+  for (const legacyId of legacyIds) {
+    if (!legacyId || legacyId === canonicalId) continue;
+    const legacy = await playlistVideoIds(token, legacyId);
+    if (!legacy.ok) { complete = false; continue; }
+    for (const videoId of legacy.ids) {
+      if (already.has(videoId)) continue;
+      const added = await yt(token, "POST", "playlistItems?part=snippet", {
+        snippet: { playlistId: canonicalId, resourceId: { kind: "youtube#video", videoId } },
+      });
+      if (added.status < 300) already.add(videoId);
+      else complete = false;
+    }
+  }
+  if (complete) {
+    await sb.from("app_config").upsert({
+      key: WATCH_LATER_MIGRATION_KEY,
+      value: canonicalId + ":" + legacyIds.join(","),
+    });
+  }
+}
+
 async function ensurePlaylist(sb: any, token: string) {
   const { data: cfg } = await sb.from("app_config")
-    .select("key,value").eq("key", "yt_wl_playlist_personal");
+    .select("key,value").in("key", [
+      "yt_wl_playlist_personal",
+      "yt_wl_playlist",
+      WATCH_LATER_MIGRATION_KEY,
+    ]);
   const saved: Record<string, string> = {};
   for (const row of cfg || []) saved[row.key] = row.value;
   const existingId = saved.yt_wl_playlist_personal;
+  const legacyIds = new Set<string>([saved.yt_wl_playlist].filter(Boolean));
+  let canonicalId: string | undefined;
   /* A playlist id can survive after the YouTube account that created it is
      changed or disconnected. Never let that stale id brick Watch Later. */
   if (existingId) {
     const check = await yt(token, "GET", "playlists?part=id,snippet&id=" + encodeURIComponent(existingId));
     const existing = check.body?.items?.[0];
     if (check.status < 300 && existing?.id === existingId &&
-        existing?.snippet?.title === WATCH_LATER_PLAYLIST_TITLE) return existingId;
+        existing?.snippet?.title === WATCH_LATER_PLAYLIST_TITLE) canonicalId = existingId;
+    else legacyIds.add(existingId);
   }
 
-  const mine = await yt(token, "GET", "playlists?part=snippet&mine=true&maxResults=50");
-  const found = (mine.body?.items || []).find(
-    (item: { snippet?: { title?: string } }) => item.snippet?.title === WATCH_LATER_PLAYLIST_TITLE,
-  );
-  let id = found?.id as string | undefined;
-  if (!id) {
+  let mineItems: Array<{ id?: string; snippet?: { title?: string } }> = [];
+  if (!canonicalId || saved[WATCH_LATER_MIGRATION_KEY] === undefined) {
+    const mine = await yt(token, "GET", "playlists?part=snippet&mine=true&maxResults=50");
+    mineItems = mine.body?.items || [];
+  }
+  if (!canonicalId) {
+    const found = mineItems.find((item) => item.snippet?.title === WATCH_LATER_PLAYLIST_TITLE);
+    canonicalId = found?.id;
+  }
+  if (!canonicalId) {
     const made = await yt(token, "POST", "playlists?part=snippet,status", {
       snippet: { title: WATCH_LATER_PLAYLIST_TITLE, description: "Saved from SCINTILLA" },
       status: { privacyStatus: "private" },
     });
-    id = made.body?.id;
+    canonicalId = made.body?.id;
   }
-  if (id) {
-    await sb.from("app_config").upsert({ key: "yt_wl_playlist_personal", value: id });
+  if (!canonicalId) return null;
+
+  for (const item of mineItems) {
+    if (item.id && LEGACY_WATCH_LATER_PLAYLIST_TITLES.has(item.snippet?.title || "")) legacyIds.add(item.id);
   }
-  return id || null;
+  const legacy = Array.from(legacyIds).filter((id) => id && id !== canonicalId).sort();
+  await sb.from("app_config").upsert({ key: "yt_wl_playlist_personal", value: canonicalId });
+  if (legacy.length) {
+    await migrateLegacyWatchLater(sb, token, canonicalId, legacy, saved[WATCH_LATER_MIGRATION_KEY] || "");
+  }
+  return canonicalId;
 }
 
 Deno.serve(async (req) => {
@@ -172,24 +246,9 @@ Deno.serve(async (req) => {
   if (action === "list") {
     const playlist = await ensurePlaylist(sb, token);
     if (!playlist) return J({ error: "no playlist", account });
-    const ids: string[] = [];
-    let pageToken = "";
-    for (let page = 0; page < 4; page++) {
-      const r = await yt(
-        token,
-        "GET",
-        "playlistItems?part=contentDetails&maxResults=50&playlistId=" + playlist +
-          (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : ""),
-      );
-      if (r.status >= 300) return J({ error: "playlist read failed", status: r.status, account });
-      for (const item of r.body?.items || []) {
-        const videoId = item.contentDetails?.videoId;
-        if (videoId) ids.push(videoId);
-      }
-      pageToken = r.body?.nextPageToken || "";
-      if (!pageToken) break;
-    }
-    return J({ ok: true, account, ids });
+    const listed = await playlistVideoIds(token, playlist);
+    if (!listed.ok) return J({ error: "playlist read failed", account });
+    return J({ ok: true, account, ids: listed.ids });
   }
 
   if (action === "star") {
