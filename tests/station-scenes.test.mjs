@@ -300,6 +300,50 @@ test("rotation stages only two cold chart frames and fences outgoing retries", (
   assert.match(chart, /d\.sc === "chart-transition"/);
 });
 
+test("stalled chart reads retain a truthful ticker fallback and report coherent delayed state", () => {
+  assert.match(chart, /price\.textContent = hasQuote \? chPx\(\+quote\.price, host\.dataset\.t\) : "—"/,
+    "the readout remains useful without inventing a price or daily percent");
+  assert.match(chart, /ticker\.textContent = host\.dataset\.t/);
+  assert.match(chart, /reportChartDataState\(host, \{ history:"delayed" \}\)/);
+  assert.match(chart, /reportChartDataState\(host, \{ quote:"delayed" \}\)/);
+  assert.match(chart, /sc:"chart-data-state"/);
+  const summarize = functionFromDeck("chartDataSummary");
+  assert.deepEqual(JSON.parse(JSON.stringify(summarize([{ ticker:"SPY", history:"delayed", quote:"loading" }]))), { mode:"delayed", count:1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(summarize([{ ticker:"SPY", history:"ready", quote:"ready" }]))), { mode:"ready", count:0 });
+  assert.match(deck, /DATA · delayed \(\" \+ summary\.count \+ "\)/);
+});
+
+test("Station admits at most two visible chart requests and discards stale generation retries", () => {
+  assert.match(deck, /const CHART_DATA_LOAD_LIMIT = 2;/);
+  assert.match(deck, /function selectChartDataLoadAdmissions\(state, limit = CHART_DATA_LOAD_LIMIT\)/);
+  assert.match(deck, /chartDataLoadQueue = \[\];/);
+  assert.match(chart, /function acquireChartLoadPermit\(host, req, generation\)/);
+  assert.match(chart, /sc:"chart-load-request"/);
+  assert.match(chart, /sc:"chart-load-release"/);
+  assert.match(chart, /if \(host\._activeLoad && host\._activeLoad\.req === req && host\._activeLoad\.generation === generation\)/,
+    "one chart cannot stack retries for one ticker/range/generation");
+  assert.match(chart, /const initialChartHost[\s\S]{0,220}initialChartHost\._transitionGeneration = CHART_TRANSITION_GENERATION;[\s\S]{0,120}scChartWire/,
+    "new chart frames join their transition generation before requesting data");
+});
+
+test("chart load coordinator grants two at once, releases FIFO work, and drops stale queued generations", () => {
+  const select = functionFromDeck("selectChartDataLoadAdmissions", { CHART_DATA_LOAD_LIMIT:2 });
+  const jobs = Array.from({ length:6 }, (_, index) => ({ token:"current-" + (index + 1), generation:7 }));
+  const first = select({ generation:7, active:[], queue:jobs });
+  assert.deepEqual(Array.from(first.grants, (job) => job.token), ["current-1", "current-2"]);
+  assert.equal(first.active.length, 2, "never more than two requests are active");
+  assert.deepEqual(Array.from(first.queue, (job) => job.token), ["current-3", "current-4", "current-5", "current-6"]);
+
+  const afterRelease = select({ generation:7, active:first.active.slice(1), queue:first.queue });
+  assert.deepEqual(Array.from(afterRelease.grants, (job) => job.token), ["current-3"],
+    "the next queued token is admitted after a release");
+  assert.equal(afterRelease.active.length, 2);
+
+  const stale = select({ generation:8, active:[], queue:[{ token:"old", generation:7 }, { token:"new", generation:8 }] });
+  assert.deepEqual(Array.from(stale.grants, (job) => job.token), ["new"]);
+  assert.deepEqual(Array.from(stale.queue), [], "stale generation work is never granted or retained");
+});
+
 test("top cards suppress their own dates while each lower card paints its column axis", () => {
   const chartSrc = functionFromDeck("chartSrc", {
     RANGE: "3h",
