@@ -11,6 +11,8 @@ const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "ut
 const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
 const videoPane = fs.readFileSync(new URL("../pane-video/index.html", import.meta.url), "utf8");
 const ipadCompanion = fs.readFileSync(new URL("../station-ipad/index.html", import.meta.url), "utf8");
+const stationManifest = JSON.parse(fs.readFileSync(new URL("../station/manifest.json", import.meta.url), "utf8"));
+const stationIcon = fs.readFileSync(new URL("../station/icon.svg", import.meta.url), "utf8");
 
 function functionFromDeck(name, bindings = {}) {
   const start = deck.indexOf(`function ${name}(`);
@@ -46,6 +48,19 @@ test("all eleven curated scenes are present with fixed baskets", () => {
   assert.equal(scenes.PRESETS.internalsFast.chartCount, 6);
   assert.equal(scenes.PRESETS.internalsSlow.range, "1D");
   assert.equal(scenes.PRESETS.macroCrossAsset.range, "3D");
+});
+
+test("Station install identity stays distinct from the Hub and carries the Scintilla mark", () => {
+  assert.equal(stationManifest.name, "SCINTILLA Station");
+  assert.equal(stationManifest.short_name, "STATION");
+  assert.deepEqual(stationManifest.icons.map((icon) => icon.src), [
+    "/station/icon.png", "/station/icon-512.png", "/station/icon.svg"
+  ]);
+  assert.match(stationIcon, /SCINTILLA Station/);
+  assert.match(stationIcon, /rotate\(120\)/);
+  assert.match(stationIcon, /#00FFA3/,
+    "the installed Station tile keeps its own live-chart visual identity");
+  assert.match(deck, /apple-touch-icon" sizes="512x512" href="\/station\/icon-512\.png"/);
 });
 
 test("INDEX NOW changes only its first two slots at the New York boundary", () => {
