@@ -57,11 +57,16 @@ test("Station install identity stays distinct from the Hub and carries the Scint
     "/station/icon.png", "/station/icon-512.png", "/station/icon.svg"
   ]);
   assert.match(stationIcon, /SCINTILLA Station/);
-  assert.match(stationIcon, /rotate\(120\)/,
+  assert.match(stationIcon, /unaltered Scintilla trefoil/,
+    "the canonical Scintilla mark remains intact inside the Station object");
+  assert.match(stationIcon, /rotate\(120 48 48\)/,
     "the canonical trefoil remains the primary Station mark");
-  assert.match(stationIcon, /small, matching-weight market trace/);
-  assert.doesNotMatch(stationIcon, /station-blue|<rect x="64"/,
-    "the Station cue must not wrap or replace the Scintilla brand with a device frame");
+  assert.match(stationIcon, /<rect x="68" y="80" width="376" height="286"/,
+    "the surrounding shape is the Station object, analogous to the lock—not a replacement logo");
+  assert.match(stationIcon, /stroke="#00D4FF" stroke-width="12"/,
+    "the Station silhouette uses the same cyan visual language as the mark");
+  assert.doesNotMatch(stationIcon, /matching-weight market trace|L142 432/,
+    "no unrelated market trace competes with the brand mark");
   assert.match(deck, /apple-touch-icon" sizes="512x512" href="\/station\/icon-512\.png"/);
 });
 
@@ -588,4 +593,21 @@ test("video resume remains local, bounded, and clears completion before auto-nex
     "the bounded progress probe starts only after the embedded player is ready");
   assert.match(videoPane, /clearPlayerPositionPoll\(\);[\s\S]*?CUR = null/,
     "leaving a video removes its one local progress probe");
+});
+
+test("Shorts are global discovery and a card can subscribe the active YouTube identity", () => {
+  const subscribed = functionFromSource(videoPane, "channelSubscribed", { FEED:"personal", LOCAL_SUBSCRIBED_CHANNELS:new Set() });
+  assert.equal(subscribed({ channel_id:"channel-a", subscription_accounts:[] }), false);
+  assert.equal(subscribed({ channel_id:"channel-a", subscription_accounts:["personal"] }), true);
+  assert.match(videoPane, /const ALL_SHORTS = \{ id: "shorts", n: "shorts", q: "&is_short=eq\.true" \}/,
+    "Shorts never inherit a subscription or ticker filter");
+  assert.match(videoPane, /SUBSCRIBED,\s*ALL_SHORTS,\s*\{ id: "watch"/,
+    "the SCINTILLA pane retains Subscribed, global Shorts, and Watch Later");
+  assert.match(videoPane, /\[SUBSCRIBED, ALL_SHORTS\]/,
+    "the Personal pane also exposes global Shorts");
+  assert.match(videoPane, /select=video_id,title,channel,channel_id,tickers/,
+    "the pane reads the channel id necessary for a real subscribe action");
+  assert.match(videoPane, /ytAct\("sub", \{ channelId, channelTitle: v\.channel \|\| "", account: FEED \}\)/,
+    "Subscribe invokes the existing authenticated YouTube action for the active identity");
+  assert.match(videoPane, /class="sub/);
 });
