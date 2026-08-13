@@ -718,11 +718,21 @@ function stopXFloat({ notify = true } = {}) {
   if (notify) window.postMessage({ type: "XFF_STATION_STOP" }, location.origin);
 }
 
+/* There is one continuous canvas loop per viewer.  Crop broadcasts update
+   state, but must not start another rAF chain: duplicated loops compete for
+   the same canvas and turn otherwise smooth interpolation into visible jank. */
+function ensureXFloatDraw() {
+  if (!xfloatFrame) xfloatFrame = requestAnimationFrame(drawXFloat);
+}
+
 function drawXFloat(at = 0) {
+  /* This callback consumed the outstanding request.  Its next pass is
+     scheduled through the one-loop guard below. */
+  xfloatFrame = 0;
   const paintAt = at || performance.now();
   syncViewerConfirmedCrop(paintAt);
   if (!xfloatStream || !xfloatCrop) {
-    xfloatFrame = requestAnimationFrame(drawXFloat);
+    ensureXFloatDraw();
     return;
   }
   const motionActive = viewerCropMotion?.duration && paintAt - viewerCropMotion.startedAt < viewerCropMotion.duration;
@@ -730,7 +740,7 @@ function drawXFloat(at = 0) {
   if (at && at - xfloatDrawAt < paintInterval) {
     viewerCadence.paintSkipped += 1;
     publishViewerCadence();
-    xfloatFrame = requestAnimationFrame(drawXFloat);
+    ensureXFloatDraw();
     return;
   }
   xfloatDrawAt = at;
@@ -775,7 +785,7 @@ function drawXFloat(at = 0) {
       ctx.drawImage(video, sourceX, sy, sourceWidth, sh, dx, 0, dw, dh);
     }
   }
-  xfloatFrame = requestAnimationFrame(drawXFloat);
+  ensureXFloatDraw();
 }
 
 function startStationClock() {
@@ -825,7 +835,7 @@ async function attachXFloatStream(mediaStream) {
   el("xfState").classList.add("on");
   xfloatStream.getVideoTracks()[0]?.addEventListener("ended", () => stopXFloat({ notify: false }), { once: true });
   startStationClock();
-  drawXFloat();
+  ensureXFloatDraw();
 }
 
 async function startXFloat(streamId) {
@@ -926,7 +936,7 @@ async function startRemoteStationViewer() {
       if (remoteOfferRetry) clearInterval(remoteOfferRetry);
       remoteOfferRetry = null;
     }).catch(error => showErr("iMac X answer failed: " + error.message));
-    if (payload.event === "crop") { receiveViewerCrop(payload.payload); paintXView(xfloatCrop?.activeView || "trading"); drawXFloat(); }
+    if (payload.event === "crop") { receiveViewerCrop(payload.payload); paintXView(xfloatCrop?.activeView || "trading"); ensureXFloatDraw(); }
   });
   remoteSocket.addEventListener("error", () => {
     if (remoteSocket !== activeRemoteSocket) return;
