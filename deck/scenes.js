@@ -44,7 +44,7 @@
     }),
     companyLeadership: Object.freeze({ label:"COMPANY LEADERSHIP", tickers:Object.freeze(["AAPL","MSFT","AMZN","GOOGL","META","TSLA"]), chartCount:6, range:"3h" }),
     focus2: Object.freeze({ label:"FOCUS 2", tickers:Object.freeze(["MU","SNDK"]), chartCount:2, range:"3h" }),
-    macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", tickers:Object.freeze(["US10Y","DXUSD","GCUSD","SIUSD","CLUSD","ESUSD"]), chartCount:6, range:"3D" }),
+    macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", tickers:Object.freeze(["US10Y","DXUSD","GCUSD","SIUSD","CLUSD","BTCUSD"]), chartCount:6, range:"3D" }),
     internalsFast: Object.freeze({ label:"INTERNALS", tickers:Object.freeze(["VIX","ADD","PCC","CUMTICK","TICK","TRIN"]), chartCount:6, range:"3h" }),
     internalsSlow: Object.freeze({ label:"INTERNALS SLOW", tickers:Object.freeze(["TICK","TRIN"]), chartCount:2, range:"1D" })
   });

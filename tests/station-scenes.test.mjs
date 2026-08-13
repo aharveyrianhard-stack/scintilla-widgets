@@ -87,7 +87,8 @@ test("larger curated grids page real basket members without blank cards", () => 
 test("Macro and Internals are complete honest six-up screens", () => {
   const macro = Array.from(scenes.PRESETS.macroCrossAsset.tickers);
   const internals = Array.from(scenes.PRESETS.internalsFast.tickers);
-  assert.deepEqual(macro, ["US10Y","DXUSD","GCUSD","SIUSD","CLUSD","ESUSD"]);
+  assert.deepEqual(macro, ["US10Y","DXUSD","GCUSD","SIUSD","CLUSD","BTCUSD"],
+    "Macro Cross-Asset carries a verified continuously quoted risk asset; ES remains in INDEX NOW overnight");
   assert.deepEqual(internals, ["VIX","ADD","PCC","CUMTICK","TICK","TRIN"]);
   assert.equal(scenes.basketWindow(macro, 0, 6).chartCount, 6);
   assert.equal(scenes.basketWindow(internals, 0, 6).tickers.includes(""), false);
