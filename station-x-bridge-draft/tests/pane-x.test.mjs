@@ -53,7 +53,7 @@ test("viewer cadence is capped locally while remote iPad viewers never drive sou
   assert.match(source, /window\.__SCINTILLA_X_CADENCE/);
 });
 
-test("a newer crop waits for two decoded viewer frames and stale crops cannot win", () => {
+test("a newer crop waits for one decoded viewer frame and stale crops cannot win", () => {
   const cropGenerationFor = functionFromSource("cropGenerationFor");
   const cropSequenceFor = functionFromSource("cropSequenceFor");
   const receive = functionFromSource("receiveViewerCropState", { cropGenerationFor, cropSequenceFor, Object });
@@ -67,14 +67,10 @@ test("a newer crop waits for two decoded viewer frames and stale crops cannot wi
   const firstBoundary = { captureGeneration:1, sequence:2, rect:{ top:10 }, fractionalScrollOffset:.2 };
   state = receive(state, firstBoundary);
   assert.equal(state.confirmedCrop, initial, "old video continues using the old crop before the frame barrier");
-  state = advance(state);
-  assert.equal(state.confirmedCrop, initial, "one decoded frame is not enough to advance the crop");
 
   const newerBoundary = { captureGeneration:2, sequence:3, rect:{ top:10 }, fractionalScrollOffset:.5 };
   state = receive(state, newerBoundary);
   assert.equal(state.pendingDrops, 1, "a superseded pending generation is dropped");
-  state = advance(state);
-  assert.equal(state.confirmedCrop, initial, "a new generation resets the two-frame barrier");
   state = advance(state);
   assert.equal(state.confirmedGeneration, 2);
   assert.equal(state.confirmedCrop, newerBoundary, "only the newest generation is promoted");
@@ -84,27 +80,29 @@ test("a newer crop waits for two decoded viewer frames and stale crops cannot wi
   assert.equal(state.confirmedCrop, newerBoundary,
     "a newer geometry crop inside an already confirmed generation stays behind the viewer-frame barrier");
   state = advance(state);
-  assert.equal(state.confirmedCrop, newerBoundary, "one decoded frame still holds the prior crop");
-  state = advance(state);
   assert.equal(state.confirmedCrop, sameGenerationReflow,
-    "two decoded frames promote the newer same-generation crop safely");
+    "one decoded frame promotes the newer same-generation crop safely");
 
   state = receive(state, { captureGeneration:1, sequence:99, rect:{ top:10 } });
   assert.equal(state.confirmedGeneration, 2);
   assert.equal(state.staleDrops, 1, "a late old generation cannot replace the visible crop");
 });
 
-test("only same-capture fractional crop motion eases between confirmed viewer frames", () => {
+test("phase-aligned crop motion eases through an adjacent capture generation", () => {
   const generation = functionFromSource("cropGenerationFor");
   const offset = functionFromSource("cropOffsetFor");
-  const canEase = functionFromSource("cropsCanEase", { cropGenerationFor:generation, cropOffsetFor:offset, Math });
+  const sourceScroll = functionFromSource("cropSourceScrollTop");
+  const visualPosition = functionFromSource("cropVisualPositionFor", { cropSourceScrollTop:sourceScroll, cropOffsetFor:offset });
+  const phaseAligned = functionFromSource("cropPhaseAlignedFrom", { cropVisualPositionFor:visualPosition, cropSourceScrollTop:sourceScroll, Object });
+  const canEase = functionFromSource("cropsCanEase", { cropGenerationFor:generation, cropVisualPositionFor:visualPosition, Math });
   const atMotion = functionFromSource("cropAtMotion", { cropOffsetFor:offset, Math, Object });
-  const begin = functionFromSource("beginCropMotion", { cropAtMotion:atMotion, cropsCanEase:canEase, VIEWER_CROP_EASE_MS:120 });
-  const prior = { captureGeneration:7, rect:{ left:1, top:2, width:3, height:4 }, fractionalScrollOffset:.1 };
-  const next = { captureGeneration:7, rect:{ left:1, top:2, width:3, height:4 }, fractionalScrollOffset:.4 };
+  const begin = functionFromSource("beginCropMotion", { cropAtMotion:atMotion, cropsCanEase:canEase, cropPhaseAlignedFrom:phaseAligned, VIEWER_CROP_EASE_MS:120 });
+  const prior = { captureGeneration:7, rect:{ left:1, top:2, width:3, height:4 }, sourceScroll:{ scrollTop:100 }, fractionalScrollOffset:.1 };
+  const next = { captureGeneration:7, rect:{ left:1, top:2, width:3, height:4 }, sourceScroll:{ scrollTop:100 }, fractionalScrollOffset:.4 };
   const motion = begin(null, prior, 0);
   const eased = begin(motion, next, 10);
-  assert.equal(atMotion(eased, 10).fractionalScrollOffset, .1, "easing starts from the exact visible crop");
+  assert.ok(Math.abs(atMotion(eased, 10).fractionalScrollOffset - .1) < 1e-9,
+    "easing starts from the exact visible crop");
   assert.ok(atMotion(eased, 46).fractionalScrollOffset > .1 && atMotion(eased, 46).fractionalScrollOffset < .4,
     "a confirmed sub-pixel move has an in-between visual position");
   assert.ok(atMotion(eased, 82).fractionalScrollOffset > .1 && atMotion(eased, 82).fractionalScrollOffset < .4,
@@ -113,9 +111,15 @@ test("only same-capture fractional crop motion eases between confirmed viewer fr
   const continual = begin(eased, Object.assign({}, next, { fractionalScrollOffset:.7 }), 110);
   assert.ok(atMotion(continual, 110).fractionalScrollOffset < .4,
     "the next source crop starts from the still-moving visual position without a 10Hz hold");
-  const boundary = Object.assign({}, next, { captureGeneration:8, fractionalScrollOffset:.05 });
-  assert.equal(begin(eased, boundary, 20).duration, 0,
-    "a capture-generation boundary is never interpolated across frames");
+  const boundary = Object.assign({}, next, { captureGeneration:8, sourceScroll:{ scrollTop:101 }, fractionalScrollOffset:.05 });
+  const boundaryMotion = begin(null, Object.assign({}, prior, { fractionalScrollOffset:.9 }), 0);
+  const handoff = begin(boundaryMotion, boundary, 10);
+  assert.ok(Math.abs(atMotion(handoff, 10).fractionalScrollOffset + .1) < 1e-9,
+    "the new source frame starts at the prior visual position instead of jumping one physical source pixel");
+  assert.ok(Math.abs(visualPosition(atMotion(handoff, 10)) - 100.9) < 1e-9,
+    "the phase-aligned handoff preserves the exact visible coordinate");
+  assert.equal(atMotion(handoff, 130).fractionalScrollOffset, .05,
+    "the handoff then reaches the new fractional carry smoothly");
   assert.equal(canEase(next, Object.assign({}, next, { rect:{ left:2, top:2, width:3, height:4 } })), false,
     "a reflowing crop rectangle remains exact rather than being blurred");
 });
@@ -157,7 +161,9 @@ test("viewer crop barrier retains the existing one-owner clock and paint caps", 
     "only unsupported rVFC gets the conservative media-time fallback");
   assert.match(source, /if \(stopViewerFrameObserver\) stopViewerFrameObserver\(\);/,
     "direct and remote stream teardown clean up the observer");
-  assert.match(source, /promoteAtVideoFrame:\(current\.videoFrames \|\| 0\) \+ 2/);
+  assert.match(source, /promoteAtVideoFrame:\(current\.videoFrames \|\| 0\) \+ 1/);
+  assert.match(source, /function cropPhaseAlignedFrom\(from, to\)/,
+    "the source-pixel handoff is phase-aligned rather than held as a visible jump");
 });
 
 test("the current paired-viewer path sends its stable viewer identity with offers", () => {

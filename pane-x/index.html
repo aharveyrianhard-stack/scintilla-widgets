@@ -289,11 +289,24 @@ function publishViewerCadence() {
 function cropGenerationFor(crop) { return Math.max(0, Number(crop?.captureGeneration) || 0); }
 function cropSequenceFor(crop) { return Math.max(0, Number(crop?.sequence) || 0); }
 function cropOffsetFor(crop) { return Number(crop?.fractionalScrollOffset) || 0; }
+function cropSourceScrollTop(crop) { return Math.max(0, Number(crop?.sourceScroll?.scrollTop) || 0); }
+function cropVisualPositionFor(crop) { return cropSourceScrollTop(crop) + cropOffsetFor(crop); }
+/* Once this viewer has decoded the source's new frame, that frame already
+   contains the source's integer scroll.  Start its crop at the old visual
+   position expressed against that new frame, then ease to the new fractional
+   carry.  Holding the old crop against the new frame is the visible tiny
+   forward step that remained after the earlier safety barrier. */
+function cropPhaseAlignedFrom(from, to) {
+  return Object.assign({}, to, {
+    fractionalScrollOffset: cropVisualPositionFor(from) - cropSourceScrollTop(to)
+  });
+}
 function cropsCanEase(from, to) {
-  if (!from || !to || cropGenerationFor(from) !== cropGenerationFor(to)) return false;
+  if (!from || !to || cropGenerationFor(to) < cropGenerationFor(from) ||
+      cropGenerationFor(to) - cropGenerationFor(from) > 1) return false;
   const a = from.rect || {}, b = to.rect || {};
   return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height &&
-    Math.abs(cropOffsetFor(to) - cropOffsetFor(from)) <= 1;
+    Math.abs(cropVisualPositionFor(to) - cropVisualPositionFor(from)) <= 1;
 }
 function cropAtMotion(motion, at) {
   if (!motion) return null;
@@ -305,7 +318,7 @@ function cropAtMotion(motion, at) {
 function beginCropMotion(previous, next, at) {
   const visible = cropAtMotion(previous, at) || previous?.to || null;
   if (!cropsCanEase(visible, next)) return { from:next, to:next, startedAt:at, duration:0 };
-  return { from:visible, to:next, startedAt:at, duration:VIEWER_CROP_EASE_MS };
+  return { from:cropPhaseAlignedFrom(visible, next), to:next, startedAt:at, duration:VIEWER_CROP_EASE_MS };
 }
 function syncViewerConfirmedCrop(at) {
   const next = viewerCropState.confirmedCrop;
@@ -352,7 +365,10 @@ function receiveViewerCropState(state, crop) {
   if (current.pendingCrop && generation > current.pendingCrop.generation) {
     current.pendingDrops = (current.pendingDrops || 0) + 1;
   }
-  current.pendingCrop = { crop, generation, sequence, promoteAtVideoFrame:(current.videoFrames || 0) + 2 };
+  /* The received crop already has a source/offscreen capture acknowledgement.
+     One locally decoded frame is the handoff point; phase alignment preserves
+     the exact visible position when that frame includes the integer scroll. */
+  current.pendingCrop = { crop, generation, sequence, promoteAtVideoFrame:(current.videoFrames || 0) + 1 };
   return current;
 }
 function advanceViewerCropState(state) {
