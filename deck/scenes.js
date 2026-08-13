@@ -2,15 +2,17 @@
   "use strict";
 
   const IDS = ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","custom"];
-  /* Screens are the deliberate navigable sequence.  LIVE, CUSTOM, and the
-     two-chart slow-internals inspection remain direct/manual destinations. */
+  /* Every curated named scene is independently navigable.  LIVE and CUSTOM
+     remain manual workspaces so arrowing/rotation never replaces a live or
+     in-progress custom wall. */
   const SCREENS = Object.freeze([
     Object.freeze({ id:"indexNow", scene:"indexNow", label:"INDEX NOW" }),
     Object.freeze({ id:"indexLeadership", scene:"indexLeadership", label:"INDEX LEADERSHIP" }),
     Object.freeze({ id:"companyLeadership", scene:"companyLeadership", label:"COMPANY LEADERSHIP" }),
     Object.freeze({ id:"focus2", scene:"focus2", label:"FOCUS 2" }),
     Object.freeze({ id:"macroCrossAsset", scene:"macroCrossAsset", label:"MACRO CROSS-ASSET" }),
-    Object.freeze({ id:"internals", scene:"internalsFast", label:"INTERNALS" }),
+    Object.freeze({ id:"internalsFast", scene:"internalsFast", label:"INTERNALS FAST" }),
+    Object.freeze({ id:"internalsSlow", scene:"internalsSlow", label:"INTERNALS SLOW" }),
     Object.freeze({ id:"sectorFamilies", scene:"sectorFamilies", label:"SECTOR FAMILIES" }),
     Object.freeze({ id:"themeFamilies", scene:"themeFamilies", label:"THEME FAMILIES" })
   ]);

@@ -129,10 +129,16 @@ test("normal wall chooser is two, six, or eight while INDEX NOW keeps its launch
 });
 
 test("global screen navigation and rotation share the same curated sequence", () => {
-  assert.deepEqual(Array.from(scenes.ROTATION_IDS), ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies"]);
+  assert.deepEqual(Array.from(scenes.ROTATION_IDS), ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]);
   assert.equal(scenes.nextScreen("live").scene, "indexNow");
   assert.equal(scenes.nextScreen("themeFamilies").scene, "indexNow");
   assert.equal(scenes.previousScreen("live").scene, "themeFamilies");
+  assert.equal(scenes.nextScreen("internalsFast").scene, "internalsSlow",
+    "Internals Fast and Slow remain separate global screens");
+  assert.equal(scenes.previousScreen("internalsSlow").scene, "internalsFast",
+    "the arrows can reach either Internals preset without a scene merge");
+  assert.equal(scenes.screenForScene("internalsFast").label, "INTERNALS FAST");
+  assert.equal(scenes.screenForScene("internalsSlow").label, "INTERNALS SLOW");
   assert.equal(scenes.screenForScene("custom"), null, "manual Custom is excluded from global navigation");
   assert.match(deck, /ROTATE_SECONDS = \[30,60,120\]/);
   assert.match(deck, /id="rotateToggle"/);
