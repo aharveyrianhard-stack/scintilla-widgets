@@ -666,6 +666,8 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "a successful YouTube save updates the shared read model");
   assert.match(ytAction, /from\("yt_watch_later"\)\.delete\(\)\.eq\("video_id", videoId\)/,
     "a successful YouTube removal updates the shared read model");
+  assert.match(ytAction, /already-complete\s+YouTube-side removal/,
+    "an already-removed YouTube item also clears a stale shared saved entry");
   assert.doesNotMatch(ytAction, /WATCH_ACCOUNT|validAccount/,
     "there is no fallback to the disconnected SCINTILLA OAuth identity");
 });

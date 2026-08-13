@@ -309,7 +309,12 @@ Deno.serve(async (req) => {
       "GET",
       "playlistItems?part=id&playlistId=" + playlist + "&videoId=" + input.videoId + "&maxResults=1",
     );
-    if (existing.body?.items?.[0]) return J({ ok: true, already: true, account });
+    if (existing.body?.items?.[0]) {
+      /* A previous YouTube-side save can predate the local read model. Repair
+         that harmless drift here so the next Hub/Station read agrees. */
+      await updateWatchCache(sb, input.videoId, true);
+      return J({ ok: true, already: true, account });
+    }
     const added = await yt(token, "POST", "playlistItems?part=snippet", {
       snippet: { playlistId: playlist, resourceId: { kind: "youtube#video", videoId: input.videoId } },
     });
@@ -328,7 +333,12 @@ Deno.serve(async (req) => {
       "playlistItems?part=id&playlistId=" + playlist + "&videoId=" + input.videoId + "&maxResults=1",
     );
     const item = found.body?.items?.[0];
-    if (!item) return J({ ok: true, note: "not in playlist", account });
+    if (!item) {
+      /* Likewise, a stale local star must not survive an already-complete
+         YouTube-side removal. */
+      await updateWatchCache(sb, input.videoId, false);
+      return J({ ok: true, note: "not in playlist", account });
+    }
     const removed = await yt(token, "DELETE", "playlistItems?id=" + item.id);
     const ok = removed.status < 300;
     if (ok) await updateWatchCache(sb, input.videoId, false);
