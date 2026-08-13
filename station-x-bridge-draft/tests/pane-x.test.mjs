@@ -56,7 +56,9 @@ test("viewer cadence is capped locally while remote iPad viewers never drive sou
 test("a newer crop waits for one decoded viewer frame and stale crops cannot win", () => {
   const cropGenerationFor = functionFromSource("cropGenerationFor");
   const cropSequenceFor = functionFromSource("cropSequenceFor");
-  const receive = functionFromSource("receiveViewerCropState", { cropGenerationFor, cropSequenceFor, Object });
+  const cropSourceScrollTop = functionFromSource("cropSourceScrollTop");
+  const cropsShareSourceFrame = functionFromSource("cropsShareSourceFrame", { cropSourceScrollTop });
+  const receive = functionFromSource("receiveViewerCropState", { cropGenerationFor, cropSequenceFor, cropsShareSourceFrame, Object });
   const advance = functionFromSource("advanceViewerCropState", { Object });
   let state = { confirmedCrop:null, confirmedGeneration:0, confirmedSequence:0,
     pendingCrop:null, videoFrames:0, receivedGeneration:0, pendingDrops:0, staleDrops:0 };
@@ -75,9 +77,16 @@ test("a newer crop waits for one decoded viewer frame and stale crops cannot win
   assert.equal(state.confirmedGeneration, 2);
   assert.equal(state.confirmedCrop, newerBoundary, "only the newest generation is promoted");
 
-  const sameGenerationReflow = { captureGeneration:2, sequence:4, rect:{ top:11 }, fractionalScrollOffset:.3 };
+  const sameFrameFraction = { captureGeneration:2, sequence:4, rect:{ top:10 }, sourceScroll:{ scrollTop:0 }, fractionalScrollOffset:.6 };
+  state = receive(state, sameFrameFraction);
+  assert.equal(state.confirmedCrop, sameFrameFraction,
+    "a pure fractional carry on the identical captured frame is immediately available for smooth interpolation");
+  assert.equal(state.pendingCrop, null,
+    "fractional motion does not wait behind an unnecessary decoded-frame gate");
+
+  const sameGenerationReflow = { captureGeneration:2, sequence:5, rect:{ top:11 }, fractionalScrollOffset:.3 };
   state = receive(state, sameGenerationReflow);
-  assert.equal(state.confirmedCrop, newerBoundary,
+  assert.equal(state.confirmedCrop, sameFrameFraction,
     "a newer geometry crop inside an already confirmed generation stays behind the viewer-frame barrier");
   state = advance(state);
   assert.equal(state.confirmedCrop, sameGenerationReflow,

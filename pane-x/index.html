@@ -291,6 +291,11 @@ function cropSequenceFor(crop) { return Math.max(0, Number(crop?.sequence) || 0)
 function cropOffsetFor(crop) { return Number(crop?.fractionalScrollOffset) || 0; }
 function cropSourceScrollTop(crop) { return Math.max(0, Number(crop?.sourceScroll?.scrollTop) || 0); }
 function cropVisualPositionFor(crop) { return cropSourceScrollTop(crop) + cropOffsetFor(crop); }
+function cropsShareSourceFrame(from, to) {
+  if (!from || !to || cropSourceScrollTop(from) !== cropSourceScrollTop(to)) return false;
+  const a = from.rect || {}, b = to.rect || {};
+  return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
+}
 /* Once this viewer has decoded the source's new frame, that frame already
    contains the source's integer scroll.  Start its crop at the old visual
    position expressed against that new frame, then ease to the new fractional
@@ -342,6 +347,17 @@ function receiveViewerCropState(state, crop) {
   if (generation < (current.confirmedGeneration || 0) ||
       (generation === (current.confirmedGeneration || 0) && sequence <= (current.confirmedSequence || 0))) {
     current.staleDrops = (current.staleDrops || 0) + 1;
+    return current;
+  }
+  /* A fractional carry update with the identical source frame is local visual
+     motion only: the captured pixels and crop rectangle have not changed.
+     Do not make it wait for another decoded video frame.  The draw loop eases
+     these 10Hz carries at display cadence; gating them here is what made the
+     crawl visibly march in little 100ms steps. */
+  if (generation === (current.confirmedGeneration || 0) &&
+      cropsShareSourceFrame(current.confirmedCrop, crop)) {
+    current.confirmedCrop = crop;
+    current.confirmedSequence = sequence;
     return current;
   }
   /* X can reflow its virtualized timeline without another source scroll.  A
