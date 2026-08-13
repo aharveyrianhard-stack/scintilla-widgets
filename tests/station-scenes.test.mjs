@@ -616,10 +616,10 @@ test("Shorts stay out of Personal and do not leak Personal subscriptions into SC
   const subscribed = functionFromSource(videoPane, "channelSubscribed", { YOUTUBE_ACCOUNT:"personal", LOCAL_SUBSCRIBED_CHANNELS:new Set() });
   assert.equal(subscribed({ channel_id:"channel-a", subscription_accounts:[] }), false);
   assert.equal(subscribed({ channel_id:"channel-a", subscription_accounts:["personal"] }), true);
-  assert.match(videoPane, /const SCINTILLA_SHORTS = \{[\s\S]*?subscription_accounts=not\.cs\.[\s\S]*?\{personal\}/,
-    "SCINTILLA discovery excludes Shorts already belonging to the Personal subscription feed");
-  assert.match(videoPane, /SUBSCRIBED,\s*SCINTILLA_SHORTS,\s*\{ id: "watch"/,
-    "the SCINTILLA pane retains its own Subscribed, non-Personal Shorts, and Watch Later lists");
+  assert.match(videoPane, /const ALL_SHORTS = \{ id: "shorts", n: "shorts", q: "&is_short=eq\.true" \}/,
+    "SCINTILLA discovery uses the same global Shorts list as Hub");
+  assert.match(videoPane, /FEED === "scintilla" \? \[\s*\{ id: "default", n: "grid", q: "" \},\s*ALL_SHORTS,\s*\{ id: "watch"/,
+    "the SCINTILLA pane is the shared Hub discovery grid, with global Shorts and shared Watch Later");
   assert.match(videoPane, /\] : \[SUBSCRIBED\];/,
     "the Personal pane remains its own subscription feed without Shorts mixed in");
   assert.match(videoPane, /select=video_id,title,channel,channel_id,tickers/,

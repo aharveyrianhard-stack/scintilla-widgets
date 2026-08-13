@@ -191,30 +191,23 @@ const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
 const AUTO   = QS.get("autoplay") === "1";
 const FORCE  = +(QS.get("cols") || 0);
 
-/* A pane keeps its identity through every local filter. Personal and
-   SCINTILLA are two intentionally separate authorized subscription feeds.
-   The old market-search lane remains available, but it is not used as a
-   substitute for either identity. Watch Later is one Station-wide list in
-   the connected Personal YouTube account. */
+/* Personal is the one authorized subscription feed.  SCINTILLA is the same
+   shared discovery grid as the Hub social page: subscriptions from that grid
+   add a channel to Personal rather than creating a second private feed. */
 const SUBSCRIBED = {
   id: "default", n: "subscribed",
   q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") + "&is_short=eq.false"
 };
-/* Shorts are deliberately global discovery, but the Personal subscription
-   feed remains private to its own pane.  SCINTILLA Shorts never repeats the
-   Personal feed just because a stored video happens to be short-form. */
+/* Shorts are a global discovery list.  Personal never mixes them into its
+   subscribed feed; SCINTILLA can show the same global Shorts list as Hub. */
 const ALL_SHORTS = { id: "shorts", n: "shorts", q: "&is_short=eq.true" };
-const SCINTILLA_SHORTS = {
-  id: "shorts", n: "shorts",
-  q: "&is_short=eq.true&subscription_accounts=not.cs." + encodeURIComponent("{personal}")
-};
 const LISTS = FEED === "market" ? [
   { id: "default", n: "market",     q: "&tickers=not.is.null&tickers=neq.&is_short=eq.false" },
   ALL_SHORTS,
   { id: "all",     n: "all market", q: "&tickers=not.is.null&tickers=neq." },
 ] : FEED === "scintilla" ? [
-  SUBSCRIBED,
-  SCINTILLA_SHORTS,
+  { id: "default", n: "grid", q: "" },
+  ALL_SHORTS,
   { id: "watch", n: "watch later", q: "" },
 ] : [SUBSCRIBED];
 let LIST = LISTS.some((l) => l.id === QS.get("list")) ? QS.get("list") : "default";
