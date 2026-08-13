@@ -650,6 +650,14 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "legacy Hub or Station entries are copied into the one canonical cross-device playlist");
   assert.match(ytAction, /yt_wl_playlist_personal_migration_v1/,
     "the migration is marked after completion so normal Watch Later reads stay cheap");
+  assert.match(ytAction, /yt_wl_playlist_personal_ids_v1/,
+    "the shared playlist has one durable cache for immediate cross-device reads");
+  assert.match(ytAction, /if \(cached\) return J\(\{ ok: true, account, ids: cached, cached: true \}\)/,
+    "Watch Later returns the verified shared cache before an unreliable Google playlist read can delay the pane");
+  assert.match(ytAction, /updateWatchCache\(sb, input\.videoId, true\)/,
+    "a save updates the same shared cache immediately");
+  assert.match(ytAction, /updateWatchCache\(sb, input\.videoId, false\)/,
+    "a removal updates the same shared cache immediately");
   assert.doesNotMatch(ytAction, /WATCH_ACCOUNT|validAccount/,
     "there is no fallback to the disconnected SCINTILLA OAuth identity");
 });

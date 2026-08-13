@@ -12,6 +12,7 @@ const ACTION_ACCOUNT: Account = "personal";
 const WATCH_LATER_PLAYLIST_TITLE = "SCINTILLA · Watch Later";
 const LEGACY_WATCH_LATER_PLAYLIST_TITLES = new Set(["Station Watch Later"]);
 const WATCH_LATER_MIGRATION_KEY = "yt_wl_playlist_personal_migration_v1";
+const WATCH_LATER_CACHE_KEY = "yt_wl_playlist_personal_ids_v1";
 
 function adminKey() {
   const current = Deno.env.get("SUPABASE_SECRET_KEYS");
@@ -141,6 +142,37 @@ async function playlistVideoIds(token: string, playlistId: string) {
   return { ok: true, ids };
 }
 
+function watchCacheIds(value: unknown) {
+  try {
+    const ids = JSON.parse(typeof value === "string" ? value : "[]");
+    if (!Array.isArray(ids)) return null;
+    return Array.from(new Set(ids.filter((id) => typeof id === "string" && /^[A-Za-z0-9_-]{6,}$/.test(id))));
+  } catch (_) {
+    return null;
+  }
+}
+
+async function readWatchCache(sb: any) {
+  const { data } = await sb.from("app_config").select("value")
+    .eq("key", WATCH_LATER_CACHE_KEY).maybeSingle();
+  return watchCacheIds(data?.value);
+}
+
+async function writeWatchCache(sb: any, ids: string[]) {
+  await sb.from("app_config").upsert({
+    key: WATCH_LATER_CACHE_KEY,
+    value: JSON.stringify(Array.from(new Set(ids))),
+  });
+}
+
+async function updateWatchCache(sb: any, videoId: string, include: boolean) {
+  const cached = await readWatchCache(sb);
+  if (!cached) return;
+  const next = new Set(cached);
+  if (include) next.add(videoId); else next.delete(videoId);
+  await writeWatchCache(sb, Array.from(next));
+}
+
 async function migrateLegacyWatchLater(
   sb: any,
   token: string,
@@ -244,10 +276,13 @@ Deno.serve(async (req) => {
   const token = auth.token;
 
   if (action === "list") {
+    const cached = await readWatchCache(sb);
+    if (cached) return J({ ok: true, account, ids: cached, cached: true });
     const playlist = await ensurePlaylist(sb, token);
     if (!playlist) return J({ error: "no playlist", account });
     const listed = await playlistVideoIds(token, playlist);
     if (!listed.ok) return J({ error: "playlist read failed", account });
+    await writeWatchCache(sb, listed.ids);
     return J({ ok: true, account, ids: listed.ids });
   }
 
@@ -264,7 +299,9 @@ Deno.serve(async (req) => {
     const added = await yt(token, "POST", "playlistItems?part=snippet", {
       snippet: { playlistId: playlist, resourceId: { kind: "youtube#video", videoId: input.videoId } },
     });
-    return J({ ok: added.status < 300, status: added.status, account });
+    const ok = added.status < 300;
+    if (ok) await updateWatchCache(sb, input.videoId, true);
+    return J({ ok, status: added.status, account });
   }
 
   if (action === "unstar") {
@@ -279,7 +316,9 @@ Deno.serve(async (req) => {
     const item = found.body?.items?.[0];
     if (!item) return J({ ok: true, note: "not in playlist", account });
     const removed = await yt(token, "DELETE", "playlistItems?id=" + item.id);
-    return J({ ok: removed.status < 300, status: removed.status, account });
+    const ok = removed.status < 300;
+    if (ok) await updateWatchCache(sb, input.videoId, false);
+    return J({ ok, status: removed.status, account });
   }
 
   const cacheKey = "yt_sub_channels_" + account;
