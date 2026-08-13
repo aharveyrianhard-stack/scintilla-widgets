@@ -574,30 +574,27 @@ test("video auto-next silently advances the next visible item and skips an unava
 });
 
 test("video resume is shared with Hub, bounded, and clears completion before auto-next", () => {
-  const store = new Map();
-  const storage = { getItem:(key) => store.get(key) || null, setItem:(key, value) => store.set(key, value) };
-  const resume = functionFromSource(videoPane, "resumePositionFor", { JSON, Number, Math, VIDEO_POSITION_KEY:"scintilla.station.video.positions.v1", videoPositionMap:function(storage) { try { const value = JSON.parse(storage.getItem("scintilla.station.video.positions.v1") || "{}"); return value && typeof value === "object" ? value : {}; } catch (_) { return {}; } }, VIDEO_POSITION_NEAR_END_SECONDS:12 });
-  store.set("scintilla.station.video.positions.v1", JSON.stringify({ a:{ time:123.9, duration:400 }, b:{ time:395, duration:400 }, c:{ time:4, duration:400 } }));
-  assert.equal(resume("a", storage), 123);
-  assert.equal(resume("b", storage), 0, "a near-complete video restarts rather than resuming at its ending");
-  assert.equal(resume("c", storage), 0, "very short progress is not treated as a continuation");
+  const positions = new Map([["a", { time:123.9 }], ["b", { time:4 }]]);
+  const resume = functionFromSource(videoPane, "resumePositionFor", { Number, Math, VIDEO_POSITIONS:positions });
+  assert.equal(resume("a", positions), 123);
+  assert.equal(resume("b", positions), 0, "very short shared progress is not treated as a continuation");
   const merge = functionFromSource(videoPane, "mergeSharedVideoPositionRows", {
-    Array, String, Number, Math, JSON, VIDEO_POSITION_KEY:"scintilla.station.video.positions.v1",
-    videoPositionMap:(target) => { try { const value = JSON.parse(target.getItem("scintilla.station.video.positions.v1") || "{}"); return value && typeof value === "object" ? value : {}; } catch (_) { return {}; } }
+    Array, String, Number, Math, VIDEO_POSITIONS:positions
   });
-  merge([{ video_id:"a", t:222 }, { video_id:"b", t:0 }], storage);
-  const shared = JSON.parse(storage.getItem("scintilla.station.video.positions.v1"));
-  assert.equal(shared.a.time, 222, "a Hub position becomes the Station resume point");
-  assert.equal(shared.b, undefined, "a completion on either surface clears stale device state");
-  assert.match(videoPane, /const VIDEO_POSITION_KEY = "scintilla\.station\.video\.positions\.v1"/);
-  assert.match(videoPane, /pg\("yt_positions\?select=video_id,t,updated"\)/,
+  merge([{ video_id:"a", t:222 }, { video_id:"b", t:0 }], positions);
+  assert.equal(positions.get("a").time, 222, "a Hub position becomes the Station resume point");
+  assert.equal(positions.has("b"), false, "a completion on either surface clears stale device state");
+  assert.match(videoPane, /const VIDEO_POSITIONS = new Map\(\)/);
+  assert.match(videoPane, /pg\("yt_positions\?select=video_id,t,updated&order=updated\.desc"\)/,
     "Station reads the same durable resume records as Hub");
   assert.match(videoPane, /Prefer:"resolution=merge-duplicates"/,
     "Station writes progress as an idempotent shared upsert");
   assert.match(videoPane, /syncSharedVideoPositions\(\);/,
     "the shared resume state begins loading before a video is chosen");
-  assert.match(videoPane, /VIDEO_POSITION_INITIAL_WAIT_MS = 650/,
-    "a slow database cannot make a video click wait indefinitely");
+  assert.match(videoPane, /VIDEO_POSITION_INITIAL_WAIT_MS = 1500/,
+    "a shared read gets a bounded chance before playback starts from the honest beginning");
+  assert.doesNotMatch(videoPane, /localStorage\.setItem\(VIDEO_POSITION_KEY/,
+    "Station does not retain a private device-only resume record");
   assert.match(videoPane, /infoDelivery[\s\S]*?saveActiveVideoPosition\(false\)/,
     "player progress is persisted only from real YouTube playback deliveries");
   assert.match(videoPane, /resumeAt \? "&start=" \+ encodeURIComponent\(resumeAt\)/,
