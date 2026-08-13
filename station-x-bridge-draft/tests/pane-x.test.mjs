@@ -144,8 +144,8 @@ test("a viewer without rVFC advances the crop barrier on two real media-time upd
 test("viewer crop barrier retains the existing one-owner clock and paint caps", () => {
   assert.match(source, /const STATION_TICK_INTERVAL_MS = 100;/);
   assert.match(source, /const VIEWER_PAINT_INTERVAL_MS = 80;/);
-  assert.match(source, /const VIEWER_MOTION_PAINT_INTERVAL_MS = 40;/,
-    "only already-confirmed sub-pixel crop motion gets a lighter temporary paint cadence");
+  assert.match(source, /const VIEWER_MOTION_PAINT_INTERVAL_MS = 16;/,
+    "only already-confirmed sub-pixel crop motion uses display-rate canvas painting");
   assert.match(source, /const VIEWER_CROP_EASE_MS = 120;/,
     "a blend spans the following source tick rather than stopping early");
   assert.match(source, /function receiveViewerCrop\(crop\)/);
