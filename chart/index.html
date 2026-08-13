@@ -68,7 +68,6 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-nchart__live-ticker{ appearance:none; border:0; background:transparent; color:inherit; padding:0;
   font:inherit; letter-spacing:inherit; line-height:inherit; cursor:text; text-decoration:underline;
   text-decoration-color:rgba(255,255,255,.26); text-underline-offset:3px; }
-.sc-nchart__live-price{ font:inherit; letter-spacing:inherit; line-height:inherit; }
 .sc-nchart__live-change{ font:700 .86em var(--mono); letter-spacing:.02em; line-height:1; }
 .sc-nchart__live[data-change="up"]{ color:var(--bull); }
 .sc-nchart__live[data-change="down"]{ color:var(--bear); }
@@ -602,7 +601,10 @@ function scChartDraw(host, scrub) {
   const ipadProfile = VIEW_PROFILE === "ipad", scale = ipadProfile ? PANE_UI_SCALE : 1;
   const axisBand = ipadProfile ? (h < 130 ? 15 : 18) * scale : (h < 130 ? 17 : 21);
   const padT = (ipadProfile ? 7 : 8) * scale, padB = SHARED_TIME_AXIS ? 5 * scale : axisBand,
-    padR = ipadProfile ? (h < 130 ? 18 : 21) * scale : (h < 130 ? 20 : 24), padL = 6 * scale;
+    /* The current quote sits at its actual Y position in this compact right
+       gutter. That lets the top-left readout stay a clean ticker/change cue
+       instead of forcing the user to scan it for price. */
+    padR = ipadProfile ? (h < 130 ? 34 : 39) * scale : (h < 130 ? 36 : 42), padL = 6 * scale;
   const iw = w - padL - padR, ih = h - padT - padB;
   if (iw < 10 || ih < 10) return;
   const view = chartView(host, pts), start = view.start, end = view.end;
@@ -674,6 +676,31 @@ function scChartDraw(host, scrub) {
     if (yy >= padT + 6 && yy <= h - padB - 2) ctx.fillText(chAxisPx(v, priceStep), w - 3, yy + 3);
   }
   ctx.restore();
+  /* This is intentionally a marker only — never a fixed horizontal reference
+     line. It is rendered only from a received live quote, aligned with the
+     actual live value, and the hover marker takes precedence while scrubbing. */
+  const quote = liveQuote[host.dataset.t];
+  const hasLiveQuote = quote && isFinite(+quote.price);
+  if (hasLiveQuote && !scrub) {
+    const livePrice = +quote.price, liveY = Y(livePrice);
+    if (liveY >= padT && liveY <= padT + ih) {
+      const liveDay = chDayChange(livePrice, prevClose[host.dataset.t]);
+      const liveColor = liveDay.tone === "up" ? col.bull : liveDay.tone === "down" ? col.bear : col.ink2;
+      const liveText = chPx(livePrice, host.dataset.t);
+      const liveFont = Math.max(6.5, (ipadProfile ? 7 : 7.5) * scale);
+      ctx.save();
+      ctx.font = liveFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+      ctx.textBaseline = "middle";
+      const liveW = Math.min(padR - 2, Math.ceil(ctx.measureText(liveText).width) + 6);
+      const liveX = w - liveW - 1;
+      const liveTop = Math.max(padT, Math.min(padT + ih - 12, liveY - 6));
+      ctx.fillStyle = "rgba(5,6,12,.92)";
+      ctx.fillRect(liveX, liveTop, liveW, 12);
+      ctx.fillStyle = liveColor; ctx.textAlign = "right";
+      ctx.fillText(liveText, w - 4, liveY);
+      ctx.restore();
+    }
+  }
   if (!SHARED_TIME_AXIS) {
     const timeFont = (VIEW_PROFILE === "desk" ? 7.5 : VIEW_PROFILE === "ipad" ? 6.75 : VIEW_PROFILE === "compact" ? 6.75 : 7.25) * scale;
     ctx.font = timeFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
@@ -1084,9 +1111,8 @@ function paintLiveStatus(host, quote) {
   const day = hasQuote ? chDayChange(+quote.price, dayRef) : { text:"", tone:"flat" };
   badge.dataset.change = day.tone;
   let ticker = badge.querySelector(".sc-nchart__live-ticker");
-  let price = badge.querySelector(".sc-nchart__live-price");
   let change = badge.querySelector(".sc-nchart__live-change");
-  if (!ticker || !price || !change) {
+  if (!ticker || !change) {
     badge.replaceChildren();
     ticker = document.createElement("button");
     ticker.type = "button";
@@ -1095,14 +1121,11 @@ function paintLiveStatus(host, quote) {
     ticker.addEventListener("click", () => {
       try { parent.postMessage({ sc:"chart-focus-ticker" }, location.origin); } catch (_) {}
     });
-    price = document.createElement("strong");
-    price.className = "sc-nchart__live-price";
     change = document.createElement("span");
     change.className = "sc-nchart__live-change";
-    badge.append(ticker, price, change);
+    badge.append(ticker, change);
   }
   ticker.textContent = host.dataset.t;
-  price.textContent = hasQuote ? chPx(+quote.price, host.dataset.t) : "—";
   change.textContent = day.text;
   badge.title = hasQuote
     ? (futureSet.has(host.dataset.t) ? "delayed futures quote · database refresh " : "live_quotes · ") + at.toISOString()

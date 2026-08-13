@@ -107,8 +107,12 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .scene-mode{ width:150px; background:var(--panel2); border:1px solid var(--line); color:var(--crk);
   font:8.5px var(--mono); letter-spacing:.06em; padding:3px 5px; border-radius:0; outline:none;
   text-transform:uppercase; }
-#screenControls{ align-items:center; gap:4px; }
-#screenIndicator{ min-width:142px; text-align:center; color:var(--ink3); font-size:8px; letter-spacing:.08em; text-transform:uppercase; }
+/* Keep the screen arrows in one fixed three-cell group. The scene picker
+   already names the current screen, so repeating a variable-width name here
+   only made rapid previous/next navigation move under the pointer. */
+#screenControls{ display:grid; grid-template-columns:26px 68px 26px; align-items:center; gap:4px; }
+#screenControls .btn{ width:26px; padding-left:0; padding-right:0; text-align:center; }
+#screenIndicator{ width:68px; text-align:center; color:var(--ink3); font-size:8px; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap; }
 #tickers{ display:flex; gap:4px; flex-wrap:wrap; }
 .ph .tkin{ width:96px; padding:1px 4px; text-align:left; background:transparent;
   border-color:transparent; color:var(--ink2); font-size:8.5px; }
@@ -1065,8 +1069,8 @@ function paintSceneControls(note) {
   el("resetScene").style.display = resettable ? "" : "none";
   const screen = SceneModel.screenForScene(SCENE);
   el("screenIndicator").textContent = screen
-    ? "screen " + (SceneModel.SCREENS.indexOf(screen) + 1) + " / " + SceneModel.SCREENS.length + " · " + screen.label.toLowerCase()
-    : "manual · " + (SceneModel.PRESETS[SCENE]?.label || SCENE).toLowerCase();
+    ? "screen " + (SceneModel.SCREENS.indexOf(screen) + 1) + " / " + SceneModel.SCREENS.length
+    : "manual";
   el("symbolNote").textContent = note || (fixedSceneState(SCENE)
     ? "preset · edit any slot or reset"
     : "manual workspace · edit any slot");
