@@ -159,6 +159,10 @@ test("header exposes one global screen control instead of basket pagers", () => 
   assert.match(deck, /aria-label="Previous screen"/);
   assert.match(deck, /aria-label="Next screen"/);
   assert.match(deck, /"screen " \+ \(SceneModel\.SCREENS\.indexOf\(screen\) \+ 1\)/);
+  assert.match(deck, /grid-template-columns:26px 68px 26px/,
+    "screen arrows occupy fixed cells regardless of the active scene name");
+  assert.doesNotMatch(deck, /screen\.label\.toLowerCase\(\)/,
+    "the scene picker names the screen so navigation never repeats a variable-width label");
   assert.match(deck, /el\("screenPrev"\)\.addEventListener\("click"/);
   assert.match(deck, /el\("screenNext"\)\.addEventListener\("click"/);
   assert.doesNotMatch(deck, /id="cohortControls"/);
@@ -301,9 +305,10 @@ test("rotation stages only two cold chart frames and fences outgoing retries", (
 });
 
 test("stalled chart reads retain a truthful ticker fallback and report coherent delayed state", () => {
-  assert.match(chart, /price\.textContent = hasQuote \? chPx\(\+quote\.price, host\.dataset\.t\) : "—"/,
-    "the readout remains useful without inventing a price or daily percent");
-  assert.match(chart, /ticker\.textContent = host\.dataset\.t/);
+  assert.match(chart, /ticker\.textContent = host\.dataset\.t/,
+    "the editable ticker remains visible without inventing a price or daily percent");
+  assert.doesNotMatch(chart, /price\.textContent = hasQuote/,
+    "price is not duplicated in the readout while no quote has arrived");
   assert.match(chart, /reportChartDataState\(host, \{ history:"delayed" \}\)/);
   assert.match(chart, /reportChartDataState\(host, \{ quote:"delayed" \}\)/);
   assert.match(chart, /sc:"chart-data-state"/);
@@ -401,7 +406,8 @@ test("chart identity focuses the existing deck ticker editor and fullscreen live
 
 test("paired column axes stay legible while using compact plot bands", () => {
   assert.match(chart, /const axisBand = ipadProfile \? \(h < 130 \? 15 : 18\) \* scale/);
-  assert.match(chart, /padR = ipadProfile \? \(h < 130 \? 18 : 21\) \* scale/);
+  assert.match(chart, /padR = ipadProfile \? \(h < 130 \? 34 : 39\) \* scale/,
+    "the compact right band reserves room for the actual live-price marker");
   assert.match(chart, /ctx\.lineWidth = \.5; ctx\.globalAlpha = \.09/,
     "horizontal separators remain visible but intentionally subtle");
   assert.match(chart, /ctx\.font = \(\(ipadProfile \? 6\.5 : 7\) \* scale\) \+ 'px "SF Mono"/,
@@ -427,6 +433,17 @@ test("hover uses a true two-axis crosshair, not the old fixed close reference", 
     "right marker reports the hovered price, not the live or previous-close price");
   assert.doesNotMatch(chart, /sc-nchart__hud|chTimeFull|setLineDash\(\[3, 3\]\)/,
     "the centered raw timestamp and fixed dotted reference line are gone");
+});
+
+test("live price is a compact right-edge marker rather than top-readout clutter or a fixed line", () => {
+  assert.match(chart, /const hasLiveQuote = quote && isFinite\(\+quote\.price\)/);
+  assert.match(chart, /liveY = Y\(livePrice\)/,
+    "the marker tracks the actual live price coordinate");
+  assert.match(chart, /if \(hasLiveQuote && !scrub\)/,
+    "hover's moving price marker takes precedence while the cursor is active");
+  assert.match(chart, /liveTop = Math\.max\(padT, Math\.min\(padT \+ ih - 12, liveY - 6\)\)/);
+  assert.doesNotMatch(chart, /sc-nchart__live-price/,
+    "the top-left readout is no longer a second price label");
 });
 
 test("Station range is run-wide, starts at 3h after reload, and scenes cannot overwrite it", () => {
