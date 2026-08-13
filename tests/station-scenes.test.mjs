@@ -547,3 +547,22 @@ test("video auto-next silently advances the next visible item and skips an unava
   assert.doesNotMatch(videoPane, /bAuto|autoNext|AUTO_NEXT/,
     "auto-next is always on and adds no visible control or URL state");
 });
+
+test("video resume remains local, bounded, and clears completion before auto-next", () => {
+  const store = new Map();
+  const storage = { getItem:(key) => store.get(key) || null, setItem:(key, value) => store.set(key, value) };
+  const resume = functionFromSource(videoPane, "resumePositionFor", { JSON, Number, Math, VIDEO_POSITION_KEY:"scintilla.station.video.positions.v1", videoPositionMap:function(storage) { try { const value = JSON.parse(storage.getItem("scintilla.station.video.positions.v1") || "{}"); return value && typeof value === "object" ? value : {}; } catch (_) { return {}; } }, VIDEO_POSITION_NEAR_END_SECONDS:12 });
+  store.set("scintilla.station.video.positions.v1", JSON.stringify({ a:{ time:123.9, duration:400 }, b:{ time:395, duration:400 }, c:{ time:4, duration:400 } }));
+  assert.equal(resume("a", storage), 123);
+  assert.equal(resume("b", storage), 0, "a near-complete video restarts rather than resuming at its ending");
+  assert.equal(resume("c", storage), 0, "very short progress is not treated as a continuation");
+  assert.match(videoPane, /const VIDEO_POSITION_KEY = "scintilla\.station\.video\.positions\.v1"/);
+  assert.match(videoPane, /infoDelivery[\s\S]*?saveActiveVideoPosition\(false\)/,
+    "player progress is persisted only from real YouTube playback deliveries");
+  assert.match(videoPane, /resumeAt \? "&start=" \+ encodeURIComponent\(resumeAt\)/,
+    "reopening uses the saved local start point");
+  assert.match(videoPane, /clearVideoPosition\(CUR\?\.video_id\);[\s\S]*?advanceQueue\(\);/,
+    "completion clears continuation before the existing auto-next path");
+  assert.match(videoPane, /visibilitychange[\s\S]*?saveActiveVideoPosition\(true\)/);
+  assert.match(videoPane, /pagehide[\s\S]*?saveActiveVideoPosition\(true\)/);
+});
