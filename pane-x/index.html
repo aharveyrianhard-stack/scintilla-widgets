@@ -293,14 +293,14 @@ function receiveViewerCropState(state, crop) {
     return current;
   }
   if (generation < (current.confirmedGeneration || 0) ||
-      (generation === (current.confirmedGeneration || 0) && sequence < (current.confirmedSequence || 0))) {
+      (generation === (current.confirmedGeneration || 0) && sequence <= (current.confirmedSequence || 0))) {
     current.staleDrops = (current.staleDrops || 0) + 1;
     return current;
   }
-  if (generation === (current.confirmedGeneration || 0) && !current.pendingCrop) {
-    current.confirmedCrop = crop; current.confirmedSequence = sequence;
-    return current;
-  }
+  /* X can reflow its virtualized timeline without another source scroll.  A
+     newer crop sequence in an already-confirmed generation still needs the
+     same two decoded viewer frames; otherwise a fresh geometry crop can be
+     painted over an older WebRTC video frame and look like a downward tug. */
   if (current.pendingCrop && generation < current.pendingCrop.generation) {
     current.staleDrops = (current.staleDrops || 0) + 1;
     return current;
