@@ -10,6 +10,7 @@ const scenes = context.globalThis.StationScenes;
 const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
 const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
 const videoPane = fs.readFileSync(new URL("../pane-video/index.html", import.meta.url), "utf8");
+const youtubeHub = fs.readFileSync(new URL("../youtube/index.html", import.meta.url), "utf8");
 const ipadCompanion = fs.readFileSync(new URL("../station-ipad/index.html", import.meta.url), "utf8");
 const stationManifest = JSON.parse(fs.readFileSync(new URL("../station/manifest.json", import.meta.url), "utf8"));
 const stationIcon = fs.readFileSync(new URL("../station/icon.svg", import.meta.url), "utf8");
@@ -647,6 +648,10 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "Station reads the one shared saved-video state directly instead of waiting on Google");
   assert.match(videoPane, /syncWatch\(\)\.catch\(\(\) => \{ WATCH_READY = false; \}\)/,
     "Station begins the local saved-set read alongside its normal feed, not only after Watch Later is clicked");
+  assert.match(youtubeHub, /const YT_WATCH_LATER = new Set\(\)/,
+    "Hub keeps Watch Later only in page memory while the shared source loads");
+  assert.doesNotMatch(youtubeHub, /sc_yt_wl_v1|localStorage\.setItem\(YT_WL_KEY/,
+    "Hub does not retain a device-local Watch Later list");
   assert.match(videoPane, /account:YOUTUBE_ACCOUNT/,
     "playing-channel Subscribe uses that same account");
   assert.doesNotMatch(videoPane, /connectYouTube|pollOauth|reconnect SCINTILLA|id="auth"/,

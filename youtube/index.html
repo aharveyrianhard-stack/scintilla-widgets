@@ -147,17 +147,19 @@ let YT_IDX = -1;
 let YT_LOADED = false, YT_FETCHED_AT = 0;
 
 /* ---- watch-later + positions — ported verbatim ---- */
-const YT_WL_KEY = "sc_yt_wl_v1";
-function ytWLGet() { try { return new Set(JSON.parse(localStorage.getItem(YT_WL_KEY) || "[]")); } catch (_) { return new Set(); } }
+/* Watch Later and resume are both shared records.  This set is only a page
+   cache while the direct shared-table read is in flight; it is never saved
+   in a browser, so another device cannot inherit a private list. */
+const YT_WATCH_LATER = new Set();
+function ytWLGet() { return new Set(YT_WATCH_LATER); }
 function ytAct(action, payload) {
   return fetch(SB + "/functions/v1/yt-act", { method: "POST",
     headers: { apikey: PUBLIC, "Content-Type": "application/json" },
     body: JSON.stringify(Object.assign({ action: action }, payload || {})) }).then((r) => r.json()).catch(() => null);
 }
 function ytWLToggle(id) {
-  const s = ytWLGet(); const on = !s.has(id);
-  if (on) s.add(id); else s.delete(id);
-  try { localStorage.setItem(YT_WL_KEY, JSON.stringify([...s])); } catch (_) {}
+  const on = !YT_WATCH_LATER.has(id);
+  if (on) YT_WATCH_LATER.add(id); else YT_WATCH_LATER.delete(id);
   ytAct(on ? "star" : "unstar", { videoId: id });
   return on;
 }
@@ -271,11 +273,9 @@ function fillYT() {
          render instantly without waiting on Google's slow playlist reads. */
       pg("yt_watch_later?select=video_id").then((savedRows) => {
         if (Array.isArray(savedRows)) {
-          const srv = new Set(savedRows.map((row) => row.video_id).filter(Boolean));
-          const localOnly = [...ytWLGet()].filter((v) => !srv.has(v));
-          localOnly.forEach((v) => { srv.add(v); ytAct("star", { videoId: v }); });
-          try { localStorage.setItem(YT_WL_KEY, JSON.stringify([...srv])); } catch (_) {}
-          YT_FEED.forEach((r) => { r.watch_later = srv.has(r.video_id); });
+          YT_WATCH_LATER.clear();
+          savedRows.map((row) => row.video_id).filter(Boolean).forEach((id) => YT_WATCH_LATER.add(id));
+          YT_FEED.forEach((r) => { r.watch_later = YT_WATCH_LATER.has(r.video_id); });
           const fb = el("ytFilt"); if (fb) fb.innerHTML = ytFiltHTML();
           renderYT();
         }
