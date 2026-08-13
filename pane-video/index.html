@@ -208,7 +208,67 @@ el("kk").textContent = FEED === "market" ? "MARKET SEARCH" :
 
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
 let AUTH_STATUS = null;
-let PLAYER_TOKEN = 0, PLAYER_READY_TOKEN = 0, PLAYER_FALLBACK = 0;
+let PLAYER_TOKEN = 0, PLAYER_READY_TOKEN = 0, PLAYER_FALLBACK = 0, PLAYER_POSITION_POLL = 0;
+/* Local-only continuation state. It belongs to this device/browser, never to
+   a Station scene, account, or backend record. */
+const VIDEO_POSITION_KEY = "scintilla.station.video.positions.v1";
+const VIDEO_POSITION_SAVE_MS = 10000;
+const VIDEO_POSITION_NEAR_END_SECONDS = 12;
+let PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
+
+function videoPositionMap(storage = localStorage) {
+  try {
+    const value = JSON.parse(storage.getItem(VIDEO_POSITION_KEY) || "{}");
+    return value && typeof value === "object" ? value : {};
+  } catch (_) { return {}; }
+}
+function resumePositionFor(videoId, storage = localStorage) {
+  const entry = videoPositionMap(storage)[videoId];
+  const time = Number(typeof entry === "object" ? entry.time : entry) || 0;
+  const duration = Number(entry?.duration) || 0;
+  return time > 5 && (!duration || time < duration - VIDEO_POSITION_NEAR_END_SECONDS) ? Math.floor(time) : 0;
+}
+function writeVideoPosition(videoId, time, duration, storage = localStorage) {
+  if (!videoId) return;
+  const map = videoPositionMap(storage);
+  const t = Number(time) || 0, d = Number(duration) || 0;
+  if (t <= 5 || (d && t >= d - VIDEO_POSITION_NEAR_END_SECONDS)) delete map[videoId];
+  else map[videoId] = { time:Math.floor(t), duration:Math.floor(d) || 0 };
+  try { storage.setItem(VIDEO_POSITION_KEY, JSON.stringify(map)); } catch (_) {}
+}
+function clearVideoPosition(videoId, storage = localStorage) {
+  if (!videoId) return;
+  const map = videoPositionMap(storage);
+  delete map[videoId];
+  try { storage.setItem(VIDEO_POSITION_KEY, JSON.stringify(map)); } catch (_) {}
+}
+function saveActiveVideoPosition(force = false) {
+  if (!CUR || !PLAYER_POSITION.time) return;
+  const now = Date.now();
+  if (!force && now - PLAYER_POSITION.savedAt < VIDEO_POSITION_SAVE_MS) return;
+  PLAYER_POSITION.savedAt = now;
+  writeVideoPosition(CUR.video_id, PLAYER_POSITION.time, PLAYER_POSITION.duration);
+}
+function clearPlayerPositionPoll() {
+  if (PLAYER_POSITION_POLL) clearTimeout(PLAYER_POSITION_POLL);
+  PLAYER_POSITION_POLL = 0;
+}
+function requestActiveVideoPosition(frame) {
+  if (!frame?.contentWindow) return;
+  try {
+    frame.contentWindow.postMessage(JSON.stringify({ event:"command", func:"getCurrentTime", args:[] }), "https://www.youtube.com");
+    frame.contentWindow.postMessage(JSON.stringify({ event:"command", func:"getDuration", args:[] }), "https://www.youtube.com");
+  } catch (_) {}
+}
+function startPlayerPositionPoll(token, frame) {
+  clearPlayerPositionPoll();
+  const tick = () => {
+    if (token !== PLAYER_TOKEN || !CUR || !frame?.isConnected) return;
+    requestActiveVideoPosition(frame);
+    PLAYER_POSITION_POLL = setTimeout(tick, 5000);
+  };
+  tick();
+}
 
 async function ytAct(action, payload) {
   const r = await fetch(SB + "/functions/v1/yt-act", {
@@ -333,12 +393,17 @@ function armPlayerFallback(token, skipped) {
 }
 function play(v, auto, queued = false, skipped = new Set()) {
   if (!v) return;
+  saveActiveVideoPosition(true);
+  clearPlayerPositionPoll();
   clearPlayerFallback();
   CUR = v;
+  PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
+  const resumeAt = resumePositionFor(v.video_id);
   const token = ++PLAYER_TOKEN;
   document.body.classList.add("playing");
   el("video").innerHTML = '<iframe src="https://www.youtube.com/embed/' + encodeURIComponent(v.video_id) +
-    "?playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=" + encodeURIComponent(location.origin) + (auto ? "&autoplay=1" : "") +
+    "?playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=" + encodeURIComponent(location.origin) +
+    (resumeAt ? "&start=" + encodeURIComponent(resumeAt) : "") + (auto ? "&autoplay=1" : "") +
     '" title="' + esc(v.title) +
     '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>';
   const frame = el("video").querySelector("iframe");
@@ -357,6 +422,8 @@ function play(v, auto, queued = false, skipped = new Set()) {
   if (queued) armPlayerFallback(token, skipped);
 }
 function back() {
+  saveActiveVideoPosition(true);
+  clearPlayerPositionPoll();
   clearPlayerFallback(); ++PLAYER_TOKEN;
   CUR = null;
   el("video").innerHTML = "";                 /* the iframe is really gone */
@@ -371,9 +438,25 @@ window.addEventListener("message", (event) => {
   if (!frame || event.source !== frame.contentWindow) return;
   let data = event.data;
   if (typeof data === "string") { try { data = JSON.parse(data); } catch (_) { return; } }
-  if (data?.event === "onReady") { PLAYER_READY_TOKEN = PLAYER_TOKEN; clearPlayerFallback(); }
-  if (data?.event === "onStateChange" && Number(data.info) === 0) advanceQueue();
+  if (data?.event === "onReady") {
+    PLAYER_READY_TOKEN = PLAYER_TOKEN; clearPlayerFallback(); startPlayerPositionPoll(PLAYER_TOKEN, frame);
+  }
+  if (data?.event === "infoDelivery" && data.info) {
+    PLAYER_POSITION.time = Number(data.info.currentTime) || PLAYER_POSITION.time;
+    PLAYER_POSITION.duration = Number(data.info.duration) || PLAYER_POSITION.duration;
+    saveActiveVideoPosition(false);
+  }
+  if (data?.event === "onStateChange" && Number(data.info) === 0) {
+    clearPlayerPositionPoll();
+    clearVideoPosition(CUR?.video_id);
+    PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
+    advanceQueue();
+  }
 });
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") saveActiveVideoPosition(true);
+});
+window.addEventListener("pagehide", () => saveActiveVideoPosition(true));
 
 /* ---- PICTURE-IN-PICTURE ----
    Document PiP hosts real DOM, so it can carry the YouTube player into a
