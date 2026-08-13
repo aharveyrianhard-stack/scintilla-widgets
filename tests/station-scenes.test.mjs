@@ -638,6 +638,8 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "the server ignores visual feed identity for YouTube mutations");
   assert.match(ytAction, /yt_wl_playlist_personal/,
     "Watch Later owns a Personal-account playlist and cannot reuse the disconnected playlist id");
+  assert.match(ytAction, /playlists\?part=id&id=/,
+    "a saved Watch Later id is validated and cannot strand the working account on a stale playlist");
   assert.doesNotMatch(ytAction, /WATCH_ACCOUNT|validAccount/,
     "there is no fallback to the disconnected SCINTILLA OAuth identity");
 });
