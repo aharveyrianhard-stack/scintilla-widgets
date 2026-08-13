@@ -410,6 +410,37 @@ test("paired column axes stay legible while using compact plot bands", () => {
     "the lower card retains its actual shared date/time labels");
 });
 
+test("hover uses a true two-axis crosshair, not the old fixed close reference", () => {
+  const hoverTime = functionFromSource(chart, "chHoverTime", {
+    EV_MON: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  });
+  assert.equal(hoverTime("2026-08-13T14:30:00.000Z", "3h"), "Aug 13, 2026 · 14:30");
+  assert.equal(hoverTime("2026-08-13T00:00:00.000Z", "1D"), "Aug 13, 2026");
+  assert.match(chart, /function scChartDraw\(host, scrub\)/);
+  assert.match(chart, /ctx\.moveTo\(sx, padT\); ctx\.lineTo\(sx, padT \+ ih\)/,
+    "the vertical guide follows the pointer X coordinate");
+  assert.match(chart, /ctx\.moveTo\(padL, sy\); ctx\.lineTo\(padL \+ iw, sy\)/,
+    "the horizontal guide follows the pointer Y coordinate");
+  assert.match(chart, /show\(e\.clientX, e\.clientY\)/,
+    "both pointer coordinates reach the renderer");
+  assert.match(chart, /const price = yLo \+ \(1 - \(sy - padT\) \/ ih\) \* \(yHi - yLo\)/,
+    "right marker reports the hovered price, not the live or previous-close price");
+  assert.doesNotMatch(chart, /sc-nchart__hud|chTimeFull|setLineDash\(\[3, 3\]\)/,
+    "the centered raw timestamp and fixed dotted reference line are gone");
+});
+
+test("Station range is run-wide, starts at 3h after reload, and scenes cannot overwrite it", () => {
+  assert.match(deck, /let RANGE = RANGES\.includes\(QS\.get\("range"\)\) \? QS\.get\("range"\) : "3h"/);
+  assert.match(deck, /const range = RANGE;/,
+    "saved named-scene range values are ignored");
+  assert.doesNotMatch(deck, /save\(prefix \+ "\\.range", RANGE\)/,
+    "range is not persisted with a scene workspace");
+  assert.doesNotMatch(deck, /RANGE = RANGES\.includes\(state\.range\)/,
+    "preset/reset/rotation state cannot replace the active range");
+  assert.match(chart, /chartRange: \(function\(\)\{ const r = QS\.get\("range"\); return CHART_RANGES\.includes\(r\) \? r : "3h";/,
+    "a fresh child chart also defaults to 3h");
+});
+
 test("a scene transition reloads a mounted frame whose URL has an old ticker", () => {
   const syncChartFrame = functionFromDeck("syncChartFrame", { location: { origin:"https://station.test" } });
   const priorSrc = "/chart?bare=1&t=SPY&range=3h";
