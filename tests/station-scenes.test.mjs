@@ -57,9 +57,11 @@ test("Station install identity stays distinct from the Hub and carries the Scint
     "/station/icon.png", "/station/icon-512.png", "/station/icon.svg"
   ]);
   assert.match(stationIcon, /SCINTILLA Station/);
-  assert.match(stationIcon, /rotate\(120\)/);
-  assert.match(stationIcon, /#00FFA3/,
-    "the installed Station tile keeps its own live-chart visual identity");
+  assert.match(stationIcon, /rotate\(120\)/,
+    "the canonical trefoil remains the primary Station mark");
+  assert.match(stationIcon, /small, matching-weight market trace/);
+  assert.doesNotMatch(stationIcon, /station-blue|<rect x="64"/,
+    "the Station cue must not wrap or replace the Scintilla brand with a device frame");
   assert.match(deck, /apple-touch-icon" sizes="512x512" href="\/station\/icon-512\.png"/);
 });
 
