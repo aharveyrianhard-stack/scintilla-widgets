@@ -79,6 +79,16 @@ test("a newer crop waits for two decoded viewer frames and stale crops cannot wi
   assert.equal(state.confirmedGeneration, 2);
   assert.equal(state.confirmedCrop, newerBoundary, "only the newest generation is promoted");
 
+  const sameGenerationReflow = { captureGeneration:2, sequence:4, rect:{ top:11 }, fractionalScrollOffset:.3 };
+  state = receive(state, sameGenerationReflow);
+  assert.equal(state.confirmedCrop, newerBoundary,
+    "a newer geometry crop inside an already confirmed generation stays behind the viewer-frame barrier");
+  state = advance(state);
+  assert.equal(state.confirmedCrop, newerBoundary, "one decoded frame still holds the prior crop");
+  state = advance(state);
+  assert.equal(state.confirmedCrop, sameGenerationReflow,
+    "two decoded frames promote the newer same-generation crop safely");
+
   state = receive(state, { captureGeneration:1, sequence:99, rect:{ top:10 } });
   assert.equal(state.confirmedGeneration, 2);
   assert.equal(state.staleDrops, 1, "a late old generation cannot replace the visible crop");
