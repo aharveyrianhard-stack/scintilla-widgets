@@ -66,6 +66,22 @@ test("Station keeps the rendered fractional crop through an integer source scrol
   );
 });
 
+test("Station source scroll applies pixels against the numeric scrollTop and records the real movement", () => {
+  const applyScroll = functionFromSource("applyStationSourceScroll");
+  const root = { scrollTop: 100, scrollHeight: 1000 };
+  const snapshot = (target) => ({
+    scrollTop: target.scrollTop,
+    scrollHeight: target.scrollHeight,
+    geometryVersion: 4
+  });
+  const movement = applyScroll(root, 3, snapshot);
+
+  assert.equal(root.scrollTop, 103);
+  assert.equal(movement.before.scrollTop, 100);
+  assert.equal(movement.after.scrollTop, 103);
+  assert.equal(movement.appliedPixels, 3);
+});
+
 test("Station crop geometry is cached outside bounded observer-driven refreshes", () => {
   const payload = source.slice(
     source.indexOf("function stationCropPayload"),
@@ -102,4 +118,37 @@ test("a post-scroll crop is released only by the current captured-frame generati
   assert.match(source, /type: "XFF_STATION_CROP", crop: stationCropPayload\(\)/,
     "the next offset is broadcast only after the matching decoded frame");
   assert.match(source, /message\?\.type === "XFF_STATION_CAPTURE_FRAME"/);
+});
+
+test("a virtualized X anchor correction is held rather than emitted as a backwards crop", () => {
+  const disposition = functionFromSource("stationAnchorDisposition");
+  const anchor = {
+    appliedScrollTop: 1201,
+    scrollHeight: 48000,
+    geometryVersion: 17
+  };
+
+  const pulledBack = disposition(anchor, { scrollTop: 1199, scrollHeight: 48036, geometryVersion: 18 });
+  assert.equal(pulledBack.hold, true, "a post-scroll virtualized-anchor pullback must retain the prior confirmed crop");
+  assert.equal(pulledBack.reflowed, true);
+  const expected = disposition(anchor, { scrollTop: 1201, scrollHeight: 48000, geometryVersion: 17 });
+  assert.equal(expected.hold, false, "the expected decoded scroll position is still eligible for promotion");
+  assert.equal(expected.reflowed, false);
+});
+
+test("Station records source scroll/height/geometry at capture confirmation and suppresses anchor pullbacks", () => {
+  const payload = source.slice(
+    source.indexOf("function stationCropPayload"),
+    source.indexOf("function stopStationRelay")
+  );
+  assert.match(payload, /sourceScroll: session\.stationLastConfirmedScroll \|\| stationScrollSnapshot\(\)/);
+  assert.match(payload, /sourceMetrics:[\s\S]{0,320}anchorCorrections/);
+  assert.match(source, /function applyStationSourceScroll\(root, pixels, snapshot = stationScrollSnapshot\)/);
+  assert.match(source, /root\.scrollTop = before\.scrollTop \+ requestedPixels/);
+  assert.match(source, /const movement = applyStationSourceScroll\(root, wholePixels\)/);
+  assert.match(source, /appliedScrollTop: after\.scrollTop/);
+  assert.match(source, /session\.stationPendingScrollAnchor = scrollAnchor/);
+  assert.match(source, /const disposition = stationAnchorDisposition\(anchor, snapshot\)/);
+  assert.match(source, /if \(disposition\.hold\)[\s\S]{0,650}session\.scrollCarryPx = session\.stationRenderedOffset/);
+  assert.match(source, /session\.stationLastConfirmedScroll = snapshot/);
 });

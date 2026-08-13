@@ -43,15 +43,20 @@
     stationRenderedOffset: 0,
     stationScrollGeneration: 0,
     stationPendingScrollGeneration: 0,
+    stationPendingScrollAnchor: null,
     stationConfirmedCaptureGeneration: 0,
     stationCropSequence: 0,
+    stationGeometryVersion: 0,
+    stationLastConfirmedScroll: null,
     stationMetrics: {
       ticks: 0,
       integerScrolls: 0,
       confirmedCaptureFrames: 0,
       geometryMeasures: 0,
       geometryInvalidations: 0,
-      negativeCommitOffsets: 0
+      negativeCommitOffsets: 0,
+      anchorCorrections: 0,
+      anchorReflowHeightChanges: 0
     },
     scrollEnabled: false,
     pointerPause: false,
@@ -605,6 +610,41 @@
     };
   }
 
+  // X can asynchronously correct its virtualized timeline anchor after our
+  // deliberate integer scroll.  A decoded frame from that reflow must not be
+  // paired with the newer fractional crop offset: that is the remaining
+  // downward pulse after the normal capture-generation barrier.
+  function stationAnchorDisposition(anchor, snapshot) {
+    if (!anchor) return { hold: false, reflowed: false };
+    const expectedTop = Math.max(0, Number(anchor.appliedScrollTop) || 0);
+    const currentTop = Math.max(0, Number(snapshot?.scrollTop) || 0);
+    const reflowed = Number(snapshot?.scrollHeight) !== Number(anchor.scrollHeight);
+    return {
+      hold: currentTop + 0.25 < expectedTop,
+      reflowed
+    };
+  }
+
+  function stationScrollSnapshot(root = document.scrollingElement || document.documentElement) {
+    return {
+      scrollTop: Math.max(0, Number(root?.scrollTop) || 0),
+      scrollHeight: Math.max(0, Number(root?.scrollHeight) || 0),
+      geometryVersion: session.stationGeometryVersion
+    };
+  }
+
+  function applyStationSourceScroll(root, pixels, snapshot = stationScrollSnapshot) {
+    const before = snapshot(root);
+    const requestedPixels = Math.max(0, Math.floor(Number(pixels) || 0));
+    root.scrollTop = before.scrollTop + requestedPixels;
+    const after = snapshot(root);
+    return {
+      before,
+      after,
+      appliedPixels: Math.max(0, after.scrollTop - before.scrollTop)
+    };
+  }
+
   function refreshStationCropGeometry({ force = false } = {}) {
     if (!force && !session.stationCropGeometryDirty && session.stationCropGeometry) {
       return session.stationCropGeometry;
@@ -612,6 +652,7 @@
     session.stationCropGeometry = calculateCropRect();
     session.stationCropGeometryDirty = false;
     session.stationMetrics.geometryMeasures += 1;
+    session.stationGeometryVersion += 1;
     return session.stationCropGeometry;
   }
 
@@ -648,9 +689,25 @@
     /* A late frame belongs to a scroll position we have already superseded.
        Keep the last confirmed crop until the newest generation is decoded. */
     if (!confirmed || confirmed !== session.stationPendingScrollGeneration) return false;
+    const snapshot = stationScrollSnapshot();
+    const anchor = session.stationPendingScrollAnchor;
+    const disposition = stationAnchorDisposition(anchor, snapshot);
+    if (disposition.hold) {
+      // Keep the last confirmed composite while X settles its own anchor.  The
+      // next intentional source generation starts from that stable position;
+      // no backwards crop is emitted to either viewer.
+      session.stationPendingScrollGeneration = 0;
+      session.stationPendingScrollAnchor = null;
+      session.scrollCarryPx = session.stationRenderedOffset;
+      session.stationMetrics.anchorCorrections += 1;
+      if (disposition.reflowed) session.stationMetrics.anchorReflowHeightChanges += 1;
+      return false;
+    }
     session.stationRenderedOffset = session.scrollCarryPx;
     session.stationPendingScrollGeneration = 0;
+    session.stationPendingScrollAnchor = null;
     session.stationConfirmedCaptureGeneration = confirmed;
+    session.stationLastConfirmedScroll = snapshot;
     session.stationMetrics.confirmedCaptureFrames += 1;
     runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });
     return true;
@@ -660,8 +717,10 @@
     session.scrollCarryPx = 0;
     session.stationRenderedOffset = 0;
     session.stationPendingScrollGeneration = 0;
+    session.stationPendingScrollAnchor = null;
     session.stationConfirmedCaptureGeneration = 0;
     session.stationCropSequence = 0;
+    session.stationLastConfirmedScroll = null;
   }
 
   function calculateCropRect() {
@@ -1935,6 +1994,13 @@
          has crossed the offscreen capture-frame acknowledgement.  Sequence
          still advances for sub-pixel crops inside the same source frame. */
       captureGeneration: session.stationConfirmedCaptureGeneration,
+      // Exposed instrumentation for a live source diagnosis.  These are
+      // measurements only; viewers continue to use the existing crop frame.
+      sourceScroll: session.stationLastConfirmedScroll || stationScrollSnapshot(),
+      sourceMetrics: {
+        anchorCorrections: session.stationMetrics.anchorCorrections,
+        anchorReflowHeightChanges: session.stationMetrics.anchorReflowHeightChanges
+      },
       sequence: ++session.stationCropSequence,
       activeView: session.activeView,
       paused: isPaused()
@@ -2028,10 +2094,21 @@
           (session.settings.speedPxPerSecond * elapsedMs) / 1000;
         const wholePixels = Math.floor(accrued);
         let appliedPixels = 0;
+        let scrollAnchor = null;
         if (wholePixels > 0) {
-          const before = root.scrollTop;
-          root.scrollTop = before + wholePixels;
-          appliedPixels = Math.max(0, root.scrollTop - before);
+          const movement = applyStationSourceScroll(root, wholePixels);
+          const { before, after } = movement;
+          appliedPixels = movement.appliedPixels;
+          if (appliedPixels > 0) {
+            scrollAnchor = {
+              requestedPixels: wholePixels,
+              appliedPixels,
+              scrollTop: before.scrollTop,
+              appliedScrollTop: after.scrollTop,
+              scrollHeight: after.scrollHeight,
+              geometryVersion: after.geometryVersion
+            };
+          }
         }
         const next = nextStationScrollState(
           {
@@ -2052,6 +2129,7 @@
         if (next.needsSettle) {
           session.stationMetrics.integerScrolls += 1;
           session.stationPendingScrollGeneration = next.generation;
+          session.stationPendingScrollAnchor = scrollAnchor;
           requestStationCaptureFrame(next.generation);
         } else if (!session.stationPendingScrollGeneration) {
           session.stationRenderedOffset = next.renderedOffset;
