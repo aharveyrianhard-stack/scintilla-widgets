@@ -332,6 +332,10 @@ test("fixed price overlay reports daily performance honestly", () => {
   assert.match(chart, /parent\.postMessage\(\{ sc:"chart-focus-ticker" \}/);
   assert.match(chart, /\.sc-nchart__live-change/);
   assert.match(chart, /badge\.dataset\.change = day\.tone/);
+  assert.match(chart, /paintLiveStatus\(host, liveQuote\[host\.dataset\.t\]\)/,
+    "every chart paints its identity immediately, before a live quote arrives");
+  assert.match(chart, /if \(!quote \|\| !isFinite\(\+quote\.price\)\) \{[\s\S]*?badge\.dataset\.change = "flat";[\s\S]*?price\.textContent = "—"/,
+    "a missing quote shows the ticker and neutral em dash instead of removing the readout");
   assert.doesNotMatch(chart, /sc-nchart__live-meta/,
     "the overlay keeps price plus daily change, not last-time/OHLC clutter");
 });
