@@ -298,8 +298,8 @@ async function ytAct(action, payload) {
 
 async function syncWatch(force) {
   if (WATCH_READY && !force) return WATCH;
-  const d = await ytAct("list", { account:YOUTUBE_ACCOUNT });
-  WATCH = new Set(Array.isArray(d.ids) ? d.ids : []);
+  const rows = await pg("yt_watch_later?select=video_id");
+  WATCH = new Set((Array.isArray(rows) ? rows : []).map((row) => row.video_id).filter(Boolean));
   WATCH_READY = true;
   WATCH_ERROR = "";
   return WATCH;
@@ -588,8 +588,12 @@ window.addEventListener("message", (event) => {
 });
 async function start() {
   paintChips(); relayout(); load();
+  /* Start the shared local saved-set read alongside the ordinary feed.  This
+     never contacts YouTube, and means opening Watch Later normally has its
+     IDs ready instead of placing that database read on the click path. */
+  syncWatch().catch(() => { WATCH_READY = false; });
   /* Keep the stored feed current without touching the YouTube API on every
-     pass. Watch Later is fetched only when that explicit list is selected. */
+     pass. */
   setInterval(() => {
     if (document.visibilityState === "visible" && !CUR) load(false, true);
   }, 120000);

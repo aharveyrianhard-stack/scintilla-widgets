@@ -267,10 +267,12 @@ function fillYT() {
     .then((rows) => {
       YT_LOADED = true; YT_FETCHED_AT = Date.now(); ytPosPull();
       if (Array.isArray(rows) && rows.length) { const wl = ytWLGet(); YT_FEED.length = 0; const _seen = new Set(); rows.forEach((r) => { const _k = (r.channel_id || "") + "|" + String(r.title || "").toLowerCase().replace(/\s+/g, " ").trim(); if (_seen.has(r.video_id) || _seen.has(_k)) return; _seen.add(r.video_id); _seen.add(_k); r.watch_later = wl.has(r.video_id); YT_FEED.push(r); }); }
-      /* two-way stars: the SCINTILLA · Watch Later playlist on YouTube is the source of truth */
-      ytAct("list").then((d) => {
-        if (d && d.ok && Array.isArray(d.ids)) {
-          const srv = new Set(d.ids);
+      /* One shared Station table carries the saved set.  It is updated only
+         after the authoritative YouTube add/remove succeeds, so grids can
+         render instantly without waiting on Google's slow playlist reads. */
+      pg("yt_watch_later?select=video_id").then((savedRows) => {
+        if (Array.isArray(savedRows)) {
+          const srv = new Set(savedRows.map((row) => row.video_id).filter(Boolean));
           const localOnly = [...ytWLGet()].filter((v) => !srv.has(v));
           localOnly.forEach((v) => { srv.add(v); ytAct("star", { videoId: v }); });
           try { localStorage.setItem(YT_WL_KEY, JSON.stringify([...srv])); } catch (_) {}
