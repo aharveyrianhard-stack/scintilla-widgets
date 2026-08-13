@@ -147,7 +147,7 @@ let YT_IDX = -1;
 let YT_LOADED = false, YT_FETCHED_AT = 0;
 
 /* ---- watch-later + positions — ported verbatim ---- */
-const YT_WL_KEY = "sc_yt_wl_v1", YT_POS_KEY = "sc_yt_pos_v1";
+const YT_WL_KEY = "sc_yt_wl_v1";
 function ytWLGet() { try { return new Set(JSON.parse(localStorage.getItem(YT_WL_KEY) || "[]")); } catch (_) { return new Set(); } }
 function ytAct(action, payload) {
   return fetch(SB + "/functions/v1/yt-act", { method: "POST",
@@ -161,9 +161,10 @@ function ytWLToggle(id) {
   ytAct(on ? "star" : "unstar", { videoId: id });
   return on;
 }
-function ytPosMapGet() { try { return JSON.parse(localStorage.getItem(YT_POS_KEY) || "{}"); } catch (_) { return {}; } }
-function ytPosGet(id) { return ytPosMapGet()[id] || 0; }
-function ytPosSet(id, sec) { const m = ytPosMapGet(); if (sec > 5) { m[id] = Math.floor(sec); try { localStorage.setItem("sc_yt_last", JSON.stringify({ id: id, ts: Date.now() })); } catch (_) {} } else delete m[id]; try { localStorage.setItem(YT_POS_KEY, JSON.stringify(m)); } catch (_) {} ytPosPush(id, sec); }
+const YT_POSITIONS = new Map();
+let YT_LAST_POSITION_ID = "";
+function ytPosGet(id) { return Number(YT_POSITIONS.get(id)?.t) || 0; }
+function ytPosSet(id, sec) { const t = Math.max(0, Math.floor(Number(sec) || 0)); if (t > 5) { YT_POSITIONS.set(id, { t, updated:Date.now() }); YT_LAST_POSITION_ID = id; } else { YT_POSITIONS.delete(id); if (YT_LAST_POSITION_ID === id) YT_LAST_POSITION_ID = [...YT_POSITIONS.keys()][0] || ""; } ytPosPush(id, t); }
 let YT_POS_PUSHED = {};
 function ytPosPush(id, sec) {
   const now = Date.now(); if (YT_POS_PUSHED[id] && now - YT_POS_PUSHED[id] < 10000) return; YT_POS_PUSHED[id] = now;
@@ -172,11 +173,11 @@ function ytPosPush(id, sec) {
     body: JSON.stringify({ video_id: id, t: Math.floor(sec), updated: new Date().toISOString() }) }).catch(() => {}); } catch (_) {}
 }
 function ytPosPull() {
-  try { fetch(SB + "/rest/v1/yt_positions?select=video_id,t", { headers: { apikey: ANON, Authorization: "Bearer " + ANON } })
+  try { fetch(SB + "/rest/v1/yt_positions?select=video_id,t,updated&order=updated.desc", { headers: { apikey: ANON, Authorization: "Bearer " + ANON } })
     .then((r) => r.json()).then((rows) => {
-      if (!Array.isArray(rows)) return; const m = ytPosMapGet();
-      rows.forEach((r) => { if (r.t > 5) m[r.video_id] = Math.floor(r.t); else delete m[r.video_id]; });
-      try { localStorage.setItem(YT_POS_KEY, JSON.stringify(m)); } catch (_) {}
+      if (!Array.isArray(rows)) return; YT_POSITIONS.clear(); YT_LAST_POSITION_ID = "";
+      rows.forEach((r) => { const t = Math.floor(Number(r.t) || 0); if (t > 5) { YT_POSITIONS.set(r.video_id, { t, updated:r.updated || "" }); if (!YT_LAST_POSITION_ID) YT_LAST_POSITION_ID = r.video_id; } });
+      renderYT();
     }).catch(() => {}); } catch (_) {}
 }
 
@@ -233,10 +234,8 @@ function ytCardHTML(r, i) {
     '<div class="sc-ytc__meta"><span>' + esc(r.channel || "") + "</span><span>" + esc(ytAgo(r.published_at)) + "</span></div></div></div>";
 }
 function ytContinueHTML() {
-  let last = null; try { last = JSON.parse(localStorage.getItem("sc_yt_last") || "null"); } catch (_) {}
-  if (!last || !last.id) return "";
-  const pos = ytPosGet(last.id); if (!(pos > 5)) return "";
-  const idx = YT_VIEW.findIndex((r) => r.video_id === last.id); if (idx < 0) return "";
+  const pos = ytPosGet(YT_LAST_POSITION_ID); if (!(pos > 5)) return "";
+  const idx = YT_VIEW.findIndex((r) => r.video_id === YT_LAST_POSITION_ID); if (idx < 0) return "";
   const r = YT_VIEW[idx];
   const mm = Math.floor(pos / 60), ss = String(Math.floor(pos % 60)).padStart(2, "0");
   return '<div data-act="ytcontinue" data-i="' + idx + '" style="grid-column:1/-1;flex-basis:100%;width:100%;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:10px 14px;margin-bottom:10px;background:linear-gradient(90deg,rgba(0,212,255,.12),rgba(0,212,255,.02));border:1px solid rgba(0,212,255,.30);border-radius:8px;cursor:pointer">' +
@@ -369,7 +368,7 @@ document.addEventListener("click", (e) => {
   if (act === "ytfilt") { S.ytFilt = n.dataset.f; el("ytFilt").innerHTML = ytFiltHTML(); renderYT(); }
   else if (act === "ytrefresh") { YT_LOADED = false; YT_FETCHED_AT = 0; el("ytGrid").innerHTML = '<div class="sc-yt__empty">reloading…</div>'; YT_LOADED = false; fillYT(); }
   else if (act === "ytopen" || act === "ytcontinue") { ytOpen(+n.dataset.i); }
-  else if (act === "ytcontdismiss") { e.stopPropagation(); try { localStorage.removeItem("sc_yt_last"); } catch (_) {} renderYT(); }
+  else if (act === "ytcontdismiss") { e.stopPropagation(); YT_LAST_POSITION_ID = ""; renderYT(); }
   else if (act === "ytstar") { e.stopPropagation(); const r = YT_VIEW[+n.dataset.i]; if (!r) return; r.watch_later = ytWLToggle(r.video_id); n.classList.toggle("is-on", r.watch_later); if (S.ytFilt === "WATCH") renderYT(); }
   else if (act === "ytprev") ytNav(-1);
   else if (act === "ytnext") ytNav(1);
