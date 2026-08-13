@@ -121,7 +121,12 @@ async function ensurePlaylist(sb: any, token: string) {
   const saved: Record<string, string> = {};
   for (const row of cfg || []) saved[row.key] = row.value;
   const existingId = saved.yt_wl_playlist_personal;
-  if (existingId) return existingId;
+  /* A playlist id can survive after the YouTube account that created it is
+     changed or disconnected. Never let that stale id brick Watch Later. */
+  if (existingId) {
+    const check = await yt(token, "GET", "playlists?part=id&id=" + encodeURIComponent(existingId));
+    if (check.status < 300 && check.body?.items?.[0]?.id === existingId) return existingId;
+  }
 
   const mine = await yt(token, "GET", "playlists?part=snippet&mine=true&maxResults=50");
   const found = (mine.body?.items || []).find(
