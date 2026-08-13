@@ -573,7 +573,7 @@ test("video auto-next silently advances the next visible item and skips an unava
     "auto-next is always on and adds no visible control or URL state");
 });
 
-test("video resume remains local, bounded, and clears completion before auto-next", () => {
+test("video resume is shared with Hub, bounded, and clears completion before auto-next", () => {
   const store = new Map();
   const storage = { getItem:(key) => store.get(key) || null, setItem:(key, value) => store.set(key, value) };
   const resume = functionFromSource(videoPane, "resumePositionFor", { JSON, Number, Math, VIDEO_POSITION_KEY:"scintilla.station.video.positions.v1", videoPositionMap:function(storage) { try { const value = JSON.parse(storage.getItem("scintilla.station.video.positions.v1") || "{}"); return value && typeof value === "object" ? value : {}; } catch (_) { return {}; } }, VIDEO_POSITION_NEAR_END_SECONDS:12 });
@@ -581,11 +581,27 @@ test("video resume remains local, bounded, and clears completion before auto-nex
   assert.equal(resume("a", storage), 123);
   assert.equal(resume("b", storage), 0, "a near-complete video restarts rather than resuming at its ending");
   assert.equal(resume("c", storage), 0, "very short progress is not treated as a continuation");
+  const merge = functionFromSource(videoPane, "mergeSharedVideoPositionRows", {
+    Array, String, Number, Math, JSON, VIDEO_POSITION_KEY:"scintilla.station.video.positions.v1",
+    videoPositionMap:(target) => { try { const value = JSON.parse(target.getItem("scintilla.station.video.positions.v1") || "{}"); return value && typeof value === "object" ? value : {}; } catch (_) { return {}; } }
+  });
+  merge([{ video_id:"a", t:222 }, { video_id:"b", t:0 }], storage);
+  const shared = JSON.parse(storage.getItem("scintilla.station.video.positions.v1"));
+  assert.equal(shared.a.time, 222, "a Hub position becomes the Station resume point");
+  assert.equal(shared.b, undefined, "a completion on either surface clears stale device state");
   assert.match(videoPane, /const VIDEO_POSITION_KEY = "scintilla\.station\.video\.positions\.v1"/);
+  assert.match(videoPane, /pg\("yt_positions\?select=video_id,t,updated"\)/,
+    "Station reads the same durable resume records as Hub");
+  assert.match(videoPane, /Prefer:"resolution=merge-duplicates"/,
+    "Station writes progress as an idempotent shared upsert");
+  assert.match(videoPane, /syncSharedVideoPositions\(\);/,
+    "the shared resume state begins loading before a video is chosen");
+  assert.match(videoPane, /VIDEO_POSITION_INITIAL_WAIT_MS = 650/,
+    "a slow database cannot make a video click wait indefinitely");
   assert.match(videoPane, /infoDelivery[\s\S]*?saveActiveVideoPosition\(false\)/,
     "player progress is persisted only from real YouTube playback deliveries");
   assert.match(videoPane, /resumeAt \? "&start=" \+ encodeURIComponent\(resumeAt\)/,
-    "reopening uses the saved local start point");
+    "reopening uses the shared saved start point");
   assert.match(videoPane, /clearVideoPosition\(CUR\?\.video_id\);[\s\S]*?advanceQueue\(\);/,
     "completion clears continuation before the existing auto-next path");
   assert.match(videoPane, /visibilitychange[\s\S]*?saveActiveVideoPosition\(true\)/);

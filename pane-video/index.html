@@ -224,12 +224,14 @@ el("kk").textContent = FEED === "market" ? "MARKET SEARCH" :
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
 const LOCAL_SUBSCRIBED_CHANNELS = new Set(), SUBSCRIBE_PENDING = new Set();
 let PLAYER_TOKEN = 0, PLAYER_READY_TOKEN = 0, PLAYER_FALLBACK = 0, PLAYER_POSITION_POLL = 0;
-/* Local-only continuation state. It belongs to this device/browser, never to
-   a Station scene, account, or backend record. */
+/* Local storage makes resume immediate while the same cross-device position
+   record that powers the Hub catches this pane up on every device. */
 const VIDEO_POSITION_KEY = "scintilla.station.video.positions.v1";
 const VIDEO_POSITION_SAVE_MS = 10000;
 const VIDEO_POSITION_NEAR_END_SECONDS = 12;
+const VIDEO_POSITION_INITIAL_WAIT_MS = 650;
 let PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
+let VIDEO_POSITION_REQUEST = null, VIDEO_POSITIONS_READY = false;
 
 function videoPositionMap(storage = localStorage) {
   try {
@@ -243,19 +245,57 @@ function resumePositionFor(videoId, storage = localStorage) {
   const duration = Number(entry?.duration) || 0;
   return time > 5 && (!duration || time < duration - VIDEO_POSITION_NEAR_END_SECONDS) ? Math.floor(time) : 0;
 }
+function mergeSharedVideoPositionRows(rows, storage = localStorage) {
+  if (!Array.isArray(rows)) return;
+  const map = videoPositionMap(storage);
+  rows.forEach((row) => {
+    const videoId = String(row?.video_id || ""), time = Number(row?.t) || 0;
+    if (!videoId) return;
+    if (time > 5) map[videoId] = { time:Math.floor(time), duration:0 };
+    else delete map[videoId];
+  });
+  try { storage.setItem(VIDEO_POSITION_KEY, JSON.stringify(map)); } catch (_) {}
+}
+function syncSharedVideoPositions(force = false) {
+  if (VIDEO_POSITION_REQUEST && !force) return VIDEO_POSITION_REQUEST;
+  VIDEO_POSITION_REQUEST = pg("yt_positions?select=video_id,t,updated")
+    .then((rows) => { mergeSharedVideoPositionRows(rows); VIDEO_POSITIONS_READY = true; return rows; })
+    .catch(() => { VIDEO_POSITION_REQUEST = null; return []; });
+  return VIDEO_POSITION_REQUEST;
+}
+function pushSharedVideoPosition(videoId, time) {
+  if (!videoId) return;
+  const t = Math.max(0, Math.floor(Number(time) || 0));
+  try {
+    fetch(SB + "/rest/v1/yt_positions", {
+      method:"POST",
+      headers:{ apikey:ANON, Authorization:"Bearer " + ANON, "Content-Type":"application/json", Prefer:"resolution=merge-duplicates" },
+      body:JSON.stringify({ video_id:videoId, t, updated:new Date().toISOString() })
+    }).catch(() => {});
+  } catch (_) {}
+}
 function writeVideoPosition(videoId, time, duration, storage = localStorage) {
   if (!videoId) return;
   const map = videoPositionMap(storage);
   const t = Number(time) || 0, d = Number(duration) || 0;
-  if (t <= 5 || (d && t >= d - VIDEO_POSITION_NEAR_END_SECONDS)) delete map[videoId];
+  const complete = t <= 5 || (d && t >= d - VIDEO_POSITION_NEAR_END_SECONDS);
+  if (complete) delete map[videoId];
   else map[videoId] = { time:Math.floor(t), duration:Math.floor(d) || 0 };
   try { storage.setItem(VIDEO_POSITION_KEY, JSON.stringify(map)); } catch (_) {}
+  pushSharedVideoPosition(videoId, complete ? 0 : t);
 }
 function clearVideoPosition(videoId, storage = localStorage) {
-  if (!videoId) return;
-  const map = videoPositionMap(storage);
-  delete map[videoId];
-  try { storage.setItem(VIDEO_POSITION_KEY, JSON.stringify(map)); } catch (_) {}
+  writeVideoPosition(videoId, 0, 0, storage);
+}
+async function resumePositionBeforePlay(videoId) {
+  if (!VIDEO_POSITION_REQUEST) syncSharedVideoPositions();
+  if (!VIDEO_POSITIONS_READY) {
+    await Promise.race([
+      VIDEO_POSITION_REQUEST,
+      new Promise((resolve) => setTimeout(resolve, VIDEO_POSITION_INITIAL_WAIT_MS))
+    ]);
+  }
+  return resumePositionFor(videoId);
 }
 function saveActiveVideoPosition(force = false) {
   if (!CUR || !PLAYER_POSITION.time) return;
@@ -396,15 +436,16 @@ function armPlayerFallback(token, skipped) {
     advanceQueue(nextSkipped);
   }, 10000);
 }
-function play(v, auto, queued = false, skipped = new Set()) {
+async function play(v, auto, queued = false, skipped = new Set()) {
   if (!v) return;
   saveActiveVideoPosition(true);
   clearPlayerPositionPoll();
   clearPlayerFallback();
+  const token = ++PLAYER_TOKEN;
+  const resumeAt = await resumePositionBeforePlay(v.video_id);
+  if (token !== PLAYER_TOKEN) return;
   CUR = v;
   PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
-  const resumeAt = resumePositionFor(v.video_id);
-  const token = ++PLAYER_TOKEN;
   document.body.classList.add("playing");
   el("video").innerHTML = '<iframe src="https://www.youtube.com/embed/' + encodeURIComponent(v.video_id) +
     "?playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=" + encodeURIComponent(location.origin) +
@@ -588,6 +629,7 @@ window.addEventListener("message", (event) => {
 });
 async function start() {
   paintChips(); relayout(); load();
+  syncSharedVideoPositions();
   /* Start the shared local saved-set read alongside the ordinary feed.  This
      never contacts YouTube, and means opening Watch Later normally has its
      IDs ready instead of placing that database read on the click path. */
