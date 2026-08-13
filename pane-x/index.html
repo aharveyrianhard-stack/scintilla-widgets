@@ -214,8 +214,10 @@ const REMOTE_RECEIVER_GENERATION = createRemoteViewerId();
 const VIEWER_CLOCK_ID = createRemoteViewerId();
 const VIEWER_CLOCK_HEARTBEAT_MS = 1000;
 const VIEWER_CLOCK_STALE_MS = 2600;
-const VIEWER_PAINT_INTERVAL_MS = 80;  /* 12.5fps: readable motion, lighter canvas work */
+const VIEWER_PAINT_INTERVAL_MS = 80;  /* idle canvas cap: readable, lighter rendering */
+const VIEWER_MOTION_PAINT_INTERVAL_MS = 40; /* only while easing one confirmed crop */
 const STATION_TICK_INTERVAL_MS = 100; /* 10Hz: source scroll cadence */
+const VIEWER_CROP_EASE_MS = 72;
 
 function clockOwnerFor(selfId, peers, now, selfVisible = true) {
   const candidates = selfVisible ? [selfId] : [];
@@ -237,6 +239,7 @@ let xfloatPeer = null;
 let xfloatCrop = null;
 let viewerCropState = { confirmedCrop:null, confirmedGeneration:0, confirmedSequence:0,
   pendingCrop:null, videoFrames:0, receivedGeneration:0, pendingDrops:0, staleDrops:0 };
+let viewerCropMotion = null;
 let xfloatFrame = 0;
 let xfloatPaused = false;
 let xfloatExpanded = false;
@@ -280,6 +283,32 @@ function publishViewerCadence() {
    composes with an older WebRTC frame. */
 function cropGenerationFor(crop) { return Math.max(0, Number(crop?.captureGeneration) || 0); }
 function cropSequenceFor(crop) { return Math.max(0, Number(crop?.sequence) || 0); }
+function cropOffsetFor(crop) { return Number(crop?.fractionalScrollOffset) || 0; }
+function cropsCanEase(from, to) {
+  if (!from || !to || cropGenerationFor(from) !== cropGenerationFor(to)) return false;
+  const a = from.rect || {}, b = to.rect || {};
+  return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height &&
+    Math.abs(cropOffsetFor(to) - cropOffsetFor(from)) <= 1;
+}
+function cropAtMotion(motion, at) {
+  if (!motion) return null;
+  const p = Math.max(0, Math.min(1, (at - motion.startedAt) / motion.duration));
+  if (p >= 1) return motion.to;
+  const offset = cropOffsetFor(motion.from) + (cropOffsetFor(motion.to) - cropOffsetFor(motion.from)) * p;
+  return Object.assign({}, motion.to, { fractionalScrollOffset:offset });
+}
+function beginCropMotion(previous, next, at) {
+  const visible = cropAtMotion(previous, at) || previous?.to || null;
+  if (!cropsCanEase(visible, next)) return { from:next, to:next, startedAt:at, duration:0 };
+  return { from:visible, to:next, startedAt:at, duration:VIEWER_CROP_EASE_MS };
+}
+function syncViewerConfirmedCrop(at) {
+  const next = viewerCropState.confirmedCrop;
+  if (!next) { xfloatCrop = null; viewerCropMotion = null; return null; }
+  if (!viewerCropMotion || viewerCropMotion.to !== next) viewerCropMotion = beginCropMotion(viewerCropMotion, next, at);
+  xfloatCrop = cropAtMotion(viewerCropMotion, at) || next;
+  return xfloatCrop;
+}
 function receiveViewerCropState(state, crop) {
   const current = Object.assign({}, state);
   const generation = cropGenerationFor(crop), sequence = cropSequenceFor(crop);
@@ -334,7 +363,7 @@ function advanceViewerCropState(state) {
 }
 function receiveViewerCrop(crop) {
   viewerCropState = receiveViewerCropState(viewerCropState, crop);
-  xfloatCrop = viewerCropState.confirmedCrop;
+  syncViewerConfirmedCrop(performance.now());
   viewerCadence.receivedGeneration = viewerCropState.receivedGeneration;
   viewerCadence.confirmedGeneration = viewerCropState.confirmedGeneration;
   viewerCadence.pendingDrops = viewerCropState.pendingDrops;
@@ -344,7 +373,7 @@ function receiveViewerCrop(crop) {
 }
 function noteViewerVideoFrame() {
   viewerCropState = advanceViewerCropState(viewerCropState);
-  xfloatCrop = viewerCropState.confirmedCrop;
+  syncViewerConfirmedCrop(performance.now());
   viewerCadence.videoFrames = viewerCropState.videoFrames;
   viewerCadence.confirmedGeneration = viewerCropState.confirmedGeneration;
   publishViewerCadence();
@@ -641,6 +670,7 @@ function stopXFloat({ notify = true } = {}) {
   remoteFrameAt = 0;
   viewerCropState = { confirmedCrop:null, confirmedGeneration:0, confirmedSequence:0,
     pendingCrop:null, videoFrames:0, receivedGeneration:0, pendingDrops:0, staleDrops:0 };
+  viewerCropMotion = null;
   xfloatCrop = null;
   xfloatPaused = false;
   el("v").srcObject = stream;
@@ -652,11 +682,15 @@ function stopXFloat({ notify = true } = {}) {
 }
 
 function drawXFloat(at = 0) {
+  const paintAt = at || performance.now();
+  syncViewerConfirmedCrop(paintAt);
   if (!xfloatStream || !xfloatCrop) {
     xfloatFrame = requestAnimationFrame(drawXFloat);
     return;
   }
-  if (at && at - xfloatDrawAt < VIEWER_PAINT_INTERVAL_MS) {
+  const motionActive = viewerCropMotion?.duration && paintAt - viewerCropMotion.startedAt < viewerCropMotion.duration;
+  const paintInterval = motionActive ? VIEWER_MOTION_PAINT_INTERVAL_MS : VIEWER_PAINT_INTERVAL_MS;
+  if (at && at - xfloatDrawAt < paintInterval) {
     viewerCadence.paintSkipped += 1;
     publishViewerCadence();
     xfloatFrame = requestAnimationFrame(drawXFloat);

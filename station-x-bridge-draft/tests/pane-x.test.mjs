@@ -94,6 +94,27 @@ test("a newer crop waits for two decoded viewer frames and stale crops cannot wi
   assert.equal(state.staleDrops, 1, "a late old generation cannot replace the visible crop");
 });
 
+test("only same-capture fractional crop motion eases between confirmed viewer frames", () => {
+  const generation = functionFromSource("cropGenerationFor");
+  const offset = functionFromSource("cropOffsetFor");
+  const canEase = functionFromSource("cropsCanEase", { cropGenerationFor:generation, cropOffsetFor:offset, Math });
+  const atMotion = functionFromSource("cropAtMotion", { cropOffsetFor:offset, Math, Object });
+  const begin = functionFromSource("beginCropMotion", { cropAtMotion:atMotion, cropsCanEase:canEase, VIEWER_CROP_EASE_MS:72 });
+  const prior = { captureGeneration:7, rect:{ left:1, top:2, width:3, height:4 }, fractionalScrollOffset:.1 };
+  const next = { captureGeneration:7, rect:{ left:1, top:2, width:3, height:4 }, fractionalScrollOffset:.4 };
+  const motion = begin(null, prior, 0);
+  const eased = begin(motion, next, 10);
+  assert.equal(atMotion(eased, 10).fractionalScrollOffset, .1, "easing starts from the exact visible crop");
+  assert.ok(atMotion(eased, 46).fractionalScrollOffset > .1 && atMotion(eased, 46).fractionalScrollOffset < .4,
+    "a confirmed sub-pixel move has an in-between visual position");
+  assert.equal(atMotion(eased, 82).fractionalScrollOffset, .4);
+  const boundary = Object.assign({}, next, { captureGeneration:8, fractionalScrollOffset:.05 });
+  assert.equal(begin(eased, boundary, 20).duration, 0,
+    "a capture-generation boundary is never interpolated across frames");
+  assert.equal(canEase(next, Object.assign({}, next, { rect:{ left:2, top:2, width:3, height:4 } })), false,
+    "a reflowing crop rectangle remains exact rather than being blurred");
+});
+
 test("a viewer without rVFC advances the crop barrier on two real media-time updates", () => {
   const observe = functionFromSource("observeViewerVideoFrames", { Number });
   const listeners = new Map();
@@ -118,6 +139,8 @@ test("a viewer without rVFC advances the crop barrier on two real media-time upd
 test("viewer crop barrier retains the existing one-owner clock and paint caps", () => {
   assert.match(source, /const STATION_TICK_INTERVAL_MS = 100;/);
   assert.match(source, /const VIEWER_PAINT_INTERVAL_MS = 80;/);
+  assert.match(source, /const VIEWER_MOTION_PAINT_INTERVAL_MS = 40;/,
+    "only already-confirmed sub-pixel crop motion gets a lighter temporary paint cadence");
   assert.match(source, /function receiveViewerCrop\(crop\)/);
   assert.match(source, /function noteViewerVideoFrame\(\)/);
   assert.match(source, /function observeViewerVideoFrames\(video, mediaStream, onFrame\)/);
