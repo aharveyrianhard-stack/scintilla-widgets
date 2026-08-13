@@ -443,6 +443,47 @@ const ROTATION_COLD_LOAD_LIMIT = 2;
 let ROTATION_GENERATION = 0;
 let rotationColdLoads = 0;
 let rotationLoadQueue = [];
+/* Child chart frames own their cache and fetches.  The deck is the only place
+   that can prevent six fresh frames from retrying a stalled backend together. */
+const CHART_DATA_LOAD_LIMIT = 2;
+let chartDataLoads = 0;
+let chartDataLoadQueue = [];
+const chartDataLoadActive = new Map();
+function selectChartDataLoadAdmissions(state, limit = CHART_DATA_LOAD_LIMIT) {
+  const active = Array.from(state?.active || []);
+  const queue = [];
+  const grants = [];
+  for (const job of state?.queue || []) {
+    if (job.generation !== state.generation) continue;
+    if (active.length < limit) { active.push(job); grants.push(job); }
+    else queue.push(job);
+  }
+  return { active, queue, grants };
+}
+function runChartDataLoadQueue() {
+  const next = selectChartDataLoadAdmissions({
+    generation:ROTATION_GENERATION,
+    active:Array.from(chartDataLoadActive.values()),
+    queue:chartDataLoadQueue
+  });
+  chartDataLoadQueue = next.queue;
+  for (const job of next.grants) {
+    chartDataLoads += 1;
+    chartDataLoadActive.set(job.token, job);
+    try { job.source.postMessage({ sc:"chart-load-grant", token:job.token, generation:job.generation }, location.origin); }
+    catch (_) {
+      chartDataLoadActive.delete(job.token);
+      chartDataLoads = Math.max(0, chartDataLoads - 1);
+      runChartDataLoadQueue();
+    }
+  }
+}
+function releaseChartDataLoad(token) {
+  if (!chartDataLoadActive.has(token)) return;
+  chartDataLoadActive.delete(token);
+  chartDataLoads = Math.max(0, chartDataLoads - 1);
+  runChartDataLoadQueue();
+}
 
 /* CUSTOM is a manual workspace. Its requested 6/8 slots are meaningful even
    when some are deliberately empty: a blank slot is editable, not evidence
@@ -732,12 +773,31 @@ function focusTickerFor(key) {
   input.focus(); selAll(input); paintSymbolGuide(input);
 }
 
+function chartDataSummary(visible) {
+  if (!visible.length) return { mode:"waiting", count:0 };
+  const delayed = visible.filter((x) => x.history === "delayed" || x.quote === "delayed" || x.delayed);
+  const loading = visible.filter((x) => x.history === "loading" || x.quote === "loading");
+  if (delayed.length) return { mode:"delayed", count:delayed.length };
+  if (loading.length) return { mode:"loading", count:loading.length };
+  return { mode:"ready", count:0 };
+}
 function paintMarketStatus() {
-  const visible = CHARTS.slice(0, CHART_COUNT).map((ticker) => CHART_STATUS.get(ticker)).filter(Boolean);
+  const visibleTickers = CHARTS.slice(0, CHART_COUNT).filter(Boolean);
+  const visible = visibleTickers.map((ticker) => Object.assign({ ticker, history:"loading", quote:"loading" }, CHART_STATUS.get(ticker) || {}));
   const n = el("marketStatus"); if (!n) return;
-  if (!visible.length) { n.textContent = "DATA · waiting"; n.dataset.delayed = "0"; n.dataset.fresh = "0"; return; }
-  const oldest = visible.reduce((a,b) => new Date(a.updatedTs) < new Date(b.updatedTs) ? a : b);
-  const delayed = visible.filter((x) => x.delayed);
+  const summary = chartDataSummary(visible);
+  if (summary.mode === "waiting") { n.textContent = "DATA · waiting"; n.dataset.delayed = "0"; n.dataset.fresh = "0"; return; }
+  if (summary.mode === "delayed" || summary.mode === "loading") {
+    n.textContent = summary.mode === "delayed" ? "DATA · delayed (" + summary.count + ")" : "DATA · loading (" + summary.count + ")";
+    const delayed = summary.mode === "delayed";
+    n.dataset.delayed = delayed ? "1" : "0";
+    n.dataset.fresh = "0";
+    n.title = visible.map((x) => x.ticker + " · history " + x.history + " · quote " + x.quote).join("\n");
+    return;
+  }
+  const timestamped = visible.filter((x) => x.updatedTs);
+  if (!timestamped.length) { n.textContent = "DATA · ready"; n.dataset.delayed = "0"; n.dataset.fresh = "0"; return; }
+  const oldest = timestamped.reduce((a,b) => new Date(a.updatedTs) < new Date(b.updatedTs) ? a : b);
   const at = new Date(oldest.updatedTs);
   const ageSec = Math.max(0, Math.round((Date.now() - at.getTime()) / 1000));
   const age = ageSec < 60 ? ageSec + "s" : Math.floor(ageSec / 60) + "m";
@@ -754,8 +814,18 @@ function paintMarketStatus() {
 setInterval(paintMarketStatus, 10000);
 window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
+  if (event.data?.sc === "chart-load-request") {
+    chartDataLoadQueue.push({ token:event.data.token, generation:Number(event.data.generation) || 0, source:event.source });
+    runChartDataLoadQueue(); return;
+  }
+  if (event.data?.sc === "chart-load-release") { releaseChartDataLoad(event.data.token); return; }
+  if (event.data?.sc === "chart-data-state") {
+    const current = CHART_STATUS.get(event.data.ticker) || {};
+    CHART_STATUS.set(event.data.ticker, Object.assign({}, current, event.data)); paintMarketStatus(); return;
+  }
   if (event.data?.sc === "chart-status") {
-    CHART_STATUS.set(event.data.ticker, event.data); paintMarketStatus(); return;
+    const current = CHART_STATUS.get(event.data.ticker) || {};
+    CHART_STATUS.set(event.data.ticker, Object.assign({}, current, event.data)); paintMarketStatus(); return;
   }
   if (event.data?.sc === "chart-focus-ticker") {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
@@ -986,6 +1056,7 @@ function queueRotationChartMount(pane, generation) {
 function beginRotationChartTransition() {
   ROTATION_GENERATION += 1;
   rotationLoadQueue = [];
+  chartDataLoadQueue = [];
   for (const pane of PANES) if (pane.def.kind === "chart" && pane.frame)
     cancelChartFrameTransition(pane.frame, ROTATION_GENERATION);
   return ROTATION_GENERATION;

@@ -272,6 +272,9 @@ const CHART_HOSTS = new Set();
 const CHART_INITIAL_LIMIT = 400;
 const CHART_HISTORY_PAGE = 800;
 const CHART_RETRY_MS = 3000;
+const CHART_LOAD_COORDINATOR_TIMEOUT_MS = 5500;
+let chartLoadToken = 0;
+const chartLoadPermits = new Map();
 const CHART_DB_RANGE = {"15m":["15",400],"30m":["30",400],"1h":["60",400],"2h":["120",400],"3h":["180",400],"4h":["240",400],"6h":["6h",400],"12h":["12h",400],"1D":["D",400],"3D":["3D",400],"1W":["W",400]};
 let CH_COL = null;
 function chColors() {
@@ -710,8 +713,43 @@ function clearChartRetry(host) {
   host._retryTimer = null;
   host._retryReq = null;
 }
+function reportChartDataState(host, patch) {
+  if (!host) return;
+  host._dataState = Object.assign({ history:"loading", quote:"loading" }, host._dataState || {}, patch || {});
+  try {
+    parent.postMessage({
+      sc:"chart-data-state",
+      ticker:host.dataset.t,
+      history:host._dataState.history,
+      quote:host._dataState.quote,
+      hasSeries:Boolean(host._series && host._series.length >= 2)
+    }, location.origin);
+  } catch (_) {}
+}
+function acquireChartLoadPermit(host, req, generation) {
+  if (window.parent === window) return Promise.resolve(() => {});
+  const token = "chart-load-" + (++chartLoadToken);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (!chartLoadPermits.has(token)) return;
+      chartLoadPermits.delete(token);
+      // Parent-driven admission is expected in Station. A bounded escape hatch
+      // protects a standalone chart if its parent is replaced during navigation.
+      resolve(() => {});
+    }, CHART_LOAD_COORDINATOR_TIMEOUT_MS);
+    chartLoadPermits.set(token, () => {
+      clearTimeout(timer);
+      resolve(() => {
+        try { parent.postMessage({ sc:"chart-load-release", token, generation }, location.origin); } catch (_) {}
+      });
+    });
+    try { parent.postMessage({ sc:"chart-load-request", token, req, generation }, location.origin); }
+    catch (_) { clearTimeout(timer); chartLoadPermits.delete(token); resolve(() => {}); }
+  });
+}
 function showChartDelayed(host, ticker) {
   host.dataset.dataState = "delayed";
+  reportChartDataState(host, { history:"delayed" });
   if (host._series && host._series.length >= 2) return;
   const msg = host.querySelector(".sc-nchart__msg");
   if (msg) { msg.textContent = "data delayed · retrying"; msg.hidden = false; }
@@ -733,6 +771,9 @@ function retryChartLoad(host, req, generation) {
 async function scChartLoad(host) {
   const t = host.dataset.t, range = S.chartRange;
   const req = t + "|" + range;
+  const generation = host._transitionGeneration || 0;
+  if (host._activeLoad && host._activeLoad.req === req && host._activeLoad.generation === generation)
+    return host._activeLoad.promise;
   if (host._req !== req) {
     host._view = null;
     host._followLatest = true;
@@ -740,7 +781,6 @@ async function scChartLoad(host) {
     host._historyExhausted = false;
   }
   host._req = req; host._range = range;
-  const generation = host._transitionGeneration || 0;
   const msg = host.querySelector(".sc-nchart__msg");
   const cachedPts = chartSeriesCached(t, range);
   if (cachedPts && cachedPts.length >= 2) {
@@ -752,7 +792,12 @@ async function scChartLoad(host) {
     /* A new bounded attempt must not make an uncached pane look blank again. */
     showChartDelayed(host, t);
   }
-  try {
+  reportChartDataState(host, { history:"loading" });
+  const load = (async () => {
+    let releasePermit = null;
+    try {
+      releasePermit = await acquireChartLoadPermit(host, req, generation);
+      if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
     const limit = host._historyLimit || CHART_INITIAL_LIMIT;
     const pts = await fetchChartSeries(t, range, limit);
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
@@ -763,6 +808,7 @@ async function scChartLoad(host) {
     clearChartRetry(host);
     delete host.dataset.dataState;
     if (msg) msg.hidden = true;
+    reportChartDataState(host, { history:"ready" });
     scChartDraw(host);
   } catch (err) {
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
@@ -775,6 +821,14 @@ async function scChartLoad(host) {
       return;
     }
     retryChartLoad(host, req, generation);
+  } finally {
+    if (releasePermit) releasePermit();
+  }
+  })();
+  host._activeLoad = { req, generation, promise:load };
+  try { return await load; }
+  finally {
+    if (host._activeLoad?.promise === load) host._activeLoad = null;
   }
 }
 
@@ -1002,13 +1056,14 @@ function chDayChange(price, previousClose) {
 
 function paintLiveStatus(host, quote) {
   const badge = host?.querySelector(".sc-nchart__live");
-  if (!badge || !quote || !isFinite(+quote.price)) return;
-  const at = new Date(quote.updated_ts || Date.now());
+  if (!badge) return;
+  const hasQuote = quote && isFinite(+quote.price);
+  const at = new Date(quote?.updated_ts || Date.now());
   const age = Date.now() - at.getTime();
   const fresh = Number.isFinite(age) && age < 90000;
-  badge.dataset.fresh = fresh ? "1" : "0";
+  badge.dataset.fresh = hasQuote && fresh ? "1" : "0";
   const dayRef = prevClose[host.dataset.t];
-  const day = chDayChange(+quote.price, dayRef);
+  const day = hasQuote ? chDayChange(+quote.price, dayRef) : { text:"", tone:"flat" };
   badge.dataset.change = day.tone;
   let ticker = badge.querySelector(".sc-nchart__live-ticker");
   let price = badge.querySelector(".sc-nchart__live-price");
@@ -1029,9 +1084,13 @@ function paintLiveStatus(host, quote) {
     badge.append(ticker, price, change);
   }
   ticker.textContent = host.dataset.t;
-  price.textContent = chPx(+quote.price, host.dataset.t);
+  price.textContent = hasQuote ? chPx(+quote.price, host.dataset.t) : "—";
   change.textContent = day.text;
-  badge.title = (futureSet.has(host.dataset.t) ? "delayed futures quote · database refresh " : "live_quotes · ") + at.toISOString();
+  badge.title = hasQuote
+    ? (futureSet.has(host.dataset.t) ? "delayed futures quote · database refresh " : "live_quotes · ") + at.toISOString()
+    : "live quote loading · ticker remains editable";
+  reportChartDataState(host, { quote:hasQuote ? "ready" : "loading" });
+  if (!hasQuote) return;
   try {
     parent.postMessage({ sc:"chart-status", ticker:host.dataset.t, updatedTs:at.toISOString(),
       fresh, delayed:futureSet.has(host.dataset.t), source:"live_quotes" }, location.origin);
@@ -1046,8 +1105,14 @@ async function pullPrevClose(t) {
     if (Array.isArray(rows) && rows[0]) {
       if (rows[0].prev_close != null) prevClose[t] = +rows[0].prev_close;
       if (rows[0].price != null) scChartLive(t, +rows[0].price, rows[0].updated_ts);
+    } else {
+      for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
+        reportChartDataState(host, { quote:"delayed" });
     }
-  } catch (_) {}
+  } catch (_) {
+    for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
+      reportChartDataState(host, { quote:"delayed" });
+  }
 }
 
 /* realtime — live_quotes ticks patch the active chart (hub channel, verbatim shape) */
@@ -1098,6 +1163,11 @@ document.addEventListener("click", (e) => {
 addEventListener("message", (e) => {
   const d = e.data;
   if (!d) return;
+  if (d.sc === "chart-load-grant") {
+    const grant = chartLoadPermits.get(d.token);
+    if (grant) { chartLoadPermits.delete(d.token); grant(); }
+    return;
+  }
   if (d.sc === "chart-transition") {
     const host = document.querySelector("#chartSlot .sc-nchart");
     if (host) { host._transitionGeneration = Math.max(host._transitionGeneration || 0, Number(d.generation) || 0); clearChartRetry(host); }
@@ -1115,9 +1185,9 @@ addEventListener("message", (e) => {
 
 /* boot */
 el("chartSlot").innerHTML = scChartHTML(S.chartT);
-scChartWire(el("chartSlot"));
 const initialChartHost = document.querySelector("#chartSlot .sc-nchart");
 if (initialChartHost) initialChartHost._transitionGeneration = CHART_TRANSITION_GENERATION;
+scChartWire(el("chartSlot"));
 pullPrevClose(S.chartT);
 /* A ten-second read-only heartbeat makes live status dependable even if the
    browser's realtime socket sleeps. The full history remains a 60-second pull. */
