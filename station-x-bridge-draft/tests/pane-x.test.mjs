@@ -98,6 +98,10 @@ test("viewer crop never leaves a black lower block when the requested crop reach
   assert.equal(boundedCropY(-5, 200, 600), 0,
     "a negative requested crop is held at the first decoded row");
   assert.match(source, /const sy = boundedViewerCropY\(requestedY, requiredSourceHeight, video\.videoHeight\);/);
+  const availableBeforeGuard = source.indexOf("const availableAtRequestedY = Math.max(0, video.videoHeight - requestedY);");
+  const drawGuard = source.indexOf("if (sw > 1 && availableAtRequestedY > 1)");
+  assert.ok(availableBeforeGuard >= 0 && availableBeforeGuard < drawGuard,
+    "the draw guard cannot reference a crop-height value before it is initialized");
 });
 
 test("a newer crop waits for one decoded viewer frame and stale crops cannot win", () => {
