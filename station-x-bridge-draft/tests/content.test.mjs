@@ -98,7 +98,7 @@ test("Station crop geometry is cached outside bounded observer-driven refreshes"
     "geometry invalidation remains coalesced independently of capture-frame acknowledgement");
 });
 
-test("Station retains one 10 Hz source tick path while waiting for a captured video frame", () => {
+test("Station keeps one source tick path while waiting for a captured video frame", () => {
   const control = source.slice(
     source.indexOf("async function stationControl"),
     source.indexOf("function showError")

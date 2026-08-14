@@ -47,7 +47,7 @@ test("visible direct viewers elect exactly one stable scroll-clock owner", () =>
 
 test("viewer cadence is capped locally while remote iPad viewers never drive source ticks", () => {
   assert.match(source, /const VIEWER_PAINT_INTERVAL_MS = 80;/);
-  assert.match(source, /const STATION_TICK_INTERVAL_MS = 33;/);
+  assert.match(source, /const STATION_TICK_INTERVAL_MS = 16;/);
   assert.match(source, /if \(REMOTE_MODE \|\| stationTickFrame \|\| document\.visibilityState !== "visible"\) return;/);
   assert.match(source, /if \(viewerClockOwner\) \{/);
   assert.match(source, /window\.__SCINTILLA_X_CADENCE/);
@@ -115,21 +115,21 @@ test("phase-aligned crop motion eases through an adjacent capture generation", (
   const phaseAligned = functionFromSource("cropPhaseAlignedFrom", { cropVisualPositionFor:visualPosition, cropSourceScrollTop:sourceScroll, Object });
   const canEase = functionFromSource("cropsCanEase", { cropGenerationFor:generation, cropVisualPositionFor:visualPosition, Math });
   const atMotion = functionFromSource("cropAtMotion", { cropOffsetFor:offset, Math, Object });
-  const begin = functionFromSource("beginCropMotion", { cropAtMotion:atMotion, cropsCanEase:canEase, cropPhaseAlignedFrom:phaseAligned, VIEWER_CROP_EASE_MS:42 });
+  const begin = functionFromSource("beginCropMotion", { cropAtMotion:atMotion, cropsCanEase:canEase, cropPhaseAlignedFrom:phaseAligned, VIEWER_CROP_EASE_MS:24 });
   const prior = { captureGeneration:7, rect:{ left:1, top:2, width:3, height:4 }, sourceScroll:{ scrollTop:100 }, fractionalScrollOffset:.1 };
   const next = { captureGeneration:7, rect:{ left:1, top:2, width:3, height:4 }, sourceScroll:{ scrollTop:100 }, fractionalScrollOffset:.4 };
   const motion = begin(null, prior, 0);
   const eased = begin(motion, next, 10);
   assert.ok(Math.abs(atMotion(eased, 10).fractionalScrollOffset - .1) < 1e-9,
     "easing starts from the exact visible crop");
-  assert.ok(atMotion(eased, 24).fractionalScrollOffset > .1 && atMotion(eased, 24).fractionalScrollOffset < .4,
+  assert.ok(atMotion(eased, 18).fractionalScrollOffset > .1 && atMotion(eased, 18).fractionalScrollOffset < .4,
     "a confirmed sub-pixel move has an in-between visual position");
-  assert.ok(atMotion(eased, 42).fractionalScrollOffset > .1 && atMotion(eased, 42).fractionalScrollOffset < .4,
+  assert.ok(atMotion(eased, 30).fractionalScrollOffset > .1 && atMotion(eased, 30).fractionalScrollOffset < .4,
     "the blend remains in motion through the following source tick");
-  assert.equal(atMotion(eased, 60).fractionalScrollOffset, .4);
-  const continual = begin(eased, Object.assign({}, next, { fractionalScrollOffset:.7 }), 40);
-  assert.ok(atMotion(continual, 50).fractionalScrollOffset > .314 && atMotion(continual, 50).fractionalScrollOffset < .7,
-    "the next source crop starts from the still-moving visual position without a 10Hz hold");
+  assert.equal(atMotion(eased, 40).fractionalScrollOffset, .4);
+  const continual = begin(eased, Object.assign({}, next, { fractionalScrollOffset:.7 }), 30);
+  assert.ok(atMotion(continual, 35).fractionalScrollOffset > .35 && atMotion(continual, 35).fractionalScrollOffset < .7,
+    "the next source crop starts from the still-moving visual position without a display-frame hold");
   const boundary = Object.assign({}, next, { captureGeneration:8, sourceScroll:{ scrollTop:101 }, fractionalScrollOffset:.05 });
   const boundaryMotion = begin(null, Object.assign({}, prior, { fractionalScrollOffset:.9 }), 0);
   const handoff = begin(boundaryMotion, boundary, 10);
@@ -137,7 +137,7 @@ test("phase-aligned crop motion eases through an adjacent capture generation", (
     "the new source frame starts at the prior visual position instead of jumping one physical source pixel");
   assert.ok(Math.abs(visualPosition(atMotion(handoff, 10)) - 100.9) < 1e-9,
     "the phase-aligned handoff preserves the exact visible coordinate");
-  assert.equal(atMotion(handoff, 60).fractionalScrollOffset, .05,
+  assert.equal(atMotion(handoff, 40).fractionalScrollOffset, .05,
     "the handoff then reaches the new fractional carry smoothly");
   assert.equal(canEase(next, Object.assign({}, next, { rect:{ left:2, top:2, width:3, height:4 } })), false,
     "a reflowing crop rectangle remains exact rather than being blurred");
@@ -165,11 +165,11 @@ test("a viewer without rVFC advances the crop barrier on two real media-time upd
 });
 
 test("viewer crop barrier retains the existing one-owner clock and paint caps", () => {
-  assert.match(source, /const STATION_TICK_INTERVAL_MS = 33;/);
+  assert.match(source, /const STATION_TICK_INTERVAL_MS = 16;/);
   assert.match(source, /const VIEWER_PAINT_INTERVAL_MS = 80;/);
   assert.match(source, /const VIEWER_MOTION_PAINT_INTERVAL_MS = 16;/,
     "only already-confirmed sub-pixel crop motion uses display-rate canvas painting");
-  assert.match(source, /const VIEWER_CROP_EASE_MS = 42;/,
+  assert.match(source, /const VIEWER_CROP_EASE_MS = 24;/,
     "a blend spans the following source tick rather than stopping early");
   assert.match(source, /function receiveViewerCrop\(crop\)/);
   assert.match(source, /function ensureXFloatDraw\(\)/,
