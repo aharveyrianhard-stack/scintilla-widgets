@@ -206,6 +206,10 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
 .body{ flex:1 1 0; position:relative; min-height:0; min-width:0; }
 .body iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block;
   background:var(--bg); }
+.testing-x-review-verdict{ position:absolute; z-index:20; left:8px; right:8px; bottom:8px;
+  min-height:24px; display:grid; place-items:center; padding:3px 8px; pointer-events:none;
+  background:rgba(0,0,0,.96); border:1px solid rgba(255,75,106,.78); color:var(--bear);
+  font-size:8px; font-weight:700; letter-spacing:.12em; text-align:center; text-transform:uppercase; }
 /* The chart canvas already owns pan/pinch inside its frame. On iPad the
    embedding frame must make the same claim at the parent hit-test boundary,
    otherwise Safari can hand that gesture to page movement first. */
@@ -261,10 +265,10 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   <span>TESTING SURFACE · NOT STABLE</span>
   <span class="testing-note">isolated browser state · production writes blocked</span>
   <nav aria-label="Testing X mode">
-    <a id="testingXReplay" href="/deck/" aria-current="page">REPLAY · REJECTED</a>
+    <a id="testingXReplay" href="/deck/" aria-current="page">ENGINEERING REPLAY</a>
     <a id="testingXLive" href="/station-live-test/">LIVE TEST</a>
   </nav>
-  <span id="testingXState" class="testing-disconnected">REPLAY · REJECTED · ZERO APPROVED</span>
+  <span id="testingXState" class="testing-disconnected">ENGINEERING REPLAY · NOT HUMAN-APPROVED</span>
   <a id="testingIpadLink" href="/station-ipad/">replay iPad ↗</a>
 </div>
 <div id="bar">
@@ -407,7 +411,7 @@ if (window.ScintillaTestingSurface?.active) {
   el("testingXState").hidden = false;
   el("testingXState").textContent = TEST_X_LIVE
     ? "LIVE TEST · DISCONNECTED"
-    : "REPLAY · REJECTED · ZERO APPROVED";
+    : "ENGINEERING REPLAY · NOT HUMAN-APPROVED";
   el("testingIpadLink").href = TEST_X_LIVE ? "/station-ipad-live-test/" : "/station-ipad/";
   el("testingIpadLink").textContent = TEST_X_LIVE ? "live-test iPad ↗" : "replay iPad ↗";
 }
@@ -726,6 +730,11 @@ function makePane(def) {
   /* The Station is the destination. Pop/PiP/open duplicated navigation and
      crowded every pane; keep one explicit in-place expansion control. */
   const body = document.createElement("div"); body.className = "body";
+  if (window.ScintillaTestingSurface?.active && def.kind === "x" && !TEST_X_LIVE) {
+    const verdict = document.createElement("div"); verdict.className = "testing-x-review-verdict";
+    verdict.textContent = "ENGINEERING REPLAY · NOT HUMAN-APPROVED";
+    body.appendChild(verdict);
+  }
   if (def.kind === "chart") bFull.classList.add("chart-full");
   else acts.appendChild(bFull);
   if (def.kind !== "chart") head.appendChild(acts);
@@ -1691,9 +1700,9 @@ async function build() {
       kind: "video", src: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&cols=2&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&limit=200&cols=2" },
     { row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",
       kind: "video", src: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&cols=2&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&limit=200&cols=2" },
-    { row: 1, key: "x", short: TEST_X_LIVE ? "X LIVE TEST" : "X REJECTED",
-      title: TEST_X_LIVE ? "X · LIVE TEST · DISCONNECTED" : "X · REPLAY REJECTED · ZERO APPROVED",
-      tag: TEST_X_LIVE ? "TEST BRIDGE NOT INSTALLED" : "NOT EVIDENCE · AWAIT TEST BRIDGE",
+    { row: 1, key: "x", short: TEST_X_LIVE ? "X LIVE TEST" : "X ENGINEERING REPLAY",
+      title: TEST_X_LIVE ? "X · LIVE TEST · DISCONNECTED" : "X · ENGINEERING REPLAY · NOT HUMAN-APPROVED",
+      tag: TEST_X_LIVE ? "TEST BRIDGE NOT INSTALLED" : "ZERO APPROVED · AWAIT TEST BRIDGE",
       kind: "x", src: IPAD_COMPANION
         ? STATION_X_SHELL + "?shell=v1&remote=1&pair=" + encodeURIComponent(IPAD_PAIR) + "&code=" + encodeURIComponent(IPAD_CODE) + "&view=" + encodeURIComponent(VIEW) + STATION_X_MODE_QUERY
         : STATION_X_SHELL + "?shell=v1&view=" + encodeURIComponent(VIEW) + STATION_X_MODE_QUERY,

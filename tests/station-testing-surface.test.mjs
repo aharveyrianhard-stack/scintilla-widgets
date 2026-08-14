@@ -49,9 +49,9 @@ test("testing twin preserves component separation and uses only the isolated X c
     "stable host retains the exact admitted X endpoint");
   assert.match(deck, /const STATION_X_SHELL = window\.ScintillaTestingSurface\?\.active \? "\/pane-x\/" : STATION_SHELL\.x/,
     "the testing pane uses a directory route so its five local relative assets stay pane-scoped");
-  assert.match(deck, /id="testingXReplay" href="\/deck\/" aria-current="page">REPLAY · REJECTED/);
+  assert.match(deck, /id="testingXReplay" href="\/deck\/" aria-current="page">ENGINEERING REPLAY/);
   assert.match(deck, /id="testingXLive" href="\/station-live-test\/">LIVE TEST/);
-  assert.match(deck, /id="testingXState" class="testing-disconnected">REPLAY · REJECTED · ZERO APPROVED/);
+  assert.match(deck, /id="testingXState" class="testing-disconnected">ENGINEERING REPLAY · NOT HUMAN-APPROVED/);
   assert.match(deck, /id="testingIpadLink" href="\/station-ipad\/">replay iPad/);
 });
 
@@ -74,9 +74,12 @@ test("LIVE TEST is additive while the rejected replay remains the default byte-u
   assert.match(deck, /const TEST_X_LIVE = TEST_X_MODE === "live-test"/);
   assert.match(deck, /el\(TEST_X_LIVE \? "testingXLive" : "testingXReplay"\)\.setAttribute\("aria-current", "page"\)/);
   assert.match(deck, /el\("testingXState"\)\.hidden = false/);
-  assert.match(deck, /\? "LIVE TEST · DISCONNECTED"\s*: "REPLAY · REJECTED · ZERO APPROVED"/);
-  assert.match(deck, /"X · REPLAY REJECTED · ZERO APPROVED"/);
-  assert.match(deck, /"NOT EVIDENCE · AWAIT TEST BRIDGE"/);
+  assert.match(deck, /\? "LIVE TEST · DISCONNECTED"\s*: "ENGINEERING REPLAY · NOT HUMAN-APPROVED"/);
+  assert.match(deck, /"X · ENGINEERING REPLAY · NOT HUMAN-APPROVED"/);
+  assert.match(deck, /"ZERO APPROVED · AWAIT TEST BRIDGE"/);
+  assert.match(deck, /verdict\.textContent = "ENGINEERING REPLAY · NOT HUMAN-APPROVED"/);
+  assert.match(deck, /\.testing-x-review-verdict\{ position:absolute; z-index:20;[\s\S]*?bottom:8px/,
+    "the testing shell covers the fixture's engineering PASS token with the human verdict");
   assert.match(deck, /const STATION_X_MODE_QUERY = [^;]+\? "&mode=live-test&x-test=1" : ""/);
   assert.match(deck, /X · LIVE TEST · DISCONNECTED/);
   assert.match(deck, /TEST BRIDGE NOT INSTALLED/);
