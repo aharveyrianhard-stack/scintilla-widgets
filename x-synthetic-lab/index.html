@@ -45,7 +45,7 @@
     }
 
     main {
-      width: min(1120px, calc(100% - 28px));
+      width: min(1320px, calc(100% - 28px));
       margin: 24px auto 48px;
     }
 
@@ -115,7 +115,7 @@
       line-height: 1.4;
     }
     .compare-note b { color: var(--safe); }
-    .compare-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .compare-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .compare-pane { min-width: 0; }
     .compare-pane + .compare-pane { border-left: 1px solid var(--line); }
     .feed-head, .controls { padding: 14px 16px; border-bottom: 1px solid var(--line); }
@@ -182,6 +182,9 @@
       cursor: pointer;
     }
     .cadence-scale { display: flex; justify-content: space-between; color: #57472f; font-size: 8px; }
+    .cadence-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin: -6px 0 14px; }
+    .cadence-presets button { margin: 0; padding: 8px 6px; color: var(--muted); font-size: 9px; }
+    .cadence-presets button.active { border-color: var(--safe); color: var(--safe); }
     .telemetry {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -202,16 +205,20 @@
     .status b { color: var(--safe); }
     .contract { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); color: #7e6744; font-size: 10px; line-height: 1.6; }
 
-    @media (max-width: 760px) {
-      .intro, .inspection-guide, .shell { grid-template-columns: 1fr; }
-      .mode { justify-self: start; }
+    @media (max-width: 1050px) {
+      .shell { grid-template-columns: 1fr; }
       .feed-wrap { border-right: 0; border-bottom: 1px solid var(--line); }
+    }
+
+    @media (max-width: 760px) {
+      .intro, .inspection-guide { grid-template-columns: 1fr; }
+      .mode { justify-self: start; }
       .compare-note { display: block; }
       .compare-note span { display: block; margin-top: 4px; }
       .viewport { height: 460px; }
     }
 
-    @media (max-width: 560px) {
+    @media (max-width: 700px) {
       .compare-grid { grid-template-columns: 1fr; }
       .compare-pane + .compare-pane { border-left: 0; border-top: 1px solid var(--line); }
       .viewport { height: 330px; }
@@ -237,20 +244,21 @@
       <div class="inspect-copy">
         <h2 id="inspectTitle">How to inspect with your eyes</h2>
         <ol>
-          <li>Choose a stepped cadence. Start with <b>80 ms</b>, then repeat at <b>280 ms</b> or higher.</li>
-          <li>Fix your gaze on the same avatar or card edge in both panes. The left side should glide; the right side will hold, then jump.</li>
-          <li>Watch MOTION GAP while the run advances. Smaller gaps mean the stepped view stays closer to the continuous reference.</li>
-          <li>Let the fixed run finish. Judge the result from MAX STEP, MAX GAP, and the final checklist—not from one convenient moment.</li>
+          <li>Start with the proven <b>80 ms</b> preset; use <b>800 ms</b> to make the failure mode obvious.</li>
+          <li>Fix your gaze on the same avatar or card edge across all three panes: reference glides, raw holds and jumps, interpolated glides one delivery behind.</li>
+          <li>Watch RAW GAP and INTERP GAP together. Interpolation should remove the hold/jump without inventing a different delivered endpoint.</li>
+          <li>Let the fixed run finish. Judge the result from maximum gaps, endpoint error, and the final checklist—not from one convenient moment.</li>
         </ol>
-        <p class="lab-target"><strong>LAB VISUAL TARGET: ≤ 6 PX</strong> for both maximum step and maximum gap. This is a synthetic viewing heuristic, not production acceptance.</p>
+        <p class="lab-target"><strong>LAB VISUAL TARGET: ≤ 6 PX</strong> for raw and interpolated maximum motion gap, plus ≤ 0.01 px endpoint error. This is a synthetic viewing heuristic, not production acceptance.</p>
       </div>
       <div class="visual-checklist" aria-label="60-second visual checklist">
         <div class="check-head"><h2>60-second visual checklist</h2><span class="run-clock" id="runClock">60.0 S READY</span></div>
         <div class="run-progress" aria-hidden="true"><span id="runProgress"></span></div>
         <div class="check-row"><span>CONTINUOUS REFERENCE MOVES</span><b class="check-badge wait" id="checkReference">WAIT</b></div>
-        <div class="check-row"><span>STEPPED DELIVERIES ARRIVE</span><b class="check-badge wait" id="checkDelivery">WAIT</b></div>
-        <div class="check-row"><span>MAX STEP ≤ 6 PX</span><b class="check-badge wait" id="checkStep">WAIT</b></div>
-        <div class="check-row"><span>MAX GAP ≤ 6 PX</span><b class="check-badge wait" id="checkGap">WAIT</b></div>
+        <div class="check-row"><span>RAW DELIVERIES ARRIVE</span><b class="check-badge wait" id="checkDelivery">WAIT</b></div>
+        <div class="check-row"><span>RAW MAX GAP ≤ 6 PX</span><b class="check-badge wait" id="checkRawGap">WAIT</b></div>
+        <div class="check-row"><span>INTERP MAX GAP ≤ 6 PX</span><b class="check-badge wait" id="checkInterpolatedGap">WAIT</b></div>
+        <div class="check-row"><span>ENDPOINT ERROR ≤ 0.01 PX</span><b class="check-badge wait" id="checkEndpoint">WAIT</b></div>
         <div class="check-row"><span>FULL 60 SECONDS</span><b class="check-badge wait" id="checkDuration">WAIT</b></div>
         <div class="final-verdict"><span>LAB VERDICT</span><b class="check-badge wait" id="finalVerdict">WAITING</b></div>
       </div>
@@ -260,7 +268,7 @@
       <div class="feed-wrap">
         <div class="compare-note">
           <b>SAME LOCAL FIXTURE · SAME AVERAGE SPEED</b>
-          <span>left flows every frame · right holds between deliveries</span>
+          <span>reference flows · raw holds/jumps · interpolated renders every frame</span>
         </div>
         <div class="compare-grid">
           <section class="compare-pane" aria-label="Continuous frame progression">
@@ -269,10 +277,16 @@
               <div class="track" id="continuousTrack"></div>
             </div>
           </section>
-          <section class="compare-pane" aria-label="Stepped delivery progression">
-            <div class="feed-head"><strong>STEPPED DELIVERY</strong><span id="steppedState">delivery 000 · paused</span></div>
-            <div class="viewport" id="steppedViewport" tabindex="0" aria-label="Stepped synthetic timeline">
-              <div class="track" id="steppedTrack"></div>
+          <section class="compare-pane" aria-label="Raw stepped delivery progression">
+            <div class="feed-head"><strong>RAW STEPPED</strong><span id="rawState">delivery 000 · paused</span></div>
+            <div class="viewport" id="rawViewport" tabindex="0" aria-label="Raw stepped synthetic timeline">
+              <div class="track" id="rawTrack"></div>
+            </div>
+          </section>
+          <section class="compare-pane" aria-label="Interpolated stepped delivery progression">
+            <div class="feed-head"><strong>INTERPOLATED</strong><span id="interpolatedState">endpoint 000 · paused</span></div>
+            <div class="viewport" id="interpolatedViewport" tabindex="0" aria-label="Interpolated synthetic timeline">
+              <div class="track" id="interpolatedTrack"></div>
             </div>
           </section>
         </div>
@@ -282,10 +296,14 @@
         <div class="controls">Replay controls</div>
         <div class="control-body">
           <label class="cadence-control" for="cadence">
-            STEPPED CADENCE <span id="cadenceValue">280 MS</span>
-            <input id="cadence" type="range" min="80" max="1000" step="20" value="280">
+            DELIVERY CADENCE <span id="cadenceValue">80 MS</span>
+            <input id="cadence" type="range" min="80" max="1000" step="20" value="80">
             <span class="cadence-scale"><i>80 MS</i><i>1000 MS</i></span>
           </label>
+          <div class="cadence-presets" aria-label="Cadence presets">
+            <button class="active" id="cadence80" type="button" data-cadence="80">PROVEN · 80 MS</button>
+            <button id="cadence800" type="button" data-cadence="800">COARSE FAIL · 800 MS</button>
+          </div>
           <button class="primary" id="fixedRun" type="button">Start fixed 60-second run</button>
           <button id="play" type="button">Run comparison</button>
           <button id="pause" type="button">Pause comparison</button>
@@ -293,17 +311,19 @@
           <button type="button" disabled>Live source unavailable by design</button>
           <dl class="telemetry" aria-label="Motion readout" aria-live="off">
             <dt>STATE</dt><dd id="telemetryState">PAUSED</dd>
-            <dt>CONTINUOUS</dt><dd id="telemetryContinuous">0.0 PX</dd>
-            <dt>STEPPED</dt><dd id="telemetryStepped">0.0 PX</dd>
+            <dt>REFERENCE</dt><dd id="telemetryContinuous">0.0 PX</dd>
+            <dt>RAW STEPPED</dt><dd id="telemetryRaw">0.0 PX</dd>
+            <dt>INTERPOLATED</dt><dd id="telemetryInterpolated">0.0 PX</dd>
             <dt>FRAME COUNT</dt><dd id="telemetryFrame">001</dd>
             <dt>DELIVERIES</dt><dd id="telemetryDeliveries">000</dd>
-            <dt>STEP SIZE</dt><dd id="telemetryStepSize">11.8 PX</dd>
-            <dt>NEXT STEP</dt><dd id="telemetryNextStep">280 MS</dd>
-            <dt>MOTION GAP</dt><dd id="telemetryGap">0.0 PX</dd>
-            <dt>MAX STEP</dt><dd id="telemetryMaxStep">0.0 PX</dd>
-            <dt>MAX GAP</dt><dd id="telemetryMaxGap">0.0 PX</dd>
+            <dt>STEP SIZE</dt><dd id="telemetryStepSize">3.4 PX</dd>
+            <dt>NEXT STEP</dt><dd id="telemetryNextStep">80 MS</dd>
+            <dt>RAW GAP / MAX</dt><dd id="telemetryRawGap">0.0 / 0.0 PX</dd>
+            <dt>INTERP GAP / MAX</dt><dd id="telemetryInterpolatedGap">0.0 / 0.0 PX</dd>
+            <dt>ENDPOINT ERROR</dt><dd id="telemetryEndpointError">0.000 PX</dd>
+            <dt>ENDPOINT CHECKS</dt><dd id="telemetryEndpointChecks">000</dd>
             <dt>RUN TIME</dt><dd id="telemetryRunTime">0.0 S</dd>
-            <dt>LOOPS C / S</dt><dd id="telemetryLoops">0 / 0</dd>
+            <dt>LOOPS R / W / I</dt><dd id="telemetryLoops">0 / 0 / 0</dd>
             <dt>FIXTURE</dt><dd id="telemetryFixture">48 LOCAL</dd>
           </dl>
           <p class="status">Source: <b>LOCAL FIXTURE</b><br>Authority: <b>NONE</b><br>Pairing: <b>DISABLED</b></p>
@@ -326,38 +346,45 @@
     }));
 
     const continuousViewport = document.querySelector("#continuousViewport");
-    const steppedViewport = document.querySelector("#steppedViewport");
+    const rawViewport = document.querySelector("#rawViewport");
+    const interpolatedViewport = document.querySelector("#interpolatedViewport");
     const continuousTrack = document.querySelector("#continuousTrack");
-    const steppedTrack = document.querySelector("#steppedTrack");
+    const rawTrack = document.querySelector("#rawTrack");
+    const interpolatedTrack = document.querySelector("#interpolatedTrack");
     const continuousState = document.querySelector("#continuousState");
-    const steppedState = document.querySelector("#steppedState");
+    const rawState = document.querySelector("#rawState");
+    const interpolatedState = document.querySelector("#interpolatedState");
     const cadenceControl = document.querySelector("#cadence");
     const cadenceValue = document.querySelector("#cadenceValue");
     const fixedRunButton = document.querySelector("#fixedRun");
     const playButton = document.querySelector("#play");
     const pauseButton = document.querySelector("#pause");
     const resetButton = document.querySelector("#reset");
+    const cadencePresetButtons = Array.from(document.querySelectorAll("[data-cadence]"));
     const runClock = document.querySelector("#runClock");
     const runProgress = document.querySelector("#runProgress");
     const checklist = {
       reference: document.querySelector("#checkReference"),
       delivery: document.querySelector("#checkDelivery"),
-      step: document.querySelector("#checkStep"),
-      gap: document.querySelector("#checkGap"),
+      rawGap: document.querySelector("#checkRawGap"),
+      interpolatedGap: document.querySelector("#checkInterpolatedGap"),
+      endpoint: document.querySelector("#checkEndpoint"),
       duration: document.querySelector("#checkDuration"),
       verdict: document.querySelector("#finalVerdict")
     };
     const telemetry = {
       state: document.querySelector("#telemetryState"),
       continuous: document.querySelector("#telemetryContinuous"),
-      stepped: document.querySelector("#telemetryStepped"),
+      raw: document.querySelector("#telemetryRaw"),
+      interpolated: document.querySelector("#telemetryInterpolated"),
       frame: document.querySelector("#telemetryFrame"),
       deliveries: document.querySelector("#telemetryDeliveries"),
       stepSize: document.querySelector("#telemetryStepSize"),
       nextStep: document.querySelector("#telemetryNextStep"),
-      gap: document.querySelector("#telemetryGap"),
-      maxStep: document.querySelector("#telemetryMaxStep"),
-      maxGap: document.querySelector("#telemetryMaxGap"),
+      rawGap: document.querySelector("#telemetryRawGap"),
+      interpolatedGap: document.querySelector("#telemetryInterpolatedGap"),
+      endpointError: document.querySelector("#telemetryEndpointError"),
+      endpointChecks: document.querySelector("#telemetryEndpointChecks"),
       runTime: document.querySelector("#telemetryRunTime"),
       loops: document.querySelector("#telemetryLoops"),
       fixture: document.querySelector("#telemetryFixture")
@@ -365,18 +392,25 @@
     const speedPxPerSecond = 42;
     const fixedRunDurationMs = 60000;
     const labSmoothnessLimitPx = 6;
+    const endpointTolerancePx = 0.01;
     let continuousFrames = 1;
-    let steppedDeliveries = 0;
+    let rawDeliveries = 0;
     let continuousPosition = 0;
-    let steppedPosition = 0;
+    let rawPosition = 0;
+    let interpolatedPosition = 0;
+    let interpolationStart = 0;
+    let interpolationTarget = 0;
     let continuousLoops = 0;
-    let steppedLoops = 0;
+    let rawLoops = 0;
+    let interpolatedLoops = 0;
     let stepAccumulator = 0;
     let cadenceMs = Number(cadenceControl.value);
     let running = false;
     let lastAnimationTime = 0;
-    let maximumStepObserved = 0;
-    let maximumGapObserved = 0;
+    let maximumRawGapObserved = 0;
+    let maximumInterpolatedGapObserved = 0;
+    let maximumEndpointError = 0;
+    let endpointChecks = 0;
     let fixedRunActive = false;
     let fixedRunCompleted = false;
     let fixedRunAborted = false;
@@ -393,7 +427,8 @@
         </div>
       </article>`).join("");
     continuousTrack.innerHTML = fixtureMarkup;
-    steppedTrack.innerHTML = fixtureMarkup;
+    rawTrack.innerHTML = fixtureMarkup;
+    interpolatedTrack.innerHTML = fixtureMarkup;
 
     function setCheck(element, state, text) {
       element.className = `check-badge ${state}`;
@@ -402,22 +437,29 @@
 
     function renderChecklist() {
       setCheck(checklist.reference, continuousFrames > 1 ? "pass" : "wait", continuousFrames > 1 ? "PASS" : "WAIT");
-      setCheck(checklist.delivery, steppedDeliveries > 0 ? "pass" : "wait", steppedDeliveries > 0 ? "PASS" : "WAIT");
+      setCheck(checklist.delivery, rawDeliveries > 0 ? "pass" : "wait", rawDeliveries > 0 ? "PASS" : "WAIT");
 
-      if (steppedDeliveries === 0) setCheck(checklist.step, "wait", "WAIT");
-      else setCheck(checklist.step, maximumStepObserved <= labSmoothnessLimitPx ? "pass" : "fail", maximumStepObserved <= labSmoothnessLimitPx ? "PASS" : "FAIL");
+      if (maximumRawGapObserved > labSmoothnessLimitPx) setCheck(checklist.rawGap, "fail", "FAIL");
+      else if (fixedRunCompleted) setCheck(checklist.rawGap, "pass", "PASS");
+      else setCheck(checklist.rawGap, fixedRunActive ? "run" : "wait", fixedRunActive ? "WATCH" : "WAIT");
 
-      if (maximumGapObserved > labSmoothnessLimitPx) setCheck(checklist.gap, "fail", "FAIL");
-      else if (fixedRunCompleted) setCheck(checklist.gap, "pass", "PASS");
-      else setCheck(checklist.gap, fixedRunActive ? "run" : "wait", fixedRunActive ? "WATCH" : "WAIT");
+      if (maximumInterpolatedGapObserved > labSmoothnessLimitPx) setCheck(checklist.interpolatedGap, "fail", "FAIL");
+      else if (fixedRunCompleted) setCheck(checklist.interpolatedGap, "pass", "PASS");
+      else setCheck(checklist.interpolatedGap, fixedRunActive ? "run" : "wait", fixedRunActive ? "WATCH" : "WAIT");
+
+      if (endpointChecks === 0) setCheck(checklist.endpoint, "wait", "WAIT");
+      else setCheck(checklist.endpoint, maximumEndpointError <= endpointTolerancePx ? "pass" : "fail", maximumEndpointError <= endpointTolerancePx ? "PASS" : "FAIL");
 
       if (fixedRunCompleted) setCheck(checklist.duration, "pass", "PASS");
       else if (fixedRunAborted) setCheck(checklist.duration, "fail", "FAIL");
       else setCheck(checklist.duration, fixedRunActive ? "run" : "wait", fixedRunActive ? "RUN" : "WAIT");
 
-      const thresholdsPass = steppedDeliveries > 0 && maximumStepObserved <= labSmoothnessLimitPx && maximumGapObserved <= labSmoothnessLimitPx;
+      const thresholdsPass = rawDeliveries > 0 &&
+        maximumRawGapObserved <= labSmoothnessLimitPx &&
+        maximumInterpolatedGapObserved <= labSmoothnessLimitPx &&
+        endpointChecks > 0 && maximumEndpointError <= endpointTolerancePx;
       if (fixedRunCompleted) setCheck(checklist.verdict, thresholdsPass ? "pass" : "fail", thresholdsPass ? "PASS" : "FAIL");
-      else if ((steppedDeliveries > 0 && maximumStepObserved > labSmoothnessLimitPx) || maximumGapObserved > labSmoothnessLimitPx) setCheck(checklist.verdict, "fail", "FAIL");
+      else if (maximumRawGapObserved > labSmoothnessLimitPx || maximumInterpolatedGapObserved > labSmoothnessLimitPx || maximumEndpointError > endpointTolerancePx) setCheck(checklist.verdict, "fail", "FAIL");
       else setCheck(checklist.verdict, fixedRunActive ? "run" : "wait", fixedRunActive ? "RUNNING" : "WAITING");
     }
 
@@ -433,22 +475,27 @@
     function renderState(label) {
       const stepSize = speedPxPerSecond * cadenceMs / 1000;
       const nextStep = running ? Math.max(0, cadenceMs - stepAccumulator) : cadenceMs;
-      const gap = Math.abs(continuousPosition - steppedPosition);
+      const rawGap = Math.abs(continuousPosition - rawPosition);
+      const interpolatedGap = Math.abs(continuousPosition - interpolatedPosition);
       continuousState.textContent = `frame ${String(continuousFrames).padStart(3, "0")} · ${label}`;
-      steppedState.textContent = `delivery ${String(steppedDeliveries).padStart(3, "0")} · ${cadenceMs} ms`;
+      rawState.textContent = `delivery ${String(rawDeliveries).padStart(3, "0")} · ${cadenceMs} ms`;
+      interpolatedState.textContent = `endpoint ${String(endpointChecks).padStart(3, "0")} · ${label}`;
       cadenceValue.textContent = `${cadenceMs} MS`;
+      cadencePresetButtons.forEach(button => button.classList.toggle("active", Number(button.dataset.cadence) === cadenceMs));
       telemetry.state.textContent = label.toUpperCase();
       telemetry.continuous.textContent = `${continuousPosition.toFixed(1)} PX`;
-      telemetry.stepped.textContent = `${steppedPosition.toFixed(1)} PX`;
+      telemetry.raw.textContent = `${rawPosition.toFixed(1)} PX`;
+      telemetry.interpolated.textContent = `${interpolatedPosition.toFixed(1)} PX`;
       telemetry.frame.textContent = String(continuousFrames).padStart(3, "0");
-      telemetry.deliveries.textContent = String(steppedDeliveries).padStart(3, "0");
+      telemetry.deliveries.textContent = String(rawDeliveries).padStart(3, "0");
       telemetry.stepSize.textContent = `${stepSize.toFixed(1)} PX`;
       telemetry.nextStep.textContent = `${Math.round(nextStep)} MS`;
-      telemetry.gap.textContent = `${gap.toFixed(1)} PX`;
-      telemetry.maxStep.textContent = `${maximumStepObserved.toFixed(1)} PX`;
-      telemetry.maxGap.textContent = `${maximumGapObserved.toFixed(1)} PX`;
+      telemetry.rawGap.textContent = `${rawGap.toFixed(1)} / ${maximumRawGapObserved.toFixed(1)} PX`;
+      telemetry.interpolatedGap.textContent = `${interpolatedGap.toFixed(1)} / ${maximumInterpolatedGapObserved.toFixed(1)} PX`;
+      telemetry.endpointError.textContent = `${maximumEndpointError.toFixed(3)} PX`;
+      telemetry.endpointChecks.textContent = String(endpointChecks).padStart(3, "0");
       telemetry.runTime.textContent = `${(fixedRunElapsedMs / 1000).toFixed(1)} S`;
-      telemetry.loops.textContent = `${continuousLoops} / ${steppedLoops}`;
+      telemetry.loops.textContent = `${continuousLoops} / ${rawLoops} / ${interpolatedLoops}`;
       telemetry.fixture.textContent = `${fixture.length} LOCAL`;
       renderRunClock();
       renderChecklist();
@@ -456,6 +503,7 @@
 
     function setFixedRunControls(active) {
       cadenceControl.disabled = active;
+      cadencePresetButtons.forEach(button => { button.disabled = active; });
       fixedRunButton.disabled = active;
       playButton.disabled = active;
       resetButton.disabled = active;
@@ -465,22 +513,29 @@
     function resetComparison() {
       running = false;
       continuousFrames = 1;
-      steppedDeliveries = 0;
+      rawDeliveries = 0;
       continuousPosition = 0;
-      steppedPosition = 0;
+      rawPosition = 0;
+      interpolatedPosition = 0;
+      interpolationStart = 0;
+      interpolationTarget = 0;
       continuousLoops = 0;
-      steppedLoops = 0;
+      rawLoops = 0;
+      interpolatedLoops = 0;
       stepAccumulator = 0;
       lastAnimationTime = 0;
-      maximumStepObserved = 0;
-      maximumGapObserved = 0;
+      maximumRawGapObserved = 0;
+      maximumInterpolatedGapObserved = 0;
+      maximumEndpointError = 0;
+      endpointChecks = 0;
       fixedRunActive = false;
       fixedRunCompleted = false;
       fixedRunAborted = false;
       fixedRunStartedAt = 0;
       fixedRunElapsedMs = 0;
       continuousViewport.scrollTop = 0;
-      steppedViewport.scrollTop = 0;
+      rawViewport.scrollTop = 0;
+      interpolatedViewport.scrollTop = 0;
       setFixedRunControls(false);
       renderState("paused");
     }
@@ -491,7 +546,8 @@
       if (maxScroll && next >= maxScroll) {
         next %= maxScroll;
         if (channel === "continuous") continuousLoops += 1;
-        else steppedLoops += 1;
+        else if (channel === "raw") rawLoops += 1;
+        else interpolatedLoops += 1;
       }
       viewport.scrollTop = next;
       return next;
@@ -515,17 +571,48 @@
 
         while (stepAccumulator >= cadenceMs) {
           const deliveredStep = speedPxPerSecond * cadenceMs / 1000;
-          steppedPosition = advance(
-            steppedViewport,
-            steppedPosition,
-            deliveredStep,
-            "stepped"
+          interpolatedPosition = interpolationTarget;
+          interpolatedViewport.scrollTop = interpolatedPosition;
+          endpointChecks += 1;
+          maximumEndpointError = Math.max(
+            maximumEndpointError,
+            Math.abs(interpolatedPosition - interpolationTarget)
           );
-          maximumStepObserved = Math.max(maximumStepObserved, deliveredStep);
+
+          rawPosition = advance(
+            rawViewport,
+            rawPosition,
+            deliveredStep,
+            "raw"
+          );
+          interpolationStart = interpolationTarget;
+          interpolationTarget = rawPosition;
+          maximumEndpointError = Math.max(
+            maximumEndpointError,
+            Math.abs(interpolationTarget - rawPosition)
+          );
           stepAccumulator -= cadenceMs;
-          steppedDeliveries += 1;
+          rawDeliveries += 1;
         }
-        maximumGapObserved = Math.max(maximumGapObserved, Math.abs(continuousPosition - steppedPosition));
+
+        const interpolationProgress = cadenceMs ? stepAccumulator / cadenceMs : 0;
+        const nextInterpolatedPosition = interpolationStart +
+          (interpolationTarget - interpolationStart) * interpolationProgress;
+        interpolatedPosition = advance(
+          interpolatedViewport,
+          interpolatedPosition,
+          nextInterpolatedPosition - interpolatedPosition,
+          "interpolated"
+        );
+
+        maximumRawGapObserved = Math.max(
+          maximumRawGapObserved,
+          Math.abs(continuousPosition - rawPosition)
+        );
+        maximumInterpolatedGapObserved = Math.max(
+          maximumInterpolatedGapObserved,
+          Math.abs(continuousPosition - interpolatedPosition)
+        );
       }
 
       if (fixedRunActive) {
@@ -578,6 +665,13 @@
       cadenceMs = Number(cadenceControl.value);
       stepAccumulator = Math.min(stepAccumulator, cadenceMs);
       renderState(running ? "replaying" : "paused");
+    });
+
+    cadencePresetButtons.forEach(button => {
+      button.addEventListener("click", () => {
+        cadenceControl.value = button.dataset.cadence;
+        cadenceControl.dispatchEvent(new Event("input"));
+      });
     });
 
     resetComparison();

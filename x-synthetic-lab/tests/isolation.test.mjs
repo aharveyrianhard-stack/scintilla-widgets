@@ -13,33 +13,46 @@ test("lab identity is unambiguous", () => {
   assert.match(html, /LOCAL FIXTURE/);
 });
 
-test("lab exposes a continuous-versus-stepped smoothness comparison", () => {
+test("lab exposes continuous, raw stepped, and interpolated fixture columns", () => {
   assert.match(html, /aria-label="Continuous frame progression"/);
-  assert.match(html, /aria-label="Stepped delivery progression"/);
+  assert.match(html, /aria-label="Raw stepped delivery progression"/);
+  assert.match(html, /aria-label="Interpolated stepped delivery progression"/);
   assert.match(html, /id="continuousViewport"/);
-  assert.match(html, /id="steppedViewport"/);
+  assert.match(html, /id="rawViewport"/);
+  assert.match(html, /id="interpolatedViewport"/);
   assert.match(html, /SAME LOCAL FIXTURE · SAME AVERAGE SPEED/);
-  assert.match(html, /left flows every frame · right holds between deliveries/);
+  assert.match(html, /reference flows · raw holds\/jumps · interpolated renders every frame/);
+});
+
+test("interpolation targets exact raw delivered endpoints", () => {
+  assert.match(html, /interpolationTarget = rawPosition/);
+  assert.match(html, /Math\.abs\(interpolationTarget - rawPosition\)/);
+  assert.match(html, /Math\.abs\(interpolatedPosition - interpolationTarget\)/);
+  assert.match(html, /requestAnimationFrame\(tick\)/);
 });
 
 test("lab exposes cadence control and live motion telemetry on screen", () => {
   for (const id of [
     "telemetryState",
     "telemetryContinuous",
-    "telemetryStepped",
+    "telemetryRaw",
+    "telemetryInterpolated",
     "telemetryFrame",
     "telemetryDeliveries",
     "telemetryStepSize",
     "telemetryNextStep",
-    "telemetryGap",
-    "telemetryMaxStep",
-    "telemetryMaxGap",
+    "telemetryRawGap",
+    "telemetryInterpolatedGap",
+    "telemetryEndpointError",
+    "telemetryEndpointChecks",
     "telemetryRunTime",
     "telemetryLoops",
     "telemetryFixture"
   ]) assert.match(html, new RegExp(`id=["']${id}["']`));
 
-  assert.match(html, /id="cadence" type="range" min="80" max="1000" step="20" value="280"/);
+  assert.match(html, /id="cadence" type="range" min="80" max="1000" step="20" value="80"/);
+  assert.match(html, /id="cadence80"[^>]*data-cadence="80"/);
+  assert.match(html, /id="cadence800"[^>]*data-cadence="800"/);
   assert.match(html, /aria-label="Motion readout"/);
   assert.match(html, /aria-live="off"/);
   assert.match(html, /renderState\("replaying"\)/);
@@ -61,15 +74,17 @@ test("lab provides a fixed 60-second run with a pass-fail checklist", () => {
   for (const id of [
     "checkReference",
     "checkDelivery",
-    "checkStep",
-    "checkGap",
+    "checkRawGap",
+    "checkInterpolatedGap",
+    "checkEndpoint",
     "checkDuration",
     "finalVerdict",
     "runClock",
     "runProgress"
   ]) assert.match(html, new RegExp(`id=["']${id}["']`));
-  assert.match(html, /maximumStepObserved/);
-  assert.match(html, /maximumGapObserved/);
+  assert.match(html, /maximumRawGapObserved/);
+  assert.match(html, /maximumInterpolatedGapObserved/);
+  assert.match(html, /maximumEndpointError/);
 });
 
 test("deployable shell contains no live-source, pairing, or browser-control capability", () => {
