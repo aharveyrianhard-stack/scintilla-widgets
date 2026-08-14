@@ -18,15 +18,19 @@ test("Station charts keep a cache-first, bounded, deduplicated recovery path", (
   assert.match(chart, /const chartInflight = new Map\(\);/);
   assert.match(chart, /if \(chartInflight\.has\(inflightKey\)\) return chartInflight\.get\(inflightKey\);/);
   assert.match(chart, /chartInflight\.delete\(inflightKey\)/);
+  assert.match(chart, /const rows = await pg\("ohlcv_history\?ticker=eq\."[\s\S]*?\+ limit, 2\);/,
+    "the first transient history failure is retried inside the same chart load");
   assert.match(chart, /msg\.textContent = "data delayed · retrying"/);
-  assert.match(chart, /retryChartLoad\(host, req\)/);
+  assert.match(chart, /retryChartLoad\(host, req, generation\)/);
   assert.match(chart, /A stale but usable chart is better than a black pane/);
 });
 
 test("multiple uncached panes retain an explicit delayed state throughout retry", () => {
   const match = chart.match(/function showChartDelayed\(host, ticker\) \{[\s\S]*?\n\}/);
   assert.ok(match, "delayed-state renderer is present");
-  const showChartDelayed = vm.runInNewContext(`(${match[0]})`);
+  const delayedContext = { reportChartDataState:() => {} };
+  vm.runInNewContext(`${match[0]}; globalThis.showChartDelayed = showChartDelayed;`, delayedContext);
+  const showChartDelayed = delayedContext.showChartDelayed;
   const makeHost = () => {
     const message = { hidden:true, textContent:"" };
     return { host:{ dataset:{}, _series:null, querySelector:() => message }, message };

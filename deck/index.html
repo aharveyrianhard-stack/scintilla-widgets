@@ -189,6 +189,10 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
 .body{ flex:1 1 0; position:relative; min-height:0; min-width:0; }
 .body iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block;
   background:var(--bg); }
+/* The chart canvas already owns pan/pinch inside its frame. On iPad the
+   embedding frame must make the same claim at the parent hit-test boundary,
+   otherwise Safari can hand that gesture to page movement first. */
+body[data-view="ipad"] .chart-pane > .body > iframe{ touch-action:none; overscroll-behavior:contain; }
 .card{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
   justify-content:center; gap:8px; cursor:pointer; text-align:center; padding:16px; }
 .card:hover{ background:rgba(0,212,255,.05); }
@@ -1029,6 +1033,17 @@ function editableState(scene) {
   if (scene === "custom") return preservedCustomState({ charts, chartCount:count, range });
   return { charts, chartCount:count, range };
 }
+function completeNamedPresetState(state, preset) {
+  const count = Number(state?.chartCount);
+  const presetCount = Number(preset?.chartCount);
+  const presetCharts = (preset?.tickers || preset?.charts || []).map(CLEAN);
+  if (!Number.isFinite(count) || count !== presetCount ||
+      presetCharts.slice(0, count).some((ticker) => !ticker)) return state;
+  const charts = Array.from({ length:8 }, (_, i) => CLEAN((state?.charts || [])[i] || ""));
+  if (charts.slice(0, count).every(Boolean)) return state;
+  for (let i = 0; i < count; i++) if (!charts[i]) charts[i] = presetCharts[i];
+  return Object.assign({}, state, { charts });
+}
 function rememberEditableState() {
   const localWorkspace = SCENE === "live" || SCENE === "custom";
   const prefix = localWorkspace ? "station." + SCENE : "station.flex." + SCENE;
@@ -1095,7 +1110,13 @@ function fixedSceneState(scene, requestedCount) {
   return preset ? Object.assign({}, preset, SceneModel.basketWindow(preset.tickers, BASKET_OFFSET, requestedCount || preset.chartCount), { range:preset.range }) : null;
 }
 async function primeSceneState() {
-  if (fixedSceneState(SCENE)) installSceneState(hasStoredScene(SCENE) ? editableState(SCENE) : fixedSceneState(SCENE));
+  const fixed = fixedSceneState(SCENE);
+  if (fixed) {
+    const editable = hasStoredScene(SCENE) ? editableState(SCENE) : null;
+    const recovered = editable ? completeNamedPresetState(editable, fixed) : fixed;
+    installSceneState(recovered);
+    if (editable && recovered !== editable) rememberEditableState();
+  }
   else if (SCENE === "cohort") {
     try { await loadCohortFavorites(); installSceneState(hasStoredScene("cohort") ? editableState("cohort") : cohortState()); }
     catch (_) { COHORT_READY = false; installSceneState({ charts:[], chartCount:1, range:RANGE }); }
@@ -1182,10 +1203,11 @@ async function applyScene(next, options) {
   let state;
   if (fixedSceneState(requested)) {
     BASKET_OFFSET = Math.max(0, Number(options?.offset) || 0);
+    const fixed = fixedSceneState(requested);
     /* Reset Preset is the only action that discards a working scene. */
     const namedPage = Object.prototype.hasOwnProperty.call(options || {}, "offset");
     state = !options?.reset && !namedPage && hasStoredScene(requested)
-      ? editableState(requested) : fixedSceneState(requested);
+      ? completeNamedPresetState(editableState(requested), fixed) : fixed;
   }
   else if (requested === "cohort") {
     try {
