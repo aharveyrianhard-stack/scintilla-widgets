@@ -13,6 +13,22 @@ test("lab identity is unambiguous", () => {
   assert.match(html, /LOCAL FIXTURE/);
 });
 
+test("lab exposes live replay telemetry on screen", () => {
+  for (const id of [
+    "telemetryState",
+    "telemetryFrame",
+    "telemetryScroll",
+    "telemetryProgress",
+    "telemetryCadence",
+    "telemetryLoops",
+    "telemetryFixture"
+  ]) assert.match(html, new RegExp(`id=["']${id}["']`));
+
+  assert.match(html, /aria-label="Replay telemetry"/);
+  assert.match(html, /aria-live="off"/);
+  assert.match(html, /renderState\("replaying"\)/);
+});
+
 test("deployable shell contains no live-source, pairing, or browser-control capability", () => {
   const forbidden = [
     "getDisplayMedia",
