@@ -13,20 +13,34 @@ test("lab identity is unambiguous", () => {
   assert.match(html, /LOCAL FIXTURE/);
 });
 
-test("lab exposes live replay telemetry on screen", () => {
+test("lab exposes a continuous-versus-stepped smoothness comparison", () => {
+  assert.match(html, /aria-label="Continuous frame progression"/);
+  assert.match(html, /aria-label="Stepped delivery progression"/);
+  assert.match(html, /id="continuousViewport"/);
+  assert.match(html, /id="steppedViewport"/);
+  assert.match(html, /SAME LOCAL FIXTURE · SAME AVERAGE SPEED/);
+  assert.match(html, /left flows every frame · right holds between deliveries/);
+});
+
+test("lab exposes cadence control and live motion telemetry on screen", () => {
   for (const id of [
     "telemetryState",
+    "telemetryContinuous",
+    "telemetryStepped",
     "telemetryFrame",
-    "telemetryScroll",
-    "telemetryProgress",
-    "telemetryCadence",
+    "telemetryDeliveries",
+    "telemetryStepSize",
+    "telemetryNextStep",
+    "telemetryGap",
     "telemetryLoops",
     "telemetryFixture"
   ]) assert.match(html, new RegExp(`id=["']${id}["']`));
 
-  assert.match(html, /aria-label="Replay telemetry"/);
+  assert.match(html, /id="cadence" type="range" min="80" max="1000" step="20" value="280"/);
+  assert.match(html, /aria-label="Motion readout"/);
   assert.match(html, /aria-live="off"/);
   assert.match(html, /renderState\("replaying"\)/);
+  assert.match(html, /while \(stepAccumulator >= cadenceMs\)/);
 });
 
 test("deployable shell contains no live-source, pairing, or browser-control capability", () => {

@@ -78,35 +78,51 @@
     }
 
     .feed-wrap { min-width: 0; border-right: 1px solid var(--line); }
+    .compare-note {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--line);
+      color: #7e6744;
+      font-size: 10px;
+      line-height: 1.4;
+    }
+    .compare-note b { color: var(--safe); }
+    .compare-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .compare-pane { min-width: 0; }
+    .compare-pane + .compare-pane { border-left: 1px solid var(--line); }
     .feed-head, .controls { padding: 14px 16px; border-bottom: 1px solid var(--line); }
     .feed-head { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 11px; }
     .feed-head strong { color: var(--ink); }
-    .viewport { height: 590px; overflow: hidden; scroll-behavior: auto; }
-    .track { padding: 14px; }
+    .feed-head span { text-align: right; }
+    .viewport { height: 540px; overflow: hidden; scroll-behavior: auto; }
+    .track { padding: 10px; }
 
     article {
       display: grid;
-      grid-template-columns: 40px minmax(0, 1fr);
-      gap: 12px;
-      padding: 16px 8px;
+      grid-template-columns: 32px minmax(0, 1fr);
+      gap: 9px;
+      padding: 13px 6px;
       border-bottom: 1px solid #2f2415;
     }
 
     .avatar {
-      width: 40px;
-      height: 40px;
+      width: 32px;
+      height: 32px;
       display: grid;
       place-items: center;
       border: 1px solid var(--line);
       background: var(--panel-2);
       color: var(--lab);
+      font-size: 11px;
       font-weight: 800;
     }
 
-    .meta { display: flex; gap: 8px; color: var(--muted); font-size: 11px; }
+    .meta { display: flex; flex-wrap: wrap; gap: 5px; color: var(--muted); font-size: 9px; }
     .meta b { color: var(--ink); }
-    .copy { margin: 8px 0 10px; color: #d9b46f; line-height: 1.45; }
-    .stats { display: flex; gap: 22px; color: #775d34; font-size: 10px; }
+    .copy { margin: 6px 0 8px; color: #d9b46f; font-size: 11px; line-height: 1.45; }
+    .stats { display: flex; flex-wrap: wrap; gap: 12px; color: #775d34; font-size: 8px; }
 
     aside { background: #0f0c08; }
     .controls { color: var(--lab); font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
@@ -123,6 +139,22 @@
     }
     button:hover { border-color: var(--lab); }
     button:disabled { cursor: not-allowed; color: #6d604e; border-color: #2c271e; }
+    .cadence-control {
+      display: block;
+      margin: 0 0 14px;
+      padding: 10px;
+      border: 1px solid #2f2415;
+      color: #7e6744;
+      font-size: 10px;
+    }
+    #cadenceValue { float: right; color: var(--safe); font-weight: 800; }
+    input[type="range"] {
+      width: 100%;
+      margin: 12px 0 2px;
+      accent-color: var(--lab);
+      cursor: pointer;
+    }
+    .cadence-scale { display: flex; justify-content: space-between; color: #57472f; font-size: 8px; }
     .telemetry {
       display: grid;
       grid-template-columns: 1fr auto;
@@ -147,7 +179,15 @@
       .intro, .shell { grid-template-columns: 1fr; }
       .mode { justify-self: start; }
       .feed-wrap { border-right: 0; border-bottom: 1px solid var(--line); }
-      .viewport { height: 520px; }
+      .compare-note { display: block; }
+      .compare-note span { display: block; margin-top: 4px; }
+      .viewport { height: 460px; }
+    }
+
+    @media (max-width: 560px) {
+      .compare-grid { grid-template-columns: 1fr; }
+      .compare-pane + .compare-pane { border-left: 0; border-top: 1px solid var(--line); }
+      .viewport { height: 330px; }
     }
   </style>
 </head>
@@ -168,26 +208,48 @@
 
     <section class="shell" aria-label="Synthetic feed laboratory">
       <div class="feed-wrap">
-        <div class="feed-head"><strong>SYNTHETIC TIMELINE</strong><span id="frameState">frame 001 · paused</span></div>
-        <div class="viewport" id="viewport" tabindex="0" aria-label="Synthetic scrolling viewport">
-          <div class="track" id="track"></div>
+        <div class="compare-note">
+          <b>SAME LOCAL FIXTURE · SAME AVERAGE SPEED</b>
+          <span>left flows every frame · right holds between deliveries</span>
+        </div>
+        <div class="compare-grid">
+          <section class="compare-pane" aria-label="Continuous frame progression">
+            <div class="feed-head"><strong>CONTINUOUS</strong><span id="continuousState">frame 001 · paused</span></div>
+            <div class="viewport" id="continuousViewport" tabindex="0" aria-label="Continuous synthetic timeline">
+              <div class="track" id="continuousTrack"></div>
+            </div>
+          </section>
+          <section class="compare-pane" aria-label="Stepped delivery progression">
+            <div class="feed-head"><strong>STEPPED DELIVERY</strong><span id="steppedState">delivery 000 · paused</span></div>
+            <div class="viewport" id="steppedViewport" tabindex="0" aria-label="Stepped synthetic timeline">
+              <div class="track" id="steppedTrack"></div>
+            </div>
+          </section>
         </div>
       </div>
 
       <aside>
         <div class="controls">Replay controls</div>
         <div class="control-body">
-          <button id="play" type="button">Run synthetic replay</button>
-          <button id="pause" type="button">Pause replay</button>
-          <button id="reset" type="button">Reset frame</button>
+          <label class="cadence-control" for="cadence">
+            STEPPED CADENCE <span id="cadenceValue">280 MS</span>
+            <input id="cadence" type="range" min="80" max="1000" step="20" value="280">
+            <span class="cadence-scale"><i>80 MS</i><i>1000 MS</i></span>
+          </label>
+          <button id="play" type="button">Run comparison</button>
+          <button id="pause" type="button">Pause comparison</button>
+          <button id="reset" type="button">Reset comparison</button>
           <button type="button" disabled>Live source unavailable by design</button>
-          <dl class="telemetry" aria-label="Replay telemetry" aria-live="off">
+          <dl class="telemetry" aria-label="Motion readout" aria-live="off">
             <dt>STATE</dt><dd id="telemetryState">PAUSED</dd>
-            <dt>FRAME</dt><dd id="telemetryFrame">001</dd>
-            <dt>SCROLL</dt><dd id="telemetryScroll">0 PX</dd>
-            <dt>PROGRESS</dt><dd id="telemetryProgress">0.0%</dd>
-            <dt>CADENCE</dt><dd id="telemetryCadence">IDLE</dd>
-            <dt>LOOPS</dt><dd id="telemetryLoops">0</dd>
+            <dt>CONTINUOUS</dt><dd id="telemetryContinuous">0.0 PX</dd>
+            <dt>STEPPED</dt><dd id="telemetryStepped">0.0 PX</dd>
+            <dt>FRAME COUNT</dt><dd id="telemetryFrame">001</dd>
+            <dt>DELIVERIES</dt><dd id="telemetryDeliveries">000</dd>
+            <dt>STEP SIZE</dt><dd id="telemetryStepSize">11.8 PX</dd>
+            <dt>NEXT STEP</dt><dd id="telemetryNextStep">280 MS</dd>
+            <dt>MOTION GAP</dt><dd id="telemetryGap">0.0 PX</dd>
+            <dt>LOOPS C / S</dt><dd id="telemetryLoops">0 / 0</dd>
             <dt>FIXTURE</dt><dd id="telemetryFixture">18 LOCAL</dd>
           </dl>
           <p class="status">Source: <b>LOCAL FIXTURE</b><br>Authority: <b>NONE</b><br>Pairing: <b>DISABLED</b></p>
@@ -209,25 +271,39 @@
       stats: [index * 3 + 2, index * 5 + 4, index * 11 + 9]
     }));
 
-    const viewport = document.querySelector("#viewport");
-    const track = document.querySelector("#track");
-    const frameState = document.querySelector("#frameState");
+    const continuousViewport = document.querySelector("#continuousViewport");
+    const steppedViewport = document.querySelector("#steppedViewport");
+    const continuousTrack = document.querySelector("#continuousTrack");
+    const steppedTrack = document.querySelector("#steppedTrack");
+    const continuousState = document.querySelector("#continuousState");
+    const steppedState = document.querySelector("#steppedState");
+    const cadenceControl = document.querySelector("#cadence");
+    const cadenceValue = document.querySelector("#cadenceValue");
     const telemetry = {
       state: document.querySelector("#telemetryState"),
+      continuous: document.querySelector("#telemetryContinuous"),
+      stepped: document.querySelector("#telemetryStepped"),
       frame: document.querySelector("#telemetryFrame"),
-      scroll: document.querySelector("#telemetryScroll"),
-      progress: document.querySelector("#telemetryProgress"),
-      cadence: document.querySelector("#telemetryCadence"),
+      deliveries: document.querySelector("#telemetryDeliveries"),
+      stepSize: document.querySelector("#telemetryStepSize"),
+      nextStep: document.querySelector("#telemetryNextStep"),
+      gap: document.querySelector("#telemetryGap"),
       loops: document.querySelector("#telemetryLoops"),
       fixture: document.querySelector("#telemetryFixture")
     };
-    let frame = 1;
+    const speedPxPerSecond = 42;
+    let continuousFrames = 1;
+    let steppedDeliveries = 0;
+    let continuousPosition = 0;
+    let steppedPosition = 0;
+    let continuousLoops = 0;
+    let steppedLoops = 0;
+    let stepAccumulator = 0;
+    let cadenceMs = Number(cadenceControl.value);
     let running = false;
-    let lastTime = 0;
-    let loops = 0;
-    let lastStepMs = 0;
+    let lastAnimationTime = 0;
 
-    track.innerHTML = fixture.map((item, index) => `
+    const fixtureMarkup = fixture.map((item, index) => `
       <article data-frame="${index + 1}">
         <div class="avatar">${String(index + 1).padStart(2, "0")}</div>
         <div>
@@ -236,39 +312,75 @@
           <div class="stats"><span>reply ${item.stats[0]}</span><span>replay ${item.stats[1]}</span><span>signal ${item.stats[2]}</span></div>
         </div>
       </article>`).join("");
+    continuousTrack.innerHTML = fixtureMarkup;
+    steppedTrack.innerHTML = fixtureMarkup;
 
     function renderState(label) {
-      const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-      const progress = maxScroll ? (viewport.scrollTop / maxScroll) * 100 : 0;
-      frameState.textContent = `frame ${String(frame).padStart(3, "0")} · ${label}`;
+      const stepSize = speedPxPerSecond * cadenceMs / 1000;
+      const nextStep = running ? Math.max(0, cadenceMs - stepAccumulator) : cadenceMs;
+      const gap = Math.abs(continuousPosition - steppedPosition);
+      continuousState.textContent = `frame ${String(continuousFrames).padStart(3, "0")} · ${label}`;
+      steppedState.textContent = `delivery ${String(steppedDeliveries).padStart(3, "0")} · ${cadenceMs} ms`;
+      cadenceValue.textContent = `${cadenceMs} MS`;
       telemetry.state.textContent = label.toUpperCase();
-      telemetry.frame.textContent = String(frame).padStart(3, "0");
-      telemetry.scroll.textContent = `${Math.round(viewport.scrollTop)} PX`;
-      telemetry.progress.textContent = `${progress.toFixed(1)}%`;
-      telemetry.cadence.textContent = lastStepMs ? `${lastStepMs.toFixed(1)} MS` : "IDLE";
-      telemetry.loops.textContent = String(loops);
+      telemetry.continuous.textContent = `${continuousPosition.toFixed(1)} PX`;
+      telemetry.stepped.textContent = `${steppedPosition.toFixed(1)} PX`;
+      telemetry.frame.textContent = String(continuousFrames).padStart(3, "0");
+      telemetry.deliveries.textContent = String(steppedDeliveries).padStart(3, "0");
+      telemetry.stepSize.textContent = `${stepSize.toFixed(1)} PX`;
+      telemetry.nextStep.textContent = `${Math.round(nextStep)} MS`;
+      telemetry.gap.textContent = `${gap.toFixed(1)} PX`;
+      telemetry.loops.textContent = `${continuousLoops} / ${steppedLoops}`;
       telemetry.fixture.textContent = `${fixture.length} LOCAL`;
+    }
+
+    function advance(viewport, position, distance, channel) {
+      const maxScroll = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      let next = position + distance;
+      if (maxScroll && next >= maxScroll) {
+        next %= maxScroll;
+        if (channel === "continuous") continuousLoops += 1;
+        else steppedLoops += 1;
+      }
+      viewport.scrollTop = next;
+      return next;
     }
 
     function tick(time) {
       if (!running) return;
-      if (time - lastTime >= 24) {
-        lastStepMs = lastTime ? time - lastTime : 0;
-        viewport.scrollTop += 1;
-        lastTime = time;
-        frame += 1;
-        if (viewport.scrollTop >= viewport.scrollHeight - viewport.clientHeight) {
-          viewport.scrollTop = 0;
-          loops += 1;
+      if (!lastAnimationTime) lastAnimationTime = time;
+      const deltaMs = Math.min(100, Math.max(0, time - lastAnimationTime));
+      lastAnimationTime = time;
+
+      if (deltaMs) {
+        continuousPosition = advance(
+          continuousViewport,
+          continuousPosition,
+          speedPxPerSecond * deltaMs / 1000,
+          "continuous"
+        );
+        continuousFrames += 1;
+        stepAccumulator += deltaMs;
+
+        while (stepAccumulator >= cadenceMs) {
+          steppedPosition = advance(
+            steppedViewport,
+            steppedPosition,
+            speedPxPerSecond * cadenceMs / 1000,
+            "stepped"
+          );
+          stepAccumulator -= cadenceMs;
+          steppedDeliveries += 1;
         }
-        renderState("replaying");
       }
+      renderState("replaying");
       requestAnimationFrame(tick);
     }
 
     document.querySelector("#play").addEventListener("click", () => {
       if (running) return;
       running = true;
+      lastAnimationTime = 0;
       renderState("replaying");
       requestAnimationFrame(tick);
     });
@@ -280,12 +392,23 @@
 
     document.querySelector("#reset").addEventListener("click", () => {
       running = false;
-      frame = 1;
-      loops = 0;
-      lastTime = 0;
-      lastStepMs = 0;
-      viewport.scrollTop = 0;
+      continuousFrames = 1;
+      steppedDeliveries = 0;
+      continuousPosition = 0;
+      steppedPosition = 0;
+      continuousLoops = 0;
+      steppedLoops = 0;
+      stepAccumulator = 0;
+      lastAnimationTime = 0;
+      continuousViewport.scrollTop = 0;
+      steppedViewport.scrollTop = 0;
       renderState("paused");
+    });
+
+    cadenceControl.addEventListener("input", () => {
+      cadenceMs = Number(cadenceControl.value);
+      stepAccumulator = Math.min(stepAccumulator, cadenceMs);
+      renderState(running ? "replaying" : "paused");
     });
 
     renderState("paused");
