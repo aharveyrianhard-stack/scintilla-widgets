@@ -11,7 +11,8 @@ const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "ut
 const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
 const videoPane = fs.readFileSync(new URL("../pane-video/index.html", import.meta.url), "utf8");
 const chartShell = fs.readFileSync(new URL("../station-shells/chart-v1/index.html", import.meta.url), "utf8");
-const videoShell = fs.readFileSync(new URL("../station-shells/video-v1/index.html", import.meta.url), "utf8");
+const personalVideoShell = fs.readFileSync(new URL("../station-shells/personal-video-v1/index.html", import.meta.url), "utf8");
+const scintillaVideoShell = fs.readFileSync(new URL("../station-shells/scintilla-video-v1/index.html", import.meta.url), "utf8");
 const xShell = fs.readFileSync(new URL("../station-shells/x-v1/index.html", import.meta.url), "utf8");
 const youtubeHub = fs.readFileSync(new URL("../youtube/index.html", import.meta.url), "utf8");
 const ipadCompanion = fs.readFileSync(new URL("../station-ipad/index.html", import.meta.url), "utf8");
@@ -213,20 +214,24 @@ test("Scenes V2 stays local-only and preserves the current iPad companion", () =
   assert.match(deck, /const sessionRemembered = \(key\) =>/);
 });
 
-test("Station pins chart, video, and X to independently versioned shells", () => {
+test("Station pins charts, each YouTube feed, and X to independently versioned shells", () => {
   assert.match(deck, /const STATION_SHELL = Object\.freeze\(/);
   assert.match(deck, /chart: "\/station-shells\/chart-v1"/);
-  assert.match(deck, /video: "\/station-shells\/video-v1"/);
+  assert.match(deck, /personalVideo: "\/station-shells\/personal-video-v1"/);
+  assert.match(deck, /scintillaVideo: "\/station-shells\/scintilla-video-v1"/);
   assert.match(deck, /x: "\/station-shells\/x-v1"/);
   assert.equal(chartShell, chart, "chart shell is a frozen copy of the reviewed chart surface");
-  assert.equal(videoShell, videoPane, "video shell is a frozen copy of the reviewed video surface");
+  assert.equal(personalVideoShell, videoPane, "Personal shell is a frozen copy of the reviewed video surface");
+  assert.equal(scintillaVideoShell, videoPane, "SCINTILLA shell is a frozen copy of the reviewed video surface");
   assert.match(xShell, /function drawXFloat\(/, "X shell has its own reviewed renderer surface");
   assert.match(xShell, /function attachXFloatStream\(/);
-  assert.match(xShell, /const availableAtRequestedY = Math\.max\(0, video\.videoHeight - requestedY\)/);
-  assert.doesNotMatch(xShell, /if \(sw > 1 && shAvailable > 1\)/,
-    "the X shell never reads a height value before the crop calculation defines it");
-  assert.doesNotMatch(xShell, /const shAvailable = Math\.max\(0, video\.videoHeight - sy\)/);
-  assert.match(xShell, /const availableSourceHeight = Math\.max\(0, video\.videoHeight - sy\)/);
+  assert.doesNotMatch(xShell, /boundedViewerCropY/,
+    "the isolated X shell deliberately excludes the unrequested crop-boundary behavior");
+  assert.match(xShell, /const sy = Math\.max\(0, \(rect\.top \+ \(xfloatCrop\.fractionalScrollOffset \|\| 0\)\) \* scaleY\)/);
+  assert.match(xShell, /const shAvailable = Math\.min\(video\.videoHeight - sy, rect\.height \* scaleY\)/,
+    "the X shell retains the proven direct crop calculation without boundary shifting");
+  assert.match(xShell, /if \(sw > 1 && shAvailable > 1\)/,
+    "the crop height is defined before it is evaluated");
 });
 
 test("iPad profile keeps the complete Station wall with proportional child typography", () => {
@@ -264,7 +269,8 @@ test("generated paired iPad companion routes carry the iPad profile through the 
   });
   assert.match(companionChartSrc("SPY", 0), /view=ipad/);
   assert.match(companionChartSrc("SPY", 0), /^\/station-shells\/chart-v1\?shell=v1/);
-  assert.match(deck, /STATION_SHELL\.video \+ "\?shell=v1&feed=personal/);
+  assert.match(deck, /STATION_SHELL\.personalVideo \+ "\?shell=v1&feed=personal/);
+  assert.match(deck, /STATION_SHELL\.scintillaVideo \+ "\?shell=v1&feed=scintilla/);
   assert.match(deck, /STATION_SHELL\.x \+ "\?shell=v1&remote=1/);
 });
 
