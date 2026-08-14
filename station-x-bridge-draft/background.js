@@ -721,6 +721,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  /* A receiver peer can be discarded by Chrome while the shared offscreen
+     capture and X source remain healthy.  Replace only that viewer peer; do
+     not restart the source, focus a tab, or affect another Station display. */
+  if (message?.type === "XFF_STATION_RECONNECT_VIEWER") {
+    const consumer = stationConsumers.get(sender.tab?.id);
+    const sameInstance = !message.instanceId ||
+      String(consumer?.instanceId || "") === String(message.instanceId);
+    if (!consumer || (sender.frameId || 0) !== consumer.frameId || !sameInstance) {
+      sendResponse({ ok:false, error:"The Station pane was not recognized." });
+      return;
+    }
+    (async () => {
+      consumer.lastSeen = Date.now();
+      await persistStationSession();
+      const reconnected = await reconnectStationConsumer(consumer, { controlSource:false });
+      if (!reconnected) throw new Error("The shared X source is not available.");
+      sendResponse({ ok:true });
+    })().catch((error) => sendResponse({ ok:false, error:error.message }));
+    return true;
+  }
+
   if (message?.type === "XFF_STATION_REMOTE_OFFER") {
     const consumer = stationConsumers.get(sender.tab?.id);
     const pairId = String(message.pairId || "");

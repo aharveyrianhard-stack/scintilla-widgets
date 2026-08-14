@@ -275,8 +275,12 @@ let remoteReconnect = null;
 let remoteFrameAt = 0;
 let remoteVisibilityCheck = null;
 let stopViewerFrameObserver = null;
+let directPeerReconnect = null;
+let directPeerWatchdog = null;
 const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
 const STATION_JOIN_TIMEOUT_MS = 5000;
+const DIRECT_PEER_RECONNECT_DELAY_MS = 700;
+const DIRECT_PEER_TRACK_TIMEOUT_MS = 2600;
 
 function publishViewerCadence() {
   /* Read-only diagnostics for the performance pass.  No user setting or
@@ -699,6 +703,43 @@ function xfloatControls(on) {
   el("bPair").style.display = on && !REMOTE_MODE ? "" : "none";
 }
 
+function needsDirectStationReconnect(state) {
+  const { remoteMode, pageVisible, streamActive, alreadyScheduled } = state || {};
+  return !remoteMode && pageVisible && !streamActive && !alreadyScheduled;
+}
+
+/* A direct Station receiver is disposable: it can re-offer to the existing
+   offscreen capture without restarting X, opening a tab, or disturbing any
+   other Station display.  This closes the old failure mode where a dead peer
+   left crop heartbeats painting a black canvas forever. */
+function scheduleDirectStationReconnect() {
+  if (!needsDirectStationReconnect({
+    remoteMode: REMOTE_MODE,
+    pageVisible: document.visibilityState === "visible",
+    streamActive: Boolean(xfloatStream?.active),
+    alreadyScheduled: Boolean(directPeerReconnect)
+  })) return;
+  directPeerReconnect = setTimeout(() => {
+    directPeerReconnect = null;
+    if (xfloatStream?.active) return;
+    el("xfState").textContent = "reconnecting";
+    window.postMessage({ type:"XFF_STATION_RECONNECT_VIEWER" }, location.origin);
+  }, DIRECT_PEER_RECONNECT_DELAY_MS);
+}
+
+function clearDirectPeerWatchdog() {
+  if (directPeerWatchdog) clearTimeout(directPeerWatchdog);
+  directPeerWatchdog = null;
+}
+
+function armDirectPeerWatchdog(peer) {
+  clearDirectPeerWatchdog();
+  directPeerWatchdog = setTimeout(() => {
+    if (xfloatPeer !== peer || xfloatStream?.active) return;
+    scheduleDirectStationReconnect();
+  }, DIRECT_PEER_TRACK_TIMEOUT_MS);
+}
+
 function stopXFloat({ notify = true } = {}) {
   setStationHoverPause(false);
   if (xfloatFrame) cancelAnimationFrame(xfloatFrame);
@@ -709,6 +750,7 @@ function stopXFloat({ notify = true } = {}) {
   xfloatDrawAt = 0;
   if (stopViewerFrameObserver) stopViewerFrameObserver();
   stopViewerFrameObserver = null;
+  clearDirectPeerWatchdog();
   if (xfloatStream) for (const track of xfloatStream.getTracks()) track.stop();
   xfloatStream = null;
   if (xfloatPeer) xfloatPeer.close();
@@ -856,6 +898,7 @@ async function attachXFloatStream(mediaStream) {
   }
   controls(false);
   xfloatStream = mediaStream;
+  clearDirectPeerWatchdog();
   const video = el("v");
   video.srcObject = xfloatStream;
   await video.play();
@@ -869,7 +912,12 @@ async function attachXFloatStream(mediaStream) {
   xfloatControls(true);
   el("xfState").textContent = "live";
   el("xfState").classList.add("on");
-  xfloatStream.getVideoTracks()[0]?.addEventListener("ended", () => stopXFloat({ notify: false }), { once: true });
+  const activeStream = xfloatStream;
+  xfloatStream.getVideoTracks()[0]?.addEventListener("ended", () => {
+    if (xfloatStream !== activeStream) return;
+    stopXFloat({ notify: false });
+    scheduleDirectStationReconnect();
+  }, { once: true });
   startStationClock();
   ensureXFloatDraw();
 }
@@ -902,10 +950,18 @@ function waitForIceComplete(connection) {
 async function startXFloatPeer() {
   stopXFloat({ notify: false });
   xfloatPeer = new RTCPeerConnection();
+  const activePeer = xfloatPeer;
   xfloatPeer.addTransceiver("video", { direction: "recvonly" });
   xfloatPeer.addEventListener("track", (event) => {
+    if (xfloatPeer !== activePeer) return;
     const mediaStream = event.streams[0] || new MediaStream([event.track]);
     attachXFloatStream(mediaStream).catch((error) => showErr("Station X could not render: " + error.message));
+  });
+  xfloatPeer.addEventListener("connectionstatechange", () => {
+    if (xfloatPeer !== activePeer) return;
+    if (["failed", "disconnected", "closed"].includes(activePeer.connectionState)) {
+      scheduleDirectStationReconnect();
+    }
   });
   await xfloatPeer.setLocalDescription(await xfloatPeer.createOffer());
   await waitForIceComplete(xfloatPeer);
@@ -913,6 +969,7 @@ async function startXFloatPeer() {
     type: "XFF_STATION_OFFER",
     offer: xfloatPeer.localDescription.toJSON()
   }, location.origin);
+  armDirectPeerWatchdog(activePeer);
 }
 
 /* iPad Companion consumes the same iMac WebRTC media and the same crop data,
@@ -1112,7 +1169,8 @@ window.addEventListener("message", (event) => {
   if (event.data?.type === "XFF_STATION_CROP") {
     receiveViewerCrop(event.data.crop);
     const paused = Boolean(xfloatCrop?.paused);
-    el("xfState").textContent = paused ? "paused" : "live";
+    if (xfloatStream?.active) el("xfState").textContent = paused ? "paused" : "live";
+    else scheduleDirectStationReconnect();
     paintXView(xfloatCrop?.activeView || "trading");
     if (stationPair) stationPair.room?.publish("crop", xfloatCrop);
   }

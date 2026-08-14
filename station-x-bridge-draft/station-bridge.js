@@ -141,6 +141,20 @@
         }
       }).catch(() => {});
     }
+    if (event.data?.type === "XFF_STATION_RECONNECT_VIEWER") {
+      runtimeMessage({
+        type: "XFF_STATION_RECONNECT_VIEWER",
+        instanceId: INSTANCE_ID
+      }).then((result) => {
+        if (result?.ok === false) {
+          window.postMessage({
+            type: "XFF_STATION_STATUS",
+            status: "error",
+            detail: result.error || "Station X could not reconnect."
+          }, ORIGIN);
+        }
+      }).catch(() => {});
+    }
     if (event.data?.type === "XFF_STATION_REMOTE_OFFER") {
       runtimeMessage({
         type: "XFF_STATION_REMOTE_OFFER",
