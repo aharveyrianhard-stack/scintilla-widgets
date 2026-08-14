@@ -42,7 +42,8 @@ test("testing twin preserves component separation and uses only the isolated X c
   assert.match(deck, /scintillaVideo: "\/station-shells\/scintilla-video-v1"/);
   assert.match(deck, /x: "\/station-shells\/x-v2"/,
     "stable host retains the exact admitted X endpoint");
-  assert.match(deck, /const STATION_X_SHELL = window\.ScintillaTestingSurface\?\.active \? "\/pane-x" : STATION_SHELL\.x/);
+  assert.match(deck, /const STATION_X_SHELL = window\.ScintillaTestingSurface\?\.active \? "\/pane-x\/" : STATION_SHELL\.x/,
+    "the testing pane uses a directory route so its five local relative assets stay pane-scoped");
   assert.match(deck, /href="\/station-ipad\/">testing iPad/);
 });
 
