@@ -73,6 +73,17 @@ test("crop broadcasts preserve one canvas animation loop", () => {
   assert.equal(context.xfloatFrame, 91);
 });
 
+test("viewer crop never leaves a black lower block when the requested crop reaches the capture edge", () => {
+  const boundedCropY = functionFromSource("boundedViewerCropY");
+  assert.equal(boundedCropY(540, 200, 600), 400,
+    "the source window slides up just enough to keep all 200 pixels inside the decoded frame");
+  assert.equal(boundedCropY(42, 200, 600), 42,
+    "a normal in-frame crop is unchanged");
+  assert.equal(boundedCropY(-5, 200, 600), 0,
+    "a negative requested crop is held at the first decoded row");
+  assert.match(source, /const sy = boundedViewerCropY\(requestedY, requiredSourceHeight, video\.videoHeight\);/);
+});
+
 test("a newer crop waits for one decoded viewer frame and stale crops cannot win", () => {
   const cropGenerationFor = functionFromSource("cropGenerationFor");
   const cropSequenceFor = functionFromSource("cropSequenceFor");
