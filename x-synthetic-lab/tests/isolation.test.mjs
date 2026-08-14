@@ -4,6 +4,7 @@ import test from "node:test";
 
 const root = new URL("../", import.meta.url);
 const html = await readFile(new URL("index.html", root), "utf8");
+const candidate = await readFile(new URL("pane-x-viewer-candidate.mjs", root), "utf8");
 const vercel = JSON.parse(await readFile(new URL("vercel.json", root), "utf8"));
 
 test("lab identity is unambiguous", () => {
@@ -20,15 +21,29 @@ test("lab exposes continuous, raw stepped, and interpolated fixture columns", ()
   assert.match(html, /id="continuousViewport"/);
   assert.match(html, /id="rawViewport"/);
   assert.match(html, /id="interpolatedViewport"/);
-  assert.match(html, /SAME LOCAL FIXTURE · SAME AVERAGE SPEED/);
+  assert.match(html, /PANE-X LAB COPY · SAME LOCAL FIXTURE · PRESENTATION ONLY/);
   assert.match(html, /reference flows · raw holds\/jumps · interpolated renders every frame/);
 });
 
-test("interpolation targets exact raw delivered endpoints", () => {
-  assert.match(html, /interpolationTarget = rawPosition/);
-  assert.match(html, /Math\.abs\(interpolationTarget - rawPosition\)/);
-  assert.match(html, /Math\.abs\(interpolatedPosition - interpolationTarget\)/);
+test("lab copy delegates presentation to the isolated candidate renderer", () => {
+  assert.match(html, /import \{ PaneXViewerPresentationCandidate \}/);
+  assert.match(html, /presentationCandidate\.receive\(\{/);
+  assert.match(html, /position: rawPosition/);
+  assert.match(html, /presentationCandidate\.frame\(time\)/);
+  assert.match(candidate, /this\.position = this\.target/);
+  assert.match(candidate, /nextSequence <= this\.latestSequence/);
+  assert.match(candidate, /Math\.max\(low, Math\.min\(high, interpolated\)\)/);
   assert.match(html, /requestAnimationFrame\(tick\)/);
+});
+
+test("candidate exposes manual and hover presentation pauses without source authority", () => {
+  assert.match(html, /id="candidatePause"/);
+  assert.match(html, /id="candidateStatus"/);
+  assert.match(html, /setPaused\("manual"/);
+  assert.match(html, /setPaused\("hover"/);
+  assert.match(candidate, /pauseReasons = new Set\(\)/);
+  assert.match(candidate, /receivedWhilePaused/);
+  assert.match(candidate, /source-scroll, capture, crop, transport/);
 });
 
 test("lab exposes cadence control and live motion telemetry on screen", () => {
@@ -88,6 +103,7 @@ test("lab provides a fixed 60-second run with a pass-fail checklist", () => {
 });
 
 test("deployable shell contains no live-source, pairing, or browser-control capability", () => {
+  const deployableSource = `${html}\n${candidate}`;
   const forbidden = [
     "getDisplayMedia",
     "getUserMedia",
@@ -104,7 +120,7 @@ test("deployable shell contains no live-source, pairing, or browser-control capa
     "<iframe"
   ];
 
-  for (const token of forbidden) assert.equal(html.includes(token), false, `forbidden capability present: ${token}`);
+  for (const token of forbidden) assert.equal(deployableSource.includes(token), false, `forbidden capability present: ${token}`);
 });
 
 test("preview is explicitly non-indexable and separately identified", () => {
@@ -119,5 +135,6 @@ test("preview is explicitly non-indexable and separately identified", () => {
   });
   assert.match(headers.find(header => header.key === "Content-Security-Policy").value, /connect-src 'none'/);
   assert.match(headers.find(header => header.key === "Content-Security-Policy").value, /media-src 'none'/);
+  assert.match(headers.find(header => header.key === "Content-Security-Policy").value, /script-src 'self' 'unsafe-inline'/);
   assert.match(headers.find(header => header.key === "Permissions-Policy").value, /display-capture=\(\)/);
 });

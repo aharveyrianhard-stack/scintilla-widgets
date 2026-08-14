@@ -14,6 +14,12 @@ Isolation contract:
   speed: continuous reference, raw stepped delivery, and one-cadence-buffered
   interpolation that renders every animation frame and targets the exact raw
   delivered endpoints.
+- `pane-x-viewer-candidate.mjs` is a lab-only, production-shaped copy of the
+  pane-X presentation contract. It accepts already-delivered endpoints,
+  replaces pending state with the newest delivery, clamps every rendered frame
+  between delivered bounds, supports named manual/hover pauses, and stops or
+  restarts cleanly. It has no source-scroll, capture, crop, transport, pairing,
+  routing, receiver, or lifecycle authority and is not imported by stable X.
 - A fixed 60-second visual run uses 80ms as the proven case and keeps 800ms as
   the coarse failure preset. It applies explicitly lab-only six-pixel motion-
   gap and 0.01-pixel endpoint-correctness checks. The on-screen guide makes

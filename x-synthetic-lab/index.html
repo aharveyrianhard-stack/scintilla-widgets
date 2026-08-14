@@ -267,7 +267,7 @@
     <section class="shell" aria-label="Synthetic feed laboratory">
       <div class="feed-wrap">
         <div class="compare-note">
-          <b>SAME LOCAL FIXTURE · SAME AVERAGE SPEED</b>
+          <b>PANE-X LAB COPY · SAME LOCAL FIXTURE · PRESENTATION ONLY</b>
           <span>reference flows · raw holds/jumps · interpolated renders every frame</span>
         </div>
         <div class="compare-grid">
@@ -307,6 +307,7 @@
           <button class="primary" id="fixedRun" type="button">Start fixed 60-second run</button>
           <button id="play" type="button">Run comparison</button>
           <button id="pause" type="button">Pause comparison</button>
+          <button id="candidatePause" type="button">Pause candidate presentation</button>
           <button id="reset" type="button">Reset comparison</button>
           <button type="button" disabled>Live source unavailable by design</button>
           <dl class="telemetry" aria-label="Motion readout" aria-live="off">
@@ -326,14 +327,15 @@
             <dt>LOOPS R / W / I</dt><dd id="telemetryLoops">0 / 0 / 0</dd>
             <dt>FIXTURE</dt><dd id="telemetryFixture">48 LOCAL</dd>
           </dl>
-          <p class="status">Source: <b>LOCAL FIXTURE</b><br>Authority: <b>NONE</b><br>Pairing: <b>DISABLED</b></p>
+          <p class="status">Source: <b>LOCAL FIXTURE</b><br>Candidate: <b id="candidateStatus">STOPPED</b><br>Authority: <b>NONE</b><br>Pairing: <b>DISABLED</b></p>
           <p class="contract">This lab cannot attach to or control a browser tab. It is intentionally incapable of joining the stable Station or iPad session.</p>
         </div>
       </aside>
     </section>
   </main>
 
-  <script>
+  <script type="module">
+    import { PaneXViewerPresentationCandidate } from "./pane-x-viewer-candidate.mjs";
     const fixture = Array.from({ length: 48 }, (_, index) => ({
       handle: `synthetic_${String(index + 1).padStart(2, "0")}`,
       time: `${String(9 + Math.floor(index / 6)).padStart(2, "0")}:${String((index * 7) % 60).padStart(2, "0")}`,
@@ -359,6 +361,8 @@
     const fixedRunButton = document.querySelector("#fixedRun");
     const playButton = document.querySelector("#play");
     const pauseButton = document.querySelector("#pause");
+    const candidatePauseButton = document.querySelector("#candidatePause");
+    const candidateStatus = document.querySelector("#candidateStatus");
     const resetButton = document.querySelector("#reset");
     const cadencePresetButtons = Array.from(document.querySelectorAll("[data-cadence]"));
     const runClock = document.querySelector("#runClock");
@@ -398,8 +402,6 @@
     let continuousPosition = 0;
     let rawPosition = 0;
     let interpolatedPosition = 0;
-    let interpolationStart = 0;
-    let interpolationTarget = 0;
     let continuousLoops = 0;
     let rawLoops = 0;
     let interpolatedLoops = 0;
@@ -416,6 +418,9 @@
     let fixedRunAborted = false;
     let fixedRunStartedAt = 0;
     let fixedRunElapsedMs = 0;
+    let presentationCandidate = null;
+    let candidateManualPaused = false;
+    let candidateHoverPaused = false;
 
     const fixtureMarkup = fixture.map((item, index) => `
       <article data-frame="${index + 1}">
@@ -429,6 +434,26 @@
     continuousTrack.innerHTML = fixtureMarkup;
     rawTrack.innerHTML = fixtureMarkup;
     interpolatedTrack.innerHTML = fixtureMarkup;
+
+    function createPresentationCandidate() {
+      return new PaneXViewerPresentationCandidate({
+        render(position) {
+          interpolatedPosition = position;
+          interpolatedViewport.scrollTop = position;
+        }
+      });
+    }
+
+    function syncCandidateSnapshot() {
+      const snapshot = presentationCandidate?.snapshot();
+      if (!snapshot) return null;
+      interpolatedPosition = snapshot.position;
+      endpointChecks = snapshot.endpointChecks;
+      maximumEndpointError = snapshot.maximumEndpointError;
+      candidateStatus.textContent = !snapshot.running ? "STOPPED" : snapshot.paused ? "PAUSED" : "RUNNING";
+      candidatePauseButton.textContent = candidateManualPaused ? "Resume candidate presentation" : "Pause candidate presentation";
+      return snapshot;
+    }
 
     function setCheck(element, state, text) {
       element.className = `check-badge ${state}`;
@@ -473,6 +498,7 @@
     }
 
     function renderState(label) {
+      syncCandidateSnapshot();
       const stepSize = speedPxPerSecond * cadenceMs / 1000;
       const nextStep = running ? Math.max(0, cadenceMs - stepAccumulator) : cadenceMs;
       const rawGap = Math.abs(continuousPosition - rawPosition);
@@ -507,18 +533,18 @@
       fixedRunButton.disabled = active;
       playButton.disabled = active;
       resetButton.disabled = active;
+      candidatePauseButton.disabled = active;
       pauseButton.textContent = active ? "Stop fixed run" : "Pause comparison";
     }
 
     function resetComparison() {
+      presentationCandidate?.stop({ at: performance.now() });
       running = false;
       continuousFrames = 1;
       rawDeliveries = 0;
       continuousPosition = 0;
       rawPosition = 0;
       interpolatedPosition = 0;
-      interpolationStart = 0;
-      interpolationTarget = 0;
       continuousLoops = 0;
       rawLoops = 0;
       interpolatedLoops = 0;
@@ -533,9 +559,12 @@
       fixedRunAborted = false;
       fixedRunStartedAt = 0;
       fixedRunElapsedMs = 0;
+      candidateManualPaused = false;
+      candidateHoverPaused = false;
       continuousViewport.scrollTop = 0;
       rawViewport.scrollTop = 0;
       interpolatedViewport.scrollTop = 0;
+      presentationCandidate = createPresentationCandidate();
       setFixedRunControls(false);
       renderState("paused");
     }
@@ -555,7 +584,10 @@
 
     function tick(time) {
       if (!running) return;
-      if (!lastAnimationTime) lastAnimationTime = time;
+      if (!lastAnimationTime) {
+        lastAnimationTime = time;
+        presentationCandidate.start({ position: interpolatedPosition, at: time });
+      }
       const deltaMs = Math.min(100, Math.max(0, time - lastAnimationTime));
       lastAnimationTime = time;
 
@@ -571,39 +603,24 @@
 
         while (stepAccumulator >= cadenceMs) {
           const deliveredStep = speedPxPerSecond * cadenceMs / 1000;
-          interpolatedPosition = interpolationTarget;
-          interpolatedViewport.scrollTop = interpolatedPosition;
-          endpointChecks += 1;
-          maximumEndpointError = Math.max(
-            maximumEndpointError,
-            Math.abs(interpolatedPosition - interpolationTarget)
-          );
-
           rawPosition = advance(
             rawViewport,
             rawPosition,
             deliveredStep,
             "raw"
           );
-          interpolationStart = interpolationTarget;
-          interpolationTarget = rawPosition;
-          maximumEndpointError = Math.max(
-            maximumEndpointError,
-            Math.abs(interpolationTarget - rawPosition)
-          );
-          stepAccumulator -= cadenceMs;
           rawDeliveries += 1;
+          presentationCandidate.receive({
+            position: rawPosition,
+            sequence: rawDeliveries,
+            deliveredAt: time,
+            cadenceMs
+          });
+          stepAccumulator -= cadenceMs;
         }
 
-        const interpolationProgress = cadenceMs ? stepAccumulator / cadenceMs : 0;
-        const nextInterpolatedPosition = interpolationStart +
-          (interpolationTarget - interpolationStart) * interpolationProgress;
-        interpolatedPosition = advance(
-          interpolatedViewport,
-          interpolatedPosition,
-          nextInterpolatedPosition - interpolatedPosition,
-          "interpolated"
-        );
+        presentationCandidate.frame(time);
+        syncCandidateSnapshot();
 
         maximumRawGapObserved = Math.max(
           maximumRawGapObserved,
@@ -619,6 +636,7 @@
         if (!fixedRunStartedAt) fixedRunStartedAt = time;
         fixedRunElapsedMs = Math.min(fixedRunDurationMs, time - fixedRunStartedAt);
         if (fixedRunElapsedMs >= fixedRunDurationMs) {
+          presentationCandidate.stop({ at: time });
           running = false;
           fixedRunActive = false;
           fixedRunCompleted = true;
@@ -646,6 +664,7 @@
       if (fixedRunActive) fixedRunAborted = true;
       fixedRunActive = false;
       running = false;
+      presentationCandidate.stop({ at: performance.now() });
       setFixedRunControls(false);
       renderState(fixedRunAborted ? "stopped" : "paused");
     });
@@ -672,6 +691,27 @@
         cadenceControl.value = button.dataset.cadence;
         cadenceControl.dispatchEvent(new Event("input"));
       });
+    });
+
+    candidatePauseButton.addEventListener("click", () => {
+      if (!running || fixedRunActive) return;
+      candidateManualPaused = !candidateManualPaused;
+      presentationCandidate.setPaused("manual", candidateManualPaused, performance.now());
+      renderState(candidateManualPaused ? "candidate paused" : "replaying");
+    });
+
+    interpolatedViewport.addEventListener("pointerenter", () => {
+      if (!running || fixedRunActive) return;
+      candidateHoverPaused = true;
+      presentationCandidate.setPaused("hover", true, performance.now());
+      renderState("candidate hover pause");
+    });
+
+    interpolatedViewport.addEventListener("pointerleave", () => {
+      if (!candidateHoverPaused) return;
+      candidateHoverPaused = false;
+      presentationCandidate.setPaused("hover", false, performance.now());
+      renderState(candidateManualPaused ? "candidate paused" : "replaying");
     });
 
     resetComparison();
