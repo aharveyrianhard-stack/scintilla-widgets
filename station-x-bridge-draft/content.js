@@ -17,6 +17,10 @@
     hideFeedTabs: true,
     minimizeSourceOnOpen: true
   };
+  /* A Station pane can miss a pointerleave while Chrome changes focus. Its
+     hover pause is therefore a renewable lease, never an indefinite stop of
+     the shared X source. */
+  const STATION_VIEWER_HOVER_LEASE_MS = 500;
 
   const session = {
     pipWindow: null,
@@ -64,6 +68,7 @@
     },
     scrollEnabled: false,
     pointerPause: false,
+    stationViewerPauseUntil: 0,
     resumeTimer: null,
     collapsed: false,
     closing: false,
@@ -174,12 +179,16 @@
     return ((zoom - 0.25) / 0.75) * 100;
   }
 
+  function stationViewerPauseActive(now = Date.now()) {
+    return session.stationMode && Number(session.stationViewerPauseUntil || 0) > now;
+  }
+
   function isPaused() {
-    return !session.scrollEnabled || session.pointerPause;
+    return !session.scrollEnabled || session.pointerPause || stationViewerPauseActive();
   }
 
   function pauseLabel() {
-    if (session.pointerPause) {
+    if (session.pointerPause || stationViewerPauseActive()) {
       return "HOVER";
     }
     if (!session.scrollEnabled) {
@@ -299,6 +308,15 @@
       updateUi();
       if (session.stationMode) installStationHoverShield();
     }, session.settings.resumeDelayMs);
+  }
+
+  function nextStationViewerPauseDeadline(held, now = Date.now(), leaseMs = STATION_VIEWER_HOVER_LEASE_MS) {
+    return held ? now + leaseMs : 0;
+  }
+
+  function setStationViewerPause(held) {
+    session.stationViewerPauseUntil = nextStationViewerPauseDeadline(Boolean(held));
+    updateUi();
   }
 
   function pointerIsInsideStationCrop(event, rect) {
@@ -2085,6 +2103,8 @@
     // activation and alignment below both move the real X page.
     if (session.stationMode) {
       session.stationConsumer = nextConsumer;
+      /* A new/reloaded pane cannot inherit an old pane's hover state. */
+      session.stationViewerPauseUntil = 0;
       applyCaptureColumnLayout();
       installStationHoverShield();
       scheduleCropTargetUpdate();
@@ -2094,6 +2114,7 @@
     session.stationMode = true;
     session.stationConsumer = nextConsumer;
     session.pointerPause = false;
+    session.stationViewerPauseUntil = 0;
     session.activeView = ["trading", "notifications"].includes(session.settings.activeView)
       ? session.settings.activeView
       : "trading";
@@ -2125,6 +2146,7 @@
     session.stationMode = false;
     session.stationConsumer = null;
     session.pointerPause = false;
+    session.stationViewerPauseUntil = 0;
     removeStationHoverShield();
     removeCaptureColumnLayout();
     removeCropTargetElement();
@@ -2193,7 +2215,7 @@
       }
       runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });
     } else if (action === "pause") {
-      setPointerPause(Boolean(value));
+      setStationViewerPause(Boolean(value));
     } else if (action === "refresh") {
       await refreshCurrentView();
     } else if (action === "rewind") {
