@@ -219,6 +219,21 @@ async function ensureOffscreenDocument() {
   });
 }
 
+async function hasLiveStationCapture() {
+  try {
+    const documentUrl = chrome.runtime.getURL("offscreen.html");
+    const contexts = chrome.runtime.getContexts
+      ? await chrome.runtime.getContexts({
+          contextTypes: ["OFFSCREEN_DOCUMENT"],
+          documentUrls: [documentUrl]
+        })
+      : [];
+    if (contexts.length) return true;
+    if (chrome.offscreen.hasDocument) return await chrome.offscreen.hasDocument();
+  } catch {}
+  return false;
+}
+
 function captureStreamId(sourceTabId) {
   return new Promise((resolve, reject) => {
     chrome.tabCapture.getMediaStreamId(
@@ -326,8 +341,13 @@ async function startStationCapture(sourceTab, consumer) {
   if (!sourceTab?.id || !consumer) return false;
   await activateStationConsumer(consumer);
   if (stationSourceTabId === sourceTab.id) {
-    await reconnectStationConsumers({ controlSource: true });
-    return true;
+    if (await hasLiveStationCapture()) {
+      await reconnectStationConsumers({ controlSource: true });
+      return true;
+    }
+    // Full extension reloads retain the saved tab id but destroy the actual
+    // offscreen capture. Recreate it instead of leaving every viewer offline.
+    await stopStationCapture("Station capture restored after Bridge reload.");
   }
 
   await stopStationCapture("Switching X source…");
