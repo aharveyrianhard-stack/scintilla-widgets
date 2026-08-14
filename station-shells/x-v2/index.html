@@ -1,0 +1,934 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0F">
+<title>SCINTILLA · X pane</title>
+<!-- ============================================================================
+     SCINTILLA · /pane-x — your live X feed, scrolling, INSIDE the pane.
+
+     ---- WHAT I FOUND, AND WHY THIS IS BUILT THIS WAY ------------------------
+     Alan said the thing already exists as a Chrome extension built with
+     ChatGPT and that there would be notes. There are. It is:
+
+         X FEED FLOAT 0.6.7  ·  built in Codex on the MacBook  ·  unpublished
+         Drive: X-Feed-Float-0.6.7.zip  1BgAZhVqYU6K5gUTxsTKeKie2HKPYFVSj
+         Notes: SITREP — X Feed PiP / Scintilla Scenes — 2026-08-03
+                13P3umxXiQQ9bLden_0zoT2TnBnUQp_AMdaLHD1R1i0o
+         manifest v3 · permissions activeTab, scripting, storage, tabCapture,
+         windows · host_permissions x.com, twitter.com · shortcut Alt+Shift+P
+
+     And here is the important part — HOW it solved the embedding problem.
+     It does NOT strip X-Frame-Options. It does NOT iframe x.com. Those
+     strings appear nowhere in the shipped zip. What it actually does:
+
+         chrome.tabCapture  →  MediaStream of the real, logged-in x.com tab
+         Region Capture (CropTarget) → cropped to the timeline column
+         → drawn to a <canvas>
+         → shown in a documentPictureInPicture window
+
+     x.com is never framed. The real tab renders it; the extension captures
+     and crops the pixels. That is why it works, and it is the only technique
+     that can work — x.com refuses framing to everyone, permanently.
+
+     ---- SO WHAT CAN A WEB PAGE DO -------------------------------------------
+     The same thing, through the web platform's own door. tabCapture is an
+     extension API, but getDisplayMedia is its public equivalent: you pick
+     your x.com tab once, and this pane renders that live stream. Same
+     pipeline, same result — your real feed, live, scrolling, in the pane —
+     with one extra click (the browser's picker) because a web page is not
+     allowed to grab a tab silently. That is a browser rule, not a shortcut.
+
+     What this pane adds on top: zoom and pan so you can crop to the column
+     the way Region Capture does, and real Picture-in-Picture — the stream is
+     a genuine <video>, so requestPictureInPicture() gives a true floating
+     always-on-top window.
+
+     What it CANNOT do, said plainly: auto-scroll. The extension scrolls X by
+     injecting a content script into the x.com tab. A web page cannot reach
+     into another tab — no page can. The separate Station X Bridge supplies
+     the capture and scrolling behavior for this pane.
+
+     iOS/iPadOS Safari has no getDisplayMedia at all, so on iPhone and iPad
+     this pane says so and hands off rather than pretending.
+
+     Params: ?auto=1 (prompt for the tab immediately on a user gesture)
+     No data is sent anywhere. The stream never leaves the browser.
+     Receipt: HSC-PANEX-001.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --vol:#FF8A00; --bear:#FF2D55;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; -webkit-tap-highlight-color:transparent; }
+html,body{ margin:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:11px; display:flex; flex-direction:column;
+  overflow:hidden; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+#bar{ position:relative; flex:none; display:flex; align-items:center; gap:4px; padding:4px 34px 4px 6px;
+  padding-top:calc(4px + env(safe-area-inset-top)); border-bottom:1px solid var(--line);
+  background:var(--panel2); overflow-x:auto; scrollbar-width:none; }
+#bar::-webkit-scrollbar{ display:none; }
+.k{ flex:none; color:var(--crk); font-size:7.5px; letter-spacing:.18em; text-transform:uppercase; }
+.btn{ flex:none; font-size:8px; letter-spacing:.1em; text-transform:uppercase; padding:3px 7px;
+  border:1px solid var(--line); background:var(--bg); color:var(--ink3); cursor:pointer;
+  text-decoration:none; white-space:nowrap; }
+.btn:hover{ color:var(--ink); border-color:var(--hair); }
+.btn.on{ color:var(--crk); border-color:var(--crk); }
+.btn.go{ color:var(--crk); border-color:var(--crk); }
+.btn.out{ color:var(--vol); border-color:rgba(255,138,0,.35); }
+.btn.icon{ width:24px; height:20px; padding:3px; align-items:center; justify-content:center;
+  appearance:none; font:inherit; line-height:1; }
+.btn.icon svg{ width:12px; height:12px; display:block; fill:none; stroke:currentColor;
+  stroke-width:1.65; stroke-linecap:round; stroke-linejoin:round; }
+input[type=range]{ flex:none; width:64px; accent-color:var(--crk); }
+.lbl{ flex:none; color:var(--mute); font-size:7.5px; letter-spacing:.1em; text-transform:uppercase; }
+
+#body{ flex:1 1 0; min-height:0; position:relative; background:#000; overflow:hidden; }
+#v{ position:absolute; top:50%; left:50%; transform-origin:center center; display:none;
+  max-width:none; background:#000; }
+#cv{ position:absolute; inset:0; width:100%; height:100%; display:none; background:#000; }
+body.live #v{ display:block; }
+body.live #card, body.xfloat #card{ display:none; }
+body.xfloat #cv{ display:block; }
+.btn.xf{ color:var(--bull); border-color:rgba(0,255,163,.42); }
+.btn.xf.on{ background:rgba(0,255,163,.10); }
+.btn.pair{ color:var(--crk); border-color:rgba(0,212,255,.55); }
+#pairInfo{ position:absolute; z-index:5; inset:auto 8px 8px 8px; display:none; padding:8px;
+  border:1px solid rgba(0,212,255,.45); background:rgba(10,10,15,.96); color:var(--ink2);
+  font-size:8px; line-height:1.55; box-shadow:0 8px 24px rgba(0,0,0,.45); }
+#pairInfo b{ color:var(--crk); font-weight:500; } #pairLink{ display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink3); }
+
+#card{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; gap:9px; text-align:center; padding:14px; background:var(--bg); }
+#card .n{ color:var(--ink2); font-size:10px; letter-spacing:.14em; text-transform:uppercase; }
+#card .d{ color:var(--mute); font-size:8.5px; line-height:1.65; max-width:330px; }
+#card .d b{ color:var(--ink3); font-weight:400; }
+#card .go{ color:var(--crk); font-size:9px; letter-spacing:.16em; text-transform:uppercase;
+  border:1px solid var(--crk); padding:6px 14px; cursor:pointer; }
+#card .go:hover{ background:rgba(0,212,255,.08); }
+#card .alt{ display:flex; gap:5px; flex-wrap:wrap; justify-content:center; }
+#err{ color:var(--bear); font-size:8.5px; line-height:1.5; max-width:330px; display:none; }
+/* small slots: the prose would eat the box */
+body.tiny #card .d{ display:none; }
+#bFull{ position:absolute; z-index:3; right:5px; top:calc(4px + env(safe-area-inset-top));
+  margin:0; background:var(--panel2); box-shadow:-7px 0 8px var(--panel2); }
+html[data-view="desk"] .btn{ font-size:9px; padding:4px 8px; }
+html[data-view="desk"] .btn.icon{ width:28px; height:23px; padding:4px; }
+html[data-view="ipad"] .btn{ font-size:8px; padding:3px 7px; }
+html[data-view="ipad"] .btn.icon{ width:24px; height:20px; padding:3px; }
+html[data-view="compact"] .btn{ font-size:7px; padding:2px 5px; }
+html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="k">X · XFLOAT</span>
+  <span id="xfState" hidden>waiting</span>
+  <button class="btn icon" id="bXList" type="button" style="display:none" title="Trading list" aria-label="Show trading list">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4h8M5 8h8M5 12h8"/><path d="M2.5 4h.01M2.5 8h.01M2.5 12h.01"/></svg>
+  </button>
+  <button class="btn icon" id="bXNotify" type="button" style="display:none" title="Notifications" aria-label="Show notifications">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 11.5h9l-1.1-1.7V7a3.4 3.4 0 0 0-6.8 0v2.8z"/><path d="M6.6 13.2a1.6 1.6 0 0 0 2.8 0"/></svg>
+  </button>
+  <span class="btn" id="bXBack" style="display:none">−30s</span>
+  <span class="btn" id="bXRefresh" style="display:none">refresh</span>
+  <span class="btn go" id="bStart" style="display:none">browser picker</span>
+  <span class="btn" id="bStop" style="display:none">stop</span>
+  <button class="btn pair" id="bPair" type="button" style="display:none">pair iPad</button>
+  <span class="btn" id="bPip" style="display:none" title="float this in its own always-on-top window">pip</span>
+  <span class="lbl" id="lz" style="display:none">zoom</span>
+  <input type="range" id="z" min="100" max="400" value="150" style="display:none">
+  <span class="lbl" id="lx" style="display:none">pan</span>
+  <input type="range" id="px" min="-50" max="50" value="0" style="display:none">
+  <span class="btn" id="bFull" title="expand this pane">⛶</span>
+</div>
+
+<div id="body">
+  <video id="v" autoplay muted playsinline></video>
+  <canvas id="cv"></canvas>
+  <div id="card">
+    <div class="n">X source is offline</div>
+    <div class="d">Open the dedicated <b>x.com</b> source tab in this Chrome profile and press
+      <b>Option+Shift+S</b> once. After that, Station keeps the capture alive across Station reloads and
+      duplicate display tabs. Your separate X Feed Float remains independent.</div>
+    <div class="alt">
+      <a class="btn" href="https://x.com/home" target="_blank" rel="noopener">open x.com</a>
+    </div>
+    <div id="err"></div>
+  </div>
+</div>
+<div id="pairInfo" hidden><span id="pairState">waiting for iPad</span><span id="pairLink"></span></div>
+
+<script>
+"use strict";
+const el = (id) => document.getElementById(id);
+const QS = new URLSearchParams(location.search);
+const VIEW_PROFILES = ["auto","desk","ipad","display","compact"];
+let VIEW_PROFILE = VIEW_PROFILES.includes(QS.get("view")) ? QS.get("view") : "auto";
+document.documentElement.dataset.view = VIEW_PROFILE;
+const REMOTE_PAIR = /^[A-Za-z0-9_-]{32,}$/.test(QS.get("pair") || "") ? QS.get("pair") : "";
+const REMOTE_CODE = /^[0-9]{6}$/.test(QS.get("code") || "") ? QS.get("code") : "";
+const REMOTE_MODE = QS.get("remote") === "1" && !!REMOTE_PAIR && !!REMOTE_CODE;
+function createRemoteViewerId() {
+  const bytes = new Uint8Array(18); crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+function stableRemoteViewerId(pair, storage, createId) {
+  if (!pair) return createId();
+  const key = "scintilla.station.remote-viewer.v1." + pair;
+  try {
+    const existing = storage?.getItem(key) || "";
+    if (/^[A-Za-z0-9_-]{16,}$/.test(existing)) return existing;
+    const viewerId = createId();
+    storage?.setItem(key, viewerId);
+    return viewerId;
+  } catch (_) {
+    return createId();
+  }
+}
+const REMOTE_VIEWER = stableRemoteViewerId(REMOTE_PAIR, sessionStorage, createRemoteViewerId);
+/* New per receiver document: stable viewer identity is retained across a
+   refresh, while this generation prevents a late old-page signal winning. */
+const REMOTE_RECEIVER_GENERATION = createRemoteViewerId();
+/* Station mirrors receive the same stream, but only one visible direct
+   receiver should drive the source's scroll clock.  Remote iPad viewers never
+   issue source ticks, so they deliberately stay outside this local election. */
+const VIEWER_CLOCK_ID = createRemoteViewerId();
+const VIEWER_CLOCK_HEARTBEAT_MS = 1000;
+const VIEWER_CLOCK_STALE_MS = 2600;
+const VIEWER_PAINT_INTERVAL_MS = 80;  /* 12.5fps: readable motion, lighter canvas work */
+const STATION_TICK_INTERVAL_MS = 100; /* 10Hz: source scroll cadence */
+
+function clockOwnerFor(selfId, peers, now, selfVisible = true) {
+  const candidates = selfVisible ? [selfId] : [];
+  for (const [id, peer] of peers.entries()) {
+    if (peer?.visible && now - Number(peer.seenAt || 0) <= VIEWER_CLOCK_STALE_MS) candidates.push(id);
+  }
+  return candidates.sort()[0] || selfId;
+}
+const STATION_REALTIME_URL = "wss://wadinxqplrggagkvrdag.supabase.co/realtime/v1/websocket";
+/* Publishable browser key verified against the live Realtime endpoint. */
+const STATION_REALTIME_KEY = "sb_publishable_AutibLpFtTns-WHAg67Pvw_I0HmjqE9";
+const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const CAN = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) && !IOS;
+
+let stream = null;
+let xfloatStream = null;
+let xfloatPeer = null;
+let xfloatCrop = null;
+let xfloatFrame = 0;
+let xfloatPaused = false;
+let xfloatExpanded = false;
+let xfloatDrawAt = 0;
+let stationTickFrame = 0;
+let stationTickAt = 0;
+let viewerClockOwner = true;
+const viewerClockPeers = new Map();
+const viewerCadence = { paintFrames:0, paintSkipped:0, tickAttempts:0, tickSent:0, ownerChanges:0,
+  lastPaintAt:0, lastTickAt:0, viewerId:VIEWER_CLOCK_ID, ownerId:VIEWER_CLOCK_ID };
+const viewerClockChannel = !REMOTE_MODE && typeof BroadcastChannel === "function"
+  ? new BroadcastChannel("scintilla.station.x-clock.v1") : null;
+let viewerClockHeartbeat = 0;
+let stationPair = null;
+let stationPairReconnect = null;
+let stationBridgeInstanceId = "";
+const stationPendingRemoteOffers = new Map();
+let remoteSocket = null;
+let remotePeer = null;
+let remoteOfferRetry = null;
+let remoteReconnect = null;
+let remoteFrameAt = 0;
+let remoteVisibilityCheck = null;
+const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
+const STATION_JOIN_TIMEOUT_MS = 5000;
+
+function publishViewerCadence() {
+  /* Read-only diagnostics for the performance pass.  No user setting or
+     persistent state is created; tests and a live inspector can read this. */
+  window.__SCINTILLA_X_CADENCE = Object.assign({}, viewerCadence, {
+    owner:viewerClockOwner,
+    visible:document.visibilityState === "visible"
+  });
+}
+
+function refreshViewerClock(visible = document.visibilityState === "visible") {
+  if (REMOTE_MODE) return;
+  const now = Date.now();
+  viewerClockPeers.set(VIEWER_CLOCK_ID, { visible, seenAt:now });
+  const nextOwner = clockOwnerFor(VIEWER_CLOCK_ID, viewerClockPeers, now, visible);
+  if ((nextOwner === VIEWER_CLOCK_ID) !== viewerClockOwner) viewerCadence.ownerChanges += 1;
+  viewerClockOwner = nextOwner === VIEWER_CLOCK_ID;
+  viewerCadence.ownerId = nextOwner;
+  publishViewerCadence();
+}
+
+function announceViewerClock(visible = document.visibilityState === "visible") {
+  if (REMOTE_MODE) return;
+  viewerClockChannel?.postMessage({ type:"presence", id:VIEWER_CLOCK_ID, visible, at:Date.now() });
+  refreshViewerClock(visible);
+}
+
+if (viewerClockChannel) {
+  viewerClockChannel.addEventListener("message", (event) => {
+    const payload = event.data;
+    if (payload?.type !== "presence" || payload.id === VIEWER_CLOCK_ID ||
+        !/^[A-Za-z0-9_-]{16,}$/.test(String(payload.id || ""))) return;
+    viewerClockPeers.set(payload.id, { visible:Boolean(payload.visible), seenAt:Number(payload.at) || Date.now() });
+    refreshViewerClock();
+  });
+  viewerClockHeartbeat = setInterval(() => announceViewerClock(), VIEWER_CLOCK_HEARTBEAT_MS);
+}
+announceViewerClock();
+
+function stationRemoteKey(pairId, viewerId) {
+  return String(pairId || "") + ":" + String(viewerId || "");
+}
+
+function sendStationRemoteOffer(pending) {
+  if (!stationBridgeInstanceId || !pending) return;
+  window.postMessage({
+    type:"XFF_STATION_REMOTE_OFFER",
+    instanceId:stationBridgeInstanceId,
+    pairId:pending.pairId,
+    viewerId:pending.viewerId,
+    receiverGeneration:pending.receiverGeneration,
+    offer:pending.offer
+  }, location.origin);
+}
+
+function queueStationRemoteOffer(pairId, viewerId, receiverGeneration, offer) {
+  const pending = { pairId, viewerId, receiverGeneration, offer };
+  stationPendingRemoteOffers.set(stationRemoteKey(pairId, viewerId), pending);
+  sendStationRemoteOffer(pending);
+}
+
+function flushStationRemoteOffers() {
+  if (!stationBridgeInstanceId) return;
+  for (const pending of stationPendingRemoteOffers.values()) sendStationRemoteOffer(pending);
+}
+
+function clearStationRemoteOffer(pairId, viewerId, receiverGeneration) {
+  const key = stationRemoteKey(pairId, viewerId), pending = stationPendingRemoteOffers.get(key);
+  if (!pending || !receiverGeneration || pending.receiverGeneration === receiverGeneration)
+    stationPendingRemoteOffers.delete(key);
+}
+
+function pairingToken() {
+  const bytes = new Uint8Array(24); crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/," ").trim();
+}
+
+function pairingCode() { return String(Math.floor(100000 + Math.random() * 900000)); }
+
+function trustedIpadPair() {
+  try {
+    const existing = JSON.parse(localStorage.getItem(TRUSTED_IPAD_KEY) || "null");
+    if (/^[A-Za-z0-9_-]{32,}$/.test(existing?.token || "") && /^[0-9]{6}$/.test(existing?.code || "")) return existing;
+  } catch (_) {}
+  const created = { token: pairingToken(), code: pairingCode() };
+  try { localStorage.setItem(TRUSTED_IPAD_KEY, JSON.stringify(created)); } catch (_) {}
+  return created;
+}
+
+function savedTrustedIpadPair() {
+  try {
+    const existing = JSON.parse(localStorage.getItem(TRUSTED_IPAD_KEY) || "null");
+    return /^[A-Za-z0-9_-]{32,}$/.test(existing?.token || "") && /^[0-9]{6}$/.test(existing?.code || "") ? existing : null;
+  } catch (_) { return null; }
+}
+
+function stationRealtimeRoom(pair, onDisconnect) {
+  const topic = "realtime:station-ipad:" + pair.token;
+  const socket = new WebSocket(STATION_REALTIME_URL + "?apikey=" +
+    encodeURIComponent(STATION_REALTIME_KEY) + "&vsn=1.0.0");
+  let ref = 0, joined = false, deliberatelyClosed = false, disconnected = false, joinTimeout = null;
+  const clearJoinTimeout = () => {
+    if (joinTimeout) clearTimeout(joinTimeout);
+    joinTimeout = null;
+  };
+  const disconnect = () => {
+    if (deliberatelyClosed || disconnected) return;
+    disconnected = true;
+    clearJoinTimeout();
+    onDisconnect?.();
+  };
+  const send = (event, payload) => {
+    if (socket.readyState !== WebSocket.OPEN) return false;
+    socket.send(JSON.stringify({ topic, event, payload, ref: String(++ref), join_ref: "1" }));
+    return true;
+  };
+  const awaitJoin = () => {
+    clearJoinTimeout();
+    joinTimeout = setTimeout(() => {
+      if (joined || deliberatelyClosed) return;
+      disconnect();
+      try { socket.close(); } catch (_) {}
+    }, STATION_JOIN_TIMEOUT_MS);
+  };
+  socket.addEventListener("open", () => {
+    if (send("phx_join", { config:{ broadcast:{ self:false, ack:true }, presence:{ key:"" }, private:false } })) awaitJoin();
+  });
+  socket.addEventListener("error", () => {
+    disconnect();
+    try { socket.close(); } catch (_) {}
+  });
+  socket.addEventListener("close", disconnect);
+  socket.addEventListener("message", (event) => {
+    let message; try { message = JSON.parse(event.data); } catch (_) { return; }
+    if (message.event === "phx_reply" && message.ref === "1") {
+      joined = message.payload?.status === "ok";
+      clearJoinTimeout();
+      if (!joined) {
+        disconnect();
+        try { socket.close(); } catch (_) {}
+      }
+      return;
+    }
+    if (!joined || message.event !== "broadcast") return;
+    const payload = message.payload || {};
+    if (payload.event === "offer" && stationPair && payload.payload?.code === stationPair.code &&
+        /^[A-Za-z0-9_-]{16,}$/.test(payload.payload?.viewerId || "") &&
+        /^[A-Za-z0-9_-]{16,}$/.test(payload.payload?.receiverGeneration || "") && payload.payload?.offer) {
+      el("pairState").textContent = "iPad request received";
+      queueStationRemoteOffer(stationPair.token, payload.payload.viewerId, payload.payload.receiverGeneration, payload.payload.offer);
+    }
+    if (payload.event === "control" && stationPair && payload.payload?.code === stationPair.code) {
+      const action = payload.payload?.action;
+      const value = payload.payload?.value;
+      if (["view", "rewind", "refresh"].includes(action)) {
+        window.postMessage({ type:"XFF_STATION_CONTROL", action, value }, location.origin);
+      }
+    }
+    if (payload.event === "drop" && stationPair && payload.payload?.code === stationPair.code &&
+        /^[A-Za-z0-9_-]{16,}$/.test(payload.payload?.viewerId || "") &&
+        /^[A-Za-z0-9_-]{16,}$/.test(payload.payload?.receiverGeneration || "")) {
+      clearStationRemoteOffer(stationPair.token, payload.payload.viewerId, payload.payload.receiverGeneration);
+      if (!stationBridgeInstanceId) return;
+      window.postMessage({
+        type:"XFF_STATION_REMOTE_DROP",
+        instanceId:stationBridgeInstanceId,
+        pairId:stationPair.token,
+        viewerId:payload.payload.viewerId,
+        receiverGeneration:payload.payload.receiverGeneration
+      }, location.origin);
+    }
+  });
+  return {
+    publish(event, payload) { send("broadcast", { type:"broadcast", event, payload }); },
+    close() {
+      deliberatelyClosed = true;
+      clearJoinTimeout();
+      try { send("phx_leave", {}); socket.close(); } catch (_) {}
+    }
+  };
+}
+
+function reconnectStationPairRoom(pair) {
+  if (stationPair !== pair || stationPairReconnect) return;
+  el("pairState").textContent = "rejoining iPad link";
+  stationPairReconnect = setTimeout(() => {
+    stationPairReconnect = null;
+    if (stationPair !== pair) return;
+    pair.room = stationRealtimeRoom(pair, () => reconnectStationPairRoom(pair));
+  }, 350);
+}
+
+function stopStationPairing() {
+  if (!stationPair) return;
+  window.postMessage({ type:"XFF_STATION_REMOTE_DROP", pairId:stationPair.token }, location.origin);
+  stationPendingRemoteOffers.clear();
+  clearTimeout(stationPairReconnect); stationPairReconnect = null;
+  stationPair.room?.close(); stationPair = null;
+  el("bPair").textContent = "copy iPad link";
+}
+
+function startStationPairing() {
+  if (stationPair) {
+    navigator.clipboard?.writeText(el("pairLink").textContent).catch(() => {});
+    return;
+  }
+  const { token, code } = trustedIpadPair();
+  stationPair = { token, code, room:null };
+  stationPair.room = stationRealtimeRoom(stationPair, () => reconnectStationPairRoom(stationPair));
+  /* This is the durable Companion route.  Its saved trusted pair survives a
+     Safari refresh/wake; the legacy station-viewer route was a one-purpose
+     full-frame receiver with a 30-minute timeout. */
+  const link = location.origin + "/station-ipad/#pair=" + encodeURIComponent(token) + "&code=" + encodeURIComponent(stationPair.code);
+  el("pairState").textContent = "waiting for iPad"; el("pairLink").textContent = link;
+  el("bPair").textContent = "copy iPad link";
+  navigator.clipboard?.writeText(link).catch(() => {});
+}
+
+function postXFloat(action, value) {
+  if (REMOTE_MODE) {
+    if (["view", "rewind", "refresh"].includes(action) && remoteSocket?.readyState === WebSocket.OPEN) {
+      remoteSocket.send(JSON.stringify({ topic:"realtime:station-ipad:" + REMOTE_PAIR, event:"broadcast", payload:{ type:"broadcast", event:"control", payload:{ code:REMOTE_CODE, action, value } }, ref:String(Date.now()), join_ref:"1" }));
+    }
+    return;
+  }
+  window.postMessage({ type: "XFF_STATION_CONTROL", action, value }, location.origin);
+}
+
+function paintXView(view) {
+  const notifications = view === "notifications";
+  el("bXList").classList.toggle("on", !notifications);
+  el("bXNotify").classList.toggle("on", notifications);
+}
+
+function xfloatControls(on) {
+  for (const id of ["bXList", "bXNotify", "bXBack", "bXRefresh"])
+    el(id).style.display = on ? "" : "none";
+  el("bStart").style.display = "none";
+  el("bPair").style.display = on && !REMOTE_MODE ? "" : "none";
+}
+
+function stopXFloat({ notify = true } = {}) {
+  if (xfloatFrame) cancelAnimationFrame(xfloatFrame);
+  xfloatFrame = 0;
+  if (stationTickFrame) cancelAnimationFrame(stationTickFrame);
+  stationTickFrame = 0;
+  stationTickAt = 0;
+  xfloatDrawAt = 0;
+  if (xfloatStream) for (const track of xfloatStream.getTracks()) track.stop();
+  xfloatStream = null;
+  if (xfloatPeer) xfloatPeer.close();
+  xfloatPeer = null;
+  if (remotePeer) remotePeer.close();
+  remotePeer = null;
+  if (remoteOfferRetry) clearInterval(remoteOfferRetry);
+  remoteOfferRetry = null;
+  if (REMOTE_MODE && remoteSocket?.readyState === WebSocket.OPEN) {
+    remoteSocket.send(JSON.stringify({
+      topic:"realtime:station-ipad:" + REMOTE_PAIR,
+      event:"broadcast",
+      payload:{ type:"broadcast", event:"drop", payload:{ code:REMOTE_CODE, viewerId:REMOTE_VIEWER,
+        receiverGeneration:REMOTE_RECEIVER_GENERATION } },
+      ref:String(Date.now()), join_ref:"1"
+    }));
+  }
+  if (remoteSocket) remoteSocket.close();
+  remoteSocket = null;
+  remoteFrameAt = 0;
+  xfloatPaused = false;
+  el("v").srcObject = stream;
+  document.body.classList.remove("xfloat");
+  xfloatControls(false);
+  el("xfState").textContent = "waiting";
+  el("xfState").classList.remove("on");
+  if (notify) window.postMessage({ type: "XFF_STATION_STOP" }, location.origin);
+}
+
+function drawXFloat(at = 0) {
+  if (!xfloatStream || !xfloatCrop) {
+    xfloatFrame = requestAnimationFrame(drawXFloat);
+    return;
+  }
+  if (at && at - xfloatDrawAt < VIEWER_PAINT_INTERVAL_MS) {
+    viewerCadence.paintSkipped += 1;
+    publishViewerCadence();
+    xfloatFrame = requestAnimationFrame(drawXFloat);
+    return;
+  }
+  xfloatDrawAt = at;
+  viewerCadence.paintFrames += 1;
+  viewerCadence.lastPaintAt = at;
+  publishViewerCadence();
+  const video = el("v"), canvas = el("cv"), host = el("body");
+  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth) {
+    const viewport = xfloatCrop.viewport || { width: video.videoWidth, height: video.videoHeight };
+    const rect = xfloatCrop.rect || { left: 0, top: 0, width: viewport.width, height: viewport.height };
+    const scaleX = video.videoWidth / Math.max(1, viewport.width);
+    const scaleY = video.videoHeight / Math.max(1, viewport.height);
+    const sx = Math.max(0, rect.left * scaleX);
+    const sy = Math.max(0, (rect.top + (xfloatCrop.fractionalScrollOffset || 0)) * scaleY);
+    const sw = Math.min(video.videoWidth - sx, rect.width * scaleX);
+    const shAvailable = Math.min(video.videoHeight - sy, rect.height * scaleY);
+    const ratio = Math.min(1.25, devicePixelRatio || 1);
+    const tw = Math.max(280, Math.round(host.clientWidth * ratio));
+    const th = Math.max(220, Math.round(host.clientHeight * ratio));
+    if (canvas.width !== tw || canvas.height !== th) { canvas.width = tw; canvas.height = th; }
+    const ctx = canvas.getContext("2d", { alpha: false });
+    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, tw, th);
+    if (sw > 1 && shAvailable > 1) {
+      const padCss = Math.max(4, Math.min(8, host.clientWidth * .015));
+      const pad = Math.round(padCss * ratio);
+      /* A narrow pane should use every pixel. When the pane expands across
+         the row, keep the feed at a readable, height-aware width instead of
+         stretching the same X column into billboard-sized text. */
+      /* The X source is already zoomed and cropped to its center column. A
+         second desk-only source crop clipped the left edge of names/text. */
+      const profileScale = VIEW_PROFILE === "compact" ? .92 : 1;
+      const sourceWidth = Math.max(1, Math.min(sw, sw / profileScale));
+      const sourceX = Math.max(sx, sx + (sw - sourceWidth) / 2);
+      const readableCssWidth = xfloatExpanded
+        ? Math.max(1, Math.min(host.clientWidth - padCss * 2, Math.max(420, host.clientHeight * 2.15), 540))
+        : Math.max(1, host.clientWidth - padCss * 2);
+      const dw = Math.max(1, Math.round(readableCssWidth * ratio));
+      const dx = Math.max(pad, Math.round((tw - dw) / 2));
+      const s2d = dw / sourceWidth;
+      const sh = Math.min(shAvailable, th / s2d), dh = sh * s2d;
+      ctx.drawImage(video, sourceX, sy, sourceWidth, sh, dx, 0, dw, dh);
+    }
+  }
+  xfloatFrame = requestAnimationFrame(drawXFloat);
+}
+
+function startStationClock() {
+  if (REMOTE_MODE || stationTickFrame || document.visibilityState !== "visible") return;
+  announceViewerClock(true);
+  const tick = (at) => {
+    if (!xfloatStream || document.visibilityState !== "visible") { stationTickFrame = 0; return; }
+    /* The original X Feed Float clocks scrolling from its visible PiP window.
+       Station has no float window, so its visible pane supplies the clock.
+       This prevents Chrome from throttling the hidden X source tab and turning
+       a 3px/s crawl into one large background-tab step. */
+    if (!stationTickAt || at - stationTickAt >= STATION_TICK_INTERVAL_MS) {
+      stationTickAt = at;
+      viewerCadence.tickAttempts += 1;
+      announceViewerClock(true);
+      if (viewerClockOwner) {
+        viewerCadence.tickSent += 1;
+        viewerCadence.lastTickAt = at;
+        postXFloat("tick", { at: Date.now() });
+      }
+      publishViewerCadence();
+    }
+    stationTickFrame = requestAnimationFrame(tick);
+  };
+  stationTickFrame = requestAnimationFrame(tick);
+}
+
+async function attachXFloatStream(mediaStream) {
+  if (stream) { for (const track of stream.getTracks()) track.stop(); stream = null; }
+  if (xfloatStream && xfloatStream !== mediaStream) {
+    for (const track of xfloatStream.getTracks()) track.stop();
+  }
+  controls(false);
+  xfloatStream = mediaStream;
+  const video = el("v");
+  video.srcObject = xfloatStream;
+  await video.play();
+  if (REMOTE_MODE && typeof video.requestVideoFrameCallback === "function") {
+    remoteFrameAt = performance.now();
+    const noteRemoteFrame = () => {
+      if (video.srcObject !== mediaStream) return;
+      remoteFrameAt = performance.now();
+      video.requestVideoFrameCallback(noteRemoteFrame);
+    };
+    video.requestVideoFrameCallback(noteRemoteFrame);
+  }
+  document.body.classList.remove("live");
+  document.body.classList.add("xfloat");
+  xfloatControls(true);
+  el("xfState").textContent = "live";
+  el("xfState").classList.add("on");
+  xfloatStream.getVideoTracks()[0]?.addEventListener("ended", () => stopXFloat({ notify: false }), { once: true });
+  startStationClock();
+  drawXFloat();
+}
+
+async function startXFloat(streamId) {
+  stopXFloat({ notify: false });
+  const mediaStream = await navigator.mediaDevices.getUserMedia({
+    video: { mandatory: {
+      chromeMediaSource: "tab", chromeMediaSourceId: streamId,
+      minWidth: 240, minHeight: 240, maxWidth: 2560, maxHeight: 1440,
+      minFrameRate: 10, maxFrameRate: 60
+    } },
+    audio: false
+  });
+  await attachXFloatStream(mediaStream);
+}
+
+function waitForIceComplete(connection) {
+  if (connection.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise((resolve) => {
+    const onState = () => {
+      if (connection.iceGatheringState !== "complete") return;
+      connection.removeEventListener("icegatheringstatechange", onState);
+      resolve();
+    };
+    connection.addEventListener("icegatheringstatechange", onState);
+  });
+}
+
+async function startXFloatPeer() {
+  stopXFloat({ notify: false });
+  xfloatPeer = new RTCPeerConnection();
+  xfloatPeer.addTransceiver("video", { direction: "recvonly" });
+  xfloatPeer.addEventListener("track", (event) => {
+    const mediaStream = event.streams[0] || new MediaStream([event.track]);
+    attachXFloatStream(mediaStream).catch((error) => showErr("Station X could not render: " + error.message));
+  });
+  await xfloatPeer.setLocalDescription(await xfloatPeer.createOffer());
+  await waitForIceComplete(xfloatPeer);
+  window.postMessage({
+    type: "XFF_STATION_OFFER",
+    offer: xfloatPeer.localDescription.toJSON()
+  }, location.origin);
+}
+
+/* iPad Companion consumes the same iMac WebRTC media and the same crop data,
+   then runs it through this exact pane renderer.  Thus the deck and controls
+   stay byte-for-byte the normal Station UI. */
+async function startRemoteStationViewer() {
+  if (!REMOTE_MODE) return;
+  let ref = 0, joined = false;
+  remotePeer = new RTCPeerConnection({ iceServers: [] });
+  const activeRemotePeer = remotePeer;
+  remotePeer.addTransceiver("video", { direction:"recvonly" });
+  remotePeer.addEventListener("track", event => {
+    if (remotePeer !== activeRemotePeer) return;
+    clearErr();
+    attachXFloatStream(event.streams[0] || new MediaStream([event.track]))
+      .catch(error => showErr("iMac X could not render: " + error.message));
+  });
+  remotePeer.addEventListener("connectionstatechange", () => {
+    if (remotePeer !== activeRemotePeer) return;
+    if (["failed", "disconnected"].includes(activeRemotePeer.connectionState)) {
+      showErr("Reconnecting to the iMac X source…");
+      scheduleRemoteStationReconnect();
+    }
+  });
+  remoteSocket = new WebSocket(STATION_REALTIME_URL + "?apikey=" + encodeURIComponent(STATION_REALTIME_KEY) + "&vsn=1.0.0");
+  const activeRemoteSocket = remoteSocket;
+  const send = (event, payload) => remoteSocket?.readyState === WebSocket.OPEN && remoteSocket.send(JSON.stringify({ topic:"realtime:station-ipad:" + REMOTE_PAIR, event, payload, ref:String(++ref), join_ref:"1" }));
+  remoteSocket.addEventListener("open", () => send("phx_join", { config:{ broadcast:{ self:false, ack:true }, presence:{ key:"" }, private:false } }));
+  remoteSocket.addEventListener("message", async event => {
+    let message; try { message = JSON.parse(event.data); } catch (_) { return; }
+    if (message.event === "phx_reply" && message.ref === "1") {
+      if (message.payload?.status !== "ok") return showErr("The iMac pairing room was refused.");
+      joined = true;
+      await remotePeer.setLocalDescription(await remotePeer.createOffer());
+      await waitForIceComplete(remotePeer);
+      /* The iMac extension can be reattaching after a Station reload.  Mirror
+         the original viewer's proven offer retry instead of treating one
+         missed broadcast as an offline source. */
+      const sendOffer = () => {
+        if (remotePeer?.remoteDescription) return;
+        send("broadcast", { type:"broadcast", event:"offer", payload:{
+          code:REMOTE_CODE,
+          viewerId:REMOTE_VIEWER,
+          receiverGeneration:REMOTE_RECEIVER_GENERATION,
+          offer:remotePeer.localDescription.toJSON(),
+          at:Date.now()
+        } });
+      };
+      sendOffer();
+      remoteOfferRetry = setInterval(sendOffer, 2000);
+      return;
+    }
+    if (!joined || message.event !== "broadcast") return;
+    const payload = message.payload || {};
+    if (payload.event === "answer" && payload.payload?.viewerId === REMOTE_VIEWER &&
+        payload.payload?.receiverGeneration === REMOTE_RECEIVER_GENERATION && payload.payload?.answer) remotePeer.setRemoteDescription(payload.payload.answer).then(() => {
+      if (remoteOfferRetry) clearInterval(remoteOfferRetry);
+      remoteOfferRetry = null;
+    }).catch(error => showErr("iMac X answer failed: " + error.message));
+    if (payload.event === "crop") { xfloatCrop = payload.payload; paintXView(xfloatCrop?.activeView || "trading"); drawXFloat(); }
+  });
+  remoteSocket.addEventListener("error", () => {
+    if (remoteSocket !== activeRemoteSocket) return;
+    showErr("Reconnecting to the iMac X source…");
+    scheduleRemoteStationReconnect();
+  });
+  remoteSocket.addEventListener("close", () => {
+    if (remoteSocket === activeRemoteSocket) scheduleRemoteStationReconnect();
+  });
+}
+
+function fit() {
+  const host = document.getElementById("body");
+  const v = el("v");
+  if (!host || !v || !v.videoWidth) return;
+  /* cover the pane at zoom 100, then the slider magnifies from there — this
+     is our stand-in for Region Capture's crop to the timeline column */
+  const hw = host.clientWidth, hh = host.clientHeight;
+  const scale = Math.max(hw / v.videoWidth, hh / v.videoHeight) * (+el("z").value / 100);
+  const panX = (+el("px").value / 100) * hw;
+  v.style.width = v.videoWidth + "px";
+  v.style.height = v.videoHeight + "px";
+  v.style.transform = "translate(-50%,-50%) translateX(" + panX + "px) scale(" + scale + ")";
+}
+let raf = 0;
+const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; tiny(); fit(); }); };
+function tiny() { document.body.classList.toggle("tiny", document.documentElement.clientHeight < 240); }
+if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
+addEventListener("resize", nudge); addEventListener("orientationchange", nudge);
+el("z").addEventListener("input", fit);
+el("px").addEventListener("input", fit);
+
+function showErr(m) { const e = el("err"); e.textContent = m; e.style.display = "block"; }
+function clearErr() { const e = el("err"); e.textContent = ""; e.style.display = "none"; }
+
+/* Safari may suspend a WebRTC/WebSocket page while the iPad is locked.  This
+   replaces only this receiver peer when it wakes; it never touches the iMac
+   capture, X tab, or any other Station viewer. */
+function scheduleRemoteStationReconnect() {
+  if (!REMOTE_MODE || document.visibilityState === "hidden" || remoteReconnect) return;
+  remoteReconnect = setTimeout(() => {
+    stopXFloat({ notify:false });
+    remoteReconnect = null;
+    startRemoteStationViewer().catch(error => showErr("iMac X could not reconnect: " + error.message));
+  }, 800);
+}
+
+function controls(on) {
+  for (const id of ["bStop", "bPip", "lz", "z", "lx", "px"]) el(id).style.display = on ? "" : "none";
+  el("bStart").style.display = "none";
+  el("bPip").style.display = (on && document.pictureInPictureEnabled) ? "" : "none";
+}
+
+async function start() {
+  if (!CAN) {
+    showErr(IOS
+      ? "Safari on iPhone and iPad has no screen-capture API at all, so the Station X source must run from Chrome on the Mac."
+      : "This browser does not expose getDisplayMedia, so the live pane is not available here. Use the pop-out below.");
+    return;
+  }
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: "browser", frameRate: { ideal: 30, max: 60 } },
+      audio: false, preferCurrentTab: false, selfBrowserSurface: "exclude",
+      systemAudio: "exclude", surfaceSwitching: "include",
+    });
+  } catch (e) {
+    if (e && e.name === "NotAllowedError") return;    /* user cancelled — say nothing */
+    showErr("Could not start the capture: " + (e && e.name ? e.name : "unknown") + ".");
+    return;
+  }
+  const v = el("v");
+  v.srcObject = stream;
+  document.body.classList.add("live");
+  controls(true);
+  v.addEventListener("loadedmetadata", fit, { once: true });
+  v.addEventListener("resize", fit);
+  stream.getVideoTracks()[0].addEventListener("ended", stop);
+  setTimeout(fit, 120);
+}
+function stop() {
+  if (stream) { for (const t of stream.getTracks()) t.stop(); stream = null; }
+  el("v").srcObject = null;
+  document.body.classList.remove("live");
+  controls(false);
+}
+el("bStart").addEventListener("click", start);
+el("bStop").addEventListener("click", stop);
+el("bPair").addEventListener("click", startStationPairing);
+
+el("bXBack").addEventListener("click", () => postXFloat("rewind"));
+el("bXRefresh").addEventListener("click", () => postXFloat("refresh"));
+el("bXList").addEventListener("click", () => postXFloat("view", "trading"));
+el("bXNotify").addEventListener("click", () => postXFloat("view", "notifications"));
+el("bFull").addEventListener("click", () => {
+  parent.postMessage({ type: "SCINTILLA_DECK_TOGGLE_FULL" }, location.origin);
+});
+el("body").addEventListener("pointerenter", () => { if (xfloatStream) postXFloat("pause", true); });
+el("body").addEventListener("pointerleave", () => { if (xfloatStream && !xfloatPaused) postXFloat("pause", false); });
+
+window.addEventListener("message", (event) => {
+  if (event.source !== window || event.origin !== location.origin) return;
+  if (event.data?.type === "XFF_STATION_BRIDGE_READY" && event.data.instanceId) {
+    stationBridgeInstanceId = String(event.data.instanceId);
+    flushStationRemoteOffers();
+    if (!xfloatStream) el("xfState").textContent = "ready";
+  }
+  if (event.data?.type === "XFF_STATION_BRIDGE_REANNOUNCING" &&
+      String(event.data.instanceId || "") === stationBridgeInstanceId) {
+    stationBridgeInstanceId = "";
+    if (stationPair) el("pairState").textContent = "receiver reannouncing";
+  }
+  if (event.data?.type === "XFF_STATION_REMOTE_ACCEPTED" &&
+      String(event.data.instanceId || "") === stationBridgeInstanceId) {
+    clearStationRemoteOffer(event.data.pairId, event.data.viewerId, event.data.receiverGeneration);
+  }
+  if (event.data?.type === "XFF_STATION_STREAM" && event.data.streamId) {
+    startXFloat(event.data.streamId).catch((error) => showErr("XFloat could not connect: " + error.message));
+  }
+  if (event.data?.type === "XFF_STATION_WEBRTC_START") {
+    startXFloatPeer().catch((error) => showErr("Station X could not connect: " + error.message));
+  }
+  if (event.data?.type === "XFF_STATION_ANSWER" && event.data.answer && xfloatPeer) {
+    xfloatPeer.setRemoteDescription(event.data.answer)
+      .catch((error) => showErr("Station X answer failed: " + error.message));
+  }
+  if (event.data?.type === "XFF_STATION_REMOTE_ANSWER" && event.data.answer && stationPair &&
+      String(event.data.instanceId || "") === stationBridgeInstanceId &&
+      event.data.pairId === stationPair.token && /^[A-Za-z0-9_-]{16,}$/.test(event.data.viewerId || "") &&
+      /^[A-Za-z0-9_-]{16,}$/.test(event.data.receiverGeneration || "")) {
+    clearStationRemoteOffer(event.data.pairId, event.data.viewerId, event.data.receiverGeneration);
+    stationPair.room?.publish("answer", { viewerId:event.data.viewerId, receiverGeneration:event.data.receiverGeneration,
+      answer:event.data.answer, at:Date.now() });
+    el("pairState").textContent = "iPad connected";
+  }
+  if (event.data?.type === "XFF_STATION_CROP") {
+    xfloatCrop = event.data.crop;
+    const paused = Boolean(xfloatCrop?.paused);
+    el("xfState").textContent = paused ? "paused" : "live";
+    paintXView(xfloatCrop?.activeView || "trading");
+    if (stationPair) stationPair.room?.publish("crop", xfloatCrop);
+  }
+  if (event.data?.type === "XFF_STATION_STATUS") {
+    if (event.data.status === "stopped") stopXFloat({ notify: false });
+    else if (event.data.status === "error") showErr(event.data.detail || "Station X could not connect.");
+    else if (!xfloatStream) el("xfState").textContent = event.data.status || "waiting";
+  }
+});
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin) return;
+  if (event.data?.type === "SCINTILLA_VIEW_PROFILE") {
+    VIEW_PROFILE = VIEW_PROFILES.includes(event.data.view) ? event.data.view : "auto";
+    document.documentElement.dataset.view = VIEW_PROFILE;
+    tiny(); return;
+  }
+  if (event.data?.type !== "SCINTILLA_DECK_FULL_STATE") return;
+  xfloatExpanded = !!event.data.active;
+  el("bFull").textContent = event.data.active ? "↙" : "⛶";
+});
+
+/* REAL picture-in-picture. The capture is a genuine <video>, so this is the
+   browser's own always-on-top window — not an imitation of one. */
+el("bPip").addEventListener("click", async () => {
+  const v = el("v");
+  try {
+    if (document.pictureInPictureElement) await document.exitPictureInPicture();
+    else await v.requestPictureInPicture();
+  } catch (e) { showErr("Picture-in-picture was refused: " + (e && e.name ? e.name : "unknown") + "."); }
+});
+
+tiny();
+window.addEventListener("resize", () => postXFloat("resize", { width: innerWidth, height: innerHeight }));
+/* Tear down only this page's video/canvas objects. The helper keeps the
+   already user-approved source capture alive until an explicit stop or the X
+   source tab itself closes, so Station reloads and display tabs do not drop it. */
+window.addEventListener("pagehide", () => stopXFloat({ notify: false }));
+window.addEventListener("pagehide", () => stopStationPairing());
+window.addEventListener("visibilitychange", () => {
+  if (!REMOTE_MODE) {
+    announceViewerClock(document.visibilityState === "visible");
+    if (document.visibilityState === "visible" && xfloatStream) startStationClock();
+  }
+  if (!REMOTE_MODE || document.visibilityState !== "visible") return;
+  clearTimeout(remoteVisibilityCheck);
+  /* Give Safari a moment to resume a healthy peer.  Reconnect only if its
+     actual video-frame clock remains stalled, avoiding an offline flash each
+     time the user switches back to the Companion. */
+  remoteVisibilityCheck = setTimeout(() => {
+    const staleFrame = !remoteFrameAt || performance.now() - remoteFrameAt > 2500;
+    const badPeer = !remotePeer || ["failed", "disconnected", "closed"].includes(remotePeer.connectionState);
+    if (staleFrame || badPeer) scheduleRemoteStationReconnect();
+  }, 2800);
+});
+if (REMOTE_MODE) startRemoteStationViewer().catch(error => showErr("iMac X could not connect: " + error.message));
+else if (savedTrustedIpadPair()) startStationPairing();
+</script>
+</body>
+</html>
