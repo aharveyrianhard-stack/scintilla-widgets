@@ -10,6 +10,9 @@ const scenes = context.globalThis.StationScenes;
 const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
 const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
 const videoPane = fs.readFileSync(new URL("../pane-video/index.html", import.meta.url), "utf8");
+const chartShell = fs.readFileSync(new URL("../station-shells/chart-v1/index.html", import.meta.url), "utf8");
+const videoShell = fs.readFileSync(new URL("../station-shells/video-v1/index.html", import.meta.url), "utf8");
+const xShell = fs.readFileSync(new URL("../station-shells/x-v1/index.html", import.meta.url), "utf8");
 const youtubeHub = fs.readFileSync(new URL("../youtube/index.html", import.meta.url), "utf8");
 const ipadCompanion = fs.readFileSync(new URL("../station-ipad/index.html", import.meta.url), "utf8");
 const stationManifest = JSON.parse(fs.readFileSync(new URL("../station/manifest.json", import.meta.url), "utf8"));
@@ -206,8 +209,24 @@ test("display window action stays separate from the remembered layout chooser", 
 test("Scenes V2 stays local-only and preserves the current iPad companion", () => {
   assert.doesNotMatch(deck, /passwordless|signInWithOtp|station_shared_state/i);
   assert.match(deck, /IPAD_COMPANION/);
-  assert.match(deck, /\/pane-x\?remote=1/);
+  assert.match(deck, /STATION_SHELL\.x \+ "\?shell=v1&remote=1/);
   assert.match(deck, /const sessionRemembered = \(key\) =>/);
+});
+
+test("Station pins chart, video, and X to independently versioned shells", () => {
+  assert.match(deck, /const STATION_SHELL = Object\.freeze\(/);
+  assert.match(deck, /chart: "\/station-shells\/chart-v1"/);
+  assert.match(deck, /video: "\/station-shells\/video-v1"/);
+  assert.match(deck, /x: "\/station-shells\/x-v1"/);
+  assert.equal(chartShell, chart, "chart shell is a frozen copy of the reviewed chart surface");
+  assert.equal(videoShell, videoPane, "video shell is a frozen copy of the reviewed video surface");
+  assert.match(xShell, /function drawXFloat\(/, "X shell has its own reviewed renderer surface");
+  assert.match(xShell, /function attachXFloatStream\(/);
+  assert.match(xShell, /const availableAtRequestedY = Math\.max\(0, video\.videoHeight - requestedY\)/);
+  assert.doesNotMatch(xShell, /if \(sw > 1 && shAvailable > 1\)/,
+    "the X shell never reads a height value before the crop calculation defines it");
+  assert.doesNotMatch(xShell, /const shAvailable = Math\.max\(0, video\.videoHeight - sy\)/);
+  assert.match(xShell, /const availableSourceHeight = Math\.max\(0, video\.videoHeight - sy\)/);
 });
 
 test("iPad profile keeps the complete Station wall with proportional child typography", () => {
@@ -240,11 +259,13 @@ test("generated paired iPad companion routes carry the iPad profile through the 
     RANGE: "3h",
     VIEW: "ipad",
     CHART_COUNT: 3,
+    STATION_SHELL: { chart:"/station-shells/chart-v1" },
     SceneModel: { hidesTopChartAxis: () => false }
   });
   assert.match(companionChartSrc("SPY", 0), /view=ipad/);
-  assert.match(deck, /\/pane-video\?feed=personal[^\n]*&view=" \+ encodeURIComponent\(VIEW\)/);
-  assert.match(deck, /\/pane-x\?remote=1[^\n]*&view=" \+ encodeURIComponent\(VIEW\)/);
+  assert.match(companionChartSrc("SPY", 0), /^\/station-shells\/chart-v1\?shell=v1/);
+  assert.match(deck, /STATION_SHELL\.video \+ "\?shell=v1&feed=personal/);
+  assert.match(deck, /STATION_SHELL\.x \+ "\?shell=v1&remote=1/);
 });
 
 test("CUSTOM preserves the screenshot-shaped sparse six-slot workspace", () => {
@@ -381,6 +402,7 @@ test("top cards suppress their own dates while each lower card paints its column
     VIEW: "desk",
     CHART_COUNT: 6,
     encodeURIComponent,
+    STATION_SHELL: { chart:"/station-shells/chart-v1" },
     SceneModel: { hidesTopChartAxis: scenes.hidesTopChartAxis }
   });
   assert.match(chartSrc("TSM", 0), /t=TSM/);
@@ -391,6 +413,7 @@ test("top cards suppress their own dates while each lower card paints its column
     VIEW: "desk",
     CHART_COUNT: 3,
     encodeURIComponent,
+    STATION_SHELL: { chart:"/station-shells/chart-v1" },
     SceneModel: { hidesTopChartAxis: scenes.hidesTopChartAxis }
   });
   assert.doesNotMatch(localAxisChartSrc("TSM", 0), /sharedAxis=1/);
