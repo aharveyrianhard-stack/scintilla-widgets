@@ -7,11 +7,16 @@ const read = (path) => fs.readFileSync(new URL("../" + path, import.meta.url), "
 const deck = read("deck/index.html");
 const testingRuntime = read("testing-surface.js");
 const ipad = read("station-ipad/index.html");
+const liveTestRoute = read("station-live-test/index.html");
+const ipadLiveTestRoute = read("station-ipad-live-test/index.html");
 const paneX = read("pane-x/index.html");
 const paneXCore = read("pane-x/pane-x-presentation-core.js");
 const paneXReplay = read("pane-x/pane-x-test-replay.js");
 const paneXMotion = read("pane-x/fixtures/x-crop-motion.js");
 const paneXFixture = read("pane-x/fixtures/x-feed-static.svg");
+const paneXLiveTest = read("pane-x-live-test/index.html");
+const paneXLiveTestCore = read("pane-x-live-test/pane-x-presentation-core.js");
+const vercel = read("vercel.json");
 const stableXShell = read("station-shells/x-v2/index.html");
 const personalVideo = read("station-shells/personal-video-v1/index.html");
 const scintillaVideo = read("station-shells/scintilla-video-v1/index.html");
@@ -44,7 +49,9 @@ test("testing twin preserves component separation and uses only the isolated X c
     "stable host retains the exact admitted X endpoint");
   assert.match(deck, /const STATION_X_SHELL = window\.ScintillaTestingSurface\?\.active \? "\/pane-x\/" : STATION_SHELL\.x/,
     "the testing pane uses a directory route so its five local relative assets stay pane-scoped");
-  assert.match(deck, /href="\/station-ipad\/">testing iPad/);
+  assert.match(deck, /id="testingXReplay" href="\/deck\/" aria-current="page">REPLAY/);
+  assert.match(deck, /id="testingXLive" href="\/station-live-test\/">LIVE TEST/);
+  assert.match(deck, /id="testingIpadLink" href="\/station-ipad\/">replay iPad/);
 });
 
 test("the testing wall keeps market freshness status live without the canonical scope error", () => {
@@ -59,6 +66,19 @@ test("testing iPad route mounts the same iPad wall without reading or writing th
     "the durable pair logic remains isolated behind the non-testing branch");
   const testingBranch = ipad.slice(ipad.indexOf("if(testing)"), ipad.indexOf("else{let pairHash="));
   assert.doesNotMatch(testingBranch, /localStorage|ipadPair|ipadCode|pairHash/);
+});
+
+test("LIVE TEST is additive while REPLAY remains the default unchanged pane runtime", () => {
+  assert.match(deck, /QS\.get\("x"\) === "live-test" \? "live-test" : "replay"/);
+  assert.match(deck, /const TEST_X_LIVE = TEST_X_MODE === "live-test"/);
+  assert.match(deck, /const STATION_X_MODE_QUERY = [^;]+\? "&mode=live-test&x-test=1" : ""/);
+  assert.match(deck, /X · LIVE TEST · DISCONNECTED/);
+  assert.match(deck, /TEST BRIDGE NOT INSTALLED/);
+  assert.match(liveTestRoute, /<iframe src="\/deck\/\?x=live-test"/);
+  assert.match(ipadLiveTestRoute, /<iframe src="\/deck\/\?view=ipad&amp;x=live-test"/);
+  assert.doesNotMatch(liveTestRoute, /localStorage|sessionStorage|ipadPair|ipadCode|pairHash/);
+  assert.doesNotMatch(ipadLiveTestRoute, /localStorage|sessionStorage|ipadPair|ipadCode|pairHash/);
+  assert.match(vercel, /"source": "\/pane-x\/"[\s\S]*?"type": "query"[\s\S]*?"key": "mode"[\s\S]*?"value": "live-test"[\s\S]*?"destination": "\/pane-x-live-test\/index\.html"/);
 });
 
 test("testing X is a local static replay with no Bridge, transport, pair, controller, or tick authority", () => {
@@ -93,6 +113,26 @@ test("the handed-off X presentation core is byte-exact and remains presentation-
   assert.match(paneX, /<script src="\.\/pane-x-presentation-core\.js"><\/script>/);
   assert.match(paneXReplay, /new PaneXViewerPresentationCandidate/);
   assert.doesNotMatch(paneXCore, /XFF_STATION_|RTCPeerConnection|WebSocket|BroadcastChannel|localStorage|sessionStorage|fetch\(/);
+});
+
+test("the real LIVE TEST receiver is byte-exact, test-namespaced, and disconnected without an installed lab Bridge", () => {
+  const digest = (source) => crypto.createHash("sha256").update(source).digest("hex");
+  assert.equal(digest(paneXLiveTest), "b316cee0be1dc75d514cac0fb87cab18f224f07640650f73f6b3d8c96e2f78d2");
+  assert.equal(digest(paneXLiveTestCore), "e3863b888f74a2c81ba9fa3c5c2b1c44f05c72dc9d304b8dc38f775248c48fa3");
+  assert.match(paneXLiveTest, /SCINTILLA · X TEST receiver/);
+  assert.match(paneXLiveTest, /source <b id="xTestSource" data-state="offline">NOT ATTACHED<\/b>/);
+  assert.match(paneXLiveTest, /NO_TEST_SOURCE_APPROVED/);
+  assert.match(paneXLiveTest, /const XTEST_ALLOWED_HOST = "scintilla-station-testing-surface\.vercel\.app"/);
+  assert.match(paneXLiveTest, /XTEST_STATION_BRIDGE_READY/);
+  assert.match(paneXLiveTest, /scintilla\.testing\.station\.x-test\.controller\.v1/);
+  assert.match(paneXLiveTest, /scintilla\.testing\.station\.x-test\.trusted-ipad\.v1/);
+  assert.match(paneXLiveTest, /realtime:station-x-test-ipad:/);
+  for (const forbidden of [
+    "XFF_", "station.scintillahub.ai", "scintilla.station.remote-viewer.v1.",
+    "scintilla.station.x-clock.v1", "scintilla.station.trusted-ipad.v1", "realtime:station-ipad:"
+  ]) assert.equal(paneXLiveTest.includes(forbidden), false, `forbidden stable receiver identity: ${forbidden}`);
+  assert.equal(fs.existsSync(new URL("../scintilla-station-x-test-bridge/", import.meta.url)), false,
+    "the extension package must not be installed or copied into the Station testing project");
 });
 
 test("both YouTube endpoints keep real reads while making every testing action local-shadow only", () => {

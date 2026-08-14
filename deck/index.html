@@ -78,6 +78,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   text-transform:uppercase; text-align:center; }
 #testingRibbon .testing-note{ color:#D49B66; font-size:8px; font-weight:500; letter-spacing:.11em; }
 #testingRibbon a{ color:var(--vol); text-decoration:none; border:1px solid rgba(255,138,0,.5); padding:3px 7px; }
+#testingRibbon nav{ display:flex; gap:4px; }
+#testingRibbon a[aria-current="page"]{ color:#0A0A0F; background:var(--vol); border-color:var(--vol); }
 html[data-testing="1"] #testingRibbon{ display:flex; }
 
 /* ---- header: scene switcher, ticker fields, ONE timeframe bar ---- */
@@ -257,7 +259,11 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 <div id="testingRibbon" role="status" aria-label="Testing Surface, not stable">
   <span>TESTING SURFACE · NOT STABLE</span>
   <span class="testing-note">isolated browser state · production writes blocked</span>
-  <a href="/station-ipad/">testing iPad ↗</a>
+  <nav aria-label="Testing X mode">
+    <a id="testingXReplay" href="/deck/" aria-current="page">REPLAY</a>
+    <a id="testingXLive" href="/station-live-test/">LIVE TEST</a>
+  </nav>
+  <a id="testingIpadLink" href="/station-ipad/">replay iPad ↗</a>
 </div>
 <div id="bar">
   <span class="k">THE STATION</span>
@@ -376,6 +382,8 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
    address; protected previews keep their /deck/ path but lose query noise.
    All subsequent scene/chart/view state is remembered locally below. */
 const QS = new URLSearchParams(location.search);
+const TEST_X_MODE = window.ScintillaTestingSurface?.active && QS.get("x") === "live-test" ? "live-test" : "replay";
+const TEST_X_LIVE = TEST_X_MODE === "live-test";
 /* iPad Companion deliberately reuses this exact deck.  Its only substitution
    is the X pane: iPad receives the already-approved iMac capture instead of
    trying to create a second browser capture. */
@@ -390,6 +398,12 @@ function consumeStationLaunchUrl() {
   }
 }
 consumeStationLaunchUrl();
+if (window.ScintillaTestingSurface?.active) {
+  el("testingXReplay").toggleAttribute("aria-current", !TEST_X_LIVE);
+  el("testingXLive").toggleAttribute("aria-current", TEST_X_LIVE);
+  el("testingIpadLink").href = TEST_X_LIVE ? "/station-ipad-live-test/" : "/station-ipad/";
+  el("testingIpadLink").textContent = TEST_X_LIVE ? "live-test iPad ↗" : "replay iPad ↗";
+}
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 const RANGES = ["15m","30m","1h","2h","3h","4h","6h","12h","1D","3D","1W"];
@@ -1369,6 +1383,7 @@ const STATION_SHELL = Object.freeze({
   x: "/station-shells/x-v2"
 });
 const STATION_X_SHELL = window.ScintillaTestingSurface?.active ? "/pane-x/" : STATION_SHELL.x;
+const STATION_X_MODE_QUERY = window.ScintillaTestingSurface?.active && TEST_X_LIVE ? "&mode=live-test&x-test=1" : "";
 
 /* ---- ONE timeframe bar, driving both charts ---- */
 function chartSrc(t, index, transitionGeneration) {
@@ -1669,10 +1684,13 @@ async function build() {
       kind: "video", src: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&cols=2&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&limit=200&cols=2" },
     { row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",
       kind: "video", src: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&cols=2&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&limit=200&cols=2" },
-    { row: 1, key: "x", short: "X", title: "X · live", tag: "live capture",
+    { row: 1, key: "x", short: TEST_X_LIVE ? "X LIVE TEST" : "X",
+      title: TEST_X_LIVE ? "X · LIVE TEST · DISCONNECTED" : "X · live",
+      tag: TEST_X_LIVE ? "TEST BRIDGE NOT INSTALLED" : "live capture",
       kind: "x", src: IPAD_COMPANION
-        ? STATION_X_SHELL + "?shell=v1&remote=1&pair=" + encodeURIComponent(IPAD_PAIR) + "&code=" + encodeURIComponent(IPAD_CODE) + "&view=" + encodeURIComponent(VIEW)
-        : STATION_X_SHELL + "?shell=v1&view=" + encodeURIComponent(VIEW), open: STATION_X_SHELL + "?shell=v1" },
+        ? STATION_X_SHELL + "?shell=v1&remote=1&pair=" + encodeURIComponent(IPAD_PAIR) + "&code=" + encodeURIComponent(IPAD_CODE) + "&view=" + encodeURIComponent(VIEW) + STATION_X_MODE_QUERY
+        : STATION_X_SHELL + "?shell=v1&view=" + encodeURIComponent(VIEW) + STATION_X_MODE_QUERY,
+      open: STATION_X_SHELL + "?shell=v1" + STATION_X_MODE_QUERY },
   ]);
 
   /* TWO FLEX ROWS. Two children up top, three below. Nothing else decides
