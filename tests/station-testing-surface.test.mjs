@@ -49,9 +49,9 @@ test("testing twin preserves component separation and uses only the isolated X c
     "stable host retains the exact admitted X endpoint");
   assert.match(deck, /const STATION_X_SHELL = window\.ScintillaTestingSurface\?\.active \? "\/pane-x\/" : STATION_SHELL\.x/,
     "the testing pane uses a directory route so its five local relative assets stay pane-scoped");
-  assert.match(deck, /id="testingXReplay" href="\/deck\/" aria-current="page">REPLAY/);
+  assert.match(deck, /id="testingXReplay" href="\/deck\/" aria-current="page">REPLAY · REJECTED/);
   assert.match(deck, /id="testingXLive" href="\/station-live-test\/">LIVE TEST/);
-  assert.match(deck, /id="testingXState" class="testing-disconnected" hidden>LIVE TEST · DISCONNECTED/);
+  assert.match(deck, /id="testingXState" class="testing-disconnected">REPLAY · REJECTED · ZERO APPROVED/);
   assert.match(deck, /id="testingIpadLink" href="\/station-ipad\/">replay iPad/);
 });
 
@@ -69,11 +69,14 @@ test("testing iPad route mounts the same iPad wall without reading or writing th
   assert.doesNotMatch(testingBranch, /localStorage|ipadPair|ipadCode|pairHash/);
 });
 
-test("LIVE TEST is additive while REPLAY remains the default unchanged pane runtime", () => {
+test("LIVE TEST is additive while the rejected replay remains the default byte-unchanged pane runtime", () => {
   assert.match(deck, /QS\.get\("x"\) === "live-test" \? "live-test" : "replay"/);
   assert.match(deck, /const TEST_X_LIVE = TEST_X_MODE === "live-test"/);
   assert.match(deck, /el\(TEST_X_LIVE \? "testingXLive" : "testingXReplay"\)\.setAttribute\("aria-current", "page"\)/);
-  assert.match(deck, /el\("testingXState"\)\.hidden = !TEST_X_LIVE/);
+  assert.match(deck, /el\("testingXState"\)\.hidden = false/);
+  assert.match(deck, /\? "LIVE TEST · DISCONNECTED"\s*: "REPLAY · REJECTED · ZERO APPROVED"/);
+  assert.match(deck, /"X · REPLAY REJECTED · ZERO APPROVED"/);
+  assert.match(deck, /"NOT EVIDENCE · AWAIT TEST BRIDGE"/);
   assert.match(deck, /const STATION_X_MODE_QUERY = [^;]+\? "&mode=live-test&x-test=1" : ""/);
   assert.match(deck, /X · LIVE TEST · DISCONNECTED/);
   assert.match(deck, /TEST BRIDGE NOT INSTALLED/);
@@ -88,7 +91,7 @@ test("LIVE TEST is additive while REPLAY remains the default unchanged pane runt
     "the public pane path must stay virtual so conditional rewrites run before the filesystem");
 });
 
-test("testing X is a local static replay with no Bridge, transport, pair, controller, or tick authority", () => {
+test("the rejected testing X replay remains static with no Bridge, transport, pair, controller, or tick authority", () => {
   const branchStart = stableXShell.indexOf("if (TESTING_SURFACE) {");
   const authorityStart = stableXShell.indexOf("} else {", branchStart);
   assert.ok(branchStart >= 0 && authorityStart > branchStart);

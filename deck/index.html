@@ -261,10 +261,10 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   <span>TESTING SURFACE · NOT STABLE</span>
   <span class="testing-note">isolated browser state · production writes blocked</span>
   <nav aria-label="Testing X mode">
-    <a id="testingXReplay" href="/deck/" aria-current="page">REPLAY</a>
+    <a id="testingXReplay" href="/deck/" aria-current="page">REPLAY · REJECTED</a>
     <a id="testingXLive" href="/station-live-test/">LIVE TEST</a>
   </nav>
-  <span id="testingXState" class="testing-disconnected" hidden>LIVE TEST · DISCONNECTED</span>
+  <span id="testingXState" class="testing-disconnected">REPLAY · REJECTED · ZERO APPROVED</span>
   <a id="testingIpadLink" href="/station-ipad/">replay iPad ↗</a>
 </div>
 <div id="bar">
@@ -404,7 +404,10 @@ if (window.ScintillaTestingSurface?.active) {
   el("testingXReplay").toggleAttribute("aria-current", !TEST_X_LIVE);
   el("testingXLive").toggleAttribute("aria-current", TEST_X_LIVE);
   el(TEST_X_LIVE ? "testingXLive" : "testingXReplay").setAttribute("aria-current", "page");
-  el("testingXState").hidden = !TEST_X_LIVE;
+  el("testingXState").hidden = false;
+  el("testingXState").textContent = TEST_X_LIVE
+    ? "LIVE TEST · DISCONNECTED"
+    : "REPLAY · REJECTED · ZERO APPROVED";
   el("testingIpadLink").href = TEST_X_LIVE ? "/station-ipad-live-test/" : "/station-ipad/";
   el("testingIpadLink").textContent = TEST_X_LIVE ? "live-test iPad ↗" : "replay iPad ↗";
 }
@@ -1688,9 +1691,9 @@ async function build() {
       kind: "video", src: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&cols=2&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&limit=200&cols=2" },
     { row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",
       kind: "video", src: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&cols=2&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&limit=200&cols=2" },
-    { row: 1, key: "x", short: TEST_X_LIVE ? "X LIVE TEST" : "X",
-      title: TEST_X_LIVE ? "X · LIVE TEST · DISCONNECTED" : "X · live",
-      tag: TEST_X_LIVE ? "TEST BRIDGE NOT INSTALLED" : "live capture",
+    { row: 1, key: "x", short: TEST_X_LIVE ? "X LIVE TEST" : "X REJECTED",
+      title: TEST_X_LIVE ? "X · LIVE TEST · DISCONNECTED" : "X · REPLAY REJECTED · ZERO APPROVED",
+      tag: TEST_X_LIVE ? "TEST BRIDGE NOT INSTALLED" : "NOT EVIDENCE · AWAIT TEST BRIDGE",
       kind: "x", src: IPAD_COMPANION
         ? STATION_X_SHELL + "?shell=v1&remote=1&pair=" + encodeURIComponent(IPAD_PAIR) + "&code=" + encodeURIComponent(IPAD_CODE) + "&view=" + encodeURIComponent(VIEW) + STATION_X_MODE_QUERY
         : STATION_X_SHELL + "?shell=v1&view=" + encodeURIComponent(VIEW) + STATION_X_MODE_QUERY,
