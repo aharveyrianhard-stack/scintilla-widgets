@@ -337,20 +337,29 @@ async function reconnectStationConsumers({ controlSource = false } = {}) {
   return true;
 }
 
-async function startStationCapture(sourceTab, consumer) {
+async function startStationCapture(sourceTab, consumer, { forceNewCapture = false } = {}) {
   if (!sourceTab?.id || !consumer) return false;
   await activateStationConsumer(consumer);
-  if (stationSourceTabId === sourceTab.id) {
-    if (await hasLiveStationCapture()) {
+  const replacingCurrentSource = stationSourceTabId === sourceTab.id;
+  if (replacingCurrentSource) {
+    if (!forceNewCapture && await hasLiveStationCapture()) {
       await reconnectStationConsumers({ controlSource: true });
       return true;
     }
-    // Full extension reloads retain the saved tab id but destroy the actual
-    // offscreen capture. Recreate it instead of leaving every viewer offline.
-    await stopStationCapture("Station capture restored after Bridge reload.");
   }
 
-  await stopStationCapture("Switching X source…");
+  // An explicit toolbar click on the already-selected X tab is a recovery
+  // gesture.  The offscreen document can still exist while Chrome has left
+  // its tab-capture video black; a fresh user-authorized capture is the one
+  // reliable way to replace that dead decoder without opening another X tab.
+  // This is deliberately one stop/restart sequence, including after a full
+  // Bridge reload where the saved tab id survives but its capture does not.
+  const captureRecoveryDetail = replacingCurrentSource && forceNewCapture
+    ? "Station capture refreshed from the existing X tab."
+    : replacingCurrentSource
+      ? "Station capture restored after Bridge reload."
+      : "Switching X source…";
+  await stopStationCapture(captureRecoveryDetail);
   await ensureOffscreenDocument();
   const streamId = await captureStreamId(sourceTab.id);
   const capture = await chrome.runtime.sendMessage({
@@ -489,7 +498,7 @@ chrome.action.onClicked.addListener(async (tab) => {
       station = freshestStationConsumer();
     }
     if (station) {
-      await startStationCapture(tab, station);
+      await startStationCapture(tab, station, { forceNewCapture: true });
       return;
     }
     chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: "#947e55" });
