@@ -11,6 +11,7 @@
 <link rel="icon" href="/station/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" sizes="512x512" href="/station/icon-512.png">
 <title>SCINTILLA · The Station</title>
+<script src="/testing-surface.js"></script>
 <!-- ============================================================================
      SCINTILLA · /deck v4 — "THE STATION". Composition, not new widgets.
        top     /chart /chart              — always EXACTLY half and half
@@ -70,6 +71,14 @@ html,body{ margin:0; height:100%; }
 body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.02em;
   display:flex; flex-direction:column; overflow:hidden; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+
+#testingRibbon{ display:none; flex:none; align-items:center; justify-content:center; gap:12px;
+  min-height:30px; padding:6px 12px; border-bottom:1px solid rgba(255,138,0,.72);
+  background:#261305; color:var(--vol); font:700 10px/1.2 var(--mono); letter-spacing:.18em;
+  text-transform:uppercase; text-align:center; }
+#testingRibbon .testing-note{ color:#D49B66; font-size:8px; font-weight:500; letter-spacing:.11em; }
+#testingRibbon a{ color:var(--vol); text-decoration:none; border:1px solid rgba(255,138,0,.5); padding:3px 7px; }
+html[data-testing="1"] #testingRibbon{ display:flex; }
 
 /* ---- header: scene switcher, ticker fields, ONE timeframe bar ---- */
 #bar{ flex:none; display:flex; align-items:center; gap:8px; padding:6px 10px;
@@ -239,6 +248,11 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 </style>
 </head>
 <body>
+<div id="testingRibbon" role="status" aria-label="Testing Surface, not stable">
+  <span>TESTING SURFACE · NOT STABLE</span>
+  <span class="testing-note">isolated browser state · production writes blocked</span>
+  <a href="/station-ipad/">testing iPad ↗</a>
+</div>
 <div id="bar">
   <span class="k">THE STATION</span>
   <a class="btn" href="/registry">the hub</a>
@@ -876,13 +890,13 @@ function chartDataSummary(visible) {
 function paintMarketStatus() {
   const visibleTickers = CHARTS.slice(0, CHART_COUNT).filter(Boolean);
   const visible = visibleTickers.map((ticker) => Object.assign({ ticker, history:"loading", quote:"loading" }, CHART_STATUS.get(ticker) || {}));
+  const delayed = visible.filter((x) => x.history === "delayed" || x.quote === "delayed" || x.delayed);
   const n = el("marketStatus"); if (!n) return;
   const summary = chartDataSummary(visible);
   if (summary.mode === "waiting") { n.textContent = "DATA · waiting"; n.dataset.delayed = "0"; n.dataset.fresh = "0"; return; }
   if (summary.mode === "delayed" || summary.mode === "loading") {
     n.textContent = summary.mode === "delayed" ? "DATA · delayed (" + summary.count + ")" : "DATA · loading (" + summary.count + ")";
-    const delayed = summary.mode === "delayed";
-    n.dataset.delayed = delayed ? "1" : "0";
+    n.dataset.delayed = summary.mode === "delayed" ? "1" : "0";
     n.dataset.fresh = "0";
     n.title = visible.map((x) => x.ticker + " · history " + x.history + " · quote " + x.quote).join("\n");
     return;
@@ -1288,6 +1302,7 @@ const STATION_SHELL = Object.freeze({
   scintillaVideo: "/station-shells/scintilla-video-v1",
   x: "/station-shells/x-v2"
 });
+const STATION_X_SHELL = window.ScintillaTestingSurface?.active ? "/pane-x" : STATION_SHELL.x;
 
 /* ---- ONE timeframe bar, driving both charts ---- */
 function chartSrc(t, index, transitionGeneration) {
@@ -1588,8 +1603,8 @@ async function build() {
       kind: "video", src: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&cols=2&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&limit=200&cols=2" },
     { row: 1, key: "x", short: "X", title: "X · live", tag: "live capture",
       kind: "x", src: IPAD_COMPANION
-        ? STATION_SHELL.x + "?shell=v1&remote=1&pair=" + encodeURIComponent(IPAD_PAIR) + "&code=" + encodeURIComponent(IPAD_CODE) + "&view=" + encodeURIComponent(VIEW)
-        : STATION_SHELL.x + "?shell=v1&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.x + "?shell=v1" },
+        ? STATION_X_SHELL + "?shell=v1&remote=1&pair=" + encodeURIComponent(IPAD_PAIR) + "&code=" + encodeURIComponent(IPAD_CODE) + "&view=" + encodeURIComponent(VIEW)
+        : STATION_X_SHELL + "?shell=v1&view=" + encodeURIComponent(VIEW), open: STATION_X_SHELL + "?shell=v1" },
   ]);
 
   /* TWO FLEX ROWS. Two children up top, three below. Nothing else decides

@@ -113,6 +113,9 @@ body.xfloat #cv{ display:block; }
   border:1px solid var(--crk); padding:6px 14px; cursor:pointer; }
 #card .go:hover{ background:rgba(0,212,255,.08); }
 #card .alt{ display:flex; gap:5px; flex-wrap:wrap; justify-content:center; }
+html[data-testing="1"] #card{ border:1px solid rgba(255,138,0,.55); background:#140C06; }
+html[data-testing="1"] #card .n{ color:var(--vol); font-size:11px; }
+html[data-testing="1"] #card .d{ color:#D49B66; }
 #err{ color:var(--bear); font-size:8.5px; line-height:1.5; max-width:330px; display:none; }
 /* small slots: the prose would eat the box */
 body.tiny #card .d{ display:none; }
@@ -165,8 +168,42 @@ html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
 </div>
 <div id="pairInfo" hidden><span id="pairState">waiting for iPad</span><span id="pairLink"></span></div>
 
+<script src="/testing-surface.js"></script>
+<script src="./pane-x-presentation-core.js"></script>
 <script>
 "use strict";
+const TESTING_SURFACE = !!window.ScintillaTestingSurface?.active;
+if (TESTING_SURFACE) {
+  const el = (id) => document.getElementById(id);
+  const TEST_VIEW_PROFILES = ["auto","desk","ipad","display","compact"];
+  const testingQuery = new URLSearchParams(location.search);
+  let testingView = TEST_VIEW_PROFILES.includes(testingQuery.get("view")) ? testingQuery.get("view") : "auto";
+  document.documentElement.dataset.view = testingView;
+  el("card").querySelector(".n").textContent = "TEST STREAM NOT CONNECTED";
+  el("card").querySelector(".d").innerHTML = "The presentation-only X candidate is installed in this pane, but the testing twin deliberately makes no Bridge handshake, WebRTC offer, Realtime-room join, pairing read/write, controller action, or source tick. No live-X visual approval is claimed while disconnected.";
+  el("card").querySelector(".alt").innerHTML = "";
+  el("xfState").hidden = false;
+  el("xfState").textContent = "candidate installed · stream disconnected";
+  el("bar").querySelector(".k").textContent = "X · TESTING";
+  el("bFull").addEventListener("click", () => {
+    parent.postMessage({ type:"SCINTILLA_DECK_TOGGLE_FULL" }, location.origin);
+  });
+  const testingTiny = () => document.body.classList.toggle("tiny", document.documentElement.clientHeight < 240);
+  if (window.ResizeObserver) new ResizeObserver(testingTiny).observe(document.documentElement);
+  addEventListener("resize", testingTiny);
+  window.addEventListener("message", (event) => {
+    if (event.origin !== location.origin) return;
+    if (event.data?.type === "SCINTILLA_VIEW_PROFILE") {
+      testingView = TEST_VIEW_PROFILES.includes(event.data.view) ? event.data.view : "auto";
+      document.documentElement.dataset.view = testingView;
+      testingTiny();
+    }
+    if (event.data?.type === "SCINTILLA_DECK_FULL_STATE") {
+      el("bFull").textContent = event.data.active ? "↙" : "⛶";
+    }
+  });
+  testingTiny();
+} else {
 const el = (id) => document.getElementById(id);
 const QS = new URLSearchParams(location.search);
 const VIEW_PROFILES = ["auto","desk","ipad","display","compact"];
@@ -247,7 +284,9 @@ let xfloatPeer = null;
 let xfloatCrop = null;
 let viewerCropState = { confirmedCrop:null, confirmedGeneration:0, confirmedSequence:0,
   pendingCrop:null, videoFrames:0, receivedGeneration:0, pendingDrops:0, staleDrops:0 };
-let viewerCropMotion = null;
+let viewerCropPresentation = null;
+let viewerCropPresentationCrop = null;
+let viewerCropPresentationSequence = 0;
 let xfloatFrame = 0;
 let xfloatPaused = false;
 let xfloatExpanded = false;
@@ -334,11 +373,48 @@ function beginCropMotion(previous, next, at) {
   if (!cropsCanEase(visible, next)) return { from:next, to:next, startedAt:at, duration:0 };
   return { from:cropPhaseAlignedFrom(visible, next), to:next, startedAt:at, duration:VIEWER_CROP_EASE_MS };
 }
+function stopViewerCropPresentation(at = performance.now()) {
+  viewerCropPresentation?.stop({ at });
+  viewerCropPresentation = null;
+  viewerCropPresentationCrop = null;
+  viewerCropPresentationSequence = 0;
+}
+function startViewerCropPresentation(crop, at) {
+  viewerCropPresentationCrop = crop;
+  viewerCropPresentation = new PaneXViewerPresentationCandidate({
+    render(position) {
+      if (!viewerCropPresentationCrop) return;
+      xfloatCrop = Object.assign({}, viewerCropPresentationCrop, {
+        fractionalScrollOffset:position - cropSourceScrollTop(viewerCropPresentationCrop)
+      });
+    }
+  });
+  viewerCropPresentation.start({ position:cropVisualPositionFor(crop), at });
+  viewerCropPresentation.setPaused("hidden", document.visibilityState !== "visible", at);
+  viewerCropPresentation.setPaused("hover", stationHoverInside, at);
+  viewerCropPresentation.setPaused("manual", Boolean(crop?.paused), at);
+  return xfloatCrop;
+}
+function setViewerPresentationPause(reason, held, at = performance.now()) {
+  viewerCropPresentation?.setPaused(reason, held, at);
+}
 function syncViewerConfirmedCrop(at) {
   const next = viewerCropState.confirmedCrop;
-  if (!next) { xfloatCrop = null; viewerCropMotion = null; return null; }
-  if (!viewerCropMotion || viewerCropMotion.to !== next) viewerCropMotion = beginCropMotion(viewerCropMotion, next, at);
-  xfloatCrop = cropAtMotion(viewerCropMotion, at) || next;
+  if (!next) { stopViewerCropPresentation(at); xfloatCrop = null; return null; }
+  if (!viewerCropPresentation) return startViewerCropPresentation(next, at);
+  if (viewerCropPresentationCrop !== next) {
+    const visible = xfloatCrop || viewerCropPresentationCrop;
+    if (!cropsCanEase(visible, next)) return startViewerCropPresentation(next, at);
+    viewerCropPresentationCrop = next;
+    viewerCropPresentation.setPaused("manual", Boolean(next.paused), at);
+    viewerCropPresentation.receive({
+      position:cropVisualPositionFor(next),
+      sequence:++viewerCropPresentationSequence,
+      deliveredAt:at,
+      cadenceMs:VIEWER_CROP_EASE_MS
+    });
+  }
+  viewerCropPresentation.frame(at);
   return xfloatCrop;
 }
 function receiveViewerCropState(state, crop) {
@@ -677,6 +753,7 @@ function postXFloat(action, value) {
    this still-hovered pane renews it. */
 function setStationHoverPause(held) {
   stationHoverInside = Boolean(held);
+  setViewerPresentationPause("hover", stationHoverInside);
   if (stationHoverPausePulse) {
     clearInterval(stationHoverPausePulse);
     stationHoverPausePulse = 0;
@@ -773,7 +850,7 @@ function stopXFloat({ notify = true } = {}) {
   remoteFrameAt = 0;
   viewerCropState = { confirmedCrop:null, confirmedGeneration:0, confirmedSequence:0,
     pendingCrop:null, videoFrames:0, receivedGeneration:0, pendingDrops:0, staleDrops:0 };
-  viewerCropMotion = null;
+  stopViewerCropPresentation();
   xfloatCrop = null;
   xfloatPaused = false;
   el("v").srcObject = stream;
@@ -811,7 +888,8 @@ function drawXFloat(at = 0) {
     ensureXFloatDraw();
     return;
   }
-  const motionActive = viewerCropMotion?.duration && paintAt - viewerCropMotion.startedAt < viewerCropMotion.duration;
+  const presentation = viewerCropPresentation?.snapshot();
+  const motionActive = presentation?.running && !presentation.paused && presentation.position !== presentation.target;
   const paintInterval = motionActive ? VIEWER_MOTION_PAINT_INTERVAL_MS : VIEWER_PAINT_INTERVAL_MS;
   if (at && at - xfloatDrawAt < paintInterval) {
     viewerCadence.paintSkipped += 1;
@@ -1216,7 +1294,9 @@ window.addEventListener("resize", () => postXFloat("resize", { width: innerWidth
 window.addEventListener("pagehide", () => stopXFloat({ notify: false }));
 window.addEventListener("pagehide", () => stopStationPairing());
 window.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "visible") setStationHoverPause(false);
+  const pageVisible = document.visibilityState === "visible";
+  setViewerPresentationPause("hidden", !pageVisible);
+  if (!pageVisible) setStationHoverPause(false);
   if (!REMOTE_MODE) {
     announceViewerClock(document.visibilityState === "visible");
     if (document.visibilityState === "visible" && xfloatStream) startStationClock();
@@ -1234,6 +1314,7 @@ window.addEventListener("visibilitychange", () => {
 });
 if (REMOTE_MODE) startRemoteStationViewer().catch(error => showErr("iMac X could not connect: " + error.message));
 else if (savedTrustedIpadPair()) startStationPairing();
+}
 </script>
 </body>
 </html>

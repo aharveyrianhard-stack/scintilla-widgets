@@ -141,8 +141,10 @@ body.playing #grid{ display:none; }
   <div id="video"></div>
   <div id="nowbar"><span id="nowt"></span></div>
 </div>
+<script src="/testing-surface.js"></script>
 <script>
 "use strict";
+const TESTING_SURFACE = !!window.ScintillaTestingSurface?.active;
 const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
 const PUBLIC = "sb_publishable_AutibLpFtTns-WHAg67Pvw_I0HmjqE9";
@@ -243,6 +245,14 @@ function mergeSharedVideoPositionRows(rows, positions = VIDEO_POSITIONS) {
 }
 function syncSharedVideoPositions(force = false) {
   if (VIDEO_POSITION_REQUEST && !force) return VIDEO_POSITION_REQUEST;
+  if (TESTING_SURFACE) {
+    VIDEO_POSITION_REQUEST = Promise.resolve().then(() => {
+      let rows = [];
+      try { rows = JSON.parse(localStorage.getItem("youtube.position-shadow.v1") || "[]"); } catch (_) {}
+      mergeSharedVideoPositionRows(rows); VIDEO_POSITIONS_READY = true; return rows;
+    });
+    return VIDEO_POSITION_REQUEST;
+  }
   VIDEO_POSITION_REQUEST = pg("yt_positions?select=video_id,t,updated&order=updated.desc")
     .then((rows) => { mergeSharedVideoPositionRows(rows); VIDEO_POSITIONS_READY = true; return rows; })
     .catch(() => { VIDEO_POSITION_REQUEST = null; return []; });
@@ -251,6 +261,13 @@ function syncSharedVideoPositions(force = false) {
 function pushSharedVideoPosition(videoId, time) {
   if (!videoId) return;
   const t = Math.max(0, Math.floor(Number(time) || 0));
+  if (TESTING_SURFACE) {
+    const rows = Array.from(VIDEO_POSITIONS.entries()).map(([id, value]) => ({
+      video_id:id, t:Number(value?.time) || 0, updated:String(value?.updated || new Date().toISOString())
+    }));
+    try { localStorage.setItem("youtube.position-shadow.v1", JSON.stringify(rows)); } catch (_) {}
+    return;
+  }
   try {
     fetch(SB + "/rest/v1/yt_positions", {
       method:"POST",
@@ -309,6 +326,7 @@ function startPlayerPositionPoll(token, frame) {
 }
 
 async function ytAct(action, payload) {
+  if (TESTING_SURFACE) return { ok:true, testing:true, action, payload };
   const r = await fetch(SB + "/functions/v1/yt-act", {
     method: "POST",
     headers: { apikey: PUBLIC, "Content-Type": "application/json" },
@@ -323,6 +341,12 @@ async function syncWatch(force) {
   if (WATCH_READY && !force) return WATCH;
   const rows = await pg("yt_watch_later?select=video_id");
   WATCH = new Set((Array.isArray(rows) ? rows : []).map((row) => row.video_id).filter(Boolean));
+  if (TESTING_SURFACE) {
+    let shadow = { add:[], remove:[] };
+    try { shadow = JSON.parse(localStorage.getItem("youtube.watch-shadow.v1") || "null") || shadow; } catch (_) {}
+    for (const id of Array.isArray(shadow.add) ? shadow.add : []) WATCH.add(id);
+    for (const id of Array.isArray(shadow.remove) ? shadow.remove : []) WATCH.delete(id);
+  }
   WATCH_READY = true;
   WATCH_ERROR = "";
   return WATCH;
@@ -333,6 +357,16 @@ async function toggleWatch(v) {
   const was = WATCH.has(v.video_id), will = !was;
   if (will) WATCH.add(v.video_id); else WATCH.delete(v.video_id);
   paint();
+  if (TESTING_SURFACE) {
+    let shadow = { add:[], remove:[] };
+    try { shadow = JSON.parse(localStorage.getItem("youtube.watch-shadow.v1") || "null") || shadow; } catch (_) {}
+    const add = new Set(Array.isArray(shadow.add) ? shadow.add : []);
+    const remove = new Set(Array.isArray(shadow.remove) ? shadow.remove : []);
+    if (will) { add.add(v.video_id); remove.delete(v.video_id); }
+    else { remove.add(v.video_id); add.delete(v.video_id); }
+    try { localStorage.setItem("youtube.watch-shadow.v1", JSON.stringify({ add:[...add], remove:[...remove] })); } catch (_) {}
+    return;
+  }
   try { await ytAct(will ? "star" : "unstar", { videoId:v.video_id, account:YOUTUBE_ACCOUNT }); }
   catch (e) {
     if (was) WATCH.add(v.video_id); else WATCH.delete(v.video_id);
@@ -353,6 +387,9 @@ async function subscribeToChannel(v) {
     const d = await ytAct("sub", { channelId, channelTitle: v.channel || "", account:SUBSCRIPTION_ACCOUNT });
     if (!d.ok) throw new Error("YouTube subscribe failed");
     LOCAL_SUBSCRIBED_CHANNELS.add(SUBSCRIPTION_ACCOUNT + ":" + channelId);
+    if (TESTING_SURFACE) {
+      try { localStorage.setItem("youtube.subscription-shadow.v1." + SUBSCRIPTION_ACCOUNT + "." + channelId, "1"); } catch (_) {}
+    }
   } catch (e) { } finally {
     SUBSCRIBE_PENDING.delete(channelId); refreshSubscribeButton();
   }

@@ -210,7 +210,7 @@ test("display window action stays separate from the remembered layout chooser", 
 test("Scenes V2 stays local-only and preserves the current iPad companion", () => {
   assert.doesNotMatch(deck, /passwordless|signInWithOtp|station_shared_state/i);
   assert.match(deck, /IPAD_COMPANION/);
-  assert.match(deck, /STATION_SHELL\.x \+ "\?shell=v1&remote=1/);
+  assert.match(deck, /STATION_X_SHELL \+ "\?shell=v1&remote=1/);
   assert.match(deck, /const sessionRemembered = \(key\) =>/);
 });
 
@@ -220,9 +220,13 @@ test("Station pins charts, each YouTube feed, and X to independently versioned s
   assert.match(deck, /personalVideo: "\/station-shells\/personal-video-v1"/);
   assert.match(deck, /scintillaVideo: "\/station-shells\/scintilla-video-v1"/);
   assert.match(deck, /x: "\/station-shells\/x-v2"/);
-  assert.equal(chartShell, chart, "chart shell is a frozen copy of the reviewed chart surface");
-  assert.equal(personalVideoShell, videoPane, "Personal shell is a frozen copy of the reviewed video surface");
-  assert.equal(scintillaVideoShell, videoPane, "SCINTILLA shell is a frozen copy of the reviewed video surface");
+  assert.equal(chartShell.replace('<script src="/testing-surface.js"></script>\n', ""), chart,
+    "the reviewed chart surface is unchanged beneath the testing-only bootstrap");
+  assert.equal(personalVideoShell, scintillaVideoShell,
+    "Personal and SCINTILLA remain independent endpoints with the same reviewed pane behavior");
+  assert.match(personalVideoShell, /const TESTING_SURFACE = !!window\.ScintillaTestingSurface\?\.active/);
+  assert.match(personalVideoShell, /async function pg\(path, _tries\)/,
+    "the reviewed read-only feed path remains present");
   assert.match(xShell, /function drawXFloat\(/, "X v2 has the iMac baseline renderer surface");
   assert.match(xShell, /function attachXFloatStream\(/);
   assert.match(xShell, /const sy = Math\.max\(0, \(rect\.top \+ \(xfloatCrop\.fractionalScrollOffset \|\| 0\)\) \* scaleY\)/);
@@ -268,7 +272,7 @@ test("generated paired iPad companion routes carry the iPad profile through the 
   assert.match(companionChartSrc("SPY", 0), /^\/station-shells\/chart-v1\?shell=v1/);
   assert.match(deck, /STATION_SHELL\.personalVideo \+ "\?shell=v1&feed=personal/);
   assert.match(deck, /STATION_SHELL\.scintillaVideo \+ "\?shell=v1&feed=scintilla/);
-  assert.match(deck, /STATION_SHELL\.x \+ "\?shell=v1&remote=1/);
+  assert.match(deck, /STATION_X_SHELL \+ "\?shell=v1&remote=1/);
 });
 
 test("CUSTOM preserves the screenshot-shaped sparse six-slot workspace", () => {
