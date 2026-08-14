@@ -67,6 +67,69 @@ async function persistStationSession() {
   } catch {}
 }
 
+function isMissingTabError(error) {
+  return /No tab with id/i.test(String(error?.message || error || ""));
+}
+
+async function discardStationConsumer(consumer) {
+  if (!consumer) return false;
+  const current = stationConsumers.get(consumer.tabId);
+  // A new pane may already have reannounced in the same tab.  Never remove it
+  // because an old frame's asynchronous send completed late.
+  if (stationConsumerKey(current) !== stationConsumerKey(consumer)) return false;
+  dropStationPeer(consumer);
+  stationConsumers.delete(consumer.tabId);
+  if (stationConsumerKey(consumer) === stationActiveConsumerKey) {
+    stationActiveConsumerKey = null;
+  }
+  await persistStationSession();
+  return true;
+}
+
+async function pruneClosedStationConsumers() {
+  let changed = false;
+  for (const consumer of [...stationConsumers.values()]) {
+    try {
+      await chrome.tabs.get(consumer.tabId);
+    } catch (error) {
+      if (isMissingTabError(error)) {
+        changed = (await discardStationConsumer(consumer)) || changed;
+      }
+    }
+  }
+  return changed;
+}
+
+async function reannounceOpenStationPanes() {
+  const stationTabs = await chrome.tabs.query({
+    url: ["https://station.scintillahub.ai/*"]
+  });
+  await Promise.allSettled(stationTabs.map((tab) =>
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      files: ["station-bridge.js"]
+    })
+  ));
+  // station-bridge.js immediately sends READY.  Yield one short task so this
+  // user-gesture click can reuse the current Station pane instead of a closed
+  // session-restored tab.
+  await new Promise((resolve) => setTimeout(resolve, 120));
+}
+
+async function currentStationSourceTab() {
+  if (!Number.isInteger(stationSourceTabId)) return null;
+  try {
+    return await chrome.tabs.get(stationSourceTabId);
+  } catch (error) {
+    if (isMissingTabError(error)) {
+      stationSourceTabId = null;
+      await persistStationSession();
+      return null;
+    }
+    throw error;
+  }
+}
+
 const stationRestore = restoreStationSession();
 
 function activeStationConsumer() {
@@ -126,6 +189,12 @@ function sendToStation(consumer, message) {
   if (!consumer) return Promise.resolve();
   return chrome.tabs.sendMessage(consumer.tabId, message, {
     frameId: consumer.frameId
+  }).catch(async (error) => {
+    if (isMissingTabError(error)) {
+      await discardStationConsumer(consumer);
+      return { ok: false, stale: true };
+    }
+    throw error;
   });
 }
 
@@ -193,8 +262,10 @@ async function stopStationCapture(detail = "stopped") {
 }
 
 async function reconnectStationConsumer(consumer, { controlSource = false } = {}) {
-  if (!stationSourceTabId || !consumer) return;
-  const sourceTabId = stationSourceTabId;
+  if (!consumer) return false;
+  const sourceTab = await currentStationSourceTab();
+  if (!sourceTab) return false;
+  const sourceTabId = sourceTab.id;
   if (controlSource) {
     await ensureContentScript(sourceTabId);
     await chrome.tabs.sendMessage(sourceTabId, {
@@ -213,6 +284,7 @@ async function reconnectStationConsumer(consumer, { controlSource = false } = {}
       ? "Station X reattached after reload."
       : "Station X mirror attached."
   });
+  return true;
 }
 
 async function startStationCapture(sourceTab, consumer) {
@@ -376,7 +448,12 @@ chrome.action.onClicked.addListener(async (tab) => {
       await focusOrOpenX();
       return;
     }
-    const station = freshestStationConsumer();
+    await pruneClosedStationConsumers();
+    let station = freshestStationConsumer();
+    if (!station) {
+      await reannounceOpenStationPanes();
+      station = freshestStationConsumer();
+    }
     if (station) {
       await startStationCapture(tab, station);
       return;

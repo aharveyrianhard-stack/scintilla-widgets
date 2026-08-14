@@ -70,13 +70,16 @@ async function harness(sessionSeed = {}) {
       },
       async sendMessage(tabId, message, options) {
         sent.push({ tabId, message, options });
+        if ((sessionData.__missingTabIds || []).includes(tabId)) {
+          throw new Error(`No tab with id: ${tabId}.`);
+        }
         return { ok: true };
       },
       async update(tabId, options) {
         tabUpdates.push({ tabId, options });
         return { id: tabId, windowId: 2 };
       },
-      async query() { return []; },
+      async query() { return sessionData.__queryTabs || []; },
       async create() { return { id: 99, windowId: 2, url: "https://x.com/home" }; },
       getZoom(_tabId, callback) { callback(1); },
       setZoom(_tabId, _zoom, callback) { callback(); }
@@ -554,6 +557,28 @@ test("pressing the Station action again reconnects instead of accidentally toggl
   assert.equal(h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length, stopCount);
   assert.ok(!h.sent.some(({ tabId, message }) =>
     tabId === 7 && message.type === "XFF_STOP_STATION_SOURCE"));
+});
+
+test("an X action discards a closed restored Station tab and reannounces the open pane", async () => {
+  const stale = { tabId: 157, windowId: 2, frameId: 5, instanceId: "closed", width: 430, height: 260, lastSeen: Date.now() };
+  const h = await harness({
+    __missingTabIds: [157],
+    __queryTabs: [{ id: 11, windowId: 2, url: "https://station.scintillahub.ai/" }],
+    stationXSessionV1: {
+      sourceTabId: null,
+      activeConsumerKey: "157:5:closed",
+      consumers: [stale]
+    }
+  });
+
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+
+  assert.ok(h.scriptInjections.some(({ target, files }) =>
+    target.tabId === 11 && target.allFrames && files[0] === "station-bridge.js"));
+  assert.ok(!h.sent.some(({ tabId }) => tabId === 157),
+    "a dead saved tab must not receive the new attach attempt");
+  assert.deepEqual(h.sessionData.stationXSessionV1.consumers, []);
+  assert.equal(h.sessionData.stationXSessionV1.activeConsumerKey, null);
 });
 
 test("a restarted Chrome extension worker restores the approved source and Station frame", async () => {
