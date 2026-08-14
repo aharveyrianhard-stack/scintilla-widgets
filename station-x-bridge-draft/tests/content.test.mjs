@@ -45,6 +45,18 @@ test("Station source maintains and removes the hover shield with its capture lif
   assert.match(source, /document\.removeEventListener\("pointermove", shield\.exitObserver, true\)/);
 });
 
+test("a Station viewer hover pause is a renewable lease, never an indefinite source freeze", () => {
+  const deadline = functionFromSource("nextStationViewerPauseDeadline");
+  assert.equal(deadline(true, 1_000, 500), 1_500);
+  assert.equal(deadline(false, 1_000, 500), 0);
+  assert.match(source, /function stationViewerPauseActive\(now = Date\.now\(\)\)/);
+  assert.match(source, /session\.stationViewerPauseUntil = nextStationViewerPauseDeadline\(Boolean\(held\)\)/);
+  assert.match(source, /session\.stationViewerPauseUntil = 0;[\s\S]{0,180}applyCaptureColumnLayout\(\)/,
+    "a reattached Station pane clears a stale hover lease before the current pane can renew it");
+  const control = source.slice(source.indexOf("async function stationControl"), source.indexOf("function showError"));
+  assert.match(control, /action === "pause"[\s\S]{0,100}setStationViewerPause\(Boolean\(value\)\)/);
+});
+
 test("Station keeps the original Float fractional phase through an integer source scroll", () => {
   const advance = functionFromSource("nextStationScrollState");
   const beforeBoundary = {

@@ -254,6 +254,8 @@ let xfloatExpanded = false;
 let xfloatDrawAt = 0;
 let stationTickFrame = 0;
 let stationTickAt = 0;
+let stationHoverPausePulse = 0;
+let stationHoverInside = false;
 let viewerClockOwner = true;
 const viewerClockPeers = new Map();
 const viewerCadence = { paintFrames:0, paintSkipped:0, videoFrames:0, tickAttempts:0, tickSent:0, ownerChanges:0,
@@ -666,6 +668,24 @@ function postXFloat(action, value) {
   window.postMessage({ type: "XFF_STATION_CONTROL", action, value }, location.origin);
 }
 
+/* Hover is a renewable hold, not a one-way pause. Chrome can omit a
+   pointerleave when focus changes, so the source releases the pause unless
+   this still-hovered pane renews it. */
+function setStationHoverPause(held) {
+  stationHoverInside = Boolean(held);
+  if (stationHoverPausePulse) {
+    clearInterval(stationHoverPausePulse);
+    stationHoverPausePulse = 0;
+  }
+  if (!xfloatStream) return;
+  postXFloat("pause", stationHoverInside);
+  if (!stationHoverInside) return;
+  stationHoverPausePulse = setInterval(() => {
+    if (!stationHoverInside || !xfloatStream) return;
+    postXFloat("pause", true);
+  }, 180);
+}
+
 function paintXView(view) {
   const notifications = view === "notifications";
   el("bXList").classList.toggle("on", !notifications);
@@ -680,6 +700,7 @@ function xfloatControls(on) {
 }
 
 function stopXFloat({ notify = true } = {}) {
+  setStationHoverPause(false);
   if (xfloatFrame) cancelAnimationFrame(xfloatFrame);
   xfloatFrame = 0;
   if (stationTickFrame) cancelAnimationFrame(stationTickFrame);
@@ -1037,8 +1058,9 @@ el("bXNotify").addEventListener("click", () => postXFloat("view", "notifications
 el("bFull").addEventListener("click", () => {
   parent.postMessage({ type: "SCINTILLA_DECK_TOGGLE_FULL" }, location.origin);
 });
-el("body").addEventListener("pointerenter", () => { if (xfloatStream) postXFloat("pause", true); });
-el("body").addEventListener("pointerleave", () => { if (xfloatStream && !xfloatPaused) postXFloat("pause", false); });
+el("body").addEventListener("pointerenter", () => { if (xfloatStream) setStationHoverPause(true); });
+el("body").addEventListener("pointerleave", () => { if (xfloatStream && !xfloatPaused) setStationHoverPause(false); });
+window.addEventListener("blur", () => setStationHoverPause(false));
 
 window.addEventListener("message", (event) => {
   if (event.source !== window || event.origin !== location.origin) return;
@@ -1120,6 +1142,7 @@ window.addEventListener("resize", () => postXFloat("resize", { width: innerWidth
 window.addEventListener("pagehide", () => stopXFloat({ notify: false }));
 window.addEventListener("pagehide", () => stopStationPairing());
 window.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") setStationHoverPause(false);
   if (!REMOTE_MODE) {
     announceViewerClock(document.visibilityState === "visible");
     if (document.visibilityState === "visible" && xfloatStream) startStationClock();

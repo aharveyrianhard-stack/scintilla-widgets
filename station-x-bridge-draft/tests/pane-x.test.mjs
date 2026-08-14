@@ -53,6 +53,16 @@ test("viewer cadence is capped locally while remote iPad viewers never drive sou
   assert.match(source, /window\.__SCINTILLA_X_CADENCE/);
 });
 
+test("Station pane hover renews a short pause lease and releases it on leave or focus loss", () => {
+  assert.match(source, /function setStationHoverPause\(held\)/);
+  assert.match(source, /postXFloat\("pause", stationHoverInside\)/);
+  assert.match(source, /stationHoverPausePulse = setInterval\([\s\S]{0,220}postXFloat\("pause", true\)/);
+  assert.match(source, /pointerleave[\s\S]{0,120}setStationHoverPause\(false\)/);
+  assert.match(source, /window\.addEventListener\("blur", \(\) => setStationHoverPause\(false\)\)/);
+  assert.match(source, /document\.visibilityState !== "visible"\) setStationHoverPause\(false\)/);
+  assert.match(source, /function stopXFloat\(\{ notify = true \} = \{\}\) \{[\s\S]{0,100}setStationHoverPause\(false\)/);
+});
+
 test("crop broadcasts preserve one canvas animation loop", () => {
   const context = { xfloatFrame:0, drawXFloat:() => {}, requestVideoFrameCallback:undefined };
   let scheduled = 0;
