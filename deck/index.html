@@ -1256,9 +1256,19 @@ function setRotationInterval(seconds) {
   scheduleRotation();
 }
 
+/* ---- independently versioned pane shells ----
+   Each child pane is pinned to its own release surface. A later chart,
+   video, or X change is published as a new shell version instead of changing
+   an already-pinned sibling merely because the deck is redeployed. */
+const STATION_SHELL = Object.freeze({
+  chart: "/station-shells/chart-v1",
+  video: "/station-shells/video-v1",
+  x: "/station-shells/x-v1"
+});
+
 /* ---- ONE timeframe bar, driving both charts ---- */
 function chartSrc(t, index, transitionGeneration) {
-  return "/chart?rev=086&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
+  return STATION_SHELL.chart + "?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
     "&view=" + encodeURIComponent(VIEW) +
     (SceneModel.hidesTopChartAxis(index, CHART_COUNT) ? "&sharedAxis=1" : "") +
     (transitionGeneration ? "&transition=" + encodeURIComponent(transitionGeneration) : "");
@@ -1550,13 +1560,13 @@ async function build() {
        uses — so the feed actually scrolls in the pane instead of offering a
        button. Both are embedded; neither is a dock. */
     { row: 1, key: "fb", short: "personal", title: "Personal YouTube", tag: "personal subscriptions",
-      kind: "video", src: "/pane-video?feed=personal&cols=2&rev=077&view=" + encodeURIComponent(VIEW), open: "/pane-video?feed=personal&limit=200&cols=2" },
+      kind: "video", src: STATION_SHELL.video + "?shell=v1&feed=personal&cols=2&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.video + "?shell=v1&feed=personal&limit=200&cols=2" },
     { row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",
-      kind: "video", src: "/pane-video?feed=scintilla&cols=2&rev=077&view=" + encodeURIComponent(VIEW), open: "/pane-video?feed=scintilla&limit=200&cols=2" },
+      kind: "video", src: STATION_SHELL.video + "?shell=v1&feed=scintilla&cols=2&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.video + "?shell=v1&feed=scintilla&limit=200&cols=2" },
     { row: 1, key: "x", short: "X", title: "X · live", tag: "live capture",
       kind: "x", src: IPAD_COMPANION
-        ? "/pane-x?remote=1&pair=" + encodeURIComponent(IPAD_PAIR) + "&code=" + encodeURIComponent(IPAD_CODE) + "&view=" + encodeURIComponent(VIEW)
-        : "/pane-x?rev=088&view=" + encodeURIComponent(VIEW), open: "/pane-x?rev=088" },
+        ? STATION_SHELL.x + "?shell=v1&remote=1&pair=" + encodeURIComponent(IPAD_PAIR) + "&code=" + encodeURIComponent(IPAD_CODE) + "&view=" + encodeURIComponent(VIEW)
+        : STATION_SHELL.x + "?shell=v1&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.x + "?shell=v1" },
   ]);
 
   /* TWO FLEX ROWS. Two children up top, three below. Nothing else decides

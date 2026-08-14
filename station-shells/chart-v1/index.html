@@ -1,0 +1,1255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · chart</title>
+<!-- ============================================================================
+     SCINTILLA WIDGET · CHART — standalone scene module (stage-1 extraction)
+     Extracted from scintilla-hub index.html (SC_BUILD 2026-07-16T0330, repo main
+     aafbc9b): scChart R18 native canvas renderer — scChartHTML/Draw/Load/Scrub/
+     Wire, DB-only fetchChartSeries (R30 — reads ohlcv_history via pg(), NEVER
+     FMP from the page), cache-first chart layer, R22 range ladder, in-app
+     TradingView modal (FIX 5 / R52) — all ported verbatim. Live last-point
+     patch (R22 FIX 8) rides supabase-js realtime on live_quotes, same as the
+     hub. The hub's R20 touch-guard overlay is dropped (a dedicated chart window
+     has no page scroll to trap — the one intentional trim, flagged here).
+     Chrome addition (plumbing only): a ticker field in the range bar, since the
+     widget has no cohort board to click. PRICE BASIS: RAW DB prints
+     (ohlcv_history, unadjusted) + live_quotes ticks — the hub chart's basis.
+     Params: ?t=MU · ?range=1D (15m 30m 1h 2h 3h 4h 6h 12h 1D 3D 1W)
+       · ?bare=1 (pane mode — see the BARE note in the script)
+       · ?tvrange=1D|5D|1M|3M|6M|YTD|12M|60M|ALL (TradingView opening window)
+     LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel:#0D0D14; --panel2:#0F0F1A;
+  --line:#1A1A2A; --line2:#252538; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --coin:#8B5CF6;
+  --bull:#00FFA3; --bear:#FF2D55;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+  --ipad-live-top:6px; --ipad-live-left:7px; --ipad-live-gap:6px;
+  --ipad-live-pad-y:4px; --ipad-live-pad-x:6px; --ipad-live-size:14px;
+}
+*{ min-width:0; box-sizing:border-box; }
+html,body{ margin:0; padding:0; height:100%; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+  -webkit-font-smoothing:antialiased; font-size:12px; letter-spacing:.02em; overflow:hidden;
+  -webkit-text-size-adjust:100%; text-size-adjust:100%; }
+#chartSlot{ position:absolute; inset:0; }
+
+/* SCINTILLA · scChart — ported verbatim */
+.sc-nchart{ position:absolute; inset:0; display:flex; flex-direction:column;
+  min-width:0; overflow:hidden; }
+.sc-nchart__bar{ flex:none; display:flex; align-items:center; gap:4px;
+  padding:6px 10px 4px; min-width:0; overflow-x:auto; overflow-y:hidden;
+  -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+.sc-nchart__bar::-webkit-scrollbar{ display:none; }
+.sc-crange{ flex:none; background:none; border:.6px solid var(--line2); border-radius:3px;
+  cursor:pointer; font-family:var(--mono); font-size:8.5px; letter-spacing:.08em;
+  color:var(--dim); padding:3px 7px; white-space:nowrap; }
+.sc-crange:hover{ color:var(--ink2); }
+.sc-crange.on{ color:var(--crk); border-color:rgba(0,212,255,.45);
+  box-shadow:inset 0 -2px 0 var(--crk); }
+.sc-nchart__bar .sc-tv__pop{ position:static; margin-left:auto; flex:none; }
+.sc-nchart__area{ position:relative; flex:1 1 0; min-height:0; min-width:0; overflow:hidden; }
+.sc-nchart__cv{ position:absolute; inset:0; width:100%; height:100%; display:block;
+  touch-action:none; cursor:crosshair; }
+.sc-nchart__cv.is-panning{ cursor:grabbing; }
+.sc-nchart__live{ position:absolute; top:7px; left:8px; z-index:3; pointer-events:auto;
+  display:flex; flex-direction:row; align-items:baseline; gap:8px; max-width:calc(100% - 52px);
+  background:rgba(5,6,12,.76); border:.6px solid rgba(151,166,198,.2); border-radius:4px;
+  padding:5px 7px; color:var(--dim); white-space:nowrap; box-sizing:border-box;
+  font:700 clamp(12px,1.65vw,16px) var(--mono); letter-spacing:.01em; line-height:1;
+  box-shadow:0 2px 10px rgba(0,0,0,.38); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); }
+.sc-nchart__live:hover{ filter:brightness(1.18); }
+.sc-nchart__live-ticker{ appearance:none; border:0; background:transparent; color:inherit; padding:0;
+  font:inherit; letter-spacing:inherit; line-height:inherit; cursor:text; text-decoration:underline;
+  text-decoration-color:rgba(255,255,255,.26); text-underline-offset:3px; }
+.sc-nchart__live-change{ font:700 .86em var(--mono); letter-spacing:.02em; line-height:1; }
+.sc-nchart__live[data-change="up"]{ color:var(--bull); }
+.sc-nchart__live[data-change="down"]{ color:var(--bear); }
+.sc-nchart__live[data-change="flat"]{ color:var(--dim); }
+.sc-nchart__live[data-fresh="0"]{ opacity:.72; }
+.sc-nchart__msg{ position:absolute; inset:0; z-index:2; display:flex; align-items:center;
+  justify-content:center; color:var(--dim); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
+.sc-nchart__msg[hidden]{ display:none; }
+.sc-tv__pop{ z-index:3;
+  display:inline-flex; align-items:center; gap:4px;
+  font-family:var(--mono); font-size:8px; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--crk); text-decoration:none;
+  background:none; border:0; padding:0; cursor:pointer;
+  filter:drop-shadow(0 0 4px rgba(0,212,255,.4)); }
+.sc-tv__pop:hover{ filter:drop-shadow(0 0 7px rgba(0,212,255,.8)); }
+.sc-tv__pop-lbl{ white-space:nowrap; }
+@media (max-width:640px){ .sc-tv__pop-lbl{ display:none; } }
+
+/* widget ticker field (chrome addition — no cohort board in a standalone window) */
+.sc-ctkin{ flex:none; width:74px; background:var(--panel2); border:.6px solid var(--line2); border-radius:3px;
+  color:var(--ink); font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 7px; outline:none; text-align:center; }
+.sc-ctkin:focus{ border-color:rgba(0,212,255,.45); color:var(--crk); }
+/* bare mode — the Station owns ticker and timeframe. Hide the duplicated
+   chart bar so the actual chart gets the full pane; standalone /chart keeps it. */
+html.bare .sc-nchart__bar{ display:none; }
+html[data-view="desk"] .sc-nchart__live{ font-size:18px; }
+html[data-view="ipad"] .sc-nchart__live{ top:var(--ipad-live-top); left:var(--ipad-live-left); gap:var(--ipad-live-gap); padding:var(--ipad-live-pad-y) var(--ipad-live-pad-x); font-size:var(--ipad-live-size); max-width:calc(100% - 44px); }
+html[data-view="compact"] .sc-nchart__live{ font-size:11px; }
+
+/* FIX 5 — IN-APP TradingView modal — ported verbatim */
+body.tvmodal-open{ overflow:hidden; }
+.sc-tvmodal{ position:fixed; inset:0; z-index:200; display:flex; align-items:center; justify-content:center;
+  padding:24px; box-sizing:border-box; }
+.sc-tvmodal__backdrop{ position:absolute; inset:0; background:rgba(4,4,10,.78);
+  backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); cursor:pointer; }
+.sc-tvmodal__panel{ position:relative; z-index:1; width:min(1180px,94vw); height:min(760px,88vh);
+  display:flex; flex-direction:column; background:var(--panel2);
+  border:.8px solid var(--hair); border-radius:0; overflow:hidden;
+  box-shadow:0 24px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(0,212,255,.08); }
+.sc-tvmodal__bar{ flex:0 0 auto; display:flex; align-items:center; gap:12px;
+  padding:9px 12px; border-bottom:.8px solid var(--line2); background:var(--panel); }
+.sc-tvmodal__ttl{ font-family:var(--mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--crk); text-shadow:0 0 7px rgba(0,212,255,.5); }
+.sc-tvmodal__out{ margin-left:auto; font-family:var(--mono); font-size:9px; letter-spacing:.06em;
+  color:var(--ink3); text-decoration:none; border:.5px solid var(--line2); border-radius:3px; padding:2px 8px; }
+.sc-tvmodal__out:hover{ color:var(--crk); border-color:rgba(0,212,255,.4); }
+.sc-tvmodal__x{ flex:0 0 auto; width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center;
+  background:none; border:.5px solid var(--line2); border-radius:4px; color:var(--ink2);
+  font-size:13px; line-height:1; cursor:pointer; }
+.sc-tvmodal__x:hover{ color:#fff; border-color:var(--crk); background:rgba(0,212,255,.08); }
+.sc-tvmodal__body{ position:relative; flex:1 1 auto; min-height:0; background:var(--bg); }
+.sc-tvmodal__load{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  font-family:var(--mono); font-size:11px; color:var(--dim); letter-spacing:.06em; }
+.sc-tvmodal__frame{ position:relative; z-index:1; width:100%; height:100%; border:0; display:block; background:var(--bg); }
+.sc-tvmodal__fallback{ display:flex; flex-direction:column; align-items:center; justify-content:center;
+  height:100%; gap:11px; text-align:center; padding:24px; }
+.sc-tvmodal__fallback .ttl{ font-family:var(--mono); font-size:13px; letter-spacing:.06em; color:var(--ink); }
+.sc-tvmodal__fallback .sub{ font-size:11px; color:var(--ink3); line-height:1.5; max-width:360px; }
+.sc-tvmodal__fallback .btn{ margin-top:4px; font-family:var(--mono); font-size:11px; letter-spacing:.06em;
+  color:var(--crk); text-decoration:none; border:.8px solid rgba(0,212,255,.45); border-radius:5px;
+  padding:8px 18px; background:linear-gradient(180deg,rgba(0,212,255,.10),rgba(0,212,255,.02)); }
+.sc-tvmodal__fallback .btn:hover{ background:rgba(0,212,255,.16); border-color:var(--crk); }
+@media (max-width:640px){ .sc-tvmodal{ padding:10px; } .sc-tvmodal__panel{ width:100vw; height:92vh; border-radius:0; } }
+</style>
+</head>
+<body>
+<div id="chartSlot"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+"use strict";
+/* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
+const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+const sb   = (typeof supabase !== "undefined" && supabase.createClient)
+               ? supabase.createClient(SB, ANON) : null;
+/* A stalled data-plane read used to leave each pane waiting forever. Keep an
+   individual request short, then let the chart-level retry use one measured
+   backoff rather than multiplying hanging fetches. */
+const PG_TIMEOUT_MS = 4500;
+async function pgRequest(path) {
+  const controller = typeof AbortController === "undefined" ? null : new AbortController();
+  const timer = controller ? setTimeout(() => controller.abort(), PG_TIMEOUT_MS) : null;
+  try {
+    return await fetch(SB + "/rest/v1/" + path, {
+      headers: { apikey: ANON, Authorization: "Bearer " + ANON },
+      signal: controller?.signal,
+    });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+async function pg(path, _tries) {
+  const tries = _tries == null ? 1 : _tries;
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await pgRequest(path);
+      if (r.ok) return r.json();
+      if (r.status === 503 || r.status === 504 || r.status === 429) {
+        lastErr = new Error("pg " + path + " → " + r.status);
+      } else {
+        throw new Error("pg " + path + " → " + r.status);
+      }
+    } catch (e) { lastErr = e; }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, 500 * (i + 1) + Math.random() * 300));
+  }
+  throw lastErr;
+}
+const num = (x) => (x == null ? null : Number(x));
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+const el = (id) => document.getElementById(id);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+function lsGet(k) { try { return localStorage.getItem(k); } catch (err) { return null; } }
+/* in bare mode we never write — see the BARE note below. Two same-origin
+   chart frames sharing one localStorage key is the whole timeframe bug. */
+let BARE = false;   /* set from ?bare=1 a few lines down */
+function lsSet(k, v) { if (BARE) return; try { localStorage.setItem(k, v); } catch (err) {} }
+const CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
+function cacheGet(k, staleOk) {
+  try {
+    const raw = lsGet(k);
+    if (!raw) return null;
+    const env = JSON.parse(raw);
+    if (!env || typeof env.ts !== "number") return null;
+    if (staleOk === false && (Date.now() - env.ts) > CACHE_MAX_AGE) return null;
+    return env;
+  } catch (err) { return null; }
+}
+function cacheSet(k, payload) {
+  /* Bare Station panes must not persist selected ticker/range, but their
+     ticker-and-range keyed data cache is safe to share and lets a fresh
+     Station window draw before a slow database refresh returns. */
+  try { localStorage.setItem(k, JSON.stringify(Object.assign({ ts: Date.now() }, payload))); } catch (err) {}
+}
+
+/* ---- crypto map + TV symbols — ported verbatim ---- */
+const CB = { "BTC-USD":"BTCUSD", "ETH-USD":"ETHUSD", "SOL-USD":"SOLUSD", "XRP-USD":"XRPUSD",
+             "DOGE-USD":"DOGEUSD", "ADA-USD":"ADAUSD", "AVAX-USD":"AVAXUSD",
+             "LINK-USD":"LINKUSD", "LTC-USD":"LTCUSD" };
+const cryptoSet = new Set(Object.values(CB));
+const futureSet = new Set(["ESUSD","NQUSD","CLUSD","GCUSD","SIUSD","DXUSD"]);
+const TV_MAP = { BTC: "COINBASE:BTCUSD", ETH: "COINBASE:ETHUSD", SOL: "COINBASE:SOLUSD",
+  BTCUSD: "COINBASE:BTCUSD", ETHUSD: "COINBASE:ETHUSD", SOLUSD: "COINBASE:SOLUSD",
+  XRPUSD: "COINBASE:XRPUSD", DOGEUSD: "COINBASE:DOGEUSD", ADAUSD: "COINBASE:ADAUSD",
+  AVAXUSD: "COINBASE:AVAXUSD", LINKUSD: "COINBASE:LINKUSD", LTCUSD: "COINBASE:LTCUSD" };
+const POPOUT_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 5 h5 v5 M19 5 L10 14 M9 5 H5 v14 h14 v-4"/></svg>';
+const CHART_RANGES = ["15m", "30m", "1h", "2h", "3h", "4h", "6h", "12h", "1D", "3D", "1W"];
+
+/* ---- widget state (hub S stub) ---- */
+const QS = new URLSearchParams(location.search);
+const VIEW_PROFILES = ["auto","desk","ipad","display","compact"];
+let VIEW_PROFILE = VIEW_PROFILES.includes(QS.get("view")) ? QS.get("view") : "auto";
+document.documentElement.dataset.view = VIEW_PROFILE;
+let PANE_UI_SCALE = 1;
+function boundedPaneScale(width, height) {
+  const raw = Math.min(width / 410, height / 210);
+  return Math.round(Math.max(.72, Math.min(1.08, raw)) * 100) / 100;
+}
+function applyIpadPaneScale(forced) {
+  const root = document.documentElement;
+  const scale = VIEW_PROFILE === "ipad"
+    ? (Number.isFinite(+forced) ? Math.max(.72, Math.min(1.08, +forced)) : boundedPaneScale(innerWidth, innerHeight))
+    : 1;
+  PANE_UI_SCALE = scale;
+  root.style.setProperty("--ipad-live-top", (6 * scale).toFixed(2) + "px");
+  root.style.setProperty("--ipad-live-left", (7 * scale).toFixed(2) + "px");
+  root.style.setProperty("--ipad-live-gap", (6 * scale).toFixed(2) + "px");
+  root.style.setProperty("--ipad-live-pad-y", (4 * scale).toFixed(2) + "px");
+  root.style.setProperty("--ipad-live-pad-x", (6 * scale).toFixed(2) + "px");
+  root.style.setProperty("--ipad-live-size", (14 * scale).toFixed(2) + "px");
+}
+applyIpadPaneScale();
+const SHARED_TIME_AXIS = QS.get("sharedAxis") === "1";
+let CHART_TRANSITION_GENERATION = Math.max(0, Number(QS.get("transition")) || 0);
+/* BARE MODE (?bare=1) — used when /chart is a pane inside /deck.
+   Two things change, and only these two:
+     1. the per-chart range ladder is hidden, because the deck owns ONE
+        timeframe bar for both charts;
+     2. nothing is written to localStorage. That shared key is exactly why
+        changing the timeframe on one chart used to change the other — two
+        same-origin iframes were writing the same scw_chartRange.
+   Everything else — the canvas, the ticker field, TradingView — is identical. */
+BARE = QS.get("bare") === "1";
+const DECK_QUOTE_MODE = BARE && window.parent !== window;
+const S = {
+  chartT: (QS.get("t") || (BARE ? null : lsGet("scw_chartT")) || "MU").toUpperCase().trim(),
+  /* The Station owns one run-wide range. A reload begins at 3h unless its
+     URL explicitly names a range; never revive a stale local preference. */
+  chartRange: (function(){ const r = QS.get("range"); return CHART_RANGES.includes(r) ? r : "3h"; })(),
+};
+if (BARE) document.documentElement.classList.add("bare");
+let prevClose = {};
+let liveQuote = {};
+
+/* ---- chart caches + colors — ported verbatim ---- */
+const chartCache = new Map();
+const chartInflight = new Map();
+const CHART_HOSTS = new Set();
+const CHART_INITIAL_LIMIT = 400;
+const CHART_HISTORY_PAGE = 800;
+const CHART_RETRY_MS = 3000;
+const CHART_LOAD_COORDINATOR_TIMEOUT_MS = 5500;
+let chartLoadToken = 0;
+const chartLoadPermits = new Map();
+const CHART_DB_RANGE = {"15m":["15",400],"30m":["30",400],"1h":["60",400],"2h":["120",400],"3h":["180",400],"4h":["240",400],"6h":["6h",400],"12h":["12h",400],"1D":["D",400],"3D":["3D",400],"1W":["W",400]};
+let CH_COL = null;
+function chColors() {
+  if (!CH_COL) {
+    const cs = getComputedStyle(document.documentElement);
+    const v = (n, fb) => (cs.getPropertyValue(n) || fb).trim();
+    CH_COL = { bull: v("--bull", "#00FFA3"), bear: v("--bear", "#FF2D55"),
+               dim: v("--dim", "#868AAA"), ink2: v("--ink2", "#C6C8DE") };
+  }
+  return CH_COL;
+}
+const chFmpSym = (t) => (cryptoSet.has(t) && !t.endsWith("USD") ? t + "USD" : t);
+function chApplyLivePoint(t, pts, quote) {
+  if (!quote || !Array.isArray(pts) || !pts.length || !isFinite(+quote.price)) return pts;
+  const d = new Date(quote.updated_ts || Date.now()).toISOString();
+  const last = pts[pts.length - 1];
+  if (last.d.slice(0,10) === d.slice(0,10)) last.p = +quote.price;
+  else if (futureSet.has(t) || cryptoSet.has(t)) pts.push({ d, p:+quote.price });
+  return pts;
+}
+const CH_DECIMALS = { GCUSD:1, CLUSD:2, SIUSD:3, DXUSD:3, ESUSD:2, NQUSD:2 };
+const chPx = (p, ticker = "") => {
+  const d = CH_DECIMALS[ticker] ?? (p >= 1 ? 2 : 4);
+  return p.toLocaleString("en-US", { minimumFractionDigits:d, maximumFractionDigits:d });
+};
+const chAxisPx = (p, step) => {
+  const a = Math.abs(p), s = Math.abs(step || 1);
+  if (a >= 10000 && s >= 1000) {
+    const d = s < 10000 ? 1 : 0;
+    return (p / 1000).toFixed(d).replace(/\.0$/, "") + "K";
+  }
+  const d = s >= 1 ? 0 : Math.min(4, Math.max(0, Math.ceil(-Math.log10(s))));
+  return p.toLocaleString("en-US", { minimumFractionDigits:d, maximumFractionDigits:d });
+};
+const EV_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function chHoverTime(d, range) {
+  const iso = String(d || "");
+  const mon = EV_MON[+iso.slice(5, 7) - 1] || iso.slice(5, 7);
+  const day = String(+iso.slice(8, 10) || "");
+  const year = iso.slice(0, 4);
+  const time = iso.length > 15 ? iso.slice(11, 16) : "";
+  return [mon, day && mon ? day + "," : "", year].filter(Boolean).join(" ") +
+    (time && ["15m","30m","1h","2h","3h","4h","6h","12h"].includes(range) ? " · " + time : "");
+}
+function chTimeLbl(d, range, compact, spanMs) {
+  const iso = String(d || "");
+  const yr = iso.slice(0, 4);
+  const md = iso.slice(5, 10);
+  const hm = iso.length > 10 ? iso.slice(11, 16) : "";
+  if (["15m","30m","1h","2h","3h","4h","6h","12h"].includes(range)) {
+    if (!hm) return md || iso;
+    if (spanMs <= 36 * 3600000) return hm;
+    if (spanMs <= 45 * 86400000)
+      return compact ? iso.slice(8, 10) + " " + hm : md + " " + hm;
+    return compact ? md : yr + "-" + md;
+  }
+  if (range === "1D") {
+    if (spanMs <= 180 * 86400000) return md || iso.slice(0, 10);
+    if (spanMs <= 4 * 365.25 * 86400000) return iso.slice(0, 7);
+    return yr || iso;
+  }
+  if (range === "3D" || range === "1W")
+    return spanMs > 6 * 365.25 * 86400000 ? yr : iso.slice(0, 7);
+  const m = iso.match(/^\d{4}-(\d{2})-(\d{2})/);
+  return m ? (EV_MON[+m[1] - 1] || m[1]) + " " + (+m[2]) : md;
+}
+function chTimeParts(d, range, compact, spanMs) {
+  const iso = String(d || ""), yr = iso.slice(0, 4), md = iso.slice(5, 10);
+  const hm = iso.length > 10 ? iso.slice(11, 16) : "";
+  const intraday = ["15m","30m","1h","2h","3h","4h","6h","12h"].includes(range);
+  if (intraday && hm) {
+    if (spanMs <= 45 * 86400000) return [compact ? iso.slice(8, 10) : md, hm];
+    return [yr, md];
+  }
+  if (range === "1D") {
+    if (spanMs <= 180 * 86400000) return [yr, md];
+    if (spanMs <= 4 * 365.25 * 86400000) return [yr, iso.slice(5, 7)];
+    return [yr, ""];
+  }
+  if (range === "3D" || range === "1W")
+    return spanMs > 6 * 365.25 * 86400000 ? [yr, ""] : [yr, iso.slice(5, 7)];
+  return [chTimeLbl(iso, range, compact, spanMs), ""];
+}
+/* ---- CACHE-FIRST + DB-ONLY series fetch — ported verbatim (R30) ---- */
+function chartSeriesCached(t, range) {
+  const key = t + "|" + range;
+  const hit = chartCache.get(key);
+  if (hit && hit.pts && hit.pts.length >= 2) return chApplyLivePoint(t, hit.pts, liveQuote[t]);
+  const env = cacheGet("sc_chart_" + key);
+  if (env && Array.isArray(env.pts) && env.pts.length >= 2) {
+    chartCache.set(key, { ts: env.ts || Date.now(), pts: env.pts });
+    return chApplyLivePoint(t, env.pts, liveQuote[t]);
+  }
+  return null;
+}
+async function fetchChartSeries(t, range, requestedLimit){
+  const key = t + "|" + range;
+  const hit = chartCache.get(key);
+  const e = CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"];
+  const limit = Math.max(e[1], Math.round(requestedLimit || e[1]));
+  if (hit && Date.now() - hit.ts < 300000 && (hit.limit || hit.pts.length) >= limit)
+    return chApplyLivePoint(t, hit.pts, liveQuote[t]);
+  const inflightKey = key + "|" + limit;
+  if (chartInflight.has(inflightKey)) return chartInflight.get(inflightKey);
+  const work = (async () => {
+    const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + limit);
+    let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
+    pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
+    chApplyLivePoint(t, pts, liveQuote[t]);
+    chartCache.set(key, { ts: Date.now(), pts: pts, limit:limit });
+    if (pts.length >= 2) { try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {} }
+    return pts;
+  })();
+  chartInflight.set(inflightKey, work);
+  try { return await work; }
+  finally { if (chartInflight.get(inflightKey) === work) chartInflight.delete(inflightKey); }
+}
+
+async function fetchOlderChartSeries(t, range, before, limit) {
+  const e = CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"];
+  const beforeTs = Math.floor(new Date(before).getTime() / 1000);
+  if (!Number.isFinite(beforeTs)) return [];
+  const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) +
+    "&tf=eq." + encodeURIComponent(e[0]) + "&timestamp=lt." + beforeTs +
+    "&select=timestamp,close&order=timestamp.desc&limit=" + Math.max(1, Math.round(limit || CHART_HISTORY_PAGE)));
+  const pts = (Array.isArray(rows) ? rows : []).map((r) => ({
+    d:new Date(r.timestamp * 1000).toISOString(), p:+r.close
+  })).filter((q) => Number.isFinite(q.p) && q.p > 0);
+  pts.sort((a,b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
+  return pts;
+}
+
+/* ---- scChart — ported verbatim (R20 touch-guard overlay dropped; see header) ---- */
+function scChartHTML(ticker) {
+  const sym = TV_MAP[ticker] || ticker;
+  return '<div class="sc-nchart" data-t="' + esc(ticker) + '">' +
+    '<div class="sc-nchart__bar">' +
+      '<input class="sc-ctkin" id="tkin" value="' + esc(ticker) + '" spellcheck="false" autocomplete="off" title="ticker — Enter to load">' +
+      CHART_RANGES.map((r) =>
+        '<button class="sc-crange' + (r === S.chartRange ? " on" : "") +
+        '" data-act="chartrange" data-r="' + r + '">' + r + "</button>").join("") +
+      '<button type="button" class="sc-tv__pop" data-act="tvmodal" data-sym="' + esc(sym) +
+      '" title="Open ' + esc(ticker) + ' in TradingView with your indicator stack" aria-label="Open in TradingView">' +
+      POPOUT_SVG + "<span class=\"sc-tv__pop-lbl\"> TradingView</span></button>" +
+    "</div>" +
+    '<div class="sc-nchart__area"><canvas class="sc-nchart__cv"></canvas>' +
+    '<div class="sc-nchart__live" data-fresh="0" title="Edit ticker"></div>' +
+    '<div class="sc-nchart__msg" hidden></div></div></div>';
+}
+const TV_STUDIES = encodeURIComponent(JSON.stringify([
+  "RSI@tv-basicstudies", "MACD@tv-basicstudies", "WilliamR@tv-basicstudies",
+  "MAExp@tv-basicstudies", "MAExp@tv-basicstudies"
+]));
+/* ---- WHAT WE CAN AND CANNOT CONTROL WHEN WE HAND OFF TO TRADINGVIEW ----
+   CAN (this is the widget embed, and it is ours to configure): symbol, bar
+   interval, theme, chart style, the indicator stack, and — the one Alan
+   asked for — the VISIBLE WINDOW, via &range=. Without it the widget opens
+   pinned to the right edge on a handful of bars, which is the "too zoomed
+   in" he saw. We now open a sensible frame per timeframe: intraday gets
+   5 days, daily gets 12 months. Override with ?tvrange=3M|6M|YTD|12M|60M|ALL.
+   CANNOT: the full tradingview.com/chart site. That opens HIS saved layout
+   with his own indicators and his own zoom, and we deliberately do not
+   touch it — the standing order is that no session manipulates his
+   layouts. We pass the symbol and the interval and stop there. ---------- */
+const TV_INTERVAL = { "15m":"15","30m":"30","1h":"60","2h":"120","3h":"180","4h":"240",
+  "6h":"360","12h":"720","1D":"D","3D":"3D","1W":"W" };
+const TV_RANGES = ["1D","5D","1M","3M","6M","YTD","12M","60M","ALL"];
+function tvFrame() {
+  const q = (QS.get("tvrange") || "").toUpperCase();
+  if (TV_RANGES.includes(q)) return q;
+  const r = S.chartRange;
+  if (r === "1W" || r === "3D") return "60M";      /* weekly bars → five years */
+  if (r === "1D") return "12M";                     /* daily bars → a year */
+  return "5D";                                      /* intraday → a week of context */
+}
+const TV_EMBED_URL = (sym) => "https://s.tradingview.com/widgetembed/?symbol=" +
+  encodeURIComponent(sym || "") +
+  "&interval=" + (TV_INTERVAL[S.chartRange] || "D") +
+  "&range=" + tvFrame() +
+  "&theme=dark&style=1&hide_side_toolbar=0&withdateranges=1&allow_symbol_change=1&save_image=0&locale=en&studies=" + TV_STUDIES;
+const TV_URL = (sym) => "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(sym || "") +
+  "&interval=" + (TV_INTERVAL[S.chartRange] || "D");
+const TV_LOAD_MS = 2600;
+let TV_TIMER = null;
+function tvFallback(url) {
+  const body = document.getElementById("tvModalBody");
+  if (!body) return;
+  body.innerHTML =
+    '<div class="sc-tvmodal__fallback">' +
+      '<div class="ttl">TradingView blocks embedding</div>' +
+      '<div class="sub">This chart can\'t be shown inside the widget — open it in a new window instead.</div>' +
+      '<a class="btn" href="' + esc(url) + '" target="_blank" rel="noopener">Open in a new window →</a>' +
+    "</div>";
+}
+function openTvModal(sym) {
+  const embed = TV_EMBED_URL(sym);
+  const url   = TV_URL(sym);
+  closeTvModal();
+  const wrap = document.createElement("div");
+  wrap.className = "sc-tvmodal";
+  wrap.id = "tvModal";
+  wrap.innerHTML =
+    '<div class="sc-tvmodal__backdrop" data-act="tvmodalclose"></div>' +
+    '<div class="sc-tvmodal__panel" role="dialog" aria-label="TradingView chart">' +
+      '<div class="sc-tvmodal__bar">' +
+        '<span class="sc-tvmodal__ttl">◹ ' + esc(sym || "") + ' · live chart · TradingView</span>' +
+        '<a class="sc-tvmodal__out" href="' + esc(url) + '" target="_blank" rel="noopener" title="Open in a new window">open out ↗</a>' +
+        '<button type="button" class="sc-tvmodal__x" data-act="tvmodalclose" aria-label="Close">✕</button>' +
+      "</div>" +
+      '<div class="sc-tvmodal__body" id="tvModalBody">' +
+        '<div class="sc-tvmodal__load">loading TradingView…</div>' +
+        '<iframe class="sc-tvmodal__frame" id="tvModalFrame" src="' + esc(embed) +
+          '" title="TradingView" frameborder="0" allowtransparency="true" scrolling="no" allow="fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe>' +
+      "</div>" +
+    "</div>";
+  document.body.appendChild(wrap);
+  document.body.classList.add("tvmodal-open");
+  const frame = document.getElementById("tvModalFrame");
+  let loaded = false;
+  if (frame) {
+    frame.addEventListener("load", () => {
+      loaded = true;
+      if (TV_TIMER) { clearTimeout(TV_TIMER); TV_TIMER = null; }
+      const ld = wrap.querySelector(".sc-tvmodal__load"); if (ld) ld.style.display = "none";
+      try {
+        const d = frame.contentDocument;
+        if (d && (d.location.href === "about:blank" || !d.body || !d.body.childNodes.length)) tvFallback(url);
+      } catch (err) { /* cross-origin = widget actually loaded — keep the iframe */ }
+    });
+    frame.addEventListener("error", () => { if (!loaded) tvFallback(url); });
+  }
+  TV_TIMER = setTimeout(() => { if (!loaded) tvFallback(url); }, TV_LOAD_MS);
+}
+function closeTvModal() {
+  if (TV_TIMER) { clearTimeout(TV_TIMER); TV_TIMER = null; }
+  const m = document.getElementById("tvModal");
+  if (m) m.remove();
+  document.body.classList.remove("tvmodal-open");
+}
+
+function chartView(host, pts) {
+  const last = Math.max(1, pts.length - 1);
+  let view = host._view;
+  if (!view || !isFinite(view.start) || !isFinite(view.end)) {
+    view = { start:0, end:last };
+    host._followLatest = true;
+  }
+  let span = Math.max(8, Math.min(last, Math.round(view.end - view.start)));
+  let start = Math.round(view.start), end = start + span;
+  if (start < 0) { end -= start; start = 0; }
+  if (end > last) { start -= end - last; end = last; }
+  host._view = { start:Math.max(0, start), end:Math.min(last, end) };
+  return host._view;
+}
+
+function broadcastChartView(host) {
+  if (!BARE || window.parent === window || host._broadcastQueued) return;
+  host._broadcastQueued = true;
+  requestAnimationFrame(() => {
+    host._broadcastQueued = false;
+    const pts = host._series, view = host._view;
+    if (!pts || !view || !pts[view.start] || !pts[view.end]) return;
+    try {
+      parent.postMessage({ sc:"chart-view", ticker:host.dataset.t,
+        from:pts[view.start].d, to:pts[view.end].d,
+        followLatest:host._followLatest !== false }, location.origin);
+    } catch (_) {}
+  });
+}
+
+function setChartView(host, start, end, followLatest, notify) {
+  const pts = host._series;
+  if (!pts || pts.length < 2) return;
+  const last = pts.length - 1;
+  let span = Math.max(8, Math.min(last, Math.round(end - start)));
+  start = Math.round(start); end = start + span;
+  if (start < 0) { end -= start; start = 0; }
+  if (end > last) { start -= end - last; end = last; }
+  host._view = { start:Math.max(0, start), end:Math.min(last, end) };
+  host._followLatest = followLatest == null ? host._view.end >= last : !!followLatest;
+  scChartDraw(host);
+  if (notify !== false) broadcastChartView(host);
+}
+
+function resetChartView(host, notify) {
+  host._view = null;
+  host._followLatest = true;
+  scChartDraw(host);
+  if (notify !== false) broadcastChartView(host);
+}
+
+function chartIndexAt(pts, iso, after) {
+  const target = new Date(iso).getTime();
+  if (!Number.isFinite(target) || !pts.length) return after ? 0 : Math.max(0, pts.length - 1);
+  let lo = 0, hi = pts.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (new Date(pts[mid].d).getTime() < target) lo = mid + 1; else hi = mid;
+  }
+  if (after) return Math.min(pts.length - 1, lo);
+  return Math.max(0, Math.min(pts.length - 1, lo < pts.length && pts[lo].d === iso ? lo : lo - 1));
+}
+
+function scChartDraw(host, scrub) {
+  const area = host.querySelector(".sc-nchart__area");
+  const cv = host.querySelector(".sc-nchart__cv");
+  if (!area || !cv) return;
+  const w = area.clientWidth, h = area.clientHeight;
+  if (w < 30 || h < 30) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const pts = host._series;
+  if (!pts || pts.length < 2) return;
+  const col = chColors();
+  /* The old 58px price-axis reservation left a conspicuous empty gutter in
+     every small Station chart. Keep the min/max as bare overlay text and give
+     the plotted series almost the full pane instead. */
+  /* The paired lower cards own their column's shared timeline. Keep that
+     actual date/time readable, but make its band a compact annotation rather
+     than a second panel. The right price scale follows the same tighter rule. */
+  const ipadProfile = VIEW_PROFILE === "ipad", scale = ipadProfile ? PANE_UI_SCALE : 1;
+  const axisBand = ipadProfile ? (h < 130 ? 15 : 18) * scale : (h < 130 ? 17 : 21);
+  const padT = (ipadProfile ? 7 : 8) * scale, padB = SHARED_TIME_AXIS ? 5 * scale : axisBand,
+    /* The current quote sits at its actual Y position in this compact right
+       gutter. That lets the top-left readout stay a clean ticker/change cue
+       instead of forcing the user to scan it for price. */
+    padR = ipadProfile ? (h < 130 ? 34 : 39) * scale : (h < 130 ? 36 : 42), padL = 6 * scale;
+  const iw = w - padL - padR, ih = h - padT - padB;
+  if (iw < 10 || ih < 10) return;
+  const view = chartView(host, pts), start = view.start, end = view.end;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = start; i <= end; i++) {
+    const q = pts[i]; if (q.p < lo) lo = q.p; if (q.p > hi) hi = q.p;
+  }
+  const ref = (host._ref != null && isFinite(host._ref)) ? host._ref : pts[0].p;
+  let yLo = lo, yHi = hi;
+  if (yHi === yLo) { yHi += 1; yLo -= 1; }
+  const yPad = (yHi - yLo) * .055;
+  yLo -= yPad; yHi += yPad;
+  /* TradingView-style right margin: the latest bar stays in a stable place
+     instead of jumping to the canvas edge as the user changes scale. */
+  const rightBars = end >= pts.length - 1 ? Math.max(2, Math.round((end - start) * .035)) : 0;
+  const X = (i) => padL + ((i - start) / Math.max(1, end - start + rightBars)) * iw;
+  const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * ih;
+  host._plot = { padL, padT, iw, ih, start, end, rightBars, yLo, yHi };
+  const up = pts[end].p >= ref;
+  const c = up ? col.bull : col.bear;
+  /* Use rounded, evenly meaningful price levels rather than labeling only the
+     accidental visible high and low. The levels adapt to pane height without
+     reopening the old empty right gutter. */
+  const wantedPriceTicks = h >= 330 ? 7 : h >= 235 ? 6 : h >= 155 ? 5 : 4;
+  const rawStep = Math.max(Number.EPSILON, (yHi - yLo) / Math.max(2, wantedPriceTicks - 1));
+  const stepPow = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const stepRatio = rawStep / stepPow;
+  const niceRatio = stepRatio <= 1 ? 1 : stepRatio <= 2 ? 2 : stepRatio <= 2.5 ? 2.5 : stepRatio <= 5 ? 5 : 10;
+  const priceStep = niceRatio * stepPow;
+  const priceTicks = [];
+  for (let v = Math.ceil(yLo / priceStep) * priceStep;
+       v <= yHi + priceStep * .001 && priceTicks.length < 10; v += priceStep)
+    priceTicks.push(+v.toPrecision(12));
+  ctx.save();
+  ctx.strokeStyle = col.dim; ctx.lineWidth = .5; ctx.globalAlpha = .09;
+  for (const v of priceTicks) {
+    const yy = Math.round(Y(v)) + .5;
+    ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + iw, yy); ctx.stroke();
+  }
+  ctx.restore();
+  const trace = () => {
+    ctx.moveTo(X(start), Y(pts[start].p));
+    for (let i = start + 1; i < end; i++) {
+      const x1 = X(i), y1 = Y(pts[i].p), x2 = X(i + 1), y2 = Y(pts[i + 1].p);
+      ctx.quadraticCurveTo(x1, y1, (x1 + x2) / 2, (y1 + y2) / 2);
+    }
+    ctx.lineTo(X(end), Y(pts[end].p));
+  };
+  ctx.save(); ctx.beginPath(); ctx.rect(padL, padT, iw, ih); ctx.clip();
+  const g = ctx.createLinearGradient(0, padT, 0, padT + ih);
+  g.addColorStop(0, c + "3D"); g.addColorStop(1, c + "00");
+  ctx.beginPath(); trace();
+  ctx.lineTo(X(end), padT + ih); ctx.lineTo(X(start), padT + ih); ctx.closePath();
+  ctx.fillStyle = g; ctx.fill();
+  ctx.beginPath(); trace();
+  ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.stroke();
+  if (end === pts.length - 1) {
+    ctx.beginPath(); ctx.arc(X(end), Y(pts[end].p), 2.5, 0, Math.PI * 2);
+    ctx.fillStyle = c; ctx.fill();
+  }
+  ctx.restore();
+  ctx.save();
+  ctx.font = ((ipadProfile ? 6.5 : 7) * scale) + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  ctx.fillStyle = col.ink2; ctx.globalAlpha = .47; ctx.textAlign = "right";
+  ctx.shadowColor = "#000"; ctx.shadowBlur = 4;
+  for (const v of priceTicks) {
+    const yy = Y(v);
+    if (yy >= padT + 6 && yy <= h - padB - 2) ctx.fillText(chAxisPx(v, priceStep), w - 3, yy + 3);
+  }
+  ctx.restore();
+  /* This is intentionally a marker only — never a fixed horizontal reference
+     line. It is rendered only from a received live quote, aligned with the
+     actual live value, and the hover marker takes precedence while scrubbing. */
+  const quote = liveQuote[host.dataset.t];
+  const hasLiveQuote = quote && isFinite(+quote.price);
+  if (hasLiveQuote && !scrub) {
+    const livePrice = +quote.price, liveY = Y(livePrice);
+    if (liveY >= padT && liveY <= padT + ih) {
+      const liveDay = chDayChange(livePrice, prevClose[host.dataset.t]);
+      const liveColor = liveDay.tone === "up" ? col.bull : liveDay.tone === "down" ? col.bear : col.ink2;
+      const liveText = chPx(livePrice, host.dataset.t);
+      const liveFont = Math.max(6.5, (ipadProfile ? 7 : 7.5) * scale);
+      ctx.save();
+      ctx.font = liveFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+      ctx.textBaseline = "middle";
+      const liveW = Math.min(padR - 2, Math.ceil(ctx.measureText(liveText).width) + 6);
+      const liveX = w - liveW - 1;
+      const liveTop = Math.max(padT, Math.min(padT + ih - 12, liveY - 6));
+      ctx.fillStyle = "rgba(5,6,12,.92)";
+      ctx.fillRect(liveX, liveTop, liveW, 12);
+      ctx.fillStyle = liveColor; ctx.textAlign = "right";
+      ctx.fillText(liveText, w - 4, liveY);
+      ctx.restore();
+    }
+  }
+  if (!SHARED_TIME_AXIS) {
+    const timeFont = (VIEW_PROFILE === "desk" ? 7.5 : VIEW_PROFILE === "ipad" ? 6.75 : VIEW_PROFILE === "compact" ? 6.75 : 7.25) * scale;
+    ctx.font = timeFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+    ctx.fillStyle = col.dim;
+    const firstMs = new Date(pts[start].d).getTime(), lastMs = new Date(pts[end].d).getTime();
+    const visibleSpanMs = Math.max(0, lastMs - firstMs);
+    const intraday = ["15m","30m","1h","2h","3h","4h","6h","12h"].includes(host._range || S.chartRange);
+    const compactAxis = iw < 310 || ipadProfile;
+    const targetSpacing = intraday ? (compactAxis ? 56 : 76) : (compactAxis ? 48 : 62);
+    const timeTickCount = Math.max(3, Math.min(12, Math.floor(iw / targetSpacing) + 1));
+    const drawnTimes = new Set();
+    for (let k = 0; k < timeTickCount; k++) {
+      const ix = Math.round(start + (k / Math.max(1, timeTickCount - 1)) * (end - start));
+      const parts = chTimeParts(pts[ix].d, host._range || S.chartRange, compactAxis, visibleSpanMs);
+      const key = parts.join("|");
+      if (!parts[0] || drawnTimes.has(key)) continue;
+      drawnTimes.add(key);
+      ctx.textAlign = k === 0 ? "left" : k === timeTickCount - 1 ? "right" : "center";
+      ctx.fillText(parts[0], X(ix), h - padB + 8);
+      if (parts[1]) {
+        ctx.globalAlpha = .65;
+        ctx.fillText(parts[1], X(ix), h - 2);
+        ctx.globalAlpha = 1;
+      }
+    }
+  }
+  if (scrub && pts[scrub.ix]) {
+    const sx = Math.max(padL, Math.min(padL + iw, scrub.x));
+    const sy = Math.max(padT, Math.min(padT + ih, scrub.y));
+    const price = yLo + (1 - (sy - padT) / ih) * (yHi - yLo);
+    const markerFont = Math.max(6.5, (ipadProfile ? 7 : 7.5) * scale);
+    const priceText = chPx(price, host.dataset.t);
+    const timeText = chHoverTime(pts[scrub.ix].d, host._range || S.chartRange);
+    ctx.save();
+    ctx.strokeStyle = col.ink2; ctx.globalAlpha = .62; ctx.lineWidth = .75;
+    ctx.beginPath(); ctx.moveTo(sx, padT); ctx.lineTo(sx, padT + ih); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(padL, sy); ctx.lineTo(padL + iw, sy); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.font = markerFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+    ctx.textBaseline = "middle";
+    const priceW = Math.ceil(ctx.measureText(priceText).width) + 8;
+    const priceX = Math.max(padL, w - priceW - 2);
+    ctx.fillStyle = "rgba(5,6,12,.92)";
+    ctx.fillRect(priceX, Math.max(padT, Math.min(padT + ih - 12, sy - 6)), priceW, 12);
+    ctx.fillStyle = col.ink2; ctx.textAlign = "right";
+    ctx.fillText(priceText, w - 5, sy);
+    const timeW = Math.ceil(ctx.measureText(timeText).width) + 8;
+    const timeX = Math.max(padL, Math.min(padL + iw - timeW, sx - timeW / 2));
+    const timeY = Math.max(padT + 12, padT + ih - 7);
+    ctx.fillStyle = "rgba(5,6,12,.92)";
+    ctx.fillRect(timeX, timeY - 6, timeW, 12);
+    ctx.fillStyle = col.ink2; ctx.textAlign = "center";
+    ctx.fillText(timeText, timeX + timeW / 2, timeY);
+    ctx.restore();
+  }
+}
+
+function clearChartRetry(host) {
+  if (host._retryTimer) clearTimeout(host._retryTimer);
+  host._retryTimer = null;
+  host._retryReq = null;
+}
+function reportChartDataState(host, patch) {
+  if (!host) return;
+  host._dataState = Object.assign({ history:"loading", quote:"loading" }, host._dataState || {}, patch || {});
+  try {
+    parent.postMessage({
+      sc:"chart-data-state",
+      ticker:host.dataset.t,
+      history:host._dataState.history,
+      quote:host._dataState.quote,
+      hasSeries:Boolean(host._series && host._series.length >= 2)
+    }, location.origin);
+  } catch (_) {}
+}
+function acquireChartLoadPermit(host, req, generation) {
+  if (window.parent === window) return Promise.resolve(() => {});
+  const token = "chart-load-" + (++chartLoadToken);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (!chartLoadPermits.has(token)) return;
+      chartLoadPermits.delete(token);
+      // Parent-driven admission is expected in Station. A bounded escape hatch
+      // protects a standalone chart if its parent is replaced during navigation.
+      resolve(() => {});
+    }, CHART_LOAD_COORDINATOR_TIMEOUT_MS);
+    chartLoadPermits.set(token, () => {
+      clearTimeout(timer);
+      resolve(() => {
+        try { parent.postMessage({ sc:"chart-load-release", token, generation }, location.origin); } catch (_) {}
+      });
+    });
+    try { parent.postMessage({ sc:"chart-load-request", token, req, generation }, location.origin); }
+    catch (_) { clearTimeout(timer); chartLoadPermits.delete(token); resolve(() => {}); }
+  });
+}
+function showChartDelayed(host, ticker) {
+  host.dataset.dataState = "delayed";
+  reportChartDataState(host, { history:"delayed" });
+  if (host._series && host._series.length >= 2) return;
+  const msg = host.querySelector(".sc-nchart__msg");
+  if (msg) { msg.textContent = "data delayed · retrying"; msg.hidden = false; }
+}
+function retryChartLoad(host, req, generation) {
+  if (host._retryTimer && host._retryReq === req) return;
+  clearChartRetry(host);
+  host._retryReq = req;
+  host._retryTimer = setTimeout(() => {
+    host._retryTimer = null;
+    if (host.isConnected && host._req === req && host._transitionGeneration === generation) {
+      /* Keep the retry state painted during the next bounded request. This is
+         essential when several fresh panes all hit the same delayed backend. */
+      showChartDelayed(host, host.dataset.t);
+      scChartLoad(host);
+    }
+  }, CHART_RETRY_MS);
+}
+async function scChartLoad(host) {
+  const t = host.dataset.t, range = S.chartRange;
+  const req = t + "|" + range;
+  const generation = host._transitionGeneration || 0;
+  if (host._activeLoad && host._activeLoad.req === req && host._activeLoad.generation === generation)
+    return host._activeLoad.promise;
+  if (host._req !== req) {
+    host._view = null;
+    host._followLatest = true;
+    host._historyLimit = CHART_INITIAL_LIMIT;
+    host._historyExhausted = false;
+  }
+  host._req = req; host._range = range;
+  const msg = host.querySelector(".sc-nchart__msg");
+  const cachedPts = chartSeriesCached(t, range);
+  if (cachedPts && cachedPts.length >= 2) {
+    host._series = cachedPts;
+    host._ref = prevClose[t] != null ? +prevClose[t] : cachedPts[0].p;
+    if (msg) msg.hidden = true;
+    scChartDraw(host);
+  } else if (host.dataset.dataState === "delayed") {
+    /* A new bounded attempt must not make an uncached pane look blank again. */
+    showChartDelayed(host, t);
+  }
+  reportChartDataState(host, { history:"loading" });
+  const load = (async () => {
+    let releasePermit = null;
+    try {
+      releasePermit = await acquireChartLoadPermit(host, req, generation);
+      if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
+    const limit = host._historyLimit || CHART_INITIAL_LIMIT;
+    const pts = await fetchChartSeries(t, range, limit);
+    if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
+    if (!pts || pts.length < 2) throw new Error("empty");
+    host._series = pts;
+    host._historyExhausted = pts.length < limit;
+    host._ref = prevClose[t] != null ? +prevClose[t] : pts[0].p;
+    clearChartRetry(host);
+    delete host.dataset.dataState;
+    if (msg) msg.hidden = true;
+    reportChartDataState(host, { history:"ready" });
+    scChartDraw(host);
+  } catch (err) {
+    if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
+    showChartDelayed(host, t);
+    if (host._series && host._series.length >= 2) {
+      /* A stale but usable chart is better than a black pane while the next
+         bounded attempt is waiting. */
+      if (msg) msg.hidden = true;
+      retryChartLoad(host, req, generation);
+      return;
+    }
+    retryChartLoad(host, req, generation);
+  } finally {
+    if (releasePermit) releasePermit();
+  }
+  })();
+  host._activeLoad = { req, generation, promise:load };
+  try { return await load; }
+  finally {
+    if (host._activeLoad?.promise === load) host._activeLoad = null;
+  }
+}
+
+async function expandChartHistory(host, targetFrom, notify) {
+  if (host._historyExhausted) return;
+  if (host._historyLoading) return host._historyLoading;
+  host._historyLoading = (async () => {
+    try {
+      let pages = 0;
+      do {
+        const current = host._series || [];
+        if (!current.length) return;
+        const older = await fetchOlderChartSeries(host.dataset.t, host._range || S.chartRange,
+          current[0].d, CHART_HISTORY_PAGE);
+        if (!host.isConnected || !older.length) { host._historyExhausted = true; break; }
+        const merged = new Map();
+        for (const p of older.concat(current)) merged.set(p.d, p);
+        host._series = Array.from(merged.values()).sort((a,b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
+        host._historyLimit = host._series.length;
+        host._historyExhausted = older.length < CHART_HISTORY_PAGE;
+        const key = host.dataset.t + "|" + (host._range || S.chartRange);
+        chartCache.set(key, { ts:Date.now(), pts:host._series, limit:host._series.length });
+        try { cacheSet("sc_chart_" + key, { pts:host._series }); } catch (_) {}
+        pages++;
+      } while (targetFrom && !host._historyExhausted &&
+        new Date(host._series[0].d) > new Date(targetFrom) && pages < 12);
+
+      if (!targetFrom) {
+        host._view = null;
+        host._followLatest = true;
+        scChartDraw(host);
+        if (notify !== false) broadcastChartView(host);
+      }
+    } catch (_) {
+      /* Keep the current usable view if older history is unavailable. */
+    }
+  })();
+  try { await host._historyLoading; } finally { host._historyLoading = null; }
+}
+
+async function applySharedChartView(host, msg) {
+  const token = (host._syncToken || 0) + 1;
+  host._syncToken = token;
+  let attempts = 0;
+  while (host._series?.length && !host._historyExhausted &&
+    new Date(host._series[0].d) > new Date(msg.from) && attempts++ < 2)
+    await expandChartHistory(host, msg.from, false);
+  if (host._syncToken !== token || !host._series?.length) return;
+  const start = chartIndexAt(host._series, msg.from, true);
+  const end = chartIndexAt(host._series, msg.to, false);
+  setChartView(host, start, Math.max(start + 8, end), !!msg.followLatest, false);
+}
+
+function scChartScrub(host) {
+  const cv = host.querySelector(".sc-nchart__cv");
+  if (!cv) return;
+  const pointers = new Map();
+  let gesture = null;
+  const show = (clientX, clientY) => {
+    const pts = host._series, plot = host._plot;
+    if (!pts || pts.length < 2 || !plot) return;
+    const r = cv.getBoundingClientRect();
+    let f = (clientX - r.left - plot.padL) / plot.iw;
+    f = Math.max(0, Math.min(1, f));
+    const ix = Math.round(plot.start + f * (plot.end - plot.start));
+    scChartDraw(host, { ix, x:clientX - r.left, y:clientY - r.top });
+  };
+  const hideScrub = () => { if (host._series) scChartDraw(host); };
+  const snapshot = () => {
+    const pts = host._series || [], v = chartView(host, pts);
+    return { start:v.start, end:v.end };
+  };
+  const pinchStart = () => {
+    const a = Array.from(pointers.values()).slice(0, 2);
+    if (a.length < 2) return;
+    const r = cv.getBoundingClientRect(), v = snapshot();
+    gesture = { type:"pinch", distance:Math.max(1, Math.hypot(a[1].x-a[0].x, a[1].y-a[0].y)),
+      center:(a[0].x+a[1].x)/2, rect:r, view:v };
+    hideScrub();
+  };
+  cv.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+    pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if (pointers.size >= 2) pinchStart();
+    else gesture = { type:"pending", x:e.clientX, view:snapshot() };
+  });
+  cv.addEventListener("pointermove", (e) => {
+    if (!pointers.has(e.pointerId)) { if (e.pointerType === "mouse") show(e.clientX, e.clientY); return; }
+    pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if (pointers.size >= 2) {
+      if (!gesture || gesture.type !== "pinch") pinchStart();
+      const a = Array.from(pointers.values()).slice(0, 2);
+      const distance = Math.max(1, Math.hypot(a[1].x-a[0].x, a[1].y-a[0].y));
+      const base = gesture.view, baseSpan = base.end - base.start;
+      const span = Math.max(8, Math.min((host._series?.length || 2)-1, baseSpan * gesture.distance / distance));
+      /* Scale gestures always preserve the newest point. A deliberate drag is
+         still the one explicit way to leave the live edge and inspect history. */
+      const last = (host._series?.length || 1) - 1;
+      setChartView(host, last - span, last, true);
+      return;
+    }
+    const dx = e.clientX - gesture.x;
+    if (gesture.type === "pending" && Math.abs(dx) > 4) gesture.type = "pan";
+    if (gesture.type === "pan") {
+      cv.classList.add("is-panning"); hideScrub();
+      const span = gesture.view.end - gesture.view.start;
+      const shift = -dx / Math.max(1, host._plot?.iw || cv.clientWidth) * span;
+      setChartView(host, gesture.view.start + shift, gesture.view.end + shift, false);
+    } else if (e.pointerType === "mouse") show(e.clientX, e.clientY);
+  });
+  const release = (e) => {
+    pointers.delete(e.pointerId); cv.classList.remove("is-panning"); hideScrub();
+    if (pointers.size === 1) {
+      const p = Array.from(pointers.values())[0]; gesture = { type:"pending", x:p.x, view:snapshot() };
+    } else gesture = null;
+    if (host._series) scChartDraw(host);
+  };
+  cv.addEventListener("pointerup", release);
+  cv.addEventListener("pointercancel", release);
+  cv.addEventListener("pointerleave", (e) => {
+    if (!pointers.has(e.pointerId)) hideScrub();
+  });
+  cv.addEventListener("wheel", (e) => {
+    e.preventDefault(); hideScrub();
+    const pts = host._series, plot = host._plot;
+    if (!pts || pts.length < 2 || !plot) return;
+    const oldSpan = plot.end-plot.start;
+    /* A horizontal two-finger gesture pans, as it does on TradingView. */
+    if (Math.abs(e.deltaX) > 2 && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.35) {
+      const shift = e.deltaX / Math.max(1, plot.iw) * oldSpan;
+      setChartView(host, plot.start + shift, plot.end + shift, false);
+      return;
+    }
+    const newSpan = Math.max(8, Math.min(pts.length-1, oldSpan * Math.exp(e.deltaY*.0018)));
+    if (e.deltaY > 0 && newSpan >= pts.length - 2) expandChartHistory(host);
+    const last = pts.length - 1;
+    setChartView(host, last-newSpan, last, true);
+  }, { passive:false });
+  cv.addEventListener("dblclick", (e) => { e.preventDefault(); hideScrub(); resetChartView(host); });
+}
+
+function scChartWire(slot) {
+  if (!slot) return;
+  const host = slot.querySelector(".sc-nchart");
+  if (!host || host._wired) return;
+  host._wired = true;
+  for (const old of CHART_HOSTS)
+    if (!old.isConnected) { if (old._ro) old._ro.disconnect(); CHART_HOSTS.delete(old); }
+  CHART_HOSTS.add(host);
+  const area = host.querySelector(".sc-nchart__area");
+  if (window.ResizeObserver && area) {
+    host._ro = new ResizeObserver(() => { applyIpadPaneScale(); scChartDraw(host); });
+    host._ro.observe(area);
+  }
+  scChartScrub(host);
+  paintLiveStatus(host, liveQuote[host.dataset.t]);
+  scChartLoad(host);
+}
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin) return;
+  if (event.data?.type === "SCINTILLA_VIEW_PROFILE") {
+    VIEW_PROFILE = VIEW_PROFILES.includes(event.data.view) ? event.data.view : "auto";
+    document.documentElement.dataset.view = VIEW_PROFILE;
+    applyIpadPaneScale(event.data.scale);
+    for (const host of CHART_HOSTS) if (host.isConnected) scChartDraw(host);
+    return;
+  }
+  if (event.data?.type !== "SCINTILLA_CHART_VIEW") return;
+  for (const host of CHART_HOSTS) if (host.isConnected) applySharedChartView(host, event.data);
+});
+
+function setChartTicker(t) {
+  t = String(t || "").toUpperCase().trim();
+  if (!t) return;
+  S.chartT = t;
+  lsSet("scw_chartT", t);
+  const host = document.querySelector("#chartSlot .sc-nchart");
+  if (!host) return;
+  host.dataset.t = t;
+  host._series = null;
+  host._view = null;
+  const sym = TV_MAP[t] || t;
+  const pop = host.querySelector(".sc-tv__pop");
+  if (pop) pop.dataset.sym = sym;
+  const tin = el("tkin"); if (tin && tin.value.toUpperCase().trim() !== t) tin.value = t;
+  if (DECK_QUOTE_MODE) requestDeckQuote(t); else pullPrevClose(t);
+  scChartLoad(host);
+}
+
+/* R22 FIX 8 — live tick → cheap last-point update (ported verbatim) */
+function scChartLive(t, price, updatedTs, previousClose) {
+  if (previousClose != null && isFinite(+previousClose)) prevClose[t] = +previousClose;
+  liveQuote[t] = { price:+price, updated_ts:updatedTs || Date.now() };
+  for (const host of CHART_HOSTS) {
+    if (!host.isConnected || host.dataset.t !== t) continue;
+    if (prevClose[t] != null && isFinite(prevClose[t])) host._ref = +prevClose[t];
+    paintLiveStatus(host, liveQuote[t]);
+    const s = host._series;
+    if (!s || !s.length) continue;
+    const atRight = !host._view || host._view.end >= s.length - 1;
+    const span = host._view ? host._view.end - host._view.start : 0;
+    chApplyLivePoint(t, s, liveQuote[t]);
+    if (atRight && host._view) host._view = { start:Math.max(0, s.length-1-span), end:s.length-1 };
+    scChartDraw(host);
+  }
+}
+
+/* Stable Station overlay: daily performance is measured from the regular
+   previous close, never from the visible chart window. */
+function chDayChange(price, previousClose) {
+  if (!Number.isFinite(+price) || !Number.isFinite(+previousClose) || +previousClose === 0)
+    return { text:"—", tone:"flat" };
+  const pct = ((+price - +previousClose) / +previousClose) * 100;
+  if (Math.abs(pct) < .005) return { text:"0.00%", tone:"flat" };
+  return { text:pct > 0 ? pct.toFixed(2) + "%" : "(" + Math.abs(pct).toFixed(2) + "%)",
+    tone:pct > 0 ? "up" : "down" };
+}
+
+function paintLiveStatus(host, quote) {
+  const badge = host?.querySelector(".sc-nchart__live");
+  if (!badge) return;
+  const hasQuote = quote && isFinite(+quote.price);
+  const at = new Date(quote?.updated_ts || Date.now());
+  const age = Date.now() - at.getTime();
+  const fresh = Number.isFinite(age) && age < 90000;
+  badge.dataset.fresh = hasQuote && fresh ? "1" : "0";
+  const dayRef = prevClose[host.dataset.t];
+  const day = hasQuote ? chDayChange(+quote.price, dayRef) : { text:"", tone:"flat" };
+  badge.dataset.change = day.tone;
+  let ticker = badge.querySelector(".sc-nchart__live-ticker");
+  let change = badge.querySelector(".sc-nchart__live-change");
+  if (!ticker || !change) {
+    badge.replaceChildren();
+    ticker = document.createElement("button");
+    ticker.type = "button";
+    ticker.className = "sc-nchart__live-ticker";
+    ticker.title = "Edit ticker";
+    ticker.addEventListener("click", () => {
+      try { parent.postMessage({ sc:"chart-focus-ticker" }, location.origin); } catch (_) {}
+    });
+    change = document.createElement("span");
+    change.className = "sc-nchart__live-change";
+    badge.append(ticker, change);
+  }
+  ticker.textContent = host.dataset.t;
+  change.textContent = day.text;
+  badge.title = hasQuote
+    ? (futureSet.has(host.dataset.t) ? "delayed futures quote · database refresh " : "live_quotes · ") + at.toISOString()
+    : "live quote loading · ticker remains editable";
+  reportChartDataState(host, { quote:hasQuote ? "ready" : "loading" });
+  if (!hasQuote) return;
+  try {
+    parent.postMessage({ sc:"chart-status", ticker:host.dataset.t, updatedTs:at.toISOString(),
+      fresh, delayed:futureSet.has(host.dataset.t), source:"live_quotes" }, location.origin);
+  } catch (_) {}
+}
+
+/* Previous regular-session close is the day reference for every timeframe.
+   The visible window controls geometry only; it must not change red/green. */
+async function pullPrevClose(t) {
+  if (DECK_QUOTE_MODE) { requestDeckQuote(t); return; }
+  try {
+    const rows = await pg("live_quotes?ticker=eq." + encodeURIComponent(t) + "&select=ticker,prev_close,price,updated_ts", 1);
+    if (Array.isArray(rows) && rows[0]) {
+      if (rows[0].prev_close != null) prevClose[t] = +rows[0].prev_close;
+      if (rows[0].price != null) scChartLive(t, +rows[0].price, rows[0].updated_ts);
+    } else {
+      for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
+        reportChartDataState(host, { quote:"delayed" });
+    }
+  } catch (_) {
+    for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
+      reportChartDataState(host, { quote:"delayed" });
+  }
+}
+
+/* realtime — live_quotes ticks patch the active chart (hub channel, verbatim shape) */
+if (sb && !DECK_QUOTE_MODE) {
+  sb.channel("lq").on("postgres_changes", { event: "*", schema: "public", table: "live_quotes" }, (p) => {
+    if (p.new && p.new.ticker && p.new.price != null) scChartLive(String(p.new.ticker).toUpperCase(), +p.new.price, p.new.updated_ts);
+  }).subscribe();
+}
+
+function requestDeckQuote(ticker) {
+  try { parent.postMessage({ sc:"chart-quote-ready", ticker:String(ticker || "").toUpperCase().trim() }, location.origin); } catch (_) {}
+}
+function applyDeckQuote(ticker, quote, state) {
+  const clean = String(ticker || "").toUpperCase().trim();
+  const hosts = Array.from(CHART_HOSTS).filter((host) => host.isConnected && host.dataset.t === clean);
+  if (!quote || !isFinite(+quote.price)) {
+    for (const host of hosts) { paintLiveStatus(host, null); reportChartDataState(host, { quote:state === "delayed" ? "delayed" : "loading" }); }
+    return;
+  }
+  scChartLive(clean, +quote.price, quote.updated_ts, quote.prev_close);
+}
+
+/* delegated actions (hub data-act names) */
+document.addEventListener("click", (e) => {
+  const n = e.target.closest("[data-act]");
+  if (!n) return;
+  const act = n.dataset.act;
+  if (act === "chartrange") {
+    S.chartRange = n.dataset.r;
+    document.querySelectorAll(".sc-crange").forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
+    const host = document.querySelector("#chartSlot .sc-nchart");
+    if (host) { host._series = null; scChartLoad(host); }
+  }
+  else if (act === "tvmodal") openTvModal(n.dataset.sym);
+  else if (act === "tvmodalclose") closeTvModal();
+}, true);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeTvModal();
+  if (e.key === "Enter" && document.activeElement && document.activeElement.id === "tkin") {
+    setChartTicker(document.activeElement.value);
+    document.activeElement.blur();
+  }
+});
+
+/* TICKER FIELD — click in, the old symbol is already selected, so typing
+   replaces it. It never jumbles with what was there. iOS Safari clears the
+   selection on the touch that follows focus, so we re-select on the next
+   frame and again on the click that lands. */
+function selAll(n) { try { n.select(); n.setSelectionRange(0, n.value.length); } catch (err) {} }
+document.addEventListener("focusin", (e) => {
+  const n = e.target;
+  if (n && n.id === "tkin") { selAll(n); requestAnimationFrame(() => selAll(n)); }
+});
+document.addEventListener("click", (e) => {
+  const n = e.target;
+  if (n && n.id === "tkin" && n.selectionStart === n.selectionEnd) selAll(n);
+});
+
+/* the deck (parent frame) drives the timeframe for BOTH charts through one bar */
+addEventListener("message", (e) => {
+  const d = e.data;
+  if (!d) return;
+  if (d.sc === "deck-quote") { applyDeckQuote(d.ticker, d.quote, d.state); return; }
+  if (d.sc === "chart-load-grant") {
+    const grant = chartLoadPermits.get(d.token);
+    if (grant) { chartLoadPermits.delete(d.token); grant(); }
+    return;
+  }
+  if (d.sc === "chart-transition") {
+    const host = document.querySelector("#chartSlot .sc-nchart");
+    if (host) { host._transitionGeneration = Math.max(host._transitionGeneration || 0, Number(d.generation) || 0); clearChartRetry(host); }
+    return;
+  }
+  if (d.sc !== "chart") return;
+  if (d.range && CHART_RANGES.includes(d.range)) {
+    S.chartRange = d.range;
+    document.querySelectorAll(".sc-crange").forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
+    const host = document.querySelector("#chartSlot .sc-nchart");
+    if (host) { host._series = null; scChartLoad(host); }
+  }
+  if (d.ticker) setChartTicker(d.ticker);
+});
+
+/* boot */
+el("chartSlot").innerHTML = scChartHTML(S.chartT);
+const initialChartHost = document.querySelector("#chartSlot .sc-nchart");
+if (initialChartHost) initialChartHost._transitionGeneration = CHART_TRANSITION_GENERATION;
+scChartWire(el("chartSlot"));
+if (DECK_QUOTE_MODE) requestDeckQuote(S.chartT);
+else pullPrevClose(S.chartT);
+/* A ten-second read-only heartbeat makes live status dependable even if the
+   browser's realtime socket sleeps. The full history remains a 60-second pull. */
+if (!DECK_QUOTE_MODE) setInterval(() => pullPrevClose(S.chartT), 10000);
+/* refresh cadence — re-pull the active series every 60 s */
+setInterval(() => { const host = document.querySelector("#chartSlot .sc-nchart"); if (host) scChartLoad(host); }, 60000);
+</script>
+</body>
+</html>
