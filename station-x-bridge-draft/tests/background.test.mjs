@@ -467,6 +467,28 @@ test("a standby Station reattaches after the active display closes", async () =>
     tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
 });
 
+test("a dead direct Station viewer renegotiates without restarting the shared X source", async () => {
+  const h = await harness();
+  const sender = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId:"desk", width:430, height:260
+  }, sender);
+  await h.actionListeners[0]({ id:7, windowId:1, url:"https://x.com/home" });
+  const sourceStarts = h.sent.filter(({ message }) => message.type === "XFF_START_STATION_SOURCE").length;
+  const response = await dispatchRuntime(h.runtimeListeners, {
+    type:"XFF_STATION_RECONNECT_VIEWER", instanceId:"desk"
+  }, sender);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(response)), { ok:true });
+  assert.equal(h.sent.filter(({ message }) => message.type === "XFF_START_STATION_SOURCE").length, sourceStarts,
+    "a viewer repair never restarts or refocuses the existing X source");
+  assert.ok(h.sent.filter(({ tabId, message, options }) =>
+    tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5).length >= 2,
+  "the existing Station pane receives a fresh receiver peer");
+  assert.equal(h.tabUpdates.length, 0);
+  assert.equal(h.windowUpdates.length, 0);
+});
+
 test("Station offer is answered by the private extension media context", async () => {
   const h = await harness();
   const sender = { tab: { id: 11, windowId: 2 }, frameId: 5 };

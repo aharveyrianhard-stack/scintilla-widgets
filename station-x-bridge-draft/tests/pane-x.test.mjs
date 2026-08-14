@@ -63,6 +63,22 @@ test("Station pane hover renews a short pause lease and releases it on leave or 
   assert.match(source, /function stopXFloat\(\{ notify = true \} = \{\}\) \{[\s\S]{0,100}setStationHoverPause\(false\)/);
 });
 
+test("a direct viewer whose media stream ends re-requests only its own peer", () => {
+  const reconnectNeeded = functionFromSource("needsDirectStationReconnect");
+  assert.equal(reconnectNeeded({ remoteMode:false, pageVisible:true, streamActive:false, alreadyScheduled:false }), true);
+  assert.equal(reconnectNeeded({ remoteMode:true, pageVisible:true, streamActive:false, alreadyScheduled:false }), false,
+    "the paired iPad keeps its independent receiver lifecycle");
+  assert.equal(reconnectNeeded({ remoteMode:false, pageVisible:false, streamActive:false, alreadyScheduled:false }), false);
+  assert.equal(reconnectNeeded({ remoteMode:false, pageVisible:true, streamActive:true, alreadyScheduled:false }), false);
+  assert.equal(reconnectNeeded({ remoteMode:false, pageVisible:true, streamActive:false, alreadyScheduled:true }), false,
+    "one loss schedules one recovery rather than a reconnect storm");
+  assert.match(source, /type:"XFF_STATION_RECONNECT_VIEWER"/);
+  assert.match(source, /connectionstatechange[\s\S]{0,260}scheduleDirectStationReconnect/);
+  assert.match(source, /getVideoTracks\(\)\[0\][\s\S]{0,340}scheduleDirectStationReconnect/);
+  assert.match(source, /if \(xfloatStream\?\.active\) el\("xfState"\)\.textContent = paused \? "paused" : "live";/,
+    "crop heartbeats cannot falsely mark a dead receiver as live");
+});
+
 test("crop broadcasts preserve one canvas animation loop", () => {
   const context = { xfloatFrame:0, drawXFloat:() => {}, requestVideoFrameCallback:undefined };
   let scheduled = 0;
