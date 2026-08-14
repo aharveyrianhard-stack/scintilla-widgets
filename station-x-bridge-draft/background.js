@@ -140,14 +140,18 @@ function activeStationConsumer() {
 }
 
 function freshestStationConsumer() {
-  const fresh = [...stationConsumers.values()]
-    .filter((entry) => Date.now() - entry.lastSeen < 10 * 60 * 1000)
-    .sort((a, b) => b.lastSeen - a.lastSeen);
+  const fresh = freshStationConsumers();
   const active = activeStationConsumer();
   if (active) return active;
   const fallback = fresh[0] || null;
   stationActiveConsumerKey = stationConsumerKey(fallback) || null;
   return fallback;
+}
+
+function freshStationConsumers() {
+  return [...stationConsumers.values()]
+    .filter((entry) => Date.now() - entry.lastSeen < 10 * 60 * 1000)
+    .sort((a, b) => b.lastSeen - a.lastSeen);
 }
 
 async function activateStationConsumer(consumer) {
@@ -287,13 +291,42 @@ async function reconnectStationConsumer(consumer, { controlSource = false } = {}
   return true;
 }
 
+async function reconnectStationConsumers({ controlSource = false } = {}) {
+  const sourceTab = await currentStationSourceTab();
+  const consumers = freshStationConsumers();
+  if (!sourceTab || !consumers.length) return false;
+
+  // One receiver supplies the shared source geometry, but every fresh Station
+  // pane is a peer display. Starting or reconnecting the source must never
+  // choose one display by focusing it or leave the other open displays offline.
+  const controller = activeStationConsumer() || consumers[0];
+  if (controlSource) {
+    await ensureContentScript(sourceTab.id);
+    await chrome.tabs.sendMessage(sourceTab.id, {
+      type: "XFF_START_STATION_SOURCE",
+      consumer: { width: controller.width, height: controller.height }
+    });
+  }
+
+  await Promise.allSettled(consumers.flatMap((entry) => [
+    sendToStation(entry, {
+      type: "XFF_STATION_WEBRTC_START",
+      sourceTabId: sourceTab.id
+    }),
+    sendToStation(entry, {
+      type: "XFF_STATION_STATUS",
+      status: "connecting",
+      detail: "Shared X source attached."
+    })
+  ]));
+  return true;
+}
+
 async function startStationCapture(sourceTab, consumer) {
   if (!sourceTab?.id || !consumer) return false;
   await activateStationConsumer(consumer);
   if (stationSourceTabId === sourceTab.id) {
-    await reconnectStationConsumer(consumer, { controlSource: true });
-    await chrome.tabs.update(consumer.tabId, { active: true });
-    await chrome.windows.update(consumer.windowId, { state: "normal", focused: true });
+    await reconnectStationConsumers({ controlSource: true });
     return true;
   }
 
@@ -310,29 +343,10 @@ async function startStationCapture(sourceTab, consumer) {
   }
   stationSourceTabId = sourceTab.id;
   await persistStationSession();
-
-  await ensureContentScript(sourceTab.id);
-  await chrome.tabs.sendMessage(sourceTab.id, {
-    type: "XFF_START_STATION_SOURCE",
-    consumer: {
-      width: consumer.width,
-      height: consumer.height
-    }
-  });
-  await sendToStation(consumer, {
-    type: "XFF_STATION_WEBRTC_START",
-    sourceTabId: sourceTab.id
-  });
-  await sendToStation(consumer, {
-    type: "XFF_STATION_STATUS",
-    status: "connecting",
-    detail: "Station X owns the crop and scroll."
-  });
+  await reconnectStationConsumers({ controlSource: true });
 
   chrome.action.setBadgeBackgroundColor({ tabId: sourceTab.id, color: "#00d4ff" });
   chrome.action.setBadgeText({ tabId: sourceTab.id, text: "STN" });
-  await chrome.tabs.update(consumer.tabId, { active: true });
-  await chrome.windows.update(consumer.windowId, { state: "normal", focused: true });
   return true;
 }
 

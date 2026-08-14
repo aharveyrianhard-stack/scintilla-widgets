@@ -192,8 +192,33 @@ test("one X action binds the exact source tab to the ready Station frame", async
     tabId === 7 && message.type === "XFF_START_STATION_SOURCE"));
   assert.ok(h.sent.some(({ tabId, message, options }) =>
     tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
-  assert.ok(h.tabUpdates.some(({ tabId, options }) => tabId === 11 && options.active));
-  assert.ok(h.windowUpdates.some(({ windowId, options }) => windowId === 2 && options.focused));
+  assert.equal(h.tabUpdates.length, 0, "attaching X must not steal focus to a Station display");
+  assert.equal(h.windowUpdates.length, 0, "attaching X must not focus a Station window");
+});
+
+test("one browser X source connects every already-open Station display without focusing either", async () => {
+  const h = await harness();
+  const first = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  const second = { tab: { id: 22, windowId: 4 }, frameId: 9 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, first);
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 620, height: 360
+  }, second);
+
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+
+  assert.equal(h.sent.filter(({ tabId, message }) =>
+    tabId === 7 && message.type === "XFF_START_STATION_SOURCE").length, 1,
+  "one source clock must serve every display");
+  for (const [tabId, frameId] of [[11, 5], [22, 9]]) {
+    assert.ok(h.sent.some(({ tabId: targetId, message, options }) =>
+      targetId === tabId && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === frameId),
+    `Station tab ${tabId} must receive its own viewer connection`);
+  }
+  assert.equal(h.tabUpdates.length, 0);
+  assert.equal(h.windowUpdates.length, 0);
 });
 
 test("Station controls relay to the active X source", async () => {
@@ -596,7 +621,7 @@ test("a restarted Chrome extension worker restores the approved source and Stati
   assert.equal(h.captures.length, 0, "worker restart must not request another capture gesture");
   assert.ok(h.sent.some(({ tabId, message, options }) =>
     tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
-  assert.ok(h.tabUpdates.some(({ tabId, options }) => tabId === 11 && options.active));
+  assert.equal(h.tabUpdates.length, 0, "worker recovery must not bring a Station tab forward");
 });
 
 test("a V079 pane reinjected after a background reload reannounces before the next X action", async () => {
