@@ -568,20 +568,24 @@ test("the X source survives all Station tabs closing and attaches to a later dis
     tabId === 22 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 9));
 });
 
-test("pressing the Station action again reconnects instead of accidentally toggling capture off", async () => {
+test("pressing the X source action again replaces a stalled capture without opening another X tab", async () => {
   const h = await harness();
   await dispatchRuntime(h.runtimeListeners, {
     type: "XFF_STATION_READY", width: 430, height: 260
   }, { tab: { id: 11, windowId: 2 }, frameId: 5 });
   const xTab = { id: 7, windowId: 1, url: "https://x.com/home" };
   await h.actionListeners[0](xTab);
+  const firstCaptureCount = h.captures.length;
   const stopCount = h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length;
   await h.actionListeners[0](xTab);
 
-  assert.equal(h.captures.length, 1, "reconnect must not request a new stream");
-  assert.equal(h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length, stopCount);
-  assert.ok(!h.sent.some(({ tabId, message }) =>
-    tabId === 7 && message.type === "XFF_STOP_STATION_SOURCE"));
+  assert.equal(h.captures.length, firstCaptureCount + 1,
+    "the recovery click must request a fresh capture from the same X tab");
+  assert.equal(h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length, stopCount + 1);
+  assert.ok(h.sent.some(({ tabId, message }) =>
+    tabId === 7 && message.type === "XFF_STOP_STATION_SOURCE"),
+  "the old source-side session must be stopped before its replacement starts");
+  assert.equal(h.tabUpdates.length, 0, "recovery must not focus or replace the X source tab");
 });
 
 test("an X action discards a closed restored Station tab and reannounces the open pane", async () => {
@@ -626,6 +630,34 @@ test("an extension reload recreates the saved source capture and reconnects Stat
   assert.ok(h.sent.some(({ tabId, message, options }) =>
     tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
   assert.equal(h.tabUpdates.length, 0, "recovery must not bring a Station tab forward");
+});
+
+test("an explicit click on the existing X source refreshes only its capture and every Station viewer", async () => {
+  const h = await harness();
+  const first = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  const second = { tab: { id: 22, windowId: 4 }, frameId: 9 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, first);
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 620, height: 360
+  }, second);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  const firstCaptureCount = h.captures.length;
+
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+
+  assert.equal(h.captures.length, firstCaptureCount + 1,
+    "the recovery click must replace a potentially black capture from the same X tab");
+  assert.ok(h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length >= 2,
+    "the previous offscreen decoder is stopped before a replacement is created");
+  for (const [tabId, frameId] of [[11, 5], [22, 9]]) {
+    assert.ok(h.sent.some(({ tabId: targetId, message, options }) =>
+      targetId === tabId && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === frameId),
+    `Station viewer ${tabId} must receive the renewed capture`);
+  }
+  assert.equal(h.tabUpdates.length, 0, "capture recovery must not focus or replace any Station tab");
+  assert.equal(h.windowUpdates.length, 0, "capture recovery must not focus or replace the X tab");
 });
 
 test("a V079 pane reinjected after a background reload reannounces before the next X action", async () => {
