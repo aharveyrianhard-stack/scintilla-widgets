@@ -6,7 +6,10 @@ let stationActiveConsumerKey = null;
 let stationLastTickForwardedAt = 0;
 let stationLastCaptureFrameGeneration = 0;
 let stationPendingCaptureGeneration = 0;
-const STATION_TICK_MIN_INTERVAL_MS = 24;
+/* The elected visible pane owns the motion clock.  Keep duplicate-window
+   suppression below one display frame so it never converts a 60Hz source
+   crawl back into visible 30/10Hz steps. */
+const STATION_TICK_MIN_INTERVAL_MS = 12;
 const STATION_SESSION_KEY = "stationXSessionV1";
 
 function stationConsumerKey(consumer) {

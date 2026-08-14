@@ -400,7 +400,7 @@ test("simultaneous Station clocks are deduplicated without slowing a surviving m
     type: "XFF_STATION_CONTROL", instanceId: "display", action: "tick", value: { at: 1010 }
   }, display);
   const next = await dispatchRuntime(h.runtimeListeners, {
-    type: "XFF_STATION_CONTROL", instanceId: "desk", action: "tick", value: { at: 1033 }
+    type: "XFF_STATION_CONTROL", instanceId: "desk", action: "tick", value: { at: 1017 }
   }, desk);
 
   assert.deepEqual(JSON.parse(JSON.stringify(first)), { ok: true });
@@ -409,7 +409,7 @@ test("simultaneous Station clocks are deduplicated without slowing a surviving m
   const ticks = h.sent.filter(({ message }) =>
     message.type === "XFF_STATION_CONTROL" && message.action === "tick");
   assert.equal(ticks.length, before + 2);
-  assert.deepEqual(ticks.slice(-2).map(({ message }) => message.value.at), [1000, 1033]);
+  assert.deepEqual(ticks.slice(-2).map(({ message }) => message.value.at), [1000, 1017]);
 });
 
 test("a standby Station reattaches after the active display closes", async () => {
