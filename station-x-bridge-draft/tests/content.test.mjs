@@ -45,7 +45,7 @@ test("Station source maintains and removes the hover shield with its capture lif
   assert.match(source, /document\.removeEventListener\("pointermove", shield\.exitObserver, true\)/);
 });
 
-test("Station keeps the rendered fractional crop through an integer source scroll", () => {
+test("Station keeps the original Float fractional phase through an integer source scroll", () => {
   const advance = functionFromSource("nextStationScrollState");
   const beforeBoundary = {
     carryPx: 0.9,
@@ -57,13 +57,29 @@ test("Station keeps the rendered fractional crop through an integer source scrol
   assert.equal(afterBoundary.requestedPixels, 1);
   assert.equal(afterBoundary.movedPixels, 1);
   assert.ok(Math.abs(afterBoundary.carryPx - 0.2) < 1e-9);
-  assert.equal(afterBoundary.renderedOffset, 0.9);
+  assert.ok(Math.abs(afterBoundary.renderedOffset - 1.2) < 1e-9);
   assert.equal(afterBoundary.generation, 13);
   assert.equal(afterBoundary.needsSettle, true);
   assert.ok(
     afterBoundary.renderedOffset >= beforeBoundary.renderedOffset,
-    "an integer scroll must not publish a backwards composite crop move"
+    "an integer scroll keeps advancing the old captured frame's fractional phase"
   );
+});
+
+test("Station keeps the local Float phase moving while a capture generation settles", () => {
+  const advance = functionFromSource("nextStationScrollState");
+  const pending = advance({
+    carryPx: 0.2,
+    renderedOffset: 1.2,
+    generation: 13,
+    keepVisualPhase: true
+  }, 100, 3, 0);
+
+  assert.ok(Math.abs(pending.carryPx - 0.5) < 1e-9);
+  assert.ok(Math.abs(pending.renderedOffset - 1.5) < 1e-9,
+    "the old captured video continues moving locally until the safe new frame arrives");
+  assert.equal(pending.generation, 13);
+  assert.equal(pending.needsSettle, false);
 });
 
 test("Station source scroll applies pixels against the numeric scrollTop and records the real movement", () => {
@@ -105,6 +121,8 @@ test("Station keeps one source tick path while waiting for a captured video fram
   );
   assert.match(control, /session\.stationPendingScrollGeneration = next\.generation/);
   assert.match(control, /requestStationCaptureFrame\(next\.generation\)/);
+  assert.match(control, /keepVisualPhase: Boolean\([\s\S]*?stationPendingScrollGeneration/);
+  assert.match(control, /else if \(session\.stationPendingScrollGeneration \|\| session\.stationPostAckAnchor\)[\s\S]{0,120}stationRenderedOffset = next\.renderedOffset/);
   assert.match(control, /else if \(!session\.stationPendingScrollGeneration && !session\.stationPostAckAnchor\)/);
   assert.match(control, /Math\.min\(timestamp - session\.lastScrollTimestamp, 100\)/);
 });

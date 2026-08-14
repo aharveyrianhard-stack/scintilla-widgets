@@ -53,7 +53,10 @@ async function startCapture(streamId) {
         maxWidth: 1920,
         maxHeight: 1080,
         minFrameRate: 10,
-        maxFrameRate: 30
+        // Keep Station's relayed tab video at parity with the original
+        // Document-PiP Float capture.  A 30fps relay cannot visually match a
+        // 60Hz fractional crop, no matter how smooth the canvas is.
+        maxFrameRate: 60
       }
     },
     audio: false
