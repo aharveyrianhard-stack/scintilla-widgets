@@ -220,9 +220,12 @@ const VIEWER_PAINT_INTERVAL_MS = 80;  /* idle canvas cap: readable, lighter rend
    idle viewers retain the cheaper 80ms canvas cap. */
 const VIEWER_MOTION_PAINT_INTERVAL_MS = 16;
 const STATION_TICK_INTERVAL_MS = 16; /* visible display cadence */
-/* Crop states arrive on the display cadence. Ease just past the next frame so
-   valid fractional motion remains continuous with no step-shaped hold. */
-const VIEWER_CROP_EASE_MS = 24;
+/* A crop may arrive as slowly as the 10Hz fallback path.  Keep the display
+   rate canvas active across that whole gap: a 24ms blend expired early and
+   dropped back to the 80ms idle cap, which was the remaining visible
+   step-step crawl.  At the default 3px/s this adds under half a pixel of
+   visual phase, while preserving the original Float's continuous motion. */
+const VIEWER_CROP_EASE_MS = 120;
 
 function clockOwnerFor(selfId, peers, now, selfVisible = true) {
   const candidates = selfVisible ? [selfId] : [];
