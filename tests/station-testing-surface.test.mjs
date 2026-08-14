@@ -62,7 +62,9 @@ test("the testing wall keeps market freshness status live without the canonical 
 });
 
 test("testing iPad route mounts the same iPad wall without reading or writing the durable pair", () => {
-  assert.match(ipad, /if\(testing\)\{deck\.src="\/deck\/\?view=ipad&x="\+\(new URLSearchParams\(location\.search\)\.get\("x"\)==="replay"\?"replay":"live-test"\)\}/);
+  assert.match(ipad, /if\(testing\)\{const replay=new URLSearchParams\(location\.search\)\.get\("x"\)==="replay"/);
+  assert.match(ipad, /"TESTING iPad LIVE TEST · NOT STABLE"/);
+  assert.match(ipad, /deck\.src="\/deck\/\?view=ipad&x="\+\(replay\?"replay":"live-test"\)/);
   assert.match(ipad, /else\{let pairHash=/,
     "the durable pair logic remains isolated behind the non-testing branch");
   const testingBranch = ipad.slice(ipad.indexOf("if(testing)"), ipad.indexOf("else{let pairHash="));
@@ -72,6 +74,7 @@ test("testing iPad route mounts the same iPad wall without reading or writing th
 test("LIVE TEST is the canonical testing default while rejected replay stays explicit and byte-unchanged", () => {
   assert.match(deck, /window\.ScintillaTestingSurface\?\.active\s*\? \(QS\.get\("x"\) === "replay" \? "replay" : "live-test"\)\s*: "replay"/);
   assert.match(deck, /const TEST_X_LIVE = TEST_X_MODE === "live-test"/);
+  assert.match(deck, /"TESTING STATION LIVE TEST · NOT STABLE"/);
   assert.match(deck, /el\(TEST_X_LIVE \? "testingXLive" : "testingXReplay"\)\.setAttribute\("aria-current", "page"\)/);
   assert.match(deck, /el\("testingXState"\)\.hidden = false/);
   assert.match(deck, /\? "LIVE TEST · DISCONNECTED"\s*: "ENGINEERING REPLAY · NOT HUMAN-APPROVED"/);
@@ -129,7 +132,7 @@ test("the handed-off X presentation core is byte-exact and remains presentation-
   assert.doesNotMatch(paneXCore, /XFF_STATION_|RTCPeerConnection|WebSocket|BroadcastChannel|localStorage|sessionStorage|fetch\(/);
 });
 
-test("the real LIVE TEST receiver is byte-exact, test-namespaced, and disconnected without an installed lab Bridge", () => {
+test("the real LIVE TEST receiver is byte-exact, test-namespaced, and fail-closed until isolated lab frames arrive", () => {
   const digest = (source) => crypto.createHash("sha256").update(source).digest("hex");
   assert.equal(digest(paneXLiveTest), "b316cee0be1dc75d514cac0fb87cab18f224f07640650f73f6b3d8c96e2f78d2");
   assert.equal(digest(paneXLiveTestCore), "e3863b888f74a2c81ba9fa3c5c2b1c44f05c72dc9d304b8dc38f775248c48fa3");
@@ -146,7 +149,7 @@ test("the real LIVE TEST receiver is byte-exact, test-namespaced, and disconnect
     "scintilla.station.x-clock.v1", "scintilla.station.trusted-ipad.v1", "realtime:station-ipad:"
   ]) assert.equal(paneXLiveTest.includes(forbidden), false, `forbidden stable receiver identity: ${forbidden}`);
   assert.equal(fs.existsSync(new URL("../scintilla-station-x-test-bridge/", import.meta.url)), false,
-    "the extension package must not be installed or copied into the Station testing project");
+    "the extension package must not be copied into the Station testing project");
 });
 
 test("both YouTube endpoints keep real reads while making every testing action local-shadow only", () => {
