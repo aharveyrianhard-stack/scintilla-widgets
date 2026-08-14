@@ -584,8 +584,9 @@
   // the pre-scroll frame for a couple of source frames. Replacing .9 with .2
   // at that instant is the backwards "bounce" the viewers were seeing.
   function nextStationScrollState(state, elapsedMs, speedPxPerSecond, appliedPixels) {
-    const accrued = Math.max(0, Number(state.carryPx) || 0) +
+    const visualDelta =
       (Math.max(0, Number(speedPxPerSecond) || 0) * Math.max(0, Number(elapsedMs) || 0)) / 1000;
+    const accrued = Math.max(0, Number(state.carryPx) || 0) + visualDelta;
     const requestedPixels = Math.floor(accrued);
     const movedPixels = Math.max(0, Math.min(requestedPixels, Number(appliedPixels) || 0));
 
@@ -604,9 +605,14 @@
     const integerMove = movedPixels > 0;
     return {
       carryPx,
-      // Do not replace the currently rendered fractional crop until the
-      // source has passed its post-scroll capture-frame settle barrier.
-      renderedOffset: integerMove ? (Number(state.renderedOffset) || 0) : carryPx,
+      /* The captured source frame can still be the pre-scroll frame while an
+         integer move settles.  Continue its fractional crop phase instead of
+         freezing it: that is the same local canvas behavior as X Feed Float.
+         The generation barrier still decides when the new source frame may
+         replace this phase-aligned old one. */
+      renderedOffset: (integerMove || state.keepVisualPhase)
+        ? (Math.max(0, Number(state.renderedOffset) || 0) + visualDelta)
+        : carryPx,
       generation: (Number(state.generation) || 0) + (integerMove ? 1 : 0),
       requestedPixels,
       movedPixels,
@@ -696,7 +702,8 @@
 
   function holdStationAnchor(anchor, disposition, { late = false } = {}) {
     clearStationPostAckAnchor();
-    session.scrollCarryPx = session.stationRenderedOffset;
+    session.scrollCarryPx = Math.max(0, Number(session.scrollCarryPx) || 0);
+    session.stationRenderedOffset = session.scrollCarryPx;
     session.stationMetrics.anchorCorrections += 1;
     if (late) session.stationMetrics.lateAnchorCorrections += 1;
     if (disposition.reflowed) session.stationMetrics.anchorReflowHeightChanges += 1;
@@ -2108,6 +2115,7 @@
     session.scrollEnabled = true;
     session.lastScrollTimestamp = null;
     resetStationScrollComposite();
+    session.stationLastConfirmedScroll = stationScrollSnapshot();
     updateUi();
     startStationRelay();
   }
@@ -2156,7 +2164,10 @@
           {
             carryPx: session.scrollCarryPx,
             renderedOffset: session.stationRenderedOffset,
-            generation: session.stationScrollGeneration
+            generation: session.stationScrollGeneration,
+            keepVisualPhase: Boolean(
+              session.stationPendingScrollGeneration || session.stationPostAckAnchor
+            )
           },
           elapsedMs,
           session.settings.speedPxPerSecond,
@@ -2170,9 +2181,12 @@
         session.stationScrollGeneration = next.generation;
         if (next.needsSettle) {
           session.stationMetrics.integerScrolls += 1;
+          session.stationRenderedOffset = next.renderedOffset;
           session.stationPendingScrollGeneration = next.generation;
           session.stationPendingScrollAnchor = scrollAnchor;
           requestStationCaptureFrame(next.generation);
+        } else if (session.stationPendingScrollGeneration || session.stationPostAckAnchor) {
+          session.stationRenderedOffset = next.renderedOffset;
         } else if (!session.stationPendingScrollGeneration && !session.stationPostAckAnchor) {
           session.stationRenderedOffset = next.renderedOffset;
         }
