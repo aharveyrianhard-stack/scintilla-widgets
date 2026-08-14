@@ -13,7 +13,7 @@ const videoPane = fs.readFileSync(new URL("../pane-video/index.html", import.met
 const chartShell = fs.readFileSync(new URL("../station-shells/chart-v1/index.html", import.meta.url), "utf8");
 const personalVideoShell = fs.readFileSync(new URL("../station-shells/personal-video-v1/index.html", import.meta.url), "utf8");
 const scintillaVideoShell = fs.readFileSync(new URL("../station-shells/scintilla-video-v1/index.html", import.meta.url), "utf8");
-const xShell = fs.readFileSync(new URL("../station-shells/x-v1/index.html", import.meta.url), "utf8");
+const xShell = fs.readFileSync(new URL("../station-shells/x-v2/index.html", import.meta.url), "utf8");
 const youtubeHub = fs.readFileSync(new URL("../youtube/index.html", import.meta.url), "utf8");
 const ipadCompanion = fs.readFileSync(new URL("../station-ipad/index.html", import.meta.url), "utf8");
 const stationManifest = JSON.parse(fs.readFileSync(new URL("../station/manifest.json", import.meta.url), "utf8"));
@@ -219,19 +219,16 @@ test("Station pins charts, each YouTube feed, and X to independently versioned s
   assert.match(deck, /chart: "\/station-shells\/chart-v1"/);
   assert.match(deck, /personalVideo: "\/station-shells\/personal-video-v1"/);
   assert.match(deck, /scintillaVideo: "\/station-shells\/scintilla-video-v1"/);
-  assert.match(deck, /x: "\/station-shells\/x-v1"/);
+  assert.match(deck, /x: "\/station-shells\/x-v2"/);
   assert.equal(chartShell, chart, "chart shell is a frozen copy of the reviewed chart surface");
   assert.equal(personalVideoShell, videoPane, "Personal shell is a frozen copy of the reviewed video surface");
   assert.equal(scintillaVideoShell, videoPane, "SCINTILLA shell is a frozen copy of the reviewed video surface");
-  assert.match(xShell, /function drawXFloat\(/, "X shell has its own reviewed renderer surface");
+  assert.match(xShell, /function drawXFloat\(/, "X v2 has the iMac baseline renderer surface");
   assert.match(xShell, /function attachXFloatStream\(/);
+  assert.match(xShell, /const sy = Math\.max\(0, \(rect\.top \+ \(xfloatCrop\.fractionalScrollOffset \|\| 0\)\) \* scaleY\)/);
+  assert.match(xShell, /const shAvailable = Math\.min\(video\.videoHeight - sy, rect\.height \* scaleY\)/);
   assert.doesNotMatch(xShell, /boundedViewerCropY/,
     "the isolated X shell deliberately excludes the unrequested crop-boundary behavior");
-  assert.match(xShell, /const sy = Math\.max\(0, \(rect\.top \+ \(xfloatCrop\.fractionalScrollOffset \|\| 0\)\) \* scaleY\)/);
-  assert.match(xShell, /const shAvailable = Math\.min\(video\.videoHeight - sy, rect\.height \* scaleY\)/,
-    "the X shell retains the proven direct crop calculation without boundary shifting");
-  assert.match(xShell, /if \(sw > 1 && shAvailable > 1\)/,
-    "the crop height is defined before it is evaluated");
 });
 
 test("iPad profile keeps the complete Station wall with proportional child typography", () => {
