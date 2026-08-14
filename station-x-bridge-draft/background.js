@@ -131,6 +131,12 @@ async function currentStationSourceTab() {
 }
 
 const stationRestore = restoreStationSession();
+// An extension worker restart does not reload an already-open Station pane.
+// Reinject the tiny bridge into every canonical Station tab once restoration
+// completes so those panes reannounce to the new worker without a toolbar
+// click or a user reload.  A V080 bridge simply reannounces its existing
+// receiver identity, so this neither duplicates a pane nor changes the X tab.
+stationRestore.then(() => reannounceOpenStationPanes().catch(() => {}));
 
 function activeStationConsumer() {
   return [...stationConsumers.values()].find((entry) =>
@@ -545,8 +551,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // already-known frame restarted startStationSource(), which realigned the
       // X page and repeatedly pulled the feed back to the same post. Only a new
       // or reloaded frame needs the WebRTC/source reattachment path.
+      // The background worker can restart while the Station document keeps its
+      // bridge and receiver identity.  In that case sameFrame/activeBefore are
+      // both true, but the offscreen capture has been destroyed.  Treat that
+      // exact state as a recovery: reattach the existing X source rather than
+      // leaving a visually-live Station pane with no video track.
+      const captureMissing = stationSourceTabId && !await hasLiveStationCapture();
       if (stationSourceTabId && stationConsumerKey(consumer) === stationActiveConsumerKey &&
-          (!sameFrame || !activeBefore)) {
+          (!sameFrame || !activeBefore || captureMissing)) {
         await reconnectStationConsumer(consumer, { controlSource: true });
       } else if (stationSourceTabId && !sameFrame) {
         await reconnectStationConsumer(consumer, { controlSource: false });

@@ -784,6 +784,48 @@ test("worker restore prunes closed source and consumer tabs", async () => {
   assert.deepEqual(saved.consumers.map(({ tabId }) => tabId), [11]);
 });
 
+test("worker restart reinjects open Station panes so they reannounce without a toolbar click", async () => {
+  const h = await harness({
+    __queryTabs: [{ id: 11, windowId: 2, url: "https://station.scintillahub.ai/" }]
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(h.scriptInjections)), [{
+    target: { tabId: 11, allFrames: true },
+    files: ["station-bridge.js"]
+  }]);
+});
+
+test("same Station pane recovers the existing X source when worker restart lost capture", async () => {
+  const now = Date.now();
+  const h = await harness({
+    stationXSessionV1: {
+      sourceTabId: 7,
+      activeConsumerKey: "11:5:pane",
+      consumers: [{
+        tabId: 11, windowId: 2, frameId: 5, instanceId: "pane",
+        width: 430, height: 260, lastSeen: now
+      }]
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const station = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+
+  const response = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "pane", width: 430, height: 260
+  }, station);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(response)), {
+    ok: true, connected: true, active: true
+  });
+  assert.ok(h.sent.some(({ tabId, message }) => tabId === 7 &&
+    message.type === "XFF_START_STATION_SOURCE"),
+  "the saved X source is restarted when its offscreen capture is absent");
+  assert.ok(h.sent.some(({ tabId, message }) => tabId === 11 &&
+    message.type === "XFF_STATION_WEBRTC_START"),
+  "the existing Station pane is renegotiated after restart");
+});
+
 test("one iPad pair fans out to distinct viewer peers without restarting X capture", async () => {
   const h = await harness();
   const station = { tab: { id: 11, windowId: 2 }, frameId: 5 };
