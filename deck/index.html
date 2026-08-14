@@ -265,11 +265,11 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   <span>TESTING SURFACE · NOT STABLE</span>
   <span class="testing-note">isolated browser state · production writes blocked</span>
   <nav aria-label="Testing X mode">
-    <a id="testingXReplay" href="/deck/" aria-current="page">ENGINEERING REPLAY</a>
-    <a id="testingXLive" href="/station-live-test/">LIVE TEST</a>
+    <a id="testingXReplay" href="/deck/?x=replay">REJECTED ENGINEERING REPLAY</a>
+    <a id="testingXLive" href="/deck/" aria-current="page">LIVE TEST</a>
   </nav>
-  <span id="testingXState" class="testing-disconnected">ENGINEERING REPLAY · NOT HUMAN-APPROVED</span>
-  <a id="testingIpadLink" href="/station-ipad/">replay iPad ↗</a>
+  <span id="testingXState" class="testing-disconnected">LIVE TEST · DISCONNECTED</span>
+  <a id="testingIpadLink" href="/station-ipad/">testing iPad · live-test ↗</a>
 </div>
 <div id="bar">
   <span class="k">THE STATION</span>
@@ -388,7 +388,9 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
    address; protected previews keep their /deck/ path but lose query noise.
    All subsequent scene/chart/view state is remembered locally below. */
 const QS = new URLSearchParams(location.search);
-const TEST_X_MODE = window.ScintillaTestingSurface?.active && QS.get("x") === "live-test" ? "live-test" : "replay";
+const TEST_X_MODE = window.ScintillaTestingSurface?.active
+  ? (QS.get("x") === "replay" ? "replay" : "live-test")
+  : "replay";
 const TEST_X_LIVE = TEST_X_MODE === "live-test";
 /* iPad Companion deliberately reuses this exact deck.  Its only substitution
    is the X pane: iPad receives the already-approved iMac capture instead of
@@ -412,8 +414,8 @@ if (window.ScintillaTestingSurface?.active) {
   el("testingXState").textContent = TEST_X_LIVE
     ? "LIVE TEST · DISCONNECTED"
     : "ENGINEERING REPLAY · NOT HUMAN-APPROVED";
-  el("testingIpadLink").href = TEST_X_LIVE ? "/station-ipad-live-test/" : "/station-ipad/";
-  el("testingIpadLink").textContent = TEST_X_LIVE ? "live-test iPad ↗" : "replay iPad ↗";
+  el("testingIpadLink").href = TEST_X_LIVE ? "/station-ipad/" : "/station-ipad/?x=replay";
+  el("testingIpadLink").textContent = TEST_X_LIVE ? "testing iPad · live-test ↗" : "rejected replay iPad ↗";
 }
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);

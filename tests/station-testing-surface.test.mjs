@@ -49,10 +49,10 @@ test("testing twin preserves component separation and uses only the isolated X c
     "stable host retains the exact admitted X endpoint");
   assert.match(deck, /const STATION_X_SHELL = window\.ScintillaTestingSurface\?\.active \? "\/pane-x\/" : STATION_SHELL\.x/,
     "the testing pane uses a directory route so its five local relative assets stay pane-scoped");
-  assert.match(deck, /id="testingXReplay" href="\/deck\/" aria-current="page">ENGINEERING REPLAY/);
-  assert.match(deck, /id="testingXLive" href="\/station-live-test\/">LIVE TEST/);
-  assert.match(deck, /id="testingXState" class="testing-disconnected">ENGINEERING REPLAY · NOT HUMAN-APPROVED/);
-  assert.match(deck, /id="testingIpadLink" href="\/station-ipad\/">replay iPad/);
+  assert.match(deck, /id="testingXReplay" href="\/deck\/\?x=replay">REJECTED ENGINEERING REPLAY/);
+  assert.match(deck, /id="testingXLive" href="\/deck\/" aria-current="page">LIVE TEST/);
+  assert.match(deck, /id="testingXState" class="testing-disconnected">LIVE TEST · DISCONNECTED/);
+  assert.match(deck, /id="testingIpadLink" href="\/station-ipad\/">testing iPad · live-test/);
 });
 
 test("the testing wall keeps market freshness status live without the canonical scope error", () => {
@@ -62,15 +62,15 @@ test("the testing wall keeps market freshness status live without the canonical 
 });
 
 test("testing iPad route mounts the same iPad wall without reading or writing the durable pair", () => {
-  assert.match(ipad, /if\(testing\)\{deck\.src="\/deck\/\?view=ipad"\}/);
+  assert.match(ipad, /if\(testing\)\{deck\.src="\/deck\/\?view=ipad&x="\+\(new URLSearchParams\(location\.search\)\.get\("x"\)==="replay"\?"replay":"live-test"\)\}/);
   assert.match(ipad, /else\{let pairHash=/,
     "the durable pair logic remains isolated behind the non-testing branch");
   const testingBranch = ipad.slice(ipad.indexOf("if(testing)"), ipad.indexOf("else{let pairHash="));
   assert.doesNotMatch(testingBranch, /localStorage|ipadPair|ipadCode|pairHash/);
 });
 
-test("LIVE TEST is additive while the rejected replay remains the default byte-unchanged pane runtime", () => {
-  assert.match(deck, /QS\.get\("x"\) === "live-test" \? "live-test" : "replay"/);
+test("LIVE TEST is the canonical testing default while rejected replay stays explicit and byte-unchanged", () => {
+  assert.match(deck, /window\.ScintillaTestingSurface\?\.active\s*\? \(QS\.get\("x"\) === "replay" \? "replay" : "live-test"\)\s*: "replay"/);
   assert.match(deck, /const TEST_X_LIVE = TEST_X_MODE === "live-test"/);
   assert.match(deck, /el\(TEST_X_LIVE \? "testingXLive" : "testingXReplay"\)\.setAttribute\("aria-current", "page"\)/);
   assert.match(deck, /el\("testingXState"\)\.hidden = false/);
@@ -83,6 +83,7 @@ test("LIVE TEST is additive while the rejected replay remains the default byte-u
   assert.match(deck, /const STATION_X_MODE_QUERY = [^;]+\? "&mode=live-test&x-test=1" : ""/);
   assert.match(deck, /X · LIVE TEST · DISCONNECTED/);
   assert.match(deck, /TEST BRIDGE NOT INSTALLED/);
+  assert.match(deck, /TEST_X_LIVE \? "\/station-ipad\/" : "\/station-ipad\/\?x=replay"/);
   assert.match(liveTestRoute, /<iframe src="\/deck\/\?x=live-test"/);
   assert.match(ipadLiveTestRoute, /<iframe src="\/deck\/\?view=ipad&amp;x=live-test"/);
   assert.doesNotMatch(liveTestRoute, /localStorage|sessionStorage|ipadPair|ipadCode|pairHash/);
