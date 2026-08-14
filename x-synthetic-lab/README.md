@@ -1,6 +1,7 @@
 # SCINTILLA X Synthetic Lab
 
 This directory is a deliberately separate, synthetic-only X motion laboratory.
+It is an engineering harness, not Alan's user-facing visual approval surface.
 
 Isolation contract:
 
@@ -20,6 +21,10 @@ Isolation contract:
   between delivered bounds, supports named manual/hover pauses, and stops or
   restarts cleanly. It has no source-scroll, capture, crop, transport, pairing,
   routing, receiver, or lifecycle authority and is not imported by stable X.
+- `pane-x-presentation-core.js` is now the canonical implementation used by
+  that adapter. `production-candidate/` provides an exact, fail-closed handoff
+  that can materialize the same tested core plus narrow real-pane presentation
+  wiring into a separate Station testing twin without writing stable `pane-x/`.
 - A fixed 60-second visual run uses 80ms as the proven case and keeps 800ms as
   the coarse failure preset. It applies explicitly lab-only six-pixel motion-
   gap and 0.01-pixel endpoint-correctness checks. The on-screen guide makes

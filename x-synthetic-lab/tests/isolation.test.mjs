@@ -5,6 +5,7 @@ import test from "node:test";
 const root = new URL("../", import.meta.url);
 const html = await readFile(new URL("index.html", root), "utf8");
 const candidate = await readFile(new URL("pane-x-viewer-candidate.mjs", root), "utf8");
+const presentationCore = await readFile(new URL("pane-x-presentation-core.js", root), "utf8");
 const vercel = JSON.parse(await readFile(new URL("vercel.json", root), "utf8"));
 
 test("lab identity is unambiguous", () => {
@@ -30,9 +31,10 @@ test("lab copy delegates presentation to the isolated candidate renderer", () =>
   assert.match(html, /presentationCandidate\.receive\(\{/);
   assert.match(html, /position: rawPosition/);
   assert.match(html, /presentationCandidate\.frame\(time\)/);
-  assert.match(candidate, /this\.position = this\.target/);
-  assert.match(candidate, /nextSequence <= this\.latestSequence/);
-  assert.match(candidate, /Math\.max\(low, Math\.min\(high, interpolated\)\)/);
+  assert.match(candidate, /import "\.\/pane-x-presentation-core\.js"/);
+  assert.match(presentationCore, /this\.position = this\.target/);
+  assert.match(presentationCore, /nextSequence <= this\.latestSequence/);
+  assert.match(presentationCore, /Math\.max\(low, Math\.min\(high, interpolated\)\)/);
   assert.match(html, /requestAnimationFrame\(tick\)/);
 });
 
@@ -41,9 +43,9 @@ test("candidate exposes manual and hover presentation pauses without source auth
   assert.match(html, /id="candidateStatus"/);
   assert.match(html, /setPaused\("manual"/);
   assert.match(html, /setPaused\("hover"/);
-  assert.match(candidate, /pauseReasons = new Set\(\)/);
-  assert.match(candidate, /receivedWhilePaused/);
-  assert.match(candidate, /source-scroll, capture, crop, transport/);
+  assert.match(presentationCore, /pauseReasons = new Set\(\)/);
+  assert.match(presentationCore, /receivedWhilePaused/);
+  assert.match(presentationCore, /source-scroll, capture, crop, transport/);
 });
 
 test("lab exposes cadence control and live motion telemetry on screen", () => {
@@ -103,7 +105,7 @@ test("lab provides a fixed 60-second run with a pass-fail checklist", () => {
 });
 
 test("deployable shell contains no live-source, pairing, or browser-control capability", () => {
-  const deployableSource = `${html}\n${candidate}`;
+  const deployableSource = `${html}\n${candidate}\n${presentationCore}`;
   const forbidden = [
     "getDisplayMedia",
     "getUserMedia",
