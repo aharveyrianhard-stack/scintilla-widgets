@@ -21,6 +21,7 @@ test("testing Station has a permanent unmistakable identity without changing the
   assert.match(testingRuntime, /const active = location\.hostname !== STABLE_HOST/);
   assert.match(testingRuntime, /if \(!active\) return/,
     "stable Station exits before any storage, channel, or fetch wrapper is installed");
+  assert.match(testingRuntime, /document\.title = "TESTING SURFACE · NOT STABLE — " \+ document\.title/);
 });
 
 test("testing browser state and channels are explicitly namespaced and production writes fail closed", () => {

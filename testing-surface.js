@@ -14,6 +14,7 @@
   if (!active) return;
 
   document.documentElement.dataset.testing = "1";
+  document.title = "TESTING SURFACE · NOT STABLE — " + document.title;
 
   const storage = window.Storage && window.Storage.prototype;
   if (storage && !storage.__scintillaTestingNamespaced) {
