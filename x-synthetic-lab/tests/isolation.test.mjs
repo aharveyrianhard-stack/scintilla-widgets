@@ -32,6 +32,9 @@ test("lab exposes cadence control and live motion telemetry on screen", () => {
     "telemetryStepSize",
     "telemetryNextStep",
     "telemetryGap",
+    "telemetryMaxStep",
+    "telemetryMaxGap",
+    "telemetryRunTime",
     "telemetryLoops",
     "telemetryFixture"
   ]) assert.match(html, new RegExp(`id=["']${id}["']`));
@@ -41,6 +44,32 @@ test("lab exposes cadence control and live motion telemetry on screen", () => {
   assert.match(html, /aria-live="off"/);
   assert.match(html, /renderState\("replaying"\)/);
   assert.match(html, /while \(stepAccumulator >= cadenceMs\)/);
+});
+
+test("lab explains the visual inspection protocol", () => {
+  assert.match(html, /How to inspect with your eyes/);
+  assert.match(html, /Fix your gaze on the same avatar or card edge/);
+  assert.match(html, /LAB VISUAL TARGET: ≤ 6 PX/);
+  assert.match(html, /synthetic viewing heuristic, not production acceptance/);
+});
+
+test("lab provides a fixed 60-second run with a pass-fail checklist", () => {
+  assert.match(html, /id="fixedRun"/);
+  assert.match(html, /Start fixed 60-second run/);
+  assert.match(html, /const fixedRunDurationMs = 60000/);
+  assert.match(html, /aria-label="60-second visual checklist"/);
+  for (const id of [
+    "checkReference",
+    "checkDelivery",
+    "checkStep",
+    "checkGap",
+    "checkDuration",
+    "finalVerdict",
+    "runClock",
+    "runProgress"
+  ]) assert.match(html, new RegExp(`id=["']${id}["']`));
+  assert.match(html, /maximumStepObserved/);
+  assert.match(html, /maximumGapObserved/);
 });
 
 test("deployable shell contains no live-source, pairing, or browser-control capability", () => {

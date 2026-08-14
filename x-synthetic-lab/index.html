@@ -68,6 +68,32 @@
       white-space: nowrap;
     }
 
+    .inspection-guide {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, .8fr);
+      gap: 1px;
+      margin: 0 0 18px;
+      border: 1px solid var(--line);
+      background: var(--line);
+    }
+    .inspect-copy, .visual-checklist { padding: 16px 18px; background: #0f0c08; }
+    .inspection-guide h2 { margin: 0 0 10px; color: var(--lab); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+    .inspect-copy ol { margin: 0; padding-left: 20px; color: var(--muted); font-size: 11px; line-height: 1.65; }
+    .inspect-copy li + li { margin-top: 5px; }
+    .inspect-copy b { color: var(--ink); }
+    .lab-target { margin: 12px 0 0; color: #7e6744; font-size: 10px; line-height: 1.5; }
+    .lab-target strong { color: var(--safe); }
+    .check-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-bottom: 9px; }
+    .run-clock { color: var(--safe); font-size: 11px; font-weight: 800; }
+    .run-progress { height: 4px; margin-bottom: 10px; overflow: hidden; background: #251c11; }
+    .run-progress span { display: block; width: 0; height: 100%; background: var(--lab); transition: width .1s linear; }
+    .check-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid #251c11; color: #7e6744; font-size: 9px; }
+    .check-badge { min-width: 50px; text-align: right; font-weight: 800; }
+    .check-badge.wait, .check-badge.run { color: var(--muted); }
+    .check-badge.pass { color: var(--safe); }
+    .check-badge.fail { color: #ff6b4a; }
+    .final-verdict { display: flex; justify-content: space-between; margin-top: 10px; color: var(--ink); font-size: 11px; font-weight: 800; }
+
     .shell {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 260px;
@@ -139,6 +165,7 @@
     }
     button:hover { border-color: var(--lab); }
     button:disabled { cursor: not-allowed; color: #6d604e; border-color: #2c271e; }
+    button.primary { border-color: var(--lab); color: var(--lab); }
     .cadence-control {
       display: block;
       margin: 0 0 14px;
@@ -176,7 +203,7 @@
     .contract { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); color: #7e6744; font-size: 10px; line-height: 1.6; }
 
     @media (max-width: 760px) {
-      .intro, .shell { grid-template-columns: 1fr; }
+      .intro, .inspection-guide, .shell { grid-template-columns: 1fr; }
       .mode { justify-self: start; }
       .feed-wrap { border-right: 0; border-bottom: 1px solid var(--line); }
       .compare-note { display: block; }
@@ -204,6 +231,29 @@
         <p class="lede">A deliberately separate experiment surface. It renders a local, deterministic replay and has no live account connection, capture path, pairing path, or control authority.</p>
       </div>
       <div class="mode">SAFE MODE · REPLAY DATA</div>
+    </section>
+
+    <section class="inspection-guide" aria-labelledby="inspectTitle">
+      <div class="inspect-copy">
+        <h2 id="inspectTitle">How to inspect with your eyes</h2>
+        <ol>
+          <li>Choose a stepped cadence. Start with <b>80 ms</b>, then repeat at <b>280 ms</b> or higher.</li>
+          <li>Fix your gaze on the same avatar or card edge in both panes. The left side should glide; the right side will hold, then jump.</li>
+          <li>Watch MOTION GAP while the run advances. Smaller gaps mean the stepped view stays closer to the continuous reference.</li>
+          <li>Let the fixed run finish. Judge the result from MAX STEP, MAX GAP, and the final checklist—not from one convenient moment.</li>
+        </ol>
+        <p class="lab-target"><strong>LAB VISUAL TARGET: ≤ 6 PX</strong> for both maximum step and maximum gap. This is a synthetic viewing heuristic, not production acceptance.</p>
+      </div>
+      <div class="visual-checklist" aria-label="60-second visual checklist">
+        <div class="check-head"><h2>60-second visual checklist</h2><span class="run-clock" id="runClock">60.0 S READY</span></div>
+        <div class="run-progress" aria-hidden="true"><span id="runProgress"></span></div>
+        <div class="check-row"><span>CONTINUOUS REFERENCE MOVES</span><b class="check-badge wait" id="checkReference">WAIT</b></div>
+        <div class="check-row"><span>STEPPED DELIVERIES ARRIVE</span><b class="check-badge wait" id="checkDelivery">WAIT</b></div>
+        <div class="check-row"><span>MAX STEP ≤ 6 PX</span><b class="check-badge wait" id="checkStep">WAIT</b></div>
+        <div class="check-row"><span>MAX GAP ≤ 6 PX</span><b class="check-badge wait" id="checkGap">WAIT</b></div>
+        <div class="check-row"><span>FULL 60 SECONDS</span><b class="check-badge wait" id="checkDuration">WAIT</b></div>
+        <div class="final-verdict"><span>LAB VERDICT</span><b class="check-badge wait" id="finalVerdict">WAITING</b></div>
+      </div>
     </section>
 
     <section class="shell" aria-label="Synthetic feed laboratory">
@@ -236,6 +286,7 @@
             <input id="cadence" type="range" min="80" max="1000" step="20" value="280">
             <span class="cadence-scale"><i>80 MS</i><i>1000 MS</i></span>
           </label>
+          <button class="primary" id="fixedRun" type="button">Start fixed 60-second run</button>
           <button id="play" type="button">Run comparison</button>
           <button id="pause" type="button">Pause comparison</button>
           <button id="reset" type="button">Reset comparison</button>
@@ -249,8 +300,11 @@
             <dt>STEP SIZE</dt><dd id="telemetryStepSize">11.8 PX</dd>
             <dt>NEXT STEP</dt><dd id="telemetryNextStep">280 MS</dd>
             <dt>MOTION GAP</dt><dd id="telemetryGap">0.0 PX</dd>
+            <dt>MAX STEP</dt><dd id="telemetryMaxStep">0.0 PX</dd>
+            <dt>MAX GAP</dt><dd id="telemetryMaxGap">0.0 PX</dd>
+            <dt>RUN TIME</dt><dd id="telemetryRunTime">0.0 S</dd>
             <dt>LOOPS C / S</dt><dd id="telemetryLoops">0 / 0</dd>
-            <dt>FIXTURE</dt><dd id="telemetryFixture">18 LOCAL</dd>
+            <dt>FIXTURE</dt><dd id="telemetryFixture">48 LOCAL</dd>
           </dl>
           <p class="status">Source: <b>LOCAL FIXTURE</b><br>Authority: <b>NONE</b><br>Pairing: <b>DISABLED</b></p>
           <p class="contract">This lab cannot attach to or control a browser tab. It is intentionally incapable of joining the stable Station or iPad session.</p>
@@ -260,7 +314,7 @@
   </main>
 
   <script>
-    const fixture = Array.from({ length: 18 }, (_, index) => ({
+    const fixture = Array.from({ length: 48 }, (_, index) => ({
       handle: `synthetic_${String(index + 1).padStart(2, "0")}`,
       time: `${String(9 + Math.floor(index / 6)).padStart(2, "0")}:${String((index * 7) % 60).padStart(2, "0")}`,
       copy: [
@@ -279,6 +333,20 @@
     const steppedState = document.querySelector("#steppedState");
     const cadenceControl = document.querySelector("#cadence");
     const cadenceValue = document.querySelector("#cadenceValue");
+    const fixedRunButton = document.querySelector("#fixedRun");
+    const playButton = document.querySelector("#play");
+    const pauseButton = document.querySelector("#pause");
+    const resetButton = document.querySelector("#reset");
+    const runClock = document.querySelector("#runClock");
+    const runProgress = document.querySelector("#runProgress");
+    const checklist = {
+      reference: document.querySelector("#checkReference"),
+      delivery: document.querySelector("#checkDelivery"),
+      step: document.querySelector("#checkStep"),
+      gap: document.querySelector("#checkGap"),
+      duration: document.querySelector("#checkDuration"),
+      verdict: document.querySelector("#finalVerdict")
+    };
     const telemetry = {
       state: document.querySelector("#telemetryState"),
       continuous: document.querySelector("#telemetryContinuous"),
@@ -288,10 +356,15 @@
       stepSize: document.querySelector("#telemetryStepSize"),
       nextStep: document.querySelector("#telemetryNextStep"),
       gap: document.querySelector("#telemetryGap"),
+      maxStep: document.querySelector("#telemetryMaxStep"),
+      maxGap: document.querySelector("#telemetryMaxGap"),
+      runTime: document.querySelector("#telemetryRunTime"),
       loops: document.querySelector("#telemetryLoops"),
       fixture: document.querySelector("#telemetryFixture")
     };
     const speedPxPerSecond = 42;
+    const fixedRunDurationMs = 60000;
+    const labSmoothnessLimitPx = 6;
     let continuousFrames = 1;
     let steppedDeliveries = 0;
     let continuousPosition = 0;
@@ -302,6 +375,13 @@
     let cadenceMs = Number(cadenceControl.value);
     let running = false;
     let lastAnimationTime = 0;
+    let maximumStepObserved = 0;
+    let maximumGapObserved = 0;
+    let fixedRunActive = false;
+    let fixedRunCompleted = false;
+    let fixedRunAborted = false;
+    let fixedRunStartedAt = 0;
+    let fixedRunElapsedMs = 0;
 
     const fixtureMarkup = fixture.map((item, index) => `
       <article data-frame="${index + 1}">
@@ -314,6 +394,41 @@
       </article>`).join("");
     continuousTrack.innerHTML = fixtureMarkup;
     steppedTrack.innerHTML = fixtureMarkup;
+
+    function setCheck(element, state, text) {
+      element.className = `check-badge ${state}`;
+      element.textContent = text;
+    }
+
+    function renderChecklist() {
+      setCheck(checklist.reference, continuousFrames > 1 ? "pass" : "wait", continuousFrames > 1 ? "PASS" : "WAIT");
+      setCheck(checklist.delivery, steppedDeliveries > 0 ? "pass" : "wait", steppedDeliveries > 0 ? "PASS" : "WAIT");
+
+      if (steppedDeliveries === 0) setCheck(checklist.step, "wait", "WAIT");
+      else setCheck(checklist.step, maximumStepObserved <= labSmoothnessLimitPx ? "pass" : "fail", maximumStepObserved <= labSmoothnessLimitPx ? "PASS" : "FAIL");
+
+      if (maximumGapObserved > labSmoothnessLimitPx) setCheck(checklist.gap, "fail", "FAIL");
+      else if (fixedRunCompleted) setCheck(checklist.gap, "pass", "PASS");
+      else setCheck(checklist.gap, fixedRunActive ? "run" : "wait", fixedRunActive ? "WATCH" : "WAIT");
+
+      if (fixedRunCompleted) setCheck(checklist.duration, "pass", "PASS");
+      else if (fixedRunAborted) setCheck(checklist.duration, "fail", "FAIL");
+      else setCheck(checklist.duration, fixedRunActive ? "run" : "wait", fixedRunActive ? "RUN" : "WAIT");
+
+      const thresholdsPass = steppedDeliveries > 0 && maximumStepObserved <= labSmoothnessLimitPx && maximumGapObserved <= labSmoothnessLimitPx;
+      if (fixedRunCompleted) setCheck(checklist.verdict, thresholdsPass ? "pass" : "fail", thresholdsPass ? "PASS" : "FAIL");
+      else if ((steppedDeliveries > 0 && maximumStepObserved > labSmoothnessLimitPx) || maximumGapObserved > labSmoothnessLimitPx) setCheck(checklist.verdict, "fail", "FAIL");
+      else setCheck(checklist.verdict, fixedRunActive ? "run" : "wait", fixedRunActive ? "RUNNING" : "WAITING");
+    }
+
+    function renderRunClock() {
+      const progress = Math.min(1, fixedRunElapsedMs / fixedRunDurationMs);
+      runProgress.style.width = `${(progress * 100).toFixed(1)}%`;
+      if (fixedRunCompleted) runClock.textContent = "60.0 S COMPLETE";
+      else if (fixedRunAborted) runClock.textContent = "RUN STOPPED";
+      else if (fixedRunActive) runClock.textContent = `${((fixedRunDurationMs - fixedRunElapsedMs) / 1000).toFixed(1)} S LEFT`;
+      else runClock.textContent = "60.0 S READY";
+    }
 
     function renderState(label) {
       const stepSize = speedPxPerSecond * cadenceMs / 1000;
@@ -330,8 +445,44 @@
       telemetry.stepSize.textContent = `${stepSize.toFixed(1)} PX`;
       telemetry.nextStep.textContent = `${Math.round(nextStep)} MS`;
       telemetry.gap.textContent = `${gap.toFixed(1)} PX`;
+      telemetry.maxStep.textContent = `${maximumStepObserved.toFixed(1)} PX`;
+      telemetry.maxGap.textContent = `${maximumGapObserved.toFixed(1)} PX`;
+      telemetry.runTime.textContent = `${(fixedRunElapsedMs / 1000).toFixed(1)} S`;
       telemetry.loops.textContent = `${continuousLoops} / ${steppedLoops}`;
       telemetry.fixture.textContent = `${fixture.length} LOCAL`;
+      renderRunClock();
+      renderChecklist();
+    }
+
+    function setFixedRunControls(active) {
+      cadenceControl.disabled = active;
+      fixedRunButton.disabled = active;
+      playButton.disabled = active;
+      resetButton.disabled = active;
+      pauseButton.textContent = active ? "Stop fixed run" : "Pause comparison";
+    }
+
+    function resetComparison() {
+      running = false;
+      continuousFrames = 1;
+      steppedDeliveries = 0;
+      continuousPosition = 0;
+      steppedPosition = 0;
+      continuousLoops = 0;
+      steppedLoops = 0;
+      stepAccumulator = 0;
+      lastAnimationTime = 0;
+      maximumStepObserved = 0;
+      maximumGapObserved = 0;
+      fixedRunActive = false;
+      fixedRunCompleted = false;
+      fixedRunAborted = false;
+      fixedRunStartedAt = 0;
+      fixedRunElapsedMs = 0;
+      continuousViewport.scrollTop = 0;
+      steppedViewport.scrollTop = 0;
+      setFixedRunControls(false);
+      renderState("paused");
     }
 
     function advance(viewport, position, distance, channel) {
@@ -363,46 +514,64 @@
         stepAccumulator += deltaMs;
 
         while (stepAccumulator >= cadenceMs) {
+          const deliveredStep = speedPxPerSecond * cadenceMs / 1000;
           steppedPosition = advance(
             steppedViewport,
             steppedPosition,
-            speedPxPerSecond * cadenceMs / 1000,
+            deliveredStep,
             "stepped"
           );
+          maximumStepObserved = Math.max(maximumStepObserved, deliveredStep);
           stepAccumulator -= cadenceMs;
           steppedDeliveries += 1;
+        }
+        maximumGapObserved = Math.max(maximumGapObserved, Math.abs(continuousPosition - steppedPosition));
+      }
+
+      if (fixedRunActive) {
+        if (!fixedRunStartedAt) fixedRunStartedAt = time;
+        fixedRunElapsedMs = Math.min(fixedRunDurationMs, time - fixedRunStartedAt);
+        if (fixedRunElapsedMs >= fixedRunDurationMs) {
+          running = false;
+          fixedRunActive = false;
+          fixedRunCompleted = true;
+          setFixedRunControls(false);
+          renderState("complete");
+          return;
         }
       }
       renderState("replaying");
       requestAnimationFrame(tick);
     }
 
-    document.querySelector("#play").addEventListener("click", () => {
+    playButton.addEventListener("click", () => {
       if (running) return;
+      fixedRunActive = false;
+      fixedRunCompleted = false;
+      fixedRunAborted = false;
       running = true;
       lastAnimationTime = 0;
       renderState("replaying");
       requestAnimationFrame(tick);
     });
 
-    document.querySelector("#pause").addEventListener("click", () => {
+    pauseButton.addEventListener("click", () => {
+      if (fixedRunActive) fixedRunAborted = true;
+      fixedRunActive = false;
       running = false;
-      renderState("paused");
+      setFixedRunControls(false);
+      renderState(fixedRunAborted ? "stopped" : "paused");
     });
 
-    document.querySelector("#reset").addEventListener("click", () => {
-      running = false;
-      continuousFrames = 1;
-      steppedDeliveries = 0;
-      continuousPosition = 0;
-      steppedPosition = 0;
-      continuousLoops = 0;
-      steppedLoops = 0;
-      stepAccumulator = 0;
-      lastAnimationTime = 0;
-      continuousViewport.scrollTop = 0;
-      steppedViewport.scrollTop = 0;
-      renderState("paused");
+    resetButton.addEventListener("click", resetComparison);
+
+    fixedRunButton.addEventListener("click", () => {
+      resetComparison();
+      fixedRunActive = true;
+      running = true;
+      setFixedRunControls(true);
+      renderState("fixed run");
+      requestAnimationFrame(tick);
     });
 
     cadenceControl.addEventListener("input", () => {
@@ -411,7 +580,7 @@
       renderState(running ? "replaying" : "paused");
     });
 
-    renderState("paused");
+    resetComparison();
   </script>
 </body>
 </html>

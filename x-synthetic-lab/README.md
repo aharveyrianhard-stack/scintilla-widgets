@@ -13,6 +13,10 @@ Isolation contract:
 - Its smoothness bench renders the same fixture twice at the same average speed:
   one view progresses every animation frame while the other holds and advances
   only at the selected 80–1000ms synthetic delivery cadence.
+- A fixed 60-second visual run records maximum observed step and motion gap,
+  then applies an explicitly lab-only six-pixel checklist. The on-screen guide
+  explains where to look and makes clear that the heuristic is not production
+  acceptance.
 - It is deployed only as a non-production Vercel preview under a separately named project.
 - Any future live-source capability requires separate authorization.
 
