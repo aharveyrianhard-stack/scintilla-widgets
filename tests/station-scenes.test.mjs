@@ -321,13 +321,37 @@ test("named scenes are editable device-session presets with an explicit reset", 
   assert.match(deck, /const prefix = localWorkspace \? "station\." \+ SCENE : "station\.flex\." \+ SCENE/);
   assert.match(deck, /state = !options\?\.reset && !namedPage && hasStoredScene\(requested\)/,
     "navigation and rotation preserve working scene edits until Reset Preset");
-  assert.match(deck, /installSceneState\(hasStoredScene\(SCENE\) \? editableState\(SCENE\) : fixedSceneState\(SCENE\)\)/);
+  assert.match(deck, /completeNamedPresetState\(editable, fixed\)/);
   assert.match(deck, /id="resetScene"/);
   assert.match(deck, /el\("resetScene"\)\.addEventListener\("click"/);
   assert.doesNotMatch(deck, /edits are not enabled/);
   assert.doesNotMatch(deck, /n\.readOnly = SCENE/);
   assert.doesNotMatch(deck, /if \(SCENE !== "live" && SCENE !== "custom"\) \{/,
     "named scenes no longer reject slot edits");
+});
+
+test("a partial named six-up workspace restores only its missing preset slots", () => {
+  const complete = functionFromDeck("completeNamedPresetState", {
+    CLEAN: (value) => String(value || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12)
+  });
+  const preset = scenes.PRESETS.companyLeadership;
+  const partial = { charts:["NVDA","MSFT","AMZN","","", ""], chartCount:6, range:"3h" };
+  const recovered = complete(partial, preset);
+  assert.deepEqual(Array.from(recovered.charts.slice(0, 6)),
+    ["NVDA","MSFT","AMZN","GOOGL","META","TSLA"],
+    "existing edits survive while only blank slots regain their named-preset members");
+
+  const intentional = { charts:["NVDA","AVGO","AMZN","GOOGL","META","TSLA"], chartCount:6, range:"3h" };
+  assert.equal(complete(intentional, preset), intentional,
+    "a complete intentional six-slot workspace is returned untouched");
+});
+
+test("iPad chart frames own gestures without changing any other pane", () => {
+  assert.match(deck, /body\[data-view="ipad"\] \.chart-pane > \.body > iframe\{ touch-action:none; overscroll-behavior:contain; \}/);
+  assert.doesNotMatch(deck, /body\[data-view="ipad"\] \.body > iframe\{ touch-action:none/,
+    "the touch policy is scoped to chart frames rather than media or X");
+  assert.match(chart, /\.sc-nchart__cv\{[^}]*touch-action:none/,
+    "the embedded canvas retains ownership after the parent frame accepts the gesture");
 });
 
 test("Custom uses a complete desk budget and explicit empty versus paused cards", () => {

@@ -378,7 +378,9 @@ async function fetchChartSeries(t, range, requestedLimit){
   const inflightKey = key + "|" + limit;
   if (chartInflight.has(inflightKey)) return chartInflight.get(inflightKey);
   const work = (async () => {
-    const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + limit);
+    /* One transient history read must recover inside this load attempt so a
+       healthy chart never enters the delayed/retrying paint unnecessarily. */
+    const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + limit, 2);
     let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
     pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
     chApplyLivePoint(t, pts, liveQuote[t]);
