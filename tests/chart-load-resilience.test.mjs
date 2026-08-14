@@ -23,6 +23,15 @@ test("Station charts keep a cache-first, bounded, deduplicated recovery path", (
   assert.match(chart, /A stale but usable chart is better than a black pane/);
 });
 
+test("Station chart history reads one canonical bar per ticker, timeframe, and minute", () => {
+  assert.match(chart, /pg\("ohlcv_dedup\?ticker=eq\./,
+    "initial series fetch must use the canonical source-selected view");
+  assert.match(chart, /async function fetchOlderChartSeries[\s\S]*?pg\("ohlcv_dedup\?ticker=eq\./,
+    "history paging must use the same canonical source-selected view");
+  assert.doesNotMatch(chart, /pg\("ohlcv_history\?ticker=eq\./,
+    "no Station chart request may mix raw FMP and FMP-STREAM duplicates");
+});
+
 test("multiple uncached panes retain an explicit delayed state throughout retry", () => {
   const match = chart.match(/function showChartDelayed\(host, ticker\) \{[\s\S]*?\n\}/);
   assert.ok(match, "delayed-state renderer is present");

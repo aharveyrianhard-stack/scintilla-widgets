@@ -8,7 +8,7 @@
      SCINTILLA WIDGET · CHART — standalone scene module (stage-1 extraction)
      Extracted from scintilla-hub index.html (SC_BUILD 2026-07-16T0330, repo main
      aafbc9b): scChart R18 native canvas renderer — scChartHTML/Draw/Load/Scrub/
-     Wire, DB-only fetchChartSeries (R30 — reads ohlcv_history via pg(), NEVER
+     Wire, DB-only fetchChartSeries (R30 — reads the canonical ohlcv_dedup view via pg(), NEVER
      FMP from the page), cache-first chart layer, R22 range ladder, in-app
      TradingView modal (FIX 5 / R52) — all ported verbatim. Live last-point
      patch (R22 FIX 8) rides supabase-js realtime on live_quotes, same as the
@@ -16,7 +16,7 @@
      has no page scroll to trap — the one intentional trim, flagged here).
      Chrome addition (plumbing only): a ticker field in the range bar, since the
      widget has no cohort board to click. PRICE BASIS: RAW DB prints
-     (ohlcv_history, unadjusted) + live_quotes ticks — the hub chart's basis.
+     (canonical unadjusted DB bars) + live_quotes ticks — the hub chart's basis.
      Params: ?t=MU · ?range=1D (15m 30m 1h 2h 3h 4h 6h 12h 1D 3D 1W)
        · ?bare=1 (pane mode — see the BARE note in the script)
        · ?tvrange=1D|5D|1M|3M|6M|YTD|12M|60M|ALL (TradingView opening window)
@@ -378,7 +378,7 @@ async function fetchChartSeries(t, range, requestedLimit){
   const inflightKey = key + "|" + limit;
   if (chartInflight.has(inflightKey)) return chartInflight.get(inflightKey);
   const work = (async () => {
-    const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + limit);
+    const rows = await pg("ohlcv_dedup?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + limit);
     let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
     pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
     chApplyLivePoint(t, pts, liveQuote[t]);
@@ -395,7 +395,7 @@ async function fetchOlderChartSeries(t, range, before, limit) {
   const e = CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"];
   const beforeTs = Math.floor(new Date(before).getTime() / 1000);
   if (!Number.isFinite(beforeTs)) return [];
-  const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) +
+  const rows = await pg("ohlcv_dedup?ticker=eq." + encodeURIComponent(chFmpSym(t)) +
     "&tf=eq." + encodeURIComponent(e[0]) + "&timestamp=lt." + beforeTs +
     "&select=timestamp,close&order=timestamp.desc&limit=" + Math.max(1, Math.round(limit || CHART_HISTORY_PAGE)));
   const pts = (Array.isArray(rows) ? rows : []).map((r) => ({
