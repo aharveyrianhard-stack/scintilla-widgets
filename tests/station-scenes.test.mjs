@@ -267,9 +267,11 @@ test("iPad profile keeps the complete Station wall with proportional child typog
   assert.match(deck, /type:"SCINTILLA_VIEW_PROFILE", view:VIEW, scale/);
   assert.match(chart, /function applyIpadPaneScale\(forced\)/);
   assert.match(videoPane, /function applyIpadPaneScale\(forced\)/);
-  assert.match(xPane, /function applyIpadPaneScale\(forced\)/);
+  assert.match(xPane, /--ipad-btn-size:8px/);
+  assert.match(xPane, /html\[data-view="ipad"\] \.btn\{ font-size:var\(--ipad-btn-size\)/,
+    "the local replay keeps the reviewed pane-X iPad geometry without loading production runtime");
   assert.match(videoPane, /VIEW_PROFILES = \["auto","desk","ipad","display","compact"\]/);
-  assert.match(xPane, /VIEW_PROFILES = \["auto","desk","ipad","display","compact"\]/);
+  assert.match(xPane, /html\[data-view="compact"\] \.btn/);
 });
 
 test("generated paired iPad companion routes carry the iPad profile through the wall", () => {
