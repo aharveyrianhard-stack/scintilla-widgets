@@ -939,6 +939,7 @@ function scChartScrub(host) {
   if (!cv) return;
   const pointers = new Map();
   let gesture = null;
+  let trackpadGesture = null;
   const show = (clientX, clientY) => {
     const pts = host._series, plot = host._plot;
     if (!pts || pts.length < 2 || !plot) return;
@@ -953,6 +954,11 @@ function scChartScrub(host) {
     const pts = host._series || [], v = chartView(host, pts);
     return { start:v.start, end:v.end };
   };
+  const hasActiveTouch = () => Array.from(pointers.values()).some((pointer) => pointer.pointerType === "touch");
+  const applyLatestSpan = (span, followLatest = true) => {
+    const last = (host._series?.length || 1) - 1;
+    setChartView(host, last - span, last, followLatest);
+  };
   const pinchStart = () => {
     const a = Array.from(pointers.values()).slice(0, 2);
     if (a.length < 2) return;
@@ -964,13 +970,13 @@ function scChartScrub(host) {
   cv.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     try { cv.setPointerCapture(e.pointerId); } catch (_) {}
-    pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    pointers.set(e.pointerId, { x:e.clientX, y:e.clientY, pointerType:e.pointerType });
     if (pointers.size >= 2) pinchStart();
     else gesture = { type:"pending", x:e.clientX, view:snapshot() };
   });
   cv.addEventListener("pointermove", (e) => {
     if (!pointers.has(e.pointerId)) { if (e.pointerType === "mouse") show(e.clientX, e.clientY); return; }
-    pointers.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    pointers.set(e.pointerId, { x:e.clientX, y:e.clientY, pointerType:e.pointerType });
     if (pointers.size >= 2) {
       if (!gesture || gesture.type !== "pinch") pinchStart();
       const a = Array.from(pointers.values()).slice(0, 2);
@@ -979,8 +985,7 @@ function scChartScrub(host) {
       const span = Math.max(8, Math.min((host._series?.length || 2)-1, baseSpan * gesture.distance / distance));
       /* Scale gestures always preserve the newest point. A deliberate drag is
          still the one explicit way to leave the live edge and inspect history. */
-      const last = (host._series?.length || 1) - 1;
-      setChartView(host, last - span, last, true);
+      applyLatestSpan(span);
       return;
     }
     const dx = e.clientX - gesture.x;
@@ -1004,8 +1009,8 @@ function scChartScrub(host) {
   cv.addEventListener("pointerleave", (e) => {
     if (!pointers.has(e.pointerId)) hideScrub();
   });
-  cv.addEventListener("wheel", (e) => {
-    e.preventDefault(); hideScrub();
+  const applyChartWheel = (e) => {
+    e.preventDefault?.(); e.stopPropagation?.(); hideScrub();
     const pts = host._series, plot = host._plot;
     if (!pts || pts.length < 2 || !plot) return;
     const oldSpan = plot.end-plot.start;
@@ -1017,9 +1022,37 @@ function scChartScrub(host) {
     }
     const newSpan = Math.max(8, Math.min(pts.length-1, oldSpan * Math.exp(e.deltaY*.0018)));
     if (e.deltaY > 0 && newSpan >= pts.length - 2) expandChartHistory(host);
-    const last = pts.length - 1;
-    setChartView(host, last-newSpan, last, true);
-  }, { passive:false });
+    applyLatestSpan(newSpan);
+  };
+  const applyTrackpadGesture = (phase, scale) => {
+    /* A direct two-finger touchscreen pinch is already represented by active
+       touch pointers above.  Ignore Safari's companion GestureEvent in that
+       case so the known-good touch path is neither replaced nor doubled. */
+    if (hasActiveTouch()) return;
+    if (phase === "gesturestart") {
+      trackpadGesture = { view:snapshot() }; hideScrub(); return;
+    }
+    if (phase === "gestureend") { trackpadGesture = null; hideScrub(); return; }
+    if (phase !== "gesturechange") return;
+    if (!trackpadGesture) trackpadGesture = { view:snapshot() };
+    const pts = host._series || [];
+    if (pts.length < 2) return;
+    const baseSpan = trackpadGesture.view.end - trackpadGesture.view.start;
+    const factor = Math.max(.25, Math.min(4, Number(scale) || 1));
+    applyLatestSpan(Math.max(8, Math.min(pts.length - 1, baseSpan / factor)));
+  };
+  host._applyTrackpadInput = (data) => {
+    if (data?.phase === "wheel") return applyChartWheel(data);
+    applyTrackpadGesture(data?.phase, data?.scale);
+  };
+  host.addEventListener("wheel", applyChartWheel, { capture:true, passive:false });
+  for (const phase of ["gesturestart", "gesturechange", "gestureend"]) {
+    host.addEventListener(phase, (event) => {
+      if (hasActiveTouch()) return;
+      event.preventDefault(); event.stopPropagation();
+      applyTrackpadGesture(phase, event.scale);
+    }, { capture:true, passive:false });
+  }
   cv.addEventListener("dblclick", (e) => { e.preventDefault(); hideScrub(); resetChartView(host); });
 }
 
@@ -1043,6 +1076,10 @@ function scChartWire(slot) {
 
 window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
+  if (event.data?.type === "SCINTILLA_CHART_TRACKPAD") {
+    for (const host of CHART_HOSTS) if (host.isConnected) host._applyTrackpadInput?.(event.data);
+    return;
+  }
   if (event.data?.type === "SCINTILLA_VIEW_PROFILE") {
     VIEW_PROFILE = VIEW_PROFILES.includes(event.data.view) ? event.data.view : "auto";
     document.documentElement.dataset.view = VIEW_PROFILE;
