@@ -606,7 +606,7 @@ test("an X action discards a closed restored Station tab and reannounces the ope
   assert.equal(h.sessionData.stationXSessionV1.activeConsumerKey, null);
 });
 
-test("a restarted Chrome extension worker restores the approved source and Station frame", async () => {
+test("an extension reload recreates the saved source capture and reconnects Station", async () => {
   const h = await harness({
     stationXSessionV1: {
       sourceTabId: 7,
@@ -618,10 +618,14 @@ test("a restarted Chrome extension worker restores the approved source and Stati
   });
   await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
 
-  assert.equal(h.captures.length, 0, "worker restart must not request another capture gesture");
+  assert.equal(h.captures.length, 1,
+    "a saved source tab without an offscreen capture must start a fresh capture");
+  assert.ok(h.runtimeSent.some(({ type }) => type === "XFF_OFFSCREEN_START"));
+  assert.ok(h.sent.some(({ tabId, message }) =>
+    tabId === 7 && message.type === "XFF_START_STATION_SOURCE"));
   assert.ok(h.sent.some(({ tabId, message, options }) =>
     tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
-  assert.equal(h.tabUpdates.length, 0, "worker recovery must not bring a Station tab forward");
+  assert.equal(h.tabUpdates.length, 0, "recovery must not bring a Station tab forward");
 });
 
 test("a V079 pane reinjected after a background reload reannounces before the next X action", async () => {
