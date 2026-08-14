@@ -25,6 +25,10 @@ Isolation contract:
   that adapter. `production-candidate/` provides an exact, fail-closed handoff
   that can materialize the same tested core plus narrow real-pane presentation
   wiring into a separate Station testing twin without writing stable `pane-x/`.
+- `station-testing-surface-handoff/` is the human-verifiable twin artifact. It
+  keeps the real pane-X markup and canvas geometry, removes the production
+  runtime entirely, and replays a local static X-like feed plus explicit
+  read-only crop-motion metadata behind visible smoothing OFF/ON controls.
 - A fixed 60-second visual run uses 80ms as the proven case and keeps 800ms as
   the coarse failure preset. It applies explicitly lab-only six-pixel motion-
   gap and 0.01-pixel endpoint-correctness checks. The on-screen guide makes
