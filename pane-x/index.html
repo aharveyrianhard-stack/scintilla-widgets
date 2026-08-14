@@ -749,6 +749,16 @@ function ensureXFloatDraw() {
   if (!xfloatFrame) xfloatFrame = requestAnimationFrame(drawXFloat);
 }
 
+/* A source crop can be reported a few pixels beyond the decoded capture
+   frame after Chrome resizes or re-anchors X's virtualized timeline. Never
+   let that turn the unused lower canvas into a black block: slide the source
+   window upward only as far as needed to keep a complete viewer frame. */
+function boundedViewerCropY(requestedY, requiredHeight, videoHeight) {
+  const frameHeight = Math.max(1, Number(videoHeight) || 1);
+  const visibleHeight = Math.max(1, Math.min(Number(requiredHeight) || 1, frameHeight));
+  return Math.max(0, Math.min(Math.max(0, Number(requestedY) || 0), frameHeight - visibleHeight));
+}
+
 function drawXFloat(at = 0) {
   /* This callback consumed the outstanding request.  Its next pass is
      scheduled through the one-loop guard below. */
@@ -778,9 +788,8 @@ function drawXFloat(at = 0) {
     const scaleX = video.videoWidth / Math.max(1, viewport.width);
     const scaleY = video.videoHeight / Math.max(1, viewport.height);
     const sx = Math.max(0, rect.left * scaleX);
-    const sy = Math.max(0, (rect.top + (xfloatCrop.fractionalScrollOffset || 0)) * scaleY);
+    const requestedY = Math.max(0, (rect.top + (xfloatCrop.fractionalScrollOffset || 0)) * scaleY);
     const sw = Math.min(video.videoWidth - sx, rect.width * scaleX);
-    const shAvailable = Math.min(video.videoHeight - sy, rect.height * scaleY);
     const ratio = Math.min(1.25, devicePixelRatio || 1);
     const tw = Math.max(280, Math.round(host.clientWidth * ratio));
     const th = Math.max(220, Math.round(host.clientHeight * ratio));
@@ -805,7 +814,10 @@ function drawXFloat(at = 0) {
       const dw = Math.max(1, Math.round(readableCssWidth * ratio));
       const dx = Math.max(pad, Math.round((tw - dw) / 2));
       const s2d = dw / sourceWidth;
-      const sh = Math.min(shAvailable, th / s2d), dh = sh * s2d;
+      const requiredSourceHeight = th / s2d;
+      const sy = boundedViewerCropY(requestedY, requiredSourceHeight, video.videoHeight);
+      const shAvailable = Math.max(0, video.videoHeight - sy);
+      const sh = Math.min(shAvailable, requiredSourceHeight), dh = sh * s2d;
       ctx.drawImage(video, sourceX, sy, sourceWidth, sh, dx, 0, dw, dh);
     }
   }
