@@ -832,6 +832,10 @@ function drawXFloat(at = 0) {
     const sx = Math.max(0, rect.left * scaleX);
     const requestedY = Math.max(0, (rect.top + (xfloatCrop.fractionalScrollOffset || 0)) * scaleY);
     const sw = Math.min(video.videoWidth - sx, rect.width * scaleX);
+    // Keep the draw guard based on values already computed.  Referencing the
+    // later post-clamp height here leaves the canvas in a temporal-dead-zone
+    // error state: video keeps advancing, but every canvas frame stays black.
+    const availableAtRequestedY = Math.max(0, video.videoHeight - requestedY);
     const ratio = Math.min(1.25, devicePixelRatio || 1);
     const tw = Math.max(280, Math.round(host.clientWidth * ratio));
     const th = Math.max(220, Math.round(host.clientHeight * ratio));
@@ -839,7 +843,7 @@ function drawXFloat(at = 0) {
     const ctx = canvas.getContext("2d", { alpha: false });
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, tw, th);
-    if (sw > 1 && shAvailable > 1) {
+    if (sw > 1 && availableAtRequestedY > 1) {
       const padCss = Math.max(4, Math.min(8, host.clientWidth * .015));
       const pad = Math.round(padCss * ratio);
       /* A narrow pane should use every pixel. When the pane expands across
@@ -858,8 +862,8 @@ function drawXFloat(at = 0) {
       const s2d = dw / sourceWidth;
       const requiredSourceHeight = th / s2d;
       const sy = boundedViewerCropY(requestedY, requiredSourceHeight, video.videoHeight);
-      const shAvailable = Math.max(0, video.videoHeight - sy);
-      const sh = Math.min(shAvailable, requiredSourceHeight), dh = sh * s2d;
+      const availableSourceHeight = Math.max(0, video.videoHeight - sy);
+      const sh = Math.min(availableSourceHeight, requiredSourceHeight), dh = sh * s2d;
       ctx.drawImage(video, sourceX, sy, sourceWidth, sh, dx, 0, dw, dh);
     }
   }
