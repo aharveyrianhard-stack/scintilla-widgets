@@ -115,7 +115,7 @@ test("phase-aligned crop motion eases through an adjacent capture generation", (
   const phaseAligned = functionFromSource("cropPhaseAlignedFrom", { cropVisualPositionFor:visualPosition, cropSourceScrollTop:sourceScroll, Object });
   const canEase = functionFromSource("cropsCanEase", { cropGenerationFor:generation, cropVisualPositionFor:visualPosition, Math });
   const atMotion = functionFromSource("cropAtMotion", { cropOffsetFor:offset, Math, Object });
-  const begin = functionFromSource("beginCropMotion", { cropAtMotion:atMotion, cropsCanEase:canEase, cropPhaseAlignedFrom:phaseAligned, VIEWER_CROP_EASE_MS:24 });
+  const begin = functionFromSource("beginCropMotion", { cropAtMotion:atMotion, cropsCanEase:canEase, cropPhaseAlignedFrom:phaseAligned, VIEWER_CROP_EASE_MS:120 });
   const prior = { captureGeneration:7, rect:{ left:1, top:2, width:3, height:4 }, sourceScroll:{ scrollTop:100 }, fractionalScrollOffset:.1 };
   const next = { captureGeneration:7, rect:{ left:1, top:2, width:3, height:4 }, sourceScroll:{ scrollTop:100 }, fractionalScrollOffset:.4 };
   const motion = begin(null, prior, 0);
@@ -126,9 +126,12 @@ test("phase-aligned crop motion eases through an adjacent capture generation", (
     "a confirmed sub-pixel move has an in-between visual position");
   assert.ok(atMotion(eased, 30).fractionalScrollOffset > .1 && atMotion(eased, 30).fractionalScrollOffset < .4,
     "the blend remains in motion through the following source tick");
-  assert.equal(atMotion(eased, 40).fractionalScrollOffset, .4);
+  assert.ok(atMotion(eased, 40).fractionalScrollOffset > .1 && atMotion(eased, 40).fractionalScrollOffset < .4,
+    "the blend stays at display cadence through a 10Hz source-crop gap");
+  assert.equal(atMotion(eased, 130).fractionalScrollOffset, .4);
   const continual = begin(eased, Object.assign({}, next, { fractionalScrollOffset:.7 }), 30);
-  assert.ok(atMotion(continual, 35).fractionalScrollOffset > .35 && atMotion(continual, 35).fractionalScrollOffset < .7,
+  const beforeRetarget = atMotion(eased, 30).fractionalScrollOffset;
+  assert.ok(atMotion(continual, 35).fractionalScrollOffset > beforeRetarget && atMotion(continual, 35).fractionalScrollOffset < .7,
     "the next source crop starts from the still-moving visual position without a display-frame hold");
   const boundary = Object.assign({}, next, { captureGeneration:8, sourceScroll:{ scrollTop:101 }, fractionalScrollOffset:.05 });
   const boundaryMotion = begin(null, Object.assign({}, prior, { fractionalScrollOffset:.9 }), 0);
@@ -137,8 +140,8 @@ test("phase-aligned crop motion eases through an adjacent capture generation", (
     "the new source frame starts at the prior visual position instead of jumping one physical source pixel");
   assert.ok(Math.abs(visualPosition(atMotion(handoff, 10)) - 100.9) < 1e-9,
     "the phase-aligned handoff preserves the exact visible coordinate");
-  assert.equal(atMotion(handoff, 40).fractionalScrollOffset, .05,
-    "the handoff then reaches the new fractional carry smoothly");
+  assert.ok(atMotion(handoff, 40).fractionalScrollOffset > -.1 && atMotion(handoff, 40).fractionalScrollOffset < .05,
+    "the handoff remains smooth instead of collapsing to an idle-frame step");
   assert.equal(canEase(next, Object.assign({}, next, { rect:{ left:2, top:2, width:3, height:4 } })), false,
     "a reflowing crop rectangle remains exact rather than being blurred");
 });
@@ -169,8 +172,8 @@ test("viewer crop barrier retains the existing one-owner clock and paint caps", 
   assert.match(source, /const VIEWER_PAINT_INTERVAL_MS = 80;/);
   assert.match(source, /const VIEWER_MOTION_PAINT_INTERVAL_MS = 16;/,
     "only already-confirmed sub-pixel crop motion uses display-rate canvas painting");
-  assert.match(source, /const VIEWER_CROP_EASE_MS = 24;/,
-    "a blend spans the following source tick rather than stopping early");
+  assert.match(source, /const VIEWER_CROP_EASE_MS = 120;/,
+    "a blend spans the 10Hz fallback crop gap instead of dropping to idle paint");
   assert.match(source, /function receiveViewerCrop\(crop\)/);
   assert.match(source, /function ensureXFloatDraw\(\)/,
     "crop messages schedule the existing canvas loop instead of spawning another one");
