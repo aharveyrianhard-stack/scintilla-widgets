@@ -9,11 +9,11 @@ const testingRuntime = read("testing-surface.js");
 const ipad = read("station-ipad/index.html");
 const liveTestRoute = read("station-live-test/index.html");
 const ipadLiveTestRoute = read("station-ipad-live-test/index.html");
-const paneX = read("pane-x/index.html");
-const paneXCore = read("pane-x/pane-x-presentation-core.js");
-const paneXReplay = read("pane-x/pane-x-test-replay.js");
-const paneXMotion = read("pane-x/fixtures/x-crop-motion.js");
-const paneXFixture = read("pane-x/fixtures/x-feed-static.svg");
+const paneX = read("pane-x-replay/index.html");
+const paneXCore = read("pane-x-replay/pane-x-presentation-core.js");
+const paneXReplay = read("pane-x-replay/pane-x-test-replay.js");
+const paneXMotion = read("pane-x-replay/fixtures/x-crop-motion.js");
+const paneXFixture = read("pane-x-replay/fixtures/x-feed-static.svg");
 const paneXLiveTest = read("pane-x-live-test/index.html");
 const paneXLiveTestCore = read("pane-x-live-test/pane-x-presentation-core.js");
 const vercel = read("vercel.json");
@@ -79,6 +79,10 @@ test("LIVE TEST is additive while REPLAY remains the default unchanged pane runt
   assert.doesNotMatch(liveTestRoute, /localStorage|sessionStorage|ipadPair|ipadCode|pairHash/);
   assert.doesNotMatch(ipadLiveTestRoute, /localStorage|sessionStorage|ipadPair|ipadCode|pairHash/);
   assert.match(vercel, /"source": "\/pane-x\/"[\s\S]*?"type": "query"[\s\S]*?"key": "mode"[\s\S]*?"value": "live-test"[\s\S]*?"destination": "\/pane-x-live-test\/index\.html"/);
+  assert.match(vercel, /"source": "\/pane-x\/",\s*"destination": "\/pane-x-replay\/index\.html"/);
+  assert.match(vercel, /"source": "\/pane-x\/:path\*",\s*"destination": "\/pane-x-replay\/:path\*"/);
+  assert.equal(fs.existsSync(new URL("../pane-x/", import.meta.url)), false,
+    "the public pane path must stay virtual so conditional rewrites run before the filesystem");
 });
 
 test("testing X is a local static replay with no Bridge, transport, pair, controller, or tick authority", () => {

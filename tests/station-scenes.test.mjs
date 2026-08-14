@@ -254,7 +254,7 @@ test("Station pins charts, each YouTube feed, and X to independently versioned s
 });
 
 test("iPad profile keeps the complete Station wall with proportional child typography", () => {
-  const xPane = fs.readFileSync(new URL("../pane-x/index.html", import.meta.url), "utf8");
+  const xPane = fs.readFileSync(new URL("../pane-x-replay/index.html", import.meta.url), "utf8");
   assert.match(deck, /const VIEW_MODES = \["auto","desk","ipad","display","compact"\]/);
   assert.match(deck, /<option value="ipad">iPad<\/option>/);
   assert.match(deck, /const keepsCompleteWall = \(\) => VIEW === "desk" \|\| VIEW === "ipad"/);
