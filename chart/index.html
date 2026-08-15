@@ -272,19 +272,11 @@ const CHART_RETRY_MS = 3000;
 const CHART_LOAD_COORDINATOR_TIMEOUT_MS = 5500;
 let chartLoadToken = 0;
 const chartLoadPermits = new Map();
-const CHART_DB_RANGE = {"15m":["15",240],"30m":["30",240],"1h":["60",240],"2h":["120",240],"3h":["180",240],"4h":["240",240],"6h":["6h",240],"12h":["12h",240],"1D":["D",240],"3D":["3D",240],"1W":["W",156]};
+/* Weekly asks for 157 total rows: up to 156 completed weeks plus the current
+   provisional row when the existing history source provides one. */
+const CHART_DB_RANGE = {"15m":["15",240],"30m":["30",240],"1h":["60",240],"2h":["120",240],"3h":["180",240],"4h":["240",240],"6h":["6h",240],"12h":["12h",240],"1D":["D",240],"3D":["3D",240],"1W":["W",157]};
 const chartInitialLimit = (range) => (CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"])[1];
 const chartTail = (pts, limit) => pts.length > limit ? pts.slice(-limit) : pts;
-function chartWeekStartUnix() {
-  const now = new Date(), daysSinceMonday = (now.getUTCDay() + 6) % 7;
-  return Math.floor(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - daysSinceMonday) / 1000);
-}
-function chartDisplayTail(pts, range, limit) {
-  const completed = range === "1W"
-    ? pts.filter((point) => Math.floor(new Date(point.d).getTime() / 1000) < chartWeekStartUnix())
-    : pts;
-  return chartTail(completed, limit);
-}
 let CH_COL = null;
 function chColors() {
   if (!CH_COL) {
@@ -372,11 +364,11 @@ function chartSeriesCached(t, range, limit) {
   const key = t + "|" + range;
   const hit = chartCache.get(key);
   if (hit && hit.pts && hit.pts.length >= 2)
-    return chartDisplayTail(chApplyLivePoint(t, hit.pts, liveQuote[t]), range, limit || chartInitialLimit(range));
+    return chartTail(chApplyLivePoint(t, hit.pts, liveQuote[t]), limit || chartInitialLimit(range));
   const env = cacheGet("sc_chart_" + key);
   if (env && Array.isArray(env.pts) && env.pts.length >= 2) {
     chartCache.set(key, { ts: env.ts || Date.now(), pts: env.pts });
-    return chartDisplayTail(chApplyLivePoint(t, env.pts, liveQuote[t]), range, limit || chartInitialLimit(range));
+    return chartTail(chApplyLivePoint(t, env.pts, liveQuote[t]), limit || chartInitialLimit(range));
   }
   return null;
 }
@@ -386,18 +378,17 @@ async function fetchChartSeries(t, range, requestedLimit){
   const e = CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"];
   const limit = Math.max(e[1], Math.round(requestedLimit || e[1]));
   if (hit && Date.now() - hit.ts < 300000 && (hit.limit || hit.pts.length) >= limit)
-    return chartDisplayTail(chApplyLivePoint(t, hit.pts, liveQuote[t]), range, limit);
+    return chartTail(chApplyLivePoint(t, hit.pts, liveQuote[t]), limit);
   const inflightKey = key + "|" + limit;
   if (chartInflight.has(inflightKey)) return chartInflight.get(inflightKey);
   const work = (async () => {
     /* One transient history read must recover inside this load attempt so a
        healthy chart never enters the delayed/retrying paint unnecessarily. */
-    const completedBefore = range === "1W" ? "&timestamp=lt." + chartWeekStartUnix() : "";
-    const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + completedBefore + "&select=timestamp,close&order=timestamp.desc&limit=" + limit, 2);
+    const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + limit, 2);
     let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
     pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
     chApplyLivePoint(t, pts, liveQuote[t]);
-    pts = chartDisplayTail(pts, range, limit);
+    pts = chartTail(pts, limit);
     chartCache.set(key, { ts: Date.now(), pts: pts, limit:limit });
     if (pts.length >= 2) { try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {} }
     return pts;
@@ -1024,8 +1015,7 @@ function scChartScrub(host) {
     if (pts.length < 2) return;
     const baseSpan = trackpadGesture.view.end - trackpadGesture.view.start;
     const factor = Math.max(.25, Math.min(4, Number(scale) || 1));
-    const span = Math.max(8, Math.min(pts.length - 1, baseSpan / factor));
-    applyLatestSpan(span);
+    applyLatestSpan(Math.max(8, Math.min(pts.length - 1, baseSpan / factor)));
   };
   host._applyTrackpadInput = (data) => {
     if (data?.phase === "wheel") return applyChartWheel(data);
