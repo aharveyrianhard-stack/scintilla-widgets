@@ -69,6 +69,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   font:inherit; letter-spacing:inherit; line-height:inherit; cursor:text; text-decoration:underline;
   text-decoration-color:rgba(255,255,255,.26); text-underline-offset:3px; }
 .sc-nchart__live-change{ font:700 .86em var(--mono); letter-spacing:.02em; line-height:1; }
+.sc-nchart__live-window{ color:var(--dim); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
 .sc-nchart__live[data-change="up"]{ color:var(--bull); }
 .sc-nchart__live[data-change="down"]{ color:var(--bear); }
 .sc-nchart__live[data-change="flat"]{ color:var(--dim); }
@@ -267,13 +268,15 @@ let liveQuote = {};
 const chartCache = new Map();
 const chartInflight = new Map();
 const CHART_HOSTS = new Set();
-const CHART_INITIAL_LIMIT = 400;
-const CHART_HISTORY_PAGE = 800;
 const CHART_RETRY_MS = 3000;
 const CHART_LOAD_COORDINATOR_TIMEOUT_MS = 5500;
 let chartLoadToken = 0;
 const chartLoadPermits = new Map();
-const CHART_DB_RANGE = {"15m":["15",400],"30m":["30",400],"1h":["60",400],"2h":["120",400],"3h":["180",400],"4h":["240",400],"6h":["6h",400],"12h":["12h",400],"1D":["D",400],"3D":["3D",400],"1W":["W",400]};
+/* Weekly asks for 157 total rows: up to 156 completed weeks plus the current
+   provisional row when the existing history source provides one. */
+const CHART_DB_RANGE = {"15m":["15",240],"30m":["30",240],"1h":["60",240],"2h":["120",240],"3h":["180",240],"4h":["240",240],"6h":["6h",240],"12h":["12h",240],"1D":["D",240],"3D":["3D",240],"1W":["W",157]};
+const chartInitialLimit = (range) => (CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"])[1];
+const chartTail = (pts, limit) => pts.length > limit ? pts.slice(-limit) : pts;
 let CH_COL = null;
 function chColors() {
   if (!CH_COL) {
@@ -357,14 +360,15 @@ function chTimeParts(d, range, compact, spanMs) {
   return [chTimeLbl(iso, range, compact, spanMs), ""];
 }
 /* ---- CACHE-FIRST + DB-ONLY series fetch — ported verbatim (R30) ---- */
-function chartSeriesCached(t, range) {
+function chartSeriesCached(t, range, limit) {
   const key = t + "|" + range;
   const hit = chartCache.get(key);
-  if (hit && hit.pts && hit.pts.length >= 2) return chApplyLivePoint(t, hit.pts, liveQuote[t]);
+  if (hit && hit.pts && hit.pts.length >= 2)
+    return chartTail(chApplyLivePoint(t, hit.pts, liveQuote[t]), limit || chartInitialLimit(range));
   const env = cacheGet("sc_chart_" + key);
   if (env && Array.isArray(env.pts) && env.pts.length >= 2) {
     chartCache.set(key, { ts: env.ts || Date.now(), pts: env.pts });
-    return chApplyLivePoint(t, env.pts, liveQuote[t]);
+    return chartTail(chApplyLivePoint(t, env.pts, liveQuote[t]), limit || chartInitialLimit(range));
   }
   return null;
 }
@@ -374,7 +378,7 @@ async function fetchChartSeries(t, range, requestedLimit){
   const e = CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"];
   const limit = Math.max(e[1], Math.round(requestedLimit || e[1]));
   if (hit && Date.now() - hit.ts < 300000 && (hit.limit || hit.pts.length) >= limit)
-    return chApplyLivePoint(t, hit.pts, liveQuote[t]);
+    return chartTail(chApplyLivePoint(t, hit.pts, liveQuote[t]), limit);
   const inflightKey = key + "|" + limit;
   if (chartInflight.has(inflightKey)) return chartInflight.get(inflightKey);
   const work = (async () => {
@@ -384,6 +388,7 @@ async function fetchChartSeries(t, range, requestedLimit){
     let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
     pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
     chApplyLivePoint(t, pts, liveQuote[t]);
+    pts = chartTail(pts, limit);
     chartCache.set(key, { ts: Date.now(), pts: pts, limit:limit });
     if (pts.length >= 2) { try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {} }
     return pts;
@@ -391,20 +396,6 @@ async function fetchChartSeries(t, range, requestedLimit){
   chartInflight.set(inflightKey, work);
   try { return await work; }
   finally { if (chartInflight.get(inflightKey) === work) chartInflight.delete(inflightKey); }
-}
-
-async function fetchOlderChartSeries(t, range, before, limit) {
-  const e = CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"];
-  const beforeTs = Math.floor(new Date(before).getTime() / 1000);
-  if (!Number.isFinite(beforeTs)) return [];
-  const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) +
-    "&tf=eq." + encodeURIComponent(e[0]) + "&timestamp=lt." + beforeTs +
-    "&select=timestamp,close&order=timestamp.desc&limit=" + Math.max(1, Math.round(limit || CHART_HISTORY_PAGE)));
-  const pts = (Array.isArray(rows) ? rows : []).map((r) => ({
-    d:new Date(r.timestamp * 1000).toISOString(), p:+r.close
-  })).filter((q) => Number.isFinite(q.p) && q.p > 0);
-  pts.sort((a,b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
-  return pts;
 }
 
 /* ---- scChart — ported verbatim (R20 touch-guard overlay dropped; see header) ---- */
@@ -774,9 +765,36 @@ function reportChartDataState(host, patch) {
       ticker:host.dataset.t,
       history:host._dataState.history,
       quote:host._dataState.quote,
-      hasSeries:Boolean(host._series && host._series.length >= 2)
+      hasSeries:Boolean(host._series && host._series.length >= 2),
+      range:host._range || S.chartRange
     }, location.origin);
   } catch (_) {}
+}
+function chartStartDate(iso) {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return "loading";
+  return date.toLocaleDateString("en-US", {
+    month:"short", day:"numeric",
+    year:date.getFullYear() === new Date().getFullYear() ? undefined : "numeric"
+  });
+}
+function chartApproximateSpan(pts, range) {
+  if (!pts?.length) return "history loading";
+  if (["15m","30m","1h","2h","3h","4h","6h","12h","1D"].includes(range)) {
+    const days = new Set(pts.map((point) => String(point.d).slice(0, 10))).size;
+    return "≈" + days + " trading days";
+  }
+  if (range === "3D") return "≈" + (pts.length * 3) + " trading days";
+  const first = new Date(pts[0].d).getTime(), last = new Date(pts[pts.length - 1].d).getTime();
+  const years = Math.max(0, (last - first) / (365.25 * 86400000));
+  return "≈" + (years < 2 ? years.toFixed(1) : Math.round(years)) + " years";
+}
+function paintChartHistoryWindow(host) {
+  const label = host?.querySelector(".sc-nchart__live-window");
+  const pts = host?._series || [];
+  if (label) label.textContent = pts.length
+    ? chartApproximateSpan(pts, host._range || S.chartRange) + " · since " + chartStartDate(pts[0].d)
+    : "history loading";
 }
 function acquireChartLoadPermit(host, req, generation) {
   if (window.parent === window) return Promise.resolve(() => {});
@@ -829,14 +847,15 @@ async function scChartLoad(host) {
   if (host._req !== req) {
     host._view = null;
     host._followLatest = true;
-    host._historyLimit = CHART_INITIAL_LIMIT;
-    host._historyExhausted = false;
+    host._historyLimit = chartInitialLimit(range);
   }
   host._req = req; host._range = range;
   const msg = host.querySelector(".sc-nchart__msg");
-  const cachedPts = chartSeriesCached(t, range);
+  const limit = host._historyLimit || chartInitialLimit(range);
+  const cachedPts = chartSeriesCached(t, range, limit);
   if (cachedPts && cachedPts.length >= 2) {
     host._series = cachedPts;
+    paintChartHistoryWindow(host);
     host._ref = prevClose[t] != null ? +prevClose[t] : cachedPts[0].p;
     if (msg) msg.hidden = true;
     scChartDraw(host);
@@ -850,12 +869,11 @@ async function scChartLoad(host) {
     try {
       releasePermit = await acquireChartLoadPermit(host, req, generation);
       if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
-    const limit = host._historyLimit || CHART_INITIAL_LIMIT;
     const pts = await fetchChartSeries(t, range, limit);
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
     if (!pts || pts.length < 2) throw new Error("empty");
     host._series = pts;
-    host._historyExhausted = pts.length < limit;
+    paintChartHistoryWindow(host);
     host._ref = prevClose[t] != null ? +prevClose[t] : pts[0].p;
     clearChartRetry(host);
     delete host.dataset.dataState;
@@ -884,50 +902,9 @@ async function scChartLoad(host) {
   }
 }
 
-async function expandChartHistory(host, targetFrom, notify) {
-  if (host._historyExhausted) return;
-  if (host._historyLoading) return host._historyLoading;
-  host._historyLoading = (async () => {
-    try {
-      let pages = 0;
-      do {
-        const current = host._series || [];
-        if (!current.length) return;
-        const older = await fetchOlderChartSeries(host.dataset.t, host._range || S.chartRange,
-          current[0].d, CHART_HISTORY_PAGE);
-        if (!host.isConnected || !older.length) { host._historyExhausted = true; break; }
-        const merged = new Map();
-        for (const p of older.concat(current)) merged.set(p.d, p);
-        host._series = Array.from(merged.values()).sort((a,b) => a.d < b.d ? -1 : a.d > b.d ? 1 : 0);
-        host._historyLimit = host._series.length;
-        host._historyExhausted = older.length < CHART_HISTORY_PAGE;
-        const key = host.dataset.t + "|" + (host._range || S.chartRange);
-        chartCache.set(key, { ts:Date.now(), pts:host._series, limit:host._series.length });
-        try { cacheSet("sc_chart_" + key, { pts:host._series }); } catch (_) {}
-        pages++;
-      } while (targetFrom && !host._historyExhausted &&
-        new Date(host._series[0].d) > new Date(targetFrom) && pages < 12);
-
-      if (!targetFrom) {
-        host._view = null;
-        host._followLatest = true;
-        scChartDraw(host);
-        if (notify !== false) broadcastChartView(host);
-      }
-    } catch (_) {
-      /* Keep the current usable view if older history is unavailable. */
-    }
-  })();
-  try { await host._historyLoading; } finally { host._historyLoading = null; }
-}
-
-async function applySharedChartView(host, msg) {
+function applySharedChartView(host, msg) {
   const token = (host._syncToken || 0) + 1;
   host._syncToken = token;
-  let attempts = 0;
-  while (host._series?.length && !host._historyExhausted &&
-    new Date(host._series[0].d) > new Date(msg.from) && attempts++ < 2)
-    await expandChartHistory(host, msg.from, false);
   if (host._syncToken !== token || !host._series?.length) return;
   const start = chartIndexAt(host._series, msg.from, true);
   const end = chartIndexAt(host._series, msg.to, false);
@@ -1021,7 +998,6 @@ function scChartScrub(host) {
       return;
     }
     const newSpan = Math.max(8, Math.min(pts.length-1, oldSpan * Math.exp(e.deltaY*.0018)));
-    if (e.deltaY > 0 && newSpan >= pts.length - 2) expandChartHistory(host);
     applyLatestSpan(newSpan);
   };
   const applyTrackpadGesture = (phase, scale) => {
@@ -1151,7 +1127,8 @@ function paintLiveStatus(host, quote) {
   badge.dataset.change = day.tone;
   let ticker = badge.querySelector(".sc-nchart__live-ticker");
   let change = badge.querySelector(".sc-nchart__live-change");
-  if (!ticker || !change) {
+  let historyWindow = badge.querySelector(".sc-nchart__live-window");
+  if (!ticker || !change || !historyWindow) {
     badge.replaceChildren();
     ticker = document.createElement("button");
     ticker.type = "button";
@@ -1162,10 +1139,13 @@ function paintLiveStatus(host, quote) {
     });
     change = document.createElement("span");
     change.className = "sc-nchart__live-change";
-    badge.append(ticker, change);
+    historyWindow = document.createElement("span");
+    historyWindow.className = "sc-nchart__live-window";
+    badge.append(ticker, change, historyWindow);
   }
   ticker.textContent = host.dataset.t;
   change.textContent = day.text;
+  paintChartHistoryWindow(host);
   badge.title = hasQuote
     ? (futureSet.has(host.dataset.t) ? "delayed futures quote · database refresh " : "live_quotes · ") + at.toISOString()
     : "live quote loading · ticker remains editable";
