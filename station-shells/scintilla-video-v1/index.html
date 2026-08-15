@@ -118,28 +118,29 @@ body.playing #stage{ display:flex; }
 body.playing #grid{ display:none; }
 #video{ flex:1 1 0; min-height:0; position:relative; background:#000; }
 #video iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; }
-#nowbar{ flex:none; display:flex; align-items:center; gap:4px; padding:4px 6px;
-  background:var(--panel2); border-top:1px solid var(--line); position:relative;
+#transport{ display:none; flex:1 1 0; min-width:0; align-items:center; justify-content:flex-end; gap:4px;
   overscroll-behavior:contain; touch-action:manipulation; }
-#nowmeta{ flex:1 1 0; min-width:0; display:flex; align-items:center; gap:6px; }
-#nowt{ flex:1 1 0; min-width:0; color:var(--ink2); font-size:9px; overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap; }
+body.playing #transport{ display:flex; }
 #nowq{ flex:none; color:var(--mute); font-size:7.5px; letter-spacing:.08em; white-space:nowrap; }
 .transport{ width:48px; padding-left:0; padding-right:0; text-align:center; }
 #bMenu{ width:32px; padding-left:0; padding-right:0; text-align:center; }
 #bContinue{ display:none; color:var(--vol); border-color:rgba(255,138,0,.55); }
 body[data-autoplay-blocked="true"] #bContinue{ display:inline-block; }
-#more{ position:absolute; z-index:5; right:6px; bottom:calc(100% + 4px); width:min(190px,calc(100% - 12px));
+#more{ position:fixed; z-index:5; right:6px; top:calc(32px + env(safe-area-inset-top)); width:min(190px,calc(100% - 12px));
   padding:5px; border:1px solid var(--hair); background:rgba(10,10,15,.98); box-shadow:0 8px 24px rgba(0,0,0,.5);
   display:flex; flex-direction:column; gap:4px; }
 #more[hidden]{ display:none; }
 #more .btn{ width:100%; text-align:left; overflow:hidden; text-overflow:ellipsis; }
 #more a.btn{ display:block; }
-body.playing #chips, body.playing #bFull{ display:none; }
+body.playing #chips{ display:none; }
+@media (max-width:480px){
+  body.playing .k{ display:none; }
+}
 @media (max-width:340px){
-  .transport{ width:42px; }
-  #nowq{ display:none; }
-  #bContinue{ max-width:104px; overflow:hidden; text-overflow:ellipsis; }
+  #transport{ gap:2px; }
+  .transport{ width:38px; }
+  #bMenu{ width:28px; }
+  #bContinue{ max-width:92px; padding-left:4px; padding-right:4px; overflow:hidden; text-overflow:ellipsis; }
 }
 .msg{ grid-column:1/-1; padding:16px 12px; color:var(--mute); font-size:9px; letter-spacing:.12em;
   text-transform:uppercase; text-align:center; background:var(--bg); }
@@ -150,26 +151,26 @@ body.playing #chips, body.playing #bFull{ display:none; }
   <span class="k" id="kk">FEED</span>
   <span class="btn" id="bBack" style="display:none">‹ grid</span>
   <span id="chips"></span>
+  <span id="transport" aria-label="video queue controls">
+    <button class="btn transport" id="bPrev" type="button" aria-label="previous video">‹ prev</button>
+    <span id="nowq" aria-live="polite"></span>
+    <button class="btn" id="bContinue" type="button">tap to continue</button>
+    <button class="btn transport" id="bNext" type="button" aria-label="next video">next ›</button>
+    <button class="btn" id="bMenu" type="button" aria-label="more video actions" aria-controls="more" aria-expanded="false">•••</button>
+  </span>
   <span class="btn" id="bFull" title="expand this pane">⛶</span>
+</div>
+<div id="more" role="menu" hidden>
+  <button class="btn" id="bWatch" type="button" role="menuitem"></button>
+  <button class="btn" id="bSubscribe" type="button" role="menuitem" style="display:none"></button>
+  <a class="btn out" id="bYt" role="menuitem" target="_blank" rel="noopener">open in youtube ↗</a>
+  <button class="btn" id="bPip" type="button" role="menuitem" style="display:none" title="float this video in its own always-on-top window">picture in picture</button>
+  <button class="btn" id="bMenuFull" type="button" role="menuitem">expand pane</button>
+  <button class="btn" id="bCover" type="button" role="menuitem" style="display:none" title="intentionally expand this video across X">cover X</button>
 </div>
 <div id="grid"><div class="msg">loading…</div></div>
 <div id="stage">
   <div id="video"></div>
-  <div id="nowbar">
-    <button class="btn transport" id="bPrev" type="button" aria-label="previous video">‹ prev</button>
-    <div id="nowmeta"><span id="nowt"></span><span id="nowq" aria-live="polite"></span></div>
-    <button class="btn" id="bContinue" type="button">tap to continue</button>
-    <button class="btn transport" id="bNext" type="button" aria-label="next video">next ›</button>
-    <button class="btn" id="bMenu" type="button" aria-label="more video actions" aria-controls="more" aria-expanded="false">•••</button>
-    <div id="more" role="menu" hidden>
-      <button class="btn" id="bWatch" type="button" role="menuitem"></button>
-      <button class="btn" id="bSubscribe" type="button" role="menuitem" style="display:none"></button>
-      <a class="btn out" id="bYt" role="menuitem" target="_blank" rel="noopener">open in youtube ↗</a>
-      <button class="btn" id="bPip" type="button" role="menuitem" style="display:none" title="float this video in its own always-on-top window">picture in picture</button>
-      <button class="btn" id="bMenuFull" type="button" role="menuitem">expand pane</button>
-      <button class="btn" id="bCover" type="button" role="menuitem" style="display:none" title="intentionally expand this video across X">cover X</button>
-    </div>
-  </div>
 </div>
 <script>
 "use strict";
@@ -229,6 +230,10 @@ const SUBSCRIBED = {
   id: "default", n: "subscribed",
   q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") + "&is_short=eq.false"
 };
+const SCINTILLA_SUBSCRIBED = {
+  id: "subscribed", n: "subscribed",
+  q: "&subscription_accounts=cs." + encodeURIComponent("{scintilla}") + "&is_short=eq.false"
+};
 /* Shorts are a global discovery list.  Personal never mixes them into its
    subscribed feed; SCINTILLA can show the same global Shorts list as Hub. */
 const ALL_SHORTS = { id: "shorts", n: "shorts", q: "&is_short=eq.true" };
@@ -238,6 +243,7 @@ const LISTS = FEED === "market" ? [
   { id: "all",     n: "all market", q: "&tickers=not.is.null&tickers=neq." },
 ] : FEED === "scintilla" ? [
   { id: "default", n: "grid", q: "" },
+  SCINTILLA_SUBSCRIBED,
   ALL_SHORTS,
   { id: "watch", n: "watch later", q: "" },
 ] : [SUBSCRIBED];
@@ -460,10 +466,15 @@ function refreshTransport() {
   el("bPrev").disabled = !CUR || !previousQueuedVideo(rows, currentId);
   el("bNext").disabled = !CUR || !nextQueuedVideo(rows, currentId);
   el("nowq").textContent = at >= 0 ? (at + 1) + " / " + rows.length : "";
+  setTransportNotice(at >= 0 ? "video " + (at + 1) + " of " + rows.length : "video queue");
 }
-function refreshNowbar(v = CUR) {
+function setTransportNotice(message) {
+  const queue = el("nowq");
+  queue.title = message || "";
+  queue.setAttribute("aria-label", message || "video queue");
+}
+function refreshPlayerControls(v = CUR) {
   if (!v) return;
-  el("nowt").textContent = (v.title || v.video_id) + (v.channel ? "  ·  " + v.channel : "");
   refreshTransport(); refreshWatchButton(v);
 }
 function ytApiReady() {
@@ -536,7 +547,7 @@ function handlePlayerError(event) {
   PLAYER_ERROR_TOKEN = request.token; clearPlayerFallback();
   UNAVAILABLE_VIDEO_IDS.add(request.video.video_id);
   const nextSkipped = new Set(request.skipped); nextSkipped.add(request.video.video_id);
-  el("nowt").textContent = "skipping unavailable video…";
+  setTransportNotice("skipping unavailable video");
   setTimeout(() => {
     if (request.token === PLAYER_TOKEN) stepQueue(request.direction, nextSkipped, request.originVideo);
   }, 900);
@@ -591,7 +602,7 @@ function restoreQueueOrigin(originVideo, direction) {
   if (!originVideo) return;
   const message = direction < 0 ? "no previous playable video" : "end of playable queue";
   play(originVideo, false).then(() => {
-    if (CUR?.video_id === originVideo.video_id) el("nowt").textContent = message + " · " + (originVideo.title || originVideo.video_id);
+    if (CUR?.video_id === originVideo.video_id) setTransportNotice(message);
   });
 }
 function stepQueue(direction = 1, skipped = new Set(), originVideo = CUR) {
@@ -599,8 +610,8 @@ function stepQueue(direction = 1, skipped = new Set(), originVideo = CUR) {
   const next = queuedVideo(visibleQueue(), originVideo.video_id, direction, skipped);
   if (!next) {
     if (CUR?.video_id !== originVideo.video_id) restoreQueueOrigin(originVideo, direction);
-    else el("nowt").textContent = (direction < 0 ? "start" : "end") + " of queue · " + (CUR.title || CUR.video_id);
-    refreshTransport(); return false;
+    else { refreshTransport(); setTransportNotice(direction < 0 ? "start of queue" : "end of queue"); }
+    return false;
   }
   play(next, true, true, skipped, direction, originVideo); return true;
 }
@@ -614,7 +625,7 @@ function armPlayerFallback(token, skipped) {
     const request = YT_PLAYER_REQUEST;
     UNAVAILABLE_VIDEO_IDS.add(CUR.video_id);
     const nextSkipped = new Set(skipped); nextSkipped.add(CUR.video_id);
-    el("nowt").textContent = "skipping unavailable video…";
+    setTransportNotice("skipping unavailable video");
     stepQueue(request?.direction || 1, nextSkipped, request?.originVideo || CUR);
   }, 10000);
 }
@@ -637,7 +648,7 @@ async function play(v, auto, queued = false, skipped = new Set(), direction = 1,
   YT_PLAYER_REQUEST = { token, video:v, auto:!!auto, queued:!!queued, skipped:new Set(skipped),
     direction:direction < 0 ? -1 : 1, originVideo:originVideo || v, resumeAt };
   document.body.classList.add("playing");
-  refreshNowbar(v);
+  refreshPlayerControls(v);
   el("bBack").style.display = "";
   el("bYt").style.display = ""; el("bYt").href = "https://www.youtube.com/watch?v=" + encodeURIComponent(v.video_id);
   el("bYt").textContent = IOS ? "open in youtube app ↗" : "open in youtube ↗";
