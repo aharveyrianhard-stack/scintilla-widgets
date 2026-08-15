@@ -218,7 +218,9 @@ el("kk").textContent = FEED === "market" ? "MARKET SEARCH" :
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
 const LOCAL_SUBSCRIBED_CHANNELS = new Set(), SUBSCRIBE_PENDING = new Set();
 const SUBSCRIPTION_ACCOUNT = FEED === "scintilla" ? "scintilla" : "personal";
-let PLAYER_TOKEN = 0, PLAYER_READY_TOKEN = 0, PLAYER_FALLBACK = 0, PLAYER_POSITION_POLL = 0;
+let PLAYER_TOKEN = 0, PLAYER_ACCEPTED_TOKEN = 0, PLAYER_FALLBACK = 0, PLAYER_POSITION_POLL = 0;
+let YT_PLAYER = null, YT_PLAYER_READY = false, YT_PLAYER_CREATE = null, YT_PLAYER_REQUEST = null;
+let PLAYER_ENDED_TOKEN = 0, PLAYER_ERROR_TOKEN = 0, PLAYER_AUTOPLAY_BLOCKED = false;
 /* The database is the sole saved resume authority.  This Map is page memory
    only; closing or switching devices cannot create a second private history. */
 const VIDEO_POSITION_SAVE_MS = 10000;
@@ -291,18 +293,19 @@ function clearPlayerPositionPoll() {
   if (PLAYER_POSITION_POLL) clearTimeout(PLAYER_POSITION_POLL);
   PLAYER_POSITION_POLL = 0;
 }
-function requestActiveVideoPosition(frame) {
-  if (!frame?.contentWindow) return;
+function captureActiveVideoPosition(player = YT_PLAYER) {
+  if (!player || !YT_PLAYER_READY || !CUR) return;
   try {
-    frame.contentWindow.postMessage(JSON.stringify({ event:"command", func:"getCurrentTime", args:[] }), "https://www.youtube.com");
-    frame.contentWindow.postMessage(JSON.stringify({ event:"command", func:"getDuration", args:[] }), "https://www.youtube.com");
+    PLAYER_POSITION.time = Number(player.getCurrentTime()) || PLAYER_POSITION.time;
+    PLAYER_POSITION.duration = Number(player.getDuration()) || PLAYER_POSITION.duration;
   } catch (_) {}
 }
-function startPlayerPositionPoll(token, frame) {
+function startPlayerPositionPoll(token) {
   clearPlayerPositionPoll();
   const tick = () => {
-    if (token !== PLAYER_TOKEN || !CUR || !frame?.isConnected) return;
-    requestActiveVideoPosition(frame);
+    if (token !== PLAYER_TOKEN || !CUR || !YT_PLAYER_READY) return;
+    captureActiveVideoPosition();
+    saveActiveVideoPosition(false);
     PLAYER_POSITION_POLL = setTimeout(tick, 5000);
   };
   tick();
@@ -400,9 +403,121 @@ function nextQueuedVideo(rows, currentId, skipped) {
   }
   return null;
 }
+function ytApiReady() {
+  return !!(window.YT && window.YT.Player);
+}
+function waitForYouTubePlayerApi() {
+  if (ytApiReady()) return Promise.resolve(window.YT);
+  return new Promise((resolve, reject) => {
+    let script = document.getElementById("scintillaYouTubeIframeApi");
+    if (!script) {
+      script = document.createElement("script");
+      script.id = "scintillaYouTubeIframeApi";
+      script.src = "https://www.youtube.com/iframe_api";
+      script.async = true;
+      document.head.appendChild(script);
+    }
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true; clearInterval(poll); clearTimeout(deadline);
+      if (error) reject(error); else resolve(window.YT);
+    };
+    const poll = setInterval(() => { if (ytApiReady()) finish(); }, 100);
+    const deadline = setTimeout(() => finish(new Error("YouTube player API unavailable")), 15000);
+    script.addEventListener("error", () => finish(new Error("YouTube player API failed to load")), { once:true });
+  });
+}
+function ensureYouTubePlayerHost() {
+  if (el("ytPlayer")) return;
+  const host = document.createElement("div"); host.id = "ytPlayer";
+  el("video").appendChild(host);
+}
+function playerEventVideoId(event) {
+  try { return String(event?.target?.getVideoData?.()?.video_id || ""); } catch (_) { return ""; }
+}
+function playerEventMatchesRequest(event, request = YT_PLAYER_REQUEST) {
+  if (!request || request.token !== PLAYER_TOKEN) return false;
+  const deliveredId = playerEventVideoId(event);
+  return !deliveredId || deliveredId === request.video.video_id;
+}
+function isUnembeddablePlayerError(code) {
+  return [101, 150, 153].includes(Number(code));
+}
+function setAutoplayBlockedState(blocked, request = YT_PLAYER_REQUEST) {
+  PLAYER_AUTOPLAY_BLOCKED = !!blocked;
+  document.body.dataset.autoplayBlocked = blocked ? "true" : "false";
+  if (blocked) console.warn("Station YouTube autoplay blocked", request?.video?.video_id || "");
+}
 function clearPlayerFallback() {
   if (PLAYER_FALLBACK) clearTimeout(PLAYER_FALLBACK);
   PLAYER_FALLBACK = 0;
+}
+function handlePlayerStateChange(event) {
+  const request = YT_PLAYER_REQUEST;
+  if (!playerEventMatchesRequest(event, request)) return;
+  PLAYER_ACCEPTED_TOKEN = request.token; clearPlayerFallback();
+  captureActiveVideoPosition(event.target);
+  if (Number(event.data) === 1) setAutoplayBlockedState(false, request);
+  if (Number(event.data) !== 0 || PLAYER_ENDED_TOKEN === request.token) return;
+  PLAYER_ENDED_TOKEN = request.token;
+  clearPlayerPositionPoll();
+  clearVideoPosition(request.video.video_id);
+  PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
+  advanceQueue();
+}
+function handlePlayerError(event) {
+  const request = YT_PLAYER_REQUEST;
+  if (!playerEventMatchesRequest(event, request) || !isUnembeddablePlayerError(event.data) ||
+      PLAYER_ERROR_TOKEN === request.token) return;
+  PLAYER_ERROR_TOKEN = request.token; clearPlayerFallback();
+  const nextSkipped = new Set(request.skipped); nextSkipped.add(request.video.video_id);
+  el("nowt").textContent = "skipping unavailable video…";
+  setTimeout(() => { if (request.token === PLAYER_TOKEN) advanceQueue(nextSkipped); }, 900);
+}
+function handleAutoplayBlocked(event) {
+  const request = YT_PLAYER_REQUEST;
+  if (request?.auto && playerEventMatchesRequest(event, request)) setAutoplayBlockedState(true, request);
+}
+function ensureOfficialYouTubePlayer() {
+  if (YT_PLAYER && YT_PLAYER_READY) return Promise.resolve(YT_PLAYER);
+  if (YT_PLAYER_CREATE) return YT_PLAYER_CREATE;
+  ensureYouTubePlayerHost();
+  YT_PLAYER_CREATE = waitForYouTubePlayerApi().then(() => new Promise((resolve) => {
+    YT_PLAYER = new YT.Player("ytPlayer", {
+      width:"100%", height:"100%",
+      playerVars:{ autoplay:0, rel:0, playsinline:1, modestbranding:1, origin:location.origin },
+      events:{
+        onReady:(event) => {
+          YT_PLAYER_READY = true;
+          try {
+            const frame = event.target.getIframe();
+            frame.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+          } catch (_) {}
+          resolve(event.target);
+        },
+        onStateChange:handlePlayerStateChange,
+        onError:handlePlayerError,
+        onAutoplayBlocked:handleAutoplayBlocked
+      }
+    });
+  })).catch((error) => {
+    YT_PLAYER_CREATE = null; YT_PLAYER = null; YT_PLAYER_READY = false;
+    throw error;
+  });
+  return YT_PLAYER_CREATE;
+}
+function applyPlayerRequest(player, request) {
+  if (!player || !playerEventMatchesRequest(null, request)) return;
+  const video = { videoId:request.video.video_id, startSeconds:request.resumeAt || 0 };
+  try {
+    const frame = player.getIframe();
+    frame.title = request.video.title || request.video.video_id;
+  } catch (_) {}
+  PLAYER_ACCEPTED_TOKEN = 0; PLAYER_ENDED_TOKEN = 0; PLAYER_ERROR_TOKEN = 0;
+  setAutoplayBlockedState(false, request);
+  if (request.auto) player.loadVideoById(video); else player.cueVideoById(video);
+  startPlayerPositionPoll(request.token);
 }
 function advanceQueue(skipped = new Set()) {
   if (!CUR) return;
@@ -413,7 +528,7 @@ function advanceQueue(skipped = new Set()) {
 function armPlayerFallback(token, skipped) {
   clearPlayerFallback();
   PLAYER_FALLBACK = setTimeout(() => {
-    if (token !== PLAYER_TOKEN || PLAYER_READY_TOKEN === token || !CUR) return;
+    if (token !== PLAYER_TOKEN || PLAYER_ACCEPTED_TOKEN === token || !CUR) return;
     const nextSkipped = new Set(skipped); nextSkipped.add(CUR.video_id);
     el("nowt").textContent = "skipping unavailable video…";
     advanceQueue(nextSkipped);
@@ -421,6 +536,7 @@ function armPlayerFallback(token, skipped) {
 }
 async function play(v, auto, queued = false, skipped = new Set()) {
   if (!v) return;
+  captureActiveVideoPosition();
   saveActiveVideoPosition(true);
   clearPlayerPositionPoll();
   clearPlayerFallback();
@@ -429,19 +545,8 @@ async function play(v, auto, queued = false, skipped = new Set()) {
   if (token !== PLAYER_TOKEN) return;
   CUR = v;
   PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
+  YT_PLAYER_REQUEST = { token, video:v, auto:!!auto, queued:!!queued, skipped:new Set(skipped), resumeAt };
   document.body.classList.add("playing");
-  el("video").innerHTML = '<iframe src="https://www.youtube.com/embed/' + encodeURIComponent(v.video_id) +
-    "?playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=" + encodeURIComponent(location.origin) +
-    (resumeAt ? "&start=" + encodeURIComponent(resumeAt) : "") + (auto ? "&autoplay=1" : "") +
-    '" title="' + esc(v.title) +
-    '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>';
-  const frame = el("video").querySelector("iframe");
-  frame.addEventListener("load", () => {
-    try {
-      frame.contentWindow.postMessage(JSON.stringify({ event:"command", func:"addEventListener", args:["onReady"] }), "https://www.youtube.com");
-      frame.contentWindow.postMessage(JSON.stringify({ event:"command", func:"addEventListener", args:["onStateChange"] }), "https://www.youtube.com");
-    } catch (_) {}
-  });
   el("nowt").textContent = (v.title || v.video_id) + (v.channel ? "  ·  " + v.channel : "");
   el("bBack").style.display = "";
   el("bYt").style.display = ""; el("bYt").href = "https://www.youtube.com/watch?v=" + encodeURIComponent(v.video_id);
@@ -450,43 +555,29 @@ async function play(v, auto, queued = false, skipped = new Set()) {
   refreshSubscribeButton(v);
   syncUrl();
   if (queued) armPlayerFallback(token, skipped);
+  try {
+    const player = await ensureOfficialYouTubePlayer();
+    if (token === PLAYER_TOKEN) applyPlayerRequest(player, YT_PLAYER_REQUEST);
+  } catch (error) {
+    if (token === PLAYER_TOKEN) console.error("Station YouTube player unavailable", error);
+  }
 }
 function back() {
+  captureActiveVideoPosition();
   saveActiveVideoPosition(true);
   clearPlayerPositionPoll();
-  clearPlayerFallback(); ++PLAYER_TOKEN;
+  clearPlayerFallback(); ++PLAYER_TOKEN; YT_PLAYER_REQUEST = null; PLAYER_ACCEPTED_TOKEN = 0;
+  try { if (YT_PLAYER_READY) YT_PLAYER.stopVideo(); } catch (_) {}
   CUR = null;
-  el("video").innerHTML = "";                 /* the iframe is really gone */
   document.body.classList.remove("playing");
   for (const b of ["bBack", "bPip", "bYt", "bSubscribe"]) el(b).style.display = "none";
   syncUrl(); paint();
 }
 el("bBack").addEventListener("click", back);
-window.addEventListener("message", (event) => {
-  if (event.origin !== "https://www.youtube.com") return;
-  const frame = el("video").querySelector("iframe");
-  if (!frame || event.source !== frame.contentWindow) return;
-  let data = event.data;
-  if (typeof data === "string") { try { data = JSON.parse(data); } catch (_) { return; } }
-  if (data?.event === "onReady") {
-    PLAYER_READY_TOKEN = PLAYER_TOKEN; clearPlayerFallback(); startPlayerPositionPoll(PLAYER_TOKEN, frame);
-  }
-  if (data?.event === "infoDelivery" && data.info) {
-    PLAYER_POSITION.time = Number(data.info.currentTime) || PLAYER_POSITION.time;
-    PLAYER_POSITION.duration = Number(data.info.duration) || PLAYER_POSITION.duration;
-    saveActiveVideoPosition(false);
-  }
-  if (data?.event === "onStateChange" && Number(data.info) === 0) {
-    clearPlayerPositionPoll();
-    clearVideoPosition(CUR?.video_id);
-    PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
-    advanceQueue();
-  }
-});
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") saveActiveVideoPosition(true);
+  if (document.visibilityState === "hidden") { captureActiveVideoPosition(); saveActiveVideoPosition(true); }
 });
-window.addEventListener("pagehide", () => saveActiveVideoPosition(true));
+window.addEventListener("pagehide", () => { captureActiveVideoPosition(); saveActiveVideoPosition(true); });
 
 /* ---- PICTURE-IN-PICTURE ----
    Document PiP hosts real DOM, so it can carry the YouTube player into a
@@ -619,6 +710,10 @@ window.addEventListener("message", (event) => {
 async function start() {
   paintChips(); relayout(); load();
   syncSharedVideoPositions();
+  /* Prime one official player object behind the hidden stage.  Selecting or
+     advancing a video then loads into this same object rather than replacing
+     the iframe, retaining the browser's playback grant across the queue. */
+  ensureOfficialYouTubePlayer().catch(() => {});
   /* Start the shared local saved-set read alongside the ordinary feed.  This
      never contacts YouTube, and means opening Watch Later normally has its
      IDs ready instead of placing that database read on the click path. */
