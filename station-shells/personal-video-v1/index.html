@@ -60,9 +60,11 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .btn{ flex:none; font-size:8px; letter-spacing:.1em; text-transform:uppercase; padding:3px 7px;
   border:1px solid var(--line); background:var(--bg); color:var(--ink3); cursor:pointer;
   text-decoration:none; white-space:nowrap; }
+button.btn{ appearance:none; border-radius:0; font-family:var(--mono); line-height:normal; }
 .btn:hover{ color:var(--ink); border-color:var(--hair); }
 .btn.on{ color:var(--crk); border-color:var(--crk); }
 .btn.out{ color:var(--vol); border-color:rgba(255,138,0,.35); }
+.btn:disabled{ color:var(--mute); border-color:var(--line); cursor:default; opacity:.48; }
 #chips{ flex:1 1 0; min-width:0; display:flex; gap:4px; overflow-x:auto; scrollbar-width:none; }
 #chips::-webkit-scrollbar{ display:none; }
 #q{ display:none; flex:1 1 90px; min-width:70px; background:var(--bg); border:1px solid var(--line);
@@ -117,10 +119,28 @@ body.playing #grid{ display:none; }
 #video{ flex:1 1 0; min-height:0; position:relative; background:#000; }
 #video iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; }
 #nowbar{ flex:none; display:flex; align-items:center; gap:4px; padding:4px 6px;
-  background:var(--panel2); border-top:1px solid var(--line); }
+  background:var(--panel2); border-top:1px solid var(--line); position:relative;
+  overscroll-behavior:contain; touch-action:manipulation; }
+#nowmeta{ flex:1 1 0; min-width:0; display:flex; align-items:center; gap:6px; }
 #nowt{ flex:1 1 0; min-width:0; color:var(--ink2); font-size:9px; overflow:hidden;
   text-overflow:ellipsis; white-space:nowrap; }
-#bSubscribe{ flex:none; }
+#nowq{ flex:none; color:var(--mute); font-size:7.5px; letter-spacing:.08em; white-space:nowrap; }
+.transport{ width:48px; padding-left:0; padding-right:0; text-align:center; }
+#bMenu{ width:32px; padding-left:0; padding-right:0; text-align:center; }
+#bContinue{ display:none; color:var(--vol); border-color:rgba(255,138,0,.55); }
+body[data-autoplay-blocked="true"] #bContinue{ display:inline-block; }
+#more{ position:absolute; z-index:5; right:6px; bottom:calc(100% + 4px); width:min(190px,calc(100% - 12px));
+  padding:5px; border:1px solid var(--hair); background:rgba(10,10,15,.98); box-shadow:0 8px 24px rgba(0,0,0,.5);
+  display:flex; flex-direction:column; gap:4px; }
+#more[hidden]{ display:none; }
+#more .btn{ width:100%; text-align:left; overflow:hidden; text-overflow:ellipsis; }
+#more a.btn{ display:block; }
+body.playing #chips, body.playing #bFull{ display:none; }
+@media (max-width:340px){
+  .transport{ width:42px; }
+  #nowq{ display:none; }
+  #bContinue{ max-width:104px; overflow:hidden; text-overflow:ellipsis; }
+}
 .msg{ grid-column:1/-1; padding:16px 12px; color:var(--mute); font-size:9px; letter-spacing:.12em;
   text-transform:uppercase; text-align:center; background:var(--bg); }
 </style>
@@ -129,17 +149,27 @@ body.playing #grid{ display:none; }
 <div id="bar">
   <span class="k" id="kk">FEED</span>
   <span class="btn" id="bBack" style="display:none">‹ grid</span>
-  <span class="btn" id="bPip" style="display:none" title="float this video in its own always-on-top window">pip</span>
-  <a class="btn out" id="bYt" style="display:none" target="_blank" rel="noopener">youtube ↗</a>
-  <span class="btn" id="bSubscribe" style="display:none"></span>
   <span id="chips"></span>
-  <span class="btn" id="bCover" style="display:none" title="intentionally expand this video across X">cover X</span>
   <span class="btn" id="bFull" title="expand this pane">⛶</span>
 </div>
 <div id="grid"><div class="msg">loading…</div></div>
 <div id="stage">
   <div id="video"></div>
-  <div id="nowbar"><span id="nowt"></span></div>
+  <div id="nowbar">
+    <button class="btn transport" id="bPrev" type="button" aria-label="previous video">‹ prev</button>
+    <div id="nowmeta"><span id="nowt"></span><span id="nowq" aria-live="polite"></span></div>
+    <button class="btn" id="bContinue" type="button">tap to continue</button>
+    <button class="btn transport" id="bNext" type="button" aria-label="next video">next ›</button>
+    <button class="btn" id="bMenu" type="button" aria-label="more video actions" aria-controls="more" aria-expanded="false">•••</button>
+    <div id="more" role="menu" hidden>
+      <button class="btn" id="bWatch" type="button" role="menuitem"></button>
+      <button class="btn" id="bSubscribe" type="button" role="menuitem" style="display:none"></button>
+      <a class="btn out" id="bYt" role="menuitem" target="_blank" rel="noopener">open in youtube ↗</a>
+      <button class="btn" id="bPip" type="button" role="menuitem" style="display:none" title="float this video in its own always-on-top window">picture in picture</button>
+      <button class="btn" id="bMenuFull" type="button" role="menuitem">expand pane</button>
+      <button class="btn" id="bCover" type="button" role="menuitem" style="display:none" title="intentionally expand this video across X">cover X</button>
+    </div>
+  </div>
 </div>
 <script>
 "use strict";
@@ -218,7 +248,9 @@ el("kk").textContent = FEED === "market" ? "MARKET SEARCH" :
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
 const LOCAL_SUBSCRIBED_CHANNELS = new Set(), SUBSCRIBE_PENDING = new Set();
 const SUBSCRIPTION_ACCOUNT = FEED === "scintilla" ? "scintilla" : "personal";
-let PLAYER_TOKEN = 0, PLAYER_READY_TOKEN = 0, PLAYER_FALLBACK = 0, PLAYER_POSITION_POLL = 0;
+let PLAYER_TOKEN = 0, PLAYER_ACCEPTED_TOKEN = 0, PLAYER_FALLBACK = 0, PLAYER_POSITION_POLL = 0;
+let YT_PLAYER = null, YT_PLAYER_READY = false, YT_PLAYER_CREATE = null, YT_PLAYER_REQUEST = null;
+let PLAYER_ENDED_TOKEN = 0, PLAYER_ERROR_TOKEN = 0, PLAYER_AUTOPLAY_BLOCKED = false;
 /* The database is the sole saved resume authority.  This Map is page memory
    only; closing or switching devices cannot create a second private history. */
 const VIDEO_POSITION_SAVE_MS = 10000;
@@ -291,18 +323,19 @@ function clearPlayerPositionPoll() {
   if (PLAYER_POSITION_POLL) clearTimeout(PLAYER_POSITION_POLL);
   PLAYER_POSITION_POLL = 0;
 }
-function requestActiveVideoPosition(frame) {
-  if (!frame?.contentWindow) return;
+function captureActiveVideoPosition(player = YT_PLAYER) {
+  if (!player || !YT_PLAYER_READY || !CUR) return;
   try {
-    frame.contentWindow.postMessage(JSON.stringify({ event:"command", func:"getCurrentTime", args:[] }), "https://www.youtube.com");
-    frame.contentWindow.postMessage(JSON.stringify({ event:"command", func:"getDuration", args:[] }), "https://www.youtube.com");
+    PLAYER_POSITION.time = Number(player.getCurrentTime()) || PLAYER_POSITION.time;
+    PLAYER_POSITION.duration = Number(player.getDuration()) || PLAYER_POSITION.duration;
   } catch (_) {}
 }
-function startPlayerPositionPoll(token, frame) {
+function startPlayerPositionPoll(token) {
   clearPlayerPositionPoll();
   const tick = () => {
-    if (token !== PLAYER_TOKEN || !CUR || !frame?.isConnected) return;
-    requestActiveVideoPosition(frame);
+    if (token !== PLAYER_TOKEN || !CUR || !YT_PLAYER_READY) return;
+    captureActiveVideoPosition();
+    saveActiveVideoPosition(false);
     PLAYER_POSITION_POLL = setTimeout(tick, 5000);
   };
   tick();
@@ -332,12 +365,21 @@ async function toggleWatch(v) {
   if (!v || !v.video_id) return;
   const was = WATCH.has(v.video_id), will = !was;
   if (will) WATCH.add(v.video_id); else WATCH.delete(v.video_id);
-  paint();
+  paint(); refreshWatchButton(v);
   try { await ytAct(will ? "star" : "unstar", { videoId:v.video_id, account:YOUTUBE_ACCOUNT }); }
   catch (e) {
     if (was) WATCH.add(v.video_id); else WATCH.delete(v.video_id);
-    paint();
+    paint(); refreshWatchButton(v);
   }
+}
+
+function refreshWatchButton(v = CUR) {
+  const b = el("bWatch");
+  const saved = !!v && WATCH.has(v.video_id);
+  b.disabled = !v;
+  b.textContent = saved ? "remove from watch later" : "save to watch later";
+  b.classList.toggle("on", saved);
+  b.setAttribute("aria-label", b.textContent);
 }
 
 function channelSubscribed(v, account = SUBSCRIPTION_ACCOUNT) {
@@ -393,100 +435,262 @@ function syncUrl() {
 function queueRows(rows, list, watch) {
   return list === "watch" ? rows.filter((v) => watch.has(v.video_id)) : rows.slice();
 }
-function nextQueuedVideo(rows, currentId, skipped) {
+const UNAVAILABLE_VIDEO_IDS = new Set();
+function queuedVideo(rows, currentId, direction, skipped = new Set()) {
   const at = rows.findIndex((v) => v.video_id === currentId);
-  for (let i = at + 1; i < rows.length; i += 1) {
-    if (!skipped.has(rows[i].video_id)) return rows[i];
+  if (at < 0) return null;
+  const step = direction < 0 ? -1 : 1;
+  for (let i = at + step; i >= 0 && i < rows.length; i += step) {
+    if (!skipped.has(rows[i].video_id) && !UNAVAILABLE_VIDEO_IDS.has(rows[i].video_id)) return rows[i];
   }
   return null;
+}
+function nextQueuedVideo(rows, currentId, skipped = new Set()) {
+  return queuedVideo(rows, currentId, 1, skipped);
+}
+function previousQueuedVideo(rows, currentId, skipped = new Set()) {
+  return queuedVideo(rows, currentId, -1, skipped);
+}
+function visibleQueue() {
+  return queueRows(ROWS, LIST, WATCH);
+}
+function refreshTransport() {
+  const rows = visibleQueue(), currentId = CUR?.video_id || "";
+  const at = rows.findIndex((v) => v.video_id === currentId);
+  el("bPrev").disabled = !CUR || !previousQueuedVideo(rows, currentId);
+  el("bNext").disabled = !CUR || !nextQueuedVideo(rows, currentId);
+  el("nowq").textContent = at >= 0 ? (at + 1) + " / " + rows.length : "";
+}
+function refreshNowbar(v = CUR) {
+  if (!v) return;
+  el("nowt").textContent = (v.title || v.video_id) + (v.channel ? "  ·  " + v.channel : "");
+  refreshTransport(); refreshWatchButton(v);
+}
+function ytApiReady() {
+  return !!(window.YT && window.YT.Player);
+}
+function waitForYouTubePlayerApi() {
+  if (ytApiReady()) return Promise.resolve(window.YT);
+  return new Promise((resolve, reject) => {
+    let script = document.getElementById("scintillaYouTubeIframeApi");
+    if (!script) {
+      script = document.createElement("script");
+      script.id = "scintillaYouTubeIframeApi";
+      script.src = "https://www.youtube.com/iframe_api";
+      script.async = true;
+      document.head.appendChild(script);
+    }
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true; clearInterval(poll); clearTimeout(deadline);
+      if (error) reject(error); else resolve(window.YT);
+    };
+    const poll = setInterval(() => { if (ytApiReady()) finish(); }, 100);
+    const deadline = setTimeout(() => finish(new Error("YouTube player API unavailable")), 15000);
+    script.addEventListener("error", () => finish(new Error("YouTube player API failed to load")), { once:true });
+  });
+}
+function ensureYouTubePlayerHost() {
+  if (el("ytPlayer")) return;
+  const host = document.createElement("div"); host.id = "ytPlayer";
+  el("video").appendChild(host);
+}
+function playerEventVideoId(event) {
+  try { return String(event?.target?.getVideoData?.()?.video_id || ""); } catch (_) { return ""; }
+}
+function playerEventMatchesRequest(event, request = YT_PLAYER_REQUEST) {
+  if (!request || request.token !== PLAYER_TOKEN) return false;
+  const deliveredId = playerEventVideoId(event);
+  return !deliveredId || deliveredId === request.video.video_id;
+}
+function isUnavailablePlayerError(code) {
+  return [2, 5, 100, 101, 150, 153].includes(Number(code));
+}
+function setAutoplayBlockedState(blocked, request = YT_PLAYER_REQUEST) {
+  PLAYER_AUTOPLAY_BLOCKED = !!blocked;
+  document.body.dataset.autoplayBlocked = blocked ? "true" : "false";
+  if (blocked) console.warn("Station YouTube autoplay blocked", request?.video?.video_id || "");
 }
 function clearPlayerFallback() {
   if (PLAYER_FALLBACK) clearTimeout(PLAYER_FALLBACK);
   PLAYER_FALLBACK = 0;
 }
+function handlePlayerStateChange(event) {
+  const request = YT_PLAYER_REQUEST;
+  if (!playerEventMatchesRequest(event, request)) return;
+  PLAYER_ACCEPTED_TOKEN = request.token; clearPlayerFallback();
+  captureActiveVideoPosition(event.target);
+  if (Number(event.data) === 1) setAutoplayBlockedState(false, request);
+  if (Number(event.data) !== 0 || PLAYER_ENDED_TOKEN === request.token) return;
+  PLAYER_ENDED_TOKEN = request.token;
+  clearPlayerPositionPoll();
+  clearVideoPosition(request.video.video_id);
+  PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
+  advanceQueue();
+}
+function handlePlayerError(event) {
+  const request = YT_PLAYER_REQUEST;
+  if (!playerEventMatchesRequest(event, request) || !isUnavailablePlayerError(event.data) ||
+      PLAYER_ERROR_TOKEN === request.token) return;
+  PLAYER_ERROR_TOKEN = request.token; clearPlayerFallback();
+  UNAVAILABLE_VIDEO_IDS.add(request.video.video_id);
+  const nextSkipped = new Set(request.skipped); nextSkipped.add(request.video.video_id);
+  el("nowt").textContent = "skipping unavailable video…";
+  setTimeout(() => {
+    if (request.token === PLAYER_TOKEN) stepQueue(request.direction, nextSkipped, request.originVideo);
+  }, 900);
+}
+function handleAutoplayBlocked(event) {
+  const request = YT_PLAYER_REQUEST;
+  if (request?.auto && playerEventMatchesRequest(event, request)) {
+    clearPlayerFallback(); setAutoplayBlockedState(true, request);
+  }
+}
+function ensureOfficialYouTubePlayer() {
+  if (YT_PLAYER && YT_PLAYER_READY) return Promise.resolve(YT_PLAYER);
+  if (YT_PLAYER_CREATE) return YT_PLAYER_CREATE;
+  ensureYouTubePlayerHost();
+  YT_PLAYER_CREATE = waitForYouTubePlayerApi().then(() => new Promise((resolve) => {
+    YT_PLAYER = new YT.Player("ytPlayer", {
+      width:"100%", height:"100%",
+      playerVars:{ autoplay:0, rel:0, playsinline:1, modestbranding:1, origin:location.origin },
+      events:{
+        onReady:(event) => {
+          YT_PLAYER_READY = true;
+          try {
+            const frame = event.target.getIframe();
+            frame.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+          } catch (_) {}
+          resolve(event.target);
+        },
+        onStateChange:handlePlayerStateChange,
+        onError:handlePlayerError,
+        onAutoplayBlocked:handleAutoplayBlocked
+      }
+    });
+  })).catch((error) => {
+    YT_PLAYER_CREATE = null; YT_PLAYER = null; YT_PLAYER_READY = false;
+    throw error;
+  });
+  return YT_PLAYER_CREATE;
+}
+function applyPlayerRequest(player, request) {
+  if (!player || !playerEventMatchesRequest(null, request)) return;
+  const video = { videoId:request.video.video_id, startSeconds:request.resumeAt || 0 };
+  try {
+    const frame = player.getIframe();
+    frame.title = request.video.title || request.video.video_id;
+  } catch (_) {}
+  PLAYER_ACCEPTED_TOKEN = 0; PLAYER_ENDED_TOKEN = 0; PLAYER_ERROR_TOKEN = 0;
+  setAutoplayBlockedState(false, request);
+  if (request.auto) player.loadVideoById(video); else player.cueVideoById(video);
+  startPlayerPositionPoll(request.token);
+}
+function restoreQueueOrigin(originVideo, direction) {
+  if (!originVideo) return;
+  const message = direction < 0 ? "no previous playable video" : "end of playable queue";
+  play(originVideo, false).then(() => {
+    if (CUR?.video_id === originVideo.video_id) el("nowt").textContent = message + " · " + (originVideo.title || originVideo.video_id);
+  });
+}
+function stepQueue(direction = 1, skipped = new Set(), originVideo = CUR) {
+  if (!originVideo) return false;
+  const next = queuedVideo(visibleQueue(), originVideo.video_id, direction, skipped);
+  if (!next) {
+    if (CUR?.video_id !== originVideo.video_id) restoreQueueOrigin(originVideo, direction);
+    else el("nowt").textContent = (direction < 0 ? "start" : "end") + " of queue · " + (CUR.title || CUR.video_id);
+    refreshTransport(); return false;
+  }
+  play(next, true, true, skipped, direction, originVideo); return true;
+}
 function advanceQueue(skipped = new Set()) {
-  if (!CUR) return;
-  const next = nextQueuedVideo(queueRows(ROWS, LIST, WATCH), CUR.video_id, skipped);
-  if (!next) { el("nowt").textContent = "end of queue · " + (CUR.title || CUR.video_id); return; }
-  play(next, true, true, skipped);
+  return stepQueue(1, skipped, CUR);
 }
 function armPlayerFallback(token, skipped) {
   clearPlayerFallback();
   PLAYER_FALLBACK = setTimeout(() => {
-    if (token !== PLAYER_TOKEN || PLAYER_READY_TOKEN === token || !CUR) return;
+    if (token !== PLAYER_TOKEN || PLAYER_ACCEPTED_TOKEN === token || !CUR) return;
+    const request = YT_PLAYER_REQUEST;
+    UNAVAILABLE_VIDEO_IDS.add(CUR.video_id);
     const nextSkipped = new Set(skipped); nextSkipped.add(CUR.video_id);
     el("nowt").textContent = "skipping unavailable video…";
-    advanceQueue(nextSkipped);
+    stepQueue(request?.direction || 1, nextSkipped, request?.originVideo || CUR);
   }, 10000);
 }
-async function play(v, auto, queued = false, skipped = new Set()) {
+async function play(v, auto, queued = false, skipped = new Set(), direction = 1, originVideo = null,
+                    userGesture = false) {
   if (!v) return;
+  captureActiveVideoPosition();
   saveActiveVideoPosition(true);
   clearPlayerPositionPoll();
   clearPlayerFallback();
   const token = ++PLAYER_TOKEN;
-  const resumeAt = await resumePositionBeforePlay(v.video_id);
+  /* A card click must reach the already-primed official player during the
+     same user gesture.  Use the shared resume value already in page memory;
+     never put a fresh network wait between that click and loadVideoById.
+     Background/URL/queue playback may still take the bounded shared read. */
+  const resumeAt = userGesture ? resumePositionFor(v.video_id) : await resumePositionBeforePlay(v.video_id);
   if (token !== PLAYER_TOKEN) return;
   CUR = v;
   PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
+  YT_PLAYER_REQUEST = { token, video:v, auto:!!auto, queued:!!queued, skipped:new Set(skipped),
+    direction:direction < 0 ? -1 : 1, originVideo:originVideo || v, resumeAt };
   document.body.classList.add("playing");
-  el("video").innerHTML = '<iframe src="https://www.youtube.com/embed/' + encodeURIComponent(v.video_id) +
-    "?playsinline=1&rel=0&modestbranding=1&enablejsapi=1&origin=" + encodeURIComponent(location.origin) +
-    (resumeAt ? "&start=" + encodeURIComponent(resumeAt) : "") + (auto ? "&autoplay=1" : "") +
-    '" title="' + esc(v.title) +
-    '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>';
-  const frame = el("video").querySelector("iframe");
-  frame.addEventListener("load", () => {
-    try {
-      frame.contentWindow.postMessage(JSON.stringify({ event:"command", func:"addEventListener", args:["onReady"] }), "https://www.youtube.com");
-      frame.contentWindow.postMessage(JSON.stringify({ event:"command", func:"addEventListener", args:["onStateChange"] }), "https://www.youtube.com");
-    } catch (_) {}
-  });
-  el("nowt").textContent = (v.title || v.video_id) + (v.channel ? "  ·  " + v.channel : "");
+  refreshNowbar(v);
   el("bBack").style.display = "";
   el("bYt").style.display = ""; el("bYt").href = "https://www.youtube.com/watch?v=" + encodeURIComponent(v.video_id);
-  el("bYt").textContent = IOS ? "app ↗" : "youtube ↗";
+  el("bYt").textContent = IOS ? "open in youtube app ↗" : "open in youtube ↗";
   el("bPip").style.display = canPip() ? "" : "none";
   refreshSubscribeButton(v);
   syncUrl();
   if (queued) armPlayerFallback(token, skipped);
+  if (YT_PLAYER && YT_PLAYER_READY) {
+    applyPlayerRequest(YT_PLAYER, YT_PLAYER_REQUEST); return YT_PLAYER;
+  }
+  try {
+    const player = await ensureOfficialYouTubePlayer();
+    if (token === PLAYER_TOKEN) applyPlayerRequest(player, YT_PLAYER_REQUEST);
+    return player;
+  } catch (error) {
+    if (token === PLAYER_TOKEN) console.error("Station YouTube player unavailable", error);
+    return null;
+  }
+}
+function playFromUserGesture(v) {
+  return play(v, true, false, new Set(), 1, null, true);
 }
 function back() {
+  captureActiveVideoPosition();
   saveActiveVideoPosition(true);
   clearPlayerPositionPoll();
-  clearPlayerFallback(); ++PLAYER_TOKEN;
+  clearPlayerFallback(); ++PLAYER_TOKEN; YT_PLAYER_REQUEST = null; PLAYER_ACCEPTED_TOKEN = 0;
+  try { if (YT_PLAYER_READY) YT_PLAYER.stopVideo(); } catch (_) {}
   CUR = null;
-  el("video").innerHTML = "";                 /* the iframe is really gone */
   document.body.classList.remove("playing");
-  for (const b of ["bBack", "bPip", "bYt", "bSubscribe"]) el(b).style.display = "none";
+  el("bBack").style.display = "none";
+  setMenuOpen(false); setAutoplayBlockedState(false); refreshWatchButton(); refreshTransport();
   syncUrl(); paint();
 }
 el("bBack").addEventListener("click", back);
-window.addEventListener("message", (event) => {
-  if (event.origin !== "https://www.youtube.com") return;
-  const frame = el("video").querySelector("iframe");
-  if (!frame || event.source !== frame.contentWindow) return;
-  let data = event.data;
-  if (typeof data === "string") { try { data = JSON.parse(data); } catch (_) { return; } }
-  if (data?.event === "onReady") {
-    PLAYER_READY_TOKEN = PLAYER_TOKEN; clearPlayerFallback(); startPlayerPositionPoll(PLAYER_TOKEN, frame);
-  }
-  if (data?.event === "infoDelivery" && data.info) {
-    PLAYER_POSITION.time = Number(data.info.currentTime) || PLAYER_POSITION.time;
-    PLAYER_POSITION.duration = Number(data.info.duration) || PLAYER_POSITION.duration;
-    saveActiveVideoPosition(false);
-  }
-  if (data?.event === "onStateChange" && Number(data.info) === 0) {
-    clearPlayerPositionPoll();
-    clearVideoPosition(CUR?.video_id);
-    PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
-    advanceQueue();
-  }
+el("bPrev").addEventListener("click", () => stepQueue(-1));
+el("bNext").addEventListener("click", () => stepQueue(1));
+el("bContinue").addEventListener("click", () => {
+  try { if (YT_PLAYER_READY) YT_PLAYER.playVideo(); } catch (_) {}
 });
+function setMenuOpen(open) {
+  const menu = el("more"), button = el("bMenu");
+  menu.hidden = !open; button.setAttribute("aria-expanded", open ? "true" : "false");
+}
+el("bMenu").addEventListener("click", () => setMenuOpen(el("more").hidden));
+document.addEventListener("pointerdown", (event) => {
+  if (!el("more").hidden && !el("more").contains(event.target) && !el("bMenu").contains(event.target)) setMenuOpen(false);
+});
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") setMenuOpen(false); });
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") saveActiveVideoPosition(true);
+  if (document.visibilityState === "hidden") { captureActiveVideoPosition(); saveActiveVideoPosition(true); }
 });
-window.addEventListener("pagehide", () => saveActiveVideoPosition(true));
+window.addEventListener("pagehide", () => { captureActiveVideoPosition(); saveActiveVideoPosition(true); });
 
 /* ---- PICTURE-IN-PICTURE ----
    Document PiP hosts real DOM, so it can carry the YouTube player into a
@@ -510,6 +714,7 @@ el("bPip").addEventListener("click", async () => {
             "?playsinline=1&rel=0&modestbranding=1&autoplay=1";
     d.body.appendChild(f);
   } catch (e) { /* user dismissed, or the browser said no */ }
+  setMenuOpen(false);
 });
 
 /* ---- render ---- */
@@ -533,7 +738,7 @@ function paint() {
       '<div class="s">' + esc(v.channel || "") + "</div></div>" +
     "</div>").join("");
   for (const n of el("grid").querySelectorAll(".card"))
-    n.addEventListener("click", () => play(BYID[n.dataset.v], true));
+    n.addEventListener("click", () => playFromUserGesture(BYID[n.dataset.v]));
   for (const n of el("grid").querySelectorAll(".star"))
     n.addEventListener("click", (e) => { e.stopPropagation(); toggleWatch(BYID[n.dataset.star]); });
 }
@@ -589,17 +794,23 @@ async function load(forceWatch, quiet) {
   const changed = signature(nextRows) !== signature(ROWS);
   ROWS = nextRows;
   BYID = {}; for (const v of ROWS) BYID[v.video_id] = v;
-  if (changed || !quiet) { paint(); relayout(); }
+  if (changed || !quiet) { paint(); relayout(); refreshTransport(); }
   /* the ONLY preselect: you asked for a video by id */
   if (START && BYID[START]) play(BYID[START], AUTO);
 }
 
-el("bFull").addEventListener("click", () => {
+function togglePaneFull() {
   parent.postMessage({ type: "SCINTILLA_DECK_TOGGLE_FULL" }, location.origin);
-});
-el("bSubscribe").addEventListener("click", () => subscribeToChannel(CUR));
+  setMenuOpen(false);
+}
+el("bFull").addEventListener("click", togglePaneFull);
+el("bMenuFull").addEventListener("click", togglePaneFull);
+el("bWatch").addEventListener("click", () => { toggleWatch(CUR); setMenuOpen(false); });
+el("bSubscribe").addEventListener("click", () => { subscribeToChannel(CUR); setMenuOpen(false); });
+el("bYt").addEventListener("click", () => setMenuOpen(false));
 el("bCover").addEventListener("click", () => {
   parent.postMessage({ type: "SCINTILLA_DECK_MEDIA_COVER_X" }, location.origin);
+  setMenuOpen(false);
 });
 window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
@@ -613,16 +824,21 @@ window.addEventListener("message", (event) => {
     const stage = +event.data.stage || 0;
     el("bFull").textContent = stage === 2 ? "↙ youtube" : stage === 1 ? "↙ normal" : "⛶";
     el("bFull").title = stage === 2 ? "return to YouTube region" : stage === 1 ? "return to normal media layout" : "expand across YouTube region";
+    el("bMenuFull").textContent = stage === 2 ? "return to youtube region" : stage === 1 ? "return to normal layout" : "expand pane";
     el("bCover").style.display = event.data.canCoverX ? "" : "none";
   }
 });
 async function start() {
   paintChips(); relayout(); load();
   syncSharedVideoPositions();
+  /* Prime one official player object behind the hidden stage.  Selecting or
+     advancing a video then loads into this same object rather than replacing
+     the iframe, retaining the browser's playback grant across the queue. */
+  ensureOfficialYouTubePlayer().catch(() => {});
   /* Start the shared local saved-set read alongside the ordinary feed.  This
      never contacts YouTube, and means opening Watch Later normally has its
      IDs ready instead of placing that database read on the click path. */
-  syncWatch().catch(() => { WATCH_READY = false; });
+  syncWatch().then(() => refreshWatchButton()).catch(() => { WATCH_READY = false; });
   /* Keep the stored feed current without touching the YouTube API on every
      pass. */
   setInterval(() => {
