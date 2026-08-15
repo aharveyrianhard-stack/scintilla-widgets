@@ -634,6 +634,33 @@ test("video auto-next silently advances the next visible item and skips an unava
     "a YouTube ENDED event advances without a user toggle");
   assert.match(videoPane, /player\.loadVideoById\(video\)/,
     "queue advances load into the persistent player instead of replacing its iframe");
+  assert.match(videoPane, /\.card"\)\)\s*n\.addEventListener\("click", \(\) => playFromUserGesture\(BYID\[n\.dataset\.v\]\)\)/,
+    "a video card uses the explicit user-gesture playback path");
+  assert.match(videoPane, /function playFromUserGesture\(v\) \{\s*return play\(v, true, false, new Set\(\), 1, null, true\);\s*\}/,
+    "one card click requests playing, not a second native Play activation");
+  assert.match(videoPane, /const resumeAt = userGesture \? resumePositionFor\(v\.video_id\) : await resumePositionBeforePlay\(v\.video_id\)/,
+    "the click path never waits on a new shared-position request before starting playback");
+  assert.match(videoPane, /if \(YT_PLAYER && YT_PLAYER_READY\) \{\s*applyPlayerRequest\(YT_PLAYER, YT_PLAYER_REQUEST\); return YT_PLAYER;\s*\}\s*try \{\s*const player = await ensureOfficialYouTubePlayer\(\)/,
+    "the primed player receives the card request synchronously before any promise boundary");
+  assert.match(videoPane, /if \(request\.auto\) player\.loadVideoById\(video\); else player\.cueVideoById\(video\)/,
+    "user and queue autoplay requests load and play while an intentional non-autoplay request only cues");
+  const deliveries = [];
+  const apply = functionFromSource(videoPane, "applyPlayerRequest", {
+    PLAYER_ACCEPTED_TOKEN:0, PLAYER_ENDED_TOKEN:0, PLAYER_ERROR_TOKEN:0,
+    playerEventMatchesRequest:() => true,
+    setAutoplayBlockedState:() => {}, startPlayerPositionPoll:() => {}
+  });
+  const player = {
+    getIframe:() => ({}),
+    loadVideoById:(request) => deliveries.push(["load", request]),
+    cueVideoById:(request) => deliveries.push(["cue", request])
+  };
+  apply(player, { token:1, video:{ video_id:"clicked", title:"Clicked" }, resumeAt:17, auto:true });
+  apply(player, { token:2, video:{ video_id:"quiet", title:"Quiet" }, resumeAt:0, auto:false });
+  assert.deepEqual(JSON.parse(JSON.stringify(deliveries)), [
+    ["load", { videoId:"clicked", startSeconds:17 }],
+    ["cue", { videoId:"quiet", startSeconds:0 }]
+  ], "a user autoplay request really loads while a non-autoplay request remains cued");
   assert.match(videoPane, /isUnavailablePlayerError\(event\.data\)/);
   const unavailableError = functionFromSource(videoPane, "isUnavailablePlayerError", { Number, Array });
   assert.equal(unavailableError(2), true);

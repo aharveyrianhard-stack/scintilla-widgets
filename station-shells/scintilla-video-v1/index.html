@@ -618,14 +618,19 @@ function armPlayerFallback(token, skipped) {
     stepQueue(request?.direction || 1, nextSkipped, request?.originVideo || CUR);
   }, 10000);
 }
-async function play(v, auto, queued = false, skipped = new Set(), direction = 1, originVideo = null) {
+async function play(v, auto, queued = false, skipped = new Set(), direction = 1, originVideo = null,
+                    userGesture = false) {
   if (!v) return;
   captureActiveVideoPosition();
   saveActiveVideoPosition(true);
   clearPlayerPositionPoll();
   clearPlayerFallback();
   const token = ++PLAYER_TOKEN;
-  const resumeAt = await resumePositionBeforePlay(v.video_id);
+  /* A card click must reach the already-primed official player during the
+     same user gesture.  Use the shared resume value already in page memory;
+     never put a fresh network wait between that click and loadVideoById.
+     Background/URL/queue playback may still take the bounded shared read. */
+  const resumeAt = userGesture ? resumePositionFor(v.video_id) : await resumePositionBeforePlay(v.video_id);
   if (token !== PLAYER_TOKEN) return;
   CUR = v;
   PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
@@ -640,12 +645,20 @@ async function play(v, auto, queued = false, skipped = new Set(), direction = 1,
   refreshSubscribeButton(v);
   syncUrl();
   if (queued) armPlayerFallback(token, skipped);
+  if (YT_PLAYER && YT_PLAYER_READY) {
+    applyPlayerRequest(YT_PLAYER, YT_PLAYER_REQUEST); return YT_PLAYER;
+  }
   try {
     const player = await ensureOfficialYouTubePlayer();
     if (token === PLAYER_TOKEN) applyPlayerRequest(player, YT_PLAYER_REQUEST);
+    return player;
   } catch (error) {
     if (token === PLAYER_TOKEN) console.error("Station YouTube player unavailable", error);
+    return null;
   }
+}
+function playFromUserGesture(v) {
+  return play(v, true, false, new Set(), 1, null, true);
 }
 function back() {
   captureActiveVideoPosition();
@@ -725,7 +738,7 @@ function paint() {
       '<div class="s">' + esc(v.channel || "") + "</div></div>" +
     "</div>").join("");
   for (const n of el("grid").querySelectorAll(".card"))
-    n.addEventListener("click", () => play(BYID[n.dataset.v], true));
+    n.addEventListener("click", () => playFromUserGesture(BYID[n.dataset.v]));
   for (const n of el("grid").querySelectorAll(".star"))
     n.addEventListener("click", (e) => { e.stopPropagation(); toggleWatch(BYID[n.dataset.star]); });
 }
