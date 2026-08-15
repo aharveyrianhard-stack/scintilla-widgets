@@ -733,21 +733,34 @@ test("video auto-next silently advances the next visible item and skips an unava
     "auto-next is always on and adds no visible control or URL state");
 });
 
-test("video transport stays compact while its overflow preserves every existing action", () => {
-  assert.match(videoPane, /#nowbar\{[^}]*touch-action:manipulation/,
-    "the compact control strip owns only taps rather than page pan or zoom");
+test("video transport stays in the one top bar and returns the full lower row to the player", () => {
+  assert.match(videoPane, /#transport\{[^}]*touch-action:manipulation/,
+    "the top-bar control strip owns only taps rather than page pan or zoom");
+  assert.match(videoPane, /body\.playing #transport\{ display:flex; \}/,
+    "queue controls appear in the existing top bar only while a video is selected");
   assert.match(videoPane, /\.transport\{ width:48px;/,
     "previous and next keep fixed geometry while their state changes");
-  assert.match(videoPane, /id="nowt"/);
   assert.match(videoPane, /id="nowq" aria-live="polite"/);
   assert.match(videoPane, /id="bMenu"[^>]*aria-controls="more"[^>]*aria-expanded="false"/);
+  const barStart = videoPane.indexOf('<div id="bar">');
+  const barEnd = videoPane.indexOf('<div id="more"', barStart);
+  assert.ok(barStart >= 0 && barEnd > barStart, "the one top bar is followed by the overflow menu");
+  const topBar = videoPane.slice(barStart, barEnd);
+  for (const id of ["bPrev", "nowq", "bContinue", "bNext", "bMenu", "bFull"])
+    assert.ok(topBar.includes('id="' + id + '"'), id + " stays in the existing top bar");
+  assert.doesNotMatch(videoPane, /id="nowbar"|id="nowmeta"|id="nowt"/,
+    "no title or second player-control row remains below the native YouTube surface");
+  assert.match(videoPane, /<div id="stage">\s*<div id="video"><\/div>\s*<\/div>/,
+    "the player owns all remaining height below the one top bar");
   assert.match(videoPane, /id="more" role="menu" hidden[\s\S]*?id="bWatch"[\s\S]*?id="bSubscribe"[\s\S]*?id="bYt"[\s\S]*?id="bPip"[\s\S]*?id="bMenuFull"[\s\S]*?id="bCover"/,
     "Watch Later, Subscribe, YouTube, PiP, expansion, and explicit X cover remain available in one menu");
-  assert.match(videoPane, /body\.playing #chips, body\.playing #bFull\{ display:none; \}/,
-    "playing mode leaves GRID as the only top-bar navigation and keeps actions in the compact strip");
+  assert.match(videoPane, /body\.playing #chips\{ display:none; \}/,
+    "the feed-mode chips yield their top-bar space to the active queue controls");
+  assert.doesNotMatch(videoPane, /body\.playing[^\{]*#bFull[^\{]*\{[^}]*display:none/,
+    "expand remains visibly available while the native player is active");
   assert.match(videoPane, /id="bBack"[^>]*>‹ grid<\/span>/);
   assert.match(videoPane, /id="bFull" title="expand this pane"/,
-    "the grid still exposes expansion before a video is selected");
+    "the same top-bar expansion control is available before and during playback");
   assert.doesNotMatch(videoPane, /[+−-]30s|seekTo\(/,
     "Station does not duplicate the native YouTube seek controls");
 });
@@ -796,8 +809,10 @@ test("Personal subscriptions and the shared Scintilla discovery feed stay correc
   assert.equal(subscribed({ channel_id:"channel-a", subscription_accounts:["personal"] }), true);
   assert.match(videoPane, /const ALL_SHORTS = \{ id: "shorts", n: "shorts", q: "&is_short=eq\.true" \}/,
     "SCINTILLA discovery uses the same global Shorts list as Hub");
-  assert.match(videoPane, /FEED === "scintilla" \? \[\s*\{ id: "default", n: "grid", q: "" \},\s*ALL_SHORTS,\s*\{ id: "watch"/,
-    "the SCINTILLA pane is the shared Hub discovery grid, with global Shorts and shared Watch Later");
+  assert.match(videoPane, /const SCINTILLA_SUBSCRIBED = \{\s*id: "subscribed", n: "subscribed",\s*q: "&subscription_accounts=cs\." \+ encodeURIComponent\("\{scintilla\}"\) \+ "&is_short=eq\.false"\s*\}/,
+    "the restored SCINTILLA Subscribed tab asks for the existing durable Scintilla subscription account");
+  assert.match(videoPane, /FEED === "scintilla" \? \[\s*\{ id: "default", n: "grid", q: "" \},\s*SCINTILLA_SUBSCRIBED,\s*ALL_SHORTS,\s*\{ id: "watch"/,
+    "SCINTILLA visibly retains Grid, Subscribed, Shorts, and shared Watch Later in that order");
   assert.match(videoPane, /return !accounts\.length \|\| accounts\.includes\("scintilla"\)/,
     "the Station discovery grid excludes Personal-only videos while retaining unscoped and Scintilla videos");
   assert.match(youtubeHub, /function ytHubAllowed\(r\)[\s\S]*?accounts\.includes\("scintilla"\)/,
