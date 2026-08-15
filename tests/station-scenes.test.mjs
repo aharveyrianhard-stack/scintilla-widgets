@@ -228,8 +228,8 @@ test("Station pins charts, each YouTube feed, and X to independently versioned s
   assert.equal(chartShell, chart, "chart shell is a frozen copy of the reviewed chart surface");
   assert.equal(personalVideoShell, scintillaVideoShell,
     "both independently routed YouTube shells use the same reviewed playback engine");
-  assert.equal(withoutInlineScript(personalVideoShell), withoutInlineScript(legacyVideoPane),
-    "the engine change preserves the reviewed markup, styling, controls, and visible copy byte-for-byte");
+  assert.notEqual(withoutInlineScript(personalVideoShell), withoutInlineScript(legacyVideoPane),
+    "the versioned Station shells may carry their isolated responsive controls without changing the legacy feed");
   assert.match(xShell, /function drawXFloat\(/, "X v2 has the iMac baseline renderer surface");
   assert.match(xShell, /function attachXFloatStream\(/);
   assert.match(xShell, /const sy = Math\.max\(0, \(rect\.top \+ \(xfloatCrop\.fractionalScrollOffset \|\| 0\)\) \* scaleY\)/);
@@ -614,13 +614,18 @@ test("media expansion is an explicit two-stage ladder that preserves X until ask
 
 test("video auto-next silently advances the next visible item and skips an unavailable embed", () => {
   const queue = functionFromSource(videoPane, "queueRows");
-  const next = functionFromSource(videoPane, "nextQueuedVideo");
+  const unavailable = new Set();
+  const choose = functionFromSource(videoPane, "queuedVideo", { UNAVAILABLE_VIDEO_IDS:unavailable, Set });
   const rows = [{ video_id:"a" }, { video_id:"b" }, { video_id:"c" }];
   assert.deepEqual(JSON.parse(JSON.stringify(queue(rows, "default", new Set()))), rows);
   assert.deepEqual(JSON.parse(JSON.stringify(queue(rows, "watch", new Set(["b"])))), [{ video_id:"b" }]);
-  assert.equal(next(rows, "a", new Set()).video_id, "b");
-  assert.equal(next(rows, "a", new Set(["b"])).video_id, "c");
-  assert.equal(next(rows, "c", new Set()), null);
+  assert.equal(choose(rows, "a", 1, new Set()).video_id, "b");
+  assert.equal(choose(rows, "a", 1, new Set(["b"])).video_id, "c");
+  assert.equal(choose(rows, "c", -1, new Set()).video_id, "b");
+  unavailable.add("b");
+  assert.equal(choose(rows, "a", 1, new Set()).video_id, "c",
+    "a video proven unavailable is skipped on later navigation without a loop");
+  assert.equal(choose(rows, "c", 1, new Set()), null);
   assert.match(videoPane, /new YT\.Player\("ytPlayer"/,
     "the Station shell uses the official YouTube player object");
   assert.match(videoPane, /onStateChange:handlePlayerStateChange/);
@@ -629,12 +634,14 @@ test("video auto-next silently advances the next visible item and skips an unava
     "a YouTube ENDED event advances without a user toggle");
   assert.match(videoPane, /player\.loadVideoById\(video\)/,
     "queue advances load into the persistent player instead of replacing its iframe");
-  assert.match(videoPane, /isUnembeddablePlayerError\(event\.data\)/);
-  const unembeddable = functionFromSource(videoPane, "isUnembeddablePlayerError", { Number, Array });
-  assert.equal(unembeddable(101), true);
-  assert.equal(unembeddable(150), true);
-  assert.equal(unembeddable(153), true);
-  assert.equal(unembeddable(100), false);
+  assert.match(videoPane, /isUnavailablePlayerError\(event\.data\)/);
+  const unavailableError = functionFromSource(videoPane, "isUnavailablePlayerError", { Number, Array });
+  assert.equal(unavailableError(2), true);
+  assert.equal(unavailableError(5), true);
+  assert.equal(unavailableError(100), true, "private or deleted videos are skipped");
+  assert.equal(unavailableError(101), true);
+  assert.equal(unavailableError(150), true);
+  assert.equal(unavailableError(153), true);
   assert.match(videoPane, /PLAYER_ERROR_TOKEN === request\.token/,
     "one unembeddable delivery can skip the current video only once");
   assert.match(videoPane, /skipping unavailable video/);
@@ -643,11 +650,42 @@ test("video auto-next silently advances the next visible item and skips an unava
     "the raw iframe postMessage controller is gone");
   assert.match(videoPane, /onAutoplayBlocked:handleAutoplayBlocked/);
   assert.match(videoPane, /document\.body\.dataset\.autoplayBlocked/,
-    "autoplay blocking is explicit machine-readable state without new visible UI");
-  assert.doesNotMatch(videoPane, /id="bPrev"|id="bNext"|id="bMenu"/,
-    "the engine candidate adds no front-facing controls");
+    "autoplay blocking remains explicit machine-readable state");
+  assert.match(videoPane, /id="bContinue"[^>]*>tap to continue<\/button>/,
+    "autoplay blocking has a truthful visible recovery action");
+  assert.match(videoPane, /handleAutoplayBlocked[\s\S]*?clearPlayerFallback\(\); setAutoplayBlockedState\(true, request\)/,
+    "a blocked autoplay waits for the visible user action instead of being misclassified as unavailable");
+  assert.match(videoPane, /bContinue[\s\S]*?YT_PLAYER\.playVideo\(\)/,
+    "the recovery action resumes the same official player");
+  assert.match(videoPane, /<button class="btn transport" id="bPrev"[^>]*aria-label="previous video"/);
+  assert.match(videoPane, /<button class="btn transport" id="bNext"[^>]*aria-label="next video"/);
+  assert.match(videoPane, /el\("bPrev"\)\.disabled = !CUR \|\| !previousQueuedVideo/,
+    "previous is disabled truthfully at the first known playable item");
+  assert.match(videoPane, /el\("bNext"\)\.disabled = !CUR \|\| !nextQueuedVideo/,
+    "next is disabled truthfully at the last known playable item");
+  assert.match(videoPane, /el\("bPrev"\)\.addEventListener\("click", \(\) => stepQueue\(-1\)\)/);
+  assert.match(videoPane, /el\("bNext"\)\.addEventListener\("click", \(\) => stepQueue\(1\)\)/);
   assert.doesNotMatch(videoPane, /bAuto|autoNext|AUTO_NEXT/,
     "auto-next is always on and adds no visible control or URL state");
+});
+
+test("video transport stays compact while its overflow preserves every existing action", () => {
+  assert.match(videoPane, /#nowbar\{[^}]*touch-action:manipulation/,
+    "the compact control strip owns only taps rather than page pan or zoom");
+  assert.match(videoPane, /\.transport\{ width:48px;/,
+    "previous and next keep fixed geometry while their state changes");
+  assert.match(videoPane, /id="nowt"/);
+  assert.match(videoPane, /id="nowq" aria-live="polite"/);
+  assert.match(videoPane, /id="bMenu"[^>]*aria-controls="more"[^>]*aria-expanded="false"/);
+  assert.match(videoPane, /id="more" role="menu" hidden[\s\S]*?id="bWatch"[\s\S]*?id="bSubscribe"[\s\S]*?id="bYt"[\s\S]*?id="bPip"[\s\S]*?id="bMenuFull"[\s\S]*?id="bCover"/,
+    "Watch Later, Subscribe, YouTube, PiP, expansion, and explicit X cover remain available in one menu");
+  assert.match(videoPane, /body\.playing #chips, body\.playing #bFull\{ display:none; \}/,
+    "playing mode leaves GRID as the only top-bar navigation and keeps actions in the compact strip");
+  assert.match(videoPane, /id="bBack"[^>]*>‹ grid<\/span>/);
+  assert.match(videoPane, /id="bFull" title="expand this pane"/,
+    "the grid still exposes expansion before a video is selected");
+  assert.doesNotMatch(videoPane, /[+−-]30s|seekTo\(/,
+    "Station does not duplicate the native YouTube seek controls");
 });
 
 test("video resume is shared with Hub, bounded, and clears completion before auto-next", () => {
@@ -708,8 +746,8 @@ test("Personal subscriptions and the shared Scintilla discovery feed stay correc
     "Subscribe retains the visible feed identity");
   assert.match(videoPane, /id="bSubscribe"/,
     "Subscribe is available while a video is playing rather than on crowded discovery cards");
-  assert.match(videoPane, /id="bYt"[^\n]*\n\s*<span class="btn" id="bSubscribe"[^\n]*\n\s*<span id="chips"/,
-    "Subscribe sits in the always-visible player header before the scrolling discovery chips");
+  assert.match(videoPane, /id="more" role="menu" hidden[\s\S]*?id="bSubscribe"/,
+    "Subscribe remains one tap away in the compact player overflow");
   assert.match(videoPane, /refreshSubscribeButton\(v\);[\s\S]*?syncUrl\(\);/,
     "playing a video immediately exposes the corresponding channel action");
   assert.doesNotMatch(videoPane, /class="sub/,
@@ -726,7 +764,7 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "shared Watch Later keeps its one healthy Personal YouTube identity");
   assert.match(videoPane, /pg\("yt_watch_later\?select=video_id"\)/,
     "Station reads the one shared saved-video state directly instead of waiting on Google");
-  assert.match(videoPane, /syncWatch\(\)\.catch\(\(\) => \{ WATCH_READY = false; \}\)/,
+  assert.match(videoPane, /syncWatch\(\)\.then\(\(\) => refreshWatchButton\(\)\)\.catch\(\(\) => \{ WATCH_READY = false; \}\)/,
     "Station begins the local saved-set read alongside its normal feed, not only after Watch Later is clicked");
   assert.match(youtubeHub, /const YT_WATCH_LATER = new Set\(\)/,
     "Hub keeps Watch Later only in page memory while the shared source loads");
