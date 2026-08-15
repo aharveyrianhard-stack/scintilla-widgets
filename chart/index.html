@@ -34,11 +34,11 @@
   --ipad-live-pad-y:4px; --ipad-live-pad-x:6px; --ipad-live-size:14px;
 }
 *{ min-width:0; box-sizing:border-box; }
-html,body{ margin:0; padding:0; height:100%; }
+html,body{ margin:0; padding:0; height:100%; overscroll-behavior:none; }
 body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   -webkit-font-smoothing:antialiased; font-size:12px; letter-spacing:.02em; overflow:hidden;
   -webkit-text-size-adjust:100%; text-size-adjust:100%; }
-#chartSlot{ position:absolute; inset:0; }
+#chartSlot{ position:absolute; inset:0; overflow:hidden; overscroll-behavior:none; }
 
 /* SCINTILLA · scChart — ported verbatim */
 .sc-nchart{ position:absolute; inset:0; display:flex; flex-direction:column;
@@ -54,9 +54,12 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-crange.on{ color:var(--crk); border-color:rgba(0,212,255,.45);
   box-shadow:inset 0 -2px 0 var(--crk); }
 .sc-nchart__bar .sc-tv__pop{ position:static; margin-left:auto; flex:none; }
-.sc-nchart__area{ position:relative; flex:1 1 0; min-height:0; min-width:0; overflow:hidden; }
+.sc-nchart__area{ position:relative; flex:1 1 0; min-height:0; min-width:0; overflow:hidden;
+  overscroll-behavior:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+  -webkit-tap-highlight-color:transparent; }
+.sc-nchart__area *{ -webkit-user-select:none; user-select:none; -webkit-user-drag:none; }
 .sc-nchart__cv{ position:absolute; inset:0; width:100%; height:100%; display:block;
-  touch-action:none; cursor:crosshair; }
+  touch-action:none; overscroll-behavior:none; cursor:crosshair; }
 .sc-nchart__cv.is-panning{ cursor:grabbing; }
 .sc-nchart__live{ position:absolute; top:7px; left:8px; z-index:3; pointer-events:auto;
   display:flex; flex-direction:row; align-items:baseline; gap:8px; max-width:calc(100% - 52px);
@@ -914,9 +917,11 @@ function applySharedChartView(host, msg) {
 function scChartScrub(host) {
   const cv = host.querySelector(".sc-nchart__cv");
   if (!cv) return;
+  const area = cv.closest(".sc-nchart__area") || host;
   const pointers = new Map();
   let gesture = null;
   let trackpadGesture = null;
+  let wheelGesture = { mode:null, lastAt:0, absX:0, absY:0, ctrl:false };
   const show = (clientX, clientY) => {
     const pts = host._series, plot = host._plot;
     if (!pts || pts.length < 2 || !plot) return;
@@ -986,18 +991,47 @@ function scChartScrub(host) {
   cv.addEventListener("pointerleave", (e) => {
     if (!pointers.has(e.pointerId)) hideScrub();
   });
+  for (const type of ["selectstart", "dragstart"]) {
+    area.addEventListener(type, (event) => event.preventDefault(), { capture:true });
+  }
+  const resetWheelGesture = (now, ctrl) => {
+    wheelGesture = { mode:null, lastAt:now, absX:0, absY:0, ctrl:!!ctrl };
+  };
+  const wheelDelta = (value, mode, plot) => {
+    const unit = mode === 1 ? 16 : mode === 2 ? Math.max(plot.iw, plot.ih) : 1;
+    return (Number(value) || 0) * unit;
+  };
   const applyChartWheel = (e) => {
-    e.preventDefault?.(); e.stopPropagation?.(); hideScrub();
+    e.preventDefault?.(); e.stopPropagation?.(); e.stopImmediatePropagation?.(); hideScrub();
     const pts = host._series, plot = host._plot;
     if (!pts || pts.length < 2 || !plot) return;
     const oldSpan = plot.end-plot.start;
-    /* A horizontal two-finger gesture pans, as it does on TradingView. */
-    if (Math.abs(e.deltaX) > 2 && Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.35) {
-      const shift = e.deltaX / Math.max(1, plot.iw) * oldSpan;
+    const now = performance.now(), ctrl = !!e.ctrlKey;
+    if (!wheelGesture.lastAt || now - wheelGesture.lastAt > 180 || wheelGesture.ctrl !== ctrl)
+      resetWheelGesture(now, ctrl);
+    wheelGesture.lastAt = now;
+    const dx = wheelDelta(e.deltaX, e.deltaMode, plot);
+    const dy = wheelDelta(e.deltaY, e.deltaMode, plot);
+    wheelGesture.absX += Math.abs(dx);
+    wheelGesture.absY += Math.abs(dy);
+    /* Lock one axis for each trackpad transaction. Small diagonal noise no
+       longer flips a horizontal pan into zoom halfway through its momentum. */
+    if (!wheelGesture.mode) {
+      if (ctrl) wheelGesture.mode = "zoom";
+      else if (wheelGesture.absX >= 2 && wheelGesture.absX >= wheelGesture.absY * .8)
+        wheelGesture.mode = "pan";
+      else if (wheelGesture.absY >= 2)
+        wheelGesture.mode = "zoom";
+      else return;
+    }
+    if (wheelGesture.mode === "pan") {
+      const shift = dx / Math.max(1, plot.iw) * oldSpan;
       setChartView(host, plot.start + shift, plot.end + shift, false);
       return;
     }
-    const newSpan = Math.max(8, Math.min(pts.length-1, oldSpan * Math.exp(e.deltaY*.0018)));
+    const zoomDelta = dy || (ctrl ? dx : 0);
+    if (!zoomDelta) return;
+    const newSpan = Math.max(8, Math.min(pts.length-1, oldSpan * Math.exp(zoomDelta*.0018)));
     applyLatestSpan(newSpan);
   };
   const applyTrackpadGesture = (phase, scale) => {
@@ -1021,11 +1055,13 @@ function scChartScrub(host) {
     if (data?.phase === "wheel") return applyChartWheel(data);
     applyTrackpadGesture(data?.phase, data?.scale);
   };
-  host.addEventListener("wheel", applyChartWheel, { capture:true, passive:false });
+  const captureChartWheel = (event) => { if (host.isConnected) applyChartWheel(event); };
+  document.addEventListener("wheel", captureChartWheel, { capture:true, passive:false });
   for (const phase of ["gesturestart", "gesturechange", "gestureend"]) {
-    host.addEventListener(phase, (event) => {
+    document.addEventListener(phase, (event) => {
+      if (!host.isConnected) return;
+      event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation?.();
       if (hasActiveTouch()) return;
-      event.preventDefault(); event.stopPropagation();
       applyTrackpadGesture(phase, event.scale);
     }, { capture:true, passive:false });
   }

@@ -72,7 +72,7 @@ test("the reviewed chart gesture and one-tap control contract survives the testi
   assert.match(deck, /button\.btn\{[^}]*touch-action:manipulation/);
   assert.match(deck, /SCINTILLA_CHART_TRACKPAD/,
     "the Station parent retains the bounded trackpad relay into chart frames");
-  assert.match(chart, /host\.addEventListener\("wheel", applyChartWheel, \{ capture:true, passive:false \}\)/);
+  assert.match(chart, /document\.addEventListener\("wheel", captureChartWheel, \{ capture:true, passive:false \}\)/);
   assert.match(chart, /\["gesturestart", "gesturechange", "gestureend"\]/);
   assert.match(chart, /if \(hasActiveTouch\(\)\) return/,
     "Safari trackpad events cannot double-handle the direct touchscreen pinch path");

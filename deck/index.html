@@ -67,7 +67,7 @@
   --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
 }
 *{ box-sizing:border-box; min-width:0; -webkit-tap-highlight-color:transparent; }
-html,body{ margin:0; height:100%; }
+html,body{ margin:0; height:100%; overscroll-behavior:none; }
 body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   -webkit-font-smoothing:antialiased; font-size:11px; letter-spacing:.02em;
   display:flex; flex-direction:column; overflow:hidden; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
@@ -210,10 +210,12 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
   min-height:24px; display:grid; place-items:center; padding:3px 8px; pointer-events:none;
   background:rgba(0,0,0,.96); border:1px solid rgba(255,75,106,.78); color:var(--bear);
   font-size:8px; font-weight:700; letter-spacing:.12em; text-align:center; text-transform:uppercase; }
-/* The chart canvas already owns pan/pinch inside its frame. On iPad the
-   embedding frame must make the same claim at the parent hit-test boundary,
-   otherwise Safari can hand that gesture to page movement first. */
-body[data-view="ipad"] .chart-pane > .body > iframe{ touch-action:none; overscroll-behavior:contain; }
+/* The chart canvas already owns pan/pinch inside its frame. The embedding
+   boundary makes the same claim on every presentation so Safari cannot turn
+   trackpad momentum into page movement or a selection/drag highlight. */
+.chart-pane,.chart-pane > .body,.chart-pane > .body > iframe{
+  overscroll-behavior:none; -webkit-user-select:none; user-select:none; -webkit-user-drag:none; }
+.chart-pane > .body > iframe{ touch-action:none; }
 body[data-view="ipad"]{ overscroll-behavior:none; }
 .card{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
   justify-content:center; gap:8px; cursor:pointer; text-align:center; padding:16px; }
@@ -1056,6 +1058,7 @@ function chartFrameForDeckGesture(event) {
     target = document.elementFromPoint(event.clientX, event.clientY);
     frame = target?.matches?.(selector) ? target : target?.closest?.(selector);
   }
+  if (!frame) frame = document.querySelector(".chart-pane:hover > .body > iframe");
   return frame instanceof HTMLIFrameElement ? frame : null;
 }
 function relayDeckChartInput(frame, data) {
@@ -1068,7 +1071,7 @@ function relayDeckChartInput(frame, data) {
 }
 document.addEventListener("wheel", (event) => {
   const frame = chartFrameForDeckGesture(event); if (!frame) return;
-  event.preventDefault(); event.stopPropagation();
+  event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation?.();
   relayDeckChartInput(frame, { phase:"wheel", deltaX:event.deltaX, deltaY:event.deltaY,
     deltaMode:event.deltaMode, ctrlKey:!!event.ctrlKey, clientX:event.clientX, clientY:event.clientY });
 }, { capture:true, passive:false });
@@ -1077,7 +1080,7 @@ for (const phase of ["gesturestart", "gesturechange", "gestureend"]) {
   document.addEventListener(phase, (event) => {
     const frame = phase === "gesturestart" ? chartFrameForDeckGesture(event) : DECK_GESTURE_FRAME;
     if (!frame) return;
-    event.preventDefault(); event.stopPropagation();
+    event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation?.();
     DECK_GESTURE_FRAME = phase === "gestureend" ? null : frame;
     relayDeckChartInput(frame, { phase, scale:Number(event.scale) || 1,
       clientX:event.clientX, clientY:event.clientY });
