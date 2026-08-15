@@ -18,6 +18,8 @@ const paneXLiveTest = read("pane-x-live-test/index.html");
 const paneXLiveTestCore = read("pane-x-live-test/pane-x-presentation-core.js");
 const vercel = read("vercel.json");
 const stableXShell = read("station-shells/x-v2/index.html");
+const chart = read("chart/index.html");
+const chartShell = read("station-shells/chart-v1/index.html");
 const personalVideo = read("station-shells/personal-video-v1/index.html");
 const scintillaVideo = read("station-shells/scintilla-video-v1/index.html");
 
@@ -59,6 +61,21 @@ test("the testing wall keeps market freshness status live without the canonical 
   assert.match(deck, /function paintMarketStatus\(\) \{[\s\S]*?const delayed = visible\.filter/);
   assert.match(deck, /const fresh = ageSec < 90 && !delayed\.length/);
   assert.doesNotMatch(deck, /const delayed = summary\.mode === "delayed"/);
+});
+
+test("the reviewed chart gesture and one-tap control contract survives the testing wrapper", () => {
+  assert.equal(chartShell.replace('<script src="/testing-surface.js"></script>\n', ""), chart,
+    "testing adds only its safety bootstrap to the independently versioned chart shell");
+  for (const id of ["resetScene", "rotateToggle", "screenPrev", "screenNext", "displayBtn", "stationFullBtn"])
+    assert.match(deck, new RegExp(`<button type="button" class="btn" id="${id}"`),
+      `${id} remains a semantic single-activation button`);
+  assert.match(deck, /button\.btn\{[^}]*touch-action:manipulation/);
+  assert.match(deck, /SCINTILLA_CHART_TRACKPAD/,
+    "the Station parent retains the bounded trackpad relay into chart frames");
+  assert.match(chart, /host\.addEventListener\("wheel", applyChartWheel, \{ capture:true, passive:false \}\)/);
+  assert.match(chart, /\["gesturestart", "gesturechange", "gestureend"\]/);
+  assert.match(chart, /if \(hasActiveTouch\(\)\) return/,
+    "Safari trackpad events cannot double-handle the direct touchscreen pinch path");
 });
 
 test("testing iPad route mounts the same iPad wall without reading or writing the durable pair", () => {
