@@ -176,7 +176,7 @@ test("global screen navigation and rotation share the same curated sequence", ()
   assert.match(deck, /setTimeout\(/);
   assert.match(deck, /const next = SceneModel\.nextScreen\(SCENE\);\n    try \{ await applyScene\(next\.scene, \{ rotate:true, screen:true \}\); \}/,
     "Auto Rotate takes the exact same next-screen path as the header control");
-  assert.match(deck, /el\("screenNext"\)\.addEventListener\("click", \(\) => applyScene\(SceneModel\.nextScreen\(SCENE\)\.scene, \{ screen:true \}\)\)/);
+  assert.match(deck, /el\("screenNext"\)\.addEventListener\("click", \(\) => stepScreen\(1\)\)/);
 });
 
 test("header exposes one global screen control instead of basket pagers", () => {
@@ -186,8 +186,8 @@ test("header exposes one global screen control instead of basket pagers", () => 
   assert.match(deck, /<span class="control-label">auto rotate<\/span>/);
   assert.match(deck, /toggle\.textContent = running \? "pause" : "start"/);
   assert.match(deck, /id="screenControls" aria-label="Global Station screens"/);
-  assert.match(deck, /aria-label="Previous screen"/);
-  assert.match(deck, /aria-label="Next screen"/);
+  assert.match(deck, /<button type="button" class="btn" id="screenPrev"[^>]*aria-label="Previous screen"/);
+  assert.match(deck, /<button type="button" class="btn" id="screenNext"[^>]*aria-label="Next screen"/);
   assert.match(deck, /"screen " \+ \(SceneModel\.SCREENS\.indexOf\(screen\) \+ 1\)/);
   assert.match(deck, /grid-template-columns:26px 68px 26px/,
     "screen arrows occupy fixed cells regardless of the active scene name");
@@ -196,6 +196,24 @@ test("header exposes one global screen control instead of basket pagers", () => 
   assert.match(deck, /el\("screenPrev"\)\.addEventListener\("click"/);
   assert.match(deck, /el\("screenNext"\)\.addEventListener\("click"/);
   assert.doesNotMatch(deck, /id="cohortControls"/);
+});
+
+test("iPad header actions are single-activation controls with honest disabled state", () => {
+  for (const id of ["resetScene", "rotateToggle", "screenPrev", "screenNext", "displayBtn", "stationFullBtn"])
+    assert.match(deck, new RegExp(`<button type="button" class="btn" id="${id}"`), `${id} is a semantic one-tap button`);
+  assert.match(deck, /button\.btn\{[^}]*touch-action:manipulation/,
+    "buttons do not wait for Safari's legacy double-tap interpretation");
+  assert.match(deck, /#resetScene\{ width:92px/);
+  assert.match(deck, /#rotateToggle\{ width:54px/);
+  assert.match(deck, /reset\.disabled = !resettable/,
+    "Reset remains in its stable header slot and is disabled only without a resettable preset");
+  assert.match(deck, /if \(SCREEN_BUSY\) return;/);
+  assert.match(deck, /button\.disabled = SCREEN_BUSY/,
+    "screen arrows expose their one genuine unavailable interval while a screen action is applying");
+  assert.match(deck, /try \{ await applyScene\(target\.scene, \{ screen:true \}\); \}\n  finally \{ SCREEN_BUSY = false; paintScreenBusy\(\); \}/,
+    "one click completes one screen transition and always restores both fixed-position arrows");
+  assert.match(deck, /const b = document\.createElement\("button"\)/,
+    "timeframe choices use the same direct activation semantics");
 });
 
 test("display window action stays separate from the remembered layout chooser", () => {
@@ -347,11 +365,30 @@ test("a partial named six-up workspace restores only its missing preset slots", 
 });
 
 test("iPad chart frames own gestures without changing any other pane", () => {
-  assert.match(deck, /body\[data-view="ipad"\] \.chart-pane > \.body > iframe\{ touch-action:none; overscroll-behavior:contain; \}/);
+  assert.match(deck, /\.chart-pane > \.body > iframe\{ touch-action:none; \}/);
   assert.doesNotMatch(deck, /body\[data-view="ipad"\] \.body > iframe\{ touch-action:none/,
     "the touch policy is scoped to chart frames rather than media or X");
   assert.match(chart, /\.sc-nchart__cv\{[^}]*touch-action:none/,
     "the embedded canvas retains ownership after the parent frame accepts the gesture");
+});
+
+test("hovered charts own trackpad wheel and Safari pinch without replacing touchscreen pinch", () => {
+  assert.match(deck, /type:"SCINTILLA_CHART_TRACKPAD"/);
+  assert.match(deck, /document\.addEventListener\("wheel"[\s\S]*?capture:true, passive:false/,
+    "the Station boundary can cancel a wheel or ctrl-wheel before the viewport receives it");
+  assert.match(deck, /\["gesturestart", "gesturechange", "gestureend"\]/,
+    "Safari trackpad pinch phases are captured at the hovered chart iframe boundary");
+  assert.match(chart, /pointerType:e\.pointerType/);
+  assert.match(chart, /hasActiveTouch\(\)/,
+    "active touchscreen pointers fence the original direct pinch path from trackpad handling");
+  assert.match(chart, /document\.addEventListener\("wheel", captureChartWheel, \{ capture:true, passive:false \}\)/,
+    "wheel ownership covers the whole hovered chart rather than only a canvas subnode");
+  assert.match(chart, /document\.addEventListener\(phase[\s\S]*?event\.preventDefault\(\); event\.stopPropagation\(\)/,
+    "Safari's gesture event is canceled only after it is targeted to a chart");
+  assert.match(chart, /SCINTILLA_CHART_TRACKPAD/,
+    "a boundary pinch is delivered to the child chart instead of becoming page zoom");
+  assert.doesNotMatch(deck, /user-scalable=no|maximum-scale=1/,
+    "the fix does not globally disable viewport accessibility or alter the working touch path");
 });
 
 test("Custom uses a complete desk budget and explicit empty versus paused cards", () => {
