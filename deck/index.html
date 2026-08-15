@@ -95,6 +95,9 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .btn:hover{ color:var(--ink); border-color:var(--hair); }
 .btn.on{ color:var(--crk); border-color:var(--crk); }
 .btn.live{ color:var(--bull); border-color:rgba(0,255,163,.4); }
+button.btn{ appearance:none; -webkit-appearance:none; border-radius:0; font-family:var(--mono);
+  line-height:1.2; touch-action:manipulation; user-select:none; -webkit-user-select:none; }
+button.btn:disabled{ color:var(--mute); border-color:var(--line); cursor:not-allowed; opacity:.56; }
 .tkin{ width:72px; background:var(--panel2); border:1px solid var(--line); color:var(--ink);
   font-family:var(--mono); font-size:11px; letter-spacing:.12em; text-transform:uppercase;
   padding:3px 6px; text-align:center; outline:none; -webkit-appearance:none; border-radius:0; }
@@ -112,6 +115,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
    only made rapid previous/next navigation move under the pointer. */
 #screenControls{ display:grid; grid-template-columns:26px 68px 26px; align-items:center; gap:4px; }
 #screenControls .btn{ width:26px; padding-left:0; padding-right:0; text-align:center; }
+#resetScene{ width:92px; justify-content:center; }
+#rotateToggle{ width:54px; justify-content:center; }
 #screenIndicator{ width:68px; text-align:center; color:var(--ink3); font-size:8px; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap; }
 #tickers{ display:flex; gap:4px; flex-wrap:wrap; }
 .ph .tkin{ width:96px; padding:1px 4px; text-align:left; background:transparent;
@@ -193,6 +198,7 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
    embedding frame must make the same claim at the parent hit-test boundary,
    otherwise Safari can hand that gesture to page movement first. */
 body[data-view="ipad"] .chart-pane > .body > iframe{ touch-action:none; overscroll-behavior:contain; }
+body[data-view="ipad"]{ overscroll-behavior:none; }
 .card{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
   justify-content:center; gap:8px; cursor:pointer; text-align:center; padding:16px; }
 .card:hover{ background:rgba(0,212,255,.05); }
@@ -257,19 +263,19 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       <option value="themeFamilies">theme families</option>
       <option value="custom">custom</option>
     </select>
-    <span class="btn" id="resetScene" title="restore this scene's original preset" aria-label="Reset scene preset">reset preset</span>
+    <button type="button" class="btn" id="resetScene" title="restore this scene's original preset" aria-label="Reset scene preset">reset preset</button>
   </span>
   <span class="control-group rotate-controls">
     <span class="control-label">auto rotate</span>
     <select class="scene-mode" id="rotateEvery" title="rotation interval" aria-label="Auto rotate interval">
       <option value="30">30s</option><option value="60" selected>60s</option><option value="120">120s</option>
     </select>
-    <span class="btn" id="rotateToggle" title="start or pause curated scene rotation" aria-label="Start auto rotate">start</span>
+    <button type="button" class="btn" id="rotateToggle" title="start or pause curated scene rotation" aria-label="Start auto rotate">start</button>
   </span>
   <span class="control-group" id="screenControls" aria-label="Global Station screens">
-    <span class="btn" id="screenPrev" title="Previous screen" aria-label="Previous screen">‹</span>
+    <button type="button" class="btn" id="screenPrev" title="Previous screen" aria-label="Previous screen">‹</button>
     <span id="screenIndicator" aria-live="polite">screen 1 / 9 · index now</span>
-    <span class="btn" id="screenNext" title="Next screen" aria-label="Next screen">›</span>
+    <button type="button" class="btn" id="screenNext" title="Next screen" aria-label="Next screen">›</button>
   </span>
   <span class="control-group presentation-controls">
     <span class="control-label">layout</span>
@@ -278,9 +284,9 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       <option value="ipad">iPad</option><option value="compact">compact</option>
       <option value="display" hidden data-display-only="true">display</option>
     </select>
-    <span class="btn" id="displayBtn" title="open Station in a dedicated display window" aria-label="Open dedicated Station display window">display ↗</span>
+    <button type="button" class="btn" id="displayBtn" title="open Station in a dedicated display window" aria-label="Open dedicated Station display window">display ↗</button>
   </span>
-  <span class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen">⛶</span>
+  <button type="button" class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen" aria-label="Toggle Station fullscreen">⛶</button>
   <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
   <span id="size"></span>
 </div>
@@ -526,6 +532,7 @@ let ROTATE_AT = ROTATE_SECONDS.includes(+remembered("station.rotate.seconds")) ?
 let ROTATE_PAUSED = remembered("station.rotate.paused") !== "0";
 let rotateTimer = 0;
 let ROTATE_BUSY = false;
+let SCREEN_BUSY = false;
 /* A rotation may replace six or eight chart identities at once.  The data
    cache lives inside the chart frames, so the deck owns the only useful
    cross-frame admission queue: cached panes can update immediately while at
@@ -985,6 +992,47 @@ addEventListener("resize", nudge);
 addEventListener("orientationchange", nudge);
 if (window.visualViewport) { visualViewport.addEventListener("resize", nudge); visualViewport.addEventListener("scroll", nudge); }
 
+/* Safari can surface a trackpad pinch at the iframe boundary instead of
+   dispatching it inside the chart document.  Capture only that chart-frame
+   boundary case, cancel page/viewport zoom, and hand the gesture to the one
+   hovered chart.  Direct touchscreen pointers continue to live entirely in
+   the child canvas and never enter this relay. */
+function chartFrameForDeckGesture(event) {
+  const selector = ".chart-pane > .body > iframe";
+  let target = event.target instanceof Element ? event.target : null;
+  let frame = target?.matches?.(selector) ? target : target?.closest?.(selector);
+  if (!frame && Number.isFinite(event.clientX) && Number.isFinite(event.clientY)) {
+    target = document.elementFromPoint(event.clientX, event.clientY);
+    frame = target?.matches?.(selector) ? target : target?.closest?.(selector);
+  }
+  return frame instanceof HTMLIFrameElement ? frame : null;
+}
+function relayDeckChartInput(frame, data) {
+  if (!frame?.contentWindow) return;
+  const rect = frame.getBoundingClientRect();
+  frame.contentWindow.postMessage(Object.assign({ type:"SCINTILLA_CHART_TRACKPAD" }, data, {
+    clientX:Number(data.clientX || 0) - rect.left,
+    clientY:Number(data.clientY || 0) - rect.top
+  }), location.origin);
+}
+document.addEventListener("wheel", (event) => {
+  const frame = chartFrameForDeckGesture(event); if (!frame) return;
+  event.preventDefault(); event.stopPropagation();
+  relayDeckChartInput(frame, { phase:"wheel", deltaX:event.deltaX, deltaY:event.deltaY,
+    deltaMode:event.deltaMode, ctrlKey:!!event.ctrlKey, clientX:event.clientX, clientY:event.clientY });
+}, { capture:true, passive:false });
+let DECK_GESTURE_FRAME = null;
+for (const phase of ["gesturestart", "gesturechange", "gestureend"]) {
+  document.addEventListener(phase, (event) => {
+    const frame = phase === "gesturestart" ? chartFrameForDeckGesture(event) : DECK_GESTURE_FRAME;
+    if (!frame) return;
+    event.preventDefault(); event.stopPropagation();
+    DECK_GESTURE_FRAME = phase === "gestureend" ? null : frame;
+    relayDeckChartInput(frame, { phase, scale:Number(event.scale) || 1,
+      clientX:event.clientX, clientY:event.clientY });
+  }, { capture:true, passive:false });
+}
+
 /* ---- the PANES chip row — the lose-nothing guarantee, visible ---- */
 function paintChips() {
   const bar = el("panebar");
@@ -1080,8 +1128,10 @@ function cohortState() {
 function paintSceneControls(note) {
   el("sceneMode").value = SCENE;
   const resettable = !!fixedSceneState(SCENE) || SCENE === "cohort";
-  el("resetScene").classList.toggle("on", resettable);
-  el("resetScene").style.display = resettable ? "" : "none";
+  const reset = el("resetScene");
+  reset.classList.toggle("on", resettable);
+  reset.disabled = !resettable;
+  reset.setAttribute("aria-disabled", resettable ? "false" : "true");
   const screen = SceneModel.screenForScene(SCENE);
   el("screenIndicator").textContent = screen
     ? "screen " + (SceneModel.SCREENS.indexOf(screen) + 1) + " / " + SceneModel.SCREENS.length
@@ -1278,6 +1328,22 @@ function setRotationInterval(seconds) {
   scheduleRotation();
 }
 
+function paintScreenBusy() {
+  for (const id of ["screenPrev", "screenNext"]) {
+    const button = el(id);
+    button.disabled = SCREEN_BUSY;
+    button.setAttribute("aria-disabled", SCREEN_BUSY ? "true" : "false");
+  }
+  el("screenControls").setAttribute("aria-busy", SCREEN_BUSY ? "true" : "false");
+}
+async function stepScreen(direction) {
+  if (SCREEN_BUSY) return;
+  SCREEN_BUSY = true; paintScreenBusy();
+  const target = direction < 0 ? SceneModel.previousScreen(SCENE) : SceneModel.nextScreen(SCENE);
+  try { await applyScene(target.scene, { screen:true }); }
+  finally { SCREEN_BUSY = false; paintScreenBusy(); }
+}
+
 /* ---- independently versioned pane shells ----
    Each child pane is pinned to its own release surface. A later chart,
    video, or X change is published as a new shell version instead of changing
@@ -1328,9 +1394,11 @@ function applyView(next) {
 function paintTf() {
   const box = el("tf"); box.innerHTML = "";
   for (const r of RANGES) {
-    const b = document.createElement("span");
+    const b = document.createElement("button");
+    b.type = "button";
     b.className = "btn" + (r === RANGE ? " on" : "");
     b.textContent = r;
+    b.setAttribute("aria-pressed", r === RANGE ? "true" : "false");
     b.addEventListener("click", () => setRange(r));
     box.appendChild(b);
   }
@@ -1538,8 +1606,8 @@ el("resetScene").addEventListener("click", () => {
 });
 el("rotateEvery").addEventListener("change", (e) => setRotationInterval(e.target.value));
 el("rotateToggle").addEventListener("click", () => setRotationPaused(!ROTATE_PAUSED));
-el("screenPrev").addEventListener("click", () => applyScene(SceneModel.previousScreen(SCENE).scene, { screen:true }));
-el("screenNext").addEventListener("click", () => applyScene(SceneModel.nextScreen(SCENE).scene, { screen:true }));
+el("screenPrev").addEventListener("click", () => stepScreen(-1));
+el("screenNext").addEventListener("click", () => stepScreen(1));
 el("viewMode").addEventListener("change", (e) => applyView(e.target.value));
 el("displayBtn").addEventListener("click", () => {
   const u = new URL(location.href); u.searchParams.set("view", "display");
@@ -1602,7 +1670,7 @@ async function build() {
 
   for (const d of defs) { const o = makePane(d); PANES.push(o); rows[d.row].appendChild(o.node); }
 
-  paintTf(); el("viewMode").value = VIEW; paintSceneControls();
+  paintTf(); el("viewMode").value = VIEW; paintSceneControls(); paintScreenBusy();
   paintTickerFields(); el("chartCount").value = String(CHART_COUNT);
   loadSymbolCatalog();
   applyChartCount(CHART_COUNT, true);
