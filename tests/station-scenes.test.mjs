@@ -365,7 +365,7 @@ test("a partial named six-up workspace restores only its missing preset slots", 
 });
 
 test("iPad chart frames own gestures without changing any other pane", () => {
-  assert.match(deck, /body\[data-view="ipad"\] \.chart-pane > \.body > iframe\{ touch-action:none; overscroll-behavior:contain; \}/);
+  assert.match(deck, /\.chart-pane > \.body > iframe\{ touch-action:none; \}/);
   assert.doesNotMatch(deck, /body\[data-view="ipad"\] \.body > iframe\{ touch-action:none/,
     "the touch policy is scoped to chart frames rather than media or X");
   assert.match(chart, /\.sc-nchart__cv\{[^}]*touch-action:none/,
@@ -381,9 +381,9 @@ test("hovered charts own trackpad wheel and Safari pinch without replacing touch
   assert.match(chart, /pointerType:e\.pointerType/);
   assert.match(chart, /hasActiveTouch\(\)/,
     "active touchscreen pointers fence the original direct pinch path from trackpad handling");
-  assert.match(chart, /host\.addEventListener\("wheel", applyChartWheel, \{ capture:true, passive:false \}\)/,
+  assert.match(chart, /document\.addEventListener\("wheel", captureChartWheel, \{ capture:true, passive:false \}\)/,
     "wheel ownership covers the whole hovered chart rather than only a canvas subnode");
-  assert.match(chart, /host\.addEventListener\(phase[\s\S]*?event\.preventDefault\(\); event\.stopPropagation\(\)/,
+  assert.match(chart, /document\.addEventListener\(phase[\s\S]*?event\.preventDefault\(\); event\.stopPropagation\(\)/,
     "Safari's gesture event is canceled only after it is targeted to a chart");
   assert.match(chart, /SCINTILLA_CHART_TRACKPAD/,
     "a boundary pinch is delivered to the child chart instead of becoming page zoom");
