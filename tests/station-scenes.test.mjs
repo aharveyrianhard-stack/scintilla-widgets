@@ -9,10 +9,11 @@ vm.runInNewContext(source, context);
 const scenes = context.globalThis.StationScenes;
 const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
 const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
-const videoPane = fs.readFileSync(new URL("../pane-video/index.html", import.meta.url), "utf8");
+const legacyVideoPane = fs.readFileSync(new URL("../pane-video/index.html", import.meta.url), "utf8");
 const chartShell = fs.readFileSync(new URL("../station-shells/chart-v1/index.html", import.meta.url), "utf8");
 const personalVideoShell = fs.readFileSync(new URL("../station-shells/personal-video-v1/index.html", import.meta.url), "utf8");
 const scintillaVideoShell = fs.readFileSync(new URL("../station-shells/scintilla-video-v1/index.html", import.meta.url), "utf8");
+const videoPane = personalVideoShell;
 const xShell = fs.readFileSync(new URL("../station-shells/x-v2/index.html", import.meta.url), "utf8");
 const youtubeHub = fs.readFileSync(new URL("../youtube/index.html", import.meta.url), "utf8");
 const ipadCompanion = fs.readFileSync(new URL("../station-ipad/index.html", import.meta.url), "utf8");
@@ -43,6 +44,10 @@ function functionFromSource(sourceText, name, bindings = {}) {
   const context = { globalThis:{}, ...bindings };
   vm.runInNewContext(`${sourceText.slice(start, end)}; globalThis.fn = ${name};`, context);
   return context.globalThis.fn;
+}
+
+function withoutInlineScript(sourceText) {
+  return sourceText.replace(/<script>[\s\S]*?<\/script>/, "<script></script>");
 }
 
 test("all eleven curated scenes are present with fixed baskets", () => {
@@ -241,7 +246,12 @@ test("Station pins charts, each YouTube feed, and X to independently versioned s
   assert.equal(chartShell.replace('<script src="/testing-surface.js"></script>\n', ""), chart,
     "the reviewed chart surface is unchanged beneath the testing-only bootstrap");
   assert.equal(personalVideoShell, scintillaVideoShell,
-    "Personal and SCINTILLA remain independent endpoints with the same reviewed pane behavior");
+    "both independently routed YouTube shells use the same reviewed playback engine");
+  assert.equal(
+    withoutInlineScript(personalVideoShell.replace('<script src="/testing-surface.js"></script>\n', "")),
+    withoutInlineScript(legacyVideoPane),
+    "the engine change preserves the reviewed markup, styling, controls, and visible copy beneath the testing bootstrap"
+  );
   assert.match(personalVideoShell, /const TESTING_SURFACE = !!window\.ScintillaTestingSurface\?\.active/);
   assert.match(personalVideoShell, /async function pg\(path, _tries\)/,
     "the reviewed read-only feed path remains present");
@@ -657,12 +667,31 @@ test("video auto-next silently advances the next visible item and skips an unava
   assert.equal(next(rows, "a", new Set()).video_id, "b");
   assert.equal(next(rows, "a", new Set(["b"])).video_id, "c");
   assert.equal(next(rows, "c", new Set()), null);
-  assert.match(videoPane, /args:\s*\["onStateChange"\]/);
-  assert.match(videoPane, /Number\(data\.info\) === 0/);
+  assert.match(videoPane, /new YT\.Player\("ytPlayer"/,
+    "the Station shell uses the official YouTube player object");
+  assert.match(videoPane, /onStateChange:handlePlayerStateChange/);
+  assert.match(videoPane, /Number\(event\.data\) !== 0/);
   assert.match(videoPane, /advanceQueue\(\);/,
     "a YouTube ENDED event advances without a user toggle");
+  assert.match(videoPane, /player\.loadVideoById\(video\)/,
+    "queue advances load into the persistent player instead of replacing its iframe");
+  assert.match(videoPane, /isUnembeddablePlayerError\(event\.data\)/);
+  const unembeddable = functionFromSource(videoPane, "isUnembeddablePlayerError", { Number, Array });
+  assert.equal(unembeddable(101), true);
+  assert.equal(unembeddable(150), true);
+  assert.equal(unembeddable(153), true);
+  assert.equal(unembeddable(100), false);
+  assert.match(videoPane, /PLAYER_ERROR_TOKEN === request\.token/,
+    "one unembeddable delivery can skip the current video only once");
   assert.match(videoPane, /skipping unavailable video/);
   assert.match(videoPane, /id="bCover"/);
+  assert.doesNotMatch(videoPane, /event:"command"|func:"addEventListener"|infoDelivery/,
+    "the raw iframe postMessage controller is gone");
+  assert.match(videoPane, /onAutoplayBlocked:handleAutoplayBlocked/);
+  assert.match(videoPane, /document\.body\.dataset\.autoplayBlocked/,
+    "autoplay blocking is explicit machine-readable state without new visible UI");
+  assert.doesNotMatch(videoPane, /id="bPrev"|id="bNext"|id="bMenu"/,
+    "the engine candidate adds no front-facing controls");
   assert.doesNotMatch(videoPane, /bAuto|autoNext|AUTO_NEXT/,
     "auto-next is always on and adds no visible control or URL state");
 });
@@ -689,20 +718,20 @@ test("video resume is shared with Hub, bounded, and clears completion before aut
     "a shared read gets a bounded chance before playback starts from the honest beginning");
   assert.doesNotMatch(videoPane, /localStorage\.setItem\(VIDEO_POSITION_KEY/,
     "Station does not retain a private device-only resume record");
-  assert.match(videoPane, /infoDelivery[\s\S]*?saveActiveVideoPosition\(false\)/,
-    "player progress is persisted only from real YouTube playback deliveries");
-  assert.match(videoPane, /resumeAt \? "&start=" \+ encodeURIComponent\(resumeAt\)/,
+  assert.match(videoPane, /captureActiveVideoPosition[\s\S]*?player\.getCurrentTime\(\)[\s\S]*?player\.getDuration\(\)/,
+    "player progress comes from the official player object");
+  assert.match(videoPane, /startSeconds:request\.resumeAt \|\| 0/,
     "reopening uses the shared saved start point");
-  assert.match(videoPane, /clearVideoPosition\(CUR\?\.video_id\);[\s\S]*?advanceQueue\(\);/,
+  assert.match(videoPane, /clearVideoPosition\(request\.video\.video_id\);[\s\S]*?advanceQueue\(\);/,
     "completion clears continuation before the existing auto-next path");
   assert.match(videoPane, /visibilitychange[\s\S]*?saveActiveVideoPosition\(true\)/);
   assert.match(videoPane, /pagehide[\s\S]*?saveActiveVideoPosition\(true\)/);
-  assert.match(videoPane, /func:"getCurrentTime"[\s\S]*?func:"getDuration"/,
-    "the player is periodically asked for real playback progress");
-  assert.match(videoPane, /startPlayerPositionPoll\(PLAYER_TOKEN, frame\)/,
-    "the bounded progress probe starts only after the embedded player is ready");
+  assert.match(videoPane, /startPlayerPositionPoll\(request\.token\)/,
+    "the bounded progress probe follows the currently loaded request");
   assert.match(videoPane, /clearPlayerPositionPoll\(\);[\s\S]*?CUR = null/,
     "leaving a video removes its one local progress probe");
+  assert.doesNotMatch(videoPane, /el\("video"\)\.innerHTML = ""/,
+    "returning to the grid keeps the one official player object alive for the next selection");
 });
 
 test("Personal subscriptions and the shared Scintilla discovery feed stay correctly scoped", () => {
