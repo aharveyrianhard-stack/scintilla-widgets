@@ -1222,6 +1222,13 @@ async function pullPrevClose(t) {
 /* realtime — live_quotes ticks patch the active chart (hub channel, verbatim shape) */
 if (sb && !DECK_QUOTE_MODE) {
   sb.channel("lq").on("postgres_changes", { event: "*", schema: "public", table: "live_quotes" }, (p) => {
+    /* SAME REALTIME BYPASS AS deck/index.html. Supabase Realtime does not go through fetch, so the
+       provider shim never saw this and a legacy price could patch a provider-owned chart. Refused
+       for provider-owned equities; non-equities keep their existing owner. */
+    const shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
+    const sym = String((p.new && p.new.ticker) || "").toUpperCase();
+    if (shim && shim.isProviderOwned && shim.isProviderOwned(sym)) { shim.realtime_equity_refused++; return; }
+    if (shim) shim.realtime_nonequity_passthrough++;
     if (p.new && p.new.ticker && p.new.price != null) scChartLive(String(p.new.ticker).toUpperCase(), +p.new.price, p.new.updated_ts);
   }).subscribe();
 }
