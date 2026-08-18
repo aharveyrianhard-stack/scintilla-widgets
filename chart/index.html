@@ -298,13 +298,27 @@ function chColors() {
   return CH_COL;
 }
 const chFmpSym = (t) => (cryptoSet.has(t) && !t.endsWith("USD") ? t + "USD" : t);
+/* COMPLETED PROVIDER CANDLES ARE IMMUTABLE.
+   This function used to do `last.p = +quote.price` - overwriting the newest COMPLETED provider
+   close with the current live quote whenever they shared a date - and fetchChartSeries then
+   persisted that mutated array into chartCache and localStorage for up to 24 hours. A live tick
+   therefore rewrote a settled bar AND the rewrite outlived the session, which is exactly what the
+   standing rule forbids: never invent or rewrite a bar from a live quote.
+   It now returns a COPY and never touches the input array, so the cached provider series stays
+   pure. For a PROVIDER-OWNED equity nothing is substituted at all - the live price is a separate
+   readout, not a candle. Futures and crypto, which the provider does not own here, keep their
+   existing appended transient point, flagged live:true so no consumer can mistake it for a
+   completed bar, and it is applied only AFTER caching. */
 function chApplyLivePoint(t, pts, quote) {
   if (!quote || !Array.isArray(pts) || !pts.length || !isFinite(+quote.price)) return pts;
+  var shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
+  if (shim && shim.isProviderOwned && shim.isProviderOwned(t)) return pts;   // equity: never touched
   const d = new Date(quote.updated_ts || Date.now()).toISOString();
-  const last = pts[pts.length - 1];
-  if (last.d.slice(0,10) === d.slice(0,10)) last.p = +quote.price;
-  else if (futureSet.has(t) || cryptoSet.has(t)) pts.push({ d, p:+quote.price });
-  return pts;
+  const out = pts.slice();                                   // COPY - input is never mutated
+  const last = out[out.length - 1];
+  if (last.d.slice(0,10) === d.slice(0,10)) return out;      // same day: do NOT rewrite the bar
+  if (futureSet.has(t) || cryptoSet.has(t)) out.push({ d, p:+quote.price, live:true });
+  return out;
 }
 const CH_DECIMALS = { GCUSD:1, CLUSD:2, SIUSD:3, DXUSD:3, ESUSD:2, NQUSD:2 };
 const chPx = (p, ticker = "") => {
@@ -397,11 +411,12 @@ async function fetchChartSeries(t, range, requestedLimit){
     const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + limit, 2);
     let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
     pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
-    chApplyLivePoint(t, pts, liveQuote[t]);
+    /* CACHE THE PURE PROVIDER SERIES FIRST. The transient live point is applied to a COPY
+       afterwards and is never persisted, so nothing a live quote does can change a cached candle. */
     pts = chartTail(pts, limit);
     chartCache.set(key, { ts: Date.now(), pts: pts, limit:limit });
     if (pts.length >= 2) { try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {} }
-    return pts;
+    return chApplyLivePoint(t, pts, liveQuote[t]);
   })();
   chartInflight.set(inflightKey, work);
   try { return await work; }
@@ -1222,6 +1237,13 @@ async function pullPrevClose(t) {
 /* realtime — live_quotes ticks patch the active chart (hub channel, verbatim shape) */
 if (sb && !DECK_QUOTE_MODE) {
   sb.channel("lq").on("postgres_changes", { event: "*", schema: "public", table: "live_quotes" }, (p) => {
+    /* SAME REALTIME BYPASS AS deck/index.html. Supabase Realtime does not go through fetch, so the
+       provider shim never saw this and a legacy price could patch a provider-owned chart. Refused
+       for provider-owned equities; non-equities keep their existing owner. */
+    const shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
+    const sym = String((p.new && p.new.ticker) || "").toUpperCase();
+    if (shim && shim.isProviderOwned && shim.isProviderOwned(sym)) { shim.realtime_equity_refused++; return; }
+    if (shim) shim.realtime_nonequity_passthrough++;
     if (p.new && p.new.ticker && p.new.price != null) scChartLive(String(p.new.ticker).toUpperCase(), +p.new.price, p.new.updated_ts);
   }).subscribe();
 }

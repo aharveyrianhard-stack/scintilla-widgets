@@ -43,7 +43,21 @@
     equalizer_receipt: null,
     counts: { quotes: 0, geiger: 0, candles: 0, passthrough_non_equity: 0, unsatisfied: 0 },
     unsatisfied: [],
-    legacy_equity_calls: []          // must stay empty; anything here is a contract breach
+    legacy_equity_calls: [],         // must stay empty; anything here is a contract breach
+    /* SYNCHRONOUS MEMBERSHIP FOR NON-FETCH CALL SITES.
+       The fetch wrapper cannot see Supabase REALTIME, which delivers rows over a WebSocket and
+       never calls fetch at all. deck's station-deck-lq channel and chart's lq channel both wrote
+       equity prices straight into the render path, bypassing every guard in this file - and
+       legacy_equity_calls stayed empty the whole time, which made the shim look clean while a
+       legacy price moved a provider-owned symbol. Those handlers need an ANSWER NOW, not a
+       promise, so the owned map is published here as it resolves. */
+    owned_map: null,
+    isProviderOwned: function (sym) {
+      var m = window.SC_PROVIDER_SHIM.owned_map;
+      return !!(m && m[String(sym || '').toUpperCase()]);
+    },
+    realtime_equity_refused: 0,
+    realtime_nonequity_passthrough: 0
   };
 
   // ---- caches. Short TTLs matching each route's own cache-control. -----------------------------
@@ -58,7 +72,9 @@
     if (owned && Date.now() - ownedAt < 300000) return Promise.resolve(owned);
     return jget(API + '/geiger').then(function (j) {
       if (!j || !j.symbols) return owned || {};
-      owned = {}; Object.keys(j.symbols).forEach(function (k) { owned[k] = 1; });
+      // published for the synchronous Realtime guards above
+      owned = {};
+      S.owned_map = owned; Object.keys(j.symbols).forEach(function (k) { owned[k] = 1; });
       ownedAt = Date.now();
       S.equalizer_receipt = j.equalizer_receipt_sha256;
       return owned;

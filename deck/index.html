@@ -531,6 +531,18 @@ async function refreshDeckQuotes() {
 if (deckSb) deckSb.channel("station-deck-lq").on("postgres_changes", {
   event:"*", schema:"public", table:"live_quotes"
 }, (event) => {
+  /* REALTIME BYPASSED THE PROVIDER SHIM.
+     _provider/provider.js wraps fetch, but Supabase Realtime arrives over a WebSocket and never
+     calls fetch, so this handler wrote a raw live_quotes row straight into DECK_QUOTES for any
+     symbol - including provider-owned equities - while SC_PROVIDER_SHIM.legacy_equity_calls stayed
+     empty. The shim looked clean precisely because it could not see this path.
+     A provider-owned equity is now REFUSED here and keeps whatever the provider last supplied.
+     Crypto and every other non-equity pass through untouched, so their existing owner is
+     unchanged - this is provider routing, not a fallback. */
+  const shim = window.SC_PROVIDER_SHIM;
+  const sym = String((event.new && event.new.ticker) || "").toUpperCase();
+  if (shim && shim.isProviderOwned && shim.isProviderOwned(sym)) { shim.realtime_equity_refused++; return; }
+  if (shim) shim.realtime_nonequity_passthrough++;
   const selected = selectVisibleQuoteRows([event.new], visibleChartTickers());
   for (const [ticker, quote] of selected) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); fanoutDeckQuote(ticker); }
 }).subscribe();
