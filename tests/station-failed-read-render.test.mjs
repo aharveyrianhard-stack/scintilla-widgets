@@ -453,3 +453,44 @@ test("/reflow: an unknown SIZE metric is a placeholder, not a measurement", () =
   assert.equal(none.medianSize, 1, "no known size at all falls back without dividing by zero");
   assert.equal(none.sizeOf("A"), 1);
 });
+
+test("/compare: a position is a claim — an unranked row is placed, not left where it was", () => {
+  const compare = read("../compare/index.html");
+  /* `place()` moves exactly what `computeOrder()` returns, and that used to be only the
+     cohorts with a value. A cohort whose value stopped landing was never moved again: it
+     kept the coordinate it last earned, and once the ranked list grew shorter than the wall
+     a ranked row took the same index and landed on top of it — two rows, one coordinate. */
+  assert.match(compare, /return names\.concat\(COHORTS\.filter\(\(c\)=>!\(c in n\)\)\);/);
+  assert.match(compare, /e\.querySelector\("\.rk"\)\.textContent = \(name in n\) \? \(i\+1\) : "—"/);
+  assert.match(compare, /const rankedCount=Object\.keys\(n\)\.length, unranked=order\.length-rankedCount;/);
+  assert.match(compare, /with no reading, held below the ranking/);
+  /* The null branch resets the row fully: the stale marking used to be applied after this
+     early return, so a row that went stale and then lost its value kept the class. */
+  assert.match(compare, /val\.className="val neu"; e\.classList\.remove\("stale"\); return;/);
+
+  const order = (bindings) => vm.runInNewContext(
+    compare.match(/function computeOrder\(n\)\{[\s\S]*?\n\}/)[0] + " computeOrder",
+    Object.assign({ Math, Object }, bindings));
+
+  /* Every cohort comes back, ranked ones first by value, unranked after in wall order. */
+  const COHORTS = ["AGRI", "AI_HARDWARE", "AI_SOFTWARE", "GROWTH", "MEGACAP"];
+  const fn = order({ COHORTS, HOLD: false, prevOrder: [] });
+  const got = fn({ AI_HARDWARE: 0.5, MEGACAP: 0.1, AI_SOFTWARE: -0.2 });
+  assert.deepEqual(got, ["AI_HARDWARE", "MEGACAP", "AI_SOFTWARE", "AGRI", "GROWTH"],
+    "ranked by value, then the unranked in the wall's own stable order");
+  assert.equal(got.length, COHORTS.length, "the wall never shrinks — every row is placed");
+  assert.equal(new Set(got).size, got.length, "and no row appears twice, so no index collides");
+
+  /* All ranked and all unranked are both handled. */
+  assert.deepEqual(fn({}), COHORTS, "nothing rankable: the wall keeps its own order");
+  const all = fn({ AGRI: 1, AI_HARDWARE: 2, AI_SOFTWARE: 3, GROWTH: 4, MEGACAP: 5 });
+  assert.deepEqual(all, ["MEGACAP", "GROWTH", "AI_SOFTWARE", "AI_HARDWARE", "AGRI"]);
+
+  /* The HOLD near-tie swap still applies, and only among ranked entries. */
+  const held = order({ COHORTS, HOLD: true, prevOrder: ["MEGACAP", "AI_HARDWARE"] })(
+    { AI_HARDWARE: 0.50, MEGACAP: 0.49 });
+  assert.deepEqual(held.slice(0, 2), ["MEGACAP", "AI_HARDWARE"],
+    "a near-tie holds the previous order");
+  assert.deepEqual(held.slice(2), ["AGRI", "AI_SOFTWARE", "GROWTH"],
+    "…and the unranked tail is untouched by the swap");
+});

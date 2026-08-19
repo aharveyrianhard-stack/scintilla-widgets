@@ -1851,3 +1851,38 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/yt-lost-write.mjs` (route 
 - **Scope notes, measured in code**: the two mounted video shells already REVERT on this failure (state-honest) but stay reason-silent — recorded as a lesser gap, not repaired here, because their only failure surface today is the watch-list read lane and hijacking it would blank the list; their `subscribeToChannel` catch is the same state-honest/reason-silent shape. The 10s-cadence `ytPosPush` position write keeps its silent catch by design: positions re-push on cadence, so a lost write is retried by the next tick rather than lied about.
 
 Zero page errors in both scenarios. Rollback: revert the single commit carrying this unit — the change is client-render behavior only (no schema, no endpoint, no authority change).
+
+---
+
+## 2026-08-19T18:27:27Z — a position is a claim: a row with no value has not earned a rank
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/unranked-position.mjs` (asserts inline; reads the rendered `translateY` coordinates, not the source)
+
+`/compare` is a ranked wall: `place()` positions each cohort row at `translateY(pos * 44)`, where `pos` is its index in the order `computeOrder()` returns. That order used to contain **only the cohorts that had a value** — and `place()` moves exactly what the order contains. So a cohort whose value stopped landing was never moved again: it kept the coordinate it last earned, wore the rank numeral it last earned, and — because the ranked list is now shorter than the wall — a ranked row could be assigned the same index and **land on top of it**. Two rows at one coordinate, one of them lying about its place.
+
+Five cohorts served, one of them carrying members no composite covers (browser-proof/receipts/compare-unranked-row-placed-last.png):
+
+- **All four rows stay on the wall.** The wall does not shrink to hide what it cannot rank.
+- **No two rows share a coordinate** — asserted as a set-size equality over the measured transforms, so a collision cannot pass.
+- **The four valued rows** hold coordinates 0 / 44 / 88 / 132 in rank order and are numbered 1 to 4.
+- **The starved row sits at 176 — after every ranked row** — with the numeral `—` instead of a stale number, the value `—`, a dimmed opacity, and **no stale marking** (that marking is a claim about the read window, and it used to survive on a row that had lost its reading entirely, because the early return for a null value ran before the toggle).
+
+Zero page errors. Rollback: revert the single commit — one `concat` in the order, one numeral guard, one full reset in the null branch, pins and this proof. No data lane, authority or methodology changed; the cohort values are read exactly as before.
+
+---
+
+## 2026-08-19T18:28:34Z — a position is a claim: a row with no value has not earned a rank
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/unranked-position.mjs` (asserts inline; reads the rendered `translateY` coordinates, not the source)
+
+`/compare` is a ranked wall: `place()` positions each cohort row at `translateY(pos * 44)`, where `pos` is its index in the order `computeOrder()` returns. That order used to contain **only the cohorts that had a value** — and `place()` moves exactly what the order contains. So a cohort whose value stopped landing was never moved again: it kept the coordinate it last earned, wore the rank numeral it last earned, and — because the ranked list is now shorter than the wall — a ranked row could be assigned the same index and **land on top of it**. Two rows at one coordinate, one of them lying about its place.
+
+Five cohorts served, one of them carrying members no composite covers (browser-proof/receipts/compare-unranked-row-placed-last.png):
+
+- **All five rows stay on the wall.** The wall does not shrink to hide what it cannot rank.
+- **No two rows share a coordinate** — asserted as a set-size equality over the measured transforms, so a collision cannot pass.
+- **The four valued rows** hold coordinates 0 / 44 / 88 / 132 in rank order and are numbered 1 to 4.
+- **The header counts what it ranked**: "4 cohorts ranked by COMPOSITE · 1 with no reading, held below the ranking". Extending the order to carry unranked rows would otherwise have turned `order.length` into a claim that all five were ranked — the fix's own side effect, caught and corrected in the same unit.
+- **The starved row sits at 176 — after every ranked row** — with the numeral `—` instead of a stale number, the value `—`, a dimmed opacity, and **no stale marking** (that marking is a claim about the read window, and it used to survive on a row that had lost its reading entirely, because the early return for a null value ran before the toggle).
+
+Zero page errors. Rollback: revert the single commit — one `concat` in the order, one numeral guard, one full reset in the null branch, pins and this proof. No data lane, authority or methodology changed; the cohort values are read exactly as before.

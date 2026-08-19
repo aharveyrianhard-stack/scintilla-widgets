@@ -426,6 +426,14 @@ function normed(){
   names.forEach((c,i)=>out[c]= NORM ? dev[i]/mx : dev[i]);
   return out;
 }
+/* A POSITION IS A CLAIM, AND A ROW WITH NO VALUE HAS NOT EARNED ONE.
+   This used to return only the cohorts `normed()` could rank, and `place()` moves exactly
+   what this returns — so a cohort whose value stopped landing was never moved again. It
+   kept the coordinate it last earned, sat among ranked peers at a rank it no longer held,
+   and once the ranked list got shorter than the wall it could be LANDED ON by a ranked row
+   taking the same index — two rows at one coordinate, one of them lying about its place.
+   Unranked cohorts are kept (the wall must not shrink) and ordered after every ranked one,
+   in the wall's own stable order; the numeral loop then refuses to number them. */
 function computeOrder(n){
   const names=Object.keys(n);
   names.sort((a,b)=>n[b]-n[a]);
@@ -436,7 +444,7 @@ function computeOrder(n){
       if(Math.abs(n[a]-n[b])<0.03 && pos[b]<pos[a]){names[p]=b;names[p+1]=a}
     }
   }
-  return names;
+  return names.concat(COHORTS.filter((c)=>!(c in n)));
 }
 function place(dur){
   order.forEach((name,pos)=>{
@@ -457,7 +465,12 @@ function render(isNewMeasure, bad){
     const raw=DATA[name], v=n[name];
     const track=e.querySelector(".track"), bar=e.querySelector(".bar"), val=e.querySelector(".val");
     e.querySelectorAll(".gh,.strike").forEach(x=>x.remove());
-    if(raw==null){ e.style.opacity=".25"; bar.style.width="0"; val.textContent="—"; return; }
+    /* A row with no value is fully reset, not partly. The stale marking used to be applied
+       AFTER this early return, so a row that was stale and then lost its value kept the
+       stale class from the previous render — a claim about a window, left standing over a
+       row that now has no reading at all. */
+    if(raw==null){ e.style.opacity=".25"; bar.style.width="0"; val.textContent="—";
+      val.className="val neu"; e.classList.remove("stale"); return; }
     e.style.opacity="1";
     track.classList.toggle("mag",!NORM&&!m.signed);
     const f=Math.max(-0.98,Math.min(0.98,v));
@@ -470,8 +483,10 @@ function render(isNewMeasure, bad){
     if(bad){ const s=document.createElement("i"); s.className="strike"; e.appendChild(s) }
   });
 
-  /* rank numerals */
-  order.forEach((name,i)=>{ const e=rowEls[name]; if(e) e.querySelector(".rk").textContent=(i+1) });
+  /* Rank numerals — only for rows that HAVE a value. A cohort that dropped out of the
+     ranking used to keep the numeral it last earned, so a row reading "—" still wore a
+     rank from an earlier read. */
+  order.forEach((name,i)=>{ const e=rowEls[name]; if(e) e.querySelector(".rk").textContent = (name in n) ? (i+1) : "—" });
 
   /* ghost of the last order */
   if(GHOST){
@@ -491,7 +506,12 @@ function render(isNewMeasure, bad){
   place(isNewMeasure||reduce ? 0 : 620);
 
   const m2=COLS.find(c=>c.k===col);
-  el("status").innerHTML="<b>"+order.length+"</b> cohorts ranked by <b>"+m2.label+"</b>"+
+  /* The count says how many are RANKED, not how many rows the wall holds — the order now
+     carries the unranked rows too, so `order.length` would have claimed a ranking over rows
+     that have no reading. Any it could not rank are counted separately and named. */
+  const rankedCount=Object.keys(n).length, unranked=order.length-rankedCount;
+  el("status").innerHTML="<b>"+rankedCount+"</b> cohorts ranked by <b>"+m2.label+"</b>"+
+    (unranked?" · <b>"+unranked+"</b> with no reading, held below the ranking":"")+
     (isNewMeasure?" · <b>cut</b> — a new measure has no continuity with the last":" · animated")+
     (detent===0?"":" · as of <b>"+iso(detentDate())+"</b>");
   el("meta").innerHTML = detent===0
