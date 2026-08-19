@@ -559,3 +559,18 @@ one commit.
 ## Errata, stated
 
 - None new: one code commit, gated green before push.
+
+---
+
+# Round — executor 3, hub-entry packet (2026-08-19, same session)
+
+One unit (`5db90cc`) on the operator's live-path directive, both halves photographed and
+neither faked. LIVE: Chromium through the environment proxy at
+https://station.scintillahub.ai/ fails `net::ERR_TUNNEL_CONNECTION_FAILED` — recorded
+verbatim, screenshotted; the CONNECT dies before TLS, nothing bypassed. CONFIG-EMULATED:
+the same URL served under vercel.json's PARSED rules boots the Station AT the hub origin —
+title, scene machinery, shim, axis, panes, zero asset 404s — proving by outcome that
+/deck's absolute-path discipline survives the root rewrite, a surface nothing had exercised
+before. The config is pinned from the parsed file (two rewrites exactly; no-store at all
+three cache layers). Suite 249/0; 15 proofs, 42 screenshots. No provider history touched,
+no Geiger change, no database access. Errata: none new.
