@@ -274,31 +274,69 @@ function fmtCap(v){ if(v==null) return '—'; return v>=1e12?'$'+(v/1e12).toFixe
    equity and passes through to its own owner otherwise. A symbol with no usable provider price
    returns null and every consumer shows it as unavailable rather than substituting a number. */
 const QUOTE_CACHE = new Map();
+/* A quote is CURRENT for a while, not forever - and an absence must be allowed to recover.
+   The first cut of this cache had no TTL: a symbol once recorded unpriced stayed unpriced for
+   the page's whole life, so a provider blip at load time disabled valuation permanently, and a
+   real price never refreshed. A held price re-asks after QUOTE_TTL_MS; any kind of absence
+   re-asks sooner, because recovery is the point of remembering the failure at all. */
+const QUOTE_TTL_MS = 60000;
+const QUOTE_RETRY_MS = 15000;
+function quoteEntryFresh(e){
+  if(!e) return false;
+  return (Date.now() - (e.cachedAt || 0)) < (e.kind === 'quoted' ? QUOTE_TTL_MS : QUOTE_RETRY_MS);
+}
 function usableNumber(raw){
   if(raw==null||raw===''||raw===true||raw===false) return null;
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
+/* FOUR DIFFERENT WAYS TO HAVE NO PRICE, KEPT FOUR DIFFERENT THINGS.
+   quoted   - a usable provider price.
+   invalid  - the row arrived and its price is not a positive finite number. A contract breach,
+              not a gap; Number(null) is 0, so the raw value decides.
+   unquoted - the read succeeded and did not carry the symbol. Unnamed emptiness stays
+              retryable; nothing here may invent a terminal absence.
+   failed   - the read itself fell over (transport, timeout, HTTP error). A failed read is
+              never data, so it must not erase an answer we already hold. */
 async function providerQuotes(symbols){
-  const want = symbols.filter(s=>s && !QUOTE_CACHE.has(s));
+  const want = symbols.filter(s=>s && !quoteEntryFresh(QUOTE_CACHE.get(s)));
   if(want.length){
-    let rows = [];
+    let rows = [], failed = false;
     try { rows = await sb('live_quotes?select=ticker,price,prev_close,updated_ts&ticker=in.('+want.map(encodeURIComponent).join(',')+')'); }
-    catch(e){ rows = []; }
-    if(rows && rows._sbError) rows = [];
+    catch(e){ failed = true; rows = []; }
+    if(rows && rows._sbError){ failed = true; rows = []; }
     const byT = {};
     for(const r of (Array.isArray(rows)?rows:[])) byT[r.ticker] = r;
-    /* A symbol the read did not carry is recorded as unpriced, not left to be asked again on
-       every render - and never filled in from fundamentals. */
     for(const sym of want){
       const r = byT[sym];
-      QUOTE_CACHE.set(sym, r ? { price:usableNumber(r.price), prev:usableNumber(r.prev_close),
-                                 at:r.updated_ts||null } : { price:null, prev:null, at:null });
+      if(r){
+        const px = usableNumber(r.price);
+        QUOTE_CACHE.set(sym, { price:px, prev:usableNumber(r.prev_close), at:r.updated_ts||null,
+                               kind:px!=null?'quoted':'invalid', cachedAt:Date.now() });
+      } else if(failed){
+        /* Keep a previously held quote through one bad read; only record the failure where
+           nothing better is known. Either way the entry is short-lived and re-asked. */
+        const prev = QUOTE_CACHE.get(sym);
+        if(!prev || prev.kind !== 'quoted')
+          QUOTE_CACHE.set(sym, { price:null, prev:null, at:null, kind:'failed', cachedAt:Date.now() });
+      } else {
+        QUOTE_CACHE.set(sym, { price:null, prev:null, at:null, kind:'unquoted', cachedAt:Date.now() });
+      }
     }
   }
   return QUOTE_CACHE;
 }
 const quotePriceOf = (sym) => (QUOTE_CACHE.get(sym)||{}).price ?? null;
+/* The words each no-price state renders under - the reader can tell a dead transport from a
+   symbol the provider does not carry from a row that arrived broken. */
+function quoteFailureWord(sym){
+  const e = QUOTE_CACHE.get(sym);
+  if(!e) return 'the quote has not been asked for yet';
+  if(e.kind === 'failed') return 'the quote read failed (transport, timeout or HTTP error) — a failed read is never data; retrying';
+  if(e.kind === 'invalid') return 'the quote row arrived without a usable positive price — a contract breach, not a valuation input; retrying';
+  if(e.kind === 'unquoted') return 'the provider answer did not carry this symbol — an unnamed omission stays retryable';
+  return 'no usable provider price';
+}
 async function renderComps(sym){
   const cohort = COHORT_MAP[sym] || 'UNCOHORTED';
   const cohortMembers = UNIVERSE.filter(u=>u.cohort===cohort && u.ticker!==sym).map(u=>u.ticker);
@@ -317,7 +355,13 @@ async function renderComps(sym){
   document.getElementById('compsTitle').textContent = '1 · Comparable Companies — '+sym+' vs '+cohort+' home cohort (tickers.cohort)';
   document.getElementById('ffieldTitle').textContent = 'Valuation football field — what each method says '+sym+' is worth, vs the $'+(PX!=null?PX.toFixed(2):'—')+' price';
   if(PX==null){
-    document.getElementById('ffield').innerHTML = gapBanner('No fundamentals row for '+sym, 'Supabase fundamentals table has no row for this ticker yet — comps/football-field/score can\'t compute without a price and market cap. '+freshTag(null));
+    /* Two different absences, two different sentences. B[sym] existing means the fundamentals
+       row is there and the QUOTE is what is missing; the old banner blamed the fundamentals
+       table either way, which sent the reader to the wrong owner. */
+    const hasFund = !!(B[sym] && B[sym].hasData);
+    document.getElementById('ffield').innerHTML = hasFund
+      ? gapBanner('No provider price for '+sym, quoteFailureWord(sym)+' — the football field, score and upside all compare against the market price, so they are disabled rather than computed against a fundamentals snapshot. The fundamentals sections below are unaffected.')
+      : gapBanner('No fundamentals row for '+sym, 'Supabase fundamentals table has no row for this ticker yet — comps/football-field/score can\'t compute without a price and market cap. '+freshTag(null));
     document.getElementById('ffieldFoot').textContent='';
     document.getElementById('scoreFormula').innerHTML=''; document.getElementById('scoreBox').innerHTML=''; document.getElementById('scoreTable').innerHTML='';
     document.getElementById('compsBody').innerHTML='';
@@ -898,28 +942,6 @@ async function setTicker(sym){
   CURTICK=sym;
   document.getElementById('tickerStat').textContent = 'Loading '+sym+' from Supabase…';
   const b = await buildBase(sym);
-  /* CURRENT-PRICE MATH NEEDS A CURRENT PRICE.
-     Upside, the implied-expectations solve and every fair-value heat cell are comparisons
-     AGAINST the market price. With no provider price there is nothing to compare to, and a
-     flagged-but-computed number is a wrong answer wearing a caveat. The valuation sections are
-     disabled and say why; the fundamentals and ratios sections, which do not depend on a current
-     price, are unaffected. */
-  if(b && b.priceUnavailable){
-    const banner = gapBanner('No provider price for '+sym,
-      'The provider contract has no usable current price for this symbol, so every valuation '+
-      'below is a comparison against a number that does not exist. Upside, implied expectations '+
-      'and the sensitivity grids are disabled rather than computed against a stale or substituted '+
-      'price. Fundamentals and ratios are unaffected.');
-    /* The comparison-against-price readouts, and the two sensitivity grids. */
-    for(const id of ['oFV','oMktPrice','oUp','oEV','oTV','npvSplit','sens1','sens2']){
-      const el = document.getElementById(id);
-      if(el) el.innerHTML = id === 'oUp' ? 'price unavailable' : '—';
-    }
-    const caveat = document.getElementById('tickerCaveat');
-    if(caveat) caveat.innerHTML = banner;
-    /* And the flag is on BASE so any later render can see it rather than recomputing. */
-    b.valuationDisabled = true;
-  }
   if(!b){
     BASE=null;
     document.getElementById('tickerStat').textContent = sym+' — no fundamentals row';
@@ -941,7 +963,23 @@ async function setTicker(sym){
   document.getElementById('pm_consensus').style.pointerEvents = BASE.consensus ? 'auto' : 'none';
   document.getElementById('scenChips').innerHTML = chipsHTML_scenario();
   document.getElementById('betaChips').innerHTML = chipsHTML_beta();
-  document.getElementById('tickerCaveat').innerHTML = '⚠️ '+BASE.flags.join(' ')+' <span class="fresh">'+freshTag(BASE.fundTs)+'</span>';
+  /* CURRENT-PRICE MATH NEEDS A CURRENT PRICE.
+     Upside, the implied-expectations solve and every fair-value heat cell are comparisons
+     AGAINST the market price. With no provider price there is nothing to compare to, and a
+     flagged-but-computed number is a wrong answer wearing a caveat. The valuation sections are
+     disabled - by the gate at the top of render(), so the state survives every slider drag -
+     and the banner is PREPENDED to the flags line rather than written where the flags line was
+     about to overwrite it, which is what happened to the first version of this disable. */
+  let caveatHTML = '⚠️ '+BASE.flags.join(' ')+' <span class="fresh">'+freshTag(BASE.fundTs)+'</span>';
+  if(BASE.priceUnavailable){
+    caveatHTML = gapBanner('No provider price for '+sym,
+      quoteFailureWord(sym)+'. Every valuation below is a comparison against the market price, '+
+      'so upside, implied expectations and the sensitivity grids are disabled rather than '+
+      'computed against a stale or substituted number. Fundamentals and ratios are unaffected. '+
+      'The page re-asks the provider every '+(QUOTE_RETRY_MS/1000)+'s and repaints when a price '+
+      'arrives.') + caveatHTML;
+  }
+  document.getElementById('tickerCaveat').innerHTML = caveatHTML;
   document.getElementById('dcfTitle').textContent = '3 · DCF — '+sym+' · sliders + modes, formulas update live';
   document.getElementById('tickerStat').textContent = sym+' · '+(BASE.priceUnavailable?'price unavailable':'$'+BASE.price.toFixed(2))+' · β '+BASE.beta.toFixed(2)+(BASE.betaIsGap?' (gap, defaulted)':' (company_profile)')+' · '+freshTag(BASE.fundTs);
   await renderComps(sym);
@@ -994,7 +1032,7 @@ function centerRange(key){
 }
 
 function render(){
-  const c=cur(), r=modelFull(c.g,c.m,c.t,c.rf,c.beta,c.mrp,c.tg);
+  const c=cur();
   document.getElementById('sv_g').textContent=rd('g').toFixed(1)+'%';
   document.getElementById('sv_m').textContent=rd('m').toFixed(1)+'%';
   document.getElementById('sv_t').textContent=rd('t').toFixed(1)+'%';
@@ -1003,6 +1041,13 @@ function render(){
   document.getElementById('sv_mrpS').textContent=rd('mrpS').toFixed(2)+'%';
   document.getElementById('sv_termg').textContent=rd('termg').toFixed(1)+'%';
   document.getElementById('builtLbl').textContent=builtMRP.toFixed(2);
+  /* THE GATE LIVES WHERE THE PAINT LIVES.
+     The first version of this disable was a one-time cell wipe in setTicker - which the very
+     next render(), i.e. any slider drag, overwrote with values divided by a null price
+     (Infinity upside, $NaN fair value). Every paint path passes through here, so the disabled
+     state survives interaction, and no fair-value arithmetic runs at all without a price. */
+  if(BASE && BASE.priceUnavailable){ renderValuationUnavailable(); return; }
+  const r=modelFull(c.g,c.m,c.t,c.rf,c.beta,c.mrp,c.tg);
   const pxStr='$'+fmt(BASE.price,2);
   document.getElementById('oMktPrice').textContent=pxStr;
   ['rvPriceLbl1','rvPriceLbl2','rvPriceLbl3','rvPriceLbl4'].forEach(id=>{const e=document.getElementById(id); if(e)e.textContent=pxStr;});
@@ -1107,6 +1152,31 @@ function render(){
   renderSens(c);
   renderReverse(c);
 }
+function renderValuationUnavailable(){
+  const why = quoteFailureWord(CURTICK);
+  document.getElementById('oMktPrice').textContent='unavailable';
+  ['rvPriceLbl1','rvPriceLbl2','rvPriceLbl3','rvPriceLbl4'].forEach(id=>{const e=document.getElementById(id); if(e)e.textContent='price unavailable';});
+  const e1=document.getElementById('oFV'); e1.textContent='—'; e1.className='rv';
+  const e2=document.getElementById('oUp'); e2.textContent='price unavailable'; e2.className='rv';
+  document.getElementById('oEV').textContent='—';
+  document.getElementById('oTV').textContent='—';
+  document.getElementById('oTable').innerHTML='';
+  document.getElementById('barchart').innerHTML='<div class="foot">valuation disabled — '+why+'.</div>';
+  document.getElementById('npvSplit').innerHTML='';
+  for(const id of ['sens1','sens2','revGrid','revTornado','revAction','rvYchips','rvXchips','rvGDisabledNote']){
+    const el=document.getElementById(id); if(el) el.innerHTML='';
+  }
+  const ro=document.getElementById('revout');
+  if(ro) ro.innerHTML='<div class="foot">implied-expectations solve disabled — '+why+'.</div>';
+}
+/* RECOVERY IS AUTOMATIC AND CHEAP: while the price is unavailable, one bounded quote read per
+   retry window - not a full page reload - and a full repaint only when a price actually
+   arrives. When the price is fine this interval does nothing at all. */
+setInterval(async () => {
+  if(!(BASE && BASE.priceUnavailable)) return;
+  try { await providerQuotes([CURTICK]); } catch(e) { return; }
+  if(quotePriceOf(CURTICK) != null) setTicker(CURTICK);
+}, QUOTE_RETRY_MS);
 function fg(id,pairs){document.getElementById(id).innerHTML=pairs.map(p=>'<div class="sym '+(p[2]==='op'?'op':'')+'">'+p[0]+'</div><div class="num '+(p[2]||'')+'">'+p[1]+'</div>').join('');}
 // --- Reverse DCF: solve for one input that makes fair value = market price ---
 let RV=null; // null = not yet bootstrapped; first render() picks the highest-impact variable
