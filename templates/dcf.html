@@ -56,7 +56,7 @@
 <body>
 
 <h1>Scintilla DCF V1.1 — DB-wired · Edge Score · Dispersion Score · 3-Stage Fade</h1>
-<div class="sub">Same ticker bar / slider structure as FMP_CAPABILITY_DEMO.html §3. Now leads with the actual projected financial statement (line by line, 5 years) before any valuation math — that projection is what everything downstream reads off. Then: (1) an Edge score (ours — not a licensed rating) that auto-sets a fade length, (2) a Dispersion score (ours) that auto-sets a margin-of-safety band, (3) the Stage II fade + Stage III perpetuity math — spot-checked against a published NVDA equity model's numbers to sanity-test the wiring, not copied from it. Comps, insider/congress trades, and the reverse-DCF solver stay in the fundamentals cockpit (scintillahub.ai/fundamentals) — not duplicated here. <b style="color:var(--gold)">V1.1 (2026-08-05, C7):</b> wired to the shared SCINTILLA DB — quote from <code>live_quotes</code>, revenue/mcap from <code>fundamentals</code>, beta/shares from <code>company_profile</code>, consensus revenue from <code>analyst_estimates</code>, risk-free from <code>treasury_rates</code> (10Y). Static Jul-24 numbers remain only as the flagged fallback baseline. Never FMP from this page.</div>
+<div class="sub">Same ticker bar / slider structure as FMP_CAPABILITY_DEMO.html §3. Now leads with the actual projected financial statement (line by line, 5 years) before any valuation math — that projection is what everything downstream reads off. Then: (1) an Edge score (ours — not a licensed rating) that auto-sets a fade length, (2) a Dispersion score (ours) that auto-sets a margin-of-safety band, (3) the Stage II fade + Stage III perpetuity math — spot-checked against a published NVDA equity model's numbers to sanity-test the wiring, not copied from it. Comps, insider/congress trades, and the reverse-DCF solver stay in the fundamentals cockpit (scintillahub.ai/fundamentals) — not duplicated here. <b style="color:var(--gold)">V1.1 (2026-08-05, C7):</b> wired to the shared SCINTILLA DB — quote from <code>live_quotes</code>, revenue/mcap from <code>fundamentals</code>, beta/shares from <code>company_profile</code>, consensus revenue from <code>analyst_estimates</code>, risk-free from <code>treasury_rates</code> (10Y). Static Jul-24 numbers remain only as the flagged fallback baseline for non-price fields — the price is provider-or-disabled, never the snapshot. Never FMP from this page.</div>
 
 <div id="tickerBar" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:20px; padding:14px 18px; background:var(--panel); border:1px solid var(--border); border-radius:12px;">
   <span style="font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; margin-right:2px;">Ticker:</span>
@@ -220,10 +220,13 @@ async function refreshDB(){
       const raw = r[0] ? r[0].price : null;
       const px = (raw==null||raw===''||raw===true||raw===false) ? null
                : (Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null);
-      if(px != null){ TICKERS[s].priceStatic=TICKERS[s].price; TICKERS[s].price=px;
+      if(px != null){ TICKERS[s].price=px; TICKERS[s].priceUnavailable=false;
         (DB_SRC[s]=DB_SRC[s]||{}).price=r[0].updated_ts; ok.price++; }
-      else { TICKERS[s].priceStatic=TICKERS[s].price; TICKERS[s].price=null;
-        TICKERS[s].priceUnavailable=true; }
+      else { TICKERS[s].price=null; TICKERS[s].priceUnavailable=true; }
+      /* The catch below leaves the entry as it stands: on a cold load that is null (prices
+         start absent), and on a later cycle it is the last PROVIDER price — a failed read
+         never erases knowledge, and it can never resurrect the static snapshot, because the
+         static snapshot is no longer stored where the valuation reads. */
     }).catch(()=>{}));
     J.push(sbGet(`fundamentals?select=revenue_ttm,market_cap,updated_ts&ticker=eq.${s}&limit=1`).then(r=>{
       if(r[0]&&r[0].revenue_ttm){ TICKERS[s].rev=r[0].revenue_ttm/1e9; (DB_SRC[s]=DB_SRC[s]||{}).rev=true; ok.fund++; }
@@ -298,6 +301,19 @@ const TICKERS={
     gDefault:82.0, mDefault:20, tDefault:7.0, termgDefault:2.0, consensus:null,
     flags:["Loss-making hypergrowth miner: EBITDA margin clamped to 20% floor — treat as illustrative only."]}
 };
+/* THE STATIC PRICES NEVER ENTER THE VALUATION — NOT EVEN FOR ONE PAINT.
+   setTicker('NVDA') runs before the first refreshDB() answer can land, so the cold load used
+   to render the full valuation — price readout, fair values, football field, "today's $…" —
+   against the Jul-24 snapshot, corrected only when (and if) the overlay arrived. A valuation
+   painted against a four-week-old price for even one frame is a Jul-24 valuation wearing
+   today's date, and if the overlay hung it stood indefinitely. Prices start absent; the
+   provider overlay is the only thing that can set one; the static figures stay visible as
+   priceStatic, a labelled historical reference. */
+for(const s of Object.keys(TICKERS)){
+  TICKERS[s].priceStatic = TICKERS[s].price;
+  TICKERS[s].price = null;
+  TICKERS[s].priceUnavailable = true;
+}
 let CURTICK='NVDA', BASE=TICKERS[CURTICK];
 function rd(id){return +document.getElementById(id).value;}
 function fmt(x,d=2){return x.toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d});}
@@ -396,11 +412,27 @@ function render(){
   const {rows, sumPV} = stageI(BASE.rev, BASE.shares, BASE.netDebt, BASE.daPct, BASE.capexPct, BASE.nwcPct, BASE.consensus, g, m, t, wacc);
   const ufcf5 = rows[4].ufcf, ebi5 = rows[4].ebi;
   if(BASE.price==null){
-    /* Every readout below this line is a comparison against the market price. */
+    /* No provider quote, no valuation - and no leftovers. The early return alone left the
+       PREVIOUS ticker's projection, fair values, bands and football field standing under the
+       new ticker's name, which reads as a valuation of the new ticker. Every section below
+       the gate is cleared and says why. */
     for(const id of ['oPrice','oFV','oUp','oEV','oTV']){
       const el=document.getElementById(id);
       if(el) el.textContent = id==='oUp' ? 'price unavailable' : '—';
     }
+    for(const id of ['oFV1','oFV3','oBuy','oTrim','moatScore','uncScore','s1pct','s2pct','s3pct','uncBand','moatFadeAuto']){
+      const el=document.getElementById(id); if(el) el.textContent='—';
+    }
+    for(const id of ['moatTier','uncTier','moatNote']){
+      const el=document.getElementById(id); if(el) el.innerHTML='';
+    }
+    const note='<tr><td class="foot">valuation disabled — no provider price for '+CURTICK+
+      (BASE.priceStatic!=null?' (static '+DATA_ASOF.slice(0,10)+' reference: $'+BASE.priceStatic.toFixed(2)+' — a labelled historical figure, not a valuation input)':'')+'</td></tr>';
+    for(const id of ['projTable','stage2Table','stageTable']){
+      const el=document.getElementById(id); if(el) el.innerHTML=note;
+    }
+    const ff=document.getElementById('ff');
+    if(ff) ff.innerHTML='<div class="foot">valuation disabled — no provider price for '+CURTICK+'. The page re-asks the provider every 5 minutes and repaints when a quote arrives.</div>';
     return;
   }
   document.getElementById('oPrice').textContent = '$'+BASE.price.toFixed(2);
@@ -492,12 +524,15 @@ function render(){
 
   // ---- FOOTBALL FIELD ----
   const price=BASE.price;
+  /* When WACC ≤ terminal g the 1-stage model has no answer, and this bar used to display the
+     MARKET PRICE in its place — a number that is not a fair value, drawn under a label that
+     says it is one. A model with no answer contributes no bar. */
   const pts = [
-    {lbl:'1-Stage (Gordon growth)', v: fv1==null?price:fv1, color:'#58a6ff'},
+    fv1==null?null:{lbl:'1-Stage (Gordon growth)', v: fv1, color:'#58a6ff'},
     {lbl:'3-Stage (edge-fade)', v: fv3, color:'#d29922'},
     {lbl:'Buy-below band', v: buy, color:'#3fb950'},
     {lbl:'Trim-above band', v: trim, color:'#f85149'}
-  ];
+  ].filter(Boolean);
   const AX = Math.max(price*1.3, ...pts.map(p=>p.v*1.15))*1.02;
   const pf = v=>Math.max(0,Math.min(100, v/AX*100));
   let h='';
@@ -511,7 +546,7 @@ function render(){
       '<div style="position:absolute;left:'+pl+'%;top:-5px;bottom:-5px;width:2px;background:var(--gold);"></div></div>'+
       '<span style="width:90px;text-align:right;font-size:12.5px;color:var(--dim);font-family:ui-monospace,Menlo,monospace;">$'+p.v.toFixed(2)+'</span></div>';
   });
-  h+='<div class="foot" style="margin-top:6px;">Gold line = today\'s $'+price.toFixed(2)+'.</div>';
+  h+='<div class="foot" style="margin-top:6px;">Gold line = today\'s $'+price.toFixed(2)+'.'+(fv1==null?' 1-Stage bar omitted — WACC ≤ terminal g, the model has no answer there.':'')+'</div>';
   document.getElementById('ff').innerHTML = h;
 }
 
