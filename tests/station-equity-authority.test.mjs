@@ -75,13 +75,21 @@ test("neither surface claims a legacy equity table as authority in what it says"
   }
 });
 
-test("/health no longer grades a legacy equity table for freshness or stock", () => {
+test("/health grades the legacy tables as the non-equity lane, under a true label", () => {
   const feeders = health.slice(health.indexOf("const FEEDERS = ["), health.indexOf("];", health.indexOf("const FEEDERS = [")));
   const stock = health.slice(health.indexOf("const STOCK = ["), health.indexOf("];", health.indexOf("const STOCK = [")));
+  /* Removing them outright was an over-correction. The shim passes every symbol the provider
+     does NOT own — crypto, futures, indices, rates — straight through to these tables, so they
+     are the live owner of the non-equity lane and a stale one is a real outage on real panes.
+     What had to go was the claim that they are the board's price and the Geiger. */
   for (const table of LEGACY_EQUITY_TABLES) {
-    assert.doesNotMatch(feeders, new RegExp(`t: "${table}"`), `${table} is still a graded feeder`);
-    assert.doesNotMatch(stock, new RegExp(`t: "${table}"`), `${table} is still a counted stock row`);
+    const row = new RegExp(`t: "${table}",[^\n]*`).exec(feeders);
+    assert.ok(row, `${table} is still monitored`);
+    assert.match(row[0], /nonEquity: true/, `${table} is labelled as the non-equity lane`);
+    assert.doesNotMatch(row[0], /whole board|the Geiger"/i, `${table} makes no equity claim`);
+    assert.doesNotMatch(stock, new RegExp(`t: "${table}"`), `${table} is not counted as equity stock`);
   }
+  assert.match(health, /NON-EQUITY LANE ONLY/, "and the page prints the distinction");
   /* The non-equity lanes must survive — this repair is not "delete rows until it is green". */
   for (const kept of ["spine_events", "feed_alerts", "youtube_feed", "news"])
     assert.match(feeders, new RegExp(`t: "${kept}"`), `${kept} is an explicit non-equity lane and must remain`);

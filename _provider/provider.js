@@ -77,29 +77,38 @@
     realtime_equity_refused: 0,
     realtime_nonequity_passthrough: 0,
 
-    /* NAMED ABSENCE, KEPT BY SYMBOL AND TIMEFRAME.
-       `unsatisfied` is a rolling diagnostic log capped at 40 entries; it cannot answer
-       "why is THIS pane empty" once the log has rolled. Callers need a name they can paint,
-       so every absence is also recorded here under its own key and never evicted by a later
-       unrelated one. Nothing is substituted for the missing data - only named. */
+    /* NAMED ABSENCE, IN TWO SEPARATE LANES.
+       `unsatisfied` is a rolling diagnostic log capped at 40 entries; it cannot answer "why is
+       THIS pane empty" once the log has rolled, so a name a caller can paint is kept here.
+
+       THE LANES DO NOT TOUCH. A quote absence is about a symbol; a history absence is about a
+       symbol on one timeframe. Writing both keys for every absence made them one lane wearing
+       two names: a candle answer of TIMEFRAME_NOT_MAPPED on MU/3h wrote MU as well, so MU's
+       PRICE then read as a named absence it had never been given - and a later successful
+       candle read on any timeframe deleted MU, erasing a real quote absence that was still
+       true. Each lane now writes and clears only its own key.
+
+         quote absence           -> "SYM"
+         history/candle absence  -> "SYM|TF"   (tf is required; without one there is no lane) */
     absences: {},
     absenceFor: function (sym, tf) {
       var a = window.SC_PROVIDER_SHIM.absences;
       var key = String(sym || '').toUpperCase();
-      return (tf ? a[key + '|' + String(tf)] : null) || a[key] || null;
+      /* Asking about a timeframe asks the history lane only. Asking without one asks the quote
+         lane only. Neither answers for the other. */
+      return tf ? (a[key + '|' + String(tf)] || null) : (a[key] || null);
     },
     noteAbsence: function (sym, tf, reason) {
+      var a = window.SC_PROVIDER_SHIM.absences;
       var key = String(sym || '').toUpperCase();
       var named = String(reason || 'NOT_OBSERVED_BY_STREAM');
-      window.SC_PROVIDER_SHIM.absences[key] = named;
-      if (tf) window.SC_PROVIDER_SHIM.absences[key + '|' + String(tf)] = named;
+      if (tf) a[key + '|' + String(tf)] = named; else a[key] = named;
       return named;
     },
     clearAbsence: function (sym, tf) {
       var a = window.SC_PROVIDER_SHIM.absences;
       var key = String(sym || '').toUpperCase();
-      delete a[key];
-      if (tf) delete a[key + '|' + String(tf)];
+      if (tf) delete a[key + '|' + String(tf)]; else delete a[key];
     }
   };
 
@@ -122,7 +131,13 @@
   };
 
   // ---- caches. Short TTLs matching each route's own cache-control. -----------------------------
-  var qCache = { at: 0, map: {} }, gCache = { at: 0, map: null }, ownedAt = 0, owned = null;
+  /* ONE CLOCK FOR MANY SYMBOLS WAS THE BUG.
+     `qCache.at` was a single receipt time for the whole map, refreshed by ANY successful
+     fetch. So a batch for AAPL at 10:00:05 renewed the apparent freshness of an MU row read at
+     09:00:00, and the warm path then served that hour-old price as a five-second-old one. On a
+     rotating wall - which is every Station wall - that is not an edge case, it is the normal
+     path. Each symbol now carries its own receipt time and is judged on it alone. */
+  var qCache = { map: {}, at: {} }, gCache = { at: 0, map: null }, ownedAt = 0, owned = null;
 
   /* A FAILED READ IS NOT AN EMPTY ANSWER.
      jget used to swallow every network error, timeout, 5xx and auth failure into `null`, and
@@ -140,13 +155,30 @@
     if (S.transport_failures.length < 40) S.transport_failures.push({ why: why, status: err.scStatus, url: err.scUrl });
     return err;
   }
-  function jget (url) {
-    return fetch(url).then(function (r) {
+  /* A REQUEST THAT NEVER SETTLES IS NOT A SLOW REQUEST.
+     The deck bounds its own fetch at 4.5s, but that timeout lives on the call it makes - and
+     this shim replaces that call with one of its own, which had no bound at all. A provider
+     socket that opens and then says nothing therefore left the deck's in-flight flag set
+     forever: no timeout, no rejection, no retry, and a wall that never moved again. Every
+     provider read is bounded here, and a timeout is a transport failure like any other. */
+  var PROVIDER_TIMEOUT_MS = 4500;
+  function jget (url, signal) {
+    var controller = typeof AbortController === 'undefined' ? null : new AbortController();
+    var timer = controller ? setTimeout(function () { controller.abort(); }, PROVIDER_TIMEOUT_MS) : null;
+    /* A caller's own signal still aborts this read; the bound is a ceiling, not a replacement. */
+    if (signal && controller && typeof signal.addEventListener === 'function')
+      signal.addEventListener('abort', function () { controller.abort(); }, { once: true });
+    return fetch(url, controller ? { signal: controller.signal } : undefined).then(function (r) {
+      if (timer) { clearTimeout(timer); timer = null; }
+      return r;
+    }, function (e) {
+      if (timer) { clearTimeout(timer); timer = null; }
+      throw transportError('provider unreachable: ' + (e && e.name === 'AbortError'
+        ? 'no response within ' + PROVIDER_TIMEOUT_MS + 'ms'
+        : (e && e.message) || 'network'), url, null);
+    }).then(function (r) {
       if (!r.ok) throw transportError('provider HTTP ' + r.status, url, r.status);
       return r.json().catch(function () { throw transportError('provider body was not JSON', url, r.status); });
-    }, function (e) {
-      if (e && e.scTransport) throw e;
-      throw transportError('provider unreachable: ' + (e && e.message || 'network'), url, null);
     });
   }
 
@@ -177,22 +209,22 @@
   }
 
   /* THE PROVIDER'S OWN OBSERVATION TIME, OR NOTHING.
-     The live /quotes payload carries `price_observation_utc`. The field this shim originally
-     read, `price_sip_utc`, is not on the payload at all, so every row was stamped null - and
-     null then travelled into surfaces that read `new Date(null)` as the epoch and called it a
-     finite timestamp. The preference list is written out so a field rename shows up as a
-     missing stamp rather than as a wrong one, and an unknown time stays null: this function
-     never returns a clock reading of its own. */
-  var QUOTE_TIME_FIELDS = ['price_observation_utc', 'observation_utc', 'price_sip_utc', 'as_of_utc'];
+     ONE field, and it is the one the live /quotes payload carries: `price_observation_utc`.
+     The field this shim originally read, `price_sip_utc`, is not on the payload at all, so
+     every row was stamped null - and null then travelled into surfaces that read
+     `new Date(null)` as the epoch and called it a finite timestamp.
+
+     A tolerant list of near-miss names was worse, not better. Every other candidate was a
+     guess, and accepting a guess as interchangeable with the authority field means a genuine
+     rename gets papered over by whichever alias happens to be present, with no way to tell
+     the two apart afterwards. If the authority field is absent, the time is unknown - which
+     is a fact, and a visible one. */
+  var QUOTE_TIME_FIELD = 'price_observation_utc';
   function quoteObservedAt (q) {
     if (!q) return null;
-    for (var i = 0; i < QUOTE_TIME_FIELDS.length; i++) {
-      var v = q[QUOTE_TIME_FIELDS[i]];
-      if (v == null || v === '') continue;
-      var t = new Date(v).getTime();
-      if (isFinite(t)) return v;
-    }
-    return null;
+    var v = q[QUOTE_TIME_FIELD];
+    if (v == null || v === '') return null;
+    return isFinite(new Date(v).getTime()) ? v : null;
   }
 
   /* A BATCH THAT COMES BACK SHORT IS NOT A SET OF NAMED ABSENCES.
@@ -200,13 +232,22 @@
      price, and that IS settled. A symbol the response never mentions is a different thing: the
      batch was incomplete, which is a transport condition and stays retryable. Conflating the
      two would let one truncated response mark a live symbol permanently unobserved. */
+  /* ONLY THE PROVIDER MAY NAME AN ABSENCE.
+     This used to fall through to ABSENCE_NOT_OBSERVED for any quote whose price was null,
+     which meant the shim was inventing the stream's answer out of a missing number. A payload
+     that says state:'OK' and then carries no price is not a symbol the stream does not
+     observe; it is a malformed response - a contract failure, and retryable. The distinction
+     matters exactly where it is easiest to lose: both cases look like "no price here". */
   function quoteAbsenceName (q) {
     if (!q) return null;
     if (q.state && q.state !== 'OK') return String(q.state);
     if (q.absence) return String(q.absence);
     if (q.reason) return String(q.reason);
-    if (q.price == null) return ABSENCE_NOT_OBSERVED;
-    return null;
+    return null;                       // unnamed. NOT an absence.
+  }
+  /* A quote that named nothing and priced nothing. Retryable, never terminal. */
+  function quoteIsMalformed (q) {
+    return !!q && !quoteAbsenceName(q) && !isFinite(+q.price);
   }
   /* A CACHED ROW IS ONLY AN ANSWER TO THE REQUEST THAT FETCHED IT.
      The cache used to be handed back wholesale, so a symbol the CURRENT response omitted could
@@ -218,16 +259,23 @@
     var batch = syms.slice(0, 400);
     if (!batch.length) return Promise.resolve({ map: {}, missing: [], truncated: false });
     var truncated = syms.length > batch.length;
-    var covered = batch.every(function (s) { return s in qCache.map; });
-    if (covered && Date.now() - qCache.at < 5000) {
+    var now = Date.now();
+    /* Warm means EVERY requested symbol is individually within the window - not that the map
+       as a whole was touched recently. */
+    var covered = batch.every(function (s) {
+      return (s in qCache.map) && (now - (qCache.at[s] || 0) < 5000);
+    });
+    if (covered) {
       var warm = {};
       batch.forEach(function (s) { warm[s] = qCache.map[s]; });
       return Promise.resolve({ map: warm, missing: [], truncated: truncated });
     }
     return jget(API + '/quotes?symbols=' + encodeURIComponent(batch.join(','))).then(function (j) {
       if (!j || !j.quotes) throw transportError('provider quotes payload had no quotes', API + '/quotes', null);
-      Object.keys(j.quotes).forEach(function (k) { qCache.map[k] = j.quotes[k]; });
-      qCache.at = Date.now();
+      var receipt = Date.now();
+      Object.keys(j.quotes).forEach(function (k) { qCache.map[k] = j.quotes[k]; qCache.at[k] = receipt; });
+      /* A symbol this response did NOT carry keeps its old receipt time; it is not renewed by
+         someone else's answer, and will simply age out of the warm window on its own. */
       var fresh = {};
       batch.forEach(function (s) { if (s in j.quotes) fresh[s] = j.quotes[s]; });
       var missing = batch.filter(function (sym) { return !(sym in j.quotes); });
@@ -295,9 +343,16 @@
     if (p.table === 'live_quotes') {
       var lqT = wantedTickers(q);
       return providerOwned().then(function (own) {
+        /* AN UNFILTERED REQUEST ASKS FOR THE WHOLE BOARD, NOT THE PROVIDER'S HALF OF IT.
+           `syms = lqT || Object.keys(own)` made the non-equity list EMPTY whenever the caller
+           had not named tickers - because the only symbols in play were, by construction, the
+           ones the provider owns. Every unfiltered Station consumer therefore lost crypto,
+           futures, indices and rates entirely, silently, while the filtered path kept them.
+           An unfiltered ask keeps its legacy half unfiltered too, and the provider's owned set
+           is subtracted from it rather than standing in for it. */
         var syms = lqT || Object.keys(own);
         var eq = syms.filter(function (s) { return own[s]; });
-        var nonEq = syms.filter(function (s) { return !own[s]; });
+        var nonEq = lqT ? syms.filter(function (s) { return !own[s]; }) : null;   // null = "everything not owned" 
         return quotes(eq).then(function (res) {
           var qm = res.map, missing = res.missing;
           /* A SUCCESSFUL RESPONSE MUST ACCOUNT FOR EVERY REQUESTED SYMBOL.
@@ -313,13 +368,20 @@
               API + '/quotes', null);
           }
           var rows = [];
+          /* A malformed entry fails the whole request, like any other incomplete answer. It is
+             not written down as an absence, because nothing named it one. */
+          var malformed = eq.filter(function (s) { return quoteIsMalformed(qm[s]); });
+          if (malformed.length) {
+            malformed.forEach(function (sym) { S.clearAbsence(sym, null); });
+            throw transportError('provider quote malformed (no state, no price): ' + malformed.join(','),
+              API + '/quotes', null);
+          }
           eq.forEach(function (s) {
             var v = qm[s];
             if (!v) return;                              // covered by `missing` above
             var named = quoteAbsenceName(v);
             if (named) { note('provider named ' + named, s); S.noteAbsence(s, null, named); return; }
             var price = +v.price, prev = +v.previous_close;
-            if (!isFinite(price)) { note('provider quote had no usable price', s); S.noteAbsence(s, null, ABSENCE_NOT_OBSERVED); return; }
             S.clearAbsence(s, null);
             rows.push({
               ticker: s, price: price, prev_close: isFinite(prev) ? prev : null,
@@ -332,16 +394,25 @@
             });
           });
           S.counts.quotes += rows.length;
-          if (!nonEq.length) return rows;
+          if (nonEq && !nonEq.length) return rows;
           // Non-equities keep their existing owner. Only they reach the legacy table.
-          S.counts.passthrough_non_equity += nonEq.length;
-          var pass = path.replace(/ticker=(in\.\([^)]*\)|eq\.[^&]*)/, 'ticker=in.(' + nonEq.join(',') + ')');
-          if (!lqT) pass = 'live_quotes?select=ticker,price,chg_pct,prev_close,updated_ts&ticker=in.(' + nonEq.join(',') + ')';
+          S.counts.passthrough_non_equity += nonEq ? nonEq.length : 1;
+          /* Filtered: ask the legacy table for exactly the non-owned tickers.
+             Unfiltered: ask it for everything and drop the owned ones here, so the whole board
+             still arrives and no equity slips back in under the legacy price. */
+          var pass = nonEq
+            ? path.replace(/ticker=(in\.\([^)]*\)|eq\.[^&]*)/, 'ticker=in.(' + nonEq.join(',') + ')')
+            : 'live_quotes?select=ticker,price,chg_pct,prev_close,updated_ts&limit=2000';
           /* The non-equity half failing used to leave the provider rows standing alone, and the
              caller then read the absent non-equities as unobserved. Half a request is not a
              request: it fails, and every symbol on it stays retryable. */
-          return origPg(pass).then(function (extra) { return rows.concat(extra || []); }, function (e) {
-            nonEq.forEach(function (sym) { S.clearAbsence(sym, null); });
+          return origPg(pass).then(function (extra) {
+            var kept = (extra || []).filter(function (r) {
+              return !own[String(r && r.ticker || '').toUpperCase()];
+            });
+            return rows.concat(kept);
+          }, function (e) {
+            (nonEq || []).forEach(function (sym) { S.clearAbsence(sym, null); });
             if (e && (e.scTransport || e.scAbsence)) throw e;
             throw transportError('non-equity passthrough failed: ' + (e && e.message || 'unknown'), pass, null);
           });
@@ -353,9 +424,10 @@
       var csT = wantedTickers(q);
       return Promise.all([providerOwned(), geiger()]).then(function (a) {
         var own = a[0], gm = a[1];
+        /* Same rule as live_quotes: an unfiltered ask keeps its legacy half unfiltered. */
         var syms = csT || Object.keys(own);
         var eq = syms.filter(function (s) { return own[s]; });
-        var nonEq = syms.filter(function (s) { return !own[s]; });
+        var nonEq = csT ? syms.filter(function (s) { return !own[s]; }) : null;
         /* Every requested equity must appear in the Geiger payload; /geiger publishes the whole
            universe, so a gap is an incomplete payload rather than a settled per-symbol fact. */
         var absent = eq.filter(function (s) { return !gm[s]; });
@@ -379,13 +451,20 @@
         }).filter(Boolean);
         S.counts.geiger += rows.length;
         var lim = limitOf(q, 0);
-        if (!nonEq.length) return lim ? rows.slice(0, lim) : rows;
-        S.counts.passthrough_non_equity += nonEq.length;
-        return origPg('composite_staged?select=ticker,tf,trend,momentum,composite,updated_ts&tf=eq.D&ticker=in.(' + nonEq.join(',') + ')')
-          .then(function (extra) { var all = rows.concat(extra || []); return lim ? all.slice(0, lim) : all; },
+        if (nonEq && !nonEq.length) return lim ? rows.slice(0, lim) : rows;
+        S.counts.passthrough_non_equity += nonEq ? nonEq.length : 1;
+        var csPass = nonEq
+          ? 'composite_staged?select=ticker,tf,trend,momentum,composite,updated_ts&tf=eq.D&ticker=in.(' + nonEq.join(',') + ')'
+          : 'composite_staged?select=ticker,tf,trend,momentum,composite,updated_ts&tf=eq.D&limit=2000';
+        return origPg(csPass)
+          .then(function (extra) {
+                  var kept = (extra || []).filter(function (r) {
+                    return !own[String(r && r.ticker || '').toUpperCase()];
+                  });
+                  var all = rows.concat(kept); return lim ? all.slice(0, lim) : all; },
                 function (e) {
                   /* Half a request is not a request - see the live_quotes branch. */
-                  nonEq.forEach(function (sym) { S.clearAbsence(sym, 'D'); });
+                  (nonEq || []).forEach(function (sym) { S.clearAbsence(sym, 'D'); });
                   if (e && (e.scTransport || e.scAbsence)) throw e;
                   throw transportError('non-equity composite passthrough failed: ' + (e && e.message || 'unknown'), path, null);
                 });
@@ -414,10 +493,20 @@
              and preferred over the generic one - it is closer to the truth than anything here. */
           var named = j && (j.absence || j.reason || (j.state && j.state !== 'OK' ? j.state : null));
           if (!j) { note('candles unreachable', sym + '/' + tf); return Promise.reject(new Error('candles unreachable')); }
+          /* SHORT IS NOT ABSENT.
+             An empty or one-bar series used to be recorded as NOT_OBSERVED_BY_STREAM. But one
+             real bar is proof the stream observes this symbol; a series too short to draw is a
+             partial or still-warming answer, and inventing a terminal name for it retires a
+             live symbol from the wall permanently. Only a name the PROVIDER supplied is
+             terminal here. */
           if (!j.series || !j.series.length) {
-            note('no provider series', sym + '/' + tf);
-            return Promise.reject(S.absenceError(named || ABSENCE_NOT_OBSERVED, sym, rawTf));
+            if (named) return Promise.reject(S.absenceError(named, sym, rawTf));
+            note('provider returned an unnamed empty series', sym + '/' + tf);
+            S.clearAbsence(sym, rawTf);
+            return Promise.reject(transportError('provider series empty and unnamed for ' + sym + '/' + tf,
+              API + '/candles', null));
           }
+          if (named) return Promise.reject(S.absenceError(named, sym, rawTf));
           S.counts.candles += j.series.length;
           S.clearAbsence(sym, rawTf);
           // Legacy shape: seconds, newest first, close/open/high/low/volume.

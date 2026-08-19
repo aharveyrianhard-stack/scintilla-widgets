@@ -77,6 +77,9 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-nchart__live[data-change="down"]{ color:var(--bear); }
 .sc-nchart__live[data-change="flat"]{ color:var(--dim); }
 .sc-nchart__live[data-fresh="0"]{ opacity:.72; }
+/* A quote whose observation time the provider did not supply is neither fresh nor stale.
+   It is marked so it cannot be read as either. */
+.sc-nchart__live[data-untimed="1"]{ border-bottom:1px dotted rgba(198,200,222,.45); }
 .sc-nchart__msg{ position:absolute; inset:0; z-index:2; display:flex; align-items:center;
   justify-content:center; color:var(--dim); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
 .sc-nchart__msg[hidden]{ display:none; }
@@ -312,16 +315,10 @@ function chartNamedAbsenceFor(ticker, tf) {
     return named ? String(named) : null;
   } catch (_) { return null; }
 }
-/* The shim records WHY a provider read produced nothing. When it has a name for this exact
-   symbol/timeframe that name wins; otherwise the canonical stream absence is used. This is only
-   called where the read itself COMPLETED and returned no observations. */
+/* The canonical name, for the one caller that already knows the stream answered: a pane whose
+   dataset carries an absence it was given. Nothing derives an absence from silence. */
 function chartAbsenceReason(ticker, tf) {
-  try {
-    const shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
-    const named = shim && typeof shim.absenceFor === "function" ? shim.absenceFor(ticker, tf) : null;
-    if (named) return String(named);
-  } catch (_) {}
-  return CHART_ABSENCE_NOT_OBSERVED;
+  return chartNamedAbsenceFor(ticker, tf) || CHART_ABSENCE_NOT_OBSERVED;
 }
 let chartLoadToken = 0;
 const chartLoadPermits = new Map();
@@ -352,15 +349,44 @@ const chFmpSym = (t) => (cryptoSet.has(t) && !t.endsWith("USD") ? t + "USD" : t)
    readout, not a candle. Futures and crypto, which the provider does not own here, keep their
    existing appended transient point, flagged live:true so no consumer can mistake it for a
    completed bar, and it is applied only AFTER caching. */
+/* NULL IS NOT NOW.
+   Three render paths used `quote.updated_ts || Date.now()`. When the provider supplies no
+   observation time - which it does whenever price_observation_utc is absent - that expression
+   replaced the missing time with this machine's clock, and the pane then reported the quote as
+   having been observed this instant. It was the freshest thing on the wall precisely because
+   nothing was known about when it was seen. An unknown time stays unknown from here to the
+   badge. */
+function quoteInstant(quote) {
+  const raw = quote && quote.updated_ts;
+  if (raw == null || raw === "") return null;
+  const ms = new Date(raw).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
 function chApplyLivePoint(t, pts, quote) {
   if (!quote || !Array.isArray(pts) || !pts.length || !isFinite(+quote.price)) return pts;
   var shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
   if (shim && shim.isProviderOwned && shim.isProviderOwned(t)) return pts;   // equity: never touched
-  const d = new Date(quote.updated_ts || Date.now()).toISOString();
+  if (!futureSet.has(t) && !cryptoSet.has(t)) return pts;    // nobody else gets a transient point
+  /* A transient point needs a real observation time to sit at. Without one there is nowhere
+     honest to place it on the axis, so none is appended. */
+  const observedAt = quoteInstant(quote);
+  if (observedAt == null) return pts;
+  const d = new Date(observedAt).toISOString();
   const out = pts.slice();                                   // COPY - input is never mutated
   const last = out[out.length - 1];
-  if (last.d.slice(0,10) === d.slice(0,10)) return out;      // same day: do NOT rewrite the bar
-  if (futureSet.has(t) || cryptoSet.has(t)) out.push({ d, p:+quote.price, live:true });
+  /* THE TRANSIENT POINT IS THE ONE THING HERE THAT MAY MOVE.
+     A point this function appended earlier is flagged live:true; it is this tick's own
+     placeholder, not an observation, so the next tick REPLACES it. Without that, the
+     same-day guard below caught the second tick - its day now matched the transient point's
+     day rather than a completed bar's - and the price froze at whatever the first tick after
+     load happened to be, for the rest of the session. */
+  if (last && last.live) {
+    out[out.length - 1] = { d, p:+quote.price, live:true };
+    return out;
+  }
+  /* A COMPLETED bar owns its day and is never rewritten. */
+  if (last.d.slice(0, 10) === d.slice(0, 10)) return out;
+  out.push({ d, p:+quote.price, live:true });
   return out;
 }
 const CH_DECIMALS = { GCUSD:1, CLUSD:2, SIUSD:3, DXUSD:3, ESUSD:2, NQUSD:2 };
@@ -457,10 +483,18 @@ async function fetchChartSeries(t, range, requestedLimit){
     /* CACHE THE PURE PROVIDER SERIES FIRST. The transient live point is applied to a COPY
        afterwards and is never persisted, so nothing a live quote does can change a cached candle. */
     pts = chartTail(pts, limit);
-    /* The read itself succeeded. Fewer than two observations is therefore an ANSWER, not a
-       failure, and it is raised under its own name so the pane can state it and stop. It is
-       deliberately not cached: a named absence is re-asked on the next deliberate load. */
-    if (pts.length < 2) throw chartAbsenceError(chartAbsenceReason(t, e[0]), t, range);
+    /* SHORT IS NOT ABSENT; UNNAMED IS NOT ABSENT EITHER.
+       The read succeeded. If something NAMED the emptiness - the provider's own per-symbol
+       state, recorded by the shim - that name is the answer and the pane states it and stops.
+       If nothing named it, a short series is a partial or still-warming answer and stays
+       retryable: one real bar is proof the stream observes this symbol, so inventing a
+       terminal NOT_OBSERVED_BY_STREAM out of one point would retire a live symbol from the
+       wall permanently. Neither outcome is cached. */
+    if (pts.length < 2) {
+      const named = chartNamedAbsenceFor(t, e[0]);
+      if (named) throw chartAbsenceError(named, t, range);
+      throw new Error("insufficient history for " + t + "/" + e[0] + " (" + pts.length + " points, unnamed)");
+    }
     chartCache.set(key, { ts: Date.now(), pts: pts, limit:limit });
     try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {}
     return chApplyLivePoint(t, pts, liveQuote[t]);
@@ -959,7 +993,12 @@ async function scChartLoad(host) {
       if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
     const pts = await fetchChartSeries(t, range, limit);
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
-    if (!pts || pts.length < 2) throw chartAbsenceError(chartAbsenceReason(t, range), t, range);
+    if (!pts || pts.length < 2) {
+      /* Same rule at the last gate: only a NAMED emptiness is terminal. */
+      const named = chartNamedAbsenceFor(t, range);
+      if (named) throw chartAbsenceError(named, t, range);
+      throw new Error("insufficient history for " + t + "/" + range + " (unnamed)");
+    }
     host._series = pts;
     paintChartHistoryWindow(host);
     host._ref = prevClose[t] != null ? +prevClose[t] : pts[0].p;
@@ -1213,7 +1252,8 @@ function setChartTicker(t) {
 /* R22 FIX 8 — live tick → cheap last-point update (ported verbatim) */
 function scChartLive(t, price, updatedTs, previousClose) {
   if (previousClose != null && isFinite(+previousClose)) prevClose[t] = +previousClose;
-  liveQuote[t] = { price:+price, updated_ts:updatedTs || Date.now() };
+  /* Carried as given. Null means the provider did not say when it saw this price. */
+  liveQuote[t] = { price:+price, updated_ts:updatedTs == null || updatedTs === "" ? null : updatedTs };
   for (const host of CHART_HOSTS) {
     if (!host.isConnected || host.dataset.t !== t) continue;
     if (prevClose[t] != null && isFinite(prevClose[t])) host._ref = +prevClose[t];
@@ -1222,8 +1262,14 @@ function scChartLive(t, price, updatedTs, previousClose) {
     if (!s || !s.length) continue;
     const atRight = !host._view || host._view.end >= s.length - 1;
     const span = host._view ? host._view.end - host._view.start : 0;
-    chApplyLivePoint(t, s, liveQuote[t]);
-    if (atRight && host._view) host._view = { start:Math.max(0, s.length-1-span), end:s.length-1 };
+    /* chApplyLivePoint returns a COPY - it must, so that nothing a live quote does can reach a
+       cached completed bar. The return value was being discarded here, so after the change to
+       copying, no realtime tick reached the drawn series at all: futures and crypto panes
+       stopped moving after their first load. */
+    const next = chApplyLivePoint(t, s, liveQuote[t]);
+    host._series = next;
+    if (atRight && host._view)
+      host._view = { start:Math.max(0, next.length - 1 - span), end:next.length - 1 };
     scChartDraw(host);
   }
 }
@@ -1243,10 +1289,14 @@ function paintLiveStatus(host, quote) {
   const badge = host?.querySelector(".sc-nchart__live");
   if (!badge) return;
   const hasQuote = quote && isFinite(+quote.price);
-  const at = new Date(quote?.updated_ts || Date.now());
-  const age = Date.now() - at.getTime();
-  const fresh = Number.isFinite(age) && age < 90000;
+  const observedAt = quoteInstant(quote);
+  const at = observedAt == null ? null : new Date(observedAt);
+  const age = observedAt == null ? null : Date.now() - observedAt;
+  /* Freshness is a claim about time. With no observation time there is no claim to make, so
+     the badge is not fresh - and it is not stale either; it simply says the time is unknown. */
+  const fresh = age != null && age < 90000;
   badge.dataset.fresh = hasQuote && fresh ? "1" : "0";
+  badge.dataset.untimed = hasQuote && observedAt == null ? "1" : "0";
   const dayRef = prevClose[host.dataset.t];
   const day = hasQuote ? chDayChange(+quote.price, dayRef) : { text:"", tone:"flat" };
   badge.dataset.change = day.tone;
@@ -1271,14 +1321,19 @@ function paintLiveStatus(host, quote) {
   ticker.textContent = host.dataset.t;
   change.textContent = day.text;
   paintChartHistoryWindow(host);
-  badge.title = hasQuote
-    ? (futureSet.has(host.dataset.t) ? "delayed futures quote · database refresh " : "live_quotes · ") + at.toISOString()
-    : "live quote loading · ticker remains editable";
+  badge.title = !hasQuote
+    ? "live quote loading · ticker remains editable"
+    : at == null
+      ? "observation time unknown · the provider supplied no observation time for this quote"
+      : (futureSet.has(host.dataset.t) ? "delayed futures quote · " : "provider quote · ") + at.toISOString();
   reportChartDataState(host, { quote:hasQuote ? "ready" : "loading" });
   if (!hasQuote) return;
   try {
-    parent.postMessage({ sc:"chart-status", ticker:host.dataset.t, updatedTs:at.toISOString(),
-      fresh, delayed:futureSet.has(host.dataset.t), source:"live_quotes" }, location.origin);
+    /* updatedTs travels as null when it is unknown. The deck's header already refuses to fold
+       an unstamped row into an age; handing it a clock reading here would defeat that. */
+    parent.postMessage({ sc:"chart-status", ticker:host.dataset.t,
+      updatedTs:at == null ? null : at.toISOString(),
+      fresh, delayed:futureSet.has(host.dataset.t), source:"provider" }, location.origin);
   } catch (_) {}
 }
 

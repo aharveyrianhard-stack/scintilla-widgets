@@ -35,8 +35,22 @@
   const PAGE = 1000;              /* PostgREST's own ceiling; asking for more does not raise it */
   const MAX_PAGES = 40;           /* a bounded walk: 40k rows is far past any real axis */
 
+  /* OFFSET PAGING NEEDS A TOTAL ORDER, OR IT IS NOT PAGING.
+     PostgREST applies LIMIT/OFFSET to whatever order the planner happened to produce. Without
+     an explicit ORDER BY that is unique per row, two requests for adjacent windows are two
+     independent unordered scans: a row can appear in both, or in neither, and the walk still
+     terminates looking complete. The membership set is a DISTINCT view over a join - exactly
+     the shape whose row order is least stable. Every paged read below therefore carries an
+     ordering that is unique across the whole relation, and readAll refuses to walk without
+     one. */
+  function requireTotalOrder (path) {
+    if (path.indexOf("order=") < 0) throw new Error("cohort-axis: refusing to page " + path + " without an explicit total order");
+    return path;
+  }
+
   /* Walk every page. `pg` is the page's own reader; it is never replaced, only driven. */
   async function readAll(pg, path, page) {
+    requireTotalOrder(path);
     const size = Math.max(1, Math.min(PAGE, Number(page) || PAGE));
     const out = [];
     let pages = 0;
@@ -58,7 +72,8 @@
      ticker_cohorts, read completely. A ticker appears once per cohort it belongs to. */
   async function loadMemberships(pg, options) {
     const size = (options && options.page) || PAGE;
-    const read = await readAll(pg, "ticker_cohorts?select=ticker,cohort", size);
+    /* (ticker, cohort) is the view's own DISTINCT key, so ordering on both is a total order. */
+    const read = await readAll(pg, "ticker_cohorts?select=ticker,cohort&order=ticker.asc,cohort.asc", size);
     const seen = new Set();
     const rows = [];
     for (const row of read.rows) {
@@ -77,7 +92,8 @@
      tickers.cohort, for active tickers. This is what a one-tile-per-ticker surface needs. */
   async function loadHomeCohorts(pg, options) {
     const size = (options && options.page) || PAGE;
-    const read = await readAll(pg, "tickers?select=ticker,cohort&active=eq.true", size);
+    /* ticker is the primary key of `tickers`, so ordering on it is a total order. */
+    const read = await readAll(pg, "tickers?select=ticker,cohort&active=eq.true&order=ticker.asc", size);
     const home = new Map();
     let unassigned = 0;
     for (const row of read.rows) {

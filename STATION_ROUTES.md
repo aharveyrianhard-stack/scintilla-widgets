@@ -1,11 +1,17 @@
 # Station route inventory — H1
 
-Every route this repository serves, taken from the tree rather than from memory. A route is
-a directory containing `index.html`; Vercel serves it at that path. `tests/station-route-inventory.test.mjs`
-regenerates this list from the filesystem and fails if the two disagree, so a new surface
+Every HTML surface this repository deploys, taken from the tree rather than from memory.
+Two kinds are served: a directory containing `index.html`, served at the directory path; and a
+standalone `.html` file, served at its own path. The first version of this document counted
+only the first kind and called it complete — `tests/station-route-inventory.test.mjs` now
+regenerates both from the filesystem and fails if this document disagrees, so a new surface
 cannot arrive undocumented and a retired one cannot linger here.
 
-Generated against `main` + the visible-truth closure branch. 53 routes.
+Generated against `main` + the visible-truth closure branch. 63 deployed HTML surfaces.
+
+**This is an inventory, not a deployment allow-list.** It records what the repository would
+serve. Whether a given surface *should* be reachable in production is a separate ruling; where
+one is not wanted, exclude it in the deployment config rather than by leaving it out here.
 
 ## Where the wall is assembled
 
@@ -90,6 +96,29 @@ Supabase function.
 `/visuals/geiger-live`, `/visuals/geiger-motion`, `/visuals/images`, `/visuals/menu`,
 `/visuals/open`, `/visuals/template`, `/visuals/theme`. These are the look lab, not Station
 surfaces; they are inventoried so the count is honest, not because the Station mounts them.
+
+## Standalone pages served at their own path
+
+These are not directory routes. They answer 200 on the preview and are part of the deployed
+surface whether or not anything links to them.
+
+| Path | What |
+| --- | --- |
+| `/status-snapshot.html` | a captured org-status snapshot |
+| `/templates/allocation-module.html` | allocation module |
+| `/templates/company-full.html` | company sheet |
+| `/templates/dcf.html` | DCF app |
+| `/templates/dcf-methodology.html` | DCF method write-up |
+| `/templates/fundamentals.html` | fundamentals sheet |
+| `/templates/fundamentals-spec.html` | fundamentals spec |
+| `/templates/sector-rotation.html` | sector rotation (current) |
+| `/templates/sector-rotation-older.html` | sector rotation (earlier) |
+| `/station-x-bridge-draft/offscreen.html` | X bridge draft, offscreen document — a Chrome extension file, not a Station surface, but deployed all the same |
+
+`/templates/sector-rotation.html` and `/templates/sector-rotation-older.html` carry an **open
+F1 item** — see the receipt. Their canonical home is the separate `scintilla-sector` project;
+what is in this repository is a copy, and closing F1 needs that project's own deploy and CORS,
+not this branch.
 
 ## Testing rule that goes with this inventory
 

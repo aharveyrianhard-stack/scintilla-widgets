@@ -162,6 +162,7 @@ async function pgAll(path,cap){
   return out;
 }
 const el=id=>document.getElementById(id);
+const esc=x=>String(x==null?"":x).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const median=a=>{const s=a.slice().sort((x,y)=>x-y),n=s.length;return n?(n%2?s[(n-1)/2]:(s[n/2-1]+s[n/2])/2):0};
 const DAY=86400;
 
@@ -231,7 +232,11 @@ function syncCols(){
     b.setAttribute("aria-pressed",m.k===col);
     /* a live-only measure cannot be shown in the past — say so by disabling it */
     b.disabled = m.live && detent!==0;
-    b.title = b.disabled ? "composite is stored current-only; it has no past to show" : "";
+    b.title = b.disabled
+      ? "composite is stored current-only; it has no past to show"
+      : (!m.live
+          ? "reads a whole-universe daily bar window, which the provider contract does not serve — see the status line"
+          : "");
   });
 }
 function buildDetents(){
@@ -289,6 +294,24 @@ async function load(){
     else { vals=await returnAt(when, m.k==="r1m"?30:91); }
     DATA=vals;
   }catch(e){
+    if(e&&e.scHistoryUnavailable){
+      /* Named, not blank. The measure is unavailable because of a contract boundary, and the
+         page says which boundary rather than drawing an empty table. */
+      el("status").innerHTML='<b style="color:var(--warn)">'+esc(m.label)+' unavailable — '+
+        esc(HISTORY_UNAVAILABLE.replace(/_/g," ").toLowerCase())+
+        '</b><span class="small"> · the provider contract serves completed bars one symbol at a time, '+
+        'so a whole-universe historical window is not served. LIVE COMPOSITE is unaffected.</span>';
+      /* Every row is emptied rather than left showing the previous measure's numbers under
+         the new measure's heading. */
+      DATA={};
+      Object.keys(rowEls).forEach(name=>{
+        const bar=rowEls[name]&&rowEls[name].querySelector(".bar");
+        const val=rowEls[name]&&rowEls[name].querySelector(".val");
+        if(bar) bar.style.width="0%";
+        if(val) val.textContent="—";
+      });
+      return;
+    }
     el("status").innerHTML='<b style="color:var(--warn)">could not load — '+String(e.message||e)+"</b>";
     return;
   }
@@ -324,12 +347,36 @@ async function liveComposite(){
   return out;
 }
 
+/* THE HISTORICAL DETENTS ASK FOR SOMETHING THE PROVIDER CONTRACT DOES NOT SERVE.
+   1M RETURN, 3M RETURN and BREADTH are computed from a whole-universe daily bar window. The
+   provider serves completed bars ONE SYMBOL AT A TIME - /candles?symbol=... - so the authority
+   shim refuses a bar read that names no single ticker, under TICKER_FILTER_REQUIRED. Before
+   this, that refusal came back as an empty array and every historical column rendered blank,
+   silently, as though the cohorts genuinely had no history.
+
+   Reaching past the shim to the legacy table would put this page back on bar data no other
+   surface trusts. So the limitation is named and shown, and the LIVE detent - which reads the
+   Geiger and is unaffected - keeps working. */
+const HISTORY_UNAVAILABLE="WHOLE_UNIVERSE_BARS_NOT_SERVED";
+function historyUnavailable(detail){
+  const e=new Error(HISTORY_UNAVAILABLE);
+  e.scHistoryUnavailable=true;
+  e.scDetail=detail||"";
+  return e;
+}
 /* closes at (or just before) a date, one padded window, cached */
 async function closesAt(when){
   const key="c"+iso(when);
   if(cache[key]) return cache[key];
   const hi=Math.floor(when.getTime()/1000), lo=hi-12*DAY;
-  const rows=await pgAll("ohlcv_history?tf=eq.D&timestamp=gte."+lo+"&timestamp=lte."+hi+"&select=ticker,timestamp,close");
+  let rows;
+  try{
+    rows=await pgAll("ohlcv_history?tf=eq.D&timestamp=gte."+lo+"&timestamp=lte."+hi+"&select=ticker,timestamp,close");
+  }catch(e){
+    if(e&&(e.scAbsence==="TICKER_FILTER_REQUIRED"||e.scTransport)) throw historyUnavailable(e.message);
+    throw e;
+  }
+  if(!Array.isArray(rows)||!rows.length) throw historyUnavailable("the bar read returned nothing");
   const last={};
   rows.forEach(r=>{
     const t=r.ticker, ts=+r.timestamp;

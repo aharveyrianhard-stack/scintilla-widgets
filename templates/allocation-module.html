@@ -239,6 +239,7 @@
 
 </div>
 
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 const SB = 'https://wadinxqplrggagkvrdag.supabase.co/functions/v1';
 /* ===================== C7 SSOT LAYER (2026-08-05) =====================
@@ -280,11 +281,14 @@ function renderSpine(){
 async function refreshSSOT(){
   const J=[];
   // THE universe
-  J.push(sbGet('ticker_cohorts?select=ticker,cohort&limit=1000').then(rows=>{
+  /* 1283 memberships against PostgREST's 1000-row cap: this read returned four fifths of the
+     axis, unordered, and the page called the result THE universe. Paged under a total order by
+     the shared reader - see _cohorts/cohort-axis.js. */
+  J.push(SC_COHORT_AXIS.loadMemberships(sbGet).then(axis=>{ const rows=axis.rows; if(axis.truncated) console.warn('[universe] membership read truncated');
     if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
     const m={}; for(const r of rows)(m[r.ticker]=m[r.ticker]||[]).push(r.cohort);
     UNIVERSE.cohorts=m; UNIVERSE.status='ok';
-    spineSet('ticker_cohorts',null,'LIVE',rows.length+' rows — THE universe');
+    spineSet('ticker_cohorts',null,'LIVE',rows.length+' memberships, fully paged — THE universe');
   }).catch(e=>{UNIVERSE.status='error';spineSet('ticker_cohorts',null,'FALLBACK','read failed ('+e.message+') — hardcoded TICKER_STYLES in use');}));
   J.push(sbGet('hub_favorites?select=ticker,added_at&limit=1000').then(rows=>{
     UNIVERSE.favs=new Set(rows.map(r=>r.ticker));

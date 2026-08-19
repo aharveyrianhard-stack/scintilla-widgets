@@ -23,7 +23,7 @@ originally named branch is one command if that is preferred.
 | --- | --- |
 | `d54da89` | Re-sync the versioned chart shell with the reviewed chart surface |
 | `cae3a58` | STATION-001 — keep the stream's named absence named |
-| `4fcea19` | STATION-002 — drop the dead `is_primary` filter |
+| `289082c` | STATION-002 — drop the dead `is_primary` filter |
 | `e8177e8` | STATION-003 — stop dating undated news items to the Unix epoch |
 | `fa163c5` | STATION-004 — take legacy equity authority off `/analytics` and `/health` |
 | `9a20a85` | Pre-merge corrections: cohort axis, provider transport, fabricated stamps |
@@ -93,7 +93,7 @@ build step in this repository; the suite and the static syntax check are the who
 | --- | --- | --- |
 | `station-named-absence` | 6 of 8 fail on `d54da89` | pass |
 | `station-cohort-routes` | 26 of 29 (with transport) fail on `9a20a85` | pass |
-| `station-news-time` | 10 of 10 fail on `4fcea19` | pass |
+| `station-news-time` | 10 of 10 fail on `289082c` | pass |
 | `station-equity-authority` | 6 of 7 fail on `e8177e8` | pass |
 | `station-transport-vs-absence` | 14 of 15 fail on `fa163c5` | pass |
 | `station-route-inventory` | new | pass |
@@ -101,14 +101,46 @@ build step in this repository; the suite and the static syntax check are the who
 Each "before" figure was measured by checking the parent commit out into a detached worktree and
 running the new suite against it.
 
-## Code-complete
+## Status by item — nothing here is called closed
 
-- STATION-001 through STATION-004, and all nine review blockers.
-- H1 — `STATION_ROUTES.md`, regenerated from the filesystem and enforced by test, including the
-  shell pinning that keeps charts, each YouTube feed and X independently deployable.
-- H3 — the iPad companion page is pinned; its outer document had no overscroll containment at
-  all, so the page and header could travel under the Station it frames.
-- F1 — unreviewed relays removed; the newer page's price spine reads the provider contract.
+Independent re-review decides merge readiness, not the test count. Every item below is either
+**code-complete pending re-review** or explicitly **open**.
+
+| Item | Status |
+| --- | --- |
+| STATION-001 | code-complete, pending re-review |
+| STATION-002 | code-complete, pending re-review |
+| STATION-003 | code-complete, pending re-review |
+| STATION-004 | code-complete, pending re-review |
+| H1 inventory | code-complete, pending re-review — now covers standalone HTML files too |
+| H2 (X) | **untouched and proof-gated**, by instruction |
+| H3 | partial — the iPad page is pinned and the chart contracts are asserted; gesture *feel* is unverifiable here |
+| H4 | partial — transport, subscribe and the ladder are asserted; fullscreen geometry is unverified |
+| **F1** | **BLOCKED — not closed by this branch. See below.** |
+
+### F1 is blocked, not done
+
+What this branch did to `templates/sector-rotation.html` and `-older.html` is real: the direct
+Yahoo call and the two public CORS proxies are gone, and the newer page's price spine reads the
+provider contract. It does not close F1, for three reasons that live outside this repository:
+
+- The canonical home of that tool is the separate **`scintilla-sector`** project. The copies
+  here are copies; changing them does not change what is deployed there.
+- `sectorrotation.scintillahub.ai/_provider/provider.js` is **404** — the authority shim these
+  edits depend on is not deployed at that origin at all.
+- Fly CORS does not allow the `sectorrotation` origin, so even a deployed shim could not reach
+  the provider contract from there.
+
+F1 therefore needs a cross-project follow-up with its own deploy and CORS proof. Treat it as
+**ACTIVE/BLOCKED**, and do not read this branch as having closed it.
+
+### H1 is an inventory, not a deployment gate
+
+`STATION_ROUTES.md` now covers standalone `.html` files as well as directory routes — 63
+deployed HTML surfaces, including ten standalone pages that the first version of the walk could
+not see while claiming completeness. It records what the repository *would* serve. Whether a
+given surface *should* be reachable is a separate ruling; where one is not wanted, exclude it in
+the deployment config rather than by leaving it out of the inventory.
 
 ## Not accepted — needs an isolated preview and a human eye
 
@@ -122,22 +154,31 @@ read as one.
 
 Verify on the preview, with devtools open:
 
-1. `/deck/` → INDEX NOW, MACRO CROSS-ASSET, INTERNALS FAST, INTERNALS SLOW. Each pane should
-   settle on `not observed by stream` and **stop**; the header should read
-   `DATA · not observed by stream (n)`. Watch for two minutes — no pane may return to
-   `data delayed · retrying`, and no retry timer may re-arm.
+1. `/deck/` → INDEX NOW, MACRO CROSS-ASSET, INTERNALS FAST, INTERNALS SLOW. A pane the
+   provider **names** should settle on that name and **stop**; the header should read
+   `DATA · not observed by stream (n)`. Watch for two minutes — a named pane may not return to
+   `data delayed · retrying`. A pane whose data is merely short or unnamed **should** keep
+   retrying: that is the correct behaviour, not a regression.
 2. Kill the network briefly on a loaded `/deck/`. Every pane must go to `data delayed · retrying`
    and keep retrying. This is the half that must NOT be quiet.
 3. `/cohorts`, `/cohort`, `/compare`, `/geigerwall` → all four render. `/compare` should show
    more than 1000 memberships' worth of cohorts.
 4. `/heat?group=cohort` → reload five times; NVDA must land in `AI_HARDWARE` every time.
-5. `/news` → newest item has a real age; scroll to the undated tail, which should read `no date`;
-   the header should count them.
+5. `/news` → newest item has a real age. The header shows an exact undated count as a link;
+   follow it to `?undated=1`, where those rows are listed and read `no date`. They are **not**
+   reachable by scrolling the dated feed — putting dated items first is what made them
+   unreachable, which is why they get their own door and their own count.
 6. `/analytics` → `PRICE·PROVIDER` column. EQR must show the absence reason, **not** `63.8`.
    `GEIGER FRESH` must show a real age from `computed_utc`, not `0s`.
 7. `/health` → the equity lane must report the provider universe against 365 and flag a
    disagreement rather than adopting it.
 8. iPad: open `/station-ipad`, two-finger drag on the header. The page must not move.
+9. `/compare` → LIVE COMPOSITE renders. Switch to 1M RETURN, 3M RETURN or BREADTH: the status
+   line must name `whole universe bars not served` and the rows must empty, rather than drawing
+   a blank table as though the cohorts had no history.
+10. `/health` → `live_quotes`, `composite_staged` and `ohlcv_history` still appear, each marked
+   `NON-EQUITY LANE ONLY`. They are the live owner of crypto, futures, indices and rates, so a
+   stale one is a real outage — what must be absent is any equity claim on those rows.
 
 ## Blockers, stated
 
@@ -146,8 +187,10 @@ Verify on the preview, with devtools open:
 - H2 (X) is untouched and stays proof-gated. The intermittent iPad source-offline flash needs a
   real signed-in isolated surface; there is no such surface here and no evidence is claimed.
 - H4's fullscreen geometry — one video across both video panes with X in the remaining black —
-  is implemented as the two-stage media ladder and covered by existing tests, but the *visual*
-  result is not verified here.
+  is implemented as the two-stage media ladder and covered by tests, but the *visual* result is
+  not verified here.
+- F1 is blocked on the `scintilla-sector` project's own deploy and on Fly CORS for the
+  `sectorrotation` origin. Neither is reachable from this branch.
 
 ## Accepted consequences, not hidden
 
@@ -161,6 +204,12 @@ Verify on the preview, with devtools open:
 - The whole-universe RETURN window on `/analytics` is stated as unavailable: the provider serves
   completed bars one symbol at a time. It had in fact been dead for as long as its doubled
   PostgREST prefix had been there; the URL is fixed, the honest answer is now visible.
+- `/compare`'s 1M RETURN, 3M RETURN and BREADTH detents are unavailable for the same reason and
+  now say so by name. They were rendering blank before — the limitation is not new, only
+  visible. LIVE COMPOSITE is unaffected.
+- With the provider read bounded at 4.5s, a provider that is merely slow now fails into the
+  retrying lane rather than hanging. That is the intended trade: a hung read left the deck's
+  in-flight flag set forever and the wall stopped moving entirely.
 
 ## Noticed upstream, not touched
 

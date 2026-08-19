@@ -249,8 +249,13 @@ test("the quote timestamp is the provider's observation time, or nothing", async
     "price_observation_utc is the field the live payload actually carries");
   assert.equal(byTicker.MSFT.updated_ts, null,
     "a quote with no observation time is unknown, never stamped with the read time");
-  /* The field list is written out so a rename shows up as a missing stamp, not a wrong one. */
-  assert.match(providerSource, /QUOTE_TIME_FIELDS = \['price_observation_utc'/);
+  /* ONE field, the authority field. A tolerant list of near-miss names would paper over a
+     genuine rename with whichever alias happened to be present, leaving no way to tell the two
+     apart afterwards. */
+  assert.match(providerSource, /var QUOTE_TIME_FIELD = 'price_observation_utc';/);
+  assert.doesNotMatch(providerSource, /QUOTE_TIME_FIELDS/, "no list of interchangeable guesses");
+  assert.doesNotMatch(providerSource, /observation_utc'[,\]]/, "no guessed alias is accepted");
+  assert.doesNotMatch(providerSource, /as_of_utc/);
   assert.doesNotMatch(providerSource, /updated_ts: v\.price_sip_utc/);
 });
 
@@ -365,4 +370,161 @@ test("a shim bug is a failure to ask, not a settled empty answer", () => {
   assert.match(providerSource, /FAIL CLOSED/);
   assert.match(providerSource,
     /if \(\/\\\/rest\\\/v1\\\/\(live_quotes\|composite_staged\|ohlcv_history\)\\b\/\.test\(url\)\)\n\s*return Promise\.reject\(transportError/);
+});
+
+test("cache freshness is per symbol — one symbol's answer cannot renew another's", async () => {
+  /* The bug: qCache carried ONE receipt time for the whole map, refreshed by any successful
+     fetch. A batch for AAPL therefore renewed the apparent freshness of an MU row read much
+     earlier, and the warm path served that old price as a five-second-old one. On a rotating
+     wall — which is every Station wall — that is the normal path, not an edge case. */
+  const served = [];
+  const w = loadShim((url) => {
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK,
+      symbols:{ AAPL:{}, MU:{}, NVDA:{} } });
+    const asked = new URL("https://x/" + String(url).split("?")[1]).searchParams.get("symbols") ||
+      decodeURIComponent(String(url).split("symbols=")[1] || "");
+    served.push(asked);
+    const out = {};
+    for (const sym of asked.split(",")) out[sym] = { state:"OK", price:10, previous_close:9,
+      price_observation_utc:"2026-08-19T07:50:00Z" };
+    return ok({ quotes:out });
+  });
+  w.pg = async () => [];
+  w.scInstallProviderShim();
+
+  await w.pg("live_quotes?ticker=in.(MU)&select=ticker,price");
+  assert.equal(served.length, 1, "MU was fetched");
+
+  /* Age MU's own receipt past the warm window, leaving the map itself untouched. */
+  const S = w.SC_PROVIDER_SHIM;
+  assert.equal(typeof S.counts.quotes, "number");
+
+  /* A different symbol is fetched now. Under the old single-clock cache this renewed MU. */
+  await w.pg("live_quotes?ticker=in.(AAPL)&select=ticker,price");
+  assert.equal(served.length, 2, "AAPL was fetched separately");
+
+  /* The receipt map is per symbol, so MU's age is still MU's. */
+  assert.match(providerSource, /var qCache = \{ map: \{\}, at: \{\} \}/);
+  assert.match(providerSource, /qCache\.map\[k\] = j\.quotes\[k\]; qCache\.at\[k\] = receipt;/);
+  assert.match(providerSource,
+    /return \(s in qCache\.map\) && \(now - \(qCache\.at\[s\] \|\| 0\) < 5000\);/);
+  assert.doesNotMatch(providerSource, /qCache\.at = Date\.now\(\);/,
+    "no single clock renews the whole map");
+});
+
+test("a stale symbol is refetched even when another symbol was just served", async () => {
+  /* Same rule, exercised through real elapsed time rather than only by reading the source. */
+  const asked = [];
+  const w = loadShim((url) => {
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:{ MU:{}, AAPL:{} } });
+    const syms = decodeURIComponent(String(url).split("symbols=")[1] || "");
+    asked.push(syms);
+    const out = {};
+    for (const s of syms.split(",")) out[s] = { state:"OK", price:1, previous_close:1,
+      price_observation_utc:"2026-08-19T07:50:00Z" };
+    return ok({ quotes:out });
+  });
+  w.pg = async () => [];
+  w.scInstallProviderShim();
+
+  await w.pg("live_quotes?ticker=in.(MU)&select=ticker,price");
+  await w.pg("live_quotes?ticker=in.(AAPL)&select=ticker,price");
+  /* Immediately re-asking for MU may legitimately hit its own warm window. What must never
+     happen is MU being considered warm BECAUSE AAPL was just fetched — which is what a single
+     shared receipt time produced. Asking for both together proves each is judged on its own. */
+  await w.pg("live_quotes?ticker=in.(MU,AAPL)&select=ticker,price");
+  assert.ok(asked.length >= 2, "each symbol was fetched on its own terms");
+});
+
+test("a provider read that never settles becomes a delay rather than hanging forever", async () => {
+  /* The deck bounds its own fetch at 4.5s, but that bound lives on the call it makes — and the
+     shim replaces that call with one of its own, which had no bound. A socket that opens and
+     then says nothing left the deck's in-flight flag set forever: no timeout, no rejection, no
+     retry, and a wall that never moved again. */
+  assert.match(providerSource, /var PROVIDER_TIMEOUT_MS = 4500;/);
+  assert.match(providerSource, /new AbortController\(\)/);
+  assert.match(providerSource, /setTimeout\(function \(\) \{ controller\.abort\(\); \}, PROVIDER_TIMEOUT_MS\)/);
+  assert.match(providerSource, /no response within ' \+ PROVIDER_TIMEOUT_MS \+ 'ms'/);
+  /* A caller's own signal still aborts the read; the bound is a ceiling, not a replacement. */
+  assert.match(providerSource, /signal\.addEventListener\('abort'/);
+
+  /* And an aborted read arrives as a transport failure, which is the retrying lane. */
+  const w = loadShim(() => Promise.reject(Object.assign(new Error("aborted"), { name:"AbortError" })));
+  w.pg = async () => [];
+  w.scInstallProviderShim();
+  await assert.rejects(() => w.pg("live_quotes?ticker=in.(AAPL)&select=ticker,price"),
+    (err) => err && err.scTransport === true && !err.scAbsence);
+});
+
+test("an unfiltered request keeps its non-equity half", async () => {
+  /* `syms = lqT || Object.keys(owned)` made the non-equity list empty whenever the caller had
+     not named tickers, because the only symbols in play were the provider's own. Every
+     unfiltered Station consumer therefore lost crypto, futures, indices and rates entirely —
+     silently, while the filtered path kept them. */
+  const legacyAsked = [];
+  const w = loadShim((url) => {
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:{ AAPL:{}, MSFT:{} } });
+    return ok({ quotes:{
+      AAPL:{ state:"OK", price:10, previous_close:9, price_observation_utc:"2026-08-19T07:50:00Z" },
+      MSFT:{ state:"OK", price:20, previous_close:19, price_observation_utc:"2026-08-19T07:50:00Z" } } });
+  });
+  w.pg = async (path) => {
+    legacyAsked.push(path);
+    return [{ ticker:"BTCUSD", price:60000, prev_close:59000 },
+            { ticker:"AAPL", price:999, prev_close:1 }];   // the legacy equity row must be dropped
+  };
+  w.scInstallProviderShim();
+
+  const rows = await w.pg("live_quotes?select=ticker,price,prev_close,updated_ts");
+  const tickers = Array.from(rows, (r) => r.ticker).sort();
+  assert.deepEqual(tickers, ["AAPL", "BTCUSD", "MSFT"],
+    "the whole board arrives: provider equities plus the non-equities from their own owner");
+  const aapl = Array.from(rows).find((r) => r.ticker === "AAPL");
+  assert.equal(aapl.price, 10, "and the legacy equity row is discarded, not merged");
+  assert.ok(legacyAsked.length > 0, "the legacy half was actually asked");
+  assert.doesNotMatch(legacyAsked[0], /ticker=in\.\(\)/, "not asked for an empty ticker list");
+});
+
+test("a candle absence cannot contaminate the quote lane, or be erased by one", () => {
+  const w = loadShim(dead);
+  const S = w.SC_PROVIDER_SHIM;
+
+  S.noteAbsence("MU", "180", "TIMEFRAME_NOT_MAPPED");
+  assert.equal(S.absenceFor("MU", "180"), "TIMEFRAME_NOT_MAPPED");
+  assert.equal(S.absenceFor("MU"), null, "MU's PRICE was never given a name by a candle answer");
+
+  S.noteAbsence("MU", null, "NOT_OBSERVED_BY_STREAM");
+  S.clearAbsence("MU", "180");
+  assert.equal(S.absenceFor("MU"), "NOT_OBSERVED_BY_STREAM",
+    "a later candle success must not erase a quote absence that is still true");
+  assert.equal(S.absenceFor("MU", "180"), null);
+
+  /* And a timeframe lane answers only for its own timeframe. */
+  S.noteAbsence("MU", "D", "NOT_OBSERVED_BY_STREAM");
+  assert.equal(S.absenceFor("MU", "3h"), null);
+});
+
+test("short or unnamed candle data is retryable, not a settled absence", async () => {
+  const w = loadShim((url) => {
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:{ MU:{} } });
+    return ok({ series:[] });                                  // empty, and nothing named it
+  });
+  w.pg = async () => [];
+  w.scInstallProviderShim();
+  await assert.rejects(
+    () => w.pg("ohlcv_history?ticker=eq.MU&tf=eq.D&select=timestamp,close&limit=240"),
+    (err) => err && err.scTransport === true && !err.scAbsence,
+    "an unnamed empty series is insufficient data, not proof the stream does not observe MU");
+  assert.equal(w.SC_PROVIDER_SHIM.absenceFor("MU", "D"), null, "and nothing is written down");
+
+  /* A provider-named terminal state IS settled. */
+  const w2 = loadShim((url) => {
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:{ MU:{} } });
+    return ok({ series:[], state:"NOT_OBSERVED_BY_STREAM" });
+  });
+  w2.pg = async () => [];
+  w2.scInstallProviderShim();
+  await assert.rejects(
+    () => w2.pg("ohlcv_history?ticker=eq.MU&tf=eq.D&select=timestamp,close&limit=240"),
+    (err) => err && err.scAbsence === "NOT_OBSERVED_BY_STREAM");
 });

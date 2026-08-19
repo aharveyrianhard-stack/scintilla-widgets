@@ -347,6 +347,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 <script src="/deck/scenes.js?rev=001"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="/_provider/provider.js"></script>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
    top-level declaration, so it is already bound here. The shim answers live_quotes,
@@ -946,10 +947,18 @@ function focusTickerFor(key) {
    and its own count, and a scene made entirely of named absences reports exactly that. */
 function chartDataSummary(visible) {
   if (!visible.length) return { mode:"waiting", count:0 };
-  const absent = visible.filter((x) => x.history === "absent" || x.quote === "absent");
-  const rest = visible.filter((x) => !absent.includes(x));
-  const delayed = rest.filter((x) => x.history === "delayed" || x.quote === "delayed" || x.delayed);
-  const loading = rest.filter((x) => x.history === "loading" || x.quote === "loading");
+  /* A PANE IS NOT SETTLED UNTIL BOTH ITS SUBLANES ARE.
+     Panes used to be removed into the absent bucket the moment EITHER sublane was named, and
+     only the remainder was then searched for delays. A pane whose history is named absent
+     while its quote is still failing therefore vanished from the delayed count and the header
+     went quiet - on a pane that was, in fact, still retrying. History and quote settle
+     separately, so a pane is only absent when nothing about it is still in flight. */
+  const isDelayed = (x) => x.history === "delayed" || x.quote === "delayed" || x.delayed;
+  const isLoading = (x) => x.history === "loading" || x.quote === "loading";
+  const delayed = visible.filter(isDelayed);
+  const loading = visible.filter((x) => !isDelayed(x) && isLoading(x));
+  const absent = visible.filter((x) => !isDelayed(x) && !isLoading(x)
+    && (x.history === "absent" || x.quote === "absent"));
   if (delayed.length) return { mode:"delayed", count:delayed.length, absent:absent.length };
   if (loading.length) return { mode:"loading", count:loading.length, absent:absent.length };
   if (absent.length) return { mode:"absent", count:absent.length, absent:absent.length,
@@ -1213,12 +1222,21 @@ function orderedCohorts() {
 }
 async function loadCohortFavorites() {
   if (COHORT_READY) return;
-  const [favorites, primary, legacy] = await Promise.all([
+  /* THE MEMBERSHIP SET, WHOLE AND IN A STABLE ORDER.
+     This read `ticker_cohorts` with no limit and no order, so PostgREST returned its first
+     1000 rows of 1283 in whatever order the planner produced: COHORT FAVORITES was built from
+     roughly four fifths of the axis, and a different four fifths on different loads. It also
+     mixed in the separate `cohorts` relation, so two differently-shaped sources were merged
+     without either being complete. The shared reader pages the whole set under a total order -
+     see _cohorts/cohort-axis.js - and `cohorts` is kept only as the secondary group it always
+     was, now clearly second. */
+  const [favorites, axis, legacy] = await Promise.all([
     pg("hub_favorites?select=ticker&order=added_at.asc"),
-    pg("ticker_cohorts?select=ticker,cohort"),
-    pg("cohorts?select=ticker,cohort")
+    SC_COHORT_AXIS.loadMemberships(pg),
+    pg("cohorts?select=ticker,cohort").catch(() => [])
   ]);
-  COHORT_INDEX = SceneModel.buildCohortFavorites(favorites, [primary, legacy]);
+  if (axis.truncated) console.warn("[cohort] membership read truncated; favorites may be incomplete");
+  COHORT_INDEX = SceneModel.buildCohortFavorites(favorites, [axis.rows, legacy]);
   COHORT_READY = true;
   const names = orderedCohorts();
   if (!COHORT_INDEX.has(COHORT)) COHORT = names[0] || COHORT;

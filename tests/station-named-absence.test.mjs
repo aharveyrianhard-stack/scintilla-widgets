@@ -79,9 +79,12 @@ test("a named absence is a distinct error kind that a delay can never impersonat
 });
 
 test("the load path stops on a named answer and retries only on a failure", () => {
-  /* A successful read with fewer than two observations is raised under its name rather than
-     cached as an empty series. This is the exact line the endless spinner came from. */
-  assert.match(chart, /if \(pts\.length < 2\) throw chartAbsenceError\(chartAbsenceReason\(t, e\[0\]\), t, range\);/);
+  /* A successful read with fewer than two observations is raised under the name SOMETHING GAVE
+     it, and otherwise as an ordinary insufficient-history failure that keeps retrying. Short is
+     not absent: one real bar proves the stream observes the symbol, so a terminal name invented
+     from a short series would retire a live symbol from the wall for good. */
+  assert.match(chart, /const named = chartNamedAbsenceFor\(t, e\[0\]\);\n\s*if \(named\) throw chartAbsenceError\(named, t, range\);/);
+  assert.match(chart, /throw new Error\("insufficient history for "/);
   /* The catch splits before it reaches showChartDelayed, and returns without arming a timer. */
   assert.match(chart, /if \(isNamedAbsence\(err\)\) \{ showChartAbsent\(host, err\.scAbsence\); return; \}[\s\S]{0,80}showChartDelayed\(host, t\)/);
   /* showChartAbsent must clear any timer already armed by a previous delayed attempt. */
@@ -151,22 +154,30 @@ test("the provider shim names absences per symbol and timeframe and never invent
   assert.equal(S.absenceFor("TICK", "D"), null, "nothing is named before anything is observed");
   S.noteAbsence("tick", "D", "NOT_OBSERVED_BY_STREAM");
   assert.equal(S.absenceFor("TICK", "D"), "NOT_OBSERVED_BY_STREAM", "lookup is case-insensitive");
-  assert.equal(S.absenceFor("TICK"), "NOT_OBSERVED_BY_STREAM", "the symbol-level name answers too");
+
+  /* TWO LANES THAT DO NOT TOUCH. A history absence is about a symbol on one timeframe; a quote
+     absence is about the symbol. Writing both keys made them one lane wearing two names — a
+     candle answer contaminated the price state, and a later candle success erased a real quote
+     absence that was still true. */
+  assert.equal(S.absenceFor("TICK"), null, "a history absence says nothing about the quote lane");
+  S.noteAbsence("TICK", null, "NOT_OBSERVED_BY_STREAM");
+  assert.equal(S.absenceFor("TICK"), "NOT_OBSERVED_BY_STREAM", "the quote lane is set on its own");
+  S.clearAbsence("TICK", "D");
+  assert.equal(S.absenceFor("TICK"), "NOT_OBSERVED_BY_STREAM",
+    "clearing the history lane must not erase a live quote absence");
+  assert.equal(S.absenceFor("TICK", "D"), null);
 
   /* A second, unrelated absence must not evict the first — the rolling `unsatisfied` log does,
      which is why it could not be the thing a pane reads. */
   S.noteAbsence("TRIN", "180", "TIMEFRAME_NOT_MAPPED");
-  assert.equal(S.absenceFor("TICK", "D"), "NOT_OBSERVED_BY_STREAM");
   assert.equal(S.absenceFor("TRIN", "180"), "TIMEFRAME_NOT_MAPPED");
-
-  /* Absence is not permanent: a later real series clears it. */
-  S.clearAbsence("TICK", "D");
-  assert.equal(S.absenceFor("TICK", "D"), null);
+  assert.equal(S.absenceFor("TRIN"), null, "and it stays out of TRIN's quote lane");
 
   const err = S.absenceError("NOT_OBSERVED_BY_STREAM", "US10Y", "D");
   assert.equal(err.scAbsence, "NOT_OBSERVED_BY_STREAM");
   assert.equal(err.scTicker, "US10Y");
   assert.equal(S.absenceFor("US10Y", "D"), "NOT_OBSERVED_BY_STREAM", "raising also records");
+  assert.equal(S.absenceFor("US10Y"), null, "in its own lane only");
 
   /* Over fetch(), a named absence is an empty successful read — not a rejected request, which
      is what would send every caller back into a retry loop. */
@@ -177,4 +188,38 @@ test("the provider shim names absences per symbol and timeframe and never invent
 
 test("the versioned chart shell carries the same absence contract", () => {
   assert.equal(chartShell, chart);
+});
+
+test("a pane still retrying is never counted as settled, whichever sublane named it", () => {
+  /* History and quote settle separately. Panes used to be moved into the absent bucket the
+     moment EITHER sublane was named, and only the remainder was searched for delays — so a
+     pane whose history is named absent while its quote is still failing vanished from the
+     delayed count and the header went quiet on a pane that was still retrying. */
+  const summarize = fnFrom(deck, "chartDataSummary");
+
+  const historyAbsentQuoteDelayed = summarize([
+    { ticker:"TICK", history:"absent", quote:"delayed", absence:"NOT_OBSERVED_BY_STREAM" },
+  ]);
+  assert.equal(historyAbsentQuoteDelayed.mode, "delayed", "the pane is still in flight");
+  assert.equal(historyAbsentQuoteDelayed.count, 1);
+
+  const quoteAbsentHistoryDelayed = summarize([
+    { ticker:"TICK", history:"delayed", quote:"absent", absence:"NOT_OBSERVED_BY_STREAM" },
+  ]);
+  assert.equal(quoteAbsentHistoryDelayed.mode, "delayed", "and the inverse is the same pane");
+  assert.equal(quoteAbsentHistoryDelayed.count, 1);
+
+  /* Loading counts too — a pane mid-request is not settled either. */
+  const halfLoading = summarize([
+    { ticker:"TICK", history:"absent", quote:"loading", absence:"NOT_OBSERVED_BY_STREAM" },
+  ]);
+  assert.equal(halfLoading.mode, "loading");
+  assert.equal(halfLoading.count, 1);
+
+  /* Only when nothing about the pane is in flight is it absent. */
+  const settled = summarize([
+    { ticker:"TICK", history:"absent", quote:"absent", absence:"NOT_OBSERVED_BY_STREAM" },
+  ]);
+  assert.equal(settled.mode, "absent");
+  assert.equal(settled.count, 1);
 });

@@ -78,9 +78,10 @@ footer{ padding:20px 14px 0; color:var(--mute); font-size:9px; letter-spacing:.0
     what and what is waiting on you.<br><br>
     <b>Equity truth is not in this database.</b> Price, previous close and the Geiger are served by the
     provider contract and are asked of it directly above. <code>live_quotes</code>, <code>composite_staged</code>
-    and <code>ohlcv_history</code> are no longer graded here, because nothing reads them as equity authority any
-    more — grading them would report the health of something no surface depends on, in a place that reads as
-    authority. The database lanes below are the non-equity ones this database still owns.</div>
+    and <code>ohlcv_history</code> are graded below <b>only as the non-equity lane</b>: the provider authority shim
+    passes every symbol the provider does not own — crypto, futures, indices, rates — straight through to them, so a
+    stale one is a real outage on real panes. What is gone is the claim that they are the board's price and the
+    Geiger. A green row there says nothing about any equity.</div>
   <h2>Equity — the provider contract</h2>
   <div id="equity"></div>
   <h2>Feeders — how fresh is the newest row</h2>
@@ -127,20 +128,37 @@ const CANONICAL_EQUITY_UNIVERSE = 365;
 /* FEEDERS — table, its real timestamp column, how it is stored, and how old
    is too old. Column names verified against information_schema, not guessed:
    news uses published_ts (bigint epoch), feed_alerts uses fired_ts, the rest
-   are timestamptz. Every entry here is a NON-EQUITY lane whose owner is this database. */
+   are timestamptz.
+
+   THE THREE LEGACY TABLES ARE STILL MONITORED, UNDER A TRUE LABEL. Removing them outright was
+   an over-correction: _provider/provider.js passes every symbol the provider does NOT own -
+   crypto, futures, indices, rates - straight through to these tables, so they remain the live
+   owner of the non-equity lane and a stale one is a real outage on real panes. What was false
+   was calling them the board's price and the Geiger. The rows stay; the claim goes.
+
+   `nonEquity: true` is what prints that distinction on the page, so a reader cannot take a
+   green row here as an equity-authority statement. */
 const FEEDERS = [
+  { t: "live_quotes",     col: "updated_ts",   kind: "ts",    n: "Quotes · non-equity lane", d: "crypto, futures, indices, rates — NOT equity price", warn: 15,   bad: 90,   nonEquity: true },
+  { t: "composite_staged",col: "updated_ts",   kind: "ts",    n: "Composite · non-equity lane", d: "tf=D for symbols the provider does not own",       warn: 720,  bad: 4320, nonEquity: true, filt: "&tf=eq.D" },
+  { t: "ohlcv_history",   col: "timestamp",    kind: "epoch", n: "Bars · non-equity lane",   d: "history for symbols the provider does not own",       warn: 1440, bad: 4320, nonEquity: true },
   { t: "spine_events",    col: "at",           kind: "ts",    n: "The spine",        d: "every session's receipts",              warn: 720,  bad: 4320 },
   { t: "feed_alerts",     col: "fired_ts",     kind: "ts",    n: "Feed alerts",      d: "feed-health warnings",                  warn: 120,  bad: 720 },
   { t: "youtube_feed",    col: "published_at", kind: "ts",    n: "YouTube mirror",   d: "what feeds A and B read",               warn: 720,  bad: 4320 },
-  { t: "news",            col: "published_ts", kind: "epoch", n: "News",             d: "the wire",                              warn: 180,  bad: 1440 },
+  /* NULLS SORT FIRST UNDER DESC. 1246 of the news rows carry no published_ts, so an
+     unqualified `order=published_ts.desc&limit=1` returns one of them, reads null, and this
+     page reported the wire as having no rows at all. The freshness probe asks only rows that
+     have a time — which is the only kind that can answer a freshness question. */
+  { t: "news",            col: "published_ts", kind: "epoch", n: "News",             d: "the wire",                              warn: 180,  bad: 1440, notNull: true },
 ];
-/* STOCK — the counts that tell you the shape is intact. Non-equity lanes only. */
+/* STOCK — the counts that tell you the shape is intact. */
 const STOCK = [
-  { t: "ticker_cohorts",   filt: "",         n: "Cohort memberships", d: "the axis you navigate — view over ticker_membership" },
+  { t: "ticker_cohorts",   filt: "",         n: "Cohort memberships", d: "the axis you navigate — 1283 rows over 387 tickers" },
   { t: "hub_favorites",    filt: "",         n: "Favourites",         d: "the FAV cohort" },
   { t: "earnings_events",  filt: "",         n: "Earnings events",    d: "what /events reads, both directions" },
   { t: "econ_calendar",    filt: "",         n: "Econ calendar",      d: "what /econ reads" },
   { t: "youtube_feed",     filt: "",         n: "Videos mirrored",    d: "feeds A and B" },
+  { t: "news",             filt: "&published_ts=is.null", n: "News rows with no date", d: "undated wire items — /news lists these separately" },
 ];
 /* EQUITY — asked of the contract that actually owns it. */
 const EQUITY_LANES = [
@@ -158,7 +176,8 @@ function ageLbl(m) {
 function shell(box, items) {
   box.innerHTML = items.map((f, i) =>
     '<div class="row"><span class="dot chk" id="' + box.id + 'd' + i + '"></span>' +
-    '<span class="nm">' + esc(f.n) + "<small>" + esc(f.d) + " · " + esc(f.t) + "</small></span>" +
+    '<span class="nm">' + esc(f.n) + "<small>" + esc(f.d) + " · " + esc(f.t) +
+      (f.nonEquity ? " · NON-EQUITY LANE ONLY" : "") + "</small></span>" +
     '<span class="n" id="' + box.id + 'n' + i + '"></span>' +
     '<span class="age" id="' + box.id + 'a' + i + '">checking…</span></div>').join("");
 }
@@ -232,7 +251,9 @@ async function run() {
     try {
       const c = await countOf(f.t, f.filt);
       if (f.kind === "none") { set("feeders", i, c ? "ok" : "bad", c == null ? "" : c.toLocaleString() + " rows", c ? "present" : "empty"); return; }
-      const rows = await pgRaw(f.t + "?select=" + f.col + (f.filt || "") + "&order=" + f.col + ".desc&limit=1");
+      /* `notNull` keeps a NULLS-FIRST column from answering a freshness question with a null. */
+      const rows = await pgRaw(f.t + "?select=" + f.col + (f.filt || "") +
+        (f.notNull ? "&" + f.col + "=not.is.null" : "") + "&order=" + f.col + ".desc&limit=1");
       const v = rows && rows[0] ? rows[0][f.col] : null;
       if (v == null) { set("feeders", i, "bad", c == null ? "" : c.toLocaleString() + " rows", "no rows"); return; }
       const m = f.kind === "epoch" ? (Date.now() / 60000 - (+v) / 60) : mins(v);

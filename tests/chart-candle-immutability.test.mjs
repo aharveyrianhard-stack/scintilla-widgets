@@ -20,8 +20,14 @@ function extract (file) {
   // take the function body up to its closing brace at column 0
   const end = src.indexOf('\n}', i)
   const fn = src.slice(i, end + 2)
+  // chApplyLivePoint now asks quoteInstant whether the quote has a real observation time at
+  // all, so the helper travels with it. A quote with no time appends nothing, because there is
+  // nowhere honest on the axis to put it.
+  const qi = src.indexOf('function quoteInstant(')
+  const qiEnd = src.indexOf('\n}', qi)
+  const helper = src.slice(qi, qiEnd + 2)
   const factory = new Function('futureSet', 'cryptoSet', 'window',
-    fn + '\nreturn chApplyLivePoint;')
+    helper + '\n' + fn + '\nreturn chApplyLivePoint;')
   return factory
 }
 

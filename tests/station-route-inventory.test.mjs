@@ -15,14 +15,27 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const SKIP = new Set([".git", "station-x-bridge-draft", "node_modules"]);
+/* Only what git and npm keep out of the deploy. station-x-bridge-draft was skipped here
+   because it is a Chrome extension draft rather than a Station surface - but Vercel
+   serves the whole repository, so its page is deployed whatever we call it. Skipping it
+   in the walk is how an inventory ends up claiming a completeness it does not have. */
+const SKIP = new Set([".git", "node_modules"]);
 
+/* EVERY DEPLOYED HTML FILE, NOT EVERY DIRECTORY.
+   The first version of this walk only recorded directories containing index.html, and called
+   the result "every route this repository serves". Vercel serves standalone .html files at
+   their own paths too - status-snapshot.html, eight templates, and the bridge draft's
+   offscreen page - all of which answer 200 on the preview. An inventory that cannot see them
+   is not a completeness gate; it is a directory listing wearing one's name. */
 function discoverRoutes(dir = ROOT, prefix = "") {
   const found = [];
   const entries = fs.readdirSync(dir, { withFileTypes:true });
-  if (entries.some((e) => e.isFile() && e.name === "index.html"))
-    found.push(prefix === "" ? "/" : prefix);
   for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith(".html")) {
+      if (entry.name === "index.html") found.push(prefix === "" ? "/" : prefix);
+      else found.push(prefix + "/" + entry.name);
+      continue;
+    }
     if (!entry.isDirectory() || SKIP.has(entry.name)) continue;
     found.push(...discoverRoutes(path.join(dir, entry.name), prefix + "/" + entry.name));
   }
@@ -30,6 +43,7 @@ function discoverRoutes(dir = ROOT, prefix = "") {
 }
 
 const routes = discoverRoutes();
+const standalone = routes.filter((r) => r.endsWith(".html"));
 const inventory = fs.readFileSync(new URL("../STATION_ROUTES.md", import.meta.url), "utf8");
 const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
 
@@ -47,9 +61,20 @@ test("the inventory does not list a route that no longer exists", () => {
   assert.deepEqual(stale, [], "these routes are documented but do not exist");
 });
 
-test("the inventory states the route count it was generated against", () => {
-  assert.match(inventory, new RegExp(`${routes.length} routes`),
-    `the inventory must say "${routes.length} routes"`);
+test("the inventory states the count it was generated against", () => {
+  assert.match(inventory, new RegExp(`${routes.length} deployed HTML surfaces`),
+    `the inventory must say "${routes.length} deployed HTML surfaces"`);
+});
+
+test("the standalone HTML files Vercel serves are inventoried too", () => {
+  /* These are not directory routes, so the first version of this walk could not see them —
+     and the inventory claimed completeness anyway. */
+  assert.ok(standalone.length >= 10, `expected the standalone pages, saw ${standalone.length}`);
+  for (const page of ["/status-snapshot.html", "/templates/fundamentals.html",
+                      "/templates/sector-rotation.html", "/templates/sector-rotation-older.html"])
+    assert.ok(standalone.includes(page), `${page} is served and must be inventoried`);
+  const missing = standalone.filter((page) => !inventory.includes("`" + page + "`"));
+  assert.deepEqual(missing, [], "these standalone pages are served but undocumented");
 });
 
 test("charts, each YouTube feed, and X remain independently deployable shells", () => {

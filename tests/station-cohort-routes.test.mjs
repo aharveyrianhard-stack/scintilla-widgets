@@ -217,12 +217,25 @@ test("/heat and the fundamentals peer set use the read home cohort", () => {
   assert.doesNotMatch(fundamentals, /is_primary/);
 });
 
+test("a paged read without a total order is refused outright", async () => {
+  const axis = loadAxis();
+  await assert.rejects(() => axis.readAll(async () => [], "ticker_cohorts?select=ticker,cohort", 1000),
+    /refusing to page/, "no ordering, no paging");
+});
+
 test("the module pages, bounds itself, and never substitutes a relation", () => {
   assert.match(axisSource, /const PAGE = 1000;/);
   assert.match(axisSource, /const MAX_PAGES = 40;/);
   assert.match(axisSource, /if \(batch\.length < size\) return \{ rows: out, pages, truncated: false \};/);
-  assert.match(axisSource, /"ticker_cohorts\?select=ticker,cohort"/, "memberships come from ticker_cohorts");
-  assert.match(axisSource, /"tickers\?select=ticker,cohort&active=eq\.true"/, "homes come from tickers.cohort");
+  assert.match(axisSource, /"ticker_cohorts\?select=ticker,cohort&order=ticker\.asc,cohort\.asc"/,
+    "memberships come from ticker_cohorts, under a total order");
+  assert.match(axisSource, /"tickers\?select=ticker,cohort&active=eq\.true&order=ticker\.asc"/,
+    "homes come from tickers.cohort, under a total order");
+  /* OFFSET paging without a total order is not paging: PostgREST applies LIMIT/OFFSET to
+     whatever order the planner produced, so adjacent windows are independent unordered scans
+     and a row can land in both or in neither while the walk still looks complete. */
+  assert.match(axisSource, /function requireTotalOrder \(path\)/);
+  assert.match(axisSource, /refusing to page/);
   assert.doesNotMatch(axisSource, /ticker_membership/,
     "no equivalent-looking relation is swapped in for either question");
 });
