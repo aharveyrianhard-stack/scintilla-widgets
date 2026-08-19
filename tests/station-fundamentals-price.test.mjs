@@ -168,3 +168,95 @@ test("a dead universe read cannot stop the page from booting silently", () => {
   const tickerAt = page.indexOf("await setTicker('NVDA');");
   assert.ok(guardAt !== -1 && tickerAt > guardAt, "the ticker sections still load after a universe failure");
 });
+
+/* ---- FY/TTM window consistency and raw-value balance discipline in buildBase ---- */
+
+function baseHarness(overrides = {}) {
+  const Q = (i, extra) => Object.assign({ period: "Q" + (4 - i), fiscal_date: "2026-0" + (6 - i) + "-30",
+    revenue: 48e9, ebitda: 20e9, operating_income: 18e9, shares_dil: 2.4e9 }, extra);
+  const tables = Object.assign({
+    fundamentals: [{ revenue_ttm: 200e9, market_cap: 3e12, price: 120, updated_ts: "2026-08-19T00:00:00Z" }],
+    balance_history: [{ fiscal_date: "2026-06-30", period: "Q2", total_debt: 12e9, cash_and_equiv: 30e9,
+      current_assets: 90e9, current_liabilities: 40e9, updated_ts: "2026-08-19T00:00:00Z" }],
+    fundamentals_history: [0, 1, 2, 3].map((i) => Q(i)).concat([
+      { period: "FY", fiscal_date: "2026-01-31", revenue: 180e9, ebitda: 74e9, operating_income: 66e9, shares_dil: 2.4e9 },
+      { period: "FY", fiscal_date: "2025-01-31", revenue: 150e9, ebitda: 60e9, operating_income: 54e9, shares_dil: 2.4e9 }]),
+    cashflow_history: [0, 1, 2, 3].map((i) => ({ period: "Q" + (4 - i), fiscal_date: "2026-0" + (6 - i) + "-30", capex: -3e9 }))
+      .concat([{ period: "FY", fiscal_date: "2026-01-31", capex: -11e9 }]),
+    company_profile: [{ beta: 1.2, updated_ts: "2026-08-19T00:00:00Z" }],
+    analyst_estimates: [],
+  }, overrides);
+  const bindings = {
+    sb: async (path) => tables[path.split("?")[0]] || [],
+    providerQuotes: async () => {},
+    quotePriceOf: () => 100,
+    RF10Y: 4.5,
+  };
+  return fnFrom(page, "buildBase", bindings);
+}
+
+test("ratio denominators come from the same rows as their numerators, never a foreign TTM", async () => {
+  const base = await baseHarness()("NVDA");
+  /* 4Q window: (80e9 − 72e9) / 192e9 — NOT / revenue_ttm's 200e9. */
+  assert.equal(base.daPct, (80e9 - 72e9) / 192e9);
+  assert.equal(base.capexPct, 12e9 / 192e9);
+  /* The projection base stays the canonical TTM — currency there, consistency in ratios. */
+  assert.equal(base.rev, 200);
+  assert.ok(!base.flags.some((f) => /window is offset/.test(f)), "aligned windows carry no offset flag");
+});
+
+test("a cashflow window that lags the income window is said out loud", async () => {
+  const base = await baseHarness({
+    cashflow_history: [0, 1, 2, 3].map((i) => ({ period: "Q" + (3 - i), fiscal_date: "2026-0" + (5 - i) + "-30", capex: -3e9 })),
+  })("NVDA");
+  assert.ok(base.flags.some((f) => /Capex% window is offset from the income window/.test(f)), base.flags.join(" | "));
+});
+
+test("the FY fallback matches FY-to-FY, and refuses a ratio across two fiscal years", async () => {
+  const threeQ = [0, 1, 2].map((i) => ({ period: "Q" + (4 - i), fiscal_date: "2026-0" + (6 - i) + "-30",
+    revenue: 48e9, ebitda: 20e9, operating_income: 18e9, shares_dil: 2.4e9 }));
+  const fys = [
+    { period: "FY", fiscal_date: "2026-01-31", revenue: 180e9, ebitda: 74e9, operating_income: 66e9, shares_dil: 2.4e9 },
+    { period: "FY", fiscal_date: "2025-01-31", revenue: 150e9, ebitda: 60e9, operating_income: 54e9, shares_dil: 2.4e9 }];
+  const matched = await baseHarness({
+    fundamentals_history: threeQ.concat(fys),
+    cashflow_history: [{ period: "FY", fiscal_date: "2026-01-31", capex: -11e9 }],
+  })("NVDA");
+  assert.equal(matched.daPct, (74e9 - 66e9) / 180e9, "FY numerator over the SAME FY's revenue");
+  assert.equal(matched.capexPct, 11e9 / 180e9, "FY capex over the same FY's revenue");
+  const crossed = await baseHarness({
+    fundamentals_history: threeQ.concat(fys),
+    cashflow_history: [{ period: "FY", fiscal_date: "2025-01-31", capex: -11e9 }],
+  })("NVDA");
+  assert.equal(crossed.capexPct, 0.05, "a mismatched FY pair keeps the flagged default, not a cross-year ratio");
+  assert.ok(crossed.flags.some((f) => /no revenue window matches the cashflow window/.test(f)));
+});
+
+test("absent balance fields cannot mint a net debt — each absence is flagged by name", async () => {
+  const none = await baseHarness({ balance_history: [] })("NVDA");
+  assert.equal(none.netDebt, 0);
+  assert.ok(none.flags.some((f) => /No balance_history row .* net debt treated as 0/.test(f)));
+  const noDebt = await baseHarness({ balance_history: [{ fiscal_date: "2026-06-30", period: "Q2",
+    total_debt: null, cash_and_equiv: 30e9, current_assets: 90e9, current_liabilities: 40e9 }] })("NVDA");
+  assert.equal(noDebt.netDebt, -30, "the present side still counts; the absent side is flagged, not invented");
+  assert.ok(noDebt.flags.some((f) => /total_debt is null/.test(f)));
+  assert.equal(noDebt.debtW, 0, "WACC weight carries no invented debt");
+  const noCash = await baseHarness({ balance_history: [{ fiscal_date: "2026-06-30", period: "Q2",
+    total_debt: 12e9, cash_and_equiv: null, current_assets: 90e9, current_liabilities: 40e9 }] })("NVDA");
+  assert.equal(noCash.netDebt, 12);
+  assert.ok(noCash.flags.some((f) => /cash_and_equiv is null/.test(f)));
+  /* A real zero is a value, not an absence: no flag for a debt-free balance sheet. */
+  const zeroDebt = await baseHarness({ balance_history: [{ fiscal_date: "2026-06-30", period: "Q2",
+    total_debt: 0, cash_and_equiv: 30e9, current_assets: 90e9, current_liabilities: 40e9 }] })("NVDA");
+  assert.equal(zeroDebt.netDebt, -30);
+  assert.ok(!zeroDebt.flags.some((f) => /total_debt is null/.test(f)));
+});
+
+test("an underivable share count is flagged as NOT meaningful, never silently 1B", async () => {
+  const base = await baseHarness({
+    fundamentals: [{ revenue_ttm: 200e9, market_cap: null, price: null, updated_ts: "2026-08-19T00:00:00Z" }],
+    fundamentals_history: [0, 1, 2, 3].map((i) => ({ period: "Q" + (4 - i), fiscal_date: "2026-0" + (6 - i) + "-30",
+      revenue: 48e9, ebitda: 20e9, operating_income: 18e9, shares_dil: null })),
+  })("NVDA");
+  assert.ok(base.flags.some((f) => /SHARE COUNT UNAVAILABLE .* NOT meaningful/.test(f)), base.flags.join(" | "));
+});

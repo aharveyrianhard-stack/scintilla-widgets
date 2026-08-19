@@ -891,14 +891,29 @@ async function buildBase(sym){
   const cfQ = cfArr.filter(r=>r.period!=='FY').slice(0,4);
   const sum=(arr,k)=>arr.reduce((s,r)=>s+(r[k]||0),0);
   const revTTM = f.revenue_ttm;
+  /* A RATIO'S TWO SIDES MUST COME FROM THE SAME WINDOW (the rule the DCF template's FY
+     baseline enforces). These used to divide 4-quarter numerators — or an FY fallback —
+     by fundamentals.revenue_ttm, a DIFFERENT table's window: when one table lags a
+     quarter, the ratio mixes periods and no one can see it. The denominator is now the
+     same rows as the numerator: the same 4 quarters, or the same single FY. revenue_ttm
+     stays the PROJECTION base — currency there, consistency here. */
   const ebitdaTTM = qRows.length>=4 ? sum(qRows,'ebitda') : (fyRows[0]?fyRows[0].ebitda:null);
   const ebitTTM   = qRows.length>=4 ? sum(qRows,'operating_income') : (fyRows[0]?fyRows[0].operating_income:null);
-  const capexTTM  = cfQ.length>=4 ? Math.abs(sum(cfQ,'capex')) : (cfArr.filter(r=>r.period==='FY')[0]?Math.abs(cfArr.filter(r=>r.period==='FY')[0].capex):null);
+  const revWindow = qRows.length>=4 ? sum(qRows,'revenue') : (fyRows[0]?fyRows[0].revenue:null);
+  const cfFY = cfArr.filter(r=>r.period==='FY')[0];
+  const capexTTM  = cfQ.length>=4 ? Math.abs(sum(cfQ,'capex')) : (cfFY?Math.abs(cfFY.capex):null);
+  /* capex lives in a different table, so its window can silently lag the income window. */
+  const capexRev = cfQ.length>=4
+    ? (qRows.length>=4 ? revWindow : null)
+    : (cfFY && fyRows[0] && cfFY.fiscal_date===fyRows[0].fiscal_date ? fyRows[0].revenue : null);
   const flags=[];
-  const daPct = (ebitdaTTM!=null && ebitTTM!=null && revTTM) ? Math.max(0,(ebitdaTTM-ebitTTM))/revTTM : 0.05;
-  if(ebitdaTTM==null||ebitTTM==null) flags.push('D&A% could not be derived from EBITDA−EBIT (missing income-statement rows) — defaulted to 5% of revenue.');
-  const capexPct = (capexTTM!=null && revTTM) ? capexTTM/revTTM : 0.05;
+  if(cfQ.length>=4 && qRows.length>=4 && cfQ[0].fiscal_date!==qRows[0].fiscal_date)
+    flags.push('Capex% window is offset from the income window (cashflow_history newest quarter '+cfQ[0].fiscal_date+' vs fundamentals_history '+qRows[0].fiscal_date+') — the tables lag unevenly; treat capex% as approximate.');
+  const daPct = (ebitdaTTM!=null && ebitTTM!=null && revWindow) ? Math.max(0,(ebitdaTTM-ebitTTM))/revWindow : 0.05;
+  if(ebitdaTTM==null||ebitTTM==null||!revWindow) flags.push('D&A% could not be derived from EBITDA−EBIT over a matching window (missing income-statement rows) — defaulted to 5% of revenue.');
+  const capexPct = (capexTTM!=null && capexRev) ? capexTTM/capexRev : 0.05;
   if(capexTTM==null) flags.push('Capex% defaulted to 5% of revenue — no cashflow_history rows for this ticker.');
+  else if(!capexRev) flags.push('Capex% defaulted to 5% of revenue — no revenue window matches the cashflow window (mismatched fiscal dates), and a ratio across two windows is not computed.');
   const nwcPct = (b.current_assets!=null && b.current_liabilities!=null && revTTM) ? (b.current_assets-(b.cash_and_equiv||0)-b.current_liabilities)/revTTM : 0.10;
   if(b.current_assets==null) flags.push('NWC% defaulted to 10% of revenue — no balance_history row for this ticker.');
   let cagr=null;
@@ -912,9 +927,22 @@ async function buildBase(sym){
   if(ebitdaTTM==null) flags.push('EBITDA margin defaulted to 30% — no TTM EBITDA available.');
   if(ebitdaTTM!=null && ebitdaTTM/revTTM<0) flags.push('TTM EBITDA margin is negative — this is a loss-making name; treat the DCF as illustrative, not load-bearing.');
   const shares = qRows[0]&&qRows[0].shares_dil ? qRows[0].shares_dil/1e9 : (f.market_cap && f.price ? f.market_cap/f.price/1e9 : null);
-  if(!qRows[0]||!qRows[0].shares_dil) flags.push('Diluted share count came from market_cap÷price (fundamentals_history.shares_dil missing) — a proxy, not a reported figure.');
-  const netDebt = ((b.total_debt||0)-(b.cash_and_equiv||0))/1e9;
-  const cap = f.market_cap||0, debt=(b.total_debt||0);
+  if(shares==null) flags.push('SHARE COUNT UNAVAILABLE (no shares_dil and no market_cap÷price to proxy it) — per-share outputs divide by a 1B placeholder and are NOT meaningful for this ticker.');
+  else if(!qRows[0]||!qRows[0].shares_dil) flags.push('Diluted share count came from market_cap÷price (fundamentals_history.shares_dil missing) — a proxy, not a reported figure.');
+  /* NUMBER(NULL) IS 0, AND 0 IS NOT A BALANCE. (total_debt||0)−(cash||0) minted a net-debt
+     figure out of absent fields: no balance row valued the company at zero net debt with an
+     all-equity WACC, silently — a fair value overstated for every levered name. The raw
+     values decide; what is absent is defaulted only WITH a flag naming the absent field,
+     because netDebt has no slider to correct it from the page. */
+  const _fin=(x)=>{ if(x==null||x===''||x===true||x===false) return null; const n=Number(x); return Number.isFinite(n)?n:null; };
+  const totalDebt=_fin(b.total_debt), cashEq=_fin(b.cash_and_equiv);
+  if(!bArr[0]) flags.push('No balance_history row for this ticker — net debt treated as 0 and WACC as all-equity; fair value is OVERSTATED for levered names.');
+  else{
+    if(totalDebt==null) flags.push('balance_history.total_debt is null — net debt treats debt as 0 and WACC as all-equity; fair value is OVERSTATED if this name carries debt.');
+    if(cashEq==null) flags.push('balance_history.cash_and_equiv is null — net debt treats cash as 0; fair value is UNDERSTATED by the missing cash.');
+  }
+  const netDebt = ((totalDebt||0)-(cashEq||0))/1e9;
+  const cap = f.market_cap||0, debt=(totalDebt||0);
   const eqW = (cap+debt)>0 ? cap/(cap+debt) : 1;
   const debtW = 1-eqW;
   const cp = cpArr[0];

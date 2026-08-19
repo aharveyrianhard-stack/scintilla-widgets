@@ -233,3 +233,15 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/yt-lost-write.mjs` (route 
 - **Scope notes, measured in code**: the two mounted video shells already REVERT on this failure (state-honest) but stay reason-silent — recorded as a lesser gap, not repaired here, because their only failure surface today is the watch-list read lane and hijacking it would blank the list; their `subscribeToChannel` catch is the same state-honest/reason-silent shape. The 10s-cadence `ytPosPush` position write keeps its silent catch by design: positions re-push on cadence, so a lost write is retried by the next tick rather than lied about.
 
 Zero page errors in both scenarios. Rollback: revert the single commit carrying this unit — the change is client-render behavior only (no schema, no endpoint, no authority change).
+
+---
+
+## 2026-08-19T13:21:17Z — /fundamentals: absent balance fields are flagged by name, not minted into net debt
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/fy-consistency.mjs` (route /templates/fundamentals.html, NVDA; balance_history answered per page; asserts inline)
+
+- **total_debt NULL** (browser-proof/receipts/fundamentals-null-debt-flagged.png): the flags line says "balance_history.total_debt is null — net debt treats debt as 0 and WACC as all-equity; fair value is OVERSTATED if this name carries debt". Before this unit, `(b.total_debt||0)-(b.cash_and_equiv||0)` silently valued every such ticker debt-free — a missing balance row produced zero net debt, an all-equity WACC, and no sign anywhere.
+- **Complete balance row** (browser-proof/receipts/fundamentals-complete-balance-no-flag.png): no absence flag, valuation renders normally — the flag appears exactly when the absence does.
+- The same unit aligned buildBase's ratio windows with the rule the DCF FY baseline enforces: D&A% and capex% denominators now come from the SAME rows as their numerators (the same 4 quarters, or the same single FY — a mismatched FY pair keeps the flagged default rather than a cross-year ratio; an offset cashflow-vs-income quarter window is flagged out loud). fundamentals.revenue_ttm stays the projection BASE — currency there, consistency in ratios. A terminally underivable share count is flagged "NOT meaningful" instead of silently dividing by a 1B placeholder. Functional pins drive every case in tests/station-fundamentals-price.test.mjs.
+
+Zero page errors in both scenarios. Rollback: revert the single commit carrying this unit — derivation and flag wording only; no schema, no authority, no methodology change (the DCF formulas are untouched; only the window selection and absence visibility moved).
