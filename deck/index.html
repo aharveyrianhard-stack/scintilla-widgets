@@ -459,6 +459,10 @@ const deckSb = (typeof supabase !== "undefined" && supabase.createClient)
   ? supabase.createClient(SB, ANON) : null;
 const DECK_QUOTES = new Map();
 const DECK_QUOTE_FAILED = new Set();
+/* Separate from DECK_QUOTE_FAILED on purpose. FAILED means the read fell over and is worth
+   asking again; ABSENT means the read came back fine and simply did not carry this symbol,
+   which is the stream's answer and not a transient condition. */
+const DECK_QUOTE_ABSENT = new Map();
 const DECK_QUOTE_HEARTBEAT_MS = 10000;
 const DECK_QUOTE_TIMEOUT_MS = 4500;
 let deckQuoteRequest = 0;
@@ -468,11 +472,24 @@ function visibleChartTickers() {
   return Array.from(new Set(CHARTS.slice(0, CHART_COUNT).map(CLEAN).filter(Boolean)));
 }
 function deckQuoteFor(ticker) { return DECK_QUOTES.get(CLEAN(ticker)) || null; }
+/* Prefer the name the provider shim recorded for this symbol; fall back to the canonical
+   stream absence. Never invent a cause. */
+function deckAbsenceName(ticker) {
+  try {
+    const shim = window.SC_PROVIDER_SHIM;
+    const named = shim && typeof shim.absenceFor === "function" ? shim.absenceFor(ticker) : null;
+    if (named) return String(named);
+  } catch (_) {}
+  return "NOT_OBSERVED_BY_STREAM";
+}
 function postDeckQuote(frame, ticker) {
   if (!frame?.contentWindow) return;
   const clean = CLEAN(ticker);
-  const state = DECK_QUOTES.has(clean) ? "ready" : DECK_QUOTE_FAILED.has(clean) ? "delayed" : "loading";
-  try { frame.contentWindow.postMessage({ sc:"deck-quote", ticker:clean, quote:deckQuoteFor(clean), state }, location.origin); } catch (_) {}
+  const state = DECK_QUOTES.has(clean) ? "ready"
+    : DECK_QUOTE_ABSENT.has(clean) ? "absent"
+    : DECK_QUOTE_FAILED.has(clean) ? "delayed" : "loading";
+  const absence = state === "absent" ? DECK_QUOTE_ABSENT.get(clean) : null;
+  try { frame.contentWindow.postMessage({ sc:"deck-quote", ticker:clean, quote:deckQuoteFor(clean), state, absence }, location.origin); } catch (_) {}
 }
 function fanoutDeckQuote(ticker) {
   const clean = CLEAN(ticker);
@@ -516,13 +533,19 @@ async function refreshDeckQuotes() {
     const selected = selectVisibleQuoteRows(rows, tickers);
     for (const ticker of tickers) {
       const quote = selected.get(ticker);
-      if (quote) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); }
-      else { DECK_QUOTES.delete(ticker); DECK_QUOTE_FAILED.add(ticker); }
+      if (quote) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); DECK_QUOTE_ABSENT.delete(ticker); }
+      else {
+        /* The request succeeded. The absence of this row is the answer. */
+        DECK_QUOTES.delete(ticker);
+        DECK_QUOTE_FAILED.delete(ticker);
+        DECK_QUOTE_ABSENT.set(ticker, deckAbsenceName(ticker));
+      }
       fanoutDeckQuote(ticker);
     }
   } catch (_) {
     if (request !== deckQuoteRequest) return;
-    for (const ticker of tickers) { DECK_QUOTE_FAILED.add(ticker); fanoutDeckQuote(ticker); }
+    /* This one IS a failure: nothing came back at all. */
+    for (const ticker of tickers) { DECK_QUOTE_ABSENT.delete(ticker); DECK_QUOTE_FAILED.add(ticker); fanoutDeckQuote(ticker); }
   } finally {
     deckQuoteInFlight = false;
     if (deckQuoteRerun) { deckQuoteRerun = false; refreshDeckQuotes(); }
@@ -893,13 +916,27 @@ function focusTickerFor(key) {
   input.focus(); selAll(input); paintSymbolGuide(input);
 }
 
+/* A pane the stream does not observe is NOT a delayed pane. Counting it as one is what put
+   the Station header into a permanent "DATA · delayed" on the four non-equity scenes, where
+   every visible symbol has a settled, named answer. Absence is reported under its own mode
+   and its own count, and a scene made entirely of named absences reports exactly that. */
 function chartDataSummary(visible) {
   if (!visible.length) return { mode:"waiting", count:0 };
-  const delayed = visible.filter((x) => x.history === "delayed" || x.quote === "delayed" || x.delayed);
-  const loading = visible.filter((x) => x.history === "loading" || x.quote === "loading");
-  if (delayed.length) return { mode:"delayed", count:delayed.length };
-  if (loading.length) return { mode:"loading", count:loading.length };
-  return { mode:"ready", count:0 };
+  const absent = visible.filter((x) => x.history === "absent" || x.quote === "absent");
+  const rest = visible.filter((x) => !absent.includes(x));
+  const delayed = rest.filter((x) => x.history === "delayed" || x.quote === "delayed" || x.delayed);
+  const loading = rest.filter((x) => x.history === "loading" || x.quote === "loading");
+  if (delayed.length) return { mode:"delayed", count:delayed.length, absent:absent.length };
+  if (loading.length) return { mode:"loading", count:loading.length, absent:absent.length };
+  if (absent.length) return { mode:"absent", count:absent.length, absent:absent.length,
+    names:Array.from(new Set(absent.map((x) => x.absence || "NOT_OBSERVED_BY_STREAM"))) };
+  return { mode:"ready", count:0, absent:0 };
+}
+/* The canonical name, said out loud. */
+function chartAbsenceHeadline(names, count) {
+  const list = Array.from(new Set(names || [])).filter(Boolean);
+  const named = list.length === 1 ? list[0].replace(/_/g, " ").toLowerCase() : "not observed";
+  return "DATA · " + named + " (" + count + ")";
 }
 function paintMarketStatus() {
   const visibleTickers = CHARTS.slice(0, CHART_COUNT).filter(Boolean);
@@ -907,11 +944,18 @@ function paintMarketStatus() {
   const n = el("marketStatus"); if (!n) return;
   const summary = chartDataSummary(visible);
   if (summary.mode === "waiting") { n.textContent = "DATA · waiting"; n.dataset.delayed = "0"; n.dataset.fresh = "0"; return; }
+  if (summary.mode === "absent") {
+    n.textContent = chartAbsenceHeadline(summary.names, summary.count);
+    n.dataset.delayed = "0"; n.dataset.fresh = "0"; n.dataset.absent = "1";
+    n.title = visible.map((x) => x.ticker + " · " + (x.absence || "NOT_OBSERVED_BY_STREAM")).join("\n");
+    return;
+  }
   if (summary.mode === "delayed" || summary.mode === "loading") {
     n.textContent = summary.mode === "delayed" ? "DATA · delayed (" + summary.count + ")" : "DATA · loading (" + summary.count + ")";
     const delayed = summary.mode === "delayed";
     n.dataset.delayed = delayed ? "1" : "0";
     n.dataset.fresh = "0";
+    n.dataset.absent = summary.absent ? "1" : "0";
     n.title = visible.map((x) => x.ticker + " · history " + x.history + " · quote " + x.quote).join("\n");
     return;
   }

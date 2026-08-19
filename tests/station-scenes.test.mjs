@@ -431,8 +431,11 @@ test("stalled chart reads retain a truthful ticker fallback and report coherent 
   assert.match(chart, /reportChartDataState\(host, \{ quote:"delayed" \}\)/);
   assert.match(chart, /sc:"chart-data-state"/);
   const summarize = functionFromDeck("chartDataSummary");
-  assert.deepEqual(JSON.parse(JSON.stringify(summarize([{ ticker:"SPY", history:"delayed", quote:"loading" }]))), { mode:"delayed", count:1 });
-  assert.deepEqual(JSON.parse(JSON.stringify(summarize([{ ticker:"SPY", history:"ready", quote:"ready" }]))), { mode:"ready", count:0 });
+  /* `absent` joined this shape with STATION-001: the summary now separates a pane the stream
+     does not observe from a pane whose read is merely late. A delayed scene still reports
+     delayed, and reports that none of its panes carries a named absence. */
+  assert.deepEqual(JSON.parse(JSON.stringify(summarize([{ ticker:"SPY", history:"delayed", quote:"loading" }]))), { mode:"delayed", count:1, absent:0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(summarize([{ ticker:"SPY", history:"ready", quote:"ready" }]))), { mode:"ready", count:0, absent:0 });
   assert.match(deck, /DATA · delayed \(\" \+ summary\.count \+ "\)/);
 });
 

@@ -57,7 +57,50 @@
       return !!(m && m[String(sym || '').toUpperCase()]);
     },
     realtime_equity_refused: 0,
-    realtime_nonequity_passthrough: 0
+    realtime_nonequity_passthrough: 0,
+
+    /* NAMED ABSENCE, KEPT BY SYMBOL AND TIMEFRAME.
+       `unsatisfied` is a rolling diagnostic log capped at 40 entries; it cannot answer
+       "why is THIS pane empty" once the log has rolled. Callers need a name they can paint,
+       so every absence is also recorded here under its own key and never evicted by a later
+       unrelated one. Nothing is substituted for the missing data - only named. */
+    absences: {},
+    absenceFor: function (sym, tf) {
+      var a = window.SC_PROVIDER_SHIM.absences;
+      var key = String(sym || '').toUpperCase();
+      return (tf ? a[key + '|' + String(tf)] : null) || a[key] || null;
+    },
+    noteAbsence: function (sym, tf, reason) {
+      var key = String(sym || '').toUpperCase();
+      var named = String(reason || 'NOT_OBSERVED_BY_STREAM');
+      window.SC_PROVIDER_SHIM.absences[key] = named;
+      if (tf) window.SC_PROVIDER_SHIM.absences[key + '|' + String(tf)] = named;
+      return named;
+    },
+    clearAbsence: function (sym, tf) {
+      var a = window.SC_PROVIDER_SHIM.absences;
+      var key = String(sym || '').toUpperCase();
+      delete a[key];
+      if (tf) delete a[key + '|' + String(tf)];
+    }
+  };
+
+  /* The canonical names. NOT_OBSERVED_BY_STREAM is the stream's own answer for a symbol it
+     does not carry; the other two describe an ask this surface cannot form, which is a
+     different fact and is not disguised as the first. */
+  var ABSENCE_NOT_OBSERVED = 'NOT_OBSERVED_BY_STREAM';
+  var ABSENCE_TIMEFRAME_NOT_MAPPED = 'TIMEFRAME_NOT_MAPPED';
+  var ABSENCE_TICKER_FILTER_REQUIRED = 'TICKER_FILTER_REQUIRED';
+
+  /* One place builds the named-absence error, so every call site raises the same shape and a
+     caller can tell "the stream said no" from "the read fell over" with one property. */
+  S.absenceError = function (reason, sym, tf) {
+    var named = S.noteAbsence(sym, tf, reason);
+    var err = new Error(named);
+    err.scAbsence = named;
+    err.scTicker = sym == null ? null : String(sym).toUpperCase();
+    err.scRange = tf == null ? null : String(tf);
+    return err;
   };
 
   // ---- caches. Short TTLs matching each route's own cache-control. -----------------------------
@@ -196,18 +239,32 @@
 
     if (p.table === 'ohlcv_history') {
       var oT = wantedTickers(q);
-      if (!oT || oT.length !== 1) { note('ohlcv_history without a single ticker', path); return Promise.resolve([]); }
+      if (!oT || oT.length !== 1) {
+        note('ohlcv_history without a single ticker', path);
+        return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, (oT || []).join(','), null));
+      }
       var sym = oT[0];
       var rawTf = (q.tf || '').replace(/^eq\./, '');
       var tf = TF[rawTf];
       return providerOwned().then(function (own) {
         if (!own[sym]) { S.counts.passthrough_non_equity++; return origPg(path); }   // non-equity keeps its owner
-        if (!tf) { note('unmapped timeframe ' + rawTf, path); return []; }
+        if (!tf) {
+          note('unmapped timeframe ' + rawTf, path);
+          return Promise.reject(S.absenceError(ABSENCE_TIMEFRAME_NOT_MAPPED, sym, rawTf));
+        }
         var lim = limitOf(q, 200);
         return jget(API + '/candles?symbol=' + encodeURIComponent(sym) + '&tf=' + encodeURIComponent(tf) +
                     '&authority=provider&limit=' + Math.min(lim, 400)).then(function (j) {
-          if (!j || !j.series) { note('no provider series', sym + '/' + tf); return []; }
+          /* The provider may name the absence itself. When it does, that name is kept verbatim
+             and preferred over the generic one - it is closer to the truth than anything here. */
+          var named = j && (j.absence || j.reason || (j.state && j.state !== 'OK' ? j.state : null));
+          if (!j) { note('candles unreachable', sym + '/' + tf); return Promise.reject(new Error('candles unreachable')); }
+          if (!j.series || !j.series.length) {
+            note('no provider series', sym + '/' + tf);
+            return Promise.reject(S.absenceError(named || ABSENCE_NOT_OBSERVED, sym, rawTf));
+          }
           S.counts.candles += j.series.length;
+          S.clearAbsence(sym, rawTf);
           // Legacy shape: seconds, newest first, close/open/high/low/volume.
           var out = j.series.map(function (b) {
             return { ticker: sym, timestamp: Math.floor(b.t / 1000), close: +b.c, open: +b.o,
@@ -240,7 +297,16 @@
       if (url.indexOf(MARK) < 0 && /\/rest\/v1\/(live_quotes|composite_staged|ohlcv_history)\b/.test(url)) {
         var path = url.split('/rest/v1/')[1];
         var r = handle(path, function (p2) { return origFetch(SBBASE(url) + '/rest/v1/' + p2 + (p2.indexOf('?') < 0 ? '?' : '&') + MARK, init).then(function (rr) { return rr.ok ? rr.json() : []; }); });
-        if (r) return r.then(fakeResponse);
+        /* A NAMED ABSENCE IS NOT A FAILED REQUEST. Over pg() it is raised so the caller can
+           paint the name; over fetch() the honest HTTP answer is a successful read carrying no
+           rows, because that is exactly what happened. The name is still recorded on the shim,
+           so a caller that wants it asks SC_PROVIDER_SHIM.absenceFor(sym, tf). Rejecting here
+           instead would make a settled answer look like a broken connection - the very
+           conversion this change exists to stop. */
+        if (r) return r.then(fakeResponse, function (err) {
+          if (err && err.scAbsence) return fakeResponse([]);
+          throw err;
+        });
       }
     } catch (e) { note('fetch shim threw: ' + e.message, url); }
     return origFetch(input, init);

@@ -280,6 +280,39 @@ const chartInflight = new Map();
 const CHART_HOSTS = new Set();
 const CHART_RETRY_MS = 3000;
 const CHART_LOAD_COORDINATOR_TIMEOUT_MS = 5500;
+/* NAMED ABSENCE vs DELAY.
+   A history read that FAILED (network, abort, 5xx) is a delay and is worth retrying.
+   A history read that SUCCEEDED and carried no observation is not a delay at all — the
+   stream has told us, in as many words, that it does not observe this symbol on this
+   timeframe. The four non-equity scenes (INDEX NOW, MACRO CROSS-ASSET, INTERNALS FAST,
+   INTERNALS SLOW) are made almost entirely of such symbols, and flattening that answer
+   into "data delayed · retrying" turned a canonical, final answer into an endless spinner.
+   The name is carried through and PAINTED; nothing is substituted in its place. */
+const CHART_ABSENCE_NOT_OBSERVED = "NOT_OBSERVED_BY_STREAM";
+function chartAbsenceError(reason, ticker, range) {
+  const named = String(reason || CHART_ABSENCE_NOT_OBSERVED);
+  const err = new Error(named);
+  err.scAbsence = named;
+  err.scTicker = ticker == null ? null : String(ticker);
+  err.scRange = range == null ? null : String(range);
+  return err;
+}
+function isNamedAbsence(err) { return Boolean(err && typeof err.scAbsence === "string" && err.scAbsence); }
+/* The canonical name is what is shown. It is lower-cased and un-underscored for the pane,
+   and nothing else — no invented "unavailable", no guessed cause, no fallback series. */
+function chartAbsenceLabel(reason) {
+  return String(reason || CHART_ABSENCE_NOT_OBSERVED).trim().replace(/_/g, " ").toLowerCase();
+}
+/* The shim records WHY a provider read produced nothing. When it has a name for this exact
+   symbol/timeframe that name wins; otherwise the canonical stream absence is used. */
+function chartAbsenceReason(ticker, tf) {
+  try {
+    const shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
+    const named = shim && typeof shim.absenceFor === "function" ? shim.absenceFor(ticker, tf) : null;
+    if (named) return String(named);
+  } catch (_) {}
+  return CHART_ABSENCE_NOT_OBSERVED;
+}
 let chartLoadToken = 0;
 const chartLoadPermits = new Map();
 /* Weekly asks for 157 total rows: up to 156 completed weeks plus the current
@@ -414,8 +447,12 @@ async function fetchChartSeries(t, range, requestedLimit){
     /* CACHE THE PURE PROVIDER SERIES FIRST. The transient live point is applied to a COPY
        afterwards and is never persisted, so nothing a live quote does can change a cached candle. */
     pts = chartTail(pts, limit);
+    /* The read itself succeeded. Fewer than two observations is therefore an ANSWER, not a
+       failure, and it is raised under its own name so the pane can state it and stop. It is
+       deliberately not cached: a named absence is re-asked on the next deliberate load. */
+    if (pts.length < 2) throw chartAbsenceError(chartAbsenceReason(t, e[0]), t, range);
     chartCache.set(key, { ts: Date.now(), pts: pts, limit:limit });
-    if (pts.length >= 2) { try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {} }
+    try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {}
     return chApplyLivePoint(t, pts, liveQuote[t]);
   })();
   chartInflight.set(inflightKey, work);
@@ -783,13 +820,14 @@ function clearChartRetry(host) {
 }
 function reportChartDataState(host, patch) {
   if (!host) return;
-  host._dataState = Object.assign({ history:"loading", quote:"loading" }, host._dataState || {}, patch || {});
+  host._dataState = Object.assign({ history:"loading", quote:"loading", absence:null }, host._dataState || {}, patch || {});
   try {
     parent.postMessage({
       sc:"chart-data-state",
       ticker:host.dataset.t,
       history:host._dataState.history,
       quote:host._dataState.quote,
+      absence:host._dataState.absence || null,
       hasSeries:Boolean(host._series && host._series.length >= 2),
       range:host._range || S.chartRange
     }, location.origin);
@@ -849,6 +887,18 @@ function showChartDelayed(host, ticker) {
   const msg = host.querySelector(".sc-nchart__msg");
   if (msg) { msg.textContent = "data delayed · retrying"; msg.hidden = false; }
 }
+/* A named absence is terminal for this request: the retry timer is cleared and no new one is
+   armed. The pane says exactly what the stream said. */
+function showChartAbsent(host, reason) {
+  const named = String(reason || CHART_ABSENCE_NOT_OBSERVED);
+  clearChartRetry(host);
+  host.dataset.dataState = "absent";
+  host.dataset.absence = named;
+  reportChartDataState(host, { history:"absent", absence:named });
+  if (host._series && host._series.length >= 2) return;
+  const msg = host.querySelector(".sc-nchart__msg");
+  if (msg) { msg.textContent = chartAbsenceLabel(named); msg.hidden = false; }
+}
 function retryChartLoad(host, req, generation) {
   if (host._retryTimer && host._retryReq === req) return;
   clearChartRetry(host);
@@ -884,11 +934,14 @@ async function scChartLoad(host) {
     host._ref = prevClose[t] != null ? +prevClose[t] : cachedPts[0].p;
     if (msg) msg.hidden = true;
     scChartDraw(host);
+  } else if (host.dataset.dataState === "absent") {
+    /* A pane that already carries a named absence keeps the name while it is re-asked. */
+    showChartAbsent(host, host.dataset.absence);
   } else if (host.dataset.dataState === "delayed") {
     /* A new bounded attempt must not make an uncached pane look blank again. */
     showChartDelayed(host, t);
   }
-  reportChartDataState(host, { history:"loading" });
+  reportChartDataState(host, { history:"loading", absence:null });
   const load = (async () => {
     let releasePermit = null;
     try {
@@ -896,17 +949,21 @@ async function scChartLoad(host) {
       if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
     const pts = await fetchChartSeries(t, range, limit);
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
-    if (!pts || pts.length < 2) throw new Error("empty");
+    if (!pts || pts.length < 2) throw chartAbsenceError(chartAbsenceReason(t, range), t, range);
     host._series = pts;
     paintChartHistoryWindow(host);
     host._ref = prevClose[t] != null ? +prevClose[t] : pts[0].p;
     clearChartRetry(host);
     delete host.dataset.dataState;
+    delete host.dataset.absence;
     if (msg) msg.hidden = true;
-    reportChartDataState(host, { history:"ready" });
+    reportChartDataState(host, { history:"ready", absence:null });
     scChartDraw(host);
   } catch (err) {
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
+    /* THE WHOLE POINT: a named answer is not retried. Retrying it would present a settled
+       fact as a transient one and spin forever on the non-equity scenes. */
+    if (isNamedAbsence(err)) { showChartAbsent(host, err.scAbsence); return; }
     showChartDelayed(host, t);
     if (host._series && host._series.length >= 2) {
       /* A stale but usable chart is better than a black pane while the next
@@ -1225,10 +1282,18 @@ async function pullPrevClose(t) {
       if (rows[0].prev_close != null) prevClose[t] = +rows[0].prev_close;
       if (rows[0].price != null) scChartLive(t, +rows[0].price, rows[0].updated_ts);
     } else {
+      /* The read returned. No row for this symbol is the answer, not a delay. */
+      const named = chartAbsenceReason(t, null);
       for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
-        reportChartDataState(host, { quote:"delayed" });
+        reportChartDataState(host, { quote:"absent", absence:named });
     }
-  } catch (_) {
+  } catch (err) {
+    if (isNamedAbsence(err)) {
+      const named = err.scAbsence;
+      for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
+        reportChartDataState(host, { quote:"absent", absence:named });
+      return;
+    }
     for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
       reportChartDataState(host, { quote:"delayed" });
   }
@@ -1251,11 +1316,17 @@ if (sb && !DECK_QUOTE_MODE) {
 function requestDeckQuote(ticker) {
   try { parent.postMessage({ sc:"chart-quote-ready", ticker:String(ticker || "").toUpperCase().trim() }, location.origin); } catch (_) {}
 }
-function applyDeckQuote(ticker, quote, state) {
+function applyDeckQuote(ticker, quote, state, absence) {
   const clean = String(ticker || "").toUpperCase().trim();
   const hosts = Array.from(CHART_HOSTS).filter((host) => host.isConnected && host.dataset.t === clean);
   if (!quote || !isFinite(+quote.price)) {
-    for (const host of hosts) { paintLiveStatus(host, null); reportChartDataState(host, { quote:state === "delayed" ? "delayed" : "loading" }); }
+    /* "absent" reaches here only when the deck's read SUCCEEDED and carried no row for this
+       symbol. That is the stream's answer and is reported under its name, never as a delay. */
+    const quoteState = state === "absent" ? "absent" : state === "delayed" ? "delayed" : "loading";
+    for (const host of hosts) {
+      paintLiveStatus(host, null);
+      reportChartDataState(host, { quote:quoteState, absence:quoteState === "absent" ? (absence || CHART_ABSENCE_NOT_OBSERVED) : null });
+    }
     return;
   }
   scChartLive(clean, +quote.price, quote.updated_ts, quote.prev_close);
@@ -1301,7 +1372,7 @@ document.addEventListener("click", (e) => {
 addEventListener("message", (e) => {
   const d = e.data;
   if (!d) return;
-  if (d.sc === "deck-quote") { applyDeckQuote(d.ticker, d.quote, d.state); return; }
+  if (d.sc === "deck-quote") { applyDeckQuote(d.ticker, d.quote, d.state, d.absence); return; }
   if (d.sc === "chart-load-grant") {
     const grant = chartLoadPermits.get(d.token);
     if (grant) { chartLoadPermits.delete(d.token); grant(); }
