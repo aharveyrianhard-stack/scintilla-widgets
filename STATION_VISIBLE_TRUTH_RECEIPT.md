@@ -574,3 +574,53 @@ title, scene machinery, shim, axis, panes, zero asset 404s — proving by outcom
 before. The config is pinned from the parsed file (two rewrites exactly; no-store at all
 three cache layers). Suite 249/0; 15 proofs, 42 screenshots. No provider history touched,
 no Geiger change, no database access. Errata: none new.
+
+---
+
+# Round — executor 3, long-sprint authority packet (2026-08-19, same session)
+
+Directive: live path + preview evidence, remaining provider/legacy authority defects,
+browser-visible regression tests, batch commits. One code batch (`2905ad2`) plus the docs
+commit carrying this section. Suite at close: **250 pass, 0 fail**; 17 proofs, 45
+screenshots. No provider history touched, no Geiger change, no database access.
+
+## The audit and what it found
+
+**Source half** (host-grep + shim-tag/reader set difference, prose hits classified by eye):
+zero Yahoo/FMP fetch lanes in served HTML outside sector-rotation's reviewed-relays-only
+flagged fallback — its third-party CORS-proxy lane, retired by F1's own fix, verified still
+absent; /health the only direct provider fetch (the ruled exception; /analytics's grep hit
+is banner prose); 20/20 shim-tag coverage on real readers (/, /components hits are prose).
+
+**Runtime half** (`authority-sweep.mjs`, durable): the eight equity surfaces no proof had
+ever loaded — /geiger /heat /cohort /compare /ticker /wall /analytics /geigerwall — each
+with zero page errors, a real painted surface, and zero requests to any unreviewed host,
+with the interception's liveness itself asserted.
+
+**The one real find**: /chart, its byte-mirrored shell, and /deck load `supabase-js` from a
+third-party CDN on a FLOATING `@2` tag — executable code in the price path's pages, version
+drift unreviewed, and its failure used to kill the non-equity realtime lane silently. Fixed
+within scope (`realtime-absence.mjs`): the absence is now a said state — "RT · absent"
+beside #marketStatus with the reason, SC_REALTIME queryable on both pages, both branches
+proven (natural CDN refusal vs stubbed SDK), and the channel's previously UNPINNED
+authority guards (equities refused; unknown ownership is not permission) pinned. Pin-or-
+vendor for the tag needs the exact bytes, unreachable from this container: **OWNER RULING**.
+
+**Preview evidence** (`hub-entry.mjs` extended): the branch's own preview deploy refused at
+the browser level with the same verbatim tunnel error as the hub domain, screenshotted —
+both named hosts of the live-acceptance blocker now carry browser-level measurements that
+would fail loudly if the path ever opened.
+
+## The wall, stated
+
+Every runnable-now unit in the canonical queue is done. What remains requires something
+this container does not have: the scintilla-hub repo (CLOSED labels), the scintilla-sector
+deploy + Fly CORS (F1, live provider path), an owner's ruling (scene internals ownership;
+tokens.css; the supabase-js pin-or-vendor; tax/terminal/MRP/debt-weight sources), a live
+browser outside this container (DCF LIVE 10/10 acceptance; the 12-step preview checklist),
+a human eye (H3/H4), or the explicit proof-gate (H2). The independent re-audit remains the
+merge gate. Idle from here is not idleness; it is the measured edge of this branch's reach.
+
+## Errata, stated
+
+- None new: one batch commit, gated green before push.

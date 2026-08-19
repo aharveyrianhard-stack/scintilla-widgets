@@ -1,6 +1,6 @@
 # Station visible-truth closure — session handoff
 
-Written at a committed checkpoint by executor 3 after the round-8 hub-entry packet.
+Written at a committed checkpoint by executor 3 after the round-9 authority packet.
 Everything below was re-derived from the working tree at head, not carried forward from an
 earlier note.
 
@@ -10,11 +10,11 @@ earlier note.
 | --- | --- |
 | Repo | `aharveyrianhard-stack/scintilla-widgets` |
 | Branch | `claude/station-visible-truth-closure-8ipyru` |
-| Head | `5db90cc` + the docs commit carrying this update — pushed |
+| Head | `2905ad2` + the docs commit carrying this update — pushed |
 | PR | [#115](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/115) — **DRAFT, NO-MERGE** |
 | Uncommitted | **none** at handoff |
-| Tests | `node --test "tests/*.test.mjs"` → **249 pass, 0 fail**, 24 files |
-| Browser receipts | `browser-proof/` — 15 proof files, 42 screenshots + `RECEIPTS.md`, every entry regenerable by the command it names |
+| Tests | `node --test "tests/*.test.mjs"` → **250 pass, 0 fail**, 24 files |
+| Browser receipts | `browser-proof/` — 17 proof files, 45 screenshots + `RECEIPTS.md`, every entry regenerable by the command it names |
 | Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access this round: **two read-only SELECTs** on scintilla-live (schema + FY availability, recorded in the receipt); rounds 3–4 used none |
 | Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` |
 
@@ -102,6 +102,15 @@ tables with every needed field non-null; latest FY dates range 2025-06-30 (IREN,
 | 7 | **H3 / H4** | Contracts asserted; gesture feel and fullscreen geometry need a human eye. |
 | 8 | **Fly CORS vs preview origin** | Still not allowed → no LIVE-data provider path provable end-to-end from the preview. |
 | 9 | **Independent re-audit** | Pending, and still the merge gate. Round 5 again found real defects behind surfaces called complete (the unreachable empty-state messages, the spelling-scoped sweep). The test count is not the verdict. |
+
+## The wall, stated plainly (round 9)
+
+Every runnable-now unit in this queue is DONE. Each remaining item needs something this
+container does not have: the Hub repo, the sector deploy + CORS, an owner ruling
+(scene-internals ownership · tokens.css · the supabase-js floating-@2 pin-or-vendor ·
+tax/terminal/MRP/debt-weight sources), a live browser outside the container, a human eye,
+or the explicit H2 proof-gate. The next session should start by asking the operator which
+wall to open — not by re-deriving this list.
 
 ## Next units, in order — ≥8, runnable-now first
 
