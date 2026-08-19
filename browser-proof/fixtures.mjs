@@ -12,8 +12,8 @@
 
 export const EQUALIZER = "f6cf97b57cf26a37aeb8393dec676f1776b02da282dffcce95786e5762697ad1";
 
-export const EQUITIES = ["AAPL","ADBE","AMD","AMZN","AVGO","CRM","GOOGL","META","MSFT",
-  "MU","NBIS","NOW","NVDA","ORCL","PLTR","SNDK","SNOW","TSLA"];
+export const EQUITIES = ["AAPL","ADBE","AMD","AMZN","AVGO","CRM","GOOGL","IWM","META","MSFT",
+  "MU","NBIS","NOW","NVDA","ORCL","PLTR","QQQ","RSP","SNDK","SNOW","SPY","TSLA"];
 
 export const COHORTS = {
   AI_SOFTWARE: ["ADBE","CRM","MSFT","NOW","ORCL","PLTR","SNOW"],
@@ -69,6 +69,21 @@ export function supabaseRows(url) {
       : filter.startsWith("eq.") ? [filter.slice(3)] : null;
     if (wanted) rows = rows.filter((r) => wanted.includes(r.ticker));
     return page(rows);
+  }
+  if (table === "ohlcv_history") {
+    /* Non-provider symbols keep their legacy owner; serve deterministic bars so a
+       passthrough history read succeeds the way the live table would. */
+    const filter = q.get("ticker") || "";
+    const sym = filter.startsWith("eq.") ? filter.slice(3) : null;
+    if (!sym) return [];
+    const base = price(sym);
+    const now = Math.floor(Date.now() / 1000);
+    const n = limit == null ? 200 : Math.min(limit, 400);
+    return Array.from({ length: n }, (_, i) => {
+      const t = now - i * 3600;
+      const c = base + Math.sin(i / 7) * base * 0.02;
+      return { ticker: sym, timestamp: t, open: c - 0.4, high: c + 0.8, low: c - 0.9, close: c, volume: 1e5 + i };
+    });
   }
   if (table === "news") return [];
   if (table === "spine_events" || table === "feed_alerts" || table === "youtube_feed") return [];
