@@ -176,8 +176,11 @@ const DATA_ASOF = '2026-07-24 (FMP quote/DCF/treasury/ERP pull)';   // STATIC BA
    + ΔNWC% (latest FY from balance_history / cashflow_history / fundamentals_history; a ratio is only
    computed when its numerator and denominator come from the SAME fiscal date — a ratio across two fiscal
    years is a fabrication, so a mismatched pair keeps the flagged static value instead).
-   STATIC BASELINE (flagged, as-of DATA_ASOF): margin/tax defaults, MRP, debt weight — no DB source; plus
-   any FY field whose overlay did not land. Every element shows its source in the badge strip. */
+   Slider SEEDS with a real FY source ride the same fetch: growth default = FY-to-FY revenue CAGR,
+   EBITDA-margin default = the latest FY's own margin (fundamentals-cockpit clamps and window rules).
+   STATIC BASELINE (flagged, as-of DATA_ASOF): tax default, terminal growth, MRP, debt weight — no DB
+   source; plus any FY field or seed whose overlay did not land. Every element shows its source in the
+   badge strip. */
 const SB_REST='https://wadinxqplrggagkvrdag.supabase.co/rest/v1';
 const SB_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g';
 /* THE SAME 20s CEILING /health USES. This reader had no bound, so a Supabase socket that
@@ -239,10 +242,31 @@ function deriveFyBaseline(bal, cf, fh){
   }
   return bl;
 }
+/* The SLIDER SEEDS that have a real FY source: the growth default from an FY-to-FY revenue
+   CAGR, the EBITDA-margin default from the latest FY's own margin — same clamps and window
+   rules as the fundamentals cockpit derives live (g 0..80, m 5..90; a CAGR needs two FY
+   rows more than half a year apart; a margin needs its own FY's revenue > 0). These seed
+   the sliders the user then owns; tax, terminal growth, MRP and debt weight have NO DB
+   source and stay STATIC by name. */
+function deriveFySeeds(fhRows){
+  const rows=(fhRows||[]).filter(r=>r&&fin(r.revenue)!=null);
+  const out={};
+  const latest=rows[0];
+  if(latest&&fin(latest.ebitda)!=null&&fin(latest.revenue)>0)
+    out.mPct=Math.max(5,Math.min(90,fin(latest.ebitda)/fin(latest.revenue)*100));
+  if(rows.length>=2){
+    const first=rows[rows.length-1], last=rows[0];
+    const yrs=(Date.parse(last.fiscal_date)-Date.parse(first.fiscal_date))/(365.25*86400000);
+    if(yrs>0.5&&fin(first.revenue)>0&&fin(last.revenue)>0)
+      out.gPct=Math.max(0,Math.min(80,(Math.pow(fin(last.revenue)/fin(first.revenue),1/yrs)-1)*100));
+  }
+  return out;
+}
 async function refreshDB(){
   const syms=Object.keys(TICKERS);
   const ok={price:0,fund:0,prof:0,est:0};
   const okBase={netDebt:0,daPct:0,capexPct:0,nwcPct:0};
+  const okSeed={g:0,m:0};
   const J=[];
   J.push(sbGet('treasury_rates?select=date,y10,updated_ts&order=date.desc&limit=1').then(r=>{
     if(r[0]&&r[0].y10!=null){ RF_DB=r[0]; for(const s of syms) TICKERS[s].rf=+r[0].y10;
@@ -295,9 +319,12 @@ async function refreshDB(){
     J.push(Promise.all([
       sbGet(`balance_history?select=fiscal_date,net_debt,current_assets,current_liabilities&ticker=eq.${s}&period=eq.FY&order=fiscal_date.desc&limit=1`).catch(()=>null),
       sbGet(`cashflow_history?select=fiscal_date,capex&ticker=eq.${s}&period=eq.FY&order=fiscal_date.desc&limit=1`).catch(()=>null),
-      sbGet(`fundamentals_history?select=fiscal_date,revenue,ebitda,operating_income&ticker=eq.${s}&period=eq.FY&order=fiscal_date.desc&limit=1`).catch(()=>null),
+      sbGet(`fundamentals_history?select=fiscal_date,revenue,ebitda,operating_income&ticker=eq.${s}&period=eq.FY&order=fiscal_date.desc&limit=4`).catch(()=>null),
     ]).then(([b,c,f])=>{
       const bl=deriveFyBaseline(b&&b[0], c&&c[0], f&&f[0]);
+      const seeds=deriveFySeeds(f);
+      if(seeds.gPct!=null){TICKERS[s].gDefault=seeds.gPct; okSeed.g++;}
+      if(seeds.mPct!=null){TICKERS[s].mDefault=seeds.mPct; okSeed.m++;}
       let landed=null;
       for(const k of ['netDebt','daPct','capexPct','nwcPct'])
         if(bl[k]!=null){ TICKERS[s][k]=bl[k]; okBase[k]++; landed=true; }
@@ -320,9 +347,13 @@ async function refreshDB(){
   spineSet('fy-baseline',null,baseMin===syms.length?'LIVE':baseMax?'STALE':'FALLBACK',
     'netDebt '+okBase.netDebt+'/'+syms.length+' · D&A% '+okBase.daPct+'/'+syms.length+' · capex% '+okBase.capexPct+'/'+syms.length+
     ' · ΔNWC% '+okBase.nwcPct+'/'+syms.length+' — latest FY from balance_history/cashflow_history/fundamentals_history; ratios only from matching fiscal dates; anything short keeps the flagged static value');
-  spineSet('static-baseline',null,'STATIC','margin/tax defaults · MRP · debt weight · as-of '+DATA_ASOF+' (no DB source — honestly flagged, not faked) — plus any fy-baseline field that did not overlay');
+  const seedMin=Math.min(okSeed.g,okSeed.m), seedMax=Math.max(okSeed.g,okSeed.m);
+  spineSet('fy-seeds',null,seedMin===syms.length?'LIVE':seedMax?'STALE':'FALLBACK',
+    'growth default '+okSeed.g+'/'+syms.length+' from FY-to-FY revenue CAGR · EBITDA-margin default '+okSeed.m+'/'+syms.length+
+    ' from the latest FY\'s own margin — slider SEEDS the user then owns; anything short keeps the flagged static seed');
+  spineSet('static-baseline',null,'STATIC','tax default · terminal growth · MRP · debt weight · as-of '+DATA_ASOF+' (no DB source — honestly flagged, not faked) — plus any fy-baseline field or seed that did not overlay');
   renderSpine();
-  document.getElementById('asofBar').textContent='DB overlay: price/beta/shares/revenue/consensus/risk-free live from Supabase, and the FY baseline (netDebt · D&A% · capex% · ΔNWC%) from the history tables per the badges below. Remaining static fields as-of '+DATA_ASOF+'. This page never calls FMP.';
+  document.getElementById('asofBar').textContent='DB overlay: price/beta/shares/revenue/consensus/risk-free live from Supabase, the FY baseline (netDebt · D&A% · capex% · ΔNWC%) and the growth/margin slider seeds from the history tables per the badges below. Remaining static fields (tax · terminal growth · MRP · debt weight) as-of '+DATA_ASOF+'. This page never calls FMP.';
   setTicker(CURTICK);   // re-apply defaults with DB values + rerender
 }
 /* =================== end C7 DB WIRING =================== */

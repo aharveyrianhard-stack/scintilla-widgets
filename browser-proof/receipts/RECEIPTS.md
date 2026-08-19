@@ -258,3 +258,15 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/main-read-failure.mjs` (fo
 - **/cohorts dies after a healthy load** (browser-proof/receipts/cohorts-refresh-failed-stale-marker.png): every chip is kept and a visible marker appends — "refresh failed (ticker_cohorts) — these chips are stale · retrying" — cleared naturally by the next successful rebuild.
 
 Zero page errors across all four scenarios. Rollback: revert the single commit carrying this unit — render wording and failure-state plumbing only; queries, authorities and refresh cadences untouched.
+
+---
+
+## 2026-08-19T13:53:50Z — the DCF growth/margin slider seeds ride the FY history; the shortfall stays flagged
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/dcf-seeds.mjs` (route /templates/dcf.html, NVDA boot; fixture universe carries 8 of the 10 bar tickers; asserts inline)
+
+- **Derived exactly and VISIBLE** (browser-proof/receipts/dcf-seeds-partial-overlay.png): NVDA's growth default equals the FY-to-FY revenue CAGR over the fixture's own rows and its margin default equals the latest FY's own margin — both land in TICKERS and on the sliders the user then owns (range inputs snap to their 0.5 step; asserted within one step). Clamps and window rules mirror the fundamentals cockpit: g 0..80, m 5..90, a CAGR needs two FY rows more than half a year apart.
+- **The shortfall is worn, not hidden**: TSM and IREN are absent from the fixture universe and keep their Jul-24 static seeds; the fy-seeds badge reads STALE with "growth default 8/10 · EBITDA-margin default 8/10" — a partial overlay never claims LIVE.
+- **What has no DB source stays STATIC by name**: tax default · terminal growth · MRP · debt weight (fundamentals_history carries no tax line — measured schema, round 5) — the static-baseline badge and the as-of bar both say so.
+
+Zero page errors. Rollback: revert the single commit carrying this unit — seed derivation and badge wording only; the DCF formulas, price authority and Geiger methodology are untouched, and no provider history was written or deleted.

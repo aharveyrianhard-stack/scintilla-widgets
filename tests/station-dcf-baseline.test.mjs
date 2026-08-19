@@ -85,12 +85,51 @@ test("the page fetches latest-FY rows per ticker and counts who is live, per fie
   for (const q of [
     "balance_history?select=fiscal_date,net_debt,current_assets,current_liabilities&ticker=eq.${s}&period=eq.FY&order=fiscal_date.desc&limit=1",
     "cashflow_history?select=fiscal_date,capex&ticker=eq.${s}&period=eq.FY&order=fiscal_date.desc&limit=1",
-    "fundamentals_history?select=fiscal_date,revenue,ebitda,operating_income&ticker=eq.${s}&period=eq.FY&order=fiscal_date.desc&limit=1",
+    "fundamentals_history?select=fiscal_date,revenue,ebitda,operating_income&ticker=eq.${s}&period=eq.FY&order=fiscal_date.desc&limit=4",
   ]) assert.ok(page.includes(q), q);
   assert.match(page, /const okBase=\{netDebt:0,daPct:0,capexPct:0,nwcPct:0\};/);
   assert.match(page, /spineSet\('fy-baseline',null,baseMin===syms\.length\?'LIVE':baseMax\?'STALE':'FALLBACK'/);
   assert.match(page, /anything short keeps the flagged static value/);
   /* What stays static says so, and the old blanket claim is gone. */
-  assert.match(page, /spineSet\('static-baseline',null,'STATIC','margin\/tax defaults · MRP · debt weight · as-of '\+DATA_ASOF/);
+  assert.match(page, /spineSet\('static-baseline',null,'STATIC','tax default · terminal growth · MRP · debt weight · as-of '\+DATA_ASOF/);
   assert.ok(!page.includes("no DB source yet"), "the four fields are no longer claimed unsourceable");
+});
+
+/* ---- the slider seeds with a real FY source: growth CAGR and EBITDA margin ---- */
+
+const seeds = fnFromSource(page, "deriveFySeeds", { fin });
+const fy = (date, revenue, ebitda) => ({ fiscal_date: date, revenue, ebitda });
+
+test("the growth seed is an FY-to-FY revenue CAGR with the cockpit's clamps and window rules", () => {
+  const rows = [fy("2026-01-31", 200e9, 84e9), fy("2025-01-31", 160e9, 66e9),
+                fy("2024-01-31", 128e9, 52e9), fy("2023-01-31", 100e9, 40e9)];
+  const yrs = (Date.parse("2026-01-31") - Date.parse("2023-01-31")) / (365.25 * 86400000);
+  const s = seeds(rows);
+  assert.equal(s.gPct, (Math.pow(2, 1 / yrs) - 1) * 100, "the CAGR is exact, endpoints FY-to-FY");
+  assert.equal(s.mPct, 42, "the margin is the latest FY's OWN margin — one row, one window");
+  /* Clamps mirror the fundamentals cockpit: g 0..80, m 5..90. */
+  assert.equal(seeds([fy("2026-01-31", 100e9, 98e9), fy("2020-01-31", 1e9, 1e9)]).gPct, 80);
+  assert.equal(seeds([fy("2026-01-31", 100e9, 98e9)]).mPct, 90);
+  assert.equal(seeds([fy("2026-01-31", 100e9, 1e9)]).mPct, 5);
+});
+
+test("a seed the window rules refuse stays absent — the flagged static seed keeps the slider", () => {
+  /* One FY row: a margin, never a CAGR. */
+  const one = seeds([fy("2026-01-31", 200e9, 84e9)]);
+  assert.equal(one.gPct, undefined);
+  assert.equal(one.mPct, 42);
+  /* Two rows less than half a year apart are not a growth history. */
+  assert.equal(seeds([fy("2026-01-31", 200e9, 84e9), fy("2025-11-30", 190e9, 80e9)]).gPct, undefined);
+  /* Number(null) is 0 and 0 is not a revenue: absent fields cannot seed. */
+  assert.deepEqual({ ...seeds([fy("2026-01-31", null, 84e9)]) }, {});
+  assert.equal(seeds([fy("2026-01-31", 200e9, null)]).mPct, undefined);
+  assert.deepEqual({ ...seeds(null) }, {}, "a failed read seeds nothing");
+});
+
+test("the seeds ride the page with per-field counts and never claim LIVE while short", () => {
+  assert.match(page, /const okSeed=\{g:0,m:0\};/);
+  assert.match(page, /if\(seeds\.gPct!=null\)\{TICKERS\[s\]\.gDefault=seeds\.gPct; okSeed\.g\+\+;\}/);
+  assert.match(page, /if\(seeds\.mPct!=null\)\{TICKERS\[s\]\.mDefault=seeds\.mPct; okSeed\.m\+\+;\}/);
+  assert.match(page, /spineSet\('fy-seeds',null,seedMin===syms\.length\?'LIVE':seedMax\?'STALE':'FALLBACK'/);
+  assert.match(page, /slider SEEDS the user then owns; anything short keeps the flagged static seed/);
 });
