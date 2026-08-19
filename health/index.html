@@ -335,28 +335,54 @@ async function runEquity() {
   try {
     if (!symbols || !symbols.length) throw new Error("no provider universe to ask about");
     const BATCH = 200;
-    const answered = [];
-    const silent = [];
+    const answered = [];   // OK, with a usable price and prior close
+    const silent = [];     // asked for, not mentioned in the reply
+    const named = [];      // the provider named a state other than OK
+    const malformed = [];  // said OK and then carried no usable value
     let full = true;
+    const numeric = (raw) => {
+      if (raw == null || raw === "" || raw === true || raw === false) return null;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
+    };
     for (let i = 0; i < symbols.length; i += BATCH) {
       const batch = symbols.slice(i, i + BATCH);
       try {
         const q = await providerJson("/quotes?symbols=" + encodeURIComponent(batch.join(",")));
         for (const sym of batch) {
           const v = q && q.quotes && q.quotes[sym];
-          if (v && v.state === "OK") answered.push(sym); else silent.push(sym);
+          if (!v) { silent.push(sym); continue; }
+          /* A NAMED ABSENCE IS ITS OWN OUTCOME, not a silent one and not an answer. */
+          if (v.state && v.state !== "OK") { named.push(sym + ":" + v.state); continue; }
+          /* AND state:'OK' IS A CLAIM, NOT A VALUE.
+             Counting a symbol answered on its state alone graded {state:'OK', price:null} green
+             on a row that says it monitors price and previous close. Both are checked on the raw
+             value, because Number(null) and Number('') are 0 and would pass any finite test. */
+          const px = numeric(v.price), prev = numeric(v.previous_close);
+          if (px == null || px <= 0 || prev == null || prev <= 0) malformed.push(sym);
+          else answered.push(sym);
         }
       } catch (e) { full = false; }
     }
-    const seen = answered.length + silent.length;
+    const seen = answered.length + silent.length + named.length + malformed.length;
     if (!seen) { set("equity", 0, "bad", "", "unreachable"); }
     else {
       const scope = full ? seen + "/" + symbols.length + " asked"
                          : "SAMPLE " + seen + "/" + symbols.length;
-      const st = (!full || silent.length) ? (answered.length ? "warn" : "bad") : "ok";
-      set("equity", 0, st, answered.length + "/" + seen + " answering",
-        scope + (silent.length ? " · " + silent.length + " silent (" + silent.slice(0, 3).join(",") +
-          (silent.length > 3 ? "…" : "") + ")" : "") + (PROVIDER_SLOW ? " · SLOW" : ""));
+      /* Malformed is the serious one: a symbol claiming OK while carrying nothing usable is a
+         contract breach, not a gap. A named absence is reported, not counted as an answer. */
+      const st = malformed.length ? "bad"
+        : (!full || silent.length) ? (answered.length ? "warn" : "bad")
+        : "ok";
+      const notes = [];
+      if (malformed.length) notes.push(malformed.length + " OK with no usable price/prev (" +
+        malformed.slice(0, 3).join(",") + (malformed.length > 3 ? "…" : "") + ")");
+      if (named.length) notes.push(named.length + " named (" + named.slice(0, 2).join(",") +
+        (named.length > 2 ? "…" : "") + ")");
+      if (silent.length) notes.push(silent.length + " silent");
+      if (PROVIDER_SLOW) notes.push("SLOW");
+      set("equity", 0, st, answered.length + "/" + seen + " priced",
+        scope + (notes.length ? " · " + notes.join(" · ") : ""));
     }
   } catch (e) { set("equity", 0, "bad", "", "unreachable"); }
 

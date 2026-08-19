@@ -366,7 +366,11 @@ function parseSpark(j){
 // change. tf map: daily->'D', weekly->'W', 5m->'5', 1m->'1'. Per-ticker order=timestamp.desc&limit=N
 // (then reversed to ascending) mirrors the derived_series per-ticker pattern, stays under PostgREST's
 // 1000-row cap, and reproduces the old Yahoo range bar-counts (6mo / 2y / 5d / 1d).
-const OHLCV_VIEWS=[{view:'daily',tf:'D',lim:130},{view:'weekly',tf:'W',lim:110},{view:'intra',tf:'5',lim:400},{view:'intra1',tf:'1',lim:390}];
+/* The provider contract accepts 5m and 1m; the legacy '5' and '1' tokens are not part of it, and
+   asking with them produced a silently empty intraday spine under a page that said it was live.
+   The shim also maps the legacy pair now, so both spellings resolve, but the request states the
+   token the contract actually accepts. */
+const OHLCV_VIEWS=[{view:'daily',tf:'D',lim:130},{view:'weekly',tf:'W',lim:110},{view:'intra',tf:'5m',lim:400},{view:'intra1',tf:'1m',lim:390}];
 let PRICE_SOURCE='pending';   // 'provider' | 'unavailable' | 'pending'
 /* ---- C7 (2026-08-05): DATA SPINE badges — every data element shows table · freshness · LIVE/STALE/FALLBACK ---- */
 const SPINE={};

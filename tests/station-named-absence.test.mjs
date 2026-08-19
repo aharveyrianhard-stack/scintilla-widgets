@@ -179,9 +179,13 @@ test("the provider shim names absences per symbol and timeframe and never invent
   assert.equal(S.absenceFor("US10Y", "D"), "NOT_OBSERVED_BY_STREAM", "raising also records");
   assert.equal(S.absenceFor("US10Y"), null, "in its own lane only");
 
-  /* Over fetch(), a named absence is an empty successful read — not a rejected request, which
-     is what would send every caller back into a retry loop. */
-  assert.match(provider, /if \(err && err\.scAbsence\) return fakeResponse\(\[\]\);/);
+  /* Over fetch(), the STREAM's absence is an empty successful read — not a rejected request,
+     which is what would send every caller back into a retry loop. But only the stream's:
+     TIMEFRAME_NOT_MAPPED and TICKER_FILTER_REQUIRED say this surface asked a question the
+     contract does not accept, and turning those into a clean 200 with no rows is how two
+     intraday datasets went blank while the page went on advertising them. */
+  assert.match(provider, /if \(err && err\.scAbsence === ABSENCE_NOT_OBSERVED\) return fakeResponse\(\[\]\);/);
+  assert.doesNotMatch(provider, /if \(err && err\.scAbsence\) return fakeResponse\(\[\]\);/);
   /* And nothing is ever substituted for the missing bars. */
   assert.doesNotMatch(provider, /legacy_fallback|fallbackSeries|synthesi[sz]e/i);
 });

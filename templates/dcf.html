@@ -209,7 +209,21 @@ async function refreshDB(){
   for(const s of syms){
     // per-ticker limited fetches, run in parallel — PostgREST-cap-safe by construction
     J.push(sbGet(`live_quotes?select=price,updated_ts&ticker=eq.${s}&limit=1`).then(r=>{
-      if(r[0]&&r[0].price!=null){ TICKERS[s].price=+r[0].price; (DB_SRC[s]=DB_SRC[s]||{}).price=r[0].updated_ts; ok.price++; }
+      /* STATIC PRICES ARE HISTORY, NOT A FALLBACK.
+         The 2026-07-24 baseline prices below are a snapshot. When the provider overlay missed a
+         symbol, the page kept valuing that company against its July price and flagged it - and a
+         flag does not make current-price arithmetic correct: upside, implied expectations and
+         every fair-value comparison are comparisons AGAINST the market price, so a stale one
+         produces a confident wrong answer. A missed overlay now CLEARS the price, and the
+         valuation is disabled rather than computed. The static figure remains visible as
+         historical reference only. */
+      const raw = r[0] ? r[0].price : null;
+      const px = (raw==null||raw===''||raw===true||raw===false) ? null
+               : (Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null);
+      if(px != null){ TICKERS[s].priceStatic=TICKERS[s].price; TICKERS[s].price=px;
+        (DB_SRC[s]=DB_SRC[s]||{}).price=r[0].updated_ts; ok.price++; }
+      else { TICKERS[s].priceStatic=TICKERS[s].price; TICKERS[s].price=null;
+        TICKERS[s].priceUnavailable=true; }
     }).catch(()=>{}));
     J.push(sbGet(`fundamentals?select=revenue_ttm,market_cap,updated_ts&ticker=eq.${s}&limit=1`).then(r=>{
       if(r[0]&&r[0].revenue_ttm){ TICKERS[s].rev=r[0].revenue_ttm/1e9; (DB_SRC[s]=DB_SRC[s]||{}).rev=true; ok.fund++; }
@@ -235,7 +249,8 @@ async function refreshDB(){
       TICKERS[s].shares=TICKERS[s]._mcap/TICKERS[s].price/1e9; (DB_SRC[s]=DB_SRC[s]||{}).shares='mcap/price';
     }
   }
-  spineSet('live_quotes',null,ok.price?'LIVE':'FALLBACK',ok.price+'/'+syms.length+' prices live');
+  spineSet('live_quotes',null,ok.price===syms.length?'LIVE':ok.price?'STALE':'FALLBACK',
+    ok.price+'/'+syms.length+' provider prices; the rest have no current price and their valuations are disabled');
   spineSet('fundamentals',null,ok.fund?'LIVE':'FALLBACK',ok.fund+'/'+syms.length+' revenue_ttm/mcap live');
   spineSet('company_profile',null,ok.prof?'LIVE':'FALLBACK',ok.prof+'/'+syms.length+' beta/shares live (MU broken-beta guard active)');
   spineSet('analyst_estimates',null,ok.est?'LIVE':'FALLBACK',ok.est+'/'+syms.length+' tickers with ≥5 future-FY consensus revenue');
@@ -336,7 +351,10 @@ function setTicker(sym){
   document.getElementById('ebiG').value = 9;
   document.getElementById('investR').value = 30;
   const _src=DB_SRC[sym]||{};
-  document.getElementById('tickerStat').textContent = BASE.name+' · $'+BASE.price.toFixed(2)+(_src.price?' (live_quotes '+freshTxt(_src.price)+')':' (static '+DATA_ASOF.slice(0,10)+')')+' · β '+BASE.beta.toFixed(2)+(_src.beta?' (db)':' (static)')+(_src.consensus?' · consensus: analyst_estimates':'');
+  document.getElementById('tickerStat').textContent = BASE.name+' · '+
+    (BASE.price==null
+      ? 'price unavailable — valuation disabled (static '+DATA_ASOF.slice(0,10)+' reference: $'+(BASE.priceStatic!=null?BASE.priceStatic.toFixed(2):'—')+')'
+      : '$'+BASE.price.toFixed(2)+' (provider via live_quotes '+freshTxt(_src.price)+')')+' · β '+BASE.beta.toFixed(2)+(_src.beta?' (db)':' (static)')+(_src.consensus?' · consensus: analyst_estimates':'');
   document.getElementById('dcfTitle').textContent = 'Fair value — 1-stage vs 3-stage · '+sym;
   render();
 }
@@ -377,6 +395,14 @@ function render(){
 
   const {rows, sumPV} = stageI(BASE.rev, BASE.shares, BASE.netDebt, BASE.daPct, BASE.capexPct, BASE.nwcPct, BASE.consensus, g, m, t, wacc);
   const ufcf5 = rows[4].ufcf, ebi5 = rows[4].ebi;
+  if(BASE.price==null){
+    /* Every readout below this line is a comparison against the market price. */
+    for(const id of ['oPrice','oFV','oUp','oEV','oTV']){
+      const el=document.getElementById(id);
+      if(el) el.textContent = id==='oUp' ? 'price unavailable' : '—';
+    }
+    return;
+  }
   document.getElementById('oPrice').textContent = '$'+BASE.price.toFixed(2);
 
   // ---- PROJECTED FINANCIAL STATEMENT TABLE (the projection itself) ----

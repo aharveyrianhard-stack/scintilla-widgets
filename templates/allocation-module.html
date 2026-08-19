@@ -312,7 +312,7 @@ async function refreshSSOT(){
     const m={}; let mx=0; for(const r of rows){m[r.ticker]=r; if(r.updated_ts>mx)mx=r.updated_ts;}
     COMPOSITE=m; COMPOSITE_STATUS='ok';
     spineSet('composite_staged',mx,ageMode(mx,45*60),rows.length+' tickers tf=D — THE geiger (0.5×trend+0.5×momentum, hub equalizer output)');
-  }).catch(e=>{COMPOSITE_STATUS='error';spineSet('composite_staged',null,'FALLBACK','read failed ('+e.message+') — client Yahoo geiger in use');}));
+  }).catch(e=>{COMPOSITE_STATUS='error';spineSet('composite_staged',null,'FALLBACK','read failed ('+e.message+') — no geiger; nothing is substituted');}));
   // quote + RVOL inputs
   J.push(sbGet('live_quotes?select=ticker,price,chg_pct,volume,prev_close,updated_ts&limit=1000').then(rows=>{
     if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
@@ -348,12 +348,12 @@ async function refreshSSOT(){
   renderSpine();
 }
 /* THE GEIGER HAS ONE OWNER NOW.
-   The client Yahoo geiger below was written as a flagged fallback, and a flag is not the same
-   as an owner: it computed a scoring geiger locally from Yahoo primitives whenever the accepted
-   one was missing, which is a second equity authority answering under the first one's name. The
-   provider contract answers, or this page says it could not. The local computation is retained
-   ONLY as an explicitly labelled diagnostic (see the FALLBACK line in the detail readout) and is
-   no longer consulted for a displayed score. */
+   A client geiger here was written as a flagged fallback, and a flag is not the same as an
+   owner: it computed a scoring geiger locally from Yahoo primitives whenever the accepted one
+   was missing, which is a second equity authority answering under the first one's name. It is
+   gone from every displayed path and from the diagnostic readout - while it existed a reader
+   could still see a number labelled as a geiger that no accepted authority produced. The
+   provider contract answers, or this page says it could not. */
 // THE geiger accessor: the provider's composite via the authority shim; no local recomputation
 function tickerG(sym){
   const r=COMPOSITE[sym];
@@ -597,7 +597,7 @@ function internalsScore(){
 function voters(){
   const v = [];
   const idx = sym => gv(sym);                                            // SSOT: composite_staged
-  const gsrc = sym => COMPOSITE[sym] ? 'composite_staged · db' : (COHORT[sym] ? 'FALLBACK client geiger (yahoo)' : '—');
+  const gsrc = sym => COMPOSITE[sym] ? 'provider composite via the authority shim' : (COHORT[sym] ? 'accepted composite unavailable' : '—');
   v.push({key:'SPY', name:'SPY GEIGER', sub:gsrc('SPY'), val:idx('SPY')});
   v.push({key:'QQQ', name:'QQQ GEIGER', sub:gsrc('QQQ'), val:idx('QQQ')});
   v.push({key:'IWM', name:'IWM GEIGER', sub:'small caps · '+gsrc('IWM'), val:idx('IWM')});
@@ -910,12 +910,27 @@ function renderCohort(dLC, dSC){
   const SPR2 = styleSpreads();
   const PROXY_EXCLUDE = new Set(['IWM','SMH','RSP','XLP','XLU','SPY','QQQ']);
   let allrows = candidateSyms().filter(s => !PROXY_EXCLUDE.has(s))
-    .map(s => { const tg = tickerG(s); if (!tg) return null;
+    /* A TRUTHY OBJECT WITH A NULL SCORE IS NOT A SCORE.
+       tickerG returns {g:null} when a symbol is in a cohort but the accepted composite is
+       absent, and `!tg` does not catch that: null + styleAdj coerces to 0, the row ranks as a
+       neutral score nobody produced, and r.g.toFixed(2) then throws on render. The exact
+       provider-missing case crashed the page. Unscored rows are excluded from the ranking and
+       listed separately as unavailable. */
+    .map(s => { const tg = tickerG(s); if (!tg || tg.g == null || !isFinite(tg.g)) return null;
       const g = tg.g, adj = g + styleAdj(s, SPR2);
       const q = QUOTES[s], c = COHORT[s] || {};
-      const price = (q && q.price != null) ? +q.price : c.price;
-      const day = (q && q.chg_pct != null) ? (+q.chg_pct)/100 : c.day;   // chg_pct is percent-units; c.day is a fraction
-      return {sym:s, cls:tickerCls(s)||'?', g, gsrc:tg.src, adj, sleeves:tickerSleeves(s), price, day, fav:UNIVERSE.favs.has(s)}; })
+      /* ONE PRICE AUTHORITY, AND ABSENCE STAYS ABSENT.
+         These cells silently fell back to the cohort-feed's Yahoo-derived price and day-change
+         whenever the accepted quote was missing - same cells, same formatting, no marking - so a
+         provider outage read as an ordinary quiet quote. There is no second plausible number:
+         null renders as unavailable and the row says which source answered. Number(null) is 0,
+         so the raw value decides. */
+      const usable = (raw) => { if(raw==null||raw===''||raw===true||raw===false) return null;
+        const n = Number(raw); return Number.isFinite(n) ? n : null; };
+      const price = q ? usable(q.price) : null;
+      const day = q ? (usable(q.chg_pct) == null ? null : usable(q.chg_pct)/100) : null;
+      const priceSrc = price == null ? 'unavailable' : 'provider';
+      return {sym:s, cls:tickerCls(s)||'?', g, gsrc:tg.src, priceSrc, adj, sleeves:tickerSleeves(s), price, day, fav:UNIVERSE.favs.has(s)}; })
     .filter(Boolean)
     .sort((a,b) => a.adj - b.adj);
   const liveCats = ['ALL', ...CATS.slice(1).filter(c=>allrows.some(r=>r.sleeves.includes(c)))];
@@ -947,12 +962,12 @@ function renderCohort(dLC, dSC){
     const k = COMPS[r.sym] || {};
     const num = (x,d=1,suf='') => (x==null||!isFinite(x))?'<span class="cls">—</span>':(x.toFixed(d)+suf);
     const pctc = (x) => (x==null||!isFinite(x))?'<span class="cls">—</span>':((x*100).toFixed(0)+'%');
-    html += `<tr style="${sleeveRank[r.sym]?'background:rgba(0,212,255,.07)':''}"><td>${star}</td><td>${sleeveRank[r.sym]?'<span style=\'color:var(--cyan)\'>▸</span> ':''}<b>${r.sym}</b>${r.fav?' <span style="color:var(--gold)" title="hub_favorites">★</span>':''}${r.gsrc==='fallback'?' <span class="cls" title="composite_staged row missing — client Yahoo geiger fallback">⚠</span>':''}</td><td class="cls">${r.sleeves.join("/")||CLASSNAME[r.cls]||r.cls}</td><td>${sectorChip(r.sym)}</td>
-      <td class="r">${r.price==null?'<span class="cls">—</span>':(+r.price).toLocaleString()}</td>
+    html += `<tr style="${sleeveRank[r.sym]?'background:rgba(0,212,255,.07)':''}"><td>${star}</td><td>${sleeveRank[r.sym]?'<span style=\'color:var(--cyan)\'>▸</span> ':''}<b>${r.sym}</b>${r.fav?' <span style="color:var(--gold)" title="hub_favorites">★</span>':''}${r.gsrc==='unavailable'?' <span class="cls" title="accepted provider composite absent for this symbol — nothing is substituted">⚠</span>':''}</td><td class="cls">${r.sleeves.join("/")||CLASSNAME[r.cls]||r.cls}</td><td>${sectorChip(r.sym)}</td>
+      <td class="r">${r.price==null?'<span class="cls" title="the accepted quote has no usable price for this symbol; nothing is substituted">unavailable</span>':(+r.price).toLocaleString()}</td>
       <td class="r" style="color:${r.day>=0?'var(--green)':'var(--red)'}">${r.day==null?'<span class="cls">—</span>':spct(r.day,2)}</td>
       <td class="r">${rvolTxt(r.sym)}</td>
       <td><span class="mini"><span class="mid"></span><span class="b" style="left:${r.g<0?50-w:50}%;width:${w}%;background:${r.g>=0?'var(--cyan)':'var(--orange)'}"></span></span></td>
-      <td class="r">${(r.g>=0?'+':'')+r.g.toFixed(2)}</td>
+      <td class="r">${r.g==null||!isFinite(r.g)?'<span class="cls">unavailable</span>':(r.g>=0?'+':'')+r.g.toFixed(2)}</td>
       <td class="r">${num(k.pe)}</td><td class="r">${num(k.fwd_pe)}</td><td class="r">${num(k.ps)}</td>
       <td class="r" style="color:${k.rev_growth>0?'var(--green)':k.rev_growth<0?'var(--red)':'var(--dim)'}">${k.rev_growth==null?'<span class=cls>—</span>':spct(k.rev_growth,0)}</td>
       <td class="r">${pctc(k.gross_m)}</td><td class="r">${pctc(k.net_m)}</td><td class="r">${num(k.de,2)}</td></tr>`;
@@ -973,7 +988,10 @@ function renderComps(){
   // suggested = anything currently ADD-tagged (top-3 coldest per sleeve), gathered from the last cohort render
   const SPR = styleSpreads();
   const ranked = candidateSyms().filter(s=>!['IWM','SMH','RSP','XLP','XLU','SPY','QQQ'].includes(s))
-    .map(s=>{ const tg=tickerG(s); return tg ? {sym:s, adj:tg.g+styleAdj(s,SPR), sleeves:tickerSleeves(s)} : null; }).filter(Boolean);
+    .map(s=>{ const tg=tickerG(s);
+      /* Same rule: no accepted composite, no place in a numeric ranking. */
+      return (tg && tg.g != null && isFinite(tg.g))
+        ? {sym:s, adj:tg.g+styleAdj(s,SPR), sleeves:tickerSleeves(s)} : null; }).filter(Boolean);
   const suggested = new Set();
   for (const sl of Object.keys(SLEEVES)) ranked.filter(r=>r.sleeves.includes(sl)).sort((a,b)=>a.adj-b.adj).slice(0,3).forEach(r=>suggested.add(r.sym));
   // category switcher — which sleeves have suggestions
@@ -1026,7 +1044,9 @@ function renderTrace(h, inv, lc, lcEq, scEq, perLC, perSC, cInv, cLC, cSC, dTot,
     const r = COMPOSITE[sym];
     if (r) return `${sym}  composite_staged (tf=D, db): trend ${f2(r.trend)}×0.5 + momentum ${f2(r.momentum)}×0.5 = ${f2(r.composite)}   [${freshTxt(r.updated_ts)}]`;
     const c = COHORT[sym]; if (!c || !c.tf) return sym+': no data';
-    return `${sym}  FALLBACK client geiger (cohort-feed Yahoo primitives, equalizer curve local) = ${f2(geiger(c))}`;
+    /* The local computation is gone, not merely unused: while it existed a reader could still
+       see a number labelled as a geiger that no accepted authority produced. */
+    return `${sym}  accepted composite unavailable — no local geiger is computed`;
   };
   L.push('STEP A · GEIGER VOTERS (SSOT: composite_staged — the hub equalizer output; client geiger math retired to fallback)');
   for (const s of ['SPY','QQQ','IWM','SMH']) L.push('  ' + gTrace(s));

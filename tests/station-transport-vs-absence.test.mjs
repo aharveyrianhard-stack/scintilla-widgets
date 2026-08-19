@@ -237,14 +237,16 @@ test("a mixed equity/non-equity request fails whole when the passthrough fails",
 test("a geiger payload that omits a requested symbol fails the request", async () => {
   /* /geiger publishes the whole universe, so a gap in it is an incomplete payload, not a
      per-symbol fact about MSFT. */
-  const w = loadShim(() => ok({ ...GEIGER_OK, symbols:universe(["AAPL", "MSFT"]) }));
-  w.pg = async (path) => (String(path).startsWith("tickers?") ? canonicalRows(GEIGER_OK.symbols) : []);
+  const U1 = universe(["AAPL", "MSFT"]);
+  const w = loadShim(() => ok({ ...GEIGER_OK, symbols:U1 }));
+  w.pg = async (path) => (String(path).startsWith("tickers?") ? canonicalRows(U1) : []);
   w.scInstallProviderShim();
   const fine = await w.pg("composite_staged?tf=eq.D&ticker=in.(AAPL,MSFT)&select=ticker,composite");
   assert.equal(fine.length, 2, "a complete payload answers completely");
 
-  const w2 = loadShim(() => ok({ ...GEIGER_OK, symbols:universe(["AAPL", "MSFT", "TSLA"]) }));
-  w2.pg = async () => [];
+  const U2 = universe(["AAPL", "MSFT", "TSLA"]);
+  const w2 = loadShim(() => ok({ ...GEIGER_OK, symbols:U2 }));
+  w2.pg = async (path) => (String(path).startsWith("tickers?") ? canonicalRows(U2) : []);
   w2.scInstallProviderShim();
   /* TSLA is owned (it is in the universe) but its entry is empty. */
   const rows = await w2.pg("composite_staged?tf=eq.D&ticker=in.(AAPL)&select=ticker,composite");
@@ -598,11 +600,12 @@ test("a candle absence cannot contaminate the quote lane, or be erased by one", 
 });
 
 test("short or unnamed candle data is retryable, not a settled absence", async () => {
+  const MU_UNIVERSE = universe(["MU"]);
   const w = loadShim((url) => {
-    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:universe(["MU"]) });
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:MU_UNIVERSE });
     return ok({ series:[] });                                  // empty, and nothing named it
   });
-  w.pg = async (path) => (String(path).startsWith("tickers?") ? canonicalRows(GEIGER_OK.symbols) : []);
+  w.pg = async (path) => (String(path).startsWith("tickers?") ? canonicalRows(MU_UNIVERSE) : []);
   w.scInstallProviderShim();
   await assert.rejects(
     () => w.pg("ohlcv_history?ticker=eq.MU&tf=eq.D&select=timestamp,close&limit=240"),
@@ -612,10 +615,10 @@ test("short or unnamed candle data is retryable, not a settled absence", async (
 
   /* A provider-named terminal state IS settled. */
   const w2 = loadShim((url) => {
-    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:universe(["MU"]) });
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:MU_UNIVERSE });
     return ok({ series:[], state:"NOT_OBSERVED_BY_STREAM" });
   });
-  w2.pg = async () => [];
+  w2.pg = async (path) => (String(path).startsWith("tickers?") ? canonicalRows(MU_UNIVERSE) : []);
   w2.scInstallProviderShim();
   await assert.rejects(
     () => w2.pg("ohlcv_history?ticker=eq.MU&tf=eq.D&select=timestamp,close&limit=240"),
@@ -791,7 +794,14 @@ test("/health asks the whole universe, or says its answer is a sample", () => {
     "the whole universe is asked, in batches the endpoint accepts");
   assert.match(health, /full \? seen \+ "\/" \+ symbols\.length \+ " asked"\s*\n?\s*: "SAMPLE " \+ seen \+ "\/" \+ symbols\.length/,
     "and a partial read says SAMPLE rather than generalising");
-  assert.match(health, /\(!full \|\| silent\.length\) \? \(answered\.length \? "warn" : "bad"\) : "ok"/);
+  assert.match(health, /const st = malformed\.length \? "bad"/,
+    "a symbol claiming OK while carrying nothing usable is a contract breach, not a gap");
+  assert.match(health, /: \(!full \|\| silent\.length\) \? \(answered\.length \? "warn" : "bad"\)/);
+  /* state:'OK' is a claim, not a value: both the price and the prior close are checked on the
+     raw value, since Number(null) and Number('') are 0 and would pass any finite test. */
+  assert.match(health, /if \(px == null \|\| px <= 0 \|\| prev == null \|\| prev <= 0\) malformed\.push\(sym\);/);
+  assert.match(health, /if \(v\.state && v\.state !== "OK"\) \{ named\.push\(sym \+ ":" \+ v\.state\); continue; \}/,
+    "a named absence is reported on its own terms, never counted as an answer");
 });
 
 test("/health calls the provider slow at 4.5s and unreachable only at the hard bound", () => {
@@ -833,4 +843,34 @@ test("a caller who already gave up is not served by the warm ownership map", asy
 
   assert.match(providerSource, /if \(signal && signal\.aborted\)\n\s*return Promise\.reject\(transportError\('provider unreachable: cancelled by the caller', API \+ '\/geiger', null\)\);/);
   assert.match(providerSource, /if \(signal && signal\.aborted\) \{\n\s*done\(\);/);
+});
+
+test("every timeframe the sector-rotation spine asks for resolves to a contract token", () => {
+  /* '5' and '1' are the legacy intraday tokens that page still sent. They were absent from the
+     shim's map, so both datasets resolved to TIMEFRAME_NOT_MAPPED and — via the fetch boundary's
+     absence-to-empty conversion — arrived as a successful HTTP 200 with no bars, while the page
+     advertised a live provider 5-minute and 1-minute spine. */
+  const map = /var TF = \{([\s\S]*?)\};/.exec(providerSource)[1];
+  const parsed = Object.fromEntries(
+    Array.from(map.matchAll(/'([^']+)':'([^']+)'/g), (m) => [m[1], m[2]]));
+
+  for (const [asked, expected] of [["D", "D"], ["W", "W"], ["5m", "5m"], ["1m", "1m"],
+                                   ["5", "5m"], ["1", "1m"]])
+    assert.equal(parsed[asked], expected, `${asked} must resolve to ${expected}`);
+
+  /* The page states the token the contract accepts. */
+  const rotation = fs.readFileSync(new URL("../templates/sector-rotation.html", import.meta.url), "utf8");
+  const views = /const OHLCV_VIEWS=\[(.*?)\];/.exec(rotation)[1];
+  for (const tf of ["'D'", "'W'", "'5m'", "'1m'"])
+    assert.ok(views.includes("tf:" + tf), `the spine asks for ${tf}`);
+  assert.ok(!/tf:'5'|tf:'1'/.test(views), "the legacy intraday tokens are gone from the request");
+
+  /* And an unmappable timeframe is a contract error, not a clean empty read. */
+  const w = loadShim((url) => ok(String(url).includes("/geiger") ? GEIGER_OK : { series:[] }));
+  w.pg = async (path) => (String(path).startsWith("tickers?") ? canonicalRows(GEIGER_OK.symbols) : []);
+  w.scInstallProviderShim();
+  return assert.rejects(
+    () => w.pg("ohlcv_history?ticker=eq.AAPL&tf=eq.wat&select=timestamp,close&limit=240"),
+    (err) => err && err.scAbsence === "TIMEFRAME_NOT_MAPPED",
+    "asking with a token the contract does not accept is a bug here, not an answer about the data");
 });

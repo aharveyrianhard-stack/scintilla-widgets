@@ -321,3 +321,51 @@ test("a roster member that cannot be read makes its lane BAD, not WARN", () => {
   assert.doesNotMatch(health, /r\.minutes > f\.bad \? "bad" : \(r\.minutes > f\.warn \|\| missing\) \? "warn"/,
     "the old ordering let a missing member land in warn");
 });
+
+test("no touched template uses a non-quote number as a current equity price", () => {
+  const readFile = (rel) => fs.readFileSync(new URL(rel, import.meta.url), "utf8");
+  const fundamentals = readFile("../templates/fundamentals.html");
+  const allocation = readFile("../templates/allocation-module.html");
+  const dcf = readFile("../templates/dcf.html");
+
+  /* Loading the shim did not move fundamentals' arithmetic: it never issued a quote read at all
+     and took fundamentals.price — a snapshot with its own vintage — as the current price for the
+     comps table, the header and the DCF upside. */
+  assert.match(fundamentals, /async function providerQuotes\(symbols\)/);
+  assert.match(fundamentals, /live_quotes\?select=ticker,price,prev_close,updated_ts/);
+  assert.match(fundamentals, /const price=quotePriceOf\(t\)/, "comps price from the quote spine");
+  assert.match(fundamentals, /price: quotePriceOf\(sym\), priceUnavailable: quotePriceOf\(sym\) == null/);
+  assert.doesNotMatch(fundamentals, /const price=f\?f\.price:null/, "the snapshot is no longer a price");
+  assert.doesNotMatch(fundamentals, /price: f\.price,/);
+  /* And current-price math is disabled rather than computed against nothing. */
+  assert.match(fundamentals, /No provider price for /);
+  assert.match(fundamentals, /b\.valuationDisabled = true;/);
+
+  /* allocation silently substituted the cohort feed's Yahoo-derived price and day change into
+     the same cells, unmarked, so a provider outage read as an ordinary quiet quote. */
+  assert.doesNotMatch(allocation, /\(q && q\.price != null\) \? \+q\.price : c\.price/);
+  assert.doesNotMatch(allocation, /\(q && q\.chg_pct != null\) \? \(\+q\.chg_pct\)\/100 : c\.day/);
+  assert.match(allocation, /const price = q \? usable\(q\.price\) : null;/);
+  assert.match(allocation, /const priceSrc = price == null \? 'unavailable' : 'provider';/);
+  assert.match(allocation, /nothing is substituted">unavailable<\/span>/);
+  /* The local geiger is gone from every path, not merely unused. */
+  assert.doesNotMatch(allocation, /FALLBACK client geiger/);
+  assert.doesNotMatch(allocation, /client Yahoo geiger in use/);
+
+  /* dcf kept July static prices and valued companies against them when the overlay missed. */
+  assert.match(dcf, /TICKERS\[s\]\.priceUnavailable=true/);
+  assert.match(dcf, /price unavailable — valuation disabled/);
+  assert.match(dcf, /if\(BASE\.price==null\)\{/);
+  assert.doesNotMatch(dcf, /ok\.price\?'LIVE':'FALLBACK'/, "a partial overlay is not simply LIVE");
+});
+
+test("the allocation module cannot crash on a symbol with no accepted composite", () => {
+  const allocation = fs.readFileSync(new URL("../templates/allocation-module.html", import.meta.url), "utf8");
+  /* tickerG returns a TRUTHY {g:null} when a symbol is in a cohort but the accepted composite is
+     absent. `!tg` does not catch that: null + styleAdj coerces to 0, the row ranks as a neutral
+     score nobody produced, and r.g.toFixed(2) then throws on render. */
+  assert.match(allocation, /if \(!tg \|\| tg\.g == null \|\| !isFinite\(tg\.g\)\) return null;/);
+  assert.match(allocation, /\(tg && tg\.g != null && isFinite\(tg\.g\)\)/);
+  assert.match(allocation, /r\.g==null\|\|!isFinite\(r\.g\)\?'<span class="cls">unavailable<\/span>'/);
+  assert.doesNotMatch(allocation, /\.map\(s => \{ const tg = tickerG\(s\); if \(!tg\) return null;/);
+});

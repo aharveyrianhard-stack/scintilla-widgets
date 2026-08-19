@@ -266,8 +266,14 @@
      rate. Measured 2026-08-19: 387 active less 22 excluded is exactly the 365 the provider
      publishes, missing [] and extra [], under equalizer receipt f6cf97b5…97ad1. So the check is
      a set comparison against a source the provider does not control. */
+  /* NOT IN IS NULL-BLIND, AND MOST OF THIS UNIVERSE HAS A NULL TYPE.
+     `type=not.in.(...)` compiles to SQL NOT IN, which is NULL - never true - for a NULL type. 90
+     of the 387 active tickers have no type recorded, AAPL among them, so that filter returned
+     275 and would have failed ownership for the entire Station on every cold start while the
+     provider was answering correctly with 365. NULL is stated explicitly:
+     365 = 275 typed-and-allowed + 90 untyped. Verified against the live table. */
   var CANONICAL_EQUITY_QUERY =
-    'tickers?select=ticker&active=eq.true&type=not.in.(crypto,future,index,rate)&order=ticker.asc&limit=1000';
+    'tickers?select=ticker&active=eq.true&or=(type.is.null,type.not.in.(crypto,future,index,rate))&order=ticker.asc&limit=1000';
 
   /* THE ACCEPTED EQUALIZER, IN FULL.
      The receipt was recorded and displayed but never checked, so a payload computed under ANY
@@ -337,9 +343,16 @@
         if (missing.length || extra.length)
           return fail('universe identity: missing [' + missing.slice(0, 8).join(',') + '] extra [' +
                       extra.slice(0, 8).join(',') + ']', syms.length);
-      } else if (syms.length !== EXPECTED_EQUITY_UNIVERSE) {
-        return fail('universe disagreement: ' + syms.length + ' symbols, expected ' +
-                    EXPECTED_EQUITY_UNIVERSE + ' (canonical set unavailable)', syms.length);
+      } else {
+        /* NO CANONICAL SET, NO COLD VERIFICATION.
+           Falling back to a bare count here reopened the exact hole the set comparison closes -
+           drop AAPL, add TICK, and 365 is still 365 - and it did so precisely when Supabase was
+           unavailable, which is not a moment to relax a check. A cold ownership map requires
+           identity. Unverified stays unverified, which means retryable and delayed, never
+           accepted on a count. */
+        return fail('canonical set unavailable, so identity could not be verified' +
+                    (syms.length === EXPECTED_EQUITY_UNIVERSE ? ' (count alone is not identity)' : ''),
+                    syms.length);
       }
 
       owned = next;
@@ -350,9 +363,9 @@
       S.ownership = { verified: true, count: syms.length, expected: EXPECTED_EQUITY_UNIVERSE,
                       reason: null, equalizer_receipt: j.equalizer_receipt_sha256 || null,
                       /* Stated so a reviewer can see what "verified" actually compared. */
-                      identity: canon && canon.length
-                        ? 'exact set match against ' + canon.length + ' canonical active non-(crypto/future/index/rate) tickers'
-                        : 'CARDINALITY ONLY - the canonical set could not be read' };
+                      /* Only one way to become verified, so this cannot describe a weaker one. */
+                      identity: 'exact set match against ' + canon.length +
+                                ' canonical active tickers (type null, or not crypto/future/index/rate)' };
       return owned;
     }, function (e) {
       if (owned) return owned;                      // warm knowledge survives one bad read
@@ -512,7 +525,13 @@
 
   /* Station's chart asks for a Hub timeframe token; the chart API speaks its own. Written out
      rather than lower-cased, because '1m' (minute) and '1M' (month) differ ONLY by case. */
-  var TF = { '1m':'1m','2m':'2m','3m':'3m','5m':'5m','10m':'10m','15m':'15','15':'15','30m':'30','30':'30',
+  /* '5' and '1' are the LEGACY intraday tokens templates/sector-rotation.html still sends. They
+     were absent from this map, so those two datasets resolved to TIMEFRAME_NOT_MAPPED and - via
+     the fetch boundary's absence-to-empty conversion - arrived as a successful HTTP 200 with no
+     bars, while the page advertised a live provider 5-minute and 1-minute spine. Mapped
+     explicitly to the tokens the contract accepts. */
+  var TF = { '1':'1m','5':'5m',
+             '1m':'1m','2m':'2m','3m':'3m','5m':'5m','10m':'10m','15m':'15','15':'15','30m':'30','30':'30',
              '1h':'60','60':'60','2h':'120','120':'120','3h':'180','180':'180','4h':'240','240':'240',
              '6h':'6h','12h':'12h','1D':'D','D':'D','1d':'D','3D':'3D','3d':'3D','1W':'W','W':'W','1w':'W',
              '2W':'2W','2w':'2W','1M':'M','M':'M' };
@@ -753,7 +772,13 @@
            instead would make a settled answer look like a broken connection - the very
            conversion this change exists to stop. */
         if (r) return r.then(fakeResponse, function (err) {
-          if (err && err.scAbsence) return fakeResponse([]);
+          /* A NAMED ABSENCE IS NOT A FAILED REQUEST - but only the STREAM's absences qualify.
+             NOT_OBSERVED_BY_STREAM is an answer about the data and is honestly an empty
+             successful read. TIMEFRAME_NOT_MAPPED and TICKER_FILTER_REQUIRED are not: they say
+             this surface asked a question the contract does not accept, which is a bug here, and
+             turning it into a clean 200 with no rows is how two intraday datasets went blank
+             while the page went on advertising them. Those propagate. */
+          if (err && err.scAbsence === ABSENCE_NOT_OBSERVED) return fakeResponse([]);
           throw err;
         });
       }

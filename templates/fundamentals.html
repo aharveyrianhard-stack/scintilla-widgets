@@ -243,7 +243,9 @@ async function fetchCohortBundle(tickers){
       const yrs=(new Date(last.fiscal_date)-new Date(first.fiscal_date))/(365.25*86400000);
       if(yrs>0.5 && first.revenue>0 && last.revenue>0) cagr=(Math.pow(last.revenue/first.revenue,1/yrs)-1)*100;
     }
-    const price=f?f.price:null, cap=f?f.market_cap:null, revTTM=f?f.revenue_ttm:null, pe=f?f.trailing_pe:null;
+    /* The provider's price, or none. fundamentals.price is a snapshot with its own vintage and
+       is never used as a current price. */
+    const price=quotePriceOf(t), cap=f?f.market_cap:null, revTTM=f?f.revenue_ttm:null, pe=f?f.trailing_pe:null;
     const ps=(cap!=null&&revTTM)?cap/revTTM:null;
     const ev=(cap!=null&&b)?cap+(b.total_debt||0)-(b.cash_and_equiv||0):null;
     const evEbitda=(ev!=null&&ebitdaTTM)?ev/ebitdaTTM:null;
@@ -260,6 +262,43 @@ async function fetchCohortBundle(tickers){
   return out;
 }
 function fmtCap(v){ if(v==null) return '—'; return v>=1e12?'$'+(v/1e12).toFixed(2)+'T':'$'+(v/1e9).toFixed(0)+'B'; }
+
+/* THE CURRENT PRICE HAS ONE SOURCE, AND fundamentals.price IS NOT IT.
+   Loading the authority shim did not move this page's arithmetic: it never issued a quote read
+   at all, and took `fundamentals.price` as the current price for the comps table, the header and
+   the DCF upside. That column is a fundamentals snapshot with its own vintage - it is not a
+   quote, and using it as one is the same defect /analytics had, where a stale non-provider
+   number was printed under a heading that said provider.
+
+   This asks live_quotes, which the shim answers from the provider contract for a provider-owned
+   equity and passes through to its own owner otherwise. A symbol with no usable provider price
+   returns null and every consumer shows it as unavailable rather than substituting a number. */
+const QUOTE_CACHE = new Map();
+function usableNumber(raw){
+  if(raw==null||raw===''||raw===true||raw===false) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+async function providerQuotes(symbols){
+  const want = symbols.filter(s=>s && !QUOTE_CACHE.has(s));
+  if(want.length){
+    let rows = [];
+    try { rows = await sb('live_quotes?select=ticker,price,prev_close,updated_ts&ticker=in.('+want.map(encodeURIComponent).join(',')+')'); }
+    catch(e){ rows = []; }
+    if(rows && rows._sbError) rows = [];
+    const byT = {};
+    for(const r of (Array.isArray(rows)?rows:[])) byT[r.ticker] = r;
+    /* A symbol the read did not carry is recorded as unpriced, not left to be asked again on
+       every render - and never filled in from fundamentals. */
+    for(const sym of want){
+      const r = byT[sym];
+      QUOTE_CACHE.set(sym, r ? { price:usableNumber(r.price), prev:usableNumber(r.prev_close),
+                                 at:r.updated_ts||null } : { price:null, prev:null, at:null });
+    }
+  }
+  return QUOTE_CACHE;
+}
+const quotePriceOf = (sym) => (QUOTE_CACHE.get(sym)||{}).price ?? null;
 async function renderComps(sym){
   const cohort = COHORT_MAP[sym] || 'UNCOHORTED';
   const cohortMembers = UNIVERSE.filter(u=>u.cohort===cohort && u.ticker!==sym).map(u=>u.ticker);
@@ -269,6 +308,7 @@ async function renderComps(sym){
   const capByT={}; capScan.forEach(c=>capByT[c.ticker]=c.market_cap||0);
   const peersRanked = cohortMembers.slice().sort((a,b)=>(capByT[b]||0)-(capByT[a]||0)).slice(0,COMPS_PEER_CAP);
   const names = [sym].concat(peersRanked);
+  await providerQuotes(names);
   const B = await fetchCohortBundle(names);
   const pick = k => names.map(n=>B[n]?B[n][k]:null);
   const COMPS = { names, cap:pick('cap'), pe:pick('pe'), ev:pick('ev'), ps:pick('ps'), pb:pick('pb'),
@@ -768,6 +808,8 @@ async function loadRiskFree(){
   if(r[0]){ RF10Y = r[0].y10; window.RF_TS = r[0].updated_ts; }
 }
 async function buildBase(sym){
+  /* The quote spine is loaded before anything reads a price from it. */
+  await providerQuotes([sym]);
   const [fArr, bArr, fhArr, cfArr, cpArr] = await Promise.all([
     sb('fundamentals?select=*&ticker=eq.'+sym),
     sb('balance_history?select=*&ticker=eq.'+sym+'&order=fiscal_date.desc&limit=6'),
@@ -824,7 +866,10 @@ async function buildBase(sym){
   else if(!consensus) flags.push('No forward analyst_estimates path for this ticker — Analyst-consensus DCF mode disabled, Fixed-rate only.');
   return {
     name: sym, rev: revTTM/1e9, shares: shares||1, netDebt, daPct, capexPct, nwcPct,
-    price: f.price, beta: beta!=null?beta:1.0, betaIsGap: beta==null, betaTs, costOfDebt: RF10Y+1.5, rf: RF10Y, mrp: 4.45, debtW, eqW,
+    /* Same spine for the header and the DCF. Null here means the page says the price is
+       unavailable rather than valuing the company against a fundamentals snapshot. */
+    price: quotePriceOf(sym), priceUnavailable: quotePriceOf(sym) == null,
+    beta: beta!=null?beta:1.0, betaIsGap: beta==null, betaTs, costOfDebt: RF10Y+1.5, rf: RF10Y, mrp: 4.45, debtW, eqW,
     gDefault: Math.max(0,Math.min(80,cagr)), mDefault, tDefault: 21.0, termgDefault: Math.min(RF10Y,4.5),
     consensus, fundTs: f.updated_ts, balTs: b.updated_ts,
     flags
@@ -853,6 +898,28 @@ async function setTicker(sym){
   CURTICK=sym;
   document.getElementById('tickerStat').textContent = 'Loading '+sym+' from Supabase…';
   const b = await buildBase(sym);
+  /* CURRENT-PRICE MATH NEEDS A CURRENT PRICE.
+     Upside, the implied-expectations solve and every fair-value heat cell are comparisons
+     AGAINST the market price. With no provider price there is nothing to compare to, and a
+     flagged-but-computed number is a wrong answer wearing a caveat. The valuation sections are
+     disabled and say why; the fundamentals and ratios sections, which do not depend on a current
+     price, are unaffected. */
+  if(b && b.priceUnavailable){
+    const banner = gapBanner('No provider price for '+sym,
+      'The provider contract has no usable current price for this symbol, so every valuation '+
+      'below is a comparison against a number that does not exist. Upside, implied expectations '+
+      'and the sensitivity grids are disabled rather than computed against a stale or substituted '+
+      'price. Fundamentals and ratios are unaffected.');
+    /* The comparison-against-price readouts, and the two sensitivity grids. */
+    for(const id of ['oFV','oMktPrice','oUp','oEV','oTV','npvSplit','sens1','sens2']){
+      const el = document.getElementById(id);
+      if(el) el.innerHTML = id === 'oUp' ? 'price unavailable' : '—';
+    }
+    const caveat = document.getElementById('tickerCaveat');
+    if(caveat) caveat.innerHTML = banner;
+    /* And the flag is on BASE so any later render can see it rather than recomputing. */
+    b.valuationDisabled = true;
+  }
   if(!b){
     BASE=null;
     document.getElementById('tickerStat').textContent = sym+' — no fundamentals row';
@@ -876,7 +943,7 @@ async function setTicker(sym){
   document.getElementById('betaChips').innerHTML = chipsHTML_beta();
   document.getElementById('tickerCaveat').innerHTML = '⚠️ '+BASE.flags.join(' ')+' <span class="fresh">'+freshTag(BASE.fundTs)+'</span>';
   document.getElementById('dcfTitle').textContent = '3 · DCF — '+sym+' · sliders + modes, formulas update live';
-  document.getElementById('tickerStat').textContent = sym+' · $'+BASE.price.toFixed(2)+' · β '+BASE.beta.toFixed(2)+(BASE.betaIsGap?' (gap, defaulted)':' (company_profile)')+' · '+freshTag(BASE.fundTs);
+  document.getElementById('tickerStat').textContent = sym+' · '+(BASE.priceUnavailable?'price unavailable':'$'+BASE.price.toFixed(2))+' · β '+BASE.beta.toFixed(2)+(BASE.betaIsGap?' (gap, defaulted)':' (company_profile)')+' · '+freshTag(BASE.fundTs);
   await renderComps(sym);
   await renderAnalyst(sym);
   await renderInsider(sym);
