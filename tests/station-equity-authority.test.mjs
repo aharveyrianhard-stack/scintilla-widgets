@@ -372,3 +372,28 @@ test("the allocation module cannot crash on a symbol with no accepted composite"
   assert.match(allocation, /r\.g==null\|\|!isFinite\(r\.g\)\?'<span class="cls">unavailable<\/span>'/);
   assert.doesNotMatch(allocation, /\.map\(s => \{ const tg = tickerG\(s\); if \(!tg\) return null;/);
 });
+
+test("the realtime channel refuses equities, and its CDN-dependent absence is a said state", () => {
+  const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
+  const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
+  for (const [name, src] of [["deck", deck], ["chart", chart]]) {
+    /* The authority guards on the realtime bypass lane — previously unpinned. Supabase
+       Realtime does not go through fetch, so the shim never sees it: a legacy price could
+       patch a provider-owned chart unless the channel itself refuses. */
+    assert.match(src, /isProviderOwned\(sym\)\) \{ shim\.realtime_equity_refused\+\+; return; \}/, name + " refuses owned equities");
+    assert.match(src, /!shim\.ownershipKnown\(\)\) \{ shim\.realtime_unknown_ownership_refused\+\+; return; \}/, name + " treats unknown ownership as refusal, not permission");
+    assert.match(src, /shim\.realtime_nonequity_passthrough\+\+/, name + " counts the passthrough");
+    /* The SDK arrives from a third-party CDN on a floating @2 tag; when it does not load,
+       the lane's absence must be queryable under one name, both branches worded. */
+    assert.match(src, /window\.SC_REALTIME = (deckSb|sb)\s*\?/, name + " exposes the state");
+    assert.match(src, /realtime channel subscribed — non-equity passthrough only; equities are refused at the channel/, name);
+    assert.match(src, /supabase-js did not load \(third-party CDN\) — the realtime tick channel is absent; non-equity ticks ride polling only/, name);
+  }
+  /* The wall says it once, where cadence lives — beside, never inside, #marketStatus. */
+  assert.match(deck, /<span id="rtNote" hidden/);
+  assert.match(deck, /n\.textContent = "RT · absent"; n\.title = window\.SC_REALTIME\.reason;/);
+  /* The floating tag itself, pinned as a recorded risk until the owner rules pin-or-vendor:
+     if this line changes, the receipt's supply-chain note must change with it. */
+  assert.match(deck, /cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js@2"/);
+  assert.match(chart, /cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js@2"/);
+});

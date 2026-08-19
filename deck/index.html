@@ -300,6 +300,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   </span>
   <button type="button" class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen" aria-label="Toggle Station fullscreen">⛶</button>
   <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
+  <span id="rtNote" hidden style="color:var(--dim);font-size:9px;letter-spacing:.07em"></span>
   <span id="size"></span>
 </div>
 
@@ -482,6 +483,20 @@ let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "3h";
    their history work, but never multiply the same live quote request. */
 const deckSb = (typeof supabase !== "undefined" && supabase.createClient)
   ? supabase.createClient(SB, ANON) : null;
+/* THE REALTIME CHANNEL'S ABSENCE IS A SAID STATE, NOT A SILENT ONE. supabase-js arrives
+   from a third-party CDN on a floating @2 tag (pinning or vendoring it is an owner ruling,
+   recorded in the receipt); when it does not load, the non-equity realtime lane is simply
+   gone and ticks ride polling cadence only. That is a latency fact the wall states once,
+   here — never a freshness claim, which #marketStatus owns (a heartbeat is cadence, not
+   invalidation). Equities never ride this channel either way: the shim refuses them below. */
+window.SC_REALTIME = deckSb
+  ? { available: true, reason: "live_quotes realtime channel subscribed — non-equity passthrough only; equities are refused at the channel" }
+  : { available: false, reason: "supabase-js did not load (third-party CDN) — the realtime tick channel is absent; non-equity ticks ride polling only" };
+(function paintRtNote() {
+  const n = el("rtNote"); if (!n) return;
+  if (window.SC_REALTIME.available) { n.hidden = true; return; }
+  n.hidden = false; n.textContent = "RT · absent"; n.title = window.SC_REALTIME.reason;
+})();
 const DECK_QUOTES = new Map();
 const DECK_QUOTE_FAILED = new Set();
 /* Separate from DECK_QUOTE_FAILED on purpose. FAILED means the read fell over and is worth

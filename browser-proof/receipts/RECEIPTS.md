@@ -273,12 +273,46 @@ Zero page errors. Rollback: revert the single commit carrying this unit — seed
 
 ---
 
-## 2026-08-19T14:07:43Z — the Hub entry: the live path's exact refusal, and the deck booting AT the hub origin
+## 2026-08-19T14:25:41Z — the Hub entry: the live path's exact refusal, and the deck booting AT the hub origin
 
 Command: `PW_MODULE_DIR=… node browser-proof/proofs/hub-entry.mjs` (rules parsed from vercel.json itself; asserts inline)
 
-- **Live path, measured in the browser** (browser-proof/receipts/hub-entry-live-path-refused.png): Chromium pointed at https://station.scintillahub.ai/ through the environment's proxy fails with `page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://station.scintillahub.ai/` — the CONNECT is refused before TLS begins, so nothing was bypassed and nothing live was reached or faked. This is the browser-level twin of round 7's curl measurement: live acceptance still requires a browser outside this container.
+- **Live path, measured in the browser** (browser-proof/receipts/hub-entry-live-path-refused.png): Chromium pointed at https://station.scintillahub.ai/ through the environment's proxy fails with `page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://station.scintillahub.ai/` — the CONNECT is refused before TLS begins, so nothing was bypassed and nothing live was reached or faked. The PREVIEW host gets the same measurement (browser-proof/receipts/hub-entry-preview-refused.png): `page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app/deck/` — the branch's own deploy is equally unreachable from here, which is exactly the live-acceptance blocker the handoff carries. This is the browser-level twin of round 7's curl measurement: live acceptance still requires a browser outside this container.
 - **The deck boots at the hub origin under the config's own rules** (browser-proof/receipts/hub-entry-deck-boots-at-hub-origin.png): navigating to https://station.scintillahub.ai/ with vercel.json's parsed rewrites applied over the rig serves the Station AT the hub host — title, StationScenes, the provider shim, the cohort axis and the mounted panes all up, location.host still the hub. ZERO asset 404s: every /deck dependency is absolute-pathed, so the root rewrite (source "/" only) breaks nothing — proven by outcome in a real browser, not by grep. The no-store cache rule rides every response, as pinned from the config.
 - The config itself is pinned in tests/station-route-inventory.test.mjs: exactly two rewrites (hub root → /deck/, /status → orgstatus), no-store at all three cache layers.
 
 This is stubbed-data page proof at the true hub ORIGIN — it verifies the entry path and the deck's behavior under the rewrite, not the live owners' data. Rollback: revert the single commit carrying this unit — proof, pin and receipts only; no served file changed.
+
+---
+
+## 2026-08-19T14:26:42Z — the Hub entry: the live path's exact refusal, and the deck booting AT the hub origin
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/hub-entry.mjs` (rules parsed from vercel.json itself; asserts inline)
+
+- **Live path, measured in the browser** (browser-proof/receipts/hub-entry-live-path-refused.png): Chromium pointed at https://station.scintillahub.ai/ through the environment's proxy fails with `page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://station.scintillahub.ai/` — the CONNECT is refused before TLS begins, so nothing was bypassed and nothing live was reached or faked. The PREVIEW host gets the same measurement (browser-proof/receipts/hub-entry-preview-refused.png): `page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app/deck/` — the branch's own deploy is equally unreachable from here, which is exactly the live-acceptance blocker the handoff carries. This is the browser-level twin of round 7's curl measurement: live acceptance still requires a browser outside this container.
+- **The deck boots at the hub origin under the config's own rules** (browser-proof/receipts/hub-entry-deck-boots-at-hub-origin.png): navigating to https://station.scintillahub.ai/ with vercel.json's parsed rewrites applied over the rig serves the Station AT the hub host — title, StationScenes, the provider shim, the cohort axis and the mounted panes all up, location.host still the hub. ZERO asset 404s: every /deck dependency is absolute-pathed, so the root rewrite (source "/" only) breaks nothing — proven by outcome in a real browser, not by grep. The no-store cache rule rides every response, as pinned from the config.
+- The config itself is pinned in tests/station-route-inventory.test.mjs: exactly two rewrites (hub root → /deck/, /status → orgstatus), no-store at all three cache layers.
+
+This is stubbed-data page proof at the true hub ORIGIN — it verifies the entry path and the deck's behavior under the rewrite, not the live owners' data. Rollback: revert the single commit carrying this unit — proof, pin and receipts only; no served file changed.
+
+---
+
+## 2026-08-19T14:27:57Z — the realtime channel's absence is said on the wall, in its own lane
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/realtime-absence.mjs` (the rig refuses the CDN naturally; scenario 2 stubs it; asserts inline)
+
+- **SDK absent** (browser-proof/receipts/realtime-absent-said-on-the-wall.png): the deck paints "RT · absent" beside #marketStatus with the reason in the title ("supabase-js did not load (third-party CDN) — the realtime tick channel is absent; non-equity ticks ride polling only"), `SC_REALTIME.available === false` is queryable on deck and chart alike, the freshness lane is untouched (cadence is not freshness — rule 11), and nothing errors. Before this unit the lane vanished with no sign anywhere.
+- **SDK present** (browser-proof/receipts/realtime-present-note-hidden.png): the note hides, the state flips, the wording carries the authority rule — equities never ride the channel; the shim's refusal guards (`realtime_equity_refused`, unknown-ownership-is-not-permission, the passthrough counter) are now PINNED in the equity-authority suite, where they had been unpinned.
+- **Supply-chain fact, recorded for the owner**: the tag loads `@supabase/supabase-js@2` — a FLOATING major tag from a third-party CDN, in the price path's pages (/chart, its shell mirror, /deck). Version drift arrives unreviewed; pinning a version with an integrity hash, or vendoring the file same-origin, needs the exact bytes — unreachable from this container (proxy CONNECT 403) — so it is an OWNER RULING, named in the handoff, not a guess taken here. The audit that found it also measured seven other equity surfaces (/geiger /heat /cohort /compare /ticker /analytics /geigerwall) clean: zero page errors, zero non-owner host escapes at runtime.
+
+Rollback: revert the single commit carrying this unit — a said state and pins only; the channel's behavior, the polling lanes and all authorities are untouched.
+
+---
+
+## 2026-08-19T14:29:16Z — the authority sweep: eight equity surfaces, zero unreviewed hosts at runtime
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/authority-sweep.mjs` (asserts inline; no screenshots — the assertions ARE the evidence, regenerable)
+
+/geiger/ · /heat/ · /cohort/ · /compare/ · /ticker/ · /wall/ · /analytics/ · /geigerwall/ — each loads over the rig with **zero page errors**, paints a real surface, and makes **zero requests to any unreviewed host**: no Yahoo, no FMP, no CORS proxy. The single allowed third-party request is the pinned `cdn.jsdelivr.net/npm/@supabase/supabase-js@2` tag (the recorded supply-chain item awaiting an owner's pin-or-vendor ruling), observed via /wall's mounted chart frames — and the proof requires observing it, so a silent interception failure cannot fake a clean sweep.
+
+This is the runtime half of the round-9 authority audit; the source half measured: zero Yahoo/FMP fetch lanes in served HTML outside sector-rotation's reviewed-relays-only flagged fallback (its third-party proxy lane was retired in F1's own fix, verified still absent); /health the only direct provider fetch (the ruled exception — /analytics's grep hit is banner prose); 20/20 shim-tag coverage on pages that read shim-owned tables (the remaining grep hits — /, /components — are prose descriptions, classified by eye).

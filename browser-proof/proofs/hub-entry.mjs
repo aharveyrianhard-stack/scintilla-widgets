@@ -37,6 +37,17 @@ assert.ok(liveError, "the live path is expected unreachable from this container 
 assert.match(liveError, /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|ERR_CONNECTION/,
   "the failure is the proxy refusing the tunnel, recorded verbatim: " + liveError);
 const shotLive = await shoot(live, "hub-entry-live-path-refused");
+/* The PREVIEW host gets the same live measurement — it is the branch's own deploy and the
+   named target of the live-acceptance blocker, so its refusal is recorded verbatim too. */
+const PREVIEW = "scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app";
+let prevError = null;
+try { await live.goto("https://" + PREVIEW + "/deck/", { timeout: 15000, waitUntil: "domcontentloaded" }); }
+catch (e) { prevError = String(e && e.message || e).split("\n")[0]; }
+assert.ok(prevError, "the preview is expected unreachable from this container — a success here would be NEWS");
+assert.match(prevError, /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|ERR_CONNECTION/,
+  "the preview refusal, recorded verbatim: " + prevError);
+await live.waitForTimeout(400);
+const shotPrev = await shoot(live, "hub-entry-preview-refused");
 await liveCtx.close();
 
 /* ---- 2: the hub origin served by the deploy config's own rules over the rig ---- */
@@ -80,7 +91,7 @@ record(`## ${nowStamp()} — the Hub entry: the live path's exact refusal, and t
 
 Command: \`PW_MODULE_DIR=… node browser-proof/proofs/hub-entry.mjs\` (rules parsed from vercel.json itself; asserts inline)
 
-- **Live path, measured in the browser** (${shotLive}): Chromium pointed at https://${HUB}/ through the environment's proxy fails with \`${liveError}\` — the CONNECT is refused before TLS begins, so nothing was bypassed and nothing live was reached or faked. This is the browser-level twin of round 7's curl measurement: live acceptance still requires a browser outside this container.
+- **Live path, measured in the browser** (${shotLive}): Chromium pointed at https://${HUB}/ through the environment's proxy fails with \`${liveError}\` — the CONNECT is refused before TLS begins, so nothing was bypassed and nothing live was reached or faked. The PREVIEW host gets the same measurement (${shotPrev}): \`${prevError}\` — the branch's own deploy is equally unreachable from here, which is exactly the live-acceptance blocker the handoff carries. This is the browser-level twin of round 7's curl measurement: live acceptance still requires a browser outside this container.
 - **The deck boots at the hub origin under the config's own rules** (${shotHub}): navigating to https://${HUB}/ with vercel.json's parsed rewrites applied over the rig serves the Station AT the hub host — title, StationScenes, the provider shim, the cohort axis and the mounted panes all up, location.host still the hub. ZERO asset 404s: every /deck dependency is absolute-pathed, so the root rewrite (source "/" only) breaks nothing — proven by outcome in a real browser, not by grep. The no-store cache rule rides every response, as pinned from the config.
 - The config itself is pinned in tests/station-route-inventory.test.mjs: exactly two rewrites (hub root → /deck/, /status → orgstatus), no-store at all three cache layers.
 
