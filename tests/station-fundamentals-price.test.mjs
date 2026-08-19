@@ -155,3 +155,16 @@ test("the missing thing is named correctly — a missing quote no longer blames 
   assert.match(page, /gapBanner\('No provider price for '\+sym, quoteFailureWord\(sym\)\+' — the football field/);
   assert.match(page, /fundamentals\.price is a snapshot with its own vintage and\n\s*is never used as a current price/);
 });
+
+test("a dead universe read cannot stop the page from booting silently", () => {
+  /* With no catch on the boot's Promise.all, a cold provider outage (ownership
+     unverifiable, so the shim fails composite reads closed) left every section at its
+     initial HTML with no banner anywhere — a page-sized silence. Browser receipt:
+     browser-proof/proofs/degraded-states.mjs scenario 4. */
+  assert.match(page, /try \{ await Promise\.all\(\[loadUniverse\(\), loadRiskFree\(\)\]\); \}/);
+  assert.match(page, /universe unavailable — /);
+  assert.match(page, /sections that need the universe say so below; reload to retry/);
+  const guardAt = page.indexOf("try { await Promise.all([loadUniverse(), loadRiskFree()]); }");
+  const tickerAt = page.indexOf("await setTicker('NVDA');");
+  assert.ok(guardAt !== -1 && tickerAt > guardAt, "the ticker sections still load after a universe failure");
+});

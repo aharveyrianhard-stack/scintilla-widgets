@@ -1366,7 +1366,17 @@ function applyBuilt(){builtMRP=calcERP();document.getElementById('mrpS').value=b
 window.addEventListener('DOMContentLoaded',async function(){
   calcERP();
   wireTickerSearch();
-  await Promise.all([loadUniverse(), loadRiskFree()]);
+  /* A dead universe read must not stop the page from booting: with no catch here, a cold
+     provider outage (ownership unverifiable, so the shim fails composite reads closed) left
+     every section at its initial HTML with no banner anywhere - a page-sized silence. The
+     failure is painted where the universe status lives, and the ticker sections still load
+     and show their own gaps honestly. */
+  try { await Promise.all([loadUniverse(), loadRiskFree()]); }
+  catch (e) {
+    document.getElementById('universeStatus').innerHTML =
+      '⚠️ universe unavailable — ' + String(e && e.message || 'read failed').replace(/[<>&"]/g, '') +
+      ' · sections that need the universe say so below; reload to retry';
+  }
   await setTicker('NVDA');
 });
 </script>
