@@ -703,10 +703,18 @@ function technicalRead(t){
   const lq=QUOTES_LIVE[t];
   const s=DS.daily[t];
   const useDB = dl && dl.rsi_raw!=null && dl.fan_sma50!=null;
-  let last,le20,le50,r,wpr,macd,macdSigned,cci,roc,stoch,source,updatedTs;
+  let last,le20,le50,r,wpr,macd,macdSigned,cci,roc,stoch,source,updatedTs,priceSource;
   if(useDB){
+    /* THE PRICE INSIDE A "DB-SOURCED" READ MUST SAY WHERE IT CAME FROM.
+       With live_quotes missing, the last Yahoo daily close stood in here silently while the
+       banner above the read said LIVE, DB-sourced with no in-browser math - so every
+       price-vs-moving-average condition could be judged on a number from a different source
+       and vintage than the label claimed. The substitution is allowed to keep the read
+       alive, but it is named everywhere the price shows. */
     const yahooLast = (s&&s.closes&&s.closes.length)? s.closes[s.closes.length-1] : null;
-    last = (lq&&lq.price!=null)? lq.price : yahooLast;
+    const liveQuotePrice = (lq&&lq.price!=null)? lq.price : null;
+    last = liveQuotePrice!=null ? liveQuotePrice : yahooLast;
+    priceSource = liveQuotePrice!=null ? 'live_quotes' : 'yahoo-close';
     if(last==null) return null;
     le20=dl.fan_ema21; le50=dl.fan_sma50;
     r=dl.rsi_raw; wpr=dl.wpr_raw; macd=dl.macd_raw; macdSigned=dl.macd_signed; cci=dl.cci_raw; roc=dl.roc_raw; stoch=dl.stoch_raw;
@@ -717,7 +725,7 @@ function technicalRead(t){
     const e20s=emaSeries(c,20), e50s=emaSeries(c,50);
     last=c[c.length-1]; le20=e20s[e20s.length-1]; le50=e50s[e50s.length-1];
     r=rsi14(c,14); wpr=null; macd=null; macdSigned=null; cci=null; roc=null; stoch=null;
-    source='yahoo'; updatedTs=null;
+    source='yahoo'; updatedTs=null; priceSource='yahoo-close';
   }
   // transparent, in-house composite — NOT TradingView's or any third party's proprietary technical rating.
   // Each condition below is a visible, individually-checkable rule; score is just the count of passes minus fails.
@@ -749,7 +757,7 @@ function technicalRead(t){
   const rsiTilt=(r!=null?(r-50):0)*0.8;
   const trendTilt=((last/le50-1)*100)*3;
   const sentiment=Math.max(0,Math.min(100, 50 + rsiTilt + trendTilt));
-  return {last,e20:le20,e50:le50,rsi:r,wpr,macd,macdSigned,cci,roc,stoch,score,read,sentiment,rsiTilt,trendTilt,conditions,source,updatedTs};
+  return {last,e20:le20,e50:le50,rsi:r,wpr,macd,macdSigned,cci,roc,stoch,score,read,sentiment,rsiTilt,trendTilt,conditions,source,updatedTs,priceSource};
 }
 
 // Approximate, SINGLE-TIMEFRAME (daily) reconstruction of Scintilla's real "Geiger" composite, using the
@@ -1361,7 +1369,7 @@ function renderDetailActionable(){
   else if(nVotes>0 && votes<0){ verdict='ALIGNED BEARISH'; color='var(--red)'; }
   else { verdict='MIXED SIGNALS'; color='var(--dim)'; }
   const parts=[];
-  parts.push(`Technicals: <b style="color:${t.read.includes('BUY')?'var(--green)':t.read.includes('SELL')?'var(--red)':'var(--yellow)'}">${t.read}</b> (score ${t.score>=0?'+':''}${t.score}${t.source==='db'?', DB-sourced':', Yahoo fallback'})`);
+  parts.push(`Technicals: <b style="color:${t.read.includes('BUY')?'var(--green)':t.read.includes('SELL')?'var(--red)':'var(--yellow)'}">${t.read}</b> (score ${t.score>=0?'+':''}${t.score}${t.source==='db'?(t.priceSource==='live_quotes'?', DB-sourced':', DB indicators · price from last Yahoo close — live quote unavailable'):', Yahoo fallback'})`);
   parts.push(live? `Geiger (live): <b style="color:${live.composite>=0?'var(--green)':'var(--red)'}">${live.composite>=0?'+':''}${live.composite.toFixed(3)}</b>` : `Geiger: <span style="color:var(--dim)">unavailable</span>`);
   parts.push(`Extension: ${extended? `<b style="color:var(--yellow)">${extended}</b> (RSI ${t.rsi.toFixed(0)}${t.wpr!=null?`, W%R ${t.wpr.toFixed(0)}`:''}, ${stretchPct>=0?'+':''}${stretchPct.toFixed(1)}% vs trend)` : `<span style="color:var(--dim)">not stretched</span>`}`);
   parts.push(lq&&lq.price!=null? `Quote (live_quotes): <b>${lq.price.toFixed(2)}</b> <span style="color:${lq.chg_pct>=0?'var(--green)':'var(--red)'}">${lq.chg_pct>=0?'+':''}${lq.chg_pct!=null?lq.chg_pct.toFixed(2):'—'}%</span> · updated ${freshText(lq.updated_ts)}` : `Quote: <span style="color:var(--dim)">${QUOTES_LIVE_STATUS==='pending'?'fetching…':'unavailable'}</span>`);
@@ -1397,7 +1405,7 @@ function renderDetailContent(){
     else{
       const readColor=t.read.includes('BUY')?'var(--green)':t.read.includes('SELL')?'var(--red)':'var(--yellow)';
       const dbFlag = t.source==='db'
-        ? `LIVE, DB-sourced — RSI/Williams %R/MACD/EMA21/SMA50 read directly from Supabase derived_series (tf='1D'), updated ${freshText(t.updatedTs)}. No in-browser indicator math for this ticker. "Read" is Scintilla's own transparent rule set (not TradingView's or any third party's rating): each row below is a pass/fail condition, score = passes minus fails, mapped to the badge.`
+        ? `LIVE, DB-sourced — RSI/Williams %R/MACD/EMA21/SMA50 read directly from Supabase derived_series (tf='1D'), updated ${freshText(t.updatedTs)}. No in-browser indicator math for this ticker.${t.priceSource==='live_quotes'?'':' PRICE EXCEPTION: the live quote is unavailable, so the price in the conditions below is the last Yahoo daily close — a different source and vintage than the indicators.'} "Read" is Scintilla's own transparent rule set (not TradingView's or any third party's rating): each row below is a pass/fail condition, score = passes minus fails, mapped to the badge.`
         : `YAHOO FALLBACK — derived_series hasn't loaded yet or doesn't cover ${s.t}; EMA20/EMA50/RSI computed client-side from Yahoo closes instead (no Williams %R/MACD in this mode). "Read" is Scintilla's own transparent rule set: each row below is a pass/fail condition, score = passes minus fails, mapped to the badge.`;
       el.innerHTML=flag(dbFlag)+
         `<div style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start">
@@ -1411,7 +1419,7 @@ function renderDetailContent(){
         </div>
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-family:var(--mono);font-size:11px;color:var(--ink2);line-height:1.7">
           <b style="color:var(--crk)">Sector Sentiment: ${t.sentiment.toFixed(0)}/100</b> — our own composite, not CNN's Fear &amp; Greed. Formula: 50 (neutral) + 0.8×(RSI−50) + 3×((Price/EMA50 − 1)×100), clamped 0–100. Right now that's 50 ${t.rsiTilt>=0?'+':'−'}${Math.abs(t.rsiTilt).toFixed(1)} (RSI tilt) ${t.trendTilt>=0?'+':'−'}${Math.abs(t.trendTilt).toFixed(1)} (trend tilt).<br>
-          <span style="color:var(--dim)">Price: ${t.last.toFixed(2)} · ${t.source==='db'?'EMA21':'EMA20'}: ${t.e20.toFixed(2)} · ${t.source==='db'?'SMA50':'EMA50'}: ${t.e50.toFixed(2)} · RSI(14): ${t.rsi!=null?t.rsi.toFixed(1):'—'}${t.source==='db'?` · Williams %R: ${t.wpr!=null?t.wpr.toFixed(1):'—'} · MACD: ${t.macd!=null?t.macd.toFixed(2):'—'} (signed ${t.macdSigned!=null?t.macdSigned.toFixed(2):'—'}) · CCI: ${t.cci!=null?t.cci.toFixed(1):'—'} · ROC: ${t.roc!=null?t.roc.toFixed(1):'—'} · Stoch: ${t.stoch!=null?t.stoch.toFixed(1):'—'}`:''}</span>
+          <span style="color:var(--dim)">Price: ${t.last.toFixed(2)}${t.source==='db'&&t.priceSource!=='live_quotes'?' (last Yahoo close — live quote unavailable)':''} · ${t.source==='db'?'EMA21':'EMA20'}: ${t.e20.toFixed(2)} · ${t.source==='db'?'SMA50':'EMA50'}: ${t.e50.toFixed(2)} · RSI(14): ${t.rsi!=null?t.rsi.toFixed(1):'—'}${t.source==='db'?` · Williams %R: ${t.wpr!=null?t.wpr.toFixed(1):'—'} · MACD: ${t.macd!=null?t.macd.toFixed(2):'—'} (signed ${t.macdSigned!=null?t.macdSigned.toFixed(2):'—'}) · CCI: ${t.cci!=null?t.cci.toFixed(1):'—'} · ROC: ${t.roc!=null?t.roc.toFixed(1):'—'} · Stoch: ${t.stoch!=null?t.stoch.toFixed(1):'—'}`:''}</span>
         </div>`;
     }
   } else if(DETAIL_TAB==='geiger'){
