@@ -251,7 +251,18 @@ function universeAgreement(providerSymbolCount, canonical){
   return { state: delta === 0 ? 'agrees' : 'disagrees', count, expected, delta };
 }
 function universeCard(){
-  const a = universeAgreement(S.geiger && !S.geiger.err ? S.geiger.length : null);
+  /* NOT S.geiger.length. That is the composite_staged COMPATIBILITY read, which deliberately
+     carries the provider's equities PLUS the retained non-equities passed through to their own
+     owner - so counting its rows reported roughly 387 and a +22 disagreement while the provider
+     itself was answering with exactly 365. The count has to come from the ownership answer the
+     shim verified, which is provider-owned symbols and nothing else. */
+  const owned = (() => {
+    try {
+      const o = (window.SC_PROVIDER_SHIM || {}).ownership;
+      return o && o.verified ? o.count : null;
+    } catch (_) { return null; }
+  })();
+  const a = universeAgreement(owned);
   const note = a.state === 'unknown' ? 'provider /geiger did not answer'
     : a.state === 'agrees' ? 'agrees with the canonical universe'
     : 'DISAGREES with the canonical ' + a.expected + ' by ' + (a.delta > 0 ? '+' : '') + a.delta;
@@ -297,9 +308,14 @@ async function boot(){
   S.cohorts=cohortAxis.err?{err:cohortAxis.err}:cohortAxis.rows;
   S.cohortTruncated=!!cohortAxis.truncated;
   S.cohortMap={};(cohortAxis.rows||[]).forEach(r=>{(S.cohortMap[r.cohort]=S.cohortMap[r.cohort]||new Set()).add(r.ticker)});
-  const ok=keys.filter(k=>!S[k].err).length;
-  $('connDot').className='dot '+(ok===keys.length?'live':ok>5?'stale':'err');
-  $('asof'). textContent=ok+'/'+keys.length+' feeds · '+new Date().toISOString().slice(11,19)+'Z';
+  /* THE COHORT AXIS IS A FEED, AND A FAILED ONE MUST COUNT.
+     It was read outside `keys`, so a rejected membership read left the connection dot green and
+     the feed tally unchanged - the page reported every feed healthy while its universe was
+     empty. It is counted with the rest now. */
+  const feeds=keys.length+1;
+  const ok=keys.filter(k=>!S[k].err).length+(cohortAxis.err?0:1);
+  $('connDot').className='dot '+(ok===feeds?'live':ok>5?'stale':'err');
+  $('asof'). textContent=ok+'/'+feeds+' feeds'+(cohortAxis.err?' · COHORT AXIS FAILED':'')+' · '+new Date().toISOString().slice(11,19)+'Z';
   buildCtrls();await loadRet();renderMacro();renderSectors();renderCohortGeiger();renderCohortSel();renderValue();renderDcf();renderComps();renderWeights();renderTilt();
 }
 
@@ -320,7 +336,7 @@ function renderMacro(){
   const v=S.vix.err?null:S.vix[0];const vStale=v?agoD(v.date):null;
   h+='<div class="card"><div class="k">VIX / VIX3M</div><div class="v" style="font-size:22px">'+(v?fN(v.vix,1)+' / '+fN(v.vix3m,1):'ERR')+'</div><div class="small">ratio '+(v?fN(v.ratio,3):'—')+' · '+(v?v.date:'')+' '+(v&&parseInt(vStale)>3?'<span class="pill stale">STALE '+vStale+'</span>':'')+'</div></div>';
   const nT=Object.keys(S.map).length;
-  h+='<div class="card"><div class="k">UNIVERSE</div><div class="v" style="font-size:22px">'+nT+'</div><div class="small">'+Object.keys(S.cohortMap).length+' cohorts · FAV '+S.favSet.size+' · ticker_cohorts membership, fully paged + hub_favorites'+(S.cohortTruncated?' · AXIS READ TRUNCATED':'')+'</div></div>';
+  h+='<div class="card"><div class="k">UNIVERSE</div><div class="v" style="font-size:22px">'+nT+'</div><div class="small">'+(S.cohorts.err?'<span class="mut">cohort axis unavailable</span>':Object.keys(S.cohortMap).length+' cohorts')+' · FAV '+S.favSet.size+' · ticker_cohorts membership, fully paged + hub_favorites'+(S.cohortTruncated?' · AXIS READ TRUNCATED':'')+'</div></div>';
   /* THE ENDPOINT'S OWN COMPUTE TIME. This tile used to read a stamp the shim wrote with
      Date.now() at the moment of the read, so it said "0s" no matter how old the Geiger was.
      /geiger publishes computed_utc; that is carried verbatim, and when it is missing the tile
@@ -390,11 +406,16 @@ function renderValue(){
     dcf:m.f?m.f.dcf:null, fAge:m.f?m.f.updated_ts:null, ret:(S.ret&&S.ret[t]!=null?S.ret[t]:null)}});
   rows.sort((a,b)=>(((b[sortKey]==null?-1e18:+b[sortKey])-(a[sortKey]==null?-1e18:+a[sortKey]))*(-sortDir)));
   const th=(k,l)=>'<th onclick="setSort(\''+k+'\')">'+l+(sortKey===k?(sortDir<0?' ▾':' ▴'):'')+'</th>';
+  /* HEADER AND BODY MUST EMIT THE SAME NUMBER OF CELLS.
+     The RET column was declared in the header and never emitted in the body, so every value to
+     its right sat one column left of its own label: GEIGER appeared under RET, PE under GEIGER,
+     and the last column had nothing under AGE. Every number on the row was mislabelled, which
+     is a worse failure than a missing column. Cell count is asserted in the suite. */
   let h='<table><tr><th onclick="setSort(\'t\')">TICKER</th><th>NAME</th>'+th('px','PRICE·PROVIDER')+th('chg','CHG%')+th('ret','RET·'+TF)+th('geig','GEIGER')+th('pe','PE')+th('ape','ADJ-PE')+th('eps','EPS-TTM')+th('rev','REV-TTM')+th('mcap','MCAP')+th('dcf','FMP-DCF')+th('beta','β')+'<th>AGE</th></tr>';
   rows.forEach(r=>{
     const pxCell = r.px != null ? fN(r.px)
       : '<span class="mut" title="'+(r.pxAbsence||'no provider quote')+'">'+String(r.pxAbsence||'no provider quote').replace(/_/g,' ').toLowerCase()+'</span>';
-    h+='<tr class="click" onclick="drawer(\''+r.t+'\')"><td class="t"><b>'+r.t+'</b>'+(S.favSet.has(r.t)?' <span class="small">★</span>':'')+'</td><td class="t small">'+(r.name||'').slice(0,22)+'</td><td>'+pxCell+'</td><td class="'+cls(r.chg)+'">'+fP(r.chg)+'</td><td class="'+cls(r.geig)+'">'+fN(r.geig,3)+'</td><td>'+fN(r.pe,1)+'</td><td>'+fN(r.ape,1)+'</td><td>'+fN(r.eps)+'</td><td>'+fB(r.rev)+'</td><td>'+fB(r.mcap)+'</td><td>'+fN(r.dcf)+'</td><td>'+fN(r.beta,2)+'</td><td class="mut">'+agoS(r.fAge)+'</td></tr>'});
+    h+='<tr class="click" onclick="drawer(\''+r.t+'\')"><td class="t"><b>'+r.t+'</b>'+(S.favSet.has(r.t)?' <span class="small">★</span>':'')+'</td><td class="t small">'+(r.name||'').slice(0,22)+'</td><td>'+pxCell+'</td><td class="'+cls(r.chg)+'">'+fP(r.chg)+'</td><td class="'+cls(r.ret)+'">'+(r.ret==null?'<span class="mut">—</span>':fP(r.ret))+'</td><td class="'+cls(r.geig)+'">'+fN(r.geig,3)+'</td><td>'+fN(r.pe,1)+'</td><td>'+fN(r.ape,1)+'</td><td>'+fN(r.eps)+'</td><td>'+fB(r.rev)+'</td><td>'+fB(r.mcap)+'</td><td>'+fN(r.dcf)+'</td><td>'+fN(r.beta,2)+'</td><td class="mut">'+agoS(r.fAge)+'</td></tr>'});
   el.innerHTML=h+'</table><div class="small" style="margin-top:6px">'+rows.length+' symbols · PRICE = provider /quotes · GEIGER = provider /geiger · fundamentals age in last column · click a row for ratios / estimates / provider close spark.</div>';
 }
 
@@ -405,7 +426,7 @@ function renderDcf(){
     const gap=(m.f.dcf-m.q.price)/m.q.price*100;return{t,dcf:m.f.dcf,px:m.q.price,gap}}).filter(Boolean)
     ;const _d=srt('dcf',rows).slice(0,14);
   if(!rows.length)return errBox(el,new Error('no dcf data'));
-  let h='<table><tr>'+TH('dcf','t','TICKER')+TH('dcf','dcf','FMP-DCF')+TH('dcf','px','PRICE·LIVE')+TH('dcf','gap','GAP%')+'</tr>';
+  let h='<table><tr>'+TH('dcf','t','TICKER')+TH('dcf','dcf','FMP-DCF')+TH('dcf','px','PRICE·PROVIDER')+TH('dcf','gap','GAP%')+'</tr>';
   _d.forEach(r=>{h+='<tr class="click" onclick="drawer(\''+r.t+'\')"><td class="t"><b>'+r.t+'</b></td><td>'+fN(r.dcf)+'</td><td>'+fN(r.px)+'</td><td class="'+cls(r.gap)+'">'+metric(_d,'gap',r.gap,v=>fP(v))+'</td></tr>'});
   el.innerHTML=h+'</table><div class="small" style="margin-top:6px">FMP model DCF (fundamentals.dcf) — labeled, not our 3-stage model; that lives at the allocation app /dcf.html reading the same SSOTs.</div>';
 }

@@ -559,7 +559,9 @@ test("hover uses a true two-axis crosshair, not the old fixed close reference", 
 });
 
 test("live price is a compact right-edge marker rather than top-readout clutter or a fixed line", () => {
-  assert.match(chart, /const hasLiveQuote = quote && isFinite\(\+quote\.price\)/);
+  /* quotePrice decides on the raw value: `+null` is 0, so the old guard called an absent
+     price a valid $0.00 and painted it. */
+  assert.match(chart, /const hasLiveQuote = livePriceValue != null/);
   assert.match(chart, /liveY = Y\(livePrice\)/,
     "the marker tracks the actual live price coordinate");
   assert.match(chart, /if \(hasLiveQuote && !scrub\)/,
@@ -599,8 +601,16 @@ test("the deck owns one deduplicated visible quote feed for embedded charts", ()
   assert.match(deck, /station-deck-lq/);
   assert.match(deck, /live_quotes\?ticker=in\.\(/,
     "one deck request fetches the deduplicated visible ticker set");
-  assert.match(deck, /const DECK_QUOTE_TIMEOUT_MS = 4500/,
-    "the wall quote request has the same bounded timeout as a chart request");
+  /* One 4.5s abort was measured wrong: five live /quotes probes returned 200 with TTFB of
+     0.84s, 6.86s, 1.27s, 2.71s and 0.27s, so it killed a working read one time in five — and
+     since the shim forwards this controller, the deck's impatience cancelled the provider read
+     itself. SOFT tells the panes and keeps the request running; only HARD cancels. */
+  assert.match(deck, /const DECK_QUOTE_SOFT_MS = 4500;/);
+  assert.match(deck, /const DECK_QUOTE_HARD_MS = 20000;/);
+  assert.match(deck, /setTimeout\(\(\) => controller\.abort\(\), DECK_QUOTE_HARD_MS\)/,
+    "only the hard bound cancels the wall quote request");
+  const softArm = deck.slice(deck.indexOf("const soft = setTimeout"), deck.indexOf("try {", deck.indexOf("const soft = setTimeout")));
+  assert.doesNotMatch(softArm, /abort/, "the soft threshold never cancels");
   assert.match(deck, /if \(deckQuoteInFlight\) \{ deckQuoteRerun = true; return; \}/,
     "a heartbeat cannot overlap a stalled active quote request");
   assert.match(chart, /const DECK_QUOTE_MODE = BARE && window\.parent !== window/);

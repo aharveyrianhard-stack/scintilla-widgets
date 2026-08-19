@@ -23,6 +23,11 @@ function extract (file) {
   // chApplyLivePoint now asks quoteInstant whether the quote has a real observation time at
   // all, so the helper travels with it. A quote with no time appends nothing, because there is
   // nowhere honest on the axis to put it.
+  // quotePrice decides whether there is a price at all, before anything coerces it: `+null` is
+  // 0, so the old isFinite(+price) guard called an absent price a valid $0.00.
+  const qp = src.indexOf('function quotePrice(')
+  const qpEnd = src.indexOf('\n}', qp) + 2
+  const price = src.slice(qp, qpEnd)
   const qi = src.indexOf('function quoteInstant(')
   const qiEnd = src.indexOf('\n}', qi)
   const helper = src.slice(qi, qiEnd + 2)
@@ -32,7 +37,7 @@ function extract (file) {
   const rmEnd = src.indexOf('};', rm) + 2
   const ranges = src.slice(rm, rmEnd)
   const factory = new Function('futureSet', 'cryptoSet', 'window',
-    ranges + '\n' + helper + '\n' + fn + '\nreturn chApplyLivePoint;')
+    ranges + '\n' + price + '\n' + helper + '\n' + fn + '\nreturn chApplyLivePoint;')
   return factory
 }
 

@@ -207,6 +207,7 @@ test("a live tick reaches the drawn series, and keeps reaching it", () => {
     window:{ SC_PROVIDER_SHIM:{ isProviderOwned:() => false } },
     futureSet:new Set(["ESUSD"]), cryptoSet:new Set(["BTCUSD"]),
     quoteInstant:fnFrom(chart, "quoteInstant", { Number, Date }),
+    quotePrice:fnFrom(chart, "quotePrice", { Number }),
     CH_RANGE_MS, Array, isFinite, Number, Date:FixedDate,
   });
 
@@ -266,6 +267,7 @@ test("a live tick reaches the drawn series, and keeps reaching it", () => {
     window:{ SC_PROVIDER_SHIM:{ isProviderOwned:(sym) => sym === "AAPL" } },
     futureSet:new Set(), cryptoSet:new Set(),
     quoteInstant:fnFrom(chart, "quoteInstant", { Number, Date }),
+    quotePrice:fnFrom(chart, "quotePrice", { Number }),
     CH_RANGE_MS, Array, isFinite, Number, Date:FixedDate,
   });
   const equitySeries = [{ d:"2026-08-19T08:00:00.000Z", p:100 }];
@@ -295,6 +297,7 @@ test("a transient point survives an overnight gap, and a future clock does not",
     window:{ SC_PROVIDER_SHIM:{ isProviderOwned:() => false } },
     futureSet:new Set(["ESUSD"]), cryptoSet:new Set(["BTCUSD"]),
     quoteInstant:fnFrom(chart, "quoteInstant", { Number, Date }),
+    quotePrice:fnFrom(chart, "quotePrice", { Number }),
     CH_RANGE_MS, Array, isFinite, Number, Date:FixedDate,
   });
 

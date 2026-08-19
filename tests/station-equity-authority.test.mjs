@@ -210,14 +210,114 @@ test("/health lanes are independent and bounded — one stalled owner cannot hol
   /* runEquity was awaited before the database probes were even launched, and providerJson had
      no bound. A provider socket that opened and said nothing therefore left every Supabase row
      at "checking…" — on the one page whose whole job is to say which owner is degraded. */
-  assert.match(health, /const PROVIDER_HEALTH_TIMEOUT_MS = 4500;/);
+  assert.match(health, /const PROVIDER_HEALTH_SOFT_MS = 4500;/);
+  assert.match(health, /const PROVIDER_HEALTH_HARD_MS = 20000;/);
   assert.match(health, /signal:controller\?\.signal/);
-  assert.match(health, /no response within " \+ PROVIDER_HEALTH_TIMEOUT_MS \+ "ms"/);
+  assert.match(health, /no response within " \+ PROVIDER_HEALTH_HARD_MS \+ "ms"/);
   assert.match(health, /const equityLane = runEquity\(\)\.catch\(\(\) => \{\}\);/,
     "the equity lane is launched, not awaited");
   assert.match(health, /const feederLane = Promise\.all\(FEEDERS\.map/);
   assert.match(health, /const stockLane = Promise\.all\(STOCK\.map/);
-  assert.match(health, /await Promise\.all\(\[equityLane, feederLane, stockLane\]\);/,
+  assert.match(health, /const internalsLane = runInternals\(\)\.catch\(\(\) => \{\}\);/);
+  assert.match(health, /await Promise\.all\(\[equityLane, internalsLane, feederLane, stockLane\]\);/,
     "each lane paints as it resolves; only the stamp waits for all of them");
   assert.doesNotMatch(health, /await runEquity\(\);/, "nothing blocks on the provider first");
+});
+
+test("/analytics emits one body cell per header column", () => {
+  /* The RET column was declared in the header and never emitted in the body, so every value to
+     its right sat one column left of its own label: GEIGER appeared under RET, PE under GEIGER,
+     and the last column had nothing under AGE. A mislabelled number is worse than a missing
+     one, because it reads as an answer. */
+  /* The header is built by concatenation, so count both the literal <th> cells and the th()
+     helper calls on the line that assembles it. */
+  const headerLine = analytics.split("\n").find((l) => l.includes("let h='<table><tr>") && l.includes("TICKER</th>"));
+  const headerCells = (headerLine.match(/<th[ >]/g) || []).length + (headerLine.match(/th\('/g) || []).length;
+
+  const bodyLine = /h\+='<tr class="click"[^\n]*<\/tr>'\}\);/.exec(analytics)[0];
+  const bodyCells = (bodyLine.match(/<td/g) || []).length;
+
+  assert.equal(bodyCells, headerCells,
+    `header declares ${headerCells} columns, body emits ${bodyCells}`);
+  assert.equal(headerCells, 14, "TICKER NAME PRICE CHG RET GEIGER PE ADJ-PE EPS REV MCAP DCF β AGE");
+
+  /* The RET cell is present and states an unknown rather than printing a blank. */
+  assert.match(analytics, /r\.ret==null\?'<span class="mut">—<\/span>':fP\(r\.ret\)/);
+  /* And its position is between CHG and GEIGER, matching the header order. */
+  const chgAt = bodyLine.indexOf("fP(r.chg)");
+  const retAt = bodyLine.indexOf("fP(r.ret)");
+  const geigAt = bodyLine.indexOf("fN(r.geig,3)");
+  assert.ok(chgAt < retAt && retAt < geigAt, "RET sits where its header says it does");
+});
+
+test("/analytics counts the provider's universe, not the compatibility rows", () => {
+  /* S.geiger is the composite_staged COMPATIBILITY read: the provider's equities PLUS the
+     retained non-equities passed through to their own owner. Counting its rows reported roughly
+     387 and a +22 disagreement while the provider itself was answering with exactly 365. */
+  assert.doesNotMatch(analytics, /universeAgreement\(S\.geiger && !S\.geiger\.err \? S\.geiger\.length : null\)/,
+    "the mixed compatibility rows cannot answer a universe question");
+  assert.match(analytics, /const o = \(window\.SC_PROVIDER_SHIM \|\| \{\}\)\.ownership;/);
+  assert.match(analytics, /return o && o\.verified \? o\.count : null;/,
+    "only a VERIFIED ownership answer counts");
+  assert.match(analytics, /const a = universeAgreement\(owned\);/);
+});
+
+test("a failed cohort read is never presented as an empty or uncurated universe", () => {
+  const readFile = (rel) => fs.readFileSync(new URL(rel, import.meta.url), "utf8");
+  const events = readFile("../events/index.html");
+  const heat = readFile("../heat/index.html");
+  const analyticsSrc = analytics;
+
+  /* /events turned a transport or schema failure into "no tickers in cohort X" — a statement
+     about the data, and a false one. */
+  assert.match(events, /catch \(err\) \{\n\s*el\("cols"\)\.innerHTML = '<div class="empty">cohort membership unavailable/);
+  assert.match(events, /cohort membership read truncated/);
+  assert.doesNotMatch(events, /loadMemberships\(pg\)\.catch\(\(\) => null\)/,
+    "the rejection is no longer swallowed");
+
+  /* /heat turned a failed home read into every tile UNASSIGNED, which looks like a curation gap
+     rather than a broken read. */
+  assert.match(heat, /loadHomeCohorts\(pg\)\.catch\(\(err\) => \(\{ err \}\)\)/);
+  assert.match(heat, /COHORT HOMES UNAVAILABLE — /);
+  assert.doesNotMatch(heat, /loadHomeCohorts\(pg\)\.catch\(\(\) => null\)/);
+
+  /* /analytics excluded the cohort axis from its feed tally, so a rejected membership read left
+     the connection dot green while the universe was empty. */
+  assert.match(analyticsSrc, /const feeds=keys\.length\+1;/);
+  assert.match(analyticsSrc, /const ok=keys\.filter\(k=>!S\[k\]\.err\)\.length\+\(cohortAxis\.err\?0:1\);/);
+  assert.match(analyticsSrc, /COHORT AXIS FAILED/);
+  assert.match(analyticsSrc, /S\.cohorts\.err\?'<span class="mut">cohort axis unavailable<\/span>'/);
+});
+
+test("/health keeps the mounted-but-unowned internals visible, and BAD", () => {
+  /* Leaving ADD/PCC/CUMTICK/TICK/TRIN out of the roster was its own kind of silence: five
+     symbols the Station actually mounts would never be asked about, so this page could go green
+     while five visible panes retried forever. They get their own lane, BAD by construction
+     until an owner supports them. */
+  assert.match(health, /const UNSUPPORTED_INTERNALS = \["ADD", "PCC", "CUMTICK", "TICK", "TRIN"\];/);
+  assert.match(health, /const INTERNALS_LANES = \[/);
+  assert.match(health, /async function runInternals\(\)/);
+  assert.match(health, /async function internalsPresence\(\)/);
+  /* The lane is BAD whether or not a row turns up: with rows because nothing NAMES them and the
+     panes still cannot settle, without because there is nothing to show. */
+  const runner = health.slice(health.indexOf("async function runInternals()"),
+                              health.indexOf("// severity", health.indexOf("async function runInternals()")) + 1
+                              || health.indexOf("async function run()"));
+  assert.doesNotMatch(runner, /set\("internals", 0, "ok"/, "this lane cannot report ok");
+  assert.doesNotMatch(runner, /set\("internals", 0, "warn"/, "nor soften to warn");
+  assert.match(runner, /set\("internals", 0, "bad"/);
+  assert.match(health, /no owner, no rows — panes retry forever/);
+  /* And they are still absent from the healthy roster, which is now a stated split rather than
+     an omission. */
+  const roster = /const NON_EQUITY_ROSTER = \[([^\]]*)\]/.exec(health)[1];
+  for (const sym of ["ADD", "PCC", "CUMTICK", "TICK", "TRIN"])
+    assert.ok(!roster.includes(`"${sym}"`), `${sym} belongs to the unowned lane, not the healthy one`);
+});
+
+test("a roster member that cannot be read makes its lane BAD, not WARN", () => {
+  /* "A lane is only as healthy as its stalest member" has to bind on severity, or one readable
+     sibling quietly downgrades a missing member to a warning. */
+  assert.match(health, /const st = \(missing \|\| r\.minutes > f\.bad\) \? "bad" : r\.minutes > f\.warn \? "warn" : "ok";/);
+  assert.doesNotMatch(health, /r\.minutes > f\.bad \? "bad" : \(r\.minutes > f\.warn \|\| missing\) \? "warn"/,
+    "the old ordering let a missing member land in warn");
 });

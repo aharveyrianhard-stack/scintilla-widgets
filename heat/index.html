@@ -145,7 +145,10 @@ async function pull() {
     pg("company_profile?select=ticker,sector,market_cap,is_etf").catch(() => []),
     pg("live_quotes?select=ticker,price,chg_pct,updated_ts").catch(() => []),
     pg("composite_staged?tf=eq.D&select=ticker,composite").catch(() => []),
-    GROUP === "cohort" ? SC_COHORT_AXIS.loadHomeCohorts(pg).catch(() => null) : null,
+    /* A failed home-cohort read used to arrive as null and every tile then fell into
+       UNASSIGNED - a wall that looks like a curation gap when it is actually a broken read.
+       The rejection is carried so the caller can say which it is. */
+    GROUP === "cohort" ? SC_COHORT_AXIS.loadHomeCohorts(pg).catch((err) => ({ err })) : null,
     GROUP === "sector" ? pg("sector_rankings?select=sector_name,rank,score&order=rank.asc").catch(() => []) : [],
   ]);
   const P = {}; for (const r of (prof || [])) P[r.ticker] = r;
@@ -173,6 +176,12 @@ function buildGroups(d) {
        unordered view, which drew a different wall on different loads; deriving it from an
        ordering rule instead would only have made the guess repeatable. tickers.cohort is a
        curated home cohort, populated for all 387 active tickers, and it is read. */
+    if (d.coh && d.coh.err) {
+      /* Named, not mis-grouped. UNASSIGNED means "this ticker has no home recorded", which is a
+         claim about curation; it must never stand in for "the read failed". */
+      return [{ name:"COHORT HOMES UNAVAILABLE — " + String(d.coh.err.message || "read failed"),
+                list:[], meta:null }];
+    }
     const home = d.coh ? d.coh.home : null;
     for (const r of rows) {
       const g = SC_COHORT_AXIS.homeOf(home, r.t) || "UNASSIGNED";

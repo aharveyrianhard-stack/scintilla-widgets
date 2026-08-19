@@ -239,6 +239,10 @@
 
 </div>
 
+<!-- PROVIDER AUTHORITY SHIM. This page reads live_quotes and composite_staged with a bare
+     fetch(), so without this tag its equity numbers came from the legacy tables while every
+     other Station surface had moved. -->
+<script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
 const SB = 'https://wadinxqplrggagkvrdag.supabase.co/functions/v1';
@@ -343,12 +347,20 @@ async function refreshSSOT(){
   await Promise.all(J);
   renderSpine();
 }
-// THE geiger accessor: composite_staged first, client Yahoo geiger strictly as flagged fallback
+/* THE GEIGER HAS ONE OWNER NOW.
+   The client Yahoo geiger below was written as a flagged fallback, and a flag is not the same
+   as an owner: it computed a scoring geiger locally from Yahoo primitives whenever the accepted
+   one was missing, which is a second equity authority answering under the first one's name. The
+   provider contract answers, or this page says it could not. The local computation is retained
+   ONLY as an explicitly labelled diagnostic (see the FALLBACK line in the detail readout) and is
+   no longer consulted for a displayed score. */
+// THE geiger accessor: the provider's composite via the authority shim; no local recomputation
 function tickerG(sym){
   const r=COMPOSITE[sym];
   if(r&&r.composite!=null) return {g:Math.max(-1,Math.min(1,r.composite)),src:'db'};
   const c=COHORT[sym];
-  if(c) return {g:geiger(c),src:'fallback'};
+  /* No local recomputation stands in for the accepted geiger. Absent is absent. */
+  if(c) return {g:null,src:'unavailable'};
   return null;
 }
 function gv(sym){ const r=tickerG(sym); return r?r.g:null; }

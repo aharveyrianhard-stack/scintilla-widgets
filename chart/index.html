@@ -356,6 +356,15 @@ const chFmpSym = (t) => (cryptoSet.has(t) && !t.endsWith("USD") ? t + "USD" : t)
    having been observed this instant. It was the freshest thing on the wall precisely because
    nothing was known about when it was seen. An unknown time stays unknown from here to the
    badge. */
+/* A PRICE, OR NOTHING. `+null` and `+''` are both 0, so `isFinite(+quote.price)` called an
+   absent price a valid $0.00 and every display guard below then painted it. The raw value
+   decides, exactly as it does in the provider shim. */
+function quotePrice(quote) {
+  const raw = quote && quote.price;
+  if (raw == null || raw === "" || raw === true || raw === false) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
 function quoteInstant(quote) {
   const raw = quote && quote.updated_ts;
   if (raw == null || raw === "") return null;
@@ -367,7 +376,7 @@ function quoteInstant(quote) {
 const CH_RANGE_MS = { "15m":900000, "30m":1800000, "1h":3600000, "2h":7200000, "3h":10800000,
   "4h":14400000, "6h":21600000, "12h":43200000, "1D":86400000, "3D":259200000, "1W":604800000 };
 function chApplyLivePoint(t, pts, quote, range) {
-  if (!quote || !Array.isArray(pts) || !pts.length || !isFinite(+quote.price)) return pts;
+  if (!quote || !Array.isArray(pts) || !pts.length || quotePrice(quote) == null) return pts;
   var shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
   if (shim && shim.isProviderOwned && shim.isProviderOwned(t)) return pts;   // equity: never touched
   if (!futureSet.has(t) && !cryptoSet.has(t)) return pts;    // nobody else gets a transient point
@@ -391,6 +400,14 @@ function chApplyLivePoint(t, pts, quote, range) {
      anything later belongs to the open one. "Later than the last completed bar" is therefore
      the whole rule, and it is right on every timeframe. */
 
+  /* THE CLOCK GUARD COVERS BOTH BRANCHES.
+     It sat below the replacement branch, so it only ever ran on a first append: once a
+     transient point existed, a tick dated a day in the future replaced a perfectly good one and
+     the pane showed a price stamped tomorrow. A timestamp in the future is a clock problem
+     whichever branch is about to use it. */
+  const bucket = CH_RANGE_MS[range] || CH_RANGE_MS["1D"];
+  if (observedAt > Date.now() + bucket) return out;
+
   /* A point this function appended earlier is flagged live:true - this tick's placeholder, not
      an observation - so the next tick REPLACES it rather than stacking a second one. */
   if (last && last.live) {
@@ -398,20 +415,16 @@ function chApplyLivePoint(t, pts, quote, range) {
     /* An out-of-order tick must not drag the transient point backwards, and must never place
        it before the completed bar it follows. */
     if (observedAt < lastMs || observedAt <= completed) return out;
-    out[out.length - 1] = { d, p:+quote.price, live:true };
+    out[out.length - 1] = { d, p:quotePrice(quote), live:true };
     return out;
   }
   /* A COMPLETED bar is never rewritten, and nothing is added unless it is genuinely later. */
   if (observedAt <= lastMs) return out;
-  /* A SANITY CHECK ON THE CLOCK, NOT ON THE GAP.
-     Bounding the tick against the LAST BAR is wrong: a 1h chart legitimately has a bar many
-     hours old across an overnight or weekend gap, and clamping to a few buckets would blank
-     the transient point exactly when the market reopens - the moment it matters most. The only
-     implausible observation time is one in the FUTURE, which is a clock problem rather than a
-     price, so that is what is checked. One bucket of tolerance absorbs ordinary skew. */
-  const bucket = CH_RANGE_MS[range] || CH_RANGE_MS["1D"];
-  if (observedAt > Date.now() + bucket) return out;
-  out.push({ d, p:+quote.price, live:true });
+  /* Bounding a tick against the LAST BAR would be wrong: a 1h chart legitimately carries a bar
+     many hours old across an overnight or weekend gap, and clamping to a few buckets would
+     blank the transient point exactly when a market reopens. Only a FUTURE timestamp is
+     implausible, and that is checked above for both branches. */
+  out.push({ d, p:quotePrice(quote), live:true });
   return out;
 }
 const CH_DECIMALS = { GCUSD:1, CLUSD:2, SIUSD:3, DXUSD:3, ESUSD:2, NQUSD:2 };
@@ -804,9 +817,10 @@ function scChartDraw(host, scrub) {
      line. It is rendered only from a received live quote, aligned with the
      actual live value, and the hover marker takes precedence while scrubbing. */
   const quote = liveQuote[host.dataset.t];
-  const hasLiveQuote = quote && isFinite(+quote.price);
+  const livePriceValue = quotePrice(quote);
+  const hasLiveQuote = livePriceValue != null;
   if (hasLiveQuote && !scrub) {
-    const livePrice = +quote.price, liveY = Y(livePrice);
+    const livePrice = livePriceValue, liveY = Y(livePrice);
     if (liveY >= padT && liveY <= padT + ih) {
       const liveDay = chDayChange(livePrice, prevClose[host.dataset.t]);
       const liveColor = liveDay.tone === "up" ? col.bull : liveDay.tone === "down" ? col.bear : col.ink2;
@@ -1327,7 +1341,7 @@ function chDayChange(price, previousClose) {
 function paintLiveStatus(host, quote) {
   const badge = host?.querySelector(".sc-nchart__live");
   if (!badge) return;
-  const hasQuote = quote && isFinite(+quote.price);
+  const hasQuote = quotePrice(quote) != null;
   const observedAt = quoteInstant(quote);
   const at = observedAt == null ? null : new Date(observedAt);
   const age = observedAt == null ? null : Date.now() - observedAt;
@@ -1337,7 +1351,7 @@ function paintLiveStatus(host, quote) {
   badge.dataset.fresh = hasQuote && fresh ? "1" : "0";
   badge.dataset.untimed = hasQuote && observedAt == null ? "1" : "0";
   const dayRef = prevClose[host.dataset.t];
-  const day = hasQuote ? chDayChange(+quote.price, dayRef) : { text:"", tone:"flat" };
+  const day = hasQuote ? chDayChange(quotePrice(quote), dayRef) : { text:"", tone:"flat" };
   badge.dataset.change = day.tone;
   let ticker = badge.querySelector(".sc-nchart__live-ticker");
   let change = badge.querySelector(".sc-nchart__live-change");
@@ -1427,7 +1441,7 @@ function requestDeckQuote(ticker) {
 function applyDeckQuote(ticker, quote, state, absence) {
   const clean = String(ticker || "").toUpperCase().trim();
   const hosts = Array.from(CHART_HOSTS).filter((host) => host.isConnected && host.dataset.t === clean);
-  if (!quote || !isFinite(+quote.price)) {
+  if (quotePrice(quote) == null) {
     /* "absent" reaches here only when the deck's read SUCCEEDED and carried no row for this
        symbol. That is the stream's answer and is reported under its name, never as a delay. */
     const quoteState = state === "absent" ? "absent" : state === "delayed" ? "delayed" : "loading";

@@ -50,6 +50,13 @@
     /* The provider's own compute time for the Geiger, carried verbatim. Null means unknown -
        never a stand-in read from this machine's clock. */
     geiger_computed_utc: null,
+    /* Whether the last Geiger payload was computed under the accepted equalizer. Null until a
+       read has happened; false is a hard stop, not a note. */
+    equalizer_accepted: null,
+    /* Set by a page that wants to hear when a provider read passes the SOFT threshold, so it
+       can paint delayed and keep retrying while the request continues. Assigning this is the
+       whole subscription; the shim never cancels on its account. */
+    onSlowRead: null,
     /* What is known about the ownership universe, and whether it was VERIFIED complete. Any
        surface that wants to show the universe reads this rather than counting rows it happens
        to have received. */
@@ -189,11 +196,23 @@
     var soft = setTimeout(function () {
       if (settled) return;
       S.counts.slow_reads++;
-      /* Reported, not cancelled. The caller may paint delayed and retry while this continues. */
+      /* Reported, not cancelled. The caller may paint delayed and retry while this continues.
+         `onSlow` is the per-call hook; `S.onSlowRead` is the page-wide one, so a surface that
+         does not thread a callback through every call site still hears about a late read. */
       if (typeof onSlow === 'function') { try { onSlow(url); } catch (e) {} }
+      if (typeof S.onSlowRead === 'function') { try { S.onSlowRead(url); } catch (e) {} }
     }, PROVIDER_SOFT_MS);
     var done = function () { settled = true; if (hard) clearTimeout(hard); clearTimeout(soft); };
-    /* A caller's own signal aborts this read outright; it is intent, not impatience. */
+    /* A caller's own signal aborts this read outright; it is intent, not impatience.
+       AND AN ALREADY-ABORTED SIGNAL IS STILL AN ABORT. Registering a listener only catches an
+       abort that happens LATER, so a signal aborted before the read started was never noticed:
+       the request then ran to the 20s hard bound while its caller had long since given up. That
+       is reachable through the warm-ownership path, where providerOwned resolves from a cached
+       map without touching the signal and the very next call inherits it already aborted. */
+    if (signal && signal.aborted) {
+      done();
+      return Promise.reject(transportError('provider unreachable: cancelled by the caller', url, null));
+    }
     if (signal && controller && typeof signal.addEventListener === 'function')
       signal.addEventListener('abort', function () { controller.abort(); }, { once: true });
     return fetch(url, controller ? { signal: controller.signal } : undefined).then(function (r) {
@@ -237,31 +256,103 @@
 
      A previously VERIFIED map still survives a bad read - that is knowledge, not a guess. */
   var EXPECTED_EQUITY_UNIVERSE = 365;
-  function providerOwned (signal) {
+  /* CARDINALITY IS NOT IDENTITY, AND THE CANONICAL SET IS DERIVABLE.
+     Checking only that the payload holds 365 symbols passes a set of the RIGHT SIZE and the
+     WRONG MEMBERS: drop AAPL, add TICK, and the count still says 365 while AAPL is quietly
+     reclassified as a non-equity and routed to the legacy tables - the exact failure the count
+     check was added to stop, wearing a valid-looking number.
+
+     The accepted identity is every ACTIVE ticker whose type is not crypto, future, index or
+     rate. Measured 2026-08-19: 387 active less 22 excluded is exactly the 365 the provider
+     publishes, missing [] and extra [], under equalizer receipt f6cf97b5…97ad1. So the check is
+     a set comparison against a source the provider does not control. */
+  var CANONICAL_EQUITY_QUERY =
+    'tickers?select=ticker&active=eq.true&type=not.in.(crypto,future,index,rate)&order=ticker.asc&limit=1000';
+
+  /* THE ACCEPTED EQUALIZER, IN FULL.
+     The receipt was recorded and displayed but never checked, so a payload computed under ANY
+     equalizer was admitted as long as its symbol set matched - and the symbol set says nothing
+     about the weights the composite was built from. Two runs over identical symbols under
+     different equalizers are different numbers wearing the same name, which is exactly the
+     confusion this shim exists to end.
+
+     The digest is compared in full. A prefix comparison would pass the very fixtures that
+     proved the hole. Wrong or missing fails closed: no ownership, no classification, and
+     /health cannot grade the lane OK. */
+  var ACCEPTED_EQUALIZER_SHA256 =
+    'f6cf97b57cf26a37aeb8393dec676f1776b02da282dffcce95786e5762697ad1';
+  function equalizerAccepted (receipt) {
+    return typeof receipt === 'string' &&
+           receipt.toLowerCase() === ACCEPTED_EQUALIZER_SHA256;
+  }
+  function providerOwned (signal, origPg) {
+    /* A warm map is knowledge and may answer without a read - but not for a caller who has
+       already cancelled. Returning it here let the next call receive an aborted signal and run
+       on regardless. */
+    if (signal && signal.aborted)
+      return Promise.reject(transportError('provider unreachable: cancelled by the caller', API + '/geiger', null));
     if (owned && Date.now() - ownedAt < 300000) return Promise.resolve(owned);
-    return jget(API + '/geiger', signal).then(function (j) {
-      var syms = j && j.symbols ? Object.keys(j.symbols) : null;
-      var fail = function (why, count) {
-        S.ownership = { verified: false, count: count == null ? null : count,
-                        expected: EXPECTED_EQUITY_UNIVERSE, reason: why };
-        if (owned) return owned;                    // a verified map survives one bad answer
-        throw transportError('provider ownership ' + why, API + '/geiger', null);
-      };
+    var fail = function (why, count) {
+      S.ownership = { verified: false, count: count == null ? null : count,
+                      expected: EXPECTED_EQUITY_UNIVERSE, reason: why };
+      if (owned) return owned;                      // a verified map survives one bad answer
+      throw transportError('provider ownership ' + why, API + '/geiger', null);
+    };
+    /* Read through the PAGE's own reader, so the shim needs no credentials of its own. A
+       failure here is not fatal on its own - it drops the check back to cardinality, and says
+       so - because the canonical set is a cross-check, not the provider's replacement. */
+    var canonical = typeof origPg === 'function'
+      ? origPg(CANONICAL_EQUITY_QUERY).then(function (rows) {
+          return Array.isArray(rows)
+            ? rows.map(function (r) { return String(r && r.ticker || '').toUpperCase(); }).filter(Boolean)
+            : null;
+        }, function () { return null; })
+      : Promise.resolve(null);
+
+    return Promise.all([jget(API + '/geiger', signal), canonical]).then(function (a) {
+      var j = a[0], canon = a[1];
+      var syms = j && j.symbols
+        ? Object.keys(j.symbols).map(function (k) { return String(k).toUpperCase(); })
+        : null;
       if (!syms) return fail('payload carried no symbols', null);
       if (!syms.length) return fail('payload listed no symbols', 0);
-      if (syms.length !== EXPECTED_EQUITY_UNIVERSE)
-        return fail('universe disagreement: ' + syms.length + ' symbols, expected ' +
-                    EXPECTED_EQUITY_UNIVERSE, syms.length);
+      /* The equalizer the composite was computed under, checked before the symbols are trusted
+         to mean anything. */
+      if (!equalizerAccepted(j.equalizer_receipt_sha256))
+        return fail('equalizer receipt ' + (j.equalizer_receipt_sha256
+          ? 'not the accepted digest (' + String(j.equalizer_receipt_sha256).slice(0, 12) + '…)'
+          : 'absent'), syms.length);
 
       var next = {};
-      syms.forEach(function (k) { next[String(k).toUpperCase()] = 1; });
+      syms.forEach(function (k) { next[k] = 1; });
+
+      if (canon && canon.length) {
+        /* IDENTITY, NOT CARDINALITY. A same-size swap - drop AAPL, add TICK - leaves the count
+           untouched and fails here on membership, which is the case a count can only catch by
+           luck. */
+        var canonMap = {};
+        canon.forEach(function (k) { canonMap[k] = 1; });
+        var missing = canon.filter(function (k) { return !next[k]; });
+        var extra = syms.filter(function (k) { return !canonMap[k]; });
+        if (missing.length || extra.length)
+          return fail('universe identity: missing [' + missing.slice(0, 8).join(',') + '] extra [' +
+                      extra.slice(0, 8).join(',') + ']', syms.length);
+      } else if (syms.length !== EXPECTED_EQUITY_UNIVERSE) {
+        return fail('universe disagreement: ' + syms.length + ' symbols, expected ' +
+                    EXPECTED_EQUITY_UNIVERSE + ' (canonical set unavailable)', syms.length);
+      }
+
       owned = next;
       S.owned_map = owned;
       ownedAt = Date.now();
       S.equalizer_receipt = j.equalizer_receipt_sha256;
       S.geiger_computed_utc = j.computed_utc || null;
       S.ownership = { verified: true, count: syms.length, expected: EXPECTED_EQUITY_UNIVERSE,
-                      reason: null, equalizer_receipt: j.equalizer_receipt_sha256 || null };
+                      reason: null, equalizer_receipt: j.equalizer_receipt_sha256 || null,
+                      /* Stated so a reviewer can see what "verified" actually compared. */
+                      identity: canon && canon.length
+                        ? 'exact set match against ' + canon.length + ' canonical active non-(crypto/future/index/rate) tickers'
+                        : 'CARDINALITY ONLY - the canonical set could not be read' };
       return owned;
     }, function (e) {
       if (owned) return owned;                      // warm knowledge survives one bad read
@@ -378,6 +469,14 @@
         if (gCache.map) return gCache.map;
         throw transportError('provider geiger unavailable', API + '/geiger', null);
       }
+      /* Same gate on the Geiger read itself: a composite computed under an equalizer this
+         surface has not accepted is not the accepted Geiger, whatever else is right about it. */
+      if (!equalizerAccepted(j.equalizer_receipt_sha256)) {
+        S.equalizer_accepted = false;
+        if (gCache.map) return gCache.map;
+        throw transportError('provider geiger equalizer receipt not accepted', API + '/geiger', null);
+      }
+      S.equalizer_accepted = true;
       gCache.map = j.symbols; gCache.at = Date.now();
       S.equalizer_receipt = j.equalizer_receipt_sha256;
       /* THE ENDPOINT'S OWN COMPUTE TIME, CARRIED VERBATIM. The shim used to stamp every
@@ -429,7 +528,7 @@
 
     if (p.table === 'live_quotes') {
       var lqT = wantedTickers(q);
-      return providerOwned(signal).then(function (own) {
+      return providerOwned(signal, origPg).then(function (own) {
         /* AN UNFILTERED REQUEST ASKS FOR THE WHOLE BOARD, NOT THE PROVIDER'S HALF OF IT.
            `syms = lqT || Object.keys(own)` made the non-equity list EMPTY whenever the caller
            had not named tickers - because the only symbols in play were, by construction, the
@@ -517,7 +616,7 @@
 
     if (p.table === 'composite_staged') {
       var csT = wantedTickers(q);
-      return Promise.all([providerOwned(signal), geiger(signal)]).then(function (a) {
+      return Promise.all([providerOwned(signal, origPg), geiger(signal)]).then(function (a) {
         var own = a[0], gm = a[1];
         /* Same rule as live_quotes: an unfiltered ask keeps its legacy half unfiltered. */
         var syms = csT || Object.keys(own);
@@ -575,7 +674,7 @@
       var sym = oT[0];
       var rawTf = (q.tf || '').replace(/^eq\./, '');
       var tf = TF[rawTf];
-      return providerOwned(signal).then(function (own) {
+      return providerOwned(signal, origPg).then(function (own) {
         if (!own[sym]) { S.counts.passthrough_non_equity++; return origPg(path); }   // non-equity keeps its owner
         if (!tf) {
           note('unmapped timeframe ' + rawTf, path);

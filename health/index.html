@@ -87,6 +87,8 @@ footer{ padding:20px 14px 0; color:var(--mute); font-size:9px; letter-spacing:.0
     otherwise hide a stale one behind it.</div>
   <h2>Equity — the provider contract</h2>
   <div id="equity"></div>
+  <h2>Scene internals — mounted, unowned</h2>
+  <div id="internals"></div>
   <h2>Feeders — how fresh is the newest row</h2>
   <div id="feeders"></div>
   <h2>Stock — how much is in there</h2>
@@ -149,10 +151,19 @@ const CANONICAL_EQUITY_UNIVERSE = 365;
    under a heading that says non-equity. Every probe below is filtered to this roster and
    reports its OLDEST member.
 
-   TICK and TRIN are deliberately absent: they hold no rows in any of the three tables, which is
-   a real gap on the INTERNALS scenes and not something to paper over with a green row here. */
+   The unsupported internals are NOT in this roster, and leaving it at that was its own kind of
+   silence: five symbols the Station actually mounts would simply never be asked about, so this
+   page could go green while five visible panes retried forever. They get their own lane below,
+   which is BAD by construction until an owner supports them. */
 const NON_EQUITY_ROSTER = ["BTCUSD", "ESUSD", "NQUSD", "CLUSD", "GCUSD", "SIUSD", "DXUSD", "US10Y", "VIX"];
 const ROSTER_FILTER = "&ticker=in.(" + NON_EQUITY_ROSTER.join(",") + ")";
+
+/* SYMBOLS THE STATION MOUNTS THAT NOTHING OWNS.
+   INTERNALS FAST and INTERNALS SLOW mount these. Measured 2026-08-19: zero rows in
+   ohlcv_history, live_quotes and composite_staged, and not registered in `tickers` at all. No
+   owner names them, so their panes retry - correctly, because nothing has said otherwise - and
+   a health page that stays silent about them is reporting on a Station it is not looking at. */
+const UNSUPPORTED_INTERNALS = ["ADD", "PCC", "CUMTICK", "TICK", "TRIN"];
 
 const FEEDERS = [
   /* live_quotes.updated_ts is timestamptz; composite_staged.updated_ts is bigint epoch SECONDS
@@ -183,6 +194,10 @@ const STOCK = [
   { t: "econ_calendar",    filt: "",         n: "Econ calendar",      d: "what /econ reads" },
   { t: "youtube_feed",     filt: "",         n: "Videos mirrored",    d: "feeds A and B" },
   { t: "news",             filt: "&published_ts=is.null", n: "News rows with no date", d: "undated wire items — /news lists these separately" },
+];
+/* INTERNALS — asked of the database that would own them if anything did. */
+const INTERNALS_LANES = [
+  { k:"internals", n:"Scene internals", d:"symbols INTERNALS FAST / SLOW mount: " + UNSUPPORTED_INTERNALS.join(" · ") },
 ];
 /* EQUITY — asked of the contract that actually owns it. */
 const EQUITY_LANES = [
@@ -239,6 +254,31 @@ async function oldestOfRoster(f) {
   return { minutes:worst.minutes, worst, unreadable, readable:readable.length };
 }
 
+/* Do the unsupported internals have anything, anywhere? One bounded lookup per symbol per
+   table. Any row at all would be news; none is the state this lane exists to keep visible. */
+async function internalsPresence() {
+  const found = [];
+  await Promise.all(UNSUPPORTED_INTERNALS.map(async (sym) => {
+    for (const t of ["live_quotes", "composite_staged", "ohlcv_history"]) {
+      try {
+        const rows = await pgRaw(t + "?select=ticker&ticker=eq." + encodeURIComponent(sym) + "&limit=1");
+        if (Array.isArray(rows) && rows.length) { found.push(sym + " in " + t); return; }
+      } catch (e) { /* an unreadable table is not evidence of support */ }
+    }
+  }));
+  return found;
+}
+async function runInternals() {
+  shell(el("internals"), INTERNALS_LANES);
+  try {
+    const found = await internalsPresence();
+    /* BAD either way until an owner supports them: with rows, because nothing NAMES them and
+       the panes still cannot settle; without, because there is nothing to show at all. */
+    set("internals", 0, "bad", found.length + "/" + UNSUPPORTED_INTERNALS.length + " with any row",
+      found.length ? "unowned · " + found.join(", ") : "no owner, no rows — panes retry forever");
+  } catch (e) { set("internals", 0, "bad", "", "unreachable"); }
+}
+
 /* Pure so it can be tested without a network: given what /geiger answered, say whether the
    universe agrees with the canonical one. */
 function universeAgreement(providerSymbolCount, canonical) {
@@ -255,19 +295,28 @@ function universeAgreement(providerSymbolCount, canonical) {
    launched, one stalled owner held every other row at "checking…". The whole point of the page
    is to say which owner is degraded; blocking on the degraded one is the one failure mode it
    cannot afford. Bounded, and the lanes now run independently. */
-const PROVIDER_HEALTH_TIMEOUT_MS = 4500;
+/* SLOW IS NOT UNREACHABLE, HERE EITHER.
+   A single 4.5s abort would call a working provider dead on the measured tail: five read-only
+   /quotes probes returned 200 with TTFB of 0.84s, 6.86s, 1.27s, 2.71s and 0.27s. On a page whose
+   whole purpose is to report the truth about an owner, converting latency into an outage is the
+   worst available answer. SOFT marks the lane slow and lets the read continue; only HARD, at the
+   same 20s ceiling the shim uses, may say the source did not answer. */
+const PROVIDER_HEALTH_SOFT_MS = 4500;
+const PROVIDER_HEALTH_HARD_MS = 20000;
+let PROVIDER_SLOW = false;
 async function providerJson(path) {
   const controller = typeof AbortController === "undefined" ? null : new AbortController();
-  const timer = controller ? setTimeout(() => controller.abort(), PROVIDER_HEALTH_TIMEOUT_MS) : null;
+  const hard = controller ? setTimeout(() => controller.abort(), PROVIDER_HEALTH_HARD_MS) : null;
+  const soft = setTimeout(() => { PROVIDER_SLOW = true; }, PROVIDER_HEALTH_SOFT_MS);
   try {
     const r = await fetch(PROVIDER_API + path, { cache:"no-store", signal:controller?.signal });
     if (!r.ok) throw new Error("provider " + path + " → " + r.status);
     return await r.json();
   } catch (e) {
     if (e && e.name === "AbortError")
-      throw new Error("provider " + path + " → no response within " + PROVIDER_HEALTH_TIMEOUT_MS + "ms");
+      throw new Error("provider " + path + " → no response within " + PROVIDER_HEALTH_HARD_MS + "ms");
     throw e;
-  } finally { if (timer) clearTimeout(timer); }
+  } finally { if (hard) clearTimeout(hard); clearTimeout(soft); }
 }
 async function runEquity() {
   let geiger = null;
@@ -276,21 +325,57 @@ async function runEquity() {
 
   const symbols = geiger && geiger.symbols ? Object.keys(geiger.symbols) : null;
 
-  /* quotes: asked for a handful of the provider's own symbols, so the check cannot pass by
-     asking for something the provider was never going to carry. */
+  /* A SAMPLE MAY ONLY SPEAK FOR ITSELF.
+     This asked for the first five symbols and then labelled the lane healthy, which is a claim
+     about 365 symbols made from 5 - and the five it happened to take were alphabetical, so a
+     failure anywhere later in the universe was invisible by construction. The whole universe is
+     asked for now, in batches the endpoint accepts, and the row says exactly how many answered.
+     If the full read cannot be made, the row says it is a sample and names its size rather than
+     generalising from it. */
   try {
-    if (!symbols || !symbols.length) throw new Error("no provider universe to sample");
-    const sample = symbols.slice(0, 5);
-    const q = await providerJson("/quotes?symbols=" + encodeURIComponent(sample.join(",")));
-    const ok = sample.filter((sym) => q && q.quotes && q.quotes[sym] && q.quotes[sym].state === "OK");
-    set("equity", 0, ok.length === sample.length ? "ok" : ok.length ? "warn" : "bad",
-      ok.length + "/" + sample.length, ok.length ? "answering" : "no quote");
+    if (!symbols || !symbols.length) throw new Error("no provider universe to ask about");
+    const BATCH = 200;
+    const answered = [];
+    const silent = [];
+    let full = true;
+    for (let i = 0; i < symbols.length; i += BATCH) {
+      const batch = symbols.slice(i, i + BATCH);
+      try {
+        const q = await providerJson("/quotes?symbols=" + encodeURIComponent(batch.join(",")));
+        for (const sym of batch) {
+          const v = q && q.quotes && q.quotes[sym];
+          if (v && v.state === "OK") answered.push(sym); else silent.push(sym);
+        }
+      } catch (e) { full = false; }
+    }
+    const seen = answered.length + silent.length;
+    if (!seen) { set("equity", 0, "bad", "", "unreachable"); }
+    else {
+      const scope = full ? seen + "/" + symbols.length + " asked"
+                         : "SAMPLE " + seen + "/" + symbols.length;
+      const st = (!full || silent.length) ? (answered.length ? "warn" : "bad") : "ok";
+      set("equity", 0, st, answered.length + "/" + seen + " answering",
+        scope + (silent.length ? " · " + silent.length + " silent (" + silent.slice(0, 3).join(",") +
+          (silent.length > 3 ? "…" : "") + ")" : "") + (PROVIDER_SLOW ? " · SLOW" : ""));
+    }
   } catch (e) { set("equity", 0, "bad", "", "unreachable"); }
 
   /* geiger */
+  /* THE EQUALIZER IS PART OF THE ANSWER, NOT A LABEL ON IT.
+     This printed the first eight characters of whatever receipt arrived and graded the lane on
+     symbol count alone, so a composite computed under an equalizer nobody accepted read as OK.
+     The digest is compared in full, and a mismatch is BAD. */
+  const ACCEPTED_EQUALIZER_SHA256 =
+    "f6cf97b57cf26a37aeb8393dec676f1776b02da282dffcce95786e5762697ad1";
+  const receipt = geiger && geiger.equalizer_receipt_sha256;
+  const equalizerOk = typeof receipt === "string" && receipt.toLowerCase() === ACCEPTED_EQUALIZER_SHA256;
   if (!symbols) set("equity", 1, "bad", "", "unreachable");
-  else set("equity", 1, symbols.length ? "ok" : "bad", symbols.length.toLocaleString() + " symbols",
-    geiger.equalizer_receipt_sha256 ? "equalizer " + String(geiger.equalizer_receipt_sha256).slice(0, 8) : "no receipt");
+  else if (!equalizerOk)
+    set("equity", 1, "bad", symbols.length.toLocaleString() + " symbols",
+      receipt ? "equalizer receipt not accepted" : "no equalizer receipt");
+  else set("equity", 1, symbols.length ? (PROVIDER_SLOW ? "warn" : "ok") : "bad",
+    symbols.length.toLocaleString() + " symbols",
+    "accepted equalizer " + receipt.slice(0, 8) + (PROVIDER_SLOW ? " · SLOW" : ""));
 
   /* universe agreement — a disagreement is shown as a disagreement */
   const a = universeAgreement(symbols ? symbols.length : null);
@@ -309,6 +394,7 @@ async function run() {
 
   /* Launched, not awaited. A degraded provider must not hide the state of the database. */
   const equityLane = runEquity().catch(() => {});
+  const internalsLane = runInternals().catch(() => {});
 
   const feederLane = Promise.all(FEEDERS.map(async (f, i) => {
     try {
@@ -323,7 +409,9 @@ async function run() {
             missing === NON_EQUITY_ROSTER.length ? "none readable" : "no dated rows");
           return;
         }
-        const st = r.minutes > f.bad ? "bad" : (r.minutes > f.warn || missing) ? "warn" : "ok";
+        /* A member that cannot be read is not a healthy member, and one readable sibling does
+           not make the lane healthy. Missing or erroring is BAD, not a softer WARN. */
+        const st = (missing || r.minutes > f.bad) ? "bad" : r.minutes > f.warn ? "warn" : "ok";
         set("feeders", i, st, r.readable + "/" + NON_EQUITY_ROSTER.length + " named",
           "oldest " + r.worst.sym + " " + ageLbl(r.minutes) + (missing ? " · " + missing + " unreadable" : ""));
         return;
@@ -349,7 +437,7 @@ async function run() {
   }));
 
   /* Each lane paints as it resolves; the stamp waits for all of them. */
-  await Promise.all([equityLane, feederLane, stockLane]);
+  await Promise.all([equityLane, internalsLane, feederLane, stockLane]);
 
   const roster = el("rosterList"); if (roster) roster.textContent = NON_EQUITY_ROSTER.join(" · ");
   el("stamp").textContent = "checked " + new Date().toLocaleTimeString();

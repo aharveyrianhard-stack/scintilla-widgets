@@ -465,7 +465,18 @@ const DECK_QUOTE_FAILED = new Set();
    which is the stream's answer and not a transient condition. */
 const DECK_QUOTE_ABSENT = new Map();
 const DECK_QUOTE_HEARTBEAT_MS = 10000;
-const DECK_QUOTE_TIMEOUT_MS = 4500;
+/* SLOW IS NOT DEAD — THE SAME LESSON, ON THE CALLER'S SIDE.
+   This was one 4.5s abort. Measured on the live provider, five read-only /quotes probes
+   returned 200 with time-to-first-byte of 0.84s, 6.86s, 1.27s, 2.71s and 0.27s, so that abort
+   killed a working read one time in five and reported the provider unreachable. Worse, the
+   shim now forwards this controller, so the deck's impatience reached all the way through and
+   cancelled the provider read itself.
+
+   Two thresholds, matching the shim's: at SOFT the panes are told the data is late and the
+   retry cadence continues, but the request keeps running and its answer is used if it lands.
+   Only HARD cancels. */
+const DECK_QUOTE_SOFT_MS = 4500;
+const DECK_QUOTE_HARD_MS = 20000;
 let deckQuoteRequest = 0;
 let deckQuoteInFlight = false;
 let deckQuoteRerun = false;
@@ -524,17 +535,20 @@ function selectVisibleQuoteRows(rows, tickers) {
    `fetchDeckQuotes` throws when the read fell over and resolves when it came back. Only the
    resolved path may name an absence: if the request never completed, the fact that a symbol
    has no row says nothing at all about whether the stream observes it. */
-async function fetchDeckQuotes(tickers) {
+async function fetchDeckQuotes(tickers, onSlow) {
   const controller = typeof AbortController === "undefined" ? null : new AbortController();
-  const timer = controller ? setTimeout(() => controller.abort(), DECK_QUOTE_TIMEOUT_MS) : null;
+  /* HARD cancels. SOFT only tells the panes, and never touches the controller. */
+  const hard = controller ? setTimeout(() => controller.abort(), DECK_QUOTE_HARD_MS) : null;
+  const soft = setTimeout(() => { if (typeof onSlow === "function") { try { onSlow(); } catch (_) {} } },
+    DECK_QUOTE_SOFT_MS);
   try {
     const query = "live_quotes?ticker=in.(" + tickers.map(encodeURIComponent).join(",") + ")&select=ticker,price,prev_close,updated_ts";
     const response = await fetch(SB + "/rest/v1/" + query, {
       headers:{ apikey:ANON, Authorization:"Bearer " + ANON }, signal:controller?.signal
     });
     if (!response.ok) throw new Error("live_quotes " + response.status);
-    return response.json();
-  } finally { if (timer) clearTimeout(timer); }
+    return await response.json();
+  } finally { if (hard) clearTimeout(hard); clearTimeout(soft); }
 }
 async function refreshDeckQuotes() {
   deckQuoteRequest += 1;
@@ -544,7 +558,19 @@ async function refreshDeckQuotes() {
   const request = deckQuoteRequest;
   deckQuoteInFlight = true;
   try {
-    const rows = await fetchDeckQuotes(tickers);
+    /* At the soft threshold the panes are told the read is late and keep retrying. The request
+       is still running: if it lands before the hard bound, the block below overwrites this with
+       the real answer and the panes recover. Nothing here cancels anything. */
+    const rows = await fetchDeckQuotes(tickers, () => {
+      if (request !== deckQuoteRequest) return;
+      for (const ticker of tickers) {
+        if (DECK_QUOTES.has(ticker)) continue;          // a pane already holding a price is fine
+        DECK_QUOTE_ABSENT.delete(ticker);
+        DECK_QUOTE_FAILED.add(ticker);
+        fanoutDeckQuote(ticker);
+      }
+      paintMarketStatus();
+    });
     if (request !== deckQuoteRequest) return;
     const selected = selectVisibleQuoteRows(rows, tickers);
     for (const ticker of tickers) {

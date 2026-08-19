@@ -99,9 +99,24 @@ async function tick() {
   let inList = null;
   if (COHORT) {
     /* "Which tickers are in this cohort" is a MEMBERSHIP question, so it reads the full
-       membership set rather than a single capped page - see _cohorts/cohort-axis.js. */
-    const axis = await SC_COHORT_AXIS.loadMemberships(pg).catch(() => null);
-    inList = axis ? (SC_COHORT_AXIS.byCohort(axis.rows).get(COHORT) || []) : [];
+       membership set rather than a single capped page - see _cohorts/cohort-axis.js.
+
+       A FAILED READ IS NOT AN EMPTY COHORT. This caught the rejection and rendered "no tickers
+       in cohort X", which is a statement about the data - and a false one. The reader would
+       have gone looking for a membership problem that did not exist while the actual fault was
+       a transport or schema failure nobody was told about. */
+    let axis = null;
+    try { axis = await SC_COHORT_AXIS.loadMemberships(pg); }
+    catch (err) {
+      el("cols").innerHTML = '<div class="empty">cohort membership unavailable — ' +
+        esc(err && err.message || "read failed") + '</div>';
+      return;
+    }
+    if (axis.truncated) {
+      el("cols").innerHTML = '<div class="empty">cohort membership read truncated — the list would be incomplete</div>';
+      return;
+    }
+    inList = SC_COHORT_AXIS.byCohort(axis.rows).get(COHORT) || [];
     if (!inList.length) { el("cols").innerHTML = '<div class="empty">no tickers in cohort ' + esc(COHORT) + "</div>"; return; }
   }
   const today = iso(new Date()), until = iso(new Date(Date.now() + DAYS * 86400000)), since = iso(new Date(Date.now() - DAYS * 86400000));
