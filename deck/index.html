@@ -598,6 +598,20 @@ async function refreshDeckQuotes() {
     if (deckQuoteRerun) { deckQuoteRerun = false; refreshDeckQuotes(); }
   }
 }
+/* THE HEARTBEAT IS CADENCE, NOT INVALIDATION.
+   refreshDeckQuotes bumps deckQuoteRequest so a change to the visible set can retire an
+   in-flight read whose panes are gone — scene switches, a ticker edit, a chart-count change
+   all go through it and should. The 10s heartbeat used to enter through the same door, which
+   retired whatever was in flight on every tick: any read slower than one heartbeat — inside
+   the 20s hard bound that exists precisely because 4.5–20s reads were measured real — landed
+   to a stale request number and was discarded, and its queued rerun met the next tick the
+   same way. The effective hard bound was the heartbeat, and a provider consistently slower
+   than 10s could never land an answer at all. A tick that finds a read in flight covers an
+   unchanged ticker set, so it queues the rerun and lets the read finish. */
+function deckQuoteHeartbeat() {
+  if (deckQuoteInFlight) { deckQuoteRerun = true; return; }
+  refreshDeckQuotes();
+}
 if (deckSb) deckSb.channel("station-deck-lq").on("postgres_changes", {
   event:"*", schema:"public", table:"live_quotes"
 }, (event) => {
@@ -1067,7 +1081,7 @@ function paintMarketStatus() {
     }).join("\n");
 }
 setInterval(paintMarketStatus, 10000);
-setInterval(refreshDeckQuotes, DECK_QUOTE_HEARTBEAT_MS);
+setInterval(deckQuoteHeartbeat, DECK_QUOTE_HEARTBEAT_MS);
 window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
   if (event.data?.sc === "chart-load-request") {
@@ -1081,7 +1095,9 @@ window.addEventListener("message", (event) => {
   }
   if (event.data?.sc === "chart-quote-ready") {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
-    if (pane?.def.kind === "chart") { postDeckQuote(pane.frame, pane.def.ticker); refreshDeckQuotes(); }
+    /* A booting chart announcing readiness has not changed the visible set: fetch soon, but
+       never retire a read already in flight for these same panes. */
+    if (pane?.def.kind === "chart") { postDeckQuote(pane.frame, pane.def.ticker); deckQuoteHeartbeat(); }
     return;
   }
   if (event.data?.sc === "chart-status") {
