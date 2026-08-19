@@ -263,9 +263,16 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       <option value="internalsSlow">internals slow</option>
       <option value="sectorFamilies">sector families</option>
       <option value="themeFamilies">theme families</option>
+      <option value="cohort">cohort</option>
       <option value="custom">custom</option>
     </select>
     <button type="button" class="btn" id="resetScene" title="restore this scene's original preset" aria-label="Reset scene preset">reset preset</button>
+    <span id="cohortPicker" hidden>
+      <select class="scene-mode" id="cohortPick" title="choose the cohort — its members replace the favorites rows" aria-label="Cohort"></select>
+      <button type="button" class="btn" id="cohortPagePrev" title="previous cohort page" aria-label="Previous cohort page">‹</button>
+      <span id="cohortPageIndicator" aria-live="polite"></span>
+      <button type="button" class="btn" id="cohortPageNext" title="next cohort page" aria-label="Next cohort page">›</button>
+    </span>
   </span>
   <span class="control-group rotate-controls">
     <span class="control-label">auto rotate</span>
@@ -299,6 +306,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   <select class="chart-count" id="chartCount" title="number of charts">
     <option value="2">2</option><option value="6">6</option><option value="8">8</option>
     <option value="3" hidden data-preset-only="true">3</option>
+    <option value="1" hidden data-preset-only="true">1</option>
   </select>
   <span class="symbol-note" id="symbolNote">Hub symbols</span>
   <span class="lbl">timeframe · all</span>
@@ -406,6 +414,9 @@ const chartCount = (value) => {
   return CHART_COUNTS.includes(n) ? n : 2;
 };
 const sceneChartCount = (value, scene = SCENE, fromPreset = false) => {
+  /* A cohort page owns its own count: the last page of a seven-member cohort is one real
+     chart, not one real chart plus a manufactured empty card. */
+  if (fromPreset && scene === "cohort") return SceneModel.chartCountForSize(value);
   return fromPreset && scene === "indexNow" && +value === 3 ? 3 : chartCount(value);
 };
 /* CUSTOM deliberately exposes only 2 / 6 / 8.  A remembered four-up wall is
@@ -1247,7 +1258,7 @@ function editableState(scene) {
   const legacy = scene === "live";
   const get = (suffix) => (scene === "live" || scene === "custom" ? remembered(prefix + "." + suffix) : sessionRemembered(prefix + "." + suffix)) ||
     (legacy ? remembered("station." + suffix) : "");
-  const count = sceneChartCount(get("chartCount") || CHART_COUNT, scene, scene === "indexNow");
+  const count = sceneChartCount(get("chartCount") || CHART_COUNT, scene, scene === "indexNow" || scene === "cohort");
   const range = RANGE;
   const charts = Array.from({ length:8 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
     (scene === "custom" ? "" : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
@@ -1329,15 +1340,38 @@ function paintSceneControls(note) {
   el("screenIndicator").textContent = screen
     ? "screen " + (SceneModel.SCREENS.indexOf(screen) + 1) + " / " + SceneModel.SCREENS.length
     : "manual";
-  el("symbolNote").textContent = note || (fixedSceneState(SCENE)
+  el("symbolNote").textContent = note || (SCENE === "cohort"
+    ? (COHORT === "FAV" ? "favorites · choosing a cohort replaces these rows"
+       : COHORT.replace(/_/g, " ") + " · cohort members — these rows replaced the favorites")
+    : fixedSceneState(SCENE)
     ? "preset · edit any slot or reset"
     : "manual workspace · edit any slot");
+  const cohortPicker = el("cohortPicker");
+  if (cohortPicker) {
+    const active = SCENE === "cohort";
+    cohortPicker.hidden = !active;
+    if (active && COHORT_READY) {
+      const pick = el("cohortPick");
+      const names = orderedCohorts();
+      if (Array.from(pick.options).map((o) => o.value).join("|") !== names.join("|"))
+        pick.innerHTML = names.map((n) => '<option value="' + n + '">' +
+          (n === "FAV" ? "FAV · favorites" : n.replace(/_/g, " ").toLowerCase()) + "</option>").join("");
+      pick.value = COHORT;
+      const now = cohortState();
+      el("cohortPageIndicator").textContent =
+        "page " + (now.page + 1) + " / " + now.totalPages + " · " + now.totalItems +
+        (COHORT === "FAV" ? " favorites" : " members");
+      el("cohortPagePrev").disabled = now.page <= 0;
+      el("cohortPageNext").disabled = now.page >= now.totalPages - 1;
+    }
+  }
 }
 function installSceneState(state) {
   const charts = (state.charts || state.tickers || []).slice(0, 8);
   CHARTS.forEach((_, i) => { CHARTS[i] = CLEAN(charts[i] || ""); });
   CHART_COUNT = (SCENE === "custom" ? customChartCount : sceneChartCount)(
-    state.chartCount || SceneModel.chartCountForSize(charts.length), SCENE, SCENE === "indexNow"
+    state.chartCount || SceneModel.chartCountForSize(charts.length), SCENE,
+    SCENE === "indexNow" || SCENE === "cohort"
   );
 }
 function fixedSceneState(scene, requestedCount) {
@@ -1457,12 +1491,17 @@ async function applyScene(next, options) {
       await loadCohortIndex();
       if (options?.cohort) COHORT = CLEAN_COHORT(options.cohort);
       COHORT_PAGE = Math.max(0, Number(options?.page) || 0);
-      state = !options?.reset && !options?.rotate && hasStoredScene("cohort")
+      /* AN EXPLICIT CHOICE SHOWS THAT COHORT'S ROWS NOW. The stored cohort workspace
+         resumes only when the scene is re-entered without a choice — otherwise picking
+         AI_SOFTWARE with an edited workspace stored would repaint the stored (favorites-
+         era) rows under the new cohort's name, the filed defect wearing a memory. */
+      const explicitChoice = !!(options && (options.cohort != null || options.page != null));
+      state = !options?.reset && !options?.rotate && !explicitChoice && hasStoredScene("cohort")
         ? editableState("cohort") : cohortState();
       COHORT_PAGE = state.page ?? COHORT_PAGE;
     } catch (_) {
       COHORT_READY = false; state = { charts:[], chartCount:1, range:RANGE };
-      el("symbolNote").textContent = "cohort favorites unavailable";
+      el("symbolNote").textContent = "cohort index unavailable — retry by re-choosing the scene";
     }
   } else if (requested === "custom" && !hasStoredScene("custom")) {
     state = customWallState({ charts:[], range:RANGE }, 6);
@@ -1785,6 +1824,9 @@ el("sceneMode").addEventListener("change", (e) => {
   if (e.target.value === "live" || e.target.value === "custom") setRotationPaused(true);
   applyScene(e.target.value);
 });
+el("cohortPick").addEventListener("change", (e) => applyScene("cohort", { cohort:e.target.value, page:0 }));
+el("cohortPagePrev").addEventListener("click", () => applyScene("cohort", { cohort:COHORT, page:Math.max(0, COHORT_PAGE - 1) }));
+el("cohortPageNext").addEventListener("click", () => applyScene("cohort", { cohort:COHORT, page:COHORT_PAGE + 1 }));
 el("resetScene").addEventListener("click", () => {
   if (SCENE === "cohort") {
     ["chartCount"].forEach((suffix) => forgetSession("station.flex.cohort." + suffix));

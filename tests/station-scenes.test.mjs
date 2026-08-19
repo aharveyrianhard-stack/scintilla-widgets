@@ -152,10 +152,12 @@ test("CUSTOM six and eight chart walls preserve their manual symbols", () => {
 });
 
 test("normal wall chooser is two, six, or eight while INDEX NOW keeps its launch trio", () => {
-  assert.doesNotMatch(deck, /option value="1"/,
+  assert.doesNotMatch(deck, /<option value="1">/,
     "one-chart detail is not offered as a normal wall choice");
   assert.match(deck, /option value="3" hidden data-preset-only="true"/,
     "three-chart INDEX NOW remains a hidden preset state, not a global manual choice");
+  assert.match(deck, /option value="1" hidden data-preset-only="true"/,
+    "a one-chart cohort page is representable the same hidden preset-only way, never as a menu choice");
   assert.match(deck, /const CHART_COUNTS = \[2,6,8\]/);
   assert.match(deck, /scene === "indexNow" && \+value === 3 \? 3 : chartCount\(value\)/,
     "only a preset-driven INDEX NOW launch retains its coherent three symbols");

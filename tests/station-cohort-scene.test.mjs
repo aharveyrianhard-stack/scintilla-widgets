@@ -82,3 +82,26 @@ test("the favorites-intersection builder is gone, not renamed around", () => {
   assert.ok(!source.includes("favorites.has(ticker)"),
     "no membership row is admitted or dropped by favorite status");
 });
+
+/* ---- the deck wiring that makes the scene reachable ---- */
+
+test("the deck exposes the cohort scene and its picker, and honors an explicit choice", () => {
+  const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
+  assert.match(deck, /<option value="cohort">cohort<\/option>/, "the scene is choosable");
+  assert.match(deck, /id="cohortPicker" hidden/, "the picker exists and hides outside the scene");
+  for (const id of ["cohortPick", "cohortPagePrev", "cohortPageNext", "cohortPageIndicator"])
+    assert.match(deck, new RegExp('id="' + id + '"'), id + " exists");
+  /* The retired header basket-pager id stays retired; the picker is scene-scoped. */
+  assert.ok(!deck.includes('id="cohortControls"'));
+  /* An explicit cohort or page choice must show that cohort's rows NOW - never the stored
+     workspace under the new cohort's name. */
+  assert.match(deck, /const explicitChoice = !!\(options && \(options\.cohort != null \|\| options\.page != null\)\);/);
+  assert.match(deck, /!explicitChoice && hasStoredScene\("cohort"\)/);
+  /* Wiring: picker change and pagers re-apply the scene with the choice. */
+  assert.match(deck, /el\("cohortPick"\)\.addEventListener\("change", \(e\) => applyScene\("cohort", \{ cohort:e\.target\.value, page:0 \}\)\)/);
+  assert.match(deck, /el\("cohortPagePrev"\)\.addEventListener/);
+  assert.match(deck, /el\("cohortPageNext"\)\.addEventListener/);
+  /* The default view is FAV, and a cohort page owns its own chart count. */
+  assert.match(deck, /remembered\("station\.cohort"\) \|\| "FAV"/);
+  assert.match(deck, /if \(fromPreset && scene === "cohort"\) return SceneModel\.chartCountForSize\(value\);/);
+});
