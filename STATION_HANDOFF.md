@@ -1,9 +1,9 @@
 # Station visible-truth closure — session handoff
 
-Written at a committed checkpoint by executor 3 after the round-14 signal sprint (the
-watch-later class in round 12, the feed and axis sweeps in round 13, and in round 14 the
-question none of them asked: when the TEXT refuses a claim, does the SIGNAL beside it
-refuse too?).
+Written at a committed checkpoint by executor 3 after the round-15 sprint. Rounds 12–13
+swept by table and lane name; round 14 asked the question none of them had — when the TEXT
+refuses a claim, does the SIGNAL beside it refuse too? — and round 15 carried that question
+through the remaining signal kinds: position, geometry and axis precision.
 Everything below was re-derived from the working tree at head, not carried forward from an
 earlier note.
 
@@ -13,13 +13,13 @@ earlier note.
 | --- | --- |
 | Repo | `aharveyrianhard-stack/scintilla-widgets` |
 | Branch | `claude/station-visible-truth-closure-8ipyru` |
-| Head | `bbb0b66` + the docs commit carrying this update — pushed |
+| Head | `68529b7` + the docs commit carrying this update — pushed |
 | PR | [#115](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/115) — **DRAFT, NO-MERGE** |
 | Uncommitted | **none** at handoff |
-| Tests | `node --test "tests/*.test.mjs"` → **257 pass, 0 fail**, 24 files |
-| Browser receipts | `browser-proof/` — 25 proof files + `RECEIPTS.md`, every entry regenerable by the command it names. The round-14 four were each verified to DISCRIMINATE by restoring the pre-fix code and watching them fail |
-| Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access rounds 11–14: **none** (round 5: two read-only SELECTs, recorded) |
-| Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` — Ready on `9f0788e` at 18:03Z; rebuilt on each later head |
+| Tests | `node --test "tests/*.test.mjs"` → **259 pass, 0 fail**, 24 files |
+| Browser receipts | `browser-proof/` — 27 proof files + `RECEIPTS.md`, every entry regenerable by the command it names. The six fix-proofs of rounds 14–15 were each verified to DISCRIMINATE by restoring the pre-fix code and watching them fail |
+| Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access rounds 11–15: **none** (round 5: two read-only SELECTs, recorded) |
+| Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` — Ready on `68529b7` at 18:36Z |
 
 ## What round 5 (the second continuation packet) closed
 
@@ -58,7 +58,9 @@ Round 13: `6bde1d4` /youtube feed-failure truth + the axis-consumer sweep photog
 docs `425d2fd`. Round 14: `636a8f5` the chart pane's day direction needs the day's baseline ·
 `efcb12b` an unknown day change gets neither a sign nor a direction colour · `9f0788e` the
 same refusal proven on the Station wall · `bbb0b66` an unknown SIZE metric is a placeholder,
-not a measurement · plus the docs commit carrying this handoff.
+not a measurement + docs `3fa7403`. Round 15: `fc619f6` a position is a claim — an unranked
+row is placed, not left where it was · `68529b7` an axis label is the price of the line it
+sits beside · plus the docs commit carrying this handoff.
 
 ## Errata (cumulative, so nothing is re-derived as a mystery)
 

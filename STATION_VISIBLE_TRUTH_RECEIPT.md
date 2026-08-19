@@ -1111,3 +1111,127 @@ shows, so a null tile is already the near-transparent one). What remains unswept
 Everything else stands behind the walls the handoff names (Hub repo · sector deploy + CORS ·
 owner rulings · a live browser outside the container · a human eye · the H2 proof-gate · the
 independent re-audit as merge gate).
+
+---
+
+# Round 15 — the rest of the signal kinds: position, geometry, and the number beside the line
+
+Continuation packet, 2026-08-19, resumed from head `3fa7403` on the named next unit R25:
+test **sort orders, opacity/strike treatments, and axis-scale claims** against the actual
+rendered page, and implement the highest-impact corrections that can be proven. Protocol
+path unreachable as every round; in-repo doctrine re-read. Two units, two commits, two
+proofs — both verified to discriminate against the pre-fix code.
+
+## Unit 1 (`fc619f6`) — a position is a claim, and two rows were stacked on one coordinate
+
+`/compare` is a ranked wall: `place()` puts each cohort row at `translateY(pos * 44)`, where
+`pos` is its index in whatever `computeOrder()` returns. That order contained **only the
+cohorts `normed()` could rank** — and `place()` moves exactly what the order contains. So a
+cohort whose value stopped landing was **never moved again**: it kept the coordinate it last
+earned, wore the rank numeral it last earned, and — because the ranked list is now shorter
+than the wall — a ranked row was assigned the same index and landed on top of it.
+
+Measured, not argued. On a five-row wall with one cohort carrying members no composite
+covers, the pre-fix render places `AGRI@0` and `AI HARDWARE@0`: **two rows at one
+coordinate**, the unranked one underneath, still wearing a rank it no longer held.
+
+Fixed: unranked cohorts are kept (the wall must not shrink to hide what it cannot rank) and
+ordered after every ranked one in the wall's own stable order; the numeral loop refuses to
+number them (`—`); and the null branch now resets the row fully — the stale marking used to
+be applied *after* the early return, so a row that went stale and then lost its value kept a
+claim about the read window standing over a row with no reading at all.
+
+**The fix's own side effect, caught in the same unit**: extending the order made
+`order.length` count rows rather than rankings, so the header would have claimed "5 cohorts
+ranked" over a wall where 4 were. It now counts what was ranked and names what was not —
+"4 cohorts ranked by COMPOSITE · 1 with no reading, held below the ranking".
+
+## Unit 2 (`68529b7`) — the number beside the line was not the price of the line
+
+`chAxisPx(value, step)` labels the chart's price gridlines, and it derived its decimals from
+the step's **magnitude** (`s >= 1 ? 0`). A gridline sitting at 12.5 therefore printed
+**"13"**, and one at 0.25 printed **"0.3"** — off by half a step's worth of rounding.
+
+This was not an edge case. The page's own tick ladder picks its step from five rungs
+(1, 2, 2.5, 5, 10 × 10^k) and selects the **2.5 rung for any raw step in (2, 2.5] × 10^k** —
+a regularly-occurring band. Measured on the rendered pane at 871px with 7 ticks: the pre-fix
+axis reads **`10 13 15 18 20 23`** against gridlines at 10, 12.5, 15, 17.5, 20, 22.5.
+
+Fixed: `chStepDecimals(s)` returns the decimals the step itself needs (2.5 → 1, 25 → 0,
+0.25 → 2, 0.025 → 3), bounded at 6 — no served price range produces a step below 1e-6. The
+thousands branch (`…K`) is unchanged and already exact at its own resolution. Mirrored
+byte-exact to `/station-shells/chart-v1`.
+
+## The rest of the sweep — measured and clean, so the class is closed rather than sampled
+
+- **Sort comparators, all of them.** `/ticker` was fixed in round 14. `/ranks` and `/reflow`
+  partition known from unknown and keep the unknowns, greyed. `/heat` orders groups by member
+  count (always a number). `/cohorts` filters empty cohorts before sorting by median. `/deck`
+  has two: the cohort-key order gives unknown names an explicit 999 sentinel and then a
+  `localeCompare` tiebreak, and `symbolMatches` filters to score < 99 before sorting. **One
+  defect in the class, found and fixed; every other comparator verified sound.**
+- **Opacity and strike, `/compare`.** The two treatments ARE distinguishable and were left
+  as they are: a row with no value carries opacity `.25`, the text `—`, a zero-width bar and
+  **no** strike; a stale row carries `.45` on its children plus a warn-coloured strike
+  element and its real value. The only defect here was the leftover — a stale class
+  surviving onto a row that had lost its reading — and that is fixed and asserted.
+- **Axis and scale, the rest.** The price gridlines are the only numeric axis claim the pane
+  makes; the flat-window guard (`yHi === yLo` → ±1) widens the drawn band but states no
+  value that was not observed, since the labels follow the ticks and the line stays where the
+  data is. Recorded as read, not changed — widening a band is a look decision, not a claim.
+
+## Evidence
+
+- **Tests: 259 pass, 0 fail** (24 files, +2). New: the `computeOrder` truth table run in vm
+  (ranked-then-unranked, wall never shrinks, no duplicate index, all-ranked and none-ranked
+  edges, HOLD's near-tie swap confined to the ranked prefix), and the axis formatter driven
+  over the page's own reproduced tick ladder with a per-tick numeric equality.
+- **Browser proofs: 27 files** (+2), both new ones **verified to DISCRIMINATE**:
+  - `unranked-position.mjs` reads the rendered `translateY` coordinates and asserts no two
+    rows share one. Pre-fix it reports `AGRI@0, AI HARDWARE@0`.
+  - `axis-labels.mjs` asserts the rendered pane's own axis is exact, then drives every rung
+    of the ladder through the page's **live** `chAxisPx` so the 2.5 band is exercised even
+    when the rendered window lands elsewhere — an earlier run landed on the 5 rung, which is
+    why the rungs are exercised explicitly rather than left to chance. Pre-fix the rendered
+    axis reports `10 13 15 18 20 23`.
+- **Full battery re-run at head `68529b7`: 27/27 PASSED** (two halves, 14 + 13, to fit the
+  runner's timeout). Fifth consecutive round with no proof claimed that was not re-run at
+  head — the round-11 erratum's remedy still holding.
+- **Production untouched; no database access this round.** No provider raw/history, Geiger
+  authority, R2, credentials or Supabase work touched. Cohort values and price series are
+  read exactly as before; only what the page may claim from them changed.
+
+## UNKNOWNs, stated
+
+- Canvas text cannot be read back, so `axis-labels.mjs` calls the page's own live formatter
+  against the page's own live tick values rather than OCR-ing the pixels. That is the
+  formatter that painted the axis, in the page that painted it — but it is one step short of
+  reading the glyphs, and that step is not available in this rig.
+- `/compare`'s stale-vs-dim distinction was measured by reading both treatments and by
+  asserting the null row carries no stale marking; a scenario rendering BOTH states side by
+  side needs a detent over known-holed sessions and was not constructed.
+- The flat-window ±1 band was judged a look decision rather than a claim. If the owner reads
+  it as a claim, it is a one-line change and is recorded here rather than silently kept.
+
+## Rollback and next unit
+
+Rollback: `fc619f6` and `68529b7` revert independently and cleanly. The first restores the
+ranked-only order (and the collision); the second restores the magnitude-derived decimals.
+No data lane, authority or methodology changed by either.
+
+Next runnable unit — the signal question has now covered colour, sign, size, position and
+axis precision. What it has **not** covered:
+
+1. **Time claims in the same spirit** — an axis or stamp that says *when*. `/chart`'s time
+   axis labels, the deck's "as of" stamps and `/compare`'s detent dates: does a label ever
+   name a date the window does not actually contain, the way the price axis named a price
+   the gridline was not at?
+2. **Aggregate claims** — a median, a count or a "N of M" that silently changes what it is
+   over. `/compare`'s median-per-cohort now excludes unranked cohorts from the ranking; does
+   any surface compute an average over a set it then describes differently?
+3. **The two current-price authorities** already recorded in round 14 (pane direction uses
+   the series' last point, the badge uses the live quote) — still an owner question.
+
+Everything else stands behind the walls the handoff names (Hub repo · sector deploy + CORS ·
+owner rulings · a live browser outside the container · a human eye · the H2 proof-gate · the
+independent re-audit as merge gate).
