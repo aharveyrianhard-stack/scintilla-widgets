@@ -208,18 +208,31 @@
     if (q.price == null) return ABSENCE_NOT_OBSERVED;
     return null;
   }
+  /* A CACHED ROW IS ONLY AN ANSWER TO THE REQUEST THAT FETCHED IT.
+     The cache used to be handed back wholesale, so a symbol the CURRENT response omitted could
+     still be served from an older one - a stale price presented as this moment's answer, and,
+     worse, presented as proof that the symbol WAS accounted for. The cache is now only used
+     when it is warm AND covers every requested symbol; otherwise the answer is built from the
+     response actually received, and anything it did not carry is reported as missing. */
   function quotes (syms) {
-    var need = syms.filter(function (s) { return !(s in qCache.map); });
-    if (Date.now() - qCache.at < 5000 && !need.length) return Promise.resolve({ map: qCache.map, missing: [] });
     var batch = syms.slice(0, 400);
-    if (!batch.length) return Promise.resolve({ map: qCache.map, missing: [] });
+    if (!batch.length) return Promise.resolve({ map: {}, missing: [], truncated: false });
+    var truncated = syms.length > batch.length;
+    var covered = batch.every(function (s) { return s in qCache.map; });
+    if (covered && Date.now() - qCache.at < 5000) {
+      var warm = {};
+      batch.forEach(function (s) { warm[s] = qCache.map[s]; });
+      return Promise.resolve({ map: warm, missing: [], truncated: truncated });
+    }
     return jget(API + '/quotes?symbols=' + encodeURIComponent(batch.join(','))).then(function (j) {
       if (!j || !j.quotes) throw transportError('provider quotes payload had no quotes', API + '/quotes', null);
       Object.keys(j.quotes).forEach(function (k) { qCache.map[k] = j.quotes[k]; });
       qCache.at = Date.now();
+      var fresh = {};
+      batch.forEach(function (s) { if (s in j.quotes) fresh[s] = j.quotes[s]; });
       var missing = batch.filter(function (sym) { return !(sym in j.quotes); });
       if (missing.length) S.counts.partial_batches++;
-      return { map: qCache.map, missing: missing };
+      return { map: fresh, missing: missing, truncated: truncated };
     });
   }
 
@@ -287,13 +300,19 @@
         var nonEq = syms.filter(function (s) { return !own[s]; });
         return quotes(eq).then(function (res) {
           var qm = res.map, missing = res.missing;
+          /* A SUCCESSFUL RESPONSE MUST ACCOUNT FOR EVERY REQUESTED SYMBOL.
+             A short batch used to resolve with the rows it did have, and the caller - having
+             asked for AAPL and MSFT and received only AAPL - concluded that MSFT is not
+             observed by the stream and stopped retrying it. A partial answer is not a smaller
+             answer; it is an unfinished request, so the whole request fails and every symbol on
+             it stays retryable. No absence name is written for any of them. */
+          if (missing.length || res.truncated) {
+            missing.forEach(function (sym) { S.clearAbsence(sym, null); });
+            throw transportError('provider quotes batch incomplete: ' +
+              (res.truncated ? 'request exceeded the 400-symbol batch limit' : missing.join(',')),
+              API + '/quotes', null);
+          }
           var rows = [];
-          /* A symbol the batch never mentioned is INCOMPLETE, not absent. It is recorded as a
-             transport condition so a caller retries it, and no absence name is written for it. */
-          missing.forEach(function (sym) {
-            transportError('quote missing from batch response', API + '/quotes', null);
-            S.clearAbsence(sym, null);
-          });
           eq.forEach(function (s) {
             var v = qm[s];
             if (!v) return;                              // covered by `missing` above
@@ -318,7 +337,14 @@
           S.counts.passthrough_non_equity += nonEq.length;
           var pass = path.replace(/ticker=(in\.\([^)]*\)|eq\.[^&]*)/, 'ticker=in.(' + nonEq.join(',') + ')');
           if (!lqT) pass = 'live_quotes?select=ticker,price,chg_pct,prev_close,updated_ts&ticker=in.(' + nonEq.join(',') + ')';
-          return origPg(pass).then(function (extra) { return rows.concat(extra || []); }, function () { return rows; });
+          /* The non-equity half failing used to leave the provider rows standing alone, and the
+             caller then read the absent non-equities as unobserved. Half a request is not a
+             request: it fails, and every symbol on it stays retryable. */
+          return origPg(pass).then(function (extra) { return rows.concat(extra || []); }, function (e) {
+            nonEq.forEach(function (sym) { S.clearAbsence(sym, null); });
+            if (e && (e.scTransport || e.scAbsence)) throw e;
+            throw transportError('non-equity passthrough failed: ' + (e && e.message || 'unknown'), pass, null);
+          });
         });
       });
     }
@@ -330,6 +356,14 @@
         var syms = csT || Object.keys(own);
         var eq = syms.filter(function (s) { return own[s]; });
         var nonEq = syms.filter(function (s) { return !own[s]; });
+        /* Every requested equity must appear in the Geiger payload; /geiger publishes the whole
+           universe, so a gap is an incomplete payload rather than a settled per-symbol fact. */
+        var absent = eq.filter(function (s) { return !gm[s]; });
+        if (absent.length) {
+          absent.forEach(function (sym) { S.clearAbsence(sym, 'D'); });
+          note('geiger payload did not account for ' + absent.length + ' requested symbols', path);
+          throw transportError('provider geiger payload incomplete: ' + absent.join(','), API + '/geiger', null);
+        }
         var rows = eq.map(function (s) {
           var v = gm[s]; if (!v) { note('no candidate geiger', s); return null; }
           return { ticker: s, tf: 'D', composite: v.composite, trend: v.trend, momentum: v.momentum,
@@ -349,7 +383,12 @@
         S.counts.passthrough_non_equity += nonEq.length;
         return origPg('composite_staged?select=ticker,tf,trend,momentum,composite,updated_ts&tf=eq.D&ticker=in.(' + nonEq.join(',') + ')')
           .then(function (extra) { var all = rows.concat(extra || []); return lim ? all.slice(0, lim) : all; },
-                function () { return lim ? rows.slice(0, lim) : rows; });
+                function (e) {
+                  /* Half a request is not a request - see the live_quotes branch. */
+                  nonEq.forEach(function (sym) { S.clearAbsence(sym, 'D'); });
+                  if (e && (e.scTransport || e.scAbsence)) throw e;
+                  throw transportError('non-equity composite passthrough failed: ' + (e && e.message || 'unknown'), path, null);
+                });
       });
     }
 

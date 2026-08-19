@@ -11,9 +11,8 @@
          ranking (sector_rankings — refreshed hourly by Command's pg_cron; rank +
          score shown on each group header, method never re-derived here);
          ETFs/unsectored close the board.
-       · group=cohort: the cohort axis (ticker_membership kind=cohort, active tickers).
-       A ticker in several cohorts is placed by the named lowest-name tie-break, never
-       by row arrival order.
+       · group=cohort: each ticker's HOME cohort, read from tickers.cohort — not derived
+       from its membership set, and never from row arrival order.
        · color=chg (default): day chg_pct from live_quotes (served, ±3% scale)
        · color=geiger: composite_staged tf=D composite (THE one Geiger, ±1)
      Tiles sort winners-first inside each group; every group header carries its
@@ -146,7 +145,7 @@ async function pull() {
     pg("company_profile?select=ticker,sector,market_cap,is_etf").catch(() => []),
     pg("live_quotes?select=ticker,price,chg_pct,updated_ts").catch(() => []),
     pg("composite_staged?tf=eq.D&select=ticker,composite").catch(() => []),
-    GROUP === "cohort" ? SC_COHORT_AXIS.loadMemberships(pg).then((a) => a.rows).catch(() => []) : [],
+    GROUP === "cohort" ? SC_COHORT_AXIS.loadHomeCohorts(pg).catch(() => null) : null,
     GROUP === "sector" ? pg("sector_rankings?select=sector_name,rank,score&order=rank.asc").catch(() => []) : [],
   ]);
   const P = {}; for (const r of (prof || [])) P[r.ticker] = r;
@@ -167,14 +166,16 @@ function buildGroups(d) {
   }));
   const groups = new Map();
   if (GROUP === "cohort") {
-    /* ONE TILE PER TICKER NEEDS ONE COHORT PER TICKER, CHOSEN THE SAME WAY EVERY TIME.
-       16 tickers genuinely belong to more than one cohort (up to 3). The old rule was
-       "whichever row arrived first" over an unordered DISTINCT view - a different wall on
-       different loads. SC_COHORT_AXIS.primaryByTicker applies the named tie-break (lowest
-       cohort name) so the same ticker lands in the same group on every load. */
-    const primary = SC_COHORT_AXIS.primaryByTicker(d.coh);
+    /* ONE TILE PER TICKER NEEDS THE TICKER'S HOME, AND THE DATABASE STATES IT.
+       Most tickers hold several memberships - NVDA is in AI_HARDWARE, MEGA_CAP, MEGACAP,
+       SEMICONDUCTORS and TECH - so "which one does its tile go in" cannot be answered from
+       the membership set at all. The old rule took whichever row arrived first from an
+       unordered view, which drew a different wall on different loads; deriving it from an
+       ordering rule instead would only have made the guess repeatable. tickers.cohort is a
+       curated home cohort, populated for all 387 active tickers, and it is read. */
+    const home = d.coh ? d.coh.home : null;
     for (const r of rows) {
-      const g = primary.get(String(r.t).toUpperCase()) || "UNASSIGNED";
+      const g = SC_COHORT_AXIS.homeOf(home, r.t) || "UNASSIGNED";
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g).push(r);
     }

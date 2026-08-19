@@ -303,8 +303,18 @@ function isNamedAbsence(err) { return Boolean(err && typeof err.scAbsence === "s
 function chartAbsenceLabel(reason) {
   return String(reason || CHART_ABSENCE_NOT_OBSERVED).trim().replace(/_/g, " ").toLowerCase();
 }
+/* The name the shim recorded for this symbol, or null. Null means nothing has named it, which
+   is not the same as the stream having answered - see chartAbsenceReason below. */
+function chartNamedAbsenceFor(ticker, tf) {
+  try {
+    const shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
+    const named = shim && typeof shim.absenceFor === "function" ? shim.absenceFor(ticker, tf) : null;
+    return named ? String(named) : null;
+  } catch (_) { return null; }
+}
 /* The shim records WHY a provider read produced nothing. When it has a name for this exact
-   symbol/timeframe that name wins; otherwise the canonical stream absence is used. */
+   symbol/timeframe that name wins; otherwise the canonical stream absence is used. This is only
+   called where the read itself COMPLETED and returned no observations. */
 function chartAbsenceReason(ticker, tf) {
   try {
     const shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
@@ -1282,10 +1292,12 @@ async function pullPrevClose(t) {
       if (rows[0].prev_close != null) prevClose[t] = +rows[0].prev_close;
       if (rows[0].price != null) scChartLive(t, +rows[0].price, rows[0].updated_ts);
     } else {
-      /* The read returned. No row for this symbol is the answer, not a delay. */
-      const named = chartAbsenceReason(t, null);
+      /* The read returned without this row. Settled ONLY if something named it - a PostgREST
+         result cannot say "this symbol does not exist", it just omits it. An unnamed omission
+         stays in the retrying lane. */
+      const named = chartNamedAbsenceFor(t);
       for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
-        reportChartDataState(host, { quote:"absent", absence:named });
+        reportChartDataState(host, named ? { quote:"absent", absence:named } : { quote:"delayed" });
     }
   } catch (err) {
     if (isNamedAbsence(err)) {

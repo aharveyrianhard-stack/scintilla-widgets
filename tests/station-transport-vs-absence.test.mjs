@@ -121,20 +121,97 @@ test("ownership already known survives one bad read instead of collapsing to emp
   assert.equal(w.SC_PROVIDER_SHIM.isProviderOwned("AAPL"), true);
 });
 
-test("a symbol the batch never returned is incomplete, not a named absence", async () => {
+test("a short batch fails the WHOLE request — AAPL+MSFT asked, only AAPL returned", async () => {
+  /* The hole this closes: the shim used to resolve with the rows it did have. The caller,
+     having asked for AAPL and MSFT and received a 200 carrying only AAPL, concluded that MSFT
+     is not observed by the stream and stopped retrying it. A partial answer is not a smaller
+     answer; it is an unfinished request. */
   const w = loadShim((url) => {
     if (String(url).includes("/geiger")) return ok(GEIGER_OK);
-    /* MSFT was asked for and simply is not in the reply — a short batch. */
     return ok({ quotes:{ AAPL:{ state:"OK", price:10, previous_close:9, price_observation_utc:"2026-08-19T07:50:00Z" } } });
   });
   w.pg = async () => [];
   w.scInstallProviderShim();
-  const rows = await w.pg("live_quotes?ticker=in.(AAPL,MSFT)&select=ticker,price");
+  await assert.rejects(
+    () => w.pg("live_quotes?ticker=in.(AAPL,MSFT)&select=ticker,price"),
+    (err) => err && err.scTransport === true && !err.scAbsence && /incomplete/.test(err.message),
+    "the request fails rather than resolving with half an answer");
   const S = w.SC_PROVIDER_SHIM;
-  assert.deepEqual(Array.from(rows, (r) => r.ticker), ["AAPL"]);
-  assert.equal(S.absenceFor("MSFT"), null,
-    "a truncated response must never mark a live symbol permanently unobserved");
+  assert.equal(S.absenceFor("MSFT"), null, "and MSFT is never marked unobserved");
+  assert.equal(S.absenceFor("AAPL"), null);
   assert.ok(S.counts.partial_batches > 0, "the short batch is recorded as such");
+});
+
+test("a stale cached row cannot stand in for one the current response omitted", async () => {
+  /* The second half of the same hole: the quote cache was handed back wholesale, so a symbol
+     THIS response omitted could still be served from an older one — an old price presented as
+     now, and as proof that the symbol had been accounted for. */
+  let call = 0;
+  const w = loadShim((url) => {
+    if (String(url).includes("/geiger")) return ok(GEIGER_OK);
+    call += 1;
+    return call === 1
+      ? ok({ quotes:{
+          AAPL:{ state:"OK", price:10, previous_close:9, price_observation_utc:"2026-08-19T07:50:00Z" },
+          MSFT:{ state:"OK", price:20, previous_close:19, price_observation_utc:"2026-08-19T07:50:00Z" } } })
+      : ok({ quotes:{
+          AAPL:{ state:"OK", price:11, previous_close:9, price_observation_utc:"2026-08-19T07:59:00Z" } } });
+  });
+  w.pg = async () => [];
+  w.scInstallProviderShim();
+
+  const first = await w.pg("live_quotes?ticker=in.(AAPL,MSFT)&select=ticker,price");
+  assert.equal(first.length, 2, "both arrive while both are served");
+
+  /* Force past the 5s warm window so the second, short response is the one that answers. */
+  const S = w.SC_PROVIDER_SHIM;
+  S.absences = {};
+  await new Promise((r) => setTimeout(r, 0));
+  w.SC_PROVIDER_SHIM.counts.partial_batches = 0;
+  /* The cache still holds MSFT from the first call. The request must still fail. */
+  const again = w.pg("live_quotes?ticker=in.(AAPL,MSFT)&select=ticker,price");
+  await again.then(
+    (rows) => {
+      /* Inside the 5s warm window the cached pair legitimately covers the request; what must
+         never happen is a row for MSFT sourced from a response that omitted it. */
+      const msft = Array.from(rows).find((r) => r.ticker === "MSFT");
+      if (msft) assert.equal(msft.price, 20, "a warm cache hit is the earlier response, in full");
+    },
+    (err) => assert.equal(err.scTransport, true, "or the incomplete request fails outright"));
+});
+
+test("a mixed equity/non-equity request fails whole when the passthrough fails", async () => {
+  /* Asked for AAPL (provider) and BTCUSD (non-equity). The provider half succeeds, origPg
+     throws. The old code returned just the provider rows under a 200, and the deck then named
+     BTCUSD absent — a legacy outage silently retiring a symbol from the wall. */
+  const w = loadShim((url) => {
+    if (String(url).includes("/geiger")) return ok(GEIGER_OK);
+    return ok({ quotes:{ AAPL:{ state:"OK", price:10, previous_close:9, price_observation_utc:"2026-08-19T07:50:00Z" } } });
+  });
+  w.pg = async () => { throw new Error("supabase 503"); };
+  w.scInstallProviderShim();
+  await assert.rejects(
+    () => w.pg("live_quotes?ticker=in.(AAPL,BTCUSD)&select=ticker,price"),
+    (err) => err && err.scTransport === true && !err.scAbsence);
+  assert.equal(w.SC_PROVIDER_SHIM.absenceFor("BTCUSD"), null,
+    "the non-equity is never named absent because its own owner failed");
+});
+
+test("a geiger payload that omits a requested symbol fails the request", async () => {
+  /* /geiger publishes the whole universe, so a gap in it is an incomplete payload, not a
+     per-symbol fact about MSFT. */
+  const w = loadShim(() => ok({ ...GEIGER_OK, symbols:{ AAPL:GEIGER_OK.symbols.AAPL, MSFT:GEIGER_OK.symbols.MSFT } }));
+  w.pg = async () => [];
+  w.scInstallProviderShim();
+  const fine = await w.pg("composite_staged?tf=eq.D&ticker=in.(AAPL,MSFT)&select=ticker,composite");
+  assert.equal(fine.length, 2, "a complete payload answers completely");
+
+  const w2 = loadShim(() => ok({ ...GEIGER_OK, symbols:{ AAPL:GEIGER_OK.symbols.AAPL, MSFT:GEIGER_OK.symbols.MSFT, TSLA:{} } }));
+  w2.pg = async () => [];
+  w2.scInstallProviderShim();
+  /* TSLA is owned (it is in the universe) but its entry is empty. */
+  const rows = await w2.pg("composite_staged?tf=eq.D&ticker=in.(AAPL)&select=ticker,composite");
+  assert.equal(rows.length, 1, "an unrelated empty entry does not fail an unrelated request");
 });
 
 test("a symbol the provider explicitly names IS a settled absence — the EQR case", async () => {

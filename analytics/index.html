@@ -73,7 +73,7 @@
   <span class="pill">M-1 CONSOLIDATED</span>
   <span class="conn"><span class="dot" id="connDot"></span><span id="asof">booting…</span></span>
 </h1>
-<div class="banner"><b>EQUITY AUTHORITY IS THE PROVIDER CONTRACT.</b> Price, previous close and Geiger for every provider-owned equity come from <b>scintilla-massive-chart-api</b> — <b>/quotes</b>, <b>/geiger</b> and <b>/candles?authority=provider</b> — the same contract the Hub cut over to. This page reads them through <code>_provider/provider.js</code>; it does not read <b>live_quotes</b>, <b>composite_staged</b> or <b>ohlcv_history</b> as equity truth, and it never calls FMP or Yahoo.<br><b>NON-EQUITY LANES ARE UNCHANGED AND EXPLICIT:</b> Universe/cohorts = <b>the cohort axis</b> (ticker_membership kind=cohort, active tickers, fully paged) + <b>hub_favorites</b> · Value = <b>fundamentals + ratios_history + analyst_estimates</b> · Macro = <b>treasury_rates / vix_term / operator_weights</b> · Sectors = <b>sector_rankings</b>. These are anon PostgREST reads, per-ticker on demand (1000-row cap respected).</div>
+<div class="banner"><b>EQUITY AUTHORITY IS THE PROVIDER CONTRACT.</b> Price, previous close and Geiger for every provider-owned equity come from <b>scintilla-massive-chart-api</b> — <b>/quotes</b>, <b>/geiger</b> and <b>/candles?authority=provider</b> — the same contract the Hub cut over to. This page reads them through <code>_provider/provider.js</code>; it does not read <b>live_quotes</b>, <b>composite_staged</b> or <b>ohlcv_history</b> as equity truth, and it never calls FMP or Yahoo.<br><b>NON-EQUITY LANES ARE UNCHANGED AND EXPLICIT:</b> Universe/cohorts = <b>ticker_cohorts</b> (the complete 1283-row membership set, fully paged) + <b>hub_favorites</b> · Value = <b>fundamentals + ratios_history + analyst_estimates</b> · Macro = <b>treasury_rates / vix_term / operator_weights</b> · Sectors = <b>sector_rankings</b>. These are anon PostgREST reads, per-ticker on demand (1000-row cap respected).</div>
 <div class="ctrls" id="ctrls">
   <span class="cg"><b>TIMEFRAME</b><span id="tfBtns"></span></span>
   <span class="cg"><b>VIEW</b><span id="vwBtns"></span></span>
@@ -284,9 +284,8 @@ async function boot(){
     wts:'operator_weights?select=dim,key,weight,enabled&limit=100'
   };
   const keys=Object.keys(q);
-  /* The cohort axis is read separately because it is PAGED and KIND-FILTERED, which a single
-     limit=1000 query cannot be: ticker_cohorts holds 1283 rows and mixes cohorts with
-     sectors, industries and size buckets. See _cohorts/cohort-axis.js. */
+  /* The membership set is read separately because it must be PAGED, which a single
+     limit=1000 query cannot be: ticker_cohorts holds 1283 rows. See _cohorts/cohort-axis.js. */
   const cohortAxis=await SC_COHORT_AXIS.loadMemberships(p=>j(p)).catch(e=>({err:e,rows:[]}));
   const res=await Promise.allSettled(keys.map(k=>j(q[k])));
   keys.forEach((k,i)=>{S[k]=res[i].status==='fulfilled'?res[i].value:{err:res[i].reason}});
@@ -321,7 +320,7 @@ function renderMacro(){
   const v=S.vix.err?null:S.vix[0];const vStale=v?agoD(v.date):null;
   h+='<div class="card"><div class="k">VIX / VIX3M</div><div class="v" style="font-size:22px">'+(v?fN(v.vix,1)+' / '+fN(v.vix3m,1):'ERR')+'</div><div class="small">ratio '+(v?fN(v.ratio,3):'—')+' · '+(v?v.date:'')+' '+(v&&parseInt(vStale)>3?'<span class="pill stale">STALE '+vStale+'</span>':'')+'</div></div>';
   const nT=Object.keys(S.map).length;
-  h+='<div class="card"><div class="k">UNIVERSE</div><div class="v" style="font-size:22px">'+nT+'</div><div class="small">'+Object.keys(S.cohortMap).length+' cohorts · FAV '+S.favSet.size+' · cohort axis (kind=cohort, active, fully paged) + hub_favorites'+(S.cohortTruncated?' · AXIS READ TRUNCATED':'')+'</div></div>';
+  h+='<div class="card"><div class="k">UNIVERSE</div><div class="v" style="font-size:22px">'+nT+'</div><div class="small">'+Object.keys(S.cohortMap).length+' cohorts · FAV '+S.favSet.size+' · ticker_cohorts membership, fully paged + hub_favorites'+(S.cohortTruncated?' · AXIS READ TRUNCATED':'')+'</div></div>';
   /* THE ENDPOINT'S OWN COMPUTE TIME. This tile used to read a stamp the shim wrote with
      Date.now() at the moment of the read, so it said "0s" no matter how old the Geiger was.
      /geiger publishes computed_utc; that is carried verbatim, and when it is missing the tile

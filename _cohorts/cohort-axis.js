@@ -1,62 +1,39 @@
 /* SCINTILLA STATION — THE COHORT AXIS
    ===================================
-   One definition of what a cohort IS, and one paginated way to read it, shared by every
-   surface that navigates the cohort axis. Before this file each page carried its own query,
-   and two separate faults hid behind the same line.
+   Two different questions were being answered by one query, and getting one answer.
 
-   FAULT 1 — THE READ WAS CAPPED AND NOBODY NOTICED.
-   PostgREST returns at most 1000 rows per response. `ticker_cohorts` holds 1283. Every
-   unpaginated reader was therefore dropping 283 memberships on every load, silently, with a
-   200 OK and a plausible-looking wall. A short read is indistinguishable from a small table
-   unless you go and ask for the next page, so this file always does, and it says how many
-   pages it took.
+     "WHICH COHORTS IS THIS TICKER IN?"  -> ticker_cohorts. 1283 memberships. NVDA is in five
+                                            of them: AI_HARDWARE, MEGA_CAP, MEGACAP,
+                                            SEMICONDUCTORS, TECH.
+     "WHERE DOES THIS TICKER LIVE?"      -> tickers.cohort. One value per ticker, populated for
+                                            all 387 active tickers across 16 home cohorts.
+                                            NVDA's is AI_HARDWARE.
 
-   FAULT 2 — `ticker_cohorts` IS NOT THE COHORT AXIS.
-   The view flattens FIVE different kinds of membership into one `cohort` column:
+   The navigation surfaces need the first. A surface that draws one tile per ticker needs the
+   second. Neither can be derived from the other, and the second must never be invented from
+   the first - an ordering rule over a membership set is a guess wearing a rule's clothes, and
+   it would have placed NVDA in AI_HARDWARE by coincidence while placing others wherever the
+   alphabet fell. tickers.cohort is a curated statement of where a ticker lives; it is read,
+   not computed.
 
-     kind='cohort'      408 rows   23 groups   <- the cohort axis
-     kind='sector'      334 rows   14 groups
-     kind='industry'    317 rows   93 groups
-     kind='size'        317 rows    4 groups
-     kind='sector_ext'   71 rows   10 groups
+   WHAT WENT WRONG BEFORE, and is fixed here:
 
-   Reading the view gives 120 "cohorts", of which 97 are sectors, industries and size buckets
-   wearing a cohort's name. That is why a ticker looked like it had up to 5 cohorts: it has
-   one cohort, one sector, one industry, one size bucket. Picking "the first one returned"
-   from that set is not a tie-break, it is a coin toss between four different questions - and
-   an unordered DISTINCT view gives no stable order to break the tie with.
+     THE READ WAS CAPPED. PostgREST returns at most 1000 rows per response and ticker_cohorts
+     holds 1283, so every unpaginated reader silently dropped 283 memberships behind a 200 OK.
+     A short read and a small table are indistinguishable unless you ask for the next page.
+     This module always asks, bounds the walk, and reports when it stopped early.
 
-   THE RULE, STATED: the cohort axis is `ticker_membership.kind = 'cohort'`, restricted to
-   active tickers - the same restriction `ticker_cohorts` itself applies. Measured on
-   2026-08-19 that is 404 memberships over 387 active tickers in 23 cohorts, with 16 tickers
-   in more than one cohort (at most 3).
+     THE TIE-BREAK WAS ARRIVAL ORDER. /heat placed a ticker in whichever membership row came
+     back first from an unordered DISTINCT view - a different wall on different loads.
 
-   Evidence that this is the SUCCESSOR of the retired `is_primary` flag rather than a new
-   invention: of the 233 rows the legacy base table still marks primary, 195 appear verbatim
-   in kind='cohort'; the legacy table carries 38 pairs membership has dropped and is missing
-   213 it has since gained. Same axis, refreshed - not a different one.
-
-   MULTI-MEMBERSHIP IS REAL AND IS PRESERVED. 16 tickers genuinely belong to more than one
-   cohort. `byTicker` returns every one of them. Only `primaryCohort` reduces to a single
-   value, for the surfaces that can paint a ticker in exactly one place, and it does so by a
-   NAMED, DETERMINISTIC rule rather than by arrival order.
+   Nothing here replaces ticker_cohorts with a different relation. It is the membership set,
+   read completely.
 */
 (function (root) {
   "use strict";
 
-  /* Editable defaults. Change KIND here and every cohort surface follows. */
-  const KIND = "cohort";
   const PAGE = 1000;              /* PostgREST's own ceiling; asking for more does not raise it */
   const MAX_PAGES = 40;           /* a bounded walk: 40k rows is far past any real axis */
-
-  /* THE TIE-BREAK, NAMED. A ticker in more than one cohort must land in exactly one place on
-     a surface that has one tile per ticker. Lowest cohort name wins - arbitrary, but stated,
-     stable across reloads, and identical on every surface. Arrival order is none of those. */
-  function primaryOf(cohorts) {
-    const list = (cohorts || []).map((c) => String(c || "").toUpperCase()).filter(Boolean);
-    if (!list.length) return null;
-    return list.slice().sort()[0];
-  }
 
   /* Walk every page. `pg` is the page's own reader; it is never replaced, only driven. */
   async function readAll(pg, path, page) {
@@ -75,36 +52,58 @@
     return { rows: out, pages, truncated: true };
   }
 
-  /* The cohort axis, fully paged, active tickers only. */
+  const upper = (v) => String(v == null ? "" : v).toUpperCase().trim();
+
+  /* ---- MEMBERSHIP: every cohort a ticker is in. The navigation axis. -------------------------
+     ticker_cohorts, read completely. A ticker appears once per cohort it belongs to. */
   async function loadMemberships(pg, options) {
-    const kind = (options && options.kind) || KIND;
     const size = (options && options.page) || PAGE;
-
-    const [membership, active] = await Promise.all([
-      readAll(pg, "ticker_membership?select=ticker,group_key&kind=eq." + encodeURIComponent(kind), size),
-      readAll(pg, "tickers?select=ticker&active=eq.true", size),
-    ]);
-
-    /* `ticker_cohorts` joins active tickers, so the axis must too, or a delisted name
-       reappears the moment the view is bypassed. */
-    const live = new Set(active.rows.map((r) => String(r && r.ticker || "").toUpperCase()).filter(Boolean));
+    const read = await readAll(pg, "ticker_cohorts?select=ticker,cohort", size);
     const seen = new Set();
     const rows = [];
-    for (const row of membership.rows) {
-      const ticker = String(row && row.ticker || "").toUpperCase();
-      const cohort = String(row && row.group_key || "").toUpperCase();
-      if (!ticker || !cohort || !live.has(ticker)) continue;
+    for (const row of read.rows) {
+      const ticker = upper(row && row.ticker);
+      const cohort = upper(row && row.cohort);
+      if (!ticker || !cohort) continue;
       const key = ticker + "|" + cohort;
-      if (seen.has(key)) continue;      /* the view is DISTINCT; so is this */
+      if (seen.has(key)) continue;          /* the view is DISTINCT; so is this */
       seen.add(key);
       rows.push({ ticker, cohort });
     }
+    return { rows, pages: read.pages, truncated: read.truncated, source: "ticker_cohorts" };
+  }
+
+  /* ---- HOME: the one cohort a ticker lives in. Read, never derived. --------------------------
+     tickers.cohort, for active tickers. This is what a one-tile-per-ticker surface needs. */
+  async function loadHomeCohorts(pg, options) {
+    const size = (options && options.page) || PAGE;
+    const read = await readAll(pg, "tickers?select=ticker,cohort&active=eq.true", size);
+    const home = new Map();
+    let unassigned = 0;
+    for (const row of read.rows) {
+      const ticker = upper(row && row.ticker);
+      if (!ticker) continue;
+      const cohort = upper(row && row.cohort);
+      if (!cohort) { unassigned += 1; continue; }   /* stated as unassigned, never guessed */
+      home.set(ticker, cohort);
+    }
+    return { home, activeTickers: read.rows.length, unassigned,
+             pages: read.pages, truncated: read.truncated, source: "tickers.cohort" };
+  }
+
+  /* Both sets at once, for a surface that shows a home AND the rest of the memberships. */
+  async function loadAxis(pg, options) {
+    const [memberships, homes] = await Promise.all([
+      loadMemberships(pg, options),
+      loadHomeCohorts(pg, options),
+    ]);
     return {
-      rows,
-      kind,
-      pages: membership.pages + active.pages,
-      truncated: membership.truncated || active.truncated,
-      activeTickers: live.size,
+      rows: memberships.rows,
+      home: homes.home,
+      activeTickers: homes.activeTickers,
+      unassigned: homes.unassigned,
+      truncated: memberships.truncated || homes.truncated,
+      pages: memberships.pages + homes.pages,
     };
   }
 
@@ -112,8 +111,8 @@
   function byTicker(rows) {
     const map = new Map();
     for (const row of rows || []) {
-      const ticker = String(row && row.ticker || "").toUpperCase();
-      const cohort = String(row && row.cohort || "").toUpperCase();
+      const ticker = upper(row && row.ticker);
+      const cohort = upper(row && row.cohort);
       if (!ticker || !cohort) continue;
       if (!map.has(ticker)) map.set(ticker, []);
       const list = map.get(ticker);
@@ -127,8 +126,8 @@
   function byCohort(rows) {
     const map = new Map();
     for (const row of rows || []) {
-      const ticker = String(row && row.ticker || "").toUpperCase();
-      const cohort = String(row && row.cohort || "").toUpperCase();
+      const ticker = upper(row && row.ticker);
+      const cohort = upper(row && row.cohort);
       if (!ticker || !cohort) continue;
       if (!map.has(cohort)) map.set(cohort, []);
       const list = map.get(cohort);
@@ -138,15 +137,28 @@
     return map;
   }
 
-  /* One cohort per ticker, for surfaces with one tile per ticker. */
-  function primaryByTicker(rows) {
-    const map = new Map();
-    for (const [ticker, cohorts] of byTicker(rows)) map.set(ticker, primaryOf(cohorts));
-    return map;
+  /* The home cohort of one ticker. Null means the ticker has no home recorded - which is a
+     fact about the data, not a prompt to pick one from its memberships. */
+  function homeOf(home, ticker) {
+    if (!home || typeof home.get !== "function") return null;
+    return home.get(upper(ticker)) || null;
+  }
+
+  /* Group tickers by their home cohort. Anything without a home is named, not hidden. */
+  function groupByHome(home, tickers, unassignedLabel) {
+    const label = unassignedLabel || "UNASSIGNED";
+    const groups = new Map();
+    for (const ticker of tickers || []) {
+      const key = homeOf(home, ticker) || label;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(ticker);
+    }
+    return groups;
   }
 
   root.SC_COHORT_AXIS = Object.freeze({
-    KIND, PAGE, MAX_PAGES,
-    readAll, loadMemberships, byTicker, byCohort, primaryByTicker, primaryOf,
+    PAGE, MAX_PAGES,
+    readAll, loadMemberships, loadHomeCohorts, loadAxis,
+    byTicker, byCohort, homeOf, groupByHome,
   });
 })(typeof globalThis === "object" ? globalThis : window);

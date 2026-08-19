@@ -472,15 +472,18 @@ function visibleChartTickers() {
   return Array.from(new Set(CHARTS.slice(0, CHART_COUNT).map(CLEAN).filter(Boolean)));
 }
 function deckQuoteFor(ticker) { return DECK_QUOTES.get(CLEAN(ticker)) || null; }
-/* Prefer the name the provider shim recorded for this symbol; fall back to the canonical
-   stream absence. Never invent a cause. */
+/* ONLY A RECORDED NAME MAKES AN ABSENCE. This used to default to NOT_OBSERVED_BY_STREAM for
+   any symbol a successful read did not carry - which meant a response that simply omitted a
+   row, for any reason, settled that symbol's fate and stopped the retries. A PostgREST result
+   cannot say "this symbol does not exist"; it just omits it. So a name is required, and where
+   there is none the symbol stays in the retrying lane where it belongs. */
 function deckAbsenceName(ticker) {
   try {
     const shim = window.SC_PROVIDER_SHIM;
     const named = shim && typeof shim.absenceFor === "function" ? shim.absenceFor(ticker) : null;
     if (named) return String(named);
   } catch (_) {}
-  return "NOT_OBSERVED_BY_STREAM";
+  return null;
 }
 function postDeckQuote(frame, ticker) {
   if (!frame?.contentWindow) return;
@@ -547,10 +550,15 @@ async function refreshDeckQuotes() {
       const quote = selected.get(ticker);
       if (quote) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); DECK_QUOTE_ABSENT.delete(ticker); }
       else {
-        /* The request succeeded. The absence of this row is the answer. */
+        /* The request succeeded and this row was not in it. That is settled ONLY if something
+           named it: the provider says NOT_OBSERVED_BY_STREAM for symbols it does not carry, and
+           the shim records that name. An unnamed omission is an unfinished answer - the read
+           may have been short, filtered or partial - and stays retryable rather than becoming
+           a permanent "not observed". */
         DECK_QUOTES.delete(ticker);
-        DECK_QUOTE_FAILED.delete(ticker);
-        DECK_QUOTE_ABSENT.set(ticker, deckAbsenceName(ticker));
+        const named = deckAbsenceName(ticker);
+        if (named) { DECK_QUOTE_FAILED.delete(ticker); DECK_QUOTE_ABSENT.set(ticker, named); }
+        else { DECK_QUOTE_ABSENT.delete(ticker); DECK_QUOTE_FAILED.add(ticker); }
       }
       fanoutDeckQuote(ticker);
     }

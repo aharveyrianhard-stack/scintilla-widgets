@@ -269,6 +269,10 @@
   </div></details>
 </div>
 
+<!-- PROVIDER AUTHORITY SHIM. This page reads ohlcv_history with a bare fetch(), which is
+     exactly the case the shim's fetch hook exists for. Without it the price spine below is a
+     legacy equity table presented as the primary source. -->
+<script src="/_provider/provider.js"></script>
 <script>
 /* ============ CONFIG ============ */
 const SECTORS = [   // colors = SCINTILLA design-system tokens only; sh = short abbreviation (memory aid on dense labels)
@@ -298,19 +302,33 @@ let DS={daily:{},intra:{},intra1:{},weekly:{}}; let ACTIVE='daily';
 let selected = JSON.parse(localStorage.getItem('sr_sel')||'null') || SECTORS.map(s=>s.t);
 let lineSeries={}, chart=null, rebaseIdx=-1, rebasing=false;
 
-/* ============ FETCH (own /api/yahoo relay first, then public fallbacks) ============ */
+/* ============ FETCH — REVIEWED RELAYS ONLY =====================================================
+   F1. This chain used to end in three unreviewed routes: a direct call to Yahoo, and two public
+   CORS proxies (corsproxy.io, api.allorigins.win). Both proxies are third parties that see every
+   request this page makes and hand back a body this page then treats as market data - an
+   unreviewed party in the middle of the price path, reached automatically and silently whenever
+   the reviewed relays were unavailable. A number that arrives that way is not sourced; it is
+   merely plausible.
+
+   Only the reviewed relays remain. When none of them answers, this raises - loudly - instead of
+   reaching for a proxy. The page is served from this repository, which has no /api/yahoo of its
+   own, so on this host the honest outcome is usually a stated failure rather than a chart drawn
+   from an unaccountable source. That is the point.
+   ============================================================================================ */
+const REVIEWED_RELAYS = [
+  (path, qs) => `/api/yahoo?path=${encodeURIComponent(path)}&${qs}`,                     // same-origin relay
+  (path, qs) => `https://scintillahub.ai/api/yahoo?path=${encodeURIComponent(path)}&${qs}`, // hub relay
+];
 async function fetchJSON(path,qs){
-  const direct=`https://query1.finance.yahoo.com/${path}?${qs}`;
-  const tries=[
-    `/api/yahoo?path=${encodeURIComponent(path)}&${qs}`,      // same-origin relay (hosted on scintillahub.ai)
-    `https://scintillahub.ai/api/yahoo?path=${encodeURIComponent(path)}&${qs}`, // hub relay (works from local copies too)
-    direct,                                                    // works in some browsers/extensions
-    'https://corsproxy.io/?url='+encodeURIComponent(direct),   // public fallback 1
-    'https://api.allorigins.win/raw?url='+encodeURIComponent(direct)]; // public fallback 2
-  for(const u of tries){
+  const attempted=[];
+  for(const build of REVIEWED_RELAYS){
+    const u=build(path,qs);
+    attempted.push(u.split('?')[0]);
     try{ const r=await fetch(u,{cache:'no-store'}); if(r.ok){const j=await r.json(); if(j&&!j.error) return j;} }catch(e){}
   }
-  throw new Error('all fetch routes failed');
+  const err=new Error('no reviewed relay answered ('+attempted.join(', ')+')');
+  err.scNoReviewedRelay=true;
+  throw err;
 }
 function parseSpark(j){
   const out={};
@@ -330,8 +348,18 @@ function parseSpark(j){
   }
   return out;
 }
-/* ============ PRICE BARS — Supabase ohlcv_history (Move 1 item 4: PRIMARY source) ============ */
-// Replaces the Yahoo spark relay as the PRIMARY price spine feeding Chain 1 Relative-Performance %
+/* ============ PRICE BARS — read through the provider authority contract ======================
+   F1. This block called ohlcv_history the PRIMARY price spine. That claim retired with the
+   provider cutover: for a provider-owned equity the bars are the provider's, served by
+   /candles?authority=provider, completed periods only. _provider/provider.js answers this
+   page's ohlcv_history reads from that contract and passes a genuine non-equity through to its
+   existing owner, so the URL below is unchanged while what answers it is not.
+
+   The Yahoo relay is no longer a fallback for the price spine at all. Falling back from a
+   provider-authority read to a relay is precisely the substitution that makes two surfaces
+   disagree about the same symbol; when the contract cannot answer, this says so.
+   =========================================================================================== */
+// Feeds Chain 1 Relative-Performance %
 // lines, Chain 2a RRG (weekly), heatmap % and Leaders. Same DS shape as parseSpark() (per-symbol
 // {times,closes}); opens/highs/lows/vols added ADDITIVELY, downstream math unchanged. ohlcv_history
 // .timestamp is bigint epoch SECONDS — same unit as Yahoo spark, so alignment/chart code needs no
@@ -339,7 +367,7 @@ function parseSpark(j){
 // (then reversed to ascending) mirrors the derived_series per-ticker pattern, stays under PostgREST's
 // 1000-row cap, and reproduces the old Yahoo range bar-counts (6mo / 2y / 5d / 1d).
 const OHLCV_VIEWS=[{view:'daily',tf:'D',lim:130},{view:'weekly',tf:'W',lim:110},{view:'intra',tf:'5',lim:400},{view:'intra1',tf:'1',lim:390}];
-let PRICE_SOURCE='pending';   // 'ohlcv_history' | 'yahoo-fallback' | 'pending'
+let PRICE_SOURCE='pending';   // 'provider' | 'unavailable' | 'pending'
 /* ---- C7 (2026-08-05): DATA SPINE badges — every data element shows table · freshness · LIVE/STALE/FALLBACK ---- */
 const SPINE={};
 function spineSet(k,ts,mode,note){ SPINE[k]={ts,mode,note}; renderSpine(); }
@@ -380,6 +408,8 @@ async function refreshRankingsLive(){
 /* ---- C7: universe check — the 11 sectors + SPY must exist in ticker_cohorts (THE universe table) ---- */
 async function refreshUniverseCheck(){
   try{
+    /* "Which tickers are in MACRO" is a membership question; ticker_cohorts is the
+       membership set. The 1000 cap is well clear of one cohort's size. */
     const url=`${SB_URL}/rest/v1/ticker_cohorts?select=ticker,cohort&cohort=eq.MACRO&limit=1000`;
     const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}, cache:'no-store'});
     if(!res.ok) throw new Error('ticker_cohorts '+res.status);
@@ -409,14 +439,14 @@ async function loadDataDB(){
   })));
   if(!next.daily[BENCH]||!next.daily[BENCH].closes.length) throw new Error('no benchmark daily bars in ohlcv_history');
   DS.daily=next.daily; DS.weekly=next.weekly; DS.intra=next.intra; DS.intra1=next.intra1;
-  PRICE_SOURCE='ohlcv_history';
+  PRICE_SOURCE='provider';
   const bt=next.daily[BENCH].times, lastBar=bt.length?bt[bt.length-1]:null;
-  spineSet('ohlcv_history',lastBar,spineAge(lastBar,3*86400),'price spine (D/W/5/1) · latest daily bar shown · PRIMARY');
+  spineSet('provider /candles',lastBar,spineAge(lastBar,3*86400),'price spine (D/W/5/1) · latest completed bar shown · provider authority');
 }
-// PRIMARY = Supabase ohlcv_history; Yahoo relay kept ONLY as a flagged fallback if the DB fetch throws.
+// The provider contract answers, or the page says it could not. No relay stands in for it.
 async function loadData(){
   try{ await loadDataDB(); }
-  catch(e){ console.warn('[price] ohlcv_history fetch failed — falling back to Yahoo relay:',e); await loadDataYahoo(); PRICE_SOURCE='yahoo-fallback'; spineSet('ohlcv_history',null,'FALLBACK','DB read threw — price spine on flagged Yahoo relay: '+e.message); }
+  catch(e){ console.warn('[price] provider price spine unavailable:',e); PRICE_SOURCE='unavailable'; spineSet('provider /candles',null,'FALLBACK','price spine unavailable — '+e.message+' · no substitute source is used'); }
 }
 
 async function loadDataYahoo(){
@@ -1512,7 +1542,9 @@ async function boot(manual){
     await loadData();
     renderAll(true);
     st.classList.remove('err');
-    st.innerHTML=`<b>● LIVE</b> ${PRICE_SOURCE==='ohlcv_history'?'Supabase ohlcv_history':'Yahoo fallback'} daily · updated ${new Date().toLocaleTimeString()} · auto-refresh ${REFRESH_MIN}min`;
+    st.innerHTML=PRICE_SOURCE==='provider'
+      ? `<b>● LIVE</b> provider /candles (authority=provider, completed bars) daily · updated ${new Date().toLocaleTimeString()} · auto-refresh ${REFRESH_MIN}min`
+      : `<b>● PRICE SPINE UNAVAILABLE</b> the provider contract did not answer · nothing is substituted · auto-refresh ${REFRESH_MIN}min`;
     document.getElementById('banner').style.display='none';
   }catch(e){
     st.classList.add('err'); st.innerHTML='<b>● FEED DOWN</b>';

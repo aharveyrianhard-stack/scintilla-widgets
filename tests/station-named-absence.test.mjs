@@ -124,12 +124,18 @@ test("the deck header reports absence as absence, not as a delay", () => {
   assert.equal(headline(["NOT_OBSERVED_BY_STREAM", "TIMEFRAME_NOT_MAPPED"], 2), "DATA · not observed (2)");
 });
 
-test("a quote row the read simply did not carry is absence, and a dead read is still a delay", () => {
-  /* deck: the success branch and the catch branch must disagree about what happened. */
+test("only a NAMED omission is an absence; an unnamed one stays retryable", () => {
+  /* deck keeps three states apart, not two: a good read that carried the row, a good read
+     whose omission something NAMED, and everything else - which is still in flight as far as
+     anyone here can honestly say. A PostgREST result cannot say "this symbol does not exist";
+     it just omits it, so an omission on its own settles nothing. */
   assert.match(deck, /const DECK_QUOTE_ABSENT = new Map\(\);/);
-  assert.match(deck, /DECK_QUOTE_FAILED\.delete\(ticker\);\n\s*DECK_QUOTE_ABSENT\.set\(ticker, deckAbsenceName\(ticker\)\);/);
+  assert.match(deck, /if \(named\) \{ DECK_QUOTE_FAILED\.delete\(ticker\); DECK_QUOTE_ABSENT\.set\(ticker, named\); \}/);
+  assert.match(deck, /else \{ DECK_QUOTE_ABSENT\.delete\(ticker\); DECK_QUOTE_FAILED\.add\(ticker\); \}/);
   assert.match(deck, /catch \(_\) \{[\s\S]{0,240}DECK_QUOTE_ABSENT\.delete\(ticker\); DECK_QUOTE_FAILED\.add\(ticker\);/);
   assert.match(deck, /DECK_QUOTE_ABSENT\.has\(clean\) \? "absent"/);
+  /* The old default - assume NOT_OBSERVED_BY_STREAM for anything missing - is gone. */
+  assert.doesNotMatch(deck, /return "NOT_OBSERVED_BY_STREAM";/);
   /* chart: the absent state survives the trip across the frame boundary. */
   assert.match(chart, /function applyDeckQuote\(ticker, quote, state, absence\)/);
   assert.match(chart, /state === "absent" \? "absent" : state === "delayed" \? "delayed" : "loading"/);

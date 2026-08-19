@@ -102,9 +102,10 @@ function href(kind, name) {
 }
 
 async function tick() {
-  /* The cohort axis, fully paged and kind-filtered - see _cohorts/cohort-axis.js. Reading
-     ticker_cohorts directly returned 120 groups of which 97 were sectors, industries and size
-     buckets, and capped at 1000 of its 1283 rows. */
+  /* THE FULL MEMBERSHIP SET. This strip is navigation: it shows every cohort, so it needs
+     every membership. ticker_cohorts holds 1283 rows and PostgREST caps a response at 1000,
+     so the old unpaginated read dropped 283 of them behind a 200 OK. See
+     _cohorts/cohort-axis.js. */
   const [axis, cs, fav] = await Promise.all([
     SC_COHORT_AXIS.loadMemberships(pg),
     pg("composite_staged?tf=eq.D&select=ticker,composite"),

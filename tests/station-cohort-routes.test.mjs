@@ -1,28 +1,26 @@
-/* STATION-002 — the cohort axis: what it is, and reading all of it.
-   ===============================================================
-   The first repair removed a filter on a column that no longer exists. That stopped the 400
-   that took /cohorts, /cohort, /compare and /geigerwall down together, and it was not
-   enough: it fixed the request and left the data contract wrong in two ways that a
-   query-spelling test cannot see.
+/* STATION-002 — two questions, two answers.
+   ========================================
+   The first repair removed a filter on a column that no longer exists, which stopped the 400
+   that took /cohorts, /cohort, /compare and /geigerwall down together. The second attempt then
+   over-corrected: it substituted a different relation for ticker_cohorts and invented a
+   "primary" cohort by taking the lexicographically lowest name. Both are wrong, and this suite
+   pins the split that is right.
 
-   FAULT 1 — THE READ WAS CAPPED AND LOOKED FINE.
-   PostgREST returns at most 1000 rows per response. `ticker_cohorts` holds 1283. Every
-   unpaginated reader silently dropped 283 memberships behind a 200 OK. A short read and a
-   small table are indistinguishable unless you ask for the next page.
+     "WHICH COHORTS IS THIS TICKER IN?"  -> ticker_cohorts. 1283 memberships, PostgREST caps a
+                                            response at 1000, so an unpaginated read silently
+                                            drops 283 of them behind a 200 OK. NVDA is in five:
+                                            AI_HARDWARE, MEGA_CAP, MEGACAP, SEMICONDUCTORS,
+                                            TECH.
+     "WHERE DOES THIS TICKER LIVE?"      -> tickers.cohort. One curated value per ticker,
+                                            populated for all 387 active tickers over 16 home
+                                            cohorts. NVDA's is AI_HARDWARE.
 
-   FAULT 2 — `ticker_cohorts` IS NOT THE COHORT AXIS.
-   The view flattens five kinds of membership into one column — cohort (23 groups), sector
-   (14), industry (93), size (4), sector_ext (10) — so it reports 120 "cohorts" of which 97
-   are not cohorts. That is also why a ticker appeared to hold up to 5 memberships: one
-   cohort, one sector, one industry, one size bucket. "First row wins" over an unordered
-   DISTINCT view was therefore not a tie-break but a coin toss between four questions.
+   Navigation surfaces need the first, complete. A surface drawing one tile per ticker needs the
+   second, read. Neither is derivable from the other: an ordering rule over a membership set is
+   a guess wearing a rule's clothes, and it would have placed NVDA in AI_HARDWARE only because
+   the alphabet happened to agree.
 
-   THE RULE: the cohort axis is ticker_membership.kind='cohort', restricted to active
-   tickers — the same restriction the view itself applies. Measured 2026-08-19: 404
-   memberships, 387 active tickers, 23 cohorts, 16 tickers in more than one cohort, at most 3.
-
-   These tests drive the real module against a fake pg() whose page behaviour matches
-   PostgREST's, so the cap is exercised rather than assumed.
+   Live counts asserted below were taken from the database on 2026-08-19.
 */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -33,14 +31,13 @@ const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
 const axisSource = read("../_cohorts/cohort-axis.js");
 
 function loadAxis() {
-  const sandbox = { globalThis:{}, Promise, Set, Map, Array, Object, String, Number, Math,
-                    encodeURIComponent, console };
+  const sandbox = { globalThis:{}, Promise, Set, Map, Array, Object, String, Number, Math, console };
   vm.runInNewContext(axisSource, sandbox);
   return sandbox.globalThis.SC_COHORT_AXIS;
 }
 
-/* A pg() that behaves like PostgREST: honours limit/offset and never returns more than the
-   server cap, whatever the caller asks for. */
+/* A pg() that behaves like PostgREST: honours limit/offset, never returns more than the server
+   cap whatever the caller asks for, and simply omits rows a filter excludes. */
 function fakePg(tables, { cap = 1000 } = {}) {
   const calls = [];
   return {
@@ -55,168 +52,177 @@ function fakePg(tables, { cap = 1000 } = {}) {
       for (const [key, value] of params) {
         if (["select", "limit", "offset", "order"].includes(key)) continue;
         const [op, ...rest] = value.split(".");
-        const wanted = rest.join(".");
-        if (op === "eq") rows = rows.filter((r) => String(r[key]) === wanted);
+        if (op === "eq") rows = rows.filter((r) => String(r[key]) === rest.join("."));
       }
       return rows.slice(offset, offset + limit);
     },
   };
 }
 
-/* A membership table shaped like the live one: five kinds, and more rows than one page. */
-function liveShapedMembership() {
-  const rows = [];
-  const cohorts = Array.from({ length:23 }, (_, i) => "COHORT_" + String(i).padStart(2, "0"));
-  for (let i = 0; i < 387; i += 1) {
+/* THE LIVE CONTRACT, as measured on 2026-08-19. */
+const LIVE = { activeTickers:387, memberships:1283, homeCohorts:16,
+               nvdaHome:"AI_HARDWARE",
+               nvdaMemberships:["AI_HARDWARE", "MEGACAP", "MEGA_CAP", "SEMICONDUCTORS", "TECH"] };
+
+/* A fixture with the live shape: 1283 memberships over 387 tickers, NVDA in exactly its five. */
+function liveShapedFixture() {
+  const tickers = [];
+  const memberships = [];
+  /* NVDA's home is one of the 16, and is deliberately NOT the first or last of its own
+     memberships in any natural order — that is what makes it a proof of reading. */
+  const homes = [LIVE.nvdaHome].concat(
+    Array.from({ length:LIVE.homeCohorts - 1 }, (_, i) => "HOME_" + String(i).padStart(2, "0")));
+  for (let i = 0; i < LIVE.activeTickers - 1; i += 1) {
     const ticker = "T" + String(i).padStart(3, "0");
-    rows.push({ ticker, group_key:cohorts[i % cohorts.length], kind:"cohort" });
-    rows.push({ ticker, group_key:"SECTOR_" + (i % 14), kind:"sector" });
-    rows.push({ ticker, group_key:"INDUSTRY_" + (i % 93), kind:"industry" });
-    rows.push({ ticker, group_key:"SIZE_" + (i % 4), kind:"size" });
+    tickers.push({ ticker, cohort:homes[i % homes.length], active:true });
+    memberships.push({ ticker, cohort:homes[i % homes.length] });
   }
-  /* 16 tickers in a second cohort, matching the live count. */
-  for (let i = 0; i < 16; i += 1)
-    rows.push({ ticker:"T" + String(i).padStart(3, "0"), group_key:"COHORT_EXTRA", kind:"cohort" });
-  return rows;
+  tickers.push({ ticker:"NVDA", cohort:LIVE.nvdaHome, active:true });
+  for (const cohort of LIVE.nvdaMemberships) memberships.push({ ticker:"NVDA", cohort });
+  /* Pad to exactly 1283 distinct memberships, which forces a second page. */
+  let extra = 0;
+  while (memberships.length < LIVE.memberships) {
+    const ticker = "T" + String(extra % (LIVE.activeTickers - 1)).padStart(3, "0");
+    memberships.push({ ticker, cohort:"EXTRA_" + Math.floor(extra / 300) });
+    extra += 1;
+  }
+  return { ticker_cohorts:memberships, tickers };
 }
-const ACTIVE = Array.from({ length:387 }, (_, i) => ({ ticker:"T" + String(i).padStart(3, "0"), active:true }));
 
-test("the axis reads past the 1000-row page cap instead of stopping at it", async () => {
+test("the membership set is read past the 1000-row page cap, all 1283 of it", async () => {
   const axis = loadAxis();
-  /* 1548 cohort-kind rows: three pages. A capped reader would see 1000 and call it a table. */
-  const membership = Array.from({ length:1548 }, (_, i) => ({
-    ticker:"T" + String(i % 387).padStart(3, "0"), group_key:"C" + (i % 23), kind:"cohort" }));
-  const { pg, calls } = fakePg({ ticker_membership:membership, tickers:ACTIVE });
-
+  const { pg, calls } = fakePg(liveShapedFixture());
   const result = await axis.loadMemberships(pg);
+
+  assert.equal(result.source, "ticker_cohorts", "the membership set is ticker_cohorts, not a substitute");
+  assert.ok(calls.some((c) => c.startsWith("ticker_cohorts?")), "it reads that relation");
+  assert.ok(calls.some((c) => c.includes("offset=1000")), "a second page is actually requested");
+  assert.equal(result.rows.length, LIVE.memberships, "all 1283 memberships arrive");
   assert.equal(result.truncated, false);
-  assert.ok(calls.some((c) => c.includes("offset=1000")), "a second page was actually requested");
-  /* Every distinct pair survives the walk. */
-  const distinct = new Set(membership.map((r) => r.ticker + "|" + r.group_key));
-  assert.equal(result.rows.length, distinct.size);
-  assert.ok(result.rows.length > 1000, "more than one page of memberships came back");
 });
 
 test("a page exactly the size of the cap is not mistaken for the end of the table", async () => {
   const axis = loadAxis();
-  /* The nastiest case: a full page followed by one more row. */
-  const membership = Array.from({ length:1001 }, (_, i) => ({
-    ticker:"T" + String(i).padStart(4, "0"), group_key:"C" + (i % 5), kind:"cohort" }));
-  const active = membership.map((r) => ({ ticker:r.ticker, active:true }));
-  const { pg } = fakePg({ ticker_membership:membership, tickers:active });
+  const memberships = Array.from({ length:1001 }, (_, i) => ({ ticker:"T" + i, cohort:"C" + (i % 5) }));
+  const { pg } = fakePg({ ticker_cohorts:memberships, tickers:[] });
   const result = await axis.loadMemberships(pg);
   assert.equal(result.rows.length, 1001, "the 1001st membership is not lost");
 });
 
 test("a bounded walk that hits its page ceiling says so rather than looking complete", async () => {
   const axis = loadAxis();
-  const huge = Array.from({ length:axis.MAX_PAGES * axis.PAGE + 5 }, (_, i) => ({
-    ticker:"T" + i, group_key:"C" + (i % 3), kind:"cohort" }));
-  const { pg } = fakePg({ ticker_membership:huge, tickers:huge.map((r) => ({ ticker:r.ticker, active:true })) });
+  const huge = Array.from({ length:axis.MAX_PAGES * axis.PAGE + 5 }, (_, i) => ({ ticker:"T" + i, cohort:"C" + (i % 3) }));
+  const { pg } = fakePg({ ticker_cohorts:huge, tickers:[] });
   const result = await axis.loadMemberships(pg);
   assert.equal(result.truncated, true, "a truncated read must never claim to be whole");
 });
 
-test("only cohort-kind membership is the cohort axis", async () => {
+test("multi-membership survives intact — NVDA keeps all five", async () => {
   const axis = loadAxis();
-  const { pg, calls } = fakePg({ ticker_membership:liveShapedMembership(), tickers:ACTIVE });
+  const { pg } = fakePg(liveShapedFixture());
   const result = await axis.loadMemberships(pg);
-
-  assert.ok(calls.some((c) => c.includes("kind=eq.cohort")), "the read is kind-filtered");
-  const cohorts = new Set(result.rows.map((r) => r.cohort));
-  assert.equal(cohorts.size, 24, "23 cohorts plus the extra one — sectors/industries/sizes excluded");
-  for (const name of cohorts)
-    assert.ok(!/^SECTOR_|^INDUSTRY_|^SIZE_/.test(name), `${name} is not a cohort`);
-  assert.equal(result.rows.length, 387 + 16, "404-shaped: one cohort per ticker plus 16 second memberships");
+  const byTicker = axis.byTicker(result.rows);
+  assert.deepEqual(Array.from(byTicker.get("NVDA")), LIVE.nvdaMemberships.slice().sort(),
+    "every cohort NVDA belongs to is preserved, none collapsed away");
+  const byCohort = axis.byCohort(result.rows);
+  assert.ok(Array.from(byCohort.get("SEMICONDUCTORS")).includes("NVDA"));
+  assert.ok(Array.from(byCohort.get("TECH")).includes("NVDA"));
 });
 
-test("an inactive ticker cannot re-enter the axis by bypassing the view", async () => {
+test("the home cohort is READ from tickers.cohort, never derived from memberships", async () => {
   const axis = loadAxis();
-  const membership = [
-    { ticker:"LIVE1", group_key:"AI", kind:"cohort" },
-    { ticker:"DELISTED", group_key:"AI", kind:"cohort" },
-  ];
-  const { pg, calls } = fakePg({ ticker_membership:membership, tickers:[{ ticker:"LIVE1", active:true }, { ticker:"DELISTED", active:false }] });
-  const result = await axis.loadMemberships(pg);
-  assert.ok(calls.some((c) => c.includes("active=eq.true")), "active tickers are asked for");
-  assert.deepEqual(Array.from(result.rows, (r) => r.ticker), ["LIVE1"]);
+  const { pg, calls } = fakePg(liveShapedFixture());
+  const homes = await axis.loadHomeCohorts(pg);
+
+  assert.equal(homes.source, "tickers.cohort");
+  assert.ok(calls.some((c) => c.startsWith("tickers?") && c.includes("active=eq.true")),
+    "only active tickers, matching what the membership view itself restricts to");
+  assert.equal(homes.activeTickers, LIVE.activeTickers, "387 active tickers");
+  assert.equal(homes.unassigned, 0, "every active ticker has a home recorded");
+  assert.equal(new Set(homes.home.values()).size, LIVE.homeCohorts, "16 home cohorts");
+
+  /* The case that proves it is read and not derived: NVDA's home is AI_HARDWARE, which is
+     neither the first nor the last of its memberships in any natural order. */
+  assert.equal(axis.homeOf(homes.home, "NVDA"), LIVE.nvdaHome);
+  assert.equal(axis.homeOf(homes.home, "nvda"), LIVE.nvdaHome, "lookup is case-insensitive");
+
+  /* Nothing in the module may pick a cohort out of a membership list. */
+  assert.equal(typeof axis.primaryOf, "undefined", "no ordering-based primary rule exists");
+  assert.equal(typeof axis.primaryByTicker, "undefined");
+  assert.doesNotMatch(axisSource, /sort\(\)\[0\]/, "no lexicographic tie-break survives");
 });
 
-test("multi-membership is preserved, not collapsed", async () => {
+test("a ticker with no recorded home is named unassigned, not given one", async () => {
   const axis = loadAxis();
-  const rows = [
-    { ticker:"NVDA", cohort:"AI_COMPUTE" },
-    { ticker:"NVDA", cohort:"AI_POWER" },
-    { ticker:"NVDA", cohort:"SEMIS" },
-    { ticker:"MU", cohort:"SEMIS" },
-  ];
-  const byTicker = axis.byTicker(rows);
-  assert.deepEqual(Array.from(byTicker.get("NVDA")), ["AI_COMPUTE", "AI_POWER", "SEMIS"],
-    "every cohort a ticker belongs to survives");
-  assert.deepEqual(Array.from(byTicker.get("MU")), ["SEMIS"]);
+  const { pg } = fakePg({
+    tickers:[{ ticker:"HOMELESS", cohort:null, active:true }, { ticker:"HOUSED", cohort:"AI", active:true }],
+    ticker_cohorts:[{ ticker:"HOMELESS", cohort:"TECH" }, { ticker:"HOMELESS", cohort:"SEMIS" }],
+  });
+  const homes = await axis.loadHomeCohorts(pg);
+  assert.equal(homes.unassigned, 1);
+  assert.equal(axis.homeOf(homes.home, "HOMELESS"), null,
+    "its memberships are NOT substituted for a home it does not have");
 
-  const byCohort = axis.byCohort(rows);
-  assert.deepEqual(Array.from(byCohort.get("SEMIS")), ["MU", "NVDA"]);
-  assert.deepEqual(Array.from(byCohort.get("AI_POWER")), ["NVDA"]);
+  const groups = axis.groupByHome(homes.home, ["HOMELESS", "HOUSED"]);
+  assert.deepEqual(Array.from(groups.get("UNASSIGNED")), ["HOMELESS"]);
+  assert.deepEqual(Array.from(groups.get("AI")), ["HOUSED"]);
 });
 
-test("a surface with one tile per ticker picks the same cohort every load", async () => {
+test("home placement is identical whatever order the memberships arrive in", async () => {
   const axis = loadAxis();
-  const rows = [
-    { ticker:"NVDA", cohort:"SEMIS" },
-    { ticker:"NVDA", cohort:"AI_COMPUTE" },
-    { ticker:"NVDA", cohort:"AI_POWER" },
-  ];
-  /* The defect: row order decided the answer. The same three memberships in any order must
-     now produce the same placement. */
-  const shuffles = [
-    rows,
-    [rows[2], rows[0], rows[1]],
-    [rows[1], rows[2], rows[0]],
-    rows.slice().reverse(),
-  ];
-  const picks = shuffles.map((r) => axis.primaryByTicker(r).get("NVDA"));
-  assert.deepEqual(picks, ["AI_COMPUTE", "AI_COMPUTE", "AI_COMPUTE", "AI_COMPUTE"],
-    "the named tie-break, not arrival order, decides");
-  assert.equal(axis.primaryOf([]), null);
-  assert.equal(axis.primaryOf(null), null);
-  assert.equal(axis.primaryOf(["ONLY"]), "ONLY");
+  const fixture = liveShapedFixture();
+  const shuffled = { ...fixture, ticker_cohorts:fixture.ticker_cohorts.slice().reverse() };
+  const a = await axis.loadHomeCohorts(fakePg(fixture).pg);
+  const b = await axis.loadHomeCohorts(fakePg(shuffled).pg);
+  assert.equal(axis.homeOf(a.home, "NVDA"), LIVE.nvdaHome);
+  assert.equal(axis.homeOf(b.home, "NVDA"), LIVE.nvdaHome,
+    "membership order cannot move a ticker's home, because it never decided it");
 });
 
-test("every cohort surface reads the axis rather than the mixed, capped view", () => {
-  const SURFACES = {
+test("navigation surfaces read the complete membership set", () => {
+  const NAVIGATION = {
     "/cohorts":    read("../cohorts/index.html"),
     "/cohort":     read("../cohort/index.html"),
     "/compare":    read("../compare/index.html"),
     "/geigerwall": read("../geigerwall/index.html"),
-    "/heat":       read("../heat/index.html"),
     "/events":     read("../events/index.html"),
     "/analytics":  read("../analytics/index.html"),
   };
-  for (const [route, source] of Object.entries(SURFACES)) {
-    assert.match(source, /<script src="\/_cohorts\/cohort-axis\.js"><\/script>/,
-      `${route} loads the shared axis`);
-    assert.match(source, /SC_COHORT_AXIS\.(loadMemberships|primaryByTicker|byCohort)/,
-      `${route} uses the shared axis`);
-    /* No surface may go back to querying the mixed view directly. */
-    assert.doesNotMatch(source, /pg(All)?\(["']ticker_cohorts\?/,
-      `${route} still queries ticker_cohorts directly`);
-    assert.doesNotMatch(source, /['"]ticker_cohorts\?select/,
-      `${route} still queries ticker_cohorts directly`);
+  for (const [route, source] of Object.entries(NAVIGATION)) {
+    assert.match(source, /<script src="\/_cohorts\/cohort-axis\.js"><\/script>/, `${route} loads the shared reader`);
+    assert.match(source, /SC_COHORT_AXIS\.(loadMemberships|byCohort)/, `${route} reads the membership set`);
+    assert.doesNotMatch(source, /SC_COHORT_AXIS\.loadHomeCohorts/,
+      `${route} is navigation — it must not reduce a ticker to one cohort`);
     assert.doesNotMatch(source, /is_primary/, `${route} still references the retired column`);
+    /* No surface may go back to a single capped page of the membership set. */
+    assert.doesNotMatch(source, /pg(All)?\(["']ticker_cohorts\?/, `${route} queries ticker_cohorts un-paged`);
+    assert.doesNotMatch(source, /['"]ticker_cohorts\?select[^'"]*limit=1000/, `${route} pins one page`);
   }
 });
 
-test("no reader asks for the axis with a bare limit and calls that the whole table", () => {
-  for (const path of ["../cohorts/index.html", "../cohort/index.html", "../compare/index.html",
-                      "../geigerwall/index.html", "../heat/index.html", "../events/index.html",
-                      "../analytics/index.html"]) {
-    const source = read(path);
-    assert.doesNotMatch(source, /ticker_membership\?[^"']*limit=1000(?![0-9])[^"']*['"]/,
-      `${path} pins a single page instead of paging`);
-  }
-  /* The module is the only place that pages, and it bounds itself. */
+test("/heat and the fundamentals peer set use the read home cohort", () => {
+  const heat = read("../heat/index.html");
+  assert.match(heat, /SC_COHORT_AXIS\.loadHomeCohorts\(pg\)/, "/heat asks for homes");
+  assert.match(heat, /SC_COHORT_AXIS\.homeOf\(home, r\.t\)/, "and places each tile by the home it read");
+  assert.match(heat, /tickers\.cohort/, "and says so on the page");
+  assert.doesNotMatch(heat, /for \(const r of d\.coh\) if \(!\(r\.ticker in primary\)\)/,
+    "the arrival-order rule is gone");
+
+  const fundamentals = read("../templates/fundamentals.html");
+  assert.match(fundamentals, /SC_COHORT_AXIS\.loadAxis\(/, "it needs both sets");
+  assert.match(fundamentals, /for\(const \[ticker, homeCohort\] of axis\.home\) COHORT_MAP\[ticker\]=homeCohort;/,
+    "the peer set is keyed on the read home cohort");
+  assert.match(fundamentals, /tickers\.cohort/);
+  assert.doesNotMatch(fundamentals, /primaryByTicker/, "no derived primary survives");
+  assert.doesNotMatch(fundamentals, /is_primary/);
+});
+
+test("the module pages, bounds itself, and never substitutes a relation", () => {
   assert.match(axisSource, /const PAGE = 1000;/);
   assert.match(axisSource, /const MAX_PAGES = 40;/);
   assert.match(axisSource, /if \(batch\.length < size\) return \{ rows: out, pages, truncated: false \};/);
+  assert.match(axisSource, /"ticker_cohorts\?select=ticker,cohort"/, "memberships come from ticker_cohorts");
+  assert.match(axisSource, /"tickers\?select=ticker,cohort&active=eq\.true"/, "homes come from tickers.cohort");
+  assert.doesNotMatch(axisSource, /ticker_membership/,
+    "no equivalent-looking relation is swapped in for either question");
 });

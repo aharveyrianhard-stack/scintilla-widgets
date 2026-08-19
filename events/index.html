@@ -98,9 +98,8 @@ const tone = (v) => (v > 0 ? "up" : v < 0 ? "dn" : "neu");
 async function tick() {
   let inList = null;
   if (COHORT) {
-    /* The cohort axis, fully paged and kind-filtered - see _cohorts/cohort-axis.js. The old
-       read filtered ticker_cohorts, which would also have matched a sector, industry or size
-       bucket that happened to share a name with a cohort. */
+    /* "Which tickers are in this cohort" is a MEMBERSHIP question, so it reads the full
+       membership set rather than a single capped page - see _cohorts/cohort-axis.js. */
     const axis = await SC_COHORT_AXIS.loadMemberships(pg).catch(() => null);
     inList = axis ? (SC_COHORT_AXIS.byCohort(axis.rows).get(COHORT) || []) : [];
     if (!inList.length) { el("cols").innerHTML = '<div class="empty">no tickers in cohort ' + esc(COHORT) + "</div>"; return; }
