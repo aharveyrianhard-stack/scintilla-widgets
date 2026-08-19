@@ -369,3 +369,48 @@ test("/youtube: a failed feed read never claims the owner's empty table", () => 
   assert.match(yt, /awaiting feed<\/b> — the youtube_feed table is empty; cards fill per video when the ingester lands/,
     "the owner's-absence wording survives for the read that LANDED empty");
 });
+
+test("an unknown day change gets neither a sign nor a direction colour — `null >= 0` is true in JavaScript", () => {
+  /* The trap this whole test exists for: a relational comparison coerces null to 0, so
+     `value >= 0` is TRUE for a value nobody sent. Every unguarded directional ternary
+     therefore painted UNKNOWN as UP — a systematic bullish tint on missing data — and some
+     printed a "+" sign and a fabricated 0.00 beside it. */
+  assert.equal(null >= 0, true, "the coercion this guards against");
+
+  const ticker = read("../ticker/index.html");
+  /* /ticker fabricated the value itself: `|| 0` turned an unknown change into a reported
+     flat day, which then also entered the movers ranking as the least-moving symbol. */
+  assert.doesNotMatch(ticker, /num\(q\.change\)\) \|\| 0/, "the fabricated zero is gone");
+  assert.match(ticker, /pct: num\(q\.chg_pct\) != null \? num\(q\.chg_pct\) : num\(q\.change\) \}\)\);/);
+  assert.match(ticker, /const known = all\.filter\(\(q\) => q\.pct != null && isFinite\(q\.pct\)\);/);
+  assert.match(ticker, /\.concat\(unknown\);/, "unknowns are kept and ranked last, never dropped");
+  assert.match(ticker, /\.sc-tape__item \.neu\{ color:var\(--dim\); \}/);
+
+  /* fmtC is an arrow const, not a `function` — extract the declaration itself and run it. */
+  const decl = ticker.match(/const fmtC\s*=\s*\(c\) =>[\s\S]*?%\)"\);/);
+  assert.ok(decl, "the fmtC declaration is found");
+  const fmtC = vm.runInNewContext(decl[0] + " fmtC", { isFinite, Math });
+  assert.equal(fmtC(null), "—", "no sign and no size for an unknown change");
+  assert.equal(fmtC(undefined), "—");
+  assert.equal(fmtC(NaN), "—");
+  assert.equal(fmtC(0), "+0.00%", "a REPORTED flat day still reads as flat — that claim is true");
+  assert.equal(fmtC(1.5), "+1.50%");
+  assert.equal(fmtC(-1.5), "(1.50%)");
+
+  /* The tone beside it must refuse on exactly the same input the text refuses on. */
+  const tone = (pct) => (pct == null || !isFinite(pct) ? "neu" : pct >= 0 ? "up" : "dn");
+  assert.match(ticker, /it\.pct == null \|\| !isFinite\(it\.pct\) \? "neu" : it\.pct >= 0 \? "up" : "dn"/);
+  assert.equal(tone(null), "neu"); assert.equal(tone(0), "up"); assert.equal(tone(-1), "dn");
+
+  /* The two template surfaces carried the same shape: honest "—" text, confident colour. */
+  const alloc = read("../templates/allocation-module.html");
+  assert.match(alloc, /style="color:\$\{r\.day==null\?'var\(--dim\)':r\.day>=0\?'var\(--green\)':'var\(--red\)'\}"/,
+    "allocation: an unknown day is dim, not green");
+  const sector = read("../templates/sector-rotation.html");
+  assert.match(sector, /color:\$\{lq\.chg_pct==null\?'var\(--dim\)':lq\.chg_pct>=0\?'var\(--green\)':'var\(--red\)'\}/,
+    "sector rotation: an unknown change is dim, not green");
+  assert.match(sector, /\$\{lq\.chg_pct==null\?'change unknown'/,
+    "…and it says so instead of printing a signed em-dash percentage");
+  assert.doesNotMatch(sector, /\$\{lq\.chg_pct>=0\?'\+':''\}\$\{lq\.chg_pct!=null/,
+    "the '+—%' construction is gone");
+});

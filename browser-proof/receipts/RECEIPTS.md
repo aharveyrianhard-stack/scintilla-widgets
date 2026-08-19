@@ -1153,3 +1153,22 @@ Three scenarios on the same page with the same history, only the previous close 
 Zero page errors in all three. The mounted `/station-shells/chart-v1` is the byte-exact mirror of this file (gate-enforced), so the Station wall's panes carry the same refusal.
 
 Rollback: revert the single commit — `chDayRef()`, the neutral branch, the removal of the three `_ref` substitution writes, pins and this proof. No data lane, authority or methodology changed; the previous close itself is read exactly as before.
+
+---
+
+## 2026-08-19T17:59:11Z — an unknown day change gets neither a sign nor a direction colour
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/unknown-change.mjs` (asserts inline; reads the painted tape and its computed colours)
+
+`null >= 0` is **true** in JavaScript, so every unguarded directional ternary painted UNKNOWN as UP — a systematic bullish tint on missing data. `/ticker` went further and fabricated the value itself: `|| 0` turned "nobody sent a change" into a REPORTED FLAT DAY, printed `+0.00%` in the up colour, and fed that zero into the movers ranking as the least-moving symbol in the universe.
+
+Four symbols served through the tape's own universe read (browser-proof/receipts/ticker-unknown-change-neutral.png):
+
+- **A known gain** paints `+2.50%`, class `up`; **a known loss** paints `(1.25%)`, class `dn` — unchanged.
+- **A REPORTED zero** still paints `+0.00%`, class `up`. This is the line the fix must not cross: refusing *unknown* is not refusing *zero*, and a landed zero is a real observation (rule 4 — emptiness is decided on the raw value).
+- **An unknown change** (null on both `chg_pct` and `change`) paints `—` in the neutral colour, computed-colour-asserted as neither the up nor the down colour. It used to paint `+0.00%` in green.
+- **No symbol is dropped**, and the unknown ranks *after* every known mover instead of impersonating the calmest stock on the board.
+
+The same `null >= 0` shape was fixed in two more places the sweep found: `templates/allocation-module.html` painted its "—" day cell green, and `templates/sector-rotation.html` rendered a signed em-dash percentage (`+—%`) in green — now dim, and worded "change unknown". `/heat` was swept too and was already correct (both its colour functions refuse on null), which is what the fixed pages now match.
+
+Zero page errors. Rollback: revert the single commit — three guarded ternaries, one un-fabricated value, one ranking partition, pins and this proof. No data lane, authority or methodology changed.
