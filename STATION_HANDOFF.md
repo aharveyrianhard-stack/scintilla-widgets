@@ -1,8 +1,8 @@
 # Station visible-truth closure — session handoff
 
-Written at a committed checkpoint by executor 3 after the second continuation packet
-(round 5). Everything below was re-derived from the working tree at head, not carried
-forward from an earlier note.
+Written at a committed checkpoint by executor 3 after the round-7 live-path packet.
+Everything below was re-derived from the working tree at head, not carried forward from an
+earlier note.
 
 ## Exact state
 
@@ -10,11 +10,11 @@ forward from an earlier note.
 | --- | --- |
 | Repo | `aharveyrianhard-stack/scintilla-widgets` |
 | Branch | `claude/station-visible-truth-closure-8ipyru` |
-| Head | `a338bad` + the docs commit carrying this update — pushed |
+| Head | `39567f9` + the docs commit carrying this update — pushed |
 | PR | [#115](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/115) — **DRAFT, NO-MERGE** |
 | Uncommitted | **none** at handoff |
-| Tests | `node --test "tests/*.test.mjs"` → **245 pass, 0 fail**, 24 files |
-| Browser receipts | `browser-proof/` — 13 proof files, 39 screenshots + `RECEIPTS.md`, every entry regenerable by the command it names |
+| Tests | `node --test "tests/*.test.mjs"` → **248 pass, 0 fail**, 24 files |
+| Browser receipts | `browser-proof/` — 14 proof files, 40 screenshots + `RECEIPTS.md`, every entry regenerable by the command it names |
 | Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access this round: **two read-only SELECTs** on scintilla-live (schema + FY availability, recorded in the receipt); rounds 3–4 used none |
 | Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` |
 
@@ -97,7 +97,7 @@ tables with every needed field non-null; latest FY dates range 2025-06-30 (IREN,
 | 2 | **F1 — sector-rotation cross-project** | **ACTIVE/BLOCKED.** Needs the scintilla-sector deploy + CORS; the page refuses the authority claim without the shim and never claims LIVE on a short spine. |
 | 3 | **Scene internals** | **ACTIVE/BLOCKED.** `ADD PCC CUMTICK TICK TRIN` unowned; `/health` carries them BAD by construction. Needs an owner's support-or-absence ruling. |
 | 4 | **/youtube `ytAct` lost writes** | **FIXED** (`a754a69`, round 6): revert + named flash, browser-verified. The shells' reason-silence and subscribe lane stay recorded as lesser gaps. |
-| 5 | **DCF live acceptance** | The fy-baseline badge should read LIVE 10/10 against the real database (measured availability says so); needs a live browser on the preview. The rig's 8/10 receipt is the fixture's shape, not the owners' data. |
+| 5 | **DCF live acceptance** | The fy-baseline AND fy-seeds badges should read LIVE 10/10 against the real database; needs a live browser on the preview — round 7 re-measured this container (CONNECT 403 to hub/preview/Supabase) so it stays blocked here. |
 | 6 | **H2 (X)** | Untouched, proof-gated by instruction. |
 | 7 | **H3 / H4** | Contracts asserted; gesture feel and fullscreen geometry need a human eye. |
 | 8 | **Fly CORS vs preview origin** | Still not allowed → no LIVE-data provider path provable end-to-end from the preview. |
@@ -108,7 +108,9 @@ tables with every needed field non-null; latest FY dates range 2025-06-30 (IREN,
 1. **DONE round 6**: /youtube lost writes (`a754a69`) · fundamentals FY-consistency
    (`6d0d003`) · /news + /cohorts main-read failure states (`a338bad`) — receipts in the
    round-6 section.
-2. **DCF static remainder — CLAIMED NEXT** — margin/tax defaults from fundamentals_history (margins are
+2. **DONE round 7** (`39567f9`): DCF growth/margin seeds from FY history; tax/terminal/
+   MRP/debt weight named STATIC — sourcing them is an owner ruling (no tax line in
+   fundamentals_history, measured). Was: **DCF static remainder** — margin/tax defaults from fundamentals_history (margins are
    already served), term-growth/MRP/debtW likely need an owner ruling; wire what has a
    source, flag the rest. Runnable now.
 3. **DCF live acceptance walk** (badge LIVE 10/10, values sane against the static baseline)

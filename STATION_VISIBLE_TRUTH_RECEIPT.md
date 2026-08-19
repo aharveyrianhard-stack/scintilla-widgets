@@ -508,3 +508,54 @@ pass, 0 fail**; 13 browser proofs, 39 screenshots.
 
 - None new: three commits, each gated green (`fail 0` + chart mirror + whitespace) before
   push. No database access of any kind this packet.
+
+---
+
+# Round — executor 3, live-path verification packet (2026-08-19, same session)
+
+Directive: verify the live Hub-visible path, reconcile the PR against the canonical queue,
+one browser-visible proof unit, next handoff. One code commit (`39567f9`) plus the docs
+commit carrying this section. Suite at close: **248 pass, 0 fail**; 14 browser proofs, 40
+screenshots. No provider history touched, no Geiger change, no database access.
+
+## The live Hub-visible path, measured
+
+- **From this container: unreachable, exactly as round 4 measured.** CONNECT 403 at the
+  proxy for `station.scintillahub.ai`, the Vercel preview, and Supabase (curl with the
+  environment's own CA bundle; TLS verification never disabled). End-to-end live acceptance
+  — the DCF fy-baseline/fy-seeds badges reading LIVE 10/10, the 12-step preview checklist —
+  remains blocked on a browser outside this container. Nothing was faked around this.
+- **The repo side of the path, verified against `vercel.json` (not memory):** exactly two
+  rewrites — `station.scintillahub.ai/` → `/deck/` (host-conditioned, ROOT PATH ONLY: deep
+  paths on the hub domain serve the same repo pages directly by path), and `/status` → the
+  orgstatus Supabase function. Every response carries `no-store` at all three cache layers
+  (browser, CDN, Vercel CDN), so a pushed fix is Hub-visible on the next load with no CDN
+  staleness — there is no cache to invalidate and no stale Station to explain.
+
+## PR #115 reconciled against the canonical queue (fresh API reads)
+
+Draft ✓ open ✓ unmerged ✓ mergeable CLEAN ✓ head = local `e98188d` at reconciliation time ✓
+base `main@bb55f94` unchanged since the PR opened (no base drift) ✓ zero review threads ✓
+one comment (the Vercel bot's deployment status) ✓. The PR's Open table matches the
+handoff's blockers one-for-one, with the fixed /youtube item correctly absent. **No drift
+found.** One cosmetic correction taken in this docs commit: the handoff's header still said
+"round 5" while carrying round-6 state.
+
+## The unit — `39567f9`: the DCF growth/margin slider seeds ride the FY history
+
+The claimed static remainder, delivered: gDefault = FY-to-FY revenue CAGR, mDefault = the
+latest FY's own margin, derived by `deriveFySeeds()` on the same per-ticker fetch as the FY
+baseline (limit 1 → 4), under the fundamentals cockpit's clamps and window rules (g 0..80,
+m 5..90, a CAGR needs two FY rows more than half a year apart, Number(null) cannot seed).
+Seeds are slider inputs the user then owns; refusals keep the flagged static value. The
+fy-seeds badge counts per field and never claims LIVE while short. What remains static is
+now named exactly — tax default · terminal growth · MRP · debt weight — because
+fundamentals_history carries NO tax line (measured schema): sourcing those is an owner
+ruling, not a guess. Browser receipt `proofs/dcf-seeds.mjs`: NVDA's seeds equal the fixture
+arithmetic exactly and reach the visible sliders; TSM keeps its Jul-24 static seeds; the
+badge reads STALE 8/10 on the fixture's deliberate 8-of-10 universe. Rollback: revert the
+one commit.
+
+## Errata, stated
+
+- None new: one code commit, gated green before push.
