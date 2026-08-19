@@ -12,7 +12,7 @@
      revenue_surprise_pct · beat · transcript/release links.
        UPCOMING — next dates first, report time (BMO/AMC) and confirmed flag.
        RESULTS  — most recent first, EPS + revenue surprise coloured by sign.
-     Cohort-aware: ?cohort=AI_HW filters both lists through ticker_cohorts
+     Cohort-aware: ?cohort=AI_HW filters both lists through the cohort axis
      membership, so the events rail follows the cohort axis like everything
      else. ?t=MU pins one ticker. ?days=45 window · ?limit=40 · ?bg=0 ·
      ?sections=upcoming,results · ?refresh=300.
@@ -56,6 +56,7 @@ body.nobg{ background:transparent; }
 <body>
 <div id="hd"><span class="k">EVENTS</span><span class="f" id="filt">all</span><span class="st" id="stamp"></span></div>
 <div id="cols"><div class="empty">loading events…</div></div>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -97,9 +98,12 @@ const tone = (v) => (v > 0 ? "up" : v < 0 ? "dn" : "neu");
 async function tick() {
   let inList = null;
   if (COHORT) {
-    const tc = await pg("ticker_cohorts?cohort=eq." + encodeURIComponent(COHORT) + "&select=ticker").catch(() => null);
-    inList = Array.isArray(tc) ? tc.map((r) => r.ticker).filter(Boolean) : [];
-    if (!inList.length) { el("cols").innerHTML = '<div class="empty">no primary tickers in cohort ' + esc(COHORT) + "</div>"; return; }
+    /* The cohort axis, fully paged and kind-filtered - see _cohorts/cohort-axis.js. The old
+       read filtered ticker_cohorts, which would also have matched a sector, industry or size
+       bucket that happened to share a name with a cohort. */
+    const axis = await SC_COHORT_AXIS.loadMemberships(pg).catch(() => null);
+    inList = axis ? (SC_COHORT_AXIS.byCohort(axis.rows).get(COHORT) || []) : [];
+    if (!inList.length) { el("cols").innerHTML = '<div class="empty">no tickers in cohort ' + esc(COHORT) + "</div>"; return; }
   }
   const today = iso(new Date()), until = iso(new Date(Date.now() + DAYS * 86400000)), since = iso(new Date(Date.now() - DAYS * 86400000));
   const filt = (T ? "&ticker=eq." + encodeURIComponent(T) : "") +

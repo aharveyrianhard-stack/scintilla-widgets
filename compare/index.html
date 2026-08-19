@@ -115,6 +115,7 @@
 </div>
 
 <script src="/_provider/provider.js"></script>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
    top-level declaration, so it is already bound here. The shim answers live_quotes,
@@ -193,13 +194,17 @@ const cache={};
 /* ── bootstrap ───────────────────────────────────────────────────────────── */
 (async function init(){
   try{
-    const [tc,bad]=await Promise.all([
-      pgAll("ticker_cohorts?select=ticker,cohort"),
+    /* The cohort axis, fully paged and kind-filtered - see _cohorts/cohort-axis.js. pgAll
+       paged correctly here, but it paged the WRONG relation: ticker_cohorts mixes cohorts
+       with sectors, industries and size buckets, so this table compared 120 "cohorts" of
+       which 97 were not cohorts. */
+    const [axis,bad]=await Promise.all([
+      SC_COHORT_AXIS.loadMemberships(pg),
       pg("session_continuity?verdict=neq.OK&select=session_date&limit=4000")
     ]);
     (bad||[]).forEach(r=>BADDATES.add(r.session_date));
     const by={};
-    (tc||[]).forEach(r=>{(by[r.cohort]=by[r.cohort]||[]).push(r.ticker)});
+    axis.rows.forEach(r=>{(by[r.cohort]=by[r.cohort]||[]).push(r.ticker)});
     /* drop the tiny alias cohort so it does not read as a real peer */
     delete by["AI_HW"];
     MEMBERS=by;

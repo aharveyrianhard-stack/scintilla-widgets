@@ -53,6 +53,7 @@ body.nobg{ background:transparent; }
 <body>
 <div id="strip"><span class="empty">loading cohorts…</span></div>
 <script src="/_provider/provider.js"></script>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
    top-level declaration, so it is already bound here. The shim answers live_quotes,
@@ -101,15 +102,18 @@ function href(kind, name) {
 }
 
 async function tick() {
-  const [tc, cs, fav] = await Promise.all([
-    pg("ticker_cohorts?select=ticker,cohort"),
+  /* The cohort axis, fully paged and kind-filtered - see _cohorts/cohort-axis.js. Reading
+     ticker_cohorts directly returned 120 groups of which 97 were sectors, industries and size
+     buckets, and capped at 1000 of its 1283 rows. */
+  const [axis, cs, fav] = await Promise.all([
+    SC_COHORT_AXIS.loadMemberships(pg),
     pg("composite_staged?tf=eq.D&select=ticker,composite"),
     pg("hub_favorites?select=ticker").catch(() => null),
   ]);
   const comp = {};
   for (const r of (cs || [])) { const v = num(r.composite); if (v != null && isFinite(v)) comp[r.ticker] = v; }
   const by = {};
-  for (const r of (tc || [])) { const v = comp[r.ticker]; if (v == null) continue; (by[r.cohort] = by[r.cohort] || []).push(v); }
+  for (const r of axis.rows) { const v = comp[r.ticker]; if (v == null) continue; (by[r.cohort] = by[r.cohort] || []).push(v); }
   const cohorts = Object.keys(by).map((name) => {
     const c = by[name], g = c.filter((v) => v > 0).length, r = c.filter((v) => v < 0).length;
     return { name, n: c.length, g, r, med: median(c) };

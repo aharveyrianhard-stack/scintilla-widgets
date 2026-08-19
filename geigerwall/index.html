@@ -90,10 +90,11 @@ body.nobg{ background:transparent; }
 <div id="stage"><div class="empty">building wall…</div></div>
 <div id="ft">
   consolidation, not a new component — every live pane is the /compare or /cohort route<br>
-  composite_staged tf=D · the one geiger, never recomputed · ticker_cohorts (membership view) · db reads only<br>
+  composite_staged tf=D · the one geiger, never recomputed · cohort axis = ticker_membership kind=cohort, active tickers, fully paged · db reads only<br>
   <span id="ftmode"></span>
 </div>
 <script src="/_provider/provider.js"></script>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
    top-level declaration, so it is already bound here. The shim answers live_quotes,
@@ -216,14 +217,15 @@ function runQueue(stepMs) {
 
 async function build() {
   const stage = el("stage");
-  const [tc, cs] = await Promise.all([
-    pg("ticker_cohorts?select=ticker,cohort"),
+  /* The cohort axis, fully paged and kind-filtered - see _cohorts/cohort-axis.js. */
+  const [axis, cs] = await Promise.all([
+    SC_COHORT_AXIS.loadMemberships(pg),
     pg("composite_staged?tf=eq.D&select=ticker,composite"),
   ]);
   const comp = {};
   for (const r of (cs || [])) { const v = num(r.composite); if (v != null && isFinite(v)) comp[r.ticker] = v; }
   const by = {};
-  for (const r of (tc || [])) { const v = comp[r.ticker]; if (v == null) continue; (by[r.cohort] = by[r.cohort] || []).push(v); }
+  for (const r of axis.rows) { const v = comp[r.ticker]; if (v == null) continue; (by[r.cohort] = by[r.cohort] || []).push(v); }
   const cohorts = Object.keys(by).map((name) => {
     const c = by[name], g = c.filter((v) => v > 0).length, r = c.filter((v) => v < 0).length;
     return { name, n: c.length, g, r, med: median(c) };

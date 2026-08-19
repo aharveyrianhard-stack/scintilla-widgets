@@ -78,6 +78,7 @@
   .fresh.missing{color:var(--red);}
 </style>
 
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 // ============ SUPABASE — single source of truth (wadinxqplrggagkvrdag / scintilla-live) ============
 // FMP never gets called from this page. Every read below is PostgREST against Supabase.
@@ -114,14 +115,27 @@ function gapBanner(title, detail){
   return '<div class="gap-banner">🔴 <b>'+title+'</b><br><span style="color:var(--dim); font-size:13px;">'+detail+'</span></div>';
 }
 
-let UNIVERSE = []; // [{ticker, cohort, price, updated_ts}]
-let COHORT_MAP = {}; // ticker -> primary cohort
+let UNIVERSE = []; // [{ticker, cohort, cohorts, updated_ts}]
+let COHORT_MAP = {};      // ticker -> the ONE cohort this page places it in
+let COHORT_ALL = new Map(); // ticker -> every cohort it belongs to
+let COHORT_TRUNCATED = false;
+/* THE PEER SET IS A COHORT CLAIM, SO IT NEEDS THE COHORT AXIS.
+   This page read ticker_cohorts with a bare limit=1000 against a 1283-row view, so 283
+   memberships never arrived; and it then overwrote COHORT_MAP once per row, leaving each
+   ticker with whichever membership happened to come last in an unordered result. Since the
+   view also mixes sectors, industries and size buckets in with cohorts, "last row wins"
+   could hand a ticker its SIZE bucket as its peer set. See _cohorts/cohort-axis.js. */
 async function loadUniverse(){
   const staged = await sb('composite_staged?select=ticker,composite,updated_ts&order=ticker.asc&limit=1000');
-  const cohorts = await sb('ticker_cohorts?select=ticker,cohort&limit=1000');
-  cohorts.forEach(c=>{ COHORT_MAP[c.ticker]=c.cohort; });
-  UNIVERSE = staged.map(s=>({ticker:s.ticker, cohort:COHORT_MAP[s.ticker]||'UNCOHORTED', updated_ts:s.updated_ts}));
-  document.getElementById('universeStatus').innerHTML = '✅ '+UNIVERSE.length+' tickers loaded live from <span class="mono2">composite_staged</span> · '+Object.keys(UNIVERSE.reduce((a,u)=>{a[u.cohort]=1;return a;},{})).length+' cohorts (via ticker_cohorts) · '+freshTag(UNIVERSE[0]&&UNIVERSE[0].updated_ts);
+  const axis = await SC_COHORT_AXIS.loadMemberships(p=>sb(p));
+  COHORT_TRUNCATED = !!axis.truncated;
+  COHORT_ALL = SC_COHORT_AXIS.byTicker(axis.rows);
+  COHORT_MAP = {};
+  for(const [ticker, list] of SC_COHORT_AXIS.primaryByTicker(axis.rows)) COHORT_MAP[ticker]=list;
+  UNIVERSE = staged.map(s=>({ticker:s.ticker, cohort:COHORT_MAP[s.ticker]||'UNCOHORTED',
+                             cohorts:Array.from(COHORT_ALL.get(s.ticker)||[]), updated_ts:s.updated_ts}));
+  const multi = UNIVERSE.filter(u=>u.cohorts.length>1).length;
+  document.getElementById('universeStatus').innerHTML = '✅ '+UNIVERSE.length+' tickers loaded live from <span class="mono2">composite_staged</span> · '+Object.keys(UNIVERSE.reduce((a,u)=>{a[u.cohort]=1;return a;},{})).length+' cohorts (cohort axis: ticker_membership kind=cohort, active tickers, fully paged)'+(multi?' · '+multi+' in more than one cohort, placed by lowest-name tie-break':'')+(COHORT_TRUNCATED?' · <b>AXIS READ TRUNCATED</b>':'')+' · '+freshTag(UNIVERSE[0]&&UNIVERSE[0].updated_ts);
   const quick=['NVDA','MU','AAPL','GOOGL','TSLA'];
   document.getElementById('quickChips').innerHTML = quick.filter(t=>UNIVERSE.find(u=>u.ticker===t)).map(t=>'<button class="tbtn" onclick="setTicker(\''+t+'\')">'+t+'</button>').join('');
   return UNIVERSE;
@@ -173,9 +187,11 @@ function wireTickerSearch(){
 
 <script>
 // ============ COMPS ENGINE — Supabase source-of-truth (Move 1) ============
-// Peer grouping = ticker_cohorts.cohort (real, curated cohorts already in the DB: AI_HARDWARE, MEGACAP,
+// Peer grouping = the cohort axis (ticker_membership kind=cohort, active tickers, fully paged):
 // GROWTH, BLUE_CHIP, THEMATIC, etc — NOT a hardcoded 4-group map). Peer set for any ticker = the other
-// members of its primary cohort, largest-by-market-cap first, capped for table readability.
+// members of ONE of its cohorts, largest-by-market-cap first, capped for table readability.
+// A ticker in several cohorts is placed by the named lowest-name tie-break, and the others are
+// listed beside it rather than silently discarded.
 // Every multiple below is COMPUTED client-side from raw Supabase fields (fundamentals, balance_history,
 // fundamentals_history) — never a pre-typed number, never a live FMP call. See the math per-field in
 // fetchCohortBundle(). beta is read live from company_profile.beta (195/211 universe tickers have it) —
@@ -242,7 +258,7 @@ async function renderComps(sym){
   const COMPS = { names, cap:pick('cap'), pe:pick('pe'), ev:pick('ev'), ps:pick('ps'), pb:pick('pb'),
     peg:pick('peg'), gm:pick('gm'), nm:pick('nm'), de:pick('de'), beta:pick('beta'), div:pick('div'), cagr:pick('cagr') };
   const PX = B[sym] ? B[sym].price : null;
-  document.getElementById('compsTitle').textContent = '1 · Comparable Companies — '+sym+' vs '+cohort+' cohort (Supabase ticker_cohorts)';
+  document.getElementById('compsTitle').textContent = '1 · Comparable Companies — '+sym+' vs '+cohort+' cohort (cohort axis)';
   document.getElementById('ffieldTitle').textContent = 'Valuation football field — what each method says '+sym+' is worth, vs the $'+(PX!=null?PX.toFixed(2):'—')+' price';
   if(PX==null){
     document.getElementById('ffield').innerHTML = gapBanner('No fundamentals row for '+sym, 'Supabase fundamentals table has no row for this ticker yet — comps/football-field/score can\'t compute without a price and market cap. '+freshTag(null));
@@ -368,9 +384,10 @@ async function renderComps(sym){
 }
 function renderCohortInfo(sym){
   const cohort = COHORT_MAP[sym];
-  document.getElementById('cohortTitle').textContent = '2 · Defining the Peer Set — '+sym+' → '+(cohort||'no cohort assigned')+' (Supabase ticker_cohorts)';
+  const allCohorts = Array.from(COHORT_ALL.get(sym)||[]);
+  document.getElementById('cohortTitle').textContent = '2 · Defining the Peer Set — '+sym+' → '+(cohort||'no cohort assigned')+' (cohort axis)';
   if(!cohort){
-    document.getElementById('cohortBody').innerHTML = gapBanner(sym+' has no row in ticker_cohorts', 'This ticker exists in composite_staged but has never been assigned a cohort — §1 comps above fell back to an "UNCOHORTED" bucket (itself, no peers). Needs a cohort assignment upstream.');
+    document.getElementById('cohortBody').innerHTML = gapBanner(sym+' has no cohort membership', 'This ticker exists in composite_staged but holds no kind=cohort membership — §1 comps above fell back to an "UNCOHORTED" bucket (itself, no peers). Needs a cohort assignment upstream.');
     return;
   }
   const members = UNIVERSE.filter(u=>u.cohort===cohort).map(u=>u.ticker);
@@ -379,7 +396,10 @@ function renderCohortInfo(sym){
   document.getElementById('cohortBody').innerHTML =
     '<div style="font-size:14px; margin-bottom:8px;">Cohort <b class="mono2">'+cohort+'</b> has <b>'+members.length+'</b> members total'+(members.length>30?' (first 30 shown)':'')+'. §1\'s comps table above uses the '+Math.min(members.length-1,7)+' largest of these by live market cap as the peer set — deterministic and re-derived every time you switch tickers, not a fixed list per ticker.</div>'+
     pills+
-    '<div class="foot" style="margin-top:10px;">Cohort assignment itself (which tickers belong to '+cohort+') is curated upstream in <span class="mono2">ticker_cohorts</span>, not computed by this page — this page reads that table and does the ranking/selection live.</div>';
+    (allCohorts.length>1
+      ? '<div class="foot" style="margin-top:10px;">'+sym+' belongs to <b>'+allCohorts.length+'</b> cohorts — <span class="mono2">'+allCohorts.join('</span>, <span class="mono2">')+'</span>. The peer set above uses <span class="mono2">'+cohort+'</span>, chosen by the named lowest-name tie-break so the same ticker gives the same peer set on every load. The others are shown here rather than discarded.</div>'
+      : '')+
+    '<div class="foot" style="margin-top:10px;">Cohort assignment itself (which tickers belong to '+cohort+') is curated upstream in <span class="mono2">ticker_membership</span>, not computed by this page — this page reads that axis and does the ranking/selection live.'+(COHORT_TRUNCATED?' <b>The axis read was truncated on this load; the peer set may be incomplete.</b>':'')+'</div>';
 }
 </script>
 

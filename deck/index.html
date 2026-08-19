@@ -496,18 +496,30 @@ function fanoutDeckQuote(ticker) {
   for (const pane of PANES) if (pane.def.kind === "chart" && pane.frame && CLEAN(pane.def.ticker) === clean)
     postDeckQuote(pane.frame, clean);
 }
+/* A ROW WITHOUT A WRITE TIME HAS NO WRITE TIME.
+   This used to substitute `new Date()` for a missing updated_ts, which meant an undated quote
+   arrived at the header as one written this instant - the freshest thing on the wall. Since
+   the provider's stamp is null whenever it did not supply an observation time, that
+   substitution manufactured freshness out of its absence. Unknown is now carried as null and
+   the header simply does not count that row when it reports how old the oldest quote is. */
 function selectVisibleQuoteRows(rows, tickers) {
   const allowed = new Set((tickers || []).map(CLEAN));
   const selected = new Map();
   for (const row of rows || []) {
     const ticker = CLEAN(row?.ticker);
     if (!ticker || !allowed.has(ticker) || row?.price == null) continue;
+    const stamped = row.updated_ts != null && row.updated_ts !== ""
+      && Number.isFinite(new Date(row.updated_ts).getTime());
     selected.set(ticker, { ticker, price:+row.price,
       prev_close:row.prev_close == null ? null : +row.prev_close,
-      updated_ts:row.updated_ts || new Date().toISOString() });
+      updated_ts:stamped ? row.updated_ts : null });
   }
   return selected;
 }
+/* THE ONE DISTINCTION THIS FILE MUST NOT LOSE.
+   `fetchDeckQuotes` throws when the read fell over and resolves when it came back. Only the
+   resolved path may name an absence: if the request never completed, the fact that a symbol
+   has no row says nothing at all about whether the stream observes it. */
 async function fetchDeckQuotes(tickers) {
   const controller = typeof AbortController === "undefined" ? null : new AbortController();
   const timer = controller ? setTimeout(() => controller.abort(), DECK_QUOTE_TIMEOUT_MS) : null;
@@ -565,6 +577,10 @@ if (deckSb) deckSb.channel("station-deck-lq").on("postgres_changes", {
   const shim = window.SC_PROVIDER_SHIM;
   const sym = String((event.new && event.new.ticker) || "").toUpperCase();
   if (shim && shim.isProviderOwned && shim.isProviderOwned(sym)) { shim.realtime_equity_refused++; return; }
+  /* UNKNOWN OWNERSHIP IS NOT PERMISSION. Until /geiger has answered, this handler cannot tell
+     a provider-owned equity from a non-equity, and writing on that uncertainty is how a legacy
+     price reaches a provider-owned chart. Refuse, and let the next resolved read decide. */
+  if (shim && shim.ownershipKnown && !shim.ownershipKnown()) { shim.realtime_unknown_ownership_refused++; return; }
   if (shim) shim.realtime_nonequity_passthrough++;
   const selected = selectVisibleQuoteRows([event.new], visibleChartTickers());
   for (const [ticker, quote] of selected) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); fanoutDeckQuote(ticker); }
@@ -959,8 +975,18 @@ function paintMarketStatus() {
     n.title = visible.map((x) => x.ticker + " · history " + x.history + " · quote " + x.quote).join("\n");
     return;
   }
-  const timestamped = visible.filter((x) => x.updatedTs);
-  if (!timestamped.length) { n.textContent = "DATA · ready"; n.dataset.delayed = "0"; n.dataset.fresh = "0"; return; }
+  /* Only rows carrying a real, parseable stamp can speak to freshness. An unstamped row is
+     neither fresh nor stale; it is unknown, and is reported as such rather than folded in. */
+  const timestamped = visible.filter((x) => x.updatedTs != null && x.updatedTs !== ""
+    && Number.isFinite(new Date(x.updatedTs).getTime()));
+  const unstamped = visible.filter((x) => !(x.updatedTs != null && x.updatedTs !== ""
+    && Number.isFinite(new Date(x.updatedTs).getTime())));
+  if (!timestamped.length) {
+    n.textContent = "DATA · ready · no observation time";
+    n.dataset.delayed = "0"; n.dataset.fresh = "0"; n.dataset.absent = "0";
+    n.title = visible.map((x) => x.ticker + " · quote present, provider supplied no observation time").join("\n");
+    return;
+  }
   const oldest = timestamped.reduce((a,b) => new Date(a.updatedTs) < new Date(b.updatedTs) ? a : b);
   const at = new Date(oldest.updatedTs);
   const ageSec = Math.max(0, Math.round((Date.now() - at.getTime()) / 1000));
@@ -968,7 +994,8 @@ function paintMarketStatus() {
   const fresh = ageSec < 90 && !delayed.length;
   n.textContent = (fresh ? "LIVE" : "DATA") + " · " + age + " · " +
     at.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" }) +
-    (delayed.length ? " · " + delayed.length + " delayed" : "");
+    (delayed.length ? " · " + delayed.length + " delayed" : "") +
+    (unstamped.length ? " · " + unstamped.length + " untimed" : "");
   n.dataset.delayed = delayed.length ? "1" : "0";
   n.dataset.fresh = fresh ? "1" : "0";
   n.title = "Oldest visible quote write: " + at.toLocaleString() + " (" + age + " ago)\n" +

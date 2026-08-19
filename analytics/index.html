@@ -73,7 +73,7 @@
   <span class="pill">M-1 CONSOLIDATED</span>
   <span class="conn"><span class="dot" id="connDot"></span><span id="asof">booting…</span></span>
 </h1>
-<div class="banner"><b>EQUITY AUTHORITY IS THE PROVIDER CONTRACT.</b> Price, previous close and Geiger for every provider-owned equity come from <b>scintilla-massive-chart-api</b> — <b>/quotes</b>, <b>/geiger</b> and <b>/candles?authority=provider</b> — the same contract the Hub cut over to. This page reads them through <code>_provider/provider.js</code>; it does not read <b>live_quotes</b>, <b>composite_staged</b> or <b>ohlcv_history</b> as equity truth, and it never calls FMP or Yahoo.<br><b>NON-EQUITY LANES ARE UNCHANGED AND EXPLICIT:</b> Universe/cohorts = <b>ticker_cohorts + hub_favorites</b> · Value = <b>fundamentals + ratios_history + analyst_estimates</b> · Macro = <b>treasury_rates / vix_term / operator_weights</b> · Sectors = <b>sector_rankings</b>. These are anon PostgREST reads, per-ticker on demand (1000-row cap respected).</div>
+<div class="banner"><b>EQUITY AUTHORITY IS THE PROVIDER CONTRACT.</b> Price, previous close and Geiger for every provider-owned equity come from <b>scintilla-massive-chart-api</b> — <b>/quotes</b>, <b>/geiger</b> and <b>/candles?authority=provider</b> — the same contract the Hub cut over to. This page reads them through <code>_provider/provider.js</code>; it does not read <b>live_quotes</b>, <b>composite_staged</b> or <b>ohlcv_history</b> as equity truth, and it never calls FMP or Yahoo.<br><b>NON-EQUITY LANES ARE UNCHANGED AND EXPLICIT:</b> Universe/cohorts = <b>the cohort axis</b> (ticker_membership kind=cohort, active tickers, fully paged) + <b>hub_favorites</b> · Value = <b>fundamentals + ratios_history + analyst_estimates</b> · Macro = <b>treasury_rates / vix_term / operator_weights</b> · Sectors = <b>sector_rankings</b>. These are anon PostgREST reads, per-ticker on demand (1000-row cap respected).</div>
 <div class="ctrls" id="ctrls">
   <span class="cg"><b>TIMEFRAME</b><span id="tfBtns"></span></span>
   <span class="cg"><b>VIEW</b><span id="vwBtns"></span></span>
@@ -135,6 +135,7 @@
      number below came from the legacy tables while every other Station surface had moved -
      two surfaces disagreeing about the same stock, which is the defect. -->
 <script src="/_provider/provider.js"></script>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 const SB='https://wadinxqplrggagkvrdag.supabase.co/rest/v1';
 /* FEED FIX 2026-08-06 — this page previously sent the sb_publishable_ key as
@@ -272,7 +273,6 @@ function buildCtrls(){
 
 async function boot(){
   const q={
-    cohorts:'ticker_cohorts?select=ticker,cohort&limit=1000',
     fav:'hub_favorites?select=ticker&limit=1000',
     geiger:'composite_staged?select=ticker,trend,momentum,composite,core,updated_ts&tf=eq.D&limit=1000',
     quotes:'live_quotes?select=ticker,price,chg_pct,prev_close,volume,updated_ts&limit=1000',
@@ -284,6 +284,10 @@ async function boot(){
     wts:'operator_weights?select=dim,key,weight,enabled&limit=100'
   };
   const keys=Object.keys(q);
+  /* The cohort axis is read separately because it is PAGED and KIND-FILTERED, which a single
+     limit=1000 query cannot be: ticker_cohorts holds 1283 rows and mixes cohorts with
+     sectors, industries and size buckets. See _cohorts/cohort-axis.js. */
+  const cohortAxis=await SC_COHORT_AXIS.loadMemberships(p=>j(p)).catch(e=>({err:e,rows:[]}));
   const res=await Promise.allSettled(keys.map(k=>j(q[k])));
   keys.forEach((k,i)=>{S[k]=res[i].status==='fulfilled'?res[i].value:{err:res[i].reason}});
   S.map={};(S.geiger.err?[]:S.geiger).forEach(r=>S.map[r.ticker]=Object.assign(S.map[r.ticker]||{},{g:r}));
@@ -291,13 +295,25 @@ async function boot(){
   (S.funda.err?[]:S.funda).forEach(r=>S.map[r.ticker]=Object.assign(S.map[r.ticker]||{},{f:r}));
   (S.prof.err?[]:S.prof).forEach(r=>S.map[r.ticker]=Object.assign(S.map[r.ticker]||{},{p:r}));
   S.favSet=new Set(S.fav.err?[]:S.fav.map(r=>r.ticker));
-  S.cohortMap={};(S.cohorts.err?[]:S.cohorts).forEach(r=>{(S.cohortMap[r.cohort]=S.cohortMap[r.cohort]||new Set()).add(r.ticker)});
+  S.cohorts=cohortAxis.err?{err:cohortAxis.err}:cohortAxis.rows;
+  S.cohortTruncated=!!cohortAxis.truncated;
+  S.cohortMap={};(cohortAxis.rows||[]).forEach(r=>{(S.cohortMap[r.cohort]=S.cohortMap[r.cohort]||new Set()).add(r.ticker)});
   const ok=keys.filter(k=>!S[k].err).length;
   $('connDot').className='dot '+(ok===keys.length?'live':ok>5?'stale':'err');
   $('asof'). textContent=ok+'/'+keys.length+' feeds · '+new Date().toISOString().slice(11,19)+'Z';
   buildCtrls();await loadRet();renderMacro();renderSectors();renderCohortGeiger();renderCohortSel();renderValue();renderDcf();renderComps();renderWeights();renderTilt();
 }
 
+/* The name the provider shim recorded for a symbol it could not price. Never a guess: if the
+   shim has no name, the cell says only that there is no provider quote. */
+function providerAbsenceFor(t){
+  try{
+    const shim=window.SC_PROVIDER_SHIM;
+    const named=shim&&typeof shim.absenceFor==='function'?shim.absenceFor(t):null;
+    if(named) return String(named);
+  }catch(_){}
+  return null;
+}
 function renderMacro(){
   const el=$('macroStrip');let h='';
   const y=S.y10.err?null:S.y10[0];
@@ -305,10 +321,16 @@ function renderMacro(){
   const v=S.vix.err?null:S.vix[0];const vStale=v?agoD(v.date):null;
   h+='<div class="card"><div class="k">VIX / VIX3M</div><div class="v" style="font-size:22px">'+(v?fN(v.vix,1)+' / '+fN(v.vix3m,1):'ERR')+'</div><div class="small">ratio '+(v?fN(v.ratio,3):'—')+' · '+(v?v.date:'')+' '+(v&&parseInt(vStale)>3?'<span class="pill stale">STALE '+vStale+'</span>':'')+'</div></div>';
   const nT=Object.keys(S.map).length;
-  h+='<div class="card"><div class="k">UNIVERSE</div><div class="v" style="font-size:22px">'+nT+'</div><div class="small">'+Object.keys(S.cohortMap).length+' cohorts · FAV '+S.favSet.size+' · ticker_cohorts+hub_favorites</div></div>';
-  const gMax=S.geiger.err?null:Math.max(...S.geiger.map(r=>r.updated_ts||0));
-  h+='<div class="card"><div class="k">GEIGER FRESH</div><div class="v" style="font-size:22px">'+(gMax?agoS(gMax):'ERR')+'</div><div class="small">provider /geiger · '+(S.geiger.err?'feed error':S.geiger.length+' symbols')+'</div></div>';
-  const qStamps=(S.quotes.err?[]:S.quotes).map(r=>new Date(r.updated_ts).getTime()).filter(v=>isFinite(v));
+  h+='<div class="card"><div class="k">UNIVERSE</div><div class="v" style="font-size:22px">'+nT+'</div><div class="small">'+Object.keys(S.cohortMap).length+' cohorts · FAV '+S.favSet.size+' · cohort axis (kind=cohort, active, fully paged) + hub_favorites'+(S.cohortTruncated?' · AXIS READ TRUNCATED':'')+'</div></div>';
+  /* THE ENDPOINT'S OWN COMPUTE TIME. This tile used to read a stamp the shim wrote with
+     Date.now() at the moment of the read, so it said "0s" no matter how old the Geiger was.
+     /geiger publishes computed_utc; that is carried verbatim, and when it is missing the tile
+     says unknown rather than inventing an age. */
+  const gComputed=(()=>{try{return (window.SC_PROVIDER_SHIM||{}).geiger_computed_utc||null;}catch(_){return null;}})();
+  const gMs=gComputed?new Date(gComputed).getTime():NaN;
+  const gLabel=S.geiger.err?'ERR':(isFinite(gMs)?agoS(Math.floor(gMs/1000)):'unknown');
+  h+='<div class="card"><div class="k">GEIGER FRESH</div><div class="v" style="font-size:22px">'+gLabel+'</div><div class="small">provider /geiger · '+(S.geiger.err?'feed error':S.geiger.length+' symbols')+' · '+(gComputed?'computed_utc '+String(gComputed).slice(11,19)+'Z':'no computed_utc published')+'</div></div>';
+  const qStamps=(S.quotes.err?[]:S.quotes).map(r=>r&&r.updated_ts!=null&&r.updated_ts!==''?new Date(r.updated_ts).getTime():NaN).filter(v=>isFinite(v));
   const qMax=qStamps.length?Math.max(...qStamps):null;
   h+='<div class="card"><div class="k">QUOTES FRESH</div><div class="v" style="font-size:22px">'+(qMax?Math.round((Date.now()-qMax)/1000)+'s':'\u2014')+'</div><div class="small">provider /quotes · '+(qStamps.length?qStamps.length+' stamped':'no provider stamp')+'</div></div>';
   h+=universeCard();
@@ -355,21 +377,32 @@ function renderValue(){
   list=list.filter(t=>S.map[t]);
   const rows=list.map(t=>{const m=S.map[t];return{
     t, name:m.p?m.p.name:'', sector:m.p?m.p.sector:'', beta:m.p?m.p.beta:null,
-    px:m.q?m.q.price:(m.f?m.f.price:null), chg:m.q?m.q.chg_pct:null,
+    /* NO FALLBACK PRICE. The column says PRICE·PROVIDER, so it holds the provider's price or
+       it holds nothing. This used to fall back to fundamentals.price when the provider had no
+       quote - and the provider answers NOT_OBSERVED_BY_STREAM with a null price for symbols it
+       does not carry (EQR is one), while fundamentals still holds an old number for the same
+       symbol. The page therefore painted a stale non-provider price under a provider heading.
+       An absent provider price is now shown as absent, with the reason where one is known. */
+    px:(m.q && m.q.price != null) ? m.q.price : null,
+    pxAbsence:(m.q && m.q.price != null) ? null : providerAbsenceFor(t),
+    chg:m.q?m.q.chg_pct:null,
     geig:m.g?m.g.composite:null, pe:m.f?m.f.trailing_pe:null, ape:m.f?m.f.adjusted_pe:null,
     eps:m.f?m.f.eps_ttm:null, rev:m.f?m.f.revenue_ttm:null, mcap:m.f?m.f.market_cap:null,
     dcf:m.f?m.f.dcf:null, fAge:m.f?m.f.updated_ts:null, ret:(S.ret&&S.ret[t]!=null?S.ret[t]:null)}});
   rows.sort((a,b)=>(((b[sortKey]==null?-1e18:+b[sortKey])-(a[sortKey]==null?-1e18:+a[sortKey]))*(-sortDir)));
   const th=(k,l)=>'<th onclick="setSort(\''+k+'\')">'+l+(sortKey===k?(sortDir<0?' ▾':' ▴'):'')+'</th>';
-  let h='<table><tr><th onclick="setSort(\'t\')">TICKER</th><th>NAME</th>'+th('px','PRICE·LIVE')+th('chg','CHG%')+th('ret','RET·'+TF)+th('geig','GEIGER')+th('pe','PE')+th('ape','ADJ-PE')+th('eps','EPS-TTM')+th('rev','REV-TTM')+th('mcap','MCAP')+th('dcf','FMP-DCF')+th('beta','β')+'<th>AGE</th></tr>';
+  let h='<table><tr><th onclick="setSort(\'t\')">TICKER</th><th>NAME</th>'+th('px','PRICE·PROVIDER')+th('chg','CHG%')+th('ret','RET·'+TF)+th('geig','GEIGER')+th('pe','PE')+th('ape','ADJ-PE')+th('eps','EPS-TTM')+th('rev','REV-TTM')+th('mcap','MCAP')+th('dcf','FMP-DCF')+th('beta','β')+'<th>AGE</th></tr>';
   rows.forEach(r=>{
-    h+='<tr class="click" onclick="drawer(\''+r.t+'\')"><td class="t"><b>'+r.t+'</b>'+(S.favSet.has(r.t)?' <span class="small">★</span>':'')+'</td><td class="t small">'+(r.name||'').slice(0,22)+'</td><td>'+fN(r.px)+'</td><td class="'+cls(r.chg)+'">'+fP(r.chg)+'</td><td class="'+cls(r.geig)+'">'+fN(r.geig,3)+'</td><td>'+fN(r.pe,1)+'</td><td>'+fN(r.ape,1)+'</td><td>'+fN(r.eps)+'</td><td>'+fB(r.rev)+'</td><td>'+fB(r.mcap)+'</td><td>'+fN(r.dcf)+'</td><td>'+fN(r.beta,2)+'</td><td class="mut">'+agoS(r.fAge)+'</td></tr>'});
+    const pxCell = r.px != null ? fN(r.px)
+      : '<span class="mut" title="'+(r.pxAbsence||'no provider quote')+'">'+String(r.pxAbsence||'no provider quote').replace(/_/g,' ').toLowerCase()+'</span>';
+    h+='<tr class="click" onclick="drawer(\''+r.t+'\')"><td class="t"><b>'+r.t+'</b>'+(S.favSet.has(r.t)?' <span class="small">★</span>':'')+'</td><td class="t small">'+(r.name||'').slice(0,22)+'</td><td>'+pxCell+'</td><td class="'+cls(r.chg)+'">'+fP(r.chg)+'</td><td class="'+cls(r.geig)+'">'+fN(r.geig,3)+'</td><td>'+fN(r.pe,1)+'</td><td>'+fN(r.ape,1)+'</td><td>'+fN(r.eps)+'</td><td>'+fB(r.rev)+'</td><td>'+fB(r.mcap)+'</td><td>'+fN(r.dcf)+'</td><td>'+fN(r.beta,2)+'</td><td class="mut">'+agoS(r.fAge)+'</td></tr>'});
   el.innerHTML=h+'</table><div class="small" style="margin-top:6px">'+rows.length+' symbols · PRICE = provider /quotes · GEIGER = provider /geiger · fundamentals age in last column · click a row for ratios / estimates / provider close spark.</div>';
 }
 
 function renderDcf(){
   const el=$('dcfGaps');
   const rows=Object.keys(S.map).map(t=>{const m=S.map[t];if(!m.f||m.f.dcf==null||!(m.q&&m.q.price))return null;
+    if(!m.q||m.q.price==null||!isFinite(+m.q.price)||+m.q.price===0) return null;
     const gap=(m.f.dcf-m.q.price)/m.q.price*100;return{t,dcf:m.f.dcf,px:m.q.price,gap}}).filter(Boolean)
     ;const _d=srt('dcf',rows).slice(0,14);
   if(!rows.length)return errBox(el,new Error('no dcf data'));
