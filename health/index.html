@@ -103,13 +103,37 @@ footer{ padding:20px 14px 0; color:var(--mute); font-size:9px; letter-spacing:.0
 "use strict";
 const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+/* THE DATABASE PROBES GET THE SAME HARD CEILING AS THE PROVIDER ONES.
+   The provider reads were bounded and the PostgREST reads were not, so this page promised
+   that no stalled owner could hold a row — and then let any Supabase socket that opened and
+   said nothing hold its row at "checking…" forever. Same ceiling as the shim's: 20s, then
+   the row says the source did not answer. A timeout is its own outcome, kept distinct from
+   a transport failure, because "took too long" and "could not be reached" are different
+   facts about an owner. */
+const DB_HEALTH_HARD_MS = 20000;
 async function pgRaw(path, head) {
-  const h = { apikey: ANON, Authorization: "Bearer " + ANON };
-  if (head) h.Prefer = "count=exact";
-  const r = await fetch(SB + "/rest/v1/" + path, { headers: h, method: head ? "HEAD" : "GET" });
-  if (!r.ok) throw new Error("pg " + r.status);
-  return head ? r.headers.get("content-range") : r.json();
+  const controller = typeof AbortController === "undefined" ? null : new AbortController();
+  const hard = controller ? setTimeout(() => controller.abort(), DB_HEALTH_HARD_MS) : null;
+  try {
+    const h = { apikey: ANON, Authorization: "Bearer " + ANON };
+    if (head) h.Prefer = "count=exact";
+    const r = await fetch(SB + "/rest/v1/" + path, { headers: h, method: head ? "HEAD" : "GET", signal: controller?.signal });
+    if (!r.ok) throw new Error("pg " + r.status);
+    if (head) return r.headers.get("content-range");
+    /* Awaited here so the ceiling covers the body read too, not just the headers. */
+    return await r.json();
+  } catch (e) {
+    if (e && e.name === "AbortError") {
+      const t = new Error("pg " + path.split("?")[0] + " → no response within " + DB_HEALTH_HARD_MS + "ms");
+      t.scTimeout = true;
+      throw t;
+    }
+    throw e;
+  } finally { if (hard) clearTimeout(hard); }
 }
+/* The word a failed row prints. A read that ran out of time did answer the question "is this
+   owner healthy" — with "not within 20s" — which is not the same answer as "unreachable". */
+function failureWord(e) { return e && e.scTimeout ? "no answer in 20s" : "unreachable"; }
 const el = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
@@ -203,7 +227,7 @@ const INTERNALS_LANES = [
 const EQUITY_LANES = [
   { k: "quotes",  n: "Provider quotes",  d: "price + previous completed daily close — /quotes" },
   { k: "geiger",  n: "Provider Geiger",  d: "composite / trend / momentum under the captured Equalizer — /geiger" },
-  { k: "universe",n: "Equity universe",  d: "symbols the provider owns, against the canonical " + CANONICAL_EQUITY_UNIVERSE },
+  { k: "universe",n: "Equity universe",  d: "exact set identity against the canonical tickers · count against the recorded " + CANONICAL_EQUITY_UNIVERSE },
 ];
 
 function mins(iso) { return (Date.now() - new Date(iso).getTime()) / 60000; }
@@ -276,9 +300,43 @@ async function runInternals() {
        the panes still cannot settle; without, because there is nothing to show at all. */
     set("internals", 0, "bad", found.length + "/" + UNSUPPORTED_INTERNALS.length + " with any row",
       found.length ? "unowned · " + found.join(", ") : "no owner, no rows — panes retry forever");
-  } catch (e) { set("internals", 0, "bad", "", "unreachable"); }
+  } catch (e) { set("internals", 0, "bad", "", failureWord(e)); }
 }
 
+/* IDENTITY, NOT CARDINALITY — the rule the shim already holds ownership to, applied to the
+   row that reports it. This lane used to compare the provider's symbol COUNT to 365, and a
+   count can only catch a swap by luck: drop AAPL, add TICK, and 365 is still 365. The lane
+   now reads the same canonical set the shim reads — active tickers whose type is NULL or not
+   crypto/future/index/rate; the NULL branch is essential, 90 actives including AAPL carry no
+   type — and compares MEMBERSHIP. The count against the recorded 365 stays on the row as a
+   secondary fact; it no longer decides it. */
+const CANONICAL_EQUITY_QUERY =
+  "tickers?select=ticker&active=eq.true&or=(type.is.null,type.not.in.(crypto,future,index,rate))&order=ticker.asc&limit=1000";
+async function canonicalEquitySet() {
+  try {
+    const rows = await pgRaw(CANONICAL_EQUITY_QUERY);
+    if (!Array.isArray(rows)) return null;
+    const set = rows.map((r) => String((r && r.ticker) || "").toUpperCase()).filter(Boolean);
+    /* A read that fills the page cap may be truncated, and a possibly-partial canonical set
+       cannot verify identity: unverified, never "verified against what arrived". */
+    if (!set.length || set.length >= 1000) return null;
+    return set;
+  } catch (e) { return null; }
+}
+/* Pure so it can be tested without a network: membership both ways, with the differences
+   named. No canonical set → unverified, because count alone is not identity. */
+function universeIdentity(providerSymbols, canonicalTickers) {
+  if (!Array.isArray(providerSymbols) || !providerSymbols.length)
+    return { state:"unknown", count:null, canonical:null, missing:[], extra:[] };
+  const provider = new Set(providerSymbols.map((s) => String(s).toUpperCase()));
+  if (!Array.isArray(canonicalTickers) || !canonicalTickers.length)
+    return { state:"unverified", count:provider.size, canonical:null, missing:[], extra:[] };
+  const canon = new Set(canonicalTickers.map((s) => String(s).toUpperCase()));
+  const missing = Array.from(canon).filter((s) => !provider.has(s));
+  const extra = Array.from(provider).filter((s) => !canon.has(s));
+  return { state: missing.length || extra.length ? "mismatch" : "agrees",
+    count:provider.size, canonical:canon.size, missing, extra };
+}
 /* Pure so it can be tested without a network: given what /geiger answered, say whether the
    universe agrees with the canonical one. */
 function universeAgreement(providerSymbolCount, canonical) {
@@ -313,15 +371,24 @@ async function providerJson(path) {
     if (!r.ok) throw new Error("provider " + path + " → " + r.status);
     return await r.json();
   } catch (e) {
-    if (e && e.name === "AbortError")
-      throw new Error("provider " + path + " → no response within " + PROVIDER_HEALTH_HARD_MS + "ms");
+    if (e && e.name === "AbortError") {
+      const t = new Error("provider " + path + " → no response within " + PROVIDER_HEALTH_HARD_MS + "ms");
+      t.scTimeout = true;
+      throw t;
+    }
     throw e;
   } finally { if (hard) clearTimeout(hard); clearTimeout(soft); }
 }
 async function runEquity() {
-  let geiger = null;
+  /* A slow probe on ONE run must not label every later run slow: the latch is per run, not
+     per page lifetime, or the first slow answer would stamp SLOW on re-checks made hours
+     after the provider recovered. */
+  PROVIDER_SLOW = false;
+  /* Started before the provider is asked, so identity costs no extra wall-clock. */
+  const canonicalRead = canonicalEquitySet();
+  let geiger = null, geigerFailure = null;
   try { geiger = await providerJson("/geiger"); }
-  catch (e) { geiger = null; }
+  catch (e) { geiger = null; geigerFailure = e; }
 
   const symbols = geiger && geiger.symbols ? Object.keys(geiger.symbols) : null;
 
@@ -340,6 +407,7 @@ async function runEquity() {
     const named = [];      // the provider named a state other than OK
     const malformed = [];  // said OK and then carried no usable value
     let full = true;
+    let lastBatchFailure = null;
     const numeric = (raw) => {
       if (raw == null || raw === "" || raw === true || raw === false) return null;
       const n = Number(raw);
@@ -362,10 +430,10 @@ async function runEquity() {
           if (px == null || px <= 0 || prev == null || prev <= 0) malformed.push(sym);
           else answered.push(sym);
         }
-      } catch (e) { full = false; }
+      } catch (e) { full = false; lastBatchFailure = e; }
     }
     const seen = answered.length + silent.length + named.length + malformed.length;
-    if (!seen) { set("equity", 0, "bad", "", "unreachable"); }
+    if (!seen) { set("equity", 0, "bad", "", failureWord(lastBatchFailure || geigerFailure)); }
     else {
       const scope = full ? seen + "/" + symbols.length + " asked"
                          : "SAMPLE " + seen + "/" + symbols.length;
@@ -384,7 +452,7 @@ async function runEquity() {
       set("equity", 0, st, answered.length + "/" + seen + " priced",
         scope + (notes.length ? " · " + notes.join(" · ") : ""));
     }
-  } catch (e) { set("equity", 0, "bad", "", "unreachable"); }
+  } catch (e) { set("equity", 0, "bad", "", failureWord(geigerFailure || e)); }
 
   /* geiger */
   /* THE EQUALIZER IS PART OF THE ANSWER, NOT A LABEL ON IT.
@@ -395,7 +463,7 @@ async function runEquity() {
     "f6cf97b57cf26a37aeb8393dec676f1776b02da282dffcce95786e5762697ad1";
   const receipt = geiger && geiger.equalizer_receipt_sha256;
   const equalizerOk = typeof receipt === "string" && receipt.toLowerCase() === ACCEPTED_EQUALIZER_SHA256;
-  if (!symbols) set("equity", 1, "bad", "", "unreachable");
+  if (!symbols) set("equity", 1, "bad", "", geigerFailure ? failureWord(geigerFailure) : "unreachable");
   else if (!equalizerOk)
     set("equity", 1, "bad", symbols.length.toLocaleString() + " symbols",
       receipt ? "equalizer receipt not accepted" : "no equalizer receipt");
@@ -403,17 +471,39 @@ async function runEquity() {
     symbols.length.toLocaleString() + " symbols",
     "accepted equalizer " + receipt.slice(0, 8) + (PROVIDER_SLOW ? " · SLOW" : ""));
 
-  /* universe agreement — a disagreement is shown as a disagreement */
-  const a = universeAgreement(symbols ? symbols.length : null);
-  set("equity", 2,
-    a.state === "unknown" ? "bad" : a.state === "agrees" ? "ok" : "warn",
-    a.count == null ? "" : a.count.toLocaleString(),
-    a.state === "unknown" ? "unreachable"
-      : a.state === "agrees" ? "agrees with " + a.expected
-      : "disagrees with " + a.expected + " by " + (a.delta > 0 ? "+" : "") + a.delta);
+  /* universe — identity decides; the recorded count is reported beside it, never instead of
+     it. Unverified fails closed: with the canonical set unreadable this row cannot claim
+     agreement from a count, and says so. */
+  const canonical = await canonicalRead;
+  const idy = universeIdentity(symbols, canonical);
+  if (idy.state === "unknown")
+    set("equity", 2, "bad", "", geigerFailure ? failureWord(geigerFailure) : "unreachable");
+  else if (idy.state === "unverified")
+    set("equity", 2, "bad", idy.count.toLocaleString(),
+      "identity unverified — canonical set unreadable; count alone is not identity");
+  else if (idy.state === "mismatch")
+    set("equity", 2, "bad", idy.count.toLocaleString(),
+      "identity mismatch vs " + idy.canonical + " canonical: missing [" +
+      idy.missing.slice(0, 4).join(",") + "] extra [" + idy.extra.slice(0, 4).join(",") + "]");
+  else {
+    const a = universeAgreement(idy.count);
+    set("equity", 2, a.state === "agrees" ? "ok" : "warn", idy.count.toLocaleString(),
+      "identity matches all " + idy.canonical + " canonical" +
+      (a.state === "agrees" ? " · recorded " + a.expected
+        : " · recorded " + a.expected + " differs by " + (a.delta > 0 ? "+" : "") + a.delta));
+  }
 }
 
+/* One run at a time. A re-check clicked mid-run used to start a second run over the same
+   rows, and the two finished out of order — a row could end showing the older run's answer
+   under the newer run's stamp. The click is simply ignored while a run is live; the button
+   is not a queue. */
+let RUNNING = false;
 async function run() {
+  if (RUNNING) return;
+  RUNNING = true;
+  el("stamp").textContent = "checking…";
+  try {
   shell(el("feeders"), FEEDERS);
   shell(el("stock"), STOCK);
   shell(el("equity"), EQUITY_LANES);
@@ -452,14 +542,14 @@ async function run() {
       const m = f.kind === "epoch" ? (Date.now() / 60000 - (+v) / 60) : mins(v);
       const st = m > f.bad ? "bad" : m > f.warn ? "warn" : "ok";
       set("feeders", i, st, c == null ? "" : c.toLocaleString() + " rows", ageLbl(m));
-    } catch (e) { set("feeders", i, "bad", "", "unreachable"); }
+    } catch (e) { set("feeders", i, "bad", "", failureWord(e)); }
   }));
 
   const stockLane = Promise.all(STOCK.map(async (s, i) => {
     try {
       const c = await countOf(s.t, s.filt);
       set("stock", i, c ? "ok" : "bad", c == null ? "" : c.toLocaleString(), c ? "present" : "empty");
-    } catch (e) { set("stock", i, "bad", "", "unreachable"); }
+    } catch (e) { set("stock", i, "bad", "", failureWord(e)); }
   }));
 
   /* Each lane paints as it resolves; the stamp waits for all of them. */
@@ -467,6 +557,7 @@ async function run() {
 
   const roster = el("rosterList"); if (roster) roster.textContent = NON_EQUITY_ROSTER.join(" · ");
   el("stamp").textContent = "checked " + new Date().toLocaleTimeString();
+  } finally { RUNNING = false; }
 }
 el("re").addEventListener("click", run);
 run();
