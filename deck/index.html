@@ -1006,7 +1006,7 @@ function paintMarketStatus() {
   const visible = visibleTickers.map((ticker) => Object.assign({ ticker, history:"loading", quote:"loading" }, CHART_STATUS.get(ticker) || {}));
   const n = el("marketStatus"); if (!n) return;
   const summary = chartDataSummary(visible);
-  if (summary.mode === "waiting") { n.textContent = "DATA · waiting"; n.dataset.delayed = "0"; n.dataset.fresh = "0"; return; }
+  if (summary.mode === "waiting") { n.textContent = "DATA · waiting"; n.dataset.delayed = "0"; n.dataset.fresh = "0"; n.dataset.absent = "0"; return; }
   if (summary.mode === "absent") {
     n.textContent = chartAbsenceHeadline(summary.names, summary.count);
     n.dataset.delayed = "0"; n.dataset.fresh = "0"; n.dataset.absent = "1";
@@ -1040,13 +1040,20 @@ function paintMarketStatus() {
   const at = new Date(oldest.updatedTs);
   const ageSec = Math.max(0, Math.round((Date.now() - at.getTime()) / 1000));
   const age = ageSec < 60 ? ageSec + "s" : Math.floor(ageSec / 60) + "m";
-  const fresh = ageSec < 90 && !delayed.length;
+  /* This path is only reached on mode "ready", which chartDataSummary returns strictly when
+     zero panes are delayed, loading or absent — the delayed count here is 0 by construction.
+     It used to be re-read from a `delayed` that only ever existed inside chartDataSummary's
+     own scope: a ReferenceError on every fully healthy paint, so the header could show any
+     state except the healthy one, and froze on whatever it last said while degraded. */
+  const fresh = ageSec < 90;
   n.textContent = (fresh ? "LIVE" : "DATA") + " · " + age + " · " +
     at.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" }) +
-    (delayed.length ? " · " + delayed.length + " delayed" : "") +
     (unstamped.length ? " · " + unstamped.length + " untimed" : "");
-  n.dataset.delayed = delayed.length ? "1" : "0";
+  n.dataset.delayed = "0";
   n.dataset.fresh = fresh ? "1" : "0";
+  /* A ready paint must also clear the absent flag a previous absent paint set, or the header
+     keeps the absent styling after every pane has recovered. */
+  n.dataset.absent = "0";
   /* The header stopped folding untimed rows into an age, but the tooltip still ran every row
      through `new Date(x.updatedTs)` - and for a row with no observation time that is
      `new Date(null)`, the epoch, printed as a real clock time. The one place left where an
