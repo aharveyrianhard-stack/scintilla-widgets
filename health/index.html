@@ -75,15 +75,22 @@ footer{ padding:20px 14px 0; color:var(--mute); font-size:9px; letter-spacing:.0
 <div class="wrap">
   <div class="note">Two halves of the same question. This page is the <b>data</b> half — how fresh every feeder is
     and how much is in each table. <a href="/status">/status</a> is the <b>org</b> half — which session delivered
-    what and what is waiting on you.</div>
+    what and what is waiting on you.<br><br>
+    <b>Equity truth is not in this database.</b> Price, previous close and the Geiger are served by the
+    provider contract and are asked of it directly above. <code>live_quotes</code>, <code>composite_staged</code>
+    and <code>ohlcv_history</code> are no longer graded here, because nothing reads them as equity authority any
+    more — grading them would report the health of something no surface depends on, in a place that reads as
+    authority. The database lanes below are the non-equity ones this database still owns.</div>
+  <h2>Equity — the provider contract</h2>
+  <div id="equity"></div>
   <h2>Feeders — how fresh is the newest row</h2>
   <div id="feeders"></div>
   <h2>Stock — how much is in there</h2>
   <div id="stock"></div>
 </div>
 <footer>
-  every number on this page is a live read of the database · never FMP from a page<br>
-  the geiger is read, never recomputed<br>
+  every number on this page is a live read — the equity lane of the provider contract, the rest of the database · never FMP from a page<br>
+  the geiger is read from the provider, never recomputed here<br>
   <span id="stamp"></span>
 </footer>
 <script>
@@ -100,27 +107,46 @@ async function pgRaw(path, head) {
 const el = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
+/* EQUITY TRUTH IS NOT IN THIS DATABASE ANY MORE.
+   This page used to lead with `live_quotes` described as the board's price and change, and
+   `composite_staged` described as the Geiger, and it graded both for freshness. Both
+   descriptions are now false: equity price, previous close and the Geiger are served by the
+   provider contract, and the legacy tables disagreed with it on 359 of 365 symbols on
+   2026-08-18.
+   A health page that grades a table nobody reads reports the health of nothing, and does it
+   in a way that reads as authority.
+
+   So the equity lane below asks the provider, and the database lanes are exactly the
+   non-equity ones that ARE still owned here. Nothing was deleted to make the page look
+   greener; what was removed had stopped being true. */
+const PROVIDER_API = "https://scintilla-massive-chart-api.fly.dev";
+/* The universe the cutover was measured on. A provider answer of a different size is shown
+   as a disagreement, never quietly adopted as the new number. */
+const CANONICAL_EQUITY_UNIVERSE = 365;
+
 /* FEEDERS — table, its real timestamp column, how it is stored, and how old
    is too old. Column names verified against information_schema, not guessed:
    news uses published_ts (bigint epoch), feed_alerts uses fired_ts, the rest
-   are timestamptz. */
+   are timestamptz. Every entry here is a NON-EQUITY lane whose owner is this database. */
 const FEEDERS = [
-  { t: "live_quotes",     col: "updated_ts",   kind: "ts",    n: "Live quotes",      d: "price and change for the whole board",  warn: 15,   bad: 90 },
   { t: "spine_events",    col: "at",           kind: "ts",    n: "The spine",        d: "every session's receipts",              warn: 720,  bad: 4320 },
   { t: "feed_alerts",     col: "fired_ts",     kind: "ts",    n: "Feed alerts",      d: "feed-health warnings",                  warn: 120,  bad: 720 },
   { t: "youtube_feed",    col: "published_at", kind: "ts",    n: "YouTube mirror",   d: "what feeds A and B read",               warn: 720,  bad: 4320 },
   { t: "news",            col: "published_ts", kind: "epoch", n: "News",             d: "the wire",                              warn: 180,  bad: 1440 },
-  { t: "composite_staged",col: null,           kind: "none",  n: "Geiger composite", d: "tf=D — read only, never recomputed",    warn: 0,    bad: 0, filt: "&tf=eq.D" },
 ];
-/* STOCK — the counts that tell you the shape is intact */
+/* STOCK — the counts that tell you the shape is intact. Non-equity lanes only. */
 const STOCK = [
-  { t: "composite_staged", filt: "&tf=eq.D", n: "Geiger rows (tf=D)", d: "one per name on the board" },
-  { t: "board_rsi",        filt: "",         n: "RSI rows",           d: "what /ranks reads for the RSI column" },
-  { t: "ticker_cohorts",   filt: "",         n: "Cohort memberships", d: "the axis you navigate" },
+  { t: "ticker_cohorts",   filt: "",         n: "Cohort memberships", d: "the axis you navigate — view over ticker_membership" },
   { t: "hub_favorites",    filt: "",         n: "Favourites",         d: "the FAV cohort" },
   { t: "earnings_events",  filt: "",         n: "Earnings events",    d: "what /events reads, both directions" },
   { t: "econ_calendar",    filt: "",         n: "Econ calendar",      d: "what /econ reads" },
   { t: "youtube_feed",     filt: "",         n: "Videos mirrored",    d: "feeds A and B" },
+];
+/* EQUITY — asked of the contract that actually owns it. */
+const EQUITY_LANES = [
+  { k: "quotes",  n: "Provider quotes",  d: "price + previous completed daily close — /quotes" },
+  { k: "geiger",  n: "Provider Geiger",  d: "composite / trend / momentum under the captured Equalizer — /geiger" },
+  { k: "universe",n: "Equity universe",  d: "symbols the provider owns, against the canonical " + CANONICAL_EQUITY_UNIVERSE },
 ];
 
 function mins(iso) { return (Date.now() - new Date(iso).getTime()) / 60000; }
@@ -143,14 +169,64 @@ function set(box, i, state, num, age) {
 }
 
 async function countOf(t, filt) {
-  const cr = await pgRaw(t + "?select=" + encodeURIComponent(t === "composite_staged" ? "tf" : "*") + (filt || "") + "&limit=1", true);
+  const cr = await pgRaw(t + "?select=*" + (filt || "") + "&limit=1", true);
   const m = /\/(\d+)$/.exec(cr || "");
   return m ? +m[1] : null;
+}
+
+/* Pure so it can be tested without a network: given what /geiger answered, say whether the
+   universe agrees with the canonical one. */
+function universeAgreement(providerSymbolCount, canonical) {
+  const expected = canonical == null ? CANONICAL_EQUITY_UNIVERSE : canonical;
+  if (providerSymbolCount == null || !isFinite(providerSymbolCount))
+    return { state:"unknown", count:null, expected, delta:null };
+  const count = Math.round(providerSymbolCount);
+  const delta = count - expected;
+  return { state: delta === 0 ? "agrees" : "disagrees", count, expected, delta };
+}
+async function providerJson(path) {
+  const r = await fetch(PROVIDER_API + path, { cache:"no-store" });
+  if (!r.ok) throw new Error("provider " + path + " → " + r.status);
+  return r.json();
+}
+async function runEquity() {
+  shell(el("equity"), EQUITY_LANES);
+  let geiger = null;
+  try { geiger = await providerJson("/geiger"); }
+  catch (e) { geiger = null; }
+
+  const symbols = geiger && geiger.symbols ? Object.keys(geiger.symbols) : null;
+
+  /* quotes: asked for a handful of the provider's own symbols, so the check cannot pass by
+     asking for something the provider was never going to carry. */
+  try {
+    if (!symbols || !symbols.length) throw new Error("no provider universe to sample");
+    const sample = symbols.slice(0, 5);
+    const q = await providerJson("/quotes?symbols=" + encodeURIComponent(sample.join(",")));
+    const ok = sample.filter((sym) => q && q.quotes && q.quotes[sym] && q.quotes[sym].state === "OK");
+    set("equity", 0, ok.length === sample.length ? "ok" : ok.length ? "warn" : "bad",
+      ok.length + "/" + sample.length, ok.length ? "answering" : "no quote");
+  } catch (e) { set("equity", 0, "bad", "", "unreachable"); }
+
+  /* geiger */
+  if (!symbols) set("equity", 1, "bad", "", "unreachable");
+  else set("equity", 1, symbols.length ? "ok" : "bad", symbols.length.toLocaleString() + " symbols",
+    geiger.equalizer_receipt_sha256 ? "equalizer " + String(geiger.equalizer_receipt_sha256).slice(0, 8) : "no receipt");
+
+  /* universe agreement — a disagreement is shown as a disagreement */
+  const a = universeAgreement(symbols ? symbols.length : null);
+  set("equity", 2,
+    a.state === "unknown" ? "bad" : a.state === "agrees" ? "ok" : "warn",
+    a.count == null ? "" : a.count.toLocaleString(),
+    a.state === "unknown" ? "unreachable"
+      : a.state === "agrees" ? "agrees with " + a.expected
+      : "disagrees with " + a.expected + " by " + (a.delta > 0 ? "+" : "") + a.delta);
 }
 
 async function run() {
   shell(el("feeders"), FEEDERS);
   shell(el("stock"), STOCK);
+  await runEquity();
 
   await Promise.all(FEEDERS.map(async (f, i) => {
     try {
