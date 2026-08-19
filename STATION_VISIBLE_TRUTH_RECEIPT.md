@@ -624,3 +624,56 @@ merge gate. Idle from here is not idleness; it is the measured edge of this bran
 ## Errata, stated
 
 - None new: one batch commit, gated green before push.
+
+---
+
+# Round — executor 3, coverage-completion sprint (2026-08-19, same session)
+
+Two code commits (`55e4526`, `8175459`) plus the docs commit carrying this section. Suite at
+close: **251 pass, 0 fail**; 19 proofs, 47 screenshots. No provider history touched, no
+Geiger change, no database access.
+
+## Runtime coverage of the route inventory: COMPLETE
+
+`inventory-sweep.mjs` loaded the thirty-three surfaces no proof had ever exercised — entry,
+ops, /parity, media, the visuals lab, the standalone spec pages — each with zero page
+errors, a real painted surface, and zero requests outside its CLASS allowance (data lanes:
+the two owners only; media-mounting pages: YouTube embed hosts, whose player and thumbnails
+ARE the media content while the feed's data stays on youtube_feed; the retained rollback
+sector-rotation-older: its reviewed hub relay, exempt by ruling). With authority-sweep and
+the per-page proofs, EVERY served surface has now been loaded at least once under authority
+assertions. The X lane is the one exclusion — H2 is proof-gated, and even observation stays
+out until it opens; the bridge draft's offscreen document throws outside its extension
+context (recorded), and its one-line guard waits behind the same gate.
+
+## The sprint's one live find, fixed: the LINES panel says its library is dead
+
+/templates/sector-rotation.html loads lightweight-charts from unpkg — pinned 4.1.3 but with
+NO integrity hash (vendor-or-SRI: OWNER RULING, recorded beside the supabase-js floating-@2
+item). The unguarded createChart threw a ReferenceError when the CDN was down and took the
+timeframe-following panels with it. The panel now SAYS "lightweight-charts did not load
+(third-party CDN unpkg.com) — the LINES panel is unavailable, not empty; every other panel
+is unaffected · reload to retry"; the chart calls are guarded; leaders and heatmap follow a
+range click with the library dead — proven with the CDN blocked, photographed. The rollback
+copy untouched and pinned so.
+
+## The first-basket class, closed for every scene kind
+
+`scene-declared-rows.mjs`: the fixed preset carries exactly its frozen declaration in
+order; the time-windowed indexNow wall equals the model's own declaration compared in the
+same browser at the same instant. With round 4's cohort and family proofs, every scene KIND
+is browser-proven to deliver its declared rows. Also recorded: /parity makes no data reads
+at all — static, authority-clean by construction.
+
+## The wall, restated
+
+Unchanged from round 9, now with fuller evidence behind it: every runnable-now unit is
+done, and the whole inventory is measured. Remaining items each name their wall — the Hub
+repo, the sector deploy + Fly CORS, owner rulings (scene internals · tokens.css ·
+supabase-js pin-or-vendor · lightweight-charts SRI-or-vendor · tax/terminal/MRP/debt-weight
+sources), a live browser outside this container, a human eye, the H2 gate, and the
+independent re-audit that decides merge readiness.
+
+## Errata, stated
+
+- None new: two commits, both gated green before push.

@@ -1,6 +1,6 @@
 # Station visible-truth closure — session handoff
 
-Written at a committed checkpoint by executor 3 after the round-9 authority packet.
+Written at a committed checkpoint by executor 3 after the round-10 coverage sprint.
 Everything below was re-derived from the working tree at head, not carried forward from an
 earlier note.
 
@@ -10,11 +10,11 @@ earlier note.
 | --- | --- |
 | Repo | `aharveyrianhard-stack/scintilla-widgets` |
 | Branch | `claude/station-visible-truth-closure-8ipyru` |
-| Head | `2905ad2` + the docs commit carrying this update — pushed |
+| Head | `8175459` + the docs commit carrying this update — pushed |
 | PR | [#115](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/115) — **DRAFT, NO-MERGE** |
 | Uncommitted | **none** at handoff |
-| Tests | `node --test "tests/*.test.mjs"` → **250 pass, 0 fail**, 24 files |
-| Browser receipts | `browser-proof/` — 17 proof files, 45 screenshots + `RECEIPTS.md`, every entry regenerable by the command it names |
+| Tests | `node --test "tests/*.test.mjs"` → **251 pass, 0 fail**, 24 files |
+| Browser receipts | `browser-proof/` — 19 proof files, 47 screenshots + `RECEIPTS.md`, every entry regenerable by the command it names |
 | Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access this round: **two read-only SELECTs** on scintilla-live (schema + FY availability, recorded in the receipt); rounds 3–4 used none |
 | Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` |
 
