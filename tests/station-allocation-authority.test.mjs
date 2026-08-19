@@ -155,6 +155,11 @@ test("what cannot be scored is listed by name under the ranking, not silently dr
   assert.match(allocation, /excluded from this ranking — accepted composite unavailable:/);
   assert.match(allocation, /nothing is scored for them and nothing is substituted/);
   assert.match(allocation, /no candidate carries an accepted composite — nothing can be ranked/);
+  /* The message must actually be reachable: `html` always carries the header row, so
+     `html || fallback` could never fire — zero ranked rows painted a bare header. The raw
+     row count decides emptiness (browser receipt: proofs/degraded-states.mjs scenario 3). */
+  assert.match(allocation, /t\.innerHTML = rows\.length \? html/);
+  assert.ok(!/t\.innerHTML = html \|\|/.test(allocation), "the dead truthiness gate is gone");
 });
 
 test("the LENS and the sleeves state their own absence instead of wearing the rail", () => {

@@ -1007,7 +1007,11 @@ function renderCohort(dLC, dSC){
       <td class="r" style="color:${k.rev_growth>0?'var(--green)':k.rev_growth<0?'var(--red)':'var(--dim)'}">${k.rev_growth==null?'<span class=cls>—</span>':spct(k.rev_growth,0)}</td>
       <td class="r">${pctc(k.gross_m)}</td><td class="r">${pctc(k.net_m)}</td><td class="r">${num(k.de,2)}</td></tr>`;
   }
-  t.innerHTML = html || '<tr><td class="cls">no candidate carries an accepted composite — nothing can be ranked</td></tr>';
+  /* `html` always carries the header row, so its truthiness can never detect emptiness —
+     the raw row count decides. With zero ranked candidates the table used to paint a bare
+     header: an empty panel where a named absence was promised. */
+  t.innerHTML = rows.length ? html
+    : html + '<tr><td class="cls" colspan="16">no candidate carries an accepted composite — nothing can be ranked</td></tr>';
   const uv = document.getElementById('cohortUnavail');
   if (uv) uv.innerHTML = unscored.length
     ? '<b>excluded from this ranking — accepted composite unavailable:</b> ' + unscored.join(' · ') + ' <span class="cls">(nothing is scored for them and nothing is substituted)</span>'
@@ -1069,7 +1073,11 @@ function renderComps(){
   const median=a=>{const b=[...a].sort((x,y)=>x-y);const m=b.length>>1;return b.length%2?b[m]:(b[m-1]+b[m])/2;};
   const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
   if (active.length>1){ html+=stat(median,'MEDIAN','var(--gold)'); html+=stat(mean,'MEAN','var(--gold)'); html+=stat(a=>Math.min(...a),'MIN','#8a8aa0'); html+=stat(a=>Math.max(...a),'MAX','#8a8aa0'); }
-  t.innerHTML = html || '<tr><td class="cls">all suggestions dropped — restore below</td></tr>';
+  /* Same dead gate as the cohort table had: `html` always carries the header row, so this
+     could never fire — and its old wording ("all suggestions dropped") named a state that
+     cannot occur, since dropped rows stay rendered greyed-out. The raw count decides. */
+  t.innerHTML = data.length ? html
+    : html + '<tr><td class="cls" colspan="14">nothing to compare — no suggestion carries an accepted composite and nothing starred carries data</td></tr>';
   const rc=document.getElementById('compRestore');
   if(rc){ rc.innerHTML = EXCLUDED.size ? `<span class="cls">dropped: ${[...EXCLUDED].join(', ')} · </span><button style="background:none;border:none;color:var(--cyan);cursor:pointer;font-size:11px" onclick="restoreExcluded()">restore all</button>` : ''; }
   t.querySelectorAll('.comprm').forEach(el=>el.onclick=()=>{ const s=el.getAttribute('data-sym'); if(EXCLUDED.has(s)){EXCLUDED.delete(s);} else {EXCLUDED.add(s); PICKS.delete(s); localStorage.setItem('alloc-picks',JSON.stringify([...PICKS]));} render(); });
