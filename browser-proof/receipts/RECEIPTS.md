@@ -1886,3 +1886,21 @@ Five cohorts served, one of them carrying members no composite covers (browser-p
 - **The starved row sits at 176 — after every ranked row** — with the numeral `—` instead of a stale number, the value `—`, a dimmed opacity, and **no stale marking** (that marking is a claim about the read window, and it used to survive on a row that had lost its reading entirely, because the early return for a null value ran before the toggle).
 
 Zero page errors. Rollback: revert the single commit — one `concat` in the order, one numeral guard, one full reset in the null branch, pins and this proof. No data lane, authority or methodology changed; the cohort values are read exactly as before.
+
+---
+
+## 2026-08-19T18:35:33Z — an axis label is a claim: it must be the price of the line it sits beside
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/axis-labels.mjs` (asserts inline; calls the LIVE page's own formatter against the LIVE page's own tick values)
+
+The chart's price gridlines are labelled by `chAxisPx(value, step)`, and the decimals used to come from the step's **magnitude** — `s >= 1 ? 0`. So a gridline sitting at 12.5 printed **"13"**, and one at 0.25 printed **"0.3"**: the number beside the line was not the price of the line, off by half a step's worth of rounding. This was not an edge case — the page's own tick ladder selects exactly those steps whenever the raw step falls in (2, 2.5] × 10^k, one of its five rungs.
+
+Canvas text cannot be read back, so this proof does the honest equivalent: it serves a history window whose span forces that rung, then asks the running page for the tick values it computed for the window it is showing and the label **its own live `chAxisPx`** gives each one (browser-proof/receipts/chart-axis-labels-exact.png).
+
+- **The axis this pane actually painted is exact** — the pane's own height rule picks its tick count, its own plot bounds give the range, and every resulting label equals its gridline's price as a numeric equality, not a format match.
+- **Every rung of the ladder is then driven through the page's own live `chAxisPx`**, including the 2.5×10^k band the defect lived in — asserted separately, so the proof cannot pass without exercising the defect even when the rendered window happens to land on a different rung (an earlier run did exactly that, which is why the rungs are exercised explicitly).
+- The 2.5 rung's labels carry the decimal that magnitude-derived rounding used to drop.
+
+`chStepDecimals(s)` now returns the decimals the step itself needs (2.5 → 1, 25 → 0, 0.25 → 2, 0.025 → 3), bounded at 6; no served price range produces a step below 1e-6. The thousands branch is unchanged and still exact at its own resolution.
+
+Zero page errors. Rollback: revert the single commit — one helper, one call site, mirrored to the shell, plus pins and this proof. No data lane, authority or methodology changed; only the number printed beside a line changed, to the one that line is at.

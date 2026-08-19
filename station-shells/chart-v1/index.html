@@ -438,13 +438,25 @@ const chPx = (p, ticker = "") => {
   const d = CH_DECIMALS[ticker] ?? (p >= 1 ? 2 : 4);
   return p.toLocaleString("en-US", { minimumFractionDigits:d, maximumFractionDigits:d });
 };
+/* HOW MANY DECIMALS THE STEP ITSELF NEEDS — not how big it is.
+   The axis label must be the price of the line it sits beside. Deriving decimals from the
+   step's MAGNITUDE (`s >= 1 ? 0`) printed a gridline at 12.5 as "13" and one at 0.25 as
+   "0.3": off by half a step, and the tick ladder chooses exactly those steps whenever the
+   raw step falls in (2, 2.5] × 10^k, which is one of its five rungs. */
+const chStepDecimals = (s) => {
+  for (let d = 0; d <= 6; d += 1) {
+    const scaled = s * Math.pow(10, d);
+    if (Math.abs(scaled - Math.round(scaled)) < 1e-9) return d;
+  }
+  return 6;   /* bounded; no served price range produces a step below 1e-6 */
+};
 const chAxisPx = (p, step) => {
   const a = Math.abs(p), s = Math.abs(step || 1);
   if (a >= 10000 && s >= 1000) {
     const d = s < 10000 ? 1 : 0;
     return (p / 1000).toFixed(d).replace(/\.0$/, "") + "K";
   }
-  const d = s >= 1 ? 0 : Math.min(4, Math.max(0, Math.ceil(-Math.log10(s))));
+  const d = chStepDecimals(s);
   return p.toLocaleString("en-US", { minimumFractionDigits:d, maximumFractionDigits:d });
 };
 const EV_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

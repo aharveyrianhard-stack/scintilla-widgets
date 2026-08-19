@@ -951,3 +951,51 @@ test("the pane's direction color is claimed from the day's baseline, or not clai
       label + ": and both claim on the same baseline");
   }
 });
+
+test("the price axis labels the price the gridline is actually at", () => {
+  /* The label must BE the price of the line it sits beside. Decimals used to come from the
+     step's MAGNITUDE (`s >= 1 ? 0`), so a gridline at 12.5 printed "13" and one at 0.25
+     printed "0.3" — off by half a step. The tick ladder selects exactly those steps
+     whenever the raw step falls in (2, 2.5] × 10^k, which is one of its five rungs, so this
+     was not an edge case but a regularly-occurring band. */
+  for (const [label, src] of [["chart", chart], ["chart shell", chartShell]]) {
+    assert.doesNotMatch(src, /const d = s >= 1 \? 0 : Math\.min\(4/, label + ": the magnitude rule is gone");
+    assert.match(src, /const chStepDecimals = \(s\) => \{/, label);
+    assert.match(src, /const d = chStepDecimals\(s\);/, label);
+
+    const block = src.match(/const chStepDecimals = [\s\S]*?\n\};\nconst chAxisPx = [\s\S]*?\n\};/);
+    assert.ok(block, label + ": the axis formatter block is found");
+    const { chAxisPx, chStepDecimals } = vm.runInNewContext(
+      block[0] + " ({ chAxisPx, chStepDecimals })", { Math });
+
+    /* The step's own precision, exactly. */
+    assert.equal(chStepDecimals(5), 0); assert.equal(chStepDecimals(25), 0);
+    assert.equal(chStepDecimals(2.5), 1); assert.equal(chStepDecimals(0.5), 1);
+    assert.equal(chStepDecimals(0.25), 2); assert.equal(chStepDecimals(0.05), 2);
+    assert.equal(chStepDecimals(0.025), 3);
+
+    /* Reproduce the page's OWN tick ladder and require every label to equal its tick. */
+    const ladder = (lo, hi, want = 6) => {
+      const rawStep = Math.max(Number.EPSILON, (hi - lo) / Math.max(2, want - 1));
+      const stepPow = Math.pow(10, Math.floor(Math.log10(rawStep)));
+      const sr = rawStep / stepPow;
+      const step = (sr <= 1 ? 1 : sr <= 2 ? 2 : sr <= 2.5 ? 2.5 : sr <= 5 ? 5 : 10) * stepPow;
+      const out = [];
+      for (let v = Math.ceil(lo / step) * step; v <= hi + step * 0.001 && out.length < 10; v += step)
+        out.push(+v.toPrecision(12));
+      return { step, out };
+    };
+    for (const [lo, hi] of [[10, 22], [1, 2.2], [100, 220], [0.1, 0.22], [3, 3.9],
+                            [119, 121], [1000, 2200], [0.5, 0.9]]) {
+      const { step, out } = ladder(lo, hi);
+      for (const v of out) {
+        const text = chAxisPx(v, step);
+        assert.equal(Number(text.replace(/,/g, "")), v,
+          label + ": the label for the " + v + " gridline (step " + step + ") reads " + text);
+      }
+    }
+    /* The thousands branch is unchanged and still exact at its own resolution. */
+    assert.equal(chAxisPx(16000, 2000), "16K");
+    assert.equal(chAxisPx(12500, 1000), "12.5K");
+  }
+});
