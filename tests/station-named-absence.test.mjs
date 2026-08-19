@@ -143,7 +143,7 @@ test("only a NAMED omission is an absence; an unnamed one stays retryable", () =
   assert.match(chart, /function applyDeckQuote\(ticker, quote, state, absence\)/);
   assert.match(chart, /state === "absent" \? "absent" : state === "delayed" \? "delayed" : "loading"/);
   assert.match(chart, /applyDeckQuote\(d\.ticker, d\.quote, d\.state, d\.absence\)/);
-  assert.match(chart, /reportChartDataState\(host, \{ quote:"absent", absence:named \}\)/);
+  assert.match(chart, /reportChartDataState\(host, \{ quote:"absent", quoteAbsence:named \}\)/);
 });
 
 test("the provider shim names absences per symbol and timeframe and never invents a series", () => {
@@ -222,4 +222,84 @@ test("a pane still retrying is never counted as settled, whichever sublane named
   ]);
   assert.equal(settled.mode, "absent");
   assert.equal(settled.count, 1);
+});
+
+test("the internals symbols nobody names must KEEP retrying", () => {
+  /* THE CLAIM THIS CORRECTS. STATION-001 was described as making the four non-equity scenes
+     settle on a name and stop. Measured on 2026-08-19, that is only half true, and the half it
+     gets wrong matters more:
+
+       ESUSD NQUSD CLUSD US10Y VIX   thousands of bars at scene timeframes, a live_quotes row,
+                                     registered in `tickers` — these work.
+       ADD PCC CUMTICK TICK TRIN     zero rows in ohlcv_history, live_quotes and
+                                     composite_staged, and not registered in `tickers` at all.
+
+     Nothing owns the second group, so nothing NAMES a terminal absence for them. Under the
+     corrected rule, "data delayed · retrying" is the truthful state for those panes and must
+     continue — stopping would fabricate a certainty no owner has expressed. What STATION-001
+     actually fixed is the CONVERSION: an owner's named answer is no longer flattened into an
+     endless retry. */
+  const UNOWNED = ["ADD", "PCC", "CUMTICK", "TICK", "TRIN"];
+  const OWNED_WITH_DATA = ["ESUSD", "NQUSD", "CLUSD", "US10Y", "VIX"];
+
+  /* Both groups are still on the scenes — this test is about behaviour, not about removing
+     symbols from a wall to make a suite green. */
+  const scened = ["indexNow", "macroCrossAsset", "internalsFast", "internalsSlow"]
+    .flatMap((id) => scenes.PRESETS[id].tickers);
+  for (const sym of [...UNOWNED, ...OWNED_WITH_DATA].filter((s) => scened.includes(s)))
+    assert.ok(scened.includes(sym), `${sym} is still mounted`);
+
+  /* The code rule: an absence exists only where something recorded a name. */
+  const named = fnFrom(chart, "chartNamedAbsenceFor", { window:{} });
+  for (const sym of UNOWNED)
+    assert.equal(named(sym, "180"), null, `${sym} has no name, so nothing may settle it`);
+
+  /* And an unnamed empty read raises an ordinary failure, which retries — not an absence. */
+  assert.match(chart, /throw new Error\("insufficient history for "/);
+  assert.match(chart, /const named = chartNamedAbsenceFor\(t, e\[0\]\);\n\s*if \(named\) throw chartAbsenceError\(named, t, range\);/);
+  /* Nothing anywhere may hand these symbols a default name. */
+  assert.doesNotMatch(chart, /\|\| CHART_ABSENCE_NOT_OBSERVED;\s*\n\}\s*\nfunction chartNamedAbsenceFor/);
+});
+
+test("history and quote keep their own absence reason", () => {
+  /* One shared field meant the lanes wrote over each other: a history success cleared the
+     reason belonging to a still-true quote absence, and a quote going ready left a history
+     reason standing with nothing to explain. */
+  assert.match(chart, /historyAbsence:null, quoteAbsence:null/);
+  assert.match(chart, /if \(host\._dataState\.history !== "absent"\) host\._dataState\.historyAbsence = null;/);
+  assert.match(chart, /if \(host\._dataState\.quote !== "absent"\) host\._dataState\.quoteAbsence = null;/);
+  assert.match(chart, /const aggregate = host\._dataState\.historyAbsence \|\| host\._dataState\.quoteAbsence \|\| null;/,
+    "the aggregate is derived, so it cannot drift from the two facts it is made of");
+
+  const report = fnFrom(chart, "reportChartDataState", { Object, parent:{ postMessage:() => {} },
+    location:{ origin:"x" }, Boolean });
+
+  /* quote absent, then history goes ready: the quote's reason must survive. */
+  const a = { dataset:{ t:"EQR" } };
+  report(a, { quote:"absent", quoteAbsence:"NOT_OBSERVED_BY_STREAM" });
+  report(a, { history:"ready", historyAbsence:null });
+  assert.equal(a._dataState.quoteAbsence, "NOT_OBSERVED_BY_STREAM",
+    "a history success cannot clear a still-true quote absence");
+  assert.equal(a._dataState.historyAbsence, null);
+
+  /* history absent, then quote goes ready: the history's reason must survive. */
+  const b = { dataset:{ t:"MU" } };
+  report(b, { history:"absent", historyAbsence:"TIMEFRAME_NOT_MAPPED" });
+  report(b, { quote:"ready", quoteAbsence:null });
+  assert.equal(b._dataState.historyAbsence, "TIMEFRAME_NOT_MAPPED");
+  assert.equal(b._dataState.quoteAbsence, null);
+
+  /* A lane that stops being absent drops its reason, whatever a caller passes. */
+  report(b, { history:"ready", historyAbsence:"STALE_NAME_THAT_SHOULD_NOT_STICK" });
+  assert.equal(b._dataState.historyAbsence, null);
+});
+
+test("the deck tooltip cannot date an untimed row", () => {
+  /* The header stopped folding untimed rows into an age, but the tooltip still ran every row
+     through `new Date(x.updatedTs)` — and for a row with no observation time that is
+     `new Date(null)`, the epoch, printed as a real clock time. */
+  assert.doesNotMatch(deck, /new Date\(x\.updatedTs\)\.toLocaleTimeString\(\)/,
+    "the unguarded conversion is gone");
+  assert.match(deck, /const ms = x\.updatedTs == null \|\| x\.updatedTs === "" \? NaN : new Date\(x\.updatedTs\)\.getTime\(\);/);
+  assert.match(deck, /Number\.isFinite\(ms\) \? new Date\(ms\)\.toLocaleTimeString\(\) : "no observation time"/);
 });

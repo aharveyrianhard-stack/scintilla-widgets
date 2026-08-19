@@ -37,6 +37,8 @@ function loadShim(fetchImpl) {
   vm.runInNewContext(providerSource, {
     window, fetch:fetchImpl, Date, Promise, String, Object, Number, parseInt, isFinite,
     encodeURIComponent, JSON, Error, Math, Array, RegExp, console,
+    /* The shim now arms a soft timer and a hard one on every read. */
+    setTimeout, clearTimeout, AbortController,
   });
   return window;
 }
@@ -46,8 +48,24 @@ const status = (code) => Promise.resolve({
   ok:false, status:code, json:() => Promise.resolve(null), text:() => Promise.resolve("") });
 const dead = () => Promise.reject(new Error("network down"));
 
+/* THE UNIVERSE MUST BE COMPLETE BEFORE IT MAY CLASSIFY ANYTHING.
+   365 is the size the provider cutover was measured on, and the shim refuses to publish an
+   ownership map of any other size. Fixtures therefore build a real 365-symbol universe with the
+   named symbols in it, rather than a two-symbol stand-in that would now - correctly - be
+   rejected as partial. */
+const EXPECTED_UNIVERSE = 365;
+function universe(named = ["AAPL", "MSFT"], size = EXPECTED_UNIVERSE) {
+  const symbols = {};
+  for (const sym of named) symbols[sym] = { composite:0.1, trend:0.1, momentum:0.1 };
+  let i = 0;
+  while (Object.keys(symbols).length < size) {
+    const filler = "SYM" + String(i++).padStart(4, "0");
+    if (!(filler in symbols)) symbols[filler] = { composite:0, trend:0, momentum:0 };
+  }
+  return symbols;
+}
 const GEIGER_OK = {
-  symbols:{ AAPL:{ composite:0.4, trend:0.3, momentum:0.5 }, MSFT:{ composite:0.1, trend:0, momentum:0.2 } },
+  symbols:universe(),
   equalizer_receipt_sha256:"f6cf97b5" + "0".repeat(56),
   computed_utc:"2026-08-19T07:57:20.566Z",
 };
@@ -200,13 +218,13 @@ test("a mixed equity/non-equity request fails whole when the passthrough fails",
 test("a geiger payload that omits a requested symbol fails the request", async () => {
   /* /geiger publishes the whole universe, so a gap in it is an incomplete payload, not a
      per-symbol fact about MSFT. */
-  const w = loadShim(() => ok({ ...GEIGER_OK, symbols:{ AAPL:GEIGER_OK.symbols.AAPL, MSFT:GEIGER_OK.symbols.MSFT } }));
+  const w = loadShim(() => ok({ ...GEIGER_OK, symbols:universe(["AAPL", "MSFT"]) }));
   w.pg = async () => [];
   w.scInstallProviderShim();
   const fine = await w.pg("composite_staged?tf=eq.D&ticker=in.(AAPL,MSFT)&select=ticker,composite");
   assert.equal(fine.length, 2, "a complete payload answers completely");
 
-  const w2 = loadShim(() => ok({ ...GEIGER_OK, symbols:{ AAPL:GEIGER_OK.symbols.AAPL, MSFT:GEIGER_OK.symbols.MSFT, TSLA:{} } }));
+  const w2 = loadShim(() => ok({ ...GEIGER_OK, symbols:universe(["AAPL", "MSFT", "TSLA"]) }));
   w2.pg = async () => [];
   w2.scInstallProviderShim();
   /* TSLA is owned (it is in the universe) but its entry is empty. */
@@ -217,7 +235,7 @@ test("a geiger payload that omits a requested symbol fails the request", async (
 test("a symbol the provider explicitly names IS a settled absence — the EQR case", async () => {
   const w = loadShim((url) => {
     if (String(url).includes("/geiger"))
-      return ok({ ...GEIGER_OK, symbols:{ ...GEIGER_OK.symbols, EQR:{ composite:0 } } });
+      return ok({ ...GEIGER_OK, symbols:universe(["AAPL", "EQR"]) });
     return ok({ quotes:{
       AAPL:{ state:"OK", price:10, previous_close:9, price_observation_utc:"2026-08-19T07:50:00Z" },
       EQR:{ state:"NOT_OBSERVED_BY_STREAM", price:null, previous_close:null },
@@ -274,7 +292,7 @@ test("the Geiger's age is the endpoint's computed_utc, never the read time", asy
 });
 
 test("a Geiger with no computed_utc is unknown, not fresh", async () => {
-  const w = loadShim(() => ok({ symbols:GEIGER_OK.symbols }));    // no computed_utc
+  const w = loadShim(() => ok({ symbols:universe() }));    // no computed_utc
   w.pg = async () => [];
   w.scInstallProviderShim();
   const rows = await w.pg("composite_staged?tf=eq.D&ticker=in.(AAPL)&select=ticker,composite");
@@ -354,8 +372,12 @@ test("unknown ownership is not permission for a Realtime legacy write", () => {
     assert.match(source, /shim\.ownershipKnown && !shim\.ownershipKnown\(\)\) \{ shim\.realtime_unknown_ownership_refused\+\+; return; \}/,
       "the Realtime handler refuses to write while ownership is unknown");
 
-  /* Once an answer exists, the guard stops blocking. */
+  /* Once a VERIFIED answer exists, the guard stops blocking. A map that is merely present is
+     not enough: a partial payload published as ownership is what let equities be reclassified
+     as non-equities and routed to the legacy tables. */
   S.owned_map = { AAPL:1 };
+  assert.equal(S.ownershipKnown(), false, "a map with no verification behind it is not knowledge");
+  S.ownership = { verified:true, count:365, expected:365, reason:null };
   assert.equal(S.ownershipKnown(), true);
   assert.equal(S.isProviderOwned("AAPL"), true);
   assert.equal(S.isProviderOwned("BTCUSD"), false, "a genuine non-equity still passes through");
@@ -379,8 +401,7 @@ test("cache freshness is per symbol — one symbol's answer cannot renew another
      wall — which is every Station wall — that is the normal path, not an edge case. */
   const served = [];
   const w = loadShim((url) => {
-    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK,
-      symbols:{ AAPL:{}, MU:{}, NVDA:{} } });
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:universe(["AAPL", "MU", "NVDA"]) });
     const asked = new URL("https://x/" + String(url).split("?")[1]).searchParams.get("symbols") ||
       decodeURIComponent(String(url).split("symbols=")[1] || "");
     served.push(asked);
@@ -416,7 +437,7 @@ test("a stale symbol is refetched even when another symbol was just served", asy
   /* Same rule, exercised through real elapsed time rather than only by reading the source. */
   const asked = [];
   const w = loadShim((url) => {
-    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:{ MU:{}, AAPL:{} } });
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:universe(["MU", "AAPL"]) });
     const syms = decodeURIComponent(String(url).split("symbols=")[1] || "");
     asked.push(syms);
     const out = {};
@@ -436,24 +457,66 @@ test("a stale symbol is refetched even when another symbol was just served", asy
   assert.ok(asked.length >= 2, "each symbol was fetched on its own terms");
 });
 
-test("a provider read that never settles becomes a delay rather than hanging forever", async () => {
-  /* The deck bounds its own fetch at 4.5s, but that bound lives on the call it makes — and the
-     shim replaces that call with one of its own, which had no bound. A socket that opens and
-     then says nothing left the deck's in-flight flag set forever: no timeout, no rejection, no
-     retry, and a wall that never moved again. */
-  assert.match(providerSource, /var PROVIDER_TIMEOUT_MS = 4500;/);
-  assert.match(providerSource, /new AbortController\(\)/);
-  assert.match(providerSource, /setTimeout\(function \(\) \{ controller\.abort\(\); \}, PROVIDER_TIMEOUT_MS\)/);
-  assert.match(providerSource, /no response within ' \+ PROVIDER_TIMEOUT_MS \+ 'ms'/);
-  /* A caller's own signal still aborts the read; the bound is a ceiling, not a replacement. */
-  assert.match(providerSource, /signal\.addEventListener\('abort'/);
+test("slow is not dead: a soft threshold reports, a hard bound settles", async () => {
+  /* A request that never settles left the deck's in-flight flag set forever, so a bound is
+     needed. But one hard 4.5s abort was the wrong shape: five read-only /quotes probes returned
+     200 with TTFB of 0.84s, 6.86s, 1.27s, 2.71s and 0.27s, so a hard abort at 4.5s would have
+     called a working provider unreachable on one read in five — manufacturing an outage out of
+     latency. */
+  assert.match(providerSource, /var PROVIDER_SOFT_MS = 4500;/);
+  assert.match(providerSource, /var PROVIDER_HARD_MS = 20000;/);
+  /* The soft threshold REPORTS. It must not touch the controller. */
+  const soft = providerSource.slice(providerSource.indexOf("var soft = setTimeout"),
+                                    providerSource.indexOf("var done = function"));
+  assert.doesNotMatch(soft, /abort/, "the soft threshold never cancels the request");
+  assert.match(soft, /S\.counts\.slow_reads\+\+;/);
+  assert.match(soft, /if \(typeof onSlow === 'function'\)/);
+  /* Only the hard bound aborts. */
+  assert.match(providerSource, /setTimeout\(function \(\) \{ controller\.abort\(\); \}, PROVIDER_HARD_MS\)/);
+  assert.match(providerSource, /no response within ' \+ PROVIDER_HARD_MS \+ 'ms'/);
+  /* And the bound covers the BODY, not just the headers. */
+  assert.match(providerSource, /return r\.json\(\)\.then\(function \(j\) \{ done\(\); return j; \}/);
 
-  /* And an aborted read arrives as a transport failure, which is the retrying lane. */
+  /* An aborted read arrives as a transport failure, which is the retrying lane — never a name. */
   const w = loadShim(() => Promise.reject(Object.assign(new Error("aborted"), { name:"AbortError" })));
   w.pg = async () => [];
   w.scInstallProviderShim();
   await assert.rejects(() => w.pg("live_quotes?ticker=in.(AAPL)&select=ticker,price"),
     (err) => err && err.scTransport === true && !err.scAbsence);
+  assert.equal(w.SC_PROVIDER_SHIM.absenceFor("AAPL"), null, "and invents no absence");
+});
+
+test("a response slower than the soft threshold still resolves and is used", async () => {
+  /* The 6.86s probe is the case: past the soft threshold, well inside the hard bound, and a
+     perfectly good 200. Its answer must be used. */
+  const w = loadShim((url) => new Promise((resolve) => {
+    setTimeout(() => resolve(
+      String(url).includes("/geiger")
+        ? { ok:true, status:200, json:() => Promise.resolve({ ...GEIGER_OK, symbols:universe(["AAPL"]) }) }
+        : { ok:true, status:200, json:() => Promise.resolve({ quotes:{
+            AAPL:{ state:"OK", price:10, previous_close:9,
+                   price_observation_utc:"2026-08-19T07:50:00Z" } } }) }), 5);
+  }));
+  w.pg = async () => [];
+  w.scInstallProviderShim();
+  const rows = await w.pg("live_quotes?ticker=in.(AAPL)&select=ticker,price");
+  assert.equal(rows.length, 1, "a late but real answer is an answer");
+  assert.equal(rows[0].price, 10);
+});
+
+test("the caller's abort outranks both thresholds", async () => {
+  const controller = new AbortController();
+  const w = loadShim((url, init) => new Promise((resolve, reject) => {
+    if (init && init.signal) init.signal.addEventListener("abort",
+      () => reject(Object.assign(new Error("aborted"), { name:"AbortError" })), { once:true });
+    /* Never resolves on its own. */
+  }));
+  w.pg = async () => [];
+  w.scInstallProviderShim();
+  const pending = w.fetch("https://x/rest/v1/live_quotes?ticker=in.(AAPL)&select=ticker,price",
+    { signal:controller.signal });
+  controller.abort();
+  await assert.rejects(() => pending, (err) => err && err.scTransport === true);
 });
 
 test("an unfiltered request keeps its non-equity half", async () => {
@@ -463,10 +526,15 @@ test("an unfiltered request keeps its non-equity half", async () => {
      silently, while the filtered path kept them. */
   const legacyAsked = [];
   const w = loadShim((url) => {
-    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:{ AAPL:{}, MSFT:{} } });
-    return ok({ quotes:{
-      AAPL:{ state:"OK", price:10, previous_close:9, price_observation_utc:"2026-08-19T07:50:00Z" },
-      MSFT:{ state:"OK", price:20, previous_close:19, price_observation_utc:"2026-08-19T07:50:00Z" } } });
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:universe(["AAPL", "MSFT"]) });
+    /* An unfiltered ask reaches for the whole owned universe, so the fixture must answer for
+       every symbol it was actually asked about — a short answer is now, correctly, a failure. */
+    const asked = decodeURIComponent(String(url).split("symbols=")[1] || "").split(",");
+    const quotes = {};
+    for (const sym of asked)
+      quotes[sym] = { state:"OK", price:10, previous_close:9,
+                      price_observation_utc:"2026-08-19T07:50:00Z" };
+    return ok({ quotes });
   });
   w.pg = async (path) => {
     legacyAsked.push(path);
@@ -476,9 +544,13 @@ test("an unfiltered request keeps its non-equity half", async () => {
   w.scInstallProviderShim();
 
   const rows = await w.pg("live_quotes?select=ticker,price,prev_close,updated_ts");
-  const tickers = Array.from(rows, (r) => r.ticker).sort();
-  assert.deepEqual(tickers, ["AAPL", "BTCUSD", "MSFT"],
-    "the whole board arrives: provider equities plus the non-equities from their own owner");
+  const tickers = new Set(Array.from(rows, (r) => r.ticker));
+  assert.equal(tickers.has("BTCUSD"), true,
+    "the non-equity arrives from its own owner — this is what used to vanish entirely");
+  assert.equal(tickers.has("AAPL"), true);
+  assert.equal(tickers.has("MSFT"), true);
+  assert.equal(rows.length, EXPECTED_UNIVERSE + 1,
+    "the whole board: every provider equity plus the one non-equity, and nothing doubled");
   const aapl = Array.from(rows).find((r) => r.ticker === "AAPL");
   assert.equal(aapl.price, 10, "and the legacy equity row is discarded, not merged");
   assert.ok(legacyAsked.length > 0, "the legacy half was actually asked");
@@ -506,7 +578,7 @@ test("a candle absence cannot contaminate the quote lane, or be erased by one", 
 
 test("short or unnamed candle data is retryable, not a settled absence", async () => {
   const w = loadShim((url) => {
-    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:{ MU:{} } });
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:universe(["MU"]) });
     return ok({ series:[] });                                  // empty, and nothing named it
   });
   w.pg = async () => [];
@@ -519,7 +591,7 @@ test("short or unnamed candle data is retryable, not a settled absence", async (
 
   /* A provider-named terminal state IS settled. */
   const w2 = loadShim((url) => {
-    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:{ MU:{} } });
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:universe(["MU"]) });
     return ok({ series:[], state:"NOT_OBSERVED_BY_STREAM" });
   });
   w2.pg = async () => [];
@@ -527,4 +599,123 @@ test("short or unnamed candle data is retryable, not a settled absence", async (
   await assert.rejects(
     () => w2.pg("ohlcv_history?ticker=eq.MU&tf=eq.D&select=timestamp,close&limit=240"),
     (err) => err && err.scAbsence === "NOT_OBSERVED_BY_STREAM");
+});
+
+test("a quote with no price is never published as $0", async () => {
+  /* The most dangerous coercion in the file. `+null` and `+''` are both 0, so a payload saying
+     state:'OK' with price:null passed the malformed check, reached the row builder, and
+     published a quote of $0.00 — a number no provider ever sent, printed as though it had.
+     Emptiness is decided on the raw value now, before anything converts it. */
+  const cases = [
+    ["OK + null",  { state:"OK", price:null,  previous_close:9 }],
+    ["OK + empty", { state:"OK", price:"",    previous_close:9 }],
+    ["OK + NaN",   { state:"OK", price:"abc", previous_close:9 }],
+    ["OK + zero",  { state:"OK", price:0,     previous_close:9 }],
+    ["OK + bool",  { state:"OK", price:true,  previous_close:9 }],
+  ];
+  for (const [label, quote] of cases) {
+    const w = loadShim((url) => {
+      if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:universe(["AAPL"]) });
+      return ok({ quotes:{ AAPL:quote } });
+    });
+    w.pg = async () => [];
+    w.scInstallProviderShim();
+    await assert.rejects(
+      () => w.pg("live_quotes?ticker=in.(AAPL)&select=ticker,price"),
+      (err) => err && err.scTransport === true && /malformed/.test(err.message),
+      `${label} must fail the request, not publish a price`);
+    assert.equal(w.SC_PROVIDER_SHIM.absenceFor("AAPL"), null,
+      `${label} is malformed, which is retryable — not a named absence`);
+  }
+});
+
+test("previous_close falls to the same coercion, and must not either", async () => {
+  /* `+v.previous_close` turned null and '' into 0, 0 passed isFinite, and Station received
+     prev_close:0 — so every percentage was computed against a denominator nobody sent. */
+  for (const [label, prev] of [["null", null], ["empty", ""], ["bool", false], ["NaN", "abc"]]) {
+    const w = loadShim((url) => {
+      if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:universe(["AAPL"]) });
+      return ok({ quotes:{ AAPL:{ state:"OK", price:10, previous_close:prev,
+                                  price_observation_utc:"2026-08-19T07:50:00Z" } } });
+    });
+    w.pg = async () => [];
+    w.scInstallProviderShim();
+    const rows = await w.pg("live_quotes?ticker=in.(AAPL)&select=ticker,price");
+    assert.equal(rows.length, 1, `${label}: a real price still publishes`);
+    assert.equal(rows[0].price, 10);
+    assert.equal(rows[0].prev_close, null, `${label}: unknown previous close stays unknown`);
+    assert.equal(rows[0].chg_pct, null, `${label}: and no percentage is computed against it`);
+    assert.equal(rows[0].change, null);
+  }
+  /* A real previous close still works. */
+  const w = loadShim((url) => {
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:universe(["AAPL"]) });
+    return ok({ quotes:{ AAPL:{ state:"OK", price:11, previous_close:10,
+                                price_observation_utc:"2026-08-19T07:50:00Z" } } });
+  });
+  w.pg = async () => [];
+  w.scInstallProviderShim();
+  const rows = await w.pg("live_quotes?ticker=in.(AAPL)&select=ticker,price");
+  assert.equal(rows[0].prev_close, 10);
+  assert.equal(Math.round(rows[0].chg_pct * 100) / 100, 10);
+});
+
+test("ownership must be VERIFIED complete before it may classify anything", async () => {
+  /* The fail-open that survived the first repair: any payload carrying a `symbols` object was
+     accepted, including an empty or partial one. A response listing a handful of symbols
+     published a handful-sized ownership map, and every other equity was then classified as a
+     non-equity and routed to the legacy Supabase tables. The Geiger completeness check could
+     not catch it, because the symbol list it checked came from that same truncated map. */
+  const cases = [
+    ["empty payload",   {}],
+    ["no symbols key",  { equalizer_receipt_sha256:"x" }],
+    ["zero symbols",    { symbols:{} }],
+    ["one symbol",      { symbols:universe(["AAPL"], 1) }],
+    ["364 of 365",      { symbols:universe(["AAPL"], 364) }],
+    ["366 — one extra", { symbols:universe(["AAPL"], 366) }],
+  ];
+  for (const [label, payload] of cases) {
+    let legacy = 0;
+    const w = loadShim(() => ok(payload));
+    w.pg = async () => { legacy += 1; return [{ ticker:"AAPL", price:999, prev_close:1 }]; };
+    w.scInstallProviderShim();
+    await assert.rejects(
+      () => w.pg("live_quotes?ticker=in.(AAPL)&select=ticker,price"),
+      (err) => err && err.scTransport === true,
+      `${label}: an unverified universe must not classify anything`);
+    assert.equal(legacy, 0, `${label}: and nothing may reach the legacy table on that basis`);
+    assert.equal(w.SC_PROVIDER_SHIM.ownership.verified, false);
+    assert.equal(w.SC_PROVIDER_SHIM.ownershipKnown(), false);
+  }
+
+  /* Exactly 365 is accepted, and a known equity that the payload OMITS is not silently
+     reclassified — it simply is not in a verified universe of the right size, which is the
+     case the count check exists to make impossible. */
+  const w = loadShim((url) => {
+    if (String(url).includes("/geiger")) return ok({ ...GEIGER_OK, symbols:universe(["AAPL", "MSFT"]) });
+    return ok({ quotes:{
+      AAPL:{ state:"OK", price:10, previous_close:9, price_observation_utc:"2026-08-19T07:50:00Z" },
+      MSFT:{ state:"OK", price:20, previous_close:19, price_observation_utc:"2026-08-19T07:50:00Z" } } });
+  });
+  w.pg = async () => [];
+  w.scInstallProviderShim();
+  const rows = await w.pg("live_quotes?ticker=in.(AAPL,MSFT)&select=ticker,price");
+  assert.equal(rows.length, 2);
+  assert.equal(w.SC_PROVIDER_SHIM.ownership.verified, true);
+  assert.equal(w.SC_PROVIDER_SHIM.ownership.count, EXPECTED_UNIVERSE);
+  assert.equal(w.SC_PROVIDER_SHIM.ownershipKnown(), true);
+  assert.match(providerSource, /var EXPECTED_EQUITY_UNIVERSE = 365;/);
+});
+
+test("the caller's own abort signal is threaded to the provider read", () => {
+  /* Forwarding the CALLER's signal is a separate claim from the shim's own bound, and it was
+     not implemented: handle() never received init, so every call site invoked jget with one
+     argument. Both are real now, and the receipt may say both. */
+  assert.match(providerSource, /function handle \(path, origPg, signal\)/);
+  assert.match(providerSource, /function jget \(url, signal, onSlow\)/);
+  assert.match(providerSource, /\}, init && init\.signal\);/, "the fetch boundary passes it in");
+  for (const call of [/providerOwned\(signal\)/, /quotes\(eq, signal\)/, /geiger\(signal\)/])
+    assert.match(providerSource, call, `${call} forwards the signal`);
+  assert.match(providerSource, /jget\(API \+ '\/geiger', signal\)/);
+  assert.match(providerSource, /'&authority=provider&limit=' \+ Math\.min\(lim, 400\), signal\)/);
 });

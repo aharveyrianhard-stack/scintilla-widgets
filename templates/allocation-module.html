@@ -284,11 +284,19 @@ async function refreshSSOT(){
   /* 1283 memberships against PostgREST's 1000-row cap: this read returned four fifths of the
      axis, unordered, and the page called the result THE universe. Paged under a total order by
      the shared reader - see _cohorts/cohort-axis.js. */
-  J.push(SC_COHORT_AXIS.loadMemberships(sbGet).then(axis=>{ const rows=axis.rows; if(axis.truncated) console.warn('[universe] membership read truncated');
-    if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
+  /* THE GUARD BELONGED TO THE UNPAGINATED READ, AND OUTLIVED IT.
+     `rows.length>=1000` was the only defence a single limit=1000 request had against a silent
+     truncation. Now that the shared reader pages the whole relation, a complete read returns
+     1283 rows and that same guard threw on every load - so the page fell back to hardcoded
+     TICKER_STYLES every single time, and did it PRECISELY BECAUSE the read had succeeded. A
+     paged read reports its own completeness; `axis.truncated` is the only honest signal, and
+     the row count is no longer evidence of anything. */
+  J.push(SC_COHORT_AXIS.loadMemberships(sbGet).then(axis=>{ const rows=axis.rows;
+    if(axis.truncated) throw new Error('membership read truncated before the end of the relation');
+    if(!rows.length) throw new Error('membership read returned nothing');
     const m={}; for(const r of rows)(m[r.ticker]=m[r.ticker]||[]).push(r.cohort);
     UNIVERSE.cohorts=m; UNIVERSE.status='ok';
-    spineSet('ticker_cohorts',null,'LIVE',rows.length+' memberships, fully paged — THE universe');
+    spineSet('ticker_cohorts',null,'LIVE',rows.length+' memberships over '+Object.keys(m).length+' tickers, fully paged — THE universe');
   }).catch(e=>{UNIVERSE.status='error';spineSet('ticker_cohorts',null,'FALLBACK','read failed ('+e.message+') — hardcoded TICKER_STYLES in use');}));
   J.push(sbGet('hub_favorites?select=ticker,added_at&limit=1000').then(rows=>{
     UNIVERSE.favs=new Set(rows.map(r=>r.ticker));

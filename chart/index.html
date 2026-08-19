@@ -362,7 +362,11 @@ function quoteInstant(quote) {
   const ms = new Date(raw).getTime();
   return Number.isFinite(ms) ? ms : null;
 }
-function chApplyLivePoint(t, pts, quote) {
+/* One bucket per timeframe, in milliseconds. Used only as a sanity bound on how far ahead of
+   the last completed bar a transient point may sit; the decisive test is the timestamp. */
+const CH_RANGE_MS = { "15m":900000, "30m":1800000, "1h":3600000, "2h":7200000, "3h":10800000,
+  "4h":14400000, "6h":21600000, "12h":43200000, "1D":86400000, "3D":259200000, "1W":604800000 };
+function chApplyLivePoint(t, pts, quote, range) {
   if (!quote || !Array.isArray(pts) || !pts.length || !isFinite(+quote.price)) return pts;
   var shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
   if (shim && shim.isProviderOwned && shim.isProviderOwned(t)) return pts;   // equity: never touched
@@ -374,18 +378,39 @@ function chApplyLivePoint(t, pts, quote) {
   const d = new Date(observedAt).toISOString();
   const out = pts.slice();                                   // COPY - input is never mutated
   const last = out[out.length - 1];
-  /* THE TRANSIENT POINT IS THE ONE THING HERE THAT MAY MOVE.
-     A point this function appended earlier is flagged live:true; it is this tick's own
-     placeholder, not an observation, so the next tick REPLACES it. Without that, the
-     same-day guard below caught the second tick - its day now matched the transient point's
-     day rather than a completed bar's - and the price froze at whatever the first tick after
-     load happened to be, for the rest of the session. */
+  const lastMs = new Date(last.d).getTime();
+  if (!Number.isFinite(lastMs)) return out;
+
+  /* THE TEST IS THE TIMESTAMP, NOT THE CALENDAR DATE.
+     This compared YYYY-MM-DD only, which is the right question for a daily chart and the wrong
+     one for every other timeframe on the ladder. On a 15m or 1h chart the last COMPLETED bar
+     is 08:00 today and a tick at 08:49 shares its date, so the first intraday tick after load
+     was refused and the pane sat on its last completed bar all session.
+
+     The provider serves completed periods only, so the last bar's bucket is already closed and
+     anything later belongs to the open one. "Later than the last completed bar" is therefore
+     the whole rule, and it is right on every timeframe. */
+
+  /* A point this function appended earlier is flagged live:true - this tick's placeholder, not
+     an observation - so the next tick REPLACES it rather than stacking a second one. */
   if (last && last.live) {
+    const completed = out.length > 1 ? new Date(out[out.length - 2].d).getTime() : -Infinity;
+    /* An out-of-order tick must not drag the transient point backwards, and must never place
+       it before the completed bar it follows. */
+    if (observedAt < lastMs || observedAt <= completed) return out;
     out[out.length - 1] = { d, p:+quote.price, live:true };
     return out;
   }
-  /* A COMPLETED bar owns its day and is never rewritten. */
-  if (last.d.slice(0, 10) === d.slice(0, 10)) return out;
+  /* A COMPLETED bar is never rewritten, and nothing is added unless it is genuinely later. */
+  if (observedAt <= lastMs) return out;
+  /* A SANITY CHECK ON THE CLOCK, NOT ON THE GAP.
+     Bounding the tick against the LAST BAR is wrong: a 1h chart legitimately has a bar many
+     hours old across an overnight or weekend gap, and clamping to a few buckets would blank
+     the transient point exactly when the market reopens - the moment it matters most. The only
+     implausible observation time is one in the FUTURE, which is a clock problem rather than a
+     price, so that is what is checked. One bucket of tolerance absorbs ordinary skew. */
+  const bucket = CH_RANGE_MS[range] || CH_RANGE_MS["1D"];
+  if (observedAt > Date.now() + bucket) return out;
   out.push({ d, p:+quote.price, live:true });
   return out;
 }
@@ -457,11 +482,11 @@ function chartSeriesCached(t, range, limit) {
   const key = t + "|" + range;
   const hit = chartCache.get(key);
   if (hit && hit.pts && hit.pts.length >= 2)
-    return chartTail(chApplyLivePoint(t, hit.pts, liveQuote[t]), limit || chartInitialLimit(range));
+    return chartTail(chApplyLivePoint(t, hit.pts, liveQuote[t], range), limit || chartInitialLimit(range));
   const env = cacheGet("sc_chart_" + key);
   if (env && Array.isArray(env.pts) && env.pts.length >= 2) {
     chartCache.set(key, { ts: env.ts || Date.now(), pts: env.pts });
-    return chartTail(chApplyLivePoint(t, env.pts, liveQuote[t]), limit || chartInitialLimit(range));
+    return chartTail(chApplyLivePoint(t, env.pts, liveQuote[t], range), limit || chartInitialLimit(range));
   }
   return null;
 }
@@ -471,7 +496,7 @@ async function fetchChartSeries(t, range, requestedLimit){
   const e = CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"];
   const limit = Math.max(e[1], Math.round(requestedLimit || e[1]));
   if (hit && Date.now() - hit.ts < 300000 && (hit.limit || hit.pts.length) >= limit)
-    return chartTail(chApplyLivePoint(t, hit.pts, liveQuote[t]), limit);
+    return chartTail(chApplyLivePoint(t, hit.pts, liveQuote[t], range), limit);
   const inflightKey = key + "|" + limit;
   if (chartInflight.has(inflightKey)) return chartInflight.get(inflightKey);
   const work = (async () => {
@@ -497,7 +522,7 @@ async function fetchChartSeries(t, range, requestedLimit){
     }
     chartCache.set(key, { ts: Date.now(), pts: pts, limit:limit });
     try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {}
-    return chApplyLivePoint(t, pts, liveQuote[t]);
+    return chApplyLivePoint(t, pts, liveQuote[t], range);
   })();
   chartInflight.set(inflightKey, work);
   try { return await work; }
@@ -864,14 +889,28 @@ function clearChartRetry(host) {
 }
 function reportChartDataState(host, patch) {
   if (!host) return;
-  host._dataState = Object.assign({ history:"loading", quote:"loading", absence:null }, host._dataState || {}, patch || {});
+  /* TWO LANES, TWO REASONS.
+     One shared `absence` field meant the lanes wrote over each other: a history success cleared
+     the reason belonging to a still-true quote absence, and a quote going ready left a history
+     reason standing with nothing to explain. Each lane carries its own name and clears only its
+     own; the aggregate is derived, never stored, so it cannot drift from the two facts it is
+     made of. */
+  host._dataState = Object.assign(
+    { history:"loading", quote:"loading", historyAbsence:null, quoteAbsence:null },
+    host._dataState || {}, patch || {});
+  /* A lane that is not absent has no absence reason, whatever a caller passed. */
+  if (host._dataState.history !== "absent") host._dataState.historyAbsence = null;
+  if (host._dataState.quote !== "absent") host._dataState.quoteAbsence = null;
+  const aggregate = host._dataState.historyAbsence || host._dataState.quoteAbsence || null;
   try {
     parent.postMessage({
       sc:"chart-data-state",
       ticker:host.dataset.t,
       history:host._dataState.history,
       quote:host._dataState.quote,
-      absence:host._dataState.absence || null,
+      historyAbsence:host._dataState.historyAbsence,
+      quoteAbsence:host._dataState.quoteAbsence,
+      absence:aggregate,
       hasSeries:Boolean(host._series && host._series.length >= 2),
       range:host._range || S.chartRange
     }, location.origin);
@@ -926,7 +965,7 @@ function acquireChartLoadPermit(host, req, generation) {
 }
 function showChartDelayed(host, ticker) {
   host.dataset.dataState = "delayed";
-  reportChartDataState(host, { history:"delayed" });
+  reportChartDataState(host, { history:"delayed", historyAbsence:null });
   if (host._series && host._series.length >= 2) return;
   const msg = host.querySelector(".sc-nchart__msg");
   if (msg) { msg.textContent = "data delayed · retrying"; msg.hidden = false; }
@@ -938,7 +977,7 @@ function showChartAbsent(host, reason) {
   clearChartRetry(host);
   host.dataset.dataState = "absent";
   host.dataset.absence = named;
-  reportChartDataState(host, { history:"absent", absence:named });
+  reportChartDataState(host, { history:"absent", historyAbsence:named });
   if (host._series && host._series.length >= 2) return;
   const msg = host.querySelector(".sc-nchart__msg");
   if (msg) { msg.textContent = chartAbsenceLabel(named); msg.hidden = false; }
@@ -985,7 +1024,7 @@ async function scChartLoad(host) {
     /* A new bounded attempt must not make an uncached pane look blank again. */
     showChartDelayed(host, t);
   }
-  reportChartDataState(host, { history:"loading", absence:null });
+  reportChartDataState(host, { history:"loading", historyAbsence:null });
   const load = (async () => {
     let releasePermit = null;
     try {
@@ -1006,7 +1045,7 @@ async function scChartLoad(host) {
     delete host.dataset.dataState;
     delete host.dataset.absence;
     if (msg) msg.hidden = true;
-    reportChartDataState(host, { history:"ready", absence:null });
+    reportChartDataState(host, { history:"ready", historyAbsence:null });
     scChartDraw(host);
   } catch (err) {
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
@@ -1266,7 +1305,7 @@ function scChartLive(t, price, updatedTs, previousClose) {
        cached completed bar. The return value was being discarded here, so after the change to
        copying, no realtime tick reached the drawn series at all: futures and crypto panes
        stopped moving after their first load. */
-    const next = chApplyLivePoint(t, s, liveQuote[t]);
+    const next = chApplyLivePoint(t, s, liveQuote[t], host._range || S.chartRange);
     host._series = next;
     if (atRight && host._view)
       host._view = { start:Math.max(0, next.length - 1 - span), end:next.length - 1 };
@@ -1352,13 +1391,13 @@ async function pullPrevClose(t) {
          stays in the retrying lane. */
       const named = chartNamedAbsenceFor(t);
       for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
-        reportChartDataState(host, named ? { quote:"absent", absence:named } : { quote:"delayed" });
+        reportChartDataState(host, named ? { quote:"absent", quoteAbsence:named } : { quote:"delayed" });
     }
   } catch (err) {
     if (isNamedAbsence(err)) {
       const named = err.scAbsence;
       for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
-        reportChartDataState(host, { quote:"absent", absence:named });
+        reportChartDataState(host, { quote:"absent", quoteAbsence:named });
       return;
     }
     for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
@@ -1394,7 +1433,8 @@ function applyDeckQuote(ticker, quote, state, absence) {
     const quoteState = state === "absent" ? "absent" : state === "delayed" ? "delayed" : "loading";
     for (const host of hosts) {
       paintLiveStatus(host, null);
-      reportChartDataState(host, { quote:quoteState, absence:quoteState === "absent" ? (absence || CHART_ABSENCE_NOT_OBSERVED) : null });
+      reportChartDataState(host, { quote:quoteState,
+        quoteAbsence:quoteState === "absent" ? (absence || CHART_ABSENCE_NOT_OBSERVED) : null });
     }
     return;
   }

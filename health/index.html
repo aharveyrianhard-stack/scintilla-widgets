@@ -81,7 +81,10 @@ footer{ padding:20px 14px 0; color:var(--mute); font-size:9px; letter-spacing:.0
     and <code>ohlcv_history</code> are graded below <b>only as the non-equity lane</b>: the provider authority shim
     passes every symbol the provider does not own — crypto, futures, indices, rates — straight through to them, so a
     stale one is a real outage on real panes. What is gone is the claim that they are the board's price and the
-    Geiger. A green row there says nothing about any equity.</div>
+    Geiger. A green row there says nothing about any equity.<br><br>
+    Those three rows are probed <b>by name</b> — <code id="rosterList"></code> — and report their <b>oldest</b>
+    member, because a lane is only as healthy as its stalest symbol and one fresh row (equity or otherwise) would
+    otherwise hide a stale one behind it.</div>
   <h2>Equity — the provider contract</h2>
   <div id="equity"></div>
   <h2>Feeders — how fresh is the newest row</h2>
@@ -138,10 +141,31 @@ const CANONICAL_EQUITY_UNIVERSE = 365;
 
    `nonEquity: true` is what prints that distinction on the page, so a reader cannot take a
    green row here as an equity-authority statement. */
+/* THE RETAINED NON-EQUITY SYMBOLS, BY NAME.
+   A lane is only as healthy as its stalest member, and an unfiltered probe cannot see that. On
+   2026-08-19 the futures and crypto rows were minutes old while US10Y and VIX had not moved
+   since 2026-08-14 - five days - so "newest row in the whole table" reported the lane green
+   while two of its members were stale, and a single fresh EQUITY row would have done the same
+   under a heading that says non-equity. Every probe below is filtered to this roster and
+   reports its OLDEST member.
+
+   TICK and TRIN are deliberately absent: they hold no rows in any of the three tables, which is
+   a real gap on the INTERNALS scenes and not something to paper over with a green row here. */
+const NON_EQUITY_ROSTER = ["BTCUSD", "ESUSD", "NQUSD", "CLUSD", "GCUSD", "SIUSD", "DXUSD", "US10Y", "VIX"];
+const ROSTER_FILTER = "&ticker=in.(" + NON_EQUITY_ROSTER.join(",") + ")";
+
 const FEEDERS = [
-  { t: "live_quotes",     col: "updated_ts",   kind: "ts",    n: "Quotes · non-equity lane", d: "crypto, futures, indices, rates — NOT equity price", warn: 15,   bad: 90,   nonEquity: true },
-  { t: "composite_staged",col: "updated_ts",   kind: "ts",    n: "Composite · non-equity lane", d: "tf=D for symbols the provider does not own",       warn: 720,  bad: 4320, nonEquity: true, filt: "&tf=eq.D" },
-  { t: "ohlcv_history",   col: "timestamp",    kind: "epoch", n: "Bars · non-equity lane",   d: "history for symbols the provider does not own",       warn: 1440, bad: 4320, nonEquity: true },
+  /* live_quotes.updated_ts is timestamptz; composite_staged.updated_ts is bigint epoch SECONDS
+     (live value 1787128860) and was marked "ts", so new Date(1787128860) read as 1970 and the
+     row reported ~55 years stale on a feed that was one minute old. Units verified against
+     information_schema, per table, not assumed to match. */
+  { t: "live_quotes",     col: "updated_ts",   kind: "ts",    n: "Quotes · non-equity lane", d: "crypto, futures, indices, rates — NOT equity price", warn: 15,   bad: 4320, nonEquity: true, roster: true, oldest: true },
+  { t: "composite_staged",col: "updated_ts",   kind: "epoch", n: "Composite · non-equity lane", d: "tf=D for the retained non-equity symbols",       warn: 720,  bad: 4320, nonEquity: true, roster: true, oldest: true, filt: "&tf=eq.D" },
+  /* An unfiltered order-by on ohlcv_history times out (Supabase 57014): it is a large table and
+     the index is on (tf, timestamp), so the planner walks it. Filtered to the roster with
+     tf=D the same probe is an index scan - measured at 1.5ms - and is the only form of this
+     question that is both answerable and about the lane it claims to be about. */
+  { t: "ohlcv_history",   col: "timestamp",    kind: "epoch", n: "Bars · non-equity lane",   d: "tf=D history for the retained non-equity symbols",   warn: 4320, bad: 20160, nonEquity: true, roster: true, oldest: true, filt: "&tf=eq.D" },
   { t: "spine_events",    col: "at",           kind: "ts",    n: "The spine",        d: "every session's receipts",              warn: 720,  bad: 4320 },
   { t: "feed_alerts",     col: "fired_ts",     kind: "ts",    n: "Feed alerts",      d: "feed-health warnings",                  warn: 120,  bad: 720 },
   { t: "youtube_feed",    col: "published_at", kind: "ts",    n: "YouTube mirror",   d: "what feeds A and B read",               warn: 720,  bad: 4320 },
@@ -193,6 +217,28 @@ async function countOf(t, filt) {
   return m ? +m[1] : null;
 }
 
+/* THE OLDEST MEMBER OF THE ROSTER, WHICH IS WHAT THE LANE'S HEALTH ACTUALLY IS.
+   One request per symbol, each an index lookup bounded to a single row. Slower than one
+   unfiltered read and the only version that can see a stale member behind a fresh one. A
+   symbol that errors or is missing is reported as such rather than skipped, because a member
+   that cannot be read is not a healthy member. */
+async function oldestOfRoster(f) {
+  const results = await Promise.all(NON_EQUITY_ROSTER.map(async (sym) => {
+    try {
+      const rows = await pgRaw(f.t + "?select=" + f.col + (f.filt || "") +
+        "&ticker=eq." + encodeURIComponent(sym) + "&order=" + f.col + ".desc&limit=1");
+      const v = rows && rows[0] ? rows[0][f.col] : null;
+      if (v == null) return { sym, minutes:null, state:"missing" };
+      return { sym, minutes: f.kind === "epoch" ? (Date.now() / 60000 - (+v) / 60) : mins(v), state:"ok" };
+    } catch (e) { return { sym, minutes:null, state:"error" }; }
+  }));
+  const readable = results.filter((r) => r.state === "ok" && Number.isFinite(r.minutes));
+  const unreadable = results.filter((r) => r.state !== "ok");
+  if (!readable.length) return { minutes:null, worst:null, unreadable, readable:0 };
+  const worst = readable.reduce((a, b) => (a.minutes > b.minutes ? a : b));
+  return { minutes:worst.minutes, worst, unreadable, readable:readable.length };
+}
+
 /* Pure so it can be tested without a network: given what /geiger answered, say whether the
    universe agrees with the canonical one. */
 function universeAgreement(providerSymbolCount, canonical) {
@@ -203,13 +249,27 @@ function universeAgreement(providerSymbolCount, canonical) {
   const delta = count - expected;
   return { state: delta === 0 ? "agrees" : "disagrees", count, expected, delta };
 }
+/* A HEALTH PAGE THAT HANGS TELLS YOU NOTHING ABOUT ANYTHING.
+   This read had no bound, so a provider socket that opened and said nothing left the request
+   pending forever - and because the equity lane was awaited before the database lanes were even
+   launched, one stalled owner held every other row at "checking…". The whole point of the page
+   is to say which owner is degraded; blocking on the degraded one is the one failure mode it
+   cannot afford. Bounded, and the lanes now run independently. */
+const PROVIDER_HEALTH_TIMEOUT_MS = 4500;
 async function providerJson(path) {
-  const r = await fetch(PROVIDER_API + path, { cache:"no-store" });
-  if (!r.ok) throw new Error("provider " + path + " → " + r.status);
-  return r.json();
+  const controller = typeof AbortController === "undefined" ? null : new AbortController();
+  const timer = controller ? setTimeout(() => controller.abort(), PROVIDER_HEALTH_TIMEOUT_MS) : null;
+  try {
+    const r = await fetch(PROVIDER_API + path, { cache:"no-store", signal:controller?.signal });
+    if (!r.ok) throw new Error("provider " + path + " → " + r.status);
+    return await r.json();
+  } catch (e) {
+    if (e && e.name === "AbortError")
+      throw new Error("provider " + path + " → no response within " + PROVIDER_HEALTH_TIMEOUT_MS + "ms");
+    throw e;
+  } finally { if (timer) clearTimeout(timer); }
 }
 async function runEquity() {
-  shell(el("equity"), EQUITY_LANES);
   let geiger = null;
   try { geiger = await providerJson("/geiger"); }
   catch (e) { geiger = null; }
@@ -245,10 +305,29 @@ async function runEquity() {
 async function run() {
   shell(el("feeders"), FEEDERS);
   shell(el("stock"), STOCK);
-  await runEquity();
+  shell(el("equity"), EQUITY_LANES);
 
-  await Promise.all(FEEDERS.map(async (f, i) => {
+  /* Launched, not awaited. A degraded provider must not hide the state of the database. */
+  const equityLane = runEquity().catch(() => {});
+
+  const feederLane = Promise.all(FEEDERS.map(async (f, i) => {
     try {
+      if (f.roster) {
+        /* Scoped to the named non-equity symbols and reported on its oldest member. A count is
+           deliberately NOT taken here: a HEAD count=exact on ohlcv_history is expensive on a
+           table this size, and the number of rows was never the question anyway. */
+        const r = await oldestOfRoster(f);
+        const missing = r.unreadable.length;
+        if (r.minutes == null) {
+          set("feeders", i, "bad", NON_EQUITY_ROSTER.length + " named",
+            missing === NON_EQUITY_ROSTER.length ? "none readable" : "no dated rows");
+          return;
+        }
+        const st = r.minutes > f.bad ? "bad" : (r.minutes > f.warn || missing) ? "warn" : "ok";
+        set("feeders", i, st, r.readable + "/" + NON_EQUITY_ROSTER.length + " named",
+          "oldest " + r.worst.sym + " " + ageLbl(r.minutes) + (missing ? " · " + missing + " unreadable" : ""));
+        return;
+      }
       const c = await countOf(f.t, f.filt);
       if (f.kind === "none") { set("feeders", i, c ? "ok" : "bad", c == null ? "" : c.toLocaleString() + " rows", c ? "present" : "empty"); return; }
       /* `notNull` keeps a NULLS-FIRST column from answering a freshness question with a null. */
@@ -262,13 +341,17 @@ async function run() {
     } catch (e) { set("feeders", i, "bad", "", "unreachable"); }
   }));
 
-  await Promise.all(STOCK.map(async (s, i) => {
+  const stockLane = Promise.all(STOCK.map(async (s, i) => {
     try {
       const c = await countOf(s.t, s.filt);
       set("stock", i, c ? "ok" : "bad", c == null ? "" : c.toLocaleString(), c ? "present" : "empty");
     } catch (e) { set("stock", i, "bad", "", "unreachable"); }
   }));
 
+  /* Each lane paints as it resolves; the stamp waits for all of them. */
+  await Promise.all([equityLane, feederLane, stockLane]);
+
+  const roster = el("rosterList"); if (roster) roster.textContent = NON_EQUITY_ROSTER.join(" · ");
   el("stamp").textContent = "checked " + new Date().toLocaleTimeString();
 }
 el("re").addEventListener("click", run);

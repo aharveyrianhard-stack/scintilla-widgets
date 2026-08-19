@@ -160,3 +160,64 @@ test("the shim's own rules are intact — no silent fallback, non-equities keep 
   for (const table of LEGACY_EQUITY_TABLES)
     assert.match(provider, new RegExp(`p\\.table === '${table}'`), `${table} is intercepted`);
 });
+
+test("/health's non-equity probes are unit-correct, scoped, and bounded", () => {
+  /* Three separate ways the restored rows were unsound.
+
+     UNITS. composite_staged.updated_ts is bigint epoch SECONDS (live value 1787128860) while
+     live_quotes.updated_ts is timestamptz. Marking both "ts" made new Date(1787128860) read as
+     1970, so a feed one minute old reported ~55 years stale. Units are per table, verified
+     against information_schema, never assumed to match.
+
+     SCOPE. Both probes were unfiltered while labelled NON-EQUITY LANE ONLY, so the newest row
+     in the whole table answered — and one fresh EQUITY row would have reported the non-equity
+     lane green. Measured the same day: futures and crypto were minutes old while US10Y and VIX
+     had not moved since 2026-08-14.
+
+     COST. An unfiltered order-by on ohlcv_history returns Supabase 57014, a statement timeout;
+     filtered to the roster with tf=D the same probe is an index scan, measured at 1.5ms. */
+  const feeders = health.slice(health.indexOf("const FEEDERS = ["), health.indexOf("];", health.indexOf("const FEEDERS = [")));
+
+  const composite = /t: "composite_staged",[^\n]*/.exec(feeders)[0];
+  assert.match(composite, /kind: "epoch"/, "composite_staged.updated_ts is epoch seconds");
+  const quotes = /t: "live_quotes",[^\n]*/.exec(feeders)[0];
+  assert.match(quotes, /kind: "ts"/, "live_quotes.updated_ts is timestamptz");
+  const bars = /t: "ohlcv_history",[^\n]*/.exec(feeders)[0];
+  assert.match(bars, /kind: "epoch"/);
+  assert.match(bars, /filt: "&tf=eq\.D"/, "and is bounded to one timeframe");
+
+  for (const row of [composite, quotes, bars]) {
+    assert.match(row, /roster: true/, "probed by name, not across the whole table");
+    assert.match(row, /oldest: true/, "and reported on its oldest member");
+  }
+
+  /* The roster is named, and TICK/TRIN are deliberately not in it — they hold no rows in any
+     of the three tables, which is a real gap rather than something to paper over. */
+  const roster = /const NON_EQUITY_ROSTER = \[([^\]]*)\]/.exec(health)[1];
+  for (const sym of ["BTCUSD", "ESUSD", "NQUSD", "CLUSD", "GCUSD", "SIUSD", "DXUSD", "US10Y", "VIX"])
+    assert.ok(roster.includes(`"${sym}"`), `${sym} is a retained non-equity symbol`);
+  assert.ok(!roster.includes('"TICK"') && !roster.includes('"TRIN"'),
+    "symbols with no rows anywhere are not listed as healthy members");
+
+  assert.match(health, /async function oldestOfRoster\(f\)/);
+  assert.match(health, /readable\.reduce\(\(a, b\) => \(a\.minutes > b\.minutes \? a : b\)\)/,
+    "the OLDEST member decides the lane, so one fresh symbol cannot hide a stale one");
+  /* A HEAD count=exact on ohlcv_history is expensive and was never the question. */
+  assert.match(health, /A count is\n\s*deliberately NOT taken here/);
+});
+
+test("/health lanes are independent and bounded — one stalled owner cannot hold the others", () => {
+  /* runEquity was awaited before the database probes were even launched, and providerJson had
+     no bound. A provider socket that opened and said nothing therefore left every Supabase row
+     at "checking…" — on the one page whose whole job is to say which owner is degraded. */
+  assert.match(health, /const PROVIDER_HEALTH_TIMEOUT_MS = 4500;/);
+  assert.match(health, /signal:controller\?\.signal/);
+  assert.match(health, /no response within " \+ PROVIDER_HEALTH_TIMEOUT_MS \+ "ms"/);
+  assert.match(health, /const equityLane = runEquity\(\)\.catch\(\(\) => \{\}\);/,
+    "the equity lane is launched, not awaited");
+  assert.match(health, /const feederLane = Promise\.all\(FEEDERS\.map/);
+  assert.match(health, /const stockLane = Promise\.all\(STOCK\.map/);
+  assert.match(health, /await Promise\.all\(\[equityLane, feederLane, stockLane\]\);/,
+    "each lane paints as it resolves; only the stamp waits for all of them");
+  assert.doesNotMatch(health, /await runEquity\(\);/, "nothing blocks on the provider first");
+});

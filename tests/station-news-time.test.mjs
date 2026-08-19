@@ -155,3 +155,67 @@ test("an undated item is still listed, and is visibly not an age", () => {
   /* Dropping the row would be a different lie: the item exists, its time does not. */
   assert.doesNotMatch(news, /rows\s*=\s*rows\.filter\([^)]*published_ts/);
 });
+
+test("the undated list is paged under the table's own primary key", () => {
+  /* Putting the dated wire first made the 1,246 undated rows unreachable by scrolling, so they
+     got their own door — and a single capped page reached 200 of them and left the rest exactly
+     as unreachable, which is a narrower promise wearing the same words.
+
+     The order is the table's PRIMARY KEY, (ticker, url), verified against pg_constraint. That
+     matters because `url` ALONE is not unique here — 1,240 distinct urls across 1,246 undated
+     rows — so ordering by url would let a row appear on two pages or on none. Offset paging is
+     only paging under a total order. */
+  assert.match(news, /const UNDATED_ORDER = "ticker\.asc,url\.asc";/);
+  assert.match(news, /published_ts=is\.null&order=" \+ UNDATED_ORDER \+ "&offset=" \+ offset/);
+  assert.match(news, /const PAGE = Math\.max\(1, Math\.min\(9999, \+\(QS\.get\("page"\) \|\| 1\)\)\);/);
+  assert.doesNotMatch(news, /published_ts=is\.null&order=url\.asc/, "url alone is not unique");
+});
+
+test("page 2 and the final page are reachable, with no duplicate and no omission", () => {
+  const paging = (() => {
+    const start = news.indexOf("function undatedPaging(");
+    let depth = 0, end = -1;
+    for (let i = news.indexOf("{", start); i < news.length; i += 1) {
+      if (news[i] === "{") depth += 1;
+      if (news[i] === "}") depth -= 1;
+      if (depth === 0) { end = i + 1; break; }
+    }
+    return vm.runInNewContext(`(${news.slice(start, end)})`, { Math });
+  })();
+
+  /* The live shape: 1246 undated rows at the page size the route caps to. */
+  const TOTAL = 1246, LIMIT = 200;
+  const pages = Math.ceil(TOTAL / LIMIT);
+  assert.equal(pages, 7, "1246 undated rows need seven pages, not one");
+
+  const first = paging(TOTAL, 1, LIMIT, LIMIT);
+  assert.deepEqual({ from:first.from, to:first.to, hasPrevious:first.hasPrevious, hasNext:first.hasNext },
+    { from:1, to:200, hasPrevious:false, hasNext:true });
+
+  const second = paging(TOTAL, 2, LIMIT, LIMIT);
+  assert.deepEqual({ from:second.from, to:second.to, hasPrevious:second.hasPrevious, hasNext:second.hasNext },
+    { from:201, to:400, hasPrevious:true, hasNext:true }, "page 2 is reachable and knows both neighbours");
+
+  const last = paging(TOTAL, pages, LIMIT, TOTAL - (pages - 1) * LIMIT);
+  assert.deepEqual({ from:last.from, to:last.to, hasPrevious:last.hasPrevious, hasNext:last.hasNext },
+    { from:1201, to:1246, hasPrevious:true, hasNext:false }, "the final page ends exactly on the total");
+
+  /* Every row is covered exactly once across the whole walk. */
+  const seen = new Set();
+  for (let page = 1; page <= pages; page += 1) {
+    const rowsOnPage = Math.min(LIMIT, TOTAL - (page - 1) * LIMIT);
+    const p = paging(TOTAL, page, LIMIT, rowsOnPage);
+    for (let i = p.from; i <= p.to; i += 1) {
+      assert.equal(seen.has(i), false, `row ${i} appears on more than one page`);
+      seen.add(i);
+    }
+  }
+  assert.equal(seen.size, TOTAL, "every undated row is reachable exactly once");
+
+  /* The reader is told where they are and what is either side. */
+  assert.match(news, /p\.from \+ "–" \+ p\.to \+ " of " \+ \(p\.total == null \? "\?" : p\.total\) \+ " undated"/);
+  assert.match(news, /‹ prev/);
+  assert.match(news, /next ›/);
+  /* And no epoch age can appear on that list. */
+  assert.match(news, /NEWS_UNKNOWN_AGE = "no date"/);
+});

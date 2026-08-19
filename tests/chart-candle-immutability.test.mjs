@@ -26,8 +26,13 @@ function extract (file) {
   const qi = src.indexOf('function quoteInstant(')
   const qiEnd = src.indexOf('\n}', qi)
   const helper = src.slice(qi, qiEnd + 2)
+  // CH_RANGE_MS bounds how far ahead of the last completed bar a transient point may sit; the
+  // decisive test is the timestamp, not the calendar date.
+  const rm = src.indexOf('const CH_RANGE_MS =')
+  const rmEnd = src.indexOf('};', rm) + 2
+  const ranges = src.slice(rm, rmEnd)
   const factory = new Function('futureSet', 'cryptoSet', 'window',
-    helper + '\n' + fn + '\nreturn chApplyLivePoint;')
+    ranges + '\n' + helper + '\n' + fn + '\nreturn chApplyLivePoint;')
   return factory
 }
 
@@ -45,14 +50,23 @@ for (const file of FILES) {
   ok('equity: cached array not mutated', JSON.stringify(cached) === snapshot, 'cache=' + JSON.stringify(cached))
   ok('equity: completed close unchanged', out1[out1.length - 1].p === 101, 'last=' + out1[out1.length - 1].p)
 
-  // Same-day non-equity: still must not rewrite the completed bar.
+  // Same-day non-equity, LATER than the completed bar: the bar is untouched and a separate
+  // transient point is appended. The rule is the timestamp, not the calendar date - on a 15m or
+  // 1h chart the completed bar and the tick routinely share a date, and the old date-only test
+  // refused every intraday tick after load.
   const winOther = { SC_PROVIDER_SHIM: { isProviderOwned: () => false } }
   const f2 = factory(futureSet, cryptoSet, winOther)
   const c2 = [{ d: '2026-08-18T21:00:00.000Z', p: 101 }]
   const snap2 = JSON.stringify(c2)
-  const out2 = f2('BTCUSD', c2, { price: 777, updated_ts: '2026-08-18T21:30:00.000Z' })
+  const out2 = f2('BTCUSD', c2, { price: 777, updated_ts: '2026-08-18T21:30:00.000Z' }, '1h')
   ok('non-equity same day: input not mutated', JSON.stringify(c2) === snap2)
-  ok('non-equity same day: bar NOT rewritten', out2[out2.length - 1].p === 101, 'last=' + out2[out2.length - 1].p)
+  ok('non-equity same day: completed bar NOT rewritten', out2[0].p === 101, 'bar=' + out2[0].p)
+  ok('non-equity same day: transient appended and flagged',
+     out2.length === 2 && out2[1].p === 777 && out2[1].live === true, 'last=' + JSON.stringify(out2[1]))
+
+  // A tick NOT later than the completed bar adds nothing at all.
+  const out2b = f2('BTCUSD', c2, { price: 777, updated_ts: '2026-08-18T20:30:00.000Z' }, '1h')
+  ok('non-equity stale tick: nothing appended', out2b.length === 1 && out2b[0].p === 101)
 
   // Next-day non-equity: a transient point may be APPENDED, flagged, and never touches the input.
   const c3 = [{ d: '2026-08-18T21:00:00.000Z', p: 101 }]

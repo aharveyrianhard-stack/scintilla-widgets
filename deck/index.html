@@ -959,10 +959,14 @@ function chartDataSummary(visible) {
   const loading = visible.filter((x) => !isDelayed(x) && isLoading(x));
   const absent = visible.filter((x) => !isDelayed(x) && !isLoading(x)
     && (x.history === "absent" || x.quote === "absent"));
+  /* Each pane's reason comes from whichever lane is actually absent — the chart reports them
+     separately now, so the header no longer reads one lane's name off the other's field. */
+  const reasonFor = (x) => (x.history === "absent" ? x.historyAbsence : null)
+    || (x.quote === "absent" ? x.quoteAbsence : null) || x.absence || "NOT_OBSERVED_BY_STREAM";
   if (delayed.length) return { mode:"delayed", count:delayed.length, absent:absent.length };
   if (loading.length) return { mode:"loading", count:loading.length, absent:absent.length };
   if (absent.length) return { mode:"absent", count:absent.length, absent:absent.length,
-    names:Array.from(new Set(absent.map((x) => x.absence || "NOT_OBSERVED_BY_STREAM"))) };
+    names:Array.from(new Set(absent.map(reasonFor))) };
   return { mode:"ready", count:0, absent:0 };
 }
 /* The canonical name, said out loud. */
@@ -980,7 +984,9 @@ function paintMarketStatus() {
   if (summary.mode === "absent") {
     n.textContent = chartAbsenceHeadline(summary.names, summary.count);
     n.dataset.delayed = "0"; n.dataset.fresh = "0"; n.dataset.absent = "1";
-    n.title = visible.map((x) => x.ticker + " · " + (x.absence || "NOT_OBSERVED_BY_STREAM")).join("\n");
+    n.title = visible.map((x) => x.ticker + " · history " + x.history +
+      (x.historyAbsence ? " (" + x.historyAbsence + ")" : "") +
+      " · quote " + x.quote + (x.quoteAbsence ? " (" + x.quoteAbsence + ")" : "")).join("\n");
     return;
   }
   if (summary.mode === "delayed" || summary.mode === "loading") {
@@ -1015,9 +1021,17 @@ function paintMarketStatus() {
     (unstamped.length ? " · " + unstamped.length + " untimed" : "");
   n.dataset.delayed = delayed.length ? "1" : "0";
   n.dataset.fresh = fresh ? "1" : "0";
+  /* The header stopped folding untimed rows into an age, but the tooltip still ran every row
+     through `new Date(x.updatedTs)` - and for a row with no observation time that is
+     `new Date(null)`, the epoch, printed as a real clock time. The one place left where an
+     unknown was still being answered. */
   n.title = "Oldest visible quote write: " + at.toLocaleString() + " (" + age + " ago)\n" +
-    visible.map((x) => x.ticker + " · " + (x.delayed ? "delayed provider feed · " : "live_quotes · ") +
-    new Date(x.updatedTs).toLocaleTimeString()).join("\n");
+    visible.map((x) => {
+      const ms = x.updatedTs == null || x.updatedTs === "" ? NaN : new Date(x.updatedTs).getTime();
+      const source = x.delayed ? "delayed provider feed · " : "provider quote · ";
+      return x.ticker + " · " + source +
+        (Number.isFinite(ms) ? new Date(ms).toLocaleTimeString() : "no observation time");
+    }).join("\n");
 }
 setInterval(paintMarketStatus, 10000);
 setInterval(refreshDeckQuotes, DECK_QUOTE_HEARTBEAT_MS);
@@ -1222,21 +1236,26 @@ function orderedCohorts() {
 }
 async function loadCohortFavorites() {
   if (COHORT_READY) return;
-  /* THE MEMBERSHIP SET, WHOLE AND IN A STABLE ORDER.
-     This read `ticker_cohorts` with no limit and no order, so PostgREST returned its first
-     1000 rows of 1283 in whatever order the planner produced: COHORT FAVORITES was built from
-     roughly four fifths of the axis, and a different four fifths on different loads. It also
-     mixed in the separate `cohorts` relation, so two differently-shaped sources were merged
-     without either being complete. The shared reader pages the whole set under a total order -
-     see _cohorts/cohort-axis.js - and `cohorts` is kept only as the secondary group it always
-     was, now clearly second. */
-  const [favorites, axis, legacy] = await Promise.all([
+  /* THE MEMBERSHIP RELATION, WHOLE, IN A STABLE ORDER, AND ALONE.
+     Two faults lived in one line here. The read had no limit and no order, so PostgREST
+     returned its first 1000 rows of 1283 in planner order: COHORT FAVORITES was built from
+     roughly four fifths of the axis, and a different four fifths on different loads.
+
+     And it merged in `cohorts`, which is not a second membership source at all -
+     `SELECT ticker, cohort FROM tickers`, one HOME cohort per ticker, unfiltered by `active`.
+     Folding that into the navigation index put home answers and membership answers in the same
+     map, which is the very confusion the cohort axis exists to keep apart; it also smuggled in
+     25 pairs that are not memberships and tickers that are not active.
+
+     COHORT FAVORITES is a navigation surface, so it takes the membership relation and nothing
+     else - see _cohorts/cohort-axis.js. */
+  const [favorites, axis] = await Promise.all([
     pg("hub_favorites?select=ticker&order=added_at.asc"),
-    SC_COHORT_AXIS.loadMemberships(pg),
-    pg("cohorts?select=ticker,cohort").catch(() => [])
+    SC_COHORT_AXIS.loadMemberships(pg)
   ]);
-  if (axis.truncated) console.warn("[cohort] membership read truncated; favorites may be incomplete");
-  COHORT_INDEX = SceneModel.buildCohortFavorites(favorites, [axis.rows, legacy]);
+  /* A truncated read cannot be presented as the cohort axis. */
+  if (axis.truncated) throw new Error("cohort membership read truncated before the end of the relation");
+  COHORT_INDEX = SceneModel.buildCohortFavorites(favorites, [axis.rows]);
   COHORT_READY = true;
   const names = orderedCohorts();
   if (!COHORT_INDEX.has(COHORT)) COHORT = names[0] || COHORT;

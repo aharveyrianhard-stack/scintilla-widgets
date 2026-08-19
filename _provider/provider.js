@@ -42,7 +42,7 @@
     installed: false,
     equalizer_receipt: null,
     counts: { quotes: 0, geiger: 0, candles: 0, passthrough_non_equity: 0, unsatisfied: 0,
-              transport_failures: 0, partial_batches: 0 },
+              transport_failures: 0, partial_batches: 0, slow_reads: 0 },
     unsatisfied: [],
     /* Transport failures are kept SEPARATELY from named absences. One is "we could not ask",
        the other is "we asked and the answer was no". A single list would lose that. */
@@ -50,6 +50,10 @@
     /* The provider's own compute time for the Geiger, carried verbatim. Null means unknown -
        never a stand-in read from this machine's clock. */
     geiger_computed_utc: null,
+    /* What is known about the ownership universe, and whether it was VERIFIED complete. Any
+       surface that wants to show the universe reads this rather than counting rows it happens
+       to have received. */
+    ownership: { verified: false, count: null, expected: null, reason: 'not yet read' },
     legacy_equity_calls: [],         // must stay empty; anything here is a contract breach
     /* SYNCHRONOUS MEMBERSHIP FOR NON-FETCH CALL SITES.
        The fetch wrapper cannot see Supabase REALTIME, which delivers rows over a WebSocket and
@@ -70,8 +74,9 @@
        price patch a provider-owned chart: the exact bypass those guards exist to close, open
        during the window they are most needed. Ownership is knowledge or it is nothing. */
     ownershipKnown: function () {
-      var m = window.SC_PROVIDER_SHIM.owned_map;
-      return !!(m && Object.keys(m).length);
+      var S2 = window.SC_PROVIDER_SHIM;
+      /* Verified, not merely present. A partial map is not knowledge. */
+      return !!(S2.ownership && S2.ownership.verified && S2.owned_map && Object.keys(S2.owned_map).length);
     },
     realtime_unknown_ownership_refused: 0,
     realtime_equity_refused: 0,
@@ -155,55 +160,113 @@
     if (S.transport_failures.length < 40) S.transport_failures.push({ why: why, status: err.scStatus, url: err.scUrl });
     return err;
   }
-  /* A REQUEST THAT NEVER SETTLES IS NOT A SLOW REQUEST.
-     The deck bounds its own fetch at 4.5s, but that timeout lives on the call it makes - and
-     this shim replaces that call with one of its own, which had no bound at all. A provider
-     socket that opens and then says nothing therefore left the deck's in-flight flag set
-     forever: no timeout, no rejection, no retry, and a wall that never moved again. Every
-     provider read is bounded here, and a timeout is a transport failure like any other. */
-  var PROVIDER_TIMEOUT_MS = 4500;
-  function jget (url, signal) {
+  /* SLOW IS NOT DEAD, AND A HARD BOUND MUST NOT SAY IT IS.
+     A request that never settles left the deck's in-flight flag set forever - no timeout, no
+     rejection, no retry, and a wall that never moved again. So a bound is needed. But the first
+     bound was a single 4.5s hard abort, and measurement says that is the wrong shape: five
+     read-only /quotes probes returned 200 with time-to-first-byte of 0.84s, 6.86s, 1.27s, 2.71s
+     and 0.27s. One in five valid reads was over 4.5s, so a hard abort there would have called a
+     working provider unreachable a fifth of the time - manufacturing an outage out of latency.
+
+     Two thresholds, doing two different jobs:
+
+       SOFT (4.5s)  the UI's patience. The pane says delayed and starts retrying, because after
+                    four and a half seconds a reader deserves to be told something. The request
+                    is NOT cancelled: if it lands before the hard bound, its answer is used and
+                    the pane recovers. A slow read is still a read.
+
+       HARD (20s)   the ceiling that guarantees settlement. Chosen at roughly 3x the slowest
+                    observed good response, so ordinary tail latency stays inside it and a
+                    genuinely dead socket cannot hold a request open forever.
+
+     A caller's own signal still cancels immediately - the caller's intent outranks both. */
+  var PROVIDER_SOFT_MS = 4500;
+  var PROVIDER_HARD_MS = 20000;
+  function jget (url, signal, onSlow) {
     var controller = typeof AbortController === 'undefined' ? null : new AbortController();
-    var timer = controller ? setTimeout(function () { controller.abort(); }, PROVIDER_TIMEOUT_MS) : null;
-    /* A caller's own signal still aborts this read; the bound is a ceiling, not a replacement. */
+    var settled = false;
+    var hard = controller ? setTimeout(function () { controller.abort(); }, PROVIDER_HARD_MS) : null;
+    var soft = setTimeout(function () {
+      if (settled) return;
+      S.counts.slow_reads++;
+      /* Reported, not cancelled. The caller may paint delayed and retry while this continues. */
+      if (typeof onSlow === 'function') { try { onSlow(url); } catch (e) {} }
+    }, PROVIDER_SOFT_MS);
+    var done = function () { settled = true; if (hard) clearTimeout(hard); clearTimeout(soft); };
+    /* A caller's own signal aborts this read outright; it is intent, not impatience. */
     if (signal && controller && typeof signal.addEventListener === 'function')
       signal.addEventListener('abort', function () { controller.abort(); }, { once: true });
     return fetch(url, controller ? { signal: controller.signal } : undefined).then(function (r) {
-      if (timer) { clearTimeout(timer); timer = null; }
       return r;
     }, function (e) {
-      if (timer) { clearTimeout(timer); timer = null; }
-      throw transportError('provider unreachable: ' + (e && e.name === 'AbortError'
-        ? 'no response within ' + PROVIDER_TIMEOUT_MS + 'ms'
-        : (e && e.message) || 'network'), url, null);
+      done();
+      var aborted = e && e.name === 'AbortError';
+      var why = !aborted ? ((e && e.message) || 'network')
+        : (signal && signal.aborted ? 'cancelled by the caller'
+                                    : 'no response within ' + PROVIDER_HARD_MS + 'ms');
+      throw transportError('provider unreachable: ' + why, url, null);
     }).then(function (r) {
-      if (!r.ok) throw transportError('provider HTTP ' + r.status, url, r.status);
-      return r.json().catch(function () { throw transportError('provider body was not JSON', url, r.status); });
+      if (!r.ok) { done(); throw transportError('provider HTTP ' + r.status, url, r.status); }
+      /* The bound covers the BODY too - headers arriving is not an answer. */
+      return r.json().then(function (j) { done(); return j; }, function () {
+        done();
+        throw transportError('provider body was not JSON', url, r.status);
+      });
     });
   }
 
-  /* OWNERSHIP MUST FAIL CLOSED.
-     A cold /geiger failure used to resolve to {}, and an empty ownership map means "the
-     provider owns nothing" - so every equity looked like a non-equity and was passed
-     straight through to the legacy Supabase tables. A provider outage silently reinstated
-     exactly the data path this shim exists to close. An unknown ownership answer is an
-     ERROR now: callers retry, and nothing is routed on a guess. A previously resolved map is
-     still usable while it is warm, because that is knowledge, not a guess. */
-  function providerOwned () {
+  /* OWNERSHIP MUST FAIL CLOSED, AND "PRESENT" IS NOT "COMPLETE".
+     Two versions of the same fail-open lived here. The first resolved a cold /geiger failure to
+     {}, and an empty ownership map means "the provider owns nothing" - so every equity looked
+     like a non-equity and went straight to the legacy Supabase tables, silently reinstating the
+     exact data path this shim exists to close.
+
+     The second was subtler and survived the first repair: ANY payload carrying a `symbols`
+     object was accepted, including an empty or partial one. A response listing 12 symbols
+     published a 12-symbol ownership map, and the other 353 equities were then classified as
+     non-equities and routed to legacy. The completeness check on the Geiger payload could not
+     catch it, because the list of symbols it checked was derived from the very same truncated
+     map - it was asking the answer to confirm itself.
+
+     So the map must be VERIFIED COMPLETE before it is allowed to classify anything. The
+     provider's universe is a known size; a payload of any other size is a disagreement, and a
+     disagreement fails closed with a named reason rather than quietly becoming the new truth.
+     EXPECTED_EQUITY_UNIVERSE is an editable default: when the provider's universe genuinely
+     changes, this is the one line to move, and moving it is a deliberate act rather than
+     something that happens to a wall at 04:00.
+
+     A previously VERIFIED map still survives a bad read - that is knowledge, not a guess. */
+  var EXPECTED_EQUITY_UNIVERSE = 365;
+  function providerOwned (signal) {
     if (owned && Date.now() - ownedAt < 300000) return Promise.resolve(owned);
-    return jget(API + '/geiger').then(function (j) {
-      if (!j || !j.symbols) {
-        if (owned) return owned;                    // stale but real beats invented
-        throw transportError('provider ownership unavailable', API + '/geiger', null);
-      }
-      owned = {};
-      S.owned_map = owned; Object.keys(j.symbols).forEach(function (k) { owned[k] = 1; });
+    return jget(API + '/geiger', signal).then(function (j) {
+      var syms = j && j.symbols ? Object.keys(j.symbols) : null;
+      var fail = function (why, count) {
+        S.ownership = { verified: false, count: count == null ? null : count,
+                        expected: EXPECTED_EQUITY_UNIVERSE, reason: why };
+        if (owned) return owned;                    // a verified map survives one bad answer
+        throw transportError('provider ownership ' + why, API + '/geiger', null);
+      };
+      if (!syms) return fail('payload carried no symbols', null);
+      if (!syms.length) return fail('payload listed no symbols', 0);
+      if (syms.length !== EXPECTED_EQUITY_UNIVERSE)
+        return fail('universe disagreement: ' + syms.length + ' symbols, expected ' +
+                    EXPECTED_EQUITY_UNIVERSE, syms.length);
+
+      var next = {};
+      syms.forEach(function (k) { next[String(k).toUpperCase()] = 1; });
+      owned = next;
+      S.owned_map = owned;
       ownedAt = Date.now();
       S.equalizer_receipt = j.equalizer_receipt_sha256;
       S.geiger_computed_utc = j.computed_utc || null;
+      S.ownership = { verified: true, count: syms.length, expected: EXPECTED_EQUITY_UNIVERSE,
+                      reason: null, equalizer_receipt: j.equalizer_receipt_sha256 || null };
       return owned;
     }, function (e) {
       if (owned) return owned;                      // warm knowledge survives one bad read
+      S.ownership = { verified: false, count: null, expected: EXPECTED_EQUITY_UNIVERSE,
+                      reason: 'ownership read failed: ' + (e && e.message || 'unknown') };
       throw e;                                      // cold failure stays a failure
     });
   }
@@ -245,9 +308,33 @@
     if (q.reason) return String(q.reason);
     return null;                       // unnamed. NOT an absence.
   }
+  /* IS THERE A PRICE HERE AT ALL - asked before anything coerces it.
+     `!isFinite(+q.price)` was the whole test, and JavaScript makes `+null` and `+''` into 0.
+     A payload saying state:'OK' with price:null therefore passed the malformed check, reached
+     the row builder, and published a quote of $0.00 - a number no provider ever sent, printed
+     as though it had. A missing price is not a cheap price. Emptiness is decided on the raw
+     value; only then is anything converted.
+
+     Zero and negative are rejected too. Every symbol reaching this branch is one the provider
+     OWNS, and a provider-owned equity does not print at or below zero; a 0 here is far more
+     likely to be a null that survived some earlier coercion than a real trade. Recorded as an
+     assumption rather than a silent rule: if the contract ever defines a legitimate
+     non-positive print, this is the line that has to change. */
+  /* Emptiness is decided on the RAW value. Number(null), Number('') and Number(false) are all
+     0, so any check that converts first has already lost the distinction it was asked to make. */
+  function numOrNull (raw) {
+    if (raw == null || raw === '' || raw === true || raw === false) return null;
+    var n = Number(raw);
+    return isFinite(n) ? n : null;
+  }
+  function quoteHasPrice (q) {
+    if (!q) return false;
+    var n = numOrNull(q.price);
+    return n != null && n > 0;
+  }
   /* A quote that named nothing and priced nothing. Retryable, never terminal. */
   function quoteIsMalformed (q) {
-    return !!q && !quoteAbsenceName(q) && !isFinite(+q.price);
+    return !!q && !quoteAbsenceName(q) && !quoteHasPrice(q);
   }
   /* A CACHED ROW IS ONLY AN ANSWER TO THE REQUEST THAT FETCHED IT.
      The cache used to be handed back wholesale, so a symbol the CURRENT response omitted could
@@ -255,7 +342,7 @@
      worse, presented as proof that the symbol WAS accounted for. The cache is now only used
      when it is warm AND covers every requested symbol; otherwise the answer is built from the
      response actually received, and anything it did not carry is reported as missing. */
-  function quotes (syms) {
+  function quotes (syms, signal) {
     var batch = syms.slice(0, 400);
     if (!batch.length) return Promise.resolve({ map: {}, missing: [], truncated: false });
     var truncated = syms.length > batch.length;
@@ -270,7 +357,7 @@
       batch.forEach(function (s) { warm[s] = qCache.map[s]; });
       return Promise.resolve({ map: warm, missing: [], truncated: truncated });
     }
-    return jget(API + '/quotes?symbols=' + encodeURIComponent(batch.join(','))).then(function (j) {
+    return jget(API + '/quotes?symbols=' + encodeURIComponent(batch.join(',')), signal).then(function (j) {
       if (!j || !j.quotes) throw transportError('provider quotes payload had no quotes', API + '/quotes', null);
       var receipt = Date.now();
       Object.keys(j.quotes).forEach(function (k) { qCache.map[k] = j.quotes[k]; qCache.at[k] = receipt; });
@@ -284,9 +371,9 @@
     });
   }
 
-  function geiger () {
+  function geiger (signal) {
     if (gCache.map && Date.now() - gCache.at < 30000) return Promise.resolve(gCache.map);
-    return jget(API + '/geiger').then(function (j) {
+    return jget(API + '/geiger', signal).then(function (j) {
       if (!j || !j.symbols) {
         if (gCache.map) return gCache.map;
         throw transportError('provider geiger unavailable', API + '/geiger', null);
@@ -337,12 +424,12 @@
   }
 
   // ---- the interceptor ------------------------------------------------------------------------
-  function handle (path, origPg) {
+  function handle (path, origPg, signal) {
     var p = parse(path), q = p.q;
 
     if (p.table === 'live_quotes') {
       var lqT = wantedTickers(q);
-      return providerOwned().then(function (own) {
+      return providerOwned(signal).then(function (own) {
         /* AN UNFILTERED REQUEST ASKS FOR THE WHOLE BOARD, NOT THE PROVIDER'S HALF OF IT.
            `syms = lqT || Object.keys(own)` made the non-equity list EMPTY whenever the caller
            had not named tickers - because the only symbols in play were, by construction, the
@@ -352,8 +439,8 @@
            is subtracted from it rather than standing in for it. */
         var syms = lqT || Object.keys(own);
         var eq = syms.filter(function (s) { return own[s]; });
-        var nonEq = lqT ? syms.filter(function (s) { return !own[s]; }) : null;   // null = "everything not owned" 
-        return quotes(eq).then(function (res) {
+        var nonEq = lqT ? syms.filter(function (s) { return !own[s]; }) : null;   // null = "everything not owned"
+        return quotes(eq, signal).then(function (res) {
           var qm = res.map, missing = res.missing;
           /* A SUCCESSFUL RESPONSE MUST ACCOUNT FOR EVERY REQUESTED SYMBOL.
              A short batch used to resolve with the rows it did have, and the caller - having
@@ -381,12 +468,20 @@
             if (!v) return;                              // covered by `missing` above
             var named = quoteAbsenceName(v);
             if (named) { note('provider named ' + named, s); S.noteAbsence(s, null, named); return; }
-            var price = +v.price, prev = +v.previous_close;
+            /* Guaranteed by the malformed sweep above; asserted here so a future edit to that
+               sweep cannot quietly reopen the $0 path. */
+            if (!quoteHasPrice(v)) { note('unpriced quote reached the row builder', s); return; }
+            var price = numOrNull(v.price);
+            /* SAME CLASS, SAME TRAP. `+v.previous_close` turned null and '' into 0, and 0 then
+               passed isFinite - so Station received prev_close:0 instead of "unknown", and every
+               percentage computed against it was a division by a number nobody sent. Unknown
+               stays null, and the change/percent below are simply not computed. */
+            var prev = numOrNull(v.previous_close);
             S.clearAbsence(s, null);
             rows.push({
-              ticker: s, price: price, prev_close: isFinite(prev) ? prev : null,
-              chg_pct: (isFinite(prev) && prev ? (price - prev) / prev * 100 : null),
-              change: (isFinite(prev) && prev ? price - prev : null),
+              ticker: s, price: price, prev_close: prev,
+              chg_pct: (prev ? (price - prev) / prev * 100 : null),
+              change: (prev ? price - prev : null),
               volume: null,                 // the provider quote carries no volume; null, never 0
               /* The provider's own observation time, or null. Never this machine's clock. */
               updated_ts: quoteObservedAt(v),
@@ -422,7 +517,7 @@
 
     if (p.table === 'composite_staged') {
       var csT = wantedTickers(q);
-      return Promise.all([providerOwned(), geiger()]).then(function (a) {
+      return Promise.all([providerOwned(signal), geiger(signal)]).then(function (a) {
         var own = a[0], gm = a[1];
         /* Same rule as live_quotes: an unfiltered ask keeps its legacy half unfiltered. */
         var syms = csT || Object.keys(own);
@@ -480,7 +575,7 @@
       var sym = oT[0];
       var rawTf = (q.tf || '').replace(/^eq\./, '');
       var tf = TF[rawTf];
-      return providerOwned().then(function (own) {
+      return providerOwned(signal).then(function (own) {
         if (!own[sym]) { S.counts.passthrough_non_equity++; return origPg(path); }   // non-equity keeps its owner
         if (!tf) {
           note('unmapped timeframe ' + rawTf, path);
@@ -488,7 +583,7 @@
         }
         var lim = limitOf(q, 200);
         return jget(API + '/candles?symbol=' + encodeURIComponent(sym) + '&tf=' + encodeURIComponent(tf) +
-                    '&authority=provider&limit=' + Math.min(lim, 400)).then(function (j) {
+                    '&authority=provider&limit=' + Math.min(lim, 400), signal).then(function (j) {
           /* The provider may name the absence itself. When it does, that name is kept verbatim
              and preferred over the generic one - it is closer to the truth than anything here. */
           var named = j && (j.absence || j.reason || (j.state && j.state !== 'OK' ? j.state : null));
@@ -542,13 +637,16 @@
         var path = url.split('/rest/v1/')[1];
         /* A non-OK Supabase status is a failed read, not an empty table. Returning [] here
            made every 5xx, 401 and 400 look like "this passthrough legitimately has no rows". */
+        /* The caller's own AbortController travels with the request. The deck bounds its
+           quote fetch at 4.5s; without this the shim's replacement read ignored that entirely
+           and only the shim's own independent timer applied. */
         var r = handle(path, function (p2) {
           return origFetch(SBBASE(url) + '/rest/v1/' + p2 + (p2.indexOf('?') < 0 ? '?' : '&') + MARK, init)
             .then(function (rr) {
               if (!rr.ok) throw transportError('supabase HTTP ' + rr.status, p2, rr.status);
               return rr.json();
             });
-        });
+        }, init && init.signal);
         /* A NAMED ABSENCE IS NOT A FAILED REQUEST. Over pg() it is raised so the caller can
            paint the name; over fetch() the honest HTTP answer is a successful read carrying no
            rows, because that is exactly what happened. The name is still recorded on the shim,

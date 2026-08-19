@@ -47,18 +47,45 @@ const standalone = routes.filter((r) => r.endsWith(".html"));
 const inventory = fs.readFileSync(new URL("../STATION_ROUTES.md", import.meta.url), "utf8");
 const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
 
-test("every served route appears in the inventory", () => {
-  const missing = routes.filter((route) => !inventory.includes("`" + route + "`"));
-  assert.deepEqual(missing, [], "these routes exist on disk but are not documented");
+/* ONE SET, USED IN BOTH DIRECTIONS.
+   Forward detection (served but undocumented) read the generated list; reverse detection
+   (documented but retired) re-parsed the document with a pattern that could not express a dot,
+   so no `.html` entry was ever a candidate for staleness. A standalone page could therefore be
+   deleted from the repository and its row would sit in the inventory forever with the
+   bidirectional test green. Both directions now compare the SAME generated set against the
+   same parse, and the parse admits every character a served path can contain. */
+const DOCUMENTED = new Set(
+  Array.from(inventory.matchAll(/`(\/[A-Za-z0-9._\-]*(?:\/[A-Za-z0-9._\-]+)*)`/g), (m) => m[1]));
+/* /status is a vercel.json rewrite, not a file on disk, and is called out as such. */
+const NOT_ON_DISK = new Set(["/status"]);
+
+test("every served surface appears in the inventory", () => {
+  const missing = routes.filter((route) => !DOCUMENTED.has(route));
+  assert.deepEqual(missing, [], "these surfaces exist on disk but are not documented");
 });
 
-test("the inventory does not list a route that no longer exists", () => {
-  const listed = Array.from(inventory.matchAll(/`(\/[a-z0-9\-]+(?:\/[a-z0-9\-]+)*)`/g), (m) => m[1]);
-  const known = new Set(routes);
-  /* /status is a vercel.json rewrite, not a directory, and is called out as such. */
-  known.add("/status");
-  const stale = Array.from(new Set(listed)).filter((route) => !known.has(route));
-  assert.deepEqual(stale, [], "these routes are documented but do not exist");
+test("the inventory does not list a surface that no longer exists", () => {
+  const onDisk = new Set(routes);
+  const stale = Array.from(DOCUMENTED).filter((route) => !onDisk.has(route) && !NOT_ON_DISK.has(route));
+  assert.deepEqual(stale, [], "these surfaces are documented but do not exist");
+});
+
+test("reverse detection can actually see a retired standalone page", () => {
+  /* The hole this closes: the old reverse parse could not express a dot, so a `.html` entry was
+     never even a candidate for staleness. Simulate retiring a standalone file — its
+     documentation row must be caught, not tolerated. */
+  const retired = "/templates/sector-rotation-older.html";
+  assert.ok(DOCUMENTED.has(retired), "the page is documented today");
+  assert.ok(routes.includes(retired), "and exists today");
+
+  const onDiskWithout = new Set(routes.filter((r) => r !== retired));
+  const stale = Array.from(DOCUMENTED).filter((r) => !onDiskWithout.has(r) && !NOT_ON_DISK.has(r));
+  assert.deepEqual(stale, [retired],
+    "removing a standalone file must make its inventory row detectably stale");
+
+  /* And the parse must reach every dotted path, not just this one. */
+  for (const page of standalone)
+    assert.ok(DOCUMENTED.has(page), `${page} must be visible to the reverse parse`);
 });
 
 test("the inventory states the count it was generated against", () => {

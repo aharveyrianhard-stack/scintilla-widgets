@@ -65,7 +65,7 @@ body.compact .row{ padding:6px 14px; }
   <span class="fresh" id="fresh"></span>
 </div>
 <div id="list"><div class="empty">loading news…</div></div>
-<div id="ft">news table (live writer) · db reads only — never fmp from pages · titles link to source · sentiment served from news_sentiment, never computed here · dated items first, so undated rows are counted separately and listed at ?undated=1 rather than dated by accident</div>
+<div id="ft">news table (live writer) · db reads only — never fmp from pages · titles link to source · sentiment served from news_sentiment, never computed here · dated items first, so undated rows are counted separately and paged at ?undated=1 — ordered by the (ticker, url) primary key, the table's only total order — rather than dated by accident</div>
 <script>
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -97,8 +97,20 @@ const FEED   = (QS.get("feed") || "").replace(/[^A-Za-z0-9_\-]/g, "");
 const LIMIT  = Math.max(10, Math.min(200, +(QS.get("limit") || 60)));
 /* ?undated=1 lists the rows with no recorded publish time. They are unreachable from the dated
    feed by construction, so they need their own door rather than a promise that scrolling far
-   enough will find them. */
+   enough will find them.
+
+   AND THE DOOR HAS TO LEAD ALL THE WAY IN. A single capped page reached 200 of 1246 and left
+   the rest as unreachable as before, which is a narrower promise wearing the same words. This
+   list is paged.
+
+   THE ORDER IS THE TABLE'S OWN PRIMARY KEY: news is keyed on (ticker, url), verified against
+   pg_constraint rather than assumed. That matters because `url` ALONE is not unique here -
+   1240 distinct urls across the 1246 undated rows - so ordering by url would let a row appear
+   on two pages or on none. Offset paging is only paging under a total order, and the primary
+   key is the one order guaranteed to be total. */
 const UNDATED_ONLY = QS.get("undated") === "1";
+const UNDATED_ORDER = "ticker.asc,url.asc";
+const PAGE = Math.max(1, Math.min(9999, +(QS.get("page") || 1)));
 const REFRESH = Math.max(30, Math.min(600, +(QS.get("refresh") || 120))) * 1000;
 if (QS.get("bg") === "0") document.body.classList.add("nobg");
 if (QS.get("compact") === "1") document.body.classList.add("compact");
@@ -170,8 +182,24 @@ function newsAgeLabel(value) {
    rather than reporting the epoch as the newest thing on the wire. */
 function undatedLink() {
   const p = new URLSearchParams(location.search);
-  if (UNDATED_ONLY) p.delete("undated"); else p.set("undated", "1");
+  if (UNDATED_ONLY) { p.delete("undated"); p.delete("page"); } else { p.set("undated", "1"); p.delete("page"); }
   return location.pathname + (p.toString() ? "?" + p.toString() : "");
+}
+function pageLink(page) {
+  const p = new URLSearchParams(location.search);
+  p.set("undated", "1");
+  if (page <= 1) p.delete("page"); else p.set("page", String(page));
+  return location.pathname + "?" + p.toString();
+}
+/* Which slice of the undated set is on screen, and what is either side of it. Stated as a
+   range and a total so a reader can see what is not on this page. */
+function undatedPaging(total, page, limit, rowsOnPage) {
+  const from = (page - 1) * limit + 1;
+  const to = (page - 1) * limit + rowsOnPage;
+  const pages = total == null ? null : Math.max(1, Math.ceil(total / limit));
+  return { from, to, total, page, pages,
+    hasPrevious: page > 1,
+    hasNext: pages == null ? rowsOnPage === limit : page < pages };
 }
 function newestKnownInstant(rows) {
   let newest = null;
@@ -202,9 +230,10 @@ async function tick() {
   if (T) filters += "&ticker=eq." + encodeURIComponent(T);
   if (COHORT) filters += "&cohort=eq." + encodeURIComponent(COHORT);
   if (FEED) filters += "&feed=eq." + encodeURIComponent(FEED);
+  const offset = UNDATED_ONLY ? (PAGE - 1) * LIMIT : 0;
   const q = "news?select=ticker,url,published_ts,title,site,snippet,feed,cohort" +
     (UNDATED_ONLY
-      ? "&published_ts=is.null&order=url.asc"
+      ? "&published_ts=is.null&order=" + UNDATED_ORDER + "&offset=" + offset
       : "&order=published_ts.desc.nullslast") +
     filters + "&limit=" + LIMIT;
   const [rows, sent, undated] = await Promise.all([
@@ -226,7 +255,17 @@ async function tick() {
     : undated
       ? ' · <a href="' + esc(undatedLink()) + '">' + undated + " undated</a>"
       : "";
-  if (freshness.ms == null) {
+  if (UNDATED_ONLY) {
+    const p = undatedPaging(undated, PAGE, LIMIT, rows.length);
+    const nav =
+      (p.hasPrevious ? '<a href="' + esc(pageLink(p.page - 1)) + '">‹ prev</a> ' : "") +
+      p.from + "–" + p.to + " of " + (p.total == null ? "?" : p.total) + " undated" +
+      (p.pages ? " · page " + p.page + "/" + p.pages : "") +
+      (p.hasNext ? ' <a href="' + esc(pageLink(p.page + 1)) + '">next ›</a>' : "") +
+      ' · <a href="' + esc(undatedLink()) + '">dated wire</a>';
+    el("fresh").innerHTML = nav;
+    el("sentwrap").innerHTML = "";
+  } else if (freshness.ms == null) {
     el("fresh").innerHTML = '<span class="badge">NO DATED ITEMS</span>' + undatedNote;
   } else {
     const mins = Math.round((Date.now() - freshness.ms) / 60000);
@@ -234,7 +273,8 @@ async function tick() {
       ? 'newest <span class="badge">STALE ' + Math.round(mins / 60) + 'h</span>'
       : "newest " + ago(freshness.ms) + " ago") + undatedNote;
   }
-  if (sent && Array.isArray(sent) && sent[0] && num(sent[0].score) != null) {
+  if (UNDATED_ONLY) { /* the sentiment chip belongs to the dated wire */ }
+  else if (sent && Array.isArray(sent) && sent[0] && num(sent[0].score) != null) {
     const sc = num(sent[0].score);
     el("sentwrap").innerHTML = '<span class="sent ' + (sc >= 0 ? "up" : "dn") + '">sent ' + (sc >= 0 ? "+" : "−") + Math.abs(sc).toFixed(2) +
       " · " + (sent[0].n_articles || 0) + " art</span>";

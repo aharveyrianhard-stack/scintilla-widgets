@@ -95,7 +95,7 @@ test("a live quote never rewrites a completed candle", () => {
   assert.match(chart, /chartCache\.set\(key, \{ ts: Date\.now\(\), pts: pts, limit:limit \}\);\n\s*try \{ cacheSet/,
     "the pure series is what is cached");
   const cacheIndex = chart.indexOf("chartCache.set(key, { ts: Date.now(), pts: pts, limit:limit });");
-  const liveIndex = chart.indexOf("return chApplyLivePoint(t, pts, liveQuote[t]);", cacheIndex);
+  const liveIndex = chart.indexOf("return chApplyLivePoint(t, pts, liveQuote[t], range);", cacheIndex);
   assert.ok(liveIndex > cacheIndex, "the live point is applied after caching, never before");
   /* And the provider is asked for completed periods only. */
   assert.match(read("../_provider/provider.js"), /authority=provider/);
@@ -198,11 +198,16 @@ test("a live tick reaches the drawn series, and keeps reaching it", () => {
      And the second tick had its own bug. Once a transient point was appended, the same-day
      guard caught every later tick - the day now matched the TRANSIENT point rather than a
      completed bar - so the price froze at whatever the first tick after load happened to be. */
+  const CH_RANGE_MS = vm.runInNewContext("(" + /const CH_RANGE_MS = (\{[^}]*\})/.exec(chart)[1] + ")", {});
+  /* The fixture's timestamps are historical, so `now` is pinned well past them — the clock
+     guard is about ticks in the FUTURE, not about how old the last bar is. */
+  const PINNED_NOW = Date.parse("2026-08-20T00:00:00.000Z");
+  const FixedDate = new Proxy(Date, { get:(t, k) => (k === "now" ? () => PINNED_NOW : t[k]) });
   const apply = fnFrom(chart, "chApplyLivePoint", {
     window:{ SC_PROVIDER_SHIM:{ isProviderOwned:() => false } },
     futureSet:new Set(["ESUSD"]), cryptoSet:new Set(["BTCUSD"]),
     quoteInstant:fnFrom(chart, "quoteInstant", { Number, Date }),
-    Array, isFinite, Number, Date,
+    CH_RANGE_MS, Array, isFinite, Number, Date:FixedDate,
   });
 
   const completed = [
@@ -230,17 +235,78 @@ test("a live tick reaches the drawn series, and keeps reaching it", () => {
   assert.equal(third.length, 3);
   assert.equal(third[2].p, 61000);
 
-  /* A tick on the same day as the last COMPLETED bar still cannot rewrite it. */
-  const sameDay = apply("BTCUSD", completed, { price:99999, updated_ts:"2026-08-18T21:30:00.000Z" });
-  assert.equal(sameDay.length, 2);
-  assert.equal(sameDay[1].p, 101, "a completed bar owns its day");
+  /* THE DATE WAS THE WRONG QUESTION. On a 15m or 1h chart the last completed bar and the tick
+     routinely share a UTC date, and the old date-only guard refused every intraday tick after
+     load — a futures pane sat on its 08:00 bar all session. The rule is the timestamp. */
+  for (const [range, bar, tick] of [
+    ["15m", "2026-08-19T08:00:00.000Z", "2026-08-19T08:12:00.000Z"],
+    ["1h",  "2026-08-19T08:00:00.000Z", "2026-08-19T08:49:00.000Z"],
+    ["1D",  "2026-08-18T21:00:00.000Z", "2026-08-19T10:00:00.000Z"],
+  ]) {
+    const series = [{ d:"2026-08-19T07:00:00.000Z", p:100 }, { d:bar, p:101 }];
+    const out = apply("BTCUSD", series, { price:777, updated_ts:tick }, range);
+    assert.equal(out.length, 3, `${range}: a tick later than the completed bar is appended`);
+    assert.equal(out[1].p, 101, `${range}: the completed bar is untouched`);
+    assert.equal(out[2].live, true, `${range}: and the new point is flagged transient`);
+  }
+
+  /* A tick NOT later than the last completed bar adds nothing, whatever the date. */
+  const stale = apply("BTCUSD", completed, { price:99999, updated_ts:"2026-08-18T20:30:00.000Z" }, "1h");
+  assert.equal(stale.length, 2, "a tick behind the completed bar is not a new point");
+  assert.equal(stale[1].p, 101, "and the bar still owns its place");
+
+  /* An out-of-order tick must not drag an existing transient point backwards. */
+  const withTransient = apply("BTCUSD", completed, { price:60000, updated_ts:"2026-08-19T10:00:00.000Z" }, "1h");
+  const backwards = apply("BTCUSD", withTransient, { price:1, updated_ts:"2026-08-19T09:00:00.000Z" }, "1h");
+  assert.equal(backwards.length, 3);
+  assert.equal(backwards[2].p, 60000, "the newer transient point stands");
+
+  /* A provider-owned equity is never touched at all, on any timeframe. */
+  const equityApply = fnFrom(chart, "chApplyLivePoint", {
+    window:{ SC_PROVIDER_SHIM:{ isProviderOwned:(sym) => sym === "AAPL" } },
+    futureSet:new Set(), cryptoSet:new Set(),
+    quoteInstant:fnFrom(chart, "quoteInstant", { Number, Date }),
+    CH_RANGE_MS, Array, isFinite, Number, Date:FixedDate,
+  });
+  const equitySeries = [{ d:"2026-08-19T08:00:00.000Z", p:100 }];
+  const equityOut = equityApply("AAPL", equitySeries, { price:999, updated_ts:"2026-08-19T08:49:00.000Z" }, "1h");
+  assert.equal(equityOut, equitySeries, "the equity series is returned untouched, not even copied");
+  assert.equal(equityOut.length, 1);
 
   /* And the caller must assign what it gets back. */
-  assert.match(chart, /const next = chApplyLivePoint\(t, s, liveQuote\[t\]\);\n\s*host\._series = next;/);
+  assert.match(chart, /const next = chApplyLivePoint\(t, s, liveQuote\[t\], host\._range \|\| S\.chartRange\);\n\s*host\._series = next;/);
   assert.match(chart, /host\._view = \{ start:Math\.max\(0, next\.length - 1 - span\), end:next\.length - 1 \};/,
     "and the view follows the new length, not the old one");
 });
 
 test("the versioned chart shell carries the live-tick fix too", () => {
   assert.equal(read("../station-shells/chart-v1/index.html"), chart);
+});
+
+test("a transient point survives an overnight gap, and a future clock does not", () => {
+  /* The first sanity bound compared the tick against the LAST BAR, which is wrong: a 1h chart
+     legitimately carries a bar many hours old across an overnight or weekend gap, so clamping
+     to a few buckets blanked the transient point exactly when the market reopened. The
+     implausible case is a tick in the FUTURE. */
+  const CH_RANGE_MS = vm.runInNewContext("(" + /const CH_RANGE_MS = (\{[^}]*\})/.exec(chart)[1] + ")", {});
+  const PINNED_NOW = Date.parse("2026-08-19T13:00:00.000Z");
+  const FixedDate = new Proxy(Date, { get:(t, k) => (k === "now" ? () => PINNED_NOW : t[k]) });
+  const apply = fnFrom(chart, "chApplyLivePoint", {
+    window:{ SC_PROVIDER_SHIM:{ isProviderOwned:() => false } },
+    futureSet:new Set(["ESUSD"]), cryptoSet:new Set(["BTCUSD"]),
+    quoteInstant:fnFrom(chart, "quoteInstant", { Number, Date }),
+    CH_RANGE_MS, Array, isFinite, Number, Date:FixedDate,
+  });
+
+  /* Friday 21:00 close, Monday 12:00 tick, on an hourly chart. */
+  const acrossWeekend = [{ d:"2026-08-14T20:00:00.000Z", p:100 }, { d:"2026-08-14T21:00:00.000Z", p:101 }];
+  const reopened = apply("ESUSD", acrossWeekend, { price:105, updated_ts:"2026-08-19T12:00:00.000Z" }, "1h");
+  assert.equal(reopened.length, 3, "a gap of days does not disqualify a live tick");
+  assert.equal(reopened[2].p, 105);
+  assert.equal(reopened[1].p, 101, "and the completed bar is untouched");
+
+  /* A tick well ahead of the clock is refused. */
+  const future = apply("ESUSD", acrossWeekend, { price:999, updated_ts:"2026-08-20T12:00:00.000Z" }, "1h");
+  assert.equal(future.length, 2, "a timestamp in the future is a clock problem, not a price");
+  assert.match(chart, /if \(observedAt > Date\.now\(\) \+ bucket\) return out;/);
 });

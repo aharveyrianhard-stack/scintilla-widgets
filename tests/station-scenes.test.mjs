@@ -427,7 +427,7 @@ test("stalled chart reads retain a truthful ticker fallback and report coherent 
     "the editable ticker remains visible without inventing a price or daily percent");
   assert.doesNotMatch(chart, /price\.textContent = hasQuote/,
     "price is not duplicated in the readout while no quote has arrived");
-  assert.match(chart, /reportChartDataState\(host, \{ history:"delayed" \}\)/);
+  assert.match(chart, /reportChartDataState\(host, \{ history:"delayed", historyAbsence:null \}\)/);
   assert.match(chart, /reportChartDataState\(host, \{ quote:"delayed" \}\)/);
   assert.match(chart, /sc:"chart-data-state"/);
   const summarize = functionFromDeck("chartDataSummary");

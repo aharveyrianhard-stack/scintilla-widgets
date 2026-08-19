@@ -239,3 +239,45 @@ test("the module pages, bounds itself, and never substitutes a relation", () => 
   assert.doesNotMatch(axisSource, /ticker_membership/,
     "no equivalent-looking relation is swapped in for either question");
 });
+
+test("a paged read's row count is no longer treated as evidence of truncation", () => {
+  /* The guard that outlived its query. `rows.length>=1000` was the only defence a single
+     limit=1000 request had against a silent truncation. Once the shared reader paged the whole
+     relation, a COMPLETE read returned 1283 rows and that same guard threw on every load — so
+     the allocation module fell back to hardcoded TICKER_STYLES every single time, and did it
+     precisely because the read had succeeded. A paged read reports its own completeness. */
+  const allocation = read("../templates/allocation-module.html");
+  const universeRead = allocation.slice(allocation.indexOf("SC_COHORT_AXIS.loadMemberships(sbGet)"),
+                                        allocation.indexOf("hub_favorites?select=ticker,added_at"));
+  assert.doesNotMatch(universeRead, /rows\.length>=1000/,
+    "the row count cannot decide completeness for a paged read");
+  assert.match(universeRead, /if\(axis\.truncated\) throw new Error/,
+    "only the reader's own truncation flag can");
+  assert.match(universeRead, /if\(!rows\.length\) throw new Error/,
+    "and an empty read is still a failure");
+
+  /* The guard is correct on the reads that ARE single-page, and must stay there. */
+  for (const table of ["composite_staged", "live_quotes", "company_profile"]) {
+    const at = allocation.indexOf("sbGet('" + table);
+    assert.ok(at > -1, `${table} is still read`);
+    assert.match(allocation.slice(at, at + 400), /rows\.length>=1000/,
+      `${table} is a single capped page and keeps its truncation guard`);
+  }
+});
+
+test("COHORT FAVORITES navigates on the membership relation alone", () => {
+  /* `cohorts` is not a second membership source: pg_get_viewdef gives
+     `SELECT ticker, cohort FROM tickers` — one HOME cohort per ticker, unfiltered by `active`.
+     Folding it into the navigation index put home answers and membership answers in one map,
+     and smuggled in 25 pairs that are not memberships plus tickers that are not active. */
+  const deckSource = read("../deck/index.html");
+  const loader = deckSource.slice(deckSource.indexOf("async function loadCohortFavorites()"),
+                                  deckSource.indexOf("function cohortState()"));
+  assert.match(loader, /SC_COHORT_AXIS\.loadMemberships\(pg\)/);
+  assert.doesNotMatch(loader, /pg\("cohorts\?select=ticker,cohort"\)/,
+    "the home relation is not a membership source");
+  assert.match(loader, /buildCohortFavorites\(favorites, \[axis\.rows\]\)/,
+    "one source, and it is the membership relation");
+  assert.match(loader, /if \(axis\.truncated\) throw new Error/,
+    "a truncated read cannot be presented as the cohort axis");
+});
