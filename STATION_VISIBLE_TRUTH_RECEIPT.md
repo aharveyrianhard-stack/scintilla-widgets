@@ -459,3 +459,52 @@ of it, and they are what made the DCF wiring runnable instead of speculative.
 - None new: all eight commits went through the gate (`fail 0` + chart mirror + whitespace)
   before push, and no pushed message overstates a count. The round-4 errata stand as
   recorded above.
+
+---
+
+# Round — executor 3, protocol-turn packet (2026-08-19, same session)
+
+Turn ack recorded honestly: the named protocol file is a path on the operator's Mac and no
+copy exists in this repository, so it was not readable from this remote container; the
+locks, queue and receipts in-repo were re-read instead. Three units, three commits, each
+browser-verified with route, data state and DOM evidence in
+`browser-proof/receipts/RECEIPTS.md`, rollback stated per commit. Suite at close: **245
+pass, 0 fail**; 13 browser proofs, 39 screenshots.
+
+## The units
+
+- `a754a69` — **/youtube: a lost shared write no longer stays painted as saved.** ytWLToggle
+  flipped the Watch Later set optimistically and threw the write's outcome away: a failed
+  star/unstar left the star "saved", the shared table unchanged, the lie standing until the
+  next reconcile read. Success now means a LANDED write only (non-2xx and error bodies are
+  null); on failure the flip reverts, both call sites repaint from the settle, and the
+  page's flash surface names the failure. Proven in-browser both ways
+  (`proofs/yt-lost-write.mjs`): the optimistic frame, the revert (DOM class + ytWLGet()),
+  the named reason; the landed write distinct. Scope notes: the two mounted video shells
+  already revert (state-honest, reason-silent — lesser gap, recorded); ytPosPush keeps its
+  silent catch by design (10s-cadence re-push retries a lost position write).
+- `6d0d003` — **buildBase learns the window rule; absent balance fields stop minting a net
+  debt.** The queued audit found /fundamentals did NOT share the DCF baseline's discipline:
+  D&A%/capex% divided history-window numerators by fundamentals.revenue_ttm (a foreign
+  window); `(total_debt||0)−(cash||0)` valued a missing balance row as zero net debt with
+  an all-equity WACC, unflagged and sliderless; `shares||1` silently divided by an invented
+  1B in the terminal case. Denominators now come from the same rows as their numerators
+  (same 4 quarters or same single FY; cross-year pairs refused to the flagged default;
+  offset cashflow-vs-income windows flagged); every absent balance field is flagged by name
+  with its direction of error; the terminal share count is flagged NOT meaningful.
+  Functional pins drive every case; browser receipt `proofs/fy-consistency.mjs` (a NULL
+  total_debt renders its named flag; a complete row carries none).
+- `a338bad` — **/news and /cohorts main reads: named when never loaded, STALE-stamped when
+  they die mid-life.** The primary reads rejected to a boot-only unworded catch and a
+  SILENT interval catch — the worst state was a wire dying after a healthy load: stale
+  content with a frozen "newest Xm ago" stamp that became false as time passed. Never
+  loaded now names the source, distinct from the empty-filter words; died mid-life keeps
+  the held rows/chips (a failed read never erases knowledge) and stamps them stale where
+  freshness lives, cleared by the next successful rebuild. All four states photographed
+  (`proofs/main-read-failure.mjs`), the mid-life ones injected by re-routing after a
+  healthy load and invoking the page's own tick().
+
+## Errata, stated
+
+- None new: three commits, each gated green (`fail 0` + chart mirror + whitespace) before
+  push. No database access of any kind this packet.
