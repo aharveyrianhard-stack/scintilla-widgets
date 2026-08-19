@@ -115,11 +115,13 @@ test("the spine asks with the contract's exact 5m/1m tokens, and the shim maps b
 
 test("a dead chart library is a said panel state, never a mid-render throw", () => {
   const page = fs.readFileSync(new URL("../templates/sector-rotation.html", import.meta.url), "utf8");
-  /* lightweight-charts arrives from unpkg (pinned 4.1.3, no integrity hash — vendor-or-SRI
-     is an owner ruling). Unguarded, createChart threw a ReferenceError when the CDN was
-     down and took the timeframe-following panels with it. */
+  /* lightweight-charts is VENDORED same-origin with npm-verified bytes (the unhashed unpkg
+     tag is gone). Unguarded, createChart threw a ReferenceError when the script was absent
+     and took the timeframe-following panels with it. */
   assert.match(page, /if\(typeof LightweightCharts==='undefined'\)\{/);
-  assert.match(page, /lightweight-charts did not load \(third-party CDN unpkg\.com\) — the LINES panel is unavailable, not empty; every other panel is unaffected · reload to retry/);
+  assert.match(page, /lightweight-charts \(vendored same-origin\) did not load — the LINES panel is unavailable, not empty; every other panel is unaffected · reload to retry/);
+  assert.match(page, /src="\/_vendor\/lightweight-charts-4\.1\.3\.standalone\.production\.js" integrity="sha384-JZigAjwiaZtkUbA44CWkPaT3iBb\/mU5pO6QOANp\+OqHd4q\+1\+7MG1kzp2OOP9ZfP"/);
+  assert.ok(!page.includes("unpkg.com/lightweight-charts"), "the third-party tag is gone from the current page");
   assert.match(page, /if\(!chart\)\{ setRange\(currentRange\); return; \}/, "no series without the library, but the range still applies");
   assert.match(page, /if\(chart\) chart\.applyOptions/);
   assert.match(page, /if\(chart\) chart\.timeScale\(\)\.setVisibleLogicalRange/);

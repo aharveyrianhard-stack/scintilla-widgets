@@ -357,7 +357,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 </div>
 
 <script src="/deck/scenes.js?rev=001"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/_vendor/supabase-js-2.112.3-umd.min.js" integrity="sha384-qafw21c/iciq0VXsi9FzkfoQv5I/V0iqE4lSNcKXPnW9/UTJLnv5CcN4FHxVLnKg"></script>
 <script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
@@ -483,20 +483,35 @@ let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "3h";
    their history work, but never multiply the same live quote request. */
 const deckSb = (typeof supabase !== "undefined" && supabase.createClient)
   ? supabase.createClient(SB, ANON) : null;
-/* THE REALTIME CHANNEL'S ABSENCE IS A SAID STATE, NOT A SILENT ONE. supabase-js arrives
-   from a third-party CDN on a floating @2 tag (pinning or vendoring it is an owner ruling,
-   recorded in the receipt); when it does not load, the non-equity realtime lane is simply
-   gone and ticks ride polling cadence only. That is a latency fact the wall states once,
-   here — never a freshness claim, which #marketStatus owns (a heartbeat is cadence, not
-   invalidation). Equities never ride this channel either way: the shim refuses them below. */
+/* THE REALTIME CHANNEL'S ABSENCE IS A SAID STATE, NOT A SILENT ONE. supabase-js is
+   VENDORED same-origin (/_vendor, 2.112.3 — the exact npm-registry bytes, sha512-verified
+   against the registry's own integrity; the old floating-@2 third-party CDN tag is gone);
+   when the script does not load, the non-equity realtime lane is simply gone and ticks
+   ride polling cadence only. That is a latency fact the wall states once, here — never a
+   freshness claim, which #marketStatus owns (a heartbeat is cadence, not invalidation).
+   Equities never ride this channel either way: the shim refuses them below. */
 window.SC_REALTIME = deckSb
-  ? { available: true, reason: "live_quotes realtime channel subscribed — non-equity passthrough only; equities are refused at the channel" }
-  : { available: false, reason: "supabase-js did not load (third-party CDN) — the realtime tick channel is absent; non-equity ticks ride polling only" };
+  ? { available: true, channel: "connecting", reason: "supabase-js loaded (vendored same-origin) — channel state follows below; non-equity passthrough only; equities are refused at the channel" }
+  : { available: false, channel: "none", reason: "supabase-js (vendored same-origin) did not load — the realtime tick channel is absent; non-equity ticks ride polling only" };
 (function paintRtNote() {
   const n = el("rtNote"); if (!n) return;
   if (window.SC_REALTIME.available) { n.hidden = true; return; }
   n.hidden = false; n.textContent = "RT · absent"; n.title = window.SC_REALTIME.reason;
 })();
+/* "AVAILABLE" WAS ONLY "SCRIPT PRESENT". The channel's own lifecycle is the lane's truth:
+   SUBSCRIBED clears the note; a channel that errors, times out or closes says so. While
+   connecting, nothing is claimed either way — a pending connect is not a failure. */
+function rtChannelStatus(status) {
+  if (!window.SC_REALTIME) return;
+  const s = String(status || "").toUpperCase();
+  window.SC_REALTIME.channel = s;
+  const n = el("rtNote"); if (!n) return;
+  if (s === "SUBSCRIBED") { n.hidden = true; return; }
+  if (s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") {
+    n.hidden = false; n.textContent = "RT · not connected";
+    n.title = "the realtime channel did not connect (" + s + ") — non-equity ticks ride polling only";
+  }
+}
 const DECK_QUOTES = new Map();
 const DECK_QUOTE_FAILED = new Set();
 /* Separate from DECK_QUOTE_FAILED on purpose. FAILED means the read fell over and is worth
@@ -672,7 +687,7 @@ if (deckSb) deckSb.channel("station-deck-lq").on("postgres_changes", {
   if (shim) shim.realtime_nonequity_passthrough++;
   const selected = selectVisibleQuoteRows([event.new], visibleChartTickers());
   for (const [ticker, quote] of selected) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); fanoutDeckQuote(ticker); }
-}).subscribe();
+}).subscribe(rtChannelStatus);
 let SOLO = QS.get("full") || null;
 let MEDIA_TARGET = null;
 let MEDIA_STAGE = 0;

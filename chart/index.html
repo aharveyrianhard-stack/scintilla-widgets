@@ -143,7 +143,7 @@ body.tvmodal-open{ overflow:hidden; }
 </head>
 <body>
 <div id="chartSlot"></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/_vendor/supabase-js-2.112.3-umd.min.js" integrity="sha384-qafw21c/iciq0VXsi9FzkfoQv5I/V0iqE4lSNcKXPnW9/UTJLnv5CcN4FHxVLnKg"></script>
 <script src="/_provider/provider.js"></script>
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
@@ -162,8 +162,8 @@ const sb   = (typeof supabase !== "undefined" && supabase.createClient)
    realtime lane silently otherwise. The chart is a mounted shell, so the DECK paints the
    note for the wall; standalone, the state stays queryable here under the same name. */
 window.SC_REALTIME = sb
-  ? { available: true, reason: "live_quotes realtime channel subscribed — non-equity passthrough only; equities are refused at the channel" }
-  : { available: false, reason: "supabase-js did not load (third-party CDN) — the realtime tick channel is absent; non-equity ticks ride polling only" };
+  ? { available: true, channel: "connecting", reason: "supabase-js loaded (vendored same-origin) — channel state follows; non-equity passthrough only; equities are refused at the channel" }
+  : { available: false, channel: "none", reason: "supabase-js (vendored same-origin) did not load — the realtime tick channel is absent; non-equity ticks ride polling only" };
 /* A stalled data-plane read used to leave each pane waiting forever. Keep an
    individual request short, then let the chart-level retry use one measured
    backoff rather than multiplying hanging fetches. */
@@ -1438,7 +1438,11 @@ if (sb && !DECK_QUOTE_MODE) {
     if (shim && shim.ownershipKnown && !shim.ownershipKnown()) { shim.realtime_unknown_ownership_refused++; return; }
     if (shim) shim.realtime_nonequity_passthrough++;
     if (p.new && p.new.ticker && p.new.price != null) scChartLive(String(p.new.ticker).toUpperCase(), +p.new.price, p.new.updated_ts);
-  }).subscribe();
+  }).subscribe((status) => {
+    /* The chart is a mounted shell — the deck paints the note; the state stays queryable
+       here under the same name, with the channel's own lifecycle as the lane's truth. */
+    if (window.SC_REALTIME) window.SC_REALTIME.channel = String(status || "").toUpperCase();
+  });
 }
 
 function requestDeckQuote(ticker) {

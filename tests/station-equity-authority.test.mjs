@@ -383,17 +383,23 @@ test("the realtime channel refuses equities, and its CDN-dependent absence is a 
     assert.match(src, /isProviderOwned\(sym\)\) \{ shim\.realtime_equity_refused\+\+; return; \}/, name + " refuses owned equities");
     assert.match(src, /!shim\.ownershipKnown\(\)\) \{ shim\.realtime_unknown_ownership_refused\+\+; return; \}/, name + " treats unknown ownership as refusal, not permission");
     assert.match(src, /shim\.realtime_nonequity_passthrough\+\+/, name + " counts the passthrough");
-    /* The SDK arrives from a third-party CDN on a floating @2 tag; when it does not load,
-       the lane's absence must be queryable under one name, both branches worded. */
+    /* The SDK is VENDORED same-origin with npm-verified bytes; when the script still does
+       not load, the lane's absence must be queryable under one name, both branches worded,
+       and the channel's own lifecycle — not mere script presence — is the lane's truth. */
     assert.match(src, /window\.SC_REALTIME = (deckSb|sb)\s*\?/, name + " exposes the state");
-    assert.match(src, /realtime channel subscribed — non-equity passthrough only; equities are refused at the channel/, name);
-    assert.match(src, /supabase-js did not load \(third-party CDN\) — the realtime tick channel is absent; non-equity ticks ride polling only/, name);
+    assert.match(src, /supabase-js loaded \(vendored same-origin\) — channel state follows/, name);
+    assert.match(src, /supabase-js \(vendored same-origin\) did not load — the realtime tick channel is absent; non-equity ticks ride polling only/, name);
+    assert.match(src, /src="\/_vendor\/supabase-js-2\.112\.3-umd\.min\.js" integrity="sha384-qafw21c\/iciq0VXsi9FzkfoQv5I\/V0iqE4lSNcKXPnW9\/UTJLnv5CcN4FHxVLnKg"/, name + " loads the vendored file under its integrity hash");
+    assert.ok(!src.includes("cdn.jsdelivr.net"), name + " no longer references the third-party CDN");
   }
   /* The wall says it once, where cadence lives — beside, never inside, #marketStatus. */
   assert.match(deck, /<span id="rtNote" hidden/);
   assert.match(deck, /n\.textContent = "RT · absent"; n\.title = window\.SC_REALTIME\.reason;/);
-  /* The floating tag itself, pinned as a recorded risk until the owner rules pin-or-vendor:
-     if this line changes, the receipt's supply-chain note must change with it. */
-  assert.match(deck, /cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js@2"/);
-  assert.match(chart, /cdn\.jsdelivr\.net\/npm\/@supabase\/supabase-js@2"/);
+  /* The channel's lifecycle is wired, not assumed: the deck paints from it, the chart
+     records it, and only the three terminal failures claim non-connection. */
+  assert.match(deck, /\}\)\.subscribe\(rtChannelStatus\);/);
+  assert.match(deck, /if \(s === "SUBSCRIBED"\) \{ n\.hidden = true; return; \}/);
+  assert.match(deck, /if \(s === "CHANNEL_ERROR" \|\| s === "TIMED_OUT" \|\| s === "CLOSED"\) \{/);
+  assert.match(deck, /the realtime channel did not connect \(" \+ s \+ "\) — non-equity ticks ride polling only/);
+  assert.match(chart, /window\.SC_REALTIME\.channel = String\(status \|\| ""\)\.toUpperCase\(\);/);
 });

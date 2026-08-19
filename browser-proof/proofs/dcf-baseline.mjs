@@ -44,7 +44,7 @@ assert.match(got.spineTitles, /netDebt 8\/10 · D&A% 8\/10 · capex% 8\/10 · Δ
   "the badge counts per field, without rounding up");
 assert.match(got.spineTitles, /anything short keeps the flagged static value/);
 assert.match(got.spine, /static-baseline · STATIC/, "margin/tax/MRP stay visibly static");
-assert.match(got.asof, /FY baseline \(netDebt · D&A% · capex% · ΔNWC%\) from the history tables/);
+assert.match(got.asof, /FY baseline \(netDebt · D&A% · capex% · ΔNWC%\) and the growth\/margin slider seeds from the history tables/);
 const shot = await shoot(page, "dcf-fy-baseline-partial-overlay");
 assert.deepEqual(errors, [], "no page errors");
 await page.close();

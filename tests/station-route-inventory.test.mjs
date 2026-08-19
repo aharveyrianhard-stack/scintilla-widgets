@@ -159,6 +159,8 @@ const served = discoverServed();
 /* The files pages load by absolute path — a missing one is a broken page, which is exactly
    how /analytics ran without the authority shim. */
 const LOAD_BEARING = ["/_provider/provider.js", "/_cohorts/cohort-axis.js", "/deck/scenes.js",
+  "/_vendor/supabase-js-2.112.3-umd.min.js",
+  "/_vendor/lightweight-charts-4.1.3.standalone.production.js",
   "/station/manifest.json", "/station/icon.svg", "/station/icon.png", "/station/icon-512.png",
   "/station-ipad/icon.svg", "/station-ipad/icon.png", "/tokens.css"];
 const CLASSES = [

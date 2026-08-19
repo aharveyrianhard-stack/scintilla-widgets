@@ -9,7 +9,7 @@
    - DATA lanes may reach nothing beyond the rig's two owners — ever.
    - MEDIA-mounting pages may reach YouTube's embed hosts (the player and thumbnails are
      the media content itself; the feed's DATA comes from youtube_feed, never YouTube's
-     API) and the one pinned jsdelivr tag via mounted chart frames.
+     API) — the chart frames' library is vendored same-origin now, so no CDN remains.
    - The RETAINED ROLLBACK sector-rotation-older may reach its reviewed hub relay (its
      Yahoo lane is the exempt legacy copy, by ruling).
    - The X lane (/pane-x, x shells, the bridge draft) is EXCLUDED: H2 is proof-gated, and
@@ -20,9 +20,8 @@
 import assert from "node:assert/strict";
 import { launch, shoot, record, nowStamp } from "../rig.mjs";
 
-const MEDIA_HOSTS = /^(www\.youtube\.com|www\.youtube-nocookie\.com|i\.ytimg\.com|cdn\.jsdelivr\.net)$/;
+const MEDIA_HOSTS = /^(www\.youtube\.com|www\.youtube-nocookie\.com|i\.ytimg\.com)$/;
 const ROLLBACK_HOSTS = /^(unpkg\.com|scintillahub\.ai)$/;
-const CDN_ONLY = /^(cdn\.jsdelivr\.net|unpkg\.com)$/;
 
 const PAGES = [
   { p: "/", allow: MEDIA_HOSTS },              /* the scene directory mounts live previews */
@@ -35,14 +34,14 @@ const PAGES = [
   { p: "/templates/fundamentals-spec.html", allow: null },
   { p: "/feed-a/", allow: null }, { p: "/feed-b/", allow: null },
   { p: "/pane-video/", allow: MEDIA_HOSTS }, { p: "/station-shells/video-v1/", allow: MEDIA_HOSTS },
-  { p: "/tv/", allow: CDN_ONLY }, { p: "/tvwall/", allow: null },
+  { p: "/tv/", allow: null }, { p: "/tvwall/", allow: null },
   { p: "/visuals/", allow: null }, { p: "/visuals/archive/", allow: null }, { p: "/visuals/bench/", allow: null },
   { p: "/visuals/gallery/", allow: null }, { p: "/visuals/geiger-live/", allow: null },
   { p: "/visuals/geiger-motion/", allow: null }, { p: "/visuals/images/", allow: null },
   { p: "/visuals/menu/", allow: null }, { p: "/visuals/open/", allow: null },
   { p: "/visuals/template/", allow: null }, { p: "/visuals/theme/", allow: null },
-  { p: "/templates/sector-rotation.html", allow: CDN_ONLY },
-  { p: "/templates/sector-rotation-older.html", allow: new RegExp(ROLLBACK_HOSTS.source + "|" + CDN_ONLY.source) },
+  { p: "/templates/sector-rotation.html", allow: null },
+  { p: "/templates/sector-rotation-older.html", allow: ROLLBACK_HOSTS },
 ];
 
 const { context, origin, close, unmatched } = await launch();
@@ -62,13 +61,16 @@ for (const { p, allow } of PAGES) {
   await page.close();
 }
 
-/* ---- the found defect, proven fixed: the LINES panel says its library is dead ---- */
+/* ---- the found defect, proven fixed: the LINES panel says its library is dead ----
+   (The library is vendored same-origin now, so the failure under test is injected by
+   blocking the /_vendor script — the healthy load is covered by the sweep above.) */
 const sr = await context.newPage();
 const srErrs = []; sr.on("pageerror", (e) => srErrs.push(String(e)));
+await sr.route("**/_vendor/lightweight-charts*", (route) => route.abort("connectionrefused"));
 await sr.goto(origin + "/templates/sector-rotation.html", { waitUntil: "domcontentloaded" });
 await sr.waitForTimeout(6000);
 const lines = await sr.$eval("#linesChart", (n) => n.textContent);
-assert.match(lines, /lightweight-charts did not load \(third-party CDN unpkg\.com\) — the LINES panel is unavailable, not empty; every other panel is unaffected/,
+assert.match(lines, /lightweight-charts \(vendored same-origin\) did not load — the LINES panel is unavailable, not empty; every other panel is unaffected/,
   "the dead library is a SAID panel state");
 /* A range click used to throw through the unguarded chart calls; now the timeframe panels follow. */
 const rangeBtn = await sr.$("[data-d]");
@@ -83,8 +85,8 @@ record(`## ${nowStamp()} — the inventory sweep: runtime coverage completed, an
 
 Command: \`PW_MODULE_DIR=… node browser-proof/proofs/inventory-sweep.mjs\` (asserts inline; one screenshot for the found defect)
 
-- **${PAGES.length} remaining surfaces loaded clean** — entry, ops, market (/parity), media, the visuals lab, the standalone spec pages: zero page errors, real painted surfaces, zero requests outside each page's CLASS allowance (data lanes: the two owners only; media-mounting pages: YouTube embed hosts + the pinned jsdelivr tag via chart frames; the retained rollback sector-rotation-older: its reviewed hub relay, exempt by ruling). Together with authority-sweep.mjs and the per-page proofs, EVERY served surface in the route inventory has now been loaded at least once under authority assertions — except the X lane, excluded because H2 is proof-gated (the bridge draft's offscreen document is recorded as throwing outside its extension context; its guard waits behind the same gate).
-- **The found defect, fixed and photographed** (${shotSr}): /templates/sector-rotation.html loads lightweight-charts from unpkg (pinned 4.1.3, NO integrity hash — vendor-or-SRI is an OWNER RULING, recorded beside the supabase-js item). Unguarded, createChart threw a ReferenceError when the CDN was down and took the timeframe-following panels with it. The LINES panel now SAYS "lightweight-charts did not load … unavailable, not empty; every other panel is unaffected", the chart calls are guarded, and leaders/heatmap still follow a range click with the library dead — zero page errors before and after.
+- **${PAGES.length} remaining surfaces loaded clean** — entry, ops, market (/parity), media, the visuals lab, the standalone spec pages: zero page errors, real painted surfaces, zero requests outside each page's CLASS allowance (data lanes: the two owners only; media-mounting pages: YouTube embed hosts; the retained rollback sector-rotation-older: its reviewed hub relay + its legacy unpkg tag, exempt by ruling — no other page touches a CDN since the vendoring). Together with authority-sweep.mjs and the per-page proofs, EVERY served surface in the route inventory has now been loaded at least once under authority assertions — except the X lane, excluded because H2 is proof-gated (the bridge draft's offscreen document is recorded as throwing outside its extension context; its guard waits behind the same gate).
+- **The found defect, proven fixed on the vendored library** (${shotSr}): with the same-origin /_vendor lightweight-charts script blocked, the LINES panel SAYS "lightweight-charts (vendored same-origin) did not load — unavailable, not empty; every other panel is unaffected", the chart calls are guarded, and leaders/heatmap still follow a range click with the library dead — zero page errors before and after. (The healthy load — the vendored library actually executing — is covered by the sweep above.)
 
 Rollback: revert the single commit carrying this unit — a said state, guards, pins and this proof; no data lane, authority or methodology changed; the rollback copy untouched.
 `);
