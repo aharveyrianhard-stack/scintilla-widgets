@@ -1,8 +1,8 @@
 # Station visible-truth closure — session handoff
 
-Written at a committed checkpoint by executor 3 after the round-11 vendoring sprint.
-Everything below was re-derived from the working tree at head, not carried forward from an
-earlier note.
+Written at a committed checkpoint by executor 3 after the round-12 watch-later-truth
+sprint. Everything below was re-derived from the working tree at head, not carried forward
+from an earlier note.
 
 ## Exact state
 
@@ -10,13 +10,13 @@ earlier note.
 | --- | --- |
 | Repo | `aharveyrianhard-stack/scintilla-widgets` |
 | Branch | `claude/station-visible-truth-closure-8ipyru` |
-| Head | `f1adfae` + the docs commit carrying this update — pushed |
+| Head | `536ba59` + the docs commit carrying this update — pushed |
 | PR | [#115](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/115) — **DRAFT, NO-MERGE** |
 | Uncommitted | **none** at handoff |
-| Tests | `node --test "tests/*.test.mjs"` → **251 pass, 0 fail**, 24 files |
-| Browser receipts | `browser-proof/` — 19 proof files, 49 screenshots + `RECEIPTS.md`, every entry regenerable by the command it names |
-| Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access this round: **two read-only SELECTs** on scintilla-live (schema + FY availability, recorded in the receipt); rounds 3–4 used none |
-| Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` |
+| Tests | `node --test "tests/*.test.mjs"` → **253 pass, 0 fail**, 24 files |
+| Browser receipts | `browser-proof/` — 20 proof files + `RECEIPTS.md`, every entry regenerable by the command it names |
+| Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access round 12: **none** (round 11: none; round 5: two read-only SELECTs, recorded) |
+| Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` — Ready on `536ba59` at 16:39Z |
 
 ## What round 5 (the second continuation packet) closed
 
@@ -48,7 +48,10 @@ Round 4: `91dfe7f..41927ae` + docs `5876807` (9 commits; see the receipt). Round
 `405dc3a` allocation dead gates · `7bf4658` fundamentals boot guard · `7e52b34`
 degraded-states proofs + fixtures · `305cf1c` /pulse failed reads · `04ae8d7` empty-FAV +
 URL docs + tokens ruling · `77283ab` DCF FY baseline · `96ec505` /econ /alerts /news
-failed reads · plus the docs commit carrying this handoff.
+failed reads. Rounds 6–11: see the receipt's per-round sections (heads `a754a69` `6d0d003`
+`a338bad` `39567f9` `d9e0308` `e98188d` `4ca7ae8` `568018f` `8175459` `55e4526` `f1adfae`
+`6d99577`). Round 12: `536ba59` watch-later lane truth across the class · plus the docs
+commit carrying this handoff.
 
 ## Errata (cumulative, so nothing is re-derived as a mystery)
 
@@ -96,21 +99,28 @@ tables with every needed field non-null; latest FY dates range 2025-06-30 (IREN,
 | 1 | **CLOSED labels despite live feed** | **CROSS-REPO.** Lives in scintilla-hub; no such label exists in this repository (search recorded). Needs Hub repo access, which the standing locks forbid from this branch. |
 | 2 | **F1 — sector-rotation cross-project** | **ACTIVE/BLOCKED.** Needs the scintilla-sector deploy + CORS; the page refuses the authority claim without the shim and never claims LIVE on a short spine. |
 | 3 | **Scene internals** | **ACTIVE/BLOCKED.** `ADD PCC CUMTICK TICK TRIN` unowned; `/health` carries them BAD by construction. Needs an owner's support-or-absence ruling. |
-| 4 | **/youtube `ytAct` lost writes** | **FIXED** (`a754a69`, round 6): revert + named flash, browser-verified. The shells' reason-silence and subscribe lane stay recorded as lesser gaps. |
+| 4 | **/youtube `ytAct` lost writes** | **FIXED** (`a754a69`, round 6; completed across the class by `536ba59`, round 12): revert + named flash on every surface carrying the lane, the shells' reason-silence and lost subscribes CLOSED, and the read side fixed too — a failed/unlanded saved-list read paints UNKNOWN, never "unsaved" (/youtube keeps the feed's own served flags; the "YouTube reconnect required" mislabel is gone). Browser-verified (`wl-truth.mjs`). Remaining lesser gaps recorded in the round-12 receipt: quiet-refresh staleness wears no stamp (no freshness claim painted, so nothing false), the yt_positions resume lane is silent. |
 | 5 | **DCF live acceptance** | The fy-baseline AND fy-seeds badges should read LIVE 10/10 against the real database; needs a live browser on the preview — round 7 re-measured this container (CONNECT 403 to hub/preview/Supabase) so it stays blocked here. |
 | 6 | **H2 (X)** | Untouched, proof-gated by instruction. |
 | 7 | **H3 / H4** | Contracts asserted; gesture feel and fullscreen geometry need a human eye. |
 | 8 | **Fly CORS vs preview origin** | Still not allowed → no LIVE-data provider path provable end-to-end from the preview. |
 | 9 | **Independent re-audit** | Pending, and still the merge gate. Round 5 again found real defects behind surfaces called complete (the unreachable empty-state messages, the spelling-scoped sweep). The test count is not the verdict. |
 
-## The wall, stated plainly (round 9)
+## The wall, stated plainly (round 9; round 12 correction)
 
-Every runnable-now unit in this queue is DONE. Each remaining item needs something this
-container does not have: the Hub repo, the sector deploy + CORS, an owner ruling
-(scene-internals ownership · tokens.css — the supabase-js and lightweight-charts rulings are now EXECUTED as same-origin vendoring with npm-verified bytes, `f1adfae`; SRI-on-CDN stays open to the owner ·
-tax/terminal/MRP/debt-weight sources), a live browser outside the container, a human eye,
-or the explicit H2 proof-gate. The next session should start by asking the operator which
-wall to open — not by re-deriving this list.
+Round 12 corrected round 9's "every runnable-now unit is DONE": a roster-audit resume
+re-swept by TABLE NAME rather than page name and found the watch-later lane's read-side
+rule-1 defect live on four surfaces including both deck-mounted shells — now fixed
+(`536ba59`). The wall claim survives narrowed: every runnable-now unit **found by the
+sweeps run so far** is done. Each remaining KNOWN item needs something this container does
+not have: the Hub repo, the sector deploy + CORS, an owner ruling (scene-internals
+ownership · tokens.css — the supabase-js and lightweight-charts rulings are EXECUTED as
+same-origin vendoring with npm-verified bytes, `f1adfae`; SRI-on-CDN stays open to the
+owner · tax/terminal/MRP/debt-weight sources), a live browser outside the container, a
+human eye, or the explicit H2 proof-gate. Walls re-probed 2026-08-19T16:20:53Z: all four
+hosts still CONNECT 403. The next session should ask the operator which wall to open, and
+may also run one more class-sweep of its own choosing — round 12 is the proof such sweeps
+can still pay.
 
 ## Next units, in order — ≥8, runnable-now first
 

@@ -743,3 +743,141 @@ runnable unit: none new — the wall stands as round 10 stated it, with two item
 the supabase-js and lightweight-charts rulings are now EXECUTED on the branch in their
 verifiable form (vendor); the SRI-on-CDN alternative remains open to the owner before
 merge. The independent re-audit remains the merge gate.
+
+---
+
+# Round 12 — the watch-later lane tells the truth on every surface that carries it
+
+Continuation packet, 2026-08-19. Resumed from head `6d99577` on the roster-audit packet
+("validate the highest-impact Hub-facing fixes with runtime/browser evidence"). The
+canonical protocol path (`/Users/alanharvey/SCINTILLA 0.5/repo/…`) is a macOS path not
+present in this container, as every round: the in-repo receipt, handoff and routes doctrine
+were re-read instead.
+
+## What was measured before anything was touched
+
+- **Walls re-probed at 2026-08-19T16:20:53Z**: preview, Supabase, hub and Fly all still
+  refuse at the proxy (`CONNECT tunnel failed, response 403`, curl exit 35 each). The DCF
+  live-acceptance walk and every live-data claim stay blocked here; fresh timestamp so the
+  next session does not re-derive it.
+- **Service-worker sweep**: zero `serviceWorker` registrations and zero Cache API uses in
+  the served tree — the `no-store` ruling has no cache layer hiding behind it. Measured
+  absence, recorded.
+- **`origin/main` unmoved** (`bb55f94`, ancestor of HEAD); working tree clean at resume;
+  rig and gate intact in the scratchpad.
+- **/chart's realtime paint scope is deliberate and in-code** ("the chart is a mounted
+  shell — the DECK paints the note for the wall; standalone, the state stays queryable
+  here under the same name") — re-read, not an overclaim, not a unit.
+- **The class, swept by table name, not by page name** (rule 14): `grep -l yt_watch_later`
+  over served HTML returns exactly five files — `/youtube`, `/pane-video`,
+  `personal-video-v1`, `scintilla-video-v1` (byte-identical pair, measured `diff` = 0),
+  and `video-v1`, the retained rollback. The deck mounts the identical pair, so this lane
+  IS Hub-facing: it is what the Station wall's two video panes run.
+
+## The defects, by rule
+
+1. **A failed read painted as "unsaved" (rule 1)** — every surface in the class booted
+   `WATCH`/`YT_WATCH_LATER` as an empty set and painted card stars, the bWatch button and
+   the ★ filter from it while the shared saved-list read was still in flight or after it
+   FAILED. A saved video rendered "save to watch later"/☆ — an unlanded read painted as
+   the unsaved claim. `/youtube` was worse twice over: its feed query already carries a
+   server-side `watch_later` column (landed data), which boot OVERWROTE with the empty
+   page cache; and its dedicated `yt_watch_later` read had no `.catch` at all — the
+   failure was an unhandled promise rejection that left every star zeroed.
+2. **Reason-silent reverts (the recorded "lesser gap", now closed)** — the shells' and
+   /pane-video's `toggleWatch` reverted a lost write correctly but said nothing: the
+   gesture just vanished. `subscribeToChannel`'s `catch (e) { }` swallowed lost
+   subscribes whole.
+3. **A mislabeled cause (rule 2's spirit: name only what you measured)** — a failed
+   Supabase REST read of `yt_watch_later` painted **"YouTube reconnect required"**: a
+   YouTube-auth diagnosis for a database read the page never made against YouTube.
+
+## The fix, per surface (`536ba59`)
+
+- **/youtube**: `YT_WL_READY`/`YT_WL_READ_FAILED` flags; boot seeds the page cache from
+  the feed's own served `watch_later` flags (so the overwrite is a no-op until the
+  AUTHORITATIVE read replaces it); the dedicated read's failure is CAUGHT and said —
+  transient flash plus a persistent red `!` marker on the Watch Later chip titled "the
+  saved-list read failed — ★ rides the feed snapshot, not the saved list · retried with
+  the feed pass".
+- **/pane-video + both mounted shells** (kept byte-identical, `cp` + test pin): card
+  stars render through `starHTML(v)` — while `!WATCH_READY` they paint a dimmed `?`
+  ("watch-later state unknown — the saved-list read failed / has not landed yet · a click
+  retries the read"), never ☆ or ★; the shells' bWatch button reads "watch later — state
+  unknown" (failed) or "watch later…" (in flight) instead of the unsaved claim;
+  `toggleWatch` against an unknown state REFUSES the flip — it retries the read, paints
+  the recovered truth, and tells the user to click again, because a gesture aimed at an
+  unknown state has no knowable intent; lost writes flash "★ not saved / ★ not removed —
+  the shared watch-later write failed · try again" (matching /youtube's round-6 wording);
+  lost subscribes flash "subscribe failed — the shared write did not land · try again";
+  the watch-list read failure paints "the watch-later read failed — the saved list is
+  unavailable, not empty · retrying at the next refresh". Boot-read failure sets the
+  named error and repaints button and stars. A small `#wlFlash` status element carries
+  the transient sayings.
+- **video-v1 untouched** — the rollback stays a pointer change, wording and all; pinned
+  by test exactly like `sector-rotation-older`.
+
+## Evidence
+
+- **Tests: 253 pass, 0 fail** (24 files; +2 from round 11). New pins/functional tests in
+  `station-failed-read-render.test.mjs`: shell byte-identity; `starHTML` truth table
+  (unknown-failed / unknown-pending / saved / unsaved / non-scintilla feed) run in vm for
+  BOTH /pane-video and the shell; async `toggleWatch` driven through all four scenarios
+  (dead read → refusal said, recovery → truth first, lost write → revert + said, landed
+  write → stays, no flash); `refreshWatchButton` truth table; the old wording banned from
+  the fixed three and REQUIRED in the rollback. `station-scenes.test.mjs`'s boot-read pin
+  updated to the new shape (same intent, plus the named-failure pin).
+- **Browser proof: `browser-proof/proofs/wl-truth.mjs` — PASSED** (4 scenarios, failure
+  injection at PAGE level so the shared fixtures stay untouched for every other proof):
+  the mounted shell with the read dead (3 unknown stars, zero claiming, the button's
+  refusal, the click-retry flash, the named watch-list state, the old wording absent);
+  read lands → exactly the saved video ★, lost write flips optimistically, REVERTS and
+  says why; lost subscribe says why; /youtube with the dedicated read dead keeps the
+  feed-flagged star, wears the chip marker, and throws NOTHING (the pre-fix page fails
+  that assertion with the unhandled rejection). Four screenshots in the receipts log.
+- **Preview**: Vercel built `536ba59` and reports Ready at 16:39Z (bot comment edit —
+  echo-class wake, no action). Stubbed-data page proofs remain page proofs; nothing here
+  is a live-data acceptance.
+
+## Lesser gaps measured this round, recorded not fixed
+
+- The video surfaces' quiet 120s refresh failure holds the painted grid with no stale
+  stamp. Measured: the grids paint NO freshness claim (no "newest/ago" stamp), so a held
+  grid states nothing false — unlike /news, whose aging stamp lied. Recorded as a lesser
+  gap in the R14 family, not worth widening the diff for under this packet's scope.
+- The `yt_positions` resume lane (shared playback positions) fails silently both ways;
+  playback position is UX state, not a data claim on a market surface. Recorded.
+- /tv's DB-read catch is a worded deliberate no-op over a baked default arrangement
+  (honest: the baked content is real content); /tvwall fetches nothing; /feed-a and
+  /feed-b name their feed failure and have no refresh cadence to die mid-life. Media
+  catch-null sweep: clean.
+
+## The battery, run in full
+
+All **20 proofs** (the 19 standing ones plus `wl-truth.mjs`) re-run against the committed
+tree at `536ba59`: **20 passed, 0 failed** — the round-11 erratum's remedy held as a habit,
+and no proof sat silently red behind this round's edits. The regenerated receipts log and
+screenshots ride the docs commit.
+
+## UNKNOWNs, stated
+
+- Whether the live `yt-act` edge function treats a re-`star` of an already-saved video as
+  idempotent was not probed (no writes are allowed from here; the refusal-to-toggle against
+  an unknown state makes the question moot in the fixed pages, but the rollback shell can
+  still send one).
+- The real `youtube_feed.watch_later` column's freshness relative to `yt_watch_later` is
+  the server's business; the pages now claim only "the feed snapshot", which is true
+  regardless.
+- Live behavior of all of this on the deployed preview is expected identical (same bytes,
+  same-origin) but unverifiable from this container — walls re-probed this round, all
+  still refused.
+
+## Rollback and next unit
+
+Rollback: revert `536ba59` (and this docs commit) — the lane returns to silent reverts and
+zeroed stars; no data lane, authority or methodology is touched either way; `video-v1`
+untouched in both worlds. Next runnable unit: none KNOWN — the wall stands as the handoff
+now states it (narrowed honestly: "every runnable-now unit **found by the sweeps run so
+far** is done"), and the next session may either open an operator-named wall or run one
+more class-sweep by table/lane name — this round is the standing proof such sweeps can
+still pay. The independent re-audit remains the merge gate.
