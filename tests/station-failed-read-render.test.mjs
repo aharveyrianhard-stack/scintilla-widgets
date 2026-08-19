@@ -205,3 +205,26 @@ test("/youtube: a lost watch-later write reverts the star and says why", async (
   assert.ok(YT_WATCH_LATER.has("vid2"), "the lost removal reverted too");
   assert.match(flashes[1][0], /★ not removed — the shared watch-later write failed/);
 });
+
+test("main reads on /news and /cohorts: never-loaded names the failure; loaded keeps knowledge and wears STALE", () => {
+  const news = read("../news/index.html");
+  const cohorts = read("../cohorts/index.html");
+  /* /news: the boot catch painted an unworded "news unavailable" and the interval catch was
+     silent — a wire that died after a healthy load kept a frozen "newest Xm ago" stamp that
+     became false as time passed. */
+  assert.match(news, /const MAIN_FAILED = \{ failed: true \};/);
+  assert.match(news, /pg\(q\)\.catch\(\(\) => MAIN_FAILED\)/);
+  assert.match(news, /the news read failed — the wire is unavailable, not empty · retrying at the next refresh/);
+  assert.match(news, /REFRESH FAILED<\/span> showing the read from/);
+  assert.match(news, /the news read is failing, the list below is stale · retrying/);
+  assert.ok(!news.includes(">news unavailable<"), "the unworded boot state is gone");
+  /* /cohorts: same shape on the strip's two main reads. */
+  assert.match(cohorts, /const READ_FAILED = \{ failed: true \};/);
+  assert.match(cohorts, /SC_COHORT_AXIS\.loadMemberships\(pg\)\.catch\(\(\) => READ_FAILED\)/);
+  assert.match(cohorts, /read failed — the strip is unavailable, not empty · retrying at the next refresh/);
+  assert.ok(cohorts.includes("these chips are stale · retrying"));
+  assert.ok(!cohorts.includes("cohort data unavailable</span>"), "the unworded boot state is gone");
+  /* The outer catches remain as render-bug last resorts and say so. */
+  assert.match(news, /this is a page bug, not a data gap/);
+  assert.match(cohorts, /this is a page bug, not a data gap/);
+});

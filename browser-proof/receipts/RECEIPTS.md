@@ -245,3 +245,16 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/fy-consistency.mjs` (route
 - The same unit aligned buildBase's ratio windows with the rule the DCF FY baseline enforces: D&A% and capex% denominators now come from the SAME rows as their numerators (the same 4 quarters, or the same single FY — a mismatched FY pair keeps the flagged default rather than a cross-year ratio; an offset cashflow-vs-income quarter window is flagged out loud). fundamentals.revenue_ttm stays the projection BASE — currency there, consistency in ratios. A terminally underivable share count is flagged "NOT meaningful" instead of silently dividing by a 1B placeholder. Functional pins drive every case in tests/station-fundamentals-price.test.mjs.
 
 Zero page errors in both scenarios. Rollback: revert the single commit carrying this unit — derivation and flag wording only; no schema, no authority, no methodology change (the DCF formulas are untouched; only the window selection and absence visibility moved).
+
+---
+
+## 2026-08-19T13:25:17Z — /news and /cohorts main reads: named when never loaded, STALE-stamped when they die mid-life
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/main-read-failure.mjs` (forced 500s; mid-life failures injected by re-routing after a healthy load and invoking the page's own tick(); asserts inline)
+
+- **/news never loads** (browser-proof/receipts/news-main-read-never-loaded.png): "the news read failed — the wire is unavailable, not empty · retrying at the next refresh" — named and distinct from the empty-filter wording; the old boot catch said only "news unavailable".
+- **/news dies after a healthy load** (browser-proof/receipts/news-refresh-failed-stale-stamp.png): the held headlines STAY (a failed read never erases knowledge) and the freshness line says "REFRESH FAILED — showing the read from Xs ago — the news read is failing, the list below is stale · retrying". Before, the interval catch was silent: the list froze with a "newest Xm ago" stamp that became false as time passed.
+- **/cohorts never loads** (browser-proof/receipts/cohorts-main-read-never-loaded.png): the strip names the failed source ("the ticker_cohorts read failed — …"), not "cohort data unavailable".
+- **/cohorts dies after a healthy load** (browser-proof/receipts/cohorts-refresh-failed-stale-marker.png): every chip is kept and a visible marker appends — "refresh failed (ticker_cohorts) — these chips are stale · retrying" — cleared naturally by the next successful rebuild.
+
+Zero page errors across all four scenarios. Rollback: revert the single commit carrying this unit — render wording and failure-state plumbing only; queries, authorities and refresh cadences untouched.

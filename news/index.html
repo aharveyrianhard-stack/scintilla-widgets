@@ -225,6 +225,7 @@ async function undatedCount(filters) {
   } catch (_) { return null; }
 }
 
+let LAST_OK_MS = null;
 async function tick() {
   let filters = "";
   if (T) filters += "&ticker=eq." + encodeURIComponent(T);
@@ -239,11 +240,29 @@ async function tick() {
   /* A failed sentiment read is kept as its own state — flattened to null it rendered as a
      silently absent chip, identical to a ticker that simply has no sentiment row. */
   const SENT_FAILED = { failed: true };
+  const MAIN_FAILED = { failed: true };
   const [rows, sent, undated] = await Promise.all([
-    pg(q),
+    pg(q).catch(() => MAIN_FAILED),
     T ? pg("news_sentiment?ticker=eq." + encodeURIComponent(T) + "&select=score,n_articles&limit=1").catch(() => SENT_FAILED) : null,
     undatedCount(filters),
   ]);
+  /* THE MAIN READ'S FAILURE IS A KEPT STATE TOO. It used to reject out of tick(): the boot
+     catch painted an unworded "news unavailable", and the interval catch was SILENT — a wire
+     that died after a healthy load kept its stale list with a frozen "newest Xm ago" stamp
+     that became false as time passed. A failed refresh now keeps the held rows (a failed
+     read never erases knowledge) and STAMPS them stale by name; a wire that never loaded
+     names the failure, distinctly from an empty filter. */
+  if (rows === MAIN_FAILED) {
+    if (LAST_OK_MS != null) {
+      el("fresh").innerHTML = '<span class="badge">REFRESH FAILED</span> showing the read from ' +
+        ago(LAST_OK_MS) + " ago — the news read is failing, the list below is stale · retrying";
+    } else {
+      el("list").innerHTML = '<div class="empty">the news read failed — the wire is unavailable, not empty · retrying at the next refresh</div>';
+      el("fresh").innerHTML = ""; el("sentwrap").innerHTML = "";
+    }
+    return;
+  }
+  LAST_OK_MS = Date.now();
   if (!Array.isArray(rows) || !rows.length) {
     el("list").innerHTML = '<div class="empty">' +
       (UNDATED_ONLY ? "no undated rows for this filter" : "no news rows for this filter") + "</div>";
@@ -298,7 +317,8 @@ async function tick() {
       (r.snippet ? '<span class="sn">' + esc(r.snippet) + "</span>" : "") + "</div></a>";
   }).join("");
 }
-tick().catch(() => { el("list").innerHTML = '<div class="empty">news unavailable</div>'; });
+/* Read failures are handled inside tick(); this outer catch is a render-bug last resort. */
+tick().catch(() => { el("list").innerHTML = '<div class="empty">the news page failed to render — reload; if it repeats, this is a page bug, not a data gap</div>'; });
 setInterval(() => tick().catch(() => {}), REFRESH);
 </script>
 </body>

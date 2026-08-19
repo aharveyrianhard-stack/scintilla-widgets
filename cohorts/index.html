@@ -101,16 +101,38 @@ function href(kind, name) {
   return "/cohort?c=" + encodeURIComponent(name);
 }
 
+let STRIP_OK = false;
 async function tick() {
   /* THE FULL MEMBERSHIP SET. This strip is navigation: it shows every cohort, so it needs
      every membership. ticker_cohorts holds 1283 rows and PostgREST caps a response at 1000,
      so the old unpaginated read dropped 283 of them behind a 200 OK. See
      _cohorts/cohort-axis.js. */
+  /* THE MAIN READS' FAILURES ARE KEPT STATES. They used to reject out of tick(): the boot
+     catch painted an unworded "cohort data unavailable" and the interval catch was SILENT —
+     a strip that died after a healthy load kept stale chips forever with no marker. A
+     never-loaded strip now names the failed source; a loaded one keeps its chips (a failed
+     read never erases knowledge) and wears a stale marker until a refresh lands. */
+  const READ_FAILED = { failed: true };
   const [axis, cs, fav] = await Promise.all([
-    SC_COHORT_AXIS.loadMemberships(pg),
-    pg("composite_staged?tf=eq.D&select=ticker,composite"),
+    SC_COHORT_AXIS.loadMemberships(pg).catch(() => READ_FAILED),
+    pg("composite_staged?tf=eq.D&select=ticker,composite").catch(() => READ_FAILED),
     pg("hub_favorites?select=ticker").catch(() => null),
   ]);
+  const strip = document.getElementById("strip");
+  if (axis === READ_FAILED || cs === READ_FAILED) {
+    const src = axis === READ_FAILED ? "ticker_cohorts" : "composite_staged";
+    if (STRIP_OK) {
+      if (!document.getElementById("cohStale"))
+        strip.insertAdjacentHTML("beforeend", '<span class="empty" id="cohStale"></span>');
+      document.getElementById("cohStale").textContent =
+        " · refresh failed (" + src + ") — these chips are stale · retrying";
+    } else {
+      strip.innerHTML = '<span class="empty">the ' + src +
+        " read failed — the strip is unavailable, not empty · retrying at the next refresh</span>";
+    }
+    return;
+  }
+  STRIP_OK = true;
   const comp = {};
   for (const r of (cs || [])) { const v = num(r.composite); if (v != null && isFinite(v)) comp[r.ticker] = v; }
   const by = {};
@@ -140,7 +162,8 @@ async function tick() {
   }
   document.getElementById("strip").innerHTML = chips.join("");
 }
-tick().catch(() => { document.getElementById("strip").innerHTML = '<span class="empty">cohort data unavailable</span>'; });
+/* Read failures are handled inside tick(); this outer catch is a render-bug last resort. */
+tick().catch(() => { document.getElementById("strip").innerHTML = '<span class="empty">the strip failed to render — reload; if it repeats, this is a page bug, not a data gap</span>'; });
 setInterval(() => tick().catch(() => {}), REFRESH);
 </script>
 </body>
