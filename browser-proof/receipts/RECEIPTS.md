@@ -270,3 +270,15 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/dcf-seeds.mjs` (route /tem
 - **What has no DB source stays STATIC by name**: tax default · terminal growth · MRP · debt weight (fundamentals_history carries no tax line — measured schema, round 5) — the static-baseline badge and the as-of bar both say so.
 
 Zero page errors. Rollback: revert the single commit carrying this unit — seed derivation and badge wording only; the DCF formulas, price authority and Geiger methodology are untouched, and no provider history was written or deleted.
+
+---
+
+## 2026-08-19T14:07:43Z — the Hub entry: the live path's exact refusal, and the deck booting AT the hub origin
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/hub-entry.mjs` (rules parsed from vercel.json itself; asserts inline)
+
+- **Live path, measured in the browser** (browser-proof/receipts/hub-entry-live-path-refused.png): Chromium pointed at https://station.scintillahub.ai/ through the environment's proxy fails with `page.goto: net::ERR_TUNNEL_CONNECTION_FAILED at https://station.scintillahub.ai/` — the CONNECT is refused before TLS begins, so nothing was bypassed and nothing live was reached or faked. This is the browser-level twin of round 7's curl measurement: live acceptance still requires a browser outside this container.
+- **The deck boots at the hub origin under the config's own rules** (browser-proof/receipts/hub-entry-deck-boots-at-hub-origin.png): navigating to https://station.scintillahub.ai/ with vercel.json's parsed rewrites applied over the rig serves the Station AT the hub host — title, StationScenes, the provider shim, the cohort axis and the mounted panes all up, location.host still the hub. ZERO asset 404s: every /deck dependency is absolute-pathed, so the root rewrite (source "/" only) breaks nothing — proven by outcome in a real browser, not by grep. The no-store cache rule rides every response, as pinned from the config.
+- The config itself is pinned in tests/station-route-inventory.test.mjs: exactly two rewrites (hub root → /deck/, /status → orgstatus), no-store at all three cache layers.
+
+This is stubbed-data page proof at the true hub ORIGIN — it verifies the entry path and the deck's behavior under the rewrite, not the live owners' data. Rollback: revert the single commit carrying this unit — proof, pin and receipts only; no served file changed.

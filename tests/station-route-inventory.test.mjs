@@ -212,3 +212,24 @@ test("the shim dependency really is loaded by the pages the table claims", () =>
   assert.equal(loaders.length, 20, "the dependency table claims 20 shim loaders by script tag");
   assert.match(inventory, /`\/_provider\/provider\.js` \| 20 pages by script tag/);
 });
+
+test("the deploy config carries exactly the documented Hub entry — and nothing else", () => {
+  /* The Hub-visible path starts in vercel.json, so its claims are pinned from the parsed
+     file, not prose: the host rewrite maps ONLY the hub root to /deck/ (deep paths serve
+     directly by path), /status proxies out, and no-store at all three cache layers means a
+     pushed fix is Hub-visible on next load with no CDN staleness. Browser receipt:
+     browser-proof/proofs/hub-entry.mjs boots the deck AT the hub origin under these rules. */
+  const cfg = JSON.parse(fs.readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
+  assert.equal(cfg.rewrites.length, 2, "exactly two rewrites — a third would be undocumented routing");
+  const hub = cfg.rewrites[0];
+  assert.equal(hub.source, "/", "the hub rewrite claims ONLY the root path");
+  assert.deepEqual(hub.has, [{ type: "host", value: "station.scintillahub.ai" }]);
+  assert.equal(hub.destination, "/deck/");
+  assert.equal(cfg.rewrites[1].source, "/status");
+  assert.match(cfg.rewrites[1].destination, /^https:\/\/wadinxqplrggagkvrdag\.supabase\.co\/functions\/v1\/orgstatus$/);
+  const headers = Object.fromEntries(cfg.headers[0].headers.map((h) => [h.key, h.value]));
+  assert.equal(cfg.headers[0].source, "/(.*)", "the cache rule covers every path");
+  assert.equal(headers["Cache-Control"], "no-store, max-age=0, must-revalidate");
+  assert.equal(headers["CDN-Cache-Control"], "no-store");
+  assert.equal(headers["Vercel-CDN-Cache-Control"], "no-store");
+});
