@@ -24,6 +24,13 @@ export const COHORTS = {
 
 export const FAVORITES = ["MU","NBIS","SNDK"];
 
+/* The retained non-equity roster, mirroring the measured live facts: these DO have rows in
+   the legacy tables. The unsupported internals (ADD PCC CUMTICK TICK TRIN) deliberately do
+   NOT — zero rows anywhere is their real, measured state, and /health's internals lane
+   exists to keep that visible. */
+export const NON_EQUITY = ["BTCUSD","ESUSD","NQUSD","CLUSD","GCUSD","SIUSD","DXUSD","US10Y","VIX"];
+const SERVED = new Set([...EQUITIES, ...NON_EQUITY]);
+
 const HOME = {};
 for (const [cohort, members] of Object.entries(COHORTS))
   for (const t of members) if (!HOME[t]) HOME[t] = cohort;
@@ -42,11 +49,26 @@ const membershipRows = Object.entries(COHORTS)
   .flatMap(([cohort, members]) => members.map((ticker) => ({ ticker, cohort })))
   .sort((a, b) => a.ticker.localeCompare(b.ticker) || a.cohort.localeCompare(b.cohort));
 
+/* PostgREST-ish filters the pages actually use: ticker eq./in., period eq., fiscal_date
+   gt. Anything else passes through unfiltered — fixtures only need to be as smart as the
+   questions asked of them. */
+function applyFilters(rows, q) {
+  let out = rows;
+  const t = q.get("ticker") || "";
+  if (t.startsWith("eq.")) out = out.filter((r) => r.ticker === t.slice(3));
+  else if (t.startsWith("in.(")) { const want = t.slice(4, -1).split(","); out = out.filter((r) => want.includes(r.ticker)); }
+  const period = q.get("period") || "";
+  if (period.startsWith("eq.")) out = out.filter((r) => r.period === period.slice(3));
+  const fd = q.get("fiscal_date") || "";
+  if (fd.startsWith("gt.")) out = out.filter((r) => r.fiscal_date > fd.slice(3));
+  return out;
+}
+
 export function supabaseRows(url) {
   const { table, q } = parseQuery(url);
   const limit = q.get("limit") != null ? Number(q.get("limit")) : null;
   const offset = Number(q.get("offset") || 0);
-  const page = (rows) => rows.slice(offset, limit == null ? undefined : offset + limit);
+  const page = (rows) => applyFilters(rows, q).slice(offset, limit == null ? undefined : offset + limit);
 
   if (table === "ticker_cohorts") return page(membershipRows);
   if (table === "hub_favorites")
@@ -56,26 +78,75 @@ export function supabaseRows(url) {
     return page(rows);
   }
   if (table === "composite_staged")
-    return page(EQUITIES.map((ticker, i) => ({ ticker, tf: "D",
+    return page([...EQUITIES, ...NON_EQUITY].map((ticker, i) => ({ ticker, tf: "D",
       trend: ((i % 5) - 2) / 4, momentum: ((i % 3) - 1) / 3,
       composite: (((i % 5) - 2) / 4 + ((i % 3) - 1) / 3) / 2,
       structure: 0, conviction: 0, updated_ts: Math.floor(Date.now() / 1000) - 60 })));
-  if (table === "live_quotes") {
-    let rows = EQUITIES.map((ticker) => ({ ticker, price: price(ticker),
+  if (table === "live_quotes")
+    return page([...EQUITIES, ...NON_EQUITY].map((ticker) => ({ ticker, price: price(ticker),
       prev_close: price(ticker) - 1, chg_pct: 0.5, volume: 1e6,
-      updated_ts: new Date(Date.now() - 30000).toISOString() }));
-    const filter = q.get("ticker") || "";
-    const wanted = filter.startsWith("in.(") ? filter.slice(4, -1).split(",")
-      : filter.startsWith("eq.") ? [filter.slice(3)] : null;
-    if (wanted) rows = rows.filter((r) => wanted.includes(r.ticker));
+      updated_ts: new Date(Date.now() - 30000).toISOString() })));
+  /* ---- the fundamentals/DCF spine — deterministic rows derived from price(sym) ---- */
+  if (table === "fundamentals")
+    return page(EQUITIES.map((ticker) => ({ ticker, revenue_ttm: price(ticker) * 1e9,
+      market_cap: price(ticker) * 2e9, trailing_pe: 30, eps_ttm: price(ticker) / 30,
+      price: price(ticker) - 5, updated_ts: new Date(Date.now() - 3600e3).toISOString() })));
+  if (table === "balance_history")
+    return page(EQUITIES.map((ticker) => ({ ticker, fiscal_date: "2026-06-30", period: "FY",
+      total_debt: price(ticker) * 2e8, cash_and_equiv: price(ticker) * 1e8,
+      current_assets: price(ticker) * 4e8, current_liabilities: price(ticker) * 2.5e8,
+      total_equity: price(ticker) * 9e8, updated_ts: new Date(Date.now() - 3600e3).toISOString() })));
+  if (table === "fundamentals_history") {
+    const rows = [];
+    for (const ticker of EQUITIES) {
+      const rev = price(ticker) * 1e9;
+      for (let i = 0; i < 4; i++) rows.push({ ticker, fiscal_date: "2026-0" + (6 - i) + "-30",
+        period: "Q" + (4 - i), revenue: rev / 4, ebitda: rev / 4 * 0.42, operating_income: rev / 4 * 0.36,
+        net_income: rev / 4 * 0.25, gross_profit: rev / 4 * 0.6, shares_dil: 2.4e9 });
+      for (let i = 0; i < 4; i++) rows.push({ ticker, fiscal_date: (2026 - i) + "-01-31",
+        period: "FY", revenue: rev * Math.pow(0.8, i), ebitda: rev * 0.42 * Math.pow(0.8, i),
+        operating_income: rev * 0.36 * Math.pow(0.8, i), net_income: rev * 0.25 * Math.pow(0.8, i),
+        gross_profit: rev * 0.6 * Math.pow(0.8, i), shares_dil: 2.4e9 });
+    }
     return page(rows);
   }
+  if (table === "cashflow_history") {
+    const rows = [];
+    for (const ticker of EQUITIES) {
+      const rev = price(ticker) * 1e9;
+      for (let i = 0; i < 4; i++) rows.push({ ticker, fiscal_date: "2026-0" + (6 - i) + "-30",
+        period: "Q" + (4 - i), capex: -(rev / 4) * 0.06 });
+      rows.push({ ticker, fiscal_date: "2026-01-31", period: "FY", capex: -rev * 0.06 });
+    }
+    return page(rows);
+  }
+  if (table === "analyst_estimates") {
+    const rows = [];
+    for (const ticker of EQUITIES) {
+      const rev = price(ticker) * 1e9;
+      for (let i = 1; i <= 5; i++) rows.push({ ticker, fiscal_date: (2026 + i) + "-01-31",
+        period: "annual", est_revenue_avg: rev * Math.pow(1.15, i), est_eps_avg: (price(ticker) / 30) * Math.pow(1.15, i) });
+    }
+    return page(rows);
+  }
+  if (table === "ratios_history")
+    return page(EQUITIES.map((ticker) => ({ ticker, fiscal_date: "2026-06-30",
+      dividend_yield: 0.004, pe: 30 })));
+  if (table === "treasury_rates")
+    return page([{ date: new Date().toISOString().slice(0, 10), y10: 4.28,
+      updated_ts: new Date(Date.now() - 3600e3).toISOString() }]);
+  if (table === "vix_term")
+    return page([{ date: new Date().toISOString().slice(0, 10), vix: 18.5, vix3m: 20.1,
+      ratio: 0.92, updated_ts: new Date(Date.now() - 3600e3).toISOString() }]);
   if (table === "ohlcv_history") {
     /* Non-provider symbols keep their legacy owner; serve deterministic bars so a
-       passthrough history read succeeds the way the live table would. */
+       passthrough history read succeeds the way the live table would — but only for
+       symbols the live table actually carries. The unsupported internals have zero rows
+       anywhere, and a fixture that invents some would hide the exact state the /health
+       internals lane exists to show. */
     const filter = q.get("ticker") || "";
     const sym = filter.startsWith("eq.") ? filter.slice(3) : null;
-    if (!sym) return [];
+    if (!sym || !SERVED.has(sym)) return [];
     const base = price(sym);
     const now = Math.floor(Date.now() / 1000);
     const n = limit == null ? 200 : Math.min(limit, 400);
