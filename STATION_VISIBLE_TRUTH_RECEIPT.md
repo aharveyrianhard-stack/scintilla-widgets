@@ -272,3 +272,49 @@ Verify on the preview, with devtools open:
 
 `ticker_cohorts` carries both `MEGA_CAP` and `MEGACAP` as separate cohorts, and NVDA is in both.
 That is an upstream duplication, outside this branch's boundary, and is left alone.
+
+---
+
+# Round — executor 3 (2026-08-19, same day, fresh session)
+
+Eleven commits, `06e4a0a..d4eca89`, plus the docs commit carrying this section. Ten atomic
+units across five lanes, every one with tests written to fail on the pre-fix code (verified by
+stash-and-rerun where the defect was behavioral). Suite grew 164 → **217 pass, 0 fail, 21
+files**. Same locks as every round: Draft PR only, no deploy, no Supabase/Fly/R2 mutation, no
+Hub edit, no authority or methodology change. No database read at all this round — every
+diagnosis below is from the working tree and the measured facts already recorded.
+
+## The units, with the defect each one killed
+
+| Commit | Unit | Defect |
+| --- | --- | --- |
+| `06e4a0a` | D1 | `paintMarketStatus`'s ready path read `delayed.length` from a name that only existed inside `chartDataSummary`: **every fully healthy paint threw ReferenceError**, so LIVE was unreachable and the header froze on its last degraded text. Ready/waiting paints also now clear the absent flag they could inherit. |
+| `d544db5` | D2 | The 10s heartbeat entered `refreshDeckQuotes` through the invalidating door, retiring the in-flight read on every tick: any quote read slower than one heartbeat was discarded on landing, so the effective hard bound was 10s, not the stated 20s. Cadence callers now queue behind the read; set-changing callers keep invalidation. |
+| `7189d92` | D3 | `/health`'s universe row compared a **count** to 365 (a swap passes a count); its PostgREST probes had **no bound** while the page claimed none could hang; `PROVIDER_SLOW` latched forever; re-check could race a live run. Now: exact set identity via the shim's own canonical query (NULL branch included, 1000-cap truncation refused), 20s DB ceiling with "no answer in 20s" kept distinct from "unreachable", per-run SLOW, one run at a time. |
+| `2bd8bf7` | A1 | Allocation still consumed the retired client geiger or its cohort-feed in four paths: tranche-cadence breadth, THE BRIEF, the audit trace (absent geiger printed as **0**), and a dead internals table. All on the provider composite now; the cohort-feed fetch, store, machinery and the inert geiger dials are removed; the failure badge no longer claims "cohort-feed prices in use". One Yahoo lane remains: macro-feed VIX/US10Y **levels**, flagged wherever they vote. |
+| `872e7ef` | A2 | With zero voters, `heat()` returned 0 — NEUTRAL — pricing the invested curve at its midpoint exactly when the provider was down. No score is now null: header, targets, moves, donut, curve marker, brief and trace all say unavailable; the LENS no longer wears the 50/50 rail as a reading; unscored symbols are listed by name under the ranking. |
+| `db01f2a` | B1 | Fundamentals' valuation disable was a one-time cell wipe that the next render overwrote with values divided by a null price; the quote cache had no TTL (a load-time blip disabled valuation forever); failure kinds were conflated and a missing **quote** was blamed on the fundamentals **table**. Now: render-time gate ahead of any fair-value arithmetic, quoted/invalid/unquoted/failed recorded distinctly with their own words, 60s/15s TTLs, a bounded recovery poller, and a failed read cannot erase a held price. |
+| `38694a5` | — | Repaired the equity-authority pin that still asserted B1's superseded mechanism. (This unit exists because the full suite caught it after the B1 push — the B1 commit itself went out with that one pin red, caught and fixed within minutes. Recorded, not hidden.) |
+| `caef817` | C1 | `setTicker('NVDA')` painted a full DCF against the static Jul-24 prices before the overlay's first answer, and a **failed** quote read kept the static price while the spine claimed the valuation was disabled. Prices now start absent (Jul-24 figures demoted to labelled `priceStatic` references); the no-price gate clears every section instead of leaving the previous ticker's valuation standing; the football field no longer draws the market price as the 1-Stage bar when WACC ≤ g. |
+| `0204279` | C2 | Silent-alternate-price audit, recorded as `station-price-audit.test.mjs`. Found and fixed: sector-rotation's technicalRead used the last **Yahoo daily close** as the price inside a read captioned "LIVE, DB-sourced" (now named at every surface). Relabelled: dcf-methodology's "(FMP, live)" on a static capture. Audited clean: company-full (a declared STATIC MOCK, label now pinned), sector-rotation-older (its own caveat pinned). |
+| `8c8ddfa` | E1 | The sector-rotation spine said "LIVE (D/W/5/1)" off the daily benchmark alone, and would caption raw table reads "authority=provider" on any origin where the shim is 404 (the F1 origin). Now: per-view/per-ticker coverage, LIVE only when all four views answered for every ticker, PARTIAL names the short views, and a shim-presence gate paints NOT PROVIDER AUTHORITY with the F1 deploy named as the fix. The 5m/1m contract tokens and the shim's legacy `'5'/'1'` mapping are pinned. |
+| `d4eca89` | E2 | The route inventory listed the 63 HTML surfaces and nothing else the deploy serves. It now carries a regenerated served-dependencies section: 66 non-HTML files, each either a load-bearing row (shim, cohort-axis, scenes.js, PWA identity, and `tokens.css` — named as the orphan it is) or a member of exactly one counted class. Loader counts are taken from script tags (20), not grep (21 — `/health` mentions the shim in prose and does not load it). |
+
+## Errata, stated
+
+- Commit `d4eca89`'s message says "219 tests, 0 fail"; the true count at that head is **217**.
+  A commit message cannot be corrected after push; this line is the correction.
+- The earlier "Accepted consequences" bullet reading "With the provider read bounded at 4.5s…
+  fails into the retrying lane" describes a **superseded** design: since `8ebddae`/`4f581b5`,
+  4.5s is the soft report and only the 20s hard bound cancels. The historical text above is
+  left as written; this note supersedes it.
+
+## What this round did NOT close
+
+Unchanged from the previous handoff, still open: **F1** (the cross-project deploy + Fly CORS —
+this round added the client-side gate that refuses the authority claim without the shim, which
+makes the blocked state visible, not closed), **scene internals** (ADD/PCC/CUMTICK/TICK/TRIN
+still unowned; `/health` still carries them BAD by construction), **H2** (untouched,
+proof-gated), **H3/H4** (human eye), **Fly CORS vs preview** (no provider path provable
+end-to-end from the preview; preview green = static delivery only), and **independent re-audit
+of everything above** — the test count is not the verdict.
