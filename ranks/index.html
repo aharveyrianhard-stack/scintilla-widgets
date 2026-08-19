@@ -160,28 +160,38 @@ function column(def, rows) {
 }
 
 async function tick() {
+  /* A FAILED READ IS NEVER DATA. catch(() => null) made a dead board_rsi or composite read
+     indistinguishable from a table with no rows, so a whole column rendered every ticker as
+     "no data" — a per-ticker DATA claim manufactured from a transport failure. A failure is
+     kept as a failure, and the column says the read failed instead of describing fifty
+     tickers it never saw. */
+  const READ_FAILED = { failed: true };
+  const tryPg = (path) => pg(path).catch(() => READ_FAILED);
+  const failed = (x) => x === READ_FAILED;
   const [lq, cp, rsi, ratios, comp, sperf] = await Promise.all([
-    pg("live_quotes?select=ticker,chg_pct").catch(() => null),
-    pg("company_profile?select=ticker,sector,market_cap,is_etf").catch(() => null),
-    pg("board_rsi?select=ticker,rsi_raw").catch(() => null),
-    pg("ratios_history?select=ticker,pe,fiscal_date&order=fiscal_date.desc&limit=4000").catch(() => null),
-    pg("composite_staged?tf=eq.D&select=ticker,composite").catch(() => null),
-    pg("sector_perf_daily?select=sector,average_change,date&order=date.desc&limit=60").catch(() => null),
+    tryPg("live_quotes?select=ticker,chg_pct"),
+    tryPg("company_profile?select=ticker,sector,market_cap,is_etf"),
+    tryPg("board_rsi?select=ticker,rsi_raw"),
+    tryPg("ratios_history?select=ticker,pe,fiscal_date&order=fiscal_date.desc&limit=4000"),
+    tryPg("composite_staged?tf=eq.D&select=ticker,composite"),
+    tryPg("sector_perf_daily?select=sector,average_change,date&order=date.desc&limit=60"),
   ]);
   if (!Array.isArray(lq) || !lq.length) { el("cols").innerHTML = '<div class="empty">no universe — live_quotes unavailable</div>'; return; }
 
-  const prof = {}; for (const r of (cp || [])) prof[r.ticker] = r;
-  const R = {}; for (const r of (rsi || [])) R[r.ticker] = num(r.rsi_raw);
-  const C = {}; for (const r of (comp || [])) C[r.ticker] = num(r.composite);
+  const prof = {}; for (const r of (failed(cp) ? [] : cp || [])) prof[r.ticker] = r;
+  const R = {}; for (const r of (failed(rsi) ? [] : rsi || [])) R[r.ticker] = num(r.rsi_raw);
+  const C = {}; for (const r of (failed(comp) ? [] : comp || [])) C[r.ticker] = num(r.composite);
   const PE = {};                                   /* latest fiscal row wins — list is date-desc */
-  for (const r of (ratios || [])) if (!(r.ticker in PE) && num(r.pe) != null) PE[r.ticker] = num(r.pe);
+  for (const r of (failed(ratios) ? [] : ratios || [])) if (!(r.ticker in PE) && num(r.pe) != null) PE[r.ticker] = num(r.pe);
 
   /* ONE SHARED UNIVERSE — every column ranks the SAME tickers, just ordered
      differently. This is the whole point: tap a name and trace it across all
      six rankings. Ordered by market cap so the set is stable between refreshes
      (falls back to alphabetical when a cap is missing). */
   let universe = lq.map((q) => q.ticker).filter(Boolean);
-  if (DROP_ETF) universe = universe.filter((t) => !(prof[t] && prof[t].is_etf));
+  /* An ETF filter that cannot read is_etf must say so, never silently keep the ETFs. */
+  const etfFilterDown = DROP_ETF && failed(cp);
+  if (DROP_ETF && !failed(cp)) universe = universe.filter((t) => !(prof[t] && prof[t].is_etf));
   universe.sort((a, b) => {
     const ca = prof[a] ? num(prof[a].market_cap) : null, cb = prof[b] ? num(prof[b].market_cap) : null;
     if (ca != null && cb != null) return cb - ca;
@@ -202,23 +212,30 @@ async function tick() {
     return have.concat(miss);
   };
 
+  const failedColumn = (def, source) => '<div class="col" data-label="' + esc(def.t) + '">' +
+    '<div class="chd"><div class="t">' + esc(def.t) + '</div><div class="r">' + esc(def.rule) + '</div>' +
+    '<div class="cv">read failed</div></div>' +
+    '<div class="cb"><div class="empty">' + esc(source) + ' did not answer — this ranking is unavailable, not empty · retrying at the next refresh</div></div></div>';
+
   const DEFS = {
     chg:    { t: "CHG %",   rule: "top = biggest gain today",  fmt: fmtPct, rows: () => build((t) => chg[t], "desc") },
-    pe:     { t: "P/E",     rule: "top = lowest p/e (cheapest)", fmt: fmtNum, rows: () => build((t) => (PE[t] != null && PE[t] > 0 ? PE[t] : null), "asc") },
-    mcap:   { t: "MKT CAP", rule: "top = largest",             fmt: fmtCap, rows: () => build((t) => (prof[t] ? num(prof[t].market_cap) : null), "desc") },
-    rsi:    { t: "RSI",     rule: "top = highest rsi",         fmt: fmtNum, rows: () => build((t) => R[t], "desc") },
-    geiger: { t: "GEIGER",  rule: "top = highest composite",   fmt: (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2), rows: () => build((t) => C[t], "desc") },
+    pe:     { t: "P/E",     rule: "top = lowest p/e (cheapest)", fmt: fmtNum, down: failed(ratios) && "ratios_history", rows: () => build((t) => (PE[t] != null && PE[t] > 0 ? PE[t] : null), "asc") },
+    mcap:   { t: "MKT CAP", rule: "top = largest",             fmt: fmtCap, down: failed(cp) && "company_profile", rows: () => build((t) => (prof[t] ? num(prof[t].market_cap) : null), "desc") },
+    rsi:    { t: "RSI",     rule: "top = highest rsi",         fmt: fmtNum, down: failed(rsi) && "board_rsi", rows: () => build((t) => R[t], "desc") },
+    geiger: { t: "GEIGER",  rule: "top = highest composite",   fmt: (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2), down: failed(comp) && "composite_staged", rows: () => build((t) => C[t], "desc") },
   };
 
   const out = [];
   for (const key of WANT) {
     if (key === "sector") continue;
     const d = DEFS[key]; if (!d) continue;
-    out.push(column(d, d.rows()));
+    out.push(d.down ? failedColumn(d, d.down) : column(d, d.rows()));
   }
 
   /* SECTOR — roll the same universe up by sector, rank sectors by average chg% */
-  if (WANT.indexOf("sector") >= 0) {
+  if (WANT.indexOf("sector") >= 0 && failed(cp)) {
+    out.push(failedColumn({ t: "SECTOR", rule: "top = best avg change" }, "company_profile"));
+  } else if (WANT.indexOf("sector") >= 0) {
     const bySec = {};
     for (const t of universe) {
       const s = prof[t] && prof[t].sector; const v = chg[t];
@@ -228,13 +245,14 @@ async function tick() {
     const secRows = Object.keys(bySec).map((s) => ({ tk: s + " (" + bySec[s].length + ")",
       v: bySec[s].reduce((a, b) => a + b, 0) / bySec[s].length }))
       .sort((a, b) => b.v - a.v);
-    const feedDate = Array.isArray(sperf) && sperf[0] ? sperf[0].date : null;
+    const feedDate = !failed(sperf) && Array.isArray(sperf) && sperf[0] ? sperf[0].date : null;
     out.push(column({ t: "SECTOR", rule: "top = best avg change" + (feedDate ? " · feed " + feedDate : ""), fmt: fmtPct },
       secRows.length ? secRows : []));
   }
 
   el("cols").innerHTML = out.join("") || '<div class="empty">no columns selected</div>';
-  el("stamp").textContent = universe.length + " tickers · " + out.length + " rankings";
+  el("stamp").textContent = universe.length + " tickers · " + out.length + " rankings" +
+    (etfFilterDown ? " · ETF filter unavailable — company_profile read failed, ETFs are still in the set" : "");
   for (const c of document.querySelectorAll(".cell")) {
     c.addEventListener("click", () => {
       const tk = c.dataset.tk;

@@ -124,12 +124,18 @@ async function tick() {
                (inList ? "&ticker=in.(" + inList.map(encodeURIComponent).join(",") + ")" : "");
   const cols = "ticker,date,report_time,confirmed,eps_estimate,eps_actual,revenue_estimate,revenue_actual,surprise_pct,revenue_surprise_pct,beat";
   const wantU = SECT.indexOf("upcoming") >= 0, wantR = SECT.indexOf("results") >= 0;
+  /* A FAILED READ IS NEVER DATA. catch(() => null) rendered a dead earnings read as
+     "nothing scheduled in the next N days" — a confident calendar claim manufactured from a
+     transport failure. An empty calendar and a failed read are different facts and print
+     differently. */
+  const READ_FAILED = { failed: true };
   const [up, res] = await Promise.all([
-    wantU ? pg("earnings_events?select=" + cols + "&date=gte." + today + "&date=lte." + until + filt + "&order=date.asc&limit=" + LIMIT).catch(() => null) : null,
-    wantR ? pg("earnings_events?select=" + cols + "&date=lt." + today + "&date=gte." + since + filt + "&eps_actual=not.is.null&order=date.desc&limit=" + LIMIT).catch(() => null) : null,
+    wantU ? pg("earnings_events?select=" + cols + "&date=gte." + today + "&date=lte." + until + filt + "&order=date.asc&limit=" + LIMIT).catch(() => READ_FAILED) : null,
+    wantR ? pg("earnings_events?select=" + cols + "&date=lt." + today + "&date=gte." + since + filt + "&eps_actual=not.is.null&order=date.desc&limit=" + LIMIT).catch(() => READ_FAILED) : null,
   ]);
 
-  const upRows = !Array.isArray(up) || !up.length ? '<div class="empty">nothing scheduled in the next ' + DAYS + " days</div>"
+  const upRows = up === READ_FAILED ? '<div class="empty">the earnings read failed — the calendar is unavailable, not clear · retrying</div>'
+    : !Array.isArray(up) || !up.length ? '<div class="empty">nothing scheduled in the next ' + DAYS + " days</div>"
     : up.map((r) => '<a class="r" href="/chart?t=' + encodeURIComponent(r.ticker) + '">' +
         '<span class="d">' + short(r.date) + '</span><span class="tk">$' + esc(r.ticker) + "</span>" +
         (r.report_time ? '<span class="rt">' + esc(r.report_time) + "</span>" : "") +
@@ -137,7 +143,8 @@ async function tick() {
         (num(r.eps_estimate) != null ? '<span class="sub sp">est ' + num(r.eps_estimate).toFixed(2) + "</span>" : "") +
       "</a>").join("");
 
-  const resRows = !Array.isArray(res) || !res.length ? '<div class="empty">no reported results in the last ' + DAYS + " days</div>"
+  const resRows = res === READ_FAILED ? '<div class="empty">the earnings read failed — results are unavailable, not absent · retrying</div>'
+    : !Array.isArray(res) || !res.length ? '<div class="empty">no reported results in the last ' + DAYS + " days</div>"
     : res.map((r) => {
         const sp = num(r.surprise_pct), rsp = num(r.revenue_surprise_pct);
         return '<a class="r" href="/chart?t=' + encodeURIComponent(r.ticker) + '">' +

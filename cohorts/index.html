@@ -124,7 +124,10 @@ async function tick() {
   const tgt = TOP ? ' target="_top"' : "";
   const chips = [];
   chips.push('<span class="k">COHORTS</span>');
-  chips.push('<a class="chip sys' + (ON === "FAV" ? " on" : "") + '" href="' + href("fav") + '"' + tgt + '>FAV' +
+  /* fav is null exactly when the hub_favorites read failed; a chip with no count is
+     otherwise indistinguishable from labels=0, so the failure is named in the tooltip. */
+  chips.push('<a class="chip sys' + (ON === "FAV" ? " on" : "") + '" href="' + href("fav") + '"' + tgt +
+    (Array.isArray(fav) ? ' title="' + fav.length + ' favorites"' : ' title="favorites count unavailable — the hub_favorites read failed; the chip still navigates"') + '>FAV' +
     (LABELS && Array.isArray(fav) ? ' <span class="n">' + fav.length + "</span>" : "") + "</a>");
   chips.push('<a class="chip sys' + (ON === "ALL" ? " on" : "") + '" href="' + href("all") + '"' + tgt + '>ALL' +
     (LABELS ? ' <span class="n">' + Object.keys(comp).length + "</span>" : "") + "</a>");

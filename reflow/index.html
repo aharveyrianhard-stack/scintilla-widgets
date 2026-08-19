@@ -229,6 +229,14 @@ function layout() {
   const W = stage.clientWidth, H = stage.clientHeight;
   if (!W || !H) return;
 
+  /* A failed read renders as a failure, never as a field of unranked grey. */
+  if (DATA.failure && DATA.failure(RANK)) {
+    stage.innerHTML = '<div class="empty">' + DATA.failure(RANK) +
+      " did not answer — this ranking is unavailable, not empty · retrying at the next refresh" +
+      (DATA.etfFilterDown ? " · ETF filter unavailable (company_profile read failed)" : "") + "</div>";
+    return;
+  }
+
   const rows = DATA.rows(RANK);                       /* [{key,label,v,size}] ranked, gaps last */
   const good = rows.filter((r) => r.v != null);
   const n = good.length;
@@ -314,22 +322,36 @@ function chips() {
 
 /* ---- data ---- */
 async function pull() {
+  /* A FAILED READ IS NEVER DATA — same sweep as /ranks. A dead auxiliary read used to
+     render the whole field as unranked gray, which reads as "none of these have a value"
+     rather than "the read fell over". The failure is kept per source and the layout says
+     which read failed instead of drawing a field of grey non-answers. */
+  const READ_FAILED = { failed: true };
+  const tryPg = (path) => pg(path).catch(() => READ_FAILED);
+  const failed = (x) => x === READ_FAILED;
   const [lq, cp, rsi, ratios, comp] = await Promise.all([
-    pg("live_quotes?select=ticker,chg_pct").catch(() => null),
-    pg("company_profile?select=ticker,sector,market_cap,is_etf").catch(() => null),
-    pg("board_rsi?select=ticker,rsi_raw").catch(() => null),
-    pg("ratios_history?select=ticker,pe,fiscal_date&order=fiscal_date.desc&limit=4000").catch(() => null),
-    pg("composite_staged?tf=eq.D&select=ticker,composite").catch(() => null),
+    tryPg("live_quotes?select=ticker,chg_pct"),
+    tryPg("company_profile?select=ticker,sector,market_cap,is_etf"),
+    tryPg("board_rsi?select=ticker,rsi_raw"),
+    tryPg("ratios_history?select=ticker,pe,fiscal_date&order=fiscal_date.desc&limit=4000"),
+    tryPg("composite_staged?tf=eq.D&select=ticker,composite"),
   ]);
   if (!Array.isArray(lq) || !lq.length) throw new Error("no universe");
-  const prof = {}; for (const r of (cp || [])) prof[r.ticker] = r;
-  const R = {}; for (const r of (rsi || [])) R[r.ticker] = num(r.rsi_raw);
-  const C = {}; for (const r of (comp || [])) C[r.ticker] = num(r.composite);
-  const PE = {}; for (const r of (ratios || [])) if (!(r.ticker in PE) && num(r.pe) != null && num(r.pe) > 0) PE[r.ticker] = num(r.pe);
+  const prof = {}; for (const r of (failed(cp) ? [] : cp || [])) prof[r.ticker] = r;
+  const R = {}; for (const r of (failed(rsi) ? [] : rsi || [])) R[r.ticker] = num(r.rsi_raw);
+  const C = {}; for (const r of (failed(comp) ? [] : comp || [])) C[r.ticker] = num(r.composite);
+  const PE = {}; for (const r of (failed(ratios) ? [] : ratios || [])) if (!(r.ticker in PE) && num(r.pe) != null && num(r.pe) > 0) PE[r.ticker] = num(r.pe);
+  const DOWN = {
+    pe: failed(ratios) && "ratios_history",
+    mcap: failed(cp) && "company_profile",
+    rsi: failed(rsi) && "board_rsi",
+    geiger: failed(comp) && "composite_staged",
+    sector: failed(cp) && "company_profile",
+  };
   const chg = {}; for (const q of lq) chg[q.ticker] = num(q.chg_pct);
 
   let uni = lq.map((q) => q.ticker).filter(Boolean);
-  if (DROP_ETF) uni = uni.filter((t) => !(prof[t] && prof[t].is_etf));
+  if (DROP_ETF && !failed(cp)) uni = uni.filter((t) => !(prof[t] && prof[t].is_etf));
   uni.sort((a, b) => {
     const ca = prof[a] ? num(prof[a].market_cap) : null, cb = prof[b] ? num(prof[b].market_cap) : null;
     if (ca != null && cb != null) return cb - ca;
@@ -347,6 +369,10 @@ async function pull() {
   };
 
   DATA = {
+    /* The name of the failed source behind a rank, or null. The layout refuses to draw a
+       field of grey non-answers over a failure. */
+    failure(rank) { return DOWN[rank] || null; },
+    etfFilterDown: DROP_ETF && failed(cp),
     rows(rank) {
       if (rank === "sector") {
         const bySec = {};
