@@ -203,3 +203,20 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/rig-smoke.mjs`
 - Scene select options: live, indexNow, indexLeadership, companyLeadership, focus2, macroCrossAsset, internalsFast, internalsSlow, sectorFamilies, themeFamilies, cohort, custom — **no cohort scene is reachable** (defects 1–2: AI_SOFTWARE / MEGACAP cannot replace the favorites-based rows because no cohort can be chosen at all; the legacy "cohort" id normalizes to themeFamilies).
 - THEME FAMILIES renders NVDA, TSM, AVGO, ASML, MU, SNDK — the FIRST basket (AI COMPUTE); **AI POWER's declared rows are unreachable** (defect 3: familyBasket() is never given an id).
 - Screenshots: browser-proof/receipts/rig-smoke-deck-live.png · browser-proof/receipts/before-themeFamilies-always-first-basket.png
+
+---
+
+## 2026-08-19T12:29:50Z — /econ, /alerts, /news: dead reads named; empty tables keep their own words
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/panel-failed-reads.mjs` (forced 500s per page over the healthy rig; asserts inline)
+
+These three pages still carried the catch(() => null) flattening the round-4 sweep removed elsewhere — found by re-measuring the repo instead of trusting the earlier "swept" claim (the unit pins only banned the spaced spelling, so the unspaced form survived the audit).
+
+- **/econ, empty tables** (browser-proof/receipts/econ-empty-tables-empty-words.png): the fixture's honest empty state — "econ_dashboard has no rows" and "no calendar rows for this filter", no failure words anywhere.
+- **/econ, both reads dead** (browser-proof/receipts/econ-dead-reads-named.png): the tiles and the calendar each name their failed source and the retry; the empty-filter claim never appears over a failure. Before: a dead dashboard read was a BLANK strip and a dead calendar read claimed "no calendar rows for this filter".
+- **/alerts, both reads dead** (browser-proof/receipts/alerts-dead-reads-named.png): feed health and ticker alerts say "unavailable, not quiet · retrying" — a dead read no longer impersonates a quiet feed.
+- **/news, sentiment dead** (browser-proof/receipts/news-dead-sentiment-named.png): the chip says "sentiment read failed — unavailable, not neutral · retrying" while the wire renders normally beside it; before, the chip silently vanished, identical to a ticker with no sentiment row.
+
+Remaining catch-null sites, dispositioned rather than swept: /youtube's ytAct is a WRITE lane (star/unstar) whose failure silently loses a shared write — its own audit finding, and any fix must respect the shell mirrors; /templates/sector-rotation.html's spark catches feed the E1 coverage gate (PARTIAL / NOT PROVIDER AUTHORITY — visibly gated); /templates/dcf.html's three FY-baseline catches keep the flagged static value and are counted per field in the badge; /cohorts' hub_favorites catch is the kept marker behind its named tooltip; sector-rotation-older is the retained rollback copy, left as-is.
+
+Zero page errors.

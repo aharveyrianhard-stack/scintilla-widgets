@@ -107,14 +107,20 @@ async function tick() {
   const wantF = SECTIONS.indexOf("feed") >= 0, wantT = SECTIONS.indexOf("ticker") >= 0;
   let q2 = "alert_log?select=ticker,kind,severity,message,ts&order=ts.desc&limit=" + LIMIT;
   if (SEV) q2 += "&severity=eq." + encodeURIComponent(SEV);
+  /* A FAILED READ IS NEVER DATA. catch(() => null) rendered a dead feed_alerts or alert_log
+     read as "no … rows" — a QUIET claim from a read that never saw the table. The failure is
+     kept and named; a quiet feed and a dead read are different facts. */
+  const READ_FAILED = { failed: true };
   const [fa, al] = await Promise.all([
-    wantF ? pg("feed_alerts?select=feed,status,age_sec,message,delivered,channel,fired_ts&order=fired_ts.desc&limit=" + LIMIT).catch(() => null) : null,
-    wantT ? pg(q2).catch(() => null) : null,
+    wantF ? pg("feed_alerts?select=feed,status,age_sec,message,delivered,channel,fired_ts&order=fired_ts.desc&limit=" + LIMIT).catch(() => READ_FAILED) : null,
+    wantT ? pg(q2).catch(() => READ_FAILED) : null,
   ]);
   const out = [];
 
   if (wantF) {
-    let stamp = "", rows = '<div class="empty">no feed_alerts rows</div>';
+    let stamp = "", rows = fa === READ_FAILED
+      ? '<div class="empty">the feed_alerts read failed — feed health is unavailable, not quiet · retrying at the next refresh</div>'
+      : '<div class="empty">no feed_alerts rows</div>';
     if (Array.isArray(fa) && fa.length) {
       const newest = new Date(fa[0].fired_ts).getTime();
       const mins = (Date.now() - newest) / 60000;
@@ -133,7 +139,9 @@ async function tick() {
   }
 
   if (wantT) {
-    let stamp = "", rows = '<div class="empty">no alert_log rows' + (SEV ? " at severity " + esc(SEV) : "") + "</div>";
+    let stamp = "", rows = al === READ_FAILED
+      ? '<div class="empty">the alert_log read failed — ticker alerts are unavailable, not quiet · retrying at the next refresh</div>'
+      : '<div class="empty">no alert_log rows' + (SEV ? " at severity " + esc(SEV) : "") + "</div>";
     if (Array.isArray(al) && al.length) {
       const newest = num(al[0].ts) * 1000;
       const days = (Date.now() - newest) / 86400000;

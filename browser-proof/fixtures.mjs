@@ -162,7 +162,12 @@ export function supabaseRows(url) {
       return { ticker: sym, timestamp: t, open: c - 0.4, high: c + 0.8, low: c - 0.9, close: c, volume: 1e5 + i };
     });
   }
-  if (table === "news") return [];
+  if (table === "news")
+    return page(EQUITIES.slice(0, 6).flatMap((ticker, i) => [0, 1].map((j) => ({
+      ticker, url: "https://example.invalid/" + ticker + "/" + j,
+      published_ts: new Date(Date.now() - (i * 2 + j + 1) * 3600e3).toISOString(),
+      title: ticker + " fixture headline " + (j + 1), site: "fixture-wire",
+      snippet: "deterministic fixture row", feed: "wire", cohort: HOME[ticker] || null }))));
   if (table === "spine_events" || table === "feed_alerts" || table === "youtube_feed") return [];
   return [];
 }

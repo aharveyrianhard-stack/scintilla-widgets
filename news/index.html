@@ -236,9 +236,12 @@ async function tick() {
       ? "&published_ts=is.null&order=" + UNDATED_ORDER + "&offset=" + offset
       : "&order=published_ts.desc.nullslast") +
     filters + "&limit=" + LIMIT;
+  /* A failed sentiment read is kept as its own state — flattened to null it rendered as a
+     silently absent chip, identical to a ticker that simply has no sentiment row. */
+  const SENT_FAILED = { failed: true };
   const [rows, sent, undated] = await Promise.all([
     pg(q),
-    T ? pg("news_sentiment?ticker=eq." + encodeURIComponent(T) + "&select=score,n_articles&limit=1").catch(() => null) : null,
+    T ? pg("news_sentiment?ticker=eq." + encodeURIComponent(T) + "&select=score,n_articles&limit=1").catch(() => SENT_FAILED) : null,
     undatedCount(filters),
   ]);
   if (!Array.isArray(rows) || !rows.length) {
@@ -274,6 +277,9 @@ async function tick() {
       : "newest " + ago(freshness.ms) + " ago") + undatedNote;
   }
   if (UNDATED_ONLY) { /* the sentiment chip belongs to the dated wire */ }
+  else if (sent === SENT_FAILED) {
+    el("sentwrap").innerHTML = '<span class="sent">sentiment read failed — unavailable, not neutral · retrying</span>';
+  }
   else if (sent && Array.isArray(sent) && sent[0] && num(sent[0].score) != null) {
     const sc = num(sent[0].score);
     el("sentwrap").innerHTML = '<span class="sent ' + (sc >= 0 ? "up" : "dn") + '">sent ' + (sc >= 0 ? "+" : "−") + Math.abs(sc).toFixed(2) +

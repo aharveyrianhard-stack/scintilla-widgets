@@ -110,12 +110,21 @@ async function tick() {
           "&event_ts=lte." + (nowS + DAYS * 86400) + "&order=event_ts.asc&limit=" + LIMIT;
   if (IMPACT) q += "&impact=eq." + encodeURIComponent(IMPACT);
   if (COUNTRY) q += "&country=eq." + encodeURIComponent(COUNTRY);
+  /* A FAILED READ IS NEVER DATA. catch(() => null) rendered a dead econ_dashboard read as a
+     blank tile strip and a dead calendar read as "no calendar rows for this filter" — claims
+     about tables the reads never saw. The failure is kept and named, distinctly from
+     emptiness. */
+  const READ_FAILED = { failed: true };
   const [dash, cal] = await Promise.all([
-    wantT ? pg("econ_dashboard?select=topic,label,unit,cadence,last_date,value,prev,yago,sort&order=sort.asc").catch(() => null) : null,
-    wantC ? pg(q).catch(() => null) : null,
+    wantT ? pg("econ_dashboard?select=topic,label,unit,cadence,last_date,value,prev,yago,sort&order=sort.asc").catch(() => READ_FAILED) : null,
+    wantC ? pg(q).catch(() => READ_FAILED) : null,
   ]);
 
-  if (wantT && Array.isArray(dash) && dash.length) {
+  if (wantT && dash === READ_FAILED) {
+    el("top").innerHTML = '<div class="empty">the econ_dashboard read failed — the tiles are unavailable, not empty · retrying at the next refresh</div>';
+  } else if (wantT && Array.isArray(dash) && !dash.length) {
+    el("top").innerHTML = '<div class="empty">econ_dashboard has no rows</div>';
+  } else if (wantT && Array.isArray(dash) && dash.length) {
     el("top").innerHTML = dash.map((d) => {
       const v = num(d.value), p = num(d.prev);
       const dir = v != null && p != null ? (v > p ? "up" : v < p ? "dn" : "") : "";
@@ -126,7 +135,8 @@ async function tick() {
   } else el("top").innerHTML = "";
 
   if (wantC) {
-    if (!Array.isArray(cal) || !cal.length) el("list").innerHTML = '<div class="empty">no calendar rows for this filter</div>';
+    if (cal === READ_FAILED) el("list").innerHTML = '<div class="empty">the econ_calendar read failed — the calendar is unavailable, not clear · retrying at the next refresh</div>';
+    else if (!Array.isArray(cal) || !cal.length) el("list").innerHTML = '<div class="empty">no calendar rows for this filter</div>';
     else {
       const now = Date.now();
       el("list").innerHTML = cal.map((r) => {

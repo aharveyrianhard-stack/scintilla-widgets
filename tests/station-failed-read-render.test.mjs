@@ -135,3 +135,28 @@ test("/pulse keeps a dead read distinct from an empty table, per section", () =>
   assert.match(pulse, /live_quotes and vix_term did not answer — unavailable, not empty · retrying/);
   assert.match(pulse, /no vix source/, "the honest empty state survives for readable-but-bare sources");
 });
+
+test("/econ, /alerts and /news keep dead reads distinct from empty tables", () => {
+  const econ = read("../econ/index.html");
+  const alerts = read("../alerts/index.html");
+  const news = read("../news/index.html");
+  for (const [name, src] of [["econ", econ], ["alerts", alerts]]) {
+    assert.match(src, /const READ_FAILED = \{ failed: true \};/, name);
+    assert.ok(!src.includes(".catch(() => null)"), name + ": the flattening catch is gone");
+  }
+  /* A dead read names its source; the honest empty wordings survive beside it. */
+  assert.match(econ, /the econ_dashboard read failed — the tiles are unavailable, not empty · retrying at the next refresh/);
+  assert.match(econ, /the econ_calendar read failed — the calendar is unavailable, not clear · retrying at the next refresh/);
+  assert.match(econ, /econ_dashboard has no rows/);
+  assert.match(econ, /no calendar rows for this filter/);
+  assert.match(alerts, /the feed_alerts read failed — feed health is unavailable, not quiet · retrying at the next refresh/);
+  assert.match(alerts, /the alert_log read failed — ticker alerts are unavailable, not quiet · retrying at the next refresh/);
+  assert.match(alerts, /no feed_alerts rows/);
+  assert.match(alerts, /no alert_log rows/);
+  /* The sentiment chip names its failure instead of vanishing like a ticker with no row. */
+  assert.match(news, /const SENT_FAILED = \{ failed: true \};/);
+  assert.ok(!news.includes(".catch(() => null)"), "news: the flattening catch is gone");
+  assert.match(news, /sentiment read failed — unavailable, not neutral · retrying/);
+  /* youtube's ytAct catch-null is a WRITE lane (star/unstar) — a silently lost shared
+     write, recorded as its own audit finding; fixing it must respect the shell mirrors. */
+});
