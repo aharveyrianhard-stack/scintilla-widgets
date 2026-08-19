@@ -19,6 +19,8 @@ originally named branch is one command if that is preferred.
 
 ## Commits
 
+**Head: `00a5d69`.** Every number below was re-derived from this head, not carried forward.
+
 | Commit | What |
 | --- | --- |
 | `d54da89` | Re-sync the versioned chart shell with the reviewed chart surface |
@@ -28,6 +30,10 @@ originally named branch is one command if that is preferred.
 | `fa163c5` | STATION-004 — take legacy equity authority off `/analytics` and `/health` |
 | `9a20a85` | Pre-merge corrections: cohort axis, provider transport, fabricated stamps |
 | `bfb2a42` | Cohort axis home vs membership; partial answers stop counting as absence |
+| `27ea7f0` | Add this receipt |
+| `8ebddae` | Live ticks, per-symbol cache, lane isolation, honest scope |
+| `4f581b5` | Fabricated prices, unverified ownership, bounds measurement disproved |
+| `00a5d69` | Bind equity authority to identity and digest, not to a count |
 
 ## Root causes, each confirmed against the live system
 
@@ -86,37 +92,58 @@ spine with a Yahoo fallback.
 
 ## Tests
 
-`node --test "tests/*.test.mjs"` — **115 pass, 0 fail**. There is no package.json, CI workflow or
-build step in this repository; the suite and the static syntax check are the whole gate.
+`node --test "tests/*.test.mjs"` at head `00a5d69` — **160 pass, 0 fail**, across **13 files**.
+There is no package.json, CI workflow or build step in this repository; the suite plus the static
+syntax check, the JS parse check, the exact chart-shell mirror and `git diff --check` are the
+whole gate.
 
-| Suite | Before | After |
-| --- | --- | --- |
-| `station-named-absence` | 6 of 8 fail on `d54da89` | pass |
-| `station-cohort-routes` | 26 of 29 (with transport) fail on `9a20a85` | pass |
-| `station-news-time` | 10 of 10 fail on `289082c` | pass |
-| `station-equity-authority` | 6 of 7 fail on `e8177e8` | pass |
-| `station-transport-vs-absence` | 14 of 15 fail on `fa163c5` | pass |
-| `station-route-inventory` | new | pass |
+Suites (13): `chart-candle-immutability` · `chart-history-window` · `chart-input-boundary` ·
+`chart-load-resilience` · `station-cohort-routes` · `station-equity-authority` ·
+`station-h3-h4-backlog` · `station-named-absence` · `station-news-time` ·
+`station-route-inventory` · `station-scenes` · `station-shared-state` ·
+`station-transport-vs-absence`.
 
-Each "before" figure was measured by checking the parent commit out into a detached worktree and
-running the new suite against it.
+Each new or rewritten suite was checked out against its parent commit in a detached worktree and
+confirmed to fail there — most recently 66 of 145 failing on `8ebddae`. A passing count is
+evidence that a stated contract holds, not evidence that the work is finished.
 
 ## Status by item — nothing here is called closed
 
 Independent re-review decides merge readiness, not the test count. Every item below is either
 **code-complete pending re-review** or explicitly **open**.
 
+**Nothing here is closed.** Independent re-audit decides, not the test count. Successive review
+rounds have found real defects in work this receipt previously called code-complete — including
+two I introduced — so "pending re-audit" is the strongest status any row below carries.
+
 | Item | Status |
 | --- | --- |
-| STATION-001 | code-complete, pending re-review |
-| STATION-002 | code-complete, pending re-review |
-| STATION-003 | code-complete, pending re-review |
-| STATION-004 | code-complete, pending re-review |
-| H1 inventory | code-complete, pending re-review — now covers standalone HTML files too |
+| STATION-001 | repaired, **pending re-audit** — and its original claim was wrong; see below |
+| STATION-002 | repaired, pending re-audit |
+| STATION-003 | repaired, pending re-audit |
+| STATION-004 | repaired, pending re-audit |
+| H1 inventory | repaired, pending re-audit — 63 deployed HTML surfaces, both directions enforced |
 | H2 (X) | **untouched and proof-gated**, by instruction |
 | H3 | partial — the iPad page is pinned and the chart contracts are asserted; gesture *feel* is unverifiable here |
 | H4 | partial — transport, subscribe and the ladder are asserted; fullscreen geometry is unverified |
-| **F1** | **BLOCKED — not closed by this branch. See below.** |
+| **F1** | **ACTIVE / BLOCKED — not closed by this branch. See below.** |
+| **Scene internals** | **ACTIVE / BLOCKED** — ADD, PCC, CUMTICK, TICK, TRIN. See below. |
+
+### STATION-001's original claim was wrong
+
+It was described as making the four non-equity scenes settle on a name and stop. Measured
+2026-08-19, that splits:
+
+- `ESUSD` `NQUSD` `CLUSD` `US10Y` `VIX` — thousands of bars at scene timeframes, a `live_quotes`
+  row, registered in `tickers`. These work.
+- `ADD` `PCC` `CUMTICK` `TICK` `TRIN` — zero rows in `ohlcv_history`, `live_quotes` and
+  `composite_staged`, and not registered in `tickers` at all.
+
+Nothing owns the second group, so nothing *names* a terminal absence for them, and
+`data delayed · retrying` is the truthful state for those panes. Stopping would fabricate a
+certainty no owner has expressed. What STATION-001 actually fixed is the **conversion** — an
+owner's named answer is no longer flattened into an endless retry. `/health` now carries those
+five in their own lane, BAD by construction until an owner supports them.
 
 ### F1 is blocked, not done
 
@@ -133,6 +160,31 @@ provider contract. It does not close F1, for three reasons that live outside thi
 
 F1 therefore needs a cross-project follow-up with its own deploy and CORS proof. Treat it as
 **ACTIVE/BLOCKED**, and do not read this branch as having closed it.
+
+### Equity authority, and what "verified" now means
+
+Ownership is bound to identity and to the equalizer digest, not to a count:
+
+- The accepted equity set is every **active** ticker whose `type` is not crypto, future, index or
+  rate. Measured 2026-08-19: 387 active less 22 excluded is exactly the 365 the provider
+  publishes, missing `[]` and extra `[]`. A same-size swap — drop `AAPL`, add `TICK` — fails on
+  membership, which a cardinality check could only have caught by luck.
+- The full equalizer digest `f6cf97b5…97ad1` is required for both ownership and the Geiger read.
+  A composite computed under a different equalizer is different numbers wearing the same name.
+- Both fail **closed**: no verified ownership means no classification, and nothing is routed to
+  the legacy tables on a guess.
+
+Consequence, stated: a cold start while the provider or the canonical `tickers` read is
+unreachable leaves non-equity charts delayed rather than served from Supabase, because the shim
+cannot know they are non-equities. A warm verified map survives a bad read.
+
+### Timeouts: two thresholds, because one was measurably wrong
+
+Five read-only `/quotes` probes returned 200 with time-to-first-byte of 0.84s, 6.86s, 1.27s,
+2.71s and 0.27s. A single hard 4.5s abort would have called a working provider unreachable on one
+read in five. Everywhere a bound exists — the shim, the deck, `/health` — **soft 4.5s** reports
+and lets the request finish, **hard 20s** guarantees settlement. A caller's own abort outranks
+both and is answered immediately.
 
 ### H1 is an inventory, not a deployment gate
 
@@ -177,8 +229,13 @@ Verify on the preview, with devtools open:
    line must name `whole universe bars not served` and the rows must empty, rather than drawing
    a blank table as though the cohorts had no history.
 10. `/health` → `live_quotes`, `composite_staged` and `ohlcv_history` still appear, each marked
-   `NON-EQUITY LANE ONLY`. They are the live owner of crypto, futures, indices and rates, so a
-   stale one is a real outage — what must be absent is any equity claim on those rows.
+   `NON-EQUITY LANE ONLY`, probed by name and reported on their **oldest** member. The equity
+   lane must show the accepted equalizer digest and the full universe count, not a five-symbol
+   sample. The `Scene internals` lane must be BAD.
+11. `/analytics` → count the header columns against a body row: RET must sit between CHG% and
+   GEIGER. The universe card must read 365, not ~387.
+12. `/news?undated=1` → page 2 and the last page must both be reachable, `1201–1246 of 1246` on
+   the final page, with no row appearing twice.
 
 ## Blockers, stated
 

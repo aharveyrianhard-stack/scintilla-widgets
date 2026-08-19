@@ -56,7 +56,20 @@
     let pages = 0;
     for (let offset = 0; pages < MAX_PAGES; offset += size) {
       const rows = await pg(path + (path.indexOf("?") < 0 ? "?" : "&") + "limit=" + size + "&offset=" + offset);
-      const batch = Array.isArray(rows) ? rows : [];
+      /* AN ERROR-SHAPED EMPTY IS NOT A SHORT PAGE.
+         Some page adapters answer a non-OK response with an empty array carrying an error flag
+         rather than by throwing - templates/fundamentals.html does exactly that. To this walk
+         those were indistinguishable from the end of the table: a first-page failure produced
+         zero memberships and reported `truncated: false`, so every ticker painted UNCOHORTED
+         while the reader claimed a complete read. A later-page failure was worse, publishing
+         the earlier pages as if they were the whole relation. The flag is honoured, and an
+         adapter that neither throws nor flags is still covered by the length check below. */
+      if (rows && rows._sbError)
+        throw new Error("cohort-axis: page read failed" +
+          (rows._sbStatus ? " (HTTP " + rows._sbStatus + ")" : "") + " at offset " + offset);
+      if (!Array.isArray(rows))
+        throw new Error("cohort-axis: page read returned no array at offset " + offset);
+      const batch = rows;
       pages += 1;
       out.push(...batch);
       /* A short page is the only honest end-of-table signal PostgREST gives. */

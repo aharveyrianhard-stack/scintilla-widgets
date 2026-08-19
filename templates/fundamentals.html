@@ -135,7 +135,16 @@ let COHORT_TRUNCATED = false;
    than discarded. See _cohorts/cohort-axis.js. */
 async function loadUniverse(){
   const staged = await sb('composite_staged?select=ticker,composite,updated_ts&order=ticker.asc&limit=1000');
-  const axis = await SC_COHORT_AXIS.loadAxis(p=>sb(p));
+  /* sb() answers a non-OK response with an error-TAGGED empty array rather than throwing, which
+     is deliberate elsewhere on this page - a 400 must not read as "the table is empty". But a
+     paged reader cannot tell that from the end of a table, so it is converted to a throw here,
+     at the one call site that pages. */
+  const axis = await SC_COHORT_AXIS.loadAxis(async (path) => {
+    const rows = await sb(path);
+    if (rows && rows._sbError)
+      throw new Error('cohort read failed' + (rows._sbStatus ? ' (HTTP ' + rows._sbStatus + ')' : ''));
+    return rows;
+  });
   COHORT_TRUNCATED = !!axis.truncated;
   COHORT_ALL = SC_COHORT_AXIS.byTicker(axis.rows);
   COHORT_MAP = {};

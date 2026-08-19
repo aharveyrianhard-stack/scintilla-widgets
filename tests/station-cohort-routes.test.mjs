@@ -281,3 +281,46 @@ test("COHORT FAVORITES navigates on the membership relation alone", () => {
   assert.match(loader, /if \(axis\.truncated\) throw new Error/,
     "a truncated read cannot be presented as the cohort axis");
 });
+
+test("an error-shaped empty page is never mistaken for the end of the table", async () => {
+  /* templates/fundamentals.html's sb() answers a non-OK response with an error-TAGGED empty
+     array rather than throwing — deliberately, so a 400 does not read as "the table is empty".
+     To the paged walk those were indistinguishable from a short final page: a FIRST-page failure
+     produced zero memberships and reported truncated:false, so every ticker painted UNCOHORTED
+     while the reader claimed a complete read, and a LATER-page failure published the earlier
+     pages as if they were the whole relation. */
+  const axis = loadAxis();
+  const errorPage = () => { const e = []; e._sbError = true; e._sbStatus = 400; return e; };
+
+  /* First page fails. */
+  await assert.rejects(
+    () => axis.readAll(async () => errorPage(), "ticker_cohorts?select=ticker,cohort&order=ticker.asc", 1000),
+    /page read failed \(HTTP 400\) at offset 0/,
+    "a failed first page is a failure, not an empty table");
+
+  /* A later page fails, after a full first page. */
+  let call = 0;
+  await assert.rejects(
+    () => axis.readAll(async () => {
+      call += 1;
+      if (call === 1) return Array.from({ length:1000 }, (_, i) => ({ ticker:"T" + i, cohort:"C" }));
+      return errorPage();
+    }, "ticker_cohorts?select=ticker,cohort&order=ticker.asc", 1000),
+    /at offset 1000/,
+    "the pages already read are not published as the whole relation");
+
+  /* A genuinely short page is still the end of the table. */
+  const fine = await axis.readAll(async () => [{ ticker:"AAPL", cohort:"TECH" }],
+    "ticker_cohorts?select=ticker,cohort&order=ticker.asc", 1000);
+  assert.equal(fine.truncated, false);
+  assert.equal(fine.rows.length, 1);
+
+  /* And an adapter that returns something that is not an array at all is a failure too. */
+  await assert.rejects(
+    () => axis.readAll(async () => null, "ticker_cohorts?select=ticker,cohort&order=ticker.asc", 1000),
+    /returned no array/);
+
+  /* The fundamentals call site converts the flag to a throw at the one place that pages. */
+  const fundamentals = read("../templates/fundamentals.html");
+  assert.match(fundamentals, /if \(rows && rows\._sbError\)\n\s*throw new Error\('cohort read failed'/);
+});
