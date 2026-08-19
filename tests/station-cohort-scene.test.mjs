@@ -105,3 +105,29 @@ test("the deck exposes the cohort scene and its picker, and honors an explicit c
   assert.match(deck, /remembered\("station\.cohort"\) \|\| "FAV"/);
   assert.match(deck, /if \(fromPreset && scene === "cohort"\) return SceneModel\.chartCountForSize\(value\);/);
 });
+
+/* ---- filed defect 3: the family scenes are selectable, so AI POWER is reachable ---- */
+
+test("a family scene renders its CHOSEN basket, and AI POWER's declared rows exist to choose", () => {
+  /* The declaration this defect was filed against. */
+  const power = scenes.familyBasket("themeFamilies", "AI_POWER");
+  assert.deepEqual(Array.from(power.tickers), ["OKLO", "IREN", "CIFR", "BE", "WULF", "USAR"]);
+  /* familyBasket honors an id and still defaults to the first basket without one. */
+  assert.equal(scenes.familyBasket("themeFamilies").id, "AI_COMPUTE");
+  assert.equal(scenes.familyBasket("sectorFamilies", "DEFENSIVE").id, "DEFENSIVE");
+
+  const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
+  /* The deck now asks for the chosen family instead of always taking the first. */
+  assert.match(deck, /SceneModel\.familyBasket\(scene, familyFor\(scene\)\)/);
+  assert.ok(!deck.includes("SceneModel.familyBasket(scene);"),
+    "no call path takes the first basket by omission any more");
+  /* The choice is validated against the scene's declared options and session-remembered. */
+  assert.match(deck, /options\.some\(\(o\) => o\.id === stored\) \? stored : options\[0\]\.id/);
+  assert.match(deck, /sessionRemember\("station\.flex\." \+ requested \+ "\.family", options\.family\)/);
+  /* A family choice is explicit: it paints the declared rows now, never a stored workspace
+     under the new family's name. */
+  assert.match(deck, /options\?\.family != null;/);
+  /* Picker wiring, scene-scoped like the cohort picker. */
+  assert.match(deck, /id="familyPicker" hidden/);
+  assert.match(deck, /el\("familyPick"\)\.addEventListener\("change", \(e\) => applyScene\(SCENE, \{ family:e\.target\.value \}\)\)/);
+});

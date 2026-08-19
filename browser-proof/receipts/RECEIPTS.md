@@ -24,3 +24,15 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/cohort-scene.mjs` (asserts
 - Its page 2 pages honestly to **SNOW** alone: browser-proof/receipts/cohort-AI_SOFTWARE-page2.png
 - Choosing **MEGACAP** replaces them with **AAPL, AMZN, GOOGL, META, MSFT, NVDA**: browser-proof/receipts/cohort-MEGACAP-replaces-favorites.png
 - Choosing FAV again restores the favorites rows; zero page errors across the flow.
+
+---
+
+## 2026-08-19T11:26:49Z — filed defect 3 FIXED and browser-verified: AI POWER shows its declared rows
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/family-scene.mjs` (asserts inline)
+
+- THEME FAMILIES defaults unchanged (AI COMPUTE: NVDA, TSM, AVGO, ASML, MU, SNDK); the family picker is visible on family scenes and hidden elsewhere.
+- Choosing **AI POWER** renders exactly its declared rows — **OKLO, IREN, CIFR, BE, WULF, USAR**: browser-proof/receipts/family-AI_POWER-declared-rows.png
+- The choice survives leaving and re-entering the scene (session memory).
+- SECTOR FAMILIES' **DEFENSIVE** basket is reachable the same way: browser-proof/receipts/family-DEFENSIVE-declared-rows.png
+- Zero page errors across the flow.

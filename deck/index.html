@@ -273,6 +273,9 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       <span id="cohortPageIndicator" aria-live="polite"></span>
       <button type="button" class="btn" id="cohortPageNext" title="next cohort page" aria-label="Next cohort page">›</button>
     </span>
+    <span id="familyPicker" hidden>
+      <select class="scene-mode" id="familyPick" title="choose this scene's family basket" aria-label="Family basket"></select>
+    </span>
   </span>
   <span class="control-group rotate-controls">
     <span class="control-label">auto rotate</span>
@@ -439,6 +442,16 @@ let COHORT = CLEAN_COHORT(QS.get("cohort") || remembered("station.cohort") || "F
 let COHORT_PAGE = Math.max(0, +(QS.get("page") || remembered("station.cohortPage") || 1) - 1);
 let COHORT_INDEX = new Map();
 let COHORT_READY = false;
+/* FILED DEFECT 3: "AI Power must show its declared cohort rows." Every family scene rendered
+   its FIRST basket forever, because familyBasket() was never given an id — AI POWER (and AI
+   INFRA, and DEFENSIVE) were declared and unreachable. The chosen family is remembered per
+   scene for the session and validated against the scene's declared options. */
+const familyFor = (scene) => {
+  const options = SceneModel.familyOptions(scene);
+  if (!options.length) return null;
+  const stored = sessionRemembered("station.flex." + scene + ".family");
+  return options.some((o) => o.id === stored) ? stored : options[0].id;
+};
 let APPLYING_SCENE = false;
 
 const statePrefix = () => SCENE === "custom" ? "station.custom" : "station.live";
@@ -1346,6 +1359,17 @@ function paintSceneControls(note) {
     : fixedSceneState(SCENE)
     ? "preset · edit any slot or reset"
     : "manual workspace · edit any slot");
+  const familyPicker = el("familyPicker");
+  if (familyPicker) {
+    const options = SceneModel.familyOptions(SCENE);
+    familyPicker.hidden = !options.length;
+    if (options.length) {
+      const pick = el("familyPick");
+      if (Array.from(pick.options).map((o) => o.value).join("|") !== options.map((o) => o.id).join("|"))
+        pick.innerHTML = options.map((o) => '<option value="' + o.id + '">' + o.label.toLowerCase() + "</option>").join("");
+      pick.value = familyFor(SCENE);
+    }
+  }
   const cohortPicker = el("cohortPicker");
   if (cohortPicker) {
     const active = SCENE === "cohort";
@@ -1380,7 +1404,7 @@ function fixedSceneState(scene, requestedCount) {
     return Object.assign({}, preset, SceneModel.basketWindow(preset.tickers, BASKET_OFFSET, requestedCount || preset.chartCount), { range:preset.range });
   }
   if (scene === "sectorFamilies" || scene === "themeFamilies") {
-    const family = SceneModel.familyBasket(scene);
+    const family = SceneModel.familyBasket(scene, familyFor(scene));
     return Object.assign({}, SceneModel.basketWindow(family?.tickers || [], BASKET_OFFSET, requestedCount || 6), { range:family?.range || "1D" });
   }
   const preset = SceneModel.PRESETS[scene];
@@ -1479,10 +1503,16 @@ async function applyScene(next, options) {
   if (previous !== requested) rememberEditableState();
   let state;
   if (fixedSceneState(requested)) {
+    /* A chosen family is remembered before the preset is computed, and counts as an explicit
+       choice: it must paint its DECLARED rows now, never a stored workspace under the new
+       family's name. */
+    if (options?.family != null && SceneModel.familyOptions(requested).some((o) => o.id === options.family))
+      sessionRemember("station.flex." + requested + ".family", options.family);
     BASKET_OFFSET = Math.max(0, Number(options?.offset) || 0);
     const fixed = fixedSceneState(requested);
     /* Reset Preset is the only action that discards a working scene. */
-    const namedPage = Object.prototype.hasOwnProperty.call(options || {}, "offset");
+    const namedPage = Object.prototype.hasOwnProperty.call(options || {}, "offset") ||
+      options?.family != null;
     state = !options?.reset && !namedPage && hasStoredScene(requested)
       ? completeNamedPresetState(editableState(requested), fixed) : fixed;
   }
@@ -1824,6 +1854,7 @@ el("sceneMode").addEventListener("change", (e) => {
   if (e.target.value === "live" || e.target.value === "custom") setRotationPaused(true);
   applyScene(e.target.value);
 });
+el("familyPick").addEventListener("change", (e) => applyScene(SCENE, { family:e.target.value }));
 el("cohortPick").addEventListener("change", (e) => applyScene("cohort", { cohort:e.target.value, page:0 }));
 el("cohortPagePrev").addEventListener("click", () => applyScene("cohort", { cohort:COHORT, page:Math.max(0, COHORT_PAGE - 1) }));
 el("cohortPageNext").addEventListener("click", () => applyScene("cohort", { cohort:COHORT, page:COHORT_PAGE + 1 }));
