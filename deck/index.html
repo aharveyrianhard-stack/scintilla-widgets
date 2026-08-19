@@ -1354,7 +1354,12 @@ function paintSceneControls(note) {
     ? "screen " + (SceneModel.SCREENS.indexOf(screen) + 1) + " / " + SceneModel.SCREENS.length
     : "manual";
   el("symbolNote").textContent = note || (SCENE === "cohort"
-    ? (COHORT === "FAV" ? "favorites · choosing a cohort replaces these rows"
+    ? (COHORT === "FAV"
+       /* Zero favorites is a state the wall must SAY, not imply with one blank slot — but
+          only once the read has landed: before COHORT_READY the count is not yet a fact. */
+       ? (COHORT_READY && cohortState().totalItems === 0
+          ? "no favorites yet — the wall is empty, not broken · choose a cohort or edit the slot"
+          : "favorites · choosing a cohort replaces these rows")
        : COHORT.replace(/_/g, " ") + " · cohort members — these rows replaced the favorites")
     : fixedSceneState(SCENE)
     ? "preset · edit any slot or reset"

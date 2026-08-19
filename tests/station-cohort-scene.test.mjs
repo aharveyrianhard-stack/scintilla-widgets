@@ -131,3 +131,18 @@ test("a family scene renders its CHOSEN basket, and AI POWER's declared rows exi
   assert.match(deck, /id="familyPicker" hidden/);
   assert.match(deck, /el\("familyPick"\)\.addEventListener\("change", \(e\) => applyScene\(SCENE, \{ family:e\.target\.value \}\)\)/);
 });
+
+test("an empty FAV names itself — the wall says why it is empty, once the read has landed", () => {
+  /* Zero favorites used to render one blank editable slot with no wording anywhere on the
+     wall: an empty panel that reads as broken. The model keeps the raw truth… */
+  const index = scenes.buildCohortIndex([[{ ticker: "NVDA", cohort: "MEGACAP" }]], []);
+  const page = scenes.cohortPage(index, "FAV", 0, 6);
+  assert.equal(page.totalItems, 0);
+  assert.deepEqual(Array.from(page.tickers), []);
+  assert.equal(page.totalPages, 1, "an empty cohort is one page, not zero pages");
+  /* …and the deck words it, gated on COHORT_READY so absence is only claimed as a fact
+     after the favorites read answered (before that, the count is not yet known). */
+  const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
+  assert.match(deck, /COHORT_READY && cohortState\(\)\.totalItems === 0/);
+  assert.match(deck, /no favorites yet — the wall is empty, not broken · choose a cohort or edit the slot/);
+});

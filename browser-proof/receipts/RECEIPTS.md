@@ -154,3 +154,14 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/pulse-failed-reads.mjs` (a
 - **provider dead** (browser-proof/receipts/pulse-provider-dead-fails-closed.png): the shim fails its owned reads closed, so GEIGER and MACRO say their sources "did not answer — unavailable, not empty · retrying" in the failure style, while vix_term — never shim-owned — still answers with the /3M term ratio beside the dead-quotes marker. Before this unit, every one of these states rendered as "no composite_staged" / "no live_quotes": a dead read and an empty table were the same strip.
 
 Zero page errors in both scenarios.
+
+---
+
+## 2026-08-19T12:13:56Z — an empty FAV names itself, and the way out works
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/cohort-empty-fav.mjs` (hub_favorites answers zero rows — a successful empty read, not a failure)
+
+- **The wall says why it is empty** (browser-proof/receipts/cohort-empty-fav-named.png): "no favorites yet — the wall is empty, not broken · choose a cohort or edit the slot", with the indicator counting "page 1 / 1 · 0 favorites". Before this unit the state rendered as one blank editable slot with no wording anywhere on the wall. The wording is gated on the read having landed: before COHORT_READY the count is not yet a fact, and the note does not claim it.
+- **Choosing a cohort still replaces the (empty) favorites** (browser-proof/receipts/cohort-empty-fav-to-cohort.png): AI SOFTWARE fills the wall with its full declared membership (7 members) from the empty state.
+
+Zero page errors.
