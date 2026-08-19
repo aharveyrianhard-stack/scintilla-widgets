@@ -860,8 +860,10 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "shared Watch Later keeps its one healthy Personal YouTube identity");
   assert.match(videoPane, /pg\("yt_watch_later\?select=video_id"\)/,
     "Station reads the one shared saved-video state directly instead of waiting on Google");
-  assert.match(videoPane, /syncWatch\(\)\.then\(\(\) => refreshWatchButton\(\)\)\.catch\(\(\) => \{ WATCH_READY = false; \}\)/,
+  assert.match(videoPane, /syncWatch\(\)\.then\(\(\) => \{ refreshWatchButton\(\); if \(ROWS\.length\) paint\(\); \}\)\.catch\(/,
     "Station begins the local saved-set read alongside its normal feed, not only after Watch Later is clicked");
+  assert.match(videoPane, /WATCH_ERROR = WATCH_ERROR \|\| "the saved-list read failed"/,
+    "…and a boot-read failure is a NAMED state the button and stars wear, never an empty saved list");
   assert.match(youtubeHub, /const YT_WATCH_LATER = new Set\(\)/,
     "Hub keeps Watch Later only in page memory while the shared source loads");
   assert.doesNotMatch(youtubeHub, /sc_yt_wl_v1|localStorage\.setItem\(YT_WL_KEY/,

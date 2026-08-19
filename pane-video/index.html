@@ -88,6 +88,12 @@ body.searching #q{ display:block; }
 .star > span{ position:absolute; top:1px; right:1px; font:19px/1 var(--mono); }
 .star:hover{ color:var(--ink); }
 .star.on{ color:var(--vol); }
+.star.unk{ opacity:.65; }
+#wlFlash{ position:fixed; left:50%; bottom:12px; transform:translateX(-50%); z-index:60; pointer-events:none;
+  font:600 11px/1.5 var(--mono); letter-spacing:.05em; color:#ffd24a;
+  background:rgba(10,12,16,.92); border:1px solid #2a2f3a; border-radius:6px; padding:6px 12px;
+  opacity:0; transition:opacity .18s; max-width:88%; text-align:center; }
+#wlFlash.show{ opacity:1; }
 .dur{ position:absolute; right:3px; bottom:3px; background:rgba(0,0,0,.82); color:#fff;
   font-size:8px; padding:1px 4px; letter-spacing:.02em; }
 .tk{ position:absolute; left:3px; top:3px; background:rgba(0,212,255,.9); color:#04040a;
@@ -328,15 +334,27 @@ async function syncWatch(force) {
   return WATCH;
 }
 
+function wlFlash(t, ms) { const f = el("wlFlash"); if (!f) return; f.textContent = t; f.classList.add("show"); clearTimeout(wlFlash._t); wlFlash._t = setTimeout(() => f.classList.remove("show"), ms || 2600); }
+
 async function toggleWatch(v) {
   if (!v || !v.video_id) return;
+  if (!WATCH_READY) {
+    /* Unknown is not permission: a toggle against an unlanded saved set could star an
+       already-saved video. Retry the read; only a KNOWN state toggles. */
+    try { await syncWatch(true); wlFlash("saved list recovered — ★ shows the true state now · click again to change it"); }
+    catch (e) { WATCH_ERROR = e.message || "the saved-list read failed"; wlFlash("★ unavailable — the saved-list read failed · nothing was changed"); }
+    paint();
+    return;
+  }
   const was = WATCH.has(v.video_id), will = !was;
   if (will) WATCH.add(v.video_id); else WATCH.delete(v.video_id);
   paint();
   try { await ytAct(will ? "star" : "unstar", { videoId:v.video_id, account:YOUTUBE_ACCOUNT }); }
   catch (e) {
+    /* The optimistic flip must not outlive a lost write — and the reason is said. */
     if (was) WATCH.add(v.video_id); else WATCH.delete(v.video_id);
     paint();
+    wlFlash((will ? "★ not saved" : "★ not removed") + " — the shared watch-later write failed · try again");
   }
 }
 
@@ -353,7 +371,7 @@ async function subscribeToChannel(v) {
     const d = await ytAct("sub", { channelId, channelTitle: v.channel || "", account:SUBSCRIPTION_ACCOUNT });
     if (!d.ok) throw new Error("YouTube subscribe failed");
     LOCAL_SUBSCRIBED_CHANNELS.add(SUBSCRIPTION_ACCOUNT + ":" + channelId);
-  } catch (e) { } finally {
+  } catch (e) { wlFlash("subscribe failed — the shared write did not land · try again"); } finally {
     SUBSCRIBE_PENDING.delete(channelId); refreshSubscribeButton();
   }
 }
@@ -513,6 +531,22 @@ el("bPip").addEventListener("click", async () => {
 });
 
 /* ---- render ---- */
+/* The card star may only claim saved-or-not from a LANDED read. Before the shared
+   saved-set read lands — or after it fails — the state is unknown, and unknown is a
+   said state, never painted as "unsaved". */
+function starHTML(v) {
+  if (FEED !== "scintilla") return "";
+  if (!WATCH_READY) {
+    const why = WATCH_ERROR ? "the saved-list read failed" : "the saved-list read has not landed yet";
+    return '<button class="star unk" data-star="' + esc(v.video_id) + '" aria-label="watch-later state unknown" title="watch-later state unknown — ' + why + ' · a click retries the read"><span aria-hidden="true">?</span></button>';
+  }
+  const saved = WATCH.has(v.video_id);
+  return '<button class="star' + (saved ? " on" : "") + '" data-star="' + esc(v.video_id) +
+    '" aria-label="' + (saved ? "remove from" : "save to") + ' SCINTILLA Watch Later" title="' +
+    (saved ? "remove from" : "save to") + ' SCINTILLA · Watch Later"><span aria-hidden="true">' +
+    (saved ? "★" : "☆") + '</span></button>';
+}
+
 function paint() {
   const q = "";
   let rows = LIST === "watch" ? ROWS.filter((v) => WATCH.has(v.video_id)) : ROWS;
@@ -522,10 +556,7 @@ function paint() {
     '<div class="card' + (CUR && CUR.video_id === v.video_id ? " on" : "") + '" data-v="' + esc(v.video_id) + '">' +
       '<div class="thumb"><img loading="lazy" decoding="async" src="' +
         esc(v.thumb_url || ("https://i.ytimg.com/vi/" + v.video_id + "/mqdefault.jpg")) + '" alt="">' +
-        (FEED === "scintilla" ? '<button class="star' + (WATCH.has(v.video_id) ? " on" : "") + '" data-star="' + esc(v.video_id) +
-          '" aria-label="' + (WATCH.has(v.video_id) ? "remove from" : "save to") + ' SCINTILLA Watch Later" title="' +
-          (WATCH.has(v.video_id) ? "remove from" : "save to") + ' SCINTILLA · Watch Later"><span aria-hidden="true">' +
-          (WATCH.has(v.video_id) ? "★" : "☆") + '</span></button>' : "") +
+        starHTML(v) +
         (v.tickers ? '<span class="tk">' + esc(String(v.tickers).split(",")[0]) + "</span>" : "") +
         (v.duration ? '<span class="dur">' + esc(v.duration) + "</span>" : "") +
       "</div>" +
@@ -564,7 +595,7 @@ async function load(forceWatch, quiet) {
     if (WATCH_ERROR) {
       if (quiet && ROWS.length) return;
       ROWS = []; BYID = {};
-      el("grid").innerHTML = '<div class="msg">YouTube reconnect required</div>';
+      el("grid").innerHTML = '<div class="msg">the watch-later read failed — the saved list is unavailable, not empty · retrying at the next refresh</div>';
       relayout(); return;
     }
     if (!WATCH.size) { ROWS = []; BYID = {}; paint(); relayout(); return; }
@@ -622,7 +653,12 @@ async function start() {
   /* Start the shared local saved-set read alongside the ordinary feed.  This
      never contacts YouTube, and means opening Watch Later normally has its
      IDs ready instead of placing that database read on the click path. */
-  syncWatch().catch(() => { WATCH_READY = false; });
+  syncWatch().then(() => { if (ROWS.length) paint(); }).catch(() => {
+    /* A failed read is never data: name it, and let the card stars paint UNKNOWN
+       rather than "unsaved". The 120s pass and any star click retry the read. */
+    WATCH_READY = false; WATCH_ERROR = WATCH_ERROR || "the saved-list read failed";
+    if (ROWS.length) paint();
+  });
   /* Keep the stored feed current without touching the YouTube API on every
      pass. */
   setInterval(() => {
@@ -631,5 +667,6 @@ async function start() {
 }
 start();
 </script>
+<div id="wlFlash" role="status" aria-live="polite"></div>
 </body>
 </html>

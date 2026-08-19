@@ -612,3 +612,16 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/dcf-baseline.mjs` (fixture
 Live field availability behind this unit was measured read-only the same day: all ten bar tickers carry complete latest-FY rows in balance_history/cashflow_history/fundamentals_history (balance_history carries net_debt directly), so on the real database the badge should read LIVE 10/10 — the rig's 8/10 is the fixture's own deliberate shape, not a claim about the owners' data.
 
 Zero page errors.
+
+---
+
+## 2026-08-19T16:36:16Z — the watch-later lane tells the truth: unknown is said, lost writes say why
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/wl-truth.mjs` (page-level failure injection; asserts inline)
+
+- **The mounted shell with the saved-list read DEAD** (browser-proof/receipts/shell-wl-read-dead-unknown.png): every card star paints the UNKNOWN "?" state ("watch-later state unknown — the saved-list read failed · a click retries the read"), zero cards claim saved-or-unsaved, and the bWatch button reads "watch later — state unknown" — a failed read is never data. A click on an unknown star retries the read and, still failing, flashes "★ unavailable — the saved-list read failed · nothing was changed" without flipping anything. The watch-later list itself paints "the watch-later read failed — the saved list is unavailable, not empty · retrying at the next refresh" (browser-proof/receipts/shell-wl-list-read-failed-named.png) — the old "YouTube reconnect required" wording, which named YouTube auth as the cause of a failed Supabase table read, is gone from the mounted shells and /pane-video (video-v1 keeps it: retained rollback, exempt by ruling).
+- **The read lands, then a write is lost** (browser-proof/receipts/shell-wl-lost-write-said.png): the landed read paints exactly the saved video ★; a save click flips optimistically, the 500 settles, the flip REVERTS and the reason is said — "★ not saved — the shared watch-later write failed · try again". The shells used to revert silently; the gesture just vanished.
+- **A lost subscribe says why**: "subscribe failed — the shared write did not land · try again" — the catch used to swallow it whole.
+- **/youtube keeps the feed's own served flags** (browser-proof/receipts/youtube-wl-read-dead-feed-snapshot.png): the feed rows arrive with a server-side watch_later column — landed data. With the dedicated saved-list read dead, the flagged video KEEPS its star (it used to be zeroed by an empty page cache), the Watch Later chip wears a persistent "!" marker titled "the saved-list read failed — ★ rides the feed snapshot, not the saved list", and the failure is caught — before this unit it was an unhandled promise rejection.
+
+Zero page errors in every scenario. Rollback: revert the single commit carrying this unit — said states, guards, pins and this proof; no data lane, authority or methodology changed; the rollback shell untouched.

@@ -228,3 +228,128 @@ test("main reads on /news and /cohorts: never-loaded names the failure; loaded k
   assert.match(news, /this is a page bug, not a data gap/);
   assert.match(cohorts, /this is a page bug, not a data gap/);
 });
+
+test("/youtube: the saved-set read failing (or not yet landed) never zeroes the stars", () => {
+  const yt = read("../youtube/index.html");
+  /* The feed rows arrive with a server-side watch_later flag — landed data. The page cache
+     is seeded from it, so the boot overwrite is a no-op until the AUTHORITATIVE read
+     replaces it; before this, boot cleared every saved star until (unless) the second read
+     landed, and that read's failure was an unhandled rejection that left the lie standing. */
+  assert.match(yt, /let YT_WL_READY = false, YT_WL_READ_FAILED = false;/);
+  assert.match(yt, /rows\.length && !YT_WL_READY\) rows\.forEach\(\(r\) => \{ if \(r && r\.watch_later && r\.video_id\) YT_WATCH_LATER\.add\(r\.video_id\); \}\);/);
+  assert.match(yt, /YT_WL_READY = true; YT_WL_READ_FAILED = false;/);
+  /* The failure is a SAID state — flash plus a persistent marker on the Watch Later chip. */
+  assert.match(yt, /YT_WL_READ_FAILED = true;/);
+  assert.match(yt, /the watch-later read failed — ★ rides the feed snapshot, not the saved list/);
+  assert.match(yt, /class="wlbad" title="the saved-list read failed — ★ rides the feed snapshot, not the saved list · retried with the feed pass"/);
+});
+
+test("the mounted video shells and /pane-video: saved-or-not is only claimed from a LANDED read, and every lost write says why", async () => {
+  const pane = read("../pane-video/index.html");
+  const shellP = read("../station-shells/personal-video-v1/index.html");
+  const shellS = read("../station-shells/scintilla-video-v1/index.html");
+  /* The deck mounts both shells: one reviewed surface in two independently rollable
+     copies, which must stay byte-identical until deliberately diverged. */
+  assert.equal(shellP, shellS, "personal-video-v1 and scintilla-video-v1 are byte-identical");
+
+  for (const [name, src] of [["pane-video", pane], ["shell", shellP]]) {
+    /* starHTML: unknown is a said state, never painted as "unsaved". */
+    const mk = (bind) => fnFromSource(src, "starHTML", Object.assign({ esc: (s) => String(s) }, bind));
+    const v = { video_id: "vidX" };
+    assert.equal(mk({ FEED: "personal" })(v), "", name + ": no star lane outside the scintilla feed");
+    const unknownFailed = mk({ FEED: "scintilla", WATCH_READY: false, WATCH_ERROR: "x", WATCH: new Set() })(v);
+    assert.match(unknownFailed, /star unk/, name);
+    assert.match(unknownFailed, /watch-later state unknown — the saved-list read failed · a click retries the read/, name);
+    assert.ok(!unknownFailed.includes("☆") && !unknownFailed.includes("★"), name + ": the unknown state paints neither claim glyph");
+    assert.match(mk({ FEED: "scintilla", WATCH_READY: false, WATCH_ERROR: "", WATCH: new Set() })(v), /has not landed yet/, name);
+    const savedHtml = mk({ FEED: "scintilla", WATCH_READY: true, WATCH: new Set(["vidX"]) })(v);
+    assert.match(savedHtml, /★/, name); assert.match(savedHtml, /remove from/, name);
+    const unsavedHtml = mk({ FEED: "scintilla", WATCH_READY: true, WATCH: new Set() })(v);
+    assert.match(unsavedHtml, /☆/, name); assert.match(unsavedHtml, /save to/, name);
+
+    /* The old cause-naming lie is gone: a failed Supabase table read is not a YouTube
+       auth state, and it may not paint as one. */
+    assert.ok(!src.includes("YouTube reconnect required"), name + ": the mislabeled cause is gone");
+    assert.match(src, /the watch-later read failed — the saved list is unavailable, not empty · retrying at the next refresh/, name);
+    assert.match(src, /WATCH_ERROR = WATCH_ERROR \|\| "the saved-list read failed"/, name + ": the boot failure names itself");
+    assert.match(src, /wlFlash\(\(will \? "★ not saved" : "★ not removed"\) \+ " — the shared watch-later write failed · try again"\);/, name);
+    assert.match(src, /wlFlash\("subscribe failed — the shared write did not land · try again"\)/, name);
+    assert.match(src, /<div id="wlFlash" role="status" aria-live="polite"><\/div>/, name + ": the flash element exists");
+  }
+
+  /* video-v1 is the retained rollback: exempt by the same ruling as sector-rotation-older,
+     untouched wording and all — so a rollback is still a pointer change, not a rebuild. */
+  const rollback = read("../station-shells/video-v1/index.html");
+  assert.ok(rollback.includes("YouTube reconnect required"), "the rollback copy is exempt and untouched");
+
+  /* toggleWatch (shell variant, async): an unknown state REFUSES the flip — it retries the
+     read instead, and only a KNOWN state toggles. */
+  const asyncFnFrom = (source, name, bindings) => {
+    const sig = "async function " + name + "(";
+    const start = source.indexOf(sig);
+    assert.notEqual(start, -1, name + " must exist as async");
+    let depth = 0, end = -1;
+    for (let i = source.indexOf("{", start); i < source.length; i += 1) {
+      if (source[i] === "{") depth += 1;
+      if (source[i] === "}") depth -= 1;
+      if (depth === 0) { end = i + 1; break; }
+    }
+    return vm.runInNewContext("(" + source.slice(start, end) + ")", bindings);
+  };
+  const shell = shellP;
+  const v = { video_id: "vidZ" };
+
+  { /* read still dead: no flip, no write, the refusal is said */
+    const WATCH = new Set(); const flashes = []; let acted = 0;
+    const fn = asyncFnFrom(shell, "toggleWatch", { WATCH, WATCH_READY: false, WATCH_ERROR: "",
+      syncWatch: async () => { throw new Error("pg 503"); },
+      ytAct: async () => { acted += 1; return {}; },
+      wlFlash: (t) => flashes.push(t), paint: () => {}, refreshWatchButton: () => {}, YOUTUBE_ACCOUNT: "personal" });
+    await fn(v);
+    assert.equal(acted, 0, "no write against an unknown state");
+    assert.equal(WATCH.size, 0, "no flip against an unknown state");
+    assert.match(flashes[0], /★ unavailable — the saved-list read failed · nothing was changed/);
+  }
+  { /* read recovers on the click: still no auto-toggle — the truth paints first */
+    const WATCH = new Set(); const flashes = []; let acted = 0;
+    const fn = asyncFnFrom(shell, "toggleWatch", { WATCH, WATCH_READY: false, WATCH_ERROR: "",
+      syncWatch: async () => WATCH, ytAct: async () => { acted += 1; return {}; },
+      wlFlash: (t) => flashes.push(t), paint: () => {}, refreshWatchButton: () => {}, YOUTUBE_ACCOUNT: "personal" });
+    await fn(v);
+    assert.equal(acted, 0, "recovery paints the truth; it does not act on the stale gesture");
+    assert.match(flashes[0], /saved list recovered — ★ shows the true state now · click again to change it/);
+  }
+  { /* known state, lost write: flip, revert, and the reason is said */
+    const WATCH = new Set(); const flashes = []; const paints = [];
+    const fn = asyncFnFrom(shell, "toggleWatch", { WATCH, WATCH_READY: true, WATCH_ERROR: "",
+      syncWatch: async () => WATCH, ytAct: async () => { paints.push("acting:" + WATCH.has("vidZ")); throw new Error("yt-act 500"); },
+      wlFlash: (t) => flashes.push(t), paint: () => {}, refreshWatchButton: () => {}, YOUTUBE_ACCOUNT: "personal" });
+    await fn(v);
+    assert.deepEqual(paints, ["acting:true"], "the flip was optimistic");
+    assert.ok(!WATCH.has("vidZ"), "the lost write reverted the flip");
+    assert.match(flashes[0], /★ not saved — the shared watch-later write failed · try again/);
+  }
+  { /* known state, landed write: the flip stays and nothing flashes */
+    const WATCH = new Set(); const flashes = [];
+    const fn = asyncFnFrom(shell, "toggleWatch", { WATCH, WATCH_READY: true, WATCH_ERROR: "",
+      syncWatch: async () => WATCH, ytAct: async () => ({}),
+      wlFlash: (t) => flashes.push(t), paint: () => {}, refreshWatchButton: () => {}, YOUTUBE_ACCOUNT: "personal" });
+    await fn(v);
+    assert.ok(WATCH.has("vidZ"), "a landed save stays");
+    assert.deepEqual(flashes, [], "no flash on success");
+  }
+
+  /* refreshWatchButton: the button may not claim "save to watch later" while nothing is known. */
+  const btnCase = (bind) => {
+    const b = { textContent: "", disabled: false, title: "", cls: new Set(),
+      classList: { toggle(c, on) { if (on) this._s.add(c); else this._s.delete(c); }, remove(c) { this._s.delete(c); }, _s: new Set() },
+      setAttribute() {} };
+    const fn = fnFromSource(shellP, "refreshWatchButton", Object.assign({ el: () => b, CUR: { video_id: "vidZ" } }, bind));
+    fn(); return b;
+  };
+  assert.equal(btnCase({ WATCH_READY: false, WATCH_ERROR: "x", WATCH: new Set() }).textContent, "watch later — state unknown");
+  assert.match(btnCase({ WATCH_READY: false, WATCH_ERROR: "x", WATCH: new Set() }).title, /saved-or-not is unknown, not “unsaved”/);
+  assert.equal(btnCase({ WATCH_READY: false, WATCH_ERROR: "", WATCH: new Set() }).textContent, "watch later…");
+  assert.equal(btnCase({ WATCH_READY: true, WATCH_ERROR: "", WATCH: new Set(["vidZ"]) }).textContent, "remove from watch later");
+  assert.equal(btnCase({ WATCH_READY: true, WATCH_ERROR: "", WATCH: new Set() }).textContent, "save to watch later");
+});
