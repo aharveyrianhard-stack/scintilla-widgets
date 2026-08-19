@@ -177,10 +177,27 @@ const DATA_ASOF = '2026-07-24 (FMP quote/DCF/treasury/ERP pull)';   // STATIC BA
    debt weight — no DB table carries these yet. Every element shows its source in the badge strip. */
 const SB_REST='https://wadinxqplrggagkvrdag.supabase.co/rest/v1';
 const SB_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g';
+/* THE SAME 20s CEILING /health USES. This reader had no bound, so a Supabase socket that
+   opened and said nothing held its badge at its loading state forever - on pages whose
+   whole point is a truthful per-source badge. A timeout is its own outcome and its own
+   words, kept distinct from an HTTP failure. */
+const SB_HARD_MS = 20000;
 async function sbGet(path){
-  const r=await fetch(SB_REST+'/'+path,{headers:{apikey:SB_ANON,Authorization:'Bearer '+SB_ANON},cache:'no-store'});
-  if(!r.ok) throw new Error(path.split('?')[0]+' '+r.status);
-  return r.json();
+  const controller = typeof AbortController === 'undefined' ? null : new AbortController();
+  const hard = controller ? setTimeout(() => controller.abort(), SB_HARD_MS) : null;
+  try {
+    const r=await fetch(SB_REST+'/'+path,{headers:{apikey:SB_ANON,Authorization:'Bearer '+SB_ANON},cache:'no-store',signal:controller?.signal});
+    if(!r.ok) throw new Error(path.split('?')[0]+' '+r.status);
+    /* Awaited inside the try so the ceiling covers the body read too. */
+    return await r.json();
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      const t = new Error(path.split('?')[0] + ' no answer in ' + (SB_HARD_MS/1000) + 's');
+      t.scTimeout = true;
+      throw t;
+    }
+    throw e;
+  } finally { if (hard) clearTimeout(hard); }
 }
 const SPINE={}, DB_SRC={};
 let RF_DB=null;

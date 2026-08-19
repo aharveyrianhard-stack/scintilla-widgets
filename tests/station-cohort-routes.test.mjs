@@ -322,5 +322,5 @@ test("an error-shaped empty page is never mistaken for the end of the table", as
 
   /* The fundamentals call site converts the flag to a throw at the one place that pages. */
   const fundamentals = read("../templates/fundamentals.html");
-  assert.match(fundamentals, /if \(rows && rows\._sbError\)\n\s*throw new Error\('cohort read failed'/);
+  assert.match(fundamentals, /if \(rows && rows\._sbError\)\n\s*throw new Error\('cohort read failed \(' \+ sbFailWord\(rows\) \+ '\)'\)/);
 });

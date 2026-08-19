@@ -86,18 +86,40 @@
 // FMP never gets called from this page. Every read below is PostgREST against Supabase.
 const SB_URL = 'https://wadinxqplrggagkvrdag.supabase.co';
 const SB_KEY = 'sb_publishable_AutibLpFtTns-WHAg67Pvw_I0HmjqE9';
+/* THE SAME 20s CEILING /health USES. Without a bound, a socket that opened and said
+   nothing held a section at its loading state forever. A timeout keeps the page's
+   error-array convention and is marked as its own kind, so a banner can say "no answer
+   in 20s" instead of inventing an HTTP status for it. */
+const SB_HARD_MS = 20000;
 async function sb(path){
-  const res = await fetch(SB_URL+'/rest/v1/'+path, { headers:{ apikey: SB_KEY, Authorization: 'Bearer '+SB_KEY } });
-  if(!res.ok) {
-    const body = await res.text().catch(()=>'');
-    console.error('Supabase read failed', path, res.status, body);
-    // Mark the empty array so callers can tell "query/schema error" apart from "table genuinely has
-    // 0 rows" — these must never be conflated into the same gap-banner message. A 400 here is usually
-    // a wrong column/table name, not a real data gap, and reporting it as one would be dishonest in
-    // the other direction (hiding a bug behind a "master hasn't ingested this yet" excuse).
-    const empty = []; empty._sbError = true; empty._sbStatus = res.status; return empty;
-  }
-  return res.json();
+  const controller = typeof AbortController === 'undefined' ? null : new AbortController();
+  const hard = controller ? setTimeout(() => controller.abort(), SB_HARD_MS) : null;
+  try {
+    const res = await fetch(SB_URL+'/rest/v1/'+path, { headers:{ apikey: SB_KEY, Authorization: 'Bearer '+SB_KEY }, signal: controller?.signal });
+    if(!res.ok) {
+      const body = await res.text().catch(()=>'');
+      console.error('Supabase read failed', path, res.status, body);
+      // Mark the empty array so callers can tell "query/schema error" apart from "table genuinely has
+      // 0 rows" — these must never be conflated into the same gap-banner message. A 400 here is usually
+      // a wrong column/table name, not a real data gap, and reporting it as one would be dishonest in
+      // the other direction (hiding a bug behind a "master hasn't ingested this yet" excuse).
+      const empty = []; empty._sbError = true; empty._sbStatus = res.status; return empty;
+    }
+    /* Awaited inside the try so the ceiling covers the body read too — a stalled body
+       stream is the same hang as a stalled socket. */
+    return await res.json();
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      console.error('Supabase read timed out', path, SB_HARD_MS + 'ms');
+      const empty = []; empty._sbError = true; empty._sbTimeout = true; return empty;
+    }
+    throw e;
+  } finally { if (hard) clearTimeout(hard); }
+}
+/* The words a failed error-array renders under: a timeout is not an HTTP status. */
+function sbFailWord(rows){
+  if (rows && rows._sbTimeout) return 'no answer in ' + (SB_HARD_MS/1000) + 's';
+  return 'HTTP ' + (rows && rows._sbStatus != null ? rows._sbStatus : 'error');
 }
 function nowSec(){ return Date.now()/1000; }
 function tsToSec(ts){ // updated_ts columns are a mix of bigint epoch-seconds and timestamptz strings — normalize both
@@ -142,7 +164,7 @@ async function loadUniverse(){
   const axis = await SC_COHORT_AXIS.loadAxis(async (path) => {
     const rows = await sb(path);
     if (rows && rows._sbError)
-      throw new Error('cohort read failed' + (rows._sbStatus ? ' (HTTP ' + rows._sbStatus + ')' : ''));
+      throw new Error('cohort read failed (' + sbFailWord(rows) + ')');
     return rows;
   });
   COHORT_TRUNCATED = !!axis.truncated;
@@ -1472,7 +1494,7 @@ async function renderInsider(sym){
     document.getElementById('ins_note').innerHTML='';
     document.getElementById('ins_cards_grid').style.display='none';
     document.getElementById('ins_gap').style.display='block';
-    document.getElementById('ins_gap').innerHTML = gapBanner('insider_trades query failed for '+sym+' (HTTP '+TX._sbStatus+')', 'This is a query error, not a confirmed empty result — the table has 33,256+ rows overall. Needs an engineering look.');
+    document.getElementById('ins_gap').innerHTML = gapBanner('insider_trades query failed for '+sym+' ('+sbFailWord(TX)+')', 'This is a failed read, not a confirmed empty result — the table has 33,256+ rows overall. Needs an engineering look.');
     return;
   }
   if(!TX.length){
@@ -1549,7 +1571,7 @@ async function renderCOT(){
   const rows = await sb('cot_history?select=*&symbol=eq.ES&order=date.desc&limit=8');
   if(rows._sbError){
     document.getElementById('cotBody').innerHTML = gapBanner(
-      'cot_history query failed (HTTP '+rows._sbStatus+')',
+      'cot_history query failed ('+sbFailWord(rows)+')',
       'This is a query/schema error, not a confirmed empty table — cot_history has real rows in it. Needs an engineering fix, not a wait for ingest.'
     );
     return;
@@ -1583,7 +1605,7 @@ async function renderEarnings(sym){
     sb('earnings_call_transcripts?select=*&ticker=eq.'+sym+'&order=call_date.desc&limit=1')
   ]);
   if(ev._sbError || tr._sbError){
-    document.getElementById('earningsBody').innerHTML = gapBanner('earnings query failed for '+sym, 'HTTP '+((ev._sbError?ev._sbStatus:tr._sbStatus))+' — a query/schema error, not a confirmed empty result.');
+    document.getElementById('earningsBody').innerHTML = gapBanner('earnings query failed for '+sym, sbFailWord(ev._sbError?ev:tr)+' — a failed read, not a confirmed empty result.');
     return;
   }
   if(!ev.length && !tr.length){
@@ -1645,7 +1667,7 @@ async function renderNews(sym){
     sb('news_sentiment?select=*&ticker=eq.'+sym)
   ]);
   if(articles._sbError || sent._sbError){
-    document.getElementById('newsBody').innerHTML = gapBanner('news query failed for '+sym, 'HTTP '+((articles._sbError?articles._sbStatus:sent._sbStatus))+' — a query/schema error, not a confirmed empty result.');
+    document.getElementById('newsBody').innerHTML = gapBanner('news query failed for '+sym, sbFailWord(articles._sbError?articles:sent)+' — a failed read, not a confirmed empty result.');
     return;
   }
   const s = sent[0];

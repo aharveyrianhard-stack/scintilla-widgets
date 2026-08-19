@@ -17,7 +17,20 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import test from "node:test";
 
+import vm from "node:vm";
+
 const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), "utf8");
+function fnFromSource(source, name, bindings = {}) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `${name} must exist`);
+  let depth = 0, end = -1;
+  for (let i = source.indexOf("{", start); i < source.length; i += 1) {
+    if (source[i] === "{") depth += 1;
+    if (source[i] === "}") depth -= 1;
+    if (depth === 0) { end = i + 1; break; }
+  }
+  return vm.runInNewContext(`(${source.slice(start, end)})`, bindings);
+}
 const ranks = read("../ranks/index.html");
 const reflow = read("../reflow/index.html");
 const events = read("../events/index.html");
@@ -62,4 +75,32 @@ test("/events tells a dead read apart from a clear calendar", () => {
 test("/cohorts names the FAV count failure instead of quietly dropping the number", () => {
   assert.match(cohorts, /favorites count unavailable — the hub_favorites read failed; the chip still navigates/);
   assert.match(cohorts, /' title="' \+ fav\.length \+ ' favorites"'/);
+});
+
+/* ---- the template DB readers share /health's 20s ceiling, with timeout words ---- */
+
+test("fundamentals/dcf/allocation readers are bounded and word a timeout as its own kind", () => {
+  const fundamentals = read("../templates/fundamentals.html");
+  const dcf = read("../templates/dcf.html");
+  const allocation = read("../templates/allocation-module.html");
+
+  for (const [name, src] of [["fundamentals", fundamentals], ["dcf", dcf], ["allocation", allocation]]) {
+    assert.match(src, /const SB_HARD_MS = 20000;/, name + " carries the ceiling");
+    assert.match(src, /signal:\s?controller\?\.signal/, name + " wires the abort signal");
+    assert.match(src, /return await r(?:es)?\.json\(\);/, name + " keeps the body read inside the ceiling");
+  }
+  /* dcf/allocation throw a marked error whose message carries the words. */
+  assert.match(dcf, /t\.scTimeout = true;/);
+  assert.match(allocation, /t\.scTimeout = true;/);
+  assert.match(dcf, /no answer in ' \+ \(SB_HARD_MS\/1000\) \+ 's'/);
+
+  /* fundamentals keeps its error-array convention and marks the timeout kind. */
+  assert.match(fundamentals, /empty\._sbError = true; empty\._sbTimeout = true; return empty;/);
+  const sbFailWord = fnFromSource(fundamentals, "sbFailWord", { SB_HARD_MS: 20000 });
+  assert.equal(sbFailWord({ _sbTimeout: true, _sbError: true }), "no answer in 20s");
+  assert.equal(sbFailWord({ _sbError: true, _sbStatus: 503 }), "HTTP 503");
+  assert.equal(sbFailWord({ _sbError: true }), "HTTP error");
+  /* No banner prints a raw status concatenation any more — a timeout has no status to wear. */
+  assert.ok(!fundamentals.includes("'HTTP '+((ev._sbError?ev._sbStatus:tr._sbStatus))"));
+  assert.ok(!fundamentals.includes("(HTTP '+TX._sbStatus+')"));
 });
