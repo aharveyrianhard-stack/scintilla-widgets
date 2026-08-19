@@ -380,3 +380,82 @@ BEFORE state of all three, from the pre-fix tree.
   prints `fail 0`.
 - `ae3050f`'s Claude-Session trailer carries a one-character typo in the session URL
   (`FGSs` for `FgSs`). A pushed commit message cannot be corrected; this line is the record.
+
+---
+
+# Round — executor 3, second continuation packet (2026-08-19, same session)
+
+Directive: finish the 8-unit repair packet, claim the next runnable unit after each result,
+preserve production safety, write a measured handoff. All eight named items were verified
+closed or dispositioned at entry (receipts above); this round's work is what re-measurement
+found behind them, plus the two runnable units the round-4 handoff queued. Nine units,
+eight commits (`405dc3a..96ec505` + the docs commit carrying this section). Suite at close:
+**238 pass, 0 fail** across 24 files; 10 browser proofs, 29 screenshots, all regenerable.
+
+## The units, with the defect each one killed
+
+- `405dc3a` — the allocation cohort table's promised "no candidate carries an accepted
+  composite — nothing can be ranked" was UNREACHABLE: `html || fallback` with `html` always
+  carrying the header row, so zero ranked candidates painted a bare header. The COMPARABLES
+  table had the identical dead gate, and its fallback named a state that cannot occur
+  ("all suggestions dropped" — dropped rows stay rendered greyed-out). Both decide on the
+  raw row count now. **The unit pin had proved the words exist, not that they could paint**
+  — only the degraded-states browser proof caught it. Rule 14 in practice.
+- `7bf4658` — /fundamentals boot had no catch: a cold provider outage (shim fails composite
+  reads closed) left every section at initial HTML with no banner anywhere. The failure now
+  paints at the universe status and the ticker sections still load.
+- `7e52b34` — `proofs/degraded-states.mjs`: /health provider-dead, /health Supabase-dead
+  (universe row fails CLOSED, roster lane "none readable"), /allocation all-voters-dead
+  (no fabricated NEUTRAL anywhere), /fundamentals quotes-dead (the render-time gate survives
+  a slider drag in a real browser). Fixtures grew the fundamentals/DCF spine and gate
+  ohlcv_history to the symbols the live table carries, so the unsupported internals keep
+  their true zero-rows state.
+- `305cf1c` — /pulse still carried the flattening: a dead read and an empty table were the
+  same strip. READ_FAILED + per-section failure wording in a distinct style; VIX fails by
+  half (live price beside a named dead vix_term). Proven both ways in
+  `proofs/pulse-failed-reads.mjs`, including the provider-dead case where the shim fails its
+  owned reads closed while vix_term still answers.
+- `04ae8d7` — zero favorites rendered one blank editable slot with no wording on the wall;
+  it now says "no favorites yet — the wall is empty, not broken", gated on the read having
+  landed (absence is only claimed once it is a fact). /deck's `?scene=`/`?cohort=`/`?page=`
+  addressing documented with each claim verified against the code; tokens.css ruled
+  OWNER RULING NEEDED (external consumers unverifiable from this repo — not deletable here).
+- `77283ab` — the DCF FY baseline (netDebt, D&A%, capex%, ΔNWC%) rides
+  balance_history/cashflow_history/fundamentals_history. Field availability measured FIRST
+  with read-only SELECTs: all ten bar tickers carry complete latest-FY rows;
+  balance_history carries net_debt directly. Ratios only from matching fiscal dates; a
+  negative ebitda−operating_income is rejected as an anomaly; the fy-baseline badge counts
+  who is live per field and reads STALE at 8/10 in the rig (TSM/IREN deliberately absent
+  from the fixture universe) — a partial overlay never rounds up. margin/tax defaults, MRP
+  and debt weight remain STATIC by name.
+- `96ec505` — re-measuring found the round-4 "swept" claim was SPELLING-SCOPED: the unit
+  pins banned `.catch(() => null)` but not `.catch(()=>null)`, and three pages still
+  flattened. /econ (dead dashboard = blank strip; dead calendar = "no calendar rows for
+  this filter"), /alerts (dead reads impersonating a quiet feed), /news (dead sentiment
+  chip vanishing like a no-row ticker) — all now keep named failures with honest empties
+  beside them, photographed both ways in `proofs/panel-failed-reads.mjs`.
+
+## Findings recorded, not fixed
+
+- **/youtube `ytAct` catch-null is a WRITE lane**: a failed star/unstar silently loses a
+  shared Watch Later write while the local UI shows it landed. Its own unit; any fix must
+  respect the station-shells mirrors (youtube/index.html is the reviewed source of two
+  mounted shells).
+- Remaining catch-null sites are deliberate and dispositioned by name in
+  `browser-proof/receipts/RECEIPTS.md` (sector-rotation spark catches feed the E1 coverage
+  gate; dcf FY-baseline catches keep the flagged static value counted per field; /cohorts'
+  hub_favorites catch is the kept marker behind its named tooltip; sector-rotation-older is
+  the retained rollback copy).
+
+## Database access this round
+
+Read-only, via the Supabase management surface: one `information_schema.columns` read and
+one 10-ticker FY-availability probe on scintilla-live (plus the project listing to find the
+ref). No mutation of any kind. Rounds 3–4 used none; this round's two SELECTs are the whole
+of it, and they are what made the DCF wiring runnable instead of speculative.
+
+## Errata, stated
+
+- None new: all eight commits went through the gate (`fail 0` + chart mirror + whitespace)
+  before push, and no pushed message overstates a count. The round-4 errata stand as
+  recorded above.

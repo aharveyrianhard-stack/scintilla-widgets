@@ -1,7 +1,8 @@
 # Station visible-truth closure — session handoff
 
-Written at a committed checkpoint by executor 3 after the continuation packet. Everything
-below was re-derived from the working tree at head, not carried forward from an earlier note.
+Written at a committed checkpoint by executor 3 after the second continuation packet
+(round 5). Everything below was re-derived from the working tree at head, not carried
+forward from an earlier note.
 
 ## Exact state
 
@@ -9,70 +10,56 @@ below was re-derived from the working tree at head, not carried forward from an 
 | --- | --- |
 | Repo | `aharveyrianhard-stack/scintilla-widgets` |
 | Branch | `claude/station-visible-truth-closure-8ipyru` |
-| Head | the docs commit carrying this handoff; last code commit `41927ae` — pushed |
+| Head | the docs commit carrying this handoff; last code commit `96ec505` — pushed |
 | PR | [#115](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/115) — **DRAFT, NO-MERGE** |
 | Uncommitted | **none** at handoff |
-| Tests | `node --test "tests/*.test.mjs"` → **228 pass, 0 fail**, 23 files |
-| Browser receipts | `browser-proof/receipts/` — 16 screenshots + `RECEIPTS.md`, every entry regenerable by the command it names |
-| Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit; no database reads at all in rounds 3–4 |
+| Tests | `node --test "tests/*.test.mjs"` → **238 pass, 0 fail**, 24 files |
+| Browser receipts | `browser-proof/` — 10 proof files, 29 screenshots + `RECEIPTS.md`, every entry regenerable by the command it names |
+| Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access this round: **two read-only SELECTs** on scintilla-live (schema + FY availability, recorded in the receipt); rounds 3–4 used none |
 | Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` |
 
-## What round 4 (the continuation packet) closed
+## What round 5 (the second continuation packet) closed
 
-**The three filed defects, fixed and browser-verified** (per-defect detail and receipts in
-`STATION_VISIBLE_TRUTH_RECEIPT.md`, "continuation packet" section):
-
-1. **AI Software cohort replaces the Favorites rows** — the cohort scene is first-class
-   again (the legacy `cohort→themeFamilies` collapse silently discarded every chosen
-   cohort) and the navigation index is the FULL membership per cohort (it was intersected
-   with hub_favorites, so a chosen cohort showed at most the favorites already on the
-   wall). FAV is the explicit default entry the cohorts replace; the deck has a
-   scene-scoped cohort picker with honest paging.
-2. **Megacap replaces the Favorites rows** — same fix, proven separately.
-3. **AI Power shows its declared rows** — `familyBasket()` was never given an id, so both
-   family scenes rendered their first basket forever; a scene-scoped family picker makes
-   every declared basket reachable (OKLO IREN CIFR BE WULF USAR verified on screen).
-
-**The defect-packet cluster:** ticks reach the chart within one poll and a deck pane within
-one pump heartbeat; the displayed change equals the provider's own arithmetic exactly; a
-cold range switch never blanks the canvas (20 continuous samples); the deck header's LIVE
-healthy state is photographed working. **CLOSED labels despite live feed** is a Hub-side
-defect: no such label exists anywhere in this repository (search recorded in the receipts) —
-it needs the scintilla-hub repo, which the standing locks forbid editing from here.
-
-**PR-review continuation:** the last `catch(() => null)` class is swept (/ranks fails a
-column by source name instead of claiming per-ticker "no data" and states its ETF-filter
-outage; /reflow refuses grey non-answers over a failure; /events tells a dead read apart
-from a clear calendar; /cohorts names the FAV-count failure) — browser-verified under forced
-500s. The fundamentals/dcf/allocation DB readers now share /health's 20s ceiling with
-timeout worded as its own kind.
-
-**New capability:** `browser-proof/` — real Chromium over the served repo with both data
-owners answered from one consistent fixture universe (outbound HTTPS to the real owners is
-proxy-blocked here: CONNECT 403, measured). Receipts prove PAGE behavior under controlled
-data, not the owners' data, and say so. Run:
-`PW_MODULE_DIR=<dir-with-playwright-core> node browser-proof/proofs/<name>.mjs`.
+Per-unit detail and the commit map live in `STATION_VISIBLE_TRUTH_RECEIPT.md`, "second
+continuation packet" section. In one paragraph: the four degraded states of /health,
+/allocation and /fundamentals are photographed in a real browser (`degraded-states.mjs`),
+which caught a real defect the source pins could not — the allocation tables' empty-state
+messages were UNREACHABLE (`html || fallback` with the header always in `html`), so zero
+ranked candidates painted a bare header; both tables now decide on the raw row count.
+/fundamentals no longer dies silently on a cold provider outage (boot had no catch). /pulse,
+/econ, /alerts and /news joined the failed-read discipline — re-measurement showed the
+round-4 "swept" claim was spelling-scoped (pins banned `.catch(() => null)` but not
+`.catch(()=>null)`), and three pages still rendered dead reads as empty tables; all are
+fixed and photographed both ways (`pulse-failed-reads.mjs`, `panel-failed-reads.mjs`). An
+empty FAV names itself on the deck wall, gated on the read having landed
+(`cohort-empty-fav.mjs`); /deck's scene URL params are documented with each claim verified
+against the code; tokens.css carries an explicit OWNER RULING NEEDED. The DCF FY baseline
+(netDebt · D&A% · capex% · ΔNWC%) now rides
+balance_history/cashflow_history/fundamentals_history — availability measured first with
+read-only SELECTs (all ten bar tickers complete; balance_history carries net_debt directly);
+ratios only from matching fiscal dates; the fy-baseline badge counts live fields per ticker
+and never says LIVE while short (`dcf-baseline.mjs` photographs the deliberate 8/10 rig
+state). margin/tax defaults, MRP and debt weight stay STATIC by name.
 
 ## Commit map
 
-Rounds 1–2: `d54da89..79cfb67` (14 commits — STATION-001…004, transport, identity, price
-authority; see the receipt). Round 3: `06e4a0a..fbeb12d` (12 commits — header healthy state,
-heartbeat vs bound, /health identity+ceilings, allocation geiger/zero-voters, fundamentals
-gate/TTL/kinds, DCF cold-load, price audit, sector spine gate, dependency inventory, docs).
-Round 4 (this packet): `91dfe7f` rig + BEFORE receipts · `4d7a65f` cohort scene model ·
-`85b9260` cohort picker + proof · `713a0de` family picker + proof · `5173ec7` tick/repaint/
-mismatch proofs + CLOSED disposition · `ae3050f` count erratum (regenerated from the
-filesystem) · `0564e02` catch-null sweep + proof · `41927ae` reader ceilings.
+Rounds 1–2: `d54da89..79cfb67` (14 commits). Round 3: `06e4a0a..fbeb12d` (12 commits).
+Round 4: `91dfe7f..41927ae` + docs `5876807` (9 commits; see the receipt). Round 5:
+`405dc3a` allocation dead gates · `7bf4658` fundamentals boot guard · `7e52b34`
+degraded-states proofs + fixtures · `305cf1c` /pulse failed reads · `04ae8d7` empty-FAV +
+URL docs + tokens ruling · `77283ab` DCF FY baseline · `96ec505` /econ /alerts /news
+failed reads · plus the docs commit carrying this handoff.
 
 ## Errata (cumulative, so nothing is re-derived as a mystery)
 
 - `d4eca89` says "219 tests" in its message; truth was 217.
 - `db01f2a` briefly red on one stale pin; repaired by `38694a5`.
 - `5173ec7` pushed while the inventory count test was red; `ae3050f` fixed it minutes later.
-  The session now commits through a gate script that requires `fail 0`.
+  Every commit since goes through a gate script that requires `fail 0`.
 - `ae3050f`'s Claude-Session trailer has a one-character URL typo. Recorded; unfixable.
+- Round 5 added none: eight commits, all gated green before push.
 
-## The rules (fourteen; unchanged from round 3's handoff)
+## The rules (fourteen; unchanged)
 
 A failed read is never data · only the owner may name an absence · a successful response
 accounts for every requested symbol · emptiness is decided on the raw value · unknown time
@@ -82,59 +69,67 @@ offset paging requires a total order · a sample may only speak for itself · a 
 cadence, not invalidation · no voters is not a neutral answer · the gate lives where the
 paint lives · a claim's evidence must match the claim's scope.
 
-## Live facts, measured in earlier rounds — do not re-derive by guess
+Round 5 exercised rule 14 twice: a source pin proves words EXIST, not that they can PAINT
+(the allocation dead gate survived its pin until a browser proof asserted the render); and a
+"swept" claim scoped to one spelling is a claim about the spelling, not the class.
 
-Unchanged from the round-3 handoff: `ticker_cohorts` view, 1,283 memberships, no
-`is_primary`; `tickers.cohort` = home (387/387, 16 homes); equity universe 365 = 387 − 22
-with 90 NULL types (AAPL among them); `news` 312,664 rows / 1,246 NULL `published_ts`, PK
-`(ticker,url)`; `composite_staged.updated_ts` epoch seconds vs `live_quotes.updated_ts`
-timestamptz; unfiltered `ohlcv_history` order-by → 57014; five `/quotes` probes 0.84s,
-6.86s, 1.27s, 2.71s, 0.27s (the basis of rule 7); non-equity roster `BTCUSD ESUSD NQUSD
-CLUSD GCUSD SIUSD DXUSD US10Y VIX`.
+## Live facts, measured — do not re-derive by guess
+
+Unchanged from earlier rounds: `ticker_cohorts` view, 1,283 memberships, no `is_primary`;
+`tickers.cohort` = home (387/387, 16 homes); equity universe 365 = 387 − 22 with 90 NULL
+types (AAPL among them); `news` 312,664 rows / 1,246 NULL `published_ts`, PK `(ticker,url)`;
+`composite_staged.updated_ts` epoch seconds vs `live_quotes.updated_ts` timestamptz;
+unfiltered `ohlcv_history` order-by → 57014; five `/quotes` probes 0.84s–6.86s (rule 7's
+basis); non-equity roster `BTCUSD ESUSD NQUSD CLUSD GCUSD SIUSD DXUSD US10Y VIX`.
+
+New this round (2026-08-19, read-only): `balance_history` columns include `net_debt`,
+`current_assets`, `current_liabilities`; `cashflow_history` includes `capex`;
+`fundamentals_history` includes `revenue`, `ebitda`, `operating_income`. All ten DCF bar
+tickers (NVDA MU GOOGL NBIS AVGO TSM AAPL MSFT TSLA IREN) have latest-FY rows in all three
+tables with every needed field non-null; latest FY dates range 2025-06-30 (IREN, MSFT) to
+2026-01-25 (NVDA) and MATCH across the three tables per ticker today.
 
 ## Exact remaining defects and blockers
 
 | # | Item | State |
 | --- | --- | --- |
 | 1 | **CLOSED labels despite live feed** | **CROSS-REPO.** Lives in scintilla-hub; no such label exists in this repository (search recorded). Needs Hub repo access, which the standing locks forbid from this branch. |
-| 2 | **F1 — sector-rotation cross-project** | **ACTIVE/BLOCKED.** `sectorrotation.scintillahub.ai/_provider/provider.js` is 404; Fly CORS rejects that origin. The page now refuses the authority claim without the shim (NOT PROVIDER AUTHORITY) and never claims LIVE on a short spine — visible, not closed. Needs the scintilla-sector deploy + CORS. |
-| 3 | **Scene internals** | **ACTIVE/BLOCKED.** `ADD PCC CUMTICK TICK TRIN` unowned; panes retry correctly; `/health` carries them BAD by construction. Needs an owner's support-or-absence ruling. |
-| 4 | **H2 (X)** | Untouched, proof-gated by instruction. |
-| 5 | **H3 / H4** | Contracts asserted; gesture feel and fullscreen geometry need a human eye. |
-| 6 | **Fly CORS vs preview origin** | Still not allowed → no LIVE-data provider path provable end-to-end from the preview. The rig covers stubbed-data acceptance only, and says so. |
-| 7 | **Independent re-audit** | Everything above, pending. Round 4 again found real defects in surfaces called complete earlier (the cohort collapse, the family id, the four catch-null panels). The test count is not the verdict. |
+| 2 | **F1 — sector-rotation cross-project** | **ACTIVE/BLOCKED.** Needs the scintilla-sector deploy + CORS; the page refuses the authority claim without the shim and never claims LIVE on a short spine. |
+| 3 | **Scene internals** | **ACTIVE/BLOCKED.** `ADD PCC CUMTICK TICK TRIN` unowned; `/health` carries them BAD by construction. Needs an owner's support-or-absence ruling. |
+| 4 | **/youtube `ytAct` lost writes** | **NEW, RECORDED.** A failed star/unstar silently loses a shared Watch Later write while the UI shows it landed. WRITE lane; fixing it must respect the station-shells mirrors. Runnable, carefully. |
+| 5 | **DCF live acceptance** | The fy-baseline badge should read LIVE 10/10 against the real database (measured availability says so); needs a live browser on the preview. The rig's 8/10 receipt is the fixture's shape, not the owners' data. |
+| 6 | **H2 (X)** | Untouched, proof-gated by instruction. |
+| 7 | **H3 / H4** | Contracts asserted; gesture feel and fullscreen geometry need a human eye. |
+| 8 | **Fly CORS vs preview origin** | Still not allowed → no LIVE-data provider path provable end-to-end from the preview. |
+| 9 | **Independent re-audit** | Pending, and still the merge gate. Round 5 again found real defects behind surfaces called complete (the unreachable empty-state messages, the spelling-scoped sweep). The test count is not the verdict. |
 
 ## Next units, in order — ≥8, runnable-now first
 
-1. **Extend browser proofs to the degraded states** of /health, /allocation, /fundamentals
-   and /dcf (provider dead, Supabase dead, both) — the rig makes each a small proof file
-   with screenshots; the unavailable renderings from round 3 have unit pins but no browser
-   receipts yet. Runnable now.
-2. **`tokens.css` ruling** — served, referenced by nothing (named in the route inventory).
-   Retire or wire; one small commit. Runnable now.
-3. **DCF static-baseline DB wiring** — netDebt / D&A% / capex% / ΔNWC% / margin & tax
-   defaults still carry the Jul-24 snapshot, honestly flagged STATIC. Wire to
-   `fundamentals`/`fundamentals_history` as price/beta/shares/revenue already are. Runnable
-   (verify field availability with read-only queries when Supabase is reachable).
-4. **Cohort-scene edges** — an all-empty FAV (zero favorites) currently renders one empty
-   editable slot; give it an explicit "no favorites yet — choose a cohort" wording. Document
-   `?scene=cohort&cohort=…&page=…` in STATION_ROUTES.md. Small, runnable now.
-5. **Hub-side CLOSED-labels fix** — needs the scintilla-hub repo in scope; carry the search
-   evidence from the receipts so the Hub session starts warm. BLOCKED here.
-6. **F1 cross-project deploy + CORS** — as above. BLOCKED here.
-7. **Scene-internals ownership ruling** — as above. BLOCKED on an owner.
-8. **Live preview acceptance** — with Fly CORS allowing the preview origin and a live
-   browser, walk the receipt's 12-step checklist; the rig's stubbed acceptance is not this.
-   BLOCKED on CORS.
+1. **/youtube ytAct write-failure visibility** — revert the optimistic toggle and say the
+   write failed; regenerate the two mounted shells per the mirror discipline. Runnable now.
+2. **Fundamentals-page FY-consistency audit** — does `buildBase` derive its balance-sheet
+   ratios with the same matching-fiscal-date discipline the DCF baseline now enforces?
+   Verify and align or pin the difference. Runnable now.
+3. **DCF static remainder** — margin/tax defaults from fundamentals_history (margins are
+   already served), term-growth/MRP/debtW likely need an owner ruling; wire what has a
+   source, flag the rest. Runnable now.
+4. **Main-read failure states for /news and /cohorts strips** — their PRIMARY reads
+   (news, ticker_cohorts/composite) still reject to a page-level catch; give them the same
+   named-failure discipline the secondary lanes now have. Runnable now.
+5. **DCF live acceptance walk** (badge LIVE 10/10, values sane against the static baseline)
+   — needs a live browser on the preview; SB reads work from any origin today.
+6. **Hub-side CLOSED-labels fix** — BLOCKED here (needs scintilla-hub in scope).
+7. **F1 cross-project deploy + CORS** — BLOCKED here.
+8. **Scene-internals ownership ruling** — BLOCKED on an owner.
 9. **H3/H4 human verification** — BLOCKED on a human eye.
-10. **`MEGA_CAP` vs `MEGACAP`** — upstream duplication, outside this branch; worth a ruling.
+10. **`MEGA_CAP` vs `MEGACAP`** — upstream duplication; worth a ruling.
 
 ## Locks and boundaries still in force
 
 - Draft PR only. **Do not merge. Do not deploy production.** No Vercel production changes,
   no Supabase/Fly/R2 mutation, no Hub edit, no change to price / previous-close / Geiger
   authority or methodology.
-- Supabase access, when used, is read-only `SELECT`; rounds 3–4 used none.
+- Supabase access, when used, is read-only `SELECT`; round 5 used exactly two (recorded).
 - The stable Station URL is untouched; all risk stays on this branch and its preview.
 - Browser receipts are stubbed-data page proofs; do not present them as live-data
   acceptance. Live visual acceptance still requires a browser plus an allowed CORS origin.
