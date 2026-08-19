@@ -371,7 +371,27 @@ function parseSpark(j){
    The shim also maps the legacy pair now, so both spellings resolve, but the request states the
    token the contract actually accepts. */
 const OHLCV_VIEWS=[{view:'daily',tf:'D',lim:130},{view:'weekly',tf:'W',lim:110},{view:'intra',tf:'5m',lim:400},{view:'intra1',tf:'1m',lim:390}];
-let PRICE_SOURCE='pending';   // 'provider' | 'unavailable' | 'pending'
+let PRICE_SOURCE='pending';   // 'provider' | 'raw-tables' | 'unavailable' | 'pending'
+/* Which of the four views actually loaded, per ticker count. LIVE is a claim about the whole
+   D/W/5m/1m spine, so it may only be made when every view answered for every ticker; a spine
+   with a silent hole in it used to say LIVE off the daily benchmark alone. */
+let PRICE_COVERAGE=null;
+function priceCoverageParts(){
+  if(!PRICE_COVERAGE) return '';
+  return OHLCV_VIEWS.map(v=>v.tf+' '+(PRICE_COVERAGE[v.view]||0)+'/'+PRICE_COVERAGE.total).join(' · ');
+}
+function priceCoverageFull(){
+  return !!PRICE_COVERAGE && OHLCV_VIEWS.every(v=>(PRICE_COVERAGE[v.view]||0)===PRICE_COVERAGE.total);
+}
+/* THE AUTHORITY CLAIM REQUIRES THE AUTHORITY. This page reads ohlcv_history through
+   /_provider/provider.js, which answers provider-owned equities from the provider contract.
+   On the canonical cross-project origin (sectorrotation.scintillahub.ai) that script is
+   currently 404 — F1, ACTIVE/BLOCKED — and without it the same URLs are RAW legacy-table
+   reads. A page that cannot tell the difference would print "authority=provider" over raw
+   tables, which is the exact substitution the shim exists to end. */
+function providerShimActive(){
+  try { return typeof window!=='undefined' && !!window.SC_PROVIDER_SHIM; } catch(e){ return false; }
+}
 /* ---- C7 (2026-08-05): DATA SPINE badges — every data element shows table · freshness · LIVE/STALE/FALLBACK ---- */
 const SPINE={};
 function spineSet(k,ts,mode,note){ SPINE[k]={ts,mode,note}; renderSpine(); }
@@ -382,7 +402,7 @@ function spineAge(ts,staleSec){
 }
 function renderSpine(){
   const el=document.getElementById('dataSpine'); if(!el) return;
-  const col={LIVE:'#00ffa3',STALE:'#ffb454',FALLBACK:'#ffd166'};
+  const col={LIVE:'#00ffa3',STALE:'#ffb454',FALLBACK:'#ffd166',PARTIAL:'#ffb454'};
   el.innerHTML=Object.entries(SPINE).map(([k,v])=>
     `<span style="border:1px solid ${col[v.mode]||'#555'};color:${col[v.mode]||'#999'};border-radius:5px;padding:1px 7px;font-size:10px;font-family:ui-monospace,monospace" title="${(v.note||'').replace(/"/g,'&quot;')}">${k}${v.ts?' · '+freshText(v.ts):''} · ${v.mode}</span>`).join('');
 }
@@ -443,9 +463,18 @@ async function loadDataDB(){
   })));
   if(!next.daily[BENCH]||!next.daily[BENCH].closes.length) throw new Error('no benchmark daily bars in ohlcv_history');
   DS.daily=next.daily; DS.weekly=next.weekly; DS.intra=next.intra; DS.intra1=next.intra1;
-  PRICE_SOURCE='provider';
+  const shim=providerShimActive();
+  PRICE_SOURCE=shim?'provider':'raw-tables';
+  PRICE_COVERAGE={ total:tickers.length };
+  for(const v of OHLCV_VIEWS) PRICE_COVERAGE[v.view]=Object.keys(next[v.view]).length;
+  const full=priceCoverageFull();
   const bt=next.daily[BENCH].times, lastBar=bt.length?bt[bt.length-1]:null;
-  spineSet('provider /candles',lastBar,spineAge(lastBar,3*86400),'price spine (D/W/5/1) · latest completed bar shown · provider authority');
+  spineSet('provider /candles',lastBar,
+    !shim ? 'FALLBACK' : full ? spineAge(lastBar,3*86400) : 'PARTIAL',
+    (shim ? '' : 'AUTHORITY SHIM NOT LOADED — these are raw ohlcv_history table reads, NOT provider authority (this origin does not serve /_provider/provider.js) · ')
+    + 'price spine · ' + priceCoverageParts()
+    + (full ? '' : ' — the short views are missing, not substituted')
+    + ' · latest completed daily bar shown');
 }
 // The provider contract answers, or the page says it could not. No relay stands in for it.
 async function loadData(){
@@ -1554,8 +1583,14 @@ async function boot(manual){
     await loadData();
     renderAll(true);
     st.classList.remove('err');
+    /* LIVE is a whole-spine claim: all four views, every ticker, through the authority shim.
+       Anything less says exactly what it is instead. */
     st.innerHTML=PRICE_SOURCE==='provider'
-      ? `<b>● LIVE</b> provider /candles (authority=provider, completed bars) daily · updated ${new Date().toLocaleTimeString()} · auto-refresh ${REFRESH_MIN}min`
+      ? (priceCoverageFull()
+        ? `<b>● LIVE</b> provider /candles (authority=provider, completed bars) ${priceCoverageParts()} · updated ${new Date().toLocaleTimeString()} · auto-refresh ${REFRESH_MIN}min`
+        : `<b>● PARTIAL</b> provider /candles — ${priceCoverageParts()}; LIVE is not claimed while any view is short · nothing is substituted for the missing views · auto-refresh ${REFRESH_MIN}min`)
+      : PRICE_SOURCE==='raw-tables'
+      ? `<b>● NOT PROVIDER AUTHORITY</b> the authority shim did not load on this origin, so these bars are raw ohlcv_history table reads (${priceCoverageParts()}) · cross-project deploy of /_provider/provider.js is the fix (F1) · auto-refresh ${REFRESH_MIN}min`
       : `<b>● PRICE SPINE UNAVAILABLE</b> the provider contract did not answer · nothing is substituted · auto-refresh ${REFRESH_MIN}min`;
     document.getElementById('banner').style.display='none';
   }catch(e){
