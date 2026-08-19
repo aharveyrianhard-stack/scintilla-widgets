@@ -165,3 +165,41 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/cohort-empty-fav.mjs` (hub
 - **Choosing a cohort still replaces the (empty) favorites** (browser-proof/receipts/cohort-empty-fav-to-cohort.png): AI SOFTWARE fills the wall with its full declared membership (7 members) from the empty state.
 
 Zero page errors.
+
+---
+
+## 2026-08-19T12:21:52Z — the DCF FY baseline rides the history tables; the shortfall stays flagged
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/dcf-baseline.mjs` (fixture universe carries 8 of the 10 bar tickers; asserts inline)
+
+- **Derived exactly** (browser-proof/receipts/dcf-fy-baseline-partial-overlay.png): NVDA's netDebt/D&A%/capex%/ΔNWC% in the running page equal the arithmetic over the fixture's own FY rows (net_debt in billions; D&A = ebitda − operating_income; capex sign normalized; ΔNWC over the same fiscal date).
+- **The shortfall is worn, not hidden**: TSM and IREN are absent from the fixture universe, keep every Jul-24 static value, and the fy-baseline badge reads STALE with "netDebt 8/10 · D&A% 8/10 · capex% 8/10 · ΔNWC% 8/10" — a partial overlay never claims LIVE.
+- **What has no DB source stays STATIC by name**: margin/tax defaults · MRP · debt weight, as-of the stated vintage.
+
+Live field availability behind this unit was measured read-only the same day: all ten bar tickers carry complete latest-FY rows in balance_history/cashflow_history/fundamentals_history (balance_history carries net_debt directly), so on the real database the badge should read LIVE 10/10 — the rig's 8/10 is the fixture's own deliberate shape, not a claim about the owners' data.
+
+Zero page errors.
+
+---
+
+## 2026-08-19T12:22:33Z — degraded states, photographed: absence renders as absence
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/degraded-states.mjs` (asserts inline; failures injected per page over the healthy rig)
+
+- **/health, provider dead** (browser-proof/receipts/degraded-health-provider-dead.png): all three equity lanes fail with the failure word; the database lanes still answer beside them (the fixture roster carries rows the way the live tables do); the internals lane stays BAD by construction — the fixtures deliberately carry ZERO rows for ADD/PCC/CUMTICK/TICK/TRIN, mirroring their measured live state.
+- **/health, Supabase dead** (browser-proof/receipts/degraded-health-supabase-dead.png): provider quotes still answer, and the universe row fails CLOSED — "identity unverified — canonical set unreadable; count alone is not identity" — while the roster lane says "none readable" (a member that cannot be read is not a healthy member).
+- **/allocation, every voter dead** (browser-proof/receipts/degraded-allocation-no-voters.png): header UNAVAILABLE — NO VOTER ANSWERED, heat —, targets and moves UNAVAILABLE, the trace declines to narrate, the ranking says "no candidate carries an accepted composite" and lists the unscored names. No fabricated NEUTRAL anywhere. **This scenario caught a real defect the source pin could not**: the cohort table's empty-state message sat behind `html || fallback`, but `html` always carries the header row, so the promised message was unreachable — zero ranked rows painted a bare header (an empty panel where a named absence was promised). Fixed by deciding emptiness on the raw row count; the COMPARABLES table had the same dead gate (its old fallback even named a state that cannot occur, since dropped rows stay rendered greyed-out) — both now append the named absence under the kept header.
+- **/fundamentals, provider quotes dead** (browser-proof/receipts/degraded-fundamentals-quotes-dead.png): the header and banner state the missing price; valuation is disabled and STAYS disabled through a slider drag (the render-time gate, exercised in a real browser); the universe and fundamentals sections load normally around it. Also fixed in this unit: the page's boot had no catch, so a cold provider outage used to stop the whole page from booting with no banner at all — the universe failure now paints where the universe status lives and the ticker sections still load.
+
+Zero page errors across all four scenarios.
+
+---
+
+## 2026-08-19T12:22:38Z — rig smoke + BEFORE state of the filed cohort defects
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/rig-smoke.mjs`
+
+- Deck boots under fixtures with page errors: none.
+- Scene select options: live, indexNow, indexLeadership, companyLeadership, focus2, macroCrossAsset, internalsFast, internalsSlow, sectorFamilies, themeFamilies, cohort, custom — **no cohort scene is reachable** (defects 1–2: AI_SOFTWARE / MEGACAP cannot replace the favorites-based rows because no cohort can be chosen at all; the legacy "cohort" id normalizes to themeFamilies).
+- THEME FAMILIES renders NVDA, TSM, AVGO, ASML, MU, SNDK — the FIRST basket (AI COMPUTE); **AI POWER's declared rows are unreachable** (defect 3: familyBasket() is never given an id).
+- Screenshots: browser-proof/receipts/rig-smoke-deck-live.png · browser-proof/receipts/before-themeFamilies-always-first-basket.png

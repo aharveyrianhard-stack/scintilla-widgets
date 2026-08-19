@@ -92,8 +92,14 @@ export function supabaseRows(url) {
       market_cap: price(ticker) * 2e9, trailing_pe: 30, eps_ttm: price(ticker) / 30,
       price: price(ticker) - 5, updated_ts: new Date(Date.now() - 3600e3).toISOString() })));
   if (table === "balance_history")
-    return page(EQUITIES.map((ticker) => ({ ticker, fiscal_date: "2026-06-30", period: "FY",
+    /* The FY fiscal_date matches fundamentals_history's latest FY — the live tables carry
+       matching FY dates per ticker (measured 2026-08-19), and the DCF baseline derivation
+       refuses ratios across mismatched dates, so the fixture must be as consistent as the
+       real data or it would test the refusal instead of the arithmetic. net_debt is a real
+       live column, consistent here with total_debt − cash_and_equiv. */
+    return page(EQUITIES.map((ticker) => ({ ticker, fiscal_date: "2026-01-31", period: "FY",
       total_debt: price(ticker) * 2e8, cash_and_equiv: price(ticker) * 1e8,
+      net_debt: price(ticker) * 1e8,
       current_assets: price(ticker) * 4e8, current_liabilities: price(ticker) * 2.5e8,
       total_equity: price(ticker) * 9e8, updated_ts: new Date(Date.now() - 3600e3).toISOString() })));
   if (table === "fundamentals_history") {
