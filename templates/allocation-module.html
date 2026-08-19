@@ -180,6 +180,7 @@
     <div id="sectorStrip" style="margin-bottom:10px"></div>
     <div id="catTabs" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
     <table id="cohort"></table>
+    <div id="cohortUnavail" class="note" style="font-size:10px;margin-top:6px"></div>
     <div class="status"><button class="btn" id="refresh">↻ REFRESH FEEDS</button> <span class="updated" id="cohstamp"></span></div>
   </div>
 
@@ -585,15 +586,20 @@ function voters(){
   v.push({key:'DEF', name:'DEFENSIVES (inv)', sub:'XLP+XLU · '+(COMPOSITE['XLP']?'db':'fallback'), val: (gp2!=null && gu2!=null) ? clamp(-(gp2+gu2)/2) : null});
   return v;
 }
+/* ZERO VOTERS IS NOT A NEUTRAL MARKET.
+   With every voter absent or muted this returned 0, which reads NEUTRAL and prices the
+   invested curve at its midpoint - a deploy-to-the-midpoint instruction manufactured from
+   no data at all, painted exactly when the provider was down. No score is null, and every
+   consumer says "unavailable" instead of acting on it. */
 function heat(){
   let num = 0, den = 0;
   for (const v of voters()) { if (v.val == null) continue; const w = S.wts[v.key] ?? 0; num += v.val * w; den += w; }
-  return den ? num / den : 0;
+  return den ? num / den : null;
 }
 function heatWith(vlist, key, w){ // counterfactual: heat if this one voter's weight were w
   let num = 0, den = 0;
   for (const v of vlist) { if (v.val == null) continue; const wt = v.key === key ? w : (S.wts[v.key] ?? 0); num += v.val * wt; den += wt; }
-  return den ? num / den : 0;
+  return den ? num / den : null;
 }
 function investedAt(h){ const x = (1 - h) / 2; return (S.minInv + (S.maxInv - S.minInv) * x) / 100; }
 // LC/SC split: DATA-DRIVEN. Colder class gets the bigger sleeve, sized by the geiger spread.
@@ -635,24 +641,40 @@ function render(){
     gd.appendChild(row);
     if (VOTER_DESC[v.key]) {
       const d = document.createElement('div'); d.className = 'vdesc';
-      const allV = voters(), hNow = (() => { let n=0,dd=0; for (const x of allV){ if(x.val==null) continue; const w=S.wts[x.key]??0; n+=x.val*w; dd+=w; } return dd?n/dd:0; })();
+      const allV = voters(), hNow = heatWith(allV, v.key, S.wts[v.key] ?? 0);
       const cur = S.wts[v.key] ?? 0;
       const alt = cur > 0 ? 0 : 1;
       const hAlt = heatWith(allV, v.key, alt);
-      const fmt2 = x => (x>=0?'+':'')+x.toFixed(2);
-      const dEff = hAlt - hNow, mag = Math.abs(dEff);
-      const dir = dEff > 0.005 ? 'UP ⬆' : dEff < -0.005 ? 'DOWN ⬇' : 'nowhere —';
-      const strength = mag < 0.005 ? '' : mag < 0.02 ? 'barely' : mag < 0.06 ? 'a little' : mag < 0.12 ? 'noticeably' : 'a LOT';
-      d.innerHTML = VOTER_DESC[v.key] + (v.val==null ? '' :
-        `<span class="veffect">${cur>0 ? `ON. Mute it and the score goes ${dir} ${strength} (${fmt2(hNow)} → ${fmt2(hAlt)}).` : `OFF. Turn it on and the score goes ${dir} ${strength} (${fmt2(hNow)} → ${fmt2(hAlt)}).`}</span>`);
+      const fmt2 = x => x==null?'—':(x>=0?'+':'')+x.toFixed(2);
+      let effect = '';
+      if (v.val != null) {
+        if (hAlt == null) {
+          /* Muting the last live voter does not move the score to 0 - it removes it. */
+          effect = `<span class="veffect">ON. Mute it and no weighted voter remains — the score reads unavailable, not 0.</span>`;
+        } else {
+          const dEff = hAlt - (hNow ?? 0), mag = Math.abs(dEff);
+          const dir = dEff > 0.005 ? 'UP ⬆' : dEff < -0.005 ? 'DOWN ⬇' : 'nowhere —';
+          const strength = mag < 0.005 ? '' : mag < 0.02 ? 'barely' : mag < 0.06 ? 'a little' : mag < 0.12 ? 'noticeably' : 'a LOT';
+          effect = `<span class="veffect">${cur>0 ? `ON. Mute it` : `OFF. Turn it on`} and the score goes ${dir} ${strength} (${fmt2(hNow)} → ${fmt2(hAlt)}).</span>`;
+        }
+      }
+      d.innerHTML = VOTER_DESC[v.key] + effect;
       gd.appendChild(d);
     }
   }
-  const h = heat(), [lbl, color] = heatLabel(h);
-  document.getElementById('heatnum').textContent = (h>=0?'+':'') + h.toFixed(2);
-  document.getElementById('heatnum').style.color = color;
-  const hb = document.getElementById('heatbar'); barCSS(hb, h);
-  const hl = document.getElementById('heatlabel'); hl.textContent = lbl; hl.style.color = color;
+  const h = heat();
+  if (h == null) {
+    document.getElementById('heatnum').textContent = '—';
+    document.getElementById('heatnum').style.color = 'var(--dim)';
+    const hb = document.getElementById('heatbar'); hb.style.width = '0%';
+    const hl = document.getElementById('heatlabel'); hl.textContent = 'UNAVAILABLE — NO VOTER ANSWERED'; hl.style.color = 'var(--dim)';
+  } else {
+    const [lbl, color] = heatLabel(h);
+    document.getElementById('heatnum').textContent = (h>=0?'+':'') + h.toFixed(2);
+    document.getElementById('heatnum').style.color = color;
+    const hb = document.getElementById('heatbar'); barCSS(hb, h);
+    const hl = document.getElementById('heatlabel'); hl.textContent = lbl; hl.style.color = color;
+  }
 
   // dials display
   const set = (id, v, fmt) => { const e = document.getElementById(id); e.value = v; document.getElementById(id+'V').textContent = fmt; };
@@ -681,22 +703,51 @@ function render(){
   const gS = gv('SPY'), gI = gv('IWM');                  // SSOT: composite_staged
   if (gS != null && gI != null) {
     const lcs = lcShareAuto(h);
-    const tiltTerm = (S.lcTilt || 0) * h;
+    const tiltTerm = (S.lcTilt || 0) * (h ?? 0);
     document.getElementById('autosplit').innerHTML = `<b style="color:var(--gold)">LC/SC SPLIT — set by the data:</b> SPY geiger ${(gS>=0?'+':'')+gS.toFixed(2)} vs IWM geiger ${(gI>=0?'+':'')+gI.toFixed(2)} → LC share = 50% + (IWM ${(gI>=0?'+':'')+gI.toFixed(2)} − SPY ${(gS>=0?'+':'')+gS.toFixed(2)})×50%${S.lcTilt?` + heat-tilt ${(tiltTerm>=0?'+':'')+(tiltTerm*100).toFixed(1)}%`:''} = <b style="color:var(--txt)">${pct(lcs,0)} LC / ${pct(1-lcs,0)} SC</b>. The colder class earns the bigger sleeve — ${gI<gS?'small caps read colder today':'large caps read colder today'}${Math.abs(gI-gS)<0.06?' (barely: the two classes are near-even)':''}. Rails: LC is capped between 20% and 80% so one hot print can never zero out a whole class.`;
+  }
+  /* NO SCORE, NO TARGETS AND NO MOVES.
+     Everything below prices the book off the heat score. When no voter answered, painting
+     the midpoint would BE an allocation instruction nobody produced - the exact number a
+     dead provider used to manufacture. The panels say unavailable instead, the donut is
+     cleared rather than left showing the previous run, and the ranking below still lists
+     what can and cannot be scored. */
+  if (h == null) {
+    document.getElementById('targets').innerHTML =
+      '<div class="note">UNAVAILABLE — no voter carries an accepted value (or every voter is muted), so there is no heat score, no invested target and no sleeve sizing. Nothing defaults to neutral.</div>';
+    document.getElementById('moves').innerHTML =
+      '<div class="note">UNAVAILABLE — moves are the gap between your book and a target that cannot be computed right now.</div>';
+    const dn = document.getElementById('donut');
+    if (dn) { const dctx = dn.getContext('2d'); if (dctx) { dctx.setTransform(1,0,0,1,0,0); dctx.clearRect(0,0,dn.width,dn.height); } }
+    renderBrief(null, null, null, null, null, null);
+    renderInputMap(null);
+    renderCohort(0, 0);
+    renderComps();
+    renderTrace(null);
+    const csFresh0 = SPINE['composite_staged'] && SPINE['composite_staged'].ts ? freshTxt(SPINE['composite_staged'].ts) : '—';
+    document.getElementById('stamp').textContent = 'MACRO HEAT MODULE · geiger SSOT composite_staged (' + csFresh0 + ') · universe ticker_cohorts+hub_favorites · % only, never dollars';
+    document.getElementById('cohstamp').textContent = 'SSOT: composite_staged + ticker_cohorts/hub_favorites + live_quotes + sector_rankings (db) · comps: fundamentals/ratios_history/analyst_estimates · the one fallback lane (macro-feed VIX/10Y levels) is flagged in the badge strip';
+    renderSpine(); renderSectorStrip();
+    save();
+    return;
   }
   // targets
   const inv = investedAt(h), lc = lcShareAuto(h), sc = 1 - lc;
   const lcEq = inv*lc, scEq = inv*sc;
   const perLC = lcEq / S.nLC, perSC = scEq / S.nSC;
   const SH = sleeveShares();
-  const sleeveRows = Object.entries(SH).sort((a,b)=>b[1]-a[1]).map(([k,sh]) => {
+  /* An empty sleeve set is a fact worth a sentence, not a silent gap; and the LENS row only
+     shows a split the data actually set - when SPY/IWM composites are absent the 50/50 rail
+     is the clamp's midpoint, not a reading, and printing it as one was a quiet substitute. */
+  const sleeveRows = Object.keys(SH).length ? Object.entries(SH).sort((a,b)=>b[1]-a[1]).map(([k,sh]) => {
     const gk = sleeveG(k), eq = sh * inv;
     return `<div class="move"><div class="mname" style="color:${SLEEVE_COLOR[k]}">${k}</div><div class="mval">${pct(eq)}<small>of equity · ${pct(sh,0)} of invested · geiger ${(gk>=0?'+':'')+gk.toFixed(2)} · ${namesPer(h)} names × ${pct(eq/namesPer(h))}</small></div></div>`;
-  }).join('');
+  }).join('') : '<div class="move"><div class="mname">SLEEVES</div><div class="mval" style="font-size:12px">unavailable<small>no sleeve proxy carries an accepted composite — sizing is not computed</small></div></div>';
+  const lensAvailable = gv('SPY') != null && gv('IWM') != null;
   document.getElementById('targets').innerHTML = `
     <div class="move"><div class="mname">INVESTED</div><div class="mval">${pct(inv)}<small>cash ${pct(1-inv)} — HOW MUCH comes from the heat score; WHERE comes from the sleeves below</small></div></div>
     ${sleeveRows}
-    <div class="move"><div class="mname">LC/SC LENS</div><div class="mval" style="font-size:12px">${pct(lc,0)} / ${pct(1-lc,0)}<small>the same book read as large-vs-small (IWM vs SPY) — a lens, not the mix</small></div></div>`;
+    <div class="move"><div class="mname">LC/SC LENS</div><div class="mval" style="font-size:12px">${lensAvailable ? pct(lc,0)+' / '+pct(1-lc,0) : 'unavailable'}<small>${lensAvailable ? 'the same book read as large-vs-small (IWM vs SPY) — a lens, not the mix' : 'SPY/IWM composite absent — the 20–80 rail midpoint is a clamp, not a reading'}</small></div></div>`;
 
   // moves
   const cInv = S.curInv/100, cLC = S.curLC/100, cSC = cInv - cLC;
@@ -768,6 +819,12 @@ function drawCurve(h){
   ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1.5; ctx.setLineDash([5,4]); ctx.beginPath();
   for (let i = 0; i <= 100; i++) { const hx = -1 + i/50; const p = lcShareAuto(hx); i ? ctx.lineTo(X(hx), Y(p)) : ctx.moveTo(X(hx), Y(p)); }
   ctx.stroke(); ctx.setLineDash([]);
+  /* The curves are policy and always draw; the TODAY marker is data and only draws when a
+     score exists. A marker at the midpoint of a scoreless day is the fabrication again. */
+  if (h == null) {
+    ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#8a8aa0';
+    ctx.fillText('no live marker — heat unavailable (no voter answered)', L + 8, T + 28);
+  } else {
   // now marker
   ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
   ctx.beginPath(); ctx.moveTo(X(h), T); ctx.lineTo(X(h), H-B); ctx.stroke(); ctx.setLineDash([]);
@@ -779,6 +836,7 @@ function drawCurve(h){
   ctx.fillText(lbl, lx, Y(iv) - 10);
   ctx.font = '10px monospace'; ctx.fillStyle = '#ffd166';
   ctx.fillText('LC share ' + (lcs*100).toFixed(0) + '% (data-set)', lx, Y(lcs) - 6);
+  }
   ctx.fillStyle = '#8a8aa0'; ctx.font = '10px monospace';
   ctx.fillText('── invested % target', L+8, T+12); ctx.fillStyle = '#ffd166'; ctx.fillText('╌╌ LC share of invested', L+150, T+12);
 }
@@ -819,6 +877,10 @@ function drawMix(tLC, tSC, tCash, cLC2, cSC2, cCash){
 }
 function renderBrief(h, inv, lc, dTot, dLC, dSC){
   const el = document.getElementById('brief'); if (!el) return;
+  if (h == null) {
+    el.innerHTML = 'UNAVAILABLE — no voter carries an accepted value right now, so there is no heat score and no desk read. A brief written from numbers that do not exist would be fiction with a confident tone; check the badge strip below for which source is failing.';
+    return;
+  }
   /* The brief is written from the same accepted numbers the score uses. It used to re-derive
      its geigers from the cohort-feed through the retired client math, and to quote a Yahoo VIX
      or 10Y with no flag - prose is where an unmarked substitute reads most like authority. */
@@ -844,7 +906,7 @@ function renderInputMap(h){
   const P = 'MAIN', SUB = 'SUB-DIAL', RAIL = 'RAIL (constant)', APPR = 'APPROVED (don’t touch)';
   const rows = [
     ['Voter weights ×8', P, Object.entries(S.wts).map(([k,v])=>k+' '+v).join(' · '), 'Each voter enters MACRO HEAT as value × weight ÷ total weight. Weight 0 = displayed, silent. The EFFECT line under each voter shows the exact Δ of flipping it today.'],
-    ['Invested at max COLD', P, S.maxInv+'%', 'The left end of the invested line: at heat −1 you hold this. Raising it by 10% raises today’s target by 10% × how-cold ('+(((1-h)/2)*100).toFixed(0)+'% today).'],
+    ['Invested at max COLD', P, S.maxInv+'%', 'The left end of the invested line: at heat −1 you hold this. Raising it by 10% raises today’s target by 10% × how-cold ('+(h==null?'unavailable today':(((1-h)/2)*100).toFixed(0)+'% today')+').'],
     ['Invested at max HOT', P, S.minInv+'%', 'The right end: at heat +1 you hold this floor. Raising it lifts the whole hot side of the line.'],
     ['Positions LC / SC', P, S.nLC+' / '+S.nSC, 'Divides each sleeve into per-position units — changes nothing about totals, only the size of "one position" that moves are quoted in.'],
     ['Current % invested + LC%', P, S.curInv+'% / '+S.curLC+'%', 'Your reality (IBKR-seeded). Moves = target − this. No effect on targets.'],
@@ -865,11 +927,11 @@ function renderCohort(dLC, dSC){
   const PROXY_EXCLUDE = new Set(['IWM','SMH','RSP','XLP','XLU','SPY','QQQ']);
   let allrows = candidateSyms().filter(s => !PROXY_EXCLUDE.has(s))
     /* A TRUTHY OBJECT WITH A NULL SCORE IS NOT A SCORE.
-       tickerG returns {g:null} when a symbol is in a cohort but the accepted composite is
-       absent, and `!tg` does not catch that: null + styleAdj coerces to 0, the row ranks as a
-       neutral score nobody produced, and r.g.toFixed(2) then throws on render. The exact
-       provider-missing case crashed the page. Unscored rows are excluded from the ranking and
-       listed separately as unavailable. */
+       tickerG returns {g:null} when the accepted composite is absent, and `!tg` does not
+       catch that: null + styleAdj coerces to 0, the row ranks as a neutral score nobody
+       produced, and r.g.toFixed(2) then throws on render. The exact provider-missing case
+       crashed the page. Unscored rows are excluded from the ranking and listed by name in
+       the strip under the table - exclusion without the listing was silence. */
     .map(s => { const tg = tickerG(s); if (!tg || tg.g == null || !isFinite(tg.g)) return null;
       const g = tg.g, adj = g + styleAdj(s, SPR2);
       const q = QUOTES[s];
@@ -891,6 +953,8 @@ function renderCohort(dLC, dSC){
   if(!liveCats.includes(CATFILTER)) CATFILTER='ALL';
   const tb=document.getElementById('catTabs');
   if(tb) tb.innerHTML = liveCats.map(c=>`<button onclick="setCat('${c}')" style="background:${c===CATFILTER?'var(--cyan)':'#14141f'};color:${c===CATFILTER?'#0a0a0f':'var(--cyan)'};border:1px solid var(--line);border-radius:6px;padding:5px 12px;font-family:inherit;font-size:11px;letter-spacing:.08em;cursor:pointer;font-weight:${c===CATFILTER?'700':'400'}">${c}</button>`).join('');
+  const unscored = candidateSyms().filter(s => !PROXY_EXCLUDE.has(s))
+    .filter(s => { const tg = tickerG(s); return !tg || tg.g == null || !isFinite(tg.g); }).sort();
   let rows = (CATFILTER!=='ALL') ? allrows.filter(r=>r.sleeves.includes(CATFILTER)) : allrows;
   const sleeveRank = {};
   for (const sl of Object.keys(SLEEVES)) {
@@ -926,7 +990,11 @@ function renderCohort(dLC, dSC){
       <td class="r" style="color:${k.rev_growth>0?'var(--green)':k.rev_growth<0?'var(--red)':'var(--dim)'}">${k.rev_growth==null?'<span class=cls>—</span>':spct(k.rev_growth,0)}</td>
       <td class="r">${pctc(k.gross_m)}</td><td class="r">${pctc(k.net_m)}</td><td class="r">${num(k.de,2)}</td></tr>`;
   }
-  t.innerHTML = html;
+  t.innerHTML = html || '<tr><td class="cls">no candidate carries an accepted composite — nothing can be ranked</td></tr>';
+  const uv = document.getElementById('cohortUnavail');
+  if (uv) uv.innerHTML = unscored.length
+    ? '<b>excluded from this ranking — accepted composite unavailable:</b> ' + unscored.join(' · ') + ' <span class="cls">(nothing is scored for them and nothing is substituted)</span>'
+    : '';
   t.querySelectorAll('.cmpstar').forEach(el => el.onclick = () => toggleCompare(el.getAttribute('data-sym')));
 }
 let COMPARE = new Set(JSON.parse(localStorage.getItem('alloc-compare')||'[]'));
@@ -991,6 +1059,11 @@ function renderComps(){
   t.querySelectorAll('.compick').forEach(el=>el.onclick=()=>{ const s=el.getAttribute('data-sym'); if(PICKS.has(s)){ PICKS.delete(s); } else { if(PICKS.size>=(S.maxTotal??12)){ const pn=document.getElementById('pickNote'); if(pn){ pn.textContent='Total-names hard cap reached ('+(S.maxTotal??12)+'). Drop a pick or raise the TOTAL cap in DIVERSIFICATION.'; pn.style.color='var(--orange)'; } return; } PICKS.add(s); } localStorage.setItem('alloc-picks',JSON.stringify([...PICKS])); render(); });
 }
 function renderTrace(h, inv, lc, lcEq, scEq, perLC, perSC, cInv, cLC, cSC, dTot, dLC, dSC){
+  if (h == null) {
+    document.getElementById('trace').textContent =
+      'no heat score — no arithmetic chain to trace. No voter carried an accepted value (or every voter is muted); nothing below the voters was computed, so nothing is printed as if it had been.';
+    return;
+  }
   const f2 = x => (x==null||!isFinite(x)) ? '—' : (x>=0?'+':'')+x.toFixed(2);
   const cy = s => `%c${s}%c`;
   const L = [];

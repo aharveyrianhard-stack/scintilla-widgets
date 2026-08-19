@@ -105,3 +105,63 @@ test("the geiger dials are gone with the geiger they dialled", () => {
   assert.match(allocation, /id="vixCold"/);
   assert.match(allocation, /id="tenCold"/);
 });
+
+/* ---- the missing-composite runtime: no score is null, and null is said out loud ---- */
+
+function heatHarness(voterVals, weights) {
+  const bindings = {
+    S: { wts: weights },
+    voters: () => voterVals.map((val, i) => ({ key: Object.keys(weights)[i], val })),
+  };
+  bindings.heat = fnFrom(allocation, "heat", bindings);
+  bindings.heatWith = fnFrom(allocation, "heatWith", bindings);
+  return bindings;
+}
+
+test("zero voters is not a neutral market — heat is null, never a fabricated 0", () => {
+  /* Every voter absent: the exact state a dead provider produces. */
+  const dead = heatHarness([null, null], { SPY:1, QQQ:1 });
+  assert.equal(dead.heat(), null, "no voter answered → no score");
+  /* Every voter muted: values exist, nobody is weighted. */
+  const muted = heatHarness([0.4, -0.2], { SPY:0, QQQ:0 });
+  assert.equal(muted.heat(), null, "all weights 0 → no score");
+  /* One live weighted voter is a real score again. */
+  const live = heatHarness([0.4, null], { SPY:1, QQQ:1 });
+  assert.equal(live.heat(), 0.4);
+  /* And the counterfactual that mutes the last voter reports null, not 0. */
+  const one = heatHarness([0.4, null], { SPY:1, QQQ:1 });
+  assert.equal(one.heatWith(one.voters(), "SPY", 0), null);
+});
+
+test("a scoreless render says unavailable everywhere a number would have been invented", () => {
+  /* The header names the absence instead of painting +0.00 NEUTRAL. */
+  assert.match(allocation, /'UNAVAILABLE — NO VOTER ANSWERED'/);
+  /* Targets and moves refuse to price the book off a score that does not exist. */
+  assert.match(allocation, /no heat score, no invested target and no sleeve sizing\. Nothing defaults to neutral\./);
+  assert.match(allocation, /moves are the gap between your book and a target that cannot be computed right now\./);
+  /* The donut is cleared, not left showing the previous run's allocation. */
+  assert.match(allocation, /dctx\.clearRect\(0,0,dn\.width,dn\.height\)/);
+  /* The curve keeps its policy lines but drops the TODAY marker. */
+  assert.match(allocation, /'no live marker — heat unavailable \(no voter answered\)'/);
+  /* Brief and trace decline rather than narrate numbers nobody produced. */
+  assert.match(allocation, /no heat score and no desk read/);
+  assert.match(allocation, /no heat score — no arithmetic chain to trace/);
+  /* Muting the last voter is explained as removal, not as zero. */
+  assert.match(allocation, /the score reads unavailable, not 0\./);
+});
+
+test("what cannot be scored is listed by name under the ranking, not silently dropped", () => {
+  assert.match(allocation, /id="cohortUnavail"/);
+  assert.match(allocation, /excluded from this ranking — accepted composite unavailable:/);
+  assert.match(allocation, /nothing is scored for them and nothing is substituted/);
+  assert.match(allocation, /no candidate carries an accepted composite — nothing can be ranked/);
+});
+
+test("the LENS and the sleeves state their own absence instead of wearing the rail", () => {
+  /* lcShareAuto's 0.5 with SPY/IWM absent is the clamp midpoint, not a reading. */
+  const lcShareAuto = fnFrom(allocation, "lcShareAuto", { gv: () => null, S: { lcTilt:0 } });
+  assert.equal(lcShareAuto(0.1), 0.5, "the rail itself is unchanged");
+  assert.match(allocation, /const lensAvailable = gv\('SPY'\) != null && gv\('IWM'\) != null;/);
+  assert.match(allocation, /the 20–80 rail midpoint is a clamp, not a reading/);
+  assert.match(allocation, /no sleeve proxy carries an accepted composite — sizing is not computed/);
+});
