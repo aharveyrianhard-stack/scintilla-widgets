@@ -1172,3 +1172,18 @@ Four symbols served through the tape's own universe read (browser-proof/receipts
 The same `null >= 0` shape was fixed in two more places the sweep found: `templates/allocation-module.html` painted its "—" day cell green, and `templates/sector-rotation.html` rendered a signed em-dash percentage (`+—%`) in green — now dim, and worded "change unknown". `/heat` was swept too and was already correct (both its colour functions refuse on null), which is what the fixed pages now match.
 
 Zero page errors. Rollback: revert the single commit — three guarded ternaries, one un-fabricated value, one ranking partition, pins and this proof. No data lane, authority or methodology changed.
+
+---
+
+## 2026-08-19T18:02:26Z — the Station WALL refuses the day's direction when the provider states no previous close
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/deck-day-direction.mjs` (asserts inline; reads the canvas pixels INSIDE the mounted shell iframes)
+
+`day-direction.mjs` proves the refusal on standalone `/chart`. This proves it where it matters: on `/deck`, whose panes are `/station-shells/chart-v1` iframes fed by the **deck's own** quote path — deck reads live_quotes, the provider shim rewrites that read to the provider's `/quotes`, deck maps the row and posts it across the frame boundary, and the shell's `scChartLive` puts the previous close into the map the pane colour is drawn from. A fix that held on the standalone page and broke anywhere along that chain would leave the wall still lying, so the wall is asserted on its own.
+
+- **The provider states a previous close below the price** (browser-proof/receipts/deck-wall-day-baseline-known-up.png): every painted pane on the wall is **bull**, zero bear pixels — the claim still gets made when it is earned.
+- **The provider states NO previous close — the fix** (browser-proof/receipts/deck-wall-day-baseline-unknown-neutral.png): every painted pane is **neutral**, with **zero bull and zero bear pixels**, and each pane's badge reads `—`. The series is still drawn; only the directional claim is withdrawn. Before this fix the wall painted a confident green or red here, from the first bar of whatever window happened to be loaded.
+
+Zero page errors on the wall in both states.
+
+Rollback: this proof is evidence only — it changes nothing. The unit it covers reverts with `chDayRef`'s commit.
