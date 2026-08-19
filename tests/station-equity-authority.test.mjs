@@ -337,9 +337,12 @@ test("no touched template uses a non-quote number as a current equity price", ()
   assert.match(fundamentals, /price: quotePriceOf\(sym\), priceUnavailable: quotePriceOf\(sym\) == null/);
   assert.doesNotMatch(fundamentals, /const price=f\?f\.price:null/, "the snapshot is no longer a price");
   assert.doesNotMatch(fundamentals, /price: f\.price,/);
-  /* And current-price math is disabled rather than computed against nothing. */
+  /* And current-price math is disabled rather than computed against nothing. The first
+     disable was a one-time cell wipe in setTicker (b.valuationDisabled), which the very next
+     render() overwrote with values divided by a null price; the pin follows the mechanism
+     that actually holds — a gate at the top of render(), ahead of any fair-value arithmetic. */
   assert.match(fundamentals, /No provider price for /);
-  assert.match(fundamentals, /b\.valuationDisabled = true;/);
+  assert.match(fundamentals, /if\(BASE && BASE\.priceUnavailable\)\{ renderValuationUnavailable\(\); return; \}/);
 
   /* allocation silently substituted the cohort feed's Yahoo-derived price and day change into
      the same cells, unmarked, so a provider outage read as an ordinary quiet quote. */
