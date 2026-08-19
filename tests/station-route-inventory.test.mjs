@@ -162,6 +162,9 @@ const LOAD_BEARING = ["/_provider/provider.js", "/_cohorts/cohort-axis.js", "/de
   "/station/manifest.json", "/station/icon.svg", "/station/icon.png", "/station/icon-512.png",
   "/station-ipad/icon.svg", "/station-ipad/icon.png", "/tokens.css"];
 const CLASSES = [
+  /* Ordered: the browser-proof class must claim its own .md/.mjs files before the generic
+     documentation and test classes see them. */
+  ["Browser proof rig and receipts", (p) => p.startsWith("/browser-proof/")],
   ["Documentation", (p) => p.endsWith(".md")],
   ["Test suites", (p) => p.endsWith(".test.mjs")],
   ["X-bridge extension draft", (p) => p.startsWith("/station-x-bridge-draft/")],
