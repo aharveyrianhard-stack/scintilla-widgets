@@ -168,7 +168,13 @@ export function supabaseRows(url) {
       published_ts: new Date(Date.now() - (i * 2 + j + 1) * 3600e3).toISOString(),
       title: ticker + " fixture headline " + (j + 1), site: "fixture-wire",
       snippet: "deterministic fixture row", feed: "wire", cohort: HOME[ticker] || null }))));
-  if (table === "spine_events" || table === "feed_alerts" || table === "youtube_feed") return [];
+  if (table === "youtube_feed")
+    return page([0, 1, 2].map((i) => ({ video_id: "fixvid" + i, title: "Fixture video " + (i + 1),
+      channel: "Fixture Channel", channel_id: "fixchan", tickers: "NVDA", duration: "10:0" + i,
+      is_short: false, is_sub: false, subscription_accounts: ["scintilla"], watch_later: false,
+      thumb_url: null, published_at: new Date(Date.now() - (i + 1) * 3600e3).toISOString() })));
+  if (table === "yt_watch_later" || table === "yt_positions") return [];
+  if (table === "spine_events" || table === "feed_alerts") return [];
   return [];
 }
 

@@ -220,3 +220,16 @@ These three pages still carried the catch(() => null) flattening the round-4 swe
 Remaining catch-null sites, dispositioned rather than swept: /youtube's ytAct is a WRITE lane (star/unstar) whose failure silently loses a shared write — its own audit finding, and any fix must respect the shell mirrors; /templates/sector-rotation.html's spark catches feed the E1 coverage gate (PARTIAL / NOT PROVIDER AUTHORITY — visibly gated); /templates/dcf.html's three FY-baseline catches keep the flagged static value and are counted per field in the badge; /cohorts' hub_favorites catch is the kept marker behind its named tooltip; sector-rotation-older is the retained rollback copy, left as-is.
 
 Zero page errors.
+
+---
+
+## 2026-08-19T13:16:05Z — /youtube: a lost shared write no longer stays painted as saved
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/yt-lost-write.mjs` (route /youtube/; three fixture youtube_feed rows, empty yt_watch_later; yt-act answered per page; asserts inline)
+
+- **Write lost** (browser-proof/receipts/yt-star-lost-write-reverted.png): the star flips on optimistically, then REVERTS within one settle (DOM: `.sc-ytc__star` loses `is-on`; `ytWLGet().size === 0`), and the page's flash surface says "★ not saved — the shared watch-later write failed · try again" for long enough to read. Before this unit the failure was swallowed (`.then(r => r.json()).catch(() => null)`, result ignored): the star stayed painted "saved", the shared table never changed, and the lie stood until the next reconcile read.
+- **Write landed** (browser-proof/receipts/yt-star-landed-write-stays.png): the star stays, `ytWLGet()` carries the id, no failure flash — success and failure are now different pictures.
+- Success detection is a LANDED write only: non-2xx and error bodies resolve null (a 500 whose JSON parses is not a success).
+- **Scope notes, measured in code**: the two mounted video shells already REVERT on this failure (state-honest) but stay reason-silent — recorded as a lesser gap, not repaired here, because their only failure surface today is the watch-list read lane and hijacking it would blank the list; their `subscribeToChannel` catch is the same state-honest/reason-silent shape. The 10s-cadence `ytPosPush` position write keeps its silent catch by design: positions re-push on cadence, so a lost write is retried by the next tick rather than lied about.
+
+Zero page errors in both scenarios. Rollback: revert the single commit carrying this unit — the change is client-render behavior only (no schema, no endpoint, no authority change).

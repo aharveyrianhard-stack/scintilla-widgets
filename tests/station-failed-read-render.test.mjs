@@ -160,3 +160,48 @@ test("/econ, /alerts and /news keep dead reads distinct from empty tables", () =
   /* youtube's ytAct catch-null is a WRITE lane (star/unstar) — a silently lost shared
      write, recorded as its own audit finding; fixing it must respect the shell mirrors. */
 });
+
+test("/youtube: a lost watch-later write reverts the star and says why", async () => {
+  /* WRITE-lane sibling of the read-lane rules above: ytAct's failure used to be swallowed
+     whole — the star stayed painted "saved", the shared table never changed, and the lie
+     stood until the next reconcile read. */
+  const yt = read("../youtube/index.html");
+  /* Success is only a landed write: non-2xx and error bodies resolve null. */
+  assert.match(yt, /r\.ok && !\(d && d\.error\) \? d : null/);
+  /* Both callers repaint from the settle, not only from the optimistic return. */
+  assert.match(yt, /ytWLToggle\(r\.video_id, \(saved\) => \{ r\.watch_later = saved; renderYT\(\); \}\)/);
+  assert.match(yt, /if \(YT_CUR === cur\) el\("ytpStar"\)\.classList\.toggle\("is-on", saved\);/);
+
+  const YT_WATCH_LATER = new Set();
+  const flashes = [], settles = [];
+  let fail = true;
+  const ytWLToggle = fnFromSource(yt, "ytWLToggle", {
+    YT_WATCH_LATER,
+    ytAct: () => Promise.resolve(fail ? null : { ok: true }),
+    ytFlash: (t, ms) => flashes.push([t, ms]),
+  });
+  const settle = () => new Promise((r) => setImmediate(r));
+
+  assert.equal(ytWLToggle("vid1", (saved) => settles.push(saved)), true, "the optimistic return is ON");
+  assert.ok(YT_WATCH_LATER.has("vid1"), "optimistically saved");
+  await settle();
+  assert.ok(!YT_WATCH_LATER.has("vid1"), "the lost write reverted the flip");
+  assert.deepEqual(settles, [false], "the caller was told the truth");
+  assert.equal(flashes.length, 1);
+  assert.match(flashes[0][0], /★ not saved — the shared watch-later write failed · try again/);
+  assert.equal(flashes[0][1], 2600, "a failure lingers long enough to read");
+
+  fail = false;
+  ytWLToggle("vid2", (saved) => settles.push(saved));
+  await settle();
+  assert.ok(YT_WATCH_LATER.has("vid2"), "a landed write stays");
+  assert.deepEqual(settles, [false], "no settle call on success — nothing to correct");
+  assert.equal(flashes.length, 1, "no failure flash on success");
+
+  fail = true;
+  ytWLToggle("vid2", (saved) => settles.push(saved));
+  assert.ok(!YT_WATCH_LATER.has("vid2"), "optimistically removed");
+  await settle();
+  assert.ok(YT_WATCH_LATER.has("vid2"), "the lost removal reverted too");
+  assert.match(flashes[1][0], /★ not removed — the shared watch-later write failed/);
+});

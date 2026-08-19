@@ -153,14 +153,27 @@ let YT_LOADED = false, YT_FETCHED_AT = 0;
 const YT_WATCH_LATER = new Set();
 function ytWLGet() { return new Set(YT_WATCH_LATER); }
 function ytAct(action, payload) {
+  /* Resolves null exactly when the write did NOT land: network failure, non-2xx, or an
+     error body. A 500 whose JSON parses is not a success. */
   return fetch(SB + "/functions/v1/yt-act", { method: "POST",
     headers: { apikey: PUBLIC, "Content-Type": "application/json" },
-    body: JSON.stringify(Object.assign({ action: action }, payload || {})) }).then((r) => r.json()).catch(() => null);
+    body: JSON.stringify(Object.assign({ action: action }, payload || {})) })
+    .then((r) => r.json().then((d) => (r.ok && !(d && d.error) ? d : null)).catch(() => null))
+    .catch(() => null);
 }
-function ytWLToggle(id) {
+function ytWLToggle(id, onSettle) {
   const on = !YT_WATCH_LATER.has(id);
   if (on) YT_WATCH_LATER.add(id); else YT_WATCH_LATER.delete(id);
-  ytAct(on ? "star" : "unstar", { videoId: id });
+  /* THE OPTIMISTIC FLIP MUST NOT OUTLIVE A LOST WRITE. The failure used to be swallowed
+     whole: the star stayed painted "saved", the shared table never changed, and the lie
+     stood until the next reconcile read. On failure the flip is reverted, the caller
+     repaints with the truth, and the reason is said where the page already speaks. */
+  ytAct(on ? "star" : "unstar", { videoId: id }).then((d) => {
+    if (d) return;
+    if (on) YT_WATCH_LATER.delete(id); else YT_WATCH_LATER.add(id);
+    if (onSettle) onSettle(YT_WATCH_LATER.has(id));
+    ytFlash((on ? "★ not saved" : "★ not removed") + " — the shared watch-later write failed · try again", 2600);
+  });
   return on;
 }
 const YT_POSITIONS = new Map();
@@ -299,7 +312,7 @@ function fillYT() {
 let YT_PLYR = null, YT_PLYR_TMR = null, YT_API_WAIT = null, YT_CUR = null;
 function ytApiReady() { return !!(window.YT && window.YT.Player); }
 function ytLoadApi() { if (ytApiReady() || el("ytApiScript")) return; const s = document.createElement("script"); s.id = "ytApiScript"; s.src = "https://www.youtube.com/iframe_api"; document.head.appendChild(s); }
-function ytFlash(t) { const f = el("ytFlash"); if (!f) return; f.textContent = t; f.classList.add("show"); setTimeout(() => f.classList.remove("show"), 500); }
+function ytFlash(t, ms) { const f = el("ytFlash"); if (!f) return; f.textContent = t; f.classList.add("show"); setTimeout(() => f.classList.remove("show"), ms || 500); }
 function ytSeekBy(s) { try { let t = YT_PLYR.getCurrentTime() + s; if (t < 0) t = 0; YT_PLYR.seekTo(t, true); ytFlash(s < 0 ? "⏪ " + (-s) + "s" : s + "s ⏩"); } catch (_) {} }
 function ytPlayerKill() {
   if (YT_API_WAIT) { clearInterval(YT_API_WAIT); YT_API_WAIT = null; }
@@ -378,13 +391,20 @@ document.addEventListener("click", (e) => {
   else if (act === "ytrefresh") { YT_LOADED = false; YT_FETCHED_AT = 0; el("ytGrid").innerHTML = '<div class="sc-yt__empty">reloading…</div>'; YT_LOADED = false; fillYT(); }
   else if (act === "ytopen" || act === "ytcontinue") { ytOpen(+n.dataset.i); }
   else if (act === "ytcontdismiss") { e.stopPropagation(); YT_LAST_POSITION_ID = ""; renderYT(); }
-  else if (act === "ytstar") { e.stopPropagation(); const r = YT_VIEW[+n.dataset.i]; if (!r) return; r.watch_later = ytWLToggle(r.video_id); n.classList.toggle("is-on", r.watch_later); if (S.ytFilt === "WATCH") renderYT(); }
+  else if (act === "ytstar") { e.stopPropagation(); const r = YT_VIEW[+n.dataset.i]; if (!r) return;
+    r.watch_later = ytWLToggle(r.video_id, (saved) => { r.watch_later = saved; renderYT(); });
+    n.classList.toggle("is-on", r.watch_later); if (S.ytFilt === "WATCH") renderYT(); }
   else if (act === "ytprev") ytNav(-1);
   else if (act === "ytnext") ytNav(1);
   else if (act === "ytseekback") ytSeekBy(-30);
   else if (act === "ytseekfwd") ytSeekBy(30);
   else if (act === "ytcloseplayer") ytClose();
-  else if (act === "ytstarcur") { if (!YT_CUR) return; YT_CUR.watch_later = ytWLToggle(YT_CUR.video_id); el("ytpStar").classList.toggle("is-on", YT_CUR.watch_later); }
+  else if (act === "ytstarcur") { if (!YT_CUR) return; const cur = YT_CUR;
+    cur.watch_later = ytWLToggle(cur.video_id, (saved) => {
+      cur.watch_later = saved;
+      if (YT_CUR === cur) el("ytpStar").classList.toggle("is-on", saved);
+      renderYT(); });
+    el("ytpStar").classList.toggle("is-on", cur.watch_later); }
 }, true);
 
 /* save position on tab hide/close (best effort) */
