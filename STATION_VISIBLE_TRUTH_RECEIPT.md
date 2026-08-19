@@ -962,8 +962,9 @@ sector deploy + CORS · owner rulings · a live browser outside the container ·
 
 Continuation packet, 2026-08-19, resumed from head `425d2fd` on the operator's own
 priority: **Hub/Station visible truth and provider-close / transport-state presentation.**
-Protocol path unreachable as every round; in-repo doctrine re-read. Three units, three
-commits, each with a browser proof that reads what the page PAINTS.
+Protocol path unreachable as every round; in-repo doctrine re-read. Four units, four
+commits, each with a browser proof that reads what the page PAINTS or LAYS OUT — never its
+source.
 
 ## The rule this round discovered, stated once
 
@@ -971,8 +972,9 @@ Every earlier round asked whether the WORDS were true. This round asked a narrow
 that had never been asked: **when the text refuses a claim, does the signal beside it refuse
 too?** A colour, a tone, a sort order and a sign are claims — and on a wall read at a glance,
 the colour is the claim that actually lands. Three surfaces were saying "unknown" in text
-while painting a confident direction beside it, and every one of them passed every existing
-source pin and every text assertion in the suite.
+while painting a confident direction beside it — and a fourth drew an unknown SIZE at area
+zero, deleting the ticker from the board outright while the header still counted it. Every
+one of them passed every existing source pin and every text assertion in the suite.
 
 ## Unit 1 (`636a8f5`) — the chart pane's direction had no authority behind it
 
@@ -1020,14 +1022,32 @@ leave the Station wall still lying, and that chain differs in every step: deck r
 the row and posts it across the frame boundary, and the shell's `scChartLive` fills the map
 the pane colour is drawn from. Asserted on `/deck` itself, inside the mounted shell iframes.
 
+## Unit 4 (`bbb0b66`) — a size is a claim too, and this one DELETED tickers
+
+The sweep's own named next step, run in the same round. `/reflow` picks cell AREA from
+`?size=` and rank from `?rank=` **independently**, so a ticker can carry a good rank value
+and no market cap. Unknown sized at `1` against real caps whose sqrt runs to the hundreds of
+thousands — and the gap marking beside it is computed on the RANK value, so nothing said
+otherwise.
+
+Measured against a real board rather than argued: the unknown-cap cell came out at **area
+0**, and `/reflow` hides any cell under 2px — so the ticker was not merely drawn as
+negligible, it was **removed from the treemap**, silently shrinking the universe while the
+header still counted it in "26 cells · 26 with data". The defect was a disappearance.
+
+Fixed: unknown is sized at the **median of what IS known** — a deliberately uninformative
+middle, never an extreme that would read as a measurement — and the cell wears a dashed
+`nosize` outline plus a title naming the missing metric. Known sizes are untouched, and the
+board with no known size at all still lays out without dividing by zero.
+
 ## Evidence
 
-- **Tests: 256 pass, 0 fail** (24 files, +2 from round 13). New: the `chDayRef` truth table
+- **Tests: 257 pass, 0 fail** (24 files, +3 from round 13). New: the `chDayRef` truth table
   run in vm for BOTH `/chart` and the shell (known / missing / zero / empty-string /
   non-number / no host / no dataset), the badge-and-colour agreement pinned on the same
   input, the removal of every `_ref` site pinned, `fmtC`'s null/NaN/zero behaviour, the
   tape's ranking partition, and the two template ternaries.
-- **Browser proofs: 24 files** (+3), and every one of the three new ones was **verified to
+- **Browser proofs: 25 files** (+4), and every one of the four new ones was **verified to
   DISCRIMINATE** by restoring the pre-fix code and watching it fail:
   - `day-direction.mjs` reads CANVAS PIXELS on `/chart`, counting them against the
     `--bull`/`--bear`/`--ink2` tokens at a tight distance so antialiasing cannot vote. With
@@ -1039,6 +1059,13 @@ the pane colour is drawn from. Asserted on `/deck` itself, inside the mounted sh
     not dropped — and the reported zero still reads `+0.00%` / up.
   - `deck-day-direction.mjs` reads the canvas INSIDE the mounted shell iframes on `/deck`:
     **2 mounted panes**, all bull with a stated previous close, all neutral with none.
+  - `unknown-size.mjs` measures laid-out box areas and asserts visibility. With the old code
+    restored, the unknown-cap cell measures **area 0** — gone from the board. With the fix it
+    is visible, above the smallest known cell and below the largest, and marked.
+- **Full battery re-run at the final head `bbb0b66`: 25/25 PASSED** (run in two halves,
+  13 + 12, to fit the runner's timeout; an earlier 24/24 pass was recorded at `9f0788e`
+  before unit 4 landed). The round-11 erratum's remedy now holds for a fourth consecutive
+  round: no proof is claimed that was not re-run at head.
 - **Preview**: Ready on each pushed head (bot comment edits — echo-class, no action).
 - **Production untouched; no database access this round.** No provider raw/history, Geiger
   authority, R2, credentials or Supabase work touched: the previous close is READ exactly as
@@ -1065,9 +1092,22 @@ Rollback: the three commits revert independently. `636a8f5` restores the substit
 baseline; `efcb12b` restores the coerced ternaries; `9f0788e` is evidence only and changes
 no page. No data lane, authority or methodology changed by any of them.
 
-Next runnable unit — the class this round opened is broader than the three fixes: **audit
-the remaining non-text signals for the same question.** Sizes (`/reflow`'s `Math.sqrt(mcap)`
-and its `0.5` default for unknown; `/heat`'s tile areas), sort orders (any comparator where
-a null sorts as a value rather than to the end), and opacity/strike treatments. Each is a
-claim, and none has been swept by that question yet. Everything else stands behind the walls
-the handoff names.
+Next runnable unit — the class this round opened is not exhausted. Sizes are now done
+(`/reflow`, unit 4; `/heat`'s tile areas were read and are driven by the same value the text
+shows, so a null tile is already the near-transparent one). What remains unswept by the
+"does the signal refuse too?" question:
+
+1. **Sort orders.** Any comparator where a null sorts as a VALUE rather than to the end —
+   position in a ranked list is a claim as surely as a colour is. `/ticker` was fixed this
+   round; `/ranks` and `/reflow` partition correctly; the deck's scene row ordering, `/heat`'s
+   group ordering (`b[1].length - a[1].length`) and `/compare`'s `computeOrder` have NOT been
+   read with this question in mind.
+2. **Opacity and strike treatments** — `/compare` dims a null row to `.25` opacity and
+   strikes stale rows; whether "dim" is distinguishable from "stale" to a viewer is a
+   look-and-truth question worth one measured pass.
+3. **Axis and scale claims** — a chart's y-axis bounds are computed from the visible window;
+   whether the axis labels imply a precision the data does not carry has never been asked.
+
+Everything else stands behind the walls the handoff names (Hub repo · sector deploy + CORS ·
+owner rulings · a live browser outside the container · a human eye · the H2 proof-gate · the
+independent re-audit as merge gate).

@@ -13,13 +13,13 @@ earlier note.
 | --- | --- |
 | Repo | `aharveyrianhard-stack/scintilla-widgets` |
 | Branch | `claude/station-visible-truth-closure-8ipyru` |
-| Head | `9f0788e` + the docs commit carrying this update — pushed |
+| Head | `bbb0b66` + the docs commit carrying this update — pushed |
 | PR | [#115](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/115) — **DRAFT, NO-MERGE** |
 | Uncommitted | **none** at handoff |
-| Tests | `node --test "tests/*.test.mjs"` → **256 pass, 0 fail**, 24 files |
-| Browser receipts | `browser-proof/` — 24 proof files + `RECEIPTS.md`, every entry regenerable by the command it names. The round-14 three were each verified to DISCRIMINATE by restoring the pre-fix code and watching them fail |
+| Tests | `node --test "tests/*.test.mjs"` → **257 pass, 0 fail**, 24 files |
+| Browser receipts | `browser-proof/` — 25 proof files + `RECEIPTS.md`, every entry regenerable by the command it names. The round-14 four were each verified to DISCRIMINATE by restoring the pre-fix code and watching them fail |
 | Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access rounds 11–14: **none** (round 5: two read-only SELECTs, recorded) |
-| Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` — Ready on `9f0788e` at 18:03Z |
+| Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` — Ready on `9f0788e` at 18:03Z; rebuilt on each later head |
 
 ## What round 5 (the second continuation packet) closed
 
@@ -57,7 +57,8 @@ failed reads. Rounds 6–11: see the receipt's per-round sections (heads `a754a6
 Round 13: `6bde1d4` /youtube feed-failure truth + the axis-consumer sweep photographed +
 docs `425d2fd`. Round 14: `636a8f5` the chart pane's day direction needs the day's baseline ·
 `efcb12b` an unknown day change gets neither a sign nor a direction colour · `9f0788e` the
-same refusal proven on the Station wall · plus the docs commit carrying this handoff.
+same refusal proven on the Station wall · `bbb0b66` an unknown SIZE metric is a placeholder,
+not a measurement · plus the docs commit carrying this handoff.
 
 ## Errata (cumulative, so nothing is re-derived as a mystery)
 
@@ -86,8 +87,10 @@ Round 5 exercised rule 14 twice: a source pin proves words EXIST, not that they 
 A colour, a tone, a sign, a sort position and a size all assert something, and on a wall read
 at a glance the colour is the assertion that actually lands. So the paint must refuse
 wherever the text refuses — on the same input, by construction. Round 14 found three
-surfaces saying "unknown" in words while painting a confident direction beside those words,
-and every one had passed every source pin and every text assertion in the suite. Whether
+surfaces saying "unknown" in words while painting a confident direction beside those words —
+and a fourth where an unknown SIZE drew a cell at area 0, deleting the ticker from the board
+outright while the header still counted it. Every one had passed every source pin and every
+text assertion in the suite. Whether
 this becomes doctrine is the owner's call; it is recorded here because the next sweep should
 inherit the question, not rediscover it.
 
