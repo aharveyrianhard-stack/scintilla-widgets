@@ -318,3 +318,65 @@ still unowned; `/health` still carries them BAD by construction), **H2** (untouc
 proof-gated), **H3/H4** (human eye), **Fly CORS vs preview** (no provider path provable
 end-to-end from the preview; preview green = static delivery only), and **independent re-audit
 of everything above** — the test count is not the verdict.
+
+---
+
+# Round — executor 3, continuation packet (2026-08-19, same session)
+
+Eight code commits, `91dfe7f..41927ae`. Suite 217 → **228 pass, 0 fail, 23 repo test
+files**. The round's new capability: a **browser-verification rig** — real Chromium
+(playwright-core, out of tree) over the served repository with Supabase and the provider
+answered from one consistent fixture universe, because outbound HTTPS to the real owners is
+proxy-blocked here (CONNECT 403, measured). Every receipt states that scope: these prove
+PAGE behavior under controlled data, not the owners' data. 16 screenshots + a receipt log
+live in `browser-proof/receipts/`, each regenerable by the command its entry names.
+
+## The three filed defects — fixed and browser-verified
+
+| Filed | Root cause | Fix | Receipt |
+| --- | --- | --- | --- |
+| AI Software cohort must replace Favorites rows | Two mechanisms: `normalizeScene` collapsed `"cohort"` into themeFamilies (a chosen cohort silently discarded), and the navigation index intersected every cohort with hub_favorites (a chosen cohort showed at most the favorites already on the wall). | `cohort` is first-class in IDS again; `buildCohortIndex` carries every cohort's FULL membership with FAV as the explicit default entry the cohorts replace; deck gains a scene-scoped cohort picker with honest paging; an explicit choice always shows that cohort's rows now. | `cohort-FAV-favorites-rows.png` → `cohort-AI_SOFTWARE-replaces-favorites.png` (ADBE CRM MSFT NOW ORCL PLTR, page 1/2 · 7 members, zero favorites present) → `cohort-AI_SOFTWARE-page2.png` (SNOW alone) |
+| Megacap must replace Favorites rows | same | same | `cohort-MEGACAP-replaces-favorites.png` (AAPL AMZN GOOGL META MSFT NVDA) |
+| AI Power must show its declared cohort rows | `familyBasket()` was never given an id — both family scenes rendered their FIRST basket forever; AI POWER, AI INFRA and DEFENSIVE were declared and unreachable. | A scene-scoped family picker; the choice validated against the scene's declarations, session-remembered, explicit (paints the declared rows now). Defaults and rotation unchanged. | `family-AI_POWER-declared-rows.png` (OKLO IREN CIFR BE WULF USAR) · `family-DEFENSIVE-declared-rows.png` |
+
+`before-themeFamilies-always-first-basket.png` and the rig-smoke receipt entry capture the
+BEFORE state of all three, from the pre-fix tree.
+
+## The defect-packet cluster
+
+- **CLOSED labels despite live feed — disposition, not a fix.** No market-session CLOSED
+  label exists anywhere in this repository (searched all served HTML/JS, case-insensitive;
+  the only "closed" matches are WebRTC connection states and prose). The defect lives in the
+  separate scintilla-hub deploy, which this branch's standing locks forbid editing. Kept
+  visible as a cross-repo defect; not representable, therefore not claimed, here.
+- **Ticks** (`tick-chart-updates-from-provider.png`, `tick-deck-pane-updates-from-provider.png`):
+  a changed provider quote reaches the standalone chart within one 10s poll and a deck pane
+  within one 10s pump heartbeat through the authority shim.
+- **Provider-vs-display**: the chart's day change equals the exact arithmetic of the quote
+  the provider served — 0.29% (347/346) → 9.83% (380/346); pane 0.33% → 16.94%. Asserted, not
+  eyeballed.
+- **Transient blank/repaint** (`repaint-1W-no-blank.png`): twenty continuous canvas samples
+  through a cold range switch, zero blank frames.
+- **Deck healthy state** (`deck-header-LIVE-healthy-state.png`): the header paints **LIVE**
+  with all panes ready and stamped — the state that threw `ReferenceError` before `06e4a0a`,
+  now photographed in a real browser.
+
+## PR-review continuation
+
+- `0564e02` — the last swept `catch(() => null)` class: /ranks fails a COLUMN by its source
+  name instead of claiming "no data" per ticker (and states its ETF-filter outage); /reflow
+  refuses to draw grey non-answers over a failure; /events tells a dead read apart from a
+  clear calendar; /cohorts names the FAV-count failure in the chip tooltip. Browser-verified
+  with board_rsi and earnings_events forced to 500 (`failed-read-*.png`).
+- `41927ae` — fundamentals/dcf/allocation DB readers get /health's 20s ceiling, body read
+  included; a timeout is worded "no answer in 20s", never "HTTP undefined".
+
+## Errata, stated
+
+- `5173ec7` was pushed while the route-inventory count test was red (a scratch probe's
+  screenshot had landed in the receipts directory uncounted); `ae3050f` corrected the counts
+  minutes later, regenerated from the filesystem. Same class as the B1 erratum. The commit
+  gate for the rest of the session is a script that refuses to proceed unless the suite
+  prints `fail 0`.
+- `ae3050f`'s Claude-Session trailer carries a one-character typo in the session URL
+  (`FGSs` for `FgSs`). A pushed commit message cannot be corrected; this line is the record.
