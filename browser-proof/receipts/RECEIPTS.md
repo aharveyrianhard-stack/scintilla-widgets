@@ -327,3 +327,15 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/inventory-sweep.mjs` (asse
 - **The found defect, fixed and photographed** (browser-proof/receipts/sector-lines-cdn-dead-said.png): /templates/sector-rotation.html loads lightweight-charts from unpkg (pinned 4.1.3, NO integrity hash — vendor-or-SRI is an OWNER RULING, recorded beside the supabase-js item). Unguarded, createChart threw a ReferenceError when the CDN was down and took the timeframe-following panels with it. The LINES panel now SAYS "lightweight-charts did not load … unavailable, not empty; every other panel is unaffected", the chart calls are guarded, and leaders/heatmap still follow a range click with the library dead — zero page errors before and after.
 
 Rollback: revert the single commit carrying this unit — a said state, guards, pins and this proof; no data lane, authority or methodology changed; the rollback copy untouched.
+
+---
+
+## 2026-08-19T14:48:26Z — the preset scenes paint their declared rows: the first-basket class closed for every scene kind
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/scene-declared-rows.mjs` (asserts inline)
+
+- **Fixed preset** (browser-proof/receipts/scene-macro-preset-declared-rows.png): /deck?scene=macroCrossAsset carries exactly US10Y · DXUSD · GCUSD · SIUSD · CLUSD · BTCUSD — the model's own frozen declaration, in order, at chartCount 6.
+- **Time-windowed preset**: /deck?scene=indexNow's wall equals `indexNowTickersFor(new Date())` windowed by the model itself, compared IN the same browser at the same instant so the time dependence cancels — whatever the model declares for now is what the wall carries.
+- With the cohort and family proofs of round 4, every scene KIND is now browser-proven to deliver its declared rows: fixed presets, time-windowed presets, cohort membership, family baskets. Also recorded from this sweep: /parity makes NO data reads at all (a static analysis page — authority-clean by construction).
+
+Rollback: this unit adds a proof only; no served file changed.
