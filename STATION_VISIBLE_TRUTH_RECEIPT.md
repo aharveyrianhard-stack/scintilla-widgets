@@ -955,3 +955,119 @@ Next runnable unit: the sweeps are the renewable unit — next candidates by lan
 /analytics panes. Everything else stands behind the walls the handoff names (Hub repo ·
 sector deploy + CORS · owner rulings · a live browser outside the container · a human eye
 · the H2 proof-gate · the independent re-audit as merge gate).
+
+---
+
+# Round 14 — the signal beside the sentence: what the paint claims when the text refuses
+
+Continuation packet, 2026-08-19, resumed from head `425d2fd` on the operator's own
+priority: **Hub/Station visible truth and provider-close / transport-state presentation.**
+Protocol path unreachable as every round; in-repo doctrine re-read. Three units, three
+commits, each with a browser proof that reads what the page PAINTS.
+
+## The rule this round discovered, stated once
+
+Every earlier round asked whether the WORDS were true. This round asked a narrower question
+that had never been asked: **when the text refuses a claim, does the signal beside it refuse
+too?** A colour, a tone, a sort order and a sign are claims — and on a wall read at a glance,
+the colour is the claim that actually lands. Three surfaces were saying "unknown" in text
+while painting a confident direction beside it, and every one of them passed every existing
+source pin and every text assertion in the suite.
+
+## Unit 1 (`636a8f5`) — the chart pane's direction had no authority behind it
+
+`chDayChange` already refused to state a day change without the provider's previous close;
+the badge painted `—`. **The pane behind it was painted bull or bear regardless.** The draw
+path's baseline (`host._ref`) fell back to `pts[0].p` — the first bar of the LOADED WINDOW —
+so the direction was computed against a number nobody sent, and that number **moves with the
+range control**: the same prices could paint green at one range and red at another with no
+market event between them.
+
+Fixed: `chDayRef(host)` reads the current ticker's previous close live (never a copy — the
+three `_ref` writes are gone, so a pane whose ticker changed cannot keep the old symbol's
+baseline), refuses `0`, `""`, non-numbers and absence alike, and the pane paints `--ink2`
+with no directional claim when it is null. Byte-mirrored to `/station-shells/chart-v1`.
+
+## Unit 2 (`efcb12b`) — `null >= 0` is TRUE, so unknown was painted UP
+
+A relational comparison coerces null to 0. Every unguarded directional ternary in the tree
+therefore painted **unknown as up** — a systematic bullish tint on missing data. Swept the
+whole class by shape; three carried it, and one fabricated the value first:
+
+- **`/ticker`** (a Station surface): `|| 0` turned an unknown change into a REPORTED FLAT
+  DAY — `+0.00%` in the up colour — and fed that zero into the movers ranking, where it
+  impersonated the calmest stock on the board. Unknown now stays null, prints `—` in
+  neutral, and ranks after every known mover: kept and greyed, never dropped.
+- **`templates/allocation-module.html`** painted its `—` day cell green.
+- **`templates/sector-rotation.html`** rendered a signed em-dash percentage — literally
+  `+—%` — in green; now dim, worded "change unknown".
+
+**The line the fix must not cross**: a REPORTED zero still reads as flat and still carries
+the up tone. Refusing *unknown* is not refusing *zero* (rule 4 — emptiness is decided on the
+raw value), and the proof asserts that boundary explicitly.
+
+Swept and found ALREADY CORRECT, so the fixed pages now match them: `/heat` (both colour
+functions refuse on null), `/ranks` (formatters run only on non-null rows; gaps say "no
+data"), `/reflow` (same, plus a fixed small size for gaps), `/compare` (returns before the
+directional paint), `/cohort`, `/geigerwall`, `/cohorts`, `/scenes` (all `> 0 / < 0 / else`
+forms, which null falls through to neutral).
+
+## Unit 3 (`9f0788e`) — the same refusal, proven on the WALL
+
+A fix that holds on standalone `/chart` and breaks anywhere in the deck's own chain would
+leave the Station wall still lying, and that chain differs in every step: deck reads
+`live_quotes`, the provider shim rewrites the read to the provider's `/quotes`, deck maps
+the row and posts it across the frame boundary, and the shell's `scChartLive` fills the map
+the pane colour is drawn from. Asserted on `/deck` itself, inside the mounted shell iframes.
+
+## Evidence
+
+- **Tests: 256 pass, 0 fail** (24 files, +2 from round 13). New: the `chDayRef` truth table
+  run in vm for BOTH `/chart` and the shell (known / missing / zero / empty-string /
+  non-number / no host / no dataset), the badge-and-colour agreement pinned on the same
+  input, the removal of every `_ref` site pinned, `fmtC`'s null/NaN/zero behaviour, the
+  tape's ranking partition, and the two template ternaries.
+- **Browser proofs: 24 files** (+3), and every one of the three new ones was **verified to
+  DISCRIMINATE** by restoring the pre-fix code and watching it fail:
+  - `day-direction.mjs` reads CANVAS PIXELS on `/chart`, counting them against the
+    `--bull`/`--bear`/`--ink2` tokens at a tight distance so antialiasing cannot vote. With
+    the old code restored, the unknown-baseline scenario paints **12,321 bear pixels**
+    — a confident red "down day" beside a badge reading `—`. With the fix: zero bull, zero
+    bear, series still drawn.
+  - `unknown-change.mjs` reads the painted tape and its computed colours. With the old code
+    restored, the unknown symbol paints `+0.00%`. With the fix: `—`, neutral, ranked last,
+    not dropped — and the reported zero still reads `+0.00%` / up.
+  - `deck-day-direction.mjs` reads the canvas INSIDE the mounted shell iframes on `/deck`:
+    **2 mounted panes**, all bull with a stated previous close, all neutral with none.
+- **Preview**: Ready on each pushed head (bot comment edits — echo-class, no action).
+- **Production untouched; no database access this round.** No provider raw/history, Geiger
+  authority, R2, credentials or Supabase work touched: the previous close is READ exactly as
+  before — only what the page is permitted to claim from its absence changed.
+
+## UNKNOWNs, stated
+
+- The pane's direction compares the series' LAST POINT to the baseline, while the badge
+  compares the LIVE QUOTE to it. They agree in practice because a live tick patches the last
+  point, but they are two different current-price authorities feeding one claim, and the
+  first run of `day-direction.mjs` made them disagree by injecting a quote far from the
+  series. The proof now pins both so the baseline is the only variable. **Whether these
+  should be unified is an owner-facing question, recorded, not decided here.**
+- `templates/sector-rotation.html:1271` (`r.p >= 0` on `periodChange`) and `:1415`
+  (`live.composite >= 0`) were read and judged guarded by their callers, not proven so by
+  execution — sector-rotation's live path is F1-blocked from this container.
+- The neutral pane colour is `--ink2`, the same token the live-price label already used for
+  its flat tone. Whether the wall wants a MORE distinct "no baseline" treatment (a dashed
+  stroke, say) is a look ruling for the owner, not a truth question.
+
+## Rollback and next unit
+
+Rollback: the three commits revert independently. `636a8f5` restores the substituted
+baseline; `efcb12b` restores the coerced ternaries; `9f0788e` is evidence only and changes
+no page. No data lane, authority or methodology changed by any of them.
+
+Next runnable unit — the class this round opened is broader than the three fixes: **audit
+the remaining non-text signals for the same question.** Sizes (`/reflow`'s `Math.sqrt(mcap)`
+and its `0.5` default for unknown; `/heat`'s tile areas), sort orders (any comparator where
+a null sorts as a value rather than to the end), and opacity/strike treatments. Each is a
+claim, and none has been swept by that question yet. Everything else stands behind the walls
+the handoff names.

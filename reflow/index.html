@@ -89,6 +89,9 @@ body.nobg{ background:transparent; }
 .cell.sm .tk{ font-size:9px; } .cell.sm .vl{ display:none; }
 .cell.gap{ background:repeating-linear-gradient(45deg,#15151f,#15151f 4px,#101018 4px,#101018 8px) !important;
   color:var(--mute); box-shadow:none !important; }
+/* The size metric is unknown for this node: its AREA is a placeholder, not a measurement,
+   so the cell is outlined to say the geometry carries no claim. */
+.cell.nosize{ outline:1px dashed var(--mute); outline-offset:-3px; }
 .cell.bloom{ animation:bloom 3.6s var(--ease) infinite; }
 @keyframes bloom{ 0%,100%{ filter:brightness(1); } 50%{ filter:brightness(1.22); } }
 .cell.sel{ outline:2px solid var(--crk); outline-offset:-2px; }
@@ -267,8 +270,15 @@ function layout() {
     const isGap = r.v == null;
     nd.wrap.style.width = rc.w + "px"; nd.wrap.style.height = rc.h + "px";
     nd.wrap.style.transform = "translate(" + rc.x + "px," + rc.y + "px)";
+    /* A node whose SIZE metric is unknown wears it: the area is a placeholder, not a
+       measurement, and the title says which metric is missing. */
+    const sizeUnknown = r.sizeKnown === false;
     nd.cell.className = "cell" + (isGap ? " gap" : "") + (rc.w < 74 || rc.h < 40 ? " sm" : "") +
+      (sizeUnknown ? " nosize" : "") +
       (!isGap && i < Math.max(1, Math.round(n * 0.08)) ? " bloom" : "") + (SEL === r.key ? " sel" : "");
+    nd.cell.title = sizeUnknown
+      ? r.label + " — " + SIZE + " unknown, so this cell's SIZE is a placeholder, not a measurement"
+      : "";
     if (!isGap) {
       const col = rankColor(i, n);
       nd.cell.style.background = col;
@@ -362,11 +372,26 @@ async function pull() {
 
   const valOf = (k, t) => k === "chg" ? chg[t] : k === "pe" ? PE[t] : k === "rsi" ? R[t] :
     k === "geiger" ? C[t] : k === "mcap" ? (prof[t] ? num(prof[t].market_cap) : null) : null;
-  const sizeOf = (t) => {
+  /* A SIZE IS A CLAIM, AND AN UNKNOWN SIZE IS NOT THE SMALLEST SIZE.
+     The size metric is chosen independently of the rank metric (?size= vs ?rank=), so a
+     ticker can carry a perfectly good rank value and no market cap at all — and this used
+     to draw it at 1 against real caps whose sqrt runs to the hundreds of thousands: an
+     unmarked sliver that reads as "a negligible company" when the truth is "nobody told us
+     how big it is". The gap marking beside it is computed on the RANK value, so nothing
+     said otherwise. Unknown is now sized at the median of what IS known — a deliberately
+     uninformative middle, never the extreme that would read as a measurement — and the
+     node is marked so the viewer can see the size is not a claim. */
+  const rawSize = (t) => {
     const v = valOf(SIZE, t);
-    if (SIZE === "mcap") return v != null ? Math.sqrt(v) : 1;      /* sqrt keeps mega-caps from eating the field */
-    return v != null ? Math.abs(v) + 0.5 : 0.5;
+    if (v == null || !isFinite(v)) return null;
+    return SIZE === "mcap" ? Math.sqrt(v) : Math.abs(v) + 0.5;
   };
+  const knownSizes = uni.map(rawSize).filter((v) => v != null).sort((a, b) => a - b);
+  const medianSize = knownSizes.length
+    ? knownSizes[Math.floor((knownSizes.length - 1) / 2)]
+    : (SIZE === "mcap" ? 1 : 0.5);
+  const sizeOf = (t) => { const v = rawSize(t); return v != null ? v : medianSize; };
+  const sizeKnown = (t) => rawSize(t) != null;
 
   DATA = {
     /* The name of the failed source behind a rank, or null. The layout refuses to draw a
@@ -390,7 +415,8 @@ async function pull() {
         return rows;
       }
       const def = RANKS.find((r) => r.k === rank);
-      const rows = uni.map((t) => ({ key: t, label: t, v: valOf(rank, t), size: sizeOf(t) }));
+      const rows = uni.map((t) => ({ key: t, label: t, v: valOf(rank, t),
+                                     size: sizeOf(t), sizeKnown: sizeKnown(t) }));
       const have = rows.filter((r) => r.v != null && isFinite(r.v))
         .sort((a, b) => def.dir === "asc" ? a.v - b.v : b.v - a.v);
       return have.concat(rows.filter((r) => !(r.v != null && isFinite(r.v))));

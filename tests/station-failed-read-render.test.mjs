@@ -414,3 +414,42 @@ test("an unknown day change gets neither a sign nor a direction colour — `null
   assert.doesNotMatch(sector, /\$\{lq\.chg_pct>=0\?'\+':''\}\$\{lq\.chg_pct!=null/,
     "the '+—%' construction is gone");
 });
+
+test("/reflow: an unknown SIZE metric is a placeholder, not a measurement", () => {
+  const reflow = read("../reflow/index.html");
+  /* The size metric (?size=) is chosen independently of the rank metric (?rank=), so a node
+     can carry a good rank value and no market cap at all. That used to draw at 1, against
+     real caps whose sqrt runs to the hundreds of thousands — an unmarked sliver reading as
+     "a negligible company". The gap marking beside it is computed on the RANK value, so
+     nothing said otherwise. */
+  assert.doesNotMatch(reflow, /return v != null \? Math\.sqrt\(v\) : 1;/, "the 1-for-unknown is gone");
+  assert.doesNotMatch(reflow, /return v != null \? Math\.abs\(v\) \+ 0\.5 : 0\.5;/, "and the 0.5-for-unknown");
+  assert.match(reflow, /const sizeKnown = \(t\) => rawSize\(t\) != null;/);
+  assert.match(reflow, /\.cell\.nosize\{ outline:1px dashed var\(--mute\); outline-offset:-3px; \}/);
+  assert.match(reflow, /unknown, so this cell's SIZE is a placeholder, not a measurement/);
+
+  /* rawSize refuses every non-value; the median is taken over what IS known. */
+  const src = reflow.match(/const rawSize = \(t\) =>[\s\S]*?const sizeKnown = \(t\) => rawSize\(t\) != null;/);
+  assert.ok(src, "the sizing block is found");
+  const mk = (SIZE, vals) => vm.runInNewContext(
+    src[0] + " ({ sizeOf, sizeKnown, medianSize })",
+    { SIZE, uni: Object.keys(vals), valOf: (_k, t) => vals[t], isFinite, Math });
+
+  const caps = mk("mcap", { A: 1e12, B: 4e12, C: 9e12, D: null });
+  assert.equal(caps.sizeKnown("A"), true);
+  assert.equal(caps.sizeKnown("D"), false, "an absent cap is not a size");
+  assert.equal(caps.sizeOf("A"), 1e6, "a known cap keeps its sqrt scale");
+  assert.equal(caps.medianSize, 2e6, "the median of the KNOWN sizes");
+  assert.equal(caps.sizeOf("D"), 2e6,
+    "the unknown sits at that median — a deliberately uninformative middle, never the extreme");
+  assert.ok(caps.sizeOf("D") > caps.sizeOf("A"), "…and specifically NOT the smallest cell on the board");
+
+  /* Non-mcap metrics share the rule, and a board with no known size at all still lays out. */
+  const chg = mk("chg", { A: -2, B: 4, C: null });
+  assert.equal(chg.sizeOf("A"), 2.5); assert.equal(chg.sizeOf("B"), 4.5);
+  assert.equal(chg.sizeKnown("C"), false);
+  assert.equal(chg.sizeOf("C"), 2.5, "median of the two known");
+  const none = mk("mcap", { A: null, B: null });
+  assert.equal(none.medianSize, 1, "no known size at all falls back without dividing by zero");
+  assert.equal(none.sizeOf("A"), 1);
+});

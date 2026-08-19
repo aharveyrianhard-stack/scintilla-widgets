@@ -1,7 +1,9 @@
 # Station visible-truth closure — session handoff
 
-Written at a committed checkpoint by executor 3 after the round-13 sweep sprint (the
-watch-later class in round 12, the youtube-feed and axis-consumer sweeps in round 13).
+Written at a committed checkpoint by executor 3 after the round-14 signal sprint (the
+watch-later class in round 12, the feed and axis sweeps in round 13, and in round 14 the
+question none of them asked: when the TEXT refuses a claim, does the SIGNAL beside it
+refuse too?).
 Everything below was re-derived from the working tree at head, not carried forward from an
 earlier note.
 
@@ -11,13 +13,13 @@ earlier note.
 | --- | --- |
 | Repo | `aharveyrianhard-stack/scintilla-widgets` |
 | Branch | `claude/station-visible-truth-closure-8ipyru` |
-| Head | `6bde1d4` + the docs commit carrying this update — pushed |
+| Head | `9f0788e` + the docs commit carrying this update — pushed |
 | PR | [#115](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/115) — **DRAFT, NO-MERGE** |
 | Uncommitted | **none** at handoff |
-| Tests | `node --test "tests/*.test.mjs"` → **254 pass, 0 fail**, 24 files |
-| Browser receipts | `browser-proof/` — 21 proof files + `RECEIPTS.md`, every entry regenerable by the command it names |
-| Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access rounds 11–13: **none** (round 5: two read-only SELECTs, recorded) |
-| Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` — Ready on `6bde1d4` at 16:55Z |
+| Tests | `node --test "tests/*.test.mjs"` → **256 pass, 0 fail**, 24 files |
+| Browser receipts | `browser-proof/` — 24 proof files + `RECEIPTS.md`, every entry regenerable by the command it names. The round-14 three were each verified to DISCRIMINATE by restoring the pre-fix code and watching them fail |
+| Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access rounds 11–14: **none** (round 5: two read-only SELECTs, recorded) |
+| Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` — Ready on `9f0788e` at 18:03Z |
 
 ## What round 5 (the second continuation packet) closed
 
@@ -52,8 +54,10 @@ URL docs + tokens ruling · `77283ab` DCF FY baseline · `96ec505` /econ /alerts
 failed reads. Rounds 6–11: see the receipt's per-round sections (heads `a754a69` `6d0d003`
 `a338bad` `39567f9` `d9e0308` `e98188d` `4ca7ae8` `568018f` `8175459` `55e4526` `f1adfae`
 `6d99577`). Round 12: `536ba59` watch-later lane truth across the class + docs `ad80562`.
-Round 13: `6bde1d4` /youtube feed-failure truth + the axis-consumer sweep photographed ·
-plus the docs commit carrying this handoff.
+Round 13: `6bde1d4` /youtube feed-failure truth + the axis-consumer sweep photographed +
+docs `425d2fd`. Round 14: `636a8f5` the chart pane's day direction needs the day's baseline ·
+`efcb12b` an unknown day change gets neither a sign nor a direction colour · `9f0788e` the
+same refusal proven on the Station wall · plus the docs commit carrying this handoff.
 
 ## Errata (cumulative, so nothing is re-derived as a mystery)
 
@@ -77,6 +81,15 @@ paint lives · a claim's evidence must match the claim's scope.
 Round 5 exercised rule 14 twice: a source pin proves words EXIST, not that they can PAINT
 (the allocation dead gate survived its pin until a browser proof asserted the render); and a
 "swept" claim scoped to one spelling is a claim about the spelling, not the class.
+
+**A fifteenth, proposed by round 14 and earning it three times over: a SIGNAL is a claim.**
+A colour, a tone, a sign, a sort position and a size all assert something, and on a wall read
+at a glance the colour is the assertion that actually lands. So the paint must refuse
+wherever the text refuses — on the same input, by construction. Round 14 found three
+surfaces saying "unknown" in words while painting a confident direction beside those words,
+and every one had passed every source pin and every text assertion in the suite. Whether
+this becomes doctrine is the owner's call; it is recorded here because the next sweep should
+inherit the question, not rediscover it.
 
 ## Live facts, measured — do not re-derive by guess
 
@@ -121,9 +134,12 @@ same-origin vendoring with npm-verified bytes, `f1adfae`; SRI-on-CDN stays open 
 owner · tax/terminal/MRP/debt-weight sources), a live browser outside the container, a
 human eye, or the explicit H2 proof-gate. Walls re-probed 2026-08-19T16:20:53Z: all four
 hosts still CONNECT 403. The next session should ask the operator which wall to open, and
-may also run one more class-sweep of its own choosing — rounds 12 and 13 are the standing
-proof such sweeps keep paying (the watch-later class; then /youtube's feed-failure lie and
-the ten-consumer axis sweep, which verified the earlier hardening HELD on all ten).
+may also run one more class-sweep of its own choosing — rounds 12, 13 and 14 are the
+standing proof such sweeps keep paying. Round 14 in particular found three live defects that
+every existing source pin and text assertion passed, because it asked a question none of the
+earlier rounds had: **when the text refuses a claim, does the SIGNAL beside it refuse too?**
+The named next sweep continues that question into sizes, sort orders and opacity — see the
+round-14 receipt's closing section.
 
 ## Next units, in order — ≥8, runnable-now first
 
