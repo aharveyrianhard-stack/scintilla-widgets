@@ -1,8 +1,9 @@
 # Station visible-truth closure — session handoff
 
-Written at a committed checkpoint by executor 3 after the round-12 watch-later-truth
-sprint. Everything below was re-derived from the working tree at head, not carried forward
-from an earlier note.
+Written at a committed checkpoint by executor 3 after the round-13 sweep sprint (the
+watch-later class in round 12, the youtube-feed and axis-consumer sweeps in round 13).
+Everything below was re-derived from the working tree at head, not carried forward from an
+earlier note.
 
 ## Exact state
 
@@ -10,13 +11,13 @@ from an earlier note.
 | --- | --- |
 | Repo | `aharveyrianhard-stack/scintilla-widgets` |
 | Branch | `claude/station-visible-truth-closure-8ipyru` |
-| Head | `536ba59` + the docs commit carrying this update — pushed |
+| Head | `6bde1d4` + the docs commit carrying this update — pushed |
 | PR | [#115](https://github.com/aharveyrianhard-stack/scintilla-widgets/pull/115) — **DRAFT, NO-MERGE** |
 | Uncommitted | **none** at handoff |
-| Tests | `node --test "tests/*.test.mjs"` → **253 pass, 0 fail**, 24 files |
-| Browser receipts | `browser-proof/` — 20 proof files + `RECEIPTS.md`, every entry regenerable by the command it names |
-| Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access round 12: **none** (round 11: none; round 5: two read-only SELECTs, recorded) |
-| Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` — Ready on `536ba59` at 16:39Z |
+| Tests | `node --test "tests/*.test.mjs"` → **254 pass, 0 fail**, 24 files |
+| Browser receipts | `browser-proof/` — 21 proof files + `RECEIPTS.md`, every entry regenerable by the command it names |
+| Production | **untouched.** No deploy, no Vercel/Supabase/Fly/R2 mutation, no Hub edit. Database access rounds 11–13: **none** (round 5: two read-only SELECTs, recorded) |
+| Preview | `https://scintilla-widgets-git-cla-070619-aharveyrianhard-8432s-projects.vercel.app` — Ready on `6bde1d4` at 16:55Z |
 
 ## What round 5 (the second continuation packet) closed
 
@@ -50,8 +51,9 @@ degraded-states proofs + fixtures · `305cf1c` /pulse failed reads · `04ae8d7` 
 URL docs + tokens ruling · `77283ab` DCF FY baseline · `96ec505` /econ /alerts /news
 failed reads. Rounds 6–11: see the receipt's per-round sections (heads `a754a69` `6d0d003`
 `a338bad` `39567f9` `d9e0308` `e98188d` `4ca7ae8` `568018f` `8175459` `55e4526` `f1adfae`
-`6d99577`). Round 12: `536ba59` watch-later lane truth across the class · plus the docs
-commit carrying this handoff.
+`6d99577`). Round 12: `536ba59` watch-later lane truth across the class + docs `ad80562`.
+Round 13: `6bde1d4` /youtube feed-failure truth + the axis-consumer sweep photographed ·
+plus the docs commit carrying this handoff.
 
 ## Errata (cumulative, so nothing is re-derived as a mystery)
 
@@ -119,8 +121,9 @@ same-origin vendoring with npm-verified bytes, `f1adfae`; SRI-on-CDN stays open 
 owner · tax/terminal/MRP/debt-weight sources), a live browser outside the container, a
 human eye, or the explicit H2 proof-gate. Walls re-probed 2026-08-19T16:20:53Z: all four
 hosts still CONNECT 403. The next session should ask the operator which wall to open, and
-may also run one more class-sweep of its own choosing — round 12 is the proof such sweeps
-can still pay.
+may also run one more class-sweep of its own choosing — rounds 12 and 13 are the standing
+proof such sweeps keep paying (the watch-later class; then /youtube's feed-failure lie and
+the ten-consumer axis sweep, which verified the earlier hardening HELD on all ten).
 
 ## Next units, in order — ≥8, runnable-now first
 

@@ -881,3 +881,77 @@ now states it (narrowed honestly: "every runnable-now unit **found by the sweeps
 far** is done"), and the next session may either open an operator-named wall or run one
 more class-sweep by table/lane name — this round is the standing proof such sweeps can
 still pay. The independent re-audit remains the merge gate.
+
+---
+
+# Round 13 — the sweeps keep paying: /youtube's feed lie, and the axis-consumer class verified
+
+Continuation packet, 2026-08-19, resumed from head `ad80562`. Protocol path unreachable as
+every round; in-repo doctrine current. The round-12 handoff's next-unit line said: open an
+operator-named wall or run another class-sweep by table/lane name. No wall was opened, so
+two sweeps ran.
+
+## Sweep 1 — `youtube_feed` main-read failure states (by table name)
+
+Consumers: /youtube, /pane-video, the two mounted shells, video-v1 (rollback), /feed-a,
+/feed-b. All but one already answer honestly ("feed unavailable", named states — measured
+round 12 or earlier). The one: **/youtube's own feed catch painted the OWNER's absence for
+any failure** — "the youtube_feed table is empty; cards fill per video when the ingester
+lands" — rule 1 and rule 2 broken in one sentence: a transport failure claimed as the
+owner's empty table, blaming an ingester nobody measured.
+
+**Fixed (`6bde1d4`)**: `YT_MAIN_FAILED` set by the catch, cleared only by a LANDED read;
+the empty grid now chooses between two sentences — "read failed — the wire is unavailable,
+not empty · retrying at the next pass" (failure) and the original owner's wording, which
+survives exactly where it is true: a read that landed with zero rows (rule 4).
+
+## Sweep 2 — the ten `SC_COHORT_AXIS` consumers (by lane name)
+
+Re-read every consumer's failure path. **All ten answer a boot failure with a named
+state** — the per-page hardening of earlier rounds held: /analytics counts the axis as a
+feed and stamps "COHORT AXIS FAILED" in the as-of line; /events refuses with the error
+message; /heat paints the "COHORT HOMES UNAVAILABLE" group instead of mis-grouping into
+UNASSIGNED; /compare's init catch names the database; allocation-module's spine goes
+FALLBACK by name ("hardcoded TICKER_STYLES in use"); fundamentals converts its adapter's
+error flag to a throw under the round-5 boot guard; /deck, /cohorts, /cohort and
+/geigerwall paint their named states. Died-mid-life on the two interval pages is honest
+without a stamp: /cohort's age line recomputes per render from the DATA's own
+`updated_ts` (a held wall ages truthfully), and /geigerwall paints no freshness claim at
+all. No axis code changed — the sweep is the evidence.
+
+## Evidence
+
+- **Tests: 254 pass, 0 fail** (24 files, +1): the feed-failure pins (flag declared, catch
+  sets it, landed read clears it, the branch chooses the sentence, both wordings pinned).
+- **Browser proof: `feed-truth.mjs` — PASSED**, four scenarios, page-level injection:
+  /youtube feed DEAD paints the failure sentence and does NOT paint "table is empty" or
+  "ingester" (zero page errors); /youtube feed landed EMPTY keeps the owner's wording;
+  /cohort and /geigerwall with `ticker_cohorts` dead boot to their named axis-dead paints
+  with zero page errors — the last two of the ten consumers whose failure paint had never
+  been photographed. Four screenshots.
+- **Preview**: Ready on `6bde1d4` at 16:55Z (echo-class bot edit, no action).
+- **The full battery, both rounds**: all **21 browser proofs re-run PASSED** against head
+  `6bde1d4` (run in two halves to fit the runner's timeout; 11+10, zero failures) — the
+  round-11 erratum's remedy held for a second and third consecutive round: no proof is
+  claimed that was not re-run at head.
+
+## UNKNOWNs, stated
+
+- The axis sweep verified BOOT failure paints; the two interval pages' died-mid-life
+  behavior was verified by reading (held wall + honestly-aging or absent stamps), not
+  photographed — a mid-life kill scenario in the rig would need clock control and was
+  judged not worth the rig complexity this round.
+- /youtube's 120s pass retries a failed feed read (`YT_LOADED = false` → refetch); the
+  retry wording says "at the next pass" and the pass interval is the code's own — not
+  re-measured under a live wire.
+
+## Rollback and next unit
+
+Rollback: `536ba59` and `6bde1d4` revert independently and cleanly (said states, guards,
+pins, proofs; no data lane, authority or methodology changed; rollback shells untouched).
+Next runnable unit: the sweeps are the renewable unit — next candidates by lane name:
+`yt_positions` (recorded lesser), the `spine_events`/`feed_alerts` consumers beyond
+/alerts and /pulse, and the `ohlcv_history` readers' failure paints on /wall and
+/analytics panes. Everything else stands behind the walls the handoff names (Hub repo ·
+sector deploy + CORS · owner rulings · a live browser outside the container · a human eye
+· the H2 proof-gate · the independent re-audit as merge gate).
