@@ -868,3 +868,15 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/yt-lost-write.mjs` (route 
 - **Scope notes, measured in code**: the two mounted video shells already REVERT on this failure (state-honest) but stay reason-silent — recorded as a lesser gap, not repaired here, because their only failure surface today is the watch-list read lane and hijacking it would blank the list; their `subscribeToChannel` catch is the same state-honest/reason-silent shape. The 10s-cadence `ytPosPush` position write keeps its silent catch by design: positions re-push on cadence, so a lost write is retried by the next tick rather than lied about.
 
 Zero page errors in both scenarios. Rollback: revert the single commit carrying this unit — the change is client-render behavior only (no schema, no endpoint, no authority change).
+
+---
+
+## 2026-08-19T16:54:32Z — a failed main read never claims the owner's absence: /youtube's feed fixed, the axis consumers photographed
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/feed-truth.mjs` (page-level failure injection; asserts inline)
+
+- **/youtube, feed read DEAD** (browser-proof/receipts/youtube-feed-read-failed-said.png): the grid paints "youtube feed · read failed — the wire is unavailable, not empty · retrying at the next pass" — and does NOT paint "the youtube_feed table is empty" or blame the ingester. Before this unit the catch painted exactly those words for any transport failure: the owner's absence claimed off a read that never landed (rule 1 + rule 2 in one sentence). Zero page errors.
+- **/youtube, feed read LANDED empty** (browser-proof/receipts/youtube-feed-landed-empty-owner-absence.png): the owner's wording survives — "awaiting feed — the youtube_feed table is empty; cards fill per video when the ingester lands" — because off a landed zero-row read that claim is now TRUE (rule 4: emptiness decided on the raw value).
+- **The axis-consumer sweep's runtime half** (browser-proof/receipts/cohort-axis-dead-named.png, browser-proof/receipts/geigerwall-axis-dead-named.png): with `ticker_cohorts` dead at the page, /cohort boots to "cohort data unavailable" and /geigerwall to "cohort data unavailable — wall cannot compose", both with zero page errors — the last two of the ten SC_COHORT_AXIS consumers whose failure paint had never been photographed. The other eight were re-read this round: all answer a boot failure with a named state (analytics counts the axis as a feed and stamps COHORT AXIS FAILED; events refuses with the message; heat paints the COHORT HOMES UNAVAILABLE group; compare's init catch names the database; allocation's spine goes FALLBACK by name; fundamentals converts the flag to a throw under its boot guard; deck and the cohorts strip were fixed in earlier rounds).
+
+Rollback: revert the single commit carrying this unit — one flag, one two-sentence branch, pins and this proof; no data lane, authority or methodology changed.

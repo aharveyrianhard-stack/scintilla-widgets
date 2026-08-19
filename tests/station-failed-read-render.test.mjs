@@ -353,3 +353,19 @@ test("the mounted video shells and /pane-video: saved-or-not is only claimed fro
   assert.equal(btnCase({ WATCH_READY: true, WATCH_ERROR: "", WATCH: new Set(["vidZ"]) }).textContent, "remove from watch later");
   assert.equal(btnCase({ WATCH_READY: true, WATCH_ERROR: "", WATCH: new Set() }).textContent, "save to watch later");
 });
+
+test("/youtube: a failed feed read never claims the owner's empty table", () => {
+  const yt = read("../youtube/index.html");
+  /* "The table is empty; the ingester will fill it" is the OWNER's absence — it was painted
+     for ANY failure of the feed read, blaming an ingester nobody measured (rule 1 + rule 2). */
+  assert.match(yt, /let YT_LOADED = false, YT_FETCHED_AT = 0, YT_MAIN_FAILED = false;/);
+  assert.match(yt, /\.catch\(\(\) => \{ YT_LOADED = true; YT_MAIN_FAILED = true; renderYT\(\); \}\);/,
+    "the feed catch names itself a failure");
+  assert.match(yt, /YT_FETCHED_AT = Date\.now\(\); YT_MAIN_FAILED = false;/,
+    "a landed read clears the flag — landed, not merely attempted");
+  assert.match(yt, /grid\.innerHTML = YT_MAIN_FAILED/,
+    "the empty-grid sentence is chosen by the flag, not one sentence for two states");
+  assert.match(yt, /read failed<\/b> — the wire is unavailable, not empty · retrying at the next pass/);
+  assert.match(yt, /awaiting feed<\/b> — the youtube_feed table is empty; cards fill per video when the ingester lands/,
+    "the owner's-absence wording survives for the read that LANDED empty");
+});

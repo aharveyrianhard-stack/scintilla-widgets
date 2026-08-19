@@ -145,7 +145,7 @@ const S = { ytFilt: (QS.get("filt") || "ALL").toUpperCase() };
 const YT_FEED = [];
 let YT_VIEW = [];
 let YT_IDX = -1;
-let YT_LOADED = false, YT_FETCHED_AT = 0;
+let YT_LOADED = false, YT_FETCHED_AT = 0, YT_MAIN_FAILED = false;
 
 /* ---- watch-later + positions — ported verbatim ---- */
 /* Watch Later and resume are both shared records.  This set is only a page
@@ -278,7 +278,12 @@ function renderYT() {
   const grid = el("ytGrid"); if (!grid) return;
   if (!YT_LOADED) return;
   if (!YT_FEED.length) {
-    grid.innerHTML = '<div class="sc-yt__empty">youtube feed · <b>awaiting feed</b> — the youtube_feed table is empty; cards fill per video when the ingester lands.</div>';
+    /* Two different states, two different sentences. "The table is empty" is the OWNER's
+       absence and may only be said off a read that LANDED; a failed read painted those
+       words — and blamed the ingester — for a transport failure nobody measured. */
+    grid.innerHTML = YT_MAIN_FAILED
+      ? '<div class="sc-yt__empty">youtube feed · <b>read failed</b> — the wire is unavailable, not empty · retrying at the next pass.</div>'
+      : '<div class="sc-yt__empty">youtube feed · <b>awaiting feed</b> — the youtube_feed table is empty; cards fill per video when the ingester lands.</div>';
     YT_VIEW = [];
     return;
   }
@@ -294,7 +299,7 @@ function fillYT() {
   if (YT_LOADED && (Date.now() - YT_FETCHED_AT) < 90000) return;
   pg("youtube_feed?select=video_id,title,channel,channel_id,tickers,duration,is_short,is_sub,subscription_accounts,watch_later,thumb_url,published_at&order=published_at.desc&limit=200")
     .then((rows) => {
-      YT_LOADED = true; YT_FETCHED_AT = Date.now(); ytPosPull();
+      YT_LOADED = true; YT_FETCHED_AT = Date.now(); YT_MAIN_FAILED = false; ytPosPull();
       /* The feed rows arrive with a server-side watch_later flag — landed data. Before the
          dedicated saved-set read has landed, that flag is the ONLY truth; overwriting it with
          an empty page-cache painted every saved star "unsaved" until (unless) the second read
@@ -325,7 +330,7 @@ function fillYT() {
       el("ytFilt").innerHTML = ytFiltHTML();
       renderYT();
     })
-    .catch(() => { YT_LOADED = true; renderYT(); });
+    .catch(() => { YT_LOADED = true; YT_MAIN_FAILED = true; renderYT(); });
 }
 
 /* ---- docked player (YouTube IFrame API — hub player behaviors) ---- */
