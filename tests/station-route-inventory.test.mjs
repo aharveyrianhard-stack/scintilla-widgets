@@ -54,8 +54,14 @@ const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "ut
    deleted from the repository and its row would sit in the inventory forever with the
    bidirectional test green. Both directions now compare the SAME generated set against the
    same parse, and the parse admits every character a served path can contain. */
-const DOCUMENTED = new Set(
+const DOCUMENTED_ALL = new Set(
   Array.from(inventory.matchAll(/`(\/[A-Za-z0-9._\-]*(?:\/[A-Za-z0-9._\-]+)*)`/g), (m) => m[1]));
+/* The inventory now documents two kinds of path: SURFACES (directory routes and .html
+   files) and served DEPENDENCIES (.js, .css, .json, icons, data files). The surface
+   staleness check must only judge surface-shaped paths, or every dependency row would
+   read as a retired route. A surface path is .html or extensionless. */
+const isSurfacePath = (p) => p.endsWith(".html") || !/\.[A-Za-z0-9]+$/.test(p.split("/").pop());
+const DOCUMENTED = new Set(Array.from(DOCUMENTED_ALL).filter(isSurfacePath));
 /* /status is a vercel.json rewrite, not a file on disk, and is called out as such. */
 const NOT_ON_DISK = new Set(["/status"]);
 
@@ -135,4 +141,71 @@ test("the iPad companion page cannot move under the Station it frames", () => {
   /* The frame owns its own touch handling; the wrapper must not take it away. */
   assert.doesNotMatch(ipad, /body\{[^}]*touch-action/,
     "the wrapper must not claim touch-action, or chart gestures inside the frame die");
+});
+
+/* ---- the served DEPENDENCIES: the non-HTML files in the same deploy ---- */
+
+function discoverServed(dir = ROOT, prefix = "") {
+  const found = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes:true })) {
+    if (entry.isFile() && !entry.name.endsWith(".html")) { found.push(prefix + "/" + entry.name); continue; }
+    if (!entry.isDirectory() || SKIP.has(entry.name)) continue;
+    found.push(...discoverServed(path.join(dir, entry.name), prefix + "/" + entry.name));
+  }
+  return found.sort();
+}
+const served = discoverServed();
+
+/* The files pages load by absolute path — a missing one is a broken page, which is exactly
+   how /analytics ran without the authority shim. */
+const LOAD_BEARING = ["/_provider/provider.js", "/_cohorts/cohort-axis.js", "/deck/scenes.js",
+  "/station/manifest.json", "/station/icon.svg", "/station/icon.png", "/station/icon-512.png",
+  "/station-ipad/icon.svg", "/station-ipad/icon.png", "/tokens.css"];
+const CLASSES = [
+  ["Documentation", (p) => p.endsWith(".md")],
+  ["Test suites", (p) => p.endsWith(".test.mjs")],
+  ["X-bridge extension draft", (p) => p.startsWith("/station-x-bridge-draft/")],
+  ["Supabase sources", (p) => p.startsWith("/supabase/")],
+  ["Root data / config", (p) => ["/MANIFEST.yaml", "/vercel.json", "/.links.yaml", "/.gitignore"].includes(p)],
+  ["Proof captures", (p) => p === "/station-x-visible-crop-proof.png"],
+];
+function classify(file) {
+  if (LOAD_BEARING.includes(file)) return "load-bearing";
+  for (const [name, match] of CLASSES) if (match(file)) return name;
+  return null;
+}
+
+test("every served non-HTML file is inventoried — explicitly or by class, never silently", () => {
+  const unclassified = served.filter((file) => classify(file) === null);
+  assert.deepEqual(unclassified, [],
+    "these files are in the deploy tree but covered by no inventory row or class");
+  /* Every load-bearing row still points at a real file. */
+  const gone = LOAD_BEARING.filter((file) => !served.includes(file));
+  assert.deepEqual(gone, [], "these load-bearing dependency rows are stale");
+  for (const file of LOAD_BEARING)
+    assert.ok(inventory.includes("`" + file + "`"), file + " must appear in the dependency table");
+});
+
+test("the dependency inventory states the counts it was generated against", () => {
+  assert.match(inventory, new RegExp(`\\*\\*${served.length} non-HTML files\\.\\*\\*`),
+    `the inventory must say "${served.length} non-HTML files"`);
+  for (const [name, match] of CLASSES) {
+    const count = served.filter((file) => classify(file) === name && match(file)).length;
+    const row = new RegExp(`\\| ${name.replace(/[/\\]/g, "\\$&")}[^|]*\\| ${count} \\|`);
+    assert.match(inventory, row, `${name} row must state ${count}`);
+  }
+});
+
+test("the shim dependency really is loaded by the pages the table claims", () => {
+  /* 20 pages load the authority shim BY SCRIPT TAG; a page that loses the tag regresses to
+     legacy reads. A prose mention (like /health's) is not a load, which is why the count is
+     taken from the tag, not from a bare grep. */
+  const loaders = routes.filter((route) => {
+    const file = route.endsWith(".html") ? route : (route === "/" ? "/index.html" : route + "/index.html");
+    const full = path.join(ROOT, "." + file.replace(/\//g, path.sep));
+    try { return fs.readFileSync(full, "utf8").includes('script src="/_provider/provider.js"'); }
+    catch { return false; }
+  });
+  assert.equal(loaders.length, 20, "the dependency table claims 20 shim loaders by script tag");
+  assert.match(inventory, /`\/_provider\/provider\.js` \| 20 pages by script tag/);
 });
