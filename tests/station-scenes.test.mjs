@@ -51,7 +51,9 @@ function withoutInlineScript(sourceText) {
 }
 
 test("all eleven curated scenes are present with fixed baskets", () => {
-  assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","custom"]);
+  /* "cohort" is first-class again by filed ruling — a chosen cohort's rows replace the
+     favorites rows, so the scene cannot be collapsed into a family preset. */
+  assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","cohort","custom"]);
   assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY","QQQ","DIA","IWM","MAGS","SMH"]);
   assert.equal(scenes.PRESETS.companyLeadership.range, "3h");
   assert.equal(scenes.PRESETS.macroCrossAsset.chartCount, 6);

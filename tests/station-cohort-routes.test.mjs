@@ -271,13 +271,13 @@ test("COHORT FAVORITES navigates on the membership relation alone", () => {
      Folding it into the navigation index put home answers and membership answers in one map,
      and smuggled in 25 pairs that are not memberships plus tickers that are not active. */
   const deckSource = read("../deck/index.html");
-  const loader = deckSource.slice(deckSource.indexOf("async function loadCohortFavorites()"),
+  const loader = deckSource.slice(deckSource.indexOf("async function loadCohortIndex()"),
                                   deckSource.indexOf("function cohortState()"));
   assert.match(loader, /SC_COHORT_AXIS\.loadMemberships\(pg\)/);
   assert.doesNotMatch(loader, /pg\("cohorts\?select=ticker,cohort"\)/,
     "the home relation is not a membership source");
-  assert.match(loader, /buildCohortFavorites\(favorites, \[axis\.rows\]\)/,
-    "one source, and it is the membership relation");
+  assert.match(loader, /buildCohortIndex\(\[axis\.rows\], favorites\)/,
+    "one source, and it is the membership relation — full members per cohort, with FAV as the explicit entry the cohorts replace");
   assert.match(loader, /if \(axis\.truncated\) throw new Error/,
     "a truncated read cannot be presented as the cohort axis");
 });

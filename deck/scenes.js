@@ -1,7 +1,10 @@
 (function (root) {
   "use strict";
 
-  const IDS = ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","custom"];
+  /* "cohort" is a first-class scene again, by filed ruling: choosing a cohort must show the
+     COHORT'S rows, replacing the favorites rows — it may not be collapsed into a family
+     preset, and it may not be filtered down to whichever members happen to be favorited. */
+  const IDS = ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","cohort","custom"];
   /* Every curated named scene is independently navigable.  LIVE and CUSTOM
      remain manual workspaces so arrowing/rotation never replaces a live or
      in-progress custom wall. */
@@ -49,7 +52,10 @@
     internalsSlow: Object.freeze({ label:"INTERNALS SLOW", tickers:Object.freeze(["TICK","TRIN"]), chartCount:2, range:"1D" })
   });
 
-  const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", company:"companyLeadership", cohort:"themeFamilies", sectors:"sectorFamilies", themes:"themeFamilies" });
+  /* The old cohort→themeFamilies collapse silently discarded a chosen cohort: a user asking
+     for AI_SOFTWARE or MEGACAP landed on the first theme basket with no sign their choice was
+     dropped. "cohort" resolves to itself now. */
+  const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", company:"companyLeadership", sectors:"sectorFamilies", themes:"themeFamilies" });
   const normalizeScene = (value) => IDS.includes(LEGACY[value] || value) ? (LEGACY[value] || value) : "live";
 
   function indexNowLeaders(at) {
@@ -108,8 +114,14 @@
   function familyOptions(scene) { return (FAMILIES[normalizeScene(scene)] || []).slice(); }
   function familyBasket(scene, id) { return familyOptions(scene).find((x) => x.id === id) || familyOptions(scene)[0] || null; }
 
-  function buildCohortFavorites(favoriteRows, membershipGroups) {
-    const favorites = new Set((favoriteRows || []).map((row) => String(row?.ticker || "").toUpperCase()).filter(Boolean));
+  /* A COHORT IS ITS MEMBERS, NOT ITS FAVOURITED MEMBERS.
+     The previous builder intersected every cohort with hub_favorites, so choosing
+     AI_SOFTWARE or MEGACAP showed at most the favorites you already had — usually a subset
+     of the same favorites rows, sometimes nothing — and never the cohort. Filed defect,
+     ruled: a chosen cohort's rows REPLACE the favorites rows. Favorites remain reachable as
+     the explicit FAV entry (the default view), in their added order; every cohort carries
+     its full membership, sorted. */
+  function buildCohortIndex(membershipGroups, favoriteRows) {
     const byCohort = new Map();
     for (const rows of membershipGroups || []) {
       for (const row of rows || []) {
@@ -117,10 +129,15 @@
         const cohort = String(row?.cohort || "").toUpperCase();
         if (!ticker || !cohort) continue;
         if (!byCohort.has(cohort)) byCohort.set(cohort, new Set());
-        if (favorites.has(ticker)) byCohort.get(cohort).add(ticker);
+        byCohort.get(cohort).add(ticker);
       }
     }
-    return new Map(Array.from(byCohort, ([cohort, tickers]) => [cohort, Array.from(tickers).sort()]));
+    const index = new Map();
+    const favorites = (favoriteRows || []).map((row) => String(row?.ticker || "").toUpperCase()).filter(Boolean);
+    index.set("FAV", Array.from(new Set(favorites)));
+    for (const [cohort, tickers] of Array.from(byCohort).sort((a, b) => a[0].localeCompare(b[0])))
+      index.set(cohort, Array.from(tickers).sort());
+    return index;
   }
 
   function cohortPage(index, cohort, requestedPage, pageSize) {
@@ -160,7 +177,7 @@
     familyOptions,
     familyBasket,
     basketWindow,
-    buildCohortFavorites,
+    buildCohortIndex,
     cohortPage
   });
 })(typeof globalThis === "object" ? globalThis : window);

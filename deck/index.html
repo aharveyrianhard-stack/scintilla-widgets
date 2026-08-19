@@ -424,7 +424,7 @@ let VIEW = VIEW_MODES.includes(QS.get("view")) ? QS.get("view") :
 document.body.dataset.view = VIEW;
 let SCENE = SceneModel.normalizeScene(QS.get("scene") || remembered("station.scene") || "live");
 let BASKET_OFFSET = 0;
-let COHORT = CLEAN_COHORT(QS.get("cohort") || remembered("station.cohort") || "AI_HARDWARE");
+let COHORT = CLEAN_COHORT(QS.get("cohort") || remembered("station.cohort") || "FAV");
 let COHORT_PAGE = Math.max(0, +(QS.get("page") || remembered("station.cohortPage") || 1) - 1);
 let COHORT_INDEX = new Map();
 let COHORT_READY = false;
@@ -1278,12 +1278,15 @@ function rememberEditableState() {
   }
 }
 function orderedCohorts() {
+  /* FAV leads: it is the default view the cohorts replace. */
   return Array.from(COHORT_INDEX.keys()).sort((a,b) => {
+    if (a === "FAV") return -1;
+    if (b === "FAV") return 1;
     const ai = COHORT_ORDER.indexOf(a), bi = COHORT_ORDER.indexOf(b);
     return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi) || a.localeCompare(b);
   });
 }
-async function loadCohortFavorites() {
+async function loadCohortIndex() {
   if (COHORT_READY) return;
   /* THE MEMBERSHIP RELATION, WHOLE, IN A STABLE ORDER, AND ALONE.
      Two faults lived in one line here. The read had no limit and no order, so PostgREST
@@ -1304,7 +1307,10 @@ async function loadCohortFavorites() {
   ]);
   /* A truncated read cannot be presented as the cohort axis. */
   if (axis.truncated) throw new Error("cohort membership read truncated before the end of the relation");
-  COHORT_INDEX = SceneModel.buildCohortFavorites(favorites, [axis.rows]);
+  /* Full membership per cohort, with FAV as the explicit default entry the cohorts
+     replace — the favorites-intersection index this used to build showed a chosen cohort
+     as, at most, the favorites already on the wall (filed defect, ruled). */
+  COHORT_INDEX = SceneModel.buildCohortIndex([axis.rows], favorites);
   COHORT_READY = true;
   const names = orderedCohorts();
   if (!COHORT_INDEX.has(COHORT)) COHORT = names[0] || COHORT;
@@ -1355,7 +1361,7 @@ async function primeSceneState() {
     if (editable && recovered !== editable) rememberEditableState();
   }
   else if (SCENE === "cohort") {
-    try { await loadCohortFavorites(); installSceneState(hasStoredScene("cohort") ? editableState("cohort") : cohortState()); }
+    try { await loadCohortIndex(); installSceneState(hasStoredScene("cohort") ? editableState("cohort") : cohortState()); }
     catch (_) { COHORT_READY = false; installSceneState({ charts:[], chartCount:1, range:RANGE }); }
   }
   remember("station.scene", SCENE);
@@ -1448,7 +1454,7 @@ async function applyScene(next, options) {
   }
   else if (requested === "cohort") {
     try {
-      await loadCohortFavorites();
+      await loadCohortIndex();
       if (options?.cohort) COHORT = CLEAN_COHORT(options.cohort);
       COHORT_PAGE = Math.max(0, Number(options?.page) || 0);
       state = !options?.reset && !options?.rotate && hasStoredScene("cohort")
