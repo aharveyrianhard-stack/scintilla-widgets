@@ -11,7 +11,7 @@
          ranking (sector_rankings — refreshed hourly by Command's pg_cron; rank +
          score shown on each group header, method never re-derived here);
          ETFs/unsectored close the board.
-       · group=cohort: primary cohorts from ticker_cohorts (is_primary).
+       · group=cohort: cohorts from the ticker_cohorts membership view.
        · color=chg (default): day chg_pct from live_quotes (served, ±3% scale)
        · color=geiger: composite_staged tf=D composite (THE one Geiger, ±1)
      Tiles sort winners-first inside each group; every group header carries its
@@ -143,7 +143,7 @@ async function pull() {
     pg("company_profile?select=ticker,sector,market_cap,is_etf").catch(() => []),
     pg("live_quotes?select=ticker,price,chg_pct,updated_ts").catch(() => []),
     pg("composite_staged?tf=eq.D&select=ticker,composite").catch(() => []),
-    GROUP === "cohort" ? pg("ticker_cohorts?select=ticker,cohort,is_primary").catch(() => []) : [],
+    GROUP === "cohort" ? pg("ticker_cohorts?select=ticker,cohort").catch(() => []) : [],
     GROUP === "sector" ? pg("sector_rankings?select=sector_name,rank,score&order=rank.asc").catch(() => []) : [],
   ]);
   const P = {}; for (const r of (prof || [])) P[r.ticker] = r;
@@ -165,7 +165,7 @@ function buildGroups(d) {
   const groups = new Map();
   if (GROUP === "cohort") {
     const primary = {};
-    for (const r of d.coh) if (r.is_primary !== false && !(r.ticker in primary)) primary[r.ticker] = r.cohort;
+    for (const r of d.coh) if (!(r.ticker in primary)) primary[r.ticker] = r.cohort;
     for (const r of rows) {
       const g = primary[r.t] || "UNASSIGNED";
       if (!groups.has(g)) groups.set(g, []);

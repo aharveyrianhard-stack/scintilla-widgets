@@ -14,7 +14,7 @@
      stats printed max/median/mean/min in house thick type. Fixed honest scale
      ±1 (clamped, values always printed).
      DATA — DB reads only, never FMP, never recomputed:
-       ticker_cohorts is_primary=true (membership) ×
+       ticker_cohorts (membership view) ×
        composite_staged tf='D' (THE one Geiger) · scintilla-live.
      Params: ?c=CRYPTO (pin) · auto-rotate cohorts by default (?dwell=10) ·
        ?statorder=desc · ?bg=0 transparent · ?labels=0 · ?refresh=60 (15-600)
@@ -75,7 +75,7 @@ a{ color:inherit; text-decoration:none; }
 </div>
 <div id="stage"><div class="empty">loading cohort…</div></div>
 <div id="stats" hidden></div>
-<div id="ft">composite_staged tf=D · the one geiger, never recomputed · ticker_cohorts is_primary · scale ±1 clamped</div>
+<div id="ft">composite_staged tf=D · the one geiger, never recomputed · ticker_cohorts (membership view) · scale ±1 clamped</div>
 <script src="/_provider/provider.js"></script>
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
@@ -132,7 +132,7 @@ let IDX = 0, HOVER = false, MAXTS = null;
 
 async function pull() {
   const [tc, cs] = await Promise.all([
-    pg("ticker_cohorts?is_primary=eq.true&select=ticker,cohort"),
+    pg("ticker_cohorts?select=ticker,cohort"),
     pg("composite_staged?tf=eq.D&select=ticker,composite,updated_ts"),
   ]);
   const comp = {}; let maxts = null;
@@ -166,7 +166,7 @@ function freshHTML() {
 function render() {
   const c = PIN ? COHORTS.find((x) => x.name.toUpperCase() === PIN) : COHORTS[IDX % COHORTS.length];
   if (!c) {
-    el("stage").innerHTML = '<div class="empty">' + (PIN ? "no cohort “" + esc(PIN) + "” in ticker_cohorts (is_primary)" : "no cohort data") + "</div>";
+    el("stage").innerHTML = '<div class="empty">' + (PIN ? "no cohort “" + esc(PIN) + "” in ticker_cohorts" : "no cohort data") + "</div>";
     el("stats").hidden = true; el("cname").textContent = PIN || "—"; el("cmeta").textContent = ""; return;
   }
   el("cname").textContent = c.name;

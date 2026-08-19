@@ -13,7 +13,7 @@
        UPCOMING — next dates first, report time (BMO/AMC) and confirmed flag.
        RESULTS  — most recent first, EPS + revenue surprise coloured by sign.
      Cohort-aware: ?cohort=AI_HW filters both lists through ticker_cohorts
-     (is_primary), so the events rail follows the cohort axis like everything
+     membership, so the events rail follows the cohort axis like everything
      else. ?t=MU pins one ticker. ?days=45 window · ?limit=40 · ?bg=0 ·
      ?sections=upcoming,results · ?refresh=300.
      DATA — DB reads only, never FMP · scintilla-live. Ticker → /chart.
@@ -97,7 +97,7 @@ const tone = (v) => (v > 0 ? "up" : v < 0 ? "dn" : "neu");
 async function tick() {
   let inList = null;
   if (COHORT) {
-    const tc = await pg("ticker_cohorts?is_primary=eq.true&cohort=eq." + encodeURIComponent(COHORT) + "&select=ticker").catch(() => null);
+    const tc = await pg("ticker_cohorts?cohort=eq." + encodeURIComponent(COHORT) + "&select=ticker").catch(() => null);
     inList = Array.isArray(tc) ? tc.map((r) => r.ticker).filter(Boolean) : [];
     if (!inList.length) { el("cols").innerHTML = '<div class="empty">no primary tickers in cohort ' + esc(COHORT) + "</div>"; return; }
   }
