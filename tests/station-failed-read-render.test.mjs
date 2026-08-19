@@ -104,3 +104,34 @@ test("fundamentals/dcf/allocation readers are bounded and word a timeout as its 
   assert.ok(!fundamentals.includes("'HTTP '+((ev._sbError?ev._sbStatus:tr._sbStatus))"));
   assert.ok(!fundamentals.includes("(HTTP '+TX._sbStatus+')"));
 });
+
+test("/pulse keeps a dead read distinct from an empty table, per section", () => {
+  const pulse = read("../pulse/index.html");
+  assert.match(pulse, /const READ_FAILED = \{ failed: true \};/);
+  assert.ok(!pulse.includes(".catch(() => null)"), "the flattening catch is gone");
+  for (const dead of ['pg("composite_staged?tf=eq.D&select=composite").catch(() => READ_FAILED)',
+                      '&select=ticker,price,chg_pct").catch(() => READ_FAILED)',
+                      'order=date.desc&limit=1").catch(() => READ_FAILED)'])
+    assert.ok(pulse.includes(dead), dead);
+  /* The VIX section receives the markers, not nulls flattened from them. */
+  assert.match(pulse, /const vq = quotes === READ_FAILED \? READ_FAILED/);
+  assert.match(pulse, /const vterm = term === READ_FAILED \? READ_FAILED/);
+
+  const READ_FAILED = { failed: true };
+  const num = (x) => (x == null ? null : Number(x));
+  const secGeiger = fnFromSource(pulse, "secGeiger", { READ_FAILED, num });
+  assert.match(secGeiger(READ_FAILED), /composite_staged did not answer — unavailable, not empty · retrying/);
+  assert.match(secGeiger(READ_FAILED), /class="dead"/, "a failure does not wear the empty style");
+  assert.match(secGeiger([]), /no composite_staged rows/, "true emptiness keeps its own words");
+  assert.match(secGeiger([{ composite: 0.5 }]), /1↑/, "a healthy read still counts");
+
+  const MACRO_SET = ["SPY","QQQ","IWM","SMH","GLD","TLT","NVDA","COIN"];
+  const secMacro = fnFromSource(pulse, "secMacro", { READ_FAILED, num, MACRO_SET });
+  assert.match(secMacro(READ_FAILED), /live_quotes did not answer — unavailable, not empty · retrying/);
+  assert.match(secMacro([]), /no macro rows in live_quotes/);
+
+  /* VIX: each half fails alone; both dead is one named failure, not "no vix source". */
+  assert.match(pulse, /vix_term did not answer · retrying/);
+  assert.match(pulse, /live_quotes and vix_term did not answer — unavailable, not empty · retrying/);
+  assert.match(pulse, /no vix source/, "the honest empty state survives for readable-but-bare sources");
+});

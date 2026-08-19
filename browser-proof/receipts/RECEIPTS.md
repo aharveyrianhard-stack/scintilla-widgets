@@ -143,3 +143,14 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/degraded-states.mjs` (asse
 - **/fundamentals, provider quotes dead** (browser-proof/receipts/degraded-fundamentals-quotes-dead.png): the header and banner state the missing price; valuation is disabled and STAYS disabled through a slider drag (the render-time gate, exercised in a real browser); the universe and fundamentals sections load normally around it. Also fixed in this unit: the page's boot had no catch, so a cold provider outage used to stop the whole page from booting with no banner at all — the universe failure now paints where the universe status lives and the ticker sections still load.
 
 Zero page errors across all four scenarios.
+
+---
+
+## 2026-08-19T12:10:53Z — /pulse: a dead read no longer wears an empty table's words
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/pulse-failed-reads.mjs` (asserts inline; failures injected per page over the healthy rig)
+
+- **vix_term dead, all else healthy** (browser-proof/receipts/pulse-vixterm-dead-beside-live-price.png): geiger counts and macro render normally, and the VIX section shows the live price BESIDE "vix_term did not answer · retrying" — the failure is named, the healthy half still speaks, and "no vix source" (the honest empty wording) never appears over a failure.
+- **provider dead** (browser-proof/receipts/pulse-provider-dead-fails-closed.png): the shim fails its owned reads closed, so GEIGER and MACRO say their sources "did not answer — unavailable, not empty · retrying" in the failure style, while vix_term — never shim-owned — still answers with the /3M term ratio beside the dead-quotes marker. Before this unit, every one of these states rendered as "no composite_staged" / "no live_quotes": a dead read and an empty table were the same strip.
+
+Zero page errors in both scenarios.
