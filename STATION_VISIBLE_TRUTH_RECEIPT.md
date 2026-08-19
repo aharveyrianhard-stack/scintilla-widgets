@@ -677,3 +677,69 @@ independent re-audit that decides merge readiness.
 ## Errata, stated
 
 - None new: two commits, both gated green before push.
+
+---
+
+# Round — executor 3, vendoring sprint (2026-08-19, same session)
+
+One code batch (`f1adfae`) plus the docs commit carrying this section. Suite at close:
+**251 pass, 0 fail**; all **19 browser proofs re-run PASSED** against the vendored tree.
+No provider history touched, no Geiger change, no database access, no production change.
+
+## The wall that moved, and the evidence
+
+The two supply-chain rulings were blocked on "the exact bytes are unreachable from this
+container." Measured this sprint: `registry.npmjs.org` → **HTTP 200 through the proxy**
+(cdn.jsdelivr.net and unpkg.com stay CONNECT-refused). Chain of custody, exact:
+
+- `@supabase/supabase-js`: dist-tag `latest` = highest stable 2.x = **2.112.3** (what the
+  floating `@2` tag resolves to today). Tarball
+  `https://registry.npmjs.org/@supabase/supabase-js/-/supabase-js-2.112.3.tgz` downloaded
+  and hashed: sha512 **equals** the registry's published integrity
+  (`sha512-Jv1bxVQmEJNkjvPEhFaKjPzsh+Ozyew6lWGD+SoYcsclDEP1z7yEvKvfUQfzy0DkxRIQnZNxmmWtAzw5XLTQoA==`).
+  The package's own `jsdelivr`/`unpkg` fields name `dist/umd/supabase.js` — the exact file
+  the CDN tag served — vendored as `/_vendor/supabase-js-2.112.3-umd.min.js` (211,907
+  bytes, `sha384-qafw21c/iciq0VXsi9FzkfoQv5I/V0iqE4lSNcKXPnW9/UTJLnv5CcN4FHxVLnKg`, carried
+  as the tag's integrity attribute).
+- `lightweight-charts` 4.1.3: tarball sha512 **equals** the registry's published integrity
+  (`sha512-SJacmEyx3LmT2Qsc7Kq7cEX7nEHtQv0MOlujhRlcDxhW62pG6nkBlcM52/jNqkq8B28KQeVmgOQ7zrdJ4BCPDw==`);
+  `dist/lightweight-charts.standalone.production.js` — the exact path the unpkg tag
+  referenced — vendored as `/_vendor/lightweight-charts-4.1.3.standalone.production.js`
+  (160,943 bytes, `sha384-JZigAjwiaZtkUbA44CWkPaT3iBb/mU5pO6QOANp+OqHd4q+1+7MG1kzp2OOP9ZfP`).
+
+/deck, /chart + its byte-mirrored shell, and /templates/sector-rotation.html now load these
+same-origin under their integrity attributes; the retained rollback copy keeps its legacy
+tags by ruling. **Zero third-party CDNs remain in any current price-path page** — the
+authority sweep's class allowances tightened accordingly, its interception-liveness canary
+is now a deliberate refused request, and the realtime proof exercises the REAL vendored SDK
+(asserted, not stubbed) plus the newly wired channel-status truth: "available" no longer
+means merely "script present" — SUBSCRIBED clears the note, CHANNEL_ERROR/TIMED_OUT/CLOSED
+paint "RT · not connected", a pending connect claims nothing.
+
+## UNKNOWNs, stated
+
+- Whether jsdelivr's `@2` endpoint served byte-identical content to the tarball entry was
+  never verifiable from here — MOOT once vendored, but the historical CDN bytes were never
+  audited.
+- Production wss connectivity (the channel actually reaching SUBSCRIBED on the live site)
+  is unverifiable from this container; the rig's offline channel states are honest but are
+  not a live acceptance.
+- The vendored files execute in the rig; their behavior on the live deploy is expected
+  identical (same bytes, same-origin serving) but unverified from here, like every live
+  claim on this branch.
+
+## Errata, stated
+
+- `dcf-baseline.mjs` went stale-RED when `39567f9` reworded the as-of bar (round 7) and was
+  not re-run afterward; the full 19-proof battery this sprint caught it, the assertion is
+  fixed in `f1adfae`, and the battery habit is the remedy. No pushed commit message
+  overclaimed (the proof was simply not re-run), but the receipt's "every entry regenerable"
+  promise was four rounds stale for that one proof — recorded.
+
+## Rollback and next unit
+
+Rollback: revert `f1adfae` — the CDN tags return; behavior is otherwise unchanged. Next
+runnable unit: none new — the wall stands as round 10 stated it, with two items MOVED:
+the supabase-js and lightweight-charts rulings are now EXECUTED on the branch in their
+verifiable form (vendor); the SRI-on-CDN alternative remains open to the owner before
+merge. The independent re-audit remains the merge gate.
