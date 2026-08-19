@@ -998,6 +998,15 @@ document.getElementById('lmodeGlow').onclick=()=>{ LINES_MODE='glow'; localStora
 /* ============ LINES (lightweight-charts, TV-style rebase) ============ */
 function initChart(){
   const el=document.getElementById('linesChart');
+  /* THE CHART LIBRARY IS A THIRD-PARTY CDN SCRIPT (unpkg, pinned 4.1.3, NO integrity hash —
+     vendor-or-SRI is an owner ruling, recorded in the receipt). When it does not load, the
+     LINES panel is unavailable and SAYS so; the unguarded createChart used to throw a
+     ReferenceError mid-render and take the timeframe-following panels down with it. */
+  if(typeof LightweightCharts==='undefined'){
+    if(el && !el.dataset.libDead){ el.dataset.libDead='1';
+      el.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#868AAA;font-size:11px;letter-spacing:.08em;text-align:center;padding:12px">lightweight-charts did not load (third-party CDN unpkg.com) — the LINES panel is unavailable, not empty; every other panel is unaffected · reload to retry</div>'; }
+    return;
+  }
   chart=LightweightCharts.createChart(el,{
     layout:{background:{color:'transparent'},textColor:'#868AAA',fontSize:10,fontFamily:'"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace'},
     grid:{vertLines:{color:'#14141F'},horzLines:{color:'#14141F'}},
@@ -1097,6 +1106,8 @@ function renderLinesAum(){
 }
 function renderLines(){
   if(!chart) initChart();
+  /* No library, no line series — but the timeframe-following panels still follow. */
+  if(!chart){ setRange(currentRange); return; }
   for(const s of SECTORS){
     if(!lineSeries[s.t]) lineSeries[s.t]=chart.addLineSeries({color:s.c,lineWidth:2,priceLineVisible:false,lastValueVisible:true});
   }
@@ -1108,12 +1119,14 @@ function setRange(rk){
   currentRange=rk;
   const want = rk==='1D' ? (DS.intra1[BENCH]?'intra1':'intra') : rk==='5D' ? 'intra' : 'daily';
   if(DS[want][BENCH]) ACTIVE=want;
-  chart.applyOptions({timeScale:{timeVisible:ACTIVE!=='daily',secondsVisible:false}});
+  /* The chart calls are guarded so a dead LINES panel never takes these panels with it:
+     leaders and heatmap follow the selected timeframe whether or not the library loaded. */
+  if(chart) chart.applyOptions({timeScale:{timeVisible:ACTIVE!=='daily',secondsVisible:false}});
   const n=DS[ACTIVE][BENCH].times.length;
   const bars = (rk==='1D'||rk==='5D')? n : Math.min(parseInt(rk),n);
   const from=Math.max(0,n-Math.min(bars,n));
   rebaseIdx=from; rebaseLines();
-  chart.timeScale().setVisibleLogicalRange({from:from-0.5,to:n-0.5});
+  if(chart) chart.timeScale().setVisibleLogicalRange({from:from-0.5,to:n-0.5});
   renderCards(); renderTreemap();   // leaders + heatmap follow the selected timeframe
 }
 

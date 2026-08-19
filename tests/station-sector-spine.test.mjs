@@ -112,3 +112,18 @@ test("the spine asks with the contract's exact 5m/1m tokens, and the shim maps b
   assert.match(provider, /var TF = \{ '1':'1m','5':'5m',/);
   assert.match(provider, /'1m':'1m','2m':'2m','3m':'3m','5m':'5m'/);
 });
+
+test("a dead chart library is a said panel state, never a mid-render throw", () => {
+  const page = fs.readFileSync(new URL("../templates/sector-rotation.html", import.meta.url), "utf8");
+  /* lightweight-charts arrives from unpkg (pinned 4.1.3, no integrity hash — vendor-or-SRI
+     is an owner ruling). Unguarded, createChart threw a ReferenceError when the CDN was
+     down and took the timeframe-following panels with it. */
+  assert.match(page, /if\(typeof LightweightCharts==='undefined'\)\{/);
+  assert.match(page, /lightweight-charts did not load \(third-party CDN unpkg\.com\) — the LINES panel is unavailable, not empty; every other panel is unaffected · reload to retry/);
+  assert.match(page, /if\(!chart\)\{ setRange\(currentRange\); return; \}/, "no series without the library, but the range still applies");
+  assert.match(page, /if\(chart\) chart\.applyOptions/);
+  assert.match(page, /if\(chart\) chart\.timeScale\(\)\.setVisibleLogicalRange/);
+  /* The rollback copy is exempt by ruling and stays untouched. */
+  const older = fs.readFileSync(new URL("../templates/sector-rotation-older.html", import.meta.url), "utf8");
+  assert.ok(!older.includes("libDead"), "sector-rotation-older is the retained rollback, left as-is");
+});
