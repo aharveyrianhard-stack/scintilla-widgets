@@ -755,7 +755,15 @@ function scChartDraw(host, scrub) {
   for (let i = start; i <= end; i++) {
     const q = pts[i]; if (q.p < lo) lo = q.p; if (q.p > hi) hi = q.p;
   }
-  const ref = (host._ref != null && isFinite(host._ref)) ? host._ref : pts[0].p;
+  /* THE DIRECTION COLOR IS A CLAIM ABOUT THE DAY, SO IT NEEDS THE DAY'S OWN BASELINE.
+     This used to fall back to the first bar of the loaded window whenever the provider's
+     previous close was unknown, and the pane was then painted bull or bear against a number
+     nobody sent — a baseline that MOVES with the range control, so the same prices painted
+     green at one range and red at another with no market event between them. The badge
+     already said "—" for exactly that case (chDayChange refuses without a previous close),
+     so an honest text sat beside a confident color, and the color is what the wall is read
+     by. Direction is claimed only from the authority the badge uses; without it, neutral. */
+  const ref = chDayRef(host);
   let yLo = lo, yHi = hi;
   if (yHi === yLo) { yHi += 1; yLo -= 1; }
   const yPad = (yHi - yLo) * .055;
@@ -766,8 +774,8 @@ function scChartDraw(host, scrub) {
   const X = (i) => padL + ((i - start) / Math.max(1, end - start + rightBars)) * iw;
   const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * ih;
   host._plot = { padL, padT, iw, ih, start, end, rightBars, yLo, yHi };
-  const up = pts[end].p >= ref;
-  const c = up ? col.bull : col.bear;
+  const up = ref != null && pts[end].p >= ref;
+  const c = ref == null ? col.ink2 : up ? col.bull : col.bear;
   /* Use rounded, evenly meaningful price levels rather than labeling only the
      accidental visible high and low. The levels adapt to pane height without
      reopening the old empty right gutter. */
@@ -1034,7 +1042,6 @@ async function scChartLoad(host) {
   if (cachedPts && cachedPts.length >= 2) {
     host._series = cachedPts;
     paintChartHistoryWindow(host);
-    host._ref = prevClose[t] != null ? +prevClose[t] : cachedPts[0].p;
     if (msg) msg.hidden = true;
     scChartDraw(host);
   } else if (host.dataset.dataState === "absent") {
@@ -1060,7 +1067,6 @@ async function scChartLoad(host) {
     }
     host._series = pts;
     paintChartHistoryWindow(host);
-    host._ref = prevClose[t] != null ? +prevClose[t] : pts[0].p;
     clearChartRetry(host);
     delete host.dataset.dataState;
     delete host.dataset.absence;
@@ -1315,7 +1321,6 @@ function scChartLive(t, price, updatedTs, previousClose) {
   liveQuote[t] = { price:+price, updated_ts:updatedTs == null || updatedTs === "" ? null : updatedTs };
   for (const host of CHART_HOSTS) {
     if (!host.isConnected || host.dataset.t !== t) continue;
-    if (prevClose[t] != null && isFinite(prevClose[t])) host._ref = +prevClose[t];
     paintLiveStatus(host, liveQuote[t]);
     const s = host._series;
     if (!s || !s.length) continue;
@@ -1335,6 +1340,15 @@ function scChartLive(t, price, updatedTs, previousClose) {
 
 /* Stable Station overlay: daily performance is measured from the regular
    previous close, never from the visible chart window. */
+/* The ONE baseline both the badge text and the pane color are allowed to claim the day
+   from: the provider's previous close for the pane's CURRENT ticker, read live rather than
+   copied, so a pane whose ticker changed cannot keep the old symbol's baseline. Null means
+   unknown — never a substitute, never zero. */
+function chDayRef(host) {
+  const v = prevClose[host && host.dataset ? host.dataset.t : null];
+  return v != null && Number.isFinite(+v) && +v !== 0 ? +v : null;
+}
+
 function chDayChange(price, previousClose) {
   if (!Number.isFinite(+price) || !Number.isFinite(+previousClose) || +previousClose === 0)
     return { text:"—", tone:"flat" };

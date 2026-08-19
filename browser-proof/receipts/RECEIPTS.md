@@ -1135,3 +1135,21 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/yt-lost-write.mjs` (route 
 - **Scope notes, measured in code**: the two mounted video shells already REVERT on this failure (state-honest) but stay reason-silent — recorded as a lesser gap, not repaired here, because their only failure surface today is the watch-list read lane and hijacking it would blank the list; their `subscribeToChannel` catch is the same state-honest/reason-silent shape. The 10s-cadence `ytPosPush` position write keeps its silent catch by design: positions re-push on cadence, so a lost write is retried by the next tick rather than lied about.
 
 Zero page errors in both scenarios. Rollback: revert the single commit carrying this unit — the change is client-render behavior only (no schema, no endpoint, no authority change).
+
+---
+
+## 2026-08-19T17:52:59Z — the pane's direction color is claimed from the day's baseline, or not claimed at all
+
+Command: `PW_MODULE_DIR=… node browser-proof/proofs/day-direction.mjs` (asserts inline; reads CANVAS PIXELS, not text)
+
+The defect this proves fixed was invisible to source pins and to every text assertion: `chDayChange` already refused to state a day change without the provider's previous close (the badge said "—"), but the pane behind it was painted bull or bear regardless, because the draw path's baseline fell back to `pts[0].p` — the first bar of the LOADED WINDOW. That baseline moves with the range control, so the same prices could paint green at one range and red at another with no market event between them. On a wall, the color is what gets read.
+
+Three scenarios on the same page with the same history, only the previous close changing — the pane's painted pixels counted against the `--bull`/`--bear`/`--ink2` tokens at a tight distance so antialiasing cannot vote:
+
+- **Baseline known, below price** (browser-proof/receipts/chart-day-baseline-known-up.png): badge `20.00%`, pane **bull**, zero bear pixels.
+- **Baseline known, above price** (browser-proof/receipts/chart-day-baseline-known-down.png): badge `(20.00%)`, pane **bear**, zero bull pixels.
+- **Baseline UNKNOWN — the fix** (browser-proof/receipts/chart-day-baseline-unknown-neutral.png): badge `—`, pane **neutral**, **zero bull pixels and zero bear pixels**, with the series still drawn (neutral, not absent). Before this unit that same scenario painted a confident direction from a number nobody sent.
+
+Zero page errors in all three. The mounted `/station-shells/chart-v1` is the byte-exact mirror of this file (gate-enforced), so the Station wall's panes carry the same refusal.
+
+Rollback: revert the single commit — `chDayRef()`, the neutral branch, the removal of the three `_ref` substitution writes, pins and this proof. No data lane, authority or methodology changed; the previous close itself is read exactly as before.

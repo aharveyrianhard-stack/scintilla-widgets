@@ -911,3 +911,43 @@ test("visible video feeds share one durable Personal YouTube action identity", (
   assert.doesNotMatch(ytAction, /WATCH_ACCOUNT|validAccount/,
     "there is no fallback to the disconnected SCINTILLA OAuth identity");
 });
+
+test("the pane's direction color is claimed from the day's baseline, or not claimed at all", () => {
+  /* The badge and the pane color are two renderings of ONE claim: which way the day went.
+     `_ref` used to fall back to `pts[0].p` — the first bar of the LOADED WINDOW — whenever
+     the provider's previous close was unknown, so the pane was painted bull or bear against
+     a number nobody sent, and that number moved with the range control: the same prices
+     could paint green at one range and red at another with no market event between them.
+     chDayChange already refused that case ("—"), so the honest text sat beside a confident
+     color — and on a wall, the color is what gets read. */
+  for (const [label, src] of [["chart", chart], ["chart shell", chartShell]]) {
+    /* The substitution is gone from every site — no window-boundary baseline anywhere. */
+    assert.doesNotMatch(src, /host\._ref/, label + ": the substituted baseline copy is gone");
+    assert.doesNotMatch(src, /prevClose\[t\] != null \? \+prevClose\[t\] : (pts|cachedPts)\[0\]\.p/,
+      label + ": the first-bar fallback is gone");
+    assert.match(src, /const ref = chDayRef\(host\);/, label);
+    assert.match(src, /const up = ref != null && pts\[end\]\.p >= ref;/, label);
+    assert.match(src, /const c = ref == null \? col\.ink2 : up \? col\.bull : col\.bear;/,
+      label + ": no direction color without the day's baseline");
+
+    /* The baseline itself: the CURRENT ticker's provider previous close, read live rather
+       than copied, and null for every shape that is not a usable price. */
+    const prevClose = { NVDA: 100, ZERO: 0, EMPTY: "", NAN: "abc" };
+    const dayRef = functionFromSource(src, "chDayRef", { prevClose, Number });
+    const host = (t) => ({ dataset: { t } });
+    assert.equal(dayRef(host("NVDA")), 100, label + ": a known previous close is the baseline");
+    assert.equal(dayRef(host("MISSING")), null, label + ": unknown stays unknown");
+    assert.equal(dayRef(host("ZERO")), null, label + ": zero is not a baseline — it is the old $0 trap");
+    assert.equal(dayRef(host("EMPTY")), null, label + ": an empty string is not a price");
+    assert.equal(dayRef(host("NAN")), null, label + ": a non-number is not a price");
+    assert.equal(dayRef(null), null, label + ": no host, no claim");
+    assert.equal(dayRef({}), null, label + ": no dataset, no claim");
+
+    /* Badge and pane must agree by construction: both refuse on the same input. */
+    const dayChange = functionFromSource(src, "chDayChange", { Number, Math });
+    assert.equal(dayChange(105, dayRef(host("MISSING"))).tone, "flat",
+      label + ": the badge refuses exactly where the color refuses");
+    assert.equal(dayChange(105, dayRef(host("NVDA"))).tone, "up",
+      label + ": and both claim on the same baseline");
+  }
+});
