@@ -164,7 +164,8 @@
      09:00:00, and the warm path then served that hour-old price as a five-second-old one. On a
      rotating wall - which is every Station wall - that is not an edge case, it is the normal
      path. Each symbol now carries its own receipt time and is judged on it alone. */
-  var qCache = { map: {}, at: {} }, gCache = { at: 0, map: null }, ownedAt = 0, owned = null;
+  var qCache = { map: {}, at: {} }, gCache = { at: 0, map: null }, ownedAt = 0, owned = null,
+      ownedFlight = null, ownedController = null, ownedWaiters = 0, ownedSticky = false;
 
   /* A FAILED READ IS NOT AN EMPTY ANSWER.
      jget used to swallow every network error, timeout, 5xx and auth failure into `null`, and
@@ -306,6 +307,34 @@
     return typeof receipt === 'string' &&
            receipt.toLowerCase() === ACCEPTED_EQUALIZER_SHA256;
   }
+  function waitForOwnership (promise, signal) {
+    /* A caller without a cancellation signal deliberately keeps the shared proof alive. Signal
+       callers are counted so one cancelled pane cannot abort everybody else's proof, while the
+       last cancelled waiter can still tear down a dead fetch instead of leaving its 20s timer
+       alive after the page has stopped caring. */
+    if (!signal) { ownedSticky = true; return promise; }
+    if (signal.aborted)
+      return Promise.reject(transportError('provider unreachable: cancelled by the caller', API + '/geiger', null));
+    ownedWaiters++;
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      var finish = function (fn, value, cancelledByCaller) {
+        if (done) return;
+        done = true;
+        ownedWaiters = Math.max(0, ownedWaiters - 1);
+        signal.removeEventListener('abort', cancelled);
+        if (cancelledByCaller && !ownedWaiters && !ownedSticky && ownedController)
+          ownedController.abort();
+        fn(value);
+      };
+      var cancelled = function () {
+        finish(reject, transportError('provider unreachable: cancelled by the caller', API + '/geiger', null), true);
+      };
+      signal.addEventListener('abort', cancelled, { once: true });
+      promise.then(function (value) { finish(resolve, value, false); },
+                   function (error) { finish(reject, error, false); });
+    });
+  }
   function providerOwned (signal, origPg) {
     /* A warm map is knowledge and may answer without a read - but not for a caller who has
        already cancelled. Returning it here let the next call receive an aborted signal and run
@@ -313,6 +342,11 @@
     if (signal && signal.aborted)
       return Promise.reject(transportError('provider unreachable: cancelled by the caller', API + '/geiger', null));
     if (owned && Date.now() - ownedAt < 300000) return Promise.resolve(owned);
+    /* A cold page can mount dozens of panes at once. They all need the SAME ownership fact, not
+       dozens of simultaneous /geiger + canonical-set handshakes. Share the in-flight proof while
+       keeping each caller's abort local to its own wait; one cancelled pane cannot cancel the
+       verification every other pane is awaiting. */
+    if (ownedFlight) return waitForOwnership(ownedFlight, signal);
     var fail = function (why, count) {
       S.ownership = { verified: false, count: count == null ? null : count,
                       expected: EXPECTED_EQUITY_UNIVERSE, reason: why };
@@ -330,7 +364,10 @@
         }, function () { return null; })
       : Promise.resolve(null);
 
-    return Promise.all([jget(API + '/geiger', signal), canonical]).then(function (a) {
+    ownedController = typeof AbortController === 'undefined' ? null : new AbortController();
+    ownedWaiters = 0;
+    ownedSticky = false;
+    var flight = Promise.all([jget(API + '/geiger', ownedController && ownedController.signal), canonical]).then(function (a) {
       var j = a[0], canon = a[1];
       var syms = j && j.symbols
         ? Object.keys(j.symbols).map(function (k) { return String(k).toUpperCase(); })
@@ -388,6 +425,20 @@
                       reason: 'ownership read failed: ' + (e && e.message || 'unknown') };
       throw e;                                      // cold failure stays a failure
     });
+    ownedFlight = flight.then(function (value) {
+      ownedFlight = null;
+      ownedController = null;
+      ownedWaiters = 0;
+      ownedSticky = false;
+      return value;
+    }, function (error) {
+      ownedFlight = null;
+      ownedController = null;
+      ownedWaiters = 0;
+      ownedSticky = false;
+      throw error;
+    });
+    return waitForOwnership(ownedFlight, signal);
   }
 
   /* THE PROVIDER'S OWN OBSERVATION TIME, OR NOTHING.
