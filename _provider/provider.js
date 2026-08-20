@@ -305,8 +305,8 @@
       throw transportError('provider ownership ' + why, API + '/geiger', null);
     };
     /* Read through the PAGE's own reader, so the shim needs no credentials of its own. A
-       failure here is not fatal on its own - it drops the check back to cardinality, and says
-       so - because the canonical set is a cross-check, not the provider's replacement. */
+       failure here is fatal to a cold ownership map: the canonical set is the independent
+       identity authority, and cardinality alone cannot prove membership. */
     var canonical = typeof origPg === 'function'
       ? origPg(CANONICAL_EQUITY_QUERY).then(function (rows) {
           return Array.isArray(rows)
@@ -740,8 +740,20 @@
      half-migration that produces two surfaces disagreeing about the same stock. This closes the
      class at the fetch boundary, so it does not matter how a page chooses to ask.
 
-     Requests this shim itself issues carry a marker and are never re-intercepted. */
+     Requests this shim itself issues through a page's original pg() carry a LOCAL marker so
+     the wrapped fetch can bypass interception exactly once. The marker is consumed here and
+     MUST NEVER reach PostgREST: an unknown query key is treated as a column filter, so sending
+     `sc_shim=1` to Supabase turns a valid read into HTTP 400 (column sc_shim does not exist). */
   var MARK = 'sc_shim=1';
+  function markedPath (path) {
+    return path + (path.indexOf('?') < 0 ? '?' : '&') + MARK;
+  }
+  function stripMark (url) {
+    return String(url)
+      .replace(new RegExp('([?&])' + MARK + '(?=&|$)'), '$1')
+      .replace(/[?&]$/, '')
+      .replace('?&', '?');
+  }
   function fakeResponse (rows) {
     return { ok: true, status: 200, headers: { get: function () { return 'application/json'; } },
              json: function () { return Promise.resolve(rows); },
@@ -751,7 +763,10 @@
   window.fetch = function (input, init) {
     var url = (typeof input === 'string') ? input : (input && input.url) || '';
     try {
-      if (url.indexOf(MARK) < 0 && /\/rest\/v1\/(live_quotes|composite_staged|ohlcv_history)\b/.test(url)) {
+      /* This is an internal one-hop bypass generated only by markedPath(). Consume it locally
+         and call the saved native fetch with a clean URL. */
+      if (url.indexOf(MARK) >= 0) return origFetch(stripMark(url), init);
+      if (/\/rest\/v1\/(live_quotes|composite_staged|ohlcv_history)\b/.test(url)) {
         var path = url.split('/rest/v1/')[1];
         /* A non-OK Supabase status is a failed read, not an empty table. Returning [] here
            made every 5xx, 401 and 400 look like "this passthrough legitimately has no rows". */
@@ -759,7 +774,8 @@
            quote fetch at 4.5s; without this the shim's replacement read ignored that entirely
            and only the shim's own independent timer applied. */
         var r = handle(path, function (p2) {
-          return origFetch(SBBASE(url) + '/rest/v1/' + p2 + (p2.indexOf('?') < 0 ? '?' : '&') + MARK, init)
+          /* origFetch is already the saved native function, so no bypass marker is needed. */
+          return origFetch(SBBASE(url) + '/rest/v1/' + p2, init)
             .then(function (rr) {
               if (!rr.ok) throw transportError('supabase HTTP ' + rr.status, p2, rr.status);
               return rr.json();
@@ -800,7 +816,10 @@
     var orig = window.pg;
     window.pg = function (path, tries) {
       try {
-        var r = handle(String(path), function (p2) { return orig(p2, tries); });
+        /* The original pg() resolves global fetch at call time, which is now the wrapper above.
+           Mark exactly this internal legacy/canonical hop; the wrapper strips the marker before
+           the network so recursion is prevented without inventing a PostgREST filter. */
+        var r = handle(String(path), function (p2) { return orig(markedPath(p2), tries); });
         if (r) return r;
       } catch (e) {
         /* A bug in here is a failure to ask, not an answer. Resolving [] made it look like a
