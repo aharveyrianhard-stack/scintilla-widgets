@@ -225,16 +225,15 @@
   <details><summary>SPECS & DATA SOURCES</summary><div>
     <b>Universe:</b> 11 SPDR sector ETFs (XLK XLC XLY XLF XLI XLB XLE XLV XLP XLU XLRE) vs benchmark <b>SPY</b>.<br>
     <b>Current authority contract: Massive provider APIs own equity prices, completed bars and Geiger. Raw FMP <code>provider_indicators_current</code> owns the daily RSI/Williams/EMA/SMA values. There is no Yahoo or locally computed fallback. Missing provider data stays visibly unavailable.</b><br>
-    <b>① Supabase</b> (project <code>scintilla-live</code>, same database that feeds scintillahub.ai itself, read via anon/RLS-gated key, eight independent reads, each polled every 5 min, each failure isolated to its own tab/section):<br>
+    <b>① Supabase</b> (project <code>scintilla-live</code>, same database that feeds scintillahub.ai itself, read via anon/RLS-gated key, seven independent reads, each polled every 5 min, each failure isolated to its own tab/section):<br>
     &nbsp;&nbsp;• <code>/geiger</code> through the authority shim — accepted Geiger composite/trend/momentum under the verified Equalizer receipt. No local reconstruction.<br>
     &nbsp;&nbsp;• <code>provider_indicators_current</code> — exact-universe raw FMP daily RSI(14), Williams %R(14), EMA5/8/13/21/34 and SMA50/100/150/200. Unsupported indicator fields stay null.<br>
     &nbsp;&nbsp;• <code>/quotes</code> through the authority shim — provider price, change and previous completed daily close. No alternate quote source.<br>
-    &nbsp;&nbsp;• <code>regime_state</code> — per-ticker/per-term (SHORT/MID/LONG) bull/bear + score. Feeds the "DB Regime State" block in Regime Read, kept SEPARATE from this page's own RISK-ON/OFF badge (different signal shape — see Chain 2b).<br>
     &nbsp;&nbsp;• <code>/candles?authority=provider</code> through the shim — completed D/W/5m/1m provider bars for relative performance, RRG, heatmap and Leaders. A missing view makes the spine PARTIAL; nothing is substituted.<br>
     &nbsp;&nbsp;• <code>company_profile</code> (<code>avg_volume</code>) — 30-day average volume, populated for all 12. Feeds RVOL = <code>live_quotes.volume ÷ company_profile.avg_volume</code> in the Actionable Read (wired 2026-07-30).<br>
-    &nbsp;&nbsp;• <code>sector_rankings</code> — <b>this tool's PUBLISHED OUTPUT (C7, 2026-08-05):</b> rank/score per sector, written hourly server-side by <code>refresh_sector_rankings()</code> (pg_cron) from <code>composite_staged</code> tf='D', universe-checked against <code>ticker_cohorts</code>. This page reads it back and shows it in the strip under the header — the allocation module consumes the same rows. Deploys for this page now go through the Vercel API directly (serialized), not the shared _queue file.<br>
-    &nbsp;&nbsp;• <code>ticker_cohorts</code> (cohort=MACRO) — THE universe table: boot-time check that all 11 sectors + SPY are present; any missing name is flagged in the badge strip, never silently assumed.<br>
-    <b>② Retired alternate paths:</b> Yahoo relays and in-browser indicator/Geiger calculations are not called by this page. They cannot stand in for an unavailable provider answer.<br>
+    &nbsp;&nbsp;• <code>sector_rankings</code> — <b>this tool's PUBLISHED OUTPUT (C7, 2026-08-05):</b> rank/score per sector, written hourly server-side by <code>refresh_sector_rankings()</code> (pg_cron). This page reads it back and shows it in the strip under the header — the allocation module consumes the same rows. Deploys for this page now go through the Vercel API directly (serialized), not the shared _queue file.<br>
+    &nbsp;&nbsp;• <code>tickers.cohort</code> — boot-time taxonomy check: the 11 sector ETFs must have current MACRO home placement and SPY must have INDEXES home placement. This is a home-placement question, not a many-to-many <code>ticker_cohorts</code> membership query.<br>
+    <b>② Retired alternate paths:</b> Yahoo relays, the stale internal <code>regime_state</code> engine, and in-browser indicator/Geiger calculations are not called by this page. They cannot stand in for an unavailable provider answer. Sector regime is the current provider-bar RRG breadth result in Chain 2a.<br>
     <b>③ Static hand-compiled reference</b> (hardcoded in this file) — fund AUM $B approximations (<code>AUM</code> map), GICS sub-industry lists and illustrative top-holdings/weights (<code>ETF_DETAIL</code>, <code>TOP_HOLD_PCT</code>). BLOCKED from moving to Supabase <code>etf_holdings</code>/<code>etf_info</code> right now — both tables confirmed EMPTY (0 rows) for our tickers as of 2026-07-24. Flagged everywhere it's used.<br>
     <b>RVOL (WIRED 2026-07-30):</b> ordered formula was <code>live_quotes.volume ÷ etf_info.avg_volume</code>, but <code>etf_info</code> is empty; <code>company_profile.avg_volume</code> IS populated for all 12, so RVOL now = <code>live_quotes.volume ÷ company_profile.avg_volume</code>, shown live in the Actionable Read. Falls back to explicit "missing" (never a fake number) if either input is absent.<br>
     <b>sector_performance</b> table exists (18k+ rows) but is explicitly NOT used per Alan's order — treated as off-limits regardless of row count.<br>
@@ -245,8 +244,7 @@
     <b>Chain 1 — Relative Performance %:</b> completed provider daily/intraday closes → <code>(close_i / close_base − 1) × 100</code>, base = first visible bar → % lines. Glow width uses static AUM only as display geometry; it does not change values.<br>
     <b>Chain 2a — RRG:</b> completed provider weekly closes → RS = 100 × sector/SPY → EMA(4) → 14-week z-scored RS-Ratio and 4-week RS-Momentum → EMA(2) → quadrant and tail. No alternate bar source.<br>
     &nbsp;&nbsp;Quadrant series, walked backward → <b>Weeks In</b> + <b>"just crossed"</b> flag (weeks==1) → <b>Regime Read "just crossed" list</b>, labeled lagging/confirmatory (can only fire after a rotation change already happened).<br>
-    &nbsp;&nbsp;RS-Ratio, grouped Cyclicals vs Defensives → averaged per group → <b>spread</b> → <b>RISK-ON/RISK-OFF/MIXED</b> badge (±0.6 threshold) + breadth counts → <b>"What this means" rules block</b>. This badge is THIS PAGE'S OWN basket-wide calc — see Chain 2b for the separate DB regime signal.<br>
-    <b>Chain 2b — DB Regime State (①, NOT computed on this page):</b> Supabase <code>regime_state</code> row per ticker × term (SHORT/MID/LONG) → <code>state</code> (bull/bear) + <code>score</code> (−1..+1) shown as-is in a dedicated "DB Regime State" row under Regime Read. Deliberately kept separate from the RISK-ON/OFF badge above: that badge is one basket-wide call from this page's own RRG breadth math (Chain 2a); this is a different engine's per-ticker/per-term call — showing both, not merging them, so nothing is silently overwritten or reconciled without a visible rule.<br>
+    &nbsp;&nbsp;RS-Ratio, grouped Cyclicals vs Defensives → averaged per group → <b>spread</b> → <b>RISK-ON/RISK-OFF/MIXED</b> badge (±0.6 threshold) + breadth counts → <b>"What this means" rules block</b>. This is the one current sector-regime result on the page; the stale internal <code>regime_state</code> output is retired from the surface, not blended with it.<br>
     <b>Chain 2c — Extension Watch:</b> raw FMP RSI(14) + Williams %R(14) + provider price versus raw FMP SMA50. Missing any required provider input makes the read unavailable.<br>
     <b>Chain 3 — Technicals scorecard / Sector Sentiment / Actionable Read:</b> raw FMP RSI/Williams/EMA21/SMA50 plus Massive provider price → visible pass/fail rules. MACD/CCI/ROC/Stochastic are not counted because no accepted provider value is loaded. No browser-computed fallback exists.<br>
     <b>Chain 4 — Geiger:</b> accepted <code>/geiger</code> output only. If it cannot be read, the Geiger tab says unavailable and does not calculate an older approximation.<br>
@@ -345,7 +343,7 @@ function providerShimActive(){
 }
 /* ---- C7 (2026-08-05): DATA SPINE badges — every data element shows table · freshness · LIVE/STALE/FALLBACK ---- */
 const SPINE={};
-function spineSet(k,ts,mode,note){ SPINE[k]={ts,mode,note}; renderSpine(); }
+function spineSet(k,ts,mode,note,timeLabel){ SPINE[k]={ts,mode,note,timeLabel}; renderSpine(); }
 function spineAge(ts,staleSec){
   if(ts==null) return 'LIVE';
   const es=(typeof ts==='number')?ts:(Date.parse(ts)/1000);
@@ -355,7 +353,7 @@ function renderSpine(){
   const el=document.getElementById('dataSpine'); if(!el) return;
   const col={LIVE:'#00ffa3',STALE:'#ffb454',FALLBACK:'#ffd166',PARTIAL:'#ffb454'};
   el.innerHTML=Object.entries(SPINE).map(([k,v])=>
-    `<span style="border:1px solid ${col[v.mode]||'#555'};color:${col[v.mode]||'#999'};border-radius:5px;padding:1px 7px;font-size:10px;font-family:ui-monospace,monospace" title="${(v.note||'').replace(/"/g,'&quot;')}">${k}${v.ts?' · '+freshText(v.ts):''} · ${v.mode}</span>`).join('');
+    `<span style="border:1px solid ${col[v.mode]||'#555'};color:${col[v.mode]||'#999'};border-radius:5px;padding:1px 7px;font-size:10px;font-family:ui-monospace,monospace" title="${(v.note||'').replace(/"/g,'&quot;')}">${k}${v.timeLabel?' · '+v.timeLabel:(v.ts?' · '+freshText(v.ts):'')} · ${v.mode}</span>`).join('');
 }
 /* ---- C7: published OUTPUT read-back — sector_rankings (written hourly server-side from composite_staged
    via refresh_sector_rankings()/pg_cron; consumed by the allocation module). Shown here so the page
@@ -380,21 +378,22 @@ async function refreshRankingsLive(){
   }).join(' ');
   el.innerHTML=`<div style="font-size:10px;letter-spacing:.08em;color:#8a8aa0;margin-bottom:3px">PUBLISHED RANKING → <code>sector_rankings</code> (hourly, from composite_staged; consumed by the allocation module)</div><div style="display:flex;flex-wrap:wrap;gap:4px">${chips}</div>`;
 }
-/* ---- C7: universe check — the 11 sectors + SPY must exist in ticker_cohorts (THE universe table) ---- */
+/* ---- Current taxonomy check. `tickers.cohort` is the one home placement; `ticker_cohorts`
+   is a many-to-many membership set. The old query asked the latter for cohort=MACRO and therefore
+   declared all twelve names missing even while the current home taxonomy was complete. ---- */
 async function refreshUniverseCheck(){
   try{
-    /* "Which tickers are in MACRO" is a membership question; ticker_cohorts is the
-       membership set. The 1000 cap is well clear of one cohort's size. */
-    const url=`${SB_URL}/rest/v1/ticker_cohorts?select=ticker,cohort&cohort=eq.MACRO&limit=1000`;
-    const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}, cache:'no-store'});
-    if(!res.ok) throw new Error('ticker_cohorts '+res.status);
-    const rows=await res.json();
-    if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
-    const have=new Set(rows.map(r=>r.ticker));
     const need=[...SECTORS.map(s=>s.t),BENCH];
-    const missing=need.filter(t=>!have.has(t));
-    spineSet('ticker_cohorts',null,missing.length?'STALE':'LIVE','universe check (MACRO cohort): '+(need.length-missing.length)+'/'+need.length+' present'+(missing.length?' — MISSING: '+missing.join(','):''));
-  }catch(e){ spineSet('ticker_cohorts',null,'FALLBACK','universe check failed: '+e.message); }
+    const url=`${SB_URL}/rest/v1/tickers?select=ticker,cohort&ticker=in.(${need.join(',')})&limit=100`;
+    const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}, cache:'no-store'});
+    if(!res.ok) throw new Error('tickers '+res.status);
+    const rows=await res.json();
+    const have=new Map(rows.map(r=>[r.ticker,r.cohort]));
+    const problems=need.filter(t=>!have.has(t)||(t===BENCH?have.get(t)!=='INDEXES':have.get(t)!=='MACRO'));
+    spineSet('tickers · home taxonomy',null,problems.length?'PARTIAL':'LIVE',
+      'home placement: '+(need.length-problems.length)+'/'+need.length+' exact'
+      +(problems.length?' — missing/mismatched: '+problems.join(','):''));
+  }catch(e){ spineSet('tickers · home taxonomy',null,'FALLBACK','taxonomy check failed: '+e.message); }
 }
 async function fetchOHLCV(tk,tf,lim){
   const url=`${SB_URL}/rest/v1/ohlcv_history?select=timestamp,open,high,low,close,volume&ticker=eq.${tk}&tf=eq.${tf}&order=timestamp.desc&limit=${lim}`;
@@ -420,11 +419,13 @@ async function loadDataDB(){
   for(const v of OHLCV_VIEWS) PRICE_COVERAGE[v.view]=Object.keys(next[v.view]).length;
   const full=priceCoverageFull();
   const bt=next.daily[BENCH].times, lastBar=bt.length?bt[bt.length-1]:null;
+  const completedSession=lastBar?String(lastBar).slice(0,10):'unknown';
   spineSet('provider /candles',lastBar,
     full ? spineAge(lastBar,3*86400) : 'PARTIAL',
     'price spine · ' + priceCoverageParts()
     + (full ? '' : ' — the short views are missing, not substituted')
-    + ' · latest completed daily bar shown');
+    + ' · latest completed daily session '+completedSession,
+    'session '+completedSession);
 }
 // The provider contract answers, or the page says it could not. No relay stands in for it.
 async function loadData(){
@@ -586,26 +587,11 @@ async function refreshProfileLive(){
   }catch(e){ PROFILE_LIVE_STATUS='error'; spineSet('company_profile',null,'FALLBACK','read failed — RVOL shows missing'); }
   renderDetailActionable();
 }
-// Regime state — separate per-ticker/per-term (SHORT/MID/LONG) bull/bear read from the DB's own regime
-// engine (Move 1 item 6). Kept as its OWN labeled block, not merged into the page's RISK-ON/OFF badge:
-// that badge is this page's own RRG-breadth calc (Cyclicals vs Defensives spread, Chain 2) — a different
-// signal shape (one basket-wide call vs per-ticker/per-term calls). sector_performance intentionally unused
-// per Alan's order ("empty — don't depend on it").
-let REGIME_LIVE={}, REGIME_LIVE_STATUS='pending';
-async function refreshRegimeLive(){
-  try{
-    const tickers=SECTORS.map(s=>s.t).concat([BENCH]).join(',');
-    const url=`${SB_URL}/rest/v1/regime_state?select=ticker,term,state,score,since_ts,updated_ts&ticker=in.(${tickers})`;
-    const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}});
-    if(!res.ok) throw new Error('supabase '+res.status);
-    const rows=await res.json();
-    const map={}; for(const r of rows){ if(!map[r.ticker]) map[r.ticker]={}; map[r.ticker][r.term]=r; }
-    REGIME_LIVE=map; REGIME_LIVE_STATUS='ok';
-    let mx=0; for(const t of Object.values(map)) for(const r of Object.values(t)) if(r.updated_ts>mx) mx=r.updated_ts;
-    spineSet('regime_state',mx||null,spineAge(mx||null,26*3600),rows.length+' rows (ticker × SHORT/MID/LONG)');
-  }catch(e){ REGIME_LIVE_STATUS='error'; spineSet('regime_state',null,'FALLBACK','read failed'); }
-  renderRegime();
-}
+// The old `regime_state` engine no longer updates provider-owned equities: its upstream ribbon
+// writer intentionally excludes the Massive universe. Keeping that frozen row on this page made
+// a week-old internal computation look like a second current sector regime. It is retired from
+// this surface. The current sector-regime result is the provider-bar RRG breadth calculation below;
+// current per-sector Geiger remains separately visible in its own provider-labelled tab.
 
 // STATIC REFERENCE ONLY — illustrative GICS sub-industries + well-known top constituents per sector.
 // Not live weights, not pulled from any feed. Will be replaced by FMP industry-classification + ETF-holdings endpoints once wired.
@@ -1212,18 +1198,6 @@ function renderRegime(){
       ].join('') : '<span style="font-family:var(--mono);font-size:11px;color:var(--dim)">nothing meaningfully stretched right now</span>'}
     </div>
     <div>
-      <div class="secHead">DB Regime State <span style="color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0">— live, per-ticker/per-term read from Supabase regime_state, a SEPARATE signal from the RISK-ON/OFF badge above (that badge is this page's own RRG-breadth calc; this row is a different engine's directional call, shown as-is)</span></div>
-      ${REGIME_LIVE_STATUS==='ok'? `<div style="display:flex;flex-wrap:wrap;gap:6px">${d.rows.map(r=>{
-        const rg=REGIME_LIVE[r.t]; if(!rg) return `<span class="crossChip"><span style="color:${r.c}">●</span> <b>${r.t}</b> <span style="color:var(--dim)">missing</span></span>`;
-        const terms=['SHORT','MID','LONG'].map(term=>{
-          const x=rg[term]; if(!x) return `${term}:—`;
-          const col=x.state==='bull'?'var(--green)':x.state==='bear'?'var(--red)':'var(--yellow)';
-          return `${term}:<b style="color:${col}">${x.state} ${x.score>=0?'+':''}${x.score}</b>`;
-        }).join(' ');
-        return `<span class="crossChip"><span style="color:${r.c}">●</span> <b>${r.t}</b> ${terms}</span>`;
-      }).join('')}</div>` : REGIME_LIVE_STATUS==='pending'? `<span style="font-family:var(--mono);font-size:11px;color:var(--dim)">fetching from Supabase…</span>` : `<span style="font-family:var(--mono);font-size:11px;color:var(--yellow)">Supabase fetch failed — regime_state unavailable this refresh</span>`}
-    </div>
-    <div>
       <div class="secHead">What this means — rules applied, in order</div>
       <div class="decisionBox">${rules.map(r=>`<div class="ruleRow"><span class="ruleTag ${r.tag}">${r.tag==='watch'?'watch':r.tag==='caution'?'caution':'context'}</span><span>${r.text}</span></div>`).join('')}</div>
     </div>`;
@@ -1460,7 +1434,6 @@ refreshGeigerLive();
 refreshDerivedLive();
 refreshQuotesLive();
 refreshProfileLive();
-refreshRegimeLive();
 refreshRankingsLive();
 refreshUniverseCheck();
 setInterval(()=>refreshRankingsLive(),REFRESH_MIN*60*1000);
@@ -1469,7 +1442,6 @@ setInterval(()=>refreshGeigerLive(),REFRESH_MIN*60*1000);
 setInterval(()=>refreshDerivedLive(),REFRESH_MIN*60*1000);
 setInterval(()=>refreshQuotesLive(),REFRESH_MIN*60*1000);
 setInterval(()=>refreshProfileLive(),REFRESH_MIN*60*1000);
-setInterval(()=>refreshRegimeLive(),REFRESH_MIN*60*1000);
 </script>
 </body>
 </html>
