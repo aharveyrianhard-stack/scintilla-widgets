@@ -513,6 +513,9 @@ test("fixed price overlay reports daily performance honestly", () => {
   assert.match(chart, /sc-nchart__live-ticker/);
   assert.match(chart, /parent\.postMessage\(\{ sc:"chart-focus-ticker" \}/);
   assert.match(chart, /\.sc-nchart__live-change/);
+  assert.match(chart, /\.sc-nchart__live-prev/);
+  assert.match(chart, /previous\.textContent = dayRef != null[\s\S]*?\? "Prev " \+ chPx\(\+dayRef, host\.dataset\.t\) : ""/,
+    "the exact baseline behind the daily percentage is visible");
   assert.match(chart, /badge\.dataset\.change = day\.tone/);
   assert.doesNotMatch(chart, /sc-nchart__live-meta/,
     "the overlay keeps price plus daily change, not last-time/OHLC clutter");
