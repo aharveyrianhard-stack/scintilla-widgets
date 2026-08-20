@@ -9,9 +9,9 @@
      (station-fundamentals-price.test.mjs pins it).
    - dcf: Jul-24 static prices at cold load and after failed reads; the market price drawn
      as a fair-value bar — FIXED (station-dcf-cold-load.test.mjs pins it).
-   - sector-rotation: the last YAHOO DAILY CLOSE stood in for a missing live_quotes price
-     inside a read whose banner said "LIVE, DB-sourced … no in-browser math" — FIXED here:
-     the substitution is kept (it keeps the read alive) but named at every surface.
+   - sector-rotation: the last Yahoo daily close stood in for a missing provider quote.
+     The alternate was removed: without both raw FMP indicators and a provider quote, the
+     technical read is unavailable.
    - dcf-methodology: a static captured quote labelled "(FMP, live)" — RELABELLED.
    - company-full: hardcoded prices, but the page is an explicitly labelled STATIC MOCK
      ("baked, no network · nothing deployed") — a declared fixture, NOT a silent
@@ -43,31 +43,26 @@ function fnFrom(source, name, bindings = {}) {
 }
 
 function technicalHarness(quote) {
-  const closes = Array.from({ length: 60 }, (_, i) => 90 + i * 0.2);
   return fnFrom(sector, "technicalRead", {
     DERIVED_LIVE: { XLK: { rsi_raw:60, wpr_raw:-30, macd_raw:1.2, macd_signed:0.5, cci_raw:50,
       roc_raw:2, stoch_raw:70, fan_ema21:100, fan_sma50:95, updated_ts:"2026-08-19T13:00:00Z" } },
     QUOTES_LIVE: quote ? { XLK: { price: quote } } : {},
-    DS: { daily: { XLK: { closes } } },
   });
 }
 
-test("a DB-sourced read carries the live quote when it exists, and says so", () => {
+test("a provider-sourced read carries the provider quote when it exists", () => {
   const r = technicalHarness(102.5)("XLK");
-  assert.equal(r.source, "db");
-  assert.equal(r.priceSource, "live_quotes");
+  assert.equal(r.source, "provider");
+  assert.equal(r.priceSource, "provider /quotes");
   assert.equal(r.last, 102.5);
 });
 
-test("a missing live quote is a NAMED substitution, not a silent Yahoo close", () => {
+test("a missing provider quote disables the read; no Yahoo or local substitute survives", () => {
   const r = technicalHarness(null)("XLK");
-  assert.equal(r.source, "db", "the indicators are still the database's");
-  assert.equal(r.priceSource, "yahoo-close", "the price is not, and the read says which");
-  assert.ok(Math.abs(r.last - (90 + 59 * 0.2)) < 1e-9, "the stand-in is the last Yahoo close");
-  /* And every surface that shows the price names the exception. */
-  assert.match(sector, /PRICE EXCEPTION: the live quote is unavailable, so the price in the conditions below is the last Yahoo daily close/);
-  assert.match(sector, /\(last Yahoo close — live quote unavailable\)/);
-  assert.match(sector, /DB indicators · price from last Yahoo close — live quote unavailable/);
+  assert.equal(r, null);
+  assert.doesNotMatch(sector, /yahoo-close|geigerApprox|fallback composite/i);
+  assert.match(sector, /no alternate price or locally computed indicator is substituted/);
+  assert.match(sector, /No local approximation or older formula is substituted/);
 });
 
 test("the methodology write-up no longer labels a captured static quote as live", () => {

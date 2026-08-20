@@ -80,6 +80,24 @@ const GEIGER_OK = {
   equalizer_receipt_sha256:ACCEPTED_EQUALIZER,
   computed_utc:"2026-08-19T07:57:20.566Z",
 };
+const INDICATOR_UNIVERSE_SHA256 =
+  "7ad595cc4db5e1fd0bb63bb3780ac1450a938e6fa068df944aeec71445556063";
+function indicatorRow(indicator, period_length, value) {
+  return {
+    ticker:"AAPL", provider:"FMP", timeframe:"1day", indicator, period_length, value,
+    source_date:"2026-08-20 00:00:00", session_state:"FORMING",
+    fetched_at:"2026-08-20T18:07:09.756Z", universe_hash:INDICATOR_UNIVERSE_SHA256,
+  };
+}
+const AAPL_INDICATORS = [
+  indicatorRow("rsi", 14, 53.1735418207052),
+  indicatorRow("williams", 14, -21.0298833079653),
+  indicatorRow("ema", 5, 312.3958), indicatorRow("ema", 8, 311.4182),
+  indicatorRow("ema", 13, 311.8773), indicatorRow("ema", 21, 312.8428),
+  indicatorRow("ema", 34, 312.2572), indicatorRow("sma", 50, 309.9493),
+  indicatorRow("sma", 100, 296.49785), indicatorRow("sma", 150, 284.427),
+  indicatorRow("sma", 200, 281.324475),
+];
 /* The canonical set the shim cross-checks against, served through the page's own reader. */
 function canonicalRows(symbols) { return Object.keys(symbols).map((ticker) => ({ ticker })); }
 
@@ -472,7 +490,7 @@ test("a shim bug is a failure to ask, not a settled empty answer", () => {
   /* And the fetch wrapper must not fall through to the legacy equity table on its own bug. */
   assert.match(providerSource, /FAIL CLOSED/);
   assert.match(providerSource,
-    /if \(\/\\\/rest\\\/v1\\\/\(live_quotes\|composite_staged\|ohlcv_history\)\\b\/\.test\(url\)\)\n\s*return Promise\.reject\(transportError/);
+    /if \(\/\\\/rest\\\/v1\\\/\(live_quotes\|composite_staged\|ohlcv_history\|board_rsi\|derived_series\)\\b\/\.test\(url\)\)\n\s*return Promise\.reject\(transportError/);
 });
 
 test("cache freshness is per symbol — one symbol's answer cannot renew another's", async () => {
@@ -902,6 +920,52 @@ test("a caller who already gave up is not served by the warm ownership map", asy
 
   assert.match(providerSource, /if \(signal && signal\.aborted\)\n\s*return Promise\.reject\(transportError\('provider unreachable: cancelled by the caller', API \+ '\/geiger', null\)\);/);
   assert.match(providerSource, /if \(signal && signal\.aborted\) \{\n\s*done\(\);/);
+});
+
+test("Station indicator tables are served from the exact raw FMP daily universe", async () => {
+  let legacyReads = 0;
+  const w = loadShim((url) => ok(String(url).includes("/geiger") ? GEIGER_OK : {}));
+  w.pg = async (path) => {
+    const p = String(path);
+    if (p.startsWith("tickers?")) return canonicalRows(GEIGER_OK.symbols);
+    if (p.startsWith("provider_indicators_current?")) return AAPL_INDICATORS;
+    if (p.startsWith("board_rsi?") || p.startsWith("derived_series?")) legacyReads += 1;
+    return [];
+  };
+  w.scInstallProviderShim();
+
+  const board = await w.pg("board_rsi?ticker=eq.AAPL&select=ticker,rsi_raw,wpr_raw");
+  assert.equal(board.length, 1);
+  assert.equal(board[0].rsi_raw, 53.1735418207052);
+  assert.equal(board[0].wpr_raw, -21.0298833079653);
+  assert.equal(board[0].sc_source, "FMP_PROVIDER_INDICATORS");
+  assert.equal(board[0].session_state, "FORMING");
+
+  const daily = await w.pg("derived_series?ticker=eq.AAPL&tf=eq.1D&select=ticker,tf,rsi_raw,wpr_raw,fan_ema5,fan_sma200,macd_raw");
+  assert.equal(daily.length, 1);
+  assert.equal(daily[0].fan_ema5, 312.3958);
+  assert.equal(daily[0].fan_sma200, 281.324475);
+  assert.equal(daily[0].macd_raw, null, "an unavailable provider indicator is not computed locally");
+  assert.equal(daily[0].sc_source, "FMP_PROVIDER_INDICATORS");
+
+  const intraday = await w.pg("derived_series?ticker=eq.AAPL&tf=eq.5m&select=ticker,tf,rsi_raw");
+  assert.deepEqual(Array.from(intraday), []);
+  assert.equal(w.SC_PROVIDER_SHIM.absenceFor("AAPL", "5m"), "INDICATOR_BASIS_NOT_VERIFIED");
+  assert.equal(legacyReads, 0, "provider-owned equities never reach either obsolete table");
+});
+
+test("a partial raw indicator payload fails instead of painting a synthetic value", async () => {
+  const w = loadShim((url) => ok(String(url).includes("/geiger") ? GEIGER_OK : {}));
+  w.pg = async (path) => {
+    const p = String(path);
+    if (p.startsWith("tickers?")) return canonicalRows(GEIGER_OK.symbols);
+    if (p.startsWith("provider_indicators_current?")) return [indicatorRow("rsi", 14, 53.17)];
+    return [];
+  };
+  w.scInstallProviderShim();
+  await assert.rejects(
+    () => w.pg("board_rsi?ticker=eq.AAPL&select=ticker,rsi_raw,wpr_raw"),
+    (err) => err && err.scTransport === true && /AAPL\/williams:14/.test(err.message));
 });
 
 test("every timeframe the sector-rotation spine asks for resolves to a contract token", () => {

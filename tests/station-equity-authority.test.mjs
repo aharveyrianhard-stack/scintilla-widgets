@@ -29,7 +29,9 @@ const analytics = fs.readFileSync(new URL("../analytics/index.html", import.meta
 const health = fs.readFileSync(new URL("../health/index.html", import.meta.url), "utf8");
 const provider = fs.readFileSync(new URL("../_provider/provider.js", import.meta.url), "utf8");
 
-const LEGACY_EQUITY_TABLES = ["live_quotes", "composite_staged", "ohlcv_history"];
+const LEGACY_MARKET_TABLES = ["live_quotes", "composite_staged", "ohlcv_history"];
+const RETIRED_INDICATOR_TABLES = ["board_rsi", "derived_series"];
+const LEGACY_EQUITY_TABLES = [...LEGACY_MARKET_TABLES, ...RETIRED_INDICATOR_TABLES];
 
 function fnFrom(source, name, bindings = {}) {
   const start = source.indexOf(`function ${name}(`);
@@ -82,11 +84,15 @@ test("/health grades the legacy tables as the non-equity lane, under a true labe
      does NOT own — crypto, futures, indices, rates — straight through to these tables, so they
      are the live owner of the non-equity lane and a stale one is a real outage on real panes.
      What had to go was the claim that they are the board's price and the Geiger. */
-  for (const table of LEGACY_EQUITY_TABLES) {
+  for (const table of LEGACY_MARKET_TABLES) {
     const row = new RegExp(`t: "${table}",[^\n]*`).exec(feeders);
     assert.ok(row, `${table} is still monitored`);
     assert.match(row[0], /nonEquity: true/, `${table} is labelled as the non-equity lane`);
     assert.doesNotMatch(row[0], /whole board|the Geiger"/i, `${table} makes no equity claim`);
+    assert.doesNotMatch(stock, new RegExp(`t: "${table}"`), `${table} is not counted as equity stock`);
+  }
+  for (const table of RETIRED_INDICATOR_TABLES) {
+    assert.doesNotMatch(feeders, new RegExp(`t: "${table}"`), `${table} is retired, not a health lane`);
     assert.doesNotMatch(stock, new RegExp(`t: "${table}"`), `${table} is not counted as equity stock`);
   }
   assert.match(health, /NON-EQUITY LANE ONLY/, "and the page prints the distinction");
@@ -153,10 +159,12 @@ test("/analytics no longer overlays two legacy bar tables as a basis claim", () 
 
 test("the shim's own rules are intact — no silent fallback, non-equities keep their owner", () => {
   assert.match(provider, /NO SILENT FALLBACK/);
-  assert.match(provider, /NON-EQUITIES KEEP THEIR OWNER/);
+  assert.match(provider, /NON-EQUITY PRICES\/BARS KEEP THEIR OWNER/);
+  assert.match(provider, /two retired\s+internal indicator tables are never used for any symbol/,
+    "retired internal indicator computations do not survive as a non-equity fallback");
   assert.match(provider, /legacy_equity_calls/,
     "a legacy equity call remains a visible breach rather than a silent one");
-  /* The three tables the shim owns are exactly the three legacy equity tables. */
+  /* Every compatibility table with an equity authority claim is intercepted centrally. */
   for (const table of LEGACY_EQUITY_TABLES)
     assert.match(provider, new RegExp(`p\\.table === '${table}'`), `${table} is intercepted`);
 });

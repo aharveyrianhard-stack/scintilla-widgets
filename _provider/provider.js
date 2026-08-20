@@ -2,8 +2,8 @@
    ============================================
    Station is 29 standalone pages, each with its own copy of pg(). Rewriting every call site would
    mean touching hundreds of places across those files, and every one of them is a chance to get a
-   shape subtly wrong. Instead this shim intercepts the THREE legacy equity tables inside pg() and
-   answers them from the accepted provider APIs, returning rows in exactly the shape each caller
+   shape subtly wrong. Instead this shim intercepts the five legacy equity tables inside pg() and
+   answers them from the accepted provider APIs and provider serving index, returning rows in exactly the shape each caller
    already expects. One file, one hook per page.
 
    WHAT IT REPLACES, and with what:
@@ -17,6 +17,10 @@
      ohlcv_history    -> GET /candles  provider-built bars, authority=provider, completed periods
                                        only — the serving layer withholds any trailing bar whose
                                        period has not elapsed.
+     board_rsi        -> provider_indicators_current raw FMP RSI(14) + Williams %R(14)
+     derived_series   -> provider_indicators_current raw FMP daily RSI, Williams and MA values.
+                         Intraday indicator rows are explicitly unavailable until their basis is
+                         verified; MACD/CCI/ROC/Stochastic are null, never locally recomputed.
 
    WHY IT MATTERS HERE. Measured on the full 365-symbol universe on 2026-08-18, the legacy
    live_quotes baseline disagreed with the provider's previous close on 359 of 365 symbols and
@@ -28,8 +32,10 @@
      - NO SILENT FALLBACK. If a query cannot be satisfied from provider data, it returns an empty
        result and records a NAMED reason in window.SC_PROVIDER_SHIM.unsatisfied. It never quietly
        reaches for the legacy table, because a wrong number that looks right is worse than a gap.
-     - NON-EQUITIES KEEP THEIR OWNER. A symbol the provider does not own (crypto, futures, indices,
-       rates) is passed through to the original pg(). That is provider routing, not a fallback.
+     - NON-EQUITY PRICES/BARS KEEP THEIR OWNER. A symbol the provider does not own (crypto,
+       futures, indices, rates) is passed through for quotes, Geiger and bars. The two retired
+       internal indicator tables are never used for any symbol; unsupported indicator bases say
+       unavailable instead of reviving an internal computation.
      - NOTHING IS COMPUTED HERE. No bars are derived, no percentages are invented, no unfinished
        period is composed. Every number comes from an accepted API.
 */
@@ -41,7 +47,7 @@
     api: API,
     installed: false,
     equalizer_receipt: null,
-    counts: { quotes: 0, geiger: 0, candles: 0, passthrough_non_equity: 0, unsatisfied: 0,
+    counts: { quotes: 0, geiger: 0, candles: 0, indicators: 0, passthrough_non_equity: 0, unsatisfied: 0,
               transport_failures: 0, partial_batches: 0, slow_reads: 0 },
     unsatisfied: [],
     /* Transport failures are kept SEPARATELY from named absences. One is "we could not ask",
@@ -130,6 +136,15 @@
   var ABSENCE_NOT_OBSERVED = 'NOT_OBSERVED_BY_STREAM';
   var ABSENCE_TIMEFRAME_NOT_MAPPED = 'TIMEFRAME_NOT_MAPPED';
   var ABSENCE_TICKER_FILTER_REQUIRED = 'TICKER_FILTER_REQUIRED';
+  var ABSENCE_INDICATOR_BASIS = 'INDICATOR_BASIS_NOT_VERIFIED';
+  var INDICATOR_UNIVERSE_SHA256 =
+    '7ad595cc4db5e1fd0bb63bb3780ac1450a938e6fa068df944aeec71445556063';
+  /* These are the rows every equity must have before the legacy-shaped daily row is safe to
+     publish. Long SMAs are intentionally not required: a newly listed equity can have a valid
+     RSI/EMA answer while honestly lacking 50/100/150/200 completed sessions, which remains null. */
+  var REQUIRED_DAILY_INDICATOR_SPECS = [
+    'rsi:14', 'williams:14', 'ema:5', 'ema:8', 'ema:13', 'ema:21', 'ema:34'
+  ];
 
   /* One place builds the named-absence error, so every call site raises the same shape and a
      caller can tell "the stream said no" from "the read fell over" with one property. */
@@ -503,7 +518,7 @@
     });
   }
 
-  // ---- minimal PostgREST query reading. Only what these three tables actually use. -------------
+  // ---- minimal PostgREST query reading. Only what these five tables actually use. --------------
   function parse (path) {
     var qi = path.indexOf('?');
     var table = (qi < 0 ? path : path.slice(0, qi)).replace(/^\/+/, '');
@@ -522,6 +537,75 @@
     return null;                      // no ticker filter: caller wants the whole table
   }
   function limitOf (q, dflt) { var n = parseInt(q.limit, 10); return isFinite(n) && n > 0 ? n : dflt; }
+
+  function epochSeconds (value) {
+    if (value == null) return null;
+    if (typeof value === 'number' && isFinite(value)) return value;
+    var s = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(\.\d+)?$/.test(s)) s = s.replace(' ', 'T') + 'Z';
+    var ms = Date.parse(s);
+    return isFinite(ms) ? Math.floor(ms / 1000) : null;
+  }
+
+  function indicatorPath (symbols, indicators) {
+    return 'provider_indicators_current?select=ticker,provider,timeframe,indicator,period_length,value,source_date,session_state,fetched_at,universe_hash' +
+      '&ticker=in.(' + symbols.join(',') + ')' +
+      '&provider=eq.FMP&timeframe=eq.1day&universe_hash=eq.' + INDICATOR_UNIVERSE_SHA256 +
+      (indicators && indicators.length ? '&indicator=in.(' + indicators.join(',') + ')' : '') +
+      '&limit=1000';
+  }
+
+  function providerIndicatorRows (symbols, indicators, origPg) {
+    if (!symbols.length) return Promise.resolve([]);
+    return origPg(indicatorPath(symbols, indicators)).then(function (rows) {
+      if (!Array.isArray(rows)) throw transportError('provider indicator index did not return rows', 'provider_indicators_current', null);
+      var accepted = [], seen = {}, dates = {}, states = {};
+      rows.forEach(function (r) {
+        if (!r || r.provider !== 'FMP' || r.timeframe !== '1day' || r.universe_hash !== INDICATOR_UNIVERSE_SHA256) return;
+        var ticker = String(r.ticker || '').toUpperCase();
+        if (!ticker || !isFinite(Number(r.value))) return;
+        accepted.push(r);
+        (seen[ticker] || (seen[ticker] = {}))[String(r.indicator) + ':' + String(r.period_length)] = 1;
+        (dates[ticker] || (dates[ticker] = {}))[String(r.source_date || '')] = 1;
+        (states[ticker] || (states[ticker] = {}))[String(r.session_state || '')] = 1;
+      });
+      var required = indicators && indicators.length
+        ? indicators.map(function (indicator) { return indicator + ':14'; })
+        : REQUIRED_DAILY_INDICATOR_SPECS;
+      var missing = [];
+      symbols.forEach(function (s) {
+        required.forEach(function (spec) { if (!seen[s] || !seen[s][spec]) missing.push(s + '/' + spec); });
+        if (dates[s] && Object.keys(dates[s]).length !== 1) missing.push(s + '/MIXED_SOURCE_DATE');
+        if (states[s] && Object.keys(states[s]).length !== 1) missing.push(s + '/MIXED_SESSION_STATE');
+      });
+      if (missing.length)
+        throw transportError('provider indicator payload incomplete: ' + missing.join(','), 'provider_indicators_current', null);
+      S.counts.indicators += accepted.length;
+      return accepted;
+    });
+  }
+
+  function legacyIndicatorRow (ticker, rows) {
+    var by = {};
+    rows.forEach(function (r) { by[String(r.indicator) + ':' + String(r.period_length)] = r; });
+    var value = function (indicator, period) {
+      var r = by[indicator + ':' + period], n = r && Number(r.value);
+      return isFinite(n) ? n : null;
+    };
+    var stamp = rows[0] || {};
+    return {
+      ticker: ticker, tf: '1D', timestamp: epochSeconds(stamp.source_date),
+      rsi_raw: value('rsi', 14), wpr_raw: value('williams', 14),
+      fan_ema5: value('ema', 5), fan_ema8: value('ema', 8), fan_ema13: value('ema', 13),
+      fan_ema21: value('ema', 21), fan_ema34: value('ema', 34),
+      fan_sma50: value('sma', 50), fan_sma100: value('sma', 100),
+      fan_sma150: value('sma', 150), fan_sma200: value('sma', 200),
+      macd_raw: null, macd_signed: null, cci_raw: null, roc_raw: null, stoch_raw: null,
+      severity_ob: null, severity_os: null,
+      source_date: stamp.source_date || null, session_state: stamp.session_state || null,
+      updated_ts: epochSeconds(stamp.fetched_at), sc_source: 'FMP_PROVIDER_INDICATORS'
+    };
+  }
 
   /* Station's chart asks for a Hub timeframe token; the chart API speaks its own. Written out
      rather than lower-cased, because '1m' (minute) and '1M' (month) differ ONLY by case. */
@@ -544,6 +628,54 @@
   // ---- the interceptor ------------------------------------------------------------------------
   function handle (path, origPg, signal) {
     var p = parse(path), q = p.q;
+
+    if (p.table === 'board_rsi') {
+      var brT = wantedTickers(q);
+      return providerOwned(signal, origPg).then(function (own) {
+        var syms = brT || Object.keys(own);
+        var eq = syms.filter(function (s) { return own[s]; });
+        var nonEq = brT ? syms.filter(function (s) { return !own[s]; }) : [];
+        return providerIndicatorRows(eq, ['rsi','williams'], origPg).then(function (raw) {
+          var grouped = {};
+          raw.forEach(function (r) { var t = String(r.ticker || '').toUpperCase(); (grouped[t] || (grouped[t] = [])).push(r); });
+          var rows = eq.map(function (t) {
+            var legacy = legacyIndicatorRow(t, grouped[t] || []);
+            return { ticker:t, rsi_raw:legacy.rsi_raw, wpr_raw:legacy.wpr_raw, macd_signed:null,
+                     ts:legacy.timestamp, updated_at:legacy.updated_ts, source_date:legacy.source_date,
+                     session_state:legacy.session_state, sc_source:legacy.sc_source };
+          });
+          nonEq.forEach(function (s) { S.noteAbsence(s, '1D', ABSENCE_INDICATOR_BASIS); });
+          var lim = limitOf(q, 0); return lim ? rows.slice(0, lim) : rows;
+        });
+      });
+    }
+
+    if (p.table === 'derived_series') {
+      var dsT = wantedTickers(q);
+      if (!dsT || !dsT.length)
+        return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', 'indicator'));
+      var rawTf = String(q.tf || '').replace(/^eq\./, '');
+      return providerOwned(signal, origPg).then(function (own) {
+        var eq = dsT.filter(function (s) { return own[s]; });
+        var nonEq = dsT.filter(function (s) { return !own[s]; });
+        nonEq.forEach(function (s) { S.noteAbsence(s, rawTf || 'indicator', ABSENCE_INDICATOR_BASIS); });
+        var providerPart;
+        if (eq.length && rawTf !== '1D' && rawTf !== 'D' && rawTf !== '1d') {
+          eq.forEach(function (s) { S.noteAbsence(s, rawTf, ABSENCE_INDICATOR_BASIS); });
+          note('indicator basis not verified for ' + rawTf, eq.join(','));
+          providerPart = Promise.resolve([]);
+        } else {
+          providerPart = providerIndicatorRows(eq, null, origPg).then(function (raw) {
+            var grouped = {};
+            raw.forEach(function (r) { var t = String(r.ticker || '').toUpperCase(); (grouped[t] || (grouped[t] = [])).push(r); });
+            return eq.map(function (t) { S.clearAbsence(t, rawTf); return legacyIndicatorRow(t, grouped[t] || []); });
+          });
+        }
+        return providerPart.then(function (rows) {
+          var lim = limitOf(q, 0); return lim ? rows.slice(0, lim) : rows;
+        });
+      });
+    }
 
     if (p.table === 'live_quotes') {
       var lqT = wantedTickers(q);
@@ -766,7 +898,7 @@
       /* This is an internal one-hop bypass generated only by markedPath(). Consume it locally
          and call the saved native fetch with a clean URL. */
       if (url.indexOf(MARK) >= 0) return origFetch(stripMark(url), init);
-      if (/\/rest\/v1\/(live_quotes|composite_staged|ohlcv_history)\b/.test(url)) {
+      if (/\/rest\/v1\/(live_quotes|composite_staged|ohlcv_history|board_rsi|derived_series)\b/.test(url)) {
         var path = url.split('/rest/v1/')[1];
         /* A non-OK Supabase status is a failed read, not an empty table. Returning [] here
            made every 5xx, 401 and 400 look like "this passthrough legitimately has no rows". */
@@ -803,7 +935,7 @@
          the legacy Supabase table - the exact path this shim exists to close - and it would do
          it precisely when the shim is malfunctioning and least able to notice. */
       note('fetch shim threw: ' + e.message, url);
-      if (/\/rest\/v1\/(live_quotes|composite_staged|ohlcv_history)\b/.test(url))
+      if (/\/rest\/v1\/(live_quotes|composite_staged|ohlcv_history|board_rsi|derived_series)\b/.test(url))
         return Promise.reject(transportError('provider shim threw: ' + e.message, url, null));
     }
     return origFetch(input, init);
@@ -827,7 +959,7 @@
         note('shim threw: ' + e.message, path);
         return Promise.reject(transportError('provider shim threw: ' + e.message, path, null));
       }
-      if (/ohlcv_history|live_quotes|composite_staged/.test(String(path))) {
+      if (/ohlcv_history|live_quotes|composite_staged|board_rsi|derived_series/.test(String(path))) {
         S.legacy_equity_calls.push(String(path).slice(0, 160));   // visible breach, never silent
       }
       return orig(path, tries);
