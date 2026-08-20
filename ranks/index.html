@@ -14,7 +14,7 @@
        CHG %      top = biggest gain today      live_quotes.chg_pct
        P/E        top = lowest P/E (cheapest)   ratios_history.pe, latest fiscal row
        MKT CAP    top = largest                 company_profile.market_cap
-       RSI        top = highest RSI             board_rsi.rsi_raw (live board)
+       RSI        top = highest RSI             raw FMP provider RSI(14)
        GEIGER     top = highest composite       composite_staged tf=D (never recomputed)
        SECTOR     top = best avg change today   company_profile.sector rolled up
                                                  over live_quotes, cross-checked
@@ -25,7 +25,7 @@
      horizontally. Nothing nested — this page cannot spawn browsing contexts.
      Params: ?cols=chg,pe,mcap,rsi,geiger,sector · ?limit=40 (10-250) ·
        ?etf=0 (drop ETFs) · ?bg=0 · ?refresh=90 (30-900)
-     DB reads only, never FMP. Receipt: HSC-RANKS-LIVE-001.
+     Equity RSI is the raw FMP provider value; Geiger is never recomputed here.
      ============================================================================ -->
 <style>
 :root{
@@ -73,13 +73,12 @@ body.nobg{ background:transparent; }
 <div id="hd"><span class="k">RANKS</span><span class="s">same universe, ranked every which way · tap a ticker to trace it across columns</span><span class="st" id="stamp"></span></div>
 <div id="sel"></div>
 <div id="cols"><div class="empty">loading rankings…</div></div>
-<div id="ft">db reads only · never fmp · geiger never recomputed · grey = no data for that metric, never coloured</div>
+<div id="ft">provider quote + raw FMP RSI · geiger never recomputed · grey = no data for that metric, never coloured</div>
 <script src="/_provider/provider.js"></script>
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
    top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
+   composite_staged, ohlcv_history and board_rsi from accepted provider sources. */
 try { scInstallProviderShim(); } catch (_) {}
 
 "use strict";
@@ -160,7 +159,7 @@ function column(def, rows) {
 }
 
 async function tick() {
-  /* A FAILED READ IS NEVER DATA. catch(() => null) made a dead board_rsi or composite read
+  /* A FAILED READ IS NEVER DATA. catch(() => null) made a dead provider RSI or composite read
      indistinguishable from a table with no rows, so a whole column rendered every ticker as
      "no data" — a per-ticker DATA claim manufactured from a transport failure. A failure is
      kept as a failure, and the column says the read failed instead of describing fifty
@@ -221,7 +220,7 @@ async function tick() {
     chg:    { t: "CHG %",   rule: "top = biggest gain today",  fmt: fmtPct, rows: () => build((t) => chg[t], "desc") },
     pe:     { t: "P/E",     rule: "top = lowest p/e (cheapest)", fmt: fmtNum, down: failed(ratios) && "ratios_history", rows: () => build((t) => (PE[t] != null && PE[t] > 0 ? PE[t] : null), "asc") },
     mcap:   { t: "MKT CAP", rule: "top = largest",             fmt: fmtCap, down: failed(cp) && "company_profile", rows: () => build((t) => (prof[t] ? num(prof[t].market_cap) : null), "desc") },
-    rsi:    { t: "RSI",     rule: "top = highest rsi",         fmt: fmtNum, down: failed(rsi) && "board_rsi", rows: () => build((t) => R[t], "desc") },
+    rsi:    { t: "RSI",     rule: "top = highest provider rsi", fmt: fmtNum, down: failed(rsi) && "provider_indicators_current", rows: () => build((t) => R[t], "desc") },
     geiger: { t: "GEIGER",  rule: "top = highest composite",   fmt: (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2), down: failed(comp) && "composite_staged", rows: () => build((t) => C[t], "desc") },
   };
 

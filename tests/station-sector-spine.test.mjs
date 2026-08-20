@@ -9,12 +9,9 @@
    claimed only when every view answered for every ticker, PARTIAL names the short views,
    and nothing is substituted for them.
 
-   AUTHORITY WITHOUT THE AUTHORITY. The page reads ohlcv_history through
-   /_provider/provider.js. On the canonical cross-project origin that script is 404 (F1,
-   ACTIVE/BLOCKED), and without it the same URLs are RAW legacy-table reads — which the
-   page would still caption "authority=provider". The shim's presence is now checked; when
-   absent the source is 'raw-tables', the badge says AUTHORITY SHIM NOT LOADED, and the
-   status line says NOT PROVIDER AUTHORITY with the F1 fix named.
+   AUTHORITY WITHOUT THE AUTHORITY. The page reads compatibility URLs through
+   /_provider/provider.js. If that shim is absent it now refuses before issuing any read;
+   a raw legacy table can never stand in for the provider contract.
 */
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -89,20 +86,17 @@ test("a failed 5m view forfeits LIVE — PARTIAL names the short view and substi
   assert.match(worse.spine["provider /candles"].note, /W 0\/2 · 5m 2\/2 · 1m 0\/2/);
 });
 
-test("no shim, no authority claim — raw table reads are named raw", async () => {
+test("no shim means no read — raw tables are never used as an alternate", async () => {
   const { bindings, spine } = spineHarness({ shim: false });
-  await bindings.loadDataDB();
-  assert.equal(bindings.PRICE_SOURCE, "raw-tables");
-  assert.equal(spine["provider /candles"].mode, "FALLBACK");
-  assert.match(spine["provider /candles"].note, /AUTHORITY SHIM NOT LOADED/);
-  assert.match(spine["provider /candles"].note, /NOT provider authority/);
+  await assert.rejects(() => bindings.loadDataDB(), /provider authority shim unavailable/);
+  assert.equal(bindings.PRICE_SOURCE, "pending");
+  assert.deepEqual(spine, {});
 });
 
-test("the boot status line makes the same three distinctions", () => {
+test("the boot status line distinguishes complete, partial and unavailable", () => {
   assert.match(sector, /● LIVE<\/b> provider \/candles \(authority=provider, completed bars\) \$\{priceCoverageParts\(\)\}/);
   assert.match(sector, /● PARTIAL<\/b> provider \/candles — \$\{priceCoverageParts\(\)\}; LIVE is not claimed while any view is short/);
-  assert.match(sector, /● NOT PROVIDER AUTHORITY<\/b> the authority shim did not load on this origin/);
-  assert.match(sector, /cross-project deploy of \/_provider\/provider\.js is the fix \(F1\)/);
+  assert.match(sector, /● PRICE SPINE UNAVAILABLE<\/b> the provider contract did not answer · no raw table or relay is substituted/);
   assert.match(sector, /PARTIAL:'#ffb454'/, "PARTIAL renders as its own badge mode");
 });
 

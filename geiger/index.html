@@ -11,10 +11,9 @@
      geigerSummaryHTML + gs* builders + buildGeigerSummary ported VERBATIM (the
      #coRailContent wrapper is kept so the hub's selectors run untouched).
      geigerSummaryMount is ported with its hub state stubs (S/LEFT_T/PRICES)
-     declared in this shell. Data: DB reads ONLY via pg() — composite_staged tf=D,
-     derived_series tips, ohlcv_history vol/close, operator_weights, board_volume,
-     live_quotes live px. NEVER FMP from the page. Price basis: raw DB prints
-     (ohlcv_history) + live_quotes live price — same as the hub GEIGER tab.
+     declared in this shell. Provider-owned equity price, completed bars, Geiger, RSI,
+     Williams and moving averages are resolved by /_provider/provider.js. The indicator
+     values are raw FMP daily rows; unsupported intraday indicators and MACD stay unavailable.
      Params: ?t=MU (pin) · ?auto=1 (rotate hub_favorites) · ?dwell=10 (s/ticker)
      LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
      ============================================================================ -->
@@ -236,7 +235,9 @@ async function geigerSummaryData(t) {
     pg("composite_staged?ticker=eq." + enc + "&tf=eq.D&select=composite,trend,momentum,structure,conviction,updated_ts&order=updated_ts.desc&limit=1").catch(() => []),
     (async () => {
       const cols = "tf,rsi_raw,wpr_raw,fan_ema5,fan_ema8,fan_ema13,fan_ema21,fan_ema34,fan_sma50,fan_sma100,fan_sma150,fan_sma200";
-      const rows = await Promise.all(GS_LADDER.map((tf) =>
+      /* Only daily raw provider indicators are accepted. Asking every rung would manufacture
+         sixteen known-unavailable requests on each refresh with no possibility of an answer. */
+      const rows = await Promise.all(["1D"].map((tf) =>
         pg("derived_series?ticker=eq." + enc + "&tf=eq." + encodeURIComponent(tf) +
            "&select=" + cols + "&order=timestamp.desc&limit=1").catch(() => [])
       ));
@@ -323,9 +324,9 @@ function geigerSummaryHTML() {
       '<div class="gs-tv" data-gs="tv"></div>' +
     '</div>' +
     '<div class="gs-zI">' +
-      '<div class="gs-ip"><div class="gs-ih" style="color:var(--gs-mom)">RSI · MTF</div><div class="gs-sub">equalizer tfs</div><div class="gs-mtf" data-gs="rsitable"></div></div>' +
-      '<div class="gs-ip"><div class="gs-ih" style="color:var(--gs-mom)">Williams %R</div><div class="gs-sub">equalizer tfs</div><div class="gs-mtf" data-gs="wprtable"></div></div>' +
-      '<div class="gs-ip"><div class="gs-ih" style="color:var(--gs-mom)">MACD · daily</div><div class="gs-hist" data-gs="macd"></div><div class="gs-histfoot"><span data-gs="macdnow"></span><span>22d</span></div></div>' +
+      '<div class="gs-ip"><div class="gs-ih" style="color:var(--gs-mom)">RSI · DAILY</div><div class="gs-sub">raw FMP provider</div><div class="gs-mtf" data-gs="rsitable"></div></div>' +
+      '<div class="gs-ip"><div class="gs-ih" style="color:var(--gs-mom)">Williams %R · DAILY</div><div class="gs-sub">raw FMP provider</div><div class="gs-mtf" data-gs="wprtable"></div></div>' +
+      '<div class="gs-ip"><div class="gs-ih" style="color:var(--gs-mom)">MACD · unavailable</div><div class="gs-hist" data-gs="macd"></div><div class="gs-histfoot"><span data-gs="macdnow"></span><span>no provider value</span></div></div>' +
       '<div class="gs-ip"><div class="gs-ih" style="color:var(--gs-vol)">Volume</div><div class="gs-sub">3-ring · at-time / cum / session</div><div class="gs-volp" data-gs="vol"></div></div>' +
     '</div>' +
   '</div></div>';
