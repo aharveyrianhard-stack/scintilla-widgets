@@ -31,12 +31,17 @@ function discoverRoutes(dir = ROOT, prefix = "") {
   const found = [];
   const entries = fs.readdirSync(dir, { withFileTypes:true });
   for (const entry of entries) {
+    /* In a linked Git worktree `.git` is a POINTER FILE, not a directory. Test the
+       deployment exclusion by name before branching on file type, otherwise the same
+       reviewed tree reports one extra served asset merely because it was checked out as
+       a worktree. Vercel receives neither representation. */
+    if (SKIP.has(entry.name)) continue;
     if (entry.isFile() && entry.name.endsWith(".html")) {
       if (entry.name === "index.html") found.push(prefix === "" ? "/" : prefix);
       else found.push(prefix + "/" + entry.name);
       continue;
     }
-    if (!entry.isDirectory() || SKIP.has(entry.name)) continue;
+    if (!entry.isDirectory()) continue;
     found.push(...discoverRoutes(path.join(dir, entry.name), prefix + "/" + entry.name));
   }
   return found.sort();
@@ -148,8 +153,11 @@ test("the iPad companion page cannot move under the Station it frames", () => {
 function discoverServed(dir = ROOT, prefix = "") {
   const found = [];
   for (const entry of fs.readdirSync(dir, { withFileTypes:true })) {
+    /* See discoverRoutes: `.git` is a file in a linked worktree and a directory in a
+       normal clone, but it is never part of the deploy in either checkout shape. */
+    if (SKIP.has(entry.name)) continue;
     if (entry.isFile() && !entry.name.endsWith(".html")) { found.push(prefix + "/" + entry.name); continue; }
-    if (!entry.isDirectory() || SKIP.has(entry.name)) continue;
+    if (!entry.isDirectory()) continue;
     found.push(...discoverServed(path.join(dir, entry.name), prefix + "/" + entry.name));
   }
   return found.sort();
