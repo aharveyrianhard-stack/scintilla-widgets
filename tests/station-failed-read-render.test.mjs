@@ -41,7 +41,7 @@ test("/ranks keeps failures as failures and fails the right column, not the tick
   assert.ok(!ranks.includes(".catch(() => null)"), "the flattening catch is gone");
   assert.match(ranks, /did not answer — this ranking is unavailable, not empty · retrying/);
   /* Each dependent column names its own source. */
-  for (const src of ["ratios_history", "company_profile", "provider_indicators_current", "composite_staged"])
+  for (const src of ["ratios_history", "company_profile", "provider_indicators_current", "provider /geiger"])
     assert.match(ranks, new RegExp('down: failed\\(\\w+\\) && "' + src + '"'));
   assert.match(ranks, /d\.down \? failedColumn\(d, d\.down\) : column\(d, d\.rows\(\)\)/);
   /* The sector rollup needs company_profile and says so when it is down. */

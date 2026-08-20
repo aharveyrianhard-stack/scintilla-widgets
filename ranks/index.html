@@ -15,7 +15,7 @@
        P/E        top = lowest P/E (cheapest)   ratios_history.pe, latest fiscal row
        MKT CAP    top = largest                 company_profile.market_cap
        RSI        top = highest RSI             raw FMP provider RSI(14)
-       GEIGER     top = highest composite       composite_staged tf=D (never recomputed)
+       GEIGER     top = highest composite       accepted Massive-bar artifact (never recomputed here)
        SECTOR     top = best avg change today   company_profile.sector rolled up
                                                  over live_quotes, cross-checked
                                                  against sector_perf_daily
@@ -78,7 +78,8 @@ body.nobg{ background:transparent; }
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
    top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged, ohlcv_history and board_rsi from accepted provider sources. */
+  legacy-shaped composite_staged, ohlcv_history and board_rsi requests from accepted provider
+  sources. The network interceptor repoints them before any retired table is read. */
 try { scInstallProviderShim(); } catch (_) {}
 
 "use strict";
@@ -170,9 +171,9 @@ async function tick() {
   const [lq, cp, rsi, ratios, comp, sperf] = await Promise.all([
     tryPg("live_quotes?select=ticker,chg_pct"),
     tryPg("company_profile?select=ticker,sector,market_cap,is_etf"),
-    tryPg("board_rsi?select=ticker,rsi_raw"),
+    tryPg("board_rsi?select=ticker,rsi_raw,source_date,session_state,updated_at"),
     tryPg("ratios_history?select=ticker,pe,fiscal_date&order=fiscal_date.desc&limit=4000"),
-    tryPg("composite_staged?tf=eq.D&select=ticker,composite"),
+    tryPg("composite_staged?tf=eq.D&select=ticker,composite,updated_ts,tf_contributors,rungs"),
     tryPg("sector_perf_daily?select=sector,average_change,date&order=date.desc&limit=60"),
   ]);
   if (!Array.isArray(lq) || !lq.length) { el("cols").innerHTML = '<div class="empty">no universe — live_quotes unavailable</div>'; return; }
@@ -180,6 +181,12 @@ async function tick() {
   const prof = {}; for (const r of (failed(cp) ? [] : cp || [])) prof[r.ticker] = r;
   const R = {}; for (const r of (failed(rsi) ? [] : rsi || [])) R[r.ticker] = num(r.rsi_raw);
   const C = {}; for (const r of (failed(comp) ? [] : comp || [])) C[r.ticker] = num(r.composite);
+  const rsiDates = [...new Set((failed(rsi) ? [] : rsi || []).map((r) => r.source_date).filter(Boolean))].sort();
+  const rsiStates = [...new Set((failed(rsi) ? [] : rsi || []).map((r) => r.session_state).filter(Boolean))].sort();
+  const geigerTimes = (failed(comp) ? [] : comp || []).map((r) => r.updated_ts).filter(Boolean).sort();
+  const rsiAsOf = rsiDates.length === 1 ? rsiDates[0] : (rsiDates.length ? rsiDates[0] + "…" + rsiDates[rsiDates.length - 1] : "unknown");
+  const rsiState = rsiStates.length === 1 ? rsiStates[0] : (rsiStates.length ? "MIXED " + rsiStates.join("/") : "unknown");
+  const geigerAsOf = geigerTimes.length ? geigerTimes[geigerTimes.length - 1] : null;
   const PE = {};                                   /* latest fiscal row wins — list is date-desc */
   for (const r of (failed(ratios) ? [] : ratios || [])) if (!(r.ticker in PE) && num(r.pe) != null) PE[r.ticker] = num(r.pe);
 
@@ -220,8 +227,8 @@ async function tick() {
     chg:    { t: "CHG %",   rule: "top = biggest gain today",  fmt: fmtPct, rows: () => build((t) => chg[t], "desc") },
     pe:     { t: "P/E",     rule: "top = lowest p/e (cheapest)", fmt: fmtNum, down: failed(ratios) && "ratios_history", rows: () => build((t) => (PE[t] != null && PE[t] > 0 ? PE[t] : null), "asc") },
     mcap:   { t: "MKT CAP", rule: "top = largest",             fmt: fmtCap, down: failed(cp) && "company_profile", rows: () => build((t) => (prof[t] ? num(prof[t].market_cap) : null), "desc") },
-    rsi:    { t: "RSI",     rule: "top = highest provider rsi", fmt: fmtNum, down: failed(rsi) && "provider_indicators_current", rows: () => build((t) => R[t], "desc") },
-    geiger: { t: "GEIGER",  rule: "top = highest composite",   fmt: (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2), down: failed(comp) && "composite_staged", rows: () => build((t) => C[t], "desc") },
+    rsi:    { t: "RSI",     rule: "top = highest · FMP " + rsiAsOf + " " + rsiState, fmt: fmtNum, down: failed(rsi) && "provider_indicators_current", rows: () => build((t) => R[t], "desc") },
+    geiger: { t: "GEIGER",  rule: "top = highest · bars computed " + (geigerAsOf ? geigerAsOf.replace("T", " ").replace(/\.\d+Z$/, "Z") : "unknown"),   fmt: (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2), down: failed(comp) && "provider /geiger", rows: () => build((t) => C[t], "desc") },
   };
 
   const out = [];
@@ -251,6 +258,8 @@ async function tick() {
 
   el("cols").innerHTML = out.join("") || '<div class="empty">no columns selected</div>';
   el("stamp").textContent = universe.length + " tickers · " + out.length + " rankings" +
+    " · RSI " + rsiAsOf + " " + rsiState +
+    " · GEIGER " + (geigerAsOf ? geigerAsOf.replace("T", " ").replace(/\.\d+Z$/, "Z") : "unknown") +
     (etfFilterDown ? " · ETF filter unavailable — company_profile read failed, ETFs are still in the set" : "");
   for (const c of document.querySelectorAll(".cell")) {
     c.addEventListener("click", () => {

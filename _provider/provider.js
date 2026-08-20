@@ -838,6 +838,10 @@
                    structure: null,          // removed from the active contract
                    core: null, conviction: null,
                    tf_contributors: v.tf_contributors,
+                   /* Per-rung provider-bar currentness is part of the accepted Geiger artifact.
+                      Carry it through the legacy-shaped adapter instead of reducing the artifact
+                      to three numbers and making every consumer guess how current each rung is. */
+                   rungs: v.rungs || {},
                    /* THE ENDPOINT'S COMPUTE TIME, NOT THIS MACHINE'S CLOCK. Stamping
                       Date.now() here made a Geiger computed hours ago read as seconds old
                       on every surface that showed its age. Unknown stays null. */
