@@ -48,7 +48,7 @@ function spineHarness({ shim, fail } = {}) {
     PRICE_COVERAGE: null,
     OHLCV_VIEWS: vm.runInNewContext("(" + viewsLiteral + ")"),
     providerShimActive: () => !!shim,
-    spineSet: (k, ts, mode, note) => { spine[k] = { ts, mode, note }; },
+    spineSet: (k, ts, mode, note, timeLabel) => { spine[k] = { ts, mode, note, timeLabel }; },
     fetchOHLCV: async (tk, tf) => {
       if (fail && fail(tk, tf)) throw new Error("ohlcv " + tk + " " + tf + " 500");
       const t = Math.floor(Date.now() / 1000) - 3600;
@@ -56,6 +56,7 @@ function spineHarness({ shim, fail } = {}) {
     },
   };
   bindings.spineAge = fnFrom(sector, "spineAge", bindings);
+  bindings.providerSessionDate = fnFrom(sector, "providerSessionDate", bindings);
   bindings.priceCoverageParts = fnFrom(sector, "priceCoverageParts", bindings);
   bindings.priceCoverageFull = fnFrom(sector, "priceCoverageFull", bindings);
   bindings.loadDataDB = fnFrom(sector, "loadDataDB", bindings);
@@ -68,6 +69,7 @@ test("a complete spine through the shim is LIVE, with every view's count on the 
   assert.equal(bindings.PRICE_SOURCE, "provider");
   assert.equal(bindings.priceCoverageFull(), true);
   assert.equal(spine["provider /candles"].mode, "LIVE");
+  assert.match(spine["provider /candles"].timeLabel, /^session \d{4}-\d{2}-\d{2}$/);
   assert.match(spine["provider /candles"].note, /D 2\/2 · W 2\/2 · 5m 2\/2 · 1m 2\/2/);
 });
 

@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import vm from 'node:vm'
 
 const page = readFileSync(new URL('../templates/sector-rotation.html', import.meta.url), 'utf8')
 
@@ -20,7 +21,16 @@ test('the sector roster checks current home taxonomy instead of a nonexistent MA
 })
 
 test('completed daily bars display their provider session, not a misleading wall-clock age', () => {
-  assert.match(page, /const completedSession=lastBar\?String\(lastBar\)\.slice\(0,10\):'unknown'/)
+  const helper = page.match(/function providerSessionDate\(ts\)\{[\s\S]*?\n\}/)?.[0]
+  assert.ok(helper, 'providerSessionDate helper must remain present')
+  const context = {}
+  vm.runInNewContext(`${helper}; result=[
+    providerSessionDate(1787198400),
+    providerSessionDate('2026-08-20T04:00:00.000Z'),
+    providerSessionDate(null)
+  ]`, context)
+  assert.equal(context.result.join('|'), '2026-08-20|2026-08-20|unknown')
+  assert.match(page, /const completedSession=providerSessionDate\(lastBar\)/)
   assert.match(page, /'session '\+completedSession/)
   assert.match(page, /v\.timeLabel\?' · '\+v\.timeLabel/)
 })

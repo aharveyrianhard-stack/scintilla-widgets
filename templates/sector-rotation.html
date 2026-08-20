@@ -349,6 +349,10 @@ function spineAge(ts,staleSec){
   const es=(typeof ts==='number')?ts:(Date.parse(ts)/1000);
   return (isFinite(es)&&(Date.now()/1000-es)>staleSec)?'STALE':'LIVE';
 }
+function providerSessionDate(ts){
+  const ms=(typeof ts==='number')?(Math.abs(ts)<1e12?ts*1000:ts):Date.parse(ts);
+  return isFinite(ms)&&ms>0?new Date(ms).toISOString().slice(0,10):'unknown';
+}
 function renderSpine(){
   const el=document.getElementById('dataSpine'); if(!el) return;
   const col={LIVE:'#00ffa3',STALE:'#ffb454',FALLBACK:'#ffd166',PARTIAL:'#ffb454'};
@@ -419,7 +423,7 @@ async function loadDataDB(){
   for(const v of OHLCV_VIEWS) PRICE_COVERAGE[v.view]=Object.keys(next[v.view]).length;
   const full=priceCoverageFull();
   const bt=next.daily[BENCH].times, lastBar=bt.length?bt[bt.length-1]:null;
-  const completedSession=lastBar?String(lastBar).slice(0,10):'unknown';
+  const completedSession=providerSessionDate(lastBar);
   spineSet('provider /candles',lastBar,
     full ? spineAge(lastBar,3*86400) : 'PARTIAL',
     'price spine · ' + priceCoverageParts()
