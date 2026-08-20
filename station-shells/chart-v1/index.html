@@ -72,6 +72,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   font:inherit; letter-spacing:inherit; line-height:inherit; cursor:text; text-decoration:underline;
   text-decoration-color:rgba(255,255,255,.26); text-underline-offset:3px; }
 .sc-nchart__live-change{ font:700 .86em var(--mono); letter-spacing:.02em; line-height:1; }
+.sc-nchart__live-prev{ color:var(--ink3); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
 .sc-nchart__live-window{ color:var(--dim); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
 .sc-nchart__live[data-change="up"]{ color:var(--bull); }
 .sc-nchart__live[data-change="down"]{ color:var(--bear); }
@@ -1387,8 +1388,9 @@ function paintLiveStatus(host, quote) {
   badge.dataset.change = day.tone;
   let ticker = badge.querySelector(".sc-nchart__live-ticker");
   let change = badge.querySelector(".sc-nchart__live-change");
+  let previous = badge.querySelector(".sc-nchart__live-prev");
   let historyWindow = badge.querySelector(".sc-nchart__live-window");
-  if (!ticker || !change || !historyWindow) {
+  if (!ticker || !change || !previous || !historyWindow) {
     badge.replaceChildren();
     ticker = document.createElement("button");
     ticker.type = "button";
@@ -1399,12 +1401,16 @@ function paintLiveStatus(host, quote) {
     });
     change = document.createElement("span");
     change.className = "sc-nchart__live-change";
+    previous = document.createElement("span");
+    previous.className = "sc-nchart__live-prev";
     historyWindow = document.createElement("span");
     historyWindow.className = "sc-nchart__live-window";
-    badge.append(ticker, change, historyWindow);
+    badge.append(ticker, change, previous, historyWindow);
   }
   ticker.textContent = host.dataset.t;
   change.textContent = day.text;
+  previous.textContent = dayRef != null && Number.isFinite(+dayRef) && +dayRef !== 0
+    ? "Prev " + chPx(+dayRef, host.dataset.t) : "";
   paintChartHistoryWindow(host);
   badge.title = !hasQuote
     ? "live quote loading · ticker remains editable"
