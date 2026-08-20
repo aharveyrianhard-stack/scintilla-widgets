@@ -234,6 +234,65 @@ test("a mixed equity/non-equity request fails whole when the passthrough fails",
     "the non-equity is never named absent because its own owner failed");
 });
 
+test("the direct-fetch bypass marker is local and never becomes a PostgREST filter", async () => {
+  /* Production proved the exact failure: the shim appended `sc_shim=1` to a native Supabase
+     request. PostgREST interpreted it as `where sc_shim = 1`, returned HTTP 400 because that
+     column does not exist, and a healthy mixed SPY/QQQ/CLUSD quote request became delayed.
+     The fetch-boundary path already holds the saved native fetch, so it must send a clean URL. */
+  const nativeUrls = [];
+  const w = loadShim((url) => {
+    const u = String(url); nativeUrls.push(u);
+    if (u.includes("/geiger")) return ok(GEIGER_OK);
+    if (u.includes("/tickers?")) return ok(canonicalRows(GEIGER_OK.symbols));
+    if (u.includes("/quotes?")) return ok({ quotes:{
+      AAPL:{ state:"OK", price:10, previous_close:9,
+             price_observation_utc:"2026-08-20T17:45:00Z" },
+    } });
+    if (u.includes("/live_quotes?")) return ok([
+      { ticker:"BTCUSD", price:1, prev_close:0.9, updated_ts:"2026-08-20T17:45:00Z" },
+    ]);
+    throw new Error("unexpected native URL " + u);
+  });
+
+  const response = await w.fetch(
+    "https://example.supabase.co/rest/v1/live_quotes?ticker=in.(AAPL,BTCUSD)&select=ticker,price,prev_close,updated_ts");
+  const rows = await response.json();
+  assert.deepEqual(Array.from(rows, (row) => row.ticker), ["AAPL", "BTCUSD"]);
+  assert.equal(nativeUrls.some((url) => url.includes("sc_shim=1")), false,
+    "no request on the wire may contain the local bypass marker");
+});
+
+test("the page-pg bypass prevents recursion and strips its marker before native fetch", async () => {
+  /* pg() is the other entrance. Its original body resolves global fetch at call time, so it
+     needs a one-hop marker to avoid re-entering the shim. That marker is consumed by the fetch
+     wrapper and removed before the saved native fetch is called. */
+  const nativeUrls = [];
+  const w = loadShim((url) => {
+    const u = String(url); nativeUrls.push(u);
+    if (u.includes("/geiger")) return ok(GEIGER_OK);
+    if (u.includes("/tickers?")) return ok(canonicalRows(GEIGER_OK.symbols));
+    if (u.includes("/quotes?")) return ok({ quotes:{
+      AAPL:{ state:"OK", price:10, previous_close:9,
+             price_observation_utc:"2026-08-20T17:45:00Z" },
+    } });
+    if (u.includes("/live_quotes?")) return ok([
+      { ticker:"BTCUSD", price:1, prev_close:0.9, updated_ts:"2026-08-20T17:45:00Z" },
+    ]);
+    throw new Error("unexpected native URL " + u);
+  });
+  w.pg = async (path) => {
+    const r = await w.fetch("https://example.supabase.co/rest/v1/" + path);
+    if (!r.ok) throw new Error("pg " + r.status);
+    return r.json();
+  };
+  w.scInstallProviderShim();
+
+  const rows = await w.pg("live_quotes?ticker=in.(AAPL,BTCUSD)&select=ticker,price,prev_close,updated_ts");
+  assert.deepEqual(Array.from(rows, (row) => row.ticker), ["AAPL", "BTCUSD"]);
+  assert.equal(nativeUrls.some((url) => url.includes("sc_shim=1")), false,
+    "the pg marker is stripped locally rather than sent as a fake database column");
+});
+
 test("a geiger payload that omits a requested symbol fails the request", async () => {
   /* /geiger publishes the whole universe, so a gap in it is an incomplete payload, not a
      per-symbol fact about MSFT. */
