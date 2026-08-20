@@ -42,6 +42,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   padding:1px 6px; text-transform:uppercase; }
 .badge.stale{ color:var(--bear); border-color:rgba(255,45,85,.5); }
 .empty{ color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; }
+.dead{ color:var(--vol); font-size:9px; letter-spacing:.14em; text-transform:uppercase; }
 </style>
 </head>
 <body>
@@ -87,9 +88,14 @@ const REFRESH = Math.max(10, Math.min(300, +(QS.get("refresh") || 30))) * 1000;
 const MACRO_SET = ["SPY","QQQ","IWM","SMH","GLD","TLT","NVDA","COIN"];   // hub constant, verbatim
 const fmtPct = (c) => (c >= 0 ? "+" : "") + (+c).toFixed(2) + "%";
 
-/* ---- section builders (each null-guarded — dashes, never throws) ---- */
+/* ---- section builders ----
+   A failed read is kept as READ_FAILED and worded as a failure (.dead, source named,
+   retrying), never with the same words as an empty table (.empty). The old catch(() => null)
+   made "composite_staged died" and "composite_staged has no rows" the identical strip. */
+const READ_FAILED = { failed: true };
 function secGeiger(comp) {
-  if (!Array.isArray(comp) || !comp.length) return '<div class="sec"><span class="k">GEIGER</span><span class="empty">no composite_staged</span></div>';
+  if (comp === READ_FAILED) return '<div class="sec"><span class="k">GEIGER</span><span class="dead">composite_staged did not answer — unavailable, not empty · retrying</span></div>';
+  if (!Array.isArray(comp) || !comp.length) return '<div class="sec"><span class="k">GEIGER</span><span class="empty">no composite_staged rows</span></div>';
   let g = 0, r = 0, sum = 0, n = 0;
   for (const row of comp) { const v = num(row.composite); if (v == null || !isFinite(v)) continue; n++; sum += v; if (v > 0) g++; else if (v < 0) r++; }
   const net = g - r, avg = n ? sum / n : null;
@@ -101,10 +107,11 @@ function secGeiger(comp) {
     '</div>';
 }
 function secMacro(quotes) {
+  if (quotes === READ_FAILED) return '<div class="sec"><span class="k">MACRO</span><span class="dead">live_quotes did not answer — unavailable, not empty · retrying</span></div>';
   const m = {};
   for (const q of (quotes || [])) m[q.ticker] = q;
   const rows = MACRO_SET.map((t) => m[t]).filter(Boolean).filter((q) => num(q.chg_pct) != null);
-  if (!rows.length) return '<div class="sec"><span class="k">MACRO</span><span class="empty">no live_quotes</span></div>';
+  if (!rows.length) return '<div class="sec"><span class="k">MACRO</span><span class="empty">no macro rows in live_quotes</span></div>';
   const up = rows.filter((q) => num(q.chg_pct) >= 0).length;
   const tone = up > rows.length / 2 ? "up" : up < rows.length / 2 ? "dn" : "neu";
   const spy = m["SPY"], qqq = m["QQQ"];
@@ -115,14 +122,19 @@ function secMacro(quotes) {
     '</div>';
 }
 function secVix(vq, term) {
+  if (vq === READ_FAILED && term === READ_FAILED)
+    return '<div class="sec"><span class="k">VIX</span><span class="dead">live_quotes and vix_term did not answer — unavailable, not empty · retrying</span></div>';
   const parts = [];
-  if (vq && num(vq.price) != null) {
+  if (vq === READ_FAILED) parts.push('<span class="dead">live_quotes did not answer · retrying</span>');
+  else if (vq && num(vq.price) != null) {
     const c = num(vq.chg_pct);
     /* VIX up = risk-off: tone the CHANGE inverted (rising vol = bear-red) */
     parts.push('<span class="v big">' + num(vq.price).toFixed(1) + '</span>' +
       (c != null ? '<span class="v ' + (c > 0 ? "dn" : "up") + '">' + fmtPct(c) + '</span>' : ""));
   }
-  if (term && num(term.ratio) != null) {
+  if (term === READ_FAILED) parts.push((parts.length ? '<span class="dot">·</span>' : '') +
+    '<span class="dead">vix_term did not answer · retrying</span>');
+  else if (term && num(term.ratio) != null) {
     const ratio = num(term.ratio);
     const posture = ratio < 1 ? "CONTANGO" : "BACKWARDATION";
     const tone = ratio < 1 ? "up" : "dn";
@@ -138,19 +150,22 @@ function secVix(vq, term) {
   return '<div class="sec"><span class="k">VIX</span>' + parts.join("") + '</div>';
 }
 
-/* ---- pull + render (each read catch-wrapped so one dead table never blanks the strip) ---- */
+/* ---- pull + render — a dead read is KEPT as READ_FAILED, so one dead table never blanks
+   the strip AND never wears an empty table's words; the healthy sections render beside it ---- */
 async function tick() {
   const wantG = SECTIONS.includes("geiger"), wantM = SECTIONS.includes("macro"), wantV = SECTIONS.includes("vix");
   const [comp, quotes, term] = await Promise.all([
-    wantG ? pg("composite_staged?tf=eq.D&select=composite").catch(() => null) : null,
-    (wantM || wantV) ? pg("live_quotes?ticker=in.(" + MACRO_SET.concat(["VIX"]).join(",") + ")&select=ticker,price,chg_pct").catch(() => null) : null,
-    wantV ? pg("vix_term?select=date,vix,vix3m,ratio&order=date.desc&limit=1").catch(() => null) : null,
+    wantG ? pg("composite_staged?tf=eq.D&select=composite").catch(() => READ_FAILED) : null,
+    (wantM || wantV) ? pg("live_quotes?ticker=in.(" + MACRO_SET.concat(["VIX"]).join(",") + ")&select=ticker,price,chg_pct").catch(() => READ_FAILED) : null,
+    wantV ? pg("vix_term?select=date,vix,vix3m,ratio&order=date.desc&limit=1").catch(() => READ_FAILED) : null,
   ]);
-  const vq = Array.isArray(quotes) ? quotes.find((q) => q.ticker === "VIX") : null;
+  const vq = quotes === READ_FAILED ? READ_FAILED
+    : (Array.isArray(quotes) ? quotes.find((q) => q.ticker === "VIX") : null);
+  const vterm = term === READ_FAILED ? READ_FAILED : ((Array.isArray(term) && term[0]) || null);
   const html = [
     wantG ? secGeiger(comp) : "",
     wantM ? secMacro(quotes) : "",
-    wantV ? secVix(vq, (Array.isArray(term) && term[0]) || null) : "",
+    wantV ? secVix(vq, vterm) : "",
   ].join("");
   el("strip").innerHTML = html || '<div class="sec"><span class="empty">no sections selected</span></div>';
 }

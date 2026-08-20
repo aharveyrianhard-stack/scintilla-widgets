@@ -43,6 +43,8 @@ body.nobg{ background:transparent; }
 .row:hover{ background:var(--panel2); }
 .l1{ display:flex; align-items:baseline; gap:9px; }
 .ago{ flex:none; color:var(--mute); font-size:9px; font-variant-numeric:tabular-nums; width:44px; }
+/* An undated item is visibly not a number, so it cannot be misread as an age. */
+.ago[data-undated]{ font-variant-numeric:normal; letter-spacing:.04em; opacity:.72; }
 .tk{ flex:none; color:var(--crk); font-size:9.5px; letter-spacing:.1em; }
 .tt{ color:var(--ink); font-size:11.5px; line-height:1.45; }
 .l2{ display:flex; gap:9px; margin:3px 0 0 53px; }
@@ -63,7 +65,7 @@ body.compact .row{ padding:6px 14px; }
   <span class="fresh" id="fresh"></span>
 </div>
 <div id="list"><div class="empty">loading news…</div></div>
-<div id="ft">news table (live writer) · db reads only — never fmp from pages · titles link to source · sentiment served from news_sentiment, never computed here</div>
+<div id="ft">news table (live writer) · db reads only — never fmp from pages · titles link to source · sentiment served from news_sentiment, never computed here · dated items first, so undated rows are counted separately and paged at ?undated=1 — ordered by the (ticker, url) primary key, the table's only total order — rather than dated by accident</div>
 <script>
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -93,12 +95,77 @@ const T      = (QS.get("t") || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
 const COHORT = (QS.get("cohort") || "").toUpperCase().replace(/[^A-Z0-9_ ]/g, "");
 const FEED   = (QS.get("feed") || "").replace(/[^A-Za-z0-9_\-]/g, "");
 const LIMIT  = Math.max(10, Math.min(200, +(QS.get("limit") || 60)));
+/* ?undated=1 lists the rows with no recorded publish time. They are unreachable from the dated
+   feed by construction, so they need their own door rather than a promise that scrolling far
+   enough will find them.
+
+   AND THE DOOR HAS TO LEAD ALL THE WAY IN. A single capped page reached 200 of 1246 and left
+   the rest as unreachable as before, which is a narrower promise wearing the same words. This
+   list is paged.
+
+   THE ORDER IS THE TABLE'S OWN PRIMARY KEY: news is keyed on (ticker, url), verified against
+   pg_constraint rather than assumed. That matters because `url` ALONE is not unique here -
+   1240 distinct urls across the 1246 undated rows - so ordering by url would let a row appear
+   on two pages or on none. Offset paging is only paging under a total order, and the primary
+   key is the one order guaranteed to be total. */
+const UNDATED_ONLY = QS.get("undated") === "1";
+const UNDATED_ORDER = "ticker.asc,url.asc";
+const PAGE = Math.max(1, Math.min(9999, +(QS.get("page") || 1)));
 const REFRESH = Math.max(30, Math.min(600, +(QS.get("refresh") || 120))) * 1000;
 if (QS.get("bg") === "0") document.body.classList.add("nobg");
 if (QS.get("compact") === "1") document.body.classList.add("compact");
 
-el("filt").textContent = T ? "$" + T : COHORT ? COHORT.replace(/_/g, " ") : FEED ? "feed: " + FEED : "all";
+el("filt").textContent = (UNDATED_ONLY ? "undated · " : "") +
+  (T ? "$" + T : COHORT ? COHORT.replace(/_/g, " ") : FEED ? "feed: " + FEED : "all");
 
+/* ---- TIMESTAMPS, HONESTLY ----------------------------------------------------------------
+   Every current item on this page read as roughly 20,684 days old. That number is not a
+   parsing curiosity; it is Date.now() expressed in days. The rows were arriving with a NULL
+   published_ts, `num(null)` returns null, and `null * 1000` is 0 in JavaScript — so the age
+   being displayed was the age of the Unix epoch, with no step in between that could notice.
+
+   Two things went wrong and both are fixed:
+
+     1. NULLS CAME FIRST. PostgREST inherits Postgres ordering, and DESC means NULLS FIRST.
+        Of the 312,664 rows in `news`, 1,246 have no published_ts — and every one of the 60
+        rows on the default page was one of them. `.nullslast` puts the dated wire first,
+        which is what "latest news" has always meant.
+
+     2. A MISSING VALUE WAS ARITHMETIC, NOT AN ABSENCE. `newsInstant` decides once whether an
+        instant is known, and an unknown one is never turned into a number. It is labelled as
+        unknown and shown as such. Nothing is guessed.
+
+   AND A CONSEQUENCE OF (1), STATED RATHER THAN GLOSSED. Putting the dated wire first means the
+   undated rows now sort behind hundreds of thousands of dated ones, so the default page cannot
+   reach them: `.nullslast` did not make undated items visible, it made them unreachable by
+   scrolling. So they are counted separately with an exact count, and `?undated=1` lists them
+   on their own. The header says how many there are on every load, whether or not any is on
+   the page.
+
+   The column is bigint epoch SECONDS today (min 988700400, max 1787123463, at most 10
+   digits). The parser accepts milliseconds and ISO strings as well, so a writer changing
+   units cannot silently move every headline by a factor of a thousand. */
+
+/* 1e12 seconds is the year 33658 and 1e12 milliseconds is 2001-09-09; the column's own floor
+   is 2001-05. No real value is ambiguous across that line. */
+const NEWS_MS_THRESHOLD = 1e12;
+const NEWS_NUMERIC = /^\s*-?\d+(?:\.\d+)?\s*$/;
+function newsInstant(value) {
+  if (value == null || value === "") return { known:false, ms:null, reason:"MISSING" };
+  if (typeof value === "boolean") return { known:false, ms:null, reason:"INVALID" };
+  if (typeof value === "number" || NEWS_NUMERIC.test(String(value))) {
+    const n = Number(value);
+    if (!isFinite(n) || n <= 0) return { known:false, ms:null, reason:"INVALID" };
+    const unit = n >= NEWS_MS_THRESHOLD ? "ms" : "s";
+    const ms = unit === "ms" ? n : n * 1000;
+    if (!isFinite(new Date(ms).getTime())) return { known:false, ms:null, reason:"INVALID" };
+    return { known:true, ms, unit };
+  }
+  const parsed = Date.parse(String(value));
+  if (!Number.isFinite(parsed)) return { known:false, ms:null, reason:"INVALID" };
+  return { known:true, ms:parsed, unit:"iso" };
+}
+const NEWS_UNKNOWN_AGE = "no date";
 const ago = (ms) => {
   const s = Math.max(0, (Date.now() - ms) / 1000);
   if (s < 90) return Math.round(s) + "s";
@@ -106,32 +173,143 @@ const ago = (ms) => {
   if (s < 129600) return Math.round(s / 3600) + "h";
   return Math.round(s / 86400) + "d";
 };
-
-async function tick() {
-  let q = "news?select=ticker,url,published_ts,title,site,snippet,feed,cohort&order=published_ts.desc&limit=" + LIMIT;
-  if (T) q += "&ticker=eq." + encodeURIComponent(T);
-  if (COHORT) q += "&cohort=eq." + encodeURIComponent(COHORT);
-  if (FEED) q += "&feed=eq." + encodeURIComponent(FEED);
-  const [rows, sent] = await Promise.all([
-    pg(q),
-    T ? pg("news_sentiment?ticker=eq." + encodeURIComponent(T) + "&select=score,n_articles&limit=1").catch(() => null) : null,
-  ]);
-  if (!Array.isArray(rows) || !rows.length) {
-    el("list").innerHTML = '<div class="empty">no news rows for this filter</div>';
-    el("fresh").textContent = ""; el("sentwrap").innerHTML = ""; return;
+/* The single place a row's time becomes text. An unknown instant never reaches `ago`. */
+function newsAgeLabel(value) {
+  const instant = newsInstant(value);
+  return instant.known ? ago(instant.ms) : NEWS_UNKNOWN_AGE;
+}
+/* The header states the freshest item that HAS a time. A page of undated rows says so
+   rather than reporting the epoch as the newest thing on the wire. */
+function undatedLink() {
+  const p = new URLSearchParams(location.search);
+  if (UNDATED_ONLY) { p.delete("undated"); p.delete("page"); } else { p.set("undated", "1"); p.delete("page"); }
+  return location.pathname + (p.toString() ? "?" + p.toString() : "");
+}
+function pageLink(page) {
+  const p = new URLSearchParams(location.search);
+  p.set("undated", "1");
+  if (page <= 1) p.delete("page"); else p.set("page", String(page));
+  return location.pathname + "?" + p.toString();
+}
+/* Which slice of the undated set is on screen, and what is either side of it. Stated as a
+   range and a total so a reader can see what is not on this page. */
+function undatedPaging(total, page, limit, rowsOnPage) {
+  const from = (page - 1) * limit + 1;
+  const to = (page - 1) * limit + rowsOnPage;
+  const pages = total == null ? null : Math.max(1, Math.ceil(total / limit));
+  return { from, to, total, page, pages,
+    hasPrevious: page > 1,
+    hasNext: pages == null ? rowsOnPage === limit : page < pages };
+}
+function newestKnownInstant(rows) {
+  let newest = null;
+  let undated = 0;
+  for (const row of rows || []) {
+    const instant = newsInstant(row && row.published_ts);
+    if (!instant.known) { undated += 1; continue; }
+    if (newest == null || instant.ms > newest) newest = instant.ms;
   }
-  const newest = num(rows[0].published_ts) * 1000;
-  const mins = Math.round((Date.now() - newest) / 60000);
-  el("fresh").innerHTML = mins > 180 ? 'newest <span class="badge">STALE ' + Math.round(mins / 60) + 'h</span>' : "newest " + ago(newest) + " ago";
-  if (sent && Array.isArray(sent) && sent[0] && num(sent[0].score) != null) {
+  return { ms:newest, undated, total:(rows || []).length };
+}
+
+/* The exact number of undated rows behind the current filters. A HEAD with count=exact is the
+   only way to know it without walking the table, and knowing it is the difference between
+   "some are undated" and a number a reader can act on. */
+async function undatedCount(filters) {
+  try {
+    const r = await fetch(SB + "/rest/v1/news?select=url&published_ts=is.null" + filters + "&limit=1", {
+      method:"HEAD", headers:{ apikey:ANON, Authorization:"Bearer " + ANON, Prefer:"count=exact" } });
+    if (!r.ok) return null;
+    const m = /\/(\d+)$/.exec(r.headers.get("content-range") || "");
+    return m ? +m[1] : null;
+  } catch (_) { return null; }
+}
+
+let LAST_OK_MS = null;
+async function tick() {
+  let filters = "";
+  if (T) filters += "&ticker=eq." + encodeURIComponent(T);
+  if (COHORT) filters += "&cohort=eq." + encodeURIComponent(COHORT);
+  if (FEED) filters += "&feed=eq." + encodeURIComponent(FEED);
+  const offset = UNDATED_ONLY ? (PAGE - 1) * LIMIT : 0;
+  const q = "news?select=ticker,url,published_ts,title,site,snippet,feed,cohort" +
+    (UNDATED_ONLY
+      ? "&published_ts=is.null&order=" + UNDATED_ORDER + "&offset=" + offset
+      : "&order=published_ts.desc.nullslast") +
+    filters + "&limit=" + LIMIT;
+  /* A failed sentiment read is kept as its own state — flattened to null it rendered as a
+     silently absent chip, identical to a ticker that simply has no sentiment row. */
+  const SENT_FAILED = { failed: true };
+  const MAIN_FAILED = { failed: true };
+  const [rows, sent, undated] = await Promise.all([
+    pg(q).catch(() => MAIN_FAILED),
+    T ? pg("news_sentiment?ticker=eq." + encodeURIComponent(T) + "&select=score,n_articles&limit=1").catch(() => SENT_FAILED) : null,
+    undatedCount(filters),
+  ]);
+  /* THE MAIN READ'S FAILURE IS A KEPT STATE TOO. It used to reject out of tick(): the boot
+     catch painted an unworded "news unavailable", and the interval catch was SILENT — a wire
+     that died after a healthy load kept its stale list with a frozen "newest Xm ago" stamp
+     that became false as time passed. A failed refresh now keeps the held rows (a failed
+     read never erases knowledge) and STAMPS them stale by name; a wire that never loaded
+     names the failure, distinctly from an empty filter. */
+  if (rows === MAIN_FAILED) {
+    if (LAST_OK_MS != null) {
+      el("fresh").innerHTML = '<span class="badge">REFRESH FAILED</span> showing the read from ' +
+        ago(LAST_OK_MS) + " ago — the news read is failing, the list below is stale · retrying";
+    } else {
+      el("list").innerHTML = '<div class="empty">the news read failed — the wire is unavailable, not empty · retrying at the next refresh</div>';
+      el("fresh").innerHTML = ""; el("sentwrap").innerHTML = "";
+    }
+    return;
+  }
+  LAST_OK_MS = Date.now();
+  if (!Array.isArray(rows) || !rows.length) {
+    el("list").innerHTML = '<div class="empty">' +
+      (UNDATED_ONLY ? "no undated rows for this filter" : "no news rows for this filter") + "</div>";
+    el("fresh").innerHTML = UNDATED_ONLY ? '<a href="' + esc(undatedLink()) + '">back to the dated wire</a>' : "";
+    el("sentwrap").innerHTML = ""; return;
+  }
+  const freshness = newestKnownInstant(rows);
+  /* The exact table-wide count when it is available; otherwise only what is on this page, said
+     as such. Never a silent zero. */
+  const undatedNote = undated == null
+    ? (freshness.undated ? ' · ' + freshness.undated + " undated on this page" : "")
+    : undated
+      ? ' · <a href="' + esc(undatedLink()) + '">' + undated + " undated</a>"
+      : "";
+  if (UNDATED_ONLY) {
+    const p = undatedPaging(undated, PAGE, LIMIT, rows.length);
+    const nav =
+      (p.hasPrevious ? '<a href="' + esc(pageLink(p.page - 1)) + '">‹ prev</a> ' : "") +
+      p.from + "–" + p.to + " of " + (p.total == null ? "?" : p.total) + " undated" +
+      (p.pages ? " · page " + p.page + "/" + p.pages : "") +
+      (p.hasNext ? ' <a href="' + esc(pageLink(p.page + 1)) + '">next ›</a>' : "") +
+      ' · <a href="' + esc(undatedLink()) + '">dated wire</a>';
+    el("fresh").innerHTML = nav;
+    el("sentwrap").innerHTML = "";
+  } else if (freshness.ms == null) {
+    el("fresh").innerHTML = '<span class="badge">NO DATED ITEMS</span>' + undatedNote;
+  } else {
+    const mins = Math.round((Date.now() - freshness.ms) / 60000);
+    el("fresh").innerHTML = (mins > 180
+      ? 'newest <span class="badge">STALE ' + Math.round(mins / 60) + 'h</span>'
+      : "newest " + ago(freshness.ms) + " ago") + undatedNote;
+  }
+  if (UNDATED_ONLY) { /* the sentiment chip belongs to the dated wire */ }
+  else if (sent === SENT_FAILED) {
+    el("sentwrap").innerHTML = '<span class="sent">sentiment read failed — unavailable, not neutral · retrying</span>';
+  }
+  else if (sent && Array.isArray(sent) && sent[0] && num(sent[0].score) != null) {
     const sc = num(sent[0].score);
     el("sentwrap").innerHTML = '<span class="sent ' + (sc >= 0 ? "up" : "dn") + '">sent ' + (sc >= 0 ? "+" : "−") + Math.abs(sc).toFixed(2) +
       " · " + (sent[0].n_articles || 0) + " art</span>";
   } else el("sentwrap").innerHTML = "";
   el("list").innerHTML = rows.map((r) => {
-    const ts = num(r.published_ts) * 1000;
-    return '<a class="row" href="' + esc(r.url || "#") + '" target="_blank" rel="noopener">' +
-      '<div class="l1"><span class="ago">' + ago(ts) + '</span>' +
+    const instant = newsInstant(r.published_ts);
+    return '<a class="row" href="' + esc(r.url || "#") + '" target="_blank" rel="noopener"' +
+      (instant.known ? ' title="' + esc(new Date(instant.ms).toLocaleString()) + '"' : ' title="published time not recorded"') + '>' +
+      '<div class="l1"><span class="ago"' + (instant.known ? "" : ' data-undated="1"') + '>' +
+        (instant.known ? ago(instant.ms) : NEWS_UNKNOWN_AGE) + '</span>' +
       (r.ticker ? '<span class="tk">$' + esc(r.ticker) + "</span>" : "") +
       '<span class="tt">' + esc(r.title) + "</span></div>" +
       '<div class="l2"><span class="site">' + esc(r.site || r.feed || "") + "</span>" +
@@ -139,7 +317,8 @@ async function tick() {
       (r.snippet ? '<span class="sn">' + esc(r.snippet) + "</span>" : "") + "</div></a>";
   }).join("");
 }
-tick().catch(() => { el("list").innerHTML = '<div class="empty">news unavailable</div>'; });
+/* Read failures are handled inside tick(); this outer catch is a render-bug last resort. */
+tick().catch(() => { el("list").innerHTML = '<div class="empty">the news page failed to render — reload; if it repeats, this is a page bug, not a data gap</div>'; });
 setInterval(() => tick().catch(() => {}), REFRESH);
 </script>
 </body>

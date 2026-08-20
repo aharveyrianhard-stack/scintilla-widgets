@@ -77,6 +77,9 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-nchart__live[data-change="down"]{ color:var(--bear); }
 .sc-nchart__live[data-change="flat"]{ color:var(--dim); }
 .sc-nchart__live[data-fresh="0"]{ opacity:.72; }
+/* A quote whose observation time the provider did not supply is neither fresh nor stale.
+   It is marked so it cannot be read as either. */
+.sc-nchart__live[data-untimed="1"]{ border-bottom:1px dotted rgba(198,200,222,.45); }
 .sc-nchart__msg{ position:absolute; inset:0; z-index:2; display:flex; align-items:center;
   justify-content:center; color:var(--dim); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
 .sc-nchart__msg[hidden]{ display:none; }
@@ -140,7 +143,7 @@ body.tvmodal-open{ overflow:hidden; }
 </head>
 <body>
 <div id="chartSlot"></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/_vendor/supabase-js-2.112.3-umd.min.js" integrity="sha384-qafw21c/iciq0VXsi9FzkfoQv5I/V0iqE4lSNcKXPnW9/UTJLnv5CcN4FHxVLnKg"></script>
 <script src="/_provider/provider.js"></script>
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
@@ -155,6 +158,12 @@ const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
 const sb   = (typeof supabase !== "undefined" && supabase.createClient)
                ? supabase.createClient(SB, ANON) : null;
+/* Same said state as deck/index.html: the CDN-served SDK's absence kills the non-equity
+   realtime lane silently otherwise. The chart is a mounted shell, so the DECK paints the
+   note for the wall; standalone, the state stays queryable here under the same name. */
+window.SC_REALTIME = sb
+  ? { available: true, channel: "connecting", reason: "supabase-js loaded (vendored same-origin) — channel state follows; non-equity passthrough only; equities are refused at the channel" }
+  : { available: false, channel: "none", reason: "supabase-js (vendored same-origin) did not load — the realtime tick channel is absent; non-equity ticks ride polling only" };
 /* A stalled data-plane read used to leave each pane waiting forever. Keep an
    individual request short, then let the chart-level retry use one measured
    backoff rather than multiplying hanging fetches. */
@@ -280,6 +289,43 @@ const chartInflight = new Map();
 const CHART_HOSTS = new Set();
 const CHART_RETRY_MS = 3000;
 const CHART_LOAD_COORDINATOR_TIMEOUT_MS = 5500;
+/* NAMED ABSENCE vs DELAY.
+   A history read that FAILED (network, abort, 5xx) is a delay and is worth retrying.
+   A history read that SUCCEEDED and carried no observation is not a delay at all — the
+   stream has told us, in as many words, that it does not observe this symbol on this
+   timeframe. The four non-equity scenes (INDEX NOW, MACRO CROSS-ASSET, INTERNALS FAST,
+   INTERNALS SLOW) are made almost entirely of such symbols, and flattening that answer
+   into "data delayed · retrying" turned a canonical, final answer into an endless spinner.
+   The name is carried through and PAINTED; nothing is substituted in its place. */
+const CHART_ABSENCE_NOT_OBSERVED = "NOT_OBSERVED_BY_STREAM";
+function chartAbsenceError(reason, ticker, range) {
+  const named = String(reason || CHART_ABSENCE_NOT_OBSERVED);
+  const err = new Error(named);
+  err.scAbsence = named;
+  err.scTicker = ticker == null ? null : String(ticker);
+  err.scRange = range == null ? null : String(range);
+  return err;
+}
+function isNamedAbsence(err) { return Boolean(err && typeof err.scAbsence === "string" && err.scAbsence); }
+/* The canonical name is what is shown. It is lower-cased and un-underscored for the pane,
+   and nothing else — no invented "unavailable", no guessed cause, no fallback series. */
+function chartAbsenceLabel(reason) {
+  return String(reason || CHART_ABSENCE_NOT_OBSERVED).trim().replace(/_/g, " ").toLowerCase();
+}
+/* The name the shim recorded for this symbol, or null. Null means nothing has named it, which
+   is not the same as the stream having answered - see chartAbsenceReason below. */
+function chartNamedAbsenceFor(ticker, tf) {
+  try {
+    const shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
+    const named = shim && typeof shim.absenceFor === "function" ? shim.absenceFor(ticker, tf) : null;
+    return named ? String(named) : null;
+  } catch (_) { return null; }
+}
+/* The canonical name, for the one caller that already knows the stream answered: a pane whose
+   dataset carries an absence it was given. Nothing derives an absence from silence. */
+function chartAbsenceReason(ticker, tf) {
+  return chartNamedAbsenceFor(ticker, tf) || CHART_ABSENCE_NOT_OBSERVED;
+}
 let chartLoadToken = 0;
 const chartLoadPermits = new Map();
 /* Weekly asks for 157 total rows: up to 156 completed weeks plus the current
@@ -309,15 +355,82 @@ const chFmpSym = (t) => (cryptoSet.has(t) && !t.endsWith("USD") ? t + "USD" : t)
    readout, not a candle. Futures and crypto, which the provider does not own here, keep their
    existing appended transient point, flagged live:true so no consumer can mistake it for a
    completed bar, and it is applied only AFTER caching. */
-function chApplyLivePoint(t, pts, quote) {
-  if (!quote || !Array.isArray(pts) || !pts.length || !isFinite(+quote.price)) return pts;
+/* NULL IS NOT NOW.
+   Three render paths used `quote.updated_ts || Date.now()`. When the provider supplies no
+   observation time - which it does whenever price_observation_utc is absent - that expression
+   replaced the missing time with this machine's clock, and the pane then reported the quote as
+   having been observed this instant. It was the freshest thing on the wall precisely because
+   nothing was known about when it was seen. An unknown time stays unknown from here to the
+   badge. */
+/* A PRICE, OR NOTHING. `+null` and `+''` are both 0, so `isFinite(+quote.price)` called an
+   absent price a valid $0.00 and every display guard below then painted it. The raw value
+   decides, exactly as it does in the provider shim. */
+function quotePrice(quote) {
+  const raw = quote && quote.price;
+  if (raw == null || raw === "" || raw === true || raw === false) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+function quoteInstant(quote) {
+  const raw = quote && quote.updated_ts;
+  if (raw == null || raw === "") return null;
+  const ms = new Date(raw).getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+/* One bucket per timeframe, in milliseconds. Used only as a sanity bound on how far ahead of
+   the last completed bar a transient point may sit; the decisive test is the timestamp. */
+const CH_RANGE_MS = { "15m":900000, "30m":1800000, "1h":3600000, "2h":7200000, "3h":10800000,
+  "4h":14400000, "6h":21600000, "12h":43200000, "1D":86400000, "3D":259200000, "1W":604800000 };
+function chApplyLivePoint(t, pts, quote, range) {
+  if (!quote || !Array.isArray(pts) || !pts.length || quotePrice(quote) == null) return pts;
   var shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
   if (shim && shim.isProviderOwned && shim.isProviderOwned(t)) return pts;   // equity: never touched
-  const d = new Date(quote.updated_ts || Date.now()).toISOString();
+  if (!futureSet.has(t) && !cryptoSet.has(t)) return pts;    // nobody else gets a transient point
+  /* A transient point needs a real observation time to sit at. Without one there is nowhere
+     honest to place it on the axis, so none is appended. */
+  const observedAt = quoteInstant(quote);
+  if (observedAt == null) return pts;
+  const d = new Date(observedAt).toISOString();
   const out = pts.slice();                                   // COPY - input is never mutated
   const last = out[out.length - 1];
-  if (last.d.slice(0,10) === d.slice(0,10)) return out;      // same day: do NOT rewrite the bar
-  if (futureSet.has(t) || cryptoSet.has(t)) out.push({ d, p:+quote.price, live:true });
+  const lastMs = new Date(last.d).getTime();
+  if (!Number.isFinite(lastMs)) return out;
+
+  /* THE TEST IS THE TIMESTAMP, NOT THE CALENDAR DATE.
+     This compared YYYY-MM-DD only, which is the right question for a daily chart and the wrong
+     one for every other timeframe on the ladder. On a 15m or 1h chart the last COMPLETED bar
+     is 08:00 today and a tick at 08:49 shares its date, so the first intraday tick after load
+     was refused and the pane sat on its last completed bar all session.
+
+     The provider serves completed periods only, so the last bar's bucket is already closed and
+     anything later belongs to the open one. "Later than the last completed bar" is therefore
+     the whole rule, and it is right on every timeframe. */
+
+  /* THE CLOCK GUARD COVERS BOTH BRANCHES.
+     It sat below the replacement branch, so it only ever ran on a first append: once a
+     transient point existed, a tick dated a day in the future replaced a perfectly good one and
+     the pane showed a price stamped tomorrow. A timestamp in the future is a clock problem
+     whichever branch is about to use it. */
+  const bucket = CH_RANGE_MS[range] || CH_RANGE_MS["1D"];
+  if (observedAt > Date.now() + bucket) return out;
+
+  /* A point this function appended earlier is flagged live:true - this tick's placeholder, not
+     an observation - so the next tick REPLACES it rather than stacking a second one. */
+  if (last && last.live) {
+    const completed = out.length > 1 ? new Date(out[out.length - 2].d).getTime() : -Infinity;
+    /* An out-of-order tick must not drag the transient point backwards, and must never place
+       it before the completed bar it follows. */
+    if (observedAt < lastMs || observedAt <= completed) return out;
+    out[out.length - 1] = { d, p:quotePrice(quote), live:true };
+    return out;
+  }
+  /* A COMPLETED bar is never rewritten, and nothing is added unless it is genuinely later. */
+  if (observedAt <= lastMs) return out;
+  /* Bounding a tick against the LAST BAR would be wrong: a 1h chart legitimately carries a bar
+     many hours old across an overnight or weekend gap, and clamping to a few buckets would
+     blank the transient point exactly when a market reopens. Only a FUTURE timestamp is
+     implausible, and that is checked above for both branches. */
+  out.push({ d, p:quotePrice(quote), live:true });
   return out;
 }
 const CH_DECIMALS = { GCUSD:1, CLUSD:2, SIUSD:3, DXUSD:3, ESUSD:2, NQUSD:2 };
@@ -325,13 +438,25 @@ const chPx = (p, ticker = "") => {
   const d = CH_DECIMALS[ticker] ?? (p >= 1 ? 2 : 4);
   return p.toLocaleString("en-US", { minimumFractionDigits:d, maximumFractionDigits:d });
 };
+/* HOW MANY DECIMALS THE STEP ITSELF NEEDS — not how big it is.
+   The axis label must be the price of the line it sits beside. Deriving decimals from the
+   step's MAGNITUDE (`s >= 1 ? 0`) printed a gridline at 12.5 as "13" and one at 0.25 as
+   "0.3": off by half a step, and the tick ladder chooses exactly those steps whenever the
+   raw step falls in (2, 2.5] × 10^k, which is one of its five rungs. */
+const chStepDecimals = (s) => {
+  for (let d = 0; d <= 6; d += 1) {
+    const scaled = s * Math.pow(10, d);
+    if (Math.abs(scaled - Math.round(scaled)) < 1e-9) return d;
+  }
+  return 6;   /* bounded; no served price range produces a step below 1e-6 */
+};
 const chAxisPx = (p, step) => {
   const a = Math.abs(p), s = Math.abs(step || 1);
   if (a >= 10000 && s >= 1000) {
     const d = s < 10000 ? 1 : 0;
     return (p / 1000).toFixed(d).replace(/\.0$/, "") + "K";
   }
-  const d = s >= 1 ? 0 : Math.min(4, Math.max(0, Math.ceil(-Math.log10(s))));
+  const d = chStepDecimals(s);
   return p.toLocaleString("en-US", { minimumFractionDigits:d, maximumFractionDigits:d });
 };
 const EV_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -388,11 +513,11 @@ function chartSeriesCached(t, range, limit) {
   const key = t + "|" + range;
   const hit = chartCache.get(key);
   if (hit && hit.pts && hit.pts.length >= 2)
-    return chartTail(chApplyLivePoint(t, hit.pts, liveQuote[t]), limit || chartInitialLimit(range));
+    return chartTail(chApplyLivePoint(t, hit.pts, liveQuote[t], range), limit || chartInitialLimit(range));
   const env = cacheGet("sc_chart_" + key);
   if (env && Array.isArray(env.pts) && env.pts.length >= 2) {
     chartCache.set(key, { ts: env.ts || Date.now(), pts: env.pts });
-    return chartTail(chApplyLivePoint(t, env.pts, liveQuote[t]), limit || chartInitialLimit(range));
+    return chartTail(chApplyLivePoint(t, env.pts, liveQuote[t], range), limit || chartInitialLimit(range));
   }
   return null;
 }
@@ -402,7 +527,7 @@ async function fetchChartSeries(t, range, requestedLimit){
   const e = CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"];
   const limit = Math.max(e[1], Math.round(requestedLimit || e[1]));
   if (hit && Date.now() - hit.ts < 300000 && (hit.limit || hit.pts.length) >= limit)
-    return chartTail(chApplyLivePoint(t, hit.pts, liveQuote[t]), limit);
+    return chartTail(chApplyLivePoint(t, hit.pts, liveQuote[t], range), limit);
   const inflightKey = key + "|" + limit;
   if (chartInflight.has(inflightKey)) return chartInflight.get(inflightKey);
   const work = (async () => {
@@ -414,9 +539,21 @@ async function fetchChartSeries(t, range, requestedLimit){
     /* CACHE THE PURE PROVIDER SERIES FIRST. The transient live point is applied to a COPY
        afterwards and is never persisted, so nothing a live quote does can change a cached candle. */
     pts = chartTail(pts, limit);
+    /* SHORT IS NOT ABSENT; UNNAMED IS NOT ABSENT EITHER.
+       The read succeeded. If something NAMED the emptiness - the provider's own per-symbol
+       state, recorded by the shim - that name is the answer and the pane states it and stops.
+       If nothing named it, a short series is a partial or still-warming answer and stays
+       retryable: one real bar is proof the stream observes this symbol, so inventing a
+       terminal NOT_OBSERVED_BY_STREAM out of one point would retire a live symbol from the
+       wall permanently. Neither outcome is cached. */
+    if (pts.length < 2) {
+      const named = chartNamedAbsenceFor(t, e[0]);
+      if (named) throw chartAbsenceError(named, t, range);
+      throw new Error("insufficient history for " + t + "/" + e[0] + " (" + pts.length + " points, unnamed)");
+    }
     chartCache.set(key, { ts: Date.now(), pts: pts, limit:limit });
-    if (pts.length >= 2) { try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {} }
-    return chApplyLivePoint(t, pts, liveQuote[t]);
+    try { cacheSet("sc_chart_" + key, { pts: pts }); } catch (_) {}
+    return chApplyLivePoint(t, pts, liveQuote[t], range);
   })();
   chartInflight.set(inflightKey, work);
   try { return await work; }
@@ -630,7 +767,15 @@ function scChartDraw(host, scrub) {
   for (let i = start; i <= end; i++) {
     const q = pts[i]; if (q.p < lo) lo = q.p; if (q.p > hi) hi = q.p;
   }
-  const ref = (host._ref != null && isFinite(host._ref)) ? host._ref : pts[0].p;
+  /* THE DIRECTION COLOR IS A CLAIM ABOUT THE DAY, SO IT NEEDS THE DAY'S OWN BASELINE.
+     This used to fall back to the first bar of the loaded window whenever the provider's
+     previous close was unknown, and the pane was then painted bull or bear against a number
+     nobody sent — a baseline that MOVES with the range control, so the same prices painted
+     green at one range and red at another with no market event between them. The badge
+     already said "—" for exactly that case (chDayChange refuses without a previous close),
+     so an honest text sat beside a confident color, and the color is what the wall is read
+     by. Direction is claimed only from the authority the badge uses; without it, neutral. */
+  const ref = chDayRef(host);
   let yLo = lo, yHi = hi;
   if (yHi === yLo) { yHi += 1; yLo -= 1; }
   const yPad = (yHi - yLo) * .055;
@@ -641,8 +786,8 @@ function scChartDraw(host, scrub) {
   const X = (i) => padL + ((i - start) / Math.max(1, end - start + rightBars)) * iw;
   const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * ih;
   host._plot = { padL, padT, iw, ih, start, end, rightBars, yLo, yHi };
-  const up = pts[end].p >= ref;
-  const c = up ? col.bull : col.bear;
+  const up = ref != null && pts[end].p >= ref;
+  const c = ref == null ? col.ink2 : up ? col.bull : col.bear;
   /* Use rounded, evenly meaningful price levels rather than labeling only the
      accidental visible high and low. The levels adapt to pane height without
      reopening the old empty right gutter. */
@@ -698,9 +843,10 @@ function scChartDraw(host, scrub) {
      line. It is rendered only from a received live quote, aligned with the
      actual live value, and the hover marker takes precedence while scrubbing. */
   const quote = liveQuote[host.dataset.t];
-  const hasLiveQuote = quote && isFinite(+quote.price);
+  const livePriceValue = quotePrice(quote);
+  const hasLiveQuote = livePriceValue != null;
   if (hasLiveQuote && !scrub) {
-    const livePrice = +quote.price, liveY = Y(livePrice);
+    const livePrice = livePriceValue, liveY = Y(livePrice);
     if (liveY >= padT && liveY <= padT + ih) {
       const liveDay = chDayChange(livePrice, prevClose[host.dataset.t]);
       const liveColor = liveDay.tone === "up" ? col.bull : liveDay.tone === "down" ? col.bear : col.ink2;
@@ -783,13 +929,28 @@ function clearChartRetry(host) {
 }
 function reportChartDataState(host, patch) {
   if (!host) return;
-  host._dataState = Object.assign({ history:"loading", quote:"loading" }, host._dataState || {}, patch || {});
+  /* TWO LANES, TWO REASONS.
+     One shared `absence` field meant the lanes wrote over each other: a history success cleared
+     the reason belonging to a still-true quote absence, and a quote going ready left a history
+     reason standing with nothing to explain. Each lane carries its own name and clears only its
+     own; the aggregate is derived, never stored, so it cannot drift from the two facts it is
+     made of. */
+  host._dataState = Object.assign(
+    { history:"loading", quote:"loading", historyAbsence:null, quoteAbsence:null },
+    host._dataState || {}, patch || {});
+  /* A lane that is not absent has no absence reason, whatever a caller passed. */
+  if (host._dataState.history !== "absent") host._dataState.historyAbsence = null;
+  if (host._dataState.quote !== "absent") host._dataState.quoteAbsence = null;
+  const aggregate = host._dataState.historyAbsence || host._dataState.quoteAbsence || null;
   try {
     parent.postMessage({
       sc:"chart-data-state",
       ticker:host.dataset.t,
       history:host._dataState.history,
       quote:host._dataState.quote,
+      historyAbsence:host._dataState.historyAbsence,
+      quoteAbsence:host._dataState.quoteAbsence,
+      absence:aggregate,
       hasSeries:Boolean(host._series && host._series.length >= 2),
       range:host._range || S.chartRange
     }, location.origin);
@@ -844,10 +1005,22 @@ function acquireChartLoadPermit(host, req, generation) {
 }
 function showChartDelayed(host, ticker) {
   host.dataset.dataState = "delayed";
-  reportChartDataState(host, { history:"delayed" });
+  reportChartDataState(host, { history:"delayed", historyAbsence:null });
   if (host._series && host._series.length >= 2) return;
   const msg = host.querySelector(".sc-nchart__msg");
   if (msg) { msg.textContent = "data delayed · retrying"; msg.hidden = false; }
+}
+/* A named absence is terminal for this request: the retry timer is cleared and no new one is
+   armed. The pane says exactly what the stream said. */
+function showChartAbsent(host, reason) {
+  const named = String(reason || CHART_ABSENCE_NOT_OBSERVED);
+  clearChartRetry(host);
+  host.dataset.dataState = "absent";
+  host.dataset.absence = named;
+  reportChartDataState(host, { history:"absent", historyAbsence:named });
+  if (host._series && host._series.length >= 2) return;
+  const msg = host.querySelector(".sc-nchart__msg");
+  if (msg) { msg.textContent = chartAbsenceLabel(named); msg.hidden = false; }
 }
 function retryChartLoad(host, req, generation) {
   if (host._retryTimer && host._retryReq === req) return;
@@ -881,14 +1054,16 @@ async function scChartLoad(host) {
   if (cachedPts && cachedPts.length >= 2) {
     host._series = cachedPts;
     paintChartHistoryWindow(host);
-    host._ref = prevClose[t] != null ? +prevClose[t] : cachedPts[0].p;
     if (msg) msg.hidden = true;
     scChartDraw(host);
+  } else if (host.dataset.dataState === "absent") {
+    /* A pane that already carries a named absence keeps the name while it is re-asked. */
+    showChartAbsent(host, host.dataset.absence);
   } else if (host.dataset.dataState === "delayed") {
     /* A new bounded attempt must not make an uncached pane look blank again. */
     showChartDelayed(host, t);
   }
-  reportChartDataState(host, { history:"loading" });
+  reportChartDataState(host, { history:"loading", historyAbsence:null });
   const load = (async () => {
     let releasePermit = null;
     try {
@@ -896,17 +1071,25 @@ async function scChartLoad(host) {
       if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
     const pts = await fetchChartSeries(t, range, limit);
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
-    if (!pts || pts.length < 2) throw new Error("empty");
+    if (!pts || pts.length < 2) {
+      /* Same rule at the last gate: only a NAMED emptiness is terminal. */
+      const named = chartNamedAbsenceFor(t, range);
+      if (named) throw chartAbsenceError(named, t, range);
+      throw new Error("insufficient history for " + t + "/" + range + " (unnamed)");
+    }
     host._series = pts;
     paintChartHistoryWindow(host);
-    host._ref = prevClose[t] != null ? +prevClose[t] : pts[0].p;
     clearChartRetry(host);
     delete host.dataset.dataState;
+    delete host.dataset.absence;
     if (msg) msg.hidden = true;
-    reportChartDataState(host, { history:"ready" });
+    reportChartDataState(host, { history:"ready", historyAbsence:null });
     scChartDraw(host);
   } catch (err) {
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
+    /* THE WHOLE POINT: a named answer is not retried. Retrying it would present a settled
+       fact as a transient one and spin forever on the non-equity scenes. */
+    if (isNamedAbsence(err)) { showChartAbsent(host, err.scAbsence); return; }
     showChartDelayed(host, t);
     if (host._series && host._series.length >= 2) {
       /* A stale but usable chart is better than a black pane while the next
@@ -1146,23 +1329,38 @@ function setChartTicker(t) {
 /* R22 FIX 8 — live tick → cheap last-point update (ported verbatim) */
 function scChartLive(t, price, updatedTs, previousClose) {
   if (previousClose != null && isFinite(+previousClose)) prevClose[t] = +previousClose;
-  liveQuote[t] = { price:+price, updated_ts:updatedTs || Date.now() };
+  /* Carried as given. Null means the provider did not say when it saw this price. */
+  liveQuote[t] = { price:+price, updated_ts:updatedTs == null || updatedTs === "" ? null : updatedTs };
   for (const host of CHART_HOSTS) {
     if (!host.isConnected || host.dataset.t !== t) continue;
-    if (prevClose[t] != null && isFinite(prevClose[t])) host._ref = +prevClose[t];
     paintLiveStatus(host, liveQuote[t]);
     const s = host._series;
     if (!s || !s.length) continue;
     const atRight = !host._view || host._view.end >= s.length - 1;
     const span = host._view ? host._view.end - host._view.start : 0;
-    chApplyLivePoint(t, s, liveQuote[t]);
-    if (atRight && host._view) host._view = { start:Math.max(0, s.length-1-span), end:s.length-1 };
+    /* chApplyLivePoint returns a COPY - it must, so that nothing a live quote does can reach a
+       cached completed bar. The return value was being discarded here, so after the change to
+       copying, no realtime tick reached the drawn series at all: futures and crypto panes
+       stopped moving after their first load. */
+    const next = chApplyLivePoint(t, s, liveQuote[t], host._range || S.chartRange);
+    host._series = next;
+    if (atRight && host._view)
+      host._view = { start:Math.max(0, next.length - 1 - span), end:next.length - 1 };
     scChartDraw(host);
   }
 }
 
 /* Stable Station overlay: daily performance is measured from the regular
    previous close, never from the visible chart window. */
+/* The ONE baseline both the badge text and the pane color are allowed to claim the day
+   from: the provider's previous close for the pane's CURRENT ticker, read live rather than
+   copied, so a pane whose ticker changed cannot keep the old symbol's baseline. Null means
+   unknown — never a substitute, never zero. */
+function chDayRef(host) {
+  const v = prevClose[host && host.dataset ? host.dataset.t : null];
+  return v != null && Number.isFinite(+v) && +v !== 0 ? +v : null;
+}
+
 function chDayChange(price, previousClose) {
   if (!Number.isFinite(+price) || !Number.isFinite(+previousClose) || +previousClose === 0)
     return { text:"—", tone:"flat" };
@@ -1175,13 +1373,17 @@ function chDayChange(price, previousClose) {
 function paintLiveStatus(host, quote) {
   const badge = host?.querySelector(".sc-nchart__live");
   if (!badge) return;
-  const hasQuote = quote && isFinite(+quote.price);
-  const at = new Date(quote?.updated_ts || Date.now());
-  const age = Date.now() - at.getTime();
-  const fresh = Number.isFinite(age) && age < 90000;
+  const hasQuote = quotePrice(quote) != null;
+  const observedAt = quoteInstant(quote);
+  const at = observedAt == null ? null : new Date(observedAt);
+  const age = observedAt == null ? null : Date.now() - observedAt;
+  /* Freshness is a claim about time. With no observation time there is no claim to make, so
+     the badge is not fresh - and it is not stale either; it simply says the time is unknown. */
+  const fresh = age != null && age < 90000;
   badge.dataset.fresh = hasQuote && fresh ? "1" : "0";
+  badge.dataset.untimed = hasQuote && observedAt == null ? "1" : "0";
   const dayRef = prevClose[host.dataset.t];
-  const day = hasQuote ? chDayChange(+quote.price, dayRef) : { text:"", tone:"flat" };
+  const day = hasQuote ? chDayChange(quotePrice(quote), dayRef) : { text:"", tone:"flat" };
   badge.dataset.change = day.tone;
   let ticker = badge.querySelector(".sc-nchart__live-ticker");
   let change = badge.querySelector(".sc-nchart__live-change");
@@ -1204,14 +1406,19 @@ function paintLiveStatus(host, quote) {
   ticker.textContent = host.dataset.t;
   change.textContent = day.text;
   paintChartHistoryWindow(host);
-  badge.title = hasQuote
-    ? (futureSet.has(host.dataset.t) ? "delayed futures quote · database refresh " : "live_quotes · ") + at.toISOString()
-    : "live quote loading · ticker remains editable";
+  badge.title = !hasQuote
+    ? "live quote loading · ticker remains editable"
+    : at == null
+      ? "observation time unknown · the provider supplied no observation time for this quote"
+      : (futureSet.has(host.dataset.t) ? "delayed futures quote · " : "provider quote · ") + at.toISOString();
   reportChartDataState(host, { quote:hasQuote ? "ready" : "loading" });
   if (!hasQuote) return;
   try {
-    parent.postMessage({ sc:"chart-status", ticker:host.dataset.t, updatedTs:at.toISOString(),
-      fresh, delayed:futureSet.has(host.dataset.t), source:"live_quotes" }, location.origin);
+    /* updatedTs travels as null when it is unknown. The deck's header already refuses to fold
+       an unstamped row into an age; handing it a clock reading here would defeat that. */
+    parent.postMessage({ sc:"chart-status", ticker:host.dataset.t,
+      updatedTs:at == null ? null : at.toISOString(),
+      fresh, delayed:futureSet.has(host.dataset.t), source:"provider" }, location.origin);
   } catch (_) {}
 }
 
@@ -1225,10 +1432,20 @@ async function pullPrevClose(t) {
       if (rows[0].prev_close != null) prevClose[t] = +rows[0].prev_close;
       if (rows[0].price != null) scChartLive(t, +rows[0].price, rows[0].updated_ts);
     } else {
+      /* The read returned without this row. Settled ONLY if something named it - a PostgREST
+         result cannot say "this symbol does not exist", it just omits it. An unnamed omission
+         stays in the retrying lane. */
+      const named = chartNamedAbsenceFor(t);
       for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
-        reportChartDataState(host, { quote:"delayed" });
+        reportChartDataState(host, named ? { quote:"absent", quoteAbsence:named } : { quote:"delayed" });
     }
-  } catch (_) {
+  } catch (err) {
+    if (isNamedAbsence(err)) {
+      const named = err.scAbsence;
+      for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
+        reportChartDataState(host, { quote:"absent", quoteAbsence:named });
+      return;
+    }
     for (const host of CHART_HOSTS) if (host.isConnected && host.dataset.t === t)
       reportChartDataState(host, { quote:"delayed" });
   }
@@ -1243,19 +1460,32 @@ if (sb && !DECK_QUOTE_MODE) {
     const shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
     const sym = String((p.new && p.new.ticker) || "").toUpperCase();
     if (shim && shim.isProviderOwned && shim.isProviderOwned(sym)) { shim.realtime_equity_refused++; return; }
+    /* UNKNOWN OWNERSHIP IS NOT PERMISSION - see the same guard in deck/index.html. */
+    if (shim && shim.ownershipKnown && !shim.ownershipKnown()) { shim.realtime_unknown_ownership_refused++; return; }
     if (shim) shim.realtime_nonequity_passthrough++;
     if (p.new && p.new.ticker && p.new.price != null) scChartLive(String(p.new.ticker).toUpperCase(), +p.new.price, p.new.updated_ts);
-  }).subscribe();
+  }).subscribe((status) => {
+    /* The chart is a mounted shell — the deck paints the note; the state stays queryable
+       here under the same name, with the channel's own lifecycle as the lane's truth. */
+    if (window.SC_REALTIME) window.SC_REALTIME.channel = String(status || "").toUpperCase();
+  });
 }
 
 function requestDeckQuote(ticker) {
   try { parent.postMessage({ sc:"chart-quote-ready", ticker:String(ticker || "").toUpperCase().trim() }, location.origin); } catch (_) {}
 }
-function applyDeckQuote(ticker, quote, state) {
+function applyDeckQuote(ticker, quote, state, absence) {
   const clean = String(ticker || "").toUpperCase().trim();
   const hosts = Array.from(CHART_HOSTS).filter((host) => host.isConnected && host.dataset.t === clean);
-  if (!quote || !isFinite(+quote.price)) {
-    for (const host of hosts) { paintLiveStatus(host, null); reportChartDataState(host, { quote:state === "delayed" ? "delayed" : "loading" }); }
+  if (quotePrice(quote) == null) {
+    /* "absent" reaches here only when the deck's read SUCCEEDED and carried no row for this
+       symbol. That is the stream's answer and is reported under its name, never as a delay. */
+    const quoteState = state === "absent" ? "absent" : state === "delayed" ? "delayed" : "loading";
+    for (const host of hosts) {
+      paintLiveStatus(host, null);
+      reportChartDataState(host, { quote:quoteState,
+        quoteAbsence:quoteState === "absent" ? (absence || CHART_ABSENCE_NOT_OBSERVED) : null });
+    }
     return;
   }
   scChartLive(clean, +quote.price, quote.updated_ts, quote.prev_close);
@@ -1301,7 +1531,7 @@ document.addEventListener("click", (e) => {
 addEventListener("message", (e) => {
   const d = e.data;
   if (!d) return;
-  if (d.sc === "deck-quote") { applyDeckQuote(d.ticker, d.quote, d.state); return; }
+  if (d.sc === "deck-quote") { applyDeckQuote(d.ticker, d.quote, d.state, d.absence); return; }
   if (d.sc === "chart-load-grant") {
     const grant = chartLoadPermits.get(d.token);
     if (grant) { chartLoadPermits.delete(d.token); grant(); }

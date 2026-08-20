@@ -12,8 +12,8 @@
      revenue_surprise_pct · beat · transcript/release links.
        UPCOMING — next dates first, report time (BMO/AMC) and confirmed flag.
        RESULTS  — most recent first, EPS + revenue surprise coloured by sign.
-     Cohort-aware: ?cohort=AI_HW filters both lists through ticker_cohorts
-     (is_primary), so the events rail follows the cohort axis like everything
+     Cohort-aware: ?cohort=AI_HW filters both lists through the cohort axis
+     membership, so the events rail follows the cohort axis like everything
      else. ?t=MU pins one ticker. ?days=45 window · ?limit=40 · ?bg=0 ·
      ?sections=upcoming,results · ?refresh=300.
      DATA — DB reads only, never FMP · scintilla-live. Ticker → /chart.
@@ -56,6 +56,7 @@ body.nobg{ background:transparent; }
 <body>
 <div id="hd"><span class="k">EVENTS</span><span class="f" id="filt">all</span><span class="st" id="stamp"></span></div>
 <div id="cols"><div class="empty">loading events…</div></div>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -97,21 +98,44 @@ const tone = (v) => (v > 0 ? "up" : v < 0 ? "dn" : "neu");
 async function tick() {
   let inList = null;
   if (COHORT) {
-    const tc = await pg("ticker_cohorts?is_primary=eq.true&cohort=eq." + encodeURIComponent(COHORT) + "&select=ticker").catch(() => null);
-    inList = Array.isArray(tc) ? tc.map((r) => r.ticker).filter(Boolean) : [];
-    if (!inList.length) { el("cols").innerHTML = '<div class="empty">no primary tickers in cohort ' + esc(COHORT) + "</div>"; return; }
+    /* "Which tickers are in this cohort" is a MEMBERSHIP question, so it reads the full
+       membership set rather than a single capped page - see _cohorts/cohort-axis.js.
+
+       A FAILED READ IS NOT AN EMPTY COHORT. This caught the rejection and rendered "no tickers
+       in cohort X", which is a statement about the data - and a false one. The reader would
+       have gone looking for a membership problem that did not exist while the actual fault was
+       a transport or schema failure nobody was told about. */
+    let axis = null;
+    try { axis = await SC_COHORT_AXIS.loadMemberships(pg); }
+    catch (err) {
+      el("cols").innerHTML = '<div class="empty">cohort membership unavailable — ' +
+        esc(err && err.message || "read failed") + '</div>';
+      return;
+    }
+    if (axis.truncated) {
+      el("cols").innerHTML = '<div class="empty">cohort membership read truncated — the list would be incomplete</div>';
+      return;
+    }
+    inList = SC_COHORT_AXIS.byCohort(axis.rows).get(COHORT) || [];
+    if (!inList.length) { el("cols").innerHTML = '<div class="empty">no tickers in cohort ' + esc(COHORT) + "</div>"; return; }
   }
   const today = iso(new Date()), until = iso(new Date(Date.now() + DAYS * 86400000)), since = iso(new Date(Date.now() - DAYS * 86400000));
   const filt = (T ? "&ticker=eq." + encodeURIComponent(T) : "") +
                (inList ? "&ticker=in.(" + inList.map(encodeURIComponent).join(",") + ")" : "");
   const cols = "ticker,date,report_time,confirmed,eps_estimate,eps_actual,revenue_estimate,revenue_actual,surprise_pct,revenue_surprise_pct,beat";
   const wantU = SECT.indexOf("upcoming") >= 0, wantR = SECT.indexOf("results") >= 0;
+  /* A FAILED READ IS NEVER DATA. catch(() => null) rendered a dead earnings read as
+     "nothing scheduled in the next N days" — a confident calendar claim manufactured from a
+     transport failure. An empty calendar and a failed read are different facts and print
+     differently. */
+  const READ_FAILED = { failed: true };
   const [up, res] = await Promise.all([
-    wantU ? pg("earnings_events?select=" + cols + "&date=gte." + today + "&date=lte." + until + filt + "&order=date.asc&limit=" + LIMIT).catch(() => null) : null,
-    wantR ? pg("earnings_events?select=" + cols + "&date=lt." + today + "&date=gte." + since + filt + "&eps_actual=not.is.null&order=date.desc&limit=" + LIMIT).catch(() => null) : null,
+    wantU ? pg("earnings_events?select=" + cols + "&date=gte." + today + "&date=lte." + until + filt + "&order=date.asc&limit=" + LIMIT).catch(() => READ_FAILED) : null,
+    wantR ? pg("earnings_events?select=" + cols + "&date=lt." + today + "&date=gte." + since + filt + "&eps_actual=not.is.null&order=date.desc&limit=" + LIMIT).catch(() => READ_FAILED) : null,
   ]);
 
-  const upRows = !Array.isArray(up) || !up.length ? '<div class="empty">nothing scheduled in the next ' + DAYS + " days</div>"
+  const upRows = up === READ_FAILED ? '<div class="empty">the earnings read failed — the calendar is unavailable, not clear · retrying</div>'
+    : !Array.isArray(up) || !up.length ? '<div class="empty">nothing scheduled in the next ' + DAYS + " days</div>"
     : up.map((r) => '<a class="r" href="/chart?t=' + encodeURIComponent(r.ticker) + '">' +
         '<span class="d">' + short(r.date) + '</span><span class="tk">$' + esc(r.ticker) + "</span>" +
         (r.report_time ? '<span class="rt">' + esc(r.report_time) + "</span>" : "") +
@@ -119,7 +143,8 @@ async function tick() {
         (num(r.eps_estimate) != null ? '<span class="sub sp">est ' + num(r.eps_estimate).toFixed(2) + "</span>" : "") +
       "</a>").join("");
 
-  const resRows = !Array.isArray(res) || !res.length ? '<div class="empty">no reported results in the last ' + DAYS + " days</div>"
+  const resRows = res === READ_FAILED ? '<div class="empty">the earnings read failed — results are unavailable, not absent · retrying</div>'
+    : !Array.isArray(res) || !res.length ? '<div class="empty">no reported results in the last ' + DAYS + " days</div>"
     : res.map((r) => {
         const sp = num(r.surprise_pct), rsp = num(r.revenue_surprise_pct);
         return '<a class="r" href="/chart?t=' + encodeURIComponent(r.ticker) + '">' +

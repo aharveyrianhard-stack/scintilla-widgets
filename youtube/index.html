@@ -43,6 +43,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-ytf.is-on{ color:var(--crk); background:rgba(0,212,255,.08); box-shadow:inset 0 -2px 0 var(--crk); }
 .sc-ytf__c{ color:var(--dim); margin-left:5px; }
 .sc-ytf .s{ color:var(--crk); }
+.sc-ytf .wlbad{ color:#f66; font-weight:700; }
 .sc-yt__grid{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
 @media(min-width:1180px){ .sc-yt__grid{ grid-template-columns:1fr 1fr 1fr; } }
 @media(max-width:680px){ .sc-yt__grid{ grid-template-columns:1fr; } }
@@ -144,23 +145,39 @@ const S = { ytFilt: (QS.get("filt") || "ALL").toUpperCase() };
 const YT_FEED = [];
 let YT_VIEW = [];
 let YT_IDX = -1;
-let YT_LOADED = false, YT_FETCHED_AT = 0;
+let YT_LOADED = false, YT_FETCHED_AT = 0, YT_MAIN_FAILED = false;
 
 /* ---- watch-later + positions — ported verbatim ---- */
 /* Watch Later and resume are both shared records.  This set is only a page
    cache while the direct shared-table read is in flight; it is never saved
    in a browser, so another device cannot inherit a private list. */
 const YT_WATCH_LATER = new Set();
+/* READY only when the dedicated shared-table read has landed; until then the set mirrors
+   the feed's own served watch_later flags (a landed read), never an empty fabrication. */
+let YT_WL_READY = false, YT_WL_READ_FAILED = false;
 function ytWLGet() { return new Set(YT_WATCH_LATER); }
 function ytAct(action, payload) {
+  /* Resolves null exactly when the write did NOT land: network failure, non-2xx, or an
+     error body. A 500 whose JSON parses is not a success. */
   return fetch(SB + "/functions/v1/yt-act", { method: "POST",
     headers: { apikey: PUBLIC, "Content-Type": "application/json" },
-    body: JSON.stringify(Object.assign({ action: action }, payload || {})) }).then((r) => r.json()).catch(() => null);
+    body: JSON.stringify(Object.assign({ action: action }, payload || {})) })
+    .then((r) => r.json().then((d) => (r.ok && !(d && d.error) ? d : null)).catch(() => null))
+    .catch(() => null);
 }
-function ytWLToggle(id) {
+function ytWLToggle(id, onSettle) {
   const on = !YT_WATCH_LATER.has(id);
   if (on) YT_WATCH_LATER.add(id); else YT_WATCH_LATER.delete(id);
-  ytAct(on ? "star" : "unstar", { videoId: id });
+  /* THE OPTIMISTIC FLIP MUST NOT OUTLIVE A LOST WRITE. The failure used to be swallowed
+     whole: the star stayed painted "saved", the shared table never changed, and the lie
+     stood until the next reconcile read. On failure the flip is reverted, the caller
+     repaints with the truth, and the reason is said where the page already speaks. */
+  ytAct(on ? "star" : "unstar", { videoId: id }).then((d) => {
+    if (d) return;
+    if (on) YT_WATCH_LATER.delete(id); else YT_WATCH_LATER.add(id);
+    if (onSettle) onSettle(YT_WATCH_LATER.has(id));
+    ytFlash((on ? "★ not saved" : "★ not removed") + " — the shared watch-later write failed · try again", 2600);
+  });
   return on;
 }
 const YT_POSITIONS = new Map();
@@ -223,7 +240,9 @@ function ytFiltHTML() {
   let h = chips.map(([k, l]) => {
     const on = S.ytFilt === k ? " is-on" : "";
     const star = k === "WATCH" ? '<span class="s">★</span> ' : "";
-    return '<button class="sc-ytf' + on + '" data-act="ytfilt" data-f="' + k + '">' + star + l + "</button>";
+    const mark = k === "WATCH" && YT_WL_READ_FAILED
+      ? ' <span class="wlbad" title="the saved-list read failed — ★ rides the feed snapshot, not the saved list · retried with the feed pass">!</span>' : "";
+    return '<button class="sc-ytf' + on + '" data-act="ytfilt" data-f="' + k + '">' + star + l + mark + "</button>";
   }).join("");
   Object.keys(tks).sort().forEach((t) => {
     const on = S.ytFilt === ("$" + t) ? " is-on" : "";
@@ -259,7 +278,12 @@ function renderYT() {
   const grid = el("ytGrid"); if (!grid) return;
   if (!YT_LOADED) return;
   if (!YT_FEED.length) {
-    grid.innerHTML = '<div class="sc-yt__empty">youtube feed · <b>awaiting feed</b> — the youtube_feed table is empty; cards fill per video when the ingester lands.</div>';
+    /* Two different states, two different sentences. "The table is empty" is the OWNER's
+       absence and may only be said off a read that LANDED; a failed read painted those
+       words — and blamed the ingester — for a transport failure nobody measured. */
+    grid.innerHTML = YT_MAIN_FAILED
+      ? '<div class="sc-yt__empty">youtube feed · <b>read failed</b> — the wire is unavailable, not empty · retrying at the next pass.</div>'
+      : '<div class="sc-yt__empty">youtube feed · <b>awaiting feed</b> — the youtube_feed table is empty; cards fill per video when the ingester lands.</div>';
     YT_VIEW = [];
     return;
   }
@@ -275,31 +299,45 @@ function fillYT() {
   if (YT_LOADED && (Date.now() - YT_FETCHED_AT) < 90000) return;
   pg("youtube_feed?select=video_id,title,channel,channel_id,tickers,duration,is_short,is_sub,subscription_accounts,watch_later,thumb_url,published_at&order=published_at.desc&limit=200")
     .then((rows) => {
-      YT_LOADED = true; YT_FETCHED_AT = Date.now(); ytPosPull();
+      YT_LOADED = true; YT_FETCHED_AT = Date.now(); YT_MAIN_FAILED = false; ytPosPull();
+      /* The feed rows arrive with a server-side watch_later flag — landed data. Before the
+         dedicated saved-set read has landed, that flag is the ONLY truth; overwriting it with
+         an empty page-cache painted every saved star "unsaved" until (unless) the second read
+         landed. Seed the cache from the feed instead, so the overwrite below is a no-op until
+         the authoritative read replaces it. */
+      if (Array.isArray(rows) && rows.length && !YT_WL_READY) rows.forEach((r) => { if (r && r.watch_later && r.video_id) YT_WATCH_LATER.add(r.video_id); });
       if (Array.isArray(rows) && rows.length) { const wl = ytWLGet(); YT_FEED.length = 0; const _seen = new Set(); rows.forEach((r) => { if (!ytHubAllowed(r)) return; const _k = (r.channel_id || "") + "|" + String(r.title || "").toLowerCase().replace(/\s+/g, " ").trim(); if (_seen.has(r.video_id) || _seen.has(_k)) return; _seen.add(r.video_id); _seen.add(_k); r.watch_later = wl.has(r.video_id); YT_FEED.push(r); }); }
       /* One shared Station table carries the saved set.  It is updated only
          after the authoritative YouTube add/remove succeeds, so grids can
          render instantly without waiting on Google's slow playlist reads. */
       pg("yt_watch_later?select=video_id").then((savedRows) => {
         if (Array.isArray(savedRows)) {
+          YT_WL_READY = true; YT_WL_READ_FAILED = false;
           YT_WATCH_LATER.clear();
           savedRows.map((row) => row.video_id).filter(Boolean).forEach((id) => YT_WATCH_LATER.add(id));
           YT_FEED.forEach((r) => { r.watch_later = YT_WATCH_LATER.has(r.video_id); });
           const fb = el("ytFilt"); if (fb) fb.innerHTML = ytFiltHTML();
           renderYT();
         }
+      }).catch(() => {
+        /* A failed read is never data: the stars keep the feed's own served flags (seeded
+           above), and the limitation is SAID — a persistent marker on the Watch Later chip,
+           plus a flash naming the failure. The 90s feed pass retries the read. */
+        YT_WL_READ_FAILED = true;
+        const fb = el("ytFilt"); if (fb) fb.innerHTML = ytFiltHTML();
+        ytFlash("the watch-later read failed — ★ rides the feed snapshot, not the saved list", 2600);
       });
       el("ytFilt").innerHTML = ytFiltHTML();
       renderYT();
     })
-    .catch(() => { YT_LOADED = true; renderYT(); });
+    .catch(() => { YT_LOADED = true; YT_MAIN_FAILED = true; renderYT(); });
 }
 
 /* ---- docked player (YouTube IFrame API — hub player behaviors) ---- */
 let YT_PLYR = null, YT_PLYR_TMR = null, YT_API_WAIT = null, YT_CUR = null;
 function ytApiReady() { return !!(window.YT && window.YT.Player); }
 function ytLoadApi() { if (ytApiReady() || el("ytApiScript")) return; const s = document.createElement("script"); s.id = "ytApiScript"; s.src = "https://www.youtube.com/iframe_api"; document.head.appendChild(s); }
-function ytFlash(t) { const f = el("ytFlash"); if (!f) return; f.textContent = t; f.classList.add("show"); setTimeout(() => f.classList.remove("show"), 500); }
+function ytFlash(t, ms) { const f = el("ytFlash"); if (!f) return; f.textContent = t; f.classList.add("show"); setTimeout(() => f.classList.remove("show"), ms || 500); }
 function ytSeekBy(s) { try { let t = YT_PLYR.getCurrentTime() + s; if (t < 0) t = 0; YT_PLYR.seekTo(t, true); ytFlash(s < 0 ? "⏪ " + (-s) + "s" : s + "s ⏩"); } catch (_) {} }
 function ytPlayerKill() {
   if (YT_API_WAIT) { clearInterval(YT_API_WAIT); YT_API_WAIT = null; }
@@ -378,13 +416,20 @@ document.addEventListener("click", (e) => {
   else if (act === "ytrefresh") { YT_LOADED = false; YT_FETCHED_AT = 0; el("ytGrid").innerHTML = '<div class="sc-yt__empty">reloading…</div>'; YT_LOADED = false; fillYT(); }
   else if (act === "ytopen" || act === "ytcontinue") { ytOpen(+n.dataset.i); }
   else if (act === "ytcontdismiss") { e.stopPropagation(); YT_LAST_POSITION_ID = ""; renderYT(); }
-  else if (act === "ytstar") { e.stopPropagation(); const r = YT_VIEW[+n.dataset.i]; if (!r) return; r.watch_later = ytWLToggle(r.video_id); n.classList.toggle("is-on", r.watch_later); if (S.ytFilt === "WATCH") renderYT(); }
+  else if (act === "ytstar") { e.stopPropagation(); const r = YT_VIEW[+n.dataset.i]; if (!r) return;
+    r.watch_later = ytWLToggle(r.video_id, (saved) => { r.watch_later = saved; renderYT(); });
+    n.classList.toggle("is-on", r.watch_later); if (S.ytFilt === "WATCH") renderYT(); }
   else if (act === "ytprev") ytNav(-1);
   else if (act === "ytnext") ytNav(1);
   else if (act === "ytseekback") ytSeekBy(-30);
   else if (act === "ytseekfwd") ytSeekBy(30);
   else if (act === "ytcloseplayer") ytClose();
-  else if (act === "ytstarcur") { if (!YT_CUR) return; YT_CUR.watch_later = ytWLToggle(YT_CUR.video_id); el("ytpStar").classList.toggle("is-on", YT_CUR.watch_later); }
+  else if (act === "ytstarcur") { if (!YT_CUR) return; const cur = YT_CUR;
+    cur.watch_later = ytWLToggle(cur.video_id, (saved) => {
+      cur.watch_later = saved;
+      if (YT_CUR === cur) el("ytpStar").classList.toggle("is-on", saved);
+      renderYT(); });
+    el("ytpStar").classList.toggle("is-on", cur.watch_later); }
 }, true);
 
 /* save position on tab hide/close (best effort) */

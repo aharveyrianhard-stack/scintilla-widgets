@@ -51,7 +51,9 @@ function withoutInlineScript(sourceText) {
 }
 
 test("all eleven curated scenes are present with fixed baskets", () => {
-  assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","custom"]);
+  /* "cohort" is first-class again by filed ruling — a chosen cohort's rows replace the
+     favorites rows, so the scene cannot be collapsed into a family preset. */
+  assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","cohort","custom"]);
   assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY","QQQ","DIA","IWM","MAGS","SMH"]);
   assert.equal(scenes.PRESETS.companyLeadership.range, "3h");
   assert.equal(scenes.PRESETS.macroCrossAsset.chartCount, 6);
@@ -150,10 +152,12 @@ test("CUSTOM six and eight chart walls preserve their manual symbols", () => {
 });
 
 test("normal wall chooser is two, six, or eight while INDEX NOW keeps its launch trio", () => {
-  assert.doesNotMatch(deck, /option value="1"/,
+  assert.doesNotMatch(deck, /<option value="1">/,
     "one-chart detail is not offered as a normal wall choice");
   assert.match(deck, /option value="3" hidden data-preset-only="true"/,
     "three-chart INDEX NOW remains a hidden preset state, not a global manual choice");
+  assert.match(deck, /option value="1" hidden data-preset-only="true"/,
+    "a one-chart cohort page is representable the same hidden preset-only way, never as a menu choice");
   assert.match(deck, /const CHART_COUNTS = \[2,6,8\]/);
   assert.match(deck, /scene === "indexNow" && \+value === 3 \? 3 : chartCount\(value\)/,
     "only a preset-driven INDEX NOW launch retains its coherent three symbols");
@@ -427,12 +431,15 @@ test("stalled chart reads retain a truthful ticker fallback and report coherent 
     "the editable ticker remains visible without inventing a price or daily percent");
   assert.doesNotMatch(chart, /price\.textContent = hasQuote/,
     "price is not duplicated in the readout while no quote has arrived");
-  assert.match(chart, /reportChartDataState\(host, \{ history:"delayed" \}\)/);
+  assert.match(chart, /reportChartDataState\(host, \{ history:"delayed", historyAbsence:null \}\)/);
   assert.match(chart, /reportChartDataState\(host, \{ quote:"delayed" \}\)/);
   assert.match(chart, /sc:"chart-data-state"/);
   const summarize = functionFromDeck("chartDataSummary");
-  assert.deepEqual(JSON.parse(JSON.stringify(summarize([{ ticker:"SPY", history:"delayed", quote:"loading" }]))), { mode:"delayed", count:1 });
-  assert.deepEqual(JSON.parse(JSON.stringify(summarize([{ ticker:"SPY", history:"ready", quote:"ready" }]))), { mode:"ready", count:0 });
+  /* `absent` joined this shape with STATION-001: the summary now separates a pane the stream
+     does not observe from a pane whose read is merely late. A delayed scene still reports
+     delayed, and reports that none of its panes carries a named absence. */
+  assert.deepEqual(JSON.parse(JSON.stringify(summarize([{ ticker:"SPY", history:"delayed", quote:"loading" }]))), { mode:"delayed", count:1, absent:0 });
+  assert.deepEqual(JSON.parse(JSON.stringify(summarize([{ ticker:"SPY", history:"ready", quote:"ready" }]))), { mode:"ready", count:0, absent:0 });
   assert.match(deck, /DATA · delayed \(\" \+ summary\.count \+ "\)/);
 });
 
@@ -556,7 +563,9 @@ test("hover uses a true two-axis crosshair, not the old fixed close reference", 
 });
 
 test("live price is a compact right-edge marker rather than top-readout clutter or a fixed line", () => {
-  assert.match(chart, /const hasLiveQuote = quote && isFinite\(\+quote\.price\)/);
+  /* quotePrice decides on the raw value: `+null` is 0, so the old guard called an absent
+     price a valid $0.00 and painted it. */
+  assert.match(chart, /const hasLiveQuote = livePriceValue != null/);
   assert.match(chart, /liveY = Y\(livePrice\)/,
     "the marker tracks the actual live price coordinate");
   assert.match(chart, /if \(hasLiveQuote && !scrub\)/,
@@ -596,8 +605,16 @@ test("the deck owns one deduplicated visible quote feed for embedded charts", ()
   assert.match(deck, /station-deck-lq/);
   assert.match(deck, /live_quotes\?ticker=in\.\(/,
     "one deck request fetches the deduplicated visible ticker set");
-  assert.match(deck, /const DECK_QUOTE_TIMEOUT_MS = 4500/,
-    "the wall quote request has the same bounded timeout as a chart request");
+  /* One 4.5s abort was measured wrong: five live /quotes probes returned 200 with TTFB of
+     0.84s, 6.86s, 1.27s, 2.71s and 0.27s, so it killed a working read one time in five — and
+     since the shim forwards this controller, the deck's impatience cancelled the provider read
+     itself. SOFT tells the panes and keeps the request running; only HARD cancels. */
+  assert.match(deck, /const DECK_QUOTE_SOFT_MS = 4500;/);
+  assert.match(deck, /const DECK_QUOTE_HARD_MS = 20000;/);
+  assert.match(deck, /setTimeout\(\(\) => controller\.abort\(\), DECK_QUOTE_HARD_MS\)/,
+    "only the hard bound cancels the wall quote request");
+  const softArm = deck.slice(deck.indexOf("const soft = setTimeout"), deck.indexOf("try {", deck.indexOf("const soft = setTimeout")));
+  assert.doesNotMatch(softArm, /abort/, "the soft threshold never cancels");
   assert.match(deck, /if \(deckQuoteInFlight\) \{ deckQuoteRerun = true; return; \}/,
     "a heartbeat cannot overlap a stalled active quote request");
   assert.match(chart, /const DECK_QUOTE_MODE = BARE && window\.parent !== window/);
@@ -843,8 +860,10 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "shared Watch Later keeps its one healthy Personal YouTube identity");
   assert.match(videoPane, /pg\("yt_watch_later\?select=video_id"\)/,
     "Station reads the one shared saved-video state directly instead of waiting on Google");
-  assert.match(videoPane, /syncWatch\(\)\.then\(\(\) => refreshWatchButton\(\)\)\.catch\(\(\) => \{ WATCH_READY = false; \}\)/,
+  assert.match(videoPane, /syncWatch\(\)\.then\(\(\) => \{ refreshWatchButton\(\); if \(ROWS\.length\) paint\(\); \}\)\.catch\(/,
     "Station begins the local saved-set read alongside its normal feed, not only after Watch Later is clicked");
+  assert.match(videoPane, /WATCH_ERROR = WATCH_ERROR \|\| "the saved-list read failed"/,
+    "…and a boot-read failure is a NAMED state the button and stars wear, never an empty saved list");
   assert.match(youtubeHub, /const YT_WATCH_LATER = new Set\(\)/,
     "Hub keeps Watch Later only in page memory while the shared source loads");
   assert.doesNotMatch(youtubeHub, /sc_yt_wl_v1|localStorage\.setItem\(YT_WL_KEY/,
@@ -891,4 +910,92 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "an already-removed YouTube item also clears a stale shared saved entry");
   assert.doesNotMatch(ytAction, /WATCH_ACCOUNT|validAccount/,
     "there is no fallback to the disconnected SCINTILLA OAuth identity");
+});
+
+test("the pane's direction color is claimed from the day's baseline, or not claimed at all", () => {
+  /* The badge and the pane color are two renderings of ONE claim: which way the day went.
+     `_ref` used to fall back to `pts[0].p` — the first bar of the LOADED WINDOW — whenever
+     the provider's previous close was unknown, so the pane was painted bull or bear against
+     a number nobody sent, and that number moved with the range control: the same prices
+     could paint green at one range and red at another with no market event between them.
+     chDayChange already refused that case ("—"), so the honest text sat beside a confident
+     color — and on a wall, the color is what gets read. */
+  for (const [label, src] of [["chart", chart], ["chart shell", chartShell]]) {
+    /* The substitution is gone from every site — no window-boundary baseline anywhere. */
+    assert.doesNotMatch(src, /host\._ref/, label + ": the substituted baseline copy is gone");
+    assert.doesNotMatch(src, /prevClose\[t\] != null \? \+prevClose\[t\] : (pts|cachedPts)\[0\]\.p/,
+      label + ": the first-bar fallback is gone");
+    assert.match(src, /const ref = chDayRef\(host\);/, label);
+    assert.match(src, /const up = ref != null && pts\[end\]\.p >= ref;/, label);
+    assert.match(src, /const c = ref == null \? col\.ink2 : up \? col\.bull : col\.bear;/,
+      label + ": no direction color without the day's baseline");
+
+    /* The baseline itself: the CURRENT ticker's provider previous close, read live rather
+       than copied, and null for every shape that is not a usable price. */
+    const prevClose = { NVDA: 100, ZERO: 0, EMPTY: "", NAN: "abc" };
+    const dayRef = functionFromSource(src, "chDayRef", { prevClose, Number });
+    const host = (t) => ({ dataset: { t } });
+    assert.equal(dayRef(host("NVDA")), 100, label + ": a known previous close is the baseline");
+    assert.equal(dayRef(host("MISSING")), null, label + ": unknown stays unknown");
+    assert.equal(dayRef(host("ZERO")), null, label + ": zero is not a baseline — it is the old $0 trap");
+    assert.equal(dayRef(host("EMPTY")), null, label + ": an empty string is not a price");
+    assert.equal(dayRef(host("NAN")), null, label + ": a non-number is not a price");
+    assert.equal(dayRef(null), null, label + ": no host, no claim");
+    assert.equal(dayRef({}), null, label + ": no dataset, no claim");
+
+    /* Badge and pane must agree by construction: both refuse on the same input. */
+    const dayChange = functionFromSource(src, "chDayChange", { Number, Math });
+    assert.equal(dayChange(105, dayRef(host("MISSING"))).tone, "flat",
+      label + ": the badge refuses exactly where the color refuses");
+    assert.equal(dayChange(105, dayRef(host("NVDA"))).tone, "up",
+      label + ": and both claim on the same baseline");
+  }
+});
+
+test("the price axis labels the price the gridline is actually at", () => {
+  /* The label must BE the price of the line it sits beside. Decimals used to come from the
+     step's MAGNITUDE (`s >= 1 ? 0`), so a gridline at 12.5 printed "13" and one at 0.25
+     printed "0.3" — off by half a step. The tick ladder selects exactly those steps
+     whenever the raw step falls in (2, 2.5] × 10^k, which is one of its five rungs, so this
+     was not an edge case but a regularly-occurring band. */
+  for (const [label, src] of [["chart", chart], ["chart shell", chartShell]]) {
+    assert.doesNotMatch(src, /const d = s >= 1 \? 0 : Math\.min\(4/, label + ": the magnitude rule is gone");
+    assert.match(src, /const chStepDecimals = \(s\) => \{/, label);
+    assert.match(src, /const d = chStepDecimals\(s\);/, label);
+
+    const block = src.match(/const chStepDecimals = [\s\S]*?\n\};\nconst chAxisPx = [\s\S]*?\n\};/);
+    assert.ok(block, label + ": the axis formatter block is found");
+    const { chAxisPx, chStepDecimals } = vm.runInNewContext(
+      block[0] + " ({ chAxisPx, chStepDecimals })", { Math });
+
+    /* The step's own precision, exactly. */
+    assert.equal(chStepDecimals(5), 0); assert.equal(chStepDecimals(25), 0);
+    assert.equal(chStepDecimals(2.5), 1); assert.equal(chStepDecimals(0.5), 1);
+    assert.equal(chStepDecimals(0.25), 2); assert.equal(chStepDecimals(0.05), 2);
+    assert.equal(chStepDecimals(0.025), 3);
+
+    /* Reproduce the page's OWN tick ladder and require every label to equal its tick. */
+    const ladder = (lo, hi, want = 6) => {
+      const rawStep = Math.max(Number.EPSILON, (hi - lo) / Math.max(2, want - 1));
+      const stepPow = Math.pow(10, Math.floor(Math.log10(rawStep)));
+      const sr = rawStep / stepPow;
+      const step = (sr <= 1 ? 1 : sr <= 2 ? 2 : sr <= 2.5 ? 2.5 : sr <= 5 ? 5 : 10) * stepPow;
+      const out = [];
+      for (let v = Math.ceil(lo / step) * step; v <= hi + step * 0.001 && out.length < 10; v += step)
+        out.push(+v.toPrecision(12));
+      return { step, out };
+    };
+    for (const [lo, hi] of [[10, 22], [1, 2.2], [100, 220], [0.1, 0.22], [3, 3.9],
+                            [119, 121], [1000, 2200], [0.5, 0.9]]) {
+      const { step, out } = ladder(lo, hi);
+      for (const v of out) {
+        const text = chAxisPx(v, step);
+        assert.equal(Number(text.replace(/,/g, "")), v,
+          label + ": the label for the " + v + " gridline (step " + step + ") reads " + text);
+      }
+    }
+    /* The thousands branch is unchanged and still exact at its own resolution. */
+    assert.equal(chAxisPx(16000, 2000), "16K");
+    assert.equal(chAxisPx(12500, 1000), "12.5K");
+  }
 });

@@ -115,6 +115,7 @@
 </div>
 
 <script src="/_provider/provider.js"></script>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
    top-level declaration, so it is already bound here. The shim answers live_quotes,
@@ -161,6 +162,7 @@ async function pgAll(path,cap){
   return out;
 }
 const el=id=>document.getElementById(id);
+const esc=x=>String(x==null?"":x).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const median=a=>{const s=a.slice().sort((x,y)=>x-y),n=s.length;return n?(n%2?s[(n-1)/2]:(s[n/2-1]+s[n/2])/2):0};
 const DAY=86400;
 
@@ -193,13 +195,16 @@ const cache={};
 /* ── bootstrap ───────────────────────────────────────────────────────────── */
 (async function init(){
   try{
-    const [tc,bad]=await Promise.all([
-      pgAll("ticker_cohorts?is_primary=eq.true&select=ticker,cohort"),
+    /* THE FULL MEMBERSHIP SET. pgAll already paged correctly here; the shared reader is used
+       so every cohort surface pages the same way and reports truncation the same way.
+       See _cohorts/cohort-axis.js. */
+    const [axis,bad]=await Promise.all([
+      SC_COHORT_AXIS.loadMemberships(pg),
       pg("session_continuity?verdict=neq.OK&select=session_date&limit=4000")
     ]);
     (bad||[]).forEach(r=>BADDATES.add(r.session_date));
     const by={};
-    (tc||[]).forEach(r=>{(by[r.cohort]=by[r.cohort]||[]).push(r.ticker)});
+    axis.rows.forEach(r=>{(by[r.cohort]=by[r.cohort]||[]).push(r.ticker)});
     /* drop the tiny alias cohort so it does not read as a real peer */
     delete by["AI_HW"];
     MEMBERS=by;
@@ -227,7 +232,11 @@ function syncCols(){
     b.setAttribute("aria-pressed",m.k===col);
     /* a live-only measure cannot be shown in the past — say so by disabling it */
     b.disabled = m.live && detent!==0;
-    b.title = b.disabled ? "composite is stored current-only; it has no past to show" : "";
+    b.title = b.disabled
+      ? "composite is stored current-only; it has no past to show"
+      : (!m.live
+          ? "reads a whole-universe daily bar window, which the provider contract does not serve — see the status line"
+          : "");
   });
 }
 function buildDetents(){
@@ -285,6 +294,24 @@ async function load(){
     else { vals=await returnAt(when, m.k==="r1m"?30:91); }
     DATA=vals;
   }catch(e){
+    if(e&&e.scHistoryUnavailable){
+      /* Named, not blank. The measure is unavailable because of a contract boundary, and the
+         page says which boundary rather than drawing an empty table. */
+      el("status").innerHTML='<b style="color:var(--warn)">'+esc(m.label)+' unavailable — '+
+        esc(HISTORY_UNAVAILABLE.replace(/_/g," ").toLowerCase())+
+        '</b><span class="small"> · the provider contract serves completed bars one symbol at a time, '+
+        'so a whole-universe historical window is not served. LIVE COMPOSITE is unaffected.</span>';
+      /* Every row is emptied rather than left showing the previous measure's numbers under
+         the new measure's heading. */
+      DATA={};
+      Object.keys(rowEls).forEach(name=>{
+        const bar=rowEls[name]&&rowEls[name].querySelector(".bar");
+        const val=rowEls[name]&&rowEls[name].querySelector(".val");
+        if(bar) bar.style.width="0%";
+        if(val) val.textContent="—";
+      });
+      return;
+    }
     el("status").innerHTML='<b style="color:var(--warn)">could not load — '+String(e.message||e)+"</b>";
     return;
   }
@@ -320,12 +347,36 @@ async function liveComposite(){
   return out;
 }
 
+/* THE HISTORICAL DETENTS ASK FOR SOMETHING THE PROVIDER CONTRACT DOES NOT SERVE.
+   1M RETURN, 3M RETURN and BREADTH are computed from a whole-universe daily bar window. The
+   provider serves completed bars ONE SYMBOL AT A TIME - /candles?symbol=... - so the authority
+   shim refuses a bar read that names no single ticker, under TICKER_FILTER_REQUIRED. Before
+   this, that refusal came back as an empty array and every historical column rendered blank,
+   silently, as though the cohorts genuinely had no history.
+
+   Reaching past the shim to the legacy table would put this page back on bar data no other
+   surface trusts. So the limitation is named and shown, and the LIVE detent - which reads the
+   Geiger and is unaffected - keeps working. */
+const HISTORY_UNAVAILABLE="WHOLE_UNIVERSE_BARS_NOT_SERVED";
+function historyUnavailable(detail){
+  const e=new Error(HISTORY_UNAVAILABLE);
+  e.scHistoryUnavailable=true;
+  e.scDetail=detail||"";
+  return e;
+}
 /* closes at (or just before) a date, one padded window, cached */
 async function closesAt(when){
   const key="c"+iso(when);
   if(cache[key]) return cache[key];
   const hi=Math.floor(when.getTime()/1000), lo=hi-12*DAY;
-  const rows=await pgAll("ohlcv_history?tf=eq.D&timestamp=gte."+lo+"&timestamp=lte."+hi+"&select=ticker,timestamp,close");
+  let rows;
+  try{
+    rows=await pgAll("ohlcv_history?tf=eq.D&timestamp=gte."+lo+"&timestamp=lte."+hi+"&select=ticker,timestamp,close");
+  }catch(e){
+    if(e&&(e.scAbsence==="TICKER_FILTER_REQUIRED"||e.scTransport)) throw historyUnavailable(e.message);
+    throw e;
+  }
+  if(!Array.isArray(rows)||!rows.length) throw historyUnavailable("the bar read returned nothing");
   const last={};
   rows.forEach(r=>{
     const t=r.ticker, ts=+r.timestamp;
@@ -375,6 +426,14 @@ function normed(){
   names.forEach((c,i)=>out[c]= NORM ? dev[i]/mx : dev[i]);
   return out;
 }
+/* A POSITION IS A CLAIM, AND A ROW WITH NO VALUE HAS NOT EARNED ONE.
+   This used to return only the cohorts `normed()` could rank, and `place()` moves exactly
+   what this returns — so a cohort whose value stopped landing was never moved again. It
+   kept the coordinate it last earned, sat among ranked peers at a rank it no longer held,
+   and once the ranked list got shorter than the wall it could be LANDED ON by a ranked row
+   taking the same index — two rows at one coordinate, one of them lying about its place.
+   Unranked cohorts are kept (the wall must not shrink) and ordered after every ranked one,
+   in the wall's own stable order; the numeral loop then refuses to number them. */
 function computeOrder(n){
   const names=Object.keys(n);
   names.sort((a,b)=>n[b]-n[a]);
@@ -385,7 +444,7 @@ function computeOrder(n){
       if(Math.abs(n[a]-n[b])<0.03 && pos[b]<pos[a]){names[p]=b;names[p+1]=a}
     }
   }
-  return names;
+  return names.concat(COHORTS.filter((c)=>!(c in n)));
 }
 function place(dur){
   order.forEach((name,pos)=>{
@@ -406,7 +465,12 @@ function render(isNewMeasure, bad){
     const raw=DATA[name], v=n[name];
     const track=e.querySelector(".track"), bar=e.querySelector(".bar"), val=e.querySelector(".val");
     e.querySelectorAll(".gh,.strike").forEach(x=>x.remove());
-    if(raw==null){ e.style.opacity=".25"; bar.style.width="0"; val.textContent="—"; return; }
+    /* A row with no value is fully reset, not partly. The stale marking used to be applied
+       AFTER this early return, so a row that was stale and then lost its value kept the
+       stale class from the previous render — a claim about a window, left standing over a
+       row that now has no reading at all. */
+    if(raw==null){ e.style.opacity=".25"; bar.style.width="0"; val.textContent="—";
+      val.className="val neu"; e.classList.remove("stale"); return; }
     e.style.opacity="1";
     track.classList.toggle("mag",!NORM&&!m.signed);
     const f=Math.max(-0.98,Math.min(0.98,v));
@@ -419,8 +483,10 @@ function render(isNewMeasure, bad){
     if(bad){ const s=document.createElement("i"); s.className="strike"; e.appendChild(s) }
   });
 
-  /* rank numerals */
-  order.forEach((name,i)=>{ const e=rowEls[name]; if(e) e.querySelector(".rk").textContent=(i+1) });
+  /* Rank numerals — only for rows that HAVE a value. A cohort that dropped out of the
+     ranking used to keep the numeral it last earned, so a row reading "—" still wore a
+     rank from an earlier read. */
+  order.forEach((name,i)=>{ const e=rowEls[name]; if(e) e.querySelector(".rk").textContent = (name in n) ? (i+1) : "—" });
 
   /* ghost of the last order */
   if(GHOST){
@@ -440,7 +506,12 @@ function render(isNewMeasure, bad){
   place(isNewMeasure||reduce ? 0 : 620);
 
   const m2=COLS.find(c=>c.k===col);
-  el("status").innerHTML="<b>"+order.length+"</b> cohorts ranked by <b>"+m2.label+"</b>"+
+  /* The count says how many are RANKED, not how many rows the wall holds — the order now
+     carries the unranked rows too, so `order.length` would have claimed a ranking over rows
+     that have no reading. Any it could not rank are counted separately and named. */
+  const rankedCount=Object.keys(n).length, unranked=order.length-rankedCount;
+  el("status").innerHTML="<b>"+rankedCount+"</b> cohorts ranked by <b>"+m2.label+"</b>"+
+    (unranked?" · <b>"+unranked+"</b> with no reading, held below the ranking":"")+
     (isNewMeasure?" · <b>cut</b> — a new measure has no continuity with the last":" · animated")+
     (detent===0?"":" · as of <b>"+iso(detentDate())+"</b>");
   el("meta").innerHTML = detent===0

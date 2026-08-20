@@ -17,9 +17,11 @@ test("initial chart history is 240 candles plus an honest current-inclusive week
   assert.match(chart, /Weekly asks for 157 total rows: up to 156 completed weeks plus the current/,
     "the extra weekly row is explicitly reserved for a provider-supplied provisional week");
   assert.match(chart, /const chartInitialLimit = \(range\) => \(CHART_DB_RANGE\[range\]/);
-  assert.match(chart, /chartTail\(chApplyLivePoint\(t, hit\.pts, liveQuote\[t\]\), limit \|\| chartInitialLimit\(range\)\)/,
+  /* The live point now takes the range too: whether a transient point belongs is a question
+     about the timeframe's bucket, not about the calendar date. */
+  assert.match(chart, /chartTail\(chApplyLivePoint\(t, hit\.pts, liveQuote\[t\], range\), limit \|\| chartInitialLimit\(range\)\)/,
     "a larger memory cache paints only the initial window");
-  assert.match(chart, /chartTail\(chApplyLivePoint\(t, env\.pts, liveQuote\[t\]\), limit \|\| chartInitialLimit\(range\)\)/,
+  assert.match(chart, /chartTail\(chApplyLivePoint\(t, env\.pts, liveQuote\[t\], range\), limit \|\| chartInitialLimit\(range\)\)/,
     "a larger durable cache cannot silently restore the old 400-row display");
   assert.doesNotMatch(chart, /chartWeekStartUnix|completedBefore|timestamp=lt\.[^"\n]*week/i,
     "the client must not exclude the current unfinished weekly candle");

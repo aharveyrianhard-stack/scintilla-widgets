@@ -78,23 +78,48 @@
   .fresh.missing{color:var(--red);}
 </style>
 
+<!-- PROVIDER AUTHORITY SHIM — see allocation-module. -->
+<script src="/_provider/provider.js"></script>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 // ============ SUPABASE — single source of truth (wadinxqplrggagkvrdag / scintilla-live) ============
 // FMP never gets called from this page. Every read below is PostgREST against Supabase.
 const SB_URL = 'https://wadinxqplrggagkvrdag.supabase.co';
 const SB_KEY = 'sb_publishable_AutibLpFtTns-WHAg67Pvw_I0HmjqE9';
+/* THE SAME 20s CEILING /health USES. Without a bound, a socket that opened and said
+   nothing held a section at its loading state forever. A timeout keeps the page's
+   error-array convention and is marked as its own kind, so a banner can say "no answer
+   in 20s" instead of inventing an HTTP status for it. */
+const SB_HARD_MS = 20000;
 async function sb(path){
-  const res = await fetch(SB_URL+'/rest/v1/'+path, { headers:{ apikey: SB_KEY, Authorization: 'Bearer '+SB_KEY } });
-  if(!res.ok) {
-    const body = await res.text().catch(()=>'');
-    console.error('Supabase read failed', path, res.status, body);
-    // Mark the empty array so callers can tell "query/schema error" apart from "table genuinely has
-    // 0 rows" — these must never be conflated into the same gap-banner message. A 400 here is usually
-    // a wrong column/table name, not a real data gap, and reporting it as one would be dishonest in
-    // the other direction (hiding a bug behind a "master hasn't ingested this yet" excuse).
-    const empty = []; empty._sbError = true; empty._sbStatus = res.status; return empty;
-  }
-  return res.json();
+  const controller = typeof AbortController === 'undefined' ? null : new AbortController();
+  const hard = controller ? setTimeout(() => controller.abort(), SB_HARD_MS) : null;
+  try {
+    const res = await fetch(SB_URL+'/rest/v1/'+path, { headers:{ apikey: SB_KEY, Authorization: 'Bearer '+SB_KEY }, signal: controller?.signal });
+    if(!res.ok) {
+      const body = await res.text().catch(()=>'');
+      console.error('Supabase read failed', path, res.status, body);
+      // Mark the empty array so callers can tell "query/schema error" apart from "table genuinely has
+      // 0 rows" — these must never be conflated into the same gap-banner message. A 400 here is usually
+      // a wrong column/table name, not a real data gap, and reporting it as one would be dishonest in
+      // the other direction (hiding a bug behind a "master hasn't ingested this yet" excuse).
+      const empty = []; empty._sbError = true; empty._sbStatus = res.status; return empty;
+    }
+    /* Awaited inside the try so the ceiling covers the body read too — a stalled body
+       stream is the same hang as a stalled socket. */
+    return await res.json();
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      console.error('Supabase read timed out', path, SB_HARD_MS + 'ms');
+      const empty = []; empty._sbError = true; empty._sbTimeout = true; return empty;
+    }
+    throw e;
+  } finally { if (hard) clearTimeout(hard); }
+}
+/* The words a failed error-array renders under: a timeout is not an HTTP status. */
+function sbFailWord(rows){
+  if (rows && rows._sbTimeout) return 'no answer in ' + (SB_HARD_MS/1000) + 's';
+  return 'HTTP ' + (rows && rows._sbStatus != null ? rows._sbStatus : 'error');
 }
 function nowSec(){ return Date.now()/1000; }
 function tsToSec(ts){ // updated_ts columns are a mix of bigint epoch-seconds and timestamptz strings — normalize both
@@ -114,14 +139,42 @@ function gapBanner(title, detail){
   return '<div class="gap-banner">🔴 <b>'+title+'</b><br><span style="color:var(--dim); font-size:13px;">'+detail+'</span></div>';
 }
 
-let UNIVERSE = []; // [{ticker, cohort, price, updated_ts}]
-let COHORT_MAP = {}; // ticker -> primary cohort
+let UNIVERSE = []; // [{ticker, cohort, cohorts, updated_ts}]
+let COHORT_MAP = {};      // ticker -> its HOME cohort, read from tickers.cohort
+let COHORT_ALL = new Map(); // ticker -> every cohort it belongs to (ticker_cohorts)
+let COHORT_TRUNCATED = false;
+/* THE PEER SET IS A HOME-COHORT CLAIM, AND THE DATABASE STATES THE HOME.
+   Two faults, both from asking one query two questions. The page read ticker_cohorts with a
+   bare limit=1000 against a 1283-row view, so 283 memberships never arrived; and it then
+   overwrote its map once per row, leaving each ticker with whichever membership happened to
+   come last in an unordered result. NVDA is in five cohorts - AI_HARDWARE, MEGA_CAP, MEGACAP,
+   SEMICONDUCTORS, TECH - so "last row wins" could have handed it any of them as its peer set.
+
+   The peer set is "who does this company sit with", which is tickers.cohort: one curated value
+   per ticker, populated for all 387 active tickers. NVDA's is AI_HARDWARE. It is read, not
+   derived - an ordering rule over the membership set would only have made the guess
+   repeatable. The full membership set is still loaded, and shown beside the peer set rather
+   than discarded. See _cohorts/cohort-axis.js. */
 async function loadUniverse(){
   const staged = await sb('composite_staged?select=ticker,composite,updated_ts&order=ticker.asc&limit=1000');
-  const cohorts = await sb('ticker_cohorts?select=ticker,cohort,is_primary&is_primary=eq.true&limit=1000');
-  cohorts.forEach(c=>{ COHORT_MAP[c.ticker]=c.cohort; });
-  UNIVERSE = staged.map(s=>({ticker:s.ticker, cohort:COHORT_MAP[s.ticker]||'UNCOHORTED', updated_ts:s.updated_ts}));
-  document.getElementById('universeStatus').innerHTML = '✅ '+UNIVERSE.length+' tickers loaded live from <span class="mono2">composite_staged</span> · '+Object.keys(UNIVERSE.reduce((a,u)=>{a[u.cohort]=1;return a;},{})).length+' cohorts (via ticker_cohorts) · '+freshTag(UNIVERSE[0]&&UNIVERSE[0].updated_ts);
+  /* sb() answers a non-OK response with an error-TAGGED empty array rather than throwing, which
+     is deliberate elsewhere on this page - a 400 must not read as "the table is empty". But a
+     paged reader cannot tell that from the end of a table, so it is converted to a throw here,
+     at the one call site that pages. */
+  const axis = await SC_COHORT_AXIS.loadAxis(async (path) => {
+    const rows = await sb(path);
+    if (rows && rows._sbError)
+      throw new Error('cohort read failed (' + sbFailWord(rows) + ')');
+    return rows;
+  });
+  COHORT_TRUNCATED = !!axis.truncated;
+  COHORT_ALL = SC_COHORT_AXIS.byTicker(axis.rows);
+  COHORT_MAP = {};
+  for(const [ticker, homeCohort] of axis.home) COHORT_MAP[ticker]=homeCohort;
+  UNIVERSE = staged.map(s=>({ticker:s.ticker, cohort:COHORT_MAP[s.ticker]||'UNCOHORTED',
+                             cohorts:Array.from(COHORT_ALL.get(s.ticker)||[]), updated_ts:s.updated_ts}));
+  const multi = UNIVERSE.filter(u=>u.cohorts.length>1).length;
+  document.getElementById('universeStatus').innerHTML = '✅ '+UNIVERSE.length+' tickers loaded live from <span class="mono2">composite_staged</span> · '+Object.keys(UNIVERSE.reduce((a,u)=>{a[u.cohort]=1;return a;},{})).length+' home cohorts (<span class="mono2">tickers.cohort</span>) over '+axis.rows.length+' memberships (<span class="mono2">ticker_cohorts</span>, fully paged)'+(multi?' · '+multi+' in more than one cohort':'')+(COHORT_TRUNCATED?' · <b>AXIS READ TRUNCATED</b>':'')+' · '+freshTag(UNIVERSE[0]&&UNIVERSE[0].updated_ts);
   const quick=['NVDA','MU','AAPL','GOOGL','TSLA'];
   document.getElementById('quickChips').innerHTML = quick.filter(t=>UNIVERSE.find(u=>u.ticker===t)).map(t=>'<button class="tbtn" onclick="setTicker(\''+t+'\')">'+t+'</button>').join('');
   return UNIVERSE;
@@ -173,9 +226,10 @@ function wireTickerSearch(){
 
 <script>
 // ============ COMPS ENGINE — Supabase source-of-truth (Move 1) ============
-// Peer grouping = ticker_cohorts.cohort (real, curated cohorts already in the DB: AI_HARDWARE, MEGACAP,
+// Peer grouping = each ticker's HOME cohort, read from tickers.cohort:
 // GROWTH, BLUE_CHIP, THEMATIC, etc — NOT a hardcoded 4-group map). Peer set for any ticker = the other
-// members of its primary cohort, largest-by-market-cap first, capped for table readability.
+// members of its HOME cohort, largest-by-market-cap first, capped for table readability.
+// A ticker's other memberships are listed beside the peer set rather than silently discarded.
 // Every multiple below is COMPUTED client-side from raw Supabase fields (fundamentals, balance_history,
 // fundamentals_history) — never a pre-typed number, never a live FMP call. See the math per-field in
 // fetchCohortBundle(). beta is read live from company_profile.beta (195/211 universe tickers have it) —
@@ -211,7 +265,9 @@ async function fetchCohortBundle(tickers){
       const yrs=(new Date(last.fiscal_date)-new Date(first.fiscal_date))/(365.25*86400000);
       if(yrs>0.5 && first.revenue>0 && last.revenue>0) cagr=(Math.pow(last.revenue/first.revenue,1/yrs)-1)*100;
     }
-    const price=f?f.price:null, cap=f?f.market_cap:null, revTTM=f?f.revenue_ttm:null, pe=f?f.trailing_pe:null;
+    /* The provider's price, or none. fundamentals.price is a snapshot with its own vintage and
+       is never used as a current price. */
+    const price=quotePriceOf(t), cap=f?f.market_cap:null, revTTM=f?f.revenue_ttm:null, pe=f?f.trailing_pe:null;
     const ps=(cap!=null&&revTTM)?cap/revTTM:null;
     const ev=(cap!=null&&b)?cap+(b.total_debt||0)-(b.cash_and_equiv||0):null;
     const evEbitda=(ev!=null&&ebitdaTTM)?ev/ebitdaTTM:null;
@@ -228,6 +284,81 @@ async function fetchCohortBundle(tickers){
   return out;
 }
 function fmtCap(v){ if(v==null) return '—'; return v>=1e12?'$'+(v/1e12).toFixed(2)+'T':'$'+(v/1e9).toFixed(0)+'B'; }
+
+/* THE CURRENT PRICE HAS ONE SOURCE, AND fundamentals.price IS NOT IT.
+   Loading the authority shim did not move this page's arithmetic: it never issued a quote read
+   at all, and took `fundamentals.price` as the current price for the comps table, the header and
+   the DCF upside. That column is a fundamentals snapshot with its own vintage - it is not a
+   quote, and using it as one is the same defect /analytics had, where a stale non-provider
+   number was printed under a heading that said provider.
+
+   This asks live_quotes, which the shim answers from the provider contract for a provider-owned
+   equity and passes through to its own owner otherwise. A symbol with no usable provider price
+   returns null and every consumer shows it as unavailable rather than substituting a number. */
+const QUOTE_CACHE = new Map();
+/* A quote is CURRENT for a while, not forever - and an absence must be allowed to recover.
+   The first cut of this cache had no TTL: a symbol once recorded unpriced stayed unpriced for
+   the page's whole life, so a provider blip at load time disabled valuation permanently, and a
+   real price never refreshed. A held price re-asks after QUOTE_TTL_MS; any kind of absence
+   re-asks sooner, because recovery is the point of remembering the failure at all. */
+const QUOTE_TTL_MS = 60000;
+const QUOTE_RETRY_MS = 15000;
+function quoteEntryFresh(e){
+  if(!e) return false;
+  return (Date.now() - (e.cachedAt || 0)) < (e.kind === 'quoted' ? QUOTE_TTL_MS : QUOTE_RETRY_MS);
+}
+function usableNumber(raw){
+  if(raw==null||raw===''||raw===true||raw===false) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+/* FOUR DIFFERENT WAYS TO HAVE NO PRICE, KEPT FOUR DIFFERENT THINGS.
+   quoted   - a usable provider price.
+   invalid  - the row arrived and its price is not a positive finite number. A contract breach,
+              not a gap; Number(null) is 0, so the raw value decides.
+   unquoted - the read succeeded and did not carry the symbol. Unnamed emptiness stays
+              retryable; nothing here may invent a terminal absence.
+   failed   - the read itself fell over (transport, timeout, HTTP error). A failed read is
+              never data, so it must not erase an answer we already hold. */
+async function providerQuotes(symbols){
+  const want = symbols.filter(s=>s && !quoteEntryFresh(QUOTE_CACHE.get(s)));
+  if(want.length){
+    let rows = [], failed = false;
+    try { rows = await sb('live_quotes?select=ticker,price,prev_close,updated_ts&ticker=in.('+want.map(encodeURIComponent).join(',')+')'); }
+    catch(e){ failed = true; rows = []; }
+    if(rows && rows._sbError){ failed = true; rows = []; }
+    const byT = {};
+    for(const r of (Array.isArray(rows)?rows:[])) byT[r.ticker] = r;
+    for(const sym of want){
+      const r = byT[sym];
+      if(r){
+        const px = usableNumber(r.price);
+        QUOTE_CACHE.set(sym, { price:px, prev:usableNumber(r.prev_close), at:r.updated_ts||null,
+                               kind:px!=null?'quoted':'invalid', cachedAt:Date.now() });
+      } else if(failed){
+        /* Keep a previously held quote through one bad read; only record the failure where
+           nothing better is known. Either way the entry is short-lived and re-asked. */
+        const prev = QUOTE_CACHE.get(sym);
+        if(!prev || prev.kind !== 'quoted')
+          QUOTE_CACHE.set(sym, { price:null, prev:null, at:null, kind:'failed', cachedAt:Date.now() });
+      } else {
+        QUOTE_CACHE.set(sym, { price:null, prev:null, at:null, kind:'unquoted', cachedAt:Date.now() });
+      }
+    }
+  }
+  return QUOTE_CACHE;
+}
+const quotePriceOf = (sym) => (QUOTE_CACHE.get(sym)||{}).price ?? null;
+/* The words each no-price state renders under - the reader can tell a dead transport from a
+   symbol the provider does not carry from a row that arrived broken. */
+function quoteFailureWord(sym){
+  const e = QUOTE_CACHE.get(sym);
+  if(!e) return 'the quote has not been asked for yet';
+  if(e.kind === 'failed') return 'the quote read failed (transport, timeout or HTTP error) — a failed read is never data; retrying';
+  if(e.kind === 'invalid') return 'the quote row arrived without a usable positive price — a contract breach, not a valuation input; retrying';
+  if(e.kind === 'unquoted') return 'the provider answer did not carry this symbol — an unnamed omission stays retryable';
+  return 'no usable provider price';
+}
 async function renderComps(sym){
   const cohort = COHORT_MAP[sym] || 'UNCOHORTED';
   const cohortMembers = UNIVERSE.filter(u=>u.cohort===cohort && u.ticker!==sym).map(u=>u.ticker);
@@ -237,15 +368,22 @@ async function renderComps(sym){
   const capByT={}; capScan.forEach(c=>capByT[c.ticker]=c.market_cap||0);
   const peersRanked = cohortMembers.slice().sort((a,b)=>(capByT[b]||0)-(capByT[a]||0)).slice(0,COMPS_PEER_CAP);
   const names = [sym].concat(peersRanked);
+  await providerQuotes(names);
   const B = await fetchCohortBundle(names);
   const pick = k => names.map(n=>B[n]?B[n][k]:null);
   const COMPS = { names, cap:pick('cap'), pe:pick('pe'), ev:pick('ev'), ps:pick('ps'), pb:pick('pb'),
     peg:pick('peg'), gm:pick('gm'), nm:pick('nm'), de:pick('de'), beta:pick('beta'), div:pick('div'), cagr:pick('cagr') };
   const PX = B[sym] ? B[sym].price : null;
-  document.getElementById('compsTitle').textContent = '1 · Comparable Companies — '+sym+' vs '+cohort+' cohort (Supabase ticker_cohorts)';
+  document.getElementById('compsTitle').textContent = '1 · Comparable Companies — '+sym+' vs '+cohort+' home cohort (tickers.cohort)';
   document.getElementById('ffieldTitle').textContent = 'Valuation football field — what each method says '+sym+' is worth, vs the $'+(PX!=null?PX.toFixed(2):'—')+' price';
   if(PX==null){
-    document.getElementById('ffield').innerHTML = gapBanner('No fundamentals row for '+sym, 'Supabase fundamentals table has no row for this ticker yet — comps/football-field/score can\'t compute without a price and market cap. '+freshTag(null));
+    /* Two different absences, two different sentences. B[sym] existing means the fundamentals
+       row is there and the QUOTE is what is missing; the old banner blamed the fundamentals
+       table either way, which sent the reader to the wrong owner. */
+    const hasFund = !!(B[sym] && B[sym].hasData);
+    document.getElementById('ffield').innerHTML = hasFund
+      ? gapBanner('No provider price for '+sym, quoteFailureWord(sym)+' — the football field, score and upside all compare against the market price, so they are disabled rather than computed against a fundamentals snapshot. The fundamentals sections below are unaffected.')
+      : gapBanner('No fundamentals row for '+sym, 'Supabase fundamentals table has no row for this ticker yet — comps/football-field/score can\'t compute without a price and market cap. '+freshTag(null));
     document.getElementById('ffieldFoot').textContent='';
     document.getElementById('scoreFormula').innerHTML=''; document.getElementById('scoreBox').innerHTML=''; document.getElementById('scoreTable').innerHTML='';
     document.getElementById('compsBody').innerHTML='';
@@ -368,9 +506,10 @@ async function renderComps(sym){
 }
 function renderCohortInfo(sym){
   const cohort = COHORT_MAP[sym];
-  document.getElementById('cohortTitle').textContent = '2 · Defining the Peer Set — '+sym+' → '+(cohort||'no cohort assigned')+' (Supabase ticker_cohorts)';
+  const allCohorts = Array.from(COHORT_ALL.get(sym)||[]);
+  document.getElementById('cohortTitle').textContent = '2 · Defining the Peer Set — '+sym+' → '+(cohort||'no home cohort assigned')+' (tickers.cohort)';
   if(!cohort){
-    document.getElementById('cohortBody').innerHTML = gapBanner(sym+' has no row in ticker_cohorts', 'This ticker exists in composite_staged but has never been assigned a cohort — §1 comps above fell back to an "UNCOHORTED" bucket (itself, no peers). Needs a cohort assignment upstream.');
+    document.getElementById('cohortBody').innerHTML = gapBanner(sym+' has no home cohort', 'This ticker exists in composite_staged but tickers.cohort is empty for it — §1 comps above fell back to an "UNCOHORTED" bucket (itself, no peers). Needs a home-cohort assignment upstream; its other memberships are not substituted for one.');
     return;
   }
   const members = UNIVERSE.filter(u=>u.cohort===cohort).map(u=>u.ticker);
@@ -379,14 +518,17 @@ function renderCohortInfo(sym){
   document.getElementById('cohortBody').innerHTML =
     '<div style="font-size:14px; margin-bottom:8px;">Cohort <b class="mono2">'+cohort+'</b> has <b>'+members.length+'</b> members total'+(members.length>30?' (first 30 shown)':'')+'. §1\'s comps table above uses the '+Math.min(members.length-1,7)+' largest of these by live market cap as the peer set — deterministic and re-derived every time you switch tickers, not a fixed list per ticker.</div>'+
     pills+
-    '<div class="foot" style="margin-top:10px;">Cohort assignment itself (which tickers belong to '+cohort+') is curated upstream in <span class="mono2">ticker_cohorts</span>, not computed by this page — this page reads that table and does the ranking/selection live.</div>';
+    (allCohorts.length>1
+      ? '<div class="foot" style="margin-top:10px;">'+sym+' belongs to <b>'+allCohorts.length+'</b> cohorts — <span class="mono2">'+allCohorts.join('</span>, <span class="mono2">')+'</span>. The peer set above uses its HOME cohort <span class="mono2">'+cohort+'</span>, read from <span class="mono2">tickers.cohort</span> rather than chosen from this list. The other memberships are shown here rather than discarded.</div>'
+      : '')+
+    '<div class="foot" style="margin-top:10px;">Both facts are curated upstream — the home cohort in <span class="mono2">tickers.cohort</span> and the membership set in <span class="mono2">ticker_cohorts</span>. This page reads them and does the ranking/selection live.'+(COHORT_TRUNCATED?' <b>The membership read was truncated on this load; the listed memberships may be incomplete.</b>':'')+'</div>';
 }
 </script>
 
 <!-- ============ 2. PEER-SET METHOD (Supabase ticker_cohorts) ============ -->
 <section>
 <h2 id="cohortTitle">2 · Defining the Peer Set — Supabase ticker_cohorts</h2>
-<div class="src">table: ticker_cohorts (curated, is_primary=true) — this replaces FMP's noisy "peers" endpoint entirely; no FMP call happens here</div>
+<div class="src">table: ticker_cohorts (curated membership view) — this replaces FMP's noisy "peers" endpoint entirely; no FMP call happens here</div>
 <div id="cohortBody"></div>
 </section>
 
@@ -732,6 +874,8 @@ async function loadRiskFree(){
   if(r[0]){ RF10Y = r[0].y10; window.RF_TS = r[0].updated_ts; }
 }
 async function buildBase(sym){
+  /* The quote spine is loaded before anything reads a price from it. */
+  await providerQuotes([sym]);
   const [fArr, bArr, fhArr, cfArr, cpArr] = await Promise.all([
     sb('fundamentals?select=*&ticker=eq.'+sym),
     sb('balance_history?select=*&ticker=eq.'+sym+'&order=fiscal_date.desc&limit=6'),
@@ -747,14 +891,29 @@ async function buildBase(sym){
   const cfQ = cfArr.filter(r=>r.period!=='FY').slice(0,4);
   const sum=(arr,k)=>arr.reduce((s,r)=>s+(r[k]||0),0);
   const revTTM = f.revenue_ttm;
+  /* A RATIO'S TWO SIDES MUST COME FROM THE SAME WINDOW (the rule the DCF template's FY
+     baseline enforces). These used to divide 4-quarter numerators — or an FY fallback —
+     by fundamentals.revenue_ttm, a DIFFERENT table's window: when one table lags a
+     quarter, the ratio mixes periods and no one can see it. The denominator is now the
+     same rows as the numerator: the same 4 quarters, or the same single FY. revenue_ttm
+     stays the PROJECTION base — currency there, consistency here. */
   const ebitdaTTM = qRows.length>=4 ? sum(qRows,'ebitda') : (fyRows[0]?fyRows[0].ebitda:null);
   const ebitTTM   = qRows.length>=4 ? sum(qRows,'operating_income') : (fyRows[0]?fyRows[0].operating_income:null);
-  const capexTTM  = cfQ.length>=4 ? Math.abs(sum(cfQ,'capex')) : (cfArr.filter(r=>r.period==='FY')[0]?Math.abs(cfArr.filter(r=>r.period==='FY')[0].capex):null);
+  const revWindow = qRows.length>=4 ? sum(qRows,'revenue') : (fyRows[0]?fyRows[0].revenue:null);
+  const cfFY = cfArr.filter(r=>r.period==='FY')[0];
+  const capexTTM  = cfQ.length>=4 ? Math.abs(sum(cfQ,'capex')) : (cfFY?Math.abs(cfFY.capex):null);
+  /* capex lives in a different table, so its window can silently lag the income window. */
+  const capexRev = cfQ.length>=4
+    ? (qRows.length>=4 ? revWindow : null)
+    : (cfFY && fyRows[0] && cfFY.fiscal_date===fyRows[0].fiscal_date ? fyRows[0].revenue : null);
   const flags=[];
-  const daPct = (ebitdaTTM!=null && ebitTTM!=null && revTTM) ? Math.max(0,(ebitdaTTM-ebitTTM))/revTTM : 0.05;
-  if(ebitdaTTM==null||ebitTTM==null) flags.push('D&A% could not be derived from EBITDA−EBIT (missing income-statement rows) — defaulted to 5% of revenue.');
-  const capexPct = (capexTTM!=null && revTTM) ? capexTTM/revTTM : 0.05;
+  if(cfQ.length>=4 && qRows.length>=4 && cfQ[0].fiscal_date!==qRows[0].fiscal_date)
+    flags.push('Capex% window is offset from the income window (cashflow_history newest quarter '+cfQ[0].fiscal_date+' vs fundamentals_history '+qRows[0].fiscal_date+') — the tables lag unevenly; treat capex% as approximate.');
+  const daPct = (ebitdaTTM!=null && ebitTTM!=null && revWindow) ? Math.max(0,(ebitdaTTM-ebitTTM))/revWindow : 0.05;
+  if(ebitdaTTM==null||ebitTTM==null||!revWindow) flags.push('D&A% could not be derived from EBITDA−EBIT over a matching window (missing income-statement rows) — defaulted to 5% of revenue.');
+  const capexPct = (capexTTM!=null && capexRev) ? capexTTM/capexRev : 0.05;
   if(capexTTM==null) flags.push('Capex% defaulted to 5% of revenue — no cashflow_history rows for this ticker.');
+  else if(!capexRev) flags.push('Capex% defaulted to 5% of revenue — no revenue window matches the cashflow window (mismatched fiscal dates), and a ratio across two windows is not computed.');
   const nwcPct = (b.current_assets!=null && b.current_liabilities!=null && revTTM) ? (b.current_assets-(b.cash_and_equiv||0)-b.current_liabilities)/revTTM : 0.10;
   if(b.current_assets==null) flags.push('NWC% defaulted to 10% of revenue — no balance_history row for this ticker.');
   let cagr=null;
@@ -768,9 +927,22 @@ async function buildBase(sym){
   if(ebitdaTTM==null) flags.push('EBITDA margin defaulted to 30% — no TTM EBITDA available.');
   if(ebitdaTTM!=null && ebitdaTTM/revTTM<0) flags.push('TTM EBITDA margin is negative — this is a loss-making name; treat the DCF as illustrative, not load-bearing.');
   const shares = qRows[0]&&qRows[0].shares_dil ? qRows[0].shares_dil/1e9 : (f.market_cap && f.price ? f.market_cap/f.price/1e9 : null);
-  if(!qRows[0]||!qRows[0].shares_dil) flags.push('Diluted share count came from market_cap÷price (fundamentals_history.shares_dil missing) — a proxy, not a reported figure.');
-  const netDebt = ((b.total_debt||0)-(b.cash_and_equiv||0))/1e9;
-  const cap = f.market_cap||0, debt=(b.total_debt||0);
+  if(shares==null) flags.push('SHARE COUNT UNAVAILABLE (no shares_dil and no market_cap÷price to proxy it) — per-share outputs divide by a 1B placeholder and are NOT meaningful for this ticker.');
+  else if(!qRows[0]||!qRows[0].shares_dil) flags.push('Diluted share count came from market_cap÷price (fundamentals_history.shares_dil missing) — a proxy, not a reported figure.');
+  /* NUMBER(NULL) IS 0, AND 0 IS NOT A BALANCE. (total_debt||0)−(cash||0) minted a net-debt
+     figure out of absent fields: no balance row valued the company at zero net debt with an
+     all-equity WACC, silently — a fair value overstated for every levered name. The raw
+     values decide; what is absent is defaulted only WITH a flag naming the absent field,
+     because netDebt has no slider to correct it from the page. */
+  const _fin=(x)=>{ if(x==null||x===''||x===true||x===false) return null; const n=Number(x); return Number.isFinite(n)?n:null; };
+  const totalDebt=_fin(b.total_debt), cashEq=_fin(b.cash_and_equiv);
+  if(!bArr[0]) flags.push('No balance_history row for this ticker — net debt treated as 0 and WACC as all-equity; fair value is OVERSTATED for levered names.');
+  else{
+    if(totalDebt==null) flags.push('balance_history.total_debt is null — net debt treats debt as 0 and WACC as all-equity; fair value is OVERSTATED if this name carries debt.');
+    if(cashEq==null) flags.push('balance_history.cash_and_equiv is null — net debt treats cash as 0; fair value is UNDERSTATED by the missing cash.');
+  }
+  const netDebt = ((totalDebt||0)-(cashEq||0))/1e9;
+  const cap = f.market_cap||0, debt=(totalDebt||0);
   const eqW = (cap+debt)>0 ? cap/(cap+debt) : 1;
   const debtW = 1-eqW;
   const cp = cpArr[0];
@@ -788,7 +960,10 @@ async function buildBase(sym){
   else if(!consensus) flags.push('No forward analyst_estimates path for this ticker — Analyst-consensus DCF mode disabled, Fixed-rate only.');
   return {
     name: sym, rev: revTTM/1e9, shares: shares||1, netDebt, daPct, capexPct, nwcPct,
-    price: f.price, beta: beta!=null?beta:1.0, betaIsGap: beta==null, betaTs, costOfDebt: RF10Y+1.5, rf: RF10Y, mrp: 4.45, debtW, eqW,
+    /* Same spine for the header and the DCF. Null here means the page says the price is
+       unavailable rather than valuing the company against a fundamentals snapshot. */
+    price: quotePriceOf(sym), priceUnavailable: quotePriceOf(sym) == null,
+    beta: beta!=null?beta:1.0, betaIsGap: beta==null, betaTs, costOfDebt: RF10Y+1.5, rf: RF10Y, mrp: 4.45, debtW, eqW,
     gDefault: Math.max(0,Math.min(80,cagr)), mDefault, tDefault: 21.0, termgDefault: Math.min(RF10Y,4.5),
     consensus, fundTs: f.updated_ts, balTs: b.updated_ts,
     flags
@@ -838,9 +1013,25 @@ async function setTicker(sym){
   document.getElementById('pm_consensus').style.pointerEvents = BASE.consensus ? 'auto' : 'none';
   document.getElementById('scenChips').innerHTML = chipsHTML_scenario();
   document.getElementById('betaChips').innerHTML = chipsHTML_beta();
-  document.getElementById('tickerCaveat').innerHTML = '⚠️ '+BASE.flags.join(' ')+' <span class="fresh">'+freshTag(BASE.fundTs)+'</span>';
+  /* CURRENT-PRICE MATH NEEDS A CURRENT PRICE.
+     Upside, the implied-expectations solve and every fair-value heat cell are comparisons
+     AGAINST the market price. With no provider price there is nothing to compare to, and a
+     flagged-but-computed number is a wrong answer wearing a caveat. The valuation sections are
+     disabled - by the gate at the top of render(), so the state survives every slider drag -
+     and the banner is PREPENDED to the flags line rather than written where the flags line was
+     about to overwrite it, which is what happened to the first version of this disable. */
+  let caveatHTML = '⚠️ '+BASE.flags.join(' ')+' <span class="fresh">'+freshTag(BASE.fundTs)+'</span>';
+  if(BASE.priceUnavailable){
+    caveatHTML = gapBanner('No provider price for '+sym,
+      quoteFailureWord(sym)+'. Every valuation below is a comparison against the market price, '+
+      'so upside, implied expectations and the sensitivity grids are disabled rather than '+
+      'computed against a stale or substituted number. Fundamentals and ratios are unaffected. '+
+      'The page re-asks the provider every '+(QUOTE_RETRY_MS/1000)+'s and repaints when a price '+
+      'arrives.') + caveatHTML;
+  }
+  document.getElementById('tickerCaveat').innerHTML = caveatHTML;
   document.getElementById('dcfTitle').textContent = '3 · DCF — '+sym+' · sliders + modes, formulas update live';
-  document.getElementById('tickerStat').textContent = sym+' · $'+BASE.price.toFixed(2)+' · β '+BASE.beta.toFixed(2)+(BASE.betaIsGap?' (gap, defaulted)':' (company_profile)')+' · '+freshTag(BASE.fundTs);
+  document.getElementById('tickerStat').textContent = sym+' · '+(BASE.priceUnavailable?'price unavailable':'$'+BASE.price.toFixed(2))+' · β '+BASE.beta.toFixed(2)+(BASE.betaIsGap?' (gap, defaulted)':' (company_profile)')+' · '+freshTag(BASE.fundTs);
   await renderComps(sym);
   await renderAnalyst(sym);
   await renderInsider(sym);
@@ -891,7 +1082,7 @@ function centerRange(key){
 }
 
 function render(){
-  const c=cur(), r=modelFull(c.g,c.m,c.t,c.rf,c.beta,c.mrp,c.tg);
+  const c=cur();
   document.getElementById('sv_g').textContent=rd('g').toFixed(1)+'%';
   document.getElementById('sv_m').textContent=rd('m').toFixed(1)+'%';
   document.getElementById('sv_t').textContent=rd('t').toFixed(1)+'%';
@@ -900,6 +1091,13 @@ function render(){
   document.getElementById('sv_mrpS').textContent=rd('mrpS').toFixed(2)+'%';
   document.getElementById('sv_termg').textContent=rd('termg').toFixed(1)+'%';
   document.getElementById('builtLbl').textContent=builtMRP.toFixed(2);
+  /* THE GATE LIVES WHERE THE PAINT LIVES.
+     The first version of this disable was a one-time cell wipe in setTicker - which the very
+     next render(), i.e. any slider drag, overwrote with values divided by a null price
+     (Infinity upside, $NaN fair value). Every paint path passes through here, so the disabled
+     state survives interaction, and no fair-value arithmetic runs at all without a price. */
+  if(BASE && BASE.priceUnavailable){ renderValuationUnavailable(); return; }
+  const r=modelFull(c.g,c.m,c.t,c.rf,c.beta,c.mrp,c.tg);
   const pxStr='$'+fmt(BASE.price,2);
   document.getElementById('oMktPrice').textContent=pxStr;
   ['rvPriceLbl1','rvPriceLbl2','rvPriceLbl3','rvPriceLbl4'].forEach(id=>{const e=document.getElementById(id); if(e)e.textContent=pxStr;});
@@ -1004,6 +1202,31 @@ function render(){
   renderSens(c);
   renderReverse(c);
 }
+function renderValuationUnavailable(){
+  const why = quoteFailureWord(CURTICK);
+  document.getElementById('oMktPrice').textContent='unavailable';
+  ['rvPriceLbl1','rvPriceLbl2','rvPriceLbl3','rvPriceLbl4'].forEach(id=>{const e=document.getElementById(id); if(e)e.textContent='price unavailable';});
+  const e1=document.getElementById('oFV'); e1.textContent='—'; e1.className='rv';
+  const e2=document.getElementById('oUp'); e2.textContent='price unavailable'; e2.className='rv';
+  document.getElementById('oEV').textContent='—';
+  document.getElementById('oTV').textContent='—';
+  document.getElementById('oTable').innerHTML='';
+  document.getElementById('barchart').innerHTML='<div class="foot">valuation disabled — '+why+'.</div>';
+  document.getElementById('npvSplit').innerHTML='';
+  for(const id of ['sens1','sens2','revGrid','revTornado','revAction','rvYchips','rvXchips','rvGDisabledNote']){
+    const el=document.getElementById(id); if(el) el.innerHTML='';
+  }
+  const ro=document.getElementById('revout');
+  if(ro) ro.innerHTML='<div class="foot">implied-expectations solve disabled — '+why+'.</div>';
+}
+/* RECOVERY IS AUTOMATIC AND CHEAP: while the price is unavailable, one bounded quote read per
+   retry window - not a full page reload - and a full repaint only when a price actually
+   arrives. When the price is fine this interval does nothing at all. */
+setInterval(async () => {
+  if(!(BASE && BASE.priceUnavailable)) return;
+  try { await providerQuotes([CURTICK]); } catch(e) { return; }
+  if(quotePriceOf(CURTICK) != null) setTicker(CURTICK);
+}, QUOTE_RETRY_MS);
 function fg(id,pairs){document.getElementById(id).innerHTML=pairs.map(p=>'<div class="sym '+(p[2]==='op'?'op':'')+'">'+p[0]+'</div><div class="num '+(p[2]||'')+'">'+p[1]+'</div>').join('');}
 // --- Reverse DCF: solve for one input that makes fair value = market price ---
 let RV=null; // null = not yet bootstrapped; first render() picks the highest-impact variable
@@ -1171,7 +1394,17 @@ function applyBuilt(){builtMRP=calcERP();document.getElementById('mrpS').value=b
 window.addEventListener('DOMContentLoaded',async function(){
   calcERP();
   wireTickerSearch();
-  await Promise.all([loadUniverse(), loadRiskFree()]);
+  /* A dead universe read must not stop the page from booting: with no catch here, a cold
+     provider outage (ownership unverifiable, so the shim fails composite reads closed) left
+     every section at its initial HTML with no banner anywhere - a page-sized silence. The
+     failure is painted where the universe status lives, and the ticker sections still load
+     and show their own gaps honestly. */
+  try { await Promise.all([loadUniverse(), loadRiskFree()]); }
+  catch (e) {
+    document.getElementById('universeStatus').innerHTML =
+      '⚠️ universe unavailable — ' + String(e && e.message || 'read failed').replace(/[<>&"]/g, '') +
+      ' · sections that need the universe say so below; reload to retry';
+  }
   await setTicker('NVDA');
 });
 </script>
@@ -1299,7 +1532,7 @@ async function renderInsider(sym){
     document.getElementById('ins_note').innerHTML='';
     document.getElementById('ins_cards_grid').style.display='none';
     document.getElementById('ins_gap').style.display='block';
-    document.getElementById('ins_gap').innerHTML = gapBanner('insider_trades query failed for '+sym+' (HTTP '+TX._sbStatus+')', 'This is a query error, not a confirmed empty result — the table has 33,256+ rows overall. Needs an engineering look.');
+    document.getElementById('ins_gap').innerHTML = gapBanner('insider_trades query failed for '+sym+' ('+sbFailWord(TX)+')', 'This is a failed read, not a confirmed empty result — the table has 33,256+ rows overall. Needs an engineering look.');
     return;
   }
   if(!TX.length){
@@ -1376,7 +1609,7 @@ async function renderCOT(){
   const rows = await sb('cot_history?select=*&symbol=eq.ES&order=date.desc&limit=8');
   if(rows._sbError){
     document.getElementById('cotBody').innerHTML = gapBanner(
-      'cot_history query failed (HTTP '+rows._sbStatus+')',
+      'cot_history query failed ('+sbFailWord(rows)+')',
       'This is a query/schema error, not a confirmed empty table — cot_history has real rows in it. Needs an engineering fix, not a wait for ingest.'
     );
     return;
@@ -1410,7 +1643,7 @@ async function renderEarnings(sym){
     sb('earnings_call_transcripts?select=*&ticker=eq.'+sym+'&order=call_date.desc&limit=1')
   ]);
   if(ev._sbError || tr._sbError){
-    document.getElementById('earningsBody').innerHTML = gapBanner('earnings query failed for '+sym, 'HTTP '+((ev._sbError?ev._sbStatus:tr._sbStatus))+' — a query/schema error, not a confirmed empty result.');
+    document.getElementById('earningsBody').innerHTML = gapBanner('earnings query failed for '+sym, sbFailWord(ev._sbError?ev:tr)+' — a failed read, not a confirmed empty result.');
     return;
   }
   if(!ev.length && !tr.length){
@@ -1472,7 +1705,7 @@ async function renderNews(sym){
     sb('news_sentiment?select=*&ticker=eq.'+sym)
   ]);
   if(articles._sbError || sent._sbError){
-    document.getElementById('newsBody').innerHTML = gapBanner('news query failed for '+sym, 'HTTP '+((articles._sbError?articles._sbStatus:sent._sbStatus))+' — a query/schema error, not a confirmed empty result.');
+    document.getElementById('newsBody').innerHTML = gapBanner('news query failed for '+sym, sbFailWord(articles._sbError?articles:sent)+' — a failed read, not a confirmed empty result.');
     return;
   }
   const s = sent[0];
@@ -1541,8 +1774,8 @@ async function renderNews(sym){
 <p style="font-size:15px;"><b style="color:var(--gold);">🔌 DB-SOURCED — read live from Supabase on every ticker switch:</b></p>
 <table class="wraptable" style="margin:8px 0 18px;">
 <tr><th style="width:18%;">Where</th><th>What's DB-sourced</th></tr>
-<tr><td class="pur">Universe / ticker bar</td><td><span class="mono2">loadUniverse()</span> reads <span class="mono2">composite_staged</span> (~211 tickers) + <span class="mono2">ticker_cohorts</span> (is_primary=true rows) once on load, powering the searchable ticker box. Not the old hardcoded 10, not the near-empty <span class="mono2">tickers</span> table.</td></tr>
-<tr><td class="pur">§1 Comps</td><td><span class="mono2">fetchCohortBundle()</span> pulls each ticker's real cohort (<span class="mono2">ticker_cohorts</span>) and up to 7 <span class="mono2">is_primary</span> peers, ranked by live market cap. Multiples (P/E, P/S, P/B, EV/EBITDA, D/E, margins) are computed fresh client-side from <span class="mono2">fundamentals</span> + TTM sums of <span class="mono2">fundamentals_history</span>/<span class="mono2">cashflow_history</span> + <span class="mono2">balance_history</span> — not trusted from <span class="mono2">ratios_history</span>'s pre-computed columns, since a direct check found that table's P/S diverging significantly from a freshly-computed figure (quarterly/TTM denominator mismatch suspected). Beta column reads live from <span class="mono2">company_profile.beta</span> — see gap note below for the ~16 tickers still missing it.</td></tr>
+<tr><td class="pur">Universe / ticker bar</td><td><span class="mono2">loadUniverse()</span> reads <span class="mono2">composite_staged</span> (~211 tickers) + <span class="mono2">ticker_cohorts</span> (membership-view rows) once on load, powering the searchable ticker box. Not the old hardcoded 10, not the near-empty <span class="mono2">tickers</span> table.</td></tr>
+<tr><td class="pur">§1 Comps</td><td><span class="mono2">fetchCohortBundle()</span> pulls each ticker's real cohort (<span class="mono2">ticker_cohorts</span>) and up to 7 peers from that membership view, ranked by live market cap. Multiples (P/E, P/S, P/B, EV/EBITDA, D/E, margins) are computed fresh client-side from <span class="mono2">fundamentals</span> + TTM sums of <span class="mono2">fundamentals_history</span>/<span class="mono2">cashflow_history</span> + <span class="mono2">balance_history</span> — not trusted from <span class="mono2">ratios_history</span>'s pre-computed columns, since a direct check found that table's P/S diverging significantly from a freshly-computed figure (quarterly/TTM denominator mismatch suspected). Beta column reads live from <span class="mono2">company_profile.beta</span> — see gap note below for the ~16 tickers still missing it.</td></tr>
 <tr><td class="pur">Ticker switcher / DCF base</td><td><span class="mono2">buildBase(sym)</span> assembles <span class="mono2">BASE</span> from <span class="mono2">fundamentals</span>, <span class="mono2">balance_history</span>, <span class="mono2">cashflow_history</span>, <span class="mono2">company_profile</span> (beta), and <span class="mono2">live_quotes</span> for price. <span class="mono2">setTicker()</span> awaits this, then re-renders §1/§2/§2.7/§3/§4/§5 in sequence — same DCF math engine as before (CAPM/WACC/Gordon Growth), only the inputs are now live per-ticker DB reads instead of a 10-name hardcoded object.</td></tr>
 <tr><td class="pur">§2.7 Analyst coverage</td><td>Live pulls of <span class="mono2">analyst_ratings</span>, <span class="mono2">price_target_consensus</span>, and <span class="mono2">analyst_estimates</span> per ticker. NVDA's own annual <span class="mono2">analyst_estimates</span> rows (FY27–FY31) were checked against the previously hardcoded consensus path and match exactly, confirming this table is the right source. A consensus DCF path needs a full 5-year run of forward estimates to avoid a broken projection — tickers with 1-4 available years fall back to Fixed-rate, flagged. Publisher/outlet attribution (which analyst desk) has no DB equivalent — flagged, not fabricated.</td></tr>
 <tr><td class="pur">§3 DCF risk-free rate</td><td><span class="mono2">loadRiskFree()</span> reads <span class="mono2">treasury_rates.y10</span> — one macro rate shared across all tickers, replacing the old per-ticker hardcoded <span class="mono2">rf</span>.</td></tr>

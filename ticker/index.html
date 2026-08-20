@@ -50,6 +50,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-tape__dot{ opacity:.35; padding:0 8px; }
 .sc-tape__item .up{ color:var(--bull); }
 .sc-tape__item .dn{ color:var(--bear); }
+.sc-tape__item .neu{ color:var(--dim); }
 @keyframes sc-tape-move{ from{ transform:translateX(0); } to{ transform:translateX(-50%); } }
 
 /* TAPES: marquee pauses on hover; touch devices can finger-swipe (Alan delta) */
@@ -100,7 +101,11 @@ async function pg(path, _tries) {
 const num = (x) => (x == null ? null : Number(x));
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 const el = (id) => document.getElementById(id);
-const fmtC    = (c) => (c >= 0 ? "+" + c.toFixed(2) + "%" : "(" + Math.abs(c).toFixed(2) + "%)");
+/* An unknown change has no sign and no size. `c >= 0` is TRUE for null in JavaScript, so an
+   unguarded formatter printed "+0.00%" — a flat day nobody reported — and printed it in the
+   up colour. Unknown says so instead. */
+const fmtC    = (c) => (c == null || !isFinite(c) ? "—"
+  : c >= 0 ? "+" + c.toFixed(2) + "%" : "(" + Math.abs(c).toFixed(2) + "%)");
 const fmtTapePx = (p) => (p >= 1000 ? Math.round(p).toLocaleString() : p.toFixed(p < 10 ? 2 : 0));
 
 /* ---- widget params ---- */
@@ -117,10 +122,18 @@ async function fetchTapeItems() {
   ]);
   const inComp = new Set(comp.map((c) => c.ticker));   // FIX 1 — tape universe = composite_staged tf=D only
   const all = quotes.filter((q) => q.price != null && inComp.has(q.ticker))
+    /* `|| 0` turned an unknown day change into a REPORTED FLAT DAY: the tape printed
+       "+0.00%" in the up colour for a symbol nobody had sent a change for, and the same
+       fabricated zero then entered the movers ranking as "the least-moving stock". Unknown
+       stays null; the tape says "—" and ranks it with the other unknowns. */
     .map((q) => ({ t: q.ticker, price: Number(q.price),
-                   pct: (num(q.chg_pct) != null ? num(q.chg_pct) : num(q.change)) || 0 }));
+                   pct: num(q.chg_pct) != null ? num(q.chg_pct) : num(q.change) }));
   const macro = all.filter((q) => MACRO_SET.includes(q.t));
-  const movers = all.slice().sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+  /* Biggest movers first, then the symbols whose change is unknown — kept and greyed rather
+     than dropped, so the tape never implies the universe is smaller than it is. */
+  const known = all.filter((q) => q.pct != null && isFinite(q.pct));
+  const unknown = all.filter((q) => !(q.pct != null && isFinite(q.pct)));
+  const movers = known.sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).concat(unknown);
   return { macro, all: movers };
 }
 
@@ -130,7 +143,8 @@ let lastTapes = "";
 function tapeHTML(label, items) {
   const seg = items.map((it) =>
     '<span class="sc-tape__item">' + esc(it.t) + " <b>" + fmtTapePx(it.price) + "</b> " +
-    '<span class="' + (it.pct >= 0 ? "up" : "dn") + '">' + fmtC(it.pct) + "</span></span>" +
+    '<span class="' + (it.pct == null || !isFinite(it.pct) ? "neu" : it.pct >= 0 ? "up" : "dn") + '">' +
+      fmtC(it.pct) + "</span></span>" +
     '<span class="sc-tape__dot">·</span>').join("");
   return '<div class="sc-tape"><b class="sc-tape__lbl">' + label + " →</b>" +
     '<div class="sc-tape__win"><span class="sc-tape__track">' + seg + seg + "</span></div></div>";

@@ -157,19 +157,33 @@ let DS={daily:{},intra:{},intra1:{},weekly:{}}; let ACTIVE='daily';
 let selected = JSON.parse(localStorage.getItem('sr_sel')||'null') || SECTORS.map(s=>s.t);
 let lineSeries={}, chart=null, rebaseIdx=-1, rebasing=false;
 
-/* ============ FETCH (own /api/yahoo relay first, then public fallbacks) ============ */
+/* ============ FETCH — REVIEWED RELAYS ONLY =====================================================
+   F1. This chain used to end in three unreviewed routes: a direct call to Yahoo, and two public
+   CORS proxies (corsproxy.io, api.allorigins.win). Both proxies are third parties that see every
+   request this page makes and hand back a body this page then treats as market data - an
+   unreviewed party in the middle of the price path, reached automatically and silently whenever
+   the reviewed relays were unavailable. A number that arrives that way is not sourced; it is
+   merely plausible.
+
+   Only the reviewed relays remain. When none of them answers, this raises - loudly - instead of
+   reaching for a proxy. The page is served from this repository, which has no /api/yahoo of its
+   own, so on this host the honest outcome is usually a stated failure rather than a chart drawn
+   from an unaccountable source. That is the point.
+   ============================================================================================ */
+const REVIEWED_RELAYS = [
+  (path, qs) => `/api/yahoo?path=${encodeURIComponent(path)}&${qs}`,                     // same-origin relay
+  (path, qs) => `https://scintillahub.ai/api/yahoo?path=${encodeURIComponent(path)}&${qs}`, // hub relay
+];
 async function fetchJSON(path,qs){
-  const direct=`https://query1.finance.yahoo.com/${path}?${qs}`;
-  const tries=[
-    `/api/yahoo?path=${encodeURIComponent(path)}&${qs}`,      // same-origin relay (hosted on scintillahub.ai)
-    `https://scintillahub.ai/api/yahoo?path=${encodeURIComponent(path)}&${qs}`, // hub relay (works from local copies too)
-    direct,                                                    // works in some browsers/extensions
-    'https://corsproxy.io/?url='+encodeURIComponent(direct),   // public fallback 1
-    'https://api.allorigins.win/raw?url='+encodeURIComponent(direct)]; // public fallback 2
-  for(const u of tries){
+  const attempted=[];
+  for(const build of REVIEWED_RELAYS){
+    const u=build(path,qs);
+    attempted.push(u.split('?')[0]);
     try{ const r=await fetch(u,{cache:'no-store'}); if(r.ok){const j=await r.json(); if(j&&!j.error) return j;} }catch(e){}
   }
-  throw new Error('all fetch routes failed');
+  const err=new Error('no reviewed relay answered ('+attempted.join(', ')+')');
+  err.scNoReviewedRelay=true;
+  throw err;
 }
 function parseSpark(j){
   const out={};

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SCINTILLA — Sector Rotation</title>
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<script src="/_vendor/lightweight-charts-4.1.3.standalone.production.js" integrity="sha384-JZigAjwiaZtkUbA44CWkPaT3iBb/mU5pO6QOANp+OqHd4q+1+7MG1kzp2OOP9ZfP"></script>
 <style>
   :root{
     --bg:#0A0A0F; --panel:#0D0D14; --panel2:#0F0F1A; --border:#1A1A2A; --line2:#252538;
@@ -269,6 +269,10 @@
   </div></details>
 </div>
 
+<!-- PROVIDER AUTHORITY SHIM. This page reads ohlcv_history with a bare fetch(), which is
+     exactly the case the shim's fetch hook exists for. Without it the price spine below is a
+     legacy equity table presented as the primary source. -->
+<script src="/_provider/provider.js"></script>
 <script>
 /* ============ CONFIG ============ */
 const SECTORS = [   // colors = SCINTILLA design-system tokens only; sh = short abbreviation (memory aid on dense labels)
@@ -298,19 +302,33 @@ let DS={daily:{},intra:{},intra1:{},weekly:{}}; let ACTIVE='daily';
 let selected = JSON.parse(localStorage.getItem('sr_sel')||'null') || SECTORS.map(s=>s.t);
 let lineSeries={}, chart=null, rebaseIdx=-1, rebasing=false;
 
-/* ============ FETCH (own /api/yahoo relay first, then public fallbacks) ============ */
+/* ============ FETCH — REVIEWED RELAYS ONLY =====================================================
+   F1. This chain used to end in three unreviewed routes: a direct call to Yahoo, and two public
+   CORS proxies (corsproxy.io, api.allorigins.win). Both proxies are third parties that see every
+   request this page makes and hand back a body this page then treats as market data - an
+   unreviewed party in the middle of the price path, reached automatically and silently whenever
+   the reviewed relays were unavailable. A number that arrives that way is not sourced; it is
+   merely plausible.
+
+   Only the reviewed relays remain. When none of them answers, this raises - loudly - instead of
+   reaching for a proxy. The page is served from this repository, which has no /api/yahoo of its
+   own, so on this host the honest outcome is usually a stated failure rather than a chart drawn
+   from an unaccountable source. That is the point.
+   ============================================================================================ */
+const REVIEWED_RELAYS = [
+  (path, qs) => `/api/yahoo?path=${encodeURIComponent(path)}&${qs}`,                     // same-origin relay
+  (path, qs) => `https://scintillahub.ai/api/yahoo?path=${encodeURIComponent(path)}&${qs}`, // hub relay
+];
 async function fetchJSON(path,qs){
-  const direct=`https://query1.finance.yahoo.com/${path}?${qs}`;
-  const tries=[
-    `/api/yahoo?path=${encodeURIComponent(path)}&${qs}`,      // same-origin relay (hosted on scintillahub.ai)
-    `https://scintillahub.ai/api/yahoo?path=${encodeURIComponent(path)}&${qs}`, // hub relay (works from local copies too)
-    direct,                                                    // works in some browsers/extensions
-    'https://corsproxy.io/?url='+encodeURIComponent(direct),   // public fallback 1
-    'https://api.allorigins.win/raw?url='+encodeURIComponent(direct)]; // public fallback 2
-  for(const u of tries){
+  const attempted=[];
+  for(const build of REVIEWED_RELAYS){
+    const u=build(path,qs);
+    attempted.push(u.split('?')[0]);
     try{ const r=await fetch(u,{cache:'no-store'}); if(r.ok){const j=await r.json(); if(j&&!j.error) return j;} }catch(e){}
   }
-  throw new Error('all fetch routes failed');
+  const err=new Error('no reviewed relay answered ('+attempted.join(', ')+')');
+  err.scNoReviewedRelay=true;
+  throw err;
 }
 function parseSpark(j){
   const out={};
@@ -330,16 +348,50 @@ function parseSpark(j){
   }
   return out;
 }
-/* ============ PRICE BARS — Supabase ohlcv_history (Move 1 item 4: PRIMARY source) ============ */
-// Replaces the Yahoo spark relay as the PRIMARY price spine feeding Chain 1 Relative-Performance %
+/* ============ PRICE BARS — read through the provider authority contract ======================
+   F1. This block called ohlcv_history the PRIMARY price spine. That claim retired with the
+   provider cutover: for a provider-owned equity the bars are the provider's, served by
+   /candles?authority=provider, completed periods only. _provider/provider.js answers this
+   page's ohlcv_history reads from that contract and passes a genuine non-equity through to its
+   existing owner, so the URL below is unchanged while what answers it is not.
+
+   The Yahoo relay is no longer a fallback for the price spine at all. Falling back from a
+   provider-authority read to a relay is precisely the substitution that makes two surfaces
+   disagree about the same symbol; when the contract cannot answer, this says so.
+   =========================================================================================== */
+// Feeds Chain 1 Relative-Performance %
 // lines, Chain 2a RRG (weekly), heatmap % and Leaders. Same DS shape as parseSpark() (per-symbol
 // {times,closes}); opens/highs/lows/vols added ADDITIVELY, downstream math unchanged. ohlcv_history
 // .timestamp is bigint epoch SECONDS — same unit as Yahoo spark, so alignment/chart code needs no
 // change. tf map: daily->'D', weekly->'W', 5m->'5', 1m->'1'. Per-ticker order=timestamp.desc&limit=N
 // (then reversed to ascending) mirrors the derived_series per-ticker pattern, stays under PostgREST's
 // 1000-row cap, and reproduces the old Yahoo range bar-counts (6mo / 2y / 5d / 1d).
-const OHLCV_VIEWS=[{view:'daily',tf:'D',lim:130},{view:'weekly',tf:'W',lim:110},{view:'intra',tf:'5',lim:400},{view:'intra1',tf:'1',lim:390}];
-let PRICE_SOURCE='pending';   // 'ohlcv_history' | 'yahoo-fallback' | 'pending'
+/* The provider contract accepts 5m and 1m; the legacy '5' and '1' tokens are not part of it, and
+   asking with them produced a silently empty intraday spine under a page that said it was live.
+   The shim also maps the legacy pair now, so both spellings resolve, but the request states the
+   token the contract actually accepts. */
+const OHLCV_VIEWS=[{view:'daily',tf:'D',lim:130},{view:'weekly',tf:'W',lim:110},{view:'intra',tf:'5m',lim:400},{view:'intra1',tf:'1m',lim:390}];
+let PRICE_SOURCE='pending';   // 'provider' | 'raw-tables' | 'unavailable' | 'pending'
+/* Which of the four views actually loaded, per ticker count. LIVE is a claim about the whole
+   D/W/5m/1m spine, so it may only be made when every view answered for every ticker; a spine
+   with a silent hole in it used to say LIVE off the daily benchmark alone. */
+let PRICE_COVERAGE=null;
+function priceCoverageParts(){
+  if(!PRICE_COVERAGE) return '';
+  return OHLCV_VIEWS.map(v=>v.tf+' '+(PRICE_COVERAGE[v.view]||0)+'/'+PRICE_COVERAGE.total).join(' · ');
+}
+function priceCoverageFull(){
+  return !!PRICE_COVERAGE && OHLCV_VIEWS.every(v=>(PRICE_COVERAGE[v.view]||0)===PRICE_COVERAGE.total);
+}
+/* THE AUTHORITY CLAIM REQUIRES THE AUTHORITY. This page reads ohlcv_history through
+   /_provider/provider.js, which answers provider-owned equities from the provider contract.
+   On the canonical cross-project origin (sectorrotation.scintillahub.ai) that script is
+   currently 404 — F1, ACTIVE/BLOCKED — and without it the same URLs are RAW legacy-table
+   reads. A page that cannot tell the difference would print "authority=provider" over raw
+   tables, which is the exact substitution the shim exists to end. */
+function providerShimActive(){
+  try { return typeof window!=='undefined' && !!window.SC_PROVIDER_SHIM; } catch(e){ return false; }
+}
 /* ---- C7 (2026-08-05): DATA SPINE badges — every data element shows table · freshness · LIVE/STALE/FALLBACK ---- */
 const SPINE={};
 function spineSet(k,ts,mode,note){ SPINE[k]={ts,mode,note}; renderSpine(); }
@@ -350,7 +402,7 @@ function spineAge(ts,staleSec){
 }
 function renderSpine(){
   const el=document.getElementById('dataSpine'); if(!el) return;
-  const col={LIVE:'#00ffa3',STALE:'#ffb454',FALLBACK:'#ffd166'};
+  const col={LIVE:'#00ffa3',STALE:'#ffb454',FALLBACK:'#ffd166',PARTIAL:'#ffb454'};
   el.innerHTML=Object.entries(SPINE).map(([k,v])=>
     `<span style="border:1px solid ${col[v.mode]||'#555'};color:${col[v.mode]||'#999'};border-radius:5px;padding:1px 7px;font-size:10px;font-family:ui-monospace,monospace" title="${(v.note||'').replace(/"/g,'&quot;')}">${k}${v.ts?' · '+freshText(v.ts):''} · ${v.mode}</span>`).join('');
 }
@@ -380,6 +432,8 @@ async function refreshRankingsLive(){
 /* ---- C7: universe check — the 11 sectors + SPY must exist in ticker_cohorts (THE universe table) ---- */
 async function refreshUniverseCheck(){
   try{
+    /* "Which tickers are in MACRO" is a membership question; ticker_cohorts is the
+       membership set. The 1000 cap is well clear of one cohort's size. */
     const url=`${SB_URL}/rest/v1/ticker_cohorts?select=ticker,cohort&cohort=eq.MACRO&limit=1000`;
     const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}, cache:'no-store'});
     if(!res.ok) throw new Error('ticker_cohorts '+res.status);
@@ -409,14 +463,23 @@ async function loadDataDB(){
   })));
   if(!next.daily[BENCH]||!next.daily[BENCH].closes.length) throw new Error('no benchmark daily bars in ohlcv_history');
   DS.daily=next.daily; DS.weekly=next.weekly; DS.intra=next.intra; DS.intra1=next.intra1;
-  PRICE_SOURCE='ohlcv_history';
+  const shim=providerShimActive();
+  PRICE_SOURCE=shim?'provider':'raw-tables';
+  PRICE_COVERAGE={ total:tickers.length };
+  for(const v of OHLCV_VIEWS) PRICE_COVERAGE[v.view]=Object.keys(next[v.view]).length;
+  const full=priceCoverageFull();
   const bt=next.daily[BENCH].times, lastBar=bt.length?bt[bt.length-1]:null;
-  spineSet('ohlcv_history',lastBar,spineAge(lastBar,3*86400),'price spine (D/W/5/1) · latest daily bar shown · PRIMARY');
+  spineSet('provider /candles',lastBar,
+    !shim ? 'FALLBACK' : full ? spineAge(lastBar,3*86400) : 'PARTIAL',
+    (shim ? '' : 'AUTHORITY SHIM NOT LOADED — these are raw ohlcv_history table reads, NOT provider authority (this origin does not serve /_provider/provider.js) · ')
+    + 'price spine · ' + priceCoverageParts()
+    + (full ? '' : ' — the short views are missing, not substituted')
+    + ' · latest completed daily bar shown');
 }
-// PRIMARY = Supabase ohlcv_history; Yahoo relay kept ONLY as a flagged fallback if the DB fetch throws.
+// The provider contract answers, or the page says it could not. No relay stands in for it.
 async function loadData(){
   try{ await loadDataDB(); }
-  catch(e){ console.warn('[price] ohlcv_history fetch failed — falling back to Yahoo relay:',e); await loadDataYahoo(); PRICE_SOURCE='yahoo-fallback'; spineSet('ohlcv_history',null,'FALLBACK','DB read threw — price spine on flagged Yahoo relay: '+e.message); }
+  catch(e){ console.warn('[price] provider price spine unavailable:',e); PRICE_SOURCE='unavailable'; spineSet('provider /candles',null,'FALLBACK','price spine unavailable — '+e.message+' · no substitute source is used'); }
 }
 
 async function loadDataYahoo(){
@@ -669,10 +732,18 @@ function technicalRead(t){
   const lq=QUOTES_LIVE[t];
   const s=DS.daily[t];
   const useDB = dl && dl.rsi_raw!=null && dl.fan_sma50!=null;
-  let last,le20,le50,r,wpr,macd,macdSigned,cci,roc,stoch,source,updatedTs;
+  let last,le20,le50,r,wpr,macd,macdSigned,cci,roc,stoch,source,updatedTs,priceSource;
   if(useDB){
+    /* THE PRICE INSIDE A "DB-SOURCED" READ MUST SAY WHERE IT CAME FROM.
+       With live_quotes missing, the last Yahoo daily close stood in here silently while the
+       banner above the read said LIVE, DB-sourced with no in-browser math - so every
+       price-vs-moving-average condition could be judged on a number from a different source
+       and vintage than the label claimed. The substitution is allowed to keep the read
+       alive, but it is named everywhere the price shows. */
     const yahooLast = (s&&s.closes&&s.closes.length)? s.closes[s.closes.length-1] : null;
-    last = (lq&&lq.price!=null)? lq.price : yahooLast;
+    const liveQuotePrice = (lq&&lq.price!=null)? lq.price : null;
+    last = liveQuotePrice!=null ? liveQuotePrice : yahooLast;
+    priceSource = liveQuotePrice!=null ? 'live_quotes' : 'yahoo-close';
     if(last==null) return null;
     le20=dl.fan_ema21; le50=dl.fan_sma50;
     r=dl.rsi_raw; wpr=dl.wpr_raw; macd=dl.macd_raw; macdSigned=dl.macd_signed; cci=dl.cci_raw; roc=dl.roc_raw; stoch=dl.stoch_raw;
@@ -683,7 +754,7 @@ function technicalRead(t){
     const e20s=emaSeries(c,20), e50s=emaSeries(c,50);
     last=c[c.length-1]; le20=e20s[e20s.length-1]; le50=e50s[e50s.length-1];
     r=rsi14(c,14); wpr=null; macd=null; macdSigned=null; cci=null; roc=null; stoch=null;
-    source='yahoo'; updatedTs=null;
+    source='yahoo'; updatedTs=null; priceSource='yahoo-close';
   }
   // transparent, in-house composite — NOT TradingView's or any third party's proprietary technical rating.
   // Each condition below is a visible, individually-checkable rule; score is just the count of passes minus fails.
@@ -715,7 +786,7 @@ function technicalRead(t){
   const rsiTilt=(r!=null?(r-50):0)*0.8;
   const trendTilt=((last/le50-1)*100)*3;
   const sentiment=Math.max(0,Math.min(100, 50 + rsiTilt + trendTilt));
-  return {last,e20:le20,e50:le50,rsi:r,wpr,macd,macdSigned,cci,roc,stoch,score,read,sentiment,rsiTilt,trendTilt,conditions,source,updatedTs};
+  return {last,e20:le20,e50:le50,rsi:r,wpr,macd,macdSigned,cci,roc,stoch,score,read,sentiment,rsiTilt,trendTilt,conditions,source,updatedTs,priceSource};
 }
 
 // Approximate, SINGLE-TIMEFRAME (daily) reconstruction of Scintilla's real "Geiger" composite, using the
@@ -927,6 +998,15 @@ document.getElementById('lmodeGlow').onclick=()=>{ LINES_MODE='glow'; localStora
 /* ============ LINES (lightweight-charts, TV-style rebase) ============ */
 function initChart(){
   const el=document.getElementById('linesChart');
+  /* THE CHART LIBRARY IS VENDORED SAME-ORIGIN (/_vendor, 4.1.3 — the exact npm-registry
+     bytes, sha512-verified; the old unhashed unpkg tag is gone). When the script still does
+     not load, the LINES panel is unavailable and SAYS so; the unguarded createChart used to
+     throw a ReferenceError mid-render and take the timeframe-following panels down with it. */
+  if(typeof LightweightCharts==='undefined'){
+    if(el && !el.dataset.libDead){ el.dataset.libDead='1';
+      el.innerHTML='<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#868AAA;font-size:11px;letter-spacing:.08em;text-align:center;padding:12px">lightweight-charts (vendored same-origin) did not load — the LINES panel is unavailable, not empty; every other panel is unaffected · reload to retry</div>'; }
+    return;
+  }
   chart=LightweightCharts.createChart(el,{
     layout:{background:{color:'transparent'},textColor:'#868AAA',fontSize:10,fontFamily:'"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace'},
     grid:{vertLines:{color:'#14141F'},horzLines:{color:'#14141F'}},
@@ -1026,6 +1106,8 @@ function renderLinesAum(){
 }
 function renderLines(){
   if(!chart) initChart();
+  /* No library, no line series — but the timeframe-following panels still follow. */
+  if(!chart){ setRange(currentRange); return; }
   for(const s of SECTORS){
     if(!lineSeries[s.t]) lineSeries[s.t]=chart.addLineSeries({color:s.c,lineWidth:2,priceLineVisible:false,lastValueVisible:true});
   }
@@ -1037,12 +1119,14 @@ function setRange(rk){
   currentRange=rk;
   const want = rk==='1D' ? (DS.intra1[BENCH]?'intra1':'intra') : rk==='5D' ? 'intra' : 'daily';
   if(DS[want][BENCH]) ACTIVE=want;
-  chart.applyOptions({timeScale:{timeVisible:ACTIVE!=='daily',secondsVisible:false}});
+  /* The chart calls are guarded so a dead LINES panel never takes these panels with it:
+     leaders and heatmap follow the selected timeframe whether or not the library loaded. */
+  if(chart) chart.applyOptions({timeScale:{timeVisible:ACTIVE!=='daily',secondsVisible:false}});
   const n=DS[ACTIVE][BENCH].times.length;
   const bars = (rk==='1D'||rk==='5D')? n : Math.min(parseInt(rk),n);
   const from=Math.max(0,n-Math.min(bars,n));
   rebaseIdx=from; rebaseLines();
-  chart.timeScale().setVisibleLogicalRange({from:from-0.5,to:n-0.5});
+  if(chart) chart.timeScale().setVisibleLogicalRange({from:from-0.5,to:n-0.5});
   renderCards(); renderTreemap();   // leaders + heatmap follow the selected timeframe
 }
 
@@ -1327,10 +1411,10 @@ function renderDetailActionable(){
   else if(nVotes>0 && votes<0){ verdict='ALIGNED BEARISH'; color='var(--red)'; }
   else { verdict='MIXED SIGNALS'; color='var(--dim)'; }
   const parts=[];
-  parts.push(`Technicals: <b style="color:${t.read.includes('BUY')?'var(--green)':t.read.includes('SELL')?'var(--red)':'var(--yellow)'}">${t.read}</b> (score ${t.score>=0?'+':''}${t.score}${t.source==='db'?', DB-sourced':', Yahoo fallback'})`);
+  parts.push(`Technicals: <b style="color:${t.read.includes('BUY')?'var(--green)':t.read.includes('SELL')?'var(--red)':'var(--yellow)'}">${t.read}</b> (score ${t.score>=0?'+':''}${t.score}${t.source==='db'?(t.priceSource==='live_quotes'?', DB-sourced':', DB indicators · price from last Yahoo close — live quote unavailable'):', Yahoo fallback'})`);
   parts.push(live? `Geiger (live): <b style="color:${live.composite>=0?'var(--green)':'var(--red)'}">${live.composite>=0?'+':''}${live.composite.toFixed(3)}</b>` : `Geiger: <span style="color:var(--dim)">unavailable</span>`);
   parts.push(`Extension: ${extended? `<b style="color:var(--yellow)">${extended}</b> (RSI ${t.rsi.toFixed(0)}${t.wpr!=null?`, W%R ${t.wpr.toFixed(0)}`:''}, ${stretchPct>=0?'+':''}${stretchPct.toFixed(1)}% vs trend)` : `<span style="color:var(--dim)">not stretched</span>`}`);
-  parts.push(lq&&lq.price!=null? `Quote (live_quotes): <b>${lq.price.toFixed(2)}</b> <span style="color:${lq.chg_pct>=0?'var(--green)':'var(--red)'}">${lq.chg_pct>=0?'+':''}${lq.chg_pct!=null?lq.chg_pct.toFixed(2):'—'}%</span> · updated ${freshText(lq.updated_ts)}` : `Quote: <span style="color:var(--dim)">${QUOTES_LIVE_STATUS==='pending'?'fetching…':'unavailable'}</span>`);
+  parts.push(lq&&lq.price!=null? `Quote (live_quotes): <b>${lq.price.toFixed(2)}</b> <span style="color:${lq.chg_pct==null?'var(--dim)':lq.chg_pct>=0?'var(--green)':'var(--red)'}">${lq.chg_pct==null?'change unknown':`${lq.chg_pct>=0?'+':''}${lq.chg_pct.toFixed(2)}%`}</span> · updated ${freshText(lq.updated_ts)}` : `Quote: <span style="color:var(--dim)">${QUOTES_LIVE_STATUS==='pending'?'fetching…':'unavailable'}</span>`);
   const prof=PROFILE_LIVE[s.t]; const avgVol=prof&&prof.avg_volume!=null?prof.avg_volume:null; const curVol=lq&&lq.volume!=null?lq.volume:null;
   if(curVol!=null&&avgVol){ const rvol=curVol/avgVol; const rc=rvol>=1.5?'var(--green)':rvol<=0.6?'var(--red)':'var(--text)';
     parts.push(`RVOL: <b style="color:${rc}">${rvol.toFixed(2)}×</b> <span style="color:var(--dim)">(live_quotes.volume ${(curVol/1e6).toFixed(1)}M ÷ company_profile.avg_volume ${(avgVol/1e6).toFixed(1)}M)${lq&&lq.updated_ts?` · updated ${freshText(lq.updated_ts)}`:''}</span>`); }
@@ -1363,7 +1447,7 @@ function renderDetailContent(){
     else{
       const readColor=t.read.includes('BUY')?'var(--green)':t.read.includes('SELL')?'var(--red)':'var(--yellow)';
       const dbFlag = t.source==='db'
-        ? `LIVE, DB-sourced — RSI/Williams %R/MACD/EMA21/SMA50 read directly from Supabase derived_series (tf='1D'), updated ${freshText(t.updatedTs)}. No in-browser indicator math for this ticker. "Read" is Scintilla's own transparent rule set (not TradingView's or any third party's rating): each row below is a pass/fail condition, score = passes minus fails, mapped to the badge.`
+        ? `LIVE, DB-sourced — RSI/Williams %R/MACD/EMA21/SMA50 read directly from Supabase derived_series (tf='1D'), updated ${freshText(t.updatedTs)}. No in-browser indicator math for this ticker.${t.priceSource==='live_quotes'?'':' PRICE EXCEPTION: the live quote is unavailable, so the price in the conditions below is the last Yahoo daily close — a different source and vintage than the indicators.'} "Read" is Scintilla's own transparent rule set (not TradingView's or any third party's rating): each row below is a pass/fail condition, score = passes minus fails, mapped to the badge.`
         : `YAHOO FALLBACK — derived_series hasn't loaded yet or doesn't cover ${s.t}; EMA20/EMA50/RSI computed client-side from Yahoo closes instead (no Williams %R/MACD in this mode). "Read" is Scintilla's own transparent rule set: each row below is a pass/fail condition, score = passes minus fails, mapped to the badge.`;
       el.innerHTML=flag(dbFlag)+
         `<div style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start">
@@ -1377,7 +1461,7 @@ function renderDetailContent(){
         </div>
         <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);font-family:var(--mono);font-size:11px;color:var(--ink2);line-height:1.7">
           <b style="color:var(--crk)">Sector Sentiment: ${t.sentiment.toFixed(0)}/100</b> — our own composite, not CNN's Fear &amp; Greed. Formula: 50 (neutral) + 0.8×(RSI−50) + 3×((Price/EMA50 − 1)×100), clamped 0–100. Right now that's 50 ${t.rsiTilt>=0?'+':'−'}${Math.abs(t.rsiTilt).toFixed(1)} (RSI tilt) ${t.trendTilt>=0?'+':'−'}${Math.abs(t.trendTilt).toFixed(1)} (trend tilt).<br>
-          <span style="color:var(--dim)">Price: ${t.last.toFixed(2)} · ${t.source==='db'?'EMA21':'EMA20'}: ${t.e20.toFixed(2)} · ${t.source==='db'?'SMA50':'EMA50'}: ${t.e50.toFixed(2)} · RSI(14): ${t.rsi!=null?t.rsi.toFixed(1):'—'}${t.source==='db'?` · Williams %R: ${t.wpr!=null?t.wpr.toFixed(1):'—'} · MACD: ${t.macd!=null?t.macd.toFixed(2):'—'} (signed ${t.macdSigned!=null?t.macdSigned.toFixed(2):'—'}) · CCI: ${t.cci!=null?t.cci.toFixed(1):'—'} · ROC: ${t.roc!=null?t.roc.toFixed(1):'—'} · Stoch: ${t.stoch!=null?t.stoch.toFixed(1):'—'}`:''}</span>
+          <span style="color:var(--dim)">Price: ${t.last.toFixed(2)}${t.source==='db'&&t.priceSource!=='live_quotes'?' (last Yahoo close — live quote unavailable)':''} · ${t.source==='db'?'EMA21':'EMA20'}: ${t.e20.toFixed(2)} · ${t.source==='db'?'SMA50':'EMA50'}: ${t.e50.toFixed(2)} · RSI(14): ${t.rsi!=null?t.rsi.toFixed(1):'—'}${t.source==='db'?` · Williams %R: ${t.wpr!=null?t.wpr.toFixed(1):'—'} · MACD: ${t.macd!=null?t.macd.toFixed(2):'—'} (signed ${t.macdSigned!=null?t.macdSigned.toFixed(2):'—'}) · CCI: ${t.cci!=null?t.cci.toFixed(1):'—'} · ROC: ${t.roc!=null?t.roc.toFixed(1):'—'} · Stoch: ${t.stoch!=null?t.stoch.toFixed(1):'—'}`:''}</span>
         </div>`;
     }
   } else if(DETAIL_TAB==='geiger'){
@@ -1512,7 +1596,15 @@ async function boot(manual){
     await loadData();
     renderAll(true);
     st.classList.remove('err');
-    st.innerHTML=`<b>● LIVE</b> ${PRICE_SOURCE==='ohlcv_history'?'Supabase ohlcv_history':'Yahoo fallback'} daily · updated ${new Date().toLocaleTimeString()} · auto-refresh ${REFRESH_MIN}min`;
+    /* LIVE is a whole-spine claim: all four views, every ticker, through the authority shim.
+       Anything less says exactly what it is instead. */
+    st.innerHTML=PRICE_SOURCE==='provider'
+      ? (priceCoverageFull()
+        ? `<b>● LIVE</b> provider /candles (authority=provider, completed bars) ${priceCoverageParts()} · updated ${new Date().toLocaleTimeString()} · auto-refresh ${REFRESH_MIN}min`
+        : `<b>● PARTIAL</b> provider /candles — ${priceCoverageParts()}; LIVE is not claimed while any view is short · nothing is substituted for the missing views · auto-refresh ${REFRESH_MIN}min`)
+      : PRICE_SOURCE==='raw-tables'
+      ? `<b>● NOT PROVIDER AUTHORITY</b> the authority shim did not load on this origin, so these bars are raw ohlcv_history table reads (${priceCoverageParts()}) · cross-project deploy of /_provider/provider.js is the fix (F1) · auto-refresh ${REFRESH_MIN}min`
+      : `<b>● PRICE SPINE UNAVAILABLE</b> the provider contract did not answer · nothing is substituted · auto-refresh ${REFRESH_MIN}min`;
     document.getElementById('banner').style.display='none';
   }catch(e){
     st.classList.add('err'); st.innerHTML='<b>● FEED DOWN</b>';

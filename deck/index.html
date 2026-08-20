@@ -263,9 +263,19 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       <option value="internalsSlow">internals slow</option>
       <option value="sectorFamilies">sector families</option>
       <option value="themeFamilies">theme families</option>
+      <option value="cohort">cohort</option>
       <option value="custom">custom</option>
     </select>
     <button type="button" class="btn" id="resetScene" title="restore this scene's original preset" aria-label="Reset scene preset">reset preset</button>
+    <span id="cohortPicker" hidden>
+      <select class="scene-mode" id="cohortPick" title="choose the cohort — its members replace the favorites rows" aria-label="Cohort"></select>
+      <button type="button" class="btn" id="cohortPagePrev" title="previous cohort page" aria-label="Previous cohort page">‹</button>
+      <span id="cohortPageIndicator" aria-live="polite"></span>
+      <button type="button" class="btn" id="cohortPageNext" title="next cohort page" aria-label="Next cohort page">›</button>
+    </span>
+    <span id="familyPicker" hidden>
+      <select class="scene-mode" id="familyPick" title="choose this scene's family basket" aria-label="Family basket"></select>
+    </span>
   </span>
   <span class="control-group rotate-controls">
     <span class="control-label">auto rotate</span>
@@ -290,6 +300,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   </span>
   <button type="button" class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen" aria-label="Toggle Station fullscreen">⛶</button>
   <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
+  <span id="rtNote" hidden style="color:var(--dim);font-size:9px;letter-spacing:.07em"></span>
   <span id="size"></span>
 </div>
 
@@ -299,6 +310,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   <select class="chart-count" id="chartCount" title="number of charts">
     <option value="2">2</option><option value="6">6</option><option value="8">8</option>
     <option value="3" hidden data-preset-only="true">3</option>
+    <option value="1" hidden data-preset-only="true">1</option>
   </select>
   <span class="symbol-note" id="symbolNote">Hub symbols</span>
   <span class="lbl">timeframe · all</span>
@@ -345,8 +357,9 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 </div>
 
 <script src="/deck/scenes.js?rev=001"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/_vendor/supabase-js-2.112.3-umd.min.js" integrity="sha384-qafw21c/iciq0VXsi9FzkfoQv5I/V0iqE4lSNcKXPnW9/UTJLnv5CcN4FHxVLnKg"></script>
 <script src="/_provider/provider.js"></script>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
    top-level declaration, so it is already bound here. The shim answers live_quotes,
@@ -405,6 +418,9 @@ const chartCount = (value) => {
   return CHART_COUNTS.includes(n) ? n : 2;
 };
 const sceneChartCount = (value, scene = SCENE, fromPreset = false) => {
+  /* A cohort page owns its own count: the last page of a seven-member cohort is one real
+     chart, not one real chart plus a manufactured empty card. */
+  if (fromPreset && scene === "cohort") return SceneModel.chartCountForSize(value);
   return fromPreset && scene === "indexNow" && +value === 3 ? 3 : chartCount(value);
 };
 /* CUSTOM deliberately exposes only 2 / 6 / 8.  A remembered four-up wall is
@@ -423,10 +439,20 @@ let VIEW = VIEW_MODES.includes(QS.get("view")) ? QS.get("view") :
 document.body.dataset.view = VIEW;
 let SCENE = SceneModel.normalizeScene(QS.get("scene") || remembered("station.scene") || "live");
 let BASKET_OFFSET = 0;
-let COHORT = CLEAN_COHORT(QS.get("cohort") || remembered("station.cohort") || "AI_HARDWARE");
+let COHORT = CLEAN_COHORT(QS.get("cohort") || remembered("station.cohort") || "FAV");
 let COHORT_PAGE = Math.max(0, +(QS.get("page") || remembered("station.cohortPage") || 1) - 1);
 let COHORT_INDEX = new Map();
 let COHORT_READY = false;
+/* FILED DEFECT 3: "AI Power must show its declared cohort rows." Every family scene rendered
+   its FIRST basket forever, because familyBasket() was never given an id — AI POWER (and AI
+   INFRA, and DEFENSIVE) were declared and unreachable. The chosen family is remembered per
+   scene for the session and validated against the scene's declared options. */
+const familyFor = (scene) => {
+  const options = SceneModel.familyOptions(scene);
+  if (!options.length) return null;
+  const stored = sessionRemembered("station.flex." + scene + ".family");
+  return options.some((o) => o.id === stored) ? stored : options[0].id;
+};
 let APPLYING_SCENE = false;
 
 const statePrefix = () => SCENE === "custom" ? "station.custom" : "station.live";
@@ -457,10 +483,54 @@ let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "3h";
    their history work, but never multiply the same live quote request. */
 const deckSb = (typeof supabase !== "undefined" && supabase.createClient)
   ? supabase.createClient(SB, ANON) : null;
+/* THE REALTIME CHANNEL'S ABSENCE IS A SAID STATE, NOT A SILENT ONE. supabase-js is
+   VENDORED same-origin (/_vendor, 2.112.3 — the exact npm-registry bytes, sha512-verified
+   against the registry's own integrity; the old floating-@2 third-party CDN tag is gone);
+   when the script does not load, the non-equity realtime lane is simply gone and ticks
+   ride polling cadence only. That is a latency fact the wall states once, here — never a
+   freshness claim, which #marketStatus owns (a heartbeat is cadence, not invalidation).
+   Equities never ride this channel either way: the shim refuses them below. */
+window.SC_REALTIME = deckSb
+  ? { available: true, channel: "connecting", reason: "supabase-js loaded (vendored same-origin) — channel state follows below; non-equity passthrough only; equities are refused at the channel" }
+  : { available: false, channel: "none", reason: "supabase-js (vendored same-origin) did not load — the realtime tick channel is absent; non-equity ticks ride polling only" };
+(function paintRtNote() {
+  const n = el("rtNote"); if (!n) return;
+  if (window.SC_REALTIME.available) { n.hidden = true; return; }
+  n.hidden = false; n.textContent = "RT · absent"; n.title = window.SC_REALTIME.reason;
+})();
+/* "AVAILABLE" WAS ONLY "SCRIPT PRESENT". The channel's own lifecycle is the lane's truth:
+   SUBSCRIBED clears the note; a channel that errors, times out or closes says so. While
+   connecting, nothing is claimed either way — a pending connect is not a failure. */
+function rtChannelStatus(status) {
+  if (!window.SC_REALTIME) return;
+  const s = String(status || "").toUpperCase();
+  window.SC_REALTIME.channel = s;
+  const n = el("rtNote"); if (!n) return;
+  if (s === "SUBSCRIBED") { n.hidden = true; return; }
+  if (s === "CHANNEL_ERROR" || s === "TIMED_OUT" || s === "CLOSED") {
+    n.hidden = false; n.textContent = "RT · not connected";
+    n.title = "the realtime channel did not connect (" + s + ") — non-equity ticks ride polling only";
+  }
+}
 const DECK_QUOTES = new Map();
 const DECK_QUOTE_FAILED = new Set();
+/* Separate from DECK_QUOTE_FAILED on purpose. FAILED means the read fell over and is worth
+   asking again; ABSENT means the read came back fine and simply did not carry this symbol,
+   which is the stream's answer and not a transient condition. */
+const DECK_QUOTE_ABSENT = new Map();
 const DECK_QUOTE_HEARTBEAT_MS = 10000;
-const DECK_QUOTE_TIMEOUT_MS = 4500;
+/* SLOW IS NOT DEAD — THE SAME LESSON, ON THE CALLER'S SIDE.
+   This was one 4.5s abort. Measured on the live provider, five read-only /quotes probes
+   returned 200 with time-to-first-byte of 0.84s, 6.86s, 1.27s, 2.71s and 0.27s, so that abort
+   killed a working read one time in five and reported the provider unreachable. Worse, the
+   shim now forwards this controller, so the deck's impatience reached all the way through and
+   cancelled the provider read itself.
+
+   Two thresholds, matching the shim's: at SOFT the panes are told the data is late and the
+   retry cadence continues, but the request keeps running and its answer is used if it lands.
+   Only HARD cancels. */
+const DECK_QUOTE_SOFT_MS = 4500;
+const DECK_QUOTE_HARD_MS = 20000;
 let deckQuoteRequest = 0;
 let deckQuoteInFlight = false;
 let deckQuoteRerun = false;
@@ -468,40 +538,71 @@ function visibleChartTickers() {
   return Array.from(new Set(CHARTS.slice(0, CHART_COUNT).map(CLEAN).filter(Boolean)));
 }
 function deckQuoteFor(ticker) { return DECK_QUOTES.get(CLEAN(ticker)) || null; }
+/* ONLY A RECORDED NAME MAKES AN ABSENCE. This used to default to NOT_OBSERVED_BY_STREAM for
+   any symbol a successful read did not carry - which meant a response that simply omitted a
+   row, for any reason, settled that symbol's fate and stopped the retries. A PostgREST result
+   cannot say "this symbol does not exist"; it just omits it. So a name is required, and where
+   there is none the symbol stays in the retrying lane where it belongs. */
+function deckAbsenceName(ticker) {
+  try {
+    const shim = window.SC_PROVIDER_SHIM;
+    const named = shim && typeof shim.absenceFor === "function" ? shim.absenceFor(ticker) : null;
+    if (named) return String(named);
+  } catch (_) {}
+  return null;
+}
 function postDeckQuote(frame, ticker) {
   if (!frame?.contentWindow) return;
   const clean = CLEAN(ticker);
-  const state = DECK_QUOTES.has(clean) ? "ready" : DECK_QUOTE_FAILED.has(clean) ? "delayed" : "loading";
-  try { frame.contentWindow.postMessage({ sc:"deck-quote", ticker:clean, quote:deckQuoteFor(clean), state }, location.origin); } catch (_) {}
+  const state = DECK_QUOTES.has(clean) ? "ready"
+    : DECK_QUOTE_ABSENT.has(clean) ? "absent"
+    : DECK_QUOTE_FAILED.has(clean) ? "delayed" : "loading";
+  const absence = state === "absent" ? DECK_QUOTE_ABSENT.get(clean) : null;
+  try { frame.contentWindow.postMessage({ sc:"deck-quote", ticker:clean, quote:deckQuoteFor(clean), state, absence }, location.origin); } catch (_) {}
 }
 function fanoutDeckQuote(ticker) {
   const clean = CLEAN(ticker);
   for (const pane of PANES) if (pane.def.kind === "chart" && pane.frame && CLEAN(pane.def.ticker) === clean)
     postDeckQuote(pane.frame, clean);
 }
+/* A ROW WITHOUT A WRITE TIME HAS NO WRITE TIME.
+   This used to substitute `new Date()` for a missing updated_ts, which meant an undated quote
+   arrived at the header as one written this instant - the freshest thing on the wall. Since
+   the provider's stamp is null whenever it did not supply an observation time, that
+   substitution manufactured freshness out of its absence. Unknown is now carried as null and
+   the header simply does not count that row when it reports how old the oldest quote is. */
 function selectVisibleQuoteRows(rows, tickers) {
   const allowed = new Set((tickers || []).map(CLEAN));
   const selected = new Map();
   for (const row of rows || []) {
     const ticker = CLEAN(row?.ticker);
     if (!ticker || !allowed.has(ticker) || row?.price == null) continue;
+    const stamped = row.updated_ts != null && row.updated_ts !== ""
+      && Number.isFinite(new Date(row.updated_ts).getTime());
     selected.set(ticker, { ticker, price:+row.price,
       prev_close:row.prev_close == null ? null : +row.prev_close,
-      updated_ts:row.updated_ts || new Date().toISOString() });
+      updated_ts:stamped ? row.updated_ts : null });
   }
   return selected;
 }
-async function fetchDeckQuotes(tickers) {
+/* THE ONE DISTINCTION THIS FILE MUST NOT LOSE.
+   `fetchDeckQuotes` throws when the read fell over and resolves when it came back. Only the
+   resolved path may name an absence: if the request never completed, the fact that a symbol
+   has no row says nothing at all about whether the stream observes it. */
+async function fetchDeckQuotes(tickers, onSlow) {
   const controller = typeof AbortController === "undefined" ? null : new AbortController();
-  const timer = controller ? setTimeout(() => controller.abort(), DECK_QUOTE_TIMEOUT_MS) : null;
+  /* HARD cancels. SOFT only tells the panes, and never touches the controller. */
+  const hard = controller ? setTimeout(() => controller.abort(), DECK_QUOTE_HARD_MS) : null;
+  const soft = setTimeout(() => { if (typeof onSlow === "function") { try { onSlow(); } catch (_) {} } },
+    DECK_QUOTE_SOFT_MS);
   try {
     const query = "live_quotes?ticker=in.(" + tickers.map(encodeURIComponent).join(",") + ")&select=ticker,price,prev_close,updated_ts";
     const response = await fetch(SB + "/rest/v1/" + query, {
       headers:{ apikey:ANON, Authorization:"Bearer " + ANON }, signal:controller?.signal
     });
     if (!response.ok) throw new Error("live_quotes " + response.status);
-    return response.json();
-  } finally { if (timer) clearTimeout(timer); }
+    return await response.json();
+  } finally { if (hard) clearTimeout(hard); clearTimeout(soft); }
 }
 async function refreshDeckQuotes() {
   deckQuoteRequest += 1;
@@ -511,22 +612,59 @@ async function refreshDeckQuotes() {
   const request = deckQuoteRequest;
   deckQuoteInFlight = true;
   try {
-    const rows = await fetchDeckQuotes(tickers);
+    /* At the soft threshold the panes are told the read is late and keep retrying. The request
+       is still running: if it lands before the hard bound, the block below overwrites this with
+       the real answer and the panes recover. Nothing here cancels anything. */
+    const rows = await fetchDeckQuotes(tickers, () => {
+      if (request !== deckQuoteRequest) return;
+      for (const ticker of tickers) {
+        if (DECK_QUOTES.has(ticker)) continue;          // a pane already holding a price is fine
+        DECK_QUOTE_ABSENT.delete(ticker);
+        DECK_QUOTE_FAILED.add(ticker);
+        fanoutDeckQuote(ticker);
+      }
+      paintMarketStatus();
+    });
     if (request !== deckQuoteRequest) return;
     const selected = selectVisibleQuoteRows(rows, tickers);
     for (const ticker of tickers) {
       const quote = selected.get(ticker);
-      if (quote) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); }
-      else { DECK_QUOTES.delete(ticker); DECK_QUOTE_FAILED.add(ticker); }
+      if (quote) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); DECK_QUOTE_ABSENT.delete(ticker); }
+      else {
+        /* The request succeeded and this row was not in it. That is settled ONLY if something
+           named it: the provider says NOT_OBSERVED_BY_STREAM for symbols it does not carry, and
+           the shim records that name. An unnamed omission is an unfinished answer - the read
+           may have been short, filtered or partial - and stays retryable rather than becoming
+           a permanent "not observed". */
+        DECK_QUOTES.delete(ticker);
+        const named = deckAbsenceName(ticker);
+        if (named) { DECK_QUOTE_FAILED.delete(ticker); DECK_QUOTE_ABSENT.set(ticker, named); }
+        else { DECK_QUOTE_ABSENT.delete(ticker); DECK_QUOTE_FAILED.add(ticker); }
+      }
       fanoutDeckQuote(ticker);
     }
   } catch (_) {
     if (request !== deckQuoteRequest) return;
-    for (const ticker of tickers) { DECK_QUOTE_FAILED.add(ticker); fanoutDeckQuote(ticker); }
+    /* This one IS a failure: nothing came back at all. */
+    for (const ticker of tickers) { DECK_QUOTE_ABSENT.delete(ticker); DECK_QUOTE_FAILED.add(ticker); fanoutDeckQuote(ticker); }
   } finally {
     deckQuoteInFlight = false;
     if (deckQuoteRerun) { deckQuoteRerun = false; refreshDeckQuotes(); }
   }
+}
+/* THE HEARTBEAT IS CADENCE, NOT INVALIDATION.
+   refreshDeckQuotes bumps deckQuoteRequest so a change to the visible set can retire an
+   in-flight read whose panes are gone — scene switches, a ticker edit, a chart-count change
+   all go through it and should. The 10s heartbeat used to enter through the same door, which
+   retired whatever was in flight on every tick: any read slower than one heartbeat — inside
+   the 20s hard bound that exists precisely because 4.5–20s reads were measured real — landed
+   to a stale request number and was discarded, and its queued rerun met the next tick the
+   same way. The effective hard bound was the heartbeat, and a provider consistently slower
+   than 10s could never land an answer at all. A tick that finds a read in flight covers an
+   unchanged ticker set, so it queues the rerun and lets the read finish. */
+function deckQuoteHeartbeat() {
+  if (deckQuoteInFlight) { deckQuoteRerun = true; return; }
+  refreshDeckQuotes();
 }
 if (deckSb) deckSb.channel("station-deck-lq").on("postgres_changes", {
   event:"*", schema:"public", table:"live_quotes"
@@ -542,10 +680,14 @@ if (deckSb) deckSb.channel("station-deck-lq").on("postgres_changes", {
   const shim = window.SC_PROVIDER_SHIM;
   const sym = String((event.new && event.new.ticker) || "").toUpperCase();
   if (shim && shim.isProviderOwned && shim.isProviderOwned(sym)) { shim.realtime_equity_refused++; return; }
+  /* UNKNOWN OWNERSHIP IS NOT PERMISSION. Until /geiger has answered, this handler cannot tell
+     a provider-owned equity from a non-equity, and writing on that uncertainty is how a legacy
+     price reaches a provider-owned chart. Refuse, and let the next resolved read decide. */
+  if (shim && shim.ownershipKnown && !shim.ownershipKnown()) { shim.realtime_unknown_ownership_refused++; return; }
   if (shim) shim.realtime_nonequity_passthrough++;
   const selected = selectVisibleQuoteRows([event.new], visibleChartTickers());
   for (const [ticker, quote] of selected) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); fanoutDeckQuote(ticker); }
-}).subscribe();
+}).subscribe(rtChannelStatus);
 let SOLO = QS.get("full") || null;
 let MEDIA_TARGET = null;
 let MEDIA_STAGE = 0;
@@ -893,46 +1035,107 @@ function focusTickerFor(key) {
   input.focus(); selAll(input); paintSymbolGuide(input);
 }
 
+/* A pane the stream does not observe is NOT a delayed pane. Counting it as one is what put
+   the Station header into a permanent "DATA · delayed" on the four non-equity scenes, where
+   every visible symbol has a settled, named answer. Absence is reported under its own mode
+   and its own count, and a scene made entirely of named absences reports exactly that. */
 function chartDataSummary(visible) {
   if (!visible.length) return { mode:"waiting", count:0 };
-  const delayed = visible.filter((x) => x.history === "delayed" || x.quote === "delayed" || x.delayed);
-  const loading = visible.filter((x) => x.history === "loading" || x.quote === "loading");
-  if (delayed.length) return { mode:"delayed", count:delayed.length };
-  if (loading.length) return { mode:"loading", count:loading.length };
-  return { mode:"ready", count:0 };
+  /* A PANE IS NOT SETTLED UNTIL BOTH ITS SUBLANES ARE.
+     Panes used to be removed into the absent bucket the moment EITHER sublane was named, and
+     only the remainder was then searched for delays. A pane whose history is named absent
+     while its quote is still failing therefore vanished from the delayed count and the header
+     went quiet - on a pane that was, in fact, still retrying. History and quote settle
+     separately, so a pane is only absent when nothing about it is still in flight. */
+  const isDelayed = (x) => x.history === "delayed" || x.quote === "delayed" || x.delayed;
+  const isLoading = (x) => x.history === "loading" || x.quote === "loading";
+  const delayed = visible.filter(isDelayed);
+  const loading = visible.filter((x) => !isDelayed(x) && isLoading(x));
+  const absent = visible.filter((x) => !isDelayed(x) && !isLoading(x)
+    && (x.history === "absent" || x.quote === "absent"));
+  /* Each pane's reason comes from whichever lane is actually absent — the chart reports them
+     separately now, so the header no longer reads one lane's name off the other's field. */
+  const reasonFor = (x) => (x.history === "absent" ? x.historyAbsence : null)
+    || (x.quote === "absent" ? x.quoteAbsence : null) || x.absence || "NOT_OBSERVED_BY_STREAM";
+  if (delayed.length) return { mode:"delayed", count:delayed.length, absent:absent.length };
+  if (loading.length) return { mode:"loading", count:loading.length, absent:absent.length };
+  if (absent.length) return { mode:"absent", count:absent.length, absent:absent.length,
+    names:Array.from(new Set(absent.map(reasonFor))) };
+  return { mode:"ready", count:0, absent:0 };
+}
+/* The canonical name, said out loud. */
+function chartAbsenceHeadline(names, count) {
+  const list = Array.from(new Set(names || [])).filter(Boolean);
+  const named = list.length === 1 ? list[0].replace(/_/g, " ").toLowerCase() : "not observed";
+  return "DATA · " + named + " (" + count + ")";
 }
 function paintMarketStatus() {
   const visibleTickers = CHARTS.slice(0, CHART_COUNT).filter(Boolean);
   const visible = visibleTickers.map((ticker) => Object.assign({ ticker, history:"loading", quote:"loading" }, CHART_STATUS.get(ticker) || {}));
   const n = el("marketStatus"); if (!n) return;
   const summary = chartDataSummary(visible);
-  if (summary.mode === "waiting") { n.textContent = "DATA · waiting"; n.dataset.delayed = "0"; n.dataset.fresh = "0"; return; }
+  if (summary.mode === "waiting") { n.textContent = "DATA · waiting"; n.dataset.delayed = "0"; n.dataset.fresh = "0"; n.dataset.absent = "0"; return; }
+  if (summary.mode === "absent") {
+    n.textContent = chartAbsenceHeadline(summary.names, summary.count);
+    n.dataset.delayed = "0"; n.dataset.fresh = "0"; n.dataset.absent = "1";
+    n.title = visible.map((x) => x.ticker + " · history " + x.history +
+      (x.historyAbsence ? " (" + x.historyAbsence + ")" : "") +
+      " · quote " + x.quote + (x.quoteAbsence ? " (" + x.quoteAbsence + ")" : "")).join("\n");
+    return;
+  }
   if (summary.mode === "delayed" || summary.mode === "loading") {
     n.textContent = summary.mode === "delayed" ? "DATA · delayed (" + summary.count + ")" : "DATA · loading (" + summary.count + ")";
     const delayed = summary.mode === "delayed";
     n.dataset.delayed = delayed ? "1" : "0";
     n.dataset.fresh = "0";
+    n.dataset.absent = summary.absent ? "1" : "0";
     n.title = visible.map((x) => x.ticker + " · history " + x.history + " · quote " + x.quote).join("\n");
     return;
   }
-  const timestamped = visible.filter((x) => x.updatedTs);
-  if (!timestamped.length) { n.textContent = "DATA · ready"; n.dataset.delayed = "0"; n.dataset.fresh = "0"; return; }
+  /* Only rows carrying a real, parseable stamp can speak to freshness. An unstamped row is
+     neither fresh nor stale; it is unknown, and is reported as such rather than folded in. */
+  const timestamped = visible.filter((x) => x.updatedTs != null && x.updatedTs !== ""
+    && Number.isFinite(new Date(x.updatedTs).getTime()));
+  const unstamped = visible.filter((x) => !(x.updatedTs != null && x.updatedTs !== ""
+    && Number.isFinite(new Date(x.updatedTs).getTime())));
+  if (!timestamped.length) {
+    n.textContent = "DATA · ready · no observation time";
+    n.dataset.delayed = "0"; n.dataset.fresh = "0"; n.dataset.absent = "0";
+    n.title = visible.map((x) => x.ticker + " · quote present, provider supplied no observation time").join("\n");
+    return;
+  }
   const oldest = timestamped.reduce((a,b) => new Date(a.updatedTs) < new Date(b.updatedTs) ? a : b);
   const at = new Date(oldest.updatedTs);
   const ageSec = Math.max(0, Math.round((Date.now() - at.getTime()) / 1000));
   const age = ageSec < 60 ? ageSec + "s" : Math.floor(ageSec / 60) + "m";
-  const fresh = ageSec < 90 && !delayed.length;
+  /* This path is only reached on mode "ready", which chartDataSummary returns strictly when
+     zero panes are delayed, loading or absent — the delayed count here is 0 by construction.
+     It used to be re-read from a `delayed` that only ever existed inside chartDataSummary's
+     own scope: a ReferenceError on every fully healthy paint, so the header could show any
+     state except the healthy one, and froze on whatever it last said while degraded. */
+  const fresh = ageSec < 90;
   n.textContent = (fresh ? "LIVE" : "DATA") + " · " + age + " · " +
     at.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" }) +
-    (delayed.length ? " · " + delayed.length + " delayed" : "");
-  n.dataset.delayed = delayed.length ? "1" : "0";
+    (unstamped.length ? " · " + unstamped.length + " untimed" : "");
+  n.dataset.delayed = "0";
   n.dataset.fresh = fresh ? "1" : "0";
+  /* A ready paint must also clear the absent flag a previous absent paint set, or the header
+     keeps the absent styling after every pane has recovered. */
+  n.dataset.absent = "0";
+  /* The header stopped folding untimed rows into an age, but the tooltip still ran every row
+     through `new Date(x.updatedTs)` - and for a row with no observation time that is
+     `new Date(null)`, the epoch, printed as a real clock time. The one place left where an
+     unknown was still being answered. */
   n.title = "Oldest visible quote write: " + at.toLocaleString() + " (" + age + " ago)\n" +
-    visible.map((x) => x.ticker + " · " + (x.delayed ? "delayed provider feed · " : "live_quotes · ") +
-    new Date(x.updatedTs).toLocaleTimeString()).join("\n");
+    visible.map((x) => {
+      const ms = x.updatedTs == null || x.updatedTs === "" ? NaN : new Date(x.updatedTs).getTime();
+      const source = x.delayed ? "delayed provider feed · " : "provider quote · ";
+      return x.ticker + " · " + source +
+        (Number.isFinite(ms) ? new Date(ms).toLocaleTimeString() : "no observation time");
+    }).join("\n");
 }
 setInterval(paintMarketStatus, 10000);
-setInterval(refreshDeckQuotes, DECK_QUOTE_HEARTBEAT_MS);
+setInterval(deckQuoteHeartbeat, DECK_QUOTE_HEARTBEAT_MS);
 window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
   if (event.data?.sc === "chart-load-request") {
@@ -946,7 +1149,9 @@ window.addEventListener("message", (event) => {
   }
   if (event.data?.sc === "chart-quote-ready") {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
-    if (pane?.def.kind === "chart") { postDeckQuote(pane.frame, pane.def.ticker); refreshDeckQuotes(); }
+    /* A booting chart announcing readiness has not changed the visible set: fetch soon, but
+       never retire a read already in flight for these same panes. */
+    if (pane?.def.kind === "chart") { postDeckQuote(pane.frame, pane.def.ticker); deckQuoteHeartbeat(); }
     return;
   }
   if (event.data?.sc === "chart-status") {
@@ -1096,7 +1301,7 @@ function editableState(scene) {
   const legacy = scene === "live";
   const get = (suffix) => (scene === "live" || scene === "custom" ? remembered(prefix + "." + suffix) : sessionRemembered(prefix + "." + suffix)) ||
     (legacy ? remembered("station." + suffix) : "");
-  const count = sceneChartCount(get("chartCount") || CHART_COUNT, scene, scene === "indexNow");
+  const count = sceneChartCount(get("chartCount") || CHART_COUNT, scene, scene === "indexNow" || scene === "cohort");
   const range = RANGE;
   const charts = Array.from({ length:8 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
     (scene === "custom" ? "" : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
@@ -1127,19 +1332,39 @@ function rememberEditableState() {
   }
 }
 function orderedCohorts() {
+  /* FAV leads: it is the default view the cohorts replace. */
   return Array.from(COHORT_INDEX.keys()).sort((a,b) => {
+    if (a === "FAV") return -1;
+    if (b === "FAV") return 1;
     const ai = COHORT_ORDER.indexOf(a), bi = COHORT_ORDER.indexOf(b);
     return (ai < 0 ? 999 : ai) - (bi < 0 ? 999 : bi) || a.localeCompare(b);
   });
 }
-async function loadCohortFavorites() {
+async function loadCohortIndex() {
   if (COHORT_READY) return;
-  const [favorites, primary, legacy] = await Promise.all([
+  /* THE MEMBERSHIP RELATION, WHOLE, IN A STABLE ORDER, AND ALONE.
+     Two faults lived in one line here. The read had no limit and no order, so PostgREST
+     returned its first 1000 rows of 1283 in planner order: COHORT FAVORITES was built from
+     roughly four fifths of the axis, and a different four fifths on different loads.
+
+     And it merged in `cohorts`, which is not a second membership source at all -
+     `SELECT ticker, cohort FROM tickers`, one HOME cohort per ticker, unfiltered by `active`.
+     Folding that into the navigation index put home answers and membership answers in the same
+     map, which is the very confusion the cohort axis exists to keep apart; it also smuggled in
+     25 pairs that are not memberships and tickers that are not active.
+
+     COHORT FAVORITES is a navigation surface, so it takes the membership relation and nothing
+     else - see _cohorts/cohort-axis.js. */
+  const [favorites, axis] = await Promise.all([
     pg("hub_favorites?select=ticker&order=added_at.asc"),
-    pg("ticker_cohorts?select=ticker,cohort"),
-    pg("cohorts?select=ticker,cohort")
+    SC_COHORT_AXIS.loadMemberships(pg)
   ]);
-  COHORT_INDEX = SceneModel.buildCohortFavorites(favorites, [primary, legacy]);
+  /* A truncated read cannot be presented as the cohort axis. */
+  if (axis.truncated) throw new Error("cohort membership read truncated before the end of the relation");
+  /* Full membership per cohort, with FAV as the explicit default entry the cohorts
+     replace — the favorites-intersection index this used to build showed a chosen cohort
+     as, at most, the favorites already on the wall (filed defect, ruled). */
+  COHORT_INDEX = SceneModel.buildCohortIndex([axis.rows], favorites);
   COHORT_READY = true;
   const names = orderedCohorts();
   if (!COHORT_INDEX.has(COHORT)) COHORT = names[0] || COHORT;
@@ -1158,15 +1383,54 @@ function paintSceneControls(note) {
   el("screenIndicator").textContent = screen
     ? "screen " + (SceneModel.SCREENS.indexOf(screen) + 1) + " / " + SceneModel.SCREENS.length
     : "manual";
-  el("symbolNote").textContent = note || (fixedSceneState(SCENE)
+  el("symbolNote").textContent = note || (SCENE === "cohort"
+    ? (COHORT === "FAV"
+       /* Zero favorites is a state the wall must SAY, not imply with one blank slot — but
+          only once the read has landed: before COHORT_READY the count is not yet a fact. */
+       ? (COHORT_READY && cohortState().totalItems === 0
+          ? "no favorites yet — the wall is empty, not broken · choose a cohort or edit the slot"
+          : "favorites · choosing a cohort replaces these rows")
+       : COHORT.replace(/_/g, " ") + " · cohort members — these rows replaced the favorites")
+    : fixedSceneState(SCENE)
     ? "preset · edit any slot or reset"
     : "manual workspace · edit any slot");
+  const familyPicker = el("familyPicker");
+  if (familyPicker) {
+    const options = SceneModel.familyOptions(SCENE);
+    familyPicker.hidden = !options.length;
+    if (options.length) {
+      const pick = el("familyPick");
+      if (Array.from(pick.options).map((o) => o.value).join("|") !== options.map((o) => o.id).join("|"))
+        pick.innerHTML = options.map((o) => '<option value="' + o.id + '">' + o.label.toLowerCase() + "</option>").join("");
+      pick.value = familyFor(SCENE);
+    }
+  }
+  const cohortPicker = el("cohortPicker");
+  if (cohortPicker) {
+    const active = SCENE === "cohort";
+    cohortPicker.hidden = !active;
+    if (active && COHORT_READY) {
+      const pick = el("cohortPick");
+      const names = orderedCohorts();
+      if (Array.from(pick.options).map((o) => o.value).join("|") !== names.join("|"))
+        pick.innerHTML = names.map((n) => '<option value="' + n + '">' +
+          (n === "FAV" ? "FAV · favorites" : n.replace(/_/g, " ").toLowerCase()) + "</option>").join("");
+      pick.value = COHORT;
+      const now = cohortState();
+      el("cohortPageIndicator").textContent =
+        "page " + (now.page + 1) + " / " + now.totalPages + " · " + now.totalItems +
+        (COHORT === "FAV" ? " favorites" : " members");
+      el("cohortPagePrev").disabled = now.page <= 0;
+      el("cohortPageNext").disabled = now.page >= now.totalPages - 1;
+    }
+  }
 }
 function installSceneState(state) {
   const charts = (state.charts || state.tickers || []).slice(0, 8);
   CHARTS.forEach((_, i) => { CHARTS[i] = CLEAN(charts[i] || ""); });
   CHART_COUNT = (SCENE === "custom" ? customChartCount : sceneChartCount)(
-    state.chartCount || SceneModel.chartCountForSize(charts.length), SCENE, SCENE === "indexNow"
+    state.chartCount || SceneModel.chartCountForSize(charts.length), SCENE,
+    SCENE === "indexNow" || SCENE === "cohort"
   );
 }
 function fixedSceneState(scene, requestedCount) {
@@ -1175,7 +1439,7 @@ function fixedSceneState(scene, requestedCount) {
     return Object.assign({}, preset, SceneModel.basketWindow(preset.tickers, BASKET_OFFSET, requestedCount || preset.chartCount), { range:preset.range });
   }
   if (scene === "sectorFamilies" || scene === "themeFamilies") {
-    const family = SceneModel.familyBasket(scene);
+    const family = SceneModel.familyBasket(scene, familyFor(scene));
     return Object.assign({}, SceneModel.basketWindow(family?.tickers || [], BASKET_OFFSET, requestedCount || 6), { range:family?.range || "1D" });
   }
   const preset = SceneModel.PRESETS[scene];
@@ -1190,7 +1454,7 @@ async function primeSceneState() {
     if (editable && recovered !== editable) rememberEditableState();
   }
   else if (SCENE === "cohort") {
-    try { await loadCohortFavorites(); installSceneState(hasStoredScene("cohort") ? editableState("cohort") : cohortState()); }
+    try { await loadCohortIndex(); installSceneState(hasStoredScene("cohort") ? editableState("cohort") : cohortState()); }
     catch (_) { COHORT_READY = false; installSceneState({ charts:[], chartCount:1, range:RANGE }); }
   }
   remember("station.scene", SCENE);
@@ -1274,24 +1538,35 @@ async function applyScene(next, options) {
   if (previous !== requested) rememberEditableState();
   let state;
   if (fixedSceneState(requested)) {
+    /* A chosen family is remembered before the preset is computed, and counts as an explicit
+       choice: it must paint its DECLARED rows now, never a stored workspace under the new
+       family's name. */
+    if (options?.family != null && SceneModel.familyOptions(requested).some((o) => o.id === options.family))
+      sessionRemember("station.flex." + requested + ".family", options.family);
     BASKET_OFFSET = Math.max(0, Number(options?.offset) || 0);
     const fixed = fixedSceneState(requested);
     /* Reset Preset is the only action that discards a working scene. */
-    const namedPage = Object.prototype.hasOwnProperty.call(options || {}, "offset");
+    const namedPage = Object.prototype.hasOwnProperty.call(options || {}, "offset") ||
+      options?.family != null;
     state = !options?.reset && !namedPage && hasStoredScene(requested)
       ? completeNamedPresetState(editableState(requested), fixed) : fixed;
   }
   else if (requested === "cohort") {
     try {
-      await loadCohortFavorites();
+      await loadCohortIndex();
       if (options?.cohort) COHORT = CLEAN_COHORT(options.cohort);
       COHORT_PAGE = Math.max(0, Number(options?.page) || 0);
-      state = !options?.reset && !options?.rotate && hasStoredScene("cohort")
+      /* AN EXPLICIT CHOICE SHOWS THAT COHORT'S ROWS NOW. The stored cohort workspace
+         resumes only when the scene is re-entered without a choice — otherwise picking
+         AI_SOFTWARE with an edited workspace stored would repaint the stored (favorites-
+         era) rows under the new cohort's name, the filed defect wearing a memory. */
+      const explicitChoice = !!(options && (options.cohort != null || options.page != null));
+      state = !options?.reset && !options?.rotate && !explicitChoice && hasStoredScene("cohort")
         ? editableState("cohort") : cohortState();
       COHORT_PAGE = state.page ?? COHORT_PAGE;
     } catch (_) {
       COHORT_READY = false; state = { charts:[], chartCount:1, range:RANGE };
-      el("symbolNote").textContent = "cohort favorites unavailable";
+      el("symbolNote").textContent = "cohort index unavailable — retry by re-choosing the scene";
     }
   } else if (requested === "custom" && !hasStoredScene("custom")) {
     state = customWallState({ charts:[], range:RANGE }, 6);
@@ -1614,6 +1889,10 @@ el("sceneMode").addEventListener("change", (e) => {
   if (e.target.value === "live" || e.target.value === "custom") setRotationPaused(true);
   applyScene(e.target.value);
 });
+el("familyPick").addEventListener("change", (e) => applyScene(SCENE, { family:e.target.value }));
+el("cohortPick").addEventListener("change", (e) => applyScene("cohort", { cohort:e.target.value, page:0 }));
+el("cohortPagePrev").addEventListener("click", () => applyScene("cohort", { cohort:COHORT, page:Math.max(0, COHORT_PAGE - 1) }));
+el("cohortPageNext").addEventListener("click", () => applyScene("cohort", { cohort:COHORT, page:COHORT_PAGE + 1 }));
 el("resetScene").addEventListener("click", () => {
   if (SCENE === "cohort") {
     ["chartCount"].forEach((suffix) => forgetSession("station.flex.cohort." + suffix));

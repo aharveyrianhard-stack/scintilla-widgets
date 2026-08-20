@@ -15,7 +15,7 @@
      ?top=1 makes every chip drive the WHOLE window (scene-level navigation —
      drop the strip into any scene and it steers the scene). ?on=NAME lights
      the active chip. ?bg=0 transparent · ?labels=0 counts off · ?refresh=60.
-     DATA — DB reads only, never FMP: ticker_cohorts is_primary ×
+     DATA — DB reads only, never FMP: ticker_cohorts (membership view) ×
      composite_staged tf=D + hub_favorites count · scintilla-live.
      Receipt: HSC-COHORTSTRIP-LIVE-001.
      ============================================================================ -->
@@ -53,6 +53,7 @@ body.nobg{ background:transparent; }
 <body>
 <div id="strip"><span class="empty">loading cohorts…</span></div>
 <script src="/_provider/provider.js"></script>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
    top-level declaration, so it is already bound here. The shim answers live_quotes,
@@ -100,16 +101,42 @@ function href(kind, name) {
   return "/cohort?c=" + encodeURIComponent(name);
 }
 
+let STRIP_OK = false;
 async function tick() {
-  const [tc, cs, fav] = await Promise.all([
-    pg("ticker_cohorts?is_primary=eq.true&select=ticker,cohort"),
-    pg("composite_staged?tf=eq.D&select=ticker,composite"),
+  /* THE FULL MEMBERSHIP SET. This strip is navigation: it shows every cohort, so it needs
+     every membership. ticker_cohorts holds 1283 rows and PostgREST caps a response at 1000,
+     so the old unpaginated read dropped 283 of them behind a 200 OK. See
+     _cohorts/cohort-axis.js. */
+  /* THE MAIN READS' FAILURES ARE KEPT STATES. They used to reject out of tick(): the boot
+     catch painted an unworded "cohort data unavailable" and the interval catch was SILENT —
+     a strip that died after a healthy load kept stale chips forever with no marker. A
+     never-loaded strip now names the failed source; a loaded one keeps its chips (a failed
+     read never erases knowledge) and wears a stale marker until a refresh lands. */
+  const READ_FAILED = { failed: true };
+  const [axis, cs, fav] = await Promise.all([
+    SC_COHORT_AXIS.loadMemberships(pg).catch(() => READ_FAILED),
+    pg("composite_staged?tf=eq.D&select=ticker,composite").catch(() => READ_FAILED),
     pg("hub_favorites?select=ticker").catch(() => null),
   ]);
+  const strip = document.getElementById("strip");
+  if (axis === READ_FAILED || cs === READ_FAILED) {
+    const src = axis === READ_FAILED ? "ticker_cohorts" : "composite_staged";
+    if (STRIP_OK) {
+      if (!document.getElementById("cohStale"))
+        strip.insertAdjacentHTML("beforeend", '<span class="empty" id="cohStale"></span>');
+      document.getElementById("cohStale").textContent =
+        " · refresh failed (" + src + ") — these chips are stale · retrying";
+    } else {
+      strip.innerHTML = '<span class="empty">the ' + src +
+        " read failed — the strip is unavailable, not empty · retrying at the next refresh</span>";
+    }
+    return;
+  }
+  STRIP_OK = true;
   const comp = {};
   for (const r of (cs || [])) { const v = num(r.composite); if (v != null && isFinite(v)) comp[r.ticker] = v; }
   const by = {};
-  for (const r of (tc || [])) { const v = comp[r.ticker]; if (v == null) continue; (by[r.cohort] = by[r.cohort] || []).push(v); }
+  for (const r of axis.rows) { const v = comp[r.ticker]; if (v == null) continue; (by[r.cohort] = by[r.cohort] || []).push(v); }
   const cohorts = Object.keys(by).map((name) => {
     const c = by[name], g = c.filter((v) => v > 0).length, r = c.filter((v) => v < 0).length;
     return { name, n: c.length, g, r, med: median(c) };
@@ -119,7 +146,10 @@ async function tick() {
   const tgt = TOP ? ' target="_top"' : "";
   const chips = [];
   chips.push('<span class="k">COHORTS</span>');
-  chips.push('<a class="chip sys' + (ON === "FAV" ? " on" : "") + '" href="' + href("fav") + '"' + tgt + '>FAV' +
+  /* fav is null exactly when the hub_favorites read failed; a chip with no count is
+     otherwise indistinguishable from labels=0, so the failure is named in the tooltip. */
+  chips.push('<a class="chip sys' + (ON === "FAV" ? " on" : "") + '" href="' + href("fav") + '"' + tgt +
+    (Array.isArray(fav) ? ' title="' + fav.length + ' favorites"' : ' title="favorites count unavailable — the hub_favorites read failed; the chip still navigates"') + '>FAV' +
     (LABELS && Array.isArray(fav) ? ' <span class="n">' + fav.length + "</span>" : "") + "</a>");
   chips.push('<a class="chip sys' + (ON === "ALL" ? " on" : "") + '" href="' + href("all") + '"' + tgt + '>ALL' +
     (LABELS ? ' <span class="n">' + Object.keys(comp).length + "</span>" : "") + "</a>");
@@ -132,7 +162,8 @@ async function tick() {
   }
   document.getElementById("strip").innerHTML = chips.join("");
 }
-tick().catch(() => { document.getElementById("strip").innerHTML = '<span class="empty">cohort data unavailable</span>'; });
+/* Read failures are handled inside tick(); this outer catch is a render-bug last resort. */
+tick().catch(() => { document.getElementById("strip").innerHTML = '<span class="empty">the strip failed to render — reload; if it repeats, this is a page bug, not a data gap</span>'; });
 setInterval(() => tick().catch(() => {}), REFRESH);
 </script>
 </body>

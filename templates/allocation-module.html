@@ -120,10 +120,8 @@
       <div class="heatlabel" id="heatlabel">—</div>
     </div>
     <details>
-      <summary>GEIGER DIALS (approved — touch only if you mean it)</summary>
-      <div class="ctl"><label>Trend / Momentum<small>inside each geiger</small></label><input type="range" id="dTrend" min="0" max="1" step="0.05"><div class="v" id="dTrendV"></div></div>
-      <div class="ctl"><label>RSI / W%R<small>momentum blend</small></label><input type="range" id="dRsi" min="0" max="1" step="0.05"><div class="v" id="dRsiV"></div></div>
-      <div class="note" style="margin:6px 0">TIMEFRAME WEIGHTS — locked to your live hub equalizer (reviewed off the hub, logo menu → Weight Equalizer): 2h 1.2 · 3h 3.6 · 4h 6.7 · 6h 9.3 · 12h 9.3 · 1d 9.3 · 3d 7.6 · 1w 2.9. Families TRND 50 / MOM 50. Change them in the hub and hit SAVE — once operator_weights carries rows, this page reads them live.</div>
+      <summary>LEVEL VOTER ENDPOINTS (VIX · 10Y)</summary>
+      <div class="note" style="margin:6px 0">The geiger dials that used to sit here are gone with the client geiger: every displayed geiger is the hub equalizer's own output read from <code>composite_staged</code>, so its blends and timeframe curve are set in the hub (logo menu → Weight Equalizer, persisted to <code>operator_weights</code>), not on this page. A dial here would move nothing, and a dial that moves nothing teaches a false model of where the number comes from.</div>
       <div class="ctl"><label>VIX cold ↔ hot<small>−1 at high, +1 at low</small></label><input type="range" id="vixCold" min="20" max="50" step="1"><div class="v" id="vixColdV"></div></div>
       <div class="ctl"><label>10Y cold end %<small>−1 at this yield</small></label><input type="range" id="tenCold" min="4" max="6" step="0.1"><div class="v" id="tenColdV"></div></div>
     </details>
@@ -182,6 +180,7 @@
     <div id="sectorStrip" style="margin-bottom:10px"></div>
     <div id="catTabs" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
     <table id="cohort"></table>
+    <div id="cohortUnavail" class="note" style="font-size:10px;margin-top:6px"></div>
     <div class="status"><button class="btn" id="refresh">↻ REFRESH FEEDS</button> <span class="updated" id="cohstamp"></span></div>
   </div>
 
@@ -209,10 +208,10 @@
     <details><summary>read this first if you are a new session</summary>
     <div class="note" style="line-height:1.75">
     <b style="color:var(--txt)">WHAT THIS IS.</b> The SCINTILLA allocation module: market heat → % invested → LC/SC split → moves in % of equity / class / position, with ★FAV candidates ranked by their own geigers. Percent-only, never dollars. Canonical source: GitHub aharveyrianhard-stack/scintilla-allocation (main auto-deploys here). Served at scintillahub.ai/allocation and allocation.scintillahub.ai — same page.<br><br>
-    <b style="color:var(--txt)">DATA POLICY.</b> Test lane = YAHOO via Supabase functions macro-feed + cohort-feed (5-min server cache). Symbol map: BTCUSD→BTC-USD, GCUSD→GC=F, SIUSD→SI=F, CLUSD→CL=F. Proven voters graduate to the SCINTILLA database as primary with Yahoo as fallback. FMP is PROHIBITED everywhere in this module.<br><br>
-    <b style="color:var(--txt)">CONSOLIDATION (2026-08-05 · C7).</b> This module now reads the shared SCINTILLA source-of-truth directly: GEIGER = <code>composite_staged</code> (tf=D, the hub equalizer output — the client no longer computes scoring geigers; cohort-feed Yahoo primitives remain only as a flagged FALLBACK). UNIVERSE = <code>ticker_cohorts</code> + <code>hub_favorites</code> (hardcoded TICKER_STYLES retained only as fallback). QUOTE+RVOL = <code>live_quotes</code> ÷ <code>company_profile.avg_volume</code>. MACRO = <code>treasury_rates</code> (10Y) + <code>vix_term</code> (VIX; Yahoo fallback flagged when stale). SECTOR = <code>sector_rankings</code>, published hourly by the sector-rotation tool from the same composite_staged — displayed as a ranking strip and a per-name SECT chip (display/annotation only, no score-math change). Every data element carries a freshness/source badge in the strip under the title. etf_holdings/etf_info remain empty — nothing faked.<br><br>
+    <b style="color:var(--txt)">DATA POLICY (updated with the cohort-feed retirement).</b> Geiger, quote, universe, sector and fundamentals data come from the SCINTILLA database and the provider contract only. The single remaining Yahoo lane is macro-feed, used for exactly two LEVEL voters — VIX and US10Y — when their tables (<code>vix_term</code>, <code>treasury_rates</code>) are stale or unreadable, and it is flagged FALLBACK on the gauge whenever it is voting. cohort-feed is retired from this page: no geiger, price, day-change or universe may come from it. FMP is PROHIBITED everywhere in this module.<br><br>
+    <b style="color:var(--txt)">CONSOLIDATION (2026-08-05 · C7).</b> This module now reads the shared SCINTILLA source-of-truth directly: GEIGER = <code>composite_staged</code> (tf=D, the hub equalizer output — the client computes no geiger at all, and the cohort-feed lane that once carried primitives for one is retired; an absent composite is said out loud, never substituted). UNIVERSE = <code>ticker_cohorts</code> + <code>hub_favorites</code> (hardcoded TICKER_STYLES retained only as fallback). QUOTE+RVOL = <code>live_quotes</code> ÷ <code>company_profile.avg_volume</code>. MACRO = <code>treasury_rates</code> (10Y) + <code>vix_term</code> (VIX; Yahoo fallback flagged when stale). SECTOR = <code>sector_rankings</code>, published hourly by the sector-rotation tool from the same composite_staged — displayed as a ranking strip and a per-name SECT chip (display/annotation only, no score-math change). Every data element carries a freshness/source badge in the strip under the title. etf_holdings/etf_info remain empty — nothing faked.<br><br>
     <b style="color:var(--txt)">PROXY MENU.</b> LC→SPY · SC→IWM · Growth→QQQ · Value→RSP · Semis→SMH · Crypto→BTC-USD · Oil→CL=F (LIVE as its own independent voter, inverted — per Alan; no other commodity voters unless Alan asks) · Defensives→XLP+XLU. Mechanics when added: SLEEVES are sized by relative coldness — colder sleeve earns more, its coldest favorites get ADD-tagged. STYLES (growth/value — cross-cap by nature) never become sleeves; they re-rank candidates INSIDE sleeves (cold QQQ pushes growth names up the ADD list in both classes). Sector geigers (already in macro-feed, all 11) will re-rank by sector the same way — integrates with the hub sectorrotation tool.<br><br>
-    <b style="color:var(--txt)">PARITY — EQUALIZER REVIEWED ON THE HUB 2026-07-19 (logo menu → Weight Equalizer).</b> Read-back of the live surface: TF curve 2h 1.2 · 3h 3.6 · 4h 6.7 · 6h 9.3 · 12h 9.3 · 1d 9.3 · 3d 7.6 · 1w 2.9 (1m–1h and 2w–1M at 0) · families TRND 50 / MOM 50 (only those two carry weight live) · momentum mix 60 RSI / 40 Williams · SAVE persists to operator_weights (currently 0 rows = hub running these defaults). THIS MODULE NOW RUNS THAT EXACT CURVE: cohort-feed v4 computes the primitives per TF, intraday resampled from Yahoo 60m bars (2h=2×60m, 3h=3, 4h=4, 6h=6, 12h=13 bars — test-lane approximation; database bars replace them on graduation). Remaining differences vs the hub can only come from Yahoo data lag/timestamps — by design, per Alan's doctrine. When operator_weights gains rows, read it live and drop the hardcoded curve.<br><br>
+    <b style="color:var(--txt)">PARITY — EQUALIZER REVIEWED ON THE HUB 2026-07-19 (logo menu → Weight Equalizer). HISTORICAL — the client geiger and its cohort-feed lane described below were later retired; the curve lives upstream in the hub.</b> Read-back of the live surface: TF curve 2h 1.2 · 3h 3.6 · 4h 6.7 · 6h 9.3 · 12h 9.3 · 1d 9.3 · 3d 7.6 · 1w 2.9 (1m–1h and 2w–1M at 0) · families TRND 50 / MOM 50 (only those two carry weight live) · momentum mix 60 RSI / 40 Williams · SAVE persists to operator_weights (currently 0 rows = hub running these defaults). THIS MODULE NOW RUNS THAT EXACT CURVE: cohort-feed v4 computes the primitives per TF, intraday resampled from Yahoo 60m bars (2h=2×60m, 3h=3, 4h=4, 6h=6, 12h=13 bars — test-lane approximation; database bars replace them on graduation). Remaining differences vs the hub can only come from Yahoo data lag/timestamps — by design, per Alan's doctrine. When operator_weights gains rows, read it live and drop the hardcoded curve.<br><br>
     <b style="color:var(--txt)">RSI LEVELS — verified vs GOOGL_GEIGER_v2 (GEIGER!A24):</b> momentum is "mapped straight from its range to −1…+1". 23/77 are the ends of the map, not gates — every intermediate RSI level feeds proportionally, continuously.<br><br>
     <b style="color:var(--txt)">PARITY TEST — RUN 2026-07-20, vs database table board_rsi.</b> RSI: EXACT match 3/3 to the decimal (SPY 48.42=48.42 · QQQ 42.00=42.00 · GOOGL 42.23=42.23) — same Wilder math, same close-series convention, Alan's post-market worry cleared (DB bar = Friday close; Google Finance's SPY ~752 was the outlier quote, Yahoo+hub+DB all agree). Williams %R: fixed to TRUE bar highs/lows in cohort-feed v5 (was close-only); QQQ now −85.4 vs DB −83.2. Residual gap on SPY/GOOGL (−33 vs −52 · −64 vs −82) is the LOOKBACK convention: this module uses 25 bars per the approved GOOGL_GEIGER_v2 spec; board_rsi appears to use a different period. RESOLVED BY ALAN 2026-07-20: indicators are calculated as normally calculated — Williams %R = standard 14-period on true highs/lows. With that, parity is EXACT 6/6 (RSI and W%R, SPY/QQQ/GOOGL all match the database to the decimal). Still open: wire operator_weights when it gains rows.<br><br>
     <b style="color:var(--txt)">YOUR STATE / IBKR.</b> Panel 3 seeds from storage file inbox/ibkr-state.json (percentages only, never dollars). It updates ONLY when Alan tells a session "sync IBKR" (scheduled auto-sync was proposed and REJECTED — do not create one). IBKR connector is read-only OAuth; never touch orders.<br><br>
@@ -239,6 +238,11 @@
 
 </div>
 
+<!-- PROVIDER AUTHORITY SHIM. This page reads live_quotes and composite_staged with a bare
+     fetch(), so without this tag its equity numbers came from the legacy tables while every
+     other Station surface had moved. -->
+<script src="/_provider/provider.js"></script>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 const SB = 'https://wadinxqplrggagkvrdag.supabase.co/functions/v1';
 /* ===================== C7 SSOT LAYER (2026-08-05) =====================
@@ -249,10 +253,27 @@ const SB = 'https://wadinxqplrggagkvrdag.supabase.co/functions/v1';
    (asserts rows<1000) or a per-key limited fetch — never an unguarded giant in.() query. */
 const SB_REST='https://wadinxqplrggagkvrdag.supabase.co/rest/v1';
 const SB_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g';
+/* THE SAME 20s CEILING /health USES. This reader had no bound, so a Supabase socket that
+   opened and said nothing held its badge at its loading state forever - on pages whose
+   whole point is a truthful per-source badge. A timeout is its own outcome and its own
+   words, kept distinct from an HTTP failure. */
+const SB_HARD_MS = 20000;
 async function sbGet(path){
-  const r=await fetch(SB_REST+'/'+path,{headers:{apikey:SB_ANON,Authorization:'Bearer '+SB_ANON},cache:'no-store'});
-  if(!r.ok) throw new Error(path.split('?')[0]+' '+r.status);
-  return r.json();
+  const controller = typeof AbortController === 'undefined' ? null : new AbortController();
+  const hard = controller ? setTimeout(() => controller.abort(), SB_HARD_MS) : null;
+  try {
+    const r=await fetch(SB_REST+'/'+path,{headers:{apikey:SB_ANON,Authorization:'Bearer '+SB_ANON},cache:'no-store',signal:controller?.signal});
+    if(!r.ok) throw new Error(path.split('?')[0]+' '+r.status);
+    /* Awaited inside the try so the ceiling covers the body read too. */
+    return await r.json();
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      const t = new Error(path.split('?')[0] + ' no answer in ' + (SB_HARD_MS/1000) + 's');
+      t.scTimeout = true;
+      throw t;
+    }
+    throw e;
+  } finally { if (hard) clearTimeout(hard); }
 }
 let COMPOSITE={}, COMPOSITE_STATUS='pending';           // ticker -> {trend,momentum,composite,updated_ts}  THE geiger
 let UNIVERSE={cohorts:{}, favs:new Set(), status:'pending'};  // THE universe: ticker_cohorts + hub_favorites
@@ -280,11 +301,22 @@ function renderSpine(){
 async function refreshSSOT(){
   const J=[];
   // THE universe
-  J.push(sbGet('ticker_cohorts?select=ticker,cohort&limit=1000').then(rows=>{
-    if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
+  /* 1283 memberships against PostgREST's 1000-row cap: this read returned four fifths of the
+     axis, unordered, and the page called the result THE universe. Paged under a total order by
+     the shared reader - see _cohorts/cohort-axis.js. */
+  /* THE GUARD BELONGED TO THE UNPAGINATED READ, AND OUTLIVED IT.
+     `rows.length>=1000` was the only defence a single limit=1000 request had against a silent
+     truncation. Now that the shared reader pages the whole relation, a complete read returns
+     1283 rows and that same guard threw on every load - so the page fell back to hardcoded
+     TICKER_STYLES every single time, and did it PRECISELY BECAUSE the read had succeeded. A
+     paged read reports its own completeness; `axis.truncated` is the only honest signal, and
+     the row count is no longer evidence of anything. */
+  J.push(SC_COHORT_AXIS.loadMemberships(sbGet).then(axis=>{ const rows=axis.rows;
+    if(axis.truncated) throw new Error('membership read truncated before the end of the relation');
+    if(!rows.length) throw new Error('membership read returned nothing');
     const m={}; for(const r of rows)(m[r.ticker]=m[r.ticker]||[]).push(r.cohort);
     UNIVERSE.cohorts=m; UNIVERSE.status='ok';
-    spineSet('ticker_cohorts',null,'LIVE',rows.length+' rows — THE universe');
+    spineSet('ticker_cohorts',null,'LIVE',rows.length+' memberships over '+Object.keys(m).length+' tickers, fully paged — THE universe');
   }).catch(e=>{UNIVERSE.status='error';spineSet('ticker_cohorts',null,'FALLBACK','read failed ('+e.message+') — hardcoded TICKER_STYLES in use');}));
   J.push(sbGet('hub_favorites?select=ticker,added_at&limit=1000').then(rows=>{
     UNIVERSE.favs=new Set(rows.map(r=>r.ticker));
@@ -296,13 +328,13 @@ async function refreshSSOT(){
     const m={}; let mx=0; for(const r of rows){m[r.ticker]=r; if(r.updated_ts>mx)mx=r.updated_ts;}
     COMPOSITE=m; COMPOSITE_STATUS='ok';
     spineSet('composite_staged',mx,ageMode(mx,45*60),rows.length+' tickers tf=D — THE geiger (0.5×trend+0.5×momentum, hub equalizer output)');
-  }).catch(e=>{COMPOSITE_STATUS='error';spineSet('composite_staged',null,'FALLBACK','read failed ('+e.message+') — client Yahoo geiger in use');}));
+  }).catch(e=>{COMPOSITE_STATUS='error';spineSet('composite_staged',null,'FALLBACK','read failed ('+e.message+') — no geiger; nothing is substituted');}));
   // quote + RVOL inputs
   J.push(sbGet('live_quotes?select=ticker,price,chg_pct,volume,prev_close,updated_ts&limit=1000').then(rows=>{
     if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
     const m={}; let mx=null; for(const r of rows){m[r.ticker]=r; const es=Date.parse(r.updated_ts)/1000; if(!mx||es>mx)mx=es;}
     QUOTES=m; spineSet('live_quotes',mx,ageMode(mx,30*60),rows.length+' quotes');
-  }).catch(e=>spineSet('live_quotes',null,'FALLBACK','read failed — cohort-feed prices in use')));
+  }).catch(e=>spineSet('live_quotes',null,'FALLBACK','read failed — prices and day changes render unavailable; nothing is substituted')));
   J.push(sbGet('company_profile?select=ticker,sector,market_cap,avg_volume,is_etf&limit=1000').then(rows=>{
     if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
     const m={}; for(const r of rows)m[r.ticker]=r;
@@ -331,13 +363,20 @@ async function refreshSSOT(){
   await Promise.all(J);
   renderSpine();
 }
-// THE geiger accessor: composite_staged first, client Yahoo geiger strictly as flagged fallback
+/* THE GEIGER HAS ONE OWNER NOW.
+   A client geiger here was written as a flagged fallback, and a flag is not the same as an
+   owner: it computed a scoring geiger locally from Yahoo primitives whenever the accepted one
+   was missing, which is a second equity authority answering under the first one's name. It is
+   gone from every displayed path and from the diagnostic readout - while it existed a reader
+   could still see a number labelled as a geiger that no accepted authority produced. The
+   provider contract answers, or this page says it could not. */
+// THE geiger accessor: the provider's composite via the authority shim; no local recomputation
 function tickerG(sym){
   const r=COMPOSITE[sym];
   if(r&&r.composite!=null) return {g:Math.max(-1,Math.min(1,r.composite)),src:'db'};
-  const c=COHORT[sym];
-  if(c) return {g:geiger(c),src:'fallback'};
-  return null;
+  /* No local recomputation stands in for the accepted geiger, and no second feed decides
+     whether the absence is worth mentioning. Absent is absent, visibly. */
+  return {g:null,src:'unavailable'};
 }
 function gv(sym){ const r=tickerG(sym); return r?r.g:null; }
 // FMP-style profile sector names -> GICS sector ETF
@@ -366,13 +405,15 @@ function renderSectorStrip(){
   el.innerHTML='<div class="cls" style="font-size:10px;letter-spacing:.08em;margin-bottom:4px">SECTOR ROTATION — published ranking · <code>sector_rankings</code> (sector tool, same composite_staged geiger) · '+freshTxt(SECTOR_RANKS.updated_at)+' · annotation lens only, no score-math change</div><div style="display:flex;flex-wrap:wrap;gap:5px">'+chips+'</div>';
 }
 function candidateSyms(){
-  // THE universe = ticker_cohorts (pick cohorts) + hub_favorites. Legacy cohort-feed set only as fallback.
+  // THE universe = ticker_cohorts (pick cohorts) + hub_favorites. There is no fallback universe.
   const pickCohorts=new Set(['GROWTH','AI_HARDWARE','AI_HW','AI_SOFTWARE','CRYPTO','MEGACAP','BLUE_CHIP','THEMATIC','INTL']);
   const out=new Set();
   for(const [sym,cs] of Object.entries(UNIVERSE.cohorts)) if(cs.some(c=>pickCohorts.has(c))) out.add(sym);
   for(const f of UNIVERSE.favs) out.add(f);
-  for(const s of CMDTY_SYMS) if(COMPOSITE[s]||COHORT[s]) out.add(s);
-  if(!out.size) for(const s of Object.keys(COHORT)) out.add(s);   // FALLBACK universe (spine flags it)
+  for(const s of CMDTY_SYMS) if(COMPOSITE[s]) out.add(s);
+  /* No fallback universe. When ticker_cohorts and hub_favorites cannot be read, the list is
+     empty and the table says so - a candidate set invented from a Yahoo feed is a ranking of
+     symbols nobody chose. */
   return [...out];
 }
 /* =================== end C7 SSOT LAYER =================== */
@@ -439,11 +480,7 @@ function tickerSleeves(sym){
   if (!out.size && cls === 'LC') out.add('BROAD');
   return [...out];
 }
-// internals direction & weight (mirrors the sheet's Feed map)
-const INTERNALS = {'RSP/SPY':[1,1],'IWM/SPY':[1,1],'QQQ/SPY':[1,1],'XLY/XLP':[1,1],'HYG/LQD':[1,1],'SMH/SPY':[1,1],'XLU/SPY':[-1,1],'BTC-USD':[1,1],'VIX':[-1,1],'VIX3M':[-1,0],'MOVE':[-1,1],'SKEW':[-1,1],'VVIX':[-1,1],'US10Y':[-1,1],'US5Y':[-1,0],'US3M':[-1,0],'US30Y':[-1,0],'CYC_DEF':[1,1]};
-
 const DEFAULTS = {
-  dTrend:0.5, dRsi:0.6, dTf:0.763,          // approved geiger + equalizer 3.1785/0.9875
   vixCold:30, tenCold:4.8,                   // hot ends fixed at 12 / 3.5
   maxInv:100, minInv:15, nLC:4, nSC:2, nPer:2, divAuto:1, lcTilt:0, maxTotal:12, maxNames:6, concLean:0,
   curInv:0, curLC:0,
@@ -472,48 +509,37 @@ if (S.maxNames==null) S.maxNames=6;
 if (S.concLean==null) S.concLean=0;
 function save(){ localStorage.setItem('alloc-module-v1', JSON.stringify(S)); }
 
-let COHORT = {};
-let COMPS = {};  // sym -> fundamentals from comps-feed (SCINTILLA database)   // sym -> {price,day,td,rd,gd,tw,rw,gw,ma,maN}
-let MACRO = {};    // name -> {value,trend,rsi,range}
-let STAMPS = {cohort:'', macro:''};
+/* COHORT IS GONE, NOT DORMANT. The cohort-feed carried Yahoo primitives so a client geiger
+   could be computed from them; with that computation removed from every path, keeping the
+   feed meant keeping a second price/geiger source loaded and one careless edit away from
+   being consulted. The provider composite answers, or the surface says it could not. */
+let COMPS = {};  // sym -> fundamentals from comps-feed (SCINTILLA database)
+let MACRO = {};    // name -> {value} — VIX / US10Y levels only, the flagged voter fallback
 
 function parseCSV(text){
   const lines = text.trim().split('\n'); const head = lines[0].split(',');
   return lines.slice(1).map(l => { const c = l.split(','); const o = {}; head.forEach((h,i)=>o[h]=c[i]); return o; });
 }
-// THE EQUALIZER CURVE — read off the live hub equalizer (logo menu) on 2026-07-19. SAVE writes operator_weights; when that table has rows we read it live instead.
-const EQ_W = {'2h':1.2, '3h':3.6, '4h':6.7, '6h':9.3, '12h':9.3, '1d':9.3, '3d':7.6, '1w':2.9};
-const TFS = Object.keys(EQ_W);
-function ingest(mr, cr){
-  for (const r of parseCSV(mr)) {
-    MACRO[r.name] = {value:+r.value, trend:r.trend===''?null:+r.trend, rsi:r.rsi_s===''?null:+r.rsi_s, range:r.range_s===''?null:+r.range_s};
-    STAMPS.macro = r.updated_utc;
-  }
-  for (const r of parseCSV(cr)) {
-    if (r.price === '' || r.t_1d === undefined) continue;
-    const [ma, maN] = (r.ma10||'0/10').split('/').map(Number);
-    const tf = {};
-    for (const t of TFS) tf[t] = {t: r['t_'+t]===''?null:+r['t_'+t], r: r['r_'+t]===''?null:+r['r_'+t], g: r['g_'+t]===''?null:+r['g_'+t]};
-    COHORT[r.sym] = {price:+r.price, day:+r.day_pct, tf, ma, maN};
-    STAMPS.cohort = r.updated_utc;
-  }
+function ingest(mr){
+  /* Levels only. The per-TF geiger primitives this used to parse fed the retired client
+     geiger; nothing may consume them any more, so nothing parses them. */
+  for (const r of parseCSV(mr)) MACRO[r.name] = {value:+r.value};
 }
 async function loadFeeds(){
   // instant paint from last data, refresh in background (server also caches geigers 5 min)
-  const cached = JSON.parse(localStorage.getItem('alloc-data-v1') || 'null');
-  const haveCache = cached && cached.mr && cached.cr;
-  if (haveCache) { ingest(cached.mr, cached.cr); document.getElementById('loading').style.display='none'; render(); }
+  /* The cache key moved with the cohort-feed retirement: v1 carried {mr, cr} and reviving cr
+     would revive the retired feed's data. */
+  const cached = JSON.parse(localStorage.getItem('alloc-data-v2') || 'null');
+  const haveCache = cached && cached.mr;
+  if (haveCache) { ingest(cached.mr); document.getElementById('loading').style.display='none'; render(); }
   else document.getElementById('loading').style.display='flex';
-  document.getElementById('loadmsg').textContent = 'pulling SSOT tables (composite_staged · cohorts · quotes) + fallback feeds…';
+  document.getElementById('loadmsg').textContent = 'pulling SSOT tables (composite_staged · cohorts · quotes) + the macro-feed level fallback…';
   document.getElementById('refresh').textContent = '↻ REFRESHING…';
-  const ssotP = refreshSSOT();   // SSOT DB reads run in parallel with the legacy fallback feeds
+  const ssotP = refreshSSOT();   // SSOT DB reads run in parallel with the level fallback feed
   try {
-    const [mr, cr] = await Promise.all([
-      fetch(SB + '/macro-feed?v=5').then(r=>r.text()),
-      fetch(SB + '/cohort-feed').then(r=>r.text())
-    ]);
-    localStorage.setItem('alloc-data-v1', JSON.stringify({mr, cr}));
-    ingest(mr, cr);
+    const mr = await fetch(SB + '/macro-feed?v=5').then(r=>r.text());
+    localStorage.setItem('alloc-data-v2', JSON.stringify({mr}));
+    ingest(mr);
   } catch(e) { /* keep cached view — SSOT reads are primary now */ }
   try { await ssotP; } catch(e) { /* per-table spine badges carry their own error state */ }
   // comps value layer from the SCINTILLA database (fundamentals / ratios_history / analyst_estimates via comps-feed; never FMP)
@@ -545,35 +571,16 @@ async function loadFeeds(){
 const clamp = x => Math.max(-1, Math.min(1, x));
 // diversification: AUTO scales names with regime — HOT (defend) concentrate in best few, COLD (deploy) cast wider for the rebound.
 function namesPer(h){ const cap=S.maxNames??6; let n; if(!S.divAuto){ n=S.nPer; } else { const base=2 + (1-(h??0))/2 * 3; n=Math.round(base - (S.concLean??0)*1.5); } return Math.max(1, Math.min(cap, n)); } // AUTO: 2+(1-heat)/2*3, leaned by concLean, clamped 1..maxNames
-function geiger(c){
-  // Full equalizer: per-TF geiger = TRND 50% + MOM 50% (RSI 60 / W%R 40), weighted by the live curve.
-  let num = 0, den = 0;
-  for (const t of TFS) {
-    const p = c.tf?.[t]; if (!p || p.t == null || p.r == null || p.g == null) continue;
-    const g = p.t * S.dTrend + (p.r * S.dRsi + p.g * (1 - S.dRsi)) * (1 - S.dTrend);
-    num += g * EQ_W[t]; den += EQ_W[t];
-  }
-  return den ? clamp(num / den) : 0;
-}
-function rowGeiger(m){ // macro-feed row with primitives (daily-only series)
-  if (m.trend == null) return null;
-  return clamp(m.trend * S.dTrend + (m.rsi * S.dRsi + m.range * (1 - S.dRsi)) * (1 - S.dTrend));
-}
-function internalsScore(){
-  let num = 0, den = 0;
-  for (const [name, [dir, w]] of Object.entries(INTERNALS)) {
-    const m = MACRO[name]; if (!m || !w) continue;
-    const g = rowGeiger(m); if (g == null) continue;
-    num += dir * g * w; den += w;
-  }
-  const sect = MACRO['SECT_PCT_ABOVE_200D'];
-  if (sect && isFinite(sect.value)) { num += (sect.value * 2 - 1); den += 1; }
-  return den ? num / den : 0;
-}
+/* THE CLIENT GEIGER IS REMOVED, NOT RETIRED-BUT-PRESENT.
+   geiger(), rowGeiger() and internalsScore() computed scoring geigers from cohort-feed and
+   macro-feed Yahoo primitives. Their last consumers - the brief, the trace, the tranche
+   cadence's breadth factor and a breakdown table whose element no longer existed - are on the
+   provider composite now, and code that can quietly answer under the accepted authority's
+   name does not stay in the page as an attractive nuisance. */
 function voters(){
   const v = [];
   const idx = sym => gv(sym);                                            // SSOT: composite_staged
-  const gsrc = sym => COMPOSITE[sym] ? 'composite_staged · db' : (COHORT[sym] ? 'FALLBACK client geiger (yahoo)' : '—');
+  const gsrc = sym => COMPOSITE[sym] ? 'provider composite via the authority shim' : 'accepted composite unavailable';
   v.push({key:'SPY', name:'SPY GEIGER', sub:gsrc('SPY'), val:idx('SPY')});
   v.push({key:'QQQ', name:'QQQ GEIGER', sub:gsrc('QQQ'), val:idx('QQQ')});
   v.push({key:'IWM', name:'IWM GEIGER', sub:'small caps · '+gsrc('IWM'), val:idx('IWM')});
@@ -596,15 +603,20 @@ function voters(){
   v.push({key:'DEF', name:'DEFENSIVES (inv)', sub:'XLP+XLU · '+(COMPOSITE['XLP']?'db':'fallback'), val: (gp2!=null && gu2!=null) ? clamp(-(gp2+gu2)/2) : null});
   return v;
 }
+/* ZERO VOTERS IS NOT A NEUTRAL MARKET.
+   With every voter absent or muted this returned 0, which reads NEUTRAL and prices the
+   invested curve at its midpoint - a deploy-to-the-midpoint instruction manufactured from
+   no data at all, painted exactly when the provider was down. No score is null, and every
+   consumer says "unavailable" instead of acting on it. */
 function heat(){
   let num = 0, den = 0;
   for (const v of voters()) { if (v.val == null) continue; const w = S.wts[v.key] ?? 0; num += v.val * w; den += w; }
-  return den ? num / den : 0;
+  return den ? num / den : null;
 }
 function heatWith(vlist, key, w){ // counterfactual: heat if this one voter's weight were w
   let num = 0, den = 0;
   for (const v of vlist) { if (v.val == null) continue; const wt = v.key === key ? w : (S.wts[v.key] ?? 0); num += v.val * wt; den += wt; }
-  return den ? num / den : 0;
+  return den ? num / den : null;
 }
 function investedAt(h){ const x = (1 - h) / 2; return (S.minInv + (S.maxInv - S.minInv) * x) / 100; }
 // LC/SC split: DATA-DRIVEN. Colder class gets the bigger sleeve, sized by the geiger spread.
@@ -646,29 +658,43 @@ function render(){
     gd.appendChild(row);
     if (VOTER_DESC[v.key]) {
       const d = document.createElement('div'); d.className = 'vdesc';
-      const allV = voters(), hNow = (() => { let n=0,dd=0; for (const x of allV){ if(x.val==null) continue; const w=S.wts[x.key]??0; n+=x.val*w; dd+=w; } return dd?n/dd:0; })();
+      const allV = voters(), hNow = heatWith(allV, v.key, S.wts[v.key] ?? 0);
       const cur = S.wts[v.key] ?? 0;
       const alt = cur > 0 ? 0 : 1;
       const hAlt = heatWith(allV, v.key, alt);
-      const fmt2 = x => (x>=0?'+':'')+x.toFixed(2);
-      const dEff = hAlt - hNow, mag = Math.abs(dEff);
-      const dir = dEff > 0.005 ? 'UP ⬆' : dEff < -0.005 ? 'DOWN ⬇' : 'nowhere —';
-      const strength = mag < 0.005 ? '' : mag < 0.02 ? 'barely' : mag < 0.06 ? 'a little' : mag < 0.12 ? 'noticeably' : 'a LOT';
-      d.innerHTML = VOTER_DESC[v.key] + (v.val==null ? '' :
-        `<span class="veffect">${cur>0 ? `ON. Mute it and the score goes ${dir} ${strength} (${fmt2(hNow)} → ${fmt2(hAlt)}).` : `OFF. Turn it on and the score goes ${dir} ${strength} (${fmt2(hNow)} → ${fmt2(hAlt)}).`}</span>`);
+      const fmt2 = x => x==null?'—':(x>=0?'+':'')+x.toFixed(2);
+      let effect = '';
+      if (v.val != null) {
+        if (hAlt == null) {
+          /* Muting the last live voter does not move the score to 0 - it removes it. */
+          effect = `<span class="veffect">ON. Mute it and no weighted voter remains — the score reads unavailable, not 0.</span>`;
+        } else {
+          const dEff = hAlt - (hNow ?? 0), mag = Math.abs(dEff);
+          const dir = dEff > 0.005 ? 'UP ⬆' : dEff < -0.005 ? 'DOWN ⬇' : 'nowhere —';
+          const strength = mag < 0.005 ? '' : mag < 0.02 ? 'barely' : mag < 0.06 ? 'a little' : mag < 0.12 ? 'noticeably' : 'a LOT';
+          effect = `<span class="veffect">${cur>0 ? `ON. Mute it` : `OFF. Turn it on`} and the score goes ${dir} ${strength} (${fmt2(hNow)} → ${fmt2(hAlt)}).</span>`;
+        }
+      }
+      d.innerHTML = VOTER_DESC[v.key] + effect;
       gd.appendChild(d);
     }
   }
-  const h = heat(), [lbl, color] = heatLabel(h);
-  document.getElementById('heatnum').textContent = (h>=0?'+':'') + h.toFixed(2);
-  document.getElementById('heatnum').style.color = color;
-  const hb = document.getElementById('heatbar'); barCSS(hb, h);
-  const hl = document.getElementById('heatlabel'); hl.textContent = lbl; hl.style.color = color;
+  const h = heat();
+  if (h == null) {
+    document.getElementById('heatnum').textContent = '—';
+    document.getElementById('heatnum').style.color = 'var(--dim)';
+    const hb = document.getElementById('heatbar'); hb.style.width = '0%';
+    const hl = document.getElementById('heatlabel'); hl.textContent = 'UNAVAILABLE — NO VOTER ANSWERED'; hl.style.color = 'var(--dim)';
+  } else {
+    const [lbl, color] = heatLabel(h);
+    document.getElementById('heatnum').textContent = (h>=0?'+':'') + h.toFixed(2);
+    document.getElementById('heatnum').style.color = color;
+    const hb = document.getElementById('heatbar'); barCSS(hb, h);
+    const hl = document.getElementById('heatlabel'); hl.textContent = lbl; hl.style.color = color;
+  }
 
   // dials display
   const set = (id, v, fmt) => { const e = document.getElementById(id); e.value = v; document.getElementById(id+'V').textContent = fmt; };
-  set('dTrend', S.dTrend, S.dTrend.toFixed(2)+' / '+(1-S.dTrend).toFixed(2));
-  set('dRsi', S.dRsi, S.dRsi.toFixed(2)+' / '+(1-S.dRsi).toFixed(2));
   set('vixCold', S.vixCold, '−1 @ '+S.vixCold+' · +1 @ 12');
   set('tenCold', S.tenCold, '−1 @ '+(+S.tenCold).toFixed(1)+'% · +1 @ 3.5%');
   set('maxInv', S.maxInv, S.maxInv+'%');
@@ -694,37 +720,51 @@ function render(){
   const gS = gv('SPY'), gI = gv('IWM');                  // SSOT: composite_staged
   if (gS != null && gI != null) {
     const lcs = lcShareAuto(h);
-    const tiltTerm = (S.lcTilt || 0) * h;
+    const tiltTerm = (S.lcTilt || 0) * (h ?? 0);
     document.getElementById('autosplit').innerHTML = `<b style="color:var(--gold)">LC/SC SPLIT — set by the data:</b> SPY geiger ${(gS>=0?'+':'')+gS.toFixed(2)} vs IWM geiger ${(gI>=0?'+':'')+gI.toFixed(2)} → LC share = 50% + (IWM ${(gI>=0?'+':'')+gI.toFixed(2)} − SPY ${(gS>=0?'+':'')+gS.toFixed(2)})×50%${S.lcTilt?` + heat-tilt ${(tiltTerm>=0?'+':'')+(tiltTerm*100).toFixed(1)}%`:''} = <b style="color:var(--txt)">${pct(lcs,0)} LC / ${pct(1-lcs,0)} SC</b>. The colder class earns the bigger sleeve — ${gI<gS?'small caps read colder today':'large caps read colder today'}${Math.abs(gI-gS)<0.06?' (barely: the two classes are near-even)':''}. Rails: LC is capped between 20% and 80% so one hot print can never zero out a whole class.`;
   }
-  // internals breakdown
-  const ib = document.getElementById('intbreak');
-  if (ib) {
-    let rows2 = '<table style="margin-top:6px"><tr><th>INTERNAL</th><th class="r">VALUE</th><th class="r">DIR</th><th class="r">SCORE</th></tr>';
-    for (const [name, [dir, w]] of Object.entries(INTERNALS)) {
-      const m = MACRO[name]; if (!m || !w) continue;
-      const g = rowGeiger(m); if (g == null) continue;
-      const sc2 = dir * g;
-      rows2 += `<tr><td>${name}</td><td class="r cls">${(+m.value).toFixed(name.includes('/')?4:2)}</td><td class="r cls">${dir>0?'+':'−'}</td><td class="r" style="color:${sc2>=0?'var(--cyan)':'var(--orange)'}">${(sc2>=0?'+':'')+sc2.toFixed(2)}</td></tr>`;
-    }
-    const sect2 = MACRO['SECT_PCT_ABOVE_200D'];
-    if (sect2) rows2 += `<tr><td>SECTOR BREADTH</td><td class="r cls">${(sect2.value*100).toFixed(0)}% above 200d</td><td class="r cls">+</td><td class="r" style="color:${(sect2.value*2-1)>=0?'var(--cyan)':'var(--orange)'}">${((sect2.value*2-1)>=0?'+':'')+(sect2.value*2-1).toFixed(2)}</td></tr>`;
-    ib.innerHTML = rows2 + '</table>';
+  /* NO SCORE, NO TARGETS AND NO MOVES.
+     Everything below prices the book off the heat score. When no voter answered, painting
+     the midpoint would BE an allocation instruction nobody produced - the exact number a
+     dead provider used to manufacture. The panels say unavailable instead, the donut is
+     cleared rather than left showing the previous run, and the ranking below still lists
+     what can and cannot be scored. */
+  if (h == null) {
+    document.getElementById('targets').innerHTML =
+      '<div class="note">UNAVAILABLE — no voter carries an accepted value (or every voter is muted), so there is no heat score, no invested target and no sleeve sizing. Nothing defaults to neutral.</div>';
+    document.getElementById('moves').innerHTML =
+      '<div class="note">UNAVAILABLE — moves are the gap between your book and a target that cannot be computed right now.</div>';
+    const dn = document.getElementById('donut');
+    if (dn) { const dctx = dn.getContext('2d'); if (dctx) { dctx.setTransform(1,0,0,1,0,0); dctx.clearRect(0,0,dn.width,dn.height); } }
+    renderBrief(null, null, null, null, null, null);
+    renderInputMap(null);
+    renderCohort(0, 0);
+    renderComps();
+    renderTrace(null);
+    const csFresh0 = SPINE['composite_staged'] && SPINE['composite_staged'].ts ? freshTxt(SPINE['composite_staged'].ts) : '—';
+    document.getElementById('stamp').textContent = 'MACRO HEAT MODULE · geiger SSOT composite_staged (' + csFresh0 + ') · universe ticker_cohorts+hub_favorites · % only, never dollars';
+    document.getElementById('cohstamp').textContent = 'SSOT: composite_staged + ticker_cohorts/hub_favorites + live_quotes + sector_rankings (db) · comps: fundamentals/ratios_history/analyst_estimates · the one fallback lane (macro-feed VIX/10Y levels) is flagged in the badge strip';
+    renderSpine(); renderSectorStrip();
+    save();
+    return;
   }
-
   // targets
   const inv = investedAt(h), lc = lcShareAuto(h), sc = 1 - lc;
   const lcEq = inv*lc, scEq = inv*sc;
   const perLC = lcEq / S.nLC, perSC = scEq / S.nSC;
   const SH = sleeveShares();
-  const sleeveRows = Object.entries(SH).sort((a,b)=>b[1]-a[1]).map(([k,sh]) => {
+  /* An empty sleeve set is a fact worth a sentence, not a silent gap; and the LENS row only
+     shows a split the data actually set - when SPY/IWM composites are absent the 50/50 rail
+     is the clamp's midpoint, not a reading, and printing it as one was a quiet substitute. */
+  const sleeveRows = Object.keys(SH).length ? Object.entries(SH).sort((a,b)=>b[1]-a[1]).map(([k,sh]) => {
     const gk = sleeveG(k), eq = sh * inv;
     return `<div class="move"><div class="mname" style="color:${SLEEVE_COLOR[k]}">${k}</div><div class="mval">${pct(eq)}<small>of equity · ${pct(sh,0)} of invested · geiger ${(gk>=0?'+':'')+gk.toFixed(2)} · ${namesPer(h)} names × ${pct(eq/namesPer(h))}</small></div></div>`;
-  }).join('');
+  }).join('') : '<div class="move"><div class="mname">SLEEVES</div><div class="mval" style="font-size:12px">unavailable<small>no sleeve proxy carries an accepted composite — sizing is not computed</small></div></div>';
+  const lensAvailable = gv('SPY') != null && gv('IWM') != null;
   document.getElementById('targets').innerHTML = `
     <div class="move"><div class="mname">INVESTED</div><div class="mval">${pct(inv)}<small>cash ${pct(1-inv)} — HOW MUCH comes from the heat score; WHERE comes from the sleeves below</small></div></div>
     ${sleeveRows}
-    <div class="move"><div class="mname">LC/SC LENS</div><div class="mval" style="font-size:12px">${pct(lc,0)} / ${pct(1-lc,0)}<small>the same book read as large-vs-small (IWM vs SPY) — a lens, not the mix</small></div></div>`;
+    <div class="move"><div class="mname">LC/SC LENS</div><div class="mval" style="font-size:12px">${lensAvailable ? pct(lc,0)+' / '+pct(1-lc,0) : 'unavailable'}<small>${lensAvailable ? 'the same book read as large-vs-small (IWM vs SPY) — a lens, not the mix' : 'SPY/IWM composite absent — the 20–80 rail midpoint is a clamp, not a reading'}</small></div></div>`;
 
   // moves
   const cInv = S.curInv/100, cLC = S.curLC/100, cSC = cInv - cLC;
@@ -734,12 +774,18 @@ function render(){
   const SPR = styleSpreads();
   const SH2 = sleeveShares();
   const vixVote = voters().find(x=>x.key==='VIX');
-  const gI2b = COHORT['IWM'] ? geiger(COHORT['IWM']) : null, gR2b = COHORT['RSP'] ? geiger(COHORT['RSP']) : null;
+  /* THE CADENCE VOTES ON THE SAME GEIGER AS EVERYTHING ELSE.
+     Breadth here was computed from the cohort-feed's Yahoo primitives through the retired
+     client geiger - the one path where a number the accepted authority never produced still
+     changed an output (the tranche plan). Provider composite only; when it is absent the
+     factor is named unavailable and casts no vote. */
+  const gI2b = gv('IWM'), gR2b = gv('RSP');
   const breadthAvg = (gI2b!=null && gR2b!=null) ? (gI2b+gR2b)/2 : null;
   let urgency = 0, factors = [];
   if (vixVote && vixVote.val != null) { urgency += (vixVote.val < 0 ? 1 : -1); factors.push('volatility ' + (vixVote.val<0?'fear':'complacent')); }
   urgency += (h < -0.15 ? 1 : h > 0.15 ? -1 : 0); factors.push('heat ' + (h<-0.15?'cold':h>0.15?'hot':'neutral'));
   if (breadthAvg != null) { urgency += (breadthAvg < -0.15 ? 1 : 0); factors.push('breadth ' + (breadthAvg<-0.15?'washed':'intact')); }
+  else factors.push('breadth unavailable — not voting');
   const deepDisc = Object.values(SPR).some(v => v < -0.35); if (deepDisc) { urgency += 1; factors.push('deep style discount'); }
   const tranchePlan = urgency >= 2 ? [[0.5,'NOW'],[0.5,'on confirmation']]
     : urgency >= 0 ? [[0.5,'NOW'],[0.5,'on −3% / vol spike']]
@@ -768,7 +814,7 @@ function render(){
   renderTrace(h, inv, lc, lcEq, scEq, perLC, perSC, cInv, cLC, cSC, dTot, dLC, dSC);
   const csFresh = SPINE['composite_staged'] && SPINE['composite_staged'].ts ? freshTxt(SPINE['composite_staged'].ts) : '—';
   document.getElementById('stamp').textContent = 'MACRO HEAT MODULE · geiger SSOT composite_staged (' + csFresh + ') · universe ticker_cohorts+hub_favorites · % only, never dollars';
-  document.getElementById('cohstamp').textContent = 'SSOT: composite_staged + ticker_cohorts/hub_favorites + live_quotes + sector_rankings (db) · comps: fundamentals/ratios_history/analyst_estimates · fallback feeds flagged in the badge strip';
+  document.getElementById('cohstamp').textContent = 'SSOT: composite_staged + ticker_cohorts/hub_favorites + live_quotes + sector_rankings (db) · comps: fundamentals/ratios_history/analyst_estimates · the one fallback lane (macro-feed VIX/10Y levels) is flagged in the badge strip';
   renderSpine(); renderSectorStrip();
   save();
 }
@@ -790,6 +836,12 @@ function drawCurve(h){
   ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1.5; ctx.setLineDash([5,4]); ctx.beginPath();
   for (let i = 0; i <= 100; i++) { const hx = -1 + i/50; const p = lcShareAuto(hx); i ? ctx.lineTo(X(hx), Y(p)) : ctx.moveTo(X(hx), Y(p)); }
   ctx.stroke(); ctx.setLineDash([]);
+  /* The curves are policy and always draw; the TODAY marker is data and only draws when a
+     score exists. A marker at the midpoint of a scoreless day is the fabrication again. */
+  if (h == null) {
+    ctx.font = 'bold 11px monospace'; ctx.fillStyle = '#8a8aa0';
+    ctx.fillText('no live marker — heat unavailable (no voter answered)', L + 8, T + 28);
+  } else {
   // now marker
   ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
   ctx.beginPath(); ctx.moveTo(X(h), T); ctx.lineTo(X(h), H-B); ctx.stroke(); ctx.setLineDash([]);
@@ -801,6 +853,7 @@ function drawCurve(h){
   ctx.fillText(lbl, lx, Y(iv) - 10);
   ctx.font = '10px monospace'; ctx.fillStyle = '#ffd166';
   ctx.fillText('LC share ' + (lcs*100).toFixed(0) + '% (data-set)', lx, Y(lcs) - 6);
+  }
   ctx.fillStyle = '#8a8aa0'; ctx.font = '10px monospace';
   ctx.fillText('── invested % target', L+8, T+12); ctx.fillStyle = '#ffd166'; ctx.fillText('╌╌ LC share of invested', L+150, T+12);
 }
@@ -841,9 +894,15 @@ function drawMix(tLC, tSC, tCash, cLC2, cSC2, cCash){
 }
 function renderBrief(h, inv, lc, dTot, dLC, dSC){
   const el = document.getElementById('brief'); if (!el) return;
-  const g = sym => COHORT[sym] ? geiger(COHORT[sym]) : null;
-  const gS = g('SPY'), gQ = g('QQQ'), gI = g('IWM'), gR = g('RSP');
-  const vix = (VIXDB && VIXDB.fresh) ? VIXDB.vix : MACRO['VIX']?.value, ten = (TREAS && TREAS.y10!=null) ? TREAS.y10 : MACRO['US10Y']?.value;
+  if (h == null) {
+    el.innerHTML = 'UNAVAILABLE — no voter carries an accepted value right now, so there is no heat score and no desk read. A brief written from numbers that do not exist would be fiction with a confident tone; check the badge strip below for which source is failing.';
+    return;
+  }
+  /* The brief is written from the same accepted numbers the score uses. It used to re-derive
+     its geigers from the cohort-feed through the retired client math, and to quote a Yahoo VIX
+     or 10Y with no flag - prose is where an unmarked substitute reads most like authority. */
+  const gS = gv('SPY'), gQ = gv('QQQ'), gI = gv('IWM'), gR = gv('RSP');
+  const vix = (VIXDB && VIXDB.fresh) ? VIXDB.vix : null, ten = (TREAS && TREAS.y10!=null) ? TREAS.y10 : null;
   const SPR = styleSpreads();
   const f = x => x==null?'—':(x>=0?'+':'')+x.toFixed(2);
   const lbl = heatLabel(h)[0];
@@ -864,7 +923,7 @@ function renderInputMap(h){
   const P = 'MAIN', SUB = 'SUB-DIAL', RAIL = 'RAIL (constant)', APPR = 'APPROVED (don’t touch)';
   const rows = [
     ['Voter weights ×8', P, Object.entries(S.wts).map(([k,v])=>k+' '+v).join(' · '), 'Each voter enters MACRO HEAT as value × weight ÷ total weight. Weight 0 = displayed, silent. The EFFECT line under each voter shows the exact Δ of flipping it today.'],
-    ['Invested at max COLD', P, S.maxInv+'%', 'The left end of the invested line: at heat −1 you hold this. Raising it by 10% raises today’s target by 10% × how-cold ('+(((1-h)/2)*100).toFixed(0)+'% today).'],
+    ['Invested at max COLD', P, S.maxInv+'%', 'The left end of the invested line: at heat −1 you hold this. Raising it by 10% raises today’s target by 10% × how-cold ('+(h==null?'unavailable today':(((1-h)/2)*100).toFixed(0)+'% today')+').'],
     ['Invested at max HOT', P, S.minInv+'%', 'The right end: at heat +1 you hold this floor. Raising it lifts the whole hot side of the line.'],
     ['Positions LC / SC', P, S.nLC+' / '+S.nSC, 'Divides each sleeve into per-position units — changes nothing about totals, only the size of "one position" that moves are quoted in.'],
     ['Current % invested + LC%', P, S.curInv+'% / '+S.curLC+'%', 'Your reality (IBKR-seeded). Moves = target − this. No effect on targets.'],
@@ -872,9 +931,7 @@ function renderInputMap(h){
     ['VIX endpoints', SUB, '−1 @ '+S.vixCold+' · +1 @ 12', 'Moves where the VIX voter reads −1/+1. Widening the cold end makes the voter slower to call fear "cold".'],
     ['10Y endpoints', SUB, '−1 @ '+(+S.tenCold).toFixed(1)+'% · +1 @ 3.5%', 'Same shape for the yield voter.'],
     ['LC share rails', RAIL, '20% – 80%', 'Clamp on the data split so one hot print can’t zero a class. Constant, not a dial — stays internal as classes are added.'],
-    ['Momentum clamp anchors', APPR, 'RSI 23 / 77', 'Your geiger levels — where RSI reads fully washed-out / fully stretched.'],
-    ['Trend/Momentum · RSI/W%R', APPR, S.dTrend.toFixed(2)+'/'+(1-S.dTrend).toFixed(2)+' · '+S.dRsi.toFixed(2)+'/'+(1-S.dRsi).toFixed(2), 'The approved geiger family blends (match the hub equalizer: TRND 50/MOM 50, RSI 60/W%R 40). Changing them changes every geiger at once.'],
-    ['Equalizer TF curve', APPR, (OPW && OPW.rows ? 'operator_weights: '+OPW.rows+' rows (read live)' : Object.entries(EQ_W).map(([t,w])=>t+' '+w).join(' · ')), 'Scoring now reads composite_staged directly — the hub applies the equalizer curve (operator_weights) upstream. The hardcoded curve remains only inside the client FALLBACK geiger.'],
+    ['Geiger blends + TF curve', APPR, (OPW && OPW.rows ? 'operator_weights: '+OPW.rows+' rows' : 'hub defaults'), 'Not a client input at all: every geiger on this page is the hub equalizer\'s output read from composite_staged. Blends and the timeframe curve are set in the hub and applied upstream — no client geiger exists to dial.'],
   ];
   t.innerHTML = '<tr><th>INPUT</th><th>KIND</th><th>NOW</th><th>WHAT IT DOES, MATHEMATICALLY</th></tr>' +
     rows.map(r => `<tr><td class="n">${r[0]}</td><td class="k">${r[1]}</td><td class="cls">${r[2]}</td><td class="cls">${r[3]}</td></tr>`).join('');
@@ -886,18 +943,35 @@ function renderCohort(dLC, dSC){
   const SPR2 = styleSpreads();
   const PROXY_EXCLUDE = new Set(['IWM','SMH','RSP','XLP','XLU','SPY','QQQ']);
   let allrows = candidateSyms().filter(s => !PROXY_EXCLUDE.has(s))
-    .map(s => { const tg = tickerG(s); if (!tg) return null;
+    /* A TRUTHY OBJECT WITH A NULL SCORE IS NOT A SCORE.
+       tickerG returns {g:null} when the accepted composite is absent, and `!tg` does not
+       catch that: null + styleAdj coerces to 0, the row ranks as a neutral score nobody
+       produced, and r.g.toFixed(2) then throws on render. The exact provider-missing case
+       crashed the page. Unscored rows are excluded from the ranking and listed by name in
+       the strip under the table - exclusion without the listing was silence. */
+    .map(s => { const tg = tickerG(s); if (!tg || tg.g == null || !isFinite(tg.g)) return null;
       const g = tg.g, adj = g + styleAdj(s, SPR2);
-      const q = QUOTES[s], c = COHORT[s] || {};
-      const price = (q && q.price != null) ? +q.price : c.price;
-      const day = (q && q.chg_pct != null) ? (+q.chg_pct)/100 : c.day;   // chg_pct is percent-units; c.day is a fraction
-      return {sym:s, cls:tickerCls(s)||'?', g, gsrc:tg.src, adj, sleeves:tickerSleeves(s), price, day, fav:UNIVERSE.favs.has(s)}; })
+      const q = QUOTES[s];
+      /* ONE PRICE AUTHORITY, AND ABSENCE STAYS ABSENT.
+         These cells silently fell back to the cohort-feed's Yahoo-derived price and day-change
+         whenever the accepted quote was missing - same cells, same formatting, no marking - so a
+         provider outage read as an ordinary quiet quote. There is no second plausible number:
+         null renders as unavailable and the row says which source answered. Number(null) is 0,
+         so the raw value decides. */
+      const usable = (raw) => { if(raw==null||raw===''||raw===true||raw===false) return null;
+        const n = Number(raw); return Number.isFinite(n) ? n : null; };
+      const price = q ? usable(q.price) : null;
+      const day = q ? (usable(q.chg_pct) == null ? null : usable(q.chg_pct)/100) : null;
+      const priceSrc = price == null ? 'unavailable' : 'provider';
+      return {sym:s, cls:tickerCls(s)||'?', g, gsrc:tg.src, priceSrc, adj, sleeves:tickerSleeves(s), price, day, fav:UNIVERSE.favs.has(s)}; })
     .filter(Boolean)
     .sort((a,b) => a.adj - b.adj);
   const liveCats = ['ALL', ...CATS.slice(1).filter(c=>allrows.some(r=>r.sleeves.includes(c)))];
   if(!liveCats.includes(CATFILTER)) CATFILTER='ALL';
   const tb=document.getElementById('catTabs');
   if(tb) tb.innerHTML = liveCats.map(c=>`<button onclick="setCat('${c}')" style="background:${c===CATFILTER?'var(--cyan)':'#14141f'};color:${c===CATFILTER?'#0a0a0f':'var(--cyan)'};border:1px solid var(--line);border-radius:6px;padding:5px 12px;font-family:inherit;font-size:11px;letter-spacing:.08em;cursor:pointer;font-weight:${c===CATFILTER?'700':'400'}">${c}</button>`).join('');
+  const unscored = candidateSyms().filter(s => !PROXY_EXCLUDE.has(s))
+    .filter(s => { const tg = tickerG(s); return !tg || tg.g == null || !isFinite(tg.g); }).sort();
   let rows = (CATFILTER!=='ALL') ? allrows.filter(r=>r.sleeves.includes(CATFILTER)) : allrows;
   const sleeveRank = {};
   for (const sl of Object.keys(SLEEVES)) {
@@ -923,17 +997,25 @@ function renderCohort(dLC, dSC){
     const k = COMPS[r.sym] || {};
     const num = (x,d=1,suf='') => (x==null||!isFinite(x))?'<span class="cls">—</span>':(x.toFixed(d)+suf);
     const pctc = (x) => (x==null||!isFinite(x))?'<span class="cls">—</span>':((x*100).toFixed(0)+'%');
-    html += `<tr style="${sleeveRank[r.sym]?'background:rgba(0,212,255,.07)':''}"><td>${star}</td><td>${sleeveRank[r.sym]?'<span style=\'color:var(--cyan)\'>▸</span> ':''}<b>${r.sym}</b>${r.fav?' <span style="color:var(--gold)" title="hub_favorites">★</span>':''}${r.gsrc==='fallback'?' <span class="cls" title="composite_staged row missing — client Yahoo geiger fallback">⚠</span>':''}</td><td class="cls">${r.sleeves.join("/")||CLASSNAME[r.cls]||r.cls}</td><td>${sectorChip(r.sym)}</td>
-      <td class="r">${r.price==null?'<span class="cls">—</span>':(+r.price).toLocaleString()}</td>
-      <td class="r" style="color:${r.day>=0?'var(--green)':'var(--red)'}">${r.day==null?'<span class="cls">—</span>':spct(r.day,2)}</td>
+    html += `<tr style="${sleeveRank[r.sym]?'background:rgba(0,212,255,.07)':''}"><td>${star}</td><td>${sleeveRank[r.sym]?'<span style=\'color:var(--cyan)\'>▸</span> ':''}<b>${r.sym}</b>${r.fav?' <span style="color:var(--gold)" title="hub_favorites">★</span>':''}${r.gsrc==='unavailable'?' <span class="cls" title="accepted provider composite absent for this symbol — nothing is substituted">⚠</span>':''}</td><td class="cls">${r.sleeves.join("/")||CLASSNAME[r.cls]||r.cls}</td><td>${sectorChip(r.sym)}</td>
+      <td class="r">${r.price==null?'<span class="cls" title="the accepted quote has no usable price for this symbol; nothing is substituted">unavailable</span>':(+r.price).toLocaleString()}</td>
+      <td class="r" style="color:${r.day==null?'var(--dim)':r.day>=0?'var(--green)':'var(--red)'}">${r.day==null?'<span class="cls">—</span>':spct(r.day,2)}</td>
       <td class="r">${rvolTxt(r.sym)}</td>
       <td><span class="mini"><span class="mid"></span><span class="b" style="left:${r.g<0?50-w:50}%;width:${w}%;background:${r.g>=0?'var(--cyan)':'var(--orange)'}"></span></span></td>
-      <td class="r">${(r.g>=0?'+':'')+r.g.toFixed(2)}</td>
+      <td class="r">${r.g==null||!isFinite(r.g)?'<span class="cls">unavailable</span>':(r.g>=0?'+':'')+r.g.toFixed(2)}</td>
       <td class="r">${num(k.pe)}</td><td class="r">${num(k.fwd_pe)}</td><td class="r">${num(k.ps)}</td>
       <td class="r" style="color:${k.rev_growth>0?'var(--green)':k.rev_growth<0?'var(--red)':'var(--dim)'}">${k.rev_growth==null?'<span class=cls>—</span>':spct(k.rev_growth,0)}</td>
       <td class="r">${pctc(k.gross_m)}</td><td class="r">${pctc(k.net_m)}</td><td class="r">${num(k.de,2)}</td></tr>`;
   }
-  t.innerHTML = html;
+  /* `html` always carries the header row, so its truthiness can never detect emptiness —
+     the raw row count decides. With zero ranked candidates the table used to paint a bare
+     header: an empty panel where a named absence was promised. */
+  t.innerHTML = rows.length ? html
+    : html + '<tr><td class="cls" colspan="16">no candidate carries an accepted composite — nothing can be ranked</td></tr>';
+  const uv = document.getElementById('cohortUnavail');
+  if (uv) uv.innerHTML = unscored.length
+    ? '<b>excluded from this ranking — accepted composite unavailable:</b> ' + unscored.join(' · ') + ' <span class="cls">(nothing is scored for them and nothing is substituted)</span>'
+    : '';
   t.querySelectorAll('.cmpstar').forEach(el => el.onclick = () => toggleCompare(el.getAttribute('data-sym')));
 }
 let COMPARE = new Set(JSON.parse(localStorage.getItem('alloc-compare')||'[]'));
@@ -949,7 +1031,10 @@ function renderComps(){
   // suggested = anything currently ADD-tagged (top-3 coldest per sleeve), gathered from the last cohort render
   const SPR = styleSpreads();
   const ranked = candidateSyms().filter(s=>!['IWM','SMH','RSP','XLP','XLU','SPY','QQQ'].includes(s))
-    .map(s=>{ const tg=tickerG(s); return tg ? {sym:s, adj:tg.g+styleAdj(s,SPR), sleeves:tickerSleeves(s)} : null; }).filter(Boolean);
+    .map(s=>{ const tg=tickerG(s);
+      /* Same rule: no accepted composite, no place in a numeric ranking. */
+      return (tg && tg.g != null && isFinite(tg.g))
+        ? {sym:s, adj:tg.g+styleAdj(s,SPR), sleeves:tickerSleeves(s)} : null; }).filter(Boolean);
   const suggested = new Set();
   for (const sl of Object.keys(SLEEVES)) ranked.filter(r=>r.sleeves.includes(sl)).sort((a,b)=>a.adj-b.adj).slice(0,3).forEach(r=>suggested.add(r.sym));
   // category switcher — which sleeves have suggestions
@@ -957,7 +1042,7 @@ function renderComps(){
   if (!cats.includes(COMPCAT)) COMPCAT='ALL';
   const cc=document.getElementById('compCat');
   if(cc) cc.innerHTML = cats.map(c=>`<button onclick="setCompCat('${c}')" style="background:${c===COMPCAT?'var(--gold)':'#14141f'};color:${c===COMPCAT?'#0a0a0f':'var(--gold)'};border:1px solid var(--line);border-radius:6px;padding:5px 12px;font-family:inherit;font-size:11px;letter-spacing:.08em;cursor:pointer;font-weight:${c===COMPCAT?'700':'400'}">${c}</button>`).join('');
-  let syms = [...new Set([...suggested, ...COMPARE])].filter(x=>(COMPS[x]||COMPOSITE[x]||COHORT[x]));
+  let syms = [...new Set([...suggested, ...COMPARE])].filter(x=>(COMPS[x]||COMPOSITE[x]));
   if (COMPCAT!=='ALL') syms = syms.filter(x=>tickerSleeves(x).includes(COMPCAT));
   // [key,label,fmt,dir] dir: -1 lower-is-better, +1 higher-is-better, 0 neutral. valid: ratios must be >0.
   const cols = [
@@ -988,25 +1073,38 @@ function renderComps(){
   const median=a=>{const b=[...a].sort((x,y)=>x-y);const m=b.length>>1;return b.length%2?b[m]:(b[m-1]+b[m])/2;};
   const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
   if (active.length>1){ html+=stat(median,'MEDIAN','var(--gold)'); html+=stat(mean,'MEAN','var(--gold)'); html+=stat(a=>Math.min(...a),'MIN','#8a8aa0'); html+=stat(a=>Math.max(...a),'MAX','#8a8aa0'); }
-  t.innerHTML = html || '<tr><td class="cls">all suggestions dropped — restore below</td></tr>';
+  /* Same dead gate as the cohort table had: `html` always carries the header row, so this
+     could never fire — and its old wording ("all suggestions dropped") named a state that
+     cannot occur, since dropped rows stay rendered greyed-out. The raw count decides. */
+  t.innerHTML = data.length ? html
+    : html + '<tr><td class="cls" colspan="14">nothing to compare — no suggestion carries an accepted composite and nothing starred carries data</td></tr>';
   const rc=document.getElementById('compRestore');
   if(rc){ rc.innerHTML = EXCLUDED.size ? `<span class="cls">dropped: ${[...EXCLUDED].join(', ')} · </span><button style="background:none;border:none;color:var(--cyan);cursor:pointer;font-size:11px" onclick="restoreExcluded()">restore all</button>` : ''; }
   t.querySelectorAll('.comprm').forEach(el=>el.onclick=()=>{ const s=el.getAttribute('data-sym'); if(EXCLUDED.has(s)){EXCLUDED.delete(s);} else {EXCLUDED.add(s); PICKS.delete(s); localStorage.setItem('alloc-picks',JSON.stringify([...PICKS]));} render(); });
   t.querySelectorAll('.compick').forEach(el=>el.onclick=()=>{ const s=el.getAttribute('data-sym'); if(PICKS.has(s)){ PICKS.delete(s); } else { if(PICKS.size>=(S.maxTotal??12)){ const pn=document.getElementById('pickNote'); if(pn){ pn.textContent='Total-names hard cap reached ('+(S.maxTotal??12)+'). Drop a pick or raise the TOTAL cap in DIVERSIFICATION.'; pn.style.color='var(--orange)'; } return; } PICKS.add(s); } localStorage.setItem('alloc-picks',JSON.stringify([...PICKS])); render(); });
 }
 function renderTrace(h, inv, lc, lcEq, scEq, perLC, perSC, cInv, cLC, cSC, dTot, dLC, dSC){
+  if (h == null) {
+    document.getElementById('trace').textContent =
+      'no heat score — no arithmetic chain to trace. No voter carried an accepted value (or every voter is muted); nothing below the voters was computed, so nothing is printed as if it had been.';
+    return;
+  }
   const f2 = x => (x==null||!isFinite(x)) ? '—' : (x>=0?'+':'')+x.toFixed(2);
   const cy = s => `%c${s}%c`;
   const L = [];
   const gTrace = sym => {
     const r = COMPOSITE[sym];
     if (r) return `${sym}  composite_staged (tf=D, db): trend ${f2(r.trend)}×0.5 + momentum ${f2(r.momentum)}×0.5 = ${f2(r.composite)}   [${freshTxt(r.updated_ts)}]`;
-    const c = COHORT[sym]; if (!c || !c.tf) return sym+': no data';
-    return `${sym}  FALLBACK client geiger (cohort-feed Yahoo primitives, equalizer curve local) = ${f2(geiger(c))}`;
+    /* The local computation is gone, not merely unused: while it existed a reader could still
+       see a number labelled as a geiger that no accepted authority produced. */
+    return `${sym}  accepted composite unavailable — no local geiger is computed`;
   };
   L.push('STEP A · GEIGER VOTERS (SSOT: composite_staged — the hub equalizer output; client geiger math retired to fallback)');
   for (const s of ['SPY','QQQ','IWM','SMH']) L.push('  ' + gTrace(s));
-  const vix = (VIXDB && VIXDB.fresh) ? VIXDB.vix : MACRO['VIX']?.value, ten = (TREAS && TREAS.y10!=null) ? TREAS.y10 : MACRO['US10Y']?.value;
+  /* The trace explains the numbers actually used. The level voters may sit on their flagged
+     Yahoo fallback (their gauge rows say so); the trace prints the db values or nothing rather
+     than presenting the fallback unmarked as if it were the table. */
+  const vix = (VIXDB && VIXDB.fresh) ? VIXDB.vix : null, ten = (TREAS && TREAS.y10!=null) ? TREAS.y10 : null;
   const vv = voters();
   L.push('STEP B · LEVEL VOTERS (hostile things flip so hot always means hot)');
   L.push(`  VIX ${vix?.toFixed(1)}: below ~${((S.vixCold+12)/2).toFixed(0)} votes hot(+), above votes cold(−); +1 @ 12, −1 @ ${S.vixCold} → ${f2(vv[4].val)}`);
@@ -1018,7 +1116,10 @@ function renderTrace(h, inv, lc, lcEq, scEq, perLC, perSC, cInv, cLC, cSC, dTot,
   L.push('  heat = ( ' + used.map(v => `${S.wts[v.key]}×${f2(v.val)}`).join(' + ') + ' ) / ' + used.reduce((t,v)=>t+(S.wts[v.key]??0),0) + ' = ' + f2(h));
   L.push('STEP D · THE CURVE (methodology, not a table)');
   L.push(`  invested = ${S.minInv}% + (${S.maxInv}% − ${S.minInv}%) × (1 − ${f2(h)})/2 = ${S.minInv}% + ${S.maxInv-S.minInv}% × ${((1-h)/2).toFixed(3)} = ${pct(inv)}   [linear, no aggressiveness dial]`);
-  const gS2 = COHORT['SPY'] ? geiger(COHORT['SPY']) : 0, gI2 = COHORT['IWM'] ? geiger(COHORT['IWM']) : 0;
+  /* The same accessor the split itself uses - the trace used to recompute these through the
+     retired client geiger and print 0 for an absent one, so it could explain a split with
+     numbers the split never saw. */
+  const gS2 = gv('SPY'), gI2 = gv('IWM');
   L.push(`  LC share (DATA-SET) = 50% + (IWM ${f2(gI2)} − SPY ${f2(gS2)})×50%${S.lcTilt?` + tilt ${S.lcTilt}×heat ${f2(h)}`:''} = ${pct(lc,0)} of invested, capped 20–80%  →  LC ${pct(lcEq)} of equity · SC ${pct(scEq)} of equity`);
   L.push(`  per position: LC ${pct(lcEq)} / ${S.nLC} = ${pct(perLC)} · SC ${pct(scEq)} / ${S.nSC} = ${pct(perSC)}`);
   L.push('STEP E · YOUR STATE (from IBKR, adjusted by your sliders) → MOVES');
@@ -1031,7 +1132,7 @@ function renderTrace(h, inv, lc, lcEq, scEq, perLC, perSC, cInv, cLC, cSC, dTot,
   document.getElementById('trace').textContent = L.join('\n');
 }
 // slider wiring
-for (const id of ['dTrend','dRsi','vixCold','tenCold','maxInv','minInv','lcTilt','nPer','maxTotal','maxNames','concLean','curInv','curLC']) {
+for (const id of ['vixCold','tenCold','maxInv','minInv','lcTilt','nPer','maxTotal','maxNames','concLean','curInv','curLC']) {
   const el=document.getElementById(id); if(!el) continue;
   document.getElementById(id).oninput = e => { S[id] = +e.target.value; save(); render(); };
 }

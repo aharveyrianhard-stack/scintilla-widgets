@@ -56,7 +56,7 @@
 <body>
 
 <h1>Scintilla DCF V1.1 — DB-wired · Edge Score · Dispersion Score · 3-Stage Fade</h1>
-<div class="sub">Same ticker bar / slider structure as FMP_CAPABILITY_DEMO.html §3. Now leads with the actual projected financial statement (line by line, 5 years) before any valuation math — that projection is what everything downstream reads off. Then: (1) an Edge score (ours — not a licensed rating) that auto-sets a fade length, (2) a Dispersion score (ours) that auto-sets a margin-of-safety band, (3) the Stage II fade + Stage III perpetuity math — spot-checked against a published NVDA equity model's numbers to sanity-test the wiring, not copied from it. Comps, insider/congress trades, and the reverse-DCF solver stay in the fundamentals cockpit (scintillahub.ai/fundamentals) — not duplicated here. <b style="color:var(--gold)">V1.1 (2026-08-05, C7):</b> wired to the shared SCINTILLA DB — quote from <code>live_quotes</code>, revenue/mcap from <code>fundamentals</code>, beta/shares from <code>company_profile</code>, consensus revenue from <code>analyst_estimates</code>, risk-free from <code>treasury_rates</code> (10Y). Static Jul-24 numbers remain only as the flagged fallback baseline. Never FMP from this page.</div>
+<div class="sub">Same ticker bar / slider structure as FMP_CAPABILITY_DEMO.html §3. Now leads with the actual projected financial statement (line by line, 5 years) before any valuation math — that projection is what everything downstream reads off. Then: (1) an Edge score (ours — not a licensed rating) that auto-sets a fade length, (2) a Dispersion score (ours) that auto-sets a margin-of-safety band, (3) the Stage II fade + Stage III perpetuity math — spot-checked against a published NVDA equity model's numbers to sanity-test the wiring, not copied from it. Comps, insider/congress trades, and the reverse-DCF solver stay in the fundamentals cockpit (scintillahub.ai/fundamentals) — not duplicated here. <b style="color:var(--gold)">V1.1 (2026-08-05, C7):</b> wired to the shared SCINTILLA DB — quote from <code>live_quotes</code>, revenue/mcap from <code>fundamentals</code>, beta/shares from <code>company_profile</code>, consensus revenue from <code>analyst_estimates</code>, risk-free from <code>treasury_rates</code> (10Y), and the FY baseline — net debt, D&amp;A%, capex%, ΔNWC% — from <code>balance_history</code>/<code>cashflow_history</code>/<code>fundamentals_history</code> (latest FY, ratios only from matching fiscal dates). Static Jul-24 numbers remain only as the flagged fallback baseline for non-price fields — the price is provider-or-disabled, never the snapshot. Never FMP from this page.</div>
 
 <div id="tickerBar" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:20px; padding:14px 18px; background:var(--panel); border:1px solid var(--border); border-radius:12px;">
   <span style="font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; margin-right:2px;">Ticker:</span>
@@ -163,21 +163,47 @@
 </div>
 </section>
 
+<!-- PROVIDER AUTHORITY SHIM. This page overlays live_quotes prices onto a static baseline
+     with a bare fetch(), so the shim answers those reads from the provider contract. -->
+<script src="/_provider/provider.js"></script>
 <script>
 const DATA_ASOF = '2026-07-24 (FMP quote/DCF/treasury/ERP pull)';   // STATIC BASELINE vintage — DB overlay below supersedes what it can
 /* ===================== C7 DB WIRING (2026-08-05) =====================
    Live overlay from Supabase scintilla-live (anon read-only key — publishable). The page NEVER calls FMP.
    DB-sourced per ticker: price (live_quotes) · revenue_ttm + market_cap (fundamentals) · beta + shares_out
    (company_profile; shares fallback = market_cap ÷ price) · consensus revenue path (analyst_estimates,
-   annual, next 5 future fiscal years) · risk-free (treasury_rates.y10, uniform).
-   STATIC BASELINE (flagged, as-of DATA_ASOF): netDebt, D&A%, capex%, ΔNWC%, margin/tax defaults, MRP,
-   debt weight — no DB table carries these yet. Every element shows its source in the badge strip. */
+   annual, next 5 future fiscal years) · risk-free (treasury_rates.y10, uniform) · netDebt + D&A% + capex%
+   + ΔNWC% (latest FY from balance_history / cashflow_history / fundamentals_history; a ratio is only
+   computed when its numerator and denominator come from the SAME fiscal date — a ratio across two fiscal
+   years is a fabrication, so a mismatched pair keeps the flagged static value instead).
+   Slider SEEDS with a real FY source ride the same fetch: growth default = FY-to-FY revenue CAGR,
+   EBITDA-margin default = the latest FY's own margin (fundamentals-cockpit clamps and window rules).
+   STATIC BASELINE (flagged, as-of DATA_ASOF): tax default, terminal growth, MRP, debt weight — no DB
+   source; plus any FY field or seed whose overlay did not land. Every element shows its source in the
+   badge strip. */
 const SB_REST='https://wadinxqplrggagkvrdag.supabase.co/rest/v1';
 const SB_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g';
+/* THE SAME 20s CEILING /health USES. This reader had no bound, so a Supabase socket that
+   opened and said nothing held its badge at its loading state forever - on pages whose
+   whole point is a truthful per-source badge. A timeout is its own outcome and its own
+   words, kept distinct from an HTTP failure. */
+const SB_HARD_MS = 20000;
 async function sbGet(path){
-  const r=await fetch(SB_REST+'/'+path,{headers:{apikey:SB_ANON,Authorization:'Bearer '+SB_ANON},cache:'no-store'});
-  if(!r.ok) throw new Error(path.split('?')[0]+' '+r.status);
-  return r.json();
+  const controller = typeof AbortController === 'undefined' ? null : new AbortController();
+  const hard = controller ? setTimeout(() => controller.abort(), SB_HARD_MS) : null;
+  try {
+    const r=await fetch(SB_REST+'/'+path,{headers:{apikey:SB_ANON,Authorization:'Bearer '+SB_ANON},cache:'no-store',signal:controller?.signal});
+    if(!r.ok) throw new Error(path.split('?')[0]+' '+r.status);
+    /* Awaited inside the try so the ceiling covers the body read too. */
+    return await r.json();
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      const t = new Error(path.split('?')[0] + ' no answer in ' + (SB_HARD_MS/1000) + 's');
+      t.scTimeout = true;
+      throw t;
+    }
+    throw e;
+  } finally { if (hard) clearTimeout(hard); }
 }
 const SPINE={}, DB_SRC={};
 let RF_DB=null;
@@ -195,9 +221,52 @@ function renderSpine(){
   el.innerHTML=Object.entries(SPINE).map(([k,v])=>
     `<span style="border:1px solid ${col[v.mode]||'var(--border)'};color:${col[v.mode]||'var(--dim)'};border-radius:5px;padding:2px 9px;font-size:10.5px;font-family:ui-monospace,Menlo,monospace" title="${(v.note||'').replace(/"/g,'&quot;')}">${k}${v.ts?' · '+freshTxt(v.ts):''} · ${v.mode}</span>`).join('');
 }
+/* Number(null) is 0 and '' coerces too — the raw value decides usability. */
+function fin(x){ if(x==null||x===''||x===true||x===false) return null;
+  const n=Number(x); return Number.isFinite(n)?n:null; }
+/* The FY-baseline derivation for one ticker, from the latest-FY rows of the three history
+   tables. A ratio is only computed when both sides carry the SAME fiscal_date — a ratio
+   across two fiscal years is a fabrication; D&A is ebitda − operating_income, and a
+   negative difference is a data anomaly, not a D&A%. Absent parts yield an absent field,
+   which keeps the flagged static value at the call site. */
+function deriveFyBaseline(bal, cf, fh){
+  const rev=fh?fin(fh.revenue):null;
+  const bl={};
+  if(bal&&fin(bal.net_debt)!=null) bl.netDebt=fin(bal.net_debt)/1e9;
+  if(fh&&rev!=null&&rev>0){
+    const eb=fin(fh.ebitda), oi=fin(fh.operating_income);
+    if(eb!=null&&oi!=null&&eb-oi>=0) bl.daPct=(eb-oi)/rev;
+    if(cf&&fin(cf.capex)!=null&&cf.fiscal_date===fh.fiscal_date) bl.capexPct=Math.abs(fin(cf.capex))/rev;
+    if(bal&&fin(bal.current_assets)!=null&&fin(bal.current_liabilities)!=null&&bal.fiscal_date===fh.fiscal_date)
+      bl.nwcPct=(fin(bal.current_assets)-fin(bal.current_liabilities))/rev;
+  }
+  return bl;
+}
+/* The SLIDER SEEDS that have a real FY source: the growth default from an FY-to-FY revenue
+   CAGR, the EBITDA-margin default from the latest FY's own margin — same clamps and window
+   rules as the fundamentals cockpit derives live (g 0..80, m 5..90; a CAGR needs two FY
+   rows more than half a year apart; a margin needs its own FY's revenue > 0). These seed
+   the sliders the user then owns; tax, terminal growth, MRP and debt weight have NO DB
+   source and stay STATIC by name. */
+function deriveFySeeds(fhRows){
+  const rows=(fhRows||[]).filter(r=>r&&fin(r.revenue)!=null);
+  const out={};
+  const latest=rows[0];
+  if(latest&&fin(latest.ebitda)!=null&&fin(latest.revenue)>0)
+    out.mPct=Math.max(5,Math.min(90,fin(latest.ebitda)/fin(latest.revenue)*100));
+  if(rows.length>=2){
+    const first=rows[rows.length-1], last=rows[0];
+    const yrs=(Date.parse(last.fiscal_date)-Date.parse(first.fiscal_date))/(365.25*86400000);
+    if(yrs>0.5&&fin(first.revenue)>0&&fin(last.revenue)>0)
+      out.gPct=Math.max(0,Math.min(80,(Math.pow(fin(last.revenue)/fin(first.revenue),1/yrs)-1)*100));
+  }
+  return out;
+}
 async function refreshDB(){
   const syms=Object.keys(TICKERS);
   const ok={price:0,fund:0,prof:0,est:0};
+  const okBase={netDebt:0,daPct:0,capexPct:0,nwcPct:0};
+  const okSeed={g:0,m:0};
   const J=[];
   J.push(sbGet('treasury_rates?select=date,y10,updated_ts&order=date.desc&limit=1').then(r=>{
     if(r[0]&&r[0].y10!=null){ RF_DB=r[0]; for(const s of syms) TICKERS[s].rf=+r[0].y10;
@@ -206,7 +275,24 @@ async function refreshDB(){
   for(const s of syms){
     // per-ticker limited fetches, run in parallel — PostgREST-cap-safe by construction
     J.push(sbGet(`live_quotes?select=price,updated_ts&ticker=eq.${s}&limit=1`).then(r=>{
-      if(r[0]&&r[0].price!=null){ TICKERS[s].price=+r[0].price; (DB_SRC[s]=DB_SRC[s]||{}).price=r[0].updated_ts; ok.price++; }
+      /* STATIC PRICES ARE HISTORY, NOT A FALLBACK.
+         The 2026-07-24 baseline prices below are a snapshot. When the provider overlay missed a
+         symbol, the page kept valuing that company against its July price and flagged it - and a
+         flag does not make current-price arithmetic correct: upside, implied expectations and
+         every fair-value comparison are comparisons AGAINST the market price, so a stale one
+         produces a confident wrong answer. A missed overlay now CLEARS the price, and the
+         valuation is disabled rather than computed. The static figure remains visible as
+         historical reference only. */
+      const raw = r[0] ? r[0].price : null;
+      const px = (raw==null||raw===''||raw===true||raw===false) ? null
+               : (Number.isFinite(Number(raw)) && Number(raw) > 0 ? Number(raw) : null);
+      if(px != null){ TICKERS[s].price=px; TICKERS[s].priceUnavailable=false;
+        (DB_SRC[s]=DB_SRC[s]||{}).price=r[0].updated_ts; ok.price++; }
+      else { TICKERS[s].price=null; TICKERS[s].priceUnavailable=true; }
+      /* The catch below leaves the entry as it stands: on a cold load that is null (prices
+         start absent), and on a later cycle it is the last PROVIDER price — a failed read
+         never erases knowledge, and it can never resurrect the static snapshot, because the
+         static snapshot is no longer stored where the valuation reads. */
     }).catch(()=>{}));
     J.push(sbGet(`fundamentals?select=revenue_ttm,market_cap,updated_ts&ticker=eq.${s}&limit=1`).then(r=>{
       if(r[0]&&r[0].revenue_ttm){ TICKERS[s].rev=r[0].revenue_ttm/1e9; (DB_SRC[s]=DB_SRC[s]||{}).rev=true; ok.fund++; }
@@ -225,6 +311,25 @@ async function refreshDB(){
       const fut=rows.filter(r=>r.fiscal_date>today&&r.est_revenue_avg);
       if(fut.length>=5){ TICKERS[s].consensus=fut.slice(0,5).map(r=>r.est_revenue_avg/1e9); (DB_SRC[s]=DB_SRC[s]||{}).consensus=fut.length; ok.est++; }
     }).catch(()=>{}));
+    /* FY BASELINE OVERLAY — the last four Jul-24 numbers the valuation still leaned on.
+       Latest FY per table; a missed read keeps the flagged static value (the badge counts
+       who is live, so the fallback is worn visibly, same as beta/revenue above). Rules:
+       a ratio is only computed when both sides carry the SAME fiscal_date; D&A is
+       ebitda − operating_income and a negative difference is a data anomaly, not a D&A%. */
+    J.push(Promise.all([
+      sbGet(`balance_history?select=fiscal_date,net_debt,current_assets,current_liabilities&ticker=eq.${s}&period=eq.FY&order=fiscal_date.desc&limit=1`).catch(()=>null),
+      sbGet(`cashflow_history?select=fiscal_date,capex&ticker=eq.${s}&period=eq.FY&order=fiscal_date.desc&limit=1`).catch(()=>null),
+      sbGet(`fundamentals_history?select=fiscal_date,revenue,ebitda,operating_income&ticker=eq.${s}&period=eq.FY&order=fiscal_date.desc&limit=4`).catch(()=>null),
+    ]).then(([b,c,f])=>{
+      const bl=deriveFyBaseline(b&&b[0], c&&c[0], f&&f[0]);
+      const seeds=deriveFySeeds(f);
+      if(seeds.gPct!=null){TICKERS[s].gDefault=seeds.gPct; okSeed.g++;}
+      if(seeds.mPct!=null){TICKERS[s].mDefault=seeds.mPct; okSeed.m++;}
+      let landed=null;
+      for(const k of ['netDebt','daPct','capexPct','nwcPct'])
+        if(bl[k]!=null){ TICKERS[s][k]=bl[k]; okBase[k]++; landed=true; }
+      if(landed) (DB_SRC[s]=DB_SRC[s]||{}).baseline=(f&&f[0]&&f[0].fiscal_date)||(b&&b[0]&&b[0].fiscal_date)||true;
+    }));
   }
   await Promise.all(J);
   for(const s of syms){ // shares fallback: market_cap ÷ price when profile shares_out is null
@@ -232,13 +337,23 @@ async function refreshDB(){
       TICKERS[s].shares=TICKERS[s]._mcap/TICKERS[s].price/1e9; (DB_SRC[s]=DB_SRC[s]||{}).shares='mcap/price';
     }
   }
-  spineSet('live_quotes',null,ok.price?'LIVE':'FALLBACK',ok.price+'/'+syms.length+' prices live');
+  spineSet('live_quotes',null,ok.price===syms.length?'LIVE':ok.price?'STALE':'FALLBACK',
+    ok.price+'/'+syms.length+' provider prices; the rest have no current price and their valuations are disabled');
   spineSet('fundamentals',null,ok.fund?'LIVE':'FALLBACK',ok.fund+'/'+syms.length+' revenue_ttm/mcap live');
   spineSet('company_profile',null,ok.prof?'LIVE':'FALLBACK',ok.prof+'/'+syms.length+' beta/shares live (MU broken-beta guard active)');
   spineSet('analyst_estimates',null,ok.est?'LIVE':'FALLBACK',ok.est+'/'+syms.length+' tickers with ≥5 future-FY consensus revenue');
-  spineSet('static-baseline',null,'STATIC','netDebt · D&A% · capex% · ΔNWC% · margin/tax defaults · MRP · as-of '+DATA_ASOF+' (no DB source yet — honestly flagged, not faked)');
+  const baseMin=Math.min(okBase.netDebt,okBase.daPct,okBase.capexPct,okBase.nwcPct);
+  const baseMax=Math.max(okBase.netDebt,okBase.daPct,okBase.capexPct,okBase.nwcPct);
+  spineSet('fy-baseline',null,baseMin===syms.length?'LIVE':baseMax?'STALE':'FALLBACK',
+    'netDebt '+okBase.netDebt+'/'+syms.length+' · D&A% '+okBase.daPct+'/'+syms.length+' · capex% '+okBase.capexPct+'/'+syms.length+
+    ' · ΔNWC% '+okBase.nwcPct+'/'+syms.length+' — latest FY from balance_history/cashflow_history/fundamentals_history; ratios only from matching fiscal dates; anything short keeps the flagged static value');
+  const seedMin=Math.min(okSeed.g,okSeed.m), seedMax=Math.max(okSeed.g,okSeed.m);
+  spineSet('fy-seeds',null,seedMin===syms.length?'LIVE':seedMax?'STALE':'FALLBACK',
+    'growth default '+okSeed.g+'/'+syms.length+' from FY-to-FY revenue CAGR · EBITDA-margin default '+okSeed.m+'/'+syms.length+
+    ' from the latest FY\'s own margin — slider SEEDS the user then owns; anything short keeps the flagged static seed');
+  spineSet('static-baseline',null,'STATIC','tax default · terminal growth · MRP · debt weight · as-of '+DATA_ASOF+' (no DB source — honestly flagged, not faked) — plus any fy-baseline field or seed that did not overlay');
   renderSpine();
-  document.getElementById('asofBar').textContent='DB overlay: price/beta/shares/revenue/consensus/risk-free live from Supabase (badges below). Static baseline fields as-of '+DATA_ASOF+'. This page never calls FMP.';
+  document.getElementById('asofBar').textContent='DB overlay: price/beta/shares/revenue/consensus/risk-free live from Supabase, the FY baseline (netDebt · D&A% · capex% · ΔNWC%) and the growth/margin slider seeds from the history tables per the badges below. Remaining static fields (tax · terminal growth · MRP · debt weight) as-of '+DATA_ASOF+'. This page never calls FMP.';
   setTicker(CURTICK);   // re-apply defaults with DB values + rerender
 }
 /* =================== end C7 DB WIRING =================== */
@@ -280,6 +395,19 @@ const TICKERS={
     gDefault:82.0, mDefault:20, tDefault:7.0, termgDefault:2.0, consensus:null,
     flags:["Loss-making hypergrowth miner: EBITDA margin clamped to 20% floor — treat as illustrative only."]}
 };
+/* THE STATIC PRICES NEVER ENTER THE VALUATION — NOT EVEN FOR ONE PAINT.
+   setTicker('NVDA') runs before the first refreshDB() answer can land, so the cold load used
+   to render the full valuation — price readout, fair values, football field, "today's $…" —
+   against the Jul-24 snapshot, corrected only when (and if) the overlay arrived. A valuation
+   painted against a four-week-old price for even one frame is a Jul-24 valuation wearing
+   today's date, and if the overlay hung it stood indefinitely. Prices start absent; the
+   provider overlay is the only thing that can set one; the static figures stay visible as
+   priceStatic, a labelled historical reference. */
+for(const s of Object.keys(TICKERS)){
+  TICKERS[s].priceStatic = TICKERS[s].price;
+  TICKERS[s].price = null;
+  TICKERS[s].priceUnavailable = true;
+}
 let CURTICK='NVDA', BASE=TICKERS[CURTICK];
 function rd(id){return +document.getElementById(id).value;}
 function fmt(x,d=2){return x.toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d});}
@@ -333,7 +461,10 @@ function setTicker(sym){
   document.getElementById('ebiG').value = 9;
   document.getElementById('investR').value = 30;
   const _src=DB_SRC[sym]||{};
-  document.getElementById('tickerStat').textContent = BASE.name+' · $'+BASE.price.toFixed(2)+(_src.price?' (live_quotes '+freshTxt(_src.price)+')':' (static '+DATA_ASOF.slice(0,10)+')')+' · β '+BASE.beta.toFixed(2)+(_src.beta?' (db)':' (static)')+(_src.consensus?' · consensus: analyst_estimates':'');
+  document.getElementById('tickerStat').textContent = BASE.name+' · '+
+    (BASE.price==null
+      ? 'price unavailable — valuation disabled (static '+DATA_ASOF.slice(0,10)+' reference: $'+(BASE.priceStatic!=null?BASE.priceStatic.toFixed(2):'—')+')'
+      : '$'+BASE.price.toFixed(2)+' (provider via live_quotes '+freshTxt(_src.price)+')')+' · β '+BASE.beta.toFixed(2)+(_src.beta?' (db)':' (static)')+(_src.consensus?' · consensus: analyst_estimates':'');
   document.getElementById('dcfTitle').textContent = 'Fair value — 1-stage vs 3-stage · '+sym;
   render();
 }
@@ -374,6 +505,30 @@ function render(){
 
   const {rows, sumPV} = stageI(BASE.rev, BASE.shares, BASE.netDebt, BASE.daPct, BASE.capexPct, BASE.nwcPct, BASE.consensus, g, m, t, wacc);
   const ufcf5 = rows[4].ufcf, ebi5 = rows[4].ebi;
+  if(BASE.price==null){
+    /* No provider quote, no valuation - and no leftovers. The early return alone left the
+       PREVIOUS ticker's projection, fair values, bands and football field standing under the
+       new ticker's name, which reads as a valuation of the new ticker. Every section below
+       the gate is cleared and says why. */
+    for(const id of ['oPrice','oFV','oUp','oEV','oTV']){
+      const el=document.getElementById(id);
+      if(el) el.textContent = id==='oUp' ? 'price unavailable' : '—';
+    }
+    for(const id of ['oFV1','oFV3','oBuy','oTrim','moatScore','uncScore','s1pct','s2pct','s3pct','uncBand','moatFadeAuto']){
+      const el=document.getElementById(id); if(el) el.textContent='—';
+    }
+    for(const id of ['moatTier','uncTier','moatNote']){
+      const el=document.getElementById(id); if(el) el.innerHTML='';
+    }
+    const note='<tr><td class="foot">valuation disabled — no provider price for '+CURTICK+
+      (BASE.priceStatic!=null?' (static '+DATA_ASOF.slice(0,10)+' reference: $'+BASE.priceStatic.toFixed(2)+' — a labelled historical figure, not a valuation input)':'')+'</td></tr>';
+    for(const id of ['projTable','stage2Table','stageTable']){
+      const el=document.getElementById(id); if(el) el.innerHTML=note;
+    }
+    const ff=document.getElementById('ff');
+    if(ff) ff.innerHTML='<div class="foot">valuation disabled — no provider price for '+CURTICK+'. The page re-asks the provider every 5 minutes and repaints when a quote arrives.</div>';
+    return;
+  }
   document.getElementById('oPrice').textContent = '$'+BASE.price.toFixed(2);
 
   // ---- PROJECTED FINANCIAL STATEMENT TABLE (the projection itself) ----
@@ -463,12 +618,15 @@ function render(){
 
   // ---- FOOTBALL FIELD ----
   const price=BASE.price;
+  /* When WACC ≤ terminal g the 1-stage model has no answer, and this bar used to display the
+     MARKET PRICE in its place — a number that is not a fair value, drawn under a label that
+     says it is one. A model with no answer contributes no bar. */
   const pts = [
-    {lbl:'1-Stage (Gordon growth)', v: fv1==null?price:fv1, color:'#58a6ff'},
+    fv1==null?null:{lbl:'1-Stage (Gordon growth)', v: fv1, color:'#58a6ff'},
     {lbl:'3-Stage (edge-fade)', v: fv3, color:'#d29922'},
     {lbl:'Buy-below band', v: buy, color:'#3fb950'},
     {lbl:'Trim-above band', v: trim, color:'#f85149'}
-  ];
+  ].filter(Boolean);
   const AX = Math.max(price*1.3, ...pts.map(p=>p.v*1.15))*1.02;
   const pf = v=>Math.max(0,Math.min(100, v/AX*100));
   let h='';
@@ -482,7 +640,7 @@ function render(){
       '<div style="position:absolute;left:'+pl+'%;top:-5px;bottom:-5px;width:2px;background:var(--gold);"></div></div>'+
       '<span style="width:90px;text-align:right;font-size:12.5px;color:var(--dim);font-family:ui-monospace,Menlo,monospace;">$'+p.v.toFixed(2)+'</span></div>';
   });
-  h+='<div class="foot" style="margin-top:6px;">Gold line = today\'s $'+price.toFixed(2)+'.</div>';
+  h+='<div class="foot" style="margin-top:6px;">Gold line = today\'s $'+price.toFixed(2)+'.'+(fv1==null?' 1-Stage bar omitted — WACC ≤ terminal g, the model has no answer there.':'')+'</div>';
   document.getElementById('ff').innerHTML = h;
 }
 

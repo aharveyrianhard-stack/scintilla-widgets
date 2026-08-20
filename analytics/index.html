@@ -68,12 +68,12 @@
 </head>
 <body>
 <h1>SCINTILLA · <span>ANALYTICS</span>
-  <span class="pill basis">BASIS: DIV-ADJUSTED (matches Alan's TV)</span>
+  <span class="pill basis">EQUITY BASIS: PROVIDER CONTRACT</span>
   <span class="pill">DB READS ONLY</span>
   <span class="pill">M-1 CONSOLIDATED</span>
   <span class="conn"><span class="dot" id="connDot"></span><span id="asof">booting…</span></span>
 </h1>
-<div class="banner"><b>ONE SYSTEM, DOCUMENTED SSOTs:</b> Geiger = <b>composite_staged</b> (0.5×Trend + 0.5×Momentum, tf=D) · Universe = <b>ticker_cohorts + hub_favorites</b> · Value = <b>fundamentals + ratios_history + analyst_estimates</b> · Macro = <b>treasury_rates / vix_term / operator_weights</b> · Bars: <b>eod_adjusted</b> <span class="pill basis">ADJ</span> + <b>ohlcv_history</b> <span class="pill raw">RAW</span> · This page never calls FMP or Yahoo — anon PostgREST reads only, per-ticker fetches on demand (1000-row cap respected). Every number states its basis.</div>
+<div class="banner"><b>EQUITY AUTHORITY IS THE PROVIDER CONTRACT.</b> Price, previous close and Geiger for every provider-owned equity come from <b>scintilla-massive-chart-api</b> — <b>/quotes</b>, <b>/geiger</b> and <b>/candles?authority=provider</b> — the same contract the Hub cut over to. This page reads them through <code>_provider/provider.js</code>; it does not read <b>live_quotes</b>, <b>composite_staged</b> or <b>ohlcv_history</b> as equity truth, and it never calls FMP or Yahoo.<br><b>NON-EQUITY LANES ARE UNCHANGED AND EXPLICIT:</b> Universe/cohorts = <b>ticker_cohorts</b> (the complete 1283-row membership set, fully paged) + <b>hub_favorites</b> · Value = <b>fundamentals + ratios_history + analyst_estimates</b> · Macro = <b>treasury_rates / vix_term / operator_weights</b> · Sectors = <b>sector_rankings</b>. These are anon PostgREST reads, per-ticker on demand (1000-row cap respected).</div>
 <div class="ctrls" id="ctrls">
   <span class="cg"><b>TIMEFRAME</b><span id="tfBtns"></span></span>
   <span class="cg"><b>VIEW</b><span id="vwBtns"></span></span>
@@ -88,7 +88,7 @@
   <div class="card"><div class="k">COHORT GEIGER ROLLUP <span class="small">(avg composite by cohort — client-side over composite_staged tf=D)</span></div><div id="cohortGeiger"></div></div>
 </div>
 
-<h2>VALUE LAYER <span class="hint">W3 — fundamentals + live_quotes + composite_staged joined; row click → ratios &amp; estimates &amp; ADJ/RAW spark (per-ticker fetch)</span>
+<h2>VALUE LAYER <span class="hint">W3 — fundamentals joined to provider price and provider Geiger; row click → ratios &amp; estimates &amp; provider close spark (per-ticker fetch)</span>
   <span style="margin-left:auto"><select id="cohortSel"></select></span></h2>
 <div class="card" style="overflow-x:auto"><div id="valueTable"></div></div>
 
@@ -108,17 +108,34 @@
   </div>
 </div>
 
-<h2>PRICE-BASIS PROOF <span class="hint">W1 — live from both tables every load · volume equality = day alignment · full receipt: spine rows 56/58/73/79</span></h2>
-<div class="card"><div id="proof"></div></div>
+<h2>EQUITY BASIS <span class="hint">stated, not proved from a legacy table</span></h2>
+<div class="card"><div class="small">
+  Equity price and previous close on this page are the provider's, served by
+  <b>/quotes</b>; the composite, trend and momentum are the provider's, served by
+  <b>/geiger</b> under Alan's captured Equalizer; bars are the provider's, served by
+  <b>/candles?authority=provider</b>, completed periods only. Nothing on this page recomputes
+  a Geiger, derives a bar, or composes an unfinished period.<br><br>
+  A panel here formerly compared <b>eod_adjusted</b> against <b>ohlcv_history</b> and named the
+  adjusted lens this surface's authority for technical analysis. Both are legacy tables and
+  neither is equity authority now, so the panel was removed rather than left making a claim
+  this page no longer stands behind. The adjusted-lens question is a live ruling and belongs
+  wherever that ruling is made, not in a page footer.
+</div></div>
 
 <footer>
-  <b>PROVENANCE</b> · Writers: live_quotes ← live-quote-batch · ohlcv_history tf=1 ← bars-1m-refresh v2 (extended) · ohlcv_history tf=D <span class="pill raw">RAW</span> ← ohlcv-backfill · eod_adjusted <span class="pill basis">ADJ</span> ← adj-eod-backfill v1 (nightly smart refresh, cron 201) · Geiger ← composite_staged RPCs · sector_rankings ← refresh_sector_rankings.<br>
-  <b>BASIS DOCTRINE</b> (app_config.price_basis): ADJUSTED = split+dividend adjusted (TV div-toggle ON, Alan's default view) — TA-surface source of truth. RAW = split-adjusted, dividend-unadjusted prints. Factor constant within a day, ≈1.0 at present, compounds backward (SPY 2009 ≈ 0.7346). Volume never adjusts.<br>
+  <b>PROVENANCE</b> · Equity price + previous close ← provider <b>/quotes</b> (MASSIVE_PROVIDER_D_BAR) · Geiger composite/trend/momentum ← provider <b>/geiger</b> under the captured Equalizer · equity bars ← provider <b>/candles?authority=provider</b>, completed periods only. Non-equity lanes keep their existing owner: sector_rankings ← refresh_sector_rankings · fundamentals / ratios_history / analyst_estimates ← the value writers · treasury_rates / vix_term / operator_weights ← the macro writers.<br>
+  <b>WHY THE LEGACY TABLES ARE NOT READ HERE</b> · Measured across the full 365-symbol universe on 2026-08-18, live_quotes disagreed with the provider's previous close on 359 of 365 symbols and pointed the wrong direction on 183 of them. A surface that keeps reading it disagrees with the Hub about the same stock.<br>
   Receipt CC-MEGA-001 W3–W6 · SCINTILLA Command (Cowork cloud) · page row: desk_html id=analytics · live-deck surfaces untouched.
 </footer>
 
 <div class="drawer" id="drawer"></div>
 
+<!-- PROVIDER AUTHORITY SHIM. This page reads with a bare fetch() rather than a pg(), which is
+     the exact reason the shim also hooks the fetch boundary. Without this tag every equity
+     number below came from the legacy tables while every other Station surface had moved -
+     two surfaces disagreeing about the same stock, which is the defect. -->
+<script src="/_provider/provider.js"></script>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 const SB='https://wadinxqplrggagkvrdag.supabase.co/rest/v1';
 /* FEED FIX 2026-08-06 — this page previously sent the sb_publishable_ key as
@@ -194,7 +211,10 @@ async function loadRet(){
   async function closes(end){
     const lo=end-12*86400; let out={},off=0;
     for(;;){
-      const p='rest/v1/ohlcv_history?tf=eq.D&timestamp=gte.'+lo+'&timestamp=lte.'+end+
+      /* SB already ends in the PostgREST prefix, and the old form of this line repeated that
+         prefix inside the path - so every request went to a doubled path and 404'd. This
+         window has been dead for as long as that line has been there, not merely wrong. */
+      const p='ohlcv_history?tf=eq.D&timestamp=gte.'+lo+'&timestamp=lte.'+end+
               '&select=ticker,timestamp,close&limit=1000&offset='+off;
       let page; try{page=await j(p)}catch(e){break}
       page.forEach(r=>{if(r.close==null)return;const t=r.ticker,ts=+r.timestamp;
@@ -206,8 +226,48 @@ async function loadRet(){
   try{
     const [a,b]=await Promise.all([closes(now),closes(now-days*86400)]);
     S.ret={};Object.keys(a).forEach(t=>{if(b[t]&&b[t]>0)S.ret[t]=(a[t]-b[t])/b[t]*100});
-    $('ctrlNote').textContent=Object.keys(S.ret).length+' tickers priced over '+TF+' · db reads only';
-  }catch(e){ S.ret={}; $('ctrlNote').textContent='return window unavailable'; }
+    $('ctrlNote').textContent=Object.keys(S.ret).length+' symbols priced over '+TF+' · provider /candles via the authority shim';
+  }catch(e){ S.ret={}; }
+  /* The provider serves completed bars one symbol at a time; a whole-universe window is not
+     part of that contract, and the shim answers such a read with an empty result under a
+     recorded name rather than reaching back to the legacy bar table. Saying so is the honest
+     answer - filling the column from legacy bars would be the defect being repaired here. */
+  if(!Object.keys(S.ret).length)
+    $('ctrlNote').textContent='RETURN unavailable — the provider contract serves completed bars per symbol; a whole-universe '+TF+' window is not served';
+}
+/* THE CANONICAL EQUITY UNIVERSE.
+   365 is the number the provider cutover was measured on: on 2026-08-18 the legacy
+   live_quotes baseline disagreed with the provider's previous close on 359 of those 365
+   symbols and pointed the wrong direction on 183. A page that quietly presents a different
+   count is presenting a different universe, which is how two surfaces end up disagreeing
+   about the same stock. The disagreement is shown, never reconciled by guessing. */
+const CANONICAL_EQUITY_UNIVERSE = 365;
+function universeAgreement(providerSymbolCount, canonical){
+  const expected = canonical == null ? CANONICAL_EQUITY_UNIVERSE : canonical;
+  if(providerSymbolCount == null || !isFinite(providerSymbolCount))
+    return { state:'unknown', count:null, expected, delta:null };
+  const count = Math.round(providerSymbolCount);
+  const delta = count - expected;
+  return { state: delta === 0 ? 'agrees' : 'disagrees', count, expected, delta };
+}
+function universeCard(){
+  /* NOT S.geiger.length. That is the composite_staged COMPATIBILITY read, which deliberately
+     carries the provider's equities PLUS the retained non-equities passed through to their own
+     owner - so counting its rows reported roughly 387 and a +22 disagreement while the provider
+     itself was answering with exactly 365. The count has to come from the ownership answer the
+     shim verified, which is provider-owned symbols and nothing else. */
+  const owned = (() => {
+    try {
+      const o = (window.SC_PROVIDER_SHIM || {}).ownership;
+      return o && o.verified ? o.count : null;
+    } catch (_) { return null; }
+  })();
+  const a = universeAgreement(owned);
+  const note = a.state === 'unknown' ? 'provider /geiger did not answer'
+    : a.state === 'agrees' ? 'agrees with the canonical universe'
+    : 'DISAGREES with the canonical ' + a.expected + ' by ' + (a.delta > 0 ? '+' : '') + a.delta;
+  return '<div class="card"><div class="k">EQUITY UNIVERSE</div><div class="v" style="font-size:22px">' +
+    (a.count == null ? '\u2014' : a.count) + '</div><div class="small">' + note + '</div></div>';
 }
 function buildCtrls(){
   const t=$('tfBtns'); t.innerHTML='';
@@ -224,7 +284,6 @@ function buildCtrls(){
 
 async function boot(){
   const q={
-    cohorts:'ticker_cohorts?select=ticker,cohort,is_primary&limit=1000',
     fav:'hub_favorites?select=ticker&limit=1000',
     geiger:'composite_staged?select=ticker,trend,momentum,composite,core,updated_ts&tf=eq.D&limit=1000',
     quotes:'live_quotes?select=ticker,price,chg_pct,prev_close,volume,updated_ts&limit=1000',
@@ -236,6 +295,9 @@ async function boot(){
     wts:'operator_weights?select=dim,key,weight,enabled&limit=100'
   };
   const keys=Object.keys(q);
+  /* The membership set is read separately because it must be PAGED, which a single
+     limit=1000 query cannot be: ticker_cohorts holds 1283 rows. See _cohorts/cohort-axis.js. */
+  const cohortAxis=await SC_COHORT_AXIS.loadMemberships(p=>j(p)).catch(e=>({err:e,rows:[]}));
   const res=await Promise.allSettled(keys.map(k=>j(q[k])));
   keys.forEach((k,i)=>{S[k]=res[i].status==='fulfilled'?res[i].value:{err:res[i].reason}});
   S.map={};(S.geiger.err?[]:S.geiger).forEach(r=>S.map[r.ticker]=Object.assign(S.map[r.ticker]||{},{g:r}));
@@ -243,13 +305,30 @@ async function boot(){
   (S.funda.err?[]:S.funda).forEach(r=>S.map[r.ticker]=Object.assign(S.map[r.ticker]||{},{f:r}));
   (S.prof.err?[]:S.prof).forEach(r=>S.map[r.ticker]=Object.assign(S.map[r.ticker]||{},{p:r}));
   S.favSet=new Set(S.fav.err?[]:S.fav.map(r=>r.ticker));
-  S.cohortMap={};(S.cohorts.err?[]:S.cohorts).forEach(r=>{(S.cohortMap[r.cohort]=S.cohortMap[r.cohort]||new Set()).add(r.ticker)});
-  const ok=keys.filter(k=>!S[k].err).length;
-  $('connDot').className='dot '+(ok===keys.length?'live':ok>5?'stale':'err');
-  $('asof'). textContent=ok+'/'+keys.length+' feeds · '+new Date().toISOString().slice(11,19)+'Z';
-  buildCtrls();await loadRet();renderMacro();renderSectors();renderCohortGeiger();renderCohortSel();renderValue();renderDcf();renderComps();renderWeights();renderTilt();renderProof();
+  S.cohorts=cohortAxis.err?{err:cohortAxis.err}:cohortAxis.rows;
+  S.cohortTruncated=!!cohortAxis.truncated;
+  S.cohortMap={};(cohortAxis.rows||[]).forEach(r=>{(S.cohortMap[r.cohort]=S.cohortMap[r.cohort]||new Set()).add(r.ticker)});
+  /* THE COHORT AXIS IS A FEED, AND A FAILED ONE MUST COUNT.
+     It was read outside `keys`, so a rejected membership read left the connection dot green and
+     the feed tally unchanged - the page reported every feed healthy while its universe was
+     empty. It is counted with the rest now. */
+  const feeds=keys.length+1;
+  const ok=keys.filter(k=>!S[k].err).length+(cohortAxis.err?0:1);
+  $('connDot').className='dot '+(ok===feeds?'live':ok>5?'stale':'err');
+  $('asof'). textContent=ok+'/'+feeds+' feeds'+(cohortAxis.err?' · COHORT AXIS FAILED':'')+' · '+new Date().toISOString().slice(11,19)+'Z';
+  buildCtrls();await loadRet();renderMacro();renderSectors();renderCohortGeiger();renderCohortSel();renderValue();renderDcf();renderComps();renderWeights();renderTilt();
 }
 
+/* The name the provider shim recorded for a symbol it could not price. Never a guess: if the
+   shim has no name, the cell says only that there is no provider quote. */
+function providerAbsenceFor(t){
+  try{
+    const shim=window.SC_PROVIDER_SHIM;
+    const named=shim&&typeof shim.absenceFor==='function'?shim.absenceFor(t):null;
+    if(named) return String(named);
+  }catch(_){}
+  return null;
+}
 function renderMacro(){
   const el=$('macroStrip');let h='';
   const y=S.y10.err?null:S.y10[0];
@@ -257,11 +336,19 @@ function renderMacro(){
   const v=S.vix.err?null:S.vix[0];const vStale=v?agoD(v.date):null;
   h+='<div class="card"><div class="k">VIX / VIX3M</div><div class="v" style="font-size:22px">'+(v?fN(v.vix,1)+' / '+fN(v.vix3m,1):'ERR')+'</div><div class="small">ratio '+(v?fN(v.ratio,3):'—')+' · '+(v?v.date:'')+' '+(v&&parseInt(vStale)>3?'<span class="pill stale">STALE '+vStale+'</span>':'')+'</div></div>';
   const nT=Object.keys(S.map).length;
-  h+='<div class="card"><div class="k">UNIVERSE</div><div class="v" style="font-size:22px">'+nT+'</div><div class="small">'+Object.keys(S.cohortMap).length+' cohorts · FAV '+S.favSet.size+' · ticker_cohorts+hub_favorites</div></div>';
-  const gMax=S.geiger.err?null:Math.max(...S.geiger.map(r=>r.updated_ts||0));
-  h+='<div class="card"><div class="k">GEIGER FRESH</div><div class="v" style="font-size:22px">'+(gMax?agoS(gMax):'ERR')+'</div><div class="small">composite_staged tf=D · '+(S.geiger.err?'feed error':S.geiger.length+' tickers')+'</div></div>';
-  const qMax=S.quotes.err?null:Math.max(...S.quotes.map(r=>new Date(r.updated_ts).getTime()));
-  h+='<div class="card"><div class="k">QUOTES FRESH</div><div class="v" style="font-size:22px">'+(qMax?Math.round((Date.now()-qMax)/1000)+'s':'ERR')+'</div><div class="small">live_quotes · LIVE lens (raw prints)</div></div>';
+  h+='<div class="card"><div class="k">UNIVERSE</div><div class="v" style="font-size:22px">'+nT+'</div><div class="small">'+(S.cohorts.err?'<span class="mut">cohort axis unavailable</span>':Object.keys(S.cohortMap).length+' cohorts')+' · FAV '+S.favSet.size+' · ticker_cohorts membership, fully paged + hub_favorites'+(S.cohortTruncated?' · AXIS READ TRUNCATED':'')+'</div></div>';
+  /* THE ENDPOINT'S OWN COMPUTE TIME. This tile used to read a stamp the shim wrote with
+     Date.now() at the moment of the read, so it said "0s" no matter how old the Geiger was.
+     /geiger publishes computed_utc; that is carried verbatim, and when it is missing the tile
+     says unknown rather than inventing an age. */
+  const gComputed=(()=>{try{return (window.SC_PROVIDER_SHIM||{}).geiger_computed_utc||null;}catch(_){return null;}})();
+  const gMs=gComputed?new Date(gComputed).getTime():NaN;
+  const gLabel=S.geiger.err?'ERR':(isFinite(gMs)?agoS(Math.floor(gMs/1000)):'unknown');
+  h+='<div class="card"><div class="k">GEIGER FRESH</div><div class="v" style="font-size:22px">'+gLabel+'</div><div class="small">provider /geiger · '+(S.geiger.err?'feed error':S.geiger.length+' symbols')+' · '+(gComputed?'computed_utc '+String(gComputed).slice(11,19)+'Z':'no computed_utc published')+'</div></div>';
+  const qStamps=(S.quotes.err?[]:S.quotes).map(r=>r&&r.updated_ts!=null&&r.updated_ts!==''?new Date(r.updated_ts).getTime():NaN).filter(v=>isFinite(v));
+  const qMax=qStamps.length?Math.max(...qStamps):null;
+  h+='<div class="card"><div class="k">QUOTES FRESH</div><div class="v" style="font-size:22px">'+(qMax?Math.round((Date.now()-qMax)/1000)+'s':'\u2014')+'</div><div class="small">provider /quotes · '+(qStamps.length?qStamps.length+' stamped':'no provider stamp')+'</div></div>';
+  h+=universeCard();
   el.innerHTML=h;
 }
 
@@ -305,25 +392,41 @@ function renderValue(){
   list=list.filter(t=>S.map[t]);
   const rows=list.map(t=>{const m=S.map[t];return{
     t, name:m.p?m.p.name:'', sector:m.p?m.p.sector:'', beta:m.p?m.p.beta:null,
-    px:m.q?m.q.price:(m.f?m.f.price:null), chg:m.q?m.q.chg_pct:null,
+    /* NO FALLBACK PRICE. The column says PRICE·PROVIDER, so it holds the provider's price or
+       it holds nothing. This used to fall back to fundamentals.price when the provider had no
+       quote - and the provider answers NOT_OBSERVED_BY_STREAM with a null price for symbols it
+       does not carry (EQR is one), while fundamentals still holds an old number for the same
+       symbol. The page therefore painted a stale non-provider price under a provider heading.
+       An absent provider price is now shown as absent, with the reason where one is known. */
+    px:(m.q && m.q.price != null) ? m.q.price : null,
+    pxAbsence:(m.q && m.q.price != null) ? null : providerAbsenceFor(t),
+    chg:m.q?m.q.chg_pct:null,
     geig:m.g?m.g.composite:null, pe:m.f?m.f.trailing_pe:null, ape:m.f?m.f.adjusted_pe:null,
     eps:m.f?m.f.eps_ttm:null, rev:m.f?m.f.revenue_ttm:null, mcap:m.f?m.f.market_cap:null,
     dcf:m.f?m.f.dcf:null, fAge:m.f?m.f.updated_ts:null, ret:(S.ret&&S.ret[t]!=null?S.ret[t]:null)}});
   rows.sort((a,b)=>(((b[sortKey]==null?-1e18:+b[sortKey])-(a[sortKey]==null?-1e18:+a[sortKey]))*(-sortDir)));
   const th=(k,l)=>'<th onclick="setSort(\''+k+'\')">'+l+(sortKey===k?(sortDir<0?' ▾':' ▴'):'')+'</th>';
-  let h='<table><tr><th onclick="setSort(\'t\')">TICKER</th><th>NAME</th>'+th('px','PRICE·LIVE')+th('chg','CHG%')+th('ret','RET·'+TF)+th('geig','GEIGER')+th('pe','PE')+th('ape','ADJ-PE')+th('eps','EPS-TTM')+th('rev','REV-TTM')+th('mcap','MCAP')+th('dcf','FMP-DCF')+th('beta','β')+'<th>AGE</th></tr>';
+  /* HEADER AND BODY MUST EMIT THE SAME NUMBER OF CELLS.
+     The RET column was declared in the header and never emitted in the body, so every value to
+     its right sat one column left of its own label: GEIGER appeared under RET, PE under GEIGER,
+     and the last column had nothing under AGE. Every number on the row was mislabelled, which
+     is a worse failure than a missing column. Cell count is asserted in the suite. */
+  let h='<table><tr><th onclick="setSort(\'t\')">TICKER</th><th>NAME</th>'+th('px','PRICE·PROVIDER')+th('chg','CHG%')+th('ret','RET·'+TF)+th('geig','GEIGER')+th('pe','PE')+th('ape','ADJ-PE')+th('eps','EPS-TTM')+th('rev','REV-TTM')+th('mcap','MCAP')+th('dcf','FMP-DCF')+th('beta','β')+'<th>AGE</th></tr>';
   rows.forEach(r=>{
-    h+='<tr class="click" onclick="drawer(\''+r.t+'\')"><td class="t"><b>'+r.t+'</b>'+(S.favSet.has(r.t)?' <span class="small">★</span>':'')+'</td><td class="t small">'+(r.name||'').slice(0,22)+'</td><td>'+fN(r.px)+'</td><td class="'+cls(r.chg)+'">'+fP(r.chg)+'</td><td class="'+cls(r.geig)+'">'+fN(r.geig,3)+'</td><td>'+fN(r.pe,1)+'</td><td>'+fN(r.ape,1)+'</td><td>'+fN(r.eps)+'</td><td>'+fB(r.rev)+'</td><td>'+fB(r.mcap)+'</td><td>'+fN(r.dcf)+'</td><td>'+fN(r.beta,2)+'</td><td class="mut">'+agoS(r.fAge)+'</td></tr>'});
-  el.innerHTML=h+'</table><div class="small" style="margin-top:6px">'+rows.length+' tickers · PRICE = live_quotes (LIVE, raw print lens) · fundamentals age in last column · click a row for ratios / estimates / ADJ-vs-RAW spark.</div>';
+    const pxCell = r.px != null ? fN(r.px)
+      : '<span class="mut" title="'+(r.pxAbsence||'no provider quote')+'">'+String(r.pxAbsence||'no provider quote').replace(/_/g,' ').toLowerCase()+'</span>';
+    h+='<tr class="click" onclick="drawer(\''+r.t+'\')"><td class="t"><b>'+r.t+'</b>'+(S.favSet.has(r.t)?' <span class="small">★</span>':'')+'</td><td class="t small">'+(r.name||'').slice(0,22)+'</td><td>'+pxCell+'</td><td class="'+cls(r.chg)+'">'+fP(r.chg)+'</td><td class="'+cls(r.ret)+'">'+(r.ret==null?'<span class="mut">—</span>':fP(r.ret))+'</td><td class="'+cls(r.geig)+'">'+fN(r.geig,3)+'</td><td>'+fN(r.pe,1)+'</td><td>'+fN(r.ape,1)+'</td><td>'+fN(r.eps)+'</td><td>'+fB(r.rev)+'</td><td>'+fB(r.mcap)+'</td><td>'+fN(r.dcf)+'</td><td>'+fN(r.beta,2)+'</td><td class="mut">'+agoS(r.fAge)+'</td></tr>'});
+  el.innerHTML=h+'</table><div class="small" style="margin-top:6px">'+rows.length+' symbols · PRICE = provider /quotes · GEIGER = provider /geiger · fundamentals age in last column · click a row for ratios / estimates / provider close spark.</div>';
 }
 
 function renderDcf(){
   const el=$('dcfGaps');
   const rows=Object.keys(S.map).map(t=>{const m=S.map[t];if(!m.f||m.f.dcf==null||!(m.q&&m.q.price))return null;
+    if(!m.q||m.q.price==null||!isFinite(+m.q.price)||+m.q.price===0) return null;
     const gap=(m.f.dcf-m.q.price)/m.q.price*100;return{t,dcf:m.f.dcf,px:m.q.price,gap}}).filter(Boolean)
     ;const _d=srt('dcf',rows).slice(0,14);
   if(!rows.length)return errBox(el,new Error('no dcf data'));
-  let h='<table><tr>'+TH('dcf','t','TICKER')+TH('dcf','dcf','FMP-DCF')+TH('dcf','px','PRICE·LIVE')+TH('dcf','gap','GAP%')+'</tr>';
+  let h='<table><tr>'+TH('dcf','t','TICKER')+TH('dcf','dcf','FMP-DCF')+TH('dcf','px','PRICE·PROVIDER')+TH('dcf','gap','GAP%')+'</tr>';
   _d.forEach(r=>{h+='<tr class="click" onclick="drawer(\''+r.t+'\')"><td class="t"><b>'+r.t+'</b></td><td>'+fN(r.dcf)+'</td><td>'+fN(r.px)+'</td><td class="'+cls(r.gap)+'">'+metric(_d,'gap',r.gap,v=>fP(v))+'</td></tr>'});
   el.innerHTML=h+'</table><div class="small" style="margin-top:6px">FMP model DCF (fundamentals.dcf) — labeled, not our 3-stage model; that lives at the allocation app /dcf.html reading the same SSOTs.</div>';
 }
@@ -362,41 +465,24 @@ function renderTilt(){
   el.innerHTML=h+'</table><div class="small" style="margin-top:6px">Presentation of allocation INPUTS (weights + Geiger + macro). Position sizing / IBKR state stays in the allocation app — money-adjacent, held.</div>';
 }
 
-async function renderProof(){
-  const el=$('proof');
-  try{
-    const [adj,raw,aLast,rLast]=await Promise.all([
-      j('eod_adjusted?select=d,adj_o,adj_h,adj_l,adj_c,volume&ticker=eq.SPY&d=in.(2009-03-31,2009-04-01)&order=d'),
-      j('ohlcv_history?select=timestamp,open,high,low,close,volume&ticker=eq.SPY&tf=eq.D&source=eq.FMP&timestamp=in.(1238457600,1238544000)&order=timestamp'),
-      j('eod_adjusted?select=d,adj_c&ticker=eq.SPY&order=d.desc&limit=1'),
-      j('ohlcv_history?select=timestamp,close&ticker=eq.SPY&tf=eq.D&source=eq.FMP&order=timestamp.desc&limit=1')
-    ]);
-    let h='<table><tr><th>SPY DAY</th><th>RAW O/H/L/C <span class="pill raw">prints</span></th><th>ADJ O/H/L/C <span class="pill basis">TV</span></th><th>FACTOR</th><th>VOL (both)</th></tr>';
-    raw.forEach((r,i)=>{const a=adj[i];const d=new Date(r.timestamp*1000).toISOString().slice(0,10);
-      const f=(a.adj_c/r.close);
-      h+='<tr><td class="t">'+d+'</td><td>'+fN(r.open)+' / '+fN(r.high)+' / '+fN(r.low)+' / <b>'+fN(r.close)+'</b></td><td>'+fN(a.adj_o)+' / '+fN(a.adj_h)+' / '+fN(a.adj_l)+' / <b>'+fN(a.adj_c)+'</b></td><td>'+f.toFixed(4)+'</td><td>'+fB(r.volume)+'</td></tr>'});
-    const lf=aLast[0]&&rLast[0]?(aLast[0].adj_c/rLast[0].close):null;
-    h+='<tr><td class="t">'+(aLast[0]?aLast[0].d:'—')+' (latest)</td><td><b>'+fN(rLast[0]?rLast[0].close:null)+'</b></td><td><b>'+fN(aLast[0]?aLast[0].adj_c:null)+'</b></td><td>'+(lf?lf.toFixed(4):'—')+'</td><td class="mut">factor → 1.0 at present</td></tr></table>';
-    h+='<div class="small" style="margin-top:6px">Adjusted subtracts every later dividend from history — constant factor within a day, compounding backward (~26% by 2009), zero at the present. ADJUSTED is what Alan\'s TradingView shows (div-toggle ON); RAW is the printed tape. Identical volume proves day alignment. Receipts: spine 56 / 58 / 73 / 79 · SCIN-LEAD\'s /proof.html has the pattern-side proof.</div>';
-    el.innerHTML=h;
-  }catch(e){errBox(el,e)}
-}
-
 async function drawer(t){
   const d=$('drawer');d.classList.add('open');
-  d.innerHTML='<h3>'+t+' <span class="pill basis">ADJ spark</span><span class="pill raw">RAW ghost</span><span class="x" onclick="this.parentElement.parentElement.classList.remove(\'open\')">×</span></h3><div class="small">loading per-ticker feeds…</div>';
+  d.innerHTML='<h3>'+t+' <span class="pill basis">PROVIDER CLOSES</span><span class="x" onclick="this.parentElement.parentElement.classList.remove(\'open\')">×</span></h3><div class="small">loading per-ticker feeds…</div>';
   const enc=encodeURIComponent(t);
   try{
-    const [bars,rbars,ratios,est]=await Promise.all([
-      j('eod_adjusted?select=d,adj_c&ticker=eq.'+enc+'&order=d.desc&limit=260'),
-      j('ohlcv_history?select=timestamp,close&ticker=eq.'+enc+'&tf=eq.D&source=eq.FMP&order=timestamp.desc&limit=260'),
+    /* One series, one owner. The former overlay drew legacy adjusted closes against legacy
+       raw prints and labelled the adjusted line the TV basis; neither table is equity
+       authority now, so the drawer draws the provider's completed daily closes alone rather
+       than a comparison between two sources it no longer stands behind. */
+    const [rbars,ratios,est]=await Promise.all([
+      j('ohlcv_history?select=timestamp,close&ticker=eq.'+enc+'&tf=eq.D&order=timestamp.desc&limit=260'),
       j('ratios_history?select=fiscal_date,period,pe,pb,ps,net_margin,roe,debt_to_equity,dividend_yield&ticker=eq.'+enc+'&order=fiscal_date.desc&limit=8'),
       j('analyst_estimates?select=fiscal_date,est_eps_avg,est_revenue_avg,price_target_avg,num_analysts_eps&ticker=eq.'+enc+'&period=eq.annual&order=fiscal_date.desc&limit=6')
     ]);
     const m=S.map[t]||{};
     let h='<h3>'+t+' <span class="small">'+((m.p&&m.p.name)||'')+'</span><span class="x" onclick="this.parentElement.parentElement.classList.remove(\'open\')">×</span></h3>';
     h+='<div class="small">LIVE '+fN(m.q&&m.q.price)+' ('+fP(m.q&&m.q.chg_pct)+') · Geiger '+fN(m.g&&m.g.composite,3)+' · '+((m.p&&m.p.sector)||'')+'</div>';
-    h+='<h4>1Y CLOSE — <span class="pill basis">ADJUSTED (TV basis)</span> solid · <span class="pill raw">RAW prints</span> ghost</h4><canvas id="spark" width="520" height="120"></canvas>';
+    h+='<h4>1Y CLOSE — <span class="pill basis">PROVIDER, COMPLETED DAILY BARS</span></h4><canvas id="spark" width="520" height="120"></canvas>';
     h+='<h4>RATIOS (ratios_history)</h4><table><tr><th>FISCAL</th><th>PE</th><th>PB</th><th>PS</th><th>NET-M</th><th>ROE</th><th>D/E</th><th>YLD</th></tr>';
     ratios.forEach(r=>{h+='<tr><td class="t">'+r.fiscal_date+' '+(r.period||'')+'</td><td>'+fN(r.pe,1)+'</td><td>'+fN(r.pb,1)+'</td><td>'+fN(r.ps,1)+'</td><td>'+fPS(r.net_margin)+'</td><td>'+fPS(r.roe)+'</td><td>'+fN(r.debt_to_equity,2)+'</td><td>'+fPS(r.dividend_yield)+'</td></tr>'});
     h+='</table><h4>ANALYST ESTIMATES (annual)</h4><table><tr><th>FY</th><th>EPS EST</th><th>REV EST</th><th>PT AVG</th><th>PT vs LIVE</th><th>#AN</th></tr>';
@@ -405,12 +491,19 @@ async function drawer(t){
     h+='</table><div class="small" style="margin-top:8px">Per-ticker fetches on demand (PostgREST 1000-cap safe). Estimates fiscal_date is text in the SSOT — shown as stored.</div>';
     d.innerHTML=h;
     const cv=$('spark');const ctx=cv.getContext('2d');
-    const A=bars.slice().reverse(), R=rbars.slice().reverse();
-    const vals=A.map(x=>+x.adj_c).concat(R.map(x=>+x.close));
-    const mn=Math.min(...vals),mx=Math.max(...vals),sp=mx-mn||1;
-    const X=(i,n)=>i/(n-1||1)*510+5, Y=v=>112-((v-mn)/sp)*104;
-    ctx.strokeStyle='#67707e';ctx.globalAlpha=.55;ctx.beginPath();R.forEach((x,i)=>{i?ctx.lineTo(X(i,R.length),Y(+x.close)):ctx.moveTo(X(i,R.length),Y(+x.close))});ctx.stroke();
-    ctx.globalAlpha=1;ctx.strokeStyle='#5b9dd9';ctx.lineWidth=1.6;ctx.beginPath();A.forEach((x,i)=>{i?ctx.lineTo(X(i,A.length),Y(+x.adj_c)):ctx.moveTo(X(i,A.length),Y(+x.adj_c))});ctx.stroke();
+    const R=(rbars||[]).slice().reverse();
+    const vals=R.map(x=>+x.close).filter(v=>isFinite(v));
+    if(!vals.length){
+      /* No completed provider bars for this symbol is an answer, not a blank canvas. */
+      ctx.fillStyle='#67707e';ctx.font='11px ui-monospace,monospace';
+      ctx.fillText('no completed provider bars for '+t,8,64);
+    } else {
+      const mn=Math.min(...vals),mx=Math.max(...vals),sp=mx-mn||1;
+      const X=(i,n)=>i/(n-1||1)*510+5, Y=v=>112-((v-mn)/sp)*104;
+      ctx.strokeStyle='#5b9dd9';ctx.lineWidth=1.6;ctx.beginPath();
+      R.forEach((x,i)=>{i?ctx.lineTo(X(i,R.length),Y(+x.close)):ctx.moveTo(X(i,R.length),Y(+x.close))});
+      ctx.stroke();
+    }
   }catch(e){d.innerHTML+='<div class="err-box">'+e.message+'</div>'}
 }
 boot();

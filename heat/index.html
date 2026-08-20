@@ -11,7 +11,8 @@
          ranking (sector_rankings — refreshed hourly by Command's pg_cron; rank +
          score shown on each group header, method never re-derived here);
          ETFs/unsectored close the board.
-       · group=cohort: primary cohorts from ticker_cohorts (is_primary).
+       · group=cohort: each ticker's HOME cohort, read from tickers.cohort — not derived
+       from its membership set, and never from row arrival order.
        · color=chg (default): day chg_pct from live_quotes (served, ±3% scale)
        · color=geiger: composite_staged tf=D composite (THE one Geiger, ±1)
      Tiles sort winners-first inside each group; every group header carries its
@@ -76,6 +77,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 </div>
 <div id="board"><div class="msg">loading heat…</div></div>
 <script src="/_provider/provider.js"></script>
+<script src="/_cohorts/cohort-axis.js"></script>
 <script>
 /* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
    top-level declaration, so it is already bound here. The shim answers live_quotes,
@@ -143,7 +145,10 @@ async function pull() {
     pg("company_profile?select=ticker,sector,market_cap,is_etf").catch(() => []),
     pg("live_quotes?select=ticker,price,chg_pct,updated_ts").catch(() => []),
     pg("composite_staged?tf=eq.D&select=ticker,composite").catch(() => []),
-    GROUP === "cohort" ? pg("ticker_cohorts?select=ticker,cohort,is_primary").catch(() => []) : [],
+    /* A failed home-cohort read used to arrive as null and every tile then fell into
+       UNASSIGNED - a wall that looks like a curation gap when it is actually a broken read.
+       The rejection is carried so the caller can say which it is. */
+    GROUP === "cohort" ? SC_COHORT_AXIS.loadHomeCohorts(pg).catch((err) => ({ err })) : null,
     GROUP === "sector" ? pg("sector_rankings?select=sector_name,rank,score&order=rank.asc").catch(() => []) : [],
   ]);
   const P = {}; for (const r of (prof || [])) P[r.ticker] = r;
@@ -164,10 +169,22 @@ function buildGroups(d) {
   }));
   const groups = new Map();
   if (GROUP === "cohort") {
-    const primary = {};
-    for (const r of d.coh) if (r.is_primary !== false && !(r.ticker in primary)) primary[r.ticker] = r.cohort;
+    /* ONE TILE PER TICKER NEEDS THE TICKER'S HOME, AND THE DATABASE STATES IT.
+       Most tickers hold several memberships - NVDA is in AI_HARDWARE, MEGA_CAP, MEGACAP,
+       SEMICONDUCTORS and TECH - so "which one does its tile go in" cannot be answered from
+       the membership set at all. The old rule took whichever row arrived first from an
+       unordered view, which drew a different wall on different loads; deriving it from an
+       ordering rule instead would only have made the guess repeatable. tickers.cohort is a
+       curated home cohort, populated for all 387 active tickers, and it is read. */
+    if (d.coh && d.coh.err) {
+      /* Named, not mis-grouped. UNASSIGNED means "this ticker has no home recorded", which is a
+         claim about curation; it must never stand in for "the read failed". */
+      return [{ name:"COHORT HOMES UNAVAILABLE — " + String(d.coh.err.message || "read failed"),
+                list:[], meta:null }];
+    }
+    const home = d.coh ? d.coh.home : null;
     for (const r of rows) {
-      const g = primary[r.t] || "UNASSIGNED";
+      const g = SC_COHORT_AXIS.homeOf(home, r.t) || "UNASSIGNED";
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g).push(r);
     }
