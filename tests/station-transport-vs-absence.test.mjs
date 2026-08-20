@@ -831,7 +831,8 @@ test("the caller's own abort signal is threaded to the provider read", () => {
   assert.match(providerSource, /\}, init && init\.signal\);/, "the fetch boundary passes it in");
   for (const call of [/providerOwned\(signal, origPg\)/, /quotes\(eq, signal\)/, /geiger\(signal\)/])
     assert.match(providerSource, call, `${call} forwards the signal`);
-  assert.match(providerSource, /jget\(API \+ '\/geiger', signal\)/);
+  assert.match(providerSource, /jget\(API \+ '\/geiger', ownedController && ownedController\.signal\)/,
+    "the shared ownership proof has its own controller");
   assert.match(providerSource, /'&authority=provider&limit=' \+ Math\.min\(lim, 400\), signal\)/);
 });
 
@@ -920,6 +921,58 @@ test("a caller who already gave up is not served by the warm ownership map", asy
 
   assert.match(providerSource, /if \(signal && signal\.aborted\)\n\s*return Promise\.reject\(transportError\('provider unreachable: cancelled by the caller', API \+ '\/geiger', null\)\);/);
   assert.match(providerSource, /if \(signal && signal\.aborted\) \{\n\s*done\(\);/);
+});
+
+test("a cold multi-pane mount performs one ownership proof, not one per pane", async () => {
+  let geigerReads = 0, canonicalReads = 0;
+  const w = loadShim((url) => {
+    if (String(url).includes("/geiger")) {
+      geigerReads += 1;
+      return new Promise((resolve) => setTimeout(() => resolve({
+        ok:true, status:200, json:() => Promise.resolve(GEIGER_OK),
+        text:() => Promise.resolve(JSON.stringify(GEIGER_OK)),
+      }), 5));
+    }
+    return ok({ quotes:{ AAPL:{ state:"OK", price:10, previous_close:9,
+      price_observation_utc:"2026-08-20T18:00:00Z" } } });
+  });
+  w.pg = async (path) => {
+    if (String(path).startsWith("tickers?")) {
+      canonicalReads += 1;
+      return canonicalRows(GEIGER_OK.symbols);
+    }
+    return [];
+  };
+  w.scInstallProviderShim();
+  const reads = await Promise.all(Array.from({ length:24 }, () =>
+    w.pg("live_quotes?ticker=in.(AAPL)&select=ticker,price")));
+  assert.equal(reads.length, 24);
+  assert.ok(reads.every((rows) => rows.length === 1 && rows[0].ticker === "AAPL"));
+  assert.equal(geigerReads, 1, "all panes share one in-flight /geiger identity proof");
+  assert.equal(canonicalReads, 1, "and one canonical-set read");
+  assert.match(providerSource, /if \(ownedFlight\) return waitForOwnership\(ownedFlight, signal\);/);
+});
+
+test("the last cancelled cold waiter tears down the shared ownership read", async () => {
+  let sharedAborts = 0;
+  const w = loadShim((url, init) => new Promise((resolve, reject) => {
+    if (String(url).includes("/geiger") && init && init.signal)
+      init.signal.addEventListener("abort", () => {
+        sharedAborts += 1;
+        reject(Object.assign(new Error("aborted"), { name:"AbortError" }));
+      }, { once:true });
+  }));
+  w.pg = async (path) => (String(path).startsWith("tickers?") ? canonicalRows(GEIGER_OK.symbols) : []);
+  w.scInstallProviderShim();
+  const controller = new AbortController();
+  const started = Date.now();
+  const pending = w.fetch("https://x/rest/v1/live_quotes?ticker=in.(AAPL)&select=ticker,price",
+    { signal:controller.signal });
+  controller.abort();
+  await assert.rejects(() => pending, (err) => err && err.scTransport === true);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(sharedAborts, 1, "the abandoned shared fetch is cancelled");
+  assert.ok(Date.now() - started < 500, "no 20-second hard-bound timer survives the caller");
 });
 
 test("Station indicator tables are served from the exact raw FMP daily universe", async () => {
