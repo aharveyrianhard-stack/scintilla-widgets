@@ -8,6 +8,9 @@ const geiger = read('../geiger/index.html')
 const ranks = read('../ranks/index.html')
 
 test('the compatibility adapter preserves every Geiger rung instead of flattening currentness', () => {
+  assert.match(provider, /function geigerDetail/)
+  assert.match(provider, /detail=1/)
+  assert.match(provider, /csT && csT\.length === 1 \? geigerDetail/)
   assert.match(provider, /rungs: v\.rungs \|\| \{\}/)
   assert.match(geiger, /geigerRungs: c\.rungs \|\| \{\}/)
   assert.match(geiger, /BAR AS-OF/)

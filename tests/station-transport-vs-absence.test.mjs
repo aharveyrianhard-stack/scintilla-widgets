@@ -80,6 +80,18 @@ const GEIGER_OK = {
   equalizer_receipt_sha256:ACCEPTED_EQUALIZER,
   computed_utc:"2026-08-19T07:57:20.566Z",
 };
+const DETAIL_RUNGS = Object.fromEntries(
+  ["12h", "1d", "1w", "2h", "3d", "3h", "4h", "6h"].map((k) =>
+    [k, { tf_token:k, availability:"AVAILABLE", newest:"2026-08-20T04:00:00.000Z" }])
+);
+function geigerDetail (base = GEIGER_OK, sym = "AAPL") {
+  const value = base.symbols[sym];
+  return { ...base,
+    requested:1, returned:value ? 1 : 0,
+    participating_rungs:Object.keys(DETAIL_RUNGS).map((tf_token) => ({ tf_token })),
+    symbols:value ? { [sym]:{ ...value, rungs:DETAIL_RUNGS } } : {},
+  };
+}
 const INDICATOR_UNIVERSE_SHA256 =
   "7ad595cc4db5e1fd0bb63bb3780ac1450a938e6fa068df944aeec71445556063";
 function indicatorRow(indicator, period_length, value) {
@@ -322,7 +334,9 @@ test("a geiger payload that omits a requested symbol fails the request", async (
   assert.equal(fine.length, 2, "a complete payload answers completely");
 
   const U2 = universe(["AAPL", "MSFT", "TSLA"]);
-  const w2 = loadShim(() => ok({ ...GEIGER_OK, symbols:U2 }));
+  const w2 = loadShim((url) => ok(String(url).includes("detail=1")
+    ? geigerDetail({ ...GEIGER_OK, symbols:U2 })
+    : { ...GEIGER_OK, symbols:U2 }));
   w2.pg = async (path) => (String(path).startsWith("tickers?") ? canonicalRows(U2) : []);
   w2.scInstallProviderShim();
   /* TSLA is owned (it is in the universe) but its entry is empty. */
@@ -377,7 +391,7 @@ test("the quote timestamp is the provider's observation time, or nothing", async
 });
 
 test("the Geiger's age is the endpoint's computed_utc, never the read time", async () => {
-  const w = loadShim(() => ok(GEIGER_OK));
+  const w = loadShim((url) => ok(String(url).includes("detail=1") ? geigerDetail() : GEIGER_OK));
   w.pg = async (path) => (String(path).startsWith("tickers?") ? canonicalRows(GEIGER_OK.symbols) : []);
   w.scInstallProviderShim();
   const rows = await w.pg("composite_staged?tf=eq.D&ticker=in.(AAPL)&select=ticker,composite");
@@ -391,7 +405,8 @@ test("the Geiger's age is the endpoint's computed_utc, never the read time", asy
 });
 
 test("a Geiger with no computed_utc is unknown, not fresh", async () => {
-  const w = loadShim(() => ok({ symbols:universe(), equalizer_receipt_sha256:ACCEPTED_EQUALIZER }));  // no computed_utc
+  const noClock = { symbols:universe(), equalizer_receipt_sha256:ACCEPTED_EQUALIZER };
+  const w = loadShim((url) => ok(String(url).includes("detail=1") ? geigerDetail(noClock) : noClock));  // no computed_utc
   w.pg = async (path) => (String(path).startsWith("tickers?") ? canonicalRows(GEIGER_OK.symbols) : []);
   w.scInstallProviderShim();
   const rows = await w.pg("composite_staged?tf=eq.D&ticker=in.(AAPL)&select=ticker,composite");

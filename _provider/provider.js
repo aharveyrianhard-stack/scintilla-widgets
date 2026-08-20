@@ -164,7 +164,7 @@
      09:00:00, and the warm path then served that hour-old price as a five-second-old one. On a
      rotating wall - which is every Station wall - that is not an edge case, it is the normal
      path. Each symbol now carries its own receipt time and is judged on it alone. */
-  var qCache = { map: {}, at: {} }, gCache = { at: 0, map: null }, ownedAt = 0, owned = null,
+  var qCache = { map: {}, at: {} }, gCache = { at: 0, map: null }, gDetailCache = {}, ownedAt = 0, owned = null,
       ownedFlight = null, ownedController = null, ownedWaiters = 0, ownedSticky = false;
 
   /* A FAILED READ IS NOT AN EMPTY ANSWER.
@@ -569,6 +569,39 @@
     });
   }
 
+  /* The default /geiger projection deliberately omits the bulky per-rung audit object. A
+     single-ticker Geiger pane needs that object; the all-universe Ranks board does not. Keep the
+     board on the light projection and make one bounded detail request only for an exact symbol. */
+  function geigerDetail (sym, signal) {
+    sym = String(sym || '').toUpperCase();
+    var hit = gDetailCache[sym];
+    if (hit && Date.now() - hit.at < 30000) {
+      S.geiger_computed_utc = hit.computed_utc || S.geiger_computed_utc;
+      return Promise.resolve(hit.map);
+    }
+    var url = API + '/geiger?symbols=' + encodeURIComponent(sym) + '&detail=1';
+    return jget(url, signal).then(function (j) {
+      if (!j || !j.symbols || j.requested !== 1 || j.returned !== 1 || !j.symbols[sym]) {
+        if (hit) return hit.map;
+        throw transportError('provider geiger detail incomplete for ' + sym, url, null);
+      }
+      if (!equalizerAccepted(j.equalizer_receipt_sha256) ||
+          !Array.isArray(j.participating_rungs) || j.participating_rungs.length !== 8) {
+        S.equalizer_accepted = false;
+        if (hit) return hit.map;
+        throw transportError('provider geiger detail contract not accepted', url, null);
+      }
+      S.equalizer_accepted = true;
+      S.equalizer_receipt = j.equalizer_receipt_sha256;
+      S.geiger_computed_utc = j.computed_utc || null;
+      gDetailCache[sym] = { at: Date.now(), map: j.symbols, computed_utc: j.computed_utc || null };
+      return j.symbols;
+    }, function (e) {
+      if (hit) return hit.map;
+      throw e;
+    });
+  }
+
   // ---- minimal PostgREST query reading. Only what these five tables actually use. --------------
   function parse (path) {
     var qi = path.indexOf('?');
@@ -818,7 +851,10 @@
 
     if (p.table === 'composite_staged') {
       var csT = wantedTickers(q);
-      return Promise.all([providerOwned(signal, origPg), geiger(signal)]).then(function (a) {
+      /* One selected company gets the detail projection so its visible BAR AS-OF row is real.
+         Unfiltered/multi-symbol boards stay on the small all-universe projection. */
+      var gRead = csT && csT.length === 1 ? geigerDetail(csT[0], signal) : geiger(signal);
+      return Promise.all([providerOwned(signal, origPg), gRead]).then(function (a) {
         var own = a[0], gm = a[1];
         /* Same rule as live_quotes: an unfiltered ask keeps its legacy half unfiltered. */
         var syms = csT || Object.keys(own);
