@@ -35,6 +35,7 @@ function load(fetchImpl, readerImpl) {
 function fixtureFetch(map, quoteOverrides = {}) {
   return (url) => {
     const u = String(url);
+    if (u.includes("/indicators")) return response(massiveIndicatorPayload());
     if (u.includes("/quotes")) {
       const requested = decodeURIComponent(new URL(u).searchParams.get("symbols") || "").split(",").filter(Boolean);
       const quotes = {};
@@ -57,14 +58,42 @@ function fixtureFetch(map, quoteOverrides = {}) {
 }
 
 function indicatorRows(ticker = "AAPL") {
-  const specs = [["rsi",14,53.1],["williams",14,-21.0],["ema",5,101],["ema",8,100],
-    ["ema",13,99],["ema",21,98],["ema",34,97],["sma",50,96],["sma",100,95],
-    ["sma",150,94],["sma",200,93]];
+  const specs = [["ema",5,101],["ema",8,100],["ema",13,99],["ema",21,98],["ema",34,97],
+    ["sma",50,96],["sma",100,95],["sma",150,94],["sma",200,93],["wma",20,97.5],
+    ["dema",20,98.5],["tema",20,99.5],["rsi",14,53.1],["standarddeviation",20,4.2],
+    ["williams",14,-21.0],["adx",14,19.0]];
   return specs.map(([indicator,period_length,value]) => ({
     ticker, provider:"FMP", timeframe:"1day", indicator, period_length, value,
     source_date:"2026-08-20 00:00:00", session_state:"FORMING",
     fetched_at:"2026-08-20T18:07:09.756Z", universe_hash:INDICATOR_HASH,
   }));
+}
+
+function massiveIndicatorPayload(ticker = "AAPL") {
+  const ids = [
+    "massive.sma.close.50.minute.adjusted", "massive.sma.close.100.minute.adjusted",
+    "massive.sma.close.150.minute.adjusted", "massive.sma.close.200.minute.adjusted",
+    "massive.ema.close.5.minute.adjusted", "massive.ema.close.8.minute.adjusted",
+    "massive.ema.close.13.minute.adjusted", "massive.ema.close.21.minute.adjusted",
+    "massive.ema.close.34.minute.adjusted", "massive.macd.close.12-26-9.minute.adjusted",
+    "massive.rsi.close.14.minute.adjusted",
+  ];
+  const source = "2026-08-20T18:02:00.000Z";
+  const contracts = ids.map((id, i) => ({
+    id, family:id.split(".")[1], provider:"MASSIVE", timeframe:"minute", adjusted:true,
+    series_type:"close", state:"AVAILABLE", value:i + 0.25,
+    source_timestamp_utc:source, source_session_et:"2026-08-20",
+    source_market_session:"REGULAR", source_finality:"COMPLETED_PROVIDER_MINUTE",
+    ...(id.includes(".macd.") ? { signal:0.1, histogram:0.15 } : {}),
+  }));
+  return {
+    schema_version:"scintilla.provider-current-indicators.v1", provider:"MASSIVE",
+    symbol:ticker, provider_symbol:ticker, timeframe:"minute", adjusted:true, series_type:"close",
+    catalog_manifest_sha256:"2879b00ec0b681cdfd8055b252a425a52e9cffa016d83c8a76f29f429bcbc111",
+    catalog_fixed_spec_count:11, completed_minute_cutoff_utc:source,
+    generated_utc:"2026-08-20T18:03:00.000Z", available_count:11, unavailable_count:0,
+    historical_archive_dependency:false, contracts,
+  };
 }
 
 test("the client never intercepts fetch or rewrites pg", () => {
@@ -165,7 +194,7 @@ test("explicit candles normalize provider bars and refuse unmapped timeframes", 
     (error) => error?.scAbsence === "TIMEFRAME_NOT_MAPPED");
 });
 
-test("raw FMP daily indicators retain FORMING provenance and never synthesize MACD", async () => {
+test("all sixteen raw FMP daily contracts retain FORMING provenance and never synthesize MACD", async () => {
   const map = symbols();
   const reader = async (path) => path.startsWith("tickers?") ? canonicalRows(map) : indicatorRows();
   const w = load(fixtureFetch(map), reader);
@@ -174,16 +203,60 @@ test("raw FMP daily indicators retain FORMING provenance and never synthesize MA
   assert.equal(row.williams14, -21);
   assert.equal(row.session_state, "FORMING");
   assert.equal(row.source_date, "2026-08-20 00:00:00");
+  assert.equal(row.contracts.length, 16);
+  assert.equal(row.contracts.filter((c) => c.state === "AVAILABLE").length, 16);
+  assert.equal(row.wma20, 97.5);
+  assert.equal(row.dema20, 98.5);
+  assert.equal(row.tema20, 99.5);
+  assert.equal(row.standarddeviation20, 4.2);
+  assert.equal(row.adx14, 19);
   assert.equal(row.macd, null);
+  assert.equal(row.macd_state, "NOT_IN_FMP_ACCEPTED_CATALOG");
   assert.equal(row.authority, "FMP_PROVIDER_INDICATORS");
 });
 
-test("partial raw indicator payload fails rather than painting synthetic values", async () => {
+test("a legitimately partial FMP payload names every absent contract instead of inventing values", async () => {
   const map = symbols();
   const reader = async (path) => path.startsWith("tickers?") ? canonicalRows(map) : indicatorRows().slice(0, 2);
   const w = load(fixtureFetch(map), reader);
-  await assert.rejects(() => w.SC_PROVIDER.dailyIndicators(["AAPL"]),
-    (error) => error?.scTransport === true && /incomplete/.test(error.message));
+  const [row] = await w.SC_PROVIDER.fmpDailyIndicators(["AAPL"]);
+  assert.equal(row.contracts.filter((c) => c.state === "AVAILABLE").length, 2);
+  assert.equal(row.contracts.filter((c) => c.state === "NAMED_UNAVAILABLE").length, 14);
+  assert.equal(row.contracts.find((c) => c.id === "fmp.rsi.14.daily").value, null);
+  assert.equal(row.contracts.find((c) => c.id === "fmp.rsi.14.daily").reason,
+    "CURRENT_INDEX_VALUE_ABSENT");
+});
+
+test("duplicate or mixed-date FMP contracts fail closed rather than choosing a row", async () => {
+  const map = symbols();
+  const rows = indicatorRows();
+  rows.push({ ...rows[0] });
+  const reader = async (path) => path.startsWith("tickers?") ? canonicalRows(map) : rows;
+  const w = load(fixtureFetch(map), reader);
+  await assert.rejects(() => w.SC_PROVIDER.fmpDailyIndicators(["AAPL"]),
+    (error) => error?.scTransport === true && /duplicate/.test(error.message));
+});
+
+test("Massive current minute indicators preserve the separate eleven-contract provider snapshot", async () => {
+  const map = symbols();
+  const w = load(fixtureFetch(map), async () => canonicalRows(map));
+  const row = await w.SC_PROVIDER.massiveMinuteIndicators("AAPL");
+  assert.equal(row.provider, "MASSIVE");
+  assert.equal(row.timeframe, "minute");
+  assert.equal(row.contracts.length, 11);
+  assert.equal(row.contracts.find((c) => c.family === "macd").histogram, 0.15);
+  assert.equal(row.historical_archive_dependency, false);
+  assert.equal(row.authority, "MASSIVE_PROVIDER_INDICATORS_CURRENT");
+});
+
+test("a forming or catalog-mismatched Massive indicator snapshot fails closed", async () => {
+  const map = symbols();
+  const bad = massiveIndicatorPayload();
+  bad.contracts[0].source_timestamp_utc = "2026-08-20T18:03:00.000Z";
+  const w = load((url) => String(url).includes("/indicators") ? response(bad) : fixtureFetch(map)(url),
+    async () => canonicalRows(map));
+  await assert.rejects(() => w.SC_PROVIDER.massiveMinuteIndicators("AAPL"),
+    (error) => error?.scTransport === true && /finality/.test(error.message));
 });
 
 test("the retained non-equity adapter rejects provider symbols", async () => {

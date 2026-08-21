@@ -27,7 +27,8 @@ test("the broad compatibility interceptor is physically absent", () => {
 });
 
 test("provider APIs are named by product result", () => {
-  for (const name of ["equityQuotes", "equityGeiger", "equityCandles", "dailyIndicators"])
+  for (const name of ["equityQuotes", "equityGeiger", "equityCandles", "fmpDailyIndicators",
+    "massiveMinuteIndicators", "dailyIndicators"])
     assert.match(provider, new RegExp(`S\\.${name} = function`), name);
   for (const name of ["quotes", "geiger", "candles"])
     assert.match(provider, new RegExp(`${name}: function`), `narrow non-equity ${name}`);
@@ -70,6 +71,10 @@ test("provider and FMP indicator authorities stay deliberately separate", () => 
   assert.match(provider, /authority: 'MASSIVE_PROVIDER_D_BAR'/);
   assert.match(provider, /authority: 'PROVIDER_EQUALIZER'/);
   assert.match(provider, /authority: 'FMP_PROVIDER_INDICATORS'/);
+  assert.match(provider, /authority: 'MASSIVE_PROVIDER_INDICATORS_CURRENT'/);
+  assert.match(provider, /FMP_INDICATOR_MANIFEST_SHA256/);
+  assert.match(provider, /MASSIVE_INDICATOR_MANIFEST_SHA256/);
+  assert.match(provider, /contracts: payload\.contracts/);
   assert.match(provider, /session_state: normalized\.session_state/);
   assert.match(provider, /macd: null/);
 });
