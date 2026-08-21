@@ -45,8 +45,8 @@ function fixtureFetch(map, quoteOverrides = {}) {
       return response({ quotes });
     }
     if (u.includes("/candles")) return response({ series:[
-      { t:1724155200000, o:100, h:102, l:99, c:101, v:10 },
       { t:1724068800000, o:98, h:101, l:97, c:100, v:9 },
+      { t:1724155200000, o:100, h:102, l:99, c:101, v:10 },
     ] });
     if (u.includes("/geiger")) return response({
       symbols:map, equalizer_receipt_sha256:RECEIPT,
@@ -157,8 +157,9 @@ test("explicit candles normalize provider bars and refuse unmapped timeframes", 
   const w = load(fixtureFetch(map), async () => canonicalRows(map));
   const rows = await w.SC_PROVIDER.equityCandles("AAPL", "5m", { limit:2 });
   assert.equal(rows.length, 2);
-  assert.equal(rows[0].timestamp, 1724068800);
-  assert.equal(rows[1].close, 101);
+  assert.equal(rows[0].timestamp, 1724155200);
+  assert.equal(rows[0].close, 101);
+  assert.equal(rows[1].timestamp, 1724068800);
   assert.equal(rows[0].authority, "PROVIDER_BUILT");
   await assert.rejects(() => w.SC_PROVIDER.equityCandles("AAPL", "bogus"),
     (error) => error?.scAbsence === "TIMEFRAME_NOT_MAPPED");
@@ -200,5 +201,6 @@ test("all sector spine timeframes are explicit provider tokens", () => {
   assert.match(sector, /\{view:'weekly',tf:'W'/);
   assert.match(sector, /\{view:'intra',tf:'5m'/);
   assert.match(sector, /\{view:'intra1',tf:'1m'/);
+  assert.match(sector, /SC_PROVIDER\.equityCandles\(tk,tf,\{limit:lim\}\)\)\.slice\(\)\.reverse\(\)/);
   assert.doesNotMatch(sector, /rest\/v1\/(?:ohlcv_history|live_quotes|composite_staged|derived_series)/);
 });

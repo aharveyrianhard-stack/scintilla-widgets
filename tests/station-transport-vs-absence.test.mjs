@@ -70,6 +70,6 @@ test("provider and FMP indicator authorities stay deliberately separate", () => 
   assert.match(provider, /authority: 'MASSIVE_PROVIDER_D_BAR'/);
   assert.match(provider, /authority: 'PROVIDER_EQUALIZER'/);
   assert.match(provider, /authority: 'FMP_PROVIDER_INDICATORS'/);
-  assert.match(provider, /session_state: legacy\.session_state/);
+  assert.match(provider, /session_state: normalized\.session_state/);
   assert.match(provider, /macd: null/);
 });

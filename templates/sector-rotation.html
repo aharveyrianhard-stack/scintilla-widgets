@@ -384,7 +384,10 @@ async function refreshUniverseCheck(){
   }catch(e){ spineSet('tickers · home taxonomy',null,'FALLBACK','taxonomy check failed: '+e.message); }
 }
 async function fetchOHLCV(tk,tf,lim){
-  const rows=await SC_PROVIDER.equityCandles(tk,tf,{limit:lim});
+  /* The explicit client preserves Station's established newest-first candle contract. This
+     chart aligns and rebases left-to-right, so take a copy and restore chronological order at
+     the consumer boundary (the former PostgREST consumer did the same reversal explicitly). */
+  const rows=(await SC_PROVIDER.equityCandles(tk,tf,{limit:lim})).slice().reverse();
   const times=[],closes=[],opens=[],highs=[],lows=[],vols=[];
   for(const r of rows){ if(r.close==null) continue; times.push(r.timestamp); closes.push(r.close); opens.push(r.open); highs.push(r.high); lows.push(r.low); vols.push(r.volume); }
   return times.length? {times,closes,opens,highs,lows,vols} : null;

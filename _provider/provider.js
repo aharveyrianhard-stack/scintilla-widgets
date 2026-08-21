@@ -629,7 +629,7 @@
     });
   }
 
-  function legacyIndicatorRow (ticker, rows) {
+  function normalizedIndicatorRow (ticker, rows) {
     var by = {};
     rows.forEach(function (r) { by[String(r.indicator) + ':' + String(r.period_length)] = r; });
     var value = function (indicator, period) {
@@ -853,25 +853,25 @@
   };
 
   function indicatorSnapshot (ticker, rows) {
-    var legacy = legacyIndicatorRow(ticker, rows);
+    var normalized = normalizedIndicatorRow(ticker, rows);
     return {
       ticker: ticker,
       provider: 'FMP',
       timeframe: '1day',
-      source_date: legacy.source_date,
-      session_state: legacy.session_state,
-      fetched_at: legacy.updated_ts,
-      rsi14: legacy.rsi_raw,
-      williams14: legacy.wpr_raw,
-      ema5: legacy.fan_ema5,
-      ema8: legacy.fan_ema8,
-      ema13: legacy.fan_ema13,
-      ema21: legacy.fan_ema21,
-      ema34: legacy.fan_ema34,
-      sma50: legacy.fan_sma50,
-      sma100: legacy.fan_sma100,
-      sma150: legacy.fan_sma150,
-      sma200: legacy.fan_sma200,
+      source_date: normalized.source_date,
+      session_state: normalized.session_state,
+      fetched_at: normalized.updated_ts,
+      rsi14: normalized.rsi_raw,
+      williams14: normalized.wpr_raw,
+      ema5: normalized.fan_ema5,
+      ema8: normalized.fan_ema8,
+      ema13: normalized.fan_ema13,
+      ema21: normalized.fan_ema21,
+      ema34: normalized.fan_ema34,
+      sma50: normalized.fan_sma50,
+      sma100: normalized.fan_sma100,
+      sma150: normalized.fan_sma150,
+      sma200: normalized.fan_sma200,
       macd: null,
       authority: 'FMP_PROVIDER_INDICATORS'
     };
