@@ -31,8 +31,15 @@ still gets a real pass/fail instead of a skipped run.
 ## Configuration
 
 All of it comes from the environment. **No credential is read from, or written
-to, any file in this repository** — which is what makes it safe that Vercel
-serves this directory as text, the same as `supabase/`.
+to, any file in this repository.**
+
+That matters because Vercel serves this directory publicly. Probed on a branch
+preview, `/_pipeline/youtube_transcripts/storage.py` returns 200 with
+`access-control-allow-origin: *`. No secret is exposed by that — but it is not
+nothing either: the source names production schemas, protected tables, the R2
+bucket, and the staging SQL shape. That is the same exposure the already-served
+`supabase/migrations/*.sql` carry, so this joins an accepted posture rather than
+opening a new one. Treat it as public source, and keep it that way.
 
 | Variable | Needed for |
 | --- | --- |
