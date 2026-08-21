@@ -12,8 +12,9 @@
      #coRailContent wrapper is kept so the hub's selectors run untouched).
      geigerSummaryMount is ported with its hub state stubs (S/LEFT_T/PRICES)
      declared in this shell. Provider-owned equity price, completed bars, Geiger, RSI,
-     Williams and moving averages are resolved by /_provider/provider.js. The indicator
-     values are raw FMP daily rows; unsupported intraday indicators and MACD stay unavailable.
+     Williams and moving averages are resolved by /_provider/provider.js. All accepted FMP daily
+     and Massive minute provider-native indicator contracts are shown in separate, provenance-
+     explicit lanes. They are comparison evidence and do not alter the accepted Geiger score.
      Params: ?t=MU (pin) · ?auto=1 (rotate hub_favorites) · ?dwell=10 (s/ticker)
      LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
      ============================================================================ -->
@@ -56,12 +57,12 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   --gt-label:7px;
   --gt-value:11px;
   --gt-big:19px;
-  display:block; height:100%; min-height:0; color:var(--gs-ink);
+  display:block; height:100%; min-height:0; color:var(--gs-ink); overflow-y:auto;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
 }
 .gsum *{ box-sizing:border-box; }
-.gsum .gs-body{ height:100%; display:grid; grid-template-columns:38% 62%;
-  grid-template-rows:1fr 1fr; min-height:0; }
+.gsum .gs-body{ height:auto; min-height:100%; display:grid; grid-template-columns:38% 62%;
+  grid-template-rows:minmax(210px,calc((100vh - 32px)/2)) minmax(190px,calc((100vh - 32px)/2)) auto; }
 .gsum .gs-zh{ display:flex; align-items:center; gap:7px; }
 .gsum .gs-zh .gs-d{ width:6px; height:6px; border-radius:50%; }
 .gsum .gs-zh h2{ font-family:var(--gs-mono); font-size:var(--gt-title); letter-spacing:.2em;
@@ -129,6 +130,33 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .gsum .gs-vmeta .gs-vsub{ font-size:calc(var(--gt-value) - 3px); color:var(--gs-dim); letter-spacing:.02em; }
 .gsum .gs-empty{ font-family:var(--gs-mono); font-size:10px; letter-spacing:.1em; color:var(--gs-dim);
   text-transform:uppercase; padding:24px; text-align:center; }
+.gsum .gs-structgate{ font-family:var(--gs-mono); font-size:calc(var(--gt-label) - 1px); color:var(--gs-struc);
+  opacity:.72; letter-spacing:.08em; text-transform:uppercase; text-align:center; padding-top:3px; }
+.gsum .gs-zP{ grid-column:1 / span 2; grid-row:3; border-top:1px solid var(--gs-line);
+  background:var(--gs-bg2); padding:10px 12px 12px; min-height:0; }
+.gsum .gs-pnote{ font-family:var(--gs-mono); font-size:calc(var(--gt-label) - .5px); color:var(--gs-dim);
+  letter-spacing:.11em; text-transform:uppercase; margin-bottom:8px; }
+.gsum .gs-providers{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.gsum .gs-prov{ border:1px solid var(--gs-line); border-radius:6px; padding:8px; min-width:0; }
+.gsum .gs-phead{ display:flex; gap:8px; align-items:baseline; flex-wrap:wrap; margin-bottom:7px; }
+.gsum .gs-ptitle{ font-family:var(--gs-mono); font-size:var(--gt-title); letter-spacing:.18em;
+  text-transform:uppercase; color:var(--gs-crk); }
+.gsum .gs-pstamp{ font-family:var(--gs-mono); font-size:calc(var(--gt-label) - .5px); color:var(--gs-dim);
+  letter-spacing:.06em; text-transform:uppercase; }
+.gsum .gs-contracts{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; }
+.gsum .gs-prov[data-provider="MASSIVE"] .gs-contracts{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+.gsum .gs-contract{ background:#0c0c13; border:1px solid rgba(255,255,255,.055); border-radius:4px;
+  padding:5px 6px; overflow:hidden; }
+.gsum .gs-contract.available{ border-color:rgba(0,212,255,.18); }
+.gsum .gs-contract.unavailable{ border-color:rgba(255,45,85,.2); }
+.gsum .gs-crow{ display:flex; justify-content:space-between; align-items:baseline; gap:5px; }
+.gsum .gs-cname{ font-family:var(--gs-mono); font-size:calc(var(--gt-label) + .2px); color:var(--gs-ink2);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.gsum .gs-cvalue{ font-family:var(--gs-mono); font-size:calc(var(--gt-value) - 2px); color:var(--gs-ink);
+  font-variant-numeric:tabular-nums; white-space:nowrap; }
+.gsum .gs-contract.unavailable .gs-cvalue{ color:var(--gs-bear); font-size:calc(var(--gt-label) - .5px); }
+.gsum .gs-cmeta{ font-family:var(--gs-mono); font-size:calc(var(--gt-label) - 1.5px); color:var(--gs-dim);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-top:3px; text-transform:uppercase; }
 /* R44 — GEIGER TILE RESTACK (≤900px, ported verbatim) */
 @media (max-width:900px){
   .gsum .gs-body{
@@ -147,6 +175,9 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
     display:flex; flex-direction:column; gap:1px; background:var(--gs-line);
   }
   .gsum .gs-ip{ min-height:190px; }
+  .gsum .gs-zP{ grid-column:auto; grid-row:auto; }
+  .gsum .gs-providers{ grid-template-columns:1fr; }
+  .gsum .gs-contracts, .gsum .gs-prov[data-provider="MASSIVE"] .gs-contracts{ grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 </style>
 </head>
@@ -232,19 +263,12 @@ function gsNormTf(k){ const m={ "1d":"1D","3d":"3D","1w":"1W","2w":"2W" }; const
 async function geigerSummaryData(t) {
   const enc = encodeURIComponent(t);
   const dailyCandles = SC_PROVIDER.equityCandles(t, "D", { limit:30 }).catch(() => []);
-  const [comp, der, ser, vol, last, ow, bvol] = await Promise.all([
+  const [comp, fmpLane, massiveLane, vol, last, ow, bvol] = await Promise.all([
     SC_PROVIDER.equityGeiger([t], { detail:true }).catch(() => []),
-    (async () => {
-      const rows = await SC_PROVIDER.dailyIndicators([t]).catch(() => []);
-      return rows.map((r) => ({
-        tf:"1D", rsi_raw:r.rsi14, wpr_raw:r.williams14,
-        fan_ema5:r.ema5, fan_ema8:r.ema8, fan_ema13:r.ema13,
-        fan_ema21:r.ema21, fan_ema34:r.ema34,
-        fan_sma50:r.sma50, fan_sma100:r.sma100, fan_sma150:r.sma150, fan_sma200:r.sma200,
-        source_date:r.source_date, session_state:r.session_state, updated_ts:r.fetched_at
-      }));
-    })(),
-    Promise.resolve([]),
+    SC_PROVIDER.fmpDailyIndicators([t]).then((rows) => ({ ok:true, snapshot:rows[0] || null }))
+      .catch((e) => ({ ok:false, state:e && e.scAbsence || "TRANSPORT_UNAVAILABLE" })),
+    SC_PROVIDER.massiveMinuteIndicators(t).then((snapshot) => ({ ok:true, snapshot }))
+      .catch((e) => ({ ok:false, state:e && e.scAbsence || "TRANSPORT_UNAVAILABLE" })),
     dailyCandles,
     dailyCandles,
     pg("operator_weights?dim=eq.timeframe&select=key,weight,enabled").catch(() => []),
@@ -252,7 +276,17 @@ async function geigerSummaryData(t) {
   ]);
 
   const c = (comp && comp[0]) || {};
-  const derRows = der || [];
+  const fmpSnapshot = fmpLane.ok ? fmpLane.snapshot : null;
+  const massiveSnapshot = massiveLane.ok ? massiveLane.snapshot : null;
+  const derRows = fmpSnapshot ? [{
+    tf:"1D", rsi_raw:fmpSnapshot.rsi14, wpr_raw:fmpSnapshot.williams14,
+    fan_ema5:fmpSnapshot.ema5, fan_ema8:fmpSnapshot.ema8, fan_ema13:fmpSnapshot.ema13,
+    fan_ema21:fmpSnapshot.ema21, fan_ema34:fmpSnapshot.ema34,
+    fan_sma50:fmpSnapshot.sma50, fan_sma100:fmpSnapshot.sma100,
+    fan_sma150:fmpSnapshot.sma150, fan_sma200:fmpSnapshot.sma200,
+    source_date:fmpSnapshot.source_date, session_state:fmpSnapshot.session_state,
+    updated_ts:fmpSnapshot.fetched_at
+  }] : [];
   const d1 = derRows.find((r) => String(r.tf) === "1D") || derRows.find((r) => String(r.tf) === "D") || derRows[0] || {};
   const maDefs = [["EMA 5","fan_ema5"],["EMA 8","fan_ema8"],["EMA 13","fan_ema13"],["EMA 21","fan_ema21"],
                   ["EMA 34","fan_ema34"],["SMA 50","fan_sma50"],["SMA 100","fan_sma100"],["SMA 150","fan_sma150"],["SMA 200","fan_sma200"]];
@@ -266,7 +300,11 @@ async function geigerSummaryData(t) {
     const wv = num(r.wpr_raw); if (wv != null && isFinite(wv)) wprMtf.push([tf, wv]);
   }
 
-  const macd = (ser || []).map((r) => num(r.macd_signed)).filter((v) => v != null && isFinite(v)).reverse();
+  const massiveMacd = massiveSnapshot && massiveSnapshot.contracts
+    ? massiveSnapshot.contracts.find((r) => r.id === "massive.macd.close.12-26-9.minute.adjusted") || null
+    : null;
+  const macd = massiveMacd && massiveMacd.state === "AVAILABLE" && num(massiveMacd.histogram) != null
+    ? [num(massiveMacd.histogram)] : [];
 
   const volRows = (vol || []).map((r) => num(r.volume)).filter((v) => v != null && isFinite(v));
   const volSeries = volRows.slice().reverse();
@@ -294,6 +332,14 @@ async function geigerSummaryData(t) {
     geigerRungs: c.rungs || {},
     indicatorSourceDate: d1.source_date || null, indicatorSessionState: d1.session_state || null,
     indicatorFetchedAt: d1.updated_ts || null,
+    fmpContracts: fmpSnapshot && Array.isArray(fmpSnapshot.contracts) ? fmpSnapshot.contracts : [],
+    fmpLaneState: fmpLane.ok ? "AVAILABLE" : fmpLane.state,
+    fmpCatalogSha: fmpSnapshot && fmpSnapshot.catalog_manifest_sha256 || null,
+    massiveContracts: massiveSnapshot && Array.isArray(massiveSnapshot.contracts) ? massiveSnapshot.contracts : [],
+    massiveLaneState: massiveLane.ok ? "AVAILABLE" : massiveLane.state,
+    massiveCompletedCutoff: massiveSnapshot && massiveSnapshot.completed_minute_cutoff_utc || null,
+    massiveCatalogSha: massiveSnapshot && massiveSnapshot.catalog_manifest_sha256 || null,
+    massiveMacd,
     price: livePx != null ? livePx : ohlcvClose,
     mas, rsiMtf, wprMtf, macd, volSeries, rvol, activeTfs,
     rvolAtTime: (bvol && bvol[0] && num(bvol[0].rvol_at_time) != null) ? num(bvol[0].rvol_at_time) : null,
@@ -314,14 +360,15 @@ function geigerSummaryHTML() {
           '<path d="M99.85,240.50 A81,81,0,1,1,240.15,240.50" stroke="rgba(255,255,255,.06)" stroke-width="10" stroke-linecap="round"/>' +
           '<path data-gs="f_trend" d="M53.09,267.50 A135,135,0,1,1,286.91,267.50" pathLength="100" stroke="var(--gs-trend)" stroke-width="10" stroke-linecap="round" style="filter:drop-shadow(0 0 5px var(--gs-trend))"/>' +
           '<path data-gs="f_mom" d="M76.47,254.00 A108,108,0,1,1,263.53,254.00" pathLength="100" stroke="var(--gs-mom)" stroke-width="10" stroke-linecap="round" style="filter:drop-shadow(0 0 5px var(--gs-mom))"/>' +
-          '<path data-gs="f_struc" d="M99.85,240.50 A81,81,0,1,1,240.15,240.50" pathLength="100" stroke="var(--gs-struc)" stroke-width="10" stroke-linecap="round" style="filter:drop-shadow(0 0 5px var(--gs-struc))"/>' +
+          '<path data-gs="f_struc" d="M99.85,240.50 A81,81,0,1,1,240.15,240.50" pathLength="100" stroke="var(--gs-struc)" stroke-width="10" stroke-linecap="round" stroke-dasharray="0 100" stroke-opacity=".22"/>' +
         '</svg>' +
       '</div>' +
       '<div class="gs-flegend">' +
         '<div class="gs-fl"><span class="gs-k" style="color:var(--gs-trend)">Trend</span><span class="gs-v" data-gs="lt" style="color:var(--gs-trend)"></span></div>' +
         '<div class="gs-fl"><span class="gs-k" style="color:var(--gs-mom)">Mom</span><span class="gs-v" data-gs="lm" style="color:var(--gs-mom)"></span></div>' +
-        '<div class="gs-fl"><span class="gs-k" style="color:var(--gs-struc)">Struct · legacy</span><span class="gs-v" data-gs="lsr" style="color:var(--gs-struc)"></span></div>' +
+        '<div class="gs-fl"><span class="gs-k" style="color:var(--gs-struc)">Structure · not scored</span><span class="gs-v" data-gs="lsr" style="color:var(--gs-struc)"></span></div>' +
       '</div>' +
+      '<div class="gs-structgate">historical evidence: HH/LL · current formula unapproved</div>' +
       '<div class="gs-asof" data-gs="rungasof" role="status"></div>' +
     '</div>' +
     '<div class="gs-zT">' +
@@ -331,8 +378,15 @@ function geigerSummaryHTML() {
     '<div class="gs-zI">' +
       '<div class="gs-ip"><div class="gs-ih" style="color:var(--gs-mom)">RSI · DAILY</div><div class="gs-sub" data-gs="rsisub">raw FMP provider</div><div class="gs-mtf" data-gs="rsitable"></div></div>' +
       '<div class="gs-ip"><div class="gs-ih" style="color:var(--gs-mom)">Williams %R · DAILY</div><div class="gs-sub" data-gs="wprsub">raw FMP provider</div><div class="gs-mtf" data-gs="wprtable"></div></div>' +
-      '<div class="gs-ip"><div class="gs-ih" style="color:var(--gs-mom)">MACD · unavailable</div><div class="gs-sub">FMP stable API has no MACD</div><div class="gs-hist" data-gs="macd"></div><div class="gs-histfoot"><span data-gs="macdnow"></span><span>no provider value</span></div></div>' +
+      '<div class="gs-ip"><div class="gs-ih" style="color:var(--gs-mom)">MACD 12/26/9 · MINUTE</div><div class="gs-sub" data-gs="macdsub">Massive provider · completed minute</div><div class="gs-hist" data-gs="macd"></div><div class="gs-histfoot"><span data-gs="macdnow"></span><span>comparison only · not scored</span></div></div>' +
       '<div class="gs-ip"><div class="gs-ih" style="color:var(--gs-vol)">Volume</div><div class="gs-sub">3-ring · at-time / cum / session</div><div class="gs-volp" data-gs="vol"></div></div>' +
+    '</div>' +
+    '<div class="gs-zP">' +
+      '<div class="gs-pnote">Provider-native indicator inventory · sources stay separate · no local substitute · these values do not change the accepted Geiger score</div>' +
+      '<div class="gs-providers">' +
+        '<section class="gs-prov" data-provider="FMP"><div class="gs-phead"><span class="gs-ptitle">FMP · 16 daily contracts</span><span class="gs-pstamp" data-gs="fmpstamp"></span></div><div class="gs-contracts" data-gs="fmpcontracts"></div></section>' +
+        '<section class="gs-prov" data-provider="MASSIVE"><div class="gs-phead"><span class="gs-ptitle">Massive · 11 minute contracts</span><span class="gs-pstamp" data-gs="massivestamp"></span></div><div class="gs-contracts" data-gs="massivecontracts"></div></section>' +
+      '</div>' +
     '</div>' +
   '</div></div>';
 }
@@ -366,6 +420,45 @@ function gsMacdHist(node, MACD){ if (!node) return; node.innerHTML = "";
     const c = up ? "#00FFA3" : "#FF3060"; r.setAttribute("fill",c); r.setAttribute("fill-opacity", i===n-1 ? "1" : ".55"); if (i===n-1) r.setAttribute("style","filter:drop-shadow(0 0 5px "+c+")"); svg.appendChild(r); });
   node.appendChild(svg);
   gsTrendMotion(node, svg);
+}
+
+function gsEsc(v){ return String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({
+  "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+})[c]); }
+function gsIndicatorLabel(c){
+  const family = String(c && c.family || "indicator").toUpperCase();
+  const period = c && c.period_length != null ? c.period_length
+    : c && c.parameters && c.parameters.window != null ? c.parameters.window : null;
+  if (family === "STANDARDDEVIATION") return "STD DEV " + (period || 20);
+  if (family === "WILLIAMS") return "WILLIAMS %R " + (period || 14);
+  if (family === "MACD") return "MACD 12/26/9";
+  return family + (period != null ? " " + period : "");
+}
+function gsIndicatorValue(v){
+  const n = num(v); if (n == null || !isFinite(n)) return "—";
+  return n.toLocaleString("en-US", { minimumFractionDigits:2, maximumFractionDigits:4 });
+}
+function gsContractMeta(c, provider){
+  if (!c || c.state !== "AVAILABLE") return c && c.reason || "NAMED_UNAVAILABLE";
+  if (provider === "FMP") return [c.source_date, c.session_state].filter(Boolean).join(" · ");
+  const stamp = c.source_timestamp_utc ? c.source_timestamp_utc.replace("T", " ").replace(/:00\.000Z$/, "Z") : "AS-OF UNKNOWN";
+  const macd = c.family === "macd" ? "SIG " + gsIndicatorValue(c.signal) + " · HIST " + gsIndicatorValue(c.histogram) : null;
+  return [macd, stamp, c.source_market_session].filter(Boolean).join(" · ");
+}
+function gsContractGrid(node, contracts, provider, laneState){
+  if (!node) return;
+  if (!Array.isArray(contracts) || !contracts.length){
+    node.innerHTML = '<div class="gs-empty">' + gsEsc(laneState || "PROVIDER LANE UNAVAILABLE") + '</div>';
+    return;
+  }
+  node.innerHTML = contracts.map((c) => {
+    const available = c && c.state === "AVAILABLE";
+    const meta = gsContractMeta(c, provider);
+    const value = available ? gsIndicatorValue(c.value) : "UNAVAILABLE";
+    return '<div class="gs-contract ' + (available ? "available" : "unavailable") + '" title="' + gsEsc(meta) + '">' +
+      '<div class="gs-crow"><span class="gs-cname">' + gsEsc(gsIndicatorLabel(c)) + '</span><span class="gs-cvalue">' + gsEsc(value) + '</span></div>' +
+      '<div class="gs-cmeta">' + gsEsc(meta) + '</div></div>';
+  }).join("");
 }
 
 // ── GEIGER MOTION ────────────────────────────────────────────────────────────
@@ -501,11 +594,15 @@ function buildGeigerSummary(d) {
   const root = document.querySelector("#coRailContent .gsum");
   if (!root || !d) return;
   const q = (k) => root.querySelector('[data-gs="' + k + '"]');
-  const setf = (k, s) => { const n = q(k); if (n != null && s != null) n.setAttribute("stroke-dasharray", Math.max(2, Math.min(100, (s+1)/2*100)) + " 100"); };
+  const setf = (k, s) => { const n = q(k); if (n != null && s != null) {
+    n.setAttribute("stroke-dasharray", Math.max(2, Math.min(100, (s+1)/2*100)) + " 100");
+    n.setAttribute("stroke-opacity", "1");
+  } };
 
   if (d.trend != null) setf("f_trend", d.trend);
   if (d.momentum != null) setf("f_mom", d.momentum);
   if (d.structure != null) setf("f_struc", d.structure);
+  else { const fs = q("f_struc"); if (fs){ fs.setAttribute("stroke-dasharray", "0 100"); fs.setAttribute("stroke-opacity", ".22"); } }
   const C = q("comp"), CS = q("compst");
   if (C){ if (d.composite != null){ C.textContent = gsSgn(d.composite); C.style.color = gsTone(d.composite); C.style.filter = "drop-shadow(0 0 9px " + gsTone(d.composite) + ")"; } else C.textContent = "—"; }
   if (CS) CS.textContent = d.composite == null ? "" : (Math.abs(d.composite) < 0.10 ? "neutral" : (d.composite > 0 ? "bull lean" : "bear lean"));
@@ -515,7 +612,7 @@ function buildGeigerSummary(d) {
   const lt = q("lt"), lm = q("lm"), lsr = q("lsr");
   if (lt) lt.textContent = d.trend == null ? "—" : gsSgn(d.trend);
   if (lm) lm.textContent = d.momentum == null ? "—" : gsSgn(d.momentum);
-  if (lsr) lsr.textContent = d.structure == null ? "RSI → MOM" : gsSgn(d.structure);
+  if (lsr) lsr.textContent = d.structure == null ? "UNAVAILABLE" : gsSgn(d.structure);
 
   /* The Geiger uses eight provider-bar rungs. `newest` is the completed bar's exact period-start
      timestamp, not the artifact compute clock; show every rung so one stale daily input cannot hide
@@ -533,6 +630,16 @@ function buildGeigerSummary(d) {
   if (rsub) rsub.textContent = "raw FMP provider" + (indStamp ? " · " + indStamp : " · as-of unavailable");
   if (wsub) wsub.textContent = "raw FMP provider" + (indStamp ? " · " + indStamp : " · as-of unavailable");
 
+  const fmpStamp = q("fmpstamp"), massiveStamp = q("massivestamp");
+  if (fmpStamp) fmpStamp.textContent = d.fmpLaneState === "AVAILABLE"
+    ? "1DAY · SPLIT-ADJUSTED · " + (indStamp || "AS-OF UNKNOWN") + " · MACD NOT CARRIED"
+    : String(d.fmpLaneState || "UNAVAILABLE");
+  if (massiveStamp) massiveStamp.textContent = d.massiveLaneState === "AVAILABLE"
+    ? "MINUTE · SPLIT-ADJUSTED · COMPLETED ≤ " + String(d.massiveCompletedCutoff || "UNKNOWN") + " · NO ARCHIVE WAIT"
+    : String(d.massiveLaneState || "UNAVAILABLE");
+  gsContractGrid(q("fmpcontracts"), d.fmpContracts, "FMP", d.fmpLaneState);
+  gsContractGrid(q("massivecontracts"), d.massiveContracts, "MASSIVE", d.massiveLaneState);
+
   const active = new Set(d.activeTfs && d.activeTfs.length ? d.activeTfs : GS_LADDER);
   const rsiRows = (d.rsiMtf || []).filter(([tf]) => active.has(tf));
   const wprRows = (d.wprMtf || []).filter(([tf]) => active.has(tf));
@@ -540,7 +647,15 @@ function buildGeigerSummary(d) {
   gsMtf(q("wprtable"), wprRows, { mn:-100, mx:0, lo:-80, hi:-20, loL:"−80", hiL:"−20" }, gsTipW, (v) => Math.round(v));
 
   const mn = q("macdnow");
-  if (mn){ if (d.macd && d.macd.length){ const last = d.macd[d.macd.length-1]; mn.textContent = "now " + Math.round(last) + (last < 0 ? " · bearish" : " · bullish"); } else mn.textContent = ""; }
+  if (mn){ if (d.massiveMacd && d.massiveMacd.state === "AVAILABLE"){
+      mn.textContent = "MACD " + gsIndicatorValue(d.massiveMacd.value) + " · SIGNAL " +
+        gsIndicatorValue(d.massiveMacd.signal) + " · HIST " + gsIndicatorValue(d.massiveMacd.histogram);
+    } else mn.textContent = "NAMED UNAVAILABLE"; }
+  const macdsub = q("macdsub");
+  if (macdsub) macdsub.textContent = d.massiveMacd && d.massiveMacd.state === "AVAILABLE"
+    ? "Massive provider · " + String(d.massiveMacd.source_timestamp_utc || "as-of unknown") + " · " +
+      String(d.massiveMacd.source_market_session || "session unknown")
+    : "Massive provider · " + String(d.massiveLaneState || "unavailable");
 
   const draw = () => {
     gsTrend(q("tv"), d.price, d.mas);

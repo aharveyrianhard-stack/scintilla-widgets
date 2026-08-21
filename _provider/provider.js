@@ -1,13 +1,14 @@
 /* SCINTILLA STATION — EXPLICIT PROVIDER-NATIVE CLIENT
    ===================================================
-   Station calls this client by product result: equityQuotes, equityGeiger, equityCandles and
-   dailyIndicators. The client never intercepts fetch(), never rewrites pg(), and never makes an
-   obsolete table-shaped request mean provider truth.
+   Station calls this client by product result: equityQuotes, equityGeiger, equityCandles,
+   fmpDailyIndicators and massiveMinuteIndicators. The client never intercepts fetch(), never rewrites pg(),
+   and never makes an obsolete table-shaped request mean provider truth.
 
    Equity price, previous close and completed candles come from Massive. Geiger comes from the
    accepted Massive provider-bar artifact under the exact Equalizer receipt. Raw daily technical
    indicators come from the FMP provider indicator index with provider date and FORMING/SETTLED
-   provenance intact. These sources are deliberately separate.
+   provenance intact. Current Massive-native minute indicators come from the bounded provider
+   endpoint. The two catalogs remain separate and never feed or substitute for each other.
 
    Retained non-equity Supabase ownership is exposed only through SC_NON_EQUITY. Its three narrow
    adapters are named quotes, geiger and candles, verify that no provider-owned symbol can pass,
@@ -118,11 +119,37 @@
   var ABSENCE_INDICATOR_BASIS = 'INDICATOR_BASIS_NOT_VERIFIED';
   var INDICATOR_UNIVERSE_SHA256 =
     '7ad595cc4db5e1fd0bb63bb3780ac1450a938e6fa068df944aeec71445556063';
-  /* These are the rows every equity must have before the normalized daily indicator row is safe to
-     publish. Long SMAs are intentionally not required: a newly listed equity can have a valid
-     RSI/EMA answer while honestly lacking 50/100/150/200 completed sessions, which remains null. */
-  var REQUIRED_DAILY_INDICATOR_SPECS = [
-    'rsi:14', 'williams:14', 'ema:5', 'ema:8', 'ema:13', 'ema:21', 'ema:34'
+  var FMP_INDICATOR_MANIFEST_SHA256 =
+    'f0732502ff280b40920cb6ededc6cff0965eaaf971688aa66c7fa9647f2b04e7';
+  var MASSIVE_INDICATOR_MANIFEST_SHA256 =
+    '2879b00ec0b681cdfd8055b252a425a52e9cffa016d83c8a76f29f429bcbc111';
+  /* Exact owner-accepted catalogs. A missing contract is represented individually as
+     NAMED_UNAVAILABLE. The whole snapshot is never thrown away merely because a newly listed
+     equity has too little completed history for (for example) SMA 200. */
+  var FMP_DAILY_INDICATOR_SPECS = [
+    ['fmp.ema.5.daily','ema',5], ['fmp.ema.8.daily','ema',8],
+    ['fmp.ema.13.daily','ema',13], ['fmp.ema.21.daily','ema',21],
+    ['fmp.ema.34.daily','ema',34], ['fmp.sma.50.daily','sma',50],
+    ['fmp.sma.100.daily','sma',100], ['fmp.sma.150.daily','sma',150],
+    ['fmp.sma.200.daily','sma',200], ['fmp.wma.20.daily','wma',20],
+    ['fmp.dema.20.daily','dema',20], ['fmp.tema.20.daily','tema',20],
+    ['fmp.rsi.14.daily','rsi',14],
+    ['fmp.standarddeviation.20.daily','standarddeviation',20],
+    ['fmp.williams.14.daily','williams',14], ['fmp.adx.14.daily','adx',14]
+  ].map(function (x) { return { id:x[0], family:x[1], period_length:x[2],
+    key:x[1] + ':' + x[2] }; });
+  var MASSIVE_MINUTE_INDICATOR_IDS = [
+    'massive.sma.close.50.minute.adjusted',
+    'massive.sma.close.100.minute.adjusted',
+    'massive.sma.close.150.minute.adjusted',
+    'massive.sma.close.200.minute.adjusted',
+    'massive.ema.close.5.minute.adjusted',
+    'massive.ema.close.8.minute.adjusted',
+    'massive.ema.close.13.minute.adjusted',
+    'massive.ema.close.21.minute.adjusted',
+    'massive.ema.close.34.minute.adjusted',
+    'massive.macd.close.12-26-9.minute.adjusted',
+    'massive.rsi.close.14.minute.adjusted'
   ];
 
   /* One place builds the named-absence error, so every call site raises the same shape and a
@@ -591,45 +618,71 @@
     return isFinite(ms) ? Math.floor(ms / 1000) : null;
   }
 
-  function indicatorPath (symbols, indicators) {
+  function selectedFmpSpecs (families) {
+    if (!families || !families.length) return FMP_DAILY_INDICATOR_SPECS.slice();
+    var wanted = {};
+    families.forEach(function (family) { wanted[String(family || '').toLowerCase()] = 1; });
+    var selected = FMP_DAILY_INDICATOR_SPECS.filter(function (spec) { return wanted[spec.family]; });
+    var known = {};
+    selected.forEach(function (spec) { known[spec.family] = 1; });
+    var unknown = Object.keys(wanted).filter(function (family) { return !known[family]; });
+    if (unknown.length)
+      throw transportError('unknown FMP indicator families: ' + unknown.join(','),
+        'provider_indicators_current', null);
+    return selected;
+  }
+
+  function indicatorPath (symbols, specs) {
+    var families = [];
+    var seen = {};
+    (specs || []).forEach(function (spec) {
+      if (!seen[spec.family]) { seen[spec.family] = 1; families.push(spec.family); }
+    });
     return 'provider_indicators_current?select=ticker,provider,timeframe,indicator,period_length,value,source_date,session_state,fetched_at,universe_hash' +
       '&ticker=in.(' + symbols.join(',') + ')' +
       '&provider=eq.FMP&timeframe=eq.1day&universe_hash=eq.' + INDICATOR_UNIVERSE_SHA256 +
-      (indicators && indicators.length ? '&indicator=in.(' + indicators.join(',') + ')' : '') +
+      (families.length && families.length < 9 ? '&indicator=in.(' + families.join(',') + ')' : '') +
       '&limit=1000';
   }
 
-  function providerIndicatorRows (symbols, indicators, origPg) {
+  function providerIndicatorRows (symbols, specs, origPg) {
     if (!symbols.length) return Promise.resolve([]);
-    return origPg(indicatorPath(symbols, indicators)).then(function (rows) {
+    return origPg(indicatorPath(symbols, specs)).then(function (rows) {
       if (!Array.isArray(rows)) throw transportError('provider indicator index did not return rows', 'provider_indicators_current', null);
-      var accepted = [], seen = {}, dates = {}, states = {};
+      var requested = {}, allowed = {}, accepted = [], seen = {}, dates = {}, states = {};
+      symbols.forEach(function (ticker) { requested[ticker] = 1; });
+      specs.forEach(function (spec) { allowed[spec.key] = 1; });
       rows.forEach(function (r) {
-        if (!r || r.provider !== 'FMP' || r.timeframe !== '1day' || r.universe_hash !== INDICATOR_UNIVERSE_SHA256) return;
+        if (!r) throw transportError('provider indicator index returned a null row', 'provider_indicators_current', null);
         var ticker = String(r.ticker || '').toUpperCase();
-        if (!ticker || !isFinite(Number(r.value))) return;
+        var key = String(r.indicator || '') + ':' + String(r.period_length);
+        if (!requested[ticker] || !allowed[key] || r.provider !== 'FMP' || r.timeframe !== '1day' ||
+            r.universe_hash !== INDICATOR_UNIVERSE_SHA256 || !isFinite(Number(r.value)) ||
+            ['FORMING','SETTLED'].indexOf(String(r.session_state || '')) < 0 || !r.source_date) {
+          throw transportError('provider indicator row violated the accepted FMP contract: ' +
+            (ticker || 'UNKNOWN') + '/' + (key || 'UNKNOWN'), 'provider_indicators_current', null);
+        }
+        if (seen[ticker] && seen[ticker][key])
+          throw transportError('duplicate provider indicator contract: ' + ticker + '/' + key,
+            'provider_indicators_current', null);
         accepted.push(r);
-        (seen[ticker] || (seen[ticker] = {}))[String(r.indicator) + ':' + String(r.period_length)] = 1;
+        (seen[ticker] || (seen[ticker] = {}))[key] = 1;
         (dates[ticker] || (dates[ticker] = {}))[String(r.source_date || '')] = 1;
         (states[ticker] || (states[ticker] = {}))[String(r.session_state || '')] = 1;
       });
-      var required = indicators && indicators.length
-        ? indicators.map(function (indicator) { return indicator + ':14'; })
-        : REQUIRED_DAILY_INDICATOR_SPECS;
       var missing = [];
       symbols.forEach(function (s) {
-        required.forEach(function (spec) { if (!seen[s] || !seen[s][spec]) missing.push(s + '/' + spec); });
         if (dates[s] && Object.keys(dates[s]).length !== 1) missing.push(s + '/MIXED_SOURCE_DATE');
         if (states[s] && Object.keys(states[s]).length !== 1) missing.push(s + '/MIXED_SESSION_STATE');
       });
       if (missing.length)
-        throw transportError('provider indicator payload incomplete: ' + missing.join(','), 'provider_indicators_current', null);
+        throw transportError('provider indicator snapshot incoherent: ' + missing.join(','), 'provider_indicators_current', null);
       S.counts.indicators += accepted.length;
       return accepted;
     });
   }
 
-  function normalizedIndicatorRow (ticker, rows) {
+  function normalizedIndicatorRow (ticker, rows, specs) {
     var by = {};
     rows.forEach(function (r) { by[String(r.indicator) + ':' + String(r.period_length)] = r; });
     var value = function (indicator, period) {
@@ -637,6 +690,19 @@
       return isFinite(n) ? n : null;
     };
     var stamp = rows[0] || {};
+    var contracts = specs.map(function (spec) {
+      var r = by[spec.key] || null;
+      return {
+        id: spec.id, family: spec.family, period_length: spec.period_length,
+        provider: 'FMP', timeframe: '1day', adjustment_basis: 'SPLIT_ADJUSTED_PROVIDER_OUTPUT',
+        state: r ? 'AVAILABLE' : 'NAMED_UNAVAILABLE',
+        reason: r ? null : 'CURRENT_INDEX_VALUE_ABSENT',
+        value: r ? Number(r.value) : null,
+        source_date: r ? r.source_date : null,
+        session_state: r ? r.session_state : null,
+        fetched_at_utc: r ? r.fetched_at : null
+      };
+    });
     return {
       ticker: ticker, tf: '1D', timestamp: epochSeconds(stamp.source_date),
       rsi_raw: value('rsi', 14), wpr_raw: value('williams', 14),
@@ -647,7 +713,8 @@
       macd_raw: null, macd_signed: null, cci_raw: null, roc_raw: null, stoch_raw: null,
       severity_ob: null, severity_os: null,
       source_date: stamp.source_date || null, session_state: stamp.session_state || null,
-      updated_ts: epochSeconds(stamp.fetched_at), sc_source: 'FMP_PROVIDER_INDICATORS'
+      updated_ts: epochSeconds(stamp.fetched_at), sc_source: 'FMP_PROVIDER_INDICATORS',
+      contracts: contracts
     };
   }
 
@@ -781,6 +848,7 @@
         composite: value.composite,
         trend: value.trend,
         momentum: value.momentum,
+        structure: value.structure == null ? null : value.structure,
         tf_contributors: value.tf_contributors,
         rungs: value.rungs || {},
         computed_utc: S.geiger_computed_utc || null,
@@ -852,12 +920,20 @@
     });
   };
 
-  function indicatorSnapshot (ticker, rows) {
-    var normalized = normalizedIndicatorRow(ticker, rows);
+  function indicatorSnapshot (ticker, rows, specs) {
+    var normalized = normalizedIndicatorRow(ticker, rows, specs);
+    var contractValue = function (id) {
+      var c = normalized.contracts.find(function (x) { return x.id === id; });
+      return c && c.state === 'AVAILABLE' ? c.value : null;
+    };
     return {
       ticker: ticker,
       provider: 'FMP',
       timeframe: '1day',
+      catalog_manifest_sha256: FMP_INDICATOR_MANIFEST_SHA256,
+      catalog_fixed_spec_count: 16,
+      requested_spec_count: specs.length,
+      adjustment_basis: 'SPLIT_ADJUSTED_PROVIDER_OUTPUT',
       source_date: normalized.source_date,
       session_state: normalized.session_state,
       fetched_at: normalized.updated_ts,
@@ -872,23 +948,33 @@
       sma100: normalized.fan_sma100,
       sma150: normalized.fan_sma150,
       sma200: normalized.fan_sma200,
+      wma20: contractValue('fmp.wma.20.daily'),
+      dema20: contractValue('fmp.dema.20.daily'),
+      tema20: contractValue('fmp.tema.20.daily'),
+      standarddeviation20: contractValue('fmp.standarddeviation.20.daily'),
+      adx14: contractValue('fmp.adx.14.daily'),
       macd: null,
+      macd_state: 'NOT_IN_FMP_ACCEPTED_CATALOG',
+      contracts: normalized.contracts,
       authority: 'FMP_PROVIDER_INDICATORS'
     };
   }
 
-  S.dailyIndicators = function (symbols, options) {
+  S.fmpDailyIndicators = function (symbols, options) {
     options = options || {};
     var requested = normalizeSymbols(symbols);
+    var specs;
+    try { specs = selectedFmpSpecs(options.indicators || null); }
+    catch (e) { return Promise.reject(e); }
     return providerOwned(options.signal, readSupabase).then(function (own) {
       requested = requested || Object.keys(own);
       if (!requested.length)
-        throw S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', 'dailyIndicators');
+        throw S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', 'fmpDailyIndicators');
       if (symbols == null && (!Array.isArray(options.indicators) || !options.indicators.length))
-        throw transportError('full-universe dailyIndicators requires an explicit provider family list',
+        throw transportError('full-universe fmpDailyIndicators requires an explicit provider family list',
           'provider_indicators_current', null);
-      requireProviderOwned(requested, own, 'dailyIndicators');
-      return providerIndicatorRows(requested, options.indicators || null, readSupabase).then(function (raw) {
+      requireProviderOwned(requested, own, 'fmpDailyIndicators');
+      return providerIndicatorRows(requested, specs, readSupabase).then(function (raw) {
         var grouped = {};
         raw.forEach(function (row) {
           var ticker = String(row.ticker || '').toUpperCase();
@@ -896,8 +982,85 @@
         });
         return requested.map(function (ticker) {
           S.clearAbsence(ticker, '1D');
-          return indicatorSnapshot(ticker, grouped[ticker] || []);
+          return indicatorSnapshot(ticker, grouped[ticker] || [], specs);
         });
+      });
+    });
+  };
+
+  /* Compatibility is method-level only: the result still means FMP daily provider indicators,
+     never a legacy table. New surfaces use the explicit provider-named method. */
+  S.dailyIndicators = function (symbols, options) {
+    return S.fmpDailyIndicators(symbols, options);
+  };
+
+  function validateMassiveIndicatorSnapshot (ticker, payload) {
+    if (!payload || payload.schema_version !== 'scintilla.provider-current-indicators.v1' ||
+        payload.provider !== 'MASSIVE' || payload.symbol !== ticker || payload.timeframe !== 'minute' ||
+        payload.adjusted !== true || payload.series_type !== 'close' ||
+        payload.catalog_manifest_sha256 !== MASSIVE_INDICATOR_MANIFEST_SHA256 ||
+        payload.catalog_fixed_spec_count !== 11 || !Array.isArray(payload.contracts) ||
+        payload.contracts.length !== MASSIVE_MINUTE_INDICATOR_IDS.length) {
+      throw transportError('Massive indicator snapshot violated the accepted catalog contract',
+        API + '/indicators', null);
+    }
+    var cutoff = Date.parse(payload.completed_minute_cutoff_utc || '');
+    if (!isFinite(cutoff))
+      throw transportError('Massive indicator snapshot has no completed-minute cutoff',
+        API + '/indicators', null);
+    payload.contracts.forEach(function (c, i) {
+      if (!c || c.id !== MASSIVE_MINUTE_INDICATOR_IDS[i] || c.provider !== 'MASSIVE' ||
+          c.timeframe !== 'minute' || c.adjusted !== true || c.series_type !== 'close' ||
+          ['AVAILABLE','NAMED_UNAVAILABLE'].indexOf(c.state) < 0) {
+        throw transportError('Massive indicator contract mismatch at ' + i, API + '/indicators', null);
+      }
+      if (c.state === 'AVAILABLE') {
+        var source = Date.parse(c.source_timestamp_utc || '');
+        if (!isFinite(Number(c.value)) || !isFinite(source) || source > cutoff ||
+            c.source_finality !== 'COMPLETED_PROVIDER_MINUTE' || !c.source_session_et ||
+            !c.source_market_session) {
+          throw transportError('Massive indicator available value lacks finality: ' + c.id,
+            API + '/indicators', null);
+        }
+        if (c.family === 'macd' && (!isFinite(Number(c.signal)) || !isFinite(Number(c.histogram))))
+          throw transportError('Massive MACD contract lacks signal or histogram', API + '/indicators', null);
+      } else if (c.value !== null || !c.reason) {
+        throw transportError('Massive named unavailability is malformed: ' + c.id,
+          API + '/indicators', null);
+      }
+    });
+    return {
+      schema_version: payload.schema_version,
+      ticker: ticker,
+      provider: 'MASSIVE',
+      provider_symbol: payload.provider_symbol,
+      timeframe: 'minute',
+      adjustment_basis: 'SPLIT_ADJUSTED_PROVIDER_OUTPUT',
+      catalog_manifest_sha256: payload.catalog_manifest_sha256,
+      catalog_fixed_spec_count: 11,
+      generated_utc: payload.generated_utc || null,
+      completed_minute_cutoff_utc: payload.completed_minute_cutoff_utc,
+      available_count: payload.available_count,
+      unavailable_count: payload.unavailable_count,
+      historical_archive_dependency: payload.historical_archive_dependency === false ? false : null,
+      contracts: payload.contracts,
+      authority: 'MASSIVE_PROVIDER_INDICATORS_CURRENT'
+    };
+  }
+
+  S.massiveMinuteIndicators = function (symbol, options) {
+    options = options || {};
+    var requested = normalizeSymbols(symbol);
+    if (!requested || requested.length !== 1)
+      return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', 'massiveMinuteIndicators'));
+    return providerOwned(options.signal, readSupabase).then(function (own) {
+      requireProviderOwned(requested, own, 'massiveMinuteIndicators');
+      var ticker = requested[0];
+      var url = API + '/indicators?provider=MASSIVE&symbol=' + encodeURIComponent(ticker);
+      return jget(url, options.signal).then(function (payload) {
+        var out = validateMassiveIndicatorSnapshot(ticker, payload);
+        S.counts.indicators += out.contracts.filter(function (c) { return c.state === 'AVAILABLE'; }).length;
+        return out;
       });
     });
   };
