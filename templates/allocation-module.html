@@ -121,7 +121,7 @@
     </div>
     <details>
       <summary>LEVEL VOTER ENDPOINTS (VIX · 10Y)</summary>
-      <div class="note" style="margin:6px 0">The geiger dials that used to sit here are gone with the client geiger: every displayed geiger is the hub equalizer's own output read from <code>composite_staged</code>, so its blends and timeframe curve are set in the hub (logo menu → Weight Equalizer, persisted to <code>operator_weights</code>), not on this page. A dial here would move nothing, and a dial that moves nothing teaches a false model of where the number comes from.</div>
+      <div class="note" style="margin:6px 0">Every displayed Geiger comes from the explicit provider-native client. Its blends and timeframe curve are set upstream (logo menu → Weight Equalizer, persisted to <code>operator_weights</code>), not on this page. A dial here would move nothing, and a dial that moves nothing teaches a false model of where the number comes from.</div>
       <div class="ctl"><label>VIX cold ↔ hot<small>−1 at high, +1 at low</small></label><input type="range" id="vixCold" min="20" max="50" step="1"><div class="v" id="vixColdV"></div></div>
       <div class="ctl"><label>10Y cold end %<small>−1 at this yield</small></label><input type="range" id="tenCold" min="4" max="6" step="0.1"><div class="v" id="tenColdV"></div></div>
     </details>
@@ -209,11 +209,11 @@
     <div class="note" style="line-height:1.75">
     <b style="color:var(--txt)">WHAT THIS IS.</b> The SCINTILLA allocation module: market heat → % invested → LC/SC split → moves in % of equity / class / position, with ★FAV candidates ranked by their own geigers. Percent-only, never dollars. Canonical source: GitHub aharveyrianhard-stack/scintilla-allocation (main auto-deploys here). Served at scintillahub.ai/allocation and allocation.scintillahub.ai — same page.<br><br>
     <b style="color:var(--txt)">DATA POLICY (updated with the cohort-feed retirement).</b> Geiger, quote, universe, sector and fundamentals data come from the SCINTILLA database and the provider contract only. The single remaining Yahoo lane is macro-feed, used for exactly two LEVEL voters — VIX and US10Y — when their tables (<code>vix_term</code>, <code>treasury_rates</code>) are stale or unreadable, and it is flagged FALLBACK on the gauge whenever it is voting. cohort-feed is retired from this page: no geiger, price, day-change or universe may come from it. FMP is PROHIBITED everywhere in this module.<br><br>
-    <b style="color:var(--txt)">CONSOLIDATION (2026-08-05 · C7).</b> This module now reads the shared SCINTILLA source-of-truth directly: GEIGER = <code>composite_staged</code> (tf=D, the hub equalizer output — the client computes no geiger at all, and the cohort-feed lane that once carried primitives for one is retired; an absent composite is said out loud, never substituted). UNIVERSE = <code>ticker_cohorts</code> + <code>hub_favorites</code> (hardcoded TICKER_STYLES retained only as fallback). QUOTE+RVOL = <code>live_quotes</code> ÷ <code>company_profile.avg_volume</code>. MACRO = <code>treasury_rates</code> (10Y) + <code>vix_term</code> (VIX; Yahoo fallback flagged when stale). SECTOR = <code>sector_rankings</code>, published hourly by the sector-rotation tool from the same composite_staged — displayed as a ranking strip and a per-name SECT chip (display/annotation only, no score-math change). Every data element carries a freshness/source badge in the strip under the title. etf_holdings/etf_info remain empty — nothing faked.<br><br>
+    <b style="color:var(--txt)">CURRENT AUTHORITY.</b> GEIGER = explicit provider-native Geiger; the client computes no Geiger and says unavailable when authority is absent. UNIVERSE = <code>ticker_cohorts</code> + <code>hub_favorites</code>. QUOTE+RVOL = provider quote volume ÷ <code>company_profile.avg_volume</code>. MACRO = <code>treasury_rates</code> (10Y) + <code>vix_term</code> (VIX; the named macro fallback is visibly flagged). SECTOR = <code>sector_rankings</code>, published from the same provider Geiger. Every data element carries a freshness/source badge under the title; nothing is silently substituted.<br><br>
     <b style="color:var(--txt)">PROXY MENU.</b> LC→SPY · SC→IWM · Growth→QQQ · Value→RSP · Semis→SMH · Crypto→BTC-USD · Oil→CL=F (LIVE as its own independent voter, inverted — per Alan; no other commodity voters unless Alan asks) · Defensives→XLP+XLU. Mechanics when added: SLEEVES are sized by relative coldness — colder sleeve earns more, its coldest favorites get ADD-tagged. STYLES (growth/value — cross-cap by nature) never become sleeves; they re-rank candidates INSIDE sleeves (cold QQQ pushes growth names up the ADD list in both classes). Sector geigers (already in macro-feed, all 11) will re-rank by sector the same way — integrates with the hub sectorrotation tool.<br><br>
-    <b style="color:var(--txt)">PARITY — EQUALIZER REVIEWED ON THE HUB 2026-07-19 (logo menu → Weight Equalizer). HISTORICAL — the client geiger and its cohort-feed lane described below were later retired; the curve lives upstream in the hub.</b> Read-back of the live surface: TF curve 2h 1.2 · 3h 3.6 · 4h 6.7 · 6h 9.3 · 12h 9.3 · 1d 9.3 · 3d 7.6 · 1w 2.9 (1m–1h and 2w–1M at 0) · families TRND 50 / MOM 50 (only those two carry weight live) · momentum mix 60 RSI / 40 Williams · SAVE persists to operator_weights (currently 0 rows = hub running these defaults). THIS MODULE NOW RUNS THAT EXACT CURVE: cohort-feed v4 computes the primitives per TF, intraday resampled from Yahoo 60m bars (2h=2×60m, 3h=3, 4h=4, 6h=6, 12h=13 bars — test-lane approximation; database bars replace them on graduation). Remaining differences vs the hub can only come from Yahoo data lag/timestamps — by design, per Alan's doctrine. When operator_weights gains rows, read it live and drop the hardcoded curve.<br><br>
+    <b style="color:var(--txt)">EQUALIZER.</b> The timeframe curve and family weights live upstream. This page consumes the resulting Geiger through the provider client and reads <code>operator_weights</code> only for transparency; it does not reproduce the calculation locally.<br><br>
     <b style="color:var(--txt)">RSI LEVELS — verified vs GOOGL_GEIGER_v2 (GEIGER!A24):</b> momentum is "mapped straight from its range to −1…+1". 23/77 are the ends of the map, not gates — every intermediate RSI level feeds proportionally, continuously.<br><br>
-    <b style="color:var(--txt)">PARITY TEST — RUN 2026-07-20, vs database table board_rsi.</b> RSI: EXACT match 3/3 to the decimal (SPY 48.42=48.42 · QQQ 42.00=42.00 · GOOGL 42.23=42.23) — same Wilder math, same close-series convention, Alan's post-market worry cleared (DB bar = Friday close; Google Finance's SPY ~752 was the outlier quote, Yahoo+hub+DB all agree). Williams %R: fixed to TRUE bar highs/lows in cohort-feed v5 (was close-only); QQQ now −85.4 vs DB −83.2. Residual gap on SPY/GOOGL (−33 vs −52 · −64 vs −82) is the LOOKBACK convention: this module uses 25 bars per the approved GOOGL_GEIGER_v2 spec; board_rsi appears to use a different period. RESOLVED BY ALAN 2026-07-20: indicators are calculated as normally calculated — Williams %R = standard 14-period on true highs/lows. With that, parity is EXACT 6/6 (RSI and W%R, SPY/QQQ/GOOGL all match the database to the decimal). Still open: wire operator_weights when it gains rows.<br><br>
+    <b style="color:var(--txt)">PARITY TEST — RUN 2026-07-20, vs database table raw provider indicator baseline.</b> RSI: EXACT match 3/3 to the decimal (SPY 48.42=48.42 · QQQ 42.00=42.00 · GOOGL 42.23=42.23) — same Wilder math, same close-series convention, Alan's post-market worry cleared (DB bar = Friday close; Google Finance's SPY ~752 was the outlier quote, Yahoo+hub+DB all agree). Williams %R: fixed to TRUE bar highs/lows in cohort-feed v5 (was close-only); QQQ now −85.4 vs DB −83.2. Residual gap on SPY/GOOGL (−33 vs −52 · −64 vs −82) is the LOOKBACK convention: this module uses 25 bars per the approved GOOGL_GEIGER_v2 spec; raw provider indicator baseline appears to use a different period. RESOLVED BY ALAN 2026-07-20: indicators are calculated as normally calculated — Williams %R = standard 14-period on true highs/lows. With that, parity is EXACT 6/6 (RSI and W%R, SPY/QQQ/GOOGL all match the database to the decimal). Still open: wire operator_weights when it gains rows.<br><br>
     <b style="color:var(--txt)">YOUR STATE / IBKR.</b> Panel 3 seeds from storage file inbox/ibkr-state.json (percentages only, never dollars). It updates ONLY when Alan tells a session "sync IBKR" (scheduled auto-sync was proposed and REJECTED — do not create one). IBKR connector is read-only OAuth; never touch orders.<br><br>
     <b style="color:var(--txt)">ARCHITECTURE (v11, Alan doctrine): SCORE = HOW MUCH (total risk from heat); SLEEVES = WHERE (GROWTH/SMALL/BROAD/SEMIS/CRYPTO/CMDTY, shares proportional to coldness, capped 5-35%). Every proxy does real work in WHERE regardless of its score weight. Tickers can live in several sleeves. LC/SC survives as a lens readout only. Per-sleeve CURRENT arrives with IBKR position sync (all-cash today, so every sleeve reads BUILD). Schedule is multi-factor (vol + heat + breadth + style discounts), not VIX-only. Open on Alan word: breadth voters as RATIO geigers (IWM/SPY, RSP/SPY from macro-feed) instead of straight geigers.</b><br><br>
     <b style="color:var(--txt)">STYLE LAYER — LIVE (2026-07-20): style proxies vs SPY (GROWTH=QQQ, SEMIS=SMH, VALUE=RSP, CRYPTO=BTC, DEFENSIVE=XLP+XLU) produce STYLE TILTS in the MOVES panel (lean into / avoid on adds) and re-rank the candidate list by style-adjusted coldness (geiger + 0.5 × avg style spread). Styles tilt WITHIN sleeves; sleeves remain LC/SC. Cold QQQ literally pushes growth names up the ADD list. THE BRIEF panel at the top is generated from the same numbers.</b><br><br>\n    <b style="color:var(--txt)">AGREED BASE (2026-07-20, starting point for testing):</b> weights SPY 1 · QQQ 1 · IWM 0.5 · SMH 0.5 · VIX 0.5 · US10Y 0.5 · OIL 0.5 · VALUE 0 (reading) · CRYPTO 0.25 · DEF 0.25. Policy: invested 100% at max cold, 15% at max hot, linear. LC/SC split data-driven (IWM vs SPY), tilt OFF. Positions 4 LC / 2 SC. All of it testable, none of it sacred.<br><br>
@@ -238,9 +238,8 @@
 
 </div>
 
-<!-- PROVIDER AUTHORITY SHIM. This page reads live_quotes and composite_staged with a bare
-     fetch(), so without this tag its equity numbers came from the legacy tables while every
-     other Station surface had moved. -->
+<!-- Explicit provider-native market client. Supabase remains bound only for the named
+     non-market relations below; market quotes and Geiger never travel through bare table reads. -->
 <script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
@@ -275,6 +274,7 @@ async function sbGet(path){
     throw e;
   } finally { if (hard) clearTimeout(hard); }
 }
+scBindProviderClient(sbGet);
 let COMPOSITE={}, COMPOSITE_STATUS='pending';           // ticker -> {trend,momentum,composite,updated_ts}  THE geiger
 let UNIVERSE={cohorts:{}, favs:new Set(), status:'pending'};  // THE universe: ticker_cohorts + hub_favorites
 let QUOTES={}, PROFILES={}, TREAS=null, VIXDB=null, SECTOR_RANKS=null, OPW=null;
@@ -322,19 +322,17 @@ async function refreshSSOT(){
     UNIVERSE.favs=new Set(rows.map(r=>r.ticker));
     spineSet('hub_favorites',null,'LIVE',rows.length+' favorites');
   }).catch(e=>spineSet('hub_favorites',null,'FALLBACK','read failed')));
-  // THE geiger — composite_staged tf=D (~211 rows, guarded well under the 1000 cap)
-  J.push(sbGet('composite_staged?select=ticker,trend,momentum,composite,updated_ts&tf=eq.D&limit=1000').then(rows=>{
-    if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
-    const m={}; let mx=0; for(const r of rows){m[r.ticker]=r; if(r.updated_ts>mx)mx=r.updated_ts;}
+  // THE geiger — explicit provider-native authority, joined with the narrow non-equity adapter.
+  J.push(SC_PROVIDER.marketGeiger().then(rows=>{
+    const m={}; let mx=0; for(const r of rows){m[r.ticker]=r; const es=Date.parse(r.updated_ts)/1000; if(isFinite(es)&&es>mx)mx=es;}
     COMPOSITE=m; COMPOSITE_STATUS='ok';
-    spineSet('composite_staged',mx,ageMode(mx,45*60),rows.length+' tickers tf=D — THE geiger (0.5×trend+0.5×momentum, hub equalizer output)');
-  }).catch(e=>{COMPOSITE_STATUS='error';spineSet('composite_staged',null,'FALLBACK','read failed ('+e.message+') — no geiger; nothing is substituted');}));
+    spineSet('provider_geiger',mx,ageMode(mx,45*60),rows.length+' provider-native and explicitly retained non-equity readings — THE geiger');
+  }).catch(e=>{COMPOSITE_STATUS='error';spineSet('provider_geiger',null,'FALLBACK','provider read failed ('+e.message+') — no geiger; nothing is substituted');}));
   // quote + RVOL inputs
-  J.push(sbGet('live_quotes?select=ticker,price,chg_pct,volume,prev_close,updated_ts&limit=1000').then(rows=>{
-    if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
+  J.push(SC_PROVIDER.marketQuotes().then(rows=>{
     const m={}; let mx=null; for(const r of rows){m[r.ticker]=r; const es=Date.parse(r.updated_ts)/1000; if(!mx||es>mx)mx=es;}
-    QUOTES=m; spineSet('live_quotes',mx,ageMode(mx,30*60),rows.length+' quotes');
-  }).catch(e=>spineSet('live_quotes',null,'FALLBACK','read failed — prices and day changes render unavailable; nothing is substituted')));
+    QUOTES=m; spineSet('provider_quotes',mx,ageMode(mx,30*60),rows.length+' provider-native and explicitly retained non-equity quotes');
+  }).catch(e=>spineSet('provider_quotes',null,'FALLBACK','provider read failed — prices and day changes render unavailable; nothing is substituted')));
   J.push(sbGet('company_profile?select=ticker,sector,market_cap,avg_volume,is_etf&limit=1000').then(rows=>{
     if(rows.length>=1000) throw new Error('truncated at PostgREST cap');
     const m={}; for(const r of rows)m[r.ticker]=r;
@@ -349,16 +347,16 @@ async function refreshSSOT(){
     if(rows[0]){VIXDB=rows[0]; VIXDB.fresh=(Date.now()-Date.parse(VIXDB.date))/864e5<=3;
       spineSet('vix_term',null,VIXDB.fresh?'LIVE':'STALE','VIX '+VIXDB.vix+' @ '+VIXDB.date+(VIXDB.fresh?'':' — stale, Yahoo VIX voting instead (flagged)'));}
   }).catch(e=>spineSet('vix_term',null,'FALLBACK','read failed — Yahoo VIX in use')));
-  // published sector rotation (written by the sector tool from the same composite_staged)
+  // published sector rotation (written by the sector tool from the same provider Geiger)
   J.push(sbGet('sector_rankings?select=date,sector,sector_name,rank,score,method,updated_at&order=date.desc,rank.asc&limit=22').then(rows=>{
     if(rows.length){const d0=rows[0].date; const list=rows.filter(r=>r.date===d0);
       SECTOR_RANKS={date:d0,list,bySector:Object.fromEntries(list.map(r=>[r.sector,r])),updated_at:rows[0].updated_at};
       spineSet('sector_rankings',rows[0].updated_at,ageMode(rows[0].updated_at,3*3600),list.length+' sectors @ '+d0+' — published by the sector-rotation tool');}
     else spineSet('sector_rankings',null,'STALE','table empty');
   }).catch(e=>spineSet('sector_rankings',null,'FALLBACK','read failed — sector lens off')));
-  // operator weights (hub applies these upstream inside composite_staged; read for transparency)
+  // operator weights (the provider Geiger applies these upstream; read for transparency)
   J.push(sbGet('operator_weights?select=dim,key,weight,enabled&limit=100').then(rows=>{
-    OPW={rows:rows.length}; spineSet('operator_weights',null,'LIVE',rows.length+' rows — applied upstream by the hub inside composite_staged');
+    OPW={rows:rows.length}; spineSet('operator_weights',null,'LIVE',rows.length+' rows — applied upstream by the provider Geiger');
   }).catch(e=>spineSet('operator_weights',null,'FALLBACK','read failed')));
   await Promise.all(J);
   renderSpine();
@@ -370,7 +368,7 @@ async function refreshSSOT(){
    gone from every displayed path and from the diagnostic readout - while it existed a reader
    could still see a number labelled as a geiger that no accepted authority produced. The
    provider contract answers, or this page says it could not. */
-// THE geiger accessor: the provider's composite via the authority shim; no local recomputation
+// THE geiger accessor: the provider's composite via the explicit provider client; no local recomputation
 function tickerG(sym){
   const r=COMPOSITE[sym];
   if(r&&r.composite!=null) return {g:Math.max(-1,Math.min(1,r.composite)),src:'db'};
@@ -393,7 +391,7 @@ function rvolTxt(sym){
   if(!q||!p||!q.volume||!p.avg_volume) return '<span class="cls">—</span>';
   const rv=q.volume/p.avg_volume;
   const col=rv>=1.5?'var(--gold)':rv>=1?'var(--txt)':'var(--dim)';
-  return '<span style="color:'+col+'" title="RVOL = live_quotes.volume ÷ company_profile.avg_volume">'+rv.toFixed(2)+'×</span>';
+  return '<span style="color:'+col+'" title="RVOL = provider quotes.volume ÷ company_profile.avg_volume">'+rv.toFixed(2)+'×</span>';
 }
 function renderSectorStrip(){
   const el=document.getElementById('sectorStrip'); if(!el) return;
@@ -402,7 +400,7 @@ function renderSectorStrip(){
     const col=r.rank<=3?'var(--green)':r.rank>=9?'var(--orange)':'var(--dim)';
     return '<span style="border:1px solid var(--line);border-radius:5px;padding:3px 8px;font-size:11px;color:'+col+'" title="'+(r.sector_name||'')+' · '+r.method+'">#'+r.rank+' '+r.sector+' '+(r.score>=0?'+':'')+(+r.score).toFixed(2)+'</span>';
   }).join(' ');
-  el.innerHTML='<div class="cls" style="font-size:10px;letter-spacing:.08em;margin-bottom:4px">SECTOR ROTATION — published ranking · <code>sector_rankings</code> (sector tool, same composite_staged geiger) · '+freshTxt(SECTOR_RANKS.updated_at)+' · annotation lens only, no score-math change</div><div style="display:flex;flex-wrap:wrap;gap:5px">'+chips+'</div>';
+  el.innerHTML='<div class="cls" style="font-size:10px;letter-spacing:.08em;margin-bottom:4px">SECTOR ROTATION — published ranking · <code>sector_rankings</code> (sector tool, same provider Geiger) · '+freshTxt(SECTOR_RANKS.updated_at)+' · annotation lens only, no score-math change</div><div style="display:flex;flex-wrap:wrap;gap:5px">'+chips+'</div>';
 }
 function candidateSyms(){
   // THE universe = ticker_cohorts (pick cohorts) + hub_favorites. There is no fallback universe.
@@ -422,7 +420,7 @@ const CLASSNAME = {LC:'Large Cap',SC:'Small Cap',IDX:'Index',ETF:'ETF',CMD:'Comm
 // STYLE LAYER: proxies vs SPY decide which styles are discounted; styles never become sleeves — they tilt MOVES and re-rank candidates.
 const TICKER_STYLES = {NVDA:['GROWTH','SEMIS'],AMD:['GROWTH','SEMIS'],AVGO:['SEMIS'],ASML:['SEMIS'],AMAT:['SEMIS'],LRCX:['SEMIS'],MU:['SEMIS'],TSM:['SEMIS'],MRVL:['SEMIS'],SNDK:['SEMIS'],CRDO:['SEMIS'],ALAB:['SEMIS'],ANET:['GROWTH'],ARM:['GROWTH','SEMIS'],TSLA:['GROWTH'],PLTR:['GROWTH'],AMZN:['GROWTH'],GOOGL:['GROWTH'],MSFT:['GROWTH'],NBIS:['GROWTH'],CRWV:['GROWTH'],PSTG:['GROWTH'],ASTS:['GROWTH'],OKLO:['GROWTH'],RKLB:['GROWTH'],APLD:['CRYPTO'],IREN:['CRYPTO'],CIFR:['CRYPTO'],WULF:['CRYPTO'],MSTR:['CRYPTO'],BTCUSD:['CRYPTO'],USO:['CMDTY'],SLV:['CMDTY'],CLUSD:['CMDTY'],GCUSD:['CMDTY'],SIUSD:['CMDTY']};
 function styleSpreads(){
-  const gS = gv('SPY');                                  // SSOT: composite_staged
+  const gS = gv('SPY');                                  // SSOT: provider Geiger
   if (gS == null) return {};
   const sp = {};
   const pair = (name, sym) => { const g = gv(sym); if (g != null) sp[name] = g - gS; };
@@ -443,7 +441,7 @@ function styleAdj(sym, spreads){
 const SLEEVES = {GROWTH:['QQQ'], SMALL:['IWM'], BROAD:['RSP'], SEMIS:['SMH'], CRYPTO:['BTCUSD'], CMDTY:['GCUSD','SIUSD','CLUSD']};
 const SLEEVE_COLOR = {GROWTH:'#00d4ff', SMALL:'#7dd3fc', BROAD:'#ffd166', SEMIS:'#a78bfa', CRYPTO:'#ff8c42', CMDTY:'#38e07b', CASH:'#23233a'};
 function sleeveG(name){
-  const syms = SLEEVES[name].filter(x => gv(x) != null); // SSOT: composite_staged
+  const syms = SLEEVES[name].filter(x => gv(x) != null); // SSOT: provider Geiger
   if (!syms.length) return null;
   return syms.reduce((t,x) => t + gv(x), 0) / syms.length;
 }
@@ -487,16 +485,16 @@ const DEFAULTS = {
   wts:{SPY:1, QQQ:1, IWM:0.5, SMH:0.5, VIX:0.5, US10Y:0.5, OIL:0.5, VALUE:0, CRYPTO:0.25, DEF:0.25}
 };
 const VOTER_DESC = {
-  SPY: 'PROXY: SPY (composite_staged · db; Yahoo fallback). The approved geiger on the S&P across your full equalizer curve (2h→1w): ribbon order 50% + momentum 50% (RSI 60 / W%R 40, straight 23→77 map — every level in between feeds, per GOOGL_GEIGER_v2). WHEN it reads positive the market is stretched and it pushes the score UP toward Overbought; negative = washed out, pushes DOWN toward Oversold.',
-  QQQ: 'PROXY: QQQ (composite_staged · db; Yahoo fallback). Same geiger on the Nasdaq-100. When growth is the stretched side it pushes the score UP; when growth is the beaten-down side (like now) it pulls the score DOWN. Watch it vs SPY: the gap says which side is discounted.',
-  IWM: 'PROXY: IWM (composite_staged · db; Yahoo fallback). Same geiger on small caps. As a voter it adds breadth: a rally without small caps reads cooler. NOTE: whether weighted or not, IWM-vs-SPY always drives the LC/SC split in panel 2.',
-  SMH: 'PROXY: SMH (composite_staged · db; Yahoo fallback). Same geiger on semis, the current leadership. Weighted in, a stretched semi complex pushes the score UP (leadership froth) and a broken one drags it DOWN.',
+  SPY: 'PROXY: SPY (provider-native Geiger). Positive means stretched and pushes toward Overbought; negative means washed out and pulls toward Oversold.',
+  QQQ: 'PROXY: QQQ (provider-native Geiger). Watch it against SPY: the gap says which side is discounted.',
+  IWM: 'PROXY: IWM (provider-native Geiger). Whether weighted or not, IWM-vs-SPY drives the LC/SC split in panel 2.',
+  SMH: 'PROXY: SMH (provider-native Geiger). The approved semiconductor-leadership reading.',
   VIX: 'PROXY: VIX level (vix_term · db when fresh; Yahoo fallback flagged when stale), not a geiger. HOW IT VOTES: below ~21 it votes hot (+) — calm/complacency, pushes the score UP; above ~21 it votes cold (−) — fear, pulls it DOWN; at 12 it maxes at +1, at your cold endpoint (30) it floors at −1, clamped beyond. Today 18.8 → +0.25: mildly complacent. KNOWN LIMIT: level-only is v1-simplistic — term structure (VIX vs VIX3M) and rate-of-change are roadmap upgrades.',
   US10Y: 'PROXY: US 10Y yield (treasury_rates.y10 · db; Yahoo fallback), not a geiger. HOW IT VOTES: below ~4.15% yields are fuel — pushes the score UP; above ~4.15% they are a headwind — pulls it DOWN; +1 at 3.5%, −1 at 4.8%. Today 4.54% → −0.60: rates are a drag. Same v1-simplistic caveat as VIX — a yield-trend geiger is a roadmap upgrade.',
-  OIL: 'PROXY: CLUSD crude (composite_staged · db; Yahoo fallback), its own independent voter — never lumped with other commodities. INVERTED geiger: oil trending hot = inflation pressure = pulls the score DOWN; oil breaking down = relief = pushes UP. Base weight 0.5 because it matters now; dial to 0 the day it stops.',
-  VALUE: 'PROXY: RSP equal-weight S&P (composite_staged · db). The value/breadth style. Straight geiger: a hot equal-weight tape = broad strength pushes the score UP; a cold one = narrow market, pulls DOWN. Base weight 0 — reading only for now; as a STYLE it will re-rank candidates rather than vote, per the roadmap.',
-  CRYPTO: 'PROXY: BTCUSD (composite_staged · db). The risk-appetite tell. Straight geiger: BTC running hot = speculative appetite = pushes the score UP; BTC breaking = risk coming off = pulls DOWN. Base weight 0.25 — a tell, not a driver.',
-  DEF: 'PROXY: XLP+XLU average (composite_staged · db), INVERTED. When defensives are the hot trade, money is hiding — that is risk-off, so it pulls the score DOWN; defensives cold = nobody paying up for safety = pushes UP. Base weight 0.25.'
+  OIL: 'PROXY: CLUSD crude (explicit retained non-equity Geiger), its own independent voter. INVERTED: oil trending hot is inflation pressure and pulls the score down; oil breaking down is relief and pushes it up.',
+  VALUE: 'PROXY: RSP equal-weight S&P (provider-native Geiger). The value/breadth style.',
+  CRYPTO: 'PROXY: BTCUSD (explicit retained non-equity Geiger). The risk-appetite tell.',
+  DEF: 'PROXY: XLP+XLU average (provider-native Geiger), INVERTED. Hot defensives are risk-off and pull the score down.'
 };
 let S = JSON.parse(localStorage.getItem('alloc-module-v1') || 'null') || structuredClone(DEFAULTS);
 S.wts = Object.assign(structuredClone(DEFAULTS.wts), S.wts || {});
@@ -533,7 +531,7 @@ async function loadFeeds(){
   const haveCache = cached && cached.mr;
   if (haveCache) { ingest(cached.mr); document.getElementById('loading').style.display='none'; render(); }
   else document.getElementById('loading').style.display='flex';
-  document.getElementById('loadmsg').textContent = 'pulling SSOT tables (composite_staged · cohorts · quotes) + the macro-feed level fallback…';
+  document.getElementById('loadmsg').textContent = 'pulling provider-native Geiger and quotes, cohorts, and the named macro level lane…';
   document.getElementById('refresh').textContent = '↻ REFRESHING…';
   const ssotP = refreshSSOT();   // SSOT DB reads run in parallel with the level fallback feed
   try {
@@ -579,8 +577,8 @@ function namesPer(h){ const cap=S.maxNames??6; let n; if(!S.divAuto){ n=S.nPer; 
    name does not stay in the page as an attractive nuisance. */
 function voters(){
   const v = [];
-  const idx = sym => gv(sym);                                            // SSOT: composite_staged
-  const gsrc = sym => COMPOSITE[sym] ? 'provider composite via the authority shim' : 'accepted composite unavailable';
+  const idx = sym => gv(sym);                                            // SSOT: provider Geiger
+  const gsrc = sym => COMPOSITE[sym] ? 'explicit provider-native Geiger' : 'accepted Geiger unavailable';
   v.push({key:'SPY', name:'SPY GEIGER', sub:gsrc('SPY'), val:idx('SPY')});
   v.push({key:'QQQ', name:'QQQ GEIGER', sub:gsrc('QQQ'), val:idx('QQQ')});
   v.push({key:'IWM', name:'IWM GEIGER', sub:'small caps · '+gsrc('IWM'), val:idx('IWM')});
@@ -622,7 +620,7 @@ function investedAt(h){ const x = (1 - h) / 2; return (S.minInv + (S.maxInv - S.
 // LC/SC split: DATA-DRIVEN. Colder class gets the bigger sleeve, sized by the geiger spread.
 // Optional sub-dial: heat tilt — when overall heat is high, lean extra toward large caps (better holds when stretched).
 function lcShareAuto(h){
-  const s = gv('SPY'), i = gv('IWM');                    // SSOT: composite_staged
+  const s = gv('SPY'), i = gv('IWM');                    // SSOT: provider Geiger
   if (s == null || i == null) return 0.5;
   return Math.min(.8, Math.max(.2, 0.5 + (i - s) * 0.5 + (S.lcTilt || 0) * (h || 0)));
 }
@@ -717,7 +715,7 @@ function render(){
   drawCurve(h);
 
   // data-driven split readout
-  const gS = gv('SPY'), gI = gv('IWM');                  // SSOT: composite_staged
+  const gS = gv('SPY'), gI = gv('IWM');                  // SSOT: provider Geiger
   if (gS != null && gI != null) {
     const lcs = lcShareAuto(h);
     const tiltTerm = (S.lcTilt || 0) * (h ?? 0);
@@ -741,9 +739,9 @@ function render(){
     renderCohort(0, 0);
     renderComps();
     renderTrace(null);
-    const csFresh0 = SPINE['composite_staged'] && SPINE['composite_staged'].ts ? freshTxt(SPINE['composite_staged'].ts) : '—';
-    document.getElementById('stamp').textContent = 'MACRO HEAT MODULE · geiger SSOT composite_staged (' + csFresh0 + ') · universe ticker_cohorts+hub_favorites · % only, never dollars';
-    document.getElementById('cohstamp').textContent = 'SSOT: composite_staged + ticker_cohorts/hub_favorites + live_quotes + sector_rankings (db) · comps: fundamentals/ratios_history/analyst_estimates · the one fallback lane (macro-feed VIX/10Y levels) is flagged in the badge strip';
+    const csFresh0 = SPINE.provider_geiger && SPINE.provider_geiger.ts ? freshTxt(SPINE.provider_geiger.ts) : '—';
+    document.getElementById('stamp').textContent = 'MACRO HEAT MODULE · provider-native Geiger (' + csFresh0 + ') · universe ticker_cohorts+hub_favorites · % only, never dollars';
+    document.getElementById('cohstamp').textContent = 'AUTHORITY: provider Geiger + ticker_cohorts/hub_favorites + provider quotes + sector_rankings · comps: fundamentals/ratios_history/analyst_estimates · the one fallback lane (macro-feed VIX/10Y levels) is flagged in the badge strip';
     renderSpine(); renderSectorStrip();
     save();
     return;
@@ -812,9 +810,9 @@ function render(){
   renderCohort(dLC, dSC);
   renderComps();
   renderTrace(h, inv, lc, lcEq, scEq, perLC, perSC, cInv, cLC, cSC, dTot, dLC, dSC);
-  const csFresh = SPINE['composite_staged'] && SPINE['composite_staged'].ts ? freshTxt(SPINE['composite_staged'].ts) : '—';
-  document.getElementById('stamp').textContent = 'MACRO HEAT MODULE · geiger SSOT composite_staged (' + csFresh + ') · universe ticker_cohorts+hub_favorites · % only, never dollars';
-  document.getElementById('cohstamp').textContent = 'SSOT: composite_staged + ticker_cohorts/hub_favorites + live_quotes + sector_rankings (db) · comps: fundamentals/ratios_history/analyst_estimates · the one fallback lane (macro-feed VIX/10Y levels) is flagged in the badge strip';
+  const csFresh = SPINE.provider_geiger && SPINE.provider_geiger.ts ? freshTxt(SPINE.provider_geiger.ts) : '—';
+  document.getElementById('stamp').textContent = 'MACRO HEAT MODULE · provider-native Geiger (' + csFresh + ') · universe ticker_cohorts+hub_favorites · % only, never dollars';
+  document.getElementById('cohstamp').textContent = 'AUTHORITY: provider Geiger + ticker_cohorts/hub_favorites + provider quotes + sector_rankings · comps: fundamentals/ratios_history/analyst_estimates · the one fallback lane (macro-feed VIX/10Y levels) is flagged in the badge strip';
   renderSpine(); renderSectorStrip();
   save();
 }
@@ -931,7 +929,7 @@ function renderInputMap(h){
     ['VIX endpoints', SUB, '−1 @ '+S.vixCold+' · +1 @ 12', 'Moves where the VIX voter reads −1/+1. Widening the cold end makes the voter slower to call fear "cold".'],
     ['10Y endpoints', SUB, '−1 @ '+(+S.tenCold).toFixed(1)+'% · +1 @ 3.5%', 'Same shape for the yield voter.'],
     ['LC share rails', RAIL, '20% – 80%', 'Clamp on the data split so one hot print can’t zero a class. Constant, not a dial — stays internal as classes are added.'],
-    ['Geiger blends + TF curve', APPR, (OPW && OPW.rows ? 'operator_weights: '+OPW.rows+' rows' : 'hub defaults'), 'Not a client input at all: every geiger on this page is the hub equalizer\'s output read from composite_staged. Blends and the timeframe curve are set in the hub and applied upstream — no client geiger exists to dial.'],
+    ['Geiger blends + TF curve', APPR, (OPW && OPW.rows ? 'operator_weights: '+OPW.rows+' rows' : 'upstream defaults'), 'Not a client input: every Geiger on this page comes from the explicit provider-native client. Blends and timeframe weighting are applied upstream; this page does not reproduce them.'],
   ];
   t.innerHTML = '<tr><th>INPUT</th><th>KIND</th><th>NOW</th><th>WHAT IT DOES, MATHEMATICALLY</th></tr>' +
     rows.map(r => `<tr><td class="n">${r[0]}</td><td class="k">${r[1]}</td><td class="cls">${r[2]}</td><td class="cls">${r[3]}</td></tr>`).join('');
@@ -1094,12 +1092,12 @@ function renderTrace(h, inv, lc, lcEq, scEq, perLC, perSC, cInv, cLC, cSC, dTot,
   const L = [];
   const gTrace = sym => {
     const r = COMPOSITE[sym];
-    if (r) return `${sym}  composite_staged (tf=D, db): trend ${f2(r.trend)}×0.5 + momentum ${f2(r.momentum)}×0.5 = ${f2(r.composite)}   [${freshTxt(r.updated_ts)}]`;
+    if (r) return `${sym}  provider Geiger: trend ${f2(r.trend)}×0.5 + momentum ${f2(r.momentum)}×0.5 = ${f2(r.composite)}   [${freshTxt(r.updated_ts)}]`;
     /* The local computation is gone, not merely unused: while it existed a reader could still
        see a number labelled as a geiger that no accepted authority produced. */
     return `${sym}  accepted composite unavailable — no local geiger is computed`;
   };
-  L.push('STEP A · GEIGER VOTERS (SSOT: composite_staged — the hub equalizer output; client geiger math retired to fallback)');
+  L.push('STEP A · GEIGER VOTERS (explicit provider-native authority; no client Geiger computation)');
   for (const s of ['SPY','QQQ','IWM','SMH']) L.push('  ' + gTrace(s));
   /* The trace explains the numbers actually used. The level voters may sit on their flagged
      Yahoo fallback (their gauge rows say so); the trace prints the db values or nothing rather

@@ -165,7 +165,7 @@ function discoverServed(dir = ROOT, prefix = "") {
 const served = discoverServed();
 
 /* The files pages load by absolute path — a missing one is a broken page, which is exactly
-   how /analytics ran without the authority shim. */
+   how /analytics once ran without the provider boundary. */
 const LOAD_BEARING = ["/_provider/provider.js", "/_cohorts/cohort-axis.js", "/deck/scenes.js",
   "/_vendor/supabase-js-2.112.3-umd.min.js",
   "/_vendor/lightweight-charts-4.1.3.standalone.production.js",
@@ -175,6 +175,7 @@ const CLASSES = [
   /* Ordered: the browser-proof class must claim its own .md/.mjs files before the generic
      documentation and test classes see them. */
   ["Browser proof rig and receipts", (p) => p.startsWith("/browser-proof/")],
+  ["Control manifests", (p) => p.startsWith("/control/")],
   ["Documentation", (p) => p.endsWith(".md")],
   ["Test suites", (p) => p.endsWith(".test.mjs")],
   ["X-bridge extension draft", (p) => p.startsWith("/station-x-bridge-draft/")],
@@ -209,9 +210,9 @@ test("the dependency inventory states the counts it was generated against", () =
   }
 });
 
-test("the shim dependency really is loaded by the pages the table claims", () => {
-  /* 20 pages load the authority shim BY SCRIPT TAG; a page that loses the tag regresses to
-     legacy reads. A prose mention (like /health's) is not a load, which is why the count is
+test("the explicit provider client really is loaded by the pages the table claims", () => {
+  /* 20 pages load the explicit provider client BY SCRIPT TAG. A prose mention (like /health's)
+     is not a load, which is why the count is
      taken from the tag, not from a bare grep. */
   const loaders = routes.filter((route) => {
     const file = route.endsWith(".html") ? route : (route === "/" ? "/index.html" : route + "/index.html");
@@ -219,7 +220,7 @@ test("the shim dependency really is loaded by the pages the table claims", () =>
     try { return fs.readFileSync(full, "utf8").includes('script src="/_provider/provider.js"'); }
     catch { return false; }
   });
-  assert.equal(loaders.length, 20, "the dependency table claims 20 shim loaders by script tag");
+  assert.equal(loaders.length, 20, "the dependency table claims 20 provider-client loaders by script tag");
   assert.match(inventory, /`\/_provider\/provider\.js` \| 20 pages by script tag/);
 });
 

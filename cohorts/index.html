@@ -15,8 +15,7 @@
      ?top=1 makes every chip drive the WHOLE window (scene-level navigation —
      drop the strip into any scene and it steers the scene). ?on=NAME lights
      the active chip. ?bg=0 transparent · ?labels=0 counts off · ?refresh=60.
-     DATA — DB reads only, never FMP: ticker_cohorts (membership view) ×
-     composite_staged tf=D + hub_favorites count · scintilla-live.
+     DATA — ticker_cohorts membership × explicit provider Geiger + hub_favorites count.
      Receipt: HSC-COHORTSTRIP-LIVE-001.
      ============================================================================ -->
 <style>
@@ -55,11 +54,9 @@ body.nobg{ background:transparent; }
 <script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -115,12 +112,12 @@ async function tick() {
   const READ_FAILED = { failed: true };
   const [axis, cs, fav] = await Promise.all([
     SC_COHORT_AXIS.loadMemberships(pg).catch(() => READ_FAILED),
-    pg("composite_staged?tf=eq.D&select=ticker,composite").catch(() => READ_FAILED),
+    SC_PROVIDER.equityGeiger().catch(() => READ_FAILED),
     pg("hub_favorites?select=ticker").catch(() => null),
   ]);
   const strip = document.getElementById("strip");
   if (axis === READ_FAILED || cs === READ_FAILED) {
-    const src = axis === READ_FAILED ? "ticker_cohorts" : "composite_staged";
+    const src = axis === READ_FAILED ? "ticker_cohorts" : "provider /geiger";
     if (STRIP_OK) {
       if (!document.getElementById("cohStale"))
         strip.insertAdjacentHTML("beforeend", '<span class="empty" id="cohStale"></span>');

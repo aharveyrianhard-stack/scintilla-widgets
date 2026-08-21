@@ -226,16 +226,16 @@
     <b>Universe:</b> 11 SPDR sector ETFs (XLK XLC XLY XLF XLI XLB XLE XLV XLP XLU XLRE) vs benchmark <b>SPY</b>.<br>
     <b>Current authority contract: Massive provider APIs own equity prices, completed bars and Geiger. Raw FMP <code>provider_indicators_current</code> owns the daily RSI/Williams/EMA/SMA values. There is no Yahoo or locally computed fallback. Missing provider data stays visibly unavailable.</b><br>
     <b>① Supabase</b> (project <code>scintilla-live</code>, same database that feeds scintillahub.ai itself, read via anon/RLS-gated key, seven independent reads, each polled every 5 min, each failure isolated to its own tab/section):<br>
-    &nbsp;&nbsp;• <code>/geiger</code> through the authority shim — accepted Geiger composite/trend/momentum under the verified Equalizer receipt. No local reconstruction.<br>
+    &nbsp;&nbsp;• <code>SC_PROVIDER.equityGeiger</code> — accepted Geiger composite/trend/momentum under the verified Equalizer receipt. No local reconstruction.<br>
     &nbsp;&nbsp;• <code>provider_indicators_current</code> — exact-universe raw FMP daily RSI(14), Williams %R(14), EMA5/8/13/21/34 and SMA50/100/150/200. Unsupported indicator fields stay null.<br>
-    &nbsp;&nbsp;• <code>/quotes</code> through the authority shim — provider price, change and previous completed daily close. No alternate quote source.<br>
-    &nbsp;&nbsp;• <code>/candles?authority=provider</code> through the shim — completed D/W/5m/1m provider bars for relative performance, RRG, heatmap and Leaders. A missing view makes the spine PARTIAL; nothing is substituted.<br>
-    &nbsp;&nbsp;• <code>company_profile</code> (<code>avg_volume</code>) — 30-day average volume, populated for all 12. Feeds RVOL = <code>live_quotes.volume ÷ company_profile.avg_volume</code> in the Actionable Read (wired 2026-07-30).<br>
+    &nbsp;&nbsp;• <code>SC_PROVIDER.equityQuotes</code> — provider price, change and previous completed daily close. No alternate quote source.<br>
+    &nbsp;&nbsp;• <code>SC_PROVIDER.equityCandles</code> — completed D/W/5m/1m provider bars for relative performance, RRG, heatmap and Leaders. A missing view makes the spine PARTIAL; nothing is substituted.<br>
+    &nbsp;&nbsp;• <code>company_profile</code> (<code>avg_volume</code>) — 30-day average-volume denominator. RVOL remains explicitly missing while the provider quote carries no volume.<br>
     &nbsp;&nbsp;• <code>sector_rankings</code> — <b>this tool's PUBLISHED OUTPUT (C7, 2026-08-05):</b> rank/score per sector, written hourly server-side by <code>refresh_sector_rankings()</code> (pg_cron). This page reads it back and shows it in the strip under the header — the allocation module consumes the same rows. Deploys for this page now go through the Vercel API directly (serialized), not the shared _queue file.<br>
     &nbsp;&nbsp;• <code>tickers.cohort</code> — boot-time taxonomy check: the 11 sector ETFs must have current MACRO home placement and SPY must have INDEXES home placement. This is a home-placement question, not a many-to-many <code>ticker_cohorts</code> membership query.<br>
     <b>② Retired alternate paths:</b> Yahoo relays, the stale internal <code>regime_state</code> engine, and in-browser indicator/Geiger calculations are not called by this page. They cannot stand in for an unavailable provider answer. Sector regime is the current provider-bar RRG breadth result in Chain 2a.<br>
     <b>③ Static hand-compiled reference</b> (hardcoded in this file) — fund AUM $B approximations (<code>AUM</code> map), GICS sub-industry lists and illustrative top-holdings/weights (<code>ETF_DETAIL</code>, <code>TOP_HOLD_PCT</code>). BLOCKED from moving to Supabase <code>etf_holdings</code>/<code>etf_info</code> right now — both tables confirmed EMPTY (0 rows) for our tickers as of 2026-07-24. Flagged everywhere it's used.<br>
-    <b>RVOL (WIRED 2026-07-30):</b> ordered formula was <code>live_quotes.volume ÷ etf_info.avg_volume</code>, but <code>etf_info</code> is empty; <code>company_profile.avg_volume</code> IS populated for all 12, so RVOL now = <code>live_quotes.volume ÷ company_profile.avg_volume</code>, shown live in the Actionable Read. Falls back to explicit "missing" (never a fake number) if either input is absent.<br>
+    <b>RVOL:</b> the formula is provider quote volume ÷ <code>company_profile.avg_volume</code>. The denominator is populated; the provider currently supplies no quote volume, so the Actionable Read says “missing” and never borrows a legacy-table numerator.<br>
     <b>sector_performance</b> table exists (18k+ rows) but is explicitly NOT used per Alan's order — treated as off-limits regardless of row count.<br>
     <b>Timeframe buttons:</b> 1D/5D use provider 1m/5m bars; 1M/3M/6M use provider daily bars. Leaders, heatmap and % lines follow the selected timeframe. RRG uses provider weekly bars. Missing coverage is PARTIAL, never silently replaced.
   </div></details>
@@ -267,9 +267,8 @@
   </div></details>
 </div>
 
-<!-- PROVIDER AUTHORITY SHIM. This page reads ohlcv_history with a bare fetch(), which is
-     exactly the case the shim's fetch hook exists for. Without it the price spine below is a
-     legacy equity table presented as the primary source. -->
+<!-- Explicit provider-native market client. Supabase remains a named reader only for
+     taxonomy, profiles, rankings, and other non-market relations. -->
 <script src="/_provider/provider.js"></script>
 <script>
 /* ============ CONFIG ============ */
@@ -300,25 +299,16 @@ let DS={daily:{},intra:{},intra1:{},weekly:{}}; let ACTIVE='daily';
 let selected = JSON.parse(localStorage.getItem('sr_sel')||'null') || SECTORS.map(s=>s.t);
 let lineSeries={}, chart=null, rebaseIdx=-1, rebasing=false;
 
-/* ============ PRICE BARS — read through the provider authority contract ======================
-   F1. This block called ohlcv_history the PRIMARY price spine. That claim retired with the
-   provider cutover: for a provider-owned equity the bars are the provider's, served by
-   /candles?authority=provider, completed periods only. _provider/provider.js answers this
-   page's ohlcv_history reads from that contract and passes a genuine non-equity through to its
-   existing owner, so the URL below is unchanged while what answers it is not.
-
-   The Yahoo relay is no longer a fallback for the price spine at all. Falling back from a
-   provider-authority read to a relay is precisely the substitution that makes two surfaces
-   disagree about the same symbol; when the contract cannot answer, this says so.
+/* ============ PRICE BARS — explicit provider-native authority ===============================
+   Every sector symbol and SPY is provider-owned. The page asks SC_PROVIDER.equityCandles()
+   directly for completed provider periods. There is no table-shaped compatibility request and
+   no alternate relay; an unavailable view stays named unavailable.
    =========================================================================================== */
 // Feeds Chain 1 Relative-Performance %
 // lines, Chain 2a RRG (weekly), heatmap % and Leaders. Provider bars are normalized to the page's
 // existing {times,closes,opens,highs,lows,vols} shape. Timestamps are epoch seconds; bounded
 // per-ticker reads are reversed to ascending order before charting.
-/* The provider contract accepts 5m and 1m; the legacy '5' and '1' tokens are not part of it, and
-   asking with them produced a silently empty intraday spine under a page that said it was live.
-   The shim also maps the legacy pair now, so both spellings resolve, but the request states the
-   token the contract actually accepts. */
+/* Use only provider contract timeframe tokens. */
 const OHLCV_VIEWS=[{view:'daily',tf:'D',lim:130},{view:'weekly',tf:'W',lim:110},{view:'intra',tf:'5m',lim:400},{view:'intra1',tf:'1m',lim:390}];
 let PRICE_SOURCE='pending';   // 'provider' | 'unavailable' | 'pending'
 /* Which of the four views actually loaded, per ticker count. LIVE is a claim about the whole
@@ -332,14 +322,8 @@ function priceCoverageParts(){
 function priceCoverageFull(){
   return !!PRICE_COVERAGE && OHLCV_VIEWS.every(v=>(PRICE_COVERAGE[v.view]||0)===PRICE_COVERAGE.total);
 }
-/* THE AUTHORITY CLAIM REQUIRES THE AUTHORITY. This page reads ohlcv_history through
-   /_provider/provider.js, which answers provider-owned equities from the provider contract.
-   On the canonical cross-project origin (sectorrotation.scintillahub.ai) that script is
-   currently 404 — F1, ACTIVE/BLOCKED — and without it the same URLs are RAW legacy-table
-   reads. A page that cannot tell the difference would print "authority=provider" over raw
-   tables, which is the exact substitution the shim exists to end. */
-function providerShimActive(){
-  try { return typeof window!=='undefined' && !!window.SC_PROVIDER_SHIM; } catch(e){ return false; }
+function providerClientActive(){
+  try { return typeof window!=='undefined' && !!window.SC_PROVIDER && typeof window.SC_PROVIDER.equityCandles==='function'; } catch(e){ return false; }
 }
 /* ---- C7 (2026-08-05): DATA SPINE badges — every data element shows table · freshness · LIVE/STALE/FALLBACK ---- */
 const SPINE={};
@@ -359,7 +343,7 @@ function renderSpine(){
   el.innerHTML=Object.entries(SPINE).map(([k,v])=>
     `<span style="border:1px solid ${col[v.mode]||'#555'};color:${col[v.mode]||'#999'};border-radius:5px;padding:1px 7px;font-size:10px;font-family:ui-monospace,monospace" title="${(v.note||'').replace(/"/g,'&quot;')}">${k}${v.timeLabel?' · '+v.timeLabel:(v.ts?' · '+freshText(v.ts):'')} · ${v.mode}</span>`).join('');
 }
-/* ---- C7: published OUTPUT read-back — sector_rankings (written hourly server-side from composite_staged
+/* ---- Published OUTPUT read-back — sector_rankings (written hourly from the provider Geiger
    via refresh_sector_rankings()/pg_cron; consumed by the allocation module). Shown here so the page
    displays exactly what it publishes to the rest of the ecosystem. ---- */
 let RANKINGS_LIVE=null;
@@ -380,7 +364,7 @@ async function refreshRankingsLive(){
     const col=r.rank<=3?'#00ffa3':r.rank>=9?'#ff2d55':'#8a8aa0';
     return `<span style="border:1px solid #2a2a3a;border-radius:5px;padding:2px 8px;font-size:11px;font-family:ui-monospace,monospace;color:${col}" title="${r.sector_name||''} · ${r.method}">#${r.rank} ${r.sector} ${r.score>=0?'+':''}${(+r.score).toFixed(2)}</span>`;
   }).join(' ');
-  el.innerHTML=`<div style="font-size:10px;letter-spacing:.08em;color:#8a8aa0;margin-bottom:3px">PUBLISHED RANKING → <code>sector_rankings</code> (hourly, from composite_staged; consumed by the allocation module)</div><div style="display:flex;flex-wrap:wrap;gap:4px">${chips}</div>`;
+  el.innerHTML=`<div style="font-size:10px;letter-spacing:.08em;color:#8a8aa0;margin-bottom:3px">PUBLISHED RANKING → <code>sector_rankings</code> (hourly, from provider Geiger; consumed by the allocation module)</div><div style="display:flex;flex-wrap:wrap;gap:4px">${chips}</div>`;
 }
 /* ---- Current taxonomy check. `tickers.cohort` is the one home placement; `ticker_cohorts`
    is a many-to-many membership set. The old query asked the latter for cohort=MACRO and therefore
@@ -400,23 +384,23 @@ async function refreshUniverseCheck(){
   }catch(e){ spineSet('tickers · home taxonomy',null,'FALLBACK','taxonomy check failed: '+e.message); }
 }
 async function fetchOHLCV(tk,tf,lim){
-  const url=`${SB_URL}/rest/v1/ohlcv_history?select=timestamp,open,high,low,close,volume&ticker=eq.${tk}&tf=eq.${tf}&order=timestamp.desc&limit=${lim}`;
-  const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}, cache:'no-store'});
-  if(!res.ok) throw new Error('ohlcv '+tk+' '+tf+' '+res.status);
-  const rows=await res.json(); rows.reverse();   // DB returns newest-first; chart/align code wants oldest-first
+  /* The explicit client preserves Station's established newest-first candle contract. This
+     chart aligns and rebases left-to-right, so take a copy and restore chronological order at
+     the consumer boundary (the former PostgREST consumer did the same reversal explicitly). */
+  const rows=(await SC_PROVIDER.equityCandles(tk,tf,{limit:lim})).slice().reverse();
   const times=[],closes=[],opens=[],highs=[],lows=[],vols=[];
   for(const r of rows){ if(r.close==null) continue; times.push(r.timestamp); closes.push(r.close); opens.push(r.open); highs.push(r.high); lows.push(r.low); vols.push(r.volume); }
   return times.length? {times,closes,opens,highs,lows,vols} : null;
 }
 async function loadDataDB(){
-  if(!providerShimActive()) throw new Error('provider authority shim unavailable');
+  if(!providerClientActive()) throw new Error('provider-native client unavailable');
   const tickers=[...SECTORS.map(s=>s.t),BENCH];
   const next={daily:{},intra:{},intra1:{},weekly:{}};
   await Promise.all(OHLCV_VIEWS.flatMap(v=>tickers.map(async tk=>{
     try{ const d=await fetchOHLCV(tk,v.tf,v.lim); if(d) next[v.view][tk]=d; }
     catch(e){ if(v.view==='daily') throw e; /* intraday/weekly gaps are non-fatal */ }
   })));
-  if(!next.daily[BENCH]||!next.daily[BENCH].closes.length) throw new Error('no benchmark daily bars in ohlcv_history');
+  if(!next.daily[BENCH]||!next.daily[BENCH].closes.length) throw new Error('no provider benchmark daily bars');
   DS.daily=next.daily; DS.weekly=next.weekly; DS.intra=next.intra; DS.intra1=next.intra1;
   PRICE_SOURCE='provider';
   PRICE_COVERAGE={ total:tickers.length };
@@ -498,18 +482,20 @@ function periodChange(t){
 }
 const AUM={XLK:72,XLF:49,XLV:40,XLE:28,XLY:24,XLC:23,XLI:19,XLU:18,XLP:16,XLRE:8,XLB:6}; // $B approx, relative sizing only
 
-// Provider Geiger — the compatibility request is intercepted by the authority shim and answered by
-// /geiger only after the full Equalizer receipt is accepted. This page never recomputes it.
+// Provider Geiger — explicit /geiger client after the full Equalizer receipt is accepted.
 const SB_URL='https://wadinxqplrggagkvrdag.supabase.co';
 const SB_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g';
+async function stationDbGet(path){
+  const res=await fetch(`${SB_URL}/rest/v1/${path}`,{headers:{apikey:SB_ANON,Authorization:`Bearer ${SB_ANON}`},cache:'no-store'});
+  if(!res.ok) throw new Error(path.split('?')[0]+' '+res.status);
+  return res.json();
+}
+scBindProviderClient(stationDbGet);
 let GEIGER_LIVE={}, GEIGER_LIVE_STATUS='pending';   // 'pending' | 'ok' | 'error'
 async function refreshGeigerLive(){
   try{
-    const tickers=SECTORS.map(s=>s.t).join(',');
-    const url=`${SB_URL}/rest/v1/composite_staged?select=ticker,tf,trend,momentum,structure,conviction,composite,updated_ts&ticker=in.(${tickers})&tf=eq.D`;
-    const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}});
-    if(!res.ok) throw new Error('supabase '+res.status);
-    const rows=await res.json();
+    const tickers=SECTORS.map(s=>s.t);
+    const rows=await SC_PROVIDER.equityGeiger(tickers);
     const map={}; for(const r of rows) map[r.ticker]=r;
     if(Object.keys(map).length!==SECTORS.length) throw new Error('provider Geiger sector set incomplete');
     GEIGER_LIVE=map; GEIGER_LIVE_STATUS='ok';
@@ -523,7 +509,7 @@ async function refreshGeigerLive(){
 // ---- PROVIDER AUTHORITY: raw FMP indicators + provider quotes + independent regime state ----
 function freshText(ts){
   if(ts==null) return 'no timestamp';
-  // Provider compatibility rows can carry epoch seconds or an ISO timestamp. Normalize both.
+  // Provider candle rows can carry epoch seconds or an ISO timestamp. Normalize both.
   const epochSec = (typeof ts==='number') ? ts : (Date.parse(ts)/1000);
   if(!isFinite(epochSec)) return 'no timestamp';
   const ageMin=(Date.now()/1000-epochSec)/60;
@@ -531,23 +517,23 @@ function freshText(ts){
   if(ageMin<60) return Math.round(ageMin)+'m ago';
   return (ageMin/60).toFixed(1)+'h ago';
 }
-// Indicators come from the exact raw FMP provider_indicators_current universe through the central
-// authority shim. RSI/Williams/EMA/SMA are provider values. Unsupported MACD/CCI/ROC/Stochastic stay
+// Indicators come from the exact raw FMP provider-indicator universe through the explicit client.
+// RSI/Williams/EMA/SMA are provider values. Unsupported MACD/CCI/ROC/Stochastic stay
 // null; this page never computes a replacement from closes.
 let DERIVED_LIVE={}, DERIVED_LIVE_STATUS='pending';
 async function refreshDerivedLive(){
-  const cols='ticker,tf,timestamp,rsi_raw,wpr_raw,macd_raw,macd_signed,cci_raw,roc_raw,stoch_raw,fan_ema5,fan_ema8,fan_ema13,fan_ema21,fan_ema34,fan_sma50,fan_sma100,fan_sma150,fan_sma200,severity_ob,severity_os,updated_ts';
   const tickers=SECTORS.map(s=>s.t).concat([BENCH]);
   try{
-    const results=await Promise.all(tickers.map(async tk=>{
-      const url=`${SB_URL}/rest/v1/derived_series?select=${cols}&ticker=eq.${tk}&tf=eq.1D&order=timestamp.desc&limit=1`;
-      const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}});
-      if(!res.ok) throw new Error('provider indicators '+tk+' '+res.status);
-      const rows=await res.json();
-      if(!rows||!rows[0]) throw new Error('provider indicators '+tk+' unavailable');
-      return rows[0];
-    }));
-    const map={}; results.forEach((r,i)=>{ if(r) map[tickers[i]]=r; });
+    const results=await SC_PROVIDER.dailyIndicators(tickers);
+    const map={}; results.forEach(r=>{ map[r.ticker]={
+      ticker:r.ticker, tf:'1D', timestamp:r.source_date,
+      rsi_raw:r.rsi14, wpr_raw:r.williams14,
+      macd_raw:null, macd_signed:null, cci_raw:null, roc_raw:null, stoch_raw:null,
+      fan_ema5:r.ema5, fan_ema8:r.ema8, fan_ema13:r.ema13, fan_ema21:r.ema21, fan_ema34:r.ema34,
+      fan_sma50:r.sma50, fan_sma100:r.sma100, fan_sma150:r.sma150, fan_sma200:r.sma200,
+      severity_ob:null, severity_os:null, updated_ts:r.fetched_at,
+      session_state:r.session_state, authority:r.authority
+    }; });
     if(Object.keys(map).length!==tickers.length) throw new Error('provider indicator universe incomplete');
     DERIVED_LIVE=map; DERIVED_LIVE_STATUS='ok';
     let mx=0; for(const r of Object.values(map)) if(r.updated_ts>mx) mx=r.updated_ts;
@@ -555,17 +541,13 @@ async function refreshDerivedLive(){
   }catch(e){ DERIVED_LIVE={}; DERIVED_LIVE_STATUS='error'; spineSet('provider_indicators_current',null,'PARTIAL','provider indicator read failed — values unavailable; no substitute'); }
   renderRegime(); if(DETAIL_TAB==='tech') renderDetailContent(); renderDetailActionable();
 }
-// Quote — REPLACES in-browser day-change math for the ETF Detail quote line (Move 1 item 3, quote half).
-// RVOL is BLOCKED: formula is live_quotes.volume ÷ etf_info.avg_volume, but etf_info is empty for our
-// tickers (confirmed 0 rows) — shown as explicit "missing", never a placeholder number.
+// Provider quote — replaces in-browser day-change math for the ETF Detail quote line.
+// Provider quote volume is currently absent, so RVOL says missing rather than substituting a table.
 let QUOTES_LIVE={}, QUOTES_LIVE_STATUS='pending';
 async function refreshQuotesLive(){
   try{
-    const tickers=SECTORS.map(s=>s.t).concat([BENCH]).join(',');
-    const url=`${SB_URL}/rest/v1/live_quotes?select=ticker,price,change,chg_pct,volume,prev_close,updated_ts&ticker=in.(${tickers})`;
-    const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}});
-    if(!res.ok) throw new Error('supabase '+res.status);
-    const rows=await res.json();
+    const tickers=SECTORS.map(s=>s.t).concat([BENCH]);
+    const rows=await SC_PROVIDER.equityQuotes(tickers);
     const map={}; for(const r of rows) map[r.ticker]=r;
     if(Object.keys(map).length!==SECTORS.length+1) throw new Error('provider quote sector set incomplete');
     QUOTES_LIVE=map; QUOTES_LIVE_STATUS='ok';
@@ -574,17 +556,13 @@ async function refreshQuotesLive(){
   }catch(e){ QUOTES_LIVE={}; QUOTES_LIVE_STATUS='error'; spineSet('provider /quotes',null,'PARTIAL','provider quote set unavailable — no substitute'); }
   renderDetailActionable();
 }
-// RVOL — UNBLOCKED (Move 1). Ordered formula was live_quotes.volume / etf_info.avg_volume, but etf_info
-// is empty; company_profile.avg_volume IS populated for all 12, so RVOL = live_quotes.volume /
-// company_profile.avg_volume. Own labeled fetch, same anon/RLS pattern; a failure => explicit "missing".
+// RVOL denominator remains company_profile.avg_volume. The numerator must be a provider quote
+// volume; until the provider supplies it, the UI remains explicitly unavailable.
 let PROFILE_LIVE={}, PROFILE_LIVE_STATUS='pending';
 async function refreshProfileLive(){
   try{
     const tickers=SECTORS.map(s=>s.t).concat([BENCH]).join(',');
-    const url=`${SB_URL}/rest/v1/company_profile?select=ticker,avg_volume&ticker=in.(${tickers})`;
-    const res=await fetch(url,{headers:{apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`}});
-    if(!res.ok) throw new Error('supabase '+res.status);
-    const rows=await res.json();
+    const rows=await stationDbGet(`company_profile?select=ticker,avg_volume&ticker=in.(${tickers})`);
     const map={}; for(const r of rows) map[r.ticker]=r;
     PROFILE_LIVE=map; PROFILE_LIVE_STATUS='ok';
     spineSet('company_profile',null,'LIVE',rows.length+' avg_volume rows (RVOL denominator)');
@@ -1251,8 +1229,8 @@ function renderDetailActionable(){
   parts.push(lq&&lq.price!=null? `Quote (provider /quotes): <b>${lq.price.toFixed(2)}</b> <span style="color:${lq.chg_pct==null?'var(--dim)':lq.chg_pct>=0?'var(--green)':'var(--red)'}">${lq.chg_pct==null?'change unknown':`${lq.chg_pct>=0?'+':''}${lq.chg_pct.toFixed(2)}%`}</span> · observed ${freshText(lq.updated_ts)}` : `Quote: <span style="color:var(--dim)">${QUOTES_LIVE_STATUS==='pending'?'fetching…':'provider value unavailable'}</span>`);
   const prof=PROFILE_LIVE[s.t]; const avgVol=prof&&prof.avg_volume!=null?prof.avg_volume:null; const curVol=lq&&lq.volume!=null?lq.volume:null;
   if(curVol!=null&&avgVol){ const rvol=curVol/avgVol; const rc=rvol>=1.5?'var(--green)':rvol<=0.6?'var(--red)':'var(--text)';
-    parts.push(`RVOL: <b style="color:${rc}">${rvol.toFixed(2)}×</b> <span style="color:var(--dim)">(live_quotes.volume ${(curVol/1e6).toFixed(1)}M ÷ company_profile.avg_volume ${(avgVol/1e6).toFixed(1)}M)${lq&&lq.updated_ts?` · updated ${freshText(lq.updated_ts)}`:''}</span>`); }
-  else { parts.push(`RVOL: <span style="color:var(--yellow)">missing — ${curVol==null?'no live_quotes.volume':'no company_profile.avg_volume'} for ${s.t}</span>`); }
+    parts.push(`RVOL: <b style="color:${rc}">${rvol.toFixed(2)}×</b> <span style="color:var(--dim)">(provider quote volume ${(curVol/1e6).toFixed(1)}M ÷ company_profile.avg_volume ${(avgVol/1e6).toFixed(1)}M)${lq&&lq.updated_ts?` · updated ${freshText(lq.updated_ts)}`:''}</span>`); }
+  else { parts.push(`RVOL: <span style="color:var(--yellow)">missing — ${curVol==null?'no provider quote volume':'no company_profile.avg_volume'} for ${s.t}</span>`); }
   el.innerHTML=`<div class="arVerdict" style="color:${color}">${verdict}</div><div class="arWhy">${parts.join('<br>')}<br><span style="color:var(--dim)">Rule: agree = ALIGNED, extension overrides both (a stretched read means "don't chase," even if Technicals/Geiger still agree) since extension is the one forward-looking input here.</span></div>`;
 }
 function renderDetailContent(){
@@ -1417,7 +1395,7 @@ async function boot(manual){
     await loadData();
     renderAll(true);
     st.classList.remove('err');
-    /* LIVE is a whole-spine claim: all four views, every ticker, through the authority shim.
+    /* LIVE is a whole-spine claim: all four views, every ticker, through the explicit provider client.
        Anything less says exactly what it is instead. */
     st.innerHTML=PRICE_SOURCE==='provider'
       ? (priceCoverageFull()

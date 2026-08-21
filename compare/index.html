@@ -117,11 +117,9 @@
 <script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -337,7 +335,7 @@ function windowHasHoles(end,days){
 }
 
 async function liveComposite(){
-  const rows=await pgAll("composite_staged?tf=eq.D&select=ticker,composite");
+  const rows=await SC_PROVIDER.equityGeiger();
   const byT={}; rows.forEach(r=>{ if(r.composite!=null) byT[r.ticker]=+r.composite });
   const out={};
   COHORTS.forEach(c=>{
@@ -350,11 +348,11 @@ async function liveComposite(){
 /* THE HISTORICAL DETENTS ASK FOR SOMETHING THE PROVIDER CONTRACT DOES NOT SERVE.
    1M RETURN, 3M RETURN and BREADTH are computed from a whole-universe daily bar window. The
    provider serves completed bars ONE SYMBOL AT A TIME - /candles?symbol=... - so the authority
-   shim refuses a bar read that names no single ticker, under TICKER_FILTER_REQUIRED. Before
+   provider client refuses a bar read that names no single ticker, under TICKER_FILTER_REQUIRED. Before
    this, that refusal came back as an empty array and every historical column rendered blank,
    silently, as though the cohorts genuinely had no history.
 
-   Reaching past the shim to the legacy table would put this page back on bar data no other
+   Reaching past the client to the retained table would put this page back on bar data no other
    surface trusts. So the limitation is named and shown, and the LIVE detent - which reads the
    Geiger and is unaffected - keeps working. */
 const HISTORY_UNAVAILABLE="WHOLE_UNIVERSE_BARS_NOT_SERVED";
@@ -368,23 +366,7 @@ function historyUnavailable(detail){
 async function closesAt(when){
   const key="c"+iso(when);
   if(cache[key]) return cache[key];
-  const hi=Math.floor(when.getTime()/1000), lo=hi-12*DAY;
-  let rows;
-  try{
-    rows=await pgAll("ohlcv_history?tf=eq.D&timestamp=gte."+lo+"&timestamp=lte."+hi+"&select=ticker,timestamp,close");
-  }catch(e){
-    if(e&&(e.scAbsence==="TICKER_FILTER_REQUIRED"||e.scTransport)) throw historyUnavailable(e.message);
-    throw e;
-  }
-  if(!Array.isArray(rows)||!rows.length) throw historyUnavailable("the bar read returned nothing");
-  const last={};
-  rows.forEach(r=>{
-    const t=r.ticker, ts=+r.timestamp;
-    if(r.close==null) return;
-    if(!last[t]||ts>last[t].ts) last[t]={ts,c:+r.close};
-  });
-  const out={}; Object.keys(last).forEach(t=>out[t]=last[t].c);
-  cache[key]=out; return out;
+  throw historyUnavailable("provider-native candles require one explicit symbol; no legacy whole-universe bar fallback exists");
 }
 async function returnAt(when,days){
   const [now,then]=await Promise.all([closesAt(when), closesAt(new Date(when.getTime()-days*DAY*1000))]);
@@ -515,7 +497,7 @@ function render(isNewMeasure, bad){
     (isNewMeasure?" · <b>cut</b> — a new measure has no continuity with the last":" · animated")+
     (detent===0?"":" · as of <b>"+iso(detentDate())+"</b>");
   el("meta").innerHTML = detent===0
-    ? "live composite from composite_staged · "+COHORTS.length+" cohorts"
+    ? "live composite from provider /geiger · "+COHORTS.length+" cohorts"
     : "median "+(col==="breadth"?"breadth":"return")+" per cohort, computed from daily bars"+
       (bad?' · <span class="warn">this window covers known-holed sessions</span>':"");
 }

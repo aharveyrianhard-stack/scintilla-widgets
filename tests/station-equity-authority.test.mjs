@@ -45,14 +45,14 @@ function fnFrom(source, name, bindings = {}) {
   return vm.runInNewContext(`(${source.slice(start, end)})`, bindings);
 }
 
-test("/analytics routes every equity read through the provider authority shim", () => {
+test("/analytics routes every equity read through the explicit provider client", () => {
   assert.match(analytics, /<script src="\/_provider\/provider\.js"><\/script>/,
-    "the shim must load before the page issues anything — this tag was simply absent");
-  /* The shim hooks fetch as well as pg(), and this page only has fetch. Its tag must come
-     before the page's own script, or the first burst of reads escapes the hook. */
-  const shimAt = analytics.indexOf('<script src="/_provider/provider.js">');
+    "the client must load before the page issues a provider request");
+  const clientAt = analytics.indexOf('<script src="/_provider/provider.js">');
   const pageAt = analytics.indexOf("const SB='https://wadinxqplrggagkvrdag.supabase.co/rest/v1'");
-  assert.ok(shimAt > -1 && pageAt > shimAt, "the shim is installed before the page's own reads");
+  assert.ok(clientAt > -1 && pageAt > clientAt, "the client is installed before the page's own reads");
+  for (const call of ["SC_PROVIDER.equityQuotes", "SC_PROVIDER.equityGeiger", "SC_PROVIDER.equityCandles"])
+    assert.match(analytics, new RegExp(call.replace(".", "\\.")), call + " is explicit");
 });
 
 test("neither surface claims a legacy equity table as authority in what it says", () => {
@@ -80,7 +80,7 @@ test("neither surface claims a legacy equity table as authority in what it says"
 test("/health grades the legacy tables as the non-equity lane, under a true label", () => {
   const feeders = health.slice(health.indexOf("const FEEDERS = ["), health.indexOf("];", health.indexOf("const FEEDERS = [")));
   const stock = health.slice(health.indexOf("const STOCK = ["), health.indexOf("];", health.indexOf("const STOCK = [")));
-  /* Removing them outright was an over-correction. The shim passes every symbol the provider
+  /* Removing them outright was an over-correction. The narrow non-equity client passes every symbol the provider
      does NOT own — crypto, futures, indices, rates — straight through to these tables, so they
      are the live owner of the non-equity lane and a stale one is a real outage on real panes.
      What had to go was the claim that they are the board's price and the Geiger. */
@@ -144,7 +144,7 @@ test("/analytics stops deriving a return window from legacy equity bars", () => 
   /* And when the provider cannot serve a whole-universe window, the page says so by name
      rather than filling the column from the legacy bar table. */
   assert.match(analytics, /RETURN unavailable/);
-  assert.match(analytics, /a whole-universe '\+TF\+' window is not served/);
+  assert.match(analytics, /provider-native candles require one explicit symbol/);
 });
 
 test("/analytics no longer overlays two legacy bar tables as a basis claim", () => {
@@ -157,16 +157,15 @@ test("/analytics no longer overlays two legacy bar tables as a basis claim", () 
     "an empty provider series is stated, not left as a blank canvas");
 });
 
-test("the shim's own rules are intact — no silent fallback, non-equities keep their owner", () => {
+test("the explicit client's rules are intact — no silent fallback, non-equities keep their owner", () => {
   assert.match(provider, /NO SILENT FALLBACK/);
-  assert.match(provider, /NON-EQUITY PRICES\/BARS KEEP THEIR OWNER/);
-  assert.match(provider, /two retired\s+internal indicator tables are never used for any symbol/,
-    "retired internal indicator computations do not survive as a non-equity fallback");
-  assert.match(provider, /legacy_equity_calls/,
-    "a legacy equity call remains a visible breach rather than a silent one");
-  /* Every compatibility table with an equity authority claim is intercepted centrally. */
-  for (const table of LEGACY_EQUITY_TABLES)
-    assert.match(provider, new RegExp(`p\\.table === '${table}'`), `${table} is intercepted`);
+  assert.match(provider, /Retained non-equity Supabase ownership is exposed only through SC_NON_EQUITY/);
+  assert.doesNotMatch(provider, /SC_PROVIDER_SHIM|scInstallProviderShim|window\.fetch\s*=/,
+    "the broad compatibility interceptor is gone");
+  assert.doesNotMatch(provider, /board_rsi|derived_series/,
+    "retired internal indicator computations do not survive as a fallback");
+  for (const method of ["equityQuotes", "equityGeiger", "equityCandles", "dailyIndicators"])
+    assert.match(provider, new RegExp(`S\\.${method} = function`), `${method} is explicit`);
 });
 
 test("/health's non-equity probes are unit-correct, scoped, and bounded", () => {
@@ -258,13 +257,10 @@ test("/analytics emits one body cell per header column", () => {
   assert.ok(chgAt < retAt && retAt < geigAt, "RET sits where its header says it does");
 });
 
-test("/analytics counts the provider's universe, not the compatibility rows", () => {
-  /* S.geiger is the composite_staged COMPATIBILITY read: the provider's equities PLUS the
-     retained non-equities passed through to their own owner. Counting its rows reported roughly
-     387 and a +22 disagreement while the provider itself was answering with exactly 365. */
+test("/analytics counts the verified provider universe", () => {
   assert.doesNotMatch(analytics, /universeAgreement\(S\.geiger && !S\.geiger\.err \? S\.geiger\.length : null\)/,
-    "the mixed compatibility rows cannot answer a universe question");
-  assert.match(analytics, /const o = \(window\.SC_PROVIDER_SHIM \|\| \{\}\)\.ownership;/);
+    "loaded result rows cannot answer an ownership question");
+  assert.match(analytics, /const o = \(window\.SC_PROVIDER \|\| \{\}\)\.ownership;/);
   assert.match(analytics, /return o && o\.verified \? o\.count : null;/,
     "only a VERIFIED ownership answer counts");
   assert.match(analytics, /const a = universeAgreement\(owned\);/);
@@ -336,11 +332,11 @@ test("no touched template uses a non-quote number as a current equity price", ()
   const allocation = readFile("../templates/allocation-module.html");
   const dcf = readFile("../templates/dcf.html");
 
-  /* Loading the shim did not move fundamentals' arithmetic: it never issued a quote read at all
+  /* The old compatibility layer did not move fundamentals' arithmetic: it never issued a quote read at all
      and took fundamentals.price — a snapshot with its own vintage — as the current price for the
      comps table, the header and the DCF upside. */
   assert.match(fundamentals, /async function providerQuotes\(symbols\)/);
-  assert.match(fundamentals, /live_quotes\?select=ticker,price,prev_close,updated_ts/);
+  assert.match(fundamentals, /SC_PROVIDER\.equityQuotes\(want\)/);
   assert.match(fundamentals, /const price=quotePriceOf\(t\)/, "comps price from the quote spine");
   assert.match(fundamentals, /price: quotePriceOf\(sym\), priceUnavailable: quotePriceOf\(sym\) == null/);
   assert.doesNotMatch(fundamentals, /const price=f\?f\.price:null/, "the snapshot is no longer a price");
@@ -386,11 +382,11 @@ test("the realtime channel refuses equities, and its CDN-dependent absence is a 
   const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
   for (const [name, src] of [["deck", deck], ["chart", chart]]) {
     /* The authority guards on the realtime bypass lane — previously unpinned. Supabase
-       Realtime does not go through fetch, so the shim never sees it: a legacy price could
+       Realtime does not go through the provider client: a retained price could
        patch a provider-owned chart unless the channel itself refuses. */
-    assert.match(src, /isProviderOwned\(sym\)\) \{ shim\.realtime_equity_refused\+\+; return; \}/, name + " refuses owned equities");
-    assert.match(src, /!shim\.ownershipKnown\(\)\) \{ shim\.realtime_unknown_ownership_refused\+\+; return; \}/, name + " treats unknown ownership as refusal, not permission");
-    assert.match(src, /shim\.realtime_nonequity_passthrough\+\+/, name + " counts the passthrough");
+    assert.match(src, /isProviderOwned\(sym\)\) \{ (?:provider|shim)\.realtime_equity_refused\+\+; return; \}/, name + " refuses owned equities");
+    assert.match(src, /!(?:provider|shim)\.ownershipKnown\(\)\) \{ (?:provider|shim)\.realtime_unknown_ownership_refused\+\+; return; \}/, name + " treats unknown ownership as refusal, not permission");
+    assert.match(src, /(?:provider|shim)\.realtime_nonequity_passthrough\+\+/, name + " counts the passthrough");
     /* The SDK is VENDORED same-origin with npm-verified bytes; when the script still does
        not load, the lane's absence must be queryable under one name, both branches worded,
        and the channel's own lifecycle — not mere script presence — is the lane's truth. */

@@ -160,11 +160,9 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 <div id="coRailContent"><div class="gsum"><div class="gs-empty" style="padding-top:15vh">loading geiger…</div></div></div>
 <script src="/_provider/provider.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -233,22 +231,22 @@ function gsNormTf(k){ const m={ "1d":"1D","3d":"3D","1w":"1W","2w":"2W" }; const
 
 async function geigerSummaryData(t) {
   const enc = encodeURIComponent(t);
-  const e2 = encodeURIComponent(chFmpSym(t));
+  const dailyCandles = SC_PROVIDER.equityCandles(t, "D", { limit:30 }).catch(() => []);
   const [comp, der, ser, vol, last, ow, bvol] = await Promise.all([
-    pg("composite_staged?ticker=eq." + enc + "&tf=eq.D&select=composite,trend,momentum,structure,conviction,updated_ts&order=updated_ts.desc&limit=1").catch(() => []),
+    SC_PROVIDER.equityGeiger([t], { detail:true }).catch(() => []),
     (async () => {
-      const cols = "tf,rsi_raw,wpr_raw,fan_ema5,fan_ema8,fan_ema13,fan_ema21,fan_ema34,fan_sma50,fan_sma100,fan_sma150,fan_sma200,source_date,session_state,updated_ts";
-      /* Only daily raw provider indicators are accepted. Asking every rung would manufacture
-         sixteen known-unavailable requests on each refresh with no possibility of an answer. */
-      const rows = await Promise.all(["1D"].map((tf) =>
-        pg("derived_series?ticker=eq." + enc + "&tf=eq." + encodeURIComponent(tf) +
-           "&select=" + cols + "&order=timestamp.desc&limit=1").catch(() => [])
-      ));
-      return rows.map((r) => (r && r[0]) || null).filter(Boolean);
+      const rows = await SC_PROVIDER.dailyIndicators([t]).catch(() => []);
+      return rows.map((r) => ({
+        tf:"1D", rsi_raw:r.rsi14, wpr_raw:r.williams14,
+        fan_ema5:r.ema5, fan_ema8:r.ema8, fan_ema13:r.ema13,
+        fan_ema21:r.ema21, fan_ema34:r.ema34,
+        fan_sma50:r.sma50, fan_sma100:r.sma100, fan_sma150:r.sma150, fan_sma200:r.sma200,
+        source_date:r.source_date, session_state:r.session_state, updated_ts:r.fetched_at
+      }));
     })(),
-    pg("derived_series?ticker=eq." + enc + "&tf=eq.1D&select=macd_signed,timestamp&order=timestamp.desc&limit=22").catch(() => []),
-    pg("ohlcv_history?ticker=eq." + e2 + "&tf=eq.D&select=volume,timestamp&order=timestamp.desc&limit=30").catch(() => []),
-    pg("ohlcv_history?ticker=eq." + e2 + "&tf=eq.D&select=close&order=timestamp.desc&limit=1").catch(() => []),
+    Promise.resolve([]),
+    dailyCandles,
+    dailyCandles,
     pg("operator_weights?dim=eq.timeframe&select=key,weight,enabled").catch(() => []),
     pg("board_volume?ticker=eq." + enc + "&select=rvol_at_time,cum_rvol,updated_ts&order=updated_ts.desc&limit=1").catch(() => []),
   ]);
@@ -565,7 +563,7 @@ function whHeader(t, d) {
 const CHG = {};
 async function pullLive(t) {
   try {
-    const rows = await pg("live_quotes?ticker=eq." + encodeURIComponent(t) + "&select=ticker,price,chg_pct", 1);
+    const rows = await SC_PROVIDER.equityQuotes([t]);
     if (Array.isArray(rows) && rows[0] && rows[0].price != null) {
       PRICES[t] = +rows[0].price;
       if (rows[0].chg_pct != null) CHG[t] = +rows[0].chg_pct;

@@ -90,17 +90,15 @@ body.nobg{ background:transparent; }
 <div id="stage"><div class="empty">building wall…</div></div>
 <div id="ft">
   consolidation, not a new component — every live pane is the /compare or /cohort route<br>
-  composite_staged tf=D · the one geiger, never recomputed · ticker_cohorts membership, fully paged (1283 rows) · db reads only<br>
+  explicit provider Geiger · never recomputed · ticker_cohorts membership, fully paged (1283 rows)<br>
   <span id="ftmode"></span>
 </div>
 <script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -220,7 +218,7 @@ async function build() {
   /* THE FULL MEMBERSHIP SET, paged past the 1000-row cap - see _cohorts/cohort-axis.js. */
   const [axis, cs] = await Promise.all([
     SC_COHORT_AXIS.loadMemberships(pg),
-    pg("composite_staged?tf=eq.D&select=ticker,composite"),
+    SC_PROVIDER.equityGeiger(),
   ]);
   const comp = {};
   for (const r of (cs || [])) { const v = num(r.composite); if (v != null && isFinite(v)) comp[r.ticker] = v; }

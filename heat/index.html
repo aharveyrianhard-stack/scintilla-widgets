@@ -13,12 +13,12 @@
          ETFs/unsectored close the board.
        · group=cohort: each ticker's HOME cohort, read from tickers.cohort — not derived
        from its membership set, and never from row arrival order.
-       · color=chg (default): day chg_pct from live_quotes (served, ±3% scale)
-       · color=geiger: composite_staged tf=D composite (THE one Geiger, ±1)
+       · color=chg (default): provider day change (±3% scale)
+       · color=geiger: explicit provider Geiger composite (±1)
      Tiles sort winners-first inside each group; every group header carries its
-     own breadth. Freshness is stamped from live_quotes.updated_ts and wears a
+     own breadth. Freshness is stamped from the provider observation and wears a
      red STALE badge when the tape is old — never hidden. Click a tile → /chart
-     for that ticker in the same frame. DB reads ONLY via pg() — never FMP.
+     for that ticker in the same frame. Market products use explicit provider APIs.
      Params: ?group=sector|cohort · ?color=chg|geiger · ?refresh=60 (15-600s)
      LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
      ============================================================================ -->
@@ -79,11 +79,9 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 <script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -143,8 +141,8 @@ function valColor(v, scale) {
 async function pull() {
   const [prof, quotes, comp, coh, ranks] = await Promise.all([
     pg("company_profile?select=ticker,sector,market_cap,is_etf").catch(() => []),
-    pg("live_quotes?select=ticker,price,chg_pct,updated_ts").catch(() => []),
-    pg("composite_staged?tf=eq.D&select=ticker,composite").catch(() => []),
+    SC_PROVIDER.equityQuotes().catch(() => []),
+    SC_PROVIDER.equityGeiger().catch(() => []),
     /* A failed home-cohort read used to arrive as null and every tile then fell into
        UNASSIGNED - a wall that looks like a curation gap when it is actually a broken read.
        The rejection is carried so the caller can say which it is. */
@@ -219,7 +217,7 @@ function render(d) {
   const scale = COLOR === "chg" ? 3 : 1;
   const val = (r) => COLOR === "chg" ? r.chg : r.comp;
   const groups = buildGroups(d);
-  if (!groups.length) { el("board").innerHTML = '<div class="msg">heat data unavailable — live_quotes/company_profile empty</div>'; return; }
+  if (!groups.length) { el("board").innerHTML = '<div class="msg">heat data unavailable — provider quotes or company profiles empty</div>'; return; }
   let h = "";
   for (const g of groups) {
     const list = g.list.slice().sort((a, b) => (val(b) == null ? -9e9 : val(b)) - (val(a) == null ? -9e9 : val(a)));
@@ -243,7 +241,7 @@ function render(d) {
     '</div></div>';
   }
   el("board").innerHTML = h;
-  /* freshness stamp from live_quotes.updated_ts — honest, badged when old */
+  /* freshness stamp from the provider quote observation — honest, badged when old */
   let newest = null;
   for (const t in d.Q) { const u = d.Q[t].updated_ts ? Date.parse(d.Q[t].updated_ts) : null; if (u && (!newest || u > newest)) newest = u; }
   if (newest) {

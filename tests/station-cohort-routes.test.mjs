@@ -256,13 +256,15 @@ test("a paged read's row count is no longer treated as evidence of truncation", 
   assert.match(universeRead, /if\(!rows\.length\) throw new Error/,
     "and an empty read is still a failure");
 
-  /* The guard is correct on the reads that ARE single-page, and must stay there. */
-  for (const table of ["composite_staged", "live_quotes", "company_profile"]) {
-    const at = allocation.indexOf("sbGet('" + table);
-    assert.ok(at > -1, `${table} is still read`);
-    assert.match(allocation.slice(at, at + 400), /rows\.length>=1000/,
-      `${table} is a single capped page and keeps its truncation guard`);
-  }
+  /* Market products are no longer capped table pages at all. Their explicit clients own
+     completeness. The remaining company_profile relation is still a single bounded page. */
+  assert.match(allocation, /SC_PROVIDER\.marketGeiger\(\)/);
+  assert.match(allocation, /SC_PROVIDER\.marketQuotes\(\)/);
+  assert.doesNotMatch(allocation, /sbGet\('(composite_staged|live_quotes)/);
+  const profilesAt = allocation.indexOf("sbGet('company_profile");
+  assert.ok(profilesAt > -1, "company_profile remains a named non-market read");
+  assert.match(allocation.slice(profilesAt, profilesAt + 400), /rows\.length>=1000/,
+    "the single capped profile page keeps its truncation guard");
 });
 
 test("COHORT FAVORITES navigates on the membership relation alone", () => {

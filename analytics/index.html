@@ -73,7 +73,7 @@
   <span class="pill">M-1 CONSOLIDATED</span>
   <span class="conn"><span class="dot" id="connDot"></span><span id="asof">booting…</span></span>
 </h1>
-<div class="banner"><b>EQUITY AUTHORITY IS THE PROVIDER CONTRACT.</b> Price, previous close and Geiger for every provider-owned equity come from <b>scintilla-massive-chart-api</b> — <b>/quotes</b>, <b>/geiger</b> and <b>/candles?authority=provider</b> — the same contract the Hub cut over to. This page reads them through <code>_provider/provider.js</code>; it does not read <b>live_quotes</b>, <b>composite_staged</b> or <b>ohlcv_history</b> as equity truth, and it never calls FMP or Yahoo.<br><b>NON-EQUITY LANES ARE UNCHANGED AND EXPLICIT:</b> Universe/cohorts = <b>ticker_cohorts</b> (the complete 1283-row membership set, fully paged) + <b>hub_favorites</b> · Value = <b>fundamentals + ratios_history + analyst_estimates</b> · Macro = <b>treasury_rates / vix_term / operator_weights</b> · Sectors = <b>sector_rankings</b>. These are anon PostgREST reads, per-ticker on demand (1000-row cap respected).</div>
+<div class="banner"><b>EQUITY AUTHORITY IS THE PROVIDER CONTRACT.</b> Price, previous close and Geiger for every provider-owned equity come from <b>scintilla-massive-chart-api</b> through explicit <b>equityQuotes</b>, <b>equityGeiger</b> and <b>equityCandles</b> calls. This page never uses a table-shaped equity alias and never calls FMP or Yahoo for those products.<br><b>NON-MARKET LANES ARE EXPLICIT:</b> Universe/cohorts = <b>ticker_cohorts</b> (the complete 1283-row membership set, fully paged) + <b>hub_favorites</b> · Value = <b>fundamentals + ratios_history + analyst_estimates</b> · Macro = <b>treasury_rates / vix_term / operator_weights</b> · Sectors = <b>sector_rankings</b>.</div>
 <div class="ctrls" id="ctrls">
   <span class="cg"><b>TIMEFRAME</b><span id="tfBtns"></span></span>
   <span class="cg"><b>VIEW</b><span id="vwBtns"></span></span>
@@ -82,10 +82,10 @@
 
 <div class="strip" id="macroStrip"></div>
 
-<h2>GEIGER &amp; SECTOR ROTATION <span class="hint">W4 — sector_rankings (method shown verbatim) + cohort rollup of composite_staged · retires per-module Yahoo geigers</span></h2>
+<h2>GEIGER &amp; SECTOR ROTATION <span class="hint">sector_rankings (method shown verbatim) + cohort rollup of explicit provider Geiger</span></h2>
 <div class="grid2">
   <div class="card"><div class="k" id="secHead">SECTOR RANKINGS</div><div id="sectors"></div></div>
-  <div class="card"><div class="k">COHORT GEIGER ROLLUP <span class="small">(avg composite by cohort — client-side over composite_staged tf=D)</span></div><div id="cohortGeiger"></div></div>
+  <div class="card"><div class="k">COHORT GEIGER ROLLUP <span class="small">(average provider composite by cohort)</span></div><div id="cohortGeiger"></div></div>
 </div>
 
 <h2>VALUE LAYER <span class="hint">W3 — fundamentals joined to provider price and provider Geiger; row click → ratios &amp; estimates &amp; provider close spark (per-ticker fetch)</span>
@@ -115,25 +115,19 @@
   <b>/geiger</b> under Alan's captured Equalizer; bars are the provider's, served by
   <b>/candles?authority=provider</b>, completed periods only. Nothing on this page recomputes
   a Geiger, derives a bar, or composes an unfinished period.<br><br>
-  A panel here formerly compared <b>eod_adjusted</b> against <b>ohlcv_history</b> and named the
-  adjusted lens this surface's authority for technical analysis. Both are legacy tables and
-  neither is equity authority now, so the panel was removed rather than left making a claim
-  this page no longer stands behind. The adjusted-lens question is a live ruling and belongs
-  wherever that ruling is made, not in a page footer.
+  The return window remains explicitly unavailable because the provider candle contract requires
+  an exact symbol; this surface does not substitute a whole-universe internal bar table.
 </div></div>
 
 <footer>
   <b>PROVENANCE</b> · Equity price + previous close ← provider <b>/quotes</b> (MASSIVE_PROVIDER_D_BAR) · Geiger composite/trend/momentum ← provider <b>/geiger</b> under the captured Equalizer · equity bars ← provider <b>/candles?authority=provider</b>, completed periods only. Non-equity lanes keep their existing owner: sector_rankings ← refresh_sector_rankings · fundamentals / ratios_history / analyst_estimates ← the value writers · treasury_rates / vix_term / operator_weights ← the macro writers.<br>
-  <b>WHY THE LEGACY TABLES ARE NOT READ HERE</b> · Measured across the full 365-symbol universe on 2026-08-18, live_quotes disagreed with the provider's previous close on 359 of 365 symbols and pointed the wrong direction on 183 of them. A surface that keeps reading it disagrees with the Hub about the same stock.<br>
+  <b>AUTHORITY RULE</b> · Provider-owned equity products are requested by product result through the explicit client; non-market relations retain their own narrow database reads.<br>
   Receipt CC-MEGA-001 W3–W6 · SCINTILLA Command (Cowork cloud) · page row: desk_html id=analytics · live-deck surfaces untouched.
 </footer>
 
 <div class="drawer" id="drawer"></div>
 
-<!-- PROVIDER AUTHORITY SHIM. This page reads with a bare fetch() rather than a pg(), which is
-     the exact reason the shim also hooks the fetch boundary. Without this tag every equity
-     number below came from the legacy tables while every other Station surface had moved -
-     two surfaces disagreeing about the same stock, which is the defect. -->
+<!-- Explicit provider-native client. The page binds its non-market JSON reader below. -->
 <script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
@@ -164,6 +158,7 @@ async function j(p,tries){
   }
   throw last;
 }
+scBindProviderClient(j);
 const fN=(x,d=2)=>x==null?'—':(+x).toLocaleString('en-US',{maximumFractionDigits:d,minimumFractionDigits:d});
 const fB=x=>x==null?'—':(Math.abs(x)>=1e12?(x/1e12).toFixed(2)+'T':Math.abs(x)>=1e9?(x/1e9).toFixed(2)+'B':Math.abs(x)>=1e6?(x/1e6).toFixed(1)+'M':fN(x,0));
 const fP=x=>x==null?'—':(x>0?'+':'')+(+x).toFixed(2)+'%';
@@ -206,41 +201,12 @@ function metric(rows,key,val,fmtFn){
 }
 /* the return window, computed from daily bars already in the database */
 async function loadRet(){
-  const days=(TFS.find(x=>x[0]===TF)||['1M',30])[1];
-  const now=Math.floor(Date.now()/1000);
-  async function closes(end){
-    const lo=end-12*86400; let out={},off=0;
-    for(;;){
-      /* SB already ends in the PostgREST prefix, and the old form of this line repeated that
-         prefix inside the path - so every request went to a doubled path and 404'd. This
-         window has been dead for as long as that line has been there, not merely wrong. */
-      const p='ohlcv_history?tf=eq.D&timestamp=gte.'+lo+'&timestamp=lte.'+end+
-              '&select=ticker,timestamp,close&limit=1000&offset='+off;
-      let page; try{page=await j(p)}catch(e){break}
-      page.forEach(r=>{if(r.close==null)return;const t=r.ticker,ts=+r.timestamp;
-        if(!out[t]||ts>out[t][0])out[t]=[ts,+r.close]});
-      if(page.length<1000||off>20000)break; off+=1000;
-    }
-    const f={};Object.keys(out).forEach(t=>f[t]=out[t][1]);return f;
-  }
-  try{
-    const [a,b]=await Promise.all([closes(now),closes(now-days*86400)]);
-    S.ret={};Object.keys(a).forEach(t=>{if(b[t]&&b[t]>0)S.ret[t]=(a[t]-b[t])/b[t]*100});
-    $('ctrlNote').textContent=Object.keys(S.ret).length+' symbols priced over '+TF+' · provider /candles via the authority shim';
-  }catch(e){ S.ret={}; }
-  /* The provider serves completed bars one symbol at a time; a whole-universe window is not
-     part of that contract, and the shim answers such a read with an empty result under a
-     recorded name rather than reaching back to the legacy bar table. Saying so is the honest
-     answer - filling the column from legacy bars would be the defect being repaired here. */
-  if(!Object.keys(S.ret).length)
-    $('ctrlNote').textContent='RETURN unavailable — the provider contract serves completed bars per symbol; a whole-universe '+TF+' window is not served';
+  S.ret={};
+  $('ctrlNote').textContent='RETURN unavailable — provider-native candles require one explicit symbol; no legacy whole-universe bar fallback exists for '+TF;
 }
 /* THE CANONICAL EQUITY UNIVERSE.
-   365 is the number the provider cutover was measured on: on 2026-08-18 the legacy
-   live_quotes baseline disagreed with the provider's previous close on 359 of those 365
-   symbols and pointed the wrong direction on 183. A page that quietly presents a different
-   count is presenting a different universe, which is how two surfaces end up disagreeing
-   about the same stock. The disagreement is shown, never reconciled by guessing. */
+   The accepted provider universe is exactly 365 symbols. A page that quietly presents a
+   different count is presenting a different universe; disagreement is shown, never guessed away. */
 const CANONICAL_EQUITY_UNIVERSE = 365;
 function universeAgreement(providerSymbolCount, canonical){
   const expected = canonical == null ? CANONICAL_EQUITY_UNIVERSE : canonical;
@@ -251,14 +217,10 @@ function universeAgreement(providerSymbolCount, canonical){
   return { state: delta === 0 ? 'agrees' : 'disagrees', count, expected, delta };
 }
 function universeCard(){
-  /* NOT S.geiger.length. That is the composite_staged COMPATIBILITY read, which deliberately
-     carries the provider's equities PLUS the retained non-equities passed through to their own
-     owner - so counting its rows reported roughly 387 and a +22 disagreement while the provider
-     itself was answering with exactly 365. The count has to come from the ownership answer the
-     shim verified, which is provider-owned symbols and nothing else. */
+  /* Only the verified provider ownership answer can define the equity universe. */
   const owned = (() => {
     try {
-      const o = (window.SC_PROVIDER_SHIM || {}).ownership;
+      const o = (window.SC_PROVIDER || {}).ownership;
       return o && o.verified ? o.count : null;
     } catch (_) { return null; }
   })();
@@ -285,8 +247,6 @@ function buildCtrls(){
 async function boot(){
   const q={
     fav:'hub_favorites?select=ticker&limit=1000',
-    geiger:'composite_staged?select=ticker,trend,momentum,composite,core,updated_ts&tf=eq.D&limit=1000',
-    quotes:'live_quotes?select=ticker,price,chg_pct,prev_close,volume,updated_ts&limit=1000',
     funda:'fundamentals?select=ticker,price,market_cap,trailing_pe,adjusted_pe,eps_ttm,revenue_ttm,dcf,updated_ts&limit=1000',
     prof:'company_profile?select=ticker,name,sector,beta,is_etf&limit=1000',
     sect:'sector_rankings?select=rank,sector,sector_name,score,trend,momentum,method,updated_at,date&order=rank.asc&limit=100',
@@ -294,11 +254,14 @@ async function boot(){
     vix:'vix_term?select=date,vix,vix3m,ratio&order=date.desc&limit=1',
     wts:'operator_weights?select=dim,key,weight,enabled&limit=100'
   };
-  const keys=Object.keys(q);
+  const dbKeys=Object.keys(q);
+  const keys=dbKeys.concat(['geiger','quotes']);
   /* The membership set is read separately because it must be PAGED, which a single
      limit=1000 query cannot be: ticker_cohorts holds 1283 rows. See _cohorts/cohort-axis.js. */
   const cohortAxis=await SC_COHORT_AXIS.loadMemberships(p=>j(p)).catch(e=>({err:e,rows:[]}));
-  const res=await Promise.allSettled(keys.map(k=>j(q[k])));
+  const res=await Promise.allSettled(dbKeys.map(k=>j(q[k])).concat([
+    SC_PROVIDER.equityGeiger(), SC_PROVIDER.equityQuotes()
+  ]));
   keys.forEach((k,i)=>{S[k]=res[i].status==='fulfilled'?res[i].value:{err:res[i].reason}});
   S.map={};(S.geiger.err?[]:S.geiger).forEach(r=>S.map[r.ticker]=Object.assign(S.map[r.ticker]||{},{g:r}));
   (S.quotes.err?[]:S.quotes).forEach(r=>S.map[r.ticker]=Object.assign(S.map[r.ticker]||{},{q:r}));
@@ -319,12 +282,12 @@ async function boot(){
   buildCtrls();await loadRet();renderMacro();renderSectors();renderCohortGeiger();renderCohortSel();renderValue();renderDcf();renderComps();renderWeights();renderTilt();
 }
 
-/* The name the provider shim recorded for a symbol it could not price. Never a guess: if the
-   shim has no name, the cell says only that there is no provider quote. */
+/* The name the provider client recorded for a symbol it could not price. Never a guess: if the
+   client has no name, the cell says only that there is no provider quote. */
 function providerAbsenceFor(t){
   try{
-    const shim=window.SC_PROVIDER_SHIM;
-    const named=shim&&typeof shim.absenceFor==='function'?shim.absenceFor(t):null;
+    const provider=window.SC_PROVIDER;
+    const named=provider&&typeof provider.absenceFor==='function'?provider.absenceFor(t):null;
     if(named) return String(named);
   }catch(_){}
   return null;
@@ -337,11 +300,11 @@ function renderMacro(){
   h+='<div class="card"><div class="k">VIX / VIX3M</div><div class="v" style="font-size:22px">'+(v?fN(v.vix,1)+' / '+fN(v.vix3m,1):'ERR')+'</div><div class="small">ratio '+(v?fN(v.ratio,3):'—')+' · '+(v?v.date:'')+' '+(v&&parseInt(vStale)>3?'<span class="pill stale">STALE '+vStale+'</span>':'')+'</div></div>';
   const nT=Object.keys(S.map).length;
   h+='<div class="card"><div class="k">UNIVERSE</div><div class="v" style="font-size:22px">'+nT+'</div><div class="small">'+(S.cohorts.err?'<span class="mut">cohort axis unavailable</span>':Object.keys(S.cohortMap).length+' cohorts')+' · FAV '+S.favSet.size+' · ticker_cohorts membership, fully paged + hub_favorites'+(S.cohortTruncated?' · AXIS READ TRUNCATED':'')+'</div></div>';
-  /* THE ENDPOINT'S OWN COMPUTE TIME. This tile used to read a stamp the shim wrote with
+  /* THE ENDPOINT'S OWN COMPUTE TIME. This tile used to read a local receipt stamp written with
      Date.now() at the moment of the read, so it said "0s" no matter how old the Geiger was.
      /geiger publishes computed_utc; that is carried verbatim, and when it is missing the tile
      says unknown rather than inventing an age. */
-  const gComputed=(()=>{try{return (window.SC_PROVIDER_SHIM||{}).geiger_computed_utc||null;}catch(_){return null;}})();
+  const gComputed=(()=>{try{return (window.SC_PROVIDER||{}).geiger_computed_utc||null;}catch(_){return null;}})();
   const gMs=gComputed?new Date(gComputed).getTime():NaN;
   const gLabel=S.geiger.err?'ERR':(isFinite(gMs)?agoS(Math.floor(gMs/1000)):'unknown');
   h+='<div class="card"><div class="k">GEIGER FRESH</div><div class="v" style="font-size:22px">'+gLabel+'</div><div class="small">provider /geiger · '+(S.geiger.err?'feed error':S.geiger.length+' symbols')+' · '+(gComputed?'computed_utc '+String(gComputed).slice(11,19)+'Z':'no computed_utc published')+'</div></div>';
@@ -475,7 +438,7 @@ async function drawer(t){
        authority now, so the drawer draws the provider's completed daily closes alone rather
        than a comparison between two sources it no longer stands behind. */
     const [rbars,ratios,est]=await Promise.all([
-      j('ohlcv_history?select=timestamp,close&ticker=eq.'+enc+'&tf=eq.D&order=timestamp.desc&limit=260'),
+      SC_PROVIDER.equityCandles(t,'D',{limit:260}),
       j('ratios_history?select=fiscal_date,period,pe,pb,ps,net_margin,roe,debt_to_equity,dividend_yield&ticker=eq.'+enc+'&order=fiscal_date.desc&limit=8'),
       j('analyst_estimates?select=fiscal_date,est_eps_avg,est_revenue_avg,price_target_avg,num_analysts_eps&ticker=eq.'+enc+'&period=eq.annual&order=fiscal_date.desc&limit=6')
     ]);

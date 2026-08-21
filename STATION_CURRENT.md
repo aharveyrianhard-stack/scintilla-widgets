@@ -81,9 +81,13 @@ This is the present-tense record for the verified live Station and its separatel
 - Pane expansion now spans that pane's own row: an X or YouTube pane absorbs the lower row while charts stay visible, and a chart absorbs the upper row while feeds stay visible. A separate top-level `⛶` takes the resulting Station view to true browser fullscreen.
 - Desktop pane chips and old Wall / Scan / Why These? / Engine navigation are removed from the everyday Station view. The Hub remains linked.
 
-## Live-market proof and known gap
+## Historical live-market proof and known gap (2026-08-10 snapshot)
 
-The browser rereads `live_quotes` every ten seconds and also listens for realtime database updates. That proves screen freshness, not exchange-level liveness. Source tracing on 2026-08-10 found:
+The section below is retained as dated measurement evidence. It does not describe current
+provider-owned equity routing: current Station equities use the explicit Massive-backed provider
+quote and candle contracts, while these Supabase paths remain only for narrowly routed non-equities.
+
+At the time of this snapshot, the browser reread `live_quotes` every ten seconds and also listened for realtime database updates. That proved screen freshness, not exchange-level liveness. Source tracing on 2026-08-10 found:
 
 - `BTCUSD` is written every minute by `crypto-coinbase` from Coinbase spot.
 - `ESUSD`, `NQUSD`, and `GCUSD` are written every minute by `yahoo-futures` from Yahoo symbols `ES=F`, `NQ=F`, and `GC=F`.
@@ -98,7 +102,7 @@ Current product ruling: every instrument should use the lowest-latency proven au
 
 The futures aggregate trail is not fully healthy: 2h, 3h, 6h, 12h, daily, 3-day, and weekly histories are stale for at least ES and gold. This draft does not rewrite or conceal that history. It adds the current verified endpoint for visibility; the aggregation pipeline still needs a separate repair.
 
-The chart now has no artificial frontend depth cap, but it cannot draw aggregate bars that do not exist. A fresh read-only 2026-08-10 count proved the remaining timeframe-dependent boundary: SPY and QQQ each have 1,627 stored 2h bars beginning 2025-02-20, 2,253/2,252 15m bars beginning 2026-05-11, and 5,037 daily bars beginning 2006-07-30. The newly filled one-minute inventory is dramatically deeper: SPY contains 4,240,458 minutes beginning 2003-09-08 and QQQ contains 2,762,380 beginning 2011-03-01, split between R2 and the current Postgres seam. The sealed deep one-minute archive is therefore present, but the Station-readable 15m/30m/hourly aggregates have not been rebuilt to that depth. Station should continue reading the lean `ohlcv_history` table rather than making every browser scan the cold archive. Equal calendar depth across timeframes requires a verified aggregate rebuild, not another frontend zoom workaround.
+The chart had no artificial frontend depth cap, but it could not draw aggregate bars that did not exist. A fresh read-only 2026-08-10 count proved the then-current timeframe-dependent boundary: SPY and QQQ each had 1,627 stored 2h bars beginning 2025-02-20, 2,253/2,252 15m bars beginning 2026-05-11, and 5,037 daily bars beginning 2006-07-30. The newly filled one-minute inventory was dramatically deeper: SPY contained 4,240,458 minutes beginning 2003-09-08 and QQQ contained 2,762,380 beginning 2011-03-01, split between R2 and the then-current Postgres seam. This is historical inventory evidence only; current provider-owned chart reads use explicit provider candles.
 
 Current SPY / QQQ Station-readable aggregate boundaries (read-only count at 2026-08-10):
 

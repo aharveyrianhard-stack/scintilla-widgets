@@ -47,7 +47,7 @@ for (const file of FILES) {
   const futureSet = new Set(['ESUSD']), cryptoSet = new Set(['BTCUSD'])
 
   // A provider-owned equity: nothing may be substituted at all.
-  const winEquity = { SC_PROVIDER_SHIM: { isProviderOwned: s => s === 'AAPL' } }
+  const winEquity = { SC_PROVIDER: { isProviderOwned: s => s === 'AAPL' } }
   const f1 = factory(futureSet, cryptoSet, winEquity)
   const cached = [{ d: '2026-08-18T20:00:00.000Z', p: 100 }, { d: '2026-08-18T21:00:00.000Z', p: 101 }]
   const snapshot = JSON.stringify(cached)
@@ -59,7 +59,7 @@ for (const file of FILES) {
   // transient point is appended. The rule is the timestamp, not the calendar date - on a 15m or
   // 1h chart the completed bar and the tick routinely share a date, and the old date-only test
   // refused every intraday tick after load.
-  const winOther = { SC_PROVIDER_SHIM: { isProviderOwned: () => false } }
+  const winOther = { SC_PROVIDER: { isProviderOwned: () => false } }
   const f2 = factory(futureSet, cryptoSet, winOther)
   const c2 = [{ d: '2026-08-18T21:00:00.000Z', p: 101 }]
   const snap2 = JSON.stringify(c2)

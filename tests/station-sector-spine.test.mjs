@@ -9,8 +9,8 @@
    claimed only when every view answered for every ticker, PARTIAL names the short views,
    and nothing is substituted for them.
 
-   AUTHORITY WITHOUT THE AUTHORITY. The page reads compatibility URLs through
-   /_provider/provider.js. If that shim is absent it now refuses before issuing any read;
+   AUTHORITY WITHOUT THE AUTHORITY. The page reads explicit products through
+   /_provider/provider.js. If that client is absent it now refuses before issuing any read;
    a raw legacy table can never stand in for the provider contract.
 */
 import assert from "node:assert/strict";
@@ -38,7 +38,7 @@ function fnFrom(source, name, bindings = {}) {
 const viewsStart = sector.indexOf("const OHLCV_VIEWS=") + "const OHLCV_VIEWS=".length;
 const viewsLiteral = sector.slice(viewsStart, sector.indexOf(";", viewsStart));
 
-function spineHarness({ shim, fail } = {}) {
+function spineHarness({ client, fail } = {}) {
   const spine = {};
   const bindings = {
     SECTORS: [{ t: "XLK" }],
@@ -47,7 +47,7 @@ function spineHarness({ shim, fail } = {}) {
     PRICE_SOURCE: "pending",
     PRICE_COVERAGE: null,
     OHLCV_VIEWS: vm.runInNewContext("(" + viewsLiteral + ")"),
-    providerShimActive: () => !!shim,
+    providerClientActive: () => !!client,
     spineSet: (k, ts, mode, note, timeLabel) => { spine[k] = { ts, mode, note, timeLabel }; },
     fetchOHLCV: async (tk, tf) => {
       if (fail && fail(tk, tf)) throw new Error("ohlcv " + tk + " " + tf + " 500");
@@ -63,8 +63,8 @@ function spineHarness({ shim, fail } = {}) {
   return { bindings, spine };
 }
 
-test("a complete spine through the shim is LIVE, with every view's count on the badge", async () => {
-  const { bindings, spine } = spineHarness({ shim: true });
+test("a complete spine through the explicit client is LIVE, with every view's count on the badge", async () => {
+  const { bindings, spine } = spineHarness({ client: true });
   await bindings.loadDataDB();
   assert.equal(bindings.PRICE_SOURCE, "provider");
   assert.equal(bindings.priceCoverageFull(), true);
@@ -74,7 +74,7 @@ test("a complete spine through the shim is LIVE, with every view's count on the 
 });
 
 test("a failed 5m view forfeits LIVE — PARTIAL names the short view and substitutes nothing", async () => {
-  const { bindings, spine } = spineHarness({ shim: true, fail: (tk, tf) => tf === "5m" && tk === "XLK" });
+  const { bindings, spine } = spineHarness({ client: true, fail: (tk, tf) => tf === "5m" && tk === "XLK" });
   await bindings.loadDataDB();
   assert.equal(bindings.PRICE_SOURCE, "provider");
   assert.equal(bindings.priceCoverageFull(), false);
@@ -82,15 +82,15 @@ test("a failed 5m view forfeits LIVE — PARTIAL names the short view and substi
   assert.match(spine["provider /candles"].note, /5m 1\/2/);
   assert.match(spine["provider /candles"].note, /missing, not substituted/);
   /* The same is true when the whole weekly and 1m lanes die. */
-  const worse = spineHarness({ shim: true, fail: (tk, tf) => tf === "W" || tf === "1m" });
+  const worse = spineHarness({ client: true, fail: (tk, tf) => tf === "W" || tf === "1m" });
   await worse.bindings.loadDataDB();
   assert.equal(worse.spine["provider /candles"].mode, "PARTIAL");
   assert.match(worse.spine["provider /candles"].note, /W 0\/2 · 5m 2\/2 · 1m 0\/2/);
 });
 
-test("no shim means no read — raw tables are never used as an alternate", async () => {
-  const { bindings, spine } = spineHarness({ shim: false });
-  await assert.rejects(() => bindings.loadDataDB(), /provider authority shim unavailable/);
+test("no provider client means no read — raw tables are never used as an alternate", async () => {
+  const { bindings, spine } = spineHarness({ client: false });
+  await assert.rejects(() => bindings.loadDataDB(), /provider-native client unavailable/);
   assert.equal(bindings.PRICE_SOURCE, "pending");
   assert.deepEqual(spine, {});
 });
@@ -102,9 +102,9 @@ test("the boot status line distinguishes complete, partial and unavailable", () 
   assert.match(sector, /PARTIAL:'#ffb454'/, "PARTIAL renders as its own badge mode");
 });
 
-test("the spine asks with the contract's exact 5m/1m tokens, and the shim maps both spellings", () => {
+test("the spine asks with the contract's exact 5m/1m tokens, and the client maps both spellings", () => {
   assert.match(sector, /\{view:'intra',tf:'5m',lim:400\},\{view:'intra1',tf:'1m',lim:390\}/);
-  /* The shim's timeframe map resolves the exact tokens and the legacy '5'/'1' pair. */
+  /* The explicit client's timeframe map resolves the exact tokens and the legacy '5'/'1' pair. */
   assert.match(provider, /var TF = \{ '1':'1m','5':'5m',/);
   assert.match(provider, /'1m':'1m','2m':'2m','3m':'3m','5m':'5m'/);
 });

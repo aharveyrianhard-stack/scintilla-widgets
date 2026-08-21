@@ -99,7 +99,7 @@ test("a live quote never rewrites a completed candle", () => {
   assert.ok(liveIndex > cacheIndex, "the live point is applied after caching, never before");
   /* And the provider is asked for completed periods only. */
   assert.match(read("../_provider/provider.js"), /authority=provider/);
-  assert.match(read("../_provider/provider.js"), /completed periods\s*\n?\s*only/i);
+  assert.match(read("../_provider/provider.js"), /completed candles come from Massive/i);
 });
 
 /* ---- H4: the subscribed feed, transport, subscribe, and the fullscreen ladder ------------- */
@@ -204,7 +204,7 @@ test("a live tick reaches the drawn series, and keeps reaching it", () => {
   const PINNED_NOW = Date.parse("2026-08-20T00:00:00.000Z");
   const FixedDate = new Proxy(Date, { get:(t, k) => (k === "now" ? () => PINNED_NOW : t[k]) });
   const apply = fnFrom(chart, "chApplyLivePoint", {
-    window:{ SC_PROVIDER_SHIM:{ isProviderOwned:() => false } },
+    window:{ SC_PROVIDER:{ isProviderOwned:() => false } },
     futureSet:new Set(["ESUSD"]), cryptoSet:new Set(["BTCUSD"]),
     quoteInstant:fnFrom(chart, "quoteInstant", { Number, Date }),
     quotePrice:fnFrom(chart, "quotePrice", { Number }),
@@ -264,7 +264,7 @@ test("a live tick reaches the drawn series, and keeps reaching it", () => {
 
   /* A provider-owned equity is never touched at all, on any timeframe. */
   const equityApply = fnFrom(chart, "chApplyLivePoint", {
-    window:{ SC_PROVIDER_SHIM:{ isProviderOwned:(sym) => sym === "AAPL" } },
+    window:{ SC_PROVIDER:{ isProviderOwned:(sym) => sym === "AAPL" } },
     futureSet:new Set(), cryptoSet:new Set(),
     quoteInstant:fnFrom(chart, "quoteInstant", { Number, Date }),
     quotePrice:fnFrom(chart, "quotePrice", { Number }),
@@ -294,7 +294,7 @@ test("a transient point survives an overnight gap, and a future clock does not",
   const PINNED_NOW = Date.parse("2026-08-19T13:00:00.000Z");
   const FixedDate = new Proxy(Date, { get:(t, k) => (k === "now" ? () => PINNED_NOW : t[k]) });
   const apply = fnFrom(chart, "chApplyLivePoint", {
-    window:{ SC_PROVIDER_SHIM:{ isProviderOwned:() => false } },
+    window:{ SC_PROVIDER:{ isProviderOwned:() => false } },
     futureSet:new Set(["ESUSD"]), cryptoSet:new Set(["BTCUSD"]),
     quoteInstant:fnFrom(chart, "quoteInstant", { Number, Date }),
     quotePrice:fnFrom(chart, "quotePrice", { Number }),

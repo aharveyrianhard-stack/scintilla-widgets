@@ -1,51 +1,31 @@
-/* SCINTILLA STATION — PROVIDER AUTHORITY SHIM
-   ============================================
-   Station is 29 standalone pages, each with its own copy of pg(). Rewriting every call site would
-   mean touching hundreds of places across those files, and every one of them is a chance to get a
-   shape subtly wrong. Instead this shim intercepts the five legacy equity tables inside pg() and
-   answers them from the accepted provider APIs and provider serving index, returning rows in exactly the shape each caller
-   already expects. One file, one hook per page.
+/* SCINTILLA STATION — EXPLICIT PROVIDER-NATIVE CLIENT
+   ===================================================
+   Station calls this client by product result: equityQuotes, equityGeiger, equityCandles and
+   dailyIndicators. The client never intercepts fetch(), never rewrites pg(), and never makes an
+   obsolete table-shaped request mean provider truth.
 
-   WHAT IT REPLACES, and with what:
-     live_quotes      -> GET /quotes   current provider price + provider previous completed daily
-                                       close (MASSIVE_PROVIDER_D_BAR). This is the percentage
-                                       authority the Hub cut over to.
-     composite_staged -> GET /geiger   Trend, Momentum and the composite recomputed from
-                                       provider-built bars under Alan's captured Equalizer
-                                       (receipt f6cf97b5…97ad1). Structure is null; the Volume
-                                       family does not exist.
-     ohlcv_history    -> GET /candles  provider-built bars, authority=provider, completed periods
-                                       only — the serving layer withholds any trailing bar whose
-                                       period has not elapsed.
-     board_rsi        -> provider_indicators_current raw FMP RSI(14) + Williams %R(14)
-     derived_series   -> provider_indicators_current raw FMP daily RSI, Williams and MA values.
-                         Intraday indicator rows are explicitly unavailable until their basis is
-                         verified; MACD/CCI/ROC/Stochastic are null, never locally recomputed.
+   Equity price, previous close and completed candles come from Massive. Geiger comes from the
+   accepted Massive provider-bar artifact under the exact Equalizer receipt. Raw daily technical
+   indicators come from the FMP provider indicator index with provider date and FORMING/SETTLED
+   provenance intact. These sources are deliberately separate.
 
-   WHY IT MATTERS HERE. Measured on the full 365-symbol universe on 2026-08-18, the legacy
-   live_quotes baseline disagreed with the provider's previous close on 359 of 365 symbols and
-   pointed the WRONG DIRECTION on 183 of them. AMD read +6.50% while the provider's own numbers
-   give -1.26%. The Hub was cut over for exactly this reason; leaving Station on the old table
-   would keep two surfaces disagreeing about the same stock.
+   Retained non-equity Supabase ownership is exposed only through SC_NON_EQUITY. Its three narrow
+   adapters are named quotes, geiger and candles, verify that no provider-owned symbol can pass,
+   and are never used as an equity fallback.
 
-   RULES THIS SHIM OBEYS:
-     - NO SILENT FALLBACK. If a query cannot be satisfied from provider data, it returns an empty
-       result and records a NAMED reason in window.SC_PROVIDER_SHIM.unsatisfied. It never quietly
-       reaches for the legacy table, because a wrong number that looks right is worse than a gap.
-     - NON-EQUITY PRICES/BARS KEEP THEIR OWNER. A symbol the provider does not own (crypto,
-       futures, indices, rates) is passed through for quotes, Geiger and bars. The two retired
-       internal indicator tables are never used for any symbol; unsupported indicator bases say
-       unavailable instead of reviving an internal computation.
-     - NOTHING IS COMPUTED HERE. No bars are derived, no percentages are invented, no unfinished
-       period is composed. Every number comes from an accepted API.
+   RULES:
+     - NO SILENT FALLBACK. Missing or failed provider data is named and remains unavailable.
+     - OWNERSHIP FAILS CLOSED. The provider universe must exactly match the canonical 365 symbols.
+     - NOTHING IS RECOMPUTED HERE except the quote change and percentage from the provider's own
+       price and previous completed daily close. Indicators and bars remain provider-native.
 */
 (function () {
   'use strict';
   var API = 'https://scintilla-massive-chart-api.fly.dev';
 
-  var S = window.SC_PROVIDER_SHIM = {
+  var S = window.SC_PROVIDER = {
     api: API,
-    installed: false,
+    bound: false,
     equalizer_receipt: null,
     counts: { quotes: 0, geiger: 0, candles: 0, indicators: 0, passthrough_non_equity: 0, unsatisfied: 0,
               transport_failures: 0, partial_batches: 0, slow_reads: 0 },
@@ -61,23 +41,22 @@
     equalizer_accepted: null,
     /* Set by a page that wants to hear when a provider read passes the SOFT threshold, so it
        can paint delayed and keep retrying while the request continues. Assigning this is the
-       whole subscription; the shim never cancels on its account. */
+       whole subscription; the client never cancels on its account. */
     onSlowRead: null,
     /* What is known about the ownership universe, and whether it was VERIFIED complete. Any
        surface that wants to show the universe reads this rather than counting rows it happens
        to have received. */
     ownership: { verified: false, count: null, expected: null, reason: 'not yet read' },
-    legacy_equity_calls: [],         // must stay empty; anything here is a contract breach
     /* SYNCHRONOUS MEMBERSHIP FOR NON-FETCH CALL SITES.
-       The fetch wrapper cannot see Supabase REALTIME, which delivers rows over a WebSocket and
+       The provider client cannot see Supabase REALTIME, which delivers rows over a WebSocket and
        never calls fetch at all. deck's station-deck-lq channel and chart's lq channel both wrote
        equity prices straight into the render path, bypassing every guard in this file - and
-       legacy_equity_calls stayed empty the whole time, which made the shim look clean while a
+       transport diagnostics stayed empty the whole time, which made the provider path look clean while a
        legacy price moved a provider-owned symbol. Those handlers need an ANSWER NOW, not a
        promise, so the owned map is published here as it resolves. */
     owned_map: null,
     isProviderOwned: function (sym) {
-      var m = window.SC_PROVIDER_SHIM.owned_map;
+      var m = window.SC_PROVIDER.owned_map;
       return !!(m && m[String(sym || '').toUpperCase()]);
     },
     /* THE THIRD STATE THE REALTIME GUARDS WERE MISSING.
@@ -87,7 +66,7 @@
        price patch a provider-owned chart: the exact bypass those guards exist to close, open
        during the window they are most needed. Ownership is knowledge or it is nothing. */
     ownershipKnown: function () {
-      var S2 = window.SC_PROVIDER_SHIM;
+      var S2 = window.SC_PROVIDER;
       /* Verified, not merely present. A partial map is not knowledge. */
       return !!(S2.ownership && S2.ownership.verified && S2.owned_map && Object.keys(S2.owned_map).length);
     },
@@ -110,21 +89,21 @@
          history/candle absence  -> "SYM|TF"   (tf is required; without one there is no lane) */
     absences: {},
     absenceFor: function (sym, tf) {
-      var a = window.SC_PROVIDER_SHIM.absences;
+      var a = window.SC_PROVIDER.absences;
       var key = String(sym || '').toUpperCase();
       /* Asking about a timeframe asks the history lane only. Asking without one asks the quote
          lane only. Neither answers for the other. */
       return tf ? (a[key + '|' + String(tf)] || null) : (a[key] || null);
     },
     noteAbsence: function (sym, tf, reason) {
-      var a = window.SC_PROVIDER_SHIM.absences;
+      var a = window.SC_PROVIDER.absences;
       var key = String(sym || '').toUpperCase();
       var named = String(reason || 'NOT_OBSERVED_BY_STREAM');
       if (tf) a[key + '|' + String(tf)] = named; else a[key] = named;
       return named;
     },
     clearAbsence: function (sym, tf) {
-      var a = window.SC_PROVIDER_SHIM.absences;
+      var a = window.SC_PROVIDER.absences;
       var key = String(sym || '').toUpperCase();
       if (tf) delete a[key + '|' + String(tf)]; else delete a[key];
     }
@@ -139,7 +118,7 @@
   var ABSENCE_INDICATOR_BASIS = 'INDICATOR_BASIS_NOT_VERIFIED';
   var INDICATOR_UNIVERSE_SHA256 =
     '7ad595cc4db5e1fd0bb63bb3780ac1450a938e6fa068df944aeec71445556063';
-  /* These are the rows every equity must have before the legacy-shaped daily row is safe to
+  /* These are the rows every equity must have before the normalized daily indicator row is safe to
      publish. Long SMAs are intentionally not required: a newly listed equity can have a valid
      RSI/EMA answer while honestly lacking 50/100/150/200 completed sessions, which remains null. */
   var REQUIRED_DAILY_INDICATOR_SPECS = [
@@ -254,7 +233,7 @@
      Two versions of the same fail-open lived here. The first resolved a cold /geiger failure to
      {}, and an empty ownership map means "the provider owns nothing" - so every equity looked
      like a non-equity and went straight to the legacy Supabase tables, silently reinstating the
-     exact data path this shim exists to close.
+     exact data path this client exists to close.
 
      The second was subtler and survived the first repair: ANY payload carrying a `symbols`
      object was accepted, including an empty or partial one. A response listing 12 symbols
@@ -296,7 +275,7 @@
      equalizer was admitted as long as its symbol set matched - and the symbol set says nothing
      about the weights the composite was built from. Two runs over identical symbols under
      different equalizers are different numbers wearing the same name, which is exactly the
-     confusion this shim exists to end.
+     confusion this client exists to end.
 
      The digest is compared in full. A prefix comparison would pass the very fixtures that
      proved the hole. Wrong or missing fails closed: no ownership, no classification, and
@@ -353,7 +332,7 @@
       if (owned) return owned;                      // a verified map survives one bad answer
       throw transportError('provider ownership ' + why, API + '/geiger', null);
     };
-    /* Read through the PAGE's own reader, so the shim needs no credentials of its own. A
+    /* Read through the PAGE's own reader, so the provider client needs no credentials of its own. A
        failure here is fatal to a cold ownership map: the canonical set is the independent
        identity authority, and cardinality alone cannot prove membership. */
     var canonical = typeof origPg === 'function'
@@ -443,7 +422,7 @@
 
   /* THE PROVIDER'S OWN OBSERVATION TIME, OR NOTHING.
      ONE field, and it is the one the live /quotes payload carries: `price_observation_utc`.
-     The field this shim originally read, `price_sip_utc`, is not on the payload at all, so
+     The field the earlier compatibility layer read, `price_sip_utc`, is not on the payload at all, so
      every row was stamped null - and null then travelled into surfaces that read
      `new Date(null)` as the epoch and called it a finite timestamp.
 
@@ -467,7 +446,7 @@
      two would let one truncated response mark a live symbol permanently unobserved. */
   /* ONLY THE PROVIDER MAY NAME AN ABSENCE.
      This used to fall through to ABSENCE_NOT_OBSERVED for any quote whose price was null,
-     which meant the shim was inventing the stream's answer out of a missing number. A payload
+     which meant the earlier compatibility layer was inventing the stream's answer out of a missing number. A payload
      that says state:'OK' and then carries no price is not a symbol the stream does not
      observe; it is a malformed response - a contract failure, and retryable. The distinction
      matters exactly where it is easiest to lose: both cases look like "no price here". */
@@ -558,7 +537,7 @@
       S.equalizer_accepted = true;
       gCache.map = j.symbols; gCache.at = Date.now();
       S.equalizer_receipt = j.equalizer_receipt_sha256;
-      /* THE ENDPOINT'S OWN COMPUTE TIME, CARRIED VERBATIM. The shim used to stamp every
+      /* THE ENDPOINT'S OWN COMPUTE TIME, CARRIED VERBATIM. The earlier compatibility layer stamped every
          composite row with Date.now(), so a Geiger computed hours ago always read as fresh.
          It is the provider's number or it is unknown; it is never this machine's clock. */
       S.geiger_computed_utc = j.computed_utc || null;
@@ -602,26 +581,7 @@
     });
   }
 
-  // ---- minimal PostgREST query reading. Only what these five tables actually use. --------------
-  function parse (path) {
-    var qi = path.indexOf('?');
-    var table = (qi < 0 ? path : path.slice(0, qi)).replace(/^\/+/, '');
-    var q = {};
-    (qi < 0 ? '' : path.slice(qi + 1)).split('&').forEach(function (kv) {
-      if (!kv) return;
-      var i = kv.indexOf('='); if (i < 0) return;
-      q[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1));
-    });
-    return { table: table, q: q };
-  }
-  function wantedTickers (q) {
-    var t = q.ticker || '';
-    if (t.indexOf('in.(') === 0) return t.slice(4).replace(/\)$/, '').split(',').map(function (x) { return x.replace(/"/g, '').trim().toUpperCase(); }).filter(Boolean);
-    if (t.indexOf('eq.') === 0) return [t.slice(3).trim().toUpperCase()];
-    return null;                      // no ticker filter: caller wants the whole table
-  }
-  function limitOf (q, dflt) { var n = parseInt(q.limit, 10); return isFinite(n) && n > 0 ? n : dflt; }
-
+  // ---- explicit provider-native Station models ------------------------------------------------
   function epochSeconds (value) {
     if (value == null) return null;
     if (typeof value === 'number' && isFinite(value)) return value;
@@ -669,7 +629,7 @@
     });
   }
 
-  function legacyIndicatorRow (ticker, rows) {
+  function normalizedIndicatorRow (ticker, rows) {
     var by = {};
     rows.forEach(function (r) { by[String(r.indicator) + ':' + String(r.period_length)] = r; });
     var value = function (indicator, period) {
@@ -709,353 +669,343 @@
     if (S.unsatisfied.length < 40) S.unsatisfied.push({ why: why, path: String(path).slice(0, 160) });
   }
 
-  // ---- the interceptor ------------------------------------------------------------------------
-  function handle (path, origPg, signal) {
-    var p = parse(path), q = p.q;
-
-    if (p.table === 'board_rsi') {
-      var brT = wantedTickers(q);
-      return providerOwned(signal, origPg).then(function (own) {
-        var syms = brT || Object.keys(own);
-        var eq = syms.filter(function (s) { return own[s]; });
-        var nonEq = brT ? syms.filter(function (s) { return !own[s]; }) : [];
-        return providerIndicatorRows(eq, ['rsi','williams'], origPg).then(function (raw) {
-          var grouped = {};
-          raw.forEach(function (r) { var t = String(r.ticker || '').toUpperCase(); (grouped[t] || (grouped[t] = [])).push(r); });
-          var rows = eq.map(function (t) {
-            var legacy = legacyIndicatorRow(t, grouped[t] || []);
-            return { ticker:t, rsi_raw:legacy.rsi_raw, wpr_raw:legacy.wpr_raw, macd_signed:null,
-                     ts:legacy.timestamp, updated_at:legacy.updated_ts, source_date:legacy.source_date,
-                     session_state:legacy.session_state, sc_source:legacy.sc_source };
-          });
-          nonEq.forEach(function (s) { S.noteAbsence(s, '1D', ABSENCE_INDICATOR_BASIS); });
-          var lim = limitOf(q, 0); return lim ? rows.slice(0, lim) : rows;
-        });
-      });
-    }
-
-    if (p.table === 'derived_series') {
-      var dsT = wantedTickers(q);
-      if (!dsT || !dsT.length)
-        return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', 'indicator'));
-      var rawTf = String(q.tf || '').replace(/^eq\./, '');
-      return providerOwned(signal, origPg).then(function (own) {
-        var eq = dsT.filter(function (s) { return own[s]; });
-        var nonEq = dsT.filter(function (s) { return !own[s]; });
-        nonEq.forEach(function (s) { S.noteAbsence(s, rawTf || 'indicator', ABSENCE_INDICATOR_BASIS); });
-        var providerPart;
-        if (eq.length && rawTf !== '1D' && rawTf !== 'D' && rawTf !== '1d') {
-          eq.forEach(function (s) { S.noteAbsence(s, rawTf, ABSENCE_INDICATOR_BASIS); });
-          note('indicator basis not verified for ' + rawTf, eq.join(','));
-          providerPart = Promise.resolve([]);
-        } else {
-          providerPart = providerIndicatorRows(eq, null, origPg).then(function (raw) {
-            var grouped = {};
-            raw.forEach(function (r) { var t = String(r.ticker || '').toUpperCase(); (grouped[t] || (grouped[t] = [])).push(r); });
-            return eq.map(function (t) { S.clearAbsence(t, rawTf); return legacyIndicatorRow(t, grouped[t] || []); });
-          });
-        }
-        return providerPart.then(function (rows) {
-          var lim = limitOf(q, 0); return lim ? rows.slice(0, lim) : rows;
-        });
-      });
-    }
-
-    if (p.table === 'live_quotes') {
-      var lqT = wantedTickers(q);
-      return providerOwned(signal, origPg).then(function (own) {
-        /* AN UNFILTERED REQUEST ASKS FOR THE WHOLE BOARD, NOT THE PROVIDER'S HALF OF IT.
-           `syms = lqT || Object.keys(own)` made the non-equity list EMPTY whenever the caller
-           had not named tickers - because the only symbols in play were, by construction, the
-           ones the provider owns. Every unfiltered Station consumer therefore lost crypto,
-           futures, indices and rates entirely, silently, while the filtered path kept them.
-           An unfiltered ask keeps its legacy half unfiltered too, and the provider's owned set
-           is subtracted from it rather than standing in for it. */
-        var syms = lqT || Object.keys(own);
-        var eq = syms.filter(function (s) { return own[s]; });
-        var nonEq = lqT ? syms.filter(function (s) { return !own[s]; }) : null;   // null = "everything not owned"
-        return quotes(eq, signal).then(function (res) {
-          var qm = res.map, missing = res.missing;
-          /* A SUCCESSFUL RESPONSE MUST ACCOUNT FOR EVERY REQUESTED SYMBOL.
-             A short batch used to resolve with the rows it did have, and the caller - having
-             asked for AAPL and MSFT and received only AAPL - concluded that MSFT is not
-             observed by the stream and stopped retrying it. A partial answer is not a smaller
-             answer; it is an unfinished request, so the whole request fails and every symbol on
-             it stays retryable. No absence name is written for any of them. */
-          if (missing.length || res.truncated) {
-            missing.forEach(function (sym) { S.clearAbsence(sym, null); });
-            throw transportError('provider quotes batch incomplete: ' +
-              (res.truncated ? 'request exceeded the 400-symbol batch limit' : missing.join(',')),
-              API + '/quotes', null);
-          }
-          var rows = [];
-          /* A malformed entry fails the whole request, like any other incomplete answer. It is
-             not written down as an absence, because nothing named it one. */
-          var malformed = eq.filter(function (s) { return quoteIsMalformed(qm[s]); });
-          if (malformed.length) {
-            malformed.forEach(function (sym) { S.clearAbsence(sym, null); });
-            throw transportError('provider quote malformed (no state, no price): ' + malformed.join(','),
-              API + '/quotes', null);
-          }
-          eq.forEach(function (s) {
-            var v = qm[s];
-            if (!v) return;                              // covered by `missing` above
-            var named = quoteAbsenceName(v);
-            if (named) { note('provider named ' + named, s); S.noteAbsence(s, null, named); return; }
-            /* Guaranteed by the malformed sweep above; asserted here so a future edit to that
-               sweep cannot quietly reopen the $0 path. */
-            if (!quoteHasPrice(v)) { note('unpriced quote reached the row builder', s); return; }
-            var price = numOrNull(v.price);
-            /* SAME CLASS, SAME TRAP. `+v.previous_close` turned null and '' into 0, and 0 then
-               passed isFinite - so Station received prev_close:0 instead of "unknown", and every
-               percentage computed against it was a division by a number nobody sent. Unknown
-               stays null, and the change/percent below are simply not computed. */
-            var prev = numOrNull(v.previous_close);
-            S.clearAbsence(s, null);
-            rows.push({
-              ticker: s, price: price, prev_close: prev,
-              chg_pct: (prev ? (price - prev) / prev * 100 : null),
-              change: (prev ? price - prev : null),
-              volume: null,                 // the provider quote carries no volume; null, never 0
-              /* The provider's own observation time, or null. Never this machine's clock. */
-              updated_ts: quoteObservedAt(v),
-              sc_source: 'MASSIVE_PROVIDER_D_BAR'
-            });
-          });
-          S.counts.quotes += rows.length;
-          if (nonEq && !nonEq.length) return rows;
-          // Non-equities keep their existing owner. Only they reach the legacy table.
-          S.counts.passthrough_non_equity += nonEq ? nonEq.length : 1;
-          /* Filtered: ask the legacy table for exactly the non-owned tickers.
-             Unfiltered: ask it for everything and drop the owned ones here, so the whole board
-             still arrives and no equity slips back in under the legacy price. */
-          var pass = nonEq
-            ? path.replace(/ticker=(in\.\([^)]*\)|eq\.[^&]*)/, 'ticker=in.(' + nonEq.join(',') + ')')
-            : 'live_quotes?select=ticker,price,chg_pct,prev_close,updated_ts&limit=2000';
-          /* The non-equity half failing used to leave the provider rows standing alone, and the
-             caller then read the absent non-equities as unobserved. Half a request is not a
-             request: it fails, and every symbol on it stays retryable. */
-          return origPg(pass).then(function (extra) {
-            var kept = (extra || []).filter(function (r) {
-              return !own[String(r && r.ticker || '').toUpperCase()];
-            });
-            return rows.concat(kept);
-          }, function (e) {
-            (nonEq || []).forEach(function (sym) { S.clearAbsence(sym, null); });
-            if (e && (e.scTransport || e.scAbsence)) throw e;
-            throw transportError('non-equity passthrough failed: ' + (e && e.message || 'unknown'), pass, null);
-          });
-        });
-      });
-    }
-
-    if (p.table === 'composite_staged') {
-      var csT = wantedTickers(q);
-      /* One selected company gets the detail projection so its visible BAR AS-OF row is real.
-         Unfiltered/multi-symbol boards stay on the small all-universe projection. */
-      var gRead = csT && csT.length === 1 ? geigerDetail(csT[0], signal) : geiger(signal);
-      return Promise.all([providerOwned(signal, origPg), gRead]).then(function (a) {
-        var own = a[0], gm = a[1];
-        /* Same rule as live_quotes: an unfiltered ask keeps its legacy half unfiltered. */
-        var syms = csT || Object.keys(own);
-        var eq = syms.filter(function (s) { return own[s]; });
-        var nonEq = csT ? syms.filter(function (s) { return !own[s]; }) : null;
-        /* Every requested equity must appear in the Geiger payload; /geiger publishes the whole
-           universe, so a gap is an incomplete payload rather than a settled per-symbol fact. */
-        var absent = eq.filter(function (s) { return !gm[s]; });
-        if (absent.length) {
-          absent.forEach(function (sym) { S.clearAbsence(sym, 'D'); });
-          note('geiger payload did not account for ' + absent.length + ' requested symbols', path);
-          throw transportError('provider geiger payload incomplete: ' + absent.join(','), API + '/geiger', null);
-        }
-        var rows = eq.map(function (s) {
-          var v = gm[s]; if (!v) { note('no candidate geiger', s); return null; }
-          return { ticker: s, tf: 'D', composite: v.composite, trend: v.trend, momentum: v.momentum,
-                   structure: null,          // removed from the active contract
-                   core: null, conviction: null,
-                   tf_contributors: v.tf_contributors,
-                   /* Per-rung provider-bar currentness is part of the accepted Geiger artifact.
-                      Carry it through the legacy-shaped adapter instead of reducing the artifact
-                      to three numbers and making every consumer guess how current each rung is. */
-                   rungs: v.rungs || {},
-                   /* THE ENDPOINT'S COMPUTE TIME, NOT THIS MACHINE'S CLOCK. Stamping
-                      Date.now() here made a Geiger computed hours ago read as seconds old
-                      on every surface that showed its age. Unknown stays null. */
-                   updated_ts: S.geiger_computed_utc || null,
-                   computed_utc: S.geiger_computed_utc || null,
-                   sc_source: 'CANDIDATE_PROVIDER_EQUALIZER' };
-        }).filter(Boolean);
-        S.counts.geiger += rows.length;
-        var lim = limitOf(q, 0);
-        if (nonEq && !nonEq.length) return lim ? rows.slice(0, lim) : rows;
-        S.counts.passthrough_non_equity += nonEq ? nonEq.length : 1;
-        var csPass = nonEq
-          ? 'composite_staged?select=ticker,tf,trend,momentum,composite,updated_ts&tf=eq.D&ticker=in.(' + nonEq.join(',') + ')'
-          : 'composite_staged?select=ticker,tf,trend,momentum,composite,updated_ts&tf=eq.D&limit=2000';
-        return origPg(csPass)
-          .then(function (extra) {
-                  var kept = (extra || []).filter(function (r) {
-                    return !own[String(r && r.ticker || '').toUpperCase()];
-                  });
-                  var all = rows.concat(kept); return lim ? all.slice(0, lim) : all; },
-                function (e) {
-                  /* Half a request is not a request - see the live_quotes branch. */
-                  (nonEq || []).forEach(function (sym) { S.clearAbsence(sym, 'D'); });
-                  if (e && (e.scTransport || e.scAbsence)) throw e;
-                  throw transportError('non-equity composite passthrough failed: ' + (e && e.message || 'unknown'), path, null);
-                });
-      });
-    }
-
-    if (p.table === 'ohlcv_history') {
-      var oT = wantedTickers(q);
-      if (!oT || oT.length !== 1) {
-        note('ohlcv_history without a single ticker', path);
-        return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, (oT || []).join(','), null));
-      }
-      var sym = oT[0];
-      var rawTf = (q.tf || '').replace(/^eq\./, '');
-      var tf = TF[rawTf];
-      return providerOwned(signal, origPg).then(function (own) {
-        if (!own[sym]) { S.counts.passthrough_non_equity++; return origPg(path); }   // non-equity keeps its owner
-        if (!tf) {
-          note('unmapped timeframe ' + rawTf, path);
-          return Promise.reject(S.absenceError(ABSENCE_TIMEFRAME_NOT_MAPPED, sym, rawTf));
-        }
-        var lim = limitOf(q, 200);
-        return jget(API + '/candles?symbol=' + encodeURIComponent(sym) + '&tf=' + encodeURIComponent(tf) +
-                    '&authority=provider&limit=' + Math.min(lim, 400), signal).then(function (j) {
-          /* The provider may name the absence itself. When it does, that name is kept verbatim
-             and preferred over the generic one - it is closer to the truth than anything here. */
-          var named = j && (j.absence || j.reason || (j.state && j.state !== 'OK' ? j.state : null));
-          if (!j) { note('candles unreachable', sym + '/' + tf); return Promise.reject(new Error('candles unreachable')); }
-          /* SHORT IS NOT ABSENT.
-             An empty or one-bar series used to be recorded as NOT_OBSERVED_BY_STREAM. But one
-             real bar is proof the stream observes this symbol; a series too short to draw is a
-             partial or still-warming answer, and inventing a terminal name for it retires a
-             live symbol from the wall permanently. Only a name the PROVIDER supplied is
-             terminal here. */
-          if (!j.series || !j.series.length) {
-            if (named) return Promise.reject(S.absenceError(named, sym, rawTf));
-            note('provider returned an unnamed empty series', sym + '/' + tf);
-            S.clearAbsence(sym, rawTf);
-            return Promise.reject(transportError('provider series empty and unnamed for ' + sym + '/' + tf,
-              API + '/candles', null));
-          }
-          if (named) return Promise.reject(S.absenceError(named, sym, rawTf));
-          S.counts.candles += j.series.length;
-          S.clearAbsence(sym, rawTf);
-          // Legacy shape: seconds, newest first, close/open/high/low/volume.
-          var out = j.series.map(function (b) {
-            return { ticker: sym, timestamp: Math.floor(b.t / 1000), close: +b.c, open: +b.o,
-                     high: +b.h, low: +b.l, volume: +b.v };
-          }).reverse();
-          return out.slice(0, lim);
-        });
-      });
-    }
-    return null;                       // not an equity table: caller proceeds normally
+  var supabaseReader = null;
+  function normalizeSymbols (symbols) {
+    if (symbols == null) return null;
+    var seen = {};
+    return (Array.isArray(symbols) ? symbols : [symbols]).map(function (s) {
+      return String(s || '').trim().toUpperCase();
+    }).filter(function (s) {
+      if (!s || seen[s]) return false;
+      seen[s] = 1;
+      return true;
+    });
   }
-
-  /* SOME PAGES BYPASS pg() ENTIRELY and call fetch(SB + "/rest/v1/<table>?...") directly —
-     analytics/ and templates/sector-rotation.html both do. Intercepting only pg() would leave those
-     reading the legacy table while every other surface had moved, which is exactly the kind of
-     half-migration that produces two surfaces disagreeing about the same stock. This closes the
-     class at the fetch boundary, so it does not matter how a page chooses to ask.
-
-     Requests this shim itself issues through a page's original pg() carry a LOCAL marker so
-     the wrapped fetch can bypass interception exactly once. The marker is consumed here and
-     MUST NEVER reach PostgREST: an unknown query key is treated as a column filter, so sending
-     `sc_shim=1` to Supabase turns a valid read into HTTP 400 (column sc_shim does not exist). */
-  var MARK = 'sc_shim=1';
-  function markedPath (path) {
-    return path + (path.indexOf('?') < 0 ? '?' : '&') + MARK;
+  function readSupabase (path) {
+    if (typeof supabaseReader !== 'function')
+      return Promise.reject(transportError('Station Supabase reader is not bound', path, null));
+    return Promise.resolve().then(function () { return supabaseReader(path); });
   }
-  function stripMark (url) {
-    return String(url)
-      .replace(new RegExp('([?&])' + MARK + '(?=&|$)'), '$1')
-      .replace(/[?&]$/, '')
-      .replace('?&', '?');
-  }
-  function fakeResponse (rows) {
-    return { ok: true, status: 200, headers: { get: function () { return 'application/json'; } },
-             json: function () { return Promise.resolve(rows); },
-             text: function () { return Promise.resolve(JSON.stringify(rows)); } };
-  }
-  var origFetch = window.fetch.bind(window);
-  window.fetch = function (input, init) {
-    var url = (typeof input === 'string') ? input : (input && input.url) || '';
-    try {
-      /* This is an internal one-hop bypass generated only by markedPath(). Consume it locally
-         and call the saved native fetch with a clean URL. */
-      if (url.indexOf(MARK) >= 0) return origFetch(stripMark(url), init);
-      if (/\/rest\/v1\/(live_quotes|composite_staged|ohlcv_history|board_rsi|derived_series)\b/.test(url)) {
-        var path = url.split('/rest/v1/')[1];
-        /* A non-OK Supabase status is a failed read, not an empty table. Returning [] here
-           made every 5xx, 401 and 400 look like "this passthrough legitimately has no rows". */
-        /* The caller's own AbortController travels with the request. The deck bounds its
-           quote fetch at 4.5s; without this the shim's replacement read ignored that entirely
-           and only the shim's own independent timer applied. */
-        var r = handle(path, function (p2) {
-          /* origFetch is already the saved native function, so no bypass marker is needed. */
-          return origFetch(SBBASE(url) + '/rest/v1/' + p2, init)
-            .then(function (rr) {
-              if (!rr.ok) throw transportError('supabase HTTP ' + rr.status, p2, rr.status);
-              return rr.json();
-            });
-        }, init && init.signal);
-        /* A NAMED ABSENCE IS NOT A FAILED REQUEST. Over pg() it is raised so the caller can
-           paint the name; over fetch() the honest HTTP answer is a successful read carrying no
-           rows, because that is exactly what happened. The name is still recorded on the shim,
-           so a caller that wants it asks SC_PROVIDER_SHIM.absenceFor(sym, tf). Rejecting here
-           instead would make a settled answer look like a broken connection - the very
-           conversion this change exists to stop. */
-        if (r) return r.then(fakeResponse, function (err) {
-          /* A NAMED ABSENCE IS NOT A FAILED REQUEST - but only the STREAM's absences qualify.
-             NOT_OBSERVED_BY_STREAM is an answer about the data and is honestly an empty
-             successful read. TIMEFRAME_NOT_MAPPED and TICKER_FILTER_REQUIRED are not: they say
-             this surface asked a question the contract does not accept, which is a bug here, and
-             turning it into a clean 200 with no rows is how two intraday datasets went blank
-             while the page went on advertising them. Those propagate. */
-          if (err && err.scAbsence === ABSENCE_NOT_OBSERVED) return fakeResponse([]);
-          throw err;
-        });
-      }
-    } catch (e) {
-      /* FAIL CLOSED. Falling through to origFetch here would send an equity read straight to
-         the legacy Supabase table - the exact path this shim exists to close - and it would do
-         it precisely when the shim is malfunctioning and least able to notice. */
-      note('fetch shim threw: ' + e.message, url);
-      if (/\/rest\/v1\/(live_quotes|composite_staged|ohlcv_history|board_rsi|derived_series)\b/.test(url))
-        return Promise.reject(transportError('provider shim threw: ' + e.message, url, null));
-    }
-    return origFetch(input, init);
-  };
-  function SBBASE (url) { var i = url.indexOf('/rest/v1/'); return i < 0 ? '' : url.slice(0, i); }
-
-  /* Install over a page's own pg(). Called after the page defines it. */
-  window.scInstallProviderShim = function () {
-    if (S.installed || typeof window.pg !== 'function') return S.installed;
-    var orig = window.pg;
-    window.pg = function (path, tries) {
-      try {
-        /* The original pg() resolves global fetch at call time, which is now the wrapper above.
-           Mark exactly this internal legacy/canonical hop; the wrapper strips the marker before
-           the network so recursion is prevented without inventing a PostgREST filter. */
-        var r = handle(String(path), function (p2) { return orig(markedPath(p2), tries); });
-        if (r) return r;
-      } catch (e) {
-        /* A bug in here is a failure to ask, not an answer. Resolving [] made it look like a
-           settled empty result and let a pane paint a permanent absence over a broken shim. */
-        note('shim threw: ' + e.message, path);
-        return Promise.reject(transportError('provider shim threw: ' + e.message, path, null));
-      }
-      if (/ohlcv_history|live_quotes|composite_staged|board_rsi|derived_series/.test(String(path))) {
-        S.legacy_equity_calls.push(String(path).slice(0, 160));   // visible breach, never silent
-      }
-      return orig(path, tries);
-    };
-    S.installed = true;
+  S.bindSupabaseReader = function (reader) {
+    if (typeof reader !== 'function') return false;
+    supabaseReader = reader;
+    S.bound = true;
     return true;
+  };
+  window.scBindProviderClient = function (reader) {
+    return S.bindSupabaseReader(reader || window.pg);
+  };
+  S.verifyOwnership = function (signal) { return providerOwned(signal, readSupabase); };
+
+  function providerQuoteRows (symbols, signal) {
+    if (!symbols.length) return Promise.resolve([]);
+    return quotes(symbols, signal).then(function (res) {
+      var qm = res.map, missing = res.missing;
+      if (missing.length || res.truncated) {
+        missing.forEach(function (sym) { S.clearAbsence(sym, null); });
+        throw transportError('provider quotes batch incomplete: ' +
+          (res.truncated ? 'request exceeded the 400-symbol batch limit' : missing.join(',')),
+          API + '/quotes', null);
+      }
+      var malformed = symbols.filter(function (sym) { return quoteIsMalformed(qm[sym]); });
+      if (malformed.length) {
+        malformed.forEach(function (sym) { S.clearAbsence(sym, null); });
+        throw transportError('provider quote malformed (no state, no price): ' + malformed.join(','),
+          API + '/quotes', null);
+      }
+      var rows = [];
+      symbols.forEach(function (sym) {
+        var value = qm[sym];
+        var named = quoteAbsenceName(value);
+        if (named) {
+          note('provider named ' + named, sym);
+          S.noteAbsence(sym, null, named);
+          return;
+        }
+        var price = numOrNull(value && value.price);
+        var previous = numOrNull(value && value.previous_close);
+        if (price == null || price <= 0)
+          throw transportError('unpriced provider quote reached the Station model for ' + sym,
+            API + '/quotes', null);
+        S.clearAbsence(sym, null);
+        rows.push({
+          ticker: sym,
+          price: price,
+          previous_close: previous,
+          prev_close: previous,
+          change: previous ? price - previous : null,
+          change_percent: previous ? (price - previous) / previous * 100 : null,
+          chg_pct: previous ? (price - previous) / previous * 100 : null,
+          volume: null,
+          observed_at: quoteObservedAt(value),
+          updated_ts: quoteObservedAt(value),
+          provider: 'MASSIVE',
+          authority: 'MASSIVE_PROVIDER_D_BAR'
+        });
+      });
+      S.counts.quotes += rows.length;
+      return rows;
+    });
+  }
+
+  function requireProviderOwned (symbols, own, operation) {
+    var wrong = symbols.filter(function (sym) { return !own[sym]; });
+    if (!wrong.length) return;
+    wrong.forEach(function (sym) { S.noteAbsence(sym, operation, 'NOT_PROVIDER_OWNED'); });
+    throw transportError(operation + ' request included non-provider symbols: ' + wrong.join(','),
+      API, null);
+  }
+
+  S.equityQuotes = function (symbols, options) {
+    options = options || {};
+    var requested = normalizeSymbols(symbols);
+    return providerOwned(options.signal, readSupabase).then(function (own) {
+      var equities = requested || Object.keys(own);
+      requireProviderOwned(equities, own, 'equityQuotes');
+      return providerQuoteRows(equities, options.signal);
+    });
+  };
+
+  function geigerRows (symbols, map) {
+    var absent = symbols.filter(function (sym) { return !map[sym]; });
+    if (absent.length) {
+      absent.forEach(function (sym) { S.clearAbsence(sym, 'D'); });
+      throw transportError('provider geiger payload incomplete: ' + absent.join(','), API + '/geiger', null);
+    }
+    var rows = symbols.map(function (sym) {
+      var value = map[sym];
+      return {
+        ticker: sym,
+        timeframe: 'D',
+        tf: 'D',
+        composite: value.composite,
+        trend: value.trend,
+        momentum: value.momentum,
+        tf_contributors: value.tf_contributors,
+        rungs: value.rungs || {},
+        computed_utc: S.geiger_computed_utc || null,
+        updated_ts: S.geiger_computed_utc || null,
+        provider: 'MASSIVE',
+        authority: 'PROVIDER_EQUALIZER'
+      };
+    });
+    S.counts.geiger += rows.length;
+    return rows;
+  }
+
+  S.equityGeiger = function (symbols, options) {
+    options = options || {};
+    var requested = normalizeSymbols(symbols);
+    return providerOwned(options.signal, readSupabase).then(function (own) {
+      var equities = requested || Object.keys(own);
+      requireProviderOwned(equities, own, 'equityGeiger');
+      var detail = !!options.detail && equities.length === 1;
+      return (detail ? geigerDetail(equities[0], options.signal) : geiger(options.signal))
+        .then(function (map) { return geigerRows(equities, map); });
+    });
+  };
+
+  function providerCandleRows (symbol, rawTf, limit, signal) {
+    var tf = TF[rawTf];
+    if (!tf) {
+      note('unmapped timeframe ' + rawTf, symbol);
+      return Promise.reject(S.absenceError(ABSENCE_TIMEFRAME_NOT_MAPPED, symbol, rawTf));
+    }
+    var bounded = Math.min(Math.max(Number(limit) || 200, 1), 400);
+    var url = API + '/candles?symbol=' + encodeURIComponent(symbol) + '&tf=' + encodeURIComponent(tf) +
+      '&authority=provider&limit=' + bounded;
+    return jget(url, signal).then(function (payload) {
+      var named = payload && (payload.absence || payload.reason ||
+        (payload.state && payload.state !== 'OK' ? payload.state : null));
+      if (!payload || !Array.isArray(payload.series) || !payload.series.length) {
+        if (named) throw S.absenceError(named, symbol, rawTf);
+        S.clearAbsence(symbol, rawTf);
+        throw transportError('provider series empty and unnamed for ' + symbol + '/' + tf, url, null);
+      }
+      if (named) throw S.absenceError(named, symbol, rawTf);
+      S.clearAbsence(symbol, rawTf);
+      S.counts.candles += payload.series.length;
+      return payload.series.map(function (bar) {
+        return {
+          ticker: symbol,
+          timestamp: Math.floor(bar.t / 1000),
+          open: Number(bar.o),
+          high: Number(bar.h),
+          low: Number(bar.l),
+          close: Number(bar.c),
+          volume: Number(bar.v),
+          provider: 'MASSIVE',
+          authority: 'PROVIDER_BUILT'
+        };
+      }).reverse().slice(0, bounded);
+    });
+  }
+
+  S.equityCandles = function (symbol, timeframe, options) {
+    options = options || {};
+    var sym = normalizeSymbols(symbol);
+    if (!sym || sym.length !== 1)
+      return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', timeframe));
+    return providerOwned(options.signal, readSupabase).then(function (own) {
+      requireProviderOwned(sym, own, 'equityCandles');
+      return providerCandleRows(sym[0], String(timeframe || ''), options.limit, options.signal);
+    });
+  };
+
+  function indicatorSnapshot (ticker, rows) {
+    var normalized = normalizedIndicatorRow(ticker, rows);
+    return {
+      ticker: ticker,
+      provider: 'FMP',
+      timeframe: '1day',
+      source_date: normalized.source_date,
+      session_state: normalized.session_state,
+      fetched_at: normalized.updated_ts,
+      rsi14: normalized.rsi_raw,
+      williams14: normalized.wpr_raw,
+      ema5: normalized.fan_ema5,
+      ema8: normalized.fan_ema8,
+      ema13: normalized.fan_ema13,
+      ema21: normalized.fan_ema21,
+      ema34: normalized.fan_ema34,
+      sma50: normalized.fan_sma50,
+      sma100: normalized.fan_sma100,
+      sma150: normalized.fan_sma150,
+      sma200: normalized.fan_sma200,
+      macd: null,
+      authority: 'FMP_PROVIDER_INDICATORS'
+    };
+  }
+
+  S.dailyIndicators = function (symbols, options) {
+    options = options || {};
+    var requested = normalizeSymbols(symbols);
+    return providerOwned(options.signal, readSupabase).then(function (own) {
+      requested = requested || Object.keys(own);
+      if (!requested.length)
+        throw S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', 'dailyIndicators');
+      if (symbols == null && (!Array.isArray(options.indicators) || !options.indicators.length))
+        throw transportError('full-universe dailyIndicators requires an explicit provider family list',
+          'provider_indicators_current', null);
+      requireProviderOwned(requested, own, 'dailyIndicators');
+      return providerIndicatorRows(requested, options.indicators || null, readSupabase).then(function (raw) {
+        var grouped = {};
+        raw.forEach(function (row) {
+          var ticker = String(row.ticker || '').toUpperCase();
+          (grouped[ticker] || (grouped[ticker] = [])).push(row);
+        });
+        return requested.map(function (ticker) {
+          S.clearAbsence(ticker, '1D');
+          return indicatorSnapshot(ticker, grouped[ticker] || []);
+        });
+      });
+    });
+  };
+
+  var N = window.SC_NON_EQUITY = {
+    authority: 'RETAINED_SUPABASE_NON_EQUITY',
+    quotes: function (symbols, options) {
+      options = options || {};
+      var requested = normalizeSymbols(symbols);
+      return providerOwned(options.signal, readSupabase).then(function (own) {
+        if (requested) {
+          var wrong = requested.filter(function (sym) { return own[sym]; });
+          if (wrong.length)
+            throw transportError('non-equity quote adapter refused provider symbols: ' + wrong.join(','),
+              'SC_NON_EQUITY.quotes', null);
+        }
+        var path = requested
+          ? 'live_quotes?select=ticker,price,change,chg_pct,volume,prev_close,updated_ts&ticker=in.(' + requested.join(',') + ')'
+          : 'live_quotes?select=ticker,price,change,chg_pct,volume,prev_close,updated_ts&limit=2000';
+        return readSupabase(path).then(function (rows) {
+          S.counts.passthrough_non_equity += requested ? requested.length : 1;
+          return (Array.isArray(rows) ? rows : []).filter(function (row) {
+            return !own[String(row && row.ticker || '').toUpperCase()];
+          });
+        });
+      });
+    },
+    geiger: function (symbols, options) {
+      options = options || {};
+      var requested = normalizeSymbols(symbols);
+      return providerOwned(options.signal, readSupabase).then(function (own) {
+        if (requested) {
+          var wrong = requested.filter(function (sym) { return own[sym]; });
+          if (wrong.length)
+            throw transportError('non-equity Geiger adapter refused provider symbols: ' + wrong.join(','),
+              'SC_NON_EQUITY.geiger', null);
+        }
+        var path = requested
+          ? 'composite_staged?select=ticker,tf,trend,momentum,composite,updated_ts&tf=eq.D&ticker=in.(' + requested.join(',') + ')'
+          : 'composite_staged?select=ticker,tf,trend,momentum,composite,updated_ts&tf=eq.D&limit=2000';
+        return readSupabase(path).then(function (rows) {
+          S.counts.passthrough_non_equity += requested ? requested.length : 1;
+          return (Array.isArray(rows) ? rows : []).filter(function (row) {
+            return !own[String(row && row.ticker || '').toUpperCase()];
+          });
+        });
+      });
+    },
+    candles: function (symbol, timeframe, options) {
+      options = options || {};
+      var requested = normalizeSymbols(symbol);
+      if (!requested || requested.length !== 1)
+        return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', timeframe));
+      var sym = requested[0];
+      return providerOwned(options.signal, readSupabase).then(function (own) {
+        if (own[sym])
+          throw transportError('non-equity candle adapter refused provider symbol: ' + sym,
+            'SC_NON_EQUITY.candles', null);
+        var limit = Math.min(Math.max(Number(options.limit) || 200, 1), 1000);
+        var path = 'ohlcv_history?select=ticker,timestamp,open,high,low,close,volume&ticker=eq.' +
+          encodeURIComponent(sym) + '&tf=eq.' + encodeURIComponent(String(timeframe || '')) +
+          '&order=timestamp.desc&limit=' + limit;
+        S.counts.passthrough_non_equity++;
+        return readSupabase(path);
+      });
+    }
+  };
+
+  S.marketQuotes = function (symbols, options) {
+    options = options || {};
+    var requested = normalizeSymbols(symbols);
+    return providerOwned(options.signal, readSupabase).then(function (own) {
+      var equities = requested ? requested.filter(function (sym) { return own[sym]; }) : Object.keys(own);
+      var nonEquities = requested ? requested.filter(function (sym) { return !own[sym]; }) : null;
+      return Promise.all([
+        providerQuoteRows(equities, options.signal),
+        nonEquities && !nonEquities.length ? Promise.resolve([]) : N.quotes(nonEquities, options)
+      ]).then(function (parts) { return parts[0].concat(parts[1]); });
+    });
+  };
+
+  S.marketGeiger = function (symbols, options) {
+    options = options || {};
+    var requested = normalizeSymbols(symbols);
+    return providerOwned(options.signal, readSupabase).then(function (own) {
+      var equities = requested ? requested.filter(function (sym) { return own[sym]; }) : Object.keys(own);
+      var nonEquities = requested ? requested.filter(function (sym) { return !own[sym]; }) : null;
+      var providerPart = equities.length
+        ? (options.detail && equities.length === 1 ? geigerDetail(equities[0], options.signal) : geiger(options.signal))
+          .then(function (map) { return geigerRows(equities, map); })
+        : Promise.resolve([]);
+      return Promise.all([
+        providerPart,
+        nonEquities && !nonEquities.length ? Promise.resolve([]) : N.geiger(nonEquities, options)
+      ]).then(function (parts) { return parts[0].concat(parts[1]); });
+    });
+  };
+
+  S.marketCandles = function (symbol, timeframe, options) {
+    options = options || {};
+    var requested = normalizeSymbols(symbol);
+    if (!requested || requested.length !== 1)
+      return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', timeframe));
+    var sym = requested[0];
+    return providerOwned(options.signal, readSupabase).then(function (own) {
+      return own[sym]
+        ? providerCandleRows(sym, String(timeframe || ''), options.limit, options.signal)
+        : N.candles(sym, timeframe, options);
+    });
   };
 })();

@@ -361,11 +361,9 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 <script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
@@ -489,7 +487,7 @@ const deckSb = (typeof supabase !== "undefined" && supabase.createClient)
    when the script does not load, the non-equity realtime lane is simply gone and ticks
    ride polling cadence only. That is a latency fact the wall states once, here — never a
    freshness claim, which #marketStatus owns (a heartbeat is cadence, not invalidation).
-   Equities never ride this channel either way: the shim refuses them below. */
+   Equities never ride this channel either way: the provider client refuses them below. */
 window.SC_REALTIME = deckSb
   ? { available: true, channel: "connecting", reason: "supabase-js loaded (vendored same-origin) — channel state follows below; non-equity passthrough only; equities are refused at the channel" }
   : { available: false, channel: "none", reason: "supabase-js (vendored same-origin) did not load — the realtime tick channel is absent; non-equity ticks ride polling only" };
@@ -523,10 +521,10 @@ const DECK_QUOTE_HEARTBEAT_MS = 10000;
    This was one 4.5s abort. Measured on the live provider, five read-only /quotes probes
    returned 200 with time-to-first-byte of 0.84s, 6.86s, 1.27s, 2.71s and 0.27s, so that abort
    killed a working read one time in five and reported the provider unreachable. Worse, the
-   shim now forwards this controller, so the deck's impatience reached all the way through and
+   provider client forwards this controller, so the deck's impatience reached all the way through and
    cancelled the provider read itself.
 
-   Two thresholds, matching the shim's: at SOFT the panes are told the data is late and the
+   Two thresholds, matching the provider client's: at SOFT the panes are told the data is late and the
    retry cadence continues, but the request keeps running and its answer is used if it lands.
    Only HARD cancels. */
 const DECK_QUOTE_SOFT_MS = 4500;
@@ -545,8 +543,8 @@ function deckQuoteFor(ticker) { return DECK_QUOTES.get(CLEAN(ticker)) || null; }
    there is none the symbol stays in the retrying lane where it belongs. */
 function deckAbsenceName(ticker) {
   try {
-    const shim = window.SC_PROVIDER_SHIM;
-    const named = shim && typeof shim.absenceFor === "function" ? shim.absenceFor(ticker) : null;
+    const provider = window.SC_PROVIDER;
+    const named = provider && typeof provider.absenceFor === "function" ? provider.absenceFor(ticker) : null;
     if (named) return String(named);
   } catch (_) {}
   return null;
@@ -596,12 +594,7 @@ async function fetchDeckQuotes(tickers, onSlow) {
   const soft = setTimeout(() => { if (typeof onSlow === "function") { try { onSlow(); } catch (_) {} } },
     DECK_QUOTE_SOFT_MS);
   try {
-    const query = "live_quotes?ticker=in.(" + tickers.map(encodeURIComponent).join(",") + ")&select=ticker,price,prev_close,updated_ts";
-    const response = await fetch(SB + "/rest/v1/" + query, {
-      headers:{ apikey:ANON, Authorization:"Bearer " + ANON }, signal:controller?.signal
-    });
-    if (!response.ok) throw new Error("live_quotes " + response.status);
-    return await response.json();
+    return await SC_PROVIDER.marketQuotes(tickers, { signal:controller?.signal });
   } finally { if (hard) clearTimeout(hard); clearTimeout(soft); }
 }
 async function refreshDeckQuotes() {
@@ -633,7 +626,7 @@ async function refreshDeckQuotes() {
       else {
         /* The request succeeded and this row was not in it. That is settled ONLY if something
            named it: the provider says NOT_OBSERVED_BY_STREAM for symbols it does not carry, and
-           the shim records that name. An unnamed omission is an unfinished answer - the read
+           the provider client records that name. An unnamed omission is an unfinished answer - the read
            may have been short, filtered or partial - and stays retryable rather than becoming
            a permanent "not observed". */
         DECK_QUOTES.delete(ticker);
@@ -669,22 +662,18 @@ function deckQuoteHeartbeat() {
 if (deckSb) deckSb.channel("station-deck-lq").on("postgres_changes", {
   event:"*", schema:"public", table:"live_quotes"
 }, (event) => {
-  /* REALTIME BYPASSED THE PROVIDER SHIM.
-     _provider/provider.js wraps fetch, but Supabase Realtime arrives over a WebSocket and never
-     calls fetch, so this handler wrote a raw live_quotes row straight into DECK_QUOTES for any
-     symbol - including provider-owned equities - while SC_PROVIDER_SHIM.legacy_equity_calls stayed
-     empty. The shim looked clean precisely because it could not see this path.
-     A provider-owned equity is now REFUSED here and keeps whatever the provider last supplied.
+  /* This is the retained non-equity Realtime lane. A provider-owned equity is REFUSED here and
+     keeps whatever SC_PROVIDER.marketQuotes last supplied.
      Crypto and every other non-equity pass through untouched, so their existing owner is
-     unchanged - this is provider routing, not a fallback. */
-  const shim = window.SC_PROVIDER_SHIM;
+     unchanged - this is explicit ownership routing, not a fallback. */
+  const provider = window.SC_PROVIDER;
   const sym = String((event.new && event.new.ticker) || "").toUpperCase();
-  if (shim && shim.isProviderOwned && shim.isProviderOwned(sym)) { shim.realtime_equity_refused++; return; }
+  if (provider && provider.isProviderOwned && provider.isProviderOwned(sym)) { provider.realtime_equity_refused++; return; }
   /* UNKNOWN OWNERSHIP IS NOT PERMISSION. Until /geiger has answered, this handler cannot tell
      a provider-owned equity from a non-equity, and writing on that uncertainty is how a legacy
      price reaches a provider-owned chart. Refuse, and let the next resolved read decide. */
-  if (shim && shim.ownershipKnown && !shim.ownershipKnown()) { shim.realtime_unknown_ownership_refused++; return; }
-  if (shim) shim.realtime_nonequity_passthrough++;
+  if (provider && provider.ownershipKnown && !provider.ownershipKnown()) { provider.realtime_unknown_ownership_refused++; return; }
+  if (provider) provider.realtime_nonequity_passthrough++;
   const selected = selectVisibleQuoteRows([event.new], visibleChartTickers());
   for (const [ticker, quote] of selected) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); fanoutDeckQuote(ticker); }
 }).subscribe(rtChannelStatus);
@@ -1933,7 +1922,7 @@ async function build() {
   await primeSceneState();
   if (SCENE === "live" && QS.get("c2") === "auto") {
     try {
-      const [fav, lq] = await Promise.all([pg("hub_favorites?select=ticker"), pg("live_quotes?select=ticker,chg_pct")]);
+      const [fav, lq] = await Promise.all([pg("hub_favorites?select=ticker"), SC_PROVIDER.equityQuotes()]);
       const set = new Set((fav || []).map((f) => f.ticker));
       const best = (lq || []).filter((q) => set.has(q.ticker) && q.chg_pct != null)
         .sort((a, b) => Math.abs(+b.chg_pct) - Math.abs(+a.chg_pct))[0];

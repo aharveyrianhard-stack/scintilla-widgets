@@ -42,8 +42,8 @@
 </head>
 <body>
 
-<h1>SCINTILLA Fundamentals — Supabase Source-of-Truth</h1>
-<div class="sub">Every number on this page is read live from Supabase (<span class="mono2" style="font-size:12px;">scintilla-live</span>) — FMP only ever fills that database now; this page never calls FMP directly. Universe: live from <span class="mono2" style="font-size:12px;">composite_staged</span> (~211 names), not a hardcoded list.</div>
+<h1>SCINTILLA Fundamentals — Provider Price + Research Database</h1>
+<div class="sub">Equity universe and current price come from the explicit provider-native client. Fundamentals, estimates, profiles, cohorts, events, and news remain named Supabase research relations. This page never calls FMP directly.</div>
 
 <div id="tickerBar" style="display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:14px; padding:14px 18px; background:var(--panel); border:1px solid var(--border); border-radius:12px;">
   <span style="font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; margin-right:2px;">Ticker <small style="text-transform:none;">(drives every section below, live from DB)</small>:</span>
@@ -54,7 +54,7 @@
   <div id="quickChips" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
   <span id="tickerStat" style="margin-left:auto; font-size:13.5px; color:var(--txt);"></span>
 </div>
-<div id="universeStatus" style="font-size:12px; color:var(--dim); margin:-8px 0 14px 2px;">Loading universe from composite_staged…</div>
+<div id="universeStatus" style="font-size:12px; color:var(--dim); margin:-8px 0 14px 2px;">Loading provider equity universe…</div>
 <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px;">
   <button id="auditBtn" onclick="runAudit()" style="background:var(--panel2); border:1px solid var(--border); color:var(--txt); border-radius:8px; padding:8px 16px; cursor:pointer; font-size:13px; font-weight:700;">🔍 Run Full Audit — sample tickers, every toggle, every slider extreme</button>
   <span style="font-size:12px; color:var(--dim);">A mechanical consistency check (like a balance sheet that must foot to zero) — not a screenshot, a real re-render + comparison against itself, catches wiring bugs and DB gaps automatically.</span>
@@ -78,7 +78,7 @@
   .fresh.missing{color:var(--red);}
 </style>
 
-<!-- PROVIDER AUTHORITY SHIM — see allocation-module. -->
+<!-- Explicit provider-native client — equity universe, Geiger and quotes are direct contracts. -->
 <script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
@@ -116,6 +116,7 @@ async function sb(path){
     throw e;
   } finally { if (hard) clearTimeout(hard); }
 }
+scBindProviderClient(sb);
 /* The words a failed error-array renders under: a timeout is not an HTTP status. */
 function sbFailWord(rows){
   if (rows && rows._sbTimeout) return 'no answer in ' + (SB_HARD_MS/1000) + 's';
@@ -156,7 +157,7 @@ let COHORT_TRUNCATED = false;
    repeatable. The full membership set is still loaded, and shown beside the peer set rather
    than discarded. See _cohorts/cohort-axis.js. */
 async function loadUniverse(){
-  const staged = await sb('composite_staged?select=ticker,composite,updated_ts&order=ticker.asc&limit=1000');
+  const staged = await SC_PROVIDER.equityGeiger();
   /* sb() answers a non-OK response with an error-TAGGED empty array rather than throwing, which
      is deliberate elsewhere on this page - a 400 must not read as "the table is empty". But a
      paged reader cannot tell that from the end of a table, so it is converted to a throw here,
@@ -174,7 +175,7 @@ async function loadUniverse(){
   UNIVERSE = staged.map(s=>({ticker:s.ticker, cohort:COHORT_MAP[s.ticker]||'UNCOHORTED',
                              cohorts:Array.from(COHORT_ALL.get(s.ticker)||[]), updated_ts:s.updated_ts}));
   const multi = UNIVERSE.filter(u=>u.cohorts.length>1).length;
-  document.getElementById('universeStatus').innerHTML = '✅ '+UNIVERSE.length+' tickers loaded live from <span class="mono2">composite_staged</span> · '+Object.keys(UNIVERSE.reduce((a,u)=>{a[u.cohort]=1;return a;},{})).length+' home cohorts (<span class="mono2">tickers.cohort</span>) over '+axis.rows.length+' memberships (<span class="mono2">ticker_cohorts</span>, fully paged)'+(multi?' · '+multi+' in more than one cohort':'')+(COHORT_TRUNCATED?' · <b>AXIS READ TRUNCATED</b>':'')+' · '+freshTag(UNIVERSE[0]&&UNIVERSE[0].updated_ts);
+  document.getElementById('universeStatus').innerHTML = '✅ '+UNIVERSE.length+' tickers loaded from <span class="mono2">provider /geiger</span> · '+Object.keys(UNIVERSE.reduce((a,u)=>{a[u.cohort]=1;return a;},{})).length+' home cohorts (<span class="mono2">tickers.cohort</span>) over '+axis.rows.length+' memberships (<span class="mono2">ticker_cohorts</span>, fully paged)'+(multi?' · '+multi+' in more than one cohort':'')+(COHORT_TRUNCATED?' · <b>AXIS READ TRUNCATED</b>':'')+' · '+freshTag(UNIVERSE[0]&&UNIVERSE[0].updated_ts);
   const quick=['NVDA','MU','AAPL','GOOGL','TSLA'];
   document.getElementById('quickChips').innerHTML = quick.filter(t=>UNIVERSE.find(u=>u.ticker===t)).map(t=>'<button class="tbtn" onclick="setTicker(\''+t+'\')">'+t+'</button>').join('');
   return UNIVERSE;
@@ -286,15 +287,8 @@ async function fetchCohortBundle(tickers){
 function fmtCap(v){ if(v==null) return '—'; return v>=1e12?'$'+(v/1e12).toFixed(2)+'T':'$'+(v/1e9).toFixed(0)+'B'; }
 
 /* THE CURRENT PRICE HAS ONE SOURCE, AND fundamentals.price IS NOT IT.
-   Loading the authority shim did not move this page's arithmetic: it never issued a quote read
-   at all, and took `fundamentals.price` as the current price for the comps table, the header and
-   the DCF upside. That column is a fundamentals snapshot with its own vintage - it is not a
-   quote, and using it as one is the same defect /analytics had, where a stale non-provider
-   number was printed under a heading that said provider.
-
-   This asks live_quotes, which the shim answers from the provider contract for a provider-owned
-   equity and passes through to its own owner otherwise. A symbol with no usable provider price
-   returns null and every consumer shows it as unavailable rather than substituting a number. */
+   SC_PROVIDER.equityQuotes() supplies the current price. A symbol with no usable provider price
+   returns null and every consumer shows it as unavailable rather than substituting a snapshot. */
 const QUOTE_CACHE = new Map();
 /* A quote is CURRENT for a while, not forever - and an absence must be allowed to recover.
    The first cut of this cache had no TTL: a symbol once recorded unpriced stayed unpriced for
@@ -324,7 +318,7 @@ async function providerQuotes(symbols){
   const want = symbols.filter(s=>s && !quoteEntryFresh(QUOTE_CACHE.get(s)));
   if(want.length){
     let rows = [], failed = false;
-    try { rows = await sb('live_quotes?select=ticker,price,prev_close,updated_ts&ticker=in.('+want.map(encodeURIComponent).join(',')+')'); }
+    try { rows = await SC_PROVIDER.equityQuotes(want); }
     catch(e){ failed = true; rows = []; }
     if(rows && rows._sbError){ failed = true; rows = []; }
     const byT = {};
@@ -509,7 +503,7 @@ function renderCohortInfo(sym){
   const allCohorts = Array.from(COHORT_ALL.get(sym)||[]);
   document.getElementById('cohortTitle').textContent = '2 · Defining the Peer Set — '+sym+' → '+(cohort||'no home cohort assigned')+' (tickers.cohort)';
   if(!cohort){
-    document.getElementById('cohortBody').innerHTML = gapBanner(sym+' has no home cohort', 'This ticker exists in composite_staged but tickers.cohort is empty for it — §1 comps above fell back to an "UNCOHORTED" bucket (itself, no peers). Needs a home-cohort assignment upstream; its other memberships are not substituted for one.');
+    document.getElementById('cohortBody').innerHTML = gapBanner(sym+' has no home cohort', 'This ticker exists in the provider universe but tickers.cohort is empty for it — §1 comps above fell back to an "UNCOHORTED" bucket (itself, no peers). Needs a home-cohort assignment upstream; its other memberships are not substituted for one.');
     return;
   }
   const members = UNIVERSE.filter(u=>u.cohort===cohort).map(u=>u.ticker);
@@ -1395,7 +1389,7 @@ window.addEventListener('DOMContentLoaded',async function(){
   calcERP();
   wireTickerSearch();
   /* A dead universe read must not stop the page from booting: with no catch here, a cold
-     provider outage (ownership unverifiable, so the shim fails composite reads closed) left
+     provider outage (ownership unverifiable, so the client fails composite reads closed) left
      every section at its initial HTML with no banner anywhere - a page-sized silence. The
      failure is painted where the universe status lives, and the ticker sections still load
      and show their own gaps honestly. */
@@ -1769,14 +1763,14 @@ async function renderNews(sym){
 <summary style="cursor:pointer; color:var(--accent); font-weight:700; font-size:15px; list-style:none;">▸ How this works — what's actually wired vs. still static (read me)</summary>
 <div style="margin-top:14px; font-size:14px; line-height:1.7; color:#c9d1d9;">
 
-<p style="font-size:14px; color:var(--gold); background:var(--panel2); border-left:3px solid var(--gold); padding:10px 14px; margin:10px 0;"><b>Move 1 (2026-07-24):</b> source of truth swapped from direct FMP pulls to <b>Supabase (wadinxqplrggagkvrdag)</b>, read client-side. FMP now only ever fills the DB (master's ingest lane) — this page reads it. Universe expanded from a hardcoded 10 tickers to the live ~211-name <span class="mono2">composite_staged</span> set. During build-out, two tables assumed empty from an earlier schema check (<span class="mono2">insider_trades</span>, <span class="mono2">company_profile</span>) turned out to have real data — master's ingest had caught up since. Corrected below; the running audit checker (§ top of page) is what caught the resulting rendering bugs before this went live.</p>
+<p style="font-size:14px; color:var(--gold); background:var(--panel2); border-left:3px solid var(--gold); padding:10px 14px; margin:10px 0;"><b>Move 1 (2026-07-24):</b> source of truth swapped from direct FMP pulls to <b>Supabase (wadinxqplrggagkvrdag)</b>, read client-side. FMP now only ever fills the DB (master's ingest lane) — this page reads it. Universe expanded from a hardcoded 10 tickers to the live ~211-name <span class="mono2">provider Geiger</span> set. During build-out, two tables assumed empty from an earlier schema check (<span class="mono2">insider_trades</span>, <span class="mono2">company_profile</span>) turned out to have real data — master's ingest had caught up since. Corrected below; the running audit checker (§ top of page) is what caught the resulting rendering bugs before this went live.</p>
 
 <p style="font-size:15px;"><b style="color:var(--gold);">🔌 DB-SOURCED — read live from Supabase on every ticker switch:</b></p>
 <table class="wraptable" style="margin:8px 0 18px;">
 <tr><th style="width:18%;">Where</th><th>What's DB-sourced</th></tr>
-<tr><td class="pur">Universe / ticker bar</td><td><span class="mono2">loadUniverse()</span> reads <span class="mono2">composite_staged</span> (~211 tickers) + <span class="mono2">ticker_cohorts</span> (membership-view rows) once on load, powering the searchable ticker box. Not the old hardcoded 10, not the near-empty <span class="mono2">tickers</span> table.</td></tr>
+<tr><td class="pur">Universe / ticker bar</td><td><span class="mono2">loadUniverse()</span> reads <span class="mono2">provider Geiger</span> (~211 tickers) + <span class="mono2">ticker_cohorts</span> (membership-view rows) once on load, powering the searchable ticker box. Not the old hardcoded 10, not the near-empty <span class="mono2">tickers</span> table.</td></tr>
 <tr><td class="pur">§1 Comps</td><td><span class="mono2">fetchCohortBundle()</span> pulls each ticker's real cohort (<span class="mono2">ticker_cohorts</span>) and up to 7 peers from that membership view, ranked by live market cap. Multiples (P/E, P/S, P/B, EV/EBITDA, D/E, margins) are computed fresh client-side from <span class="mono2">fundamentals</span> + TTM sums of <span class="mono2">fundamentals_history</span>/<span class="mono2">cashflow_history</span> + <span class="mono2">balance_history</span> — not trusted from <span class="mono2">ratios_history</span>'s pre-computed columns, since a direct check found that table's P/S diverging significantly from a freshly-computed figure (quarterly/TTM denominator mismatch suspected). Beta column reads live from <span class="mono2">company_profile.beta</span> — see gap note below for the ~16 tickers still missing it.</td></tr>
-<tr><td class="pur">Ticker switcher / DCF base</td><td><span class="mono2">buildBase(sym)</span> assembles <span class="mono2">BASE</span> from <span class="mono2">fundamentals</span>, <span class="mono2">balance_history</span>, <span class="mono2">cashflow_history</span>, <span class="mono2">company_profile</span> (beta), and <span class="mono2">live_quotes</span> for price. <span class="mono2">setTicker()</span> awaits this, then re-renders §1/§2/§2.7/§3/§4/§5 in sequence — same DCF math engine as before (CAPM/WACC/Gordon Growth), only the inputs are now live per-ticker DB reads instead of a 10-name hardcoded object.</td></tr>
+<tr><td class="pur">Ticker switcher / DCF base</td><td><span class="mono2">buildBase(sym)</span> assembles <span class="mono2">BASE</span> from <span class="mono2">fundamentals</span>, <span class="mono2">balance_history</span>, <span class="mono2">cashflow_history</span>, <span class="mono2">company_profile</span> (beta), and <span class="mono2">provider quote</span> for price. <span class="mono2">setTicker()</span> awaits this, then re-renders §1/§2/§2.7/§3/§4/§5 in sequence — same DCF math engine as before (CAPM/WACC/Gordon Growth), only the inputs are now live per-ticker DB reads instead of a 10-name hardcoded object.</td></tr>
 <tr><td class="pur">§2.7 Analyst coverage</td><td>Live pulls of <span class="mono2">analyst_ratings</span>, <span class="mono2">price_target_consensus</span>, and <span class="mono2">analyst_estimates</span> per ticker. NVDA's own annual <span class="mono2">analyst_estimates</span> rows (FY27–FY31) were checked against the previously hardcoded consensus path and match exactly, confirming this table is the right source. A consensus DCF path needs a full 5-year run of forward estimates to avoid a broken projection — tickers with 1-4 available years fall back to Fixed-rate, flagged. Publisher/outlet attribution (which analyst desk) has no DB equivalent — flagged, not fabricated.</td></tr>
 <tr><td class="pur">§3 DCF risk-free rate</td><td><span class="mono2">loadRiskFree()</span> reads <span class="mono2">treasury_rates.y10</span> — one macro rate shared across all tickers, replacing the old per-ticker hardcoded <span class="mono2">rf</span>.</td></tr>
 <tr><td class="pur">§4 Insider</td><td>Live query against <span class="mono2">insider_trades</span> per ticker — 33,256 real rows across the universe (corrected; this table was NOT actually empty). The buy/sell classifier, 30-day cluster-buy detector, and net-flow signal run on live rows for most tickers; a genuine per-ticker zero still shows an honest gap banner.</td></tr>
@@ -1796,7 +1790,7 @@ async function renderNews(sym){
 </table>
 
 <p style="font-size:15px;"><b>The math, for reference — unchanged by Move 1.</b> <span class="mono2">CoE = rᶠ + (β×MRP)</span> · <span class="mono2">WACC = (wₑ·CoE)+(w_d·k_d·(1−t))</span> · <span class="mono2">UFCF = EBIT(1−t)+D&amp;A−capex−ΔNWC</span> · <span class="mono2">TV = FCF₅(1+g)/(WACC−g)</span> · Fair value = (ΣPV(FCF)+PV(TV)−net debt)/shares. Only the data feeding these formulas moved from a hardcoded 10-name object to live per-ticker Supabase reads — the formulas themselves were not changed.</p>
-<p style="margin-top:8px;"><b>Sources.</b> Financials <span class="mono2">fundamentals + fundamentals_history + ratios_history + balance_history + cashflow_history</span> · estimates/ratings/targets <span class="mono2">analyst_estimates + analyst_ratings + price_target_consensus</span> · quote/DCF price <span class="mono2">live_quotes</span> · beta <span class="mono2">company_profile</span> · peer grouping <span class="mono2">ticker_cohorts</span> · universe <span class="mono2">composite_staged</span> · risk-free <span class="mono2">treasury_rates</span> · insider <span class="mono2">insider_trades</span> · COT <span class="mono2">cot_history</span> · earnings <span class="mono2">earnings_events + earnings_call_transcripts</span> · news <span class="mono2">news + news_sentiment</span>. Served from git → auto-deploy; durable URL survives hub deploys.</p>
+<p style="margin-top:8px;"><b>Sources.</b> Financials <span class="mono2">fundamentals + fundamentals_history + ratios_history + balance_history + cashflow_history</span> · estimates/ratings/targets <span class="mono2">analyst_estimates + analyst_ratings + price_target_consensus</span> · quote/DCF price <span class="mono2">provider quote</span> · beta <span class="mono2">company_profile</span> · peer grouping <span class="mono2">ticker_cohorts</span> · universe <span class="mono2">provider Geiger</span> · risk-free <span class="mono2">treasury_rates</span> · insider <span class="mono2">insider_trades</span> · COT <span class="mono2">cot_history</span> · earnings <span class="mono2">earnings_events + earnings_call_transcripts</span> · news <span class="mono2">news + news_sentiment</span>. Served from git → auto-deploy; durable URL survives hub deploys.</p>
 <p style="margin-top:8px; color:var(--dim);"><b>Real next steps, in order of value:</b> (1) once master ingests a congress-equivalent table, the page can pick it up with the same query pattern used everywhere else — the last genuinely unbuilt category, (2) feed §3.5 estimate-confidence into the reverse-DCF verdict strength, (3) backfill beta for the remaining ~16 tickers and full history for the ~50-ticker tail.</p>
 </div>
 </details>
@@ -1827,7 +1821,7 @@ async function runAudit(){
 
     checks++;
     if(!BASE){
-      issues.push('['+sym+'] buildBase() returned null — no fundamentals/live_quotes row for this ticker (page correctly shows a gap banner, but confirm this ticker should actually be missing).');
+      issues.push('['+sym+'] buildBase() returned null — no fundamentals/provider quote row for this ticker (page correctly shows a gap banner, but confirm this ticker should actually be missing).');
       continue;
     }
 
@@ -1835,7 +1829,7 @@ async function runAudit(){
     // DCF/header. This exact class of mismatch was the MU bug (192.11 vs 974.49) pre-Move-1.
     checks++;
     if(window.LASTPX!=null && BASE.price!=null && Math.abs(window.LASTPX-BASE.price)>0.02){
-      issues.push('['+sym+'] PRICE MISMATCH — comps/live_quotes price $'+window.LASTPX.toFixed(2)+' vs DCF/header price $'+BASE.price.toFixed(2)+'. These must be the same quote.');
+      issues.push('['+sym+'] PRICE MISMATCH — comps/provider quote price $'+window.LASTPX.toFixed(2)+' vs DCF/header price $'+BASE.price.toFixed(2)+'. These must be the same quote.');
     }
 
     // A2 — beta single source of truth: §1 comps fetches company_profile.beta independently from
