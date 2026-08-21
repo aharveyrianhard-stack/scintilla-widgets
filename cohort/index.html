@@ -13,9 +13,7 @@
      band, every member a dot, MEAN = glowing thumb, MEDIAN = notched tick,
      stats printed max/median/mean/min in house thick type. Fixed honest scale
      ±1 (clamped, values always printed).
-     DATA — DB reads only, never FMP, never recomputed:
-       ticker_cohorts (membership view) ×
-       composite_staged tf='D' (THE one Geiger) · scintilla-live.
+     DATA — ticker_cohorts membership × explicit provider Geiger; never recomputed.
      Params: ?c=CRYPTO (pin) · auto-rotate cohorts by default (?dwell=10) ·
        ?statorder=desc · ?bg=0 transparent · ?labels=0 · ?refresh=60 (15-600)
      Composability: bar → /heat?group=cohort&color=geiger · title → /compare.
@@ -75,15 +73,13 @@ a{ color:inherit; text-decoration:none; }
 </div>
 <div id="stage"><div class="empty">loading cohort…</div></div>
 <div id="stats" hidden></div>
-<div id="ft">composite_staged tf=D · the one geiger, never recomputed · ticker_cohorts (membership view) · scale ±1 clamped</div>
+<div id="ft">explicit provider Geiger · never recomputed · ticker_cohorts membership · scale ±1 clamped</div>
 <script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -135,7 +131,7 @@ async function pull() {
   /* THE FULL MEMBERSHIP SET, paged past the 1000-row cap - see _cohorts/cohort-axis.js. */
   const [axis, cs] = await Promise.all([
     SC_COHORT_AXIS.loadMemberships(pg),
-    pg("composite_staged?tf=eq.D&select=ticker,composite,updated_ts"),
+    SC_PROVIDER.equityGeiger(),
   ]);
   const comp = {}; let maxts = null;
   for (const r of (cs || [])) {

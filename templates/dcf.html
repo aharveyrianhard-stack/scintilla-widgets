@@ -56,7 +56,7 @@
 <body>
 
 <h1>Scintilla DCF V1.1 — DB-wired · Edge Score · Dispersion Score · 3-Stage Fade</h1>
-<div class="sub">Same ticker bar / slider structure as FMP_CAPABILITY_DEMO.html §3. Now leads with the actual projected financial statement (line by line, 5 years) before any valuation math — that projection is what everything downstream reads off. Then: (1) an Edge score (ours — not a licensed rating) that auto-sets a fade length, (2) a Dispersion score (ours) that auto-sets a margin-of-safety band, (3) the Stage II fade + Stage III perpetuity math — spot-checked against a published NVDA equity model's numbers to sanity-test the wiring, not copied from it. Comps, insider/congress trades, and the reverse-DCF solver stay in the fundamentals cockpit (scintillahub.ai/fundamentals) — not duplicated here. <b style="color:var(--gold)">V1.1 (2026-08-05, C7):</b> wired to the shared SCINTILLA DB — quote from <code>live_quotes</code>, revenue/mcap from <code>fundamentals</code>, beta/shares from <code>company_profile</code>, consensus revenue from <code>analyst_estimates</code>, risk-free from <code>treasury_rates</code> (10Y), and the FY baseline — net debt, D&amp;A%, capex%, ΔNWC% — from <code>balance_history</code>/<code>cashflow_history</code>/<code>fundamentals_history</code> (latest FY, ratios only from matching fiscal dates). Static Jul-24 numbers remain only as the flagged fallback baseline for non-price fields — the price is provider-or-disabled, never the snapshot. Never FMP from this page.</div>
+<div class="sub">The projected five-year financial statement drives every downstream valuation. Current equity price comes only from <code>SC_PROVIDER.equityQuotes</code>. Revenue and market cap come from <code>fundamentals</code>, beta and shares from <code>company_profile</code>, consensus revenue from <code>analyst_estimates</code>, risk-free from <code>treasury_rates</code>, and the FY baseline from the named balance/cash-flow/fundamentals history relations. Static baseline values remain visibly flagged for non-price fields only; the price is provider-or-disabled, never the snapshot.</div>
 
 <div id="tickerBar" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:20px; padding:14px 18px; background:var(--panel); border:1px solid var(--border); border-radius:12px;">
   <span style="font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; margin-right:2px;">Ticker:</span>
@@ -163,14 +163,14 @@
 </div>
 </section>
 
-<!-- PROVIDER AUTHORITY SHIM. This page overlays live_quotes prices onto a static baseline
-     with a bare fetch(), so the shim answers those reads from the provider contract. -->
+<!-- Explicit provider-native client. Current equity prices come from SC_PROVIDER.equityQuotes;
+     the static baseline can never become a price fallback. -->
 <script src="/_provider/provider.js"></script>
 <script>
 const DATA_ASOF = '2026-07-24 (FMP quote/DCF/treasury/ERP pull)';   // STATIC BASELINE vintage — DB overlay below supersedes what it can
 /* ===================== C7 DB WIRING (2026-08-05) =====================
    Live overlay from Supabase scintilla-live (anon read-only key — publishable). The page NEVER calls FMP.
-   DB-sourced per ticker: price (live_quotes) · revenue_ttm + market_cap (fundamentals) · beta + shares_out
+   Per ticker: price (SC_PROVIDER.equityQuotes) · revenue_ttm + market_cap (fundamentals) · beta + shares_out
    (company_profile; shares fallback = market_cap ÷ price) · consensus revenue path (analyst_estimates,
    annual, next 5 future fiscal years) · risk-free (treasury_rates.y10, uniform) · netDebt + D&A% + capex%
    + ΔNWC% (latest FY from balance_history / cashflow_history / fundamentals_history; a ratio is only
@@ -205,6 +205,7 @@ async function sbGet(path){
     throw e;
   } finally { if (hard) clearTimeout(hard); }
 }
+scBindProviderClient(sbGet);
 const SPINE={}, DB_SRC={};
 let RF_DB=null;
 function spineSet(k,ts,mode,note){ SPINE[k]={ts,mode,note}; }
@@ -274,7 +275,7 @@ async function refreshDB(){
   }).catch(e=>spineSet('treasury_rates',null,'FALLBACK','read failed — static rf '+DATA_ASOF)));
   for(const s of syms){
     // per-ticker limited fetches, run in parallel — PostgREST-cap-safe by construction
-    J.push(sbGet(`live_quotes?select=price,updated_ts&ticker=eq.${s}&limit=1`).then(r=>{
+    J.push(SC_PROVIDER.equityQuotes([s]).then(r=>{
       /* STATIC PRICES ARE HISTORY, NOT A FALLBACK.
          The 2026-07-24 baseline prices below are a snapshot. When the provider overlay missed a
          symbol, the page kept valuing that company against its July price and flagged it - and a
@@ -337,7 +338,7 @@ async function refreshDB(){
       TICKERS[s].shares=TICKERS[s]._mcap/TICKERS[s].price/1e9; (DB_SRC[s]=DB_SRC[s]||{}).shares='mcap/price';
     }
   }
-  spineSet('live_quotes',null,ok.price===syms.length?'LIVE':ok.price?'STALE':'FALLBACK',
+  spineSet('provider_quotes',null,ok.price===syms.length?'LIVE':ok.price?'STALE':'FALLBACK',
     ok.price+'/'+syms.length+' provider prices; the rest have no current price and their valuations are disabled');
   spineSet('fundamentals',null,ok.fund?'LIVE':'FALLBACK',ok.fund+'/'+syms.length+' revenue_ttm/mcap live');
   spineSet('company_profile',null,ok.prof?'LIVE':'FALLBACK',ok.prof+'/'+syms.length+' beta/shares live (MU broken-beta guard active)');
@@ -464,7 +465,7 @@ function setTicker(sym){
   document.getElementById('tickerStat').textContent = BASE.name+' · '+
     (BASE.price==null
       ? 'price unavailable — valuation disabled (static '+DATA_ASOF.slice(0,10)+' reference: $'+(BASE.priceStatic!=null?BASE.priceStatic.toFixed(2):'—')+')'
-      : '$'+BASE.price.toFixed(2)+' (provider via live_quotes '+freshTxt(_src.price)+')')+' · β '+BASE.beta.toFixed(2)+(_src.beta?' (db)':' (static)')+(_src.consensus?' · consensus: analyst_estimates':'');
+      : '$'+BASE.price.toFixed(2)+' (Massive provider quote '+freshTxt(_src.price)+')')+' · β '+BASE.beta.toFixed(2)+(_src.beta?' (db)':' (static)')+(_src.consensus?' · consensus: analyst_estimates':'');
   document.getElementById('dcfTitle').textContent = 'Fair value — 1-stage vs 3-stage · '+sym;
   render();
 }

@@ -8,15 +8,14 @@
      SCINTILLA WIDGET · CHART — standalone scene module (stage-1 extraction)
      Extracted from scintilla-hub index.html (SC_BUILD 2026-07-16T0330, repo main
      aafbc9b): scChart R18 native canvas renderer — scChartHTML/Draw/Load/Scrub/
-     Wire, DB-only fetchChartSeries (R30 — reads ohlcv_history via pg(), NEVER
-     FMP from the page), cache-first chart layer, R22 range ladder, in-app
-     TradingView modal (FIX 5 / R52) — all ported verbatim. Live last-point
-     patch (R22 FIX 8) rides supabase-js realtime on live_quotes, same as the
-     hub. The hub's R20 touch-guard overlay is dropped (a dedicated chart window
+     Wire, explicit provider-native fetchChartSeries, cache-first chart layer,
+     range ladder, and in-app TradingView modal. Completed provider bars are
+     immutable. The narrow Supabase Realtime lane is retained only for verified
+     non-equity symbols and refuses equities or unknown ownership. The hub's R20 touch-guard overlay is dropped (a dedicated chart window
      has no page scroll to trap — the one intentional trim, flagged here).
      Chrome addition (plumbing only): a ticker field in the range bar, since the
-     widget has no cohort board to click. PRICE BASIS: RAW DB prints
-     (ohlcv_history, unadjusted) + live_quotes ticks — the hub chart's basis.
+     widget has no cohort board to click. PRICE BASIS: provider-built completed
+     candles and provider quotes for equities; retained-owner ticks for non-equities.
      Params: ?t=MU · ?range=1D (15m 30m 1h 2h 3h 4h 6h 12h 1D 3D 1W)
        · ?bare=1 (pane mode — see the BARE note in the script)
        · ?tvrange=1D|5D|1M|3M|6M|YTD|12M|60M|ALL (TradingView opening window)
@@ -147,11 +146,9 @@ body.tvmodal-open{ overflow:hidden; }
 <script src="/_vendor/supabase-js-2.112.3-umd.min.js" integrity="sha384-qafw21c/iciq0VXsi9FzkfoQv5I/V0iqE4lSNcKXPnW9/UTJLnv5CcN4FHxVLnKg"></script>
 <script src="/_provider/provider.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -313,12 +310,12 @@ function isNamedAbsence(err) { return Boolean(err && typeof err.scAbsence === "s
 function chartAbsenceLabel(reason) {
   return String(reason || CHART_ABSENCE_NOT_OBSERVED).trim().replace(/_/g, " ").toLowerCase();
 }
-/* The name the shim recorded for this symbol, or null. Null means nothing has named it, which
+/* The name the provider client recorded for this symbol, or null. Null means nothing has named it, which
    is not the same as the stream having answered - see chartAbsenceReason below. */
 function chartNamedAbsenceFor(ticker, tf) {
   try {
-    const shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
-    const named = shim && typeof shim.absenceFor === "function" ? shim.absenceFor(ticker, tf) : null;
+    const provider = window.SC_PROVIDER || (window.parent && window.parent.SC_PROVIDER);
+    const named = provider && typeof provider.absenceFor === "function" ? provider.absenceFor(ticker, tf) : null;
     return named ? String(named) : null;
   } catch (_) { return null; }
 }
@@ -365,7 +362,7 @@ const chFmpSym = (t) => (cryptoSet.has(t) && !t.endsWith("USD") ? t + "USD" : t)
    badge. */
 /* A PRICE, OR NOTHING. `+null` and `+''` are both 0, so `isFinite(+quote.price)` called an
    absent price a valid $0.00 and every display guard below then painted it. The raw value
-   decides, exactly as it does in the provider shim. */
+   decides, exactly as it does in the provider client. */
 function quotePrice(quote) {
   const raw = quote && quote.price;
   if (raw == null || raw === "" || raw === true || raw === false) return null;
@@ -384,8 +381,8 @@ const CH_RANGE_MS = { "15m":900000, "30m":1800000, "1h":3600000, "2h":7200000, "
   "4h":14400000, "6h":21600000, "12h":43200000, "1D":86400000, "3D":259200000, "1W":604800000 };
 function chApplyLivePoint(t, pts, quote, range) {
   if (!quote || !Array.isArray(pts) || !pts.length || quotePrice(quote) == null) return pts;
-  var shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
-  if (shim && shim.isProviderOwned && shim.isProviderOwned(t)) return pts;   // equity: never touched
+  var provider = window.SC_PROVIDER || (window.parent && window.parent.SC_PROVIDER);
+  if (provider && provider.isProviderOwned && provider.isProviderOwned(t)) return pts;   // equity: never touched
   if (!futureSet.has(t) && !cryptoSet.has(t)) return pts;    // nobody else gets a transient point
   /* A transient point needs a real observation time to sit at. Without one there is nowhere
      honest to place it on the axis, so none is appended. */
@@ -522,6 +519,19 @@ function chartSeriesCached(t, range, limit) {
   }
   return null;
 }
+async function fetchProviderCandles(t, tf, limit, tries){
+  const attempts = tries == null ? 2 : Math.max(1, tries);
+  let last;
+  for (let attempt=0; attempt<attempts; attempt++) {
+    try { return await SC_PROVIDER.marketCandles(chFmpSym(t), tf, { limit }); }
+    catch (error) {
+      if (error && error.scAbsence) throw error;
+      last=error;
+      if (attempt+1<attempts) await new Promise(resolve=>setTimeout(resolve, 350*(attempt+1)));
+    }
+  }
+  throw last;
+}
 async function fetchChartSeries(t, range, requestedLimit){
   const key = t + "|" + range;
   const hit = chartCache.get(key);
@@ -534,7 +544,7 @@ async function fetchChartSeries(t, range, requestedLimit){
   const work = (async () => {
     /* One transient history read must recover inside this load attempt so a
        healthy chart never enters the delayed/retrying paint unnecessarily. */
-    const rows = await pg("ohlcv_history?ticker=eq." + encodeURIComponent(chFmpSym(t)) + "&tf=eq." + encodeURIComponent(e[0]) + "&select=timestamp,close&order=timestamp.desc&limit=" + limit, 2);
+    const rows = await fetchProviderCandles(t, e[0], limit, 2);
     let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
     pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
     /* CACHE THE PURE PROVIDER SERIES FIRST. The transient live point is applied to a COPY
@@ -542,7 +552,7 @@ async function fetchChartSeries(t, range, requestedLimit){
     pts = chartTail(pts, limit);
     /* SHORT IS NOT ABSENT; UNNAMED IS NOT ABSENT EITHER.
        The read succeeded. If something NAMED the emptiness - the provider's own per-symbol
-       state, recorded by the shim - that name is the answer and the pane states it and stops.
+       state, recorded by the provider client - that name is the answer and the pane states it and stops.
        If nothing named it, a short series is a partial or still-warming answer and stays
        retryable: one real bar is proof the stream observes this symbol, so inventing a
        terminal NOT_OBSERVED_BY_STREAM out of one point would retire a live symbol from the
@@ -1433,7 +1443,7 @@ function paintLiveStatus(host, quote) {
 async function pullPrevClose(t) {
   if (DECK_QUOTE_MODE) { requestDeckQuote(t); return; }
   try {
-    const rows = await pg("live_quotes?ticker=eq." + encodeURIComponent(t) + "&select=ticker,prev_close,price,updated_ts", 1);
+    const rows = await SC_PROVIDER.marketQuotes([t]);
     if (Array.isArray(rows) && rows[0]) {
       if (rows[0].prev_close != null) prevClose[t] = +rows[0].prev_close;
       if (rows[0].price != null) scChartLive(t, +rows[0].price, rows[0].updated_ts);
@@ -1457,18 +1467,19 @@ async function pullPrevClose(t) {
   }
 }
 
-/* realtime — live_quotes ticks patch the active chart (hub channel, verbatim shape) */
+/* Retained non-equity realtime only. Provider-owned equities are synchronously refused below;
+   their chart quote always comes from SC_PROVIDER.marketQuotes. */
 if (sb && !DECK_QUOTE_MODE) {
   sb.channel("lq").on("postgres_changes", { event: "*", schema: "public", table: "live_quotes" }, (p) => {
     /* SAME REALTIME BYPASS AS deck/index.html. Supabase Realtime does not go through fetch, so the
-       provider shim never saw this and a legacy price could patch a provider-owned chart. Refused
+       the provider client never sees Realtime WebSockets, so this handler independently refuses
        for provider-owned equities; non-equities keep their existing owner. */
-    const shim = window.SC_PROVIDER_SHIM || (window.parent && window.parent.SC_PROVIDER_SHIM);
+    const provider = window.SC_PROVIDER || (window.parent && window.parent.SC_PROVIDER);
     const sym = String((p.new && p.new.ticker) || "").toUpperCase();
-    if (shim && shim.isProviderOwned && shim.isProviderOwned(sym)) { shim.realtime_equity_refused++; return; }
+    if (provider && provider.isProviderOwned && provider.isProviderOwned(sym)) { provider.realtime_equity_refused++; return; }
     /* UNKNOWN OWNERSHIP IS NOT PERMISSION - see the same guard in deck/index.html. */
-    if (shim && shim.ownershipKnown && !shim.ownershipKnown()) { shim.realtime_unknown_ownership_refused++; return; }
-    if (shim) shim.realtime_nonequity_passthrough++;
+    if (provider && provider.ownershipKnown && !provider.ownershipKnown()) { provider.realtime_unknown_ownership_refused++; return; }
+    if (provider) provider.realtime_nonequity_passthrough++;
     if (p.new && p.new.ticker && p.new.price != null) scChartLive(String(p.new.ticker).toUpperCase(), +p.new.price, p.new.updated_ts);
   }).subscribe((status) => {
     /* The chart is a mounted shell — the deck paints the note; the state stays queryable

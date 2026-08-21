@@ -11,13 +11,13 @@
      reads across columns — green on change but red on RSI is the signal.
      TAP A TICKER and it highlights in EVERY column at once. That is the read.
      Columns (each header states exactly what "top" means, so no colour lies):
-       CHG %      top = biggest gain today      live_quotes.chg_pct
+       CHG %      top = biggest gain today      provider quote change_percent
        P/E        top = lowest P/E (cheapest)   ratios_history.pe, latest fiscal row
        MKT CAP    top = largest                 company_profile.market_cap
        RSI        top = highest RSI             raw FMP provider RSI(14)
        GEIGER     top = highest composite       accepted Massive-bar artifact (never recomputed here)
        SECTOR     top = best avg change today   company_profile.sector rolled up
-                                                 over live_quotes, cross-checked
+                                                 over provider quotes, cross-checked
                                                  against sector_perf_daily
      MISSING DATA IS GREY AND SAYS "no data" — never coloured, never invented.
      Coverage is printed in each column header (e.g. "162/213").
@@ -76,11 +76,9 @@ body.nobg{ background:transparent; }
 <div id="ft">provider quote + raw FMP RSI · geiger never recomputed · grey = no data for that metric, never coloured</div>
 <script src="/_provider/provider.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-  legacy-shaped composite_staged, ohlcv_history and board_rsi requests from accepted provider
-  sources. The network interceptor repoints them before any retired table is read. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -167,19 +165,20 @@ async function tick() {
      tickers it never saw. */
   const READ_FAILED = { failed: true };
   const tryPg = (path) => pg(path).catch(() => READ_FAILED);
+  const tryProvider = (promise) => promise.catch(() => READ_FAILED);
   const failed = (x) => x === READ_FAILED;
   const [lq, cp, rsi, ratios, comp, sperf] = await Promise.all([
-    tryPg("live_quotes?select=ticker,chg_pct"),
+    tryProvider(SC_PROVIDER.equityQuotes()),
     tryPg("company_profile?select=ticker,sector,market_cap,is_etf"),
-    tryPg("board_rsi?select=ticker,rsi_raw,source_date,session_state,updated_at"),
+    tryProvider(SC_PROVIDER.dailyIndicators(null, { indicators: ["rsi", "williams"] })),
     tryPg("ratios_history?select=ticker,pe,fiscal_date&order=fiscal_date.desc&limit=4000"),
-    tryPg("composite_staged?tf=eq.D&select=ticker,composite,updated_ts,tf_contributors,rungs"),
+    tryProvider(SC_PROVIDER.equityGeiger()),
     tryPg("sector_perf_daily?select=sector,average_change,date&order=date.desc&limit=60"),
   ]);
-  if (!Array.isArray(lq) || !lq.length) { el("cols").innerHTML = '<div class="empty">no universe — live_quotes unavailable</div>'; return; }
+  if (!Array.isArray(lq) || !lq.length) { el("cols").innerHTML = '<div class="empty">no universe — provider quotes unavailable</div>'; return; }
 
   const prof = {}; for (const r of (failed(cp) ? [] : cp || [])) prof[r.ticker] = r;
-  const R = {}; for (const r of (failed(rsi) ? [] : rsi || [])) R[r.ticker] = num(r.rsi_raw);
+  const R = {}; for (const r of (failed(rsi) ? [] : rsi || [])) R[r.ticker] = num(r.rsi14);
   const C = {}; for (const r of (failed(comp) ? [] : comp || [])) C[r.ticker] = num(r.composite);
   const rsiDates = [...new Set((failed(rsi) ? [] : rsi || []).map((r) => r.source_date).filter(Boolean))].sort();
   const rsiStates = [...new Set((failed(rsi) ? [] : rsi || []).map((r) => r.session_state).filter(Boolean))].sort();

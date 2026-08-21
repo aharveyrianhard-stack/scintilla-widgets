@@ -43,7 +43,7 @@ function quoteHarness(sbImpl) {
     QUOTE_CACHE: new Map(),
     QUOTE_TTL_MS: 60000,
     QUOTE_RETRY_MS: 15000,
-    sb: sbImpl,
+    SC_PROVIDER: { equityQuotes: sbImpl },
     encodeURIComponent,
   };
   bindings.usableNumber = fnFrom(page, "usableNumber", bindings);

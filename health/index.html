@@ -78,7 +78,7 @@ footer{ padding:20px 14px 0; color:var(--mute); font-size:9px; letter-spacing:.0
     what and what is waiting on you.<br><br>
     <b>Equity truth is not in this database.</b> Price, previous close and the Geiger are served by the
     provider contract and are asked of it directly above. <code>live_quotes</code>, <code>composite_staged</code>
-    and <code>ohlcv_history</code> are graded below <b>only as the non-equity lane</b>: the provider authority shim
+    and <code>ohlcv_history</code> are graded below <b>only as the retained non-equity lane</b>: the explicit provider client
     passes every symbol the provider does not own — crypto, futures, indices, rates — straight through to them, so a
     stale one is a real outage on real panes. What is gone is the claim that they are the board's price and the
     Geiger. A green row there says nothing about any equity.<br><br>
@@ -106,7 +106,7 @@ const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZ
 /* THE DATABASE PROBES GET THE SAME HARD CEILING AS THE PROVIDER ONES.
    The provider reads were bounded and the PostgREST reads were not, so this page promised
    that no stalled owner could hold a row — and then let any Supabase socket that opened and
-   said nothing hold its row at "checking…" forever. Same ceiling as the shim's: 20s, then
+   said nothing hold its row at "checking…" forever. Same ceiling as the provider client's: 20s, then
    the row says the source did not answer. A timeout is its own outcome, kept distinct from
    a transport failure, because "took too long" and "could not be reached" are different
    facts about an owner. */
@@ -303,10 +303,10 @@ async function runInternals() {
   } catch (e) { set("internals", 0, "bad", "", failureWord(e)); }
 }
 
-/* IDENTITY, NOT CARDINALITY — the rule the shim already holds ownership to, applied to the
+/* IDENTITY, NOT CARDINALITY — the rule the provider client already holds ownership to, applied to the
    row that reports it. This lane used to compare the provider's symbol COUNT to 365, and a
    count can only catch a swap by luck: drop AAPL, add TICK, and 365 is still 365. The lane
-   now reads the same canonical set the shim reads — active tickers whose type is NULL or not
+   now reads the same canonical set the provider client reads — active tickers whose type is NULL or not
    crypto/future/index/rate; the NULL branch is essential, 90 actives including AAPL carry no
    type — and compares MEMBERSHIP. The count against the recorded 365 stays on the row as a
    secondary fact; it no longer decides it. */
@@ -358,7 +358,7 @@ function universeAgreement(providerSymbolCount, canonical) {
    /quotes probes returned 200 with TTFB of 0.84s, 6.86s, 1.27s, 2.71s and 0.27s. On a page whose
    whole purpose is to report the truth about an owner, converting latency into an outage is the
    worst available answer. SOFT marks the lane slow and lets the read continue; only HARD, at the
-   same 20s ceiling the shim uses, may say the source did not answer. */
+   same 20s ceiling the provider client uses, may say the source did not answer. */
 const PROVIDER_HEALTH_SOFT_MS = 4500;
 const PROVIDER_HEALTH_HARD_MS = 20000;
 let PROVIDER_SLOW = false;

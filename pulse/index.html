@@ -6,12 +6,12 @@
 <title>SCINTILLA · pulse</title>
 <!-- ============================================================================
      SCINTILLA WIDGET · PULSE — market state at-a-glance strip (queue Q2).
-     One row, composable into any scene: cohort geiger posture (green vs red
-     count over composite_staged tf=D — THE one Geiger, no recomputation),
-     macro direction (hub MACRO_SET via live_quotes served chg_pct), and VIX
-     posture (live VIX from live_quotes + VIX/VIX3M term ratio from vix_term —
+     One row, composable into any scene: cohort Geiger posture (green vs red
+     count over explicit provider Geiger, no recomputation), macro direction
+     via the explicit mixed-market quote contract, and VIX posture from the
+     retained non-equity quote lane + VIX/VIX3M term ratio from vix_term —
      the term row wears an honest STALE badge when old; board P-14 tracks the
-     frozen feed, this page never hides it). DB reads ONLY via pg() — never FMP.
+     frozen feed, this page never hides it). No equity table alias is used.
      Params: ?sections=geiger,macro,vix (default all) · ?refresh=30 (10-300s)
      LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
      ============================================================================ -->
@@ -49,11 +49,9 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 <div id="strip"><div class="sec"><span class="empty">loading pulse…</span></div></div>
 <script src="/_provider/provider.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -91,11 +89,11 @@ const fmtPct = (c) => (c >= 0 ? "+" : "") + (+c).toFixed(2) + "%";
 /* ---- section builders ----
    A failed read is kept as READ_FAILED and worded as a failure (.dead, source named,
    retrying), never with the same words as an empty table (.empty). The old catch(() => null)
-   made "composite_staged died" and "composite_staged has no rows" the identical strip. */
+   made a failed Geiger read and an empty accepted result look identical. */
 const READ_FAILED = { failed: true };
 function secGeiger(comp) {
-  if (comp === READ_FAILED) return '<div class="sec"><span class="k">GEIGER</span><span class="dead">composite_staged did not answer — unavailable, not empty · retrying</span></div>';
-  if (!Array.isArray(comp) || !comp.length) return '<div class="sec"><span class="k">GEIGER</span><span class="empty">no composite_staged rows</span></div>';
+  if (comp === READ_FAILED) return '<div class="sec"><span class="k">GEIGER</span><span class="dead">provider /geiger did not answer — unavailable, not empty · retrying</span></div>';
+  if (!Array.isArray(comp) || !comp.length) return '<div class="sec"><span class="k">GEIGER</span><span class="empty">no provider Geiger rows</span></div>';
   let g = 0, r = 0, sum = 0, n = 0;
   for (const row of comp) { const v = num(row.composite); if (v == null || !isFinite(v)) continue; n++; sum += v; if (v > 0) g++; else if (v < 0) r++; }
   const net = g - r, avg = n ? sum / n : null;
@@ -107,11 +105,11 @@ function secGeiger(comp) {
     '</div>';
 }
 function secMacro(quotes) {
-  if (quotes === READ_FAILED) return '<div class="sec"><span class="k">MACRO</span><span class="dead">live_quotes did not answer — unavailable, not empty · retrying</span></div>';
+  if (quotes === READ_FAILED) return '<div class="sec"><span class="k">MACRO</span><span class="dead">retained non-equity quote lane did not answer — unavailable, not empty · retrying</span></div>';
   const m = {};
   for (const q of (quotes || [])) m[q.ticker] = q;
   const rows = MACRO_SET.map((t) => m[t]).filter(Boolean).filter((q) => num(q.chg_pct) != null);
-  if (!rows.length) return '<div class="sec"><span class="k">MACRO</span><span class="empty">no macro rows in live_quotes</span></div>';
+  if (!rows.length) return '<div class="sec"><span class="k">MACRO</span><span class="empty">no retained macro quote rows</span></div>';
   const up = rows.filter((q) => num(q.chg_pct) >= 0).length;
   const tone = up > rows.length / 2 ? "up" : up < rows.length / 2 ? "dn" : "neu";
   const spy = m["SPY"], qqq = m["QQQ"];
@@ -123,9 +121,9 @@ function secMacro(quotes) {
 }
 function secVix(vq, term) {
   if (vq === READ_FAILED && term === READ_FAILED)
-    return '<div class="sec"><span class="k">VIX</span><span class="dead">live_quotes and vix_term did not answer — unavailable, not empty · retrying</span></div>';
+    return '<div class="sec"><span class="k">VIX</span><span class="dead">retained non-equity quotes and vix_term did not answer — unavailable, not empty · retrying</span></div>';
   const parts = [];
-  if (vq === READ_FAILED) parts.push('<span class="dead">live_quotes did not answer · retrying</span>');
+  if (vq === READ_FAILED) parts.push('<span class="dead">retained non-equity quotes did not answer · retrying</span>');
   else if (vq && num(vq.price) != null) {
     const c = num(vq.chg_pct);
     /* VIX up = risk-off: tone the CHANGE inverted (rising vol = bear-red) */
@@ -155,8 +153,8 @@ function secVix(vq, term) {
 async function tick() {
   const wantG = SECTIONS.includes("geiger"), wantM = SECTIONS.includes("macro"), wantV = SECTIONS.includes("vix");
   const [comp, quotes, term] = await Promise.all([
-    wantG ? pg("composite_staged?tf=eq.D&select=composite").catch(() => READ_FAILED) : null,
-    (wantM || wantV) ? pg("live_quotes?ticker=in.(" + MACRO_SET.concat(["VIX"]).join(",") + ")&select=ticker,price,chg_pct").catch(() => READ_FAILED) : null,
+    wantG ? SC_PROVIDER.equityGeiger().catch(() => READ_FAILED) : null,
+    (wantM || wantV) ? SC_NON_EQUITY.quotes(MACRO_SET.concat(["VIX"])).catch(() => READ_FAILED) : null,
     wantV ? pg("vix_term?select=date,vix,vix3m,ratio&order=date.desc&limit=1").catch(() => READ_FAILED) : null,
   ]);
   const vq = quotes === READ_FAILED ? READ_FAILED

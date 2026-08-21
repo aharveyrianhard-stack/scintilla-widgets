@@ -92,7 +92,9 @@ test("the brief and the trace speak from the numbers the model actually used", (
 
 test("a failed quote read claims nothing — there are no cohort-feed prices to be 'in use'", () => {
   assert.match(allocation,
-    /'read failed — prices and day changes render unavailable; nothing is substituted'/);
+    /'provider read failed — prices and day changes render unavailable; nothing is substituted'/);
+  assert.match(allocation, /SC_PROVIDER\.marketQuotes\(\)/,
+    "the mixed equity/non-equity quote lane is explicit");
   assert.ok(!allocation.includes("cohort-feed prices in use"));
 });
 

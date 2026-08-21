@@ -8,9 +8,9 @@
      SCINTILLA WIDGET · TICKER TAPE — standalone scene module (stage-1 extraction)
      Extracted from scintilla-hub index.html (SC_BUILD 2026-07-16T0330, repo main
      aafbc9b): tokens :root, .sc-tape CSS (1.5/1.6 TickerTape FIX 2), MACRO_SET +
-     fetchTapeItems + tapeHTML + renderTapes ported verbatim. Data: DB reads ONLY
-     via pg() (live_quotes + composite_staged tf=D universe) — NEVER FMP from the
-     page. Price basis: live_quotes served prints (raw basis; chg_pct served by DB).
+     fetchTapeItems + tapeHTML + renderTapes ported verbatim. Equity price and
+     Geiger use explicit provider-native calls; no table-shaped equity alias and
+     no page-side FMP call exists here.
      Params: ?bands=macro,all (default both) · ?speed=45 (px/s)
      LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
      ============================================================================ -->
@@ -65,15 +65,13 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 </style>
 </head>
 <body>
-<div class="bands" id="bands"><div class="sc-tape"><b class="sc-tape__lbl">TAPE →</b><div class="sc-tape__win"><span class="sc-tape__track" style="padding-left:12px;color:var(--dim)">loading live_quotes…</span></div></div></div>
+<div class="bands" id="bands"><div class="sc-tape"><b class="sc-tape__lbl">TAPE →</b><div class="sc-tape__win"><span class="sc-tape__track" style="padding-left:12px;color:var(--dim)">loading provider tape…</span></div></div></div>
 <div class="sc-wstamp" id="wstamp">SCINTILLA · <b>TAPE</b> · DB</div>
 <script src="/_provider/provider.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -113,14 +111,14 @@ const QS = new URLSearchParams(location.search);
 const BANDS = String(QS.get("bands") || "macro,all").toLowerCase().split(",").map(s=>s.trim()).filter(Boolean);
 const SPEED = Math.max(10, Math.min(200, +(QS.get("speed") || 45)));   // px/s (hub constant = 45)
 
-/* ---- tape data — ported verbatim (live_quotes + composite_staged tf=D universe) ---- */
+/* ---- tape data — explicit provider quote and Geiger models ---- */
 const MACRO_SET = ["SPY","QQQ","IWM","SMH","GLD","TLT","NVDA","COIN"];
 async function fetchTapeItems() {
   const [quotes, comp] = await Promise.all([
-    pg("live_quotes?select=ticker,price,change,chg_pct"),   // FIX 2 — DB serves chg_pct
-    pg("composite_staged?select=ticker&tf=eq.D"),
+    SC_PROVIDER.equityQuotes(),
+    SC_PROVIDER.equityGeiger(),
   ]);
-  const inComp = new Set(comp.map((c) => c.ticker));   // FIX 1 — tape universe = composite_staged tf=D only
+  const inComp = new Set(comp.map((c) => c.ticker));   // exact provider Geiger universe only
   const all = quotes.filter((q) => q.price != null && inComp.has(q.ticker))
     /* `|| 0` turned an unknown day change into a REPORTED FLAT DAY: the tape printed
        "+0.00%" in the up colour for a symbol nobody had sent a change for, and the same

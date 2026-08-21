@@ -33,7 +33,7 @@
      universe up by sector and colours the sectors — the sector-cohort geiger).
      Missing metric = a grey hatched cell that says so. Never a fake colour.
 
-     REUSE, NOT REBUILD: the geiger value is composite_staged tf=D, the exact
+     REUSE, NOT REBUILD: the Geiger value is the explicit provider composite, the exact
      read /cohort and /compare use, never recomputed here. /ranks stays the
      static side-by-side reader; this is the same data in motion.
 
@@ -117,11 +117,9 @@ body.nobg{ background:transparent; }
 <div id="ft">cells travel to their new rank and bleed to their new colour · grey hatch = no data · provider quote + raw FMP RSI · Geiger never recomputed</div>
 <script src="/_provider/provider.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -338,24 +336,25 @@ async function pull() {
      which read failed instead of drawing a field of grey non-answers. */
   const READ_FAILED = { failed: true };
   const tryPg = (path) => pg(path).catch(() => READ_FAILED);
+  const tryProvider = (promise) => promise.catch(() => READ_FAILED);
   const failed = (x) => x === READ_FAILED;
   const [lq, cp, rsi, ratios, comp] = await Promise.all([
-    tryPg("live_quotes?select=ticker,chg_pct"),
+    tryProvider(SC_PROVIDER.equityQuotes()),
     tryPg("company_profile?select=ticker,sector,market_cap,is_etf"),
-    tryPg("board_rsi?select=ticker,rsi_raw"),
+    tryProvider(SC_PROVIDER.dailyIndicators(null, { indicators: ["rsi", "williams"] })),
     tryPg("ratios_history?select=ticker,pe,fiscal_date&order=fiscal_date.desc&limit=4000"),
-    tryPg("composite_staged?tf=eq.D&select=ticker,composite"),
+    tryProvider(SC_PROVIDER.equityGeiger()),
   ]);
   if (!Array.isArray(lq) || !lq.length) throw new Error("no universe");
   const prof = {}; for (const r of (failed(cp) ? [] : cp || [])) prof[r.ticker] = r;
-  const R = {}; for (const r of (failed(rsi) ? [] : rsi || [])) R[r.ticker] = num(r.rsi_raw);
+  const R = {}; for (const r of (failed(rsi) ? [] : rsi || [])) R[r.ticker] = num(r.rsi14);
   const C = {}; for (const r of (failed(comp) ? [] : comp || [])) C[r.ticker] = num(r.composite);
   const PE = {}; for (const r of (failed(ratios) ? [] : ratios || [])) if (!(r.ticker in PE) && num(r.pe) != null && num(r.pe) > 0) PE[r.ticker] = num(r.pe);
   const DOWN = {
     pe: failed(ratios) && "ratios_history",
     mcap: failed(cp) && "company_profile",
     rsi: failed(rsi) && "provider_indicators_current",
-    geiger: failed(comp) && "composite_staged",
+    geiger: failed(comp) && "provider /geiger",
     sector: failed(cp) && "company_profile",
   };
   const chg = {}; for (const q of lq) chg[q.ticker] = num(q.chg_pct);
@@ -427,7 +426,7 @@ async function pull() {
 (async function init() {
   chips();
   try { await pull(); el("stage").innerHTML = ""; layout(); }
-  catch (e) { el("stage").innerHTML = '<div class="empty">field unavailable — live_quotes did not answer</div>'; return; }
+  catch (e) { el("stage").innerHTML = '<div class="empty">field unavailable — provider quotes did not answer</div>'; return; }
   let rt = null;
   addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(layout, 180); });
   if (CYCLE) setInterval(() => { RANK = RANKS[(RANKS.findIndex((r) => r.k === RANK) + 1) % RANKS.length].k; chips(); layout(); }, CYCLE);

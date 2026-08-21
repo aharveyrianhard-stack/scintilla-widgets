@@ -3,7 +3,7 @@
    Three claims this page used to make that it could not back:
 
    IDENTITY. The universe row compared the provider's symbol COUNT to 365. A count catches
-   a swap only by luck: drop AAPL, add TICK, and 365 is still 365. The shim already holds
+   a swap only by luck: drop AAPL, add TICK, and 365 is still 365. The provider client already holds
    ownership to exact set membership against the canonical tickers; the row that REPORTS
    ownership now holds itself to the same rule, and fails closed to "unverified" when the
    canonical set cannot be read — count alone is not identity.
@@ -77,10 +77,10 @@ test("no canonical set means unverified, never agreement from a count", () => {
   assert.match(health, /idy\.state === "mismatch"[\s\S]{0,40}set\("equity", 2, "bad"/);
 });
 
-test("the canonical query is the shim's own, NULL branch included, and a full page is not a set", () => {
+test("the canonical query is the provider client's own, NULL branch included, and a full page is not a set", () => {
   const expected = "tickers?select=ticker&active=eq.true&or=(type.is.null,type.not.in.(crypto,future,index,rate))&order=ticker.asc&limit=1000";
   assert.ok(health.includes(expected), "/health asks the exact canonical question");
-  assert.ok(provider.includes(expected), "and it is the same question the shim asks");
+  assert.ok(provider.includes(expected), "and it is the same question the provider client asks");
   /* A read that fills the 1000-row page cap may be truncated; a possibly-partial canonical
      set must refuse to verify identity rather than verify against what arrived. */
   assert.match(health, /if \(!set\.length \|\| set\.length >= 1000\) return null;/);

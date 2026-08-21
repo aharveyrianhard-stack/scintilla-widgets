@@ -18,8 +18,10 @@ test("Station charts keep a cache-first, bounded, deduplicated recovery path", (
   assert.match(chart, /const chartInflight = new Map\(\);/);
   assert.match(chart, /if \(chartInflight\.has\(inflightKey\)\) return chartInflight\.get\(inflightKey\);/);
   assert.match(chart, /chartInflight\.delete\(inflightKey\)/);
-  assert.match(chart, /const rows = await pg\("ohlcv_history\?ticker=eq\."[\s\S]*?\+ limit, 2\);/,
+  assert.match(chart, /const rows = await fetchProviderCandles\(t, e\[0\], limit, 2\);/,
     "the first transient history failure is retried inside the same chart load");
+  assert.match(chart, /if \(error && error\.scAbsence\) throw error;/,
+    "a provider-named absence is terminal and is not retried as transport");
   assert.match(chart, /msg\.textContent = "data delayed · retrying"/);
   assert.match(chart, /retryChartLoad\(host, req, generation\)/);
   assert.match(chart, /A stale but usable chart is better than a black pane/);

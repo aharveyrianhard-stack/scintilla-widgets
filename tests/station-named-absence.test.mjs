@@ -146,10 +146,11 @@ test("only a NAMED omission is an absence; an unnamed one stays retryable", () =
   assert.match(chart, /reportChartDataState\(host, \{ quote:"absent", quoteAbsence:named \}\)/);
 });
 
-test("the provider shim names absences per symbol and timeframe and never invents a series", () => {
-  const window = { fetch: () => Promise.reject(new Error("no network in this test")) };
+test("the explicit provider client names absences per symbol and timeframe and never invents a series", () => {
+  const originalFetch = () => Promise.reject(new Error("no network in this test"));
+  const window = { fetch: originalFetch };
   vm.runInNewContext(provider, { window, Date, Promise, String, Object, Number, parseInt, isFinite, encodeURIComponent, JSON });
-  const S = window.SC_PROVIDER_SHIM;
+  const S = window.SC_PROVIDER;
 
   assert.equal(S.absenceFor("TICK", "D"), null, "nothing is named before anything is observed");
   S.noteAbsence("tick", "D", "NOT_OBSERVED_BY_STREAM");
@@ -179,13 +180,12 @@ test("the provider shim names absences per symbol and timeframe and never invent
   assert.equal(S.absenceFor("US10Y", "D"), "NOT_OBSERVED_BY_STREAM", "raising also records");
   assert.equal(S.absenceFor("US10Y"), null, "in its own lane only");
 
-  /* Over fetch(), the STREAM's absence is an empty successful read — not a rejected request,
-     which is what would send every caller back into a retry loop. But only the stream's:
-     TIMEFRAME_NOT_MAPPED and TICKER_FILTER_REQUIRED say this surface asked a question the
-     contract does not accept, and turning those into a clean 200 with no rows is how two
-     intraday datasets went blank while the page went on advertising them. */
-  assert.match(provider, /if \(err && err\.scAbsence === ABSENCE_NOT_OBSERVED\) return fakeResponse\(\[\]\);/);
-  assert.doesNotMatch(provider, /if \(err && err\.scAbsence\) return fakeResponse\(\[\]\);/);
+  /* The client must remain explicit: loading it cannot intercept or replace window.fetch,
+     and every product is exposed by name rather than through an obsolete table alias. */
+  assert.equal(window.fetch, originalFetch);
+  for (const name of ["equityQuotes", "equityGeiger", "equityCandles", "dailyIndicators"])
+    assert.equal(typeof S[name], "function", name);
+  assert.doesNotMatch(provider, /SC_PROVIDER_SHIM|fakeResponse|window\.fetch\s*=/);
   /* And nothing is ever substituted for the missing bars. */
   assert.doesNotMatch(provider, /legacy_fallback|fallbackSeries|synthesi[sz]e/i);
 });

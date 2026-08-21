@@ -108,11 +108,9 @@ body.rot #hud button{ display:inline-block; }
 </div>
 <script src="/_provider/provider.js"></script>
 <script>
-/* PROVIDER AUTHORITY SHIM — installed before this page issues any query. pg() is a hoisted
-   top-level declaration, so it is already bound here. The shim answers live_quotes,
-   composite_staged and ohlcv_history from the accepted provider APIs and passes
-   non-equities through to their existing owner. */
-try { scInstallProviderShim(); } catch (_) {}
+/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
+   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
 /* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
@@ -373,7 +371,7 @@ function scalePreviews() {
 }
 async function liveTint() {
   try {
-    const rows = await pg("composite_staged?tf=eq.D&select=composite", 1);
+    const rows = await SC_PROVIDER.equityGeiger();
     let g = 0, r = 0;
     for (const row of (rows || [])) { const v = +row.composite; if (v > 0) g++; else if (v < 0) r++; }
     const net = g - r, tone = net > 0 ? "#00FFA3" : net < 0 ? "#FF2D55" : "#868AAA";

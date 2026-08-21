@@ -606,11 +606,11 @@ test("the deck owns one deduplicated visible quote feed for embedded charts", ()
   ]);
   assert.match(deck, /const DECK_QUOTES = new Map\(\)/);
   assert.match(deck, /station-deck-lq/);
-  assert.match(deck, /live_quotes\?ticker=in\.\(/,
-    "one deck request fetches the deduplicated visible ticker set");
+  assert.match(deck, /SC_PROVIDER\.marketQuotes\(tickers, \{ signal:controller\?\.signal \}\)/,
+    "one explicit provider-client request fetches the deduplicated visible ticker set");
   /* One 4.5s abort was measured wrong: five live /quotes probes returned 200 with TTFB of
      0.84s, 6.86s, 1.27s, 2.71s and 0.27s, so it killed a working read one time in five — and
-     since the shim forwards this controller, the deck's impatience cancelled the provider read
+     since the client forwards this controller, the deck's impatience cancelled the provider read
      itself. SOFT tells the panes and keeps the request running; only HARD cancels. */
   assert.match(deck, /const DECK_QUOTE_SOFT_MS = 4500;/);
   assert.match(deck, /const DECK_QUOTE_HARD_MS = 20000;/);

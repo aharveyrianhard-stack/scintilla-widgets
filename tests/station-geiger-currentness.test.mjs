@@ -7,11 +7,13 @@ const provider = read('../_provider/provider.js')
 const geiger = read('../geiger/index.html')
 const ranks = read('../ranks/index.html')
 
-test('the compatibility adapter preserves every Geiger rung instead of flattening currentness', () => {
+test('the explicit Geiger client preserves every rung instead of flattening currentness', () => {
   assert.match(provider, /function geigerDetail/)
   assert.match(provider, /detail=1/)
-  assert.match(provider, /csT && csT\.length === 1 \? geigerDetail/)
-  assert.match(provider, /rungs: v\.rungs \|\| \{\}/)
+  assert.match(provider, /var detail = !!options\.detail && equities\.length === 1/)
+  assert.match(provider, /detail \? geigerDetail\(equities\[0\]/)
+  assert.match(provider, /rungs: value\.rungs \|\| \{\}/)
+  assert.match(geiger, /SC_PROVIDER\.equityGeiger\(\[t\], \{ detail:true \}\)/)
   assert.match(geiger, /geigerRungs: c\.rungs \|\| \{\}/)
   assert.match(geiger, /BAR AS-OF/)
   assert.match(geiger, /r\.availability === "ABSENT" \? "ABSENT"/)
