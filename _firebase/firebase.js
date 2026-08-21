@@ -72,13 +72,13 @@
   }
 
   var config = Object.freeze({
-    apiKey:            pick("apiKey",            ["NEXT_PUBLIC_FIREBASE_API_KEY",             "VITE_FIREBASE_API_KEY"],             "AIzaSyCbmC_MOiaZvXLKwhlce6dmLvmBDNu8NuM"),
+    apiKey:            pick("apiKey",            ["NEXT_PUBLIC_FIREBASE_API_KEY",             "VITE_FIREBASE_API_KEY"],             "AIzaSyChoC_ROiuZKLXuhl6csE6mLvmBDNu8N6M"),
     authDomain:        pick("authDomain",        ["NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",         "VITE_FIREBASE_AUTH_DOMAIN"],         "scintilla-834af.firebaseapp.com"),
     projectId:         pick("projectId",         ["NEXT_PUBLIC_FIREBASE_PROJECT_ID",          "VITE_FIREBASE_PROJECT_ID"],          "scintilla-834af"),
     storageBucket:     pick("storageBucket",     ["NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",      "VITE_FIREBASE_STORAGE_BUCKET"],      "scintilla-834af.firebasestorage.app"),
-    messagingSenderId: pick("messagingSenderId", ["NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "VITE_FIREBASE_MESSAGING_SENDER_ID"], "359165970927"),
-    appId:             pick("appId",             ["NEXT_PUBLIC_FIREBASE_APP_ID",              "VITE_FIREBASE_APP_ID"],              "1:359165970927:web:7ddda70f4f025a84767fa4"),
-    measurementId:     pick("measurementId",     ["NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID",      "VITE_FIREBASE_MEASUREMENT_ID"],      "G-5GMK1HVCYT"),
+    messagingSenderId: pick("messagingSenderId", ["NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID", "VITE_FIREBASE_MESSAGING_SENDER_ID"], "359855978927"),
+    appId:             pick("appId",             ["NEXT_PUBLIC_FIREBASE_APP_ID",              "VITE_FIREBASE_APP_ID"],              "1:359855978927:web:96dd6f70f4f025a847575a"),
+    measurementId:     pick("measurementId",     ["NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID",      "VITE_FIREBASE_MEASUREMENT_ID"],      "G-SGMX1HVCYT"),
   });
 
   /* ---- the app: initialised at most once, whoever asks and however often ---- */

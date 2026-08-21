@@ -2266,9 +2266,10 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/yt-lost-write.mjs` (route 
 Zero page errors in both scenarios. Rollback: revert the single commit carrying this unit — the change is client-render behavior only (no schema, no endpoint, no authority change).
 
 
+
 ---
 
-## 2026-08-21T03:38:32Z — the Firebase client initialises once, gates analytics, and names every absence
+## 2026-08-21T03:42:35Z — the Firebase client initialises once, gates analytics, and names every absence
 
 Command: `PW_MODULE_DIR=… node browser-proof/proofs/firebase-init.mjs` (harness page fulfilled at a same-origin path that is not a repository file; asserts inline)
 

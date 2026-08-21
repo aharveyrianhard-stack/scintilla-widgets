@@ -146,7 +146,7 @@ assert.equal(s3.state.version, "12.18.0");
 /* isSupported() is the real one here, so the honest outcome is asserted either way — but it
    must be a DECIDED outcome with a reason, never an unsettled or silent one. */
 if (s3.state.analytics) {
-  assert.match(s3.state.analyticsReason, /active for G-5GMK1HVCYT/);
+  assert.match(s3.state.analyticsReason, /active for G-SGMX1HVCYT/);
   /* Analytics genuinely reached for its tag — and the rig refused it, which is the proof
      that the lifecycle ran rather than being short-circuited by a missing measurement id. */
   const reached = unmatched.slice(before).filter((u) => /googletagmanager|google-analytics/.test(u));

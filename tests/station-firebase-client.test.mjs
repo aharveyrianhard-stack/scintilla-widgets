@@ -66,12 +66,12 @@ test("the module loads where `process` does not exist, and still resolves a conf
   const ctx = load({ firebase: stubFirebase() });
   assert.equal(typeof ctx.process, "undefined", "the context has no process — this is the browser's case");
   assert.equal(ctx.SC_FIREBASE.config.projectId, "scintilla-834af");
-  assert.equal(ctx.SC_FIREBASE.config.apiKey, "AIzaSyCbmC_MOiaZvXLKwhlce6dmLvmBDNu8NuM");
+  assert.equal(ctx.SC_FIREBASE.config.apiKey, "AIzaSyChoC_ROiuZKLXuhl6csE6mLvmBDNu8N6M");
   assert.equal(ctx.SC_FIREBASE.config.authDomain, "scintilla-834af.firebaseapp.com");
   assert.equal(ctx.SC_FIREBASE.config.storageBucket, "scintilla-834af.firebasestorage.app");
-  assert.equal(ctx.SC_FIREBASE.config.messagingSenderId, "359165970927");
-  assert.equal(ctx.SC_FIREBASE.config.appId, "1:359165970927:web:7ddda70f4f025a84767fa4");
-  assert.equal(ctx.SC_FIREBASE.config.measurementId, "G-5GMK1HVCYT");
+  assert.equal(ctx.SC_FIREBASE.config.messagingSenderId, "359855978927");
+  assert.equal(ctx.SC_FIREBASE.config.appId, "1:359855978927:web:96dd6f70f4f025a847575a");
+  assert.equal(ctx.SC_FIREBASE.config.measurementId, "G-SGMX1HVCYT");
 });
 
 /* The header explains at length why import.meta is avoided, so the check has to judge the CODE
@@ -96,7 +96,7 @@ test("a build-time env var wins over the built-in default when one actually exis
   });
   assert.equal(ctx.SC_FIREBASE.config.projectId, "from-next");
   assert.equal(ctx.SC_FIREBASE.config.apiKey, "from-vite", "either prefix is read, so a migration needs no rewrite");
-  assert.equal(ctx.SC_FIREBASE.config.appId, "1:359165970927:web:7ddda70f4f025a84767fa4",
+  assert.equal(ctx.SC_FIREBASE.config.appId, "1:359855978927:web:96dd6f70f4f025a847575a",
     "keys the env does not carry keep their default");
 });
 
@@ -107,14 +107,14 @@ test("the runtime override wins over everything, per key", () => {
     process: { env: { NEXT_PUBLIC_FIREBASE_PROJECT_ID: "from-next" } },
   });
   assert.equal(ctx.SC_FIREBASE.config.projectId, "override-project");
-  assert.equal(ctx.SC_FIREBASE.config.measurementId, "G-5GMK1HVCYT",
+  assert.equal(ctx.SC_FIREBASE.config.measurementId, "G-SGMX1HVCYT",
     "overriding one key does not oblige the caller to restate the other six");
 });
 
 test("an empty or absent override value does not blank the config", () => {
   const ctx = load({ firebase: stubFirebase(), __FIREBASE_CONFIG__: { projectId: "", apiKey: null } });
   assert.equal(ctx.SC_FIREBASE.config.projectId, "scintilla-834af");
-  assert.equal(ctx.SC_FIREBASE.config.apiKey, "AIzaSyCbmC_MOiaZvXLKwhlce6dmLvmBDNu8NuM");
+  assert.equal(ctx.SC_FIREBASE.config.apiKey, "AIzaSyChoC_ROiuZKLXuhl6csE6mLvmBDNu8N6M");
 });
 
 test("the app is initialised exactly once, however many times it is asked for", () => {
@@ -163,7 +163,7 @@ test("analytics starts only where the environment supports it", async () => {
   const state = await ctx.SC_FIREBASE.ready;
   assert.equal(state.app, true, "the app is up");
   assert.equal(state.analytics, true, "and analytics started");
-  assert.match(state.analyticsReason, /active for G-5GMK1HVCYT/);
+  assert.match(state.analyticsReason, /active for G-SGMX1HVCYT/);
 });
 
 test("an unsupported environment gets an app and no analytics, and says which", async () => {
