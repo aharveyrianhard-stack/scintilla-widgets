@@ -169,6 +169,9 @@ const served = discoverServed();
 const LOAD_BEARING = ["/_provider/provider.js", "/_cohorts/cohort-axis.js", "/deck/scenes.js",
   "/_vendor/supabase-js-2.112.3-umd.min.js",
   "/_vendor/lightweight-charts-4.1.3.standalone.production.js",
+  "/_vendor/firebase-app-12.18.0-compat.js",
+  "/_vendor/firebase-analytics-12.18.0-compat.js",
+  "/_firebase/firebase.js",
   "/station/manifest.json", "/station/icon.svg", "/station/icon.png", "/station/icon-512.png",
   "/station-ipad/icon.svg", "/station-ipad/icon.png", "/tokens.css"];
 const CLASSES = [
