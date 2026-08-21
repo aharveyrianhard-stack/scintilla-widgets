@@ -20,6 +20,15 @@ const storage = fs.readFileSync(
   "utf8"
 );
 
+/* Parse real GRANT statements rather than grepping the file. A loose
+   /grant[^;]*delete/ also matches the prose "No delete grant ...", so it can
+   fail on a comment while the SQL is correct — and pass while it is not. */
+function grantStatements(sql) {
+  return Array.from(sql.matchAll(/^[ \t]*grant\b[^;]*;/gim), (m) =>
+    m[0].replace(/\s+/g, " ")
+  );
+}
+
 const tableDefinition = migration.slice(
   migration.indexOf("create table if not exists media_ingest.media_transcripts_staging"),
   migration.indexOf("create index if not exists idx_transcripts_video_channel")
@@ -71,7 +80,11 @@ test("Staging is unreachable from the browser", () => {
 });
 
 test("Corrections are revisions, so nothing grants delete", () => {
-  assert.doesNotMatch(migration, /grant[^;]*\bdelete\b/i);
+  const grants = grantStatements(migration);
+  assert.ok(grants.length > 0, "the migration must grant something");
+  for (const grant of grants) {
+    assert.doesNotMatch(grant, /\bdelete\b/i, grant);
+  }
 });
 
 test("The staging row references the R2 object rather than duplicating it", () => {
@@ -151,4 +164,133 @@ test("The worker refuses production schemas and core tables at runtime", () => {
   }
   assert.match(storage, /class IsolationViolation\(RuntimeError\)/);
   assert.match(storage, /raise IsolationViolation\(/);
+});
+
+/* ---- the EGRESS side: what may leave the isolated layer for production ---- */
+
+const egress = fs.readFileSync(
+  new URL("../supabase/migrations/20260821140000_media_sentiment_scores.sql", import.meta.url),
+  "utf8"
+);
+
+const analytics = fs.readFileSync(
+  new URL("../_pipeline/youtube_transcripts/analytics.py", import.meta.url),
+  "utf8"
+);
+
+const egressTable = egress.slice(
+  egress.indexOf("create table if not exists public.media_sentiment_scores"),
+  egress.indexOf("comment on table public.media_sentiment_scores")
+);
+
+test("Production analytics has no column that could hold a transcript", () => {
+  for (const banned of ["full_transcript_text", "transcript", "segments", "raw_vtt", "body"]) {
+    assert.doesNotMatch(
+      egressTable,
+      new RegExp(`\\b${banned}\\b`, "i"),
+      `${banned} must not exist on the metrics table`
+    );
+  }
+  /* No unbounded text/varchar either — the widest is 64. */
+  assert.doesNotMatch(egressTable, /^\s*\w+\s+text\b/im, "no bare text column");
+  const widths = Array.from(egressTable.matchAll(/varchar\((\d+)\)/g), (m) => Number(m[1]));
+  assert.ok(widths.length > 0);
+  assert.ok(Math.max(...widths) <= 64, "no varchar wide enough for prose");
+});
+
+test("The no-prose rule is a database constraint, not a comment", () => {
+  assert.match(egressTable, /constraint media_sentiment_no_prose check \(/i);
+  assert.match(egress, /comment on constraint media_sentiment_no_prose/i);
+});
+
+test("Scores and weights are range-checked in the database", () => {
+  assert.match(egressTable, /sentiment_score numeric\(4,3\)[\s\S]*?check \(sentiment_score between -1 and 1\)/i);
+  assert.match(egressTable, /confidence numeric\(4,3\)[\s\S]*?check \(confidence between 0 and 1\)/i);
+  assert.match(egressTable, /engagement_weight[\s\S]*?check \(engagement_weight between 0 and 1\)/i);
+});
+
+test("Dashboards read the metrics; only the worker writes them", () => {
+  assert.match(egress, /enable row level security/i);
+  assert.match(egress, /grant select on table public\.media_sentiment_scores to anon, authenticated/i);
+  assert.match(egress, /grant select, insert, update on table public\.media_sentiment_scores to service_role/i);
+  const grants = grantStatements(egress);
+  assert.ok(grants.length > 0);
+  for (const grant of grants) {
+    assert.doesNotMatch(grant, /\bdelete\b/i, grant);
+    if (/\bto\b[^;]*\banon\b/i.test(grant)) {
+      for (const write of ["insert", "update", "truncate"]) {
+        assert.doesNotMatch(
+          grant, new RegExp(`\\b${write}\\b`, "i"),
+          `anon must not be granted ${write}: ${grant}`
+        );
+      }
+    }
+  }
+});
+
+test("The sentiment label vocabulary is identical in SQL and in Python", () => {
+  const sqlLabels = egressTable
+    .slice(egressTable.indexOf("sentiment_label in ("))
+    .match(/'[A-Z]+'/g)
+    .map((s) => s.replaceAll("'", ""));
+  const sentiment = fs.readFileSync(
+    new URL("../_pipeline/youtube_transcripts/sentiment.py", import.meta.url),
+    "utf8"
+  );
+  for (const label of sqlLabels) {
+    assert.match(
+      sentiment,
+      new RegExp(`"${label}"`),
+      `label_for() must be able to emit ${label}`
+    );
+  }
+  assert.deepEqual([...sqlLabels].sort(), ["BEARISH", "BULLISH", "NEUTRAL"]);
+});
+
+test("The worker enforces the same egress rule by allowlist", () => {
+  assert.match(analytics, /ALLOWED_COLUMNS = \(/);
+  assert.match(analytics, /MAX_SCALAR_CHARS = 64/);
+  assert.match(analytics, /class SanitizationError\(ValueError\)/);
+  /* Allowlist, not blacklist: an unknown column is refused outright. */
+  assert.match(analytics, /refusing columns not on the metric allowlist/);
+  for (const banned of ["full_transcript_text", "segments", "raw_vtt_storage_key"]) {
+    assert.doesNotMatch(
+      analytics.slice(
+        analytics.indexOf("ALLOWED_COLUMNS = ("),
+        analytics.indexOf("MAX_SCALAR_CHARS")
+      ),
+      new RegExp(banned),
+      `${banned} must not be writable to production analytics`
+    );
+  }
+});
+
+test("Every allowlisted column really exists on the metrics table", () => {
+  const allowlist = analytics
+    .slice(analytics.indexOf("ALLOWED_COLUMNS = ("), analytics.indexOf(")\n\n#: Long enough"))
+    .match(/"(\w+)"/g)
+    .map((s) => s.replaceAll('"', ""));
+  assert.ok(allowlist.length >= 10);
+  for (const column of allowlist) {
+    assert.match(
+      egressTable,
+      new RegExp(`\\b${column}\\b`),
+      `${column} is on the worker's allowlist but not in the table`
+    );
+  }
+});
+
+test("Ticker collisions with ordinary English are named, not discovered later", () => {
+  const entities = fs.readFileSync(
+    new URL("../_pipeline/youtube_transcripts/entities.py", import.meta.url),
+    "utf8"
+  );
+  const collisions = entities.slice(
+    entities.indexOf("COLLIDING_TICKERS = frozenset({"),
+    entities.indexOf("# Context that rescues")
+  );
+  /* All of these are really in public.tickers and are also English words. */
+  for (const symbol of ["LOW", "NOW", "BE", "SO", "PM", "DE", "MO", "ES", "AU", "CAT", "MA", "ED"]) {
+    assert.match(collisions, new RegExp(`"${symbol}"`), `${symbol} must be guarded`);
+  }
 });

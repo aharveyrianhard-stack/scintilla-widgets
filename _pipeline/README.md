@@ -5,15 +5,22 @@ the isolated staging schema; production analytics later stores only the scores
 derived from it.
 
 ```
-channel watch ──▶ videos.list ──▶ yt-dlp captions ──▶ VTT normalize
-                   (1 unit /50)     (no media)          (segments + full text)
-                                                             │
-                                     contract validate ◀─────┘
-                                             │
-                        ┌────────────────────┴────────────────────┐
-                        ▼                                         ▼
-              R2 scintilla-transcripts-cold          media_ingest.media_transcripts_staging
-                 raw/vtt/<ch>/<yy>/<mm>/<id>.vtt.gz     reference key + segments + metadata
+channel watch ─▶ videos.list ─▶ yt-dlp captions ─▶ VTT normalize
+                 (1 unit /50)    (no media)        (segments + full text)
+                                                          │
+                                  contract validate ◀─────┘
+                                          │
+                     ┌────────────────────┴────────────────────┐
+                     ▼                                         ▼
+           R2 scintilla-transcripts-cold      media_ingest.media_transcripts_staging
+              raw/vtt/<ch>/<yy>/<mm>/<id>.gz     key + segments + metadata
+                                                          │
+                                        ┌─────────────────┘  PENDING_ANALYSIS
+                                        ▼
+                    entities ─▶ score ─▶ engagement weight ─▶ aggregate
+                                        │
+                                        ▼  metrics only, by allowlist
+                              public.media_sentiment_scores
 ```
 
 ## Run it
@@ -83,6 +90,54 @@ allowance, a sweep is bounded by caption fetches, not by quota.
 `captions.download` is never used: it costs 200 units *and* requires channel
 ownership, which is the reason subtitles come from yt-dlp.
 
+## Sentiment: resolving entities is mostly *not* resolving them
+
+The live universe contains `LOW` (Lowe's), `NOW` (ServiceNow), `BE`, `SO`,
+`PM`, `DE`, `MO`, `ES`, `AU`, `CAT`, `MA`, `ED`, `FIX`, plus single letters
+`C D F O P T V`. Every one is a word a market commentator says constantly, so
+matching uppercase tokens against the universe mints holdings out of ordinary
+English — "the low of the day", "right now", "the PM session".
+
+Matches therefore carry a confidence tier and callers filter on it:
+
+| Tier | How | Trusted |
+| --- | --- | --- |
+| `CASHTAG` | `$MU` — unambiguous by construction | yes |
+| `ALIAS` | "Micron" — the form transcripts actually use | yes |
+| `SYMBOL` | bare `NVDA`, not on the collision list | yes |
+| `CORROBORATED` | `LOW` rescued by nearby "shares"/"earnings" | no |
+
+Two limits worth knowing. `public.tickers` **has no company-name column**, so
+aliases are injected and the default map is a small curated seed — name
+resolution is only as good as what you supply. And auto-captions are lowercase
+or sentence case, so casing is evidence, not proof.
+
+## Scoring
+
+`LexiconScorer` is the default: deterministic, offline, no API cost, and it
+handles the two things a bag-of-words gets wrong here — negation ("not strong"
+is not strong) and a domain that inverts ordinary polarity. `ClaudeScorer`
+sends segments in chunks under a JSON-schema output contract;
+`ClaudeBatchScorer` routes the same work through the Batches API at half price,
+which is the right shape for a backfill where latency is irrelevant.
+
+Both degrade to neutral-with-zero-confidence rather than dropping a segment, so
+a refusal or a short response cannot silently shorten a batch.
+
+## Egress: metrics leave, text does not
+
+`SanitizedMetricWriter` is the mirror of `StagingWriter`. Where that one
+refuses to write *into* production, this refuses to carry raw text *out*. It
+works by allowlist, not inspection: a column not in `ALLOWED_COLUMNS` cannot be
+written, any string over 64 characters is refused, and nested values are
+rejected outright. A transcript fails all three. The migration enforces the
+same rule from the other side — there is no text column on the metrics table at
+all, and a named `media_sentiment_no_prose` constraint caps every text width.
+
+Named `media_sentiment_scores`, not anything containing "analytics": the spine
+already carries a finding that *two things named analytics is its own defect*,
+and `public.news_sentiment` exists and is unrelated.
+
 ## Contract
 
 `contract.py` is the boundary. Field names and widths mirror the staging table
@@ -94,6 +149,9 @@ drift silently.
 
 ## Verified
 
-147 offline unit tests. The Data API path is live-verified. The yt-dlp path is
-covered by an injected fake: `www.youtube.com` is blocked by the egress proxy
-in CI, so it cannot be exercised live from there.
+243 offline unit tests. The Data API path is live-verified. The yt-dlp path is
+covered by an injected fake (`www.youtube.com` is blocked by the egress proxy
+in CI), and the Claude scoring path likewise — its tests assert the request
+shape (model, schema, no removed parameters, fallbacks) and the response
+handling (refusal checked before content, omitted indices, out-of-order batch
+results) against a fake client.
