@@ -915,8 +915,8 @@
               'SC_NON_EQUITY.quotes', null);
         }
         var path = requested
-          ? 'live_quotes?select=ticker,price,change,chg_pct,volume,prev_close,updated_ts&ticker=in.(' + requested.join(',') + ')'
-          : 'live_quotes?select=ticker,price,change,chg_pct,volume,prev_close,updated_ts&limit=2000';
+          ? 'live_quotes?select=ticker,price,change,chg_pct,prev_close,updated_ts&ticker=in.(' + requested.join(',') + ')'
+          : 'live_quotes?select=ticker,price,change,chg_pct,prev_close,updated_ts&limit=2000';
         return readSupabase(path).then(function (rows) {
           S.counts.passthrough_non_equity += requested ? requested.length : 1;
           return (Array.isArray(rows) ? rows : []).filter(function (row) {

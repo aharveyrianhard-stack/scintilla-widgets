@@ -195,6 +195,19 @@ test("the retained non-equity adapter rejects provider symbols", async () => {
     (error) => error?.scTransport === true && /refused provider symbol/.test(error.message));
 });
 
+test("the retained non-equity quote contract selects only columns present on live_quotes", async () => {
+  const map = symbols();
+  const reads = [];
+  const w = load(fixtureFetch(map), async (path) => {
+    reads.push(path);
+    return path.startsWith("tickers?") ? canonicalRows(map) : [];
+  });
+  assert.deepEqual(Array.from(await w.SC_NON_EQUITY.quotes(["VIX", "ADD"])), []);
+  assert.equal(reads.length, 2);
+  assert.match(reads[1], /^live_quotes\?select=ticker,price,change,chg_pct,prev_close,updated_ts&ticker=in\.\(VIX,ADD\)$/);
+  assert.doesNotMatch(reads[1], /(?:^|,)volume(?:,|&|$)/);
+});
+
 test("all sector spine timeframes are explicit provider tokens", () => {
   const sector = fs.readFileSync(new URL("../templates/sector-rotation.html", import.meta.url), "utf8");
   assert.match(sector, /\{view:'daily',tf:'D'/);
