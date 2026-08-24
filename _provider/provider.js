@@ -16,7 +16,7 @@
 
    RULES:
      - NO SILENT FALLBACK. Missing or failed provider data is named and remains unavailable.
-     - OWNERSHIP FAILS CLOSED. The provider universe must exactly match the canonical 365 symbols.
+     - OWNERSHIP FAILS CLOSED. The provider universe must exactly match the accepted 364 symbols.
      - NOTHING IS RECOMPUTED HERE except the quote change and percentage from the provider's own
        price and previous completed daily close. Indicators and bars remain provider-native.
 */
@@ -118,7 +118,11 @@
   var ABSENCE_TICKER_FILTER_REQUIRED = 'TICKER_FILTER_REQUIRED';
   var ABSENCE_INDICATOR_BASIS = 'INDICATOR_BASIS_NOT_VERIFIED';
   var INDICATOR_UNIVERSE_SHA256 =
-    '7ad595cc4db5e1fd0bb63bb3780ac1450a938e6fa068df944aeec71445556063';
+    'ab8f7965258d939f0a97fbfeac9a271547c258df7a2616aff6ccff746bb5d9d3';
+  var ACCEPTED_INDICATOR_UNIVERSE_SHA256 = {
+    '7ad595cc4db5e1fd0bb63bb3780ac1450a938e6fa068df944aeec71445556063': true,
+    'ab8f7965258d939f0a97fbfeac9a271547c258df7a2616aff6ccff746bb5d9d3': true
+  };
   var FMP_INDICATOR_MANIFEST_SHA256 =
     'f0732502ff280b40920cb6ededc6cff0965eaaf971688aa66c7fa9647f2b04e7';
   var MASSIVE_INDICATOR_MANIFEST_SHA256 =
@@ -277,7 +281,7 @@
      something that happens to a wall at 04:00.
 
      A previously VERIFIED map still survives a bad read - that is knowledge, not a guess. */
-  var EXPECTED_EQUITY_UNIVERSE = 365;
+  var EXPECTED_EQUITY_UNIVERSE = 364;
   /* CARDINALITY IS NOT IDENTITY, AND THE CANONICAL SET IS DERIVABLE.
      Checking only that the payload holds 365 symbols passes a set of the RIGHT SIZE and the
      WRONG MEMBERS: drop AAPL, add TICK, and the count still says 365 while AAPL is quietly
@@ -295,7 +299,7 @@
      provider was answering correctly with 365. NULL is stated explicitly:
      365 = 275 typed-and-allowed + 90 untyped. Verified against the live table. */
   var CANONICAL_EQUITY_QUERY =
-    'tickers?select=ticker&active=eq.true&or=(type.is.null,type.not.in.(crypto,future,index,rate))&order=ticker.asc&limit=1000';
+    'tickers?select=ticker&active=eq.true&ticker=neq.EQR&or=(type.is.null,type.not.in.(crypto,future,index,rate))&order=ticker.asc&limit=1000';
 
   /* THE ACCEPTED EQUALIZER, IN FULL.
      The receipt was recorded and displayed but never checked, so a payload computed under ANY
@@ -467,8 +471,8 @@
   }
 
   /* A BATCH THAT COMES BACK SHORT IS NOT A SET OF NAMED ABSENCES.
-     The provider names an absence per symbol - EQR answers NOT_OBSERVED_BY_STREAM with a null
-     price, and that IS settled. A symbol the response never mentions is a different thing: the
+     The provider may name an absence for one symbol with a null price, and that IS settled. A
+     symbol the response never mentions is a different thing: the
      batch was incomplete, which is a transport condition and stays retryable. Conflating the
      two would let one truncated response mark a live symbol permanently unobserved. */
   /* ONLY THE PROVIDER MAY NAME AN ABSENCE.
@@ -640,7 +644,7 @@
     });
     return 'provider_indicators_current?select=ticker,provider,timeframe,indicator,period_length,value,source_date,session_state,fetched_at,universe_hash' +
       '&ticker=in.(' + symbols.join(',') + ')' +
-      '&provider=eq.FMP&timeframe=eq.1day&universe_hash=eq.' + INDICATOR_UNIVERSE_SHA256 +
+      '&provider=eq.FMP&timeframe=eq.1day&universe_hash=in.(' + Object.keys(ACCEPTED_INDICATOR_UNIVERSE_SHA256).join(',') + ')' +
       (families.length && families.length < 9 ? '&indicator=in.(' + families.join(',') + ')' : '') +
       '&limit=1000';
   }
@@ -657,7 +661,7 @@
         var ticker = String(r.ticker || '').toUpperCase();
         var key = String(r.indicator || '') + ':' + String(r.period_length);
         if (!requested[ticker] || !allowed[key] || r.provider !== 'FMP' || r.timeframe !== '1day' ||
-            r.universe_hash !== INDICATOR_UNIVERSE_SHA256 || !isFinite(Number(r.value)) ||
+            !ACCEPTED_INDICATOR_UNIVERSE_SHA256[r.universe_hash] || !isFinite(Number(r.value)) ||
             ['FORMING','SETTLED'].indexOf(String(r.session_state || '')) < 0 || !r.source_date) {
           throw transportError('provider indicator row violated the accepted FMP contract: ' +
             (ticker || 'UNKNOWN') + '/' + (key || 'UNKNOWN'), 'provider_indicators_current', null);

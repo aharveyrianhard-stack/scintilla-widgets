@@ -279,7 +279,7 @@ test("history and quote keep their own absence reason", () => {
     location:{ origin:"x" }, Boolean });
 
   /* quote absent, then history goes ready: the quote's reason must survive. */
-  const a = { dataset:{ t:"EQR" } };
+  const a = { dataset:{ t:"NOQUOTE" } };
   report(a, { quote:"absent", quoteAbsence:"NOT_OBSERVED_BY_STREAM" });
   report(a, { history:"ready", historyAbsence:null });
   assert.equal(a._dataState.quoteAbsence, "NOT_OBSERVED_BY_STREAM",

@@ -78,7 +78,7 @@ test("no canonical set means unverified, never agreement from a count", () => {
 });
 
 test("the canonical query is the provider client's own, NULL branch included, and a full page is not a set", () => {
-  const expected = "tickers?select=ticker&active=eq.true&or=(type.is.null,type.not.in.(crypto,future,index,rate))&order=ticker.asc&limit=1000";
+  const expected = "tickers?select=ticker&active=eq.true&ticker=neq.EQR&or=(type.is.null,type.not.in.(crypto,future,index,rate))&order=ticker.asc&limit=1000";
   assert.ok(health.includes(expected), "/health asks the exact canonical question");
   assert.ok(provider.includes(expected), "and it is the same question the provider client asks");
   /* A read that fills the 1000-row page cap may be truncated; a possibly-partial canonical

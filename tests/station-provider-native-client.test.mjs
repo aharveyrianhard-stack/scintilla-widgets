@@ -11,7 +11,7 @@ const ANCHORS = ["AAPL", "MSFT", "NVDA", "MU", "AMZN", "GOOGL", "META", "TSLA"];
 function symbols(extra = []) {
   const out = {};
   for (const ticker of [...ANCHORS, ...extra]) out[ticker] = { composite:0.2, trend:0.3, momentum:0.1 };
-  for (let i = 0; Object.keys(out).length < 365; i += 1) out[`SYM${String(i).padStart(4, "0")}`] = { composite:0, trend:0, momentum:0 };
+  for (let i = 0; Object.keys(out).length < 364; i += 1) out[`SYM${String(i).padStart(4, "0")}`] = { composite:0, trend:0, momentum:0 };
   return out;
 }
 
@@ -132,7 +132,7 @@ test("HTTP failure is transport, never named absence or a database fallback", as
   assert.equal(w.SC_PROVIDER.absenceFor("AAPL"), null);
 });
 
-test("ownership is exact identity, not merely 365 names", async () => {
+test("ownership is exact identity, not merely 364 names", async () => {
   const map = symbols();
   const wrong = canonicalRows(map).filter((r) => r.ticker !== "AAPL");
   wrong.push({ ticker:"TICK" });
@@ -143,12 +143,12 @@ test("ownership is exact identity, not merely 365 names", async () => {
 });
 
 test("a provider-named quote absence stays named and returns no invented row", async () => {
-  const map = symbols(["EQR"]);
-  const w = load(fixtureFetch(map, { EQR:{ state:"NOT_OBSERVED_BY_STREAM", price:null } }),
+  const map = symbols(["NOQUOTE"]);
+  const w = load(fixtureFetch(map, { NOQUOTE:{ state:"NOT_OBSERVED_BY_STREAM", price:null } }),
     async () => canonicalRows(map));
-  const rows = await w.SC_PROVIDER.equityQuotes(["EQR"]);
+  const rows = await w.SC_PROVIDER.equityQuotes(["NOQUOTE"]);
   assert.deepEqual(Array.from(rows), []);
-  assert.equal(w.SC_PROVIDER.absenceFor("EQR"), "NOT_OBSERVED_BY_STREAM");
+  assert.equal(w.SC_PROVIDER.absenceFor("NOQUOTE"), "NOT_OBSERVED_BY_STREAM");
 });
 
 test("an unnamed or short quote payload is retryable transport failure", async () => {
