@@ -17,69 +17,71 @@ h1{font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--cy);
  margin:0 0 2px;font-weight:500}
 .sub{font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:var(--dimmer);
  margin:0 0 10px}
-.tabs{display:flex;gap:6px;margin:0 0 8px}
-.tabs button{flex:1}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.tabs button{flex:1 1 30%}
 button{appearance:none;background:#101620;color:var(--dim);border:1px solid var(--line);
- border-radius:7px;padding:10px 8px;font-family:var(--mono);font-size:10px;
- letter-spacing:.12em;cursor:pointer;min-height:42px}
+ border-radius:7px;padding:9px 6px;font-family:var(--mono);font-size:10px;
+ letter-spacing:.1em;cursor:pointer;min-height:40px}
 button:active{transform:translateY(1px)}
 button.on{background:#12222e;color:var(--cy);border-color:#1d4256}
-.exp{font-size:12px;color:var(--dim);margin:0 0 8px;min-height:48px}
+button.live{background:#13251c;color:var(--up);border-color:#1d4a34}
+.exp{font-size:12px;color:var(--dim);margin:0 0 8px;min-height:46px}
 .exp b{color:var(--txt);font-weight:600}
 .strip{display:none;position:relative;height:30px;margin:0 0 6px}
 .strip.show{display:block}
 .slab{position:absolute;left:0;top:-2px;font-family:var(--mono);font-size:8px;
  letter-spacing:.14em;color:var(--dimmer)}
-.chip{position:absolute;top:10px;height:20px;line-height:20px;padding:0 0;
+.chip{position:absolute;top:10px;height:20px;line-height:20px;
  text-align:center;font-family:var(--mono);font-size:9px;color:var(--dim);
  background:#0e141c;border:1px solid var(--line);border-radius:4px;
- transition:left .24s cubic-bezier(.34,.02,.2,1)}
+ transition:left .3s cubic-bezier(.34,.02,.2,1)}
 .chip.p{color:var(--cy);border-color:#1d4256;background:#0d1b24}
-.stage{flex:1 1 auto;position:relative;min-height:400px;background:var(--pan);
+.stage{flex:1 1 auto;position:relative;min-height:380px;background:var(--pan);
  border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
 .acts{display:flex;gap:6px;margin:10px 0 0}
 .acts button{flex:1}
-#replay{display:none}
-#replay.show{display:block}
 .foot{margin-top:10px;font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;
  color:var(--dimmer);line-height:1.8}
 </style></head><body>
 
 <h1>THE AVERAGE LADDER</h1>
-<div class="sub">PRICE AGAINST THE FAN OF MOVING AVERAGES · AAPL-SHAPED DUMMY TAPE · NOTHING LIVE</div>
+<div class="sub" id="sub">PRICE AGAINST THE FAN OF MOVING AVERAGES · AAPL-SHAPED DUMMY TAPE · NOTHING LIVE</div>
 
 <div class="tabs">
- <button id="tabL" class="on">LADDER</button>
+ <button id="tabN" class="on">THE BANDS</button>
+ <button id="tabL">LADDER</button>
  <button id="tabP">THE PIPE</button>
+ <button id="tabF">THE FALL</button>
  <button id="tabB">THE BRAID</button>
 </div>
 <div class="exp" id="exp"></div>
 
-<div class="strip show" id="strip"><span class="slab">STACKING · HIGHEST → LOWEST</span></div>
+<div class="strip" id="strip"><span class="slab">STACKING · HIGHEST → LOWEST</span></div>
 
 <div class="stage" id="stage"><canvas id="cv"></canvas></div>
 
 <div class="acts">
+ <button id="replay">REPLAY 130 DAYS</button>
  <button id="step1">SIMULATE A DAY</button>
- <button id="step10">RUN 10 DAYS</button>
+ <button id="play">PLAY NEW DAYS</button>
  <button id="reset">RESET TAPE</button>
- <button id="replay">REPLAY 60 DAYS</button>
 </div>
 
-<div class="foot">GREEN — AVERAGE SITS UNDER PRICE (FLOOR) · RED — SITS ABOVE (CEILING) · CYAN — PRICE, THE FIXED LINE<br>
-DUMMY TAPE, DRAWN FROM A SEED — EVERY VISIT OPENS ON THE SAME STATE · BUILT AS A DROP-IN FOR THE TREND · DAILY LADDER PANEL</div>
+<div class="foot">GREEN — AVERAGE UNDER PRICE (FLOOR) · RED — ABOVE (CEILING) · CYAN — PRICE, THE FIXED REFERENCE<br>
+DUMMY TAPE FROM A SEED — SAME STATE EVERY VISIT · REPLAY RUNS THE LAST 130 SESSIONS · BUILT TO REPLACE THE TREND · DAILY LADDER PANEL</div>
 
 <script>
 "use strict";
 /* ============================================================
-   THE AVERAGE LADDER — three expressions of one state.
-   LADDER  : now, price-centred, compressed scale, no dead space
-   PIPE    : Alan's metaphor — stand at today, look back down the tape
-   BRAID   : the pipe unrolled — price is the flat line
-   Motion follows the geiger-motion grammar: the baseline (price)
-   never moves; values settle before order reflows; a crossing of
-   the price line is the event and it snaps, never blends.
+   THE AVERAGE LADDER — five expressions of one object.
+   BANDS  : the nine rubber bands — stretch out, snap back, again
+   LADDER : now, in full detail, price-centred, no dead space
+   PIPE   : stand at today, look back down the tape
+   FALL   : the pipe stood upright — newest at top, time falls away
+   BRAID  : the pipe unrolled flat — price is the flat line
+   One fractional day-pointer PF drives every view, so playback is
+   CONTINUOUS — days blend into each other; nothing pops per step.
    ============================================================ */
 var S0=20260827, S=S0;
 function rnd(){S=(S*1103515245+12345)&0x7fffffff;return S/0x7fffffff}
@@ -95,21 +97,24 @@ var MAS=[
  {k:"s150",n:"SMA 150",p:150,ema:false,lane: 0.56},
  {k:"s200",n:"SMA 200",p:200,ema:false,lane: 0.78}
 ];
-var closes=[], ma={};      /* ma[k] = array parallel to closes */
+var closes=[], ma={}, widths=[];
+/* loadSeries(): the wiring point. Hand this page a real endpoint that
+   returns daily closes and everything downstream is unchanged. Until
+   then the tape is synthetic and says so on the page. */
 function makeTape(){
  S=S0; closes=[]; var p=254,i;
  for(i=0;i<340;i++){
   var drift=.00105, wob=Math.sin(i*.05)*.0009+Math.sin(i*.013+2)*.0011;
   p*=1+drift+wob+(rnd()-.5)*.008; closes.push(p);
  }
- /* shape the tail: a grind up, then a shallow pullback into the fan */
- var T=closes.length-1, base=closes[T-6];
+ var T0=closes.length-1, base=closes[T0-6];
  var rel=[1.010,1.014,1.009,1.004,1.0005,.9985];
- for(i=0;i<6;i++)closes[T-5+i]=base*rel[i];
- var f=311.78/closes[T];
+ for(i=0;i<6;i++)closes[T0-5+i]=base*rel[i];
+ var f=311.78/closes[T0];
  for(i=0;i<closes.length;i++)closes[i]*=f;
- MAS.forEach(function(m){ma[m.k]=[];});
- for(i=0;i<closes.length;i++)extendMAs(i);
+ MAS.forEach(function(m){ma[m.k]=[]});
+ widths=[];
+ for(i=0;i<closes.length;i++){extendMAs(i);widths.push(widthOf(i))}
 }
 function extendMAs(i){
  MAS.forEach(function(m){
@@ -124,40 +129,62 @@ function extendMAs(i){
  });
 }
 function dist(k,t){var v=ma[k][t];return v==null?null:(v-closes[t])/closes[t]}
-/* compressed scale: keeps the 0.1% knot and the -10% rung both readable */
-var CS=.004, CD=.13;
+function widthOf(t){
+ var mx=null,mn=null;
+ MAS.forEach(function(m){var d=dist(m.k,t);if(d==null)return;
+  if(mx==null||d>mx)mx=d;if(mn==null||d<mn)mn=d});
+ return (mx==null)?0:(mx-mn);
+}
+/* compressed scale — softened so tiny near-zero wiggles stop looking violent */
+var CS=.0055, CD=.13;
 function C(d){var v=Math.asinh(d/CS)/Math.asinh(CD/CS);return v>1?1:(v<-1?-1:v)}
 
-/* ---------- state ---------- */
-var T, view="L", Tview=null;          /* Tview: pipe replay pointer */
+/* ---------- the one clock: a fractional day pointer ---------- */
+var T, PF, view="N";
+var MODE="idle";           /* idle | step | replay | stream */
+var stepFrom=0, stepT0=0, STEP_MS=450;
+var REPLAY_SPAN=130, RE_DPS=3.4, ST_DPS=2.2;
+var loopWanted=false;      /* bands auto-replay loops until tapped off */
+var loopHold=0;
+
 var cv=document.getElementById("cv"), ctx=cv.getContext("2d");
 var stage=document.getElementById("stage");
-var DPR=Math.min(2,window.devicePixelRatio||1), W=0, H=0;
-var animA=1, animT0=0, ANIM=320, prevD=null, curD=null, dirty=true;
-var crossed={}, crossT0=0;            /* rails that crossed price on the last step */
+var DPR=Math.min(2,window.devicePixelRatio||1), W=0, H=0, dirty=true;
+var crossed={}, crossT0=0;
 
-function snapD(t){var o={};MAS.forEach(function(m){o[m.k]=dist(m.k,t)});return o}
 function fit(){
  var r=stage.getBoundingClientRect();
  var w=Math.round(r.width),h=Math.round(r.height);
  if(w<2||h<2)return false;
  if(w!==W||h!==H){W=w;H=h;cv.width=w*DPR;cv.height=h*DPR;dirty=true}
+ ctx.setTransform(DPR,0,0,DPR,0,0);
  return true;
 }
-function easeOut(x){return 1-Math.pow(1-x,3)}
+function easeIO(x){return x<.5?4*x*x*x:1-Math.pow(-2*x+2,3)/2}
 function lerp(a,b,x){return a+(b-a)*x}
-function dNow(k){                      /* animated distance for rail k */
- if(animA>=1||!prevD)return curD[k];
- var a=prevD[k],b=curD[k];
- if(a==null||b==null)return b;
- return lerp(a,b,easeOut(animA));
+/* value of a rail at fractional day f — the heart of the smoothness */
+function dAt(k,f){
+ var i=Math.floor(f), fr=f-i;
+ var a=dist(k,i), b=(i+1<=T)?dist(k,i+1):a;
+ if(a==null)return b; if(b==null)return a;
+ return lerp(a,b,fr);
+}
+function priceAt(f){
+ var i=Math.floor(f), fr=f-i;
+ var b=(i+1<=T)?closes[i+1]:closes[i];
+ return lerp(closes[i],b,fr);
+}
+function widthAt(f){
+ var i=Math.floor(f), fr=f-i;
+ var b=(i+1<=T)?widths[i+1]:widths[i];
+ return lerp(widths[i],b,fr);
 }
 function colFor(d){return d<0?"#2bff9b":"#ff2f55"}
 var MONO="ui-monospace,Menlo,monospace";
+function now(){return performance.now()}
 
-/* ---------- label collision: rails stay true, labels give way ---------- */
+/* ---------- label collision ---------- */
 function resolve(items,lockY,minGap,top,bot){
- /* items: [{y}] sorted by y. lockY: immovable band centre or null. */
  items.sort(function(a,b){return a.y-b.y});
  var i,it,n=items.length;
  for(var pass=0;pass<40;pass++){
@@ -173,53 +200,122 @@ function resolve(items,lockY,minGap,top,bot){
  }
 }
 
-/* ---------- LADDER ---------- */
-function drawLadder(){
- var cy=H*.5, H2=H*.43, x0=W*.32, x1=W*.68;
+/* ---------- THE BANDS — the rubber bands ---------- */
+function tensionWord(f){
+ var w=widthAt(f), lo=Math.max(0,Math.floor(f)-REPLAY_SPAN), n=0, below=0;
+ for(var t=lo;t<=Math.floor(f);t++){n++;if(widths[t]<=w)below++}
+ var pct=n?below/n:.5;
+ var slope=w-widthAt(Math.max(lo,f-4));
+ if(slope>w*.045)return"STRETCHING OUT";
+ if(slope<-w*.045)return"SNAPPING BACK";
+ if(pct>=.7)return"STRETCHED WIDE";
+ if(pct<=.3)return"COILED TIGHT";
+ return"BREATHING";
+}
+function drawBands(f){
  ctx.clearRect(0,0,W,H);
- /* price line — the one fixed thing on screen */
- var pulse=Math.max(0,1-(now()-crossT0)/500);
+ var cy=H*.47, H2=H*.36, x0=W*.10, x1=W*.80;
+ /* price — the anchor the bands snap back to */
+ ctx.strokeStyle="rgba(63,208,255,.85)";ctx.lineWidth=1.5;
+ ctx.beginPath();ctx.moveTo(8,cy+.5);ctx.lineTo(W-8,cy+.5);ctx.stroke();
+ var i,m,d,labs=[];
+ for(i=0;i<MAS.length;i++){m=MAS[i];d=dAt(m.k,f);if(d==null)continue;
+  var y=cy-C(d)*H2, col=colFor(d);
+  ctx.strokeStyle=col;ctx.lineCap="round";
+  ctx.shadowColor=col;ctx.shadowBlur=7;
+  ctx.globalAlpha=m.ema?.92:.6;ctx.lineWidth=m.ema?4:5;
+  ctx.beginPath();ctx.moveTo(x0,y);ctx.lineTo(x1,y);ctx.stroke();
+  ctx.shadowBlur=0;ctx.globalAlpha=1;
+  labs.push({m:m,y:y});
+ }
+ resolve(labs,null,11,8,H-44);
+ ctx.font="500 9px "+MONO;ctx.textAlign="left";ctx.textBaseline="middle";
+ ctx.fillStyle="#8d97a6";
+ for(i=0;i<labs.length;i++)ctx.fillText(String(labs[i].m.p),x1+8,labs[i].y);
+ /* price tag — top left, clear of the bands */
+ ctx.font="600 11px "+MONO;ctx.textAlign="left";ctx.textBaseline="middle";
+ ctx.fillStyle="#3fd0ff";ctx.fillText("$"+priceAt(f).toFixed(2),10,36);
+ /* tension read */
+ var wv=widthAt(f);
+ ctx.textAlign="right";ctx.font="600 12px "+MONO;ctx.fillStyle="#c9d2dd";
+ ctx.fillText(tensionWord(f),W-10,20);
+ ctx.font="500 9px "+MONO;ctx.fillStyle="#5d6877";
+ ctx.fillText("FAN WIDTH "+(wv*100).toFixed(1)+"%",W-10,34);
+ /* the width history — the stretch/release cycles, visible */
+ var sy=H-34, sh=22, sx0=10, sx1=W-10, lo=Math.max(0,T-REPLAY_SPAN);
+ var mxw=0; for(var t=lo;t<=T;t++)if(widths[t]>mxw)mxw=widths[t];
+ ctx.strokeStyle="rgba(93,104,119,.85)";ctx.lineWidth=1.2;ctx.beginPath();
+ for(t=lo;t<=T;t++){
+  var xx=sx0+(t-lo)/(T-lo)*(sx1-sx0), yy=sy+sh-(mxw?widths[t]/mxw:0)*sh;
+  if(t===lo)ctx.moveTo(xx,yy);else ctx.lineTo(xx,yy);
+ }
+ ctx.stroke();
+ var fx=sx0+(Math.min(f,T)-lo)/(T-lo)*(sx1-sx0);
+ ctx.fillStyle="#3fd0ff";ctx.beginPath();
+ ctx.arc(fx,sy+sh-(mxw?widthAt(f)/mxw:0)*sh,2.6,0,6.2832);ctx.fill();
+ ctx.font="500 8px "+MONO;ctx.textAlign="left";ctx.fillStyle="#3c4551";
+ ctx.fillText("FAN WIDTH, LAST "+REPLAY_SPAN+" SESSIONS — EVERY STRETCH AND EVERY SNAP-BACK",sx0,sy-5);
+ dateStamp(f);
+}
+function dateStamp(f){
+ ctx.font="500 9px "+MONO;ctx.textAlign="left";ctx.textBaseline="middle";
+ var back=T-f;
+ if(MODE==="stream"){ctx.fillStyle="#2bff9b";ctx.fillText("FLOWING — SIMULATING NEW SESSIONS",10,20);return}
+ ctx.fillStyle=back>.6?"#d9a441":"#3c4551";
+ ctx.fillText(back>.6?("REPLAY · "+Math.round(back)+" SESSIONS BACK"):"TODAY",10,20);
+}
+
+/* ---------- LADDER ---------- */
+function drawLadder(f){
+ var cy=H*.5, H2=H*.43, x0=W*.32, x1=W*.68, moving=MODE==="replay"||MODE==="stream";
+ ctx.clearRect(0,0,W,H);
+ var pulse=Math.max(0,1-(now()-crossT0)/450);
  ctx.strokeStyle="rgba(63,208,255,"+(.75+.25*pulse)+")";ctx.lineWidth=1.5;
  ctx.beginPath();ctx.moveTo(10,cy+.5);ctx.lineTo(W-10,cy+.5);ctx.stroke();
  var items=[],i,m,d;
- for(i=0;i<MAS.length;i++){m=MAS[i];d=dNow(m.k);if(d==null)continue;
+ for(i=0;i<MAS.length;i++){m=MAS[i];d=dAt(m.k,f);if(d==null)continue;
   items.push({m:m,d:d,ry:cy-C(d)*H2,y:cy-C(d)*H2})}
- /* rails at true position */
  for(i=0;i<items.length;i++){var it=items[i];
-  var flash=crossed[it.m.k]?Math.max(0,1-(now()-crossT0)/700):0;
+  var flash=crossed[it.m.k]?Math.max(0,1-(now()-crossT0)/450):0;
   ctx.strokeStyle=colFor(it.d);ctx.globalAlpha=(it.m.ema?.95:.6)+.4*flash;
   ctx.lineWidth=it.m.ema?2:2.5;
   ctx.beginPath();ctx.moveTo(x0,it.ry+.5);ctx.lineTo(x1,it.ry+.5);ctx.stroke();
   ctx.globalAlpha=1}
- /* labels, collision-resolved in the gutters */
- resolve(items,cy,15,12,H-12);
  ctx.textBaseline="middle";
- for(i=0;i<items.length;i++){var it2=items[i],m2=it2.m;
-  if(Math.abs(it2.y-it2.ry)>3){
-   ctx.strokeStyle="rgba(93,104,119,.35)";ctx.lineWidth=1;
-   ctx.beginPath();ctx.moveTo(x0-4,it2.ry);ctx.lineTo(x0-10,it2.y);ctx.stroke();
-   ctx.beginPath();ctx.moveTo(x1+4,it2.ry);ctx.lineTo(x1+10,it2.y);ctx.stroke();
+ if(moving){
+  /* while the tape flows, only the identities ride along — no number churn */
+  var labs2=items.map(function(it){return{m:it.m,y:it.ry}});
+  resolve(labs2,null,11,10,H-12);
+  ctx.font="500 9px "+MONO;ctx.textAlign="left";ctx.fillStyle="#8d97a6";
+  for(i=0;i<labs2.length;i++)ctx.fillText(String(labs2[i].m.p),x1+10,labs2[i].y);
+ }else{
+  resolve(items,cy,15,12,H-12);
+  for(i=0;i<items.length;i++){var it2=items[i],m2=it2.m;
+   if(Math.abs(it2.y-it2.ry)>3){
+    ctx.strokeStyle="rgba(93,104,119,.35)";ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(x0-4,it2.ry);ctx.lineTo(x0-10,it2.y);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(x1+4,it2.ry);ctx.lineTo(x1+10,it2.y);ctx.stroke();
+   }
+   ctx.font="500 10px "+MONO;ctx.fillStyle="#8d97a6";ctx.textAlign="right";
+   var eta=touchETA(m2.k);
+   ctx.fillText(m2.n,x0-14-(eta?26:0),it2.y);
+   if(eta){ctx.font="500 8.5px "+MONO;ctx.fillStyle="#5d6877";
+    ctx.fillText("≈"+eta+"d",x0-14,it2.y);ctx.font="500 10px "+MONO}
+   var val=ma[m2.k][T],pct=(it2.d>=0?"+":"")+(it2.d*100).toFixed(2)+"%";
+   ctx.textAlign="left";ctx.fillStyle="#c9d2dd";
+   ctx.fillText("$"+val.toFixed(2),x1+14,it2.y);
+   ctx.fillStyle=colFor(it2.d);
+   ctx.fillText(pct,x1+14+ctx.measureText("$"+val.toFixed(2)).width+7,it2.y);
   }
-  ctx.font="500 10px "+MONO;ctx.fillStyle="#8d97a6";ctx.textAlign="right";
-  var eta=touchETA(m2.k);
-  ctx.fillText(m2.n,x0-14-(eta?26:0),it2.y);
-  if(eta){ctx.font="500 8.5px "+MONO;ctx.fillStyle="#5d6877";
-   ctx.fillText("≈"+eta+"d",x0-14,it2.y);ctx.font="500 10px "+MONO}
-  var val=ma[m2.k][T],pct=(it2.d>=0?"+":"")+(it2.d*100).toFixed(2)+"%";
-  ctx.textAlign="left";ctx.fillStyle="#c9d2dd";
-  ctx.fillText("$"+val.toFixed(2),x1+14,it2.y);
-  ctx.fillStyle=colFor(it2.d);
-  ctx.fillText(pct,x1+14+ctx.measureText("$"+val.toFixed(2)).width+7,it2.y);
-
  }
- /* the price box */
  ctx.font="600 12px "+MONO;ctx.textAlign="center";
- var pt="PRICE  $"+closes[T].toFixed(2),tw=ctx.measureText(pt).width;
+ var pt="PRICE  $"+priceAt(f).toFixed(2),tw=ctx.measureText(pt).width;
  ctx.fillStyle="#0b1218";ctx.strokeStyle="#3fd0ff";ctx.lineWidth=1;
  roundRect((W-tw)/2-10,cy-11,tw+20,22,5);ctx.fill();ctx.stroke();
  ctx.fillStyle="#3fd0ff";ctx.fillText(pt,W/2,cy+.5);
  ctx.font="500 8px "+MONO;ctx.fillStyle="#3c4551";
  ctx.fillText("SCALE IS COMPRESSED — EQUAL STEPS ARE NOT EQUAL PERCENTS",W/2,H-8);
+ dateStamp(f);
 }
 function roundRect(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);
  ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
@@ -228,41 +324,36 @@ function touchETA(k){
  if(T<3)return null;
  var d0=dist(k,T);if(d0==null)return null;
  var v=(dist(k,T)-dist(k,T-3))/3;
- if(!v||d0*v>=0)return null;          /* not closing */
+ if(!v||d0*v>=0)return null;
  var n=Math.round(Math.abs(d0/v));
  return (n>=1&&n<=30)?n:null;
 }
 
-/* ---------- PIPE ---------- */
+/* ---------- THE PIPE ---------- */
 var DEPTH=60;
-function drawPipe(shift){
- shift=shift||0;                       /* 0..1 — a new day sliding in */
- var t=(Tview==null?T:Tview);
+function drawPipe(f){
+ var t=Math.floor(f);
  ctx.clearRect(0,0,W,H);
  var vx=W*.5, vy=H*.40, cyF=H*.58, VS=H*.30, SPX=W*.42;
  function persp(k){return 1/(1+k*.045)}
  function hz(k){return vy+(cyF-vy)*persp(k)}
- /* cross-ties every 15 sessions, labelled */
  ctx.font="500 8px "+MONO;ctx.textAlign="left";ctx.textBaseline="middle";
- for(var k=60;k>=0;k-=20){var pp=persp(k+shift),y=vy+(cyF-vy)*pp;
+ for(var k=60;k>=0;k-=20){var pp=persp(k),y=hz(k);
   ctx.strokeStyle="rgba(22,28,37,"+(.4+.6*pp)+")";ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(vx-SPX*pp,y+.5);ctx.lineTo(vx+SPX*pp,y+.5);ctx.stroke();
   if(k===60){ctx.fillStyle="rgba(60,69,81,.85)";
    ctx.fillText("−60 SESSIONS BACK",vx+9,y-8)}}
- /* the price centreline — dead straight to the vanishing point */
  ctx.setLineDash([4,4]);ctx.strokeStyle="rgba(63,208,255,.8)";ctx.lineWidth=1.5;
  ctx.beginPath();ctx.moveTo(vx,cyF);ctx.lineTo(vx,vy);ctx.stroke();
  ctx.setLineDash([]);
- /* rails */
  var i,m;
  for(i=0;i<MAS.length;i++){m=MAS[i];
   var pk=null,px=0,py=0;
-  for(var kk=DEPTH;kk>=0;kk-=2){
+  for(var kk=DEPTH;kk>=1;kk-=2){
    var tt=t-kk;if(tt<0)continue;
-   var d=(kk===0&&Tview==null)?dNow(m.k):dist(m.k,tt);
-   if(d==null)continue;
-   var pp2=persp(kk+shift), amp=Math.pow(pp2,1.35);
-   var x=vx+m.lane*SPX*pp2, y=hz(kk+shift)-C(d)*VS*amp;
+   var d=dist(m.k,tt);if(d==null)continue;
+   var pp2=persp(kk), amp=Math.pow(pp2,1.35);
+   var x=vx+m.lane*SPX*pp2, y=hz(kk)-C(d)*VS*amp;
    if(pk!=null){
     ctx.strokeStyle=colFor(d);ctx.globalAlpha=(m.ema?.85:.5)*(.2+.8*pp2);
     ctx.lineWidth=.8+2*pp2*(m.ema?1:1.25);
@@ -270,10 +361,12 @@ function drawPipe(shift){
    }
    pk=kk;px=x;py=y;
   }
-  /* the front face — today's dot, which IS the ladder */
-  var d0=(Tview==null)?dNow(m.k):dist(m.k,t);
+  var d0=dAt(m.k,f);
   if(d0!=null){
    var fx=vx+m.lane*SPX, fy=cyF-C(d0)*VS;
+   if(pk!=null){ctx.strokeStyle=colFor(d0);ctx.globalAlpha=(m.ema?.85:.5);
+    ctx.lineWidth=.8+2*(m.ema?1:1.25);
+    ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(fx,fy);ctx.stroke()}
    ctx.globalAlpha=1;ctx.fillStyle=colFor(d0);
    ctx.beginPath();ctx.arc(fx,fy,3.4,0,6.2832);ctx.fill();
    ctx.font="500 9px "+MONO;ctx.textAlign="center";ctx.fillStyle="#8d97a6";
@@ -282,20 +375,76 @@ function drawPipe(shift){
  }
  ctx.globalAlpha=1;
  ctx.font="600 11px "+MONO;ctx.textAlign="center";ctx.fillStyle="#3fd0ff";
- ctx.fillText((Tview==null?"TODAY":("−"+(T-Tview)+"d")),vx,cyF+44);
+ ctx.fillText("$"+priceAt(f).toFixed(2),vx,cyF+44);
  ctx.font="500 8px "+MONO;ctx.fillStyle="#3c4551";
  ctx.fillText("LEFT OF THE LINE: EMA 5·8·13·21·34 — RIGHT: SMA 50·100·150·200",W/2,H-8);
+ dateStamp(f);
 }
 
-/* ---------- BRAID ---------- */
+/* ---------- THE FALL — the pipe stood upright ---------- */
+var FSPAN=150;
+function drawFall(f){
+ ctx.clearRect(0,0,W,H);
+ var cx=W*.5, top=52, bot=H-26, rowH=(bot-top)/FSPAN, half=W*.40;
+ /* header — which side is which */
+ ctx.font="500 8px "+MONO;ctx.textBaseline="middle";
+ /* the price line, vertical */
+ ctx.strokeStyle="rgba(63,208,255,.85)";ctx.lineWidth=1.5;
+ ctx.beginPath();ctx.moveTo(cx+.5,top-6);ctx.lineTo(cx+.5,bot);ctx.stroke();
+ /* time ticks every 30 rows */
+ ctx.font="500 8px "+MONO;ctx.textAlign="left";ctx.fillStyle="#3c4551";
+ for(var g=30;g<=FSPAN;g+=30){var gy=top+g*rowH;
+  ctx.strokeStyle="rgba(22,28,37,.9)";ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(10,gy+.5);ctx.lineTo(W-10,gy+.5);ctx.stroke();
+  ctx.fillText("−"+g+"d",12,gy-6)}
+ var i,m,fr=f-Math.floor(f);
+ for(i=0;i<MAS.length;i++){m=MAS[i];
+  var px=null,py=null,pd=null;
+  for(var r=FSPAN;r>=0;r--){
+   var tt=Math.floor(f)-r;if(tt<0)continue;
+   var d=(r===0)?dAt(m.k,f):dist(m.k,tt);
+   if(d==null){px=null;continue}
+   /* green (below price) to the RIGHT, red (above) to the LEFT —
+      same bull-right convention as the geiger bars */
+   var x=cx+(-C(d))*half, y=top+(r+ (r===0?0:fr))*rowH;
+   y=top+(r===0?0:(r+fr))*rowH;
+   var age=1-r/FSPAN;
+   if(px!=null){
+    ctx.strokeStyle=colFor(d);ctx.globalAlpha=(m.ema?.8:.45)*(.25+.75*age);
+    ctx.lineWidth=m.ema?1.4:2.2;
+    ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(x,y);ctx.stroke();
+    if(pd!=null&&(pd<0)!==(d<0)&&r<20&&m.p>=13){
+     ctx.globalAlpha=.9;ctx.strokeStyle="#c9d2dd";ctx.lineWidth=1;
+     ctx.beginPath();ctx.arc(cx,(py+y)/2,4,0,6.2832);ctx.stroke()}
+   }
+   px=x;py=y;pd=d;
+  }
+  ctx.globalAlpha=1;
+  var d0=dAt(m.k,f);
+  if(d0!=null){
+   var hx=cx+(-C(d0))*half;
+   ctx.fillStyle=colFor(d0);
+   ctx.beginPath();ctx.arc(hx,top,3.2,0,6.2832);ctx.fill();
+   ctx.font="500 8.5px "+MONO;ctx.textAlign="center";ctx.fillStyle="#8d97a6";
+   /* two fixed label rows by index — stable, no per-frame reshuffle */
+   ctx.fillText(String(m.p),hx,top-(i%2?11:20));
+  }
+ }
+ ctx.font="600 10px "+MONO;ctx.textAlign="center";ctx.fillStyle="#3fd0ff";
+ ctx.fillText("$"+priceAt(f).toFixed(2),cx,bot+13);
+ ctx.font="500 8px "+MONO;
+ ctx.textAlign="left";ctx.fillStyle="#ff2f55";ctx.fillText("◀ CEILING — ABOVE",10,bot+13);
+ ctx.textAlign="right";ctx.fillStyle="#2bff9b";ctx.fillText("BELOW — FLOOR ▶",W-10,bot+13);
+ dateStamp(f);
+}
+
+/* ---------- THE BRAID ---------- */
 var SPAN=120;
-function drawBraid(shift){
- shift=shift||0;
+function drawBraid(f){
  ctx.clearRect(0,0,W,H);
  var gl=10, gr=44, cy=H*.5, H2=H*.40;
  var x0=gl, x1=W-gr, stepW=(x1-x0)/SPAN;
- function X(tt){return x1-(T-tt)*stepW - shift*stepW}
- /* guides at ±1% and ±5% */
+ function X(tt){return x1-(f-tt)*stepW}
  ctx.font="500 8px "+MONO;ctx.textBaseline="middle";
  [-.05,-.01,.01,.05].forEach(function(g){
   var y=cy-C(g)*H2;
@@ -303,66 +452,94 @@ function drawBraid(shift){
   ctx.beginPath();ctx.moveTo(x0,y+.5);ctx.lineTo(x1,y+.5);ctx.stroke();
   ctx.setLineDash([]);ctx.fillStyle="#3c4551";ctx.textAlign="left";
   ctx.fillText((g>0?"+":"−")+Math.round(Math.abs(g)*100)+"%",x1+6,y)});
- /* price — the flat line */
  ctx.strokeStyle="rgba(63,208,255,.85)";ctx.lineWidth=1.5;
  ctx.beginPath();ctx.moveTo(x0,cy+.5);ctx.lineTo(x1,cy+.5);ctx.stroke();
  ctx.fillStyle="#3fd0ff";ctx.textAlign="left";ctx.font="600 9px "+MONO;
  ctx.fillText("PRICE",x1+6,cy-10);
- /* session ticks */
  ctx.textAlign="center";ctx.font="500 8px "+MONO;
- for(var g2=90;g2>=0;g2-=30){var xx=X(T-g2);
-  ctx.fillStyle="#3c4551";ctx.fillText(g2===0?"TODAY":"−"+g2+"d",xx,H-9)}
- /* ribbons, coloured by which side of price they sat on that day */
+ for(var g2=90;g2>=0;g2-=30){var xx=X(Math.floor(f)-g2);
+  if(xx<x0)continue;
+  ctx.fillStyle="#3c4551";ctx.fillText(g2===0?"NOW":"−"+g2+"d",xx,H-9)}
  var i,m,labels=[];
  for(i=0;i<MAS.length;i++){m=MAS[i];
   var px=null,py=null,pd=null;
-  for(var tt=T-SPAN;tt<=T;tt++){
+  for(var tt=Math.floor(f)-SPAN;tt<=Math.floor(f);tt++){
    if(tt<0)continue;
-   var d=(tt===T)?dNow(m.k):dist(m.k,tt);
+   var d=dist(m.k,tt);
    if(d==null){px=null;continue}
    var x=X(tt),y=cy-C(d)*H2;
-   if(px!=null){
+   if(px!=null&&x>x0){
     ctx.strokeStyle=colFor((d+pd)/2);
     ctx.globalAlpha=m.ema?.85:.5;ctx.lineWidth=m.ema?1.5:2.4;
-    ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(x,y);ctx.stroke();
-    if(pd!=null&&(pd<0)!==(d<0)&&tt>T-20&&m.p>=13){        /* recent crossing — the event */
+    ctx.beginPath();ctx.moveTo(Math.max(px,x0),py);ctx.lineTo(x,y);ctx.stroke();
+    if(pd!=null&&(pd<0)!==(d<0)&&tt>Math.floor(f)-20&&m.p>=13){
      ctx.globalAlpha=.9;ctx.strokeStyle="#c9d2dd";ctx.lineWidth=1;
      ctx.beginPath();ctx.arc((px+x)/2,cy,4.5,0,6.2832);ctx.stroke()}
    }
    px=x;py=y;pd=d;
   }
+  /* bridge the last integer day to the fractional now-point */
+  var dl=dAt(m.k,f);
+  if(dl!=null&&px!=null){
+   ctx.strokeStyle=colFor(dl);ctx.globalAlpha=m.ema?.85:.5;
+   ctx.lineWidth=m.ema?1.5:2.4;
+   ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(x1,cy-C(dl)*H2);ctx.stroke();
+  }
   ctx.globalAlpha=1;
-  var dl=dNow(m.k);if(dl!=null)labels.push({m:m,d:dl,y:cy-C(dl)*H2});
+  if(dl!=null)labels.push({m:m,d:dl,y:cy-C(dl)*H2});
  }
- /* right-edge identity, collision-resolved */
  resolve(labels,cy,12,10,H-18);
  ctx.textAlign="left";ctx.font="500 9px "+MONO;
  for(i=0;i<labels.length;i++){var L=labels[i];
   ctx.fillStyle=colFor(L.d);
   ctx.fillText(String(L.m.p),x1+6,L.y)}
+ dateStamp(f);
 }
 
-/* ---------- frame loop ---------- */
-function now(){return performance.now()}
-var replayOn=false;
+/* ---------- frame loop: one clock, continuous ---------- */
+var lastTs=null;
 function frame(ts){
  if(fit()){
+  if(lastTs==null)lastTs=ts;
+  var dt=Math.min(.06,(ts-lastTs)/1000);lastTs=ts;
   var animating=false;
-  if(animA<1){animA=Math.min(1,(ts-animT0)/ANIM);animating=true;dirty=true}
-  if(now()-crossT0<700){dirty=true}
-  if(dirty){
-   var sh=(animA<1)?(1-easeOut(animA)):0;
-   if(view==="L")drawLadder();
-   else if(view==="P")drawPipe(sh);
-   else drawBraid(sh);
-   if(!animating&&now()-crossT0>=700)dirty=false;
+  if(MODE==="step"){
+   var a=Math.min(1,(ts-stepT0)/STEP_MS);
+   PF=lerp(stepFrom,T,easeIO(a));
+   if(a>=1){MODE="idle";PF=T;refreshIdle()}
+   animating=true;
+  }else if(MODE==="replay"){
+   if(loopHold>0){loopHold-=dt}
+   else{
+    PF+=RE_DPS*dt;
+    if(PF>=T){
+     PF=T;
+     if(loopWanted){loopHold=1.0;setTimeout(function(){if(MODE==="replay")PF=T-REPLAY_SPAN},1000)}
+     else stopMotion();
+    }
+   }
+   animating=MODE==="replay";
+  }else if(MODE==="stream"){
+   PF+=ST_DPS*dt;
+   while(PF>=T-.001){simDay(false)}
+   animating=true;
+  }
+  if(now()-crossT0<450)animating=true;
+  if(dirty||animating){
+   var f=Math.max(0,Math.min(PF,T));
+   if(view==="N")drawBands(f);
+   else if(view==="L")drawLadder(f);
+   else if(view==="P")drawPipe(f);
+   else if(view==="F")drawFall(f);
+   else drawBraid(f);
+   dirty=false;
   }
  }
  requestAnimationFrame(frame);
 }
 
-/* ---------- stacking strip (HTML chips, FLIP by CSS left) ---------- */
-var strip=document.getElementById("strip"), chips={}, lastOrder=null, holdCnt={};
+/* ---------- stacking strip (ladder only) ---------- */
+var strip=document.getElementById("strip"), chips={}, lastOrder=null;
 function buildStrip(){
  strip.querySelectorAll(".chip").forEach(function(c){c.remove()});
  chips={};
@@ -380,6 +557,7 @@ function orderNow(){
 }
 function layStrip(order,anim){
  var w=strip.getBoundingClientRect().width, n=order.length;
+ if(w<10)return;
  var cw=Math.min(38,(w-(n-1)*4)/n);
  order.forEach(function(id,i){var c=chips[id];if(!c)return;
   if(!anim)c.style.transition="none";
@@ -387,88 +565,80 @@ function layStrip(order,anim){
   if(!anim){void c.offsetWidth;c.style.transition=""}});
 }
 function updateStrip(){
- /* deadband: a new order must hold for 2 steps before the chips move */
  var o=orderNow().join(",");
- if(o===lastOrder){holdCnt={};return}
- holdCnt[o]=(holdCnt[o]||0)+1;
- if(holdCnt[o]>=2||bigGap()){lastOrder=o;holdCnt={};layStrip(o.split(","),true)}
+ if(o!==lastOrder){lastOrder=o;layStrip(o.split(","),true)}
 }
-function bigGap(){return true}   /* MAs drift slowly; swaps are rare — apply at once,
-                                    the 2-step hold matters only under RUN 10 storms */
 
-/* ---------- stepping the tape ---------- */
-function step(){
- if(animA<1)return;
- prevD=snapD(T);
- var mr=(ma.e13[T]-closes[T])/closes[T]*.15;
- var p=closes[T]*(1+.0006+mr+(rnd()-.5)*.009);
+/* ---------- stepping / playing ---------- */
+function simDay(withAnim){
+ var prev={};MAS.forEach(function(m){prev[m.k]=dist(m.k,T)});
+ var mr=(ma.e13[T]-closes[T])/closes[T]*.10;
+ var p=closes[T]*(1+.0006+mr+(rnd()-.5)*.0065);
  closes.push(p);extendMAs(closes.length-1);T=closes.length-1;
- curD=snapD(T);
- crossed={};var any=false;
- MAS.forEach(function(m){var a=prevD[m.k],b=curD[m.k];
-  if(a!=null&&b!=null&&(a<0)!==(b<0)){crossed[m.k]=true;any=true}});
- if(any)crossT0=now();
- animA=0;animT0=now();dirty=true;
- setTimeout(updateStrip,ANIM+40);      /* values first, order second */
+ widths.push(widthOf(T));
+ if(withAnim){
+  crossed={};var any=false;
+  MAS.forEach(function(m){var a=prev[m.k],b=dist(m.k,T);
+   if(a!=null&&b!=null&&(a<0)!==(b<0)&&m.p>=13){crossed[m.k]=true;any=true}});
+  if(any)crossT0=now();
+  stepFrom=PF;stepT0=now();MODE="step";
+  setTimeout(updateStrip,STEP_MS+30);
+ }
 }
-var runN=0,runTimer=null;
-function run10(){if(runTimer)return;runN=10;
- runTimer=setInterval(function(){if(animA>=1){step();runN--;
-  if(runN<=0){clearInterval(runTimer);runTimer=null}}},430)}
-function resetTape(){
- if(runTimer){clearInterval(runTimer);runTimer=null}
- stopReplay();makeTape();T=closes.length-1;
- prevD=null;curD=snapD(T);animA=1;crossed={};crossT0=0;
- buildStrip();dirty=true;
+function refreshIdle(){dirty=true;updateStrip()}
+function stopMotion(){
+ MODE="idle";PF=T;loopWanted=false;dirty=true;
+ setBtn("replay","REPLAY 130 DAYS",false);
+ setBtn("play","PLAY NEW DAYS",false);
+ refreshIdle();
 }
-
-/* ---------- pipe replay ---------- */
-var repTimer=null;
-function stopReplay(){if(repTimer){clearInterval(repTimer);repTimer=null}
- Tview=null;replayOn=false;
- document.getElementById("replay").textContent="REPLAY 60 DAYS";dirty=true}
-function toggleReplay(){
- if(replayOn){stopReplay();return}
- replayOn=true;Tview=T-60;
- document.getElementById("replay").textContent="REPLAYING — TAP TO STOP";
- repTimer=setInterval(function(){
-  Tview++;dirty=true;
-  if(Tview>=T)stopReplay();
- },120);
- dirty=true;
+function setBtn(id,txt,on){var b=document.getElementById(id);
+ b.textContent=txt;b.className=on?"live":""}
+function startReplay(loop){
+ MODE="replay";loopWanted=!!loop;loopHold=0;
+ PF=Math.max(0,T-REPLAY_SPAN);
+ setBtn("replay","REPLAYING — TAP TO STOP",true);
+ setBtn("play","PLAY NEW DAYS",false);
 }
+document.getElementById("replay").onclick=function(){
+ if(MODE==="replay")stopMotion();else startReplay(false)};
+document.getElementById("play").onclick=function(){
+ if(MODE==="stream")stopMotion();
+ else{MODE="stream";PF=T;
+  setBtn("play","FLOWING — TAP TO STOP",true);
+  setBtn("replay","REPLAY 130 DAYS",false)}};
+document.getElementById("step1").onclick=function(){
+ if(MODE==="idle")simDay(true)};
+document.getElementById("reset").onclick=function(){
+ stopMotion();makeTape();T=closes.length-1;PF=T;
+ crossed={};crossT0=0;buildStrip();dirty=true};
 
 /* ---------- tabs ---------- */
 var EXPL={
- L:"<b>Now, as one ladder.</b> Price is the fixed line. Green rungs sit under price — the floor. Red sit above — the ceiling. The scale is squeezed so the tight cluster and the far rungs both read. ≈Nd — sessions until that rung touches price at its current closing speed.",
- P:"<b>Your pipe.</b> You stand at today and look back down the tape. Each rail's height is how far it sat from price on that day — the cyan centreline IS price, dead straight because everything is measured against it. The front face is exactly the ladder.",
- B:"<b>The pipe, unrolled flat.</b> Price is the flat line. The rails braid around it; where one crosses the line is the day it crossed price. Rings mark crossings of the slower rails in the last 20 sessions — those are the events. The 5- and 8-day whipsaw is left unmarked on purpose."
+ N:"<b>The nine rubber bands.</b> They stretch apart, then snap back to price, then stretch again — that cycle is the read. The word at the top right is the current state of the tension; the small line along the bottom is the fan's width through time, so you can see every stretch and every release. Replay is running — tap it to stop.",
+ L:"<b>Now, in full detail.</b> Price is the fixed line. Green rungs under price — floor. Red above — ceiling. Every rung priced, with ≈Nd when a rung is closing on price at its current speed. The scale is squeezed so the tight cluster and the far rungs both read.",
+ P:"<b>The pipe.</b> You stand at today and look back down the tape. Each rail's height is its distance from price on that day; the cyan centreline IS price. The front face is exactly the ladder.",
+ F:"<b>The pipe stood upright.</b> Newest day at the top, time falls away below. Rails right of the cyan line sit BELOW price (floor, green) — same bull-right convention as the geiger. Left of it, the ceiling. Crossings of the price line are ringed.",
+ B:"<b>The pipe unrolled flat.</b> Price is the flat line; the rails braid around it across 120 sessions. A crossing here is a rail passing through price there — ringed for the 13-day and slower. The 5/8-day whipsaw is left unmarked on purpose."
 };
 function setView(v){
- view=v;stopReplay();
- document.getElementById("tabL").className=v==="L"?"on":"";
- document.getElementById("tabP").className=v==="P"?"on":"";
- document.getElementById("tabB").className=v==="B"?"on":"";
+ view=v;
+ ["N","L","P","F","B"].forEach(function(t){
+  document.getElementById("tab"+t).className=(t===v)?"on":""});
  document.getElementById("exp").innerHTML=EXPL[v];
  document.getElementById("strip").className="strip"+(v==="L"?" show":"");
- document.getElementById("replay").className=(v==="P")?"show":"";
+ if(v==="L")layStrip(lastOrder?lastOrder.split(","):orderNow(),false);
  dirty=true;
 }
-document.getElementById("tabL").onclick=function(){setView("L")};
-document.getElementById("tabP").onclick=function(){setView("P")};
-document.getElementById("tabB").onclick=function(){setView("B")};
-document.getElementById("step1").onclick=step;
-document.getElementById("step10").onclick=run10;
-document.getElementById("reset").onclick=resetTape;
-document.getElementById("replay").onclick=toggleReplay;
-window.addEventListener("resize",function(){dirty=true;layStrip(lastOrder?lastOrder.split(","):orderNow(),false)});
+["N","L","P","F","B"].forEach(function(t){
+ document.getElementById("tab"+t).onclick=function(){setView(t)}});
+window.addEventListener("resize",function(){dirty=true;
+ if(view==="L")layStrip(lastOrder?lastOrder.split(","):orderNow(),false)});
 
 /* ---------- go ---------- */
-makeTape();T=closes.length-1;curD=snapD(T);
-ctx=cv.getContext("2d");
-(function(){var _fit=fit;fit=function(){var ok=_fit();
- if(ok)ctx.setTransform(DPR,0,0,DPR,0,0);return ok}})();
-setView("L");buildStrip();
+makeTape();T=closes.length-1;PF=T;
+setView("N");buildStrip();
+startReplay(true);          /* the bands open in motion — that IS the point */
 requestAnimationFrame(frame);
 </script>
 </body></html>
