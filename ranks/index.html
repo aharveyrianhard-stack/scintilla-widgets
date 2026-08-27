@@ -14,7 +14,7 @@
        CHG %      top = biggest gain today      provider quote change_percent
        P/E        top = lowest P/E (cheapest)   ratios_history.pe, latest fiscal row
        MKT CAP    top = largest                 company_profile.market_cap
-       RSI        top = highest RSI             raw FMP provider RSI(14)
+       RSI        top = highest RSI             current Geiger daily-bar RSI(14)
        GEIGER     top = highest composite       accepted Massive-bar artifact (never recomputed here)
        SECTOR     top = best avg change today   company_profile.sector rolled up
                                                  over provider quotes, cross-checked
@@ -25,7 +25,7 @@
      horizontally. Nothing nested — this page cannot spawn browsing contexts.
      Params: ?cols=chg,pe,mcap,rsi,geiger,sector · ?limit=40 (10-250) ·
        ?etf=0 (drop ETFs) · ?bg=0 · ?refresh=90 (30-900)
-     Equity RSI is the raw FMP provider value; Geiger is never recomputed here.
+     Equity RSI and Geiger are read from the same current accepted Geiger artifact; neither is recomputed here.
      ============================================================================ -->
 <style>
 :root{
@@ -73,7 +73,7 @@ body.nobg{ background:transparent; }
 <div id="hd"><span class="k">RANKS</span><span class="s">same universe, ranked every which way · tap a ticker to trace it across columns</span><span class="st" id="stamp"></span></div>
 <div id="sel"></div>
 <div id="cols"><div class="empty">loading rankings…</div></div>
-<div id="ft">provider quote + raw FMP RSI · geiger never recomputed · grey = no data for that metric, never coloured</div>
+<div id="ft">provider quote + current Geiger daily RSI · geiger never recomputed · grey = no data for that metric, never coloured</div>
 <script src="/_provider/provider.js"></script>
 <script>
 /* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
@@ -167,10 +167,9 @@ async function tick() {
   const tryPg = (path) => pg(path).catch(() => READ_FAILED);
   const tryProvider = (promise) => promise.catch(() => READ_FAILED);
   const failed = (x) => x === READ_FAILED;
-  const [lq, cp, rsi, ratios, comp, sperf] = await Promise.all([
+  const [lq, cp, ratios, comp, sperf] = await Promise.all([
     tryProvider(SC_PROVIDER.equityQuotes()),
     tryPg("company_profile?select=ticker,sector,market_cap,is_etf"),
-    tryProvider(SC_PROVIDER.fmpDailyIndicators(null, { indicators: ["rsi", "williams"] })),
     tryPg("ratios_history?select=ticker,pe,fiscal_date&order=fiscal_date.desc&limit=4000"),
     tryProvider(SC_PROVIDER.equityGeiger()),
     tryPg("sector_perf_daily?select=sector,average_change,date&order=date.desc&limit=60"),
@@ -178,10 +177,10 @@ async function tick() {
   if (!Array.isArray(lq) || !lq.length) { el("cols").innerHTML = '<div class="empty">no universe — provider quotes unavailable</div>'; return; }
 
   const prof = {}; for (const r of (failed(cp) ? [] : cp || [])) prof[r.ticker] = r;
-  const R = {}; for (const r of (failed(rsi) ? [] : rsi || [])) R[r.ticker] = num(r.rsi14);
+  const R = {}; for (const r of (failed(comp) ? [] : comp || [])) R[r.ticker] = num(r.rsi14);
   const C = {}; for (const r of (failed(comp) ? [] : comp || [])) C[r.ticker] = num(r.composite);
-  const rsiDates = [...new Set((failed(rsi) ? [] : rsi || []).map((r) => r.source_date).filter(Boolean))].sort();
-  const rsiStates = [...new Set((failed(rsi) ? [] : rsi || []).map((r) => r.session_state).filter(Boolean))].sort();
+  const rsiDates = [...new Set((failed(comp) ? [] : comp || []).map((r) => r.rsi_source_date).filter(Boolean))].sort();
+  const rsiStates = [...new Set((failed(comp) ? [] : comp || []).map((r) => r.rsi_state).filter(Boolean))].sort();
   const geigerTimes = (failed(comp) ? [] : comp || []).map((r) => r.updated_ts).filter(Boolean).sort();
   const rsiAsOf = rsiDates.length === 1 ? rsiDates[0] : (rsiDates.length ? rsiDates[0] + "…" + rsiDates[rsiDates.length - 1] : "unknown");
   const rsiState = rsiStates.length === 1 ? rsiStates[0] : (rsiStates.length ? "MIXED " + rsiStates.join("/") : "unknown");
@@ -226,7 +225,7 @@ async function tick() {
     chg:    { t: "CHG %",   rule: "top = biggest gain today",  fmt: fmtPct, rows: () => build((t) => chg[t], "desc") },
     pe:     { t: "P/E",     rule: "top = lowest p/e (cheapest)", fmt: fmtNum, down: failed(ratios) && "ratios_history", rows: () => build((t) => (PE[t] != null && PE[t] > 0 ? PE[t] : null), "asc") },
     mcap:   { t: "MKT CAP", rule: "top = largest",             fmt: fmtCap, down: failed(cp) && "company_profile", rows: () => build((t) => (prof[t] ? num(prof[t].market_cap) : null), "desc") },
-    rsi:    { t: "RSI",     rule: "top = highest · FMP " + rsiAsOf + " " + rsiState, fmt: fmtNum, down: failed(rsi) && "provider_indicators_current", rows: () => build((t) => R[t], "desc") },
+    rsi:    { t: "RSI",     rule: "top = highest · Geiger daily bar " + rsiAsOf + " " + rsiState, fmt: fmtNum, down: failed(comp) && "provider /geiger", rows: () => build((t) => R[t], "desc") },
     geiger: { t: "GEIGER",  rule: "top = highest · bars computed " + (geigerAsOf ? geigerAsOf.replace("T", " ").replace(/\.\d+Z$/, "Z") : "unknown"),   fmt: (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2), down: failed(comp) && "provider /geiger", rows: () => build((t) => C[t], "desc") },
   };
 

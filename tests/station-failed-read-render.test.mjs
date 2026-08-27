@@ -41,7 +41,7 @@ test("/ranks keeps failures as failures and fails the right column, not the tick
   assert.ok(!ranks.includes(".catch(() => null)"), "the flattening catch is gone");
   assert.match(ranks, /did not answer — this ranking is unavailable, not empty · retrying/);
   /* Each dependent column names its own source. */
-  for (const src of ["ratios_history", "company_profile", "provider_indicators_current", "provider /geiger"])
+  for (const src of ["ratios_history", "company_profile", "provider /geiger"])
     assert.match(ranks, new RegExp('down: failed\\(\\w+\\) && "' + src + '"'));
   assert.match(ranks, /d\.down \? failedColumn\(d, d\.down\) : column\(d, d\.rows\(\)\)/);
   /* The sector rollup needs company_profile and says so when it is down. */
@@ -57,7 +57,7 @@ test("/reflow refuses to draw grey non-answers over a failure", () => {
   assert.match(reflow, /failure\(rank\) \{ return DOWN\[rank\] \|\| null; \}/);
   assert.match(reflow, /if \(DATA\.failure && DATA\.failure\(RANK\)\) \{/);
   assert.match(reflow, /did not answer — this ranking is unavailable, not empty/);
-  for (const pair of ['pe: failed(ratios) && "ratios_history"', 'rsi: failed(rsi) && "provider_indicators_current"',
+  for (const pair of ['pe: failed(ratios) && "ratios_history"', 'rsi: failed(comp) && "provider /geiger"',
                       'geiger: failed(comp) && "provider /geiger"', 'sector: failed(cp) && "company_profile"'])
     assert.ok(reflow.includes(pair), pair);
 });

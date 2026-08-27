@@ -19,12 +19,14 @@ test('the explicit Geiger client preserves every rung instead of flattening curr
   assert.match(geiger, /r\.availability === "ABSENT" \? "ABSENT"/)
 })
 
-test('FMP daily values visibly carry provider date and forming-settled provenance', () => {
+test('the Geiger detail pane keeps FMP reference provenance while Ranks uses current Geiger RSI', () => {
   assert.match(geiger, /SC_PROVIDER\.fmpDailyIndicators\(\[t\]\)/)
   assert.match(geiger, /indicatorSourceDate: d1\.source_date/)
   assert.match(geiger, /indicatorSessionState: d1\.session_state/)
   assert.match(geiger, /raw FMP provider" \+ \(indStamp/)
-  assert.match(ranks, /RSI " \+ rsiAsOf \+ " " \+ rsiState/)
+  assert.match(provider, /rsi14: value\.daily_rsi14/)
+  assert.match(ranks, /Geiger daily bar " \+ rsiAsOf \+ " " \+ rsiState/)
+  assert.doesNotMatch(ranks, /SC_PROVIDER\.fmpDailyIndicators/)
 })
 
 test('Massive MACD and the unapproved Structure lane explain their actual authority', () => {
@@ -49,5 +51,5 @@ test('all accepted provider-native indicators have separate visible catalogs and
 test('Ranks names current upstream contracts and their own as-of clocks', () => {
   assert.match(ranks, /provider \/geiger/)
   assert.match(ranks, /GEIGER " \+ \(geigerAsOf/)
-  assert.match(ranks, /provider_indicators_current/)
+  assert.match(ranks, /current Geiger daily RSI/)
 })

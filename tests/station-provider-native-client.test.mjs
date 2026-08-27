@@ -10,8 +10,8 @@ const ANCHORS = ["AAPL", "MSFT", "NVDA", "MU", "AMZN", "GOOGL", "META", "TSLA"];
 
 function symbols(extra = []) {
   const out = {};
-  for (const ticker of [...ANCHORS, ...extra]) out[ticker] = { composite:0.2, trend:0.3, momentum:0.1 };
-  for (let i = 0; Object.keys(out).length < 365; i += 1) out[`SYM${String(i).padStart(4, "0")}`] = { composite:0, trend:0, momentum:0 };
+  for (const ticker of [...ANCHORS, ...extra]) out[ticker] = { composite:0.2, trend:0.3, momentum:0.1, daily_rsi14:53.1, daily_rsi_as_of:"2026-08-20T04:00:00.000Z", daily_rsi_state:"AVAILABLE" };
+  for (let i = 0; Object.keys(out).length < 365; i += 1) out[`SYM${String(i).padStart(4, "0")}`] = { composite:0, trend:0, momentum:0, daily_rsi14:50, daily_rsi_as_of:"2026-08-20T04:00:00.000Z", daily_rsi_state:"AVAILABLE" };
   return out;
 }
 
@@ -168,6 +168,9 @@ test("explicit Geiger carries the endpoint compute time and accepted receipt", a
   const [row] = await w.SC_PROVIDER.equityGeiger(["AAPL"]);
   assert.equal(row.updated_ts, "2026-08-20T17:57:20.566Z");
   assert.equal(row.composite, 0.2);
+  assert.equal(row.rsi14, 53.1);
+  assert.equal(row.rsi_source_date, "2026-08-20T04:00:00.000Z");
+  assert.equal(row.rsi_state, "AVAILABLE");
   assert.equal(row.authority, "PROVIDER_EQUALIZER");
   assert.equal(w.SC_PROVIDER.equalizer_accepted, true);
 });
