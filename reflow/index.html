@@ -45,7 +45,7 @@
      Params: ?rank=chg|pe|mcap|rsi|geiger|sector · ?view=matrix|treemap ·
        ?size=mcap|chg|rsi|geiger (treemap area) · ?limit=N · ?cycle=SECONDS ·
        ?etf=0 · ?bg=0 · ?refresh=90
-     Equity RSI is the raw FMP provider value; Geiger is never recomputed here.
+     Equity RSI and Geiger are read from the same current accepted Geiger artifact; neither is recomputed here.
      ============================================================================ -->
 <style>
 :root{
@@ -114,7 +114,7 @@ body.nobg{ background:transparent; }
 </div>
 <div id="rule"></div>
 <div id="stage"><div class="empty">building the field…</div></div>
-<div id="ft">cells travel to their new rank and bleed to their new colour · grey hatch = no data · provider quote + raw FMP RSI · Geiger never recomputed</div>
+<div id="ft">cells travel to their new rank and bleed to their new colour · grey hatch = no data · provider quote + current Geiger daily RSI · Geiger never recomputed</div>
 <script src="/_provider/provider.js"></script>
 <script>
 /* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
@@ -338,22 +338,21 @@ async function pull() {
   const tryPg = (path) => pg(path).catch(() => READ_FAILED);
   const tryProvider = (promise) => promise.catch(() => READ_FAILED);
   const failed = (x) => x === READ_FAILED;
-  const [lq, cp, rsi, ratios, comp] = await Promise.all([
+  const [lq, cp, ratios, comp] = await Promise.all([
     tryProvider(SC_PROVIDER.equityQuotes()),
     tryPg("company_profile?select=ticker,sector,market_cap,is_etf"),
-    tryProvider(SC_PROVIDER.fmpDailyIndicators(null, { indicators: ["rsi", "williams"] })),
     tryPg("ratios_history?select=ticker,pe,fiscal_date&order=fiscal_date.desc&limit=4000"),
     tryProvider(SC_PROVIDER.equityGeiger()),
   ]);
   if (!Array.isArray(lq) || !lq.length) throw new Error("no universe");
   const prof = {}; for (const r of (failed(cp) ? [] : cp || [])) prof[r.ticker] = r;
-  const R = {}; for (const r of (failed(rsi) ? [] : rsi || [])) R[r.ticker] = num(r.rsi14);
+  const R = {}; for (const r of (failed(comp) ? [] : comp || [])) R[r.ticker] = num(r.rsi14);
   const C = {}; for (const r of (failed(comp) ? [] : comp || [])) C[r.ticker] = num(r.composite);
   const PE = {}; for (const r of (failed(ratios) ? [] : ratios || [])) if (!(r.ticker in PE) && num(r.pe) != null && num(r.pe) > 0) PE[r.ticker] = num(r.pe);
   const DOWN = {
     pe: failed(ratios) && "ratios_history",
     mcap: failed(cp) && "company_profile",
-    rsi: failed(rsi) && "provider_indicators_current",
+    rsi: failed(comp) && "provider /geiger",
     geiger: failed(comp) && "provider /geiger",
     sector: failed(cp) && "company_profile",
   };
