@@ -253,7 +253,7 @@ function priceBug(f,cy){
 }
 
 /* ---------- the one clock: a fractional day pointer ---------- */
-var T, PF, view="N";
+var T, PF, view="N", LIVE=false, REAL=null, realT=-1;
 var MODE="idle";           /* idle | step | replay | stream */
 var stepFrom=0, stepT0=0, STEP_MS=450;
 var REPLAY_SPAN=130, RE_DPS=3.4, ST_DPS=2.2;
@@ -378,7 +378,9 @@ function dateStamp(f){
  var back=T-f;
  if(MODE==="stream"){ctx.fillStyle="#2bff9b";ctx.fillText("FLOWING — SIMULATING NEW SESSIONS",10,20);return}
  ctx.fillStyle=back>.6?"#d9a441":"#3c4551";
- ctx.fillText(back>.6?("REPLAY · "+Math.round(back)+" SESSIONS BACK"):"TODAY",10,20);
+ var lab=back>.6?("REPLAY · "+Math.round(back)+" SESSIONS BACK"):"TODAY";
+ if(back<=.6&&LIVE&&realT>=0&&T>realT){lab="TODAY +"+(T-realT)+" SIMULATED";ctx.fillStyle="#d9a441"}
+ ctx.fillText(lab,10,20);
 }
 
 /* ---------- LADDER ---------- */
@@ -908,9 +910,11 @@ document.getElementById("play").onclick=function(){
 document.getElementById("step1").onclick=function(){
  if(MODE==="idle")simDay(true)};
 document.getElementById("reset").onclick=function(){
- stopMotion();makeTape();T=closes.length-1;PF=T;
- crossed={};crossT0=0;LBY={};ZC=CD;xEvt=null;lastXday=-1;
- buildStrip();dirty=true};
+ stopMotion();
+ if(REAL){closes=REAL.slice();rebuildFromCloses();stopMotion();realT=T}
+ else{makeTape();T=closes.length-1;PF=T;
+  crossed={};crossT0=0;LBY={};ZC=CD;xEvt=null;lastXday=-1;
+  buildStrip();dirty=true}};
 
 /* ---------- tabs ---------- */
 var EXPL={
@@ -948,5 +952,34 @@ makeTape();T=closes.length-1;PF=T;
 setView("N");buildStrip();
 startReplay(true);          /* the bands open in motion — that IS the point */
 requestAnimationFrame(frame);
+
+/* ---------- the real tape ---------- */
+var SRC="https://wadinxqplrggagkvrdag.supabase.co/functions/v1/lab";
+var TICKER=(location.search.match(/[?&]t=([A-Za-z0-9.\-]{1,12})/)||[])[1]||"AAPL";
+TICKER=TICKER.toUpperCase();
+function rebuildFromCloses(){
+ MAS.forEach(function(m){ma[m.k]=[]});widths=[];
+ for(var i=0;i<closes.length;i++){extendMAs(i);widths.push(widthOf(i))}
+ T=closes.length-1;PF=T;
+ LBY={};ZC=CD;xEvt=null;lastXday=-1;crossed={};crossT0=0;
+ buildStrip();startReplay(true);dirty=true;
+}
+fetch(SRC+"?series="+encodeURIComponent(TICKER)+"&n=420",{cache:"no-store"})
+ .then(function(r){return r.json()})
+ .then(function(j){
+  if(j&&j.closes&&j.closes.length>=280){
+   closes=j.closes.slice();REAL=j.closes.slice();
+   rebuildFromCloses();realT=T;LIVE=true;
+   document.getElementById("sub").textContent=
+    "LIVE "+j.ticker+" · DIVIDEND-ADJUSTED DAILY CLOSES · AS OF "+j.asof+" · "+j.n+" SESSIONS";
+  }else{
+   document.getElementById("sub").textContent=
+    "PRICE AGAINST THE FAN OF MOVING AVERAGES · FEED ANSWERED SHORT — DUMMY TAPE STANDING IN";
+  }
+ })
+ .catch(function(){
+  document.getElementById("sub").textContent=
+   "PRICE AGAINST THE FAN OF MOVING AVERAGES · FEED UNREACHABLE — DUMMY TAPE STANDING IN";
+ });
 </script>
 </body></html>
