@@ -54,6 +54,9 @@ button.live{background:#13251c;color:var(--up);border-color:#1d4a34}
  <button id="tabP">THE PIPE</button>
  <button id="tabF">THE FALL</button>
  <button id="tabB">THE BRAID</button>
+ <button id="tabH">HEARTBEAT</button>
+ <button id="tabS">STACK HEAT</button>
+ <button id="tabC">THE CLOUD</button>
 </div>
 <div class="exp" id="exp"></div>
 
@@ -66,6 +69,9 @@ button.live{background:#13251c;color:var(--up);border-color:#1d4a34}
  <button id="step1">SIMULATE A DAY</button>
  <button id="play">PLAY NEW DAYS</button>
  <button id="reset">RESET TAPE</button>
+</div>
+<div class="acts" id="acts2" style="display:none">
+ <button id="detail">OPEN THE CLOUD INTO ALL NINE LINES</button>
 </div>
 
 <div class="foot">GREEN — AVERAGE UNDER PRICE (FLOOR) · RED — ABOVE (CEILING) · CYAN — PRICE, THE FIXED REFERENCE<br>
@@ -496,6 +502,207 @@ function drawBraid(f){
  dateStamp(f);
 }
 
+/* value-space read (actual MA levels), fractional */
+function vAt(k,f){
+ var i=Math.floor(f), fr=f-i, a=ma[k][i], b=(i+1<=T)?ma[k][i+1]:a;
+ if(a==null)return b; if(b==null)return a; return lerp(a,b,fr);
+}
+/* ---------- HEARTBEAT — one hue, nine tones ---------- */
+var VIOL=["#e6d5ff","#d0b6fb","#b998f4","#a37eea","#8d66dc","#7752c2","#6343a4","#503586","#3f2a6b"];
+function drawHeartbeat(f){
+ ctx.clearRect(0,0,W,H);
+ var gl=10, gr=40, cy=H*.5, H2=H*.40, SP=130;
+ var x0=gl, x1=W-gr, stepW=(x1-x0)/SP;
+ function X(tt){return x1-(f-tt)*stepW}
+ ctx.strokeStyle="rgba(63,208,255,.7)";ctx.lineWidth=1.2;
+ ctx.beginPath();ctx.moveTo(x0,cy+.5);ctx.lineTo(x1,cy+.5);ctx.stroke();
+ var i,m,labels=[];
+ for(i=MAS.length-1;i>=0;i--){m=MAS[i];          /* slow first, fast painted on top */
+  ctx.strokeStyle=VIOL[i];ctx.globalAlpha=.95;
+  ctx.lineWidth=m.ema?1.6:2.3;ctx.lineJoin="round";
+  ctx.beginPath();var started=false;
+  for(var tt=Math.floor(f)-SP;tt<=Math.floor(f);tt++){
+   if(tt<0)continue;var d=dist(m.k,tt);if(d==null){started=false;continue}
+   var x=X(tt),y=cy-C(d)*H2;
+   if(!started){ctx.moveTo(x,y);started=true}else ctx.lineTo(x,y);
+  }
+  var dl=dAt(m.k,f);
+  if(dl!=null&&started)ctx.lineTo(x1,cy-C(dl)*H2);
+  ctx.stroke();
+  if(dl!=null)labels.push({m:m,i:i,y:cy-C(dl)*H2});
+ }
+ ctx.globalAlpha=1;
+ resolve(labels,cy,12,10,H-18);
+ ctx.textAlign="left";ctx.font="500 9px "+MONO;ctx.textBaseline="middle";
+ for(i=0;i<labels.length;i++){var L=labels[i];
+  ctx.fillStyle=VIOL[L.i];ctx.fillText(String(L.m.p),x1+6,L.y)}
+ ctx.textAlign="right";ctx.font="500 8px "+MONO;ctx.fillStyle="#5d6877";
+ ctx.fillText("ONE HUE — LIGHT IS FAST, DARK IS SLOW",W-10,20);
+ ctx.textAlign="center";ctx.font="500 8px "+MONO;ctx.fillStyle="#3c4551";
+ ctx.fillText("THE FAN BREATHING AROUND PRICE — SPREAD, SQUEEZE, SPREAD",W/2,H-8);
+ dateStamp(f);
+}
+/* ---------- STACK HEAT — every line judged against its neighbour ---------- */
+function pairUp(i,t){ /* true = this rail sits ABOVE its slower neighbour (bull order) */
+ var a=(i<MAS.length-1)?ma[MAS[i].k][t]:ma[MAS[i-1].k][t];
+ var b=(i<MAS.length-1)?ma[MAS[i+1].k][t]:ma[MAS[i].k][t];
+ if(a==null||b==null)return null; return a>b;
+}
+function invCount(t){var n=0;
+ for(var p=0;p<MAS.length-1;p++){var u=pairUp(p,t);if(u===false)n++}
+ return n;
+}
+function drawStackHeat(f){
+ ctx.clearRect(0,0,W,H);
+ var gl=10, gr=40, cy=H*.47, H2=H*.34, SP=130;
+ var x0=gl, x1=W-gr, stepW=(x1-x0)/SP;
+ function X(tt){return x1-(f-tt)*stepW}
+ ctx.strokeStyle="rgba(63,208,255,.7)";ctx.lineWidth=1.2;
+ ctx.beginPath();ctx.moveTo(x0,cy+.5);ctx.lineTo(x1,cy+.5);ctx.stroke();
+ var i,m,labels=[];
+ for(i=0;i<MAS.length;i++){m=MAS[i];
+  var px=null,py=null;
+  for(var tt=Math.floor(f)-SP;tt<=Math.floor(f);tt++){
+   if(tt<1)continue;var d=dist(m.k,tt);if(d==null){px=null;continue}
+   var x=X(tt),y=cy-C(d)*H2;
+   if(px!=null){
+    var up=pairUp(i,tt), inv=invCount(tt);
+    if(up==null)up=true;
+    ctx.strokeStyle=up?"#2bff9b":"#ff2f55";
+    ctx.globalAlpha=up?(.2+.7*((8-inv)/8)):(.2+.75*(inv/8));
+    ctx.lineWidth=m.ema?1.5:2.2;
+    ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(x,y);ctx.stroke();
+   }
+   px=x;py=y;
+  }
+  var dl=dAt(m.k,f);
+  if(dl!=null&&px!=null){
+   var upN=pairUp(i,Math.floor(f));if(upN==null)upN=true;
+   var invN=invCount(Math.floor(f));
+   ctx.strokeStyle=upN?"#2bff9b":"#ff2f55";
+   ctx.globalAlpha=upN?(.2+.7*((8-invN)/8)):(.2+.75*(invN/8));
+   ctx.lineWidth=m.ema?1.5:2.2;
+   ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(x1,cy-C(dl)*H2);ctx.stroke();
+   ctx.globalAlpha=1;
+   labels.push({m:m,up:upN,y:cy-C(dl)*H2});
+  }
+ }
+ ctx.globalAlpha=1;
+ resolve(labels,cy,12,10,H-52);
+ ctx.textAlign="left";ctx.font="500 9px "+MONO;ctx.textBaseline="middle";
+ for(i=0;i<labels.length;i++){var L=labels[i];
+  ctx.fillStyle=L.up?"#2bff9b":"#ff2f55";ctx.fillText(String(L.m.p),x1+6,L.y)}
+ /* the inversion counter — his oversold marker, through time */
+ var sy=H-36, sh=22, lo=Math.max(1,T-SP);
+ for(var t2=lo;t2<=T;t2++){
+  var n=invCount(t2), hgt=(n/8)*sh;
+  var xx=x0+(t2-lo)/(T-lo)*(x1-x0);
+  ctx.strokeStyle=n===8?"#ff2f55":"rgba(255,47,85,"+(.18+.72*n/8)+")";
+  ctx.lineWidth=Math.max(1.2,(x1-x0)/SP);
+  ctx.beginPath();ctx.moveTo(xx,sy+sh);ctx.lineTo(xx,sy+sh-Math.max(hgt,n?1:0));ctx.stroke();
+ }
+ var fm=Math.min(Math.floor(f),T);
+ var fx=x0+(fm-lo)/(T-lo)*(x1-x0);
+ ctx.fillStyle="#3fd0ff";ctx.beginPath();ctx.arc(fx,sy+sh+3,2.2,0,6.2832);ctx.fill();
+ ctx.font="500 8px "+MONO;ctx.textAlign="left";ctx.fillStyle="#3c4551";
+ ctx.fillText("PAIRS INVERTED, 0–8 — A FULL BAR IS THE OVERSOLD MARK",x0,sy-5);
+ /* current state, in words */
+ var invNow=invCount(fm);
+ ctx.textAlign="right";ctx.font="600 11px "+MONO;
+ if(invNow===8){ctx.fillStyle="#ff2f55";ctx.fillText("FULLY INVERTED — OVERSOLD MARK",W-10,20)}
+ else if(invNow===0){ctx.fillStyle="#2bff9b";ctx.fillText("FULLY STACKED — BULL ORDER",W-10,20)}
+ else{ctx.fillStyle=invNow>=5?"#ff2f55":"#8d97a6";
+  ctx.fillText(invNow+"/8 PAIRS INVERTED",W-10,20)}
+ dateStamp(f);
+}
+/* ---------- THE CLOUD — 50/200, the summary ---------- */
+var CLOUD_DETAIL=false;
+function drawCloud(f){
+ ctx.clearRect(0,0,W,H);
+ var gl=10, gr=44, cy=H*.5, H2=H*.40, SP=130;
+ var x0=gl, x1=W-gr, stepW=(x1-x0)/SP;
+ function X(tt){return x1-(f-tt)*stepW}
+ ctx.strokeStyle="rgba(63,208,255,.8)";ctx.lineWidth=1.4;
+ ctx.beginPath();ctx.moveTo(x0,cy+.5);ctx.lineTo(x1,cy+.5);ctx.stroke();
+ ctx.fillStyle="#3fd0ff";ctx.textAlign="left";ctx.font="600 9px "+MONO;
+ ctx.textBaseline="middle";ctx.fillText("PRICE",x1+6,cy-10);
+ var i,m;
+ /* the fill between 50 and 200 — the regime is the colour */
+ var pA=null,pB=null,pX=null;
+ for(var tt=Math.floor(f)-SP;tt<=Math.floor(f)+1;tt++){
+  var d50,d200,x;
+  if(tt>Math.floor(f)){d50=dAt("s50",f);d200=dAt("s200",f);x=x1}
+  else{if(tt<0)continue;d50=dist("s50",tt);d200=dist("s200",tt);x=X(tt)}
+  if(d50==null||d200==null){pA=null;continue}
+  var yA=cy-C(d50)*H2, yB=cy-C(d200)*H2;
+  if(pA!=null){
+   ctx.fillStyle=(d50>d200)?"rgba(43,255,155,.15)":"rgba(255,47,85,.15)";
+   ctx.beginPath();ctx.moveTo(pX,pA);ctx.lineTo(x,yA);ctx.lineTo(x,yB);ctx.lineTo(pX,pB);
+   ctx.closePath();ctx.fill();
+  }
+  pA=yA;pB=yB;pX=x;
+ }
+ /* detail underlay: the other seven, quiet */
+ if(CLOUD_DETAIL){
+  for(i=0;i<MAS.length;i++){m=MAS[i];
+   if(m.k==="s50"||m.k==="s200")continue;
+   ctx.strokeStyle="#5d6877";ctx.globalAlpha=.32;ctx.lineWidth=1.1;
+   ctx.beginPath();var st=false;
+   for(var t3=Math.floor(f)-SP;t3<=Math.floor(f);t3++){
+    if(t3<0)continue;var dd=dist(m.k,t3);if(dd==null){st=false;continue}
+    var xx2=X(t3),yy2=cy-C(dd)*H2;
+    if(!st){ctx.moveTo(xx2,yy2);st=true}else ctx.lineTo(xx2,yy2);
+   }
+   var dl2=dAt(m.k,f);if(dl2!=null&&st)ctx.lineTo(x1,cy-C(dl2)*H2);
+   ctx.stroke();
+  }
+  ctx.globalAlpha=1;
+ }
+ /* the two lines themselves */
+ [["s50","#e8e3d6",2,[]],["s200","#8d97a6",2.4,[5,4]]].forEach(function(cfg){
+  ctx.strokeStyle=cfg[1];ctx.lineWidth=cfg[2];ctx.setLineDash(cfg[3]);
+  ctx.beginPath();var st2=false;
+  for(var t4=Math.floor(f)-SP;t4<=Math.floor(f);t4++){
+   if(t4<0)continue;var d4=dist(cfg[0],t4);if(d4==null){st2=false;continue}
+   var x4=X(t4),y4=cy-C(d4)*H2;
+   if(!st2){ctx.moveTo(x4,y4);st2=true}else ctx.lineTo(x4,y4);
+  }
+  var dl4=dAt(cfg[0],f);if(dl4!=null&&st2)ctx.lineTo(x1,cy-C(dl4)*H2);
+  ctx.stroke();ctx.setLineDash([]);
+ });
+ /* crossings inside the window get stamped */
+ var prev=null;
+ for(var t5=Math.floor(f)-SP;t5<=Math.floor(f);t5++){
+  if(t5<1)continue;
+  var a5=dist("s50",t5),b5=dist("s200",t5);
+  if(a5==null||b5==null)continue;
+  var sgn=(a5-b5)>0;
+  if(prev!=null&&sgn!==prev){
+   var xc=X(t5), yc=cy-C((a5+b5)/2)*H2;
+   ctx.strokeStyle=sgn?"#2bff9b":"#ff2f55";ctx.lineWidth=1.4;
+   ctx.beginPath();ctx.arc(xc,yc,5,0,6.2832);ctx.stroke();
+   ctx.font="600 8px "+MONO;ctx.textAlign="center";
+   ctx.fillStyle=sgn?"#2bff9b":"#ff2f55";
+   ctx.fillText(sgn?"GOLDEN CROSS":"DEATH CROSS",xc,yc+(sgn?-14:14));
+  }
+  prev=sgn;
+ }
+ /* labels + current regime */
+ var c50=dAt("s50",f),c200=dAt("s200",f);
+ if(c50!=null&&c200!=null){
+  var lb=[{n:"50",y:cy-C(c50)*H2,c:"#e8e3d6"},{n:"200",y:cy-C(c200)*H2,c:"#8d97a6"}];
+  resolve(lb,cy,12,10,H-18);
+  ctx.textAlign="left";ctx.font="500 9px "+MONO;
+  lb.forEach(function(o){ctx.fillStyle=o.c;ctx.fillText(o.n,x1+6,o.y)});
+  ctx.textAlign="right";ctx.font="600 11px "+MONO;
+  if(c50>c200){ctx.fillStyle="#2bff9b";ctx.fillText("50 OVER 200 — GOLDEN REGIME",W-10,20)}
+  else{ctx.fillStyle="#ff2f55";ctx.fillText("200 OVER 50 — DEATH REGIME",W-10,20)}
+ }
+ ctx.font="500 8px "+MONO;ctx.textAlign="center";ctx.fillStyle="#3c4551";
+ ctx.fillText(CLOUD_DETAIL?"ALL NINE SHOWN — THE CLOUD STAYS THE READ":"THE SUMMARY — TWO AVERAGES AND THE SPACE BETWEEN THEM",W/2,H-8);
+ dateStamp(f);
+}
+
 /* ---------- frame loop: one clock, continuous ---------- */
 var lastTs=null;
 function frame(ts){
@@ -531,6 +738,9 @@ function frame(ts){
    else if(view==="L")drawLadder(f);
    else if(view==="P")drawPipe(f);
    else if(view==="F")drawFall(f);
+   else if(view==="H")drawHeartbeat(f);
+   else if(view==="S")drawStackHeat(f);
+   else if(view==="C")drawCloud(f);
    else drawBraid(f);
    dirty=false;
   }
@@ -619,19 +829,28 @@ var EXPL={
  L:"<b>Now, in full detail.</b> Price is the fixed line. Green rungs under price — floor. Red above — ceiling. Every rung priced, with ≈Nd when a rung is closing on price at its current speed. The scale is squeezed so the tight cluster and the far rungs both read.",
  P:"<b>The pipe.</b> You stand at today and look back down the tape. Each rail's height is its distance from price on that day; the cyan centreline IS price. The front face is exactly the ladder.",
  F:"<b>The pipe stood upright.</b> Newest day at the top, time falls away below. Rails right of the cyan line sit BELOW price (floor, green) — same bull-right convention as the geiger. Left of it, the ceiling. Crossings of the price line are ringed.",
- B:"<b>The pipe unrolled flat.</b> Price is the flat line; the rails braid around it across 120 sessions. A crossing here is a rail passing through price there — ringed for the 13-day and slower. The 5/8-day whipsaw is left unmarked on purpose."
+ B:"<b>The pipe unrolled flat.</b> Price is the flat line; the rails braid around it across 120 sessions. A crossing here is a rail passing through price there — ringed for the 13-day and slower. The 5/8-day whipsaw is left unmarked on purpose.",
+ H:"<b>One hue, nine tones.</b> Light is fast, dark is slow — no red, no green, just the fan itself. Watch it spread and squeeze back around the price line: the heartbeat. Replay runs it through the last 130 sessions.",
+ S:"<b>Every line judged against its neighbour.</b> Green — sitting above its slower neighbour, the bull order. Red — slipped below it. The more pairs invert, the deeper the red burns. The bar along the bottom counts inversions through time; a full bar is the oversold mark.",
+ C:"<b>The 50/200 cloud — the summary view.</b> Just the two big averages and the space between them: green while the 50 rides above the 200, red when it flips, crossings stamped GOLDEN or DEATH. The button below the controls opens it into all nine lines."
 };
 function setView(v){
  view=v;
- ["N","L","P","F","B"].forEach(function(t){
+ ["N","L","P","F","B","H","S","C"].forEach(function(t){
   document.getElementById("tab"+t).className=(t===v)?"on":""});
  document.getElementById("exp").innerHTML=EXPL[v];
  document.getElementById("strip").className="strip"+(v==="L"?" show":"");
  if(v==="L")layStrip(lastOrder?lastOrder.split(","):orderNow(),false);
+ document.getElementById("acts2").style.display=(v==="C")?"flex":"none";
  dirty=true;
 }
-["N","L","P","F","B"].forEach(function(t){
+["N","L","P","F","B","H","S","C"].forEach(function(t){
  document.getElementById("tab"+t).onclick=function(){setView(t)}});
+document.getElementById("detail").onclick=function(){
+ CLOUD_DETAIL=!CLOUD_DETAIL;dirty=true;
+ document.getElementById("detail").textContent=CLOUD_DETAIL?
+  "BACK TO JUST THE 50/200 CLOUD":"OPEN THE CLOUD INTO ALL NINE LINES";
+};
 window.addEventListener("resize",function(){dirty=true;
  if(view==="L")layStrip(lastOrder?lastOrder.split(","):orderNow(),false)});
 
