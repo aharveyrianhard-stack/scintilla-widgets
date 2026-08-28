@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>THE MINIS — the fan at every size</title>
+<style>
+:root{--bg:#070a0d;--pan:#0b0f14;--line:#161c25;--dim:#5d6877;--dimmer:#3c4551;
+ --txt:#c9d2dd;--cy:#3fd0ff;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--txt);
+ font:400 14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;
+ -webkit-font-smoothing:antialiased}
+body{padding:14px 12px 40px;max-width:760px;margin:0 auto}
+body.bare{padding:0;max-width:none}
+h1{font-family:var(--mono);font-size:11px;letter-spacing:.2em;color:var(--cy);
+ margin:0 0 2px;font-weight:500}
+.sub{font-family:var(--mono);font-size:9px;letter-spacing:.15em;color:var(--dimmer);
+ margin:0 0 14px;line-height:1.8}
+.grp{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:var(--dim);
+ margin:20px 0 8px}
+.row{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+.cell{display:flex;flex-direction:column;gap:5px}
+.frame{background:var(--pan);border:1px solid var(--line);border-radius:8px;
+ overflow:hidden;position:relative}
+.frame canvas{display:block}
+.cap{font-family:var(--mono);font-size:8px;letter-spacing:.12em;color:var(--dimmer)}
+.note{margin-top:22px;font-size:12px;color:var(--dim);border-left:2px solid var(--line);
+ padding-left:10px;max-width:58ch}
+.note b{color:var(--txt);font-weight:600}
+.note code{font-family:var(--mono);font-size:10px;color:var(--cy);background:#0e141c;
+ padding:1px 5px;border-radius:4px}
+#bare{position:fixed;inset:0}
+#bare canvas{width:100%;height:100%;display:block}
+</style></head><body>
+
+<div id="gallery">
+<h1>THE MINIS</h1>
+<div class="sub">THE BANDS AND THE LADDER AT EVERY SIZE — ICON · TABLE CELL · BUBBLE · WIDGET<br>
+LIVE FROM THE SAME ENGINE, SAME DUMMY TAPE, ALL RUNNING THE SAME REPLAY · BUILT AS EMBEDDABLE MODULES FOR THE HUB</div>
+
+<div class="grp">ICON · FOR A BUTTON OR A LIST ROW</div>
+<div class="row">
+ <div class="cell"><div class="frame"><canvas data-view="bands" data-w="24" data-h="24"></canvas></div><div class="cap">24 × 24</div></div>
+ <div class="cell"><div class="frame"><canvas data-view="bands" data-w="48" data-h="48"></canvas></div><div class="cap">48 × 48</div></div>
+ <div class="cell"><div class="frame"><canvas data-view="bands" data-w="72" data-h="72"></canvas></div><div class="cap">72 × 72</div></div>
+</div>
+
+<div class="grp">TABLE CELL · ONE PER TICKER IN A SCREENER ROW</div>
+<div class="row">
+ <div class="cell"><div class="frame"><canvas data-view="cell" data-w="120" data-h="34"></canvas></div><div class="cap">120 × 34</div></div>
+ <div class="cell"><div class="frame"><canvas data-view="cell" data-w="180" data-h="44"></canvas></div><div class="cap">180 × 44</div></div>
+</div>
+
+<div class="grp">BUBBLE · A ROUND ONE FOR CHIPS AND CORNERS</div>
+<div class="row">
+ <div class="cell"><div class="frame" style="border-radius:50%"><canvas data-view="bubble" data-w="96" data-h="96"></canvas></div><div class="cap">96 × 96</div></div>
+ <div class="cell"><div class="frame" style="border-radius:50%"><canvas data-view="bubble" data-w="140" data-h="140"></canvas></div><div class="cap">140 × 140</div></div>
+</div>
+
+<div class="grp">WIDGET · THE HUB TILE</div>
+<div class="row">
+ <div class="cell"><div class="frame"><canvas data-view="widget" data-w="220" data-h="140"></canvas></div><div class="cap">220 × 140 · BANDS + PRICE + TENSION</div></div>
+ <div class="cell"><div class="frame"><canvas data-view="widget" data-w="340" data-h="210"></canvas></div><div class="cap">340 × 210 · + LABELS AND WIDTH STRIP</div></div>
+</div>
+
+<div class="grp">LADDER WIDGET · THE DETAILED TILE</div>
+<div class="row">
+ <div class="cell"><div class="frame"><canvas data-view="ladwidget" data-w="340" data-h="230"></canvas></div><div class="cap">340 × 230 · RUNGS PRICED</div></div>
+</div>
+
+<p class="note"><b>For the hub:</b> every one of these mounts alone. Open this same
+address with <code>?view=widget&size=340x210</code> (or <code>bands</code>,
+<code>cell</code>, <code>bubble</code>, <code>ladwidget</code>, any size) and the module
+fills the window — no chrome, no controls, ready to sit in a tile. The replay loop runs
+on its own; wire the live feed later and nothing here changes.</p>
+</div>
+
+<div id="bare" style="display:none"><canvas id="barecv"></canvas></div>
+
+<script>
+"use strict";
+/* THE MINIS — the bands/ladder engine, shrunk honestly.
+   Gallery mode: every size at once, one shared clock.
+   Bare mode (?view=&size=): one module, full bleed, for the hub. */
+var S0=20260827,S=S0;
+function rnd(){S=(S*1103515245+12345)&0x7fffffff;return S/0x7fffffff}
+var MAS=[
+ {k:"e5",p:5,ema:true},{k:"e8",p:8,ema:true},{k:"e13",p:13,ema:true},
+ {k:"e21",p:21,ema:true},{k:"e34",p:34,ema:true},
+ {k:"s50",p:50,ema:false},{k:"s100",p:100,ema:false},
+ {k:"s150",p:150,ema:false},{k:"s200",p:200,ema:false}];
+var closes=[],ma={},widths=[],T;
+function makeTape(){
+ S=S0;closes=[];var p=254,i;
+ for(i=0;i<340;i++){var dr=.00105,wob=Math.sin(i*.05)*.0009+Math.sin(i*.013+2)*.0011;
+  p*=1+dr+wob+(rnd()-.5)*.008;closes.push(p)}
+ var T0=closes.length-1,base=closes[T0-6],rel=[1.010,1.014,1.009,1.004,1.0005,.9985];
+ for(i=0;i<6;i++)closes[T0-5+i]=base*rel[i];
+ var f=311.78/closes[T0];for(i=0;i<closes.length;i++)closes[i]*=f;
+ MAS.forEach(function(m){ma[m.k]=[]});widths=[];
+ for(i=0;i<closes.length;i++){ext(i);widths.push(widthOf(i))}
+ T=closes.length-1;
+}
+function ext(i){MAS.forEach(function(m){var a=ma[m.k];
+ if(m.ema){a.push(i===0?closes[0]:a[i-1]+(2/(m.p+1))*(closes[i]-a[i-1]))}
+ else{if(i<m.p-1)a.push(null);
+  else{var s2=0,j;for(j=i-m.p+1;j<=i;j++)s2+=closes[j];a.push(s2/m.p)}}})}
+function dist(k,t){var v=ma[k][t];return v==null?null:(v-closes[t])/closes[t]}
+function widthOf(t){var mx=null,mn=null;
+ MAS.forEach(function(m){var d=dist(m.k,t);if(d==null)return;
+  if(mx==null||d>mx)mx=d;if(mn==null||d<mn)mn=d});
+ return mx==null?0:mx-mn}
+function lerp(a,b,x){return a+(b-a)*x}
+function dAt(k,f){var i=Math.floor(f),fr=f-i,a=dist(k,i),
+ b=(i+1<=T)?dist(k,i+1):a;
+ if(a==null)return b;if(b==null)return a;return lerp(a,b,fr)}
+function priceAt(f){var i=Math.floor(f),fr=f-i,
+ b=(i+1<=T)?closes[i+1]:closes[i];return lerp(closes[i],b,fr)}
+function widthAt(f){var i=Math.floor(f),fr=f-i,
+ b=(i+1<=T)?widths[i+1]:widths[i];return lerp(widths[i],b,fr)}
+var CS=.0055;
+function colFor(d){return d<0?"#2bff9b":"#ff2f55"}
+var MONO="ui-monospace,Menlo,monospace";
+function tensionWord(f){
+ var w=widthAt(f),lo=Math.max(0,Math.floor(f)-130),n=0,below=0;
+ for(var t=lo;t<=Math.floor(f);t++){n++;if(widths[t]<=w)below++}
+ var pct=n?below/n:.5,slope=w-widthAt(Math.max(lo,f-4));
+ if(slope>w*.045)return"STRETCHING";
+ if(slope<-w*.045)return"SNAPPING BACK";
+ if(pct>=.7)return"WIDE";if(pct<=.3)return"COILED";
+ return"BREATHING";
+}
+
+/* ---- one module = its own zoom state ---- */
+function mkMod(cvEl,view){
+ var M={cv:cvEl,ctx:cvEl.getContext("2d"),view:view,ZC:.13,W:0,H:0};
+ M.fit=function(w,h,dpr){
+  if(w!==M.W||h!==M.H){M.W=w;M.H=h;M.cv.width=w*dpr;M.cv.height=h*dpr}
+  M.ctx.setTransform(dpr,0,0,dpr,0,0)};
+ M.zoom=function(dt,f){var mx=.004;
+  MAS.forEach(function(m){var d=dAt(m.k,f);
+   if(d!=null&&Math.abs(d)>mx)mx=Math.abs(d)});
+  var tg=Math.min(.13,Math.max(.011,mx*1.4));
+  M.ZC+=(tg-M.ZC)*Math.min(1,dt*2.2)};
+ M.C=function(d){var v=Math.asinh(d/CS)/Math.asinh(M.ZC/CS);
+  return v>1?1:(v<-1?-1:v)};
+ return M;
+}
+/* the smallest honest band mark: nine strokes + the price line */
+function drawBandsCore(M,f,x0,x1,cy,H2,lw){
+ var c=M.ctx,i,m,d;
+ c.strokeStyle="rgba(63,208,255,.9)";c.lineWidth=Math.max(1,lw*.4);
+ c.beginPath();c.moveTo(0,cy+.5);c.lineTo(M.W,cy+.5);c.stroke();
+ c.lineCap="round";
+ for(i=0;i<MAS.length;i++){m=MAS[i];d=dAt(m.k,f);if(d==null)continue;
+  var y=cy-M.C(d)*H2;
+  c.strokeStyle=colFor(d);c.globalAlpha=m.ema?.92:.55;c.lineWidth=lw;
+  c.beginPath();c.moveTo(x0,y);c.lineTo(x1,y);c.stroke()}
+ c.globalAlpha=1;
+}
+function render(M,f,dt){
+ var c=M.ctx,Wd=M.W,Hd=M.H;
+ M.zoom(dt,f);
+ c.clearRect(0,0,Wd,Hd);
+ if(M.view==="bands"){                       /* icon: marks only */
+  drawBandsCore(M,f,Wd*.12,Wd*.88,Hd*.5,Hd*.40,Math.max(1.5,Hd*.045));
+ }else if(M.view==="cell"){                  /* table cell: marks + price */
+  drawBandsCore(M,f,4,Wd-42,Hd*.5,Hd*.38,2);
+  c.font="600 9px "+MONO;c.textAlign="right";c.textBaseline="middle";
+  c.fillStyle="#eaf6ff";c.fillText(priceAt(f).toFixed(0),Wd-4,Hd*.36);
+  var ch=priceAt(f)/closes[Math.floor(f)-1]-1;
+  c.font="500 7px "+MONO;c.fillStyle=ch>=0?"#2bff9b":"#ff2f55";
+  c.fillText((ch>=0?"+":"")+(ch*100).toFixed(1)+"%",Wd-4,Hd*.68);
+ }else if(M.view==="bubble"){                /* round: marks + width% centre-lit */
+  drawBandsCore(M,f,Wd*.16,Wd*.84,Hd*.5,Hd*.34,Math.max(2,Hd*.03));
+  c.font="600 "+Math.max(9,Hd*.10)+"px "+MONO;c.textAlign="center";
+  c.textBaseline="middle";c.fillStyle="#eaf6ff";
+  c.fillText((widthAt(f)*100).toFixed(1)+"%",Wd*.5,Hd*.14);
+ }else if(M.view==="widget"||M.view==="ladwidget"){
+  var big=Wd>=300, lad=M.view==="ladwidget";
+  var cy=Hd*(big?.44:.5), H2=Hd*(big?.30:.34);
+  var x1=lad?Wd*.62:(Wd-(big?34:10));
+  drawBandsCore(M,f,lad?Wd*.30:8,x1,cy,H2,lad?2:3);
+  /* price bug */
+  c.fillStyle="#3fd0ff";c.beginPath();
+  c.moveTo(2,cy-3.5);c.lineTo(2,cy+3.5);c.lineTo(8,cy);c.closePath();c.fill();
+  c.font="600 "+(big?13:11)+"px "+MONO;c.textAlign="left";c.textBaseline="alphabetic";
+  c.fillStyle="#eaf6ff";c.fillText(priceAt(f).toFixed(2),11,cy-4);
+  var ch2=priceAt(f)/closes[Math.floor(f)-1]-1;
+  c.font="500 8px "+MONO;c.textBaseline="middle";
+  c.fillStyle=ch2>=0?"#2bff9b":"#ff2f55";
+  c.fillText((ch2>=0?"+":"")+(ch2*100).toFixed(2)+"%",11,cy+8);
+  c.font="600 9px "+MONO;c.textAlign="right";c.fillStyle="#c9d2dd";
+  c.fillText(tensionWord(f),Wd-6,12);
+  if(big){                                   /* labels + width strip */
+   c.font="500 8px "+MONO;c.textAlign="left";c.textBaseline="middle";
+   var labs=[];
+   MAS.forEach(function(m){var d=dAt(m.k,f);if(d==null)return;
+    labs.push({p:m.p,y:cy-M.C(d)*H2})});
+   labs.sort(function(a,b){return a.y-b.y});
+   for(var q=1;q<labs.length;q++)if(labs[q].y-labs[q-1].y<9)labs[q].y=labs[q-1].y+9;
+   labs.forEach(function(L){c.fillStyle="#8d97a6";
+    if(lad){c.fillText(String(L.p),x1+6,L.y)}else c.fillText(String(L.p),x1+4,L.y)});
+   var sy=Hd-22,sh=14,lo=Math.max(0,T-130),mxw=0,t;
+   for(t=lo;t<=T;t++)if(widths[t]>mxw)mxw=widths[t];
+   c.strokeStyle="rgba(141,151,166,.8)";c.lineWidth=1;c.beginPath();
+   for(t=lo;t<=T;t++){var xx=8+(t-lo)/(T-lo)*(Wd-16),
+    yy=sy+sh-(mxw?widths[t]/mxw:0)*sh;
+    if(t===lo)c.moveTo(xx,yy);else c.lineTo(xx,yy)}
+   c.stroke();
+   var fx=8+(Math.min(f,T)-lo)/(T-lo)*(Wd-16);
+   c.fillStyle="#3fd0ff";c.beginPath();
+   c.arc(fx,sy+sh-(mxw?widthAt(f)/mxw:0)*sh,2,0,6.2832);c.fill();
+  }
+  if(lad){                                   /* rung values, right side */
+   c.font="500 8px "+MONO;c.textAlign="left";c.textBaseline="middle";
+   var ll=[];
+   MAS.forEach(function(m){var d=dAt(m.k,f);if(d==null)return;
+    ll.push({v:ma[m.k][T],d:d,y:cy-M.C(d)*H2})});
+   ll.sort(function(a,b){return a.y-b.y});
+   for(var q2=1;q2<ll.length;q2++)if(ll[q2].y-ll[q2-1].y<10)ll[q2].y=ll[q2-1].y+10;
+   ll.forEach(function(L){
+    c.fillStyle=colFor(L.d);
+    c.fillText((L.d>=0?"+":"")+(L.d*100).toFixed(1)+"%",Wd*.66,L.y)});
+  }
+ }
+}
+
+/* ---- boot ---- */
+makeTape();
+var qs={};location.search.replace(/[?&]([^=&]+)=([^&]*)/g,function(_,k,v){qs[k]=decodeURIComponent(v)});
+var MODS=[],DPR=Math.min(2,window.devicePixelRatio||1);
+var PF=T-130, RE=3.4, hold=0;
+if(qs.view){                                  /* bare embed mode for the hub */
+ document.getElementById("gallery").style.display="none";
+ document.body.className="bare";
+ var bare=document.getElementById("bare");bare.style.display="block";
+ var bcv=document.getElementById("barecv");
+ var M0=mkMod(bcv,qs.view);
+ MODS.push(M0);
+ M0.sizeFromWindow=true;
+}else{
+ document.querySelectorAll("canvas[data-view]").forEach(function(el){
+  var M=mkMod(el,el.dataset.view);
+  M.fw=+el.dataset.w;M.fh=+el.dataset.h;
+  el.style.width=M.fw+"px";el.style.height=M.fh+"px";
+  MODS.push(M);
+ });
+}
+var lastTs=null;
+function frame(ts){
+ if(lastTs==null)lastTs=ts;
+ var dt=Math.min(.06,(ts-lastTs)/1000);lastTs=ts;
+ if(hold>0)hold-=dt;
+ else{PF+=RE*dt;if(PF>=T){PF=T;hold=1.1;
+  setTimeout(function(){PF=T-130},1100)}}
+ var f=Math.max(0,Math.min(PF,T));
+ MODS.forEach(function(M){
+  var w=M.sizeFromWindow?window.innerWidth:M.fw;
+  var h=M.sizeFromWindow?window.innerHeight:M.fh;
+  M.fit(w,h,DPR);render(M,f,dt);
+ });
+ requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body></html>
