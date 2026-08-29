@@ -19,7 +19,10 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
    because it is a Chrome extension draft rather than a Station surface - but Vercel
    serves the whole repository, so its page is deployed whatever we call it. Skipping it
    in the walk is how an inventory ends up claiming a completeness it does not have. */
-const SKIP = new Set([".git", "node_modules"]);
+/* __pycache__ joins them for the same reason: .gitignore keeps it out of the commit, so
+   Vercel — which deploys from git — never receives it. Without this, running the extraction
+   pipeline's Python suite before this one reports phantom served files. */
+const SKIP = new Set([".git", "node_modules", "__pycache__"]);
 
 /* EVERY DEPLOYED HTML FILE, NOT EVERY DIRECTORY.
    The first version of this walk only recorded directories containing index.html, and called
@@ -176,6 +179,9 @@ const CLASSES = [
      documentation and test classes see them. */
   ["Browser proof rig and receipts", (p) => p.startsWith("/browser-proof/")],
   ["Control manifests", (p) => p.startsWith("/control/")],
+  /* Like the browser-proof class, this must claim its own README before the generic
+     documentation class sees it, or the same file is counted under two headings. */
+  ["Extraction pipeline", (p) => p.startsWith("/_pipeline/")],
   ["Documentation", (p) => p.endsWith(".md")],
   ["Test suites", (p) => p.endsWith(".test.mjs")],
   ["X-bridge extension draft", (p) => p.startsWith("/station-x-bridge-draft/")],
