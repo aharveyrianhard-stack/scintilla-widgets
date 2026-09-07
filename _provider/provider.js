@@ -16,7 +16,7 @@
 
    RULES:
      - NO SILENT FALLBACK. Missing or failed provider data is named and remains unavailable.
-     - OWNERSHIP FAILS CLOSED. The provider universe must exactly match the canonical 365 symbols.
+     - OWNERSHIP FAILS CLOSED. The provider universe must exactly match the canonical 364 symbols.
      - NOTHING IS RECOMPUTED HERE except the quote change and percentage from the provider's own
        price and previous completed daily close. Indicators and bars remain provider-native.
 */
@@ -264,7 +264,7 @@
 
      The second was subtler and survived the first repair: ANY payload carrying a `symbols`
      object was accepted, including an empty or partial one. A response listing 12 symbols
-     published a 12-symbol ownership map, and the other 353 equities were then classified as
+     published a 12-symbol ownership map, and the rest of the equities were then classified as
      non-equities and routed to legacy. The completeness check on the Geiger payload could not
      catch it, because the list of symbols it checked was derived from the very same truncated
      map - it was asking the answer to confirm itself.
@@ -277,23 +277,23 @@
      something that happens to a wall at 04:00.
 
      A previously VERIFIED map still survives a bad read - that is knowledge, not a guess. */
-  var EXPECTED_EQUITY_UNIVERSE = 365;
+  var EXPECTED_EQUITY_UNIVERSE = 364;
   /* CARDINALITY IS NOT IDENTITY, AND THE CANONICAL SET IS DERIVABLE.
-     Checking only that the payload holds 365 symbols passes a set of the RIGHT SIZE and the
-     WRONG MEMBERS: drop AAPL, add TICK, and the count still says 365 while AAPL is quietly
+     Checking only that the payload holds 364 symbols passes a set of the RIGHT SIZE and the
+     WRONG MEMBERS: drop AAPL, add TICK, and the count still says 364 while AAPL is quietly
      reclassified as a non-equity and routed to the legacy tables - the exact failure the count
      check was added to stop, wearing a valid-looking number.
 
      The accepted identity is every ACTIVE ticker whose type is not crypto, future, index or
-     rate. Measured 2026-08-19: 387 active less 22 excluded is exactly the 365 the provider
-     publishes, missing [] and extra [], under equalizer receipt f6cf97b5…97ad1. So the check is
-     a set comparison against a source the provider does not control. */
+     rate. The recorded production identity is now 364 after the explicit EQR retirement. The
+     check remains a set comparison against a source the provider does not control; changing the
+     recorded count cannot make a same-size membership swap pass. */
   /* NOT IN IS NULL-BLIND, AND MOST OF THIS UNIVERSE HAS A NULL TYPE.
      `type=not.in.(...)` compiles to SQL NOT IN, which is NULL - never true - for a NULL type. 90
      of the 387 active tickers have no type recorded, AAPL among them, so that filter returned
      275 and would have failed ownership for the entire Station on every cold start while the
-     provider was answering correctly with 365. NULL is stated explicitly:
-     365 = 275 typed-and-allowed + 90 untyped. Verified against the live table. */
+     provider was answering correctly. NULL is stated explicitly because untyped equities are
+     part of the canonical set; they may not disappear from identity just because type is NULL. */
   var CANONICAL_EQUITY_QUERY =
     'tickers?select=ticker&active=eq.true&or=(type.is.null,type.not.in.(crypto,future,index,rate))&order=ticker.asc&limit=1000';
 
@@ -404,7 +404,7 @@
       } else {
         /* NO CANONICAL SET, NO COLD VERIFICATION.
            Falling back to a bare count here reopened the exact hole the set comparison closes -
-           drop AAPL, add TICK, and 365 is still 365 - and it did so precisely when Supabase was
+           drop AAPL, add TICK, and 364 is still 364 - and it did so precisely when Supabase was
            unavailable, which is not a moment to relax a check. A cold ownership map requires
            identity. Unverified stays unverified, which means retryable and delayed, never
            accepted on a count. */

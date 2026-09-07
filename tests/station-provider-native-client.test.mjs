@@ -11,7 +11,7 @@ const ANCHORS = ["AAPL", "MSFT", "NVDA", "MU", "AMZN", "GOOGL", "META", "TSLA"];
 function symbols(extra = []) {
   const out = {};
   for (const ticker of [...ANCHORS, ...extra]) out[ticker] = { composite:0.2, trend:0.3, momentum:0.1, daily_rsi14:53.1, daily_rsi_as_of:"2026-08-20T04:00:00.000Z", daily_rsi_state:"AVAILABLE" };
-  for (let i = 0; Object.keys(out).length < 365; i += 1) out[`SYM${String(i).padStart(4, "0")}`] = { composite:0, trend:0, momentum:0, daily_rsi14:50, daily_rsi_as_of:"2026-08-20T04:00:00.000Z", daily_rsi_state:"AVAILABLE" };
+  for (let i = 0; Object.keys(out).length < 364; i += 1) out[`SYM${String(i).padStart(4, "0")}`] = { composite:0, trend:0, momentum:0, daily_rsi14:50, daily_rsi_as_of:"2026-08-20T04:00:00.000Z", daily_rsi_state:"AVAILABLE" };
   return out;
 }
 
@@ -132,7 +132,9 @@ test("HTTP failure is transport, never named absence or a database fallback", as
   assert.equal(w.SC_PROVIDER.absenceFor("AAPL"), null);
 });
 
-test("ownership is exact identity, not merely 365 names", async () => {
+test("ownership is exact identity, not merely 364 names", async () => {
+  assert.match(source, /var EXPECTED_EQUITY_UNIVERSE = 364;/,
+    "the diagnostic cardinality names the current canonical identity");
   const map = symbols();
   const wrong = canonicalRows(map).filter((r) => r.ticker !== "AAPL");
   wrong.push({ ticker:"TICK" });

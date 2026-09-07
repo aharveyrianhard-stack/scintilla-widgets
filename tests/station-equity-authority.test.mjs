@@ -2,7 +2,7 @@
    ================================================================================
    The provider cutover moved equity price, previous close and the Geiger to the provider
    contract (/quotes, /geiger, /candles?authority=provider). Measured across the full
-   365-symbol universe on 2026-08-18, the legacy live_quotes baseline disagreed with the
+   then-365-symbol universe on 2026-08-18, the legacy live_quotes baseline disagreed with the
    provider's previous close on 359 of 365 symbols and pointed the WRONG DIRECTION on 183.
 
    Two surfaces were left behind, in two different ways:
@@ -17,7 +17,7 @@
      for freshness, on a page whose whole job is to say what is true.
 
    The contract under test: no surface may present a legacy equity table as authority, and a
-   universe that disagrees with the canonical 365 must be shown disagreeing rather than
+   universe that disagrees with the canonical 364 must be shown disagreeing rather than
    quietly adopted.
 */
 import assert from "node:assert/strict";
@@ -107,25 +107,25 @@ test("/health grades the legacy tables as the non-equity lane, under a true labe
   assert.match(health, /async function runEquity\(\)/);
 });
 
-test("a universe that disagrees with the canonical 365 is shown disagreeing", () => {
+test("a universe that disagrees with the canonical 364 is shown disagreeing", () => {
   for (const [name, source] of Object.entries({ "/analytics":analytics, "/health":health })) {
-    assert.match(source, /CANONICAL_EQUITY_UNIVERSE = 365/, `${name} carries the canonical number`);
-    const agree = fnFrom(source, "universeAgreement", { CANONICAL_EQUITY_UNIVERSE:365, isFinite, Math });
+    assert.match(source, /CANONICAL_EQUITY_UNIVERSE = 364/, `${name} carries the canonical number`);
+    const agree = fnFrom(source, "universeAgreement", { CANONICAL_EQUITY_UNIVERSE:364, isFinite, Math });
 
-    const exact = agree(365);
-    assert.equal(exact.state, "agrees", `${name}: 365 agrees`);
+    const exact = agree(364);
+    assert.equal(exact.state, "agrees", `${name}: 364 agrees`);
     assert.equal(exact.delta, 0);
 
     /* The defect was a surface quietly presenting a different universe. Both directions of
        disagreement must surface, not just a shortfall. */
     const short = agree(211);
     assert.equal(short.state, "disagrees", `${name}: 211 disagrees`);
-    assert.equal(short.delta, -154);
-    assert.equal(short.expected, 365);
+    assert.equal(short.delta, -153);
+    assert.equal(short.expected, 364);
 
     const over = agree(400);
     assert.equal(over.state, "disagrees", `${name}: 400 disagrees`);
-    assert.equal(over.delta, 35);
+    assert.equal(over.delta, 36);
 
     /* No answer is its own state and is never reported as agreement. */
     for (const nothing of [null, undefined, NaN, Infinity]) {
