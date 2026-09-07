@@ -10,6 +10,11 @@ on:
         description: "Space-separated YouTube URLs or IDs (blank = hardcoded proof list)"
         required: false
         default: ""
+      probe:
+        description: "Also run probe_clients.py (which InnerTube client / yt-dlp gets captions from the runner)"
+        type: boolean
+        required: false
+        default: false
   push:
     paths:
       - "youtube-transcripts/**"
@@ -40,6 +45,14 @@ jobs:
 
       - name: Offline suite
         run: python -m unittest -v test_yt_transcripts
+
+      - name: Probe clients (diagnostic, on request)
+        if: ${{ inputs.probe }}
+        env:
+          URLS: ${{ inputs.urls }}
+        run: |
+          pip install yt-dlp
+          python probe_clients.py $URLS
 
       - name: Live extraction (video + Shorts)
         env:

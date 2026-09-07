@@ -171,10 +171,11 @@ def extract(url: str, api: Optional[YouTubeTranscriptApi] = None) -> TranscriptR
         result.error = "no captions: the uploader disabled transcripts for this video"
     except NoTranscriptFound:
         result.error = "no captions: no transcript in any language"
-    except RequestBlocked:  # IpBlocked is a subclass
+    except RequestBlocked as blocked:  # IpBlocked is a subclass
         result.error = (
-            "YouTube blocked this IP: cloud/datacenter ranges are routinely "
-            "blocked; run from a residential connection or configure a proxy"
+            f"{type(blocked).__name__}: YouTube blocked this IP (cloud/datacenter "
+            "ranges are routinely told to sign in to prove they are not a bot); "
+            "run from a residential connection, or see probe_clients.py"
         )
     except VideoUnavailable:
         result.error = "video unavailable: private, deleted, or region-locked"
