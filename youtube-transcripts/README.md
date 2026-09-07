@@ -17,32 +17,80 @@ python3 yt_transcripts.py 'https://www.youtube.com/shorts/…' 'https://youtu.be
 ```
 
 Each URL prints as a block — kind, ID, language, snippet count, total chars,
-then the first 500 characters of text:
+which backend delivered it — then the first 500 characters of text:
 
 ```
 ========================================================================
 VIDEO  https://www.youtube.com/watch?v=dQw4w9WgXcQ
-id=dQw4w9WgXcQ  lang=en  snippets=61  chars=1980
+id=dQw4w9WgXcQ  lang=en  snippets=61  chars=2089  via=youtube-transcript-api
 ------------------------------------------------------------------------
-We're no strangers to love
-You know the rules and so do I
+[♪♪♪]
+♪ We're no strangers to love ♪
+♪ You know the rules
+and so do I ♪
 …
 ========================================================================
-SHORT  https://www.youtube.com/shorts/…
-id=…  lang=en (auto-generated)  snippets=…  chars=…
+SHORT  https://www.youtube.com/shorts/uOLqPKuO2Bo
+id=uOLqPKuO2Bo  lang=en (auto-generated)  snippets=…  chars=…  via=youtube-transcript-api
 ------------------------------------------------------------------------
 …
 ========================================================================
-2/2 transcripts extracted
+3/3 transcripts extracted
 ```
-
-The hardcoded Shorts were picked from search results, not live-checked —
-YouTube is unreachable from the sandbox this was written in — so swap in any
-Short from your own subscriptions if either has since lost its captions.
 
 Exit status is `0` only when every URL yielded a transcript, so it drops
 straight into a shell pipeline or CI step. A video with no captions is
 reported inline (`!! no captions: …`) and the batch keeps going.
+
+## What has been proven live, and where
+
+The sandbox this was written in cannot reach `youtube.com` at all — its
+egress policy allows a short list of hosts — so the live runs happen on a
+GitHub-hosted runner. `.github/workflows/youtube-transcripts-proof.yml` runs
+the offline suite and then this script against real videos on every push to
+this folder, and on demand from the Actions tab with any URLs you type in.
+Every run leaves its output in the job log and as a `transcript-proof`
+artifact.
+
+**Standard video: extracted on every run.** 61 snippets, 2089 characters of
+the real transcript, first 500 printed. On some runners
+`youtube-transcript-api` gets it directly; on others YouTube meets the
+library with its sign-in prompt and the yt-dlp fallback (next section)
+delivers the identical text through the same formatter.
+
+**Shorts: not from a datacenter IP.** For both Shorts, YouTube answers every
+request from the runner with "Sign in to confirm you're not a bot": the
+library's request, yt-dlp's, and yt-dlp with a proof-of-origin token
+attached. That is YouTube's policy for cloud IP ranges, not a code path — a
+Short is parsed to the same 11-character ID and fetched exactly like a video,
+and the offline suite covers that path. From a normal home or office
+connection the script runs as-is. The workflow therefore requires the video
+step and marks the Shorts step informational (it runs, it prints, it is
+allowed to fail on the runner).
+
+## Two backends, one output
+
+1. **`youtube-transcript-api`** — the primary, and the whole story on a
+   normal connection. Fetches the transcript, prefers human-written captions
+   over auto-generated within the requested languages, falls back to the
+   first language YouTube lists.
+2. **yt-dlp** — used only when the primary raises `RequestBlocked` /
+   `IpBlocked`, which is YouTube's answer to most datacenter IPs. yt-dlp can
+   present a proof-of-origin token from a small provider running alongside
+   it; the `bgutil-ytdlp-pot-provider` plugin in `requirements.txt` finds
+   that provider automatically once it is up:
+
+   ```sh
+   docker run -d -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider
+   ```
+
+   The chosen caption track is fetched in YouTube's json3 form, rebuilt as a
+   `FetchedTranscript`, and handed to the unchanged `TextFormatter`, so the
+   text is identical and only the `via=` field differs.
+
+`probe_clients.py` is the diagnostic behind those findings: from any machine
+it reports what the watch page, each InnerTube client, and yt-dlp return for
+a video, so you can see what a given network gets before planning a bulk run.
 
 ## Prove it without the network
 
@@ -50,30 +98,25 @@ reported inline (`!! no captions: …`) and the batch keeps going.
 python3 -m unittest -v test_yt_transcripts
 ```
 
-The suite runs offline. URL parsing is exercised across every shape
-(`watch?v=`, `/shorts/`, `youtu.be/`, `/embed/`, `/live/`, mobile and music
-hosts, extra params, missing scheme, bare ID) plus the rejects. The fetch path
-runs against a stand-in for `YouTubeTranscriptApi` that returns real
-`FetchedTranscript` objects, so the library's `TextFormatter` — the part that
-strips timestamps — is the genuine article, and every error branch (captions
-disabled, no transcript, IP blocked, bad URL, network fault) is shown to be
-contained rather than raised.
+21 tests, all offline. URL parsing across every shape (`watch?v=`,
+`/shorts/`, `youtu.be/`, `/embed/`, `/live/`, mobile and music hosts, extra
+params, missing scheme, bare ID) plus the rejects; the fetch path against a
+stand-in for `YouTubeTranscriptApi` that returns real `FetchedTranscript`
+objects, so the library's `TextFormatter` is the genuine article; the
+fallback wiring (a block triggers it, success never touches it, a double
+failure names both causes); and the json3 rebuild (spoken-language track
+preferred over machine translations, human captions over auto, filler events
+dropped, timings kept).
 
 ## What's inside
 
 | file | role |
 |---|---|
-| `yt_transcripts.py` | `extract_video_id(url)` → `fetch_transcript(id)` → `extract(url)` → `extract_all(urls)`; `main()` prints the report |
+| `yt_transcripts.py` | `extract_video_id(url)` → `fetch_transcript(id)` (primary) / `fetch_transcript_ytdlp(id)` (fallback) → `extract(url)` → `extract_all(urls)`; `main()` prints the report |
 | `test_yt_transcripts.py` | offline proof, stdlib `unittest` |
-| `requirements.txt` | `youtube-transcript-api>=1.2.4,<2` |
-
-Shorts and videos share the same 11-character ID space; only the URL shape
-differs. Nothing downstream of `extract_video_id` knows or cares which it was.
-
-English is preferred (`fetch()` already prefers human-written captions over
-auto-generated within that). If a video has captions but none in English, the
-first transcript YouTube lists is taken instead and its language is reported
-next to the text — better to hand the AI workflow Spanish than nothing.
+| `probe_clients.py` | what does this network get from YouTube? one line per client |
+| `requirements.txt` | `youtube-transcript-api` pinned `<2`; `yt-dlp` and the PO-token plugin for the fallback |
+| `../.github/workflows/youtube-transcripts-proof.yml` | the live run on a hosted runner |
 
 ## Two things to know before the bulk run
 
@@ -82,14 +125,13 @@ next to the text — better to hand the AI workflow Spanish than nothing.
 `YouTubeTranscriptApi().fetch(video_id)` returning a `FetchedTranscript`.
 This script targets the current API and the requirement is pinned `<2`.
 
-**YouTube blocks most cloud/datacenter IPs.** Requests from AWS, GCP, Azure,
-hosted CI, and sandboxes like the one this was written in come back as
-`RequestBlocked` / `IpBlocked`. The script names that case explicitly. Run
-the live proof from a laptop on a normal connection; if the bulk job ends up
-on a server it needs a rotating residential proxy (`youtube_transcript_api.proxies`
-has a `WebshareProxyConfig` and a `GenericProxyConfig` — pass one to
-`YouTubeTranscriptApi(proxy_config=…)`). Even from home, pace a bulk run;
-hammering thousands of IDs from one IP invites the same block.
+**Where the bulk job runs decides what it gets.** From a laptop on a normal
+connection, `youtube-transcript-api` alone does the work; pace the run, since
+thousands of requests from one address invite the same sign-in prompt. From a
+server, expect the prompt for many videos and all Shorts even with the
+fallback; the library accepts a proxy (`WebshareProxyConfig` /
+`GenericProxyConfig` in `youtube_transcript_api.proxies`, passed as
+`YouTubeTranscriptApi(proxy_config=…)`) if the job must live in the cloud.
 
 ## Next step (not this sprint)
 

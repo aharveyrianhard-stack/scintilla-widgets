@@ -1,6 +1,8 @@
 # Live proof for youtube-transcripts/: runs the sprint script verbatim on a
 # hosted runner (the sandbox this PoC was written in cannot reach youtube.com),
-# so the job log is the extraction receipt. Red = a URL yielded no transcript.
+# so the job log is the extraction receipt. The standard video must extract;
+# the Shorts step is informational because YouTube answers datacenter IPs
+# with a sign-in prompt for them (see the README).
 name: youtube-transcripts live proof
 
 on:
@@ -60,12 +62,24 @@ jobs:
           URLS: ${{ inputs.urls }}
         run: python probe_clients.py $URLS
 
-      - name: Live extraction (video + Shorts)
+      - name: Live extraction, standard video (required)
+        run: |
+          set -o pipefail
+          python yt_transcripts.py https://www.youtube.com/watch?v=dQw4w9WgXcQ | tee proof.txt
+
+      - name: Live extraction, Shorts (informational; YouTube asks datacenter IPs to sign in)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python yt_transcripts.py https://www.youtube.com/shorts/uOLqPKuO2Bo https://www.youtube.com/shorts/8rJJUfkeZvI | tee -a proof.txt
+
+      - name: Live extraction, URLs given on dispatch
+        if: ${{ inputs.urls != '' }}
         env:
           URLS: ${{ inputs.urls }}
         run: |
           set -o pipefail
-          python yt_transcripts.py $URLS | tee proof.txt
+          python yt_transcripts.py $URLS | tee -a proof.txt
 
       - name: Upload proof
         if: always()
