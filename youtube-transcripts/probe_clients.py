@@ -82,11 +82,12 @@ def probe_watch_page(session: requests.Session, vid: str) -> None:
         timeout=30,
     )
     page = r.text
+    has_key = "found" if "INNERTUBE_API_KEY" in page else "MISSING"
+    recaptcha = 'class="g-recaptcha"' in page
+    consent_wall = "consent.youtube.com" in page
     print(
         f"watch page: http={r.status_code} bytes={len(page)} "
-        f"INNERTUBE_API_KEY={'found' if 'INNERTUBE_API_KEY' in page else 'MISSING'} "
-        f"recaptcha={'class=\"g-recaptcha\"' in page} "
-        f"consent_wall={'consent.youtube.com' in page}"
+        f"INNERTUBE_API_KEY={has_key} recaptcha={recaptcha} consent_wall={consent_wall}"
     )
 
 
