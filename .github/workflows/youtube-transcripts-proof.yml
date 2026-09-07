@@ -46,13 +46,19 @@ jobs:
       - name: Offline suite
         run: python -m unittest -v test_yt_transcripts
 
+      - name: Proof-of-origin token provider for the yt-dlp fallback
+        # Runner IPs get YouTube's bot check; yt-dlp answers it with a token from this server.
+        run: |
+          docker run -d --name bgutil -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:4416/ping >/dev/null 2>&1 && break; sleep 1; done
+          curl -s http://127.0.0.1:4416/ping || echo "(provider gave no /ping answer; continuing)"
+          echo
+
       - name: Probe clients (diagnostic, on request)
         if: ${{ inputs.probe }}
         env:
           URLS: ${{ inputs.urls }}
-        run: |
-          pip install yt-dlp
-          python probe_clients.py $URLS
+        run: python probe_clients.py $URLS
 
       - name: Live extraction (video + Shorts)
         env:

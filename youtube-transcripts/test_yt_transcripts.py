@@ -9,6 +9,7 @@ is the genuine article. Run with:
 """
 import contextlib
 import io
+import json
 import unittest
 
 from youtube_transcript_api import (
@@ -149,11 +150,49 @@ class ExtractPipeline(unittest.TestCase):
         self.assertEqual(r.text, "")
         self.assertIn("no captions", r.error)
 
-    def test_ip_block_is_named(self):
+    def test_bot_check_falls_back_to_ytdlp(self):
         api = FakeApi({VIDEO: IpBlocked(VIDEO)})
-        [r] = yt.extract_all([VIDEO], api=api)
+        calls = []
+
+        def fallback(video_id):
+            calls.append(video_id)
+            return fetched(video_id, ["via", "yt-dlp"], is_generated=True)
+
+        [r] = yt.extract_all([VIDEO], api=api, fallback=fallback)
+        self.assertTrue(r.ok)
+        self.assertEqual(r.text, "via\nyt-dlp")
+        self.assertEqual(r.backend, "yt-dlp")
+        self.assertEqual(r.error, "")
+        self.assertEqual(calls, [VIDEO])
+
+    def test_ip_block_is_named_when_the_fallback_fails_too(self):
+        api = FakeApi({VIDEO: IpBlocked(VIDEO)})
+
+        def no_provider(video_id):
+            raise RuntimeError("no PO-token provider")
+
+        [r] = yt.extract_all([VIDEO], api=api, fallback=no_provider)
         self.assertFalse(r.ok)
-        self.assertIn("blocked", r.error.lower())
+        self.assertIn("IpBlocked", r.error)
+        self.assertIn("bot check", r.error)
+        self.assertIn("RuntimeError: no PO-token provider", r.error)
+
+    def test_ip_block_without_a_fallback_is_still_named(self):
+        api = FakeApi({VIDEO: IpBlocked(VIDEO)})
+        [r] = yt.extract_all([VIDEO], api=api, fallback=None)
+        self.assertFalse(r.ok)
+        self.assertIn("IpBlocked", r.error)
+        self.assertIn("no fallback", r.error)
+
+    def test_primary_success_never_touches_the_fallback(self):
+        api = FakeApi({VIDEO: fetched(VIDEO, ["ok"])})
+
+        def boom(video_id):
+            raise AssertionError("fallback must not run")
+
+        [r] = yt.extract_all([VIDEO], api=api, fallback=boom)
+        self.assertTrue(r.ok)
+        self.assertEqual(r.backend, "youtube-transcript-api")
 
     def test_falls_back_to_any_language_when_preferred_is_missing(self):
         spanish = fetched(VIDEO, ["hola", "mundo"], language_code="es")
@@ -190,6 +229,83 @@ class ExtractPipeline(unittest.TestCase):
         self.assertIn("ConnectionError", r.error)
         self.assertIn("dns is down", r.error)
 
+
+
+class YtDlpFallback(unittest.TestCase):
+    """fetch_transcript_ytdlp against a stand-in for yt_dlp.YoutubeDL."""
+
+    JSON3 = json.dumps({"events": [
+        {"tStartMs": 0, "dDurationMs": 1500, "segs": [{"utf8": "hello"}, {"utf8": " world"}]},
+        {"tStartMs": 1500, "aAppend": 1, "segs": [{"utf8": "\n"}]},
+        {"tStartMs": 2000, "dDurationMs": 900, "segs": [{"utf8": "second"}]},
+    ]}).encode()
+
+    def _factory(self, info):
+        test = self
+
+        class FakeYdl:
+            def __init__(self, options):
+                test.options = options
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def extract_info(self, url, download=False):
+                test.url = url
+                test.download = download
+                return info
+
+            def urlopen(self, url):
+                test.opened = url
+                return io.BytesIO(test.JSON3)
+
+        return FakeYdl
+
+    def test_rebuilds_a_transcript_from_json3_preferring_the_spoken_language_track(self):
+        info = {"subtitles": {}, "automatic_captions": {
+            "en-orig": [{"ext": "vtt", "url": "v"},
+                        {"ext": "json3", "url": "orig.json3", "name": "English (Original)"}],
+            "en": [{"ext": "json3", "url": "translated.json3", "name": "English"}],
+            "de": [{"ext": "json3", "url": "de.json3"}],
+        }}
+        t = yt.fetch_transcript_ytdlp(VIDEO, ydl_factory=self._factory(info))
+        self.assertEqual(self.url, f"https://www.youtube.com/watch?v={VIDEO}")
+        self.assertFalse(self.download)
+        self.assertTrue(self.options["skip_download"])
+        self.assertEqual(self.opened, "orig.json3")
+        self.assertTrue(t.is_generated)
+        self.assertEqual(t.language_code, "en")
+        self.assertEqual(t.language, "English (Original)")
+        self.assertEqual(
+            [(s.text, s.start, s.duration) for s in t.snippets],
+            [("hello world", 0.0, 1.5), ("second", 2.0, 0.9)],
+        )
+        self.assertEqual(yt.FORMATTER.format_transcript(t), "hello world\nsecond")
+
+    def test_prefers_human_written_captions(self):
+        info = {"subtitles": {"en": [{"ext": "json3", "url": "manual.json3", "name": "English"}]},
+                "automatic_captions": {"en-orig": [{"ext": "json3", "url": "asr.json3"}]}}
+        t = yt.fetch_transcript_ytdlp(VIDEO, ydl_factory=self._factory(info))
+        self.assertFalse(t.is_generated)
+        self.assertEqual(self.opened, "manual.json3")
+
+    def test_takes_any_language_when_preferred_is_missing(self):
+        info = {"subtitles": {}, "automatic_captions": {"es-orig": [{"ext": "json3", "url": "es.json3"}]}}
+        t = yt.fetch_transcript_ytdlp(VIDEO, ydl_factory=self._factory(info))
+        self.assertEqual(t.language_code, "es")
+        self.assertTrue(t.is_generated)
+
+    def test_no_captions_is_an_error(self):
+        with self.assertRaises(LookupError):
+            yt.fetch_transcript_ytdlp(VIDEO, ydl_factory=self._factory({"subtitles": {}, "automatic_captions": {}}))
+
+    def test_missing_json3_format_is_an_error(self):
+        info = {"subtitles": {"en": [{"ext": "vtt", "url": "only.vtt"}]}, "automatic_captions": {}}
+        with self.assertRaises(LookupError):
+            yt.fetch_transcript_ytdlp(VIDEO, ydl_factory=self._factory(info))
 
 class Report(unittest.TestCase):
     def _run(self, urls, api):
