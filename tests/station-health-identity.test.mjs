@@ -2,8 +2,8 @@
    ===============================================================================
    Three claims this page used to make that it could not back:
 
-   IDENTITY. The universe row compared the provider's symbol COUNT to 365. A count catches
-   a swap only by luck: drop AAPL, add TICK, and 365 is still 365. The provider client already holds
+   IDENTITY. The universe row compared the provider's symbol COUNT to a recorded cardinality. A
+   count catches a swap only by luck: drop AAPL, add TICK, and the size is unchanged. The provider client already holds
    ownership to exact set membership against the canonical tickers; the row that REPORTS
    ownership now holds itself to the same rule, and fails closed to "unverified" when the
    canonical set cannot be read — count alone is not identity.

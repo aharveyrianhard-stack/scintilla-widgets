@@ -152,7 +152,7 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
 const PROVIDER_API = "https://scintilla-massive-chart-api.fly.dev";
 /* The universe the cutover was measured on. A provider answer of a different size is shown
    as a disagreement, never quietly adopted as the new number. */
-const CANONICAL_EQUITY_UNIVERSE = 365;
+const CANONICAL_EQUITY_UNIVERSE = 364;
 
 /* FEEDERS — table, its real timestamp column, how it is stored, and how old
    is too old. Column names verified against information_schema, not guessed:
@@ -304,11 +304,11 @@ async function runInternals() {
 }
 
 /* IDENTITY, NOT CARDINALITY — the rule the provider client already holds ownership to, applied to the
-   row that reports it. This lane used to compare the provider's symbol COUNT to 365, and a
-   count can only catch a swap by luck: drop AAPL, add TICK, and 365 is still 365. The lane
-   now reads the same canonical set the provider client reads — active tickers whose type is NULL or not
+   row that reports it. This lane used to compare the provider's symbol COUNT to a recorded
+   cardinality, and a count can only catch a swap by luck: drop AAPL, add TICK, and the size is
+   unchanged. The lane now reads the same canonical set the provider client reads — active tickers whose type is NULL or not
    crypto/future/index/rate; the NULL branch is essential, 90 actives including AAPL carry no
-   type — and compares MEMBERSHIP. The count against the recorded 365 stays on the row as a
+   type — and compares MEMBERSHIP. The count against the recorded 364 stays on the row as a
    secondary fact; it no longer decides it. */
 const CANONICAL_EQUITY_QUERY =
   "tickers?select=ticker&active=eq.true&or=(type.is.null,type.not.in.(crypto,future,index,rate))&order=ticker.asc&limit=1000";
@@ -394,7 +394,7 @@ async function runEquity() {
 
   /* A SAMPLE MAY ONLY SPEAK FOR ITSELF.
      This asked for the first five symbols and then labelled the lane healthy, which is a claim
-     about 365 symbols made from 5 - and the five it happened to take were alphabetical, so a
+     about the full universe made from 5 - and the five it happened to take were alphabetical, so a
      failure anywhere later in the universe was invisible by construction. The whole universe is
      asked for now, in batches the endpoint accepts, and the row says exactly how many answered.
      If the full read cannot be made, the row says it is a sample and names its size rather than

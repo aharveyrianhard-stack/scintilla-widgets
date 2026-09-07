@@ -80,6 +80,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   display:block; margin-top:5px; }
 .gsum .gs-comp .gs-st{ font-family:var(--gs-mono); font-size:var(--gt-title); letter-spacing:.2em;
   color:var(--gs-ink2); text-transform:uppercase; margin-top:2px; }
+.gsum .gs-comp .gs-readstate{ display:block; font-family:var(--gs-mono); font-size:calc(var(--gt-label) - 1px);
+  color:var(--gs-dim); letter-spacing:.08em; text-transform:uppercase; margin-top:3px; }
 .gsum .gs-meterwrap{ flex:1; display:flex; align-items:center; justify-content:center; min-height:0; }
 .gsum .gs-flegend{ display:flex; justify-content:center; gap:18px; padding-top:3px; }
 .gsum .gs-fl{ text-align:center; }
@@ -222,15 +224,22 @@ const num = (x) => (x == null ? null : Number(x));
 const el = (id) => document.getElementById(id);
 function lsGet(k) { try { return localStorage.getItem(k); } catch (err) { return null; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (err) {} }
-const CACHE_MAX_AGE = 24 * 60 * 60 * 1000;
-function cacheGet(k, staleOk) {
+/* First paint is allowed to be fast, not timeless. The publisher normally advances every four
+   minutes; fifteen minutes tolerates several ordinary cycles without letting yesterday's browser
+   storage present itself as today's accepted Geiger while the provider read is still in flight. */
+const GEIGER_CACHE_FIRST_PAINT_MAX_AGE_MS = 15 * 60 * 1000;
+function cacheGet(k) {
   try {
     const raw = lsGet(k);
     if (!raw) return null;
     const env = JSON.parse(raw);
     if (!env || typeof env.ts !== "number") return null;
-    if (staleOk === false && (Date.now() - env.ts) > CACHE_MAX_AGE) return null;
-    return env;
+    const ageMs = Date.now() - env.ts;
+    /* A future timestamp is no better evidence than an old one. One minute of clock skew is
+       tolerated; anything beyond that is not admitted to first paint. */
+    if (!Number.isFinite(ageMs) || ageMs > GEIGER_CACHE_FIRST_PAINT_MAX_AGE_MS || ageMs < -60000)
+      return null;
+    return Object.assign({}, env, { ageMs:Math.max(0, ageMs) });
   } catch (err) { return null; }
 }
 function cacheSet(k, payload) {
@@ -352,7 +361,8 @@ function geigerSummaryHTML() {
     '<div class="gs-zG">' +
       '<div class="gs-comp"><span class="gs-lab">Geiger Composite</span>' +
         '<div class="gs-cgr" data-gs="cgr"></div>' +
-        '<span class="gs-big" data-gs="comp"></span><span class="gs-st" data-gs="compst"></span></div>' +
+        '<span class="gs-big" data-gs="comp"></span><span class="gs-st" data-gs="compst"></span>' +
+        '<span class="gs-readstate" data-gs="readstate"></span></div>' +
       '<div class="gs-meterwrap">' +
         '<svg width="100%" height="100%" viewBox="0 0 340 240" preserveAspectRatio="xMidYMid meet" fill="none" style="max-height:150px">' +
           '<path d="M53.09,267.50 A135,135,0,1,1,286.91,267.50" stroke="rgba(255,255,255,.06)" stroke-width="10" stroke-linecap="round"/>' +
@@ -437,6 +447,44 @@ function gsIndicatorLabel(c){
 function gsIndicatorValue(v){
   const n = num(v); if (n == null || !isFinite(n)) return "—";
   return n.toLocaleString("en-US", { minimumFractionDigits:2, maximumFractionDigits:4 });
+}
+/* Provider references sit beside the accepted Geiger; they never become inputs to its score.
+   Availability and observation age are separate facts, so an old value can stay visibly
+   available without being called current, and an unreadable lane cannot look like zero. */
+function gsReferenceSummary(provider, laneState, contracts, sourceTime, expectedCount, nowMs){
+  const rows = Array.isArray(contracts) ? contracts : [];
+  const available = rows.filter((c) => c && c.state === "AVAILABLE").length;
+  const expected = Math.max(0, Number(expectedCount) || 0);
+  const lane = String(laneState || "UNAVAILABLE").toUpperCase();
+  const availability = lane !== "AVAILABLE" ? lane
+    : !rows.length || !available ? "NAMED_UNAVAILABLE"
+    : available === expected && rows.length === expected ? "AVAILABLE" : "PARTIAL";
+
+  let observedMs = null;
+  if (typeof sourceTime === "number" && Number.isFinite(sourceTime))
+    observedMs = sourceTime < 1e12 ? sourceTime * 1000 : sourceTime;
+  else if (sourceTime != null && String(sourceTime).trim()) {
+    let stamp = String(sourceTime).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(stamp)) stamp += "T00:00:00Z";
+    else if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(stamp))
+      stamp = stamp.replace(" ", "T") + "Z";
+    const parsed = Date.parse(stamp);
+    if (Number.isFinite(parsed)) observedMs = parsed;
+  }
+  const clock = Number.isFinite(nowMs) ? nowMs : Date.now();
+  let age = "AGE UNKNOWN";
+  if (observedMs != null) {
+    const delta = clock - observedMs;
+    if (delta < -60000) age = "AGE CLOCK-AHEAD";
+    else if (delta < 90 * 60000) age = "AGE " + Math.max(0, Math.round(delta / 60000)) + "M";
+    else if (delta < 48 * 3600000) age = "AGE " + Math.round(delta / 3600000) + "H";
+    else age = "AGE " + Math.round(delta / 86400000) + "D";
+  }
+  return {
+    availability, available, expected, age,
+    label: provider + " REFERENCE " + availability + " " + available + "/" + expected +
+      " · " + age + " · NOT SCORED"
+  };
 }
 function gsContractMeta(c, provider){
   if (!c || c.state !== "AVAILABLE") return c && c.reason || "NAMED_UNAVAILABLE";
@@ -606,6 +654,13 @@ function buildGeigerSummary(d) {
   const C = q("comp"), CS = q("compst");
   if (C){ if (d.composite != null){ C.textContent = gsSgn(d.composite); C.style.color = gsTone(d.composite); C.style.filter = "drop-shadow(0 0 9px " + gsTone(d.composite) + ")"; } else C.textContent = "—"; }
   if (CS) CS.textContent = d.composite == null ? "" : (Math.abs(d.composite) < 0.10 ? "neutral" : (d.composite > 0 ? "bull lean" : "bear lean"));
+  const readState = q("readstate");
+  if (readState) {
+    if (d._firstPaintCacheKind === "localStorage")
+      readState.textContent = "BROWSER CACHE · " + Math.max(0, Math.round((d._firstPaintCacheAgeMs || 0) / 60000)) + "M OLD · REFRESHING";
+    else if (d._firstPaintCacheKind === "memory") readState.textContent = "SESSION CACHE · REFRESHING";
+    else readState.textContent = "PROVIDER READ · COMPUTED " + String(d.updated_ts || "UNKNOWN");
+  }
   const CGR = q("cgr");
   if (CGR){ if (d.composite != null){ const w = Math.min(Math.abs(d.composite), 1) * 50, cc = d.composite >= 0 ? "var(--gs-bull)" : "var(--gs-bear)";
       CGR.innerHTML = '<i style="' + (d.composite >= 0 ? "left" : "right") + ":50%;width:" + w + "%;background:" + cc + ";box-shadow:0 0 7px " + cc + '"></i>'; } else CGR.innerHTML = ""; }
@@ -631,12 +686,16 @@ function buildGeigerSummary(d) {
   if (wsub) wsub.textContent = "raw FMP provider" + (indStamp ? " · " + indStamp : " · as-of unavailable");
 
   const fmpStamp = q("fmpstamp"), massiveStamp = q("massivestamp");
-  if (fmpStamp) fmpStamp.textContent = d.fmpLaneState === "AVAILABLE"
-    ? "1DAY · SPLIT-ADJUSTED · " + (indStamp || "AS-OF UNKNOWN") + " · MACD NOT CARRIED"
-    : String(d.fmpLaneState || "UNAVAILABLE");
-  if (massiveStamp) massiveStamp.textContent = d.massiveLaneState === "AVAILABLE"
-    ? "MINUTE · SPLIT-ADJUSTED · COMPLETED ≤ " + String(d.massiveCompletedCutoff || "UNKNOWN") + " · NO ARCHIVE WAIT"
-    : String(d.massiveLaneState || "UNAVAILABLE");
+  const fmpRef = gsReferenceSummary("FMP", d.fmpLaneState, d.fmpContracts,
+    d.indicatorSourceDate, 16);
+  const massiveRef = gsReferenceSummary("MASSIVE", d.massiveLaneState, d.massiveContracts,
+    d.massiveCompletedCutoff, 11);
+  if (fmpStamp) fmpStamp.textContent = fmpRef.label +
+    " · 1DAY · SPLIT-ADJUSTED · AS-OF " + String(d.indicatorSourceDate || "UNKNOWN") +
+    (d.indicatorSessionState ? " · " + d.indicatorSessionState : "") + " · MACD NOT CARRIED";
+  if (massiveStamp) massiveStamp.textContent = massiveRef.label +
+    " · MINUTE · SPLIT-ADJUSTED · COMPLETED ≤ " + String(d.massiveCompletedCutoff || "UNKNOWN") +
+    " · NO ARCHIVE WAIT";
   gsContractGrid(q("fmpcontracts"), d.fmpContracts, "FMP", d.fmpLaneState);
   gsContractGrid(q("massivecontracts"), d.massiveContracts, "MASSIVE", d.massiveLaneState);
 
@@ -693,17 +752,22 @@ async function mountGeiger(t) {
   whHeader(t, null);
   const rail = el("coRailContent");
   if (!rail.querySelector(".gsum [data-gs]")) rail.innerHTML = geigerSummaryHTML();
-  /* CACHE-FIRST — paint instantly from memory/localStorage, then refresh (hub pattern) */
+  /* CACHE-FIRST — a bounded browser cache may paint while the provider refresh is in flight.
+     Anything older than the explicit first-paint window is ignored, not presented as accepted. */
   const memHit = GEIGER_MEM[t];
   /* New envelope: older entries predate per-rung/FMP as-of provenance and must not first-paint a
      value without the timestamps that make it interpretable. */
   const lsEnv = memHit ? null : cacheGet("sc_geiger_current_v2_" + t);
   const cached = memHit || (lsEnv && lsEnv.data) || null;
   if (cached && cached.t === t) {
-    S.coData._gsum = cached;
     GEIGER_MEM[t] = cached;
-    buildGeigerSummary(cached);
-    whHeader(t, cached);
+    const firstPaint = Object.assign({}, cached, {
+      _firstPaintCacheKind: memHit ? "memory" : "localStorage",
+      _firstPaintCacheAgeMs: memHit ? 0 : lsEnv.ageMs
+    });
+    S.coData._gsum = firstPaint;
+    buildGeigerSummary(firstPaint);
+    whHeader(t, firstPaint);
   }
   await pullLive(t);
   try {
