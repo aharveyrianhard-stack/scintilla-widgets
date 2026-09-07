@@ -1,0 +1,57 @@
+# Live proof for youtube-transcripts/: runs the sprint script verbatim on a
+# hosted runner (the sandbox this PoC was written in cannot reach youtube.com),
+# so the job log is the extraction receipt. Red = a URL yielded no transcript.
+name: youtube-transcripts live proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: "Space-separated YouTube URLs or IDs (blank = hardcoded proof list)"
+        required: false
+        default: ""
+  push:
+    paths:
+      - "youtube-transcripts/**"
+      - ".github/workflows/youtube-transcripts-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: youtube-transcripts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -c "import importlib.metadata as m; print('youtube-transcript-api', m.version('youtube-transcript-api'))"
+
+      - name: Offline suite
+        run: python -m unittest -v test_yt_transcripts
+
+      - name: Live extraction (video + Shorts)
+        env:
+          URLS: ${{ inputs.urls }}
+        run: |
+          set -o pipefail
+          python yt_transcripts.py $URLS | tee proof.txt
+
+      - name: Upload proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcript-proof
+          path: youtube-transcripts/proof.txt
+          if-no-files-found: ignore
