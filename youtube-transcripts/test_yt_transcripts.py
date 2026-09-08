@@ -547,6 +547,46 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(api.calls, [("fetch", VIDEO, ("es", "en"))])
 
+
+class Validator(unittest.TestCase):
+    """validate_captures.py against files written by write_captures."""
+
+    def _captures(self, out, words=("hello world", "second line", "third")):
+        [r] = yt.extract_all([VIDEO], api=FakeApi({VIDEO: fetched(VIDEO, list(words))}))
+        yt.write_captures(r, out)
+
+    def test_a_written_capture_set_is_valid(self):
+        import validate_captures
+
+        with tempfile.TemporaryDirectory() as out:
+            self._captures(out)
+            ok, total, lines = validate_captures.validate(out)
+            self.assertEqual((ok, total), (1, 1))
+            self.assertIn("3 cues", lines[0])
+            self.assertIn("all five formats agree", lines[0])
+            self.assertEqual(validate_captures.main([out]), 0)
+
+    def test_a_damaged_file_fails_the_set(self):
+        import validate_captures
+
+        with tempfile.TemporaryDirectory() as out:
+            self._captures(out)
+            with open(os.path.join(out, f"{VIDEO}.srt"), "w", encoding="utf-8") as handle:
+                handle.write("1\n00:00:00,000 --> 00:00:01,000\nonly one cue\n")
+            ok, total, lines = validate_captures.validate(out)
+            self.assertEqual((ok, total), (0, 1))
+            self.assertIn("srt has 1 cues for 3", lines[0])
+            os.remove(os.path.join(out, f"{VIDEO}.vtt"))
+            ok, total, lines = validate_captures.validate(out)
+            self.assertIn("missing vtt", lines[0])
+
+    def test_an_empty_or_missing_directory_fails(self):
+        import validate_captures
+
+        with tempfile.TemporaryDirectory() as out:
+            self.assertEqual(validate_captures.main([out]), 1)
+        self.assertEqual(validate_captures.main([os.path.join(out, "gone")]), 1)
+
 class Report(unittest.TestCase):
     def _run(self, urls, api):
         buf = io.StringIO()

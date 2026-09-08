@@ -22,7 +22,7 @@ import time
 
 import requests
 
-from yt_transcripts import PROOF_URLS, extract_video_id
+from yt_transcripts import PROOF_URLS, extract_all, extract_video_id, print_report
 
 WATCH = "https://www.youtube.com/watch?v={}"
 PLAYER = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"
@@ -166,7 +166,35 @@ def probe_ytdlp(vid: str) -> None:
             print(f"      {kind} en json3 http={r.status_code} unparsable: {r.text[:80]!r}")
 
 
+class _Silent:
+    """yt-dlp logger that swallows its own log lines; the report speaks for itself."""
+
+    def debug(self, msg): pass
+    def info(self, msg): pass
+    def warning(self, msg): pass
+    def error(self, msg): pass
+
+
+def sample_shorts(count: int) -> int:
+    """Measure, from this machine, whether the bot check applies to Shorts as a class
+    or to particular clips: search YouTube for ``count`` Shorts through yt-dlp
+    and run the ordinary extraction chain on each. Exit 0 when at least one
+    extracts, so the workflow's summary carries the answer."""
+    import yt_dlp
+
+    options = {"quiet": True, "no_warnings": True, "extract_flat": True, "logger": _Silent()}
+    with yt_dlp.YoutubeDL(options) as ydl:
+        found = ydl.extract_info(f"ytsearch{count}:#shorts", download=False) or {}
+    ids = [entry["id"] for entry in found.get("entries", []) if entry and entry.get("id")]
+    print(f"search returned {len(ids)} Shorts; running the ordinary chain on each")
+    results = extract_all([f"https://www.youtube.com/shorts/{video_id}" for video_id in ids])
+    print_report(results, "timestamped")
+    return 0 if any(r.ok for r in results) else 1
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) >= 2 and argv[0] == "--sample-shorts":
+        return sample_shorts(int(argv[1]))
     urls = argv or PROOF_URLS
     session = requests.Session()
     for url in urls:

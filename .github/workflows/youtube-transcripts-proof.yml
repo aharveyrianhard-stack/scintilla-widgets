@@ -17,6 +17,10 @@ on:
         type: boolean
         required: false
         default: false
+      sample_shorts:
+        description: "Search this many Shorts from the runner and run the ordinary chain on each (blank = skip)"
+        required: false
+        default: ""
   push:
     paths:
       - "youtube-transcripts/**"
@@ -97,6 +101,21 @@ jobs:
         run: |
           set -o pipefail
           python yt_transcripts.py --format timestamped --out proof $URLS | tee -a proof.txt
+
+      - name: Sample other Shorts from the runner (on request; measures whether the bot check is per clip or per class)
+        if: ${{ inputs.sample_shorts != '' }}
+        continue-on-error: true
+        env:
+          COUNT: ${{ inputs.sample_shorts }}
+        run: |
+          set -o pipefail
+          python probe_clients.py --sample-shorts "$COUNT" | tee -a proof.txt
+
+      - name: Validate the captured files (required; every format must agree)
+        run: |
+          for f in proof/*; do echo "--- $f"; head -c 300 "$f"; echo; done
+          python validate_captures.py proof
+          if [ -d proof-gemini ]; then python validate_captures.py proof-gemini; fi
 
       - name: Upload proof
         if: always()

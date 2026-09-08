@@ -79,7 +79,7 @@ All of it comes from the environment, so no credential ever lives in the repo.
 
 | variable | used by | meaning |
 |---|---|---|
-| `YT_COOKIES_FILE` | yt-dlp | a Netscape-format cookies file exported from a browser signed in to YouTube; the documented way through the bot check with your own account |
+| `YT_COOKIES_FILE` | yt-dlp only (the library's cookie support is disabled in 1.2.x) | a Netscape-format cookies file exported from a browser signed in to YouTube; the documented way through the bot check with your own account |
 | `YT_PROXY` | both the library and yt-dlp | `http://user:pass@host:port`; a residential or rotating proxy makes a server look like a normal connection |
 | `GEMINI_API_KEY` | Gemini backend, `ask_gemini.py` | switches the Gemini route on |
 | `GEMINI_MODEL` | same | model name, default `gemini-2.5-flash` |
@@ -92,7 +92,11 @@ GitHub-hosted runner: `.github/workflows/youtube-transcripts-proof.yml` runs
 the offline suite and then this script against real videos on every push to
 this folder, and on demand from the Actions tab with any URLs you type in.
 Every run leaves its output in the job log and in a `transcript-proof`
-artifact holding the `proof/` capture directory (all five formats per video).
+artifact holding the `proof/` capture directory (all five formats per video),
+and `validate_captures.py` checks those files before the run can pass: every
+format must exist, parse, agree on the cue count and start times, and the
+plain text must equal the JSON cues joined. Dispatch inputs let you add URLs
+and sample other Shorts from the runner.
 
 **Standard video: extracted on every run**, timestamped. 61 snippets, 2089
 characters of the real transcript. On some runners `youtube-transcript-api`
@@ -128,7 +132,7 @@ answer lands in the artifact as `gemini-review.md`.
 python3 -m unittest -v test_yt_transcripts
 ```
 
-42 tests, all offline. URL parsing across every shape (`watch?v=`,
+45 tests, all offline. URL parsing across every shape (`watch?v=`,
 `/shorts/`, `youtu.be/`, `/embed/`, `/live/`, mobile and music hosts, extra
 params, missing scheme, bare ID) plus the rejects; the fetch path against a
 stand-in for `YouTubeTranscriptApi` that returns real `FetchedTranscript`
@@ -145,7 +149,8 @@ the capture directory; and the command line flags.
 | `yt_transcripts.py` | `extract_video_id(url)` → `fetch_transcript` / `fetch_transcript_ytdlp` / `fetch_transcript_gemini` → `extract(url)` → `extract_all(urls)`; `render()` and `write_captures()` for the shapes; `main()` is the CLI |
 | `ask_gemini.py` | one question to Gemini, optionally about a file |
 | `test_yt_transcripts.py` | offline proof, stdlib `unittest` |
-| `probe_clients.py` | what does this network get from YouTube? one line per client |
+| `validate_captures.py` | structural check of a capture directory; the workflow runs it |
+| `probe_clients.py` | what does this network get from YouTube? one line per client; `--sample-shorts N` runs the chain on N searched Shorts |
 | `requirements.txt` | `youtube-transcript-api` pinned `<2`; `yt-dlp` and the PO-token plugin for the fallback |
 | `../.github/workflows/youtube-transcripts-proof.yml` | the live run on a hosted runner |
 
