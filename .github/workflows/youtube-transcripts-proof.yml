@@ -28,7 +28,11 @@ permissions:
 jobs:
   extract:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      # Optional. Add a repository secret named GEMINI_API_KEY (from
+      # https://aistudio.google.com/apikey) and the Gemini steps below switch on.
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     defaults:
       run:
         working-directory: youtube-transcripts
@@ -62,16 +66,29 @@ jobs:
           URLS: ${{ inputs.urls }}
         run: python probe_clients.py $URLS
 
-      - name: Live extraction, standard video (required)
+      - name: Live extraction, standard video (required; timestamped preview, every format captured)
         run: |
           set -o pipefail
-          python yt_transcripts.py https://www.youtube.com/watch?v=dQw4w9WgXcQ | tee proof.txt
+          python yt_transcripts.py --format timestamped --out proof https://www.youtube.com/watch?v=dQw4w9WgXcQ | tee proof.txt
 
       - name: Live extraction, Shorts (informational; YouTube asks datacenter IPs to sign in)
         continue-on-error: true
         run: |
           set -o pipefail
-          python yt_transcripts.py https://www.youtube.com/shorts/uOLqPKuO2Bo https://www.youtube.com/shorts/8rJJUfkeZvI | tee -a proof.txt
+          python yt_transcripts.py --format timestamped --out proof https://www.youtube.com/shorts/uOLqPKuO2Bo https://www.youtube.com/shorts/8rJJUfkeZvI | tee -a proof.txt
+
+      - name: Live extraction through Gemini, video + Shorts (runs only when the GEMINI_API_KEY secret is set)
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python yt_transcripts.py --backend gemini --format timestamped --out proof-gemini https://www.youtube.com/watch?v=dQw4w9WgXcQ https://www.youtube.com/shorts/uOLqPKuO2Bo https://www.youtube.com/shorts/8rJJUfkeZvI | tee -a proof.txt
+
+      - name: Gemini reviews the README (runs only when the GEMINI_API_KEY secret is set)
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        continue-on-error: true
+        run: |
+          python ask_gemini.py --file README.md "Review this README as a senior engineer who knows YouTube's caption and bot-check behaviour. List, briefly and specifically, anything wrong, missing, risky, or unclear about extracting transcripts this way: standard videos, Shorts, timestamps, and access from servers." | tee gemini-review.md
 
       - name: Live extraction, URLs given on dispatch
         if: ${{ inputs.urls != '' }}
@@ -79,12 +96,16 @@ jobs:
           URLS: ${{ inputs.urls }}
         run: |
           set -o pipefail
-          python yt_transcripts.py $URLS | tee -a proof.txt
+          python yt_transcripts.py --format timestamped --out proof $URLS | tee -a proof.txt
 
       - name: Upload proof
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: transcript-proof
-          path: youtube-transcripts/proof.txt
+          path: |
+            youtube-transcripts/proof.txt
+            youtube-transcripts/proof/
+            youtube-transcripts/proof-gemini/
+            youtube-transcripts/gemini-review.md
           if-no-files-found: ignore

@@ -10,6 +10,8 @@ is the genuine article. Run with:
 import contextlib
 import io
 import json
+import os
+import tempfile
 import unittest
 
 from youtube_transcript_api import (
@@ -158,7 +160,7 @@ class ExtractPipeline(unittest.TestCase):
             calls.append(video_id)
             return fetched(video_id, ["via", "yt-dlp"], is_generated=True)
 
-        [r] = yt.extract_all([VIDEO], api=api, fallback=fallback)
+        [r] = yt.extract_all([VIDEO], api=api, fallback=fallback, gemini=None)
         self.assertTrue(r.ok)
         self.assertEqual(r.text, "via\nyt-dlp")
         self.assertEqual(r.backend, "yt-dlp")
@@ -171,18 +173,48 @@ class ExtractPipeline(unittest.TestCase):
         def no_provider(video_id):
             raise RuntimeError("no PO-token provider")
 
-        [r] = yt.extract_all([VIDEO], api=api, fallback=no_provider)
+        [r] = yt.extract_all([VIDEO], api=api, fallback=no_provider, gemini=None)
         self.assertFalse(r.ok)
         self.assertIn("IpBlocked", r.error)
         self.assertIn("bot check", r.error)
-        self.assertIn("RuntimeError: no PO-token provider", r.error)
+        self.assertIn("yt-dlp fallback: RuntimeError: no PO-token provider", r.error)
+        self.assertIn("gemini: not configured (GEMINI_API_KEY unset)", r.error)
 
-    def test_ip_block_without_a_fallback_is_still_named(self):
+    def test_chain_reaches_gemini_when_ytdlp_fails(self):
         api = FakeApi({VIDEO: IpBlocked(VIDEO)})
-        [r] = yt.extract_all([VIDEO], api=api, fallback=None)
+
+        def no_provider(video_id):
+            raise RuntimeError("no PO-token provider")
+
+        def gemini(video_id):
+            return fetched(video_id, ["gemini", "text"], is_generated=True)
+
+        [r] = yt.extract_all([VIDEO], api=api, fallback=no_provider, gemini=gemini)
+        self.assertTrue(r.ok)
+        self.assertEqual(r.backend, "gemini")
+        self.assertEqual(r.text, "gemini\ntext")
+
+    def test_chain_names_every_failed_backend(self):
+        api = FakeApi({VIDEO: IpBlocked(VIDEO)})
+
+        def no_provider(video_id):
+            raise RuntimeError("no PO-token provider")
+
+        def quota(video_id):
+            raise RuntimeError("Gemini API HTTP 429: quota")
+
+        [r] = yt.extract_all([VIDEO], api=api, fallback=no_provider, gemini=quota)
+        self.assertFalse(r.ok)
+        self.assertIn("yt-dlp fallback: RuntimeError: no PO-token provider", r.error)
+        self.assertIn("gemini fallback: RuntimeError: Gemini API HTTP 429", r.error)
+
+    def test_ip_block_without_any_fallback_is_still_named(self):
+        api = FakeApi({VIDEO: IpBlocked(VIDEO)})
+        [r] = yt.extract_all([VIDEO], api=api, fallback=None, gemini=None)
         self.assertFalse(r.ok)
         self.assertIn("IpBlocked", r.error)
-        self.assertIn("no fallback", r.error)
+        self.assertIn("yt-dlp: not configured", r.error)
+        self.assertIn("gemini: not configured", r.error)
 
     def test_primary_success_never_touches_the_fallback(self):
         api = FakeApi({VIDEO: fetched(VIDEO, ["ok"])})
@@ -190,7 +222,7 @@ class ExtractPipeline(unittest.TestCase):
         def boom(video_id):
             raise AssertionError("fallback must not run")
 
-        [r] = yt.extract_all([VIDEO], api=api, fallback=boom)
+        [r] = yt.extract_all([VIDEO], api=api, fallback=boom, gemini=boom)
         self.assertTrue(r.ok)
         self.assertEqual(r.backend, "youtube-transcript-api")
 
@@ -306,6 +338,214 @@ class YtDlpFallback(unittest.TestCase):
         info = {"subtitles": {"en": [{"ext": "vtt", "url": "only.vtt"}]}, "automatic_captions": {}}
         with self.assertRaises(LookupError):
             yt.fetch_transcript_ytdlp(VIDEO, ydl_factory=self._factory(info))
+
+    def test_cookies_and_proxy_come_from_the_environment(self):
+        saved = dict(os.environ)
+        try:
+            os.environ["YT_COOKIES_FILE"] = "/tmp/cookies.txt"
+            os.environ["YT_PROXY"] = "http://u:p@proxy.example:8080"
+            opts = yt.ytdlp_options(("en",))
+            self.assertEqual(opts["cookiefile"], "/tmp/cookies.txt")
+            self.assertEqual(opts["proxy"], "http://u:p@proxy.example:8080")
+            api = yt.build_api()
+            self.assertEqual(api._fetcher._http_client.proxies["https"], "http://u:p@proxy.example:8080")
+            os.environ.pop("YT_COOKIES_FILE")
+            os.environ.pop("YT_PROXY")
+            opts = yt.ytdlp_options(("en",))
+            self.assertNotIn("cookiefile", opts)
+            self.assertNotIn("proxy", opts)
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+
+class GeminiFallback(unittest.TestCase):
+    """fetch_transcript_gemini against a stand-in for requests.post."""
+
+    REPLY = {"candidates": [{"content": {"parts": [{"text": json.dumps({
+        "language_code": "en",
+        "segments": [
+            {"start": 0, "end": 2.5, "text": "hello there"},
+            {"start": 2.5, "end": 4, "text": " general kenobi "},
+            {"start": 4, "end": 4, "text": "   "},
+        ],
+    })}]}}]}
+
+    class FakeResponse:
+        def __init__(self, status, payload, text):
+            self.status_code = status
+            self._payload = payload
+            self.text = text
+
+        def json(self):
+            return self._payload
+
+    def _post(self, status=200, payload=None, text=""):
+        calls = []
+        reply = self.REPLY if payload is None else payload
+
+        def post(url, headers=None, json=None, timeout=None):
+            calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+            return self.FakeResponse(status, reply, text)
+
+        return post, calls
+
+    def test_rebuilds_segments_and_sends_the_video_url(self):
+        post, calls = self._post()
+        t = yt.fetch_transcript_gemini(VIDEO, api_key="k", model="gemini-test", post=post)
+        call = calls[0]
+        self.assertEqual(call["url"], "https://generativelanguage.googleapis.com/v1beta/models/gemini-test:generateContent")
+        self.assertEqual(call["headers"]["x-goog-api-key"], "k")
+        parts = call["json"]["contents"][0]["parts"]
+        self.assertEqual(parts[0]["fileData"]["fileUri"], f"https://www.youtube.com/watch?v={VIDEO}")
+        self.assertIn("verbatim", parts[1]["text"])
+        self.assertEqual(call["json"]["generationConfig"]["responseMimeType"], "application/json")
+        self.assertEqual(
+            [(s.text, s.start, s.duration) for s in t.snippets],
+            [("hello there", 0.0, 2.5), ("general kenobi", 2.5, 1.5)],
+        )
+        self.assertTrue(t.is_generated)
+        self.assertEqual(t.language_code, "en")
+        self.assertEqual(t.video_id, VIDEO)
+        self.assertEqual(yt.render(t, "timestamped"), "[00:00] hello there\n[00:02] general kenobi")
+
+    def test_missing_key_is_an_error(self):
+        saved = dict(os.environ)
+        try:
+            os.environ.pop("GEMINI_API_KEY", None)
+            with self.assertRaises(LookupError):
+                yt.fetch_transcript_gemini(VIDEO, post=self._post()[0])
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+    def test_http_error_is_an_error(self):
+        post, _ = self._post(status=429, payload={}, text='{"error": {"message": "quota"}}')
+        with self.assertRaises(RuntimeError) as ctx:
+            yt.fetch_transcript_gemini(VIDEO, api_key="k", post=post)
+        self.assertIn("429", str(ctx.exception))
+
+    def test_empty_segments_is_an_error(self):
+        empty = {"candidates": [{"content": {"parts": [{"text": json.dumps({"language_code": "en", "segments": []})}]}}]}
+        post, _ = self._post(payload=empty)
+        with self.assertRaises(LookupError):
+            yt.fetch_transcript_gemini(VIDEO, api_key="k", post=post)
+
+    def test_key_in_the_environment_enables_the_default_chain(self):
+        saved = dict(os.environ)
+        try:
+            os.environ["GEMINI_API_KEY"] = "k"
+            self.assertIsNotNone(yt.default_gemini_fetcher(("en",)))
+            os.environ.pop("GEMINI_API_KEY")
+            self.assertIsNone(yt.default_gemini_fetcher(("en",)))
+        finally:
+            os.environ.clear()
+            os.environ.update(saved)
+
+    def test_ask_gemini_sends_the_file_and_returns_the_answer(self):
+        import ask_gemini
+
+        reply = {"candidates": [{"content": {"parts": [{"text": "Looks "}, {"text": "fine."}]}}]}
+        post, calls = self._post(payload=reply)
+        answer = ask_gemini.ask("Review this", attachment="# README", api_key="k", model="gemini-test", post=post)
+        self.assertEqual(answer, "Looks fine.")
+        parts = calls[0]["json"]["contents"][0]["parts"]
+        self.assertIn("# README", parts[0]["text"])
+        self.assertEqual(parts[1]["text"], "Review this")
+
+
+class Formats(unittest.TestCase):
+    def setUp(self):
+        self.t = fetched(VIDEO, ["hello world", "second line"])  # starts 0 and 1, one second each
+
+    def test_timestamped(self):
+        self.assertEqual(yt.render(self.t, "timestamped"), "[00:00] hello world\n[00:01] second line")
+
+    def test_clock_rolls_into_hours(self):
+        self.assertEqual(yt._clock(3725.9), "1:02:05")
+        self.assertEqual(yt._clock(59), "00:59")
+
+    def test_srt_vtt_json_are_the_library_formatters(self):
+        srt = yt.render(self.t, "srt")
+        self.assertIn("00:00:00,000 --> 00:00:01,000", srt)
+        self.assertIn("hello world", srt)
+        vtt = yt.render(self.t, "vtt")
+        self.assertTrue(vtt.startswith("WEBVTT"))
+        self.assertIn("00:00:01.000 --> 00:00:02.000", vtt)
+        data = json.loads(yt.render(self.t, "json"))
+        self.assertEqual(data[0], {"text": "hello world", "start": 0.0, "duration": 1.0})
+
+    def test_unknown_format_is_rejected(self):
+        with self.assertRaises(ValueError):
+            yt.render(self.t, "docx")
+
+    def test_write_captures_every_shape(self):
+        [r] = yt.extract_all([VIDEO], api=FakeApi({VIDEO: self.t}))
+        with tempfile.TemporaryDirectory() as out:
+            paths = yt.write_captures(r, out)
+            names = sorted(os.path.basename(p) for p in paths)
+            self.assertEqual(names, sorted([
+                f"{VIDEO}.txt", f"{VIDEO}.timestamped.txt", f"{VIDEO}.srt", f"{VIDEO}.vtt", f"{VIDEO}.json",
+            ]))
+            with open(os.path.join(out, f"{VIDEO}.timestamped.txt"), encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "[00:00] hello world\n[00:01] second line\n")
+
+    def test_failed_result_writes_nothing(self):
+        [r] = yt.extract_all([VIDEO], api=FakeApi({VIDEO: TranscriptsDisabled(VIDEO)}))
+        with tempfile.TemporaryDirectory() as out:
+            self.assertEqual(yt.write_captures(r, out), [])
+            self.assertEqual(os.listdir(out), [])
+
+
+class CommandLine(unittest.TestCase):
+    def _run(self, argv, api, **kwargs):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = yt.main(argv, api=api, **kwargs)
+        return code, buf.getvalue()
+
+    def test_timestamped_preview(self):
+        code, out = self._run(["--format", "timestamped", VIDEO], FakeApi({VIDEO: fetched(VIDEO, ["one", "two"])}))
+        self.assertEqual(code, 0)
+        self.assertIn("[00:00] one\n[00:01] two", out)
+
+    def test_out_writes_every_format(self):
+        with tempfile.TemporaryDirectory() as out_dir:
+            code, out = self._run(["--out", out_dir, VIDEO], FakeApi({VIDEO: fetched(VIDEO, ["one"])}))
+            self.assertEqual(code, 0)
+            self.assertIn(f"wrote 5 files to {out_dir}/", out)
+            self.assertEqual(len(os.listdir(out_dir)), 5)
+
+    def test_backend_gemini_can_be_forced(self):
+        calls = []
+
+        def gemini(video_id):
+            calls.append(video_id)
+            return fetched(video_id, ["from", "gemini"], is_generated=True)
+
+        code, out = self._run(["--backend", "gemini", VIDEO], FakeApi({VIDEO: fetched(VIDEO, ["library"])}), gemini=gemini)
+        self.assertEqual(code, 0)
+        self.assertIn("via=gemini", out)
+        self.assertEqual(calls, [VIDEO])
+
+    def test_backend_gemini_without_a_key_is_reported(self):
+        code, out = self._run(["--backend", "gemini", VIDEO], FakeApi({VIDEO: fetched(VIDEO, ["x"])}), gemini=None)
+        self.assertEqual(code, 1)
+        self.assertIn("GEMINI_API_KEY", out)
+
+    def test_backend_library_forced_does_not_fall_back(self):
+        code, out = self._run(
+            ["--backend", "library", VIDEO], FakeApi({VIDEO: IpBlocked(VIDEO)}),
+            fallback=lambda video_id: fetched(video_id, ["nope"]), gemini=None,
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("backend forced to library", out)
+
+    def test_languages_flag_reaches_the_library(self):
+        api = FakeApi({VIDEO: fetched(VIDEO, ["hola"], language_code="es")})
+        code, out = self._run(["--languages", "es,en", VIDEO], api)
+        self.assertEqual(code, 0)
+        self.assertEqual(api.calls, [("fetch", VIDEO, ("es", "en"))])
 
 class Report(unittest.TestCase):
     def _run(self, urls, api):

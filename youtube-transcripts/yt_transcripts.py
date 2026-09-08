@@ -2,24 +2,34 @@
 """YouTube transcript extraction — proof of concept.
 
 Takes a list of YouTube URLs (standard videos *and* Shorts), isolates the
-11-character video ID from each, pulls the transcript with
-youtube-transcript-api (no Data API key, no OAuth), strips timestamps with the
-library's TextFormatter, and prints the first 500 characters of each so the
-extraction is visibly proven.
+11-character video ID from each, pulls the transcript, and prints the first
+500 characters of each so the extraction is visibly proven. With ``--out`` it
+also writes the full transcript in every supported shape — plain text,
+timestamped text, SRT, WebVTT, JSON — so the capture is usable downstream.
 
     pip install -r requirements.txt
-    python3 yt_transcripts.py                 # runs the hardcoded proof list
-    python3 yt_transcripts.py URL [URL ...]   # or any URLs / bare IDs you pass
+    python3 yt_transcripts.py                                # hardcoded proof list
+    python3 yt_transcripts.py URL [URL ...]                  # any URLs / bare IDs
+    python3 yt_transcripts.py --format timestamped --out captures URL ...
 
 Exit status is 0 only when every URL yielded a transcript.
 
-Two backends, one output. youtube-transcript-api is tried first. When
-YouTube's player refuses it with "Sign in to confirm you're not a bot" — its
-standard answer to datacenter IPs such as CI runners and cloud servers — the
-same captions are fetched through yt-dlp, which can attach a proof-of-origin
-token from a running bgutil provider (see README), and are rebuilt as a
-FetchedTranscript so the identical TextFormatter produces the text. The report
-names which backend delivered each transcript.
+Three backends, one output:
+
+1. youtube-transcript-api (primary). No key, no OAuth. From a normal
+   connection this is the whole story.
+2. yt-dlp (fallback). When YouTube meets the primary with "Sign in to confirm
+   you're not a bot" — its standard reply to datacenter IPs — the same caption
+   track is fetched through yt-dlp, which can present a proof-of-origin token
+   from a bgutil provider running alongside, and honours a cookies file or a
+   proxy when configured (see README).
+3. Gemini (fallback, optional). Google's own route: with GEMINI_API_KEY set,
+   the Gemini API watches the video from its YouTube URL and returns timed
+   segments. It needs no caption track, is not subject to the bot check, and
+   works for Shorts. It costs tokens.
+
+Every backend ends in the library's FetchedTranscript, so the same formatters
+render the same shapes, and the report names which backend delivered it.
 
 Note on the library version: the pre-1.0 API was the class-level
 ``YouTubeTranscriptApi.get_transcript(video_id)``. Since 1.0 it is an instance
@@ -28,13 +38,17 @@ This script targets the current API (pinned in requirements.txt).
 """
 from __future__ import annotations
 
+import argparse
+import functools
 import json
+import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 from urllib.parse import parse_qs, urlparse
 
+import requests
 from youtube_transcript_api import (
     CouldNotRetrieveTranscript,
     FetchedTranscript,
@@ -45,7 +59,13 @@ from youtube_transcript_api import (
     VideoUnavailable,
     YouTubeTranscriptApi,
 )
-from youtube_transcript_api.formatters import TextFormatter
+from youtube_transcript_api.formatters import (
+    JSONFormatter,
+    SRTFormatter,
+    TextFormatter,
+    WebVTTFormatter,
+)
+from youtube_transcript_api.proxies import GenericProxyConfig
 
 # The proof list: at least one standard video and one Short. Shorts share the
 # same 11-character ID space as videos — only the URL shape differs.
@@ -58,8 +78,26 @@ PROOF_URLS: List[str] = [
 PREVIEW_CHARS = 500
 PREFERRED_LANGUAGES: Sequence[str] = ("en",)
 WATCH_URL = "https://www.youtube.com/watch?v={}"
+BACKENDS = ("auto", "library", "ytdlp", "gemini")
 
 FORMATTER = TextFormatter()
+
+# Output shapes: name -> file extension used by --out.
+FORMATS: Dict[str, str] = {
+    "text": "txt",
+    "timestamped": "timestamped.txt",
+    "srt": "srt",
+    "vtt": "vtt",
+    "json": "json",
+}
+
+# Access configuration for servers and other addresses YouTube distrusts.
+# Both are read from the environment so no credential ever lives in the repo.
+ENV_COOKIES = "YT_COOKIES_FILE"   # Netscape cookies file from a signed-in browser (yt-dlp)
+ENV_PROXY = "YT_PROXY"            # http(s)://user:pass@host:port, used by both backends
+ENV_GEMINI_KEY = "GEMINI_API_KEY"
+ENV_GEMINI_MODEL = "GEMINI_MODEL"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 # ---------------------------------------------------------------- URL parsing
 
@@ -123,6 +161,16 @@ def url_kind(url: str) -> str:
 # ------------------------------------------------- primary: youtube-transcript-api
 
 
+def build_api() -> YouTubeTranscriptApi:
+    """One library session; routed through YT_PROXY when that is set."""
+    proxy = os.environ.get(ENV_PROXY)
+    if proxy:
+        return YouTubeTranscriptApi(
+            proxy_config=GenericProxyConfig(http_url=proxy, https_url=proxy)
+        )
+    return YouTubeTranscriptApi()
+
+
 def fetch_transcript(
     video_id: str,
     api: Optional[YouTubeTranscriptApi] = None,
@@ -135,7 +183,7 @@ def fetch_transcript(
     in those languages, take the first transcript YouTube lists rather than
     failing — the text is still useful and the language is reported with it.
     """
-    api = api or YouTubeTranscriptApi()
+    api = api or build_api()
     try:
         return api.fetch(video_id, languages=list(languages))
     except NoTranscriptFound as missing:
@@ -173,6 +221,25 @@ def _pick_caption_track(
     return None
 
 
+def ytdlp_options(languages: Iterable[str]) -> dict:
+    """yt-dlp options: captions only, quiet, plus the access config from the environment."""
+    options = {
+        "skip_download": True,
+        "writesubtitles": True,
+        "writeautomaticsub": True,
+        "subtitleslangs": list(languages),
+        "quiet": True,
+        "no_warnings": True,
+    }
+    cookies = os.environ.get(ENV_COOKIES)
+    if cookies:
+        options["cookiefile"] = cookies
+    proxy = os.environ.get(ENV_PROXY)
+    if proxy:
+        options["proxy"] = proxy
+    return options
+
+
 def fetch_transcript_ytdlp(
     video_id: str,
     languages: Iterable[str] = PREFERRED_LANGUAGES,
@@ -183,22 +250,14 @@ def fetch_transcript_ytdlp(
     From a datacenter IP YouTube's player answers youtube-transcript-api's
     request with "Sign in to confirm you're not a bot" for most videos. yt-dlp
     can present a proof-of-origin token from a bgutil provider running next
-    to it (see README) and is handed the caption tracks anyway. The chosen
-    track is fetched in YouTube's json3 form and rebuilt as a
-    FetchedTranscript, so the unchanged TextFormatter does the formatting and
+    to it (see README), and uses YT_COOKIES_FILE / YT_PROXY when set. The
+    chosen track is fetched in YouTube's json3 form and rebuilt as a
+    FetchedTranscript, so the unchanged formatters do the formatting and
     nothing downstream knows which backend ran.
     """
     import yt_dlp  # optional dependency, imported only when the fallback runs
 
-    options = {
-        "skip_download": True,
-        "writesubtitles": True,
-        "writeautomaticsub": True,
-        "subtitleslangs": list(languages),
-        "quiet": True,
-        "no_warnings": True,
-    }
-    with (ydl_factory or yt_dlp.YoutubeDL)(options) as ydl:
+    with (ydl_factory or yt_dlp.YoutubeDL)(ytdlp_options(languages)) as ydl:
         info = ydl.extract_info(WATCH_URL.format(video_id), download=False) or {}
         choice = _pick_caption_track(
             info.get("subtitles") or {}, info.get("automatic_captions") or {}, languages
@@ -233,28 +292,184 @@ def fetch_transcript_ytdlp(
     )
 
 
-class FallbackFailed(Exception):
-    """The primary was bot-checked and the fallback did not deliver either."""
+# -------------------------------------------------------- fallback: Gemini
 
-    def __init__(self, blocked: RequestBlocked, fallback_error: Exception):
-        super().__init__(str(fallback_error))
+GEMINI_ENDPOINT = (
+    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+)
+GEMINI_PROMPT = (
+    "Transcribe every spoken word in this video verbatim, in the language that is "
+    "spoken. Return JSON only, of the form {\"language_code\": <BCP-47 code of the "
+    "spoken language>, \"segments\": [{\"start\": <seconds>, \"end\": <seconds>, "
+    "\"text\": <the words>}]}. Split segments at natural phrase boundaries of "
+    "roughly one sentence each. Timestamps are seconds from the start of the video, "
+    "as numbers. No commentary, no summary, no speaker labels."
+)
+GEMINI_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "language_code": {"type": "STRING"},
+        "segments": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "start": {"type": "NUMBER"},
+                    "end": {"type": "NUMBER"},
+                    "text": {"type": "STRING"},
+                },
+                "required": ["start", "end", "text"],
+            },
+        },
+    },
+    "required": ["language_code", "segments"],
+}
+
+
+def gemini_request(video_id: str, model: str) -> Tuple[str, dict]:
+    """The (url, JSON body) of the Gemini call for one video — kept separate so it can be inspected."""
+    body = {
+        "contents": [{
+            "parts": [
+                {"fileData": {"fileUri": WATCH_URL.format(video_id)}},
+                {"text": GEMINI_PROMPT},
+            ]
+        }],
+        "generationConfig": {
+            "temperature": 0,
+            "responseMimeType": "application/json",
+            "responseSchema": GEMINI_SCHEMA,
+        },
+    }
+    return GEMINI_ENDPOINT.format(model=model), body
+
+
+def fetch_transcript_gemini(
+    video_id: str,
+    languages: Iterable[str] = PREFERRED_LANGUAGES,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    post: Optional[Callable] = None,
+) -> FetchedTranscript:
+    """Google's own route: Gemini watches the video and returns timed segments.
+
+    Given a YouTube URL as ``fileData``, the Gemini API transcribes the audio
+    itself — no caption track, no bot check, Shorts included, from any
+    address. It needs GEMINI_API_KEY and spends tokens on the video. The
+    reply is validated against a JSON schema and rebuilt as a
+    FetchedTranscript so the same formatters apply.
+    """
+    api_key = api_key or os.environ.get(ENV_GEMINI_KEY, "")
+    if not api_key:
+        raise LookupError(f"{ENV_GEMINI_KEY} is not set")
+    model = model or os.environ.get(ENV_GEMINI_MODEL) or DEFAULT_GEMINI_MODEL
+    url, body = gemini_request(video_id, model)
+    response = (post or requests.post)(
+        url,
+        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+        json=body,
+        timeout=600,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Gemini API HTTP {response.status_code}: "
+            f"{' '.join(str(response.text).split())[:200]}"
+        )
+    payload = response.json()
+    try:
+        text = payload["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError, TypeError) as err:
+        raise RuntimeError(
+            f"Gemini API returned no transcript text: {json.dumps(payload)[:200]}"
+        ) from err
+    data = json.loads(text)
+    snippets: List[FetchedTranscriptSnippet] = []
+    for seg in data.get("segments") or []:
+        words = str(seg.get("text", "")).strip()
+        if not words:
+            continue
+        start = float(seg.get("start") or 0.0)
+        end = float(seg.get("end") or start)
+        snippets.append(
+            FetchedTranscriptSnippet(text=words, start=start, duration=max(0.0, end - start))
+        )
+    if not snippets:
+        raise LookupError("Gemini returned no segments for this video")
+    code = str(data.get("language_code") or next(iter(languages), "und"))
+    return FetchedTranscript(
+        snippets=snippets,
+        video_id=video_id,
+        language=f"{code} (Gemini transcription)",
+        language_code=code,
+        is_generated=True,
+    )
+
+
+# ------------------------------------------------------------ backend chain
+
+_DEFAULT = object()  # "use the configured default" sentinel for fetcher arguments
+
+
+def default_ytdlp_fetcher(languages: Iterable[str]) -> Fetcher:
+    return functools.partial(fetch_transcript_ytdlp, languages=languages)
+
+
+def default_gemini_fetcher(languages: Iterable[str]) -> Optional[Fetcher]:
+    """Gemini joins the chain only when its key is present."""
+    if os.environ.get(ENV_GEMINI_KEY):
+        return functools.partial(fetch_transcript_gemini, languages=languages)
+    return None
+
+
+class FallbackFailed(Exception):
+    """The primary was bot-checked and no fallback delivered either."""
+
+    def __init__(self, blocked: RequestBlocked, attempts: List[Tuple[str, Optional[Exception]]]):
+        super().__init__("; ".join(f"{name}: {err}" for name, err in attempts))
         self.blocked = blocked
-        self.fallback_error = fallback_error
+        self.attempts = attempts  # (backend name, error or None when not configured)
 
 
 def _fetch_with_fallback(
-    video_id: str, api: Optional[YouTubeTranscriptApi], fallback: Optional[Fetcher]
+    video_id: str,
+    api: Optional[YouTubeTranscriptApi],
+    fallback: Optional[Fetcher],
+    gemini: Optional[Fetcher],
+    backend: str = "auto",
+    languages: Iterable[str] = PREFERRED_LANGUAGES,
 ) -> Tuple[FetchedTranscript, str]:
-    """Primary first; on YouTube's bot check, the fallback. Returns (transcript, backend)."""
-    try:
-        return fetch_transcript(video_id, api), "youtube-transcript-api"
-    except RequestBlocked as blocked:  # IpBlocked is a subclass
+    """Run one forced backend, or the chain: library, then yt-dlp, then Gemini.
+
+    Returns (transcript, backend name). Only YouTube's bot check moves the
+    chain along; every other failure of the primary is final and reported
+    as such, since a video without captions has none for yt-dlp either.
+    """
+    if backend == "library":
+        return fetch_transcript(video_id, api, languages), "youtube-transcript-api"
+    if backend == "ytdlp":
         if fallback is None:
-            raise
-        try:
-            return fallback(video_id), "yt-dlp"
-        except Exception as err:  # noqa: BLE001 — reported next to the block that caused it
-            raise FallbackFailed(blocked, err) from err
+            raise LookupError("the yt-dlp backend is not configured")
+        return fallback(video_id), "yt-dlp"
+    if backend == "gemini":
+        if gemini is None:
+            raise LookupError(f"the Gemini backend needs {ENV_GEMINI_KEY}")
+        return gemini(video_id), "gemini"
+    if backend != "auto":
+        raise ValueError(f"unknown backend {backend!r}; choose from {', '.join(BACKENDS)}")
+
+    try:
+        return fetch_transcript(video_id, api, languages), "youtube-transcript-api"
+    except RequestBlocked as blocked:  # IpBlocked is a subclass
+        attempts: List[Tuple[str, Optional[Exception]]] = []
+        for name, fetcher in (("yt-dlp", fallback), ("gemini", gemini)):
+            if fetcher is None:
+                attempts.append((name, None))
+                continue
+            try:
+                return fetcher(video_id), name
+            except Exception as err:  # noqa: BLE001 — reported next to the block that caused it
+                attempts.append((name, err))
+        raise FallbackFailed(blocked, attempts)
 
 
 # ------------------------------------------------------------------ extraction
@@ -272,6 +487,7 @@ class TranscriptResult:
     snippets: int = 0
     backend: str = ""
     error: str = ""
+    fetched: Optional[FetchedTranscript] = field(default=None, repr=False)
 
     @property
     def preview(self) -> str:
@@ -291,12 +507,32 @@ def _blocked_message(blocked: RequestBlocked) -> str:
     )
 
 
+def _attempts_report(attempts: List[Tuple[str, Optional[Exception]]]) -> str:
+    parts = []
+    for name, err in attempts:
+        if err is None:
+            hint = f" ({ENV_GEMINI_KEY} unset)" if name == "gemini" else ""
+            parts.append(f"{name}: not configured{hint}")
+        else:
+            parts.append(f"{name} fallback: {type(err).__name__}: {_brief(err)}")
+    return "; ".join(parts)
+
+
 def extract(
     url: str,
     api: Optional[YouTubeTranscriptApi] = None,
-    fallback: Optional[Fetcher] = fetch_transcript_ytdlp,
+    fallback: Optional[Fetcher] = _DEFAULT,  # type: ignore[assignment]
+    gemini: Optional[Fetcher] = _DEFAULT,  # type: ignore[assignment]
+    backend: str = "auto",
+    languages: Iterable[str] = PREFERRED_LANGUAGES,
 ) -> TranscriptResult:
     """Parse one URL, fetch its transcript, and report — never raises."""
+    languages = tuple(languages)
+    if fallback is _DEFAULT:
+        fallback = default_ytdlp_fetcher(languages)
+    if gemini is _DEFAULT:
+        gemini = default_gemini_fetcher(languages)
+
     result = TranscriptResult(url=url, kind=url_kind(url))
     try:
         result.video_id = extract_video_id(url)
@@ -305,18 +541,17 @@ def extract(
         return result
 
     try:
-        fetched, backend = _fetch_with_fallback(result.video_id, api, fallback)
+        fetched, used = _fetch_with_fallback(
+            result.video_id, api, fallback, gemini, backend, languages
+        )
     except TranscriptsDisabled:
         result.error = "no captions: the uploader disabled transcripts for this video"
     except NoTranscriptFound:
         result.error = "no captions: no transcript in any language"
-    except FallbackFailed as both:
-        result.error = (
-            f"{_blocked_message(both.blocked)}; yt-dlp fallback: "
-            f"{type(both.fallback_error).__name__}: {_brief(both.fallback_error)}"
-        )
+    except FallbackFailed as failed:
+        result.error = f"{_blocked_message(failed.blocked)}; {_attempts_report(failed.attempts)}"
     except RequestBlocked as blocked:
-        result.error = f"{_blocked_message(blocked)}; no fallback configured"
+        result.error = f"{_blocked_message(blocked)}; backend forced to {backend}, no fallback tried"
     except VideoUnavailable:
         result.error = "video unavailable: private, deleted, or region-locked"
     except CouldNotRetrieveTranscript as err:
@@ -324,11 +559,12 @@ def extract(
     except Exception as err:  # noqa: BLE001 — network faults must not stop the batch
         result.error = f"{type(err).__name__}: {_brief(err)}"
     else:
+        result.fetched = fetched
         result.text = FORMATTER.format_transcript(fetched)
         result.language = fetched.language_code
         result.is_generated = fetched.is_generated
         result.snippets = len(fetched.snippets)
-        result.backend = backend
+        result.backend = used
         result.ok = True
     return result
 
@@ -336,10 +572,59 @@ def extract(
 def extract_all(
     urls: Iterable[str],
     api: Optional[YouTubeTranscriptApi] = None,
-    fallback: Optional[Fetcher] = fetch_transcript_ytdlp,
+    fallback: Optional[Fetcher] = _DEFAULT,  # type: ignore[assignment]
+    gemini: Optional[Fetcher] = _DEFAULT,  # type: ignore[assignment]
+    backend: str = "auto",
+    languages: Iterable[str] = PREFERRED_LANGUAGES,
 ) -> List[TranscriptResult]:
-    api = api or YouTubeTranscriptApi()  # one session, reused across the batch
-    return [extract(url, api, fallback) for url in urls]
+    languages = tuple(languages)
+    api = api or build_api()  # one session, reused across the batch
+    if fallback is _DEFAULT:
+        fallback = default_ytdlp_fetcher(languages)
+    if gemini is _DEFAULT:
+        gemini = default_gemini_fetcher(languages)
+    return [extract(url, api, fallback, gemini, backend, languages) for url in urls]
+
+
+# ------------------------------------------------------------------ rendering
+
+
+def _clock(seconds: float) -> str:
+    total = int(seconds)
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
+
+
+def render(fetched: FetchedTranscript, fmt: str = "text") -> str:
+    """One transcript in one shape. ``text`` is the sprint's clean block;
+    ``timestamped`` prefixes each snippet with its start time; the rest are
+    the library's own SRT, WebVTT and JSON formatters."""
+    if fmt == "text":
+        return FORMATTER.format_transcript(fetched)
+    if fmt == "timestamped":
+        return "\n".join(f"[{_clock(s.start)}] {s.text}" for s in fetched.snippets)
+    if fmt == "srt":
+        return SRTFormatter().format_transcript(fetched)
+    if fmt == "vtt":
+        return WebVTTFormatter().format_transcript(fetched)
+    if fmt == "json":
+        return JSONFormatter().format_transcript(fetched, indent=2, ensure_ascii=False)
+    raise ValueError(f"unknown format {fmt!r}; choose from {', '.join(FORMATS)}")
+
+
+def write_captures(result: TranscriptResult, out_dir: str) -> List[str]:
+    """Write a successful result in every format into ``out_dir``; return the paths."""
+    if not result.ok or result.fetched is None:
+        return []
+    os.makedirs(out_dir, exist_ok=True)
+    paths = []
+    for fmt, ext in FORMATS.items():
+        path = os.path.join(out_dir, f"{result.video_id}.{ext}")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(render(result.fetched, fmt).rstrip("\n") + "\n")
+        paths.append(path)
+    return paths
 
 
 # ----------------------------------------------------------------- reporting
@@ -347,7 +632,7 @@ def extract_all(
 RULE = "=" * 72
 
 
-def print_report(results: Sequence[TranscriptResult]) -> None:
+def print_report(results: Sequence[TranscriptResult], fmt: str = "text") -> None:
     for r in results:
         print(RULE)
         print(f"{r.kind.upper():<6} {r.url}")
@@ -358,7 +643,7 @@ def print_report(results: Sequence[TranscriptResult]) -> None:
                 f"snippets={r.snippets}  chars={len(r.text)}  via={r.backend}"
             )
             print("-" * 72)
-            print(r.preview)
+            print(render(r.fetched, fmt)[:PREVIEW_CHARS] if r.fetched else r.preview)
         else:
             print(f"id={r.video_id or '?'}  FAILED")
             print("-" * 72)
@@ -368,14 +653,50 @@ def print_report(results: Sequence[TranscriptResult]) -> None:
     print(f"{ok}/{len(results)} transcripts extracted")
 
 
+def parse_args(argv: Sequence[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Extract clean transcripts from YouTube videos and Shorts."
+    )
+    parser.add_argument(
+        "urls", nargs="*",
+        help="YouTube URLs or bare 11-character IDs (default: the hardcoded proof list)",
+    )
+    parser.add_argument(
+        "--format", choices=list(FORMATS), default="text",
+        help="shape of the printed preview (default: text). --out always writes every shape",
+    )
+    parser.add_argument(
+        "--out", metavar="DIR",
+        help="write each transcript in full, in every format, into DIR",
+    )
+    parser.add_argument(
+        "--backend", choices=BACKENDS, default="auto",
+        help="auto = library, then yt-dlp, then Gemini when GEMINI_API_KEY is set (default)",
+    )
+    parser.add_argument(
+        "--languages", default=",".join(PREFERRED_LANGUAGES),
+        help="preferred caption languages, comma-separated (default: en)",
+    )
+    return parser.parse_args(list(argv))
+
+
 def main(
     argv: Sequence[str],
     api: Optional[YouTubeTranscriptApi] = None,
-    fallback: Optional[Fetcher] = fetch_transcript_ytdlp,
+    fallback: Optional[Fetcher] = _DEFAULT,  # type: ignore[assignment]
+    gemini: Optional[Fetcher] = _DEFAULT,  # type: ignore[assignment]
 ) -> int:
-    urls = list(argv) or PROOF_URLS
-    results = extract_all(urls, api=api, fallback=fallback)
-    print_report(results)
+    args = parse_args(argv)
+    urls = args.urls or PROOF_URLS
+    languages = tuple(code.strip() for code in args.languages.split(",") if code.strip())
+    results = extract_all(
+        urls, api=api, fallback=fallback, gemini=gemini,
+        backend=args.backend, languages=languages or PREFERRED_LANGUAGES,
+    )
+    print_report(results, args.format)
+    if args.out:
+        written = [path for r in results for path in write_captures(r, args.out)]
+        print(f"wrote {len(written)} files to {args.out}/")
     return 0 if all(r.ok for r in results) else 1
 
 
