@@ -63,6 +63,12 @@ jobs:
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:4416/ping >/dev/null 2>&1 && break; sleep 1; done
           curl -s http://127.0.0.1:4416/ping || echo "(provider gave no /ping answer; continuing)"
           echo
+          # Receipt that yt-dlp actually loaded the provider plugin and used a
+          # token: its verbose log names the PO token providers it found.
+          for u in https://www.youtube.com/watch?v=dQw4w9WgXcQ https://www.youtube.com/shorts/uOLqPKuO2Bo; do
+            echo "--- yt-dlp -v $u (token-provider lines only)"
+            yt-dlp -v --skip-download --print id "$u" 2>&1 | grep -iE "\[pot\]|plugin|bgutil|po token|sign in" || echo "(no provider lines in yt-dlp's verbose output)"
+          done
 
       - name: Probe clients (diagnostic, on request)
         if: ${{ inputs.probe }}
