@@ -33,7 +33,7 @@ which backend delivered it — then the first 500 characters in the chosen shape
 VIDEO  https://www.youtube.com/watch?v=dQw4w9WgXcQ
 id=dQw4w9WgXcQ  lang=en  snippets=61  chars=2089  via=youtube-transcript-api
 ------------------------------------------------------------------------
-[00:00] [♪♪♪]
+[00:01] [♪♪♪]
 [00:18] ♪ We're no strangers to love ♪
 [00:22] ♪ You know the rules
 …
@@ -98,22 +98,35 @@ format must exist, parse, agree on the cue count and start times, and the
 plain text must equal the JSON cues joined. Dispatch inputs let you add URLs
 and sample other Shorts from the runner.
 
-**Standard video: extracted on every run**, timestamped. 61 snippets, 2089
-characters of the real transcript. On some runners `youtube-transcript-api`
-gets it directly; on others YouTube meets the library with its sign-in prompt
-and the yt-dlp fallback delivers the identical text.
+**The method is proven end to end on one video.** `dQw4w9WgXcQ` extracts on
+every run, timestamped: 61 cues from `[00:01]` to `03:31`, 2089 characters of
+the real transcript, all five files written and passing the validator. On
+most runners `youtube-transcript-api` gets it directly; on one whose IP
+YouTube refused, the yt-dlp fallback delivered the identical text.
 
-**Shorts from a datacenter IP: refused by YouTube.** For both Shorts, every
-request from the runner gets "Sign in to confirm you're not a bot": the
-library's, yt-dlp's, and yt-dlp with a proof-of-origin token attached. That
-is YouTube's policy for cloud IP ranges, not a code path — a Short is parsed
-to the same 11-character ID and fetched exactly like a video, and the offline
-suite covers that path. From a normal connection the script runs as-is. On a
-server, the three ways through are the ones above: a cookies file, a
-residential proxy, or the Gemini route. The workflow therefore requires the
-video step, runs the Shorts step as informational, and runs the Gemini step
-and a Gemini review of this README only when a `GEMINI_API_KEY` repository
-secret exists.
+**Everything else from a datacenter IP is refused, Shorts and standard
+videos alike.** Across three runners on the same day, 17 other videos all got
+"Sign in to confirm you're not a bot": the two Shorts in the proof list,
+eight more Shorts found through yt-dlp's own search (the search itself
+worked), and seven well-known standard videos (`kJQP7kiw5Fk`, `JGwWNGJdvx8`,
+`XqZsoesa55w`, `OPf0YbXqDm0`, `fJ9rUzIMcZQ`, `9bZkp7q19f0`, `jNQXAC9IVRw`).
+The refusal came from the library's client, from every other InnerTube
+client (`probe_clients.py`), and from yt-dlp with the proof-of-origin token
+provider loaded — the workflow prints yt-dlp's own receipt, `PO Token
+Providers: bgutil:http-2.0.0 (external)`, right before the refusal. So the
+gate is YouTube's policy for cloud IP ranges, applied per video;
+`dQw4w9WgXcQ` is the exception (it is YouTube's canonical test video), not
+the rule, and a green video step proves the code path, not access from a
+server.
+
+A Short is parsed to the same 11-character ID and fetched exactly like a
+video, and the offline suite covers that path. From a normal home or office
+connection the script runs as-is. On a server, the three ways through are
+the ones above: a cookies file (yt-dlp only), a residential proxy, or the
+Gemini route. The workflow therefore requires the video step and the
+validator, runs the Shorts step and any dispatch URLs as informational, and
+runs the Gemini step and a Gemini review of this README only when a
+`GEMINI_API_KEY` repository secret exists.
 
 ## Ask Gemini
 
@@ -164,8 +177,9 @@ This script targets the current API and the requirement is pinned `<2`.
 **Where the bulk job runs decides what it gets.** From a laptop on a normal
 connection, `youtube-transcript-api` alone does the work; pace the run, since
 thousands of requests from one address invite the same sign-in prompt. From a
-server, expect the prompt for many videos and all Shorts unless a cookies
-file, a proxy, or the Gemini key is configured.
+server, expect the prompt for nearly every video, Shorts and standard alike
+(17 of the 18 tried from GitHub's runners), unless a cookies file, a proxy,
+or the Gemini key is configured.
 
 ## Next step (not this sprint)
 
