@@ -551,7 +551,7 @@ class CommandLine(unittest.TestCase):
 class Validator(unittest.TestCase):
     """validate_captures.py against files written by write_captures."""
 
-    def _captures(self, out, words=("hello world", "second line", "third")):
+    def _captures(self, out, words=("hello world", "second line\nwrapped onto two", "[Music]\n[Applause] third")):
         [r] = yt.extract_all([VIDEO], api=FakeApi({VIDEO: fetched(VIDEO, list(words))}))
         yt.write_captures(r, out)
 
@@ -561,8 +561,12 @@ class Validator(unittest.TestCase):
         with tempfile.TemporaryDirectory() as out:
             self._captures(out)
             ok, total, lines = validate_captures.validate(out)
-            self.assertEqual((ok, total), (1, 1))
+            self.assertEqual((ok, total), (1, 1), lines)
             self.assertIn("3 cues", lines[0])
+            self.assertEqual(
+                validate_captures._parse_timestamped("[00:00] a\nb\n[1:02:03] [Music]\n[x] c\n"),
+                [("00:00", "a\nb"), ("1:02:03", "[Music]\n[x] c")],
+            )
             self.assertIn("all five formats agree", lines[0])
             self.assertEqual(validate_captures.main([out]), 0)
 

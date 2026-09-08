@@ -37,6 +37,20 @@ def _cue_starts(text: str, pattern: re.Pattern) -> List[float]:
     return starts
 
 
+def _parse_timestamped(text: str) -> List[Tuple[str, str]]:
+    """``[mm:ss] words`` lines start a cue; any other line continues the previous
+    cue, since caption cues are often written on two lines."""
+    cues: List[Tuple[str, List[str]]] = []
+    for line in text.splitlines():
+        match = STAMP.match(line)
+        if match:
+            clock = (match.group(1) or "") + match.group(2) + ":" + match.group(3)
+            cues.append((clock, [match.group(4)]))
+        elif cues:
+            cues[-1][1].append(line)
+    return [(clock, "\n".join(lines).strip()) for clock, lines in cues]
+
+
 def check_video(directory: str, video_id: str) -> Tuple[bool, str]:
     """Return (ok, one-line verdict) for one video's set of capture files."""
     paths = {fmt: os.path.join(directory, f"{video_id}.{ext}") for fmt, ext in FORMATS.items()}
@@ -68,14 +82,12 @@ def check_video(directory: str, video_id: str) -> Tuple[bool, str]:
     if contents["text"].strip() != expected_text:
         problems.append("txt differs from the json cues joined")
 
-    stamped = [STAMP.match(line) for line in contents["timestamped"].splitlines() if line.strip()]
-    if len(stamped) != len(cues) or any(m is None for m in stamped):
-        problems.append(f"timestamped has {sum(m is not None for m in stamped)} stamped lines for {len(cues)} cues")
-    else:
-        for m, c in zip(stamped, cues):
-            if f"[{_clock(float(c['start']))}]" != m.group(0)[: m.group(0).index("]") + 1]:
-                problems.append("timestamped clocks do not match json starts")
-                break
+    stamped = _parse_timestamped(contents["timestamped"])
+    expected = [(_clock(float(c["start"])), str(c["text"]).strip()) for c in cues]
+    if len(stamped) != len(cues):
+        problems.append(f"timestamped has {len(stamped)} stamped cues for {len(cues)} in json")
+    elif stamped != expected:
+        problems.append("timestamped clocks or text do not match the json cues")
 
     srt_starts = _cue_starts(contents["srt"], SRT_TIME)
     if len(srt_starts) != len(cues):
