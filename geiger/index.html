@@ -642,21 +642,22 @@ function buildGeigerSummary(d) {
   const root = document.querySelector("#coRailContent .gsum");
   if (!root || !d) return;
   const q = (k) => root.querySelector('[data-gs="' + k + '"]');
-  const setf = (k, s) => { const n = q(k); if (n != null && s != null) {
-    n.setAttribute("stroke-dasharray", Math.max(2, Math.min(100, (s+1)/2*100)) + " 100");
-    n.setAttribute("stroke-opacity", "1");
+  const setf = (k, s) => { const n = q(k); if (n != null) {
+    n.setAttribute("stroke-dasharray", s == null ? "0 100" : Math.max(2, Math.min(100, (s+1)/2*100)) + " 100");
+    n.setAttribute("stroke-opacity", s == null ? ".22" : "1");
   } };
 
-  if (d.trend != null) setf("f_trend", d.trend);
-  if (d.momentum != null) setf("f_mom", d.momentum);
+  setf("f_trend", d.trend);
+  setf("f_mom", d.momentum);
   if (d.structure != null) setf("f_struc", d.structure);
   else { const fs = q("f_struc"); if (fs){ fs.setAttribute("stroke-dasharray", "0 100"); fs.setAttribute("stroke-opacity", ".22"); } }
   const C = q("comp"), CS = q("compst");
-  if (C){ if (d.composite != null){ C.textContent = gsSgn(d.composite); C.style.color = gsTone(d.composite); C.style.filter = "drop-shadow(0 0 9px " + gsTone(d.composite) + ")"; } else C.textContent = "—"; }
+  if (C){ if (d.composite != null){ C.textContent = gsSgn(d.composite); C.style.color = gsTone(d.composite); C.style.filter = "drop-shadow(0 0 9px " + gsTone(d.composite) + ")"; } else { C.textContent = "—"; C.style.color = ""; C.style.filter = "none"; } }
   if (CS) CS.textContent = d.composite == null ? "" : (Math.abs(d.composite) < 0.10 ? "neutral" : (d.composite > 0 ? "bull lean" : "bear lean"));
   const readState = q("readstate");
   if (readState) {
-    if (d._firstPaintCacheKind === "localStorage")
+    if (d._readError) readState.textContent = "PROVIDER READ UNAVAILABLE · " + d._readError;
+    else if (d._firstPaintCacheKind === "localStorage")
       readState.textContent = "BROWSER CACHE · " + Math.max(0, Math.round((d._firstPaintCacheAgeMs || 0) / 60000)) + "M OLD · REFRESHING";
     else if (d._firstPaintCacheKind === "memory") readState.textContent = "SESSION CACHE · REFRESHING";
     else readState.textContent = "PROVIDER READ · COMPUTED " + String(d.updated_ts || "UNKNOWN");
@@ -744,7 +745,17 @@ async function pullLive(t) {
     }
   } catch (_) {}
 }
+let GEIGER_MOUNT_GENERATION = 0;
+function geigerUnavailableData(t, prior, reason) {
+  return Object.assign({}, prior || {}, {
+    t, composite:null, trend:null, momentum:null, structure:null, conviction:null,
+    updated_ts:null, geigerRungs:{},
+    price:PRICES[t] != null ? num(PRICES[t]) : null,
+    _firstPaintCacheKind:null, _readError:String(reason || "GEIGER_READ_FAILED")
+  });
+}
 async function mountGeiger(t) {
+  const generation = ++GEIGER_MOUNT_GENERATION;
   // the measure identity for motion purposes: a different ticker is a different measure
   try { const _tn = el("gsTrend"); if (_tn) _tn.setAttribute("data-gs-key", String(t || "")); } catch (e) {}
   LEFT_T = t; S.focusT = t;
@@ -772,6 +783,7 @@ async function mountGeiger(t) {
   await pullLive(t);
   try {
     const gd = await geigerSummaryData(t);
+    if (generation !== GEIGER_MOUNT_GENERATION || LEFT_T !== t) return;
     GEIGER_MEM[t] = gd;
     try { cacheSet("sc_geiger_current_v2_" + t, { data: gd }); } catch (_) {}
     if (LEFT_T !== t) return;   // rotated away mid-flight
@@ -780,7 +792,16 @@ async function mountGeiger(t) {
     S.coData._gsum = gd;
     buildGeigerSummary(gd);
     whHeader(t, gd);
-  } catch (err) { console.error("geigerSummary " + t, err); }
+  } catch (err) {
+    console.error("geigerSummary " + t, err);
+    if (generation !== GEIGER_MOUNT_GENERATION || LEFT_T !== t) return;
+    delete GEIGER_MEM[t];
+    try { localStorage.removeItem("sc_geiger_current_v2_" + t); } catch (_) {}
+    const unavailable = geigerUnavailableData(t, S.coData && S.coData._gsum, "GEIGER_READ_FAILED");
+    S.coData._gsum = unavailable;
+    buildGeigerSummary(unavailable);
+    whHeader(t, unavailable);
+  }
 }
 
 /* ---- boot: pin or rotate hub_favorites (hub FAV seed as fallback) ---- */

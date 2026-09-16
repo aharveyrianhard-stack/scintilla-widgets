@@ -127,3 +127,75 @@ test('Ranks names current upstream contracts and their own as-of clocks', () => 
   assert.match(ranks, /GEIGER " \+ \(geigerAsOf/)
   assert.match(ranks, /current Geiger daily RSI/)
 })
+
+function pageFunction(name) {
+  const at = geiger.indexOf(`function ${name}(`)
+  const start = geiger.slice(at - 6, at) === 'async ' ? at - 6 : at
+  return geiger.slice(start, geiger.indexOf('\n}', at) + 2)
+}
+
+function mountHarness(read) {
+  const painted = [], removed = []
+  const memory = { AAPL:{ t:'AAPL', composite:0.8, trend:0.9, momentum:0.7, updated_ts:'old' } }
+  const state = {}
+  const c = vm.createContext({
+    GEIGER_MOUNT_GENERATION:0, LEFT_T:null, S:state, GEIGER_MEM:memory, PRICES:{ AAPL:123 },
+    num:(x) => x == null ? null : Number(x),
+    el:() => ({ setAttribute() {}, querySelector:() => true }),
+    whHeader() {}, cacheGet:() => null, cacheSet() {}, pullLive:async () => {},
+    buildGeigerSummary:(data) => painted.push(data), geigerSummaryData:read,
+    localStorage:{ removeItem:(key) => removed.push(key) }, console:{ error() {} }
+  })
+  vm.runInContext(pageFunction('geigerUnavailableData') + '\n' + pageFunction('mountGeiger'), c)
+  return { c, memory, state, painted, removed }
+}
+
+test('a rejected pane refresh clears cached score instead of leaving REFRESHING indefinitely', async () => {
+  const h = mountHarness(async () => { throw new Error('summary dependency failed') })
+  await h.c.mountGeiger('AAPL')
+  assert.equal(h.painted[0].composite, 0.8, 'first paint is explicitly a cache')
+  assert.equal(h.painted[0]._firstPaintCacheKind, 'memory')
+  const last = h.painted.at(-1)
+  assert.equal(last.composite, null)
+  assert.equal(last.trend, null)
+  assert.equal(last.momentum, null)
+  assert.equal(last.price, 123, 'the independently received quote is preserved')
+  assert.equal(last._readError, 'GEIGER_READ_FAILED')
+  assert.equal(h.memory.AAPL, undefined)
+  assert.deepEqual(h.removed, ['sc_geiger_current_v2_AAPL'])
+})
+
+test('a late failure from an old pane cannot clear a newer successful pane', async () => {
+  let rejectOld
+  const old = new Promise((_, reject) => { rejectOld = reject })
+  const h = mountHarness((ticker) => ticker === 'AAPL' ? old : Promise.resolve({ t:ticker, composite:0.2 }))
+  const first = h.c.mountGeiger('AAPL')
+  await Promise.resolve()
+  await h.c.mountGeiger('MSFT')
+  rejectOld(new Error('old request failed'))
+  await first
+  assert.equal(h.state.coData.t, 'MSFT')
+  assert.equal(h.state.coData._gsum.composite, 0.2)
+  assert.equal(h.painted.at(-1).composite, 0.2)
+})
+
+test('unavailable score clears coloured arcs, composite fill and previous glow', () => {
+  const nodes = Object.fromEntries(['comp', 'compst', 'cgr', 'readstate', 'f_trend', 'f_mom'].map((key) => [key, {
+    style:{}, attrs:{}, setAttribute(name, value) { this.attrs[name] = value }
+  }]))
+  const c = vm.createContext({
+    document:{ querySelector:() => ({ querySelector:(selector) => nodes[selector.match(/"([^"]+)"/)[1]] || null }) },
+    GS_BOUND:true, GS_LADDER:[], gsSgn:String, gsTone:() => 'red',
+    gsReferenceSummary:() => ({ label:'REFERENCE UNKNOWN' }), gsContractGrid() {}, gsMtf() {},
+    gsTipR() {}, gsTipW() {}, requestAnimationFrame() {}
+  })
+  vm.runInContext(pageFunction('buildGeigerSummary'), c)
+  c.buildGeigerSummary({ composite:0.8, trend:0.9, momentum:0.7 })
+  c.buildGeigerSummary({ composite:null, trend:null, momentum:null, _readError:'GEIGER_READ_FAILED' })
+  assert.equal(nodes.comp.textContent, '—')
+  assert.equal(nodes.comp.style.filter, 'none')
+  assert.equal(nodes.cgr.innerHTML, '')
+  assert.equal(nodes.f_trend.attrs['stroke-dasharray'], '0 100')
+  assert.equal(nodes.f_mom.attrs['stroke-opacity'], '.22')
+  assert.match(nodes.readstate.textContent, /UNAVAILABLE.*GEIGER_READ_FAILED/)
+})
