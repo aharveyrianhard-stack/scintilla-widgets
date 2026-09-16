@@ -11,20 +11,24 @@ const ANCHORS = ["AAPL", "MSFT", "NVDA", "MU", "AMZN", "GOOGL", "META", "TSLA"];
 function symbols(extra = []) {
   const out = {};
   for (const ticker of [...ANCHORS, ...extra]) out[ticker] = { composite:0.2, trend:0.3, momentum:0.1, daily_rsi14:53.1, daily_rsi_as_of:"2026-08-20T04:00:00.000Z", daily_rsi_state:"AVAILABLE" };
-  for (let i = 0; Object.keys(out).length < 365; i += 1) out[`SYM${String(i).padStart(4, "0")}`] = { composite:0, trend:0, momentum:0, daily_rsi14:50, daily_rsi_as_of:"2026-08-20T04:00:00.000Z", daily_rsi_state:"AVAILABLE" };
+  for (let i = 0; Object.keys(out).length < 364; i += 1) out[`SYM${String(i).padStart(4, "0")}`] = { composite:0, trend:0, momentum:0, daily_rsi14:50, daily_rsi_as_of:"2026-08-20T04:00:00.000Z", daily_rsi_state:"AVAILABLE" };
   return out;
 }
 
 function canonicalRows(map) { return Object.keys(map).map((ticker) => ({ ticker })); }
+function universePayload(map) {
+  return { provider:"MASSIVE", symbols:Object.keys(map).sort(), count:Object.keys(map).length,
+    universe_sha256:"ab8f7965258d939f0a97fbfeac9a271547c258df7a2616aff6ccff746bb5d9d3" };
+}
 function response(body, code = 200) {
   return Promise.resolve({ ok:code >= 200 && code < 300, status:code, json:async () => body });
 }
 
-function load(fetchImpl, readerImpl) {
+function load(fetchImpl, readerImpl, clock = Date) {
   const native = fetchImpl;
   const window = { fetch:native };
   vm.runInNewContext(source, {
-    window, fetch:native, Date, Promise, String, Object, Number, parseInt, isFinite,
+    window, fetch:native, Date:clock, Promise, String, Object, Number, parseInt, isFinite,
     encodeURIComponent, JSON, Error, Math, Array, RegExp, console,
     setTimeout, clearTimeout, AbortController,
   });
@@ -35,6 +39,7 @@ function load(fetchImpl, readerImpl) {
 function fixtureFetch(map, quoteOverrides = {}) {
   return (url) => {
     const u = String(url);
+    if (u.includes("/universe")) return response(universePayload(map));
     if (u.includes("/indicators")) return response(massiveIndicatorPayload());
     if (u.includes("/quotes")) {
       const requested = decodeURIComponent(new URL(u).searchParams.get("symbols") || "").split(",").filter(Boolean);
@@ -123,16 +128,14 @@ test("explicit equity quotes preserve provider previous close, percent and obser
 test("HTTP failure is transport, never named absence or a database fallback", async () => {
   const map = symbols();
   let reads = 0;
-  const w = load((url) => String(url).includes("/geiger") ? response({
-    symbols:map, equalizer_receipt_sha256:RECEIPT, computed_utc:"2026-08-20T18:00:00Z",
-  }) : response(null, 503), async () => { reads += 1; return canonicalRows(map); });
+  const w = load((url) => String(url).includes("/universe") ? response(universePayload(map)) : response(null, 503), async () => { reads += 1; return canonicalRows(map); });
   await assert.rejects(() => w.SC_PROVIDER.equityQuotes(["AAPL"]),
     (error) => error?.scTransport === true && error?.scStatus === 503 && !error?.scAbsence);
   assert.equal(reads, 1, "only the canonical ownership reader ran");
   assert.equal(w.SC_PROVIDER.absenceFor("AAPL"), null);
 });
 
-test("ownership is exact identity, not merely 365 names", async () => {
+test("ownership is exact identity, not merely 364 names", async () => {
   const map = symbols();
   const wrong = canonicalRows(map).filter((r) => r.ticker !== "AAPL");
   wrong.push({ ticker:"TICK" });
@@ -153,9 +156,7 @@ test("a provider-named quote absence stays named and returns no invented row", a
 
 test("an unnamed or short quote payload is retryable transport failure", async () => {
   const map = symbols();
-  const w = load((url) => String(url).includes("/geiger") ? response({
-    symbols:map, equalizer_receipt_sha256:RECEIPT, computed_utc:"2026-08-20T18:00:00Z",
-  }) : response({ quotes:{ AAPL:{ state:"OK", price:null, previous_close:100 } } }),
+  const w = load((url) => String(url).includes("/universe") ? response(universePayload(map)) : response({ quotes:{ AAPL:{ state:"OK", price:null, previous_close:100 } } }),
   async () => canonicalRows(map));
   await assert.rejects(() => w.SC_PROVIDER.equityQuotes(["AAPL"]),
     (error) => error?.scTransport === true && !error?.scAbsence);
@@ -175,13 +176,14 @@ test("explicit Geiger carries the endpoint compute time and accepted receipt", a
   assert.equal(w.SC_PROVIDER.equalizer_accepted, true);
 });
 
-test("wrong Equalizer receipt fails ownership and Geiger closed", async () => {
+test("wrong Equalizer receipt fails Geiger without revoking verified instrument ownership", async () => {
   const map = symbols();
-  const w = load(() => response({ symbols:map, equalizer_receipt_sha256:"bad", computed_utc:null }),
+  const w = load((url) => String(url).includes("/universe") ? response(universePayload(map))
+    : response({ symbols:map, equalizer_receipt_sha256:"bad", computed_utc:null }),
     async () => canonicalRows(map));
   await assert.rejects(() => w.SC_PROVIDER.equityGeiger(["AAPL"]),
     (error) => error?.scTransport === true && /equalizer/.test(error.message));
-  assert.equal(w.SC_PROVIDER.ownership.verified, false);
+  assert.equal(w.SC_PROVIDER.ownership.verified, true);
 });
 
 test("explicit candles normalize provider bars and refuse unmapped timeframes", async () => {
@@ -292,4 +294,58 @@ test("all sector spine timeframes are explicit provider tokens", () => {
   assert.match(sector, /\{view:'intra1',tf:'1m'/);
   assert.match(sector, /SC_PROVIDER\.equityCandles\(tk,tf,\{limit:lim\}\)\)\.slice\(\)\.reverse\(\)/);
   assert.doesNotMatch(sector, /rest\/v1\/(?:ohlcv_history|live_quotes|composite_staged|derived_series)/);
+});
+
+
+test("cold quotes and candles remain available while Geiger explicitly returns not ready", async () => {
+  const map = symbols();
+  const calls = [];
+  const normal = fixtureFetch(map);
+  const w = load((url) => {
+    calls.push(String(url));
+    return String(url).includes("/geiger")
+      ? response({ state:"GEIGER_NOT_READY" }, 503) : normal(url);
+  }, async () => canonicalRows(map));
+  const [quote] = await w.SC_PROVIDER.equityQuotes(["AAPL"]);
+  const candles = await w.SC_PROVIDER.equityCandles("AAPL", "5m", { limit:2 });
+  assert.equal(quote.price, 101);
+  assert.equal(candles.length, 2);
+  assert.equal(w.SC_PROVIDER.ownership.verified, true);
+  assert.equal(calls.filter((url) => url.includes("/universe")).length, 1);
+  assert.equal(calls.some((url) => url.includes("/geiger")), false);
+  await assert.rejects(() => w.SC_PROVIDER.equityGeiger(["AAPL"]),
+    (error) => error.scTransport === true && error.scStatus === 503);
+  assert.equal(w.SC_PROVIDER.ownership.verified, true);
+});
+
+test("the independent universe still fails closed for wrong identity and unavailable canonical membership", async () => {
+  const map = symbols();
+  for (const altered of [{ provider:"OTHER" }, { count:363 }, { universe_sha256:"bad" }]) {
+    const w = load(() => response({ ...universePayload(map), ...altered }), async () => canonicalRows(map));
+    await assert.rejects(() => w.SC_PROVIDER.equityQuotes(["AAPL"]), /universe contract not accepted/);
+    assert.equal(w.SC_PROVIDER.ownership.verified, false);
+  }
+  const w = load(fixtureFetch(map), async () => { throw new Error("canonical unavailable"); });
+  await assert.rejects(() => w.SC_PROVIDER.equityQuotes(["AAPL"]), /canonical set unavailable/);
+  assert.equal(w.SC_PROVIDER.ownership.verified, false);
+});
+
+
+test("a failed Geiger refresh cannot re-admit its old cached composite as current", async () => {
+  const map = symbols();
+  let now = Date.parse("2026-09-16T20:00:00Z");
+  class Clock extends Date { static now() { return now; } }
+  let fail = false;
+  const normal = fixtureFetch(map);
+  const w = load((url) => fail && String(url).includes("/geiger")
+    ? response({ state:"GEIGER_NOT_READY" }, 503) : normal(url), async () => canonicalRows(map), Clock);
+  const [first] = await w.SC_PROVIDER.equityGeiger(["AAPL"]);
+  assert.equal(first.composite, 0.2);
+  now += 31000; fail = true;
+  await assert.rejects(() => w.SC_PROVIDER.equityGeiger(["AAPL"]),
+    (error) => error.scStatus === 503);
+  assert.equal(w.SC_PROVIDER.equalizer_accepted, false);
+  const [quote] = await w.SC_PROVIDER.equityQuotes(["AAPL"]);
+  assert.equal(quote.price, 101);
+  assert.equal(w.SC_PROVIDER.ownership.verified, true);
 });

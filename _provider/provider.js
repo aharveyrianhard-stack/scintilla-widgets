@@ -16,7 +16,7 @@
 
    RULES:
      - NO SILENT FALLBACK. Missing or failed provider data is named and remains unavailable.
-     - OWNERSHIP FAILS CLOSED. The provider universe must exactly match the canonical 365 symbols.
+     - OWNERSHIP FAILS CLOSED. The provider universe must exactly match the canonical 364 symbols.
      - NOTHING IS RECOMPUTED HERE except the quote change and percentage from the provider's own
        price and previous completed daily close. Indicators and bars remain provider-native.
 */
@@ -277,7 +277,9 @@
      something that happens to a wall at 04:00.
 
      A previously VERIFIED map still survives a bad read - that is knowledge, not a guess. */
-  var EXPECTED_EQUITY_UNIVERSE = 365;
+  var EXPECTED_EQUITY_UNIVERSE = 364;
+  var ACCEPTED_UNIVERSE_SHA256 =
+    'ab8f7965258d939f0a97fbfeac9a271547c258df7a2616aff6ccff746bb5d9d3';
   /* CARDINALITY IS NOT IDENTITY, AND THE CANONICAL SET IS DERIVABLE.
      Checking only that the payload holds 365 symbols passes a set of the RIGHT SIZE and the
      WRONG MEMBERS: drop AAPL, add TICK, and the count still says 365 while AAPL is quietly
@@ -320,7 +322,7 @@
        alive after the page has stopped caring. */
     if (!signal) { ownedSticky = true; return promise; }
     if (signal.aborted)
-      return Promise.reject(transportError('provider unreachable: cancelled by the caller', API + '/geiger', null));
+      return Promise.reject(transportError('provider unreachable: cancelled by the caller', API + '/universe', null));
     ownedWaiters++;
     return new Promise(function (resolve, reject) {
       var done = false;
@@ -334,7 +336,7 @@
         fn(value);
       };
       var cancelled = function () {
-        finish(reject, transportError('provider unreachable: cancelled by the caller', API + '/geiger', null), true);
+        finish(reject, transportError('provider unreachable: cancelled by the caller', API + '/universe', null), true);
       };
       signal.addEventListener('abort', cancelled, { once: true });
       promise.then(function (value) { finish(resolve, value, false); },
@@ -346,10 +348,10 @@
        already cancelled. Returning it here let the next call receive an aborted signal and run
        on regardless. */
     if (signal && signal.aborted)
-      return Promise.reject(transportError('provider unreachable: cancelled by the caller', API + '/geiger', null));
+      return Promise.reject(transportError('provider unreachable: cancelled by the caller', API + '/universe', null));
     if (owned && Date.now() - ownedAt < 300000) return Promise.resolve(owned);
     /* A cold page can mount dozens of panes at once. They all need the SAME ownership fact, not
-       dozens of simultaneous /geiger + canonical-set handshakes. Share the in-flight proof while
+       dozens of simultaneous /universe + canonical-set handshakes. Share the in-flight proof while
        keeping each caller's abort local to its own wait; one cancelled pane cannot cancel the
        verification every other pane is awaiting. */
     if (ownedFlight) return waitForOwnership(ownedFlight, signal);
@@ -357,7 +359,7 @@
       S.ownership = { verified: false, count: count == null ? null : count,
                       expected: EXPECTED_EQUITY_UNIVERSE, reason: why };
       if (owned) return owned;                      // a verified map survives one bad answer
-      throw transportError('provider ownership ' + why, API + '/geiger', null);
+      throw transportError('provider ownership ' + why, API + '/universe', null);
     };
     /* Read through the PAGE's own reader, so the provider client needs no credentials of its own. A
        failure here is fatal to a cold ownership map: the canonical set is the independent
@@ -373,19 +375,20 @@
     ownedController = typeof AbortController === 'undefined' ? null : new AbortController();
     ownedWaiters = 0;
     ownedSticky = false;
-    var flight = Promise.all([jget(API + '/geiger', ownedController && ownedController.signal), canonical]).then(function (a) {
+    var flight = Promise.all([jget(API + '/universe', ownedController && ownedController.signal), canonical]).then(function (a) {
       var j = a[0], canon = a[1];
-      var syms = j && j.symbols
-        ? Object.keys(j.symbols).map(function (k) { return String(k).toUpperCase(); })
+      var syms = j && Array.isArray(j.symbols)
+        ? j.symbols.map(function (k) { return String(k).toUpperCase(); })
         : null;
       if (!syms) return fail('payload carried no symbols', null);
       if (!syms.length) return fail('payload listed no symbols', 0);
-      /* The equalizer the composite was computed under, checked before the symbols are trusted
-         to mean anything. */
-      if (!equalizerAccepted(j.equalizer_receipt_sha256))
-        return fail('equalizer receipt ' + (j.equalizer_receipt_sha256
-          ? 'not the accepted digest (' + String(j.equalizer_receipt_sha256).slice(0, 12) + '…)'
-          : 'absent'), syms.length);
+      /* Ownership is stable instrument identity, independent of Geiger readiness. The
+         canonical set comparison below remains mandatory; quotes and charts must not wait
+         for a score publication. The Geiger reader checks its own Equalizer separately. */
+      if (j.provider !== 'MASSIVE' || j.count !== syms.length ||
+          syms.length !== EXPECTED_EQUITY_UNIVERSE ||
+          j.universe_sha256 !== ACCEPTED_UNIVERSE_SHA256)
+        return fail('universe contract not accepted', syms.length);
 
       var next = {};
       syms.forEach(function (k) { next[k] = 1; });
@@ -416,10 +419,8 @@
       owned = next;
       S.owned_map = owned;
       ownedAt = Date.now();
-      S.equalizer_receipt = j.equalizer_receipt_sha256;
-      S.geiger_computed_utc = j.computed_utc || null;
       S.ownership = { verified: true, count: syms.length, expected: EXPECTED_EQUITY_UNIVERSE,
-                      reason: null, equalizer_receipt: j.equalizer_receipt_sha256 || null,
+                      reason: null, universe_sha256: j.universe_sha256,
                       /* Stated so a reviewer can see what "verified" actually compared. */
                       /* Only one way to become verified, so this cannot describe a weaker one. */
                       identity: 'exact set match against ' + canon.length +
@@ -551,14 +552,12 @@
     if (gCache.map && Date.now() - gCache.at < 30000) return Promise.resolve(gCache.map);
     return jget(API + '/geiger', signal).then(function (j) {
       if (!j || !j.symbols) {
-        if (gCache.map) return gCache.map;
         throw transportError('provider geiger unavailable', API + '/geiger', null);
       }
       /* Same gate on the Geiger read itself: a composite computed under an equalizer this
          surface has not accepted is not the accepted Geiger, whatever else is right about it. */
       if (!equalizerAccepted(j.equalizer_receipt_sha256)) {
         S.equalizer_accepted = false;
-        if (gCache.map) return gCache.map;
         throw transportError('provider geiger equalizer receipt not accepted', API + '/geiger', null);
       }
       S.equalizer_accepted = true;
@@ -570,7 +569,8 @@
       S.geiger_computed_utc = j.computed_utc || null;
       return gCache.map;
     }, function (e) {
-      if (gCache.map) return gCache.map;
+      gCache.map = null; gCache.at = 0;
+      S.equalizer_accepted = false;
       throw e;
     });
   }
@@ -588,13 +588,11 @@
     var url = API + '/geiger?symbols=' + encodeURIComponent(sym) + '&detail=1';
     return jget(url, signal).then(function (j) {
       if (!j || !j.symbols || j.requested !== 1 || j.returned !== 1 || !j.symbols[sym]) {
-        if (hit) return hit.map;
         throw transportError('provider geiger detail incomplete for ' + sym, url, null);
       }
       if (!equalizerAccepted(j.equalizer_receipt_sha256) ||
           !Array.isArray(j.participating_rungs) || j.participating_rungs.length !== 8) {
         S.equalizer_accepted = false;
-        if (hit) return hit.map;
         throw transportError('provider geiger detail contract not accepted', url, null);
       }
       S.equalizer_accepted = true;
@@ -603,7 +601,8 @@
       gDetailCache[sym] = { at: Date.now(), map: j.symbols, computed_utc: j.computed_utc || null };
       return j.symbols;
     }, function (e) {
-      if (hit) return hit.map;
+      delete gDetailCache[sym];
+      S.equalizer_accepted = false;
       throw e;
     });
   }
