@@ -551,7 +551,8 @@
   function geiger (signal) {
     if (gCache.map && Date.now() - gCache.at < 30000) return Promise.resolve(gCache.map);
     return jget(API + '/geiger', signal).then(function (j) {
-      if (!j || !j.symbols) {
+      if (!j || !j.symbols || Object.keys(j.symbols).length !== EXPECTED_EQUITY_UNIVERSE ||
+          Object.keys(j.symbols).some(function (sym) { return !owned || !owned[sym]; })) {
         throw transportError('provider geiger unavailable', API + '/geiger', null);
       }
       /* Same gate on the Geiger read itself: a composite computed under an equalizer this
@@ -568,7 +569,7 @@
          It is the provider's number or it is unknown; it is never this machine's clock. */
       S.geiger_computed_utc = j.computed_utc || null;
       return gCache.map;
-    }, function (e) {
+    }).catch(function (e) {
       gCache.map = null; gCache.at = 0;
       S.equalizer_accepted = false;
       throw e;
@@ -600,7 +601,7 @@
       S.geiger_computed_utc = j.computed_utc || null;
       gDetailCache[sym] = { at: Date.now(), map: j.symbols, computed_utc: j.computed_utc || null };
       return j.symbols;
-    }, function (e) {
+    }).catch(function (e) {
       delete gDetailCache[sym];
       S.equalizer_accepted = false;
       throw e;

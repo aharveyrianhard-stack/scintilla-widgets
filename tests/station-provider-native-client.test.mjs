@@ -349,3 +349,33 @@ test("a failed Geiger refresh cannot re-admit its old cached composite as curren
   assert.equal(quote.price, 101);
   assert.equal(w.SC_PROVIDER.ownership.verified, true);
 });
+
+
+test("malformed and wrong-Equalizer refreshes revoke both bulk and detail caches", async () => {
+  const map = symbols();
+  for (const detail of [false, true]) for (const kind of ["missing symbols", "empty symbols", "wrong equalizer"]) {
+    let now = Date.parse("2026-09-16T20:00:00Z");
+    class Clock extends Date { static now() { return now; } }
+    let invalid = false;
+    const normal = fixtureFetch(map);
+    const w = load((url) => {
+      if (!String(url).includes("/geiger")) return normal(url);
+      const good = { symbols:detail ? { AAPL:map.AAPL } : map,
+        equalizer_receipt_sha256:RECEIPT, computed_utc:"2026-09-16T19:58:00Z",
+        requested:1, returned:1, participating_rungs:Array.from({ length:8 }, (_, i) => String(i)) };
+      if (invalid) {
+        if (kind === "missing symbols") delete good.symbols;
+        if (kind === "empty symbols") good.symbols = {};
+        if (kind === "wrong equalizer") good.equalizer_receipt_sha256 = "wrong";
+      }
+      return response(good);
+    }, async () => canonicalRows(map), Clock);
+    const read = () => w.SC_PROVIDER.equityGeiger(["AAPL"], { detail });
+    assert.equal((await read())[0].composite, 0.2);
+    now += 31000; invalid = true;
+    await assert.rejects(read, (error) => error.scTransport === true, `${detail}/${kind}`);
+    assert.equal(w.SC_PROVIDER.equalizer_accepted, false, `${detail}/${kind} revoked`);
+    await assert.rejects(read, (error) => error.scTransport === true, `${detail}/${kind} cannot reuse cache`);
+    assert.equal(w.SC_PROVIDER.ownership.verified, true);
+  }
+});
