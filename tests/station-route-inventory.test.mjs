@@ -19,7 +19,8 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
    because it is a Chrome extension draft rather than a Station surface - but Vercel
    serves the whole repository, so its page is deployed whatever we call it. Skipping it
    in the walk is how an inventory ends up claiming a completeness it does not have. */
-const SKIP = new Set([".git", "node_modules"]);
+/* `.vercel` holds the local CLI project link; Vercel never uploads or serves it. */
+const SKIP = new Set([".git", "node_modules", ".vercel"]);
 
 /* EVERY DEPLOYED HTML FILE, NOT EVERY DIRECTORY.
    The first version of this walk only recorded directories containing index.html, and called

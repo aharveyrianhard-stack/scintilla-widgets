@@ -986,11 +986,18 @@ function chartApproximateSpan(pts, range) {
   const years = Math.max(0, (last - first) / (365.25 * 86400000));
   return "≈" + (years < 2 ? years.toFixed(1) : Math.round(years)) + " years";
 }
+/* A series that stopped days ago must say so on the pane; otherwise an August line reads as today. */
+const CHART_STALE_MS = 4 * 86400000;
+function chartStaleSuffix(iso) {
+  const at = new Date(iso).getTime();
+  return Number.isFinite(at) && Date.now() - at > CHART_STALE_MS ? " · through " + chartStartDate(iso) : "";
+}
 function paintChartHistoryWindow(host) {
   const label = host?.querySelector(".sc-nchart__live-window");
   const pts = host?._series || [];
   if (label) label.textContent = pts.length
-    ? chartApproximateSpan(pts, host._range || S.chartRange) + " · since " + chartStartDate(pts[0].d)
+    ? chartApproximateSpan(pts, host._range || S.chartRange) + " · since " + chartStartDate(pts[0].d) +
+      chartStaleSuffix(pts[pts.length - 1].d)
     : "history loading";
 }
 function acquireChartLoadPermit(host, req, generation) {
@@ -1421,6 +1428,8 @@ function paintLiveStatus(host, quote) {
   change.textContent = day.text;
   previous.textContent = dayRef != null && Number.isFinite(+dayRef) && +dayRef !== 0
     ? "Prev " + chPx(+dayRef, host.dataset.t) : "";
+  const quoteAsOf = hasQuote && age != null && age > CHART_STALE_MS ? "quote as of " + chartStartDate(at.toISOString()) : "";
+  if (quoteAsOf) previous.textContent = [previous.textContent, quoteAsOf].filter(Boolean).join(" · ");
   paintChartHistoryWindow(host);
   badge.title = !hasQuote
     ? "live quote loading · ticker remains editable"

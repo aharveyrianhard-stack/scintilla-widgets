@@ -117,6 +117,7 @@
   var ABSENCE_TIMEFRAME_NOT_MAPPED = 'TIMEFRAME_NOT_MAPPED';
   var ABSENCE_TICKER_FILTER_REQUIRED = 'TICKER_FILTER_REQUIRED';
   var ABSENCE_INDICATOR_BASIS = 'INDICATOR_BASIS_NOT_VERIFIED';
+  var ABSENCE_NO_RETAINED_HISTORY = 'NO_RETAINED_HISTORY';
   var INDICATOR_UNIVERSE_SHA256 =
     '7ad595cc4db5e1fd0bb63bb3780ac1450a938e6fa068df944aeec71445556063';
   var FMP_INDICATOR_MANIFEST_SHA256 =
@@ -1068,6 +1069,27 @@
     });
   };
 
+  /* INCOHERENT RETAINED PREVIOUS CLOSE IS NOT A DAY REFERENCE.
+     The retained non-equity writer refreshes price but can leave prev_close weeks old; the
+     same row then carries its own chg_pct that disagrees with it (CLUSD 2026-09-16: price
+     102.4, prev_close 81.25, chg_pct 1.03 - a painted "+26%"). A previous close is kept only
+     when the row's own stored percentage agrees with price/prev_close; otherwise it is
+     withdrawn and named, and the day change reads unknown instead of invented. */
+  var NON_EQUITY_PCT_TOLERANCE = 0.05;
+  function nonEquityCoherentQuote(row) {
+    if (!row || row.prev_close == null) return row;
+    var price = Number(row.price), prev = Number(row.prev_close), stored = row.chg_pct == null ? NaN : Number(row.chg_pct);
+    var implied = prev > 0 ? ((price - prev) / prev) * 100 : NaN;
+    if (Number.isFinite(implied) && Number.isFinite(stored) && Math.abs(implied - stored) <= NON_EQUITY_PCT_TOLERANCE) return row;
+    var copy = {};
+    for (var k in row) if (Object.prototype.hasOwnProperty.call(row, k)) copy[k] = row[k];
+    copy.prev_close = null;
+    copy.change = null;
+    copy.chg_pct = null;
+    copy.prev_close_withheld = 'RETAINED_PREV_CLOSE_INCOHERENT';
+    return copy;
+  }
+
   var N = window.SC_NON_EQUITY = {
     authority: 'RETAINED_SUPABASE_NON_EQUITY',
     quotes: function (symbols, options) {
@@ -1087,7 +1109,7 @@
           S.counts.passthrough_non_equity += requested ? requested.length : 1;
           return (Array.isArray(rows) ? rows : []).filter(function (row) {
             return !own[String(row && row.ticker || '').toUpperCase()];
-          });
+          }).map(nonEquityCoherentQuote);
         });
       });
     },
@@ -1127,7 +1149,14 @@
           encodeURIComponent(sym) + '&tf=eq.' + encodeURIComponent(String(timeframe || '')) +
           '&order=timestamp.desc&limit=' + limit;
         S.counts.passthrough_non_equity++;
-        return readSupabase(path);
+        /* A successful, ticker- and timeframe-filtered read that returns no rows is the retained
+           owner's definite answer, not silence: name it so the pane stops retrying forever. */
+        return readSupabase(path).then(function (rows) {
+          if (Array.isArray(rows) && rows.length === 0)
+            throw S.absenceError(ABSENCE_NO_RETAINED_HISTORY, sym, String(timeframe || ''));
+          S.clearAbsence(sym, String(timeframe || ''));
+          return rows;
+        });
       });
     }
   };
