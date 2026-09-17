@@ -67,3 +67,10 @@ test("stale series and stale quotes carry a visible date on the pane", () => {
   assert.match(chart, /chartStartDate\(pts\[0\]\.d\) \+\s*\n\s*chartStaleSuffix\(pts\[pts\.length - 1\]\.d\)/);
   assert.match(chart, /age > CHART_STALE_MS \? "quote as of " \+ chartStartDate\(at\.toISOString\(\)\)/);
 });
+
+test("/pulse reads its mixed macro set through the routed market quote reader", () => {
+  const pulse = fs.readFileSync(new URL("../pulse/index.html", import.meta.url), "utf8");
+  assert.match(pulse, /SC_PROVIDER\.marketQuotes\(MACRO_SET\.concat\(\["VIX"\]\)\)/);
+  assert.doesNotMatch(pulse, /SC_NON_EQUITY\.quotes\(MACRO_SET/,
+    "the non-equity adapter refuses provider-owned symbols, so it cannot serve SPY/QQQ");
+});

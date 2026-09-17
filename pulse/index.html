@@ -105,7 +105,7 @@ function secGeiger(comp) {
     '</div>';
 }
 function secMacro(quotes) {
-  if (quotes === READ_FAILED) return '<div class="sec"><span class="k">MACRO</span><span class="dead">retained non-equity quote lane did not answer — unavailable, not empty · retrying</span></div>';
+  if (quotes === READ_FAILED) return '<div class="sec"><span class="k">MACRO</span><span class="dead">macro quote read did not answer — unavailable, not empty · retrying</span></div>';
   const m = {};
   for (const q of (quotes || [])) m[q.ticker] = q;
   const rows = MACRO_SET.map((t) => m[t]).filter(Boolean).filter((q) => num(q.chg_pct) != null);
@@ -154,7 +154,9 @@ async function tick() {
   const wantG = SECTIONS.includes("geiger"), wantM = SECTIONS.includes("macro"), wantV = SECTIONS.includes("vix");
   const [comp, quotes, term] = await Promise.all([
     wantG ? SC_PROVIDER.equityGeiger().catch(() => READ_FAILED) : null,
-    (wantM || wantV) ? SC_NON_EQUITY.quotes(MACRO_SET.concat(["VIX"])).catch(() => READ_FAILED) : null,
+    /* MACRO_SET is mostly equities; the non-equity adapter refuses them by design, which failed the
+       whole read. marketQuotes routes equities to the provider and VIX to its retained owner. */
+    (wantM || wantV) ? SC_PROVIDER.marketQuotes(MACRO_SET.concat(["VIX"])).catch(() => READ_FAILED) : null,
     wantV ? pg("vix_term?select=date,vix,vix3m,ratio&order=date.desc&limit=1").catch(() => READ_FAILED) : null,
   ]);
   const vq = quotes === READ_FAILED ? READ_FAILED

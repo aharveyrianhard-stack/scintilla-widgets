@@ -110,7 +110,7 @@ test("/pulse keeps a dead read distinct from an empty table, per section", () =>
   assert.match(pulse, /const READ_FAILED = \{ failed: true \};/);
   assert.ok(!pulse.includes(".catch(() => null)"), "the flattening catch is gone");
   for (const dead of ['SC_PROVIDER.equityGeiger().catch(() => READ_FAILED)',
-                      'SC_NON_EQUITY.quotes(MACRO_SET.concat(["VIX"])).catch(() => READ_FAILED)',
+                      'SC_PROVIDER.marketQuotes(MACRO_SET.concat(["VIX"])).catch(() => READ_FAILED)',
                       'order=date.desc&limit=1").catch(() => READ_FAILED)'])
     assert.ok(pulse.includes(dead), dead);
   /* The VIX section receives the markers, not nulls flattened from them. */
@@ -127,7 +127,7 @@ test("/pulse keeps a dead read distinct from an empty table, per section", () =>
 
   const MACRO_SET = ["SPY","QQQ","IWM","SMH","GLD","TLT","NVDA","COIN"];
   const secMacro = fnFromSource(pulse, "secMacro", { READ_FAILED, num, MACRO_SET });
-  assert.match(secMacro(READ_FAILED), /retained non-equity quote lane did not answer — unavailable, not empty · retrying/);
+  assert.match(secMacro(READ_FAILED), /macro quote read did not answer — unavailable, not empty · retrying/);
   assert.match(secMacro([]), /no retained macro quote rows/);
 
   /* VIX: each half fails alone; both dead is one named failure, not "no vix source". */
