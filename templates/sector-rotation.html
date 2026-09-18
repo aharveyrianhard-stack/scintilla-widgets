@@ -1233,8 +1233,13 @@ function renderDetailActionable(){
   let verdict, color;
   if(extended==='overbought'){ verdict='STRETCHED — CAUTION CHASING'; color='var(--yellow)'; }
   else if(extended==='oversold'){ verdict='STRETCHED — WATCH FOR STABILIZATION'; color='var(--yellow)'; }
-  else if(nVotes>0 && votes>0){ verdict='ALIGNED BULLISH'; color='var(--green)'; }
-  else if(nVotes>0 && votes<0){ verdict='ALIGNED BEARISH'; color='var(--red)'; }
+  // ALIGNED needs two voters. With the technicals withheld (stale inputs) only the Geiger votes, and one vote
+  // cannot "agree" with anything — the verdict names the single source instead (MEASURED 2026-09-18: XLK read
+  // ALIGNED BULLISH off the Geiger alone while the technicals were STALE — no read).
+  else if(nVotes>=2 && votes>0){ verdict='ALIGNED BULLISH'; color='var(--green)'; }
+  else if(nVotes>=2 && votes<0){ verdict='ALIGNED BEARISH'; color='var(--red)'; }
+  else if(nVotes===1 && votes>0){ verdict='GEIGER ONLY — BULLISH (technicals withheld)'; color='var(--green)'; }
+  else if(nVotes===1 && votes<0){ verdict='GEIGER ONLY — BEARISH (technicals withheld)'; color='var(--red)'; }
   else { verdict='MIXED SIGNALS'; color='var(--dim)'; }
   const parts=[];
   parts.push(t.stale

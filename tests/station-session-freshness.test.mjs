@@ -80,4 +80,7 @@ test("sector rotation withholds the extension/caution read together with the sco
   assert.match(sector, /const withExt=rows\.filter\(r=>!r\.stale&&r\.rsi!=null&&r\.stretchPct!=null\)/);
   assert.match(sector, /behind\?'STALE':'LIVE'/);
   assert.match(sector, /extension read withheld with the score/);
+  assert.match(sector, /else if\(nVotes>=2 && votes>0\)\{ verdict='ALIGNED BULLISH'/, "ALIGNED needs two voters");
+  assert.match(sector, /verdict='GEIGER ONLY — BULLISH \(technicals withheld\)'/);
+  assert.doesNotMatch(sector, /nVotes>0 && votes>0/);
 });
