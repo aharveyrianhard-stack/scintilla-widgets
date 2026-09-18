@@ -702,8 +702,10 @@ test("video auto-next silently advances the next visible item and skips an unava
     "a YouTube ENDED event advances without a user toggle");
   assert.match(videoPane, /player\.loadVideoById\(video\)/,
     "queue advances load into the persistent player instead of replacing its iframe");
-  assert.match(videoPane, /\.card"\)\)\s*n\.addEventListener\("click", \(\) => playFromUserGesture\(BYID\[n\.dataset\.v\]\)\)/,
+  assert.match(videoPane, /\.card"\)\) \{\s*n\.addEventListener\("click", \(\) => playFromUserGesture\(BYID\[n\.dataset\.v\]\)\)/,
     "a video card uses the explicit user-gesture playback path");
+  assert.match(videoPane, /if \(e\.target !== n \|\| \(e\.key !== "Enter" && e\.key !== " "\)\) return;\s*e\.preventDefault\(\); KEYBOARD_PLAY = true; playFromUserGesture\(BYID\[n\.dataset\.v\]\);/,
+    "Enter or Space on a focused card takes the same user-gesture path; keys on the star inside are left to the star");
   assert.match(videoPane, /function playFromUserGesture\(v\) \{\s*return play\(v, true, false, new Set\(\), 1, null, true\);\s*\}/,
     "one card click requests playing, not a second native Play activation");
   assert.match(videoPane, /const resumeAt = userGesture \? resumePositionFor\(v\.video_id\) : await resumePositionBeforePlay\(v\.video_id\)/,
@@ -789,9 +791,22 @@ test("video transport stays in the one top bar and returns the full lower row to
     "the feed-mode chips yield their top-bar space to the active queue controls");
   assert.doesNotMatch(videoPane, /body\.playing[^\{]*#bFull[^\{]*\{[^}]*display:none/,
     "expand remains visibly available while the native player is active");
-  assert.match(videoPane, /id="bBack"[^>]*>‹ grid<\/span>/);
-  assert.match(videoPane, /id="bFull" title="expand this pane"/,
+  assert.match(videoPane, /<button class="btn" id="bBack" type="button"[^>]*>‹ grid<\/button>/,
+    "back to the grid is a real button, so the keyboard reaches it");
+  assert.match(videoPane, /<button class="btn" id="bFull" type="button"[^>]*title="expand this pane"/,
     "the same top-bar expansion control is available before and during playback");
+  assert.doesNotMatch(videoPane, /<span class="btn"/, "no top-bar control is a bare span");
+  assert.match(videoPane, /const b = document\.createElement\("button"\);\s*b\.type = "button"; b\.setAttribute\("aria-pressed"/,
+    "the list tabs are buttons that say which one is chosen");
+  assert.match(videoPane, /" tabindex="0" role="group" aria-label="/, "each video card can take keyboard focus");
+  assert.match(videoPane, /if \(KEYBOARD_PLAY\) \{ KEYBOARD_PLAY = false; el\("bBack"\)\.focus\(\); \}/,
+    "a card played from the keyboard leaves focus on the way back, not on a hidden card");
+  assert.match(videoPane, /const fromKeyboard = document\.activeElement === el\("bBack"\), was = CUR && CUR\.video_id;/,
+    "back pressed from the keyboard returns focus to the card that was playing");
+  assert.match(videoPane, /const heldId = focused && \(focused\.dataset\.star \|\| focused\.dataset\.v\), heldStar = !!\(focused && focused\.dataset\.star\);/,
+    "a quiet re-read rebuilds the grid without dropping a keyboard user's focus");
+  assert.match(videoPane, /if \(held\) \{ const on = box\.querySelector\("\.btn\.on"\); if \(on\) on\.focus\(\); \}/,
+    "rebuilding the list tabs does not drop a keyboard user's focus");
   assert.doesNotMatch(videoPane, /[+−-]30s|seekTo\(/,
     "Station does not duplicate the native YouTube seek controls");
 });

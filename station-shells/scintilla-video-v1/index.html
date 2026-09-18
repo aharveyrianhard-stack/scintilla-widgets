@@ -62,6 +62,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   text-decoration:none; white-space:nowrap; }
 button.btn{ appearance:none; border-radius:0; font-family:var(--mono); line-height:normal; }
 .btn:hover{ color:var(--ink); border-color:var(--hair); }
+.btn:focus-visible, .card:focus-visible{ outline:1px solid var(--crk); outline-offset:-1px; }
 .btn.on{ color:var(--crk); border-color:var(--crk); }
 .btn.out{ color:var(--vol); border-color:rgba(255,138,0,.35); }
 .btn:disabled{ color:var(--mute); border-color:var(--line); cursor:default; opacity:.48; }
@@ -155,7 +156,7 @@ body.playing #chips{ display:none; }
 <body>
 <div id="bar">
   <span class="k" id="kk">FEED</span>
-  <span class="btn" id="bBack" style="display:none">‹ grid</span>
+  <button class="btn" id="bBack" type="button" aria-label="back to the video grid" style="display:none">‹ grid</button>
   <span id="chips"></span>
   <span id="transport" aria-label="video queue controls">
     <button class="btn transport" id="bPrev" type="button" aria-label="previous video">‹ prev</button>
@@ -164,7 +165,7 @@ body.playing #chips{ display:none; }
     <button class="btn transport" id="bNext" type="button" aria-label="next video">next ›</button>
     <button class="btn" id="bMenu" type="button" aria-label="more video actions" aria-controls="more" aria-expanded="false">•••</button>
   </span>
-  <span class="btn" id="bFull" title="expand this pane">⛶</span>
+  <button class="btn" id="bFull" type="button" aria-label="expand this pane" title="expand this pane">⛶</button>
 </div>
 <div id="more" role="menu" hidden>
   <button class="btn" id="bWatch" type="button" role="menuitem"></button>
@@ -261,6 +262,7 @@ let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WA
 const LOCAL_SUBSCRIBED_CHANNELS = new Set(), SUBSCRIBE_PENDING = new Set();
 const SUBSCRIPTION_ACCOUNT = FEED === "scintilla" ? "scintilla" : "personal";
 let PLAYER_TOKEN = 0, PLAYER_ACCEPTED_TOKEN = 0, PLAYER_FALLBACK = 0, PLAYER_POSITION_POLL = 0;
+let KEYBOARD_PLAY = false;   /* a card played from the keyboard: focus follows to "‹ grid" */
 let YT_PLAYER = null, YT_PLAYER_READY = false, YT_PLAYER_CREATE = null, YT_PLAYER_REQUEST = null;
 let PLAYER_ENDED_TOKEN = 0, PLAYER_ERROR_TOKEN = 0, PLAYER_AUTOPLAY_BLOCKED = false;
 /* The database is the sole saved resume authority.  This Map is page memory
@@ -680,6 +682,7 @@ async function play(v, auto, queued = false, skipped = new Set(), direction = 1,
   document.body.classList.add("playing");
   refreshPlayerControls(v);
   el("bBack").style.display = "";
+  if (KEYBOARD_PLAY) { KEYBOARD_PLAY = false; el("bBack").focus(); }
   el("bYt").style.display = ""; el("bYt").href = "https://www.youtube.com/watch?v=" + encodeURIComponent(v.video_id);
   el("bYt").textContent = IOS ? "open in youtube app ↗" : "open in youtube ↗";
   el("bPip").style.display = canPip() ? "" : "none";
@@ -702,6 +705,7 @@ function playFromUserGesture(v) {
   return play(v, true, false, new Set(), 1, null, true);
 }
 function back() {
+  const fromKeyboard = document.activeElement === el("bBack"), was = CUR && CUR.video_id;
   captureActiveVideoPosition();
   saveActiveVideoPosition(true);
   clearPlayerPositionPoll();
@@ -712,6 +716,12 @@ function back() {
   el("bBack").style.display = "none";
   setMenuOpen(false); setAutoplayBlockedState(false); refreshWatchButton(); refreshTransport();
   syncUrl(); paint();
+  /* "‹ grid" hides itself; pressed from the keyboard, focus returns to the card that was playing. */
+  if (fromKeyboard) {
+    const cards = [...el("grid").querySelectorAll(".card")];
+    const card = cards.find((n) => n.dataset.v === was) || cards[0];
+    if (card) card.focus();
+  }
 }
 el("bBack").addEventListener("click", back);
 el("bPrev").addEventListener("click", () => stepQueue(-1));
@@ -776,12 +786,16 @@ function starHTML(v) {
 }
 
 function paint() {
+  /* The grid is rebuilt on every quiet re-read; a card or star holding keyboard focus gets it back. */
+  const focused = el("grid").contains(document.activeElement) ? document.activeElement : null;
+  const heldId = focused && (focused.dataset.star || focused.dataset.v), heldStar = !!(focused && focused.dataset.star);
   const q = "";
   let rows = LIST === "watch" ? ROWS.filter((v) => WATCH.has(v.video_id)) : ROWS;
   rows = q ? rows.filter((v) => ((v.title || "") + " " + (v.channel || "") + " " + (v.tickers || "")).toLowerCase().indexOf(q) >= 0) : rows;
   if (!rows.length) { el("grid").innerHTML = '<div class="msg">' + (q ? "nothing matches" : "no videos in this list") + "</div>"; return; }
   el("grid").innerHTML = rows.map((v) =>
-    '<div class="card' + (CUR && CUR.video_id === v.video_id ? " on" : "") + '" data-v="' + esc(v.video_id) + '">' +
+    '<div class="card' + (CUR && CUR.video_id === v.video_id ? " on" : "") + '" data-v="' + esc(v.video_id) +
+      '" tabindex="0" role="group" aria-label="' + esc(v.title) + ' — Enter plays">' +
       '<div class="thumb"><img loading="lazy" decoding="async" src="' +
         esc(v.thumb_url || ("https://i.ytimg.com/vi/" + v.video_id + "/mqdefault.jpg")) + '" alt="">' +
         starHTML(v) +
@@ -791,21 +805,35 @@ function paint() {
       '<div class="cap"><div class="t">' + esc(v.title) + "</div>" +
       '<div class="s">' + esc(v.channel || "") + "</div></div>" +
     "</div>").join("");
-  for (const n of el("grid").querySelectorAll(".card"))
+  for (const n of el("grid").querySelectorAll(".card")) {
     n.addEventListener("click", () => playFromUserGesture(BYID[n.dataset.v]));
+    /* Enter or Space on the card itself plays it; keys on the star inside stay the star's. */
+    n.addEventListener("keydown", (e) => {
+      if (e.target !== n || (e.key !== "Enter" && e.key !== " ")) return;
+      e.preventDefault(); KEYBOARD_PLAY = true; playFromUserGesture(BYID[n.dataset.v]);
+    });
+  }
   for (const n of el("grid").querySelectorAll(".star"))
     n.addEventListener("click", (e) => { e.stopPropagation(); toggleWatch(BYID[n.dataset.star]); });
+  if (heldId) {
+    const again = [...el("grid").querySelectorAll(heldStar ? ".star" : ".card")]
+      .find((n) => (heldStar ? n.dataset.star : n.dataset.v) === heldId);
+    if (again) again.focus();
+  }
 }
 
 function paintChips() {
-  const box = el("chips"); box.innerHTML = "";
+  const box = el("chips"), held = box.contains(document.activeElement); box.innerHTML = "";
   for (const l of LISTS) {
-    const b = document.createElement("span");
+    const b = document.createElement("button");
+    b.type = "button"; b.setAttribute("aria-pressed", l.id === LIST ? "true" : "false");
     b.className = "btn" + (l.id === LIST ? " on" : "");
     b.textContent = l.n;
     b.addEventListener("click", () => { LIST = l.id; paintChips(); load(LIST === "watch"); });
     box.appendChild(b);
   }
+  /* The tabs are rebuilt on every choice; a tab chosen from the keyboard keeps the keyboard's place. */
+  if (held) { const on = box.querySelector(".btn.on"); if (on) on.focus(); }
 }
 
 async function load(forceWatch, quiet) {
