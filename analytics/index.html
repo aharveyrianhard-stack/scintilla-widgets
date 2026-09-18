@@ -249,7 +249,7 @@ async function boot(){
     fav:'hub_favorites?select=ticker&limit=1000',
     funda:'fundamentals?select=ticker,price,market_cap,trailing_pe,adjusted_pe,eps_ttm,revenue_ttm,dcf,updated_ts&limit=1000',
     prof:'company_profile?select=ticker,name,sector,beta,is_etf&limit=1000',
-    sect:'sector_rankings?select=rank,sector,sector_name,score,trend,momentum,method,updated_at,date&order=rank.asc&limit=100',
+    sect:'sector_rankings?select=rank,sector,sector_name,score,trend,momentum,method,updated_at,date&order=date.desc,rank.asc&limit=200',
     y10:'treasury_rates?select=date,y10&order=date.desc&limit=1',
     vix:'vix_term?select=date,vix,vix3m,ratio&order=date.desc&limit=1',
     wts:'operator_weights?select=dim,key,weight,enabled&limit=100'
@@ -317,8 +317,16 @@ function renderMacro(){
 
 function renderSectors(){
   const el=$('sectors');if(S.sect.err)return errBox(el,S.sect.err);
-  const mth=S.sect[0]?S.sect[0].method:'';$('secHead').innerHTML='SECTOR RANKINGS <span class="small">method: '+mth+' · '+(S.sect[0]?S.sect[0].date:'')+'</span>';
-  const _rows=srt('sect',S.sect.slice(0,22));
+  /* ONE DAY'S RANKING, NOT THE WHOLE HISTORY. sector_rankings holds a row per sector per DAY
+     (13 rows a day, daily through today). The read used to take the first 100 rows ordered by
+     rank alone, so the table showed a month of "#1" rows from different dates stacked together
+     and the header carried whichever day's method happened to sort first (MEASURED 2026-09-18:
+     header dated 2026-08-19 and fifteen consecutive "#1 Metals & Mining" rows while today's 13
+     rows existed). The read now orders by date first, and only the newest date's rows are shown. */
+  const latestDate=S.sect[0]?S.sect[0].date:null;
+  const latest=latestDate?S.sect.filter(r=>r.date===latestDate):S.sect;
+  const mth=latest[0]?latest[0].method:'';$('secHead').innerHTML='SECTOR RANKINGS <span class="small">method: '+mth+' · '+(latestDate||'')+'</span>';
+  const _rows=srt('sect',latest.slice(0,22));
   let h='<table><tr>'+TH('sect','rank','#')+TH('sect','sector_name','SECTOR','left')+TH('sect','score','SCORE')+'<th></th>'+TH('sect','trend','TREND')+TH('sect','momentum','MOM')+'</tr>';
   _rows.forEach(r=>{const w=Math.round(Math.abs(r.score)*60);
     h+='<tr><td>'+r.rank+'</td><td class="t">'+(r.sector_name||r.sector)+'</td><td class="'+cls(r.score)+'">'+metric(_rows,'score',r.score,v=>fN(v,3))+'</td><td style="text-align:left"><span class="bar'+(r.score<0?' neg':'')+'" style="width:'+w+'px"></span></td><td class="'+cls(r.trend)+'">'+fN(r.trend,2)+'</td><td class="'+cls(r.momentum)+'">'+fN(r.momentum,2)+'</td></tr>'});

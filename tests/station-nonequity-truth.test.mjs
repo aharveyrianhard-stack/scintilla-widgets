@@ -92,3 +92,12 @@ test("the news page prints stored snippets as plain text, exactly as the Hub doe
   assert.equal(stripNewsMarkup(null), "");
   assert.equal(stripNewsMarkup("already plain text"), "already plain text");
 });
+
+test("/analytics shows one day's sector ranking, not the whole dated history", () => {
+  const a = fs.readFileSync(new URL("../analytics/index.html", import.meta.url), "utf8");
+  assert.match(a, /sector_rankings\?select=[^']*&order=date\.desc,rank\.asc&limit=200'/, "newest date first");
+  assert.match(a, /const latestDate=S\.sect\[0\]\?S\.sect\[0\]\.date:null;/);
+  assert.match(a, /const latest=latestDate\?S\.sect\.filter\(r=>r\.date===latestDate\):S\.sect;/);
+  assert.match(a, /const _rows=srt\('sect',latest\.slice\(0,22\)\);/, "the table is built from the latest day only");
+  assert.doesNotMatch(a, /order=rank\.asc&limit=100/, "the undated read is gone");
+});
