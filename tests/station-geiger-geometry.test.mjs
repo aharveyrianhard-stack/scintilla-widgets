@@ -128,7 +128,7 @@ test("/geiger labels the FMP daily snapshot by session: STALE with sessions behi
   assert.match(page, /return P\.dailySessionFreshness\(sourceDate, sessionState, nowMs\);/);
   assert.match(page, /reason:"freshness rule unavailable"/, "a missing rule fails closed");
   assert.match(page, /const indAge = gsIndicatorSession\(d\.indicatorSourceDate, d\.indicatorSessionState\);/);
-  assert.match(page, /"STALE · last reading " \+ srcDay \+ " · " \+ indAge\.reason \+ \(indAge\.settled \? "" : " · never settled"\)/);
+  assert.match(page, /"STALE · last reading " \+ srcDay \+ " · " \+ indAge\.reason \+ \(indAge\.state === "FORMING" && indAge\.sessionsBehind != null \? " · never settled" : ""\)/);
   assert.match(page, /\(indAge\.sourceDate === indAge\.expected \? "current session" : "today's session"\)/);
   assert.match(page, /d\.indicatorSourceDate, 16, undefined, indAge\);/, "the FMP reference stamp is aged in sessions");
   assert.match(page, /data-gs="tvsub"/, "the daily ladder carries its own as-of line");

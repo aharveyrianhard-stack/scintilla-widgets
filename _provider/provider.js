@@ -32,12 +32,16 @@
    2026-09-18), while a month-old value fetched five minutes ago would have passed a fetched-at gate. The rule here is
    the calendar's: New York weekday sessions, NYSE holidays skipped, a session expected to be settled from
    GS_SESSION_SETTLE_ET minutes after ET midnight (the 16:00 close plus four hours for the provider's settled print).
-   A reading of the expected session, or of today's still-open session, is CURRENT; any earlier session is STALE by
-   N sessions; a missing, unparseable, non-session or future-dated session date is STALE (fail closed).
-   fetched_at is never a freshness input. */
+   A SETTLED reading of the expected session is CURRENT; so is today's session while it is honestly FORMING (before the
+   exporter's 16:15 ET settlement boundary) or once it is SETTLED after it. Any earlier session is STALE by N sessions.
+   FAIL CLOSED, never promoted: a missing, unparseable, non-session or future-dated session date; a session_state
+   that is not exactly FORMING or SETTLED (the provider contract admits only those two); a FORMING snapshot whose
+   session has since closed (it is an intraday value, not that day's close); a SETTLED claim for a session that has
+   not reached its settlement boundary. fetched_at is never a freshness input. */
 var GS_NYSE_HOLIDAYS = ["2026-01-01","2026-01-19","2026-02-16","2026-04-03","2026-05-25","2026-06-19","2026-07-03","2026-09-07","2026-11-26","2026-12-25",
   "2027-01-01","2027-01-18","2027-02-15","2027-03-26","2027-05-31","2027-06-18","2027-07-05","2027-09-06","2027-11-25","2027-12-24"];
 var GS_SESSION_SETTLE_ET = 20 * 60;
+var GS_SESSION_CLOSE_BUFFER_ET = 16 * 60 + 15;   /* the exporter's own FORMING -> SETTLED boundary (dailySessionState) */
 function gsNyClock(nowMs) {
   var parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(nowMs));
   var v = {}; for (var i = 0; i < parts.length; i++) v[parts[i].type] = parts[i].value;
@@ -60,15 +64,20 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
   var now = Number.isFinite(nowMs) ? nowMs : Date.now();
   var sd = String(sourceDate == null ? "" : sourceDate).slice(0, 10);
   var expected = gsExpectedSettledSession(now);
-  var state = String(sessionState || "").toUpperCase();
-  var out = { known: false, stale: true, current: false, settled: state === "SETTLED", state: state || "UNSTATED",
+  var state = sessionState == null ? "" : String(sessionState).trim();
+  var stateValid = state === "FORMING" || state === "SETTLED";
+  var out = { known: false, stale: true, current: false, settled: state === "SETTLED", state: stateValid ? state : (state ? "INVALID" : "UNSTATED"),
     sourceDate: sd || null, expected: expected, sessionsBehind: null, reason: "" };
   if (!/^\d{4}-\d{2}-\d{2}$/.test(sd) || !isFinite(Date.parse(sd + "T12:00:00Z"))) { out.reason = "no session date"; return out; }
   out.known = true;
-  var today = gsNyClock(now).date;
+  var ny = gsNyClock(now), today = ny.date;
   if (sd > today) { out.reason = "session date " + sd + " is after today (" + today + " New York)"; return out; }
   if (!gsIsTradingDay(sd)) { out.reason = sd + " is not a trading session"; return out; }
+  if (!stateValid) { out.reason = "not admitted: session state " + (state ? "'" + state.slice(0, 24) + "' is not FORMING or SETTLED" : "missing"); return out; }
   if (sd >= expected) {
+    var closed = sd < today || ny.minutes >= GS_SESSION_CLOSE_BUFFER_ET;      /* has this session passed its settlement boundary? */
+    if (state === "FORMING" && closed) { out.reason = "a forming snapshot of " + sd + ", whose session has since closed — not the settled value"; return out; }
+    if (state === "SETTLED" && !closed) { out.reason = "marked SETTLED before the " + sd + " session reached its settlement boundary"; return out; }
     out.stale = false; out.current = true; out.sessionsBehind = 0;
     out.reason = sd === expected ? "expected session" : "today's session, " + (out.settled ? "settled" : "forming");
     return out;
