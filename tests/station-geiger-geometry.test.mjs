@@ -25,3 +25,56 @@ test("/geiger composite rings sit wholly inside the meter viewBox (no clipped en
       `ring ${d.slice(0, 22)} extents ${JSON.stringify(e)} exceed viewBox ${svg[1]}`);
   }
 });
+
+// Execute the real renderer with a minimal DOM.
+function loadMacd() {
+  const a = page.indexOf("const GS_MACD_BAR_MAX_PX"), b = page.indexOf("gsTrendMotion(node, svg);\n}", a);
+  assert.ok(a > 0 && b > a, "renderer source located");
+  const src = page.slice(a, b) + "}\nreturn { gsMacdScale, gsMacdHist, GS_MACD_BAR_MAX_PX };";
+  const el = (tag) => ({ tag, attrs: {}, children: [], setAttribute(k, v) { this.attrs[k] = v; }, appendChild(c) { this.children.push(c); } });
+  const document = { createElementNS: (_ns, tag) => el(tag) };
+  const num = (x) => (x == null ? null : Number(x));
+  return new Function("document", "GS_NS", "num", "gsTrendMotion", src)(document, "http://www.w3.org/2000/svg", num, () => {});
+}
+const panel = () => ({ clientWidth: 446, clientHeight: 406, innerHTML: "", kids: [], appendChild(c) { this.kids.push(c); } });
+const bars = (node) => node.kids[0].children.filter((c) => c.tag === "rect").map((r) => r.attrs);
+
+test("/geiger MACD: a single provider snapshot draws a bar-width bar scaled against its own MACD line", () => {
+  const { gsMacdScale, gsMacdHist, GS_MACD_BAR_MAX_PX } = loadMacd();
+  const snap = { state: "AVAILABLE", value: 0.11720701586884275, signal: 0.10006149698333963, histogram: 0.017145518885503114 };
+  const node = panel();
+  gsMacdHist(node, [snap.histogram], gsMacdScale(snap));
+  const [r] = bars(node);
+  const half = 406 / 2 - 3;
+  assert.ok(+r.width <= GS_MACD_BAR_MAX_PX, "not a panel-wide block");
+  assert.ok(Math.abs(+r.height - snap.histogram / snap.value * half) < 1e-9, "height = hist / max(|MACD|,|signal|) of the half-height");
+  assert.ok(+r.height < 0.2 * half, "0.0171 against 0.1172 is a small bar, not a full one");
+  assert.equal(r.fill, "#00FFA3");
+  const neg = panel();
+  gsMacdHist(neg, [-0.05], gsMacdScale({ state: "AVAILABLE", value: -0.2, signal: -0.15, histogram: -0.05 }));
+  const [rn] = bars(neg);
+  assert.equal(rn.fill, "#FF3060"); assert.equal(+rn.y, 406 / 2, "negative bar hangs below the zero line");
+  assert.ok(Math.abs(+rn.height - 0.25 * half) < 1e-9);
+});
+
+test("/geiger MACD: a real series still scales against its own largest bar exactly as before", () => {
+  const { gsMacdHist } = loadMacd();
+  const series = Array.from({ length: 40 }, (_, i) => Math.sin(i / 5) * (i + 1) / 40);
+  const node = panel();
+  gsMacdHist(node, series);
+  const rs = bars(node);
+  assert.equal(rs.length, 40);
+  assert.ok(Math.abs(+rs[0].width - 446 / 40 * 0.7) < 1e-9, "series bar width unchanged (below the single-bar cap)");
+  const tallest = Math.max(...rs.map((r) => +r.height));
+  assert.ok(Math.abs(tallest - (406 / 2 - 3)) < 1e-9, "largest series bar still spans the half-height");
+});
+
+test("/geiger MACD: unavailable snapshot has no scale and an empty lane still says no data", () => {
+  const { gsMacdScale, gsMacdHist } = loadMacd();
+  assert.equal(gsMacdScale(null), null);
+  assert.equal(gsMacdScale({ state: "UNAVAILABLE", value: 1 }), null);
+  const node = panel();
+  gsMacdHist(node, [], null);
+  assert.match(node.innerHTML, /no data/);
+  assert.match(page, /gsMacdHist\(q\("macd"\), d\.macd, gsMacdScale\(d\.massiveMacd\)\)/, "the page passes the snapshot scale");
+});

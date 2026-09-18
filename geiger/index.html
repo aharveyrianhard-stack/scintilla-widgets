@@ -423,11 +423,22 @@ function gsMtf(node, rows, sc, tip, fmt){ if (!node) return;
   node.innerHTML = hdr + rows.map(([tf, v]) => { const day = tf === "1D", t = tip(v), vc = t === GS_PUR ? "var(--gs-mom)" : t;
     return '<div class="gs-mrow'+(day?" gs-day":"")+'"><span class="gs-tf">'+tf+'</span>'+gsMbar(v, sc, t)+'<span class="gs-mv" style="color:'+vc+'">'+fmt(v)+'</span></div>'; }).join("");
 }
-function gsMacdHist(node, MACD){ if (!node) return; node.innerHTML = "";
+/* THE PROVIDER SERVES ONE MACD SNAPSHOT, NOT A SERIES (value, signal, histogram for the latest completed
+   minute), so this "histogram" has exactly one bar. Scaled against itself, a lone bar always filled the full
+   half-height at 70% of the panel width whatever its size: MEASURED 2026-09-18 NBIS histogram 0.0171 beside
+   MACD 0.1172 drawn as a 312 x 200 px glowing block. The bar is now scaled against the larger of the same
+   snapshot's MACD line and signal (so its height shows the histogram relative to the line it is derived from),
+   and a lone bar is drawn bar-width, not panel-width. Values and colours are unchanged; a real series (n > 1)
+   still scales against its own largest bar exactly as before. */
+const GS_MACD_BAR_MAX_PX = 28;
+function gsMacdScale(m){ if (!m || m.state !== "AVAILABLE") return null;
+  const a = [m.value, m.signal, m.histogram].map(num).filter((v) => v != null && isFinite(v)).map(Math.abs);
+  return a.length ? Math.max(...a) : null; }
+function gsMacdHist(node, MACD, ref){ if (!node) return; node.innerHTML = "";
   if (!MACD || !MACD.length){ node.innerHTML = '<div class="gs-empty">no data</div>'; return; }
   const W = node.clientWidth, H = node.clientHeight; if (!W || !H) return;
   const svg = document.createElementNS(GS_NS, "svg");
-  const mx = Math.max(...MACD.map(Math.abs)) || 1, zy = H/2, n = MACD.length, bw = W/n*0.7, gap = W/n;
+  const mx = Math.max(...MACD.map(Math.abs), (ref != null && isFinite(ref) && ref > 0) ? ref : 0) || 1, zy = H/2, n = MACD.length, bw = Math.min(W/n*0.7, GS_MACD_BAR_MAX_PX), gap = W/n;
   const zl = document.createElementNS(GS_NS, "line"); zl.setAttribute("x1",0); zl.setAttribute("x2",W); zl.setAttribute("y1",zy); zl.setAttribute("y2",zy); zl.setAttribute("stroke","rgba(255,255,255,.12)"); svg.appendChild(zl);
   MACD.forEach((v, i) => { const hgt = Math.abs(v)/mx*(H/2-3), x = i*gap+(gap-bw)/2, up = v >= 0;
     const r = document.createElementNS(GS_NS, "rect"); r.setAttribute("x",x); r.setAttribute("width",bw); r.setAttribute("y",up?zy-hgt:zy); r.setAttribute("height",Math.max(1,hgt)); r.setAttribute("rx",1);
@@ -723,7 +734,7 @@ function buildGeigerSummary(d) {
 
   const draw = () => {
     gsTrend(q("tv"), d.price, d.mas);
-    gsMacdHist(q("macd"), d.macd);
+    gsMacdHist(q("macd"), d.macd, gsMacdScale(d.massiveMacd));
     gsVolume(q("vol"), d);
   };
   requestAnimationFrame(draw);
