@@ -1645,7 +1645,7 @@ const STATION_SHELL = Object.freeze({
 function chartSrc(t, index, transitionGeneration) {
   return STATION_SHELL.chart + "?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
     "&view=" + encodeURIComponent(VIEW) +
-    (SceneModel.hidesTopChartAxis(index, CHART_COUNT) ? "&sharedAxis=1" : "") +
+    (SceneModel.hidesTopChartAxis(index, CHART_COUNT, CHARTS) ? "&sharedAxis=1" : "") +
     (transitionGeneration ? "&transition=" + encodeURIComponent(transitionGeneration) : "");
 }
 /* The chart app accepts a fast postMessage update, but a mounted iframe can
@@ -1791,6 +1791,15 @@ function commitTicker(index, raw, input) {
     if (o.frame) {
       syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE });
     } else if (index < CHART_COUNT) mount(o);
+  }
+  /* A lower slot that just gained a symbol now carries the column's time
+     axis, so the chart above it hands its own back. */
+  const above = index - CHART_COUNT / 2;
+  const upper = SceneModel.usesPairedColumnAxis(CHART_COUNT) && above >= 0 && CHARTS[above]
+    ? PANES.find((p) => p.def.key === "c" + (above + 1)) : null;
+  if (upper) {
+    upper.def.src = chartSrc(CHARTS[above], above); upper.def.open = upper.def.src.replace("bare=1&", "");
+    if (upper.frame) syncChartFrame(upper.frame, upper.def.src, { sc:"chart", ticker:CHARTS[above], range:RANGE });
   }
   refreshDeckQuotes(); rememberEditableState(); closeSymbolGuide(); paintChips(); return true;
 }

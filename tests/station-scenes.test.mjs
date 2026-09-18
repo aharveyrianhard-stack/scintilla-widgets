@@ -122,7 +122,13 @@ test("six and eight chart grids pair each top chart with its column's lower axis
   assert.match(deck, /#rowTop\.charts-8/);
   assert.doesNotMatch(deck, /sharedTimeAxis/);
   assert.match(deck, /function chartSrc\(t, index, transitionGeneration\)/);
-  assert.match(deck, /SceneModel\.hidesTopChartAxis\(index, CHART_COUNT\)/);
+  /* The deck passes its slots: a top chart keeps its own axis while the slot below it is empty. */
+  assert.match(deck, /SceneModel\.hidesTopChartAxis\(index, CHART_COUNT, CHARTS\)/);
+  assert.equal(scenes.hidesTopChartAxis(0, 6, ["SPY", "QQQ", "DIA", "IWM", "", ""]), true);
+  assert.equal(scenes.hidesTopChartAxis(1, 6, ["SPY", "QQQ", "DIA", "IWM", "", ""]), false);
+  assert.equal(scenes.hidesTopChartAxis(0, 6, ["SPY", "QQQ", "", "", "", ""]), false);
+  assert.equal(scenes.hidesTopChartAxis(3, 8, ["A", "B", "C", "D", "E", "F", "G", ""]), false);
+  assert.equal(scenes.hidesTopChartAxis(3, 6, ["A", "B", "C", "D", "E", "F"]), false);
   assert.match(deck, /sharedAxis=1/);
   assert.match(chart, /const SHARED_TIME_AXIS = QS\.get\("sharedAxis"\) === "1"/);
   assert.match(chart, /if \(!SHARED_TIME_AXIS\) \{/);
@@ -290,6 +296,7 @@ test("generated paired iPad companion routes carry the iPad profile through the 
     RANGE: "3h",
     VIEW: "ipad",
     CHART_COUNT: 3,
+    CHARTS: ["SPY", "QQQ", "DIA"],
     STATION_SHELL: { chart:"/station-shells/chart-v1" },
     SceneModel: { hidesTopChartAxis: () => false }
   });
@@ -479,6 +486,7 @@ test("top cards suppress their own dates while each lower card paints its column
     RANGE: "3h",
     VIEW: "desk",
     CHART_COUNT: 6,
+    CHARTS: ["TSM", "NVDA", "AMD", "MU", "AVGO", ""],
     encodeURIComponent,
     STATION_SHELL: { chart:"/station-shells/chart-v1" },
     SceneModel: { hidesTopChartAxis: scenes.hidesTopChartAxis }
@@ -486,10 +494,13 @@ test("top cards suppress their own dates while each lower card paints its column
   assert.match(chartSrc("TSM", 0), /t=TSM/);
   assert.match(chartSrc("TSM", 0), /sharedAxis=1/);
   assert.doesNotMatch(chartSrc("TSM", 3), /sharedAxis=1/);
+  assert.doesNotMatch(chartSrc("AMD", 2), /sharedAxis=1/,
+    "the slot below is empty, so this top chart keeps its own time axis");
   const localAxisChartSrc = functionFromDeck("chartSrc", {
     RANGE: "3h",
     VIEW: "desk",
     CHART_COUNT: 3,
+    CHARTS: ["TSM", "NVDA", "AMD"],
     encodeURIComponent,
     STATION_SHELL: { chart:"/station-shells/chart-v1" },
     SceneModel: { hidesTopChartAxis: scenes.hidesTopChartAxis }

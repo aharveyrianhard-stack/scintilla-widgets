@@ -80,9 +80,14 @@
   function usesPairedColumnAxis(size) {
     return [6, 8].includes(chartCountForSize(size));
   }
-  function hidesTopChartAxis(index, size) {
+  /* A top chart borrows the time axis of the chart below it. When the caller
+     passes the slots and the one below is an empty "choose a symbol" slot,
+     there is no axis to borrow, so the top chart keeps its own. */
+  function hidesTopChartAxis(index, size, charts) {
     const count = chartCountForSize(size);
-    return usesPairedColumnAxis(count) && Number(index) >= 0 && Number(index) < count / 2;
+    const top = usesPairedColumnAxis(count) && Number(index) >= 0 && Number(index) < count / 2;
+    if (!top || !Array.isArray(charts)) return top;
+    return !!charts[Number(index) + count / 2];
   }
   function nextRotatingScene(scene) {
     const index = ROTATION_IDS.indexOf(normalizeScene(scene));
