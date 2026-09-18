@@ -281,6 +281,14 @@
   var EXPECTED_EQUITY_UNIVERSE = 364;
   var ACCEPTED_UNIVERSE_SHA256 =
     'ab8f7965258d939f0a97fbfeac9a271547c258df7a2616aff6ccff746bb5d9d3';
+  /* FMP REFERENCE ROWS CARRY THE IDENTITY OF THE ARTIFACT THAT WROTE THEM. Today's rows were stamped
+     with the 365-symbol identity (INDICATOR_UNIVERSE_SHA256); the writer must move to the accepted
+     364-symbol identity above before it can run again (it refuses any other universe). Its upsert key
+     does not include the identity, so each refreshed ticker's rows are REPLACED by rows carrying the new
+     digest. Accepting only the old digest would have blanked every refreshed ticker here while the Hub,
+     which already accepts both (SC_FMP_REFERENCE_DIGESTS), kept showing it. Both identities are
+     reference-only; neither controls Geiger membership. Anything else still fails closed. */
+  var FMP_REFERENCE_UNIVERSE_SHA256S = [INDICATOR_UNIVERSE_SHA256, ACCEPTED_UNIVERSE_SHA256];
   /* CARDINALITY IS NOT IDENTITY, AND THE CANONICAL SET IS DERIVABLE.
      Checking only that the payload holds 365 symbols passes a set of the RIGHT SIZE and the
      WRONG MEMBERS: drop AAPL, add TICK, and the count still says 365 while AAPL is quietly
@@ -641,7 +649,7 @@
     });
     return 'provider_indicators_current?select=ticker,provider,timeframe,indicator,period_length,value,source_date,session_state,fetched_at,universe_hash' +
       '&ticker=in.(' + symbols.join(',') + ')' +
-      '&provider=eq.FMP&timeframe=eq.1day&universe_hash=eq.' + INDICATOR_UNIVERSE_SHA256 +
+      '&provider=eq.FMP&timeframe=eq.1day&universe_hash=in.(' + FMP_REFERENCE_UNIVERSE_SHA256S.join(',') + ')' +
       (families.length && families.length < 9 ? '&indicator=in.(' + families.join(',') + ')' : '') +
       '&limit=1000';
   }
@@ -650,7 +658,7 @@
     if (!symbols.length) return Promise.resolve([]);
     return origPg(indicatorPath(symbols, specs)).then(function (rows) {
       if (!Array.isArray(rows)) throw transportError('provider indicator index did not return rows', 'provider_indicators_current', null);
-      var requested = {}, allowed = {}, accepted = [], seen = {}, dates = {}, states = {};
+      var requested = {}, allowed = {}, accepted = [], seen = {}, dates = {}, states = {}, identities = {};
       symbols.forEach(function (ticker) { requested[ticker] = 1; });
       specs.forEach(function (spec) { allowed[spec.key] = 1; });
       rows.forEach(function (r) {
@@ -658,7 +666,7 @@
         var ticker = String(r.ticker || '').toUpperCase();
         var key = String(r.indicator || '') + ':' + String(r.period_length);
         if (!requested[ticker] || !allowed[key] || r.provider !== 'FMP' || r.timeframe !== '1day' ||
-            r.universe_hash !== INDICATOR_UNIVERSE_SHA256 || !isFinite(Number(r.value)) ||
+            FMP_REFERENCE_UNIVERSE_SHA256S.indexOf(r.universe_hash) < 0 || !isFinite(Number(r.value)) ||
             ['FORMING','SETTLED'].indexOf(String(r.session_state || '')) < 0 || !r.source_date) {
           throw transportError('provider indicator row violated the accepted FMP contract: ' +
             (ticker || 'UNKNOWN') + '/' + (key || 'UNKNOWN'), 'provider_indicators_current', null);
@@ -670,11 +678,13 @@
         (seen[ticker] || (seen[ticker] = {}))[key] = 1;
         (dates[ticker] || (dates[ticker] = {}))[String(r.source_date || '')] = 1;
         (states[ticker] || (states[ticker] = {}))[String(r.session_state || '')] = 1;
+        (identities[ticker] || (identities[ticker] = {}))[String(r.universe_hash || '')] = 1;
       });
       var missing = [];
       symbols.forEach(function (s) {
         if (dates[s] && Object.keys(dates[s]).length !== 1) missing.push(s + '/MIXED_SOURCE_DATE');
         if (states[s] && Object.keys(states[s]).length !== 1) missing.push(s + '/MIXED_SESSION_STATE');
+        if (identities[s] && Object.keys(identities[s]).length !== 1) missing.push(s + '/MIXED_UNIVERSE_IDENTITY');
       });
       if (missing.length)
         throw transportError('provider indicator snapshot incoherent: ' + missing.join(','), 'provider_indicators_current', null);

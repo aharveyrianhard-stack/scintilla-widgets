@@ -232,6 +232,36 @@ test("a legitimately partial FMP payload names every absent contract instead of 
     "CURRENT_INDEX_VALUE_ABSENT");
 });
 
+const ACCEPTED_HASH = "ab8f7965258d939f0a97fbfeac9a271547c258df7a2616aff6ccff746bb5d9d3";
+
+test("FMP rows stamped with either reference identity are read, and the query asks for both", async () => {
+  const map = symbols();
+  let asked = "";
+  const refreshed = indicatorRows().map((r) => ({ ...r, universe_hash:ACCEPTED_HASH, source_date:"2026-09-18 00:00:00", session_state:"SETTLED" }));
+  const reader = async (path) => { if (path.startsWith("provider_indicators_current")) asked = path;
+    return path.startsWith("tickers?") ? canonicalRows(map) : refreshed; };
+  const w = load(fixtureFetch(map), reader);
+  const [row] = await w.SC_PROVIDER.fmpDailyIndicators(["AAPL"]);
+  assert.match(asked, new RegExp("universe_hash=in\\.\\(" + INDICATOR_HASH + "," + ACCEPTED_HASH + "\\)"));
+  assert.equal(row.rsi14, 53.1);
+  assert.equal(row.source_date, "2026-09-18 00:00:00");
+  assert.equal(row.contracts.filter((c) => c.state === "AVAILABLE").length, 16);
+  const legacy = load(fixtureFetch(map), async (path) => path.startsWith("tickers?") ? canonicalRows(map) : indicatorRows());
+  assert.equal((await legacy.SC_PROVIDER.fmpDailyIndicators(["AAPL"]))[0].rsi14, 53.1, "rows still carrying the old identity keep reading");
+});
+
+test("an unknown or mixed FMP universe identity still fails closed", async () => {
+  const map = symbols();
+  const foreign = indicatorRows().map((r) => ({ ...r, universe_hash:"0".repeat(64) }));
+  const w = load(fixtureFetch(map), async (path) => path.startsWith("tickers?") ? canonicalRows(map) : foreign);
+  await assert.rejects(() => w.SC_PROVIDER.fmpDailyIndicators(["AAPL"]),
+    (error) => error?.scTransport === true && /violated the accepted FMP contract/.test(error.message));
+  const mixed = indicatorRows().map((r, i) => (i === 0 ? { ...r, universe_hash:ACCEPTED_HASH } : r));
+  const m = load(fixtureFetch(map), async (path) => path.startsWith("tickers?") ? canonicalRows(map) : mixed);
+  await assert.rejects(() => m.SC_PROVIDER.fmpDailyIndicators(["AAPL"]),
+    (error) => error?.scTransport === true && /MIXED_UNIVERSE_IDENTITY/.test(error.message));
+});
+
 test("duplicate or mixed-date FMP contracts fail closed rather than choosing a row", async () => {
   const map = symbols();
   const rows = indicatorRows();
