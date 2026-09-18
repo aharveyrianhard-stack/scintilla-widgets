@@ -494,3 +494,41 @@ test("/compare: a position is a claim — an unranked row is placed, not left wh
   assert.deepEqual(held.slice(2), ["AGRI", "AI_SOFTWARE", "GROWTH"],
     "…and the unranked tail is untouched by the swap");
 });
+
+test("/econ lists upcoming events first, then a short just-printed tail, and its impact filter matches stored values", async () => {
+  const econ = read("../econ/index.html");
+  const script = econ.slice(econ.indexOf("<script>") + 8, econ.lastIndexOf("</script>"));
+  const NOW = Date.UTC(2026, 8, 18, 3, 0, 0), nowS = Math.floor(NOW / 1000);
+  const past = Array.from({ length: 60 }, (_, i) => ({ event_ts: nowS - 60 - i * 1800, country: "JP", event: "past " + i, impact: "Low" }));
+  const next = Array.from({ length: 60 }, (_, i) => ({ event_ts: nowS + 60 + i * 1800, country: "US", event: "next " + i, impact: i % 5 ? "Low" : "High" }));
+  const asked = [];
+  const nodes = {};
+  const node = (id) => nodes[id] || (nodes[id] = { id, innerHTML: "", textContent: "", classList: { add() {} } });
+  const run = async (search) => {
+    for (const k of Object.keys(nodes)) delete nodes[k];
+    const fetch = async (url) => { const u = decodeURIComponent(String(url)); asked.push(u);
+      let rows = [];
+      if (u.includes("econ_calendar")) {
+        const gte = +(/event_ts=gte\.(\d+)/.exec(u) || [])[1], lte = +(/event_ts=lte\.(\d+)/.exec(u) || [0, Infinity])[1], lt = +(/event_ts=lt\.(\d+)/.exec(u) || [0, Infinity])[1];
+        const imp = (/impact=eq\.([A-Za-z]+)/.exec(u) || [])[1];
+        rows = past.concat(next).filter((r) => r.event_ts >= gte && r.event_ts <= lte && r.event_ts < lt && (!imp || r.impact === imp));
+        rows.sort((a, b) => u.includes("order=event_ts.desc") ? b.event_ts - a.event_ts : a.event_ts - b.event_ts);
+        rows = rows.slice(0, +(/limit=(\d+)/.exec(u) || [])[1]);
+      }
+      return { ok: true, status: 200, json: async () => rows }; };
+    const ctx = { document: { getElementById: node, body: { classList: { add() {} } } }, location: { search }, fetch,
+      setInterval: () => 0, setTimeout: (f) => f(), URLSearchParams, Date: class extends Date { constructor(...a) { super(...(a.length ? a : [NOW])); } static now() { return NOW; } },
+      Math, Promise, String, Number, JSON, console };
+    await new Function(...Object.keys(ctx), script.replace(/tick\(\)\.catch/, "return tick().catch"))(...Object.values(ctx));
+    return nodes.list.innerHTML;
+  };
+  const html = await run("");
+  const listed = [...html.matchAll(/class="r( past)?"/g)].map((m) => !!m[1]);
+  assert.equal(listed.length, 48, "40 upcoming + 8 just printed");
+  assert.equal(listed.slice(0, 40).filter(Boolean).length, 0, "the first 40 rows are all upcoming");
+  assert.equal(listed.slice(40).filter((p) => !p).length, 0, "the tail is the just-printed rows");
+  assert.ok(html.indexOf(">next 0<") < html.indexOf(">past 0<"), "next event listed before the most recent print");
+  const high = await run("?impact=high&country=US");
+  assert.ok(asked.some((u) => u.includes("impact=eq.High")), "stored value is capitalised");
+  assert.equal([...high.matchAll(/class="r"/g)].length, 12, "the documented ?impact=high filter now returns the High events");
+});

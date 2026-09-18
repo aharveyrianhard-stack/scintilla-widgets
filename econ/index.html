@@ -13,7 +13,7 @@
        CALENDAR — econ_calendar (68k rows out to year-end: event · country ·
          impact · actual/previous/estimate · event_ts epoch) — next events
          first, with a recent tail so you see what just printed.
-     Params: ?impact=high · ?country=US · ?days=10 (1-90) · ?limit=40 ·
+     Params: ?impact=high · ?country=US · ?days=10 (1-90) · ?limit=40 · ?tail=8 (0-20) ·
        ?sections=topline,calendar · ?bg=0 · ?refresh=300
      DATA — DB reads only, never FMP · scintilla-live.
      Receipt: HSC-ECON-LIVE-001.
@@ -88,6 +88,11 @@ const IMPACT  = (QS.get("impact") || "").toLowerCase().replace(/[^a-z]/g, "");
 const COUNTRY = (QS.get("country") || "").toUpperCase().replace(/[^A-Z]/g, "");
 const DAYS    = Math.max(1, Math.min(90, +(QS.get("days") || 10)));
 const LIMIT   = Math.max(5, Math.min(150, +(QS.get("limit") || 40)));
+const TAIL    = Math.max(0, Math.min(20, +(QS.get("tail") || 8)));   // just-printed rows shown after the upcoming ones
+/* econ_calendar stores impact capitalised ("High", "Medium", "Low", "None"). The filter was sent lower-case, so the
+   documented ?impact=high matched nothing and always read "no calendar rows for this filter" (MEASURED 2026-09-18:
+   545 events in the next 10 days, 12 of them High). */
+const IMPACT_DB = IMPACT ? IMPACT.charAt(0).toUpperCase() + IMPACT.slice(1) : "";
 const SECT    = String(QS.get("sections") || "topline,calendar").toLowerCase();
 const REFRESH = Math.max(60, Math.min(1800, +(QS.get("refresh") || 300))) * 1000;
 if (QS.get("bg") === "0") document.body.classList.add("nobg");
@@ -106,18 +111,24 @@ const when = (ms) => {
 async function tick() {
   const wantT = SECT.indexOf("topline") >= 0, wantC = SECT.indexOf("calendar") >= 0;
   const nowS = Math.floor(Date.now() / 1000);
-  let q = "econ_calendar?select=event_ts,country,event,actual,previous,estimate,impact&event_ts=gte." + (nowS - 2 * 86400) +
-          "&event_ts=lte." + (nowS + DAYS * 86400) + "&order=event_ts.asc&limit=" + LIMIT;
-  if (IMPACT) q += "&impact=eq." + encodeURIComponent(IMPACT);
-  if (COUNTRY) q += "&country=eq." + encodeURIComponent(COUNTRY);
+  /* NEXT EVENTS FIRST, THEN A SHORT RECENT TAIL. One ascending read from now-48h capped at LIMIT filled every slot
+     with the last two days' prints (the calendar is dense: MEASURED 2026-09-18, all 40 rows listed were already past,
+     none upcoming). Upcoming events are now read on their own (ascending from now), and the just-printed tail is a
+     separate small read (descending from now, so the most recent print comes first). */
+  let base = "econ_calendar?select=event_ts,country,event,actual,previous,estimate,impact";
+  if (IMPACT_DB) base += "&impact=eq." + encodeURIComponent(IMPACT_DB);
+  if (COUNTRY) base += "&country=eq." + encodeURIComponent(COUNTRY);
+  const q = base + "&event_ts=gte." + nowS + "&event_ts=lte." + (nowS + DAYS * 86400) + "&order=event_ts.asc&limit=" + LIMIT;
+  const qTail = base + "&event_ts=gte." + (nowS - 2 * 86400) + "&event_ts=lt." + nowS + "&order=event_ts.desc&limit=" + TAIL;
   /* A FAILED READ IS NEVER DATA. catch(() => null) rendered a dead econ_dashboard read as a
      blank tile strip and a dead calendar read as "no calendar rows for this filter" — claims
      about tables the reads never saw. The failure is kept and named, distinctly from
      emptiness. */
   const READ_FAILED = { failed: true };
-  const [dash, cal] = await Promise.all([
+  const [dash, cal, tail] = await Promise.all([
     wantT ? pg("econ_dashboard?select=topic,label,unit,cadence,last_date,value,prev,yago,sort&order=sort.asc").catch(() => READ_FAILED) : null,
     wantC ? pg(q).catch(() => READ_FAILED) : null,
+    wantC && TAIL ? pg(qTail).catch(() => READ_FAILED) : [],
   ]);
 
   if (wantT && dash === READ_FAILED) {
@@ -136,10 +147,13 @@ async function tick() {
 
   if (wantC) {
     if (cal === READ_FAILED) el("list").innerHTML = '<div class="empty">the econ_calendar read failed — the calendar is unavailable, not clear · retrying at the next refresh</div>';
-    else if (!Array.isArray(cal) || !cal.length) el("list").innerHTML = '<div class="empty">no calendar rows for this filter</div>';
+    else if ((!Array.isArray(cal) || !cal.length) && (!Array.isArray(tail) || !tail.length)) el("list").innerHTML =
+      tail === READ_FAILED ? '<div class="empty">no upcoming calendar rows for this filter · the recent-prints read failed</div>'
+                           : '<div class="empty">no calendar rows for this filter</div>';
     else {
       const now = Date.now();
-      el("list").innerHTML = cal.map((r) => {
+      const rows = (Array.isArray(cal) ? cal : []).concat(Array.isArray(tail) ? tail : []);
+      el("list").innerHTML = rows.map((r) => {
         const ms = num(r.event_ts) * 1000, past = ms < now;
         const a = num(r.actual), e = num(r.estimate), p = num(r.previous);
         const beat = a != null && e != null ? (a > e ? "up" : a < e ? "dn" : "") : "";
@@ -149,7 +163,7 @@ async function tick() {
           '<span class="ev">' + esc(r.event || "") + "</span>" +
           '<span class="nums">' + (a != null ? '<b class="' + beat + '">' + a + "</b>" : "—") +
             (e != null ? " vs " + e : "") + (p != null ? " · prev " + p : "") + "</span></div>";
-      }).join("");
+      }).join("") + (tail === READ_FAILED ? '<div class="empty">the recent-prints read failed — just-printed rows unavailable · retrying at the next refresh</div>' : "");
     }
   }
   el("stamp").textContent = "econ_dashboard + econ_calendar · db reads only";
