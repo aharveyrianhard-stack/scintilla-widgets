@@ -532,3 +532,11 @@ test("/econ lists upcoming events first, then a short just-printed tail, and its
   assert.ok(asked.some((u) => u.includes("impact=eq.High")), "stored value is capitalised");
   assert.equal([...high.matchAll(/class="r"/g)].length, 12, "the documented ?impact=high filter now returns the High events");
 });
+
+test("/events splits upcoming and results on the New York market date, not the UTC date", () => {
+  const ev = read("../events/index.html");
+  const src = ev.match(/const iso = \(d\) => [^\n]*\n/)[0];
+  const iso = new Function(src + "return iso;")();
+  assert.equal(iso(new Date("2026-09-18T03:50:00Z")), "2026-09-17", "23:50 ET is still Sep 17");
+  assert.equal(iso(new Date("2026-09-18T12:00:00Z")), "2026-09-18");
+});

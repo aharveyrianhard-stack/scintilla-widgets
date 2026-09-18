@@ -90,7 +90,9 @@ const REFRESH = Math.max(60, Math.min(1800, +(QS.get("refresh") || 300))) * 1000
 if (QS.get("bg") === "0") document.body.classList.add("nobg");
 el("filt").textContent = T ? "$" + T : COHORT ? COHORT.replace(/_/g, " ") : "all tickers";
 
-const iso = (d) => d.toISOString().slice(0, 10);
+/* US-market (New York) calendar day. The UTC date rolls over at 8 pm ET, so every evening the page treated the rest of
+   today as tomorrow: tonight's report dates dropped out of "upcoming" and could not yet enter "results". */
+const iso = (d) => d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 const short = (s) => { const p = String(s).split("-"); return p.length === 3 ? p[1] + "/" + p[2] : s; };
 const pct = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1) + "%";
 const tone = (v) => (v > 0 ? "up" : v < 0 ? "dn" : "neu");
