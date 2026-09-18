@@ -73,6 +73,13 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-nchart__live-change{ font:700 .86em var(--mono); letter-spacing:.02em; line-height:1; }
 .sc-nchart__live-prev{ color:var(--ink3); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
 .sc-nchart__live-window{ color:var(--dim); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
+/* THE REFERENCE TEXT STEPS BACK, THE PRICE AND THE LINE LEAD. "Prev 762.60 ≈41 trading days · since Jul 23" sat at full
+   strength in a shadowed box over the top-left of every chart (Alan, live review 2026-09-18: the badges compete with the
+   chart). Same words, same place, same size - only quieter; pointing at the badge or focusing the ticker brings them back. */
+.sc-nchart__live{ background:rgba(5,6,12,.6); border-color:rgba(151,166,198,.12); box-shadow:none; }
+.sc-nchart__live-prev, .sc-nchart__live-window{ opacity:.72; transition:opacity .12s ease; }
+.sc-nchart__live:hover .sc-nchart__live-prev, .sc-nchart__live:hover .sc-nchart__live-window,
+.sc-nchart__live:focus-within .sc-nchart__live-prev, .sc-nchart__live:focus-within .sc-nchart__live-window{ opacity:1; }
 .sc-nchart__live[data-change="up"]{ color:var(--bull); }
 .sc-nchart__live[data-change="down"]{ color:var(--bear); }
 .sc-nchart__live[data-change="flat"]{ color:var(--dim); }
@@ -489,6 +496,16 @@ function chTimeLbl(d, range, compact, spanMs) {
   const m = iso.match(/^\d{4}-(\d{2})-(\d{2})/);
   return m ? (EV_MON[+m[1] - 1] || m[1]) + " " + (+m[2]) : md;
 }
+/* THE DATE LEADS; THE YEAR FOLLOWS QUIETLY, AND ONLY WHERE IT FIRST APPEARS OR CHANGES. A two-month 3H chart printed "2026"
+   above EVERY tick, at full strength, with the date under it at 65% (Alan, live review 2026-09-18: repeated year labels
+   should be quiet and at the bottom). Nothing about the time context is lost: the first tick always carries its year and so
+   does every tick where the year turns. Labels that are not [year, something] - "09-18 / 14:00", a bare year - are untouched.
+   Pure: parts from chTimeParts + the year last printed -> what to print on the two lines. */
+function chAxisLabel(parts, lastYear) {
+  const a = String((parts && parts[0]) || ""), b = String((parts && parts[1]) || "");
+  if (!/^\d{4}$/.test(a) || !b) return { top: a, bottom: b, bottomAlpha: .65, year: lastYear || "" };
+  return { top: b, bottom: a !== lastYear ? a : "", bottomAlpha: .5, year: a };
+}
 function chTimeParts(d, range, compact, spanMs) {
   const iso = String(d || ""), yr = iso.slice(0, 4), md = iso.slice(5, 10);
   const hm = iso.length > 10 ? iso.slice(11, 16) : "";
@@ -886,7 +903,7 @@ function scChartDraw(host, scrub) {
     const compactAxis = iw < 310 || ipadProfile;
     const targetSpacing = intraday ? (compactAxis ? 56 : 76) : (compactAxis ? 48 : 62);
     const timeTickCount = Math.max(3, Math.min(12, Math.floor(iw / targetSpacing) + 1));
-    const drawnTimes = new Set();
+    const drawnTimes = new Set(); let axisYear = "";
     for (let k = 0; k < timeTickCount; k++) {
       const ix = Math.round(start + (k / Math.max(1, timeTickCount - 1)) * (end - start));
       const parts = chTimeParts(pts[ix].d, host._range || S.chartRange, compactAxis, visibleSpanMs);
@@ -894,10 +911,11 @@ function scChartDraw(host, scrub) {
       if (!parts[0] || drawnTimes.has(key)) continue;
       drawnTimes.add(key);
       ctx.textAlign = k === 0 ? "left" : k === timeTickCount - 1 ? "right" : "center";
-      ctx.fillText(parts[0], X(ix), h - padB + 8);
-      if (parts[1]) {
-        ctx.globalAlpha = .65;
-        ctx.fillText(parts[1], X(ix), h - 2);
+      const lbl = chAxisLabel(parts, axisYear); axisYear = lbl.year;
+      ctx.fillText(lbl.top, X(ix), h - padB + 8);
+      if (lbl.bottom) {
+        ctx.globalAlpha = lbl.bottomAlpha;
+        ctx.fillText(lbl.bottom, X(ix), h - 2);
         ctx.globalAlpha = 1;
       }
     }

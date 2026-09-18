@@ -542,8 +542,8 @@ test("paired column axes stay legible while using compact plot bands", () => {
     "horizontal separators remain visible but intentionally subtle");
   assert.match(chart, /ctx\.font = \(\(ipadProfile \? 6\.5 : 7\) \* scale\) \+ 'px "SF Mono"/,
     "right price labels use a compact distinct band");
-  assert.match(chart, /ctx\.fillText\(parts\[0\], X\(ix\), h - padB \+ 8\)/,
-    "the lower card retains its actual shared date/time labels");
+  assert.match(chart, /ctx\.fillText\(lbl\.top, X\(ix\), h - padB \+ 8\)/,
+    "the lower card retains its actual shared date/time labels (the date now leads; the year follows once - chAxisLabel)");
 });
 
 test("hover uses a true two-axis crosshair, not the old fixed close reference", () => {
