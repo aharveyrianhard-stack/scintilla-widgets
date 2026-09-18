@@ -225,6 +225,9 @@ async function undatedCount(filters) {
   } catch (_) { return null; }
 }
 
+/* NEWS-WINDOW (review 2026-09-18) — set once the 7-day window has come back short for this page's filters (fixed for the
+   page's life): later refreshes read the original query directly, one read per refresh as before the window. */
+let NEWS_QUIET = false;
 let LAST_OK_MS = null;
 async function tick() {
   let filters = "";
@@ -237,12 +240,26 @@ async function tick() {
       ? "&published_ts=is.null&order=" + UNDATED_ORDER + "&offset=" + offset
       : "&order=published_ts.desc.nullslast") +
     filters + "&limit=" + LIMIT;
+  /* NEWS-WINDOW — the dated wire asks for the newest rows inside the last 7 days first; the unbounded read ranks the whole
+     table (469,259 rows on 2026-09-18) for 60 of them. MEASURED 2026-09-18, identical bodies: 0.44–0.70 s unbounded vs
+     0.28–0.29 s windowed. A full page from the window is the same page by construction (rows outside it are older, undated
+     rows already sort last); a short page falls back to the original read, so a quiet ticker or cohort shows what it shows
+     today. The undated list (?undated=1) is untouched. */
+  const NEWS_WINDOW_S = 7 * 86400;
+  const MAIN_FAILED = { failed: true };
+  /* A failed window read falls back to the original read once, so a window read that fails can never show "the news read
+     failed" where today's read works. Worst case per tick with pg()'s own 3 tries: 6 news requests, the original read at
+     most 3 - today's ceiling; a quiet page reads the original directly. */
+  const mainRead = (UNDATED_ONLY || NEWS_QUIET) ? pg(q).catch(() => MAIN_FAILED)
+    : pg(q + "&published_ts=gte." + (Math.floor(Date.now() / 1000) - NEWS_WINDOW_S))
+        .then((rows) => { if (Array.isArray(rows) && rows.length >= LIMIT) return rows; NEWS_QUIET = true; return pg(q); },
+              () => pg(q))
+        .catch(() => MAIN_FAILED);
   /* A failed sentiment read is kept as its own state — flattened to null it rendered as a
      silently absent chip, identical to a ticker that simply has no sentiment row. */
   const SENT_FAILED = { failed: true };
-  const MAIN_FAILED = { failed: true };
   const [rows, sent, undated] = await Promise.all([
-    pg(q).catch(() => MAIN_FAILED),
+    mainRead,
     T ? pg("news_sentiment?ticker=eq." + encodeURIComponent(T) + "&select=score,n_articles&limit=1").catch(() => SENT_FAILED) : null,
     undatedCount(filters),
   ]);
