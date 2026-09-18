@@ -101,3 +101,17 @@ test("/analytics shows one day's sector ranking, not the whole dated history", (
   assert.match(a, /const _rows=srt\('sect',latest\.slice\(0,22\)\);/, "the table is built from the latest day only");
   assert.doesNotMatch(a, /order=rank\.asc&limit=100/, "the undated read is gone");
 });
+
+test("/analytics derives P/E from the provider price on the row, never the stored trailing_pe", () => {
+  const a = fs.readFileSync(new URL("../analytics/index.html", import.meta.url), "utf8");
+  assert.match(a, /pe:livePe\(m,'eps_ttm'\), ape:livePe\(m,'adjusted_eps_ttm'\)/);
+  assert.doesNotMatch(a, /pe:m\.f\?m\.f\.trailing_pe:null/, "the stored multiple must not reach the value table");
+  assert.doesNotMatch(a, /push\(\{t,pe:m\.f\.trailing_pe\}\)/, "sector comps use the same live multiple");
+  assert.match(a, /select=ticker,price,market_cap,trailing_pe,adjusted_pe,eps_ttm,adjusted_eps_ttm,revenue_ttm/, "adjusted EPS is read so the adjusted multiple is live too");
+  const fn = a.match(/function livePe\(m,epsField\)\{[\s\S]*?\}\n/)[0];
+  const livePe = new Function(fn + "; return livePe;")();
+  assert.ok(Math.abs(livePe({ q:{ price:336.13 }, f:{ eps_ttm:8.27 } }, 'eps_ttm') - 336.13 / 8.27) < 1e-12, "same formula: price / EPS");
+  assert.equal(livePe({ q:{ price:null }, f:{ eps_ttm:8.27 } }, 'eps_ttm'), null, "no provider price -> no multiple, not a stale one");
+  assert.equal(livePe({ q:{ price:336.13 }, f:{ eps_ttm:-1.2 } }, 'eps_ttm'), null, "negative EPS -> undefined ratio");
+  assert.equal(livePe({ q:{ price:336.13 }, f:{} }, 'adjusted_eps_ttm'), null);
+});

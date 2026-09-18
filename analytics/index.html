@@ -247,7 +247,7 @@ function buildCtrls(){
 async function boot(){
   const q={
     fav:'hub_favorites?select=ticker&limit=1000',
-    funda:'fundamentals?select=ticker,price,market_cap,trailing_pe,adjusted_pe,eps_ttm,revenue_ttm,dcf,updated_ts&limit=1000',
+    funda:'fundamentals?select=ticker,price,market_cap,trailing_pe,adjusted_pe,eps_ttm,adjusted_eps_ttm,revenue_ttm,dcf,updated_ts&limit=1000',
     prof:'company_profile?select=ticker,name,sector,beta,is_etf&limit=1000',
     sect:'sector_rankings?select=rank,sector,sector_name,score,trend,momentum,method,updated_at,date&order=date.desc,rank.asc&limit=200',
     y10:'treasury_rates?select=date,y10&order=date.desc&limit=1',
@@ -282,6 +282,8 @@ async function boot(){
   buildCtrls();await loadRet();renderMacro();renderSectors();renderCohortGeiger();renderCohortSel();renderValue();renderDcf();renderComps();renderWeights();renderTilt();
 }
 
+/* price / EPS from the row's own provider quote; null when either input is missing or non-positive. */
+function livePe(m,epsField){const px=(m&&m.q&&m.q.price!=null)?+m.q.price:NaN;const eps=(m&&m.f&&m.f[epsField]!=null)?+m.f[epsField]:NaN;return (isFinite(px)&&px>0&&isFinite(eps)&&eps>0)?px/eps:null}
 /* The name the provider client recorded for a symbol it could not price. Never a guess: if the
    client has no name, the cell says only that there is no provider quote. */
 function providerAbsenceFor(t){
@@ -372,7 +374,14 @@ function renderValue(){
     px:(m.q && m.q.price != null) ? m.q.price : null,
     pxAbsence:(m.q && m.q.price != null) ? null : providerAbsenceFor(t),
     chg:m.q?m.q.chg_pct:null,
-    geig:m.g?m.g.composite:null, pe:m.f?m.f.trailing_pe:null, ape:m.f?m.f.adjusted_pe:null,
+    /* P/E IS COMPUTED HERE FROM THE PROVIDER PRICE, NEVER READ FROM THE STORED COLUMN.
+       fundamentals.trailing_pe is derived by a database routine from fundamentals.price, and that price was
+       being re-stamped every 15 minutes from the RETIRED live_quotes lane (last written 2026-08-18): MEASURED
+       2026-09-18, AAPL stored price 310.3 vs provider 336.13, so this table showed a month-old multiple beside
+       a current price. Same formula as before (price / trailing EPS), same rule the Hub already follows
+       ("computed live, never the stale stored trailing_pe"); an unusable price or EPS yields null, not a stale
+       number. */
+    geig:m.g?m.g.composite:null, pe:livePe(m,'eps_ttm'), ape:livePe(m,'adjusted_eps_ttm'),
     eps:m.f?m.f.eps_ttm:null, rev:m.f?m.f.revenue_ttm:null, mcap:m.f?m.f.market_cap:null,
     dcf:m.f?m.f.dcf:null, fAge:m.f?m.f.updated_ts:null, ret:(S.ret&&S.ret[t]!=null?S.ret[t]:null)}});
   rows.sort((a,b)=>(((b[sortKey]==null?-1e18:+b[sortKey])-(a[sortKey]==null?-1e18:+a[sortKey]))*(-sortDir)));
@@ -405,7 +414,7 @@ function renderDcf(){
 function renderComps(){
   const el=$('comps');
   const bySec={};
-  Object.keys(S.map).forEach(t=>{const m=S.map[t];if(m.p&&m.p.sector&&m.f&&m.f.trailing_pe>0&&m.f.trailing_pe<400)(bySec[m.p.sector]=bySec[m.p.sector]||[]).push({t,pe:m.f.trailing_pe})});
+  Object.keys(S.map).forEach(t=>{const m=S.map[t];const lp=livePe(m,'eps_ttm');if(m.p&&m.p.sector&&lp>0&&lp<400)(bySec[m.p.sector]=bySec[m.p.sector]||[]).push({t,pe:lp})});
   const med=a=>{const s=a.slice().sort((x,y)=>x-y);return s.length?s[Math.floor(s.length/2)]:null};
   const rows=[];
   Object.entries(bySec).forEach(([sec,arr])=>{if(arr.length<3)return;const m=med(arr.map(x=>x.pe));
