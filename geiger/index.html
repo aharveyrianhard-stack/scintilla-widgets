@@ -468,17 +468,18 @@ function gsIndicatorValue(v){
 /* Provider references sit beside the accepted Geiger; they never become inputs to its score.
    Availability and observation age are separate facts, so an old value can stay visibly
    available without being called current, and an unreadable lane cannot look like zero. */
-/* age of the FMP daily snapshot: stale when fetched more than 26 h ago (falls back to the source date when no fetch time). */
-const GS_INDICATOR_STALE_MS = 26 * 3600e3;
-function gsIndicatorAge(fetchedAt, sourceDate, nowMs){
-  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
-  let ms = Date.parse(String(fetchedAt || ""));
-  if (!Number.isFinite(ms)) { const sd = String(sourceDate || "").slice(0, 10); ms = /^\d{4}-\d{2}-\d{2}$/.test(sd) ? Date.parse(sd + "T00:00:00Z") : NaN; }
-  if (!Number.isFinite(ms)) return { stale: false, days: null, known: false };
-  const age = now - ms;
-  return { stale: age > GS_INDICATOR_STALE_MS, days: Math.max(0, Math.round(age / 86400e3)), known: true };
+/* FRESHNESS OF THE FMP DAILY SNAPSHOT IS A SESSION QUESTION, answered by gsDailySessionFreshness in
+   _provider/provider.js (expected last settled New York session vs the row's session date; fetched_at is not an
+   input). MEASURED 2026-09-18: a Sep-17 SETTLED close fetched at 05:04Z was shown "AGE 29H · STALE (1d)" because the
+   fetch stamp arrived as epoch seconds (unparseable here) and the date-only session fell back to a UTC-midnight
+   instant. A missing rule fails closed (stale). */
+function gsIndicatorSession(sourceDate, sessionState, nowMs){
+  const P = window.SC_PROVIDER;
+  if (!P || typeof P.dailySessionFreshness !== "function")
+    return { known:false, stale:true, current:false, settled:false, state:"", sourceDate:null, expected:null, sessionsBehind:null, reason:"freshness rule unavailable" };
+  return P.dailySessionFreshness(sourceDate, sessionState, nowMs);
 }
-function gsReferenceSummary(provider, laneState, contracts, sourceTime, expectedCount, nowMs){
+function gsReferenceSummary(provider, laneState, contracts, sourceTime, expectedCount, nowMs, session){
   const rows = Array.isArray(contracts) ? contracts : [];
   const available = rows.filter((c) => c && c.state === "AVAILABLE").length;
   const expected = Math.max(0, Number(expectedCount) || 0);
@@ -500,7 +501,12 @@ function gsReferenceSummary(provider, laneState, contracts, sourceTime, expected
   }
   const clock = Number.isFinite(nowMs) ? nowMs : Date.now();
   let age = "AGE UNKNOWN";
-  if (observedMs != null) {
+  /* a DAILY reference is aged in sessions, not hours since a midnight it never had */
+  if (session && typeof session === "object") {
+    age = !session.known ? "SESSION UNKNOWN"
+      : session.stale ? "SESSION " + session.sourceDate + " · " + (session.sessionsBehind != null ? session.sessionsBehind + " BEHIND" : "STALE")
+      : "SESSION " + session.sourceDate + " · CURRENT";
+  } else if (observedMs != null) {
     const delta = clock - observedMs;
     if (delta < -60000) age = "AGE CLOCK-AHEAD";
     else if (delta < 90 * 60000) age = "AGE " + Math.max(0, Math.round(delta / 60000)) + "M";
@@ -515,7 +521,7 @@ function gsReferenceSummary(provider, laneState, contracts, sourceTime, expected
 }
 function gsContractMeta(c, provider){
   if (!c || c.state !== "AVAILABLE") return c && c.reason || "NAMED_UNAVAILABLE";
-  if (provider === "FMP") return [c.source_date, c.session_state].filter(Boolean).join(" · ");
+  if (provider === "FMP") return [c.source_date ? String(c.source_date).slice(0, 10) : null, c.session_state].filter(Boolean).join(" · ");
   const stamp = c.source_timestamp_utc ? c.source_timestamp_utc.replace("T", " ").replace(/:00\.000Z$/, "Z") : "AS-OF UNKNOWN";
   const macd = c.family === "macd" ? "SIG " + gsIndicatorValue(c.signal) + " · HIST " + gsIndicatorValue(c.histogram) : null;
   return [macd, stamp, c.source_market_session].filter(Boolean).join(" · ");
@@ -718,14 +724,18 @@ function buildGeigerSummary(d) {
       return lab + " " + (r.availability === "ABSENT" ? "ABSENT" : String(r.newest || "UNKNOWN").replace("T", " ").replace(/:00\.000Z$/, "Z"));
     }).join(" · ") : "BAR AS-OF · unavailable";
   }
-  /* AGED IS NOT FORMING. "FORMING" is the provider's word for a value fetched while its session was still open; on a
-     29-day-old snapshot it read as if today's session were forming (MEASURED 2026-09-18: every RSI/Williams/ladder tile
-     said "2026-08-20 · FORMING"). A snapshot fetched more than 26 h ago (the Hub's own gate) is now labelled STALE with
-     its last-reading date and age, and the daily ladder says which day its averages belong to. Values are unchanged. */
-  const indAge = gsIndicatorAge(d.indicatorFetchedAt, d.indicatorSourceDate);
-  const indStamp = indAge.stale
-    ? "STALE · last reading " + String(d.indicatorSourceDate || "unknown").slice(0, 10) + " (" + indAge.days + "d ago)" + (d.indicatorSessionState === "SETTLED" ? "" : " · never settled")
-    : [d.indicatorSourceDate, d.indicatorSessionState].filter(Boolean).join(" · ");
+  /* AGED IS NOT FORMING, AND SETTLED IS NOT STALE. "FORMING" is the provider's word for a value fetched while its
+     session was still open; on a 29-day-old snapshot it read as if today's session were forming (MEASURED 2026-09-18:
+     every RSI/Williams/ladder tile said "2026-08-20 · FORMING"). A reading behind the expected settled session is
+     labelled STALE with its last-reading date and how many sessions it trails; a reading of the expected (or today's)
+     session is labelled current. Values are unchanged. */
+  const indAge = gsIndicatorSession(d.indicatorSourceDate, d.indicatorSessionState);
+  const srcDay = String(d.indicatorSourceDate || "unknown").slice(0, 10);
+  const indStamp = !indAge.known
+    ? "STALE · " + indAge.reason
+    : indAge.stale
+      ? "STALE · last reading " + srcDay + " · " + indAge.reason + (indAge.settled ? "" : " · never settled")
+      : srcDay + " · " + (indAge.settled ? "SETTLED" : indAge.state) + " · " + (indAge.sourceDate === indAge.expected ? "current session" : "today's session");
   const rsub = q("rsisub"), wsub = q("wprsub"), tsub = q("tvsub");
   if (rsub) rsub.textContent = "raw FMP provider" + (indStamp ? " · " + indStamp : " · as-of unavailable");
   if (wsub) wsub.textContent = "raw FMP provider" + (indStamp ? " · " + indStamp : " · as-of unavailable");
@@ -734,12 +744,13 @@ function buildGeigerSummary(d) {
 
   const fmpStamp = q("fmpstamp"), massiveStamp = q("massivestamp");
   const fmpRef = gsReferenceSummary("FMP", d.fmpLaneState, d.fmpContracts,
-    d.indicatorSourceDate, 16);
+    d.indicatorSourceDate, 16, undefined, indAge);
   const massiveRef = gsReferenceSummary("MASSIVE", d.massiveLaneState, d.massiveContracts,
     d.massiveCompletedCutoff, 11);
   if (fmpStamp) fmpStamp.textContent = fmpRef.label +
-    " · 1DAY · SPLIT-ADJUSTED · AS-OF " + String(d.indicatorSourceDate || "UNKNOWN") +
-    (indAge.stale ? " · STALE (" + indAge.days + "d)" : (d.indicatorSessionState ? " · " + d.indicatorSessionState : "")) + " · MACD NOT CARRIED";
+    " · 1DAY · SPLIT-ADJUSTED · AS-OF " + (d.indicatorSourceDate ? srcDay : "UNKNOWN") +
+    (indAge.stale ? " · STALE (" + (indAge.sessionsBehind != null ? indAge.sessionsBehind + " SESSION" + (indAge.sessionsBehind === 1 ? "" : "S") + " BEHIND" : indAge.reason.toUpperCase()) + ")"
+      : (d.indicatorSessionState ? " · " + d.indicatorSessionState : "")) + " · MACD NOT CARRIED";
   if (massiveStamp) massiveStamp.textContent = massiveRef.label +
     " · MINUTE · SPLIT-ADJUSTED · COMPLETED ≤ " + String(d.massiveCompletedCutoff || "UNKNOWN") +
     " · NO ARCHIVE WAIT";

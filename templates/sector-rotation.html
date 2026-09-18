@@ -537,7 +537,9 @@ async function refreshDerivedLive(){
     if(Object.keys(map).length!==tickers.length) throw new Error('provider indicator universe incomplete');
     DERIVED_LIVE=map; DERIVED_LIVE_STATUS='ok';
     let mx=0; for(const r of Object.values(map)) if(r.updated_ts>mx) mx=r.updated_ts;
-    spineSet('provider_indicators_current',mx||null,spineAge(mx||null,26*3600),Object.keys(map).length+'/'+tickers.length+' raw FMP daily indicator sets');
+    // the spine badge is the session rule too: STALE when any set trails the expected settled session
+    const behind=Object.values(map).filter(r=>SC_PROVIDER.dailySessionFreshness(r.timestamp,r.session_state).stale).length;
+    spineSet('provider_indicators_current',mx||null,behind?'STALE':'LIVE',Object.keys(map).length+'/'+tickers.length+' raw FMP daily indicator sets'+(behind?' · '+behind+' behind the expected settled session':' · all of the expected session'));
   }catch(e){ DERIVED_LIVE={}; DERIVED_LIVE_STATUS='error'; spineSet('provider_indicators_current',null,'PARTIAL','provider indicator read failed — values unavailable; no substitute'); }
   renderRegime(); if(DETAIL_TAB==='tech') renderDetailContent(); renderDetailActionable();
 }
@@ -639,10 +641,12 @@ function technicalRead(t){
   let read;
   if(score>=4) read='STRONG BUY'; else if(score>=2) read='BUY'; else if(score<=-2) read='STRONG SELL'; else if(score<=0) read='SELL'; else read='NEUTRAL';
   // NO VERDICT FROM AGED INPUTS. The score above is unchanged, but a BUY/SELL word is only issued while the FMP daily
-  // snapshot is current (fetched within 26 h — the same rule the data spine uses to badge it STALE). MEASURED
-  // 2026-09-18: the page said "BUY" for sectors off indicators last fetched 2026-08-20, 29 days earlier.
-  const _es=(typeof updatedTs==='number')?updatedTs:(Date.parse(String(updatedTs||''))/1000);
-  const stale = !(isFinite(_es) && (Date.now()/1000-_es) <= 26*3600);
+  // snapshot belongs to the expected settled New York session (SC_PROVIDER.dailySessionFreshness — the same rule the
+  // data spine and /geiger use; fetched_at is not an input, a missing rule fails closed). MEASURED 2026-09-18: the page
+  // said "BUY" for sectors off indicators of 2026-08-20, 19 sessions earlier.
+  const session = (typeof SC_PROVIDER!=='undefined' && SC_PROVIDER && typeof SC_PROVIDER.dailySessionFreshness==='function')
+    ? SC_PROVIDER.dailySessionFreshness(dl.timestamp, dl.session_state) : {known:false, stale:true, reason:'freshness rule unavailable', sessionsBehind:null};
+  const stale = session.stale;
   if(stale) read='STALE';
   const sourceDate = dl.timestamp!=null ? String(dl.timestamp).slice(0,10) : null;
   // our own 0-100 "sector sentiment" composite — not CNN's Fear & Greed Index.
@@ -650,7 +654,7 @@ function technicalRead(t){
   const rsiTilt=(r!=null?(r-50):0)*0.8;
   const trendTilt=((last/le50-1)*100)*3;
   const sentiment=Math.max(0,Math.min(100, 50 + rsiTilt + trendTilt));
-  return {last,e20:le20,e50:le50,rsi:r,wpr,macd,macdSigned,cci,roc,stoch,score,read,sentiment,rsiTilt,trendTilt,conditions,source,updatedTs,priceSource,stale,sourceDate};
+  return {last,e20:le20,e50:le50,rsi:r,wpr,macd,macdSigned,cci,roc,stoch,score,read,sentiment,rsiTilt,trendTilt,conditions,source,updatedTs,priceSource,stale,sourceDate,session};
 }
 
 function renderCards(){
@@ -1112,7 +1116,7 @@ function regimeData(){
     const {weeks}=weeksInQuadrant(rr);
     const t=technicalRead(s.t);
     const stretchPct = t? (t.last/t.e50-1)*100 : null;
-    return {...s, ratio:rr.ratio[n-1], mom:rr.mom[n-1], q, weeks, rsi:t?t.rsi:null, wpr:t?t.wpr:null, stretchPct};
+    return {...s, ratio:rr.ratio[n-1], mom:rr.mom[n-1], q, weeks, rsi:t?t.rsi:null, wpr:t?t.wpr:null, stretchPct, stale:t?t.stale:true};
   }).filter(Boolean);
   const cnt=q=>rows.filter(r=>r.q===q).length;
   const leading=cnt('LEADING'), lagging=cnt('LAGGING'), weakening=cnt('WEAKENING'), improving=cnt('IMPROVING');
@@ -1132,7 +1136,9 @@ function regimeData(){
   // EXTENSION WATCH — forward-looking, not a lagging confirmation: flags sectors stretched far from their
   // own 50-day trend + RSI extremes, i.e. candidates for a pause/mean-reversion BEFORE any quadrant cross
   // would confirm it. This directly answers the "crossing is slow" gap — it's meant to fire earlier.
-  const withExt=rows.filter(r=>r.rsi!=null&&r.stretchPct!=null).map(r=>({...r, extScore: Math.abs(r.stretchPct)/10 + Math.abs(r.rsi-50)/50 + (r.wpr!=null? Math.abs(r.wpr+50)/50 : 0)}));
+  // STALE INPUTS DO NOT DRIVE A CAUTION. A sector whose technical score is withheld (session-stale indicators)
+  // is left out of the extension watch rather than flagged "stretched" on a month-old RSI.
+  const withExt=rows.filter(r=>!r.stale&&r.rsi!=null&&r.stretchPct!=null).map(r=>({...r, extScore: Math.abs(r.stretchPct)/10 + Math.abs(r.rsi-50)/50 + (r.wpr!=null? Math.abs(r.wpr+50)/50 : 0)}));
   withExt.sort((a,b)=>b.extScore-a.extScore);
   // Raw FMP Williams %R folded in where available: >-20 = overbought zone, <-80 = oversold
   // zone — its own dedicated oscillator, not derived from RSI/stretch, so it's an independent confirming vote.
@@ -1218,7 +1224,8 @@ function renderDetailActionable(){
   const lq=QUOTES_LIVE[s.t];
   const stretchPct=(t.last/t.e50-1)*100;
   const wprHit = t.wpr!=null && (t.wpr>-20||t.wpr<-80);
-  const extended = t.rsi!=null && (t.rsi>=68||stretchPct>=8||(t.wpr!=null&&t.wpr>-20)) ? 'overbought' : (t.rsi!=null && (t.rsi<=32||stretchPct<=-8||(t.wpr!=null&&t.wpr<-80)) ? 'oversold' : null);
+  // while the score is withheld for stale inputs, the extension read is withheld with it (no CAUTION from aged RSI)
+  const extended = t.stale ? null : (t.rsi!=null && (t.rsi>=68||stretchPct>=8||(t.wpr!=null&&t.wpr>-20)) ? 'overbought' : (t.rsi!=null && (t.rsi<=32||stretchPct<=-8||(t.wpr!=null&&t.wpr<-80)) ? 'oversold' : null));
   // votes: technicals score sign, geiger composite sign (if live), extension direction (inverted — extension argues AGAINST chasing the current direction)
   let votes=0, nVotes=0;
   if(t.score!=null && !t.stale){ votes += Math.sign(t.score); nVotes++; }   // stale technicals do not vote
@@ -1231,7 +1238,7 @@ function renderDetailActionable(){
   else { verdict='MIXED SIGNALS'; color='var(--dim)'; }
   const parts=[];
   parts.push(t.stale
-    ? `Technicals: <b style="color:var(--yellow)">STALE — no read</b> (FMP daily indicators last fetched ${freshText(t.updatedTs)}, reading of ${t.sourceDate||'unknown date'}; score ${t.score>=0?'+':''}${t.score} not used)`
+    ? `Technicals: <b style="color:var(--yellow)">STALE — no read</b> (FMP daily indicators last fetched ${freshText(t.updatedTs)}, reading of ${t.sourceDate||'unknown date'} — ${t.session&&t.session.reason?t.session.reason:'session unknown'}; extension read withheld with the score; score ${t.score>=0?'+':''}${t.score} not used)`
     : `Technicals: <b style="color:${t.read.includes('BUY')?'var(--green)':t.read.includes('SELL')?'var(--red)':'var(--yellow)'}">${t.read}</b> (score ${t.score>=0?'+':''}${t.score}, raw FMP indicators + provider quote)`);
   parts.push(live? `Geiger (provider): <b style="color:${live.composite>=0?'var(--green)':'var(--red)'}">${live.composite>=0?'+':''}${live.composite.toFixed(3)}</b>` : `Geiger: <span style="color:var(--dim)">provider value unavailable</span>`);
   parts.push(`Extension: ${extended? `<b style="color:var(--yellow)">${extended}</b> (RSI ${t.rsi.toFixed(0)}${t.wpr!=null?`, W%R ${t.wpr.toFixed(0)}`:''}, ${stretchPct>=0?'+':''}${stretchPct.toFixed(1)}% vs trend)` : `<span style="color:var(--dim)">not stretched</span>`}`);

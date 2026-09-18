@@ -121,19 +121,16 @@ test("/geiger trend ladder: true rung positions (tick lines) are unchanged by th
   for (const m of TSM) assert.ok(Math.abs(byName[m.n] - (pT + (1 - (m.v - lo2) / (hi2 - lo2)) * dH)) < 1e-9, m.n + " tick at its value");
 });
 
-// Stale FMP daily snapshot: labelled STALE with its last-reading date, never FORMING.
-test("/geiger labels an aged FMP daily snapshot STALE with its last-reading date instead of FORMING", () => {
-  const src = page.match(/const GS_INDICATOR_STALE_MS = [^\n]*\n/)[0] + page.match(/function gsIndicatorAge\(fetchedAt, sourceDate, nowMs\)\{[\s\S]*?\n\}\n/)[0] + "return gsIndicatorAge;";
-  const gsIndicatorAge = new Function(src)();
-  const now = Date.parse("2026-09-18T04:40:00Z");
-  const old = gsIndicatorAge("2026-08-20T18:11:51.08Z", "2026-08-20 00:00:00", now);
-  assert.equal(old.stale, true); assert.equal(old.days, 28);
-  const fresh = gsIndicatorAge("2026-09-17T21:00:00Z", "2026-09-17 00:00:00", now);
-  assert.equal(fresh.stale, false);
-  const noFetch = gsIndicatorAge(null, "2026-08-20 00:00:00", now);
-  assert.equal(noFetch.stale, true, "falls back to the source date");
-  assert.equal(gsIndicatorAge(null, null, now).known, false);
-  assert.match(page, /"STALE · last reading " \+ String\(d\.indicatorSourceDate \|\| "unknown"\)\.slice\(0, 10\) \+ " \(" \+ indAge\.days \+ "d ago\)"/);
+// Stale FMP daily snapshot: labelled STALE with its last-reading date and sessions behind, never FORMING; a settled
+// reading of the expected session is labelled current (the rule itself is tested in station-session-freshness).
+test("/geiger labels the FMP daily snapshot by session: STALE with sessions behind, or current", () => {
+  assert.doesNotMatch(page, /GS_INDICATOR_STALE_MS|function gsIndicatorAge\(/, "the fetched-at gate is gone");
+  assert.match(page, /return P\.dailySessionFreshness\(sourceDate, sessionState, nowMs\);/);
+  assert.match(page, /reason:"freshness rule unavailable"/, "a missing rule fails closed");
+  assert.match(page, /const indAge = gsIndicatorSession\(d\.indicatorSourceDate, d\.indicatorSessionState\);/);
+  assert.match(page, /"STALE · last reading " \+ srcDay \+ " · " \+ indAge\.reason \+ \(indAge\.settled \? "" : " · never settled"\)/);
+  assert.match(page, /\(indAge\.sourceDate === indAge\.expected \? "current session" : "today's session"\)/);
+  assert.match(page, /d\.indicatorSourceDate, 16, undefined, indAge\);/, "the FMP reference stamp is aged in sessions");
   assert.match(page, /data-gs="tvsub"/, "the daily ladder carries its own as-of line");
   assert.match(page, /classList\.toggle\("gs-stale", !!indAge\.stale\)/);
 });

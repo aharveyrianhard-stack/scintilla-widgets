@@ -24,6 +24,63 @@
   'use strict';
   var API = 'https://scintilla-massive-chart-api.fly.dev';
 
+/* SESSION-FRESHNESS BEGIN — identical copy in Hub index.html and Station _provider/provider.js; keep byte-identical */
+/* A DAILY INDICATOR IS CURRENT WHEN IT BELONGS TO THE LAST SESSION THAT SHOULD HAVE SETTLED.
+   The provider's daily rows carry a session DATE (source_date) and a state (FORMING while that session was open,
+   SETTLED after its close). Judging them by clock distance from midnight, or by when they were fetched, gave wrong
+   answers both ways: a Sep-17 SETTLED close read at 01:05 ET on Sep 18 was called "AGE 29H · STALE (1d)" (MEASURED
+   2026-09-18), while a month-old value fetched five minutes ago would have passed a fetched-at gate. The rule here is
+   the calendar's: New York weekday sessions, NYSE holidays skipped, a session expected to be settled from
+   GS_SESSION_SETTLE_ET minutes after ET midnight (the 16:00 close plus four hours for the provider's settled print).
+   A reading of the expected session, or of today's still-open session, is CURRENT; any earlier session is STALE by
+   N sessions; a missing, unparseable, non-session or future-dated session date is STALE (fail closed).
+   fetched_at is never a freshness input. */
+var GS_NYSE_HOLIDAYS = ["2026-01-01","2026-01-19","2026-02-16","2026-04-03","2026-05-25","2026-06-19","2026-07-03","2026-09-07","2026-11-26","2026-12-25",
+  "2027-01-01","2027-01-18","2027-02-15","2027-03-26","2027-05-31","2027-06-18","2027-07-05","2027-09-06","2027-11-25","2027-12-24"];
+var GS_SESSION_SETTLE_ET = 20 * 60;
+function gsNyClock(nowMs) {
+  var parts = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(nowMs));
+  var v = {}; for (var i = 0; i < parts.length; i++) v[parts[i].type] = parts[i].value;
+  return { date: v.year + "-" + v.month + "-" + v.day, minutes: (+v.hour % 24) * 60 + (+v.minute) };
+}
+function gsIsTradingDay(dateStr) {
+  var dow = new Date(dateStr + "T12:00:00Z").getUTCDay();
+  return dow >= 1 && dow <= 5 && GS_NYSE_HOLIDAYS.indexOf(dateStr) < 0;
+}
+function gsPrevTradingDay(dateStr) {
+  var t = Date.parse(dateStr + "T12:00:00Z");
+  for (var i = 0; i < 15; i++) { t -= 86400e3; var d = new Date(t).toISOString().slice(0, 10); if (gsIsTradingDay(d)) return d; }
+  return dateStr;
+}
+function gsExpectedSettledSession(nowMs) {
+  var ny = gsNyClock(Number.isFinite(nowMs) ? nowMs : Date.now());
+  return (gsIsTradingDay(ny.date) && ny.minutes >= GS_SESSION_SETTLE_ET) ? ny.date : gsPrevTradingDay(ny.date);
+}
+function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
+  var now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  var sd = String(sourceDate == null ? "" : sourceDate).slice(0, 10);
+  var expected = gsExpectedSettledSession(now);
+  var state = String(sessionState || "").toUpperCase();
+  var out = { known: false, stale: true, current: false, settled: state === "SETTLED", state: state || "UNSTATED",
+    sourceDate: sd || null, expected: expected, sessionsBehind: null, reason: "" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(sd) || !isFinite(Date.parse(sd + "T12:00:00Z"))) { out.reason = "no session date"; return out; }
+  out.known = true;
+  var today = gsNyClock(now).date;
+  if (sd > today) { out.reason = "session date " + sd + " is after today (" + today + " New York)"; return out; }
+  if (!gsIsTradingDay(sd)) { out.reason = sd + " is not a trading session"; return out; }
+  if (sd >= expected) {
+    out.stale = false; out.current = true; out.sessionsBehind = 0;
+    out.reason = sd === expected ? "expected session" : "today's session, " + (out.settled ? "settled" : "forming");
+    return out;
+  }
+  var n = 0, d = expected;
+  while (d > sd && n < 400) { n++; d = gsPrevTradingDay(d); }
+  out.sessionsBehind = n;
+  out.reason = n + " session" + (n === 1 ? "" : "s") + " behind the expected " + expected + " session";
+  return out;
+}
+/* SESSION-FRESHNESS END */
+
   var S = window.SC_PROVIDER = {
     api: API,
     bound: false,
@@ -155,6 +212,10 @@
 
   /* One place builds the named-absence error, so every call site raises the same shape and a
      caller can tell "the stream said no" from "the read fell over" with one property. */
+  /* the session-freshness rule is the one gate every Station daily-indicator surface asks (geiger, sector rotation) */
+  S.dailySessionFreshness = gsDailySessionFreshness;
+  S.expectedSettledSession = gsExpectedSettledSession;
+
   S.absenceError = function (reason, sym, tf) {
     var named = S.noteAbsence(sym, tf, reason);
     var err = new Error(named);

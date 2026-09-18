@@ -186,7 +186,7 @@ test('unavailable score clears coloured arcs, composite fill and previous glow',
   const c = vm.createContext({
     document:{ querySelector:() => ({ querySelector:(selector) => nodes[selector.match(/"([^"]+)"/)[1]] || null }) },
     GS_BOUND:true, GS_LADDER:[], gsSgn:String, gsTone:() => 'red',
-    gsReferenceSummary:() => ({ label:'REFERENCE UNKNOWN' }), gsIndicatorAge:() => ({ stale:false, days:null, known:false }), gsContractGrid() {}, gsMtf() {},
+    gsReferenceSummary:() => ({ label:'REFERENCE UNKNOWN' }), gsIndicatorSession:() => ({ stale:false, known:false, settled:false, state:'', sourceDate:null, expected:null, sessionsBehind:null, reason:'' }), gsContractGrid() {}, gsMtf() {},
     gsTipR() {}, gsTipW() {}, requestAnimationFrame() {}
   })
   vm.runInContext(pageFunction('buildGeigerSummary'), c)
