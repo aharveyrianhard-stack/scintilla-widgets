@@ -628,8 +628,18 @@ function gsTrend(node, PRICE, MA){ if (!node) return; node.innerHTML = "";
   all.forEach((o, i) => o.tight = (i>=top && i<=bot));
   const fz = (o) => o.tight ? 5.5 : 9; all.forEach((o) => o.ly = o.ty);
   const PR = 12, gp = (a, b) => { let g = (fz(a)+fz(b))/2+1.4; if (a.p||b.p) g = Math.max(g, PR); if (a.tight&&b.tight) g = Math.max(g, 8); return g; };
-  for (let i=pi-1;i>=0;i--){ const g = gp(all[i], all[i+1]); if (all[i].ly > all[i+1].ly-g) all[i].ly = all[i+1].ly-g; }
-  for (let i=pi+1;i<all.length;i++){ const g = gp(all[i], all[i-1]); if (all[i].ly < all[i-1].ly+g) all[i].ly = all[i-1].ly+g; }
+  /* The tight group is outlined by a box drawn 6 units beyond its outermost rung (see the rect after the PRICE
+     pill). The spacing rule above only separated neighbouring LABELS, so the first full-size rung outside the
+     group could sit on that outline (MEASURED 2026-09-18: TSM "SMA 100", NBIS "EMA 13", MU "EMA 8" crossed by the
+     box edge). The rung just outside the group now also clears the box edge by its own label half-height; every
+     other rung, the leader lines and the true rung positions are unchanged. */
+  const boxed = bot > top, EM = (o) => fz(o)*0.6 + 1.5;
+  for (let i=pi-1;i>=0;i--){ const g = gp(all[i], all[i+1]); let lim = all[i+1].ly-g;
+    if (boxed && i === top-1) lim = Math.min(lim, Math.min(all[top].ty, all[top].ly) - 6 - EM(all[i]));
+    if (all[i].ly > lim) all[i].ly = lim; }
+  for (let i=pi+1;i<all.length;i++){ const g = gp(all[i], all[i-1]); let lim = all[i-1].ly+g;
+    if (boxed && i === bot+1) lim = Math.max(lim, Math.max(all[bot].ty, all[bot].ly) + 6 + EM(all[i]));
+    if (all[i].ly < lim) all[i].ly = lim; }
   const svg = gsEl("svg", {});
   const pick = new Set(); if (all[pi-1]) pick.add(all[pi-1].n); if (all[pi+1]) pick.add(all[pi+1].n); pick.add("SMA 200"); pick.add("EMA 21");
   all.forEach((o) => { if (o.p) return; const f = fz(o);

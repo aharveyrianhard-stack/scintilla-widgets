@@ -78,3 +78,45 @@ test("/geiger MACD: unavailable snapshot has no scale and an empty lane still sa
   assert.match(node.innerHTML, /no data/);
   assert.match(page, /gsMacdHist\(q\("macd"\), d\.macd, gsMacdScale\(d\.massiveMacd\)\)/, "the page passes the snapshot scale");
 });
+
+// Execute the real ladder renderer with a DOM stub and check the rung just outside the tight group clears the box.
+function loadLadder() {
+  const a = page.indexOf("function gsTrend(node, PRICE, MA){"), b = page.indexOf("\n}\n", a);
+  assert.ok(a > 0 && b > a, "ladder renderer located");
+  const el = (tag, attrs) => { const e = { tag, attrs: { ...attrs }, children: [], appendChild(c) { this.children.push(c); } }; return e; };
+  const gsEl = (t, a) => el(t, a);
+  const src = page.slice(a, b + 2) + "\nreturn gsTrend;";
+  return new Function("gsEl", "gsTrendMotion", src)(gsEl, () => {});
+}
+function ladder(price, mas, H = 330) {
+  const gsTrend = loadLadder();
+  const node = { clientWidth: 555, clientHeight: H, innerHTML: "", kids: [], appendChild(c) { this.kids.push(c); } };
+  gsTrend(node, price, mas);
+  const svg = node.kids[0];
+  const rungs = svg.children.filter((c) => c.tag === "g").map((g) => { const [ , , ...rest] = g.children; const txt = g.children.filter((c) => c.tag === "text");
+    return { n: g.attrs["data-gn"], size: +txt[0].attrs["font-size"], base: +txt[0].attrs.y, ty: +g.children[0].attrs.y1 }; });
+  const rects = svg.children.filter((c) => c.tag === "rect");
+  const box = rects.find((r) => +r.attrs.width === 104) || null;
+  return { rungs, box };
+}
+// TSM as measured live on 2026-09-18 (price 429.65, six MAs within 3.5%, SMA 100 just outside)
+const TSM = [["EMA 5",417.52],["EMA 8",418.17],["EMA 13",418.13],["EMA 21",417.83],["EMA 34",418.58],["SMA 50",424.28],["SMA 100",405.67],["SMA 150",388.57],["SMA 200",365.80]].map(([n, v]) => ({ n, v }));
+test("/geiger trend ladder: the full-size rung just outside the tight group clears the group's box outline", () => {
+  for (const [label, price, mas] of [["TSM", 429.65, TSM], ["NBIS", 216.65, [["EMA 5",233.71],["EMA 8",233.29],["EMA 13",228.12],["EMA 21",222.41],["EMA 34",218.66],["SMA 50",222.88],["SMA 100",200.07],["SMA 150",166.73],["SMA 200",148.74]].map(([n, v]) => ({ n, v }))]]) {
+    const { rungs, box } = ladder(price, mas);
+    assert.ok(box, label + ": tight-group box drawn");
+    const top = +box.attrs.y, bottom = top + +box.attrs.height;
+    for (const r of rungs.filter((r) => r.size === 9)) {
+      const emTop = r.base - 0.93 * r.size, emBottom = r.base + 0.24 * r.size;   // monospace em box around the baseline
+      assert.ok(emBottom <= top || emTop >= bottom, `${label} ${r.n} label [${emTop.toFixed(1)}, ${emBottom.toFixed(1)}] crosses box [${top.toFixed(1)}, ${bottom.toFixed(1)}]`);
+    }
+  }
+});
+test("/geiger trend ladder: true rung positions (tick lines) are unchanged by the label clearance", () => {
+  const { rungs } = ladder(429.65, TSM);
+  const byName = Object.fromEntries(rungs.map((r) => [r.n, r.ty]));
+  assert.ok(byName["SMA 200"] > byName["SMA 150"] && byName["SMA 150"] > byName["SMA 100"], "order by value preserved");
+  const H = 330, dH = Math.min(H - 8, 280), pT = (H - dH) / 2, vs = TSM.map((m) => m.v).concat([429.65]);
+  const hi = Math.max(...vs), lo = Math.min(...vs), rg = hi - lo, lo2 = lo - rg * 0.07, hi2 = hi + rg * 0.07;
+  for (const m of TSM) assert.ok(Math.abs(byName[m.n] - (pT + (1 - (m.v - lo2) / (hi2 - lo2)) * dH)) < 1e-9, m.n + " tick at its value");
+});
