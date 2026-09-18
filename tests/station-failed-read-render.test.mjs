@@ -540,3 +540,10 @@ test("/events splits upcoming and results on the New York market date, not the U
   assert.equal(iso(new Date("2026-09-18T03:50:00Z")), "2026-09-17", "23:50 ET is still Sep 17");
   assert.equal(iso(new Date("2026-09-18T12:00:00Z")), "2026-09-18");
 });
+
+test("/events prints one verdict word whichever convention the row was written with", () => {
+  const ev = read("../events/index.html");
+  const beatWord = new Function(ev.match(/const beatWord = [^\n]*\n/)[0] + "return beatWord;")();
+  assert.deepEqual(["true", "beat", "TRUE", "false", "miss", "inline"].map(beatWord), ["beat", "beat", "beat", "miss", "miss", "inline"]);
+  assert.match(ev, /esc\(beatWord\(r\.beat\)\)/);
+});
