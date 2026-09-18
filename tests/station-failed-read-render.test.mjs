@@ -547,3 +547,11 @@ test("/events prints one verdict word whichever convention the row was written w
   assert.deepEqual(["true", "beat", "TRUE", "false", "miss", "inline"].map(beatWord), ["beat", "beat", "beat", "miss", "miss", "inline"]);
   assert.match(ev, /esc\(beatWord\(r\.beat\)\)/);
 });
+
+test("/news separates the newest published item from wire freshness: STALE is about when rows were stored", () => {
+  const news = read("../news/index.html");
+  assert.match(news, /select=ticker,url,published_ts,title,site,snippet,feed,cohort,updated_ts/);
+  assert.match(news, /const stored = newestKnownInstant\(rows\.map\(\(r\) => \(\{ published_ts: r\.updated_ts \}\)\)\);/);
+  assert.match(news, /' · wire <span class="badge">STALE ' \+ Math\.round\(wireMins \/ 60\) \+ 'h<\/span>'/);
+  assert.doesNotMatch(news, /\? 'newest <span class="badge">STALE '/, "publish age alone no longer wears the STALE badge");
+});

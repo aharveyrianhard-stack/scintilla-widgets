@@ -232,7 +232,7 @@ async function tick() {
   if (COHORT) filters += "&cohort=eq." + encodeURIComponent(COHORT);
   if (FEED) filters += "&feed=eq." + encodeURIComponent(FEED);
   const offset = UNDATED_ONLY ? (PAGE - 1) * LIMIT : 0;
-  const q = "news?select=ticker,url,published_ts,title,site,snippet,feed,cohort" +
+  const q = "news?select=ticker,url,published_ts,title,site,snippet,feed,cohort,updated_ts" +
     (UNDATED_ONLY
       ? "&published_ts=is.null&order=" + UNDATED_ORDER + "&offset=" + offset
       : "&order=published_ts.desc.nullslast") +
@@ -290,10 +290,16 @@ async function tick() {
   } else if (freshness.ms == null) {
     el("fresh").innerHTML = '<span class="badge">NO DATED ITEMS</span>' + undatedNote;
   } else {
-    const mins = Math.round((Date.now() - freshness.ms) / 60000);
-    el("fresh").innerHTML = (mins > 180
-      ? 'newest <span class="badge">STALE ' + Math.round(mins / 60) + 'h</span>'
-      : "newest " + ago(freshness.ms) + " ago") + undatedNote;
+    /* TWO CLOCKS, NAMED. "newest" is the newest PUBLISHED item on the page; STALE is about the WIRE — when the newest
+       row was STORED. Judging the wire by publish time called a ticker page STALE whenever its company had simply not
+       been written about for three hours (MEASURED 2026-09-18: /news?t=P said "STALE 7H" while its rows had been stored
+       minutes earlier by the running writer). */
+    const stored = newestKnownInstant(rows.map((r) => ({ published_ts: r.updated_ts })));
+    const wireMins = stored.ms != null ? Math.round((Date.now() - stored.ms) / 60000) : null;
+    el("fresh").innerHTML = "newest " + ago(freshness.ms) + " ago" +
+      (wireMins == null ? "" : wireMins > 180
+        ? ' · wire <span class="badge">STALE ' + Math.round(wireMins / 60) + 'h</span>'
+        : " · wire " + ago(stored.ms) + " ago") + undatedNote;
   }
   if (UNDATED_ONLY) { /* the sentiment chip belongs to the dated wire */ }
   else if (sent === SENT_FAILED) {
