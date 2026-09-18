@@ -99,6 +99,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .gsum .gs-ip{ background:var(--gs-bg2); padding:9px 11px; display:flex; flex-direction:column;
   min-height:0; overflow:hidden; }
 .gsum .gs-ih{ font-family:var(--gs-mono); font-size:var(--gt-title); letter-spacing:.18em; text-transform:uppercase; }
+.gsum .gs-sub.gs-stale{ color:var(--gs-struc,#e0a24a); }
+.gsum .gs-zh .gs-sub{ margin-left:auto; letter-spacing:.08em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
 .gsum .gs-sub{ font-family:var(--gs-mono); font-size:calc(var(--gt-label) - .5px); letter-spacing:.14em;
   color:var(--gs-dim); text-transform:uppercase; margin-top:2px; }
 .gsum .gs-mtf{ flex:1; display:flex; flex-direction:column; margin-top:4px; min-height:0; }
@@ -386,7 +388,7 @@ function geigerSummaryHTML() {
       '<div class="gs-asof" data-gs="rungasof" role="status"></div>' +
     '</div>' +
     '<div class="gs-zT">' +
-      '<div class="gs-zh"><span class="gs-d" style="background:var(--gs-trend)"></span><h2 style="color:var(--gs-trend)">Trend · daily ladder</h2></div>' +
+      '<div class="gs-zh"><span class="gs-d" style="background:var(--gs-trend)"></span><h2 style="color:var(--gs-trend)">Trend · daily ladder</h2><span class="gs-sub" data-gs="tvsub"></span></div>' +
       '<div class="gs-tv" data-gs="tv"></div>' +
     '</div>' +
     '<div class="gs-zI">' +
@@ -466,6 +468,16 @@ function gsIndicatorValue(v){
 /* Provider references sit beside the accepted Geiger; they never become inputs to its score.
    Availability and observation age are separate facts, so an old value can stay visibly
    available without being called current, and an unreadable lane cannot look like zero. */
+/* age of the FMP daily snapshot: stale when fetched more than 26 h ago (falls back to the source date when no fetch time). */
+const GS_INDICATOR_STALE_MS = 26 * 3600e3;
+function gsIndicatorAge(fetchedAt, sourceDate, nowMs){
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  let ms = Date.parse(String(fetchedAt || ""));
+  if (!Number.isFinite(ms)) { const sd = String(sourceDate || "").slice(0, 10); ms = /^\d{4}-\d{2}-\d{2}$/.test(sd) ? Date.parse(sd + "T00:00:00Z") : NaN; }
+  if (!Number.isFinite(ms)) return { stale: false, days: null, known: false };
+  const age = now - ms;
+  return { stale: age > GS_INDICATOR_STALE_MS, days: Math.max(0, Math.round(age / 86400e3)), known: true };
+}
 function gsReferenceSummary(provider, laneState, contracts, sourceTime, expectedCount, nowMs){
   const rows = Array.isArray(contracts) ? contracts : [];
   const available = rows.filter((c) => c && c.state === "AVAILABLE").length;
@@ -706,10 +718,19 @@ function buildGeigerSummary(d) {
       return lab + " " + (r.availability === "ABSENT" ? "ABSENT" : String(r.newest || "UNKNOWN").replace("T", " ").replace(/:00\.000Z$/, "Z"));
     }).join(" · ") : "BAR AS-OF · unavailable";
   }
-  const indStamp = [d.indicatorSourceDate, d.indicatorSessionState].filter(Boolean).join(" · ");
-  const rsub = q("rsisub"), wsub = q("wprsub");
+  /* AGED IS NOT FORMING. "FORMING" is the provider's word for a value fetched while its session was still open; on a
+     29-day-old snapshot it read as if today's session were forming (MEASURED 2026-09-18: every RSI/Williams/ladder tile
+     said "2026-08-20 · FORMING"). A snapshot fetched more than 26 h ago (the Hub's own gate) is now labelled STALE with
+     its last-reading date and age, and the daily ladder says which day its averages belong to. Values are unchanged. */
+  const indAge = gsIndicatorAge(d.indicatorFetchedAt, d.indicatorSourceDate);
+  const indStamp = indAge.stale
+    ? "STALE · last reading " + String(d.indicatorSourceDate || "unknown").slice(0, 10) + " (" + indAge.days + "d ago)" + (d.indicatorSessionState === "SETTLED" ? "" : " · never settled")
+    : [d.indicatorSourceDate, d.indicatorSessionState].filter(Boolean).join(" · ");
+  const rsub = q("rsisub"), wsub = q("wprsub"), tsub = q("tvsub");
   if (rsub) rsub.textContent = "raw FMP provider" + (indStamp ? " · " + indStamp : " · as-of unavailable");
   if (wsub) wsub.textContent = "raw FMP provider" + (indStamp ? " · " + indStamp : " · as-of unavailable");
+  if (tsub) tsub.textContent = d.indicatorSourceDate ? "FMP daily averages · " + indStamp : "";
+  [rsub, wsub, tsub].forEach((n) => { if (n) n.classList.toggle("gs-stale", !!indAge.stale); });
 
   const fmpStamp = q("fmpstamp"), massiveStamp = q("massivestamp");
   const fmpRef = gsReferenceSummary("FMP", d.fmpLaneState, d.fmpContracts,
@@ -718,7 +739,7 @@ function buildGeigerSummary(d) {
     d.massiveCompletedCutoff, 11);
   if (fmpStamp) fmpStamp.textContent = fmpRef.label +
     " · 1DAY · SPLIT-ADJUSTED · AS-OF " + String(d.indicatorSourceDate || "UNKNOWN") +
-    (d.indicatorSessionState ? " · " + d.indicatorSessionState : "") + " · MACD NOT CARRIED";
+    (indAge.stale ? " · STALE (" + indAge.days + "d)" : (d.indicatorSessionState ? " · " + d.indicatorSessionState : "")) + " · MACD NOT CARRIED";
   if (massiveStamp) massiveStamp.textContent = massiveRef.label +
     " · MINUTE · SPLIT-ADJUSTED · COMPLETED ≤ " + String(d.massiveCompletedCutoff || "UNKNOWN") +
     " · NO ARCHIVE WAIT";

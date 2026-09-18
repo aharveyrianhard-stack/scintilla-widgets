@@ -79,3 +79,14 @@ test("the company mock stays a declared fixture — the label may not outlive th
 test("the retained older sector page keeps naming its own price-path caveat", () => {
   assert.match(sectorOlder, /unreviewed party in the middle of the price path/);
 });
+
+test("a technical read from an aged FMP snapshot is STALE, not BUY/SELL; the score itself is unchanged", () => {
+  const r = technicalHarness(102.5)("XLK");     // fixture updated_ts 2026-08-19 → stale today
+  assert.equal(r.read, "STALE");
+  assert.equal(r.stale, true);
+  assert.equal(typeof r.score, "number");
+  assert.equal(r.sourceDate, null);
+  assert.match(sector, /if\(t\.score!=null && !t\.stale\)\{ votes \+= Math\.sign\(t\.score\); nVotes\+\+; \}/, "stale technicals do not vote in the actionable verdict");
+  assert.match(sector, /\$\{t\.stale\?'STALE · NO READ':t\.read\}/);
+  assert.match(sector, /no BUY\/SELL read is issued from aged inputs/);
+});
