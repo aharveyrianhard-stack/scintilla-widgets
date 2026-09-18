@@ -115,3 +115,20 @@ test("/analytics derives P/E from the provider price on the row, never the store
   assert.equal(livePe({ q:{ price:336.13 }, f:{ eps_ttm:-1.2 } }, 'eps_ttm'), null, "negative EPS -> undefined ratio");
   assert.equal(livePe({ q:{ price:336.13 }, f:{} }, 'adjusted_eps_ttm'), null);
 });
+
+test("/heat sector chips use only the newest day's ranking, never a sector's best rank on any day", () => {
+  const h = fs.readFileSync(new URL("../heat/index.html", import.meta.url), "utf8");
+  assert.match(h, /sector_rankings\?select=sector_name,rank,score,date&order=date\.desc,rank\.asc&limit=200/);
+  assert.match(h, /for \(const rr of latestRanks\(d\.ranks\)\)/);
+  const fn = h.match(/function latestRanks\(rows\) \{[\s\S]*?\n\}\n/)[0];
+  const latestRanks = new Function(fn + "; return latestRanks;")();
+  const rows = [
+    { sector_name:"Industrials", rank:1, date:"2026-08-06" }, { sector_name:"Crypto", rank:1, date:"2026-08-19" },
+    { sector_name:"Energy", rank:1, date:"2026-09-17" }, { sector_name:"Crypto", rank:7, date:"2026-09-17" },
+    { sector_name:"Industrials", rank:10, date:"2026-09-17" },
+  ];
+  const got = latestRanks(rows);
+  assert.deepEqual(got.map((r) => r.sector_name + "#" + r.rank), ["Energy#1", "Crypto#7", "Industrials#10"]);
+  assert.deepEqual(latestRanks([]), []);
+  assert.deepEqual(latestRanks(null), []);
+});

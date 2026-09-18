@@ -147,7 +147,7 @@ async function pull() {
        UNASSIGNED - a wall that looks like a curation gap when it is actually a broken read.
        The rejection is carried so the caller can say which it is. */
     GROUP === "cohort" ? SC_COHORT_AXIS.loadHomeCohorts(pg).catch((err) => ({ err })) : null,
-    GROUP === "sector" ? pg("sector_rankings?select=sector_name,rank,score&order=rank.asc").catch(() => []) : [],
+    GROUP === "sector" ? pg("sector_rankings?select=sector_name,rank,score,date&order=date.desc,rank.asc&limit=200").catch(() => []) : [],
   ]);
   const P = {}; for (const r of (prof || [])) P[r.ticker] = r;
   const Q = {}; for (const r of (quotes || [])) Q[r.ticker] = r;
@@ -195,7 +195,7 @@ function buildGroups(d) {
     groups.get(g).push(r);
   }
   const rankOf = {}; const metaOf = {};
-  for (const rr of d.ranks) {
+  for (const rr of latestRanks(d.ranks)) {
     const key = String(rr.sector_name || "").toLowerCase();
     if (!(key in rankOf)) { rankOf[key] = num(rr.rank); metaOf[key] = rr; }
   }
@@ -210,6 +210,15 @@ function buildGroups(d) {
   }).map(([name, list]) => ({ name, list, meta: metaOf[name.toLowerCase()] || null }));
 }
 
+/* ONLY THE NEWEST DAY'S RANKING. sector_rankings keeps one row per sector per day; the read took every day ordered
+   by rank and kept each sector's first row, i.e. its BEST rank on ANY day (MEASURED 2026-09-18: 367 rows over many
+   days — e.g. a sector ranked #7 today showed "#1" from 08-19). Same fix as /analytics (ea3acfd): newest date only. */
+function latestRanks(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const newest = list.reduce((m, r) => (r && r.date && (!m || String(r.date) > m) ? String(r.date) : m), null);
+  return newest ? list.filter((r) => r && String(r.date) === newest) : [];
+}
+
 /* ---- render ---- */
 const fmtPct = (c) => (c >= 0 ? "+" : "") + (+c).toFixed(2) + "%";
 const fmtComp = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
@@ -222,7 +231,7 @@ function render(d) {
   for (const g of groups) {
     const list = g.list.slice().sort((a, b) => (val(b) == null ? -9e9 : val(b)) - (val(a) == null ? -9e9 : val(a)));
     const up = list.filter((r) => (val(r) || 0) > 0).length, dn = list.filter((r) => (val(r) || 0) < 0).length;
-    const rankChip = g.meta ? '<span class="gr">#' + esc(g.meta.rank) + ' · score ' + (num(g.meta.score) != null ? num(g.meta.score).toFixed(2) : "—") + '</span>' : "";
+    const rankChip = g.meta ? '<span class="gr" title="sector_rankings · ' + esc(g.meta.date || "") + '">#' + esc(g.meta.rank) + ' · score ' + (num(g.meta.score) != null ? num(g.meta.score).toFixed(2) : "—") + '</span>' : "";
     h += '<div class="grp"><div class="gh">' +
       '<span class="gn">' + esc(g.name) + '</span>' + rankChip +
       '<span class="gb"><span class="up">' + up + '↑</span> <span class="dn">' + dn + '↓</span> · ' + list.length + '</span>' +
