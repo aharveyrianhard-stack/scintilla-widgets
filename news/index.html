@@ -306,6 +306,16 @@ async function tick() {
   } else el("sentwrap").innerHTML = "";
   el("list").innerHTML = rows.map((r) => {
     const instant = newsInstant(r.published_ts);
+    /* STORED SNIPPETS CARRY MARKUP, AND THIS PAGE WAS PRINTING IT.
+       The Google News RSS description is entity-encoded markup, and the writer's cleaner decoded it
+       AFTER stripping tags, so `news.snippet` holds literal '<a href="https://news.google.com/rss/
+       articles/...">…</a> <font color="#6f6f6f">Site</font>'. esc() then rendered that as visible
+       text: MEASURED 2026-09-17, every item on this page showed a raw anchor line under its
+       headline. The writer is fixed for new rows, but ~464k stored rows keep their markup, so the
+       page converts to plain text at render. Identical treatment to the Hub's own newsArtHTML,
+       which is why the Hub never showed this. Nothing is injected as HTML - the result is still
+       escaped - and the row's own link, ticker, cohort and title are untouched. */
+    const snip = stripNewsMarkup(r.snippet);
     return '<a class="row" href="' + esc(r.url || "#") + '" target="_blank" rel="noopener"' +
       (instant.known ? ' title="' + esc(new Date(instant.ms).toLocaleString()) + '"' : ' title="published time not recorded"') + '>' +
       '<div class="l1"><span class="ago"' + (instant.known ? "" : ' data-undated="1"') + '>' +
@@ -314,8 +324,18 @@ async function tick() {
       '<span class="tt">' + esc(r.title) + "</span></div>" +
       '<div class="l2"><span class="site">' + esc(r.site || r.feed || "") + "</span>" +
       (r.cohort ? '<span class="coh">' + esc(String(r.cohort).replace(/_/g, " ")) + "</span>" : "") +
-      (r.snippet ? '<span class="sn">' + esc(r.snippet) + "</span>" : "") + "</div></a>";
+      (snip ? '<span class="sn">' + esc(snip) + "</span>" : "") + "</div></a>";
   }).join("");
+}
+/* Same helper the Hub applies to the same column (index.html · stripNewsMarkup): strip tags,
+   drop bare URLs and &nbsp;, close a truncated trailing tag, collapse whitespace. */
+function stripNewsMarkup(s) {
+  return String(s == null ? "" : s)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/<[^>]*$/, " ")
+    .replace(/\s{2,}/g, " ").trim();
 }
 /* Read failures are handled inside tick(); this outer catch is a render-bug last resort. */
 tick().catch(() => { el("list").innerHTML = '<div class="empty">the news page failed to render — reload; if it repeats, this is a page bug, not a data gap</div>'; });

@@ -74,3 +74,21 @@ test("/pulse reads its mixed macro set through the routed market quote reader", 
   assert.doesNotMatch(pulse, /SC_NON_EQUITY\.quotes\(MACRO_SET/,
     "the non-equity adapter refuses provider-owned symbols, so it cannot serve SPY/QQQ");
 });
+
+test("the news page prints stored snippets as plain text, exactly as the Hub does", () => {
+  const news = fs.readFileSync(new URL("../news/index.html", import.meta.url), "utf8");
+  /* the page must convert before escaping, and must still escape */
+  assert.match(news, /const snip = stripNewsMarkup\(r\.snippet\);/);
+  assert.match(news, /\(snip \? '<span class="sn">' \+ esc\(snip\) \+ "<\/span>" : ""\)/);
+  assert.doesNotMatch(news, /esc\(r\.snippet\)/, "the raw stored snippet must not reach the page");
+  const fn = news.match(/function stripNewsMarkup\(s\) \{[\s\S]*?\n\}/)[0];
+  const stripNewsMarkup = new Function("return " + fn + "; stripNewsMarkup")() ||
+    new Function(fn + "; return stripNewsMarkup;")();
+  const stored = '<a href="https://news.google.com/rss/articles/ABC?oc=5" target="_blank">SLV - iShares Silver Trust Volatility &amp; Greeks</a>  <font color="#6f6f6f">Finviz</font>';
+  const out = stripNewsMarkup(stored);
+  assert.doesNotMatch(out, /[<>]/, "no markup survives to the screen");
+  assert.doesNotMatch(out, /https?:\/\//, "bare source URLs are dropped, as on the Hub");
+  assert.match(out, /SLV - iShares Silver Trust Volatility/);
+  assert.equal(stripNewsMarkup(null), "");
+  assert.equal(stripNewsMarkup("already plain text"), "already plain text");
+});
