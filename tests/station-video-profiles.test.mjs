@@ -88,3 +88,14 @@ test('the owner can actually switch profile, and a profile without data says why
   assert.match(pane, /profile\.label \+ " \(awaiting\)"/, 'and says it is awaiting, rather than looking broken')
   assert.match(pane, /title="' \+ \(profile\.note \|\| profile\.label\)/, 'the reason is on the option itself')
 })
+
+test('the selector is painted immediately and repainted from the rows that actually land', () => {
+  const start = lift('start')
+  const load = lift('load')
+  assert.match(start, /paintFeedProfileSelector\(\[\]\)/,
+    'the hidden selector is exposed immediately with known profiles and honest awaiting states')
+  assert.match(load, /rows = await pg\(q\)[\s\S]{0,180}paintFeedProfileSelector\(Array\.isArray\(rows\) \? rows : \[\]\)/,
+    'the options are repainted from the actual returned account evidence')
+  assert.ok(load.indexOf('paintFeedProfileSelector') < load.indexOf('const nextRows'),
+    'availability sees the returned provenance before the active profile filters its display rows')
+})
