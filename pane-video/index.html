@@ -186,7 +186,34 @@ function applyIpadPaneScale(forced) {
 applyIpadPaneScale();
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-const FEED   = ["personal", "scintilla", "market"].includes(QS.get("feed")) ? QS.get("feed") : "personal";
+/* ── CHANNEL PROFILES ────────────────────────────────────────────────────────────────────────
+   The pane used to accept exactly three hard-coded feed words. Profiles are now a registry, so a
+   new channel is one row here instead of a code change in four places.
+
+   PROVENANCE IS NOT OVERWRITTEN. A profile is a VIEW over youtube_feed.subscription_accounts; it
+   never rewrites that column and never assumes a row belongs to the profile being viewed. A row
+   with no account is UNSCOPED - it is not this profile's content and is not counted as though it
+   were (see coverage below).
+
+   A profile is only offered when the feed actually carries its account. Measured on the 200 most
+   recent rows on 2026-09-21: personal 30, scintilla 34, unscoped 136, multi-account 0, and NO
+   soundscapes rows at all. So soundscapes and golf are declared here and stay disabled with a
+   visible reason until their account key appears in the data - an empty profile that looks
+   working is worse than one that says what it is waiting for. */
+const FEED_PROFILES = [
+  { key: "personal",    account: "personal",    label: "PERSONAL" },
+  { key: "scintilla",   account: "scintilla",   label: "SCINTILLA" },
+  { key: "soundscapes", account: "soundscapes", label: "SOUNDSCAPES",
+    note: "awaiting the soundscapes account key in subscription_accounts" },
+  /* GOLF: no account exists yet. The slot is declared so the wiring is reviewed once, in advance;
+     it becomes selectable the moment rows carry the account, with no code change. */
+  { key: "golf",        account: "golf",        label: "GOLF",
+    note: "awaiting the golf account/channel" },
+  { key: "market",      account: null,          label: "MARKET SEARCH" }
+];
+const FEED_PROFILE_KEYS = FEED_PROFILES.map((profile) => profile.key);
+const FEED   = FEED_PROFILE_KEYS.includes(QS.get("feed")) ? QS.get("feed") : "personal";
+const FEED_PROFILE = FEED_PROFILES.find((profile) => profile.key === FEED) || FEED_PROFILES[0];
 /* The on-screen panes are independent stored feeds.  YouTube actions are not:
    Watch Later and Subscribe deliberately use Alan's one healthy Personal
    Google connection, never a second SCINTILLA device-code connection. */
@@ -218,12 +245,13 @@ const LISTS = FEED === "market" ? [
   { id: "watch", n: "watch later", q: "" },
 ] : [SUBSCRIBED];
 let LIST = LISTS.some((l) => l.id === QS.get("list")) ? QS.get("list") : "default";
-el("kk").textContent = FEED === "market" ? "MARKET SEARCH" :
-  FEED === "scintilla" ? "SCINTILLA" : "PERSONAL";
+el("kk").textContent = FEED_PROFILE.label;
 
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
 const LOCAL_SUBSCRIBED_CHANNELS = new Set(), SUBSCRIBE_PENDING = new Set();
-const SUBSCRIPTION_ACCOUNT = FEED === "scintilla" ? "scintilla" : "personal";
+/* The write account follows the registry. A profile without an account (MARKET SEARCH) writes as
+   personal exactly as before; nothing here invents an account that does not exist. */
+const SUBSCRIPTION_ACCOUNT = FEED_PROFILE.account || "personal";
 let PLAYER_TOKEN = 0, PLAYER_READY_TOKEN = 0, PLAYER_FALLBACK = 0, PLAYER_POSITION_POLL = 0;
 /* The database is the sole saved resume authority.  This Map is page memory
    only; closing or switching devices cannot create a second private history. */
@@ -358,6 +386,37 @@ async function toggleWatch(v) {
   }
 }
 
+
+/* ── PROFILE COVERAGE (honest, never inferred) ───────────────────────────────────────────────
+   Counts what the returned rows actually carry. Unscoped rows are reported separately and are
+   never folded into the profile's own count. Returns null when there is nothing to describe. */
+function feedProfileCoverage(rows, account) {
+  if (!Array.isArray(rows) || !rows.length) return null;
+  let scoped = 0, unscoped = 0, shared = 0;
+  for (const row of rows) {
+    const accounts = Array.isArray(row?.subscription_accounts) ? row.subscription_accounts : [];
+    if (!accounts.length) { unscoped++; continue; }
+    if (account && accounts.includes(account)) { scoped++; if (accounts.length > 1) shared++; }
+  }
+  return { total: rows.length, scoped, unscoped, shared, account: account || null };
+}
+function feedCoverageText(coverage) {
+  if (!coverage) return "";
+  if (!coverage.account) return coverage.total + " results";
+  const parts = [coverage.scoped + " of " + coverage.total + " carry this account"];
+  if (coverage.shared) parts.push(coverage.shared + " shared with another account");
+  if (coverage.unscoped) parts.push(coverage.unscoped + " carry no account");
+  return parts.join(" \u00b7 ");
+}
+function profileIsAvailable(profileKey, rows) {
+  /* A declared profile becomes selectable when the data proves its account exists. */
+  const profile = FEED_PROFILES.find((entry) => entry.key === profileKey);
+  if (!profile) return false;
+  if (!profile.account) return true;
+  if (profile.key === "personal" || profile.key === "scintilla") return true;
+  return (Array.isArray(rows) ? rows : []).some((row) =>
+    Array.isArray(row?.subscription_accounts) && row.subscription_accounts.includes(profile.account));
+}
 function channelSubscribed(v, account = SUBSCRIPTION_ACCOUNT) {
   const accountMatch = Array.isArray(v?.subscription_accounts) && v.subscription_accounts.includes(account);
   return accountMatch || LOCAL_SUBSCRIBED_CHANNELS.has(account + ":" + String(v?.channel_id || ""));

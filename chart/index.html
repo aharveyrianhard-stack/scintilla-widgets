@@ -1010,12 +1010,44 @@ function chartStaleSuffix(iso) {
   const at = new Date(iso).getTime();
   return Number.isFinite(at) && Date.now() - at > CHART_STALE_MS ? " · through " + chartStartDate(iso) : "";
 }
+function chartWindowLabel(pts) {
+  /* The window says which dates are on screen. A same-day window says the one date; a window that
+     ends today says so rather than printing today's date twice. The approximate-span helper is
+     kept for the tooltip, where a count is useful context rather than the headline. */
+  if (!pts?.length) return "history loading";
+  const first = chartStartDate(pts[0].d);
+  const last = chartStartDate(pts[pts.length - 1].d);
+  if (first === "loading" || last === "loading") return "history loading";
+  if (first === last) return first;
+  const endsToday = String(pts[pts.length - 1].d).slice(0, 10) === new Date().toISOString().slice(0, 10);
+  return endsToday ? first + " \u2013 today" : first + " \u2013 " + last;
+}
+function chartReferenceCloseLabel(host) {
+  /* The reference is the previous regular-session close. Find the newest plotted session that is
+     NOT the newest one, which is exactly that session for an intraday window; if the series cannot
+     name it (single session on screen, or history still loading), say "last close" and claim no
+     date at all. */
+  const pts = host?._series || [];
+  if (!pts.length) return "last close";
+  const days = [];
+  for (const point of pts) {
+    const day = String(point?.d || "").slice(0, 10);
+    if (day && days[days.length - 1] !== day) days.push(day);
+  }
+  if (days.length < 2) return "last close";
+  const label = chartStartDate(days[days.length - 2] + "T12:00:00Z");
+  return label === "loading" ? "last close" : label + " close";
+}
 function paintChartHistoryWindow(host) {
   const label = host?.querySelector(".sc-nchart__live-window");
   const pts = host?._series || [];
-  if (label) label.textContent = pts.length
-    ? chartApproximateSpan(pts, host._range || S.chartRange) + " · since " + chartStartDate(pts[0].d) +
-      chartStaleSuffix(pts[pts.length - 1].d)
+  if (!label) return;
+  label.textContent = pts.length
+    ? chartWindowLabel(pts) + chartStaleSuffix(pts[pts.length - 1].d)
+    : "history loading";
+  /* The count keeps its home in the tooltip: readable on the pane, available on hover. */
+  label.title = pts.length
+    ? chartApproximateSpan(pts, host._range || S.chartRange) + " on screen"
     : "history loading";
 }
 function acquireChartLoadPermit(host, req, generation) {
@@ -1444,8 +1476,11 @@ function paintLiveStatus(host, quote) {
   }
   ticker.textContent = host.dataset.t;
   change.textContent = day.text;
+  /* "Prev" named a relationship, not a day. The reference close belongs to a specific session, so
+     the label names that session when the plotted series can identify it, and otherwise says
+     plainly that it is the last close rather than inventing a date. */
   previous.textContent = dayRef != null && Number.isFinite(+dayRef) && +dayRef !== 0
-    ? "Prev " + chPx(+dayRef, host.dataset.t) : "";
+    ? chartReferenceCloseLabel(host) + " " + chPx(+dayRef, host.dataset.t) : "";
   const quoteAsOf = hasQuote && age != null && age > CHART_STALE_MS ? "quote as of " + chartStartDate(at.toISOString()) : "";
   if (quoteAsOf) previous.textContent = [previous.textContent, quoteAsOf].filter(Boolean).join(" · ");
   paintChartHistoryWindow(host);

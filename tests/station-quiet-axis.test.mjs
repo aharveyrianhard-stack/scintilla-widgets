@@ -32,6 +32,13 @@ test("labels that are not [year, something] are untouched", () => {
 test("the reference text is quieter, not different: same nodes, same words, only opacity and the box", () => {
   assert.match(chart, /\.sc-nchart__live-prev, \.sc-nchart__live-window\{ opacity:\.72; transition:opacity \.12s ease; \}/);
   assert.match(chart, /\.sc-nchart__live:hover \.sc-nchart__live-prev, \.sc-nchart__live:hover \.sc-nchart__live-window,\n\.sc-nchart__live:focus-within \.sc-nchart__live-prev, \.sc-nchart__live:focus-within \.sc-nchart__live-window\{ opacity:1; \}/, "pointing at the badge or focusing the ticker restores full strength");
-  assert.match(chart, /"Prev " \+ chPx\(\+dayRef, host\.dataset\.t\)/, "the previous-close text is built exactly as before");
-  assert.match(chart, /chartApproximateSpan\(pts, host\._range \|\| S\.chartRange\) \+ " · since " \+ chartStartDate\(pts\[0\]\.d\) \+\n\s+chartStaleSuffix\(pts\[pts\.length - 1\]\.d\)/, "and so is the history window, including the stale suffix");
+  /* WORDING CHANGED 2026-09-21 at Alan's request: "Prev" and "≈N trading days · since X" are
+     replaced by the dates themselves. Same nodes, same placement, same stale suffix - only the
+     words. The count moved to the tooltip rather than being discarded. */
+  assert.match(chart, /chartReferenceCloseLabel\(host\) \+ " " \+ chPx\(\+dayRef, host\.dataset\.t\)/,
+    "the previous-close text names its session and keeps the same node");
+  assert.match(chart, /chartWindowLabel\(pts\) \+ chartStaleSuffix\(pts\[pts\.length - 1\]\.d\)/,
+    "the history window states its dates and keeps the stale suffix");
+  assert.match(chart, /label\.title =\s*\n?\s*pts\.length\s*\n?\s*\? chartApproximateSpan/,
+    "the approximate span is still available on hover");
 });

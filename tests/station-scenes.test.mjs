@@ -525,8 +525,8 @@ test("fixed price overlay reports daily performance honestly", () => {
   assert.match(chart, /parent\.postMessage\(\{ sc:"chart-focus-ticker" \}/);
   assert.match(chart, /\.sc-nchart__live-change/);
   assert.match(chart, /\.sc-nchart__live-prev/);
-  assert.match(chart, /previous\.textContent = dayRef != null[\s\S]*?\? "Prev " \+ chPx\(\+dayRef, host\.dataset\.t\) : ""/,
-    "the exact baseline behind the daily percentage is visible");
+  assert.match(chart, /previous\.textContent = dayRef != null[\s\S]*?\? chartReferenceCloseLabel\(host\) \+ " " \+ chPx\(\+dayRef, host\.dataset\.t\) : ""/,
+    "the exact baseline behind the daily percentage is visible, and now names its session");
   assert.match(chart, /badge\.dataset\.change = day\.tone/);
   assert.doesNotMatch(chart, /sc-nchart__live-meta/,
     "the overlay keeps price plus daily change, not last-time/OHLC clutter");
@@ -882,8 +882,12 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "Hub keeps Watch Later only in page memory while the shared source loads");
   assert.doesNotMatch(youtubeHub, /sc_yt_wl_v1|localStorage\.setItem\(YT_WL_KEY/,
     "Hub does not retain a device-local Watch Later list");
-  assert.match(videoPane, /const SUBSCRIPTION_ACCOUNT = FEED === "scintilla" \? "scintilla" : "personal"/,
+  /* The identity requirement is unchanged; the source of the account moved to the channel-profile
+     registry on 2026-09-21 so soundscapes and golf can exist without another ternary. */
+  assert.match(videoPane, /const SUBSCRIPTION_ACCOUNT = FEED_PROFILE\.account \|\| "personal"/,
     "Subscribe retains the visual feed identity instead of rewriting SCINTILLA into Personal");
+  assert.match(videoPane, /\{ key: "scintilla",\s+account: "scintilla"/,
+    "the SCINTILLA profile still writes to the SCINTILLA account");
   assert.match(videoPane, /account:SUBSCRIPTION_ACCOUNT/,
     "playing-channel Subscribe targets the visible feed");
   assert.doesNotMatch(videoPane, /connectYouTube|pollOauth|reconnect SCINTILLA|id="auth"/,

@@ -64,7 +64,10 @@ test("an empty filtered retained history read is named; a populated read clears 
 
 test("stale series and stale quotes carry a visible date on the pane", () => {
   assert.match(chart, /const CHART_STALE_MS = 4 \* 86400000;/);
-  assert.match(chart, /chartStartDate\(pts\[0\]\.d\) \+\s*\n\s*chartStaleSuffix\(pts\[pts\.length - 1\]\.d\)/);
+  /* The window label now states its dates (2026-09-21); what this test protects - a stale series
+     still carrying a visible date - is unchanged and asserted on the new construction. */
+  assert.match(chart, /chartWindowLabel\(pts\) \+ chartStaleSuffix\(pts\[pts\.length - 1\]\.d\)/);
+  assert.match(chart, /function chartWindowLabel\(pts\)/);
   assert.match(chart, /age > CHART_STALE_MS \? "quote as of " \+ chartStartDate\(at\.toISOString\(\)\)/);
 });
 

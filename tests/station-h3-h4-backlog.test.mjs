@@ -107,8 +107,14 @@ test("a live quote never rewrites a completed candle", () => {
 test("both video shells keep a subscribed feed, correctly scoped", () => {
   for (const [name, source] of Object.entries({ personal, scintilla })) {
     assert.match(source, /const SUBSCRIBED = \{/, `${name} keeps the subscribed feed`);
-    assert.match(source, /const SUBSCRIPTION_ACCOUNT = FEED === "scintilla" \? "scintilla" : "personal";/,
-      `${name} scopes subscriptions to the right account`);
+    /* Scoping moved from a two-way ternary to the channel-profile registry (2026-09-21, at
+       Alan's request for personal / SCINTILLA / soundscapes with a declared golf slot). The
+       requirement is unchanged: a subscription is written to the account of the profile being
+       viewed, and never to an invented one. */
+    assert.match(source, /const SUBSCRIPTION_ACCOUNT = FEED_PROFILE\.account \|\| "personal";/,
+      `${name} scopes subscriptions to the profile's own account`);
+    assert.match(source, /key: "personal",\s+account: "personal"/, `${name} keeps the personal account`);
+    assert.match(source, /key: "scintilla",\s+account: "scintilla"/, `${name} keeps the scintilla account`);
   }
   /* Personal is its own subscribed feed; SCINTILLA is the shared discovery grid and carries
      its own separate subscribed list. They must not collapse into one. */

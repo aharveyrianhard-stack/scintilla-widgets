@@ -72,9 +72,50 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   display:flex; flex-direction:column; overflow:hidden; -webkit-text-size-adjust:100%; text-size-adjust:100%; }
 
 /* ---- header: scene switcher, ticker fields, ONE timeframe bar ---- */
+
+/* ── THE DOCK ────────────────────────────────────────────────────────────────────────────────
+   Three stacked full-width rows (#bar, #tfbar, #panebar) cost three sets of padding and borders
+   before a single candle is drawn. They are now children of one strip: display:contents keeps
+   every control, id, title and aria-label exactly where it was in the DOM, so nothing is removed
+   and nothing is renamed - only the boxes around them are gone.
+   Group labels recede until hover or keyboard focus, which is what makes one row readable. */
+#dock{ flex:none; display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px;
+  padding:4px 10px; padding-top:calc(4px + env(safe-area-inset-top));
+  border-bottom:1px solid var(--line); }
+#dock > #bar, #dock > #tfbar, #dock > #panebar{ display:contents; }
+#dock .control-label, #dock #tfbar .lbl, #dock #panebar .lbl{
+  max-width:0; overflow:hidden; opacity:0; white-space:nowrap;
+  transition:max-width .12s ease, opacity .12s ease, margin .12s ease; margin-right:-4px; }
+#dock .control-group:hover .control-label,
+#dock .control-group:focus-within .control-label,
+#dock #tfbar:hover .lbl, #dock #tfbar:focus-within .lbl,
+#dock #panebar:hover .lbl, #dock #panebar:focus-within .lbl{
+  max-width:12ch; opacity:1; margin-right:0; }
+/* A dock needs a visible focus ring, not only a hover affordance. */
+#dock .btn:focus-visible, #dock select:focus-visible, #dock input:focus-visible{
+  outline:1px solid var(--crk); outline-offset:1px; }
+@media (prefers-reduced-motion: reduce){
+  #dock .control-label, #dock #tfbar .lbl, #dock #panebar .lbl{ transition:none; }
+}
+/* Narrow screens keep the old wrapping behaviour rather than a cramped single line. */
+@media (max-width: 720px){
+  #dock{ gap:4px 8px; }
+  #dock .control-label, #dock #tfbar .lbl, #dock #panebar .lbl{ max-width:12ch; opacity:1; margin-right:0; }
+}
+
+/* FIRST-PAINT SKELETON. Structure only: no number, no colour that could read as a quote. */
+#skeletonGrid{ display:grid; gap:6px; height:100%; grid-template-columns:repeat(2, minmax(0,1fr)); }
+#skeletonGrid[data-count="1"]{ grid-template-columns:minmax(0,1fr); }
+#skeletonGrid[data-count="6"], #skeletonGrid[data-count="8"]{ grid-template-columns:repeat(2, minmax(0,1fr)); }
+.skeleton-pane{ border:1px solid var(--line); background:var(--panel2); display:flex;
+  flex-direction:column; min-height:80px; }
+.skeleton-head{ height:18px; border-bottom:1px solid var(--line); }
+.skeleton-body{ flex:1; background:linear-gradient(180deg, transparent, rgba(255,255,255,.02)); }
 #bar{ flex:none; display:flex; align-items:center; gap:8px; padding:6px 10px;
   padding-top:calc(5px + env(safe-area-inset-top)); border-bottom:1px solid var(--line);
   flex-wrap:wrap; }
+/* Inside the dock these three rules are inert (display:contents), kept for the standalone
+   shells that still render #bar on its own. */
 #bar .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; }
 #bar .sep{ color:var(--mute); }
 #bar .control-group{ display:flex; align-items:center; gap:5px; min-height:25px; padding-left:8px;
@@ -163,6 +204,24 @@ body.stack .deckrow > .pane{ flex:none; height:56vh; min-height:230px; }
    Whole-Station fullscreen is a separate control in the top bar. */
 body.solo .pane.hidden{ display:none; }
 body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
+/* ── TRENCH EXPANSION ───────────────────────────────────────────────────────────────────────
+   An expanded video pane used to take the whole row, so a 16:9 player inside a much wider box
+   paid for the extra width in left and right black bars while the X pane lost its space for
+   nothing. The media now takes exactly the width its aspect ratio can fill at the available
+   height, and the paired pane takes the remainder - both get a real increase.
+   --sc-media-aspect defaults to 16/9 and can be set per channel when a channel is known to
+   publish another ratio. The true ratio of the playing item is NOT measurable from a
+   cross-origin embed; see STATION-REPAIRS.md. */
+#rowTop{ --sc-media-aspect: 16 / 9; }
+#rowTop.media-expanded{ display:grid; grid-template-columns:minmax(0, auto) minmax(220px, 1fr); }
+#rowTop.media-expanded > .pane.expanded{ grid-column:auto; aspect-ratio:var(--sc-media-aspect);
+  max-width:100%; justify-self:start; }
+#rowTop.media-expanded > .pane:not(.expanded){ display:flex; }
+@media (max-width: 900px), (orientation: portrait){
+  /* Portrait and narrow screens stack instead of splitting a row that is too small to share. */
+  #rowTop.media-expanded{ grid-template-columns:minmax(0,1fr); grid-auto-rows:auto; }
+  #rowTop.media-expanded > .pane.expanded{ aspect-ratio:var(--sc-media-aspect); width:100%; }
+}
 
 /* Media has its own deliberate expansion ladder. Stage one gives the chosen
    YouTube pane the whole two-video region while X stays visible. Stage two is
@@ -247,6 +306,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 </style>
 </head>
 <body>
+<div id="dock" role="toolbar" aria-label="Station controls">
 <div id="bar">
   <span class="k">THE STATION</span>
   <a class="btn" href="/registry">the hub</a>
@@ -319,7 +379,32 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 <div id="symbolGuide" role="listbox" aria-label="Hub symbol suggestions"></div>
 
 <div id="panebar"><span class="lbl">panes</span></div>
+</div><!-- /#dock -->
 <div id="grid"></div>
+<script>
+/* FIRST PAINT (structure only, never data).
+   Runs before the 300 KB of libraries below, so the owner sees the Station they left instead of a
+   gray page. It paints EMPTY chart frames from the remembered layout and says, in words, that the
+   data is still loading. It reads no network, invents no value, and is removed the moment the real
+   grid mounts - a data failure still shows its own failure state. */
+(function () {
+  try {
+    var grid = document.getElementById("grid");
+    if (!grid) return;
+    var remembered = 0;
+    try { remembered = parseInt(localStorage.getItem("deck.chartCount") || "0", 10) || 0; } catch (_) {}
+    if (!(remembered > 0 && remembered <= 8)) return;
+    var frag = "";
+    for (var i = 0; i < remembered; i++) {
+      frag += '<div class="pane skeleton-pane" aria-hidden="true"><div class="skeleton-head"></div>' +
+              '<div class="skeleton-body"></div></div>';
+    }
+    grid.innerHTML = '<div id="skeletonGrid" data-count="' + remembered + '">' + frag + '</div>';
+    var note = document.getElementById("marketStatus");
+    if (note) { note.textContent = "DATA \u00b7 loading"; note.dataset.skeleton = "1"; }
+  } catch (_) { /* never block the real boot */ }
+})();
+</script>
 
 <div id="why">
   <span class="x" id="whyx">close ✕</span>
@@ -943,6 +1028,16 @@ function setSolo(key) {
     const hideSibling = !!target && o.def.row === target.def.row && o.def.key !== key;
     o.node.classList.toggle("hidden", hideSibling);
     o.node.classList.toggle("expanded", !!target && o.def.key === key);
+    /* Mark the ROW when the expanded pane is a media pane, so the trench rebalance applies to
+       video/X and never to a chart pane expansion. */
+    try {
+      const row = o.node.parentElement;
+      if (row) {
+        const mediaExpanded = !!target && o.def.key === key &&
+          /^(video|youtube|x)$/i.test(String(o.def.key || ""));
+        row.classList.toggle("media-expanded", mediaExpanded);
+      }
+    } catch (_) {}
     o.bFull.textContent = (key && o.def.key === key) ? "↙" : "⛶";
     o.bFull.classList.toggle("on", !!key && o.def.key === key);
     if (o.frame) {
