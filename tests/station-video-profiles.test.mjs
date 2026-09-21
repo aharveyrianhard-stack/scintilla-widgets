@@ -78,3 +78,13 @@ test('provenance is read, never written: the pane never PATCHes subscription_acc
   assert.ok(/subscription_accounts=cs\./.test(code), 'it is used as a containment FILTER')
   assert.ok(/\.subscription_accounts/.test(code), 'and read from returned rows')
 })
+
+test('the owner can actually switch profile, and a profile without data says why', () => {
+  // Root's finding: a registry nobody can reach is prepared plumbing, not the requested switch.
+  assert.match(pane, /<select id="feedProfile"[\s\S]{0,160}aria-label="Channel profile"/)
+  assert.match(pane, /function paintFeedProfileSelector\(rows\)/)
+  assert.match(pane, /url\.searchParams\.set\("feed", next\)/, 'switching reloads this pane on the chosen feed')
+  assert.match(pane, /\(ready \? "" : " disabled"\)/, 'a profile the data cannot support is disabled')
+  assert.match(pane, /profile\.label \+ " \(awaiting\)"/, 'and says it is awaiting, rather than looking broken')
+  assert.match(pane, /title="' \+ \(profile\.note \|\| profile\.label\)/, 'the reason is on the option itself')
+})

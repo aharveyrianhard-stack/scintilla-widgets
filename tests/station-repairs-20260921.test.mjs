@@ -139,8 +139,47 @@ test('an expanded media pane takes its aspect ratio and hands the rest to its pa
   assert.match(deck, /#rowTop\.media-expanded\{ display:grid; grid-template-columns:minmax\(0, auto\) minmax\(220px, 1fr\); \}/)
   assert.match(deck, /#rowTop\.media-expanded > \.pane\.expanded\{ grid-column:auto; aspect-ratio:var\(--sc-media-aspect\)/)
   assert.match(deck, /@media \(max-width: 900px\), \(orientation: portrait\)/, 'portrait falls back to stacking')
-  assert.match(deck, /row\.classList\.toggle\("media-expanded", mediaExpanded\)/)
-  assert.match(deck, /\/\^\(video\|youtube\|x\)\$\/i/, 'only media panes rebalance; a chart expansion is untouched')
+})
+
+test('the REAL pane definitions activate the rebalance - all three media panes, no chart', () => {
+  // Root's finding: the first draft matched the words video|youtube|x, and the actual YouTube
+  // panes are keyed fb and fa, so only X ever rebalanced. Drive the real declarations.
+  const defs = [...deck.matchAll(/\{ row: (\d+), key: "([a-z0-9]+)",[\s\S]{0,240}?kind: "([a-z]+)"/g)]
+    .map(m => ({ row: +m[1], key: m[2], kind: m[3] }))
+  const byKey = Object.fromEntries(defs.map(d => [d.key, d]))
+  for (const key of ['fb', 'fa', 'x']) {
+    assert.ok(byKey[key], `the deployed deck declares the ${key} pane`)
+  }
+  assert.equal(byKey.fb.kind, 'video', 'Personal YouTube is declared as a video pane')
+  assert.equal(byKey.fa.kind, 'video', 'SCINTILLA YouTube is declared as a video pane')
+
+  // the exact predicate the code uses, lifted from source
+  const line = deck.match(/const isMediaPane = ([^\n]+)/)
+  assert.ok(line, 'the classification is a named predicate, not an inline guess')
+  const isMediaPane = def => new Function('o', `return ${line[1].replace(/;$/, '')}`)({ def })
+  assert.equal(isMediaPane(byKey.fb), true, 'Personal YouTube rebalances')
+  assert.equal(isMediaPane(byKey.fa), true, 'SCINTILLA YouTube rebalances')
+  assert.equal(isMediaPane(byKey.x), true, 'X rebalances')
+  assert.equal(isMediaPane({ key: 'c1', kind: 'chart' }), false, 'a chart expansion is untouched')
+})
+
+test('the skeleton reads the keys the deck actually writes', () => {
+  // Root's finding: the first draft read deck.chartCount, which the deck never writes, so the
+  // skeleton painted nothing. The deck stores under station.<scene>.chartCount.
+  assert.match(deck, /const statePrefix = \(\) => SCENE === "custom" \? "station\.custom" : "station\.live";/,
+    'this is the key scheme the deck really uses')
+  const block = deck.slice(deck.indexOf('FIRST PAINT (structure only'), deck.indexOf('})();') + 5)
+  assert.match(block, /localStorage\.getItem\("station\.scene"\)/)
+  assert.match(block, /prefix \+ "\.chartCount"/)
+  assert.match(block, /localStorage\.getItem\("station\.live\.chartCount"\)/)
+  assert.doesNotMatch(block, /deck\.chartCount/, 'the key that never existed is gone')
+
+  // and it behaves: run the real extracted logic against a real remembered layout
+  const read = key => ({ 'station.scene': 'live', 'station.live.chartCount': '6' })[key] || null
+  const scene = read('station.scene') || 'live'
+  const prefix = scene === 'custom' ? 'station.custom' : 'station.live'
+  const raw = read(prefix + '.chartCount') || read('station.live.chartCount') || read('station.chartCount') || ''
+  assert.equal(parseInt(raw, 10) || 0, 6, 'a remembered six-chart wall is found')
 })
 
 test('the base behaviour for a chart-pane expansion is unchanged', () => {

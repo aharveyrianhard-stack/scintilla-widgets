@@ -391,8 +391,18 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   try {
     var grid = document.getElementById("grid");
     if (!grid) return;
+    /* The deck remembers state under station.<scene>.<suffix> with a station.<suffix> fallback
+       (see statePrefix/storedState below). Reading a "deck.*" key - as the first draft did -
+       found nothing, so the skeleton silently painted nothing at all. */
     var remembered = 0;
-    try { remembered = parseInt(localStorage.getItem("deck.chartCount") || "0", 10) || 0; } catch (_) {}
+    try {
+      var scene = localStorage.getItem("station.scene") || "live";
+      var prefix = scene === "custom" ? "station.custom" : "station.live";
+      var raw = localStorage.getItem(prefix + ".chartCount") ||
+                localStorage.getItem("station.live.chartCount") ||
+                localStorage.getItem("station.chartCount") || "";
+      remembered = parseInt(raw, 10) || 0;
+    } catch (_) {}
     if (!(remembered > 0 && remembered <= 8)) return;
     var frag = "";
     for (var i = 0; i < remembered; i++) {
@@ -1033,8 +1043,11 @@ function setSolo(key) {
     try {
       const row = o.node.parentElement;
       if (row) {
-        const mediaExpanded = !!target && o.def.key === key &&
-          /^(video|youtube|x)$/i.test(String(o.def.key || ""));
+        /* The media panes are declared as kind:"video" (keys fb and fa) and the X pane (key x).
+           Matching on the words "video|youtube" matched NEITHER of the YouTube panes, so only X
+           ever rebalanced. Match the declaration instead of guessing at the key spelling. */
+        const isMediaPane = String(o.def.kind || "") === "video" || o.def.key === "x";
+        const mediaExpanded = !!target && o.def.key === key && isMediaPane;
         row.classList.toggle("media-expanded", mediaExpanded);
       }
     } catch (_) {}

@@ -155,6 +155,8 @@ body.playing #chips{ display:none; }
 <body>
 <div id="bar">
   <span class="k" id="kk">FEED</span>
+  <select id="feedProfile" class="btn" title="switch channel profile"
+          aria-label="Channel profile" style="display:none"></select>
   <span class="btn" id="bBack" style="display:none">‹ grid</span>
   <span id="chips"></span>
   <span id="transport" aria-label="video queue controls">
@@ -473,6 +475,32 @@ function profileIsAvailable(profileKey, rows) {
   if (profile.key === "personal" || profile.key === "scintilla") return true;
   return (Array.isArray(rows) ? rows : []).some((row) =>
     Array.isArray(row?.subscription_accounts) && row.subscription_accounts.includes(profile.account));
+}
+
+/* ── THE PROFILE SELECTOR ────────────────────────────────────────────────────────────────────
+   The registry is only useful if the owner can actually switch. This fills the control from the
+   registry, marks a profile that the data cannot support as disabled WITH ITS REASON, and
+   switching reloads this pane on the chosen feed - the pane owns its own identity, so the Station
+   shell and the other pane are untouched. */
+function paintFeedProfileSelector(rows) {
+  const pick = el("feedProfile");
+  if (!pick) return;
+  const options = FEED_PROFILES.filter((profile) => profile.key !== "market");
+  pick.innerHTML = options.map((profile) => {
+    const ready = profileIsAvailable(profile.key, rows);
+    const label = ready ? profile.label : profile.label + " (awaiting)";
+    return '<option value="' + profile.key + '"' + (profile.key === FEED ? " selected" : "") +
+      (ready ? "" : " disabled") + ' title="' + (profile.note || profile.label) + '">' +
+      label + "</option>";
+  }).join("");
+  pick.style.display = "";
+  pick.onchange = () => {
+    const next = pick.value;
+    if (!next || next === FEED) return;
+    const url = new URL(location.href);
+    url.searchParams.set("feed", next);
+    location.replace(url.href);
+  };
 }
 function channelSubscribed(v, account = SUBSCRIPTION_ACCOUNT) {
   const accountMatch = Array.isArray(v?.subscription_accounts) && v.subscription_accounts.includes(account);
