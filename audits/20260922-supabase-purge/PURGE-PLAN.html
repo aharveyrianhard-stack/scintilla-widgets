@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Purge Plan Audit</title>
+<style>
+  :root{
+    --bg:#08090C; --panel:#101218; --panel2:#15181F; --panel3:#1A1E26;
+    --line:#242936; --line2:#2E3442;
+    --t1:#9AA0B2; --t2:#787E90; --t3:#5A6070; --t4:#414653;
+    --stop:#A2A8BA;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--t1);
+    font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    font-size:17px; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1500px;margin:0 auto;padding:48px 16px 96px}
+
+  .kicker{font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--t3);margin:0 0 14px}
+  h1{font-size:clamp(30px,5vw,50px);line-height:1.08;margin:0 0 10px;color:var(--t1);letter-spacing:-.01em;font-weight:600}
+  .sub{font-size:19px;color:var(--t2);margin:0 0 40px;max-width:78ch}
+
+  .stop{
+    border:2px solid var(--line2); border-left:8px solid var(--stop);
+    background:var(--panel2); padding:30px 32px; margin:0 0 44px; border-radius:3px;
+  }
+  .stop .lab{font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--t3);margin-bottom:14px}
+  .stop h2{font-size:clamp(22px,3.4vw,33px);line-height:1.2;margin:0 0 18px;color:var(--stop);font-weight:600}
+  .stop p{margin:0 0 14px;font-size:18px;color:var(--t1);max-width:88ch}
+  .stop p:last-child{margin-bottom:0}
+  .stop b{color:var(--stop);font-weight:600}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:14px;margin:0 0 48px}
+  .stat{background:var(--panel);border:1px solid var(--line);padding:22px;border-radius:3px}
+  .stat .n{font-size:44px;line-height:1;color:var(--t1);font-weight:600;letter-spacing:-.02em}
+  .stat .l{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--t3);margin-top:12px}
+
+  h2.sec{font-size:26px;margin:56px 0 8px;color:var(--t1);font-weight:600;letter-spacing:-.01em}
+  h2.sec:first-of-type{margin-top:0}
+  .secsub{font-size:17px;color:var(--t2);margin:0 0 24px;max-width:88ch}
+
+  .tblwrap{border:1px solid var(--line);border-radius:3px;overflow-x:auto;background:var(--panel)}
+  table{border-collapse:collapse;width:100%;min-width:1300px;table-layout:auto}
+  thead th{
+    background:var(--panel3); color:var(--t3);
+    font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;font-weight:600;
+    text-align:left;padding:16px 15px;border-bottom:2px solid var(--line2);white-space:nowrap;
+    position:sticky;top:0;
+  }
+  tbody td{padding:18px 13px;border-bottom:1px solid var(--line);vertical-align:top;font-size:16px}
+  tbody tr:last-child td{border-bottom:none}
+  tbody tr:nth-child(even){background:var(--panel2)}
+  .nm{color:var(--t1);font-weight:600;font-size:17px;white-space:nowrap}
+  .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;color:var(--t1);font-weight:600}
+  .dim{color:var(--t3)}
+  .mid{color:var(--t2)}
+  .plain{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;color:var(--t2);min-width:230px;max-width:330px;font-size:15.5px}
+  .deps{color:var(--t2);font-size:13.5px;max-width:250px;line-height:1.5}
+
+  .v{display:inline-block;padding:6px 11px;border-radius:2px;font-size:12px;letter-spacing:.13em;text-transform:uppercase;font-weight:600;white-space:nowrap;border:1px solid}
+  .v-keep{color:var(--t1);border-color:var(--stop);background:var(--panel3)}
+  .v-unc{color:var(--t2);border-color:var(--line2);background:var(--panel)}
+  .v-dead{color:var(--t4);border-color:var(--line);background:transparent}
+
+  .empty{
+    border:2px dashed var(--line2);background:var(--panel);
+    padding:44px 32px;text-align:center;border-radius:3px;margin:0 0 20px;
+  }
+  .empty .big{font-size:clamp(20px,3vw,29px);color:var(--stop);font-weight:600;margin-bottom:14px;line-height:1.25}
+  .empty .sm{font-size:17px;color:var(--t2);max-width:72ch;margin:0 auto}
+
+  pre{
+    background:var(--panel2);border:1px solid var(--line);border-left:4px solid var(--line2);
+    padding:20px;border-radius:3px;overflow-x:auto;font-size:14px;color:var(--t2);
+    margin:0 0 20px;line-height:1.65;
+  }
+  pre b{color:var(--t1);font-weight:600}
+
+  ul.pts{margin:0 0 26px;padding-left:24px;max-width:90ch}
+  ul.pts li{margin-bottom:13px;color:var(--t2);font-size:17px}
+  ul.pts li b{color:var(--t1);font-weight:600}
+
+  .qcard{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:24px 26px;margin:0 0 18px}
+  .qcard h3{margin:0 0 6px;font-size:18px;color:var(--t1);font-weight:600}
+  .qcard .why{font-size:15px;color:var(--t3);margin:0 0 16px}
+
+  footer{margin-top:72px;padding-top:26px;border-top:1px solid var(--line);color:var(--t4);font-size:14px;line-height:1.8}
+
+  @media (max-width:760px){
+    body{font-size:16px}
+    .wrap{padding:32px 16px 72px}
+    .stop{padding:22px 20px;border-left-width:6px}
+    .stat .n{font-size:36px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <p class="kicker">Scintilla &middot; Supabase scintilla-live &middot; 22 Sep 2026</p>
+  <h1>Purge plan: hyper-confirm result</h1>
+  <p class="sub">You asked for the garbage to be confirmed before it goes. I confirmed it. The answer is that none of it is garbage.</p>
+
+  <div class="stop">
+    <div class="lab">Stop &middot; do not run the purge</div>
+    <h2>All 26 tables on the purge list contain real data. Not one is empty.</h2>
+    <p>The list was built from a number called <b>n_live_tup</b> &mdash; Postgres's own running estimate of how many rows a table holds. That counter was reset on this database recently, so it reads <b>0</b> for almost every table whether the table is empty or not. Every table on the list looked empty for that one reason, and none of them are.</p>
+    <p>I counted the rows for real, one table at a time. The list holds <b>4,313,020 rows</b> of live data. The biggest single entry, <b>eod_adjusted</b>, holds <b>1,599,721 rows</b> of split-and-dividend-adjusted daily price history and has been read <b>3,382,728 times</b> since that counter was reset. <b>coldstore_objects</b> was written to <b>this morning at 05:10</b>.</p>
+    <p><b>Nothing is classified DEAD. The DROP list below is deliberately empty.</b> I have dropped nothing and changed nothing &mdash; this job was read-only throughout.</p>
+  </div>
+
+  <div class="grid">
+    <div class="stat"><div class="n">26</div><div class="l">tables checked</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">found dead</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">drop statements</div></div>
+    <div class="stat"><div class="n">4.31M</div><div class="l">rows that survived</div></div>
+  </div>
+
+  <h2 class="sec">Why the list was wrong</h2>
+  <p class="secsub">This matters more than the list itself, because the same mistake will happen again on the next audit unless the cause is understood.</p>
+  <ul class="pts">
+    <li><b>Postgres keeps two different row counts.</b> One is the truth (<span class="mid">count(*)</span>, which walks the table). The other is a fast running estimate (<span class="mid">n_live_tup</span>) that the database updates as a side effect of its housekeeping.</li>
+    <li><b>The estimate on this database is currently meaningless.</b> Every one of the 26 tables reports <span class="mid">n_tup_ins = 0</span> &mdash; zero rows ever inserted &mdash; which is impossible for a table holding 1.6 million rows. Every table also reports <span class="mid">last_analyze</span>, <span class="mid">last_autoanalyze</span>, <span class="mid">last_vacuum</span> and <span class="mid">last_autovacuum</span> as empty. That combination means the statistics were wiped and have not been rebuilt.</li>
+    <li><b>The read counters survived, and they tell the real story.</b> The same statistics view still shows <span class="mid">idx_scan</span> and <span class="mid">seq_scan</span> &mdash; how many times each table was actually read. Those numbers are large and recent for the tables that matter, which is the strongest single piece of evidence that these tables are in live use.</li>
+    <li><b>The large sizes were read backwards.</b> A 286 MB table reported as empty looks like abandoned bloat. It was simply a 286 MB table with 1.6 million rows in it.</li>
+  </ul>
+
+  <h2 class="sec">Every table, with its evidence</h2>
+  <p class="secsub">One row per table. <b>Rows</b> is a real <span class="mid">count(*)</span>, not an estimate. <b>Reads since reset</b> is how many times the database has been asked for this table's data since the statistics were wiped &mdash; a number above zero means something is using it.</p>
+
+  <div class="tblwrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Table</th>
+        <th>Verdict</th>
+        <th style="text-align:right">Rows</th>
+        <th style="text-align:right">Size</th>
+        <th>What this was for</th>
+        <th>Read by (views / functions)</th>
+        <th style="text-align:right">Reads since reset</th>
+        <th>Newest data</th>
+        <th style="text-align:right">Code refs</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <tr>
+        <td class="nm">eod_adjusted</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">1,599,721</td>
+        <td class="num dim">286 MB</td>
+        <td class="plain">Daily price history corrected for stock splits and dividends &mdash; the clean long-range price series the charts and any back-test measure against.</td>
+        <td class="deps">view <b>ohlcv_daily_adj</b>; functions adjusted_coverage_gaps, refresh_adjust_factors, scin_proof_check, scin_rsi_flip, scin_rsi_gap</td>
+        <td class="num">3,382,728</td>
+        <td class="mid">2026-08-15</td>
+        <td class="num">5</td>
+      </tr>
+
+      <tr>
+        <td class="nm">bars1m_session_gaps</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">916,839</td>
+        <td class="num dim">103 MB</td>
+        <td class="plain">The list of minutes missing from the minute-by-minute price history &mdash; the map of holes that tells the backfill jobs what still needs fetching.</td>
+        <td class="deps">function refresh_session_gaps</td>
+        <td class="num">16</td>
+        <td class="mid">2026-08-11</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">bars1m_day_coverage</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">915,785</td>
+        <td class="num dim">152 MB</td>
+        <td class="plain">A per-day scorecard of how complete the minute price history is for each symbol &mdash; the summary the gap map above is built from.</td>
+        <td class="deps">functions refresh_crypto_gaps, refresh_session_gaps</td>
+        <td class="num">13</td>
+        <td class="mid">2026-08-11</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">ribbon_series</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">250,312</td>
+        <td class="num dim">44 MB</td>
+        <td class="plain">Stored values behind the ribbon indicator &mdash; the stacked bands drawn on the chart.</td>
+        <td class="deps">function onboard_scorecard</td>
+        <td class="num">10</td>
+        <td class="mid">&mdash;</td>
+        <td class="num">4</td>
+      </tr>
+
+      <tr>
+        <td class="nm">scin_adjust_factor</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">100,748</td>
+        <td class="num dim">21 MB</td>
+        <td class="plain">The multipliers that convert raw prices into split-adjusted prices. Without these the adjusted price history cannot be rebuilt.</td>
+        <td class="deps">view <b>ohlcv_adjusted</b>; function refresh_adjust_factors</td>
+        <td class="num">8</td>
+        <td class="mid">2026-08-14</td>
+        <td class="num">1</td>
+      </tr>
+
+      <tr>
+        <td class="nm">structure_history</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">77,734</td>
+        <td class="num dim">13 MB</td>
+        <td class="plain">Saved record of market structure over time &mdash; where highs, lows and breaks sat historically.</td>
+        <td class="deps">&mdash;</td>
+        <td class="num">8</td>
+        <td class="mid">&mdash;</td>
+        <td class="num">5</td>
+      </tr>
+
+      <tr>
+        <td class="nm">tick_flow</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">59,645</td>
+        <td class="num dim">10 MB</td>
+        <td class="plain">Trade-by-trade order flow &mdash; whether each trade hit the bid or the ask. This is a feed you said you want.</td>
+        <td class="deps">&mdash;</td>
+        <td class="num">9</td>
+        <td class="mid">&mdash;</td>
+        <td class="num">2</td>
+      </tr>
+
+      <tr>
+        <td class="nm">coldstore_index_queue</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">43,799</td>
+        <td class="num dim">18 MB</td>
+        <td class="plain">The work queue for indexing archived price files &mdash; the to-do list the archiver pulls jobs from.</td>
+        <td class="deps">view <b>consolidation_superset_check</b>; functions claim_index_batch, index_queue_status</td>
+        <td class="num">7</td>
+        <td class="mid">2026-08-14</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">coldstore_objects</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">41,881</td>
+        <td class="num dim">26 MB</td>
+        <td class="plain">The index of every archived price file in cold storage &mdash; which symbol and which dates each file covers. Written to today.</td>
+        <td class="deps">views <b>coldstore_current</b>, <b>consolidation_superset_check</b>, <b>minute_coverage</b>; functions scin_check_archive_gaps, scin_refresh_deep1m_coverage, scin_supersede_stale_parts</td>
+        <td class="num">3,630</td>
+        <td class="mid">2026-09-22 05:10</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">analyst_grades</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">34,529</td>
+        <td class="num dim">11 MB</td>
+        <td class="plain">Wall Street analyst ratings and price targets per symbol, used by the company dossier panel.</td>
+        <td class="deps">&mdash;</td>
+        <td class="num">836</td>
+        <td class="mid">&mdash;</td>
+        <td class="num">6</td>
+      </tr>
+
+      <tr>
+        <td class="nm">markings_transitions</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">34,056</td>
+        <td class="num dim">4.1 MB</td>
+        <td class="plain">The log of when a chart marking changed state &mdash; when a level went from holding to broken.</td>
+        <td class="deps">&mdash;</td>
+        <td class="num">4</td>
+        <td class="mid">&mdash;</td>
+        <td class="num">6</td>
+      </tr>
+
+      <tr>
+        <td class="nm">insider_trades</td>
+        <td><span class="v v-unc">Uncertain</span></td>
+        <td class="num">33,256</td>
+        <td class="num dim">6.9 MB</td>
+        <td class="plain">Company insiders buying and selling their own stock, from regulatory filings.</td>
+        <td class="deps">&mdash;</td>
+        <td class="num">25</td>
+        <td class="mid">2026-06-09</td>
+        <td class="num">4</td>
+      </tr>
+
+      <tr>
+        <td class="nm">bt_daily_signal</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">22,189</td>
+        <td class="num dim">2.7 MB</td>
+        <td class="plain">One row per symbol per day recording what the strategy would have signalled &mdash; the raw material for back-testing.</td>
+        <td class="deps">functions bt_score, build_bt_signal</td>
+        <td class="num">4</td>
+        <td class="mid">&mdash;</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">sector_performance</td>
+        <td><span class="v v-unc">Uncertain</span></td>
+        <td class="num">18,052</td>
+        <td class="num dim">3.7 MB</td>
+        <td class="plain">Daily performance per market sector, behind the sector rotation view.</td>
+        <td class="deps">&mdash;</td>
+        <td class="num">8</td>
+        <td class="mid">2026-06-09</td>
+        <td class="num">5</td>
+      </tr>
+
+      <tr>
+        <td class="nm">weight_backtest_log</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">16,296</td>
+        <td class="num dim">3.5 MB</td>
+        <td class="plain">Results from each back-test run of different indicator weightings &mdash; the record of what was tried and how it scored.</td>
+        <td class="deps">function bt_score</td>
+        <td class="num">7</td>
+        <td class="mid">&mdash;</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">session_continuity</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">14,941</td>
+        <td class="num dim">3.4 MB</td>
+        <td class="plain">A per-session check that the price history has no breaks across the open and close boundaries.</td>
+        <td class="deps">function scin_continuity_scan</td>
+        <td class="num">30</td>
+        <td class="mid">2026-08-09</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">alert_log</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">14,730</td>
+        <td class="num dim">2.0 MB</td>
+        <td class="plain">The history of alerts the system has fired &mdash; what triggered, when, and on what.</td>
+        <td class="deps">&mdash;</td>
+        <td class="num">15</td>
+        <td class="mid">&mdash;</td>
+        <td class="num">26</td>
+      </tr>
+
+      <tr>
+        <td class="nm">scan_cand</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">13,757</td>
+        <td class="num dim">1.7 MB</td>
+        <td class="plain">Candidates thrown up by the scanner &mdash; symbols that matched a screen and are waiting to be looked at.</td>
+        <td class="deps">functions scin_match_count, scin_scan, scin_scan2</td>
+        <td class="num">3</td>
+        <td class="mid">&mdash;</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">markings</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">13,481</td>
+        <td class="num dim">2.8 MB</td>
+        <td class="plain">The support and resistance levels drawn on charts &mdash; the levels themselves.</td>
+        <td class="deps">&mdash;</td>
+        <td class="num">5</td>
+        <td class="mid">&mdash;</td>
+        <td class="num">76</td>
+      </tr>
+
+      <tr>
+        <td class="nm">put_call_history</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">9,759</td>
+        <td class="num dim">1.9 MB</td>
+        <td class="plain">History of the put/call ratio &mdash; how much downside protection the market is buying. A feed you said you want; the data stops in 2019 and needs backfilling, not deleting.</td>
+        <td class="deps">view <b>macro_feed_health</b></td>
+        <td class="num">14</td>
+        <td class="mid">2019-10-04</td>
+        <td class="num">4</td>
+      </tr>
+
+      <tr>
+        <td class="nm">deep1m_ledger</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">6,620</td>
+        <td class="num dim">3.1 MB</td>
+        <td class="plain">The job ledger for the deep minute-history backfill &mdash; which symbol-and-range has been fetched and which is still claimed.</td>
+        <td class="deps">view <b>scin_1min_map</b>; function scin_claim_deep1m</td>
+        <td class="num">4</td>
+        <td class="mid">2026-08-13</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">plant_master_backup_predupe</td>
+        <td><span class="v v-unc">Uncertain</span></td>
+        <td class="num">666</td>
+        <td class="num dim">2.5 MB</td>
+        <td class="plain">Urth: a snapshot of the plant library taken before a de-duplication pass. <b>It holds 212 plant records that no longer exist in the live library</b> &mdash; dropping it destroys them for good.</td>
+        <td class="deps">&mdash;</td>
+        <td class="num">15</td>
+        <td class="mid">2026-07-21</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">plant_master</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">454</td>
+        <td class="num dim">5.8 MB</td>
+        <td class="plain">Urth: the live plant library &mdash; accepted names, families, invasive status and risk notes per plant.</td>
+        <td class="deps">materialised view <b>plant_library_mv</b></td>
+        <td class="num">10,122</td>
+        <td class="mid">2026-07-21</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">urth_cache</td>
+        <td><span class="v v-unc">Uncertain</span></td>
+        <td class="num">146</td>
+        <td class="num dim">75 MB</td>
+        <td class="plain">Urth: cached results so the Urth pages load without recomputing. Large on disk because it stores whole cached payloads.</td>
+        <td class="deps">&mdash;</td>
+        <td class="num">6</td>
+        <td class="mid">2026-08-18</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">lab_files</td>
+        <td><span class="v v-keep">Keep</span></td>
+        <td class="num">58</td>
+        <td class="num dim">11 MB</td>
+        <td class="plain">Files saved inside the Indicator Lab &mdash; the working documents of that tool.</td>
+        <td class="deps">&mdash;</td>
+        <td class="num">202</td>
+        <td class="mid">2026-08-12</td>
+        <td class="num">0</td>
+      </tr>
+
+      <tr>
+        <td class="nm">site_marks</td>
+        <td><span class="v v-unc">Uncertain</span></td>
+        <td class="num">3</td>
+        <td class="num dim">11 MB</td>
+        <td class="plain">Urth: saved markers against physical job sites. Only three rows, but they are somebody's real records.</td>
+        <td class="deps">&mdash;</td>
+        <td class="num">7</td>
+        <td class="mid">2026-07-18</td>
+        <td class="num">0</td>
+      </tr>
+
+    </tbody>
+  </table>
+  </div>
+
+  <h2 class="sec">The DROP list</h2>
+  <p class="secsub">This is the section you were meant to hand to the orchestrator to execute.</p>
+
+  <div class="empty">
+    <div class="big">There are no DROP TABLE statements, because nothing qualified.</div>
+    <div class="sm">Zero of the 26 candidates met the test for dead. Every one holds real rows, and most are read by a live view, a database function, or code in the Station repository. Running the purge as specified would have destroyed 4,313,020 rows, including the entire adjusted daily price history.</div>
+  </div>
+
+  <h2 class="sec">The five that still need a decision</h2>
+  <p class="secsub">These are not dead, but they are not obviously healthy either. None should be dropped on this evidence; each needs one specific thing checked first.</p>
+
+  <div class="qcard">
+    <h3>plant_master_backup_predupe &mdash; 212 records that exist nowhere else</h3>
+    <p class="why">The closest thing on the list to genuine garbage, and it still is not. Its name says it is a throwaway backup, but its 666 keys are all distinct and 212 of them are absent from the live plant library, while the live library contains nothing that is not also in the backup. So the de-duplication pass removed 212 plant records, and this table is the only remaining copy of them. Decide whether those 212 were junk before it goes.</p>
+  </div>
+
+  <div class="qcard">
+    <h3>insider_trades and sector_performance &mdash; feeds that stopped</h3>
+    <p class="why">Both hold thousands of real rows and both stop dead on 9 June 2026. That is a broken feed, not a dead table: whatever was loading them stopped three months ago. The fix is to find out why the loader stopped, not to delete the history it already collected.</p>
+  </div>
+
+  <div class="qcard">
+    <h3>urth_cache and site_marks &mdash; Urth data, judged from the wrong repository</h3>
+    <p class="why">These belong to Urth Landscaping, not Scintilla. I grepped the Scintilla Station repository for them and found nothing, which proves only that <i>Scintilla</i> does not use them. A separate Supabase project named <b>urth-live</b> was created on 18 August 2026 &mdash; the same day urth_cache was last written &mdash; which suggests Urth moved to its own database and these may be the leftovers. That has to be confirmed against the Urth codebase before anyone drops them. Both also carry row-level security policies, meaning an application was designed to read them as a specific signed-in user.</p>
+  </div>
+
+  <h2 class="sec">What I could not rule out</h2>
+  <ul class="pts">
+    <li><b>Reads from outside the database.</b> A view or function that mentions a table proves a dependency. The absence of one does not prove nothing reads it &mdash; an application can query a table directly. That is why the read counters matter, and why every table here shows reads above zero.</li>
+    <li><b>Code outside the Station repository.</b> The grep covered the Station working tree only. The Hub clone, the chart API service on Fly.io, and the Urth codebase were not searched, so a zero in the code-refs column is not proof of disuse.</li>
+    <li><b>When the statistics were reset, and by what.</b> Something wiped this database's table statistics and nothing has rebuilt them. Until that is fixed, any future audit that trusts <span class="mid">n_live_tup</span> will produce this same wrong list.</li>
+  </ul>
+
+  <h2 class="sec">The queries, so this is checkable</h2>
+  <p class="secsub">Each claim above comes from one of these. All are read-only.</p>
+
+  <pre><b>-- 1. The real row count. This is what the whole finding turns on.</b>
+select 'eod_adjusted' t, count(*) n from public.eod_adjusted
+union all select 'bars1m_day_coverage', count(*) from public.bars1m_day_coverage
+union all select 'coldstore_objects', count(*) from public.coldstore_objects
+-- ... one line per candidate, 26 in total
+order by 1;
+
+<b>-- Result: 26 of 26 non-empty. eod_adjusted = 1,599,721.
+-- Total across the list = 4,313,020 rows.</b></pre>
+
+  <pre><b>-- 2. Where the "~0 rows" claim came from, and why it is worthless.</b>
+select relname, n_live_tup, n_tup_ins, idx_scan, seq_scan,
+       last_analyze, last_autoanalyze, last_vacuum, last_autovacuum
+from pg_stat_user_tables
+where relname in ( ...the 26... );
+
+<b>-- Result: n_live_tup = 0 for 25 of 26. n_tup_ins = 0 for all 26 --
+-- impossible for a table with 1.6M rows, so the counters were reset.
+-- All four timestamp columns are null: statistics never rebuilt.
+-- But idx_scan survived: eod_adjusted = 3,382,728 reads. Live.</b></pre>
+
+  <pre><b>-- 3. What depends on each table: views, matviews, functions, foreign keys,
+--    triggers and row-level-security policies.</b>
+select c.t,
+  (select string_agg(distinct v.viewname,', ') from pg_views v
+     where v.schemaname not in ('pg_catalog','information_schema')
+       and v.definition ~ ('\y'||c.t||'\y')) as views,
+  (select string_agg(distinct m.matviewname,', ') from pg_matviews m
+     where m.definition ~ ('\y'||c.t||'\y')) as matviews,
+  (select string_agg(distinct p.proname,', ') from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname not in ('pg_catalog','information_schema')
+       and p.prosrc ~ ('\y'||c.t||'\y')) as functions,
+  (select string_agg(distinct conrelid::regclass::text,', ') from pg_constraint
+     where contype = 'f' and confrelid = ('public.'||c.t)::regclass) as fks,
+  (select count(*) from pg_trigger tg
+     where tg.tgrelid = ('public.'||c.t)::regclass
+       and not tg.tgisinternal) as user_triggers,
+  (select count(*) from pg_policies pol
+     where pol.schemaname = 'public' and pol.tablename = c.t) as rls_policies
+from cands c order by c.t;
+
+<b>-- Result: 8 tables feed a view or materialised view, 11 are named inside
+-- database function bodies, 20 carry RLS policies. No foreign keys point
+-- at any of them and none carry user triggers.</b></pre>
+
+  <pre><b>-- 4. Newest data in each table that has a date or timestamp column.</b>
+select 'coldstore_objects' t, max(written_at)::text newest from public.coldstore_objects
+union all select 'eod_adjusted', max(fetched_at)::text from public.eod_adjusted
+-- ... 16 tables have a usable time column
+order by 1;
+
+<b>-- Result: coldstore_objects written 2026-09-22 05:10 -- today.
+-- eod_adjusted 2026-08-15. insider_trades and sector_performance
+-- both stop on 2026-06-09. put_call_history stops in 2019.</b></pre>
+
+  <pre><b>-- 5. The one table whose name claims it is disposable.</b>
+select (select count(*) from public.plant_master_backup_predupe) backup_rows,
+       (select count(*) from public.plant_master) master_rows,
+       (select count(distinct key) from public.plant_master_backup_predupe) backup_distinct_keys,
+       (select count(*) from (select key from public.plant_master_backup_predupe
+          except select key from public.plant_master) x) keys_only_in_backup,
+       (select count(*) from (select key from public.plant_master
+          except select key from public.plant_master_backup_predupe) y) keys_only_in_master;
+
+<b>-- Result: 666 rows, 666 distinct keys (so no duplicates to purge),
+-- 212 keys exist only in the backup, 0 exist only in the live table.
+-- The "pre-dedupe backup" is the sole copy of 212 plant records.</b></pre>
+
+  <pre><b>-- 6. Runtime code references, Station working tree.</b>
+# excludes _worktrees, node_modules, _INBOX, _recon, _SORTED, .git,
+# _archive, and all *.html *.md *.csv *.json *.log *.txt report files
+grep -rIl --exclude-dir=... --exclude='*.html' ... -e "&lt;table&gt;" \
+  "/Users/alanharvey/SCINTILLA 0.5"
+
+<b>-- Result: markings 76 files, alert_log 26, analyst_grades 6,
+-- markings_transitions 6, eod_adjusted 5, structure_history 5,
+-- sector_performance 5, ribbon_series 4, insider_trades 4,
+-- put_call_history 4, tick_flow 2, scin_adjust_factor 1, rest 0.</b></pre>
+
+  <h2 class="sec">What I recommend instead of the purge</h2>
+  <ul class="pts">
+    <li><b>Cancel this purge outright.</b> The candidate list is invalid at its root, not merely too long. There is no smaller safe subset of it.</li>
+    <li><b>Rebuild the statistics first.</b> Run <span class="mid">ANALYZE</span> across the database. Until that happens every row-count estimate on this project is fiction, and the next audit will generate the same list again.</li>
+    <li><b>Re-run the audit afterwards.</b> With honest statistics, a real dead-table list may well exist &mdash; but it will be a different list, built from different tables than these.</li>
+    <li><b>Treat the stalled feeds as the actual finding.</b> Three feeds you care about have stopped: insider trades and sector performance in June, the put/call ratio back in 2019. That is the genuine problem this audit surfaced.</li>
+  </ul>
+
+  <footer>
+    Scintilla &middot; Supabase project <b>scintilla-live</b>, ref wadinxqplrggagkvrdag (identity confirmed against the project list before any query).<br>
+    All queries read-only. No table was dropped, altered, vacuumed or analyzed. Nothing was deployed and nothing was pushed.<br>
+    Row counts and read counters: [MEASURED] 22 Sep 2026. Plain-English table purposes: [ESTIMATE] &mdash; inferred from column names, dependent views and function bodies, not from a written schema document.<br>
+    Full path: /Users/alanharvey/AlanOS/Operating System/workspaces/scintilla/deliverables/20260922/purge/PURGE-PLAN.html
+  </footer>
+
+</div>
+</body>
+</html>
