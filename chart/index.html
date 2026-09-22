@@ -146,6 +146,16 @@ body.tvmodal-open{ overflow:hidden; }
   padding:8px 18px; background:linear-gradient(180deg,rgba(0,212,255,.10),rgba(0,212,255,.02)); }
 .sc-tvmodal__fallback .btn:hover{ background:rgba(0,212,255,.16); border-color:var(--crk); }
 @media (max-width:640px){ .sc-tvmodal{ padding:10px; } .sc-tvmodal__panel{ width:100vw; height:92vh; border-radius:0; } }
+
+/* Pane text after Alan's 22 Sep review: ticker, price, change. Reference close and window dates
+   are hover text. A range change keeps the old line dimmed instead of a blank pane. Internals
+   without a retained series show TradingView's free chart, labelled as such. */
+.sc-nchart__live-prev, .sc-nchart__live-window{ display:none; }
+.sc-nchart[data-holding="1"] .sc-nchart__cv{ opacity:.42; transition:opacity .12s ease; }
+.sc-tvinternal{ position:absolute; inset:0; z-index:4; background:#05060c; }
+.sc-tvinternal__frame{ width:100%; height:100%; border:0; display:block; }
+.sc-tvinternal__cap{ position:absolute; left:8px; bottom:6px; font:600 8px var(--mono); color:var(--dim); letter-spacing:.08em; text-transform:uppercase; background:rgba(5,6,12,.7); padding:2px 6px; pointer-events:none; }
+.sc-nchart--tv .sc-nchart__live, .sc-nchart--tv .sc-nchart__msg{ display:none; }
 </style>
 </head>
 <body>
@@ -884,6 +894,25 @@ const TV_EMBED_URL = (sym) => "https://s.tradingview.com/widgetembed/?symbol=" +
   "&theme=dark&style=1&hide_side_toolbar=0&withdateranges=1&allow_symbol_change=1&save_image=0&locale=en&studies=" + TV_STUDIES;
 const TV_URL = (sym) => "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(sym || "") +
   "&interval=" + (TV_INTERVAL[S.chartRange] || "D");
+/* Internals the Station holds no retained series for (put_call_history and tick_flow are empty):
+   TradingView's free widget stands in, under its own name. CUMTICK has no TradingView symbol; the
+   nearest is USI:TICK, which TradingView itself labels "NYSE cumulative tick". */
+const TV_INTERNALS = Object.freeze({ PCC:"USI:PCC", TICK:"USI:TICK", CUMTICK:"USI:TICK", TRIN:"USI:TRIN.NY", ADD:"USI:ADD", VIX:"CBOE:VIX" });
+function mountTvInternal(host, sym) {
+  const area = host.querySelector(".sc-nchart__area"); if (!area) return false;
+  if (host._tvInternal && host._tvInternal.sym === sym) return true;
+  unmountTvInternal(host);
+  const wrap = document.createElement("div"); wrap.className = "sc-tvinternal";
+  const note = host.dataset.t === "CUMTICK" ? " · nearest TradingView series (labelled NYSE cumulative tick)" : "";
+  wrap.innerHTML = '<iframe class="sc-tvinternal__frame" src="' + esc(TV_EMBED_URL(sym)) + '" title="TradingView ' + esc(sym) + '" frameborder="0" allowtransparency="true" scrolling="no" allow="fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe>' +
+    '<div class="sc-tvinternal__cap">' + esc(host.dataset.t) + ' · TradingView view · ' + esc(sym) + esc(note) + ' · not a Scintilla series</div>';
+  area.appendChild(wrap); host._tvInternal = { sym, node:wrap }; host.classList.add("sc-nchart--tv");
+  return true;
+}
+function unmountTvInternal(host) {
+  if (!host || !host._tvInternal) return;
+  host._tvInternal.node.remove(); host._tvInternal = null; host.classList.remove("sc-nchart--tv");
+}
 const TV_LOAD_MS = 2600;
 let TV_TIMER = null;
 function tvFallback(url) {
@@ -1073,7 +1102,8 @@ function scChartDraw(host, scrub) {
   const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * ih;
   host._plot = { padL, padT, iw, ih, start, end, rightBars, yLo, yHi };
   const up = ref != null && pts[end].p >= ref;
-  const c = ref == null ? col.ink2 : up ? col.bull : col.bear;
+  /* Unknown baseline = the palette's dim tone, never the light ink that reads as white on the wall. */
+  const c = ref == null ? (col.dim || "#868AAA") : up ? col.bull : col.bear;
   /* Use rounded, evenly meaningful price levels rather than labeling only the
      accidental visible high and low. The levels adapt to pane height without
      reopening the old empty right gutter. */
@@ -1097,8 +1127,9 @@ function scChartDraw(host, scrub) {
   const trace = () => {
     ctx.moveTo(X(start), Y(pts[start].p));
     for (let i = start + 1; i < end; i++) {
-      const x1 = X(i), y1 = Y(pts[i].p), x2 = X(i + 1), y2 = Y(pts[i + 1].p);
-      ctx.quadraticCurveTo(x1, y1, (x1 + x2) / 2, (y1 + y2) / 2);
+      /* Through every real value. The old quadratic pass used the values as control points, so the
+         drawn line never touched them and bulged past them when the pane was wide. */
+      ctx.lineTo(X(i), Y(pts[i].p));
     }
     ctx.lineTo(X(end), Y(pts[end].p));
   };
@@ -1346,6 +1377,10 @@ function showChartDelayed(host, ticker) {
 function showChartAbsent(host, reason) {
   const named = String(reason || CHART_ABSENCE_NOT_OBSERVED);
   clearChartRetry(host);
+  if (host.dataset.holding) { delete host.dataset.holding; host._series = null; }
+  /* Internals we hold no series for show TradingView's free chart, labelled as exactly that. */
+  const tvSym = TV_INTERNALS[String(host.dataset.t || "").toUpperCase()];
+  if (tvSym) mountTvInternal(host, tvSym);
   host.dataset.dataState = "absent";
   host.dataset.absence = named;
   reportChartDataState(host, { history:"absent", historyAbsence:named });
@@ -1367,6 +1402,16 @@ function retryChartLoad(host, req, generation) {
     }
   }, CHART_RETRY_MS);
 }
+/* A range change keeps the previous line on screen, dimmed, until the new range paints. A blank
+   pane is the state read as "gray for seconds"; the cache path replaces the old line at once. */
+function holdAndReload(host, rangeLabel) {
+  if (host._series && host._series.length >= 2) {
+    host.dataset.holding = "1";
+    const msg = host.querySelector(".sc-nchart__msg");
+    if (msg) { msg.textContent = "loading " + rangeLabel; msg.hidden = false; }
+  } else host._series = null;
+  scChartLoad(host);
+}
 async function scChartLoad(host) {
   const t = host.dataset.t, range = S.chartRange;
   const req = t + "|" + range;
@@ -1383,7 +1428,7 @@ async function scChartLoad(host) {
   const limit = host._historyLimit || chartInitialLimit(range);
   const cachedPts = chartSeriesCached(t, range, limit);
   if (cachedPts && cachedPts.length >= 2) {
-    host._series = cachedPts;
+    host._series = cachedPts; delete host.dataset.holding;
     /* A remembered ribbon paints with the remembered price, from local storage,
        before any request is made at all. */
     paintCloudsFromCache(host, t);
@@ -1411,7 +1456,7 @@ async function scChartLoad(host) {
       if (named) throw chartAbsenceError(named, t, range);
       throw new Error("insufficient history for " + t + "/" + range + " (unnamed)");
     }
-    host._series = pts;
+    host._series = pts; delete host.dataset.holding; unmountTvInternal(host);
     paintChartHistoryWindow(host);
     clearChartRetry(host);
     delete host.dataset.dataState;
@@ -1660,6 +1705,7 @@ function setChartTicker(t) {
   host._view = null;
   /* A new symbol has a new ribbon: never carry the old one across a ticker change. */
   host._cloudRows = null; host._cloudTicker = null; host._cloudMap = null; host._cloudPending = null;
+  delete host.dataset.holding; unmountTvInternal(host);
   const sym = TV_MAP[t] || t;
   const pop = host.querySelector(".sc-tv__pop");
   if (pop) pop.dataset.sym = sym;
@@ -1749,7 +1795,9 @@ function paintLiveStatus(host, quote) {
     badge.append(ticker, change, previous, historyWindow);
   }
   ticker.textContent = host.dataset.t;
-  change.textContent = day.text;
+  /* Alan, 22 Sep: "ticker, dollar value price, percentage change difference" - nothing else. */
+  const signedPct = day.tone === "up" ? "+" + day.text : day.tone === "down" ? "\u2212" + day.text.replace(/[()]/g, "") : day.text;
+  change.textContent = hasQuote ? chPx(quotePrice(quote), host.dataset.t) + "  " + signedPct : "";
   /* "Prev" named a relationship, not a day. The reference close belongs to a specific session, so
      the label names that session when the plotted series can identify it, and otherwise says
      plainly that it is the last close rather than inventing a date. */
@@ -1763,6 +1811,8 @@ function paintLiveStatus(host, quote) {
     : at == null
       ? "observation time unknown · the provider supplied no observation time for this quote"
       : (futureSet.has(host.dataset.t) ? "delayed futures quote · " : "provider quote · ") + at.toISOString();
+  /* The reference close and the window dates moved out of the pane into the hover text. */
+  badge.title += [previous.textContent, historyWindow.textContent].filter(Boolean).map((x) => "\n" + x).join("");
   reportChartDataState(host, { quote:hasQuote ? "ready" : "loading" });
   if (!hasQuote) return;
   try {
@@ -1853,7 +1903,7 @@ document.addEventListener("click", (e) => {
     S.chartRange = n.dataset.r;
     document.querySelectorAll('.sc-crange[data-act="chartrange"]').forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
     const host = document.querySelector("#chartSlot .sc-nchart");
-    if (host) { host._series = null; scChartLoad(host); }
+    if (host) holdAndReload(host, S.chartRange);
   }
   else if (act === "clouds") setClouds(!CLOUDS_ON);
   else if (act === "tvmodal") openTvModal(n.dataset.sym);
@@ -1903,7 +1953,7 @@ addEventListener("message", (e) => {
     S.chartRange = d.range;
     document.querySelectorAll('.sc-crange[data-act="chartrange"]').forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
     const host = document.querySelector("#chartSlot .sc-nchart");
-    if (host) { host._series = null; scChartLoad(host); }
+    if (host) holdAndReload(host, S.chartRange);
   }
   if (d.ticker) setChartTicker(d.ticker);
 });
@@ -1915,6 +1965,9 @@ if (initialChartHost) initialChartHost._transitionGeneration = CHART_TRANSITION_
 scChartWire(el("chartSlot"));
 if (DECK_QUOTE_MODE) requestDeckQuote(S.chartT);
 else pullPrevClose(S.chartT);
+/* In the deck, the baseline normally arrives by push. If it has not within 1.2 s (a quote read
+   still in flight, or a scene of new symbols), read this one ticker's previous close directly. */
+if (DECK_QUOTE_MODE) setTimeout(() => { if (prevClose[S.chartT] == null) pullPrevClose(S.chartT); }, 1200);
 /* A ten-second read-only heartbeat makes live status dependable even if the
    browser's realtime socket sleeps. The full history remains a 60-second pull. */
 if (!DECK_QUOTE_MODE) setInterval(() => pullPrevClose(S.chartT), 10000);

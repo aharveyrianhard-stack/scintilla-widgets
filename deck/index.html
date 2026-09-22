@@ -372,6 +372,14 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
 /* Eight charts remain a real four-by-two wall on a compact desktop.  Below
    STACK_AT the existing single-column safety layout takes over instead. */
 body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minmax(0,1fr)); }
+
+/* Header, after Alan's 22 Sep review: the timeframe and the chart count are the controls that
+   matter. Layout ("auto" was a build-phase switch), the display window, the screen position
+   (not clickable) and "reset preset" live behind one "⋯" button instead of the permanent bar. */
+#dock #bar #screenControls{ grid-template-columns:26px 26px !important; }
+#bar #moreGroup{ gap:6px; }
+#bar #moreGroup[hidden]{ display:none; }
+#bar #moreGroup #screenIndicator{ width:auto; }
 </style>
 </head>
 <body>
@@ -395,7 +403,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       <option value="cohort">cohort</option>
       <option value="custom">custom</option>
     </select>
-    <button type="button" class="btn" id="resetScene" title="restore this scene's original preset" aria-label="Reset scene preset">reset preset</button>
+    <button type="button" class="btn more-only" id="resetScene" title="restore this scene's original preset" aria-label="Reset scene preset">reset preset</button>
     <span id="cohortPicker" hidden>
       <select class="scene-mode" id="cohortPick" title="choose the cohort — its members replace the favorites rows" aria-label="Cohort"></select>
       <button type="button" class="btn" id="cohortPagePrev" title="previous cohort page" aria-label="Previous cohort page">‹</button>
@@ -427,6 +435,8 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
     </select>
     <button type="button" class="btn" id="displayBtn" title="open Station in a dedicated display window" aria-label="Open dedicated Station display window">display ↗</button>
   </span>
+  <button type="button" class="btn" id="moreBtn" title="layout, display window, screen position, reset preset" aria-label="More controls" aria-expanded="false">⋯</button>
+  <span class="control-group" id="moreGroup" hidden></span>
   <button type="button" class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen" aria-label="Toggle Station fullscreen">⛶</button>
   <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
   <span id="rtNote" hidden style="color:var(--dim);font-size:9px;letter-spacing:.07em"></span>
@@ -851,7 +861,8 @@ let SOLO = QS.get("full") || null;
 let MEDIA_TARGET = null;
 let MEDIA_STAGE = 0;
 let ROTATE_AT = ROTATE_SECONDS.includes(+remembered("station.rotate.seconds")) ? +remembered("station.rotate.seconds") : 60;
-let ROTATE_PAUSED = remembered("station.rotate.paused") !== "0";
+/* Rotation is ON unless this browser has paused it; the toggle remembers per browser. */
+let ROTATE_PAUSED = remembered("station.rotate.paused") === "1";
 let rotateTimer = 0;
 let ROTATE_BUSY = false;
 let SCREEN_BUSY = false;
@@ -865,7 +876,9 @@ let rotationColdLoads = 0;
 let rotationLoadQueue = [];
 /* Child chart frames own their cache and fetches.  The deck is the only place
    that can prevent six fresh frames from retrying a stalled backend together. */
-const CHART_DATA_LOAD_LIMIT = 2;
+/* Four at a time: a timeframe change on six mounted frames is two short waves instead of three,
+   while a stalled backend still never sees every frame retry at once. */
+const CHART_DATA_LOAD_LIMIT = 4;
 let chartDataLoads = 0;
 let chartDataLoadQueue = [];
 const chartDataLoadActive = new Map();
@@ -1007,8 +1020,8 @@ function makePane(def) {
   head.innerHTML = '<span class="t">' + esc(def.title) + '</span><span class="tag">' + esc(def.tag) + "</span>";
   const acts = document.createElement("div"); acts.className = "acts";
 
-  const bFull = document.createElement("button"); bFull.type = "button"; bFull.className = "btn"; bFull.textContent = "⛶";
-  bFull.title = "expand across this row — one tap back";
+  const bFull = document.createElement("button"); bFull.type = "button"; bFull.className = "btn"; bFull.textContent = "⤢";
+  bFull.title = "expand this chart across the row — one tap back";
   bFull.addEventListener("click", (e) => { e.stopPropagation(); setSolo(SOLO === def.key ? null : def.key); });
   /* The Station is the destination. Pop/PiP/open duplicated navigation and
      crowded every pane; keep one explicit in-place expansion control. */
@@ -1048,7 +1061,12 @@ function mount(obj) {
   f.setAttribute("allowfullscreen", "");
   f.addEventListener("load", () => {
     postViewProfile(obj);
-    if (obj.def.kind === "chart") postDeckQuote(f, obj.def.ticker);
+    if (obj.def.kind === "chart") {
+      postDeckQuote(f, obj.def.ticker);
+      /* A frame that mounts before its quote exists would sit in the neutral tone until the next
+         ten-second heartbeat. Ask now; a read already in flight simply reruns. */
+      if (!DECK_QUOTES.has(CLEAN(obj.def.ticker))) deckQuoteHeartbeat();
+    }
   });
   obj.body.appendChild(f); obj.frame = f;
   LIVE.push(obj);
@@ -1311,7 +1329,13 @@ setInterval(deckQuoteHeartbeat, DECK_QUOTE_HEARTBEAT_MS);
 window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
   if (event.data?.sc === "chart-load-request") {
-    chartDataLoadQueue.push({ token:event.data.token, generation:Number(event.data.generation) || 0, source:event.source });
+    /* A frame whose document is the one this deck mounted is current by definition, whatever
+       generation it booted with. Without this, every frame that reloaded after a scene change
+       carried generation 0, was never granted, and waited out its 5.5 s escape hatch. */
+    const mountedPane = PANES.find((item) => item.frame?.contentWindow === event.source &&
+      frameIdentity(item.frame.getAttribute("src")) === frameIdentity(item.def.src));
+    chartDataLoadQueue.push({ token:event.data.token,
+      generation:mountedPane ? ROTATION_GENERATION : (Number(event.data.generation) || 0), source:event.source });
     runChartDataLoadQueue(); return;
   }
   if (event.data?.sc === "chart-load-release") { releaseChartDataLoad(event.data.token); return; }
@@ -2039,9 +2063,12 @@ function chartSrc(t, index, transitionGeneration) {
    miss it during a scene switch.  Its URL is the durable identity of the
    frame, so replace the frame whenever that identity changes; only use the
    message optimization after the URL already agrees with the displayed pane. */
+/* The timeframe is not part of a frame's identity: a mounted chart changes range in place through
+   a message, keeping its document, its caches and its previous line on screen. */
+const frameIdentity = (src) => String(src || "").replace(/[?&](range|transition)=[^&]*/g, "");
 function syncChartFrame(frame, nextSrc, message) {
   if (!frame || !nextSrc) return false;
-  if (frame.getAttribute("src") !== nextSrc) {
+  if (frameIdentity(frame.getAttribute("src")) !== frameIdentity(nextSrc)) {
     frame.setAttribute("src", nextSrc);
     return true;
   }
@@ -2404,6 +2431,18 @@ async function build() {
   relayout();
 }
 build();
+/* ---- the "⋯" group: relocated controls (see the header note in the stylesheet) ---- */
+(function moreControls() {
+  const group = el("moreGroup"), btn = el("moreBtn");
+  if (!group || !btn) return;
+  const pres = document.querySelector("#bar .presentation-controls");
+  for (const node of [el("resetScene"), pres, el("screenIndicator")]) if (node) group.appendChild(node);
+  btn.addEventListener("click", () => {
+    group.hidden = !group.hidden;
+    btn.classList.toggle("on", !group.hidden);
+    btn.setAttribute("aria-expanded", group.hidden ? "false" : "true");
+  });
+})();
 </script>
 </body>
 </html>

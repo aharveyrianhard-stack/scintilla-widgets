@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Station look proposals · line colour · cloud smoothing</title>
+<style>
+:root{ --bg:#05060C; --panel:#0B0D18; --line:#1A1A2A; --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52; --bull:#00FFA3; --bear:#FF2D55; --teal:#3FB8AF; --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
+html,body{ margin:0; background:var(--bg); color:var(--ink2); font:14px/1.45 -apple-system,"Helvetica Neue",Arial,sans-serif; }
+header{ padding:18px 22px 6px; display:flex; gap:14px; align-items:baseline; flex-wrap:wrap; }
+h1{ font-size:20px; margin:0; color:var(--ink); letter-spacing:.01em; }
+h2{ font-size:16px; margin:26px 22px 4px; color:var(--ink); }
+p.note{ margin:0 22px 8px; color:var(--ink3); max-width:1100px; }
+.row{ display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:12px; padding:8px 22px; }
+.card{ background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:10px 10px 8px; }
+.card h3{ margin:0 0 6px; font:700 12px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--ink3); display:flex; justify-content:space-between; }
+.card h3 b{ color:var(--ink); }
+canvas{ width:100%; height:240px; display:block; background:#07080f; border-radius:4px; }
+.pick{ display:flex; gap:6px; margin:6px 22px; flex-wrap:wrap; }
+.pick button, .pick input{ font:600 12px var(--mono); background:var(--panel); color:var(--ink2); border:1px solid var(--line); border-radius:6px; padding:6px 10px; }
+.pick button.on{ border-color:var(--teal); color:var(--ink); }
+.status{ margin:6px 22px; font:12px var(--mono); color:var(--dim); }
+.badge{ font:700 12px var(--mono); }
+.up{ color:var(--bull) } .down{ color:var(--bear) }
+</style></head><body>
+<header><h1>Station look · two proposals, same live data</h1><span class="status" id="status">loading…</span></header>
+<div class="pick"><input id="sym" value="SPY" size="6" aria-label="symbol"><button id="go">load</button> <span class="status">3-hour bars · 240 on screen · daily ribbon from the same provider read the Station uses</span></div>
+
+<h2>1 · What colours the price line</h2>
+<p class="note">Today the whole line is green or red by one number: the last price against the provider's previous regular-session close. It is gray only while that previous close is still unknown. Pick by eye.</p>
+<div class="row">
+  <div class="card"><h3><span>A · monochrome</span><b>colour only in the badge and the Geiger</b></h3><canvas id="lcA"></canvas></div>
+  <div class="card"><h3><span>B · last segment only</span><b>the day's move, on the day's bars</b></h3><canvas id="lcB"></canvas></div>
+  <div class="card"><h3><span>C · today's rule</span><b>whole line by day change</b></h3><canvas id="lcC"></canvas></div>
+</div>
+
+<h2>2 · Smoothing the stepped ribbon (visual only, the averages are untouched)</h2>
+<p class="note">Every panel uses the identical daily 13D/21D EMA and 50D/200D SMA values. Only the geometry between session points changes. No curve is allowed to pass beyond a real session value.</p>
+<div class="pick" id="modes">
+  <button data-m="step" class="on">a · stepped (today)</button><button data-m="line">b · straight diagonals</button><button data-m="cubic">c · gentle curve (monotone, no overshoot)</button><button data-m="fillonly">d · fill smoothed, line exact</button>
+</div>
+<div class="row">
+  <div class="card"><h3><span>a · stepped (today)</span></h3><canvas id="smA"></canvas></div>
+  <div class="card"><h3><span>b · straight diagonals</span></h3><canvas id="smB"></canvas></div>
+  <div class="card"><h3><span>c · gentle curve</span><b>monotone cubic</b></h3><canvas id="smC"></canvas></div>
+  <div class="card"><h3><span>d · fill smoothed, line exact</span></h3><canvas id="smD"></canvas></div>
+</div>
+<p class="note" id="foot"></p>
+<script src="/_indicators/station-clouds.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const SC = window.SC_CLOUDS;
+const API = "https://scintilla-massive-chart-api.fly.dev"; /* the same read-only endpoints provider.js uses */
+const unwrap = (j) => Array.isArray(j) ? j : (j && (j.candles || j.rows || j.data || j.bars || j.quotes)) || [];
+const toPts = (rows) => unwrap(rows).map((r) => { const ts = r.timestamp ?? r.t ?? r.time; const t = ts > 1e12 ? ts : ts * 1000; return { d:new Date(t).toISOString(), t, p:+(r.close ?? r.c) }; }).filter((q) => q.p > 0 && Number.isFinite(q.t)).sort((a, b) => a.t - b.t);
+const TFAPI = { "3h":"180", "1D":"D" };
+async function candles(sym, tf, limit) { const r = await fetch(API + "/candles?symbol=" + encodeURIComponent(sym) + "&tf=" + TFAPI[tf] + "&authority=provider&limit=" + limit); if (!r.ok) throw new Error("candles " + r.status); return toPts(await r.json()); }
+async function prevCloseOf(sym) { try { const r = await fetch(API + "/quotes?symbols=" + encodeURIComponent(sym)); const j = await r.json(); const q = unwrap(j).find((x) => (x.ticker || x.symbol) === sym) || unwrap(j)[0] || (j && j[sym]); return q ? { prev:+(q.prev_close ?? q.prevClose), price:+(q.price ?? q.last) } : null; } catch (_) { return null; } }
+function setup(cv) { const dpr = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h); return { ctx, w, h }; }
+function scale(pts, extra, w, h) { let lo = Infinity, hi = -Infinity; for (const q of pts) { lo = Math.min(lo, q.p); hi = Math.max(hi, q.p); } for (const v of extra) if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } const pad = (hi - lo) * .06 || 1; lo -= pad; hi += pad; const X = (i) => 8 + (i / Math.max(1, pts.length - 1)) * (w - 16); const Y = (v) => 8 + (1 - (v - lo) / (hi - lo)) * (h - 16); return { X, Y }; }
+function priceLine(ctx, pts, X, Y, from, to, colour, width) { ctx.beginPath(); for (let i = from; i <= to; i++) i === from ? ctx.moveTo(X(i), Y(pts[i].p)) : ctx.lineTo(X(i), Y(pts[i].p)); ctx.strokeStyle = colour; ctx.lineWidth = width || 2; ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.stroke(); }
+/* ---- 1 · line colour ---- */
+function drawColour(pts, quote) {
+  const ref = quote && Number.isFinite(quote.prev) && quote.prev !== 0 ? quote.prev : null;
+  const last = quote && Number.isFinite(quote.price) ? quote.price : pts[pts.length - 1].p;
+  const up = ref != null && last >= ref; const dayTone = ref == null ? "var(--dim)" : up ? "#00FFA3" : "#FF2D55";
+  const pct = ref == null ? "—" : ((last - ref) / ref * 100); const pctText = ref == null ? "—" : (pct >= 0 ? "+" : "−") + Math.abs(pct).toFixed(2) + "%";
+  const todayDay = SC.sessionDate(pts[pts.length - 1].t); let dayStart = pts.length - 1; while (dayStart > 0 && SC.sessionDate(pts[dayStart - 1].t) === todayDay) dayStart--;
+  for (const [id, mode] of [["lcA", "mono"], ["lcB", "segment"], ["lcC", "today"]]) {
+    const { ctx, w, h } = setup($(id)); const { X, Y } = scale(pts, [], w, h);
+    if (mode === "mono") priceLine(ctx, pts, X, Y, 0, pts.length - 1, "#3FB8AF");
+    if (mode === "segment") { priceLine(ctx, pts, X, Y, 0, dayStart, "#3FB8AF"); priceLine(ctx, pts, X, Y, dayStart, pts.length - 1, ref == null ? "#868AAA" : dayTone, 2.4); }
+    if (mode === "today") priceLine(ctx, pts, X, Y, 0, pts.length - 1, ref == null ? "#868AAA" : dayTone);
+    ctx.font = "700 12px " + getComputedStyle(document.body).getPropertyValue("--mono"); ctx.fillStyle = "#F2F2F8"; ctx.fillText($("sym").value.toUpperCase() + "  " + last.toFixed(2) + "  ", 10, 20);
+    const wdt = ctx.measureText($("sym").value.toUpperCase() + "  " + last.toFixed(2) + "  ").width; ctx.fillStyle = ref == null ? "#868AAA" : (up ? "#00FFA3" : "#FF2D55"); ctx.fillText(pctText, 10 + wdt, 20);
+  }
+}
+/* ---- 2 · smoothing ---- */
+function monotone(xs, ys) { /* Fritsch–Carlson: passes through every point, never overshoots */
+  const n = xs.length; if (n < 3) return (x) => { const i = Math.max(1, xs.findIndex((v) => v >= x)); const t = (x - xs[i - 1]) / (xs[i] - xs[i - 1]); return ys[i - 1] + t * (ys[i] - ys[i - 1]); };
+  const d = [], m = []; for (let i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]));
+  m[0] = d[0]; m[n - 1] = d[n - 2]; for (let i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < n - 1; i++) { if (d[i] === 0) { m[i] = m[i + 1] = 0; continue; } const a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b; if (s > 9) { const t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; } }
+  return (x) => { let i = 0; while (i < n - 2 && x > xs[i + 1]) i++; const h = xs[i + 1] - xs[i], t = (x - xs[i]) / h, t2 = t * t, t3 = t2 * t; return (2 * t3 - 3 * t2 + 1) * ys[i] + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * ys[i + 1] + (t3 - t2) * h * m[i + 1]; };
+}
+function sessionSeries(pts, rows, key) { /* per bar: the newest completed session's value (the Station's intraday rule) */
+  const out = []; let r = 0; for (let i = 0; i < pts.length; i++) { const day = SC.sessionDate(pts[i].t); while (r + 1 < rows.length && rows[r + 1].day < day) r++; const row = rows[r] && rows[r].day < day ? rows[r] : null; out.push(row ? row[key] : null); } return out;
+}
+function anchors(pts, vals) { /* one anchor per session, at that session's last bar */
+  const xs = [], ys = []; for (let i = 0; i < pts.length; i++) { const next = i + 1 < pts.length ? SC.sessionDate(pts[i + 1].t) : null; if (vals[i] != null && SC.sessionDate(pts[i].t) !== next) { xs.push(i); ys.push(vals[i]); } } return { xs, ys };
+}
+function pathFor(mode, pts, vals, X, Y) {
+  const pts2 = []; if (mode === "step") { for (let i = 0; i < pts.length; i++) if (vals[i] != null) pts2.push([X(i), Y(vals[i])]); return pts2; }
+  const { xs, ys } = anchors(pts, vals); if (xs.length < 2) return pts2;
+  const f = mode === "line" ? ((x) => { let i = 0; while (i < xs.length - 2 && x > xs[i + 1]) i++; const t = (x - xs[i]) / (xs[i + 1] - xs[i]); return ys[i] + t * (ys[i + 1] - ys[i]); }) : monotone(xs, ys);
+  for (let x = xs[0]; x <= xs[xs.length - 1]; x += .5) pts2.push([X(x), Y(f(x))]); return pts2;
+}
+function drawSmooth(pts, rows) {
+  const e13 = sessionSeries(pts, rows, "e13"), e21 = sessionSeries(pts, rows, "e21"), s50 = sessionSeries(pts, rows, "s50"), s200 = sessionSeries(pts, rows, "s200");
+  for (const [id, mode] of [["smA", "step"], ["smB", "line"], ["smC", "cubic"], ["smD", "fillonly"]]) {
+    const { ctx, w, h } = setup($(id)); const { X, Y } = scale(pts, [...e13, ...e21, ...s50].filter((v) => v != null), w, h);
+    const fillMode = mode === "fillonly" ? "cubic" : mode, lineMode = mode === "fillonly" ? "step" : mode;
+    const a = pathFor(fillMode, pts, e13, X, Y), b = pathFor(fillMode, pts, e21, X, Y);
+    if (a.length && b.length) { ctx.beginPath(); a.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); for (let i = b.length - 1; i >= 0; i--) ctx.lineTo(b[i][0], b[i][1]); ctx.closePath(); ctx.fillStyle = "rgba(78,124,255,.34)"; ctx.fill(); }
+    for (const [vals, colour, wdt] of [[s200, "rgba(120,140,255,.55)", 1.2], [s50, "rgba(120,160,255,.8)", 1.4], [e21, "#5B7BFF", 2], [e13, "#8FB0FF", 1.6]]) { const p = pathFor(lineMode, pts, vals, X, Y); if (!p.length) continue; ctx.beginPath(); p.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.strokeStyle = colour; ctx.lineWidth = wdt; ctx.lineJoin = "round"; ctx.stroke(); }
+    priceLine(ctx, pts, X, Y, 0, pts.length - 1, "#3FB8AF", 1.6);
+  }
+}
+async function load() {
+  const sym = $("sym").value.toUpperCase().trim(); $("status").textContent = "reading " + sym + "…";
+  try {
+    /* The provider verifies symbol ownership on its first quote read; candles before that refuse. So: quote first. */
+    const quote = await prevCloseOf(sym);
+    const [intra, daily] = await Promise.all([candles(sym, "3h", 240), candles(sym, "1D", 400)]);
+    const rows = SC.dailyRows(daily);
+    drawColour(intra, quote); drawSmooth(intra, rows);
+    $("status").textContent = sym + " · " + intra.length + " three-hour bars · " + daily.length + " daily sessions " + (daily[0] ? daily[0].d.slice(0, 10) + " → " + daily[daily.length - 1].d.slice(0, 10) : "") + " · previous close " + (quote && quote.prev ? quote.prev.toFixed(2) : "unknown");
+    $("foot").textContent = "Ribbon built from " + daily.length + " daily bars; the first " + SC.EMA_SEED_WARMUP + " are computed but not drawn (average seed). Values shown on each intraday bar are the newest session that completed before that bar's session, exactly as the Station draws them.";
+  } catch (e) { $("status").textContent = "read failed: " + (e && e.message ? e.message.slice(0, 120) : e); }
+}
+$("go").addEventListener("click", load); $("sym").addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
+const q = new URLSearchParams(location.search).get("t"); if (q) $("sym").value = q.toUpperCase();
+addEventListener("resize", () => load()); load();
+</script></body></html>
