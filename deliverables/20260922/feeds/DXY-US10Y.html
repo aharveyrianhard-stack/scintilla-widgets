@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dollar Index and 10-Year</title>
+<style>
+  :root{
+    --bg:#08080a;
+    --panel:#0f0f13;
+    --panel-2:#13131a;
+    --line:#22222b;
+    --line-soft:#1a1a21;
+    --ink:#8e90a0;
+    --ink-strong:#a6a8b4;
+    --ink-dim:#5c5e6a;
+    --ink-faint:#43454f;
+    --yes:#a6a8b4;
+    --no:#55575f;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font:15px/1.6 ui-sans-serif,-apple-system,"Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding:0 16px 96px;
+  }
+  .wrap{max-width:1180px;margin:0 auto}
+  header{padding:56px 0 28px;border-bottom:1px solid var(--line)}
+  h1{
+    margin:0 0 10px;font-size:30px;line-height:1.15;font-weight:600;
+    color:var(--ink-strong);letter-spacing:-.01em;
+  }
+  .sub{margin:0;color:var(--ink-dim);font-size:14px}
+  .stamp{margin-top:16px;color:var(--ink-faint);font-size:12px;font-variant-numeric:tabular-nums}
+  h2{
+    margin:44px 0 6px;font-size:12px;font-weight:600;letter-spacing:.13em;
+    text-transform:uppercase;color:var(--ink-dim);
+  }
+  h2+.note{margin-top:0}
+  .note{color:var(--ink-dim);font-size:13.5px;margin:8px 0 18px;max-width:80ch}
+  .verdict{
+    margin:26px 0 0;padding:20px 22px;background:var(--panel);
+    border:1px solid var(--line);border-left:2px solid var(--ink-dim);border-radius:3px;
+  }
+  .verdict p{margin:0 0 10px;color:var(--ink)}
+  .verdict p:last-child{margin-bottom:0}
+  .verdict strong{color:var(--ink-strong);font-weight:600}
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:3px;background:var(--panel)}
+  table{border-collapse:collapse;width:100%;min-width:860px;font-size:13.5px;table-layout:fixed}
+  col.c-inst{width:12%}col.c-avail{width:8%}col.c-sym{width:26%}
+  col.c-prov{width:19%}col.c-hist{width:19%}col.c-rec{width:16%}
+  td,th{overflow-wrap:anywhere}
+  caption{
+    text-align:left;padding:14px 16px;color:var(--ink-dim);font-size:12px;
+    border-bottom:1px solid var(--line-soft);
+  }
+  th,td{padding:12px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line-soft)}
+  thead th{
+    color:var(--ink-dim);font-weight:600;font-size:11px;letter-spacing:.1em;
+    text-transform:uppercase;background:var(--panel-2);white-space:nowrap;
+  }
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover td{background:var(--panel-2)}
+  td.inst{color:var(--ink-strong);font-weight:600;white-space:nowrap}
+  .have{color:var(--yes);font-weight:600;white-space:nowrap}
+  .havent{color:var(--no);font-weight:600;white-space:nowrap}
+  code,.sym{
+    font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+    color:var(--ink-strong);background:var(--panel-2);
+    border:1px solid var(--line-soft);border-radius:2px;padding:1px 5px;
+  }
+  .ev{display:block;margin-top:6px;color:var(--ink-faint);font-size:11.5px;line-height:1.5}
+  .ev code{background:none;border:0;padding:0;color:var(--ink-dim);font-size:11.5px}
+  ol,ul{padding-left:22px;margin:0 0 18px}
+  li{margin-bottom:12px}
+  li strong{color:var(--ink-strong);font-weight:600}
+  .rank{
+    display:inline-block;min-width:1.5em;color:var(--ink-faint);
+    font-variant-numeric:tabular-nums;
+  }
+  .opt{
+    padding:18px 20px;background:var(--panel);border:1px solid var(--line);
+    border-radius:3px;margin-bottom:12px;
+  }
+  .opt h3{
+    margin:0 0 8px;font-size:15px;font-weight:600;color:var(--ink-strong);
+    display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+  }
+  .tag{
+    font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;
+    color:var(--ink-faint);border:1px solid var(--line);border-radius:2px;padding:2px 7px;
+  }
+  .tag.pick{color:var(--ink-strong);border-color:var(--ink-dim)}
+  .opt p{margin:0 0 8px;font-size:13.5px}
+  .opt p:last-child{margin-bottom:0}
+  .opt dl{margin:10px 0 0;font-size:13px}
+  .opt dt{color:var(--ink-dim);font-size:11px;letter-spacing:.09em;text-transform:uppercase;margin-top:10px}
+  .opt dd{margin:3px 0 0}
+  footer{margin-top:52px;padding-top:20px;border-top:1px solid var(--line);color:var(--ink-faint);font-size:12px}
+  footer p{margin:0 0 7px}
+  @media (max-width:640px){
+    header{padding:34px 0 22px}
+    h1{font-size:23px}
+    body{padding:0 16px 64px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Dollar Index and the US 10-Year: what we actually have</h1>
+  <p class="sub">You were right to be sceptical. Both instruments exist in a feed we already pay for. The chart API cannot serve them, and that is a scope decision in our own code — not a gap in the market data.</p>
+  <p class="stamp">Measured live 2026-09-22, 22:59&ndash;23:05 UTC &middot; every cell below has the request and response behind it</p>
+</header>
+
+<div class="verdict">
+  <p><strong>The short answer.</strong> The dollar index and the 10-year yield are both available right now from FMP, with deeper history than anything else we hold &mdash; 55 years for the dollar, 64 years for the yield. Neither is available from Massive, and that is not fixable by guessing symbols.</p>
+  <p><strong>Why the chart API says no.</strong> Our Massive plan is <code>STOCKS_ADVANCED</code> &mdash; shares and ETFs only. Indices, currencies and rates are not in the product at all. On top of that, the chart API only serves symbols already in its tracked list, and it rejects any symbol containing a colon, which is the character an index ticker needs.</p>
+  <p><strong>The proof that this is our gate, not the provider's.</strong> <code>UUP</code> &mdash; an ordinary, heavily traded dollar ETF, same asset class as the <code>IEF</code> and <code>TLT</code> the chart API serves happily &mdash; also came back <code>SYMBOL_NOT_TRACKED</code>. A real ETF being refused proves the refusal means &ldquo;not on our list&rdquo;, never &ldquo;does not exist&rdquo;. Any future claim of &ldquo;we don't have it&rdquo; based on this endpoint alone is unsafe.</p>
+</div>
+
+<h2>Per instrument</h2>
+<p class="note">Two rows per instrument where the answer differs by provider, because that difference is the whole finding. &ldquo;Available&rdquo; means a live value and usable history came back in a request run today.</p>
+
+<div class="scroll">
+<table>
+  <caption>Chart API tested at https://scintilla-massive-chart-api.fly.dev &middot; FMP tested through the FMP connector in this session</caption>
+  <colgroup>
+    <col class="c-inst"><col class="c-avail"><col class="c-sym">
+    <col class="c-prov"><col class="c-hist"><col class="c-rec">
+  </colgroup>
+  <thead>
+    <tr>
+      <th>Instrument</th>
+      <th>Available</th>
+      <th>Symbol</th>
+      <th>Provider</th>
+      <th>History depth</th>
+      <th>Recommendation</th>
+    </tr>
+  </thead>
+  <tbody>
+
+  <tr>
+    <td class="inst">US Dollar Index</td>
+    <td class="havent">No</td>
+    <td><span class="sym">DXY</span> <span class="sym">DX-Y.NYB</span> <span class="sym">USDX</span>
+      <span class="ev">All three: <code>GET /candles?symbol=&hellip;&amp;tf=D</code> &rarr; <code>{"error":"no series","state":"SYMBOL_NOT_TRACKED","on_demand":{"http":404,"detail":"symbol not in the tracked universe"}}</code>. <code>I:DXY</code> (the provider's index form) &rarr; HTTP 400 <code>{"error":"symbol required"}</code>, because the symbol filter is <code>^[A-Z][A-Z0-9.\-]{0,9}$</code> and a colon cannot pass it.</span></td>
+    <td>Massive (chart API)
+      <span class="ev">Not in the plan: <code>provider-manifest.json</code> &rarr; <code>"product": "STOCKS_ADVANCED"</code>.</span></td>
+    <td>None
+      <span class="ev"><code>/quotes?symbols=DXY</code> &rarr; <code>state: NOT_OBSERVED_BY_STREAM</code>.</span></td>
+    <td>Do not chase this. Wrong asset class for the plan.</td>
+  </tr>
+
+  <tr>
+    <td class="inst">US Dollar Index</td>
+    <td class="have">Yes</td>
+    <td><span class="sym">DX-Y.NYB</span>
+      <span class="ev">Literal working symbol. Returns <code>"name":"US Dollar Index"</code>, <code>"exchange":"INDEX"</code>, price <code>100.541</code>, previous close <code>100.429</code>.</span></td>
+    <td>FMP
+      <span class="ev">Endpoints proven: <code>batch-quote</code>, <code>index-historical-price-eod-full</code>, <code>index-historical-price-eod-light</code>, <code>index-intraday-1-hour</code>.</span></td>
+    <td>Daily from 1971-01-04 (55 years); hourly OHLC
+      <span class="ev">Oldest bar fetched: <code>1971-01-04 close 120.529999</code>. Hourly returns a full 24-hour session with real O/H/L/C, e.g. <code>2026-09-22 14:00 o 100.60 h 100.61 l 100.48 c 100.55</code>. Volume is <code>0</code> throughout &mdash; normal for an index, it has no shares.</span></td>
+    <td>Use this. It is the answer.</td>
+  </tr>
+
+  <tr>
+    <td class="inst">US 10-Year Yield</td>
+    <td class="havent">No</td>
+    <td><span class="sym">TNX</span> <span class="sym">US10Y</span> <span class="sym">^TNX</span>
+      <span class="ev"><code>TNX</code> and <code>US10Y</code> &rarr; <code>SYMBOL_NOT_TRACKED</code>. <code>^TNX</code> &rarr; <code>{"error":"malformed symbols"}</code> on <code>/quotes</code>; the caret is rejected the same way the colon is.</span></td>
+    <td>Massive (chart API)
+      <span class="ev">Rates are not in <code>STOCKS_ADVANCED</code>.</span></td>
+    <td>None</td>
+    <td>Do not chase this.</td>
+  </tr>
+
+  <tr>
+    <td class="inst">US 10-Year Yield</td>
+    <td class="have">Yes</td>
+    <td><span class="sym">^TNX</span>
+      <span class="ev">Returns <code>"name":"Treasury Yield 10 Years Index"</code>, <code>4.967</code>, previous close <code>4.962</code>. Corroborated independently by the FMP treasury curve: <code>treasury-rates</code> for 2026-09-22 gives <code>year10: 4.96</code>. Two separate endpoints agree, so this is not a single-surface reading.</span></td>
+    <td>FMP
+      <span class="ev"><code>batch-quote</code>, <code>index-historical-price-eod-light</code>, plus <code>economics/treasury-rates</code> for the whole curve (1&nbsp;month to 30&nbsp;year).</span></td>
+    <td>Daily from 1962-01-02 (64 years)
+      <span class="ev">Oldest bar fetched: <code>1962-01-02 price 4.06</code>. This is the deepest series in the estate by a wide margin.</span></td>
+    <td>Use this. The treasury curve endpoint is a bonus &mdash; it gives 2s10s and the whole term structure for free.</td>
+  </tr>
+
+  <tr>
+    <td class="inst">10-Year futures</td>
+    <td class="havent">No</td>
+    <td><span class="sym">ZN</span>
+      <span class="ev"><code>/candles?symbol=ZN&amp;tf=D</code> &rarr; <code>SYMBOL_NOT_TRACKED</code>. Not found on FMP's index or quote surfaces either. Futures need a separate exchange entitlement everywhere.</span></td>
+    <td>&mdash;</td>
+    <td>None</td>
+    <td>Skip. The cash yield (<code>^TNX</code>) is what a macro readout wants anyway.</td>
+  </tr>
+
+  <tr>
+    <td class="inst">Dollar ETF proxy</td>
+    <td class="havent">No <span style="color:var(--ink-faint);font-weight:400">(chart API)</span></td>
+    <td><span class="sym">UUP</span>
+      <span class="ev"><strong style="color:var(--ink-strong)">This is the key row.</strong> <code>/candles?symbol=UUP&amp;tf=D</code> &rarr; <code>SYMBOL_NOT_TRACKED</code>, and <code>/quotes</code> &rarr; <code>NOT_OBSERVED_BY_STREAM</code> &mdash; for a real AMEX ETF trading 1,285,989 shares today at <code>28.48</code> per FMP. It is refused only because it is not on our list.</span></td>
+    <td>Available on FMP; addable to Massive
+      <span class="ev">The gate is a file check: <code>isKnownSymbol()</code> in <code>services/rest-accel/bar-service.mjs</code> does a HEAD on the R2 key <code>normalized/&hellip;/_manifest/{SYMBOL}.json</code> and 404s if absent. Its own comment says the point is stopping a public caller minting objects &ldquo;by inventing tickers&rdquo;. Adding an ETF to the corpus is ordinary work.</span></td>
+    <td>FMP: live. Massive: none yet.</td>
+    <td>Only as a direction hint. It is not the index.</td>
+  </tr>
+
+  <tr>
+    <td class="inst">Treasury ETF proxies</td>
+    <td class="have">Yes</td>
+    <td><span class="sym">IEF</span> <span class="sym">TLT</span>
+      <span class="ev">Both already tracked and streaming. <code>TLT</code> quote <code>81.72</code> <code>TRADE_FRESH</code> (34,952&nbsp;ms old); <code>IEF</code> <code>91.17</code> <code>TRADE_LAST_VALID</code>, labelled <code>STALE</code>, which is the API correctly naming an after-hours gap rather than blanking.</span></td>
+    <td>Massive (chart API) and FMP</td>
+    <td>5,794 daily bars from 2003-09-11 (23 years)
+      <span class="ev"><code>full_series_count: 5794</code>, oldest bar <code>t: 1063252800000</code>, identical count for <code>IEF</code>, <code>TLT</code> and <code>SPY</code>. Served from <code>normalized/massive_provider_bars_deep_v1</code>.</span></td>
+    <td>Keep for what they are &mdash; bond prices. They move inverse to yield and carry duration and fee drag, so they are not a yield readout.</td>
+  </tr>
+
+  </tbody>
+</table>
+</div>
+
+<h2>One trap worth naming</h2>
+<p class="note"><code>USDX</code> looks like a dollar index ticker and is not one. On FMP it resolves to <span class="sym">USDX</span> = <em>SGI Enhanced Core ETF</em>, NASDAQ, <code>25.5681</code> &mdash; an unrelated bond fund. A search for <code>DXY</code> returns only <code>DXYN</code> (Dixie Group), <code>DXYZ</code> (Destiny Tech100), <code>GDXY</code> and <code>JCDXY</code>. Wiring either one in would have produced a chart that renders perfectly and shows the wrong instrument, which is worse than an empty panel.</p>
+
+<h2>Cheapest correct fix</h2>
+<p class="note">Ranked. No new paid subscription is needed in any of these &mdash; FMP is already live in this estate and answered every request above.</p>
+
+<div class="opt">
+  <h3><span class="rank">1.</span> Serve both from FMP <span class="tag pick">Recommended</span></h3>
+  <p>Add a narrow macro lane that reads <span class="sym">DX-Y.NYB</span> and <span class="sym">^TNX</span> from FMP and hands them to the chart in the shape it already draws. Massive stays the authority for shares and ETFs; FMP covers the two things Massive's plan structurally cannot.</p>
+  <dl>
+    <dt>Cost</dt><dd>None. Proven working on the existing entitlement today.</dd>
+    <dt>What we get</dt><dd>Real values, 55 and 64 years of daily history, hourly OHLC for the dollar, and the full treasury curve as a side effect.</dd>
+    <dt>The honest catch</dt><dd>It is a second price lane, so provenance must be labelled per symbol &mdash; never let an FMP bar silently pass as a Massive one. The chart API's symbol filter also has to accept <code>^</code> and <code>.</code> for these, or they need internal aliases.</dd>
+  </dl>
+</div>
+
+<div class="opt">
+  <h3><span class="rank">2.</span> TradingView widget <span class="tag">Same-day stopgap</span></h3>
+  <p>Your instinct that this &ldquo;can function for now&rdquo; is right, and it is the fastest thing on this page to put on screen. But it is an iframe: the data never enters our stream, so it cannot feed the Geiger, cannot drive an indicator, and cannot be reliably held to the monochrome rule because its chrome is theirs.</p>
+  <dl>
+    <dt>Cost</dt><dd>None.</dd>
+    <dt>Use it for</dt><dd>A Hub page where you just need to see the line today.</dd>
+    <dt>Do not use it for</dt><dd>Anything the Station computes from. That breaks the build-from-the-live-stream rule.</dd>
+  </dl>
+</div>
+
+<div class="opt">
+  <h3><span class="rank">3.</span> ETF proxies already in our data <span class="tag">Partial</span></h3>
+  <p><span class="sym">TLT</span> and <span class="sym">IEF</span> are tracked with 23 years of history, so a rates panel could ship this minute. It just would not be showing a yield. <span class="sym">UUP</span> would need adding to the corpus first, and once you are doing work anyway, option 1 gives the real instrument for the same effort.</p>
+  <dl>
+    <dt>Cost</dt><dd>None for <code>TLT</code>/<code>IEF</code>; corpus work for <code>UUP</code>.</dd>
+    <dt>The honest catch</dt><dd>A proxy that is labelled as a proxy is fine. A proxy labelled &ldquo;10-Year&rdquo; is a defect.</dd>
+  </dl>
+</div>
+
+<div class="opt">
+  <h3><span class="rank">4.</span> IBKR / IB Gateway <span class="tag">Not recommended</span></h3>
+  <p>You named this as a possible third feed, so it was checked properly rather than dismissed. <code>/Users/alanharvey/SCINTILLA 0.5/ACTIVATE_IBKR_STREAM.command</code> exists and its own header states the terms: IB Gateway must be open and logged in, with the API enabled on a socket port, and futures data needs CME/NYMEX/COMEX/ICE market-data subscriptions or you get delayed quotes.</p>
+  <dl>
+    <dt>Cost</dt><dd>No new software cost, but exchange subscriptions for the futures, and a standing cost in your hands.</dd>
+    <dt>Why it loses</dt><dd>It cannot run unattended &mdash; a logged-in desktop Gateway is exactly the &ldquo;depends on Alan being there&rdquo; shape that fails silently. It also writes into Supabase, which is explicitly not the source of truth for prices. It solves a problem FMP already solves for free.</dd>
+    <dt>When it would win</dt><dd>Only if you later want real futures order flow. Not for a dollar index or a cash yield.</dd>
+  </dl>
+</div>
+
+<h2>What I did not do</h2>
+<p class="note">Stated plainly so nothing here reads as more than it is.</p>
+<ul>
+  <li>I <strong>changed no chart code and shipped nothing to screen.</strong> This is a findings page only. The two chart twins were checked and are byte-identical at the production SHA (<code>chart/index.html</code> and <code>station-shells/chart-v1/index.html</code>, both md5 <code>0b4a9750115464d0054be4a333e14c6f</code>), and I left both untouched.</li>
+  <li>I did <strong>not add anything to the tracked corpus.</strong> Confirming <code>UUP</code> can be added is a reading of the gate's code, not a test of adding it.</li>
+  <li>I did <strong>not test the Massive provider's own API directly</strong> for index entitlement. The <code>STOCKS_ADVANCED</code> product line in the manifest and the four refusals are strong, consistent evidence, but a direct call with the provider key would be the last word. Treat &ldquo;Massive structurally cannot serve DXY&rdquo; as well-evidenced rather than proven at the provider boundary.</li>
+  <li>The chart API reported itself <code>"ready": false</code> with <code>PROVIDER_FRAME_REFRESH_OUTSTANDING</code> while I was testing. That did <strong>not</strong> affect these results &mdash; tracked symbols returned full 5,794-bar series throughout &mdash; but it is a separate live condition someone should look at.</li>
+  <li>I did not push or deploy. Branch and SHA are in the return note.</li>
+</ul>
+
+<footer>
+  <p>Every value on this page came from a request made on 2026-09-22 between 22:59 and 23:05 UTC. Prices move; the availability findings do not.</p>
+  <p>Chart API: <code>https://scintilla-massive-chart-api.fly.dev</code> &middot; <code>/candles</code> takes <code>tf=D</code>, not <code>interval=1D</code>, and returns its bars under the <code>series</code> key.</p>
+</footer>
+
+</div>
+</body>
+</html>
