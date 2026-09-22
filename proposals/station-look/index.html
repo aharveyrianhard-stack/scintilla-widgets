@@ -49,7 +49,7 @@ canvas{ width:100%; height:240px; display:block; background:#07080f; border-radi
 const $ = (id) => document.getElementById(id);
 const SC = window.SC_CLOUDS;
 const API = "https://scintilla-massive-chart-api.fly.dev"; /* the same read-only endpoints provider.js uses */
-const unwrap = (j) => Array.isArray(j) ? j : (j && (j.candles || j.rows || j.data || j.bars || j.quotes)) || [];
+const unwrap = (j) => { if (Array.isArray(j)) return j; if (!j || typeof j !== "object") return []; const keys = Object.keys(j).filter((k) => Array.isArray(j[k]) && j[k].length && typeof j[k][0] === "object"); const best = keys.find((k) => ("close" in j[k][0]) || ("c" in j[k][0]) || ("price" in j[k][0]) || ("prev_close" in j[k][0])) || keys[0]; return best ? j[best] : []; };
 const toPts = (rows) => unwrap(rows).map((r) => { const ts = r.timestamp ?? r.t ?? r.time; const t = ts > 1e12 ? ts : ts * 1000; return { d:new Date(t).toISOString(), t, p:+(r.close ?? r.c) }; }).filter((q) => q.p > 0 && Number.isFinite(q.t)).sort((a, b) => a.t - b.t);
 const TFAPI = { "3h":"180", "1D":"D" };
 async function candles(sym, tf, limit) { const r = await fetch(API + "/candles?symbol=" + encodeURIComponent(sym) + "&tf=" + TFAPI[tf] + "&authority=provider&limit=" + limit); if (!r.ok) throw new Error("candles " + r.status); return toPts(await r.json()); }
