@@ -152,6 +152,9 @@ body.tvmodal-open{ overflow:hidden; }
 <div id="chartSlot"></div>
 <script src="/_vendor/supabase-js-2.112.3-umd.min.js" integrity="sha384-qafw21c/iciq0VXsi9FzkfoQv5I/V0iqE4lSNcKXPnW9/UTJLnv5CcN4FHxVLnKg"></script>
 <script src="/_provider/provider.js"></script>
+<!-- The cloud ribbon's arithmetic and geometry, ported from the Indicator Lab's
+     approved Cloud Workshop. Pure functions: it reads no data and draws nothing. -->
+<script src="/_indicators/station-clouds.js"></script>
 <script>
 /* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
    Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
@@ -278,6 +281,15 @@ let CHART_TRANSITION_GENERATION = Math.max(0, Number(QS.get("transition")) || 0)
    Everything else — the canvas, the ticker field, TradingView — is identical. */
 BARE = QS.get("bare") === "1";
 const DECK_QUOTE_MODE = BARE && window.parent !== window;
+/* THE CLOUDS ARE ON UNLESS SOMEBODY TURNED THEM OFF. The Station dock owns the switch
+   for the whole wall and writes it here; a pane inside the deck reads the same key at
+   boot so a freshly mounted chart never flashes the wrong state. ?clouds=0 is a
+   one-time override for a deep link or a screenshot. The two extra levels the Lab has
+   not put to Alan yet - the thin dashed 8-day and the dashed 100-day - stay off unless
+   a URL explicitly asks for them. */
+const CLOUD_STATE_KEY = "station.clouds";
+let CLOUDS_ON = QS.has("clouds") ? QS.get("clouds") !== "0" : lsGet(CLOUD_STATE_KEY) !== "0";
+const CLOUD_EXTRAS = Object.freeze({ ema8: QS.get("ema8") === "1", sma100: QS.get("sma100") === "1" });
 const S = {
   chartT: (QS.get("t") || (BARE ? null : lsGet("scw_chartT")) || "MU").toUpperCase().trim(),
   /* The Station owns one run-wide range. A reload begins at 3h unless its
@@ -588,6 +600,237 @@ async function fetchChartSeries(t, range, requestedLimit){
   finally { if (chartInflight.get(inflightKey) === work) chartInflight.delete(inflightKey); }
 }
 
+/* ============================================================================
+   THE CLOUD RIBBON — its data lane, and its layer on the canvas.
+   ----------------------------------------------------------------------------
+   WHAT IT IS: the Indicator Lab's approved cloud ribbon - 13-day and 21-day
+   exponential averages, 50-day and 200-day simple ones, and the three clouds
+   between them - drawn behind the price on every Station chart.
+   HOW IT GETS ITS NUMBERS: the averages are DAILY-LOCKED on every timeframe
+   (Alan, 18 Sep cloud review), so they are computed from completed daily closes,
+   never from the 15-minute or 3-hour bars the pane happens to be showing. Those
+   daily closes come from the chart's OWN provider loader, once per ticker:
+     · painted from cache first, so a reload shows the ribbon with no request;
+     · asked for only AFTER the price has painted, through the same admission
+       queue the deck uses for price reads, so it can never delay a chart;
+     · re-read at most every 30 minutes, because a completed daily bar cannot
+       change during the session.
+   Pan, zoom, hover, and every timeframe switch draw from that one cached series
+   and make no request at all.
+   WHAT BREAKS WITHOUT IT: nothing. A ribbon that cannot be read is a missing
+   ribbon; the price chart is untouched and says nothing about clouds.
+   ============================================================================ */
+const CLOUD_DAILY_TF = "D";
+const CLOUD_DAILY_LIMIT = 400;          /* the provider's own ceiling; 200D needs 200 of them */
+const CLOUD_DAILY_ENOUGH = 220;         /* below this a cached copy is re-read rather than trusted */
+const CLOUD_REFRESH_MS = 1800000;       /* 30 minutes: completed daily bars do not move intraday */
+const cloudDailyCache = new Map();
+const cloudDailyInflight = new Map();
+const cloudCacheKey = (t) => "sc_clouds_" + t;
+function cloudDailyCached(t) {
+  const hit = cloudDailyCache.get(t);
+  if (hit && hit.pts && hit.pts.length >= 2) return hit;
+  const env = cacheGet(cloudCacheKey(t));
+  if (env && Array.isArray(env.pts) && env.pts.length >= 2) {
+    const entry = { ts:env.ts || 0, pts:env.pts };
+    cloudDailyCache.set(t, entry);
+    return entry;
+  }
+  return null;
+}
+/* A full local store is not a reason to stop drawing: drop the oldest ribbon caches
+   (nothing but a copy of provider candles) and write once more. */
+function cloudDailyStore(t, pts) {
+  const payload = JSON.stringify({ ts:Date.now(), pts });
+  try { localStorage.setItem(cloudCacheKey(t), payload); return; } catch (_) {}
+  try {
+    const mine = cloudCacheKey(t);
+    const keys = Object.keys(localStorage).filter((k) => k.indexOf("sc_clouds_") === 0 && k !== mine);
+    keys.sort((a, b) => (cacheGet(a)?.ts || 0) - (cacheGet(b)?.ts || 0));
+    for (const key of keys.slice(0, Math.max(4, Math.ceil(keys.length / 2)))) localStorage.removeItem(key);
+    localStorage.setItem(mine, payload);
+  } catch (_) {}
+}
+async function fetchCloudDaily(t) {
+  if (cloudDailyInflight.has(t)) return cloudDailyInflight.get(t);
+  const work = (async () => {
+    const rows = await fetchProviderCandles(t, CLOUD_DAILY_TF, CLOUD_DAILY_LIMIT, 2);
+    const pts = (Array.isArray(rows) ? rows : [])
+      .map((r) => ({ d:new Date(r.timestamp * 1000).toISOString(), p:+r.close }))
+      .filter((q) => isFinite(q.p) && q.p > 0)
+      .sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
+    if (pts.length < 2) throw new Error("insufficient daily history for the cloud ribbon (" + pts.length + ")");
+    const entry = { ts:Date.now(), pts };
+    cloudDailyCache.set(t, entry);
+    cloudDailyStore(t, pts);
+    return entry;
+  })();
+  cloudDailyInflight.set(t, work);
+  try { return await work; }
+  finally { if (cloudDailyInflight.get(t) === work) cloudDailyInflight.delete(t); }
+}
+function applyCloudRows(host, t, pts) {
+  if (!window.SC_CLOUDS || host.dataset.t !== t) return false;
+  const rows = window.SC_CLOUDS.dailyRows(pts);
+  if (rows.length < 2) return false;
+  host._cloudTicker = t; host._cloudRows = rows; host._cloudMap = null;
+  return true;
+}
+function paintCloudsFromCache(host, t) {
+  if (!CLOUDS_ON || !window.SC_CLOUDS) return null;
+  const entry = cloudDailyCached(t);
+  if (entry) applyCloudRows(host, t, entry.pts);
+  return entry;
+}
+async function ensureCloudDaily(host, t, req, generation) {
+  if (!CLOUDS_ON || !window.SC_CLOUDS || !host || !host.isConnected) return;
+  const entry = paintCloudsFromCache(host, t);
+  if (entry && host._cloudRows) scChartDraw(host);
+  if (entry && entry.pts.length >= CLOUD_DAILY_ENOUGH && Date.now() - (entry.ts || 0) < CLOUD_REFRESH_MS) return;
+  if (host._cloudPending === t) return;
+  host._cloudPending = t;
+  let release = null;
+  try {
+    release = await acquireChartLoadPermit(host, req + "|clouds", generation);
+    if (!host.isConnected || host.dataset.t !== t) return;
+    const fresh = await fetchCloudDaily(t);
+    if (!host.isConnected || host.dataset.t !== t) return;
+    host._cloudAbsence = null;
+    if (applyCloudRows(host, t, fresh.pts)) scChartDraw(host);
+  } catch (error) {
+    host._cloudAbsence = String((error && error.scAbsence) || (error && error.message) || error);
+  } finally {
+    if (release) release();
+    if (host._cloudPending === t) host._cloudPending = null;
+  }
+}
+function setClouds(on) {
+  const next = !!on;
+  if (next === CLOUDS_ON) return;
+  CLOUDS_ON = next;
+  if (!BARE) { try { localStorage.setItem(CLOUD_STATE_KEY, CLOUDS_ON ? "1" : "0"); } catch (_) {} }
+  for (const button of document.querySelectorAll('[data-act="clouds"]')) {
+    button.classList.toggle("on", CLOUDS_ON);
+    button.setAttribute("aria-pressed", CLOUDS_ON ? "true" : "false");
+  }
+  for (const host of CHART_HOSTS) {
+    if (!host.isConnected) continue;
+    if (CLOUDS_ON && !host._cloudRows)
+      ensureCloudDaily(host, host.dataset.t, host._req || host.dataset.t, host._transitionGeneration || 0);
+    scChartDraw(host);
+  }
+}
+const cloudSpecOptions = () => CLOUD_EXTRAS;
+/* Which completed daily observation each visible bar may show. Computed once per
+   (series, ribbon, timeframe) and reused by every redraw, including hover. */
+function cloudMapFor(host, pts) {
+  const rows = CLOUDS_ON && window.SC_CLOUDS && host._cloudRows && host._cloudRows.length >= 2 ? host._cloudRows : null;
+  if (!rows || !pts || pts.length < 2) return null;
+  const range = host._range || S.chartRange;
+  const cache = host._cloudMap;
+  if (cache && cache.rows === rows && cache.pts === pts && cache.range === range) return cache.map;
+  const times = pts.map((point) => Date.parse(point.d));
+  const map = window.SC_CLOUDS.mapBarsToDaily(times, rows, window.SC_CLOUDS.timeframeKind(range));
+  host._cloudMap = { rows, pts, range, map };
+  return map;
+}
+function cloudLineInk(spec, bullish) {
+  return window.SC_CLOUDS.lineInk(bullish ? window.SC_CLOUDS.PALETTE.blue : window.SC_CLOUDS.PALETTE.pink,
+    bullish ? spec.blueOpacity : spec.pinkOpacity);
+}
+function drawCloudRibbon(ctx, options) {
+  const SC = window.SC_CLOUDS, map = options.map, X = options.X, Y = options.Y;
+  const runs = SC.runs(map, options.start - 1, options.end + 1);
+  if (!runs.length) return;
+  const fills = new Map();
+  const addBand = (band, xa, xb) => {
+    if (!(xb - xa > .01)) return;
+    const ink = SC.cloudInk(band);
+    let path = fills.get(ink);
+    if (!path) { path = new Path2D(); fills.set(ink, path); }
+    path.moveTo(xa, Y(band.previousHi)); path.lineTo(xb, Y(band.hi));
+    path.lineTo(xb, Y(band.lo)); path.lineTo(xa, Y(band.previousLo)); path.closePath();
+  };
+  for (let i = 0; i < runs.length; i++) {
+    const run = runs[i];
+    /* a session held flat: one rectangle for the whole run, not one per bar */
+    if (run.to > run.from) for (const band of SC.cloudBands(run.row)) addBand(band, X(run.from), X(run.to));
+    const next = runs[i + 1];
+    if (!next || next.from !== run.to + 1) continue;
+    const xa = X(run.to), span = X(next.from) - xa;
+    for (const band of SC.cloudPolygons(run.row, next.row)) addBand(band, xa + span * band.t0, xa + span * band.t1);
+  }
+  /* One path per colour: adjacent bands then share an edge instead of leaving a
+     hairline seam between two separately antialiased fills. */
+  for (const [ink, path] of fills) { ctx.fillStyle = ink; ctx.fill(path); }
+  for (const spec of SC.activeSpecs(cloudSpecOptions())) {
+    const strokes = new Map();
+    const addLine = (bullish, xa, ya, xb, yb) => {
+      const ink = cloudLineInk(spec, bullish);
+      let path = strokes.get(ink);
+      if (!path) { path = new Path2D(); strokes.set(ink, path); }
+      path.moveTo(xa, ya); path.lineTo(xb, yb);
+    };
+    for (let i = 0; i < runs.length; i++) {
+      const run = runs[i], value = run.row[spec.key], state = SC.lineBullish(spec, run.row);
+      if (Number.isFinite(value) && state !== null && run.to > run.from)
+        addLine(state, X(run.from), Y(value), X(run.to), Y(value));
+      const next = runs[i + 1];
+      if (!next || next.from !== run.to + 1) continue;
+      const from = run.row[spec.key], to = next.row[spec.key], nextState = SC.lineBullish(spec, next.row);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || nextState === null) continue;
+      addLine(nextState, X(run.to), Y(from), X(next.from), Y(to));
+    }
+    if (!strokes.size) continue;
+    ctx.lineWidth = SC.strokeWidth(spec, options.scale);
+    ctx.setLineDash(spec.style === "dashed" ? (spec.key === "e8" ? [3, 5] : [5, 5]) : []);
+    for (const [ink, path] of strokes) { ctx.strokeStyle = ink; ctx.stroke(path); }
+  }
+  ctx.setLineDash([]);
+}
+function cloudPercentText(pct) {
+  if (!Number.isFinite(pct)) return "";
+  if (Math.abs(pct) < .05) return "0.0%";
+  return (pct > 0 ? "+" : "−") + Math.abs(pct).toFixed(1) + "%";
+}
+/* The names sit at the exact height of their own average, beside the newest bar.
+   Crowded names step sideways into their own lane and drop the percentage; a name
+   with no honest room is not drawn rather than printed over the price scale. */
+function drawCloudLabels(ctx, options) {
+  const SC = window.SC_CLOUDS, map = options.map, row = map[options.end];
+  if (!row) return;
+  const price = options.pts[options.end] ? options.pts[options.end].p : null;
+  const items = [];
+  for (const spec of SC.activeSpecs(cloudSpecOptions())) {
+    const value = row[spec.key];
+    if (!Number.isFinite(value)) continue;
+    const y = options.Y(value);
+    if (y < options.padT + 4 || y > options.padT + options.ih - 4) continue;
+    const bullish = Number.isFinite(price) ? price >= value : true;
+    const pct = cloudPercentText(SC.signedPercent(value, price));
+    items.push({ key:spec.key, y, value, bullish, short:spec.label,
+      full:pct ? spec.label + " (" + pct + ")" : spec.label });
+  }
+  if (!items.length) return;
+  ctx.save();
+  ctx.font = "600 " + options.font.toFixed(1) + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  const placed = SC.placeLabels(items, {
+    left:options.X(options.end) + 5, maxRight:options.padL + options.iw - 2,
+    rowHeight:options.font + 3.5, measure:(text) => ctx.measureText(text).width + 2
+  });
+  ctx.shadowColor = "rgba(3,5,8,.96)"; ctx.shadowBlur = 3;
+  for (const label of placed) {
+    ctx.fillStyle = label.bullish ? CLOUD_LABEL_INK.blue : CLOUD_LABEL_INK.pink;
+    ctx.fillText(label.text, label.x, label.y);
+    ctx.beginPath(); ctx.arc(options.X(options.end), label.y, 1.3, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+/* Text is read, a fill is only seen: the caption uses a brighter tone of the same
+   indigo family so a 7px name stays legible on the pane. No white, no second hue. */
+const CLOUD_LABEL_INK = Object.freeze({ blue:"#5C7BFF", pink:"#FF00A8" });
+
 /* ---- scChart — ported verbatim (R20 touch-guard overlay dropped; see header) ---- */
 function scChartHTML(ticker) {
   const sym = TV_MAP[ticker] || ticker;
@@ -597,6 +840,9 @@ function scChartHTML(ticker) {
       CHART_RANGES.map((r) =>
         '<button class="sc-crange' + (r === S.chartRange ? " on" : "") +
         '" data-act="chartrange" data-r="' + r + '">' + r + "</button>").join("") +
+      '<button type="button" class="sc-crange sc-cclouds' + (CLOUDS_ON ? " on" : "") +
+      '" data-act="clouds" aria-pressed="' + (CLOUDS_ON ? "true" : "false") +
+      '" title="daily-locked cloud ribbon — 13D/21D EMA, 50D/200D SMA" aria-label="Toggle chart clouds">clouds</button>' +
       '<button type="button" class="sc-tv__pop" data-act="tvmodal" data-sym="' + esc(sym) +
       '" title="Open ' + esc(ticker) + ' in TradingView with your indicator stack" aria-label="Open in TradingView">' +
       POPOUT_SVG + "<span class=\"sc-tv__pop-lbl\"> TradingView</span></button>" +
@@ -808,9 +1054,21 @@ function scChartDraw(host, scrub) {
   if (yHi === yLo) { yHi += 1; yLo -= 1; }
   const yPad = (yHi - yLo) * .055;
   yLo -= yPad; yHi += yPad;
+  /* THE RIBBON'S OWN ROOM. Each average is named at the right edge, at the exact
+     height of its own line, but only while the newest bar is on screen — so the band
+     that holds those names is reserved before the x scale is built, and given back the
+     moment the view is panned into history. A pane too small to hold a name honestly
+     keeps its full width and shows none. */
+  const cloudMap = cloudMapFor(host, pts);
+  const cloudFont = Math.max(6.6, (VIEW_PROFILE === "desk" ? 8.4 : ipadProfile ? 7.2 : 7.6) * scale);
+  const cloudLabels = !!cloudMap && end >= pts.length - 1 && iw >= 200 && ih >= 90;
+  const cloudBand = cloudLabels ? Math.max(30, Math.min(78, Math.round(iw * .17))) : 0;
   /* TradingView-style right margin: the latest bar stays in a stable place
      instead of jumping to the canvas edge as the user changes scale. */
-  const rightBars = end >= pts.length - 1 ? Math.max(2, Math.round((end - start) * .035)) : 0;
+  const rightBars = end >= pts.length - 1
+    ? Math.max(2, Math.round((end - start) * .035),
+        Math.ceil(cloudBand * Math.max(1, end - start) / Math.max(40, iw - cloudBand)))
+    : 0;
   const X = (i) => padL + ((i - start) / Math.max(1, end - start + rightBars)) * iw;
   const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * ih;
   host._plot = { padL, padT, iw, ih, start, end, rightBars, yLo, yHi };
@@ -845,6 +1103,9 @@ function scChartDraw(host, scrub) {
     ctx.lineTo(X(end), Y(pts[end].p));
   };
   ctx.save(); ctx.beginPath(); ctx.rect(padL, padT, iw, ih); ctx.clip();
+  /* The ribbon sits behind the price: it is context, not the subject. */
+  if (cloudMap) drawCloudRibbon(ctx, { map:cloudMap, start, end, X, Y,
+    scale:window.SC_CLOUDS.displayScale(iw, Math.max(1, end - start + rightBars), 2) });
   const g = ctx.createLinearGradient(0, padT, 0, padT + ih);
   g.addColorStop(0, c + "3D"); g.addColorStop(1, c + "00");
   ctx.beginPath(); trace();
@@ -858,6 +1119,8 @@ function scChartDraw(host, scrub) {
     ctx.fillStyle = c; ctx.fill();
   }
   ctx.restore();
+  if (cloudLabels && cloudMap)
+    drawCloudLabels(ctx, { map:cloudMap, pts, end, X, Y, padL, padT, iw, ih, font:cloudFont });
   ctx.save();
   ctx.font = ((ipadProfile ? 6.5 : 7) * scale) + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.fillStyle = col.ink2; ctx.globalAlpha = .47; ctx.textAlign = "right";
@@ -1121,6 +1384,9 @@ async function scChartLoad(host) {
   const cachedPts = chartSeriesCached(t, range, limit);
   if (cachedPts && cachedPts.length >= 2) {
     host._series = cachedPts;
+    /* A remembered ribbon paints with the remembered price, from local storage,
+       before any request is made at all. */
+    paintCloudsFromCache(host, t);
     paintChartHistoryWindow(host);
     if (msg) msg.hidden = true;
     scChartDraw(host);
@@ -1153,6 +1419,8 @@ async function scChartLoad(host) {
     if (msg) msg.hidden = true;
     reportChartDataState(host, { history:"ready", historyAbsence:null });
     scChartDraw(host);
+    /* The price is on screen; only now is the ribbon's own daily read asked for. */
+    ensureCloudDaily(host, t, req, generation);
   } catch (err) {
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
     /* THE WHOLE POINT: a named answer is not retried. Retrying it would present a settled
@@ -1201,7 +1469,11 @@ function scChartScrub(host) {
     const r = cv.getBoundingClientRect();
     let f = (clientX - r.left - plot.padL) / plot.iw;
     f = Math.max(0, Math.min(1, f));
-    const ix = Math.round(plot.start + f * (plot.end - plot.start));
+    /* The right margin is part of the x scale — the ribbon's name band widened it —
+       so the bar under the crosshair is read with the same scale the bars were drawn
+       with, instead of stretching the visible span across the margin too. */
+    const ix = Math.max(plot.start, Math.min(plot.end,
+      Math.round(plot.start + f * (plot.end - plot.start + (plot.rightBars || 0)))));
     scChartDraw(host, { ix, x:clientX - r.left, y:clientY - r.top });
   };
   const hideScrub = () => { if (host._series) scChartDraw(host); };
@@ -1386,6 +1658,8 @@ function setChartTicker(t) {
   host.dataset.t = t;
   host._series = null;
   host._view = null;
+  /* A new symbol has a new ribbon: never carry the old one across a ticker change. */
+  host._cloudRows = null; host._cloudTicker = null; host._cloudMap = null; host._cloudPending = null;
   const sym = TV_MAP[t] || t;
   const pop = host.querySelector(".sc-tv__pop");
   if (pop) pop.dataset.sym = sym;
@@ -1577,10 +1851,11 @@ document.addEventListener("click", (e) => {
   const act = n.dataset.act;
   if (act === "chartrange") {
     S.chartRange = n.dataset.r;
-    document.querySelectorAll(".sc-crange").forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
+    document.querySelectorAll('.sc-crange[data-act="chartrange"]').forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
     const host = document.querySelector("#chartSlot .sc-nchart");
     if (host) { host._series = null; scChartLoad(host); }
   }
+  else if (act === "clouds") setClouds(!CLOUDS_ON);
   else if (act === "tvmodal") openTvModal(n.dataset.sym);
   else if (act === "tvmodalclose") closeTvModal();
 }, true);
@@ -1622,9 +1897,11 @@ addEventListener("message", (e) => {
     return;
   }
   if (d.sc !== "chart") return;
+  /* The Station dock owns one clouds switch for the whole wall. */
+  if (typeof d.clouds === "boolean") setClouds(d.clouds);
   if (d.range && CHART_RANGES.includes(d.range)) {
     S.chartRange = d.range;
-    document.querySelectorAll(".sc-crange").forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
+    document.querySelectorAll('.sc-crange[data-act="chartrange"]').forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
     const host = document.querySelector("#chartSlot .sc-nchart");
     if (host) { host._series = null; scChartLoad(host); }
   }

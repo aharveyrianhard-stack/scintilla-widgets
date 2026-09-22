@@ -79,10 +79,59 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
    every control, id, title and aria-label exactly where it was in the DOM, so nothing is removed
    and nothing is renamed - only the boxes around them are gone.
    Group labels recede until hover or keyboard focus, which is what makes one row readable. */
-#dock{ flex:none; display:flex; align-items:center; flex-wrap:wrap; gap:6px 12px;
-  padding:4px 10px; padding-top:calc(4px + env(safe-area-inset-top));
-  border-bottom:1px solid var(--line); }
+/* ── THE DOCK BEHAVES LIKE THE APPLE DOCK ────────────────────────────────────────────────────
+   Alan, 22 Sep: "I like the top of the station, all of these buttons, to be more like the Apple
+   dock... consolidate it all in one row... when you go down to the Apple dock, the apps get
+   bigger where you're selected, it becomes like a fan upwards... what we have to reduce is the
+   space these rows take up."  Three things, in that order:
+     1. ONE LINE. The strip no longer wraps. When its controls are wider than the window they
+        all shrink together (--dock-fit), exactly as the Mac Dock shrinks its icons when you add
+        more apps; if even that would make them unreadable it goes back to wrapping rather than
+        pretending they fit.
+     2. SMALLER AT REST — one line instead of two is chart height given back.
+     3. BIGGER WHERE YOU POINT. The control under the pointer grows, its neighbours grow
+        progressively less, and the row slides apart to make room. Transforms only: the layout
+        never moves, so nothing jumps out from under the cursor. A dock at the TOP fans
+        downwards into the screen - the mirror of the Mac's bottom dock - and the name of what
+        you are pointing at appears under it.
+   A finger never magnifies (no hover, and a tap must hit what it aimed at) and reduced motion
+   keeps the row perfectly still. */
+#dock{ flex:none; display:flex; align-items:center; flex-wrap:nowrap; gap:5px 6px;
+  padding:3px 8px; padding-top:calc(3px + env(safe-area-inset-top));
+  border-bottom:1px solid var(--line); position:relative; zoom:var(--dock-fit,1); }
+#dock.dock-wrap{ flex-wrap:wrap; gap:6px 12px; padding:4px 10px; }
 #dock > #bar, #dock > #tfbar, #dock > #panebar{ display:contents; }
+/* Every dock item keeps its own size and grows from the row's top edge. */
+#dock .btn, #dock select, #dock input, #dock #marketStatus, #dock #screenIndicator,
+#dock #symbolNote, #dock #size, #dock #rtNote, #dock .k{
+  flex:none; transform-origin:50% 0; }
+#dock span.btn, #dock a.btn, #dock #marketStatus, #dock #screenIndicator,
+#dock #symbolNote, #dock #size, #dock #rtNote, #dock .k{ display:inline-block; }
+#dock:not(.dock-wrap) .control-group, #dock:not(.dock-wrap) #tf,
+#dock:not(.dock-wrap) #screenControls, #dock:not(.dock-wrap) #cohortPicker,
+#dock:not(.dock-wrap) #familyPicker{ flex:none; flex-wrap:nowrap; }
+/* One line is bought with padding, not with controls: every button keeps its words,
+   its id and its accessible name, and gives back the air around them. */
+#dock:not(.dock-wrap) .btn{ padding:3px 5px; letter-spacing:.08em; }
+#dock:not(.dock-wrap) .control-group{ padding-left:5px; gap:4px; }
+#dock:not(.dock-wrap) .scene-mode{ width:108px; }
+#dock:not(.dock-wrap) .rotate-controls .scene-mode{ width:50px; }
+#dock:not(.dock-wrap) .view-mode{ width:62px; }
+#dock:not(.dock-wrap) .chart-count{ width:40px; }
+#dock:not(.dock-wrap) #resetScene{ width:72px; }
+#dock:not(.dock-wrap) #rotateToggle{ width:46px; }
+#dock:not(.dock-wrap) #screenControls{ grid-template-columns:20px 58px 20px; gap:3px; }
+#dock:not(.dock-wrap) #screenIndicator{ width:58px; }
+#dock:not(.dock-wrap) #symbolNote{ min-width:0; }
+/* On one line the controls sit together like dock icons, centred, with the row's spare space
+   split evenly at both ends. That is what gives the magnification somewhere to grow without
+   dragging the row out from under the pointer — the same reason the Mac's Dock is centred. */
+#dock:not(.dock-wrap) #marketStatus{ margin-left:2px; }
+#dock:not(.dock-wrap){ justify-content:center; }
+#dock:not(.dock-wrap) .btn, #dock:not(.dock-wrap) select, #dock:not(.dock-wrap) input,
+#dock:not(.dock-wrap) #marketStatus, #dock:not(.dock-wrap) #screenIndicator,
+#dock:not(.dock-wrap) #symbolNote, #dock:not(.dock-wrap) #size, #dock:not(.dock-wrap) .k{
+  transition:transform .09s ease-out; }
 #dock .control-label, #dock #tfbar .lbl, #dock #panebar .lbl{
   max-width:0; overflow:hidden; opacity:0; white-space:nowrap;
   transition:max-width .12s ease, opacity .12s ease, margin .12s ease; margin-right:-4px; }
@@ -91,16 +140,32 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 #dock #tfbar:hover .lbl, #dock #tfbar:focus-within .lbl,
 #dock #panebar:hover .lbl, #dock #panebar:focus-within .lbl{
   max-width:12ch; opacity:1; margin-right:0; }
+/* On one line the group names would widen the row from under the pointer, so they move into
+   the dock's own caption instead — same words, printed under the control you are pointing at. */
+#dock:not(.dock-wrap) .control-label, #dock:not(.dock-wrap) #tfbar .lbl,
+#dock:not(.dock-wrap) #panebar .lbl{ display:none; }
+#dockCaption{ position:absolute; top:calc(100% + 3px); left:0; z-index:26; pointer-events:none;
+  padding:2px 7px; background:rgba(7,10,16,.95); border:1px solid var(--line);
+  color:var(--ink2); font:8.5px var(--mono); letter-spacing:.1em; text-transform:uppercase;
+  white-space:nowrap; opacity:0; transform:translateX(-50%); transition:opacity .1s ease; }
+#dockCaption.on{ opacity:1; }
 /* A dock needs a visible focus ring, not only a hover affordance. */
 #dock .btn:focus-visible, #dock select:focus-visible, #dock input:focus-visible{
   outline:1px solid var(--crk); outline-offset:1px; }
 @media (prefers-reduced-motion: reduce){
   #dock .control-label, #dock #tfbar .lbl, #dock #panebar .lbl{ transition:none; }
+  #dock:not(.dock-wrap) .btn, #dock:not(.dock-wrap) select, #dock:not(.dock-wrap) input,
+  #dock:not(.dock-wrap) #marketStatus, #dock:not(.dock-wrap) #screenIndicator,
+  #dock:not(.dock-wrap) #symbolNote, #dock:not(.dock-wrap) #size, #dock:not(.dock-wrap) .k{
+    transition:none; }
+  #dockCaption{ transition:none; }
 }
 /* Narrow screens keep the old wrapping behaviour rather than a cramped single line. */
 @media (max-width: 720px){
-  #dock{ gap:4px 8px; }
+  #dock{ gap:4px 8px; flex-wrap:wrap; }
   #dock .control-label, #dock #tfbar .lbl, #dock #panebar .lbl{ max-width:12ch; opacity:1; margin-right:0; }
+  #dock:not(.dock-wrap) .control-label, #dock:not(.dock-wrap) #tfbar .lbl,
+  #dock:not(.dock-wrap) #panebar .lbl{ display:inline; }
 }
 
 /* FIRST-PAINT SKELETON. Structure only: no number, no colour that could read as a quote. */
@@ -576,6 +641,12 @@ const CHARTS = Array.from({ length: 8 }, (_, i) => {
 /* One range for the loaded Station run. It never belongs to a scene preset:
    URL wins at launch; otherwise every fresh reload starts at 3h. */
 let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "3h";
+/* ONE CLOUD SWITCH FOR THE WHOLE WALL, remembered between runs and ON by default.
+   Every chart frame reads this same key at boot, so a pane that mounts later - a
+   rotation, a new symbol, a chart count change - already has the right answer and
+   never flashes the wrong one. A live frame is told directly instead of reloaded. */
+let CLOUDS = QS.has("clouds") ? QS.get("clouds") !== "0" : remembered("station.clouds") !== "0";
+if (QS.has("clouds")) remember("station.clouds", CLOUDS ? "1" : "0");
 /* The whole wall shares one quote cache/realtime channel.  Chart frames keep
    their history work, but never multiply the same live quote request. */
 const deckSb = (typeof supabase !== "undefined" && supabase.createClient)
@@ -1299,6 +1370,7 @@ function relayout() {
   /* a pane narrower than this cannot carry prose — trim it, do not hide it */
   for (const o of PANES) o.node.classList.toggle("tight", o.node.clientWidth < 260);
   paintIpadDensity();
+  fitDock();
   measure();
 }
 function measure() {
@@ -1311,6 +1383,206 @@ function measure() {
       xr.textContent = "dock " + Math.round(r.left) + "," + Math.round(r.top) + " · " +
         Math.round(r.width) + "×" + Math.round(r.height) + " px"; }
   }
+}
+/* ---- THE DOCK: one line, fitted to the window, magnified where the pointer is ----
+   The maths is deliberately separate from the DOM. dockLayout takes the row exactly as it
+   is laid out at rest - each control's left edge and width, in the dock's own coordinates -
+   plus where the pointer is, and returns one scale and one horizontal shift per control.
+   Nothing it returns changes the layout: the browser's boxes stay exactly where they were,
+   which is why a magnified dock cannot move a control out from under a click. */
+const DOCK_ITEMS = "#dock .btn, #dock select, #dock input, #dock #marketStatus, " +
+  "#dock #screenIndicator, #dock #symbolNote, #dock #size, #dock #rtNote, #dock .k";
+const DOCK_MAX_SCALE = 1.62;     /* the pointed-at control, at Mac-Dock magnification */
+const DOCK_FALLOFF = 74;         /* px: how far the swell reaches either side */
+const DOCK_FIT_FLOOR = .72;      /* below this the row would be unreadable, so it wraps instead */
+const DOCK_SWELL_ROOM = 130;     /* px kept spare so a magnified row never pushes itself off the edge */
+function dockLayout(boxes, pointerX, options) {
+  const opts = options || {}, max = opts.max || DOCK_MAX_SCALE, falloff = opts.falloff || DOCK_FALLOFF;
+  if (!boxes.length) return [];
+  const scales = boxes.map((box) => {
+    const distance = (box.left + box.width / 2) - pointerX;
+    return 1 + (max - 1) * Math.exp(-(distance * distance) / (2 * falloff * falloff));
+  });
+  /* Re-flow the row at the new widths. The swell is paid for out of the row's own spare
+     space first — the wide gap the status readout's auto margin opens up is exactly that —
+     and only what is left over moves the row. Gaps never close below minGap. */
+  const minGap = opts.minGap == null ? 5 : opts.minGap;
+  const gaps = [];
+  for (let i = 0; i + 1 < boxes.length; i++)
+    gaps.push(Math.max(0, boxes[i + 1].left - (boxes[i].left + boxes[i].width)));
+  const extra = boxes.reduce((sum, box, i) => sum + box.width * (scales[i] - 1), 0);
+  const spare = gaps.reduce((sum, gap) => sum + Math.max(0, gap - minGap), 0);
+  const share = spare > 0 ? Math.min(extra, spare) / spare : 0;
+  const lefts = [];
+  let cursor = boxes[0].left;
+  for (let i = 0; i < boxes.length; i++) {
+    lefts.push(cursor);
+    const gap = i + 1 < boxes.length ? gaps[i] - Math.max(0, gaps[i] - minGap) * share : 0;
+    cursor += boxes[i].width * scales[i] + gap;
+  }
+  /* Anchor the point under the pointer so the control you are aiming at does not travel. */
+  let delta = 0;
+  for (let i = 0; i < boxes.length; i++) {
+    const box = boxes[i];
+    if (pointerX < box.left) { delta = pointerX - (lefts[i] - (box.left - pointerX)); break; }
+    if (pointerX <= box.left + box.width) {
+      const u = box.width ? (pointerX - box.left) / box.width : .5;
+      delta = pointerX - (lefts[i] + u * box.width * scales[i]);
+      break;
+    }
+    if (i === boxes.length - 1)
+      delta = pointerX - (lefts[i] + box.width * scales[i] + (pointerX - (box.left + box.width)));
+  }
+  /* Keep the whole row inside the dock when it still fits; a row wider than the dock keeps
+     its anchor instead, because moving it would drag the pointed-at control away. */
+  const bounds = opts.bounds;
+  if (bounds) {
+    const last = boxes.length - 1;
+    const rightEdge = lefts[last] + boxes[last].width * scales[last];
+    if (rightEdge - lefts[0] <= bounds.max - bounds.min) {
+      if (lefts[0] + delta < bounds.min) delta = bounds.min - lefts[0];
+      else if (rightEdge + delta > bounds.max) delta = bounds.max - rightEdge;
+    } else {
+      /* Wider than the dock even so — then the row covers the dock rather than
+         leaving a gap at one end, and no control is pushed out of reach. */
+      delta = Math.min(Math.max(delta, bounds.max - rightEdge), bounds.min - lefts[0]);
+    }
+  }
+  return boxes.map((box, i) => ({
+    scale:scales[i],
+    shift:(lefts[i] + delta + box.width * scales[i] / 2) - (box.left + box.width / 2)
+  }));
+}
+let dockGeometry = null, dockFrame = 0, dockCaption = null, dockFocusItem = null;
+const dockFinePointer = window.matchMedia ? matchMedia("(hover: hover) and (pointer: fine)") : { matches:true };
+const dockStillness = window.matchMedia ? matchMedia("(prefers-reduced-motion: reduce)") : { matches:false };
+const dockMagnifies = () => {
+  const dock = el("dock");
+  return !!dock && !dock.classList.contains("dock-wrap") && dockFinePointer.matches && !dockStillness.matches;
+};
+function dockContentChanged() { dockGeometry = null; }
+function dockFit() {
+  const value = Number(getComputedStyle(el("dock")).zoom);
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+function measureDock() {
+  const dock = el("dock");
+  if (!dock) return null;
+  /* offsetLeft/offsetWidth are LAYOUT values: they ignore the transforms we apply, so the
+     rest geometry can be read while the row is magnified without feeding back on itself. */
+  const items = Array.from(dock.querySelectorAll(DOCK_ITEMS))
+    .filter((node) => node.offsetWidth > 0 && node.offsetParent);
+  dockGeometry = {
+    items,
+    boxes:items.map((node) => ({ left:node.offsetLeft, width:node.offsetWidth })),
+    bounds:{ min:4, max:Math.max(40, dock.clientWidth - 4) }
+  };
+  return dockGeometry;
+}
+function ensureDockCaption() {
+  if (dockCaption && dockCaption.isConnected) return dockCaption;
+  dockCaption = document.createElement("div");
+  dockCaption.id = "dockCaption";
+  /* The control keeps its own accessible name; this caption is the visible echo of it. */
+  dockCaption.setAttribute("aria-hidden", "true");
+  el("dock").appendChild(dockCaption);
+  return dockCaption;
+}
+function dockCaptionText(item) {
+  if (!item) return "";
+  const own = (item.getAttribute("aria-label") || item.getAttribute("title") || "").trim();
+  const text = (item.textContent || "").trim();
+  const group = (item.closest(".control-group")?.querySelector(".control-label")?.textContent ||
+    (item.closest("#tfbar") ? "timeframe · all" : item.closest("#panebar") ? "panes" : "")).trim();
+  /* group · what it says · what it is — with nothing said twice. */
+  const parts = [];
+  for (const part of [group, text, own]) {
+    const clean = String(part || "").trim();
+    if (!clean) continue;
+    if (parts.some((seen) => seen.toLowerCase().includes(clean.toLowerCase()))) continue;
+    for (let i = parts.length - 1; i >= 0; i--)
+      if (clean.toLowerCase().includes(parts[i].toLowerCase()) && i > 0) parts.splice(i, 1);
+    parts.push(clean);
+  }
+  return parts.join(" · ").slice(0, 64);
+}
+function paintDockCaption(item, center) {
+  const caption = ensureDockCaption();
+  const text = dockCaptionText(item);
+  if (!item || !text) { caption.classList.remove("on"); return; }
+  caption.textContent = text;
+  const dock = el("dock");
+  const half = caption.offsetWidth / 2 || 40;
+  caption.style.left = Math.round(Math.max(half + 4, Math.min(dock.clientWidth - half - 4, center))) + "px";
+  caption.classList.add("on");
+}
+function applyDock(pointerX, focusItem) {
+  const geo = dockGeometry && dockGeometry.items.every((node) => node.isConnected) ? dockGeometry : measureDock();
+  if (!geo || !geo.items.length) return;
+  if (pointerX == null) {
+    for (const node of geo.items) node.style.transform = "";
+    paintDockCaption(null);
+    return;
+  }
+  const layout = dockLayout(geo.boxes, pointerX, { bounds:geo.bounds });
+  let nearest = null, nearestCenter = 0, nearestDistance = Infinity;
+  geo.items.forEach((node, i) => {
+    const step = layout[i];
+    node.style.transform = step.scale > 1.002 || Math.abs(step.shift) > .2
+      ? "translateX(" + step.shift.toFixed(2) + "px) scale(" + step.scale.toFixed(3) + ")"
+      : "";
+    const center = geo.boxes[i].left + geo.boxes[i].width / 2 + step.shift;
+    const distance = Math.abs(center - pointerX);
+    if (focusItem ? node === focusItem : distance < nearestDistance) {
+      nearest = node; nearestCenter = center; nearestDistance = distance;
+    }
+  });
+  paintDockCaption(nearest, nearestCenter);
+}
+/* One line if the controls fit at a readable size; if they do not, the strip wraps exactly
+   as it did before rather than shrinking into something nobody can read. */
+function fitDock() {
+  const dock = el("dock");
+  if (!dock) return;
+  applyDock(null);
+  dock.classList.remove("dock-wrap");
+  dock.style.setProperty("--dock-fit", "1");
+  dockContentChanged();
+  if (STACKED || innerWidth < 760) { dock.classList.add("dock-wrap"); return; }
+  /* Fit the row WITH the room its own magnification needs, so the swell has somewhere to
+     go and the first control can never be pushed off the left edge. */
+  const available = dock.clientWidth - 2, natural = dock.scrollWidth + DOCK_SWELL_ROOM;
+  let fit = available > 0 && natural > available ? available / natural : 1;
+  if (fit < DOCK_FIT_FLOOR) { dock.classList.add("dock-wrap"); fit = 1; }
+  dock.style.setProperty("--dock-fit", fit >= .999 ? "1" : fit.toFixed(3));
+}
+function wireDock() {
+  const dock = el("dock");
+  if (!dock || dock._docked) return;
+  dock._docked = true;
+  const pointerAt = (clientX) => (clientX - dock.getBoundingClientRect().left) / dockFit();
+  dock.addEventListener("pointermove", (event) => {
+    /* A finger gets no magnification: it has no hover, and a tap must land on what it aimed at. */
+    if (event.pointerType !== "mouse" || !dockMagnifies()) return;
+    const x = pointerAt(event.clientX);
+    if (dockFrame) return;
+    dockFrame = requestAnimationFrame(() => { dockFrame = 0; applyDock(x, null); });
+  }, { passive:true });
+  const rest = () => { if (!dockFocusItem) applyDock(null); };
+  dock.addEventListener("pointerleave", rest, { passive:true });
+  dock.addEventListener("pointercancel", rest, { passive:true });
+  /* Keyboard walks the same dock: the focused control swells exactly as a pointed-at one does. */
+  dock.addEventListener("focusin", (event) => {
+    const item = event.target.closest(DOCK_ITEMS.split(", ").map((s) => s.replace("#dock ", "")).join(", "));
+    if (!item || !dock.contains(item)) return;
+    dockFocusItem = item;
+    const center = item.offsetLeft + item.offsetWidth / 2;
+    if (!dockMagnifies()) { paintDockCaption(item, center); return; }
+    applyDock(center, item);
+  });
+  dock.addEventListener("focusout", () => { dockFocusItem = null; applyDock(null); });
+  for (const media of [dockFinePointer, dockStillness])
+    if (media.addEventListener) media.addEventListener("change", () => { applyDock(null); fitDock(); });
 }
 let raf = 0;
 const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; relayout(); }); };
@@ -1386,6 +1658,9 @@ function paintChips() {
     back.addEventListener("click", () => setSolo(null));
     bar.appendChild(back);
   }
+  /* The chip row is part of the dock, so its width decides the dock's fit. */
+  dockContentChanged();
+  fitDock();
 }
 
 /* ---- SAVED SCENES — chart state only. Media/X panes never remount. ---- */
@@ -1800,6 +2075,34 @@ function paintTf() {
     b.addEventListener("click", () => setRange(r));
     box.appendChild(b);
   }
+  /* The clouds ride with the timeframe bar because they answer the same question:
+     what every chart on the wall is showing. */
+  const clouds = document.createElement("button");
+  clouds.type = "button";
+  clouds.id = "cloudsToggle";
+  clouds.className = "btn" + (CLOUDS ? " on" : "");
+  clouds.textContent = "clouds";
+  clouds.title = "daily-locked cloud ribbon on every chart — 13D/21D EMA, 50D/200D SMA";
+  clouds.setAttribute("aria-label", "Toggle chart clouds");
+  clouds.setAttribute("aria-pressed", CLOUDS ? "true" : "false");
+  clouds.addEventListener("click", () => setClouds(!CLOUDS));
+  box.appendChild(clouds);
+  dockContentChanged();
+}
+function setClouds(on) {
+  CLOUDS = !!on;
+  remember("station.clouds", CLOUDS ? "1" : "0");
+  const button = el("cloudsToggle");
+  if (button) {
+    button.classList.toggle("on", CLOUDS);
+    button.setAttribute("aria-pressed", CLOUDS ? "true" : "false");
+  }
+  /* Live frames are told, not reloaded: turning the ribbon on and off must never
+     cost the wall a single candle re-read. */
+  for (const pane of PANES) {
+    if (pane.def.kind !== "chart" || !pane.frame) continue;
+    try { pane.frame.contentWindow.postMessage({ sc:"chart", clouds:CLOUDS }, location.origin); } catch (_) {}
+  }
 }
 function setRange(r) {
   if (!RANGES.includes(r) || r === RANGE) return;
@@ -2082,6 +2385,7 @@ async function build() {
   for (const d of defs) { const o = makePane(d); PANES.push(o); rows[d.row].appendChild(o.node); }
 
   paintTf(); el("viewMode").value = VIEW; paintSceneControls(); paintScreenBusy();
+  wireDock();
   paintTickerFields(); el("chartCount").value = String(CHART_COUNT);
   loadSymbolCatalog();
   applyChartCount(CHART_COUNT, true);
