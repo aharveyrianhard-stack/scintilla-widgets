@@ -104,7 +104,13 @@ body.searching #q{ display:block; }
 .cap .t{ color:var(--ink2); font-size:9.5px; line-height:1.3; overflow:hidden;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
 .cap .s{ color:var(--mute); font-size:8px; margin-top:2px; overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap; display:block; }
+  white-space:nowrap; display:flex; align-items:baseline; gap:6px; }
+.cap .s .ch{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+/* HOW LONG AGO IT WAS POSTED — the empty space at the right of the channel
+   line, which is where it was asked for. Same colour and size as the channel
+   name: it reports, it never competes with the title. Tabular figures so the
+   label does not twitch in width as the number ticks over. */
+.cap .s .age{ flex:0 0 auto; margin-left:auto; font-variant-numeric:tabular-nums; }
 /* very small slots: drop the caption, the picture is the interface */
 body.tiny .cap .s{ display:none; }
 body.tiny .cap{ padding:3px 4px 4px; }
@@ -859,6 +865,66 @@ function starHTML(v) {
     (saved ? "★" : "☆") + '</span></button>';
 }
 
+/* ---- HOW LONG AGO IT WAS POSTED ----
+   The thumbnail corner already carries the video's LENGTH (13:33). Length is
+   not age, and the two must never be read as one number, so the age lives on
+   the channel line instead, right-aligned into the space that was empty.
+
+   published_at — the video's own publish instant, handed over by the feed as
+   an ISO timestamp — is the ONLY thing allowed to produce an age here. The
+   database does hold a collection time (the sweep stamp on youtube_videos, the
+   pass that first saw the row) and it is deliberately not a fallback: a video
+   we caught a day late would otherwise announce itself as minutes old. A row
+   with no usable publish time gets no age at all rather than a wrong one.
+
+   Every step floors rather than rounds, so the label is the age the video has
+   certainly reached, never one it has not. */
+const VIDEO_AGE_NONE = "";
+const VIDEO_PUBLISHED_SHAPE = /^\d{4}-\d{2}-\d{2}[T ]/;
+function videoPublishedMs(value) {
+  /* published_at is a timestamptz, so the feed always hands it over as
+     YYYY-MM-DD... Anything else is refused rather than guessed at: Date.parse
+     is generous enough to read the string "0" as the year 2000, and a guess
+     that lands is worse than no age at all. */
+  if (typeof value !== "string" || !VIDEO_PUBLISHED_SHAPE.test(value)) return null;
+  const t = Date.parse(value);
+  return isFinite(t) && t > 0 ? t : null;
+}
+function videoAgeLabel(value, nowMs) {
+  const t = videoPublishedMs(value);
+  if (t == null) return VIDEO_AGE_NONE;
+  const now = isFinite(nowMs) ? nowMs : Date.now();
+  const s = (now - t) / 1000;
+  /* A publish time in the future is a clock difference or a scheduled
+     premiere, not an age. A minute of skew reads as new; past that, refuse. */
+  if (s < -60) return VIDEO_AGE_NONE;
+  if (s < 120) return "just now";
+  const m = s / 60;   if (m < 60) return Math.floor(m) + "m ago";
+  const h = m / 60;   if (h < 24) return Math.floor(h) + "h ago";
+  const d = h / 24;   if (d < 2) return "yesterday";
+  if (d < 7) return Math.floor(d) + "d ago";
+  const w = d / 7;    if (w < 9) return Math.floor(w) + "w ago";
+  const mo = d / 30.44; if (mo < 12) return Math.floor(mo) + "mo ago";
+  return Math.floor(d / 365.25) + "y ago";
+}
+function videoAgeHTML(v) {
+  const label = videoAgeLabel(v && v.published_at);
+  if (!label) return "";
+  return '<span class="age" data-published="' + esc(String(v.published_at)) + '">' + esc(label) + "</span>";
+}
+/* The Station stays open for hours, so a label written this morning must not
+   still claim "2h ago" tonight. The ages are re-read in place on the pass the
+   feed already runs and whenever the tab comes back to the front: no timer per
+   tile, no extra request, no repaint of the grid. */
+function paintAges() {
+  const now = Date.now();
+  for (const n of document.querySelectorAll("#grid .age")) {
+    const label = videoAgeLabel(n.dataset.published, now);
+    if (n.textContent !== label) n.textContent = label;
+  }
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") paintAges(); });
+
 function paint() {
   const q = "";
   let rows = LIST === "watch" ? ROWS.filter((v) => WATCH.has(v.video_id)) : ROWS;
@@ -873,7 +939,7 @@ function paint() {
         (v.duration ? '<span class="dur">' + esc(v.duration) + "</span>" : "") +
       "</div>" +
       '<div class="cap"><div class="t">' + esc(v.title) + "</div>" +
-      '<div class="s">' + esc(v.channel || "") + "</div></div>" +
+      '<div class="s"><span class="ch">' + esc(v.channel || "") + "</span>" + videoAgeHTML(v) + "</div></div>" +
     "</div>").join("");
   for (const n of el("grid").querySelectorAll(".card"))
     n.addEventListener("click", () => playFromUserGesture(BYID[n.dataset.v]));
@@ -986,6 +1052,9 @@ async function start() {
   /* Keep the stored feed current without touching the YouTube API on every
      pass. */
   setInterval(() => {
+    /* The ages are refreshed on every pass, whether or not the feed moved and
+       whether or not a video is playing — an unchanged list still gets older. */
+    paintAges();
     if (document.visibilityState === "visible" && !CUR) load(false, true);
   }, 120000);
 }
