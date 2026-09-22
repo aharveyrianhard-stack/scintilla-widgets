@@ -152,9 +152,34 @@ body.tvmodal-open{ overflow:hidden; }
    without a retained series show TradingView's free chart, labelled as such. */
 .sc-nchart__live-prev, .sc-nchart__live-window{ display:none; }
 .sc-nchart[data-holding="1"] .sc-nchart__cv{ opacity:.42; transition:opacity .12s ease; }
-.sc-tvinternal{ position:absolute; inset:0; z-index:4; background:#05060c; }
-.sc-tvinternal__frame{ width:100%; height:100%; border:0; display:block; }
-.sc-tvinternal__cap{ position:absolute; left:8px; bottom:6px; font:600 8px var(--mono); color:var(--dim); letter-spacing:.08em; text-transform:uppercase; background:rgba(5,6,12,.7); padding:2px 6px; pointer-events:none; }
+.sc-tvinternal{ position:absolute; inset:0; z-index:4; background:var(--bg); }
+.sc-tvinternal__frame{ width:100%; height:100%; border:0; display:block; background:var(--bg); }
+/* Small and dim: a label, not a paragraph. It sits top-left because TradingView
+   puts its own mark bottom-left and the two must not collide. */
+.sc-tvinternal__cap{ position:absolute; left:6px; top:4px; z-index:2;
+  font:600 7px var(--mono); color:var(--dim); opacity:.58; letter-spacing:.05em;
+  text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  /* stop short of TradingView's price axis on the right — at 260px wide the two
+     otherwise sit on top of each other */
+  max-width:calc(100% - 74px); padding:1px 4px; border-radius:2px;
+  background:rgba(10,10,15,.66); pointer-events:none; }
+/* Held over the frame while TradingView is still drawing. Transparent on purpose:
+   a widget that paints early shows straight through it instead of being hidden. */
+.sc-tvinternal__wait{ position:absolute; inset:0; z-index:1; display:flex; align-items:center;
+  justify-content:center; font:600 9px var(--mono); color:var(--dim);
+  opacity:.72; letter-spacing:.1em; text-transform:uppercase; pointer-events:none;
+  transition:opacity .7s ease; }
+.sc-tvinternal__wait.out{ opacity:0; }
+/* A symbol TradingView will not draw says so in words. Never an empty black box. */
+.sc-tvinternal__miss{ position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:7px; padding:20px 16px; text-align:center; }
+.sc-tvinternal__miss .ttl{ font:700 10px var(--mono); letter-spacing:.12em;
+  text-transform:uppercase; color:var(--ink3); }
+.sc-tvinternal__miss .sub{ font:500 9px var(--mono); line-height:1.55; color:var(--dim);
+  letter-spacing:.01em; max-width:34em; }
+.sc-tvinternal__miss .lnk{ font:600 8.5px var(--mono); letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ink3); text-decoration:none; border:.6px solid var(--line2); border-radius:3px; padding:3px 9px; }
+.sc-tvinternal__miss .lnk:hover{ color:var(--dim); border-color:var(--mute); }
 .sc-nchart--tv .sc-nchart__live, .sc-nchart--tv .sc-nchart__msg{ display:none; }
 </style>
 </head>
@@ -894,24 +919,164 @@ const TV_EMBED_URL = (sym) => "https://s.tradingview.com/widgetembed/?symbol=" +
   "&theme=dark&style=1&hide_side_toolbar=0&withdateranges=1&allow_symbol_change=1&save_image=0&locale=en&studies=" + TV_STUDIES;
 const TV_URL = (sym) => "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(sym || "") +
   "&interval=" + (TV_INTERVAL[S.chartRange] || "D");
-/* Internals the Station holds no retained series for (put_call_history and tick_flow are empty):
-   TradingView's free widget stands in, under its own name. CUMTICK has no TradingView symbol; the
-   nearest is USI:TICK, which TradingView itself labels "NYSE cumulative tick". */
-const TV_INTERNALS = Object.freeze({ PCC:"USI:PCC", TICK:"USI:TICK", CUMTICK:"USI:TICK", TRIN:"USI:TRIN.NY", ADD:"USI:ADD", VIX:"CBOE:VIX" });
-function mountTvInternal(host, sym) {
-  const area = host.querySelector(".sc-nchart__area"); if (!area) return false;
-  if (host._tvInternal && host._tvInternal.sym === sym) return true;
+/* ---- INTERNALS THE STATION HOLDS NO RETAINED SERIES FOR --------------------
+   put_call_history and tick_flow are empty, so TradingView's free widget stands
+   in, under its own name. CUMTICK has no TradingView symbol of its own; the
+   nearest is USI:TICK, which TradingView itself labels "NYSE cumulative tick".
+
+   WHICH TRADINGVIEW SURFACE, AND WHY THIS ONE.  The first cut mounted the full
+   /widgetembed/ chart — the same product as the pop-out modal. Inside a pane
+   roughly 260x210 that surface is unreadable: it lays its own toolbars, legend,
+   date-range strip and five stacked studies out at desktop width, and the pane
+   shows the top-left corner of that layout, which is why the wall read as
+   "hyper mega zoomed" — a left toolbar and a search box where a chart should be.
+   [VERIFIED 2026-09-22, real browser, 260x210 frames]
+
+   This mounts TradingView's SYMBOL OVERVIEW widget instead. It is built to be a
+   bare line at small sizes: no toolbars, no legend, no volume, no date-range
+   strip, no market-status row, no symbol logo — a line, a price axis and a time
+   axis. It also takes explicit colours, which /widgetembed/ does not, so the
+   line and the numbers come out in the Station's own greys instead of
+   TradingView's blue/purple/red.
+
+   WHAT WE VERIFIED RATHER THAN ASSUMED [all 2026-09-22, real browser]:
+     · chartType "area" + lineColor/topColor/bottomColor  → colour IS honoured.
+     · chartType "line" + lineColor                       → colour IGNORED, the
+       line comes back TradingView red/green. So we use "area" with a nearly
+       invisible fill, which draws as a line.
+     · USI:ADD · USI:PCC · USI:TICK · USI:TRIN.NY         → all four draw real
+       data in a 260x210 frame.
+     · CBOE:VIX and TVC:VIX                               → BOTH refuse to embed,
+       in the symbol-overview widget AND in /widgetembed/, with TradingView's own
+       words: "This symbol is only available on TradingView". No parameter
+       changes that, so VIX gets a worded panel, never a black box.        ---- */
+const TV_PANE_INK  = "#9A9AB6";               /* --ink3 — the line              */
+const TV_PANE_DIM  = "#868AAA";               /* --dim  — the axis numbers      */
+const TV_PANE_BG   = "#0A0A0F";               /* --bg   — the pane background   */
+const TV_PANE_GRID = "rgba(154,154,182,0.07)";
+const TV_PANE_FILL = "rgba(154,154,182,0.13)";
+/* The symbol-overview widget takes a named window, not a bar interval. Intraday
+   Station ranges open on the session; the daily ladder opens wider. */
+const TV_PANE_RANGE = Object.freeze({ "15m":"1D","30m":"1D","1h":"1D","2h":"1D","3h":"1D",
+  "4h":"1D","6h":"5D","12h":"5D","1D":"1M","3D":"3M","1W":"12M" });
+const tvPaneRange = () => TV_PANE_RANGE[S.chartRange] || "1D";
+const TV_PANE_URL = (sym, range) => "https://s.tradingview.com/embed-widget/symbol-overview/?locale=en#" +
+  encodeURIComponent(JSON.stringify({
+    symbols:[[String(sym) + "|" + String(range)]],
+    chartOnly:true, autosize:true, width:"100%", height:"100%",
+    colorTheme:"dark", chartType:"area", lineWidth:2,
+    lineColor:TV_PANE_INK, topColor:TV_PANE_FILL, bottomColor:"rgba(154,154,182,0.00)",
+    gridLineColor:TV_PANE_GRID, fontColor:TV_PANE_DIM, widgetFontColor:TV_PANE_DIM,
+    backgroundColor:TV_PANE_BG, scalePosition:"right", scaleMode:"Normal",
+    fontSize:"9", noTimeScale:false, valuesTracking:"0",
+    showVolume:false, showMA:false, hideDateRanges:true, hideMarketStatus:true, hideSymbolLogo:true
+  }));
+/* sym — the TradingView symbol.  embeds — does TradingView serve it inside an
+   embed at all (measured, see the note above).  near — this is the closest
+   series, not the named one.  miss — the plain-words reason, shown in the pane
+   when embeds is false, so an unavailable internal READS as unavailable. */
+const TV_INTERNALS = Object.freeze({
+  PCC:     Object.freeze({ sym:"USI:PCC",     embeds:true }),
+  TICK:    Object.freeze({ sym:"USI:TICK",    embeds:true }),
+  CUMTICK: Object.freeze({ sym:"USI:TICK",    embeds:true, near:true }),
+  TRIN:    Object.freeze({ sym:"USI:TRIN.NY", embeds:true }),
+  ADD:     Object.freeze({ sym:"USI:ADD",     embeds:true }),
+  VIX:     Object.freeze({ sym:"CBOE:VIX",    embeds:false,
+    miss:"TradingView will not serve VIX inside an embed — it answers “this symbol is only available on TradingView”. CBOE:VIX and TVC:VIX were both tried, in two different widgets. So this pane says so in words rather than sitting black." })
+});
+const tvInternalFor = (t) => TV_INTERNALS[String(t || "").toUpperCase()] || null;
+/* A frame that never answers must not leave a black box either. Six TradingView
+   widgets opening at once have been measured taking twenty-odd seconds to their
+   first line, so the watchdog is generous and a worded "drawing" line holds the
+   pane until then — an empty black box is never an acceptable intermediate. */
+const TV_PANE_LOAD_MS = 20000;
+const TV_PANE_DRAW_MS = 14000;
+/* Only a real change of box is worth a reload; a one-pixel reflow is not. */
+const TV_PANE_REFIT_PX = 40;
+const TV_PANE_REFIT_MS = 500;
+
+function tvPaneMissHTML(t, sym, why) {
+  return '<div class="sc-tvinternal__miss">' +
+    '<div class="ttl">' + esc(t) + ' · no chart to show</div>' +
+    '<div class="sub">' + esc(why) + '</div>' +
+    '<a class="lnk" href="' + esc(TV_URL(sym)) + '" target="_blank" rel="noopener">open ' + esc(sym) + ' on TradingView ↗</a>' +
+    "</div>";
+}
+function tvPaneCaption(t, sym, near) {
+  /* Short on purpose: it must still fit, whole, in a 260px pane beside
+     TradingView's price axis. "TV" plus their own mark in the corner is the
+     attribution; "not a Scintilla series" is the part that may never be cut. */
+  return "TV · " + sym + (near ? " (nearest)" : "") + " · not a Scintilla series";
+}
+function mountTvInternal(host, entry) {
+  const area = host.querySelector(".sc-nchart__area"); if (!area || !entry) return false;
+  const t = String(host.dataset.t || "").toUpperCase();
+  const sym = entry.sym, range = tvPaneRange();
+  /* The window is part of the frame's identity: a timeframe change must reopen it. */
+  if (host._tvInternal && host._tvInternal.sym === sym && host._tvInternal.range === range) return true;
   unmountTvInternal(host);
   const wrap = document.createElement("div"); wrap.className = "sc-tvinternal";
-  const note = host.dataset.t === "CUMTICK" ? " · nearest TradingView series (labelled NYSE cumulative tick)" : "";
-  wrap.innerHTML = '<iframe class="sc-tvinternal__frame" src="' + esc(TV_EMBED_URL(sym)) + '" title="TradingView ' + esc(sym) + '" frameborder="0" allowtransparency="true" scrolling="no" allow="fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe>' +
-    '<div class="sc-tvinternal__cap">' + esc(host.dataset.t) + ' · TradingView view · ' + esc(sym) + esc(note) + ' · not a Scintilla series</div>';
-  area.appendChild(wrap); host._tvInternal = { sym, node:wrap }; host.classList.add("sc-nchart--tv");
+  const cap = '<div class="sc-tvinternal__cap">' + esc(tvPaneCaption(t, sym, entry.near)) + "</div>";
+  if (!entry.embeds) {
+    wrap.innerHTML = tvPaneMissHTML(t, sym, entry.miss || "TradingView will not serve this symbol inside an embed.") + cap;
+    area.appendChild(wrap);
+    host._tvInternal = { sym, range, node:wrap }; host.classList.add("sc-nchart--tv");
+    return true;
+  }
+  wrap.innerHTML = '<iframe class="sc-tvinternal__frame" src="' + esc(TV_PANE_URL(sym, range)) +
+      '" title="TradingView ' + esc(sym) + '" frameborder="0" allowtransparency="true" scrolling="no" allow="fullscreen" referrerpolicy="no-referrer-when-downgrade"></iframe>' +
+    '<div class="sc-tvinternal__wait">TradingView · drawing ' + esc(sym) + "…</div>" + cap;
+  area.appendChild(wrap);
+  const state = { sym, range, node:wrap, timer:null, draw:null, ro:null, refit:null };
+  host._tvInternal = state; host.classList.add("sc-nchart--tv");
+  const frame = wrap.querySelector("iframe");
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    if (host._tvInternal !== state || !state.node.isConnected) return;
+    state.node.innerHTML = tvPaneMissHTML(t, sym,
+      "TradingView did not answer in " + Math.round(TV_PANE_LOAD_MS / 1000) + " seconds.") + cap;
+  }, TV_PANE_LOAD_MS);
+  frame.addEventListener("load", () => {
+    if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+    /* The load event is the document arriving, not the line being drawn. Hold the
+       worded line a few seconds longer so the pane never flashes empty. */
+    state.draw = setTimeout(() => {
+      state.draw = null;
+      const w = state.node.querySelector(".sc-tvinternal__wait");
+      if (!w) return;
+      w.classList.add("out");
+      setTimeout(() => { if (w.isConnected) w.remove(); }, 800);
+    }, TV_PANE_DRAW_MS);
+  }, { once:true });
+  /* RE-FIT. The widget resizes itself inside its own frame, but a pane that is
+     expanded across the row, or a window that changes shape, can leave it laid
+     out for the old box — the exact shape of the "zoomed" fault. Reload the
+     frame once the box has settled at a materially different size. */
+  if (typeof ResizeObserver === "function") {
+    let w = area.clientWidth, h = area.clientHeight;
+    state.ro = new ResizeObserver(() => {
+      const nw = area.clientWidth, nh = area.clientHeight;
+      if (Math.abs(nw - w) < TV_PANE_REFIT_PX && Math.abs(nh - h) < TV_PANE_REFIT_PX) return;
+      w = nw; h = nh;
+      clearTimeout(state.refit);
+      state.refit = setTimeout(() => {
+        if (host._tvInternal !== state || !state.node.isConnected) return;
+        const f = state.node.querySelector("iframe");
+        if (f) f.setAttribute("src", TV_PANE_URL(state.sym, state.range));
+      }, TV_PANE_REFIT_MS);
+    });
+    state.ro.observe(area);
+  }
   return true;
 }
 function unmountTvInternal(host) {
   if (!host || !host._tvInternal) return;
-  host._tvInternal.node.remove(); host._tvInternal = null; host.classList.remove("sc-nchart--tv");
+  const s = host._tvInternal;
+  if (s.timer) clearTimeout(s.timer);
+  if (s.draw) clearTimeout(s.draw);
+  if (s.refit) clearTimeout(s.refit);
+  if (s.ro) { try { s.ro.disconnect(); } catch (_) {} }
+  s.node.remove(); host._tvInternal = null; host.classList.remove("sc-nchart--tv");
 }
 const TV_LOAD_MS = 2600;
 let TV_TIMER = null;
@@ -1379,8 +1544,8 @@ function showChartAbsent(host, reason) {
   clearChartRetry(host);
   if (host.dataset.holding) { delete host.dataset.holding; host._series = null; }
   /* Internals we hold no series for show TradingView's free chart, labelled as exactly that. */
-  const tvSym = TV_INTERNALS[String(host.dataset.t || "").toUpperCase()];
-  if (tvSym) mountTvInternal(host, tvSym);
+  const tvEntry = tvInternalFor(host.dataset.t);
+  if (tvEntry) mountTvInternal(host, tvEntry);
   host.dataset.dataState = "absent";
   host.dataset.absence = named;
   reportChartDataState(host, { history:"absent", historyAbsence:named });
