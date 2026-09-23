@@ -42,3 +42,16 @@ test("the reference text is quieter, not different: same nodes, same words, only
   assert.match(chart, /label\.title =\s*\n?\s*pts\.length\s*\n?\s*\? chartApproximateSpan/,
     "the approximate span is still available on hover");
 });
+
+test("intraday axis and hover print New York time; daily dates pass through (23 Sep: a 10:15 ET bar read 14:15)", () => {
+  const src = chart.match(/const CH_INTRADAY = [\s\S]*?\nfunction chEtIso\(d, range\) \{[\s\S]*?\n\}\n/)[0];
+  const chEtIso = new Function(src + "return chEtIso;")();
+  assert.equal(chEtIso("2026-09-23T14:15:00.000Z", "3h"), "2026-09-23T10:15", "summer: UTC-4");
+  assert.equal(chEtIso("2026-01-15T14:30:00.000Z", "1h"), "2026-01-15T09:30", "winter: UTC-5, the open reads 09:30");
+  assert.equal(chEtIso("2026-09-23T02:00:00.000Z", "4h"), "2026-09-22T22:00", "the date follows New York too");
+  assert.equal(chEtIso("2026-09-22T00:00:00.000Z", "1D"), "2026-09-22T00:00:00.000Z", "a daily stamp is never shifted a day back");
+  assert.equal(chEtIso("2026-09-22", "3h"), "2026-09-22", "a bare date is untouched");
+  assert.equal(timeParts(chEtIso("2026-09-23T14:15:00.000Z", "3h"), "3h", false, 86400000)[1], "10:15");
+  assert.match(chart, /chTimeParts\(chEtIso\(pts\[ix\]\.d, host\._range \|\| S\.chartRange\)/, "the axis passes New York time");
+  assert.match(chart, /chHoverTime\(chEtIso\(pts\[scrub\.ix\]\.d, host\._range \|\| S\.chartRange\)/, "the hover passes New York time");
+});

@@ -493,6 +493,28 @@ const chAxisPx = (p, step) => {
   return p.toLocaleString("en-US", { minimumFractionDigits:d, maximumFractionDigits:d });
 };
 const EV_MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/* NEW YORK WALL CLOCK FOR INTRADAY LABELS (23 Sep). Bar times are UTC instants, and the axis and
+   hover used to print them as if they were New York time: a 10:15 ET bar read "14:15", the open read
+   "13:30". Intraday labels now print Eastern time. Daily dates are passed through untouched, so a
+   session is never pushed back a day by a midnight-UTC stamp. */
+const CH_INTRADAY = ["15m","30m","1h","2h","3h","4h","6h","12h"];
+const CH_ET_FMT = new Intl.DateTimeFormat("en-CA", { timeZone:"America/New_York", year:"numeric", month:"2-digit",
+  day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" });
+const chEtCache = new Map();
+function chEtIso(d, range) {
+  const iso = String(d || "");
+  if (!CH_INTRADAY.includes(range) || !/T\d{2}:\d{2}/.test(iso)) return iso;
+  let v = chEtCache.get(iso);
+  if (v) return v;
+  const t = Date.parse(iso);
+  if (!isFinite(t)) return iso;
+  const x = {};
+  for (const part of CH_ET_FMT.formatToParts(new Date(t))) x[part.type] = part.value;
+  v = x.year + "-" + x.month + "-" + x.day + "T" + x.hour + ":" + x.minute;
+  if (chEtCache.size > 4000) chEtCache.clear();
+  chEtCache.set(iso, v);
+  return v;
+}
 function chHoverTime(d, range) {
   const iso = String(d || "");
   const mon = EV_MON[+iso.slice(5, 7) - 1] || iso.slice(5, 7);
@@ -1420,7 +1442,7 @@ function scChartDraw(host, scrub) {
     const drawnTimes = new Set(); let axisYear = "";
     for (let k = 0; k < timeTickCount; k++) {
       const ix = Math.round(start + (k / Math.max(1, timeTickCount - 1)) * (end - start));
-      const parts = chTimeParts(pts[ix].d, host._range || S.chartRange, compactAxis, visibleSpanMs);
+      const parts = chTimeParts(chEtIso(pts[ix].d, host._range || S.chartRange), host._range || S.chartRange, compactAxis, visibleSpanMs);
       const key = parts.join("|");
       if (!parts[0] || drawnTimes.has(key)) continue;
       drawnTimes.add(key);
@@ -1440,7 +1462,7 @@ function scChartDraw(host, scrub) {
     const price = yLo + (1 - (sy - padT) / ih) * (yHi - yLo);
     const markerFont = Math.max(6.5, (ipadProfile ? 7 : 7.5) * scale);
     const priceText = chPx(price, host.dataset.t);
-    const timeText = chHoverTime(pts[scrub.ix].d, host._range || S.chartRange);
+    const timeText = chHoverTime(chEtIso(pts[scrub.ix].d, host._range || S.chartRange), host._range || S.chartRange);
     ctx.save();
     ctx.strokeStyle = col.dim; ctx.globalAlpha = .62; ctx.lineWidth = .75;
     ctx.beginPath(); ctx.moveTo(sx, padT); ctx.lineTo(sx, padT + ih); ctx.stroke();
