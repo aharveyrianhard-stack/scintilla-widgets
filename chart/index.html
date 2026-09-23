@@ -990,9 +990,15 @@ const TV_EMBED_URL = (sym) => "https://s.tradingview.com/widgetembed/?symbol=" +
 const TV_URL = (sym) => "https://www.tradingview.com/chart/?symbol=" + encodeURIComponent(sym || "") +
   "&interval=" + (TV_INTERVAL[S.chartRange] || "D");
 /* ---- INTERNALS THE STATION HOLDS NO RETAINED SERIES FOR --------------------
-   put_call_history and tick_flow are empty, so TradingView's free widget stands
-   in, under its own name. CUMTICK has no TradingView symbol of its own; the
-   nearest is USI:TICK, which TradingView itself labels "NYSE cumulative tick".
+   tick_flow is empty, so TradingView's free widget stands in for TICK, CUMTICK,
+   TRIN and ADD, under its own name. CUMTICK has no TradingView symbol of its
+   own; the nearest is USI:TICK, which TradingView itself labels "NYSE cumulative
+   tick".
+
+   PUT/CALL LEFT THIS LIST ON 23 SEP 2026. It was here because put_call_history
+   stopped in 2019 - but Cboe never stopped publishing, only its CSV files did.
+   The chart API now carries PCC, PCCE, PCCI and PCSPX from Cboe's own daily
+   file, so those four draw a Scintilla chart like every other pane.
 
    WHICH TRADINGVIEW SURFACE, AND WHY THIS ONE.  The first cut mounted the full
    /widgetembed/ chart — the same product as the pop-out modal. Inside a pane
@@ -1068,7 +1074,9 @@ const TV_INTERNALS = Object.freeze({
      re-measured the same way and all eleven ranges answered with bars. */
   ESUSD:   Object.freeze({ sym:"OANDA:SPX500USD", embeds:true, near:true }),
   NQUSD:   Object.freeze({ sym:"OANDA:NAS100USD", embeds:true, near:true }),
-  PCC:     Object.freeze({ sym:"USI:PCC",     embeds:true }),
+  /* PCC, PCCE, PCCI and PCSPX are NOT here any more: 23 Sep 2026 they became real
+     Scintilla series from Cboe's own daily file, drawn with the cloud ribbon like
+     any other chart. The rest still stand in TradingView's chart under its name. */
   TICK:    Object.freeze({ sym:"USI:TICK",    embeds:true }),
   CUMTICK: Object.freeze({ sym:"USI:TICK",    embeds:true, near:true }),
   TRIN:    Object.freeze({ sym:"USI:TRIN.NY", embeds:true }),
@@ -1341,7 +1349,11 @@ function scChartDraw(host, scrub) {
      already said "—" for exactly that case (chDayChange refuses without a previous close),
      so an honest text sat beside a confident color, and the color is what the wall is read
      by. Direction is claimed only from the authority the badge uses; without it, neutral. */
-  const ref = chDayRef(host);
+  /* A PUT/CALL PANE CLAIMS NO DIRECTION. Green on this wall means the line went up, and on every
+     other pane that also reads as good news. On a put/call ratio "up" is more puts than calls,
+     which is fear to one reader and a contrarian buy to the next — so this pane takes the palette's
+     neutral tone (the same one an unknown baseline gets) and lets the number speak. */
+  const ref = scPutCallPane(host?.dataset?.t) ? null : chDayRef(host);
   let yLo = lo, yHi = hi;
   if (yHi === yLo) { yHi += 1; yLo -= 1; }
   const yPad = (yHi - yLo) * .055;
@@ -1598,12 +1610,102 @@ function chartReferenceCloseLabel(host) {
   const label = chartStartDate(days[days.length - 2] + "T12:00:00Z");
   return label === "loading" ? "last close" : label + " close";
 }
+/* The four spans of the pane readout, built once and reused by both painters:
+   the live-quote one for a price, and the put/call one for a published session. */
+function ensureLiveParts(badge, host) {
+  let ticker = badge.querySelector(".sc-nchart__live-ticker");
+  let change = badge.querySelector(".sc-nchart__live-change");
+  let previous = badge.querySelector(".sc-nchart__live-prev");
+  let historyWindow = badge.querySelector(".sc-nchart__live-window");
+  if (!ticker || !change || !previous || !historyWindow) {
+    badge.replaceChildren();
+    ticker = document.createElement("button");
+    ticker.type = "button";
+    ticker.className = "sc-nchart__live-ticker";
+    ticker.title = "Edit ticker";
+    ticker.addEventListener("click", () => {
+      try { parent.postMessage({ sc:"chart-focus-ticker" }, location.origin); } catch (_) {}
+    });
+    change = document.createElement("span");
+    change.className = "sc-nchart__live-change";
+    previous = document.createElement("span");
+    previous.className = "sc-nchart__live-prev";
+    historyWindow = document.createElement("span");
+    historyWindow.className = "sc-nchart__live-window";
+    badge.append(ticker, change, previous, historyWindow);
+  }
+  return { ticker, change, previous, historyWindow };
+}
+/* ============================================================================
+   THE CBOE PUT/CALL SERIES — PCC, PCCE, PCCI, PCSPX
+   ----------------------------------------------------------------------------
+   Until 23 Sep this pane showed TradingView's free USI:PCC widget, because the
+   Station held no series: Supabase put_call_history stops on 2019-10-04. Cboe
+   still publishes a free daily file for every session — the CSVs retired in
+   2019, the JSON did not — so the chart API now carries these four as ordinary
+   daily series and the pane draws a Scintilla chart with the cloud ribbon.
+
+   WHAT IT IS NOT: live. Cboe prints ONE number per product per session, after
+   that session closes. So the readout names the session it belongs to, and the
+   pane never wears a live badge. Yesterday's number is the newest that exists.
+
+   NO DIRECTION IS COLOURED. A rising put/call ratio is read by some as fear and
+   by others as a contrarian buy; painting it green or red would be the Station
+   taking a side. The value and its change are shown in the neutral ink. ---- */
+const PUTCALL_PANES = Object.freeze({
+  PCC:   Object.freeze({ name:"Cboe total put/call" }),
+  PCCE:  Object.freeze({ name:"Cboe equity put/call" }),
+  PCCI:  Object.freeze({ name:"Cboe index put/call" }),
+  PCSPX: Object.freeze({ name:"Cboe SPX put/call" })
+});
+const scPutCallPane = (t) => PUTCALL_PANES[String(t || "").toUpperCase()] || null;
+const PUTCALL_FRESH_MS = 4 * 86400000;   /* a session, a weekend, and a holiday */
+function putCallSessionLabel(iso) {
+  const label = chartStartDate(iso);
+  return label === "loading" ? "session loading" : label + " session";
+}
+/* The readout for a published, dated number: the value, its change against the
+   session before it, and the session it belongs to. Nothing here reads a clock
+   for freshness beyond noticing that the newest session is the recent one. */
+function paintPutCallStatus(host) {
+  const badge = host?.querySelector(".sc-nchart__live");
+  const pane = scPutCallPane(host?.dataset?.t);
+  if (!badge || !pane) return;
+  const pts = host._series || [];
+  const parts = ensureLiveParts(badge, host);
+  const last = pts.length ? pts[pts.length - 1] : null;
+  const prev = pts.length > 1 ? pts[pts.length - 2] : null;
+  parts.ticker.textContent = host.dataset.t;
+  badge.dataset.change = "flat";
+  if (!last) {
+    parts.change.textContent = "";
+    parts.previous.textContent = "";
+    badge.dataset.fresh = "0";
+    badge.title = pane.name + " · waiting for the published session";
+    return;
+  }
+  const pct = prev && prev.p ? ((last.p - prev.p) / prev.p) * 100 : null;
+  /* The session goes on the pane, not only in the hover text: a put/call number that does not say
+     which session it is is a number pretending to be now. It rides on the one visible line, so the
+     pane still reads "ticker, value, change" and gains nothing else. */
+  parts.change.textContent = last.p.toFixed(2) +
+    (pct == null ? "" : "  " + (pct > 0 ? "+" : pct < 0 ? "\u2212" : "") + Math.abs(pct).toFixed(1) + "%") +
+    "  " + chartStartDate(last.d);
+  parts.previous.textContent = prev ? putCallSessionLabel(prev.d) + " " + prev.p.toFixed(2) : "";
+  const age = Date.now() - new Date(last.d).getTime();
+  badge.dataset.fresh = Number.isFinite(age) && age <= PUTCALL_FRESH_MS ? "1" : "0";
+  badge.dataset.untimed = "0";
+  badge.title = pane.name + " \u00b7 " + putCallSessionLabel(last.d) + " \u00b7 " + last.p.toFixed(2) +
+    "\nCboe publishes one number per session, after that session closes. There is no live put/call ratio.";
+  paintChartHistoryWindow(host);
+}
 function paintChartHistoryWindow(host) {
   const label = host?.querySelector(".sc-nchart__live-window");
   const pts = host?._series || [];
   if (!label) return;
+  const pcPane = scPutCallPane(host?.dataset?.t);
   label.textContent = pts.length
-    ? chartWindowLabel(pts) + chartStaleSuffix(pts[pts.length - 1].d)
+    ? (pcPane ? putCallSessionLabel(pts[pts.length - 1].d) + " \u00b7 Cboe" : chartWindowLabel(pts) + chartStaleSuffix(pts[pts.length - 1].d))
     : "history loading";
   /* The count keeps its home in the tooltip: readable on the pane, available on hover. */
   label.title = pts.length
@@ -1724,6 +1826,7 @@ async function scChartLoad(host) {
     }
     host._series = pts; delete host.dataset.holding; unmountTvInternal(host);
     paintChartHistoryWindow(host);
+    if (scPutCallPane(t)) paintPutCallStatus(host);
     clearChartRetry(host);
     delete host.dataset.dataState;
     delete host.dataset.absence;
@@ -2046,6 +2149,9 @@ function chDayChange(price, previousClose) {
 function paintLiveStatus(host, quote) {
   const badge = host?.querySelector(".sc-nchart__live");
   if (!badge) return;
+  /* A published daily ratio has no quote and never will; it is painted from the
+     session values themselves, which is why this returns before the live path. */
+  if (scPutCallPane(host?.dataset?.t)) { paintPutCallStatus(host); return; }
   const hasQuote = quotePrice(quote) != null;
   const observedAt = quoteInstant(quote);
   const at = observedAt == null ? null : new Date(observedAt);
@@ -2058,27 +2164,8 @@ function paintLiveStatus(host, quote) {
   const dayRef = prevClose[host.dataset.t];
   const day = hasQuote ? chDayChange(quotePrice(quote), dayRef) : { text:"", tone:"flat" };
   badge.dataset.change = day.tone;
-  let ticker = badge.querySelector(".sc-nchart__live-ticker");
-  let change = badge.querySelector(".sc-nchart__live-change");
-  let previous = badge.querySelector(".sc-nchart__live-prev");
-  let historyWindow = badge.querySelector(".sc-nchart__live-window");
-  if (!ticker || !change || !previous || !historyWindow) {
-    badge.replaceChildren();
-    ticker = document.createElement("button");
-    ticker.type = "button";
-    ticker.className = "sc-nchart__live-ticker";
-    ticker.title = "Edit ticker";
-    ticker.addEventListener("click", () => {
-      try { parent.postMessage({ sc:"chart-focus-ticker" }, location.origin); } catch (_) {}
-    });
-    change = document.createElement("span");
-    change.className = "sc-nchart__live-change";
-    previous = document.createElement("span");
-    previous.className = "sc-nchart__live-prev";
-    historyWindow = document.createElement("span");
-    historyWindow.className = "sc-nchart__live-window";
-    badge.append(ticker, change, previous, historyWindow);
-  }
+  const parts = ensureLiveParts(badge, host);
+  const ticker = parts.ticker, change = parts.change, previous = parts.previous, historyWindow = parts.historyWindow;
   ticker.textContent = host.dataset.t;
   /* Alan, 22 Sep: "ticker, dollar value price, percentage change difference" - nothing else. */
   const signedPct = day.tone === "up" ? "+" + day.text : day.tone === "down" ? "\u2212" + day.text.replace(/[()]/g, "") : day.text;

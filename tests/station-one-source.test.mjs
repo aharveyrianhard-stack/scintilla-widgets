@@ -35,7 +35,10 @@ test("the provider client routes macro symbols to the chart API and names everyt
   assert.match(provider, /var MACRO_SYMBOLS = \{ VIX: 1, DXY: 1, US10Y: 1, DXUSD: 1, CLUSD: 1, GCUSD: 1, SIUSD: 1, BTCUSD: 1 \};/,
     "oil, gold, silver, bitcoin and the dollar index come from the chart API like VIX (Alan, 23 Sep: CLUSD 4h \"not served\" was wrong)");
   assert.match(provider, /API \+ '\/macro\?symbols='/);
-  assert.match(provider, /if \(own\[sym\] \|\| MACRO_SYMBOLS\[sym\]\)\s+return providerCandleRows\(/);
+  /* 23 Sep: the Cboe put/call series join them on the same route. Everything still outside both
+     maps is NOT_SERVED_BY_CHART_API, which is the point of the line. */
+  assert.match(provider, /var PUTCALL_SYMBOLS = \{ PCC: 1, PCCE: 1, PCCI: 1, PCSPX: 1 \};/);
+  assert.match(provider, /if \(own\[sym\] \|\| MACRO_SYMBOLS\[sym\] \|\| PUTCALL_SYMBOLS\[sym\]\)\s+return providerCandleRows\(/);
   assert.match(provider, /throw S\.absenceError\(ABSENCE_NOT_SERVED, sym/);
   assert.doesNotMatch(provider, /ohlcv_history|live_quotes\?select/);
   assert.match(provider, /provider: payload\.provider \|\| 'MASSIVE'/, "the provider the API stated travels with every candle row");

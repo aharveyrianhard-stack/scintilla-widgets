@@ -367,6 +367,12 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
      route, provider stated on every response. Anything else that is not provider-owned equity is
      NOT_SERVED_BY_CHART_API - a named absence the pane paints, never a legacy table read. */
   var MACRO_SYMBOLS = { VIX: 1, DXY: 1, US10Y: 1, DXUSD: 1, CLUSD: 1, GCUSD: 1, SIUSD: 1, BTCUSD: 1 };
+  /* THE CBOE PUT/CALL SERIES (2026-09-23): PCC, PCCE, PCCI, PCSPX. Same /candles route, same
+     sibling-namespace pattern as the macro series, publisher stated on every response. They are
+     daily-only and never live - Cboe prints one number per session after the close - so the pane
+     reads them exactly like a daily series and names the session on screen. */
+  var PUTCALL_SYMBOLS = { PCC: 1, PCCE: 1, PCCI: 1, PCSPX: 1 };
+  S.isPutCallSymbol = function (sym) { return !!PUTCALL_SYMBOLS[String(sym || '').toUpperCase()]; };
   var ABSENCE_NOT_SERVED = 'NOT_SERVED_BY_CHART_API';
   var ABSENCE_PRICE_PATH_RETIRED = 'SUPABASE_PRICE_PATH_RETIRED';
   S.isMacroSymbol = function (sym) { return !!MACRO_SYMBOLS[String(sym || '').toUpperCase()]; };
@@ -1320,7 +1326,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
       return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', timeframe));
     var sym = requested[0];
     return providerOwned(options.signal, readSupabase).then(function (own) {
-      if (own[sym] || MACRO_SYMBOLS[sym])
+      if (own[sym] || MACRO_SYMBOLS[sym] || PUTCALL_SYMBOLS[sym])
         return providerCandleRows(sym, String(timeframe || ''), options.limit, options.signal);
       throw S.absenceError(ABSENCE_NOT_SERVED, sym, String(timeframe || ''));
     });
