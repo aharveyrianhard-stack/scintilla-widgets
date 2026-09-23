@@ -118,7 +118,10 @@ test("the strip: one line, sections, pinned left, grows from its top edge, wraps
     "it starts at the left edge - Alan, 23 Sep: \"a black space to the left of Station\"");
   assert.match(deck, /#dock\{[^}]*padding-right:calc\(var\(--dock-readout/,
     "and holds the room the pinned readout needs once, on the right");
-  assert.match(deck, /#dock\{[^}]*zoom:var\(--dock-fit,1\)/, "it shrinks as a whole, like a Dock full of icons");
+  /* Alan, 23 Sep: "there's no reason to compress it all into one screen." Nothing may scale the
+     strip down to make it fit: it is full size at every width, and scrolls when it runs out of wall. */
+  assert.doesNotMatch(dockCss, /zoom:/, "the strip is never shrunk to fit");
+  assert.doesNotMatch(deck, /--dock-fit/, "and nothing computes a shrink factor any more");
   assert.match(deck, /#dock\.dock-wrap\{ flex-wrap:wrap;/, "and keeps wrapping as its fallback");
   assert.doesNotMatch(deck, /class="dsec" data-sec="charts"/,
     "the 2/6/8 chart-count section is off the strip, not merely hidden");
@@ -165,4 +168,54 @@ test("auto-hide: two seconds, a lip, remembered per browser, and a switch under 
   assert.match(lift("tuckDock"), /moreGroup/, "an open ⋯ panel keeps the strip out");
   assert.match(lift("wireDock"), /event\.clientY <= 8\) revealDock\(\)/, "the top edge brings it back");
   assert.match(lift("setDockAutoHide"), /localStorage\.setItem\(DOCK_HIDE_KEY/, "remembered per browser");
+});
+
+/* ---- round 2: no bunching, full size, and a list that still opens ---- */
+
+test("every chip owns its full 2x footprint at every width, so a neighbour is never reached", () => {
+  const reserve = lift("dockReserve");
+  assert.match(reserve, /const swell = DOCK_MAX_SCALE;/,
+    "the room reserved is the FULL swell - not a smaller one because the window is narrow");
+  assert.match(reserve, /node\.style\.setProperty\("--slack", \(node\.offsetWidth \* \(swell - 1\) \/ 2\)/,
+    "half of a chip's own growth on each side is its own slot");
+  assert.match(reserve, /--dock-sec-h", Math\.ceil\(chipH \* swell \+ 4\)/,
+    "and the section is tall enough to hold that growth, so it grows downward");
+  assert.match(dockCss, /#dock \.btn, #dock select, #dock \.scene-pick\{[^}]*margin-left:var\(--slack,0px\)/,
+    "the slot is real margin, held at rest");
+});
+
+test("when it does not fit, the strip scrolls at full size instead of wrapping or shrinking", () => {
+  const fit = lift("fitDock");
+  assert.match(fit, /if \(natural > available\) dock\.classList\.add\("dock-scroll"\);/,
+    "too wide means scroll, not shrink");
+  assert.doesNotMatch(fit, /zoom|--dock-fit/, "fitDock cannot make anything smaller");
+  assert.match(dockCss, /#dock\.dock-scroll #dockRail\{[^}]*overflow-x:auto/, "the rail is the thing that scrolls");
+  assert.match(dockCss, /#dock\.dock-scroll #dockRail\{[^}]*min-height:var\(--dock-sec-h/,
+    "and it is tall enough that a swelling chip is not clipped");
+});
+
+test("a scrolling strip still magnifies, and the pointer is read in the scrolled frame", () => {
+  assert.doesNotMatch(deck.slice(deck.indexOf("const dockMagnifies"), deck.indexOf("function dockContentChanged")),
+    /dock-scroll/, "a strip that scrolls magnifies exactly like a wide one");
+  assert.match(lift("dockPointerX"), /scroller \? scroller\.scrollLeft : 0/,
+    "the pointer is put in the same frame the chip geometry is measured in");
+});
+
+test("the data age stands beside the rail, never on top of it", () => {
+  assert.match(deck, /<div id="dockRail">/, "the sections scroll inside a rail");
+  const rail = deck.slice(deck.indexOf('<div id="dockRail">'), deck.indexOf("</div><!-- /#dockRail -->"));
+  assert.doesNotMatch(rail, /data-sec="readout"/, "the readout is outside the rail, so nothing scrolls under it");
+  assert.match(dockCss, /#dock\.dock-scroll \.dsec\[data-sec="readout"\]\{[^}]*position:static/,
+    "it is not a lid pinned over the strip");
+  assert.doesNotMatch(dockCss, /mask-image/,
+    "the edge fade is painted, not masked: a mask would anchor the fixed ⋯ panel to the rail");
+});
+
+test("the page switcher: first on the strip, first for the keyboard, whole chip opens it", () => {
+  assert.match(dockCss, /#dock \.dsec\[data-sec="scene"\]\{ order:1; margin-left:0; \}/, "pinned all the way left");
+  assert.match(dockCss, /#dock \.scene-pick select\{[^}]*width:calc\(100% \+ 2px\)/,
+    "the list opens from anywhere on the chip, its edge included");
+  assert.match(deck, /#dock \.scene-pick\{[^}]*width:46px/, "two letters wide when closed");
+  assert.match(lift("paintSceneCode"), /pick\.title = name \? "screen: " \+ name : ""/,
+    "and the full name is still carried, not thrown away");
 });

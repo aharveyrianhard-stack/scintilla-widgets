@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · the dock, third pass</title>
+<style>
+:root{ --bg:#0A0A0F; --panel:#0F0F1A; --line:#1A1A2A; --edge:#36364F;
+  --ink:#B9BBD2; --ink2:#9A9AB6; --dim:#868AAA; --crk:#00D4FF; --warn:#FF8A00;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
+*{ box-sizing:border-box; }
+body{ margin:0; background:var(--bg); color:var(--ink2); font:15px/1.65 var(--mono); padding:34px 26px 80px; }
+h1{ color:var(--crk); font-size:26px; letter-spacing:.14em; text-transform:uppercase; margin:0 0 6px; }
+h2{ color:var(--ink); font-size:18px; letter-spacing:.1em; text-transform:uppercase;
+  margin:46px 0 12px; padding-bottom:7px; border-bottom:1px solid var(--edge); }
+h3{ color:var(--ink2); font-size:14px; letter-spacing:.12em; text-transform:uppercase; margin:26px 0 8px; }
+p{ max-width:104ch; margin:10px 0; }
+.sub{ color:var(--dim); margin-bottom:26px; }
+figure{ margin:18px 0 26px; }
+figcaption{ color:var(--dim); font-size:13px; margin:8px 0 0; }
+img{ display:block; width:100%; border:1px solid var(--line); background:var(--panel); }
+.tag{ color:var(--crk); font-size:12px; letter-spacing:.18em; text-transform:uppercase; }
+.tag.old{ color:var(--warn); }
+table{ border-collapse:collapse; width:100%; max-width:1180px; margin:14px 0; font-size:14px; }
+th,td{ border:1px solid var(--line); padding:9px 11px; text-align:left; vertical-align:top; }
+th{ color:var(--ink); background:var(--panel); font-weight:400; letter-spacing:.08em; text-transform:uppercase; font-size:12px; }
+q{ color:var(--ink); font-style:normal; }
+.strip{ display:flex; gap:6px; overflow-x:auto; padding-bottom:10px; }
+.strip figure{ flex:0 0 320px; margin:0; }
+.strip img{ height:82px; object-fit:cover; object-position:left top; }
+.num{ color:var(--crk); }
+.bad{ color:var(--warn); }
+ul{ max-width:104ch; } li{ margin:6px 0; }
+.note{ border-left:2px solid var(--warn); padding:6px 0 6px 14px; color:var(--dim); max-width:104ch; }
+</style>
+</head>
+<body>
+<h1>The dock — third pass</h1>
+<p class="sub">Station · 23 September · branch <span class="num">station/dock-m3-20260923</span>, built on production <span class="num">ff7ab7d</span>. Nothing deployed, nothing pushed.</p>
+
+<p>You said it about the dock that is live right now: <q>The fucking dock is bunching, bro. Like, the apps on the iOS dock do not bunch. You need to drop things down further down, not make them bunch, not make them over spill onto each other. And there's no reason to compress it all into one screen. And this drop down for the macro thing — the zooming is really fucking shit up. It needs to zoom out but maintain its functionalities and features.</q></p>
+
+<p>Every picture here is a real browser shot that I opened and looked at. Every number is measured from the live page, not guessed: I walked the pointer slowly across the whole strip in 49 steps at each width and measured every chip's real box at every step.</p>
+
+<h2>1. What is actually wrong with the live dock</h2>
+<p>Two things, both measured, both visible in the picture below.</p>
+<ul>
+<li><span class="bad">Chips land on top of each other by 55.6 px.</span> When you point at a timeframe, the chip grows sideways over the chip next to it and covers it. That is the bunching.</li>
+<li><span class="bad">Chips hang 11.6 px below the strip</span>, over the wall.</li>
+<li>The strip is centred, so there is a wide black gap to the left of THE STATION.</li>
+</ul>
+<figure>
+  <img src="shots/before-2240-sweep-18.png" alt="production dock with 15M covering 30M">
+  <figcaption><span class="tag old">Live now · 2240</span> The pointer is on <span class="num">15M</span>. It has grown over <span class="num">30M</span> — you can only see <q>0M</q> sticking out from under it. And everything sits in the middle, with black space on the left.</figcaption>
+</figure>
+
+<h2>2. What I changed</h2>
+<ul>
+<li><b>Nothing is ever squeezed.</b> The old strip scaled itself down to cram everything into the window — at a 1440 laptop it was running at 0.896 of full size, and the magnification had collapsed from 2× to 1.4×. That shrink factor is deleted. The type is the same size at 2240 as it is at 390.</li>
+<li><b>Every chip always owns the room it needs to grow.</b> Each chip holds half of its own full growth as empty space on each side, at every width. Two chips can never reach each other, whatever the pointer does — so nothing bunches and nothing has to shove its neighbour out of the way.</li>
+<li><b>Everything grows downward.</b> The tops of the chips stay on one flat line and the bottoms trace the curve. The strip keeps a fixed height that already holds a chip at full size, so the wall below never moves — measured at <span class="num">0.00 px</span> of movement through the whole pass.</li>
+<li><b>If it runs out of wall, it scrolls at full size.</b> The sections sit in a rail that slides sideways; the strip is never made smaller to fit. At 2240 and 1680 nothing scrolls — it all fits.</li>
+<li><b>The data age no longer lies on top of the strip.</b> It used to be pinned over the chips, so when the strip scrolled, chips went underneath it — 58 px of the interval picker was covered. It now stands beside the rail, and nothing can pass under it.</li>
+</ul>
+
+<h3>The same pass, after</h3>
+<figure>
+  <img src="shots/after-2240-sweep-18.png" alt="new dock with 1D magnified and nothing overlapping">
+  <figcaption><span class="tag">After · 2240</span> The pointer is on <span class="num">1D</span>. It is at full size, <span class="num">12H</span> and <span class="num">3D</span> step down on either side, and there is clear space between every one of them. The strip starts hard left: <span class="num">LV</span>, THE STATION, HUB.</figcaption>
+</figure>
+
+<h2>3. A slow pass across the whole strip</h2>
+<p>Nine frames from the same 49-step pass, left to right. Live dock on top, new dock underneath.</p>
+<h3>iMac, 2240 × 1260</h3>
+<div class="strip">
+  <figure><img src="shots/before-2240-sweep-00.png" alt=""><figcaption class="tag old">live · 1</figcaption></figure>
+  <figure><img src="shots/before-2240-sweep-06.png" alt=""><figcaption class="tag old">live · 2</figcaption></figure>
+  <figure><img src="shots/before-2240-sweep-12.png" alt=""><figcaption class="tag old">live · 3</figcaption></figure>
+  <figure><img src="shots/before-2240-sweep-18.png" alt=""><figcaption class="tag old">live · 4</figcaption></figure>
+  <figure><img src="shots/before-2240-sweep-24.png" alt=""><figcaption class="tag old">live · 5</figcaption></figure>
+  <figure><img src="shots/before-2240-sweep-30.png" alt=""><figcaption class="tag old">live · 6</figcaption></figure>
+  <figure><img src="shots/before-2240-sweep-36.png" alt=""><figcaption class="tag old">live · 7</figcaption></figure>
+  <figure><img src="shots/before-2240-sweep-42.png" alt=""><figcaption class="tag old">live · 8</figcaption></figure>
+  <figure><img src="shots/before-2240-sweep-47.png" alt=""><figcaption class="tag old">live · 9</figcaption></figure>
+</div>
+<div class="strip">
+  <figure><img src="shots/after-2240-sweep-00.png" alt=""><figcaption class="tag">new · 1</figcaption></figure>
+  <figure><img src="shots/after-2240-sweep-06.png" alt=""><figcaption class="tag">new · 2</figcaption></figure>
+  <figure><img src="shots/after-2240-sweep-12.png" alt=""><figcaption class="tag">new · 3</figcaption></figure>
+  <figure><img src="shots/after-2240-sweep-18.png" alt=""><figcaption class="tag">new · 4</figcaption></figure>
+  <figure><img src="shots/after-2240-sweep-24.png" alt=""><figcaption class="tag">new · 5</figcaption></figure>
+  <figure><img src="shots/after-2240-sweep-30.png" alt=""><figcaption class="tag">new · 6</figcaption></figure>
+  <figure><img src="shots/after-2240-sweep-36.png" alt=""><figcaption class="tag">new · 7</figcaption></figure>
+  <figure><img src="shots/after-2240-sweep-42.png" alt=""><figcaption class="tag">new · 8</figcaption></figure>
+  <figure><img src="shots/after-2240-sweep-47.png" alt=""><figcaption class="tag">new · 9</figcaption></figure>
+</div>
+
+<h3>1680 × 1050</h3>
+<div class="strip">
+  <figure><img src="shots/before-1680-sweep-06.png" alt=""><figcaption class="tag old">live · 2</figcaption></figure>
+  <figure><img src="shots/before-1680-sweep-18.png" alt=""><figcaption class="tag old">live · 4</figcaption></figure>
+  <figure><img src="shots/before-1680-sweep-24.png" alt=""><figcaption class="tag old">live · 5</figcaption></figure>
+  <figure><img src="shots/before-1680-sweep-30.png" alt=""><figcaption class="tag old">live · 6</figcaption></figure>
+  <figure><img src="shots/before-1680-sweep-42.png" alt=""><figcaption class="tag old">live · 8</figcaption></figure>
+</div>
+<div class="strip">
+  <figure><img src="shots/after-1680-sweep-06.png" alt=""><figcaption class="tag">new · 2</figcaption></figure>
+  <figure><img src="shots/after-1680-sweep-18.png" alt=""><figcaption class="tag">new · 4</figcaption></figure>
+  <figure><img src="shots/after-1680-sweep-24.png" alt=""><figcaption class="tag">new · 5</figcaption></figure>
+  <figure><img src="shots/after-1680-sweep-30.png" alt=""><figcaption class="tag">new · 6</figcaption></figure>
+  <figure><img src="shots/after-1680-sweep-42.png" alt=""><figcaption class="tag">new · 8</figcaption></figure>
+</div>
+<figure>
+  <img src="shots/after-1680-sweep-30.png" alt="CLOUDS magnified at 1680">
+  <figcaption><span class="tag">After · 1680</span> <span class="num">CLOUDS</span> at full size with <span class="num">1W</span> stepping down beside it, clear space around both, and the line underneath saying what the chip does.</figcaption>
+</figure>
+
+<h2>4. The numbers, measured at every step of the pass</h2>
+<table>
+<tr><th>Width</th><th>Chips landing on each other</th><th>Squeezed?</th><th>Biggest a chip gets</th><th>Tops on one line?</th><th>Wall moved</th><th>Scrolls?</th></tr>
+<tr><td>2240 · live now</td><td class="bad">55.6 px</td><td>no</td><td>1.98×</td><td>yes</td><td>0.00 px</td><td>no</td></tr>
+<tr><td>2240 · new</td><td class="num">0 px</td><td>never</td><td>1.99×</td><td>yes</td><td>0.00 px</td><td>no</td></tr>
+<tr><td>1680 · live now</td><td class="bad">55.5 px</td><td>no</td><td>1.99×</td><td>yes</td><td>0.00 px</td><td>no</td></tr>
+<tr><td>1680 · new</td><td class="num">0 px</td><td>never</td><td>1.99×</td><td>yes</td><td>0.00 px</td><td>no</td></tr>
+<tr><td>1440 · second pass</td><td>0 px</td><td class="bad">yes — 0.896 of full size</td><td class="bad">1.95×</td><td>yes</td><td>0.11 px</td><td>no</td></tr>
+<tr><td>1440 · new</td><td class="num">0 px</td><td>never</td><td>1.99×</td><td>yes</td><td>0.00 px</td><td>yes, at full size</td></tr>
+<tr><td>1100 · second pass</td><td>0 px</td><td class="bad">yes — 0.871 of full size</td><td class="bad">1.40×</td><td>yes</td><td>0.11 px</td><td>no</td></tr>
+<tr><td>1100 · new</td><td class="num">0 px</td><td>never</td><td>2.00×</td><td>yes</td><td>0.00 px</td><td>yes, at full size</td></tr>
+</table>
+<p><q>Chips landing on each other</q> is the worst overlap between two side-by-side chips found anywhere in the 49-step pass. <q>Wall moved</q> is how far the top of the wall shifted while the strip was being used.</p>
+
+<h2>5. When it runs out of wall</h2>
+<p>Below about 1500 px the chips plus the room their growth needs are wider than the window. The strip is <b>not</b> shrunk. It stays full size and slides sideways, and it still magnifies exactly as it does on the big screen. The last 26 px fade into the background so a chip at the edge reads as <q>more this way</q> instead of looking cut in half.</p>
+<figure>
+  <img src="shots/after-1440-scrolls.png" alt="1440 dock scrolling at full size with 60S magnified">
+  <figcaption><span class="tag">New · 1440</span> Full size, scrolling. <span class="num">60S</span> is magnified right at the edge of the rail and fades out into the strip; the age reading sits to the right of the rail, covering nothing.</figcaption>
+</figure>
+<figure>
+  <img src="shots/after-1100-scrolled-to-end.png" alt="1100 dock scrolled to its end">
+  <figcaption><span class="tag">New · 1100</span> Scrolled to the far end — the <span class="num">⋯</span> button is reachable, the fade is gone because there is nothing more to reach.</figcaption>
+</figure>
+
+<h2>6. The page switcher</h2>
+<p>The two-letter chip at the far left is the page switcher. It magnifies like everything else, and while it is magnified it still works:</p>
+<ul>
+<li>It grows from 20 px to 40 px, and the real list grows with it — a click at the middle of the magnified chip lands on the list, not beside it. The edge of the chip opens it too.</li>
+<li>It carries all <span class="num">12</span> pages by their full names — <q>index leadership</q>, <q>company leadership</q> — even though the chip itself says two letters.</li>
+<li>It is the first thing the keyboard reaches on the strip, and taking focus magnifies it the same way pointing at it does.</li>
+<li>Picking a page really switches the Station: <span class="num">LV</span> became <span class="num">CO</span> and the chip now reads <q>screen: company leadership</q>.</li>
+</ul>
+<figure>
+  <img src="shots/after-scene-switched.png" alt="page switcher after switching to company leadership">
+  <figcaption><span class="tag">After</span> The switcher after picking a different page by keyboard.</figcaption>
+</figure>
+<p class="note">One honest limit: the open list itself is drawn by the Mac, not by the page, so it cannot be photographed from inside a browser shot. I proved it by behaviour instead — the list has all 12 names, the click lands on it while magnified, and choosing an entry really changes the Station.</p>
+
+<h2>7. Every screen size</h2>
+<table>
+<tr><th>Screen</th><th>Rows</th><th>Chips on each other</th><th>Squeezed</th><th>Behaviour</th></tr>
+<tr><td>iMac 2240 × 1260</td><td>1</td><td class="num">0 px</td><td>never</td><td>everything fits, full magnification</td></tr>
+<tr><td>1680 × 1050</td><td>1</td><td class="num">0 px</td><td>never</td><td>everything fits, full magnification</td></tr>
+<tr><td>iPad landscape</td><td>1</td><td class="num">0 px</td><td>never</td><td>fits; a finger gets no magnification, so a tap lands where it aimed</td></tr>
+<tr><td>iPad portrait</td><td>1</td><td class="num">0 px</td><td>never</td><td>slides sideways, group words shown</td></tr>
+<tr><td>Phone 390</td><td>1</td><td class="num">0 px</td><td>never</td><td>slides sideways, age reading always visible at the right</td></tr>
+</table>
+<figure><img src="shots/after-ipad-portrait.png" alt="iPad portrait dock"><figcaption><span class="tag">New · iPad portrait</span> One row, the page chip first, the timeframe group named, the age at the right.</figcaption></figure>
+<figure><img src="shots/after-phone390.png" alt="phone dock"><figcaption><span class="tag">New · phone 390</span> One row that swipes, nothing stacked on anything.</figcaption></figure>
+
+<h2>8. What I did not change, and what is still true</h2>
+<ul>
+<li>The 50/50 video row, the video feed living in the video pane's own dropdown, the arc behaviour, the auto-hide lip, the smooth clouds, New York time on the axis — all untouched.</li>
+<li>Below about 1500 px the strip scrolls rather than showing everything at once. That is the trade for never shrinking it; you asked for it in those words.</li>
+<li>Tests: <span class="num">416</span> run, <span class="num">398</span> pass. The <span class="num">18</span> that fail are exactly the same 18 that fail on production today, name for name — they are not about the dock and I did not touch them.</li>
+<li>Nothing is deployed and nothing is pushed. This is a branch for you to look at.</li>
+</ul>
+</body>
+</html>

@@ -35,8 +35,10 @@ test('the dock loses no control, no id and no accessible name', () => {
 
 test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {
   assert.match(deck, /<div id="dock" role="toolbar" aria-label="Station controls">/)
-  assert.match(deck, /#dock > #bar, #dock > #tfbar\{ display:contents; \}/, 'the old rows are transparent wrappers')
-  const order = ['<div id="dock"', '<div id="bar">', '<div id="tfbar">', '<div id="panebar"', '</div><!-- /#dock -->']
+  assert.match(deck, /#dock #bar, #dock #tfbar, #dockRail\{ display:contents; \}/, 'the old rows are transparent wrappers')
+  /* 23 Sep, round 2: the sections sit in a rail that can scroll; the data age stands outside it. */
+  const order = ['<div id="dock"', '<div id="dockRail">', '<div id="bar">', '<div id="tfbar">', '<div id="panebar"',
+    '</div><!-- /#dockRail -->', 'data-sec="readout"', '</div><!-- /#dock -->']
   let at = -1
   for (const token of order) {
     const next = deck.indexOf(token, at + 1)

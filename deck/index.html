@@ -98,8 +98,10 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   gap:0; padding:3px 8px 4px; padding-top:calc(3px + env(safe-area-inset-top));
   padding-right:calc(var(--dock-readout,120px) + 20px);
   border-bottom:1px solid var(--line); background:var(--bg); position:relative; z-index:25;
-  min-height:calc(var(--dock-sec-h,24px) + 8px); zoom:var(--dock-fit,1); }
-#dock > #bar, #dock > #tfbar{ display:contents; }
+  min-height:calc(var(--dock-sec-h,24px) + 8px); }
+/* The rail holds every section and is the thing that scrolls. At a width that fits it is not a box
+   at all (display:contents), so the strip behaves exactly as it does on a wide wall. */
+#dock #bar, #dock #tfbar, #dockRail{ display:contents; }
 /* SECTIONS YOU CAN SEE. Alan, 23 Sep: "they kind of blend together". Each section sits on its own
    faint tint inside the one strip, edged by a hairline you can actually see, with a gap to its
    neighbour: a divider, not a wall. Dark greys only; never white. */
@@ -154,8 +156,9 @@ body.stack #dock #panebar{ display:flex; }
 #dock .scene-pick{ position:relative; width:46px; padding:0; background:var(--panel2);
   border:1px solid #2C2C46; color:var(--crk); font:9.5px var(--mono); letter-spacing:.12em; }
 #dock .scene-pick .scene-code{ pointer-events:none; }
-#dock .scene-pick select{ position:absolute; left:0; top:0; width:100%; height:100%; padding:0;
-  margin:0; opacity:0; border:0; background:transparent; cursor:pointer; }
+/* the whole chip opens the list, its edge included: the select is laid over the border as well */
+#dock .scene-pick select{ position:absolute; left:-1px; top:-1px; width:calc(100% + 2px); height:calc(100% + 2px);
+  padding:0; margin:0; opacity:0; border:0; background:transparent; cursor:pointer; }
 #dock .scene-pick:focus-within{ border-color:var(--crk); }
 /* "Some of these are grayed out. I can't see shit." A disabled chip is still a word you can read:
    --dim (5.9:1 on the strip) behind a dashed edge says "not now". The old --mute at half opacity
@@ -203,24 +206,44 @@ body.dock-autohide #dock.tucked{ transform:translateY(calc(-100% + 5px)); cursor
   #dock .btn, #dock select, #dock input, #dock #panebar > span{ transition:none; }
   #dockCaption, body.dock-autohide #dock, #dock .lip{ transition:none; }
 }
-/* NARROW: ONE ROW, ALWAYS. Alan, 23 Sep: "How's that going to work on mobile?" Below the fit floor
-   the strip no longer wraps into two, four or five rows. It stays one row and scrolls sideways
-   inside itself (a finger drags it, a trackpad swipes it); the group labels come back so a chip
-   you scrolled to says what it belongs to; the readout rides the right edge. Nothing magnifies
-   here, because a scrolling box would clip the swell, and nothing is lost. */
-#dock.dock-scroll{ justify-content:flex-start; overflow-x:auto; overflow-y:hidden; scrollbar-width:none;
-  -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain; scroll-snap-type:x proximity; }
-#dock.dock-scroll::-webkit-scrollbar{ display:none; }
+/* TOO NARROW TO HOLD IT ALL: ONE ROW, FULL SIZE, SCROLLING. Alan, 23 Sep: "there's no reason to
+   compress it all into one screen." The strip is never shrunk to fit and never wraps into rows.
+   When the chips plus the room their growth needs are wider than the wall, the strip stays exactly
+   the size it is and scrolls sideways inside itself (a finger drags it, a trackpad swipes it).
+   It still magnifies: the strip is already tall enough to hold a chip at full size, so the swell
+   grows downward inside the box and nothing is clipped. The readout rides the right edge. */
+#dock.dock-scroll{ justify-content:flex-start; padding-right:8px; }
+#dock.dock-scroll #dockRail{ display:flex; align-items:flex-start; flex:1 1 auto; min-width:0;
+  overflow-x:auto; overflow-y:hidden; scrollbar-width:none; -webkit-overflow-scrolling:touch;
+  overscroll-behavior-x:contain; scroll-snap-type:x proximity; min-height:var(--dock-sec-h,24px); }
+#dock.dock-scroll #dockRail::-webkit-scrollbar{ display:none; }
+/* A chip sitting across the rail's edge is cut in half by the box it scrolls in. The last 26 px fade
+   into the strip's own background instead, so the edge reads as "more this way" rather than as a
+   broken chip. Painted, not a mask: a mask would make the rail the anchor for the fixed ⋯ panel.
+   It is dropped once the rail is scrolled to its end, where there is nothing more to promise. */
+#dock.dock-scroll::after{ content:""; position:absolute; top:1px; bottom:1px;
+  right:calc(var(--dock-readout,120px) + 10px); width:26px; z-index:31; pointer-events:none;
+  background:linear-gradient(90deg, rgba(7,10,16,0), var(--bg)); }
+#dock.dock-scroll[data-rail="end"]::after{ display:none; }
 #dock.dock-scroll .dsec{ scroll-snap-align:start; }
-#dock.dock-scroll .dsec[data-sec="readout"]{ position:sticky; right:0; top:auto; transform:none; order:9; margin-left:auto;
-  flex-direction:row; align-items:center; gap:8px; padding:2px 2px 2px 8px; background:var(--bg); border-left:1px solid #36364F; border-radius:0;
-  z-index:3; font-size:7.5px; box-shadow:-14px 0 12px -4px var(--bg); }
-/* On a phone the strip is too narrow to give a third of it to a readout: the data age rides at the
-   end of the strip instead, one swipe away, and covers nothing. */
-body.stack #dock.dock-scroll .dsec[data-sec="readout"]{ position:static; box-shadow:none; margin-left:6px; }
+/* Alan, 23 Sep: "things jump on top of each other." A readout pinned over a strip that scrolls is a
+   lid: whatever is scrolled under it is covered. It is not pinned over anything any more - it stands
+   beside the rail, so the strip scrolls up to it and stops, and no chip is ever underneath it. */
+#dock.dock-scroll .dsec[data-sec="readout"]{ position:static; top:auto; right:auto; transform:none; order:9;
+  flex:none; align-self:center; flex-direction:row; align-items:center; gap:8px;
+  padding:2px 2px 2px 10px; background:var(--bg); border-left:1px solid #36364F; border-radius:0;
+  font-size:7.5px; }
 /* on a strip that scrolls, the readout is the data age alone: the scene picker already names the screen */
 #dock.dock-scroll .dsec[data-sec="readout"] #screenIndicator{ display:none; }
-#dock.dock-scroll .control-label, #dock.dock-scroll .lbl, #dock.dock-scroll .video-note{ display:inline; color:var(--dim); font-size:7.5px; letter-spacing:.14em; text-transform:uppercase; align-self:center; }
+/* The group words come back only where a finger does the scrolling: on a phone or a tablet a chip
+   you swiped to has to say what it belongs to. On a mouse wall the strip stays the same strip it is
+   at full width, so it does not change shape when the window crosses the width where it starts to scroll. */
+body.stack #dock.dock-scroll .control-label, body.stack #dock.dock-scroll .lbl, body.stack #dock.dock-scroll .video-note{
+  display:inline; color:var(--dim); font-size:7.5px; letter-spacing:.14em; text-transform:uppercase; align-self:center; }
+@media (pointer: coarse){
+  #dock.dock-scroll .control-label, #dock.dock-scroll .lbl, #dock.dock-scroll .video-note{
+    display:inline; color:var(--dim); font-size:7.5px; letter-spacing:.14em; text-transform:uppercase; align-self:center; }
+}
 #dock.dock-scroll #dockCaption{ display:none; }
 /* the ⋯ panel would be clipped by the scrolling box, so it hangs from the viewport instead */
 #dock.dock-scroll #moreGroup{ position:fixed; right:8px; left:8px; max-width:none; }
@@ -478,6 +501,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 </head>
 <body>
 <div id="dock" role="toolbar" aria-label="Station controls">
+<div id="dockRail">
 <div id="bar">
   <span class="dsec" data-sec="scene" role="group" aria-label="Scene">
     <span class="control-label">scene</span>
@@ -548,9 +572,6 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       <span class="more-readout"><span id="symbolNote">Hub symbols</span> · <span id="size"></span> <span id="rtNote" hidden style="color:var(--dim);font-size:9px;letter-spacing:.07em"></span></span>
     </div>
   </span>
-  <span class="dsec" data-sec="readout" aria-live="polite">
-    <span id="screenIndicator">screen 1 / 9 · index now</span>
-    <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
   </span>
 </div>
 
@@ -572,6 +593,10 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 </div>
 
 <div id="panebar" class="dsec" data-sec="panes" role="group" aria-label="Panes"><span class="lbl">panes</span></div>
+</div><!-- /#dockRail -->
+  <span class="dsec" data-sec="readout" aria-live="polite">
+    <span id="screenIndicator">screen 1 / 9 · index now</span>
+    <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
 <span class="lip" aria-hidden="true"></span>
 </div><!-- /#dock -->
 <!-- The chart count a scene chooses. It is no longer a control on the strip: it is state, kept here
@@ -1704,7 +1729,6 @@ const DOCK_ITEMS = "#dock .btn, #dock .scene-pick, #dock select:not([data-codepi
 const DOCK_MAX_SCALE = 2;        /* the pointed-at chip — "~2×" */
 const DOCK_REACH = 2.2;          /* chips: the raised cosine reaches this far from the pointer */
 const DOCK_EDGE_PX = 12;         /* px: a pointer this far past a section's last chip still counts as in it */
-const DOCK_FIT_FLOOR = .85;      /* below this zoom the type is under 7.3 px, so the strip scrolls instead */
 const DOCK_TUCK_AFTER = 2000;    /* ms without the pointer before the strip tucks to its lip */
 const DOCK_HIDE_KEY = "station.dock.autohide";
 function dockArc(boxes, pointerX, options) {
@@ -1747,19 +1771,30 @@ const dockFinePointer = window.matchMedia ? matchMedia("(hover: hover) and (poin
 const dockStillness = window.matchMedia ? matchMedia("(prefers-reduced-motion: reduce)") : { matches:false };
 const dockMagnifies = () => {
   const dock = el("dock");
-  return !!dock && !dock.classList.contains("dock-wrap") && !dock.classList.contains("dock-scroll") &&
+  /* A scrolling strip magnifies exactly like a wide one: the box is tall enough to hold the growth,
+     so the swell is not clipped. Only the wrapped fallback (several rows) sits it out. */
+  return !!dock && !dock.classList.contains("dock-wrap") &&
     dockFinePointer.matches && !dockStillness.matches;
 };
 function dockContentChanged() { dockGeometry = null; }
+/* the fade at the rail's edge only means something while there is still strip to reach */
+function paintRailEdge() {
+  const dock = el("dock"), rail = el("dockRail");
+  if (!dock || !rail) return;
+  const max = rail.scrollWidth - rail.clientWidth;
+  dock.dataset.rail = max <= 1 ? "none" : rail.scrollLeft >= max - 1 ? "end" : "more";
+}
 function dockSwellLimit() {
   const v = Number(getComputedStyle(el("dock")).getPropertyValue("--dock-swell"));
   return Number.isFinite(v) && v >= 1 ? v : DOCK_MAX_SCALE;
 }
-/* THE SLOT PASS. Every chip is given half of its own full growth as margin on each side, and the
+/* THE SLOT PASS. Every chip is given half of its own FULL growth as margin on each side, and the
    sections are made tall enough to hold that growth, so a swelling chip grows DOWNWARD into space
-   that is already its own instead of over the chip beside it or over the wall below. If the strip
-   cannot afford the full 2x at this width, every chip gets the same smaller swell - one rule for
-   the whole strip, not a different one per chip. */
+   that is already its own instead of over the chip beside it or over the wall below.
+   Alan, 23 Sep: "the apps on the iOS dock do not bunch... there's no reason to compress it all into
+   one screen." The room is the SAME at every width - a chip is always 2x, never 1.4x because the
+   window is narrow - so the neighbour's room is always already there and two chips can never meet.
+   A window too narrow to hold all of that scrolls (fitDock); it is never squeezed. */
 function dockReserve() {
   const dock = el("dock");
   if (!dock) return;
@@ -1778,15 +1813,7 @@ function dockReserve() {
     dockContentChanged();
     return;
   }
-  const style = getComputedStyle(dock);
-  const sections = Array.from(dock.querySelectorAll(".dsec"))
-    .filter((node) => node.offsetWidth > 0 && node.dataset.sec !== "readout");
-  const outer = (node) => { const cs = getComputedStyle(node);
-    return node.offsetWidth + (parseFloat(cs.marginLeft) || 0) + (parseFloat(cs.marginRight) || 0); };
-  const natural = sections.reduce((sum, node) => sum + outer(node), 0);
-  const room = dock.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
-  const widths = items.reduce((sum, node) => sum + node.offsetWidth, 0) || 1;
-  const swell = Math.max(1, Math.min(DOCK_MAX_SCALE, 1 + Math.max(0, room - natural) / widths));
+  const swell = DOCK_MAX_SCALE;
   dock.style.setProperty("--dock-swell", swell.toFixed(3));
   dock.style.setProperty("--dock-sec-h", Math.ceil(chipH * swell + 4) + "px");
   for (const node of items)
@@ -1803,9 +1830,17 @@ function paintSceneCode() {
   const pick = code.parentElement;
   if (pick) pick.title = name ? "screen: " + name : "";
 }
-function dockFit() {
-  const value = Number(getComputedStyle(el("dock")).zoom);
-  return Number.isFinite(value) && value > 0 ? value : 1;
+/* The rail is the box that scrolls; at a width that fits, it is not a box at all and scrolls nothing. */
+function dockScroller() {
+  const rail = el("dockRail");
+  return rail && rail.scrollWidth > rail.clientWidth ? rail : null;
+}
+/* Chip geometry is read with offsetLeft, which is measured from the strip's own left edge and does
+   not move when the rail is scrolled. The pointer has to be put in that same frame, so a scrolled
+   strip magnifies the chip the pointer is actually over. */
+function dockPointerX(clientX) {
+  const dock = el("dock"), scroller = dockScroller();
+  return clientX - dock.getBoundingClientRect().left + (scroller ? scroller.scrollLeft : 0);
 }
 function dockSectionOf(node) {
   const sec = node.closest(".dsec");
@@ -1859,7 +1894,9 @@ function paintDockCaption(item, center) {
   caption.textContent = text;
   const dock = el("dock");
   const half = caption.offsetWidth / 2 || 40;
-  caption.style.left = Math.round(Math.max(half + 4, Math.min(dock.clientWidth - half - 4, center))) + "px";
+  const rail = el("dockRail");
+  const span = Math.max(dock.clientWidth, rail ? rail.scrollWidth : 0);
+  caption.style.left = Math.round(Math.max(half + 4, Math.min(span - half - 4, center))) + "px";
   caption.classList.add("on");
 }
 function applyDock(pointerX, focusItem) {
@@ -1891,28 +1928,28 @@ function applyDock(pointerX, focusItem) {
   for (const sec of el("dock").querySelectorAll(".dsec")) sec.classList.toggle("swell", sec === grown);
   paintDockCaption(focusItem || topWeight > 0 ? top : null, topCenter);
 }
-/* One line, always. If the sections fit at a readable size the strip shrinks as a whole; if they
-   do not, it stays one row and scrolls inside itself rather than wrapping into rows or shrinking
-   into something nobody can read. */
+/* One line, always, at full size. The strip is never scaled down to cram it into the window:
+   it either fits - chips, sections and the room each chip's growth needs - or it stays exactly this
+   size and scrolls sideways inside itself. Nothing here can make the type smaller. */
 function fitDock() {
   const dock = el("dock");
   if (!dock) return;
   applyDock(null);
   dock.classList.remove("dock-wrap", "dock-scroll");
-  dock.style.setProperty("--dock-fit", "1");
   dockContentChanged();
-  if (STACKED || innerWidth < 760) { dock.classList.add("dock-scroll"); return; }
+  paintSceneCode();
+  /* reserve first: the answer to "does it fit" has to include the room the growth needs */
+  dockReserve();
+  if (STACKED || innerWidth < 760) { dock.classList.add("dock-scroll"); dockReserve(); paintRailEdge(); return; }
   const sections = Array.from(dock.querySelectorAll(".dsec")).filter((n) => n.offsetWidth > 0 && n.dataset.sec !== "readout");
   const readout = dock.querySelector('.dsec[data-sec="readout"]');
   /* the readout is pinned right; the strip starts at the left edge and must clear it once */
   const room = readout ? readout.offsetWidth + 24 : 0;
   const outer = (n) => { const cs = getComputedStyle(n); return n.offsetWidth + (parseFloat(cs.marginLeft) || 0) + (parseFloat(cs.marginRight) || 0); };
   const available = dock.clientWidth - 16, natural = sections.reduce((sum, n) => sum + outer(n), 0) + room;
-  let fit = available > 0 && natural > available ? available / natural : 1;
-  if (fit < DOCK_FIT_FLOOR) { dock.classList.add("dock-scroll"); fit = 1; }
-  dock.style.setProperty("--dock-fit", fit >= .999 ? "1" : fit.toFixed(3));
-  paintSceneCode();
+  if (natural > available) dock.classList.add("dock-scroll");
   dockReserve();
+  paintRailEdge();
 }
 /* ---- auto-hide: the strip tucks to its lip and comes back on approach, tap or focus ---- */
 function dockAutoHideOn() {
@@ -1996,7 +2033,7 @@ function wireDock() {
   const sceneSel = el("sceneMode");
   if (sceneSel) sceneSel.addEventListener("change", paintSceneCode);
   paintSceneCode();
-  const pointerAt = (clientX) => (clientX - dock.getBoundingClientRect().left) / dockFit();
+  const pointerAt = (clientX) => dockPointerX(clientX);
   dock.addEventListener("pointermove", (event) => {
     /* A finger gets no magnification: it has no hover, and a tap must land on what it aimed at. */
     if (event.pointerType !== "mouse" || !dockMagnifies() || dock.classList.contains("tucked")) return;
@@ -2008,6 +2045,8 @@ function wireDock() {
   dock.addEventListener("pointerenter", () => { dockPointerInside = true; revealDock(); }, { passive:true });
   dock.addEventListener("pointerleave", () => { dockPointerInside = false; rest(); armDockTuck(); }, { passive:true });
   dock.addEventListener("pointercancel", rest, { passive:true });
+  const rail = el("dockRail");
+  if (rail) rail.addEventListener("scroll", paintRailEdge, { passive:true });
   /* the lip: a tap or click on the tucked strip brings it back, and nothing under it is hit */
   dock.addEventListener("pointerdown", (event) => {
     if (dock.classList.contains("tucked")) { event.preventDefault(); revealDock(); }
@@ -2021,6 +2060,14 @@ function wireDock() {
     const item = event.target.closest(DOCK_ITEMS.split(", ").map((s) => s.replace("#dock ", "")).join(", "));
     if (!item || !dock.contains(item) || item.closest("#moreGroup")) return;
     dockFocusItem = item;
+    /* on a strip that scrolls, walking onto a chip brings that chip into the window */
+    const scroller = el("dockRail");
+    if (scroller && scroller.scrollWidth > scroller.clientWidth) {
+      const left = item.offsetLeft - scroller.offsetLeft;
+      const right = left + item.offsetWidth;
+      if (left < scroller.scrollLeft) scroller.scrollLeft = Math.max(0, left - 10);
+      else if (right > scroller.scrollLeft + scroller.clientWidth) scroller.scrollLeft = right - scroller.clientWidth + 10;
+    }
     const center = item.offsetLeft + item.offsetWidth / 2;
     if (!dockMagnifies()) { paintDockCaption(item, center); return; }
     applyDock(center, item);

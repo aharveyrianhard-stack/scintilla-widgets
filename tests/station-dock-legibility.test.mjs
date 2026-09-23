@@ -55,18 +55,22 @@ test("sections are visibly distinct: a tint, a hairline you can see, and a gap b
   }
 });
 
-test("one row at every width: below the fit floor the strip scrolls inside itself instead of wrapping", () => {
+test("one row at every width: when it does not fit it scrolls at full size, it never shrinks", () => {
   const fit = deck.slice(deck.indexOf("function fitDock("), deck.indexOf("function dockAutoHideOn("));
   assert.match(fit, /dock\.classList\.add\("dock-scroll"\)/);
   assert.doesNotMatch(fit, /classList\.add\("dock-wrap"\)/, "nothing adds the wrap any more");
-  assert.match(dockCss, /#dock\.dock-scroll\{[^}]*overflow-x:auto/);
+  assert.match(dockCss, /#dock\.dock-scroll #dockRail\{[^}]*overflow-x:auto/, "the rail scrolls, and the strip keeps its size");
   assert.match(dockCss, /#dock\.dock-scroll\{[^}]*justify-content:flex-start/, "a centred scroll box would hide its left end");
   assert.doesNotMatch(dockCss, /@media \(max-width: 720px\)\{ #dock\{ flex-wrap:wrap/, "no media query forces a wrap on phones");
-  const floor = Number(/const DOCK_FIT_FLOOR = ([0-9.]+);/.exec(deck)[1]);
-  assert.ok(floor >= .8, "the strip never shrinks its type below about 7 px (floor " + floor + ")");
-  assert.match(dockCss, /#dock\.dock-scroll \.control-label[^{]*\{[^}]*color:var\(--dim\)/, "the labels that return in the scrolling strip are readable");
-  assert.match(dockCss, /#dock\.dock-scroll \.dsec\[data-sec="readout"\]\{[^}]*position:sticky/, "the readout rides the right edge");
-  assert.match(deck, /const dockMagnifies = \(\) => \{[\s\S]{0,400}?dock-scroll/, "nothing magnifies in a scrolling strip");
+  /* Alan, 23 Sep: "there's no reason to compress it all into one screen." There is no shrink factor
+     left to get wrong - the type is the same size at 2240 and at 390. */
+  assert.doesNotMatch(deck, /DOCK_FIT_FLOOR|--dock-fit/, "nothing scales the strip down to make it fit");
+  assert.match(dockCss, /body\.stack #dock\.dock-scroll \.control-label[\s\S]{0,240}?color:var\(--dim\)/,
+    "where a finger does the scrolling the group words come back, and they are readable");
+  assert.match(dockCss, /#dock\.dock-scroll \.dsec\[data-sec="readout"\]\{[^}]*position:static/,
+    "the age stands beside the rail instead of lying over it");
+  assert.doesNotMatch(deck.slice(deck.indexOf("const dockMagnifies"), deck.indexOf("function dockContentChanged")),
+    /dock-scroll/, "a strip that scrolls magnifies exactly like a wide one");
 });
 
 test("the video-feed buttons stay out of the dock", () => {
