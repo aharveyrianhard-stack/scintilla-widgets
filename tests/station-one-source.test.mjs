@@ -26,7 +26,9 @@ test("the wall keeps only non-price reads: favourites and the canonical ticker l
   assert.doesNotMatch(deck, /supabase-js-|createClient\(|postgres_changes|deckSb\.channel\(/);
   const reads = [...deck.matchAll(/pg\("([a-z_]+)\?/g)].map((m) => m[1]);
   assert.ok(reads.length > 0, "the non-price reader is still used");
-  for (const table of reads) assert.ok(["hub_favorites", "tickers"].includes(table), "non-price read only: " + table);
+  /* youtube_feed joined on 23 Sep: the one-feed video pane asks which channel accounts carry rows.
+     It is video metadata, not a price, so the one-source rule for prices still holds. */
+  for (const table of reads) assert.ok(["hub_favorites", "tickers", "youtube_feed"].includes(table), "non-price read only: " + table);
 });
 
 test("the provider client routes macro symbols to the chart API and names everything else", () => {
