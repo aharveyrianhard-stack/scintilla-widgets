@@ -20,7 +20,12 @@
    the average of the last COMPLETED session before that bar's own session — the
    number that was actually knowable while that bar was forming. On a daily,
    3-session or weekly chart each bar shows the newest completed daily average
-   inside that bar's own period. Nothing is interpolated, smoothed or filled.
+   inside that bar's own period. No VALUE is interpolated, smoothed or filled.
+   (The pen's path between two sessions may be smoothed for the eye - see DISPLAY
+   GEOMETRY below - but every number a label names, and every anchor the curve passes
+   through, is a real completed-session value. Alan, 22 Sep: "I don't need it to be
+   really exact, the history of the curves. What matters is that the current level in
+   the labels is exact.")
 
    Everything in this file is pure arithmetic and geometry: no fetch, no DOM, no
    clock, no storage. chart/index.html owns the candle read (the same provider
@@ -297,6 +302,82 @@
     return placed;
   }
 
+  /* ---- DISPLAY GEOMETRY: smoothed for the eye, labels exact -----------------------
+     Alan, 22 Sep: "I'd like a proposal for smoothening the steppy behaviour... I don't
+     want to do it mathematically. Just visually." and "I want clean curves, smooth as
+     butter." So the values above are untouched; only the path the pen takes between two
+     sessions changes. The curve is a monotone cubic (Fritsch-Carlson): it passes through
+     every anchor EXACTLY and between two anchors it never leaves the interval between
+     their values, so it cannot overshoot past a real session value. */
+  function monotoneCurve(xs, ys) {
+    var n = xs.length, i;
+    if (!n) return null;
+    if (n === 1) return function () { return ys[0]; };
+    var d = [], m = [];
+    for (i = 0; i < n - 1; i++) d.push((ys[i + 1] - ys[i]) / (xs[i + 1] - xs[i]));
+    m[0] = d[0]; m[n - 1] = d[n - 2];
+    for (i = 1; i < n - 1; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+    for (i = 0; i < n - 1; i++) {
+      if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+      var a = m[i] / d[i], b = m[i + 1] / d[i], s = a * a + b * b;
+      if (s > 9) { var t = 3 / Math.sqrt(s); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+    }
+    return function (x) {
+      if (x <= xs[0]) return ys[0];
+      if (x >= xs[n - 1]) return ys[n - 1];
+      var k = 0;
+      while (k < n - 2 && x > xs[k + 1]) k++;
+      var h = xs[k + 1] - xs[k], u = (x - xs[k]) / h, u2 = u * u, u3 = u2 * u;
+      return (2 * u3 - 3 * u2 + 1) * ys[k] + (u3 - 2 * u2 + u) * h * m[k] +
+             (-2 * u3 + 3 * u2) * ys[k + 1] + (u3 - u2) * h * m[k + 1];
+    };
+  }
+
+  /* One anchor per session, at that session's LAST bar, so the newest bar on screen is
+     always an anchor and the labels sit exactly where the curve ends. The run that opens a
+     group also anchors its first bar, so the left edge is held flat rather than left blank.
+     A break in the mapping (a bar older than every average) starts a new group. */
+  function curveGroups(runList) {
+    var groups = [], current = null;
+    for (var i = 0; i < runList.length; i++) {
+      var run = runList[i];
+      if (!current || runList[i - 1].to + 1 !== run.from) {
+        current = { xs:[], rows:[] };
+        groups.push(current);
+        if (run.to > run.from) { current.xs.push(run.from); current.rows.push(run.row); }
+      }
+      current.xs.push(run.to); current.rows.push(run.row);
+    }
+    return groups;
+  }
+
+  /* A row of the ribbon at any x inside a group: each average read off its own curve, the
+     direction booleans recomputed from those values exactly as dailyRows computes them, and
+     the close of the session this piece is heading to (for the price-coloured extras). */
+  function curveFor(group, keys) {
+    var fns = {}, k;
+    for (k = 0; k < keys.length; k++) {
+      var key = keys[k], xs = [], ys = [];
+      for (var i = 0; i < group.xs.length; i++)
+        if (finite(group.rows[i][key])) { xs.push(group.xs[i]); ys.push(group.rows[i][key]); }
+      fns[key] = xs.length ? { at:monotoneCurve(xs, ys), lo:xs[0], hi:xs[xs.length - 1] } : null;
+    }
+    return function (x) {
+      var row = {}, j = 0;
+      while (j < group.xs.length - 1 && group.xs[j] < x) j++;
+      var anchor = group.rows[j] || null;
+      for (var q = 0; q < keys.length; q++) {
+        var f = fns[keys[q]];
+        row[keys[q]] = f && x >= f.lo && x <= f.hi ? f.at(x) : null;
+      }
+      row.close = anchor && finite(anchor.close) ? anchor.close : null;
+      row.f = finite(row.e13) && finite(row.e21) ? row.e13 >= row.e21 : null;
+      row.m = finite(row.e21) && finite(row.s50) ? row.e21 >= row.s50 : null;
+      row.o = finite(row.s50) && finite(row.s200) ? row.s50 >= row.s200 : null;
+      return row;
+    };
+  }
+
   var API = Object.freeze({
     PALETTE:PALETTE, SPECS:SPECS, CLOUD_LAYERS:CLOUD_LAYERS,
     EMA_SEED_WARMUP:EMA_SEED_WARMUP, INTRADAY_RANGES:Object.freeze(INTRADAY_RANGES.slice()),
@@ -305,7 +386,8 @@
     subtractRange:subtractRange, cloudPolygons:cloudPolygons, cloudBands:cloudBands,
     lineInk:lineInk, cloudInk:cloudInk, lineBullish:lineBullish,
     displayScale:displayScale, strokeWidth:strokeWidth, signedPercent:signedPercent,
-    placeLabels:placeLabels
+    placeLabels:placeLabels,
+    monotoneCurve:monotoneCurve, curveGroups:curveGroups, curveFor:curveFor
   });
   root.SC_CLOUDS = API;
   if (typeof module !== "undefined" && module.exports) module.exports = API;

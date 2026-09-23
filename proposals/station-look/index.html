@@ -33,14 +33,14 @@ canvas{ width:100%; height:240px; display:block; background:#07080f; border-radi
 </div>
 
 <h2>2 · Smoothing the stepped ribbon (visual only, the averages are untouched)</h2>
-<p class="note">Every panel uses the identical daily 13D/21D EMA and 50D/200D SMA values. Only the geometry between session points changes. No curve is allowed to pass beyond a real session value.</p>
+<p class="note">Every panel uses the identical daily 13D/21D EMA and 50D/200D SMA values. Only the geometry between session points changes. No curve is allowed to pass beyond a real session value. The Station draws <b>c</b> by default since 22 Sep; <code>?steps=1</code> on a chart, or the caption on the pane, restores <b>a</b>. The labels name the exact computed values in every variant.</p>
 <div class="pick" id="modes">
-  <button data-m="step" class="on">a · stepped (today)</button><button data-m="line">b · straight diagonals</button><button data-m="cubic">c · gentle curve (monotone, no overshoot)</button><button data-m="fillonly">d · fill smoothed, line exact</button>
+  <button data-m="step">a · stepped (?steps=1)</button><button data-m="line">b · straight diagonals</button><button data-m="cubic" class="on">c · gentle curve · the Station default (monotone, no overshoot)</button><button data-m="fillonly">d · fill smoothed, line exact</button>
 </div>
 <div class="row">
-  <div class="card"><h3><span>a · stepped (today)</span></h3><canvas id="smA"></canvas></div>
+  <div class="card"><h3><span>a · stepped</span><b>?steps=1</b></h3><canvas id="smA"></canvas></div>
   <div class="card"><h3><span>b · straight diagonals</span></h3><canvas id="smB"></canvas></div>
-  <div class="card"><h3><span>c · gentle curve</span><b>monotone cubic</b></h3><canvas id="smC"></canvas></div>
+  <div class="card"><h3><span>c · gentle curve · default</span><b>monotone cubic</b></h3><canvas id="smC"></canvas></div>
   <div class="card"><h3><span>d · fill smoothed, line exact</span></h3><canvas id="smD"></canvas></div>
 </div>
 <p class="note" id="foot"></p>
@@ -72,7 +72,7 @@ function drawColour(pts, quote) {
     if (mode === "mono") priceLine(ctx, pts, X, Y, 0, pts.length - 1, "#3FB8AF");
     if (mode === "segment") { priceLine(ctx, pts, X, Y, 0, dayStart, "#3FB8AF"); priceLine(ctx, pts, X, Y, dayStart, pts.length - 1, ref == null ? "#868AAA" : dayTone, 2.4); }
     if (mode === "today") priceLine(ctx, pts, X, Y, 0, pts.length - 1, ref == null ? "#868AAA" : dayTone);
-    ctx.font = "700 12px " + getComputedStyle(document.body).getPropertyValue("--mono"); ctx.fillStyle = "#F2F2F8"; ctx.fillText($("sym").value.toUpperCase() + "  " + last.toFixed(2) + "  ", 10, 20);
+    ctx.font = "700 12px " + getComputedStyle(document.body).getPropertyValue("--mono"); ctx.fillStyle = "#9A9AB6"; ctx.fillText($("sym").value.toUpperCase() + "  " + last.toFixed(2) + "  ", 10, 20);
     const wdt = ctx.measureText($("sym").value.toUpperCase() + "  " + last.toFixed(2) + "  ").width; ctx.fillStyle = ref == null ? "#868AAA" : (up ? "#00FFA3" : "#FF2D55"); ctx.fillText(pctText, 10 + wdt, 20);
   }
 }
@@ -121,5 +121,7 @@ async function load() {
 }
 $("go").addEventListener("click", load); $("sym").addEventListener("keydown", (e) => { if (e.key === "Enter") load(); });
 const q = new URLSearchParams(location.search).get("t"); if (q) $("sym").value = q.toUpperCase();
+const STEPS = new URLSearchParams(location.search).get("steps") === "1"; /* the same switch the Station chart honours */
+for (const b of document.querySelectorAll("#modes button")) b.classList.toggle("on", b.dataset.m === (STEPS ? "step" : "cubic"));
 addEventListener("resize", () => load()); load();
 </script></body></html>

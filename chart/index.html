@@ -17,6 +17,7 @@
      widget has no cohort board to click. PRICE BASIS: provider-built completed
      candles and provider quotes for equities; retained-owner ticks for non-equities.
      Params: ?t=MU · ?range=1D (15m 30m 1h 2h 3h 4h 6h 12h 1D 3D 1W)
+       · ?steps=1 (cloud ribbon drawn stepped; the default is smoothed for the eye, labels exact)
        · ?bare=1 (pane mode — see the BARE note in the script)
        · ?tvrange=1D|5D|1M|3M|6M|YTD|12M|60M|ALL (TradingView opening window)
      LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
@@ -34,7 +35,7 @@
 }
 *{ min-width:0; box-sizing:border-box; }
 html,body{ margin:0; padding:0; height:100%; overscroll-behavior:none; }
-body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
+body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
   -webkit-font-smoothing:antialiased; font-size:12px; letter-spacing:.02em; overflow:hidden;
   -webkit-text-size-adjust:100%; text-size-adjust:100%; }
 #chartSlot{ position:absolute; inset:0; overflow:hidden; overscroll-behavior:none; }
@@ -49,7 +50,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-crange{ flex:none; background:none; border:.6px solid var(--line2); border-radius:3px;
   cursor:pointer; font-family:var(--mono); font-size:8.5px; letter-spacing:.08em;
   color:var(--dim); padding:3px 7px; white-space:nowrap; }
-.sc-crange:hover{ color:var(--ink2); }
+.sc-crange:hover{ color:var(--ink3); }
 .sc-crange.on{ color:var(--crk); border-color:rgba(0,212,255,.45);
   box-shadow:inset 0 -2px 0 var(--crk); }
 .sc-nchart__bar .sc-tv__pop{ position:static; margin-left:auto; flex:none; }
@@ -69,7 +70,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-nchart__live:hover{ filter:brightness(1.18); }
 .sc-nchart__live-ticker{ appearance:none; border:0; background:transparent; color:inherit; padding:0;
   font:inherit; letter-spacing:inherit; line-height:inherit; cursor:text; text-decoration:underline;
-  text-decoration-color:rgba(255,255,255,.26); text-underline-offset:3px; }
+  text-decoration-color:rgba(134,138,170,.55); text-underline-offset:3px; }
 .sc-nchart__live-change{ font:700 .86em var(--mono); letter-spacing:.02em; line-height:1; }
 .sc-nchart__live-prev{ color:var(--ink3); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
 .sc-nchart__live-window{ color:var(--dim); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
@@ -86,10 +87,19 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-nchart__live[data-fresh="0"]{ opacity:.72; }
 /* A quote whose observation time the provider did not supply is neither fresh nor stale.
    It is marked so it cannot be read as either. */
-.sc-nchart__live[data-untimed="1"]{ border-bottom:1px dotted rgba(198,200,222,.45); }
+.sc-nchart__live[data-untimed="1"]{ border-bottom:1px dotted rgba(134,138,170,.7); }
 .sc-nchart__msg{ position:absolute; inset:0; z-index:2; display:flex; align-items:center;
   justify-content:center; color:var(--dim); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
 .sc-nchart__msg[hidden]{ display:none; }
+/* THE RIBBON'S ONE-LINE CAPTION, AND ITS SWITCH. "smoothed for the eye · labels exact · 400 daily bars ·
+   60 warm-up not drawn": what the curve is, what it is not, and how much history built it, stated on the
+   pane instead of hidden in a tooltip (Alan, 22 Sep). Click it and the ribbon is drawn stepped, one level
+   per session, exactly as before; click again to smooth. Dim ink, never white. */
+.sc-nchart__cap{ position:absolute; left:8px; bottom:24px; z-index:3; appearance:none; border:0; border-radius:3px;
+  background:rgba(5,6,12,.62); color:var(--dim); font:600 7.5px var(--mono); letter-spacing:.06em; line-height:1;
+  padding:3px 6px; cursor:pointer; white-space:nowrap; opacity:.85; }
+.sc-nchart__cap:hover{ opacity:1; color:var(--ink3); }
+.sc-nchart__cap[hidden]{ display:none; }
 .sc-tv__pop{ z-index:3;
   display:inline-flex; align-items:center; gap:4px;
   font-family:var(--mono); font-size:8px; letter-spacing:.12em;
@@ -102,7 +112,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 
 /* widget ticker field (chrome addition — no cohort board in a standalone window) */
 .sc-ctkin{ flex:none; width:74px; background:var(--panel2); border:.6px solid var(--line2); border-radius:3px;
-  color:var(--ink); font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--ink3); font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase;
   padding:3px 7px; outline:none; text-align:center; }
 .sc-ctkin:focus{ border-color:rgba(0,212,255,.45); color:var(--crk); }
 /* bare mode — the Station owns ticker and timeframe. Hide the duplicated
@@ -130,16 +140,16 @@ body.tvmodal-open{ overflow:hidden; }
   color:var(--ink3); text-decoration:none; border:.5px solid var(--line2); border-radius:3px; padding:2px 8px; }
 .sc-tvmodal__out:hover{ color:var(--crk); border-color:rgba(0,212,255,.4); }
 .sc-tvmodal__x{ flex:0 0 auto; width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center;
-  background:none; border:.5px solid var(--line2); border-radius:4px; color:var(--ink2);
+  background:none; border:.5px solid var(--line2); border-radius:4px; color:var(--ink3);
   font-size:13px; line-height:1; cursor:pointer; }
-.sc-tvmodal__x:hover{ color:#fff; border-color:var(--crk); background:rgba(0,212,255,.08); }
+.sc-tvmodal__x:hover{ color:var(--crk); border-color:var(--crk); background:rgba(0,212,255,.08); }
 .sc-tvmodal__body{ position:relative; flex:1 1 auto; min-height:0; background:var(--bg); }
 .sc-tvmodal__load{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
   font-family:var(--mono); font-size:11px; color:var(--dim); letter-spacing:.06em; }
 .sc-tvmodal__frame{ position:relative; z-index:1; width:100%; height:100%; border:0; display:block; background:var(--bg); }
 .sc-tvmodal__fallback{ display:flex; flex-direction:column; align-items:center; justify-content:center;
   height:100%; gap:11px; text-align:center; padding:24px; }
-.sc-tvmodal__fallback .ttl{ font-family:var(--mono); font-size:13px; letter-spacing:.06em; color:var(--ink); }
+.sc-tvmodal__fallback .ttl{ font-family:var(--mono); font-size:13px; letter-spacing:.06em; color:var(--ink3); }
 .sc-tvmodal__fallback .sub{ font-size:11px; color:var(--ink3); line-height:1.5; max-width:360px; }
 .sc-tvmodal__fallback .btn{ margin-top:4px; font-family:var(--mono); font-size:11px; letter-spacing:.06em;
   color:var(--crk); text-decoration:none; border:.8px solid rgba(0,212,255,.45); border-radius:5px;
@@ -325,6 +335,12 @@ const DECK_QUOTE_MODE = BARE && window.parent !== window;
 const CLOUD_STATE_KEY = "station.clouds";
 let CLOUDS_ON = QS.has("clouds") ? QS.get("clouds") !== "0" : lsGet(CLOUD_STATE_KEY) !== "0";
 const CLOUD_EXTRAS = Object.freeze({ ema8: QS.get("ema8") === "1", sma100: QS.get("sma100") === "1" });
+/* SMOOTHED FOR THE EYE, LABELS EXACT (Alan, 22 Sep: "clean curves, smooth as butter" - "what matters is
+   that the current level in the labels is exact"). The ribbon is drawn as a monotone curve through one
+   anchor per session by default; ?steps=1 restores the stepped drawing for a deep link or a comparison,
+   and the caption on the pane switches it for this browser. Neither changes a single value. */
+const CLOUD_STEPS_KEY = "station.clouds.steps";
+let CLOUD_STEPS = QS.has("steps") ? QS.get("steps") === "1" : lsGet(CLOUD_STEPS_KEY) === "1";
 const S = {
   chartT: (QS.get("t") || (BARE ? null : lsGet("scw_chartT")) || "MU").toUpperCase().trim(),
   /* The Station owns one run-wide range. A reload begins at 3h unless its
@@ -391,7 +407,7 @@ function chColors() {
     const cs = getComputedStyle(document.documentElement);
     const v = (n, fb) => (cs.getPropertyValue(n) || fb).trim();
     CH_COL = { bull: v("--bull", "#00FFA3"), bear: v("--bear", "#FF2D55"),
-               dim: v("--dim", "#868AAA"), ink2: v("--ink2", "#C6C8DE") };
+               dim: v("--dim", "#868AAA") };
   }
   return CH_COL;
 }
@@ -652,6 +668,10 @@ async function fetchChartSeries(t, range, requestedLimit){
        change during the session.
    Pan, zoom, hover, and every timeframe switch draw from that one cached series
    and make no request at all.
+   HOW IT IS DRAWN: smoothed for the eye - a monotone curve through one anchor per
+   session (that session's last bar), never past a real value; the labels name the exact
+   computed values regardless. ?steps=1, or the caption on the pane, restores the stepped
+   drawing. The lookback is stated on the pane: "400 daily bars · 60 warm-up not drawn".
    WHAT BREAKS WITHOUT IT: nothing. A ribbon that cannot be read is a missing
    ribbon; the price chart is untouched and says nothing about clouds.
    ============================================================================ */
@@ -755,6 +775,13 @@ function setClouds(on) {
     scChartDraw(host);
   }
 }
+function setCloudSteps(stepped) {
+  const next = !!stepped;
+  if (next === CLOUD_STEPS) return;
+  CLOUD_STEPS = next;
+  if (!BARE) { try { localStorage.setItem(CLOUD_STEPS_KEY, CLOUD_STEPS ? "1" : "0"); } catch (_) {} }
+  for (const host of CHART_HOSTS) if (host.isConnected) scChartDraw(host);
+}
 const cloudSpecOptions = () => CLOUD_EXTRAS;
 /* Which completed daily observation each visible bar may show. Computed once per
    (series, ribbon, timeframe) and reused by every redraw, including hover. */
@@ -777,6 +804,7 @@ function drawCloudRibbon(ctx, options) {
   const SC = window.SC_CLOUDS, map = options.map, X = options.X, Y = options.Y;
   const runs = SC.runs(map, options.start - 1, options.end + 1);
   if (!runs.length) return;
+  const specs = SC.activeSpecs(cloudSpecOptions());
   const fills = new Map();
   const addBand = (band, xa, xb) => {
     if (!(xb - xa > .01)) return;
@@ -786,42 +814,74 @@ function drawCloudRibbon(ctx, options) {
     path.moveTo(xa, Y(band.previousHi)); path.lineTo(xb, Y(band.hi));
     path.lineTo(xb, Y(band.lo)); path.lineTo(xa, Y(band.previousLo)); path.closePath();
   };
-  for (let i = 0; i < runs.length; i++) {
-    const run = runs[i];
-    /* a session held flat: one rectangle for the whole run, not one per bar */
-    if (run.to > run.from) for (const band of SC.cloudBands(run.row)) addBand(band, X(run.from), X(run.to));
-    const next = runs[i + 1];
-    if (!next || next.from !== run.to + 1) continue;
-    const xa = X(run.to), span = X(next.from) - xa;
-    for (const band of SC.cloudPolygons(run.row, next.row)) addBand(band, xa + span * band.t0, xa + span * band.t1);
-  }
-  /* One path per colour: adjacent bands then share an edge instead of leaving a
-     hairline seam between two separately antialiased fills. */
-  for (const [ink, path] of fills) { ctx.fillStyle = ink; ctx.fill(path); }
-  for (const spec of SC.activeSpecs(cloudSpecOptions())) {
-    const strokes = new Map();
-    const addLine = (bullish, xa, ya, xb, yb) => {
-      const ink = cloudLineInk(spec, bullish);
-      let path = strokes.get(ink);
-      if (!path) { path = new Path2D(); strokes.set(ink, path); }
-      path.moveTo(xa, ya); path.lineTo(xb, yb);
-    };
+  /* One polyline per (average, colour). A piece that starts where the last one ended continues
+     the pen instead of lifting it, so a sampled curve is one stroke, not a chain of dashes. */
+  const strokes = new Map();
+  const addLine = (spec, bullish, xa, ya, xb, yb) => {
+    const ink = cloudLineInk(spec, bullish), id = spec.key + "|" + ink;
+    let stroke = strokes.get(id);
+    if (!stroke) { stroke = { spec, ink, path:new Path2D(), x:NaN, y:NaN }; strokes.set(id, stroke); }
+    if (stroke.x !== xa || stroke.y !== ya) stroke.path.moveTo(xa, ya);
+    stroke.path.lineTo(xb, yb); stroke.x = xb; stroke.y = yb;
+  };
+  if (options.smooth) {
+    /* SMOOTHED FOR THE EYE, LABELS EXACT (Alan, 22 Sep). One anchor per session at that
+       session's last bar; a monotone curve through the anchors; the fill and every line follow
+       that curve, sampled about every two pixels and tiled with the approved crossing-split
+       geometry. The newest bar is an anchor, so where the labels sit is exactly where the
+       curve ends. Between anchors the shape is for the eye only. */
+    const keys = specs.map((spec) => spec.key);
+    for (const group of SC.curveGroups(runs)) {
+      const x0 = group.xs[0], x1 = group.xs[group.xs.length - 1];
+      if (!(x1 > x0)) continue;
+      const rowAt = SC.curveFor(group, keys);
+      const perBar = Math.max(1e-6, X(x0 + 1) - X(x0));
+      const step = Math.max(1 / 8, Math.min(1, 2 / perBar));
+      let px = x0, prev = rowAt(x0);
+      for (let x = x0 + step; ; x += step) {
+        const cx = Math.min(x, x1), row = rowAt(cx), xa = X(px), xb = X(cx), span = xb - xa;
+        for (const band of SC.cloudPolygons(prev, row)) addBand(band, xa + span * band.t0, xa + span * band.t1);
+        for (const spec of specs) {
+          const from = prev[spec.key], to = row[spec.key], state = SC.lineBullish(spec, row);
+          if (Number.isFinite(from) && Number.isFinite(to) && state !== null) addLine(spec, state, xa, Y(from), xb, Y(to));
+        }
+        px = cx; prev = row;
+        if (cx >= x1) break;
+      }
+    }
+  } else {
+    /* STEPPED: one level per session, straight between sessions - the drawing as it was. */
     for (let i = 0; i < runs.length; i++) {
+      const run = runs[i];
+      if (run.to > run.from) for (const band of SC.cloudBands(run.row)) addBand(band, X(run.from), X(run.to));
+      const next = runs[i + 1];
+      if (!next || next.from !== run.to + 1) continue;
+      const xa = X(run.to), span = X(next.from) - xa;
+      for (const band of SC.cloudPolygons(run.row, next.row)) addBand(band, xa + span * band.t0, xa + span * band.t1);
+    }
+    for (const spec of specs) for (let i = 0; i < runs.length; i++) {
       const run = runs[i], value = run.row[spec.key], state = SC.lineBullish(spec, run.row);
       if (Number.isFinite(value) && state !== null && run.to > run.from)
-        addLine(state, X(run.from), Y(value), X(run.to), Y(value));
+        addLine(spec, state, X(run.from), Y(value), X(run.to), Y(value));
       const next = runs[i + 1];
       if (!next || next.from !== run.to + 1) continue;
       const from = run.row[spec.key], to = next.row[spec.key], nextState = SC.lineBullish(spec, next.row);
       if (!Number.isFinite(from) || !Number.isFinite(to) || nextState === null) continue;
-      addLine(nextState, X(run.to), Y(from), X(next.from), Y(to));
+      addLine(spec, nextState, X(run.to), Y(from), X(next.from), Y(to));
     }
-    if (!strokes.size) continue;
+  }
+  /* One path per colour: adjacent bands then share an edge instead of leaving a
+     hairline seam between two separately antialiased fills. */
+  for (const [ink, path] of fills) { ctx.fillStyle = ink; ctx.fill(path); }
+  ctx.save();
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  for (const spec of specs) {
     ctx.lineWidth = SC.strokeWidth(spec, options.scale);
     ctx.setLineDash(spec.style === "dashed" ? (spec.key === "e8" ? [3, 5] : [5, 5]) : []);
-    for (const [ink, path] of strokes) { ctx.strokeStyle = ink; ctx.stroke(path); }
+    for (const stroke of strokes.values()) if (stroke.spec === spec) { ctx.strokeStyle = stroke.ink; ctx.stroke(stroke.path); }
   }
   ctx.setLineDash([]);
+  ctx.restore();
 }
 function cloudPercentText(pct) {
   if (!Number.isFinite(pct)) return "";
@@ -833,7 +893,7 @@ function cloudPercentText(pct) {
    with no honest room is not drawn rather than printed over the price scale. */
 function drawCloudLabels(ctx, options) {
   const SC = window.SC_CLOUDS, map = options.map, row = map[options.end];
-  if (!row) return;
+  if (!row) return [];
   const price = options.pts[options.end] ? options.pts[options.end].p : null;
   const items = [];
   for (const spec of SC.activeSpecs(cloudSpecOptions())) {
@@ -846,7 +906,7 @@ function drawCloudLabels(ctx, options) {
     items.push({ key:spec.key, y, value, bullish, short:spec.label,
       full:pct ? spec.label + " (" + pct + ")" : spec.label });
   }
-  if (!items.length) return;
+  if (!items.length) return [];
   ctx.save();
   ctx.font = "600 " + options.font.toFixed(1) + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.textBaseline = "middle"; ctx.textAlign = "left";
@@ -861,10 +921,29 @@ function drawCloudLabels(ctx, options) {
     ctx.beginPath(); ctx.arc(options.X(options.end), label.y, 1.3, 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
+  return placed;
 }
 /* Text is read, a fill is only seen: the caption uses a brighter tone of the same
    indigo family so a 7px name stays legible on the pane. No white, no second hue. */
 const CLOUD_LABEL_INK = Object.freeze({ blue:"#5C7BFF", pink:"#FF00A8" });
+
+/* The caption states what the ribbon is (smoothed for the eye, or stepped), that the labels are exact
+   either way, and how much history built it. It is also the switch between the two drawings. */
+function paintCloudCaption(host, options) {
+  const cap = host.querySelector(".sc-nchart__cap");
+  if (!cap) return;
+  const rows = CLOUDS_ON && window.SC_CLOUDS && host._cloudRows;
+  if (!options.show || !rows || !rows.length) { cap.hidden = true; return; }
+  const text = (CLOUD_STEPS ? "stepped" : "smoothed for the eye") + " · labels exact · " + rows.length + " daily bars · " + window.SC_CLOUDS.EMA_SEED_WARMUP + " warm-up not drawn";
+  if (cap.textContent !== text) cap.textContent = text;
+  cap.title = CLOUD_STEPS
+    ? "Stepped: one level per session, straight between sessions. Click to smooth the curve for the eye. The values and labels do not change."
+    : "Smoothed for the eye: a curve through each session's value, never past one. Click for the stepped drawing. The values and labels do not change.";
+  cap.setAttribute("aria-pressed", CLOUD_STEPS ? "true" : "false");
+  const bottom = Math.round(options.padB + 3) + "px";
+  if (cap.style.bottom !== bottom) cap.style.bottom = bottom;
+  cap.hidden = false;
+}
 
 /* ---- scChart — ported verbatim (R20 touch-guard overlay dropped; see header) ---- */
 function scChartHTML(ticker) {
@@ -884,7 +963,8 @@ function scChartHTML(ticker) {
     "</div>" +
     '<div class="sc-nchart__area"><canvas class="sc-nchart__cv"></canvas>' +
     '<div class="sc-nchart__live" data-fresh="0" title="Edit ticker"></div>' +
-    '<div class="sc-nchart__msg" hidden></div></div></div>';
+    '<div class="sc-nchart__msg" hidden></div>' +
+    '<button type="button" class="sc-nchart__cap" data-act="cloudsteps" hidden aria-label="Cloud ribbon drawing: smoothed for the eye, or stepped">smoothed for the eye · labels exact</button></div></div>';
 }
 const TV_STUDIES = encodeURIComponent(JSON.stringify([
   "RSI@tv-basicstudies", "MACD@tv-basicstudies", "WilliamR@tv-basicstudies",
@@ -1300,7 +1380,7 @@ function scChartDraw(host, scrub) {
   };
   ctx.save(); ctx.beginPath(); ctx.rect(padL, padT, iw, ih); ctx.clip();
   /* The ribbon sits behind the price: it is context, not the subject. */
-  if (cloudMap) drawCloudRibbon(ctx, { map:cloudMap, start, end, X, Y,
+  if (cloudMap) drawCloudRibbon(ctx, { map:cloudMap, start, end, X, Y, smooth:!CLOUD_STEPS,
     scale:window.SC_CLOUDS.displayScale(iw, Math.max(1, end - start + rightBars), 2) });
   const g = ctx.createLinearGradient(0, padT, 0, padT + ih);
   g.addColorStop(0, c + "3D"); g.addColorStop(1, c + "00");
@@ -1315,11 +1395,13 @@ function scChartDraw(host, scrub) {
     ctx.fillStyle = c; ctx.fill();
   }
   ctx.restore();
-  if (cloudLabels && cloudMap)
-    drawCloudLabels(ctx, { map:cloudMap, pts, end, X, Y, padL, padT, iw, ih, font:cloudFont });
+  /* The placed names are kept on the host (exact value, exact height) so a proof can read what the pane shows. */
+  host._cloudLabels = cloudLabels && cloudMap
+    ? drawCloudLabels(ctx, { map:cloudMap, pts, end, X, Y, padL, padT, iw, ih, font:cloudFont }) : null;
+  paintCloudCaption(host, { padB, show:!!cloudMap && iw >= 200 && ih >= 90 });
   ctx.save();
   ctx.font = ((ipadProfile ? 6.5 : 7) * scale) + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-  ctx.fillStyle = col.ink2; ctx.globalAlpha = .47; ctx.textAlign = "right";
+  ctx.fillStyle = col.dim; ctx.globalAlpha = .47; ctx.textAlign = "right";
   ctx.shadowColor = "#000"; ctx.shadowBlur = 4;
   for (const v of priceTicks) {
     const yy = Y(v);
@@ -1336,7 +1418,7 @@ function scChartDraw(host, scrub) {
     const livePrice = livePriceValue, liveY = Y(livePrice);
     if (liveY >= padT && liveY <= padT + ih) {
       const liveDay = chDayChange(livePrice, prevClose[host.dataset.t]);
-      const liveColor = liveDay.tone === "up" ? col.bull : liveDay.tone === "down" ? col.bear : col.ink2;
+      const liveColor = liveDay.tone === "up" ? col.bull : liveDay.tone === "down" ? col.bear : col.dim;
       const liveText = chPx(livePrice, host.dataset.t);
       const liveFont = Math.max(6.5, (ipadProfile ? 7 : 7.5) * scale);
       ctx.save();
@@ -1387,7 +1469,7 @@ function scChartDraw(host, scrub) {
     const priceText = chPx(price, host.dataset.t);
     const timeText = chHoverTime(pts[scrub.ix].d, host._range || S.chartRange);
     ctx.save();
-    ctx.strokeStyle = col.ink2; ctx.globalAlpha = .62; ctx.lineWidth = .75;
+    ctx.strokeStyle = col.dim; ctx.globalAlpha = .62; ctx.lineWidth = .75;
     ctx.beginPath(); ctx.moveTo(sx, padT); ctx.lineTo(sx, padT + ih); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(padL, sy); ctx.lineTo(padL + iw, sy); ctx.stroke();
     ctx.globalAlpha = 1;
@@ -1397,14 +1479,14 @@ function scChartDraw(host, scrub) {
     const priceX = Math.max(padL, w - priceW - 2);
     ctx.fillStyle = "rgba(5,6,12,.92)";
     ctx.fillRect(priceX, Math.max(padT, Math.min(padT + ih - 12, sy - 6)), priceW, 12);
-    ctx.fillStyle = col.ink2; ctx.textAlign = "right";
+    ctx.fillStyle = col.dim; ctx.textAlign = "right";
     ctx.fillText(priceText, w - 5, sy);
     const timeW = Math.ceil(ctx.measureText(timeText).width) + 8;
     const timeX = Math.max(padL, Math.min(padL + iw - timeW, sx - timeW / 2));
     const timeY = Math.max(padT + 12, padT + ih - 7);
     ctx.fillStyle = "rgba(5,6,12,.92)";
     ctx.fillRect(timeX, timeY - 6, timeW, 12);
-    ctx.fillStyle = col.ink2; ctx.textAlign = "center";
+    ctx.fillStyle = col.dim; ctx.textAlign = "center";
     ctx.fillText(timeText, timeX + timeW / 2, timeY);
     ctx.restore();
   }
@@ -2090,6 +2172,7 @@ document.addEventListener("click", (e) => {
     if (host) holdAndReload(host, S.chartRange);
   }
   else if (act === "clouds") setClouds(!CLOUDS_ON);
+  else if (act === "cloudsteps") setCloudSteps(!CLOUD_STEPS);
   else if (act === "tvmodal") openTvModal(n.dataset.sym);
   else if (act === "tvmodalclose") closeTvModal();
 }, true);
@@ -2133,6 +2216,7 @@ addEventListener("message", (e) => {
   if (d.sc !== "chart") return;
   /* The Station dock owns one clouds switch for the whole wall. */
   if (typeof d.clouds === "boolean") setClouds(d.clouds);
+  if (typeof d.steps === "boolean") setCloudSteps(d.steps);
   if (d.range && CHART_RANGES.includes(d.range)) {
     S.chartRange = d.range;
     document.querySelectorAll('.sc-crange[data-act="chartrange"]').forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));

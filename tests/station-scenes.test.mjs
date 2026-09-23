@@ -945,7 +945,7 @@ test("the pane's direction color is claimed from the day's baseline, or not clai
       label + ": the first-bar fallback is gone");
     assert.match(src, /const ref = chDayRef\(host\);/, label);
     assert.match(src, /const up = ref != null && pts\[end\]\.p >= ref;/, label);
-    assert.match(src, /const c = ref == null \? col\.ink2 : up \? col\.bull : col\.bear;/,
+    assert.match(src, /const c = ref == null \? \(col\.dim \|\| "#868AAA"\) : up \? col\.bull : col\.bear;/,
       label + ": no direction color without the day's baseline");
 
     /* The baseline itself: the CURRENT ticker's provider previous close, read live rather
