@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · the dock, second pass</title>
+<style>
+:root{ --bg:#0A0A0F; --panel:#0F0F1A; --line:#1A1A2A; --edge:#36364F;
+  --ink:#B9BBD2; --ink2:#9A9AB6; --dim:#868AAA; --crk:#00D4FF; --warn:#FF8A00;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
+*{ box-sizing:border-box; }
+body{ margin:0; background:var(--bg); color:var(--ink2); font:15px/1.65 var(--mono); padding:34px 26px 80px; }
+h1{ color:var(--crk); font-size:26px; letter-spacing:.14em; text-transform:uppercase; margin:0 0 6px; }
+h2{ color:var(--ink); font-size:18px; letter-spacing:.1em; text-transform:uppercase;
+  margin:46px 0 12px; padding-bottom:7px; border-bottom:1px solid var(--edge); }
+p{ max-width:104ch; margin:10px 0; }
+.sub{ color:var(--dim); margin-bottom:26px; }
+figure{ margin:20px 0 26px; }
+figcaption{ color:var(--dim); font-size:13px; margin:8px 0 0; }
+img{ display:block; width:100%; border:1px solid var(--line); background:var(--panel); }
+.pair{ display:grid; gap:18px; }
+.tag{ color:var(--crk); font-size:12px; letter-spacing:.18em; text-transform:uppercase; }
+.tag.old{ color:var(--warn); }
+table{ border-collapse:collapse; width:100%; max-width:1100px; margin:14px 0; font-size:14px; }
+th,td{ border:1px solid var(--line); padding:9px 11px; text-align:left; vertical-align:top; }
+th{ color:var(--ink); background:var(--panel); font-weight:400; letter-spacing:.08em; text-transform:uppercase; font-size:12px; }
+q{ color:var(--ink); font-style:normal; }
+.strip{ display:flex; gap:6px; overflow-x:auto; padding-bottom:10px; }
+.strip figure{ flex:0 0 260px; margin:0; }
+.strip img{ height:74px; object-fit:cover; object-position:left top; }
+.num{ color:var(--crk); }
+ul{ max-width:104ch; } li{ margin:6px 0; }
+.note{ border-left:2px solid var(--warn); padding:6px 0 6px 14px; color:var(--dim); }
+</style>
+</head>
+<body>
+<h1>The dock — second pass</h1>
+<p class="sub">Station · 23 September · candidate branch <span class="num">station/dock-m2-20260923</span>, built on production <span class="num">ea239c8</span>. Nothing deployed.</p>
+
+<p>Every picture below is a real browser shot of the page — production on the left of each pair, this
+candidate on the right — taken at the four widths you asked for, plus a slow pointer pass across the
+whole strip.</p>
+
+<h2>What you said, and what it does now</h2>
+<table>
+<tr><th>Your words</th><th>What changed</th></tr>
+<tr><td><q>There's a black space to the left of Station, which causes some cramping.</q></td>
+    <td>The strip used to be <em>centred</em>, and it also had to leave room on the left to balance the readout pinned on the right. At 1680 that was <span class="num">408&nbsp;px</span> of black before the first control. The strip now starts at the left edge and reserves that room once, on the right, where the readout actually is. First control now sits <span class="num">8&nbsp;px</span> in.</td></tr>
+<tr><td><q>The drop down where I switch between the pages by name… fixed all the way at the left… does not need to say the full word.</q></td>
+    <td>It is the first thing on the strip and it is a two-letter code — LIVE is <span class="num">LV</span>, macro cross-asset is <span class="num">MX</span>. The list you open still says every name in full, and the chip's tooltip says the full name too. It went from <span class="num">108&nbsp;px</span> wide to <span class="num">46&nbsp;px</span>.</td></tr>
+<tr><td><q>Sectioned, a little bit of a separation between types of buttons.</q></td>
+    <td>Six groups, each in its own faint box with a hairline edge and a gap to the next: the page switcher, the Station and its hub link, the timeframes, the screen controls, the ⋯ drawer, and the readout.</td></tr>
+<tr><td><q>This two charts, six chart, eight charts, I'm not going to be using that.</q></td>
+    <td>Gone from the dock — the section, the chips and the code that drew them. It was only hidden by CSS before. Scenes still choose their own chart count; that value now lives outside the strip as plain state.</td></tr>
+<tr><td><q>You're not extending it downwards… things jump on top of each other… the rules of the zooming are inconsistent.</q></td>
+    <td>One rule for every item: each grows <em>downward</em> from one fixed top edge, and each owns the room it grows into, so it can never reach its neighbour. The strip holds that room, so its own height never changes and nothing below it moves.</td></tr>
+<tr><td><q>Balance those shapes.</q></td>
+    <td>One height, one 2&nbsp;px corner and one padding rhythm for every chip on the strip. At rest the boxes hug their chips; the box under your pointer is the only one that grows.</td></tr>
+<tr><td><q>Everything should consider phone behavior.</q></td>
+    <td>390&nbsp;px and both iPad orientations below. On a phone the strip scrolls sideways, a finger never magnifies anything, and the one word that cost a swipe before the first control is gone.</td></tr>
+</table>
+
+<h2>1680 — the wall you work on</h2>
+<figure class="pair">
+  <span class="tag old">Before · production</span><img src="shots/before-1680-dock.png" alt="production dock at 1680">
+  <span class="tag">After · candidate</span><img src="shots/after-1680-dock.png" alt="candidate dock at 1680">
+  <figcaption>The black space before THE STATION is gone; LV sits at the left edge; the sections read as separate boxes; the 2/6/8 selector is no longer on the strip.</figcaption>
+</figure>
+
+<h2>1100</h2>
+<figure class="pair">
+  <span class="tag old">Before</span><img src="shots/before-1100-dock.png" alt="production dock at 1100">
+  <span class="tag">After</span><img src="shots/after-1100-dock.png" alt="candidate dock at 1100">
+  <figcaption>Left gap 139&nbsp;px → 7&nbsp;px. Everything still on one line.</figcaption>
+</figure>
+
+<h2>iPad — both ways round</h2>
+<figure class="pair">
+  <span class="tag old">Before · portrait 1024</span><img src="shots/before-ipad-portrait-dock.png" alt="production dock, iPad portrait">
+  <span class="tag">After · portrait 1024</span><img src="shots/after-ipad-portrait-dock.png" alt="candidate dock, iPad portrait">
+  <span class="tag old">Before · landscape 1366</span><img src="shots/before-ipad-landscape-dock.png" alt="production dock, iPad landscape">
+  <span class="tag">After · landscape 1366</span><img src="shots/after-ipad-landscape-dock.png" alt="candidate dock, iPad landscape">
+  <figcaption>One line in both orientations, nothing overlapping, the readout still pinned right.</figcaption>
+</figure>
+
+<h2>Phone — 390</h2>
+<figure class="pair">
+  <span class="tag old">Before</span><img src="shots/before-phone390-dock.png" alt="production dock at 390">
+  <span class="tag">After</span><img src="shots/after-phone390-dock.png" alt="candidate dock at 390">
+  <figcaption>The strip scrolls sideways on a phone. LV is first, and dropping the word "scene" buys another timeframe before you have to swipe.</figcaption>
+</figure>
+
+<h2>The zoom, frame by frame</h2>
+<p>A slow pass of the pointer from the left edge of the strip to the right, thirteen frames, same pass on both builds.</p>
+<p class="tag old">Before</p>
+<div class="strip">
+  <figure><img src="shots/before-sweep-00.png" alt="before frame 0"><figcaption>1</figcaption></figure>
+  <figure><img src="shots/before-sweep-02.png" alt="before frame 2"><figcaption>3</figcaption></figure>
+  <figure><img src="shots/before-sweep-04.png" alt="before frame 4"><figcaption>5</figcaption></figure>
+  <figure><img src="shots/before-sweep-06.png" alt="before frame 6"><figcaption>7</figcaption></figure>
+  <figure><img src="shots/before-sweep-08.png" alt="before frame 8"><figcaption>9</figcaption></figure>
+  <figure><img src="shots/before-sweep-10.png" alt="before frame 10"><figcaption>11</figcaption></figure>
+  <figure><img src="shots/before-sweep-12.png" alt="before frame 12"><figcaption>13</figcaption></figure>
+</div>
+<p class="tag">After</p>
+<div class="strip">
+  <figure><img src="shots/after-sweep-00.png" alt="after frame 0"><figcaption>1</figcaption></figure>
+  <figure><img src="shots/after-sweep-02.png" alt="after frame 2"><figcaption>3</figcaption></figure>
+  <figure><img src="shots/after-sweep-04.png" alt="after frame 4"><figcaption>5</figcaption></figure>
+  <figure><img src="shots/after-sweep-06.png" alt="after frame 6"><figcaption>7</figcaption></figure>
+  <figure><img src="shots/after-sweep-08.png" alt="after frame 8"><figcaption>9</figcaption></figure>
+  <figure><img src="shots/after-sweep-10.png" alt="after frame 10"><figcaption>11</figcaption></figure>
+  <figure><img src="shots/after-sweep-12.png" alt="after frame 12"><figcaption>13</figcaption></figure>
+</div>
+<figure>
+  <img src="shots/after-sweep-05.png" alt="the pointer on 6H">
+  <figcaption>One frame full size: the pointer is on 6H. 6H is biggest, 4H next, 12H barely — their tops are level with everything else and they have grown downward into the room their own box owns. The box around the timeframes is the only one that grew.</figcaption>
+</figure>
+
+<h2>Measured across that pass, not guessed</h2>
+<table>
+<tr><th>What</th><th>Before</th><th>After</th><th>Why it matters</th></tr>
+<tr><td>Black space before the first control (1680)</td><td>408 px</td><td>8 px</td><td>the cramping</td></tr>
+<tr><td>Page switcher, closed</td><td>108 px, full word</td><td>46 px, two letters</td><td>your ask</td></tr>
+<tr><td>Different top edges during the pass</td><td colspan="2" class="num">one — every chip starts at 6 px</td><td>they grow down, never up</td></tr>
+<tr><td>Sideways movement of a chip's centre</td><td colspan="2" class="num">0.05 px</td><td>nothing drifts</td></tr>
+<tr><td>Smallest gap between two chips</td><td colspan="2" class="num">+6.7 px</td><td>they never touch, so nothing lands on top of anything</td></tr>
+<tr><td>Strip height through the whole pass</td><td colspan="2" class="num">52 px, unchanged</td><td>the wall below never jumps</td></tr>
+<tr><td>Corner radius / chip height</td><td>0 px, three heights</td><td>2 px, one height</td><td>balanced shapes</td></tr>
+<tr><td>Sideways page overflow at 390 / iPad</td><td colspan="2" class="num">none</td><td>phone and tablet behave</td></tr>
+</table>
+
+<h2>The switcher still switches</h2>
+<figure>
+  <img src="shots/after-scene-switched.png" alt="the code chip reading MX">
+  <figcaption>Choosing "macro cross-asset" from the open list — the chip reads MX, the tooltip says the full name, and the wall changes scene. Keyboard reaches it exactly as before.</figcaption>
+</figure>
+
+<h2>What I did not touch</h2>
+<ul>
+<li>The 50/50 YouTube and X row, and the video feed chosen in the video pane's own dropdown.</li>
+<li>The arc itself — the pointed chip is still the big one and its neighbours still fall away.</li>
+<li>Auto-hide and its lip, the caption under the pointed control, the ⋯ drawer and everything in it.</li>
+<li>Scenes, chart counts, the New York axis, the clouds, prices, and every other page.</li>
+<li>The two chart shells stay byte-identical twins; only <span class="num">deck/index.html</span> changed.</li>
+</ul>
+
+<h2>Honest limits</h2>
+<p class="note">These shots were taken against a local copy, and the chart API refuses a localhost origin, so the panes show DATA · DELAYED instead of live prices. That affects the pictures, not the strip: the dock's layout does not depend on quotes. The open page list is a native dropdown, so it cannot be photographed in a headless browser — I checked its contents and its behaviour in the page instead, which is the frame above.</p>
+<p>The test suite runs <span class="num">403</span> tests with <span class="num">18</span> failures — the same 18 that fail on production, none added. Four dock tests were rewritten to say the new rule instead of the old one: the strip starts at the left, the page switcher sits first, and the chart-count selector is gone rather than hidden.</p>
+</body>
+</html>

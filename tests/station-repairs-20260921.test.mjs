@@ -44,7 +44,9 @@ test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after 
     at = next
   }
   // sections, and the visual order is fixed in CSS so the DOM never has to move
-  for (const [sec, order] of [['station', 1], ['timeframe', 2], ['charts', 3], ['scenes', 4], ['video', 5], ['more', 7]])
+  /* 23 Sep: the page switcher is pinned first at the far left, so the sections after it each moved
+     one along and the retired chart-count section left its slot empty. */
+  for (const [sec, order] of [['scene', 1], ['station', 2], ['timeframe', 3], ['scenes', 4], ['video', 5], ['more', 7]])
     assert.match(deck, new RegExp(`#dock \\.dsec\\[data-sec="${sec}"\\]\\{ order:${order};`), `${sec} sits at position ${order}`)
 })
 

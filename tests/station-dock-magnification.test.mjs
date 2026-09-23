@@ -112,12 +112,17 @@ test("the pointer off the strip, or on a divider far from any chip, leaves every
 /* ---- and the wiring around it ---- */
 const dockCss = deck.slice(deck.indexOf("/* ── THE DOCK"), deck.indexOf("/* FIRST-PAINT SKELETON")).replace(/\/\*[\s\S]*?\*\//g, "");
 
-test("the strip: one line, sections, centred, grows from its top edge, wraps only as a fallback, no will-change", () => {
+test("the strip: one line, sections, pinned left, grows from its top edge, wraps only as a fallback, no will-change", () => {
   assert.match(deck, /#dock\{[^}]*flex-wrap:nowrap/, "the strip does not wrap by default");
-  assert.match(deck, /#dock\{[^}]*justify-content:center/, "and is centred");
+  assert.match(deck, /#dock\{[^}]*justify-content:flex-start/,
+    "it starts at the left edge - Alan, 23 Sep: \"a black space to the left of Station\"");
+  assert.match(deck, /#dock\{[^}]*padding-right:calc\(var\(--dock-readout/,
+    "and holds the room the pinned readout needs once, on the right");
   assert.match(deck, /#dock\{[^}]*zoom:var\(--dock-fit,1\)/, "it shrinks as a whole, like a Dock full of icons");
   assert.match(deck, /#dock\.dock-wrap\{ flex-wrap:wrap;/, "and keeps wrapping as its fallback");
-  for (const sec of ["station", "timeframe", "charts", "scenes", "video", "more", "readout"])
+  assert.doesNotMatch(deck, /class="dsec" data-sec="charts"/,
+    "the 2/6/8 chart-count section is off the strip, not merely hidden");
+  for (const sec of ["scene", "station", "timeframe", "scenes", "video", "more", "readout"])
     assert.match(deck, new RegExp('class="dsec" data-sec="' + sec + '"'), "section " + sec + " exists");
   assert.match(dockCss, /transform-origin:50% 0/, "chips grow from the strip's top edge: tops flat, bottoms trace the curve");
   assert.doesNotMatch(dockCss, /will-change/, "no will-change: Chrome would rasterise the chip at rest size and stretch it");
@@ -133,8 +138,10 @@ test("what Alan called junk is off the strip but one click away, and the screen 
   assert.match(readout, /id="screenIndicator"/, "screen n / n is a readout");
   assert.doesNotMatch(readout, /<button|<select|<a /, "with nothing clickable in it");
   assert.match(deck, /#dock \.dsec\[data-sec="readout"\]\{[^}]*pointer-events:none/);
-  assert.match(deck, /#dock #chartCount\{ display:none; \}/, "the count select is hidden behind its chips");
-  assert.match(deck, /id="countChips"/);
+  /* The chart count is state a scene sets, kept outside the strip entirely. */
+  assert.ok(deck.indexOf('id="chartCount"') > deck.indexOf("</div><!-- /#dock -->"),
+    "the count select lives outside the dock, in #dockState");
+  assert.doesNotMatch(deck, /countChips/, "and nothing paints count chips any more");
   assert.match(deck, /id="tf"/);
 });
 

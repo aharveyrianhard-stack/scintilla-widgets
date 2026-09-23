@@ -94,29 +94,44 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
      or a control takes focus. Remembered per browser; switched off under ⋯.
    A finger never magnifies (no hover; a tap must hit what it aimed at) and reduced motion keeps the
    strip still. */
-#dock{ flex:none; display:flex; align-items:flex-start; justify-content:center; flex-wrap:nowrap;
+#dock{ flex:none; display:flex; align-items:flex-start; justify-content:flex-start; flex-wrap:nowrap;
   gap:0; padding:3px 8px 4px; padding-top:calc(3px + env(safe-area-inset-top));
+  padding-right:calc(var(--dock-readout,120px) + 20px);
   border-bottom:1px solid var(--line); background:var(--bg); position:relative; z-index:25;
-  zoom:var(--dock-fit,1); }
+  min-height:calc(var(--dock-sec-h,24px) + 8px); zoom:var(--dock-fit,1); }
 #dock > #bar, #dock > #tfbar{ display:contents; }
 /* SECTIONS YOU CAN SEE. Alan, 23 Sep: "they kind of blend together". Each section sits on its own
    faint tint inside the one strip, edged by a hairline you can actually see, with a gap to its
    neighbour: a divider, not a wall. Dark greys only; never white. */
 #dock .dsec{ flex:none; display:flex; align-items:flex-start; gap:5px; padding:2px 8px; margin:0 3px;
-  background:#13131F; border:1px solid #36364F; border-radius:2px; }
-#dock .dsec[data-sec="station"]{ order:1; background:transparent; border-color:transparent; padding-left:0; margin-left:0; }
-#dock .dsec[data-sec="timeframe"]{ order:2; }
-#dock .dsec[data-sec="charts"]{ order:3; }
-/* Alan, 23 Sep: "two charts, six charts, eight charts — I'm not going to be using that. We're going to
-   design the Station ourselves." The scenes still set their own chart count; the dock no longer offers it. */
-.dsec[data-sec="charts"]{ display:none !important; }
+  background:#13131F; border:1px solid #36364F; border-radius:2px;
+  /* AT REST the box hugs its chips. The room a swelling chip needs is held by the STRIP, not by
+     every box, so the strip never looks half empty; the box that the pointer is in grows down into
+     that room and the strip's own height never changes, so the wall below never moves. */
+  min-height:var(--dock-chip-box,24px); box-sizing:border-box;
+  transition:min-height .09s ease-out; }
+#dock .dsec.swell{ min-height:var(--dock-sec-h,24px); }
+@media (prefers-reduced-motion: reduce){ #dock .dsec{ transition:none; } }
+/* Alan, 23 Sep: "the drop down where I switch between the pages by name... fixed all the way at the
+   left" and "does not need to say the full word". It is the first thing on the strip and two letters
+   wide; the open list still says every name in full. */
+#dock .dsec[data-sec="scene"]{ order:1; margin-left:0; }
+/* On a phone the strip scrolls sideways, so every word before the first control costs a swipe.
+   The code chip IS the page switcher and says so when it opens, so the word "scene" beside it is
+   the one label that can go; the rest keep theirs. */
+#dock.dock-scroll .dsec[data-sec="scene"] .control-label,
+#dock.dock-wrap .dsec[data-sec="scene"] .control-label{ display:none; }
+/* Alan, 23 Sep: "there's a black space to the left of Station, which causes some cramping." The strip
+   now starts at the left edge instead of being centred around the room reserved for the readout. */
+#dock .dsec[data-sec="station"]{ order:2; background:transparent; border-color:transparent; }
+#dock .dsec[data-sec="timeframe"]{ order:3; }
 #dock .dsec[data-sec="scenes"]{ order:4; }
 #dock .dsec[data-sec="video"]{ order:5; }
 #dock #panebar{ order:6; display:none; }
 body.stack #dock #panebar{ display:flex; }
 #dock .dsec[data-sec="more"]{ order:7; padding-right:0; }
 /* The readout is a fact, not a control: pinned right, never magnified, never in the way. */
-#dock .dsec[data-sec="readout"]{ position:absolute; right:10px; top:50%; transform:translateY(-50%);
+#dock .dsec[data-sec="readout"]{ position:absolute; right:10px; top:5px; transform:none;
   flex-direction:column; align-items:flex-end; border:0; background:transparent; margin:0; padding:0; gap:1px; pointer-events:none;
   color:var(--dim); font-size:8px; line-height:1.15; letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; }
 #dock .dsec .control-group{ display:flex; align-items:flex-start; gap:5px; min-height:0; padding-left:0; border-left:0; }
@@ -124,8 +139,24 @@ body.stack #dock #panebar{ display:flex; }
 #dock #screenControls{ display:flex; gap:3px; }
 #dock #screenControls .btn{ width:22px; padding-left:0; padding-right:0; text-align:center; }
 #dock .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; align-self:center; white-space:nowrap; }
-#dock .btn{ padding:3px 6px; letter-spacing:.08em; color:#A6A8C0; border-color:#2C2C46; }
+/* ONE SHAPE. Alan, 23 Sep: "balance those shapes." Every chip on the strip - button, select, or the
+   scene code - is the same height, the same 2 px corner and the same padding rhythm.
+   THE SLOT. --slack is half of a chip's own full growth, held as margin on each side, so a chip at
+   full swell still ends inside space that was already its own. Two chips can never reach each other,
+   whatever the pointer does; fitDock works out how much swell the strip can afford. */
+#dock .btn, #dock select, #dock .scene-pick{ height:var(--dock-chip-h,20px); box-sizing:border-box;
+  display:inline-flex; align-items:center; justify-content:center; border-radius:2px; padding:0 7px;
+  margin-left:var(--slack,0px); margin-right:var(--slack,0px); }
+#dock .btn{ letter-spacing:.08em; color:#A6A8C0; border-color:#2C2C46; }
 #dock select{ border-color:#2C2C46; }
+/* The page switcher: two letters when closed, every full name in the open list. The real select is
+   laid over the code and carries the whole native list, so the keyboard and a tap behave as before. */
+#dock .scene-pick{ position:relative; width:46px; padding:0; background:var(--panel2);
+  border:1px solid #2C2C46; color:var(--crk); font:9.5px var(--mono); letter-spacing:.12em; }
+#dock .scene-pick .scene-code{ pointer-events:none; }
+#dock .scene-pick select{ position:absolute; left:0; top:0; width:100%; height:100%; padding:0;
+  margin:0; opacity:0; border:0; background:transparent; cursor:pointer; }
+#dock .scene-pick:focus-within{ border-color:var(--crk); }
 /* "Some of these are grayed out. I can't see shit." A disabled chip is still a word you can read:
    --dim (5.9:1 on the strip) behind a dashed edge says "not now". The old --mute at half opacity
    (about 1.4:1) said nothing at all. */
@@ -135,13 +166,15 @@ body.stack #dock #panebar{ display:flex; }
 #dock .scene-mode{ width:108px; }
 #dock .rotate-controls .scene-mode{ width:50px; }
 #dock #rotateToggle{ width:46px; text-align:center; }
-#dock #countChips{ display:flex; gap:3px; }
-#dock #chartCount{ display:none; }
+/* Alan, 23 Sep: "this two charts, six charts, eight charts - I'm not going to be using that. We're
+   going to design the Station ourselves." The chips and the section are gone from the strip; the
+   select survives only as the value a scene sets, out of the dock and out of sight. */
+#chartCount, #dockState{ display:none; }
 /* Every chip grows from the strip's top edge, in place. No will-change: see the note above. */
-#dock .btn, #dock select, #dock input, #dock #panebar > span{ position:relative; flex:none;
+#dock .btn, #dock select, #dock input, #dock .scene-pick, #dock #panebar > span{ position:relative; flex:none;
   transform-origin:50% 0; transition:transform .08s ease-out; }
 #dock #marketStatus, #dock #screenIndicator{ display:inline-block; width:auto; }
-#dockCaption{ position:absolute; top:calc(100% + 24px); left:0; z-index:26; pointer-events:none;
+#dockCaption{ position:absolute; top:calc(100% + 3px); left:0; z-index:26; pointer-events:none;
   padding:2px 7px; background:rgba(7,10,16,.95); border:1px solid var(--line);
   color:var(--ink3); font:8.5px var(--mono); letter-spacing:.1em; text-transform:uppercase;
   white-space:nowrap; opacity:0; transform:translateX(-50%); transition:opacity .1s ease; }
@@ -446,27 +479,32 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 <body>
 <div id="dock" role="toolbar" aria-label="Station controls">
 <div id="bar">
+  <span class="dsec" data-sec="scene" role="group" aria-label="Scene">
+    <span class="control-label">scene</span>
+    <span class="scene-pick">
+      <span class="scene-code" id="sceneCode" aria-hidden="true">LV</span>
+      <select class="scene-mode" id="sceneMode" data-codepick="1" title="choose a chart scene; media panes stay in place" aria-label="Station scene">
+        <option value="live" data-code="LV">live</option>
+        <option value="indexNow" data-code="IX">index now</option>
+        <option value="indexLeadership" data-code="IXL">index leadership</option>
+        <option value="companyLeadership" data-code="CO">company leadership</option>
+        <option value="focus2" data-code="F2">focus 2</option>
+        <option value="macroCrossAsset" data-code="MX">macro cross-asset</option>
+        <option value="internalsFast" data-code="IF">internals fast</option>
+        <option value="internalsSlow" data-code="IS">internals slow</option>
+        <option value="sectorFamilies" data-code="SF">sector families</option>
+        <option value="themeFamilies" data-code="TF">theme families</option>
+        <option value="cohort" data-code="CH">cohort</option>
+        <option value="custom" data-code="CU">custom</option>
+      </select>
+    </span>
+  </span>
   <span class="dsec" data-sec="station" role="group" aria-label="Station">
     <span class="k">THE STATION</span>
     <a class="btn" href="/registry" title="back to the hub">hub</a>
   </span>
-  <span class="dsec" data-sec="scenes" role="group" aria-label="Scenes and screens">
+  <span class="dsec" data-sec="scenes" role="group" aria-label="Screens">
     <span class="control-group scene-controls">
-      <span class="control-label">scene</span>
-      <select class="scene-mode" id="sceneMode" title="choose a chart scene; media panes stay in place" aria-label="Station scene">
-        <option value="live">live</option>
-        <option value="indexNow">index now</option>
-        <option value="indexLeadership">index leadership</option>
-        <option value="companyLeadership">company leadership</option>
-        <option value="focus2">focus 2</option>
-        <option value="macroCrossAsset">macro cross-asset</option>
-        <option value="internalsFast">internals fast</option>
-        <option value="internalsSlow">internals slow</option>
-        <option value="sectorFamilies">sector families</option>
-        <option value="themeFamilies">theme families</option>
-        <option value="cohort">cohort</option>
-        <option value="custom">custom</option>
-      </select>
       <span id="cohortPicker" hidden>
         <select class="scene-mode" id="cohortPick" title="choose the cohort — its members replace the favorites rows" aria-label="Cohort"></select>
         <button type="button" class="btn" id="cohortPagePrev" title="previous cohort page" aria-label="Previous cohort page">‹</button>
@@ -522,15 +560,6 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
     <span class="lbl">timeframe · all</span>
     <span class="tf" id="tf"></span>
   </span>
-  <span class="dsec" data-sec="charts" role="group" aria-label="Number of charts">
-    <span class="lbl">charts</span>
-    <span id="countChips"></span>
-    <select class="chart-count" id="chartCount" title="number of charts" aria-hidden="true" tabindex="-1">
-      <option value="2">2</option><option value="6">6</option><option value="8">8</option>
-      <option value="3" hidden data-preset-only="true">3</option>
-      <option value="1" hidden data-preset-only="true">1</option>
-    </select>
-  </span>
   <!-- ONE VIDEO AT A TIME. Alan: "I'm never gonna have two videos at the same
        time... only one video feed at a time and I just switch around." This is
        the switch. Both panes still exist, still keep their own scroll position
@@ -545,6 +574,15 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 <div id="panebar" class="dsec" data-sec="panes" role="group" aria-label="Panes"><span class="lbl">panes</span></div>
 <span class="lip" aria-hidden="true"></span>
 </div><!-- /#dock -->
+<!-- The chart count a scene chooses. It is no longer a control on the strip: it is state, kept here
+     so every scene, preset and remembered layout keeps working exactly as before. -->
+<div id="dockState" aria-hidden="true">
+  <select class="chart-count" id="chartCount" title="number of charts" aria-hidden="true" tabindex="-1">
+    <option value="2">2</option><option value="6">6</option><option value="8">8</option>
+    <option value="3" hidden data-preset-only="true">3</option>
+    <option value="1" hidden data-preset-only="true">1</option>
+  </select>
+</div>
 <div id="symbolGuide" role="listbox" aria-label="Hub symbol suggestions"></div>
 <div id="grid"></div>
 <script>
@@ -1662,7 +1700,7 @@ function measure() {
    swell alike: the pointed chip is 2×, the next one out is ~1.6×, the one after that ~1.1×, and
    the profile moves continuously as the pointer crosses from one chip to the next. It stops at
    the section divider ("split it in sections and the behaviour applies within the section"). */
-const DOCK_ITEMS = "#dock .btn, #dock select, #dock input, #dock #panebar > span:not(.lbl)";
+const DOCK_ITEMS = "#dock .btn, #dock .scene-pick, #dock select:not([data-codepick]), #dock input, #dock #panebar > span:not(.lbl)";
 const DOCK_MAX_SCALE = 2;        /* the pointed-at chip — "~2×" */
 const DOCK_REACH = 2.2;          /* chips: the raised cosine reaches this far from the pointer */
 const DOCK_EDGE_PX = 12;         /* px: a pointer this far past a section's last chip still counts as in it */
@@ -1713,6 +1751,58 @@ const dockMagnifies = () => {
     dockFinePointer.matches && !dockStillness.matches;
 };
 function dockContentChanged() { dockGeometry = null; }
+function dockSwellLimit() {
+  const v = Number(getComputedStyle(el("dock")).getPropertyValue("--dock-swell"));
+  return Number.isFinite(v) && v >= 1 ? v : DOCK_MAX_SCALE;
+}
+/* THE SLOT PASS. Every chip is given half of its own full growth as margin on each side, and the
+   sections are made tall enough to hold that growth, so a swelling chip grows DOWNWARD into space
+   that is already its own instead of over the chip beside it or over the wall below. If the strip
+   cannot afford the full 2x at this width, every chip gets the same smaller swell - one rule for
+   the whole strip, not a different one per chip. */
+function dockReserve() {
+  const dock = el("dock");
+  if (!dock) return;
+  const items = Array.from(dock.querySelectorAll(DOCK_ITEMS))
+    .filter((node) => node.offsetWidth > 0 && node.offsetParent &&
+      !node.closest("#moreGroup") && dockSectionOf(node) !== "readout");
+  for (const node of items) node.style.removeProperty("--slack");
+  const readout = dock.querySelector('.dsec[data-sec="readout"]');
+  dock.style.setProperty("--dock-readout", (readout ? readout.offsetWidth : 0) + "px");
+  const chipH = items.reduce((tallest, node) => Math.max(tallest, node.offsetHeight), 0) || 20;
+  dock.style.setProperty("--dock-chip-h", chipH + "px");
+  dock.style.setProperty("--dock-chip-box", (chipH + 4) + "px");
+  if (!dockMagnifies()) {
+    dock.style.setProperty("--dock-swell", "1");
+    dock.style.setProperty("--dock-sec-h", (chipH + 4) + "px");
+    dockContentChanged();
+    return;
+  }
+  const style = getComputedStyle(dock);
+  const sections = Array.from(dock.querySelectorAll(".dsec"))
+    .filter((node) => node.offsetWidth > 0 && node.dataset.sec !== "readout");
+  const outer = (node) => { const cs = getComputedStyle(node);
+    return node.offsetWidth + (parseFloat(cs.marginLeft) || 0) + (parseFloat(cs.marginRight) || 0); };
+  const natural = sections.reduce((sum, node) => sum + outer(node), 0);
+  const room = dock.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+  const widths = items.reduce((sum, node) => sum + node.offsetWidth, 0) || 1;
+  const swell = Math.max(1, Math.min(DOCK_MAX_SCALE, 1 + Math.max(0, room - natural) / widths));
+  dock.style.setProperty("--dock-swell", swell.toFixed(3));
+  dock.style.setProperty("--dock-sec-h", Math.ceil(chipH * swell + 4) + "px");
+  for (const node of items)
+    node.style.setProperty("--slack", (node.offsetWidth * (swell - 1) / 2).toFixed(2) + "px");
+  dockContentChanged();
+}
+/* Two letters, not the whole name. The list itself still reads "macro cross-asset" in full. */
+function paintSceneCode() {
+  const sel = el("sceneMode"), code = el("sceneCode");
+  if (!sel || !code) return;
+  const opt = sel.options[sel.selectedIndex];
+  const name = (opt ? opt.textContent : "").trim();
+  code.textContent = ((opt && opt.dataset.code) || name.slice(0, 2)).toUpperCase();
+  const pick = code.parentElement;
+  if (pick) pick.title = name ? "screen: " + name : "";
+}
 function dockFit() {
   const value = Number(getComputedStyle(el("dock")).zoom);
   return Number.isFinite(value) && value > 0 ? value : 1;
@@ -1777,10 +1867,16 @@ function applyDock(pointerX, focusItem) {
   if (!geo || !geo.items.length) return;
   if (pointerX == null) {
     for (const node of geo.items) { node.style.transform = ""; node.style.zIndex = ""; }
+    for (const sec of el("dock").querySelectorAll(".dsec.swell")) sec.classList.remove("swell");
     paintDockCaption(null);
     return;
   }
-  const arc = dockArc(geo.boxes, pointerX);
+  /* The arc says how much a chip WANTS to grow; the slot says how much room that chip owns. A chip
+     never grows past its own slot, so the same rule holds for every chip on the strip and no chip
+     can ever reach its neighbour. On a wide wall the two are the same number. */
+  const limit = dockSwellLimit();
+  const arc = dockArc(geo.boxes, pointerX)
+    .map((step) => (step.scale > limit ? { scale:limit, weight:step.weight } : step));
   let top = null, topCenter = 0, topWeight = -1;
   geo.items.forEach((node, i) => {
     const step = arc[i];
@@ -1791,6 +1887,8 @@ function applyDock(pointerX, focusItem) {
       top = node; topWeight = step.weight; topCenter = geo.boxes[i].left + geo.boxes[i].width / 2;
     }
   });
+  const grown = top && topWeight > 0 ? top.closest(".dsec") : null;
+  for (const sec of el("dock").querySelectorAll(".dsec")) sec.classList.toggle("swell", sec === grown);
   paintDockCaption(focusItem || topWeight > 0 ? top : null, topCenter);
 }
 /* One line, always. If the sections fit at a readable size the strip shrinks as a whole; if they
@@ -1800,20 +1898,21 @@ function fitDock() {
   const dock = el("dock");
   if (!dock) return;
   applyDock(null);
-  if (typeof paintCountChips === "function") paintCountChips();
   dock.classList.remove("dock-wrap", "dock-scroll");
   dock.style.setProperty("--dock-fit", "1");
   dockContentChanged();
   if (STACKED || innerWidth < 760) { dock.classList.add("dock-scroll"); return; }
   const sections = Array.from(dock.querySelectorAll(".dsec")).filter((n) => n.offsetWidth > 0 && n.dataset.sec !== "readout");
   const readout = dock.querySelector('.dsec[data-sec="readout"]');
-  /* the readout is pinned right; the centred strip must clear it on BOTH sides to stay centred */
-  const room = readout ? (readout.offsetWidth + 24) * 2 : 0;
+  /* the readout is pinned right; the strip starts at the left edge and must clear it once */
+  const room = readout ? readout.offsetWidth + 24 : 0;
   const outer = (n) => { const cs = getComputedStyle(n); return n.offsetWidth + (parseFloat(cs.marginLeft) || 0) + (parseFloat(cs.marginRight) || 0); };
   const available = dock.clientWidth - 16, natural = sections.reduce((sum, n) => sum + outer(n), 0) + room;
   let fit = available > 0 && natural > available ? available / natural : 1;
   if (fit < DOCK_FIT_FLOOR) { dock.classList.add("dock-scroll"); fit = 1; }
   dock.style.setProperty("--dock-fit", fit >= .999 ? "1" : fit.toFixed(3));
+  paintSceneCode();
+  dockReserve();
 }
 /* ---- auto-hide: the strip tucks to its lip and comes back on approach, tap or focus ---- */
 function dockAutoHideOn() {
@@ -1887,48 +1986,16 @@ function wireMore() {
     if (event.key === "Escape" && !group.hidden) { set(false); btn.focus(); }
   });
 }
-/* ---- chart count as chips: the select keeps every handler; the chips are its face ---- */
-let countChipsState = "";
-function paintCountChips() {
-  const sel = el("chartCount"), box = el("countChips");
-  if (!sel || !box) return;
-  const state = Array.from(sel.options).map((o) => o.value + (o.hidden ? "h" : "")).join(",") +
-    "|" + sel.value + "|" + (sel.disabled ? "d" : "");
-  if (state === countChipsState) return;
-  countChipsState = state;
-  box.innerHTML = "";
-  for (const o of sel.options) {
-    if (o.hidden && o.value !== sel.value) continue;
-    const on = o.value === sel.value;
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "btn" + (on ? " on" : "");
-    b.textContent = o.textContent.trim();
-    b.disabled = sel.disabled;
-    b.setAttribute("aria-pressed", on ? "true" : "false");
-    b.title = (o.value === "1" ? "one chart" : o.value + " charts") + (sel.disabled ? " · fixed by this scene" : "");
-    b.addEventListener("click", () => {
-      if (sel.value === o.value) return;
-      sel.value = o.value;
-      sel.dispatchEvent(new Event("change", { bubbles:true }));
-    });
-    box.appendChild(b);
-  }
-  dockContentChanged();
-}
-function wireCountChips() {
-  const sel = el("chartCount");
-  if (!sel || sel._chips) return;
-  sel._chips = true;
-  paintCountChips();
-  sel.addEventListener("change", paintCountChips);
-  if (window.MutationObserver)
-    new MutationObserver(paintCountChips).observe(sel, { attributes:true, childList:true, subtree:true });
-}
+/* The chart count is no longer a control on the strip. Alan, 23 Sep: "this two charts, six chart,
+   eight charts, I'm not going to be using that. We're going to design the Station ourselves." The
+   select survives as the value a scene sets (see #dockState) and keeps every handler it always had. */
 function wireDock() {
   const dock = el("dock");
   if (!dock || dock._docked) return;
   dock._docked = true;
+  const sceneSel = el("sceneMode");
+  if (sceneSel) sceneSel.addEventListener("change", paintSceneCode);
+  paintSceneCode();
   const pointerAt = (clientX) => (clientX - dock.getBoundingClientRect().left) / dockFit();
   dock.addEventListener("pointermove", (event) => {
     /* A finger gets no magnification: it has no hover, and a tap must land on what it aimed at. */
@@ -1969,7 +2036,6 @@ function wireDock() {
   for (const media of [dockFinePointer, dockStillness])
     if (media.addEventListener) media.addEventListener("change", () => { applyDock(null); fitDock(); });
   wireMore();
-  wireCountChips();
   paintDockHide();
   const toggle = el("dockHideToggle");
   if (toggle && !toggle._wired) { toggle._wired = true; toggle.addEventListener("click", () => setDockAutoHide(!dockAutoHideOn())); }
@@ -2151,6 +2217,7 @@ function cohortState() {
 }
 function paintSceneControls(note) {
   el("sceneMode").value = SCENE;
+  paintSceneCode();
   const resettable = !!fixedSceneState(SCENE) || SCENE === "cohort";
   const reset = el("resetScene");
   reset.classList.toggle("on", resettable);
