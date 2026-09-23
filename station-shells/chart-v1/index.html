@@ -894,11 +894,14 @@ const CLOUD_LABEL_INK = Object.freeze({ blue:"#5C7BFF", pink:"#FF00A8" });
 
 /* The caption states what the ribbon is (smoothed for the eye, or stepped), that the labels are exact
    either way, and how much history built it. It is also the switch between the two drawings. */
+const CLOUD_CAPTION_OFF = true;
 function paintCloudCaption(host, options) {
   const cap = host.querySelector(".sc-nchart__cap");
   if (!cap) return;
   const rows = CLOUDS_ON && window.SC_CLOUDS && host._cloudRows;
-  if (!options.show || !rows || !rows.length) { cap.hidden = true; return; }
+  /* Alan, 23 Sep: "Why are you labeling my shit? I know what I asked." No caption on the pane; the
+     stepped drawing is still one URL away (?steps=1) for anyone who wants to compare. */
+  if (CLOUD_CAPTION_OFF || !options.show || !rows || !rows.length) { cap.hidden = true; return; }
   const text = (CLOUD_STEPS ? "stepped" : "smoothed for the eye") + " · labels exact · " + rows.length + " daily bars · " + window.SC_CLOUDS.EMA_SEED_WARMUP + " warm-up not drawn";
   if (cap.textContent !== text) cap.textContent = text;
   cap.title = CLOUD_STEPS

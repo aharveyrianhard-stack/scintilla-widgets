@@ -366,7 +366,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
   /* THE MACRO SERIES THE CHART API CARRIES FROM FMP (2026-09-22): VIX, DXY, US10Y. Same /candles
      route, provider stated on every response. Anything else that is not provider-owned equity is
      NOT_SERVED_BY_CHART_API - a named absence the pane paints, never a legacy table read. */
-  var MACRO_SYMBOLS = { VIX: 1, DXY: 1, US10Y: 1 };
+  var MACRO_SYMBOLS = { VIX: 1, DXY: 1, US10Y: 1, DXUSD: 1, CLUSD: 1, GCUSD: 1, SIUSD: 1, BTCUSD: 1 };
   var ABSENCE_NOT_SERVED = 'NOT_SERVED_BY_CHART_API';
   var ABSENCE_PRICE_PATH_RETIRED = 'SUPABASE_PRICE_PATH_RETIRED';
   S.isMacroSymbol = function (sym) { return !!MACRO_SYMBOLS[String(sym || '').toUpperCase()]; };

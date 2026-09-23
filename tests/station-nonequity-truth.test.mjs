@@ -71,9 +71,9 @@ test("macro candles come from the chart API with the provider stated; other non-
   assert.equal(rows[0].provider_symbol, "^VIX");
   assert.equal(window.SC_PROVIDER.absenceFor("VIX", "D"), null, "a served series clears the old name");
   assert.ok(!paths.some((p) => /ohlcv_history/.test(p)));
-  await assert.rejects(() => window.SC_PROVIDER.marketCandles("CLUSD", "D", { limit:240 }),
+  await assert.rejects(() => window.SC_PROVIDER.marketCandles("ESUSD", "D", { limit:240 }),
     (error) => error.scAbsence === "NOT_SERVED_BY_CHART_API");
-  assert.equal(window.SC_PROVIDER.absenceFor("CLUSD", "D"), "NOT_SERVED_BY_CHART_API");
+  assert.equal(window.SC_PROVIDER.absenceFor("ESUSD", "D"), "NOT_SERVED_BY_CHART_API");
 });
 
 test("macro quotes are the API's last completed close, stamped with their session; stale series become a named absence", async () => {
@@ -82,12 +82,12 @@ test("macro quotes are the API's last completed close, stamped with their sessio
       quote:{ price:16.4, prev_close:15.5, change:0.9, chg_pct:5.806, session_et:"2026-09-22", price_observation_utc:"2026-09-22T04:00:00.000Z", basis:"FMP_DAILY_CLOSE" } },
     DXY:{ symbol:"DXY", provider:"FMP", provider_symbol:"DX-Y.NYB", state:"FMP_MACRO_SERIES_STALE", absence:"FMP_MACRO_STALE_25_SESSIONS", quote:null } } };
   const { window } = loadApi([["/macro?symbols=", macro]]);
-  const rows = await window.SC_PROVIDER.marketQuotes(["VIX", "DXY", "CLUSD"]);
+  const rows = await window.SC_PROVIDER.marketQuotes(["VIX", "DXY", "ESUSD"]);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].ticker, "VIX"); assert.equal(rows[0].price, 16.4); assert.equal(rows[0].prev_close, 15.5);
   assert.equal(rows[0].provider, "FMP"); assert.equal(rows[0].price_observation_utc, "2026-09-22T04:00:00.000Z");
   assert.equal(window.SC_PROVIDER.absenceFor("DXY"), "FMP_MACRO_STALE_25_SESSIONS", "a stopped series is loud, not a line");
-  assert.equal(window.SC_PROVIDER.absenceFor("CLUSD"), "NOT_SERVED_BY_CHART_API");
+  assert.equal(window.SC_PROVIDER.absenceFor("ESUSD"), "NOT_SERVED_BY_CHART_API");
   assert.equal(window.SC_PROVIDER.absenceFor("VIX"), null);
 });
 
@@ -175,4 +175,18 @@ test("/heat sector chips use only the newest day's ranking, never a sector's bes
   assert.deepEqual(got.map((r) => r.sector_name + "#" + r.rank), ["Energy#1", "Crypto#7", "Industrials#10"]);
   assert.deepEqual(latestRanks([]), []);
   assert.deepEqual(latestRanks(null), []);
+});
+
+test("oil, gold, silver, bitcoin and the dollar index ask the chart API at every width, including 4h (Alan, 23 Sep)", async () => {
+  const cases = [["CLUSD", "4h", "240"], ["GCUSD", "D", "D"], ["SIUSD", "3h", "180"], ["BTCUSD", "1h", "60"], ["DXUSD", "4h", "240"]];
+  for (const [sym, range, tf] of cases) {
+    const bars = { symbol:sym, provider:"FMP", provider_symbol:sym, bar_authority:"PROVIDER_BUILT",
+      series:[{ t:1789617600000, o:70, h:71, l:69, c:70.5, v:0 }, { t:1789632000000, o:70.5, h:72, l:70, c:71.2, v:0 }] };
+    const { window, paths } = loadApi([["/candles?symbol=" + sym + "&tf=" + tf, bars]]);
+    const rows = await window.SC_PROVIDER.marketCandles(sym, range, { limit:240 });
+    assert.equal(rows.length, 2, sym + " " + range + " draws from the chart API");
+    assert.equal(rows[0].provider, "FMP");
+    assert.ok(paths.every((p) => !/live_quotes|ohlcv_history/.test(p)), "no price table is read for " + sym);
+    assert.equal(window.SC_PROVIDER.absenceFor(sym, range), null, sym + " " + range + " is never painted as not served");
+  }
 });

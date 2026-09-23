@@ -32,7 +32,8 @@ test("the wall keeps only non-price reads: favourites and the canonical ticker l
 });
 
 test("the provider client routes macro symbols to the chart API and names everything else", () => {
-  assert.match(provider, /var MACRO_SYMBOLS = \{ VIX: 1, DXY: 1, US10Y: 1 \};/);
+  assert.match(provider, /var MACRO_SYMBOLS = \{ VIX: 1, DXY: 1, US10Y: 1, DXUSD: 1, CLUSD: 1, GCUSD: 1, SIUSD: 1, BTCUSD: 1 \};/,
+    "oil, gold, silver, bitcoin and the dollar index come from the chart API like VIX (Alan, 23 Sep: CLUSD 4h \"not served\" was wrong)");
   assert.match(provider, /API \+ '\/macro\?symbols='/);
   assert.match(provider, /if \(own\[sym\] \|\| MACRO_SYMBOLS\[sym\]\)\s+return providerCandleRows\(/);
   assert.match(provider, /throw S\.absenceError\(ABSENCE_NOT_SERVED, sym/);
