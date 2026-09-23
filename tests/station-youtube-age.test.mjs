@@ -166,8 +166,14 @@ for (const shell of SHELLS) {
        reach this file — the feed view does not even expose it. */
     assert.doesNotMatch(codeOf(src), /updated_ts/,
       "no code here asks for, or reads, a collection time");
-    assert.match(src, /videoAgeLabel\(v && v\.published_at\)/,
-      "the tile's age comes from published_at and nothing else");
+    /* 23 Sep: the age now comes from videoWhen(v) — the stream's actual start
+       when the feed knows one, the publish time otherwise. That is still the
+       video's own time, never ours: feed_at is YouTube's actualStartTime, and a
+       row with no stream times is byte-for-byte the old behaviour. */
+    assert.match(src, /videoAgeLabel\(when\)/,
+      "the tile's age comes from the video's own time and nothing else");
+    assert.match(src, /function videoWhen\(v\) \{ return \(v && \(v\.feed_at \|\| v\.published_at\)\) \|\| ""; \}/,
+      "and that time is the start of the stream, or the publish time — no third source");
   });
 }
 
