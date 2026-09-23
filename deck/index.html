@@ -73,100 +73,97 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 
 /* ---- header: scene switcher, ticker fields, ONE timeframe bar ---- */
 
-/* ── THE DOCK ────────────────────────────────────────────────────────────────────────────────
-   Three stacked full-width rows (#bar, #tfbar, #panebar) cost three sets of padding and borders
-   before a single candle is drawn. They are now children of one strip: display:contents keeps
-   every control, id, title and aria-label exactly where it was in the DOM, so nothing is removed
-   and nothing is renamed - only the boxes around them are gone.
-   Group labels recede until hover or keyboard focus, which is what makes one row readable. */
-/* ── THE DOCK BEHAVES LIKE THE APPLE DOCK ────────────────────────────────────────────────────
-   Alan, 22 Sep: "I like the top of the station, all of these buttons, to be more like the Apple
-   dock... consolidate it all in one row... when you go down to the Apple dock, the apps get
-   bigger where you're selected, it becomes like a fan upwards... what we have to reduce is the
-   space these rows take up."  Three things, in that order:
-     1. ONE LINE. The strip no longer wraps. When its controls are wider than the window they
-        all shrink together (--dock-fit), exactly as the Mac Dock shrinks its icons when you add
-        more apps; if even that would make them unreadable it goes back to wrapping rather than
-        pretending they fit.
-     2. SMALLER AT REST — one line instead of two is chart height given back.
-     3. BIGGER WHERE YOU POINT. The control under the pointer grows, its neighbours grow
-        progressively less, and the row slides apart to make room. Transforms only: the layout
-        never moves, so nothing jumps out from under the cursor. A dock at the TOP fans
-        downwards into the screen - the mirror of the Mac's bottom dock - and the name of what
-        you are pointing at appears under it.
-   A finger never magnifies (no hover, and a tap must hit what it aimed at) and reduced motion
-   keeps the row perfectly still. */
-#dock{ flex:none; display:flex; align-items:center; flex-wrap:nowrap; gap:5px 6px;
-  padding:3px 8px; padding-top:calc(3px + env(safe-area-inset-top));
-  border-bottom:1px solid var(--line); position:relative; zoom:var(--dock-fit,1); }
-#dock.dock-wrap{ flex-wrap:wrap; gap:6px 12px; padding:4px 10px; }
-#dock > #bar, #dock > #tfbar, #dock > #panebar{ display:contents; }
-/* Every dock item keeps its own size and grows from the row's top edge. */
-#dock .btn, #dock select, #dock input, #dock #marketStatus, #dock #screenIndicator,
-#dock #symbolNote, #dock #size, #dock #rtNote, #dock .k{
-  flex:none; transform-origin:50% 0; }
-#dock span.btn, #dock a.btn, #dock #marketStatus, #dock #screenIndicator,
-#dock #symbolNote, #dock #size, #dock #rtNote, #dock .k{ display:inline-block; }
-#dock:not(.dock-wrap) .control-group, #dock:not(.dock-wrap) #tf,
-#dock:not(.dock-wrap) #screenControls, #dock:not(.dock-wrap) #cohortPicker,
-#dock:not(.dock-wrap) #familyPicker{ flex:none; flex-wrap:nowrap; }
-/* One line is bought with padding, not with controls: every button keeps its words,
-   its id and its accessible name, and gives back the air around them. */
-#dock:not(.dock-wrap) .btn{ padding:3px 5px; letter-spacing:.08em; }
-#dock:not(.dock-wrap) .control-group{ padding-left:5px; gap:4px; }
-#dock:not(.dock-wrap) .scene-mode{ width:108px; }
-#dock:not(.dock-wrap) .rotate-controls .scene-mode{ width:50px; }
-#dock:not(.dock-wrap) .view-mode{ width:62px; }
-#dock:not(.dock-wrap) .chart-count{ width:40px; }
-#dock:not(.dock-wrap) #resetScene{ width:72px; }
-#dock:not(.dock-wrap) #rotateToggle{ width:46px; }
-#dock:not(.dock-wrap) #screenControls{ grid-template-columns:20px 58px 20px; gap:3px; }
-#dock:not(.dock-wrap) #screenIndicator{ width:58px; }
-#dock:not(.dock-wrap) #symbolNote{ min-width:0; }
-/* On one line the controls sit together like dock icons, centred, with the row's spare space
-   split evenly at both ends. That is what gives the magnification somewhere to grow without
-   dragging the row out from under the pointer — the same reason the Mac's Dock is centred. */
-#dock:not(.dock-wrap) #marketStatus{ margin-left:2px; }
-#dock:not(.dock-wrap){ justify-content:center; }
-#dock:not(.dock-wrap) .btn, #dock:not(.dock-wrap) select, #dock:not(.dock-wrap) input,
-#dock:not(.dock-wrap) #marketStatus, #dock:not(.dock-wrap) #screenIndicator,
-#dock:not(.dock-wrap) #symbolNote, #dock:not(.dock-wrap) #size, #dock:not(.dock-wrap) .k{
-  transition:transform .09s ease-out; }
-#dock .control-label, #dock #tfbar .lbl, #dock #panebar .lbl{
-  max-width:0; overflow:hidden; opacity:0; white-space:nowrap;
-  transition:max-width .12s ease, opacity .12s ease, margin .12s ease; margin-right:-4px; }
-#dock .control-group:hover .control-label,
-#dock .control-group:focus-within .control-label,
-#dock #tfbar:hover .lbl, #dock #tfbar:focus-within .lbl,
-#dock #panebar:hover .lbl, #dock #panebar:focus-within .lbl{
-  max-width:12ch; opacity:1; margin-right:0; }
-/* On one line the group names would widen the row from under the pointer, so they move into
-   the dock's own caption instead — same words, printed under the control you are pointing at. */
-#dock:not(.dock-wrap) .control-label, #dock:not(.dock-wrap) #tfbar .lbl,
-#dock:not(.dock-wrap) #panebar .lbl{ display:none; }
-#dockCaption{ position:absolute; top:calc(100% + 3px); left:0; z-index:26; pointer-events:none;
+/* ── THE DOCK, rebuilt 23 Sep after Alan's review ─────────────────────────────────────────────
+   Alan: "consolidate into ONE row with a dock-style slider. There's no scrolling left to right"
+   · "Look how there's a slope. The icons get bigger AND they go higher" · "It most definitely does
+   not pixelate" · "there's a lot of grayed-out bullshit that I think can be cut" · "the only things
+   that really matter is what chart timeframe we're on… the selector of how many charts we view"
+   · "it moves sideways too much. I'm trying to click the arrows and it moves. That's unacceptable"
+   · "split it in sections and the behaviour applies within the section" · "fully hide when not in use".
+   ONE STRIP, centred, in sections with thin dividers — station · timeframe · charts · scenes ·
+     video · panes · ⋯ — plus a non-clickable readout pinned at the right end (screen n / n, data age).
+   THE ARC. The chip under the pointer scales ~2× about the strip's top edge; its neighbours in the
+     SAME section scale progressively less on a raised cosine. Tops stay on one flat line and the
+     bottoms trace the curve: the Mac Dock, hung from the top of the screen. Transforms only — the
+     layout underneath is never touched, so nothing slides and the arrows stay exactly where they are.
+   NO PIXELATION. The chips carry no will-change: Chrome paints a will-change layer once at rest size
+     and stretches it, which is the blur Alan saw. Without it every chip is re-painted at its
+     magnified size, so the type is crisp at 2×.
+   AUTO-HIDE. Two seconds after the pointer leaves, the strip tucks to a 5 px lip at the top edge and
+     the wall keeps the height; it returns when the pointer reaches the top edge, the lip is tapped,
+     or a control takes focus. Remembered per browser; switched off under ⋯.
+   A finger never magnifies (no hover; a tap must hit what it aimed at) and reduced motion keeps the
+   strip still. */
+#dock{ flex:none; display:flex; align-items:flex-start; justify-content:center; flex-wrap:nowrap;
+  gap:0; padding:3px 8px 4px; padding-top:calc(3px + env(safe-area-inset-top));
+  border-bottom:1px solid var(--line); background:var(--bg); position:relative; z-index:25;
+  zoom:var(--dock-fit,1); }
+#dock > #bar, #dock > #tfbar{ display:contents; }
+#dock .dsec{ flex:none; display:flex; align-items:flex-start; gap:5px; padding:0 8px;
+  border-left:1px solid var(--line); }
+#dock .dsec[data-sec="station"]{ order:1; border-left:0; padding-left:0; }
+#dock .dsec[data-sec="timeframe"]{ order:2; }
+#dock .dsec[data-sec="charts"]{ order:3; }
+#dock .dsec[data-sec="scenes"]{ order:4; }
+#dock .dsec[data-sec="video"]{ order:5; }
+#dock #panebar{ order:6; display:none; }
+body.stack #dock #panebar{ display:flex; }
+#dock .dsec[data-sec="more"]{ order:7; padding-right:0; }
+/* The readout is a fact, not a control: pinned right, never magnified, never in the way. */
+#dock .dsec[data-sec="readout"]{ position:absolute; right:10px; top:50%; transform:translateY(-50%);
+  flex-direction:column; align-items:flex-end; border-left:0; padding:0; gap:1px; pointer-events:none;
+  color:var(--dim); font-size:7px; line-height:1.15; letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; }
+#dock .dsec .control-group{ display:flex; align-items:flex-start; gap:5px; min-height:0; padding-left:0; border-left:0; }
+#dock .control-label, #dock .lbl, #dock .video-note{ display:none; }
+#dock #screenControls{ display:flex; gap:3px; }
+#dock #screenControls .btn{ width:22px; padding-left:0; padding-right:0; text-align:center; }
+#dock .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; align-self:center; white-space:nowrap; }
+#dock .btn{ padding:3px 6px; letter-spacing:.08em; color:var(--ink3); }
+#dock .btn:hover{ color:#A9ABC2; border-color:var(--hair); }
+#dock .btn.on, #dock .btn.on:hover{ color:var(--crk); border-color:var(--crk); }
+#dock .scene-mode{ width:108px; }
+#dock .rotate-controls .scene-mode{ width:50px; }
+#dock #rotateToggle{ width:46px; text-align:center; }
+#dock #countChips{ display:flex; gap:3px; }
+#dock #chartCount{ display:none; }
+/* Every chip grows from the strip's top edge, in place. No will-change: see the note above. */
+#dock .btn, #dock select, #dock input, #dock #panebar > span{ position:relative; flex:none;
+  transform-origin:50% 0; transition:transform .08s ease-out; }
+#dock #marketStatus, #dock #screenIndicator{ display:inline-block; width:auto; }
+#dockCaption{ position:absolute; top:calc(100% + 24px); left:0; z-index:26; pointer-events:none;
   padding:2px 7px; background:rgba(7,10,16,.95); border:1px solid var(--line);
-  color:var(--ink2); font:8.5px var(--mono); letter-spacing:.1em; text-transform:uppercase;
+  color:var(--ink3); font:8.5px var(--mono); letter-spacing:.1em; text-transform:uppercase;
   white-space:nowrap; opacity:0; transform:translateX(-50%); transition:opacity .1s ease; }
 #dockCaption.on{ opacity:1; }
-/* A dock needs a visible focus ring, not only a hover affordance. */
 #dock .btn:focus-visible, #dock select:focus-visible, #dock input:focus-visible{
   outline:1px solid var(--crk); outline-offset:1px; }
+/* ⋯ : everything that is not a first-class control, in one panel under the button. */
+#moreGroup{ position:absolute; top:calc(100% + 2px); right:8px; z-index:30; display:flex; flex-wrap:wrap;
+  align-items:center; gap:6px 8px; padding:8px 10px; max-width:min(560px, calc(100vw - 16px));
+  background:var(--panel2); border:1px solid var(--line); }
+#moreGroup[hidden]{ display:none; }
+#dock #moreGroup .control-label{ display:inline; color:var(--dim); font-size:7px; letter-spacing:.16em; text-transform:uppercase; }
+#dock #moreGroup .control-group{ align-items:center; }
+#dock #moreGroup .btn, #dock #moreGroup select{ transform:none !important; transition:none; }
+#moreGroup .more-readout{ flex-basis:100%; color:var(--dim); font-size:7.5px; letter-spacing:.08em;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#dock #moreGroup .view-mode{ width:78px; }
+/* Auto-hide: the strip floats over the wall and tucks to a lip. */
+body.dock-autohide #dock{ position:absolute; left:0; right:0; top:0; transition:transform .16s ease-out; }
+body.dock-autohide #dock.tucked{ transform:translateY(calc(-100% + 5px)); cursor:pointer; }
+#dock .lip{ position:absolute; left:50%; bottom:0; width:46px; height:3px; margin-left:-23px;
+  background:var(--crk); opacity:0; transition:opacity .15s ease; pointer-events:none; }
+#dock.tucked .lip{ opacity:.85; }
+@media (pointer: coarse){ body.dock-autohide #dock.tucked{ transform:translateY(calc(-100% + 10px)); } }
 @media (prefers-reduced-motion: reduce){
-  #dock .control-label, #dock #tfbar .lbl, #dock #panebar .lbl{ transition:none; }
-  #dock:not(.dock-wrap) .btn, #dock:not(.dock-wrap) select, #dock:not(.dock-wrap) input,
-  #dock:not(.dock-wrap) #marketStatus, #dock:not(.dock-wrap) #screenIndicator,
-  #dock:not(.dock-wrap) #symbolNote, #dock:not(.dock-wrap) #size, #dock:not(.dock-wrap) .k{
-    transition:none; }
-  #dockCaption{ transition:none; }
+  #dock .btn, #dock select, #dock input, #dock #panebar > span{ transition:none; }
+  #dockCaption, body.dock-autohide #dock, #dock .lip{ transition:none; }
 }
-/* Narrow screens keep the old wrapping behaviour rather than a cramped single line. */
-@media (max-width: 720px){
-  #dock{ gap:4px 8px; flex-wrap:wrap; }
-  #dock .control-label, #dock #tfbar .lbl, #dock #panebar .lbl{ max-width:12ch; opacity:1; margin-right:0; }
-  #dock:not(.dock-wrap) .control-label, #dock:not(.dock-wrap) #tfbar .lbl,
-  #dock:not(.dock-wrap) #panebar .lbl{ display:inline; }
-}
+/* Narrow screens: the sections wrap and nothing magnifies. */
+#dock.dock-wrap{ flex-wrap:wrap; justify-content:flex-start; gap:4px 0; }
+#dock.dock-wrap .dsec[data-sec="readout"]{ position:static; transform:none; order:9; flex-basis:100%; }
+#dock.dock-wrap .control-label, #dock.dock-wrap .lbl, #dock.dock-wrap .video-note{ display:inline; color:var(--mute); font-size:7px; letter-spacing:.16em; text-transform:uppercase; align-self:center; }
+@media (max-width: 720px){ #dock{ flex-wrap:wrap; justify-content:flex-start; gap:4px 0; } }
 
 /* FIRST-PAINT SKELETON. Structure only: no number, no colour that could read as a quote. */
 #skeletonGrid{ display:grid; gap:6px; height:100%; grid-template-columns:repeat(2, minmax(0,1fr)); }
@@ -395,99 +392,111 @@ body[data-view="compact"] .btn{ font-size:7.5px; padding:2px 6px; }
    STACK_AT the existing single-column safety layout takes over instead. */
 body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minmax(0,1fr)); }
 
-/* Header, after Alan's 22 Sep review: the timeframe and the chart count are the controls that
-   matter. Layout ("auto" was a build-phase switch), the display window, the screen position
-   (not clickable) and "reset preset" live behind one "⋯" button instead of the permanent bar. */
-#dock #bar #screenControls{ grid-template-columns:26px 26px !important; }
-#bar #moreGroup{ gap:6px; }
-#bar #moreGroup[hidden]{ display:none; }
-#bar #moreGroup #screenIndicator{ width:auto; }
 </style>
 </head>
 <body>
 <div id="dock" role="toolbar" aria-label="Station controls">
 <div id="bar">
-  <span class="k">THE STATION</span>
-  <a class="btn" href="/registry">the hub</a>
-  <span class="control-group scene-controls">
-    <span class="control-label">scene</span>
-    <select class="scene-mode" id="sceneMode" title="choose a chart scene; media panes stay in place" aria-label="Station scene">
-      <option value="live">live</option>
-      <option value="indexNow">index now</option>
-      <option value="indexLeadership">index leadership</option>
-      <option value="companyLeadership">company leadership</option>
-      <option value="focus2">focus 2</option>
-      <option value="macroCrossAsset">macro cross-asset</option>
-      <option value="internalsFast">internals fast</option>
-      <option value="internalsSlow">internals slow</option>
-      <option value="sectorFamilies">sector families</option>
-      <option value="themeFamilies">theme families</option>
-      <option value="cohort">cohort</option>
-      <option value="custom">custom</option>
-    </select>
-    <button type="button" class="btn more-only" id="resetScene" title="restore this scene's original preset" aria-label="Reset scene preset">reset preset</button>
-    <span id="cohortPicker" hidden>
-      <select class="scene-mode" id="cohortPick" title="choose the cohort — its members replace the favorites rows" aria-label="Cohort"></select>
-      <button type="button" class="btn" id="cohortPagePrev" title="previous cohort page" aria-label="Previous cohort page">‹</button>
-      <span id="cohortPageIndicator" aria-live="polite"></span>
-      <button type="button" class="btn" id="cohortPageNext" title="next cohort page" aria-label="Next cohort page">›</button>
+  <span class="dsec" data-sec="station" role="group" aria-label="Station">
+    <span class="k">THE STATION</span>
+    <a class="btn" href="/registry" title="back to the hub">hub</a>
+  </span>
+  <span class="dsec" data-sec="scenes" role="group" aria-label="Scenes and screens">
+    <span class="control-group scene-controls">
+      <span class="control-label">scene</span>
+      <select class="scene-mode" id="sceneMode" title="choose a chart scene; media panes stay in place" aria-label="Station scene">
+        <option value="live">live</option>
+        <option value="indexNow">index now</option>
+        <option value="indexLeadership">index leadership</option>
+        <option value="companyLeadership">company leadership</option>
+        <option value="focus2">focus 2</option>
+        <option value="macroCrossAsset">macro cross-asset</option>
+        <option value="internalsFast">internals fast</option>
+        <option value="internalsSlow">internals slow</option>
+        <option value="sectorFamilies">sector families</option>
+        <option value="themeFamilies">theme families</option>
+        <option value="cohort">cohort</option>
+        <option value="custom">custom</option>
+      </select>
+      <span id="cohortPicker" hidden>
+        <select class="scene-mode" id="cohortPick" title="choose the cohort — its members replace the favorites rows" aria-label="Cohort"></select>
+        <button type="button" class="btn" id="cohortPagePrev" title="previous cohort page" aria-label="Previous cohort page">‹</button>
+        <span id="cohortPageIndicator" aria-live="polite"></span>
+        <button type="button" class="btn" id="cohortPageNext" title="next cohort page" aria-label="Next cohort page">›</button>
+      </span>
+      <span id="familyPicker" hidden>
+        <select class="scene-mode" id="familyPick" title="choose this scene's family basket" aria-label="Family basket"></select>
+      </span>
     </span>
-    <span id="familyPicker" hidden>
-      <select class="scene-mode" id="familyPick" title="choose this scene's family basket" aria-label="Family basket"></select>
+    <span class="control-group" id="screenControls" aria-label="Global Station screens">
+      <span class="control-label">screen</span>
+      <button type="button" class="btn" id="screenPrev" title="Previous screen" aria-label="Previous screen">‹</button>
+      <button type="button" class="btn" id="screenNext" title="Next screen" aria-label="Next screen">›</button>
+    </span>
+    <span class="control-group rotate-controls">
+      <span class="control-label">auto rotate</span>
+      <select class="scene-mode" id="rotateEvery" title="rotation interval" aria-label="Auto rotate interval">
+        <option value="30">30s</option><option value="60" selected>60s</option><option value="120">120s</option>
+      </select>
+      <button type="button" class="btn" id="rotateToggle" title="start or pause curated scene rotation" aria-label="Start auto rotate">start</button>
     </span>
   </span>
-  <span class="control-group rotate-controls">
-    <span class="control-label">auto rotate</span>
-    <select class="scene-mode" id="rotateEvery" title="rotation interval" aria-label="Auto rotate interval">
-      <option value="30">30s</option><option value="60" selected>60s</option><option value="120">120s</option>
-    </select>
-    <button type="button" class="btn" id="rotateToggle" title="start or pause curated scene rotation" aria-label="Start auto rotate">start</button>
+  <span class="dsec" data-sec="more" role="group" aria-label="More">
+    <button type="button" class="btn" id="moreBtn" title="layout, display window, fullscreen, reset preset, auto-hide" aria-label="More controls" aria-expanded="false" aria-controls="moreGroup">⋯</button>
+    <!-- Alan, 22 Sep: "reset preset, I don't even know what it does" · "AUTO was a build-phase thing" ·
+         "Screen 9 of 9 isn't clickable, so it can be separate." They are all still here, one click away. -->
+    <div id="moreGroup" hidden role="group" aria-label="More Station controls">
+      <span class="control-group presentation-controls">
+        <span class="control-label">layout</span>
+        <select class="view-mode" id="viewMode" title="remembered layout for this Station window" aria-label="Station layout">
+          <option value="auto">auto</option><option value="desk">desk</option>
+          <option value="ipad">iPad</option><option value="compact">compact</option>
+          <option value="display" hidden data-display-only="true">display</option>
+        </select>
+        <button type="button" class="btn" id="displayBtn" title="open Station in a dedicated display window" aria-label="Open dedicated Station display window">display ↗</button>
+      </span>
+      <button type="button" class="btn more-only" id="resetScene" title="restore this scene's original preset" aria-label="Reset scene preset">reset preset</button>
+      <button type="button" class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen" aria-label="Toggle Station fullscreen">⛶</button>
+      <button type="button" class="btn" id="dockHideToggle" title="tuck the strip away two seconds after the pointer leaves it; remembered in this browser" aria-pressed="true">auto-hide · on</button>
+      <span class="more-readout"><span id="symbolNote">Hub symbols</span> · <span id="size"></span> <span id="rtNote" hidden style="color:var(--dim);font-size:9px;letter-spacing:.07em"></span></span>
+    </div>
   </span>
-  <span class="control-group" id="screenControls" aria-label="Global Station screens">
-    <button type="button" class="btn" id="screenPrev" title="Previous screen" aria-label="Previous screen">‹</button>
-    <span id="screenIndicator" aria-live="polite">screen 1 / 9 · index now</span>
-    <button type="button" class="btn" id="screenNext" title="Next screen" aria-label="Next screen">›</button>
+  <span class="dsec" data-sec="readout" aria-live="polite">
+    <span id="screenIndicator">screen 1 / 9 · index now</span>
+    <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
   </span>
-  <span class="control-group presentation-controls">
-    <span class="control-label">layout</span>
-    <select class="view-mode" id="viewMode" title="remembered layout for this Station window" aria-label="Station layout">
-      <option value="auto">auto</option><option value="desk">desk</option>
-      <option value="ipad">iPad</option><option value="compact">compact</option>
-      <option value="display" hidden data-display-only="true">display</option>
-    </select>
-    <button type="button" class="btn" id="displayBtn" title="open Station in a dedicated display window" aria-label="Open dedicated Station display window">display ↗</button>
-  </span>
-  <button type="button" class="btn" id="moreBtn" title="layout, display window, screen position, reset preset" aria-label="More controls" aria-expanded="false">⋯</button>
-  <span class="control-group" id="moreGroup" hidden></span>
-  <button type="button" class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen" aria-label="Toggle Station fullscreen">⛶</button>
-  <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
-  <span id="rtNote" hidden style="color:var(--dim);font-size:9px;letter-spacing:.07em"></span>
-  <span id="size"></span>
 </div>
 
 <!-- ONE timeframe bar. It drives both charts. There is no second one. -->
 <div id="tfbar">
-  <span class="lbl">charts</span>
-  <select class="chart-count" id="chartCount" title="number of charts">
-    <option value="2">2</option><option value="6">6</option><option value="8">8</option>
-    <option value="3" hidden data-preset-only="true">3</option>
-    <option value="1" hidden data-preset-only="true">1</option>
-  </select>
-  <span class="symbol-note" id="symbolNote">Hub symbols</span>
+  <span class="dsec" data-sec="timeframe" role="group" aria-label="Timeframe, all charts">
+    <span class="lbl">timeframe · all</span>
+    <span class="tf" id="tf"></span>
+  </span>
+  <span class="dsec" data-sec="charts" role="group" aria-label="Number of charts">
+    <span class="lbl">charts</span>
+    <span id="countChips"></span>
+    <select class="chart-count" id="chartCount" title="number of charts" aria-hidden="true" tabindex="-1">
+      <option value="2">2</option><option value="6">6</option><option value="8">8</option>
+      <option value="3" hidden data-preset-only="true">3</option>
+      <option value="1" hidden data-preset-only="true">1</option>
+    </select>
+  </span>
   <!-- ONE VIDEO AT A TIME. Alan: "I'm never gonna have two videos at the same
        time... only one video feed at a time and I just switch around." This is
        the switch. Both panes still exist, still keep their own scroll position
        and their own playing video; only one is on the wall at a time, and the
        width the other gave up goes straight to X. -->
-  <span class="video-note">video feed</span>
-  <span class="tf" id="videoFeed" role="group" aria-label="Which YouTube feed is on the wall"></span>
-  <span class="lbl">timeframe · all</span>
-  <span class="tf" id="tf"></span>
+  <span class="dsec" data-sec="video" role="group" aria-label="Which video feed is on the wall">
+    <span class="video-note">video feed</span>
+    <span class="tf" id="videoFeed" role="group" aria-label="Which YouTube feed is on the wall"></span>
+  </span>
 </div>
-<div id="symbolGuide" role="listbox" aria-label="Hub symbol suggestions"></div>
 
-<div id="panebar"><span class="lbl">panes</span></div>
+<div id="panebar" class="dsec" data-sec="panes" role="group" aria-label="Panes"><span class="lbl">panes</span></div>
+<span class="lip" aria-hidden="true"></span>
 </div><!-- /#dock -->
+<div id="symbolGuide" role="listbox" aria-label="Hub symbol suggestions"></div>
 <div id="grid"></div>
 <script>
 /* FIRST PAINT (structure only, never data).
@@ -1485,76 +1494,58 @@ function measure() {
         Math.round(r.width) + "×" + Math.round(r.height) + " px"; }
   }
 }
-/* ---- THE DOCK: one line, fitted to the window, magnified where the pointer is ----
-   The maths is deliberately separate from the DOM. dockLayout takes the row exactly as it
-   is laid out at rest - each control's left edge and width, in the dock's own coordinates -
-   plus where the pointer is, and returns one scale and one horizontal shift per control.
-   Nothing it returns changes the layout: the browser's boxes stay exactly where they were,
-   which is why a magnified dock cannot move a control out from under a click. */
-const DOCK_ITEMS = "#dock .btn, #dock select, #dock input, #dock #marketStatus, " +
-  "#dock #screenIndicator, #dock #symbolNote, #dock .video-note, #dock #size, #dock #rtNote, #dock .k";
-const DOCK_MAX_SCALE = 1.62;     /* the pointed-at control, at Mac-Dock magnification */
-const DOCK_FALLOFF = 74;         /* px: how far the swell reaches either side */
-const DOCK_FIT_FLOOR = .72;      /* below this the row would be unreadable, so it wraps instead */
-const DOCK_SWELL_ROOM = 130;     /* px kept spare so a magnified row never pushes itself off the edge */
-function dockLayout(boxes, pointerX, options) {
-  const opts = options || {}, max = opts.max || DOCK_MAX_SCALE, falloff = opts.falloff || DOCK_FALLOFF;
-  if (!boxes.length) return [];
-  const scales = boxes.map((box) => {
-    const distance = (box.left + box.width / 2) - pointerX;
-    return 1 + (max - 1) * Math.exp(-(distance * distance) / (2 * falloff * falloff));
+/* ---- THE DOCK ENGINE: one strip, the arc within a section, and the lip ----
+   dockArc is pure and has no horizontal term at all. It takes the rest geometry (each chip's
+   left, width and section, in dock coordinates) plus the pointer, and returns one SCALE per chip.
+   A chip grows about its own top-centre, so its centre — and every neighbour's — stays where the
+   layout put it. That is the whole answer to "it moves sideways too much".
+   The swell is counted in chips, not pixels, so a wide scene picker and a two-letter timeframe
+   swell alike: the pointed chip is 2×, the next one out is ~1.6×, the one after that ~1.1×, and
+   the profile moves continuously as the pointer crosses from one chip to the next. It stops at
+   the section divider ("split it in sections and the behaviour applies within the section"). */
+const DOCK_ITEMS = "#dock .btn, #dock select, #dock input, #dock #panebar > span:not(.lbl)";
+const DOCK_MAX_SCALE = 2;        /* the pointed-at chip — "~2×" */
+const DOCK_REACH = 2.2;          /* chips: the raised cosine reaches this far from the pointer */
+const DOCK_EDGE_PX = 12;         /* px: a pointer this far past a section's last chip still counts as in it */
+const DOCK_FIT_FLOOR = .72;      /* below this zoom the strip would be unreadable, so it wraps instead */
+const DOCK_TUCK_AFTER = 2000;    /* ms without the pointer before the strip tucks to its lip */
+const DOCK_HIDE_KEY = "station.dock.autohide";
+function dockArc(boxes, pointerX, options) {
+  const opts = options || {}, max = opts.max || DOCK_MAX_SCALE, reach = opts.reach || DOCK_REACH;
+  const rest = boxes.map(() => ({ scale:1, weight:0 }));
+  if (!boxes.length) return rest;
+  /* which section: the one whose chips contain the pointer, else the nearest within DOCK_EDGE_PX */
+  let section = null, best = Infinity;
+  boxes.forEach((box) => {
+    const d = pointerX < box.left ? box.left - pointerX
+      : pointerX > box.left + box.width ? pointerX - (box.left + box.width) : 0;
+    if (d < best) { best = d; section = box.section; }
   });
-  /* Re-flow the row at the new widths. The swell is paid for out of the row's own spare
-     space first — the wide gap the status readout's auto margin opens up is exactly that —
-     and only what is left over moves the row. Gaps never close below minGap. */
-  const minGap = opts.minGap == null ? 5 : opts.minGap;
-  const gaps = [];
-  for (let i = 0; i + 1 < boxes.length; i++)
-    gaps.push(Math.max(0, boxes[i + 1].left - (boxes[i].left + boxes[i].width)));
-  const extra = boxes.reduce((sum, box, i) => sum + box.width * (scales[i] - 1), 0);
-  const spare = gaps.reduce((sum, gap) => sum + Math.max(0, gap - minGap), 0);
-  const share = spare > 0 ? Math.min(extra, spare) / spare : 0;
-  const lefts = [];
-  let cursor = boxes[0].left;
-  for (let i = 0; i < boxes.length; i++) {
-    lefts.push(cursor);
-    const gap = i + 1 < boxes.length ? gaps[i] - Math.max(0, gaps[i] - minGap) * share : 0;
-    cursor += boxes[i].width * scales[i] + gap;
+  if (best > DOCK_EDGE_PX) return rest;
+  const members = [];
+  boxes.forEach((box, i) => { if (box.section === section) members.push(i); });
+  members.sort((a, b) => boxes[a].left - boxes[b].left);
+  /* where the pointer is, in chip units: index of the chip under it plus the fraction across it;
+     in a gap between two chips the fraction runs on smoothly from one to the next */
+  let at = 0;
+  for (let k = 0; k < members.length; k++) {
+    const box = boxes[members[k]], right = box.left + box.width;
+    const nextLeft = k + 1 < members.length ? boxes[members[k + 1]].left : right;
+    if (pointerX < box.left) { at = k; break; }
+    if (pointerX <= right) { at = k + (box.width ? (pointerX - box.left) / box.width : .5); break; }
+    if (pointerX < nextLeft) { at = k + 1; break; }
+    at = k + 1;
   }
-  /* Anchor the point under the pointer so the control you are aiming at does not travel. */
-  let delta = 0;
-  for (let i = 0; i < boxes.length; i++) {
-    const box = boxes[i];
-    if (pointerX < box.left) { delta = pointerX - (lefts[i] - (box.left - pointerX)); break; }
-    if (pointerX <= box.left + box.width) {
-      const u = box.width ? (pointerX - box.left) / box.width : .5;
-      delta = pointerX - (lefts[i] + u * box.width * scales[i]);
-      break;
-    }
-    if (i === boxes.length - 1)
-      delta = pointerX - (lefts[i] + box.width * scales[i] + (pointerX - (box.left + box.width)));
-  }
-  /* Keep the whole row inside the dock when it still fits; a row wider than the dock keeps
-     its anchor instead, because moving it would drag the pointed-at control away. */
-  const bounds = opts.bounds;
-  if (bounds) {
-    const last = boxes.length - 1;
-    const rightEdge = lefts[last] + boxes[last].width * scales[last];
-    if (rightEdge - lefts[0] <= bounds.max - bounds.min) {
-      if (lefts[0] + delta < bounds.min) delta = bounds.min - lefts[0];
-      else if (rightEdge + delta > bounds.max) delta = bounds.max - rightEdge;
-    } else {
-      /* Wider than the dock even so — then the row covers the dock rather than
-         leaving a gap at one end, and no control is pushed out of reach. */
-      delta = Math.min(Math.max(delta, bounds.max - rightEdge), bounds.min - lefts[0]);
-    }
-  }
-  return boxes.map((box, i) => ({
-    scale:scales[i],
-    shift:(lefts[i] + delta + box.width * scales[i] / 2) - (box.left + box.width / 2)
-  }));
+  at = Math.max(0, Math.min(members.length, at));
+  members.forEach((i, k) => {
+    const d = Math.abs(k + .5 - at);
+    const w = d >= reach ? 0 : .5 * (1 + Math.cos(Math.PI * d / reach));
+    rest[i] = { scale:1 + (max - 1) * w, weight:w };
+  });
+  return rest;
 }
 let dockGeometry = null, dockFrame = 0, dockCaption = null, dockFocusItem = null;
+let dockPointerInside = false, dockTuckTimer = 0;
 const dockFinePointer = window.matchMedia ? matchMedia("(hover: hover) and (pointer: fine)") : { matches:true };
 const dockStillness = window.matchMedia ? matchMedia("(prefers-reduced-motion: reduce)") : { matches:false };
 const dockMagnifies = () => {
@@ -1566,17 +1557,21 @@ function dockFit() {
   const value = Number(getComputedStyle(el("dock")).zoom);
   return Number.isFinite(value) && value > 0 ? value : 1;
 }
+function dockSectionOf(node) {
+  const sec = node.closest(".dsec");
+  return sec && sec.dataset ? sec.dataset.sec || "" : "";
+}
 function measureDock() {
   const dock = el("dock");
   if (!dock) return null;
   /* offsetLeft/offsetWidth are LAYOUT values: they ignore the transforms we apply, so the
-     rest geometry can be read while the row is magnified without feeding back on itself. */
+     rest geometry can be read while the strip is magnified without feeding back on itself. */
   const items = Array.from(dock.querySelectorAll(DOCK_ITEMS))
-    .filter((node) => node.offsetWidth > 0 && node.offsetParent);
+    .filter((node) => node.offsetWidth > 0 && node.offsetParent &&
+      !node.closest("#moreGroup") && dockSectionOf(node) !== "readout");
   dockGeometry = {
     items,
-    boxes:items.map((node) => ({ left:node.offsetLeft, width:node.offsetWidth })),
-    bounds:{ min:4, max:Math.max(40, dock.clientWidth - 4) }
+    boxes:items.map((node) => ({ left:node.offsetLeft, width:node.offsetWidth, section:dockSectionOf(node) }))
   };
   return dockGeometry;
 }
@@ -1594,7 +1589,7 @@ function dockCaptionText(item) {
   const own = (item.getAttribute("aria-label") || item.getAttribute("title") || "").trim();
   const text = (item.textContent || "").trim();
   const group = (item.closest(".control-group")?.querySelector(".control-label")?.textContent ||
-    (item.closest("#tfbar") ? "timeframe · all" : item.closest("#panebar") ? "panes" : "")).trim();
+    item.closest(".dsec")?.querySelector(".lbl")?.textContent || "").trim();
   /* group · what it says · what it is — with nothing said twice. */
   const parts = [];
   for (const part of [group, text, own]) {
@@ -1621,41 +1616,147 @@ function applyDock(pointerX, focusItem) {
   const geo = dockGeometry && dockGeometry.items.every((node) => node.isConnected) ? dockGeometry : measureDock();
   if (!geo || !geo.items.length) return;
   if (pointerX == null) {
-    for (const node of geo.items) node.style.transform = "";
+    for (const node of geo.items) { node.style.transform = ""; node.style.zIndex = ""; }
     paintDockCaption(null);
     return;
   }
-  const layout = dockLayout(geo.boxes, pointerX, { bounds:geo.bounds });
-  let nearest = null, nearestCenter = 0, nearestDistance = Infinity;
+  const arc = dockArc(geo.boxes, pointerX);
+  let top = null, topCenter = 0, topWeight = -1;
   geo.items.forEach((node, i) => {
-    const step = layout[i];
-    node.style.transform = step.scale > 1.002 || Math.abs(step.shift) > .2
-      ? "translateX(" + step.shift.toFixed(2) + "px) scale(" + step.scale.toFixed(3) + ")"
-      : "";
-    const center = geo.boxes[i].left + geo.boxes[i].width / 2 + step.shift;
-    const distance = Math.abs(center - pointerX);
-    if (focusItem ? node === focusItem : distance < nearestDistance) {
-      nearest = node; nearestCenter = center; nearestDistance = distance;
+    const step = arc[i];
+    /* scale only — never a translate — so the chip's centre is exactly where the layout put it */
+    node.style.transform = step.scale > 1.005 ? "scale(" + step.scale.toFixed(3) + ")" : "";
+    node.style.zIndex = step.weight > 0 ? String(10 + Math.round(step.weight * 20)) : "";
+    if (focusItem ? node === focusItem : step.weight > topWeight) {
+      top = node; topWeight = step.weight; topCenter = geo.boxes[i].left + geo.boxes[i].width / 2;
     }
   });
-  paintDockCaption(nearest, nearestCenter);
+  paintDockCaption(focusItem || topWeight > 0 ? top : null, topCenter);
 }
-/* One line if the controls fit at a readable size; if they do not, the strip wraps exactly
+/* One line if the sections fit at a readable size; if they do not, the strip wraps exactly
    as it did before rather than shrinking into something nobody can read. */
 function fitDock() {
   const dock = el("dock");
   if (!dock) return;
   applyDock(null);
+  if (typeof paintCountChips === "function") paintCountChips();
   dock.classList.remove("dock-wrap");
   dock.style.setProperty("--dock-fit", "1");
   dockContentChanged();
   if (STACKED || innerWidth < 760) { dock.classList.add("dock-wrap"); return; }
-  /* Fit the row WITH the room its own magnification needs, so the swell has somewhere to
-     go and the first control can never be pushed off the left edge. */
-  const available = dock.clientWidth - 2, natural = dock.scrollWidth + DOCK_SWELL_ROOM;
+  const sections = Array.from(dock.querySelectorAll(".dsec")).filter((n) => n.offsetWidth > 0 && n.dataset.sec !== "readout");
+  const readout = dock.querySelector('.dsec[data-sec="readout"]');
+  /* the readout is pinned right; the centred strip must clear it on BOTH sides to stay centred */
+  const room = readout ? (readout.offsetWidth + 24) * 2 : 0;
+  const available = dock.clientWidth - 16, natural = sections.reduce((sum, n) => sum + n.offsetWidth, 0) + room;
   let fit = available > 0 && natural > available ? available / natural : 1;
   if (fit < DOCK_FIT_FLOOR) { dock.classList.add("dock-wrap"); fit = 1; }
   dock.style.setProperty("--dock-fit", fit >= .999 ? "1" : fit.toFixed(3));
+}
+/* ---- auto-hide: the strip tucks to its lip and comes back on approach, tap or focus ---- */
+function dockAutoHideOn() {
+  let v = null;
+  try { v = localStorage.getItem(DOCK_HIDE_KEY); } catch (_) {}
+  return v == null ? true : v === "1";
+}
+function paintDockHide() {
+  const on = dockAutoHideOn();
+  document.body.classList.toggle("dock-autohide", on);
+  const t = el("dockHideToggle");
+  if (t) {
+    t.textContent = "auto-hide · " + (on ? "on" : "off");
+    t.setAttribute("aria-pressed", on ? "true" : "false");
+    t.classList.toggle("on", on);
+  }
+}
+function revealDock() {
+  clearTimeout(dockTuckTimer); dockTuckTimer = 0;
+  const dock = el("dock");
+  if (dock && dock.classList.contains("tucked")) dock.classList.remove("tucked");
+}
+function tuckDock() {
+  dockTuckTimer = 0;
+  const dock = el("dock");
+  if (!dock || !dockAutoHideOn()) return;
+  const guide = el("symbolGuide"), more = el("moreGroup");
+  /* A chip keeps focus after a mouse click, so plain focus-within would pin the strip open for
+     ever after the first click. Only KEYBOARD focus (:focus-visible) and an open select hold it. */
+  let keyboardFocus = false;
+  try { keyboardFocus = !!dock.querySelector(":focus-visible"); } catch (_) { keyboardFocus = dock.matches(":focus-within"); }
+  const active = document.activeElement;
+  const openSelect = !!active && active.tagName === "SELECT" && dock.contains(active);
+  if (dockPointerInside || keyboardFocus || openSelect || (more && !more.hidden) ||
+      (guide && guide.classList.contains("open"))) { armDockTuck(); return; }
+  applyDock(null);
+  dock.classList.add("tucked");
+}
+function armDockTuck() {
+  clearTimeout(dockTuckTimer); dockTuckTimer = 0;
+  if (!dockAutoHideOn()) return;
+  dockTuckTimer = setTimeout(tuckDock, DOCK_TUCK_AFTER);
+}
+function setDockAutoHide(on) {
+  try { localStorage.setItem(DOCK_HIDE_KEY, on ? "1" : "0"); } catch (_) {}
+  paintDockHide();
+  if (on) armDockTuck(); else revealDock();
+  relayout();
+}
+/* ---- the ⋯ panel ---- */
+function wireMore() {
+  const group = el("moreGroup"), btn = el("moreBtn");
+  if (!group || !btn || btn._wired) return;
+  btn._wired = true;
+  const set = (open) => {
+    group.hidden = !open;
+    btn.classList.toggle("on", open);
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) revealDock(); else armDockTuck();
+  };
+  btn.addEventListener("click", () => set(group.hidden));
+  document.addEventListener("pointerdown", (event) => {
+    if (!group.hidden && !event.target.closest("#moreGroup") && !event.target.closest("#moreBtn")) set(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !group.hidden) { set(false); btn.focus(); }
+  });
+}
+/* ---- chart count as chips: the select keeps every handler; the chips are its face ---- */
+let countChipsState = "";
+function paintCountChips() {
+  const sel = el("chartCount"), box = el("countChips");
+  if (!sel || !box) return;
+  const state = Array.from(sel.options).map((o) => o.value + (o.hidden ? "h" : "")).join(",") +
+    "|" + sel.value + "|" + (sel.disabled ? "d" : "");
+  if (state === countChipsState) return;
+  countChipsState = state;
+  box.innerHTML = "";
+  for (const o of sel.options) {
+    if (o.hidden && o.value !== sel.value) continue;
+    const on = o.value === sel.value;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn" + (on ? " on" : "");
+    b.textContent = o.textContent.trim();
+    b.disabled = sel.disabled;
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+    b.title = (o.value === "1" ? "one chart" : o.value + " charts") + (sel.disabled ? " · fixed by this scene" : "");
+    b.addEventListener("click", () => {
+      if (sel.value === o.value) return;
+      sel.value = o.value;
+      sel.dispatchEvent(new Event("change", { bubbles:true }));
+    });
+    box.appendChild(b);
+  }
+  dockContentChanged();
+}
+function wireCountChips() {
+  const sel = el("chartCount");
+  if (!sel || sel._chips) return;
+  sel._chips = true;
+  paintCountChips();
+  sel.addEventListener("change", paintCountChips);
+  if (window.MutationObserver)
+    new MutationObserver(paintCountChips).observe(sel, { attributes:true, childList:true, subtree:true });
 }
 function wireDock() {
   const dock = el("dock");
@@ -1664,27 +1765,52 @@ function wireDock() {
   const pointerAt = (clientX) => (clientX - dock.getBoundingClientRect().left) / dockFit();
   dock.addEventListener("pointermove", (event) => {
     /* A finger gets no magnification: it has no hover, and a tap must land on what it aimed at. */
-    if (event.pointerType !== "mouse" || !dockMagnifies()) return;
+    if (event.pointerType !== "mouse" || !dockMagnifies() || dock.classList.contains("tucked")) return;
     const x = pointerAt(event.clientX);
     if (dockFrame) return;
     dockFrame = requestAnimationFrame(() => { dockFrame = 0; applyDock(x, null); });
   }, { passive:true });
   const rest = () => { if (!dockFocusItem) applyDock(null); };
-  dock.addEventListener("pointerleave", rest, { passive:true });
+  dock.addEventListener("pointerenter", () => { dockPointerInside = true; revealDock(); }, { passive:true });
+  dock.addEventListener("pointerleave", () => { dockPointerInside = false; rest(); armDockTuck(); }, { passive:true });
   dock.addEventListener("pointercancel", rest, { passive:true });
+  /* the lip: a tap or click on the tucked strip brings it back, and nothing under it is hit */
+  dock.addEventListener("pointerdown", (event) => {
+    if (dock.classList.contains("tucked")) { event.preventDefault(); revealDock(); }
+  });
+  document.addEventListener("pointermove", (event) => {
+    if (event.pointerType === "mouse" && dock.classList.contains("tucked") && event.clientY <= 8) revealDock();
+  }, { passive:true });
   /* Keyboard walks the same dock: the focused control swells exactly as a pointed-at one does. */
   dock.addEventListener("focusin", (event) => {
+    revealDock();
     const item = event.target.closest(DOCK_ITEMS.split(", ").map((s) => s.replace("#dock ", "")).join(", "));
-    if (!item || !dock.contains(item)) return;
+    if (!item || !dock.contains(item) || item.closest("#moreGroup")) return;
     dockFocusItem = item;
     const center = item.offsetLeft + item.offsetWidth / 2;
     if (!dockMagnifies()) { paintDockCaption(item, center); return; }
     applyDock(center, item);
   });
-  dock.addEventListener("focusout", () => { dockFocusItem = null; applyDock(null); });
+  dock.addEventListener("focusout", () => { dockFocusItem = null; applyDock(null); armDockTuck(); });
+  /* A click anywhere else is a mouse user leaving: drop any focus the strip still holds, so an
+     Escape that handed focus back to ⋯ cannot pin the strip open after the pointer has gone. */
+  document.addEventListener("pointerdown", (event) => {
+    if (dock.contains(event.target)) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && dock.contains(active)) active.blur();
+  }, true);
   for (const media of [dockFinePointer, dockStillness])
     if (media.addEventListener) media.addEventListener("change", () => { applyDock(null); fitDock(); });
+  wireMore();
+  wireCountChips();
+  paintDockHide();
+  const toggle = el("dockHideToggle");
+  if (toggle && !toggle._wired) { toggle._wired = true; toggle.addEventListener("click", () => setDockAutoHide(!dockAutoHideOn())); }
+  armDockTuck();
 }
+/* The body class decides whether the strip is in the flow or floating; set it before first paint. */
+paintDockHide();
+
 let raf = 0;
 const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; relayout(); }); };
 if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
@@ -2518,18 +2644,7 @@ async function build() {
   relayout();
 }
 build();
-/* ---- the "⋯" group: relocated controls (see the header note in the stylesheet) ---- */
-(function moreControls() {
-  const group = el("moreGroup"), btn = el("moreBtn");
-  if (!group || !btn) return;
-  const pres = document.querySelector("#bar .presentation-controls");
-  for (const node of [el("resetScene"), pres, el("screenIndicator")]) if (node) group.appendChild(node);
-  btn.addEventListener("click", () => {
-    group.hidden = !group.hidden;
-    btn.classList.toggle("on", !group.hidden);
-    btn.setAttribute("aria-expanded", group.hidden ? "false" : "true");
-  });
-})();
+/* The ⋯ panel, the auto-hide switch and the chart-count chips are wired inside wireDock(). */
 </script>
 </body>
 </html>

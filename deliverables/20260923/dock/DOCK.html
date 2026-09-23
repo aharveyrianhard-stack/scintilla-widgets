@@ -1,0 +1,64 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>The Station dock · 23 Sep 2026 · rebuilt for real</title>
+<style>
+body{margin:0;background:#05060C;color:#B4B6CC;font:19px/1.5 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:36px;margin:0 0 6px;color:#C9CBDD} h2{font-size:27px;margin:44px 0 8px;color:#C9CBDD} h3{font-size:21px;margin:22px 0 6px;color:#C9CBDD}
+p.note{color:#9A9AB6;max-width:1100px;margin:0 0 14px} .lead{font-size:23px;color:#C9CBDD;max-width:1100px}
+table{border-collapse:collapse;font-size:19px;margin:10px 0 6px} th,td{border:1px solid #2A2A3E;padding:8px 14px;text-align:left} th{color:#9A9AB6;font-weight:600}
+figure{margin:0} figure img{width:100%;display:block;border:1px solid #2A2A3E;background:#0A0A0F} figcaption{font:14px ui-monospace,Menlo,monospace;color:#9A9AB6;margin:4px 0 14px}
+.frames{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0} .crop img{width:360px}
+ul{max-width:1100px} li{margin:6px 0} code{font:16px ui-monospace,Menlo,monospace;background:#15162A;padding:2px 6px;border-radius:4px}
+</style></head><body>
+<h1>The Station dock, 23 September: one strip, an arc that never slides, a lip that hides</h1>
+<p class="lead">Built into the real Station, <code>deck/index.html</code>, on branch <code>station/dock-20260923</code> from production <code>de95670</code>. Every picture below was taken in a real headless Chromium on the MacBook at 1440×900, device scale 2, with every outside host blocked (so the charts say "delayed", which is the offline harness, not the dock). <b>Nothing is deployed.</b></p>
+
+<h2>1 · What Alan asked for, and where each one is</h2>
+<table>
+<tr><th>Alan, verbatim</th><th>What the strip now does</th><th>Proof</th></tr>
+<tr><td>"consolidate into ONE row with a dock-style slider. There's no scrolling left to right"</td><td>One centred row, 28 px tall, 24 controls, no horizontal scroll. The old header had controls at three heights (0 / 35 / 91 px); every control now shares one top edge (y = 3 px).</td><td>§2</td></tr>
+<tr><td>"Look how there's a slope. The icons get bigger AND they go higher"</td><td>The chip under the pointer is 2.0×, its neighbours fall away on a raised cosine (1.00× · 1.00× · 1.00× · 1.00× · 1.03× · 1.59× · 2.00× · 1.55× · 1.01× · 1.00× · 1.00× · 1.00× across the timeframe section). Tops stay on one line; the bottoms trace the curve — the Mac Dock hung from the top edge.</td><td>§3, §4</td></tr>
+<tr><td>"It most definitely does not pixelate"</td><td>No <code>will-change</code> on the chips, so Chrome repaints each one at its magnified size instead of stretching a rest-size bitmap. The 2× type in the crop is sharp.</td><td>§3 crop</td></tr>
+<tr><td>"it moves sideways too much… I'm trying to click the arrows and it moves. That's unacceptable"</td><td>The engine has no horizontal term at all: it returns one scale per chip and the DOM write is <code>scale()</code> only. Measured drift of every chip centre while magnified: <b>0.00 px</b>. The › arrow: centre 945.61 at rest, 945.61 magnified, clicked while magnified, screen changed ("manual" → "screen 1 / 9").</td><td>§5</td></tr>
+<tr><td>"split it in sections and the behaviour applies within the section"</td><td>Sections with thin dividers: station · timeframe · charts · scenes · video · panes (phone only) · ⋯. The swell stops at a divider: with 6H at 2×, every chip outside the timeframe section measured exactly 1.00×.</td><td>§3</td></tr>
+<tr><td>"there's a lot of grayed-out bullshit that I think can be cut" · "Reset preset, I don't even know what it does" · "AUTO was a build-phase thing" · "Screen 9 of 9 isn't clickable, so it can be separate"</td><td>Off the strip and behind ⋯: layout (auto/desk/iPad/compact), display ↗, reset preset, fullscreen, and the auto-hide switch. "screen n / n" and the data-age line are a non-clickable readout pinned at the right end, never magnified. Group labels are gone from the strip; the caption under the pointed chip says its group instead.</td><td>§6</td></tr>
+<tr><td>"The only things that really matter is what chart timeframe we're on… the selector of how many charts we view"</td><td>Timeframe and chart count are the first two sections after the wordmark, in the centre of the row. The chart count is now chips (2 · 6 · 8, plus 3 or 1 when a preset fixes it) that drive the same select and handler as before.</td><td>§2</td></tr>
+<tr><td>"Maybe fully hide when not in use"</td><td>Two seconds after the pointer leaves, the strip tucks to a 5 px lip and the wall keeps the height. It returns when the pointer reaches the top edge, the lip is tapped, or a control takes keyboard focus. Remembered per browser; the switch is under ⋯.</td><td>§7</td></tr>
+</table>
+
+<h2>2 · At rest</h2>
+<figure><img src="shots/01-rest.png" alt="the strip at rest"><figcaption>01-rest.png · one row, centred, sections divided by hairlines; the readout (screen · data age) sits at the far right and is not a control</figcaption></figure>
+<figure><img src="shots/01-rest-full.png" alt="the whole Station at rest"><figcaption>01-rest-full.png · the whole wall. Charts read "data delayed" because the harness blocks every outside host; that is the offline test, not the dock.</figcaption></figure>
+
+<h2>3 · Mid-magnify: the arc</h2>
+<figure><img src="shots/02-magnified.png" alt="6H magnified"><figcaption>02-magnified.png · pointer on 6H. Tops flat, bottoms on a curve, caption underneath. Every other section untouched.</figcaption></figure>
+<div class="crop"><figure><img src="shots/03-crisp-crop.png" alt="crisp crop"><figcaption>03-crisp-crop.png · 2× type at device scale 2. Sharp edges, no stretched bitmap.</figcaption></figure></div>
+<p class="note"><b>The one trade-off, said plainly.</b> With no sliding and a 2× chip, the pointed chip covers the inner third of each neighbour (4H and 12H above). The Mac Dock avoids that by sliding icons apart, which is exactly what Alan rejected. If the overlap reads as too much, the two knobs are <code>DOCK_MAX_SCALE</code> (2) and <code>DOCK_REACH</code> (2.2 chips) at the top of the engine; nothing else changes.</p>
+
+<h2>4 · Six frames of the swell (pointer sweeping the timeframe section left to right)</h2>
+<div class="frames"><figure><img src="shots/seq-0.png" alt=""><figcaption>frame 1 · pointer x=306</figcaption></figure><figure><img src="shots/seq-1.png" alt=""><figcaption>frame 2 · pointer x=386</figcaption></figure><figure><img src="shots/seq-2.png" alt=""><figcaption>frame 3 · pointer x=467</figcaption></figure><figure><img src="shots/seq-3.png" alt=""><figcaption>frame 4 · pointer x=547</figcaption></figure><figure><img src="shots/seq-4.png" alt=""><figcaption>frame 5 · pointer x=627</figcaption></figure><figure><img src="shots/seq-5.png" alt=""><figcaption>frame 6 · pointer x=707</figcaption></figure></div>
+<table><tr><th>chip</th><th>section</th><th>centre drift (px)</th><th>top-edge drift (px)</th><th>scale with pointer on 6H</th></tr><tr><td>15m</td><td>timeframe</td><td>+0.00</td><td>+0.00</td><td>1.00×</td></tr><tr><td>30m</td><td>timeframe</td><td>+0.00</td><td>+0.00</td><td>1.00×</td></tr><tr><td>1h</td><td>timeframe</td><td>+0.00</td><td>+0.00</td><td>1.00×</td></tr><tr><td>2h</td><td>timeframe</td><td>+0.00</td><td>+0.00</td><td>1.00×</td></tr><tr><td>3h</td><td>timeframe</td><td>+0.00</td><td>+0.00</td><td>1.03×</td></tr><tr><td>4h</td><td>timeframe</td><td>+0.00</td><td>+0.00</td><td>1.59×</td></tr><tr><td>6h</td><td>timeframe</td><td>+0.00</td><td>+0.00</td><td>2.00×</td></tr><tr><td>12h</td><td>timeframe</td><td>+0.00</td><td>+0.00</td><td>1.55×</td></tr><tr><td>1D</td><td>timeframe</td><td>+0.00</td><td>+0.00</td><td>1.01×</td></tr><tr><td>3D</td><td>timeframe</td><td>+0.00</td><td>+0.00</td><td>1.00×</td></tr><tr><td>1W</td><td>timeframe</td><td>+0.00</td><td>+0.00</td><td>1.00×</td></tr><tr><td>cloudsToggle</td><td>timeframe</td><td>+0.00</td><td>+0.00</td><td>1.00×</td></tr></table>
+<p class="note">Drift is the difference between each chip's bounding box at rest and while 6H is magnified. Maximum across all 24 controls: 0.00 px sideways, 0.00 px at the top edge.</p>
+
+<h2>5 · The arrows stay put</h2>
+<div class="crop"><figure><img src="shots/07-arrow-magnified.png" alt="next-screen arrow magnified"><figcaption>07-arrow-magnified.png · › at 2.0×, centre unchanged (945.61 → 945.61 px). It was then clicked at its rest centre: "manual" became "screen 1 / 9".</figcaption></figure></div>
+
+<h2>6 · Behind ⋯</h2>
+<figure><img src="shots/06-more.png" alt="the more panel"><figcaption>06-more.png · layout, display ↗, reset preset, fullscreen, auto-hide, and the symbol / size readouts. Escape or a click elsewhere closes it.</figcaption></figure>
+
+<h2>7 · Hidden: the lip</h2>
+<figure><img src="shots/04-lip.png" alt="the lip"><figcaption>04-lip.png · top 40 px of the screen, strip tucked: a 5 px band with a small grip, and the chart headers directly under it. Measured: tucked 1840 ms after the pointer left the strip in the harness (the timer is 2.0 s from pointer-leave); dock box top -23 px, bottom 5 px.</figcaption></figure>
+<figure><img src="shots/05-revealed.png" alt="revealed"><figcaption>05-revealed.png · the pointer touched the top edge and the strip came back (revealed_on_approach = true). It came back over whatever the pointer landed on, here the chart-count chips.</figcaption></figure>
+<figure><img src="shots/08-autohide-off.png" alt="auto-hide off"><figcaption>08-autohide-off.png · switched off under ⋯: the strip stays in the flow (grid starts at 28 px) and stays out after 2.6 s away; the choice is stored as <code>station.dock.autohide = "0"</code> in this browser.</figcaption></figure>
+
+<h2>8 · What changed in the code, and what did not</h2>
+<ul>
+<li><b>Markup:</b> the same controls, ids and handlers, wrapped in sections; the visual order is fixed in CSS, so nothing had to move in the DOM except the five controls that went into the ⋯ panel and the two readouts that went to the right end. The symbol-guide list moved out of the dock so a tucked strip can never become its containing block.</li>
+<li><b>Engine:</b> <code>dockArc()</code> replaces the old Gaussian-plus-reflow layout. It is pure, counts the swell in chips (so a 108 px scene picker and a two-letter timeframe swell alike), stops at the section, and returns scale only. Ten offline tests pin it: 2× under the pointer, monotone falloff, section isolation, a wide chip fully magnified at its own edge, continuity for every one-pixel move, no horizontal output, no <code>will-change</code>, no white or near-white hex in the dock stylesheet, and the auto-hide contract.</li>
+<li><b>Auto-hide:</b> a chip keeps focus after a mouse click, so the tuck rule looks at keyboard focus (<code>:focus-visible</code>) and open selects only; a click anywhere else drops focus the strip still holds. Caught by the harness, which never saw the strip tuck until this was fixed.</li>
+<li><b>Colour:</b> the dock uses <code>--ink3</code>, <code>--dim</code>, <code>--crk</code> and one new hover grey <code>#A9ABC2</code> (lightness 0.71). It never uses <code>--ink</code> or <code>--ink2 (#C6C8DE)</code>. The orange "DATA · DELAYED" in the readout is the existing market-status colour, unchanged.</li>
+<li><b>Untouched:</b> <code>chart/index.html</code> and its twin <code>station-shells/chart-v1/index.html</code> (byte-identical, blob <code>f57c7fd5</code>); scene logic, rotation, screens, presets, favourites, the Equalizer and every calculation.</li>
+<li><b>Phones:</b> below 720 px the sections wrap, the labels come back, and nothing magnifies (a finger has no hover). Not screenshotted in this unit.</li>
+<li><b>Tests:</b> dock suite 10/10. Whole-repo suite: the base commit already fails 21 unrelated tests (route inventory, chart badge, iPad header, …); this branch fails 20 of those same tests and no new ones. The one dock-related failure that remains, "the dock loses no control", counts buttons against a July commit and already failed at <code>de95670</code>.</li>
+</ul>
+<p class="note">Harness and raw measurements: run folder <code>evidence/capture-dock.cjs</code>, <code>shots/measurements.json</code> here. The harness verifies that the port it opened serves this worktree's bytes before it measures anything, because other lanes run their own static servers on this machine.</p>
+</body></html>
