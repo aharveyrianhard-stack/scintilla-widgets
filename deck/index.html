@@ -166,8 +166,8 @@ body.stack #edgePrev, body.stack #edgeNext{ display:none; }
 #pageJumpQ{ width:100%; background:var(--bg); border:1px solid #2C2C46; color:var(--ink3);
   font-family:var(--mono); font-size:11px; letter-spacing:.06em; padding:5px 7px; outline:none; border-radius:0; }
 #pageJumpQ:focus{ border-color:var(--crk); }
-#pageJumpList{ display:grid; grid-template-columns:repeat(auto-fill, 132px); gap:4px; }
-#pageJumpList .btn{ width:132px; font-size:11px; text-align:left; padding:5px 7px; overflow:hidden;
+#pageJumpList{ display:grid; grid-template-columns:repeat(auto-fill, 168px); gap:4px; }
+#pageJumpList .btn{ width:168px; font-size:11px; text-align:left; padding:5px 7px; overflow:hidden;
   white-space:nowrap; text-overflow:ellipsis; }
 #pageJumpList .btn .why{ color:var(--dim); }
 #pageJumpNone{ color:var(--ink3); font-size:11px; letter-spacing:.06em; }
@@ -589,14 +589,6 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   </span>
 </div>
 
-<button type="button" id="edgePrev" title="Previous page — or the left arrow key" aria-label="Previous page">‹</button>
-<button type="button" id="edgeNext" title="Next page — or the right arrow key" aria-label="Next page">›</button>
-<div id="pageJump" hidden role="dialog" aria-label="Go to a page">
-  <input id="pageJumpQ" type="text" spellcheck="false" autocomplete="off" placeholder="page name or ticker — e.g. MACRO, PCC" aria-label="Filter pages">
-  <div id="pageJumpList" role="listbox" aria-label="Pages"></div>
-  <div id="pageJumpNone" hidden>no page carries that name or ticker</div>
-</div>
-
 <!-- ONE timeframe bar. It drives both charts. There is no second one. -->
 <div id="tfbar">
   <span class="dsec" data-sec="timeframe" role="group" aria-label="Timeframe, all charts">
@@ -626,6 +618,17 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 <div id="panebar" class="dsec" data-sec="panes" role="group" aria-label="Panes"><span class="lbl">panes</span></div>
 <span class="lip" aria-hidden="true"></span>
 </div><!-- /#dock -->
+
+<!-- THE EDGE ARROWS AND THE JUMP LIST LIVE OUTSIDE THE DOCK ON PURPOSE. A tucked dock is a
+     TRANSFORMED box, and a transformed box becomes the containing block for anything fixed
+     inside it — which dragged both of these off the top of the screen with it. -->
+<button type="button" id="edgePrev" title="Previous page — or the left arrow key" aria-label="Previous page">‹</button>
+<button type="button" id="edgeNext" title="Next page — or the right arrow key" aria-label="Next page">›</button>
+<div id="pageJump" hidden role="dialog" aria-label="Go to a page">
+  <input id="pageJumpQ" type="text" spellcheck="false" autocomplete="off" placeholder="page name or ticker — e.g. MACRO, PCC" aria-label="Filter pages">
+  <div id="pageJumpList" role="listbox" aria-label="Pages"></div>
+  <div id="pageJumpNone" hidden>no page carries that name or ticker</div>
+</div>
 <div id="symbolGuide" role="listbox" aria-label="Hub symbol suggestions"></div>
 <div id="grid"></div>
 <script>
@@ -1812,9 +1815,14 @@ function measureDock() {
   if (!dock) return null;
   /* offsetLeft/offsetWidth are LAYOUT values: they ignore the transforms we apply, so the
      rest geometry can be read while the strip is magnified without feeding back on itself. */
+  /* THE PAGE BUTTONS DO NOT MAGNIFY. The rail is a fixed-width viewport that slides by
+     whole buttons; a button that grows under the pointer is clipped by that viewport and
+     the name gets cut in half. Fixed width is the point of the rail, so the arc skips it —
+     the two rail arrows and every other control still magnify exactly as before. */
   const items = Array.from(dock.querySelectorAll(DOCK_ITEMS))
     .filter((node) => node.offsetWidth > 0 && node.offsetParent &&
-      !node.closest("#moreGroup") && dockSectionOf(node) !== "readout");
+      !node.closest("#moreGroup") && !node.classList.contains("page-chip") &&
+      dockSectionOf(node) !== "readout");
   dockGeometry = {
     items,
     boxes:items.map((node) => ({ left:node.offsetLeft, width:node.offsetWidth, section:dockSectionOf(node) }))
@@ -2523,7 +2531,7 @@ function pageChips() {
   SceneModel.SCREENS.forEach((screen) => {
     const b = document.createElement("button");
     b.type = "button"; b.className = "btn page-chip"; b.dataset.scene = screen.scene;
-    b.textContent = screen.label; b.title = screen.label;
+    b.textContent = SceneModel.shortLabel(screen); b.title = screen.label;
     b.setAttribute("role", "tab");
     b.addEventListener("click", () => goToPage(screen.scene));
     strip.appendChild(b);

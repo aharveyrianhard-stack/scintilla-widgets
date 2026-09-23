@@ -12,15 +12,15 @@
      remain manual workspaces so arrowing/rotation never replaces a live or
      in-progress custom wall. */
   const SCREENS = Object.freeze([
-    Object.freeze({ id:"indexNow", scene:"indexNow", label:"INDEX NOW" }),
-    Object.freeze({ id:"indexLeadership", scene:"indexLeadership", label:"INDEX LEADERSHIP" }),
-    Object.freeze({ id:"companyLeadership", scene:"companyLeadership", label:"COMPANY LEADERSHIP" }),
-    Object.freeze({ id:"focus2", scene:"focus2", label:"FOCUS 2" }),
-    Object.freeze({ id:"macroCrossAsset", scene:"macroCrossAsset", label:"MACRO CROSS-ASSET" }),
-    Object.freeze({ id:"internalsFast", scene:"internalsFast", label:"INTERNALS FAST" }),
-    Object.freeze({ id:"internalsSlow", scene:"internalsSlow", label:"INTERNALS SLOW" }),
-    Object.freeze({ id:"sectorFamilies", scene:"sectorFamilies", label:"SECTOR FAMILIES" }),
-    Object.freeze({ id:"themeFamilies", scene:"themeFamilies", label:"THEME FAMILIES" }),
+    Object.freeze({ id:"indexNow", scene:"indexNow", label:"INDEX NOW" , short:"INDEX NOW"}),
+    Object.freeze({ id:"indexLeadership", scene:"indexLeadership", label:"INDEX LEADERSHIP" , short:"INDEX LEAD"}),
+    Object.freeze({ id:"companyLeadership", scene:"companyLeadership", label:"COMPANY LEADERSHIP" , short:"COMPANY LD"}),
+    Object.freeze({ id:"focus2", scene:"focus2", label:"FOCUS 2" , short:"FOCUS 2"}),
+    Object.freeze({ id:"macroCrossAsset", scene:"macroCrossAsset", label:"MACRO CROSS-ASSET" , short:"MACRO X-A"}),
+    Object.freeze({ id:"internalsFast", scene:"internalsFast", label:"INTERNALS FAST" , short:"INTERNAL F"}),
+    Object.freeze({ id:"internalsSlow", scene:"internalsSlow", label:"INTERNALS SLOW" , short:"INTERNAL S"}),
+    Object.freeze({ id:"sectorFamilies", scene:"sectorFamilies", label:"SECTOR FAMILIES" , short:"SECTOR FAM"}),
+    Object.freeze({ id:"themeFamilies", scene:"themeFamilies", label:"THEME FAMILIES" , short:"THEME FAM"}),
     /* ── ALAN'S OWN TRADINGVIEW LAYOUTS, in his order, as Station pages ───────────
        23 Sep: "the TV dynamic needs to come to Station, to free up the space of
        Chrome." Same names, same order, same chart counts, same tickers. */
@@ -40,6 +40,11 @@
      screens it always cycled; Alan's own layouts are pages you go to, not a
      slideshow he did not ask for. The arrows, the rail and the jump list walk
      every page in SCREENS. */
+  /* A RAIL BUTTON IS 81 px WIDE, WHICH IS ABOUT ELEVEN CHARACTERS. Two pages that both
+     truncate to "INTERNALS …" are two buttons nobody can tell apart, so every page carries
+     a short name for the rail; the full name stays on the button's tooltip, in the scene
+     menu and in the jump list. */
+  function shortLabel(screen) { return (screen && (screen.short || screen.label)) || ""; }
   const ROTATION_SCENES = Object.freeze(["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]);
   const ROTATION_IDS = ROTATION_SCENES;
   const NY = "America/New_York";
@@ -352,6 +357,7 @@
     pageTickers,
     findPages,
     railChips,
-    railWindowStart
+    railWindowStart,
+    shortLabel
   });
 })(typeof globalThis === "object" ? globalThis : window);

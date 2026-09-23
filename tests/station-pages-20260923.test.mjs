@@ -141,6 +141,23 @@ test("every page button is the same width, and the rail is a whole number of but
   assert.equal(scenes.railWindowStart(-1, 7, 20), 0, "a manual workspace parks the rail at the start");
 });
 
+test("no two page buttons read the same, at 81px", () => {
+  const labels = scenes.SCREENS.map((screen) => scenes.shortLabel(screen));
+  assert.equal(new Set(labels).size, labels.length, "every page button reads differently");
+  for (const label of labels)
+    assert.ok(label.length <= 11, `${label} fits an 81px button without being cut`);
+  assert.equal(scenes.shortLabel(scenes.screenForScene("internalsFast")), "INTERNAL F");
+  assert.equal(scenes.shortLabel(scenes.screenForScene("internalsSlow")), "INTERNAL S");
+  assert.equal(scenes.shortLabel(scenes.screenForScene("tvMacro")), "MACRO", "a short name stands as it is");
+  assert.match(deck, /b\.textContent = SceneModel\.shortLabel\(screen\); b\.title = screen\.label;/,
+    "the full name stays on the tooltip");
+});
+
+test("the page buttons never magnify, so the rail cannot clip a name in half", () => {
+  assert.match(deck, /!node\.classList\.contains\("page-chip"\)/,
+    "the dock's magnifying arc skips the fixed-width page buttons");
+});
+
 test("the readouts own fixed cells, so nothing shifts when a page name or a status is long", () => {
   assert.match(deck, /#dock #screenIndicator\{ display:inline-block; width:74px;[^}]*tabular-nums/);
   assert.match(deck, /#dock #marketStatus\{ display:inline-block; width:132px;[^}]*tabular-nums/);
@@ -160,6 +177,11 @@ test("one move to anywhere: the arrows, the edges, the keys and the jump list", 
   assert.equal(typingTarget({ tagName:"DIV", isContentEditable:true }), true);
   assert.equal(typingTarget({ tagName:"BUTTON" }), false);
   assert.equal(typingTarget(null), false);
+});
+
+test("every button in the jump list is the same width too", () => {
+  assert.match(deck, /#pageJumpList \.btn\{ width:168px;/);
+  assert.match(deck, /grid-template-columns:repeat\(auto-fill, 168px\)/);
 });
 
 test("the jump list finds a page by its name or by a ticker on it — PCC in one move", () => {
