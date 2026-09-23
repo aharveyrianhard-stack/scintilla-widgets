@@ -121,3 +121,10 @@ test('the selector is painted immediately and repainted from the rows that actua
   assert.ok(load.indexOf('paintFeedProfileSelector') < load.indexOf('const nextRows'),
     'availability sees the returned provenance before the active profile filters its display rows')
 })
+
+test("a channel's readiness comes from its own videos, not from the feed being watched (23 Sep: GOLF read 'not connected yet' from SOUNDSCAPES)", () => {
+  const shell = readFileSync(new URL("../station-shells/scintilla-video-v1/index.html", import.meta.url), "utf8");
+  assert.match(shell, /const FEED_PRESENCE = new Map\(\);/);
+  assert.match(shell, /FEED_PRESENCE\.has\(profile\.account\)\) return FEED_PRESENCE\.get\(profile\.account\);/);
+  assert.match(shell, /if \(!FEED_PRESENCE\.size\) await readFeedPresence\(\);\n  paintFeedProfileSelector\(raw\);/);
+});

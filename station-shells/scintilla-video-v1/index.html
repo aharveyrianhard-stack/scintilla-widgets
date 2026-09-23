@@ -607,12 +607,28 @@ function feedCoverageText(coverage) {
   if (coverage.unscoped) parts.push(coverage.unscoped + " carry no account");
   return parts.join(" \u00b7 ");
 }
+/* PRESENCE PER CHANNEL (23 Sep 2026). A channel used to count as ready only if its videos appeared in the
+   feed being WATCHED, so from SOUNDSCAPES the GOLF and AI RESEARCH entries read "not connected yet" while
+   they held 214 and 445 videos (Alan: "the channel dropdown doesn't work"). Each channel is now asked
+   about once, on its own: one id, limit 1, when the pane loads. */
+const FEED_PRESENCE = new Map();
+async function readFeedPresence() {
+  const accounts = FEED_PROFILES.map((profile) => profile.account).filter(Boolean);
+  await Promise.all(accounts.map(async (account) => {
+    try {
+      const any = await pg("youtube_feed?select=video_id&subscription_accounts=cs." +
+        encodeURIComponent("{" + account + "}") + "&limit=1", 1);
+      FEED_PRESENCE.set(account, Array.isArray(any) && any.length > 0);
+    } catch (_) {}
+  }));
+}
 function profileIsAvailable(profileKey, rows) {
   /* A declared profile becomes selectable when the data proves its account exists. */
   const profile = FEED_PROFILES.find((entry) => entry.key === profileKey);
   if (!profile) return false;
   if (!profile.account) return true;
   if (profile.key === "personal" || profile.key === "scintilla") return true;
+  if (typeof FEED_PRESENCE !== "undefined" && FEED_PRESENCE.has(profile.account)) return FEED_PRESENCE.get(profile.account);
   return (Array.isArray(rows) ? rows : []).some((row) =>
     Array.isArray(row?.subscription_accounts) && row.subscription_accounts.includes(profile.account));
 }
@@ -1255,6 +1271,7 @@ async function load(forceWatch, quiet) {
       ACCOUNT_EMPTY = Array.isArray(any) && !any.length;
     } catch (_) {}
   }
+  if (!FEED_PRESENCE.size) await readFeedPresence();
   paintFeedProfileSelector(raw);
   const nextRows = filterFeedRows(raw);
   const signature = (items) => items.map((v) => [v.video_id, v.title, v.channel, v.published_at,
