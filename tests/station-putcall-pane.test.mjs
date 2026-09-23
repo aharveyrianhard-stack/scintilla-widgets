@@ -37,11 +37,12 @@ test("the provider client sends them to the chart API, like the macro series", (
 test("a published daily ratio is painted from its sessions, never from a live quote", () => {
   assert.match(chart, /if \(scPutCallPane\(host\?\.dataset\?\.t\)\) \{ paintPutCallStatus\(host\); return; \}/,
     "paintLiveStatus hands these panes over before it reads a quote");
-  assert.match(chart, /badge\.dataset\.change = "flat";/, "no direction is coloured for a ratio");
+  assert.match(chart, /badge\.dataset\.change = pct == null \|\| pct === 0 \? "flat" : pct > 0 \? "up" : "down";/,
+    "the readout takes the same up / down colour as every pane (Alan, 23 Sep)");
   assert.match(chart, /putCallSessionLabel\(last\.d\)/, "the hover text names the session it is showing");
   assert.match(chart, /"  " \+ chartStartDate\(last\.d\);/, "and so does the one visible line");
-  assert.match(chart, /const ref = scPutCallPane\(host\?\.dataset\?\.t\) \? null : chDayRef\(host\);/,
-    "the pane claims no direction colour for a ratio");
+  assert.doesNotMatch(chart, /scPutCallPane\(host\?\.dataset\?\.t\) \? null : chDayRef\(host\)/,
+    "the line is no longer held to grey: same green / red rule as every pane");
   assert.match(chart, /There is no live put\/call ratio\./);
   /* the window label says the session and the publisher, not "last close" */
   assert.match(chart, /pcPane \? putCallSessionLabel\(pts\[pts\.length - 1\]\.d\) \+ " \\u00b7 Cboe"/);

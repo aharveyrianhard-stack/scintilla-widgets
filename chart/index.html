@@ -1349,11 +1349,10 @@ function scChartDraw(host, scrub) {
      already said "—" for exactly that case (chDayChange refuses without a previous close),
      so an honest text sat beside a confident color, and the color is what the wall is read
      by. Direction is claimed only from the authority the badge uses; without it, neutral. */
-  /* A PUT/CALL PANE CLAIMS NO DIRECTION. Green on this wall means the line went up, and on every
-     other pane that also reads as good news. On a put/call ratio "up" is more puts than calls,
-     which is fear to one reader and a contrarian buy to the next — so this pane takes the palette's
-     neutral tone (the same one an unknown baseline gets) and lets the number speak. */
-  const ref = scPutCallPane(host?.dataset?.t) ? null : chDayRef(host);
+  /* 23 Sep, Alan: "Why would you accept and tolerate a gray line… Same rules apply. Daily up, daily down,
+     green, red." The put/call pane was held to a neutral grey; it now follows the one rule every pane on
+     this wall follows: green when the session closed above the one before it, red when below. */
+  const ref = chDayRef(host);
   let yLo = lo, yHi = hi;
   if (yHi === yLo) { yHi += 1; yLo -= 1; }
   const yPad = (yHi - yLo) * .055;
@@ -1685,6 +1684,8 @@ function paintPutCallStatus(host) {
     return;
   }
   const pct = prev && prev.p ? ((last.p - prev.p) / prev.p) * 100 : null;
+  /* 23 Sep, Alan: same rules as every pane: a session above the one before reads green, below reads red. */
+  badge.dataset.change = pct == null || pct === 0 ? "flat" : pct > 0 ? "up" : "down";
   /* The session goes on the pane, not only in the hover text: a put/call number that does not say
      which session it is is a number pretending to be now. It rides on the one visible line, so the
      pane still reads "ticker, value, change" and gains nothing else. */
