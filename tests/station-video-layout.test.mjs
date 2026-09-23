@@ -134,7 +134,11 @@ test("3b · the tabs come first, every list keeps its chip, the old links still 
   assert.match(fnFrom(pane, "visibleQueue"), /inMode\(v\)/, "prev / next stay inside the tab");
   assert.match(fnFrom(pane, "syncUrl"), /p\.set\("mode", MODE\)/, "the URL carries the tab, so PiP and the deck lift the same view");
   assert.match(pane, /\.dur\{/, "the duration badge Alan asked to keep is still styled");
-  assert.match(fnFrom(pane, "cardHTML"), /class="dur"/, "and still painted on the thumbnail");
+  /* 23 Sep: the corner is painted by videoBadgeHTML, which says LIVE for a
+     stream on air and its start time for one still to come. The length Alan
+     asked to keep is what it still shows for every ordinary video. */
+  assert.match(fnFrom(pane, "cardHTML"), /videoBadgeHTML\(v\)/, "and still painted on the thumbnail");
+  assert.match(fnFrom(pane, "videoBadgeHTML"), /class="dur">' \+ esc\(v\.duration\)/, "the length is still the badge for an ordinary video");
 });
 
 test("4 · the video pane and X split the bottom row 50/50 (Alan, 23 Sep)", () => {

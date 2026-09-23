@@ -116,7 +116,9 @@ test('the selector is painted immediately and repainted from the rows that actua
   const load = lift('load')
   assert.match(start, /paintFeedProfileSelector\(\[\]\)/,
     'the hidden selector is exposed immediately with known profiles and honest awaiting states')
-  assert.match(load, /rows = await pg\(feedQuery\(0\)\)[\s\S]{0,1200}paintFeedProfileSelector\(raw\)/,
+  // 23 Sep: the read goes through readFeed, which falls back to the publish-time
+  // query if the stream-time columns are not in the database yet.
+  assert.match(load, /rows = await readFeed\(0\)[\s\S]{0,1200}paintFeedProfileSelector\(raw\)/,
     'the options are repainted from the actual returned account evidence')
   assert.ok(load.indexOf('paintFeedProfileSelector') < load.indexOf('const nextRows'),
     'availability sees the returned provenance before the active profile filters its display rows')

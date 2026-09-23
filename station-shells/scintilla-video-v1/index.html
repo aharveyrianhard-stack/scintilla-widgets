@@ -113,6 +113,11 @@ body.has-profile-select .k{ display:none; }
 #wlFlash.show{ opacity:1; }
 .dur{ position:absolute; right:3px; bottom:3px; background:rgba(0,0,0,.82); color:#fff;
   font-size:8px; padding:1px 4px; letter-spacing:.02em; }
+/* A stream on air says LIVE; one still to come says when it starts, on the
+   desk's own clock. Same corner, same size — only the wording changes. */
+.dur.live{ letter-spacing:.08em; }  /* the dot and the spacing carry it — no new colour is introduced */
+.dur.live::before{ content:"\25CF"; font-size:7px; margin-right:3px; vertical-align:1px; }
+.dur.soon{ color:var(--ink3); letter-spacing:.04em; }
 .tk{ position:absolute; left:3px; top:3px; background:rgba(0,212,255,.9); color:#04040a;
   font-size:8px; padding:1px 4px; letter-spacing:.04em; font-weight:600; }
 .cap{ padding:4px 5px 6px; }
@@ -1076,10 +1081,38 @@ function videoAgeLabel(value, nowMs) {
   const mo = d / 30.44; if (mo < 12) return Math.floor(mo) + "mo ago";
   return Math.floor(d / 365.25) + "y ago";
 }
+/* A stream's age is counted from when it went on air, never from the date it
+   carried while it was still only scheduled. A row from before the feed knew
+   about stream times still has published_at and reads exactly as it did. */
+function videoWhen(v) { return (v && (v.feed_at || v.published_at)) || ""; }
 function videoAgeHTML(v) {
-  const label = videoAgeLabel(v && v.published_at);
+  const when = videoWhen(v);
+  const label = videoAgeLabel(when);
   if (!label) return "";
-  return '<span class="age" data-published="' + esc(String(v.published_at)) + '">' + esc(label) + "</span>";
+  return '<span class="age" data-published="' + esc(String(when)) + '">' + esc(label) + "</span>";
+}
+/* The corner of the thumbnail: LIVE while a stream is on air, the start time
+   while one is still to come, the video's length otherwise. Times are New York,
+   the clock the rest of the Station runs on, and a start on another day carries
+   that day with it. */
+const START_TIME_NY = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" });
+const START_DAY_NY  = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+const NY_DAY        = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+function startLabel(value, nowMs) {
+  const t = videoPublishedMs(value);
+  if (t == null) return "";
+  const at = new Date(t);
+  const now = new Date(isFinite(nowMs) ? nowMs : Date.now());
+  const time = START_TIME_NY.format(at).replace(/\s?([AP])M/, (m, half) => half.toLowerCase() + "m");
+  return NY_DAY.format(at) === NY_DAY.format(now) ? time : START_DAY_NY.format(at) + " " + time;
+}
+function videoBadgeHTML(v) {
+  if (v && v.live_state === "live") return '<span class="dur live">LIVE</span>';
+  if (v && v.live_state === "upcoming") {
+    const label = startLabel(v.starts_at);
+    return label ? '<span class="dur soon">' + esc(label) + "</span>" : "";
+  }
+  return v && v.duration ? '<span class="dur">' + esc(v.duration) + "</span>" : "";
 }
 /* The Station stays open for hours, so a label written this morning must not
    still claim "2h ago" tonight. The ages are re-read in place on the pass the
@@ -1100,7 +1133,7 @@ function cardHTML(v) {
         esc(v.thumb_url || ("https://i.ytimg.com/vi/" + v.video_id + "/mqdefault.jpg")) + '" alt="">' +
         starHTML(v) +
         (v.tickers ? '<span class="tk">' + esc(String(v.tickers).split(",")[0]) + "</span>" : "") +
-        (v.duration ? '<span class="dur">' + esc(v.duration) + "</span>" : "") +
+        videoBadgeHTML(v) +
       "</div>" +
       '<div class="cap"><div class="t">' + esc(v.title) + "</div>" +
       '<div class="s"><span class="ch">' + esc(v.channel || "") + "</span>" + videoAgeHTML(v) + "</div></div>" +
@@ -1178,9 +1211,20 @@ function paintChips() {
   }
 }
 
+/* ---- WHEN A STREAM ACTUALLY HAPPENED ----
+   YouTube dates a live stream from when it was SCHEDULED, so a stream that ran
+   this morning arrives carrying yesterday's date and sinks below a day of
+   ordinary uploads — measured 23 Sep, 242 newer rows sat above one that had
+   gone on air four hours earlier, and the first page is 200. feed_at is the
+   feed's answer to "when did this happen": the actual start when there is one,
+   the scheduled start for something still to come, the publish time otherwise.
+   The grid is ordered by it. */
 const FEED_SELECT = "video_id,title,channel,channel_id,tickers,duration,is_short,thumb_url,published_at,subscription_accounts";
+const FEED_SELECT_LIVE = FEED_SELECT + ",feed_at,live_state,starts_at";
+let FEED_LIVE_OK = true;
 function feedQuery(offset) {
-  let q = "youtube_feed?select=" + FEED_SELECT + "&order=published_at.desc&limit=" + LIMIT +
+  let q = "youtube_feed?select=" + (FEED_LIVE_OK ? FEED_SELECT_LIVE : FEED_SELECT) +
+          "&order=" + (FEED_LIVE_OK ? "feed_at" : "published_at") + ".desc&limit=" + LIMIT +
           (offset ? "&offset=" + offset : "");
   const chosen = LISTS.find((l) => l.id === LIST);
   if (LIST === "watch") {
@@ -1189,6 +1233,18 @@ function feedQuery(offset) {
   q += modeClause(MODE);
   if (TICK) q += "&tickers=ilike.*" + encodeURIComponent(TICK) + "*";
   return q;
+}
+/* The stream times arrive with a database change of their own. Before that
+   change lands the columns do not exist and the read comes back 400, so the
+   first refusal drops this session back to the publish time — one failed read,
+   never an empty grid, and no second failure after it. */
+async function readFeed(offset) {
+  try { return await pg(feedQuery(offset)); }
+  catch (e) {
+    if (!FEED_LIVE_OK) throw e;
+    FEED_LIVE_OK = false;
+    return pg(feedQuery(offset));
+  }
 }
 /* The SCINTILLA grid keeps unscoped discovery rows and rows the SCINTILLA
    account carries, and drops the rest. It runs over EVERY page, which is
@@ -1210,7 +1266,7 @@ async function loadMore() {
   if (PAGE_BUSY || !PAGE_MORE || LIST === "watch" || ROWS.length >= MAX_ROWS) return;
   PAGE_BUSY = true;
   try {
-    const rows = await pg(feedQuery(PAGE_AT));
+    const rows = await readFeed(PAGE_AT);
     const raw = Array.isArray(rows) ? rows : [];
     PAGE_AT += raw.length;
     PAGE_MORE = raw.length >= LIMIT && PAGE_AT < MAX_ROWS;
@@ -1255,7 +1311,7 @@ async function load(forceWatch, quiet) {
     if (!WATCH.size) { ROWS = []; BYID = {}; paint(); relayout(); return; }
   }
   let rows;
-  try { rows = await pg(feedQuery(0)); }
+  try { rows = await readFeed(0); }
   catch (e) {
     if (!quiet || !ROWS.length) el("grid").innerHTML = '<div class="msg">feed unavailable</div>';
     return;
@@ -1275,6 +1331,7 @@ async function load(forceWatch, quiet) {
   paintFeedProfileSelector(raw);
   const nextRows = filterFeedRows(raw);
   const signature = (items) => items.map((v) => [v.video_id, v.title, v.channel, v.published_at,
+    v.feed_at || "", v.live_state || "", v.duration || "",
     Array.isArray(v.subscription_accounts) ? v.subscription_accounts.join("+") : ""].join("|")).join("\n");
   const changed = signature(nextRows) !== signature(ROWS.slice(0, nextRows.length));
   ROWS = nextRows;

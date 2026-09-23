@@ -1,0 +1,77 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Live streams on the Station · 23 Sep 2026 · a stream shows up when it happened, not when it was scheduled</title>
+<style>
+body{margin:0;background:#05060C;color:#B4B6CC;font:18px/1.55 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:34px;margin:0 0 6px;color:#D8D8E6} h2{font-size:26px;margin:44px 0 8px;color:#D8D8E6} h3{font-size:20px;margin:22px 0 6px;color:#C4C6DA}
+p{max-width:1100px;margin:0 0 12px} .lead{font-size:22px;color:#D0D2E2;max-width:1100px}
+.status{border-left:4px solid #3A3A52;padding:10px 16px;margin:14px 0 26px;background:#0A0B14;max-width:1100px}
+table{border-collapse:collapse;font-size:16.5px;margin:10px 0 6px;max-width:1400px} th,td{border:1px solid #2A2A3E;padding:8px 12px;text-align:left;vertical-align:top} th{color:#9A9AB6;font-weight:600}
+td.k{color:#868AAA;font-style:italic}
+.shots{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:1400px} .shots img{width:100%;border:1px solid #2A2A3E;display:block} figure{margin:0} figcaption{font:14px ui-monospace,Menlo,monospace;color:#9A9AB6;margin-top:4px}
+.one img{max-width:1400px;width:100%;border:1px solid #2A2A3E;display:block}
+code{font:15px ui-monospace,Menlo,monospace;background:#15162A;padding:1px 6px;border-radius:4px;color:#C4C6DA} ul{max-width:1100px} li{margin:5px 0}
+.big{font-size:20px;color:#D0D2E2}
+</style></head><body>
+<h1>Live streams show up where they belong</h1>
+<p class="lead">Alan, 23 September, 14:20: <i>"Verified Investing… a video that was streamed live four hours ago… There's a Verified Investing live going on right now. The SCINTILLA videos grid does not show them. It shows GPU futures live from Future Investing. That one is coming through."</i></p>
+<div class="status"><b>In one line.</b> Both streams were in the database the whole time. YouTube dates a stream from when it was <b>scheduled</b>, the grid sorts by that date, so this morning's stream was filed under yesterday and sat 243 rows down a 200-row page. The fix stores when a stream <b>actually started</b> and sorts by that. Built and tested on branch <code>agent/youtube-live-20260923</code>. <b>Nothing deployed, nothing pushed, and the migration is written but not applied.</b></div>
+
+<h2>1 · What was actually wrong</h2>
+<p>I read the live rows myself. Both videos Alan named were in <code>youtube_videos</code>, tagged to the SCINTILLA account, with no length recorded:</p>
+<table><tr><th>video</th><th>the date the feed gave it</th><th>when it really went on air</th><th>off by</th></tr>
+<tr><td>A New AI Killer For Stocks, Oil Bounces With Yields… <span class="k">lS4LtT8LZcY</span></td><td>22 Sep 18:45Z</td><td><b>23 Sep 13:00Z</b> (09:00 New York)</td><td>18h 15m</td></tr>
+<tr><td>Bitcoin WARNING: Fed's Latest Move CRUSHING BTC <span class="k">f7JOaa_BJfs</span></td><td>22 Sep 18:47Z</td><td><b>23 Sep 17:30Z</b> (13:30 New York)</td><td>22h 43m</td></tr>
+<tr><td>New Neocloud Rankings, Meta Connect, GPU Futures <span class="k">rxvVxxBwJTc</span> — the one that <i>was</i> coming through</td><td>23 Sep 16:39Z</td><td>23 Sep 17:00Z <b>(still on air)</b></td><td>21m</td></tr></table>
+<p>That last row is the whole explanation. Future Investing's stream was published 21 minutes before it started, so its scheduled date and its real date are nearly the same and it sorted where Alan expected. Verified Investing schedules the day before, so its streams carried yesterday's date. <b>242 rows in the feed hold a newer publish time</b> than those two, and the grid asks for 200 rows at a time — so they were not on the page Alan was looking at. Counted with <code>count(*)</code> on the live table, not an estimate.</p>
+<p>A second, quieter fault: a stream that had not started yet was <b>thrown away on the way in</b> — the sweep dropped anything marked "upcoming" and never looked at it again. And a row was only ever written once, so a stream caught while it was scheduled kept that date for ever, and a finished stream never got the length it ran for.</p>
+
+<h2>2 · What the change does</h2>
+<table><tr><th></th><th>before</th><th>after</th></tr>
+<tr><td>what the collector asks YouTube</td><td>length, language, and whether it is live</td><td>the same, plus <b>when the stream started, when it ended, and when it is scheduled</b> (<code>liveStreamingDetails</code>)</td></tr>
+<tr><td>a stream that has not started yet</td><td>dropped, never stored</td><td>kept; its tile shows the start time</td></tr>
+<tr><td>a row already stored</td><td>never looked at again</td><td>recent rows that are still moving — on air, still to come, or with no length yet — are re-asked about on every pass (3 days back, at most 200 rows)</td></tr>
+<tr><td>what the grid sorts by</td><td>the publish date</td><td>when it actually started; the scheduled time for something still to come; the publish date for an ordinary video</td></tr>
+<tr><td>the corner of the tile</td><td>a length, or the word LIVE for anything with no length yet</td><td><b>● LIVE</b> only while it is genuinely on air; the start time while it is still to come; the length it ran for once it is over</td></tr>
+<tr><td>how old a stream looks</td><td>counted from the scheduled date — "yesterday"</td><td>counted from when it went on air — "5h ago"</td></tr></table>
+
+<h2>3 · The same grid, the same minute, before and after</h2>
+<p>Real Chromium on the MacBook, the real shell, and the real 400 rows from the live database. The only thing I supplied was the answer the database will give <i>after</i> the change — built from the live rows plus each stream's real start time read from its own public YouTube page. Nothing was written anywhere.</p>
+<div class="shots">
+<figure><img src="screens/before-today.png"><figcaption>before · the grid as it is today · 149 tiles · neither stream Alan named is on it</figcaption></figure>
+<figure><img src="screens/after-stream-times.png"><figcaption>after · same rows, same minute · "Bitcoin WARNING" is tile 8, 1h ago, 17:26 long · "GPU Futures" carries ● LIVE</figcaption></figure>
+</div>
+<p><b>Where the two streams land.</b> "Bitcoin WARNING" moves from nowhere on the page to <b>tile 8</b>, reading <i>1h ago</i> with the 17:26 it ran for. "A New AI Killer" moves to <b>tile 58</b>, reading <i>5h ago</i> — which is what Alan said when he looked: streamed live four hours ago.</p>
+<div class="shots">
+<figure><img src="screens/after-stream-in-view.png"><figcaption>after · scrolled to it · "A New AI Killer For Stocks", Verified Investing, 5h ago, 18:32</figcaption></figure>
+<figure><img src="screens/after-upcoming.png"><figcaption>after · a stream still to come sits first and shows its start time (4:32pm, New York) instead of being dropped</figcaption></figure>
+</div>
+<p class="k" style="font-size:15px">The "still to come" tile is the one picture here that is not a live row: the old collector threw upcoming streams away, so the database holds none to photograph. It is the same shell rendering one supplied row, and the title says so on the tile. Real ones appear as soon as the collector is deployed.</p>
+
+<h2>4 · It cannot break on the way in</h2>
+<p>The database change and the two shells can land in either order.</p>
+<ul>
+<li><b>Shells first.</b> The grid asks for the new columns, the database says 400 because they do not exist yet, and the shell drops back to the old question for the rest of the session — one refused read, then a full grid. Photographed below against the <b>real live database</b> with the migration <b>not applied</b>: 150 tiles, exactly today's order.</li>
+<li><b>Migration first.</b> Every row reads exactly as it does now: a row the new collector has not reached yet keeps the old wording, and with no stream times it still sorts by its publish date.</li>
+<li>New columns are <b>appended</b> to the view, so it is replaced rather than dropped, and nothing that reads the feed today has to change on the same deploy.</li>
+</ul>
+<div class="one"><figure><img src="screens/after-live-database-fallback.png"><figcaption>the new shell talking to the live database with the migration not applied · 150 tiles · the grid fills · the streams are still missing, which is the migration's job</figcaption></figure></div>
+
+<h2>5 · What I changed</h2>
+<table><tr><th>file</th><th>what</th></tr>
+<tr><td><code>supabase/migrations/20260923_youtube_live_streams.sql</code></td><td><b>written, not applied.</b> Five columns on <code>youtube_videos</code>, two indexes, and <code>youtube_feed</code> gaining <code>feed_at</code>, <code>live_state</code>, <code>started_at</code>, <code>starts_at</code>, <code>ended_at</code></td></tr>
+<tr><td><code>supabase/functions/yt-rss-sweep/index.ts</code></td><td>asks for <code>liveStreamingDetails</code> on every pass, keeps upcoming streams, and re-asks about recent rows that are still moving. <b>Not deployed.</b></td></tr>
+<tr><td><code>station-shells/scintilla-video-v1/index.html</code><br><code>station-shells/personal-video-v1/index.html</code></td><td>ordered by when the stream happened, the LIVE and start-time badges, the age counted from the start, and the fallback. The two files stay <b>byte-identical</b> — checked, not assumed.</td></tr>
+<tr><td><code>tests/station-youtube-live.test.mjs</code></td><td>15 new tests, all passing</td></tr>
+<tr><td><code>tests/station-youtube-age.test.mjs</code>, <code>station-video-layout.test.mjs</code>, <code>station-video-profiles.test.mjs</code></td><td>three existing tests pinned the old wording exactly; each updated to the new wording, keeping what it was protecting</td></tr>
+</table>
+<p><b>Tests.</b> 428 tests, 410 pass, 18 fail — the same 18 that already fail on production <code>9a7371e</code>, checked by running the suite in a clean copy of production and comparing the two lists. No failure is mine.</p>
+
+<h2>6 · What is left for the coordinator</h2>
+<ul>
+<li><b>Apply the migration and deploy the collector.</b> Either order. The first sweep after that fills the new columns for the last three days.</li>
+<li><b>One judgement call.</b> A stream still to come sorts <i>above</i> everything, because its start time is in the future. With one or two a day that is right — it is the next thing happening. If a channel ever schedules a week of premieres they would all sit on top, and the answer would be to sort only those starting within a day. Say the word and it is a one-line change.</li>
+<li><b>This branch is off production's tip <code>9a7371e</code></b>, three commits past the <code>ff7ab7d</code> named in the brief — the video-pane commits from earlier today are underneath it.</li>
+<li><b>Not checked, honestly:</b> the live Station cannot show this until it is deployed. The live read I took today confirms the wall mounts <code>personal-video-v1</code> in the bottom-left at 960×509 beside X — the twin that carries the change.</li>
+</ul>
+<div class="one"><figure><img src="screens/live-station-before.png"><figcaption>the live Station, read-only, today · bottom-left is the personal video pane, X beside it, 50/50 · every non-GET was blocked before it left the browser</figcaption></figure></div>
+</body></html>

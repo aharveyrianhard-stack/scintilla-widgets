@@ -29,6 +29,29 @@ const iso2sec = (d: string) => {
   if (!m) return 0;
   return (+(m[1] || 0)) * 3600 + (+(m[2] || 0)) * 60 + (+(m[3] || 0));
 };
+/* YouTube dates a stream from when it was SCHEDULED. The only honest "when did
+   this happen" is liveStreamingDetails.actualStartTime, so every pass that asks
+   about a video asks for it too, and stores the three times unchanged. A live
+   or upcoming stream has no length yet: 0 seconds is stored as no length at all
+   rather than as a zero. */
+const LIVE_PART = "contentDetails,snippet,liveStreamingDetails";
+function liveFields(item: Record<string, any>, now: number) {
+  const live = item?.liveStreamingDetails || {};
+  const secs = iso2sec(item?.contentDetails?.duration);
+  return {
+    duration_sec: secs > 0 ? secs : null,
+    live_broadcast: String(item?.snippet?.liveBroadcastContent || "none"),
+    live_started_at: live.actualStartTime || null,
+    live_ended_at: live.actualEndTime || null,
+    live_scheduled_at: live.scheduledStartTime || null,
+    live_checked_ts: now,
+  };
+}
+/* How far back a stream is still worth re-asking about, and how many rows one
+   pass will re-ask about. Both bound the API cost of the second pass. */
+const REFRESH_DAYS = 3;
+const REFRESH_MAX = 200;
+
 const FOREIGN = /[^\p{Script=Latin}\p{Script=Common}\p{Script=Inherited}]/u;
 const unesc = (s: string) => s.replace(/&amp;/g, "&").replace(/&lt;/g, "<")
   .replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
@@ -258,26 +281,26 @@ Deno.serve(async () => {
   let writeError: string | null = null;
   let dropped = 0;
   if (fresh.length) {
-    const duration: Record<string, number> = {};
+    const detail: Record<string, ReturnType<typeof liveFields>> = {};
     const language: Record<string, string> = {};
-    const live: Record<string, string> = {};
     const freshIds = fresh.map((row) => row.video_id);
     for (let i = 0; i < freshIds.length; i += 50) {
       const r = await apiKeyRequest(
-        "videos?part=contentDetails,snippet&id=" + freshIds.slice(i, i + 50).join(",") + "&maxResults=50",
+        "videos?part=" + LIVE_PART + "&id=" + freshIds.slice(i, i + 50).join(",") + "&maxResults=50",
         apiKey,
       );
       for (const item of r.body?.items || []) {
-        duration[item.id] = iso2sec(item.contentDetails?.duration);
+        detail[item.id] = liveFields(item, now);
         const snippet = item.snippet || {};
         language[item.id] = String(snippet.defaultAudioLanguage || snippet.defaultLanguage || "").toLowerCase();
-        live[item.id] = String(snippet.liveBroadcastContent || "none");
       }
     }
+    /* A stream that has not started yet is KEPT: the tile shows its start time.
+       It used to be dropped here, which is why a scheduled stream could only
+       appear once some later pass happened to catch it after it went on air. */
     const keep = fresh.filter((row) => {
       const lang = language[row.video_id] || "";
       if (lang && lang.slice(0, 2) !== "en") { dropped++; return false; }
-      if ((live[row.video_id] || "none") === "upcoming") { dropped++; return false; }
       return true;
     });
     for (let i = 0; i < keep.length; i += 16) {
@@ -290,7 +313,8 @@ Deno.serve(async () => {
       const { accounts: _, ...plain } = row;
       return {
         ...plain,
-        duration_sec: duration[row.video_id] || null,
+        ...(detail[row.video_id] || { duration_sec: null, live_broadcast: null, live_started_at: null,
+          live_ended_at: null, live_scheduled_at: null, live_checked_ts: now }),
         is_short: row.is_short === true,
         subscription_accounts: accounts,
       };
@@ -303,6 +327,43 @@ Deno.serve(async () => {
     }
   }
 
+  /* ---- STORED STREAMS KEEP CHANGING AFTER WE FIRST SEE THEM ----
+     The first pass writes a row once and never looks at it again, so a stream
+     caught while it was scheduled kept its scheduled date for ever and a
+     finished stream never got its real length. Every pass now re-asks YouTube
+     about the recent rows that are still moving: on air, still to come, or with
+     no length yet. Bounded to REFRESH_MAX rows over REFRESH_DAYS days. */
+  let refreshed = 0;
+  let refreshError: string | null = null;
+  try {
+    const since = new Date((now - REFRESH_DAYS * 86400) * 1000).toISOString();
+    const { data: watching, error: watchError } = await sb.from("youtube_videos")
+      .select("video_id")
+      .gte("published_at", since)
+      .or("duration_sec.is.null,live_broadcast.in.(live,upcoming)")
+      .order("published_at", { ascending: false })
+      .limit(REFRESH_MAX);
+    if (watchError) refreshError = watchError.message;
+    const watchIds = (watching || []).map((row) => row.video_id as string);
+    for (let i = 0; i < watchIds.length; i += 50) {
+      const r = await apiKeyRequest(
+        "videos?part=" + LIVE_PART + "&id=" + watchIds.slice(i, i + 50).join(",") + "&maxResults=50",
+        apiKey,
+      );
+      const items = r.body?.items || [];
+      for (let j = 0; j < items.length; j += 16) {
+        await Promise.all(items.slice(j, j + 16).map(async (item: Record<string, any>) => {
+          const { error } = await sb.from("youtube_videos")
+            .update(liveFields(item, now)).eq("video_id", item.id);
+          if (error) refreshError = error.message;
+          else refreshed++;
+        }));
+      }
+    }
+  } catch (e) {
+    refreshError = String((e as Error)?.message || e);
+  }
+
   const result = {
     accounts: Object.fromEntries(ACCOUNTS.map((account) => [account, {
       channels: accountChannels[account].length,
@@ -311,6 +372,8 @@ Deno.serve(async () => {
     rss_seen: ids.length,
     new_videos: wrote,
     membership_updates: membershipUpdates,
+    live_refreshed: refreshed,
+    refresh_error: refreshError,
     dropped,
     write_error: writeError,
     at: new Date().toISOString(),
