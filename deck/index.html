@@ -2847,17 +2847,21 @@ for (const ev of ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"
   window.addEventListener(ev, () => { SELF_UPDATE_LAST_INPUT = Date.now(); }, { passive:true, capture:true });
 function selfUpdatePlan(seen, tags, idleMs, videoOnStage, deckPending) {
   const changed = (k) => !!(seen && tags[k] && seen[k] && tags[k] !== seen[k]);
-  const deck = !!deckPending || changed("deck");
+  const deck = !!deckPending || changed("deck") || changed("video") || changed("personalVideo") || changed("x");
   return {
     remountCharts: changed("chart") || changed("provider"),
     deckPending: deck,
     reloadPage: deck && idleMs >= SELF_UPDATE_IDLE_MS && !videoOnStage,
-    seen: seen ? { deck: seen.deck, chart: tags.chart || seen.chart, provider: tags.provider || seen.provider } : tags
+    seen: seen ? Object.assign({}, seen, { chart: tags.chart || seen.chart, provider: tags.provider || seen.provider }) : tags
   };
 }
 async function selfUpdateTags() {
   /* The deck tidies its address to "/", and "/" is only the redirect page, so name the deck file itself. */
-  const files = { deck: "/deck/index.html", chart: STATION_SHELL.chart + "/index.html", provider: "/_provider/provider.js" };
+  /* 23 Sep: the video and X panes are watched too (a dropdown fix in the video shell never reached an open
+     Station). A change there counts as a page change: it reloads only when idle with no video on stage. */
+  const files = { deck: "/deck/index.html", chart: STATION_SHELL.chart + "/index.html", provider: "/_provider/provider.js",
+    video: STATION_SHELL.scintillaVideo + "/index.html", personalVideo: STATION_SHELL.personalVideo + "/index.html",
+    x: STATION_SHELL.x + "/index.html" };
   const out = {};
   await Promise.all(Object.entries(files).map(async ([k, path]) => {
     try {

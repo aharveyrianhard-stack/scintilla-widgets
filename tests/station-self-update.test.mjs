@@ -32,5 +32,13 @@ test("the deck checks every three minutes and first after fifteen seconds", () =
   assert.match(deck, /fetch\(path, \{ method:"HEAD", cache:"no-store" \}\)/);
 });
 test("the deck watches its own file, not the redirect page its tidied address points at", () => {
-  assert.match(deck, /const files = \{ deck: "\/deck\/index\.html", chart: STATION_SHELL\.chart \+ "\/index\.html", provider: "\/_provider\/provider\.js" \};/);
+  assert.match(deck, /const files = \{ deck: "\/deck\/index\.html", chart: STATION_SHELL\.chart \+ "\/index\.html", provider: "\/_provider\/provider\.js",/);
+});
+
+test("a changed video or X pane reloads the page the careful way: idle and no video on stage (23 Sep)", () => {
+  const A2 = { deck:"d1", chart:"c1", provider:"p1", video:"v1", personalVideo:"pv1", x:"x1" };
+  assert.equal(plan(A2, { ...A2, video:"v2" }, 30000, false, false).reloadPage, false, "not while someone is using it");
+  assert.equal(plan(A2, { ...A2, video:"v2" }, 30000, false, false).deckPending, true);
+  assert.equal(plan(A2, { ...A2, x:"x2" }, 180000, false, false).reloadPage, true);
+  assert.equal(plan(A2, { ...A2, personalVideo:"pv2" }, 180000, true, false).reloadPage, false, "never over a playing video");
 });
