@@ -31,22 +31,27 @@ test('the dock loses no control, no id and no accessible name', () => {
   assert.equal((deck.match(/<button/g) || []).length, buttonsBefore)
 })
 
-test('the three stacked rows become one strip without moving their children', () => {
+test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {
   assert.match(deck, /<div id="dock" role="toolbar" aria-label="Station controls">/)
-  assert.match(deck, /#dock > #bar, #dock > #tfbar, #dock > #panebar\{ display:contents; \}/)
-  // the rows still exist in the same order, with the same inner markup
-  const order = ['<div id="dock"', '<div id="bar">', '<div id="tfbar">', '<div id="panebar">', '</div><!-- /#dock -->']
+  assert.match(deck, /#dock > #bar, #dock > #tfbar\{ display:contents; \}/, 'the old rows are transparent wrappers')
+  const order = ['<div id="dock"', '<div id="bar">', '<div id="tfbar">', '<div id="panebar"', '</div><!-- /#dock -->']
   let at = -1
   for (const token of order) {
     const next = deck.indexOf(token, at + 1)
     assert.ok(next > at, `${token} is in dock order`)
     at = next
   }
+  // sections, and the visual order is fixed in CSS so the DOM never has to move
+  for (const [sec, order] of [['station', 1], ['timeframe', 2], ['charts', 3], ['scenes', 4], ['video', 5], ['more', 7]])
+    assert.match(deck, new RegExp(`#dock \\.dsec\\[data-sec="${sec}"\\]\\{ order:${order};`), `${sec} sits at position ${order}`)
 })
 
-test('group labels recede but stay readable by hover, focus and small screens', () => {
-  assert.match(deck, /#dock \.control-group:focus-within \.control-label/)
-  assert.match(deck, /@media \(max-width: 720px\)[\s\S]*?max-width:12ch; opacity:1/)
+test('group labels are off the strip, echoed in the caption, and back when the strip wraps', () => {
+  // Alan, 22 Sep: "there's a lot of grayed-out bullshit that I think can be cut"
+  assert.match(deck, /#dock \.control-label, #dock \.lbl, #dock \.video-note\{ display:none; \}/)
+  assert.match(deck, /#dock\.dock-wrap \.control-label, #dock\.dock-wrap \.lbl, #dock\.dock-wrap \.video-note\{ display:inline;/,
+    'a small screen that wraps gets its words back')
+  assert.match(deck, /function dockCaptionText/, 'the pointed control still names its group in the caption')
   assert.match(deck, /#dock \.btn:focus-visible/, 'a dock needs a visible focus ring')
   assert.match(deck, /prefers-reduced-motion/)
 })

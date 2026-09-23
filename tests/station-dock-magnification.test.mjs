@@ -1,23 +1,19 @@
-/* THE STATION DOCK — one row, and bigger where you point.
+/* THE STATION DOCK — one strip, sections, the arc, and nothing sliding.
    ============================================================================
-   Alan, 22 Sep: "I like the top of the station, all of these buttons, to be more like the
-   Apple dock... consolidate it all in one row... the apps get bigger where you're selected...
-   what we have to reduce is the space these rows take up."
-   Two promises are tested here. The first is arithmetic: dockLayout decides how much each
-   control swells and how far it slides, and it must never let two controls overlap, never
-   push one out of the dock, and never move the control the pointer is actually on. The
-   second is that none of it touches layout — the boxes stay exactly where the browser put
-   them, which is why a magnified dock cannot move a button out from under a click.
+   Alan, 22 Sep: "The dock behaviour is glitchy. It moves sideways too much." · "I'm trying to
+   click the arrows and it moves. That's unacceptable." · "Look how there's a slope. The icons
+   get bigger AND they go higher." · "Maybe split it in sections and the behaviour applies within
+   the section." · "Maybe fully hide when not in use."
+   dockArc returns a SCALE per chip and nothing else. There is no horizontal term to get wrong:
+   a chip grows about its own top-centre, so its centre — and every neighbour's — stays exactly
+   where the layout put it. The rest of this file pins the wiring around that promise.
    ============================================================================ */
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import { execFileSync } from "node:child_process";
 
 const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
-/* the deployed Station this branch starts from */
-const baseDeck = execFileSync("git", ["show", "39f83a2:deck/index.html"], { encoding:"utf8", maxBuffer:64e6 });
 
 function lift(name) {
   const start = deck.indexOf("function " + name + "(");
@@ -35,163 +31,131 @@ const constant = (name) => {
   assert.ok(match, "deck/index.html declares " + name);
   return Number(match[1]);
 };
-const DOCK_MAX_SCALE = constant("DOCK_MAX_SCALE"), DOCK_FALLOFF = constant("DOCK_FALLOFF");
-const sandbox = { Math, Number, Array, Object, JSON, DOCK_MAX_SCALE, DOCK_FALLOFF };
-vm.runInNewContext(lift("dockLayout") + "\nglobalThis.dockLayout = dockLayout;", sandbox);
-const dockLayout = sandbox.dockLayout;
-assert.ok(DOCK_MAX_SCALE >= 1.5 && DOCK_MAX_SCALE <= 2, "Mac-Dock magnification, not a cartoon");
+const DOCK_MAX_SCALE = constant("DOCK_MAX_SCALE"), DOCK_REACH = constant("DOCK_REACH"), DOCK_EDGE_PX = constant("DOCK_EDGE_PX");
+const sandbox = { Math, Number, Array, Object, JSON, DOCK_MAX_SCALE, DOCK_REACH, DOCK_EDGE_PX };
+vm.runInNewContext(lift("dockArc") + "\nglobalThis.dockArc = dockArc;", sandbox);
+const dockArc = sandbox.dockArc;
+assert.ok(DOCK_MAX_SCALE >= 1.8 && DOCK_MAX_SCALE <= 2.2, "Alan asked for about 2×");
 
-/* A plausible strip: twenty controls of mixed width, six pixels apart, centred in the dock
-   with the row's spare space split evenly at both ends — which is how the real dock lays
-   itself out, and what gives the magnification room to grow into. */
-const row = (count = 20, gap = 6, start = 130) => {
+/* A plausible strip: a timeframe section of eight short chips, a divider, then the scenes
+   section with a 108 px select, two 22 px arrows, a 50 px select and a 46 px button. */
+const strip = () => {
   const boxes = [];
-  let left = start;
-  for (let i = 0; i < count; i++) {
-    const width = 24 + (i % 5) * 14;
-    boxes.push({ left, width });
-    left += width + gap;
-  }
+  let left = 120;
+  const add = (width, section) => { boxes.push({ left, width, section }); left += width + 5; };
+  for (let i = 0; i < 8; i++) add(24 + (i % 4) * 8, "timeframe");
+  left += 17;
+  for (const w of [108, 22, 22, 50, 46]) add(w, "scenes");
   return boxes;
 };
-const BOUNDS = { min:4, max:1400 };
 const centre = (box) => box.left + box.width / 2;
-const magnified = (boxes, out) => boxes.map((box, i) => ({
-  left:box.left + out[i].shift - box.width * out[i].scale / 2 + box.width / 2,
-  width:box.width * out[i].scale
-}));
 
-test("the control under the pointer is the biggest, and its neighbours fall away from it", () => {
-  const boxes = row();
-  const target = 9;
-  const out = dockLayout(boxes, centre(boxes[target]), { bounds:BOUNDS });
-  assert.ok(out[target].scale > 1.6, "the pointed-at control is at full magnification");
-  for (let i = target; i > 0; i--)
-    assert.ok(out[i].scale >= out[i - 1].scale - 1e-9, "scales fall away to the left");
-  for (let i = target; i < boxes.length - 1; i++)
-    assert.ok(out[i].scale >= out[i + 1].scale - 1e-9, "and to the right");
-  assert.ok(out[0].scale < 1.01 && out.at(-1).scale < 1.01, "a control across the row is left alone");
+test("the chip under the pointer is 2×, its neighbours fall away, and the far end is untouched", () => {
+  const boxes = strip();
+  const out = dockArc(boxes, centre(boxes[4]));
+  assert.ok(Math.abs(out[4].scale - DOCK_MAX_SCALE) < 1e-9, "the pointed-at chip is at full magnification");
+  for (let i = 4; i > 0; i--) assert.ok(out[i].scale >= out[i - 1].scale - 1e-9, "scales fall away to the left");
+  for (let i = 4; i < 7; i++) assert.ok(out[i].scale >= out[i + 1].scale - 1e-9, "and to the right");
+  assert.ok(out[3].scale > 1.3 && out[3].scale < DOCK_MAX_SCALE, "the next chip out is clearly bigger, but smaller than the pointed one");
+  assert.equal(out[0].scale, 1, "chips across the section are left at rest");
+  assert.equal(out[1].scale, 1);
 });
 
-test("you keep hitting what you aimed at: the pointer stays on the control it magnified", () => {
-  const boxes = row();
-  for (let target = 0; target < boxes.length; target++) {
-    for (const where of [.15, .5, .85]) {
-      const pointer = boxes[target].left + boxes[target].width * where;
-      const out = dockLayout(boxes, pointer, { bounds:BOUNDS });
-      const box = magnified(boxes, out)[target];
-      assert.ok(pointer >= box.left && pointer <= box.left + box.width,
-        "pointer at " + Math.round(pointer) + " is still inside control " + target);
-      /* it may slide to make room at the row's ends, but never further than it grew */
-      const growth = boxes[target].width * (out[target].scale - 1);
-      assert.ok(Math.abs(out[target].shift) <= growth + 2,
-        "control " + target + " moved " + out[target].shift.toFixed(1) + "px while growing " + growth.toFixed(1) + "px");
-    }
+test("nothing slides: the engine has no horizontal output, and the DOM write is scale() only", () => {
+  const boxes = strip();
+  for (const px of [130, 200, 265, 400, 520, 600])
+    for (const step of dockArc(boxes, px)) assert.deepEqual(Object.keys(step).sort(), ["scale", "weight"]);
+  const apply = lift("applyDock");
+  assert.match(apply, /node\.style\.transform = step\.scale > 1\.005 \? "scale\(" \+ step\.scale\.toFixed\(3\) \+ "\)" : "";/);
+  assert.doesNotMatch(apply, /translateX\(/, "no translate is ever written to a chip");
+  assert.doesNotMatch(deck.slice(deck.indexOf("function dockArc("), deck.indexOf("function wireDock(")), /\bshift\b/,
+    "the word shift is gone from the engine");
+});
+
+test("the swell stays inside the section the pointer is in", () => {
+  const boxes = strip();
+  const out = dockArc(boxes, boxes[7].left + boxes[7].width - 1);
+  assert.ok(out[7].scale > 1.8, "the last timeframe chip is still near full size at its own right edge");
+  for (let i = 8; i < boxes.length; i++) assert.equal(out[i].scale, 1, "scene chip " + i + " ignores a timeframe swell");
+  const out2 = dockArc(boxes, centre(boxes[8]));
+  for (let i = 0; i < 8; i++) assert.equal(out2[i].scale, 1, "timeframe chip " + i + " ignores a scenes swell");
+  assert.ok(Math.abs(out2[8].scale - DOCK_MAX_SCALE) < 1e-9, "a 108 px select swells exactly like a 24 px chip");
+});
+
+test("a wide chip is fully magnified anywhere across it, so pointing at its edge never favours the neighbour", () => {
+  const boxes = strip();
+  const sel = boxes[8];
+  for (const u of [.02, .5, .98]) {
+    const out = dockArc(boxes, sel.left + sel.width * u);
+    assert.ok(out[8].scale >= out[9].scale - 1e-9 && out[8].scale >= out[7].scale - 1e-9, "the pointed chip is never smaller than a neighbour");
+    assert.ok(out[8].scale > 1.85, "and stays close to full size right across it");
   }
 });
 
-test("magnified controls never overlap and never change places", () => {
-  const boxes = row();
-  for (const pointer of [10, 120, 400, 900, 1300]) {
-    const out = dockLayout(boxes, pointer, { bounds:BOUNDS });
-    const shapes = magnified(boxes, out);
-    for (let i = 1; i < shapes.length; i++) {
-      assert.ok(shapes[i].left >= shapes[i - 1].left + shapes[i - 1].width - 1e-6,
-        "control " + i + " still starts after control " + (i - 1) + " ends (pointer " + pointer + ")");
-    }
+test("the profile moves continuously as the pointer crosses from one chip to the next", () => {
+  const boxes = strip();
+  let prev = null;
+  for (let px = boxes[0].left - 5; px <= boxes[7].left + boxes[7].width + 5; px += 1) {
+    const out = dockArc(boxes, px).map((s) => s.scale);
+    if (prev) out.forEach((s, i) => assert.ok(Math.abs(s - prev[i]) < .06,
+      "chip " + i + " jumped " + (s - prev[i]).toFixed(3) + " for a one-pixel move at " + px));
+    prev = out;
   }
 });
 
-test("nothing is pushed out of the dock", () => {
-  const boxes = row();
-  for (const pointer of [4, 40, 700, 1380, 1400]) {
-    const out = dockLayout(boxes, pointer, { bounds:BOUNDS });
-    const shapes = magnified(boxes, out);
-    assert.ok(shapes[0].left >= BOUNDS.min - 1e-6, "the first control stays inside the left edge");
-    assert.ok(shapes.at(-1).left + shapes.at(-1).width <= BOUNDS.max + 1e-6, "and the last inside the right");
-  }
-});
-
-test("a wide gap in the row gives way before the row does", () => {
-  /* the kind of gap an auto margin opens in the middle of a strip */
-  const boxes = [{ left:8, width:60 }, { left:74, width:60 }, { left:420, width:60 }, { left:486, width:60 }];
-  const out = dockLayout(boxes, centre(boxes[2]), { bounds:BOUNDS });
-  const shapes = magnified(boxes, out);
-  const restGap = boxes[2].left - (boxes[1].left + boxes[1].width);
-  const nowGap = shapes[2].left - (shapes[1].left + shapes[1].width);
-  assert.ok(nowGap < restGap - 10, "the spare space absorbs the swell (" + Math.round(restGap) + "px → " + Math.round(nowGap) + "px)");
-  assert.ok(nowGap > 0, "and never collapses into an overlap");
-  assert.ok(shapes[0].left >= BOUNDS.min - 1e-6 && shapes.at(-1).left + shapes.at(-1).width <= BOUNDS.max + 1e-6);
-});
-
-test("an empty row asks nothing, and a single control still grows inside the dock", () => {
-  assert.deepEqual(JSON.parse(JSON.stringify(dockLayout([], 100, { bounds:BOUNDS }))), []);
-  const boxes = [{ left:8, width:40 }];
-  const out = dockLayout(boxes, centre(boxes[0]), { bounds:BOUNDS });
-  assert.ok(out[0].scale > 1.6);
-  const box = magnified(boxes, out)[0];
-  assert.ok(box.left >= BOUNDS.min - 1e-6, "it grows away from the edge rather than through it");
-  assert.ok(centre(boxes[0]) >= box.left && centre(boxes[0]) <= box.left + box.width);
+test("the pointer off the strip, or on a divider far from any chip, leaves everything at rest", () => {
+  const boxes = strip();
+  for (const px of [0, 60, 2000]) for (const s of dockArc(boxes, px)) assert.equal(s.scale, 1);
+  assert.deepEqual(dockArc([], 100), []);
 });
 
 /* ---- and the wiring around it ---- */
-test("the dock is one line that shrinks to fit, and wraps rather than becoming unreadable", () => {
-  assert.match(deck, /#dock\{[^}]*flex-wrap:nowrap/, "the strip does not wrap by default any more");
+const dockCss = deck.slice(deck.indexOf("/* ── THE DOCK"), deck.indexOf("/* FIRST-PAINT SKELETON")).replace(/\/\*[\s\S]*?\*\//g, "");
+
+test("the strip: one line, sections, centred, grows from its top edge, wraps only as a fallback, no will-change", () => {
+  assert.match(deck, /#dock\{[^}]*flex-wrap:nowrap/, "the strip does not wrap by default");
+  assert.match(deck, /#dock\{[^}]*justify-content:center/, "and is centred");
   assert.match(deck, /#dock\{[^}]*zoom:var\(--dock-fit,1\)/, "it shrinks as a whole, like a Dock full of icons");
-  assert.match(deck, /#dock\.dock-wrap\{ flex-wrap:wrap;/, "and keeps the old wrapping as its fallback");
-  assert.match(deck, /const DOCK_FIT_FLOOR = \.72;/);
-  assert.match(deck, /if \(fit < DOCK_FIT_FLOOR\) \{ dock\.classList\.add\("dock-wrap"\); fit = 1; \}/);
-  assert.match(deck, /const available = dock\.clientWidth - 2, natural = dock\.scrollWidth \+ DOCK_SWELL_ROOM;/,
-    "the fit leaves the magnification room to grow into");
-  assert.match(deck, /#dock:not\(\.dock-wrap\)\{ justify-content:center; \}/,
-    "and the row is centred, so that room sits at both ends where the swell needs it");
+  assert.match(deck, /#dock\.dock-wrap\{ flex-wrap:wrap;/, "and keeps wrapping as its fallback");
+  for (const sec of ["station", "timeframe", "charts", "scenes", "video", "more", "readout"])
+    assert.match(deck, new RegExp('class="dsec" data-sec="' + sec + '"'), "section " + sec + " exists");
+  assert.match(dockCss, /transform-origin:50% 0/, "chips grow from the strip's top edge: tops flat, bottoms trace the curve");
+  assert.doesNotMatch(dockCss, /will-change/, "no will-change: Chrome would rasterise the chip at rest size and stretch it");
 });
 
-test("magnification is transforms only — the layout never moves", () => {
-  const apply = deck.slice(deck.indexOf("function applyDock("), deck.indexOf("function fitDock("));
-  assert.match(apply, /node\.style\.transform = ""/);
-  assert.match(apply, /translateX\(" \+ step\.shift\.toFixed\(2\) \+ "px\) scale\(/);
-  assert.doesNotMatch(apply, /style\.(width|height|margin|left|top|padding|fontSize)/,
-    "nothing that could reflow the row is written");
-  assert.match(deck, /#dock \.btn, #dock select, #dock input[^}]*transform-origin:50% 0;/,
-    "a top dock grows downwards, from the row's own top edge");
-  const measure = deck.slice(deck.indexOf("function measureDock("), deck.indexOf("function ensureDockCaption("));
-  assert.match(measure, /offsetLeft/, "rest geometry is read from layout values, which transforms cannot disturb");
-  assert.doesNotMatch(measure, /getBoundingClientRect\(\)\.left/);
+test("what Alan called junk is off the strip but one click away, and the screen readout is not a control", () => {
+  const moreStart = deck.indexOf('<div id="moreGroup"');
+  const more = deck.slice(moreStart, deck.indexOf("</div>", moreStart));
+  for (const id of ["viewMode", "displayBtn", "resetScene", "stationFullBtn", "dockHideToggle"])
+    assert.match(more, new RegExp('id="' + id + '"'), id + " lives under ⋯");
+  const readoutStart = deck.indexOf('class="dsec" data-sec="readout"');
+  const readout = deck.slice(readoutStart, deck.indexOf("</div>", readoutStart));
+  assert.match(readout, /id="screenIndicator"/, "screen n / n is a readout");
+  assert.doesNotMatch(readout, /<button|<select|<a /, "with nothing clickable in it");
+  assert.match(deck, /#dock \.dsec\[data-sec="readout"\]\{[^}]*pointer-events:none/);
+  assert.match(deck, /#dock #chartCount\{ display:none; \}/, "the count select is hidden behind its chips");
+  assert.match(deck, /id="countChips"/);
+  assert.match(deck, /id="tf"/);
 });
 
-test("a finger never magnifies, and reduced motion keeps the row still", () => {
-  assert.match(deck, /if \(event\.pointerType !== "mouse" \|\| !dockMagnifies\(\)\) return;/);
-  assert.match(deck, /matchMedia\("\(hover: hover\) and \(pointer: fine\)"\)/);
-  assert.match(deck, /matchMedia\("\(prefers-reduced-motion: reduce\)"\)/);
-  assert.match(deck, /!dockFinePointer\.matches \|\| dockStillness\.matches|dockFinePointer\.matches && !dockStillness\.matches/);
-  assert.match(deck, /@media \(prefers-reduced-motion: reduce\)\{[\s\S]*?transition:none;[\s\S]*?\}/);
+test("no white or near-white anywhere in the dock's stylesheet", () => {
+  for (const hex of dockCss.match(/#[0-9A-Fa-f]{6}\b/g) || []) {
+    const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+    const lightness = (Math.max(r, g, b) + Math.min(r, g, b)) / 2 / 255;
+    assert.ok(lightness < .8, hex + " is too close to white (lightness " + lightness.toFixed(2) + ")");
+  }
+  assert.doesNotMatch(dockCss, /var\(--ink\)|var\(--ink2\)/, "the dock never uses the white or the #C6C8DE tokens");
 });
 
-test("the keyboard walks the same dock, and the caption says what you are on", () => {
-  assert.match(deck, /dock\.addEventListener\("focusin"/);
-  assert.match(deck, /dockFocusItem = item;/);
-  assert.match(deck, /dockCaption\.id = "dockCaption";/);
-  assert.match(deck, /dockCaption\.setAttribute\("aria-hidden", "true"\);/,
-    "the caption is a visible echo; the control keeps its own accessible name");
-  assert.match(deck, /#dockCaption\{ position:absolute; top:calc\(100% \+ 3px\)/,
-    "it hangs under the row rather than widening it");
-  assert.match(deck, /#dock:not\(\.dock-wrap\) \.control-label, #dock:not\(\.dock-wrap\) #tfbar \.lbl,[\s\S]{0,80}\{ display:none; \}/,
-    "the group labels stop widening the row from under the pointer");
-});
-
-test("the dock still holds every control it held before, by id and by name", () => {
-  const ids = (html) => new Set(Array.from(html.matchAll(/\bid="([^"]+)"/g), (m) => m[1]));
-  const names = (html) => new Set(Array.from(html.matchAll(/aria-label="([^"]+)"/g), (m) => m[1]));
-  const missingIds = [...ids(baseDeck)].filter((id) => !ids(deck).has(id));
-  assert.deepEqual(missingIds, [], "every id from the deployed Station survives");
-  const missingNames = [...names(baseDeck)].filter((name) => !names(deck).has(name));
-  assert.deepEqual(missingNames, [], "and every accessible name");
-  for (const control of ["sceneMode", "resetScene", "rotateEvery", "rotateToggle", "screenPrev", "screenNext",
-                         "viewMode", "displayBtn", "stationFullBtn", "chartCount", "marketStatus", "size", "tf"])
-    assert.ok(deck.includes('id="' + control + '"'), control + " is still in the dock markup");
-  /* the one addition is built at runtime, so the markup's control count is unchanged */
-  assert.equal((deck.match(/<button/g) || []).length, (baseDeck.match(/<button/g) || []).length);
-  assert.equal((deck.match(/<select/g) || []).length, (baseDeck.match(/<select/g) || []).length);
-  assert.match(deck, /clouds\.id = "cloudsToggle";/, "and the clouds switch is that runtime addition");
+test("auto-hide: two seconds, a lip, remembered per browser, and a switch under ⋯", () => {
+  assert.match(deck, /const DOCK_TUCK_AFTER = 2000;/);
+  assert.match(deck, /const DOCK_HIDE_KEY = "station\.dock\.autohide";/);
+  assert.match(deck, /body\.dock-autohide #dock\.tucked\{ transform:translateY\(calc\(-100% \+ 5px\)\)/, "a 5 px lip");
+  assert.match(lift("tuckDock"), /:focus-visible/, "keyboard focus keeps the strip out");
+  assert.doesNotMatch(lift("tuckDock").replace(/\/\*[\s\S]*?\*\//g, "").replace(/catch \(_\) \{[^}]*\}/g, ""), /focus-within/,
+    "but a chip that merely kept focus after a click must not pin it open");
+  assert.match(lift("tuckDock"), /tagName === "SELECT"/, "an open select keeps the strip out");
+  assert.match(lift("tuckDock"), /moreGroup/, "an open ⋯ panel keeps the strip out");
+  assert.match(lift("wireDock"), /event\.clientY <= 8\) revealDock\(\)/, "the top edge brings it back");
+  assert.match(lift("setDockAutoHide"), /localStorage\.setItem\(DOCK_HIDE_KEY/, "remembered per browser");
 });
