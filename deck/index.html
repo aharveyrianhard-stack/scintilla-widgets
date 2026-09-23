@@ -99,9 +99,12 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
   border-bottom:1px solid var(--line); background:var(--bg); position:relative; z-index:25;
   zoom:var(--dock-fit,1); }
 #dock > #bar, #dock > #tfbar{ display:contents; }
-#dock .dsec{ flex:none; display:flex; align-items:flex-start; gap:5px; padding:0 8px;
-  border-left:1px solid var(--line); }
-#dock .dsec[data-sec="station"]{ order:1; border-left:0; padding-left:0; }
+/* SECTIONS YOU CAN SEE. Alan, 23 Sep: "they kind of blend together". Each section sits on its own
+   faint tint inside the one strip, edged by a hairline you can actually see, with a gap to its
+   neighbour: a divider, not a wall. Dark greys only; never white. */
+#dock .dsec{ flex:none; display:flex; align-items:flex-start; gap:5px; padding:2px 8px; margin:0 3px;
+  background:#13131F; border:1px solid #36364F; border-radius:2px; }
+#dock .dsec[data-sec="station"]{ order:1; background:transparent; border-color:transparent; padding-left:0; margin-left:0; }
 #dock .dsec[data-sec="timeframe"]{ order:2; }
 #dock .dsec[data-sec="charts"]{ order:3; }
 #dock .dsec[data-sec="scenes"]{ order:4; }
@@ -111,15 +114,20 @@ body.stack #dock #panebar{ display:flex; }
 #dock .dsec[data-sec="more"]{ order:7; padding-right:0; }
 /* The readout is a fact, not a control: pinned right, never magnified, never in the way. */
 #dock .dsec[data-sec="readout"]{ position:absolute; right:10px; top:50%; transform:translateY(-50%);
-  flex-direction:column; align-items:flex-end; border-left:0; padding:0; gap:1px; pointer-events:none;
-  color:var(--dim); font-size:7px; line-height:1.15; letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; }
+  flex-direction:column; align-items:flex-end; border:0; background:transparent; margin:0; padding:0; gap:1px; pointer-events:none;
+  color:var(--dim); font-size:8px; line-height:1.15; letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; }
 #dock .dsec .control-group{ display:flex; align-items:flex-start; gap:5px; min-height:0; padding-left:0; border-left:0; }
 #dock .control-label, #dock .lbl, #dock .video-note{ display:none; }
 #dock #screenControls{ display:flex; gap:3px; }
 #dock #screenControls .btn{ width:22px; padding-left:0; padding-right:0; text-align:center; }
 #dock .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; align-self:center; white-space:nowrap; }
-#dock .btn{ padding:3px 6px; letter-spacing:.08em; color:var(--ink3); }
-#dock .btn:hover{ color:#A9ABC2; border-color:var(--hair); }
+#dock .btn{ padding:3px 6px; letter-spacing:.08em; color:#A6A8C0; border-color:#2C2C46; }
+#dock select{ border-color:#2C2C46; }
+/* "Some of these are grayed out. I can't see shit." A disabled chip is still a word you can read:
+   --dim (5.9:1 on the strip) behind a dashed edge says "not now". The old --mute at half opacity
+   (about 1.4:1) said nothing at all. */
+#dock button.btn:disabled, #dock .btn[aria-disabled="true"]{ color:var(--dim); border-color:#2C2C46; border-style:dashed; opacity:1; }
+#dock .btn:hover{ color:#B4B6CC; border-color:var(--hair); }
 #dock .btn.on, #dock .btn.on:hover{ color:var(--crk); border-color:var(--crk); }
 #dock .scene-mode{ width:108px; }
 #dock .rotate-controls .scene-mode{ width:50px; }
@@ -159,11 +167,31 @@ body.dock-autohide #dock.tucked{ transform:translateY(calc(-100% + 5px)); cursor
   #dock .btn, #dock select, #dock input, #dock #panebar > span{ transition:none; }
   #dockCaption, body.dock-autohide #dock, #dock .lip{ transition:none; }
 }
-/* Narrow screens: the sections wrap and nothing magnifies. */
+/* NARROW: ONE ROW, ALWAYS. Alan, 23 Sep: "How's that going to work on mobile?" Below the fit floor
+   the strip no longer wraps into two, four or five rows. It stays one row and scrolls sideways
+   inside itself (a finger drags it, a trackpad swipes it); the group labels come back so a chip
+   you scrolled to says what it belongs to; the readout rides the right edge. Nothing magnifies
+   here, because a scrolling box would clip the swell, and nothing is lost. */
+#dock.dock-scroll{ justify-content:flex-start; overflow-x:auto; overflow-y:hidden; scrollbar-width:none;
+  -webkit-overflow-scrolling:touch; overscroll-behavior-x:contain; scroll-snap-type:x proximity; }
+#dock.dock-scroll::-webkit-scrollbar{ display:none; }
+#dock.dock-scroll .dsec{ scroll-snap-align:start; }
+#dock.dock-scroll .dsec[data-sec="readout"]{ position:sticky; right:0; top:auto; transform:none; order:9; margin-left:auto;
+  flex-direction:row; align-items:center; gap:8px; padding:2px 2px 2px 8px; background:var(--bg); border-left:1px solid #36364F; border-radius:0;
+  z-index:3; font-size:7.5px; box-shadow:-14px 0 12px -4px var(--bg); }
+/* On a phone the strip is too narrow to give a third of it to a readout: the data age rides at the
+   end of the strip instead, one swipe away, and covers nothing. */
+body.stack #dock.dock-scroll .dsec[data-sec="readout"]{ position:static; box-shadow:none; margin-left:6px; }
+/* on a strip that scrolls, the readout is the data age alone: the scene picker already names the screen */
+#dock.dock-scroll .dsec[data-sec="readout"] #screenIndicator{ display:none; }
+#dock.dock-scroll .control-label, #dock.dock-scroll .lbl, #dock.dock-scroll .video-note{ display:inline; color:var(--dim); font-size:7.5px; letter-spacing:.14em; text-transform:uppercase; align-self:center; }
+#dock.dock-scroll #dockCaption{ display:none; }
+/* the ⋯ panel would be clipped by the scrolling box, so it hangs from the viewport instead */
+#dock.dock-scroll #moreGroup{ position:fixed; right:8px; left:8px; max-width:none; }
+/* The old wrap stays only as the fallback for a browser without overflow scrolling. */
 #dock.dock-wrap{ flex-wrap:wrap; justify-content:flex-start; gap:4px 0; }
 #dock.dock-wrap .dsec[data-sec="readout"]{ position:static; transform:none; order:9; flex-basis:100%; }
-#dock.dock-wrap .control-label, #dock.dock-wrap .lbl, #dock.dock-wrap .video-note{ display:inline; color:var(--mute); font-size:7px; letter-spacing:.16em; text-transform:uppercase; align-self:center; }
-@media (max-width: 720px){ #dock{ flex-wrap:wrap; justify-content:flex-start; gap:4px 0; } }
+#dock.dock-wrap .control-label, #dock.dock-wrap .lbl, #dock.dock-wrap .video-note{ display:inline; color:var(--dim); font-size:7.5px; letter-spacing:.14em; text-transform:uppercase; align-self:center; }
 
 /* FIRST-PAINT SKELETON. Structure only: no number, no colour that could read as a quote. */
 #skeletonGrid{ display:grid; gap:6px; height:100%; grid-template-columns:repeat(2, minmax(0,1fr)); }
@@ -1635,7 +1663,7 @@ const DOCK_ITEMS = "#dock .btn, #dock select, #dock input, #dock #panebar > span
 const DOCK_MAX_SCALE = 2;        /* the pointed-at chip — "~2×" */
 const DOCK_REACH = 2.2;          /* chips: the raised cosine reaches this far from the pointer */
 const DOCK_EDGE_PX = 12;         /* px: a pointer this far past a section's last chip still counts as in it */
-const DOCK_FIT_FLOOR = .72;      /* below this zoom the strip would be unreadable, so it wraps instead */
+const DOCK_FIT_FLOOR = .85;      /* below this zoom the type is under 7.3 px, so the strip scrolls instead */
 const DOCK_TUCK_AFTER = 2000;    /* ms without the pointer before the strip tucks to its lip */
 const DOCK_HIDE_KEY = "station.dock.autohide";
 function dockArc(boxes, pointerX, options) {
@@ -1678,7 +1706,8 @@ const dockFinePointer = window.matchMedia ? matchMedia("(hover: hover) and (poin
 const dockStillness = window.matchMedia ? matchMedia("(prefers-reduced-motion: reduce)") : { matches:false };
 const dockMagnifies = () => {
   const dock = el("dock");
-  return !!dock && !dock.classList.contains("dock-wrap") && dockFinePointer.matches && !dockStillness.matches;
+  return !!dock && !dock.classList.contains("dock-wrap") && !dock.classList.contains("dock-scroll") &&
+    dockFinePointer.matches && !dockStillness.matches;
 };
 function dockContentChanged() { dockGeometry = null; }
 function dockFit() {
@@ -1761,24 +1790,26 @@ function applyDock(pointerX, focusItem) {
   });
   paintDockCaption(focusItem || topWeight > 0 ? top : null, topCenter);
 }
-/* One line if the sections fit at a readable size; if they do not, the strip wraps exactly
-   as it did before rather than shrinking into something nobody can read. */
+/* One line, always. If the sections fit at a readable size the strip shrinks as a whole; if they
+   do not, it stays one row and scrolls inside itself rather than wrapping into rows or shrinking
+   into something nobody can read. */
 function fitDock() {
   const dock = el("dock");
   if (!dock) return;
   applyDock(null);
   if (typeof paintCountChips === "function") paintCountChips();
-  dock.classList.remove("dock-wrap");
+  dock.classList.remove("dock-wrap", "dock-scroll");
   dock.style.setProperty("--dock-fit", "1");
   dockContentChanged();
-  if (STACKED || innerWidth < 760) { dock.classList.add("dock-wrap"); return; }
+  if (STACKED || innerWidth < 760) { dock.classList.add("dock-scroll"); return; }
   const sections = Array.from(dock.querySelectorAll(".dsec")).filter((n) => n.offsetWidth > 0 && n.dataset.sec !== "readout");
   const readout = dock.querySelector('.dsec[data-sec="readout"]');
   /* the readout is pinned right; the centred strip must clear it on BOTH sides to stay centred */
   const room = readout ? (readout.offsetWidth + 24) * 2 : 0;
-  const available = dock.clientWidth - 16, natural = sections.reduce((sum, n) => sum + n.offsetWidth, 0) + room;
+  const outer = (n) => { const cs = getComputedStyle(n); return n.offsetWidth + (parseFloat(cs.marginLeft) || 0) + (parseFloat(cs.marginRight) || 0); };
+  const available = dock.clientWidth - 16, natural = sections.reduce((sum, n) => sum + outer(n), 0) + room;
   let fit = available > 0 && natural > available ? available / natural : 1;
-  if (fit < DOCK_FIT_FLOOR) { dock.classList.add("dock-wrap"); fit = 1; }
+  if (fit < DOCK_FIT_FLOOR) { dock.classList.add("dock-scroll"); fit = 1; }
   dock.style.setProperty("--dock-fit", fit >= .999 ? "1" : fit.toFixed(3));
 }
 /* ---- auto-hide: the strip tucks to its lip and comes back on approach, tap or focus ---- */
@@ -1839,6 +1870,11 @@ function wireMore() {
     btn.classList.toggle("on", open);
     btn.setAttribute("aria-expanded", open ? "true" : "false");
     if (open) revealDock(); else armDockTuck();
+    /* in the scrolling strip the panel is fixed to the viewport: hang it just under the strip */
+    const dock = el("dock");
+    if (open && dock && dock.classList.contains("dock-scroll"))
+      group.style.top = Math.round(dock.getBoundingClientRect().bottom + 2) + "px";
+    else group.style.top = "";
   };
   btn.addEventListener("click", () => set(group.hidden));
   document.addEventListener("pointerdown", (event) => {
