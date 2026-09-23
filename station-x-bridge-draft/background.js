@@ -1,9 +1,15 @@
 const SUPPORTED_HOSTS = new Set(["x.com", "www.x.com", "twitter.com", "www.twitter.com"]);
 const stationConsumers = new Map();
+const remoteViewerGenerations = new Map();
 let stationSourceTabId = null;
 let stationActiveConsumerKey = null;
 let stationLastTickForwardedAt = 0;
-const STATION_TICK_MIN_INTERVAL_MS = 24;
+let stationLastCaptureFrameGeneration = 0;
+let stationPendingCaptureGeneration = 0;
+/* The elected visible pane owns the motion clock.  Keep duplicate-window
+   suppression below one display frame so it never converts a 60Hz source
+   crawl back into visible 30/10Hz steps. */
+const STATION_TICK_MIN_INTERVAL_MS = 12;
 const STATION_SESSION_KEY = "stationXSessionV1";
 
 function stationConsumerKey(consumer) {
@@ -61,7 +67,67 @@ async function persistStationSession() {
   } catch {}
 }
 
+function isMissingTabError(error) {
+  return /No tab with id/i.test(String(error?.message || error || ""));
+}
+
+async function discardStationConsumer(consumer) {
+  if (!consumer) return false;
+  const current = stationConsumers.get(consumer.tabId);
+  // A late asynchronous send from an older pane must not remove a newer pane
+  // that Chrome reused in the same tab.
+  if (stationConsumerKey(current) !== stationConsumerKey(consumer)) return false;
+  dropStationPeer(consumer);
+  stationConsumers.delete(consumer.tabId);
+  if (stationConsumerKey(consumer) === stationActiveConsumerKey) {
+    stationActiveConsumerKey = null;
+  }
+  await persistStationSession();
+  return true;
+}
+
+async function pruneClosedStationConsumers() {
+  for (const consumer of [...stationConsumers.values()]) {
+    try {
+      await chrome.tabs.get(consumer.tabId);
+    } catch (error) {
+      if (isMissingTabError(error)) await discardStationConsumer(consumer);
+    }
+  }
+}
+
+async function reannounceOpenStationPanes() {
+  const stationTabs = await chrome.tabs.query({
+    url: ["https://station.scintillahub.ai/*"]
+  });
+  await Promise.allSettled(stationTabs.map((tab) => chrome.scripting.executeScript({
+    target: { tabId: tab.id, allFrames: true },
+    files: ["station-bridge.js"]
+  })));
+  // station-bridge immediately emits READY; one short yield lets this X click
+  // attach to the current pane rather than a closed restored tab.
+  await new Promise((resolve) => setTimeout(resolve, 120));
+}
+
+async function currentStationSourceTab() {
+  if (!Number.isInteger(stationSourceTabId)) return null;
+  try {
+    return await chrome.tabs.get(stationSourceTabId);
+  } catch (error) {
+    if (isMissingTabError(error)) {
+      stationSourceTabId = null;
+      await persistStationSession();
+      return null;
+    }
+    throw error;
+  }
+}
+
 const stationRestore = restoreStationSession();
+// A worker restart leaves existing Station documents alive.  Reannounce them
+// once so the fresh worker can recover the one existing X source without a
+// toolbar click or a user reload.
+stationRestore.then(() => reannounceOpenStationPanes().catch(() => {}));
 
 function activeStationConsumer() {
   return [...stationConsumers.values()].find((entry) =>
@@ -71,14 +137,18 @@ function activeStationConsumer() {
 }
 
 function freshestStationConsumer() {
-  const fresh = [...stationConsumers.values()]
-    .filter((entry) => Date.now() - entry.lastSeen < 10 * 60 * 1000)
-    .sort((a, b) => b.lastSeen - a.lastSeen);
+  const fresh = freshStationConsumers();
   const active = activeStationConsumer();
   if (active) return active;
   const fallback = fresh[0] || null;
   stationActiveConsumerKey = stationConsumerKey(fallback) || null;
   return fallback;
+}
+
+function freshStationConsumers() {
+  return [...stationConsumers.values()]
+    .filter((entry) => Date.now() - entry.lastSeen < 10 * 60 * 1000)
+    .sort((a, b) => b.lastSeen - a.lastSeen);
 }
 
 async function activateStationConsumer(consumer) {
@@ -120,6 +190,12 @@ function sendToStation(consumer, message) {
   if (!consumer) return Promise.resolve();
   return chrome.tabs.sendMessage(consumer.tabId, message, {
     frameId: consumer.frameId
+  }).catch(async (error) => {
+    if (isMissingTabError(error)) {
+      await discardStationConsumer(consumer);
+      return { ok: false, stale: true };
+    }
+    throw error;
   });
 }
 
@@ -138,6 +214,21 @@ async function ensureOffscreenDocument() {
     reasons: ["USER_MEDIA"],
     justification: "Consume the user-invoked X tab capture for the Station X pane."
   });
+}
+
+async function hasLiveStationCapture() {
+  try {
+    const documentUrl = chrome.runtime.getURL("offscreen.html");
+    const contexts = chrome.runtime.getContexts
+      ? await chrome.runtime.getContexts({
+          contextTypes: ["OFFSCREEN_DOCUMENT"],
+          documentUrls: [documentUrl]
+        })
+      : [];
+    if (contexts.length) return true;
+    if (chrome.offscreen.hasDocument) return await chrome.offscreen.hasDocument();
+  } catch {}
+  return false;
 }
 
 function captureStreamId(sourceTabId) {
@@ -179,13 +270,18 @@ async function stopStationCapture(detail = "stopped") {
     detail
   });
   stationSourceTabId = null;
+  remoteViewerGenerations.clear();
   stationLastTickForwardedAt = 0;
+  stationLastCaptureFrameGeneration = 0;
+  stationPendingCaptureGeneration = 0;
   await persistStationSession();
 }
 
 async function reconnectStationConsumer(consumer, { controlSource = false } = {}) {
-  if (!stationSourceTabId || !consumer) return;
-  const sourceTabId = stationSourceTabId;
+  if (!consumer) return false;
+  const sourceTab = await currentStationSourceTab();
+  if (!sourceTab) return false;
+  const sourceTabId = sourceTab.id;
   if (controlSource) {
     await ensureContentScript(sourceTabId);
     await chrome.tabs.sendMessage(sourceTabId, {
@@ -204,19 +300,60 @@ async function reconnectStationConsumer(consumer, { controlSource = false } = {}
       ? "Station X reattached after reload."
       : "Station X mirror attached."
   });
+  return true;
 }
 
-async function startStationCapture(sourceTab, consumer) {
-  if (!sourceTab?.id || !consumer) return false;
-  await activateStationConsumer(consumer);
-  if (stationSourceTabId === sourceTab.id) {
-    await reconnectStationConsumer(consumer, { controlSource: true });
-    await chrome.tabs.update(consumer.tabId, { active: true });
-    await chrome.windows.update(consumer.windowId, { state: "normal", focused: true });
-    return true;
+async function reconnectStationConsumers({ controlSource = false } = {}) {
+  const sourceTab = await currentStationSourceTab();
+  const consumers = freshStationConsumers();
+  if (!sourceTab || !consumers.length) return false;
+
+  const controller = activeStationConsumer() || consumers[0];
+  if (controlSource) {
+    await ensureContentScript(sourceTab.id);
+    await chrome.tabs.sendMessage(sourceTab.id, {
+      type: "XFF_START_STATION_SOURCE",
+      consumer: { width: controller.width, height: controller.height }
+    });
   }
 
-  await stopStationCapture("Switching X source…");
+  await Promise.allSettled(consumers.flatMap((entry) => [
+    sendToStation(entry, {
+      type: "XFF_STATION_WEBRTC_START",
+      sourceTabId: sourceTab.id
+    }),
+    sendToStation(entry, {
+      type: "XFF_STATION_STATUS",
+      status: "connecting",
+      detail: "Shared X source attached."
+    })
+  ]));
+  return true;
+}
+
+async function startStationCapture(sourceTab, consumer, { forceNewCapture = false } = {}) {
+  if (!sourceTab?.id || !consumer) return false;
+  await activateStationConsumer(consumer);
+  const replacingCurrentSource = stationSourceTabId === sourceTab.id;
+  if (replacingCurrentSource) {
+    if (!forceNewCapture && await hasLiveStationCapture()) {
+      await reconnectStationConsumers({ controlSource: true });
+      return true;
+    }
+  }
+
+  // An explicit toolbar click on the already-selected X tab is a recovery
+  // gesture.  The offscreen document can still exist while Chrome has left
+  // its tab-capture video black; a fresh user-authorized capture is the one
+  // reliable way to replace that dead decoder without opening another X tab.
+  // This is deliberately one stop/restart sequence, including after a full
+  // Bridge reload where the saved tab id survives but its capture does not.
+  const captureRecoveryDetail = replacingCurrentSource && forceNewCapture
+    ? "Station capture refreshed from the existing X tab."
+    : replacingCurrentSource
+      ? "Station capture restored after Bridge reload."
+      : "Switching X source…";
+  await stopStationCapture(captureRecoveryDetail);
   await ensureOffscreenDocument();
   const streamId = await captureStreamId(sourceTab.id);
   const capture = await chrome.runtime.sendMessage({
@@ -229,29 +366,10 @@ async function startStationCapture(sourceTab, consumer) {
   }
   stationSourceTabId = sourceTab.id;
   await persistStationSession();
-
-  await ensureContentScript(sourceTab.id);
-  await chrome.tabs.sendMessage(sourceTab.id, {
-    type: "XFF_START_STATION_SOURCE",
-    consumer: {
-      width: consumer.width,
-      height: consumer.height
-    }
-  });
-  await sendToStation(consumer, {
-    type: "XFF_STATION_WEBRTC_START",
-    sourceTabId: sourceTab.id
-  });
-  await sendToStation(consumer, {
-    type: "XFF_STATION_STATUS",
-    status: "connecting",
-    detail: "Station X owns the crop and scroll."
-  });
+  await reconnectStationConsumers({ controlSource: true });
 
   chrome.action.setBadgeBackgroundColor({ tabId: sourceTab.id, color: "#00d4ff" });
   chrome.action.setBadgeText({ tabId: sourceTab.id, text: "STN" });
-  await chrome.tabs.update(consumer.tabId, { active: true });
-  await chrome.windows.update(consumer.windowId, { state: "normal", focused: true });
   return true;
 }
 
@@ -261,6 +379,38 @@ function isSupportedUrl(url) {
   } catch {
     return false;
   }
+}
+
+// Protected previews are intentionally not permanent extension hosts. An
+// explicit toolbar click grants activeTab for the exact review tab only, which
+// is enough to inject the Station pane bridge without widening permissions.
+function isStationPageUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" &&
+      (parsed.hostname === "station.scintillahub.ai" || parsed.hostname.endsWith(".vercel.app"));
+  } catch {
+    return false;
+  }
+}
+
+function remoteViewerPeerId(pairId, viewerId) {
+  return "ipad:" + pairId + ":" + viewerId;
+}
+
+function receiverReannouncing() {
+  return {
+    retryable: true,
+    code: "STATION_RECEIVER_REANNOUNCING",
+    error: "The Station receiver is reannouncing."
+  };
+}
+
+function exactStationGeneration(consumer, sender, message) {
+  const instanceId = String(message?.instanceId || "");
+  return Boolean(consumer && instanceId &&
+    (sender.frameId || 0) === consumer.frameId &&
+    instanceId === String(consumer.instanceId || ""));
 }
 
 async function ensureContentScript(tabId) {
@@ -322,15 +472,27 @@ async function focusOrOpenX() {
 chrome.action.onClicked.addListener(async (tab) => {
   try {
     await stationRestore;
+    if (isStationPageUrl(tab?.url)) {
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true },
+        files: ["station-bridge.js"]
+      });
+      return;
+    }
     if (!isSupportedUrl(tab?.url)) {
       // Chrome requires the capture/PiP gesture on the actual X tab. The first
       // click brings the most recent X tab forward; the next click opens PiP.
       await focusOrOpenX();
       return;
     }
-    const station = freshestStationConsumer();
+    await pruneClosedStationConsumers();
+    let station = freshestStationConsumer();
+    if (!station) {
+      await reannounceOpenStationPanes();
+      station = freshestStationConsumer();
+    }
     if (station) {
-      await startStationCapture(tab, station);
+      await startStationCapture(tab, station, { forceNewCapture: true });
       return;
     }
     chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: "#947e55" });
@@ -377,8 +539,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // already-known frame restarted startStationSource(), which realigned the
       // X page and repeatedly pulled the feed back to the same post. Only a new
       // or reloaded frame needs the WebRTC/source reattachment path.
+      // A worker restart can preserve the pane identity while destroying the
+      // offscreen capture.  In that state the same pane must recover instead
+      // of being mistaken for a harmless heartbeat.
+      const captureMissing = stationSourceTabId && !await hasLiveStationCapture();
       if (stationSourceTabId && stationConsumerKey(consumer) === stationActiveConsumerKey &&
-          (!sameFrame || !activeBefore)) {
+          (!sameFrame || !activeBefore || captureMissing)) {
         await reconnectStationConsumer(consumer, { controlSource: true });
       } else if (stationSourceTabId && !sameFrame) {
         await reconnectStationConsumer(consumer, { controlSource: false });
@@ -443,9 +609,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "XFF_STATION_CROP") {
     if (sender.tab?.id !== stationSourceTabId) return;
+    const crop = message.crop && typeof message.crop === "object"
+      ? Object.assign({}, message.crop, {
+        captureGeneration: Math.max(0, Number(message.crop.captureGeneration) || 0),
+        sequence: Math.max(0, Number(message.crop.sequence) || 0)
+      })
+      : message.crop;
     broadcastToStations({
       type: "XFF_STATION_CROP",
-      crop: message.crop
+      crop
+    }).catch(() => {});
+    return;
+  }
+
+  if (message?.type === "XFF_STATION_SCROLL_GENERATION") {
+    if (sender.tab?.id !== stationSourceTabId) return;
+    const generation = Math.max(0, Number(message.generation) || 0);
+    if (!generation) return;
+    stationPendingCaptureGeneration = Math.max(stationPendingCaptureGeneration, generation);
+    chrome.runtime.sendMessage({
+      target: "station-x-offscreen",
+      type: "XFF_OFFSCREEN_WAIT_CAPTURE_FRAME",
+      generation
+    }).catch(() => {});
+    return;
+  }
+
+  if (message?.type === "XFF_STATION_CAPTURE_FRAME") {
+    const generation = Math.max(0, Number(message.generation) || 0);
+    if (!stationSourceTabId || !generation || generation !== stationPendingCaptureGeneration ||
+        generation <= stationLastCaptureFrameGeneration) return;
+    stationLastCaptureFrameGeneration = generation;
+    stationPendingCaptureGeneration = 0;
+    chrome.tabs.sendMessage(stationSourceTabId, {
+      type: "XFF_STATION_CAPTURE_FRAME", generation
     }).catch(() => {});
     return;
   }
@@ -519,6 +716,108 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       sendResponse({ ok: true });
     }).catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  /* A receiver peer can be discarded by Chrome while the shared offscreen
+     capture and X source remain healthy. Replace only that viewer peer; do
+     not restart the source, focus a tab, or affect another Station display. */
+  if (message?.type === "XFF_STATION_RECONNECT_VIEWER") {
+    const consumer = stationConsumers.get(sender.tab?.id);
+    const sameInstance = !message.instanceId ||
+      String(consumer?.instanceId || "") === String(message.instanceId);
+    if (!consumer || (sender.frameId || 0) !== consumer.frameId || !sameInstance) {
+      sendResponse({ ok:false, error:"The Station pane was not recognized." });
+      return;
+    }
+    (async () => {
+      consumer.lastSeen = Date.now();
+      await persistStationSession();
+      const reconnected = await reconnectStationConsumer(consumer, { controlSource:false });
+      if (!reconnected) throw new Error("The shared X source is not available.");
+      sendResponse({ ok:true });
+    })().catch((error) => sendResponse({ ok:false, error:error.message }));
+    return true;
+  }
+
+  if (message?.type === "XFF_STATION_REMOTE_OFFER") {
+    const consumer = stationConsumers.get(sender.tab?.id);
+    const pairId = String(message.pairId || "");
+    const viewerId = String(message.viewerId || "");
+    const receiverGeneration = String(message.receiverGeneration || "");
+    if (!/^[A-Za-z0-9_-]{32,}$/.test(pairId) ||
+        !/^[A-Za-z0-9_-]{16,}$/.test(viewerId) ||
+        !/^[A-Za-z0-9_-]{16,}$/.test(receiverGeneration) || !message.offer) {
+      sendResponse({ ok: false, error: "The iPad viewer was not recognized." });
+      return;
+    }
+    if (!exactStationGeneration(consumer, sender, message)) {
+      sendResponse(receiverReannouncing());
+      return;
+    }
+    const peerId = remoteViewerPeerId(pairId, viewerId);
+    remoteViewerGenerations.set(peerId, receiverGeneration);
+    chrome.runtime.sendMessage({
+      target: "station-x-offscreen",
+      type: "XFF_OFFSCREEN_OFFER",
+      peerId,
+      offer: message.offer
+    }).then(async (result) => {
+      if (!result?.ok || !result.answer) {
+        throw new Error(result?.error || "Station X could not answer the iPad viewer.");
+      }
+      const current = stationConsumers.get(consumer.tabId);
+      if (stationConsumerKey(current) !== stationConsumerKey(consumer)) {
+        await chrome.runtime.sendMessage({
+          target: "station-x-offscreen",
+          type: "XFF_OFFSCREEN_DROP",
+          peerId
+        }).catch(() => {});
+        sendResponse(receiverReannouncing());
+        return;
+      }
+      if (remoteViewerGenerations.get(peerId) !== receiverGeneration) {
+        sendResponse({ ok: true, stale: true });
+        return;
+      }
+      await sendToStation(consumer, {
+        type: "XFF_STATION_REMOTE_ANSWER",
+        instanceId: consumer.instanceId,
+        pairId,
+        viewerId,
+        receiverGeneration,
+        answer: result.answer
+      });
+      sendResponse({ ok: true });
+    }).catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  if (message?.type === "XFF_STATION_REMOTE_DROP") {
+    const consumer = stationConsumers.get(sender.tab?.id);
+    const pairId = String(message.pairId || "");
+    const viewerId = String(message.viewerId || "");
+    const receiverGeneration = String(message.receiverGeneration || ""), peerId = remoteViewerPeerId(pairId, viewerId);
+    if (!/^[A-Za-z0-9_-]{32,}$/.test(pairId) || !/^[A-Za-z0-9_-]{16,}$/.test(viewerId) ||
+        !/^[A-Za-z0-9_-]{16,}$/.test(receiverGeneration)) {
+      sendResponse({ ok: false, error: "The iPad viewer was not recognized." });
+      return;
+    }
+    if (!exactStationGeneration(consumer, sender, message)) {
+      sendResponse(receiverReannouncing());
+      return;
+    }
+    if (remoteViewerGenerations.get(peerId) !== receiverGeneration) {
+      sendResponse({ ok: true, stale: true });
+      return true;
+    }
+    remoteViewerGenerations.delete(peerId);
+    chrome.runtime.sendMessage({
+      target: "station-x-offscreen",
+      type: "XFF_OFFSCREEN_DROP",
+      peerId
+    }).catch(() => {});
+    sendResponse({ ok: true });
     return true;
   }
 

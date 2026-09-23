@@ -17,6 +17,10 @@
     hideFeedTabs: true,
     minimizeSourceOnOpen: true
   };
+  // A Station viewer can miss the single pointer-leave message when a tab or
+  // window changes. Keep its hover pause as a short renewable lease instead
+  // of allowing one missed event to freeze the source indefinitely.
+  const STATION_VIEWER_HOVER_LEASE_MS = 500;
 
   const session = {
     pipWindow: null,
@@ -31,14 +35,40 @@
     cropResizeObserver: null,
     cropMutationObserver: null,
     cropUpdateFrame: null,
+    cropGeometryTimer: null,
+    stationCropGeometry: null,
+    stationCropGeometryDirty: true,
     notificationMutationObserver: null,
     notificationFilterFrame: null,
     scrollFrame: null,
     scrollFrameWindow: null,
     lastScrollTimestamp: null,
     scrollCarryPx: 0,
+    stationRenderedOffset: 0,
+    stationScrollGeneration: 0,
+    stationPendingScrollGeneration: 0,
+    stationPendingScrollAnchor: null,
+    stationPostAckAnchor: null,
+    stationPostAckTimer: null,
+    stationConfirmedCaptureGeneration: 0,
+    stationCropSequence: 0,
+    stationGeometryVersion: 0,
+    stationLastConfirmedScroll: null,
+    stationMetrics: {
+      ticks: 0,
+      integerScrolls: 0,
+      confirmedCaptureFrames: 0,
+      geometryMeasures: 0,
+      geometryInvalidations: 0,
+      negativeCommitOffsets: 0,
+      anchorCorrections: 0,
+      anchorReflowHeightChanges: 0,
+      lateAnchorChecks: 0,
+      lateAnchorCorrections: 0
+    },
     scrollEnabled: false,
     pointerPause: false,
+    stationViewerPauseUntil: 0,
     resumeTimer: null,
     collapsed: false,
     closing: false,
@@ -49,6 +79,7 @@
     stationMode: false,
     stationConsumer: null,
     stationRelayTimer: null,
+    stationHoverShield: null,
     ui: {}
   };
   let settingsReady = null;
@@ -149,11 +180,11 @@
   }
 
   function isPaused() {
-    return !session.scrollEnabled || session.pointerPause;
+    return !session.scrollEnabled || session.pointerPause || stationViewerPauseActive();
   }
 
   function pauseLabel() {
-    if (session.pointerPause) {
+    if (session.pointerPause || stationViewerPauseActive()) {
       return "HOVER";
     }
     if (!session.scrollEnabled) {
@@ -251,7 +282,7 @@
   function stopScrolling() {
     session.scrollEnabled = false;
     session.lastScrollTimestamp = null;
-    session.scrollCarryPx = 0;
+    resetStationScrollComposite();
     updateUi();
   }
 
@@ -271,7 +302,80 @@
       session.pointerPause = false;
       session.resumeTimer = null;
       updateUi();
+      if (session.stationMode) installStationHoverShield();
     }, session.settings.resumeDelayMs);
+  }
+
+  function stationViewerPauseActive(now = Date.now()) {
+    return session.stationMode && Number(session.stationViewerPauseUntil || 0) > now;
+  }
+
+  function setStationViewerPause(paused) {
+    session.stationViewerPauseUntil = paused
+      ? Date.now() + STATION_VIEWER_HOVER_LEASE_MS
+      : 0;
+    updateUi();
+  }
+
+  function pointerIsInsideStationCrop(event, rect) {
+    const x = Number(event?.clientX);
+    const y = Number(event?.clientY);
+    return Number.isFinite(x) && Number.isFinite(y) &&
+      x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }
+
+  // The shield pauses unattended source scrolling while hovered. A deliberate
+  // first pointerdown removes it before the next native click/tap, so ordinary
+  // X interaction remains an explicit separate action rather than a synthetic
+  // replay. The shield is armed again only after automatic scrolling resumes.
+  function installStationHoverShield() {
+    if (!session.stationMode || session.stationHoverShield) return;
+    const rect = calculateCropRect();
+    const shield = document.createElement("div");
+    shield.id = "x-feed-float-station-hover-shield";
+    shield.setAttribute("aria-hidden", "true");
+    Object.assign(shield.style, {
+      position: "fixed",
+      pointerEvents: "auto",
+      zIndex: "2147483645",
+      left: `${Math.round(rect.left)}px`,
+      top: `${Math.round(rect.top)}px`,
+      width: `${Math.round(rect.width)}px`,
+      height: `${Math.round(rect.height)}px`,
+      background: "transparent",
+      cursor: "default"
+    });
+    const beginNativeInteraction = () => {
+      if (!session.stationMode) return;
+      const exitObserver = (event) => {
+        if (pointerIsInsideStationCrop(event, calculateCropRect())) return;
+        document.removeEventListener("pointermove", exitObserver, true);
+        if (session.stationHoverShield?.exitObserver === exitObserver) {
+          session.stationHoverShield = null;
+        }
+        setPointerPause(false);
+      };
+      shield.remove();
+      session.stationHoverShield = { exitObserver };
+      document.addEventListener("pointermove", exitObserver, true);
+      setPointerPause(true);
+    };
+    shield.addEventListener("pointerenter", () => setPointerPause(true));
+    shield.addEventListener("pointerleave", () => setPointerPause(false));
+    shield.addEventListener("pointerdown", beginNativeInteraction, { once: true });
+    document.documentElement.appendChild(shield);
+    session.stationHoverShield = { element: shield };
+  }
+
+  function removeStationHoverShield() {
+    const shield = session.stationHoverShield;
+    if (shield) {
+      shield.element?.remove();
+      if (shield.exitObserver) {
+        document.removeEventListener("pointermove", shield.exitObserver, true);
+      }
+    }
+    session.stationHoverShield = null;
   }
 
   function findPrimaryColumn() {
@@ -490,6 +594,198 @@
     return candidates[Math.floor(candidates.length / 2)];
   }
 
+  // The Station renderer can crop a captured X frame by a fractional offset.
+  // Keep that fractional state separate from the source page's integer
+  // scrollTop: on an integer move the capture pipeline can still be painting
+  // the pre-scroll frame for a couple of source frames. Replacing .9 with .2
+  // at that instant is the backwards "bounce" the viewers were seeing.
+  function nextStationScrollState(state, elapsedMs, speedPxPerSecond, appliedPixels) {
+    const visualDelta =
+      (Math.max(0, Number(speedPxPerSecond) || 0) * Math.max(0, Number(elapsedMs) || 0)) / 1000;
+    const accrued = Math.max(0, Number(state.carryPx) || 0) + visualDelta;
+    const requestedPixels = Math.floor(accrued);
+    const movedPixels = Math.max(0, Math.min(requestedPixels, Number(appliedPixels) || 0));
+
+    if (requestedPixels > 0 && movedPixels === 0) {
+      return {
+        carryPx: 0,
+        renderedOffset: 0,
+        generation: Number(state.generation) || 0,
+        requestedPixels,
+        movedPixels,
+        needsSettle: false
+      };
+    }
+
+    const carryPx = requestedPixels > 0 ? accrued - movedPixels : accrued;
+    const integerMove = movedPixels > 0;
+    return {
+      carryPx,
+      /* The captured source frame can still be the pre-scroll frame while an
+         integer move settles.  Continue its fractional crop phase instead of
+         freezing it: that is the same local canvas behavior as X Feed Float.
+         The generation barrier still decides when the new source frame may
+         replace this phase-aligned old one. */
+      renderedOffset: (integerMove || state.keepVisualPhase)
+        ? (Math.max(0, Number(state.renderedOffset) || 0) + visualDelta)
+        : carryPx,
+      generation: (Number(state.generation) || 0) + (integerMove ? 1 : 0),
+      requestedPixels,
+      movedPixels,
+      needsSettle: integerMove
+    };
+  }
+
+  // X can asynchronously correct its virtualized timeline anchor after our
+  // deliberate integer scroll.  A decoded frame from that reflow must not be
+  // paired with the newer fractional crop offset: that is the remaining
+  // downward pulse after the normal capture-generation barrier.
+  function stationAnchorDisposition(anchor, snapshot) {
+    if (!anchor) return { hold: false, reflowed: false };
+    const expectedTop = Math.max(0, Number(anchor.appliedScrollTop) || 0);
+    const currentTop = Math.max(0, Number(snapshot?.scrollTop) || 0);
+    const reflowed = Number(snapshot?.scrollHeight) !== Number(anchor.scrollHeight);
+    return {
+      hold: currentTop + 0.25 < expectedTop,
+      reflowed
+    };
+  }
+
+  function stationScrollSnapshot(root = document.scrollingElement || document.documentElement) {
+    return {
+      scrollTop: Math.max(0, Number(root?.scrollTop) || 0),
+      scrollHeight: Math.max(0, Number(root?.scrollHeight) || 0),
+      geometryVersion: session.stationGeometryVersion
+    };
+  }
+
+  function applyStationSourceScroll(root, pixels, snapshot = stationScrollSnapshot) {
+    const before = snapshot(root);
+    const requestedPixels = Math.max(0, Math.floor(Number(pixels) || 0));
+    root.scrollTop = before.scrollTop + requestedPixels;
+    const after = snapshot(root);
+    return {
+      before,
+      after,
+      appliedPixels: Math.max(0, after.scrollTop - before.scrollTop)
+    };
+  }
+
+  function refreshStationCropGeometry({ force = false } = {}) {
+    if (!force && !session.stationCropGeometryDirty && session.stationCropGeometry) {
+      return session.stationCropGeometry;
+    }
+    session.stationCropGeometry = calculateCropRect();
+    session.stationCropGeometryDirty = false;
+    session.stationMetrics.geometryMeasures += 1;
+    session.stationGeometryVersion += 1;
+    return session.stationCropGeometry;
+  }
+
+  function invalidateStationCropGeometry() {
+    session.stationCropGeometryDirty = true;
+    session.stationMetrics.geometryInvalidations += 1;
+    if (session.cropGeometryTimer) {
+      return;
+    }
+
+    // X virtualizes its timeline aggressively. Coalesce its mutation bursts
+    // so a 10 Hz Station clock never forces a fresh DOM geometry scan.
+    session.cropGeometryTimer = setTimeout(() => {
+      session.cropGeometryTimer = null;
+      if (!session.cropTargetElement && !session.stationMode) {
+        return;
+      }
+      if (session.cropUpdateFrame) {
+        return;
+      }
+      session.cropUpdateFrame = requestAnimationFrame(() => {
+        session.cropUpdateFrame = null;
+        applyCropTargetGeometry();
+      });
+    }, 120);
+  }
+
+  function requestStationCaptureFrame(generation) {
+    runtimeMessage({ type: "XFF_STATION_SCROLL_GENERATION", generation }).catch(() => {});
+  }
+
+  function clearStationPostAckAnchor() {
+    if (session.stationPostAckTimer) clearTimeout(session.stationPostAckTimer);
+    session.stationPostAckTimer = null;
+    session.stationPostAckAnchor = null;
+  }
+
+  function holdStationAnchor(anchor, disposition, { late = false } = {}) {
+    clearStationPostAckAnchor();
+    session.scrollCarryPx = Math.max(0, Number(session.scrollCarryPx) || 0);
+    session.stationRenderedOffset = session.scrollCarryPx;
+    session.stationMetrics.anchorCorrections += 1;
+    if (late) session.stationMetrics.lateAnchorCorrections += 1;
+    if (disposition.reflowed) session.stationMetrics.anchorReflowHeightChanges += 1;
+    return false;
+  }
+
+  /* The offscreen capture acknowledgement proves the source stream saw the
+     scroll, but X may still apply one last virtualized anchor correction.
+     Hold two short post-ack observations before exposing a new crop.  These
+     timers deliberately do not rely on rAF: the source tab is often hidden. */
+  function observeStationPostAckAnchor(generation) {
+    const pending = session.stationPostAckAnchor;
+    if (!pending || pending.generation !== generation || session.stationPendingScrollGeneration) return false;
+    const snapshot = stationScrollSnapshot();
+    const disposition = stationAnchorDisposition(pending.anchor, snapshot);
+    pending.checks += 1;
+    session.stationMetrics.lateAnchorChecks += 1;
+    if (disposition.hold) return holdStationAnchor(pending.anchor, disposition, { late:true });
+    if (pending.checks < 2) {
+      session.stationPostAckTimer = setTimeout(() => observeStationPostAckAnchor(generation), 16);
+      return false;
+    }
+    clearStationPostAckAnchor();
+    session.stationRenderedOffset = session.scrollCarryPx;
+    session.stationConfirmedCaptureGeneration = generation;
+    session.stationLastConfirmedScroll = snapshot;
+    session.stationMetrics.confirmedCaptureFrames += 1;
+    runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });
+    return true;
+  }
+
+  function confirmStationCaptureFrame(generation) {
+    const confirmed = Math.max(0, Number(generation) || 0);
+    /* A late frame belongs to a scroll position we have already superseded.
+       Keep the last confirmed crop until the newest generation is decoded. */
+    if (!confirmed || confirmed !== session.stationPendingScrollGeneration) return false;
+    const snapshot = stationScrollSnapshot();
+    const anchor = session.stationPendingScrollAnchor;
+    const disposition = stationAnchorDisposition(anchor, snapshot);
+    if (disposition.hold) {
+      // Keep the last confirmed composite while X settles its own anchor.  The
+      // next intentional source generation starts from that stable position;
+      // no backwards crop is emitted to either viewer.
+      session.stationPendingScrollGeneration = 0;
+      session.stationPendingScrollAnchor = null;
+      return holdStationAnchor(anchor, disposition);
+    }
+    session.stationPendingScrollGeneration = 0;
+    session.stationPendingScrollAnchor = null;
+    clearStationPostAckAnchor();
+    session.stationPostAckAnchor = { generation:confirmed, anchor, checks:0 };
+    session.stationPostAckTimer = setTimeout(() => observeStationPostAckAnchor(confirmed), 16);
+    return true;
+  }
+
+  function resetStationScrollComposite() {
+    clearStationPostAckAnchor();
+    session.scrollCarryPx = 0;
+    session.stationRenderedOffset = 0;
+    session.stationPendingScrollGeneration = 0;
+    session.stationPendingScrollAnchor = null;
+    session.stationConfirmedCaptureGeneration = 0;
+    session.stationCropSequence = 0;
+    session.stationLastConfirmedScroll = null;
+  }
+
   function calculateCropRect() {
     const column = findPrimaryColumn();
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
@@ -537,7 +833,7 @@
       return;
     }
 
-    const rect = calculateCropRect();
+    const rect = refreshStationCropGeometry({ force: true });
     Object.assign(session.cropTargetElement.style, {
       left: `${Math.round(rect.left)}px`,
       top: `${Math.round(rect.top)}px`,
@@ -547,13 +843,7 @@
   }
 
   function scheduleCropTargetUpdate() {
-    if (session.cropUpdateFrame) {
-      cancelAnimationFrame(session.cropUpdateFrame);
-    }
-    session.cropUpdateFrame = requestAnimationFrame(() => {
-      session.cropUpdateFrame = null;
-      applyCropTargetGeometry();
-    });
+    invalidateStationCropGeometry();
   }
 
   function createCropTargetElement() {
@@ -581,14 +871,12 @@
 
     const observeCurrentColumn = () => {
       const column = findPrimaryColumn();
-      if (column === session.cropColumn) {
-        return;
-      }
-
-      session.cropResizeObserver?.disconnect();
-      session.cropColumn = column;
-      if (column) {
-        session.cropResizeObserver?.observe(column);
+      if (column !== session.cropColumn) {
+        session.cropResizeObserver?.disconnect();
+        session.cropColumn = column;
+        if (column) {
+          session.cropResizeObserver?.observe(column);
+        }
       }
       scheduleCropTargetUpdate();
     };
@@ -618,6 +906,12 @@
       cancelAnimationFrame(session.cropUpdateFrame);
       session.cropUpdateFrame = null;
     }
+    if (session.cropGeometryTimer) {
+      clearTimeout(session.cropGeometryTimer);
+      session.cropGeometryTimer = null;
+    }
+    session.stationCropGeometry = null;
+    session.stationCropGeometryDirty = true;
 
     session.cropTargetElement?.remove();
     session.cropTargetElement = null;
@@ -1286,7 +1580,7 @@
   function rewindFeed() {
     const root = document.scrollingElement || document.documentElement;
     const thirtySeconds = Math.round(session.settings.speedPxPerSecond * 30);
-    session.scrollCarryPx = 0;
+    resetStationScrollComposite();
     root.scrollBy({
       top: -Math.max(1, thirtySeconds),
       behavior: "smooth"
@@ -1317,7 +1611,7 @@
     }
 
     const root = document.scrollingElement || document.documentElement;
-    session.scrollCarryPx = 0;
+    resetStationScrollComposite();
     root.scrollBy({
       top: firstVisiblePost.getBoundingClientRect().top - visibleTop - 1,
       behavior: "auto"
@@ -1756,9 +2050,23 @@
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
     return {
-      rect: calculateCropRect(),
+      rect: refreshStationCropGeometry(),
       viewport: { width: viewportWidth, height: viewportHeight },
-      fractionalScrollOffset: session.scrollCarryPx,
+      fractionalScrollOffset: session.stationRenderedOffset,
+      /* The crop is only eligible for a viewer after this source generation
+         has crossed the offscreen capture-frame acknowledgement.  Sequence
+         still advances for sub-pixel crops inside the same source frame. */
+      captureGeneration: session.stationConfirmedCaptureGeneration,
+      // Exposed instrumentation for a live source diagnosis.  These are
+      // measurements only; viewers continue to use the existing crop frame.
+      sourceScroll: session.stationLastConfirmedScroll || stationScrollSnapshot(),
+      sourceMetrics: {
+        anchorCorrections: session.stationMetrics.anchorCorrections,
+        anchorReflowHeightChanges: session.stationMetrics.anchorReflowHeightChanges,
+        lateAnchorChecks: session.stationMetrics.lateAnchorChecks,
+        lateAnchorCorrections: session.stationMetrics.lateAnchorCorrections
+      },
+      sequence: ++session.stationCropSequence,
       activeView: session.activeView,
       paused: isPaused()
     };
@@ -1793,7 +2101,9 @@
     // activation and alignment below both move the real X page.
     if (session.stationMode) {
       session.stationConsumer = nextConsumer;
+      session.stationViewerPauseUntil = 0;
       applyCaptureColumnLayout();
+      installStationHoverShield();
       scheduleCropTargetUpdate();
       return;
     }
@@ -1801,6 +2111,7 @@
     session.stationMode = true;
     session.stationConsumer = nextConsumer;
     session.pointerPause = false;
+    session.stationViewerPauseUntil = 0;
     session.activeView = ["trading", "notifications"].includes(session.settings.activeView)
       ? session.settings.activeView
       : "trading";
@@ -1813,6 +2124,7 @@
       session.activeView = "current";
     }
     applyCaptureColumnLayout();
+    installStationHoverShield();
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     alignCaptureToFirstVisiblePost();
     /* The visible Station pane supplies a 30 Hz wall-clock tick. A hidden X
@@ -1820,7 +2132,8 @@
        throttle its requestAnimationFrame loop. */
     session.scrollEnabled = true;
     session.lastScrollTimestamp = null;
-    session.scrollCarryPx = 0;
+    resetStationScrollComposite();
+    session.stationLastConfirmedScroll = stationScrollSnapshot();
     updateUi();
     startStationRelay();
   }
@@ -1830,6 +2143,8 @@
     session.stationMode = false;
     session.stationConsumer = null;
     session.pointerPause = false;
+    session.stationViewerPauseUntil = 0;
+    removeStationHoverShield();
     removeCaptureColumnLayout();
     removeCropTargetElement();
     stopScrolling();
@@ -1844,17 +2159,60 @@
       session.lastScrollTimestamp = timestamp;
       if (!isPaused()) {
         const root = document.scrollingElement || document.documentElement;
-        session.scrollCarryPx += (session.settings.speedPxPerSecond * elapsedMs) / 1000;
-        const wholePixels = Math.floor(session.scrollCarryPx);
+        const accrued = session.scrollCarryPx +
+          (session.settings.speedPxPerSecond * elapsedMs) / 1000;
+        const wholePixels = Math.floor(accrued);
+        let appliedPixels = 0;
+        let scrollAnchor = null;
         if (wholePixels > 0) {
-          const before = root.scrollTop;
-          root.scrollTop = before + wholePixels;
-          session.scrollCarryPx = root.scrollTop > before ? session.scrollCarryPx - wholePixels : 0;
+          const movement = applyStationSourceScroll(root, wholePixels);
+          const { before, after } = movement;
+          appliedPixels = movement.appliedPixels;
+          if (appliedPixels > 0) {
+            scrollAnchor = {
+              requestedPixels: wholePixels,
+              appliedPixels,
+              scrollTop: before.scrollTop,
+              appliedScrollTop: after.scrollTop,
+              scrollHeight: after.scrollHeight,
+              geometryVersion: after.geometryVersion
+            };
+          }
+        }
+        const next = nextStationScrollState(
+          {
+            carryPx: session.scrollCarryPx,
+            renderedOffset: session.stationRenderedOffset,
+            generation: session.stationScrollGeneration,
+            keepVisualPhase: Boolean(
+              session.stationPendingScrollGeneration || session.stationPostAckAnchor
+            )
+          },
+          elapsedMs,
+          session.settings.speedPxPerSecond,
+          appliedPixels
+        );
+        session.stationMetrics.ticks += 1;
+        if (next.renderedOffset < session.stationRenderedOffset) {
+          session.stationMetrics.negativeCommitOffsets += 1;
+        }
+        session.scrollCarryPx = next.carryPx;
+        session.stationScrollGeneration = next.generation;
+        if (next.needsSettle) {
+          session.stationMetrics.integerScrolls += 1;
+          session.stationRenderedOffset = next.renderedOffset;
+          session.stationPendingScrollGeneration = next.generation;
+          session.stationPendingScrollAnchor = scrollAnchor;
+          requestStationCaptureFrame(next.generation);
+        } else if (session.stationPendingScrollGeneration || session.stationPostAckAnchor) {
+          session.stationRenderedOffset = next.renderedOffset;
+        } else if (!session.stationPendingScrollGeneration && !session.stationPostAckAnchor) {
+          session.stationRenderedOffset = next.renderedOffset;
         }
       }
       runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });
     } else if (action === "pause") {
-      setPointerPause(Boolean(value));
+      setStationViewerPause(Boolean(value));
     } else if (action === "refresh") {
       await refreshCurrentView();
     } else if (action === "rewind") {
@@ -1932,6 +2290,11 @@
         .then(() => sendResponse({ ok: true }))
         .catch((error) => sendResponse({ ok: false, error: error.message }));
       return true;
+    }
+    if (message?.type === "XFF_STATION_CAPTURE_FRAME") {
+      confirmStationCaptureFrame(message.generation);
+      sendResponse({ ok: true });
+      return;
     }
 
   });
