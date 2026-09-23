@@ -43,7 +43,7 @@
   --crk:#00D4FF; --bull:#00FFA3; --vol:#FF8A00;
   --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
   --ipad-btn-size:8px; --ipad-btn-pad-y:3px; --ipad-btn-pad-x:7px;
-  --ipad-title-size:9.5px; --ipad-caption-size:8px;
+  --ipad-title-size:9.5px; --ipad-caption-size:9px;
 }
 *{ box-sizing:border-box; min-width:0; -webkit-tap-highlight-color:transparent; }
 html,body{ margin:0; height:100%; }
@@ -103,21 +103,43 @@ body.searching #q{ display:block; }
 .cap{ padding:4px 5px 6px; }
 .cap .t{ color:var(--ink2); font-size:9.5px; line-height:1.3; overflow:hidden;
   display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
-.cap .s{ color:var(--mute); font-size:8px; margin-top:2px; overflow:hidden;
+/* ---- THE CHANNEL LINE — legible, on purpose. ----
+   It used to be painted in --mute (#3A3A52). Against the card's own
+   background (#0A0A0F) that is a MEASURED contrast ratio of 1.79:1 — under a
+   quarter of the 4.5:1 that small text needs to be read, and Alan's report
+   was exactly that: "I can barely see them... the name of the channel, I can
+   barely see it too."
+
+   --mute is a HAIRLINE colour. It is right for a divider and wrong for a word.
+   The line is now painted in real reading inks, and the hierarchy is kept by
+   the GAP between them rather than by pushing the bottom one into the dark:
+
+     title    --ink2  #C6C8DE  11.96:1   loudest
+     channel  --ink3  #9A9AB6   7.22:1   read at a glance
+     age      --dim   #868AAA   5.86:1   reports, never competes
+
+   Both new values clear WCAG AA (4.5:1) on the card background AND on the
+   lighter hover background (6.95:1 / 5.64:1). Neither is white or near-white:
+   #9A9AB6 and #868AAA are mid greys inside the existing monochrome ramp, and
+   the near-white inks are deliberately NOT used here.
+   9px with a half-step of weight, because at this size a monospace face loses
+   its strokes before it loses its colour. */
+.cap .s{ color:var(--ink3); font-size:9px; font-weight:500; margin-top:3px; overflow:hidden;
   white-space:nowrap; display:flex; align-items:baseline; gap:6px; }
-.cap .s .ch{ min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.cap .s .ch{ min-width:0; overflow:hidden; text-overflow:ellipsis; color:var(--ink3); }
 /* HOW LONG AGO IT WAS POSTED — the empty space at the right of the channel
-   line, which is where it was asked for. Same colour and size as the channel
+   line, which is where it was asked for. One step quieter than the channel
    name: it reports, it never competes with the title. Tabular figures so the
    label does not twitch in width as the number ticks over. */
-.cap .s .age{ flex:0 0 auto; margin-left:auto; font-variant-numeric:tabular-nums; }
+.cap .s .age{ flex:0 0 auto; margin-left:auto; color:var(--dim);
+  font-variant-numeric:tabular-nums; }
 /* very small slots: drop the caption, the picture is the interface */
 body.tiny .cap .s{ display:none; }
 body.tiny .cap{ padding:3px 4px 4px; }
 body.tiny .cap .t{ -webkit-line-clamp:2; font-size:9px; }
 html[data-view="desk"] .btn{ font-size:9px; padding:4px 8px; }
 html[data-view="desk"] .cap .t{ font-size:11px; }
-html[data-view="desk"] .cap .s{ font-size:8.5px; }
+html[data-view="desk"] .cap .s{ font-size:10px; }
 html[data-view="ipad"] .btn{ font-size:var(--ipad-btn-size); padding:var(--ipad-btn-pad-y) var(--ipad-btn-pad-x); }
 html[data-view="ipad"] .cap .t{ font-size:var(--ipad-title-size); }
 html[data-view="ipad"] .cap .s{ font-size:var(--ipad-caption-size); }
@@ -220,7 +242,7 @@ function applyIpadPaneScale(forced) {
   root.setProperty("--ipad-btn-pad-y", (3 * scale).toFixed(2) + "px");
   root.setProperty("--ipad-btn-pad-x", (7 * scale).toFixed(2) + "px");
   root.setProperty("--ipad-title-size", (9.5 * scale).toFixed(2) + "px");
-  root.setProperty("--ipad-caption-size", (8 * scale).toFixed(2) + "px");
+  root.setProperty("--ipad-caption-size", (9 * scale).toFixed(2) + "px");
 }
 applyIpadPaneScale();
 const IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -257,7 +279,27 @@ const FEED_PROFILE = FEED_PROFILES.find((profile) => profile.key === FEED) || FE
    Watch Later and Subscribe deliberately use Alan's one healthy Personal
    Google connection, never a second SCINTILLA device-code connection. */
 const YOUTUBE_ACCOUNT = "personal";
-const LIMIT  = Math.max(10, Math.min(200, +(QS.get("limit") || 60)));
+/* ---- HOW FAR DOWN THE GRID GOES ----
+   Alan: "there seems to be some limit of how much downwards I can scroll in
+   the grid that I don't like."  He was right, and it was not a CSS height and
+   not a virtualisation window. It was THE RESULT SET. This pane asked the
+   database for `limit=60` and then stopped forever: the deck mounts it with
+   no ?limit at all, so it took that 60, and on the SCINTILLA feed a further
+   account filter runs over those same 60 rows client-side — MEASURED on
+   2026-09-22: 60 rows requested, 44 tiles painted. Forty-four tiles was the
+   floor of the grid, with roughly three thousand videos behind it.
+
+   Two changes, and they are different things:
+     · the PAGE is bigger (200, ceiling 500) — one request now brings a real
+       screenful of history instead of a handful;
+     · the page is no longer the END. Reaching the bottom asks for the next
+       page and appends it, up to MAX_ROWS, which exists only so a phone does
+       not try to hold three thousand <img> tags at once. */
+const LIMIT  = Math.max(10, Math.min(500, +(QS.get("limit") || 200)));
+const MAX_ROWS = Math.max(LIMIT, Math.min(2000, +(QS.get("max") || 1000)));
+let PAGE_AT = 0;          /* rows REQUESTED so far — the next page's offset */
+let PAGE_MORE = true;     /* the last page came back full, so there is more behind it */
+let PAGE_BUSY = false;
 const TICK   = (QS.get("t") || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
 const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
 const AUTO   = QS.get("autoplay") === "1";
@@ -925,13 +967,8 @@ function paintAges() {
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") paintAges(); });
 
-function paint() {
-  const q = "";
-  let rows = LIST === "watch" ? ROWS.filter((v) => WATCH.has(v.video_id)) : ROWS;
-  rows = q ? rows.filter((v) => ((v.title || "") + " " + (v.channel || "") + " " + (v.tickers || "")).toLowerCase().indexOf(q) >= 0) : rows;
-  if (!rows.length) { el("grid").innerHTML = '<div class="msg">' + (q ? "nothing matches" : "no videos in this list") + "</div>"; return; }
-  el("grid").innerHTML = rows.map((v) =>
-    '<div class="card' + (CUR && CUR.video_id === v.video_id ? " on" : "") + '" data-v="' + esc(v.video_id) + '">' +
+function cardHTML(v) {
+  return '<div class="card' + (CUR && CUR.video_id === v.video_id ? " on" : "") + '" data-v="' + esc(v.video_id) + '">' +
       '<div class="thumb"><img loading="lazy" decoding="async" src="' +
         esc(v.thumb_url || ("https://i.ytimg.com/vi/" + v.video_id + "/mqdefault.jpg")) + '" alt="">' +
         starHTML(v) +
@@ -940,11 +977,45 @@ function paint() {
       "</div>" +
       '<div class="cap"><div class="t">' + esc(v.title) + "</div>" +
       '<div class="s"><span class="ch">' + esc(v.channel || "") + "</span>" + videoAgeHTML(v) + "</div></div>" +
-    "</div>").join("");
-  for (const n of el("grid").querySelectorAll(".card"))
-    n.addEventListener("click", () => playFromUserGesture(BYID[n.dataset.v]));
-  for (const n of el("grid").querySelectorAll(".star"))
-    n.addEventListener("click", (e) => { e.stopPropagation(); toggleWatch(BYID[n.dataset.star]); });
+    "</div>";
+}
+function visibleRows() {
+  return LIST === "watch" ? ROWS.filter((v) => WATCH.has(v.video_id)) : ROWS;
+}
+/* A full repaint replaces every child of the scroller, which momentarily takes
+   its scrollHeight to zero — the browser then clamps scrollTop and Alan is
+   thrown back to the top of the grid. Harmless at forty tiles; intolerable
+   once the grid runs to hundreds. The position is taken and put back. */
+function paint() {
+  const grid = el("grid"), keep = grid.scrollTop;
+  const rows = visibleRows();
+  if (!rows.length) { grid.innerHTML = '<div class="msg">no videos in this list</div>'; return; }
+  grid.innerHTML = rows.map(cardHTML).join("");
+  grid.scrollTop = keep;
+}
+/* Appending is deliberately NOT a repaint: the new page is added after the
+   tiles already on screen, so nothing under Alan's eye or finger moves. */
+function appendCards(rows) {
+  if (!rows.length) return;
+  const grid = el("grid");
+  const msg = grid.querySelector(".msg"); if (msg) { paint(); return; }
+  grid.insertAdjacentHTML("beforeend", rows.map(cardHTML).join(""));
+}
+/* One delegated listener on the grid instead of two per tile: appended pages
+   are live the moment they land, with no wiring pass to forget. A click still
+   arrives inside the user's own gesture, which is what lets the primed
+   YouTube player start without asking the browser again. */
+function wireGrid() {
+  el("grid").addEventListener("click", (event) => {
+    const star = event.target.closest(".star");
+    if (star) { event.stopPropagation(); toggleWatch(BYID[star.dataset.star]); return; }
+    const card = event.target.closest(".card");
+    if (card && BYID[card.dataset.v]) playFromUserGesture(BYID[card.dataset.v]);
+  });
+  el("grid").addEventListener("scroll", () => {
+    const grid = el("grid");
+    if (grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 600) loadMore();
+  }, { passive:true });
 }
 
 function paintChips() {
@@ -958,6 +1029,63 @@ function paintChips() {
   }
 }
 
+const FEED_SELECT = "video_id,title,channel,channel_id,tickers,duration,is_short,thumb_url,published_at,subscription_accounts";
+function feedQuery(offset) {
+  let q = "youtube_feed?select=" + FEED_SELECT + "&order=published_at.desc&limit=" + LIMIT +
+          (offset ? "&offset=" + offset : "");
+  const chosen = LISTS.find((l) => l.id === LIST);
+  if (LIST === "watch") {
+    q += "&video_id=in.(" + Array.from(WATCH).slice(0, 200).map(encodeURIComponent).join(",") + ")";
+  } else q += chosen.q;
+  if (TICK) q += "&tickers=ilike.*" + encodeURIComponent(TICK) + "*";
+  return q;
+}
+/* The SCINTILLA grid keeps unscoped discovery rows and rows the SCINTILLA
+   account carries, and drops the rest. It runs over EVERY page, which is
+   why a page that arrives full can still add only a few tiles — and why
+   "is there more behind this?" is answered by the raw page size, never by
+   how many tiles survived the filter. */
+function filterFeedRows(rows) {
+  const accountsFor = (video) => Array.isArray(video?.subscription_accounts)
+    ? video.subscription_accounts.map((account) => String(account).toLowerCase()) : [];
+  return (Array.isArray(rows) ? rows : []).filter((video) => {
+    if (FEED !== "scintilla" || LIST === "watch") return true;
+    const accounts = accountsFor(video);
+    return !accounts.length || accounts.includes("scintilla");
+  });
+}
+/* Reaching the bottom of the grid asks for the page behind it. Watch Later is
+   a fixed set of ids, so it has no page behind it and says so. */
+async function loadMore() {
+  if (PAGE_BUSY || !PAGE_MORE || LIST === "watch" || ROWS.length >= MAX_ROWS) return;
+  PAGE_BUSY = true;
+  try {
+    const rows = await pg(feedQuery(PAGE_AT));
+    const raw = Array.isArray(rows) ? rows : [];
+    PAGE_AT += raw.length;
+    PAGE_MORE = raw.length >= LIMIT && PAGE_AT < MAX_ROWS;
+    const known = new Set(ROWS.map((v) => v.video_id));
+    const added = filterFeedRows(raw).filter((v) => !known.has(v.video_id));
+    if (added.length) {
+      ROWS = ROWS.concat(added);
+      for (const v of added) BYID[v.video_id] = v;
+      appendCards(added); refreshTransport();
+    }
+    /* A page that filtered down to nothing must not look like the end of the
+       feed: keep pulling until something lands or the feed genuinely runs out. */
+    if (!added.length && PAGE_MORE) { PAGE_BUSY = false; return loadMore(); }
+    fillViewport();
+  } catch (e) { /* a failed page is not the end of the feed; the next scroll retries */ }
+  finally { PAGE_BUSY = false; }
+}
+/* A first page that does not even fill the pane would leave nothing to scroll,
+   so the "reaching the bottom" trigger could never fire. Pull until the grid
+   overflows its own box at least once. */
+function fillViewport() {
+  const grid = el("grid");
+  if (PAGE_MORE && !PAGE_BUSY && grid.scrollHeight <= grid.clientHeight + 40) loadMore();
+}
+
 async function load(forceWatch, quiet) {
   if (!quiet && !ROWS.length) el("grid").innerHTML = '<div class="msg">loading…</div>';
   if (LIST === "watch") {
@@ -966,9 +1094,7 @@ async function load(forceWatch, quiet) {
       WATCH_READY = false; WATCH_ERROR = e.message || "Watch Later unavailable";
     }
   }
-  let q = "youtube_feed?select=video_id,title,channel,channel_id,tickers,duration,is_short,thumb_url,published_at,subscription_accounts" +
-          "&order=published_at.desc&limit=" + LIMIT;
-  const chosen = LISTS.find((l) => l.id === LIST);
+  PAGE_AT = 0; PAGE_MORE = LIST !== "watch";
   if (LIST === "watch") {
     if (WATCH_ERROR) {
       if (quiet && ROWS.length) return;
@@ -977,29 +1103,25 @@ async function load(forceWatch, quiet) {
       relayout(); return;
     }
     if (!WATCH.size) { ROWS = []; BYID = {}; paint(); relayout(); return; }
-    q += "&video_id=in.(" + Array.from(WATCH).slice(0, 200).map(encodeURIComponent).join(",") + ")";
-  } else q += chosen.q;
-  if (TICK) q += "&tickers=ilike.*" + encodeURIComponent(TICK) + "*";
+  }
   let rows;
-  try { rows = await pg(q); }
+  try { rows = await pg(feedQuery(0)); }
   catch (e) {
     if (!quiet || !ROWS.length) el("grid").innerHTML = '<div class="msg">feed unavailable</div>';
     return;
   }
-  paintFeedProfileSelector(Array.isArray(rows) ? rows : []);
-  const accountsFor = (video) => Array.isArray(video?.subscription_accounts)
-    ? video.subscription_accounts.map((account) => String(account).toLowerCase()) : [];
-  const nextRows = (Array.isArray(rows) ? rows : []).filter((video) => {
-    if (FEED !== "scintilla" || LIST === "watch") return true;
-    const accounts = accountsFor(video);
-    return !accounts.length || accounts.includes("scintilla");
-  });
+  const raw = Array.isArray(rows) ? rows : [];
+  PAGE_AT = raw.length;
+  PAGE_MORE = LIST !== "watch" && raw.length >= LIMIT && PAGE_AT < MAX_ROWS;
+  paintFeedProfileSelector(raw);
+  const nextRows = filterFeedRows(raw);
   const signature = (items) => items.map((v) => [v.video_id, v.title, v.channel, v.published_at,
     Array.isArray(v.subscription_accounts) ? v.subscription_accounts.join("+") : ""].join("|")).join("\n");
-  const changed = signature(nextRows) !== signature(ROWS);
+  const changed = signature(nextRows) !== signature(ROWS.slice(0, nextRows.length));
   ROWS = nextRows;
   BYID = {}; for (const v of ROWS) BYID[v.video_id] = v;
   if (changed || !quiet) { paint(); relayout(); refreshTransport(); }
+  fillViewport();
   /* the ONLY preselect: you asked for a video by id */
   if (START && BYID[START]) play(BYID[START], AUTO);
 }
@@ -1034,7 +1156,7 @@ window.addEventListener("message", (event) => {
   }
 });
 async function start() {
-  paintChips(); paintFeedProfileSelector([]); relayout(); load();
+  paintChips(); paintFeedProfileSelector([]); wireGrid(); relayout(); load();
   syncSharedVideoPositions();
   /* Prime one official player object behind the hidden stage.  Selecting or
      advancing a video then loads into this same object rather than replacing
@@ -1055,7 +1177,11 @@ async function start() {
     /* The ages are refreshed on every pass, whether or not the feed moved and
        whether or not a video is playing — an unchanged list still gets older. */
     paintAges();
-    if (document.visibilityState === "visible" && !CUR) load(false, true);
+    /* Once Alan has paged down into the history, the two-minute pass must NOT
+       reload page one: that would throw away everything he scrolled to and
+       drop him back at the top. A paged grid gets fresh ages and nothing else;
+       the next list or feed change reloads it properly. */
+    if (document.visibilityState === "visible" && !CUR && PAGE_AT <= LIMIT) load(false, true);
   }, 120000);
 }
 start();

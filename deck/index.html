@@ -241,6 +241,12 @@ button.btn:disabled{ color:var(--mute); border-color:var(--line); cursor:not-all
 .sg-copy{ color:var(--ink2); font-size:8.5px; line-height:1.45; }
 .sg-copy small{ display:block; color:var(--mute); font:7.5px var(--mono); letter-spacing:.03em; }
 .symbol-note{ color:var(--mute); font-size:7.5px; letter-spacing:.04em; min-width:78px; }
+/* The dock's other labels collapse until the pointer is near them. This one does not: a pair of
+   buttons reading PERSONAL / SCINTILLA next to a row of tickers is ambiguous without the word
+   that says what they switch. Painted in --dim (5.86:1 on the dock) rather than --mute (1.79:1),
+   which is the hairline colour and was never meant to carry a word. */
+.video-note{ flex:none; color:var(--dim); font-size:7.5px; letter-spacing:.14em; text-transform:uppercase;
+  white-space:nowrap; }
 
 /* ---- THE DECK ITSELF — nested flex. Equal by construction. ----
    No grid-template-areas. No column maths. Two children in the top row at
@@ -291,6 +297,22 @@ body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
   #rowTop.media-expanded{ grid-template-columns:minmax(0,1fr); grid-auto-rows:auto; }
   #rowTop.media-expanded > .pane.expanded{ aspect-ratio:var(--sc-media-aspect); width:100%; }
 }
+
+/* ── ONE VIDEO AT A TIME ────────────────────────────────────────────────────────────────────
+   Alan: "I'm never gonna have two videos at the same time... I was thinking of just splitting
+   it in half, making the X space bigger and the video bigger, only one video feed at a time and
+   I just switch around. But please don't make me lose features."
+
+   The bottom row used to be three equal children — personal video, SCINTILLA video, X — so each
+   one got a third of the width and the video that was NOT being watched was spending a third of
+   the wall doing nothing. One video pane is now off the wall at a time. Because the row is
+   plain flex with flex:1 1 0 on every child, hiding one child makes the two survivors exactly
+   half each, with no width maths anywhere: the video pane goes from a third to a half and X
+   goes from a third to a half, which is the split he described.
+
+   NOTHING IS LOST. The hidden pane keeps its entry in PANES, its chip, its media-stage
+   behaviour and its own state; the switch in the dock brings it straight back. */
+#rowBot > .pane.video-off{ display:none; }
 
 /* Media has its own deliberate expansion ladder. Stage one gives the chosen
    YouTube pane the whole two-video region while X stays visible. Stage two is
@@ -452,6 +474,13 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
     <option value="1" hidden data-preset-only="true">1</option>
   </select>
   <span class="symbol-note" id="symbolNote">Hub symbols</span>
+  <!-- ONE VIDEO AT A TIME. Alan: "I'm never gonna have two videos at the same
+       time... only one video feed at a time and I just switch around." This is
+       the switch. Both panes still exist, still keep their own scroll position
+       and their own playing video; only one is on the wall at a time, and the
+       width the other gave up goes straight to X. -->
+  <span class="video-note">video feed</span>
+  <span class="tf" id="videoFeed" role="group" aria-label="Which YouTube feed is on the wall"></span>
   <span class="lbl">timeframe · all</span>
   <span class="tf" id="tf"></span>
 </div>
@@ -860,6 +889,11 @@ if (deckSb) deckSb.channel("station-deck-lq").on("postgres_changes", {
 let SOLO = QS.get("full") || null;
 let MEDIA_TARGET = null;
 let MEDIA_STAGE = 0;
+/* WHICH YouTube pane is on the wall. "fb" is Personal, "fa" is SCINTILLA —
+   the pane keys the bottom row has always used. The choice is remembered per
+   device, so the Station comes back on the feed it was left on. */
+const VIDEO_FEEDS = [["fb", "personal"], ["fa", "SCINTILLA"]];
+let VIDEO_FEED = remembered("station.videoFeed") === "fa" ? "fa" : "fb";
 let ROTATE_AT = ROTATE_SECONDS.includes(+remembered("station.rotate.seconds")) ? +remembered("station.rotate.seconds") : 60;
 /* Rotation is ON unless this browser has paused it; the toggle remembers per browser. */
 let ROTATE_PAUSED = remembered("station.rotate.paused") === "1";
@@ -1216,6 +1250,63 @@ function coverMediaX(key) {
   MEDIA_TARGET = key; MEDIA_STAGE = 2; applyMediaStage();
 }
 
+/* ── ONE VIDEO AT A TIME — the switch ───────────────────────────────────────────────────────
+   Think of the bottom row as one video window with two channels behind it rather than two
+   windows side by side. The window shows whichever channel is selected; the other is one click
+   away in the dock and in the pane chip row. Whatever width it is not using goes to X.
+
+   THE CHANNEL THAT LEAVES THE WALL IS UNMOUNTED, not merely hidden. A hidden iframe goes on
+   playing: a YouTube video switched away from would keep talking from a pane nobody can see,
+   with no visible control to stop it. Taking the frame down is the only honest way to make
+   "one video at a time" true by ear as well as by eye. It also means the live-pane budget
+   spends nothing on a feed nobody is watching, and the channel remounts the moment it is
+   asked for. */
+const videoPaneFor = (key) => PANES.find((pane) => pane.def.key === key);
+const isVideoKey = (key) => String(videoPaneFor(key)?.def.kind || "") === "video";
+function applyVideoFeed() {
+  for (const o of PANES) {
+    if (o.def.kind !== "video") continue;
+    const onTheWall = o.def.key === VIDEO_FEED;
+    o.node.classList.toggle("video-off", !onTheWall);
+    if (onTheWall) { if (!o.frame && !o.isDock) mount(o); continue; }
+    if (o.frame) {
+      const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
+      o.frame.remove(); o.frame = null;
+      o.showCard("behind the other video feed — one tap puts it back on the wall");
+    }
+  }
+  /* An expansion or a solo aimed at the pane that just left the wall has no target any more.
+     Stand both down rather than leaving the layout pointing at something invisible. */
+  if (MEDIA_STAGE && isVideoKey(MEDIA_TARGET) && MEDIA_TARGET !== VIDEO_FEED) resetMediaStage();
+  if (SOLO && isVideoKey(SOLO) && SOLO !== VIDEO_FEED) setSolo(null);
+  paintVideoFeed(); measure(); paintChips(); relayout();
+}
+function setVideoFeed(key) {
+  if (!VIDEO_FEEDS.some(([k]) => k === key) || key === VIDEO_FEED) return;
+  VIDEO_FEED = key;
+  remember("station.videoFeed", key);
+  applyVideoFeed();
+}
+function paintVideoFeed() {
+  const box = el("videoFeed");
+  if (!box) return;
+  box.innerHTML = "";
+  for (const [key, label] of VIDEO_FEEDS) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn" + (key === VIDEO_FEED ? " on" : "");
+    b.textContent = label;
+    b.title = key === VIDEO_FEED
+      ? label + " is the video feed on the wall"
+      : "put " + label + " on the wall — " + (VIDEO_FEEDS.find(([k]) => k === VIDEO_FEED) || [,""])[1] +
+        " stands down and stops playing";
+    b.setAttribute("aria-pressed", key === VIDEO_FEED ? "true" : "false");
+    b.addEventListener("click", () => setVideoFeed(key));
+    box.appendChild(b);
+  }
+  dockContentChanged();
+}
+
 function focusTickerFor(key) {
   const m = String(key || "").match(/^c([1-8])$/);
   if (!m) return;
@@ -1415,7 +1506,7 @@ function measure() {
    Nothing it returns changes the layout: the browser's boxes stay exactly where they were,
    which is why a magnified dock cannot move a control out from under a click. */
 const DOCK_ITEMS = "#dock .btn, #dock select, #dock input, #dock #marketStatus, " +
-  "#dock #screenIndicator, #dock #symbolNote, #dock #size, #dock #rtNote, #dock .k";
+  "#dock #screenIndicator, #dock #symbolNote, #dock .video-note, #dock #size, #dock #rtNote, #dock .k";
 const DOCK_MAX_SCALE = 1.62;     /* the pointed-at control, at Mac-Dock magnification */
 const DOCK_FALLOFF = 74;         /* px: how far the swell reaches either side */
 const DOCK_FIT_FLOOR = .72;      /* below this the row would be unreadable, so it wraps instead */
@@ -1664,12 +1755,18 @@ function paintChips() {
   for (const o of PANES) {
     if (/^c[1-8]$/.test(o.def.key) && +o.def.key.slice(1) > CHART_COUNT) continue;
     const c = document.createElement("span");
-    const state = o.isDock ? "dock" : o.frame ? "live" : "paused";
-    c.className = "btn" + (o.frame ? " live" : "") + (SOLO === o.def.key ? " on" : "");
-    c.textContent = o.def.short + (state === "paused" ? " ·" : "");
-    c.title = state === "paused" ? "paused — tap to bring it back"
+    /* A video pane that is not the one on the wall is not "paused" — it is behind the other
+       channel, and its chip is what brings it to the front. Saying so keeps the lose-nothing
+       guarantee visible, which is the whole point of this row. */
+    const offTheWall = o.def.kind === "video" && o.def.key !== VIDEO_FEED;
+    const state = o.isDock ? "dock" : offTheWall ? "behind" : o.frame ? "live" : "paused";
+    c.className = "btn" + (o.frame && !offTheWall ? " live" : "") + (SOLO === o.def.key ? " on" : "");
+    c.textContent = o.def.short + (state === "paused" || state === "behind" ? " ·" : "");
+    c.title = state === "behind" ? "behind the other video feed — tap to put it on the wall"
+      : state === "paused" ? "paused — tap to bring it back"
       : state === "dock" ? "dock — pops to a window" : "live";
     c.addEventListener("click", () => {
+      if (offTheWall) { setVideoFeed(o.def.key); return; }
       if (SOLO && SOLO !== o.def.key) { setSolo(o.def.key); return; }
       if (!o.frame && !o.isDock) { mount(o); return; }
       setSolo(SOLO === o.def.key ? null : o.def.key);
@@ -2411,20 +2508,24 @@ async function build() {
 
   for (const d of defs) { const o = makePane(d); PANES.push(o); rows[d.row].appendChild(o.node); }
 
-  paintTf(); el("viewMode").value = VIEW; paintSceneControls(); paintScreenBusy();
+  paintTf(); paintVideoFeed(); el("viewMode").value = VIEW; paintSceneControls(); paintScreenBusy();
   wireDock();
   paintTickerFields(); el("chartCount").value = String(CHART_COUNT);
   loadSymbolCatalog();
   applyChartCount(CHART_COUNT, true);
   relayout();
 
-  const order = CHARTS.map((_, i) => "c" + (i + 1)).slice(0, CHART_COUNT).concat(["fb", "fa", "x"]);
+  /* Only the video feed that is ON THE WALL is mounted. The other channel costs nothing until
+     it is asked for, which is what buys X the width and the machine the frame. */
+  const order = CHARTS.map((_, i) => "c" + (i + 1)).slice(0, CHART_COUNT)
+    .concat([VIDEO_FEED, "x"]);
   let n = 0;
   for (const k of order) {
     const o = PANES.find((p) => p.def.key === k); if (!o) continue;
     if (n < LIVE_CAP) { mount(o); n++; }
     else o.showCard(STACKED ? "paused on phone to keep Safari happy — tap to load" : "tap to load");
   }
+  applyVideoFeed();
   paintChips();
   scheduleRotation();
   if (SOLO) setSolo(SOLO);
