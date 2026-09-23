@@ -123,6 +123,12 @@ html[data-view="ipad"] .btn{ font-size:8px; padding:3px 7px; }
 html[data-view="ipad"] .btn.icon{ width:24px; height:20px; padding:3px; }
 html[data-view="compact"] .btn{ font-size:7px; padding:2px 5px; }
 html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
+/* The pane's one state line. It carried the hidden attribute and nothing ever
+   removed it, so "live", "paused" and "reconnecting" were written where nobody
+   could read them. It now shows only when there is something to say. */
+#xfState{ color:var(--dim,#868AAA); font-size:10px; letter-spacing:.08em; white-space:nowrap; align-self:center; }
+#xfState.on{ color:var(--crk,#00D4FF); }
+#xfState.warn{ color:#C6C8DE; }
 </style>
 </head>
 <body>
@@ -139,7 +145,7 @@ html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
   <span class="btn" id="bXRefresh" style="display:none">refresh</span>
   <span class="btn go" id="bStart" style="display:none">browser picker</span>
   <span class="btn" id="bStop" style="display:none">stop</span>
-  <button class="btn pair" id="bPair" type="button" style="display:none">pair iPad</button>
+  <button class="btn pair" id="bPair" type="button" style="display:none">iPad link</button>
   <span class="btn" id="bPip" style="display:none" title="float this in its own always-on-top window">pip</span>
   <span class="lbl" id="lz" style="display:none">zoom</span>
   <input type="range" id="z" min="100" max="400" value="150" style="display:none">
@@ -247,6 +253,42 @@ let remoteFrameAt = 0;
 let remoteVisibilityCheck = null;
 const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
 const STATION_JOIN_TIMEOUT_MS = 5000;
+/* ---- THE HOLD UNDER THE POINTER ------------------------------------------
+   Alan, 23 Sep: "The scrolling on the Station float on the feed is not pausing
+   when my mouse is on it." The bridge HAS a viewer pause and this pane did send
+   it — once. The bridge's hold is a 500 ms LEASE (STATION_VIEWER_HOVER_LEASE_MS
+   in its content.js): it releases the pause unless the viewer renews it, so one
+   message on pointerenter let the feed crawl on half a second later under a
+   pointer that had not moved. The hold is renewed while the pointer is inside
+   and released once on the way out. NO BRIDGE CHANGE: this drives the control
+   the bridge already has, so nothing has to be reinstalled on either Mac. */
+const STATION_HOVER_RENEW_MS = 180;
+/* ---- THE LINK THAT HEALS ITSELF ------------------------------------------
+   On the iMac the pane showed its live controls and no moving picture: the
+   stream was still "attached" while no frame and no crop had arrived for
+   minutes. Attached is not alive. */
+const STATION_STALL_MS = 6000;
+const STATION_RELINK_COOLDOWN_MS = 12000;
+const STATION_RELINK_GIVEUP = 3;
+let stationHoverInside = false, stationHoverPulse = 0;
+let stationLastFrameAt = 0, stationLastCropAt = 0, stationAttachedAt = 0;
+let stationRelinkAt = 0, stationRelinkTries = 0, stationHealthTimer = 0, stationFrameProbe = 0;
+
+/* Pure, so a test can kill the frames without a browser. */
+function stationLinkPlan(now, s) {
+  if (!s || !s.attached) return { state:"", relink:false, stalled:false };
+  const seen = Math.max(Number(s.lastFrameAt) || 0, Number(s.lastCropAt) || 0, Number(s.attachedAt) || 0);
+  const quiet = now - seen;
+  if (!(quiet >= STATION_STALL_MS)) return { state:"", relink:false, stalled:false };
+  const secs = Math.round(quiet / 1000);
+  const tries = Number(s.tries) || 0;
+  if (tries >= STATION_RELINK_GIVEUP)
+    return { state:"no picture for " + secs + "s · the X window may be closed", relink:false, stalled:true };
+  const waited = now - (Number(s.lastRelinkAt) || 0);
+  if (s.lastRelinkAt && waited < STATION_RELINK_COOLDOWN_MS)
+    return { state:"relinking · " + secs + "s without a frame", relink:false, stalled:true };
+  return { state:"relinking · " + secs + "s without a frame", relink:true, stalled:true };
+}
 
 function publishViewerCadence() {
   /* Read-only diagnostics for the performance pass.  No user setting or
@@ -465,6 +507,97 @@ function startStationPairing() {
   navigator.clipboard?.writeText(link).catch(() => {});
 }
 
+/* One line, and only when there is something to say. */
+function showStationState(text, tone) {
+  const node = el("xfState");
+  if (!node) return;
+  node.textContent = text || "";
+  node.hidden = !text;
+  node.classList.toggle("on", tone === "on");
+  node.classList.toggle("warn", tone === "warn");
+}
+
+/* Hover is a renewable hold, not a one-way pause: the bridge releases it after
+   its 500 ms lease unless this still-hovered pane renews it. Chrome can also
+   omit a pointerleave when focus changes, which the release on blur covers. */
+function setStationHoverPause(held) {
+  stationHoverInside = Boolean(held);
+  if (stationHoverPulse) { clearInterval(stationHoverPulse); stationHoverPulse = 0; }
+  if (!xfloatStream) return;
+  postXFloat("pause", stationHoverInside);
+  if (!stationHoverInside) return;
+  stationHoverPulse = setInterval(() => {
+    if (!stationHoverInside || !xfloatStream) { clearInterval(stationHoverPulse); stationHoverPulse = 0; return; }
+    postXFloat("pause", true);
+  }, STATION_HOVER_RENEW_MS);
+}
+
+function noteStationFrame() { stationLastFrameAt = Date.now(); }
+
+/* A frame callback is the only honest evidence of a NEW frame: the draw loop
+   runs on every animation frame whether or not the picture moved. Where the
+   callback does not exist, a moving currentTime is the fallback. */
+function watchStationFrames(video, mediaStream) {
+  if (!video) return;
+  if (typeof video.requestVideoFrameCallback === "function") {
+    const step = () => {
+      if (video.srcObject !== mediaStream) return;
+      noteStationFrame();
+      stationFrameProbe = video.requestVideoFrameCallback(step);
+    };
+    stationFrameProbe = video.requestVideoFrameCallback(step);
+    return;
+  }
+  let last = -1;
+  stationFrameProbe = setInterval(() => {
+    if (video.srcObject !== mediaStream) { clearInterval(stationFrameProbe); stationFrameProbe = 0; return; }
+    if (video.currentTime !== last) { last = video.currentTime; noteStationFrame(); }
+  }, 500);
+}
+
+/* Ask the bridge for a fresh capture and re-announce this viewer. Both messages
+   already exist in the bridge (XFF_STATION_RECONNECT_VIEWER in station-bridge.js
+   and background.js), so nothing here needs a new extension. */
+function relinkStation() {
+  stationRelinkAt = Date.now();
+  stationRelinkTries += 1;
+  if (REMOTE_MODE) { postXFloat("refresh"); return; }
+  window.postMessage({ type:"XFF_STATION_RECONNECT_VIEWER" }, location.origin);
+  try { announceViewerClock(true); } catch (_) {}
+}
+
+function runStationHealth() {
+  const plan = stationLinkPlan(Date.now(), {
+    attached: Boolean(xfloatStream),
+    lastFrameAt: stationLastFrameAt,
+    lastCropAt: stationLastCropAt,
+    attachedAt: stationAttachedAt,
+    lastRelinkAt: stationRelinkAt,
+    tries: stationRelinkTries
+  });
+  if (!plan.stalled) {
+    if (stationRelinkTries && xfloatStream) stationRelinkTries = 0;
+    return;
+  }
+  showStationState(plan.state, "warn");
+  if (plan.relink) relinkStation();
+}
+
+function startStationHealth() {
+  if (stationHealthTimer) clearInterval(stationHealthTimer);
+  stationAttachedAt = Date.now();
+  stationLastFrameAt = 0; stationLastCropAt = 0; stationRelinkAt = 0; stationRelinkTries = 0;
+  stationHealthTimer = setInterval(runStationHealth, 1000);
+}
+
+function stopStationHealth() {
+  if (stationHealthTimer) clearInterval(stationHealthTimer);
+  stationHealthTimer = 0;
+  if (stationFrameProbe && typeof stationFrameProbe === "number") { try { clearInterval(stationFrameProbe); } catch (_) {} }
+  stationFrameProbe = 0;
+  stationRelinkTries = 0; stationRelinkAt = 0; stationLastFrameAt = 0; stationLastCropAt = 0; stationAttachedAt = 0;
+}
+
 function postXFloat(action, value) {
   if (REMOTE_MODE) {
     if (["view", "rewind", "refresh"].includes(action) && remoteSocket?.readyState === WebSocket.OPEN) {
@@ -516,11 +649,12 @@ function stopXFloat({ notify = true } = {}) {
   remoteSocket = null;
   remoteFrameAt = 0;
   xfloatPaused = false;
+  setStationHoverPause(false);
+  stopStationHealth();
   el("v").srcObject = stream;
   document.body.classList.remove("xfloat");
   xfloatControls(false);
-  el("xfState").textContent = "waiting";
-  el("xfState").classList.remove("on");
+  showStationState("waiting");
   if (notify) window.postMessage({ type: "XFF_STATION_STOP" }, location.origin);
 }
 
@@ -627,8 +761,10 @@ async function attachXFloatStream(mediaStream) {
   document.body.classList.remove("live");
   document.body.classList.add("xfloat");
   xfloatControls(true);
-  el("xfState").textContent = "live";
-  el("xfState").classList.add("on");
+  showStationState("live", "on");
+  startStationHealth();
+  noteStationFrame();
+  watchStationFrames(video, mediaStream);
   xfloatStream.getVideoTracks()[0]?.addEventListener("ended", () => stopXFloat({ notify: false }), { once: true });
   startStationClock();
   drawXFloat();
@@ -830,15 +966,20 @@ el("bXNotify").addEventListener("click", () => postXFloat("view", "notifications
 el("bFull").addEventListener("click", () => {
   parent.postMessage({ type: "SCINTILLA_DECK_TOGGLE_FULL" }, location.origin);
 });
-el("body").addEventListener("pointerenter", () => { if (xfloatStream) postXFloat("pause", true); });
-el("body").addEventListener("pointerleave", () => { if (xfloatStream && !xfloatPaused) postXFloat("pause", false); });
+el("body").addEventListener("pointerenter", () => { if (xfloatStream) setStationHoverPause(true); });
+/* A pointer already resting on the pane when the stream attaches never fires
+   pointerenter, so any movement inside also takes the hold. */
+el("body").addEventListener("pointermove", () => { if (xfloatStream && !stationHoverInside) setStationHoverPause(true); });
+el("body").addEventListener("pointerleave", () => { if (xfloatStream && !xfloatPaused) setStationHoverPause(false); });
+window.addEventListener("blur", () => setStationHoverPause(false));
+document.addEventListener("visibilitychange", () => { if (document.visibilityState !== "visible") setStationHoverPause(false); });
 
 window.addEventListener("message", (event) => {
   if (event.source !== window || event.origin !== location.origin) return;
   if (event.data?.type === "XFF_STATION_BRIDGE_READY" && event.data.instanceId) {
     stationBridgeInstanceId = String(event.data.instanceId);
     flushStationRemoteOffers();
-    if (!xfloatStream) el("xfState").textContent = "ready";
+    if (!xfloatStream) showStationState("ready");
   }
   if (event.data?.type === "XFF_STATION_BRIDGE_REANNOUNCING" &&
       String(event.data.instanceId || "") === stationBridgeInstanceId) {
@@ -870,15 +1011,16 @@ window.addEventListener("message", (event) => {
   }
   if (event.data?.type === "XFF_STATION_CROP") {
     xfloatCrop = event.data.crop;
+    stationLastCropAt = Date.now();
     const paused = Boolean(xfloatCrop?.paused);
-    el("xfState").textContent = paused ? "paused" : "live";
+    showStationState(paused ? "paused" : "live", "on");
     paintXView(xfloatCrop?.activeView || "trading");
     if (stationPair) stationPair.room?.publish("crop", xfloatCrop);
   }
   if (event.data?.type === "XFF_STATION_STATUS") {
     if (event.data.status === "stopped") stopXFloat({ notify: false });
     else if (event.data.status === "error") showErr(event.data.detail || "Station X could not connect.");
-    else if (!xfloatStream) el("xfState").textContent = event.data.status || "waiting";
+    else if (!xfloatStream) showStationState(event.data.status || "waiting");
   }
 });
 

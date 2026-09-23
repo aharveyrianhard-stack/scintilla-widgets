@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Station fixes · 23 September</title>
+<style>
+:root{ --bg:#0A0A0F; --panel:#101018; --line:#22222F; --ink:#C9CBD2; --ink2:#A4A7B2; --dim:#83868F; --key:#A8ACB4; --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
+*{ box-sizing:border-box; }
+body{ margin:0; background:var(--bg); color:var(--ink); font:13px/1.65 var(--mono); padding:28px 18px 70px; }
+main{ max-width:1080px; margin:0 auto; }
+h1{ font-size:17px; letter-spacing:.18em; text-transform:uppercase; color:var(--key); margin:0 0 4px; }
+h2{ font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--key); margin:30px 0 8px; border-top:1px solid var(--line); padding-top:14px; }
+h3{ font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink2); margin:16px 0 5px; }
+p,li{ font-size:13px; color:var(--ink); }
+.sub{ color:var(--dim); font-size:11px; letter-spacing:.06em; margin:0 0 18px; }
+.panel{ background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:13px 15px; margin:10px 0; }
+table{ border-collapse:collapse; width:100%; margin:10px 0; font-size:12px; }
+th,td{ text-align:left; padding:5px 9px 5px 0; border-bottom:1px solid var(--line); vertical-align:top; }
+th{ color:var(--dim); font-size:11px; letter-spacing:.12em; text-transform:uppercase; font-weight:400; }
+figure{ margin:12px 0 16px; }
+img{ width:100%; display:block; border:1px solid var(--line); background:#000; }
+figcaption{ color:var(--dim); font-size:11px; margin-top:5px; }
+code{ color:var(--ink2); }
+.b{ color:var(--key); }
+ul{ padding-left:18px; }
+.two{ display:grid; grid-template-columns:1fr; gap:10px; }
+@media(min-width:760px){ .two{ grid-template-columns:1fr 1fr; } }
+</style>
+</head>
+<body>
+<main>
+<h1>Station fixes · 23 September</h1>
+<p class="sub">Branch <code>station/fixes-20260923</code> · built on Station production <code>12822db</code> · nothing deployed, nothing pushed.</p>
+
+<div class="panel">
+<b>What this page shows.</b> The six things you asked for on the evening of 23 September, each with a picture of
+what it looked like before and what it looks like now. Every picture is a real Chrome window on this MacBook,
+pointed at the Station running from this branch. I opened each one and looked at it.
+</div>
+
+<h2>1 · The dock no longer bunches up</h2>
+<p>You said: <em>"There's a ton of space to the left of the Station and to the right of the more controls."</em>
+You were right, and it was measurable. The strip was centred, so on a wide window everything packed into the middle:</p>
+<table>
+<tr><th>Window width</th><th>Empty space left of THE STATION — before</th><th>After</th><th>Width the strip uses</th></tr>
+<tr><td>2560 (the iMac)</td><td>848 px</td><td>8 px</td><td>66% → 99%</td></tr>
+<tr><td>1920</td><td>528 px</td><td>8 px</td><td>72% → 99%</td></tr>
+<tr><td>1680 (the MacBook)</td><td>408 px</td><td>8 px</td><td>75% → 99%</td></tr>
+</table>
+<p>There were two causes. The strip was centred, and the readout at the right (<em>LIVE · 4S · 04:35 PM</em>) floated
+above the row rather than sitting in it — so the fitting code had to reserve <b>twice</b> the readout's width before the
+strip would fit, and shrank it early. The readout is now the row's right-hand item and the sections spread across
+the whole strip. The phone's sideways-scrolling strip is untouched.</p>
+<figure><img src="shots/dock-before-2560.png" alt="dock before at 2560"><figcaption><b>Before, 2560 wide:</b> a third of the strip is empty on the left, then THE STATION · HUB, the timeframes, CLOUDS, LIVE, 60S, PAUSE and ⋯ all crowded together, readout far right.</figcaption></figure>
+<figure><img src="shots/dock-after-2560.png" alt="dock after at 2560"><figcaption><b>After, 2560 wide:</b> THE STATION sits at the left edge, the timeframes, the LIVE controls and ⋯ are spread across the strip, the readout still ends it. Same chips, same sizes, nothing shrunk.</figcaption></figure>
+<figure><img src="shots/dock-after-1680.png" alt="dock after at 1680"><figcaption><b>After, 1680 wide (this MacBook):</b> the same arrangement, comfortably filled.</figcaption></figure>
+
+<h2>2 · Every pane is served</h2>
+<p>You said: <em>"I'm still seeing 'data not served by chart API' for a couple of great things."</em> It was exactly a
+couple. I asked the chart API for every symbol the Station shows, at all eleven ranges the deck offers
+(15m, 30m, 1h, 2h, 3h, 4h, 6h, 12h, 1D, 3D, 1W) — 143 requests, recorded in <code>api-coverage.json</code>.</p>
+<table>
+<tr><th>Symbol</th><th>Page · pane</th><th>What it said</th><th>Where it comes from now</th></tr>
+<tr><td><b>ESUSD</b> (S&amp;P 500 futures)</td><td>Deck futures scene; /chart/ pane</td><td>NOT SERVED BY CHART API at all 11 ranges (404 SYMBOL_NOT_TRACKED)</td><td><b>TradingView</b> — OANDA:SPX500USD, the nearest series that draws</td></tr>
+<tr><td><b>NQUSD</b> (Nasdaq futures)</td><td>Deck futures scene; /chart/ pane</td><td>NOT SERVED BY CHART API at all 11 ranges</td><td><b>TradingView</b> — OANDA:NAS100USD</td></tr>
+<tr><td>CLUSD, GCUSD, SIUSD, DXUSD, BTCUSD, US10Y, DXY, VIX</td><td>Macro cross-asset scene</td><td><b>Nothing — all served</b>, bars at every range</td><td>Chart API, unchanged</td></tr>
+</table>
+<p>That last row corrects an earlier note of ours: a lane on 22 September recorded CLUSD as not carried and VIX·3h as
+refused. I re-measured both today and the API now answers with bars for both, at every range. Nothing needed doing.</p>
+<h3>Why the futures show an index and not the contract</h3>
+<p>TradingView will not put CME futures inside an embedded chart. I tried six symbols side by side in real frames:
+<code>CME_MINI:ES1!</code>, <code>CME_MINI:NQ1!</code> and <code>TVC:SPX</code> all answer with the ghost —
+<em>"This symbol is only available on TradingView"</em> — the same wall VIX hit. What does draw is the index series.
+So the pane carries the <b>nearest series</b>: the S&amp;P 500 at 7,710–7,780 while ES was trading 7,7xx, and the
+NASDAQ 100 at 30,400–30,760. It is the same market a few points apart, <b>not the same instrument</b>, and the pane's
+tooltip says "nearest series". This is decision 1 below.</p>
+<figure><img src="shots/tv-candidates.png" alt="six TradingView symbols tested in frames"><figcaption><b>The test:</b> top row — ES1!, NQ1!, TVC:SPX, all ghosts. Bottom row — OANDA:SPX500USD, FOREXCOM:SPX500 and AMEX:SPY, all drawing live lines.</figcaption></figure>
+<div class="two">
+<figure><img src="shots/notserved-before-ESUSD.png" alt="ESUSD before"><figcaption><b>Before:</b> the ESUSD pane says NOT SERVED BY CHART API and draws nothing.</figcaption></figure>
+<figure><img src="shots/notserved-after-ESUSD.png" alt="ESUSD after"><figcaption><b>After:</b> a live line, 7,704–7,788, with TradingView's mark in the corner.</figcaption></figure>
+</div>
+
+<h2>3 · No more green and red shading on the line charts</h2>
+<p>It was a gradient filled under the price line — the direction colour at about a quarter strength fading to nothing,
+green when the symbol was up, red when it was down. It is gone from both copies of the chart page. <b>The clouds are
+untouched</b>: they are drawn separately, before the line, and they are yours.</p>
+<div class="two">
+<figure><img src="shots/chart-before-SPY.png" alt="SPY before"><figcaption><b>Before:</b> everything under the red line is washed red, which muddies the blue cloud bands underneath.</figcaption></figure>
+<figure><img src="shots/chart-after-SPY.png" alt="SPY after"><figcaption><b>After:</b> same price (767.60), same line, same clouds, same labels, same axis — the wash is gone and the clouds read clean.</figcaption></figure>
+</div>
+
+<h2>4 · The X feed pauses under your mouse</h2>
+<p>The pane <em>was</em> sending a pause when your pointer arrived. It sent it <b>once</b>. The extension treats a pause as a
+<b>half-second lease</b> — it lets the feed scroll again unless the pane keeps asking. So the feed stopped for half a
+second and crawled on under a pointer that had not moved. That is exactly what you saw.</p>
+<p>The pane now renews the hold every 180 ms while the pointer is inside, and releases it once when the pointer leaves,
+when the window loses focus, or when the pane is hidden. It also takes the hold on any movement inside the pane, so a
+pointer already resting there when the picture arrives still pauses it. <b>The extension is not changed</b> — this uses
+the pause control it already has, so there is nothing to reinstall on either Mac.</p>
+<p>One more thing this uncovered: the pane's status word (<em>live</em>, <em>paused</em>, <em>reconnecting</em>) was
+being written into an element that was permanently hidden, so you could never see which state it was in. It now shows.</p>
+
+<h2>5 · The X pane heals itself</h2>
+<p>On the iMac you had the live controls and no moving picture. The pane could not tell the difference between a stream
+that was attached and a stream that was <b>alive</b>: the old check only fired when the stream went inactive, and a frozen
+capture never does. The pane now watches for two signs of life — a new video frame, and a new crop message from the
+extension. If neither arrives for six seconds it says so on that status line and asks the extension for a fresh capture,
+then re-announces itself. It waits twelve seconds before trying again, and after three tries it stops and says
+<em>"no picture for 40s · the X window may be closed"</em> instead of looping quietly.</p>
+<p>Tested by killing the frames in a harness: eleven tests drive that decision directly — nothing to heal when no stream
+is attached, nothing when frames are arriving, a crop alone is enough to count as alive, a fresh pane gets its six
+seconds before anything is called broken, one relink then a cooldown, and the give-up line after three.</p>
+<p>The button that said <b>"pair iPad"</b> now says <b>"iPad link"</b>, because it is not an error.</p>
+
+<h2>6 · A way back on the four pages you open by hand</h2>
+<p><code>/registry/</code>, <code>/health/</code>, <code>/handoff/</code> and <code>/youtube/</code> now carry the same grey
+BACK / CLOSE pair the Hub uses. BACK returns to the page you came from; CLOSE returns to the Station deck. It sits in
+the page's own flow at the top — my first attempt pinned it over the corner and it covered the health page's own
+heading, which I could see in the screenshot, so I moved it. Wall screens stay clean.</p>
+<div class="two">
+<figure><img src="shots/nav-before-health.png" alt="health before"><figcaption><b>Before:</b> /health/ opens with no way out of it.</figcaption></figure>
+<figure><img src="shots/nav-after-health.png" alt="health after"><figcaption><b>After:</b> ← BACK and ✕ CLOSE above the page's own DATA HEALTH heading, covering nothing.</figcaption></figure>
+</div>
+
+<h2>Where each number on this page comes from</h2>
+<ul>
+<li><b>The dock measurements</b> — read out of a real Chrome window at 2560, 1920, 1680 and 390, from the live layout of the strip. Raw numbers in <code>dock-measurements.json</code>.</li>
+<li><b>Which symbols are served</b> — 143 live requests to the chart API, <code>/candles</code>, one per symbol per range. Raw answers in <code>api-coverage.json</code>.</li>
+<li><b>The prices in the pictures</b> — the live chart API and, for the two futures panes, TradingView's own widget.</li>
+<li><b>The half-second lease</b> — read out of the installed extension's own code (version 0.7.18), not guessed.</li>
+</ul>
+
+<h2>What could be wrong</h2>
+<ul>
+<li>The futures panes show the <b>index, not the contract</b>. The shape and the level are close, the number is not identical. If you trade off that pane's exact price, don't.</li>
+<li>The pause and the self-healing were tested against the <b>extension's code and a harness</b>, not against your iMac with a live X window — I am not allowed near that machine, and the picture only exists where the extension is running.</li>
+<li>The dock now spreads the sections apart on a very wide window. It uses the space, which is what you asked for, but it is a bigger change in look than the other five.</li>
+<li>The chart API answered everything today. If a symbol goes missing tomorrow, the pane will say so in words again — only ESUSD and NQUSD have a TradingView fallback.</li>
+</ul>
+
+<h2>What I did not do</h2>
+<ul>
+<li><b>Nothing is deployed or pushed.</b> The branch sits on this MacBook.</li>
+<li><b>The extension is unchanged</b> at 0.7.18 — no reinstall on either Mac.</li>
+<li><b>The iMac was not touched</b> in any way.</li>
+<li><code>station-shells/x-v1</code>, an older copy of the X pane that nothing currently mounts, was left alone.</li>
+<li>The gradient fills in <code>visuals/gallery/</code> and <code>templates/sector-rotation.html</code> were left alone — they are not the Station's line charts.</li>
+<li>I did not change the clouds, the timeframes, the scenes, the Geiger, or any price the API serves.</li>
+<li>I did not sweep all 36 Station pages for empty panes — I followed the two you were actually seeing and proved the rest of the symbol set is served.</li>
+</ul>
+
+<h2>Tests</h2>
+<p>Production <code>12822db</code> fails <b>18</b> of 438. This branch runs <b>461</b> tests: 443 pass, <b>18 fail — the same
+eighteen, by name</b>. Twenty-three are new, covering the healing decision, the renewal of the hold, the missing status
+line, the button's name, the absent shading, the two TradingView panes, the way back on four pages, the wall screens
+staying clean, and the dock spreading. One existing test was updated on purpose: it required the shading to be painted
+between the clouds and the line, and now requires that nothing is painted there at all.</p>
+</main>
+</body>
+</html>

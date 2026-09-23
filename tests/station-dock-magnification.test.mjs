@@ -112,9 +112,9 @@ test("the pointer off the strip, or on a divider far from any chip, leaves every
 /* ---- and the wiring around it ---- */
 const dockCss = deck.slice(deck.indexOf("/* ── THE DOCK"), deck.indexOf("/* FIRST-PAINT SKELETON")).replace(/\/\*[\s\S]*?\*\//g, "");
 
-test("the strip: one line, sections, centred, grows from its top edge, wraps only as a fallback, no will-change", () => {
+test("the strip: one line, sections, spread across the room it has, grows from its top edge, wraps only as a fallback, no will-change", () => {
   assert.match(deck, /#dock\{[^}]*flex-wrap:nowrap/, "the strip does not wrap by default");
-  assert.match(deck, /#dock\{[^}]*justify-content:center/, "and is centred");
+  assert.match(deck, /#dock\{[^}]*justify-content:space-between/, "and uses the whole strip instead of packing to the middle");
   assert.match(deck, /#dock\{[^}]*zoom:var\(--dock-fit,1\)/, "it shrinks as a whole, like a Dock full of icons");
   assert.match(deck, /#dock\.dock-wrap\{ flex-wrap:wrap;/, "and keeps wrapping as its fallback");
   for (const sec of ["station", "timeframe", "charts", "scenes", "video", "more", "readout"])
