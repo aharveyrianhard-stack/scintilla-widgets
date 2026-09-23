@@ -367,9 +367,17 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
      route, provider stated on every response. Anything else that is not provider-owned equity is
      NOT_SERVED_BY_CHART_API - a named absence the pane paints, never a legacy table read. */
   var MACRO_SYMBOLS = { VIX: 1, DXY: 1, US10Y: 1, DXUSD: 1, CLUSD: 1, GCUSD: 1, SIUSD: 1, BTCUSD: 1 };
+  /* THE MARKET INTERNALS, ASKED FOR THE SAME WAY. TICK, TRIN and advance/decline are coming from
+     the IBKR lane into their own namespace, served by the same /candles route. Until that lane
+     lands the chart API answers SYMBOL_NOT_TRACKED, which is a NAMED absence, so the pane keeps
+     showing TradingView's free chart exactly as it does today - and the day the series exists,
+     the pane draws it as a Station chart with the ribbon, with no further change here.
+     CUMTICK is ours: it is derived from an accepted TICK series, never fetched. */
+  var INTERNAL_SYMBOLS = { TICK: 1, TRIN: 1, ADD: 1, CUMTICK: 1 };
   var ABSENCE_NOT_SERVED = 'NOT_SERVED_BY_CHART_API';
   var ABSENCE_PRICE_PATH_RETIRED = 'SUPABASE_PRICE_PATH_RETIRED';
   S.isMacroSymbol = function (sym) { return !!MACRO_SYMBOLS[String(sym || '').toUpperCase()]; };
+  S.isInternalSymbol = function (sym) { return !!INTERNAL_SYMBOLS[String(sym || '').toUpperCase()]; };
   var ACCEPTED_UNIVERSE_SHA256 =
     'ab8f7965258d939f0a97fbfeac9a271547c258df7a2616aff6ccff746bb5d9d3';
   /* FMP REFERENCE ROWS CARRY THE IDENTITY OF THE ARTIFACT THAT WROTE THEM. Today's rows were stamped
@@ -1008,8 +1016,14 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
       /* The chart API refuses a width it cannot serve, or a series that has STOPPED, with a 404 that
          NAMES the absence (FMP_INTERVAL_NOT_SERVED, FMP_MACRO_STALE_n_SESSIONS). That is the answer,
          painted in words; a 503 or an unnamed refusal stays transport and retryable. */
-      if (e && e.scTransport && e.scStatus === 404 && e.scBody && typeof e.scBody.absence === 'string' && e.scBody.absence)
-        throw S.absenceError(e.scBody.absence, symbol, rawTf);
+      if (e && e.scTransport && e.scStatus === 404 && e.scBody) {
+        /* Some refusals name themselves in `absence` (FMP_INTERVAL_NOT_SERVED) and some in
+           `state` (SYMBOL_NOT_TRACKED, for a symbol no lane has started writing yet). Both are
+           settled answers: retrying either presents a fact as a hiccup and spins the pane. */
+        var named404 = (typeof e.scBody.absence === 'string' && e.scBody.absence) ||
+          (typeof e.scBody.state === 'string' && e.scBody.state) || null;
+        if (named404) throw S.absenceError(named404, symbol, rawTf);
+      }
       throw e;
     }).then(function (payload) {
       var named = payload && (payload.absence || payload.reason ||
@@ -1320,7 +1334,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
       return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', timeframe));
     var sym = requested[0];
     return providerOwned(options.signal, readSupabase).then(function (own) {
-      if (own[sym] || MACRO_SYMBOLS[sym])
+      if (own[sym] || MACRO_SYMBOLS[sym] || INTERNAL_SYMBOLS[sym])
         return providerCandleRows(sym, String(timeframe || ''), options.limit, options.signal);
       throw S.absenceError(ABSENCE_NOT_SERVED, sym, String(timeframe || ''));
     });

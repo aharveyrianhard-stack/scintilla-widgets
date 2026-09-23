@@ -35,7 +35,9 @@ test("the provider client routes macro symbols to the chart API and names everyt
   assert.match(provider, /var MACRO_SYMBOLS = \{ VIX: 1, DXY: 1, US10Y: 1, DXUSD: 1, CLUSD: 1, GCUSD: 1, SIUSD: 1, BTCUSD: 1 \};/,
     "oil, gold, silver, bitcoin and the dollar index come from the chart API like VIX (Alan, 23 Sep: CLUSD 4h \"not served\" was wrong)");
   assert.match(provider, /API \+ '\/macro\?symbols='/);
-  assert.match(provider, /if \(own\[sym\] \|\| MACRO_SYMBOLS\[sym\]\)\s+return providerCandleRows\(/);
+  assert.match(provider, /var INTERNAL_SYMBOLS = \{ TICK: 1, TRIN: 1, ADD: 1, CUMTICK: 1 \};/,
+    "TICK, TRIN, advance/decline and CUMTICK are asked for through the same route, so a pane draws them the day the IBKR lane serves them");
+  assert.match(provider, /if \(own\[sym\] \|\| MACRO_SYMBOLS\[sym\] \|\| INTERNAL_SYMBOLS\[sym\]\)\s+return providerCandleRows\(/);
   assert.match(provider, /throw S\.absenceError\(ABSENCE_NOT_SERVED, sym/);
   assert.doesNotMatch(provider, /ohlcv_history|live_quotes\?select/);
   assert.match(provider, /provider: payload\.provider \|\| 'MASSIVE'/, "the provider the API stated travels with every candle row");

@@ -1,0 +1,144 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Interactive Brokers · 23 Sep 2026 · filling the gaps</title>
+<style>
+body{margin:0;background:#05060C;color:#B4B6CC;font:19px/1.55 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 90px;max-width:1500px}
+h1{font-size:36px;margin:0 0 8px;color:#C9CBDD;line-height:1.2} h2{font-size:27px;margin:46px 0 8px;color:#C9CBDD}
+h3{font-size:21px;margin:24px 0 6px;color:#C9CBDD}
+p.note{color:#9A9AB6;max-width:1150px;margin:0 0 14px} .lead{font-size:23px;color:#C9CBDD;max-width:1150px}
+table{border-collapse:collapse;font-size:17px;margin:12px 0 8px;width:100%;max-width:1440px}
+th,td{border:1px solid #2A2A3E;padding:9px 14px;text-align:left;vertical-align:top} th{color:#9A9AB6;font-weight:600;background:#0A0A12}
+ul,ol{max-width:1150px} li{margin:7px 0} code{font:16px ui-monospace,Menlo,monospace;background:#15162A;padding:2px 6px;border-radius:4px;color:#C9CBDD}
+.yes{color:#C9CBDD;font-weight:600} .no{color:#8A8CA8} .cost{white-space:nowrap;font-variant-numeric:tabular-nums}
+.box{border:1px solid #2A2A3E;background:#0A0A12;padding:16px 20px;margin:14px 0;max-width:1440px}
+.box h3{margin-top:0}
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:1440px;border:0}
+.tw table{margin:12px 0 8px}
+figure{margin:0} figure img{width:100%;display:block;border:1px solid #2A2A3E;background:#0A0A0F}
+figcaption{font:14px ui-monospace,Menlo,monospace;color:#9A9AB6;margin:4px 0 16px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:8px 0}
+.steps li{margin:10px 0}
+@media(max-width:760px){body{padding:20px 16px 70px;font-size:17px}h1{font-size:27px}h2{font-size:22px}
+.pair{grid-template-columns:1fr}table{font-size:15px;min-width:620px}th,td{padding:8px 10px}
+.tw{margin:12px -16px;padding:0 16px}}
+</style></head><body>
+
+<h1>Interactive Brokers: filling TICK, TRIN, advance/decline, the put/call ratio, VIX and the overnight prices</h1>
+<p class="lead">Nothing here has been bought, started, deployed or logged into. The gateway was not launched, no cloud box was created, no subscription was touched. What exists is the part that needed no login: the exact contract for each number you are missing, the code that turns those numbers into Station charts, its tests, the runner definitions, and a script for typing your own IBKR login into wherever you decide it should live. The decisions with money attached are all in section 1 and they are all yours.</p>
+
+<h2>1 · Your decisions, with prices</h2>
+<div class="tw"><table>
+<tr><th>Decision</th><th class="cost">What it costs</th><th>What it gets you</th><th>What I would do</th></tr>
+<tr><td><b>Turn on the NYSE index feed</b> at IBKR (the subscription that carries TICK, TRIN and advance/decline)</td><td class="cost">$2.00 a month<br><span class="no">$19.50 if your account is marked professional</span></td><td>TICK, TRIN and advance/decline as real Scintilla charts — your own greys, the cloud ribbon, any timeframe, and history we keep rather than rent</td><td class="yes">Yes. It is the cheapest line in the whole estate and it is the only thing standing between you and three of the five panes.</td></tr>
+<tr><td><b>Where the gateway lives</b> — this MacBook, or a small always-on box</td><td class="cost">MacBook: $0<br>Cloud box: about $5–7 a month</td><td>The MacBook can prove everything works. Only the box can keep it running while the lid is shut.</td><td class="yes">Both, in that order. Prove it on the MacBook this week for nothing, then move it to a box once you have seen the charts.</td></tr>
+<tr><td><b>The put/call ratio</b> — IBKR does not sell it</td><td class="cost">Cboe's own daily file: $0<br>dxFeed live: no public price</td><td>Either yesterday's ratio, honestly labelled, or a live one at an unknown monthly price</td><td class="yes">Take the free daily one and label it "yesterday". Ask dxFeed for a price only if the pane matters to you live.</td></tr>
+<tr><td><b>VIX</b></td><td class="cost">$0</td><td>Nothing to do. It is already on the wall from FMP, at every width the chart API serves.</td><td class="yes">Do not buy it twice.</td></tr>
+<tr><td><b>Overnight prices</b> for your stocks, 8pm to 4am</td><td class="cost">IBKR's own words: "available free with permission"</td><td>What your names did overnight, on the same charts as the day session</td><td class="yes">Switch the permission on while you are in there. Confirm what it costs on your own account before we collect anything.</td></tr>
+</table></div>
+<p class="note">Prices are what IBKR published when we last read their pricing page, on 14 August 2026, and I could not re-read it today: their site refuses an automated read (it answered "403 forbidden"). Your own account is the only thing that can tell you what you already pay for — section 3 is the short list to look at.</p>
+
+<h2>2 · What IBKR can actually give us, contract by contract</h2>
+<div class="tw"><table>
+<tr><th>What you call it</th><th>What we ask IBKR for</th><th>What it is, in one line</th><th>Subscription</th><th class="cost">A month</th><th>How sure I am</th></tr>
+<tr><td><b>TICK</b></td><td><code>TICK-NYSE</code> · type Index · exchange NYSE · USD</td><td>How many NYSE stocks just ticked up, minus how many ticked down</td><td>NYSE index feed</td><td class="cost">$2.00</td><td>IBKR's own API documentation names this contract. Not yet proven on your account.</td></tr>
+<tr><td><b>TRIN</b></td><td><code>TRIN-NYSE</code> · Index · NYSE · USD</td><td>Whether the volume is going with the stocks that are rising or the ones that are falling</td><td>NYSE index feed</td><td class="cost">included</td><td>Same: documented by IBKR, unproven on your account.</td></tr>
+<tr><td><b>ADD</b></td><td><code>AD-NYSE</code> · Index · NYSE · USD</td><td>Rising NYSE stocks minus falling ones</td><td>NYSE index feed</td><td class="cost">included</td><td>Documented. One extra step: IBKR has been known to deliver the two counts on oddly named fields, so we record every field for a whole session before we publish a single number.</td></tr>
+<tr><td><b>CUMTICK</b></td><td>nothing — we add it up ourselves</td><td>TICK added up through the day, starting at zero each morning</td><td>none</td><td class="cost">$0</td><td>Certain: it is our own arithmetic over our own TICK series. A minute we never received is marked as a hole, never filled in.</td></tr>
+<tr><td><b>VIX</b></td><td>nothing — already yours</td><td>The volatility index</td><td>none</td><td class="cost">$0</td><td>Checked today: the chart API answered with a 9,271-bar daily series and a live quote of 14.66. Buying it from IBKR would be paying twice.</td></tr>
+<tr><td><b>PCC</b> (put/call)</td><td><span class="no">IBKR has nothing to ask for</span></td><td>How many puts trade against calls</td><td>—</td><td class="cost">—</td><td>IBKR publishes no market-wide put/call number through its API, and lists no exception. Cboe publish theirs daily for free; dxFeed sell a live one.</td></tr>
+<tr><td><b>Overnight prices</b></td><td>your own stock, with the exchange set to <code>OVERNIGHT</code></td><td>8:00pm to 3:50am New York, over 10,000 US stocks and funds</td><td>US stock data you may already have</td><td class="cost">"free with permission"</td><td>IBKR's own overnight pages say the window, the size and the setting. What "permission" means for your username is the one thing to check.</td></tr>
+</table></div>
+
+<h2>3 · What to look at in your account (I never log in)</h2>
+<p class="note">Client Portal → Settings → Account Settings → Market Data Subscriptions. Read only: do not press Subscribe, Configure or Continue while you are looking.</p>
+<ol class="steps">
+<li>Does it say <b>Non-Professional</b>? That is the difference between $2.00 and $19.50 a month for the index feed.</li>
+<li>In the subscription list, write down active or not, and the fee shown, for: <b>NYSE Global Index Feed</b>, <b>US Securities Snapshot and Futures Value Bundle</b>, and anything already listed for US stocks.</li>
+<li>Open any one of the three contracts in Trader Workstation — <code>TICK-NYSE</code>, <code>TRIN-NYSE</code>, <code>AD-NYSE</code>. If you are not entitled, IBKR's own Market Data Assistant pops up and <b>names the subscription it wants</b>. That single pop-up settles what we are guessing at above.</li>
+<li>Check that <b>overnight trading permission</b> is on, and whether market data for it costs anything on your account.</li>
+<li>Confirm the API acknowledgement is signed for <b>the same username</b> we will log the gateway in with. Entitlements follow the username, not the account.</li>
+</ol>
+
+<h2>4 · Where the gateway runs</h2>
+<p class="note">IB Gateway is a desktop Java program. It has no key-only mode: something has to keep a window open, even an invisible one, and a login has to be approved on your phone once a week. That is the shape of the problem, not a thing we can configure away.</p>
+<div class="tw"><table>
+<tr><th></th><th>This MacBook</th><th>A small always-on box</th><th>The iMac</th></tr>
+<tr><td>Cost</td><td class="cost">$0</td><td class="cost">about $5–7 a month</td><td>—</td></tr>
+<tr><td>When the lid shuts</td><td class="no">the feed stops, and the minutes it missed are missing until it wakes and asks for them again</td><td class="yes">keeps running</td><td>—</td></tr>
+<tr><td>Weekly login</td><td>you are already at the keyboard</td><td>the same phone tap, from wherever you are</td><td>—</td></tr>
+<tr><td>Set-up</td><td>already installed: IB Gateway 10.47 is on this MacBook, set to API-only, live mode, port 4000, and it last ran here on 15 August</td><td>one container each for the gateway and the reader; both definitions are written and in the branch</td><td class="no">out of bounds, by your instruction — nothing was read there, nothing was run there</td></tr>
+<tr><td>Risk</td><td>your password has to sit in a file on the machine for the gateway to log itself in</td><td>same file, on a box that does nothing else</td><td>—</td></tr>
+</table></div>
+<div class="box"><h3>What I recommend</h3>
+<p>Prove it here first, because it is free and takes an afternoon: you open IB Gateway, we point the reader at it, and within one session you can see whether the three contracts answer, what fields they carry, and whether the charts look right. Only then pay for a box, and move the same two definitions onto it. Your own earlier ruling — that a gateway tied to a sleeping Mac is useless as a feed — is right, and it is why the box is where this ends up. It is just not where it should start.</p></div>
+
+<h2>5 · The weekly login, made impossible to miss</h2>
+<p class="note">IBKR throws the login out roughly every seven days. If that happens quietly, the wall keeps drawing a line that stopped moving — the one outcome worth preventing. So the lane assumes it has failed unless it can prove otherwise.</p>
+<div class="tw"><table>
+<tr><th>What the lane says</th><th>When</th><th>How loud</th><th>What you do</th></tr>
+<tr><td>"IBKR login runs out soon"</td><td>36 hours before it expires — Saturday morning, for a Sunday expiry</td><td>phone push, and a strip across the top of the Station and the Hub, every hour</td><td>Sign in once whenever it suits you and nothing ever stops</td></tr>
+<tr><td>"IBKR login has expired"</td><td>the moment it lapses</td><td>same three places, every fifteen minutes, and the strip cannot be dismissed</td><td>Sign in now — the panes are frozen until you do</td></tr>
+<tr><td>"IBKR is logged out"</td><td>the gateway is not connected at all</td><td>same</td><td>Open the gateway, sign in, approve the push</td></tr>
+<tr><td>"IBKR has gone quiet"</td><td>nothing has arrived for six minutes while the market is open</td><td>same</td><td>Check the gateway is still up — this is the one that catches a silent death</td></tr>
+</table></div>
+<p class="note">Out of hours, quiet is not an alarm: the market being shut is not a fault. And the panes themselves say which one it is — a pane whose feed is logged out reads "ibkr gateway down" in words instead of sitting black.</p>
+<h3>Your steps, once a week, about a minute</h3>
+<ol class="steps">
+<li>The push arrives on your phone, or the strip is across the top of the Station.</li>
+<li>Open IB Gateway (on the box: open the little web page it puts up, same screen).</li>
+<li>Type your username and password — or let it fill them in, which is what the login script in this branch is for.</li>
+<li>Approve the IBKR Mobile notification on your phone.</li>
+<li>The strip disappears by itself within a minute. Nothing else to do.</li>
+</ol>
+
+<h2>6 · How the numbers get to the wall</h2>
+<p class="note">Exactly the way FMP's already do, so there is one path and not a second private one.</p>
+<ol class="steps">
+<li><b>IB Gateway</b> holds the login. Nothing else ever sees your password.</li>
+<li><b>The reader</b> opens a socket to it, asks for one-minute bars of the three contracts, and can place no order at all — the API is switched to read-only at the gateway, and the reader contains no order call of any kind.</li>
+<li><b>The minutes land in their own place</b>: <code>normalized/ibkr_internals_bars_v1</code>. Breadth is not a share price, and the code refuses outright to write into a price store — that refusal is one of the tests.</li>
+<li><b>The chart API serves them</b> on the same <code>/candles</code> route the Station already uses for everything else.</li>
+<li><b>The Station draws them</b> as ordinary Scintilla charts: your greys, the cloud ribbon, hover in New York time, no caption.</li>
+</ol>
+<div class="box"><h3>One thing worth knowing about widths</h3>
+<p>We keep minutes, so any width can be built from them. I asked the chart API today for a seven-minute VIX and it refused — FMP publishes a fixed set of widths and that is not one of them. A seven-minute TICK will simply be served, because seven one-minute bars is all that takes. No timeframe gets refused.</p></div>
+<h3>What the panes do today, and what changes</h3>
+<div class="tw"><table>
+<tr><th>Pane</th><th>Today</th><th>After the feed is on</th></tr>
+<tr><td>TICK, TRIN, ADD</td><td>TradingView's free widget, labelled as theirs</td><td>Scintilla charts, drawn from our own bars</td></tr>
+<tr><td>CUMTICK</td><td>TradingView's TICK chart standing in — their nearest symbol, not the one you asked for</td><td>The real thing, added up from our own TICK</td></tr>
+<tr><td>VIX</td><td>Already a Scintilla chart</td><td>Unchanged</td></tr>
+<tr><td>PCC</td><td>TradingView's widget</td><td>Still theirs, unless you buy a live one — or ours from Cboe's daily file, marked "yesterday"</td></tr>
+</table></div>
+<h3>The same pane, both ways — taken in a real browser, on this branch</h3>
+<div class="pair">
+<figure><img src="shots/pane-today.png" alt="TICK pane as it behaves today"><figcaption>today · the pane asks, the chart API answers "symbol not tracked", and the TradingView frame is mounted. Outside hosts are blocked in this harness, so their frame is empty here; on the real wall it shows their line. Asked once — a named answer is not retried.</figcaption></figure>
+<figure><img src="shots/pane-with-ibkr.png" alt="TICK pane drawing from IBKR bars"><figcaption>with the feed on · the same pane, same code, drawing TICK as a Station chart: New York times along the bottom, the value on the right, no caption. The numbers are invented for this picture — one session of made-up TICK put through the real writer and the real reader — so judge the pane, not the levels.</figcaption></figure>
+</div>
+<p class="note">The wall needed almost nothing for this. It already asks for a Scintilla series first and only falls back to TradingView when the answer has a name. The change is four lines: the four internals are now <i>asked for</i> instead of written off in advance, and a "we do not carry that symbol yet" answer counts as a name. So today the panes look exactly as they do now, and the day the feed is on they become our charts with no further work.</p>
+
+<h2>7 · What is built and tested, today</h2>
+<div class="tw"><table>
+<tr><th>Piece</th><th>Where</th><th>State</th></tr>
+<tr><td>The contract table — every symbol, its subscription, its price, and how sure we are</td><td><code>services/ibkr-gateway/contracts.mjs</code></td><td>Written, read by the code and by this page</td></tr>
+<tr><td>The writer: one way in, a repeat changes nothing, a correction is taken, a bar still forming never overwrites a finished one, and the minutes we never got are found and asked for again</td><td><code>ibkr-bars.mjs</code></td><td>Tested</td></tr>
+<tr><td>The reader: any width, built from the stored minutes, never spanning two days, and every refusal carries a name the pane can print</td><td><code>ibkr-serve.mjs</code></td><td>Tested</td></tr>
+<tr><td>New York session arithmetic, including the two days a year the clocks move</td><td><code>sessions.mjs</code></td><td>Tested</td></tr>
+<tr><td>The weekly-login alarm and its wording</td><td><code>reauth-watch.mjs</code></td><td>Tested</td></tr>
+<tr><td>The reader that talks to the gateway — read-only, no order call anywhere in it</td><td><code>collector.py</code></td><td>Written, never run: it needs your login</td></tr>
+<tr><td>The two ways to run it</td><td><code>docker-compose.yml</code>, <code>com.scintilla.ibkr-internals.plist</code></td><td>Written, not started</td></tr>
+<tr><td>Typing your login in without it being seen</td><td><code>SET IBKR LOGIN.command</code></td><td>Written. It asks where to put it, echoes nothing, and refuses to create a cloud app because that costs money</td></tr>
+<tr><td>The Station change</td><td><code>_provider/provider.js</code></td><td>Four lines, tested</td></tr>
+</table></div>
+<p class="note">The feed side is on branch <code>agent/ibkr-lane-20260923</code> in the scintilla repository; the Station side and this page are on <code>agent/ibkr-internals-20260923</code>. Neither is pushed and nothing is deployed.</p>
+<p class="note">Eighteen tests on the feed side, five on the Station side, all passing. The Station's whole suite runs 416 tests: the 18 that fail on this branch are the same 18 that already fail on production, so nothing here broke anything.</p>
+
+<h2>8 · What I could not confirm, and will not pretend</h2>
+<ul>
+<li><b>Nothing has been proven against your actual account.</b> Every contract above comes from IBKR's published documentation, not from a live answer. The first session with the gateway open settles all of it in about ten minutes.</li>
+<li><b>Today's prices.</b> IBKR's pricing page refuses to be read automatically, so the figures are from our own reading of it on 14 August 2026.</li>
+<li><b>Which subscription actually unlocks the three contracts.</b> The index feed is the strong candidate; IBKR's own pop-up will name it outright.</li>
+<li><b>Which field on advance/decline carries what.</b> Recorded for a full session before anything is published — not guessed.</li>
+<li><b>The serving step.</b> The chart API's source is not on this MacBook, so the reader here is a working, tested module plus an exact statement of where it plugs in, rather than a change I could make to that service.</li>
+<li><b>IBKR's own position on running the gateway without a screen.</b> They say a screenless gateway is unsupported. The container gives it an invisible screen, which is the usual approach and the one your earlier notes already chose, but it is their software and their rule.</li>
+</ul>
+</body></html>
