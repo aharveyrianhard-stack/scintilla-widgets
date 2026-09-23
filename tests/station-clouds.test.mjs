@@ -349,3 +349,89 @@ test("a new symbol never inherits the last symbol's ribbon", () => {
   assert.match(chart, /if \(!window\.SC_CLOUDS \|\| host\.dataset\.t !== t\) return false;/,
     "a read that lands after the ticker moved on is dropped");
 });
+
+/* ---- smoothed for the eye, labels exact (Alan, 22 Sep) ---- */
+test("the curve passes through every session value exactly and never overshoots between two of them", () => {
+  let seed = 11;
+  const random = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  for (let trial = 0; trial < 200; trial++) {
+    const n = 2 + Math.floor(random() * 9);
+    const xs = [0];
+    for (let i = 1; i < n; i++) xs.push(xs[i - 1] + 1 + Math.floor(random() * 6));
+    const ys = Array.from({ length:n }, () => 100 + random() * 50);
+    const curve = SC.monotoneCurve(xs, ys);
+    for (let i = 0; i < n; i++) assert.equal(curve(xs[i]), ys[i], "anchor " + i + " is hit exactly, not approximately");
+    for (let i = 1; i < n; i++) {
+      const lo = Math.min(ys[i - 1], ys[i]), hi = Math.max(ys[i - 1], ys[i]);
+      for (let k = 1; k < 40; k++) {
+        const v = curve(xs[i - 1] + (xs[i] - xs[i - 1]) * k / 40);
+        assert.ok(v >= lo - 1e-9 && v <= hi + 1e-9, "between two sessions the curve stays between their values");
+      }
+    }
+    assert.equal(curve(xs[0] - 5), ys[0]); assert.equal(curve(xs[n - 1] + 5), ys[n - 1]);
+  }
+  assert.equal(SC.monotoneCurve([3], [7])(9), 7, "one anchor is a flat line");
+});
+
+test("one anchor per session, at that session's last bar - the newest bar is always an anchor", () => {
+  const bars = [];
+  for (const day of ["2026-09-17", "2026-09-18", "2026-09-21"])
+    for (const hour of ["13:30", "15:30", "17:30", "19:30"]) bars.push(at(day + "T" + hour + ":00Z"));
+  const mapped = SC.mapBarsToDaily(bars, threeSessions, SC.timeframeKind("1h"));
+  const groups = SC.curveGroups(SC.runs(mapped, 0, bars.length - 1));
+  assert.equal(groups.length, 1);
+  assert.deepEqual(plain(groups[0].xs), [0, 3, 7, 11], "the left edge is held, then one anchor at each session's last bar");
+  assert.deepEqual(plain(groups[0].rows.map((r) => r.close)), [100, 100, 110, 120]);
+  const rowAt = SC.curveFor(groups[0], ["e13", "e21", "s50", "s200"]);
+  assert.equal(rowAt(11).close, 120, "at the newest bar the curve carries the newest session");
+  const gapped = SC.curveGroups([{ from:0, to:3, row:threeSessions[0] }, { from:6, to:6, row:threeSessions[2] }]);
+  assert.equal(gapped.length, 2, "a mapping gap splits the curve rather than bridging it");
+});
+
+test("the sampled curve keeps the ribbon's own rules: values exact at anchors, direction from the values", () => {
+  const rows = [row(120, 118, 110, 140), row(118, 121, 112, 139), row(125, 123, 114, 138)];
+  const group = { xs:[0, 5, 10], rows };
+  const rowAt = SC.curveFor(group, ["e13", "e21", "s50", "s200"]);
+  for (let i = 0; i < 3; i++) for (const key of ["e13", "e21", "s50", "s200"])
+    assert.equal(rowAt(group.xs[i])[key], rows[i][key], key + " at anchor " + i);
+  assert.equal(rowAt(5).f, false, "13 below 21 at the middle session");
+  assert.equal(rowAt(10).f, true);
+  assert.equal(rowAt(7.5).close, rows[2].close, "a piece heading to a session carries that session's close");
+  assert.ok(SC.cloudPolygons(rowAt(5), rowAt(6)).length >= 3, "the approved tiling works on sampled rows unchanged");
+});
+
+test("the chart draws the ribbon smoothed by default, ?steps=1 restores the stepped drawing, and the caption says so", () => {
+  assert.match(chart, /const CLOUD_STEPS_KEY = "station\.clouds\.steps";/);
+  assert.match(chart, /let CLOUD_STEPS = QS\.has\("steps"\) \? QS\.get\("steps"\) === "1" : lsGet\(CLOUD_STEPS_KEY\) === "1";/,
+    "smooth unless a link says ?steps=1 or this browser chose stepped");
+  assert.match(chart, /drawCloudRibbon\(ctx, \{ map:cloudMap, start, end, X, Y, smooth:!CLOUD_STEPS,/);
+  const ribbon = chart.slice(chart.indexOf("function drawCloudRibbon"), chart.indexOf("function cloudPercentText"));
+  assert.match(ribbon, /SC\.curveGroups\(runs\)/);
+  assert.match(ribbon, /SC\.curveFor\(group, keys\)/);
+  assert.match(ribbon, /SC\.cloudPolygons\(prev, row\)/, "the fill follows the curve: the approved tiling, sampled along it");
+  assert.match(ribbon, /if \(options\.smooth\) \{/);
+  assert.match(ribbon, /SC\.cloudBands\(run\.row\)/, "the stepped drawing is kept intact behind the switch");
+  assert.match(chart, /\(CLOUD_STEPS \? "stepped" : "smoothed for the eye"\) \+ " · labels exact · " \+ rows\.length \+ " daily bars · " \+ window\.SC_CLOUDS\.EMA_SEED_WARMUP \+ " warm-up not drawn"/,
+    "the caption states the drawing, the exactness of the labels, and the lookback");
+  assert.match(chart, /else if \(act === "cloudsteps"\) setCloudSteps\(!CLOUD_STEPS\);/, "the caption is the switch");
+  assert.match(chart, /class="sc-nchart__cap" data-act="cloudsteps"/);
+  assert.match(chart, /if \(typeof d\.steps === "boolean"\) setCloudSteps\(d\.steps\);/, "the dock may drive it too");
+});
+
+test("the labels still name the exact computed value at its exact height - smoothing never touches them", () => {
+  const labels = chart.slice(chart.indexOf("function drawCloudLabels"), chart.indexOf("const CLOUD_LABEL_INK"));
+  assert.match(labels, /const value = row\[spec\.key\];/);
+  assert.match(labels, /const y = options\.Y\(value\);/);
+  assert.doesNotMatch(labels, /curveFor|monotone|smooth/i, "no smoothed quantity reaches a label");
+  assert.match(labels, /return placed;/);
+  assert.match(chart, /host\._cloudLabels = cloudLabels && cloudMap/,
+    "what was placed is kept on the host so a proof can read the exact value and height the pane shows");
+});
+
+test("no white and no near-white stroke, fill or text on the chart surfaces", () => {
+  const withoutTokens = chart.split("\n").filter((line) => !/^\s*--ink:#F2F2F8; --ink2:#C6C8DE;/.test(line)).join("\n");
+  assert.doesNotMatch(withoutTokens, /C6C8DE|F2F2F8|#fff\b|#ffffff|var\(--ink\)|var\(--ink2\)|rgba\(255, ?255, ?255|rgba\(198, ?200, ?222|rgba\(242, ?242, ?248/i,
+    "every former near-white use is now the palette's dim or ink3 tone");
+  assert.match(chart, /dim: v\("--dim", "#868AAA"\) \};/, "the canvas palette no longer carries the light ink at all");
+  assert.equal(shell, chart);
+});
