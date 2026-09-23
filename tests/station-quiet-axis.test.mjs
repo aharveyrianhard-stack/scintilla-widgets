@@ -55,3 +55,11 @@ test("intraday axis and hover print New York time; daily dates pass through (23 
   assert.match(chart, /chTimeParts\(chEtIso\(pts\[ix\]\.d, host\._range \|\| S\.chartRange\)/, "the axis passes New York time");
   assert.match(chart, /chHoverTime\(chEtIso\(pts\[scrub\.ix\]\.d, host\._range \|\| S\.chartRange\)/, "the hover passes New York time");
 });
+
+test("a TradingView pane is labelled with its name only (23 Sep: \"Why are you labeling my shit?\")", () => {
+  const cap = new Function(chart.match(/function tvPaneCaption\(t, sym, near\) \{[\s\S]*?\n\}\n/)[0] + "return tvPaneCaption;")();
+  assert.equal(cap("TICK", "USI:TICK", false), "TICK");
+  assert.equal(cap("CUMTICK", "USI:TICK", true), "CUMTICK");
+  assert.doesNotMatch(chart, /not a Scintilla series"/i, "the long label is gone");
+  assert.match(chart, /class="sc-tvinternal__cap" title="' \+ esc\("TradingView " \+ sym/, "the source stays one hover away");
+});

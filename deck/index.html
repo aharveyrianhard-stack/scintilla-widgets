@@ -2831,6 +2831,60 @@ async function build() {
 }
 build();
 /* The ⋯ panel, the auto-hide switch and the chart-count chips are wired inside wireDock(). */
+
+/* ---- SELF-UPDATE (23 Sep 2026) ----------------------------------------------------------------
+   The iMac keeps the Station open for days, and nothing on the page ever looked for a newer
+   version: every fix waited for someone to press reload (23 Sep: the iMac's Brave had not fetched
+   a chart page in three hours while five deploys went out). Every three minutes the deck asks the
+   server for the version tags (ETag, never cached) of its own page, the chart page and the provider
+   client. A newer chart page or provider reloads the chart frames only; video and X are not
+   touched. A newer deck reloads the whole page, but only after two minutes without mouse or keys
+   and while no video is on the stage, so a stream being watched is never cut off. */
+const SELF_UPDATE_MS = 180000;
+const SELF_UPDATE_IDLE_MS = 120000;
+let SELF_UPDATE_SEEN = null, SELF_UPDATE_DECK_PENDING = false, SELF_UPDATE_LAST_INPUT = Date.now();
+for (const ev of ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"])
+  window.addEventListener(ev, () => { SELF_UPDATE_LAST_INPUT = Date.now(); }, { passive:true, capture:true });
+function selfUpdatePlan(seen, tags, idleMs, videoOnStage, deckPending) {
+  const changed = (k) => !!(seen && tags[k] && seen[k] && tags[k] !== seen[k]);
+  const deck = !!deckPending || changed("deck");
+  return {
+    remountCharts: changed("chart") || changed("provider"),
+    deckPending: deck,
+    reloadPage: deck && idleMs >= SELF_UPDATE_IDLE_MS && !videoOnStage,
+    seen: seen ? { deck: seen.deck, chart: tags.chart || seen.chart, provider: tags.provider || seen.provider } : tags
+  };
+}
+async function selfUpdateTags() {
+  const files = { deck: location.pathname, chart: STATION_SHELL.chart + "/index.html", provider: "/_provider/provider.js" };
+  const out = {};
+  await Promise.all(Object.entries(files).map(async ([k, path]) => {
+    try {
+      const r = await fetch(path, { method:"HEAD", cache:"no-store" });
+      out[k] = r.ok ? (r.headers.get("etag") || r.headers.get("last-modified") || "") : "";
+    } catch (_) { out[k] = ""; }
+  }));
+  return out;
+}
+function selfUpdateVideoOnStage() {
+  return PANES.some((pane) => {
+    if (pane.def.kind !== "video" || !pane.frame) return false;
+    try { return !!pane.frame.contentDocument?.body?.classList.contains("playing"); } catch (_) { return true; }
+  });
+}
+async function selfUpdateCheck() {
+  const tags = await selfUpdateTags();
+  const plan = selfUpdatePlan(SELF_UPDATE_SEEN, tags, Date.now() - SELF_UPDATE_LAST_INPUT,
+    selfUpdateVideoOnStage(), SELF_UPDATE_DECK_PENDING);
+  SELF_UPDATE_SEEN = plan.seen; SELF_UPDATE_DECK_PENDING = plan.deckPending;
+  if (plan.reloadPage) { location.reload(); return; }
+  if (plan.remountCharts) for (const pane of PANES) {
+    if (pane.def.kind !== "chart" || !pane.frame) continue;
+    try { pane.frame.contentWindow.location.reload(); } catch (_) {}
+  }
+}
+setTimeout(selfUpdateCheck, 15000);
+setInterval(selfUpdateCheck, SELF_UPDATE_MS);
 </script>
 </body>
 </html>
