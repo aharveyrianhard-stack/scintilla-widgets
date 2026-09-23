@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>SCINTILLA · CONTEXT LENS 2 — the lens on real Station charts</title>
+<style>
+:root{
+  --bg:#101012; --panel:#17171a; --panel2:#1d1d21; --line:#2b2b30; --line2:#3a3a40;
+  --ink:#c9c9cf; --ink2:#9a9aa1; --ink3:#74747b; --hi:#d2d2d2;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink)}
+body{font:13px/1.6 var(--mono);padding:0 0 64px}
+.wrap{max-width:1560px;margin:0 auto;padding:0 20px}
+header{border-bottom:1px solid var(--line);padding:26px 0 20px;margin-bottom:22px}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}
+h1{font-size:23px;margin:8px 0 10px;font-weight:600;letter-spacing:.01em;color:var(--hi)}
+h2{font-size:15px;margin:0 0 10px;font-weight:600;letter-spacing:.02em;color:var(--hi)}
+h3{font-size:12px;margin:0 0 6px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2)}
+p{margin:0 0 10px;max-width:96ch}
+.lede{color:var(--ink2);font-size:13px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px 18px;margin:0 0 20px}
+.grid{display:grid;gap:18px}
+@media(min-width:1180px){.cases{grid-template-columns:1fr 1fr}}
+/* ---- knobs ---- */
+.knobs{position:sticky;top:0;z-index:20;background:var(--panel);border:1px solid var(--line);
+  border-radius:6px;padding:14px 16px;margin:0 0 22px}
+.knobrow{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:flex-end}
+.knob{display:flex;flex-direction:column;gap:5px;min-width:126px}
+.knob label{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3)}
+.knob select{background:var(--panel2);color:var(--ink);border:1px solid var(--line2);
+  border-radius:4px;font:12px var(--mono);padding:5px 6px;width:100%}
+/* the browser's own slider is a bright blue; this surface is grey only */
+.knob input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:18px;background:transparent}
+.knob input[type=range]::-webkit-slider-runnable-track{height:3px;background:#3a3a40;border-radius:2px}
+.knob input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:12px;height:12px;
+  margin-top:-4.5px;border-radius:50%;background:#9a9aa1;border:1px solid #3a3a40}
+.knob input[type=range]::-moz-range-track{height:3px;background:#3a3a40;border-radius:2px}
+.knob input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#9a9aa1;border:1px solid #3a3a40}
+.knob input[type=range]:focus-visible{outline:1px solid #565660;outline-offset:2px}
+.knob .rec{font-size:11px;color:var(--ink3)}
+.knob .rec b{color:var(--ink2);font-weight:600}
+button{background:var(--panel2);color:var(--ink);border:1px solid var(--line2);border-radius:4px;
+  font:12px var(--mono);padding:7px 11px;cursor:pointer}
+button:hover{border-color:#4a4a50;color:var(--hi)}
+button[aria-pressed=true]{border-color:#565660;color:var(--hi);background:#232328}
+/* ---- case cards ---- */
+.case{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.case-head{padding:13px 15px 11px;border-bottom:1px solid var(--line)}
+.case-head .k{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
+.case-head .t{font-size:14px;color:var(--hi);margin:3px 0 2px}
+.case-head .s{font-size:11.5px;color:var(--ink2)}
+.frame-wrap{position:relative;background:#0c0c0e}
+iframe.frame{display:block;width:100%;height:340px;border:0;background:#0c0c0e}
+@media(max-width:760px){
+  iframe.frame{height:280px}
+  /* on a phone the panel is nearly a screen tall: sticking it to the top would bury the chart */
+  .knobs{position:static}
+  .knob{min-width:100%}
+}
+.readout{padding:10px 15px 13px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink2)}
+.readout b{color:var(--hi);font-weight:600}
+.corners{margin-top:6px;display:flex;flex-wrap:wrap;gap:5px}
+.corner-chip{border:1px solid var(--line2);border-radius:3px;padding:2px 6px;font-size:11px;color:var(--ink3)}
+.corner-chip.on{border-color:#5a5a62;color:var(--hi)}
+.corner-chip.no{opacity:.55;text-decoration:line-through}
+table{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0 4px}
+th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+th{color:var(--ink2);font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+ul{margin:0 0 10px;padding-left:19px;max-width:96ch}li{margin:0 0 5px}
+code{background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:1px 5px;font-size:11.5px}
+.note{color:var(--ink3);font-size:11.5px}
+.shots{display:grid;gap:14px}
+.shots img{width:100%;max-height:560px;object-fit:cover;object-position:top center;
+  border:1px solid var(--line);border-radius:4px;display:block}
+.shots figcaption{font-size:11.5px;color:var(--ink3);padding-top:6px}
+</style>
+</head><body>
+<div class="wrap">
+<header>
+  <div class="eyebrow">Scintilla · Station · workshop · 23 September 2026</div>
+  <h1>Context Lens 2 — the lens on real Station charts, up, down and sideways</h1>
+  <p class="lede">Every chart below is drawn by the Station's own chart code, with the Station's own clouds,
+  on real prices from the chart API. The lens is the small inset. This page is about one thing only:
+  <b>where the lens goes on a chart, and how it reads once it is there</b>. No replay, no Geiger motion,
+  no Visual Engine.</p>
+</header>
+
+<section class="panel">
+  <h2>What you are looking at</h2>
+  <p>The big chart is the window you are standing in. The lens answers the other question — either
+  <b>where this window sits in the whole history</b> (context view) or <b>what the last few sessions look like
+  close up</b> (detail view). It never covers the price line. It goes in the emptiest corner that is left.</p>
+  <p>Six real cases are shown: a strong uptrend, a strong downtrend, a sideways range, a turn up, a turn down,
+  and a gap. Each one is a real symbol over a real period, named on the card. On each chart the chosen spot is
+  drawn solid and <b>the corners it did not choose are drawn faded</b>, each with the share of it that is already
+  painted on, so you can see why one corner won.</p>
+</section>
+
+<div class="knobs" id="knobs">
+  <h3 style="margin-bottom:10px">Adjustment — every number here is a baseline you can move</h3>
+  <div class="knobrow">
+    <div class="knob"><label for="k-size">Lens size</label>
+      <select id="k-size"><option value="L">Large</option><option value="M">Medium</option><option value="S">Small</option></select>
+      <span class="rec">recommended <b>Medium</b></span></div>
+    <div class="knob"><label for="k-prefer">Corner preference</label>
+      <select id="k-prefer"><option value="tr">Top right</option><option value="tl">Top left</option>
+        <option value="br">Bottom right</option><option value="bl">Bottom left</option>
+        <option value="tc">Top centre</option><option value="bc">Bottom centre</option></select>
+      <span class="rec">recommended <b>Top right</b></span></div>
+    <div class="knob"><label for="k-margin">Clear of price (px) <span id="k-margin-v">8</span></label>
+      <input id="k-margin" type="range" min="0" max="40" step="1" value="8">
+      <span class="rec">recommended <b>8 px</b></span></div>
+    <div class="knob"><label for="k-view">Lens shows</label>
+      <select id="k-view"><option value="context">Context — the whole history</option>
+        <option value="detail">Detail — the last few sessions</option></select>
+      <span class="rec">recommended <b>Context</b></span></div>
+    <div class="knob"><label for="k-detail">Detail sessions <span id="k-detail-v">24</span></label>
+      <input id="k-detail" type="range" min="8" max="60" step="2" value="24">
+      <span class="rec">recommended <b>24 sessions</b></span></div>
+    <div class="knob"><label for="k-maxink">Busiest corner allowed <span id="k-maxink-v">55</span>%</label>
+      <input id="k-maxink" type="range" min="20" max="100" step="5" value="55">
+      <span class="rec">recommended <b>55%</b></span></div>
+    <div class="knob"><label for="k-op">Lens opacity <span id="k-op-v">0.96</span></label>
+      <input id="k-op" type="range" min="0.5" max="1" step="0.02" value="0.96">
+      <span class="rec">recommended <b>0.96</b></span></div>
+    <div class="knob" style="min-width:auto"><label for="k-cand">Other corners</label>
+      <button id="k-cand" aria-pressed="true">Shown faded</button>
+      <span class="rec">recommended <b>shown here, off in Station</b></span></div>
+    <div class="knob" style="min-width:auto"><label>&nbsp;</label><button id="k-reset">Back to recommended</button>
+      <span class="rec">&nbsp;</span></div>
+  </div>
+</div>
+
+<div class="grid cases" id="cases"></div>
+
+<section class="panel" id="rule">
+  <h2>The rule, in plain words</h2>
+  <ol style="padding-left:20px;max-width:96ch">
+    <li><b>Never cover the price.</b> A corner is only allowed if the price line — every visible bar and the
+      line drawn between them — stays at least the clearance you set away from the box. Default 8 pixels.</li>
+    <li><b>Then take the emptiest corner.</b> Of the corners that are allowed, the lens takes the one with the
+      least already painted on it. "Painted" means anything the chart drew there: the price fill, the cloud
+      ribbon, the average names, the axis numbers.</li>
+    <li><b>A corner that is already painted over is refused too.</b> Clearing the price line is not enough:
+      if more than the share you set is already drawn on — cloud ribbon, price shading, average names — the
+      lens will not sit there, because a lens on top of the ribbon is as hard to read as one on top of price.</li>
+    <li><b>A near tie goes to your preferred corner.</b> If your preferred corner is within two percentage
+      points of the emptiest one, it wins, so the lens does not hop about between charts that look alike.</li>
+    <li><b>If it does not fit, it shrinks.</b> Large, then medium, then small.</li>
+    <li><b>If it still does not fit, it parks below the chart</b> rather than sitting on top of the price.</li>
+  </ol>
+  <p class="note">This is the v4 rule carried forward (safety before position, 8-pixel margin, shrink, then the
+  shelf) with one change: v4 chose the allowed corner nearest your preference, which on a busy chart can pick a
+  corner full of cloud ribbon. Here the chart is measured, so "emptiest" is a number rather than a guess.</p>
+</section>
+
+<section class="panel">
+  <h2>What this was built from — and v4 is not missing</h2>
+  <p>The brief said a v4 of the lens had existed and was lost. <b>It is on this Mac.</b> I found three versions
+  before building anything:</p>
+  <table><thead><tr><th>What</th><th>Where</th><th>State</th></tr></thead><tbody>
+    <tr><td><b>v4</b> — "Context Lens — Bubble-Only Review v4"</td>
+      <td><code>_worktrees/context-lens-20260919/prototypes/context-lens/index.html</code></td>
+      <td>73,151 bytes, sha256 <code>3f4fc79c…</code>, 19 Sep. Committed on the unmerged branch
+        <code>candidate/context-lens-20260919</code>, which is why it looks lost: it was never released.</td></tr>
+    <tr><td><b>v2</b> — "Context Lens — Review Workshop v2"</td>
+      <td><code>~/Downloads/SCINTILLA_Context_Lens_Interactive_Review.html</code></td>
+      <td>66,382 bytes, 11 Sep. The catalogued one.</td></tr>
+    <tr><td>Today's workshop (lane M5)</td><td><code>deliverables/20260923/context-lens/CONTEXT-LENS.html</code></td>
+      <td>28,280 bytes. This is the one that mixed in the replay, the Geiger and the Visual Engine.</td></tr>
+  </tbody></table>
+  <p><b>Carried forward from v4:</b> safety before position, the 8-pixel margin, context and detail as the two
+  bubble states, shrink before shelf, minimal furniture in the bubble, and the rule that the main chart never
+  changes when the bubble does.</p>
+  <p><b>Changed, on purpose:</b> v4 drew synthetic fixtures on its own renderer — these are real prices on the
+  Station's renderer. v4 chose the allowed corner <i>nearest your preference</i>; here the chart is measured and
+  the emptiest allowed corner wins, with preference only breaking a near tie. v4's fixed 280–440 pixel boxes are
+  replaced by shares of the pane, because a Station chart is a wide short band, not v4's tall stage.
+  <b>No replay was ever part of the lens</b> — nothing in v4 or v2 has one, and none is here.</p>
+</section>
+
+<section class="panel">
+  <h2>What happens on a phone</h2>
+  <p>At 1680 pixels wide, five of the six cases keep the lens inside the chart and the sideways case parks it
+  below. At 390 pixels — a phone — four keep it inside (one of them shrunk to small) and two park below:
+  the sideways range and the turn down. That is the rule protecting price on a small pane, and it is the main
+  thing to decide: on a phone, is a lens below the chart better than no lens, or should the phone simply not
+  show one?</p>
+</section>
+
+<section class="panel">
+  <h2>Recommended settings</h2>
+  <table><thead><tr><th>Knob</th><th>Recommended</th><th>Why</th></tr></thead><tbody>
+    <tr><td>Size</td><td>Medium — 30% of the chart's width, 44% of its height</td>
+      <td>Big enough to read two price levels and two dates; small enough that a corner is usually free. Large
+        needs a quiet chart; small is hard to read on a phone.</td></tr>
+    <tr><td>Corner preference</td><td>Top right</td>
+      <td>Prices more often rise into the top right than sit there, and the live price marker is already on the
+        right edge, so a tie broken to the top right keeps the eye in one place. The rule still moves it when
+        that corner is busy — the uptrend case below is exactly that.</td></tr>
+    <tr><td>Clear of price</td><td>8 pixels</td>
+      <td>Under about 4 the lens visually touches the line; over about 16 the lens is pushed onto the shelf on
+        ordinary charts. 8 is the v4 value and it holds up on all six cases.</td></tr>
+    <tr><td>Busiest corner allowed</td><td>55% drawn on</td>
+      <td>Above about 60% the lens sits on solid cloud ribbon and neither reads. Below about 40% almost every
+        corner is refused on a busy chart and the lens ends up on the shelf. 55% keeps a corner on five of the
+        six cases here at desktop width, four of six on a phone.</td></tr>
+    <tr><td>Lens shows</td><td>Context</td>
+      <td>The main chart already shows the recent window in detail. The question the lens is there to answer is
+        "where am I in the whole history".</td></tr>
+    <tr><td>Detail sessions</td><td>24</td>
+      <td>About five weeks of daily bars — enough to see the shape of the last move at this size.</td></tr>
+    <tr><td>Opacity</td><td>0.96</td>
+      <td>Slightly short of solid: the chart underneath stays faintly visible, so the lens reads as part of the
+        chart rather than a sticker on it.</td></tr>
+    <tr><td>Other corners</td><td>Shown here, off in Station</td>
+      <td>The faded boxes are a workshop aid for this decision. In the Station they would be noise. They are
+        left off when the lens parks below the chart, because the chart is resized at that moment and boxes
+        measured before the resize would be drawn in the wrong place.</td></tr>
+  </tbody></table>
+</section>
+
+<section class="panel">
+  <h2>Where each number comes from</h2>
+  <ul>
+    <li><b>The prices.</b> The chart API, <code>/candles?symbol=…&amp;tf=D&amp;authority=provider&amp;limit=400</code>
+      — daily, split-adjusted, provider-built bars. Each case card names the symbol, the period and what the
+      window does. The exact response for each symbol is saved next to this page in <code>cases/</code>,
+      with the URL and the time it was fetched, so the page draws the same picture every time it is opened.</li>
+    <li><b>The chart.</b> The Station's own <code>chart/index.html</code> is loaded in each frame and asked to
+      draw the pane. The line, the axis, the colours, the caption and the cloud ribbon are its code, not a copy
+      of it. Nothing on this page redraws a Station chart in its own way.</li>
+    <li><b>The clouds.</b> The Station's <code>_indicators/station-clouds.js</code>, from the same daily closes:
+      13 and 21 day exponential averages, 50 and 200 day simple ones. Every window starts at least 200 sessions
+      into the fetched history, so all four averages exist on every case.</li>
+    <li><b>The emptiness score.</b> Read from the chart's own canvas after it has drawn: the share of pixels in
+      a corner that carry any ink above a faint-wash threshold. It is a measurement of the picture, not a guess
+      about it.</li>
+    <li><b>The placement.</b> <code>lens-placement.mjs</code> next to this page. The tests in
+      <code>tests/context-lens-placement.test.mjs</code> import that same file.</li>
+  </ul>
+</section>
+
+<section class="panel">
+  <h2>What could be wrong</h2>
+  <ul>
+    <li>The saved prices are a snapshot taken on 23 September 2026. They do not update. A live Station chart
+      would move on; the placement rule would not change, but the chosen corner might.</li>
+    <li>Emptiness is measured on the pixels as drawn at the size you are viewing. Resize the window and a corner
+      can change — that is the rule working, but it means there is no single "right" answer to memorise.</li>
+    <li>The faint wash under the price line counts as empty below a threshold. A different threshold would move
+      a borderline corner.</li>
+    <li>Six cases are six cases. They were picked by scoring 70-session windows across 18 symbols, but a shape
+      this page does not contain — a long quiet chart with one spike, say — has not been tried.</li>
+    <li>The lens here is a still picture of a placement decision. How it feels while you pan and zoom a live
+      Station chart is not tested by this page.</li>
+  </ul>
+</section>
+
+<section class="panel">
+  <h2>What I did not do</h2>
+  <ul>
+    <li>No replay, no Geiger in motion, no Visual Engine — none of that belongs to the lens.</li>
+    <li>I did not change the Station chart, the clouds, or any other Station page. This page only reads them.</li>
+    <li>I did not deploy or push. Nothing here is live until the coordinator merges it.</li>
+    <li>I did not wire the lens into the Station chart itself. This is the decision workshop that comes first.</li>
+  </ul>
+</section>
+
+<section class="panel shots" id="shots">
+  <h2>Screenshots</h2>
+  <figure><img src="screens/gallery-1680.jpg" alt="The gallery at 1680 pixels wide">
+    <figcaption>The page at 1680 wide — the top of it; the whole strip is in
+      <code>screens/gallery-1680.jpg</code>.</figcaption></figure>
+  <figure><img src="screens/gallery-390.jpg" alt="The gallery at 390 pixels wide">
+    <figcaption>The page at 390 wide (phone) — the top of it; the whole strip is in
+      <code>screens/gallery-390.jpg</code>.</figcaption></figure>
+  <figure><img src="screens/case-uptrend-1680.png" alt="The uptrend case at 1680 wide">
+    <figcaption>The uptrend case on its own: the lens sits top left, and the bottom right is refused as too
+      painted on rather than as covering price.</figcaption></figure>
+  <figure><img src="screens/case-sideways-shelf-1680.png" alt="The sideways case at 1680 wide">
+    <figcaption>The sideways case: no corner survives, so the lens parks below the chart.</figcaption></figure>
+  <figure><img src="screens/case-turndown-1680.png" alt="The turn-down case at 1680 wide">
+    <figcaption>The turn-down case: the preferred top right is free, and the lens stays there.</figcaption></figure>
+</section>
+</div>
+
+<script type="module">
+import { choose, DEFAULTS, CORNERS } from "./lens-placement.mjs";
+
+const KNOBS = { ...DEFAULTS, detailBars: 24, candidates: true };
+const CORNER_NAME = { tl:"top left", tc:"top centre", tr:"top right",
+                      bl:"bottom left", bc:"bottom centre", br:"bottom right" };
+const STAGE_CSS = `
+  html,body{margin:0;background:#0c0c0e;height:100%}
+  #cl2-stage{position:relative;width:100%;height:100%;padding:0;display:flex;flex-direction:column}
+  #cl2-chart{position:relative;flex:1 1 auto;min-height:0}
+  #cl2-shelfrow{flex:0 0 auto;border-top:1px solid #2b2b30;background:#0c0c0e;padding:5px 8px 7px}
+  #cl2-stage .sc-nchart{height:100%}
+  #cl2-stage .sc-nchart__bar{pointer-events:none}    /* a workshop still: the pane's controls are inert */
+  .cl2-lens{position:absolute;border:1px solid #55555c;border-radius:5px;background:#101013;
+    box-shadow:0 6px 18px rgba(0,0,0,.55);overflow:hidden;z-index:6}
+  .cl2-lens .sc-nchart__bar{display:none}
+  .cl2-lens-head{display:flex;justify-content:space-between;align-items:center;gap:6px;
+    padding:3px 6px;border-bottom:1px solid #2b2b30;
+    font:9.5px/1.4 "SF Mono",ui-monospace,Menlo,monospace;letter-spacing:.1em;color:#8c8c93}
+  .cl2-lens-body{position:relative}
+  .cl2-here{position:absolute;top:0;bottom:0;background:rgba(190,190,198,.13);
+    border-left:1px solid rgba(200,200,208,.5);border-right:1px solid rgba(200,200,208,.5);pointer-events:none}
+  .cl2-cand{position:absolute;border:1px dashed #44444b;border-radius:5px;z-index:4;
+    font:9.5px/1.3 "SF Mono",ui-monospace,Menlo,monospace;color:#6e6e75;padding:3px 5px}
+  .cl2-cand.no{border-style:dotted;opacity:.5}
+  .cl2-shelf{position:relative;width:100%;border:1px solid #55555c;border-radius:5px;background:#101013}
+`;
+
+/* the controls open showing the recommended state the page is actually drawing */
+function syncKnobs() {
+  document.getElementById("k-size").value = KNOBS.size;
+  document.getElementById("k-prefer").value = KNOBS.prefer;
+  document.getElementById("k-margin").value = KNOBS.margin;
+  document.getElementById("k-margin-v").textContent = KNOBS.margin;
+  document.getElementById("k-view").value = KNOBS.view;
+  document.getElementById("k-detail").value = KNOBS.detailBars;
+  document.getElementById("k-detail-v").textContent = KNOBS.detailBars;
+  document.getElementById("k-maxink").value = Math.round(KNOBS.maxInk * 100);
+  document.getElementById("k-maxink-v").textContent = Math.round(KNOBS.maxInk * 100);
+  document.getElementById("k-op").value = KNOBS.opacity;
+  document.getElementById("k-op-v").textContent = KNOBS.opacity;
+  const cand = document.getElementById("k-cand");
+  cand.setAttribute("aria-pressed", String(KNOBS.candidates));
+  cand.textContent = KNOBS.candidates ? "Shown faded" : "Hidden";
+}
+syncKnobs();
+
+const cases = await fetch("cases/manifest.json").then((r) => r.json());
+const host = document.getElementById("cases");
+const cards = [];
+
+for (const c of cases.cases) {
+  const el = document.createElement("section");
+  el.className = "case";
+  el.innerHTML = `<div class="case-head">
+      <div class="k">${c.id.replace("turnup","turn up").replace("turndown","turn down").replace("side","sideways")}</div>
+      <div class="t">${c.title} — ${c.symbol}, ${c.period}</div>
+      <div class="s">${c.note}</div>
+    </div>
+    <div class="frame-wrap"><iframe class="frame" title="${c.title} — ${c.symbol}"
+      src="../../../chart/index.html?bare=1&clouds=1"></iframe></div>
+    <div class="readout"><span class="line">measuring…</span><div class="corners"></div></div>`;
+  host.appendChild(el);
+  const card = { def: c, el, frame: el.querySelector("iframe"), data: null, ready: false };
+  card.frame.addEventListener("load", () => { card.ready = true; paint(card); });
+  fetch(c.file).then((r) => r.json()).then((d) => { card.data = d; if (card.ready) paint(card); });
+  cards.push(card);
+}
+
+function seriesOf(data) {
+  return data.bars.map(([t, p]) => ({ d: new Date(t).toISOString(), p }));
+}
+
+function paint(card) {
+  const { frame, data, def } = card;
+  if (!data) return;
+  const win = frame.contentWindow, doc = frame.contentDocument;
+  if (!win || !doc || !win.scChartDraw || !win.scChartHTML) {
+    /* The renderer is the Station's own chart page. If it cannot be reached, say so in
+       words rather than leaving a box that says "measuring" for ever. */
+    card.waited = (card.waited || 0) + 1;
+    if (card.waited > 70) {
+      card.el.querySelector(".readout .line").textContent =
+        "the Station chart page could not be loaded from ../../../chart/index.html — open this page from the Station, over http, not from a file";
+      return;
+    }
+    setTimeout(() => paint(card), 120);
+    return;
+  }
+  card.waited = 0;
+
+  if (!doc.getElementById("cl2-style")) {
+    const st = doc.createElement("style"); st.id = "cl2-style"; st.textContent = STAGE_CSS;
+    doc.head.appendChild(st);
+  }
+  doc.body.innerHTML = '<div id="cl2-stage"><div id="cl2-chart"></div></div>';
+  const stage = doc.getElementById("cl2-stage");
+  const chartBox = doc.getElementById("cl2-chart");
+  chartBox.innerHTML = win.scChartHTML(def.symbol);
+
+  const pane = chartBox.querySelector(".sc-nchart");
+  const pts = seriesOf(data);
+  pane.dataset.t = def.symbol;
+  pane._series = pts;
+  if (win.applyCloudRows) win.applyCloudRows(pane, def.symbol, pts);
+  win.setChartView(pane, def.i0, def.i1, false, false);
+
+  let plot = pane._plot;
+  const area = pane.querySelector(".sc-nchart__area");
+  const cv = pane.querySelector(".sc-nchart__cv");
+  const out = card.el.querySelector(".readout .line");
+  const chips = card.el.querySelector(".readout .corners");
+  chips.innerHTML = "";
+  if (!plot || !cv) { out.textContent = "the pane did not draw at this size"; return; }
+
+  /* ink, read from the chart's own canvas: transparent pixels are empty, anything
+     painted above a faint-wash threshold counts as drawn on. */
+  const dpr = cv.width / Math.max(1, area.clientWidth);
+  let img = null;
+  try { img = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height); } catch (_) {}
+  const ink = img
+    ? (x, y) => {
+        const px = Math.round(x * dpr), py = Math.round(y * dpr);
+        if (px < 0 || py < 0 || px >= img.width || py >= img.height) return true;
+        return img.data[(py * img.width + px) * 4 + 3] > 24;
+      }
+    : null;
+
+  const res = choose({ plot, series: pts, ink, size: KNOBS.size, prefer: KNOBS.prefer,
+                       margin: KNOBS.margin, maxInk: KNOBS.maxInk, edge: DEFAULTS.edge });
+
+  /* The corners it did not take. When the answer is the shelf the chart is about to get
+     shorter, so boxes measured against the taller pane would be drawn in the wrong place:
+     the readout lists all six with their reasons instead. */
+  if (KNOBS.candidates && res.kind !== "shelf") {
+    for (const r of res.considered) {
+      if (res.spot && r.corner === res.spot.corner && r.size === res.size) continue;
+      if (r.size !== res.size) continue;
+      const box = doc.createElement("div");
+      box.className = "cl2-cand" + (r.clear ? "" : " no");
+      box.style.cssText = `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px`;
+      box.textContent = r.w < 130 ? r.corner.toUpperCase()
+        : r.clear ? `${r.corner.toUpperCase()} · ${(r.ink * 100).toFixed(0)}% drawn on`
+        : r.refused === "too busy" ? `${r.corner.toUpperCase()} · too busy, ${(r.ink * 100).toFixed(0)}% drawn on`
+        : `${r.corner.toUpperCase()} · covers price`;
+      area.appendChild(box);
+    }
+  }
+
+  const lens = doc.createElement("div");
+  lens.className = "cl2-lens";
+  lens.style.opacity = String(KNOBS.opacity);
+  const detail = KNOBS.view === "detail";
+  const label = detail ? `DETAIL · LAST ${KNOBS.detailBars}` : "CONTEXT · FULL HISTORY";
+  if (res.kind === "shelf") {
+    /* THE SHELF SITS BELOW THE CHART, NOT ON IT. The whole point of the fallback is that
+       nothing covers price, so the pane gives up height and the lens takes the strip under it. */
+    lens.classList.add("cl2-shelf");
+    const shelfH = Math.round(Math.min(132, Math.max(88, area.clientHeight * 0.36)));
+    lens.style.height = shelfH + "px";
+    const row = doc.createElement("div");
+    row.id = "cl2-shelfrow";
+    row.appendChild(lens);
+    stage.appendChild(row);
+    win.scChartDraw(pane);                  /* the chart is shorter now; redraw it honestly */
+    plot = pane._plot || plot;
+  } else {
+    lens.style.cssText += `left:${res.spot.x}px;top:${res.spot.y}px;width:${res.spot.w}px;height:${res.spot.h}px`;
+    area.appendChild(lens);
+  }
+  /* a 116px bubble cannot carry a three-line heading: below that the label is the short
+     one and the dates come off, because the chart inside is what the bubble is for */
+  const narrow = (res.kind === "shelf" ? area.clientWidth : res.spot.w) < 170;
+  lens.insertAdjacentHTML("afterbegin",
+    `<div class="cl2-lens-head"><span>${narrow ? label.split(" · ")[0] : label}</span>` +
+    `<span class="cl2-range"${narrow ? ' hidden' : ""}></span></div>`);
+  lens.insertAdjacentHTML("beforeend", '<div class="cl2-lens-body"></div>');
+
+  /* the lens is another Station pane, drawn by the same code, with the toolbar left off */
+  const body = lens.querySelector(".cl2-lens-body");
+  const headH = lens.querySelector(".cl2-lens-head").getBoundingClientRect().height || 16;
+  const lw = lens.getBoundingClientRect().width, lh = lens.getBoundingClientRect().height;
+  body.style.cssText = `width:${lw}px;height:${Math.max(28, lh - headH)}px`;
+  body.innerHTML = `<div class="sc-nchart" data-t="${def.symbol}" style="width:100%;height:100%">
+      <div class="sc-nchart__area" style="width:100%;height:100%"><canvas class="sc-nchart__cv"></canvas>
+      <div class="sc-nchart__msg" hidden></div>
+      <button type="button" class="sc-nchart__cap" hidden></button></div></div>`;
+  const mini = body.querySelector(".sc-nchart");
+  mini.dataset.t = def.symbol;
+  mini._series = pts;
+  if (win.applyCloudRows) win.applyCloudRows(mini, def.symbol, pts);
+  /* Both panes end on the same bar: the bubble shows the history BEHIND where you stand,
+     never bars the main chart has not reached. That also keeps both panes the same colour,
+     because the Station colours a pane by its own last bar against the one before it. */
+  if (detail) win.setChartView(mini, Math.max(0, def.i1 - KNOBS.detailBars), def.i1, false, false);
+  else win.setChartView(mini, 0, def.i1, false, false);
+
+  const first = detail ? Math.max(0, def.i1 - KNOBS.detailBars) : 0;
+  lens.querySelector(".cl2-range").textContent =
+    `${data.bars[first][0] ? new Date(data.bars[first][0]).toISOString().slice(0, 10) : ""} → ${def.period.slice(-10)}`;
+
+  /* context view marks the window the big chart is showing */
+  if (!detail && mini._plot) {
+    const mp = mini._plot, span = Math.max(1, mp.end - mp.start + (mp.rightBars || 0));
+    const x = (i) => mp.padL + ((i - mp.start) / span) * mp.iw;
+    const here = doc.createElement("div");
+    here.className = "cl2-here";
+    here.style.cssText = `left:${x(def.i0)}px;width:${Math.max(2, x(def.i1) - x(def.i0))}px`;
+    body.querySelector(".sc-nchart__area").appendChild(here);
+  }
+
+  const size = { L:"large", M:"medium", S:"small" }[res.size];
+  out.innerHTML = res.kind === "shelf"
+    ? `<b>Parked below the chart.</b> ${res.why} — at ${KNOBS.margin}px clearance no corner is free.`
+    : `<b>${CORNER_NAME[res.spot.corner]}</b>, ${size}${res.shrunk ? " (shrunk to fit)" : ""} — ${res.why}.`;
+  for (const r of res.considered.filter((r) => r.size === res.size)) {
+    const chip = doc.createElement("span");
+    const s = document.createElement("span");
+    s.className = "corner-chip" + (res.spot && r.corner === res.spot.corner ? " on" : "")
+      + (r.clear ? "" : " no");
+    s.textContent = r.clear ? `${r.corner.toUpperCase()} ${(r.ink * 100).toFixed(0)}%`
+      : r.refused === "too busy" ? `${r.corner.toUpperCase()} too busy ${(r.ink * 100).toFixed(0)}%`
+      : `${r.corner.toUpperCase()} covers price`;
+    chips.appendChild(s);
+    void chip;
+  }
+}
+
+/* ---- knobs redraw every case at once ---- */
+const bind = (id, key, after) => {
+  const el = document.getElementById(id);
+  el.addEventListener("input", () => {
+    KNOBS[key] = el.type === "range" ? Number(el.value) : el.value;
+    if (after) after(el.value);
+    cards.forEach(paint);
+  });
+  return el;
+};
+bind("k-size", "size");
+bind("k-prefer", "prefer");
+bind("k-margin", "margin", (v) => { document.getElementById("k-margin-v").textContent = v; });
+document.getElementById("k-maxink").addEventListener("input", (e) => {
+  KNOBS.maxInk = Number(e.target.value) / 100;
+  document.getElementById("k-maxink-v").textContent = e.target.value;
+  cards.forEach(paint);
+});
+bind("k-view", "view");
+bind("k-detail", "detailBars", (v) => { document.getElementById("k-detail-v").textContent = v; });
+bind("k-op", "opacity", (v) => { document.getElementById("k-op-v").textContent = v; });
+document.getElementById("k-cand").addEventListener("click", (e) => {
+  KNOBS.candidates = !KNOBS.candidates;
+  e.currentTarget.setAttribute("aria-pressed", String(KNOBS.candidates));
+  e.currentTarget.textContent = KNOBS.candidates ? "Shown faded" : "Hidden";
+  cards.forEach(paint);
+});
+document.getElementById("k-reset").addEventListener("click", () => {
+  Object.assign(KNOBS, DEFAULTS, { detailBars: 24, candidates: true });
+  syncKnobs();
+  document.getElementById("k-size").value = KNOBS.size;
+  document.getElementById("k-prefer").value = KNOBS.prefer;
+  document.getElementById("k-margin").value = KNOBS.margin;
+  document.getElementById("k-margin-v").textContent = KNOBS.margin;
+  document.getElementById("k-view").value = KNOBS.view;
+  document.getElementById("k-detail").value = KNOBS.detailBars;
+  document.getElementById("k-detail-v").textContent = KNOBS.detailBars;
+  document.getElementById("k-maxink").value = Math.round(KNOBS.maxInk * 100);
+  document.getElementById("k-maxink-v").textContent = Math.round(KNOBS.maxInk * 100);
+  document.getElementById("k-op").value = KNOBS.opacity;
+  document.getElementById("k-op-v").textContent = KNOBS.opacity;
+  const cand = document.getElementById("k-cand");
+  cand.setAttribute("aria-pressed", "true"); cand.textContent = "Shown faded";
+  cards.forEach(paint);
+});
+addEventListener("resize", () => { clearTimeout(window.__cl2t); window.__cl2t = setTimeout(() => cards.forEach(paint), 250); });
+void CORNERS;
+</script>
+</body></html>
