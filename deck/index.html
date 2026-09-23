@@ -324,6 +324,10 @@ body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
    tall or very wide wall never starves either pane. Phone stacking, the media expansions and row
    solo keep their own geometry; the lock only applies to the ordinary two-pane row. */
 #rowBot > .pane.video-fit{ flex:0 0 auto; }
+/* The feed is chosen in the video pane's own dropdown (it already swaps the pane on the wall), so
+   the top bar does not carry a second copy of that choice. Alan, 23 Sep: "you're throwing more
+   controls at the top menu bar that's already too crowded... there's a drop down right there". */
+.dsec[data-sec="video"]{ display:none !important; }
 
 /* Media has its own deliberate expansion ladder. Stage one gives the chosen
    YouTube pane the whole two-video region while X stays visible. Stage two is
@@ -968,7 +972,12 @@ function videoFitWidth(rowWidth, paneHeight, chromePx, aspect) {
   const usable = Math.max(0, (Number(paneHeight) || 0) - chrome);
   const row = Math.max(0, Number(rowWidth) || 0);
   const ideal = usable * ratio;
-  return Math.round(Math.min(row * VIDEO_FIT_MAX, Math.max(row * VIDEO_FIT_MIN, ideal)));
+  /* Alan, 23 Sep: "Let's just give the YouTube 50-50." Measured why the fitted width did not feel
+     bigger: the picture is capped by the ROW HEIGHT (a 16:9 video in a ~445 px tall pane is ~790 px
+     wide whatever the pane width), so narrowing the pane only moved space to X and the balance felt
+     off. Half and half, always; the expand button is what makes the video bigger (it adds height). */
+  void ideal; void VIDEO_FIT_MIN; void VIDEO_FIT_MAX;
+  return Math.round(row * 0.5);
 }
 /* A solo of a chart leaves the bottom row alone; a solo IN the bottom row owns that row's geometry. */
 function soloInBottomRow() {

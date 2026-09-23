@@ -135,15 +135,16 @@ test("3b · the tabs come first, every list keeps its chip, the old links still 
   assert.match(fnFrom(pane, "cardHTML"), /class="dur"/, "and still painted on the thumbnail");
 });
 
-test("4 · the pane on the wall is as wide as its height allows for 16:9, chrome subtracted, clamped", () => {
+test("4 · the video pane and X split the bottom row 50/50 (Alan, 23 Sep)", () => {
   const { videoFitWidth, VIDEO_CHROME_FALLBACK_PX } = deckApi;
   assert.equal(VIDEO_CHROME_FALLBACK_PX, 25);
-  assert.equal(videoFitWidth(1920, 495, 25), 836, "1080p wall: (495 − 25) × 16/9");
-  assert.equal(videoFitWidth(1920, 495, undefined), 836, "until the shell reports its bar, the fallback is used");
-  assert.equal(videoFitWidth(1920, 495, 25, 4 / 3), 627, "a per-channel aspect is honoured");
-  assert.equal(videoFitWidth(1000, 900, 25), 600, "never more than 60% of the row: X keeps its space");
-  assert.equal(videoFitWidth(1920, 200, 25), 576, "never less than 30% of the row: the grid keeps its space");
+  // "Let's just give the YouTube 50-50." The picture is capped by the row height, so a wider pane
+  // bought only black bars; half and half at every width and height.
+  for (const [row, h] of [[1920, 495], [1440, 445], [1000, 900], [1920, 200]]) {
+    assert.equal(videoFitWidth(row, h, 25), Math.round(row / 2), `${row}px row → half`);
+  }
   assert.equal(videoFitWidth(0, 495, 25), 0);
+  assert.match(deck, /\.dsec\[data-sec="video"\]\{ display:none !important; \}/, "the feed choice lives in the pane dropdown, not the top bar");
   const fit = fnFrom(deck, "fitVideoPane");
   assert.match(fit, /o\.def\.key === VIDEO_FEED && !STACKED && MEDIA_STAGE === 0 && !soloInBottomRow\(\)/, "the lock only applies to the ordinary two-pane row");
   assert.match(fit, /o\.node\.style\.width = ""/, "and stands down cleanly");
