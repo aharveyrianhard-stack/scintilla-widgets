@@ -31,3 +31,6 @@ test("the deck checks every three minutes and first after fifteen seconds", () =
   assert.match(deck, /const SELF_UPDATE_MS = 180000;/);
   assert.match(deck, /fetch\(path, \{ method:"HEAD", cache:"no-store" \}\)/);
 });
+test("the deck watches its own file, not the redirect page its tidied address points at", () => {
+  assert.match(deck, /const files = \{ deck: "\/deck\/index\.html", chart: STATION_SHELL\.chart \+ "\/index\.html", provider: "\/_provider\/provider\.js" \};/);
+});
