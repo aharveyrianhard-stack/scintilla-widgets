@@ -124,6 +124,11 @@ html[data-view="ipad"] .btn{ font-size:var(--ipad-btn-size); padding:var(--ipad-
 html[data-view="ipad"] .btn.icon{ width:var(--ipad-icon-size); height:var(--ipad-icon-height); padding:var(--ipad-btn-pad-y); }
 html[data-view="compact"] .btn{ font-size:7px; padding:2px 5px; }
 html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
+/* The pane's one state line: it carried the hidden attribute and nothing removed
+   it, so every state it reported was invisible. It shows when it has something to say. */
+#xfState{ color:var(--dim,#868AAA); font-size:10px; letter-spacing:.08em; white-space:nowrap; align-self:center; }
+#xfState.on{ color:var(--crk,#00D4FF); }
+#xfState.warn{ color:#C6C8DE; }
 </style>
 </head>
 <body>
@@ -140,7 +145,7 @@ html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
   <span class="btn" id="bXRefresh" style="display:none">refresh</span>
   <span class="btn go" id="bStart" style="display:none">browser picker</span>
   <span class="btn" id="bStop" style="display:none">stop</span>
-  <button class="btn pair" id="bPair" type="button" style="display:none">pair iPad</button>
+  <button class="btn pair" id="bPair" type="button" style="display:none">iPad link</button>
   <span class="btn" id="bPip" style="display:none" title="float this in its own always-on-top window">pip</span>
   <span class="lbl" id="lz" style="display:none">zoom</span>
   <input type="range" id="z" min="100" max="400" value="150" style="display:none">
@@ -279,6 +284,97 @@ let directPeerReconnect = null;
 let directPeerWatchdog = null;
 const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
 const STATION_JOIN_TIMEOUT_MS = 5000;
+/* ATTACHED IS NOT ALIVE. The iMac showed this pane's live controls with no moving
+   picture: a stream object still attached while no frame and no crop had arrived.
+   The existing reconnect only fires when the stream goes INACTIVE, which a frozen
+   capture never does. */
+const STATION_STALL_MS = 6000;
+const STATION_RELINK_COOLDOWN_MS = 12000;
+const STATION_RELINK_GIVEUP = 3;
+let stationLastFrameAt = 0, stationLastCropAt = 0, stationAttachedAt = 0;
+let stationRelinkAt = 0, stationRelinkTries = 0, stationHealthTimer = 0, stationFrameProbe = 0;
+
+/* Pure, so a test can kill the frames without a browser. */
+function stationLinkPlan(now, s) {
+  if (!s || !s.attached) return { state:"", relink:false, stalled:false };
+  const seen = Math.max(Number(s.lastFrameAt) || 0, Number(s.lastCropAt) || 0, Number(s.attachedAt) || 0);
+  const quiet = now - seen;
+  if (!(quiet >= STATION_STALL_MS)) return { state:"", relink:false, stalled:false };
+  const secs = Math.round(quiet / 1000);
+  const tries = Number(s.tries) || 0;
+  if (tries >= STATION_RELINK_GIVEUP)
+    return { state:"no picture for " + secs + "s · the X window may be closed", relink:false, stalled:true };
+  const waited = now - (Number(s.lastRelinkAt) || 0);
+  if (s.lastRelinkAt && waited < STATION_RELINK_COOLDOWN_MS)
+    return { state:"relinking · " + secs + "s without a frame", relink:false, stalled:true };
+  return { state:"relinking · " + secs + "s without a frame", relink:true, stalled:true };
+}
+
+function showStationState(text, tone) {
+  const node = el("xfState");
+  if (!node) return;
+  node.textContent = text || "";
+  node.hidden = !text;
+  node.classList.toggle("on", tone === "on");
+  node.classList.toggle("warn", tone === "warn");
+}
+
+function noteStationFrame() { stationLastFrameAt = Date.now(); }
+
+function watchStationFrames(video, mediaStream) {
+  if (!video) return;
+  if (typeof video.requestVideoFrameCallback === "function") {
+    const step = () => {
+      if (video.srcObject !== mediaStream) return;
+      noteStationFrame();
+      stationFrameProbe = video.requestVideoFrameCallback(step);
+    };
+    stationFrameProbe = video.requestVideoFrameCallback(step);
+    return;
+  }
+  let last = -1;
+  stationFrameProbe = setInterval(() => {
+    if (video.srcObject !== mediaStream) { clearInterval(stationFrameProbe); stationFrameProbe = 0; return; }
+    if (video.currentTime !== last) { last = video.currentTime; noteStationFrame(); }
+  }, 500);
+}
+
+function relinkStation() {
+  stationRelinkAt = Date.now();
+  stationRelinkTries += 1;
+  if (REMOTE_MODE) { postXFloat("refresh"); return; }
+  window.postMessage({ type:"XFF_STATION_RECONNECT_VIEWER" }, location.origin);
+  try { announceViewerClock(true); } catch (_) {}
+}
+
+function runStationHealth() {
+  const plan = stationLinkPlan(Date.now(), {
+    attached: Boolean(xfloatStream),
+    lastFrameAt: stationLastFrameAt,
+    lastCropAt: stationLastCropAt,
+    attachedAt: stationAttachedAt,
+    lastRelinkAt: stationRelinkAt,
+    tries: stationRelinkTries
+  });
+  if (!plan.stalled) { if (stationRelinkTries && xfloatStream) stationRelinkTries = 0; return; }
+  showStationState(plan.state, "warn");
+  if (plan.relink) relinkStation();
+}
+
+function startStationHealth() {
+  if (stationHealthTimer) clearInterval(stationHealthTimer);
+  stationAttachedAt = Date.now();
+  stationLastFrameAt = 0; stationLastCropAt = 0; stationRelinkAt = 0; stationRelinkTries = 0;
+  stationHealthTimer = setInterval(runStationHealth, 1000);
+}
+
+function stopStationHealth() {
+  if (stationHealthTimer) clearInterval(stationHealthTimer);
+  stationHealthTimer = 0;
+  if (stationFrameProbe && typeof stationFrameProbe === "number") { try { clearInterval(stationFrameProbe); } catch (_) {} }
+  stationFrameProbe = 0;
+  stationRelinkTries = 0; stationRelinkAt = 0; stationLastFrameAt = 0; stationLastCropAt = 0; stationAttachedAt = 0;
+}
 const DIRECT_PEER_RECONNECT_DELAY_MS = 700;
 const DIRECT_PEER_TRACK_TIMEOUT_MS = 2600;
 
@@ -722,7 +818,7 @@ function scheduleDirectStationReconnect() {
   directPeerReconnect = setTimeout(() => {
     directPeerReconnect = null;
     if (xfloatStream?.active) return;
-    el("xfState").textContent = "reconnecting";
+    showStationState("reconnecting", "warn");
     window.postMessage({ type:"XFF_STATION_RECONNECT_VIEWER" }, location.origin);
   }, DIRECT_PEER_RECONNECT_DELAY_MS);
 }
@@ -779,8 +875,8 @@ function stopXFloat({ notify = true } = {}) {
   el("v").srcObject = stream;
   document.body.classList.remove("xfloat");
   xfloatControls(false);
-  el("xfState").textContent = "waiting";
-  el("xfState").classList.remove("on");
+  stopStationHealth();
+  showStationState("waiting");
   if (notify) window.postMessage({ type: "XFF_STATION_STOP" }, location.origin);
 }
 
@@ -914,8 +1010,10 @@ async function attachXFloatStream(mediaStream) {
   document.body.classList.remove("live");
   document.body.classList.add("xfloat");
   xfloatControls(true);
-  el("xfState").textContent = "live";
-  el("xfState").classList.add("on");
+  showStationState("live", "on");
+  startStationHealth();
+  noteStationFrame();
+  watchStationFrames(el("v"), xfloatStream);
   const activeStream = xfloatStream;
   xfloatStream.getVideoTracks()[0]?.addEventListener("ended", () => {
     if (xfloatStream !== activeStream) return;
@@ -1140,7 +1238,7 @@ window.addEventListener("message", (event) => {
   if (event.data?.type === "XFF_STATION_BRIDGE_READY" && event.data.instanceId) {
     stationBridgeInstanceId = String(event.data.instanceId);
     flushStationRemoteOffers();
-    if (!xfloatStream) el("xfState").textContent = "ready";
+    if (!xfloatStream) showStationState("ready");
   }
   if (event.data?.type === "XFF_STATION_BRIDGE_REANNOUNCING" &&
       String(event.data.instanceId || "") === stationBridgeInstanceId) {
@@ -1173,7 +1271,8 @@ window.addEventListener("message", (event) => {
   if (event.data?.type === "XFF_STATION_CROP") {
     receiveViewerCrop(event.data.crop);
     const paused = Boolean(xfloatCrop?.paused);
-    if (xfloatStream?.active) el("xfState").textContent = paused ? "paused" : "live";
+    stationLastCropAt = Date.now();
+    if (xfloatStream?.active) showStationState(paused ? "paused" : "live", "on");
     else scheduleDirectStationReconnect();
     paintXView(xfloatCrop?.activeView || "trading");
     if (stationPair) stationPair.room?.publish("crop", xfloatCrop);
@@ -1181,7 +1280,7 @@ window.addEventListener("message", (event) => {
   if (event.data?.type === "XFF_STATION_STATUS") {
     if (event.data.status === "stopped") stopXFloat({ notify: false });
     else if (event.data.status === "error") showErr(event.data.detail || "Station X could not connect.");
-    else if (!xfloatStream) el("xfState").textContent = event.data.status || "waiting";
+    else if (!xfloatStream) showStationState(event.data.status || "waiting");
   }
 });
 
