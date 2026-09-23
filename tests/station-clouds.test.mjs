@@ -298,10 +298,11 @@ test("both chart surfaces load the ribbon module, and the pinned shell is byte-i
 test("the ribbon is drawn behind the price, never over it", () => {
   const draw = chart.slice(chart.indexOf("function scChartDraw"), chart.indexOf("function clearChartRetry"));
   const ribbon = draw.indexOf("drawCloudRibbon(ctx");
-  const gradient = draw.indexOf("createLinearGradient");
   const priceStroke = draw.indexOf("ctx.strokeStyle = c; ctx.lineWidth = 2");
-  assert.ok(ribbon > 0 && gradient > ribbon && priceStroke > ribbon,
-    "clouds are painted first, then the price fill and the price line on top");
+  assert.ok(ribbon > 0 && priceStroke > ribbon, "clouds are painted first, the price line on top");
+  /* 23 Sep: the price fill that used to sit between them is gone - Alan did not want
+     green and red shading under the line. The clouds are his and are untouched. */
+  assert.equal(draw.indexOf("createLinearGradient"), -1, "nothing is shaded under the price any more");
 });
 
 test("the ribbon costs the price chart nothing: it is read after the paint, through the deck's queue", () => {
