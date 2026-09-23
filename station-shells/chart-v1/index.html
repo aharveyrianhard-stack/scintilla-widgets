@@ -1909,9 +1909,28 @@ function scChartLive(t, price, updatedTs, previousClose) {
    from: the provider's previous close for the pane's CURRENT ticker, read live rather than
    copied, so a pane whose ticker changed cannot keep the old symbol's baseline. Null means
    unknown — never a substitute, never zero. */
+/* The previous session's close, read from the bars already on screen. The candles payload does not
+   carry a previous close and the quote push that does can take seconds, so without this the line
+   painted in a neutral ink first and only turned green or red when a second request landed - the
+   "gray line" Alan kept seeing. Up or down against yesterday is derivable from the series itself. */
+function chSeriesPrevClose(host) {
+  const pts = host && host._series;
+  if (!Array.isArray(pts) || pts.length < 2) return null;
+  const etDay = (iso) => { try { return new Date(iso).toLocaleDateString("en-US", { timeZone:"America/New_York" }); } catch (e) { return null; } };
+  const last = etDay(pts[pts.length - 1].d);
+  if (!last) return null;
+  for (let i = pts.length - 2; i >= 0 && i >= pts.length - 400; i--) {
+    if (etDay(pts[i].d) !== last) { const v = +pts[i].p; return Number.isFinite(v) && v !== 0 ? v : null; }
+  }
+  return null;
+}
 function chDayRef(host) {
-  const v = prevClose[host && host.dataset ? host.dataset.t : null];
-  return v != null && Number.isFinite(+v) && +v !== 0 ? +v : null;
+  const t = host && host.dataset ? host.dataset.t : null;
+  const v = prevClose[t];
+  if (v != null && Number.isFinite(+v) && +v !== 0) return +v;
+  const s = chSeriesPrevClose(host);
+  if (s != null && t) prevClose[t] = s;   /* the badge and the live marker read the same baseline */
+  return s;
 }
 
 function chDayChange(price, previousClose) {
