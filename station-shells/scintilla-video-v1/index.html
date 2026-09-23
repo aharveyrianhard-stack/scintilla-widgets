@@ -31,7 +31,9 @@
      button does that. Where the browser supports Document PiP and we are
      top-level, the button here does it directly.
 
-     Params: ?feed=personal|scintilla|market · ?list=default|all|shorts|watch · ?v=VIDEOID
+     Params: ?feed=personal|scintilla|soundscapes|golf|ai_research|fitness|market
+             · ?mode=grid|videos|shorts (GRID · VIDEOS · SHORTS tabs; ?list=shorts still works)
+             · ?list=default|subscribed|watch · ?v=VIDEOID
              · ?autoplay=1 · ?limit=60 (10-200) · ?t=MU · ?cols=N (force)
      DB reads only, never FMP · youtube_feed · scintilla-live.
      Receipt: HSC-PANEVIDEO-001.
@@ -67,12 +69,20 @@ button.btn{ appearance:none; border-radius:0; font-family:var(--mono); line-heig
 .btn:disabled{ color:var(--mute); border-color:var(--line); cursor:default; opacity:.48; }
 #chips{ flex:1 1 0; min-width:0; display:flex; gap:4px; overflow-x:auto; scrollbar-width:none; }
 #chips::-webkit-scrollbar{ display:none; }
+/* GRID · VIDEOS · SHORTS sit first in the chip row; a hairline separates them from the list chips.
+   Same .btn as every other control — no new colour, the active tab uses the existing "on" state. */
+#chips .sep{ flex:none; width:1px; height:11px; background:var(--line); margin:0 3px; align-self:center; }
 #q{ display:none; flex:1 1 90px; min-width:70px; background:var(--bg); border:1px solid var(--line);
   color:var(--ink); font-family:var(--mono); font-size:11px; padding:3px 6px; outline:none;
   border-radius:0; -webkit-appearance:none; }
 body.searching #q{ display:block; }
 #q:focus{ border-color:var(--crk); }
 #bFull{ margin-left:0; }
+/* Once the profile select is on the bar it names the feed; the label beside it said the same word. */
+body.has-profile-select .k{ display:none; }
+/* An awaiting channel explains itself in sentence case; the shouting caps are for one-line states. */
+.msg.note{ text-transform:none; letter-spacing:.04em; font-size:9.5px; line-height:1.6; color:var(--ink3);
+  max-width:560px; margin:0 auto; }
 
 /* ---- THE GRID. Thumbnails, counted from our own width. ---- */
 #grid{ flex:1 1 0; min-height:0; overflow-y:auto; -webkit-overflow-scrolling:touch;
@@ -270,6 +280,15 @@ const FEED_PROFILES = [
      it becomes selectable the moment rows carry the account, with no code change. */
   { key: "golf",        account: "golf",        label: "GOLF",
     note: "awaiting the golf account/channel" },
+  /* 22 Sep, Alan: "The channels are ready: the Soundscape one, the golf one, another one for AI
+     research, and I'm thinking of making another one for fitness." Declared here so the pane, the
+     deck's feed switch and the collectors agree on ONE account key per channel. Measured on the
+     live feed on 2026-09-23 (first 1,000 rows): personal 112, scintilla 137, unscoped 750, and no
+     row carries any of these four yet — each stays "awaiting" until its identity is connected. */
+  { key: "ai_research", account: "ai_research", label: "AI RESEARCH",
+    note: "awaiting the ai_research account key in subscription_accounts" },
+  { key: "fitness",     account: "fitness",     label: "FITNESS",
+    note: "awaiting the fitness account/channel" },
   { key: "market",      account: null,          label: "MARKET SEARCH" }
 ];
 const FEED_PROFILE_KEYS = FEED_PROFILES.map((profile) => profile.key);
@@ -311,31 +330,96 @@ const FORCE  = +(QS.get("cols") || 0);
    it never asks the browser for Google device-code authorization. */
 const SUBSCRIBED = {
   id: "default", n: "subscribed",
-  q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}") + "&is_short=eq.false"
+  q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}")
 };
 const SCINTILLA_SUBSCRIBED = {
   id: "subscribed", n: "subscribed",
-  q: "&subscription_accounts=cs." + encodeURIComponent("{scintilla}") + "&is_short=eq.false"
+  q: "&subscription_accounts=cs." + encodeURIComponent("{scintilla}")
 };
-/* Shorts are a global discovery list.  Personal never mixes them into its
-   subscribed feed; SCINTILLA can show the same global Shorts list as Hub. */
-const ALL_SHORTS = { id: "shorts", n: "shorts", q: "&is_short=eq.true" };
+/* A LIST says WHICH rows (this feed's subscriptions, the shared grid, the saved set, market
+   search). Whether shorts are in it is no longer a list's business: that is the MODE below. The old
+   "shorts" and "all market" chips were the same idea folded into a list, and they are kept as
+   URLs (?list=shorts, ?list=all) so nothing that linked here breaks. */
 const LISTS = FEED === "market" ? [
-  { id: "default", n: "market",     q: "&tickers=not.is.null&tickers=neq.&is_short=eq.false" },
-  ALL_SHORTS,
-  { id: "all",     n: "all market", q: "&tickers=not.is.null&tickers=neq." },
+  { id: "default", n: "market", q: "&tickers=not.is.null&tickers=neq." },
 ] : FEED === "scintilla" ? [
-  { id: "default", n: "grid", q: "" },
+  { id: "default", n: "all", q: "" },
   SCINTILLA_SUBSCRIBED,
-  ALL_SHORTS,
   { id: "watch", n: "watch later", q: "" },
 ] : [SUBSCRIBED];
-let LIST = LISTS.some((l) => l.id === QS.get("list")) ? QS.get("list") : "default";
+const LEGACY_LIST = QS.get("list") || "";
+let LIST = LISTS.some((l) => l.id === LEGACY_LIST) ? LEGACY_LIST : "default";
+
+/* ── GRID · VIDEOS · SHORTS ──────────────────────────────────────────────────────────────────
+   Alan, 22 Sep: "a lot of very short shorts contaminate the grid. A combined grid, one of only
+   shorts, one of only videos." Three tabs, one axis, applied to whichever list is open.
+
+   WHAT A SHORT IS. Two rules, either one is enough: the platform's own flag (is_short, set by the
+   sweep's probe of youtube.com/shorts/) OR a length of 60 seconds or less. Measured on the live
+   feed on 2026-09-23: 3,859 rows are flagged, 183 sub-minute videos are NOT flagged, and 1,283
+   flagged Shorts run over a minute — so neither rule alone matches what Alan sees as a short.
+   The length rule is asked of the database as text (the feed serves duration as m:ss, never with
+   a leading zero, so "0:*" is every sub-minute length and "1:00" the boundary) and re-checked on
+   every row that lands, including the id-based watch list.
+
+   The default keeps what each feed showed before the tabs existed: a channel feed opened on its
+   videos only, the SCINTILLA grid and market search on everything. The choice is remembered per
+   feed on this device. */
+const MODES = [["grid", "grid"], ["videos", "videos"], ["shorts", "shorts"]];
+const MODE_KEYS = MODES.map(([key]) => key);
+const MODE_MEMORY = "station.video.mode." + FEED;
+const MODE_DEFAULT = FEED === "scintilla" || FEED === "market" ? "grid" : "videos";
+const SHORT_CLAUSE = "&or=(is_short.eq.true,duration.like.0:*,duration.eq.1:00)";
+const LONG_CLAUSE = "&is_short=eq.false&duration=not.like.0:*&duration=neq.1:00";
+function modeClause(mode) { return mode === "shorts" ? SHORT_CLAUSE : mode === "videos" ? LONG_CLAUSE : ""; }
+function durationSeconds(text) {
+  const parts = String(text == null ? "" : text).trim().split(":");
+  if (!parts.length || parts.some((part) => !/^\d+$/.test(part))) return null;
+  return parts.reduce((total, part) => total * 60 + Number(part), 0);
+}
+function isShortVideo(video) {
+  if (video && video.is_short === true) return true;
+  const seconds = durationSeconds(video && video.duration);
+  return seconds != null && seconds <= 60;
+}
+function inMode(video, mode) {
+  const m = mode || MODE;
+  return m === "grid" ? true : m === "shorts" ? isShortVideo(video) : !isShortVideo(video);
+}
+function rememberedMode() { try { return localStorage.getItem(MODE_MEMORY) || ""; } catch (_) { return ""; } }
+let MODE = MODE_KEYS.includes(QS.get("mode")) ? QS.get("mode")
+  : LEGACY_LIST === "shorts" ? "shorts"
+  : LEGACY_LIST === "all" ? "grid"
+  : MODE_KEYS.includes(rememberedMode()) ? rememberedMode() : MODE_DEFAULT;
+function setMode(next) {
+  if (!MODE_KEYS.includes(next) || next === MODE) return;
+  MODE = next;
+  try { localStorage.setItem(MODE_MEMORY, next); } catch (_) {}
+  paintChips(); load(LIST === "watch");
+}
+/* Inside the deck this pane is one of several feeds behind one switch; the deck owns which one is
+   on the wall, so the pane tells it about itself instead of navigating on its own. */
+const EMBEDDED = (() => { try { return window.parent !== window && QS.has("shell"); } catch (_) { return false; } })();
+function postChrome() {
+  if (!EMBEDDED) return;
+  try { parent.postMessage({ sc: "video-chrome", px: el("bar").offsetHeight, feed: FEED }, location.origin); } catch (_) {}
+}
 el("kk").textContent = FEED_PROFILE.label;
 
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
+/* true when the last read found NO row at all tagged with this feed's account — the channel is
+   still awaiting its identity or its first subscription, which is a different sentence from
+   "nothing in this tab". Decided by one id read, only when a page comes back empty. */
+let ACCOUNT_EMPTY = false;
 const LOCAL_SUBSCRIBED_CHANNELS = new Set(), SUBSCRIBE_PENDING = new Set();
 const SUBSCRIPTION_ACCOUNT = FEED_PROFILE.account || "personal";
+/* DEPLOY ORDER, GUARDED. Through the yt-act that is deployed today a Subscribe sent with an account
+   it does not know falls through to the PERSONAL identity and would create a real personal YouTube
+   subscription. So on a channel feed (soundscapes, golf, ai_research, fitness) Subscribe stays
+   disabled until the collectors that know the six accounts are live; flip this in the same change
+   that deploys them, in both video shells. PERSONAL and SCINTILLA are unaffected. */
+const CHANNEL_FEED_SUBSCRIBE_READY = false;
+const CHANNEL_FEED = !["personal", "scintilla"].includes(SUBSCRIPTION_ACCOUNT);
 let PLAYER_TOKEN = 0, PLAYER_ACCEPTED_TOKEN = 0, PLAYER_FALLBACK = 0, PLAYER_POSITION_POLL = 0;
 let YT_PLAYER = null, YT_PLAYER_READY = false, YT_PLAYER_CREATE = null, YT_PLAYER_REQUEST = null;
 let PLAYER_ENDED_TOKEN = 0, PLAYER_ERROR_TOKEN = 0, PLAYER_AUTOPLAY_BLOCKED = false;
@@ -542,9 +626,16 @@ function paintFeedProfileSelector(rows) {
       label + "</option>";
   }).join("");
   pick.style.display = "";
+  document.body.classList.add("has-profile-select");
   pick.onchange = () => {
     const next = pick.value;
     if (!next || next === FEED) return;
+    if (EMBEDDED) {
+      /* The deck swaps panes; this pane stays what it is. */
+      try { parent.postMessage({ sc: "video-feed", account: next }, location.origin); } catch (_) {}
+      pick.value = FEED;
+      return;
+    }
     const url = new URL(location.href);
     url.searchParams.set("feed", next);
     location.replace(url.href);
@@ -557,6 +648,7 @@ function channelSubscribed(v, account = SUBSCRIPTION_ACCOUNT) {
 
 async function subscribeToChannel(v) {
   const channelId = String(v?.channel_id || "");
+  if (CHANNEL_FEED && !CHANNEL_FEED_SUBSCRIBE_READY) return;
   if (!channelId || channelSubscribed(v) || SUBSCRIBE_PENDING.has(channelId)) return;
   SUBSCRIBE_PENDING.add(channelId); refreshSubscribeButton();
   try {
@@ -575,6 +667,14 @@ function refreshSubscribeButton(v = CUR) {
   b.style.display = eligible ? "" : "none";
   if (!eligible) return;
   const done = channelSubscribed(v), pending = SUBSCRIBE_PENDING.has(channelId);
+  if (CHANNEL_FEED && !CHANNEL_FEED_SUBSCRIBE_READY && !done) {
+    b.disabled = true; b.classList.remove("on");
+    b.textContent = "subscribe — after the collector update";
+    b.title = "subscribing to the " + SUBSCRIPTION_ACCOUNT + " feed needs the updated collectors; until they are deployed this would land on the personal YouTube account";
+    b.setAttribute("aria-label", b.title);
+    return;
+  }
+  b.disabled = false;
   b.textContent = done ? "subscribed" : pending ? "adding…" : "subscribe";
   b.classList.toggle("on", done);
   b.title = done ? "already subscribed to " + (v.channel || "this channel") : "subscribe to " + (v.channel || "this channel");
@@ -589,7 +689,7 @@ function relayout() {
   el("grid").style.setProperty("--cols", cols);
 }
 let raf = 0;
-const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; applyIpadPaneScale(); relayout(); }); };
+const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; applyIpadPaneScale(); relayout(); postChrome(); }); };
 if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
 addEventListener("resize", nudge); addEventListener("orientationchange", nudge);
 
@@ -597,7 +697,7 @@ addEventListener("resize", nudge); addEventListener("orientationchange", nudge);
 function syncUrl() {
   const p = new URLSearchParams(location.search);
   if (CUR) p.set("v", CUR.video_id); else p.delete("v");
-  p.set("feed", FEED); p.set("list", LIST);
+  p.set("feed", FEED); p.set("list", LIST); p.set("mode", MODE);
   history.replaceState(null, "", "?" + p.toString());
 }
 function queueRows(rows, list, watch) {
@@ -620,7 +720,7 @@ function previousQueuedVideo(rows, currentId, skipped = new Set()) {
   return queuedVideo(rows, currentId, -1, skipped);
 }
 function visibleQueue() {
-  return queueRows(ROWS, LIST, WATCH);
+  return queueRows(ROWS, LIST, WATCH).filter((v) => inMode(v));
 }
 function refreshTransport() {
   const rows = visibleQueue(), currentId = CUR?.video_id || "";
@@ -980,7 +1080,8 @@ function cardHTML(v) {
     "</div>";
 }
 function visibleRows() {
-  return LIST === "watch" ? ROWS.filter((v) => WATCH.has(v.video_id)) : ROWS;
+  const rows = LIST === "watch" ? ROWS.filter((v) => WATCH.has(v.video_id)) : ROWS;
+  return rows.filter((v) => inMode(v));
 }
 /* A full repaint replaces every child of the scroller, which momentarily takes
    its scrollHeight to zero — the browser then clamps scrollTop and Alan is
@@ -989,7 +1090,13 @@ function visibleRows() {
 function paint() {
   const grid = el("grid"), keep = grid.scrollTop;
   const rows = visibleRows();
-  if (!rows.length) { grid.innerHTML = '<div class="msg">no videos in this list</div>'; return; }
+  if (!rows.length) {
+    grid.innerHTML = ACCOUNT_EMPTY
+      ? '<div class="msg note">' + esc(FEED_PROFILE.note || "awaiting this account") + " — no video row carries the " +
+        esc(FEED_PROFILE.account) + " account yet. Subscribe channels to this feed from a playing video, or connect the channel's own YouTube identity, and the sweep tags its videos within the hour.</div>"
+      : '<div class="msg">' + (MODE === "shorts" ? "no shorts in this list" : MODE === "videos" ? "no videos in this list (shorts are under SHORTS)" : "no videos in this list") + "</div>";
+    return;
+  }
   grid.innerHTML = rows.map(cardHTML).join("");
   grid.scrollTop = keep;
 }
@@ -1020,6 +1127,19 @@ function wireGrid() {
 
 function paintChips() {
   const box = el("chips"); box.innerHTML = "";
+  for (const [id, label] of MODES) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "btn mode" + (id === MODE ? " on" : "");
+    b.textContent = label;
+    b.setAttribute("aria-pressed", id === MODE ? "true" : "false");
+    b.title = id === "grid" ? "everything in this list — videos and shorts together"
+      : id === "videos" ? "videos only — no shorts (a short is flagged by YouTube, or 60 seconds or less)"
+      : "shorts only — flagged by YouTube, or 60 seconds or less";
+    b.addEventListener("click", () => setMode(id));
+    box.appendChild(b);
+  }
+  const sep = document.createElement("span"); sep.className = "sep"; box.appendChild(sep);
   for (const l of LISTS) {
     const b = document.createElement("span");
     b.className = "btn" + (l.id === LIST ? " on" : "");
@@ -1037,6 +1157,7 @@ function feedQuery(offset) {
   if (LIST === "watch") {
     q += "&video_id=in.(" + Array.from(WATCH).slice(0, 200).map(encodeURIComponent).join(",") + ")";
   } else q += chosen.q;
+  q += modeClause(MODE);
   if (TICK) q += "&tickers=ilike.*" + encodeURIComponent(TICK) + "*";
   return q;
 }
@@ -1113,6 +1234,14 @@ async function load(forceWatch, quiet) {
   const raw = Array.isArray(rows) ? rows : [];
   PAGE_AT = raw.length;
   PAGE_MORE = LIST !== "watch" && raw.length >= LIMIT && PAGE_AT < MAX_ROWS;
+  ACCOUNT_EMPTY = false;
+  if (!raw.length && FEED_PROFILE.account && LIST !== "watch") {
+    try {
+      const any = await pg("youtube_feed?select=video_id&subscription_accounts=cs." +
+        encodeURIComponent("{" + FEED_PROFILE.account + "}") + "&limit=1", 1);
+      ACCOUNT_EMPTY = Array.isArray(any) && !any.length;
+    } catch (_) {}
+  }
   paintFeedProfileSelector(raw);
   const nextRows = filterFeedRows(raw);
   const signature = (items) => items.map((v) => [v.video_id, v.title, v.channel, v.published_at,
@@ -1145,7 +1274,7 @@ window.addEventListener("message", (event) => {
     VIEW_PROFILE = VIEW_PROFILES.includes(event.data.view) ? event.data.view : "auto";
     document.documentElement.dataset.view = VIEW_PROFILE;
     applyIpadPaneScale(event.data.scale);
-    relayout(); return;
+    relayout(); postChrome(); return;
   }
   if (event.data?.type === "SCINTILLA_DECK_FULL_STATE") {
     const stage = +event.data.stage || 0;
@@ -1156,7 +1285,7 @@ window.addEventListener("message", (event) => {
   }
 });
 async function start() {
-  paintChips(); paintFeedProfileSelector([]); wireGrid(); relayout(); load();
+  paintChips(); paintFeedProfileSelector([]); wireGrid(); relayout(); postChrome(); load();
   syncSharedVideoPositions();
   /* Prime one official player object behind the hidden stage.  Selecting or
      advancing a video then loads into this same object rather than replacing

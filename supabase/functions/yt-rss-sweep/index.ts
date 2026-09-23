@@ -19,7 +19,10 @@ function adminKey() {
 }
 
 const SB_KEY = adminKey();
-const ACCOUNTS = ["personal", "scintilla"] as const;
+/* Every channel feed is one account key here, in the video shell's FEED_PROFILES and in the
+   deck's VIDEO_FEEDS. An account with no refresh token and no project-side channel cache simply
+   contributes no channels this pass and is reported as "not connected" — it never fails the sweep. */
+const ACCOUNTS = ["personal", "scintilla", "soundscapes", "golf", "ai_research", "fitness"] as const;
 type Account = typeof ACCOUNTS[number];
 const iso2sec = (d: string) => {
   const m = (d || "").match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
@@ -93,10 +96,8 @@ Deno.serve(async () => {
     "YT_API_KEY",
     "YT_OAUTH_CLIENT_ID",
     "YT_OAUTH_CLIENT_SECRET",
-    "YT_REFRESH_TOKEN_PERSONAL",
-    "YT_REFRESH_TOKEN_SCINTILLA",
-    "yt_sub_channels_personal",
-    "yt_sub_channels_scintilla",
+    ...ACCOUNTS.map((account) => "YT_REFRESH_TOKEN_" + account.toUpperCase()),
+    ...ACCOUNTS.map((account) => "yt_sub_channels_" + account),
     "yt_sub_channels",
     "yt_rss_running",
   ];
@@ -120,7 +121,7 @@ Deno.serve(async () => {
   } catch (_) {}
   await sb.from("app_config").upsert({ key: "yt_rss_running", value: JSON.stringify({ ts: now }) });
 
-  const accountChannels: Record<Account, string[]> = { personal: [], scintilla: [] };
+  const accountChannels = Object.fromEntries(ACCOUNTS.map((account) => [account, [] as string[]])) as Record<Account, string[]>;
   const accountErrors: Partial<Record<Account, string>> = {};
 
   for (const account of ACCOUNTS) {

@@ -164,9 +164,11 @@ test("the fullscreen ladder gives one video both video panes, then X's space too
   /* H4's geometry, as the two-stage ladder expresses it:
        stage 1 — the target video takes the other video pane's room; X is untouched.
        stage 2 — the target takes every other row-1 pane, X's space included. */
+  /* fitVideoPane (22 Sep): the ordinary row locks the video pane to its 16:9 width; the ladder
+     stands that lock down, so applyMediaStage re-fits. Stubbed here like measure and paintChips. */
   const apply = fnFrom(deck, "applyMediaStage", {
     document:{ body:{ classList:{ toggle:() => {} } } },
-    measure:() => {}, paintChips:() => {}, postMediaStage:() => {},
+    measure:() => {}, paintChips:() => {}, postMediaStage:() => {}, fitVideoPane:() => {},
   });
   const pane = (key, kind, row) => {
     const classes = new Set();
@@ -180,7 +182,7 @@ test("the fullscreen ladder gives one video both video panes, then X's space too
     vm.runInNewContext("f()", { f:() => {} });   // no-op; keeps the sandbox honest
     const ctx = { MEDIA_STAGE:stage, MEDIA_TARGET:"v1", PANES:panes,
       document:{ body:{ classList:{ toggle:() => {} } } },
-      measure:() => {}, paintChips:() => {}, postMediaStage:() => {} };
+      measure:() => {}, paintChips:() => {}, postMediaStage:() => {}, fitVideoPane:() => {} };
     const staged = fnFrom(deck, "applyMediaStage", ctx);
     staged();
     const hidden = panes.filter((p) => p.classes.has("media-hidden")).map((p) => p.def.key);

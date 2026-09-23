@@ -840,12 +840,14 @@ test("Personal subscriptions and the shared Scintilla discovery feed stay correc
   const subscribed = functionFromSource(videoPane, "channelSubscribed", { SUBSCRIPTION_ACCOUNT:"personal", LOCAL_SUBSCRIBED_CHANNELS:new Set() });
   assert.equal(subscribed({ channel_id:"channel-a", subscription_accounts:[] }), false);
   assert.equal(subscribed({ channel_id:"channel-a", subscription_accounts:["personal"] }), true);
-  assert.match(videoPane, /const ALL_SHORTS = \{ id: "shorts", n: "shorts", q: "&is_short=eq\.true" \}/,
-    "SCINTILLA discovery uses the same global Shorts list as Hub");
-  assert.match(videoPane, /const SCINTILLA_SUBSCRIBED = \{\s*id: "subscribed", n: "subscribed",\s*q: "&subscription_accounts=cs\." \+ encodeURIComponent\("\{scintilla\}"\) \+ "&is_short=eq\.false"\s*\}/,
+  /* 22 Sep: shorts left the list axis for the SHORTS tab (platform flag OR sixty seconds or less), so the
+     SCINTILLA "all" list reaches the same global shorts through that tab. */
+  assert.match(videoPane, /const SHORT_CLAUSE = "&or=\(is_short\.eq\.true,duration\.like\.0:\*,duration\.eq\.1:00\)"/,
+    "SCINTILLA discovery reaches the same global shorts as Hub, through the SHORTS tab");
+  assert.match(videoPane, /const SCINTILLA_SUBSCRIBED = \{\s*id: "subscribed", n: "subscribed",\s*q: "&subscription_accounts=cs\." \+ encodeURIComponent\("\{scintilla\}"\)\s*\}/,
     "the restored SCINTILLA Subscribed tab asks for the existing durable Scintilla subscription account");
-  assert.match(videoPane, /FEED === "scintilla" \? \[\s*\{ id: "default", n: "grid", q: "" \},\s*SCINTILLA_SUBSCRIBED,\s*ALL_SHORTS,\s*\{ id: "watch"/,
-    "SCINTILLA visibly retains Grid, Subscribed, Shorts, and shared Watch Later in that order");
+  assert.match(videoPane, /FEED === "scintilla" \? \[\s*\{ id: "default", n: "all", q: "" \},\s*SCINTILLA_SUBSCRIBED,\s*\{ id: "watch"/,
+    "SCINTILLA visibly retains All, Subscribed and shared Watch Later in that order; Shorts is the tab beside them");
   assert.match(videoPane, /return !accounts\.length \|\| accounts\.includes\("scintilla"\)/,
     "the Station discovery grid excludes Personal-only videos while retaining unscoped and Scintilla videos");
   assert.match(youtubeHub, /function ytHubAllowed\(r\)[\s\S]*?accounts\.includes\("scintilla"\)/,
