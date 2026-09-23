@@ -294,26 +294,14 @@ test("a forming or catalog-mismatched Massive indicator snapshot fails closed", 
     (error) => error?.scTransport === true && /finality/.test(error.message));
 });
 
-test("the retained non-equity adapter rejects provider symbols", async () => {
-  const map = symbols();
-  const w = load(fixtureFetch(map), async (path) => path.startsWith("tickers?") ? canonicalRows(map) : []);
-  await assert.rejects(() => w.SC_NON_EQUITY.quotes(["AAPL"]),
-    (error) => error?.scTransport === true && /refused provider symbols/.test(error.message));
-  await assert.rejects(() => w.SC_NON_EQUITY.candles("AAPL", "D"),
-    (error) => error?.scTransport === true && /refused provider symbol/.test(error.message));
-});
-
-test("the retained non-equity quote contract selects only columns present on live_quotes", async () => {
+test("the retired non-equity price adapters answer by name for every symbol, provider-owned or not", async () => {
   const map = symbols();
   const reads = [];
-  const w = load(fixtureFetch(map), async (path) => {
-    reads.push(path);
-    return path.startsWith("tickers?") ? canonicalRows(map) : [];
-  });
-  assert.deepEqual(Array.from(await w.SC_NON_EQUITY.quotes(["VIX", "ADD"])), []);
-  assert.equal(reads.length, 2);
-  assert.match(reads[1], /^live_quotes\?select=ticker,price,change,chg_pct,prev_close,updated_ts&ticker=in\.\(VIX,ADD\)$/);
-  assert.doesNotMatch(reads[1], /(?:^|,)volume(?:,|&|$)/);
+  const w = load(fixtureFetch(map), async (path) => { reads.push(path); return path.startsWith("tickers?") ? canonicalRows(map) : []; });
+  await assert.rejects(() => w.SC_NON_EQUITY.quotes(["AAPL"]), (error) => error?.scAbsence === "SUPABASE_PRICE_PATH_RETIRED");
+  await assert.rejects(() => w.SC_NON_EQUITY.candles("AAPL", "D"), (error) => error?.scAbsence === "SUPABASE_PRICE_PATH_RETIRED");
+  await assert.rejects(() => w.SC_NON_EQUITY.quotes(["VIX", "ADD"]), (error) => error?.scAbsence === "SUPABASE_PRICE_PATH_RETIRED");
+  assert.ok(!reads.some((path) => /^(live_quotes|ohlcv_history)\?/.test(path)), "no retained price table is read at all");
 });
 
 test("all sector spine timeframes are explicit provider tokens", () => {
@@ -356,7 +344,9 @@ test("the independent universe still fails closed for wrong identity and unavail
     assert.equal(w.SC_PROVIDER.ownership.verified, false);
   }
   const w = load(fixtureFetch(map), async () => { throw new Error("canonical unavailable"); });
-  await assert.rejects(() => w.SC_PROVIDER.equityQuotes(["AAPL"]), /canonical set unavailable/);
+  /* No canonical set: identity must come from the payload digest. This harness has no SubtleCrypto,
+     so the read fails closed with that reason; the browser proof covers the verified path. */
+  await assert.rejects(() => w.SC_PROVIDER.equityQuotes(["AAPL"]), /universe identity could not be computed/);
   assert.equal(w.SC_PROVIDER.ownership.verified, false);
 });
 

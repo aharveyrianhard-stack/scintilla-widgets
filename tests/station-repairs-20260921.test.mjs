@@ -54,11 +54,11 @@ test('group labels recede but stay readable by hover, focus and small screens', 
 // ── ITEM 1: first paint ───────────────────────────────────────────────────────────────────────
 test('the remembered structure paints BEFORE the 300 KB of libraries', () => {
   const skeleton = deck.indexOf('FIRST PAINT (structure only')
-  const supabase = deck.indexOf('supabase-js-2.112.3-umd.min.js')
   const provider = deck.indexOf('/_provider/provider.js')
-  assert.ok(skeleton > 0 && supabase > 0 && provider > 0)
-  assert.ok(skeleton < supabase && skeleton < provider,
+  assert.ok(skeleton > 0 && provider > 0)
+  assert.ok(skeleton < provider,
     'the skeleton must run before the blocking library scripts, not after them')
+  assert.equal(deck.indexOf('supabase-js-2.112.3-umd.min.js'), -1, 'the database client is no longer loaded at all (2026-09-22)')
 })
 
 test('the skeleton shows structure only and never a value', () => {
@@ -83,8 +83,9 @@ test('vendor code is cacheable; pages still are not', () => {
   assert.ok(vercel.headers.indexOf(vendorRule) > vercel.headers.indexOf(everything),
     'Vercel applies every matching rule in order and the last match wins, so the vendor override ' +
     'must come AFTER the catch-all - and the catch-all stays first, which the route inventory pins')
-  // the vendored file is version-pinned and integrity-pinned, which is what makes caching safe
-  assert.match(deck, /supabase-js-2\.112\.3-umd\.min\.js" integrity="sha384-/)
+  // the deck no longer loads the vendored database client (one source, 2026-09-22); the cache rule
+  // stays for whatever else lives under /_vendor, and nothing here may reintroduce the client
+  assert.doesNotMatch(deck, /supabase-js-2\.112\.3-umd\.min\.js/)
 })
 
 // ── ITEM 5: dates, not arithmetic ─────────────────────────────────────────────────────────────

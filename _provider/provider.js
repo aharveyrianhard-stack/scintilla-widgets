@@ -10,9 +10,13 @@
    provenance intact. Current Massive-native minute indicators come from the bounded provider
    endpoint. The two catalogs remain separate and never feed or substitute for each other.
 
-   Retained non-equity Supabase ownership is exposed only through SC_NON_EQUITY. Its three narrow
-   adapters are named quotes, geiger and candles, verify that no provider-owned symbol can pass,
-   and are never used as an equity fallback.
+   ONE SOURCE (2026-09-22). Every PRICE the Station shows comes from the chart API: equities from
+   Massive, and the macro series VIX, DXY and US10Y from FMP through the same API, with the provider
+   stated on every row. The retained Supabase PRICE lanes (the non-equity quote table, the retained
+   candle table, the realtime tick channels) are RETIRED: SC_NON_EQUITY.quotes and .candles now
+   refuse by name. A symbol the chart API does not carry is a NAMED absence on the pane, never a
+   stale line. The one retained non-equity Supabase read left here is the Geiger adapter (a score,
+   not a price); it is exposed only through SC_NON_EQUITY.geiger.
 
    RULES:
      - NO SILENT FALLBACK. Missing or failed provider data is named and remains unavailable.
@@ -318,7 +322,17 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
                                     : 'no response within ' + PROVIDER_HARD_MS + 'ms');
       throw transportError('provider unreachable: ' + why, url, null);
     }).then(function (r) {
-      if (!r.ok) { done(); throw transportError('provider HTTP ' + r.status, url, r.status); }
+      if (!r.ok) {
+        /* A refused read may still carry the provider's NAMED answer (2026-09-22): a 404 whose body
+           names an absence is a settled "no", not a transport failure. The body travels on the
+           error so a caller can tell the two apart; the status stays a transport status. */
+        return r.json().then(function (j) {
+          done();
+          var refused = transportError('provider HTTP ' + r.status, url, r.status);
+          if (j && typeof j === 'object') refused.scBody = j;
+          throw refused;
+        }, function () { done(); throw transportError('provider HTTP ' + r.status, url, r.status); });
+      }
       /* The bound covers the BODY too - headers arriving is not an answer. */
       return r.json().then(function (j) { done(); return j; }, function () {
         done();
@@ -349,6 +363,13 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
 
      A previously VERIFIED map still survives a bad read - that is knowledge, not a guess. */
   var EXPECTED_EQUITY_UNIVERSE = 364;
+  /* THE MACRO SERIES THE CHART API CARRIES FROM FMP (2026-09-22): VIX, DXY, US10Y. Same /candles
+     route, provider stated on every response. Anything else that is not provider-owned equity is
+     NOT_SERVED_BY_CHART_API - a named absence the pane paints, never a legacy table read. */
+  var MACRO_SYMBOLS = { VIX: 1, DXY: 1, US10Y: 1 };
+  var ABSENCE_NOT_SERVED = 'NOT_SERVED_BY_CHART_API';
+  var ABSENCE_PRICE_PATH_RETIRED = 'SUPABASE_PRICE_PATH_RETIRED';
+  S.isMacroSymbol = function (sym) { return !!MACRO_SYMBOLS[String(sym || '').toUpperCase()]; };
   var ACCEPTED_UNIVERSE_SHA256 =
     'ab8f7965258d939f0a97fbfeac9a271547c258df7a2616aff6ccff746bb5d9d3';
   /* FMP REFERENCE ROWS CARRY THE IDENTITY OF THE ARTIFACT THAT WROTE THEM. Today's rows were stamped
@@ -422,6 +443,24 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
                    function (error) { finish(reject, error, false); });
     });
   }
+  /* IDENTITY FROM THE PAYLOAD ITSELF. The accepted universe digest is
+     sha256(JSON.stringify(sorted unique symbols)) - the construction the chart API stamps on its
+     settled artifacts (verified 2026-09-22 against control/CANONICAL_EQUITY_UNIVERSE_20260820) -
+     and it is pinned above. Recomputed over the symbols the provider actually returned, it is a
+     set-identity check: drop AAPL, add TICK, and the digest changes. It is what a page with NO
+     database reader (the chart pane, 2026-09-22) uses to verify ownership. */
+  function universeDigest (syms) {
+    var seen = {}, unique = [];
+    for (var i = 0; i < syms.length; i++) { if (!seen[syms[i]]) { seen[syms[i]] = 1; unique.push(syms[i]); } }
+    unique.sort();
+    var subtle = (typeof crypto !== 'undefined' && crypto && crypto.subtle) ? crypto.subtle : null;
+    if (!subtle || typeof TextEncoder === 'undefined') return Promise.reject(new Error('no SubtleCrypto in this context'));
+    return subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(unique))).then(function (buf) {
+      var bytes = new Uint8Array(buf), hex = '';
+      for (var k = 0; k < bytes.length; k++) hex += (bytes[k] < 16 ? '0' : '') + bytes[k].toString(16);
+      return hex;
+    });
+  }
   function providerOwned (signal, origPg) {
     /* A warm map is knowledge and may answer without a read - but not for a caller who has
        already cancelled. Returning it here let the next call receive an aborted signal and run
@@ -472,39 +511,38 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
       var next = {};
       syms.forEach(function (k) { next[k] = 1; });
 
-      if (canon && canon.length) {
-        /* IDENTITY, NOT CARDINALITY. A same-size swap - drop AAPL, add TICK - leaves the count
-           untouched and fails here on membership, which is the case a count can only catch by
-           luck. */
-        var canonMap = {};
-        canon.forEach(function (k) { canonMap[k] = 1; });
-        var missing = canon.filter(function (k) { return !next[k]; });
-        var extra = syms.filter(function (k) { return !canonMap[k]; });
-        if (missing.length || extra.length)
-          return fail('universe identity: missing [' + missing.slice(0, 8).join(',') + '] extra [' +
-                      extra.slice(0, 8).join(',') + ']', syms.length);
-      } else {
-        /* NO CANONICAL SET, NO COLD VERIFICATION.
-           Falling back to a bare count here reopened the exact hole the set comparison closes -
-           drop AAPL, add TICK, and 365 is still 365 - and it did so precisely when Supabase was
-           unavailable, which is not a moment to relax a check. A cold ownership map requires
-           identity. Unverified stays unverified, which means retryable and delayed, never
-           accepted on a count. */
-        return fail('canonical set unavailable, so identity could not be verified' +
-                    (syms.length === EXPECTED_EQUITY_UNIVERSE ? ' (count alone is not identity)' : ''),
-                    syms.length);
-      }
-
-      owned = next;
-      S.owned_map = owned;
-      ownedAt = Date.now();
-      S.ownership = { verified: true, count: syms.length, expected: EXPECTED_EQUITY_UNIVERSE,
-                      reason: null, universe_sha256: j.universe_sha256,
-                      /* Stated so a reviewer can see what "verified" actually compared. */
-                      /* Only one way to become verified, so this cannot describe a weaker one. */
-                      identity: 'exact set match against ' + canon.length +
-                                ' canonical active tickers (type null, or not crypto/future/index/rate)' };
-      return owned;
+      /* TWO WAYS TO PROVE IDENTITY, NEVER A COUNT. A page that binds a canonical-list reader (the
+         deck, for its non-price reads) compares sets; a page that binds none (the chart pane)
+         recomputes the universe digest against the pinned accepted value. Both fail closed. */
+      var identity = (canon && canon.length)
+        ? Promise.resolve((function () {
+            var canonMap = {};
+            canon.forEach(function (k) { canonMap[k] = 1; });
+            var missing = canon.filter(function (k) { return !next[k]; });
+            var extra = syms.filter(function (k) { return !canonMap[k]; });
+            if (missing.length || extra.length)
+              return 'universe identity: missing [' + missing.slice(0, 8).join(',') + '] extra [' + extra.slice(0, 8).join(',') + ']';
+            return null;
+          })())
+        : universeDigest(syms).then(function (digest) {
+            return digest === ACCEPTED_UNIVERSE_SHA256 ? null
+              : 'universe identity: recomputed digest ' + String(digest).slice(0, 12) + ' is not the accepted set';
+          }, function (e) {
+            return 'universe identity could not be computed: ' + (e && e.message || 'unknown');
+          });
+      return identity.then(function (why) {
+        if (why) return fail(why, syms.length);
+        owned = next;
+        S.owned_map = owned;
+        ownedAt = Date.now();
+        S.ownership = { verified: true, count: syms.length, expected: EXPECTED_EQUITY_UNIVERSE,
+                        reason: null, universe_sha256: j.universe_sha256,
+                        /* Stated so a reviewer can see what "verified" actually compared. */
+                        identity: (canon && canon.length)
+                          ? 'exact set match against ' + canon.length + ' canonical active tickers (type null, or not crypto/future/index/rate)'
+                          : 'sha256 over the ' + syms.length + ' returned symbols equals the pinned accepted universe digest' };
+        return owned;
+      });
     }, function (e) {
       if (owned) return owned;                      // warm knowledge survives one bad read
       S.ownership = { verified: false, count: null, expected: EXPECTED_EQUITY_UNIVERSE,
@@ -966,7 +1004,14 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     var bounded = Math.min(Math.max(Number(limit) || 200, 1), 400);
     var url = API + '/candles?symbol=' + encodeURIComponent(symbol) + '&tf=' + encodeURIComponent(tf) +
       '&authority=provider&limit=' + bounded;
-    return jget(url, signal).then(function (payload) {
+    return jget(url, signal).then(null, function (e) {
+      /* The chart API refuses a width it cannot serve, or a series that has STOPPED, with a 404 that
+         NAMES the absence (FMP_INTERVAL_NOT_SERVED, FMP_MACRO_STALE_n_SESSIONS). That is the answer,
+         painted in words; a 503 or an unnamed refusal stays transport and retryable. */
+      if (e && e.scTransport && e.scStatus === 404 && e.scBody && typeof e.scBody.absence === 'string' && e.scBody.absence)
+        throw S.absenceError(e.scBody.absence, symbol, rawTf);
+      throw e;
+    }).then(function (payload) {
       var named = payload && (payload.absence || payload.reason ||
         (payload.state && payload.state !== 'OK' ? payload.state : null));
       if (!payload || !Array.isArray(payload.series) || !payload.series.length) {
@@ -986,8 +1031,9 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
           low: Number(bar.l),
           close: Number(bar.c),
           volume: Number(bar.v),
-          provider: 'MASSIVE',
-          authority: 'PROVIDER_BUILT'
+          provider: payload.provider || 'MASSIVE',
+          provider_symbol: payload.provider_symbol || symbol,
+          authority: payload.bar_authority || 'PROVIDER_BUILT'
         };
       }).reverse().slice(0, bounded);
     });
@@ -1170,28 +1216,43 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     return copy;
   }
 
-  var N = window.SC_NON_EQUITY = {
-    authority: 'RETAINED_SUPABASE_NON_EQUITY',
-    quotes: function (symbols, options) {
-      options = options || {};
-      var requested = normalizeSymbols(symbols);
-      return providerOwned(options.signal, readSupabase).then(function (own) {
-        if (requested) {
-          var wrong = requested.filter(function (sym) { return own[sym]; });
-          if (wrong.length)
-            throw transportError('non-equity quote adapter refused provider symbols: ' + wrong.join(','),
-              'SC_NON_EQUITY.quotes', null);
-        }
-        var path = requested
-          ? 'live_quotes?select=ticker,price,change,chg_pct,prev_close,updated_ts&ticker=in.(' + requested.join(',') + ')'
-          : 'live_quotes?select=ticker,price,change,chg_pct,prev_close,updated_ts&limit=2000';
-        return readSupabase(path).then(function (rows) {
-          S.counts.passthrough_non_equity += requested ? requested.length : 1;
-          return (Array.isArray(rows) ? rows : []).filter(function (row) {
-            return !own[String(row && row.ticker || '').toUpperCase()];
-          }).map(nonEquityCoherentQuote);
-        });
+  /* THE MACRO BADGE VALUE, FROM THE CHART API. /macro answers, per symbol, the last completed
+     daily close against the session before it, stamped with its SESSION (never a live tick, never
+     this machine's clock), plus the serving decision. A series the API refuses (stale, failed
+     refresh, not acquired) becomes a named quote absence here - the pane says so in words. */
+  function macroQuoteRows (symbols, signal) {
+    var asked = symbols || Object.keys(MACRO_SYMBOLS);
+    var macro = asked.filter(function (sym) { return MACRO_SYMBOLS[sym]; });
+    asked.forEach(function (sym) { if (!MACRO_SYMBOLS[sym]) S.noteAbsence(sym, null, ABSENCE_NOT_SERVED); });
+    if (!macro.length) return Promise.resolve([]);
+    return jget(API + '/macro?symbols=' + encodeURIComponent(macro.join(',')), signal).then(function (j) {
+      var m = j && j.macro;
+      if (!m) throw transportError('provider macro payload had no macro', API + '/macro', null);
+      var rows = [];
+      macro.forEach(function (sym) {
+        var e = m[sym];
+        if (!e) return;                                  /* omitted by the batch: transport-shaped, retryable */
+        if (!e.quote) { S.noteAbsence(sym, null, e.absence || e.state || ABSENCE_NOT_SERVED); return; }
+        S.clearAbsence(sym, null);
+        rows.push({ ticker: sym, price: e.quote.price, change: e.quote.change, chg_pct: e.quote.chg_pct,
+          prev_close: e.quote.prev_close, updated_ts: e.quote.price_observation_utc,
+          price_observation_utc: e.quote.price_observation_utc, session_et: e.quote.session_et,
+          basis: e.quote.basis, provider: 'FMP', provider_symbol: e.provider_symbol,
+          authority: 'PROVIDER_BUILT_DAILY_CLOSE' });
       });
+      S.counts.quotes += rows.length;
+      return rows;
+    });
+  }
+
+  var N = window.SC_NON_EQUITY = {
+    authority: 'RETAINED_SUPABASE_NON_EQUITY_GEIGER_ONLY',
+    /* RETIRED 2026-09-22. The retained quote table let a five-week-old VIX print wear a live badge.
+       Prices are the chart API's alone; asking this adapter is answered by name, never by a read. */
+    quotes: function (symbols) {
+      var requested = normalizeSymbols(symbols) || [];
+      requested.forEach(function (sym) { S.noteAbsence(sym, null, ABSENCE_PRICE_PATH_RETIRED); });
+      return Promise.reject(S.absenceError(ABSENCE_PRICE_PATH_RETIRED, requested[0] || '', ''));
     },
     geiger: function (symbols, options) {
       options = options || {};
@@ -1214,30 +1275,11 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
         });
       });
     },
-    candles: function (symbol, timeframe, options) {
-      options = options || {};
-      var requested = normalizeSymbols(symbol);
-      if (!requested || requested.length !== 1)
-        return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', timeframe));
-      var sym = requested[0];
-      return providerOwned(options.signal, readSupabase).then(function (own) {
-        if (own[sym])
-          throw transportError('non-equity candle adapter refused provider symbol: ' + sym,
-            'SC_NON_EQUITY.candles', null);
-        var limit = Math.min(Math.max(Number(options.limit) || 200, 1), 1000);
-        var path = 'ohlcv_history?select=ticker,timestamp,open,high,low,close,volume&ticker=eq.' +
-          encodeURIComponent(sym) + '&tf=eq.' + encodeURIComponent(String(timeframe || '')) +
-          '&order=timestamp.desc&limit=' + limit;
-        S.counts.passthrough_non_equity++;
-        /* A successful, ticker- and timeframe-filtered read that returns no rows is the retained
-           owner's definite answer, not silence: name it so the pane stops retrying forever. */
-        return readSupabase(path).then(function (rows) {
-          if (Array.isArray(rows) && rows.length === 0)
-            throw S.absenceError(ABSENCE_NO_RETAINED_HISTORY, sym, String(timeframe || ''));
-          S.clearAbsence(sym, String(timeframe || ''));
-          return rows;
-        });
-      });
+    /* RETIRED 2026-09-22 with the quote lane above: the retained candle table stopped on
+       2026-08-14 and kept drawing. Candles come from the chart API through S.marketCandles. */
+    candles: function (symbol, timeframe) {
+      var requested = normalizeSymbols(symbol) || [];
+      return Promise.reject(S.absenceError(ABSENCE_PRICE_PATH_RETIRED, requested[0] || '', String(timeframe || '')));
     }
   };
 
@@ -1248,8 +1290,8 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
       var equities = requested ? requested.filter(function (sym) { return own[sym]; }) : Object.keys(own);
       var nonEquities = requested ? requested.filter(function (sym) { return !own[sym]; }) : null;
       return Promise.all([
-        providerQuoteRows(equities, options.signal),
-        nonEquities && !nonEquities.length ? Promise.resolve([]) : N.quotes(nonEquities, options)
+        equities.length ? providerQuoteRows(equities, options.signal) : Promise.resolve([]),
+        nonEquities && !nonEquities.length ? Promise.resolve([]) : macroQuoteRows(nonEquities, options.signal)
       ]).then(function (parts) { return parts[0].concat(parts[1]); });
     });
   };
@@ -1278,9 +1320,9 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
       return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', timeframe));
     var sym = requested[0];
     return providerOwned(options.signal, readSupabase).then(function (own) {
-      return own[sym]
-        ? providerCandleRows(sym, String(timeframe || ''), options.limit, options.signal)
-        : N.candles(sym, timeframe, options);
+      if (own[sym] || MACRO_SYMBOLS[sym])
+        return providerCandleRows(sym, String(timeframe || ''), options.limit, options.signal);
+      throw S.absenceError(ABSENCE_NOT_SERVED, sym, String(timeframe || ''));
     });
   };
 })();

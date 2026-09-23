@@ -616,7 +616,8 @@ test("the deck owns one deduplicated visible quote feed for embedded charts", ()
     ["QQQ", { ticker:"QQQ", price:621.2, prev_close:620.1, updated_ts:"2026-08-13T17:00:00Z" }]
   ]);
   assert.match(deck, /const DECK_QUOTES = new Map\(\)/);
-  assert.match(deck, /station-deck-lq/);
+  assert.match(deck, /"station-deck-lq" realtime lane[^\n]*retired/, "the realtime lane is stated retired, not silently absent");
+  assert.doesNotMatch(deck, /deckSb\.channel\(/);
   assert.match(deck, /SC_PROVIDER\.marketQuotes\(tickers, \{ signal:controller\?\.signal \}\)/,
     "one explicit provider-client request fetches the deduplicated visible ticker set");
   /* One 4.5s abort was measured wrong: five live /quotes probes returned 200 with TTFB of
@@ -632,8 +633,9 @@ test("the deck owns one deduplicated visible quote feed for embedded charts", ()
   assert.match(deck, /if \(deckQuoteInFlight\) \{ deckQuoteRerun = true; return; \}/,
     "a heartbeat cannot overlap a stalled active quote request");
   assert.match(chart, /const DECK_QUOTE_MODE = BARE && window\.parent !== window/);
-  assert.match(chart, /if \(sb && !DECK_QUOTE_MODE\)/,
-    "embedded charts do not open sibling realtime subscriptions");
+  assert.doesNotMatch(chart, /\.channel\("lq"\)/,
+    "the chart opens no realtime subscription at all any more (retired 2026-09-22)");
+  assert.match(chart, /window\.SC_REALTIME = \{ available: false, channel: "retired"/);
   assert.match(chart, /if \(!DECK_QUOTE_MODE\) setInterval\(\(\) => pullPrevClose\(S\.chartT\), 10000\)/,
     "embedded charts do not run independent ten-second quote polls");
   assert.match(chart, /d\.sc === "deck-quote"/,

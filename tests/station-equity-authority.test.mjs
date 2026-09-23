@@ -159,7 +159,8 @@ test("/analytics no longer overlays two legacy bar tables as a basis claim", () 
 
 test("the explicit client's rules are intact — no silent fallback, non-equities keep their owner", () => {
   assert.match(provider, /NO SILENT FALLBACK/);
-  assert.match(provider, /Retained non-equity Supabase ownership is exposed only through SC_NON_EQUITY/);
+  assert.match(provider, /it is exposed only through SC_NON_EQUITY\.geiger/);
+  assert.match(provider, /SC_NON_EQUITY\.quotes and \.candles now\s+refuse by name/);
   assert.doesNotMatch(provider, /SC_PROVIDER_SHIM|scInstallProviderShim|window\.fetch\s*=/,
     "the broad compatibility interceptor is gone");
   assert.doesNotMatch(provider, /board_rsi|derived_series/,
@@ -377,33 +378,21 @@ test("the allocation module cannot crash on a symbol with no accepted composite"
   assert.doesNotMatch(allocation, /\.map\(s => \{ const tg = tickerG\(s\); if \(!tg\) return null;/);
 });
 
-test("the realtime channel refuses equities, and its CDN-dependent absence is a said state", () => {
+test("the realtime price channels are retired: no database client, no socket, one stated reason (2026-09-22)", () => {
   const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
   const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
+  const twin = fs.readFileSync(new URL("../station-shells/chart-v1/index.html", import.meta.url), "utf8");
+  assert.equal(twin, chart, "the deck mounts the twin, so it carries the same bytes");
   for (const [name, src] of [["deck", deck], ["chart", chart]]) {
-    /* The authority guards on the realtime bypass lane — previously unpinned. Supabase
-       Realtime does not go through the provider client: a retained price could
-       patch a provider-owned chart unless the channel itself refuses. */
-    assert.match(src, /isProviderOwned\(sym\)\) \{ (?:provider|shim)\.realtime_equity_refused\+\+; return; \}/, name + " refuses owned equities");
-    assert.match(src, /!(?:provider|shim)\.ownershipKnown\(\)\) \{ (?:provider|shim)\.realtime_unknown_ownership_refused\+\+; return; \}/, name + " treats unknown ownership as refusal, not permission");
-    assert.match(src, /(?:provider|shim)\.realtime_nonequity_passthrough\+\+/, name + " counts the passthrough");
-    /* The SDK is VENDORED same-origin with npm-verified bytes; when the script still does
-       not load, the lane's absence must be queryable under one name, both branches worded,
-       and the channel's own lifecycle — not mere script presence — is the lane's truth. */
-    assert.match(src, /window\.SC_REALTIME = (deckSb|sb)\s*\?/, name + " exposes the state");
-    assert.match(src, /supabase-js loaded \(vendored same-origin\) — channel state follows/, name);
-    assert.match(src, /supabase-js \(vendored same-origin\) did not load — the realtime tick channel is absent; non-equity ticks ride polling only/, name);
-    assert.match(src, /src="\/_vendor\/supabase-js-2\.112\.3-umd\.min\.js" integrity="sha384-qafw21c\/iciq0VXsi9FzkfoQv5I\/V0iqE4lSNcKXPnW9\/UTJLnv5CcN4FHxVLnKg"/, name + " loads the vendored file under its integrity hash");
+    assert.doesNotMatch(src, /supabase-js-2\.112\.3-umd\.min\.js/, name + " loads no database client");
+    assert.doesNotMatch(src, /createClient\(|postgres_changes|\.channel\("(?:lq|station-deck-lq)"\)/, name + " opens no realtime channel");
+    assert.match(src, /window\.SC_REALTIME = \{ available: false, channel: "retired",/, name + " states the retirement under the old name");
+    assert.match(src, /realtime tick channel retired 2026-09-22/, name);
     assert.ok(!src.includes("cdn.jsdelivr.net"), name + " no longer references the third-party CDN");
   }
+  /* The chart page holds neither the project URL, the anon key nor a REST reader any more. */
+  assert.doesNotMatch(chart, /wadinxqplrggagkvrdag|eyJhbGciOi|rest\/v1\//);
   /* The wall says it once, where cadence lives — beside, never inside, #marketStatus. */
   assert.match(deck, /<span id="rtNote" hidden/);
-  assert.match(deck, /n\.textContent = "RT · absent"; n\.title = window\.SC_REALTIME\.reason;/);
-  /* The channel's lifecycle is wired, not assumed: the deck paints from it, the chart
-     records it, and only the three terminal failures claim non-connection. */
-  assert.match(deck, /\}\)\.subscribe\(rtChannelStatus\);/);
-  assert.match(deck, /if \(s === "SUBSCRIBED"\) \{ n\.hidden = true; return; \}/);
-  assert.match(deck, /if \(s === "CHANNEL_ERROR" \|\| s === "TIMED_OUT" \|\| s === "CLOSED"\) \{/);
-  assert.match(deck, /the realtime channel did not connect \(" \+ s \+ "\) — non-equity ticks ride polling only/);
-  assert.match(chart, /window\.SC_REALTIME\.channel = String\(status \|\| ""\)\.toUpperCase\(\);/);
+  assert.match(deck, /n\.textContent = window\.SC_REALTIME\.channel === "retired" \? "RT · off" : "RT · absent"; n\.title = window\.SC_REALTIME\.reason;/);
 });

@@ -46,18 +46,10 @@ test("no surface expresses a provider-owned equity request as a legacy table cal
   for (const [name, source] of runtime) assert.doesNotMatch(source, legacy, name);
 });
 
-test("surviving legacy literals are limited to guarded Realtime non-equity boundaries", () => {
-  const permitted = new Set(["../chart/index.html", "../deck/index.html"]);
+test("no runtime surface keeps a legacy price literal — the Realtime non-equity boundaries are retired (2026-09-22)", () => {
   for (const [name, source] of runtime) {
-    if (permitted.has(name)) {
-      assert.match(source, /table:\s*["']live_quotes["']/,
-        `${name} keeps only the guarded Realtime non-equity channel`);
-      assert.match(source, /ownershipKnown\(\)/);
-      assert.match(source, /isProviderOwned/);
-    } else {
-      assert.doesNotMatch(source, /live_quotes|composite_staged|ohlcv_history/,
-        `${name} has no legacy product vocabulary`);
-    }
+    assert.doesNotMatch(source, /live_quotes|composite_staged|ohlcv_history/, `${name} has no legacy product vocabulary`);
+    assert.doesNotMatch(source, /postgres_changes|supabase\.createClient|supabase-js-/, `${name} opens no database channel`);
   }
 });
 

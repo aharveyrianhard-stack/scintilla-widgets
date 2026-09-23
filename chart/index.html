@@ -185,61 +185,22 @@ body.tvmodal-open{ overflow:hidden; }
 </head>
 <body>
 <div id="chartSlot"></div>
-<script src="/_vendor/supabase-js-2.112.3-umd.min.js" integrity="sha384-qafw21c/iciq0VXsi9FzkfoQv5I/V0iqE4lSNcKXPnW9/UTJLnv5CcN4FHxVLnKg"></script>
 <script src="/_provider/provider.js"></script>
 <!-- The cloud ribbon's arithmetic and geometry, ported from the Indicator Lab's
      approved Cloud Workshop. Pure functions: it reads no data and draws nothing. -->
 <script src="/_indicators/station-clouds.js"></script>
 <script>
-/* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
-   Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
+/* ONE SOURCE (2026-09-22). This page holds no Supabase client, no anon key and no realtime
+   channel. Every price, candle and previous close comes from the chart API through SC_PROVIDER;
+   a symbol the chart API does not carry is painted as a NAMED absence, never a stale line. */
 try { scBindProviderClient(); } catch (_) {}
 
 "use strict";
-/* ---- THE PULL LAYER — ported verbatim from scintilla-hub ---- */
-const SB   = "https://wadinxqplrggagkvrdag.supabase.co";
-const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
-const sb   = (typeof supabase !== "undefined" && supabase.createClient)
-               ? supabase.createClient(SB, ANON) : null;
-/* Same said state as deck/index.html: the CDN-served SDK's absence kills the non-equity
-   realtime lane silently otherwise. The chart is a mounted shell, so the DECK paints the
-   note for the wall; standalone, the state stays queryable here under the same name. */
-window.SC_REALTIME = sb
-  ? { available: true, channel: "connecting", reason: "supabase-js loaded (vendored same-origin) — channel state follows; non-equity passthrough only; equities are refused at the channel" }
-  : { available: false, channel: "none", reason: "supabase-js (vendored same-origin) did not load — the realtime tick channel is absent; non-equity ticks ride polling only" };
-/* A stalled data-plane read used to leave each pane waiting forever. Keep an
-   individual request short, then let the chart-level retry use one measured
-   backoff rather than multiplying hanging fetches. */
-const PG_TIMEOUT_MS = 4500;
-async function pgRequest(path) {
-  const controller = typeof AbortController === "undefined" ? null : new AbortController();
-  const timer = controller ? setTimeout(() => controller.abort(), PG_TIMEOUT_MS) : null;
-  try {
-    return await fetch(SB + "/rest/v1/" + path, {
-      headers: { apikey: ANON, Authorization: "Bearer " + ANON },
-      signal: controller?.signal,
-    });
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-async function pg(path, _tries) {
-  const tries = _tries == null ? 1 : _tries;
-  let lastErr;
-  for (let i = 0; i < tries; i++) {
-    try {
-      const r = await pgRequest(path);
-      if (r.ok) return r.json();
-      if (r.status === 503 || r.status === 504 || r.status === 429) {
-        lastErr = new Error("pg " + path + " → " + r.status);
-      } else {
-        throw new Error("pg " + path + " → " + r.status);
-      }
-    } catch (e) { lastErr = e; }
-    if (i < tries - 1) await new Promise((res) => setTimeout(res, 500 * (i + 1) + Math.random() * 300));
-  }
-  throw lastErr;
-}
+/* THE PULL LAYER IS GONE. The direct Supabase price path (SB, ANON, pg, the "lq" realtime
+   channel) was the second data path that let the VIX pane draw a line frozen on 2026-08-14 under
+   a live badge. Retired 2026-09-22. The realtime state is stated as retired so the deck reads true. */
+window.SC_REALTIME = { available: false, channel: "retired",
+  reason: "realtime tick channel retired 2026-09-22 — every price on this pane comes from the chart API" };
 const num = (x) => (x == null ? null : Number(x));
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 const el = (id) => document.getElementById(id);
@@ -2037,26 +1998,9 @@ async function pullPrevClose(t) {
   }
 }
 
-/* Retained non-equity realtime only. Provider-owned equities are synchronously refused below;
-   their chart quote always comes from SC_PROVIDER.marketQuotes. */
-if (sb && !DECK_QUOTE_MODE) {
-  sb.channel("lq").on("postgres_changes", { event: "*", schema: "public", table: "live_quotes" }, (p) => {
-    /* SAME REALTIME BYPASS AS deck/index.html. Supabase Realtime does not go through fetch, so the
-       the provider client never sees Realtime WebSockets, so this handler independently refuses
-       for provider-owned equities; non-equities keep their existing owner. */
-    const provider = window.SC_PROVIDER || (window.parent && window.parent.SC_PROVIDER);
-    const sym = String((p.new && p.new.ticker) || "").toUpperCase();
-    if (provider && provider.isProviderOwned && provider.isProviderOwned(sym)) { provider.realtime_equity_refused++; return; }
-    /* UNKNOWN OWNERSHIP IS NOT PERMISSION - see the same guard in deck/index.html. */
-    if (provider && provider.ownershipKnown && !provider.ownershipKnown()) { provider.realtime_unknown_ownership_refused++; return; }
-    if (provider) provider.realtime_nonequity_passthrough++;
-    if (p.new && p.new.ticker && p.new.price != null) scChartLive(String(p.new.ticker).toUpperCase(), +p.new.price, p.new.updated_ts);
-  }).subscribe((status) => {
-    /* The chart is a mounted shell — the deck paints the note; the state stays queryable
-       here under the same name, with the channel's own lifecycle as the lane's truth. */
-    if (window.SC_REALTIME) window.SC_REALTIME.channel = String(status || "").toUpperCase();
-  });
-}
+/* The retained non-equity realtime lane (the "lq" database-change channel) was removed with the
+   pull layer above. Macro symbols (VIX, DXY, US10Y) refresh through SC_PROVIDER.marketQuotes, which
+   reads the chart API. Nothing on this page opens a socket to a database. */
 
 function requestDeckQuote(ticker) {
   try { parent.postMessage({ sc:"chart-quote-ready", ticker:String(ticker || "").toUpperCase().trim() }, location.origin); } catch (_) {}

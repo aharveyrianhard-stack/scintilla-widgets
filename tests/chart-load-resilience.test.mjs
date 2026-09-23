@@ -6,10 +6,11 @@ import vm from "node:vm";
 const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
 
 test("Station charts keep a cache-first, bounded, deduplicated recovery path", () => {
-  assert.match(chart, /const PG_TIMEOUT_MS = 4500;/);
-  assert.match(chart, /controller\.abort\(\)/);
-  assert.match(chart, /signal: controller\?\.signal/);
-  assert.match(chart, /const tries = _tries == null \? 1 : _tries;/);
+  /* The page-level database reader (pg, its 4.5 s bound and its retry loop) is gone with the
+     Supabase price path (2026-09-22); bounded reads now live in the provider client. */
+  assert.doesNotMatch(chart, /async function pg\(/);
+  assert.doesNotMatch(chart, /const PG_TIMEOUT_MS/);
+  assert.match(chart, /const CHART_RETRY_MS = 3000;/);
 
   const cacheSet = chart.match(/function cacheSet\(k, payload\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.match(cacheSet, /localStorage\.setItem/);

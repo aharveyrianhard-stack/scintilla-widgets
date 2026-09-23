@@ -560,7 +560,6 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 </div>
 
 <script src="/deck/scenes.js?rev=001"></script>
-<script src="/_vendor/supabase-js-2.112.3-umd.min.js" integrity="sha384-qafw21c/iciq0VXsi9FzkfoQv5I/V0iqE4lSNcKXPnW9/UTJLnv5CcN4FHxVLnKg"></script>
 <script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
@@ -688,8 +687,10 @@ let CLOUDS = QS.has("clouds") ? QS.get("clouds") !== "0" : remembered("station.c
 if (QS.has("clouds")) remember("station.clouds", CLOUDS ? "1" : "0");
 /* The whole wall shares one quote cache/realtime channel.  Chart frames keep
    their history work, but never multiply the same live quote request. */
-const deckSb = (typeof supabase !== "undefined" && supabase.createClient)
-  ? supabase.createClient(SB, ANON) : null;
+/* ONE SOURCE (2026-09-22): the realtime tick channel is retired. The wall holds no supabase-js
+   client; every price comes from the chart API through SC_PROVIDER. pg() below remains for the
+   NON-PRICE reads only (favourites, the canonical ticker list). */
+const deckSb = null;
 /* THE REALTIME CHANNEL'S ABSENCE IS A SAID STATE, NOT A SILENT ONE. supabase-js is
    VENDORED same-origin (/_vendor, 2.112.3 — the exact npm-registry bytes, sha512-verified
    against the registry's own integrity; the old floating-@2 third-party CDN tag is gone);
@@ -697,13 +698,12 @@ const deckSb = (typeof supabase !== "undefined" && supabase.createClient)
    ride polling cadence only. That is a latency fact the wall states once, here — never a
    freshness claim, which #marketStatus owns (a heartbeat is cadence, not invalidation).
    Equities never ride this channel either way: the provider client refuses them below. */
-window.SC_REALTIME = deckSb
-  ? { available: true, channel: "connecting", reason: "supabase-js loaded (vendored same-origin) — channel state follows below; non-equity passthrough only; equities are refused at the channel" }
-  : { available: false, channel: "none", reason: "supabase-js (vendored same-origin) did not load — the realtime tick channel is absent; non-equity ticks ride polling only" };
+window.SC_REALTIME = { available: false, channel: "retired",
+  reason: "realtime tick channel retired 2026-09-22 — every price on the wall comes from the chart API" };
 (function paintRtNote() {
   const n = el("rtNote"); if (!n) return;
   if (window.SC_REALTIME.available) { n.hidden = true; return; }
-  n.hidden = false; n.textContent = "RT · absent"; n.title = window.SC_REALTIME.reason;
+  n.hidden = false; n.textContent = window.SC_REALTIME.channel === "retired" ? "RT · off" : "RT · absent"; n.title = window.SC_REALTIME.reason;
 })();
 /* "AVAILABLE" WAS ONLY "SCRIPT PRESENT". The channel's own lifecycle is the lane's truth:
    SUBSCRIBED clears the note; a channel that errors, times out or closes says so. While
@@ -868,24 +868,10 @@ function deckQuoteHeartbeat() {
   if (deckQuoteInFlight) { deckQuoteRerun = true; return; }
   refreshDeckQuotes();
 }
-if (deckSb) deckSb.channel("station-deck-lq").on("postgres_changes", {
-  event:"*", schema:"public", table:"live_quotes"
-}, (event) => {
-  /* This is the retained non-equity Realtime lane. A provider-owned equity is REFUSED here and
-     keeps whatever SC_PROVIDER.marketQuotes last supplied.
-     Crypto and every other non-equity pass through untouched, so their existing owner is
-     unchanged - this is explicit ownership routing, not a fallback. */
-  const provider = window.SC_PROVIDER;
-  const sym = String((event.new && event.new.ticker) || "").toUpperCase();
-  if (provider && provider.isProviderOwned && provider.isProviderOwned(sym)) { provider.realtime_equity_refused++; return; }
-  /* UNKNOWN OWNERSHIP IS NOT PERMISSION. Until /geiger has answered, this handler cannot tell
-     a provider-owned equity from a non-equity, and writing on that uncertainty is how a legacy
-     price reaches a provider-owned chart. Refuse, and let the next resolved read decide. */
-  if (provider && provider.ownershipKnown && !provider.ownershipKnown()) { provider.realtime_unknown_ownership_refused++; return; }
-  if (provider) provider.realtime_nonequity_passthrough++;
-  const selected = selectVisibleQuoteRows([event.new], visibleChartTickers());
-  for (const [ticker, quote] of selected) { DECK_QUOTES.set(ticker, quote); DECK_QUOTE_FAILED.delete(ticker); fanoutDeckQuote(ticker); }
-}).subscribe(rtChannelStatus);
+/* The "station-deck-lq" realtime lane (a database-change socket carrying quotes) was retired
+   2026-09-22. Macro symbols (VIX, DXY, US10Y) refresh through SC_PROVIDER.marketQuotes from the
+   chart API on the deck's ordinary quote cadence; a symbol the chart API does not carry is a
+   named absence. */
 let SOLO = QS.get("full") || null;
 let MEDIA_TARGET = null;
 let MEDIA_STAGE = 0;

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>ONE SOURCE — VIX, DXY, US10Y through the chart API · 2026-09-22</title>
+<style>
+body{background:#0A0A0F;color:#F2F2F8;font:14px/1.5 "SF Mono",ui-monospace,Menlo,monospace;margin:0;padding:28px;max-width:1500px}
+h1{font-size:20px;letter-spacing:.06em}h2{font-size:15px;letter-spacing:.1em;text-transform:uppercase;color:#00D4FF;margin-top:38px}
+.wall{background:#3a1010;border:1px solid #b3261e;padding:12px 14px;border-radius:4px}
+.ok{color:#00FFA3}.bad{color:#FF2D55}.dim{color:#868AAA}
+figure{margin:14px 0}figure img{width:100%;max-width:1400px;border:1px solid #252538;border-radius:4px}figcaption{color:#C6C8DE;font-size:12.5px;margin-top:6px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}td,th{border:1px solid #252538;padding:6px 8px;text-align:left;vertical-align:top}th{color:#9A9AB6}
+pre{background:#0D0D14;border:1px solid #252538;padding:12px;overflow:auto;font-size:12px}
+code{color:#C6C8DE}
+</style></head><body>
+<h1>ONE SOURCE — VIX, DXY and the 10-year through the chart API; the Station's Supabase price path closed</h1>
+<p class="dim">Worker: Claude Fable 5.1 · Urth Claude Max · 2026-09-22 evening (ET) · brief sha256 c7c5ca3d… · nothing deployed, nothing pushed, no database written, no credential printed.</p>
+
+<div class="wall"><b>UNABLE — no valid FMP key on this Mac</b> (<code>~/.config/fmp.env</code> answers HTTP 401 "Invalid API KEY"; no other key exists locally; the FMP MCP connector named in the brief is not present in this session) <b>→ workaround:</b> the whole path was built and proven end to end against an <b>FMP-shaped synthetic fixture</b> served locally, through the real writer, a local R2 emulator, the real candidate chart API and the real Station page in a real browser. Every "after" screenshot below wears a red FIXTURE banner. <b>No live FMP value was fetched; the "real current value and today's change" in the brief could not be shown.</b> The production refresh reads the key from the batch service environment; the coordinator's deploy steps below set it.</div>
+
+<h2>1 · The VIX pane, before and after</h2>
+<div class="two">
+<figure><img src="shots/before-VIX-1D.png" alt="before"><figcaption><b>BEFORE</b> — Station @ <code>origin/station/tonight-20260922</code> (de95670), real reads. Badge measured in the DOM: <span class="bad">"VIX 14.25 −10.88% · last close 15.99 · quote as of Aug 14 · Aug 27, 2025 – Aug 11 · through Aug 11"</span>. The line ends in August under a live-styled badge. The rig also caught <b>two attempts to open <code>wss://…supabase.co/realtime</code></b> from this pane — the side door in action.</figcaption></figure>
+<figure><img src="shots/after-VIX-1D.png" alt="after"><figcaption><b>AFTER</b> — <code>station/one-source-20260922</code> against the candidate chart API. Badge: <span class="ok">"VIX 16.73 −1.04% · Sep 21 close 16.90 · Oct 16, 2025 – Sep 22"</span> (FIXTURE values). Quote title: <code>provider quote · 2026-09-22T04:00:00.000Z</code> — the value is stamped with its <i>session</i>, never this machine's clock. Network during the page: <code>/universe</code>, <code>/macro?symbols=VIX</code>, <code>/candles?symbol=VIX&amp;tf=D…</code> and nothing else. <b>Zero requests to Supabase; zero sockets.</b> Ownership verified: <code>sha256 over the 364 returned symbols equals the pinned accepted universe digest</code>.</figcaption></figure>
+</div>
+<figure><img src="shots/after-twin-VIX-1D.png" alt="twin"><figcaption><code>station-shells/chart-v1/index.html</code> (the file the deck mounts) — byte-identical to <code>chart/index.html</code> (<code>cmp</code> clean, pinned by test) and renders the same.</figcaption></figure>
+
+<h2>2 · DXY and the 10-year drawing through the same route</h2>
+<div class="two">
+<figure><img src="shots/after-DXY-1D.png" alt="DXY"><figcaption><b>DXY</b> — API response: <code>provider:"FMP", provider_symbol:"DX-Y.NYB", surface:"FMP_HISTORICAL_PRICE_EOD_FULL", price_basis:"PROVIDER_INDEX_LEVEL"</code>. Badge "DXY 102.55 −1.04% · last close 103.63" (FIXTURE).</figcaption></figure>
+<figure><img src="shots/after-US10Y-1D.png" alt="US10Y"><figcaption><b>US10Y</b> — <code>provider_symbol:"^TNX", price_basis:"PROVIDER_YIELD_PERCENT"</code>. Badge "US10Y 5.07 −1.05% · last close 5.12" (FIXTURE). The USDX trap (an ETF on FMP) is excluded by the contract and pinned by test.</figcaption></figure>
+</div>
+<figure><img src="shots/after-VIX-1h.png" alt="VIX 1h"><figcaption><b>VIX · 1h</b> — intraday where FMP publishes it (<code>surface:"FMP_HISTORICAL_CHART_1HOUR"</code>, tail-only, completed bars only).</figcaption></figure>
+
+<h2>3 · Absence is loud</h2>
+<div class="two">
+<figure><img src="shots/after-CLUSD-absent.png" alt="CLUSD absent"><figcaption><b>CLUSD</b> (crude, formerly a Supabase non-equity) — the chart API does not carry it: <span class="ok">"NOT SERVED BY CHART API"</span> in words, both lanes (<code>historyAbsence</code> and <code>quoteAbsence</code> = <code>NOT_SERVED_BY_CHART_API</code>). No line, no badge value, no retry loop.</figcaption></figure>
+<figure><img src="shots/after-VIX-3h-not-served.png" alt="VIX 3h"><figcaption><b>VIX · 3h</b> — FMP publishes 1m/5m/15/30/60/240/D only; the API refuses <code>FMP_INTERVAL_NOT_SERVED</code> (404, named). The pane records the name (<code>VIX|180 → FMP_INTERVAL_NOT_SERVED</code>) and falls to its existing worded VIX panel. <b>Nothing is composed from 1h bars</b> — the standing "never compose" rule. See §7: the deck's default range is 3h, so this is a product decision for Alan.</figcaption></figure>
+</div>
+<p>A series that <i>stops</i> is refused the same way: <code>macroServingDecision</code> answers <code>FMP_MACRO_SERIES_STALE</code> / <code>FMP_MACRO_STALE_25_SESSIONS</code> for an Aug-14 series on Sep 22 (pinned by test, with the NYSE calendar), carrying the last refresh receipt's state and detail. A failed refresh never overwrites the last good object; it writes a receipt, and the reader says so.</p>
+
+<h2>4 · What changed</h2>
+<table>
+<tr><th>Repo / branch</th><th>Commit</th><th>Files</th></tr>
+<tr><td><code>scintilla-provider-massive</code> · <code>chart-api/fmp-macro-series-20260922</code> (worktree <code>_worktrees/fmp-macro-20260922</code>) from <code>3fea526</code> — the lineage the bar service runs (<code>CODE_COMMIT=3fea526…</code>) and the chart API's current release v56 sits on</td><td><code>633b38a</code></td>
+<td><code>services/rest-accel/fmp-macro-contract.mjs</code> (new, pure) · <code>services/rest-accel/fmp-macro-refresh.mjs</code> (new, the one writer) · <code>services/rest-accel/bar-service.mjs</code> (+<code>/acquire-macro</code>, <code>/refresh-macro</code>) · <code>services/rest-accel/provider-tail-refresh-scheduled.mjs</code> (macro reconcile after the Massive tail) · <code>services/chart-api/server.mjs</code> (macro branch in <code>/candles</code>, new <code>/macro</code>) · <code>services/chart-api/Dockerfile</code> · tests: <code>fmp-macro-contract</code>, <code>fmp-macro-refresh</code>, <code>packaging-closure</code> (list updated deliberately)</td></tr>
+<tr><td><code>scintilla-widgets</code> · <code>station/one-source-20260922</code> from <code>origin/station/tonight-20260922</code> @ <code>de95670</code></td><td>see RESULT.json</td>
+<td><code>chart/index.html</code> + <code>station-shells/chart-v1/index.html</code> (Supabase script, URL, anon key, <code>pg</code> reader, "lq" realtime channel removed) · <code>deck/index.html</code> (database client and <code>station-deck-lq</code> channel removed; <code>pg()</code> kept for favourites and the canonical ticker list only) · <code>_provider/provider.js</code> (macro symbols → <code>/candles</code> and <code>/macro</code>; non-equity quote/candle lanes retired by name; identity by payload digest; named 404 absences) · 8 tests updated, 1 new (<code>station-one-source</code>) · this deliverable</td></tr>
+</table>
+<p><b>Tests.</b> Chart API: 18 new tests, offline; repo suite 451 tests with the closure list updated. Station: 373 tests, <b>20 failures — the identical 20 that fail on de95670 before any change</b> (diffed by name), 61/61 in the touched files. Proof runs: <code>proof-results-before.json</code>, <code>proof-results-after.json</code>, <code>local-api-probes.txt</code>, <code>local-refresh-run.log</code> beside this file.</p>
+
+<h2>5 · The one path</h2>
+<pre>FMP (^VIX · DX-Y.NYB · ^TNX)
+  └─ bar service (batch app, the existing credentialed acquisition boundary) — the ONE writer
+       fmp-macro-refresh.mjs → normalized/fmp_provider_bars_v1/{tf}/{SYM}.json.gz  (+ _refresh/{SYM}.json receipt)
+       · on demand: chart API asks /acquire-macro when an object is missing or behind
+       · on schedule: provider-tail-refresh-scheduled runs the macro set after the Massive tail
+       · structurally unable to write into any Massive namespace; key from env only; byte ceiling
+  └─ chart API (public reader, no credential) — /candles?symbol=VIX|DXY|US10Y  provider:"FMP", provider_symbol stated
+                                              /macro → badge value = last completed close vs the session before, stamped with its session
+                                              stale / missing / failed / unsupported width → 404/503 WITH a name, never a line
+  └─ Station — SC_PROVIDER.marketCandles / marketQuotes → the chart API and nowhere else for prices</pre>
+
+<h2>6 · Every place the Station still reads anything that is not the chart API</h2>
+<p>Runtime pages on the branch (tests, proofs and vendored files excluded). <b>No page loads the database client; no realtime channel is opened anywhere.</b> Table reads that remain, by file:</p>
+<table>
+<tr><th>File</th><th>Tables</th><th>Price?</th></tr>
+<tr><td><code>pulse/index.html</code></td><td>vix_term</td><td class="bad">YES — VIX term structure. Out of this brief's scope (chart pane + twin) but it is market data from Supabase. Next candidate for the same route (FMP carries the VIX futures curve).</td></tr>
+<tr><td><code>_provider/provider.js</code></td><td>provider_indicators_current (FMP daily indicators), composite_staged (non-equity Geiger), tickers (canonical set, only when a page binds a reader)</td><td>indicators and scores, not prices; identity now proves by digest when no reader is bound (the chart pane)</td></tr>
+<tr><td><code>deck/index.html</code></td><td>hub_favorites, tickers</td><td>no</td></tr>
+<tr><td><code>heat/index.html</code></td><td>company_profile, sector_rankings</td><td>no</td></tr>
+<tr><td><code>visuals/geiger-live/index.html</code></td><td>fan_cohort_daily, fan_daily, tickers</td><td>no (Geiger fan)</td></tr>
+<tr><td><code>geiger/index.html</code></td><td>board_volume, hub_favorites, operator_weights</td><td>no</td></tr>
+<tr><td><code>alerts</code> feed_alerts · <code>cohorts</code> hub_favorites · <code>compare</code> session_continuity · <code>econ</code> econ_dashboard · <code>events</code> earnings_events · <code>news</code> news_sentiment · <code>scenes</code>, <code>tv</code> scene_layouts · <code>wall</code> hub_favorites · <code>youtube</code> youtube_feed, yt_watch_later · <code>pane-video</code> and the three video shells yt_positions, yt_watch_later</td><td></td><td>no</td></tr>
+</table>
+
+<h2>7 · For the coordinator — deploy by digest, then verify</h2>
+<p>Source digest: chart API commit <code>633b38a6ee655a4dfec6b78bccdede1f4a5beef1</code> (parent <code>3fea526</code>). The image digest exists only after the build; <code>--image-label</code> ties it to the commit and <code>/live</code> reports <code>identity.git_commit</code>.</p>
+<pre># in the chart API repo worktree
+cd "/Users/alanharvey/SCINTILLA 0.5/_worktrees/fmp-macro-20260922"
+
+# 1 · batch app image (bar service + scheduled tail): build and push only, no machine moves
+fly deploy -a scintilla-massive-stocks-batch -c batch.fly.toml --build-only --push \
+  --image-label fmp-macro-633b38a --build-arg CODE_COMMIT=633b38a6ee655a4dfec6b78bccdede1f4a5beef1
+
+# 2 · the FMP key, from the coordinator's own store, staged (no restart, never on this worker's screen)
+fly secrets set FMP_API_KEY=… -a scintilla-massive-stocks-batch --stage
+
+# 3 · re-point the bar service (the one writer + the on-demand path) at the new image
+fly machine update 82d1d96a326548 -a scintilla-massive-stocks-batch \
+  --image registry.fly.io/scintilla-massive-stocks-batch:fmp-macro-633b38a --yes
+#    optional, same image for the hourly tail machine when its schedule is restored (P0, separate):
+#    fly machine update 781329f9354378 -a scintilla-massive-stocks-batch --image registry.fly.io/scintilla-massive-stocks-batch:fmp-macro-633b38a --yes
+
+# 4 · chart API (public reader; repo-root build context, as its Dockerfile states)
+fly deploy -a scintilla-massive-chart-api -c services/chart-api/fly.toml \
+  --build-arg GIT_COMMIT=633b38a6ee655a4dfec6b78bccdede1f4a5beef1 --image-label fmp-macro-633b38a
+
+# 5 · verify (read-only)
+curl -s https://scintilla-massive-chart-api.fly.dev/live | python3 -m json.tool | grep -A3 identity
+curl -s https://scintilla-massive-chart-api.fly.dev/macro                       # state CURRENT + quote per symbol
+curl -s "https://scintilla-massive-chart-api.fly.dev/candles?symbol=VIX&amp;tf=D&amp;limit=3"   # provider FMP, ^VIX
+curl -s "https://scintilla-massive-chart-api.fly.dev/candles?symbol=US10Y&amp;tf=60&amp;limit=3"
+# first read of each symbol/width acquires through the bar service (on_demand.ok:true), then serves from R2
+
+# 6 · Station (not pushed by this worker)
+git -C "/Users/alanharvey/SCINTILLA 0.5/_worktrees/station-one-source-20260922" push -u origin station/one-source-20260922</pre>
+
+<h2>8 · Limits, stated</h2>
+<ul>
+<li><b>Fixture, not live.</b> No valid FMP key here. The path, shapes, timestamps (Eastern-anchored, completed-only) and refusals are proven; the numbers on the "after" panes are synthetic and say so.</li>
+<li><b>Widths FMP does not publish</b> (2h, 3h, 6h, 12h, 2D, 3D, W, M…) are refused by name. The deck starts on <b>3h</b>, so VIX/DXY/US10Y panes on the wall will show a worded panel until Alan decides: switch those panes to a served width, or explicitly permit composing them from 1h bars (today's rule forbids composition).</li>
+<li><b>Intraday is tail-only</b> (3–60 days by width); daily is full history with the 5,000-row cap paged backward.</li>
+<li><b>Identity.</b> The chart pane no longer reads the canonical ticker list from Supabase; it recomputes the universe digest over the payload and compares it with the pinned accepted digest (verified against <code>control/CANONICAL_EQUITY_UNIVERSE_20260820.json</code>). The deck still binds its non-price reader and therefore still cross-checks by set; removing that read is one line once Alan accepts the digest path as sufficient.</li>
+<li><b>pulse/vix_term</b> is the one remaining market-data read from Supabase (§6).</li>
+<li>The hourly tail machine is still stopped (the open P0). The macro set does not depend on it: the chart API's own read path acquires through the running bar service.</li>
+</ul>
+</body></html>

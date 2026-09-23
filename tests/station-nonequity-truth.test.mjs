@@ -30,36 +30,77 @@ function load(tables) {
   return { window, paths };
 }
 
-test("an incoherent retained previous close is withheld; a coherent one is kept", async () => {
-  const { window } = load([["live_quotes", [
-    { ticker:"CLUSD", price:102.4, change:2.05, chg_pct:1.03, prev_close:81.25, updated_ts:"2026-09-17T03:20:00Z" },
-    { ticker:"BTCUSD", price:76352.995, change:1118.022, chg_pct:0.27, prev_close:76144.99, updated_ts:"2026-09-17T03:20:01Z" },
-    { ticker:"US10Y", price:4.695, change:null, chg_pct:null, prev_close:null, updated_ts:"2026-08-14T23:33:50Z" },
-  ]]]);
-  const rows = await window.SC_NON_EQUITY.quotes(["CLUSD", "BTCUSD", "US10Y"]);
-  const by = Object.fromEntries(rows.map((r) => [r.ticker, r]));
-  assert.equal(by.CLUSD.prev_close, null, "CLUSD's weeks-old previous close must not reach the pane");
-  assert.equal(by.CLUSD.chg_pct, null);
-  assert.equal(by.CLUSD.prev_close_withheld, "RETAINED_PREV_CLOSE_INCOHERENT");
-  assert.equal(by.CLUSD.price, 102.4, "the price itself is carried unchanged");
-  assert.equal(by.BTCUSD.prev_close, 76144.99, "a self-consistent row keeps its reference");
-  assert.equal(by.US10Y.prev_close, null);
-  assert.equal(by.US10Y.prev_close_withheld, undefined, "an already-absent reference is not relabelled");
+/* ONE SOURCE (2026-09-22): the retained Supabase price lanes are retired. Macro symbols reach the
+   chart API; anything else that is not provider-owned equity is a NAMED absence, never a read. */
+function loadApi(handlers) {
+  const fetch = (url) => {
+    const u = String(url);
+    if (u.includes("/universe")) return response(universe);
+    for (const [needle, body, code] of handlers) if (u.includes(needle)) return response(body, code);
+    return response(null, 503);
+  };
+  const window = { fetch };
+  vm.runInNewContext(source, {
+    window, fetch, Date, Promise, String, Object, Number, parseInt, isFinite,
+    encodeURIComponent, JSON, Error, Math, Array, RegExp, console, setTimeout, clearTimeout, AbortController,
+  });
+  const paths = [];
+  window.scBindProviderClient(async (path) => { paths.push(path); return owned.map((ticker) => ({ ticker })); });
+  return { window, paths };
+}
+
+test("the retired quote and candle lanes answer by name and never read a table", async () => {
+  const { window, paths } = loadApi([]);
+  await assert.rejects(() => window.SC_NON_EQUITY.quotes(["CLUSD", "US10Y"]),
+    (error) => error.scAbsence === "SUPABASE_PRICE_PATH_RETIRED");
+  await assert.rejects(() => window.SC_NON_EQUITY.candles("VIX", "D"),
+    (error) => error.scAbsence === "SUPABASE_PRICE_PATH_RETIRED");
+  assert.equal(window.SC_PROVIDER.absenceFor("CLUSD"), "SUPABASE_PRICE_PATH_RETIRED");
+  assert.ok(!paths.some((p) => /live_quotes|ohlcv_history/.test(p)), "no retained price table is read");
+  assert.equal(window.SC_NON_EQUITY.authority, "RETAINED_SUPABASE_NON_EQUITY_GEIGER_ONLY");
 });
 
-test("an empty filtered retained history read is named; a populated read clears the name", async () => {
-  const empty = load([["ohlcv_history", []]]);
-  await assert.rejects(() => empty.window.SC_PROVIDER.marketCandles("TICK", "180", { limit:240 }),
-    (error) => error.scAbsence === "NO_RETAINED_HISTORY");
-  assert.equal(empty.window.SC_PROVIDER.absenceFor("TICK", "180"), "NO_RETAINED_HISTORY");
-  assert.equal(empty.window.SC_PROVIDER.absenceFor("TICK"), null, "the quote lane is not named by a history read");
-  assert.ok(empty.paths.some((p) => /ohlcv_history\?.*ticker=eq\.TICK&tf=eq\.180/.test(p)));
+test("macro candles come from the chart API with the provider stated; other non-equities are a named absence", async () => {
+  const bars = { symbol:"VIX", provider:"FMP", provider_symbol:"^VIX", bar_authority:"PROVIDER_BUILT",
+    series:[{ t:1789617600000, o:15, h:16, l:14, c:15.5, v:0 }, { t:1789704000000, o:15.5, h:17, l:15, c:16.4, v:0 }] };
+  const { window, paths } = loadApi([["/candles?symbol=VIX&tf=D", bars]]);
+  window.SC_PROVIDER.noteAbsence("VIX", "D", "NO_RETAINED_HISTORY");
+  const rows = await window.SC_PROVIDER.marketCandles("VIX", "D", { limit:240 });
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].provider, "FMP", "the provider the API stated travels with the row");
+  assert.equal(rows[0].provider_symbol, "^VIX");
+  assert.equal(window.SC_PROVIDER.absenceFor("VIX", "D"), null, "a served series clears the old name");
+  assert.ok(!paths.some((p) => /ohlcv_history/.test(p)));
+  await assert.rejects(() => window.SC_PROVIDER.marketCandles("CLUSD", "D", { limit:240 }),
+    (error) => error.scAbsence === "NOT_SERVED_BY_CHART_API");
+  assert.equal(window.SC_PROVIDER.absenceFor("CLUSD", "D"), "NOT_SERVED_BY_CHART_API");
+});
 
-  const full = load([["ohlcv_history", [{ ticker:"VIX", timestamp:1786730400, close:14.38 }]]]);
-  full.window.SC_PROVIDER.noteAbsence("VIX", "180", "NO_RETAINED_HISTORY");
-  const rows = await full.window.SC_PROVIDER.marketCandles("VIX", "180", { limit:240 });
+test("macro quotes are the API's last completed close, stamped with their session; stale series become a named absence", async () => {
+  const macro = { provider:"FMP", macro:{
+    VIX:{ symbol:"VIX", provider:"FMP", provider_symbol:"^VIX", state:"CURRENT", absence:null,
+      quote:{ price:16.4, prev_close:15.5, change:0.9, chg_pct:5.806, session_et:"2026-09-22", price_observation_utc:"2026-09-22T04:00:00.000Z", basis:"FMP_DAILY_CLOSE" } },
+    DXY:{ symbol:"DXY", provider:"FMP", provider_symbol:"DX-Y.NYB", state:"FMP_MACRO_SERIES_STALE", absence:"FMP_MACRO_STALE_25_SESSIONS", quote:null } } };
+  const { window } = loadApi([["/macro?symbols=", macro]]);
+  const rows = await window.SC_PROVIDER.marketQuotes(["VIX", "DXY", "CLUSD"]);
   assert.equal(rows.length, 1);
-  assert.equal(full.window.SC_PROVIDER.absenceFor("VIX", "180"), null);
+  assert.equal(rows[0].ticker, "VIX"); assert.equal(rows[0].price, 16.4); assert.equal(rows[0].prev_close, 15.5);
+  assert.equal(rows[0].provider, "FMP"); assert.equal(rows[0].price_observation_utc, "2026-09-22T04:00:00.000Z");
+  assert.equal(window.SC_PROVIDER.absenceFor("DXY"), "FMP_MACRO_STALE_25_SESSIONS", "a stopped series is loud, not a line");
+  assert.equal(window.SC_PROVIDER.absenceFor("CLUSD"), "NOT_SERVED_BY_CHART_API");
+  assert.equal(window.SC_PROVIDER.absenceFor("VIX"), null);
+});
+
+test("a width the API refuses by name is painted by name, never retried forever", async () => {
+  const refusal = { error:"no series", symbol:"VIX", tf:"180", provider:"FMP", state:"FMP_INTERVAL_NOT_SERVED", absence:"FMP_INTERVAL_NOT_SERVED" };
+  const { window } = loadApi([["/candles?symbol=VIX&tf=180", refusal, 404]]);
+  await assert.rejects(() => window.SC_PROVIDER.marketCandles("VIX", "3h", { limit:240 }),
+    (error) => error.scAbsence === "FMP_INTERVAL_NOT_SERVED");
+  assert.equal(window.SC_PROVIDER.absenceFor("VIX", "3h"), "FMP_INTERVAL_NOT_SERVED");
+  /* an unnamed 503 stays transport: retryable, not a settled answer */
+  const outage = loadApi([["/candles?symbol=VIX&tf=D", { error:"daily provider series refresh unavailable", state:"DAILY_REFRESH_UNAVAILABLE" }, 503]]);
+  await assert.rejects(() => outage.window.SC_PROVIDER.marketCandles("VIX", "D", { limit:240 }),
+    (error) => error.scTransport === true && error.scStatus === 503);
 });
 
 test("stale series and stale quotes carry a visible date on the pane", () => {
