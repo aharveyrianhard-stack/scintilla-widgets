@@ -475,6 +475,17 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
         <option value="internalsSlow">internals slow</option>
         <option value="sectorFamilies">sector families</option>
         <option value="themeFamilies">theme families</option>
+        <option value="tvMacro">macro</option>
+        <option value="tvIndexes">indexes</option>
+        <option value="tvSectors">sectors</option>
+        <option value="tvHome6">home 6</option>
+        <option value="tvPage2">page 2</option>
+        <option value="tvPage3">page 3</option>
+        <option value="tvOtherLC">other lc</option>
+        <option value="tvOtherSC">other sc</option>
+        <option value="tvBlueChip">blue chip</option>
+        <option value="tvExtras">extras</option>
+        <option value="oscWorkbench">oscillator workbench</option>
         <option value="cohort">cohort</option>
         <option value="custom">custom</option>
       </select>
@@ -741,6 +752,11 @@ function initialWorkspaceChart(incoming, stored, index, directCustom) {
   if (incoming && incoming !== "auto") return CLEAN(incoming);
   return CLEAN(stored) || (index === 0 ? "SPY" : index === 1 ? "SNDK" : "");
 }
+/* A WORKBENCH PAGE GIVES EACH SLOT ITS OWN STUDY STACK, and may give it its own
+   timeframe. Both are page DATA, parallel to CHARTS, and both are empty on every
+   other page — so nothing about the ordinary wall changes. */
+const SLOT_STACKS = Array.from({ length: 8 }, () => "");
+const SLOT_RANGES = Array.from({ length: 8 }, () => "");
 const CHARTS = Array.from({ length: 8 }, (_, i) => {
   const incoming = URL_STATEFUL ? QS.get("c" + (i + 1)) : "";
   return initialWorkspaceChart(incoming, storedState("chart." + (i + 1)), i, DIRECT_CUSTOM_WORKSPACE);
@@ -2215,12 +2231,17 @@ function paintSceneControls(note) {
 function installSceneState(state) {
   const charts = (state.charts || state.tickers || []).slice(0, 8);
   CHARTS.forEach((_, i) => { CHARTS[i] = CLEAN(charts[i] || ""); });
+  const stacks = state.stacks || [], ranges = state.ranges || [];
+  SLOT_STACKS.forEach((_, i) => { SLOT_STACKS[i] = String(stacks[i] || ""); });
+  SLOT_RANGES.forEach((_, i) => { SLOT_RANGES[i] = RANGES.includes(ranges[i]) ? ranges[i] : ""; });
   CHART_COUNT = (SCENE === "custom" ? customChartCount : sceneChartCount)(
     state.chartCount || SceneModel.chartCountForSize(charts.length), SCENE,
     SCENE === "indexNow" || SCENE === "cohort"
   );
 }
 function fixedSceneState(scene, requestedCount) {
+  const bench = SceneModel.workbenchState(scene);
+  if (bench) return bench;
   if (scene === "indexNow") {
     const preset = Object.assign({}, SceneModel.PRESETS.indexNow, { tickers:SceneModel.indexNowTickersFor(new Date()) });
     return Object.assign({}, preset, SceneModel.basketWindow(preset.tickers, BASKET_OFFSET, requestedCount || preset.chartCount), { range:preset.range });
@@ -2230,6 +2251,8 @@ function fixedSceneState(scene, requestedCount) {
     return Object.assign({}, SceneModel.basketWindow(family?.tickers || [], BASKET_OFFSET, requestedCount || 6), { range:family?.range || "1D" });
   }
   const preset = SceneModel.PRESETS[scene];
+  if (preset && preset.exact)
+    return Object.assign({}, preset, SceneModel.exactPage(preset), { range:preset.range });
   return preset ? Object.assign({}, preset, SceneModel.basketWindow(preset.tickers, BASKET_OFFSET, requestedCount || preset.chartCount), { range:preset.range }) : null;
 }
 async function primeSceneState() {
@@ -2302,7 +2325,7 @@ function syncChartPanes(transitionGeneration) {
   CHARTS.forEach((ticker, i) => {
     const o = PANES.find((p) => p.def.key === "c" + (i + 1)); if (!o) return;
     o.def.ticker = ticker;
-    o.def.src = ticker ? chartSrc(ticker, i, transitionGeneration) : "";
+    o.def.src = ticker ? paneChartSrc(ticker, i, transitionGeneration) : "";
     o.def.open = ticker ? o.def.src.replace("bare=1&", "") : "";
     o.def.short = ticker || "chart " + (i + 1); o.def.title = ticker || "Choose a symbol";
     const input = el("t" + (i + 1)); if (input) input.value = ticker;
@@ -2395,7 +2418,7 @@ function scheduleRotation() {
   rotateTimer = setTimeout(async () => {
     if (ROTATE_PAUSED || ROTATE_BUSY) return scheduleRotation();
     ROTATE_BUSY = true;
-    const next = SceneModel.nextScreen(SCENE);
+    const next = SceneModel.nextRotatingScreen(SCENE);
     try { await applyScene(next.scene, { rotate:true, screen:true }); }
     finally { ROTATE_BUSY = false; scheduleRotation(); }
   }, ROTATE_AT * 1000);
@@ -2446,6 +2469,17 @@ const VIDEO_SHELL_BY_ACCOUNT = { personal: STATION_SHELL.personalVideo, scintill
 const videoShellFor = (account) => VIDEO_SHELL_BY_ACCOUNT[account] || STATION_SHELL.channelVideo;
 
 /* ---- ONE timeframe bar, driving both charts ---- */
+/* THE WALL'S URL BUILDER IS UNTOUCHED. A workbench slot appends the stack its page
+   declares — and its own timeframe when the page asked for one — on top of whatever
+   chartSrc built, so no ordinary page gains a study parameter and the dock's clouds
+   switch keeps working by message, without reloading a frame. */
+function paneChartSrc(t, index, transitionGeneration) {
+  const src = chartSrc(t, index, transitionGeneration);
+  const stack = SLOT_STACKS[index], range = SLOT_RANGES[index];
+  if (!stack && !range) return src;
+  return src.replace("&range=" + encodeURIComponent(RANGE),
+    "&range=" + encodeURIComponent(range || RANGE)) + SceneModel.studyQuery(stack);
+}
 function chartSrc(t, index, transitionGeneration) {
   return STATION_SHELL.chart + "?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
     "&view=" + encodeURIComponent(VIEW) +
@@ -2530,7 +2564,7 @@ function setRange(r) {
   for (let i = 0; i < CHARTS.length; i++) {
     const k = "c" + (i + 1);
     const o = PANES.find((p) => p.def.key === k); if (!o) continue;
-    o.def.src = CHARTS[i] ? chartSrc(CHARTS[i], i) : "";
+    o.def.src = CHARTS[i] ? paneChartSrc(CHARTS[i], i) : "";
     o.def.open = o.def.src.replace("bare=1&", "");
     if (o.frame) syncChartFrame(o.frame, o.def.src, { sc:"chart", range:RANGE });
   }
@@ -2619,7 +2653,7 @@ function commitTicker(index, raw, input) {
   el("symbolNote").textContent = original && original !== ticker ? original + " → " + ticker : "Hub · " + ticker;
   const o = PANES.find((p) => p.def.key === "c" + (index + 1));
   if (o) {
-    o.def.src = chartSrc(ticker, index); o.def.open = o.def.src.replace("bare=1&", "");
+    o.def.src = paneChartSrc(ticker, index); o.def.open = o.def.src.replace("bare=1&", "");
     o.def.short = ticker; o.def.title = ticker;
     const t = o.node.querySelector(".ph .t"); if (t) t.textContent = ticker;
     const card = o.body.querySelector(".card"); if (card) card.remove();
@@ -2633,7 +2667,7 @@ function commitTicker(index, raw, input) {
   const upper = SceneModel.usesPairedColumnAxis(CHART_COUNT) && above >= 0 && CHARTS[above]
     ? PANES.find((p) => p.def.key === "c" + (above + 1)) : null;
   if (upper) {
-    upper.def.src = chartSrc(CHARTS[above], above); upper.def.open = upper.def.src.replace("bare=1&", "");
+    upper.def.src = paneChartSrc(CHARTS[above], above); upper.def.open = upper.def.src.replace("bare=1&", "");
     if (upper.frame) syncChartFrame(upper.frame, upper.def.src, { sc:"chart", ticker:CHARTS[above], range:RANGE });
   }
   refreshDeckQuotes(); rememberEditableState(); closeSymbolGuide(); paintChips(); return true;
@@ -2775,7 +2809,7 @@ async function build() {
   }
   const defs = CHARTS.map((ticker, i) => ({
     row:0, key:"c" + (i + 1), short:ticker || "chart " + (i + 1), title:ticker || "Choose a symbol",
-    tag:"chart", kind:"chart", src:ticker ? chartSrc(ticker, i) : "",
+    tag:"chart", kind:"chart", src:ticker ? paneChartSrc(ticker, i) : "",
     open:ticker ? "/chart?t=" + encodeURIComponent(ticker) + "&range=" + RANGE : ""
   })).concat([
     /* v4: purpose-built panes, not full pages squeezed into a slot.

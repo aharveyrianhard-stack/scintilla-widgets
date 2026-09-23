@@ -4,7 +4,10 @@
   /* "cohort" is a first-class scene again, by filed ruling: choosing a cohort must show the
      COHORT'S rows, replacing the favorites rows — it may not be collapsed into a family
      preset, and it may not be filtered down to whichever members happen to be favorited. */
-  const IDS = ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","cohort","custom"];
+  const TV_IDS = ["tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras"];
+  const WORKBENCH_IDS = ["oscWorkbench"];
+  const IDS = ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]
+    .concat(TV_IDS, WORKBENCH_IDS, ["cohort","custom"]);
   /* Every curated named scene is independently navigable.  LIVE and CUSTOM
      remain manual workspaces so arrowing/rotation never replaces a live or
      in-progress custom wall. */
@@ -17,9 +20,28 @@
     Object.freeze({ id:"internalsFast", scene:"internalsFast", label:"INTERNALS FAST" }),
     Object.freeze({ id:"internalsSlow", scene:"internalsSlow", label:"INTERNALS SLOW" }),
     Object.freeze({ id:"sectorFamilies", scene:"sectorFamilies", label:"SECTOR FAMILIES" }),
-    Object.freeze({ id:"themeFamilies", scene:"themeFamilies", label:"THEME FAMILIES" })
+    Object.freeze({ id:"themeFamilies", scene:"themeFamilies", label:"THEME FAMILIES" }),
+    /* ── ALAN'S OWN TRADINGVIEW LAYOUTS, in his order, as Station pages ───────────
+       23 Sep: "the TV dynamic needs to come to Station, to free up the space of
+       Chrome." Same names, same order, same chart counts, same tickers. */
+    Object.freeze({ id:"tvMacro", scene:"tvMacro", label:"MACRO" }),
+    Object.freeze({ id:"tvIndexes", scene:"tvIndexes", label:"INDEXES" }),
+    Object.freeze({ id:"tvSectors", scene:"tvSectors", label:"SECTORS" }),
+    Object.freeze({ id:"tvHome6", scene:"tvHome6", label:"HOME 6" }),
+    Object.freeze({ id:"tvPage2", scene:"tvPage2", label:"PAGE 2" }),
+    Object.freeze({ id:"tvPage3", scene:"tvPage3", label:"PAGE 3" }),
+    Object.freeze({ id:"tvOtherLC", scene:"tvOtherLC", label:"OTHER LC" }),
+    Object.freeze({ id:"tvOtherSC", scene:"tvOtherSC", label:"OTHER SC" }),
+    Object.freeze({ id:"tvBlueChip", scene:"tvBlueChip", label:"BLUE CHIP" }),
+    Object.freeze({ id:"tvExtras", scene:"tvExtras", label:"EXTRAS" }),
+    Object.freeze({ id:"oscWorkbench", scene:"oscWorkbench", label:"WORKBENCH" })
   ]);
-  const ROTATION_IDS = Object.freeze(SCREENS.map((screen) => screen.scene));
+  /* ROTATION IS NOT THE PAGE LIST. Auto-rotate keeps cycling the nine curated
+     screens it always cycled; Alan's own layouts are pages you go to, not a
+     slideshow he did not ask for. The arrows, the rail and the jump list walk
+     every page in SCREENS. */
+  const ROTATION_SCENES = Object.freeze(["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]);
+  const ROTATION_IDS = ROTATION_SCENES;
   const NY = "America/New_York";
   const FAMILIES = Object.freeze({
     sectorFamilies: Object.freeze([
@@ -49,8 +71,94 @@
     focus2: Object.freeze({ label:"FOCUS 2", tickers:Object.freeze(["MU","SNDK"]), chartCount:2, range:"3h" }),
     macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", tickers:Object.freeze(["US10Y","DXUSD","GCUSD","SIUSD","CLUSD","BTCUSD"]), chartCount:6, range:"3D" }),
     internalsFast: Object.freeze({ label:"INTERNALS", tickers:Object.freeze(["VIX","ADD","PCC","CUMTICK","TICK","TRIN"]), chartCount:6, range:"3h" }),
-    internalsSlow: Object.freeze({ label:"INTERNALS SLOW", tickers:Object.freeze(["TICK","TRIN"]), chartCount:2, range:"1D" })
+    internalsSlow: Object.freeze({ label:"INTERNALS SLOW", tickers:Object.freeze(["TICK","TRIN"]), chartCount:2, range:"1D" }),
+    /* ── THE TWELVE SAVED TRADINGVIEW LAYOUTS ────────────────────────────────────
+       TradingView spellings are translated to the symbols the chart API serves —
+       USOIL → CLUSD, GOLD → GCUSD, TSX:BOFA → BAC — and nothing else is renamed.
+       IGV (INDEXES) and NVTS (EXTRAS) are not in the provider's tracked universe
+       today: their slots paint the provider's named absence instead of quietly
+       disappearing, and they light up the day the universe carries them.
+       `exact:true` means the page shows ITS OWN rows at ITS OWN size: a saved
+       layout is a picture, and pictures are not paged into twos. */
+    tvMacro: Object.freeze({ label:"MACRO", tickers:Object.freeze(["VIX","US10Y","CLUSD","BTCUSD","GCUSD","PCC"]), chartCount:6, range:"1D", exact:true }),
+    tvIndexes: Object.freeze({ label:"INDEXES", tickers:Object.freeze(["MAGS","SMH","IWM","DRAM","IGV"]), chartCount:6, range:"1D", exact:true }),
+    tvSectors: Object.freeze({ label:"SECTORS", tickers:Object.freeze(["XLV","XLY","XLF","XLP","XLE","XLI","XLC","XLB"]), chartCount:8, range:"1D", exact:true }),
+    tvHome6: Object.freeze({ label:"HOME 6", tickers:Object.freeze(["SPY","QQQ","NVDA","BE","MU","NBIS"]), chartCount:6, range:"3h", exact:true }),
+    tvPage2: Object.freeze({ label:"PAGE 2", tickers:Object.freeze(["TSM","SNDK","GOOGL","IREN","AVGO","CRWV"]), chartCount:6, range:"3h", exact:true }),
+    tvPage3: Object.freeze({ label:"PAGE 3", tickers:Object.freeze(["AAPL","LRCX","AMZN","AMD","MSFT","META"]), chartCount:6, range:"3h", exact:true }),
+    tvOtherLC: Object.freeze({ label:"OTHER LC", tickers:Object.freeze(["ASML","META","PLTR","ORCL","SPCX","HOOD","TSLA","SHOP"]), chartCount:8, range:"1D", exact:true }),
+    tvOtherSC: Object.freeze({ label:"OTHER SC", tickers:Object.freeze(["ALAB","WULF","CRDO","SMR","SMCI","OKLO","ASTS","USAR"]), chartCount:8, range:"1D", exact:true }),
+    tvBlueChip: Object.freeze({ label:"BLUE CHIP", tickers:Object.freeze(["WMT","JPM","COST","BAC","CAT","MRVL"]), chartCount:6, range:"1D", exact:true }),
+    tvExtras: Object.freeze({ label:"EXTRAS", tickers:Object.freeze(["MRVL","NVTS"]), chartCount:2, range:"1D", exact:true })
   });
+
+  /* ── A WORKBENCH IS A PAGE TYPE, NOT A ONE-OFF PAGE ──────────────────────────────
+     Alan, 23 Sep: "The oscillator workbench… copies with different charts… new
+     versions coming later tonight or tomorrow to pull into Station — so we should be
+     ready for that type of layout situation."
+     So a workbench is DATA: N charts, each one a symbol plus a NAMED study stack,
+     and optionally its own timeframe, because the point of a workbench is the same
+     name seen several ways. Tomorrow's layout is a new entry here, not new code.
+     The stacks are the Station's own indicators — the cloud ribbon (13D/21D EMA,
+     50D/200D SMA) and its two extra levels — never a TradingView drawing we cannot
+     read back. */
+  const STUDY_STACKS = Object.freeze({
+    PRICE: Object.freeze({ label:"price only", clouds:false }),
+    CLOUDS: Object.freeze({ label:"cloud ribbon", clouds:true }),
+    OSCILLATOR: Object.freeze({ label:"ribbon + 8D EMA + 100D SMA", clouds:true, ema8:true, sma100:true }),
+    STEPPED: Object.freeze({ label:"ribbon, stepped exactly", clouds:true, steps:true })
+  });
+  const WORKBENCHES = Object.freeze({
+    oscWorkbench: Object.freeze({
+      label: "OSCILLATOR WORKBENCH",
+      range: "1D",
+      charts: Object.freeze([
+        Object.freeze({ ticker:"MU", stack:"OSCILLATOR" }),
+        Object.freeze({ ticker:"QQQ", stack:"OSCILLATOR" })
+      ])
+    })
+  });
+  function workbenchFor(scene) { return WORKBENCHES[normalizeScene(scene)] || null; }
+  function isWorkbenchScene(scene) { return !!workbenchFor(scene); }
+  function studyStack(name) { return STUDY_STACKS[String(name || "").toUpperCase()] || null; }
+  /* The chart pane already reads every one of these from its own URL. A stack is
+     spelled out in full — clouds=0 as loudly as clouds=1 — so a pane never inherits
+     the wall's switch and quietly becomes a different study than the page declares. */
+  function studyQuery(name) {
+    const stack = studyStack(name);
+    if (!stack) return "";
+    const parts = ["clouds=" + (stack.clouds ? "1" : "0")];
+    if (stack.ema8) parts.push("ema8=1");
+    if (stack.sma100) parts.push("sma100=1");
+    if (stack.steps) parts.push("steps=1");
+    return "&" + parts.join("&");
+  }
+  function workbenchState(scene) {
+    const bench = workbenchFor(scene);
+    if (!bench) return null;
+    const charts = bench.charts.slice(0, 8);
+    return {
+      label: bench.label,
+      workbench: normalizeScene(scene),
+      tickers: charts.map((c) => c.ticker),
+      stacks: charts.map((c) => studyStack(c.stack) ? String(c.stack).toUpperCase() : "CLOUDS"),
+      /* A per-chart timeframe is an OPT-IN override: absent, the pane follows the one
+         timeframe bar that drives the whole wall, exactly like every other page. */
+      ranges: charts.map((c) => c.range || null),
+      chartCount: chartCountForSize(charts.length),
+      range: bench.range || "1D",
+      offset: 0, totalItems: charts.length, hasPrevious: false, hasNext: false, empty: !charts.length
+    };
+  }
+  /* A SAVED LAYOUT SHOWS ITS OWN ROWS. basketWindow pages a four/five-name basket
+     into twos, which is right for a cohort and wrong for a picture Alan saved: his
+     INDEXES layout is five names in a six-up wall, and it must stay five names in a
+     six-up wall with one empty slot, not two names with a pager. */
+  function exactPage(preset) {
+    const tickers = (preset?.tickers || []).slice(0, 8);
+    return { tickers, chartCount: chartCountForSize(preset?.chartCount || tickers.length),
+      offset: 0, totalItems: tickers.length, hasPrevious: false, hasNext: false, empty: !tickers.length };
+  }
 
   /* The old cohort→themeFamilies collapse silently discarded a chosen cohort: a user asking
      for AI_SOFTWARE or MEGACAP landed on the first theme basket with no sign their choice was
@@ -95,6 +203,14 @@
   }
   function screenForScene(scene) {
     return SCREENS.find((screen) => screen.scene === normalizeScene(scene)) || null;
+  }
+  /* Auto-rotate walks the curated nine; the arrows and the rail walk every page. */
+  function nextRotatingScreen(scene) {
+    const current = normalizeScene(scene);
+    const order = ROTATION_SCENES;
+    const index = order.indexOf(current);
+    const next = order[(index + 1 + order.length) % order.length];
+    return screenForScene(next) || SCREENS[0];
   }
   function nextScreen(scene) {
     const index = SCREENS.findIndex((screen) => screen.scene === normalizeScene(scene));
@@ -163,6 +279,31 @@
     };
   }
 
+  /* ── ONE MOVE TO ANYWHERE ────────────────────────────────────────────────────────
+     Alan: "I'm trying to get to the PCC and it's not particularly nice."
+     So the jump list matches a page by its NAME *and* by the tickers on it: typing
+     PCC finds MACRO and INTERNALS FAST, typing MAC finds MACRO and MACRO CROSS-ASSET.
+     Matching happens here, in the model, so it is testable without a browser. */
+  function pageTickers(scene) {
+    const id = normalizeScene(scene);
+    const bench = workbenchFor(id);
+    if (bench) return bench.charts.map((c) => c.ticker);
+    if (id === "indexNow") return indexNowTickersFor(new Date()).slice();
+    const families = FAMILIES[id];
+    if (families) return families.reduce((all, f) => all.concat(f.tickers), []);
+    return (PRESETS[id]?.tickers || []).slice();
+  }
+  function findPages(query) {
+    const q = String(query || "").trim().toUpperCase();
+    if (!q) return SCREENS.map((screen) => ({ screen, why:"" }));
+    const out = [];
+    for (const screen of SCREENS) {
+      if (screen.label.toUpperCase().includes(q)) { out.push({ screen, why:"" }); continue; }
+      const hit = pageTickers(screen.scene).find((t) => t.toUpperCase().startsWith(q));
+      if (hit) out.push({ screen, why:hit });
+    }
+    return out;
+  }
   root.StationScenes = Object.freeze({
     IDS: Object.freeze(IDS.slice()),
     SCREENS,
@@ -183,6 +324,20 @@
     familyBasket,
     basketWindow,
     buildCohortIndex,
-    cohortPage
+    cohortPage,
+    TV_IDS: Object.freeze(TV_IDS.slice()),
+    WORKBENCH_IDS: Object.freeze(WORKBENCH_IDS.slice()),
+    ROTATION_SCENES,
+    nextRotatingScreen,
+    STUDY_STACKS,
+    WORKBENCHES,
+    workbenchFor,
+    isWorkbenchScene,
+    studyStack,
+    studyQuery,
+    workbenchState,
+    exactPage,
+    pageTickers,
+    findPages
   });
 })(typeof globalThis === "object" ? globalThis : window);
