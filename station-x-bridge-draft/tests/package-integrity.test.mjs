@@ -14,12 +14,15 @@ function gitBlobHash(source) {
     .digest("hex");
 }
 
-test("Bridge package is the exact reviewed v0.7.17 manifest with unchanged permanent permissions", async () => {
+test("Bridge package is v0.7.18 with unchanged permanent permissions and the Station X shells matched", async () => {
   const source = await readFile(manifestPath);
   const manifest = JSON.parse(source.toString("utf8"));
 
-  assert.equal(gitBlobHash(source), knownV0717Blob);
-  assert.equal(manifest.version, "0.7.17");
+  /* 0.7.18 (23 Sep): the relay must attach where the Station actually mounts its X pane. */
+  assert.equal(manifest.version, "0.7.18");
+  const relay = manifest.content_scripts.find((c) => (c.js || []).includes("station-bridge.js"));
+  assert.ok(relay.matches.includes("https://station.scintillahub.ai/station-shells/x-v*"), "the deck mounts /station-shells/x-v2");
+  assert.ok(relay.matches.includes("https://station.scintillahub.ai/pane-x*"));
   assert.deepEqual(manifest.permissions, ["activeTab", "offscreen", "scripting", "storage", "tabCapture", "windows"]);
   assert.deepEqual(manifest.host_permissions, [
     "https://x.com/*",

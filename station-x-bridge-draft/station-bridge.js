@@ -14,7 +14,10 @@
   }
 
   const ORIGIN = window.location.origin;
-  const isPane = /\/pane-x\/?$/.test(window.location.pathname);
+  // 0.7.18 (23 Sep 2026): the Station has mounted its X pane at /station-shells/x-v2 since 14 Aug. 0.7.17
+  // only recognised /pane-x, so on the Station the relay never started and the pane sat on "X SOURCE IS
+  // OFFLINE". Any versioned X shell is the same receiver.
+  const isPane = /\/(?:pane-x|station-shells\/x-v\d+)\/?$/.test(window.location.pathname);
   if (!isPane) return;
   const INSTANCE_ID = crypto.randomUUID();
 

@@ -131,6 +131,7 @@ async function currentStationSourceTab() {
 }
 
 const stationRestore = restoreStationSession();
+
 // An extension worker restart does not reload an already-open Station pane.
 // Reinject the tiny bridge into every canonical Station tab once restoration
 // completes so those panes reannounce to the new worker without a toolbar
