@@ -1,7 +1,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SB_URL = Deno.env.get("SUPABASE_URL") || "";
-const ACCOUNTS = ["personal", "scintilla"] as const;
+/* One identity per channel Alan named (22 Sep): each connects on its own through this
+   device-code flow and keeps its own refresh token, channel id and title under its account key. */
+const ACCOUNTS = ["personal", "scintilla", "soundscapes", "golf", "ai_research", "fitness"] as const;
 type Account = typeof ACCOUNTS[number];
 
 function keyFromJson(name: string, preferred: string) {
@@ -85,7 +87,7 @@ Deno.serve(async (req) => {
   }
 
   const account = accountFrom(req);
-  if (!account) return J({ error: "account must be personal or scintilla" }, 400);
+  if (!account) return J({ error: "account must be one of " + ACCOUNTS.join(", ") }, 400);
   const pendingKey = "yt_device_code_" + account;
   const { data: cfg, error } = await sb.from("app_config")
     .select("key,value")

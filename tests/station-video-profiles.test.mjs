@@ -3,7 +3,14 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 
-const pane = readFileSync(new URL('../pane-video/index.html', import.meta.url), 'utf8')
+// Both mounted shells are asserted (the deck pins each pane to its own release surface), and they
+// must be the same bytes, or a fix applied to one never reaches the other.
+const SHELLS = ['personal-video-v1', 'scintilla-video-v1']
+const shells = SHELLS.map(name => readFileSync(new URL(`../station-shells/${name}/index.html`, import.meta.url), 'utf8'))
+test('the two mounted video shells are byte-identical', () => {
+  assert.equal(shells[0], shells[1], 'personal-video-v1 and scintilla-video-v1 must not drift apart')
+})
+const pane = shells[0]
 const lift = name => {
   const start = pane.indexOf(`function ${name}(`)
   assert.notEqual(start, -1, `pane-video declares ${name}`)
@@ -29,12 +36,14 @@ const sample = [
 
 test('every channel Alan named has a declared profile, including the golf slot', () => {
   const keys = api.FEED_PROFILES.map(p => p.key)
-  for (const expected of ['personal', 'scintilla', 'soundscapes', 'golf']) {
+  for (const expected of ['personal', 'scintilla', 'soundscapes', 'golf', 'ai_research', 'fitness']) {
     assert.ok(keys.includes(expected), `${expected} is declared`)
   }
-  const golf = api.FEED_PROFILES.find(p => p.key === 'golf')
-  assert.match(golf.note, /awaiting/, 'the golf slot says what it waits for')
-  assert.equal(golf.account, 'golf', 'its account key is wired in advance')
+  for (const key of ['soundscapes', 'golf', 'ai_research', 'fitness']) {
+    const profile = api.FEED_PROFILES.find(p => p.key === key)
+    assert.match(profile.note, /awaiting/, `the ${key} slot says what it waits for`)
+    assert.equal(profile.account, key, 'its account key is wired in advance and equals its key')
+  }
 })
 
 test('a profile is only offered once the data proves its account exists', () => {
@@ -43,6 +52,9 @@ test('a profile is only offered once the data proves its account exists', () => 
   assert.equal(api.profileIsAvailable('soundscapes', sample), false,
     'no soundscapes row exists today, so the profile is not offered as if it worked')
   assert.equal(api.profileIsAvailable('golf', sample), false)
+  assert.equal(api.profileIsAvailable('ai_research', sample), false)
+  assert.equal(api.profileIsAvailable('fitness', sample), false)
+  assert.equal(api.profileIsAvailable('fitness', [...sample, row(['fitness'])]), true)
   assert.equal(api.profileIsAvailable('soundscapes', [...sample, row(['soundscapes'])]), true,
     'and it becomes available the moment a real row carries the account')
 })
@@ -83,7 +95,8 @@ test('the owner can actually switch profile, and a profile without data says why
   // Root's finding: a registry nobody can reach is prepared plumbing, not the requested switch.
   assert.match(pane, /<select id="feedProfile"[\s\S]{0,160}aria-label="Channel profile"/)
   assert.match(pane, /function paintFeedProfileSelector\(rows\)/)
-  assert.match(pane, /url\.searchParams\.set\("feed", next\)/, 'switching reloads this pane on the chosen feed')
+  assert.match(pane, /url\.searchParams\.set\("feed", next\)/, 'switching reloads this pane on the chosen feed when it stands alone')
+  assert.match(pane, /parent\.postMessage\(\{ sc: "video-feed", account: next \}/, 'inside the deck it asks the deck to swap panes instead')
   assert.match(pane, /\(ready \? "" : " disabled"\)/, 'a profile the data cannot support is disabled')
   assert.match(pane, /profile\.label \+ " \(awaiting\)"/, 'and says it is awaiting, rather than looking broken')
   assert.match(pane, /title="' \+ \(profile\.note \|\| profile\.label\)/, 'the reason is on the option itself')
@@ -94,7 +107,7 @@ test('the selector is painted immediately and repainted from the rows that actua
   const load = lift('load')
   assert.match(start, /paintFeedProfileSelector\(\[\]\)/,
     'the hidden selector is exposed immediately with known profiles and honest awaiting states')
-  assert.match(load, /rows = await pg\(q\)[\s\S]{0,180}paintFeedProfileSelector\(Array\.isArray\(rows\) \? rows : \[\]\)/,
+  assert.match(load, /rows = await pg\(feedQuery\(0\)\)[\s\S]{0,1200}paintFeedProfileSelector\(raw\)/,
     'the options are repainted from the actual returned account evidence')
   assert.ok(load.indexOf('paintFeedProfileSelector') < load.indexOf('const nextRows'),
     'availability sees the returned provenance before the active profile filters its display rows')

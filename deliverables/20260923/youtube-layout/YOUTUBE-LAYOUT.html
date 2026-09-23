@@ -1,0 +1,111 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>YouTube on the Station · 23 Sep 2026 · one feed at a time, bigger X, the channels, GRID · VIDEOS · SHORTS, the count that opens</title>
+<style>
+body{margin:0;background:#05060C;color:#B4B6CC;font:18px/1.55 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:34px;margin:0 0 6px;color:#D8D8E6} h2{font-size:26px;margin:44px 0 8px;color:#D8D8E6} h3{font-size:20px;margin:22px 0 6px;color:#C4C6DA}
+p{max-width:1100px;margin:0 0 12px} .lead{font-size:22px;color:#D0D2E2;max-width:1100px}
+.status{border-left:4px solid #3A3A52;padding:10px 16px;margin:14px 0 26px;background:#0A0B14;max-width:1100px}
+table{border-collapse:collapse;font-size:16.5px;margin:10px 0 6px;max-width:1400px} th,td{border:1px solid #2A2A3E;padding:8px 12px;text-align:left;vertical-align:top} th{color:#9A9AB6;font-weight:600}
+td.k{color:#868AAA;font-style:italic} td.same{color:#868AAA}
+.shots{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:1400px} .shots img{width:100%;border:1px solid #2A2A3E;display:block} figure{margin:0} figcaption{font:14px ui-monospace,Menlo,monospace;color:#9A9AB6;margin-top:4px}
+.one img{max-width:1400px;width:100%;border:1px solid #2A2A3E;display:block}
+.phones{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:1400px} .phones img{width:100%;border:1px solid #2A2A3E}
+code{font:15px ui-monospace,Menlo,monospace;background:#15162A;padding:1px 6px;border-radius:4px;color:#C4C6DA} ul{max-width:1100px} li{margin:5px 0}
+.big{font-size:20px;color:#D0D2E2} a{color:#8FB8D8}
+</style></head><body>
+<h1>YouTube on the Station, 23 September: one feed at a time, a bigger X, the channels, GRID · VIDEOS · SHORTS, and a count that opens</h1>
+<p class="lead">Built on the Station branch <code>station/youtube-layout-20260923</code> (from production <code>de95670</code>) and the Hub branch <code>hub/youtube-count-20260923</code> (from production <code>4c1466c</code>). Every picture below was taken by me from those candidates served locally on the MacBook, or from the live sites for the "before" shots. <b>Nothing is pushed or deployed.</b></p>
+<div class="status"><b>Status in one line.</b> Everything Alan asked for on the 22nd is built and screenshotted; the two video shells are byte-identical; the test suites show the same 20 pre-existing failures as production and 22 new passing tests. Three things need root, listed at the end: the collector functions to deploy (so the new channels can fill), the order to deploy them in, and the sentiment job's per-video rows (so the count's list is a list, not a sentence).</div>
+
+<h2>1 · One video feed at a time, as big as the row allows, the rest to X</h2>
+<p>Alan: <i>"Make the video as big as it can be given the altitude of the space, as wide as it can be, that it doesn't crop. Give whatever extra space to the Twitter."</i></p>
+<p>What was on the wall before: the bottom row split exactly in half. A 16:9 picture is sized by the row's <b>height</b>, so inside a 960-px half-row at 1080p the picture could only be about 830 px wide and the other 130 px were black bars beside it, while X sat next to them at exactly half. Measured on the candidate at 1920×1080 (from the page, not estimated):</p>
+<table><tr><th></th><th>before (live)</th><th>after (candidate)</th></tr>
+<tr><td>bottom row height</td><td>488 px</td><td>495 px</td></tr>
+<tr><td>video pane width</td><td>960 px (half)</td><td><b>830 px</b> — (495 − 28 px of the shell's one bar) × 16 ⁄ 9</td></tr>
+<tr><td>picture when playing</td><td>830 × 467, black bars either side</td><td><b>830 × 467, no bars</b> — the same picture, the box now fits it</td></tr>
+<tr><td>X pane width</td><td>960 px</td><td><b>1,089 px</b></td></tr></table>
+<p>The lock is a plain rule: the video pane on the wall gets <code>flex:0 0 auto</code> and a width computed from its own height and the chrome height the shell reports; X stays a plain flex sibling and takes every remaining pixel. Clamped to 30–60 % of the row so a very tall or very wide wall never starves either pane. It stands down for phone stacking, the two media expansions (⤢ across the region, cover X) and a bottom-row solo, which keep their own geometry unchanged. Nothing crops: YouTube letterboxes inside the frame, and the thumbnail grid counts its columns from the narrower width.</p>
+<div class="shots">
+<figure><img src="screens/before-station-desktop-1920.png"><figcaption>before · live station.scintillahub.ai · 1920×1080 · the half-row video pane and the half-row X</figcaption></figure>
+<figure><img src="screens/after-station-desktop-1920.png"><figcaption>after · candidate · 1920×1080 · video pane 830 px, X 1,089 px, the feed switch with the channels, GRID · VIDEOS · SHORTS on the pane</figcaption></figure>
+<figure><img src="screens/after-station-desktop-playing.png"><figcaption>after · a video playing · the picture fills the pane edge to edge, no bars, X untouched</figcaption></figure>
+<figure><img src="screens/after-station-desktop-scintilla.png"><figcaption>after · SCINTILLA on the wall · its rail: GRID · VIDEOS · SHORTS | ALL · SUBSCRIBED · WATCH LATER</figcaption></figure></div>
+<p class="k" style="color:#868AAA;font-size:15px">The two charts read "data delayed · retrying" in the candidate shots because the chart shell was served from localhost during capture; the chart shell is not changed by this branch (see the file list), and the live "before" shot shows them drawn.</p>
+
+<h2>2 · The channels: SOUNDSCAPES, GOLF, AI RESEARCH, and FITNESS when present</h2>
+<p><b>How PERSONAL and SCINTILLA are selected today (read from source).</b> Each is a YouTube identity. The collector <code>yt-rss-sweep</code> holds <code>ACCOUNTS = ["personal","scintilla"]</code>; for each account it refreshes an OAuth token from <code>app_config</code> (<code>YT_REFRESH_TOKEN_&lt;ACCOUNT&gt;</code>), reads that identity's <code>subscriptions?mine=true</code> hourly into <code>yt_sub_channels_&lt;account&gt;</code>, polls each channel's free RSS, and tags every video row <code>subscription_accounts ⊇ {account}</code>. SCINTILLA's list can also grow project-side: a Subscribe from the pane appends to <code>yt_sub_channels_scintilla</code> through <code>yt-act</code>, no Google login needed. The Station pane is a view over that column (<code>subscription_accounts=cs.{account}</code>), the video shell's <code>FEED_PROFILES</code> registry names the profiles, and the deck's <code>VIDEO_FEEDS</code> decides which pane is on the wall.</p>
+<p><b>What was added.</b> One account key per channel, the same key everywhere: <code>soundscapes</code>, <code>golf</code>, <code>ai_research</code>, <code>fitness</code>. The deck's switch offers PERSONAL · SCINTILLA · SOUNDSCAPES · GOLF · AI RESEARCH always, marks a channel " ·" while no video row carries its account yet (the button's tooltip says so), and shows FITNESS only once a row carries <code>fitness</code> — Alan is still thinking about that one. The pane for an awaiting channel says what it is waiting for instead of "no videos". The pane's own profile select lists all six and, inside the deck, asks the deck to swap panes instead of reloading itself (which used to leave the switch pointing at the wrong pane).</p>
+<p><b>What each channel needs before it fills (nothing is tagged for any of them yet; measured on the live feed 2026-09-23: personal 112, scintilla 137, unscoped 750 of the first 1,000 rows, none of the four).</b></p>
+<table><tr><th>step</th><th>who</th><th>what</th></tr>
+<tr><td>1</td><td>root</td><td>deploy the three collector functions from this branch (<code>yt-oauth</code>, <code>yt-rss-sweep</code>, <code>yt-act</code>) — their <code>ACCOUNTS</code> lists now carry the six keys. Not done here: the brief forbids deploys.</td></tr>
+<tr><td>2a</td><td>Alan, per channel</td><td><i>either</i> connect the channel's own Google identity through the existing device-code flow, <code>yt-oauth?account=golf</code> — that stores its refresh token, channel id and title, and the sweep caches its subscriptions within the hour;</td></tr>
+<tr><td>2b</td><td>Alan, per channel</td><td><i>or</i> subscribe channels to the feed project-side (the pane's Subscribe while a video plays on that feed → <code>yt-act {action:"sub", account:"golf", channelId}</code> → <code>yt_sub_channels_golf</code>), exactly as SCINTILLA does. No Google login.</td></tr>
+<tr><td>3</td><td>the sweep</td><td>polls those channels' RSS and tags <code>youtube_videos.subscription_accounts</code> with the key; the <code>youtube_feed</code> view already passes that column through (verified).</td></tr>
+<tr><td>4</td><td>the Station</td><td>the pane's SUBSCRIBED list fills, the deck marks the feed present, FITNESS's button appears the moment its first row lands. No further code change.</td></tr></table>
+<p><b>Deploy order matters, and the pane guards it.</b> Through the <i>currently deployed</i> <code>yt-act</code>, a Subscribe sent with an unknown account falls through to the PERSONAL identity and would create a real personal YouTube subscription. So on a channel feed the Subscribe button is disabled and says "after the collector update" until <code>CHANNEL_FEED_SUBSCRIBE_READY</code> in the shell is flipped to true — one line, in the same change that deploys the functions.</p>
+<div class="shots">
+<figure><img src="screens/after-dock-feeds.png" style="image-rendering:auto"><figcaption>the dock, one line at 1920 · VIDEO FEED: PERSONAL · SCINTILLA · SOUNDSCAPES · · GOLF · · AI RESEARCH · · then the pane chips</figcaption></figure>
+<figure><img src="screens/after-station-desktop-soundscapes.png"><figcaption>SOUNDSCAPES on the wall · the pane says what it is waiting for · the select shows every channel with its state</figcaption></figure></div>
+
+<h2>3 · GRID · VIDEOS · SHORTS</h2>
+<p>Alan: <i>"a lot of very short shorts contaminate the grid. A combined grid, one of only shorts, one of only videos."</i> · <i>"The thumbnail duration is good to have."</i></p>
+<p>Three tabs, first on every pane's rail, applied to whichever list is open. <b>A short is either thing:</b> the platform's own flag (<code>is_short</code>, from the sweep's probe of youtube.com/shorts/) <b>or</b> a length of 60 seconds or less. Measured on the live feed: 3,859 rows are flagged, <b>183 sub-minute videos are not flagged</b>, and <b>1,283 flagged Shorts run over a minute</b> — neither rule alone matches what Alan sees as a short. The database is asked the same question the page asks (the feed serves length as <code>m:ss</code> with no leading zero, so <code>0:*</code> is every sub-minute length and <code>1:00</code> the boundary), and every row that lands is re-checked, including the id-based Watch Later list. The duration badge stays on every thumbnail. Each feed opens on what it showed before the tabs existed (PERSONAL on its videos, SCINTILLA and market search on everything) and remembers the tab per feed on the device.</p>
+<div class="shots">
+<figure><img src="screens/after-shell-personal-videos.png"><figcaption>PERSONAL · VIDEOS (its default) · 836×470, the size the wall gives it · lengths 1:25, 3:32, 21:22 … no short of either kind</figcaption></figure>
+<figure><img src="screens/after-shell-personal-shorts.png"><figcaption>PERSONAL · SHORTS · flagged Shorts over a minute (1:20, 1:35, 1:43) beside sub-minute ones (0:42, 0:58, 0:54)</figcaption></figure>
+<figure><img src="screens/after-shell-personal-grid.png"><figcaption>PERSONAL · GRID · everything together</figcaption></figure>
+<figure><img src="screens/after-shell-scintilla-grid.png"><figcaption>SCINTILLA · GRID over ALL · the old "grid" list is now called ALL so the word is not used twice</figcaption></figure></div>
+
+<h2>4 · The sentiment box: the video count opens the videos</h2>
+<p>Alan: <i>"Is the video count clickable?"</i> On SOCIAL › SENTIMENT the count on a YouTube row ("2 videos") is now underlined and opens, under its own row, the list of the videos the job counted: title (a link), channel, age and lean. A second click closes it; clicking the count never opens the company row beneath it; other sources keep their plain count.</p>
+<p><b>What it shows tonight, honestly.</b> The count comes from <code>social_sentiment</code> (63 YouTube rows). The videos themselves live in <code>youtube_video_sentiment</code>, joined to <code>youtube_videos</code> — and that table holds <b>0 rows</b> on the live database (the sentiment job's write paths were refused by the permission gate in the earlier run). So the panel says exactly that, names the table, and still offers the latest mention the row carries, as a link. When the job's rows land, the same click shows the list with no code change. It never substitutes a title search for the job's own list.</p>
+<div class="shots">
+<figure><img src="screens/after-hub-sentiment-desktop-1440.png"><figcaption>SOCIAL › SENTIMENT · candidate · 1440×900 · every YouTube count underlined</figcaption></figure>
+<figure><img src="screens/after-hub-sentiment-list-desktop-1440.png"><figcaption>the count opened under SOFI · the honest state and the latest mention, linked</figcaption></figure></div>
+
+<h2>5 · Phone</h2>
+<div class="phones">
+<figure><img src="screens/before-station-phone-390.png"><figcaption>before · live · 390×844</figcaption></figure>
+<figure><img src="screens/after-station-phone-390.png"><figcaption>after · the switch shows the channels; chips stay the two feeds</figcaption></figure>
+<figure><img src="screens/after-station-phone-390-video.png"><figcaption>after · the video pane stacked · GRID · VIDEOS · SHORTS on its rail (the rail scrolls sideways at 390)</figcaption></figure>
+<figure><img src="screens/after-hub-sentiment-list-phone-390.png"><figcaption>Hub · the count opened at 390 · the list wraps under the row</figcaption></figure></div>
+
+<h2>6 · Every control, before and after — "please don't make me lose features"</h2>
+<table>
+<tr><th>surface</th><th>before (production)</th><th>after (candidate)</th><th>kept?</th></tr>
+<tr><td>deck · VIDEO FEED switch</td><td>PERSONAL · SCINTILLA</td><td>PERSONAL · SCINTILLA · SOUNDSCAPES · · GOLF · · AI RESEARCH · (+ FITNESS when rows carry it)</td><td>kept, extended</td></tr>
+<tr><td>deck · one video at a time (off-wall pane unmounted, stops playing)</td><td>yes</td><td>yes, for every feed</td><td class="same">unchanged</td></tr>
+<tr><td>deck · remembered feed per device</td><td>fb / fa</td><td>any registry key, checked against the registry</td><td>kept</td></tr>
+<tr><td>deck · pane chips row</td><td>SPY · SNDK · PERSONAL · SCINTILLA · · X</td><td>same; a channel's chip appears once it has rows or is on the wall</td><td class="same">unchanged today</td></tr>
+<tr><td>deck · bottom row split</td><td>video ½ · X ½</td><td>video = height × 16⁄9 · X the rest</td><td>changed as asked</td></tr>
+<tr><td>deck · ⤢ expand across the region / cover X / row solo / PiP / phone stack</td><td>yes</td><td>yes, untouched (the lock stands down for them)</td><td class="same">unchanged</td></tr>
+<tr><td>pane · feed label + profile select</td><td>"PERSONAL  [PERSONAL ▾]"</td><td>"[PERSONAL ▾]" — the label hid because it repeated the select's word</td><td>kept (one copy)</td></tr>
+<tr><td>pane · profile select inside the deck</td><td>reloaded the pane on the chosen feed (the deck's switch then pointed at the wrong pane)</td><td>asks the deck to swap panes</td><td>fixed</td></tr>
+<tr><td>pane · PERSONAL rail</td><td>SUBSCRIBED</td><td>GRID · VIDEOS · SHORTS | SUBSCRIBED (opens on VIDEOS = what it showed)</td><td>kept, extended</td></tr>
+<tr><td>pane · SCINTILLA rail</td><td>GRID · SUBSCRIBED · SHORTS · WATCH LATER</td><td>GRID · VIDEOS · SHORTS | ALL · SUBSCRIBED · WATCH LATER ("grid" list renamed ALL; "shorts" list became the SHORTS tab)</td><td>kept (moved, renamed)</td></tr>
+<tr><td>pane · MARKET SEARCH rail</td><td>MARKET · SHORTS · ALL MARKET</td><td>GRID · VIDEOS · SHORTS | MARKET (ALL MARKET = MARKET + GRID; ?list=all and ?list=shorts still land)</td><td>kept (moved)</td></tr>
+<tr><td>pane · duration badge on the thumbnail · age on the channel line</td><td>yes</td><td>yes</td><td class="same">unchanged</td></tr>
+<tr><td>pane · ★ watch later (SCINTILLA) · prev/next · ••• menu (watch later, subscribe, open in YouTube, picture in picture, expand, cover X) · resume positions · endless paging · 2-minute refresh</td><td>yes</td><td>yes; Subscribe on a <i>channel</i> feed is disabled until the collectors are deployed (see §2)</td><td class="same">unchanged</td></tr>
+<tr><td>pane · empty state</td><td>"no videos in this list"</td><td>says which: nothing in this tab, or the channel is awaiting its account (with what to do)</td><td>improved</td></tr>
+<tr><td>Hub · SENTIMENT count</td><td>plain "2 videos"</td><td>underlined, opens the list / the honest state; row click still opens the company</td><td>kept, extended</td></tr>
+<tr><td>Hub · latest mention cell (channel · age)</td><td>yes</td><td>yes</td><td class="same">unchanged</td></tr>
+</table>
+
+<h2>7 · What changed, where, and how it was checked</h2>
+<ul>
+<li><b>Station</b> (<code>station/youtube-layout-20260923</code>, from <code>de95670</code>): <code>deck/index.html</code>; <code>station-shells/personal-video-v1/index.html</code> and <code>station-shells/scintilla-video-v1/index.html</code> (byte-identical, asserted by test); <code>supabase/functions/yt-oauth</code>, <code>yt-rss-sweep</code>, <code>yt-act</code> (six accounts; channel-feed subscribe); tests: new <code>tests/station-video-layout.test.mjs</code>, <code>tests/station-video-profiles.test.mjs</code> repointed from a file that is not in the tree to the two shells, sandbox stubs and three literal-matching assertions reconciled in <code>station-h3-h4-backlog</code> and <code>station-scenes</code>. No chart, X, iPad or routing change.</li>
+<li><b>Hub</b> (<code>hub/youtube-count-20260923</code>, from <code>4c1466c</code>): <code>index.html</code> only (+95 lines), new <code>tests/hub-social-videos.test.mjs</code>; the age test's call-site count updated (it already failed on production, where root's latest-mention cell made a fifth site).</li>
+<li><b>Tests.</b> Station: 377 tests, 357 pass, 20 fail — the same 20 failures exist on production <code>de95670</code> before any change (route inventory, dock inventory, chart badge, the age-colour tests that a later merged commit contradicts, and others; list in RESULT.json), none new. Hub: 13 tests, 13 pass, 0 fail.</li>
+<li><b>Syntax.</b> Every inline script block of the three changed pages parses (<code>node --check</code>). The three Deno functions could not be type-checked here (no Deno on this Mac); their edits are the account list, the config keys derived from it, and one additive branch.</li>
+<li><b>House rule.</b> No white or near-white was introduced: the new controls reuse the existing <code>.btn</code> and chip classes, the new text uses the existing mid greys, and a test in each repo scans the added CSS for <code>#fff</code>, <code>#F2F2F8</code>, <code>#C6C8DE</code> and <code>rgb(255…</code>.</li>
+</ul>
+
+<h2>8 · For root</h2>
+<ul>
+<li>Deploy the three collector functions <b>before</b> the Station branch, then flip <code>CHANNEL_FEED_SUBSCRIBE_READY</code> in both video shells (one line, keep them identical).</li>
+<li>Apply the sentiment job's per-video rows (<code>youtube_video_sentiment</code> is empty), or the count's list stays the honest sentence.</li>
+<li>Connect or seed the four channels (§2, steps 2a/2b) — no Station change is needed after that.</li>
+<li>Not verified here: a real YouTube playback session inside the deck (the headless player showed the picture and the geometry; sound and autoplay policy need a real browser), and Monday's live chart panes on the candidate (served from localhost during capture).</li>
+</ul>
+</body></html>

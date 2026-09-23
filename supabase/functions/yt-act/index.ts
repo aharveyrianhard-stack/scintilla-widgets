@@ -1,7 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SB_URL = Deno.env.get("SUPABASE_URL") || "";
-const ACCOUNTS = ["personal", "scintilla"] as const;
+const ACCOUNTS = ["personal", "scintilla", "soundscapes", "golf", "ai_research", "fitness"] as const;
 type Account = typeof ACCOUNTS[number];
 /* Watch Later is the one real Personal YouTube identity. SCINTILLA feed
    subscriptions are project-side RSS channel membership, not a browser OAuth
@@ -295,6 +295,29 @@ Deno.serve(async (req) => {
     });
     if (!already) await logSub(sb, channelId, input.channelTitle || "", "feed_sub", "scintilla");
     return J({ ok: true, already, account: "scintilla", target: "scintilla_feed" });
+  }
+  /* The channel feeds Alan named on 22 Sep (soundscapes, golf, ai_research, fitness) subscribe the
+     way SCINTILLA does above: project-side RSS membership under the account's own cache key, which
+     the sweep polls and tags. A channel feed fills without any Google identity of its own. */
+  const CHANNEL_FEEDS = ACCOUNTS.filter((a) => a !== "personal" && a !== "scintilla") as Account[];
+  if (action === "sub" && CHANNEL_FEEDS.includes(input.account as Account)) {
+    const feedAccount = input.account as Account;
+    const channelId = String(input.channelId || "");
+    if (!channelId) return J({ error: "no channelId" });
+    const cacheKey = "yt_sub_channels_" + feedAccount;
+    const { data: saved } = await sb.from("app_config").select("key,value").in("key", [cacheKey]);
+    const config: Record<string, string> = {};
+    for (const row of saved || []) config[row.key] = row.value;
+    let ids: string[] = [];
+    try { const parsed = JSON.parse(config[cacheKey] || "{}"); ids = Array.isArray(parsed.ids) ? parsed.ids.filter((id: unknown) => typeof id === "string") : []; } catch (_) {}
+    const already = ids.includes(channelId);
+    if (!already) ids.push(channelId);
+    await sb.from("app_config").upsert({
+      key: cacheKey,
+      value: JSON.stringify({ ids: Array.from(new Set(ids)), ts: Math.floor(Date.now() / 1000) }),
+    });
+    if (!already) await logSub(sb, channelId, input.channelTitle || "", "feed_sub", feedAccount);
+    return J({ ok: true, already, account: feedAccount, target: feedAccount + "_feed" });
   }
   const account = ACTION_ACCOUNT;
   if (action === "list") {

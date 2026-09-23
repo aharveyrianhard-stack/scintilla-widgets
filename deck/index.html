@@ -313,6 +313,20 @@ body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
    NOTHING IS LOST. The hidden pane keeps its entry in PANES, its chip, its media-stage
    behaviour and its own state; the switch in the dock brings it straight back. */
 #rowBot > .pane.video-off{ display:none; }
+/* ── THE VIDEO TAKES THE WIDTH ITS HEIGHT ALLOWS; X TAKES THE REST ─────────────────────────
+   Alan, 22 Sep: "Make the video as big as it can be given the altitude of the space, as wide as
+   it can be, that it doesn't crop. Give whatever extra space to the Twitter."
+
+   A 16:9 player inside a half-row box is sized by the row's HEIGHT: at 1920×1080 the bottom row
+   is about 495px tall, so the picture can be 836px wide, and the half-row box was 960px — the
+   other 124px were black bars beside the video while X sat next to them at exactly half. The
+   pane on the wall is now exactly as wide as its height allows for a 16:9 picture (the shell's
+   one bar of chrome is reported by the shell and subtracted), and the plain flex row gives every
+   remaining pixel to X. Nothing is cropped: YouTube letterboxes inside the frame, and the thumbnail
+   grid simply counts its columns from the narrower width. Clamped to 30–60% of the row so a very
+   tall or very wide wall never starves either pane. Phone stacking, the media expansions and row
+   solo keep their own geometry; the lock only applies to the ordinary two-pane row. */
+#rowBot > .pane.video-fit{ flex:0 0 auto; }
 
 /* Media has its own deliberate expansion ladder. Stage one gives the chosen
    YouTube pane the whole two-video region while X stays visible. Stage two is
@@ -891,9 +905,93 @@ let MEDIA_TARGET = null;
 let MEDIA_STAGE = 0;
 /* WHICH YouTube pane is on the wall. "fb" is Personal, "fa" is SCINTILLA —
    the pane keys the bottom row has always used. The choice is remembered per
-   device, so the Station comes back on the feed it was left on. */
-const VIDEO_FEEDS = [["fb", "personal"], ["fa", "SCINTILLA"]];
-let VIDEO_FEED = remembered("station.videoFeed") === "fa" ? "fa" : "fb";
+   device, so the Station comes back on the feed it was left on.
+
+   22 Sep, Alan: "The channels are ready: the Soundscape one, the golf one, another one for AI
+   research, and I'm thinking of making another one for fitness." Every feed is one row here:
+   [pane key, the label on the button, the account key the collector tags rows with]. The account
+   keys match the video shell's own FEED_PROFILES and the collectors' ACCOUNTS list, so a channel
+   is one identity everywhere. FITNESS is "when present": Alan has not made that channel yet, so
+   its button appears only once a video row actually carries the account. The other named channels
+   are always offered; one whose account has no rows yet is marked " ·" and says so, the way the
+   pane chips already say "behind" and "paused". */
+const VIDEO_FEEDS = [
+  ["fb", "personal",    "personal"],
+  ["fa", "SCINTILLA",   "scintilla"],
+  ["fs", "soundscapes", "soundscapes"],
+  ["fg", "golf",        "golf"],
+  ["fr", "AI research", "ai_research"],
+  ["ff", "fitness",     "fitness"],
+];
+const VIDEO_FEEDS_WHEN_PRESENT = new Set(["ff"]);
+const VIDEO_FEED_KEY_BY_ACCOUNT = new Map(VIDEO_FEEDS.map(([key, , account]) => [account, key]));
+const videoFeedKnown = (key) => VIDEO_FEEDS.some(([k]) => k === key);
+/* Which accounts the feed actually carries: a Set once the read lands, false if it failed, null
+   until then. PERSONAL and SCINTILLA are always present — they are the feeds the Station was built
+   on and their rows are measured daily. */
+let VIDEO_FEED_PRESENT = null;
+function videoFeedPresent(account) {
+  if (account === "personal" || account === "scintilla") return true;
+  return VIDEO_FEED_PRESENT instanceof Set ? VIDEO_FEED_PRESENT.has(account) : null;
+}
+/* Offered = has a button and a chip. Named channels always; "when present" ones once a row exists;
+   whatever is on the wall right now is offered regardless, so a remembered choice never vanishes. */
+function videoFeedOffered(key) {
+  const feed = VIDEO_FEEDS.find(([k]) => k === key);
+  if (!feed) return false;
+  if (key === VIDEO_FEED || !VIDEO_FEEDS_WHEN_PRESENT.has(key)) return true;
+  return videoFeedPresent(feed[2]) === true;
+}
+/* A chip is a pane you can bring forward. The two original feeds always have one; a channel feed
+   gets a chip once rows carry its account, or while it is on the wall. An awaiting channel is one
+   click away in the feed switch already and would only crowd the pane row here. */
+function videoFeedChip(key) {
+  const feed = VIDEO_FEEDS.find(([k]) => k === key);
+  if (!feed) return false;
+  return key === VIDEO_FEED || videoFeedPresent(feed[2]) === true;
+}
+async function readVideoFeedPresence() {
+  const optional = VIDEO_FEEDS.map(([, , account]) => account).filter((a) => a !== "personal" && a !== "scintilla");
+  try {
+    const rows = await pg("youtube_feed?select=subscription_accounts&subscription_accounts=ov." +
+      encodeURIComponent("{" + optional.join(",") + "}") + "&limit=400", 1);
+    const present = new Set();
+    for (const row of Array.isArray(rows) ? rows : [])
+      for (const a of Array.isArray(row?.subscription_accounts) ? row.subscription_accounts : []) present.add(String(a).toLowerCase());
+    VIDEO_FEED_PRESENT = present;
+  } catch (_) { VIDEO_FEED_PRESENT = false; }
+  paintVideoFeed(); paintChips();
+}
+let VIDEO_FEED = videoFeedKnown(remembered("station.videoFeed")) ? remembered("station.videoFeed") : "fb";
+/* The pane on the wall: as wide as its height allows for a 16:9 picture, the rest to X. */
+/* the shell's one bar, until the shell reports its own */
+const VIDEO_CHROME_FALLBACK_PX = 25;
+const VIDEO_FIT_MIN = .30, VIDEO_FIT_MAX = .60;
+function videoFitWidth(rowWidth, paneHeight, chromePx, aspect) {
+  const ratio = Number.isFinite(aspect) && aspect > 0 ? aspect : 16 / 9;
+  const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
+  const usable = Math.max(0, (Number(paneHeight) || 0) - chrome);
+  const row = Math.max(0, Number(rowWidth) || 0);
+  const ideal = usable * ratio;
+  return Math.round(Math.min(row * VIDEO_FIT_MAX, Math.max(row * VIDEO_FIT_MIN, ideal)));
+}
+/* A solo of a chart leaves the bottom row alone; a solo IN the bottom row owns that row's geometry. */
+function soloInBottomRow() {
+  if (!SOLO) return false;
+  const pane = PANES.find((item) => item.def.key === SOLO);
+  return !!pane && pane.def.row === 1;
+}
+function fitVideoPane() {
+  const row = el("rowBot"); if (!row) return;
+  for (const o of PANES) {
+    if (o.def.kind !== "video") continue;
+    const lock = o.def.key === VIDEO_FEED && !STACKED && MEDIA_STAGE === 0 && !soloInBottomRow();
+    o.node.classList.toggle("video-fit", lock);
+    if (!lock) { o.node.style.width = ""; continue; }
+    o.node.style.width = videoFitWidth(row.clientWidth, o.node.clientHeight, o.chromePx) + "px";
+  }
+  measure();
+}
 let ROTATE_AT = ROTATE_SECONDS.includes(+remembered("station.rotate.seconds")) ? +remembered("station.rotate.seconds") : 60;
 /* Rotation is ON unless this browser has paused it; the toggle remembers per browser. */
 let ROTATE_PAUSED = remembered("station.rotate.paused") === "1";
@@ -1160,6 +1258,7 @@ function setSolo(key) {
   if (key && MEDIA_STAGE) resetMediaStage();
   SOLO = key;
   document.body.classList.toggle("solo", !!key);
+  queueMicrotask(fitVideoPane);
   const target = key ? PANES.find((item) => item.def.key === key) : null;
   for (const o of PANES) {
     const hideSibling = !!target && o.def.row === target.def.row && o.def.key !== key;
@@ -1216,6 +1315,7 @@ function resetMediaStage() {
     o.node.classList.remove("media-hidden", "media-stage-target");
     if (o.def.kind === "video") postMediaStage(o);
   }
+  fitVideoPane();
 }
 
 function applyMediaStage() {
@@ -1232,7 +1332,7 @@ function applyMediaStage() {
     o.node.classList.toggle("media-stage-target", target);
     if (o.def.kind === "video") postMediaStage(o);
   }
-  measure(); paintChips();
+  fitVideoPane(); measure(); paintChips();
 }
 
 function toggleMediaStage(key) {
@@ -1279,7 +1379,7 @@ function applyVideoFeed() {
      Stand both down rather than leaving the layout pointing at something invisible. */
   if (MEDIA_STAGE && isVideoKey(MEDIA_TARGET) && MEDIA_TARGET !== VIDEO_FEED) resetMediaStage();
   if (SOLO && isVideoKey(SOLO) && SOLO !== VIDEO_FEED) setSolo(null);
-  paintVideoFeed(); measure(); paintChips(); relayout();
+  paintVideoFeed(); measure(); paintChips(); relayout(); fitVideoPane();
 }
 function setVideoFeed(key) {
   if (!VIDEO_FEEDS.some(([k]) => k === key) || key === VIDEO_FEED) return;
@@ -1291,16 +1391,21 @@ function paintVideoFeed() {
   const box = el("videoFeed");
   if (!box) return;
   box.innerHTML = "";
-  for (const [key, label] of VIDEO_FEEDS) {
+  const current = (VIDEO_FEEDS.find(([k]) => k === VIDEO_FEED) || [,""])[1];
+  for (const [key, label, account] of VIDEO_FEEDS) {
+    if (!videoFeedOffered(key)) continue;
+    const awaiting = videoFeedPresent(account) === false;
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn" + (key === VIDEO_FEED ? " on" : "");
-    b.textContent = label;
+    b.textContent = label + (awaiting ? " ·" : "");
     b.title = key === VIDEO_FEED
-      ? label + " is the video feed on the wall"
-      : "put " + label + " on the wall — " + (VIDEO_FEEDS.find(([k]) => k === VIDEO_FEED) || [,""])[1] +
-        " stands down and stops playing";
+      ? label + " is the video feed on the wall" + (awaiting ? " — no video row carries the " + account + " account yet" : "")
+      : awaiting
+        ? "put " + label + " on the wall — nothing is tagged " + account + " yet; the pane says what it is waiting for"
+        : "put " + label + " on the wall — " + current + " stands down and stops playing";
     b.setAttribute("aria-pressed", key === VIDEO_FEED ? "true" : "false");
+    b.dataset.account = account;
     b.addEventListener("click", () => setVideoFeed(key));
     box.appendChild(b);
   }
@@ -1461,6 +1566,19 @@ window.addEventListener("message", (event) => {
     }
     return;
   }
+  if (event.data?.sc === "video-chrome") {
+    /* The shell reports the height of its one bar; the lock subtracts it so the picture, not the
+       pane, is 16:9. */
+    const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
+    if (pane) { pane.chromePx = Number(event.data.px) || VIDEO_CHROME_FALLBACK_PX; fitVideoPane(); }
+    return;
+  }
+  if (event.data?.sc === "video-feed") {
+    /* The pane's own profile selector asks for another feed; the deck owns the wall, so it swaps. */
+    const key = VIDEO_FEED_KEY_BY_ACCOUNT.get(String(event.data.account || "").toLowerCase());
+    if (key) setVideoFeed(key);
+    return;
+  }
   if (event.data?.type === "SCINTILLA_DECK_MEDIA_COVER_X") {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
     if (pane?.def.kind === "video") coverMediaX(pane.def.key);
@@ -1483,6 +1601,7 @@ function relayout() {
      initial value is already computed, so a conditional toggle would skip the
      very first paint on a phone and leave it in deck layout */
   /* a pane narrower than this cannot carry prose — trim it, do not hide it */
+  fitVideoPane();
   for (const o of PANES) o.node.classList.toggle("tight", o.node.clientWidth < 260);
   paintIpadDensity();
   fitDock();
@@ -1754,6 +1873,7 @@ function paintChips() {
   bar.innerHTML = '<span class="lbl">panes</span>';
   for (const o of PANES) {
     if (/^c[1-8]$/.test(o.def.key) && +o.def.key.slice(1) > CHART_COUNT) continue;
+    if (o.def.kind === "video" && !videoFeedChip(o.def.key)) continue;
     const c = document.createElement("span");
     /* A video pane that is not the one on the wall is not "paused" — it is behind the other
        channel, and its chip is what brings it to the front. Saying so keeps the lose-nothing
@@ -2146,8 +2266,14 @@ const STATION_SHELL = Object.freeze({
   chart: "/station-shells/chart-v1",
   personalVideo: "/station-shells/personal-video-v1",
   scintillaVideo: "/station-shells/scintilla-video-v1",
+  /* The channel feeds (soundscapes, golf, AI research, fitness) mount the SCINTILLA twin, which is
+     byte-identical to personal-video-v1; the ?feed= key is what makes a pane its channel. A
+     channel earns its own pinned shell the day its behaviour diverges, not before. */
+  channelVideo: "/station-shells/scintilla-video-v1",
   x: "/station-shells/x-v2"
 });
+const VIDEO_SHELL_BY_ACCOUNT = { personal: STATION_SHELL.personalVideo, scintilla: STATION_SHELL.scintillaVideo };
+const videoShellFor = (account) => VIDEO_SHELL_BY_ACCOUNT[account] || STATION_SHELL.channelVideo;
 
 /* ---- ONE timeframe bar, driving both charts ---- */
 function chartSrc(t, index, transitionGeneration) {
@@ -2498,6 +2624,17 @@ async function build() {
         : STATION_SHELL.x + "?shell=v1&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.x + "?shell=v1" },
   ]);
 
+  /* The channel feeds (soundscapes, golf, AI research, fitness) come from the registry and take
+     their place before X: the bottom row is always "the video feed on the wall, then X". */
+  for (const [key, label, account] of VIDEO_FEEDS) {
+    if (key === "fb" || key === "fa") continue;
+    defs.splice(defs.length - 1, 0, {
+      row: 1, key, short: label, title: label + " YouTube", tag: account + " subscriptions", kind: "video",
+      src: videoShellFor(account) + "?shell=v1&feed=" + account + "&cols=2&view=" + encodeURIComponent(VIEW),
+      open: videoShellFor(account) + "?shell=v1&feed=" + account + "&limit=200&cols=2"
+    });
+  }
+
   /* TWO FLEX ROWS. Two children up top, three below. Nothing else decides
      the split — that is the whole fix. */
   const grid = el("grid"); grid.innerHTML = "";
@@ -2527,6 +2664,7 @@ async function build() {
   }
   applyVideoFeed();
   paintChips();
+  readVideoFeedPresence();
   scheduleRotation();
   if (SOLO) setSolo(SOLO);
   relayout();
