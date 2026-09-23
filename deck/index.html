@@ -132,6 +132,46 @@ body.stack #dock #panebar{ display:flex; }
   color:var(--dim); font-size:8px; line-height:1.15; letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; }
 #dock .dsec .control-group{ display:flex; align-items:flex-start; gap:5px; min-height:0; padding-left:0; border-left:0; }
 #dock .control-label, #dock .lbl, #dock .video-note{ display:none; }
+/* ── THE PAGE RAIL — every page button the same width, at every width ─────────────
+   Alan, 23 Sep evening: "it moves things based on the width of things; things need to
+   be more standard" · "I'm trying to move through the pages with the arrows, and it's
+   not particularly easy… at the left edge and right edge."
+   A page button is a FIXED 81 px whatever its name, so no page name can change any
+   width in this strip. The rail is a viewport a WHOLE NUMBER of buttons wide, and the
+   strip inside it slides by whole buttons to keep the current page centred: the dock
+   never reflows when you change page, and a long name ellipses inside its own button
+   instead of pushing its neighbours. */
+#pageRail{ display:flex; align-items:center; gap:3px; }
+#pageRail .rail-view{ overflow:hidden; width:var(--rail-w,336px); }
+#pageRail .rail-strip{ display:flex; gap:3px; transform:translateX(var(--rail-x,0px)); transition:transform .18s ease-out; }
+#pageRail .page-chip{ flex:none; width:81px; padding:3px 4px; text-align:center; overflow:hidden;
+  white-space:nowrap; text-overflow:ellipsis; }
+#pageRail .rail-arrow{ width:22px; padding-left:0; padding-right:0; text-align:center; }
+#dock #pageRail .btn{ letter-spacing:.06em; }
+/* THE SAME PAGE ARROWS, AT THE EDGES OF THE WALL, always in the same two places, so
+   moving one page never means hunting for a small control in the strip. */
+#edgePrev, #edgeNext{ position:fixed; top:50%; transform:translateY(-50%); z-index:24;
+  width:26px; height:72px; display:flex; align-items:center; justify-content:center;
+  background:rgba(15,15,26,.86); border:1px solid #2C2C46; color:#A6A8C0;
+  font-family:var(--mono); font-size:15px; cursor:pointer; padding:0; }
+#edgePrev{ left:0; border-left:0; } #edgeNext{ right:0; border-right:0; }
+#edgePrev:hover, #edgeNext:hover{ color:#B4B6CC; border-color:var(--hair); }
+#edgePrev:disabled, #edgeNext:disabled{ opacity:1; color:var(--dim); }
+body.stack #edgePrev, body.stack #edgeNext{ display:none; }
+/* THE JUMP LIST — one move to any page, by name or by what is ON it. Type PCC, get the
+   two pages that carry PCC. 11 px, because this one is read, not glanced at. */
+#pageJump{ position:fixed; z-index:41; background:var(--panel2); border:1px solid var(--line);
+  padding:10px; display:grid; gap:8px; max-height:60vh; overflow-y:auto; }
+#pageJump[hidden]{ display:none; }
+#pageJumpQ{ width:100%; background:var(--bg); border:1px solid #2C2C46; color:var(--ink3);
+  font-family:var(--mono); font-size:11px; letter-spacing:.06em; padding:5px 7px; outline:none; border-radius:0; }
+#pageJumpQ:focus{ border-color:var(--crk); }
+#pageJumpList{ display:grid; grid-template-columns:repeat(auto-fill, 132px); gap:4px; }
+#pageJumpList .btn{ width:132px; font-size:11px; text-align:left; padding:5px 7px; overflow:hidden;
+  white-space:nowrap; text-overflow:ellipsis; }
+#pageJumpList .btn .why{ color:var(--dim); }
+#pageJumpNone{ color:var(--ink3); font-size:11px; letter-spacing:.06em; }
+@media (prefers-reduced-motion: reduce){ #pageRail .rail-strip{ transition:none; } }
 #dock #screenControls{ display:flex; gap:3px; }
 #dock #screenControls .btn{ width:22px; padding-left:0; padding-right:0; text-align:center; }
 #dock .k{ color:var(--crk); font-size:8.5px; letter-spacing:.22em; text-transform:uppercase; align-self:center; white-space:nowrap; }
@@ -151,7 +191,12 @@ body.stack #dock #panebar{ display:flex; }
 /* Every chip grows from the strip's top edge, in place. No will-change: see the note above. */
 #dock .btn, #dock select, #dock input, #dock #panebar > span{ position:relative; flex:none;
   transform-origin:50% 0; transition:transform .08s ease-out; }
-#dock #marketStatus, #dock #screenIndicator{ display:inline-block; width:auto; }
+/* A READOUT THAT GROWS WITH ITS OWN TEXT MOVES EVERY SECTION BESIDE IT. Both of these
+   now own a fixed cell with tabular figures, so "screen 9 / 20" and "screen 12 / 20"
+   occupy exactly the same space and nothing to their left shifts. */
+#dock #screenIndicator{ display:inline-block; width:74px; text-align:center; font-variant-numeric:tabular-nums; }
+#dock #marketStatus{ display:inline-block; width:132px; text-align:right; font-variant-numeric:tabular-nums;
+  overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
 #dockCaption{ position:absolute; top:calc(100% + 24px); left:0; z-index:26; pointer-events:none;
   padding:2px 7px; background:rgba(7,10,16,.95); border:1px solid var(--line);
   color:var(--ink3); font:8.5px var(--mono); letter-spacing:.1em; text-transform:uppercase;
@@ -504,6 +549,12 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       <button type="button" class="btn" id="screenPrev" title="Previous screen" aria-label="Previous screen">‹</button>
       <button type="button" class="btn" id="screenNext" title="Next screen" aria-label="Next screen">›</button>
     </span>
+    <span class="control-group" id="pageRail" aria-label="Pages">
+      <button type="button" class="btn rail-arrow" id="pagePrev" title="Previous page — or the left arrow key" aria-label="Previous page">‹</button>
+      <span class="rail-view"><span class="rail-strip" id="pageStrip" role="tablist" aria-label="Station pages"></span></span>
+      <button type="button" class="btn rail-arrow" id="pageNext" title="Next page — or the right arrow key" aria-label="Next page">›</button>
+      <button type="button" class="btn" id="pageJumpBtn" title="every page — type a page name or a ticker" aria-expanded="false" aria-controls="pageJump" aria-label="All pages">pages</button>
+    </span>
     <span class="control-group rotate-controls">
       <span class="control-label">auto rotate</span>
       <select class="scene-mode" id="rotateEvery" title="rotation interval" aria-label="Auto rotate interval">
@@ -536,6 +587,14 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
     <span id="screenIndicator">screen 1 / 9 · index now</span>
     <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
   </span>
+</div>
+
+<button type="button" id="edgePrev" title="Previous page — or the left arrow key" aria-label="Previous page">‹</button>
+<button type="button" id="edgeNext" title="Next page — or the right arrow key" aria-label="Next page">›</button>
+<div id="pageJump" hidden role="dialog" aria-label="Go to a page">
+  <input id="pageJumpQ" type="text" spellcheck="false" autocomplete="off" placeholder="page name or ticker — e.g. MACRO, PCC" aria-label="Filter pages">
+  <div id="pageJumpList" role="listbox" aria-label="Pages"></div>
+  <div id="pageJumpNone" hidden>no page carries that name or ticker</div>
 </div>
 
 <!-- ONE timeframe bar. It drives both charts. There is no second one. -->
@@ -1836,6 +1895,7 @@ function fitDock() {
      is measured against what it actually contains - no doubled reservation. */
   const sections = Array.from(dock.querySelectorAll(".dsec")).filter((n) => n.offsetWidth > 0);
   const outer = (n) => { const cs = getComputedStyle(n); return n.offsetWidth + (parseFloat(cs.marginLeft) || 0) + (parseFloat(cs.marginRight) || 0); };
+  fitPageRail();
   const available = dock.clientWidth - 16, natural = sections.reduce((sum, n) => sum + outer(n), 0);
   let fit = available > 0 && natural > available ? available / natural : 1;
   if (fit < DOCK_FIT_FLOOR) { dock.classList.add("dock-scroll"); fit = 1; }
@@ -2183,6 +2243,7 @@ function paintSceneControls(note) {
   reset.disabled = !resettable;
   reset.setAttribute("aria-disabled", resettable ? "false" : "true");
   const screen = SceneModel.screenForScene(SCENE);
+  paintPageRail();
   el("screenIndicator").textContent = screen
     ? "screen " + (SceneModel.SCREENS.indexOf(screen) + 1) + " / " + SceneModel.SCREENS.length
     : "manual";
@@ -2442,7 +2503,124 @@ function paintScreenBusy() {
     button.setAttribute("aria-disabled", SCREEN_BUSY ? "true" : "false");
   }
   el("screenControls").setAttribute("aria-busy", SCREEN_BUSY ? "true" : "false");
+  for (const id of ["pagePrev", "pageNext", "edgePrev", "edgeNext"]) {
+    const button = el(id);
+    if (!button) continue;
+    button.disabled = SCREEN_BUSY;
+    button.setAttribute("aria-disabled", SCREEN_BUSY ? "true" : "false");
+  }
+  paintPageRail();
 }
+/* ── PAGES: one rail, two edge arrows, two keys, one jump list ────────────────────
+   Every page is reachable in one move: click its button in the rail, press ← or →,
+   click an edge arrow, or open the jump list and type either the page's name or a
+   ticker that is on it ("PCC" finds MACRO and INTERNALS FAST). */
+const PAGE_CHIP_W = 81, PAGE_CHIP_GAP = 3, PAGE_STEP = PAGE_CHIP_W + PAGE_CHIP_GAP;
+function pageChips() {
+  const strip = el("pageStrip");
+  if (!strip || strip.childElementCount === SceneModel.SCREENS.length) return strip;
+  strip.innerHTML = "";
+  SceneModel.SCREENS.forEach((screen) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "btn page-chip"; b.dataset.scene = screen.scene;
+    b.textContent = screen.label; b.title = screen.label;
+    b.setAttribute("role", "tab");
+    b.addEventListener("click", () => goToPage(screen.scene));
+    strip.appendChild(b);
+  });
+  return strip;
+}
+/* The rail takes the room the rest of the strip does not want, rounded DOWN to a whole
+   number of buttons, so a half-button never appears and the geometry is the same for
+   every page. Under three buttons there is no rail at all: the arrows and the jump
+   list already reach everything, and a two-button rail is just clutter. */
+function fitPageRail() {
+  const dock = el("dock"), rail = el("pageRail"), view = rail && rail.querySelector(".rail-view");
+  if (!dock || !rail || !view) return;
+  view.style.width = "0px";
+  const sections = Array.from(dock.querySelectorAll(".dsec")).filter((n) => n.offsetWidth > 0);
+  const outer = (n) => { const cs = getComputedStyle(n); return n.offsetWidth + (parseFloat(cs.marginLeft) || 0) + (parseFloat(cs.marginRight) || 0); };
+  const base = sections.reduce((sum, n) => sum + outer(n), 0);
+  const spare = dock.clientWidth - 16 - base;
+  const total = SceneModel.SCREENS.length;
+  const chips = SceneModel.railChips(spare, total, PAGE_STEP, PAGE_CHIP_GAP);
+  rail.dataset.chips = String(chips);
+  view.style.width = chips ? (chips * PAGE_STEP - PAGE_CHIP_GAP) + "px" : "0px";
+  paintPageRail();
+}
+function paintPageRail() {
+  const strip = pageChips(), rail = el("pageRail");
+  if (!strip || !rail) return;
+  const screen = SceneModel.screenForScene(SCENE);
+  const index = screen ? SceneModel.SCREENS.indexOf(screen) : -1;
+  for (const chip of strip.children) {
+    const on = index >= 0 && chip.dataset.scene === screen.scene;
+    chip.classList.toggle("on", on);
+    chip.setAttribute("aria-selected", on ? "true" : "false");
+    chip.disabled = SCREEN_BUSY;
+  }
+  const chips = Number(rail.dataset.chips || 0);
+  if (!chips || index < 0) { strip.style.setProperty("--rail-x", "0px"); return; }
+  const first = SceneModel.railWindowStart(index, chips, SceneModel.SCREENS.length);
+  strip.style.setProperty("--rail-x", -(first * PAGE_STEP) + "px");
+}
+async function goToPage(scene) {
+  if (SCREEN_BUSY || SceneModel.normalizeScene(scene) === SCENE) return;
+  SCREEN_BUSY = true; paintScreenBusy();
+  try { await applyScene(scene, { screen:true }); }
+  finally { SCREEN_BUSY = false; paintScreenBusy(); }
+}
+function pageJumpOpen() { return !el("pageJump").hidden; }
+function setPageJump(open) {
+  const panel = el("pageJump"), button = el("pageJumpBtn");
+  panel.hidden = !open;
+  button.setAttribute("aria-expanded", open ? "true" : "false");
+  button.classList.toggle("on", open);
+  if (!open) return;
+  const box = el("dock").getBoundingClientRect();
+  panel.style.top = Math.round(box.bottom + 6) + "px";
+  panel.style.left = "8px";
+  panel.style.width = Math.min(560, innerWidth - 16) + "px";
+  el("pageJumpQ").value = "";
+  paintPageJump("");
+  el("pageJumpQ").focus();
+}
+function paintPageJump(query) {
+  const list = el("pageJumpList"), none = el("pageJumpNone");
+  const matches = SceneModel.findPages(query);
+  list.innerHTML = "";
+  for (const match of matches) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "btn" + (match.screen.scene === SCENE ? " on" : "");
+    b.dataset.scene = match.screen.scene;
+    b.setAttribute("role", "option");
+    b.textContent = match.screen.label;
+    if (match.why) {
+      const why = document.createElement("span");
+      why.className = "why"; why.textContent = " · " + match.why;
+      b.appendChild(why);
+      b.title = match.screen.label + " — carries " + match.why;
+    } else b.title = match.screen.label;
+    b.addEventListener("click", () => { setPageJump(false); goToPage(match.screen.scene); });
+    list.appendChild(b);
+  }
+  none.hidden = matches.length > 0;
+  return matches;
+}
+/* ← and → move one page. They are ignored while a field, a menu or a chart's ticker
+   box has the focus, so typing a symbol never changes the page under it. */
+function typingTarget(node) {
+  if (!node) return false;
+  const tag = String(node.tagName || "").toUpperCase();
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || node.isContentEditable === true;
+}
+addEventListener("keydown", (event) => {
+  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.key === "Escape" && pageJumpOpen()) { setPageJump(false); el("pageJumpBtn").focus(); return; }
+  if (typingTarget(event.target)) return;
+  if (event.key === "ArrowLeft") { event.preventDefault(); stepScreen(-1); }
+  else if (event.key === "ArrowRight") { event.preventDefault(); stepScreen(1); }
+});
 async function stepScreen(direction) {
   if (SCREEN_BUSY) return;
   SCREEN_BUSY = true; paintScreenBusy();
@@ -2774,6 +2952,20 @@ el("resetScene").addEventListener("click", () => {
 });
 el("rotateEvery").addEventListener("change", (e) => setRotationInterval(e.target.value));
 el("rotateToggle").addEventListener("click", () => setRotationPaused(!ROTATE_PAUSED));
+for (const [id, step] of [["pagePrev", -1], ["pageNext", 1], ["edgePrev", -1], ["edgeNext", 1]])
+  el(id).addEventListener("click", () => stepScreen(step));
+el("pageJumpBtn").addEventListener("click", () => setPageJump(!pageJumpOpen()));
+el("pageJumpQ").addEventListener("input", (e) => paintPageJump(e.target.value));
+el("pageJumpQ").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { setPageJump(false); el("pageJumpBtn").focus(); return; }
+  if (e.key !== "Enter") return;
+  const first = SceneModel.findPages(e.target.value)[0];
+  if (first) { setPageJump(false); goToPage(first.screen.scene); }
+});
+document.addEventListener("pointerdown", (event) => {
+  if (pageJumpOpen() && !event.target.closest("#pageJump") && !event.target.closest("#pageJumpBtn")) setPageJump(false);
+});
+pageChips();
 el("screenPrev").addEventListener("click", () => stepScreen(-1));
 el("screenNext").addEventListener("click", () => stepScreen(1));
 el("viewMode").addEventListener("change", (e) => applyView(e.target.value));

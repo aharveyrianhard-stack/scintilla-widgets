@@ -28,9 +28,14 @@ test('the dock loses no control, no id and no accessible name', () => {
   const selectsBefore = (baseDeck.match(/<select/g) || []).length
   const buttonsBefore = (baseDeck.match(/<button/g) || []).length
   assert.equal((deck.match(/<select/g) || []).length, selectsBefore)
-  /* The 23 Sep dock adds exactly two buttons (the "more" drawer and the auto-hide lip). Every id and
-     every accessible name above still survives; this only checks nothing ELSE was added or lost. */
-  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 2)
+  /* The 23 Sep dock adds two buttons (the "more" drawer and the auto-hide lip); the 23 Sep
+     evening page rail adds five more, each one named here so the count can never drift
+     silently: page ‹, page ›, the "pages" jump button, and the two edge arrows on the wall.
+     Every id and every accessible name above still survives; this only checks nothing ELSE
+     was added or lost. */
+  for (const id of ['pagePrev', 'pageNext', 'pageJumpBtn', 'edgePrev', 'edgeNext'])
+    assert.ok(after.has(id), `${id} is one of the five deliberate new page controls`)
+  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 7)
 })
 
 test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {

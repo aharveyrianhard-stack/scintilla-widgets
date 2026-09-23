@@ -293,6 +293,18 @@
     if (families) return families.reduce((all, f) => all.concat(f.tickers), []);
     return (PRESETS[id]?.tickers || []).slice();
   }
+  /* THE RAIL'S GEOMETRY IS ARITHMETIC, NOT LAYOUT. Both of these are pure so the
+     "every button the same width, nothing shifts" rule can be checked without a
+     browser: how many whole buttons fit, and which button the window starts at. */
+  function railChips(spare, total, step, gap) {
+    const fit = Math.floor((Number(spare) + Number(gap)) / Number(step));
+    const chips = Math.max(0, Math.min(Number(total) || 0, Number.isFinite(fit) ? fit : 0));
+    return chips >= 3 ? chips : 0;
+  }
+  function railWindowStart(index, chips, total) {
+    if (!chips || index < 0) return 0;
+    return Math.max(0, Math.min(Math.max(0, total - chips), index - Math.floor((chips - 1) / 2)));
+  }
   function findPages(query) {
     const q = String(query || "").trim().toUpperCase();
     if (!q) return SCREENS.map((screen) => ({ screen, why:"" }));
@@ -338,6 +350,8 @@
     workbenchState,
     exactPage,
     pageTickers,
-    findPages
+    findPages,
+    railChips,
+    railWindowStart
   });
 })(typeof globalThis === "object" ? globalThis : window);
