@@ -87,7 +87,7 @@ test("the favorites-intersection builder is gone, not renamed around", () => {
 
 test("the deck exposes the cohort scene and its picker, and honors an explicit choice", () => {
   const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
-  assert.match(deck, /<option value="cohort">cohort<\/option>/, "the scene is choosable");
+  assert.match(deck, /<option value="cohort"[^>]*>cohort<\/option>/, "the scene is choosable");
   assert.match(deck, /id="cohortPicker" hidden/, "the picker exists and hides outside the scene");
   for (const id of ["cohortPick", "cohortPagePrev", "cohortPageNext", "cohortPageIndicator"])
     assert.match(deck, new RegExp('id="' + id + '"'), id + " exists");
