@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#0A0A0F">
+<title>SCINTILLA · YouTube channels · connect</title>
+<!-- ============================================================================
+     SCINTILLA · /youtube-connect — the one page where each YouTube channel is connected to the sweep.
+
+     Alan, 23 Sep: "The four new YouTube channels — they've never been awaiting. They've been ready for
+     a long time. They're channels in my YouTube account. My sign-in is saved in Chrome."
+
+     What "connected" means here. The sweep (yt-rss-sweep) collects the videos of the channels each
+     identity SUBSCRIBES TO. To read an identity's subscription list it needs that identity's own
+     YouTube permission — one Google consent per channel, stored server-side by yt-oauth as a refresh
+     token under the channel's account key. A saved Chrome sign-in is not that permission.
+
+     This page: shows every channel's live state (connected / not connected / not known to the live
+     collector yet), runs Google's device sign-in for the channel you press, and polls until Google
+     confirms. It never sees a password, never stores anything itself, and never calls yt-act.
+     Reads: yt-oauth?step=status|start|poll|sweep (GET) and one youtube_feed count per channel.
+     Palette: the Station's own tokens, no white.
+     ============================================================================ -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34);
+  --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52; --crk:#00D4FF; --vol:#FF8A00;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{ box-sizing:border-box; min-width:0; }
+html,body{ margin:0; background:var(--bg); color:var(--ink3); font-family:var(--mono); font-size:11px; -webkit-font-smoothing:antialiased; }
+main{ max-width:760px; margin:0 auto; padding:22px 16px 40px; }
+h1{ font-size:9px; letter-spacing:.22em; text-transform:uppercase; color:var(--crk); margin:0 0 6px; font-weight:600; }
+p.lead{ color:var(--ink3); line-height:1.65; margin:0 0 18px; max-width:640px; }
+p.lead b{ color:var(--ink2); font-weight:600; }
+#status{ font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--dim); margin:0 0 10px; }
+.ch{ border:1px solid var(--line); background:var(--panel2); padding:12px 14px; margin:0 0 8px; display:grid; grid-template-columns:1fr auto; gap:6px 14px; align-items:start; }
+.ch .name{ grid-column:1; color:var(--ink2); font-size:11px; letter-spacing:.14em; text-transform:uppercase; font-weight:600; }
+.ch .state{ grid-column:1; color:var(--ink3); line-height:1.6; }
+.ch .state b{ color:var(--ink2); font-weight:600; }
+.ch .state .ok{ color:var(--crk); }
+.ch .state .warn{ color:var(--vol); }
+.ch .rows{ grid-column:1; color:var(--dim); font-size:10px; }
+.btn{ grid-column:2; grid-row:1 / span 3; align-self:center; appearance:none; border-radius:0; font-family:var(--mono); font-size:8.5px; letter-spacing:.14em;
+  text-transform:uppercase; padding:7px 12px; border:1px solid var(--hair); background:var(--bg); color:var(--crk); cursor:pointer; white-space:nowrap; }
+.btn:hover{ border-color:var(--crk); }
+.btn:disabled{ color:var(--mute); border-color:var(--line); cursor:default; }
+.code{ grid-column:1 / -1; border-top:1px solid var(--line); padding-top:10px; margin-top:4px; line-height:1.7; }
+.code .big{ font-size:26px; letter-spacing:.3em; color:var(--ink2); margin:4px 0 6px; user-select:all; }
+.code a{ color:var(--crk); text-decoration:none; border-bottom:1px solid var(--hair); }
+.code ol{ margin:6px 0 0 16px; padding:0; color:var(--ink3); }
+.code li{ margin:2px 0; }
+#sweep{ margin-top:22px; border-top:1px solid var(--line); padding-top:12px; color:var(--dim); line-height:1.6; }
+#sweep h2{ font-size:8.5px; letter-spacing:.2em; text-transform:uppercase; color:var(--ink3); margin:0 0 6px; font-weight:600; }
+#sweep table{ border-collapse:collapse; width:100%; }
+#sweep td,#sweep th{ text-align:left; padding:3px 8px 3px 0; border-bottom:1px solid var(--line); font-weight:400; font-size:10px; }
+#sweep th{ color:var(--mute); letter-spacing:.1em; text-transform:uppercase; font-size:8px; }
+.foot{ margin-top:18px; color:var(--mute); font-size:9px; line-height:1.6; }
+.foot a{ color:var(--ink3); text-decoration:none; border-bottom:1px solid var(--line); }
+</style>
+</head>
+<body>
+<main>
+  <h1>YouTube channels · connect to the sweep</h1>
+  <p class="lead">A channel's videos come from <b>what that channel subscribes to</b>. To read a channel's subscription
+    list the sweep needs that channel's own YouTube permission — one Google sign-in per channel, done once, stored
+    by the collector and never shown here. A saved Chrome sign-in is not that permission. Press <b>connect</b> on a
+    channel, enter the code Google gives you, and when Google asks which account, <b>choose that channel</b>, not the
+    main account.</p>
+  <div id="status">reading the live state…</div>
+  <div id="list"></div>
+  <section id="sweep"></section>
+  <p class="foot">This page reads state and runs Google's own sign-in. It stores nothing in the browser, never sees a password,
+    and never calls yt-act. Back to the <a href="/deck/">Station</a>.</p>
+</main>
+<script>
+"use strict";
+const SB = "https://wadinxqplrggagkvrdag.supabase.co";
+/* The public browser key every Station shell already carries; the collector accepts it as the caller key. */
+const PUBLIC = "sb_publishable_AutibLpFtTns-WHAg67Pvw_I0HmjqE9";
+const CHANNELS = [
+  { key: "personal",    label: "PERSONAL",    who: "your main YouTube account" },
+  { key: "scintilla",   label: "SCINTILLA",   who: "the SCINTILLA channel" },
+  { key: "soundscapes", label: "SOUNDSCAPES", who: "the SOUNDSCAPES channel" },
+  { key: "golf",        label: "GOLF",        who: "the GOLF channel" },
+  { key: "ai_research", label: "AI RESEARCH", who: "the AI RESEARCH channel" },
+  { key: "fitness",     label: "FITNESS",     who: "the FITNESS channel" },
+];
+const QS = new URLSearchParams(location.search);
+const WANT = QS.get("account") || "";
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const H = { apikey: PUBLIC, Authorization: "Bearer " + PUBLIC };
+
+async function oauth(step, account) {
+  const u = new URL(SB + "/functions/v1/yt-oauth");
+  u.searchParams.set("step", step);
+  if (account) u.searchParams.set("account", account);
+  const r = await fetch(u, { headers: H });
+  let d = {}; try { d = await r.json(); } catch (_) {}
+  if (!r.ok && !d.error) d.error = "yt-oauth " + r.status;
+  return d;
+}
+async function taggedCount(account) {
+  const r = await fetch(SB + "/rest/v1/youtube_feed?select=video_id&subscription_accounts=cs." +
+    encodeURIComponent("{" + account + "}") + "&limit=1", { headers: { ...H, Prefer: "count=exact" } });
+  if (!r.ok) return null;
+  const m = (r.headers.get("content-range") || "").match(/\/(\d+)/);
+  return m ? +m[1] : null;
+}
+
+let STATUS = null, STATUS_ERROR = "";
+const FLOWS = {};
+
+function stateText(ch) {
+  const a = STATUS && STATUS.accounts ? STATUS.accounts[ch.key] : undefined;
+  if (STATUS_ERROR) return '<span class="warn">the connect service did not answer</span> — ' + esc(STATUS_ERROR) + ". Reload to try again.";
+  if (!STATUS) return "reading…";
+  if (!a) return '<span class="warn">the live collector does not know this channel yet.</span> Root deploys ' +
+    "<b>yt-oauth</b>, <b>yt-rss-sweep</b> and <b>yt-act</b> from the reviewed branch; the moment that is live, connect works here.";
+  if (a.connected) return '<span class="ok">connected</span> as <b>' + esc(a.channel_title || a.channel_id || ch.key) + "</b>. " +
+    "The sweep reads this channel's subscriptions within the hour and tags their videos " + esc(ch.key) + ".";
+  return "<b>not connected.</b> One step: press connect, enter the code at google.com/device, and when Google asks " +
+    "which account, choose <b>" + esc(ch.who) + "</b>.";
+}
+function rowsText(ch, n) {
+  if (n == null) return "";
+  if (n === 0) return "no videos tagged " + esc(ch.key) + " yet";
+  return n.toLocaleString() + " video" + (n === 1 ? "" : "s") + " tagged " + esc(ch.key);
+}
+function flowHTML(ch) {
+  const f = FLOWS[ch.key];
+  if (!f) return "";
+  if (f.error) return '<div class="code"><span class="warn">' + esc(f.error) + "</span></div>";
+  if (f.done) return '<div class="code"><span class="ok">connected</span> as <b>' + esc(f.done.channel_title || f.done.channel_id) + "</b>. " +
+    "If that is not " + esc(ch.who) + ", press connect again and choose the other account.</div>";
+  return '<div class="code">enter this code at <a href="' + esc(f.url) + '" target="_blank" rel="noopener">' + esc(f.url.replace(/^https?:\/\//, "")) + ' ↗</a>' +
+    '<div class="big">' + esc(f.user_code) + "</div>" +
+    "<ol><li>open the link, sign in if asked</li><li>type the code</li><li>when Google asks which account, choose <b>" + esc(ch.who) +
+    "</b></li><li>allow YouTube access</li></ol>" +
+    '<div>' + esc(f.status || "waiting for you to enter the code…") + " · " + Math.max(0, Math.round((f.expires - Date.now()) / 60000)) + " min left</div></div>";
+}
+function paint() {
+  el("list").innerHTML = CHANNELS.map((ch) => {
+    const a = STATUS && STATUS.accounts ? STATUS.accounts[ch.key] : undefined;
+    const known = !!a;
+    const f = FLOWS[ch.key];
+    const busy = f && !f.done && !f.error;
+    const label = busy ? "waiting…" : a && a.connected ? "connect again" : "connect";
+    return '<div class="ch" id="ch-' + ch.key + '"' + (WANT === ch.key ? ' style="border-color:var(--hair)"' : "") + '>' +
+      '<div class="name">' + esc(ch.label) + "</div>" +
+      '<button class="btn" type="button" data-key="' + ch.key + '"' + (known && !busy ? "" : " disabled") +
+      ' title="' + (known ? "run Google’s sign-in for " + esc(ch.who) : "not known to the live collector yet") + '">' + label + "</button>" +
+      '<div class="state">' + stateText(ch) + "</div>" +
+      '<div class="rows" id="rows-' + ch.key + '"></div>' +
+      flowHTML(ch) + "</div>";
+  }).join("");
+  for (const b of el("list").querySelectorAll("button.btn")) b.addEventListener("click", () => connect(b.dataset.key));
+}
+async function connect(key) {
+  const ch = CHANNELS.find((c) => c.key === key);
+  if (!ch) return;
+  const start = await oauth("start", key);
+  if (start.error || !start.user_code) {
+    FLOWS[key] = { error: "could not start Google’s sign-in: " + (start.error || "no code returned") + (start.code ? " (" + start.code + ")" : "") };
+    paint(); return;
+  }
+  FLOWS[key] = { user_code: start.user_code, url: start.url || "https://www.google.com/device", interval: Math.max(5, +start.interval || 5),
+    expires: Date.now() + (+start.expires_in || 1800) * 1000, status: "waiting for you to enter the code…" };
+  paint();
+  poll(key);
+}
+async function poll(key) {
+  const f = FLOWS[key];
+  if (!f || f.done || f.error) return;
+  if (Date.now() > f.expires) { f.error = "the code expired before it was entered — press connect again"; paint(); return; }
+  const d = await oauth("poll", key);
+  if (d.ok && d.connected) { f.done = d; paint(); refreshStatus(); return; }
+  const s = String(d.status || d.error || "pending");
+  if (s === "slow_down") f.interval += 5;
+  else if (s === "access_denied") { f.error = "Google says access was declined — press connect again to retry"; paint(); return; }
+  else if (s === "expired_token") { f.error = "the code expired — press connect again"; paint(); return; }
+  else if (d.error && s !== "pending" && s !== "authorization_pending") { f.error = "Google sign-in stopped: " + s; paint(); return; }
+  f.status = s === "authorization_pending" || s === "pending" ? "waiting for you to enter the code…" : s;
+  paint();
+  setTimeout(() => poll(key), f.interval * 1000);
+}
+async function refreshStatus() {
+  try {
+    const d = await oauth("status");
+    if (d.error) { STATUS_ERROR = d.error; STATUS = null; }
+    else { STATUS = d; STATUS_ERROR = ""; }
+  } catch (e) { STATUS_ERROR = e.message || "network"; STATUS = null; }
+  const known = STATUS && STATUS.accounts ? Object.keys(STATUS.accounts) : [];
+  el("status").textContent = STATUS_ERROR ? "live state unavailable" :
+    "live state · the collector knows " + known.length + " of " + CHANNELS.length + " channels" +
+    (known.length < CHANNELS.length ? " · the six-channel collector update is not deployed yet" : "");
+  paint();
+  await Promise.all(CHANNELS.map(async (ch) => {
+    const n = await taggedCount(ch.key).catch(() => null);
+    const node = el("rows-" + ch.key); if (node) node.textContent = rowsText(ch, n);
+  }));
+}
+async function paintSweep() {
+  const box = el("sweep");
+  let d = null; try { d = await oauth("sweep"); } catch (_) {}
+  if (!d || d.error || !d.report) {
+    box.innerHTML = "<h2>last sweep</h2>the last sweep report appears here once the collector update is live " +
+      "(it says, per channel, how many subscribed channels were read and whether its sign-in still works).";
+    return;
+  }
+  const r = d.report; const accounts = r.accounts || {};
+  box.innerHTML = "<h2>last sweep · " + esc(r.at || "") + "</h2><table><tr><th>channel</th><th>subscribed channels read</th><th>sign-in</th></tr>" +
+    CHANNELS.map((ch) => { const a = accounts[ch.key]; return "<tr><td>" + esc(ch.label) + "</td><td>" + (a ? a.channels : "—") + "</td><td>" +
+      (a ? (a.error ? '<span class="warn">' + esc(a.error) + "</span>" : '<span class="ok">working</span>') : "not in this sweep") + "</td></tr>"; }).join("") +
+    "</table><div>" + esc(r.rss_seen || 0) + " videos seen · " + esc(r.new_videos || 0) + " new · " + esc(r.membership_updates || 0) + " retagged</div>";
+}
+refreshStatus().then(paintSweep);
+</script>
+</body>
+</html>

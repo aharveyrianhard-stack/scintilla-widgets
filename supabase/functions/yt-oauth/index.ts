@@ -86,6 +86,16 @@ Deno.serve(async (req) => {
     });
   }
 
+  if (step === "sweep") {
+    /* The sweep writes its own receipt (channels read per account, sign-in error per account, counts).
+       Reading it here lets the connect page say whether a stored sign-in still works. No secret is in it. */
+    const { data, error } = await sb.from("app_config").select("value").eq("key", "yt_rss_result").maybeSingle();
+    if (error) return J({ error: "sweep report unavailable" });
+    let report: unknown = null;
+    try { report = data?.value ? JSON.parse(data.value) : null; } catch (_) { report = null; }
+    return J({ report });
+  }
+
   const account = accountFrom(req);
   if (!account) return J({ error: "account must be one of " + ACCOUNTS.join(", ") }, 400);
   const pendingKey = "yt_device_code_" + account;

@@ -41,12 +41,13 @@ test('every channel Alan named has a declared profile, including the golf slot',
   }
   for (const key of ['soundscapes', 'golf', 'ai_research', 'fitness']) {
     const profile = api.FEED_PROFILES.find(p => p.key === key)
-    assert.match(profile.note, /awaiting/, `the ${key} slot says what it waits for`)
+    assert.match(profile.note, /waiting for its YouTube sign-in/, `the ${key} slot says in plain words what it waits for`)
+    assert.match(profile.waiting, /not connected yet/, `and its dropdown entry carries the short form`)
     assert.equal(profile.account, key, 'its account key is wired in advance and equals its key')
   }
 })
 
-test('a profile is only offered once the data proves its account exists', () => {
+test('the data still decides whether a profile has rows (its entry is worded from that, never hidden)', () => {
   assert.equal(api.profileIsAvailable('personal', sample), true)
   assert.equal(api.profileIsAvailable('scintilla', sample), true)
   assert.equal(api.profileIsAvailable('soundscapes', sample), false,
@@ -97,9 +98,17 @@ test('the owner can actually switch profile, and a profile without data says why
   assert.match(pane, /function paintFeedProfileSelector\(rows\)/)
   assert.match(pane, /url\.searchParams\.set\("feed", next\)/, 'switching reloads this pane on the chosen feed when it stands alone')
   assert.match(pane, /parent\.postMessage\(\{ sc: "video-feed", account: next \}/, 'inside the deck it asks the deck to swap panes instead')
-  assert.match(pane, /\(ready \? "" : " disabled"\)/, 'a profile the data cannot support is disabled')
-  assert.match(pane, /profile\.label \+ " \(awaiting\)"/, 'and says it is awaiting, rather than looking broken')
-  assert.match(pane, /title="' \+ \(profile\.note \|\| profile\.label\)/, 'the reason is on the option itself')
+  // Alan, 23 Sep: "the drop-downs are empty, seems funky". A channel without rows stays a real, selectable
+  // entry that says in plain words what it is waiting for; picking it opens on the one step.
+  const selector = lift('paintFeedProfileSelector').replace(/\/\*[\s\S]*?\*\//g, '')
+  assert.doesNotMatch(selector, /disabled/, 'no entry is greyed out')
+  assert.doesNotMatch(selector, /\(awaiting\)/, 'the old "(awaiting)" word is gone')
+  assert.match(selector, /profile\.label \+ " \\u00b7 " \+ \(profile\.waiting \|\| "waiting"\)/, 'an unconnected channel says "not connected yet" beside its name')
+  assert.match(selector, /title="' \+ esc\(profile\.note \|\| profile\.label\)/, 'the full sentence is on the option itself')
+  const paint = lift('paint')
+  assert.match(paint, /has no videos here yet/, 'an empty channel says so in plain words')
+  assert.match(paint, /CONNECT_PAGE \+[\s\S]{0,80}\?account=/, 'with the one step linked to the connect page for that channel')
+  assert.match(pane, /const CONNECT_PAGE = "\/youtube-connect\/";/)
 })
 
 test('the selector is painted immediately and repainted from the rows that actually land', () => {
