@@ -77,7 +77,7 @@ test("2 · deck feeds and shell profiles are the same six account keys, one labe
   assert.match(deck, /videoFeedKnown\(remembered\("station\.videoFeed"\)\)/, "a remembered feed is checked against the registry, never trusted");
   for (const account of ["soundscapes", "golf", "ai_research", "fitness"]) {
     const profile = FEED_PROFILES.find((p) => p.account === account);
-    assert.match(profile.note, /awaiting/, `${account} says what it waits for until rows carry it`);
+    assert.match(profile.note, /waiting for its YouTube sign-in/, `${account} says in plain words what it waits for until rows carry it`);
   }
 });
 
@@ -90,7 +90,9 @@ test("2b · the deck builds one pane per feed from the registry and keeps the tw
   assert.match(deck, /"SCINTILLA subscriptions · shared Watch Later"/);
   assert.match(deck, /channelVideo: "\/station-shells\/scintilla-video-v1"/, "the channel feeds ride the SCINTILLA twin");
   assert.match(deck, /if \(o\.def\.kind === "video" && !videoFeedChip\(o\.def\.key\)\) continue;/, "an awaiting channel has a switch button but no pane chip");
-  assert.match(fnFrom(pane, "paint"), /ACCOUNT_EMPTY\s*\? '<div class="msg note">'/, "an empty channel pane says what it is waiting for, not 'no videos'");
+  assert.match(fnFrom(pane, "paint"), /ACCOUNT_EMPTY\s*\? '<div class="msg note">/, "an empty channel pane says what it is waiting for, not 'no videos'");
+  assert.match(fnFrom(pane, "paint"), /has no videos here yet/, "in plain words, with the channel named");
+  assert.match(fnFrom(pane, "paint"), /CONNECT_PAGE \+[\s\S]{0,80}\?account=/, "and the one step linked");
   assert.match(fnFrom(pane, "load"), /subscription_accounts=cs\." \+\s*encodeURIComponent\("\{" \+ FEED_PROFILE\.account \+ "\}"\) \+ "&limit=1"/, "decided by one id read");
 });
 
