@@ -94,7 +94,13 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
      or a control takes focus. Remembered per browser; switched off under ⋯.
    A finger never magnifies (no hover; a tap must hit what it aimed at) and reduced motion keeps the
    strip still. */
-#dock{ flex:none; display:flex; align-items:flex-start; justify-content:center; flex-wrap:nowrap;
+/* IT USES THE ROOM IT HAS. Alan, 23 Sep: "The top Station dock still bunches up.
+   I don't understand why you guys are compressing it so tightly. There's a ton of
+   space to the left of the Station and to the right of the more controls." It was
+   centred, so every section packed into the middle of a 2560-wide window and the
+   ends sat empty. The sections now spread across the strip: station at the left
+   edge, the readout at the right, the rest evenly between. */
+#dock{ flex:none; display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:nowrap;
   gap:0; padding:3px 8px 4px; padding-top:calc(3px + env(safe-area-inset-top));
   border-bottom:1px solid var(--line); background:var(--bg); position:relative; z-index:25;
   zoom:var(--dock-fit,1); }
@@ -116,8 +122,13 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 body.stack #dock #panebar{ display:flex; }
 #dock .dsec[data-sec="more"]{ order:7; padding-right:0; }
 /* The readout is a fact, not a control: pinned right, never magnified, never in the way. */
-#dock .dsec[data-sec="readout"]{ position:absolute; right:10px; top:50%; transform:translateY(-50%);
-  flex-direction:column; align-items:flex-end; border:0; background:transparent; margin:0; padding:0; gap:1px; pointer-events:none;
+/* In the flow at the right end: a floating readout forced the centred strip to
+   reserve TWICE its width (once on each side) before it would fit, which is what
+   made the strip shrink long before it had to. */
+/* No auto margin here: an auto margin eats every pixel of free space, which
+   would pack the sections left again and leave the same hole, just mirrored. */
+#dock .dsec[data-sec="readout"]{ order:8; align-self:center;
+  flex-direction:column; align-items:flex-end; border:0; background:transparent; margin-right:0; padding:0; gap:1px; pointer-events:none;
   color:var(--dim); font-size:8px; line-height:1.15; letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; }
 #dock .dsec .control-group{ display:flex; align-items:flex-start; gap:5px; min-height:0; padding-left:0; border-left:0; }
 #dock .control-label, #dock .lbl, #dock .video-note{ display:none; }
@@ -1805,12 +1816,11 @@ function fitDock() {
   dock.style.setProperty("--dock-fit", "1");
   dockContentChanged();
   if (STACKED || innerWidth < 760) { dock.classList.add("dock-scroll"); return; }
-  const sections = Array.from(dock.querySelectorAll(".dsec")).filter((n) => n.offsetWidth > 0 && n.dataset.sec !== "readout");
-  const readout = dock.querySelector('.dsec[data-sec="readout"]');
-  /* the readout is pinned right; the centred strip must clear it on BOTH sides to stay centred */
-  const room = readout ? (readout.offsetWidth + 24) * 2 : 0;
+  /* Every section, readout included, is now a real item in the row, so the strip
+     is measured against what it actually contains - no doubled reservation. */
+  const sections = Array.from(dock.querySelectorAll(".dsec")).filter((n) => n.offsetWidth > 0);
   const outer = (n) => { const cs = getComputedStyle(n); return n.offsetWidth + (parseFloat(cs.marginLeft) || 0) + (parseFloat(cs.marginRight) || 0); };
-  const available = dock.clientWidth - 16, natural = sections.reduce((sum, n) => sum + outer(n), 0) + room;
+  const available = dock.clientWidth - 16, natural = sections.reduce((sum, n) => sum + outer(n), 0);
   let fit = available > 0 && natural > available ? available / natural : 1;
   if (fit < DOCK_FIT_FLOOR) { dock.classList.add("dock-scroll"); fit = 1; }
   dock.style.setProperty("--dock-fit", fit >= .999 ? "1" : fit.toFixed(3));
