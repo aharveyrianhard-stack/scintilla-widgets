@@ -129,12 +129,17 @@ html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
 #xfState{ color:var(--dim,#868AAA); font-size:10px; letter-spacing:.08em; white-space:nowrap; align-self:center; }
 #xfState.on{ color:var(--crk,#00D4FF); }
 #xfState.warn{ color:#C6C8DE; }
+/* Which machine and browser feeds this pane, so "it works here but not there"
+   is a readable fact rather than a guess. */
+#xfSource{ color:var(--dim,#868AAA); opacity:.72; font-size:9px; letter-spacing:.06em;
+  white-space:nowrap; align-self:center; }
 </style>
 </head>
 <body>
 <div id="bar">
   <span class="k">X · XFLOAT</span>
   <span id="xfState" hidden>waiting</span>
+  <span id="xfSource" hidden></span>
   <button class="btn icon" id="bXList" type="button" style="display:none" title="Trading list" aria-label="Show trading list">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4h8M5 8h8M5 12h8"/><path d="M2.5 4h.01M2.5 8h.01M2.5 12h.01"/></svg>
   </button>
@@ -362,16 +367,54 @@ stationInkScratch.width = 24; stationInkScratch.height = 16;
 /* The one mapping from a source crop to the capture's pixels. The draw uses it
    and the health sampler measures through it, so "the crop missed" is measured
    on the very numbers the draw would have used. */
+/* 24 Sep: tab capture does NOT hand back a frame shaped like the X window. It
+   scales the window to FIT inside the capture's cap, keeps the aspect ratio and
+   centres the result, so a window that is not the cap's shape arrives inside
+   black bars. The old mapping divided each axis on its own
+   (videoWidth/viewportWidth, videoHeight/viewportHeight), which is only the
+   same number when the two shapes already match. On a 2x screen with a resized
+   X window the horizontal scale came out up to ~15% too large and the bar's
+   width was never subtracted at all, so the crop started left of the column and
+   ran wide: "not cropped right". One scale for both axes, plus the bar offsets,
+   is the entire mapping - and where the old math was right (matching shapes)
+   this returns exactly the same numbers, because then min() picks that scale and
+   both offsets are zero. */
+function stationCaptureFit(videoWidth, videoHeight, viewportWidth, viewportHeight) {
+  const frameW = Math.max(1, Number(videoWidth) || 1);
+  const frameH = Math.max(1, Number(videoHeight) || 1);
+  const pageW = Math.max(1, Number(viewportWidth) || 1);
+  const pageH = Math.max(1, Number(viewportHeight) || 1);
+  const scale = Math.min(frameW / pageW, frameH / pageH);
+  const contentWidth = pageW * scale, contentHeight = pageH * scale;
+  return {
+    scale, contentWidth, contentHeight,
+    offsetX: Math.max(0, (frameW - contentWidth) / 2),
+    offsetY: Math.max(0, (frameH - contentHeight) / 2),
+    barX: Math.max(0, Math.round((frameW - contentWidth) / 2)),
+    barY: Math.max(0, Math.round((frameH - contentHeight) / 2))
+  };
+}
+
 function stationSourceRegion(video, crop) {
-  const viewport = crop?.viewport || { width: video.videoWidth, height: video.videoHeight };
+  const frameW = Math.max(1, Number(video?.videoWidth) || 1);
+  const frameH = Math.max(1, Number(video?.videoHeight) || 1);
+  /* The source cropped its own track (Region or Element Capture): the frame IS
+     the timeline column, so there is no mapping left to get wrong. */
+  if (crop?.sourceCropped) {
+    return { sx:0, sy:0, sw:frameW, shAvailable:frameH, usable:true, sourceCropped:true, fit:null };
+  }
+  const viewport = crop?.viewport || { width: frameW, height: frameH };
   const rect = crop?.rect || { left:0, top:0, width:viewport.width, height:viewport.height };
-  const scaleX = video.videoWidth / Math.max(1, viewport.width);
-  const scaleY = video.videoHeight / Math.max(1, viewport.height);
-  const sx = Math.max(0, rect.left * scaleX);
-  const sy = Math.max(0, (rect.top + (crop?.fractionalScrollOffset || 0)) * scaleY);
-  const sw = Math.min(video.videoWidth - sx, rect.width * scaleX);
-  const shAvailable = Math.min(video.videoHeight - sy, rect.height * scaleY);
-  return { sx, sy, sw, shAvailable, usable: sw > 1 && shAvailable > 1 };
+  const fit = stationCaptureFit(frameW, frameH, viewport.width, viewport.height);
+  const contentRight = fit.offsetX + fit.contentWidth, contentBottom = fit.offsetY + fit.contentHeight;
+  /* Clamp inside the PICTURE, not inside the frame: sampling a black bar is the
+     one thing this mapping must never do. */
+  const sx = Math.min(contentRight, fit.offsetX + Math.max(0, rect.left) * fit.scale);
+  const sy = Math.min(contentBottom,
+    fit.offsetY + Math.max(0, rect.top + (crop?.fractionalScrollOffset || 0)) * fit.scale);
+  const sw = Math.min(contentRight - sx, Math.max(0, rect.width) * fit.scale);
+  const shAvailable = Math.min(contentBottom - sy, Math.max(0, rect.height) * fit.scale);
+  return { sx, sy, sw, shAvailable, usable: sw > 1 && shAvailable > 1, sourceCropped:false, fit };
 }
 
 function stationInkOf(source, width, height, region) {
@@ -612,6 +655,35 @@ function showStationState(text, tone) {
   node.hidden = !text;
   node.classList.toggle("on", tone === "on");
   node.classList.toggle("warn", tone === "warn");
+}
+
+/* The last-resort whole-window draw announces itself. It used to be silent, so
+   an uncropped x.com page looked like the product. */
+let stationWholeFrameWhy = "", stationWholeFrameSince = 0;
+function noteStationWholeFrame(why) {
+  const on = Boolean(why);
+  if (on && !stationWholeFrameSince) stationWholeFrameSince = Date.now();
+  if (!on) stationWholeFrameSince = 0;
+  if (stationWholeFrameWhy === (why || "")) return;
+  stationWholeFrameWhy = why || "";
+  showStationState(stationWholeFrameWhy ? "whole X window \u00b7 " + stationWholeFrameWhy : "live",
+    stationWholeFrameWhy ? "warn" : "on");
+}
+
+/* Which Mac and which browser is feeding this pane. The bridge measures it and
+   says so; the pane only prints what it was told. */
+function stationSourceLabel(source) {
+  if (!source) return "";
+  const parts = [source.browser, source.machine].filter(Boolean);
+  return parts.join(" \u00b7 ");
+}
+function showStationSource(source) {
+  const node = el("xfSource");
+  if (!node) return;
+  const label = stationSourceLabel(source);
+  node.textContent = label;
+  node.hidden = !label;
+  node.title = label ? "This X pane is fed by " + label : "";
 }
 
 /* Hover is a renewable hold, not a one-way pause: the bridge releases it after
@@ -873,12 +945,14 @@ function drawXFloat(at = 0) {
        fill on the screen. Whatever the crop says, the pane has a decoded frame
        in its hands, so it shows that instead of showing nothing. */
     if (!region.usable || stationFullFrame) {
+      noteStationWholeFrame(region.usable ? "refitting" : "crop missed the picture");
       const fit = Math.min(tw / video.videoWidth, th / video.videoHeight);
       const fw = Math.max(1, Math.round(video.videoWidth * fit));
       const fh = Math.max(1, Math.round(video.videoHeight * fit));
       ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight,
         Math.round((tw - fw) / 2), Math.round((th - fh) / 2), fw, fh);
     } else if (sw > 1 && shAvailable > 1) {
+      noteStationWholeFrame("");
       const padCss = Math.max(4, Math.min(8, host.clientWidth * .015));
       const pad = Math.round(padCss * ratio);
       /* A narrow pane should use every pixel. When the pane expands across
@@ -1202,7 +1276,8 @@ window.addEventListener("message", (event) => {
     xfloatCrop = event.data.crop;
     stationLastCropAt = Date.now();
     const paused = Boolean(xfloatCrop?.paused);
-    if (!stationFault) showStationState(paused ? "paused" : "live", "on");
+    showStationSource(xfloatCrop?.source);
+    if (!stationFault && !stationWholeFrameWhy) showStationState(paused ? "paused" : "live", "on");
     paintXView(xfloatCrop?.activeView || "trading");
     if (stationPair) stationPair.room?.publish("crop", xfloatCrop);
   }

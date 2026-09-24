@@ -1014,3 +1014,63 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     persistStationSession().catch(() => {});
   }
 });
+
+
+/* ---- One folder, four browsers: the bridge keeps itself up to date ---------
+   Chrome and Brave on both Macs load the SAME unpacked folder, so an update has
+   to be a file change and not a visit to four browsers. An unpacked extension
+   serves its files from disk, so fetching manifest.json with no-store reports
+   what is IN the folder while getManifest() reports what this worker booted
+   from. When the folder is newer, the extension reloads itself. */
+const BRIDGE_VERSION_ALARM = "xffBridgeFolderVersion";
+const BRIDGE_VERSION_PERIOD_MINUTES = 1;
+const BRIDGE_VERSION_STATE_KEY = "xffBridgeVersionCheck";
+
+function compareBridgeVersions(left, right) {
+  const parse = (value) => String(value || "0").split(".").map((part) => parseInt(part, 10) || 0);
+  const a = parse(left), b = parse(right);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const x = a[index] || 0, y = b[index] || 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+/* A reload drops a live capture, so it waits for a moment when nothing is
+   feeding a pane. Alan must never watch the X pane die because a file changed;
+   an update that waits a minute is always better than a pane that blinks out. */
+function bridgeReloadDecision({ loaded, onDisk, feeding }) {
+  if (!onDisk) return { reload: false, reason: "folder version unreadable" };
+  if (compareBridgeVersions(loaded, onDisk) >= 0) return { reload: false, reason: "already current" };
+  if (feeding) return { reload: false, reason: "newer folder version waits for an idle pane" };
+  return { reload: true, reason: "folder carries " + onDisk };
+}
+
+async function bridgeFolderVersion() {
+  try {
+    const response = await fetch(chrome.runtime.getURL("manifest.json") + "?at=" + Date.now(), { cache: "no-store" });
+    if (!response.ok) return "";
+    const parsed = await response.json();
+    return typeof parsed?.version === "string" ? parsed.version : "";
+  } catch (_) {
+    return "";
+  }
+}
+
+async function checkBridgeFolderVersion() {
+  const loaded = chrome.runtime.getManifest().version;
+  const onDisk = await bridgeFolderVersion();
+  const decision = bridgeReloadDecision({ loaded, onDisk, feeding: stationSourceTabId !== null });
+  try {
+    await chrome.storage.session.set({
+      [BRIDGE_VERSION_STATE_KEY]: { at: Date.now(), loaded, onDisk, ...decision }
+    });
+  } catch (_) {}
+  if (decision.reload) chrome.runtime.reload();
+  return decision;
+}
+
+chrome.alarms?.onAlarm.addListener((alarm) => {
+  if (alarm?.name === BRIDGE_VERSION_ALARM) checkBridgeFolderVersion();
+});
+chrome.alarms?.create(BRIDGE_VERSION_ALARM, { periodInMinutes: BRIDGE_VERSION_PERIOD_MINUTES });

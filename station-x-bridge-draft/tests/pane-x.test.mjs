@@ -97,8 +97,12 @@ test("viewer crop never leaves a black lower block when the requested crop reach
     "a normal in-frame crop is unchanged");
   assert.equal(boundedCropY(-5, 200, 600), 0,
     "a negative requested crop is held at the first decoded row");
-  assert.match(source, /const sy = boundedViewerCropY\(requestedY, requiredSourceHeight, video\.videoHeight\);/);
-  const availableBeforeGuard = source.indexOf("const availableAtRequestedY = Math.max(0, video.videoHeight - requestedY);");
+  /* 24 Sep (M43): the bound is the bottom of the PICTURE inside the captured
+     frame, not the bottom of the frame, because a letterboxed capture ends in
+     black bars that are not source pixels. The invariant is unchanged: slide up
+     just enough, never leave a black block, and never read the guard early. */
+  assert.match(source, /const sy = Math\.max\(capture\.offsetY, boundedViewerCropY\(requestedY, requiredSourceHeight, contentBottom\)\);/);
+  const availableBeforeGuard = source.indexOf("const availableAtRequestedY = Math.max(0, contentBottom - requestedY);");
   const drawGuard = source.indexOf("if (sw > 1 && availableAtRequestedY > 1)");
   assert.ok(availableBeforeGuard >= 0 && availableBeforeGuard < drawGuard,
     "the draw guard cannot reference a crop-height value before it is initialized");
