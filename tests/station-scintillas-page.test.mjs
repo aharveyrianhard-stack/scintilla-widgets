@@ -127,9 +127,11 @@ test("a three-scintilla day is three charts, not a snap to two", () => {
 });
 
 test("the label lives in the pane header and leaves with the page", () => {
-  assert.match(deck, /<span class="why"><\/span>/, "every pane head carries the slot");
-  assert.match(deck, /\.ph \.why:empty\{ display:none; \}/, "and it takes no room when it is empty");
+  assert.match(deck, /why\.className = "why";/, "every chart pane carries the slot");
+  assert.match(deck, /\.pane > \.why:empty\{ display:none; \}/, "and it takes no room when it is empty");
+  assert.match(deck, /\.pane > \.why\{ position:absolute;[^}]*bottom:6px/,
+    "it sits in the pane itself: a chart pane's HEADER is hidden unless the slot is being edited");
   assert.match(deck, /const label = SCENE === "scintillas" \? \(SCINT_LABELS\.get\(CLEAN\(CHARTS\[i\]\)\) \|\| ""\) : "";/,
     "another page clears it rather than leaving a stale reason behind");
-  assert.match(deck, /\.ph \.why\{[^}]*font-size:11px/, "body text is at least 11px");
+  assert.match(deck, /\.pane > \.why\{[^}]*font-size:11px/, "body text is at least 11px");
 });

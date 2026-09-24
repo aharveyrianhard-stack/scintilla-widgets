@@ -456,12 +456,15 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 /* M48 — WHY THIS CHART IS HERE. Only the SCINTILLAS page fills it; everywhere else it is empty
    and takes no room. Alan, 24 Sep: "It puts that chart on there." A chart with no reason beside it
-   is a chart nobody can act on, so the reason rides in the pane's own header. */
-.ph .why{ color:var(--ink3); font-size:11px; letter-spacing:.02em; white-space:nowrap;
-  overflow:hidden; text-overflow:ellipsis; min-width:0; margin-left:auto; padding-left:8px; }
-.ph .why:empty{ display:none; }
-.pane.tight .ph .why{ font-size:9.5px; }
-@media (max-width:560px){ .ph .why{ font-size:11px; } }
+   is a chart nobody can act on.
+   MEASURED, 24 Sep: the first build put this in the pane HEADER — and a chart pane's header is
+   visibility:hidden unless the slot is being edited (charts-only, M47), so the reason never
+   reached the screen. It sits in the pane's own bottom-left corner instead, where nothing else
+   lives, in the same quiet ink as every other readout. */
+.pane > .why{ position:absolute; left:6px; bottom:6px; z-index:12; max-width:calc(100% - 12px);
+  color:var(--ink3); font-size:11px; letter-spacing:.02em; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; background:rgba(7,10,16,.92); padding:2px 6px; }
+.pane > .why:empty{ display:none; }
 .ph .tag{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; }
 .ph .acts{ margin-left:auto; display:flex; gap:4px; flex:none; }
@@ -1308,8 +1311,7 @@ function makePane(def) {
   if (def.kind === "chart") p.classList.add("chart-pane");
   if (def.kind === "video" || def.kind === "x") p.classList.add("integrated");
   const head = document.createElement("div"); head.className = "ph";
-  head.innerHTML = '<span class="t">' + esc(def.title) + '</span><span class="tag">' + esc(def.tag) + "</span>" +
-    '<span class="why"></span>';
+  head.innerHTML = '<span class="t">' + esc(def.title) + '</span><span class="tag">' + esc(def.tag) + "</span>";
   const acts = document.createElement("div"); acts.className = "acts";
 
   const bFull = document.createElement("button"); bFull.type = "button"; bFull.className = "btn"; bFull.textContent = "⤢";
@@ -1322,7 +1324,11 @@ function makePane(def) {
   else acts.appendChild(bFull);
   if (def.kind !== "chart") head.appendChild(acts);
   p.appendChild(head); p.appendChild(body);
-  if (def.kind === "chart") body.appendChild(bFull);
+  if (def.kind === "chart") {
+    body.appendChild(bFull);
+    const why = document.createElement("span"); why.className = "why";   /* M48 — filled only by the SCINTILLAS page */
+    p.appendChild(why);
+  }
   const obj = { def, node: p, body, frame: null, bFull };
 
   obj.showCard = (note) => {
@@ -2306,7 +2312,7 @@ function scintillasState(requestedCount) {
 function paintScintillaLabels() {
   for (let i = 0; i < CHARTS.length; i++) {
     const pane = PANES.find((item) => item.def.key === "c" + (i + 1));
-    const cell = pane && pane.node.querySelector(".ph .why");
+    const cell = pane && pane.node.querySelector(":scope > .why");
     if (!cell) continue;
     const label = SCENE === "scintillas" ? (SCINT_LABELS.get(CLEAN(CHARTS[i])) || "") : "";
     if (cell.textContent !== label) cell.textContent = label;
@@ -2369,7 +2375,10 @@ function paintSceneControls(note) {
   el("screenIndicator").textContent = screen
     ? "screen " + (SceneModel.SCREENS.indexOf(screen) + 1) + " / " + SceneModel.SCREENS.length
     : "manual";
-  el("symbolNote").textContent = note || (SCENE === "cohort"
+  el("symbolNote").textContent = note || (SCENE === "scintillas"
+    /* the page says what it is showing, or why it is showing nothing — never a stale wall */
+    ? (SCINT_NOTE || "the day's outliers, biggest first · newest replacing oldest")
+    : SCENE === "cohort"
     ? (COHORT === "FAV"
        /* Zero favorites is a state the wall must SAY, not imply with one blank slot — but
           only once the read has landed: before COHORT_READY the count is not yet a fact. */
@@ -2571,7 +2580,6 @@ async function applyScene(next, options) {
   } else if (requested === "scintillas") {
     await loadScintillas(!!options?.reset);
     state = scintillasState(SceneModel.PRESETS.scintillas.chartCount);
-    if (el("symbolNote")) el("symbolNote").textContent = SCINT_NOTE || "the day's outliers, biggest first";
   } else if (requested === "custom" && !hasStoredScene("custom")) {
     state = customWallState({ charts:[], range:RANGE }, 6);
   } else state = editableState(requested);
