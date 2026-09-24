@@ -131,3 +131,70 @@ test("a repaint puts the same video back under the top edge, not the same pixel 
   restore(grid, keep);
   assert.equal(grid.scrollTop, 220);
 });
+
+/* ---- M51 · the Context Lens is a live second zoom, not a trip through history ------------------
+   Alan, 24 Sep: "We don't need the context lens replay shit. It's just a view of the current bars
+   with the opposite view." Nothing in the lens was ever CALLED a replay — what he was watching is
+   the old "CONTEXT · FULL HISTORY" view, a mode you picked from a dropdown that left the current
+   bars behind. That mode is gone: the lens now takes the opposite zoom of whatever the main chart
+   is showing, on the same live bars, and the wide view is a multiple of the window on screen and
+   never the whole history. These are the tests that pin the two modes. */
+const lens = await import("../deliverables/20260924/station-calm/lens/lens-view.mjs");
+
+test("zoomed out, the lens zooms in on the newest bars", () => {
+  const v = lens.lensView({ total: 400, start: 200, end: 399 });
+  assert.equal(v.mode, "detail");
+  assert.equal(v.bars, 30);
+  assert.equal(v.end, 399, "it ends on the same bar as the main chart");
+  assert.equal(v.start, 370);
+  assert.equal(v.label, "ZOOM · LAST 30 BARS");
+});
+
+test("zoomed in, the lens pulls back — a multiple of the window, never the whole history", () => {
+  const v = lens.lensView({ total: 400, start: 380, end: 399 });
+  assert.equal(v.mode, "wide");
+  assert.equal(v.bars, 120, "six times the twenty bars on screen");
+  assert.equal(v.end, 399);
+  assert.ok(v.bars < 400, "the full history is exactly what Alan did not want");
+  assert.equal(v.label, "WIDER · LAST 120 BARS");
+});
+
+test("the pulled-back view stops at the oldest bar there is", () => {
+  const v = lens.lensView({ total: 50, start: 30, end: 49 });
+  assert.equal(v.mode, "wide");
+  assert.equal(v.start, 0);
+  assert.equal(v.bars, 50);
+});
+
+test("when the chart already shows everything, the lens zooms in instead of repeating it", () => {
+  const v = lens.lensView({ total: 20, start: 0, end: 19 });
+  assert.equal(v.mode, "detail", "there is nothing wider to show");
+  assert.equal(v.bars, 19);
+});
+
+test("the switch happens at the stated zoom, not by feel", () => {
+  assert.equal(lens.lensView({ total: 400, start: 340, end: 399 }).mode, "wide", "60 bars on screen is zoomed in");
+  assert.equal(lens.lensView({ total: 400, start: 339, end: 399 }).mode, "detail", "61 is zoomed out");
+});
+
+test("too few bars for a second view says so instead of drawing nonsense", () => {
+  const v = lens.lensView({ total: 4, start: 0, end: 3 });
+  assert.equal(v.mode, "none");
+  assert.equal(v.label, "");
+  assert.match(v.why, /too few bars/);
+  assert.equal(lens.lensView({ total: 0, start: 0, end: 0 }).mode, "none");
+});
+
+test("both panes always end on the same bar, in either mode", () => {
+  for (const main of [{ total:400, start:0, end:399 }, { total:400, start:390, end:399 },
+                      { total:400, start:100, end:250 }, { total:9, start:0, end:8 }]) {
+    assert.ok(lens.endsTogether(lens.lensView(main), main), JSON.stringify(main));
+  }
+});
+
+test("the heading says the span in plain dates", () => {
+  const v = lens.lensView({ total: 400, start: 200, end: 399 });
+  const dateAt = (i) => "2026-01-" + String(i).padStart(3, "0");
+  assert.equal(lens.lensSpan(v, dateAt), "2026-01-370 → 2026-01-399");
+  assert.equal(lens.lensSpan(lens.lensView({ total: 2, start: 0, end: 1 }), dateAt), "", "no span when there is no view");
+});
