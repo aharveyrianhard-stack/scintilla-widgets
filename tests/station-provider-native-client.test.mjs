@@ -6,26 +6,19 @@ import vm from "node:vm";
 const source = fs.readFileSync(new URL("../_provider/provider.js", import.meta.url), "utf8");
 const RECEIPT = "f6cf97b57cf26a37aeb8393dec676f1776b02da282dffcce95786e5762697ad1";
 const INDICATOR_HASH = "7ad595cc4db5e1fd0bb63bb3780ac1450a938e6fa068df944aeec71445556063";
-/* M57: the fixtures follow the client's own pins. They used to carry 364 and the 20260820 digest
-   as literals, so the admission would have failed 18 tests that were describing a universe the
-   provider no longer serves — and the one test that matters (identity is not cardinality) would
-   have been the one to hide. */
-const EXPECTED_UNIVERSE = Number(/var EXPECTED_EQUITY_UNIVERSE = (\d+)/.exec(source)[1]);
-const ACCEPTED_UNIVERSE = /var ACCEPTED_UNIVERSE_SHA256 =\s*'([a-f0-9]{64})'/.exec(source)[1];
-const PREVIOUS_UNIVERSE = /var PREVIOUS_ACCEPTED_UNIVERSE_SHA256 =\s*'([a-f0-9]{64})'/.exec(source)[1];
 const ANCHORS = ["AAPL", "MSFT", "NVDA", "MU", "AMZN", "GOOGL", "META", "TSLA"];
 
 function symbols(extra = []) {
   const out = {};
   for (const ticker of [...ANCHORS, ...extra]) out[ticker] = { composite:0.2, trend:0.3, momentum:0.1, daily_rsi14:53.1, daily_rsi_as_of:"2026-08-20T04:00:00.000Z", daily_rsi_state:"AVAILABLE" };
-  for (let i = 0; Object.keys(out).length < EXPECTED_UNIVERSE; i += 1) out[`SYM${String(i).padStart(4, "0")}`] = { composite:0, trend:0, momentum:0, daily_rsi14:50, daily_rsi_as_of:"2026-08-20T04:00:00.000Z", daily_rsi_state:"AVAILABLE" };
+  for (let i = 0; Object.keys(out).length < 364; i += 1) out[`SYM${String(i).padStart(4, "0")}`] = { composite:0, trend:0, momentum:0, daily_rsi14:50, daily_rsi_as_of:"2026-08-20T04:00:00.000Z", daily_rsi_state:"AVAILABLE" };
   return out;
 }
 
 function canonicalRows(map) { return Object.keys(map).map((ticker) => ({ ticker })); }
 function universePayload(map) {
   return { provider:"MASSIVE", symbols:Object.keys(map).sort(), count:Object.keys(map).length,
-    universe_sha256:ACCEPTED_UNIVERSE };
+    universe_sha256:"ab8f7965258d939f0a97fbfeac9a271547c258df7a2616aff6ccff746bb5d9d3" };
 }
 function response(body, code = 200) {
   return Promise.resolve({ ok:code >= 200 && code < 300, status:code, json:async () => body });
@@ -142,7 +135,7 @@ test("HTTP failure is transport, never named absence or a database fallback", as
   assert.equal(w.SC_PROVIDER.absenceFor("AAPL"), null);
 });
 
-test("ownership is exact identity, not merely the right number of names", async () => {
+test("ownership is exact identity, not merely 364 names", async () => {
   const map = symbols();
   const wrong = canonicalRows(map).filter((r) => r.ticker !== "AAPL");
   wrong.push({ ticker:"TICK" });
@@ -239,10 +232,9 @@ test("a legitimately partial FMP payload names every absent contract instead of 
     "CURRENT_INDEX_VALUE_ABSENT");
 });
 
-/* the identity the FMP rows in the table carry today; still accepted as reference (M57) */
-const ACCEPTED_HASH = PREVIOUS_UNIVERSE;
+const ACCEPTED_HASH = "ab8f7965258d939f0a97fbfeac9a271547c258df7a2616aff6ccff746bb5d9d3";
 
-test("FMP rows stamped with any accepted reference identity are read, and the query asks for all of them", async () => {
+test("FMP rows stamped with either reference identity are read, and the query asks for both", async () => {
   const map = symbols();
   let asked = "";
   const refreshed = indicatorRows().map((r) => ({ ...r, universe_hash:ACCEPTED_HASH, source_date:"2026-09-18 00:00:00", session_state:"SETTLED" }));
@@ -250,11 +242,7 @@ test("FMP rows stamped with any accepted reference identity are read, and the qu
     return path.startsWith("tickers?") ? canonicalRows(map) : refreshed; };
   const w = load(fixtureFetch(map), reader);
   const [row] = await w.SC_PROVIDER.fmpDailyIndicators(["AAPL"]);
-  /* M57: THREE identities, and the query must ask for every one it accepts. The old assertion
-     required exactly two, so an admission that added the new universe while keeping the superseded
-     one — the only combination that does not blank the RSI column — would have failed here. */
-  assert.match(asked, new RegExp("universe_hash=in\\.\\(" + INDICATOR_HASH + "," +
-    PREVIOUS_UNIVERSE + "," + ACCEPTED_UNIVERSE + "\\)"));
+  assert.match(asked, new RegExp("universe_hash=in\\.\\(" + INDICATOR_HASH + "," + ACCEPTED_HASH + "\\)"));
   assert.equal(row.rsi14, 53.1);
   assert.equal(row.source_date, "2026-09-18 00:00:00");
   assert.equal(row.contracts.filter((c) => c.state === "AVAILABLE").length, 16);
