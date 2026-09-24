@@ -760,6 +760,8 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 </div>
 
 <script src="/deck/scenes.js?rev=001"></script>
+<!-- M74 HOOK (station detail) — expand-in-place overlay + rotation queue, all of it in deck/detail.js -->
+<script src="/deck/detail.js?rev=001"></script>
 <script src="/_provider/provider.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
@@ -2821,7 +2823,9 @@ function paintPageJump(query) {
     b.addEventListener("click", () => { setPageJump(false); goToPage(match.screen.scene); });
     list.appendChild(b);
   }
-  none.hidden = matches.length > 0;
+  /* M74 HOOK (station detail) — the zoomed screens and FUNDAMENTALS are menu entries, not pages */
+  const extra = window.StationDetail ? StationDetail.appendJumpEntries(list, query, () => setPageJump(false)) : 0;
+  none.hidden = matches.length + extra > 0;
   return matches;
 }
 /* ← and → move one page. They are ignored while a field, a menu or a chart's ticker
@@ -3333,7 +3337,8 @@ async function build() {
   rows[1].className = "deckrow"; rows[1].id = "rowBot";
   grid.appendChild(rows[0]); grid.appendChild(rows[1]);
 
-  for (const d of defs) { const o = makePane(d); PANES.push(o); rows[d.row].appendChild(o.node); }
+  for (const d of defs) { const o = makePane(d); PANES.push(o); rows[d.row].appendChild(o.node);
+    /* M74 HOOK (station detail) */ if (window.StationDetail) StationDetail.attach(o); }
 
   paintTf(); paintVideoFeed(); el("viewMode").value = VIEW; paintSceneControls(); paintScreenBusy();
   wireDock();

@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>SCINTILLA · DETAIL</title>
+<!-- SCINTILLA · STATION DETAIL SHELL v1 ─────────────────────────────────────────────
+     Alan, 24 Sep: "a great multi-chart view, but also for the things that I want to track
+     more closely, a more detailed level view… I want a zoomed view."
+     ONE ticker, big: price with the Station's cloud ribbon, and under it the four readings
+     he named — RSI, Williams %R, Stochastic, MACD — plus the relative-volume battery.
+
+     WHERE THE NUMBERS COME FROM. The bars are the chart API's, the same ones the wall's
+     chart panes draw. The ribbon is the Station's own cloud module, daily-locked, so this
+     view and the wall cannot disagree about a moving average. The four oscillators and the
+     relative volume are computed IN THIS PAGE from those bars by indicators.js, because no
+     store we have holds them for an arbitrary timeframe (FMP daily has williams but no
+     stochastic and no macd; MASSIVE minute has macd and rsi but no williams and no
+     stochastic; relative volume is in no indicator store at all). Nothing here writes.
+
+     COLOUR. Lines are never grey — cyan, green, pink, orange, violet, and the ribbon's
+     indigo/pink. The only grey on the page is the quiet zone band behind an oscillator and
+     the hairlines, which is exactly what grey is for. Every line carries its value in words. -->
+<script src="/_indicators/station-clouds.js"></script>
+<script src="./indicators.js"></script>
+<style>
+:root{
+  --bg:#0A0A0F; --panel:#0D0D14; --panel2:#0F0F1A;
+  --line:#1A1A2A; --line2:#252538; --hair:rgba(0,212,255,.34);
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52;
+  --crk:#00D4FF; --coin:#8B5CF6; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00;
+  --zone:rgba(198,200,222,.07);            /* the one legitimate grey: an oscillator's quiet band */
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:12px;
+  display:flex;flex-direction:column;overflow:hidden;-webkit-text-size-adjust:100%}
+header{flex:none;display:flex;align-items:center;gap:10px;padding:7px 10px;background:var(--panel);
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tk{font-size:20px;font-weight:700;letter-spacing:.06em}
+.px{font-size:17px;font-weight:700}
+.chg{font-size:13px;font-weight:700}
+.up{color:var(--bull)} .down{color:var(--bear)} .flat{color:var(--ink2)}
+.stamp{color:var(--dim);font-size:10px;letter-spacing:.04em;max-width:46ch;line-height:1.35}
+.spacer{flex:1 1 auto}
+.btn{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--ink2);background:var(--panel2);
+  border:1px solid var(--line2);border-radius:5px;padding:5px 9px;cursor:pointer}
+.btn:hover{color:var(--ink);border-color:var(--crk)}
+.btn.on{color:#04121A;background:var(--crk);border-color:var(--crk);font-weight:700}
+.btn.add{color:var(--bull);border-color:rgba(0,255,163,.45)}
+.btn.add.done{color:#04121A;background:var(--bull);border-color:var(--bull);font-weight:700}
+.ranges{display:flex;gap:3px;flex-wrap:wrap}
+.ranges .btn{padding:4px 6px;font-size:10px}
+main{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:6px;padding:6px 8px 8px}
+.pane{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:6px;min-height:0}
+#pricePane{flex:1 1 58%}
+.osc{flex:1 1 0;display:flex;gap:6px;min-height:0}
+.osc .pane{flex:1 1 0;min-width:0}
+.volrow{flex:none;height:82px;display:flex;gap:6px}
+.volrow .pane{flex:1 1 0}
+canvas{display:block;width:100%;height:100%}
+.cap{position:absolute;top:4px;left:7px;right:7px;display:flex;gap:8px;align-items:baseline;
+  pointer-events:none;font-size:10px;letter-spacing:.05em;z-index:2}
+.cap .name{color:var(--ink3)}
+.cap .val{font-weight:700;font-size:12px}
+.cap .note{color:var(--dim);margin-left:auto;text-align:right;max-width:28ch}
+#pricePane .cap .note{padding-right:112px;max-width:44ch;white-space:nowrap}
+.osc .cap .note{padding-right:34px}   /* the oscillator axis gutter, so a note never sits on a number */
+.volrow .cap .note{max-width:34ch}
+.legend{position:absolute;bottom:4px;left:7px;display:flex;gap:9px;font-size:9.5px;color:var(--dim);
+  pointer-events:none;z-index:2}
+.legend i{display:inline-block;width:8px;height:2px;vertical-align:middle;margin-right:3px}
+footer{flex:none;padding:5px 10px 7px;color:var(--dim);font-size:9.5px;line-height:1.45;
+  border-top:1px solid var(--line);background:var(--panel)}
+.err{color:var(--bear)}
+#battery{display:flex;align-items:center;gap:8px;height:100%;padding:22px 10px 8px}
+.cell{flex:1 1 0;height:20px;border:1px solid var(--line2);border-radius:2px;background:var(--panel2);position:relative;overflow:hidden}
+.cell b{position:absolute;inset:0;display:block;transform-origin:left center}
+.cellcap{font-size:9.5px;color:var(--dim);white-space:nowrap}
+/* ── PHONE ─────────────────────────────────────────────────────────────────────────
+   At 1680 a pane is a canvas with a one-line caption floating on top of it. At 390 that
+   caption is three lines, so floating it would print words over the chart and over the
+   battery. Each pane becomes an ordinary column instead: caption, then canvas, nothing
+   overlapping anything. */
+@media (max-width:760px){
+  body{overflow:auto}
+  main{height:auto;flex:none;gap:8px;padding:8px}
+  .pane{display:flex;flex-direction:column;overflow:hidden}
+  .pane .cap{position:static;flex:none;padding:6px 8px 2px;flex-wrap:wrap;row-gap:2px}
+  .cap .note{margin-left:0;text-align:left;max-width:100%}
+  #pricePane .cap .note{white-space:normal;max-width:100%;padding-right:0}
+  .pane canvas{flex:1 1 auto;height:auto;min-height:0}
+  #pricePane{height:56vh;flex:none}
+  .osc{flex-direction:column;height:auto;flex:none;gap:8px}
+  .osc .pane{height:162px;flex:none}
+  .legend{position:static;padding:2px 8px 6px}
+  .volrow{height:auto;flex:none}
+  .volrow .pane{height:104px}
+  #battery{flex:1 1 auto;padding:4px 8px 10px}
+  .tk{font-size:17px} .stamp{max-width:100%}
+}
+</style>
+</head>
+<body>
+<header>
+  <span class="tk" id="tk">—</span>
+  <span class="px" id="px">—</span>
+  <span class="chg" id="chg"></span>
+  <span class="ranges" id="ranges"></span>
+  <span class="spacer"></span>
+  <span class="stamp" id="stamp">reading bars…</span>
+  <button class="btn add" id="addRot" type="button" title="add this ticker's detail view to the rotating queue">+ ROTATION</button>
+  <button class="btn" id="close" type="button" title="Esc">CLOSE ✕</button>
+</header>
+
+<main>
+  <div class="pane" id="pricePane">
+    <div class="cap"><span class="name">PRICE · CLOUD RIBBON</span><span class="val" id="capPrice">—</span>
+      <span class="note" id="capClouds"></span></div>
+    <canvas id="price"></canvas>
+    <div class="legend">
+      <span><i style="background:#3455FF"></i>EMA13</span><span><i style="background:#5B7BFF"></i>EMA21</span>
+      <span><i style="background:#FF00A8"></i>SMA50</span><span><i style="background:#FF6AD5"></i>SMA200</span>
+    </div>
+  </div>
+
+  <div class="osc">
+    <div class="pane"><div class="cap"><span class="name">RSI 14</span><span class="val" id="capRsi">—</span>
+      <span class="note">bands 30 · 70</span></div><canvas id="rsi"></canvas></div>
+    <div class="pane"><div class="cap"><span class="name">WILLIAMS %R 14</span><span class="val" id="capWpr">—</span>
+      <span class="note">bands −20 · −80</span></div><canvas id="wpr"></canvas></div>
+  </div>
+  <div class="osc">
+    <div class="pane"><div class="cap"><span class="name">STOCHASTIC 14·3·3</span><span class="val" id="capStoch">—</span>
+      <span class="note">%K cyan · %D violet · bands 20 · 80</span></div><canvas id="stoch"></canvas></div>
+    <div class="pane"><div class="cap"><span class="name">MACD 12·26·9</span><span class="val" id="capMacd">—</span>
+      <span class="note">line cyan · signal orange · histogram</span></div><canvas id="macd"></canvas></div>
+  </div>
+
+  <div class="volrow">
+    <div class="pane"><div class="cap"><span class="name">RELATIVE VOLUME</span><span class="val" id="capRvol">—</span>
+      <span class="note" id="capRvolNote"></span></div>
+      <div id="battery"></div>
+    </div>
+  </div>
+</main>
+
+<footer id="prov">—</footer>
+
+<script>
+"use strict";
+const API = "https://scintilla-massive-chart-api.fly.dev";
+const QS = new URLSearchParams(location.search);
+const TICKER = String(QS.get("t") || "SPY").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+const RANGES = ["15m","30m","1h","2h","3h","4h","6h","12h","1D","3D","1W"];
+/* the same range→provider-timeframe map the wall's chart shell uses, so "3h" means the
+   same bars here as it does there */
+/* TWO NUMBERS, DELIBERATELY DIFFERENT: how many bars are READ, and how many are DRAWN.
+   The battery compares this bar with the same time of day over twenty sessions, and on a
+   15-minute timeframe twenty sessions of extended-hours bars is about 1,300 of them — far
+   more than anyone wants on screen. So the read is wide enough to answer honestly and the
+   view stays zoomed: the readings use every bar, the panes draw the newest DRAW_BARS. */
+const TF = {"15m":["15",1300],"30m":["30",700],"1h":["60",420],"2h":["120",320],"3h":["180",300],
+  "4h":["240",300],"6h":["6h",300],"12h":["12h",300],"1D":["D",300],"3D":["3D",260],"1W":["W",160]};
+const DRAW_BARS = 300;
+const drawn = (list) => (list.length > DRAW_BARS ? list.slice(-DRAW_BARS) : list);
+let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "3h";
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const C = { crk:"#00D4FF", coin:"#8B5CF6", bull:"#00FFA3", bear:"#FF2D55", vol:"#FF8A00",
+  ink:"#F2F2F8", dim:"#868AAA", zone:"rgba(198,200,222,.07)", hair:"rgba(37,37,56,.9)" };
+const CLOUD = { e13:"#3455FF", e21:"#5B7BFF", s50:"#FF00A8", s200:"#FF6AD5" };
+
+let BARS = [], DAILY = [], MAPPED = null, READ = null, META = null, ERROR = null;
+
+/* ---- the deck talks to this shell only through these three messages ---- */
+const tell = (msg) => { try { parent.postMessage(Object.assign({ sc:"detail", ticker:TICKER }, msg), location.origin); } catch (e) {} };
+el("close").addEventListener("click", () => tell({ sc:"detail-close" }));
+addEventListener("keydown", (e) => { if (e.key === "Escape") tell({ sc:"detail-close" }); });
+el("addRot").addEventListener("click", () => {
+  tell({ sc:"detail-rotation-add", range:RANGE });
+  const b = el("addRot"); b.classList.add("done"); b.textContent = "IN ROTATION ✓";
+  setTimeout(() => { b.classList.remove("done"); b.textContent = "+ ROTATION"; }, 2600);
+});
+
+function paintRanges() {
+  el("ranges").innerHTML = RANGES.map((r) =>
+    '<button class="btn' + (r === RANGE ? " on" : "") + '" data-r="' + r + '" type="button">' + r + "</button>").join("");
+  for (const b of el("ranges").querySelectorAll("button"))
+    b.addEventListener("click", () => { if (b.dataset.r === RANGE) return; RANGE = b.dataset.r; paintRanges(); load(); });
+}
+
+async function jget(url) {
+  const r = await fetch(url, { cache:"no-store" });
+  if (!r.ok) throw new Error("chart API " + r.status + " for " + url.replace(API, ""));
+  return r.json();
+}
+
+async function load() {
+  ERROR = null; el("stamp").textContent = "reading bars…"; el("stamp").classList.remove("err");
+  const [tf, limit] = TF[RANGE] || TF["3h"];
+  try {
+    const [main, daily] = await Promise.all([
+      jget(API + "/candles?symbol=" + encodeURIComponent(TICKER) + "&tf=" + encodeURIComponent(tf) + "&limit=" + limit),
+      /* the ribbon is DAILY-LOCKED on every timeframe (the Station's cloud contract), so a
+         second, daily read feeds it — never a 3-hour average pretending to be a 13-day one */
+      jget(API + "/candles?symbol=" + encodeURIComponent(TICKER) + "&tf=D&limit=400").catch(() => null)
+    ]);
+    BARS = (main && Array.isArray(main.series) ? main.series : []).filter((b) => b && Number.isFinite(+b.c));
+    META = main || null;
+    DAILY = daily && Array.isArray(daily.series) ? daily.series : [];
+    MAPPED = null;
+    if (!BARS.length) throw new Error("the chart API served no bars for " + TICKER + " at " + RANGE);
+    READ = window.SC_DETAIL_MATH.readings(BARS, RANGE, {});
+    paint();
+    tell({ sc:"detail-ready", range:RANGE, bars:BARS.length });
+  } catch (e) {
+    ERROR = e && e.message ? e.message : String(e);
+    el("stamp").textContent = ERROR; el("stamp").classList.add("err");
+    el("prov").textContent = "no reading is shown because the bars did not arrive · " + ERROR;
+  }
+}
+
+/* ---- the ribbon, from the Station's own module ---- */
+function cloudMap() {
+  if (MAPPED) return MAPPED;
+  if (!window.SC_CLOUDS || DAILY.length < 2) return null;
+  const pts = DAILY.map((b) => ({ d:new Date(b.t).toISOString(), p:Number(b.c) }));
+  const rows = window.SC_CLOUDS.dailyRows(pts);
+  if (rows.length < 2) return null;
+  MAPPED = { rows, map:window.SC_CLOUDS.mapBarsToDaily(BARS.map((b) => Number(b.t)), rows,
+    window.SC_CLOUDS.timeframeKind(RANGE)) };
+  return MAPPED;
+}
+
+/* ---- canvas helpers ---- */
+function fit(canvas) {
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return null;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  return { ctx, w, h };
+}
+function lineOf(ctx, xs, values, colour, width) {
+  ctx.beginPath(); ctx.strokeStyle = colour; ctx.lineWidth = width || 1.25; ctx.lineJoin = "round";
+  let started = false;
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+    if (v == null || !Number.isFinite(v)) { started = false; continue; }
+    if (!started) { ctx.moveTo(xs(i), v); started = true; } else ctx.lineTo(xs(i), v);
+  }
+  ctx.stroke();
+}
+function band(ctx, w, y1, y2) { ctx.fillStyle = C.zone; ctx.fillRect(0, Math.min(y1, y2), w, Math.abs(y2 - y1)); }
+function hair(ctx, w, y, colour) { ctx.strokeStyle = colour || C.hair; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, y + .5); ctx.lineTo(w, y + .5); ctx.stroke(); }
+function tag(ctx, x, y, text, colour) {
+  ctx.font = "9px " + getComputedStyle(document.body).fontFamily;
+  ctx.fillStyle = colour; ctx.textBaseline = "middle"; ctx.fillText(text, x, y);
+}
+const fmt = (v, d) => v == null || !Number.isFinite(v) ? "—" : v.toFixed(d == null ? 2 : d);
+
+/* ---- price + ribbon ---- */
+function paintPrice() {
+  const box = fit(el("price")); if (!box) return;
+  const { ctx, w, h } = box;
+  /* The right gutter holds the ribbon's labels. On a wide screen that is "EMA13 1005.28";
+     on a phone there is no room for the name, so the value stands alone beside the legend
+     that already carries the colours. */
+  const narrow = w < 520;
+  const padT = 30, padB = 14, padR = narrow ? 56 : 104;
+  const plotW = Math.max(10, w - padR), plotH = Math.max(10, h - padT - padB);
+  const cmAll = cloudMap();
+  const B = drawn(BARS);
+  const cm = cmAll ? { rows:cmAll.rows, map:drawn(cmAll.map) } : null;
+  let lo = Infinity, hi = -Infinity;
+  for (const b of B) { const l = +b.l, x = +b.h; if (l < lo) lo = l; if (x > hi) hi = x; }
+  if (cm) for (const row of cm.map) if (row) for (const k of ["e13","e21","s50","s200"]) {
+    const v = row[k]; if (v == null) continue; if (v < lo) lo = v; if (v > hi) hi = v;
+  }
+  if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) { lo = (lo || 0) - 1; hi = (hi || 0) + 1; }
+  const pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
+  const y = (v) => padT + plotH - ((v - lo) / (hi - lo)) * plotH;
+  const step = plotW / Math.max(1, B.length);
+  const x = (i) => i * step + step / 2;
+
+  /* the three clouds, fastest on top, in the ribbon's own indigo/pink families */
+  if (cm) {
+    const layers = [["e13","e21",.30],["e21","s50",.22],["s50","s200",.15]];
+    for (const [a, b2, alpha] of layers) {
+      ctx.beginPath(); let open = false;
+      for (let i = 0; i < B.length; i++) {
+        const row = cm.map[i], va = row && row[a], vb = row && row[b2];
+        if (va == null || vb == null) continue;
+        if (!open) { ctx.moveTo(x(i), y(va)); open = true; } else ctx.lineTo(x(i), y(va));
+      }
+      for (let i = B.length - 1; i >= 0; i--) {
+        const row = cm.map[i], va = row && row[a], vb = row && row[b2];
+        if (va == null || vb == null) continue;
+        ctx.lineTo(x(i), y(vb));
+      }
+      if (open) {
+        const last = cm.map[B.length - 1];
+        const bullish = last ? (a === "e13" ? last.f : a === "e21" ? last.m : last.o) : true;
+        ctx.closePath();
+        /* indigo when the faster line leads, neon pink when it trails — the ribbon's own rule */
+        ctx.fillStyle = "rgba(" + (bullish === false ? "255,0,168" : "52,85,255") + "," + alpha + ")";
+        ctx.fill();
+      }
+    }
+  }
+
+  /* candles, in the Station's bull/bear */
+  const bw = Math.max(1, Math.min(9, step * 0.62));
+  for (let i = 0; i < B.length; i++) {
+    const b = B[i], up = +b.c >= +b.o;
+    ctx.strokeStyle = ctx.fillStyle = up ? C.bull : C.bear;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x(i), y(+b.h)); ctx.lineTo(x(i), y(+b.l)); ctx.stroke();
+    const yo = y(+b.o), yc = y(+b.c);
+    ctx.fillRect(x(i) - bw / 2, Math.min(yo, yc), bw, Math.max(1, Math.abs(yc - yo)));
+  }
+
+  /* the four ribbon lines, each labelled with its exact current value */
+  if (cm) {
+    for (const [k, colour] of Object.entries(CLOUD))
+      lineOf(ctx, x, cm.map.map((r) => (r && r[k] != null ? y(r[k]) : null)), colour, k[0] === "e" ? 1.3 : 1.6);
+    const last = cm.map[B.length - 1];
+    if (last) {
+      for (const [k, colour] of Object.entries(CLOUD)) {
+        if (last[k] == null) continue;
+        const label = narrow ? fmt(last[k])
+          : k.toUpperCase().replace("E", "EMA").replace("S", "SMA") + " " + fmt(last[k]);
+        tag(ctx, plotW + 4, Math.max(8, Math.min(h - 8, y(last[k]))), label, colour);
+      }
+      el("capClouds").textContent = "ribbon daily-locked · " + cm.rows.length + " daily bars";
+    }
+  } else el("capClouds").textContent = "ribbon absent · daily bars did not arrive";
+
+  /* the price axis, and the last close */
+  for (let i = 0; i <= 4; i++) {
+    const v = lo + (hi - lo) * (i / 4), yy = y(v);
+    hair(ctx, plotW, yy); tag(ctx, plotW + 4, yy, fmt(v), C.dim);
+  }
+  const lastBar = B[B.length - 1];
+  if (lastBar) {
+    const yy = y(+lastBar.c);
+    ctx.strokeStyle = C.crk; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, yy + .5); ctx.lineTo(plotW, yy + .5); ctx.stroke(); ctx.setLineDash([]);
+    tag(ctx, plotW + 4, yy, fmt(+lastBar.c), C.crk);
+  }
+}
+
+/* ---- one oscillator pane ---- */
+function paintOsc(canvasId, valuesRaw, optsRaw) {
+  const values = valuesRaw.map((v) => ({ ...v, series:drawn(v.series) }));
+  const opts = Object.assign({}, optsRaw, optsRaw.histogram ? { histogram:drawn(optsRaw.histogram) } : {});
+  const box = fit(el(canvasId)); if (!box) return;
+  const { ctx, w, h } = box;
+  const padT = 17, padB = 8, padR = 34;
+  const plotW = Math.max(10, w - padR), plotH = Math.max(6, h - padT - padB);
+  const lo = opts.lo, hi = opts.hi;
+  const y = (v) => padT + plotH - ((v - lo) / (hi - lo)) * plotH;
+  const step = plotW / Math.max(1, values[0].series.length);
+  const x = (i) => i * step + step / 2;
+  if (opts.bands) for (const [a, b] of opts.bands) band(ctx, plotW, y(a), y(b));
+  for (const level of opts.levels || []) { hair(ctx, plotW, y(level)); tag(ctx, plotW + 3, y(level), String(level), C.dim); }
+  if (opts.histogram) {
+    const base = y(0);
+    for (let i = 0; i < opts.histogram.length; i++) {
+      const v = opts.histogram[i]; if (v == null) continue;
+      ctx.fillStyle = v >= 0 ? C.bull : C.bear;
+      const yy = y(v);
+      ctx.fillRect(x(i) - Math.max(.8, step * .3), Math.min(base, yy), Math.max(1.6, step * .6), Math.max(1, Math.abs(base - yy)));
+    }
+  }
+  for (const s of values) lineOf(ctx, x, s.series.map((v) => (v == null ? null : y(v))), s.colour, s.width);
+}
+
+function paintOscillators() {
+  const r = READ;
+  /* RSI */
+  if (r.rsi.value == null) el("capRsi").textContent = "needs " + r.rsi.need + " bars · have " + r.bars;
+  else el("capRsi").textContent = fmt(r.rsi.value, 1);
+  paintOsc("rsi", [{ series:r.rsi.series, colour:C.crk, width:1.4 }],
+    { lo:0, hi:100, bands:[[30, 70]], levels:[30, 50, 70] });
+  /* Williams %R */
+  if (r.williams.value == null) el("capWpr").textContent = "needs " + r.williams.need + " bars · have " + r.bars;
+  else el("capWpr").textContent = fmt(r.williams.value, 1);
+  paintOsc("wpr", [{ series:r.williams.series, colour:C.vol, width:1.4 }],
+    { lo:-100, hi:0, bands:[[-20, -80]], levels:[-20, -50, -80] });
+  /* Stochastic */
+  el("capStoch").textContent = r.stochastic.k == null
+    ? "needs " + r.stochastic.need + " bars · have " + r.bars
+    : "%K " + fmt(r.stochastic.k, 1) + " · %D " + (r.stochastic.d == null ? "—" : fmt(r.stochastic.d, 1));
+  paintOsc("stoch", [{ series:r.stochastic.series.k, colour:C.crk, width:1.4 },
+                     { series:r.stochastic.series.d, colour:C.coin, width:1.2 }],
+    { lo:0, hi:100, bands:[[20, 80]], levels:[20, 50, 80] });
+  /* MACD */
+  el("capMacd").textContent = r.macd.line == null
+    ? "needs " + r.macd.need + " bars · have " + r.bars
+    : fmt(r.macd.line, 3) + " · sig " + fmt(r.macd.signal, 3) + " · hist " + fmt(r.macd.histogram, 3);
+  const all = r.macd.series.line.concat(r.macd.series.signal, r.macd.series.histogram)
+    .filter((v) => v != null && Number.isFinite(v));
+  const span = all.length ? Math.max(...all.map(Math.abs)) * 1.15 || 1 : 1;
+  paintOsc("macd", [{ series:r.macd.series.line, colour:C.crk, width:1.4 },
+                    { series:r.macd.series.signal, colour:C.vol, width:1.2 }],
+    { lo:-span, hi:span, levels:[0], histogram:r.macd.series.histogram });
+}
+
+/* ---- the relative-volume battery ------------------------------------------------
+   Alan: "relative volume… I haven't seen those relative volume batteries in a long
+   time." A battery is honest here: cells that fill as the ratio climbs, the number in
+   words beside them, and the basis named — the same time of day over twenty sessions
+   when the bars allow it, plain daily relative volume when they do not. */
+function paintBattery() {
+  const r = READ.relativeVolume;
+  const host = el("battery");
+  const cells = 10, value = r.value;
+  const filled = value == null ? 0 : Math.max(0, Math.min(cells, Math.round(value / 0.4)));
+  const colour = value == null ? C.dim : value >= 2 ? C.vol : value >= 1 ? C.bull : C.crk;
+  host.innerHTML = '<span class="cellcap">0×</span>' +
+    Array.from({ length:cells }, (_, i) =>
+      '<span class="cell">' + (i < filled ? '<b style="background:' + colour + ';opacity:' + (0.35 + 0.065 * i).toFixed(2) + '"></b>' : "") + "</span>").join("") +
+    '<span class="cellcap">4×+</span>';
+  el("capRvol").textContent = value == null ? "—" : fmt(value, 2) + "×";
+  el("capRvol").style.color = colour;
+  const basis = r.basis === "time-of-day"
+    ? "same time of day (" + esc(r.slot) + " ET) over " + r.n + " of " + r.want + " sessions"
+    : r.basis === "daily" ? "DAILY relative volume · this bar against the previous " + r.n + " bars" : "";
+  el("capRvolNote").textContent = value == null
+    ? (r.reason === "NO_MATCHING_SLOT_IN_HISTORY" ? "no earlier session carries this slot in the bars read"
+      : r.reason === "NO_VOLUME_IN_BARS" ? "these bars carry no volume" : "not computable from these bars")
+    : basis + (r.thin ? " · thin history, and it says so" : "");
+}
+
+function paintHeader() {
+  el("tk").textContent = TICKER;
+  const last = BARS[BARS.length - 1], first = BARS[0];
+  if (!last) return;
+  el("px").textContent = fmt(+last.c);
+  el("capPrice").textContent = fmt(+last.c) + " · last of " + drawn(BARS).length + " " + RANGE + " bars on screen";
+  /* the change is measured against the FIRST bar of the window on screen, and says so —
+     it is not a session change and must not be read as one */
+  const shown = drawn(BARS);
+  const base = shown.length ? +shown[0].c : (first ? +first.c : null);
+  if (base && base > 0) {
+    const pct = ((+last.c - base) / base) * 100;
+    const box = el("chg");
+    box.textContent = (pct >= 0 ? "+" : "−") + Math.abs(pct).toFixed(2) + "% over " + shown.length + " " + RANGE + " bars on screen";
+    box.className = "chg " + (pct > 0 ? "up" : pct < 0 ? "down" : "flat");
+  }
+  const m = META || {};
+  el("stamp").textContent = "newest bar " + (m.newest ? String(m.newest).replace("T", " ").replace(".000Z", "Z") : "—") +
+    " · " + (m.served_from || "?") + " · requested through " + ((m.provider_refresh && m.provider_refresh.requested_through_et) || "?");
+  el("prov").innerHTML =
+    "BARS: chart API " + esc(m.surface || "") + " · " + esc(m.provider || "") + " · " + esc(m.price_basis || "") +
+    " · " + esc(m.volume_basis || "") + " · tf " + esc(String(m.display || RANGE)) + " · " + BARS.length + " bars read, " + drawn(BARS).length + " drawn" +
+    " &nbsp;·&nbsp; RIBBON: Station cloud module, daily-locked, from " + DAILY.length + " daily bars" +
+    " &nbsp;·&nbsp; RSI · WILLIAMS · STOCHASTIC · MACD · RELATIVE VOLUME: computed in this page from these bars " +
+    "(no store holds this set for this timeframe) &nbsp;·&nbsp; nothing on this page writes anything.";
+}
+
+function paint() {
+  if (!READ || !BARS.length) return;
+  paintHeader(); paintPrice(); paintOscillators(); paintBattery();
+}
+
+let resizeTimer = null;
+addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(paint, 90); });
+/* This shell only exists while it is shown — the deck removes the frame on close — but a
+   hidden frame still must not redraw. */
+document.addEventListener("visibilitychange", () => { if (!document.hidden) paint(); });
+
+paintRanges();
+load();
+</script>
+</body>
+</html>

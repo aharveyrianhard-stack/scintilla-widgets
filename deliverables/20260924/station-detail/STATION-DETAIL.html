@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Station detail — one ticker, zoomed, with the readings that were missing</title>
+<style>
+:root{ --bg:#0A0A0F; --panel:#0F0F1A; --line:#1A1A2A; --ink:#C8C8CE; --ink2:#8A8A93; --ink3:#6A6A72;
+  --bull:#00FFA3; --bear:#FF2D55; --crk:#00D4FF; --vol:#FF8A00;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace; }
+*{ box-sizing:border-box; }
+body{ margin:0; background:var(--bg); color:var(--ink); font:13px/1.65 var(--mono); }
+main{ max-width:1060px; margin:0 auto; padding:28px 20px 70px; }
+h1{ font-size:19px; letter-spacing:.05em; margin:0 0 6px; }
+h2{ font-size:14.5px; letter-spacing:.05em; margin:34px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+h3{ font-size:12.5px; letter-spacing:.04em; color:var(--ink2); margin:20px 0 6px; }
+p,li{ font-size:12.5px; }
+.lede{ color:var(--ink2); font-size:12.5px; margin:0 0 4px; }
+.panel{ background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:14px 16px; margin:14px 0; }
+table{ border-collapse:collapse; width:100%; margin:10px 0; font-size:12px; }
+th,td{ text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); vertical-align:top; }
+th{ color:var(--ink2); font-weight:600; }
+code{ color:var(--ink2); font-size:11.5px; }
+.up{ color:var(--bull); } .down{ color:var(--bear); } .warn{ color:var(--vol); } .key{ color:var(--crk); }
+figure{ margin:16px 0; } img{ width:100%; border:1px solid var(--line); border-radius:4px; display:block; }
+figcaption{ color:var(--ink3); font-size:11px; padding-top:6px; }
+ul{ padding-left:18px; } li{ margin:4px 0; }
+.quote{ color:var(--ink); border-left:2px solid #2C2C46; padding-left:12px; margin:10px 0; }
+.two{ display:grid; grid-template-columns:1fr 1fr; gap:14px; align-items:start; }
+.phone img{ max-width:300px; }
+@media (max-width:760px){ .two{ grid-template-columns:1fr; } }
+</style></head>
+<body><main>
+
+<h1>STATION DETAIL</h1>
+<p class="lede">One ticker, zoomed, over the wall — with RSI, Williams %R, Stochastic, MACD and the
+relative-volume battery. 24 September 2026 · M74 · branch <code>candidate/station-detail-20260924</code>
+from <code>origin/station/merge-20260923</code> @ <code>69ade6c</code> · <strong>nothing deployed.</strong></p>
+
+<div class="panel">
+<p class="quote">"I need to have a feature where I can grab a chart that's on a multi-chart layout and
+view that one in the expanded way without leaving the window. And then another button where I add that
+view of that ticker to the auto rotating station rotation queue."</p>
+<p class="quote">"Right now I have just the basic moving averages … the RSI for now, I think we have very
+easily. I'm not sure if we have the Williams on the hub … and the stochastic, we might not … Stochastic
+and Williams are the important ones … relative volume … I haven't seen those relative volume batteries
+in quite a long time."</p>
+<p class="quote">"The fundamentals view is really interesting, but not on rotation … one ticker that I
+view on fundamentals view."</p>
+</div>
+
+<h2>1 · The inventory, in plain words</h2>
+
+<h3>What do we already have, and where?</h3>
+<p>Two indicator stores exist, they do not hold the same things, and neither holds what the zoomed view
+needs. Read from the deployed services and tables this afternoon, not from memory:</p>
+
+<table>
+<tr><th>Store</th><th>What is actually in it</th><th>Read from</th></tr>
+<tr><td><strong>FMP daily</strong> — <code>provider_indicators_current</code>, written by <code>fmp-indicator-export</code> v4</td>
+<td>16 families per ticker: EMA 5/8/13/21/34 · SMA 50/100/150/200 · WMA 20 · DEMA 20 · TEMA 20 ·
+<strong>RSI 14</strong> · standard deviation 20 · <strong>WILLIAMS 14</strong> · ADX 14.
+For MU at 2026-09-23 SETTLED: rsi 62.19, <span class="key">williams −16.57</span>.
+<span class="warn">No stochastic. No MACD. No relative volume.</span></td>
+<td>live table read, 16 rows for MU</td></tr>
+<tr><td><strong>MASSIVE minute</strong> — chart API <code>/indicators?provider=MASSIVE&amp;symbol=…</code></td>
+<td>An 11-spec fixed catalogue: SMA 50/100/150/200 · EMA 5/8/13/21/34 · <strong>MACD 12-26-9</strong> ·
+<strong>RSI 14</strong>. All 11 AVAILABLE for MU, cutoff 2026-09-24T17:36Z.
+<span class="warn">No williams. No stochastic. No relative volume.</span></td>
+<td>live <code>/indicators</code>, 200</td></tr>
+<tr><td><strong>The Hub's RSI</strong></td>
+<td>Reads the FMP daily row — board RSI at <code>index.html:4967</code>, company tile at <code>:8673</code>,
+Station at <code>_provider/provider.js:720</code>, each filtered <code>provider=eq.FMP</code>, <code>timeframe=eq.1day</code>.
+So the Hub's RSI is a <em>daily</em> number, whatever timeframe the chart beside it is showing.</td>
+<td>source</td></tr>
+</table>
+
+<h3>Does FMP provide Williams %R, Stochastic, MACD and relative volume?</h3>
+<p><strong>Williams: yes, and we already store it</strong> (daily, per ticker — the number above).
+<strong>Stochastic and MACD: not through the path we use.</strong> Our own provider client says so in
+code — the FMP snapshot sets <code>macd: null</code> with the reason
+<code>NOT_IN_FMP_ACCEPTED_CATALOG</code> — and the stored table confirms it: 16 families, no stochastic
+row and no macd row for any ticker. <strong>Relative volume is not an indicator FMP serves at all</strong>;
+what exists is <code>company_profile.avg_volume</code>, a 3-month average, which is what the Hub divides by.</p>
+<p><span class="warn">One check I could not make the way the brief asked.</span> The brief said to confirm
+this with one live call through the existing backend key. The FMP key is not on this machine: the chart
+API's secrets are R2 and Supabase only (listed by name, no values), and the key lives in the Supabase
+function environment. I do not extract credentials, so I did not make a keyed call. FMP's own
+documentation pages answer <code>403</code> to a fetch, so that route was closed too. The evidence above is
+stronger than a single call would have been: it is what that key actually returned, stored, for every
+ticker — plus the writer's own catalogue constant naming the absence.</p>
+
+<h3>Where did the Hub's relative-volume batteries go?</h3>
+<p>They are still in the Hub's code. Their data stopped. The batteries read
+<code>board_volume</code> (<code>rvol_at_time</code>, <code>cum_rvol</code>, <code>session_rvol</code>), and that
+table holds <strong>193 rows, every one of them stamped 2026-07-06T18:03Z</strong> — nothing has written to
+it in eleven weeks, and <code>session_rvol</code> is null in the newest rows. The Hub's own comment records
+the fallback it took at the time: rvol now comes only from
+<code>live_quotes.volume ÷ company_profile.avg_volume</code>, "batteries for the ~122 tickers that have live
+volume, — for the rest". So: <strong>the batteries did not break, their feed stopped</strong>, and the
+fallback covers a third of the board.</p>
+<p>That is why the detail view computes relative volume from bars instead of reading it: the bars are
+current, and <code>board_volume</code> is not.</p>
+
+<h2>2 · What was built</h2>
+<table>
+<tr><th>File</th><th>What it is</th></tr>
+<tr><td><code>station-shells/detail-v1/index.html</code></td><td>the zoomed view: price + cloud ribbon, RSI, Williams, Stochastic, MACD, relative volume, a timeframe row, <code>+ ROTATION</code> and <code>CLOSE</code></td></tr>
+<tr><td><code>station-shells/detail-v1/indicators.js</code></td><td>the arithmetic, on its own: pure functions, no fetch, no DOM, no clock — the file the tests prove</td></tr>
+<tr><td><code>station-shells/fundamentals-v1/index.html</code></td><td>one ticker, stored FMP fundamentals, every number with its date and its table</td></tr>
+<tr><td><code>deck/detail.js</code></td><td>expand-in-place overlay, the per-device rotation queue, and the DETAIL/FUNDAMENTALS menu entries</td></tr>
+<tr><td><code>deck/index.html</code></td><td><strong>three marked hook lines only</strong> (<code>M74 HOOK</code>): load the file, attach a badge per chart pane, add the menu entries. <code>deck/scenes.js</code> is <strong>untouched</strong>, so M69 and this lane cannot collide there.</td></tr>
+<tr><td><code>tests/station-detail-indicators.test.mjs</code> · <code>tests/station-detail-view.test.mjs</code></td><td>23 tests, all passing</td></tr>
+<tr><td><code>STATION_ROUTES.md</code></td><td>the two new shells and the two new served files, documented in the inventory</td></tr>
+</table>
+
+<h2>3 · The detail view</h2>
+<figure><img src="shots/detail-MU-1680.png" alt="MU detail view at 1680">
+<figcaption>MU · 3h · 1680px. Price with the daily-locked cloud ribbon (EMA13 1005.28, EMA21 987.14,
+SMA50 933.51, SMA200 652.70, each labelled with its exact current value), then RSI 55.7, Williams −61.5,
+Stochastic %K 32.0 / %D 40.2, MACD 16.228 / signal 22.778 / histogram −6.551, and relative volume 0.71×
+against the same time of day over 20 of 20 sessions. Lines are cyan, orange, violet, green, pink — the only
+grey is the quiet band behind each oscillator.</figcaption></figure>
+
+<figure><img src="shots/detail-MU-15m-1680.png" alt="MU 15m detail view">
+<figcaption>MU · 15m. 1,300 bars read, 300 drawn — which is what lets the battery say
+<strong>1.01× · same time of day (12:45 ET) over 20 of 20 sessions</strong> instead of comparing against four.</figcaption></figure>
+
+<div class="two">
+<figure><img src="shots/detail-SPY-1680.png" alt="SPY detail view at 1680">
+<figcaption>SPY · 1D. Here relative volume says <strong>DAILY</strong> in words, because a daily bar has no
+time of day to compare against.</figcaption></figure>
+<figure class="phone"><img src="shots/detail-MU-390.png" alt="MU detail view at 390">
+<figcaption>390px, full page. The panes stack as ordinary columns — caption above canvas, never over it.
+Measured in the running page: <strong>6 panes, 0 overlapping, document width 390 against a 390 viewport</strong>
+(no sideways scroll). The first phone build floated each caption over its own chart and printed the battery on
+top of Williams; that is what the measurement caught.</figcaption></figure>
+</div>
+
+<h2>4 · Expand in place, and "+ rotation"</h2>
+<figure><img src="shots/wall-before-1680.png" alt="the wall before expanding">
+<figcaption>Before: the FOCUS 2 wall, each chart pane carrying its own <code>⤢ DETAIL</code> badge.</figcaption></figure>
+<figure><img src="shots/expand-in-place-1680.png" alt="the detail view open over the wall">
+<figcaption>The wall is still there behind the sheet — same window, no navigation. Opened by the
+<code>⤢ DETAIL</code> badge on the chart pane; <kbd>Esc</kbd> or a click on the wall returns.</figcaption></figure>
+
+<div class="two">
+<figure><img src="shots/add-to-rotation-1680.png" alt="+ rotation pressed">
+<figcaption><code>+ ROTATION</code> → <code>IN ROTATION ✓</code>, and
+<code>localStorage["station.detail.rotation"]</code> became
+<code>[{"ticker":"MU","range":"3h","added":"2026-09-24T17:59:08.962Z"}]</code> — captured from the running
+browser, not asserted.</figcaption></figure>
+<figure><img src="shots/menu-filter-MU-1680.png" alt="the menu filtered to MU">
+<figcaption>The jump list: the five zoomed screens and FUNDAMENTALS sit beside the pages. Typing
+<code>MU</code> returns FOCUS 2, THEME FAMILIES, HOME 6, WORKBENCH <em>and</em> DETAIL · MU
+(<a href="shots/menu-entries-1680.png" style="color:#00D4FF">unfiltered</a>).</figcaption></figure>
+</div>
+
+<div class="panel">
+<p><strong>What opens it, and the one honest deviation.</strong> Alan said "grab a chart … and view that
+one". A click <em>inside</em> the chart cannot reach the deck: the pane is an iframe of the pinned chart
+shell, and inside that shell a single click is already the crosshair and a <strong>double click already
+resets that chart's view</strong> (<code>chart-v1/index.html:2333</code>). Taking either gesture would break
+something Alan uses, in a shell this lane may not edit. So the way in is the deck's own <code>⤢ DETAIL</code>
+badge on each chart pane, plus a double-click on the pane's title. <code>deck/detail.js</code> also already
+answers a <code>chart-expand</code> message, so the day the chart shell offers its own gesture, no code here
+changes.</p>
+</div>
+
+<div class="two">
+<figure class="phone"><img src="shots/expand-in-place-390.png" alt="expand in place at 390">
+<figcaption>390px: the sheet takes the whole phone, and Esc still returns to the wall.</figcaption></figure>
+<figure><img src="shots/wall-after-escape-1680.png" alt="the wall after Esc">
+<figcaption>After <kbd>Esc</kbd>: <code>isOpen false</code>, <code>#detailOverlay</code> count <strong>0</strong>,
+and the wall's own four frames still mounted — the detail frame is removed, not hidden.</figcaption></figure>
+</div>
+
+<h2>5 · Fundamentals — one ticker, from what we store</h2>
+<figure><img src="shots/fundamentals-MU-1680.png" alt="fundamentals view for MU">
+<figcaption>MU. Market cap 1.04T and P/E 23.04 from <code>fundamentals</code> (source fmp, read 2026-09-20);
+gross 84.6% and net 68.1% from <code>ratios_history</code> at 2026-05-28 Q3; debt/EBITDA 0.09 computed from
+<code>balance_history</code> total debt ÷ four stored quarters of EBITDA, and it says so. Twelve stored
+quarters of revenue, and a quarter that declined is drawn in red.</figcaption></figure>
+
+<div class="two">
+<figure><img src="shots/fundamentals-GOOGL-1680.png" alt="fundamentals view for GOOGL">
+<figcaption>GOOGL, the ticker changed by hand. Net margin 93.7% on a 61.6% gross margin is not a bug — net
+income 112.19B against gross profit 73.85B — so the card <strong>says why that can happen</strong> rather
+than printing the number bare.</figcaption></figure>
+<figure class="phone"><img src="shots/fundamentals-MU-390.png" alt="fundamentals at 390">
+<figcaption>390px.</figcaption></figure>
+</div>
+<p>It is reached from the menu and is <strong>not</strong> in the rotation: <code>ROTATION_SCENES</code> still
+holds the curated nine, and a test fails if any DETAIL or FUNDAMENTALS id ever appears there.</p>
+
+<h2>6 · The numbers, checked against arithmetic done twice</h2>
+<p>Two independent checks, because a chart that draws a confident wrong number is worse than no chart.</p>
+
+<h3>By hand, in the tests</h3>
+<p>An 18-bar series regular enough to work on paper (closes 100 102 101 103 …, high = close + 1, low =
+close − 1). Every expected value is derived in the test's own comment:</p>
+<table>
+<tr><th>Reading</th><th>Worked out by hand</th><th>Module</th></tr>
+<tr><td>RSI(14) at bar 14</td><td>7 gains of 2 and 7 losses of 1 → avg gain 1, avg loss 0.5, RS 2 → <code>100 − 100/3</code> = 66.6667</td><td class="up">match</td></tr>
+<tr><td>RSI(14) at bar 15</td><td>Wilder smoothing: <code>(1×13+2)/14</code> ÷ <code>(0.5×13)/14</code> → 69.7674</td><td class="up">match</td></tr>
+<tr><td>Williams %R at bar 14</td><td>high 109, low 100, close 107 → <code>(109−107)/9 × −100</code> = −22.2222</td><td class="up">match</td></tr>
+<tr><td>Stochastic raw %K at 13/14/15/16/17</td><td>90 · 77.7778 · 90 · 77.7778 · 90</td><td class="up">match</td></tr>
+<tr><td>%K and %D at bar 17</td><td>means of three: 85.9259 and 84.5679</td><td class="up">match</td></tr>
+<tr><td>EMA seeding</td><td><code>ema(2)</code> of 1,2,3,4 = —, 1.5, 2.5, 3.5 (seeded with the simple mean, as TradingView does)</td><td class="up">match</td></tr>
+<tr><td>MACD(2,3,2) of 1…6</td><td>line 0.5 from bar 2, signal 0.5, histogram 0; on 12/26/9 the line starts at bar 25 and the signal at bar 33</td><td class="up">match</td></tr>
+<tr><td>Relative volume, time of day</td><td>100, 200, 300 at 10:30 ET on three sessions, today 400 → 2.00×, n=3 of 20, marked thin; a 17:30 bar of 9999 does not vote</td><td class="up">match</td></tr>
+<tr><td>Relative volume, daily</td><td>250 against twenty 100s → 2.50×</td><td class="up">match</td></tr>
+<tr><td>A flat window</td><td>%R and %K are undefined when high = low → <strong>null</strong>, not 0, not 50</td><td class="up">match</td></tr>
+</table>
+
+<h3>Against a second implementation, on the real bars</h3>
+<p>Every value the page displayed was recomputed in Python — a different language, written separately,
+reading the same <code>/candles</code> payload:</p>
+<table>
+<tr><th>&nbsp;</th><th>MU · 3h · page</th><th>MU · python</th><th>SPY · 1D · page</th><th>SPY · python</th></tr>
+<tr><td>RSI 14</td><td>55.7</td><td class="up">55.7</td><td>53.0</td><td class="up">53.0</td></tr>
+<tr><td>Williams %R 14</td><td>−61.5</td><td class="up">−61.5</td><td>−28.7</td><td class="up">−28.7</td></tr>
+<tr><td>Stochastic %K</td><td>32.0</td><td class="up">32.0</td><td>86.3</td><td class="up">86.3</td></tr>
+<tr><td>Stochastic %D</td><td>40.2</td><td class="up">40.2</td><td>76.7</td><td class="up">76.7</td></tr>
+<tr><td>MACD line</td><td>16.228</td><td class="up">16.228</td><td>1.207</td><td class="up">1.207</td></tr>
+<tr><td>MACD signal</td><td>22.778</td><td class="up">22.778</td><td>0.739</td><td class="up">0.739</td></tr>
+<tr><td>MACD histogram</td><td>−6.551</td><td class="up">−6.551</td><td>0.468</td><td class="up">0.468</td></tr>
+<tr><td>Relative volume</td><td>0.71× (09:00 ET, 20 of 20)</td><td class="up">0.71×</td><td>1.32× (daily, 20)</td><td class="up">1.32×</td></tr>
+</table>
+<p>Sixteen of sixteen. Bars: MU 3h newest 2026-09-24T13:00Z, SPY 1D newest 2026-09-23T04:00Z — a daily bar
+belongs to the session that closed, which is why the two stamps differ.</p>
+
+<h2>7 · Load</h2>
+<!--LOAD-TABLE-->
+
+<h2>8 · What could be wrong</h2>
+<ul>
+<li><strong>The chart API will not answer a preview origin.</strong> It echoes
+<code>station.scintillahub.ai</code> and <code>scintillahub.ai</code> and refuses everything else — a
+<code>*.vercel.app</code> preview gets <code>https://scintillahub.ai</code> back and the browser blocks the
+read. That is pre-existing and it affects the wall's chart panes too, but it means <strong>this view can only
+be judged on the product host</strong>, and it is why the screenshots were taken with the harness relaying
+the API's real bytes to a page served from 127.0.0.1. Nothing in a payload was altered.</li>
+<li><strong>An oscillator line is drawn shorter than it is computed.</strong> The readings use every bar
+read — 1,300 on a 15m timeframe — while the pane draws the newest 300 of that series. The current value is
+therefore better warmed up than the visible line suggests, which is the right way round, but a line that
+starts at the left edge of the pane did not start there in the arithmetic.</li>
+<li><strong>The ribbon here is not pixel-identical to the wall's.</strong> Same module, same daily-locked
+values, same palette and the same labels — but chart-v1 tiles its clouds with split polygons so the fastest
+cloud owns any overlap, and this view fills each pair straight. Where two clouds overlap, the shading can
+differ slightly from the wall. The numbers cannot.</li>
+<li><strong>The relative-volume slot is the provider's bucket, not the session's.</strong> On MU 3h the slot
+reads 09:00 ET, which is the bar the provider anchors before the 09:30 open. The comparison is like for
+like — the same bucket across sessions — but the label is the provider's clock.</li>
+<li><strong>The battery needs a wide read, and now takes one.</strong> A 15-minute session carries about 64
+extended-hours bars, so twenty sessions is ~1,300 bars. The view reads that many and <em>draws</em> the newest
+300 — checked live: MU 15m reports "20 of 20 sessions" where a 300-bar read reported 4. Where history really is
+short the battery still says "n of 20" and means it; it never silently averages fewer.</li>
+<li><strong>A settled daily bar lags the intraday one.</strong> SPY 1D newest is the previous session while
+MU 3h is today — correct, and worth reading before comparing the two views side by side.</li>
+<li><strong>The rotation queue is a list, not a slideshow.</strong> Pressing <code>+ ROTATION</code> stores
+the ticker per device. It does <em>not</em> join auto-rotate — by the dispatch, that waits for Alan, and the
+coordinator promotes favourites into <code>scenes.js</code>. If Alan expects the wall to start showing MU on
+its own after pressing it, it will not, and that is deliberate.</li>
+<li><strong>Headless renderers of the live wall are fragile.</strong> The first attempt at this measurement
+died mid-window, and a dropped relay connection killed another. Both are properties of the harness, not of the
+Station: the runs below report the window they actually observed, the processes they actually counted, and any
+renderer death or relay failure inside it.</li>
+<li><strong>Twenty pre-existing test failures at the base commit</strong> (574 tests, 554 pass at
+<code>69ade6c</code>) are unchanged by this branch — same 20, none new. Among them the route inventory's
+count sentence, which says 65 HTML surfaces where the tree now has 97; other lanes' deliverable pages are
+the drift. I documented my own four paths rather than add to it.</li>
+<li><strong>Not done:</strong> nothing deployed, nothing pushed, no TradingView or <code>INDICATOR_LAB/</code>
+file opened, <code>deck/scenes.js</code> untouched, and no write of any kind — both shells are read-only and a
+test fails if a POST, PUT, PATCH or DELETE ever appears in either.</li>
+</ul>
+
+<h2>9 · For the coordinator</h2>
+<ul>
+<li>Branch <code>candidate/station-detail-20260924</code> off <code>69ade6c</code>; the only shared-file edits
+are three lines in <code>deck/index.html</code>, each marked <code>M74 HOOK</code>, and four rows in
+<code>STATION_ROUTES.md</code>.</li>
+<li>Promoting favourites into <code>scenes.js</code> later: read
+<code>localStorage["station.detail.rotation"]</code> — <code>[{ticker, range, added}]</code>, newest last,
+capped at 24, one entry per ticker.</li>
+<li>If the chart shell ever gains its own expand gesture, have it post
+<code>{sc:"chart-expand", ticker, range}</code>; <code>deck/detail.js</code> already listens.</li>
+</ul>
+
+</main></body></html>

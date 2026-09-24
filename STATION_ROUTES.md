@@ -27,6 +27,8 @@ be rolled forward or back without touching the others.
 | personal video | `/station-shells/personal-video-v1` | `/youtube` (personal feed) |
 | scintilla video | `/station-shells/scintilla-video-v1` | `/youtube` (scintilla feed) |
 | X | `/station-shells/x-v2` | `/pane-x` |
+| detail (M74) | `/station-shells/detail-v1` | no standalone page — it is opened OVER the wall by `/deck/detail.js`, never navigated to |
+| fundamentals (M74) | `/station-shells/fundamentals-v1` | no standalone page — a menu entry, one ticker, never in the rotation |
 
 `/station-shells/video-v1` and `/station-shells/x-v1` are retained previous versions. They are
 not mounted by `/deck`; they exist so a rollback is a pointer change rather than a rebuild.
@@ -128,6 +130,7 @@ surface whether or not anything links to them.
 | `/templates/sector-rotation.html` | sector rotation (current) |
 | `/templates/sector-rotation-older.html` | sector rotation (earlier) |
 | `/deliverables/20260924/ibkr-use/IBKR-USE.html` | M67 — the grey spots on Station, and which of them IBKR can fill |
+| `/deliverables/20260924/station-detail/STATION-DETAIL.html` | M74 — the zoomed one-ticker view, the fundamentals view, expand-in-place and "+ rotation" |
 | `/station-x-bridge-draft/offscreen.html` | X bridge draft, offscreen document — a Chrome extension file, not a Station surface, but deployed all the same |
 
 **This table is behind the tree.** `tests/station-route-inventory.test.mjs` regenerates the list on
@@ -157,6 +160,8 @@ exactly how `/analytics` once ran without its provider boundary. Regenerated and
 | `/_vendor/supabase-js-2.112.3-umd.min.js` | `/deck`, `/chart` + its shell mirror, by script tag with a sha384 integrity attribute — the realtime SDK, VENDORED same-origin from the npm registry's own sha512-verified tarball (the old floating-@2 jsdelivr tag is gone) |
 | `/_vendor/lightweight-charts-4.1.3.standalone.production.js` | `/templates/sector-rotation.html` by script tag with a sha384 integrity attribute — vendored the same way (the old unhashed unpkg tag is gone; the retained rollback copy still uses unpkg, by ruling) |
 | `/deck/scenes.js` | `/deck` — the curated scene presets |
+| `/deck/detail.js` | `/deck` — expand-in-place: the overlay that mounts the detail shell over the wall, the per-device "+ rotation" queue, and the DETAIL/FUNDAMENTALS menu entries. Mounts on demand and REMOVES its frame on close |
+| `/station-shells/detail-v1/indicators.js` | `/station-shells/detail-v1`, by script tag — RSI, Williams %R, Stochastic, MACD and relative volume over the chart API's bars. Pure arithmetic: no fetch, no DOM, no clock |
 | `/station/manifest.json` | `/deck`, `/station` — PWA identity |
 | `/station/icon.svg` · `/station/icon.png` · `/station/icon-512.png` | PWA icons |
 | `/station-ipad/icon.svg` · `/station-ipad/icon.png` | iPad companion icons |

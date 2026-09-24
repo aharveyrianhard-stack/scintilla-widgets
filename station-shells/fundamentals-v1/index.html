@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>SCINTILLA · FUNDAMENTALS</title>
+<!-- SCINTILLA · STATION FUNDAMENTALS SHELL v1 ────────────────────────────────────────
+     Alan, 24 Sep: "the fundamentals view is really interesting, but not on rotation…
+     one ticker that I view on fundamentals view."
+     So: ONE ticker, changed by hand, reached from the menu, never entering the rotation.
+
+     EVERY NUMBER ON THIS PAGE IS A STORED NUMBER, AND SAYS WHERE IT CAME FROM.
+     The reads are our own tables, all FMP-sourced and all dated:
+       fundamentals          market cap, trailing and adjusted P/E, EPS and revenue TTM
+       fundamentals_history  revenue, gross profit, net income, EBITDA by fiscal period
+       ratios_history        gross / net / operating margin, P/E, debt to equity
+       balance_history       total debt and net debt
+       company_profile       name, sector, shares outstanding
+     Two numbers are ARITHMETIC ON STORED NUMBERS and are labelled as such: a margin
+     computed from revenue and profit when the ratio row is missing, and debt ÷ TTM EBITDA.
+     A quarter that is not stored is shown as missing — never interpolated, never carried
+     forward from an older quarter, and never a zero. -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel:#0D0D14; --panel2:#0F0F1A; --line:#1A1A2A; --line2:#252538;
+  --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA;
+  --crk:#00D4FF; --coin:#8B5CF6; --bull:#00FFA3; --bear:#FF2D55; --vol:#FF8A00;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);font-size:12px;
+  display:flex;flex-direction:column;overflow:hidden}
+header{flex:none;display:flex;align-items:center;gap:10px;padding:7px 10px;background:var(--panel);
+  border-bottom:1px solid var(--line);flex-wrap:wrap}
+.tk{font-size:20px;font-weight:700;letter-spacing:.06em}
+.name{color:var(--ink2);font-size:12px;max-width:34ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sector{color:var(--dim);font-size:10px}
+.spacer{flex:1 1 auto}
+input.tkin{font-family:var(--mono);font-size:13px;letter-spacing:.08em;width:96px;text-transform:uppercase;
+  color:var(--ink);background:var(--panel2);border:1px solid var(--line2);border-radius:5px;padding:5px 8px}
+input.tkin:focus{outline:none;border-color:var(--crk)}
+.btn{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--ink2);background:var(--panel2);
+  border:1px solid var(--line2);border-radius:5px;padding:5px 9px;cursor:pointer}
+.btn:hover{color:var(--ink);border-color:var(--crk)}
+main{flex:1 1 auto;min-height:0;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:8px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(168px,1fr));gap:8px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+.card .k{color:var(--ink3);font-size:9.5px;letter-spacing:.09em}
+.card .v{font-size:20px;font-weight:700;margin-top:3px;letter-spacing:.01em}
+.card .s{color:var(--dim);font-size:9px;margin-top:4px;line-height:1.4}
+.card.absent .v{color:var(--dim);font-size:13px;font-weight:400}
+.pane{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+.pane h2{margin:0 0 6px;font-size:10px;letter-spacing:.1em;color:var(--ink3);font-weight:600}
+canvas{display:block;width:100%;height:150px}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{color:var(--ink3);font-size:9px;letter-spacing:.08em;text-align:right;padding:3px 5px;font-weight:600;
+  border-bottom:1px solid var(--line2)}
+th:first-child,td:first-child{text-align:left}
+td{padding:3px 5px;text-align:right;border-bottom:1px solid rgba(26,26,42,.7);color:var(--ink2)}
+td.miss{color:var(--dim)}
+.up{color:var(--bull)} .down{color:var(--bear)}
+footer{flex:none;padding:6px 10px;border-top:1px solid var(--line);background:var(--panel);
+  color:var(--dim);font-size:9.5px;line-height:1.45}
+.err{color:var(--bear)}
+@media (max-width:760px){ canvas{height:128px} .card .v{font-size:17px} }
+</style>
+</head>
+<body>
+<header>
+  <span class="tk" id="tk">—</span>
+  <input class="tkin" id="tkin" value="" spellcheck="false" aria-label="ticker">
+  <button class="btn" id="go" type="button">SHOW</button>
+  <span class="name" id="coName"></span><span class="sector" id="coSector"></span>
+  <span class="spacer"></span>
+  <button class="btn" id="close" type="button" title="Esc">CLOSE ✕</button>
+</header>
+
+<main>
+  <div class="cards" id="cards"></div>
+  <div class="pane">
+    <h2>REVENUE BY QUARTER · from fundamentals_history</h2>
+    <canvas id="rev"></canvas>
+    <div class="s" id="revNote" style="color:var(--dim);font-size:9px;margin-top:4px"></div>
+  </div>
+  <div class="pane">
+    <h2>BY FISCAL PERIOD · every cell carries its own stored date</h2>
+    <table id="tbl"><tbody></tbody></table>
+  </div>
+</main>
+<footer id="prov">—</footer>
+
+<script>
+"use strict";
+/* The Station's own narrow read: these tables are public-read and the key below is the
+   same anon key the deck already ships to the browser. Nothing here writes. */
+const SB = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+const QS = new URLSearchParams(location.search);
+const KEY = "station.fundamentals.ticker";
+const clean = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+let TICKER = clean(QS.get("t")) || (() => { try { return clean(localStorage.getItem(KEY)); } catch (e) { return ""; } })() || "MU";
+
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const tell = (msg) => { try { parent.postMessage(Object.assign({ sc:"detail", ticker:TICKER }, msg), location.origin); } catch (e) {} };
+el("close").addEventListener("click", () => tell({ sc:"detail-close" }));
+addEventListener("keydown", (e) => { if (e.key === "Escape" && document.activeElement !== el("tkin")) tell({ sc:"detail-close" }); });
+
+async function pg(path) {
+  const r = await fetch(SB + "/rest/v1/" + path, { headers:{ apikey:ANON, Authorization:"Bearer " + ANON }, cache:"no-store" });
+  if (!r.ok) throw new Error("read failed " + r.status + " · " + path.split("?")[0]);
+  return r.json();
+}
+
+/* ---- presentation of numbers, with nothing rounded into a claim it cannot make ---- */
+const money = (v) => {
+  if (v == null || !Number.isFinite(+v)) return null;
+  const n = Math.abs(+v);
+  if (n >= 1e12) return (v / 1e12).toFixed(2) + "T";
+  if (n >= 1e9) return (v / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return (v / 1e6).toFixed(1) + "M";
+  return String(Math.round(v));
+};
+const pct = (v) => (v == null || !Number.isFinite(+v) ? null : (+v * 100).toFixed(1) + "%");
+const num = (v, d) => (v == null || !Number.isFinite(+v) ? null : (+v).toFixed(d == null ? 2 : d));
+/* Two of these tables stamp their read as epoch SECONDS (fundamentals, company_profile) and
+   the rest as an ISO date. Printing the raw number as a date produced "read 1789884421" on
+   screen — a stamp nobody can read is not a stamp. */
+const day = (s) => {
+  if (s == null || s === "") return "—";
+  if (typeof s === "number" || /^\d{9,13}$/.test(String(s))) {
+    const n = Number(s), ms = n > 1e12 ? n : n * 1000;
+    const d = new Date(ms);
+    return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : String(s);
+  }
+  return String(s).slice(0, 10);
+};
+
+function card(k, value, source, absentWhy) {
+  return '<div class="card' + (value == null ? " absent" : "") + '"><div class="k">' + esc(k) + "</div>" +
+    '<div class="v">' + esc(value == null ? (absentWhy || "not stored") : value) + "</div>" +
+    '<div class="s">' + esc(source) + "</div></div>";
+}
+
+async function load() {
+  el("tk").textContent = TICKER; el("tkin").value = TICKER;
+  try { localStorage.setItem(KEY, TICKER); } catch (e) {}
+  el("cards").innerHTML = '<div class="card"><div class="k">READING</div><div class="v">…</div></div>';
+  const enc = encodeURIComponent(TICKER);
+  try {
+    const [fund, hist, ratios, bal, prof] = await Promise.all([
+      pg("fundamentals?ticker=eq." + enc + "&select=market_cap,trailing_pe,adjusted_pe,eps_ttm,adjusted_eps_ttm,revenue_ttm,price,source,updated_ts&limit=1").catch(() => []),
+      pg("fundamentals_history?ticker=eq." + enc + "&select=fiscal_date,fiscal_year,period,revenue,gross_profit,net_income,ebitda,operating_income,eps&order=fiscal_date.desc&limit=16").catch(() => []),
+      pg("ratios_history?ticker=eq." + enc + "&select=fiscal_date,period,gross_margin,net_margin,operating_margin,pe,ps,debt_to_equity,roe&order=fiscal_date.desc&limit=16").catch(() => []),
+      pg("balance_history?ticker=eq." + enc + "&select=fiscal_date,period,total_debt,net_debt,total_equity&order=fiscal_date.desc&limit=8").catch(() => []),
+      pg("company_profile?ticker=eq." + enc + "&select=name,sector,industry,market_cap,shares_out,updated_ts&limit=1").catch(() => [])
+    ]);
+    render(fund[0] || null, hist || [], ratios || [], bal || [], prof[0] || null);
+  } catch (e) {
+    el("cards").innerHTML = '<div class="card absent"><div class="k">READ FAILED</div><div class="v">' +
+      esc(e.message || String(e)) + '</div><div class="s">nothing is shown rather than something invented</div></div>';
+    el("prov").textContent = "no stored fundamentals were read for " + TICKER;
+  }
+}
+
+function render(fund, hist, ratios, bal, prof) {
+  el("coName").textContent = prof && prof.name ? prof.name : "";
+  el("coSector").textContent = prof && prof.sector ? "· " + prof.sector + (prof.industry ? " · " + prof.industry : "") : "";
+
+  const quarters = hist.filter((r) => String(r.period || "").toUpperCase().startsWith("Q"));
+  const periods = quarters.length ? quarters : hist;          /* some names only carry annuals */
+  const latest = periods[0] || null;
+  const ratioFor = (d) => ratios.find((r) => r.fiscal_date === d) || null;
+  const latestRatio = latest ? ratioFor(latest.fiscal_date) : (ratios[0] || null);
+
+  /* TTM EBITDA needs four stored quarters; with fewer, the ratio is not claimed. */
+  const q4 = quarters.slice(0, 4).filter((r) => Number.isFinite(+r.ebitda));
+  const ttmEbitda = q4.length === 4 ? q4.reduce((s, r) => s + (+r.ebitda), 0) : null;
+  const debtRow = bal[0] || null;
+  const debtEbitda = ttmEbitda && ttmEbitda > 0 && debtRow && Number.isFinite(+debtRow.total_debt)
+    ? (+debtRow.total_debt) / ttmEbitda : null;
+
+  const grossFromRows = latest && Number.isFinite(+latest.revenue) && +latest.revenue > 0 && Number.isFinite(+latest.gross_profit)
+    ? (+latest.gross_profit) / (+latest.revenue) : null;
+  const netFromRows = latest && Number.isFinite(+latest.revenue) && +latest.revenue > 0 && Number.isFinite(+latest.net_income)
+    ? (+latest.net_income) / (+latest.revenue) : null;
+
+  const cards = [];
+  cards.push(card("MARKET CAP", money(fund && fund.market_cap),
+    fund ? "fundamentals · source " + (fund.source || "?") + " · read " + day(fund.updated_ts) : "table holds no row for " + TICKER));
+  cards.push(card("P/E TRAILING", num(fund && fund.trailing_pe),
+    fund ? "fundamentals · adjusted " + (num(fund.adjusted_pe) || "—") + " · read " + day(fund.updated_ts) : "not stored"));
+  cards.push(card("REVENUE TTM", money(fund && fund.revenue_ttm),
+    fund ? "fundamentals · read " + day(fund.updated_ts) : "not stored"));
+  cards.push(card("GROSS MARGIN",
+    pct(latestRatio && latestRatio.gross_margin != null ? latestRatio.gross_margin : grossFromRows),
+    latestRatio && latestRatio.gross_margin != null
+      ? "ratios_history · " + day(latestRatio.fiscal_date) + " " + (latestRatio.period || "")
+      : grossFromRows != null ? "computed: gross profit ÷ revenue · fundamentals_history " + day(latest && latest.fiscal_date)
+      : "no ratio row and no revenue/gross profit pair"));
+  /* TWO THINGS A MARGIN CARD MUST NOT DO SILENTLY.
+     One: show a stored ratio that its own statement rows contradict. Two: print a net
+     margin above the gross margin with no word about it — that is not always an error
+     (a large non-operating gain does it, as Alphabet's June 2026 quarter does), but it is
+     never something to read past. Both are said out loud, and neither value is changed. */
+  const netStored = latestRatio && latestRatio.net_margin != null ? latestRatio.net_margin : null;
+  const netShown = netStored != null ? netStored : netFromRows;
+  const grossShown = latestRatio && latestRatio.gross_margin != null ? latestRatio.gross_margin : grossFromRows;
+  let netSource = netStored != null
+    ? "ratios_history · " + day(latestRatio.fiscal_date) + " " + (latestRatio.period || "")
+    : netFromRows != null ? "computed: net income ÷ revenue · fundamentals_history " + day(latest && latest.fiscal_date)
+    : "no ratio row and no revenue/net income pair";
+  if (netStored != null && netFromRows != null && Math.abs(netStored - netFromRows) > 0.02)
+    netSource += " · the stored ratio disagrees with revenue ÷ net income (" + pct(netFromRows) + "), and both are shown as read";
+  if (netShown != null && grossShown != null && netShown > grossShown)
+    netSource += " · net income exceeds gross profit this period — non-operating items, not an operating margin";
+  cards.push(card("NET MARGIN", pct(netShown), netSource));
+  cards.push(card("DEBT / EBITDA", num(debtEbitda),
+    debtEbitda != null
+      ? "computed: balance_history total debt " + day(debtRow.fiscal_date) + " ÷ TTM EBITDA of four stored quarters"
+      : (q4.length < 4 ? "only " + q4.length + " of 4 quarterly EBITDA rows are stored" : "no stored total debt")));
+  el("cards").innerHTML = cards.join("");
+
+  /* ---- revenue by quarter ---- */
+  const show = periods.slice(0, 12).reverse();
+  window.__lastRows = show;
+  drawRevenue(show);
+  el("revNote").textContent = show.length
+    ? show.length + " stored " + (quarters.length ? "quarters" : "periods") + " · " +
+      day(show[0].fiscal_date) + " → " + day(show[show.length - 1].fiscal_date) +
+      " · bars are stored revenue, nothing is interpolated"
+    : "no stored revenue rows for " + TICKER;
+
+  /* ---- the table ---- */
+  const rows = show.slice().reverse();
+  const head = "<tr><th>FISCAL</th><th>PERIOD</th><th>REVENUE</th><th>GROSS %</th><th>NET %</th><th>EBITDA</th><th>EPS</th><th>P/E</th></tr>";
+  const body = rows.map((r) => {
+    const ra = ratioFor(r.fiscal_date);
+    const g = ra && ra.gross_margin != null ? pct(ra.gross_margin)
+      : (Number.isFinite(+r.revenue) && +r.revenue > 0 && Number.isFinite(+r.gross_profit) ? pct((+r.gross_profit) / (+r.revenue)) : null);
+    const n = ra && ra.net_margin != null ? pct(ra.net_margin)
+      : (Number.isFinite(+r.revenue) && +r.revenue > 0 && Number.isFinite(+r.net_income) ? pct((+r.net_income) / (+r.revenue)) : null);
+    const cell = (v) => (v == null ? '<td class="miss">not stored</td>' : "<td>" + esc(v) + "</td>");
+    return "<tr><td>" + day(r.fiscal_date) + "</td><td>" + esc(r.period || "—") + "</td>" +
+      cell(money(r.revenue)) + cell(g) + cell(n) + cell(money(r.ebitda)) + cell(num(r.eps)) +
+      cell(ra ? num(ra.pe) : null) + "</tr>";
+  }).join("");
+  el("tbl").innerHTML = head + body;
+
+  const stamps = [];
+  if (fund) stamps.push("fundamentals read " + day(fund.updated_ts) + " (source " + (fund.source || "?") + ")");
+  if (periods.length) stamps.push("fundamentals_history newest " + day(periods[0].fiscal_date));
+  if (ratios.length) stamps.push("ratios_history newest " + day(ratios[0].fiscal_date));
+  if (bal.length) stamps.push("balance_history newest " + day(bal[0].fiscal_date));
+  if (prof) stamps.push("company_profile read " + day(prof.updated_ts));
+  el("prov").textContent = "STORED FMP DATA, each number dated above · " + (stamps.join(" · ") || "no rows found") +
+    " · margins prefer the stored ratio and say when they were computed instead · debt/EBITDA is arithmetic on two stored rows · this page never writes.";
+}
+
+function drawRevenue(rows) {
+  const canvas = el("rev");
+  const dpr = Math.min(3, window.devicePixelRatio || 1);
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (!w || !h) return;
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  const vals = rows.map((r) => (Number.isFinite(+r.revenue) ? +r.revenue : null));
+  const max = Math.max(...vals.filter((v) => v != null), 0);
+  if (!rows.length || !(max > 0)) {
+    ctx.fillStyle = "#868AAA"; ctx.font = "11px " + getComputedStyle(document.body).fontFamily;
+    ctx.fillText("no stored revenue rows", 8, h / 2); return;
+  }
+  const padB = 20, padT = 10, plotH = h - padB - padT;
+  const step = w / rows.length, bw = Math.max(4, step * 0.6);
+  ctx.font = "9px " + getComputedStyle(document.body).fontFamily;
+  for (let i = 0; i < rows.length; i++) {
+    const v = vals[i], x = i * step + (step - bw) / 2;
+    if (v == null) {
+      ctx.fillStyle = "rgba(134,138,170,.25)";
+      ctx.fillRect(x, padT + plotH - 2, bw, 2);
+      ctx.fillStyle = "#868AAA"; ctx.textAlign = "center";
+      ctx.fillText("—", x + bw / 2, padT + plotH - 6);
+    } else {
+      const bh = Math.max(2, (v / max) * plotH);
+      const grow = i > 0 && vals[i - 1] != null ? v >= vals[i - 1] : true;
+      ctx.fillStyle = grow ? "#00FFA3" : "#FF2D55";
+      ctx.globalAlpha = 0.85; ctx.fillRect(x, padT + plotH - bh, bw, bh); ctx.globalAlpha = 1;
+      ctx.fillStyle = "#C6C8DE"; ctx.textAlign = "center";
+      ctx.fillText(money(v), x + bw / 2, padT + plotH - bh - 3);
+    }
+    ctx.fillStyle = "#868AAA"; ctx.textAlign = "center";
+    ctx.fillText(String(rows[i].fiscal_date || "").slice(2, 7), x + bw / 2, h - 7);
+  }
+}
+
+el("go").addEventListener("click", () => { const t = clean(el("tkin").value); if (t) { TICKER = t; load(); } });
+el("tkin").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { const t = clean(el("tkin").value); if (t) { TICKER = t; load(); } }
+});
+let rt = null;
+addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { const rows = window.__lastRows; if (rows) drawRevenue(rows); }, 120); });
+load();
+</script>
+</body>
+</html>
