@@ -2346,3 +2346,42 @@ proof with the real 2026-09-23 Cboe equity numbers. Asserts inline.
 - **served-390** — state `ready`, PUTS/CALLS 1.21M 2.65M 119px/258px; “puts up 21%, calls up 6% → the ratio rose” → `browser-proof/receipts/putcall-parts-served-390.png`
 - **waiting-1680** — state `waiting`, no bars  px; “puts and calls · waiting for the reader · this session's two volumes are not in the series yet” → `browser-proof/receipts/putcall-parts-waiting-1680.png`
 - **waiting-390** — state `waiting`, no bars  px; “puts and calls · waiting for the reader · this session's two volumes are not in the series yet” → `browser-proof/receipts/putcall-parts-waiting-390.png`
+
+---
+
+## M58 lens mount — 2026-09-24T05:57:43Z
+
+`node browser-proof/proofs/lens-mount.mjs` · headless Chromium · fixtures for prices.
+
+- `deliverables/20260924/lens-mount/screens/1680-zoomed-out.png` — main chart zoomed out → the lens zooms IN: no lens
+- `deliverables/20260924/lens-mount/screens/1680-zoomed-in.png` — main chart zoomed in → the lens pulls BACK: WIDER · LAST 240 BARS in the tl corner
+- `deliverables/20260924/lens-mount/screens/390-zoomed-out.png` — phone, main chart zoomed out → the lens zooms IN: no lens
+- `deliverables/20260924/lens-mount/screens/390-zoomed-in.png` — phone, main chart zoomed in → the lens pulls BACK: WIDER · LAST 240 BARS in the br corner
+
+- frame cost with the lens 1.30 ms vs 1.20 ms without it; geometry reads per pan tick 4 with it, 4 without.
+
+---
+
+## M58 lens mount — 2026-09-24T06:00:55Z
+
+`node browser-proof/proofs/lens-mount.mjs` · headless Chromium · fixtures for prices.
+
+- `deliverables/20260924/lens-mount/screens/1680-zoomed-out.png` — main chart zoomed out → the lens zooms IN: ZOOM · LAST 30 BARS in a 70px band
+- `deliverables/20260924/lens-mount/screens/1680-zoomed-in.png` — main chart zoomed in → the lens pulls BACK: WIDER · LAST 240 BARS in a 70px band
+- `deliverables/20260924/lens-mount/screens/390-zoomed-out.png` — phone, main chart zoomed out → the lens zooms IN: ZOOM · LAST 30 BARS in a 70px band
+- `deliverables/20260924/lens-mount/screens/390-zoomed-in.png` — phone, main chart zoomed in → the lens pulls BACK: WIDER · LAST 240 BARS in a 70px band
+
+- frame cost with the lens 1.30 ms vs 1.20 ms without it; geometry reads per pan tick 4 with it, 4 without.
+
+---
+
+## M58 lens mount — 2026-09-24T06:01:55Z
+
+`node browser-proof/proofs/lens-mount.mjs` · headless Chromium · fixtures for prices.
+
+- `deliverables/20260924/lens-mount/screens/1680-zoomed-out.png` — main chart zoomed out → the lens zooms IN: ZOOM · LAST 30 BARS in a 70px band
+- `deliverables/20260924/lens-mount/screens/1680-zoomed-in.png` — main chart zoomed in → the lens pulls BACK: WIDER · LAST 240 BARS in a 70px band
+- `deliverables/20260924/lens-mount/screens/390-zoomed-out.png` — phone, main chart zoomed out → the lens zooms IN: ZOOM · LAST 30 BARS in a 70px band
+- `deliverables/20260924/lens-mount/screens/390-zoomed-in.png` — phone, main chart zoomed in → the lens pulls BACK: WIDER · LAST 240 BARS in a 70px band
+
+- frame cost with the lens 1.30 ms vs 1.20 ms without it; geometry reads per pan tick 4 with it, 4 without.
