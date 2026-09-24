@@ -1,0 +1,179 @@
+<!doctype html><meta charset="utf-8"><title>Put / call from your own IBKR</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{ --bg:#0A0A0F; --ink:#9A9AB6; --dim:#868AAA; }
+*{ box-sizing:border-box } html,body{ margin:0; background:var(--bg); }
+body{ color:var(--ink); font:16px/1.65 ui-sans-serif,-apple-system,"Segoe UI",Roboto,sans-serif;
+  padding:44px 28px 80px; max-width:1240px; margin:0 auto; -webkit-font-smoothing:antialiased; }
+h1{ font-size:40px; line-height:1.15; margin:0 0 6px; font-weight:650; letter-spacing:-.01em; }
+h2{ font-size:23px; margin:44px 0 4px; font-weight:600; }
+h3{ font-size:18px; margin:32px 0 6px; font-weight:600; color:var(--dim); }
+p{ margin:10px 0; max-width:96ch; } .n{ color:var(--dim); }
+b{ color:var(--ink); font-weight:650; }
+section{ margin:28px 0 40px; }
+svg{ display:block; margin:14px 0 6px; background:rgba(154,154,182,0.03); border-radius:4px; }
+ul{ max-width:96ch; padding-left:20px; } li{ margin:7px 0; color:var(--dim); }
+code{ font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--ink);
+  background:rgba(154,154,182,0.07); padding:2px 6px; border-radius:3px; }
+pre{ background:rgba(154,154,182,0.055); border-left:2px solid rgba(154,154,182,.22); padding:14px 16px;
+  overflow-x:auto; border-radius:4px; font:13px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--dim); }
+img{ max-width:100%; border-radius:5px; display:block; margin:14px 0; }
+hr{ border:0; border-top:1px solid rgba(154,154,182,.13); margin:46px 0; }
+.lead{ font-size:19px; color:var(--ink); max-width:90ch; }
+</style>
+<h1>Put / call from your own IBKR</h1>
+<p class="lead">You asked whether the IB Gateway can give us put/call. <b>It can — but not as a ratio.</b>
+IBKR publishes no put/call number anywhere. What it does publish, for every underlying, is
+<b>how many calls and how many puts traded today</b>. Divide one by the other and you have the ratio —
+per ticker, per cohort, per sector, and for the whole desk — updating <b>through the session</b>, which
+Cboe's number never does.</p>
+
+<p>Tonight none of it is running, and the reason is not the code: <b>your Gateway lost its link to IBKR</b>.
+This page says exactly what was built, what it needs from you, and what is still unproven.</p>
+
+<h2>What IBKR can and cannot give</h2>
+<h3>Can</h3>
+<ul>
+<li><b>The day's call volume and put volume, per underlying.</b> In IBKR's language this is "generic tick 100",
+which arrives as tick type 29 (calls) and 30 (puts). This is the whole basis of everything below.</li>
+<li><b>Open interest</b>, calls and puts (generic tick 101 → types 27 and 28). A slower, positioning-shaped view.</li>
+<li><b>The NYSE internals</b> — TICK, TRIN, advance/decline — which the earlier lane already built for.</li>
+</ul>
+<h3>Cannot</h3>
+<ul>
+<li><b>A put/call ratio.</b> IBKR does not compute one. Anyone who says their IBKR feed "has put/call" means
+these two volumes.</li>
+<li><b>A market-wide total.</b> IBKR answers per underlying, one line at a time. A market number is something
+we build by adding up names — which is why the scope is <b>the 364 names Scintilla already carries</b>,
+not "the entire market". You said you did not want to compute and store the whole market. You don't have to.</li>
+<li><b>Everything at once.</b> IBKR limits how many live lines you may have open simultaneously (commonly 100).
+The reader therefore rotates: subscribe to a batch, read it, cancel it, move on. It measures the real limit on
+your account rather than trusting the number.</li>
+</ul>
+
+<h2>What you would actually get</h2>
+<ul>
+<li><b>Per ticker:</b> AAPL's own put/call, NVDA's own, and so on, for all 364.</li>
+<li><b>Per cohort:</b> your own groupings, added up inside each one.</li>
+<li><b>Per sector:</b> the same, by company sector. ETFs are left out of sectors — an ETF has no sector of its
+own — and so are the index names.</li>
+<li><b>Two headline lines:</b> a <b>Scintilla equity put/call</b> (the single names) and a
+<b>Scintilla index put/call</b> (SPX, SPY, QQQ, IWM). They never mix: index options are a different animal and
+would swamp the equity line.</li>
+</ul>
+<p>Your words were "having a put call my cohort by sector by ticker would be legendary". That is the shape of it,
+and it is the part no one can buy off a shelf, because the cohorts are yours.</p>
+
+<h2>The subscriptions — and an honest warning about this list</h2>
+<p><b>Nothing on this list is confirmed.</b> IBKR names the subscription you are missing in its own refusal
+message, and tonight we could not get a single refusal out of it, because the link was down. So a probe was
+written that asks for every line we need and prints IBKR's exact words back. Your coordinator runs it the
+moment the Gateway is healthy, and then the list below stops being an expectation.</p>
+<ul>
+<li><b>OPRA (US Options Exchanges)</b> — expected to be what unlocks the call/put volumes. You mentioned
+"$1.50 a month"; that matches OPRA's non-professional price. <b>Not verified tonight:</b> IBKR's pricing page
+refuses to answer anything but a real browser (it returned 403), so your own Client Portal is the authority.</li>
+<li><b>NYSE Global Index Feed</b> (~$2/month non-pro) — expected to be what unlocks TICK, TRIN and
+advance/decline. This is the "$2… I'll do on my own time" one.</li>
+<li><b>VIX</b> — <b>you do not need to buy this.</b> The chart API already serves VIX from FMP.</li>
+</ul>
+
+<h2>Why the Gateway keeps dropping when you trade</h2>
+<p>You asked: <i>"the ib gateway has to work even if im logged in to my account to trade… is that why i
+established the other account??"</i> — <b>Yes.</b> IBKR allows <b>one live session per username</b>. TWS, the phone
+app, Client Portal and the Gateway all count as that one session, so when you log in to trade, IBKR ends the
+Gateway's session. The Gateway is not broken; it was displaced.</p>
+<p>The fix is a <b>second username used only by the Gateway</b>, which you may already have created. In Client
+Portal: <b>Settings → Users &amp; Access Rights → Users</b>, add (or re-activate) a user, give it market data and
+API access and <b>no trading permission</b>, then put the market data subscriptions on <b>that</b> username under
+<b>Settings → Market Data Subscriptions</b> — IBKR's model is that subscriptions belong to a user, not to the
+account. Then log the Gateway in with it and keep your own username for trading.</p>
+<p><b>Unverified, and worth two minutes of your time:</b> whether IBKR offers to share your existing
+subscriptions with the second user or charges again. The page tells you once the user is selected. Only you
+should be logging in to your own Client Portal.</p>
+
+<h2>What is actually broken tonight</h2>
+<p>Measured twice, at 00:47Z by your coordinator and again at 01:05Z here, with a read-only connection that
+asked for nothing but contract lookups:</p>
+<pre>2110  Connectivity between Trader Workstation and server is broken
+2103  Market data farm connection is broken:usfarm
+2157  Sec-def data farm connection is broken:secdefil
+2107  HMDS data farm connection is inactive</pre>
+<p>The Gateway itself is running and its API socket answers on <code>127.0.0.1:4001</code> — note <b>4001</b>, even
+though your <code>jts.ini</code> says 4000. But <b>every contract lookup came back empty</b>, including plain SPY.
+Until that link is restored, no put/call number can exist, and no subscription question can be answered.
+Nothing was touched: not the Gateway's settings, not its login, not its windows.</p>
+
+<h2>The arithmetic, and the traps it avoids</h2>
+<ul>
+<li><b>The volumes are running day totals.</b> They start at zero each morning and only rise. A number that
+falls inside one session is a bad read, not selling — it is refused and flagged, never stored.</li>
+<li><b>The reset at 09:30 is not a fall.</b> A new session starts fresh, and yesterday's total never leaks in.</li>
+<li><b>No divisor, no ratio.</b> If no calls traded, the answer is "no call volume", never <code>0.00</code>.</li>
+<li><b>Coverage is part of the number.</b> Because the reader rotates, a desk-wide reading is always
+"as of 14:32, 312 of 364 names". Anything not read is named, not quietly dropped.</li>
+<li><b>A halted name goes stale and steps out</b> of the live aggregate by name, rather than being counted
+with a frozen number.</li>
+<li><b>Against Cboe:</b> we compare on the sessions both printed, one reading per session, and report the
+average gap. They are not the same population — Cboe counts every option on its exchanges, we sum the names
+you carry — so a <b>steady offset is expected</b>, and a steady offset is the useful part. We measure it; we
+never claim agreement.</li>
+</ul>
+<p>All of that is 12 tests that run with no network and no Gateway, against a fixture of one rotating sweep.
+The fixture is <b>synthetic and labelled as such</b>: there is no recorded IBKR tick to test against yet, because
+the Gateway has never answered. The first healthy session replaces it with a real recording.</p>
+
+<h2>The pane</h2>
+<p>The put/call pane now shows <b>both</b>: Cboe's published session, and Scintilla's own intraday line beneath
+it, each named so neither can be mistaken for the other. Up is green and down is red, the same rule as every
+other pane.</p>
+<p><b>Until the Gateway feeds it, the pane says so in words</b> — and says <i>which</i> silence it is: the series
+is not being served yet, the Gateway is not running, the Gateway is up but IBKR's link is broken, IBKR refused
+the lines for want of a subscription, or nothing has been collected yet this session. "No data" is not
+something you can act on; "IBKR's link to the Gateway is broken" is.</p>
+<img src="shots/putcall-waiting-1680.png" alt="The pane at 1680 wide: PCCE 0.90 in red, and beneath it, Scintilla waiting for the Gateway">
+<p class="n">Today's truth, at 1680 wide: Cboe's number is painted and dated; underneath, in grey, "Scintilla ·
+waiting for the Gateway · the intraday series is not being served yet".</p>
+<img src="shots/putcall-served-390.png" alt="The pane at 390 wide: PCCE 0.90 in red, Scintilla 1.08 in green beneath it">
+<p class="n">What Monday looks like, on a phone: Cboe's 0.90 in red above Scintilla's own 1.08 in green. The
+first draft painted this straight over the Cboe number and cut it off at the edge; the screenshot is how that
+was caught.</p>
+
+<h2>What could be wrong</h2>
+<ul>
+<li><b>The subscription list is an expectation, not an answer.</b> Only IBKR's refusal text settles it.</li>
+<li><b>The tick numbers are from IBKR's documentation, not from your Gateway.</b> That these ticks arrive for an
+ordinary single name is unproven until one session runs.</li>
+<li><b>The line limit is assumed to be around 100</b> until the probe measures yours.</li>
+<li><b>Coverage is not on the pane yet.</b> The pane will print "312 of 364" the moment the chart API carries
+that field; today the payload has no room for it, so it shows the number without the count.</li>
+<li><b>The proof's data is synthetic.</b> The pane is real, the browser is real, the numbers in the screenshots
+are made up on purpose.</li>
+<li><b>A laptop is not a server.</b> Collection runs only while this MacBook is awake.</li>
+</ul>
+
+<h2>What I did not do</h2>
+<ul>
+<li><b>Nothing was deployed, pushed or merged</b>, and no database change was applied. The migration and its
+rollback are written and waiting for your coordinator.</li>
+<li><b>The Gateway was not touched</b> — no setting, no login, no window, and no restart.</li>
+<li><b>No order call exists anywhere in this code</b>, and nothing asks IBKR for an account, a position or an
+execution. The connection is the bare handshake, deliberately, so that the usual start-up requests for your
+positions are never sent.</li>
+<li><b>The collector was not started</b>, and the scheduler file was written but not installed.</li>
+<li><b>No live put/call number was produced</b>, because none could be.</li>
+</ul>
+
+<h2>The runbook</h2>
+<ol>
+<li><b>You:</b> restore the Gateway's link (it usually returns by itself; a re-login is the next step), and set
+up the second username above.</li>
+<li><b>Coordinator:</b> run the probe — <code>/usr/bin/python3 probe-subscriptions.py --json probe.json</code> —
+and read IBKR's own words. That is the shopping list, in IBKR's language.</li>
+<li><b>You:</b> buy exactly what it named. Probably OPRA; possibly the NYSE index feed as well.</li>
+<li><b>Coordinator:</b> re-run the probe to confirm the refusals are gone, then
+<code>option-volume.py --measure-lines</code> to learn your real simultaneous-line limit.</li>
+<li><b>Coordinator:</b> apply the migration, install the LaunchAgent, and let one full session collect.</li>
+<li><b>Then, and only then:</b> the pane's intraday line appears beside Cboe's, and the page's tracking
+measurement starts having something to measure.</li>
+</ol>
