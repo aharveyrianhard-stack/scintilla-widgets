@@ -36,7 +36,9 @@ function fnFrom(source, name, bindings = {}) {
 
 /* The scenes that reproduce the defect, named so a future edit that moves a symbol between
    them cannot quietly change what this suite covers. */
-const NON_EQUITY_SCENES = ["indexNow", "macroCrossAsset", "internalsFast", "internalsSlow"];
+/* 24 Sep (M69): INTERNALS SLOW's two panes moved to TO-DO, so TO-DO is where the
+   unowned symbols now live. The same four walls, under their current names. */
+const NON_EQUITY_SCENES = ["indexNow", "macroCrossAsset", "internalsFast", "todo"];
 
 test("the four non-equity scenes are still the scenes this defect was reported against", () => {
   for (const id of NON_EQUITY_SCENES) {
@@ -248,7 +250,7 @@ test("the internals symbols nobody names must KEEP retrying", () => {
 
   /* Both groups are still on the scenes — this test is about behaviour, not about removing
      symbols from a wall to make a suite green. */
-  const scened = ["indexNow", "macroCrossAsset", "internalsFast", "internalsSlow"]
+  const scened = ["indexNow", "macroCrossAsset", "internalsFast", "todo"]
     .flatMap((id) => scenes.PRESETS[id].tickers);
   for (const sym of [...UNOWNED, ...OWNED_WITH_DATA].filter((s) => scened.includes(s)))
     assert.ok(scened.includes(sym), `${sym} is still mounted`);

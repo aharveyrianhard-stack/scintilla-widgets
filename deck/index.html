@@ -150,6 +150,14 @@ body.stack #dock #panebar{ display:flex; }
 #dock #pageRail .btn{ letter-spacing:.06em; }
 /* THE SAME PAGE ARROWS, AT THE EDGES OF THE WALL, always in the same two places, so
    moving one page never means hunting for a small control in the strip. */
+/* The timeframe chip wears the dock's clothes: same panel, same hairline, same grey. 11 px,
+   because this one is read at a glance from across the desk. */
+#tfNow{ position:fixed; top:6px; right:8px; z-index:24; padding:3px 7px;
+  background:rgba(15,15,26,.92); border:1px solid #2C2C44; color:#A8AAC0;
+  font-family:var(--mono); font-size:11px; letter-spacing:.1em; pointer-events:none; }
+#dock #tfReadout{ display:inline-block; min-width:34px; text-align:right; color:#A8AAC0;
+  font-size:11px; letter-spacing:.1em; font-variant-numeric:tabular-nums; }
+body.stack #tfNow{ top:auto; bottom:6px; right:6px; }
 #edgePrev, #edgeNext{ position:fixed; top:50%; transform:translateY(-50%); z-index:24;
   width:26px; height:72px; display:flex; align-items:center; justify-content:center;
   background:rgba(15,15,26,.86); border:1px solid #2C2C46; color:#A6A8C0;
@@ -551,8 +559,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
         <option value="companyLeadership">company leadership</option>
         <option value="focus2">focus 2</option>
         <option value="macroCrossAsset">macro cross-asset</option>
-        <option value="internalsFast">internals fast</option>
-        <option value="internalsSlow">internals slow</option>
+        <option value="internalsFast">internals</option>
         <option value="sectorFamilies">sector families</option>
         <option value="themeFamilies">theme families</option>
         <option value="tvMacro">macro</option>
@@ -567,6 +574,8 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
         <option value="tvExtras">extras</option>
         <option value="oscWorkbench">oscillator workbench</option>
         <option value="scintillas">scintillas</option>
+        <option value="todo">to-do</option>
+        <option value="scratch">scratch</option>
         <option value="cohort">cohort</option>
         <option value="custom">custom</option>
       </select>
@@ -621,6 +630,9 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   </span>
   <span class="dsec" data-sec="readout" aria-live="polite">
     <span id="screenIndicator">screen 1 / 9 · index now</span>
+    <!-- THE TIMEFRAME, SAID WHERE THE STRIP IS READ. Alan, 24 Sep: "I'm on the three hour...
+         I kind of do need to know while I'm on screen what time frame I'm viewing." -->
+    <span id="tfReadout" title="the timeframe every chart on this wall is drawing">3H</span>
     <span id="marketStatus" title="oldest visible quote-write time">DATA · waiting</span>
   </span>
 </div>
@@ -634,6 +646,9 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   <span class="dsec" data-sec="charts" role="group" aria-label="Number of charts">
     <span class="lbl">charts</span>
     <span id="countChips"></span>
+    <!-- M69: the one line Alan pastes back when he says "this one we save". -->
+    <button type="button" class="btn" id="copyLayout" hidden
+      title="copy this wall as one line - its symbols and its timeframe - to hand back for saving">copy layout</button>
     <select class="chart-count" id="chartCount" title="number of charts" aria-hidden="true" tabindex="-1">
       <option value="2">2</option><option value="6">6</option><option value="8">8</option>
       <option value="3" hidden data-preset-only="true">3</option>
@@ -667,6 +682,9 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   <div id="pageJumpList" role="listbox" aria-label="Pages"></div>
   <div id="pageJumpNone" hidden>no page carries that name or ticker</div>
 </div>
+<!-- AND SAID AGAIN OUTSIDE THE STRIP, because the strip tucks away. Same words, same look;
+     it sits under the dock while the dock is down and is the answer once it is gone. -->
+<span id="tfNow" aria-live="polite" title="the timeframe every chart on this wall is drawing">3H</span>
 <div id="symbolGuide" role="listbox" aria-label="Hub symbol suggestions"></div>
 <div id="grid"></div>
 <script>
@@ -835,7 +853,14 @@ const familyFor = (scene) => {
 };
 let APPLYING_SCENE = false;
 
-const statePrefix = () => SCENE === "custom" ? "station.custom" : "station.live";
+/* A DEVICE WORKSPACE IS ONE THAT SURVIVES A RELOAD. LIVE and CUSTOM always were;
+   SCRATCH joins them, because Alan builds a layout on it and then says "this one we
+   save" — a workspace that forgot itself when the tab closed would be a worse notebook
+   than the Chrome tabs it replaces. Every named page stays session-scoped as before. */
+const DEVICE_WORKSPACES = ["live", "custom", "scratch"];
+const isDeviceWorkspace = (scene) => DEVICE_WORKSPACES.includes(scene);
+const SCRATCH_RANGE_KEY = "station.scratch.range";
+const statePrefix = () => SCENE === "custom" ? "station.custom" : SCENE === "scratch" ? "station.scratch" : "station.live";
 const storedState = (suffix) => remembered(statePrefix() + "." + suffix) ||
   (SCENE === "custom" ? remembered("station.live." + suffix) : "") || remembered("station." + suffix);
 const URL_STATEFUL = SCENE === "live" || SCENE === "custom";
@@ -1349,7 +1374,7 @@ function makePane(def) {
 
 function mount(obj) {
   if (obj.isDock || obj.frame) return;
-  if (!obj.def.src) { obj.showCard("empty editable slot"); return; }
+  if (!obj.def.src) { obj.showCard(SCENE === "scratch" ? "empty slot \u00b7 type a symbol" : "empty editable slot"); return; }
   const c = obj.body.querySelector(".card"); if (c) c.remove();
   const f = document.createElement("iframe");
   f.src = obj.def.src; f.loading = "lazy";
@@ -2249,20 +2274,35 @@ const COHORT_ORDER = ["AI_HARDWARE","AI_SOFTWARE","MEGACAP","BLUE_CHIP","GROWTH"
   "INDUSTRIAL","MATERIALS","REAL_ESTATE","STAPLES","UTILITIES"];
 const hasStoredScene = (scene) => scene === "custom"
   ? savedCustomCharts().some(Boolean)
+  /* SCRATCH is stored the moment it has been visited, even with every slot empty:
+     an emptied wall is a decision, not an absence, and it must survive a reload. */
+  : scene === "scratch"
+  ? !!remembered("station.scratch.chartCount")
   : scene === "live"
     ? !!remembered("station.live.chartCount")
     : !!sessionRemembered("station.flex." + scene + ".chartCount");
 function editableState(scene) {
-  const prefix = scene === "live" || scene === "custom" ? "station." + scene : "station.flex." + scene;
+  const prefix = isDeviceWorkspace(scene) ? "station." + scene : "station.flex." + scene;
   const legacy = scene === "live";
-  const get = (suffix) => (scene === "live" || scene === "custom" ? remembered(prefix + "." + suffix) : sessionRemembered(prefix + "." + suffix)) ||
+  const get = (suffix) => (isDeviceWorkspace(scene) ? remembered(prefix + "." + suffix) : sessionRemembered(prefix + "." + suffix)) ||
     (legacy ? remembered("station." + suffix) : "");
   const count = sceneChartCount(get("chartCount") || CHART_COUNT, scene, scene === "indexNow" || scene === "cohort");
   const range = RANGE;
+  /* SCRATCH and CUSTOM never seed a symbol: an empty slot on those pages is the state
+     the user left, and SPY/SNDK appearing in it would be the deck answering a question
+     nobody asked. */
   const charts = Array.from({ length:8 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
-    (scene === "custom" ? "" : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
+    (scene === "custom" || scene === "scratch" ? "" : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
   if (scene === "custom") return preservedCustomState({ charts, chartCount:count, range });
+  if (scene === "scratch") return SceneModel.scratchState(charts, scratchRange());
   return { charts, chartCount:count, range };
+}
+/* ONE RANGE CONTROL FOR THE SCREEN. The wall's timeframe bar IS that control — there is
+   deliberately no second one — and SCRATCH is the one page that remembers where it was
+   left, per device, so tomorrow's scratch wall opens on the window Alan was working in. */
+function scratchRange() {
+  const stored = remembered(SCRATCH_RANGE_KEY);
+  return RANGES.includes(stored) ? stored : RANGE;
 }
 function completeNamedPresetState(state, preset) {
   const count = Number(state?.chartCount);
@@ -2276,7 +2316,7 @@ function completeNamedPresetState(state, preset) {
   return Object.assign({}, state, { charts });
 }
 function rememberEditableState() {
-  const localWorkspace = SCENE === "live" || SCENE === "custom";
+  const localWorkspace = isDeviceWorkspace(SCENE);
   const prefix = localWorkspace ? "station." + SCENE : "station.flex." + SCENE;
   const save = localWorkspace ? remember : sessionRemember;
   save(prefix + ".chartCount", String(CHART_COUNT));
@@ -2317,12 +2357,15 @@ function scintillasState(requestedCount) {
   return Object.assign({}, state, { range: SceneModel.PRESETS.scintillas.range });
 }
 /* the label rides in the pane head, and is cleared the moment another page is shown */
-function paintScintillaLabels() {
+/* ONE NOTE CELL, TWO PAGES. SCINTILLAS says why a chart is on the wall; TO-DO says why a
+   chart is still somebody else's picture. Both are the pane's own words, under the pane. */
+function paintPaneNotes() {
   for (let i = 0; i < CHARTS.length; i++) {
     const pane = PANES.find((item) => item.def.key === "c" + (i + 1));
     const cell = pane && pane.node.querySelector(":scope > .why");
     if (!cell) continue;
-    const label = SCENE === "scintillas" ? (SCINT_LABELS.get(CLEAN(CHARTS[i])) || "") : "";
+    const label = SCENE === "scintillas" ? (SCINT_LABELS.get(CLEAN(CHARTS[i])) || "")
+      : SCENE === "todo" ? SceneModel.todoNote(CHARTS[i], i) : "";
     if (cell.textContent !== label) cell.textContent = label;
     if (pane.node.getAttribute("title") !== label) {
       if (label) pane.node.setAttribute("title", CLEAN(CHARTS[i]) + " · " + label);
@@ -2394,9 +2437,15 @@ function paintSceneControls(note) {
           ? "no favorites yet — the wall is empty, not broken · choose a cohort or edit the slot"
           : "favorites · choosing a cohort replaces these rows")
        : COHORT.replace(/_/g, " ") + " · cohort members — these rows replaced the favorites")
+    : SCENE === "todo"
+    ? "to-do · charts we have not made our own yet — each says why"
+    : SCENE === "scratch"
+    ? "scratch · type a symbol in any slot, clear a field to empty it · remembered on this device"
     : fixedSceneState(SCENE)
     ? "preset · edit any slot or reset"
     : "manual workspace · edit any slot");
+  const copy = el("copyLayout");
+  if (copy) copy.hidden = SCENE !== "scratch";
   const familyPicker = el("familyPicker");
   if (familyPicker) {
     const options = SceneModel.familyOptions(SCENE);
@@ -2442,6 +2491,9 @@ function installSceneState(state) {
 function fixedSceneState(scene, requestedCount) {
   const bench = SceneModel.workbenchState(scene);
   if (bench) return bench;
+  /* TO-DO's rows, reasons and the two 1D slots inherited from INTERNALS SLOW all come
+     from the model, so the page is checkable without a browser. */
+  if (scene === "todo") return SceneModel.todoState();
   /* SCINTILLAS carries no tickers of its own — the store fills it, like the cohort page. */
   if (scene === "scintillas") return null;
   if (scene === "indexNow") {
@@ -2473,6 +2525,10 @@ async function primeSceneState() {
     await loadScintillas();
     /* the page is the day's outliers, never a remembered wall: it always shows what is stored now */
     installSceneState(scintillasState(SceneModel.PRESETS.scintillas.chartCount));
+  }
+  else if (SCENE === "scratch") {
+    if (!QS.has("range")) RANGE = scratchRange();
+    installSceneState(hasStoredScene("scratch") ? editableState("scratch") : SceneModel.scratchState([], RANGE));
   }
   remember("station.scene", SCENE);
 }
@@ -2590,6 +2646,12 @@ async function applyScene(next, options) {
     state = scintillasState(SceneModel.PRESETS.scintillas.chartCount);
   } else if (requested === "custom" && !hasStoredScene("custom")) {
     state = customWallState({ charts:[], range:RANGE }, 6);
+  } else if (requested === "scratch") {
+    /* The page opens on the window it was left in. RANGE is set BEFORE the panes are
+       built so a scratch chart mounts on the right timeframe instead of loading 3h and
+       then reloading — the wall never pays twice for the same chart. */
+    RANGE = scratchRange();
+    state = hasStoredScene("scratch") ? editableState("scratch") : SceneModel.scratchState([], RANGE);
   } else state = editableState(requested);
 
   SCENE = requested; APPLYING_SCENE = true; installSceneState(state);
@@ -2871,7 +2933,17 @@ function paintTf() {
   clouds.setAttribute("aria-pressed", CLOUDS ? "true" : "false");
   clouds.addEventListener("click", () => setClouds(!CLOUDS));
   box.appendChild(clouds);
+  paintTfNow();
   dockContentChanged();
+}
+/* THE ANSWER TO "WHAT AM I LOOKING AT" IN TWO PLACES, NEVER IN A MENU: in the strip's
+   readout while the strip is down, and on its own chip the moment the strip tucks away. */
+function paintTfNow() {
+  const text = String(RANGE).toUpperCase();
+  for (const id of ["tfNow", "tfReadout"]) {
+    const n = el(id);
+    if (n && n.textContent !== text) n.textContent = text;
+  }
 }
 function setClouds(on) {
   CLOUDS = !!on;
@@ -2891,6 +2963,7 @@ function setClouds(on) {
 function setRange(r) {
   if (!RANGES.includes(r) || r === RANGE) return;
   RANGE = r; paintTf();
+  if (SCENE === "scratch") remember(SCRATCH_RANGE_KEY, RANGE);
   for (let i = 0; i < CHARTS.length; i++) {
     const k = "c" + (i + 1);
     const o = PANES.find((p) => p.def.key === k); if (!o) continue;
@@ -3002,6 +3075,30 @@ function commitTicker(index, raw, input) {
   }
   refreshDeckQuotes(); rememberEditableState(); closeSymbolGuide(); paintChips(); return true;
 }
+/* CLEARING A FIELD EMPTIES THE SLOT (SCRATCH only). Alan, 24 Sep: "Clearing the field
+   empties the slot." Everywhere else an emptied box still restores the symbol that was
+   there, because a named page is not a workspace and a stray backspace must not blank a
+   preset. On SCRATCH the empty box is the instruction: the frame is taken down, the slot
+   goes back to "choose a symbol", and the device remembers the gap. */
+function clearSlot(index, input) {
+  const n = input || el("t" + (index + 1));
+  CHARTS[index] = "";
+  if (n) n.value = "";
+  const o = PANES.find((p) => p.def.key === "c" + (index + 1));
+  if (o) {
+    o.def.src = ""; o.def.open = ""; o.def.short = "chart " + (index + 1); o.def.title = "Choose a symbol";
+    if (o.frame) {
+      o.frame.remove(); o.frame = null;
+      const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
+    }
+    const card = o.body.querySelector(".card"); if (card) card.remove();
+    o.showCard("empty slot \u00b7 type a symbol");
+  }
+  el("symbolNote").textContent = "slot " + (index + 1) + " cleared";
+  rememberEditableState(); closeSymbolGuide(); paintChips(); paintPaneNotes();
+  return true;
+}
+const clearsEmptySlots = () => SCENE === "scratch";
 function wireTicker(n, index) {
   n.value = CHARTS[index]; n.dataset.index = String(index);
   n.addEventListener("focus", () => { selAll(n); requestAnimationFrame(() => selAll(n)); });
@@ -3010,12 +3107,17 @@ function wireTicker(n, index) {
   n.addEventListener("keydown", (e) => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); moveGuide(e.key === "ArrowDown" ? 1 : -1); }
     else if (e.key === "Escape") { n.value = CHARTS[index] || ""; closeSymbolGuide(); n.blur(); }
-    else if (e.key === "Enter") { e.preventDefault(); if (commitTicker(index, n.value, n)) n.blur(); }
+    else if (e.key === "Enter") {
+      e.preventDefault();
+      if (!n.value.trim() && clearsEmptySlots()) { clearSlot(index, n); n.blur(); return; }
+      if (commitTicker(index, n.value, n)) n.blur();
+    }
   });
   n.addEventListener("blur", () => setTimeout(() => {
     if (GUIDE_INPUT === n) closeSymbolGuide();
     const raw = n.value.trim();
-    if (!raw) n.value = CHARTS[index] || "";
+    if (!raw && clearsEmptySlots() && CHARTS[index]) clearSlot(index, n);
+    else if (!raw) n.value = CHARTS[index] || "";
     else if (aliasKey(raw) !== CHARTS[index]) {
       const resolved = resolveSymbol(raw);
       if (resolved) commitTicker(index, resolved, n);
@@ -3037,7 +3139,7 @@ function paintTickerFields() {
   });
 }
 function paintChartCountChoices() {
-  const custom = SCENE === "custom";
+  const custom = SCENE === "custom" || SCENE === "scratch";
   for (const option of el("chartCount").options) {
     const presetOnly = option.dataset.presetOnly === "true";
     const allowed = presetOnly || !custom || [2,6,8].includes(+option.value);
@@ -3046,10 +3148,11 @@ function paintChartCountChoices() {
   }
 }
 function applyChartCount(next, fromScene, transitionGeneration) {
-  const requestedCount = SCENE === "custom"
+  const requestedCount = SCENE === "custom" || SCENE === "scratch"
     ? customChartCount(next)
     : sceneChartCount(next, SCENE, !!fromScene);
-  if (SCENE === "custom" && requestedCount >= 6) {
+  /* SCRATCH keeps every slot it was given, filled or not: the empty six IS the page. */
+  if (SCENE === "scratch" || (SCENE === "custom" && requestedCount >= 6)) {
     /* Growing an existing Custom workspace creates intentional editable slots;
        it never reseeds, replaces, or evicts a symbol the user already chose. */
     CHART_COUNT = requestedCount;
@@ -3079,9 +3182,41 @@ function applyChartCount(next, fromScene, transitionGeneration) {
   });
   if (SOLO && /^c[1-8]$/.test(SOLO) && +SOLO.slice(1) > CHART_COUNT) setSolo(null);
   if (!fromScene) rememberEditableState();
-  try { paintScintillaLabels(); } catch (_) {}      /* M48 — why each chart is on the page */
+  try { paintPaneNotes(); } catch (_) {}      /* M48/M69 — why each chart is on the page */
   relayout(); paintChips(); refreshDeckQuotes();
 }
+/* COPY LAYOUT. Alan, 24 Sep: "I'll tell you, okay, this one we save." This is that
+   handover: one line carrying the wall's symbols and its timeframe, empty slots
+   included, ready to paste back so a named page can be cut from it. Nothing is sent
+   anywhere — it goes on this device's clipboard and nowhere else. */
+let COPY_REVERT = null;
+async function copyScratchLayout() {
+  const line = SceneModel.scratchLayout(CHARTS, RANGE, CHART_COUNT);
+  let ok = false;
+  try { await navigator.clipboard.writeText(line); ok = true; } catch (_) { ok = false; }
+  if (!ok) try {
+    const box = document.createElement("textarea");
+    box.value = line; box.setAttribute("readonly", "");
+    box.style.position = "fixed"; box.style.top = "-1000px"; box.style.opacity = "0";
+    document.body.appendChild(box); box.select();
+    ok = document.execCommand("copy");
+    box.remove();
+  } catch (_) { ok = false; }
+  const button = el("copyLayout");
+  if (button) {
+    button.textContent = ok ? "copied" : "copy failed";
+    button.classList.toggle("on", ok);
+    clearTimeout(COPY_REVERT);
+    COPY_REVERT = setTimeout(() => {
+      button.textContent = "copy layout"; button.classList.remove("on");
+    }, 1600);
+  }
+  /* Whether the clipboard took it or refused it, the line itself is shown, so it can
+     always be read off the screen and typed back. */
+  el("symbolNote").textContent = (ok ? "layout copied · " : "clipboard refused · ") + line;
+  return ok;
+}
+el("copyLayout").addEventListener("click", () => { copyScratchLayout(); });
 el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
 el("sceneMode").addEventListener("change", (e) => {
   if (e.target.value === "live" || e.target.value === "custom") setRotationPaused(true);

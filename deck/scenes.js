@@ -6,8 +6,8 @@
      preset, and it may not be filtered down to whichever members happen to be favorited. */
   const TV_IDS = ["tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras"];
   const WORKBENCH_IDS = ["oscWorkbench"];
-  const IDS = ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]
-    .concat(TV_IDS, WORKBENCH_IDS, ["scintillas","cohort","custom"]);
+  const IDS = ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies"]
+    .concat(TV_IDS, WORKBENCH_IDS, ["scintillas","todo","scratch","cohort","custom"]);
   /* Every curated named scene is independently navigable.  LIVE and CUSTOM
      remain manual workspaces so arrowing/rotation never replaces a live or
      in-progress custom wall. */
@@ -17,8 +17,10 @@
     Object.freeze({ id:"companyLeadership", scene:"companyLeadership", label:"COMPANY LEADERSHIP" , short:"COMPANY LD"}),
     Object.freeze({ id:"focus2", scene:"focus2", label:"FOCUS 2" , short:"FOCUS 2"}),
     Object.freeze({ id:"macroCrossAsset", scene:"macroCrossAsset", label:"MACRO CROSS-ASSET" , short:"MACRO X-A"}),
-    Object.freeze({ id:"internalsFast", scene:"internalsFast", label:"INTERNALS FAST" , short:"INTERNAL F"}),
-    Object.freeze({ id:"internalsSlow", scene:"internalsSlow", label:"INTERNALS SLOW" , short:"INTERNAL S"}),
+    /* Alan, 24 Sep: "save VIX and PCC on their own, which are more useful." The four
+       TradingView-drawn internals that used to crowd this page now live on TO-DO, so
+       INTERNALS is two Scintilla-served series and nothing grey. */
+    Object.freeze({ id:"internalsFast", scene:"internalsFast", label:"INTERNALS" , short:"INTERNALS"}),
     Object.freeze({ id:"sectorFamilies", scene:"sectorFamilies", label:"SECTOR FAMILIES" , short:"SECTOR FAM"}),
     Object.freeze({ id:"themeFamilies", scene:"themeFamilies", label:"THEME FAMILIES" , short:"THEME FAM"}),
     /* ── ALAN'S OWN TRADINGVIEW LAYOUTS, in his order, as Station pages ───────────
@@ -40,7 +42,15 @@
        these kinds of things. It puts that chart on there. These scintillas go to
        station." It fills itself from public.scintillas: nothing to choose, nothing
        to maintain, and it is walked by the arrows and the jump list like any page. */
-    Object.freeze({ id:"scintillas", scene:"scintillas", label:"SCINTILLAS" })
+    Object.freeze({ id:"scintillas", scene:"scintillas", label:"SCINTILLAS" }),
+    /* ── THE LAST TWO SCREENS (M69) ───────────────────────────────────────────────
+       Alan, 24 Sep: "if they're gonna be gray, I would send them to an empty layout
+       at the end, as kind of like to do reminders" and "one empty six chart screen
+       layout kind of as the ending screen so that I can search tickers in".
+       TO-DO holds what is not ours yet and says why. SCRATCH is the empty six, and
+       it is deliberately LAST: the deck ends where the next layout gets built. */
+    Object.freeze({ id:"todo", scene:"todo", label:"TO-DO" , short:"TO-DO"}),
+    Object.freeze({ id:"scratch", scene:"scratch", label:"SCRATCH" , short:"SCRATCH"})
   ]);
   /* ROTATION IS NOT THE PAGE LIST. Auto-rotate keeps cycling the nine curated
      screens it always cycled; Alan's own layouts are pages you go to, not a
@@ -51,7 +61,10 @@
      a short name for the rail; the full name stays on the button's tooltip, in the scene
      menu and in the jump list. */
   function shortLabel(screen) { return (screen && (screen.short || screen.label)) || ""; }
-  const ROTATION_SCENES = Object.freeze(["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]);
+  /* ROTATION NEVER WALKS TO-DO OR SCRATCH: a reminder list and a half-built wall are
+   not a slideshow, and rotating onto SCRATCH would mount Alan's scratch charts while
+   he is looking at something else. */
+const ROTATION_SCENES = Object.freeze(["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies"]);
   const ROTATION_IDS = ROTATION_SCENES;
   const NY = "America/New_York";
   const FAMILIES = Object.freeze({
@@ -81,8 +94,10 @@
     companyLeadership: Object.freeze({ label:"COMPANY LEADERSHIP", tickers:Object.freeze(["AAPL","MSFT","AMZN","GOOGL","META","TSLA"]), chartCount:6, range:"3h" }),
     focus2: Object.freeze({ label:"FOCUS 2", tickers:Object.freeze(["MU","SNDK"]), chartCount:2, range:"3h" }),
     macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", tickers:Object.freeze(["US10Y","DXUSD","GCUSD","SIUSD","CLUSD","BTCUSD"]), chartCount:6, range:"3D" }),
-    internalsFast: Object.freeze({ label:"INTERNALS", tickers:Object.freeze(["VIX","ADD","PCC","CUMTICK","TICK","TRIN"]), chartCount:6, range:"3h" }),
-    internalsSlow: Object.freeze({ label:"INTERNALS SLOW", tickers:Object.freeze(["TICK","TRIN"]), chartCount:2, range:"1D" }),
+    /* VIX and PCC are Scintilla's own series, drawn from the chart API with the cloud
+       ribbon like any other chart. They keep this page; the four TradingView pictures
+       moved to TO-DO on 24 Sep. */
+    internalsFast: Object.freeze({ label:"INTERNALS", tickers:Object.freeze(["VIX","PCC"]), chartCount:2, range:"3h" }),
     /* ── THE TWELVE SAVED TRADINGVIEW LAYOUTS ────────────────────────────────────
        TradingView spellings are translated to the symbols the chart API serves —
        USOIL → CLUSD, GOLD → GCUSD, TSX:BOFA → BAC — and nothing else is renamed.
@@ -102,7 +117,12 @@
     tvBlueChip: Object.freeze({ label:"BLUE CHIP", tickers:Object.freeze(["WMT","JPM","COST","BAC","CAT","MRVL"]), chartCount:6, range:"1D", exact:true }),
     tvExtras: Object.freeze({ label:"EXTRAS", tickers:Object.freeze(["MRVL","NVTS"]), chartCount:2, range:"1D", exact:true }),
     /* SCINTILLAS carries no tickers of its own: the store decides them, session by session. */
-    scintillas: Object.freeze({ label:"SCINTILLAS", tickers:Object.freeze([]), chartCount:6, range:"1D", filled:"scintillas" })
+    scintillas: Object.freeze({ label:"SCINTILLAS", tickers:Object.freeze([]), chartCount:6, range:"1D", filled:"scintillas" }),
+    /* TO-DO's rows come from TODO_CHARTS below, because each one carries a reason and,
+       for the two that were INTERNALS SLOW, its own timeframe. */
+    todo: Object.freeze({ label:"TO-DO", tickers:Object.freeze(["ADD","CUMTICK","TICK","TRIN","TICK","TRIN"]), chartCount:6, range:"3h", filled:"todo" }),
+    /* SCRATCH starts empty on purpose and fills from the device, never from a preset. */
+    scratch: Object.freeze({ label:"SCRATCH", tickers:Object.freeze([]), chartCount:6, range:"3h", filled:"scratch" })
   });
 
   /* ── A WORKBENCH IS A PAGE TYPE, NOT A ONE-OFF PAGE ──────────────────────────────
@@ -176,7 +196,9 @@
   /* The old cohort→themeFamilies collapse silently discarded a chosen cohort: a user asking
      for AI_SOFTWARE or MEGACAP landed on the first theme basket with no sign their choice was
      dropped. "cohort" resolves to itself now. */
-  const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", company:"companyLeadership", sectors:"sectorFamilies", themes:"themeFamilies" });
+  /* A REMEMBERED PAGE MUST STILL LAND SOMEWHERE. Every browser that last sat on INTERNALS
+   SLOW opens on TO-DO, which is exactly where its TICK and TRIN panes went. */
+const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", company:"companyLeadership", sectors:"sectorFamilies", themes:"themeFamilies", internalsSlow:"todo" });
   const normalizeScene = (value) => IDS.includes(LEGACY[value] || value) ? (LEGACY[value] || value) : "live";
 
   function indexNowLeaders(at) {
@@ -256,6 +278,66 @@
     catch (e) { when = ""; }
     const what = c.kind === "earnings_surprise" ? "earnings" : c.kind === "econ_surprise" ? "release" : "";
     return [what, move, usual, when].filter(Boolean).join(" \u00b7 ");
+  }
+
+  /* ── TO-DO · WHAT IS NOT OURS YET, AND WHY (M69) ───────────────────────────────────
+     Alan, 24 Sep: "I still see ADD gray, tick gray, cumulative tick gray, trend gray.
+     And if they're gonna be gray, I would send them to an empty layout at the end, as
+     kind of like to do reminders."
+     So this page is a reminder list made of the charts themselves. Each slot says, in
+     plain words, why it is here — never a label that implies the number is ours. The
+     last two are the old INTERNALS SLOW page: the same two TradingView series at their
+     own 1D window, carried over instead of deleted, so nothing Alan was watching is
+     silently gone. A per-slot range is the workbench mechanism, already in the deck. */
+  const TODO_CHARTS = Object.freeze([
+    Object.freeze({ ticker:"ADD", note:"advance / decline \u00b7 drawn by TradingView, not served natively yet" }),
+    Object.freeze({ ticker:"CUMTICK", note:"cumulative tick \u00b7 TradingView draws plain TICK here \u2014 no cumulative series of our own" }),
+    Object.freeze({ ticker:"TICK", note:"NYSE tick \u00b7 drawn by TradingView, not served natively yet" }),
+    Object.freeze({ ticker:"TRIN", note:"TRIN / arms index \u00b7 drawn by TradingView, not served natively yet" }),
+    Object.freeze({ ticker:"TICK", range:"1D", note:"was INTERNALS SLOW \u00b7 the same TradingView tick at 1D" }),
+    Object.freeze({ ticker:"TRIN", range:"1D", note:"was INTERNALS SLOW \u00b7 the same TradingView TRIN at 1D" })
+  ]);
+  function todoState() {
+    const charts = TODO_CHARTS.slice(0, 8);
+    return {
+      label:"TO-DO",
+      tickers:charts.map((c) => c.ticker),
+      notes:charts.map((c) => c.note),
+      ranges:charts.map((c) => c.range || null),
+      stacks:charts.map(() => ""),
+      chartCount:chartCountForSize(charts.length),
+      range:"3h", offset:0, totalItems:charts.length, hasPrevious:false, hasNext:false, empty:!charts.length
+    };
+  }
+  function todoNote(ticker, index) {
+    const at = TODO_CHARTS[Number(index)];
+    if (at && at.ticker === String(ticker || "").toUpperCase()) return at.note;
+    const first = TODO_CHARTS.find((c) => c.ticker === String(ticker || "").toUpperCase());
+    return first ? first.note : "";
+  }
+
+  /* ── SCRATCH · THE EMPTY SIX AT THE END (M69) ───────────────────────────────────────
+     Alan, 24 Sep: "one empty six chart screen layout kind of as the ending screen so
+     that I can search tickers in and that it'll work and that they will change... think
+     of it like if I was creating the layouts in new pages, and then in that new page we
+     will rearrange, and I'll tell you, okay, this one we save."
+     The page holds nothing of its own: six slots, whatever the device remembers, and one
+     line of text that can be pasted back to the coordinator to be promoted into a named
+     page above. An empty slot stays empty — SCRATCH never seeds SPY/SNDK like LIVE. */
+  const SCRATCH_SLOTS = 6;
+  function scratchState(charts, range, count) {
+    const size = Math.max(1, Math.min(8, Number(count) || SCRATCH_SLOTS));
+    const slots = Array.from({ length:size }, (_, i) =>
+      String((charts || [])[i] || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12));
+    return { label:"SCRATCH", tickers:slots, charts:slots, chartCount:size,
+      range:range || "3h", offset:0, totalItems:slots.filter(Boolean).length,
+      hasPrevious:false, hasNext:false, empty:!slots.some(Boolean) };
+  }
+  /* ONE LINE, SO IT SURVIVES A TEXT MESSAGE. Empty slots are kept as "" on purpose: the
+     shape of the wall is part of what Alan is saving, so slot 4 being empty is a fact. */
+  function scratchLayout(charts, range, count) {
+    const state = scratchState(charts, range, count);
+    return JSON.stringify({ scene:"scratch", tickers:state.tickers, range:state.range });
   }
 
   function nextRotatingScene(scene) {
@@ -350,6 +432,10 @@
     const bench = workbenchFor(id);
     if (bench) return bench.charts.map((c) => c.ticker);
     if (id === "indexNow") return indexNowTickersFor(new Date()).slice();
+    if (id === "todo") return TODO_CHARTS.map((c) => c.ticker);
+    /* SCRATCH's symbols live on the device, not in the model, so the jump list finds it
+       by name only. It is never wrong about what is on it. */
+    if (id === "scratch") return [];
     const families = FAMILIES[id];
     if (families) return families.reduce((all, f) => all.concat(f.tickers), []);
     return (PRESETS[id]?.tickers || []).slice();
@@ -412,6 +498,12 @@
     exactPage,
     scintillasPage,
     scintillaLabel,
+    TODO_CHARTS,
+    todoState,
+    todoNote,
+    SCRATCH_SLOTS,
+    scratchState,
+    scratchLayout,
     pageTickers,
     findPages,
     railChips,
