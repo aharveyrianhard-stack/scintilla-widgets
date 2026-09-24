@@ -2264,3 +2264,43 @@ Command: `PW_MODULE_DIR=… node browser-proof/proofs/yt-lost-write.mjs` (route 
 - **Scope notes, measured in code**: the two mounted video shells already REVERT on this failure (state-honest) but stay reason-silent — recorded as a lesser gap, not repaired here, because their only failure surface today is the watch-list read lane and hijacking it would blank the list; their `subscribeToChannel` catch is the same state-honest/reason-silent shape. The 10s-cadence `ytPosPush` position write keeps its silent catch by design: positions re-push on cadence, so a lost write is retried by the next tick rather than lied about.
 
 Zero page errors in both scenarios. Rollback: revert the single commit carrying this unit — the change is client-render behavior only (no schema, no endpoint, no authority change).
+
+---
+
+## putcall-intraday — 2026-09-24T02:03:17Z
+
+The PCCE pane, real Chromium, headless, repository served locally, the chart API answered by
+this proof. Cboe's series is synthetic here; the point is the PANE.
+
+| Scenario | What the pane printed | Shot |
+|---|---|---|
+| SCPCE not served (tonight's truth) | `Scintilla · waiting for the Gateway · the intraday series is not being served yet` | browser-proof/receipts/putcall-waiting-1680.png |
+| the same at 390 wide | `Scintilla · waiting for the Gateway · the intraday series is not being served yet` | browser-proof/receipts/putcall-waiting-390.png |
+| SCPCE serving minutes (Monday) | `Scintilla  1.08` · direction `up` | browser-proof/receipts/putcall-served-1680.png |
+| the same at 390 wide | `Scintilla  1.08` | browser-proof/receipts/putcall-served-390.png |
+
+Cboe's own readout was unchanged in every scenario: `0.90  −1.7%  Sep 23` with window
+`Sep 23 session · Cboe`. Companion font-size 11px; colour when
+serving rgb(0, 255, 163).
+
+Run: PW_MODULE_DIR=<dir> node browser-proof/proofs/putcall-intraday.mjs
+
+---
+
+## putcall-intraday — 2026-09-24T02:07:14Z
+
+The PCCE pane, real Chromium, headless, repository served locally, the chart API answered by
+this proof. Cboe's series is synthetic here; the point is the PANE.
+
+| Scenario | What the pane printed | Shot |
+|---|---|---|
+| SCPCE not served (tonight's truth) | `Scintilla · waiting for the Gateway · the intraday series is not being served yet` | browser-proof/receipts/putcall-waiting-1680.png |
+| the same at 390 wide | `Scintilla · waiting for the Gateway · the intraday series is not being served yet` | browser-proof/receipts/putcall-waiting-390.png |
+| SCPCE serving minutes (Monday) | `Scintilla  1.08` · direction `up` | browser-proof/receipts/putcall-served-1680.png |
+| the same at 390 wide | `Scintilla  1.08` | browser-proof/receipts/putcall-served-390.png |
+
+Cboe's own readout was unchanged in every scenario: `0.90  −1.7%  Sep 23` with window
+`Sep 23 session · Cboe`. Companion font-size 11px; colour when
+serving rgb(0, 255, 163).
+
+Run: PW_MODULE_DIR=<dir> node browser-proof/proofs/putcall-intraday.mjs

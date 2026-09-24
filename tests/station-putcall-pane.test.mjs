@@ -22,9 +22,11 @@ test("the four Cboe series are drawn by the Station, not stood in for by Trading
   assert.match(block, /USI:TICK/);
 });
 
+/* 24 Sep (M38): Scintilla's own intraday put/call, SCPCE and SCPCI, passes the same gate.
+   The pin moves with it; the rule it protects -- one route, nothing else gets through -- does not. */
 test("the provider client sends them to the chart API, like the macro series", () => {
   assert.match(provider, /var PUTCALL_SYMBOLS = \{ PCC: 1, PCCE: 1, PCCI: 1, PCSPX: 1 \};/);
-  assert.match(provider, /if \(own\[sym\] \|\| MACRO_SYMBOLS\[sym\] \|\| PUTCALL_SYMBOLS\[sym\]\)/,
+  assert.match(provider, /if \(own\[sym\] \|\| MACRO_SYMBOLS\[sym\] \|\| PUTCALL_SYMBOLS\[sym\] \|\| SCINTILLA_PUTCALL_SYMBOLS\[sym\]\)/,
     "marketCandles must let them through the equity-ownership gate");
   /* and nothing here re-opens a second data path */
   assert.ok(!/put_call_history/.test(provider), "no Supabase side door for this series");

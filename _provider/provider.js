@@ -372,7 +372,20 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
      daily-only and never live - Cboe prints one number per session after the close - so the pane
      reads them exactly like a daily series and names the session on screen. */
   var PUTCALL_SYMBOLS = { PCC: 1, PCCE: 1, PCCI: 1, PCSPX: 1 };
-  S.isPutCallSymbol = function (sym) { return !!PUTCALL_SYMBOLS[String(sym || '').toUpperCase()]; };
+  /* SCINTILLA'S OWN INTRADAY PUT/CALL (2026-09-24, M38): SCPCE equity, SCPCI index. Computed
+     from Alan's own IB Gateway - IBKR publishes each underlying's running call and put volume
+     (generic tick 100 -> tick types 29/30), never a ratio - and served by the chart API from
+     public.ibkr_putcall_minute. Same /candles route, same gate: no second data path opens for
+     them, and until the chart API carries them a request returns NOT_SERVED_BY_CHART_API,
+     which is what the pane prints in words instead of a number. */
+  var SCINTILLA_PUTCALL_SYMBOLS = { SCPCE: 1, SCPCI: 1 };
+  S.isPutCallSymbol = function (sym) {
+    var up = String(sym || '').toUpperCase();
+    return !!(PUTCALL_SYMBOLS[up] || SCINTILLA_PUTCALL_SYMBOLS[up]);
+  };
+  S.isScintillaPutCallSymbol = function (sym) {
+    return !!SCINTILLA_PUTCALL_SYMBOLS[String(sym || '').toUpperCase()];
+  };
   var ABSENCE_NOT_SERVED = 'NOT_SERVED_BY_CHART_API';
   var ABSENCE_PRICE_PATH_RETIRED = 'SUPABASE_PRICE_PATH_RETIRED';
   S.isMacroSymbol = function (sym) { return !!MACRO_SYMBOLS[String(sym || '').toUpperCase()]; };
@@ -1326,7 +1339,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
       return Promise.reject(S.absenceError(ABSENCE_TICKER_FILTER_REQUIRED, '', timeframe));
     var sym = requested[0];
     return providerOwned(options.signal, readSupabase).then(function (own) {
-      if (own[sym] || MACRO_SYMBOLS[sym] || PUTCALL_SYMBOLS[sym])
+      if (own[sym] || MACRO_SYMBOLS[sym] || PUTCALL_SYMBOLS[sym] || SCINTILLA_PUTCALL_SYMBOLS[sym])
         return providerCandleRows(sym, String(timeframe || ''), options.limit, options.signal);
       throw S.absenceError(ABSENCE_NOT_SERVED, sym, String(timeframe || ''));
     });
