@@ -686,6 +686,64 @@ function showStationSource(source) {
   node.title = label ? "This X pane is fed by " + label : "";
 }
 
+/* X PANE HEALTH REGISTER (24 Sep, coordinator). Alan: "You need to confirm… It needs to be the same
+   version applied on Chrome and Brave on both devices." Once a minute while this pane is fed and
+   visible, one row goes to public.station_x_health: the browser and Mac the bridge reports, the
+   bridge version, the window and crop sizes the draw used, whether the crop missed (the "whole X
+   window" fallback, which reads as zoomed out) and how many frames it painted. Metadata only - no
+   pixel of X leaves the page - and a failure to send is silent and never touches the pane. */
+const STATION_HEALTH_URL = "https://wadinxqplrggagkvrdag.supabase.co/rest/v1/station_x_health";
+let stationBridgeVersion = "";
+let stationHealthPaints = 0;
+const stationHealthClient = (() => {
+  try {
+    let id = localStorage.getItem("sc.x.health.client");
+    if (!id) {
+      id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Math.random()).slice(2);
+      localStorage.setItem("sc.x.health.client", id);
+    }
+    return id;
+  } catch (_) { return "no-storage"; }
+})();
+function stationHealthRow() {
+  const video = el("v"), host = el("body");
+  const crop = xfloatCrop || null;
+  const region = video && video.videoWidth ? stationSourceRegion(video, crop) : null;
+  const paints = viewerCadence.paintFrames - stationHealthPaints;
+  stationHealthPaints = viewerCadence.paintFrames;
+  const r1 = (n) => (Number.isFinite(Number(n)) && n !== null ? Math.round(Number(n) * 10) / 10 : null);
+  const ua = navigator.userAgent || "";
+  return {
+    client_id: stationHealthClient,
+    bridge_version: stationBridgeVersion || null,
+    source_browser: crop?.source?.browser || null,
+    source_machine: crop?.source?.machine || null,
+    pane_browser: navigator.brave ? "Brave" : /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : "other",
+    screen_w: screen.width, screen_h: screen.height, dpr: r1(devicePixelRatio),
+    pane_w: host ? host.clientWidth : null, pane_h: host ? host.clientHeight : null,
+    video_w: video ? video.videoWidth || null : null, video_h: video ? video.videoHeight || null : null,
+    viewport_w: r1(crop?.viewport?.width), viewport_h: r1(crop?.viewport?.height),
+    crop_left: r1(crop?.rect?.left), crop_top: r1(crop?.rect?.top),
+    crop_w: r1(crop?.rect?.width), crop_h: r1(crop?.rect?.height),
+    source_cropped: !!crop?.sourceCropped, has_crop: !!crop,
+    fit_scale: region && region.fit ? Math.round(region.fit.scale * 10000) / 10000 : null,
+    bar_x: region && region.fit ? region.fit.barX : null, bar_y: region && region.fit ? region.fit.barY : null,
+    region_usable: region ? !!region.usable : null,
+    whole_frame: stationWholeFrameWhy || null,
+    paints_per_min: paints
+  };
+}
+setInterval(() => {
+  try {
+    if (!xfloatStream || document.visibilityState !== "visible") return;
+    fetch(STATION_HEALTH_URL, {
+      method: "POST", keepalive: true,
+      headers: { apikey: STATION_REALTIME_KEY, "content-type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify(stationHealthRow())
+    }).catch(() => {});
+  } catch (_) {}
+}, 60000);
+
 /* Hover is a renewable hold, not a one-way pause: the bridge releases it after
    its 500 ms lease unless this still-hovered pane renews it. Chrome can also
    omit a pointerleave when focus changes, which the release on blur covers. */
@@ -1240,6 +1298,7 @@ window.addEventListener("message", (event) => {
   if (event.source !== window || event.origin !== location.origin) return;
   if (event.data?.type === "XFF_STATION_BRIDGE_READY" && event.data.instanceId) {
     stationBridgeInstanceId = String(event.data.instanceId);
+    stationBridgeVersion = String(event.data.version || "").slice(0, 16);
     stationReadyAt = Date.now();
     flushStationRemoteOffers();
     if (!xfloatStream) showStationState("ready");

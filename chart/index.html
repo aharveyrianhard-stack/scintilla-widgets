@@ -106,9 +106,9 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
 /* THE PUT/CALL TABLE (24 Sep, Alan: "think how TradingView does tables"). Pinned top-right inside the
    plot, clear of the price scale; numbers only, 10px mono, one hairline border, no bars. */
 .sc-nchart__pctable{ position:absolute; top:7px; right:58px; z-index:3; display:grid;
-  grid-template-columns:auto auto auto; gap:1px 10px; padding:4px 7px; pointer-events:auto;
-  background:rgba(5,6,12,.72); border:1px solid rgba(151,166,198,.14); border-radius:2px;
-  font:600 10px var(--mono); letter-spacing:.03em; line-height:1.35; color:var(--ink3); }
+  grid-template-columns:auto auto auto; gap:0 7px; padding:2px 5px; pointer-events:auto;
+  background:rgba(5,6,12,.55); border:0; border-radius:2px;
+  font:600 9px var(--mono); letter-spacing:.02em; line-height:1.3; color:var(--ink3); }
 .sc-nchart__pctable[data-state="waiting"]{ display:block; opacity:.8; }
 .sc-pct__h{ color:var(--dim); font-weight:700; text-align:right; }
 .sc-pct__k{ color:var(--dim); font-weight:700; }
@@ -119,6 +119,9 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
 @media (max-width:520px){ .sc-nchart__pctable{ top:auto; bottom:22px; right:46px; } }
 .sc-nchart__live--pc .sc-nchart__live-companion{ flex:0 1 auto; max-width:300px; white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; font-size:10px; }
+/* A line that only says "waiting" is not worth a row of chart: it lives in the badge's tooltip until
+   the Scintilla line actually exists. */
+.sc-nchart__live--pc .sc-nchart__live-companion[data-state="waiting"]{ display:none; }
 .sc-nchart__live-window{ color:var(--dim); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
 /* THE REFERENCE TEXT STEPS BACK, THE PRICE AND THE LINE LEAD. "Prev 762.60 ≈41 trading days · since Jul 23" sat at full
    strength in a shadowed box over the top-left of every chart (Alan, live review 2026-09-18: the badges compete with the
@@ -1943,16 +1946,15 @@ function paintPutCallParts(host) {
   const dayText = (pct) => (pct == null ? "\u2014" : (pct >= 0 ? "+" : "\u2212") + Math.abs(Math.round(pct)) + "%");
   const dayDir = (pct) => (pct == null ? "none" : pct >= 0 ? "up" : "down");
   box.textContent = "";
-  cell("sc-pct__h", "");
-  for (const [name] of rows) cell("sc-pct__h", name);
-  cell("sc-pct__k", "VOL");
-  for (const [, vol] of rows) cell("sc-pct__v", pcVol(vol));
-  cell("sc-pct__k", "DAY");
-  for (const [, , pct] of rows) cell("sc-pct__v", dayText(pct), dayDir(pct));
+  /* Two rows, no header, no footer: the way a Pine table sits in a corner (24 Sep, Alan: "it still
+     takes a little much of the screen… the TradingView tables do not interfere with the charts"). */
+  for (const [name, vol, pct] of rows) {
+    cell("sc-pct__k", name === "PUTS" ? "PUT" : "CALL");
+    cell("sc-pct__v", pcVol(vol));
+    cell("sc-pct__v", dayText(pct), dayDir(pct));
+  }
   const ratioMoved = !prev ? null : last.p > prev.p * 1.01 ? "rose" : last.p < prev.p * 0.99 ? "fell" : "held";
   const computed = last.cv ? last.pv / last.cv : null;
-  const move = cell("sc-pct__f", ratioMoved ? "ratio " + ratioMoved : "");
-  move.textContent = ratioMoved ? "ratio " + ratioMoved : "";
   /* The whole sentence, and one plain sentence about what the fraction means, where the fraction is
      (Alan, 24 Sep: "lower put to call ratio means there's less puts, correct?") - on hover. */
   box.title = (prevHave

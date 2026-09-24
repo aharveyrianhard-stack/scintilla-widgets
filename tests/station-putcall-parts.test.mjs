@@ -36,8 +36,8 @@ test("the pane draws both amounts and says which side moved", () => {
   assert.match(chart, /const rows = \[\["PUTS", last\.pv, dPut\], \["CALLS", last\.cv, dCall\]\];/);
   /* 24 Sep: a compact table in the corner, not bars across the chart (Alan: "the PCC is taking over
      so much of the chart… think how TradingView does tables"). */
-  assert.match(chart, /cell\("sc-pct__k", "VOL"\);/, "a VOL row of the two amounts");
-  assert.match(chart, /cell\("sc-pct__k", "DAY"\);/, "a DAY row of how each side moved");
+  assert.match(chart, /cell\("sc-pct__k", name === "PUTS" \? "PUT" : "CALL"\);/, "one row per side: PUT and CALL");
+  assert.match(chart, /cell\("sc-pct__v", dayText\(pct\), dayDir\(pct\)\);/, "each side's day move, coloured by direction");
   assert.match(chart, /\.sc-nchart__pctable\{ position:absolute; top:7px; right:58px;/, "pinned top-right, clear of the price scale");
   assert.match(chart, /\.sc-pct__v\[data-change="up"\]\{ color:var\(--bull\); \}/, "up is green");
   assert.match(chart, /\.sc-pct__v\[data-change="down"\]\{ color:var\(--bear\); \}/, "down is red");

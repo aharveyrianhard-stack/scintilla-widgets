@@ -46,7 +46,9 @@
       if (!result?.ok) return result;
       window.postMessage({
         type: "XFF_STATION_BRIDGE_READY",
-        instanceId: INSTANCE_ID
+        instanceId: INSTANCE_ID,
+        /* 0.7.20: the pane records which bridge version fed it (the X pane health register). */
+        version: chrome.runtime.getManifest().version
       }, ORIGIN);
       if (result.active === false) {
         window.postMessage({
