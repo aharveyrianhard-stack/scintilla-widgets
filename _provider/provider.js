@@ -1050,6 +1050,13 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
           low: Number(bar.l),
           close: Number(bar.c),
           volume: Number(bar.v),
+          /* THE TWO PARTS OF A PUT/CALL RATIO (M56, 24 Sep). The chart API carries the publisher's
+             own put and call volume on the same candle as the ratio, so a pane can draw the two
+             amounts instead of only the fraction. No second route, no extra request. Absent stays
+             null - a 0 would read as "nothing traded" on the 2006-2019 sessions, which published
+             a ratio and no volumes. */
+          put_volume: Number.isFinite(bar.pv) ? Number(bar.pv) : null,
+          call_volume: Number.isFinite(bar.cv) ? Number(bar.cv) : null,
           provider: payload.provider || 'MASSIVE',
           provider_symbol: payload.provider_symbol || symbol,
           authority: payload.bar_authority || 'PROVIDER_BUILT'

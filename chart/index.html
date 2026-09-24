@@ -82,6 +82,27 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
 .sc-nchart__live-companion[data-state="waiting"]{ color:var(--ink3); opacity:.9; }
 .sc-nchart__live-companion[data-change="up"]{ color:var(--bull); }
 .sc-nchart__live-companion[data-change="down"]{ color:var(--bear); }
+/* THE TWO PARTS (M56, 24 Sep). Alan: "puts traded and calls traded side by side would be pretty,
+   pretty great. Which moved would be pretty great." A ratio hides which of its two inputs moved:
+   0.46 can rise because puts were bought or because calls were sold. So the pane draws both
+   amounts as bars against the larger of the two, and says in one line which side moved. Each bar
+   takes the same up / down colour every other reading takes (Alan, 23 Sep); the track is grey. */
+.sc-nchart__live-parts{ flex:1 0 100%; display:grid; grid-template-columns:auto 1fr auto; gap:2px 6px;
+  align-items:center; margin-top:2px;
+  /* The badge is as wide as its widest line; at 1680 that let two bars stretch a thousand pixels
+     across the chart. A readout, not a second chart: the bars keep a fixed comfortable width and
+     the phone width (390) simply uses all it has. */
+  max-width:min(100%, 340px); }
+.sc-nchart__live-parts[data-state="waiting"]{ display:block; color:var(--ink3); font:600 11px var(--mono);
+  letter-spacing:.02em; line-height:1.3; white-space:normal; overflow-wrap:anywhere; }
+.sc-nchart__pcp-label{ color:var(--ink3); font:700 11px var(--mono); letter-spacing:.04em; }
+.sc-nchart__pcp-track{ height:7px; background:rgba(176,176,176,.16); border-radius:1px; overflow:hidden; }
+.sc-nchart__pcp-fill{ height:100%; width:0; background:var(--dim); display:block; }
+.sc-nchart__pcp-fill[data-change="up"]{ background:var(--bull); }
+.sc-nchart__pcp-fill[data-change="down"]{ background:var(--bear); }
+.sc-nchart__pcp-val{ color:var(--ink3); font:700 11px var(--mono); letter-spacing:.02em; white-space:nowrap; }
+.sc-nchart__pcp-move{ grid-column:1 / -1; color:var(--ink3); font:600 11px var(--mono);
+  letter-spacing:.02em; line-height:1.3; white-space:normal; overflow-wrap:anywhere; }
 .sc-nchart__live-window{ color:var(--dim); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
 /* THE REFERENCE TEXT STEPS BACK, THE PRICE AND THE LINE LEAD. "Prev 762.60 ≈41 trading days · since Jul 23" sat at full
    strength in a shadowed box over the top-left of every chart (Alan, live review 2026-09-18: the badges compete with the
@@ -621,7 +642,13 @@ async function fetchChartSeries(t, range, requestedLimit){
     /* One transient history read must recover inside this load attempt so a
        healthy chart never enters the delayed/retrying paint unnecessarily. */
     const rows = await fetchProviderCandles(t, e[0], limit, 2);
-    let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
+    /* `pv` / `cv` are the two volumes behind a put/call ratio (puts traded, calls traded), which
+       the provider carries on the same candle. Absent stays absent: null, never 0, so a session
+       that published no volumes cannot read as "nothing traded". Every other series leaves them
+       null and nothing downstream changes. */
+    let pts = (Array.isArray(rows) ? rows : []).map(function(r){ return { d: new Date(r.timestamp*1000).toISOString(), p: +r.close,
+      pv: isFinite(r.put_volume) && r.put_volume !== null ? +r.put_volume : null,
+      cv: isFinite(r.call_volume) && r.call_volume !== null ? +r.call_volume : null }; }).filter(function(q){ return isFinite(q.p) && q.p > 0; });
     pts.sort(function(a,b){ return a.d < b.d ? -1 : a.d > b.d ? 1 : 0; });
     /* CACHE THE PURE PROVIDER SERIES FIRST. The transient live point is applied to a COPY
        afterwards and is never persisted, so nothing a live quote does can change a cached candle. */
@@ -1707,6 +1734,7 @@ function paintPutCallStatus(host) {
     badge.title = pane.name + " · " + waiting;
     parts.previous.textContent = pane.source === "IBKR_INTRADAY" ? waiting : "";
     paintPutCallCompanion(host);
+    paintPutCallParts(host);
     return;
   }
   const pct = prev && prev.p ? ((last.p - prev.p) / prev.p) * 100 : null;
@@ -1726,6 +1754,7 @@ function paintPutCallStatus(host) {
   badge.title = pane.name + " \u00b7 " + putCallSessionLabel(last.d) + " \u00b7 " + last.p.toFixed(2) +
     "\nCboe publishes one number per session, after that session closes. There is no live put/call ratio.";
   paintPutCallCompanion(host);
+  paintPutCallParts(host);
   paintChartHistoryWindow(host);
 }
 /* WHAT THE INTRADAY LINE SAYS WHEN THERE IS NO INTRADAY LINE.
@@ -1819,6 +1848,101 @@ function paintPutCallCompanion(host) {
         (track.mean_offset >= 0 ? "+" : "\u2212") + Math.abs(track.mean_offset).toFixed(2) +
         ". Cboe counts every option on its own exchanges; Scintilla sums the names it carries, so a steady offset is expected."
       : "Not measurable yet: fewer than two sessions exist where both Cboe and Scintilla printed.");
+}
+/* THE TWO PARTS, DRAWN. Puts traded and calls traded as two bars, the ratio beside them, and one
+   sentence saying which side moved since the session before.
+
+   WHY BARS AND NOT ONLY THE FRACTION (Alan, 24 Sep): "my brain has a little problem with these
+   fractions because there's multiple inputs that can change to move the fraction". The bars are
+   the two inputs; the sentence names which one moved.
+
+   The amounts are the publisher's own: Cboe prints the product's put and call volume in the same
+   daily file as the ratio. Nothing here derives a volume from a ratio, and a session that
+   published no volumes says so instead of drawing an empty bar. */
+const PUTCALL_FLAT_PCT = 5;      /* the same threshold the intraday reader uses, so the words agree */
+function pcVol(n) {
+  if (!isFinite(n)) return "\u2014";
+  const v = Math.abs(n);
+  if (v >= 1e9) return (n / 1e9).toFixed(2) + "B";
+  if (v >= 1e6) return (n / 1e6).toFixed(2) + "M";
+  if (v >= 1e3) return Math.round(n / 1e3) + "K";
+  return String(Math.round(n));
+}
+function pcSide(pct) {
+  if (pct == null) return "unknown";
+  if (Math.abs(pct) < PUTCALL_FLAT_PCT) return "flat";
+  return (pct > 0 ? "up " : "down ") + Math.round(Math.abs(pct)) + "%";
+}
+function pcChangeWord(pct) {
+  return pct == null || Math.abs(pct) < PUTCALL_FLAT_PCT ? "flat" : pct > 0 ? "up" : "down";
+}
+function paintPutCallParts(host) {
+  const badge = host?.querySelector(".sc-nchart__live");
+  const pane = scPutCallPane(host?.dataset?.t);
+  if (!badge || !pane) return;
+  let box = badge.querySelector(".sc-nchart__live-parts");
+  if (!box) {
+    box = document.createElement("span");
+    box.className = "sc-nchart__live-parts";
+    badge.append(box);
+  }
+  badge.classList.add("sc-nchart__live--pc");
+  const pts = host._series || [];
+  const last = pts.length ? pts[pts.length - 1] : null;
+  const prev = pts.length > 1 ? pts[pts.length - 2] : null;
+  const have = last && isFinite(last.pv) && isFinite(last.cv) && last.pv !== null && last.cv !== null;
+  if (!have) {
+    /* NAMED, NEVER BLANK. Three different silences, and the pane says which:
+         · the reader has not been switched on, for Scintilla's own intraday line;
+         · the stored Cboe series predates the two-part collector;
+         · Cboe published a ratio for that session and never published the volumes (2006-2019). */
+    box.dataset.state = "waiting";
+    box.textContent = pane.source === "IBKR_INTRADAY"
+      ? "puts and calls \u00b7 " + putCallWaitingText(host?.dataset?.absence)
+      : !last ? "puts and calls \u00b7 waiting for the published session"
+      : "puts and calls \u00b7 waiting for the reader \u00b7 this session's two volumes are not in the series yet";
+    box.title = "A put/call ratio is puts traded divided by calls traded. The two amounts are shown as soon as the series carries them; until then only the published ratio is shown, and this line says why.";
+    return;
+  }
+  box.dataset.state = "ready";
+  const prevHave = prev && isFinite(prev.pv) && isFinite(prev.cv) && prev.pv !== null && prev.cv !== null;
+  const dPut = prevHave && prev.pv ? ((last.pv - prev.pv) / prev.pv) * 100 : null;
+  const dCall = prevHave && prev.cv ? ((last.cv - prev.cv) / prev.cv) * 100 : null;
+  const top = Math.max(last.pv, last.cv) || 1;
+  const rows = [["PUTS", last.pv, dPut], ["CALLS", last.cv, dCall]];
+  box.textContent = "";
+  for (const [name, vol, pct] of rows) {
+    const label = document.createElement("span");
+    label.className = "sc-nchart__pcp-label";
+    label.textContent = name;
+    const track = document.createElement("span");
+    track.className = "sc-nchart__pcp-track";
+    const fill = document.createElement("span");
+    fill.className = "sc-nchart__pcp-fill";
+    fill.dataset.change = pcChangeWord(pct);
+    fill.style.width = Math.max(2, Math.round((vol / top) * 100)) + "%";
+    track.append(fill);
+    const val = document.createElement("span");
+    val.className = "sc-nchart__pcp-val";
+    val.textContent = pcVol(vol);
+    box.append(label, track, val);
+  }
+  const move = document.createElement("span");
+  move.className = "sc-nchart__pcp-move";
+  const ratioMoved = !prev ? null : last.p > prev.p * 1.01 ? "rose" : last.p < prev.p * 0.99 ? "fell" : "held";
+  const computed = last.cv ? last.pv / last.cv : null;
+  move.textContent = prevHave
+    ? "puts " + pcSide(dPut) + ", calls " + pcSide(dCall) +
+      (ratioMoved ? " \u2192 the ratio " + ratioMoved : "")
+    : "no earlier session carries both volumes, so nothing can be compared yet";
+  /* One plain sentence about what the fraction means, once, where the fraction is (Alan, 24 Sep:
+     "lower put to call ratio means there's less puts, correct?"). */
+  move.title = "A lower number means fewer puts per call. 0.5 = one put for every two calls. " +
+    "1.0 = one put for every call. 1.2 = twelve puts for every ten calls." +
+    (computed ? "\nPuts " + Math.round(last.pv).toLocaleString("en-US") + " \u00f7 calls " +
+      Math.round(last.cv).toLocaleString("en-US") + " = " + computed.toFixed(4) +
+      "; the publisher printed " + last.p.toFixed(2) + "." : "");
+  box.append(move);
 }
 /* Each put/call pane also loads its opposite number, through the SAME provider route as its own
    series - no second data path, no direct database read. A Cboe pane loads Scintilla's intraday

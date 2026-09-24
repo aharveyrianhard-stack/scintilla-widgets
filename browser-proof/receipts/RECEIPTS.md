@@ -2304,3 +2304,45 @@ Cboe's own readout was unchanged in every scenario: `0.90  −1.7%  Sep 23` with
 serving rgb(0, 255, 163).
 
 Run: PW_MODULE_DIR=<dir> node browser-proof/proofs/putcall-intraday.mjs
+
+---
+
+## put/call: puts and calls as two bars (2026-09-24T04:26:09Z)
+
+Command: `PW_MODULE_DIR=… PLAYWRIGHT_CHROMIUM=<headless shell> node browser-proof/proofs/putcall-parts.mjs`
+
+Real Chromium headless shell over the served repository; the chart API answered from this
+proof with the real 2026-09-23 Cboe equity numbers. Asserts inline.
+
+- **served-1680** — state `ready`, PUTS/CALLS 1.21M 2.65M 446px/971px; “puts up 21%, calls up 6% → the ratio rose” → `browser-proof/receipts/putcall-parts-served-1680.png`
+- **served-390** — state `ready`, PUTS/CALLS 1.21M 2.65M 125px/272px; “puts up 21%, calls up 6% → the ratio rose” → `browser-proof/receipts/putcall-parts-served-390.png`
+- **waiting-1680** — state `waiting`, no bars  px; “puts and calls · waiting for the reader · this session's two volumes are not in the series yet” → `browser-proof/receipts/putcall-parts-waiting-1680.png`
+- **waiting-390** — state `waiting`, no bars  px; “puts and calls · waiting for the reader · this session's two volumes are not in the series yet” → `browser-proof/receipts/putcall-parts-waiting-390.png`
+
+---
+
+## put/call: puts and calls as two bars (2026-09-24T04:27:17Z)
+
+Command: `PW_MODULE_DIR=… PLAYWRIGHT_CHROMIUM=<headless shell> node browser-proof/proofs/putcall-parts.mjs`
+
+Real Chromium headless shell over the served repository; the chart API answered from this
+proof with the real 2026-09-23 Cboe equity numbers. Asserts inline.
+
+- **served-1680** — state `ready`, PUTS/CALLS 1.21M 2.65M 119px/258px; “puts up 21%, calls up 6% → the ratio rose” → `browser-proof/receipts/putcall-parts-served-1680.png`
+- **served-390** — state `ready`, PUTS/CALLS 1.21M 2.65M 119px/258px; “puts up 21%, calls up 6% → the ratio rose” → `browser-proof/receipts/putcall-parts-served-390.png`
+- **waiting-1680** — state `waiting`, no bars  px; “puts and calls · waiting for the reader · this session's two volumes are not in the series yet” → `browser-proof/receipts/putcall-parts-waiting-1680.png`
+- **waiting-390** — state `waiting`, no bars  px; “puts and calls · waiting for the reader · this session's two volumes are not in the series yet” → `browser-proof/receipts/putcall-parts-waiting-390.png`
+
+---
+
+## put/call: puts and calls as two bars (2026-09-24T04:29:26Z)
+
+Command: `PW_MODULE_DIR=… PLAYWRIGHT_CHROMIUM=<headless shell> node browser-proof/proofs/putcall-parts.mjs`
+
+Real Chromium headless shell over the served repository; the chart API answered from this
+proof with the real 2026-09-23 Cboe equity numbers. Asserts inline.
+
+- **served-1680** — state `ready`, PUTS/CALLS 1.21M 2.65M 119px/258px; “puts up 21%, calls up 6% → the ratio rose” → `browser-proof/receipts/putcall-parts-served-1680.png`
+- **served-390** — state `ready`, PUTS/CALLS 1.21M 2.65M 119px/258px; “puts up 21%, calls up 6% → the ratio rose” → `browser-proof/receipts/putcall-parts-served-390.png`
+- **waiting-1680** — state `waiting`, no bars  px; “puts and calls · waiting for the reader · this session's two volumes are not in the series yet” → `browser-proof/receipts/putcall-parts-waiting-1680.png`
+- **waiting-390** — state `waiting`, no bars  px; “puts and calls · waiting for the reader · this session's two volumes are not in the series yet” → `browser-proof/receipts/putcall-parts-waiting-390.png`
