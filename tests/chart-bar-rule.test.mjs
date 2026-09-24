@@ -111,6 +111,20 @@ test("the pane wires the rule into the label it already had, and changes no bar"
     "an equity line still never takes a live tick as a bar");
 });
 
+test("the pane Alan approved is untouched unless somebody asks for the line", () => {
+  /* 22 Sep review: the pane reads ticker, price, change; window dates became hover text. */
+  assert.match(chart, /\.sc-nchart__live-prev, \.sc-nchart__live-window\{ display:none; \}/,
+    "the window line stays hidden by default");
+  assert.match(chart, /\.sc-nchart\[data-barrule="1"\] \.sc-nchart__live-window\{ display:inline; \}/,
+    "and is revealed only for a pane that was asked to show it");
+  assert.match(chart, /const BAR_RULE_ON = QS\.has\("barrule"\) \? QS\.get\("barrule"\) === "1" : lsGet\(BAR_RULE_KEY\) === "1";/,
+    "off unless a link or this browser's own key turns it on");
+  assert.match(chart, /host\.dataset\.barrule = BAR_RULE_ON \? "1" : "0"/,
+    "the switch reaches the pane as a data attribute, so CSS alone decides visibility");
+  assert.doesNotMatch(chart, /BAR_RULE_ON\s*=\s*true|barrule.*!==\s*"0"/,
+    "the switch must not default to on");
+});
+
 test("the independently versioned chart shell still mirrors the chart exactly", () => {
   assert.equal(shell, chart);
 });

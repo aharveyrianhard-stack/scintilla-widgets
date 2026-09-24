@@ -210,6 +210,9 @@ body.tvmodal-open{ overflow:hidden; }
    are hover text. A range change keeps the old line dimmed instead of a blank pane. Internals
    without a retained series show TradingView's free chart, labelled as such. */
 .sc-nchart__live-prev, .sc-nchart__live-window{ display:none; }
+/* The bar rule is opt-in (?barrule=1): one quiet line, the same size and colour as the window
+   text it replaces, never a second badge and never over the line. */
+.sc-nchart[data-barrule="1"] .sc-nchart__live-window{ display:inline; }
 .sc-nchart[data-holding="1"] .sc-nchart__cv{ opacity:.42; transition:opacity .12s ease; }
 .sc-tvinternal{ position:absolute; inset:0; z-index:4; background:var(--bg); }
 /* The frame sits ABOVE the waiting line (z 2 over z 1) and starts transparent: while TradingView has
@@ -355,6 +358,15 @@ const CLOUD_EXTRAS = Object.freeze({ ema8: QS.get("ema8") === "1", sma100: QS.ge
    and the caption on the pane switches it for this browser. Neither changes a single value. */
 const CLOUD_STEPS_KEY = "station.clouds.steps";
 let CLOUD_STEPS = QS.has("steps") ? QS.get("steps") === "1" : lsGet(CLOUD_STEPS_KEY) === "1";
+/* WHAT A BAR IS, ON THE PANE — OFF BY DEFAULT, BECAUSE ALAN CLEARED THIS SPACE.
+   The 22 Sep review left the pane reading ticker, price, change, and pushed the window dates into
+   hover text (see .sc-nchart__live-window{display:none}). That ruling stands here: this switch is
+   OFF unless somebody asks for it, so the pane Alan approved is untouched. With ?barrule=1 - or
+   the same key written once for this browser - the quiet window line comes back, now carrying the
+   Eastern clock time of the last COMPLETED bar. It answers, on screen, the question of 24 Sep:
+   "all of this is a three hour chart ... would it change a lot in bars?" */
+const BAR_RULE_KEY = "station.barrule";
+const BAR_RULE_ON = QS.has("barrule") ? QS.get("barrule") === "1" : lsGet(BAR_RULE_KEY) === "1";
 const S = {
   chartT: (QS.get("t") || (BARE ? null : lsGet("scw_chartT")) || "MU").toUpperCase().trim(),
   /* The Station owns one run-wide range. A reload begins at 3h unless its
@@ -2055,6 +2067,8 @@ function paintChartHistoryWindow(host) {
   const label = host?.querySelector(".sc-nchart__live-window");
   const pts = host?._series || [];
   if (!label) return;
+  /* The switch is a data attribute, so CSS alone decides visibility and no painter has to know. */
+  if (host.dataset.barrule !== (BAR_RULE_ON ? "1" : "0")) host.dataset.barrule = BAR_RULE_ON ? "1" : "0";
   const pcPane = scPutCallPane(host?.dataset?.t);
   /* Scintilla's own line is this session's minutes, so it is never labelled with Cboe's word. */
   const pcIntraday = Boolean(pcPane) && pcPane.source === "IBKR_INTRADAY";
