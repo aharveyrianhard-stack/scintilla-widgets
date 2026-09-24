@@ -105,6 +105,12 @@ Supabase function.
 `/visuals/open`, `/visuals/template`, `/visuals/theme`, `/visuals/ladder`, `/visuals/ladder/mini`. These are the look lab, not Station
 surfaces; they are inventoried so the count is honest, not because the Station mounts them.
 
+## Workshops
+
+`/workshop/context-lens` — the Context Lens workshop (M65, 24 Sep). Eight live chart panes with the
+lens in four switchable styles, for Alan to choose from. It is served but deliberately **not linked
+from the deck**: the lens is off the live Station until he approves a style here.
+
 ## Standalone pages served at their own path
 
 These are not directory routes. They answer 200 on the preview and are part of the deployed
