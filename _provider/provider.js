@@ -362,12 +362,12 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
      something that happens to a wall at 04:00.
 
      A previously VERIFIED map still survives a bad read - that is knowledge, not a guess. */
-  /* UNIVERSE ADMISSION 2026-09-24 (M57): 364 -> 424, the 60 names the expansion proved. This count
+  /* UNIVERSE ADMISSION 2026-09-24 (M57): 364 -> 420, the 56 names that passed the gap report (SIVE, BJK, TMRC, CLSK held). This count
      and ACCEPTED_UNIVERSE_SHA256 below move together with the chart API's canonical file,
      boot-geiger.sh, the chart API fly.toml and the Hub's two pins. Until every one of them agrees,
      this client fails closed with a named reason and the Hub refuses to rank: that is the designed
      behaviour, not something to work around by editing one line here. */
-  var EXPECTED_EQUITY_UNIVERSE = 424;
+  var EXPECTED_EQUITY_UNIVERSE = 420;
   /* THE MACRO SERIES THE CHART API CARRIES FROM FMP (2026-09-22): VIX, DXY, US10Y. Same /candles
      route, provider stated on every response. Anything else that is not provider-owned equity is
      NOT_SERVED_BY_CHART_API - a named absence the pane paints, never a legacy table read. */
@@ -395,7 +395,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
   var ABSENCE_PRICE_PATH_RETIRED = 'SUPABASE_PRICE_PATH_RETIRED';
   S.isMacroSymbol = function (sym) { return !!MACRO_SYMBOLS[String(sym || '').toUpperCase()]; };
   var ACCEPTED_UNIVERSE_SHA256 =
-    '4a5dd2ac74dee077ab23c0a6f237844ec83821957a2d305653771f0154e06621';
+    '0c2abd57a836845ee120eba1e465cdb61db6a2cca5b3da1fcecbdc591936bb20';
   /* The identity the 364 were served under until 2026-09-24. It is NOT accepted as the universe any
      more; it is accepted only for FMP reference rows, immediately below. */
   var PREVIOUS_ACCEPTED_UNIVERSE_SHA256 =
@@ -411,7 +411,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
      takes the whole indicator snapshot down rather than showing one stale value. Every FMP row in the
      table today carries the 364-symbol identity, so REPLACING the entry instead of adding to it would
      have thrown away the Station's indicator panel for every name until the exporter had rewritten
-     all 424 tickers. The superseded identity stays accepted until that refresh is proven complete. */
+     all 420 tickers. The superseded identity stays accepted until that refresh is proven complete. */
   var FMP_REFERENCE_UNIVERSE_SHA256S = [INDICATOR_UNIVERSE_SHA256,
     PREVIOUS_ACCEPTED_UNIVERSE_SHA256, ACCEPTED_UNIVERSE_SHA256];
   /* CARDINALITY IS NOT IDENTITY, AND THE CANONICAL SET IS DERIVABLE.
