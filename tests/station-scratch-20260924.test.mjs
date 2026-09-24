@@ -262,7 +262,15 @@ test("the TradingView internals are no longer painted grey by us", () => {
   }
 });
 
-test("the copy layout button belongs to SCRATCH alone", () => {
+test("the copy layout button belongs to SCRATCH alone, and is somewhere it can be seen", () => {
   assert.match(deck, /<button type="button" class="btn" id="copyLayout" hidden/, "hidden until a page asks for it");
   assert.match(deck, /if \(copy\) copy\.hidden = SCENE !== "scratch";/);
+  /* Found in a real browser: the button's first home was the dock's charts section, which the
+     23 Sep dock hides outright - so a button that was "not hidden" was still invisible. It rides
+     with the timeframe now, which is the section that is always on the strip. */
+  const timeframe = deck.slice(deck.indexOf('<span class="dsec" data-sec="timeframe"'),
+                               deck.indexOf('<span class="dsec" data-sec="charts"'));
+  assert.match(timeframe, /id="copyLayout"/, "it lives in the timeframe section");
+  assert.match(deck, /\.dsec\[data-sec="charts"\]\{ display:none !important; \}/,
+    "because the charts section is display:none - the trap this test exists to hold shut");
 });
