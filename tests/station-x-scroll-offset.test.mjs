@@ -39,3 +39,8 @@ test("a real fractional offset is still honoured", () => {
 test("the health row carries the raw offset so a runaway is visible", () => {
   assert.match(xShell, /scroll_offset: r1\(crop\?\.fractionalScrollOffset\),/);
 });
+
+test("the health row carries the bridge's own counters for the two 0.7.21 safety nets", () => {
+  assert.match(xShell, /ack_fallbacks: Number\.isFinite\(Number\(crop\?\.sourceMetrics\?\.captureAckFallbacks\)\)/);
+  assert.match(xShell, /runaway_resets: Number\.isFinite\(Number\(crop\?\.sourceMetrics\?\.runawayOffsetResets\)\)/);
+});

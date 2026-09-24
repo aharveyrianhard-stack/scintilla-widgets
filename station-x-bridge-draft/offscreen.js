@@ -56,13 +56,17 @@ async function startCapture(streamId) {
            One request for both paths. The cap's 16:9 shape is also why a
            resized X window arrives letterboxed; the viewer's mapping now
            accounts for that instead of assuming it away. */
-        maxWidth: 2560,
-        maxHeight: 1440,
+        /* 24 Sep (0.7.21): 1920x1080 at up to 15 frames a second. The Station
+           pane paints 12.5 times a second (VIEWER_PAINT_INTERVAL_MS = 80), so a
+           60fps relay encoded, sent and decoded about four frames for every one
+           drawn, in each browser, on an iMac measured at 4.9 GB of swap and a
+           15-minute load of 42. At Alan's X window sizes the timeline column
+           arrives 760-770 captured pixels wide under this cap, which is the size
+           the pane draws it at, so nothing he reads gets softer. */
+        maxWidth: 1920,
+        maxHeight: 1080,
         minFrameRate: 10,
-        // Keep Station's relayed tab video at parity with the original
-        // Document-PiP Float capture.  A 30fps relay cannot visually match a
-        // 60Hz fractional crop, no matter how smooth the canvas is.
-        maxFrameRate: 60
+        maxFrameRate: 15
       }
     },
     audio: false
@@ -78,22 +82,35 @@ async function startCapture(streamId) {
   return { ok: true };
 }
 
+/* 24 Sep (0.7.21): on both Brave Stations no scroll step was ever acknowledged,
+   and the source's crop offset grew past 580 px until every viewer's crop missed
+   the picture. This hidden decoder is the only place a frame is proven, so a
+   frame is now acknowledged on its callback OR after two frames at the capped
+   rate, whichever comes first; the acknowledgement says which, so the Station's
+   health register shows whether the fallback is doing the work. */
+const CAPTURE_FRAME_FALLBACK_MS = 150;
 function acknowledgeCapturedFrame(generation) {
   pendingCaptureGeneration = Math.max(pendingCaptureGeneration, Number(generation) || 0);
   if (!captureVideo || captureFrameWaitScheduled || !pendingCaptureGeneration) return;
   captureFrameWaitScheduled = true;
-  const afterFrame = () => {
+  let settled = false, fallbackTimer = 0;
+  const afterFrame = (viaFallback) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(fallbackTimer);
     captureFrameWaitScheduled = false;
     const confirmedGeneration = pendingCaptureGeneration;
     pendingCaptureGeneration = 0;
     chrome.runtime.sendMessage({
       type: "XFF_STATION_CAPTURE_FRAME",
-      generation: confirmedGeneration
+      generation: confirmedGeneration,
+      fallback: viaFallback === true
     }).catch(() => {});
   };
   if (typeof captureVideo.requestVideoFrameCallback === "function") {
-    captureVideo.requestVideoFrameCallback(afterFrame);
+    captureVideo.requestVideoFrameCallback(() => afterFrame(false));
   }
+  fallbackTimer = setTimeout(() => afterFrame(true), CAPTURE_FRAME_FALLBACK_MS);
 }
 
 async function answerOffer(peerId, offer) {

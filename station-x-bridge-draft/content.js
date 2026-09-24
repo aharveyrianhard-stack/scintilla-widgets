@@ -64,7 +64,9 @@
       anchorCorrections: 0,
       anchorReflowHeightChanges: 0,
       lateAnchorChecks: 0,
-      lateAnchorCorrections: 0
+      lateAnchorCorrections: 0,
+      captureAckFallbacks: 0,
+      runawayOffsetResets: 0
     },
     scrollEnabled: false,
     pointerPause: false,
@@ -604,6 +606,9 @@
   // scrollTop: on an integer move the capture pipeline can still be painting
   // the pre-scroll frame for a couple of source frames. Replacing .9 with .2
   // at that instant is the backwards "bounce" the viewers were seeing.
+  /* The same band the Station pane honours (STATION_SCROLL_OFFSET_MAX_PX). */
+  const STATION_MAX_RENDERED_OFFSET_PX = 4;
+
   function nextStationScrollState(state, elapsedMs, speedPxPerSecond, appliedPixels) {
     const visualDelta =
       (Math.max(0, Number(speedPxPerSecond) || 0) * Math.max(0, Number(elapsedMs) || 0)) / 1000;
@@ -938,10 +943,10 @@
           chromeMediaSourceId: response.streamId,
           minWidth: 240,
           minHeight: 240,
-          maxWidth: 2560,
-          maxHeight: 1440,
+          maxWidth: 1920,
+          maxHeight: 1080,
           minFrameRate: 10,
-          maxFrameRate: 60
+          maxFrameRate: 15
         }
       },
       audio: false
@@ -2132,7 +2137,9 @@
         anchorCorrections: session.stationMetrics.anchorCorrections,
         anchorReflowHeightChanges: session.stationMetrics.anchorReflowHeightChanges,
         lateAnchorChecks: session.stationMetrics.lateAnchorChecks,
-        lateAnchorCorrections: session.stationMetrics.lateAnchorCorrections
+        lateAnchorCorrections: session.stationMetrics.lateAnchorCorrections,
+        captureAckFallbacks: session.stationMetrics.captureAckFallbacks,
+        runawayOffsetResets: session.stationMetrics.runawayOffsetResets
       },
       sequence: ++session.stationCropSequence,
       activeView: session.activeView,
@@ -2286,6 +2293,16 @@
         } else if (!session.stationPendingScrollGeneration && !session.stationPostAckAnchor) {
           session.stationRenderedOffset = next.renderedOffset;
         }
+        /* 0.7.21: the offset is a phase, never a distance. If acknowledgements
+           stop arriving it would grow without limit and push every viewer's crop
+           off the picture, so past the band the pending step counts as settled. */
+        if (session.stationRenderedOffset > STATION_MAX_RENDERED_OFFSET_PX) {
+          clearStationPostAckAnchor();
+          session.stationPendingScrollGeneration = 0;
+          session.stationPendingScrollAnchor = null;
+          session.stationRenderedOffset = session.scrollCarryPx;
+          session.stationMetrics.runawayOffsetResets += 1;
+        }
       }
       runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });
     } else if (action === "pause") {
@@ -2369,6 +2386,7 @@
       return true;
     }
     if (message?.type === "XFF_STATION_CAPTURE_FRAME") {
+      if (message.fallback === true) session.stationMetrics.captureAckFallbacks += 1;
       confirmStationCaptureFrame(message.generation);
       sendResponse({ ok: true });
       return;

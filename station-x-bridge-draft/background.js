@@ -657,7 +657,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     stationLastCaptureFrameGeneration = generation;
     stationPendingCaptureGeneration = 0;
     chrome.tabs.sendMessage(stationSourceTabId, {
-      type: "XFF_STATION_CAPTURE_FRAME", generation
+      type: "XFF_STATION_CAPTURE_FRAME", generation, fallback: message.fallback === true
     }).catch(() => {});
     return;
   }
