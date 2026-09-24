@@ -130,6 +130,7 @@ surface whether or not anything links to them.
 | `/templates/sector-rotation.html` | sector rotation (current) |
 | `/templates/sector-rotation-older.html` | sector rotation (earlier) |
 | `/deliverables/20260924/ibkr-use/IBKR-USE.html` | M67 — the grey spots on Station, and which of them IBKR can fill |
+| `/deliverables/20260924/station-detail/STATION-DETAIL.html` | M74 — the zoomed one-ticker view, the fundamentals view, expand-in-place and "+ rotation" |
 | `/station-x-bridge-draft/offscreen.html` | X bridge draft, offscreen document — a Chrome extension file, not a Station surface, but deployed all the same |
 
 **This table is behind the tree.** `tests/station-route-inventory.test.mjs` regenerates the list on

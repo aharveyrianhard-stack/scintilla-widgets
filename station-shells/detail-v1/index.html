@@ -67,6 +67,7 @@ canvas{display:block;width:100%;height:100%}
 .cap .val{font-weight:700;font-size:12px}
 .cap .note{color:var(--dim);margin-left:auto;text-align:right;max-width:28ch}
 #pricePane .cap .note{padding-right:112px;max-width:44ch;white-space:nowrap}
+.osc .cap .note{padding-right:34px}   /* the oscillator axis gutter, so a note never sits on a number */
 .volrow .cap .note{max-width:34ch}
 .legend{position:absolute;bottom:4px;left:7px;display:flex;gap:9px;font-size:9.5px;color:var(--dim);
   pointer-events:none;z-index:2}
@@ -78,14 +79,26 @@ footer{flex:none;padding:5px 10px 7px;color:var(--dim);font-size:9.5px;line-heig
 .cell{flex:1 1 0;height:20px;border:1px solid var(--line2);border-radius:2px;background:var(--panel2);position:relative;overflow:hidden}
 .cell b{position:absolute;inset:0;display:block;transform-origin:left center}
 .cellcap{font-size:9.5px;color:var(--dim);white-space:nowrap}
+/* ── PHONE ─────────────────────────────────────────────────────────────────────────
+   At 1680 a pane is a canvas with a one-line caption floating on top of it. At 390 that
+   caption is three lines, so floating it would print words over the chart and over the
+   battery. Each pane becomes an ordinary column instead: caption, then canvas, nothing
+   overlapping anything. */
 @media (max-width:760px){
-  #pricePane .cap .note{white-space:normal;max-width:20ch;padding-right:60px}
   body{overflow:auto}
-  main{height:auto}
-  #pricePane{height:44vh;flex:none}
-  .osc{flex-direction:column;height:auto}
-  .osc .pane{height:132px;flex:none}
-  .volrow{height:96px}
+  main{height:auto;flex:none;gap:8px;padding:8px}
+  .pane{display:flex;flex-direction:column;overflow:hidden}
+  .pane .cap{position:static;flex:none;padding:6px 8px 2px;flex-wrap:wrap;row-gap:2px}
+  .cap .note{margin-left:0;text-align:left;max-width:100%}
+  #pricePane .cap .note{white-space:normal;max-width:100%;padding-right:0}
+  .pane canvas{flex:1 1 auto;height:auto;min-height:0}
+  #pricePane{height:56vh;flex:none}
+  .osc{flex-direction:column;height:auto;flex:none;gap:8px}
+  .osc .pane{height:162px;flex:none}
+  .legend{position:static;padding:2px 8px 6px}
+  .volrow{height:auto;flex:none}
+  .volrow .pane{height:104px}
+  #battery{flex:1 1 auto;padding:4px 8px 10px}
   .tk{font-size:17px} .stamp{max-width:100%}
 }
 </style>
@@ -258,7 +271,11 @@ const fmt = (v, d) => v == null || !Number.isFinite(v) ? "—" : v.toFixed(d == 
 function paintPrice() {
   const box = fit(el("price")); if (!box) return;
   const { ctx, w, h } = box;
-  const padT = 30, padB = 14, padR = 104;   /* padR holds a whole label: "EMA13 1005.28" */
+  /* The right gutter holds the ribbon's labels. On a wide screen that is "EMA13 1005.28";
+     on a phone there is no room for the name, so the value stands alone beside the legend
+     that already carries the colours. */
+  const narrow = w < 520;
+  const padT = 30, padB = 14, padR = narrow ? 56 : 104;
   const plotW = Math.max(10, w - padR), plotH = Math.max(10, h - padT - padB);
   const cmAll = cloudMap();
   const B = drawn(BARS);
@@ -319,8 +336,9 @@ function paintPrice() {
     if (last) {
       for (const [k, colour] of Object.entries(CLOUD)) {
         if (last[k] == null) continue;
-        tag(ctx, plotW + 4, Math.max(8, Math.min(h - 8, y(last[k]))),
-          k.toUpperCase().replace("E", "EMA").replace("S", "SMA") + " " + fmt(last[k]), colour);
+        const label = narrow ? fmt(last[k])
+          : k.toUpperCase().replace("E", "EMA").replace("S", "SMA") + " " + fmt(last[k]);
+        tag(ctx, plotW + 4, Math.max(8, Math.min(h - 8, y(last[k]))), label, colour);
       }
       el("capClouds").textContent = "ribbon daily-locked · " + cm.rows.length + " daily bars";
     }
