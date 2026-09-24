@@ -103,6 +103,22 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
 .sc-nchart__pcp-val{ color:var(--ink3); font:700 11px var(--mono); letter-spacing:.02em; white-space:nowrap; }
 .sc-nchart__pcp-move{ grid-column:1 / -1; color:var(--ink3); font:600 11px var(--mono);
   letter-spacing:.02em; line-height:1.3; white-space:normal; overflow-wrap:anywhere; }
+/* THE PUT/CALL TABLE (24 Sep, Alan: "think how TradingView does tables"). Pinned top-right inside the
+   plot, clear of the price scale; numbers only, 10px mono, one hairline border, no bars. */
+.sc-nchart__pctable{ position:absolute; top:7px; right:58px; z-index:3; display:grid;
+  grid-template-columns:auto auto auto; gap:1px 10px; padding:4px 7px; pointer-events:auto;
+  background:rgba(5,6,12,.72); border:1px solid rgba(151,166,198,.14); border-radius:2px;
+  font:600 10px var(--mono); letter-spacing:.03em; line-height:1.35; color:var(--ink3); }
+.sc-nchart__pctable[data-state="waiting"]{ display:block; opacity:.8; }
+.sc-pct__h{ color:var(--dim); font-weight:700; text-align:right; }
+.sc-pct__k{ color:var(--dim); font-weight:700; }
+.sc-pct__v{ text-align:right; font-variant-numeric:tabular-nums; }
+.sc-pct__v[data-change="up"]{ color:var(--bull); }
+.sc-pct__v[data-change="down"]{ color:var(--bear); }
+.sc-pct__f{ grid-column:1 / -1; color:var(--dim); }
+@media (max-width:520px){ .sc-nchart__pctable{ top:auto; bottom:22px; right:46px; } }
+.sc-nchart__live--pc .sc-nchart__live-companion{ flex:0 1 auto; max-width:300px; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; font-size:10px; }
 .sc-nchart__live-window{ color:var(--dim); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
 /* THE REFERENCE TEXT STEPS BACK, THE PRICE AND THE LINE LEAD. "Prev 762.60 ≈41 trading days · since Jul 23" sat at full
    strength in a shadowed box over the top-left of every chart (Alan, live review 2026-09-18: the badges compete with the
@@ -1880,13 +1896,16 @@ function paintPutCallParts(host) {
   const badge = host?.querySelector(".sc-nchart__live");
   const pane = scPutCallPane(host?.dataset?.t);
   if (!badge || !pane) return;
-  let box = badge.querySelector(".sc-nchart__live-parts");
+  /* A SMALL TABLE IN THE CORNER, NOT A SECOND CHART (Alan, 24 Sep: "the PCC is taking over so much
+     of the chart… think how TradingView does tables"). The badge stays one line; the two parts are
+     numbers in a compact table pinned top-right, and every long sentence lives in a tooltip. */
+  const holder = badge.parentElement || badge;
+  let box = holder.querySelector(":scope > .sc-nchart__pctable");
   if (!box) {
-    box = document.createElement("span");
-    box.className = "sc-nchart__live-parts";
-    badge.append(box);
+    box = document.createElement("div");
+    box.className = "sc-nchart__pctable";
+    holder.append(box);
   }
-  badge.classList.add("sc-nchart__live--pc");
   const pts = host._series || [];
   const last = pts.length ? pts[pts.length - 1] : null;
   const prev = pts.length > 1 ? pts[pts.length - 2] : null;
@@ -1897,55 +1916,54 @@ function paintPutCallParts(host) {
          · the stored Cboe series predates the two-part collector;
          · Cboe published a ratio for that session and never published the volumes (2006-2019). */
     box.dataset.state = "waiting";
-    box.textContent = pane.source === "IBKR_INTRADAY"
+    const why = pane.source === "IBKR_INTRADAY"
       ? "puts and calls \u00b7 " + putCallWaitingText(host?.dataset?.absence)
       : !last ? "puts and calls \u00b7 waiting for the published session"
       : "puts and calls \u00b7 waiting for the reader \u00b7 this session's two volumes are not in the series yet";
-    box.title = "A put/call ratio is puts traded divided by calls traded. The two amounts are shown as soon as the series carries them; until then only the published ratio is shown, and this line says why.";
+    box.textContent = "PUTS \u00b7 CALLS \u2014 waiting";
+    box.title = why + "\nA put/call ratio is puts traded divided by calls traded. The two amounts are shown as soon as the series carries them; until then only the published ratio is shown, and this line says why.";
     return;
   }
   box.dataset.state = "ready";
   const prevHave = prev && isFinite(prev.pv) && isFinite(prev.cv) && prev.pv !== null && prev.cv !== null;
   const dPut = prevHave && prev.pv ? ((last.pv - prev.pv) / prev.pv) * 100 : null;
   const dCall = prevHave && prev.cv ? ((last.cv - prev.cv) / prev.cv) * 100 : null;
-  const top = Math.max(last.pv, last.cv) || 1;
   const rows = [["PUTS", last.pv, dPut], ["CALLS", last.cv, dCall]];
-  box.textContent = "";
-  for (const [name, vol, pct] of rows) {
-    const label = document.createElement("span");
-    label.className = "sc-nchart__pcp-label";
-    label.textContent = name;
-    const track = document.createElement("span");
-    track.className = "sc-nchart__pcp-track";
-    const fill = document.createElement("span");
-    fill.className = "sc-nchart__pcp-fill";
+  const cell = (cls, text, change) => {
+    const c = document.createElement("span");
+    c.className = cls;
+    c.textContent = text;
     /* THE COLOUR FOLLOWS THE DIRECTION, ALWAYS (Alan: "No grey lines … daily up, daily down, green,
-       red"). "flat" is a word the sentence may use for a small move; it is never a colour. Only a side
-       with no previous session to compare against stays unfilled, because it has no direction. */
-    fill.dataset.change = pct == null ? "none" : pct >= 0 ? "up" : "down";
-    fill.style.width = Math.max(2, Math.round((vol / top) * 100)) + "%";
-    track.append(fill);
-    const val = document.createElement("span");
-    val.className = "sc-nchart__pcp-val";
-    val.textContent = pcVol(vol);
-    box.append(label, track, val);
-  }
-  const move = document.createElement("span");
-  move.className = "sc-nchart__pcp-move";
+       red"). "flat" is a word the tooltip may use for a small move; it is never a colour. Only a side
+       with no previous session to compare against stays uncoloured, because it has no direction. */
+    if (change !== undefined) c.dataset.change = change;
+    box.append(c);
+    return c;
+  };
+  const dayText = (pct) => (pct == null ? "\u2014" : (pct >= 0 ? "+" : "\u2212") + Math.abs(Math.round(pct)) + "%");
+  const dayDir = (pct) => (pct == null ? "none" : pct >= 0 ? "up" : "down");
+  box.textContent = "";
+  cell("sc-pct__h", "");
+  for (const [name] of rows) cell("sc-pct__h", name);
+  cell("sc-pct__k", "VOL");
+  for (const [, vol] of rows) cell("sc-pct__v", pcVol(vol));
+  cell("sc-pct__k", "DAY");
+  for (const [, , pct] of rows) cell("sc-pct__v", dayText(pct), dayDir(pct));
   const ratioMoved = !prev ? null : last.p > prev.p * 1.01 ? "rose" : last.p < prev.p * 0.99 ? "fell" : "held";
   const computed = last.cv ? last.pv / last.cv : null;
-  move.textContent = prevHave
+  const move = cell("sc-pct__f", ratioMoved ? "ratio " + ratioMoved : "");
+  move.textContent = ratioMoved ? "ratio " + ratioMoved : "";
+  /* The whole sentence, and one plain sentence about what the fraction means, where the fraction is
+     (Alan, 24 Sep: "lower put to call ratio means there's less puts, correct?") - on hover. */
+  box.title = (prevHave
     ? "puts " + pcSide(dPut) + ", calls " + pcSide(dCall) +
       (ratioMoved ? " \u2192 the ratio " + ratioMoved : "")
-    : "no earlier session carries both volumes, so nothing can be compared yet";
-  /* One plain sentence about what the fraction means, once, where the fraction is (Alan, 24 Sep:
-     "lower put to call ratio means there's less puts, correct?"). */
-  move.title = "A lower number means fewer puts per call. 0.5 = one put for every two calls. " +
+    : "no earlier session carries both volumes, so nothing can be compared yet") +
+    "\nA lower number means fewer puts per call. 0.5 = one put for every two calls. " +
     "1.0 = one put for every call. 1.2 = twelve puts for every ten calls." +
     (computed ? "\nPuts " + Math.round(last.pv).toLocaleString("en-US") + " \u00f7 calls " +
       Math.round(last.cv).toLocaleString("en-US") + " = " + computed.toFixed(4) +
       "; the publisher printed " + last.p.toFixed(2) + "." : "");
-  box.append(move);
 }
 /* Each put/call pane also loads its opposite number, through the SAME provider route as its own
    series - no second data path, no direct database read. A Cboe pane loads Scintilla's intraday

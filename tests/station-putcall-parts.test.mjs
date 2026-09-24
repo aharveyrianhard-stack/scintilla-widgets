@@ -34,8 +34,13 @@ test("absent stays absent: a session with no volumes is null, never zero", () =>
 test("the pane draws both amounts and says which side moved", () => {
   assert.match(chart, /function paintPutCallParts\(host\)/);
   assert.match(chart, /const rows = \[\["PUTS", last\.pv, dPut\], \["CALLS", last\.cv, dCall\]\];/);
-  assert.match(chart, /fill\.style\.width = Math\.max\(2, Math\.round\(\(vol \/ top\) \* 100\)\) \+ "%";/,
-    "each bar is measured against the larger of the two");
+  /* 24 Sep: a compact table in the corner, not bars across the chart (Alan: "the PCC is taking over
+     so much of the chart… think how TradingView does tables"). */
+  assert.match(chart, /cell\("sc-pct__k", "VOL"\);/, "a VOL row of the two amounts");
+  assert.match(chart, /cell\("sc-pct__k", "DAY"\);/, "a DAY row of how each side moved");
+  assert.match(chart, /\.sc-nchart__pctable\{ position:absolute; top:7px; right:58px;/, "pinned top-right, clear of the price scale");
+  assert.match(chart, /\.sc-pct__v\[data-change="up"\]\{ color:var\(--bull\); \}/, "up is green");
+  assert.match(chart, /\.sc-pct__v\[data-change="down"\]\{ color:var\(--bear\); \}/, "down is red");
   assert.match(chart, /"puts " \+ pcSide\(dPut\) \+ ", calls " \+ pcSide\(dCall\)/);
   assert.match(chart, /the ratio " \+ ratioMoved/);
   assert.match(chart, /paintPutCallParts\(host\);\n  paintChartHistoryWindow\(host\);/,
