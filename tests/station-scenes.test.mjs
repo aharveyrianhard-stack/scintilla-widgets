@@ -53,7 +53,11 @@ function withoutInlineScript(sourceText) {
 test("all eleven curated scenes are present with fixed baskets", () => {
   /* "cohort" is first-class again by filed ruling — a chosen cohort's rows replace the
      favorites rows, so the scene cannot be collapsed into a family preset. */
-  assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies","cohort","custom"]);
+  /* 23 Sep: Alan's twelve saved TradingView layouts became Station pages, so the id
+     list grew by his ten fixed layouts and the workbench. The original twelve are
+     unchanged and still in their original order. */
+  assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies",
+    "tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras","oscWorkbench","cohort","custom"]);
   assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY","QQQ","DIA","IWM","MAGS","SMH"]);
   assert.equal(scenes.PRESETS.companyLeadership.range, "3h");
   assert.equal(scenes.PRESETS.macroCrossAsset.chartCount, 6);
@@ -173,11 +177,19 @@ test("normal wall chooser is two, six, or eight while INDEX NOW keeps its launch
     "the INDEX NOW state remains representable without being shown in the menu");
 });
 
-test("global screen navigation and rotation share the same curated sequence", () => {
+test("the arrows walk every page while rotation keeps to the curated nine", () => {
+  /* ROTATION IS NOT THE PAGE LIST (23 Sep). Auto-rotate still cycles the nine curated
+     screens — a slideshow Alan set up — while the arrows, the rail and the jump list
+     walk all twenty pages, including his own saved layouts. */
   assert.deepEqual(Array.from(scenes.ROTATION_IDS), ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]);
+  assert.equal(scenes.nextRotatingScreen("themeFamilies").scene, "indexNow",
+    "rotation wraps inside the curated nine and never wanders into a saved layout");
+  assert.equal(scenes.nextRotatingScreen("tvMacro").scene, "indexNow");
   assert.equal(scenes.nextScreen("live").scene, "indexNow");
-  assert.equal(scenes.nextScreen("themeFamilies").scene, "indexNow");
-  assert.equal(scenes.previousScreen("live").scene, "themeFamilies");
+  assert.equal(scenes.nextScreen("themeFamilies").scene, "tvMacro",
+    "the arrows continue into Alan's own layouts instead of wrapping early");
+  assert.equal(scenes.nextScreen("oscWorkbench").scene, "indexNow", "the last page wraps to the first");
+  assert.equal(scenes.previousScreen("live").scene, "oscWorkbench");
   assert.equal(scenes.nextScreen("internalsFast").scene, "internalsSlow",
     "Internals Fast and Slow remain separate global screens");
   assert.equal(scenes.previousScreen("internalsSlow").scene, "internalsFast",
@@ -189,8 +201,8 @@ test("global screen navigation and rotation share the same curated sequence", ()
   assert.match(deck, /id="rotateToggle"/);
   assert.match(deck, /setRotationPaused\(!ROTATE_PAUSED\)/);
   assert.match(deck, /setTimeout\(/);
-  assert.match(deck, /const next = SceneModel\.nextScreen\(SCENE\);\n    try \{ await applyScene\(next\.scene, \{ rotate:true, screen:true \}\); \}/,
-    "Auto Rotate takes the exact same next-screen path as the header control");
+  assert.match(deck, /const next = SceneModel\.nextRotatingScreen\(SCENE\);\n    try \{ await applyScene\(next\.scene, \{ rotate:true, screen:true \}\); \}/,
+    "Auto Rotate applies a screen exactly the way the header control does, over the curated nine");
   assert.match(deck, /el\("screenNext"\)\.addEventListener\("click", \(\) => stepScreen\(1\)\)/);
 });
 
