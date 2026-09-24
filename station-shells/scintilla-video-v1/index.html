@@ -420,6 +420,7 @@ function postChrome() {
 el("kk").textContent = FEED_PROFILE.label;
 
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
+let POINTER_IN_LIST = false, REFRESH_HELD = false;   /* M51: never repaint under his hand */
 /* true when the last read found NO row at all tagged with this feed's account — the channel is
    still awaiting its identity or its first subscription, which is a different sentence from
    "nothing in this tab". Decided by one id read, only when a page comes back empty. */
@@ -1147,8 +1148,27 @@ function visibleRows() {
    its scrollHeight to zero — the browser then clamps scrollTop and Alan is
    thrown back to the top of the grid. Harmless at forty tiles; intolerable
    once the grid runs to hundreds. The position is taken and put back. */
+/* M51: putting the same scrollTop back is not enough once the list has grown or
+   shrunk above the fold — the same number lands on a different video, which is
+   what a refresh under Alan's hand feels like. The tile under the top edge is
+   remembered by its id and put back exactly where it was. */
+function scrollAnchor(grid) {
+  const top = grid.scrollTop;
+  for (const card of grid.querySelectorAll(".card")) {
+    if (card.offsetTop + card.offsetHeight > top) return { id: card.dataset.v || null, delta: card.offsetTop - top, top };
+  }
+  return { id: null, delta: 0, top };
+}
+function restoreAnchor(grid, anchor) {
+  if (!anchor) return;
+  if (anchor.id) {
+    const card = grid.querySelector('.card[data-v="' + anchor.id.replace(/"/g, '\\"') + '"]');
+    if (card) { grid.scrollTop = Math.max(0, card.offsetTop - anchor.delta); return; }
+  }
+  grid.scrollTop = anchor.top;
+}
 function paint() {
-  const grid = el("grid"), keep = grid.scrollTop;
+  const grid = el("grid"), keep = scrollAnchor(grid);
   const rows = visibleRows();
   if (!rows.length) {
     grid.innerHTML = ACCOUNT_EMPTY
@@ -1160,7 +1180,7 @@ function paint() {
     return;
   }
   grid.innerHTML = rows.map(cardHTML).join("");
-  grid.scrollTop = keep;
+  restoreAnchor(grid, keep);
 }
 /* Appending is deliberately NOT a repaint: the new page is added after the
    tiles already on screen, so nothing under Alan's eye or finger moves. */
@@ -1185,6 +1205,28 @@ function wireGrid() {
     const grid = el("grid");
     if (grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 600) loadMore();
   }, { passive:true });
+  /* M51: while the pointer is in the list, the two-minute pass does not repaint under it.
+     The refresh is not skipped and not forgotten — it is held, and runs the moment the
+     pointer leaves. */
+  for (const ev of ["pointerenter", "pointermove", "pointerdown"])
+    el("grid").addEventListener(ev, () => { POINTER_IN_LIST = true; }, { passive:true });
+  el("grid").addEventListener("pointerleave", () => { POINTER_IN_LIST = false; runHeldRefresh(); }, { passive:true });
+}
+/* The whole decision in one place, so it can be tested without a browser. */
+function videoRefreshPlan(state) {
+  if (!state.visible) return { load:false, hold:false, why:"the pane is not on screen" };
+  if (state.playing) return { load:false, hold:false, why:"a video is playing" };
+  if (state.pagedPast) return { load:false, hold:false, why:"the grid is paged past the first page" };
+  if (state.pointerInList) return { load:false, hold:true, why:"Alan's pointer is in the list" };
+  return { load:true, hold:false, why:"nothing is under his hand" };
+}
+function runHeldRefresh() {
+  if (!REFRESH_HELD) return;
+  const plan = videoRefreshPlan({ visible: document.visibilityState === "visible", playing: !!CUR,
+    pagedPast: PAGE_AT > LIMIT, pointerInList: POINTER_IN_LIST });
+  if (plan.hold) return;
+  REFRESH_HELD = false;
+  if (plan.load) load(false, true);
 }
 
 function paintChips() {
@@ -1397,10 +1439,34 @@ async function start() {
        reload page one: that would throw away everything he scrolled to and
        drop him back at the top. A paged grid gets fresh ages and nothing else;
        the next list or feed change reloads it properly. */
-    if (document.visibilityState === "visible" && !CUR && PAGE_AT <= LIMIT) load(false, true);
+    const plan = videoRefreshPlan({ visible: document.visibilityState === "visible", playing: !!CUR,
+      pagedPast: PAGE_AT > LIMIT, pointerInList: POINTER_IN_LIST });
+    if (plan.hold) REFRESH_HELD = true;
+    if (plan.load) load(false, true);
   }, 120000);
 }
 start();
+
+var STATION_ACTIVITY_PANE = "video";
+/* ---- M51: TELL THE DECK WHEN ALAN IS USING THIS PANE --------------------------------------------
+   The deck watches for a newer version of itself and reloads when the Station looks idle, but it
+   can only hear pointer, wheel, key and scroll events in its OWN document: everything that happens
+   inside this frame is invisible to it. That is why a feed being scrolled was reloaded under his
+   hand (24 Sep). One message, on the same postMessage path the X pane uses for "live", at most once
+   a second, carrying nothing but the fact that this pane is in use. */
+(function reportStationActivity() {
+  if (window.parent === window) return;
+  var last = 0;
+  var send = function () {
+    var now = Date.now();
+    if (now - last < 1000) return;
+    last = now;
+    try { window.parent.postMessage({ sc: "station-activity", pane: STATION_ACTIVITY_PANE, at: now }, location.origin); } catch (e) {}
+  };
+  var events = ["pointermove", "pointerdown", "wheel", "touchstart", "touchmove", "keydown", "scroll"];
+  for (var i = 0; i < events.length; i++)
+    window.addEventListener(events[i], send, { passive: true, capture: true });
+})();
 </script>
 <div id="wlFlash" role="status" aria-live="polite"></div>
 </body>

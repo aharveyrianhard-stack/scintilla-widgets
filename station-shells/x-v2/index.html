@@ -1344,6 +1344,27 @@ window.addEventListener("visibilitychange", () => {
 });
 if (REMOTE_MODE) startRemoteStationViewer().catch(error => showErr("iMac X could not connect: " + error.message));
 else if (savedTrustedIpadPair()) startStationPairing();
+
+var STATION_ACTIVITY_PANE = "x";
+/* ---- M51: TELL THE DECK WHEN ALAN IS USING THIS PANE --------------------------------------------
+   The deck watches for a newer version of itself and reloads when the Station looks idle, but it
+   can only hear pointer, wheel, key and scroll events in its OWN document: everything that happens
+   inside this frame is invisible to it. That is why a feed being scrolled was reloaded under his
+   hand (24 Sep). One message, on the same postMessage path the X pane uses for "live", at most once
+   a second, carrying nothing but the fact that this pane is in use. */
+(function reportStationActivity() {
+  if (window.parent === window) return;
+  var last = 0;
+  var send = function () {
+    var now = Date.now();
+    if (now - last < 1000) return;
+    last = now;
+    try { window.parent.postMessage({ sc: "station-activity", pane: STATION_ACTIVITY_PANE, at: now }, location.origin); } catch (e) {}
+  };
+  var events = ["pointermove", "pointerdown", "wheel", "touchstart", "touchmove", "keydown", "scroll"];
+  for (var i = 0; i < events.length; i++)
+    window.addEventListener(events[i], send, { passive: true, capture: true });
+})();
 </script>
 </body>
 </html>
