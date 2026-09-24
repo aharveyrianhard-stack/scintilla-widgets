@@ -121,7 +121,13 @@ surface whether or not anything links to them.
 | `/templates/fundamentals-spec.html` | fundamentals spec |
 | `/templates/sector-rotation.html` | sector rotation (current) |
 | `/templates/sector-rotation-older.html` | sector rotation (earlier) |
+| `/deliverables/20260924/ibkr-use/IBKR-USE.html` | M67 — the grey spots on Station, and which of them IBKR can fill |
 | `/station-x-bridge-draft/offscreen.html` | X bridge draft, offscreen document — a Chrome extension file, not a Station surface, but deployed all the same |
+
+**This table is behind the tree.** `tests/station-route-inventory.test.mjs` regenerates the list on
+every run and reports eleven deliverable pages from other lanes that exist on disk and are not
+documented here. M67 added its own row above rather than leave a twelfth; bringing the rest up to
+date belongs with the lanes that wrote them, since each row needs its own one-line description.
 
 `/templates/sector-rotation.html` and `/templates/sector-rotation-older.html` carry an **open
 F1 item** — see the receipt. Their canonical home is the separate `scintilla-sector` project;
