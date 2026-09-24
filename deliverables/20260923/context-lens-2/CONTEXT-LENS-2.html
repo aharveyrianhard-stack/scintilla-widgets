@@ -421,8 +421,13 @@ function paint(card) {
   const res = placeStable({ plot, series: pts, ink, size: KNOBS.size,
                        prefer: KNOBS.prefer === "auto" ? null : KNOBS.prefer,
                        margin: KNOBS.margin, maxInk: KNOBS.maxInk, edge: DEFAULTS.edge,
-                       prev: area.__lensPrev || null, reading: !!area.__lensReading });
-  area.__lensPrev = res;
+                       prev: card.lensPrev || null, reading: !!card.lensReading });
+  /* the stage is rebuilt from scratch on every draw, so the previous placement is kept on
+     the CARD, which survives - otherwise "do not jump" would have nothing to not jump from */
+  card.lensPrev = res;
+  try { (window.__lensState = window.__lensState || {})[def.symbol + " " + (def.label || "")] =
+    { trend: res.trend && res.trend.dir, corner: res.spot && res.spot.corner, kind: res.kind,
+      moved: res.moved, held: res.held, why: res.why, shape: SHIPPED_SHAPE }; } catch (_) {}
 
   /* The corners it did not take. When the answer is the shelf the chart is about to get
      shorter, so boxes measured against the taller pane would be drawn in the wrong place:
@@ -449,8 +454,8 @@ function paint(card) {
      cut points at what the lens is dodging. The capsule is drawn on the shape panel. */
   if (res.spot) lens.style.cssText = SHAPES[SHIPPED_SHAPE].css(res.spot, res.spot.corner) + ";";
   /* being read pins it: the pointer is on it, so the next bar does not move it */
-  lens.addEventListener("pointerenter", () => { area.__lensReading = true; });
-  lens.addEventListener("pointerleave", () => { area.__lensReading = false; });
+  lens.addEventListener("pointerenter", () => { card.lensReading = true; });
+  lens.addEventListener("pointerleave", () => { card.lensReading = false; });
   lens.style.opacity = String(KNOBS.opacity);
   const detail = KNOBS.view === "detail";
   const label = detail ? `DETAIL · LAST ${KNOBS.detailBars}` : "CONTEXT · FULL HISTORY";

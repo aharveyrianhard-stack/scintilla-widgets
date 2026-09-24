@@ -209,6 +209,19 @@ export function clearsTail(rect, plot, share = TAIL_SHARE) {
   return rect.x + rect.w <= t.x;
 }
 
+/* The strict rule above keeps the whole newest-price COLUMN free, which is what the
+   reader is looking at. On a wide short Station pane that can leave nothing at all -
+   and parking on the shelf costs more than sitting in an empty upper right. So there
+   is a middle step: a box may enter that column only if it stays twice the usual
+   margin clear of the newest prices THEMSELVES. Strict first, this second, shelf last;
+   whichever applies is named in `why`. */
+export function clearsTailPoints(rect, pts, plot, margin, share = TAIL_SHARE) {
+  const t = tailBox(plot, share);
+  const tail = pts.filter((p) => p.x >= t.x);
+  if (!tail.length) return true;
+  return clearsPrice(rect, tail, margin * 2);
+}
+
 /**
  * The placement the Station uses: the rule above, plus the trend preference and
  * the tail guard. Returns the same shape as choose(), with `trend` added.
@@ -235,6 +248,17 @@ export function place(opts) {
     const best = preferred && preferred.ink - open[0].ink <= 0.02 ? preferred : open[0];
     return { ...res, kind: "inset", spot: best, trend,
       why: `${trend.dir === "flat" ? "sideways" : trend.dir}: ${best.corner}, clear of the newest prices` };
+  }
+  /* the middle step: the newest-price column, but only well clear of the prices in it */
+  const margin = opts.margin == null ? DEFAULTS.margin : opts.margin;
+  const relaxed = res.considered.filter((c) => c.size === res.size &&
+    c.refused === "would cover the newest prices" && clearsTailPoints(c, pts, opts.plot, margin, share));
+  if (relaxed.length) {
+    relaxed.sort((a, b) => a.ink - b.ink);
+    const spot = relaxed[0];
+    return { ...res, kind: "inset", spot: { ...spot, clear: true }, trend, relaxed: true,
+      considered: res.considered.map((c) => (c === spot ? { ...c, clear: true, refused: null } : c)),
+      why: `${spot.corner} - the only room left, and it stays ${margin * 2}px clear of the newest prices` };
   }
   return { ...res, kind: "shelf", spot: null, trend,
     why: "nothing clears both the price line and its newest fifth, so the lens parks below the chart" };

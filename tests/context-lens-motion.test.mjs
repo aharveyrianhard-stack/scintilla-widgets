@@ -88,3 +88,38 @@ test("the shape: two offered, the chamfer ships, and its cut faces the line", ()
   assert.match(SHAPES.chamfer.css({ w: 200, h: 90 }, "bl"), /^clip-path:polygon/);
   assert.equal(SHAPES.capsule.css({ w: 200, h: 90 }), "border-radius:45px");
 });
+
+/* The middle step, on a real saved chart-API window rather than a drawn shape.
+   SPY's sideways case is the one where the strict rule (keep the whole newest-price
+   column free) leaves no corner at all: without a middle step the lens parks on the
+   shelf, which on a wide short Station pane costs more than an empty upper corner. */
+import fs from "node:fs";
+const spy = JSON.parse(fs.readFileSync(
+  new URL("../deliverables/20260923/context-lens-2/cases/SPY.json", import.meta.url), "utf8"));
+
+test("when nothing clears the newest-price column, it takes the emptiest corner in it and says so", () => {
+  const series = spy.bars.map(([t, p]) => ({ d: new Date(t).toISOString(), p }));
+  const { i0, i1 } = spy.window;
+  const win = series.slice(i0, i1 + 1);
+  const lo = Math.min(...win.map((b) => b.p)), hi = Math.max(...win.map((b) => b.p));
+  const plot = { padL: 6, padT: 8, iw: 900, ih: 300, start: 0, end: win.length - 1,
+                 rightBars: 4, yLo: lo, yHi: hi };
+  const pts = pathPoints(plot, win);
+  const ink = (x, y) => pts.some((p) => Math.abs(p.x - x) < 6 && Math.abs(p.y - y) < 6);
+  const r = place({ plot, series: win, ink });
+  assert.equal(r.kind, "inset", "it finds room instead of parking on the shelf");
+  /* whichever rule applied, it is named: strict keeps the whole column free, relaxed says
+     it entered the column and by how much it clears the prices in it */
+  assert.match(r.why, /newest prices|clears price|preferred corner/);
+  if (r.relaxed) assert.match(r.why, /clear of the newest prices/);
+  else assert.ok(clearsTail(r.spot, plot), "the strict rule held, so the column is untouched");
+  /* relaxed does NOT mean sitting on the newest prices: it still clears them by twice
+     the usual margin */
+  const tail = pts.filter((p) => p.x >= tailBox(plot).x);
+  assert.ok(tail.length, "the window has a tail to protect");
+  for (const p of tail) {
+    const inside = p.x >= r.spot.x - 16 && p.x <= r.spot.x + r.spot.w + 16 &&
+                   p.y >= r.spot.y - 16 && p.y <= r.spot.y + r.spot.h + 16;
+    assert.equal(inside, false, "no newest-price bar is under the lens");
+  }
+});
