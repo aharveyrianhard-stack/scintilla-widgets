@@ -89,3 +89,20 @@ test("the deck reloads the X frame, not the page, and listens for the pane's hea
   assert.match(deck, /event\.data\?\.type === "SCINTILLA_X_LIVE"/);
   assert.match(deck, /const X_HOLD_MAX_MS = 1800000;/);
 });
+
+/* 24 Sep: an X-only change used to wait for a live pane forever, so the health report never
+   reached an open Station. The deck's bound now covers it too. */
+test("a new X shell also stops waiting after the bounded hold, once the Station is quiet", () => {
+  const early = plan(B, { ...B, x:"x2" }, 180000, false, false, true, 1799000, false);
+  assert.equal(early.remountX, false, "inside the hold the live picture is left alone");
+  assert.equal(early.xPending, true);
+  assert.equal(early.seen.x, "x1");
+  const due = plan(B, { ...B, x:"x2" }, 180000, false, false, true, 1800001, false);
+  assert.equal(due.remountX, true, "after the hold the X frame reloads and re-attaches");
+  assert.equal(due.reloadPage, false, "the frame alone, never the page");
+  assert.equal(due.seen.x, "x2");
+  assert.equal(due.xPending, false);
+  const busy = plan(B, { ...B, x:"x2" }, 30000, false, false, true, 1800001, false);
+  assert.equal(busy.remountX, false, "never under his hand");
+  assert.equal(busy.xPending, true, "and not forgotten");
+});

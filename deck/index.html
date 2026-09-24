@@ -3275,17 +3275,23 @@ function selfUpdatePlan(seen, tags, idleMs, videoOnStage, deckPending, xLive, xH
   const quiet = idleMs >= SELF_UPDATE_IDLE_MS;
   const chart = !!chartPending || changed("chart") || changed("provider");
   const held = xLive && Number(xHeldMs || 0) < X_HOLD_MAX_MS;
+  /* 24 SEP: the same bound now covers a new X shell. Before this, an X-only change waited for the
+     pane to stop being live, which on a Station that is always on meant never: the health report
+     shipped at 09:50 and no window on either Mac had it an hour later. After X_HOLD_MAX_MS of a
+     live pane, two quiet minutes are enough; the frame re-attaches to the capture on its own. */
+  const xOverdue = xLive && !held;
+  const remountX = xChanged && quiet && (!xLive || xOverdue);
   /* The X tag is only banked once its reload has actually been allowed, so a
      change that waited out a live pane is not silently forgotten. */
   const next = seen ? Object.assign({}, seen, { chart: tags.chart || seen.chart, provider: tags.provider || seen.provider }) : tags;
-  if (seen && tags.x && !(xChanged && xLive)) next.x = tags.x;
+  if (seen && tags.x && !(xChanged && xLive && !xOverdue)) next.x = tags.x;
   return {
     remountCharts: chart && quiet,
     chartPending: chart && !quiet,
     deckPending: deck,
-    xPending: xChanged && (xLive || !quiet),
-    remountX: xChanged && !xLive && quiet,
-    heldForX: (deck && quiet && !videoOnStage && held) || (xChanged && xLive),
+    xPending: xChanged && !remountX,
+    remountX,
+    heldForX: (deck && quiet && !videoOnStage && held) || (xChanged && xLive && !xOverdue),
     reloadPage: deck && quiet && !videoOnStage && !held,
     seen: next
   };
