@@ -415,6 +415,61 @@ const chartLoadPermits = new Map();
 const CHART_DB_RANGE = {"15m":["15",240],"30m":["30",240],"1h":["60",240],"2h":["120",240],"3h":["180",240],"4h":["240",240],"6h":["6h",240],"12h":["12h",240],"1D":["D",240],"3D":["3D",240],"1W":["W",157]};
 const chartInitialLimit = (range) => (CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"])[1];
 const chartTail = (pts, limit) => pts.length > limit ? pts.slice(-limit) : pts;
+/* WHAT ONE BAR ON THIS CHART ACTUALLY IS - and where TradingView cuts the same bar.
+   MEASURED against the live chart API on 2026-09-24 (SPY, QQQ, XLF, NVDA at tf 15/60/120/180/240/D):
+   every width answers with session_anchor:"PROVIDER_ET", so the provider cuts its buckets on the
+   EASTERN CLOCK and counts pre- and post-market trades. A 3-hour bucket therefore begins 03:00,
+   06:00, 09:00, 12:00, 15:00 and 18:00 ET, and the 09:00 one carries 09:00-09:30 premarket in the
+   same bar as the first two and a half hours of the session.
+   TradingView cuts an intraday bar at the START OF THE SESSION - "Tick-based bars, like other
+   intraday bars, align with the beginning of the trading session. As such, a new bar ... will also
+   open at the start of a session" (TradingView Help Centre, "What are tick-based intervals") - so
+   the same 3-hour width there is 09:30, 12:30 and 15:30, regular hours only unless the viewer
+   turns ETH on. The two grids coincide only where 09:30 sits on the grid itself: 15m and 30m.
+   Nothing here moves a bar. It states, on the pane, the rule the viewer is already looking at,
+   because "this is a three hour chart, am I seeing the same thing as TradingView" (Alan, 24 Sep)
+   had no answer anywhere on the screen. */
+const CH_BAR_RULE = {
+  "15m": { ours:"every 15 minutes on the Eastern clock", tv:"the same 15-minute grid", agrees:true },
+  "30m": { ours:"every 30 minutes on the Eastern clock", tv:"the same 30-minute grid", agrees:true },
+  "1h":  { ours:"on the hour, Eastern", tv:"09:30, 10:30, 11:30 - half an hour later", agrees:false },
+  "2h":  { ours:"even hours, Eastern (08:00, 10:00, 12:00)", tv:"09:30, 11:30, 13:30, 15:30", agrees:false },
+  "3h":  { ours:"03:00, 06:00, 09:00, 12:00, 15:00, 18:00 Eastern", tv:"09:30, 12:30, 15:30 - three bars a session", agrees:false },
+  "4h":  { ours:"04:00, 08:00, 12:00, 16:00 Eastern", tv:"09:30 and 13:30", agrees:false },
+  "6h":  { ours:"00:00, 06:00, 12:00, 18:00 Eastern", tv:"09:30 and 15:30", agrees:false },
+  "12h": { ours:"00:00 and 12:00 Eastern", tv:"one bar a session, from 09:30", agrees:false },
+  "1D":  { ours:"one bar per completed Eastern session", tv:"the same, plus today's unfinished bar", agrees:false, session:true },
+  "3D":  { ours:"three completed sessions per bar", tv:"the same, plus the unfinished one", agrees:false, session:true },
+  "1W":  { ours:"one bar per week", tv:"the same, plus the unfinished week", agrees:false, session:true },
+};
+/* Plain words for the pane's tooltip: what a bar here is, what the same bar is on TradingView. */
+function chBarRuleText(range) {
+  const rule = CH_BAR_RULE[range];
+  if (!rule) return "";
+  const ours = rule.session
+    ? rule.ours + ", completed sessions only"
+    : rule.ours + ", pre- and post-market included, completed bars only";
+  return "Bars: " + ours + ". TradingView: " + rule.tv +
+    (rule.session ? "." : ", regular hours only.") +
+    (rule.agrees ? " Same grid." : " The two do not line up.");
+}
+/* THE LINE ENDS WHEN ITS LAST BAR CLOSED, NOT NOW. A 3-hour bar that began at 09:00 ET closes at
+   12:00 and is served only then, so at 13:27 the newest point on a 3h chart is 90 minutes old while
+   the price readout beside it is a second old. The window label said "- today", which is true of the
+   date and silent about the hour. It now names the hour. A transient live point (futures, crypto)
+   is not a completed bar, so the clock skips it. */
+function chLastCompletedPoint(pts) {
+  if (!Array.isArray(pts) || !pts.length) return null;
+  for (let i = pts.length - 1; i >= 0; i--) if (!pts[i].live) return pts[i];
+  return null;
+}
+function chLastBarClock(pts, range) {
+  if (!CH_INTRADAY.includes(range)) return "";
+  const last = chLastCompletedPoint(pts);
+  if (!last) return "";
+  const iso = chEtIso(last.d, range);
+  return /T\d{2}:\d{2}/.test(iso) ? " \u00b7 bars to " + iso.slice(11, 16) : "";
+}
 let CH_COL = null;
 function chColors() {
   if (!CH_COL) {
@@ -2006,11 +2061,14 @@ function paintChartHistoryWindow(host) {
   label.textContent = pts.length
     ? (pcIntraday ? chartWindowLabel(pts) + " \u00b7 IBKR, this session"
         : pcPane ? putCallSessionLabel(pts[pts.length - 1].d) + " \u00b7 Cboe"
-        : chartWindowLabel(pts) + chartStaleSuffix(pts[pts.length - 1].d))
+        : chartWindowLabel(pts) + chartStaleSuffix(pts[pts.length - 1].d) +
+          chLastBarClock(pts, host._range || S.chartRange))
     : "history loading";
-  /* The count keeps its home in the tooltip: readable on the pane, available on hover. */
+  /* The count keeps its home in the tooltip: readable on the pane, available on hover - and beside
+     it, in plain words, what one bar on this chart is and where TradingView cuts the same bar. */
   label.title = pts.length
-    ? chartApproximateSpan(pts, host._range || S.chartRange) + " on screen"
+    ? chartApproximateSpan(pts, host._range || S.chartRange) + " on screen \u00b7 " +
+      chBarRuleText(host._range || S.chartRange)
     : "history loading";
 }
 function acquireChartLoadPermit(host, req, generation) {
