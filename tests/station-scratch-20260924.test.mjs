@@ -52,6 +52,17 @@ test("SCRATCH opens empty: six slots, no symbol invented for any of them", () =>
     "no SPY/SNDK starter: an empty slot on SCRATCH is the state the user left");
 });
 
+test("SCRATCH is a workspace, not a preset — which is what keeps it six slots wide", () => {
+  /* Found in a real browser during this build: with a PRESETS entry, the deck treated SCRATCH
+     as a fixed page, handed its empty ticker list to basketWindow, got a chartCount of one and
+     opened the "empty six" as a TWO-up wall. The page has no preset now, and says so. */
+  assert.equal(scenes.PRESETS.scratch, undefined, "an empty fixed page collapses; SCRATCH is not one");
+  assert.match(deck, /if \(scene === "scratch"\) return null;/, "fixedSceneState refuses it by name");
+  assert.match(deck, /RANGES\.includes\(QS\.get\("range"\)\) \? QS\.get\("range"\) : "3h";/,
+    "and the wall still opens on 3h unless a URL or SCRATCH's own memory says otherwise");
+  assert.equal(scenes.scratchState([], "3h").chartCount, 6, "six slots, from the model");
+});
+
 test("SCRATCH keeps what was typed, cleans it, and keeps the gaps between", () => {
   const state = scenes.scratchState(["aapl", "", "nvda!!", "", "", "x".repeat(20)], "1D");
   assert.deepEqual(Array.from(state.tickers), ["AAPL", "", "NVDA", "", "", "XXXXXXXXXXXX"]);

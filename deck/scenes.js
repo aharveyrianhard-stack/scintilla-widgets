@@ -120,9 +120,11 @@ const ROTATION_SCENES = Object.freeze(["indexNow","indexLeadership","companyLead
     scintillas: Object.freeze({ label:"SCINTILLAS", tickers:Object.freeze([]), chartCount:6, range:"1D", filled:"scintillas" }),
     /* TO-DO's rows come from TODO_CHARTS below, because each one carries a reason and,
        for the two that were INTERNALS SLOW, its own timeframe. */
-    todo: Object.freeze({ label:"TO-DO", tickers:Object.freeze(["ADD","CUMTICK","TICK","TRIN","TICK","TRIN"]), chartCount:6, range:"3h", filled:"todo" }),
-    /* SCRATCH starts empty on purpose and fills from the device, never from a preset. */
-    scratch: Object.freeze({ label:"SCRATCH", tickers:Object.freeze([]), chartCount:6, range:"3h", filled:"scratch" })
+    todo: Object.freeze({ label:"TO-DO", tickers:Object.freeze(["ADD","CUMTICK","TICK","TRIN","TICK","TRIN"]), chartCount:6, range:"3h", filled:"todo" })
+    /* SCRATCH HAS NO PRESET, DELIBERATELY. It is a device workspace like LIVE and CUSTOM:
+       its six slots come from scratchState() and the device, never from a table here. An
+       entry in PRESETS would make the deck treat it as a fixed page, and an empty fixed
+       page collapses to a two-up wall - which is exactly the bug this comment replaces. */
   });
 
   /* ── A WORKBENCH IS A PAGE TYPE, NOT A ONE-OFF PAGE ──────────────────────────────
