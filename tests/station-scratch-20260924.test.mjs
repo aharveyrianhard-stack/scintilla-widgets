@@ -229,6 +229,28 @@ test("the timeframe chip wears the dock's clothes: grey, quiet, and legible", ()
   }
 });
 
+/* ---- the TradingView panes follow the day ---------------------------------------------- */
+
+test("the TradingView internals are no longer painted grey by us", () => {
+  const shells = [
+    fs.readFileSync(new URL("../station-shells/chart-v1/index.html", import.meta.url), "utf8"),
+    fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8")
+  ];
+  for (const shell of shells) {
+    const whole = shell.slice(shell.indexOf("const TV_PANE_URL"), shell.indexOf("/* sym \u2014 the TradingView symbol"));
+    assert.ok(whole.length > 100, "the embed configuration is where it was");
+    /* the keys the widget is actually sent, with the reasoning stripped out */
+    const cfg = whole.replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.doesNotMatch(cfg, /lineColor:/, "we no longer overrule the line colour");
+    assert.doesNotMatch(cfg, /topColor:|bottomColor:/, "nor the fill under it");
+    assert.match(cfg, /backgroundColor:TV_PANE_BG/, "the pane is still our dark panel");
+    assert.match(cfg, /gridLineColor:TV_PANE_GRID/, "with our grid");
+    assert.match(cfg, /chartType:"area"/,
+      "measured: chartType 'line' ignores the key anyway, and area keeps the fill Alan already sees");
+    assert.match(whole, /MEASURED HEADLESS, 24 Sep/, "the measurement is written down beside the change");
+  }
+});
+
 test("the copy layout button belongs to SCRATCH alone", () => {
   assert.match(deck, /<button type="button" class="btn" id="copyLayout" hidden/, "hidden until a page asks for it");
   assert.match(deck, /if \(copy\) copy\.hidden = SCENE !== "scratch";/);

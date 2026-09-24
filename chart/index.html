@@ -1081,7 +1081,7 @@ const TV_URL = (sym) => "https://www.tradingview.com/chart/?symbol=" + encodeURI
        in the symbol-overview widget AND in /widgetembed/, with TradingView's own
        words: "This symbol is only available on TradingView". No parameter
        changes that, so VIX gets a worded panel, never a black box.        ---- */
-const TV_PANE_INK  = "#9A9AB6";               /* --ink3 — the line              */
+const TV_PANE_INK  = "#9A9AB6";               /* --ink3 — kept for the miss card; the widget's line is no longer ours to colour */
 const TV_PANE_DIM  = "#868AAA";               /* --dim  — the axis numbers      */
 const TV_PANE_BG   = "#0A0A0F";               /* --bg   — the pane background   */
 const TV_PANE_GRID = "rgba(154,154,182,0.07)";
@@ -1096,7 +1096,18 @@ const TV_PANE_URL = (sym, range) => "https://s.tradingview.com/embed-widget/symb
     symbols:[[String(sym) + "|" + String(range)]],
     chartOnly:true, autosize:true, width:"100%", height:"100%",
     colorTheme:"dark", chartType:"area", lineWidth:2,
-    lineColor:TV_PANE_INK, topColor:TV_PANE_FILL, bottomColor:"rgba(154,154,182,0.00)",
+    /* THE DAY DECIDES THE COLOUR, AND ONLY TRADINGVIEW CAN DECIDE IT HERE (24 Sep, M69).
+       Alan's rule is daily up green, daily down red, and these four internals were the last
+       grey lines on the wall. We cannot colour them ourselves: ADD, TICK, CUMTICK and TRIN
+       are exactly the symbols the chart API does not serve, so we have no close and no
+       baseline of our own to judge the day by - that is why they are TradingView pictures
+       in the first place. MEASURED HEADLESS, 24 Sep, four configurations of the real widget
+       (deliverables/20260924/station-scratch/harness/tv-colour-probe.mjs):
+         · area + our lineColor  -> 0 coloured pixels. Our grey wins. This is what shipped.
+         · area, colour keys removed -> USI:TICK drew #F23645 red, NASDAQ:AAPL drew green.
+         · chartType "line" -> red even WITH our lineColor: that type ignores the key.
+       So the fix is to stop sending the three colour keys and keep everything else - the
+       dark theme, our background, our grid and our font greys are all still ours. */
     gridLineColor:TV_PANE_GRID, fontColor:TV_PANE_DIM, widgetFontColor:TV_PANE_DIM,
     backgroundColor:TV_PANE_BG, scalePosition:"right", scaleMode:"Normal",
     fontSize:"9", noTimeScale:false, valuesTracking:"0",
