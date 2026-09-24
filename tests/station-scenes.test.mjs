@@ -534,7 +534,11 @@ test("fixed price overlay reports daily performance honestly", () => {
   const dayChange = functionFromSource(chart, "chDayChange", { Number, Math });
   assert.deepEqual(JSON.parse(JSON.stringify(dayChange(105, 100))), { text:"5.00%", tone:"up" });
   assert.deepEqual(JSON.parse(JSON.stringify(dayChange(95, 100))), { text:"(5.00%)", tone:"down" });
-  assert.deepEqual(JSON.parse(JSON.stringify(dayChange(100, 100))), { text:"0.00%", tone:"flat" });
+  /* 24 Sep: no grey band. Unchanged is at-or-above yesterday (the line's rule); a move too small to
+     print keeps its direction. Only an unknown baseline is unclaimed. */
+  assert.deepEqual(JSON.parse(JSON.stringify(dayChange(100, 100))), { text:"0.00%", tone:"up" });
+  assert.deepEqual(JSON.parse(JSON.stringify(dayChange(99.999, 100))), { text:"0.00%", tone:"down" });
+  assert.deepEqual(JSON.parse(JSON.stringify(dayChange(100.001, 100))), { text:"0.00%", tone:"up" });
   assert.deepEqual(JSON.parse(JSON.stringify(dayChange(105, null))), { text:"—", tone:"flat" });
   assert.match(chart, /\.sc-nchart__live\{ position:absolute; top:7px; left:8px/);
   assert.match(chart, /display:flex; flex-direction:row; align-items:baseline; gap:8px/,
@@ -970,7 +974,11 @@ test("the pane's direction color is claimed from the day's baseline, or not clai
     assert.doesNotMatch(src, /prevClose\[t\] != null \? \+prevClose\[t\] : (pts|cachedPts)\[0\]\.p/,
       label + ": the first-bar fallback is gone");
     assert.match(src, /const ref = chDayRef\(host\);/, label);
-    assert.match(src, /const up = ref != null && pts\[end\]\.p >= ref;/, label);
+    /* 24 Sep (XLF): the line reads today's price - the live quote, else the newest bar - never the
+       visible edge, and the badge reads the same baseline. */
+    assert.match(src, /const dayPx = chDayPrice\(host, pts\);\n  const up = ref != null && dayPx != null && dayPx >= ref;/, label);
+    assert.doesNotMatch(src, /pts\[end\]\.p >= ref/, label + ": the visible edge no longer decides the colour");
+    assert.match(src, /const dayRef = chDayRef\(host\);/, label + ": the badge reads the line's baseline");
     assert.match(src, /const c = ref == null \? \(col\.dim \|\| "#868AAA"\) : up \? col\.bull : col\.bear;/,
       label + ": no direction color without the day's baseline");
 

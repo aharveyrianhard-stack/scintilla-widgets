@@ -1430,7 +1430,13 @@ function scChartDraw(host, scrub) {
   const X = (i) => padL + ((i - start) / Math.max(1, end - start + rightBars)) * iw;
   const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * ih;
   host._plot = { padL, padT, iw, ih, start, end, rightBars, yLo, yHi };
-  const up = ref != null && pts[end].p >= ref;
+  /* 24 Sep, Alan (XLF): "the ticker and the percent change were green, the line is red ... went to
+     zero and gray, the line is still red". The badge read the live quote while the line read the last
+     point ON SCREEN - a point that trails the quote by a tick, and sits in history whenever the view
+     is panned, which broke "the visible window must not change red/green". Both now read ONE price
+     (chDayPrice) against ONE baseline (chDayRef), with ONE rule: at or above yesterday is green. */
+  const dayPx = chDayPrice(host, pts);
+  const up = ref != null && dayPx != null && dayPx >= ref;
   /* Unknown baseline = the palette's dim tone, never the light ink that reads as white on the wall. */
   const c = ref == null ? (col.dim || "#868AAA") : up ? col.bull : col.bear;
   /* Use rounded, evenly meaningful price levels rather than labeling only the
@@ -2432,13 +2438,26 @@ function chDayRef(host) {
   return s;
 }
 
+/* The price the DAY is judged by: the live quote when one has arrived, otherwise the newest bar of the
+   series - never the visible edge, so panning into history cannot recolour today. */
+function chDayPrice(host, pts) {
+  const live = quotePrice(liveQuote[host && host.dataset ? host.dataset.t : ""]);
+  if (live != null) return live;
+  const last = Array.isArray(pts) && pts.length ? +pts[pts.length - 1].p : NaN;
+  return Number.isFinite(last) ? last : null;
+}
+
 function chDayChange(price, previousClose) {
   if (!Number.isFinite(+price) || !Number.isFinite(+previousClose) || +previousClose === 0)
     return { text:"—", tone:"flat" };
   const pct = ((+price - +previousClose) / +previousClose) * 100;
-  if (Math.abs(pct) < .005) return { text:"0.00%", tone:"flat" };
-  return { text:pct > 0 ? pct.toFixed(2) + "%" : "(" + Math.abs(pct).toFixed(2) + "%)",
-    tone:pct > 0 ? "up" : "down" };
+  /* No grey band (Alan: "Daily up, daily down, green, red"). A move too small to print still has a
+     direction, and the text says 0.00% while the sign and colour say which way; exactly unchanged is
+     at-or-above yesterday, the same rule the line has always used. Only an unknown baseline is
+     unclaimed ("—"). */
+  const tone = +price >= +previousClose ? "up" : "down";
+  if (Math.abs(pct) < .005) return { text:"0.00%", tone };
+  return { text:pct > 0 ? pct.toFixed(2) + "%" : "(" + Math.abs(pct).toFixed(2) + "%)", tone };
 }
 
 function paintLiveStatus(host, quote) {
@@ -2456,7 +2475,7 @@ function paintLiveStatus(host, quote) {
   const fresh = age != null && age < 90000;
   badge.dataset.fresh = hasQuote && fresh ? "1" : "0";
   badge.dataset.untimed = hasQuote && observedAt == null ? "1" : "0";
-  const dayRef = prevClose[host.dataset.t];
+  const dayRef = chDayRef(host);   /* the line's own baseline, so badge and line cannot disagree */
   const day = hasQuote ? chDayChange(quotePrice(quote), dayRef) : { text:"", tone:"flat" };
   badge.dataset.change = day.tone;
   const parts = ensureLiveParts(badge, host);
