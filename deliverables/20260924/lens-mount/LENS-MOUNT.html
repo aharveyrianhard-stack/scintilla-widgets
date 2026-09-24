@@ -1,0 +1,109 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>The Context Lens lives in the chart pane · 24 Sep 2026</title>
+<style>
+body{margin:0;background:#05060C;color:#9A9AB6;font:18px/1.5 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:36px;margin:0 0 6px;color:#B4B6CC} h2{font-size:27px;margin:44px 0 8px;color:#B4B6CC} h3{font-size:21px;margin:26px 0 6px;color:#B4B6CC}
+p{max-width:1100px} p.note{color:#868AAA;margin:0 0 12px} .lead{font-size:22px;color:#B4B6CC}
+blockquote{margin:10px 0 18px;padding:8px 16px;border-left:3px solid #3455FF;color:#B4B6CC;max-width:1000px}
+table{border-collapse:collapse;font-size:16px;margin:10px 0 6px;max-width:100%} th,td{border:1px solid #1A1A2A;padding:8px 12px;text-align:left;vertical-align:top} th{color:#868AAA;font-weight:600}
+td.num{font:15px ui-monospace,Menlo,monospace;text-align:right} td.ok{color:#3FB8AF} td.bad{color:#FF2D55;font-weight:700} small{color:#868AAA;font-size:13px}
+.shots{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:8px 0} .shots img{width:100%;display:block;border:1px solid #1A1A2A;background:#0A0A0F} figure{margin:0} figcaption{font:13px ui-monospace,Menlo,monospace;color:#868AAA;margin-top:4px}
+.phone{grid-template-columns:1fr 1fr;max-width:820px}
+.meas{font:15px ui-monospace,Menlo,monospace;color:#868AAA} .meas b{color:#B4B6CC}
+code{font:15px ui-monospace,Menlo,monospace;background:#0F0F1A;padding:2px 6px;border-radius:4px;color:#B4B6CC} ul{max-width:1100px} li{margin:6px 0}
+.cap{display:inline-block;background:rgba(5,6,12,.62);color:#868AAA;font:600 12px ui-monospace,Menlo,monospace;letter-spacing:.06em;padding:4px 8px;border-radius:3px;border:1px solid #1A1A2A}
+</style></head><body>
+
+<h1>The Context Lens now lives inside the chart pane</h1>
+<p class="lead">Every Station chart carries a second, much smaller view of <b>the same live bars</b>, at the opposite zoom, in its own band under the price. Zoom the chart out and the band zooms in on the last 30 bars. Zoom the chart in and the band pulls back to six times what you are looking at. Both views always end on the same bar. Nothing is deployed: this sits on branch <code>station/lens-mount-20260924</code>, built from the live Station <code>0411927</code>.</p>
+
+<blockquote>“Seems to replay in the zoom level of history. I don't really care about that. I care about the zoom in current bars.” · “It's just a view of the current bars with the opposite view, and another view of the one that we're in on the charts and what it is.” — Alan, 23 Sep, ~11:40 PM ET</blockquote>
+
+<h2>1 · What the pane shows now</h2>
+<ul>
+<li><b>Same symbol, same bars.</b> The band reads the bars the chart already has in memory. It asks the provider for nothing — there is not one extra request (section 4).</li>
+<li><b>The opposite zoom, always.</b> More than 60 bars on screen → the band shows <span class="cap">ZOOM · LAST 30 BARS</span>. 60 bars or fewer → <span class="cap">WIDER · LAST n BARS</span>, where n is six times what is on screen.</li>
+<li><b>It follows you.</b> Change the symbol, change the timeframe, zoom, pan — the band is redrawn in the same stroke as the chart, because it is drawn by the chart's own drawing code inside the same paint. It cannot lag behind and it cannot show a bar the main chart has not reached.</li>
+<li><b>A chip turns it off.</b> <span class="cap">lens</span> sits next to <span class="cap">clouds</span> in the chart's toolbar. It is <b>on by default</b>, and each pane remembers its own setting. <code>?lens=0</code> on a chart link turns it off for a screenshot or a deep link.</li>
+<li><b>The dates are written out.</b> Under the heading: the first and last bar the band covers, in plain words — “Sep 14, 2026 → Sep 24, 2026”.</li>
+</ul>
+
+<h2>2 · Where it sits, and why it is a band rather than a box in the corner</h2>
+<p>The brief offered two placements: a small box tucked into a corner the price line rarely uses, or a thin strip under the chart. I built the corner box first, using M47's placement rule (never cover the price line, never cover the newest fifth of it, take the emptiest corner, and hold still while it is read). <b>Then I measured it, and it failed for a plain reason.</b></p>
+<p>A Station chart fits the visible high and low of the window to the height of the pane. The price line therefore sweeps the <i>whole</i> height of the pane, always — it is not a line that leaves a quiet corner. With the chart zoomed out over 240 bars, <b>every one of the six candidate corners was refused for covering the price</b>, at 1680 and at 390 alike, so the lens simply did not appear — exactly in the view Alan spends most of his time in. A lens that vanishes when you zoom out is worse than no lens.</p>
+<p>So the lens gets <b>its own reserved band</b>. The pane takes that band out of its height <i>before</i> it scales the price, so the main chart is drawn shorter by exactly that much and the two can never overlap. Consequences, all of them good on a wall:</p>
+<ul>
+<li>the band <b>cannot cover the price</b>, in any window, at any zoom — this is geometry, not a rule that might be refused;</li>
+<li>it <b>never jumps</b>. A corner box moves when the line moves; this one is in the same place every frame, so nothing hops while Alan pans;</li>
+<li>it is <b>always visible</b>, which is the whole point of a second view.</li>
+</ul>
+<p class="meas">The band is <b>18% of the pane height, never less than 38px and never more than 70px</b>. At 1680×921 that is 70px out of 921 (the price keeps 92%). At 390 it is the same 70px out of 815. A pane under 220px wide or 150px tall gets <b>no band at all</b> and is drawn exactly as it was before the lens existed, so the smallest deck tiles are untouched.</p>
+<p class="note">M47's corner-inset rule is not deleted — it stays in <code>deliverables/20260923/context-lens-2/lens-placement.mjs</code> with its own tests, in case a future pane has the room for it.</p>
+
+<h2>3 · The pane, at 1680 and at 390, zoomed out and zoomed in</h2>
+<p class="note">Real browser, headless, four captures. Prices are the proof rig's fixture series (a clean wave), not live market data — these prove what the pane does, not what MU did.</p>
+
+<h3>1680 — the wall</h3>
+<div class="shots">
+<figure><img src="screens/1680-zoomed-out.png" alt="1680, chart zoomed out, lens zoomed in"><figcaption>chart zoomed out · 240 bars on screen → the band reads ZOOM · LAST 30 BARS and draws the last day</figcaption></figure>
+<figure><img src="screens/1680-zoomed-in.png" alt="1680, chart zoomed in, lens pulled back"><figcaption>chart zoomed in · 40 bars on screen → the band reads WIDER · LAST 240 BARS and draws all ten days</figcaption></figure>
+</div>
+<p class="meas">Looking at them myself: in the first, the main chart fills the pane with the whole wave and the band along the bottom carries one gentle arc — the last 30 bars, blown up. In the second, the main chart holds one big swing and the band carries the whole wave train. In both, the band's words and its line are the same green as the price line above, the cloud ribbon is untouched, and the price plot ends at y=830 while the band starts at y=834 — they do not touch.</p>
+
+<h3>390 — the phone</h3>
+<div class="shots phone">
+<figure><img src="screens/390-zoomed-out.png" alt="390, chart zoomed out, lens zoomed in"><figcaption>chart zoomed out → ZOOM · LAST 30 BARS</figcaption></figure>
+<figure><img src="screens/390-zoomed-in.png" alt="390, chart zoomed in, lens pulled back"><figcaption>chart zoomed in → WIDER · LAST 240 BARS</figcaption></figure>
+</div>
+<p class="meas">At phone width the band is the same 70px and the words fit on the left with the little chart to their right. The words are measured before the little chart is given its room, so the line can never run through the text — the first cut did exactly that at 390, and the capture caught it.</p>
+<p class="note">One honest note about the phone: the chart's toolbar is a single scrolling row, so at 390 the <span class="cap">lens</span> chip sits off the right edge until you swipe the row sideways — the <span class="cap">clouds</span> chip has always behaved the same way. The lens is on by default, so nothing needs to be reached to see it.</p>
+
+<h2>4 · What it costs</h2>
+<table>
+<tr><th>Measured, on the same pane with the same bars</th><th>Lens on</th><th>Lens off</th><th>What it means</th></tr>
+<tr><td>One chart paint, median of 200</td><td class="num">1.30 ms</td><td class="num">1.20 ms</td><td>the lens costs <b>0.10 ms</b> a frame, inside a 16 ms budget</td></tr>
+<tr><td>One chart paint, 95th of 200</td><td class="num">1.80 ms</td><td class="num">1.70 ms</td><td>the slow frames are just as cheap</td></tr>
+<tr><td>Geometry reads over 30 pan ticks</td><td class="num">120</td><td class="num">120</td><td><b>the lens adds none at all</b></td></tr>
+<tr><td>Extra network requests</td><td class="num">0</td><td class="num">0</td><td>it reads bars already in memory</td></tr>
+</table>
+<p class="meas">The 120 reads are 4 per pan tick — 2 draws, each reading the pane's width and height once. That is the pane's existing behaviour, unchanged: the lens reads <b>no</b> geometry of its own, because its band is computed from the width and height the draw has already read, and its line from the plot numbers the chart records when it paints.</p>
+<p>Turning the chip off and on again reloads nothing: the bar count before and after is identical (240 → 240) and no request is made. The setting is remembered per pane (<code>station.lens.&lt;pane&gt;</code>); a pane running inside the deck writes nothing at all, exactly as the clouds chip behaves, because two same-origin chart frames sharing one key is the old timeframe bug.</p>
+
+<h2>5 · Station calm, and colour</h2>
+<ul>
+<li><b>Nothing repaints under Alan's hand.</b> The lens has no timer, no observer and no animation frame of its own: it is drawn inside the chart's own paint and only then. Scrolling the YouTube or X panes cannot make it reload or flash, because there is nothing for it to reload.</li>
+<li><b>No grey lines.</b> The band's rule, its words and its price line all take the <b>same day-direction colour as the main chart</b> — green when the session is above the previous close, red when below. The lens can never disagree with the chart about the day, because it is handed the chart's own colour. A test fails the build if any colour in the lens is anything else.</li>
+<li><b>Nothing else on the pane moved.</b> The cloud ribbon, its labels, the live price marker, the hover crosshair, the time axis and the price axis are untouched; the chart is simply drawn into a slightly shorter box when the lens is on.</li>
+</ul>
+
+<h2>6 · What could be wrong</h2>
+<ul>
+<li><b>The band takes height from the price.</b> On a short pane — a deck tile about 210px tall — the price loses 38px of its 210. I judged the second view worth that; if it reads as cramped on the wall, the chip turns it off per pane, or the band's share can come down from 18%.</li>
+<li><b>The pictures are fixture prices, not the market.</b> The proof rig answers the chart API from a fixed wave, so these captures prove the pane's behaviour, not any real MU session. The first real-market check should be one look at the wall after the coordinator deploys.</li>
+<li><b>The 30-bar and six-times numbers are M51's, not re-argued here.</b> If “last 30 bars” feels wrong on a 15-minute chart, it is one number in <code>/_indicators/station-lens.js</code>.</li>
+<li><b>Very small panes get no lens at all</b> (under 220×150). That is deliberate, but it means a scene with tiny tiles will show the lens on some panes and not others.</li>
+<li><b>Fewer than about 6 bars loaded and the band stays empty</b> rather than drawing a misleading two-point line.</li>
+<li><b>The deliverable pages are still not in the route inventory.</b> That inventory test was already failing before this work (every <code>deliverables/…</code> page is missing from it, along with the counts it claims); this page joins that same list. I did register the one new served file the pane loads, <code>/_indicators/station-lens.js</code>, in <code>STATION_ROUTES.md</code> and in the inventory test's load-bearing list.</li>
+</ul>
+
+<h2>7 · What I did not do</h2>
+<ul>
+<li><b>Nothing is deployed, pushed or merged.</b> Branch only; the coordinator merges and deploys.</li>
+<li><b>I did not touch the deck</b>, the other shells, the Indicator Lab, or any price table.</li>
+<li><b>I did not change what the lens shows.</b> M51's rule — 30 bars in, six times out, both views ending on the same bar — is shipped as it was written, and a test compares the shipped copy against M51's own module on more than a hundred windows so the two can never drift apart.</li>
+<li><b>I did not make the lens interactive.</b> It does not scrub, click or zoom on its own; it is a view, not a control.</li>
+<li><b>I did not verify it against live market data</b>, and I did not open a visible browser at any point — every capture is headless.</li>
+</ul>
+
+<h2>8 · Where the work is</h2>
+<table>
+<tr><th>File</th><th>What changed</th></tr>
+<tr><td><code>_indicators/station-lens.js</code></td><td>new · what the lens shows (M51's rule) and the geometry of its band. Pure arithmetic: no fetch, no DOM, no timer</td></tr>
+<tr><td><code>station-shells/chart-v1/index.html</code><br><code>chart/index.html</code></td><td>the script tag, the <span class="cap">lens</span> chip and its per-pane memory, the band taken out of the pane before the price is scaled, and <code>drawLens</code> — 100 lines, drawn on the chart's own canvas. The two files stay byte-identical</td></tr>
+<tr><td><code>tests/station-lens-mount.test.mjs</code></td><td>new · 14 tests: no drift from M51, the mount itself, the opposite-zoom rule, the band never overlapping the price, no request/timer/geometry read, and the colour rule</td></tr>
+<tr><td><code>browser-proof/proofs/lens-mount.mjs</code></td><td>new · the headless capture and the measurements on this page</td></tr>
+<tr><td><code>STATION_ROUTES.md</code>, <code>tests/station-route-inventory.test.mjs</code></td><td>the new served file registered as load-bearing</td></tr>
+</table>
+<p class="meas">Tests: <b>574 run, 554 pass, 20 fail — the same 20 that fail on the branch this was built from</b>, none of them touched by this work. The new suite is 14/14.</p>
+
+</body></html>
