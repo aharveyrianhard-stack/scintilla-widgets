@@ -39,7 +39,10 @@ test('the dock loses no control, no id and no accessible name', () => {
      panes and gives the whole wall to the charts. Named here for the same reason as the
      five above: the count may only move when someone writes down why. */
   assert.ok(after.has('chartsOnlyBtn'), 'charts only is the deliberate new wall control')
-  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 8)
+  /* 24 Sep (M69): one more deliberate control - copy layout, which puts the SCRATCH wall
+     on the clipboard as one line so a layout can be handed back to be saved. */
+  assert.ok(after.has('copyLayout'), 'copy layout is the deliberate new scratch control')
+  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 9)
 })
 
 test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {
@@ -183,7 +186,7 @@ test('the REAL pane definitions activate the rebalance - all three media panes, 
 test('the skeleton reads the keys the deck actually writes', () => {
   // Root's finding: the first draft read deck.chartCount, which the deck never writes, so the
   // skeleton painted nothing. The deck stores under station.<scene>.chartCount.
-  assert.match(deck, /const statePrefix = \(\) => SCENE === "custom" \? "station\.custom" : "station\.live";/,
+  assert.match(deck, /const statePrefix = \(\) => SCENE === "custom" \? "station\.custom" : SCENE === "scratch" \? "station\.scratch" : "station\.live";/,
     'this is the key scheme the deck really uses')
   const block = deck.slice(deck.indexOf('FIRST PAINT (structure only'), deck.indexOf('})();') + 5)
   assert.match(block, /localStorage\.getItem\("station\.scene"\)/)

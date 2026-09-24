@@ -58,8 +58,8 @@ test("every saved TradingView layout is a Station page with the same name, size 
     assert.equal(screen.label, label);
     assert.match(deck, new RegExp(`<option value="${id}">`), `${label} is in the scene menu too`);
   }
-  assert.equal(scenes.SCREENS.length, 21,
-    "nine curated screens, ten saved layouts, one workbench, and M48's SCINTILLAS page");
+  assert.equal(scenes.SCREENS.length, 22,
+    "eight curated screens (INTERNALS SLOW retired), ten saved layouts, one workbench, SCINTILLAS, TO-DO and SCRATCH");
 });
 
 test("a saved layout is a picture, not a basket: five rows stay five rows in a six-up wall", () => {
@@ -147,8 +147,9 @@ test("no two page buttons read the same, at 81px", () => {
   assert.equal(new Set(labels).size, labels.length, "every page button reads differently");
   for (const label of labels)
     assert.ok(label.length <= 11, `${label} fits an 81px button without being cut`);
-  assert.equal(scenes.shortLabel(scenes.screenForScene("internalsFast")), "INTERNAL F");
-  assert.equal(scenes.shortLabel(scenes.screenForScene("internalsSlow")), "INTERNAL S");
+  assert.equal(scenes.shortLabel(scenes.screenForScene("internalsFast")), "INTERNALS");
+  assert.equal(scenes.shortLabel(scenes.screenForScene("todo")), "TO-DO");
+  assert.equal(scenes.shortLabel(scenes.screenForScene("scratch")), "SCRATCH");
   assert.equal(scenes.shortLabel(scenes.screenForScene("tvMacro")), "MACRO", "a short name stands as it is");
   assert.match(deck, /b\.textContent = SceneModel\.shortLabel\(screen\); b\.title = screen\.label;/,
     "the full name stays on the tooltip");
@@ -187,13 +188,18 @@ test("every button in the jump list is the same width too", () => {
 
 test("the jump list finds a page by its name or by a ticker on it — PCC in one move", () => {
   const byTicker = scenes.findPages("PCC");
-  assert.deepEqual(Array.from(byTicker, (m) => m.screen.label), ["INTERNALS FAST", "MACRO"]);
+  assert.deepEqual(Array.from(byTicker, (m) => m.screen.label), ["INTERNALS", "MACRO"]);
   assert.equal(byTicker[0].why, "PCC", "the list says WHY a page matched a ticker");
   assert.deepEqual(Array.from(scenes.findPages("blue"), (m) => m.screen.label), ["BLUE CHIP"]);
   assert.deepEqual(Array.from(scenes.findPages("MAC"), (m) => m.screen.label), ["MACRO CROSS-ASSET", "MACRO"]);
   assert.deepEqual(Array.from(scenes.findPages("XLB"), (m) => m.screen.label), ["SECTOR FAMILIES", "SECTORS"],
     "a ticker on two pages offers both, rather than silently picking one");
-  assert.equal(scenes.findPages("").length, 21, "an empty box offers every page");
+  assert.equal(scenes.findPages("").length, 22, "an empty box offers every page");
+  /* TO-DO is findable by the four symbols parked on it; SCRATCH is findable by name only,
+     because its symbols live on the device and the list must never guess at them. */
+  assert.deepEqual(Array.from(scenes.findPages("TRIN"), (m) => m.screen.label), ["TO-DO"]);
+  assert.deepEqual(Array.from(scenes.findPages("SCRATCH"), (m) => m.screen.label), ["SCRATCH"]);
+  assert.deepEqual(Array.from(scenes.pageTickers("scratch")), []);
   assert.equal(scenes.findPages("ZZZZ").length, 0);
   assert.ok(scenes.pageTickers("oscWorkbench").includes("MU"), "a workbench page is searchable by its symbols");
 });

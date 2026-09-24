@@ -131,7 +131,9 @@ test("the label lives in the pane header and leaves with the page", () => {
   assert.match(deck, /\.pane > \.why:empty\{ display:none; \}/, "and it takes no room when it is empty");
   assert.match(deck, /\.pane > \.why\{ position:absolute;[^}]*bottom:6px/,
     "it sits in the pane itself: a chart pane's HEADER is hidden unless the slot is being edited");
-  assert.match(deck, /const label = SCENE === "scintillas" \? \(SCINT_LABELS\.get\(CLEAN\(CHARTS\[i\]\)\) \|\| ""\) : "";/,
+  /* 24 Sep (M69): the same cell now also carries TO-DO's reasons. Every OTHER page still
+     clears it, which is what this assertion has always been about. */
+  assert.match(deck, /const label = SCENE === "scintillas" \? \(SCINT_LABELS\.get\(CLEAN\(CHARTS\[i\]\)\) \|\| ""\)\s*\n?\s*: SCENE === "todo" \? SceneModel\.todoNote\(CHARTS\[i\], i\) : "";/,
     "another page clears it rather than leaving a stale reason behind");
   assert.match(deck, /\.pane > \.why\{[^}]*font-size:11px/, "body text is at least 11px");
 });

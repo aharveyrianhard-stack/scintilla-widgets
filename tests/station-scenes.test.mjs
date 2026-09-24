@@ -56,13 +56,16 @@ test("all eleven curated scenes are present with fixed baskets", () => {
   /* 23 Sep: Alan's twelve saved TradingView layouts became Station pages, so the id
      list grew by his ten fixed layouts and the workbench. The original twelve are
      unchanged and still in their original order. */
-  assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies",
-    "tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras","oscWorkbench","scintillas","cohort","custom"]);
+  /* 24 Sep (M69): INTERNALS SLOW retired into TO-DO, and TO-DO and SCRATCH close the deck. */
+  assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies",
+    "tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras","oscWorkbench","scintillas","todo","scratch","cohort","custom"]);
   assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY","QQQ","DIA","IWM","MAGS","SMH"]);
   assert.equal(scenes.PRESETS.companyLeadership.range, "3h");
   assert.equal(scenes.PRESETS.macroCrossAsset.chartCount, 6);
-  assert.equal(scenes.PRESETS.internalsFast.chartCount, 6);
-  assert.equal(scenes.PRESETS.internalsSlow.range, "1D");
+  assert.equal(scenes.PRESETS.internalsFast.chartCount, 2, "INTERNALS is VIX and PCC on their own");
+  assert.equal(scenes.PRESETS.internalsSlow, undefined, "INTERNALS SLOW is retired, not hidden");
+  assert.equal(scenes.normalizeScene("internalsSlow"), "todo",
+    "a browser that remembered INTERNALS SLOW lands where its two panes went");
   assert.equal(scenes.PRESETS.macroCrossAsset.range, "3D");
 });
 
@@ -102,14 +105,17 @@ test("larger curated grids page real basket members without blank cards", () => 
   assert.equal(scenes.basketWindow([], 0, 6).empty, true);
 });
 
-test("Macro and Internals are complete honest six-up screens", () => {
+test("Macro is a complete honest six-up screen; Internals is VIX and PCC on their own", () => {
   const macro = Array.from(scenes.PRESETS.macroCrossAsset.tickers);
   const internals = Array.from(scenes.PRESETS.internalsFast.tickers);
   assert.deepEqual(macro, ["US10Y","DXUSD","GCUSD","SIUSD","CLUSD","BTCUSD"],
     "Macro Cross-Asset carries a verified continuously quoted risk asset; ES remains in INDEX NOW overnight");
-  assert.deepEqual(internals, ["VIX","ADD","PCC","CUMTICK","TICK","TRIN"]);
+  /* 24 Sep, Alan: "save VIX and PCC on their own, which are more useful." The four
+     TradingView-drawn internals moved to TO-DO and carry their reason with them. */
+  assert.deepEqual(internals, ["VIX","PCC"]);
+  assert.deepEqual(Array.from(scenes.todoState().tickers), ["ADD","CUMTICK","TICK","TRIN","TICK","TRIN"]);
   assert.equal(scenes.basketWindow(macro, 0, 6).chartCount, 6);
-  assert.equal(scenes.basketWindow(internals, 0, 6).tickers.includes(""), false);
+  assert.equal(scenes.basketWindow(internals, 0, 2).tickers.includes(""), false);
   assert.equal(scenes.chartCountForSize(4), 2, "retired four-up inputs normalize to two-up");
 });
 
@@ -181,25 +187,29 @@ test("the arrows walk every page while rotation keeps to the curated nine", () =
   /* ROTATION IS NOT THE PAGE LIST (23 Sep). Auto-rotate still cycles the nine curated
      screens — a slideshow Alan set up — while the arrows, the rail and the jump list
      walk all twenty pages, including his own saved layouts. */
-  assert.deepEqual(Array.from(scenes.ROTATION_IDS), ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]);
+  assert.deepEqual(Array.from(scenes.ROTATION_IDS), ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies"]);
   assert.equal(scenes.nextRotatingScreen("themeFamilies").scene, "indexNow",
     "rotation wraps inside the curated nine and never wanders into a saved layout");
   assert.equal(scenes.nextRotatingScreen("tvMacro").scene, "indexNow");
   assert.equal(scenes.nextScreen("live").scene, "indexNow");
   assert.equal(scenes.nextScreen("themeFamilies").scene, "tvMacro",
     "the arrows continue into Alan's own layouts instead of wrapping early");
-  /* 24 Sep (M48): SCINTILLAS is the last page — a page you go to, never part of the rotation. */
+  /* 24 Sep (M48/M69): SCINTILLAS, then TO-DO, then SCRATCH — pages you go to, never
+     part of the rotation, and SCRATCH is deliberately the last thing in the deck. */
   assert.equal(scenes.nextScreen("oscWorkbench").scene, "scintillas");
-  assert.equal(scenes.nextScreen("scintillas").scene, "indexNow", "the last page wraps to the first");
-  assert.equal(scenes.previousScreen("live").scene, "scintillas");
-  assert.equal(scenes.nextRotatingScreen("scintillas").scene, "indexNow",
-    "rotation never wanders onto the scintillas page either");
-  assert.equal(scenes.nextScreen("internalsFast").scene, "internalsSlow",
-    "Internals Fast and Slow remain separate global screens");
-  assert.equal(scenes.previousScreen("internalsSlow").scene, "internalsFast",
-    "the arrows can reach either Internals preset without a scene merge");
-  assert.equal(scenes.screenForScene("internalsFast").label, "INTERNALS FAST");
-  assert.equal(scenes.screenForScene("internalsSlow").label, "INTERNALS SLOW");
+  assert.equal(scenes.nextScreen("scintillas").scene, "todo");
+  assert.equal(scenes.nextScreen("todo").scene, "scratch");
+  assert.equal(scenes.nextScreen("scratch").scene, "indexNow", "the last page wraps to the first");
+  assert.equal(scenes.previousScreen("live").scene, "scratch");
+  for (const page of ["scintillas", "todo", "scratch"])
+    assert.equal(scenes.nextRotatingScreen(page).scene, "indexNow",
+      "rotation never wanders onto a page you go to");
+  assert.equal(scenes.nextScreen("internalsFast").scene, "sectorFamilies",
+    "INTERNALS SLOW no longer sits between them");
+  assert.equal(scenes.screenForScene("internalsFast").label, "INTERNALS");
+  /* The retired id resolves THROUGH the legacy map: asking for INTERNALS SLOW hands back
+     TO-DO, the page its two panes moved to, rather than nothing at all. */
+  assert.equal(scenes.screenForScene("internalsSlow").scene, "todo");
   assert.equal(scenes.screenForScene("custom"), null, "manual Custom is excluded from global navigation");
   assert.match(deck, /ROTATE_SECONDS = \[30,60,120\]/);
   assert.match(deck, /id="rotateToggle"/);
@@ -356,7 +366,8 @@ test("CUSTOM preserves the screenshot-shaped sparse six-slot workspace", () => {
     "migration retains all four saved positions and creates only editable empty slots");
   assert.match(deck, /const hasIncomingSlots = Array\.from\(\{ length:8 \}, \(_, i\) => QS\.has\("c" \+ \(i \+ 1\)\)\)\.some\(Boolean\)/);
   assert.match(deck, /if \(hasIncomingSlots\) return;/);
-  assert.match(deck, /if \(SCENE === "custom" && requestedCount >= 6\)/);
+  assert.match(deck, /if \(SCENE === "scratch" \|\| \(SCENE === "custom" && requestedCount >= 6\)\)/,
+    "SCRATCH keeps every slot it was given; CUSTOM still only grows into empty ones");
   assert.match(deck, /CHART_COUNT = requestedCount;/,
     "growing Custom preserves intentionally empty slots instead of reseeding them");
 });
