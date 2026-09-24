@@ -1695,6 +1695,14 @@ window.addEventListener("message", (event) => {
        must not reload a pane that is showing Alan his feed. */
     X_LIVE = Boolean(event.data.live); X_LIVE_AT = Date.now(); return;
   }
+  if (event.data?.sc === "station-activity") {
+    /* M51: the pane says Alan is touching it. The deck cannot see a wheel, a drag or a scroll
+       that happens inside a frame, so without this message a feed being read looks like an idle
+       Station and the self-update reloads the page under his hand. */
+    const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
+    PANE_ACTIVITY.set(pane ? pane.def.key : String(event.data.pane || "frame"), Date.now());
+    return;
+  }
   if (event.data?.sc === "chart-load-request") {
     /* A frame whose document is the one this deck mounted is current by definition, whatever
        generation it booted with. Without this, every frame that reloaded after a scene change
@@ -3235,27 +3243,50 @@ const SELF_UPDATE_IDLE_MS = 120000;
        never update is how the iMac ended up hours behind in the first place. */
 const X_HOLD_MAX_MS = 1800000;
 let SELF_UPDATE_SEEN = null, SELF_UPDATE_DECK_PENDING = false, SELF_UPDATE_LAST_INPUT = Date.now();
-let X_PENDING = false, X_HELD_SINCE = 0, X_LIVE_AT = 0, X_LIVE = false;
-for (const ev of ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"])
+let CHART_PENDING = false, X_PENDING = false, X_HELD_SINCE = 0, X_LIVE_AT = 0, X_LIVE = false;
+for (const ev of ["pointermove", "pointerdown", "keydown", "wheel", "touchstart", "scroll"])
   window.addEventListener(ev, () => { SELF_UPDATE_LAST_INPUT = Date.now(); }, { passive:true, capture:true });
+/* ---- M51: A PANE IN USE IS THE STATION IN USE ---------------------------------------------------
+   Alan, 24 Sep: "Whatever refreshes happen on the station for the charts, they're kind of
+   refreshing the YouTube feed when I'm scrolling." The cause was structural, not a timing bug:
+   the listeners above are on the DECK document, and every pane Alan actually touches is an iframe
+   whose pointer, wheel, touch and scroll events never reach the parent. Scrolling a feed therefore
+   looked exactly like an empty desk. Each shell now reports "in use" on the same postMessage path
+   the X pane uses for "live", and the two quiet minutes are measured across the deck and all panes
+   together. */
+const PANE_ACTIVITY = new Map();
+function stationLastInput(localAt, paneTimes) {
+  let last = Number(localAt) || 0;
+  for (const at of paneTimes) if (Number(at) > last) last = Number(at);
+  return last;
+}
+function stationIdleMs(now = Date.now()) {
+  return now - stationLastInput(SELF_UPDATE_LAST_INPUT, PANE_ACTIVITY.values());
+}
 /* The pane says so once a second; two missed beats and we treat it as not live. */
 function xPaneLive(now = Date.now()) { return X_LIVE && now - X_LIVE_AT <= 3000; }
-function selfUpdatePlan(seen, tags, idleMs, videoOnStage, deckPending, xLive, xHeldMs, xPending) {
+function selfUpdatePlan(seen, tags, idleMs, videoOnStage, deckPending, xLive, xHeldMs, xPending, chartPending) {
   const changed = (k) => !!(seen && tags[k] && seen[k] && tags[k] !== seen[k]);
   const deck = !!deckPending || changed("deck") || changed("video") || changed("personalVideo");
   const xChanged = !!xPending || changed("x");
+  /* M51: a chart remount is a reload too — the frame goes white and comes back. It now waits for
+     the same two quiet minutes as the page, and a change seen while Alan is working is remembered
+     rather than dropped. */
+  const quiet = idleMs >= SELF_UPDATE_IDLE_MS;
+  const chart = !!chartPending || changed("chart") || changed("provider");
   const held = xLive && Number(xHeldMs || 0) < X_HOLD_MAX_MS;
   /* The X tag is only banked once its reload has actually been allowed, so a
      change that waited out a live pane is not silently forgotten. */
   const next = seen ? Object.assign({}, seen, { chart: tags.chart || seen.chart, provider: tags.provider || seen.provider }) : tags;
   if (seen && tags.x && !(xChanged && xLive)) next.x = tags.x;
   return {
-    remountCharts: changed("chart") || changed("provider"),
+    remountCharts: chart && quiet,
+    chartPending: chart && !quiet,
     deckPending: deck,
-    xPending: xChanged && xLive,
-    remountX: xChanged && !xLive,
-    heldForX: (deck && idleMs >= SELF_UPDATE_IDLE_MS && !videoOnStage && held) || (xChanged && xLive),
-    reloadPage: deck && idleMs >= SELF_UPDATE_IDLE_MS && !videoOnStage && !held,
+    xPending: xChanged && (xLive || !quiet),
+    remountX: xChanged && !xLive && quiet,
+    heldForX: (deck && quiet && !videoOnStage && held) || (xChanged && xLive),
+    reloadPage: deck && quiet && !videoOnStage && !held,
     seen: next
   };
 }
@@ -3286,10 +3317,11 @@ async function selfUpdateCheck() {
   const live = xPaneLive();
   if (!live) X_HELD_SINCE = 0;
   else if (!X_HELD_SINCE) X_HELD_SINCE = Date.now();
-  const plan = selfUpdatePlan(SELF_UPDATE_SEEN, tags, Date.now() - SELF_UPDATE_LAST_INPUT,
+  const plan = selfUpdatePlan(SELF_UPDATE_SEEN, tags, stationIdleMs(),
     selfUpdateVideoOnStage(), SELF_UPDATE_DECK_PENDING, live,
-    X_HELD_SINCE ? Date.now() - X_HELD_SINCE : 0, X_PENDING);
+    X_HELD_SINCE ? Date.now() - X_HELD_SINCE : 0, X_PENDING, CHART_PENDING);
   SELF_UPDATE_SEEN = plan.seen; SELF_UPDATE_DECK_PENDING = plan.deckPending; X_PENDING = plan.xPending;
+  CHART_PENDING = plan.chartPending;
   if (plan.reloadPage) { location.reload(); return; }
   if (plan.remountX) for (const pane of PANES) {
     if (pane.def.kind !== "x" || !pane.frame) continue;

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Context Lens · a live second zoom</title>
+<style>
+:root{ --bg:#0A0A0F; --panel:#0F0F1A; --line:#1A1A2A; --ink:#C8C8CE; --ink2:#8A8A93; --ink3:#66666E;
+  --bull:#00FFA3; --bear:#FF2D55; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; }
+*{ box-sizing:border-box; }
+body{ margin:0; background:var(--bg); color:var(--ink); font:12px/1.5 var(--mono); }
+header{ padding:14px 18px; border-bottom:1px solid var(--line); }
+h1{ margin:0 0 3px; font-size:15px; letter-spacing:.06em; font-weight:600; }
+.sub{ color:var(--ink2); font-size:11.5px; }
+.bar{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:10px 18px; border-bottom:1px solid var(--line); }
+button,select{ background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:3px;
+  padding:5px 10px; font:11.5px var(--mono); cursor:pointer; }
+button:hover{ border-color:#2C2C46; }
+.tag{ color:var(--ink3); font-size:11px; }
+#stage{ padding:18px; }
+#pane{ position:relative; background:var(--panel); border:1px solid var(--line); border-radius:4px;
+  height:420px; overflow:hidden; }
+#cv{ display:block; width:100%; height:100%; }
+#lens{ position:absolute; background:rgba(10,10,15,.97); border:1px solid #2C2C46; overflow:hidden;
+  display:flex; flex-direction:column; }
+#lensHead{ display:flex; justify-content:space-between; gap:8px; padding:4px 9px; font-size:11px;
+  color:var(--ink2); border-bottom:1px solid var(--line); white-space:nowrap; }
+#lensHead b{ color:var(--ink); font-weight:600; letter-spacing:.05em; }
+/* min-height:0 or the canvas keeps its intrinsic 150px ratio and grows past the lens,
+   which clipped the newest bars out of the very view the lens exists to show. */
+#lensBody{ flex:1 1 auto; min-height:0; position:relative; }
+#lcv{ display:block; position:absolute; inset:0; width:100%; height:100%; }
+#readout{ padding:10px 18px 24px; color:var(--ink2); font-size:11.5px; }
+#readout b{ color:var(--ink); }
+.note{ padding:0 18px 22px; color:var(--ink3); font-size:11px; max-width:980px; }
+</style></head>
+<body>
+<header>
+  <h1>CONTEXT LENS — a live second zoom on the same chart</h1>
+  <div class="sub">Not a trip through history. The lens takes the opposite zoom of whatever the main chart
+    is showing, on the same live bars, and both panes always end on the same bar.</div>
+</header>
+<div class="bar">
+  <select id="sym"></select>
+  <button id="zoomOut">zoom out −</button>
+  <button id="zoomIn">zoom in +</button>
+  <button id="tick">a new bar arrives</button>
+  <span class="tag" id="mainTag"></span>
+</div>
+<div id="stage"><div id="pane"><canvas id="cv"></canvas>
+  <div id="lens"><div id="lensHead"><b id="lensLabel"></b><span id="lensSpan"></span></div>
+  <div id="lensBody"><canvas id="lcv"></canvas></div></div>
+</div></div>
+<div id="readout"></div>
+<p class="note">Bars are the saved daily closes recovered with the M47/M50 cases (real prices, dates shown on
+  the lens heading). The green/red of each pane follows that pane's own last bar against the one before it,
+  which is why the two panes can disagree: they are looking at different windows of the same line.</p>
+<script type="module">
+import { place, pathPoints, chamferPath, SHAPES, SHIPPED_SHAPE } from "../../../20260923/context-lens-2/lens-placement.mjs";
+import { lensView, lensSpan } from "./lens-view.mjs";
+
+const CASES = ["SPY", "MU", "SMCI", "INTC", "T", "UNH"];
+const el = (id) => document.getElementById(id);
+let BARS = [], SHOWN = 0, END = 0, MAIN = 200;   /* SHOWN bars ending at END */
+
+const PAD = { l: 10, t: 12, r: 10, b: 14 };
+function geom(canvas) {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(rect.width * dpr); canvas.height = Math.round(rect.height * dpr);
+  const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w: rect.width, h: rect.height };
+}
+function windowOf(start, end) {
+  const slice = BARS.slice(start, end + 1);
+  const ys = slice.map((b) => b[1]);
+  return { slice, lo: Math.min(...ys), hi: Math.max(...ys) };
+}
+function drawLine(canvas, start, end) {
+  const { ctx, w, h } = geom(canvas);
+  const { slice, lo, hi } = windowOf(start, end);
+  const iw = w - PAD.l - PAD.r, ih = h - PAD.t - PAD.b, span = Math.max(1, slice.length - 1);
+  const pad = (hi - lo) * 0.08 || 1, yLo = lo - pad, yHi = hi + pad;
+  const x = (i) => PAD.l + (i / span) * iw;
+  const y = (p) => PAD.t + (1 - (p - yLo) / (yHi - yLo)) * ih;
+  ctx.clearRect(0, 0, w, h);
+  /* the pane's own direction: its last bar against the one before it */
+  const up = slice.length < 2 || slice[slice.length - 1][1] >= slice[slice.length - 2][1];
+  ctx.strokeStyle = up ? getComputedStyle(document.body).getPropertyValue("--bull").trim()
+                       : getComputedStyle(document.body).getPropertyValue("--bear").trim();
+  ctx.lineWidth = 1.4; ctx.beginPath();
+  slice.forEach((b, i) => (i ? ctx.lineTo(x(i), y(b[1])) : ctx.moveTo(x(i), y(b[1]))));
+  ctx.stroke();
+  return { plot: { padL: PAD.l, padT: PAD.t, iw, ih, start: 0, end: slice.length - 1, rightBars: 0, yLo, yHi },
+           series: slice.map((b) => ({ d: b[0], p: b[1] })), up };
+}
+const dateOf = (i) => BARS[i] ? new Date(BARS[i][0]).toISOString().slice(0, 10) : "";
+
+function render() {
+  const start = Math.max(0, END - SHOWN + 1);
+  const main = drawLine(el("cv"), start, END);
+  const view = lensView({ total: BARS.length, start, end: END });
+  el("mainTag").textContent = `main chart · ${SHOWN} bars · ${dateOf(start)} → ${dateOf(END)}`;
+
+  const lens = el("lens");
+  if (view.mode === "none") { lens.style.display = "none"; el("readout").innerHTML =
+    `<b>No second view.</b> ${view.why}.`; return; }
+  lens.style.display = "flex";
+
+  /* WHERE it goes is M47's rule, unchanged: never on the price line, never on the newest fifth. */
+  const pts = pathPoints(main.plot, main.series);
+  const ink = (px, py) => pts.some((p) => Math.abs(p.x - px) < 6 && Math.abs(p.y - py) < 6);
+  const res = place({ plot: main.plot, series: main.series, ink });
+  const spot = res.spot || { x: main.plot.padL + 6, y: main.plot.padT + 6,
+    w: Math.round(main.plot.iw * 0.3), h: Math.round(main.plot.ih * 0.44), corner: "tl" };
+  lens.style.cssText += `;left:${spot.x}px;top:${spot.y}px;width:${spot.w}px;height:${spot.h}px;` +
+    SHAPES[SHIPPED_SHAPE].css(spot, spot.corner);
+
+  el("lensLabel").textContent = spot.w < 170 ? view.label.split(" · ")[0] : view.label;
+  el("lensSpan").textContent = spot.w < 170 ? "" : lensSpan(view, dateOf);
+  const mini = drawLine(el("lcv"), view.start, view.end);
+
+  el("readout").innerHTML =
+    `<b>${view.mode === "wide" ? "The chart is zoomed in, so the lens pulls back." :
+          "The chart is zoomed out, so the lens zooms in."}</b> ` +
+    `Main chart ${SHOWN} bars (${dateOf(start)} → ${dateOf(END)}); lens ${view.bars} bars ` +
+    `(${dateOf(view.start)} → ${dateOf(view.end)}). Both end on ${dateOf(END)}. ` +
+    `Placed ${res.kind === "shelf" ? "below the chart — nothing on the price line cleared" : spot.corner.toUpperCase()}: ${res.why || "clear of the price line"}. ` +
+    `The lens is ${mini.up ? "green" : "red"} and the main chart is ${main.up ? "green" : "red"} — each pane on its own last bar.`;
+}
+
+async function loadCase(sym) {
+  const r = await fetch(`../../../20260923/context-lens-2/cases/${sym}.json`);
+  const j = await r.json();
+  BARS = j.bars; END = BARS.length - 1; SHOWN = Math.min(MAIN, BARS.length);
+  render();
+}
+el("sym").innerHTML = CASES.map((c) => `<option>${c}</option>`).join("");
+el("sym").addEventListener("change", (e) => loadCase(e.target.value));
+el("zoomIn").addEventListener("click", () => { SHOWN = Math.max(5, Math.round(SHOWN / 2)); render(); });
+el("zoomOut").addEventListener("click", () => { SHOWN = Math.min(BARS.length, Math.round(SHOWN * 2)); render(); });
+/* "live" here means: when a new bar lands, both panes advance together and the lens
+   re-decides its mode. Nothing replays, and neither pane goes back in time. */
+el("tick").addEventListener("click", () => {
+  if (END < BARS.length - 1) { END++; } else {
+    const last = BARS[BARS.length - 1];
+    BARS = BARS.concat([[last[0] + 86400000, +(last[1] * (1 + (Math.random() - 0.45) / 100)).toFixed(2)]]);
+    END = BARS.length - 1;
+  }
+  render();
+});
+window.addEventListener("resize", render);
+addEventListener("keydown", (e) => { if (e.key === "l") render(); });
+loadCase(CASES[0]);
+</script>
+</body></html>

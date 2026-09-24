@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
-const src = deck.match(/const SELF_UPDATE_IDLE_MS = [\s\S]*?\nfunction selfUpdatePlan\(seen, tags, idleMs, videoOnStage, deckPending, xLive, xHeldMs, xPending\) \{[\s\S]*?\n\}\n/)[0]
+const src = deck.match(/const SELF_UPDATE_IDLE_MS = [\s\S]*?\nfunction selfUpdatePlan\(seen, tags, idleMs, videoOnStage, deckPending, xLive, xHeldMs, xPending, chartPending\) \{[\s\S]*?\n\}\n/)[0]
   .replace(/let SELF_UPDATE_SEEN[\s\S]*?capture:true \}\);\n/, "")
   .replace(/function xPaneLive[\s\S]*?\n/, "");
 const plan = new Function(src + "return selfUpdatePlan;")();
@@ -12,10 +12,16 @@ test("the first look only records the versions", () => {
   const r = plan(null, A, 0, false, false);
   assert.deepEqual(r.seen, A); assert.equal(r.remountCharts, false); assert.equal(r.reloadPage, false);
 });
-test("a new chart page or provider reloads the charts only, never the page", () => {
-  const r = plan(A, { ...A, chart:"c2" }, 0, true, false);
+/* M51 (24 Sep) changed this on purpose: a chart remount is a reload too — the frame goes white and
+   comes back — so it now waits for the same two quiet minutes as the page instead of happening
+   while Alan is working. The change is remembered, not dropped. */
+test("a new chart page or provider reloads the charts only, never the page, and only once quiet", () => {
+  const busy = plan(A, { ...A, chart:"c2" }, 0, true, false);
+  assert.equal(busy.remountCharts, false, "not under his hand");
+  assert.equal(busy.chartPending, true, "but not forgotten");
+  const r = plan(A, { ...A, chart:"c2" }, 180000, true, false);
   assert.equal(r.remountCharts, true); assert.equal(r.reloadPage, false); assert.equal(r.seen.chart, "c2");
-  assert.equal(plan(A, { ...A, provider:"p2" }, 0, false, false).remountCharts, true);
+  assert.equal(plan(A, { ...A, provider:"p2" }, 180000, false, false).remountCharts, true);
 });
 test("a new deck waits for two idle minutes and for no video on the stage", () => {
   const busy = plan(A, { ...A, deck:"d2" }, 30000, false, false);

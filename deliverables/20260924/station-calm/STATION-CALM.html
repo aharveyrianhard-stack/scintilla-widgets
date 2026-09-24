@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Station calm — nothing reloads under your hand</title>
+<style>
+:root{ --bg:#0A0A0F; --panel:#0F0F1A; --line:#1A1A2A; --ink:#C8C8CE; --ink2:#8A8A93; --ink3:#6A6A72;
+  --bull:#00FFA3; --bear:#FF2D55; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; }
+*{ box-sizing:border-box; }
+body{ margin:0; background:var(--bg); color:var(--ink); font:13px/1.65 var(--mono); }
+main{ max-width:1000px; margin:0 auto; padding:28px 20px 70px; }
+h1{ font-size:19px; letter-spacing:.05em; margin:0 0 6px; }
+h2{ font-size:14.5px; letter-spacing:.05em; margin:34px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+h3{ font-size:12.5px; letter-spacing:.04em; color:var(--ink2); margin:20px 0 6px; }
+p,li{ font-size:12.5px; }
+.lede{ color:var(--ink2); font-size:12.5px; margin:0 0 4px; }
+.panel{ background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:14px 16px; margin:14px 0; }
+table{ border-collapse:collapse; width:100%; margin:10px 0; font-size:12px; }
+th,td{ text-align:left; padding:7px 9px; border-bottom:1px solid var(--line); vertical-align:top; }
+th{ color:var(--ink2); font-weight:600; }
+code{ color:var(--ink2); font-size:11.5px; }
+.up{ color:var(--bull); } .down{ color:var(--bear); }
+figure{ margin:16px 0; } img{ width:100%; border:1px solid var(--line); border-radius:4px; display:block; }
+figcaption{ color:var(--ink3); font-size:11px; padding-top:6px; }
+ul{ padding-left:18px; } li{ margin:4px 0; }
+.quote{ color:var(--ink); border-left:2px solid #2C2C46; padding-left:12px; margin:10px 0; }
+</style></head>
+<body><main>
+
+<h1>STATION CALM</h1>
+<p class="lede">Nothing reloads under your hand any more, and the Context Lens is a live second zoom
+instead of a look back through history. 24 September 2026 · branch <code>station/calm-20260924</code>
+· nothing deployed.</p>
+
+<div class="panel">
+<p class="quote">"Whatever refreshes happen on the station for the charts, they're kind of refreshing
+the YouTube feed when I'm scrolling. There's something weird going on that interferes with the
+experience a little bit."</p>
+<p class="quote">"Seems to replay in the zoom level of history. I don't really care about that.
+I care about the zoom in current bars." · "It's just a view of the current bars with the opposite
+view, and another view of the one that we're in on the charts and what it is."</p>
+</div>
+
+<h2>1 · What was reloading under your hand — proven, not guessed</h2>
+<p>The Station deck watches the server for a newer version of itself every three minutes, and reloads
+the page once it has seen <b>two quiet minutes</b>. It decided you were quiet by listening for the
+mouse, the keys, the wheel and touches <b>on the deck's own page</b>.</p>
+<p>Every pane you actually touch — both YouTube feeds, the X pane, the charts — is a separate page
+inside a frame. <b>A frame's mouse, wheel, touch and scroll never reach the page around it.</b> So
+while you were scrolling a feed, the deck saw an empty desk: two quiet minutes passed, a deploy had
+landed, and it reloaded the whole page under your hand. That is the "something weird".</p>
+<p>There was a second, smaller one. The feed re-reads its own list every two minutes. It put the
+<b>same number of pixels</b> back after the repaint — but when newer videos arrive at the top, the
+same number of pixels is a different video. The list slid under your eye.</p>
+
+<h3>Measured, before and after</h3>
+<p>A headless browser opens the real deck from a local copy, scrolls inside the YouTube pane for
+seven seconds while a new version of the deck appears on the server, and counts page reloads. Then
+newer videos arrive while the pointer sits in the list.</p>
+<table>
+<tr><th>What is measured</th><th>Before (what is live now, <code>ed02f99</code>)</th><th>After (this branch)</th></tr>
+<tr><td>Page reloads while you were scrolling the feed</td><td class="down">1</td><td class="up">0</td></tr>
+<tr><td>Reload once you stopped (the update still happens)</td><td>0 — it had already gone</td><td class="up">1</td></tr>
+<tr><td>The feed refreshed while your pointer was in the list</td><td class="down">yes — 62 tiles, and the video under the top edge changed from <code>vid054</code> to <code>vid056</code></td><td class="up">no — held at 60 tiles, still <code>vid054</code></td></tr>
+<tr><td>When your hand left the list</td><td>—</td><td class="up">the held refresh ran: the two new videos landed, and <code>vid054</code> stayed under the top edge</td></tr>
+</table>
+<p class="lede">Harness facts, stated plainly: the clock is scaled so a three-minute check and a
+two-minute quiet window fit inside a test run (the logic is untouched, the numbers it used are
+printed in the run file); the feed rows are synthetic; nothing off this Mac was called; the browser
+ran headless and was closed at the end. Files:
+<code>harness/station-calm-harness.mjs</code>, <code>harness/out/station-calm-before.json</code>,
+<code>harness/out/station-calm-after.json</code>.</p>
+
+<h2>2 · The fix</h2>
+<ul>
+<li><b>Each pane says when it is in use.</b> The two YouTube shells, the X shell and the chart shell
+now send one small message to the deck — at most once a second, carrying nothing but "in use" — on
+the same channel the X pane already uses to say it is live.</li>
+<li><b>The deck counts that as your hand.</b> Its two quiet minutes are now measured across the deck
+<i>and every pane together</i>. Scrolling a feed keeps the whole Station awake.</li>
+<li><b>Chart and X reloads wait too.</b> A chart frame going white and coming back is a reload to the
+eye, so it now waits for the same quiet. A change that arrives while you are working is remembered,
+not dropped — the moment you stop, it happens.</li>
+<li><b>The feed holds its own refresh</b> while the pointer is in the list, and runs it as soon as the
+pointer leaves. Nothing is skipped.</li>
+<li><b>The feed keeps your place by video, not by pixels.</b> It remembers which tile is under the top
+edge and puts that tile back there, even when newer videos have been added above it.</li>
+</ul>
+<p>The calm is not a freeze: a quiet Station still updates itself, which the harness confirms
+(one reload, straight after the scrolling stopped).</p>
+
+<h2>3 · The Context Lens, rebuilt</h2>
+<p>There was never a piece of code called a "replay". What you were watching is the lens's old
+<b>CONTEXT · FULL HISTORY</b> view — a mode picked from a dropdown that left the current bars behind
+and showed the whole history instead. That mode is gone.</p>
+<p>The lens now takes <b>the opposite zoom of whatever the main chart is showing</b>, on the same live
+bars:</p>
+<table>
+<tr><th>The main chart</th><th>The lens</th><th>Its label</th></tr>
+<tr><td>zoomed out (more than 60 bars on screen)</td><td>zooms in: the last 30 bars</td><td><code>ZOOM · LAST 30 BARS</code> + the dates</td></tr>
+<tr><td>zoomed in (60 bars or fewer)</td><td>pulls back: six times the window on screen</td><td><code>WIDER · LAST n BARS</code> + the dates</td></tr>
+<tr><td>already showing everything there is</td><td>zooms in, because there is nothing wider</td><td><code>ZOOM · …</code></td></tr>
+<tr><td>showing only a handful of bars</td><td>says there is no second view, rather than drawing nonsense</td><td>—</td></tr>
+</table>
+<p>Two rules hold in both modes: <b>both panes always end on the same bar</b> — the lens never shows a
+bar the main chart has not reached — and the wide view is a multiple of what is on screen,
+<b>never the whole history</b>. Where the lens sits and the shape it wears are M47's, unchanged: it
+takes the emptiest corner that clears the price line, it never covers the newest fifth of the chart,
+and it keeps the chamfered corner that points at what it is dodging.</p>
+
+<figure><img src="screens/lens-zoomed-out-1680.png" alt="">
+<figcaption>1680 · the chart is zoomed out over 200 bars (2025-12-04 → 2026-09-22), so the lens sits
+top-left and zooms in on the last 30 bars (2026-08-11 → 2026-09-22). Both end on 2026-09-22.</figcaption></figure>
+<figure><img src="screens/lens-zoomed-in-1680.png" alt="">
+<figcaption>1680 · zoomed in to 13 bars, and the lens pulls back to 78 (2026-06-02 → 2026-09-22),
+top-centre, clear of the newest prices on the right.</figcaption></figure>
+<figure><img src="screens/lens-zoomed-in-2560.png" alt="">
+<figcaption>2560 · the same pair on the wide screen: 13 bars on the chart, 78 in the lens, the lens
+box 751 px wide and still clear of the newest fifth.</figcaption></figure>
+<p class="lede">The lens page is <code>lens/LENS-LIVE.html</code>. Its bars are the real saved daily
+closes recovered with the M47/M50 cases, and the dates on the heading are those bars' own dates.
+Each pane is green or red by its own last bar against the one before it, which is why the two can
+disagree — they are different windows on the same line.</p>
+
+<h2>4 · What could be wrong</h2>
+<ul>
+<li><b>The proof is a harness, not your desk.</b> It runs the real pages with a scaled clock and
+synthetic feed rows. The mechanism is proven; the exact feel on the iMac after a real deploy is not.</li>
+<li><b>A pane that never reports is still invisible to the deck.</b> The four shells the deck mounts
+now report; the older standalone copies (<code>/pane-video</code>, <code>/pane-x</code>,
+<code>x-v1</code>, <code>video-v1</code>) do not, because the deck does not mount them.</li>
+<li><b>The hold is bounded by design.</b> If you never stop touching the Station, the page update
+keeps waiting — the X pane already has a 30-minute ceiling for its own case; the page reload has no
+ceiling of its own beyond that.</li>
+<li><b>The lens numbers (30 bars, six times, the 60-bar switch) are a first choice</b>, not a measured
+one. They are three numbers in one file and easy to change once you have looked at it.</li>
+<li>The lens page draws its own small chart rather than mounting a Station chart pane, so it proves
+the rule and the placement, not the Station's own drawing code.</li>
+</ul>
+
+<h2>5 · What I did not do</h2>
+<ul>
+<li>Nothing was deployed, pushed or merged. No Vercel, Fly or Supabase command was run.</li>
+<li>The lens was <b>not</b> put into the live Station chart pane — this unit rebuilt the rule, the
+label and the two modes, and proved them on their own page. Mounting it in the chart shell is the
+next step and wants your eye first.</li>
+<li>No test browser was ever visible: every run was headless and closed itself.</li>
+<li>Alan's saved scenes, panes, feeds, watch list and Equalizer settings were not touched.</li>
+<li><code>prototypes/indicator-lab/</code> is byte-identical, and no other Hub room was changed.</li>
+</ul>
+
+</main></body></html>
