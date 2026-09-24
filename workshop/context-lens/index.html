@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Context Lens · workshop</title>
+<style>
+  :root{
+    --ink:#c8c8ce; --ink-2:#8c8c93; --ink-3:#6e6e75;
+    --panel:#101013; --page:#0c0c0e; --line:#2b2b30; --line-2:#44444b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--page);color:var(--ink);
+    font:13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+  .mono{font-family:"SF Mono",ui-monospace,Menlo,monospace;letter-spacing:.09em}
+  header{padding:18px 20px 12px;border-bottom:1px solid var(--line)}
+  h1{margin:0 0 6px;font-size:16px;font-weight:600;letter-spacing:.02em}
+  .kicker{font-size:11px;color:var(--ink-3);text-transform:uppercase}
+  header p{margin:8px 0 0;max-width:78ch;color:var(--ink-2);font-size:12.5px}
+  .controls{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:flex-end;
+    padding:12px 20px;border-bottom:1px solid var(--line);background:#0e0e11;position:sticky;top:0;z-index:20}
+  .ctl{display:flex;flex-direction:column;gap:5px}
+  .ctl label,.ctl .lab{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.08em}
+  select,button,input[type=range]{background:var(--panel);color:var(--ink);border:1px solid var(--line-2);
+    border-radius:4px;font:12px/1.4 "SF Mono",ui-monospace,Menlo,monospace;padding:5px 7px}
+  button{cursor:pointer}
+  button[aria-pressed=true]{border-color:#7a7a82;color:#d2d2d8}
+  input[type=range]{padding:0;width:128px}
+  .tally{margin-left:auto;font-size:12px;color:var(--ink-2);text-align:right;max-width:44ch}
+  .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding:16px 20px 40px}
+  @media (max-width:1180px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  @media (max-width:720px){.grid{grid-template-columns:1fr;padding:12px 12px 32px}}
+  .card{border:1px solid var(--line);border-radius:6px;background:var(--panel);overflow:hidden;display:flex;flex-direction:column}
+  .card-head{padding:8px 10px 7px;border-bottom:1px solid var(--line)}
+  .card-head .k{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.09em}
+  .card-head .t{font-size:13px;color:var(--ink);margin-top:2px}
+  .card-head .s{font-size:11.5px;color:var(--ink-2);margin-top:2px}
+  .frame-wrap{position:relative;height:300px;background:var(--page)}
+  @media (max-width:720px){.frame-wrap{height:260px}}
+  iframe{width:100%;height:100%;border:0;display:block}
+  .readout{padding:7px 10px 9px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink-2);min-height:44px}
+  .readout b{color:var(--ink);font-weight:600}
+  .readout .why{display:block;color:var(--ink-3);margin-top:2px}
+  footer{padding:14px 20px 40px;border-top:1px solid var(--line);color:var(--ink-3);font-size:11.5px;max-width:86ch}
+  footer b{color:var(--ink-2)}
+</style>
+</head>
+<body>
+<header>
+  <div class="kicker mono">Scintilla · workshop · not the Station</div>
+  <h1>Context Lens — eight live charts going different ways</h1>
+  <p>Every chart here is the Station's own chart pane, drawn from live bars off the chart API. The lens is the
+     small second view. Use the switch to compare the styles on all eight at once. Nothing on this page is on the
+     live Station, and nothing here changes it.</p>
+</header>
+
+<div class="controls">
+  <div class="ctl">
+    <label class="mono" for="v">Lens style</label>
+    <select id="v">
+      <option value="A">A · inset, opposite zoom (recommended)</option>
+      <option value="B">B · inset, whole history</option>
+      <option value="C">C · inset, last 24 sessions</option>
+      <option value="D">D · band under the chart (what went to Station)</option>
+    </select>
+  </div>
+  <div class="ctl">
+    <label class="mono" for="mb">Main chart shows</label>
+    <select id="mb">
+      <option value="40">40 bars</option>
+      <option value="70" selected>70 bars</option>
+      <option value="140">140 bars</option>
+      <option value="all">everything</option>
+    </select>
+  </div>
+  <div class="ctl">
+    <label class="mono" for="sz">Lens size</label>
+    <select id="sz"><option value="L">Large</option><option value="M" selected>Medium</option><option value="S">Small</option></select>
+  </div>
+  <div class="ctl">
+    <label class="mono" for="mg">Clear of price <span id="mg-v">8</span> px</label>
+    <input id="mg" type="range" min="0" max="16" step="1" value="8">
+  </div>
+  <div class="ctl">
+    <label class="mono" for="mi">Busiest corner allowed <span id="mi-v">55</span>%</label>
+    <input id="mi" type="range" min="20" max="95" step="5" value="55">
+  </div>
+  <div class="ctl">
+    <span class="lab mono">Refused corners</span>
+    <button id="cand" type="button" aria-pressed="false">Hidden</button>
+  </div>
+  <div class="tally mono" id="tally">measuring…</div>
+</div>
+
+<div class="grid" id="grid"></div>
+
+<footer>
+  <p><b>Where the bars come from.</b> Each pane is <code>/chart/</code> in pane mode, loading its own daily bars
+     through the Station's provider — the same route the Station uses. No second data path was opened for this page.</p>
+  <p><b>Why these eight.</b> They were picked from live daily bars this morning so the wall is not eight charts doing
+     the same thing: two rising, two falling, one flat, one that gapped, the index, and a put/call ratio, which is not
+     a price at all. The numbers behind the choice are in <code>picks.json</code> beside this page.</p>
+  <p><b>The lens itself.</b> Where it sits is the reviewed corner rule from 23 September
+     (<code>lens-placement.mjs</code>); what it shows is the reviewed opposite-zoom rule from M51
+     (<code>lens-view.mjs</code>). Both files are byte-identical copies of the reviewed ones.</p>
+</footer>
+
+<script type="module">
+import { placeStable, SHAPES, SHIPPED_SHAPE, DEFAULTS } from "./lens-placement.mjs";
+import { lensView } from "./lens-view.mjs";
+
+const STATE = { variant: "A", mainBars: 70, size: "M", margin: 8, maxInk: 0.55, candidates: false };
+const CORNER_NAME = { tl:"top left", tc:"top centre", tr:"top right",
+                      bl:"bottom left", bc:"bottom centre", br:"bottom right" };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/* THE STATION'S OWN LOAD ADMISSION. A chart pane inside a frame asks its parent before it
+   reads history, so a wall of panes cannot all hit the API at once. The deck answers this;
+   this workshop answers it the same way, three at a time. Without it every pane would sit
+   through its own 5.5-second escape hatch before drawing. */
+const LOADS = { active: new Set(), queue: [], max: 3 };
+function pump() {
+  while (LOADS.active.size < LOADS.max && LOADS.queue.length) {
+    const job = LOADS.queue.shift();
+    LOADS.active.add(job.token);
+    try { job.source.postMessage({ sc:"chart-load-grant", token: job.token, generation: job.generation }, location.origin); }
+    catch (_) { LOADS.active.delete(job.token); }
+  }
+}
+addEventListener("message", (e) => {
+  if (e.origin !== location.origin) return;
+  const d = e.data || {};
+  if (d.sc === "chart-load-request") { LOADS.queue.push({ token: d.token, generation: Number(d.generation) || 0, source: e.source }); pump(); }
+  else if (d.sc === "chart-load-release") { LOADS.active.delete(d.token); pump(); }
+});
+
+/* the lens chrome, injected into each chart frame */
+const STAGE_CSS = `
+  html.w-banded #chartSlot{bottom:var(--w-band-h,84px)}
+  #w-bandrow{position:absolute;left:0;right:0;bottom:0;height:var(--w-band-h,84px);
+    border-top:1px solid #2b2b30;background:#0c0c0e;padding:5px 7px 7px;z-index:5}
+  .w-lens{position:absolute;border:1px solid #55555c;border-radius:5px;background:#101013;
+    box-shadow:0 6px 18px rgba(0,0,0,.55);overflow:hidden;z-index:6}
+  .w-lens .sc-nchart__bar{display:none}
+  .w-lens-head{display:flex;justify-content:space-between;align-items:center;gap:6px;padding:3px 6px;
+    border-bottom:1px solid #2b2b30;font:9.5px/1.4 "SF Mono",ui-monospace,Menlo,monospace;
+    letter-spacing:.1em;color:#8c8c93}
+  .w-lens-body{position:relative}
+  .w-here{position:absolute;top:0;bottom:0;background:rgba(190,190,198,.13);
+    border-left:1px solid rgba(200,200,208,.5);border-right:1px solid rgba(200,200,208,.5);pointer-events:none}
+  .w-cand{position:absolute;border:1px dashed #44444b;border-radius:5px;z-index:4;
+    font:9.5px/1.3 "SF Mono",ui-monospace,Menlo,monospace;color:#6e6e75;padding:3px 5px}
+  .w-cand.no{border-style:dotted;opacity:.5}
+  .w-band{position:relative;width:100%;height:100%;border:1px solid #55555c;border-radius:5px;background:#101013}
+  #w-stage .sc-nchart__bar{pointer-events:none}
+`;
+
+const picks = await fetch("picks.json").then((r) => r.json());
+const grid = document.getElementById("grid");
+const cards = [];
+
+for (const p of picks.picks) {
+  const el = document.createElement("section");
+  el.className = "card";
+  const move = (p.day_pct >= 0 ? "+" : "") + p.day_pct.toFixed(2) + "% last session";
+  const trend = (p.trend20_pct >= 0 ? "+" : "") + p.trend20_pct.toFixed(1) + "% over 20 sessions";
+  const gap = p.kind === "gap" ? " · opened " + (p.gap_pct >= 0 ? "+" : "") + p.gap_pct.toFixed(2) + "% from the close before" : "";
+  el.innerHTML =
+    `<div class="card-head">
+       <div class="k mono">${p.title}</div>
+       <div class="t">${p.symbol} — ${p.plain}</div>
+       <div class="s">${move} · ${trend}${gap}</div>
+     </div>
+     <div class="frame-wrap"><iframe title="${p.symbol}" loading="eager"
+        src="../../chart/index.html?bare=1&clouds=1&range=1D&t=${encodeURIComponent(p.symbol)}"></iframe></div>
+     <div class="readout"><span class="line">loading live bars…</span></div>`;
+  grid.appendChild(el);
+  const card = { p, el, frame: el.querySelector("iframe"), prev: null, reading: false, busy: false };
+  card.frame.addEventListener("load", () => paint(card));
+  cards.push(card);
+}
+
+function tally() {
+  const done = cards.filter((c) => c.result);
+  const inset = done.filter((c) => c.result === "inset").length;
+  const band = done.filter((c) => c.result === "band").length;
+  const bad = done.filter((c) => c.result === "none").length;
+  document.getElementById("tally").textContent = done.length < cards.length
+    ? `drawing… ${done.length}/${cards.length}`
+    : STATE.variant === "D"
+      ? `${done.length - bad} of ${cards.length} charts carry the band` + (bad ? ` · ${bad} could not draw` : "")
+      : `${inset} of ${cards.length} fit in a corner · ${band} fell back to a band under the chart` + (bad ? ` · ${bad} could not draw` : "");
+}
+
+async function paint(card) {
+  if (card.busy) { card.again = true; return; }
+  card.busy = true;
+  try { await draw(card); }
+  catch (err) { card.result = "none"; say(card, "this chart could not be drawn: " + ((err && err.message) || String(err))); }
+  finally {
+    card.busy = false; tally();
+    if (card.again) { card.again = false; paint(card); }
+  }
+}
+
+const say = (card, html, why) => {
+  card.el.querySelector(".readout").innerHTML = html + (why ? `<span class="why">${why}</span>` : "");
+};
+
+async function draw(card) {
+  const { frame, p } = card;
+  const win = frame.contentWindow, doc = frame.contentDocument;
+  if (!win || !doc || !win.scChartDraw || !win.setChartView) {
+    card.waited = (card.waited || 0) + 1;
+    if (card.waited > 60) { card.result = "none"; say(card, "the Station chart page did not load — this workshop must be opened over http, not from a file"); return; }
+    await sleep(150);
+    return draw(card);
+  }
+  card.waited = 0;
+  if (!doc.getElementById("w-style")) {
+    const st = doc.createElement("style"); st.id = "w-style"; st.textContent = STAGE_CSS;
+    doc.head.appendChild(st);
+  }
+
+  /* the frame's OWN pane, loading its own live bars through the Station's normal path */
+  const pane = doc.querySelector("#chartSlot .sc-nchart");
+  if (!pane) { await sleep(150); return draw(card); }
+
+  for (let i = 0; i < 260 && !(pane._series && pane._series.length >= 2); i++) {
+    if (pane.dataset.dataState === "absent") break;
+    await sleep(100);
+  }
+  const pts = pane._series;
+  if (!pts || pts.length < 2) {
+    card.result = "none";
+    say(card, `<b>no chart.</b> ${pane.dataset.absence || "the chart API has not served bars for this symbol"}`);
+    return;
+  }
+  if (!card.fetched) card.fetched = new Date().toISOString().slice(11, 16) + "Z";
+
+  /* clear whatever the last pass drew */
+  doc.querySelectorAll(".w-lens, .w-cand, #w-bandrow").forEach((n) => n.remove());
+  doc.documentElement.classList.remove("w-banded");
+
+  const total = pts.length, i1 = total - 1;
+  const i0 = STATE.mainBars === "all" ? 0 : Math.max(0, i1 - Number(STATE.mainBars) + 1);
+  win.setChartView(pane, i0, i1, false, false);
+
+  let plot = pane._plot;
+  const area = pane.querySelector(".sc-nchart__area");
+  const cv = pane.querySelector(".sc-nchart__cv");
+  if (!plot || !cv || !area) { card.result = "none"; say(card, "the pane did not draw at this size"); return; }
+
+  /* WHAT the lens shows — M51's rule, read off the window the big chart is on right now */
+  const live = lensView({ total, start: plot.start, end: plot.end });
+  const view = STATE.variant === "B"
+      ? { mode:"wide", start:0, end:i1, bars:total, label:"CONTEXT · FULL HISTORY", why:"the whole history behind where you stand" }
+    : STATE.variant === "C"
+      ? { mode:"detail", start:Math.max(0, i1 - 23), end:i1, bars:Math.min(24, total), label:"DETAIL · LAST 24", why:"the last 24 sessions, close up" }
+      : live;
+  if (view.mode === "none") { card.result = "none"; say(card, "<b>no lens.</b>", view.why); return; }
+
+  /* WHERE it sits — the reviewed corner rule, measured on this pane's own canvas */
+  const dpr = cv.width / Math.max(1, area.clientWidth);
+  let img = null;
+  try { img = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height); } catch (_) {}
+  const ink = img ? (x, y) => {
+    const px = Math.round(x * dpr), py = Math.round(y * dpr);
+    if (px < 0 || py < 0 || px >= img.width || py >= img.height) return true;
+    return img.data[(py * img.width + px) * 4 + 3] > 24;
+  } : null;
+
+  const res = STATE.variant === "D" ? null : placeStable({
+    plot, series: pts, ink, size: STATE.size, prefer: null, margin: STATE.margin,
+    maxInk: STATE.maxInk, edge: DEFAULTS.edge, prev: card.prev, reading: card.reading });
+  if (res) card.prev = res;
+  const banded = STATE.variant === "D" || (res && res.kind === "shelf");
+
+  if (res && STATE.candidates && !banded) {
+    for (const r of res.considered) {
+      if (r.size !== res.size || (res.spot && r.corner === res.spot.corner)) continue;
+      const box = doc.createElement("div");
+      box.className = "w-cand" + (r.clear ? "" : " no");
+      box.style.cssText = `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px`;
+      box.textContent = r.w < 130 ? r.corner.toUpperCase()
+        : r.clear ? `${r.corner.toUpperCase()} · ${(r.ink * 100).toFixed(0)}% drawn on`
+        : r.refused === "too busy" ? `${r.corner.toUpperCase()} · too busy`
+        : `${r.corner.toUpperCase()} · covers price`;
+      area.appendChild(box);
+    }
+  }
+
+  const lens = doc.createElement("div");
+  lens.className = "w-lens";
+  lens.addEventListener("pointerenter", () => { card.reading = true; });
+  lens.addEventListener("pointerleave", () => { card.reading = false; });
+
+  if (banded) {
+    /* the band takes its height OUT of the chart: the two never overlap */
+    const bandH = Math.round(Math.min(96, Math.max(64, doc.documentElement.clientHeight * 0.26)));
+    doc.documentElement.style.setProperty("--w-band-h", bandH + "px");
+    doc.documentElement.classList.add("w-banded");
+    lens.classList.add("w-band");
+    const row = doc.createElement("div"); row.id = "w-bandrow";
+    row.appendChild(lens); doc.body.appendChild(row);
+    win.scChartDraw(pane);
+    plot = pane._plot || plot;
+  } else {
+    lens.style.cssText = SHAPES[SHIPPED_SHAPE].css(res.spot, res.spot.corner) + ";" +
+      `left:${res.spot.x}px;top:${res.spot.y}px;width:${res.spot.w}px;height:${res.spot.h}px`;
+    area.appendChild(lens);
+  }
+
+  const boxW = lens.getBoundingClientRect().width;
+  lens.insertAdjacentHTML("afterbegin",
+    `<div class="w-lens-head"><span>${boxW < 170 ? view.label.split(" · ")[0] : view.label}</span>` +
+    `<span class="w-range"${boxW < 170 ? " hidden" : ""}></span></div>`);
+  lens.insertAdjacentHTML("beforeend", '<div class="w-lens-body"></div>');
+
+  const body = lens.querySelector(".w-lens-body");
+  const headH = lens.querySelector(".w-lens-head").getBoundingClientRect().height || 16;
+  const lh = lens.getBoundingClientRect().height;
+  body.style.cssText = `width:${boxW}px;height:${Math.max(24, lh - headH)}px`;
+  body.innerHTML = `<div class="sc-nchart" data-t="${p.symbol}" style="position:relative;width:100%;height:100%">
+      <div class="sc-nchart__area" style="position:absolute;inset:0"><canvas class="sc-nchart__cv"></canvas>
+      <div class="sc-nchart__msg" hidden></div>
+      <button type="button" class="sc-nchart__cap" hidden></button></div></div>`;
+  const mini = body.querySelector(".sc-nchart");
+  mini.dataset.t = p.symbol;
+  mini._series = pts;                       /* the same bars the big chart already holds */
+  if (win.applyCloudRows) win.applyCloudRows(mini, p.symbol, pts);
+  win.setChartView(mini, view.start, view.end, false, false);   /* both panes end on the same bar */
+
+  const dateAt = (i) => (pts[i] && pts[i].d ? String(pts[i].d).slice(0, 10) : "");
+  const rangeEl = lens.querySelector(".w-range");
+  if (rangeEl) rangeEl.textContent = `${dateAt(view.start)} → ${dateAt(view.end)}`;
+
+  if (STATE.variant === "B" && mini._plot) {
+    const mp = mini._plot, span = Math.max(1, mp.end - mp.start + (mp.rightBars || 0));
+    const x = (i) => mp.padL + ((i - mp.start) / span) * mp.iw;
+    const here = doc.createElement("div");
+    here.className = "w-here";
+    here.style.cssText = `left:${x(i0)}px;width:${Math.max(2, x(i1) - x(i0))}px`;
+    body.querySelector(".sc-nchart__area").appendChild(here);
+  }
+
+  card.result = banded ? "band" : "inset";
+  const mainBars = plot.end - plot.start + 1;
+  const where = STATE.variant === "D" ? "<b>In a band under the chart.</b>"
+    : banded ? "<b>Fell back to a band under the chart.</b>"
+    : `<b>${CORNER_NAME[res.spot.corner]}</b>, ${{ L:"large", M:"medium", S:"small" }[res.size]}${res.shrunk ? " (shrunk to fit)" : ""}.`;
+  say(card, `${where} Chart shows ${mainBars} bars; lens shows ${view.bars} (${view.mode === "wide" ? "wider" : "closer in"}).`,
+    `${view.why}${res ? " · " + res.why : ""} · live bars ${card.fetched}`);
+}
+
+/* ---- controls: every knob redraws all eight ---- */
+const redraw = () => cards.forEach((c) => { c.prev = null; paint(c); });
+document.getElementById("v").addEventListener("change", (e) => { STATE.variant = e.target.value; redraw(); });
+document.getElementById("mb").addEventListener("change", (e) => { STATE.mainBars = e.target.value; redraw(); });
+document.getElementById("sz").addEventListener("change", (e) => { STATE.size = e.target.value; redraw(); });
+document.getElementById("mg").addEventListener("input", (e) => {
+  STATE.margin = Number(e.target.value); document.getElementById("mg-v").textContent = e.target.value; redraw(); });
+document.getElementById("mi").addEventListener("input", (e) => {
+  STATE.maxInk = Number(e.target.value) / 100; document.getElementById("mi-v").textContent = e.target.value; redraw(); });
+document.getElementById("cand").addEventListener("click", (e) => {
+  STATE.candidates = !STATE.candidates;
+  e.currentTarget.setAttribute("aria-pressed", String(STATE.candidates));
+  e.currentTarget.textContent = STATE.candidates ? "Shown faded" : "Hidden";
+  redraw();
+});
+addEventListener("resize", () => { clearTimeout(window.__wt); window.__wt = setTimeout(redraw, 300); });
+/* the pane re-reads its own history every 60 s; draw the lens again on the new bars */
+setInterval(() => cards.forEach((c) => paint(c)), 60000);
+window.__lensWorkshop = { state: STATE, cards, tally: () => document.getElementById("tally").textContent };
+</script>
+</body>
+</html>
