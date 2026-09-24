@@ -16,7 +16,18 @@ function planOf(src) {
 for (const [name, src] of [["x-v2", xv2], ["pane-x", panex]]) {
   const plan = planOf(src);
   const T = 1_000_000;
-  test(name + ": a pane with no stream is not healed", () => {
+  /* M29 changed this deliberately for the shell the Station actually mounts: a
+     pane with no stream was exactly the state that sat black until Alan pressed
+     reload, so x-v2 now asks for one. /pane-x is the older standalone shell and
+     keeps the M25 contract. */
+  test(name + (name === "x-v2" ? ": a pane with no stream asks for one (M29)" : ": a pane with no stream is not healed"), () => {
+    if (name === "x-v2") {
+      const asking = plan(T, { attached: false, bootAt: T - 10000, readyAt: T - 9000, tries: 0 });
+      assert.equal(asking.relink, true, "it asks instead of waiting for a person");
+      assert.match(asking.state, /asking the X source/);
+      assert.equal(plan(T, { attached: false, bootAt: T - 1000, tries: 0 }).stalled, false, "but not in the first seconds");
+      return;
+    }
     assert.deepEqual(plan(T, { attached: false, lastFrameAt: 0 }), { state: "", relink: false, stalled: false });
   });
   test(name + ": frames still arriving means nothing happens", () => {

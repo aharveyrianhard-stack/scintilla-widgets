@@ -270,24 +270,121 @@ const STATION_HOVER_RENEW_MS = 180;
 const STATION_STALL_MS = 6000;
 const STATION_RELINK_COOLDOWN_MS = 12000;
 const STATION_RELINK_GIVEUP = 3;
+/* ---- 23 SEP: THE THREE WAYS THE PICTURE DIED WITHOUT SAYING SO ----------
+   Alan: "The one that I have on the iMac is black again" · "I resize the window,
+   it gets fucked. It's flimsy as shit." · "I'm having to refresh both devices'
+   Station again." Three different faults were hiding behind one black rectangle,
+   and none of them could recover on their own:
+
+     1. NOBODY OFFERED. A reloaded pane waits to be handed a stream. The bridge
+        does offer one - unless its worker restarted, its capture is gone, or its
+        answer failed - and the health check above returned early whenever no
+        stream was attached, so the one thing that could have asked again never
+        ran. That is the refresh Alan kept having to do by hand.
+     2. THE CAPTURE WENT BLACK. Chrome can leave a tab capture decoding black
+        frames; the bridge's own background.js says so in as many words. The
+        frames keep arriving, so every freshness check stays happy for ever.
+     3. THE CROP MISSED THE FRAME. The crop is measured on the X tab in CSS
+        pixels and mapped through the capture's pixel size. Any disagreement
+        between those two - which a resize opens, because the source relays out
+        its column for the new shape - mapped the draw outside the frame, and
+        the pane painted its black fill instead of the picture.
+
+   Freshness was never enough. The pane now looks at what it is actually
+   painting - one 24x16 sample a second, of both the incoming frame and the
+   canvas - so it can tell "no frames" from "black frames" from "a picture I am
+   failing to draw", and give each one its own recovery and its own sentence. */
+const STATION_BLACK_MS = 6000;       /* frames arriving, nothing in any of them */
+const STATION_CROP_BLIND_MS = 2000;  /* a picture in the frame, none on the canvas */
+const STATION_WAIT_MS = 4000;        /* attached to nothing, and nobody offered */
+const STATION_ASK_GIVEUP = 6;
+const STATION_INK_FLOOR = 0.01;
+const STATION_GESTURE_LINE = "press Option+Shift+S on the x.com tab once";
 let stationHoverInside = false, stationHoverPulse = 0;
 let stationLastFrameAt = 0, stationLastCropAt = 0, stationAttachedAt = 0;
 let stationRelinkAt = 0, stationRelinkTries = 0, stationHealthTimer = 0, stationFrameProbe = 0;
+let stationBootAt = Date.now(), stationReadyAt = 0, stationBlackSince = 0, stationBlindSince = 0;
+let stationFullFrame = false, stationVideoInk = null, stationCropInk = null, stationCanvasInk = null;
+/* The crop handler writes "live" on every crop - ten times a second - so a
+   fault sentence written once a second was wiped 100 ms after it appeared, and
+   the pane went on saying "live" over a black rectangle. While a fault is
+   standing, it owns the line. */
+let stationFault = "";
 
-/* Pure, so a test can kill the frames without a browser. */
+/* Pure, so a test can kill the frames, black out the capture or break the crop
+   without a browser. Every branch below is one row of the failure table. */
 function stationLinkPlan(now, s) {
-  if (!s || !s.attached) return { state:"", relink:false, stalled:false };
+  const tries = Number(s?.tries) || 0;
+  const cooling = Boolean(s?.lastRelinkAt) && (now - Number(s.lastRelinkAt) < STATION_RELINK_COOLDOWN_MS);
+  const quiet = { state:"", relink:false, refit:false, stalled:false, gesture:false };
+  const ask = (state, giveup, limit) => {
+    if (tries >= limit) return { state:giveup, relink:false, refit:false, stalled:true, gesture:true };
+    return { state, relink:!cooling, refit:false, stalled:true, gesture:false };
+  };
+  if (!s) return quiet;
+  if (!s.attached) {
+    /* The iPad Companion has its own reconnect and no extension to ask. */
+    if (s.remote) return quiet;
+    const since = Math.max(Number(s.readyAt) || 0, Number(s.bootAt) || 0);
+    const waited = now - since;
+    if (!since || waited < STATION_WAIT_MS) return quiet;
+    return ask("asking the X source for the picture · " + Math.round(waited / 1000) + "s",
+      "no X source · " + STATION_GESTURE_LINE, STATION_ASK_GIVEUP);
+  }
   const seen = Math.max(Number(s.lastFrameAt) || 0, Number(s.lastCropAt) || 0, Number(s.attachedAt) || 0);
-  const quiet = now - seen;
-  if (!(quiet >= STATION_STALL_MS)) return { state:"", relink:false, stalled:false };
-  const secs = Math.round(quiet / 1000);
-  const tries = Number(s.tries) || 0;
-  if (tries >= STATION_RELINK_GIVEUP)
-    return { state:"no picture for " + secs + "s · the X window may be closed", relink:false, stalled:true };
-  const waited = now - (Number(s.lastRelinkAt) || 0);
-  if (s.lastRelinkAt && waited < STATION_RELINK_COOLDOWN_MS)
-    return { state:"relinking · " + secs + "s without a frame", relink:false, stalled:true };
-  return { state:"relinking · " + secs + "s without a frame", relink:true, stalled:true };
+  const quietFor = now - seen;
+  if (quietFor >= STATION_STALL_MS) {
+    const secs = Math.round(quietFor / 1000);
+    if (tries >= STATION_RELINK_GIVEUP)
+      return { state:"no picture for " + secs + "s · the X window may be closed", relink:false, refit:false, stalled:true, gesture:false };
+    return { state:"relinking · " + secs + "s without a frame", relink:!cooling, refit:false, stalled:true, gesture:false };
+  }
+  /* Frames are arriving. Is there anything in them, and is any of it reaching
+     the canvas? A relink cannot fix a black capture - only a fresh, gesture
+     authorized capture can - so that branch ends in the one honest instruction. */
+  if (s.videoInk !== null && s.videoInk <= STATION_INK_FLOOR &&
+      s.blackSince && now - s.blackSince >= STATION_BLACK_MS) {
+    const secs = Math.round((now - s.blackSince) / 1000);
+    return ask("the X capture went black · " + secs + "s",
+      "the X capture is black · " + STATION_GESTURE_LINE, STATION_RELINK_GIVEUP);
+  }
+  if (s.videoInk !== null && s.videoInk > STATION_INK_FLOOR &&
+      s.cropInk !== null && s.cropInk <= STATION_INK_FLOOR &&
+      s.blindSince && now - s.blindSince >= STATION_CROP_BLIND_MS)
+    return { state:"re-deriving the crop", relink:false, refit:true, stalled:true, gesture:false };
+  return quiet;
+}
+
+/* One tiny scratch surface, reused. 384 pixels a second is cheaper than the
+   draw it is checking, and it is the only way to know the pane is not lying. */
+const stationInkScratch = document.createElement("canvas");
+stationInkScratch.width = 24; stationInkScratch.height = 16;
+/* The one mapping from a source crop to the capture's pixels. The draw uses it
+   and the health sampler measures through it, so "the crop missed" is measured
+   on the very numbers the draw would have used. */
+function stationSourceRegion(video, crop) {
+  const viewport = crop?.viewport || { width: video.videoWidth, height: video.videoHeight };
+  const rect = crop?.rect || { left:0, top:0, width:viewport.width, height:viewport.height };
+  const scaleX = video.videoWidth / Math.max(1, viewport.width);
+  const scaleY = video.videoHeight / Math.max(1, viewport.height);
+  const sx = Math.max(0, rect.left * scaleX);
+  const sy = Math.max(0, (rect.top + (crop?.fractionalScrollOffset || 0)) * scaleY);
+  const sw = Math.min(video.videoWidth - sx, rect.width * scaleX);
+  const shAvailable = Math.min(video.videoHeight - sy, rect.height * scaleY);
+  return { sx, sy, sw, shAvailable, usable: sw > 1 && shAvailable > 1 };
+}
+
+function stationInkOf(source, width, height, region) {
+  if (!source || !width || !height) return null;
+  try {
+    const ctx = stationInkScratch.getContext("2d", { willReadFrequently:true });
+    if (region) ctx.drawImage(source, region.sx, region.sy, region.sw, region.shAvailable, 0, 0, 24, 16);
+    else ctx.drawImage(source, 0, 0, 24, 16);
+    const data = ctx.getImageData(0, 0, 24, 16).data;
+    let lit = 0;
+    for (let i = 0; i < data.length; i += 4) if (data[i] + data[i + 1] + data[i + 2] > 60) lit += 1;
+    return lit / (data.length / 4);
+  } catch (_) { return null; }
 }
 
 function publishViewerCadence() {
@@ -566,36 +663,121 @@ function relinkStation() {
   try { announceViewerClock(true); } catch (_) {}
 }
 
+/* What is actually on the wire and on the glass, once a second. */
+function sampleStationInk() {
+  const now = Date.now();
+  const video = el("v"), canvas = el("cv");
+  if (!xfloatStream || !video.videoWidth || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+    stationVideoInk = null; stationCropInk = null; stationCanvasInk = null;
+    stationBlackSince = 0; stationBlindSince = 0;
+    return;
+  }
+  stationVideoInk = stationInkOf(video, video.videoWidth, video.videoHeight);
+  stationCanvasInk = stationInkOf(canvas, canvas.width, canvas.height);
+  const region = stationSourceRegion(video, xfloatCrop);
+  /* A region the draw cannot use has nothing in it by definition. */
+  stationCropInk = region.usable ? stationInkOf(video, video.videoWidth, video.videoHeight, region) : 0;
+  stationBlackSince = (stationVideoInk !== null && stationVideoInk <= STATION_INK_FLOOR) ? (stationBlackSince || now) : 0;
+  const blind = stationVideoInk !== null && stationVideoInk > STATION_INK_FLOOR &&
+    stationCropInk !== null && stationCropInk <= STATION_INK_FLOOR;
+  stationBlindSince = blind ? (stationBlindSince || now) : 0;
+  /* The fallback retires itself the moment the mapped region has a picture in
+     it again, measured off-screen, so the pane never flickers between the two. */
+  if (stationFullFrame && !blind && stationCropInk !== null && stationCropInk > STATION_INK_FLOOR) stationFullFrame = false;
+}
+
+/* Read-only truth for a test, for the harness, and for Alan's console. */
+function publishStationLink(plan) {
+  window.__SCINTILLA_X_LINK = {
+    attached: Boolean(xfloatStream), state: plan?.state || "", gesture: Boolean(plan?.gesture),
+    videoInk: stationVideoInk, cropInk: stationCropInk, canvasInk: stationCanvasInk,
+    fullFrame: stationFullFrame, tries: stationRelinkTries,
+    lastFrameAgo: stationLastFrameAt ? Date.now() - stationLastFrameAt : null,
+    lastCropAgo: stationLastCropAt ? Date.now() - stationLastCropAt : null,
+    picture: Boolean(xfloatStream) && stationCanvasInk !== null && stationCanvasInk > STATION_INK_FLOOR
+  };
+}
+
+/* The deck's self-update must not reload a pane that is working. It cannot see
+   inside this frame, so the pane says so - live, and whether there is actually
+   a picture. Nothing else about the deck's cadence changes. */
+function tellDeckAboutX() {
+  const live = Boolean(xfloatStream);
+  const picture = live && stationCanvasInk !== null && stationCanvasInk > STATION_INK_FLOOR;
+  try {
+    if (parent && parent !== window) parent.postMessage({ type:"SCINTILLA_X_LIVE", live, picture, at:Date.now() }, location.origin);
+  } catch (_) {}
+}
+
 function runStationHealth() {
+  sampleStationInk();
   const plan = stationLinkPlan(Date.now(), {
     attached: Boolean(xfloatStream),
+    /* iOS has no capture API and no extension: asking it to press a Mac
+       keyboard shortcut would be nonsense, so it never enters that branch. */
+    remote: REMOTE_MODE || IOS,
+    bootAt: stationBootAt,
+    readyAt: stationReadyAt,
     lastFrameAt: stationLastFrameAt,
     lastCropAt: stationLastCropAt,
     attachedAt: stationAttachedAt,
     lastRelinkAt: stationRelinkAt,
-    tries: stationRelinkTries
+    tries: stationRelinkTries,
+    videoInk: stationVideoInk,
+    cropInk: stationCropInk,
+    blackSince: stationBlackSince,
+    blindSince: stationBlindSince
   });
+  publishStationLink(plan);
+  tellDeckAboutX();
   if (!plan.stalled) {
-    if (stationRelinkTries && xfloatStream) stationRelinkTries = 0;
+    if (stationFault) { stationFault = ""; showStationState(xfloatStream ? "live" : "waiting", xfloatStream ? "on" : ""); }
+    /* A picture on the canvas is the only thing that earns a clean slate. */
+    if (stationRelinkTries && xfloatStream && stationCanvasInk !== null && stationCanvasInk > STATION_INK_FLOOR) {
+      stationRelinkTries = 0; stationRelinkAt = 0;
+    }
     return;
   }
+  stationFault = plan.state;
   showStationState(plan.state, "warn");
+  if (plan.refit) {
+    /* Draw the whole frame until the crop lands again, and ask the source for
+       fresh geometry for this exact pane size instead of waiting for a tick. */
+    stationFullFrame = true;
+    postXFloat("resize", { width: innerWidth, height: innerHeight });
+  }
   if (plan.relink) relinkStation();
 }
 
-function startStationHealth() {
-  if (stationHealthTimer) clearInterval(stationHealthTimer);
-  stationAttachedAt = Date.now();
-  stationLastFrameAt = 0; stationLastCropAt = 0; stationRelinkAt = 0; stationRelinkTries = 0;
+/* One watcher for the life of the document, not one per attached stream: the
+   pane has to be able to notice that it has NOTHING, which is the state it used
+   to sit in for ever. */
+function startStationWatch() {
+  if (stationHealthTimer) return;
   stationHealthTimer = setInterval(runStationHealth, 1000);
 }
 
+function startStationHealth() {
+  /* Deliberately NOT resetting the relink ladder: a relink ends in exactly this
+     call, so resetting here (or in stopStationHealth, which a relink also runs
+     through) made the pane relink a dead capture for ever and never reach the
+     sentence that tells Alan the one thing he can do. The ladder is cleared
+     where it is actually earned - when there is a picture on the canvas. */
+  stationAttachedAt = Date.now();
+  stationLastFrameAt = 0; stationLastCropAt = 0;
+  stationBlackSince = 0; stationBlindSince = 0; stationFullFrame = false;
+  stationVideoInk = null; stationCropInk = null; stationCanvasInk = null;
+  startStationWatch();
+}
+
 function stopStationHealth() {
-  if (stationHealthTimer) clearInterval(stationHealthTimer);
-  stationHealthTimer = 0;
   if (stationFrameProbe && typeof stationFrameProbe === "number") { try { clearInterval(stationFrameProbe); } catch (_) {} }
   stationFrameProbe = 0;
-  stationRelinkTries = 0; stationRelinkAt = 0; stationLastFrameAt = 0; stationLastCropAt = 0; stationAttachedAt = 0;
+  stationLastFrameAt = 0; stationLastCropAt = 0; stationAttachedAt = 0;
+  stationBlackSince = 0; stationBlindSince = 0; stationFullFrame = false; stationFault = "";
+  stationVideoInk = null; stationCropInk = null; stationCanvasInk = null;
+  /* the watcher keeps running: an empty pane is exactly what needs watching */
+  startStationWatch();
 }
 
 function postXFloat(action, value) {
@@ -659,10 +841,13 @@ function stopXFloat({ notify = true } = {}) {
 }
 
 function drawXFloat(at = 0) {
-  if (!xfloatStream || !xfloatCrop) {
+  if (!xfloatStream) {
     xfloatFrame = requestAnimationFrame(drawXFloat);
     return;
   }
+  /* 23 Sep: this used to wait for a crop as well, so a pane holding a perfectly
+     good stream painted nothing at all until the source's first crop arrived -
+     black, on a working link. With no crop the whole frame is the picture. */
   if (at && at - xfloatDrawAt < VIEWER_PAINT_INTERVAL_MS) {
     viewerCadence.paintSkipped += 1;
     publishViewerCadence();
@@ -675,14 +860,8 @@ function drawXFloat(at = 0) {
   publishViewerCadence();
   const video = el("v"), canvas = el("cv"), host = el("body");
   if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth) {
-    const viewport = xfloatCrop.viewport || { width: video.videoWidth, height: video.videoHeight };
-    const rect = xfloatCrop.rect || { left: 0, top: 0, width: viewport.width, height: viewport.height };
-    const scaleX = video.videoWidth / Math.max(1, viewport.width);
-    const scaleY = video.videoHeight / Math.max(1, viewport.height);
-    const sx = Math.max(0, rect.left * scaleX);
-    const sy = Math.max(0, (rect.top + (xfloatCrop.fractionalScrollOffset || 0)) * scaleY);
-    const sw = Math.min(video.videoWidth - sx, rect.width * scaleX);
-    const shAvailable = Math.min(video.videoHeight - sy, rect.height * scaleY);
+    const region = stationSourceRegion(video, xfloatCrop);
+    const { sx, sy, sw, shAvailable } = region;
     const ratio = Math.min(1.25, devicePixelRatio || 1);
     const tw = Math.max(280, Math.round(host.clientWidth * ratio));
     const th = Math.max(220, Math.round(host.clientHeight * ratio));
@@ -690,7 +869,16 @@ function drawXFloat(at = 0) {
     const ctx = canvas.getContext("2d", { alpha: false });
     ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, tw, th);
-    if (sw > 1 && shAvailable > 1) {
+    /* 23 Sep: a crop that misses the frame used to leave exactly this black
+       fill on the screen. Whatever the crop says, the pane has a decoded frame
+       in its hands, so it shows that instead of showing nothing. */
+    if (!region.usable || stationFullFrame) {
+      const fit = Math.min(tw / video.videoWidth, th / video.videoHeight);
+      const fw = Math.max(1, Math.round(video.videoWidth * fit));
+      const fh = Math.max(1, Math.round(video.videoHeight * fit));
+      ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight,
+        Math.round((tw - fw) / 2), Math.round((th - fh) / 2), fw, fh);
+    } else if (sw > 1 && shAvailable > 1) {
       const padCss = Math.max(4, Math.min(8, host.clientWidth * .015));
       const pad = Math.round(padCss * ratio);
       /* A narrow pane should use every pixel. When the pane expands across
@@ -978,6 +1166,7 @@ window.addEventListener("message", (event) => {
   if (event.source !== window || event.origin !== location.origin) return;
   if (event.data?.type === "XFF_STATION_BRIDGE_READY" && event.data.instanceId) {
     stationBridgeInstanceId = String(event.data.instanceId);
+    stationReadyAt = Date.now();
     flushStationRemoteOffers();
     if (!xfloatStream) showStationState("ready");
   }
@@ -1013,13 +1202,16 @@ window.addEventListener("message", (event) => {
     xfloatCrop = event.data.crop;
     stationLastCropAt = Date.now();
     const paused = Boolean(xfloatCrop?.paused);
-    showStationState(paused ? "paused" : "live", "on");
+    if (!stationFault) showStationState(paused ? "paused" : "live", "on");
     paintXView(xfloatCrop?.activeView || "trading");
     if (stationPair) stationPair.room?.publish("crop", xfloatCrop);
   }
   if (event.data?.type === "XFF_STATION_STATUS") {
     if (event.data.status === "stopped") stopXFloat({ notify: false });
-    else if (event.data.status === "error") showErr(event.data.detail || "Station X could not connect.");
+    else if (event.data.status === "error") {
+      showErr(event.data.detail || "Station X could not connect.");
+      if (!xfloatStream) showStationState("the X source refused the link", "warn");
+    }
     else if (!xfloatStream) showStationState(event.data.status || "waiting");
   }
 });
@@ -1047,6 +1239,9 @@ el("bPip").addEventListener("click", async () => {
 });
 
 tiny();
+/* From the first second of the document's life, whether or not anything is
+   attached. This is the line that ends "I'm having to refresh both devices". */
+startStationWatch();
 window.addEventListener("resize", () => postXFloat("resize", { width: innerWidth, height: innerHeight }));
 /* Tear down only this page's video/canvas objects. The helper keeps the
    already user-approved source capture alive until an explicit stop or the X
@@ -1057,6 +1252,9 @@ window.addEventListener("visibilitychange", () => {
   if (!REMOTE_MODE) {
     announceViewerClock(document.visibilityState === "visible");
     if (document.visibilityState === "visible" && xfloatStream) startStationClock();
+    /* Chrome throttles a hidden tab, so the first thing a returning pane should
+       do is check whether it still has a picture - not wait up to a second. */
+    if (document.visibilityState === "visible") runStationHealth();
   }
   if (!REMOTE_MODE || document.visibilityState !== "visible") return;
   clearTimeout(remoteVisibilityCheck);
