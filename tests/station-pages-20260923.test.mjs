@@ -58,7 +58,8 @@ test("every saved TradingView layout is a Station page with the same name, size 
     assert.equal(screen.label, label);
     assert.match(deck, new RegExp(`<option value="${id}">`), `${label} is in the scene menu too`);
   }
-  assert.equal(scenes.SCREENS.length, 20, "nine curated screens, ten saved layouts, one workbench");
+  assert.equal(scenes.SCREENS.length, 21,
+    "nine curated screens, ten saved layouts, one workbench, and M48's SCINTILLAS page");
 });
 
 test("a saved layout is a picture, not a basket: five rows stay five rows in a six-up wall", () => {
@@ -192,7 +193,7 @@ test("the jump list finds a page by its name or by a ticker on it — PCC in one
   assert.deepEqual(Array.from(scenes.findPages("MAC"), (m) => m.screen.label), ["MACRO CROSS-ASSET", "MACRO"]);
   assert.deepEqual(Array.from(scenes.findPages("XLB"), (m) => m.screen.label), ["SECTOR FAMILIES", "SECTORS"],
     "a ticker on two pages offers both, rather than silently picking one");
-  assert.equal(scenes.findPages("").length, 20, "an empty box offers every page");
+  assert.equal(scenes.findPages("").length, 21, "an empty box offers every page");
   assert.equal(scenes.findPages("ZZZZ").length, 0);
   assert.ok(scenes.pageTickers("oscWorkbench").includes("MU"), "a workbench page is searchable by its symbols");
 });

@@ -1,0 +1,89 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>Station · the SCINTILLAS page</title>
+<style>
+:root{ --bg:#0A0A0F; --panel:#0F0F16; --line:#1A1A24; --ink:#D8D8DE; --ink2:#C6C6CE; --dim:#9A9AA2;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
+*{ box-sizing:border-box; }
+body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono); font-size:13px; line-height:1.7; }
+main{ max-width:980px; margin:0 auto; padding:28px 18px 80px; }
+h1{ font-size:17px; letter-spacing:.14em; margin:0 0 4px; }
+h2{ font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:var(--dim); margin:34px 0 10px;
+  border-top:.5px solid var(--line); padding-top:12px; }
+p,li{ font-size:13px; color:var(--ink2); }
+.sub{ color:var(--dim); font-size:12px; margin:0 0 6px; }
+table{ border-collapse:collapse; width:100%; margin:10px 0; font-size:12px; }
+th,td{ border:.5px solid var(--line); padding:6px 8px; text-align:left; color:var(--ink2); vertical-align:top; }
+th{ color:var(--dim); font-weight:500; letter-spacing:.08em; text-transform:uppercase; font-size:11px; }
+code{ color:var(--ink); background:var(--panel); padding:1px 5px; font-size:12px; }
+.panel{ background:var(--panel); border:.5px solid var(--line); padding:12px 14px; margin:10px 0; }
+.big{ font-size:15px; color:var(--ink); }
+img{ max-width:100%; border:.5px solid var(--line); display:block; margin:8px 0; background:#000; }
+.cap{ color:var(--dim); font-size:11px; margin:0 0 14px; }
+ul{ margin:8px 0 8px 18px; padding:0; }
+</style></head><body><main>
+
+<h1>STATION · the SCINTILLAS page</h1>
+<p class="sub">24 September 2026 · Station branch <code>station/scintillas-page-20260924</code> · nothing deployed</p>
+
+<p class="big">A new page in the Station's page list, called SCINTILLAS. You do not choose anything on it:
+it fills itself with charts of the names that moved unusually today, biggest first, and each chart says why
+it is on the page.</p>
+
+<h2>What the page shows</h2>
+<ul>
+<li><b>Which names.</b> The most recent scintillas, one chart per name. When a new one arrives and the wall is
+full, the oldest chart comes off — never the smallest.</li>
+<li><b>In what order.</b> What is left is arranged biggest first, so the loudest name is chart one.</li>
+<li><b>Why each one is there.</b> In the bottom-left corner of every chart, in plain words:
+<code>−12.2% · 2.4× its usual day · 2:24 PM</code>.</li>
+<li><b>When there is nothing.</b> The readout says "no scintillas stored today" and the wall stays empty,
+rather than showing yesterday's names.</li>
+</ul>
+<p>It behaves like every other page: the arrows walk onto it, it has its own button on the rail at the same
+fixed width as the others, and it is in the jump list. Auto-rotate does not visit it — it is a page you go to,
+not a slideshow.</p>
+
+<img src="shots/station-scintillas-1680.png" alt="the SCINTILLAS page at 1680">
+<p class="cap">1680 wide, with 23 September's five stored scintillas: MCD (3.4× its usual day), ABNB (2.7×),
+BYND (2.4×), NEE (2.3×), BKNG (2.0×) — biggest first, sixth slot honestly empty. Each chart carries its reason
+along the bottom. Charts drawn live from the chart API.</p>
+<img src="shots/station-scintillas-390.png" alt="the SCINTILLAS page at 390">
+<p class="cap">390 wide (phone): the same page, stacked, the reason still legible at 11px. The charts are
+paused here — that is the Station's existing phone behaviour ("paused to keep the page light"), not part of
+this work.</p>
+
+<h2>Where each number comes from</h2>
+<table>
+<tr><th>What</th><th>Where it comes from</th></tr>
+<tr><td>which names, and when</td><td><code>public.scintillas</code> — the same rows the Hub's strip lists, written by the detector every ten minutes through the session</td></tr>
+<tr><td>the percentage</td><td>that row's own <code>move_pct</code>: the day's move the detector measured</td></tr>
+<tr><td>"2.4× its usual day"</td><td>that row's own measure of how far the move is beyond the name's own usual day, over its last 60 sessions</td></tr>
+<tr><td>the time</td><td>when the scintilla was detected, in New York time</td></tr>
+<tr><td>the charts</td><td>the Station's own chart, exactly as every other page draws it</td></tr>
+</table>
+
+<h2>What could be wrong</h2>
+<ul>
+<li><b>The page is only as good as the store.</b> If the detector has not run, the page is empty and says so —
+it cannot tell the difference between a genuinely quiet day and a detector that stopped.</li>
+<li><b>It shows the day's outliers, not a recommendation.</b> A big move is a pointer to look, nothing more.</li>
+<li><b>Six charts is the wall.</b> On a heavy day the store can hold twenty names; the page shows the newest
+six of them, so names can appear and disappear during the session as fresher ones arrive.</li>
+<li><b>Only tickers get charts.</b> An economic surprise is a scintilla too, but there is nothing to chart, so
+it never takes a slot.</li>
+<li><b>The reason line is clipped by a character or two</b> on the left-most chart of the bottom row at 1680 —
+seen in the capture above, cosmetic, not yet fixed.</li>
+<li><b>The capture was made locally</b> with the Supabase read answered from a fixture and the chart API
+proxied with the origin it accepts (it only allows scintillahub.ai). The page's own code was not changed for it.</li>
+</ul>
+
+<h2>What I did not do</h2>
+<ul>
+<li>Nothing was deployed or pushed; the Station's other pages, their rows and their order are untouched.</li>
+<li>The page writes nothing — it only reads.</li>
+<li>No new chart type, no new timeframe, no change to the dock, the rail geometry or the arrows.</li>
+<li>It is deliberately not in the auto-rotation.</li>
+</ul>
+
+</main></body></html>

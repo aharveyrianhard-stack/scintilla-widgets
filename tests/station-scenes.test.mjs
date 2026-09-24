@@ -57,7 +57,7 @@ test("all eleven curated scenes are present with fixed baskets", () => {
      list grew by his ten fixed layouts and the workbench. The original twelve are
      unchanged and still in their original order. */
   assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies",
-    "tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras","oscWorkbench","cohort","custom"]);
+    "tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras","oscWorkbench","scintillas","cohort","custom"]);
   assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY","QQQ","DIA","IWM","MAGS","SMH"]);
   assert.equal(scenes.PRESETS.companyLeadership.range, "3h");
   assert.equal(scenes.PRESETS.macroCrossAsset.chartCount, 6);
@@ -188,8 +188,12 @@ test("the arrows walk every page while rotation keeps to the curated nine", () =
   assert.equal(scenes.nextScreen("live").scene, "indexNow");
   assert.equal(scenes.nextScreen("themeFamilies").scene, "tvMacro",
     "the arrows continue into Alan's own layouts instead of wrapping early");
-  assert.equal(scenes.nextScreen("oscWorkbench").scene, "indexNow", "the last page wraps to the first");
-  assert.equal(scenes.previousScreen("live").scene, "oscWorkbench");
+  /* 24 Sep (M48): SCINTILLAS is the last page — a page you go to, never part of the rotation. */
+  assert.equal(scenes.nextScreen("oscWorkbench").scene, "scintillas");
+  assert.equal(scenes.nextScreen("scintillas").scene, "indexNow", "the last page wraps to the first");
+  assert.equal(scenes.previousScreen("live").scene, "scintillas");
+  assert.equal(scenes.nextRotatingScreen("scintillas").scene, "indexNow",
+    "rotation never wanders onto the scintillas page either");
   assert.equal(scenes.nextScreen("internalsFast").scene, "internalsSlow",
     "Internals Fast and Slow remain separate global screens");
   assert.equal(scenes.previousScreen("internalsSlow").scene, "internalsFast",

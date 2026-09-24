@@ -103,7 +103,8 @@ test("the deck exposes the cohort scene and its picker, and honors an explicit c
   assert.match(deck, /el\("cohortPageNext"\)\.addEventListener/);
   /* The default view is FAV, and a cohort page owns its own chart count. */
   assert.match(deck, /remembered\("station\.cohort"\) \|\| "FAV"/);
-  assert.match(deck, /if \(fromPreset && scene === "cohort"\) return SceneModel\.chartCountForSize\(value\);/);
+  /* 24 Sep (M48): the SCINTILLAS page owns its own count the same way — same line, same rule. */
+  assert.match(deck, /if \(fromPreset && \(scene === "cohort" \|\| scene === "scintillas"\)\) return SceneModel\.chartCountForSize\(value\);/);
 });
 
 /* ---- filed defect 3: the family scenes are selectable, so AI POWER is reachable ---- */
