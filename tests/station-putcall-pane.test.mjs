@@ -39,8 +39,9 @@ test("the provider client sends them to the chart API, like the macro series", (
 test("a published daily ratio is painted from its sessions, never from a live quote", () => {
   assert.match(chart, /if \(scPutCallPane\(host\?\.dataset\?\.t\)\) \{ paintPutCallStatus\(host\); return; \}/,
     "paintLiveStatus hands these panes over before it reads a quote");
-  assert.match(chart, /badge\.dataset\.change = pct == null \|\| pct === 0 \? "flat" : pct > 0 \? "up" : "down";/,
-    "the readout takes the same up / down colour as every pane (Alan, 23 Sep)");
+  /* 24 Sep: an unchanged print is at-or-above, like every other pane - only an unknown change is unclaimed. */
+  assert.match(chart, /badge\.dataset\.change = pct == null \? "flat" : pct >= 0 \? "up" : "down";/,
+    "the readout takes the same up / down colour as every pane (Alan, 23 Sep), with no grey for zero");
   assert.match(chart, /putCallSessionLabel\(last\.d\)/, "the hover text names the session it is showing");
   assert.match(chart, /"  " \+ chartStartDate\(last\.d\);/, "and so does the one visible line");
   assert.doesNotMatch(chart, /scPutCallPane\(host\?\.dataset\?\.t\) \? null : chDayRef\(host\)/,
