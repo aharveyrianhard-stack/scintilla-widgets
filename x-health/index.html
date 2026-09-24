@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Station X Health</title>
+<style>
+  :root { --bg:#05060c; --panel:#0b0d16; --line:#1b1f2e; --text:#e8eaf2; --dim:#8b90a6; --up:#00c878; --dn:#ff3b5c; --warn:#ffb020; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", Helvetica, Arial, sans-serif; }
+  main { max-width:1080px; margin:0 auto; padding:28px 16px 40px; }
+  h1 { font-size:22px; margin:0 0 4px; letter-spacing:.2px; }
+  .sub { color:var(--dim); margin:0 0 20px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .who { font-size:17px; font-weight:650; margin-bottom:10px; }
+  .row { display:flex; justify-content:space-between; gap:10px; padding:3px 0; }
+  .k { color:var(--dim); }
+  .v { font-variant-numeric:tabular-nums; text-align:right; }
+  .ok { color:var(--up); } .bad { color:var(--dn); } .warn { color:var(--warn); }
+  .big { font-size:15px; font-weight:650; }
+  footer { color:var(--dim); margin-top:18px; font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Station X health</h1>
+  <p class="sub">Which X Bridge each browser is actually running, and whether its X box is cropped right. Reported by the Station itself once a minute while the X box is visible. Target version: <b id="target">0.7.21</b>.</p>
+  <div class="grid" id="grid"></div>
+  <footer id="foot">Loading…</footer>
+</main>
+<script>
+const TARGET = "0.7.21";
+const KEY = "sb_publishable_AutibLpFtTns-WHAg67Pvw_I0HmjqE9";
+const URL_RPC = "https://wadinxqplrggagkvrdag.supabase.co/rest/v1/rpc/station_x_health_latest";
+/* Client ids are random per browser profile; these four were matched to their windows on 24 Sep. */
+const KNOWN = { "38f85be3": "MacBook · Brave", "58feb66c": "iMac · Brave", "ba988569": "MacBook · Chrome", "c31a843a": "iMac · Chrome" };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+function card(label, r) {
+  if (!r) return `<div class="card"><div class="who">${esc(label)}</div><div class="row"><span class="k">Status</span><span class="v warn">not reporting</span></div><div class="row"><span class="k">Why</span><span class="v">window hidden, closed, or X not live</span></div></div>`;
+  const version = r.bridge_version || "old (before 0.7.20)";
+  const current = r.bridge_version === TARGET;
+  const cropOk = r.region_usable && !r.whole_frame;
+  const ago = Math.max(0, Math.round((Date.now() - Date.parse(r.seen_at)) / 1000));
+  const offset = r.scroll_offset === null || r.scroll_offset === undefined ? "—" : Number(r.scroll_offset).toLocaleString(undefined, { maximumFractionDigits: 1 }) + " px";
+  const offsetBad = Number(r.scroll_offset) > 4;
+  return `<div class="card"><div class="who">${esc(label)}</div>
+    <div class="row"><span class="k">X box</span><span class="v big ${cropOk ? "ok" : "bad"}">${cropOk ? "cropped right" : "whole window (" + esc(r.whole_frame || "crop unusable") + ")"}</span></div>
+    <div class="row"><span class="k">Bridge</span><span class="v ${current ? "ok" : "warn"}">${esc(version)}${current ? "" : " → needs ↻ + ⌥⇧S"}</span></div>
+    <div class="row"><span class="k">Scroll offset</span><span class="v ${offsetBad ? "bad" : "ok"}">${offset}${offsetBad ? " (ignored)" : ""}</span></div>
+    <div class="row"><span class="k">Safety nets</span><span class="v">${r.ack_fallbacks ?? "—"} fallbacks · ${r.runaway_resets ?? "—"} resets</span></div>
+    <div class="row"><span class="k">Capture</span><span class="v">${esc(r.video)}</span></div>
+    <div class="row"><span class="k">Paints / min</span><span class="v">${r.paints_per_min ?? "—"}</span></div>
+    <div class="row"><span class="k">Last report</span><span class="v">${ago}s ago</span></div></div>`;
+}
+async function load() {
+  try {
+    const res = await fetch(URL_RPC, { method:"POST", headers:{ apikey:KEY, Authorization:"Bearer " + KEY, "content-type":"application/json" }, body:"{}", cache:"no-store" });
+    const rows = await res.json();
+    const by = new Map(rows.map((r) => [r.client, r]));
+    const cards = Object.entries(KNOWN).map(([id, label]) => card(label, by.get(id)));
+    for (const r of rows) if (!KNOWN[r.client]) cards.push(card("New client " + r.client + " · " + r.pane_browser, r));
+    document.getElementById("grid").innerHTML = cards.join("");
+    const current = rows.filter((r) => r.bridge_version === TARGET).length;
+    document.getElementById("foot").textContent = `${rows.length} reporting · ${current} on ${TARGET} · refreshed ${new Date().toLocaleTimeString()} · updates every 30 s`;
+  } catch (e) {
+    document.getElementById("foot").textContent = "Could not read the health log: " + e.message;
+  }
+}
+load(); setInterval(load, 30000);
+</script>
+</body>
+</html>
