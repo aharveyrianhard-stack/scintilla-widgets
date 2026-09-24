@@ -121,3 +121,33 @@ test("the pane names the two silences the chart API can now report", () => {
     "a line that is served but behind must not claim it is not served");
   assert.ok(/aggregator is behind/.test(behind[1]), "it says which half stopped");
 });
+
+/* M67: the one thing the wall does not do is draw a grey line. An intraday ratio on its first
+   session has no previous close, so the trace used to fall to the dim tone. Its own opening
+   reading is a real baseline and gives the line a direction. */
+test("an intraday line on its first session takes its direction from the session's open", () => {
+  const openRef = new Function(grab("chIntradaySessionOpenRef") + "return chIntradaySessionOpenRef;")();
+  const day = (h, m) => new Date(Date.UTC(2026, 8, 24, h, m)).toISOString();
+  const host = { dataset: { t: "SCPCE" }, _series: [
+    { d: day(13, 30), p: 0.45 }, { d: day(13, 45), p: 0.47 }, { d: day(14, 0), p: 0.49 }] };
+  assert.equal(openRef(host), 0.45, "the session's first reading, not the previous point");
+
+  /* Once a second session exists the ordinary previous-close rule owns it again. */
+  const twoDays = { dataset: { t: "SCPCE" }, _series: [
+    { d: new Date(Date.UTC(2026, 8, 23, 19, 55)).toISOString(), p: 0.61 },
+    { d: day(13, 30), p: 0.45 }, { d: day(13, 45), p: 0.47 }] };
+  const prevClose = new Function(grab("chSeriesPrevClose") + "return chSeriesPrevClose;")();
+  assert.equal(prevClose(twoDays), 0.61);
+  assert.equal(openRef(twoDays), 0.45, "the open of the newest session only");
+
+  assert.equal(openRef({ dataset: { t: "SCPCE" }, _series: [{ d: day(13, 30), p: 0.45 }] }), null,
+    "one point is not a direction");
+
+  /* The rule is scoped to the intraday pane: a Cboe daily series keeps the previous close. */
+  const ref = new Function("prevClose", "scPutCallPane", "chSeriesPrevClose", "chIntradaySessionOpenRef",
+    grab("chDayRef") + "return chDayRef;")({}, (t) => (t === "SCPCE" ? { source: "IBKR_INTRADAY" } : { source: "CBOE_DAILY" }),
+      prevClose, openRef);
+  const cboe = { dataset: { t: "PCCE" }, _series: [{ d: day(13, 30), p: 0.45 }, { d: day(13, 45), p: 0.47 }] };
+  assert.equal(ref(cboe), null, "a Cboe pane with no previous session still has no baseline");
+  assert.equal(ref(host), 0.45, "the intraday pane gets the session's open");
+});
