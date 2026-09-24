@@ -50,8 +50,14 @@ async function startCapture(streamId) {
         chromeMediaSourceId: streamId,
         minWidth: 240,
         minHeight: 240,
-        maxWidth: 1920,
-        maxHeight: 1080,
+        /* 24 Sep: this path asked for at most 1920x1080 while the in-tab path
+           asked for 2560x1440, so the same X window arrived at two different
+           sizes depending on which path fed the pane - Alan's "some mismatch".
+           One request for both paths. The cap's 16:9 shape is also why a
+           resized X window arrives letterboxed; the viewer's mapping now
+           accounts for that instead of assuming it away. */
+        maxWidth: 2560,
+        maxHeight: 1440,
         minFrameRate: 10,
         // Keep Station's relayed tab video at parity with the original
         // Document-PiP Float capture.  A 30fps relay cannot visually match a

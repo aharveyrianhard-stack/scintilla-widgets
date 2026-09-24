@@ -77,6 +77,9 @@
     activeView: "trading",
     settings: { ...DEFAULT_SETTINGS },
     stationMode: false,
+    /* True only when the track serving the Station pane was cropped at the
+       source. The relayed capture is not, yet - see DESIGN notes. */
+    stationSourceCropped: false,
     stationConsumer: null,
     stationRelayTimer: null,
     stationHoverShield: null,
@@ -2048,6 +2051,69 @@
     runtimeMessage({ type: "XFF_BADGE", active: false });
   }
 
+  /* Region Capture and Element Capture crop the TRACK at the source, so the
+     captured frame is the timeline column itself and no viewer has to map a
+     rectangle onto it. Measured present in Chrome 153 and Brave 153 on this
+     Mac; reported rather than assumed, because the pane's mapping must stay the
+     fallback wherever it is missing. */
+  function stationSourceCropSupported() {
+    try {
+      return typeof window.CropTarget?.fromElement === "function" &&
+        typeof window.BrowserCaptureMediaStreamTrack?.prototype?.cropTo === "function";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function stationElementCaptureSupported() {
+    try {
+      return typeof window.RestrictionTarget?.fromElement === "function" &&
+        typeof window.BrowserCaptureMediaStreamTrack?.prototype?.restrictTo === "function";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /* Brave hides itself inside Chrome's brand list, so the brands are checked
+     last and navigator.brave first. */
+  function bridgeBrowserName(nav) {
+    try {
+      if (nav?.brave && typeof nav.brave.isBrave === "function") return "Brave";
+      const ua = String(nav?.userAgent || "");
+      if (/\bBrave\b/i.test(ua)) return "Brave";
+      const brands = (nav?.userAgentData?.brands || []).map((entry) => String(entry?.brand || ""));
+      if (brands.some((brand) => /brave/i.test(brand))) return "Brave";
+      if (brands.some((brand) => /google chrome/i.test(brand)) || /Chrome\//.test(ua)) return "Chrome";
+    } catch (_) {}
+    return "browser";
+  }
+
+  /* Derived from the screen the bridge is running on, and overridable by name
+     so a badge never has to guess: localStorage["xffBridgeMachine"]. */
+  function bridgeMachineName(screenLike, storage) {
+    try {
+      const named = storage?.getItem?.("xffBridgeMachine");
+      if (named) return String(named).slice(0, 24);
+    } catch (_) {}
+    const width = Number(screenLike?.width) || 0, height = Number(screenLike?.height) || 0;
+    if (!width || !height) return "this Mac";
+    if (width >= 2560 && height >= 1440) return "iMac 5K";
+    if (width >= 1680) return "MacBook Pro";
+    return width + "\u00d7" + height;
+  }
+
+  let stationSourceIdentityCache = null;
+  function stationSourceIdentity() {
+    if (stationSourceIdentityCache) return stationSourceIdentityCache;
+    let storage = null;
+    try { storage = window.localStorage; } catch (_) {}
+    stationSourceIdentityCache = {
+      browser: bridgeBrowserName(navigator),
+      machine: bridgeMachineName(window.screen, storage)
+    };
+    return stationSourceIdentityCache;
+  }
+
   function stationCropPayload() {
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
@@ -2070,7 +2136,15 @@
       },
       sequence: ++session.stationCropSequence,
       activeView: session.activeView,
-      paused: isPaused()
+      paused: isPaused(),
+      /* One contract for every browser: the pane is told whether these pixels
+         were already cropped at the source, what this browser can do, and which
+         machine and browser they came from. */
+      sourceCropped: Boolean(session.stationSourceCropped),
+      sourceCropSupported: stationSourceCropSupported(),
+      elementCaptureSupported: stationElementCaptureSupported(),
+      viewportDpr: window.devicePixelRatio || 1,
+      source: stationSourceIdentity()
     };
   }
 

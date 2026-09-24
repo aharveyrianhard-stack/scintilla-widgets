@@ -892,6 +892,27 @@ function ensureXFloatDraw() {
    frame after Chrome resizes or re-anchors X's virtualized timeline. Never
    let that turn the unused lower canvas into a black block: slide the source
    window upward only as far as needed to keep a complete viewer frame. */
+/* 24 Sep: same mapping fault as the Station shell. Tab capture fits the window
+   into the capture's cap, preserves the aspect ratio and centres it, so a window
+   that is not the cap's shape arrives inside black bars. One scale for both axes
+   plus those offsets; identical numbers to the old per-axis divide whenever the
+   shapes already matched. */
+function stationCaptureFit(videoWidth, videoHeight, viewportWidth, viewportHeight) {
+  const frameW = Math.max(1, Number(videoWidth) || 1);
+  const frameH = Math.max(1, Number(videoHeight) || 1);
+  const pageW = Math.max(1, Number(viewportWidth) || 1);
+  const pageH = Math.max(1, Number(viewportHeight) || 1);
+  const scale = Math.min(frameW / pageW, frameH / pageH);
+  const contentWidth = pageW * scale, contentHeight = pageH * scale;
+  return {
+    scale, contentWidth, contentHeight,
+    offsetX: Math.max(0, (frameW - contentWidth) / 2),
+    offsetY: Math.max(0, (frameH - contentHeight) / 2),
+    barX: Math.max(0, Math.round((frameW - contentWidth) / 2)),
+    barY: Math.max(0, Math.round((frameH - contentHeight) / 2))
+  };
+}
+
 function boundedViewerCropY(requestedY, requiredHeight, videoHeight) {
   const frameHeight = Math.max(1, Number(videoHeight) || 1);
   const visibleHeight = Math.max(1, Math.min(Number(requiredHeight) || 1, frameHeight));
@@ -924,15 +945,17 @@ function drawXFloat(at = 0) {
   if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth) {
     const viewport = xfloatCrop.viewport || { width: video.videoWidth, height: video.videoHeight };
     const rect = xfloatCrop.rect || { left: 0, top: 0, width: viewport.width, height: viewport.height };
-    const scaleX = video.videoWidth / Math.max(1, viewport.width);
-    const scaleY = video.videoHeight / Math.max(1, viewport.height);
-    const sx = Math.max(0, rect.left * scaleX);
-    const requestedY = Math.max(0, (rect.top + (xfloatCrop.fractionalScrollOffset || 0)) * scaleY);
-    const sw = Math.min(video.videoWidth - sx, rect.width * scaleX);
+    const capture = stationCaptureFit(video.videoWidth, video.videoHeight, viewport.width, viewport.height);
+    const contentRight = capture.offsetX + capture.contentWidth;
+    const contentBottom = capture.offsetY + capture.contentHeight;
+    const sx = Math.min(contentRight, capture.offsetX + Math.max(0, rect.left) * capture.scale);
+    const requestedY = Math.min(contentBottom,
+      capture.offsetY + Math.max(0, rect.top + (xfloatCrop.fractionalScrollOffset || 0)) * capture.scale);
+    const sw = Math.min(contentRight - sx, Math.max(0, rect.width) * capture.scale);
     // Keep the draw guard based on values already computed.  Referencing the
     // later post-clamp height here leaves the canvas in a temporal-dead-zone
     // error state: video keeps advancing, but every canvas frame stays black.
-    const availableAtRequestedY = Math.max(0, video.videoHeight - requestedY);
+    const availableAtRequestedY = Math.max(0, contentBottom - requestedY);
     const ratio = Math.min(1.25, devicePixelRatio || 1);
     const tw = Math.max(280, Math.round(host.clientWidth * ratio));
     const th = Math.max(220, Math.round(host.clientHeight * ratio));
@@ -958,8 +981,9 @@ function drawXFloat(at = 0) {
       const dx = Math.max(pad, Math.round((tw - dw) / 2));
       const s2d = dw / sourceWidth;
       const requiredSourceHeight = th / s2d;
-      const sy = boundedViewerCropY(requestedY, requiredSourceHeight, video.videoHeight);
-      const availableSourceHeight = Math.max(0, video.videoHeight - sy);
+      /* Slide upward only inside the picture: the black bar is not source. */
+      const sy = Math.max(capture.offsetY, boundedViewerCropY(requestedY, requiredSourceHeight, contentBottom));
+      const availableSourceHeight = Math.max(0, contentBottom - sy);
       const sh = Math.min(availableSourceHeight, requiredSourceHeight), dh = sh * s2d;
       ctx.drawImage(video, sourceX, sy, sourceWidth, sh, dx, 0, dw, dh);
     }

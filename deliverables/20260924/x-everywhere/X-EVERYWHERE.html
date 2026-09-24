@@ -1,0 +1,167 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>X everywhere · 24 Sep 2026 · the crop, and one bridge in four browsers</title>
+<style>
+body{margin:0;background:#05060C;color:#9A9AB6;font:18px/1.5 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:36px;margin:0 0 6px;color:#B4B6CC} h2{font-size:27px;margin:44px 0 8px;color:#B4B6CC} h3{font-size:21px;margin:26px 0 6px;color:#B4B6CC}
+p{max-width:1100px} p.note{color:#868AAA;margin:0 0 12px} .lead{font-size:22px;color:#B4B6CC}
+blockquote{margin:10px 0 18px;padding:8px 16px;border-left:3px solid #3455FF;color:#B4B6CC;max-width:1000px}
+table{border-collapse:collapse;font-size:16px;margin:10px 0 6px;max-width:100%} th,td{border:1px solid #1A1A2A;padding:8px 12px;text-align:left;vertical-align:top} th{color:#868AAA;font-weight:600}
+td.num{font:15px ui-monospace,Menlo,monospace;text-align:right} td.ok{color:#3FB8AF} td.bad{color:#FF2D55;font-weight:700} small{color:#868AAA;font-size:13px}
+code{font:15px ui-monospace,Menlo,monospace;background:#0F0F1A;padding:2px 6px;border-radius:4px;color:#B4B6CC} ul,ol{max-width:1100px} li{margin:6px 0}
+figure{margin:0} figcaption{font:13px ui-monospace,Menlo,monospace;color:#868AAA;margin-top:4px}
+.diag{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:10px 0;max-width:1400px}
+.steps{counter-reset:s;list-style:none;padding-left:0} .steps li{counter-increment:s;padding-left:38px;position:relative;margin:10px 0}
+.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:24px;height:24px;border:1px solid #3455FF;border-radius:50%;color:#B4B6CC;font:600 13px ui-monospace,Menlo,monospace;text-align:center;line-height:24px}
+.win{border:1px solid #1A1A2A;background:#0A0A0F;padding:12px 16px;margin:8px 0 14px;max-width:1000px}
+.win b{color:#B4B6CC} .good{color:#3FB8AF} .stop{color:#FF2D55}
+</style></head><body>
+
+<h1>X everywhere — the crop, and one bridge in four browsers</h1>
+<p class="lead">The X pane was cropping the wrong part of the captured picture whenever the X window was not the same shape as the capture — which is exactly what happens on the iMac when you resize that window. That is fixed at the root. The bridge also becomes one folder that Chrome and Brave read on both Macs, and it updates itself from that folder without you visiting four browsers. Nothing is deployed and nothing has been copied into the folders your browsers load: this sits on branch <code>station/x-everywhere-20260924</code>, built from <code>81e2ab7</code>.</p>
+<blockquote>“now the fucking station X thing is not cropped right… I can't see where it is between the stations” · “while we get it on Brave perfectly the Chrome works better so I need the Chrome across places” · “I don't have stability on the iMac for this. I need it, like, it's very simple. I need it always working.” · “Why not one version can we be applied everywhere… I don't even have the Chrome one set up on the iMac.” — Alan, 23 Sep</blockquote>
+
+<h2>1 · What was actually wrong</h2>
+<p>When Chrome or Brave captures a tab, it does <b>not</b> hand back a picture shaped like your X window. It shrinks the window to fit inside a ceiling — 16:9 — keeps the proportions, and centres the result. So whenever your X window is not 16:9, the captured frame contains your window in the middle with <b>black bars</b> down the sides.</p>
+<p>Both viewers then worked out where the timeline column sat by dividing each direction on its own: frame width ÷ window width for across, frame height ÷ window height for down. Those two numbers are only the same when the window and the frame are already the same shape. With bars present they are not, and the bar width was never subtracted at all. The crop therefore started to the left of the column and ran far too wide.</p>
+<p>Two things made this invisible until now. On a 1× screen the frame is small enough to escape the ceiling entirely, so there are no bars and the old sum is right. And the shape M29 was soaked on — this MacBook, one window family — is within a whisker of 16:9, so the error was about 2 pixels. On the iMac, a 2× screen, the window is always scaled down to the ceiling, so the ceiling's shape decides everything.</p>
+
+<table>
+<tr><th>The X window</th><th>Captured frame</th><th>Black bar each side</th><th>Column really at</th><th>Old crop took</th><th>Off by</th></tr>
+<tr><td>iMac 5K, resized tall — 1200×1300 at 2×</td><td class="num">2560×1440</td><td class="num bad">615 px</td><td class="num">1027, 505 wide</td><td class="num">794, 973 wide</td><td class="bad">234 px left, 93% too wide</td></tr>
+<tr><td>iMac 5K, wide — 2400×1300 at 2×</td><td class="num">2560×1440</td><td class="num ok">0 px</td><td class="num">397, 486 wide</td><td class="num">397, 486 wide</td><td class="ok">nothing</td></tr>
+<tr><td>MacBook, the shape M29 soaked — 1470×830 at 2×</td><td class="num">2560×1440</td><td class="num">5 px</td><td class="num">650, 791 wide</td><td class="num">648, 794 wide</td><td>2 px — invisible</td></tr>
+<tr><td>the same tall window on a 1× screen</td><td class="num">1200×1300</td><td class="num ok">0 px</td><td class="num">372, 456 wide</td><td class="num">372, 456 wide</td><td class="ok">nothing</td></tr>
+</table>
+<p class="note">Column rectangle used throughout: left 372, width 456, top 96, height 1180 CSS pixels — a typical X timeline column. The numbers come from the capture-fit arithmetic, and the same numbers are asserted in the tests.</p>
+
+<div class="diag">
+<figure>
+<svg viewBox="0 0 640 380" width="100%" role="img" aria-label="Before: the crop lands left of the column and is nearly twice too wide">
+<rect x="0" y="0" width="640" height="360" fill="#0A0A0F" stroke="#1A1A2A"/>
+<rect x="0" y="0" width="153.8" height="360" fill="#000"/><rect x="486.2" y="0" width="153.8" height="360" fill="#000"/>
+<rect x="153.8" y="0" width="332.3" height="360" fill="#14141F"/>
+<rect x="256.9" y="24" width="126.3" height="295" fill="#1B2A44" stroke="#3FB8AF" stroke-dasharray="3 3"/>
+<rect x="198.4" y="24" width="243.2" height="295" fill="none" stroke="#FF2D55" stroke-width="2"/>
+<text x="8" y="376" fill="#868AAA" font-size="11" font-family="ui-monospace,Menlo,monospace">black bar 615px</text>
+<text x="205" y="18" fill="#FF2D55" font-size="12" font-family="ui-monospace,Menlo,monospace">what the pane cropped</text>
+</svg>
+<figcaption>before · red is the crop the pane took; dashed teal is the column</figcaption>
+</figure>
+<figure>
+<svg viewBox="0 0 640 380" width="100%" role="img" aria-label="After: the crop lands exactly on the column">
+<rect x="0" y="0" width="640" height="360" fill="#0A0A0F" stroke="#1A1A2A"/>
+<rect x="0" y="0" width="153.8" height="360" fill="#000"/><rect x="486.2" y="0" width="153.8" height="360" fill="#000"/>
+<rect x="153.8" y="0" width="332.3" height="360" fill="#14141F"/>
+<rect x="256.9" y="24" width="126.3" height="295" fill="#1B2A44" stroke="#3FB8AF" stroke-width="2"/>
+<text x="8" y="376" fill="#868AAA" font-size="11" font-family="ui-monospace,Menlo,monospace">bar never sampled</text>
+<text x="262" y="18" fill="#3FB8AF" font-size="12" font-family="ui-monospace,Menlo,monospace">crop = column</text>
+</svg>
+<figcaption>after · one scale for both directions, plus the bar offset</figcaption>
+</figure>
+</div>
+<p class="note">These are drawings of the measured geometry, not photographs of a pane: a real capture needs a visible window on your screen, which I am not allowed to open. See section 8.</p>
+
+<h3>Which of the suspects it was</h3>
+<ul>
+<li><b>Letterboxing — yes, this is the fault.</b> The bars are 615 px wide each side in the tall-window case, and the old sum had no term for them.</li>
+<li><b>2× screen — the precondition.</b> It is what pushes the frame over the ceiling so the ceiling's shape governs. On a 1× screen the same window was always correct.</li>
+<li><b>Browser zoom — not a factor.</b> Zoom changes the window's and the column's measurements together, so the crop lands on the same fraction of the picture. There is a test for exactly that.</li>
+<li><b>Also found, and also fixed:</b> the two capture paths asked for different ceilings — 1920×1080 for the relay, 2560×1440 in the tab — so the same window arrived at two different sizes depending on which path fed the pane. That is your “some mismatch”. Both now ask for the same thing.</li>
+</ul>
+
+<h2>2 · The fix</h2>
+<ul>
+<li><b>One scale for both directions, plus the bar offsets.</b> A single helper works out how the window sits inside the frame, and the crop is measured from the edge of the picture rather than the edge of the frame. Where the old sum was right, the new one returns the identical numbers — when the shapes match, the offsets are zero — so nothing that works today can change.</li>
+<li><b>The crop is clamped inside the picture.</b> It can never read a black bar, at any window size.</li>
+<li><b>Both viewers carry the same helper.</b> A test compares them, so the pane and the shell cannot drift apart again.</li>
+<li><b>The last-resort whole-window draw now says so.</b> It writes <code>whole X window · crop missed the picture</code> in the pane's status line and clears it the moment the crop lands. That is the state you saw and read as the product; it can no longer sit there silently.</li>
+</ul>
+
+<h3>Cropping at the source — where it stands, honestly</h3>
+<p>The better answer is to have the browser crop the video to the column before it ever leaves the X tab, so no one has to map anything. I measured support for it on this MacBook rather than assuming it:</p>
+<table><tr><th>Installed browser</th><th>Region Capture (<code>CropTarget</code> + <code>cropTo</code>)</th><th>Element Capture (<code>RestrictionTarget</code> + <code>restrictTo</code>)</th></tr>
+<tr><td>Chrome 153.0.8010.54</td><td class="ok">present</td><td class="ok">present</td></tr>
+<tr><td>Brave 153.1.95.104</td><td class="ok">present</td><td class="ok">present</td></tr></table>
+<p><b>It is not switched on for the Station pane in this change, and here is the real reason.</b> The Station pane's video is captured by the extension's hidden background page, not by the X tab. The browser will only accept a crop target that was minted inside the captured tab, and an extension can only pass plain text between those two places, not a crop target. So switching it on means moving the capture into the X tab itself — which changes the live link that feeds your pane, and the only way to prove a change to that link is to watch a real session on your screen. I have built everything up to that line: the pane already honours a track that arrives cropped (<code>sourceCropped</code>, drawn whole, with no mapping at all), and the bridge reports what each browser can do. The remaining step is a supervised session with the coordinator, not a guess. Until then the corrected mapping is what runs, and it is correct at every shape in the table above.</p>
+
+<h2>3 · One folder, four browsers, and a bridge that updates itself</h2>
+<p>The bridge now reads its own folder's version number once a minute. When the folder holds a newer version than the copy a browser is running, that browser reloads the extension by itself. Publishing an update becomes a file change, not a trip to four browsers.</p>
+<ul>
+<li><b>It waits for an idle pane.</b> A reload drops a live capture, so if the pane is being fed the update waits until it is not. You will never watch the pane die because a file changed.</li>
+<li><b>It cannot go backwards.</b> Only a strictly newer version triggers a reload; an equal or older folder is ignored, as is a folder it cannot read.</li>
+<li>This needs one new permission, <code>alarms</code>, and nothing else. Version is now <b>0.7.19</b>.</li>
+</ul>
+<h3>Where the shared folder should live — a proposal, nothing moved</h3>
+<p>I checked how today's folder reaches the iMac: <b>it does not.</b> <code>/Users/alanharvey/Scintilla/SCINTILLA X Bridge</code> is a plain local folder, in nothing that syncs. On this Mac, iCloud Drive is signed in, and Google Drive is signed in for three accounts.</p>
+<p>My recommendation is <b>iCloud Drive</b>, at <code>~/Library/Mobile Documents/com~apple~CloudDocs/SCINTILLA/X Bridge</code>, with the folder set to <b>Keep Downloaded</b> on both Macs — an unpacked extension has to be real files on disk, and iCloud will otherwise evict them to the cloud and the extension will fail to load. Google Drive would work too, but its files live behind a sync layer that can stall, and a stalled read of <code>manifest.json</code> is a bridge that will not start. <b>I have not created, moved or copied anything.</b> Say the word and the coordinator sets it up; the clicks below assume the shared folder exists and refer to it as THE SHARED FOLDER.</p>
+
+<h2>4 · Your one-time setup — exact clicks</h2>
+<p class="note">Do these once. After that, updates arrive on their own.</p>
+
+<h3>A · Chrome on the iMac (it has never been set up)</h3>
+<ol class="steps">
+<li>Open <b>Chrome</b> on the iMac.</li>
+<li>Click the address bar, type <code>chrome://extensions</code> and press Return.</li>
+<li>Top right of that page there is a switch labelled <b>Developer mode</b>. Click it so it turns blue. Three buttons appear at the top left: <b>Load unpacked</b>, Pack extension, Update.</li>
+<li>Click <b>Load unpacked</b>. A Finder window opens.</li>
+<li>Press <b>⌘⇧G</b>, paste the path of THE SHARED FOLDER, press Return.</li>
+<li>Click the folder <b>once</b> so its name is highlighted — do not open it and do not pick a file inside it — then click <b>Select</b>.</li>
+<li><span class="good">Success looks like:</span> a card appears titled <b>SCINTILLA Station X Bridge</b>, version <b>0.7.19</b>, with an <code>ID:</code> line and its own toggle switched on. <span class="stop">If a red <b>Errors</b> button appears, stop and send me the text</span> — the folder is wrong or incomplete.</li>
+<li>Click the <b>puzzle-piece icon</b> to the right of the address bar, find <b>SCINTILLA Station X Bridge</b> in the list, and click the pin outline beside it so it turns solid. Its small icon now sits next to the address bar.</li>
+<li>Open a tab on <b>x.com</b> and let the timeline load.</li>
+<li>Click that pinned icon once (or press <b>⌥⇧S</b>).</li>
+<li><span class="good">Success looks like:</span> within a few seconds the Station X pane shows the timeline, the pane's status line reads <b>live</b>, and a small grey badge next to it reads <b>Chrome · iMac 5K</b>.</li>
+</ol>
+
+<h3>B · Chrome on this MacBook (move it off the old folder)</h3>
+<div class="win"><b>Why this matters:</b> if both the old folder and the shared folder stay loaded, two bridges fight over the same X tab and the pane will flicker between them. Remove the old one first.</div>
+<ol class="steps">
+<li>Open <b>Chrome</b>, go to <code>chrome://extensions</code>.</li>
+<li>Find the card <b>SCINTILLA Station X Bridge</b> showing version <b>0.7.16</b>. Click <b>Details</b> and check the <b>Loaded from</b> path ends in <code>station-x-bridge-c71</code>. That is the one to remove.</li>
+<li>Go back, click <b>Remove</b> on that card, then <b>Remove</b> again in the small confirmation box.</li>
+<li>Turn on <b>Developer mode</b> if it is not already on, click <b>Load unpacked</b>, and pick THE SHARED FOLDER exactly as in steps 5–6 above.</li>
+<li><span class="good">Success looks like:</span> exactly <b>one</b> SCINTILLA Station X Bridge card, version <b>0.7.19</b>, loaded from the shared folder. Pin it, then link an x.com tab as in steps 8–11 above; the badge should read <b>Chrome · MacBook Pro</b>.</li>
+</ol>
+
+<h3>C · Brave, on both Macs (confirm the folder)</h3>
+<ol class="steps">
+<li>Open <b>Brave</b>, click the address bar, type <code>brave://extensions</code> and press Return.</li>
+<li>Turn on <b>Developer mode</b> (switch, top right).</li>
+<li>Find <b>SCINTILLA Station X Bridge</b> and click <b>Details</b>. Read <b>Loaded from</b>.</li>
+<li>If it already reads THE SHARED FOLDER: you are done here — just check the version says <b>0.7.19</b> after the coordinator publishes it, or click <b>Update</b> once to hurry it along.</li>
+<li>If it reads <code>/Users/alanharvey/Scintilla/SCINTILLA X Bridge</code> or anything else: click <b>Remove</b>, confirm, then <b>Load unpacked</b> and pick THE SHARED FOLDER.</li>
+<li><span class="good">Success looks like:</span> one card, version <b>0.7.19</b>, loaded from the shared folder, and the pane badge reading <b>Brave · iMac 5K</b> or <b>Brave · MacBook Pro</b> depending on the Mac.</li>
+</ol>
+<div class="win"><b>After all four:</b> nothing to click ever again for an update. Each browser checks the folder every minute and reloads itself when it is newer — and only while nothing is being fed to a pane.</div>
+
+<h2>5 · The source badge</h2>
+<p>The pane now prints, in small grey letters beside its status line, which browser and which Mac is feeding it — <b>Brave · iMac 5K</b>, <b>Chrome · MacBook Pro</b>, and so on. When one browser works and another does not, that sentence stops being a guess.</p>
+<ul>
+<li>Brave is detected properly rather than being mistaken for Chrome (Brave deliberately reports itself as Chrome in the usual place).</li>
+<li>The Mac is named from the screen it is running on. If you want an exact name instead — “iMac (desk)” — it can be set per machine and it wins over the guess.</li>
+<li>The badge only ever prints what the bridge measured. It is not saved anywhere and changes no setting.</li>
+</ul>
+
+<h2>6 · What could still fail</h2>
+<ul>
+<li><b>iCloud evicting the folder.</b> An unpacked extension must be real files. If macOS moves them to the cloud, the browser cannot load the bridge. Keep Downloaded on both Macs is the guard; if the shared folder ends up on Google Drive instead, a sync stall has the same effect.</li>
+<li><b>The Station relay is still not cropped at the source.</b> The mapping is correct now, but it depends on the X tab reporting where its column is. If X changes its page structure, that measurement can go wrong in a different way — and that is source-side geometry, untouched by this change.</li>
+<li><b>Nothing here was proven against a live capture.</b> The arithmetic, the fallback wording, the self-reload and the badge are proven offline; a real tab capture needs a visible window on your screen, which is not allowed in this unit.</li>
+<li><b>An update waits for an idle pane.</b> If a pane feeds continuously, the reload waits — it will land the next time the pane is idle or the browser restarts.</li>
+<li><b>Two browsers on one Mac can both link the same X tab.</b> Whichever links last wins. The badge now tells you which one it is.</li>
+<li><b>Text sharpness is capped.</b> Both paths now ask for at most 2560×1440, so on the 5K screen the pane is drawing from a scaled-down picture. Raising it costs CPU; I did not change the ceiling upward on my own.</li>
+<li><b>One pre-existing test failure, not mine.</b> A pane-x test about crop heartbeats marking a dead receiver as live already failed at <code>81e2ab7</code> and still does. It concerns the older pane, not the shell the deck mounts. Left alone deliberately, reported rather than quietly patched.</li>
+</ul>
+
+<h2>7 · Where the bridge's source lives</h2>
+<p>The folder your browsers load, <code>/Users/alanharvey/Scintilla/SCINTILLA X Bridge</code>, is not a git repository — it has no history at all. Its git home is the <b>Station repo</b>, at <code>station-x-bridge-draft/</code>, and the two are byte-for-byte identical today apart from the test folder, which the browsers do not need. So the answer to “where does it live” is: the Station repo, and the folder on disk is a copy of it. That is the copy the coordinator publishes into the shared folder.</p>
+
+<h2>8 · What I did and did not do</h2>
+<ul>
+<li><b>Never on your screen.</b> No window was opened in front of you. The browser measurement in section 2 ran headless, with no visible window at all.</li>
+<li><b>Nothing on the iMac.</b> No connection, no process, nothing.</li>
+<li><b>Nothing copied into the folders your browsers load</b>, nothing deployed, nothing pushed.</li>
+<li><b>Proven offline:</b> 15 new tests — the crop at the iMac's parameters before and after, the letterbox size, the MacBook shape where the fix is a no-op, the 1× case, zoom invariance, never sampling a bar, a source-cropped track, pane-and-shell parity, the fallback wording, the badge, Brave detection, the machine name, and the self-reload on a real version bump including the wait for an idle pane. The bridge suite is 73 of 74, the one failure being the pre-existing one above.</li>
+<li><b>Waiting on you or the coordinator:</b> the shared folder's location and creation; the four setup passes above; and one supervised live session if you want cropping moved into the X tab.</li>
+</ul>
+</body></html>
