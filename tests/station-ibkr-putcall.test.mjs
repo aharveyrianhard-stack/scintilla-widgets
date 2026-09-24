@@ -91,8 +91,8 @@ test("the companion reading follows the Station's colour and size rules", () => 
   assert.match(chart, /\.sc-nchart__live-companion\{[^}]*font:600 11px var\(--mono\)/, "11px floor for body text");
   assert.match(chart, /\.sc-nchart__live-companion\[data-change="up"\]\{ color:var\(--bull\); \}/);
   assert.match(chart, /\.sc-nchart__live-companion\[data-change="down"\]\{ color:var\(--bear\); \}/);
-  assert.match(chart, /line\.dataset\.change = !prev \|\| last\.p === prev\.p \? "flat" : last\.p > prev\.p \? "up" : "down";/,
-    "same up / down rule as every other pane");
+  assert.match(chart, /line\.dataset\.change = !prev \? "flat" : last\.p >= prev\.p \? "up" : "down";/,
+    "same up / down rule as every other pane, and a tie is green like the XLF fix - never grey (24 Sep)");
   assert.match(chart, /companion\.measured \+ " of " \+ companion\.of \+ " names"/,
     "coverage is shown beside the number, because the reader rotates");
   /* At 390 the companion was painted over the Cboe number until it got a row of its own. */
