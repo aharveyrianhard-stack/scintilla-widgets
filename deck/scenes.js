@@ -7,7 +7,7 @@
   const TV_IDS = ["tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras"];
   const WORKBENCH_IDS = ["oscWorkbench"];
   const IDS = ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","internalsSlow","sectorFamilies","themeFamilies"]
-    .concat(TV_IDS, WORKBENCH_IDS, ["cohort","custom"]);
+    .concat(TV_IDS, WORKBENCH_IDS, ["scintillas","cohort","custom"]);
   /* Every curated named scene is independently navigable.  LIVE and CUSTOM
      remain manual workspaces so arrowing/rotation never replaces a live or
      in-progress custom wall. */
@@ -34,7 +34,13 @@
     Object.freeze({ id:"tvOtherSC", scene:"tvOtherSC", label:"OTHER SC" }),
     Object.freeze({ id:"tvBlueChip", scene:"tvBlueChip", label:"BLUE CHIP" }),
     Object.freeze({ id:"tvExtras", scene:"tvExtras", label:"EXTRAS" }),
-    Object.freeze({ id:"oscWorkbench", scene:"oscWorkbench", label:"WORKBENCH" })
+    Object.freeze({ id:"oscWorkbench", scene:"oscWorkbench", label:"WORKBENCH" }),
+    /* ── THE DAY'S OUTLIERS, AS CHARTS (M48) ──────────────────────────────────────
+       Alan, 24 Sep: "there should be a multi-chart layout on station that displays
+       these kinds of things. It puts that chart on there. These scintillas go to
+       station." It fills itself from public.scintillas: nothing to choose, nothing
+       to maintain, and it is walked by the arrows and the jump list like any page. */
+    Object.freeze({ id:"scintillas", scene:"scintillas", label:"SCINTILLAS" })
   ]);
   /* ROTATION IS NOT THE PAGE LIST. Auto-rotate keeps cycling the nine curated
      screens it always cycled; Alan's own layouts are pages you go to, not a
@@ -94,7 +100,9 @@
     tvOtherLC: Object.freeze({ label:"OTHER LC", tickers:Object.freeze(["ASML","META","PLTR","ORCL","SPCX","HOOD","TSLA","SHOP"]), chartCount:8, range:"1D", exact:true }),
     tvOtherSC: Object.freeze({ label:"OTHER SC", tickers:Object.freeze(["ALAB","WULF","CRDO","SMR","SMCI","OKLO","ASTS","USAR"]), chartCount:8, range:"1D", exact:true }),
     tvBlueChip: Object.freeze({ label:"BLUE CHIP", tickers:Object.freeze(["WMT","JPM","COST","BAC","CAT","MRVL"]), chartCount:6, range:"1D", exact:true }),
-    tvExtras: Object.freeze({ label:"EXTRAS", tickers:Object.freeze(["MRVL","NVTS"]), chartCount:2, range:"1D", exact:true })
+    tvExtras: Object.freeze({ label:"EXTRAS", tickers:Object.freeze(["MRVL","NVTS"]), chartCount:2, range:"1D", exact:true }),
+    /* SCINTILLAS carries no tickers of its own: the store decides them, session by session. */
+    scintillas: Object.freeze({ label:"SCINTILLAS", tickers:Object.freeze([]), chartCount:6, range:"1D", filled:"scintillas" })
   });
 
   /* ── A WORKBENCH IS A PAGE TYPE, NOT A ONE-OFF PAGE ──────────────────────────────
@@ -202,6 +210,54 @@
     if (!top || !Array.isArray(charts)) return top;
     return !!charts[Number(index) + count / 2];
   }
+  /* ── THE SCINTILLAS PAGE ──────────────────────────────────────────────────────────
+     Rows arrive NEWEST FIRST from public.scintillas. Two rules, both Alan's words:
+       · "newest replacing oldest" — the wall holds the most recent names, so a fresh
+         scintilla pushes the oldest chart off the page;
+       · "biggest first" — what is left is ORDERED by how unusual it is, so the loudest
+         name is chart one.
+     One chart per name: a ticker that scintillated twice today keeps its freshest row.
+     Nothing is invented — a row with no move and no multiple still gets its chart, and
+     its label simply says less. */
+  function scintillasPage(rows, requestedCount) {
+    const want = chartCountForSize(requestedCount || 6);
+    const newest = new Map();
+    for (const r of rows || []) {
+      if (!r || (r.subject_kind && r.subject_kind !== "ticker")) continue;
+      const ticker = String(r.subject || "").trim().toUpperCase();
+      if (!ticker || newest.has(ticker)) continue;          // rows are newest first: keep the freshest
+      const d = (r && r.detail) || {};
+      newest.set(ticker, { ticker, ts:r.ts, kind:r.kind,
+        magnitude:r.magnitude == null ? null : Math.abs(Number(r.magnitude)),
+        movePct:d.move_pct == null ? null : Number(d.move_pct),
+        assetClass:d.asset_class || null, fired:Array.isArray(d.fired) ? d.fired.slice() : null });
+      if (newest.size >= want) break;                        // the oldest never make it on
+    }
+    const cards = Array.from(newest.values()).sort((a, b) =>
+      (b.magnitude == null ? -1 : b.magnitude) - (a.magnitude == null ? -1 : a.magnitude) ||
+      String(b.ts || "").localeCompare(String(a.ts || "")) ||
+      a.ticker.localeCompare(b.ticker));
+    for (const c of cards) c.label = scintillaLabel(c);
+    /* `cards` carries the reasons; `tickers` is what the wall installs. They are deliberately
+       separate: the deck reads a scene's charts as symbols, and a reason is not a symbol. */
+    return { tickers:cards.map((c) => c.ticker), cards,
+      chartCount:chartCountForSize(cards.length || 1), offset:0, totalItems:cards.length,
+      hasPrevious:false, hasNext:false, empty:!cards.length };
+  }
+  /* WHY THIS CHART IS HERE, in the Hub's own words — never the Greek letter (M48). */
+  function scintillaLabel(c) {
+    if (!c) return "";
+    const move = c.movePct == null || !isFinite(c.movePct) ? ""
+      : (c.movePct > 0 ? "+" : "\u2212") + Math.abs(c.movePct).toFixed(1) + "%";
+    const usual = c.magnitude == null || !isFinite(c.magnitude) ? ""
+      : c.magnitude.toFixed(1) + "\u00d7 its usual " + (c.kind === "earnings_surprise" ? "surprise" : "day");
+    let when = "";
+    try { when = c.ts ? new Intl.DateTimeFormat("en-US", { timeZone:NY, hour:"numeric", minute:"2-digit" }).format(new Date(c.ts)) : ""; }
+    catch (e) { when = ""; }
+    const what = c.kind === "earnings_surprise" ? "earnings" : c.kind === "econ_surprise" ? "release" : "";
+    return [what, move, usual, when].filter(Boolean).join(" \u00b7 ");
+  }
+
   function nextRotatingScene(scene) {
     const index = ROTATION_IDS.indexOf(normalizeScene(scene));
     return ROTATION_IDS[(index + 1 + ROTATION_IDS.length) % ROTATION_IDS.length];
@@ -354,6 +410,8 @@
     studyQuery,
     workbenchState,
     exactPage,
+    scintillasPage,
+    scintillaLabel,
     pageTickers,
     findPages,
     railChips,

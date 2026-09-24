@@ -454,6 +454,14 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
   border-bottom:1px solid var(--line); }
 .ph .t{ color:var(--ink2); font-size:8.5px; letter-spacing:.16em; text-transform:uppercase;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* M48 — WHY THIS CHART IS HERE. Only the SCINTILLAS page fills it; everywhere else it is empty
+   and takes no room. Alan, 24 Sep: "It puts that chart on there." A chart with no reason beside it
+   is a chart nobody can act on, so the reason rides in the pane's own header. */
+.ph .why{ color:var(--ink3); font-size:11px; letter-spacing:.02em; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; min-width:0; margin-left:auto; padding-left:8px; }
+.ph .why:empty{ display:none; }
+.pane.tight .ph .why{ font-size:9.5px; }
+@media (max-width:560px){ .ph .why{ font-size:11px; } }
 .ph .tag{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; white-space:nowrap;
   overflow:hidden; text-overflow:ellipsis; }
 .ph .acts{ margin-left:auto; display:flex; gap:4px; flex:none; }
@@ -555,6 +563,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
         <option value="tvBlueChip">blue chip</option>
         <option value="tvExtras">extras</option>
         <option value="oscWorkbench">oscillator workbench</option>
+        <option value="scintillas">scintillas</option>
         <option value="cohort">cohort</option>
         <option value="custom">custom</option>
       </select>
@@ -788,7 +797,7 @@ const chartCount = (value) => {
 const sceneChartCount = (value, scene = SCENE, fromPreset = false) => {
   /* A cohort page owns its own count: the last page of a seven-member cohort is one real
      chart, not one real chart plus a manufactured empty card. */
-  if (fromPreset && scene === "cohort") return SceneModel.chartCountForSize(value);
+  if (fromPreset && (scene === "cohort" || scene === "scintillas")) return SceneModel.chartCountForSize(value);
   return fromPreset && scene === "indexNow" && +value === 3 ? 3 : chartCount(value);
 };
 /* CUSTOM deliberately exposes only 2 / 6 / 8.  A remembered four-up wall is
@@ -1299,7 +1308,8 @@ function makePane(def) {
   if (def.kind === "chart") p.classList.add("chart-pane");
   if (def.kind === "video" || def.kind === "x") p.classList.add("integrated");
   const head = document.createElement("div"); head.className = "ph";
-  head.innerHTML = '<span class="t">' + esc(def.title) + '</span><span class="tag">' + esc(def.tag) + "</span>";
+  head.innerHTML = '<span class="t">' + esc(def.title) + '</span><span class="tag">' + esc(def.tag) + "</span>" +
+    '<span class="why"></span>';
   const acts = document.createElement("div"); acts.className = "acts";
 
   const bFull = document.createElement("button"); bFull.type = "button"; bFull.className = "btn"; bFull.textContent = "⤢";
@@ -2263,6 +2273,49 @@ function rememberEditableState() {
     CHARTS.forEach((ticker, i) => remember("station.chart." + (i + 1), ticker));
   }
 }
+/* ── M48 · THE SCINTILLAS PAGE ─────────────────────────────────────────────────────────────
+   Alan, 24 Sep: "there should be a multi-chart layout on station that displays these kinds of
+   things. It puts that chart on there. These scintillas go to station."
+   It reads public.scintillas — the same rows the Hub's strip lists, written by the detector
+   against the rules file — and turns the day's outliers into charts: newest replacing oldest,
+   biggest first, each labelled with why it is there. It chooses nothing itself and writes
+   nothing; if the store is empty it says so instead of showing yesterday. */
+const SCINT_SEL = "scintillas?select=ts,kind,subject,subject_kind,direction,magnitude,detail&order=ts.desc&limit=100";
+const SCINT_TTL_MS = 60000;
+let SCINT_ROWS = null, SCINT_AT = 0, SCINT_NOTE = "";
+let SCINT_LABELS = new Map();
+async function loadScintillas(force) {
+  if (!force && SCINT_ROWS && Date.now() - SCINT_AT < SCINT_TTL_MS) return SCINT_ROWS;
+  try {
+    const rows = await pg(SCINT_SEL);
+    SCINT_ROWS = Array.isArray(rows) ? rows : [];
+    SCINT_AT = Date.now();
+    SCINT_NOTE = SCINT_ROWS.length ? "" : "no scintillas stored today";
+  } catch (e) {
+    SCINT_ROWS = SCINT_ROWS || [];
+    SCINT_NOTE = "scintillas could not be read — showing nothing rather than something stale";
+  }
+  return SCINT_ROWS;
+}
+function scintillasState(requestedCount) {
+  const state = SceneModel.scintillasPage(SCINT_ROWS || [], requestedCount || 6);
+  SCINT_LABELS = new Map(state.cards.map((c) => [c.ticker, c.label]));
+  return Object.assign({}, state, { range: SceneModel.PRESETS.scintillas.range });
+}
+/* the label rides in the pane head, and is cleared the moment another page is shown */
+function paintScintillaLabels() {
+  for (let i = 0; i < CHARTS.length; i++) {
+    const pane = PANES.find((item) => item.def.key === "c" + (i + 1));
+    const cell = pane && pane.node.querySelector(".ph .why");
+    if (!cell) continue;
+    const label = SCENE === "scintillas" ? (SCINT_LABELS.get(CLEAN(CHARTS[i])) || "") : "";
+    if (cell.textContent !== label) cell.textContent = label;
+    if (pane.node.getAttribute("title") !== label) {
+      if (label) pane.node.setAttribute("title", CLEAN(CHARTS[i]) + " · " + label);
+      else pane.node.removeAttribute("title");
+    }
+  }
+}
 function orderedCohorts() {
   /* FAV leads: it is the default view the cohorts replace. */
   return Array.from(COHORT_INDEX.keys()).sort((a,b) => {
@@ -2306,7 +2359,7 @@ function cohortState() {
 }
 function paintSceneControls(note) {
   el("sceneMode").value = SCENE;
-  const resettable = !!fixedSceneState(SCENE) || SCENE === "cohort";
+  const resettable = !!fixedSceneState(SCENE) || SCENE === "cohort" || SCENE === "scintillas";
   const reset = el("resetScene");
   reset.classList.toggle("on", resettable);
   reset.disabled = !resettable;
@@ -2366,12 +2419,14 @@ function installSceneState(state) {
   SLOT_RANGES.forEach((_, i) => { SLOT_RANGES[i] = RANGES.includes(ranges[i]) ? ranges[i] : ""; });
   CHART_COUNT = (SCENE === "custom" ? customChartCount : sceneChartCount)(
     state.chartCount || SceneModel.chartCountForSize(charts.length), SCENE,
-    SCENE === "indexNow" || SCENE === "cohort"
+    SCENE === "indexNow" || SCENE === "cohort" || SCENE === "scintillas"
   );
 }
 function fixedSceneState(scene, requestedCount) {
   const bench = SceneModel.workbenchState(scene);
   if (bench) return bench;
+  /* SCINTILLAS carries no tickers of its own — the store fills it, like the cohort page. */
+  if (scene === "scintillas") return null;
   if (scene === "indexNow") {
     const preset = Object.assign({}, SceneModel.PRESETS.indexNow, { tickers:SceneModel.indexNowTickersFor(new Date()) });
     return Object.assign({}, preset, SceneModel.basketWindow(preset.tickers, BASKET_OFFSET, requestedCount || preset.chartCount), { range:preset.range });
@@ -2396,6 +2451,11 @@ async function primeSceneState() {
   else if (SCENE === "cohort") {
     try { await loadCohortIndex(); installSceneState(hasStoredScene("cohort") ? editableState("cohort") : cohortState()); }
     catch (_) { COHORT_READY = false; installSceneState({ charts:[], chartCount:1, range:RANGE }); }
+  }
+  else if (SCENE === "scintillas") {
+    await loadScintillas();
+    /* the page is the day's outliers, never a remembered wall: it always shows what is stored now */
+    installSceneState(scintillasState(SceneModel.PRESETS.scintillas.chartCount));
   }
   remember("station.scene", SCENE);
 }
@@ -2508,6 +2568,10 @@ async function applyScene(next, options) {
       COHORT_READY = false; state = { charts:[], chartCount:1, range:RANGE };
       el("symbolNote").textContent = "cohort index unavailable — retry by re-choosing the scene";
     }
+  } else if (requested === "scintillas") {
+    await loadScintillas(!!options?.reset);
+    state = scintillasState(SceneModel.PRESETS.scintillas.chartCount);
+    if (el("symbolNote")) el("symbolNote").textContent = SCINT_NOTE || "the day's outliers, biggest first";
   } else if (requested === "custom" && !hasStoredScene("custom")) {
     state = customWallState({ charts:[], range:RANGE }, 6);
   } else state = editableState(requested);
@@ -2999,6 +3063,7 @@ function applyChartCount(next, fromScene, transitionGeneration) {
   });
   if (SOLO && /^c[1-8]$/.test(SOLO) && +SOLO.slice(1) > CHART_COUNT) setSolo(null);
   if (!fromScene) rememberEditableState();
+  try { paintScintillaLabels(); } catch (_) {}      /* M48 — why each chart is on the page */
   relayout(); paintChips(); refreshDeckQuotes();
 }
 el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
