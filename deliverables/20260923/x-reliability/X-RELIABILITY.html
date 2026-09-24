@@ -1,0 +1,118 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>The X pane stays alive on its own · 23 Sep 2026 · resize, reload, self-update, overnight</title>
+<style>
+body{margin:0;background:#05060C;color:#B4B6CC;font:18px/1.55 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:34px;margin:0 0 6px;color:#D8D8E6} h2{font-size:26px;margin:44px 0 8px;color:#D8D8E6} h3{font-size:20px;margin:22px 0 6px;color:#C4C6DA}
+p{max-width:1100px;margin:0 0 12px} .lead{font-size:22px;color:#D0D2E2;max-width:1100px}
+.status{border-left:4px solid #3A3A52;padding:10px 16px;margin:14px 0 26px;background:#0A0B14;max-width:1100px}
+table{border-collapse:collapse;font-size:16.5px;margin:10px 0 6px;max-width:1400px} th,td{border:1px solid #2A2A3E;padding:8px 12px;text-align:left;vertical-align:top} th{color:#9A9AB6;font-weight:600}
+td.k{color:#868AAA;font-style:italic}
+.bad{color:#FF8A8A} .good{color:#7FE0B0} .mid{color:#E0C07F}
+.shots{display:grid;grid-template-columns:1fr 1fr;gap:14px;max-width:1400px} .shots img{width:100%;border:1px solid #2A2A3E;display:block} figure{margin:0} figcaption{font:14px ui-monospace,Menlo,monospace;color:#9A9AB6;margin-top:4px}
+.four{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:1400px} .four img{width:100%;border:1px solid #2A2A3E;display:block}
+code{font:15px ui-monospace,Menlo,monospace;background:#15162A;padding:1px 6px;border-radius:4px;color:#C4C6DA} ul{max-width:1100px} li{margin:5px 0}
+.big{font-size:20px;color:#D0D2E2}
+</style></head><body>
+<h1>The X pane stays alive on its own</h1>
+<p class="lead">Alan, 23 September, evening: <i>"The one that I have on the iMac is <b>black again</b>… it's almost there… my station as my main visibility layer, but it still requires a lot of work and you guys aren't checking it."</i> · <i>"<b>I resize the window, it gets fucked. It's flimsy as shit.</b>"</i> · <i>"Within the same message I'm having to <b>refresh both devices' Station again</b>. It's horseshit."</i></p>
+
+<div class="status"><b>In one line.</b> Three different faults were hiding behind one black rectangle, and <b>not one of them could recover without a person</b> — the pane only ever waited to be handed a stream, it believed a capture that was sending it black frames, and it painted black whenever the crop missed the frame. On top of that the Station's own three-minute self-update reloaded the whole page whenever the X shell changed, which is the refresh Alan kept having to do again afterwards. All four are fixed <b>Station-side</b>: the extension is untouched, so there is <b>nothing to reinstall on either Mac</b>. Branch <code>station/x-reliability-20260923</code>. <b>Nothing deployed and nothing pushed.</b></div>
+
+<h2>1 · How this was tested, and what "black" means here</h2>
+<p>Everything below was measured in a <b>real browser running the real bridge</b>: Playwright's Chrome for Testing, the shipped <b>SCINTILLA Station X Bridge 0.7.18</b> loaded unpacked from a byte-identical copy (<code>background.js 37b865c6c7e6 · content.js 1d7ffa14b925 · station-bridge.js 881de97f9147</code>), a real <code>chrome.tabCapture</code>-class capture of a tab on the real <code>x.com</code> origin, and the Station shell served from this branch. It ran in its own throwaway profile in a separate window. <b>Alan's Brave, his profiles, his X session and his open Stations were never touched.</b></p>
+<p>Two things about the rig are deliberately not production, and both are stated so no claim rests on them:</p>
+<ul>
+<li><b>The x.com page is a fixture.</b> x.com refuses an automated browser outright (<code>ERR_HTTP_RESPONSE_CODE_FAILURE</code>) and a logged-out page has no timeline to measure, so the x.com <i>origin</i> is served a deterministic timeline carrying the landmarks the bridge measures — <code>primaryColumn</code>, the tab strip, tweets with names and text. The bridge's own content script, its own measurement code and its own relay all run unmodified.</li>
+<li><b>The capture is held outside the pane.</b> Chrome will not hand a capture to an extension that was not invoked by a person (<i>"Extension has not been invoked for the current page"</i>), which is itself one of the findings below. A holder page takes one real tab capture and answers the pane's offers with it, standing in for the extension's offscreen document and, like it, surviving every pane reload. The offer/answer protocol, the crop relay, the WebRTC hop and the pane are production code.</li>
+</ul>
+<p><b>"Black" is measured, not judged.</b> Each step samples the pane's canvas twice, 500&nbsp;ms apart: <b>ink</b> is the share of sampled pixels that are not near-black, and <b>moving</b> is whether the two samples differ. The fixture uses X's dim theme (<code>#15202b</code>), which is never pure black, so <code>ink&nbsp;=&nbsp;0</code> means the pane is showing Alan nothing. A step is <span class="bad">BLACK</span> when ink is at or below 1%, <span class="good">picture</span> when there is ink and it moves.</p>
+
+<h2>2 · What was actually wrong</h2>
+<table>
+<tr><th>the fault</th><th>why nothing recovered</th></tr>
+<tr><td><b>Nobody offered.</b> A reloaded pane waits to be handed a stream.</td><td>The pane's self-heal (added in M25) returns early unless a stream is <i>already attached</i>: <code>if (!s || !s.attached) return { state:"", relink:false, stalled:false }</code>. So the one state that most needed help — holding nothing at all — was the one state it refused to act on. Recovery depended entirely on the bridge noticing, and when the bridge's answer failed the pane sat on <b>X SOURCE IS OFFLINE</b> until a person pressed reload.</td></tr>
+<tr><td><b>The capture went black.</b> Frames keep arriving; every one of them is empty.</td><td>Every freshness check in the pane asks "did a frame arrive", never "was there anything in it". The bridge's own <code>background.js</code> describes this state in as many words: <i>"the offscreen document can still exist while Chrome has left its tab-capture video black"</i>. The pane's status word stayed <b>live</b> for as long as you cared to watch.</td></tr>
+<tr><td><b>The crop missed the frame.</b></td><td>The crop is measured on the X tab in CSS pixels and mapped through the capture's pixel size. When those two disagree — which a resize opens, because the source re-lays-out its column for the new shape — the mapped region falls outside the frame, and the draw did <code>ctx.fillStyle="#000"; ctx.fillRect(...)</code> and then skipped the picture. A stream with no crop yet painted nothing at all, for the same reason.</td></tr>
+<tr><td><b>The Station reloaded it.</b></td><td>The deck's self-update watched the X shell's version and treated a change as a <i>page</i> reload: <code>const deck = … || changed("x")</code>. Every deploy that touched the X pane reloaded the whole Station, which dropped the capture, which needed the recovery that did not work.</td></tr>
+</table>
+
+<h2>3 · The same five situations, before and after</h2>
+<p>Same script, same rig, same bridge, run once against the deployed bytes (<code>5d30595</code>) and once against this branch. Rows <b>(a)</b> to <b>(e)</b> are the five situations the job asked for; <b>(f)</b>, <b>(g)</b> and <b>(h)</b> are the three faults themselves, induced deliberately, because they are what Alan actually hits and they never happen to order.</p>
+<p class="k">One honest wobble: the few seconds right after a reload <b>(b)</b> vary from run to run — the pane is black until the bridge hands it a stream, and on repeated runs of the deployed bytes that gap measured anywhere from under three seconds to more than three. What does not vary is that the deployed pane has no way to ask; the branch asks after four seconds and then every twelve.</p>
+<table><tr><th rowspan="2">situation</th><th colspan="2">deployed today (5d30595)</th><th colspan="2">this branch</th></tr><tr><th>what the pane shows</th><th>what it says</th><th>what the pane shows</th><th>what it says</th></tr>
+<tr><td>attached and drawing</td><td class="good"><b>picture</b> <span class="k">ink 0.973</span></td><td>live</td><td class="good"><b>picture</b> <span class="k">ink 0.973</span></td><td>live</td></tr>
+<tr><td><b>(a)</b> after ten window sizes</td><td class="good"><b>picture</b> <span class="k">ink 0.975</span></td><td>live</td><td class="good"><b>picture</b> <span class="k">ink 0.975</span></td><td>live</td></tr>
+<tr><td><b>(b)</b> 3&nbsp;s after a Station reload</td><td class="good"><b>picture</b> <span class="k">ink 0.968</span></td><td>live</td><td class="good"><b>picture</b> <span class="k">ink 0.971</span></td><td>live</td></tr>
+<tr><td><b>(b)</b> 15&nbsp;s after a Station reload</td><td class="good"><b>picture</b> <span class="k">ink 0.975</span></td><td>live</td><td class="good"><b>picture</b> <span class="k">ink 0.975</span></td><td>live</td></tr>
+<tr><td><b>(c)</b> 15&nbsp;s after the self-update reloads the X shell</td><td class="good"><b>picture</b> <span class="k">ink 0.952</span></td><td>live</td><td class="good"><b>picture</b> <span class="k">ink 0.952</span></td><td>live</td></tr>
+<tr><td><b>(d)</b> the pane's tab hidden for 6&nbsp;s</td><td class="good"><b>picture</b> <span class="k">ink 0.905</span></td><td>live</td><td class="good"><b>picture</b> <span class="k">ink 0.905</span></td><td>live</td></tr>
+<tr><td><b>(d)</b> 4&nbsp;s after it comes back</td><td class="good"><b>picture</b> <span class="k">ink 0.882</span></td><td>live</td><td class="good"><b>picture</b> <span class="k">ink 0.882</span></td><td>live</td></tr>
+<tr><td><b>(f)</b> the capture goes black · 3&nbsp;s</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>live</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>live</td></tr>
+<tr><td><b>(f)</b> · 11&nbsp;s</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>live</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>live</td></tr>
+<tr><td><b>(f)</b> · 51&nbsp;s</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>live</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>the X capture is black · press Option+Shift+S on the x.com tab once</td></tr>
+<tr><td><b>(f)</b> the capture comes back</td><td class="good"><b>picture</b> <span class="k">ink 0.557</span></td><td>live</td><td class="good"><b>picture</b> <span class="k">ink 0.58</span></td><td>live</td></tr>
+<tr><td><b>(g)</b> reloaded, nobody answers · 8&nbsp;s</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>ready</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>asking the X source for the picture · 8s</td></tr>
+<tr><td><b>(g)</b> · 26&nbsp;s</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>ready</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>asking the X source for the picture · 27s</td></tr>
+<tr><td><b>(g)</b> · 71&nbsp;s</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>ready</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>no X source · press Option+Shift+S on the x.com tab once</td></tr>
+<tr><td><b>(g)</b> the source can answer again</td><td class="good"><b>picture</b> <span class="k">ink 0.552</span></td><td>live</td><td class="good"><b>picture</b> <span class="k">ink 0.552</span></td><td>live</td></tr>
+<tr><td><b>(h)</b> a crop that misses the frame · 3&nbsp;s</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>live</td><td class="good"><b>picture</b> <span class="k">ink 0.452</span></td><td>live</td></tr>
+<tr><td><b>(h)</b> · 12&nbsp;s</td><td class="bad"><b>BLACK</b> <span class="k">ink 0</span></td><td>live</td><td class="good"><b>picture</b> <span class="k">ink 0.452</span></td><td>re-deriving the crop <span class='k'>(whole frame)</span></td></tr>
+<tr><td><b>(h)</b> real crops again</td><td class="good"><b>picture</b> <span class="k">ink 0.441</span></td><td>live</td><td class="good"><b>picture</b> <span class="k">ink 0.441</span></td><td>live</td></tr>
+</table>
+<p class="k">before: real tab capture of the x.com tab (2600x1374) · after: real tab capture of the x.com tab (1960x1346)</p>
+
+<h3>(f) the capture has been sending black frames for 11 s</h3><div class="shots"><figure><img src="shots/before-f-capture-black-11s.png"><figcaption>deployed today · what Alan sees</figcaption></figure><figure><img src="shots/after-f-capture-black-11s.png"><figcaption>this branch · same second, same rig</figcaption></figure></div>
+<h3>(g) reloaded 71 s ago, and nothing can answer</h3><div class="shots"><figure><img src="shots/before-g-no-answer-71s.png"><figcaption>deployed today · what Alan sees</figcaption></figure><figure><img src="shots/after-g-no-answer-71s.png"><figcaption>this branch · same second, same rig</figcaption></figure></div>
+<h3>(h) a crop that misses the captured frame</h3><div class="shots"><figure><img src="shots/before-h-crop-misses-12s.png"><figcaption>deployed today · what Alan sees</figcaption></figure><figure><img src="shots/after-h-crop-misses-12s.png"><figcaption>this branch · same second, same rig</figcaption></figure></div>
+
+<h2>4 · What changed</h2>
+<table>
+<tr><th></th><th>before</th><th>after</th></tr>
+<tr><td>a pane holding nothing</td><td>waits to be offered a stream, for ever</td><td>asks for one after 4&nbsp;s, then every 12&nbsp;s, six times; each ask is the bridge's own <code>XFF_STATION_RECONNECT_VIEWER</code></td></tr>
+<tr><td>the health watcher</td><td>starts when a stream attaches, stops when it goes</td><td>runs for the life of the document — an empty pane is exactly what needs watching</td></tr>
+<tr><td>what counts as alive</td><td>a frame or a crop arrived recently</td><td>that, plus <b>what is actually in the frame</b>: one 24×16 sample a second of the incoming video, of the mapped crop region, and of the canvas</td></tr>
+<tr><td>a black capture</td><td>reported as <b>live</b></td><td>named after 6&nbsp;s, relinked three times, and then the one instruction that works: <code>the X capture is black · press Option+Shift+S on the x.com tab once</code></td></tr>
+<tr><td>a crop that misses the frame</td><td>black fill</td><td>the whole frame is drawn instead, immediately; the pane says <code>re-deriving the crop</code> and asks the source for geometry for this exact pane size; the fallback retires itself the moment the mapped region has a picture in it again</td></tr>
+<tr><td>a stream with no crop</td><td>painted nothing</td><td>draws the frame</td></tr>
+<tr><td>a new X shell (deploy)</td><td>reloaded the whole Station page</td><td>reloads <b>that frame only</b>, and only while the X pane is not live; while it is live the update waits and is not forgotten</td></tr>
+<tr><td>a new deck (deploy)</td><td>reloaded after 2 idle minutes with no video on stage</td><td>the same, plus: not while the X pane is live — bounded to 30 minutes, after which it does update, because by then the pane re-attaches on its own</td></tr>
+<tr><td>the iPad Companion and iOS</td><td>—</td><td>never enter the asking branch: no extension there, and no Mac keyboard to press</td></tr>
+<tr><td>diagnosis</td><td>none</td><td><code>window.__SCINTILLA_X_LINK</code> reports attached, ink in the frame / crop / canvas, the fallback, the retry count and the age of the last frame and crop</td></tr>
+</table>
+<p><b>The bridge is untouched.</b> Every message the pane sends already existed in 0.7.18, so nothing has to be reinstalled on the iMac or the MacBook.</p>
+
+<h2>4b · The heartbeat the deck relies on</h2><p>The deck can only hold a reload if the pane tells it that it is live, and that message has to cross an iframe boundary the main rig never exercises (there the pane is top-level, so the heartbeat is a no-op). A second check mounts the real shell in a real iframe with the real bridge and a real capture (2624x1696): the host received <b>23</b> beats. Reaches the deck while the pane is showing the feed: <b>yes</b>. Reports <code>live</code> but <code>picture:false</code> once the capture goes black under it: <b>yes</b>.</p><p class="k">last beats while showing: [{"live": true, "picture": true, "at": 1790210679670}, {"live": true, "picture": true, "at": 1790210680670}, {"live": true, "picture": true, "at": 1790210681670}]<br>last beats while black: [{"live": true, "picture": false, "at": 1790210685667}, {"live": true, "picture": false, "at": 1790210686674}, {"live": true, "picture": false, "at": 1790210687670}]</p>
+
+<h2>5 · Overnight</h2>
+<p>The same script then held the pane open for <b>34 minutes</b>, resizing the window through ten shapes, one a minute, with a measurement after each resize. <b>34 of 34</b> measurements were a moving picture. The weakest was <code>ink 0.139</code> at <code>e-soak-min-1</code>. The stream was renegotiated <b>59</b> times during the soak. Everything the pane said across the whole run: <code>live</code> · <code>re-deriving the crop</code> · <code>ready</code>. Crops kept arriving throughout (<code>858</code> at the first measurement, <code>17586</code> at the last).</p>
+
+<h2>6 · What Alan has to do</h2>
+<p class="big"><b>After this deploys: nothing.</b></p>
+<ul>
+<li><b>The new X pane arrives on its own.</b> The Station asks for new versions every three minutes. A new X shell now reloads only the X frame, and only while that pane is not live — so it lands in a gap, not over the feed.</li>
+<li><b>One last interruption.</b> The Station open on the iMac right now is still running the old self-update, so the deploy that carries this change will reload that page once, the way every deploy has. That is the last one: after it, the pane asks for its picture back by itself within a few seconds, and a live pane holds off a page reload.</li>
+<li><b>One keypress, and only for one fault.</b> If the pane ever says <code>the X capture is black · press Option+Shift+S on the x.com tab once</code>, it means what it says. Chrome hands a tab capture only to an extension a person has just invoked, so no web page can rebuild a dead capture by itself — the pane can name it, and that is what it now does instead of showing a black box and the word "live". Every other failure here recovers without him.</li>
+<li><b>Nothing else about the pane changed.</b> The controls, the hold under the pointer, the iPad link, the saved layout and the X source tab are untouched, and the bridge extension does not need reinstalling on either Mac.</li>
+</ul>
+
+<h2>7 · What this does not prove</h2>
+<ul>
+<li><b>I could not make a plain window resize go black in the rig.</b> Ten window sizes, and a thirty-minute soak resizing every minute, all held the picture on the deployed bytes as well. What I could do is reproduce the <i>mechanism</i> a resize opens — a crop mapped through the wrong pixel size — and that is row (h): it is black before and a picture after. If the iMac's black-on-resize has a different cause, the pane will now say which of the three faults it is instead of showing a black box.</li>
+<li><b>A black capture still needs one keypress.</b> Only a capture the person authorised can replace a dead one: <code>chrome.tabCapture.getMediaStreamId</code> refuses anything else, and the bridge only calls it from a toolbar click. The pane now says so in one line instead of lying. A future bridge 0.7.19 could retry the capture itself using the <code>activeTab</code> grant the first click already left behind — that is a proposal, not done here, because it means reinstalling the extension on two Macs.</li>
+<li><b>The pixels in the rig are a fixture</b>, and the capture is held by a page rather than by the extension's offscreen document. Everything above is about how the pane behaves when frames and crops do or do not arrive; none of it measures x.com's own rendering.</li>
+<li><b>Two Stations at once were not exercised.</b> The bridge names one pane active and ignores resize from the others, so a mirrored display can be sent geometry for the wrong shape. After this change such a pane shows the whole frame instead of a black box, but the underlying active/standby rule is unchanged and is a bridge-side decision.</li>
+<li><b>Nothing was deployed</b>, nothing pushed, and the Station test suite is at its production baseline (<b>18 failures before, 18 after</b>, with 23 new tests passing).</li>
+</ul>
+
+<h2>8 · Where everything is</h2>
+<table>
+<tr><th>file</th><th>what</th></tr>
+<tr><td><code>station-shells/x-v2/index.html</code></td><td>the pane: ink sampling, the three-way diagnosis, the full-frame fallback, the asking watcher, the heartbeat to the deck</td></tr>
+<tr><td><code>deck/index.html</code></td><td>self-update: the X shell reloads its own frame, and a live X pane holds a page reload</td></tr>
+<tr><td><code>tests/station-x-reliability.test.mjs</code></td><td>18 tests, one per branch of the decision plus the wiring the browser run exercises</td></tr>
+<tr><td><code>tests/station-self-update.test.mjs</code></td><td>the update contract, including the bounded hold</td></tr>
+<tr><td><code>tests/station-fixes-20260923.test.mjs</code>, <code>tests/station-scenes.test.mjs</code></td><td>two existing assertions updated where M29 deliberately changes M25 behaviour, each with a note saying why</td></tr>
+<tr><td><code>deliverables/20260923/x-reliability/harness/</code></td><td>the rig: the driver, the x.com fixture, the capture holder, the iframe heartbeat check</td></tr>
+<tr><td><code>deliverables/20260923/x-reliability/shots/</code></td><td>every screenshot and both machine-readable logs</td></tr>
+</table>
+</body></html>

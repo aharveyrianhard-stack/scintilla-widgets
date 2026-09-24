@@ -1648,6 +1648,11 @@ setInterval(paintMarketStatus, 10000);
 setInterval(deckQuoteHeartbeat, DECK_QUOTE_HEARTBEAT_MS);
 window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
+  if (event.data?.type === "SCINTILLA_X_LIVE") {
+    /* The X pane's own heartbeat. The deck cannot see inside that frame, and it
+       must not reload a pane that is showing Alan his feed. */
+    X_LIVE = Boolean(event.data.live); X_LIVE_AT = Date.now(); return;
+  }
   if (event.data?.sc === "chart-load-request") {
     /* A frame whose document is the one this deck mounted is current by definition, whatever
        generation it booted with. Without this, every frame that reloaded after a scene change
@@ -3086,17 +3091,40 @@ build();
    and while no video is on the stage, so a stream being watched is never cut off. */
 const SELF_UPDATE_MS = 180000;
 const SELF_UPDATE_IDLE_MS = 120000;
+/* ---- 23 SEP: THE UPDATE THAT KEPT KILLING THE X PANE --------------------------------------------
+   Every deploy last night reloaded this page while idle, and a reloaded X pane has to be handed its
+   capture again. Alan: "Within the same message I'm having to refresh both devices' Station again."
+   Two changes, both narrow:
+     - a new X shell now reloads THAT FRAME ONLY, never the whole page, and only while the X pane is
+       not live. While it is live the new shell simply waits;
+     - a new deck waits for a live X pane as well as for a playing video, so an update never cuts off
+       the picture Alan is watching. The wait is bounded: after X_HOLD_MAX_MS the deck does reload,
+       because by then the pane re-attaches on its own in a second or two, and a Station that can
+       never update is how the iMac ended up hours behind in the first place. */
+const X_HOLD_MAX_MS = 1800000;
 let SELF_UPDATE_SEEN = null, SELF_UPDATE_DECK_PENDING = false, SELF_UPDATE_LAST_INPUT = Date.now();
+let X_PENDING = false, X_HELD_SINCE = 0, X_LIVE_AT = 0, X_LIVE = false;
 for (const ev of ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"])
   window.addEventListener(ev, () => { SELF_UPDATE_LAST_INPUT = Date.now(); }, { passive:true, capture:true });
-function selfUpdatePlan(seen, tags, idleMs, videoOnStage, deckPending) {
+/* The pane says so once a second; two missed beats and we treat it as not live. */
+function xPaneLive(now = Date.now()) { return X_LIVE && now - X_LIVE_AT <= 3000; }
+function selfUpdatePlan(seen, tags, idleMs, videoOnStage, deckPending, xLive, xHeldMs, xPending) {
   const changed = (k) => !!(seen && tags[k] && seen[k] && tags[k] !== seen[k]);
-  const deck = !!deckPending || changed("deck") || changed("video") || changed("personalVideo") || changed("x");
+  const deck = !!deckPending || changed("deck") || changed("video") || changed("personalVideo");
+  const xChanged = !!xPending || changed("x");
+  const held = xLive && Number(xHeldMs || 0) < X_HOLD_MAX_MS;
+  /* The X tag is only banked once its reload has actually been allowed, so a
+     change that waited out a live pane is not silently forgotten. */
+  const next = seen ? Object.assign({}, seen, { chart: tags.chart || seen.chart, provider: tags.provider || seen.provider }) : tags;
+  if (seen && tags.x && !(xChanged && xLive)) next.x = tags.x;
   return {
     remountCharts: changed("chart") || changed("provider"),
     deckPending: deck,
-    reloadPage: deck && idleMs >= SELF_UPDATE_IDLE_MS && !videoOnStage,
-    seen: seen ? Object.assign({}, seen, { chart: tags.chart || seen.chart, provider: tags.provider || seen.provider }) : tags
+    xPending: xChanged && xLive,
+    remountX: xChanged && !xLive,
+    heldForX: (deck && idleMs >= SELF_UPDATE_IDLE_MS && !videoOnStage && held) || (xChanged && xLive),
+    reloadPage: deck && idleMs >= SELF_UPDATE_IDLE_MS && !videoOnStage && !held,
+    seen: next
   };
 }
 async function selfUpdateTags() {
@@ -3123,10 +3151,18 @@ function selfUpdateVideoOnStage() {
 }
 async function selfUpdateCheck() {
   const tags = await selfUpdateTags();
+  const live = xPaneLive();
+  if (!live) X_HELD_SINCE = 0;
+  else if (!X_HELD_SINCE) X_HELD_SINCE = Date.now();
   const plan = selfUpdatePlan(SELF_UPDATE_SEEN, tags, Date.now() - SELF_UPDATE_LAST_INPUT,
-    selfUpdateVideoOnStage(), SELF_UPDATE_DECK_PENDING);
-  SELF_UPDATE_SEEN = plan.seen; SELF_UPDATE_DECK_PENDING = plan.deckPending;
+    selfUpdateVideoOnStage(), SELF_UPDATE_DECK_PENDING, live,
+    X_HELD_SINCE ? Date.now() - X_HELD_SINCE : 0, X_PENDING);
+  SELF_UPDATE_SEEN = plan.seen; SELF_UPDATE_DECK_PENDING = plan.deckPending; X_PENDING = plan.xPending;
   if (plan.reloadPage) { location.reload(); return; }
+  if (plan.remountX) for (const pane of PANES) {
+    if (pane.def.kind !== "x" || !pane.frame) continue;
+    try { pane.frame.contentWindow.location.reload(); } catch (_) {}
+  }
   if (plan.remountCharts) for (const pane of PANES) {
     if (pane.def.kind !== "chart" || !pane.frame) continue;
     try { pane.frame.contentWindow.location.reload(); } catch (_) {}

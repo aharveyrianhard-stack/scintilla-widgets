@@ -1,0 +1,67 @@
+<!doctype html><html><head><meta charset="utf-8"><title>X capture holder</title></head><body>
+<button id="go">take the capture</button><pre id="out">idle</pre>
+<video id="v" autoplay muted playsinline width="240"></video>
+<script>
+/* Stands in for the bridge's offscreen document, and only for that: it holds ONE
+   real tab capture of the x.com tab and answers the pane's real offers with it.
+   Living outside the pane document is the point - the capture must survive every
+   pane reload, exactly as the extension's offscreen document does in production. */
+const out = document.getElementById("out");
+let capture = null;
+const peers = new Map();
+const bus = new BroadcastChannel("scintilla.x-harness.capture.v1");
+
+document.getElementById("go").addEventListener("click", async () => {
+  try {
+    capture = await navigator.mediaDevices.getDisplayMedia({
+      video: { displaySurface: "browser", frameRate: { ideal: 30, max: 60 } }, audio: false,
+      preferCurrentTab: false, selfBrowserSurface: "exclude", surfaceSwitching: "include" });
+    document.getElementById("v").srcObject = capture;
+    const s = capture.getVideoTracks()[0].getSettings();
+    window.__HOLDER = { ok: true, width: s.width, height: s.height, label: capture.getVideoTracks()[0].label };
+    out.textContent = JSON.stringify(window.__HOLDER);
+  } catch (error) { window.__HOLDER = { ok: false, error: error.name + ": " + error.message }; out.textContent = out.textContent = JSON.stringify(window.__HOLDER); }
+});
+
+/* A dead tab-capture decoder: Chrome keeps delivering frames, every one black.
+   The bridge's own background.js comment describes exactly this state. */
+let blackTrack = null, liveTrack = null, refusing = false;
+function blackStream() {
+  const c = document.createElement("canvas"); c.width = 1200; c.height = 800;
+  const ctx = c.getContext("2d");
+  setInterval(() => { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, 1200, 800); }, 33);
+  return c.captureStream(30).getVideoTracks()[0];
+}
+async function swapTo(track) {
+  for (const peer of peers.values()) {
+    for (const sender of peer.getSenders()) if (sender.track?.kind === "video") await sender.replaceTrack(track);
+  }
+}
+bus.addEventListener("message", async (event) => {
+  const msg = event.data;
+  if (msg?.type === "go-black") {
+    liveTrack = liveTrack || capture?.getVideoTracks()[0];
+    blackTrack = blackTrack || blackStream();
+    await swapTo(blackTrack);
+    out.textContent = "capture went black at " + new Date().toISOString();
+    return;
+  }
+  if (msg?.type === "go-live") { if (liveTrack) await swapTo(liveTrack); out.textContent = "capture restored"; return; }
+  if (msg?.type === "refuse") { refusing = true; out.textContent = "refusing offers (capture gone)"; return; }
+  if (msg?.type === "allow") { refusing = false; out.textContent = "answering offers again"; return; }
+  if (msg?.type !== "offer" || !capture || refusing) return;
+  const id = String(msg.id || "one");
+  peers.get(id)?.close();
+  const peer = new RTCPeerConnection();
+  peers.set(id, peer);
+  for (const track of capture.getTracks()) peer.addTrack(track, capture);
+  await peer.setRemoteDescription(msg.offer);
+  await peer.setLocalDescription(await peer.createAnswer());
+  if (peer.iceGatheringState !== "complete") {
+    await new Promise((resolve) => peer.addEventListener("icegatheringstatechange",
+      () => peer.iceGatheringState === "complete" && resolve()));
+  }
+  bus.postMessage({ type: "answer", id, answer: peer.localDescription.toJSON() });
+  out.textContent = "answered " + id + " at " + new Date().toISOString();
+});
+</script></body></html>

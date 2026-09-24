@@ -272,8 +272,12 @@ test("Station pins charts, each YouTube feed, and X to independently versioned s
     "the versioned Station shells may carry their isolated responsive controls without changing the legacy feed");
   assert.match(xShell, /function drawXFloat\(/, "X v2 has the iMac baseline renderer surface");
   assert.match(xShell, /function attachXFloatStream\(/);
-  assert.match(xShell, /const sy = Math\.max\(0, \(rect\.top \+ \(xfloatCrop\.fractionalScrollOffset \|\| 0\)\) \* scaleY\)/);
+  /* M29 moved this mapping into stationSourceRegion() so the draw and the
+     health sampler measure through the very same numbers. The fractional
+     scroll offset and the height clamp are unchanged. */
+  assert.match(xShell, /const sy = Math\.max\(0, \(rect\.top \+ \(crop\?\.fractionalScrollOffset \|\| 0\)\) \* scaleY\)/);
   assert.match(xShell, /const shAvailable = Math\.min\(video\.videoHeight - sy, rect\.height \* scaleY\)/);
+  assert.match(xShell, /function stationSourceRegion\(video, crop\)/);
   assert.doesNotMatch(xShell, /boundedViewerCropY/,
     "the isolated X shell deliberately excludes the unrequested crop-boundary behavior");
 });
