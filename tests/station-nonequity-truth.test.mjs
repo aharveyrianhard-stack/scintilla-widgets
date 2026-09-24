@@ -9,9 +9,12 @@ import vm from "node:vm";
 const source = fs.readFileSync(new URL("../_provider/provider.js", import.meta.url), "utf8");
 const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
 
-const owned = Array.from({ length: 364 }, (_, i) => `SYM${String(i).padStart(4, "0")}`);
-const universe = { provider:"MASSIVE", symbols:owned, count:364,
-  universe_sha256:"ab8f7965258d939f0a97fbfeac9a271547c258df7a2616aff6ccff746bb5d9d3" };
+/* M57: the synthetic universe is built from the client's own pins, so an admission moves this
+   fixture with it instead of leaving a test that passes against a universe nobody serves. */
+const EXPECTED = Number(/var EXPECTED_EQUITY_UNIVERSE = (\d+)/.exec(source)[1]);
+const DIGEST = /var ACCEPTED_UNIVERSE_SHA256 =\s*'([a-f0-9]{64})'/.exec(source)[1];
+const owned = Array.from({ length: EXPECTED }, (_, i) => `SYM${String(i).padStart(4, "0")}`);
+const universe = { provider:"MASSIVE", symbols:owned, count:EXPECTED, universe_sha256:DIGEST };
 const response = (body, code = 200) => Promise.resolve({ ok:code >= 200 && code < 300, status:code, json:async () => body });
 
 function load(tables) {
