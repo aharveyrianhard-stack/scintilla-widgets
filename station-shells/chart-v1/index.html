@@ -1793,7 +1793,12 @@ const PUTCALL_WAITING = Object.freeze({
   IBKR_GATEWAY_DOWN: "waiting for the Gateway \u00b7 IB Gateway is not running",
   IBKR_LINK_DOWN: "waiting for the Gateway \u00b7 the Gateway is running but IBKR's link to it is broken",
   IBKR_NOT_SUBSCRIBED: "waiting for the Gateway \u00b7 IBKR refused the option-volume lines (subscription)",
-  NO_MINUTE_YET: "waiting for the Gateway \u00b7 no minute of this session has been collected yet"
+  NO_MINUTE_YET: "waiting for the Gateway \u00b7 no minute of this session has been collected yet",
+  /* Two more silences the serving side can now report (M67). Without these the pane printed
+     "not being served yet" for both, which would send Alan to the wrong place: the series IS
+     being served in each case, and what stopped is the minute behind it. */
+  SCINTILLA_PUTCALL_MINUTES_BEHIND: "collected, but the minutes stopped arriving \u00b7 the aggregator is behind",
+  SCINTILLA_PUTCALL_READ_FAILED: "the minute store could not be read \u00b7 the reading is not lost, only unreachable"
 });
 function putCallWaitingText(reason) {
   const key = String(reason || "").toUpperCase().replace(/[^A-Z_]/g, "");
@@ -2429,12 +2434,37 @@ function chSeriesPrevClose(host) {
   }
   return null;
 }
+/* AN INTRADAY LINE ON ITS FIRST SESSION HAS NO PREVIOUS CLOSE, AND MUST NOT GO GREY (M67).
+   Scintilla's own put/call is minutes of one session; until a second session is stored there is
+   no previous day to measure against, so chSeriesPrevClose answers null and the trace fell to the
+   dim tone — a grey line, which is the one thing the wall does not do. The session's OWN FIRST
+   READING is a real baseline, not an invention: "where the ratio started today". The line then
+   says up or down since the open, which is the same question the parts block answers in words. */
+function chIntradaySessionOpenRef(host) {
+  const pts = host && host._series;
+  if (!Array.isArray(pts) || pts.length < 2) return null;
+  const etDay = (iso) => { try { return new Date(iso).toLocaleDateString("en-US", { timeZone:"America/New_York" }); } catch (e) { return null; } };
+  const last = etDay(pts[pts.length - 1].d);
+  if (!last) return null;
+  let first = null;
+  for (let i = pts.length - 1; i >= 0; i--) {
+    if (etDay(pts[i].d) !== last) break;
+    first = +pts[i].p;
+  }
+  return Number.isFinite(first) && first !== 0 ? first : null;
+}
 function chDayRef(host) {
   const t = host && host.dataset ? host.dataset.t : null;
   const v = prevClose[t];
   if (v != null && Number.isFinite(+v) && +v !== 0) return +v;
   const s = chSeriesPrevClose(host);
   if (s != null && t) prevClose[t] = s;   /* the badge and the live marker read the same baseline */
+  if (s == null) {
+    const pane = scPutCallPane(t);
+    /* Deliberately NOT cached: this is today's opening reading, not a close, and tomorrow it is
+       a different number. */
+    if (pane && pane.source === "IBKR_INTRADAY") return chIntradaySessionOpenRef(host);
+  }
   return s;
 }
 
