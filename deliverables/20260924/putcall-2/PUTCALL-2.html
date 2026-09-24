@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Put and call — two things, not one fraction</title>
+<style>
+  :root{
+    --ink:#d2d2d2; --ink-quiet:#9a9a9a; --ink-faint:#787878;
+    --bg:#121212; --panel:#1b1b1b; --panel-2:#212121; --line:#2c2c2c;
+    --up:#5e9c6a; --down:#a85f58;           /* direction only, as asked */
+    --bar-put:#8e8e8e; --bar-call:#5a5a5a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+       padding:28px 20px 80px}
+  .wrap{max-width:860px;margin:0 auto}
+  h1{font-size:25px;line-height:1.25;margin:0 0 6px;font-weight:600;letter-spacing:.2px}
+  h2{font-size:17px;margin:34px 0 10px;font-weight:600;letter-spacing:.2px}
+  h3{font-size:14px;margin:20px 0 6px;font-weight:600;color:var(--ink-quiet)}
+  p{margin:10px 0}
+  .lede{color:var(--ink-quiet);font-size:15px;margin:0 0 4px}
+  .stamp{font:11px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink-faint);
+         letter-spacing:.4px;text-transform:uppercase;margin:14px 0 0}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+         padding:16px 18px;margin:14px 0}
+  .panel--quiet{background:var(--panel-2)}
+  .lbl{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink-faint);
+       letter-spacing:.8px;text-transform:uppercase;margin:0 0 8px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+  .big{font-size:30px;font-weight:600;letter-spacing:.5px;font-family:ui-monospace,Menlo,monospace}
+  .up{color:var(--up)} .down{color:var(--down)}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px}
+  th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font:11px/1.5 ui-monospace,Menlo,monospace;color:var(--ink-faint);
+     letter-spacing:.7px;text-transform:uppercase;font-weight:500}
+  td.num{font-family:ui-monospace,Menlo,monospace;white-space:nowrap}
+  ul{margin:8px 0;padding-left:20px} li{margin:5px 0}
+  .bars{margin:12px 0 4px}
+  .bar-row{display:flex;align-items:center;gap:10px;margin:7px 0}
+  .bar-name{font:11px/1 ui-monospace,Menlo,monospace;color:var(--ink-faint);
+            width:46px;letter-spacing:.6px;text-transform:uppercase}
+  .bar-track{flex:1;height:16px;background:#191919;border:1px solid var(--line);border-radius:3px;overflow:hidden}
+  .bar-fill{height:100%;display:block}
+  .bar-val{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;width:88px;text-align:right;color:var(--ink-quiet)}
+  .reading{font-size:14px;color:var(--ink);margin-top:10px}
+  .flag{border-left:2px solid #3a3a3a;padding:2px 0 2px 14px;margin:12px 0;color:var(--ink-quiet);font-size:14px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media (max-width:640px){ .grid{grid-template-columns:1fr} body{padding:20px 16px 60px} .big{font-size:26px} }
+  code{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;color:var(--ink-quiet)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Put and call — two things, not one fraction</h1>
+  <p class="lede">What the put/call number is made of, what Scintilla can honestly measure of the
+  whole market, and the gap between index funds and single names.</p>
+  <p class="stamp">Scintilla · M50 · 24 September 2026 · written for Alan, not for an engineer</p>
+
+  <h2>1. The fraction, in plain words</h2>
+  <p>A put/call ratio is one number made of two. Put it this way and it stops being slippery:</p>
+  <div class="panel">
+    <p class="lbl">Say it once</p>
+    <p style="margin:0"><strong>A lower number means fewer puts per call.</strong></p>
+    <ul>
+      <li><span class="mono">0.50</span> — one put for every two calls.</li>
+      <li><span class="mono">1.00</span> — one put for every call.</li>
+      <li><span class="mono">1.20</span> — twelve puts for every ten calls.</li>
+    </ul>
+    <p style="margin-bottom:0">So yes: <em>lower means fewer puts.</em></p>
+  </div>
+
+  <p>You said the fractions are hard because several things can move them. That is exactly right,
+  and it is why a single number is a bad way to show this. <strong>0.81 can rise for two opposite
+  reasons:</strong> people bought puts, or people stopped buying calls. One is fear arriving. The
+  other is enthusiasm leaving. The number looks identical either way.</p>
+
+  <p>So every place a put/call appears now shows <strong>three things</strong>: how many puts
+  traded, how many calls traded, and the ratio beside them — plus one line saying which side
+  actually moved.</p>
+
+  <div class="panel">
+    <p class="lbl">What a pane looks like · single names, measured 24 Sep 02:36–02:40Z</p>
+    <p class="big">0.56</p>
+    <p class="mono" style="color:var(--ink-quiet);margin-top:-4px">about 6 puts for every ten calls</p>
+    <div class="bars">
+      <div class="bar-row">
+        <span class="bar-name">Puts</span>
+        <span class="bar-track"><span class="bar-fill" style="width:36%;background:var(--bar-put)"></span></span>
+        <span class="bar-val">1.26 M</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-name">Calls</span>
+        <span class="bar-track"><span class="bar-fill" style="width:64%;background:var(--bar-call)"></span></span>
+        <span class="bar-val">2.25 M</span>
+      </div>
+    </div>
+    <p class="reading">Since the open: <strong>puts up 40%, calls flat <span class="up">→ ratio rose</span></strong></p>
+    <p class="mono" style="color:var(--ink-faint);margin-bottom:0">300 of 364 names · oldest name 2 min old</p>
+  </div>
+  <p class="flag">The two amounts above are shaped as the pane will show them. The volumes are
+  illustrative; the ratios 0.56 / 0.81 / 1.11 are the real measured readings from your Gateway.
+  <strong>The pane itself is not built yet</strong> — see “What is not done”, at the end.</p>
+
+  <h3>Why “which side moved” is measured carefully</h3>
+  <p>The reader cannot watch 364 names at once — Interactive Brokers allows 101 live lines on your
+  account — so it rotates. That means the set of names it has just read is not always the same set
+  it read at the open. If a name with cheap puts drops out of the count, the group ratio jumps
+  <em>with nothing having been traded</em>. The movement line therefore compares only the names
+  read at <strong>both</strong> moments, and the pane is told when the roster changed. There is a
+  test that holds this in place.</p>
+
+  <h2>2. By ticker, by cohort, by sector</h2>
+  <p>The same three facts — puts, calls, ratio — are computed for every level:</p>
+  <table>
+    <tr><th>Level</th><th>Where the grouping comes from</th><th>Notes</th></tr>
+    <tr><td>Ticker</td><td>each name the reader reaches</td><td>with the age of its last reading</td></tr>
+    <tr><td>Cohort</td><td><code>ticker_cohorts</code></td><td>a name can sit in several cohorts</td></tr>
+    <tr><td>Sector</td><td><code>company_profile</code></td><td>a missing sector is shown as UNCLASSIFIED, never dropped</td></tr>
+    <tr><td>Index funds</td><td>SPY, QQQ, IWM, DIA</td><td>their own line — never inside a sector</td></tr>
+    <tr><td>Single names</td><td>everything else</td><td>the equity line</td></tr>
+  </table>
+  <p>Funds are kept out of sectors deliberately. SPY is filed under “Financial Services” in the
+  profile table, and letting it sit there would drop the whole market’s hedging volume into one
+  sector and make that sector look terrified.</p>
+  <p>Volumes are summed first and divided <strong>once</strong>. Averaging each name’s ratio would
+  let a tiny name with two puts and one call count as much as Apple.</p>
+
+  <h2>3. “The actual put/call ratio” — the market-wide estimate</h2>
+  <p>You were right that what we had was an <em>internal</em> ratio: the 364 names Scintilla
+  carries. Here is what it would take to speak about the whole market, and what it honestly costs.</p>
+
+  <h3>How long a sweep takes</h3>
+  <p>Measured on your own Gateway: <strong>363 names in 121 seconds</strong>, and the account
+  refused the 102nd simultaneous line. Everything below is arithmetic on that measurement.</p>
+  <table>
+    <tr><th>Names swept</th><th>Batches of 100</th><th>One full rotation</th><th>What it means</th></tr>
+    <tr><td class="num">364 (today)</td><td class="num">4</td><td class="num">1.9 min</td><td>oldest name about two minutes old</td></tr>
+    <tr><td class="num">500</td><td class="num">5</td><td class="num">2.6 min</td><td>still comfortably intraday</td></tr>
+    <tr><td class="num">1,000</td><td class="num">10</td><td class="num">5.2 min</td><td>a five-minute heartbeat, not a live tick</td></tr>
+  </table>
+  <p>The number that matters is not the total — it is that <strong>the oldest name in the reading
+  is one rotation old</strong>. Widening the sweep does not make the line late; it makes it broader
+  and slower, and the pane says which.</p>
+
+  <h3>Which names to widen to</h3>
+  <p>Two honest ways to pick the busiest optionable names, and the code says which one produced a
+  given list:</p>
+  <ul>
+    <li><strong>Our own totals.</strong> Rank by the option volume the reader itself recorded over
+    the last few sessions. No outside list needed, but it can only rank names we already watch.</li>
+    <li><strong>A free public list.</strong> OCC publishes total US option volume daily; Cboe
+    publishes its own. Either can seed a wider list, and both are free.</li>
+  </ul>
+
+  <h3>How much of the market that covers</h3>
+  <p>Coverage is measured in <strong>contracts traded, not in names</strong>, because a handful of
+  busy names carry most of the volume. Until a market total from OCC or Cboe is actually read in,
+  the coverage figure refuses to print — it says “no market total supplied” rather than flattering
+  itself with a percentage.</p>
+
+  <h3>What it gets called</h3>
+  <p>Until the evening comparison below has earned better, the line is called
+  <strong>“the market-wide estimate”</strong>. Not “the put/call ratio”.</p>
+
+  <h2>4. Checking it against Cboe, every evening</h2>
+  <p>Cboe publishes the official ratios once a day, after the close — the equity one (PCCE) and the
+  index one (PCCI). The Station already draws both back to 2006. Each evening the comparison stores
+  one row per line: our closing reading, Cboe’s print, the difference, and how many names ours was
+  measured on.</p>
+  <p>The two are <strong>not the same population</strong>: Cboe counts every option on its own
+  exchanges; we sum the names our reader reaches. A steady offset is expected and is the useful
+  part — if ours always sits, say, 0.88× Cboe’s, that is a working instrument. The page will print
+  a sentence like “over 20 sessions the equity estimate sat 0.88× Cboe’s print; 17 of 19 day-to-day
+  moves went the same way”. Two sessions is the minimum before anything is said at all; twenty
+  before it means much.</p>
+
+  <h3>The one thing that cannot be had: SPX</h3>
+  <p>Your Gateway returns <strong>no option volume for the SPX index</strong> (it returns open
+  interest, so the connection is fine — the volume simply is not published for the index itself).
+  Summing SPX option contracts directly is not possible on this account: one expiry is hundreds of
+  strikes and you have 101 lines. So, plainly:</p>
+  <ul>
+    <li><strong>There is no intraday SPX put/call from this Gateway.</strong></li>
+    <li>For SPX, the Station shows Cboe’s published PCSPX — one print per session.</li>
+    <li>The index line is built from the <em>funds</em> (SPY, QQQ, IWM). That is a real, useful
+    number, and it is labelled as the funds. It is never called SPX.</li>
+  </ul>
+
+  <h2>5. The gap you asked about</h2>
+  <p>Your question — what is the gap between all our names aggregated and the index funds — has a
+  measured answer for 24 Sep, 02:36–02:40Z:</p>
+  <div class="grid">
+    <div class="panel panel--quiet">
+      <p class="lbl">Index funds</p>
+      <p class="big">1.11</p>
+      <p class="mono" style="color:var(--ink-quiet);margin:0">SPY 1.17 · QQQ 1.12 · IWM 1.35 · SMH 1.34</p>
+    </div>
+    <div class="panel panel--quiet">
+      <p class="lbl">Single names</p>
+      <p class="big">0.56</p>
+      <p class="mono" style="color:var(--ink-quiet);margin:0">AMD 1.25 · AAPL 0.62 · NVDA 0.61 · META 0.47</p>
+    </div>
+  </div>
+  <div class="panel">
+    <p class="lbl">The gap</p>
+    <p class="big">0.55</p>
+    <p style="margin:0">Index funds carry <strong>0.55 more puts per call</strong> than single names.
+    Everything together reads 0.81, which is why the single number hides the story.</p>
+  </div>
+  <p><strong>What it means.</strong> Index funds are where portfolios buy protection — a fund
+  manager hedges the whole book with SPY puts. Single names are where traders reach for upside —
+  calls on Nvidia, calls on AMD. A wide gap means the market is <em>hedged underneath while
+  speculating on top</em>.</p>
+  <p class="flag"><strong>It is not yet called wide.</strong> One reading cannot say what usual is.
+  The gap is stored once per session, and nothing will be called unusual until there are
+  <strong>20 stored sessions</strong> — about a trading month — with 60 sessions, a quarter, before
+  the shape is settled. Until then the page says how many days are still needed, rather than
+  guessing.</p>
+
+  <h2>6. What is waiting on the token</h2>
+  <p>Nothing is being stored yet. The reader writes every reading to a file on your MacBook, and
+  that file is the durable record. To get those readings into the database, one thing is needed:</p>
+  <ul>
+    <li>A <strong>write-only ingest token</strong> — a random string. It goes in the Mac’s Keychain
+    and in Supabase’s own settings. Holding it lets the reader <em>append put/call readings and
+    nothing else</em>: it cannot read, cannot delete, and cannot touch a price table.</li>
+    <li>The door it knocks on is a small function called <code>ibkr-ingest</code>, written but not
+    deployed. The database key stays inside Supabase. <strong>No key is ever copied onto your
+    Mac.</strong></li>
+    <li>Until the token exists the reader keeps spooling to disk. When it is switched on, the
+    spooled sessions can be sent up and nothing collected in the meantime is lost.</li>
+  </ul>
+  <p>Two new database tables hold the minute readings and the daily lines. They only add; nothing
+  existing is changed, renamed or deleted, and a rollback is written for both.</p>
+
+  <h2>7. Where each number comes from</h2>
+  <table>
+    <tr><th>Number</th><th>Source</th></tr>
+    <tr><td>Puts traded, calls traded</td><td>Your own IB Gateway, per underlying (IBKR publishes no ratio — it publishes the two volumes)</td></tr>
+    <tr><td>The ratio</td><td>Ours: put volume ÷ call volume, summed first, divided once</td></tr>
+    <tr><td>Cohorts</td><td><code>ticker_cohorts</code></td></tr>
+    <tr><td>Sectors</td><td><code>company_profile</code></td></tr>
+    <tr><td>Official daily ratios</td><td>Cboe, via the chart API (PCC, PCCE, PCCI, PCSPX), back to 2006</td></tr>
+    <tr><td>Rotation times</td><td>Measured on your account, 24 Sep 02:36–02:40Z: 363 names in 121 s, 101 lines</td></tr>
+  </table>
+
+  <h2>8. What could be wrong</h2>
+  <ul>
+    <li><strong>The volumes are running totals for the day.</strong> They only rise and they reset
+    each morning. If anything ever reads a reset as a fall, the number would be nonsense — so a
+    fall inside one session is refused and flagged rather than stored.</li>
+    <li><strong>Coverage moves.</strong> A reading over 300 of 364 names is a different fact from
+    one over 364. Every line carries both numbers; if a pane ever shows a ratio without them, do
+    not trust it.</li>
+    <li><strong>Our line is not Cboe’s line.</strong> Different population, so expect an offset.
+    That is why it is called an estimate until measured.</li>
+    <li><strong>The reader only runs while this MacBook is awake.</strong> That is the honest limit
+    of collecting market data on a laptop.</li>
+    <li><strong>The test data is synthetic.</strong> The maths is proven against hand-made readings
+    shaped like IBKR’s, not against a recorded live session — the Gateway’s link was down when the
+    fixtures were made.</li>
+  </ul>
+
+  <h2>9. What is not done</h2>
+  <ul>
+    <li><strong>The pane is not built.</strong> The Station chart receives only the finished ratio
+    from the chart API; it never receives the two volumes. Showing puts and calls as two bars needs
+    the chart API to serve them alongside the ratio. The exact shape it must serve — puts, calls,
+    ratio, how many names were measured, of how many, and the age of the oldest — is specified, and
+    all the arithmetic behind it is written and tested. <strong>Nothing was written into the pane
+    blind</strong>, because an unrendered pane is how blank boxes ship.</li>
+    <li><strong>Nothing was stored, deployed or started.</strong> No database write, no function
+    deployed, no schedule installed.</li>
+    <li><strong>No live sweep was run tonight.</strong> The market was closed; the numbers quoted
+    here are the coordinator’s measured readings from 02:36–02:40Z.</li>
+    <li><strong>No screenshots.</strong> The tooling in this session could not launch a browser.</li>
+  </ul>
+
+  <p class="stamp">Nothing here was deployed. Nothing on Alan’s screen was touched.</p>
+</div>
+</body>
+</html>
