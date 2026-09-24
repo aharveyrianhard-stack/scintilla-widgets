@@ -19,8 +19,8 @@ const ORIGIN = `http://127.0.0.1:${srv.address().port}`;
 const PAGE = ORIGIN + "/deliverables/20260924/station-calm/lens/LENS-LIVE.html";
 const browser = await playwright.chromium.launch({ headless: true });
 const seen = [];
-for (const width of [1680, 2560]) {
-  const ctx = await browser.newContext({ viewport: { width, height: 1000 } });
+for (const width of [1680, 2560, 390]) {
+  const ctx = await browser.newContext({ viewport: { width, height: width === 390 ? 780 : 1000 } });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log("PAGE ERROR:", e.message));
   await page.goto(PAGE, { waitUntil: "networkidle" });
