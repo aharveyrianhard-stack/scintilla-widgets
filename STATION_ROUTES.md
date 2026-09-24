@@ -140,7 +140,6 @@ exactly how `/analytics` once ran without its provider boundary. Regenerated and
 | Path | Loaded by |
 | --- | --- |
 | `/_indicators/station-clouds.js` | `/chart` + its shell mirror, by script tag — the cloud ribbon's arithmetic and geometry, ported from the Indicator Lab's approved Cloud Workshop. Pure functions: it reads no data and draws nothing, so a chart that fails to load it simply has no ribbon |
-| `/_indicators/station-lens.js` | `/chart` + its shell mirror, by script tag — the Context Lens rule: what the second view shows (the opposite zoom of the same live bars) and where it sits (never over the price line or its newest fifth). Pure functions: no fetch, no DOM, no timer, so a chart that fails to load it simply has no lens |
 | `/_provider/provider.js` | 20 pages by script tag — the explicit provider-native client; equity reads call named quote, candle, Geiger, and indicator products through it. (`/health` mentions it in prose but fetches the provider directly.) |
 | `/_cohorts/cohort-axis.js` | 10 pages by script tag — the shared paged cohort-membership reader |
 | `/_vendor/supabase-js-2.112.3-umd.min.js` | `/deck`, `/chart` + its shell mirror, by script tag with a sha384 integrity attribute — the realtime SDK, VENDORED same-origin from the npm registry's own sha512-verified tarball (the old floating-@2 jsdelivr tag is gone) |

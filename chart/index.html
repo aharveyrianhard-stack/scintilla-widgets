@@ -233,9 +233,6 @@ body.tvmodal-open{ overflow:hidden; }
 <!-- The cloud ribbon's arithmetic and geometry, ported from the Indicator Lab's
      approved Cloud Workshop. Pure functions: it reads no data and draws nothing. -->
 <script src="/_indicators/station-clouds.js"></script>
-<!-- The Context Lens: WHAT the second view shows (M51) and WHERE it sits (M47).
-     Pure functions like the ribbon above - no fetch, no DOM, no timer, no storage. -->
-<script src="/_indicators/station-lens.js"></script>
 <script>
 /* ONE SOURCE (2026-09-22). This page holds no Supabase client, no anon key and no realtime
    channel. Every price, candle and previous close comes from the chart API through SC_PROVIDER;
@@ -339,18 +336,6 @@ const CLOUD_EXTRAS = Object.freeze({ ema8: QS.get("ema8") === "1", sma100: QS.ge
    and the caption on the pane switches it for this browser. Neither changes a single value. */
 const CLOUD_STEPS_KEY = "station.clouds.steps";
 let CLOUD_STEPS = QS.has("steps") ? QS.get("steps") === "1" : lsGet(CLOUD_STEPS_KEY) === "1";
-/* THE CONTEXT LENS - a second, small view of the SAME live bars at the OPPOSITE zoom,
-   inside this same pane. Alan, 23 Sep: "It's just a view of the current bars with the
-   opposite view, and another view of the one that we're in on the charts and what it is."
-   ON by default; ?lens=0 turns it off for a deep link or a screenshot.
-   REMEMBERED PER PANE, not for the whole wall. One shared "station.lens" key is exactly
-   the bug the BARE note above describes - two same-origin frames writing over each
-   other's state - so the key carries the pane's own identity: its ?pane=, else its ?t=,
-   else the standalone page. A pane inside the deck writes nothing at all (lsSet is a
-   no-op in BARE mode), so the deck passes the state in the URL the way it passes clouds. */
-const LENS_PANE = (QS.get("pane") || QS.get("t") || "solo").toUpperCase().trim();
-const LENS_KEY = "station.lens." + LENS_PANE;
-let LENS_ON = QS.has("lens") ? QS.get("lens") !== "0" : lsGet(LENS_KEY) !== "0";
 const S = {
   chartT: (QS.get("t") || (BARE ? null : lsGet("scw_chartT")) || "MU").toUpperCase().trim(),
   /* The Station owns one run-wide range. A reload begins at 3h unless its
@@ -813,19 +798,6 @@ function setClouds(on) {
     scChartDraw(host);
   }
 }
-function setLens(on) {
-  const next = !!on;
-  if (next === LENS_ON) return;
-  LENS_ON = next;
-  if (!BARE) { try { localStorage.setItem(LENS_KEY, LENS_ON ? "1" : "0"); } catch (_) {} }
-  for (const button of document.querySelectorAll('[data-act="lens"]')) {
-    button.classList.toggle("on", LENS_ON);
-    button.setAttribute("aria-pressed", LENS_ON ? "true" : "false");
-  }
-  /* Redraw the panes already mounted. Nothing is fetched and nothing is remounted:
-     the lens reads the bars this pane already holds. */
-  for (const host of CHART_HOSTS) if (host.isConnected) { host._lensPlace = null; scChartDraw(host); }
-}
 function setCloudSteps(stepped) {
   const next = !!stepped;
   if (next === CLOUD_STEPS) return;
@@ -999,108 +971,6 @@ function paintCloudCaption(host, options) {
   cap.hidden = false;
 }
 
-/* ---- THE CONTEXT LENS, drawn by this pane on its own canvas -----------------
-   A second, much smaller view of the SAME bars this pane already holds, at the
-   OPPOSITE zoom: the chart zoomed out gives a lens zoomed in on the last 30 bars, the
-   chart zoomed in gives a lens pulled back to six times the window. Both views always
-   end on the same bar.
-
-   WHY IT COSTS ALMOST NOTHING, and why it cannot flash under Alan's hand:
-     · it runs INSIDE scChartDraw, so it paints exactly when the chart paints and never
-       on a clock of its own - no timer, no observer, no second animation frame;
-     · it makes NO request: the bars are pts, already in memory for the main line;
-     · it reads NO geometry: the box comes from host._plot, the numbers this draw just
-       recorded. The pane's two layout reads (clientWidth/clientHeight) stay two;
-     · it is not a second chart library and not a DOM node - it is a path on this canvas.
-
-   WHERE IT SITS is the M47 rule in /_indicators/station-lens.js: never over the price
-   line, never over the newest fifth of it, the side away from where price is heading,
-   and it holds its corner while it is being read or when a new corner is not
-   meaningfully better - so it does not hop from corner to corner while the chart pans. */
-/* ---- THE CONTEXT LENS, drawn by this pane on its own canvas -----------------
-   A second, much smaller view of the SAME bars this pane already holds, at the
-   OPPOSITE zoom: the chart zoomed out gives a lens zoomed in on the last 30 bars, the
-   chart zoomed in gives a lens pulled back to six times the window. Both views always
-   end on the same bar.
-
-   WHERE IT SITS, and why it is a band rather than a box in a corner. M47's inset rule
-   refuses any corner the price line crosses - and measured on this pane, a zoomed-out
-   chart leaves NO clear corner, because the price scale fits the visible high and low
-   to the pane and the line sweeps its whole height. The lens would vanish in the view
-   Alan uses most. So it gets its own reserved band instead: scChartDraw takes that band
-   out of the pane BEFORE it scales the price, the main chart is drawn shorter by exactly
-   that much, and the two can never overlap. Nothing hops while the chart pans.
-
-   WHY IT COSTS ALMOST NOTHING, and why it cannot flash under Alan's hand:
-     · it runs INSIDE scChartDraw, so it paints exactly when the chart paints and never
-       on a clock of its own - no timer, no observer, no second animation frame;
-     · it makes NO request: the bars are pts, already in memory for the main line;
-     · it reads NO geometry: the band comes from the pane size this draw already read.
-       The pane's two layout reads stay two;
-     · it is not a second chart library and not a DOM node - it is a path on this canvas. */
-function drawLens(ctx, host, o) {
-  const L = window.SC_LENS;
-  if (!LENS_ON || !L || !o.band) { host._lens = null; return; }
-  const pts = o.pts, plot = o.plot;
-  const v = L.lensView({ total:pts.length, start:plot.start, end:plot.end });
-  if (v.mode === "none") { host._lens = null; return; }
-  /* Measure the words this band will actually carry before deciding how much room the
-     little chart gets. Measuring text on the canvas is not a layout read - it touches no
-     element - so this stays at zero geometry reads. */
-  const labelFont = plot.iw >= 520 ? 10 : 8.5, spanFont = Math.max(7, labelFont - 1.5);
-  const span = L.lensSpan(v, (i) => (pts[i] ? chHoverTime(chEtIso(pts[i].d, o.range), o.range) : ""));
-  ctx.save();
-  ctx.font = labelFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-  const labelTextW = ctx.measureText(v.label).width;
-  ctx.font = spanFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-  const spanTextW = span ? ctx.measureText(span).width : 0;
-  ctx.restore();
-  const box = L.stripLayout({ padL:plot.padL, padT:plot.padT, iw:plot.iw, ih:plot.ih, band:o.band,
-    labelW: Math.ceil(Math.max(labelTextW, spanTextW)) + 12 });
-
-  let lo = Infinity, hi = -Infinity;
-  for (let i = v.start; i <= v.end; i++) { const q = pts[i]; if (!q) continue;
-    if (q.p < lo) lo = q.p; if (q.p > hi) hi = q.p; }
-  if (!isFinite(lo) || !isFinite(hi)) { host._lens = null; return; }
-  if (hi === lo) { hi += 1; lo -= 1; }
-  const vPad = (hi - lo) * .08; lo -= vPad; hi += vPad;
-  const LX = (i) => box.line.x + ((i - v.start) / Math.max(1, v.end - v.start)) * box.line.w;
-  const LY = (p) => box.line.y + (1 - (p - lo) / (hi - lo)) * box.line.h;
-
-  ctx.save();
-  /* Alan's standing rule - no grey lines. The band's rule, its words and its price line
-     all take the SAME day-change colour as the main line, so the second view can never
-     disagree with the first about the day. */
-  ctx.strokeStyle = o.c; ctx.lineWidth = .6; ctx.globalAlpha = .22;
-  ctx.beginPath();
-  ctx.moveTo(box.frame.x, Math.round(box.frame.y) + .5);
-  ctx.lineTo(box.frame.x + box.frame.w, Math.round(box.frame.y) + .5);
-  ctx.stroke();
-  ctx.fillStyle = o.c; ctx.globalAlpha = .93; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
-  ctx.font = labelFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-  /* A pane too narrow for the words keeps the little chart and drops the text, rather
-     than printing one on top of the other. */
-  if (labelTextW <= box.labelW) ctx.fillText(v.label, box.label.x, box.label.y);
-  if (span && box.frame.h >= 26 && spanTextW <= box.labelW) {
-    ctx.globalAlpha = .62;
-    ctx.font = spanFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-    ctx.fillText(span, box.span.x, box.span.y);
-  }
-  ctx.globalAlpha = 1;
-  ctx.beginPath();
-  ctx.moveTo(LX(v.start), LY(pts[v.start].p));
-  for (let i = v.start + 1; i <= v.end; i++) ctx.lineTo(LX(i), LY(pts[i].p));
-  ctx.strokeStyle = o.c; ctx.lineWidth = 1.4; ctx.lineJoin = "round"; ctx.lineCap = "round";
-  ctx.stroke();
-  ctx.beginPath(); ctx.arc(LX(v.end), LY(pts[v.end].p), 1.9, 0, Math.PI * 2);
-  ctx.fillStyle = o.c; ctx.fill();
-  ctx.restore();
-  /* what the pane is showing, kept on the host so a proof can read it without pixels */
-  host._lens = { mode:v.mode, bars:v.bars, start:v.start, end:v.end, of:v.of,
-    mainBars:v.mainBars, label:v.label, span, why:v.why, band:o.band,
-    rect:{ x:box.frame.x, y:box.frame.y, w:box.frame.w, h:box.frame.h },
-    line:{ x:box.line.x, y:box.line.y, w:box.line.w, h:box.line.h } };
-}
 /* ---- scChart — ported verbatim (R20 touch-guard overlay dropped; see header) ---- */
 function scChartHTML(ticker) {
   const sym = TV_MAP[ticker] || ticker;
@@ -1113,9 +983,6 @@ function scChartHTML(ticker) {
       '<button type="button" class="sc-crange sc-cclouds' + (CLOUDS_ON ? " on" : "") +
       '" data-act="clouds" aria-pressed="' + (CLOUDS_ON ? "true" : "false") +
       '" title="daily-locked cloud ribbon — 13D/21D EMA, 50D/200D SMA" aria-label="Toggle chart clouds">clouds</button>' +
-      '<button type="button" class="sc-crange sc-clens' + (LENS_ON ? " on" : "") +
-      '" data-act="lens" aria-pressed="' + (LENS_ON ? "true" : "false") +
-      '" title="Context Lens - the same live bars at the opposite zoom, inside this pane" aria-label="Toggle the Context Lens">lens</button>' +
       '<button type="button" class="sc-tv__pop" data-act="tvmodal" data-sym="' + esc(sym) +
       '" title="Open ' + esc(ticker) + ' in TradingView with your indicator stack" aria-label="Open in TradingView">' +
       POPOUT_SVG + "<span class=\"sc-tv__pop-lbl\"> TradingView</span></button>" +
@@ -1503,12 +1370,7 @@ function scChartDraw(host, scrub) {
        gutter. That lets the top-left readout stay a clean ticker/change cue
        instead of forcing the user to scan it for price. */
     padR = ipadProfile ? (h < 130 ? 34 : 39) * scale : (h < 130 ? 36 : 42), padL = 6 * scale;
-  /* THE LENS TAKES ITS OWN BAND out of the pane before the price is scaled, so the two
-     views can never overlap: the price line is never drawn under the lens, and the lens
-     never has to dodge it. A pane too small to give any height away gets no band at all
-     and is drawn exactly as it was before the lens existed. */
-  const lensBand = window.SC_LENS ? window.SC_LENS.stripBand(w, h, LENS_ON) : 0;
-  const iw = w - padL - padR, ih = h - padT - padB - lensBand;
+  const iw = w - padL - padR, ih = h - padT - padB;
   if (iw < 10 || ih < 10) return;
   const view = chartView(host, pts), start = view.start, end = view.end;
   let lo = Infinity, hi = -Infinity;
@@ -1665,9 +1527,6 @@ function scChartDraw(host, scrub) {
       }
     }
   }
-  /* The lens goes on last of the chart's own layers, so it is never drawn over by the
-     price line it just dodged; the hover crosshair below still paints on top of it. */
-  drawLens(ctx, host, { pts, plot:host._plot, c, band:lensBand, range:host._range || S.chartRange });
   if (scrub && pts[scrub.ix]) {
     const sx = Math.max(padL, Math.min(padL + iw, scrub.x));
     const sy = Math.max(padT, Math.min(padT + ih, scrub.y));
@@ -2304,12 +2163,7 @@ function scChartScrub(host) {
        with, instead of stretching the visible span across the margin too. */
     const ix = Math.max(plot.start, Math.min(plot.end,
       Math.round(plot.start + f * (plot.end - plot.start + (plot.rightBars || 0)))));
-    /* Is the pointer on the lens? Then it is being read, and the placement rule pins
-       it where it is. Measured from the rect this handler already read - no new one. */
-    const px = clientX - r.left, py = clientY - r.top, lensBox = host._lens && host._lens.rect;
-    host._lensReading = !!(lensBox && px >= lensBox.x && px <= lensBox.x + lensBox.w &&
-      py >= lensBox.y && py <= lensBox.y + lensBox.h);
-    scChartDraw(host, { ix, x:px, y:py });
+    scChartDraw(host, { ix, x:clientX - r.left, y:clientY - r.top });
   };
   const hideScrub = () => { if (host._series) scChartDraw(host); };
   const snapshot = () => {
@@ -2682,7 +2536,6 @@ document.addEventListener("click", (e) => {
     if (host) holdAndReload(host, S.chartRange);
   }
   else if (act === "clouds") setClouds(!CLOUDS_ON);
-  else if (act === "lens") setLens(!LENS_ON);
   else if (act === "cloudsteps") setCloudSteps(!CLOUD_STEPS);
   else if (act === "tvmodal") openTvModal(n.dataset.sym);
   else if (act === "tvmodalclose") closeTvModal();
