@@ -395,6 +395,20 @@ function stationCaptureFit(videoWidth, videoHeight, viewportWidth, viewportHeigh
   };
 }
 
+/* 24 Sep, measured: both Brave Stations reported "crop missed the picture" with a
+   correct column rect and viewport. With those numbers the only way this mapping
+   fails is a scroll offset above ~586 px - and the offset is meant to be the
+   fraction of a pixel the slow scroll has not yet applied, plus at most the few
+   pixels of motion while one integer move settles. The running bridge had let it
+   run away, so the crop slid off the bottom of the picture and the pane fell back
+   to the whole X window ("zoomed out"). An offset outside that band is not a
+   phase, so it is ignored and the crop sits on the column's real position. */
+const STATION_SCROLL_OFFSET_MAX_PX = 4;
+function stationScrollOffset(crop) {
+  const offset = Number(crop?.fractionalScrollOffset) || 0;
+  return offset >= 0 && offset <= STATION_SCROLL_OFFSET_MAX_PX ? offset : 0;
+}
+
 function stationSourceRegion(video, crop) {
   const frameW = Math.max(1, Number(video?.videoWidth) || 1);
   const frameH = Math.max(1, Number(video?.videoHeight) || 1);
@@ -411,7 +425,7 @@ function stationSourceRegion(video, crop) {
      one thing this mapping must never do. */
   const sx = Math.min(contentRight, fit.offsetX + Math.max(0, rect.left) * fit.scale);
   const sy = Math.min(contentBottom,
-    fit.offsetY + Math.max(0, rect.top + (crop?.fractionalScrollOffset || 0)) * fit.scale);
+    fit.offsetY + Math.max(0, rect.top + stationScrollOffset(crop)) * fit.scale);
   const sw = Math.min(contentRight - sx, Math.max(0, rect.width) * fit.scale);
   const shAvailable = Math.min(contentBottom - sy, Math.max(0, rect.height) * fit.scale);
   return { sx, sy, sw, shAvailable, usable: sw > 1 && shAvailable > 1, sourceCropped:false, fit };
@@ -725,6 +739,7 @@ function stationHealthRow() {
     viewport_w: r1(crop?.viewport?.width), viewport_h: r1(crop?.viewport?.height),
     crop_left: r1(crop?.rect?.left), crop_top: r1(crop?.rect?.top),
     crop_w: r1(crop?.rect?.width), crop_h: r1(crop?.rect?.height),
+    scroll_offset: r1(crop?.fractionalScrollOffset),
     source_cropped: !!crop?.sourceCropped, has_crop: !!crop,
     fit_scale: region && region.fit ? Math.round(region.fit.scale * 10000) / 10000 : null,
     bar_x: region && region.fit ? region.fit.barX : null, bar_y: region && region.fit ? region.fit.barY : null,

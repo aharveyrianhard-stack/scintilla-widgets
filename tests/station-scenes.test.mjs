@@ -280,7 +280,7 @@ test("Station pins charts, each YouTube feed, and X to independently versioned s
      health sampler measure through the very same numbers. M43 (24 Sep) made it
      letterbox-aware: one scale for both axes plus the black-bar offsets, clamped
      inside the picture. The fractional scroll offset and the height clamp stay. */
-  assert.match(xShell, /fit\.offsetY \+ Math\.max\(0, rect\.top \+ \(crop\?\.fractionalScrollOffset \|\| 0\)\) \* fit\.scale\)/);
+  assert.match(xShell, /fit\.offsetY \+ Math\.max\(0, rect\.top \+ stationScrollOffset\(crop\)\) \* fit\.scale\)/);
   assert.match(xShell, /const shAvailable = Math\.min\(contentBottom - sy, Math\.max\(0, rect\.height\) \* fit\.scale\)/);
   assert.match(xShell, /function stationCaptureFit\(videoWidth, videoHeight, viewportWidth, viewportHeight\)/);
   assert.match(xShell, /function stationSourceRegion\(video, crop\)/);
