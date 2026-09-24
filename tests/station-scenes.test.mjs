@@ -273,10 +273,12 @@ test("Station pins charts, each YouTube feed, and X to independently versioned s
   assert.match(xShell, /function drawXFloat\(/, "X v2 has the iMac baseline renderer surface");
   assert.match(xShell, /function attachXFloatStream\(/);
   /* M29 moved this mapping into stationSourceRegion() so the draw and the
-     health sampler measure through the very same numbers. The fractional
-     scroll offset and the height clamp are unchanged. */
-  assert.match(xShell, /const sy = Math\.max\(0, \(rect\.top \+ \(crop\?\.fractionalScrollOffset \|\| 0\)\) \* scaleY\)/);
-  assert.match(xShell, /const shAvailable = Math\.min\(video\.videoHeight - sy, rect\.height \* scaleY\)/);
+     health sampler measure through the very same numbers. M43 (24 Sep) made it
+     letterbox-aware: one scale for both axes plus the black-bar offsets, clamped
+     inside the picture. The fractional scroll offset and the height clamp stay. */
+  assert.match(xShell, /fit\.offsetY \+ Math\.max\(0, rect\.top \+ \(crop\?\.fractionalScrollOffset \|\| 0\)\) \* fit\.scale\)/);
+  assert.match(xShell, /const shAvailable = Math\.min\(contentBottom - sy, Math\.max\(0, rect\.height\) \* fit\.scale\)/);
+  assert.match(xShell, /function stationCaptureFit\(videoWidth, videoHeight, viewportWidth, viewportHeight\)/);
   assert.match(xShell, /function stationSourceRegion\(video, crop\)/);
   assert.doesNotMatch(xShell, /boundedViewerCropY/,
     "the isolated X shell deliberately excludes the unrequested crop-boundary behavior");

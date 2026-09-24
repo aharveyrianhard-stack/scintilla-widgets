@@ -136,7 +136,8 @@ test("a crop that misses the frame shows the whole frame instead of black", () =
 
 /* The half of the fix a person actually sees. */
 test("a fault sentence outranks the 'live' the crop handler writes ten times a second", () => {
-  assert.match(source, /if \(!stationFault\) showStationState\(paused \? "paused" : "live", "on"\);/);
+  /* M43 (24 Sep): the whole-window last resort also owns the line while it stands. */
+  assert.match(source, /if \(!stationFault && !stationWholeFrameWhy\) showStationState\(paused \? "paused" : "live", "on"\);/);
   assert.match(source, /stationFault = plan\.state;\n\s*showStationState\(plan\.state, "warn"\);/);
   assert.match(source, /if \(stationFault\) \{ stationFault = ""; showStationState\(xfloatStream \? "live" : "waiting"/,
     "and it is released the moment the fault clears");
