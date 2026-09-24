@@ -105,7 +105,7 @@ code{background:var(--panel2);border:1px solid var(--line);border-radius:3px;pad
       <select id="k-size"><option value="L">Large</option><option value="M">Medium</option><option value="S">Small</option></select>
       <span class="rec">recommended <b>Medium</b></span></div>
     <div class="knob"><label for="k-prefer">Corner preference</label>
-      <select id="k-prefer"><option value="tr">Top right</option><option value="tl">Top left</option>
+      <select id="k-prefer"><option value="auto">Auto · follow the trend</option><option value="tr">Top right</option><option value="tl">Top left</option>
         <option value="br">Bottom right</option><option value="bl">Bottom left</option>
         <option value="tc">Top centre</option><option value="bc">Bottom centre</option></select>
       <span class="rec">recommended <b>Top right</b></span></div>
@@ -288,9 +288,9 @@ code{background:var(--panel2);border:1px solid var(--line);border-radius:3px;pad
 </div>
 
 <script type="module">
-import { choose, DEFAULTS, CORNERS } from "./lens-placement.mjs";
+import { choose, placeStable, SHAPES, SHIPPED_SHAPE, DEFAULTS, CORNERS } from "./lens-placement.mjs";
 
-const KNOBS = { ...DEFAULTS, detailBars: 24, candidates: true };
+const KNOBS = { ...DEFAULTS, prefer: "auto", detailBars: 24, candidates: true };
 const CORNER_NAME = { tl:"top left", tc:"top centre", tr:"top right",
                       bl:"bottom left", bc:"bottom centre", br:"bottom right" };
 const STAGE_CSS = `
@@ -415,8 +415,19 @@ function paint(card) {
       }
     : null;
 
-  const res = choose({ plot, series: pts, ink, size: KNOBS.size, prefer: KNOBS.prefer,
-                       margin: KNOBS.margin, maxInk: KNOBS.maxInk, edge: DEFAULTS.edge });
+  /* M47: the trend decides the side, the newest fifth of the line is protected, and the
+     lens holds still while it is being read. "auto" lets the chart choose; any other
+     value is the reader overriding it by hand. */
+  const res = placeStable({ plot, series: pts, ink, size: KNOBS.size,
+                       prefer: KNOBS.prefer === "auto" ? null : KNOBS.prefer,
+                       margin: KNOBS.margin, maxInk: KNOBS.maxInk, edge: DEFAULTS.edge,
+                       prev: card.lensPrev || null, reading: !!card.lensReading });
+  /* the stage is rebuilt from scratch on every draw, so the previous placement is kept on
+     the CARD, which survives - otherwise "do not jump" would have nothing to not jump from */
+  card.lensPrev = res;
+  try { (window.__lensState = window.__lensState || {})[def.symbol + " " + (def.label || "")] =
+    { trend: res.trend && res.trend.dir, corner: res.spot && res.spot.corner, kind: res.kind,
+      moved: res.moved, held: res.held, why: res.why, shape: SHIPPED_SHAPE }; } catch (_) {}
 
   /* The corners it did not take. When the answer is the shelf the chart is about to get
      shorter, so boxes measured against the taller pane would be drawn in the wrong place:
@@ -431,6 +442,7 @@ function paint(card) {
       box.textContent = r.w < 130 ? r.corner.toUpperCase()
         : r.clear ? `${r.corner.toUpperCase()} · ${(r.ink * 100).toFixed(0)}% drawn on`
         : r.refused === "too busy" ? `${r.corner.toUpperCase()} · too busy, ${(r.ink * 100).toFixed(0)}% drawn on`
+        : r.refused === "would cover the newest prices" ? `${r.corner.toUpperCase()} · covers the newest prices`
         : `${r.corner.toUpperCase()} · covers price`;
       area.appendChild(box);
     }
@@ -438,6 +450,12 @@ function paint(card) {
 
   const lens = doc.createElement("div");
   lens.className = "cl2-lens";
+  /* the shipped shape: a card with the corner nearest the price line cut away, so the
+     cut points at what the lens is dodging. The capsule is drawn on the shape panel. */
+  if (res.spot) lens.style.cssText = SHAPES[SHIPPED_SHAPE].css(res.spot, res.spot.corner) + ";";
+  /* being read pins it: the pointer is on it, so the next bar does not move it */
+  lens.addEventListener("pointerenter", () => { card.lensReading = true; });
+  lens.addEventListener("pointerleave", () => { card.lensReading = false; });
   lens.style.opacity = String(KNOBS.opacity);
   const detail = KNOBS.view === "detail";
   const label = detail ? `DETAIL · LAST ${KNOBS.detailBars}` : "CONTEXT · FULL HISTORY";
@@ -543,7 +561,7 @@ document.getElementById("k-cand").addEventListener("click", (e) => {
   cards.forEach(paint);
 });
 document.getElementById("k-reset").addEventListener("click", () => {
-  Object.assign(KNOBS, DEFAULTS, { detailBars: 24, candidates: true });
+  Object.assign(KNOBS, DEFAULTS, { prefer: "auto", detailBars: 24, candidates: true });
   syncKnobs();
   document.getElementById("k-size").value = KNOBS.size;
   document.getElementById("k-prefer").value = KNOBS.prefer;

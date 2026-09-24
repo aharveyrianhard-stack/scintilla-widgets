@@ -35,7 +35,11 @@ test('the dock loses no control, no id and no accessible name', () => {
      was added or lost. */
   for (const id of ['pagePrev', 'pageNext', 'pageJumpBtn', 'edgePrev', 'edgeNext'])
     assert.ok(after.has(id), `${id} is one of the five deliberate new page controls`)
-  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 7)
+  /* 24 Sep (M47): one more deliberate control - charts only, which hides the video and X
+     panes and gives the whole wall to the charts. Named here for the same reason as the
+     five above: the count may only move when someone writes down why. */
+  assert.ok(after.has('chartsOnlyBtn'), 'charts only is the deliberate new wall control')
+  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 8)
 })
 
 test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {

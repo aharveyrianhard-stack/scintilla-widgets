@@ -397,6 +397,30 @@ body.solo #rowTop > .pane.expanded{ grid-column:1 / -1; }
    NOTHING IS LOST. The hidden pane keeps its entry in PANES, its chip, its media-stage
    behaviour and its own state; the switch in the dock brings it straight back. */
 #rowBot > .pane.video-off{ display:none; }
+
+/* ── CHARTS ONLY ────────────────────────────────────────────────────────────────────────────
+   Alan: "The Station, like I said, I need a way to hide the YouTube and the Twitter to view
+   the charts bigger."
+
+   HIDDEN, NOT UNLOADED. `display:none` on the media row would pull the X pane's iframe out of
+   the render tree, and with it the live capture that pane exists to keep running - the same
+   pane the M29 work spent a night making reliable. So the row keeps its box, its size and its
+   place in the document: it is taken out of the FLOW (absolute, so the chart row can have the
+   whole wall) and drawn at zero opacity behind it. Nothing is destroyed, nothing reloads, and
+   bringing it back is one class away.
+   The row keeps a real height for the same reason: a pane resized to nothing is a pane whose
+   shell re-lays-out, and an X timeline that has been squeezed to 0px is not the timeline that
+   comes back. */
+body.charts-only #grid{ position:relative; }
+body.charts-only #rowTop{ flex:1 1 0; z-index:1; }
+body.charts-only #rowBot{
+  position:absolute; left:0; right:0; bottom:0; height:38%;
+  opacity:0; pointer-events:none; z-index:0;
+}
+/* on a phone the deck is a scrolling column; the same rule applies, measured against the
+   column's own height rather than the row's */
+body.stack.charts-only #rowBot{ height:56vh; }
+#chartsOnlyBtn.on{ color:var(--ink); border-color:var(--ink); }
 /* ── THE VIDEO TAKES THE WIDTH ITS HEIGHT ALLOWS; X TAKES THE REST ─────────────────────────
    Alan, 22 Sep: "Make the video as big as it can be given the altitude of the space, as wide as
    it can be, that it doesn't crop. Give whatever extra space to the Twitter."
@@ -612,6 +636,8 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   <span class="dsec" data-sec="video" role="group" aria-label="Which video feed is on the wall">
     <span class="video-note">video feed</span>
     <span class="tf" id="videoFeed" role="group" aria-label="Which YouTube feed is on the wall"></span>
+    <button type="button" class="btn" id="chartsOnlyBtn" aria-pressed="false"
+      title="hide the video and X panes and give the whole wall to the charts - the W key does the same; remembered in this browser">charts only</button>
   </span>
 </div>
 
@@ -1914,11 +1940,41 @@ function fitDock() {
   if (fit < DOCK_FIT_FLOOR) { dock.classList.add("dock-scroll"); fit = 1; }
   dock.style.setProperty("--dock-fit", fit >= .999 ? "1" : fit.toFixed(3));
 }
+/* ---- CHARTS ONLY: one key, one button, remembered per device ----
+   Its own functions, so a lane changing the X shell or the bridge never meets this one. */
+const CHARTS_ONLY_KEY = "station.chartsOnly";
+function chartsOnlyOn() {
+  try { return localStorage.getItem(CHARTS_ONLY_KEY) === "1"; } catch (_) { return false; }
+}
+function paintChartsOnly() {
+  const on = chartsOnlyOn();
+  document.body.classList.toggle("charts-only", on);
+  const b = el("chartsOnlyBtn");
+  if (b) {
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+    b.textContent = on ? "charts only · on" : "charts only";
+  }
+}
+function setChartsOnly(on) {
+  try { localStorage.setItem(CHARTS_ONLY_KEY, on ? "1" : "0"); } catch (_) {}
+  paintChartsOnly();
+  /* the chart shells size themselves to their pane; tell them the wall changed shape.
+     The media panes get the same event and keep running - they were never unmounted. */
+  try { dispatchEvent(new Event("resize")); } catch (_) {}
+}
+function toggleChartsOnly() { setChartsOnly(!chartsOnlyOn()); }
+
 /* ---- auto-hide: the strip tucks to its lip and comes back on approach, tap or focus ---- */
 function dockAutoHideOn() {
   let v = null;
   try { v = localStorage.getItem(DOCK_HIDE_KEY); } catch (_) {}
   return v == null ? true : v === "1";
+}
+function wireChartsOnly() {
+  const b = el("chartsOnlyBtn");
+  if (b && !b.__wired) { b.__wired = true; b.addEventListener("click", toggleChartsOnly); }
+  paintChartsOnly();
 }
 function paintDockHide() {
   const on = dockAutoHideOn();
@@ -2633,7 +2689,10 @@ addEventListener("keydown", (event) => {
   if (typingTarget(event.target)) return;
   if (event.key === "ArrowLeft") { event.preventDefault(); stepScreen(-1); }
   else if (event.key === "ArrowRight") { event.preventDefault(); stepScreen(1); }
+  /* W for the wall: the same key hides the video and X panes and brings them back. */
+  else if (event.key === "w" || event.key === "W") { event.preventDefault(); toggleChartsOnly(); }
 });
+wireChartsOnly();
 async function stepScreen(direction) {
   if (SCREEN_BUSY) return;
   SCREEN_BUSY = true; paintScreenBusy();
