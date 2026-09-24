@@ -106,3 +106,18 @@ test("an intraday pane is never described with Cboe's words", () => {
   assert.match(chart, /IBKR publishes each underlying's running call and put volume, not a ratio\./,
     "the tooltip states what IBKR actually gives");
 });
+
+/* M67: the serving side can now report two silences the pane did not know. A pane that maps them
+   to "not being served yet" sends Alan to the wrong place — in both cases the series IS served,
+   and what stopped is the aggregate behind it. */
+test("the pane names the two silences the chart API can now report", () => {
+  const html = chart;
+  for (const key of ["SCINTILLA_PUTCALL_MINUTES_BEHIND", "SCINTILLA_PUTCALL_READ_FAILED"]) {
+    assert.ok(html.includes(key + ":"), `the waiting map must name ${key}`);
+    assert.ok(shell.includes(key + ":"), `the mounted shell must name ${key} too`);
+  }
+  const behind = html.match(/SCINTILLA_PUTCALL_MINUTES_BEHIND: "([^"]+)"/);
+  assert.ok(behind && !/not being served/.test(behind[1]),
+    "a line that is served but behind must not claim it is not served");
+  assert.ok(/aggregator is behind/.test(behind[1]), "it says which half stopped");
+});
