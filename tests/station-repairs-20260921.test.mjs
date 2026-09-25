@@ -46,7 +46,10 @@ test('the dock loses no control, no id and no accessible name', () => {
      SCRATCH wall's filled slots into public.station_targets, the eight names every
      Station window's TARGETS and switching pages read. */
   assert.ok(after.has('saveTargets'), 'save as targets is the deliberate new scratch control')
-  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 10)
+  /* 25 Sep (P1): one more deliberate control - save as radar, beside save as targets, which
+     adds the SCRATCH wall's filled slots to list "radar" in public.station_lists. */
+  assert.ok(after.has('saveRadar'), 'save as radar is the deliberate new scratch control')
+  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 11)
 })
 
 test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {

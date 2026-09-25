@@ -659,6 +659,8 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       title="copy this wall as one line - its symbols and its timeframe - to hand back for saving">copy layout</button>
     <button type="button" class="btn" id="saveTargets" hidden
       title="save this wall's filled slots, in order, as the TARGETS list every Station window reads">save as targets</button>
+    <button type="button" class="btn" id="saveRadar" hidden
+      title="add this wall's filled slots to RADAR, the shared list the Hub's RADAR tab reads - names already on it stay, nothing is removed">save as radar</button>
   </span>
   <span class="dsec" data-sec="charts" role="group" aria-label="Number of charts">
     <span class="lbl">charts</span>
@@ -851,6 +853,80 @@ async function loadTargets() {
   } catch (_) {}
 }
 setInterval(loadTargets, 300000);
+/* ── SCRATCH IS SHARED ACROSS DEVICES (P1, 25 Sep) ────────────────────────────────
+   Alan: "a throwaway tab with six charts… when I see something on Scintilla, this is a
+   good place to drop things and they're safe." Safe means another Station window sees
+   them. The eight slots live in public.station_lists as list "scratch", positions 1–8:
+     · read at load, and again on the way into SCRATCH; when the table has rows it wins
+       over this device's memory (the device keeps a copy, so an offline window still
+       opens on the last wall it saw);
+     · written 800 ms after the last EDIT on SCRATCH - typing a symbol or clearing a
+       slot - never merely because the page was visited, so a window holding an old
+       wall cannot overwrite a newer one by passing through;
+     · a filled slot is an upsert on (list, position); an emptied slot deletes its
+       position, so slot 4 left empty stays empty on every window.
+   A failed write says so and leaves the wall exactly as typed on this device. */
+const SCRATCH_SHARE_DEBOUNCE_MS = 800;
+let SCRATCH_SHARED = null;          /* the eight slots as the table last held them, as JSON */
+let SCRATCH_EDITS = 0;
+let scratchShareTimer = 0, scratchShareInFlight = false, scratchShareAgain = false;
+const scratchSlots = () => Array.from({ length:8 }, (_, i) => CLEAN(CHARTS[i] || ""));
+function slotsFromListRows(rows) {
+  const slots = Array.from({ length:8 }, () => "");
+  for (const row of rows || []) {
+    const at = Number(row && row.position);
+    if (Number.isInteger(at) && at >= 1 && at <= 8) slots[at - 1] = CLEAN(row.ticker);
+  }
+  return slots;
+}
+async function loadSharedScratch(timeoutMs) {
+  if (scratchShareTimer || scratchShareInFlight) return false;   /* this window's own edit is on its way */
+  const edits = SCRATCH_EDITS;
+  let rows;
+  try {
+    const read = pg("station_lists?select=position,ticker&list=eq.scratch&order=position.asc");
+    rows = timeoutMs
+      ? await Promise.race([read, new Promise((_, fail) => setTimeout(() => fail(new Error("slow")), timeoutMs))])
+      : await read;
+  } catch (_) { return false; }
+  /* an edit made while the read was out is newer than anything the read can say */
+  if (edits !== SCRATCH_EDITS || scratchShareTimer || scratchShareInFlight) return false;
+  if (!Array.isArray(rows) || !rows.length) return false;
+  const slots = slotsFromListRows(rows);
+  if (!slots.some(Boolean)) return false;
+  SCRATCH_SHARED = JSON.stringify(slots);
+  slots.forEach((ticker, i) => remember("station.scratch.chart." + (i + 1), ticker));
+  if (!remembered("station.scratch.chartCount")) remember("station.scratch.chartCount", String(SceneModel.SCRATCH_SLOTS));
+  return true;
+}
+async function shareScratch() {
+  scratchShareTimer = 0;
+  if (scratchShareInFlight) { scratchShareAgain = true; return; }
+  const slots = scratchSlots();
+  const snapshot = JSON.stringify(slots);
+  if (snapshot === SCRATCH_SHARED) return;
+  scratchShareInFlight = true;
+  try {
+    const at = new Date().toISOString();
+    const filled = slots.map((ticker, i) => ({ list:"scratch", position:i + 1, ticker, updated_at:at })).filter((row) => row.ticker);
+    const empty = slots.map((ticker, i) => (ticker ? 0 : i + 1)).filter(Boolean);
+    if (filled.length) await pgWrite("station_lists?on_conflict=list,position", filled);
+    if (empty.length) await pgDelete("station_lists?list=eq.scratch&position=in.(" + empty.join(",") + ")");
+    SCRATCH_SHARED = snapshot;
+  } catch (_) {
+    const note = el("symbolNote");
+    if (note && SCENE === "scratch") note.textContent = "scratch kept on this device \u00b7 the shared save failed";
+  } finally {
+    scratchShareInFlight = false;
+    if (scratchShareAgain) { scratchShareAgain = false; shareScratchSoon(); }
+  }
+}
+function shareScratchSoon() {
+  if (SCENE !== "scratch") return;
+  SCRATCH_EDITS += 1;
+  clearTimeout(scratchShareTimer);
+  scratchShareTimer = setTimeout(shareScratch, SCRATCH_SHARE_DEBOUNCE_MS);
+}
 /* ── THE VISIT COUNTER BEHIND EVERY ROTATING SLOT (K3) ────────────────────────────
    One object, mirrored to localStorage under one key so a reload does not reset the
    windows. pageVisit(id) returns the count and increments it; the page's charts are
@@ -950,7 +1026,7 @@ function initialWorkspaceChart(incoming, stored, index, directCustom) {
    timeframe. Both are page DATA, parallel to CHARTS, and both are empty on every
    other page — so nothing about the ordinary wall changes. */
 const SLOT_STACKS = Array.from({ length: 8 }, () => "");
-const SLOT_BARS = Array.from({ length: 8 }, () => 0);   /* a per-slot bars request (HISTORY page); 0 = the range's usual window */
+const SLOT_BARS = Array.from({ length: 8 }, () => 0);   /* a per-slot bars request (no page asks since HISTORY left, 25 Sep); 0 = the range's usual window */
 const SLOT_RANGES = Array.from({ length: 8 }, () => "");
 const CHARTS = Array.from({ length: 8 }, (_, i) => {
   const incoming = URL_STATEFUL ? QS.get("c" + (i + 1)) : "";
@@ -1803,13 +1879,16 @@ window.addEventListener("message", (event) => {
        generation it booted with. Without this, every frame that reloaded after a scene change
        carried generation 0, was never granted, and waited out its 5.5 s escape hatch. */
     const mountedPane = PANES.find((item) => item.frame?.contentWindow === event.source &&
-      frameIdentity(item.frame.getAttribute("src")) === frameIdentity(item.def.src));
+      frameIdentity(frameShownSrc(item.frame)) === frameIdentity(item.def.src));
     chartDataLoadQueue.push({ token:event.data.token,
       generation:mountedPane ? ROTATION_GENERATION : (Number(event.data.generation) || 0), source:event.source });
     runChartDataLoadQueue(); return;
   }
   if (event.data?.sc === "chart-load-release") { releaseChartDataLoad(event.data.token); return; }
   if (event.data?.sc === "chart-data-state") {
+    /* which symbol each frame's document says it is showing - the in-place swap's handshake */
+    const reporter = PANES.find((item) => item.frame?.contentWindow === event.source);
+    if (reporter) reporter.reportedTicker = CLEAN(event.data.ticker);
     const current = CHART_STATUS.get(event.data.ticker) || {};
     CHART_STATUS.set(event.data.ticker, Object.assign({}, current, event.data)); paintMarketStatus(); return;
   }
@@ -2510,7 +2589,7 @@ function paintSceneControls(note) {
     : SCENE === "todo"
     ? "to-do · charts we have not made our own yet — each says why"
     : SCENE === "scratch"
-    ? "scratch · type a symbol in any slot, clear a field to empty it · remembered on this device"
+    ? "scratch · type a symbol in any slot, clear a field to empty it · shared with every Station window"
     : fixedSceneState(SCENE)
     ? "preset · edit any slot or reset"
     : "manual workspace · edit any slot");
@@ -2518,6 +2597,8 @@ function paintSceneControls(note) {
   if (copy) copy.hidden = SCENE !== "scratch";
   const saveT = el("saveTargets");
   if (saveT) saveT.hidden = SCENE !== "scratch";
+  const saveR = el("saveRadar");
+  if (saveR) saveR.hidden = SCENE !== "scratch";
   const familyPicker = el("familyPicker");
   if (familyPicker) {
     const options = SceneModel.familyOptions(SCENE);
@@ -2622,7 +2703,8 @@ async function primeSceneState() {
 function chartCachedInBrowser(ticker, range) {
   try {
     const env = JSON.parse(localStorage.getItem("sc_chart_" + ticker + "|" + range) || "null");
-    return Array.isArray(env?.pts) && env.pts.length >= 2;
+    /* the same test the pane's own cache read applies (cacheGet wants a numeric ts) */
+    return typeof env?.ts === "number" && Array.isArray(env?.pts) && env.pts.length >= 2;
   } catch (_) { return false; }
 }
 function cancelChartFrameTransition(frame, generation) {
@@ -2648,7 +2730,7 @@ function runRotationLoadQueue() {
     /* A provider/navigation failure must never hold the other six panes in
        the queue forever.  The chart itself paints its delayed state/retry. */
     setTimeout(done, 6500);
-    frame.setAttribute("src", job.src);
+    pointChartFrame(frame, job.src);
   }
 }
 function queueRotationChartFrame(frame, nextSrc, generation) {
@@ -2685,9 +2767,10 @@ function syncChartPanes(transitionGeneration) {
       o.showCard("empty editable slot");
     } else if (ticker && o.frame) {
       const coldRotation = transitionGeneration && !chartCachedInBrowser(ticker, RANGE) &&
-        o.frame.getAttribute("src") !== o.def.src;
+        frameShownSrc(o.frame) !== o.def.src;
       if (coldRotation) queueRotationChartFrame(o.frame, o.def.src, transitionGeneration);
-      else syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE });
+      else if (!retargetChartInPlace(o, ticker))
+        syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE });
     }
   });
   refreshDeckQuotes();
@@ -2707,8 +2790,8 @@ async function applyScene(next, options) {
     if (RANGES.includes(state.range)) RANGE = state.range;
   }
   else if (fixedSceneState(requested)) {
-    /* A workbench page declares its own timeframe (HISTORY is daily; the oscillator workbench
-       is daily): the wall adopts it, as it does for a workflow page (coordinator, 25 Sep). */
+    /* A workbench page declares its own timeframe (the oscillator workbench is daily): the
+       wall adopts it, as it does for a workflow page (coordinator, 25 Sep). */
     const benchRange = SceneModel.workbenchFor(requested)?.range;
     if (RANGES.includes(benchRange)) RANGE = benchRange;
     /* A chosen family is remembered before the preset is computed, and counts as an explicit
@@ -2750,6 +2833,8 @@ async function applyScene(next, options) {
     /* The page opens on the window it was left in. RANGE is set BEFORE the panes are
        built so a scratch chart mounts on the right timeframe instead of loading 3h and
        then reloading — the wall never pays twice for the same chart. */
+    /* another window may have filled it since: the table wins when it has rows */
+    await loadSharedScratch(1500);
     RANGE = scratchRange();
     state = hasStoredScene("scratch") ? editableState("scratch") : SceneModel.scratchState([], RANGE);
   } else state = editableState(requested);
@@ -2987,19 +3072,70 @@ function chartSrc(t, index, transitionGeneration) {
 /* The timeframe is not part of a frame's identity: a mounted chart changes range in place through
    a message, keeping its document, its caches and its previous line on screen. */
 const frameIdentity = (src) => String(src || "").replace(/[?&](range|transition)=[^&]*/g, "");
+/* WHAT A CHART FRAME IS SHOWING. A frame re-pointed in place (retargetChartInPlace) keeps the
+   document - and so the src attribute - it was loaded with; data-shown records the address it
+   is showing now. Every identity check reads this, never the bare attribute. */
+const frameShownSrc = (frame) => (frame && frame.dataset && frame.dataset.shown) || (frame ? frame.getAttribute("src") : "");
+function pointChartFrame(frame, src) {
+  if (frame.dataset) delete frame.dataset.shown;
+  frame.setAttribute("src", src);
+}
 function syncChartFrame(frame, nextSrc, message) {
   if (!frame || !nextSrc) return false;
-  if (frameIdentity(frame.getAttribute("src")) !== frameIdentity(nextSrc)) {
-    frame.setAttribute("src", nextSrc);
+  if (frameIdentity(frameShownSrc(frame)) !== frameIdentity(nextSrc)) {
+    pointChartFrame(frame, nextSrc);
     return true;
   }
   try {
     frame.contentWindow.postMessage(message, location.origin);
     return false;
   } catch (_) {
-    frame.setAttribute("src", nextSrc);
+    pointChartFrame(frame, nextSrc);
     return true;
   }
+}
+/* ── A NEW PAGE SWAPS THE SYMBOL, NOT THE DOCUMENT (P1, 25 Sep) ────────────────────────
+   Alan: "when it changes from one view to another, there's a little glitch happening."
+   Measured headlessly at 1680×1050 (deliverables/20260925/station-modes): on a change between
+   two eight-chart pages whose symbols were all cached, every chart frame was given a new src,
+   so all eight documents were thrown away at once and the wall showed eight empty dark panes
+   for ~150 ms before each new document drew from its cache - and some then drew a second time
+   when their price arrived and the day's direction changed colour.
+   The chart pane already takes a new symbol by message (setChartTicker) and, when the bars are
+   cached, draws it in the same task, so no empty frame is painted. So when ONLY the symbol
+   differs, its bars are cached, and the frame's document has reported the symbol this deck
+   thinks it shows, the frame is re-pointed in place:
+     1. the deck's quote for the new symbol goes first, so the first paint has the day's
+        baseline;
+     2. then { sc:"chart", ticker, range };
+     3. if the frame has not reported the new symbol within 1.5 s, its URL - still the durable
+        identity - is set after all, exactly as before.
+   Anything else (a cold symbol, a different axis mode, a frame still loading) takes the old
+   path unchanged. */
+const RETARGET_ACK_MS = 1500;
+function srcTicker(src) {
+  try { return CLEAN(new URL(String(src || ""), location.origin).searchParams.get("t")); } catch (_) { return ""; }
+}
+const withoutTicker = (src) => frameIdentity(src).replace(/([?&])t=[^&]*&?/, "$1");
+function retargetChartInPlace(pane, ticker) {
+  const frame = pane && pane.frame, next = pane && pane.def.src;
+  if (!frame || !frame.contentWindow || !next || !ticker) return false;
+  const shown = frameShownSrc(frame);
+  if (frameIdentity(shown) === frameIdentity(next)) return false;                 /* same symbol: the ordinary message */
+  if (withoutTicker(shown) !== withoutTicker(next)) return false;                 /* more than the symbol changed */
+  if (!pane.reportedTicker || pane.reportedTicker !== srcTicker(shown)) return false;   /* document not settled */
+  if (!chartCachedInBrowser(ticker, RANGE)) return false;
+  postDeckQuote(frame, ticker);
+  try { frame.contentWindow.postMessage({ sc:"chart", ticker, range:RANGE }, location.origin); }
+  catch (_) { return false; }
+  frame.dataset.shown = next;
+  const token = (pane.retargetToken || 0) + 1;
+  pane.retargetToken = token;
+  setTimeout(() => {
+    if (pane.retargetToken !== token || pane.frame !== frame || frame.dataset.shown !== next) return;
+    if (pane.reportedTicker !== CLEAN(ticker)) pointChartFrame(frame, next);
+  }, RETARGET_ACK_MS);
+  return true;
 }
 function applyView(next) {
   VIEW = VIEW_MODES.includes(next) ? next : "auto";
@@ -3175,7 +3311,7 @@ function commitTicker(index, raw, input) {
     upper.def.src = paneChartSrc(CHARTS[above], above); upper.def.open = upper.def.src.replace("bare=1&", "");
     if (upper.frame) syncChartFrame(upper.frame, upper.def.src, { sc:"chart", ticker:CHARTS[above], range:RANGE });
   }
-  refreshDeckQuotes(); rememberEditableState(); closeSymbolGuide(); paintChips(); return true;
+  refreshDeckQuotes(); rememberEditableState(); closeSymbolGuide(); shareScratchSoon(); paintChips(); return true;
 }
 /* CLEARING A FIELD EMPTIES THE SLOT (SCRATCH only). Alan, 24 Sep: "Clearing the field
    empties the slot." Everywhere else an emptied box still restores the symbol that was
@@ -3197,7 +3333,7 @@ function clearSlot(index, input) {
     o.showCard("empty slot \u00b7 type a symbol");
   }
   el("symbolNote").textContent = "slot " + (index + 1) + " cleared";
-  rememberEditableState(); closeSymbolGuide(); paintChips(); paintPaneNotes();
+  rememberEditableState(); shareScratchSoon(); closeSymbolGuide(); paintChips(); paintPaneNotes();
   return true;
 }
 const clearsEmptySlots = () => SCENE === "scratch";
@@ -3344,6 +3480,37 @@ async function saveScratchTargets() {
   }
 }
 el("saveTargets").addEventListener("click", () => { saveScratchTargets(); });
+/* SAVE AS RADAR (P1, 25 Sep). The same filled slots join list "radar" in
+   public.station_lists - the list the Hub's RADAR tab reads. It ADDS: a name already on
+   RADAR keeps its place, new names follow the last position, and nothing is removed,
+   because the Hub adds to the same list one name at a time and a wall saved here must not
+   erase those. */
+let SAVE_RADAR_REVERT = null;
+async function saveScratchRadar() {
+  const button = el("saveRadar");
+  const filled = Array.from(new Set(CHARTS.slice(0, 8).map(CLEAN).filter(Boolean)));
+  const say = (text) => {
+    if (!button) return;
+    button.textContent = text;
+    clearTimeout(SAVE_RADAR_REVERT);
+    SAVE_RADAR_REVERT = setTimeout(() => { button.textContent = "save as radar"; }, 3000);
+  };
+  if (!filled.length) { say("type the names first"); return; }
+  try {
+    const rows = await pg("station_lists?select=position,ticker&list=eq.radar&order=position.asc");
+    const have = (Array.isArray(rows) ? rows : []).map((row) => CLEAN(row && row.ticker)).filter(Boolean);
+    const last = (Array.isArray(rows) ? rows : []).reduce((top, row) => Math.max(top, Number(row && row.position) || 0), 0);
+    const add = filled.filter((ticker) => !have.includes(ticker));
+    if (!add.length) { say("already on radar · " + have.length + " names"); return; }
+    const at = new Date().toISOString();
+    await pgWrite("station_lists?on_conflict=list,position",
+      add.map((ticker, i) => ({ list:"radar", position:last + i + 1, ticker, updated_at:at })));
+    say("radar +" + add.length + " · " + (have.length + add.length) + " names");
+  } catch (_) {
+    say("radar save failed");
+  }
+}
+el("saveRadar").addEventListener("click", () => { saveScratchRadar(); });
 el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
 el("sceneMode").addEventListener("change", (e) => {
   if (e.target.value === "live" || e.target.value === "custom") setRotationPaused(true);
@@ -3405,6 +3572,7 @@ document.addEventListener("pointerdown", (e) => {
 
 async function build() {
   await loadTargets();
+  await loadSharedScratch(2500);
   await primeSceneState();
   if (SCENE === "live" && QS.get("c2") === "auto") {
     try {

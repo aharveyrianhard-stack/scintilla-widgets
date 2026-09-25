@@ -33,6 +33,21 @@ function functionFromDeck(name, bindings = {}) {
   return vm.runInNewContext(`(${deck.slice(start, end)})`, bindings);
 }
 
+/* A one-line `const name = (…) => …;` from the deck, evaluated with the given bindings. */
+function arrowFromDeck(name, bindings = {}) {
+  const match = deck.match(new RegExp("const " + name + " = (\\([^\\n]*);\\n"));
+  assert.ok(match, `${name} must exist as a one-line arrow`);
+  return vm.runInNewContext("(" + match[1] + ")", bindings);
+}
+/* syncChartFrame reads what a frame is SHOWING (25 Sep, P1: a frame re-pointed in place keeps
+   its original src attribute), so the harness hands it the deck's own identity helpers. */
+function syncChartFrameFromDeck() {
+  const frameIdentity = arrowFromDeck("frameIdentity");
+  const frameShownSrc = arrowFromDeck("frameShownSrc");
+  const pointChartFrame = functionFromDeck("pointChartFrame");
+  return functionFromDeck("syncChartFrame", { location: { origin:"https://station.test" }, frameIdentity, frameShownSrc, pointChartFrame });
+}
+
 function functionFromSource(sourceText, name, bindings = {}) {
   const start = sourceText.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} exists`);
@@ -59,7 +74,8 @@ test("all named scenes are present, with Alan's 25 Sep workflow leading the id l
   assert.deepEqual(Array.from(scenes.IDS), ["live",
     "wkIndexes","wkMacro","targets3D","sectors3D","mainIndexes3D","mag7","ai1","ai2","ai3","other3D","blueChip3D",
     "spyQqq1D","otherIndexes1D","macro1D","targets1D","macroIntraday","intraday4h","intraday1h","intraday30m",
-    "scintillas","oscWorkbench","history",
+    /* 25 Sep, later: HISTORY is retired (Alan did not mean a page); it resolves through LEGACY. */
+    "scintillas","oscWorkbench",
     "indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies",
     "todo","scratch","cohort","custom"]);
   assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY","QQQ","DIA","IWM","MAGS","SMH"]);
@@ -197,8 +213,12 @@ test("the arrows walk every page while rotation keeps to Alan's nineteen-page wo
     "the rotation is the workflow, in the workflow's order");
   assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T13:30:00Z").scene, "targets3D",
     "rotation wraps inside the workflow (13:30 UTC is 09:30 ET, the regular session)");
-  assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T20:30:00Z").scene, "wkIndexes",
-    "after hours the intraday pages are out, and the fifteenth page wraps to the first");
+  /* 25 Sep, later (P1): four sessions. 16:30 ET is now the after-market session, which keeps the
+     intraday pages; they leave at 20:00 ET, when the overnight lap (with the weeklies) begins. */
+  assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T20:30:00Z").scene, "targets3D",
+    "after-market keeps the intraday four, so the last page still wraps to TARGETS");
+  assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-24T00:30:00Z").scene, "wkIndexes",
+    "overnight (20:30 ET) the intraday pages are out and the lap starts on the weekly INDEXES");
   assert.equal(scenes.nextRotatingScreenAt("tvMacro", "2026-09-23T13:30:00Z").scene, "targets1D",
     "a remembered tv page resolves through LEGACY to macro1D and advances from there");
   assert.equal(scenes.nextScreen("live").scene, "wkIndexes",
@@ -206,8 +226,8 @@ test("the arrows walk every page while rotation keeps to Alan's nineteen-page wo
   assert.equal(scenes.nextScreen("intraday30m").scene, "scintillas",
     "the arrows continue past the workflow into SCINTILLAS");
   assert.equal(scenes.nextScreen("scintillas").scene, "oscWorkbench");
-  assert.equal(scenes.nextScreen("oscWorkbench").scene, "history",
-    "the eight old curated pages follow the workbench");
+  assert.equal(scenes.nextScreen("oscWorkbench").scene, "indexNow",
+    "the eight old curated pages follow the workbench (HISTORY retired 25 Sep)");
   assert.equal(scenes.nextScreen("themeFamilies").scene, "todo",
     "the old curated pages are followed by TO-DO, not the retired tv layouts");
   /* 24 Sep (M48/M69): TO-DO, then SCRATCH — pages you go to, never part of the
@@ -694,7 +714,7 @@ test("the deck owns one deduplicated visible quote feed for embedded charts", ()
 });
 
 test("a scene transition reloads a mounted frame whose URL has an old ticker", () => {
-  const syncChartFrame = functionFromDeck("syncChartFrame", { location: { origin:"https://station.test" } });
+  const syncChartFrame = syncChartFrameFromDeck();
   const priorSrc = "/chart?bare=1&t=SPY&range=3h";
   const macroSrc = "/chart?bare=1&t=US10Y&range=3D";
   const calls = [];
@@ -708,7 +728,7 @@ test("a scene transition reloads a mounted frame whose URL has an old ticker", (
 });
 
 test("a frame whose URL already matches can use the fast chart message", () => {
-  const syncChartFrame = functionFromDeck("syncChartFrame", { location: { origin:"https://station.test" } });
+  const syncChartFrame = syncChartFrameFromDeck();
   const src = "/chart?bare=1&t=GCUSD&range=3D";
   const calls = [];
   const frame = {

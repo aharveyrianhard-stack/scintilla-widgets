@@ -2757,11 +2757,15 @@ addEventListener("message", (e) => {
   /* The Station dock owns one clouds switch for the whole wall. */
   if (typeof d.clouds === "boolean") setClouds(d.clouds);
   if (typeof d.steps === "boolean") setCloudSteps(d.steps);
+  /* A NEW SYMBOL AND A NEW RANGE IN ONE MESSAGE (the deck's page change, 25 Sep): the range is
+     set first and the new symbol loads at it. Reloading the OLD symbol at the new range first
+     cost a wasted provider read and, on a slow frame, a paint of the wrong chart. */
+  const host = document.querySelector("#chartSlot .sc-nchart");
+  const retarget = !!(d.ticker && host && String(d.ticker).toUpperCase().trim() !== host.dataset.t);
   if (d.range && CHART_RANGES.includes(d.range)) {
     S.chartRange = d.range;
     document.querySelectorAll('.sc-crange[data-act="chartrange"]').forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
-    const host = document.querySelector("#chartSlot .sc-nchart");
-    if (host) holdAndReload(host, S.chartRange);
+    if (host && !retarget) holdAndReload(host, S.chartRange);
   }
   if (d.ticker) setChartTicker(d.ticker);
 });

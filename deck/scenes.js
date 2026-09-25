@@ -5,7 +5,9 @@
      COHORT'S rows, replacing the favorites rows — it may not be collapsed into a family
      preset, and it may not be filtered down to whichever members happen to be favorited. */
   const TV_IDS = ["tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras"];
-  const WORKBENCH_IDS = ["oscWorkbench","history"];
+  /* 25 Sep, later: the HISTORY page is gone - Alan did not mean a page. The chart pane's ?bars=
+     request and the deck's SLOT_BARS plumbing stay (harmless, tested); nothing asks for them now. */
+  const WORKBENCH_IDS = ["oscWorkbench"];
   /* ── ALAN'S CHARTING WORKFLOW, read 25 Sep 2026 (K3 / SCI-K3-002) ────────────────
      Nineteen pages in a fixed order, replacing both the old curated auto-rotation and
      the twelve saved TradingView layouts (whose ids remain in LEGACY so a browser that
@@ -17,20 +19,21 @@
        · TARGETS — Alan's eight names, shared by every Station window. The deck reads
          public.station_targets at load and every five minutes; when the read fails or
          is empty the model's TARGETS_DEFAULT stands in;
-       · LEADERS — SPY/QQQ in the regular New York session, ESUSD/NQUSD after hours.
+       · LEADERS — SPY/QQQ in the market session, ESUSD/NQUSD in the other three.
      Pages whose slots say "rotate" show a different window of their list on every
-     visit; the visit counter lives in the deck. Pages 16–19 are intraday and drop
-     out of the rotation outside 09:30–16:30 New York (rotationScenesAt). */
+     visit; the visit counter lives in the deck. Which pages rotate depends on the
+     session (four of them, 25 Sep — see stationSession and rotationScenesAt). */
   const TARGETS_DEFAULT = Object.freeze(["GOOGL","NBIS","AVGO","BE","AMZN","VST","MU","WMT"]);
   const MACRO_4H = Object.freeze(["VIX","CLUSD","US10Y","DXUSD","GCUSD","BTCUSD"]);
   const WORKFLOW_PAGES = Object.freeze({
     wkIndexes:       Object.freeze({ label:"INDEXES · WEEK",      short:"INDEXES WK",  range:"1W", tickers:Object.freeze(["SPY","DIA","QQQ","MAGS","SMH","IWM","DRAM","IGV"]) }),
     wkMacro:         Object.freeze({ label:"MACRO · WEEK",        short:"MACRO WK",    range:"1W", tickers:Object.freeze(["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]) }),
     targets3D:       Object.freeze({ label:"TARGETS",             range:"3D", targets:true }),
-    /* 25 Sep, Alan: "the sectors one - I put the main sectors… a bit of a rotation in that layout
-       would be nice, more than another page… between full laps." His six lead; the other five
-       State Street sectors follow on the next lap through the same six slots. */
-    sectors3D:       Object.freeze({ label:"SECTORS",             range:"3D", rotate:Object.freeze({ list:Object.freeze(["XLK","XLI","XLC","XLF","XLY","XLE","XLP","XLV","XLU","XLRE","XLB"]), size:6 }) }),
+    /* 25 Sep, Alan, later: "there is sectors that are more important in market cap, way more
+       important. I don't know if I would rotate all of them." So his six stay on screen in slots
+       1–6 on every visit, and only the other five State Street sectors rotate, two at a time,
+       through slots 7–8: an eight-chart page. */
+    sectors3D:       Object.freeze({ label:"SECTORS",             range:"3D", tickers:Object.freeze(["XLK","XLI","XLC","XLF","XLY","XLE"]), rotate:Object.freeze({ list:Object.freeze(["XLP","XLV","XLU","XLRE","XLB"]), size:2 }) }),
     mainIndexes3D:   Object.freeze({ label:"SPY + QQQ",           range:"3D", leaders:true }),
     mag7:            Object.freeze({ label:"MAG 7",               range:"3D", tickers:Object.freeze(["MAGS","MSFT","NVDA","AMZN","AAPL","META","GOOGL","TSLA"]) }),
     /* 25 Sep, Alan on the AI pages: "don't go by the names of the layouts, I made a mega mess…
@@ -53,12 +56,12 @@
     intraday30m:     Object.freeze({ label:"INTRADAY · 30M",      short:"INTRA · 30M", range:"30m", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:1 }) })
   });
   const WORKFLOW_IDS = Object.freeze(Object.keys(WORKFLOW_PAGES));
-  /* The intraday four (workflow pages 16–19) leave the rotation outside the regular
-     New York session; the other fifteen rotate around the clock. */
-  const AFTER_HOURS_PAGES = Object.freeze(["macroIntraday","intraday4h","intraday1h","intraday30m"]);
-  /* 25 Sep, Alan: "maybe shifting the weekly views to the post-market view completely, to even the
-     modes out." So the two weekly pages rotate only outside the session, the four intraday pages
-     only inside it: 17 pages in the session, 15 after hours. Every page stays in the menu. */
+  /* The intraday four (workflow pages 16–19) rotate in the three sessions when something trades
+     on an intraday clock - pre-market, market and after-market - and leave it overnight. */
+  const INTRADAY_PAGES = Object.freeze(["macroIntraday","intraday4h","intraday1h","intraday30m"]);
+  /* The two weekly pages are the overnight lap's own ("shifting the weekly views to the
+     post-market view completely", 25 Sep; overnight is where that lap now lives). Every page
+     stays in the menu whatever the session. */
   const WEEKLY_PAGES = Object.freeze(["wkIndexes","wkMacro"]);
   const OLD_CURATED_IDS = ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies"];
   const IDS = ["live"].concat(WORKFLOW_IDS, ["scintillas"], WORKBENCH_IDS, OLD_CURATED_IDS, ["todo","scratch","cohort","custom"]);
@@ -76,9 +79,6 @@
     .concat([
       Object.freeze({ id:"scintillas", scene:"scintillas", label:"SCINTILLAS" }),
       Object.freeze({ id:"oscWorkbench", scene:"oscWorkbench", label:"WORKBENCH" }),
-      /* 25 Sep, Alan: "a Station chart of Nasdaq, QQQ, DIA and the main macro things we track - gold,
-         treasuries - going back as far as we have on the database, on daily periods." */
-      Object.freeze({ id:"history", scene:"history", label:"HISTORY · ALL DAILY", short:"HISTORY" }),
       Object.freeze({ id:"indexNow", scene:"indexNow", label:"INDEX NOW" , short:"INDEX NOW"}),
       Object.freeze({ id:"indexLeadership", scene:"indexLeadership", label:"INDEX LEADERSHIP" , short:"INDEX LEAD"}),
       Object.freeze({ id:"companyLeadership", scene:"companyLeadership", label:"COMPANY LEADERSHIP" , short:"COMPANY LD"}),
@@ -160,22 +160,9 @@ const ROTATION_SCENES = Object.freeze(WORKFLOW_IDS.slice());
     OSCILLATOR: Object.freeze({ label:"ribbon + 8D EMA + 100D SMA", clouds:true, ema8:true, sma100:true }),
     STEPPED: Object.freeze({ label:"ribbon, stepped exactly", clouds:true, steps:true })
   });
-  /* `bars` on a chart asks the pane for that many bars instead of the range's usual window: the
-     database holds daily bars back to 2003 for the funds and further for the macro rails. */
-  const HISTORY_BARS = 6000;
+  /* `bars` on a chart asks the pane for that many bars instead of the range's usual window. No
+     page asks for it since HISTORY left (25 Sep); the mechanism stays so a future workbench can. */
   const WORKBENCHES = Object.freeze({
-    history: Object.freeze({
-      label: "HISTORY · ALL DAILY",
-      range: "1D",
-      charts: Object.freeze([
-        Object.freeze({ ticker:"QQQ", stack:"CLOUDS", bars:HISTORY_BARS }),
-        Object.freeze({ ticker:"DIA", stack:"CLOUDS", bars:HISTORY_BARS }),
-        Object.freeze({ ticker:"SPY", stack:"CLOUDS", bars:HISTORY_BARS }),
-        Object.freeze({ ticker:"GCUSD", stack:"CLOUDS", bars:HISTORY_BARS }),
-        Object.freeze({ ticker:"US10Y", stack:"CLOUDS", bars:HISTORY_BARS }),
-        Object.freeze({ ticker:"CLUSD", stack:"CLOUDS", bars:HISTORY_BARS })
-      ])
-    }),
     oscWorkbench: Object.freeze({
       label: "OSCILLATOR WORKBENCH",
       range: "1D",
@@ -237,7 +224,10 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
   /* 25 Sep (K3): the twelve saved TradingView layouts are retired as pages. A browser that
      remembered one lands on the workflow page that now carries its names. */
   tvMacro:"macro1D", tvIndexes:"otherIndexes1D", tvSectors:"sectors3D", tvHome6:"intraday4h",
-  tvPage2:"ai1", tvPage3:"mag7", tvOtherLC:"other3D", tvOtherSC:"ai2", tvBlueChip:"blueChip3D", tvExtras:"ai2" });
+  tvPage2:"ai1", tvPage3:"mag7", tvOtherLC:"other3D", tvOtherSC:"ai2", tvBlueChip:"blueChip3D", tvExtras:"ai2",
+  /* 25 Sep, later: HISTORY is retired. A browser that remembered it lands on MACRO · DAY, the
+     daily page that carries three of its six names (gold, the 10-year, crude). */
+  history:"macro1D" });
   const normalizeScene = (value) => IDS.includes(LEGACY[value] || value) ? (LEGACY[value] || value) : "live";
 
   function indexNowLeaders(at) {
@@ -260,29 +250,50 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     const start = (Math.max(0, Math.floor(Number(visit) || 0)) * n) % all.length;
     return Array.from({ length: n }, (_, i) => all[(start + i) % all.length]);
   }
-  /* "Regular" is a New York weekday with 09:30 <= time < 16:30. Measured on SPY's
-     30-minute bars: volume falls from 5.9M in the 16:00 bar to 195k at 16:30, and
-     pre-market never exceeds 100k — so the futures pair leads outside that window. */
+  /* ── FOUR SESSIONS A DAY (25 Sep) ─────────────────────────────────────────────────
+     Alan: "During the pre-market the intraday view is not activated… the pre-market is
+     already going to be active… pre-market view and during-market view and after-market
+     view and an overnight." New York time, weekdays; Saturday and Sunday are overnight:
+       overnight  20:00–04:00  weekly + 3-day + daily pages, no intraday · ES/NQ lead
+       premarket  04:00–09:30  3-day + daily + the intraday four        · ES/NQ lead
+       market     09:30–16:30  the same pages                           · SPY/QQQ lead
+       after      16:30–20:00  the same pages                           · ES/NQ lead
+     16:30, not 16:00, closes "market": measured on SPY's 30-minute bars, volume falls from
+     5.9M in the 16:00 bar to 195k at 16:30. There is no holiday calendar here: a weekday
+     exchange holiday runs the weekday sessions. */
+  const SESSION_WINDOWS = Object.freeze([
+    Object.freeze({ id:"overnight", from:"20:00", to:"04:00", leaders:Object.freeze(["ESUSD","NQUSD"]) }),
+    Object.freeze({ id:"premarket", from:"04:00", to:"09:30", leaders:Object.freeze(["ESUSD","NQUSD"]) }),
+    Object.freeze({ id:"market",    from:"09:30", to:"16:30", leaders:Object.freeze(["SPY","QQQ"]) }),
+    Object.freeze({ id:"after",     from:"16:30", to:"20:00", leaders:Object.freeze(["ESUSD","NQUSD"]) })
+  ]);
   function stationSession(at) {
     const d = at instanceof Date ? at : new Date(at);
-    if (!Number.isFinite(d.getTime())) return "regular";
+    if (!Number.isFinite(d.getTime())) return "market";
     const parts = new Intl.DateTimeFormat("en-US",
       { timeZone:NY, weekday:"short", hour:"2-digit", minute:"2-digit", hour12:false }).formatToParts(d);
     const part = (type) => (parts.find((p) => p.type === type) || {}).value || "";
     const day = part("weekday");
-    if (day === "Sat" || day === "Sun") return "after";
+    if (day === "Sat" || day === "Sun") return "overnight";
     const minutes = (Number(part("hour")) % 24) * 60 + Number(part("minute"));
-    return minutes >= 570 && minutes < 990 ? "regular" : "after";
+    if (minutes < 240) return "overnight";     // 00:00–03:59
+    if (minutes < 570) return "premarket";     // 04:00–09:29
+    if (minutes < 990) return "market";        // 09:30–16:29
+    if (minutes < 1200) return "after";        // 16:30–19:59
+    return "overnight";                        // 20:00–23:59
   }
   function LEADERS(at) {
-    return stationSession(at) === "regular" ? ["SPY","QQQ"] : ["ESUSD","NQUSD"];
+    return stationSession(at) === "market" ? ["SPY","QQQ"] : ["ESUSD","NQUSD"];
   }
-  /* THE INTRADAY FOUR LEAVE THE ROTATION AT 16:30 AND RETURN AT 09:30, without a
-     reload: the deck re-asks this on every advance. */
+  /* WHICH PAGES ROTATE NOW. The deck re-asks this on every advance, so the lap changes at
+     04:00 and 20:00 (and the leaders at 09:30 and 16:30) without a reload. */
+  function rotationScenesFor(session) {
+    return session === "overnight"
+      ? WORKFLOW_IDS.filter((id) => !INTRADAY_PAGES.includes(id))
+      : WORKFLOW_IDS.filter((id) => !WEEKLY_PAGES.includes(id));
+  }
   function rotationScenesAt(at) {
-    return stationSession(at) === "regular"
-      ? WORKFLOW_IDS.filter((id) => !WEEKLY_PAGES.includes(id))
-      : WORKFLOW_IDS.filter((id) => !AFTER_HOURS_PAGES.includes(id));
+    return rotationScenesFor(stationSession(at));
   }
   /* A WORKFLOW PAGE'S CHARTS AT ONE MOMENT. opts: { visit, targets, at }. TARGETS slots
      take the deck's current list (public.station_targets) or TARGETS_DEFAULT; LEADERS
@@ -297,8 +308,9 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     const leaders = LEADERS(options.at || new Date());
     const visit = Math.max(0, Math.floor(Number(options.visit) || 0));
     if (page.targets) return targets;
-    if (page.tickers) return page.tickers.slice();
-    let slots = [];
+    /* A page may carry fixed tickers AND rotating slots (SECTORS, 25 Sep): the fixed names
+       come first, in their slots on every visit, and the rotating window is appended. */
+    let slots = page.tickers ? page.tickers.slice() : [];
     if (page.leaders) slots = slots.concat(page.leaderWindow ? rotatingWindow(leaders, 1, visit) : leaders);
     if (page.rotate) slots = slots.concat(rotatingWindow(page.rotate.list, page.rotate.size, visit));
     if (page.rotateTargets) slots = slots.concat(rotatingWindow(targets, page.rotateTargets.size, visit));
@@ -620,8 +632,12 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     nextRotatingScreen,
     nextRotatingScreenAt,
     rotationScenesAt,
+    rotationScenesFor,
     rotatingWindow,
     stationSession,
+    SESSION_WINDOWS,
+    INTRADAY_PAGES,
+    WEEKLY_PAGES,
     LEADERS,
     TARGETS_DEFAULT,
     WORKFLOW_IDS,
