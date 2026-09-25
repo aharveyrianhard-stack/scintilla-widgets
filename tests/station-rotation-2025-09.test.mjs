@@ -18,19 +18,21 @@ const arr = (x) => Array.from(x);
 
 const WORKFLOW_ORDER = [
   "wkIndexes","wkMacro","targets3D","sectors3D","mainIndexes3D","mag7","ai1","ai2","ai3",
-  "other3D","blueChip3D","spyQqq1D","otherIndexes1D","macro1D","targets1D",
+  "other3D","blueChip3D","spyQqq1D","spyQqqOsc","otherIndexes1D","otherIndexesOsc","macro1D","targets1D","targetsOsc",
   "macroIntraday","intraday4h","intraday1h","intraday30m"
 ];
+/* 25 Sep (P2-STATION-RSI-FAN, SCI-11): Alan, "you do have the RSI" - three oscillator pages join the
+   nineteen, each right after its price twin, so the workflow is twenty-two pages. */
 /* A Wednesday in New York (EDT, UTC-4): 09:30 ET = 13:30 UTC, 16:30 ET = 20:30 UTC. */
 const WED = (utc) => "2026-09-23T" + utc + "Z";
 const SATURDAY = "2026-09-26T14:00:00Z"; /* 10:00 ET on a Saturday */
 
-test("the rotation is the nineteen workflow pages, in Alan's order", () => {
+test("the rotation is the twenty-two workflow pages, in Alan's order", () => {
   assert.deepEqual(arr(scenes.ROTATION_SCENES), WORKFLOW_ORDER,
     "the fixed order read off the TradingView tab group on 25 Sep");
-  assert.deepEqual(arr(scenes.SCREENS.slice(0, 19)).map((s) => s.scene), WORKFLOW_ORDER,
-    "and they are the first nineteen entries of SCREENS");
-  assert.deepEqual(arr(scenes.SCREENS.slice(19)).map((s) => s.scene),
+  assert.deepEqual(arr(scenes.SCREENS.slice(0, 22)).map((s) => s.scene), WORKFLOW_ORDER,
+    "and they are the first twenty-two entries of SCREENS");
+  assert.deepEqual(arr(scenes.SCREENS.slice(22)).map((s) => s.scene),
     ["scintillas","oscWorkbench","history","indexNow","indexLeadership","companyLeadership","focus2",
      "macroCrossAsset","internalsFast","sectorFamilies","themeFamilies","todo","scratch"],
     "then SCINTILLAS, WORKBENCH, the eight old curated pages, TO-DO and SCRATCH last");
@@ -42,7 +44,7 @@ test("every workflow page carries its stated range and chart count", () => {
     wkIndexes:["1W",8], wkMacro:["1W",6], targets3D:["3D",8], sectors3D:["3D",6],
     mainIndexes3D:["3D",2], mag7:["3D",8], ai1:["3D",8], ai2:["3D",8], ai3:["3D",8],
     other3D:["3D",8], blueChip3D:["3D",8], spyQqq1D:["1D",2], otherIndexes1D:["1D",6],
-    macro1D:["1D",6], targets1D:["1D",8], macroIntraday:["4h",4], intraday4h:["4h",6],
+    macro1D:["1D",6], targets1D:["1D",8], spyQqqOsc:["1D",2], otherIndexesOsc:["1D",6], targetsOsc:["1D",8], macroIntraday:["4h",4], intraday4h:["4h",6],
     intraday1h:["1h",4], intraday30m:["30m",2]
   };
   for (const id of WORKFLOW_ORDER) {
@@ -82,12 +84,13 @@ test("LEADERS are SPY/QQQ in the regular session and ES/NQ after hours", () => {
 });
 
 test("the rotation loses the four intraday pages after hours, and gains them back", () => {
-  /* 25 Sep, Alan: the weekly pages belong to the after-hours lap, so the session lap is seventeen. */
-  assert.equal(scenes.rotationScenesAt(WED("14:00:00")).length, 17);
+  /* 25 Sep, Alan: the weekly pages belong to the after-hours lap, so the session lap is seventeen -
+     twenty since the three daily RSI pages (P2), which rotate whenever the daily pages do. */
+  assert.equal(scenes.rotationScenesAt(WED("14:00:00")).length, 20);
   assert.equal(scenes.rotationScenesAt(WED("14:00:00")).includes("wkIndexes"), false, "no weekly page inside the session");
   const after = arr(scenes.rotationScenesAt(WED("21:00:00")));
-  assert.equal(after.length, 15, "after hours: the same order without pages 16–19");
-  assert.deepEqual(after, WORKFLOW_ORDER.slice(0, 15));
+  assert.equal(after.length, 18, "after hours: the same order without the four intraday pages");
+  assert.deepEqual(after, WORKFLOW_ORDER.slice(0, 18));
   assert.deepEqual(arr(scenes.rotationScenesAt(SATURDAY)), after, "a weekend is after hours");
 });
 

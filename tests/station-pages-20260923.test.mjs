@@ -68,8 +68,9 @@ test("every retired TradingView-copy page lands on the workflow page that carrie
   }
   assert.deepEqual(Array.from(scenes.WORKFLOW_PAGES.sectors3D.rotate.list.slice(0, 6)), ["XLK","XLI","XLC","XLF","XLY","XLE"],
     "SECTORS leads with Alan's six; the other five State Street sectors follow on the next lap (25 Sep)");
-  assert.equal(scenes.SCREENS.length, 32,
-    "nineteen workflow pages, SCINTILLAS, the workbench, HISTORY (25 Sep), eight old curated pages (menu only), TO-DO and SCRATCH");
+  /* 35 since 25 Sep P2: three RSI pages follow their daily twins. */
+  assert.equal(scenes.SCREENS.length, 35,
+    "twenty-two workflow pages, SCINTILLAS, the workbench, HISTORY (25 Sep), eight old curated pages (menu only), TO-DO and SCRATCH");
 });
 
 test("a saved layout is a picture, not a basket: five rows stay five rows in a six-up wall", () => {
@@ -216,7 +217,7 @@ test("the jump list finds a page by its name or by a ticker on it — PCC in one
     ["MACRO · WEEK", "MACRO · DAY", "MACRO · 4H", "MACRO CROSS-ASSET"], "every macro page, workflow first");
   assert.deepEqual(Array.from(scenes.findPages("XLK"), (m) => m.screen.label), ["SECTORS", "SECTOR FAMILIES"],
     "a ticker on two pages offers both, rather than silently picking one");
-  assert.equal(scenes.findPages("").length, 32, "an empty box offers every page (HISTORY joined on 25 Sep)");
+  assert.equal(scenes.findPages("").length, 35, "an empty box offers every page (HISTORY joined on 25 Sep, the three RSI pages with P2)");
   /* TO-DO is findable by the four symbols parked on it; SCRATCH is findable by name only,
      because its symbols live on the device and the list must never guess at them. */
   assert.deepEqual(Array.from(scenes.findPages("TRIN"), (m) => m.screen.label), ["TO-DO"]);

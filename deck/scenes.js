@@ -7,7 +7,8 @@
   const TV_IDS = ["tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras"];
   const WORKBENCH_IDS = ["oscWorkbench","history"];
   /* ── ALAN'S CHARTING WORKFLOW, read 25 Sep 2026 (K3 / SCI-K3-002) ────────────────
-     Nineteen pages in a fixed order, replacing both the old curated auto-rotation and
+     Nineteen pages in a fixed order (twenty-two since 25 Sep: an RSI page after each of
+     SPY + QQQ · DAY, OTHER INDEXES · DAY and TARGETS · DAY), replacing both the old curated auto-rotation and
      the twelve saved TradingView layouts (whose ids remain in LEGACY so a browser that
      remembered one lands on the page that now carries its names). Three slot kinds:
        · a fixed ticker list (TradingView spellings translated: DXY→DXUSD, GOLD→GCUSD,
@@ -44,9 +45,15 @@
     other3D:         Object.freeze({ label:"OTHER",               range:"3D", tickers:Object.freeze(["ORCL","SPCX","PLTR","OKLO","SHOP","USAR","HOOD","MSTR"]) }),
     blueChip3D:      Object.freeze({ label:"BLUE CHIP",           range:"3D", tickers:Object.freeze(["WMT","JPM","CAT","BAC","HD","MCD","COST","WM"]) }),
     spyQqq1D:        Object.freeze({ label:"SPY + QQQ · DAY",     short:"SPY+QQQ DAY", range:"1D", leaders:true }),
+    /* 25 Sep, Alan: "you do have the RSI." Each oscillator page follows its price twin: the same
+       names on the same daily bars, with the Lab's locked-timeframe RSI fan under every price.
+       SPY and QQQ stay SPY and QQQ after hours - the fan reads their own sessions' bars. */
+    spyQqqOsc:       Object.freeze({ label:"SPY + QQQ · RSI",     short:"SPY+QQQ RSI", range:"1D", study:"RSI", tickers:Object.freeze(["SPY","QQQ"]) }),
     otherIndexes1D:  Object.freeze({ label:"OTHER INDEXES · DAY", short:"INDEXES DAY", range:"1D", tickers:Object.freeze(["SMH","DIA","DRAM","MAGS","IWM","IGV"]) }),
+    otherIndexesOsc: Object.freeze({ label:"OTHER INDEXES · RSI", short:"INDEXES RSI", range:"1D", study:"RSI", tickers:Object.freeze(["SMH","DIA","DRAM","MAGS","IWM","IGV"]) }),
     macro1D:         Object.freeze({ label:"MACRO · DAY",         short:"MACRO DAY",   range:"1D", tickers:Object.freeze(["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]) }),
     targets1D:       Object.freeze({ label:"TARGETS · DAY",       short:"TARGETS DAY", range:"1D", targets:true }),
+    targetsOsc:      Object.freeze({ label:"TARGETS · RSI",       short:"TARGETS RSI", range:"1D", study:"RSI", targets:true }),
     macroIntraday:   Object.freeze({ label:"MACRO · 4H",          range:"4h", rotate:Object.freeze({ list:MACRO_4H, size:3 }), tail:Object.freeze(["PCC"]) }),
     intraday4h:      Object.freeze({ label:"INTRADAY · 4H",       short:"INTRA · 4H",  range:"4h", leaders:true, rotateTargets:Object.freeze({ size:4 }) }),
     intraday1h:      Object.freeze({ label:"INTRADAY · 1H",       short:"INTRA · 1H",  range:"1h", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:3 }) }),
@@ -158,7 +165,11 @@ const ROTATION_SCENES = Object.freeze(WORKFLOW_IDS.slice());
     PRICE: Object.freeze({ label:"price only", clouds:false }),
     CLOUDS: Object.freeze({ label:"cloud ribbon", clouds:true }),
     OSCILLATOR: Object.freeze({ label:"ribbon + 8D EMA + 100D SMA", clouds:true, ema8:true, sma100:true }),
-    STEPPED: Object.freeze({ label:"ribbon, stepped exactly", clouds:true, steps:true })
+    STEPPED: Object.freeze({ label:"ribbon, stepped exactly", clouds:true, steps:true }),
+    /* The RSI fan asks for the fan and nothing else: clouds:null leaves the ribbon to the wall's
+       switch, so an oscillator page never overrules what Alan set on the dock. rsi:"auto" keeps a
+       phone-narrow pane clean; a typed ?rsi= on the chart always shows. */
+    RSI: Object.freeze({ label:"RSI fan, locked timeframes", clouds:null, rsi:"auto" })
   });
   /* `bars` on a chart asks the pane for that many bars instead of the range's usual window: the
      database holds daily bars back to 2003 for the funds and further for the macro rails. */
@@ -194,7 +205,8 @@ const ROTATION_SCENES = Object.freeze(WORKFLOW_IDS.slice());
   function studyQuery(name) {
     const stack = studyStack(name);
     if (!stack) return "";
-    const parts = ["clouds=" + (stack.clouds ? "1" : "0")];
+    const parts = stack.clouds == null ? [] : ["clouds=" + (stack.clouds ? "1" : "0")];
+    if (stack.rsi) parts.push("rsi=" + encodeURIComponent(stack.rsi));
     if (stack.ema8) parts.push("ema8=1");
     if (stack.sma100) parts.push("sma100=1");
     if (stack.steps) parts.push("steps=1");
@@ -312,8 +324,11 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     /* Four-slot walls (MACRO · 4H, INTRADAY · 1H) are an honest four-up; chartCountForSize
        would retire them to two. Everything else follows the usual ladder. */
     const count = tickers.length === 4 ? 4 : chartCountForSize(tickers.length);
+    /* A page's `study` rides every slot the workbench way (SLOT_STACKS → studyQuery). */
+    const study = page.study && studyStack(page.study) ? String(page.study).toUpperCase() : "";
     return { label:page.label, tickers, chartCount:count, range:page.range,
       ranges:tickers.map(() => page.range),
+      stacks:tickers.map(() => study),
       offset:0, totalItems:tickers.length, hasPrevious:false, hasNext:false, empty:!tickers.length };
   }
   /* The jump list's answer for a workflow page is its FULL list: a rotating page reports

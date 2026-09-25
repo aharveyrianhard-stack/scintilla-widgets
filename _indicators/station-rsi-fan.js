@@ -99,7 +99,8 @@
     const line = BY_KEY[key];
     if (!line) return MIN_SOURCE;
     const sessions = Math.max(0, Number(spanMs) || 0) / DAY * (252 / 365);
-    const need = Math.ceil(sessions * line.perSession) + WARMUP + 50;
+    /* rounded before the ceiling: 365 days x 252/365 is 252.00000000000003 in floating point */
+    const need = Math.ceil(Math.round(sessions * line.perSession * 1e6) / 1e6) + WARMUP + 50;
     return Math.max(MIN_SOURCE, Math.min(MAX_SOURCE, need));
   }
 
