@@ -20,6 +20,7 @@
        · ?steps=1 (cloud ribbon drawn stepped; the default is smoothed for the eye, labels exact)
        · ?rsi=1 | ?rsi=2h,4h,1D | ?rsi=auto (the Indicator Lab's locked-timeframe RSI fan under the price)
        · ?bare=1 (pane mode — see the BARE note in the script)
+       · ?bare=hub (the Hub's company view: pane mode with its own quote heartbeat — see HUB PANE)
        · ?tvrange=1D|5D|1M|3M|6M|YTD|12M|60M|ALL (TradingView opening window)
      LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
      ============================================================================ -->
@@ -347,8 +348,18 @@ let CHART_TRANSITION_GENERATION = Math.max(0, Number(QS.get("transition")) || 0)
         changing the timeframe on one chart used to change the other — two
         same-origin iframes were writing the same scw_chartRange.
    Everything else — the canvas, the ticker field, TradingView — is identical. */
-BARE = QS.get("bare") === "1";
-const DECK_QUOTE_MODE = BARE && window.parent !== window;
+/* HUB PANE (?bare=hub, S1 25 Sep) — the Hub's company view embeds this pane from another site
+   (scintillahub.ai). The range ladder and the header strip (ticker field, clouds button,
+   TradingView) are noise there, since the Hub keeps its own timeframe row above the frame; so
+   they hide exactly as in the deck, and nothing is written to this browser's storage. But the Hub
+   is not the deck: nobody posts this pane its quotes, and a cross-site parent never hears its
+   messages. So it keeps its OWN ten-second quote heartbeat (the badge stays live and coloured),
+   and it sends nothing to its parent. Clouds, RSI and the timeframe still come from the URL
+   (?clouds= ?rsi= ?range=), which is how the Hub's timeframe row drives it. */
+const BARE_PARAM = QS.get("bare");
+const HUB_PANE = BARE_PARAM === "hub";
+BARE = BARE_PARAM === "1" || HUB_PANE;
+const DECK_QUOTE_MODE = BARE_PARAM === "1" && window.parent !== window;
 /* THE CLOUDS ARE ON UNLESS SOMEBODY TURNED THEM OFF. The Station dock owns the switch
    for the whole wall and writes it here; a pane inside the deck reads the same key at
    boot so a freshly mounted chart never flashes the wrong state. ?clouds=0 is a
@@ -385,6 +396,7 @@ const S = {
   chartRange: (function(){ const r = QS.get("range"); return CHART_RANGES.includes(r) ? r : "3h"; })(),
 };
 if (BARE) document.documentElement.classList.add("bare");
+if (HUB_PANE) document.documentElement.classList.add("hub-pane");
 let prevClose = {};
 let liveQuote = {};
 
@@ -1587,7 +1599,7 @@ function chartView(host, pts) {
 }
 
 function broadcastChartView(host) {
-  if (!BARE || window.parent === window || host._broadcastQueued) return;
+  if (!BARE || HUB_PANE || window.parent === window || host._broadcastQueued) return;
   host._broadcastQueued = true;
   requestAnimationFrame(() => {
     host._broadcastQueued = false;
@@ -1965,8 +1977,9 @@ function ensureLiveParts(badge, host) {
     ticker = document.createElement("button");
     ticker.type = "button";
     ticker.className = "sc-nchart__live-ticker";
-    ticker.title = "Edit ticker";
-    ticker.addEventListener("click", () => {
+    /* in the Hub the symbol belongs to the company view, so the badge is not an editor there */
+    ticker.title = HUB_PANE ? "" : "Edit ticker";
+    if (!HUB_PANE) ticker.addEventListener("click", () => {
       try { parent.postMessage({ sc:"chart-focus-ticker" }, location.origin); } catch (_) {}
     });
     change = document.createElement("span");
@@ -2310,7 +2323,8 @@ function paintChartHistoryWindow(host) {
     : "history loading";
 }
 function acquireChartLoadPermit(host, req, generation) {
-  if (window.parent === window) return Promise.resolve(() => {});
+  /* A Hub pane has no deck to grant loads: asking would only wait out the 5.5 s escape hatch. */
+  if (window.parent === window || HUB_PANE) return Promise.resolve(() => {});
   const token = "chart-load-" + (++chartLoadToken);
   return new Promise((resolve) => {
     const timer = setTimeout(() => {

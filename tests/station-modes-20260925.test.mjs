@@ -285,11 +285,15 @@ test("SAVE AS RADAR sits beside SAVE AS TARGETS on SCRATCH alone, and ADDS to li
   assert.match(deck, /saveR\.hidden = SCENE !== "scratch";/);
   const calls = [];
   const button = { textContent: "save as radar" };
+  const read = async (path) => { calls.push({ op:"read", path }); return [{ position:1, ticker:"MU" }, { position:2, ticker:"AAPL" }]; };
+  const write = async (path, body) => { calls.push({ op:"write", path, body }); };
+  /* S1 (25 Sep): the saved names are also liked, so the button's receipt has a second half */
+  const likeNamesOnHub = functionFromDeck("likeNamesOnHub", { CLEAN, Array, pg: read, pgWrite: write,
+    HUB_LIKED_OWNER:"00000000-0000-0000-0000-000000000000", hubLikeDoor: async () => { throw new Error("not reached"); } });
   const save = functionFromDeck("saveScratchRadar", {
     CHARTS: ["CDNS", "", "NVDA", "MU", "CDNS", "", "", ""], CLEAN, el: () => button,
     SAVE_RADAR_REVERT: null, setTimeout: () => 0, clearTimeout: () => {}, Array, Set, Math, Number, Date,
-    pg: async (path) => { calls.push({ op:"read", path }); return [{ position:1, ticker:"MU" }, { position:2, ticker:"AAPL" }]; },
-    pgWrite: async (path, body) => { calls.push({ op:"write", path, body }); }
+    pg: read, pgWrite: write, likeNamesOnHub, likeReceipt: functionFromDeck("likeReceipt", {})
   });
   await save();
   assert.equal(calls[0].path, "station_lists?select=position,ticker&list=eq.radar&order=position.asc");
@@ -297,7 +301,7 @@ test("SAVE AS RADAR sits beside SAVE AS TARGETS on SCRATCH alone, and ADDS to li
   assert.deepEqual(calls[1].body.map((r) => [r.list, r.position, r.ticker]), [["radar",3,"CDNS"],["radar",4,"NVDA"]],
     "new names follow the last position; MU was already on it; CDNS once");
   assert.ok(!calls.some((c) => c.op === "delete"), "nothing on RADAR is ever removed from here");
-  assert.equal(button.textContent, "radar +2 · 4 names");
+  assert.equal(button.textContent, "radar +2 · 4 names · liked +2");
 });
 
 test("SAVE AS TARGETS and COPY LAYOUT still work as before", () => {
