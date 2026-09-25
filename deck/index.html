@@ -950,6 +950,7 @@ function initialWorkspaceChart(incoming, stored, index, directCustom) {
    timeframe. Both are page DATA, parallel to CHARTS, and both are empty on every
    other page — so nothing about the ordinary wall changes. */
 const SLOT_STACKS = Array.from({ length: 8 }, () => "");
+const SLOT_BARS = Array.from({ length: 8 }, () => 0);   /* a per-slot bars request (HISTORY page); 0 = the range's usual window */
 const SLOT_RANGES = Array.from({ length: 8 }, () => "");
 const CHARTS = Array.from({ length: 8 }, (_, i) => {
   const incoming = URL_STATEFUL ? QS.get("c" + (i + 1)) : "";
@@ -2554,6 +2555,8 @@ function installSceneState(state) {
   const stacks = state.stacks || [], ranges = state.ranges || [];
   SLOT_STACKS.forEach((_, i) => { SLOT_STACKS[i] = String(stacks[i] || ""); });
   SLOT_RANGES.forEach((_, i) => { SLOT_RANGES[i] = RANGES.includes(ranges[i]) ? ranges[i] : ""; });
+  const bars = state.bars || [];
+  SLOT_BARS.forEach((_, i) => { SLOT_BARS[i] = Number(bars[i]) > 0 ? Math.min(8000, Math.floor(Number(bars[i]))) : 0; });
   CHART_COUNT = (SCENE === "custom" ? customChartCount : sceneChartCount)(
     state.chartCount || SceneModel.chartCountForSize(charts.length), SCENE,
     SCENE === "indexNow" || SCENE === "cohort" || SCENE === "scintillas" || SceneModel.WORKFLOW_IDS.includes(SCENE)
@@ -2960,10 +2963,10 @@ const videoShellFor = (account) => VIDEO_SHELL_BY_ACCOUNT[account] || STATION_SH
    switch keeps working by message, without reloading a frame. */
 function paneChartSrc(t, index, transitionGeneration) {
   const src = chartSrc(t, index, transitionGeneration);
-  const stack = SLOT_STACKS[index], range = SLOT_RANGES[index];
-  if (!stack && !range) return src;
+  const stack = SLOT_STACKS[index], range = SLOT_RANGES[index], bars = SLOT_BARS[index];
+  if (!stack && !range && !bars) return src;
   return src.replace("&range=" + encodeURIComponent(RANGE),
-    "&range=" + encodeURIComponent(range || RANGE)) + SceneModel.studyQuery(stack);
+    "&range=" + encodeURIComponent(range || RANGE)) + SceneModel.studyQuery(stack) + (bars ? "&bars=" + bars : "");
 }
 function chartSrc(t, index, transitionGeneration) {
   return STATION_SHELL.chart + "?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +

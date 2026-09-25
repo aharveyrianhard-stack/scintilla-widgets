@@ -426,6 +426,9 @@ const chartLoadPermits = new Map();
    provisional row when the existing history source provides one. */
 const CHART_DB_RANGE = {"15m":["15",240],"30m":["30",240],"1h":["60",240],"2h":["120",240],"3h":["180",240],"4h":["240",240],"6h":["6h",240],"12h":["12h",240],"1D":["D",240],"3D":["3D",240],"1W":["W",157]};
 const chartInitialLimit = (range) => (CHART_DB_RANGE[range] || CHART_DB_RANGE["1D"])[1];
+/* 25 Sep (Alan): "going back as far as we have on the database". ?bars=N asks for N bars instead of
+   the range's usual window; the provider serves daily bars back to 2003 for the funds. */
+const chartBarsOverride = () => { const n = Math.floor(+QS.get("bars") || 0); return n > 0 ? Math.min(8000, n) : 0; };
 const chartTail = (pts, limit) => pts.length > limit ? pts.slice(-limit) : pts;
 /* WHAT ONE BAR ON THIS CHART ACTUALLY IS - and where TradingView cuts the same bar.
    MEASURED against the live chart API on 2026-09-24 (SPY, QQQ, XLF, NVDA at tf 15/60/120/180/240/D):
@@ -785,7 +788,18 @@ async function fetchChartSeries(t, range, requestedLimit){
    ribbon; the price chart is untouched and says nothing about clouds.
    ============================================================================ */
 const CLOUD_DAILY_TF = "D";
-const CLOUD_DAILY_LIMIT = 400;          /* the provider's own ceiling; 200D needs 200 of them */
+const CLOUD_DAILY_LIMIT = 400;          /* the floor: 200D needs 200 of them plus a window to draw them on */
+/* 25 Sep (Alan: "you guys have some lookback limit on the clouds, I don't like it - we have a
+   database that goes super long"). The ribbon's daily series now covers the bars on the page plus
+   the 200-day warm-up: a weekly page asks for about 1,000 daily bars, a 3D page 930, the HISTORY
+   page 6,210. The database serves daily bars back to 2003, so the ribbon no longer starts late. */
+const CLOUD_DAYS_PER_BAR = { "15m":1/26, "30m":1/13, "1h":1/6.5, "2h":1/3.25, "3h":0.5, "4h":0.6, "6h":1, "12h":1, "1D":1, "3D":3, "1W":5 };
+const CLOUD_DAILY_MAX = 6500;
+function cloudDailyNeed(range, limit) {
+  const per = CLOUD_DAYS_PER_BAR[range] || 1;
+  const bars = Number(limit) > 0 ? Number(limit) : chartInitialLimit(range);
+  return Math.max(CLOUD_DAILY_LIMIT, Math.min(CLOUD_DAILY_MAX, Math.ceil(bars * per) + 210));
+}
 const CLOUD_DAILY_ENOUGH = 220;         /* below this a cached copy is re-read rather than trusted */
 const CLOUD_REFRESH_MS = 1800000;       /* 30 minutes: completed daily bars do not move intraday */
 const cloudDailyCache = new Map();
@@ -796,7 +810,7 @@ function cloudDailyCached(t) {
   if (hit && hit.pts && hit.pts.length >= 2) return hit;
   const env = cacheGet(cloudCacheKey(t));
   if (env && Array.isArray(env.pts) && env.pts.length >= 2) {
-    const entry = { ts:env.ts || 0, pts:env.pts };
+    const entry = { ts:env.ts || 0, pts:env.pts, asked:Number(env.asked) || env.pts.length };
     cloudDailyCache.set(t, entry);
     return entry;
   }
@@ -804,8 +818,11 @@ function cloudDailyCached(t) {
 }
 /* A full local store is not a reason to stop drawing: drop the oldest ribbon caches
    (nothing but a copy of provider candles) and write once more. */
-function cloudDailyStore(t, pts) {
-  const payload = JSON.stringify({ ts:Date.now(), pts });
+function cloudDailyStore(t, pts, asked) {
+  /* the browser copy keeps the newest 1,500 days: enough for every rotation page; the HISTORY
+     page re-reads its 6,000 from the provider, which is cheap and never squeezes the store */
+  const kept = pts.length > 1500 ? pts.slice(-1500) : pts;
+  const payload = JSON.stringify({ ts:Date.now(), pts:kept, asked:kept.length === pts.length ? (asked || pts.length) : kept.length });
   try { localStorage.setItem(cloudCacheKey(t), payload); return; } catch (_) {}
   try {
     const mine = cloudCacheKey(t);
@@ -815,23 +832,25 @@ function cloudDailyStore(t, pts) {
     localStorage.setItem(mine, payload);
   } catch (_) {}
 }
-async function fetchCloudDaily(t) {
-  if (cloudDailyInflight.has(t)) return cloudDailyInflight.get(t);
+async function fetchCloudDaily(t, need) {
+  const asked = Math.max(CLOUD_DAILY_LIMIT, Math.min(CLOUD_DAILY_MAX, Number(need) || CLOUD_DAILY_LIMIT));
+  const key = t + "|" + asked;
+  if (cloudDailyInflight.has(key)) return cloudDailyInflight.get(key);
   const work = (async () => {
-    const rows = await fetchProviderCandles(t, CLOUD_DAILY_TF, CLOUD_DAILY_LIMIT, 2);
+    const rows = await fetchProviderCandles(t, CLOUD_DAILY_TF, asked, 2);
     const pts = (Array.isArray(rows) ? rows : [])
       .map((r) => ({ d:new Date(r.timestamp * 1000).toISOString(), p:+r.close }))
       .filter((q) => isFinite(q.p) && q.p > 0)
       .sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
     if (pts.length < 2) throw new Error("insufficient daily history for the cloud ribbon (" + pts.length + ")");
-    const entry = { ts:Date.now(), pts };
+    const entry = { ts:Date.now(), pts, asked };
     cloudDailyCache.set(t, entry);
-    cloudDailyStore(t, pts);
+    cloudDailyStore(t, pts, asked);
     return entry;
   })();
-  cloudDailyInflight.set(t, work);
+  cloudDailyInflight.set(key, work);
   try { return await work; }
-  finally { if (cloudDailyInflight.get(t) === work) cloudDailyInflight.delete(t); }
+  finally { if (cloudDailyInflight.get(key) === work) cloudDailyInflight.delete(key); }
 }
 function applyCloudRows(host, t, pts) {
   if (!window.SC_CLOUDS || host.dataset.t !== t) return false;
@@ -850,14 +869,16 @@ async function ensureCloudDaily(host, t, req, generation) {
   if (!CLOUDS_ON || !window.SC_CLOUDS || !host || !host.isConnected) return;
   const entry = paintCloudsFromCache(host, t);
   if (entry && host._cloudRows) scChartDraw(host);
-  if (entry && entry.pts.length >= CLOUD_DAILY_ENOUGH && Date.now() - (entry.ts || 0) < CLOUD_REFRESH_MS) return;
+  const need = cloudDailyNeed(host._range || S.chartRange, host._historyLimit);
+  const covers = entry && (entry.pts.length >= need || (entry.asked || 0) >= need);
+  if (entry && covers && entry.pts.length >= CLOUD_DAILY_ENOUGH && Date.now() - (entry.ts || 0) < CLOUD_REFRESH_MS) return;
   if (host._cloudPending === t) return;
   host._cloudPending = t;
   let release = null;
   try {
     release = await acquireChartLoadPermit(host, req + "|clouds", generation);
     if (!host.isConnected || host.dataset.t !== t) return;
-    const fresh = await fetchCloudDaily(t);
+    const fresh = await fetchCloudDaily(t, need);
     if (!host.isConnected || host.dataset.t !== t) return;
     host._cloudAbsence = null;
     if (applyCloudRows(host, t, fresh.pts)) scChartDraw(host);
@@ -2181,7 +2202,7 @@ async function scChartLoad(host) {
   if (host._req !== req) {
     host._view = null;
     host._followLatest = true;
-    host._historyLimit = chartInitialLimit(range);
+    host._historyLimit = chartBarsOverride() || chartInitialLimit(range);
   }
   host._req = req; host._range = range;
   const msg = host.querySelector(".sc-nchart__msg");

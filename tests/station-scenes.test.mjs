@@ -59,7 +59,7 @@ test("all named scenes are present, with Alan's 25 Sep workflow leading the id l
   assert.deepEqual(Array.from(scenes.IDS), ["live",
     "wkIndexes","wkMacro","targets3D","sectors3D","mainIndexes3D","mag7","ai1","ai2","ai3","other3D","blueChip3D",
     "spyQqq1D","otherIndexes1D","macro1D","targets1D","macroIntraday","intraday4h","intraday1h","intraday30m",
-    "scintillas","oscWorkbench",
+    "scintillas","oscWorkbench","history",
     "indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies",
     "todo","scratch","cohort","custom"]);
   assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY","QQQ","DIA","IWM","MAGS","SMH"]);
@@ -195,7 +195,7 @@ test("the arrows walk every page while rotation keeps to Alan's nineteen-page wo
     "wkIndexes","wkMacro","targets3D","sectors3D","mainIndexes3D","mag7","ai1","ai2","ai3","other3D","blueChip3D",
     "spyQqq1D","otherIndexes1D","macro1D","targets1D","macroIntraday","intraday4h","intraday1h","intraday30m"],
     "the rotation is the workflow, in the workflow's order");
-  assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T13:30:00Z").scene, "wkIndexes",
+  assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T13:30:00Z").scene, "targets3D",
     "rotation wraps inside the workflow (13:30 UTC is 09:30 ET, the regular session)");
   assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T20:30:00Z").scene, "wkIndexes",
     "after hours the intraday pages are out, and the fifteenth page wraps to the first");
@@ -206,7 +206,7 @@ test("the arrows walk every page while rotation keeps to Alan's nineteen-page wo
   assert.equal(scenes.nextScreen("intraday30m").scene, "scintillas",
     "the arrows continue past the workflow into SCINTILLAS");
   assert.equal(scenes.nextScreen("scintillas").scene, "oscWorkbench");
-  assert.equal(scenes.nextScreen("oscWorkbench").scene, "indexNow",
+  assert.equal(scenes.nextScreen("oscWorkbench").scene, "history",
     "the eight old curated pages follow the workbench");
   assert.equal(scenes.nextScreen("themeFamilies").scene, "todo",
     "the old curated pages are followed by TO-DO, not the retired tv layouts");
@@ -216,7 +216,7 @@ test("the arrows walk every page while rotation keeps to Alan's nineteen-page wo
   assert.equal(scenes.nextScreen("scratch").scene, "wkIndexes", "the last page wraps to the first");
   assert.equal(scenes.previousScreen("live").scene, "scratch");
   for (const page of ["scintillas", "todo", "scratch"])
-    assert.equal(scenes.nextRotatingScreenAt(page, "2026-09-23T13:30:00Z").scene, "wkIndexes",
+    assert.equal(scenes.nextRotatingScreenAt(page, "2026-09-23T13:30:00Z").scene, "targets3D",
       "rotation never wanders onto a page you go to");
   assert.equal(scenes.nextScreen("internalsFast").scene, "sectorFamilies",
     "INTERNALS SLOW no longer sits between them");

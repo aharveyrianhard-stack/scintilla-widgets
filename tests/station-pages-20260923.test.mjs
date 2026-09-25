@@ -60,15 +60,16 @@ test("every retired TradingView-copy page lands on the workflow page that carrie
   for (const [id, label, rows] of [
     ["mag7", "MAG 7", ["MAGS","MSFT","NVDA","AMZN","AAPL","META","GOOGL","TSLA"]],
     ["macro1D", "MACRO · DAY", ["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]],
-    ["sectors3D", "SECTORS", ["XLK","XLI","XLC","XLF","XLY","XLE"]],
     ["blueChip3D", "BLUE CHIP", ["WMT","JPM","CAT","BAC","HD","MCD","COST","WM"]]
   ]) {
     assert.deepEqual(Array.from(scenes.WORKFLOW_PAGES[id].tickers), rows, `${label} keeps Alan's rows, in order`);
     assert.equal(scenes.screenForScene(id).label, label);
     assert.match(deck, new RegExp(`<option value="${id}">`), `${label} is in the scene menu`);
   }
-  assert.equal(scenes.SCREENS.length, 31,
-    "nineteen workflow pages, SCINTILLAS, one workbench, eight old curated pages (menu only), TO-DO and SCRATCH");
+  assert.deepEqual(Array.from(scenes.WORKFLOW_PAGES.sectors3D.rotate.list.slice(0, 6)), ["XLK","XLI","XLC","XLF","XLY","XLE"],
+    "SECTORS leads with Alan's six; the other five State Street sectors follow on the next lap (25 Sep)");
+  assert.equal(scenes.SCREENS.length, 32,
+    "nineteen workflow pages, SCINTILLAS, the workbench, HISTORY (25 Sep), eight old curated pages (menu only), TO-DO and SCRATCH");
 });
 
 test("a saved layout is a picture, not a basket: five rows stay five rows in a six-up wall", () => {
@@ -126,7 +127,9 @@ test("a workbench slot carries its stack in its own URL; every other page's URL 
     RANGE: "1D", VIEW: "desk", CHART_COUNT: 2, CHARTS: ["MU", "QQQ"], encodeURIComponent,
     STATION_SHELL: { chart:"/station-shells/chart-v1" },
     SceneModel: scenes, SLOT_STACKS: ["OSCILLATOR", "OSCILLATOR", "", "", "", "", "", ""],
-    SLOT_RANGES: ["", "1W", "", "", "", "", "", ""]
+    SLOT_RANGES: ["", "1W", "", "", "", "", "", ""],
+    /* 25 Sep: a slot may also ask for a number of bars (the HISTORY page asks for 6,000 daily) */
+    SLOT_BARS: [0, 0, 6000, 0, 0, 0, 0, 0]
   };
   bindings.chartSrc = functionFromDeck("chartSrc", bindings);
   const paneChartSrc = functionFromDeck("paneChartSrc", bindings);
@@ -134,7 +137,9 @@ test("a workbench slot carries its stack in its own URL; every other page's URL 
   assert.match(paneChartSrc("MU", 0), /&clouds=1&ema8=1&sma100=1$/, "the declared stack is on the URL");
   assert.match(paneChartSrc("MU", 0), /range=1D/, "no per-chart timeframe: the wall's");
   assert.match(paneChartSrc("QQQ", 1), /range=1W/, "a per-chart timeframe wins for that slot only");
-  const plain = { ...bindings, SLOT_STACKS: ["", "", "", "", "", "", "", ""], SLOT_RANGES: ["", "", "", "", "", "", "", ""] };
+  assert.match(paneChartSrc("SPY", 2), /&bars=6000$/, "a bars request rides on the slot's own URL (HISTORY, 25 Sep)");
+  assert.doesNotMatch(paneChartSrc("MU", 0), /bars=/, "and never on a slot that did not ask");
+  const plain = { ...bindings, SLOT_STACKS: ["", "", "", "", "", "", "", ""], SLOT_RANGES: ["", "", "", "", "", "", "", ""], SLOT_BARS: [0, 0, 0, 0, 0, 0, 0, 0] };
   plain.chartSrc = functionFromDeck("chartSrc", plain);
   const plainPane = functionFromDeck("paneChartSrc", plain);
   assert.equal(plainPane("MU", 0), plain.chartSrc("MU", 0),
@@ -211,7 +216,7 @@ test("the jump list finds a page by its name or by a ticker on it — PCC in one
     ["MACRO · WEEK", "MACRO · DAY", "MACRO · 4H", "MACRO CROSS-ASSET"], "every macro page, workflow first");
   assert.deepEqual(Array.from(scenes.findPages("XLK"), (m) => m.screen.label), ["SECTORS", "SECTOR FAMILIES"],
     "a ticker on two pages offers both, rather than silently picking one");
-  assert.equal(scenes.findPages("").length, 31, "an empty box offers every page");
+  assert.equal(scenes.findPages("").length, 32, "an empty box offers every page (HISTORY joined on 25 Sep)");
   /* TO-DO is findable by the four symbols parked on it; SCRATCH is findable by name only,
      because its symbols live on the device and the list must never guess at them. */
   assert.deepEqual(Array.from(scenes.findPages("TRIN"), (m) => m.screen.label), ["TO-DO"]);

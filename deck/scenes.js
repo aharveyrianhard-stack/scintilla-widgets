@@ -5,7 +5,7 @@
      COHORT'S rows, replacing the favorites rows — it may not be collapsed into a family
      preset, and it may not be filtered down to whichever members happen to be favorited. */
   const TV_IDS = ["tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras"];
-  const WORKBENCH_IDS = ["oscWorkbench"];
+  const WORKBENCH_IDS = ["oscWorkbench","history"];
   /* ── ALAN'S CHARTING WORKFLOW, read 25 Sep 2026 (K3 / SCI-K3-002) ────────────────
      Nineteen pages in a fixed order, replacing both the old curated auto-rotation and
      the twelve saved TradingView layouts (whose ids remain in LEGACY so a browser that
@@ -27,12 +27,20 @@
     wkIndexes:       Object.freeze({ label:"INDEXES · WEEK",      short:"INDEXES WK",  range:"1W", tickers:Object.freeze(["SPY","DIA","QQQ","MAGS","SMH","IWM","DRAM","IGV"]) }),
     wkMacro:         Object.freeze({ label:"MACRO · WEEK",        short:"MACRO WK",    range:"1W", tickers:Object.freeze(["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]) }),
     targets3D:       Object.freeze({ label:"TARGETS",             range:"3D", targets:true }),
-    sectors3D:       Object.freeze({ label:"SECTORS",             range:"3D", tickers:Object.freeze(["XLK","XLI","XLC","XLF","XLY","XLE"]) }),
+    /* 25 Sep, Alan: "the sectors one - I put the main sectors… a bit of a rotation in that layout
+       would be nice, more than another page… between full laps." His six lead; the other five
+       State Street sectors follow on the next lap through the same six slots. */
+    sectors3D:       Object.freeze({ label:"SECTORS",             range:"3D", rotate:Object.freeze({ list:Object.freeze(["XLK","XLI","XLC","XLF","XLY","XLE","XLP","XLV","XLU","XLRE","XLB"]), size:6 }) }),
     mainIndexes3D:   Object.freeze({ label:"SPY + QQQ",           range:"3D", leaders:true }),
     mag7:            Object.freeze({ label:"MAG 7",               range:"3D", tickers:Object.freeze(["MAGS","MSFT","NVDA","AMZN","AAPL","META","GOOGL","TSLA"]) }),
-    ai1:             Object.freeze({ label:"AI 1 · CORE",         range:"3D", tickers:Object.freeze(["TSM","ASML","AVGO","AMD","MU","NBIS","SNDK","IREN"]) }),
-    ai2:             Object.freeze({ label:"AI 2",                range:"3D", tickers:Object.freeze(["MRVL","NVTS","AMAT","ALAB","SMCI","CRDO","CRWV","WULF"]) }),
-    ai3:             Object.freeze({ label:"AI 3",                range:"3D", tickers:Object.freeze(["ARM","SOXX","WULF","HUT","CIFR","CRDO","SIMO","CDNS"]) }),
+    /* 25 Sep, Alan on the AI pages: "don't go by the names of the layouts, I made a mega mess…
+       WULF and CRDO don't need to be twice; NBIS and IREN need to be somewhere permanent…
+       OK I like your split" - so three branches of the tree, no name twice, LRCX and WDC in:
+       chips & equipment · memory, racks & optics · power & neoclouds. SOXX (a fund) and
+       CDNS (design software) fell out; NBIS and IREN are permanent on AI 3. */
+    ai1:             Object.freeze({ label:"AI 1 · CHIPS",        short:"AI 1 CHIPS", range:"3D", tickers:Object.freeze(["TSM","ASML","AVGO","AMD","MU","AMAT","LRCX","ARM"]) }),
+    ai2:             Object.freeze({ label:"AI 2 · MEMORY, RACKS", short:"AI 2 RACKS", range:"3D", tickers:Object.freeze(["SNDK","WDC","MRVL","ALAB","CRDO","SMCI","SIMO","NVTS"]) }),
+    ai3:             Object.freeze({ label:"AI 3 · POWER, CLOUDS", short:"AI 3 POWER", range:"3D", tickers:Object.freeze(["NBIS","CRWV","IREN","CIFR","WULF","HUT","OKLO","BE"]) }),
     other3D:         Object.freeze({ label:"OTHER",               range:"3D", tickers:Object.freeze(["ORCL","SPCX","PLTR","OKLO","SHOP","USAR","HOOD","MSTR"]) }),
     blueChip3D:      Object.freeze({ label:"BLUE CHIP",           range:"3D", tickers:Object.freeze(["WMT","JPM","CAT","BAC","HD","MCD","COST","WM"]) }),
     spyQqq1D:        Object.freeze({ label:"SPY + QQQ · DAY",     short:"SPY+QQQ DAY", range:"1D", leaders:true }),
@@ -48,6 +56,10 @@
   /* The intraday four (workflow pages 16–19) leave the rotation outside the regular
      New York session; the other fifteen rotate around the clock. */
   const AFTER_HOURS_PAGES = Object.freeze(["macroIntraday","intraday4h","intraday1h","intraday30m"]);
+  /* 25 Sep, Alan: "maybe shifting the weekly views to the post-market view completely, to even the
+     modes out." So the two weekly pages rotate only outside the session, the four intraday pages
+     only inside it: 17 pages in the session, 15 after hours. Every page stays in the menu. */
+  const WEEKLY_PAGES = Object.freeze(["wkIndexes","wkMacro"]);
   const OLD_CURATED_IDS = ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies"];
   const IDS = ["live"].concat(WORKFLOW_IDS, ["scintillas"], WORKBENCH_IDS, OLD_CURATED_IDS, ["todo","scratch","cohort","custom"]);
   /* Every curated named scene is independently navigable.  LIVE and CUSTOM
@@ -64,6 +76,9 @@
     .concat([
       Object.freeze({ id:"scintillas", scene:"scintillas", label:"SCINTILLAS" }),
       Object.freeze({ id:"oscWorkbench", scene:"oscWorkbench", label:"WORKBENCH" }),
+      /* 25 Sep, Alan: "a Station chart of Nasdaq, QQQ, DIA and the main macro things we track - gold,
+         treasuries - going back as far as we have on the database, on daily periods." */
+      Object.freeze({ id:"history", scene:"history", label:"HISTORY · ALL DAILY", short:"HISTORY" }),
       Object.freeze({ id:"indexNow", scene:"indexNow", label:"INDEX NOW" , short:"INDEX NOW"}),
       Object.freeze({ id:"indexLeadership", scene:"indexLeadership", label:"INDEX LEADERSHIP" , short:"INDEX LEAD"}),
       Object.freeze({ id:"companyLeadership", scene:"companyLeadership", label:"COMPANY LEADERSHIP" , short:"COMPANY LD"}),
@@ -145,7 +160,22 @@ const ROTATION_SCENES = Object.freeze(WORKFLOW_IDS.slice());
     OSCILLATOR: Object.freeze({ label:"ribbon + 8D EMA + 100D SMA", clouds:true, ema8:true, sma100:true }),
     STEPPED: Object.freeze({ label:"ribbon, stepped exactly", clouds:true, steps:true })
   });
+  /* `bars` on a chart asks the pane for that many bars instead of the range's usual window: the
+     database holds daily bars back to 2003 for the funds and further for the macro rails. */
+  const HISTORY_BARS = 6000;
   const WORKBENCHES = Object.freeze({
+    history: Object.freeze({
+      label: "HISTORY · ALL DAILY",
+      range: "1D",
+      charts: Object.freeze([
+        Object.freeze({ ticker:"QQQ", stack:"CLOUDS", bars:HISTORY_BARS }),
+        Object.freeze({ ticker:"DIA", stack:"CLOUDS", bars:HISTORY_BARS }),
+        Object.freeze({ ticker:"SPY", stack:"CLOUDS", bars:HISTORY_BARS }),
+        Object.freeze({ ticker:"GCUSD", stack:"CLOUDS", bars:HISTORY_BARS }),
+        Object.freeze({ ticker:"US10Y", stack:"CLOUDS", bars:HISTORY_BARS }),
+        Object.freeze({ ticker:"CLUSD", stack:"CLOUDS", bars:HISTORY_BARS })
+      ])
+    }),
     oscWorkbench: Object.freeze({
       label: "OSCILLATOR WORKBENCH",
       range: "1D",
@@ -182,6 +212,7 @@ const ROTATION_SCENES = Object.freeze(WORKFLOW_IDS.slice());
       /* A per-chart timeframe is an OPT-IN override: absent, the pane follows the one
          timeframe bar that drives the whole wall, exactly like every other page. */
       ranges: charts.map((c) => c.range || null),
+      bars: charts.map((c) => (Number(c.bars) > 0 ? Math.min(8000, Math.floor(Number(c.bars))) : null)),
       chartCount: chartCountForSize(charts.length),
       range: bench.range || "1D",
       offset: 0, totalItems: charts.length, hasPrevious: false, hasNext: false, empty: !charts.length
@@ -250,7 +281,7 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
      reload: the deck re-asks this on every advance. */
   function rotationScenesAt(at) {
     return stationSession(at) === "regular"
-      ? WORKFLOW_IDS.slice()
+      ? WORKFLOW_IDS.filter((id) => !WEEKLY_PAGES.includes(id))
       : WORKFLOW_IDS.filter((id) => !AFTER_HOURS_PAGES.includes(id));
   }
   /* A WORKFLOW PAGE'S CHARTS AT ONE MOMENT. opts: { visit, targets, at }. TARGETS slots

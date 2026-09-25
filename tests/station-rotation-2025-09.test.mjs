@@ -31,7 +31,7 @@ test("the rotation is the nineteen workflow pages, in Alan's order", () => {
   assert.deepEqual(arr(scenes.SCREENS.slice(0, 19)).map((s) => s.scene), WORKFLOW_ORDER,
     "and they are the first nineteen entries of SCREENS");
   assert.deepEqual(arr(scenes.SCREENS.slice(19)).map((s) => s.scene),
-    ["scintillas","oscWorkbench","indexNow","indexLeadership","companyLeadership","focus2",
+    ["scintillas","oscWorkbench","history","indexNow","indexLeadership","companyLeadership","focus2",
      "macroCrossAsset","internalsFast","sectorFamilies","themeFamilies","todo","scratch"],
     "then SCINTILLAS, WORKBENCH, the eight old curated pages, TO-DO and SCRATCH last");
 });
@@ -82,7 +82,9 @@ test("LEADERS are SPY/QQQ in the regular session and ES/NQ after hours", () => {
 });
 
 test("the rotation loses the four intraday pages after hours, and gains them back", () => {
-  assert.equal(scenes.rotationScenesAt(WED("14:00:00")).length, 19);
+  /* 25 Sep, Alan: the weekly pages belong to the after-hours lap, so the session lap is seventeen. */
+  assert.equal(scenes.rotationScenesAt(WED("14:00:00")).length, 17);
+  assert.equal(scenes.rotationScenesAt(WED("14:00:00")).includes("wkIndexes"), false, "no weekly page inside the session");
   const after = arr(scenes.rotationScenesAt(WED("21:00:00")));
   assert.equal(after.length, 15, "after hours: the same order without pages 16–19");
   assert.deepEqual(after, WORKFLOW_ORDER.slice(0, 15));
