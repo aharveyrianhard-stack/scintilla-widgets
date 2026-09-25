@@ -37,73 +37,97 @@ function arrowFromDeck(name, bindings = {}) {
 }
 const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
 
-/* ── 1 · FOUR SESSIONS ─────────────────────────────────────────────────────────────── */
+/* ── 1 · TWO SESSIONS ─────────────────────────────────────────────────────────────── */
 /* 23 Sep 2026 is a Wednesday in EDT (UTC-4); 2 Dec 2026 is a Wednesday in EST (UTC-5). */
 const EDT = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return new Date(Date.UTC(2026, 8, 23, h + 4, m)); };
 const EST = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return new Date(Date.UTC(2026, 11, 2, h + 5, m)); };
 
-test("stationSession changes at exactly 04:00, 09:30, 16:30 and 20:00 New York, both sides of each minute", () => {
+test("stationSession is DAY from 04:00 to 17:59 New York on a weekday and NIGHT otherwise, both sides of each minute", () => {
   for (const at of [EDT, EST]) {
     const zone = at === EDT ? "EDT" : "EST";
     const expect = [
-      ["00:00","overnight"],["03:59","overnight"],["04:00","premarket"],["09:29","premarket"],
-      ["09:30","market"],["16:29","market"],["16:30","after"],["19:59","after"],["20:00","overnight"],["23:59","overnight"]];
+      ["00:00","night"],["03:59","night"],["04:00","day"],["09:29","day"],["09:30","day"],
+      ["16:29","day"],["16:30","day"],["17:59","day"],["18:00","night"],["23:59","night"]];
     for (const [hhmm, session] of expect)
       assert.equal(scenes.stationSession(at(hhmm)), session, `${hhmm} ${zone} is ${session}`);
   }
 });
 
-test("Saturday and Sunday are overnight all day, and Monday's pre-market starts at 04:00", () => {
+test("Saturday and Sunday are NIGHT all day, and Monday's day starts at 04:00", () => {
   for (const utc of ["2026-09-26T04:00:00Z","2026-09-26T14:00:00Z","2026-09-26T20:30:00Z","2026-09-27T13:30:00Z","2026-09-27T23:59:00Z"])
-    assert.equal(scenes.stationSession(utc), "overnight", utc + " (a weekend) is overnight");
-  assert.equal(scenes.stationSession("2026-09-26T00:30:00Z"), "overnight", "Friday 20:30 ET is overnight");
-  assert.equal(scenes.stationSession("2026-09-28T07:59:00Z"), "overnight", "Monday 03:59 ET is still overnight");
-  assert.equal(scenes.stationSession("2026-09-28T08:00:00Z"), "premarket", "Monday 04:00 ET opens the pre-market");
-  assert.equal(scenes.stationSession("not a date"), "market", "an unreadable clock never empties the wall");
+    assert.equal(scenes.stationSession(utc), "night", utc + " (a weekend) is night");
+  assert.equal(scenes.stationSession("2026-09-25T22:30:00Z"), "night", "Friday 18:30 ET is night");
+  assert.equal(scenes.stationSession("2026-09-28T07:59:00Z"), "night", "Monday 03:59 ET is still night");
+  assert.equal(scenes.stationSession("2026-09-28T08:00:00Z"), "day", "Monday 04:00 ET opens the day");
+  assert.equal(scenes.stationSession("not a date"), "day", "an unreadable clock never empties the wall");
 });
 
-test("each session rotates exactly the pages the brief names, and every page stays in the menu", () => {
+test("by day every page rotates and the intraday four come round twice; by night they are out and the weeklies stay", () => {
   const weekly = ["wkIndexes","wkMacro"];
   const intraday = ["macroIntraday","intraday4h","intraday1h","intraday30m"];
-  const daily3d = scenes.WORKFLOW_IDS.filter((id) => !weekly.includes(id) && !intraday.includes(id));
-  assert.equal(daily3d.length, 13, "the 3-day and daily pages");
-  const overnight = arr(scenes.rotationScenesFor("overnight"));
-  assert.deepEqual(overnight, weekly.concat(arr(daily3d)), "overnight: the two weekly pages + the 3-day + the daily pages");
-  for (const s of ["premarket","market","after"])
-    assert.deepEqual(arr(scenes.rotationScenesFor(s)), arr(daily3d).concat(intraday), s + ": the 3-day + daily pages + the four intraday pages");
+  const threeDay = scenes.WORKFLOW_IDS.filter((id) => scenes.WORKFLOW_PAGES[id].range === "3D");
+  const daily = scenes.WORKFLOW_IDS.filter((id) => scenes.WORKFLOW_PAGES[id].range === "1D");
+  assert.equal(threeDay.length, 9, "the 3-day block"); assert.equal(daily.length, 7, "the daily block, RSI twins included");
+  assert.deepEqual(arr(scenes.rotationScenesFor("day")), weekly.concat(threeDay, intraday, daily, intraday),
+    "day: weekly + 3-day + intraday + daily + intraday (26 slots)");
+  assert.deepEqual(arr(scenes.rotationScenesFor("night")), weekly.concat(threeDay, daily),
+    "night: the same order without the intraday four (18 pages)");
   assert.deepEqual(arr(scenes.INTRADAY_PAGES), intraday);
   assert.deepEqual(arr(scenes.WEEKLY_PAGES), weekly);
   for (const id of scenes.WORKFLOW_IDS) assert.ok(scenes.screenForScene(id), `${id} is still a page in the menu`);
 });
 
-test("LEADERS: SPY/QQQ only in the market session; ESUSD/NQUSD overnight, pre-market and after", () => {
-  assert.deepEqual(arr(scenes.LEADERS(EDT("09:30"))), ["SPY","QQQ"]);
-  assert.deepEqual(arr(scenes.LEADERS(EDT("16:29"))), ["SPY","QQQ"]);
-  for (const hhmm of ["03:00","04:00","09:29","16:30","19:59","20:00"])
-    assert.deepEqual(arr(scenes.LEADERS(EDT(hhmm))), ["ESUSD","NQUSD"], hhmm + " ET");
-  assert.deepEqual(arr(scenes.workflowPageState("intraday4h", { visit:0, targets:["A","B","C","D"], at:EDT("08:00") }).tickers),
-    ["ESUSD","NQUSD","A","B","C","D"], "the intraday pages rotate in the pre-market, led by the futures pair");
+test("the lap cursor walks the day lap in order, visits the intraday four twice, and never loops on a repeated page", () => {
+  const at = EDT("10:00");
+  const lap = arr(scenes.rotationScenesFor("day"));
+  let scene = "wkIndexes", position = 0; const walked = [];
+  for (let i = 0; i < lap.length; i++) {
+    const step = scenes.rotationStepAt(scene, at, position);
+    walked.push(step.scene); scene = step.scene; position = step.position;
+  }
+  assert.deepEqual(walked, lap.slice(1).concat(lap.slice(0, 1)), "one full lap from INDEXES · WEEK returns to it");
+  assert.equal(walked.filter((s) => s === "intraday30m").length, 2, "INTRADAY · 30M was visited twice");
+  assert.equal(scenes.nextRotatingScreenAt("intraday30m", at).scene, "spyQqq1D",
+    "the page name alone resolves to its first visit: after the first intraday block comes the daily block");
+  assert.equal(scenes.rotationStepAt("intraday30m", at, lap.length - 1).scene, "wkIndexes", "after the second visit the lap starts over");
+  assert.equal(scenes.rotationStepAt("intraday30m", at, 3).scene, "spyQqq1D", "a position that does not match the page is ignored");
+  assert.equal(scenes.rotationStepAt("intraday30m", EDT("19:00"), lap.length - 1).scene, "wkIndexes",
+    "at night an intraday page is outside the lap: the lap starts over on the weekly INDEXES");
+  assert.equal(scenes.rotationStepAt("blueChip3D", EDT("19:00")).scene, "spyQqq1D", "at night BLUE CHIP goes straight to the daily block");
 });
 
-test("SESSION_WINDOWS (the deliverable's 24-hour strip) agrees with stationSession minute by minute", () => {
+test("LEADERS: SPY/QQQ 09:30–16:29 New York on a weekday; ESUSD/NQUSD before, after and at the weekend", () => {
+  assert.deepEqual(arr(scenes.LEADERS(EDT("09:30"))), ["SPY","QQQ"]);
+  assert.deepEqual(arr(scenes.LEADERS(EDT("16:29"))), ["SPY","QQQ"]);
+  for (const hhmm of ["03:00","04:00","09:29","16:30","17:59","18:00","20:00"])
+    assert.deepEqual(arr(scenes.LEADERS(EDT(hhmm))), ["ESUSD","NQUSD"], hhmm + " ET");
+  assert.deepEqual(arr(scenes.LEADERS("2026-09-26T14:00:00Z")), ["ESUSD","NQUSD"], "Saturday");
+  assert.deepEqual(arr(scenes.workflowPageState("intraday4h", { visit:0, targets:["A","B","C","D"], at:EDT("08:00") }).tickers),
+    ["ESUSD","NQUSD","A","B","C","D"], "the intraday pages rotate in the early morning, led by the futures pair");
+});
+
+test("SESSION_WINDOWS (the deliverable's 24-hour strip) agrees with stationSession and LEADERS minute by minute", () => {
   const toMin = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
-  assert.deepEqual(arr(scenes.SESSION_WINDOWS).map((w) => w.id), ["overnight","premarket","market","after"]);
+  assert.deepEqual(arr(scenes.SESSION_WINDOWS).map((w) => w.id), ["night","early","market","late"]);
   for (let minute = 0; minute < 1440; minute++) {
     const hhmm = String(Math.floor(minute / 60)).padStart(2, "0") + ":" + String(minute % 60).padStart(2, "0");
     const win = scenes.SESSION_WINDOWS.find((w) => {
       const a = toMin(w.from), b = toMin(w.to);
       return a < b ? minute >= a && minute < b : minute >= a || minute < b;
     });
-    assert.equal(scenes.stationSession(EDT(hhmm)), win.id, hhmm);
+    assert.equal(scenes.stationSession(EDT(hhmm)), win.session, hhmm);
     assert.deepEqual(arr(scenes.LEADERS(EDT(hhmm))), arr(win.leaders), hhmm + " leaders");
   }
 });
 
-test("the deck asks for the lap on every advance, so it changes at 04:00 and 20:00 without a reload", () => {
-  assert.match(deck, /const next = SceneModel\.nextRotatingScreenAt\(SCENE, new Date\(\)\);/);
-  assert.equal(scenes.nextRotatingScreenAt("targets1D", EDT("19:59")).scene, "macroIntraday", "19:59: the intraday four still follow");
-  assert.equal(scenes.nextRotatingScreenAt("targets1D", EDT("20:00")).scene, "wkIndexes", "20:00: the lap wraps to the weekly INDEXES");
-  assert.equal(scenes.nextRotatingScreenAt("targets1D", EDT("04:00")).scene, "macroIntraday", "04:00: the intraday four are back");
+test("the deck asks for the lap on every advance, so it changes at 04:00 and 18:00 without a reload", () => {
+  assert.match(deck, /const step = SceneModel\.rotationStepAt\(SCENE, new Date\(\), ROT_POS\);/);
+  assert.match(deck, /let ROT_POS = -1;/);
+  assert.equal(scenes.nextRotatingScreenAt("targetsOsc", EDT("17:59")).scene, "macroIntraday", "17:59: the intraday four still follow the daily block");
+  assert.equal(scenes.nextRotatingScreenAt("targetsOsc", EDT("18:00")).scene, "wkIndexes", "18:00: the lap wraps to the weekly INDEXES");
+  assert.equal(scenes.nextRotatingScreenAt("targetsOsc", EDT("04:00")).scene, "macroIntraday", "04:00: the intraday four are back");
+  assert.equal(scenes.nextRotatingScreenAt("blueChip3D", EDT("04:00")).scene, "macroIntraday", "04:00: and they also follow the 3-day block");
+  assert.equal(scenes.nextRotatingScreenAt("blueChip3D", EDT("03:59")).scene, "spyQqq1D", "03:59: the 3-day block runs straight into the daily block");
 });
 
 /* ── 2 · SECTORS: ALAN'S SIX STAY, THE OTHER FIVE ROTATE TWO AT A TIME ─────────────── */

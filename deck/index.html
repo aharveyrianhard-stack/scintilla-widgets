@@ -2868,6 +2868,7 @@ function paintRotateControls() {
   toggle.title = running ? "pause curated scene rotation" : "start curated scene rotation";
   toggle.setAttribute("aria-label", running ? "Pause auto rotate" : "Start auto rotate");
 }
+let ROT_POS = -1;   /* where the last rotation step stood in the lap; -1 = not stepped yet */
 function clearRotateTimer() {
   if (rotateTimer) clearTimeout(rotateTimer);
   rotateTimer = 0;
@@ -2878,8 +2879,9 @@ function scheduleRotation() {
   rotateTimer = setTimeout(async () => {
     if (ROTATE_PAUSED || ROTATE_BUSY) return scheduleRotation();
     ROTATE_BUSY = true;
-    const next = SceneModel.nextRotatingScreenAt(SCENE, new Date());
-    try { await applyScene(next.scene, { rotate:true, screen:true }); }
+    const step = SceneModel.rotationStepAt(SCENE, new Date(), ROT_POS);   /* the lap cursor: an intraday page sits twice in the day lap */
+    ROT_POS = step.position;
+    try { await applyScene(step.scene, { rotate:true, screen:true }); }
     finally { ROTATE_BUSY = false; scheduleRotation(); }
   }, ROTATE_AT * 1000);
 }

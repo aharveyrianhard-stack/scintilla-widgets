@@ -23,7 +23,7 @@
        · LEADERS — SPY/QQQ in the market session, ESUSD/NQUSD in the other three.
      Pages whose slots say "rotate" show a different window of their list on every
      visit; the visit counter lives in the deck. Which pages rotate depends on the
-     session (four of them, 25 Sep — see stationSession and rotationScenesAt). */
+     session (two since 25 Sep, DAY and NIGHT — see stationSession and rotationScenesAt). */
   const TARGETS_DEFAULT = Object.freeze(["GOOGL","NBIS","AVGO","BE","AMZN","VST","MU","WMT"]);
   const MACRO_4H = Object.freeze(["VIX","CLUSD","US10Y","DXUSD","GCUSD","BTCUSD"]);
   const WORKFLOW_PAGES = Object.freeze({
@@ -262,47 +262,53 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     const start = (Math.max(0, Math.floor(Number(visit) || 0)) * n) % all.length;
     return Array.from({ length: n }, (_, i) => all[(start + i) % all.length]);
   }
-  /* ── FOUR SESSIONS A DAY (25 Sep) ─────────────────────────────────────────────────
-     Alan: "During the pre-market the intraday view is not activated… the pre-market is
-     already going to be active… pre-market view and during-market view and after-market
-     view and an overnight." New York time, weekdays; Saturday and Sunday are overnight:
-       overnight  20:00–04:00  weekly + 3-day + daily pages, no intraday · ES/NQ lead
-       premarket  04:00–09:30  3-day + daily + the intraday four        · ES/NQ lead
-       market     09:30–16:30  the same pages                           · SPY/QQQ lead
-       after      16:30–20:00  the same pages                           · ES/NQ lead
-     16:30, not 16:00, closes "market": measured on SPY's 30-minute bars, volume falls from
-     5.9M in the 16:00 bar to 195k at 16:30. There is no holiday calendar here: a weekday
-     exchange holiday runs the weekday sessions. */
+  /* SESSIONS — two, since 25 Sep (Alan, ~3:40 PM ET: "I do need to see intraday in the morning —
+     early bird gets the worm. After hours it's just a slow-down… give more frequent screen time
+     to the intraday views, and then not put them after hours — somewhere 5–6 PM").
+       DAY    04:00–18:00 ET, weekdays    every workflow page; the intraday four come round TWICE
+                                          per lap (after the 3-day block and again at the end)
+       NIGHT  18:00–04:00 ET + weekends   the same lap without the intraday four (weeklies stay in)
+     LEADERS ride the market clock, not the session: SPY/QQQ 09:30–16:30 ET on a weekday, ES/NQ
+     otherwise. 16:30, not 16:00, closes the market: measured on SPY's 30-minute bars, volume
+     falls from 5.9M in the 16:00 bar to 195k at 16:30. No holiday calendar: a weekday exchange
+     holiday runs the weekday clock. SESSION_WINDOWS is the 24-hour strip the deliverable draws. */
   const SESSION_WINDOWS = Object.freeze([
-    Object.freeze({ id:"overnight", from:"20:00", to:"04:00", leaders:Object.freeze(["ESUSD","NQUSD"]) }),
-    Object.freeze({ id:"premarket", from:"04:00", to:"09:30", leaders:Object.freeze(["ESUSD","NQUSD"]) }),
-    Object.freeze({ id:"market",    from:"09:30", to:"16:30", leaders:Object.freeze(["SPY","QQQ"]) }),
-    Object.freeze({ id:"after",     from:"16:30", to:"20:00", leaders:Object.freeze(["ESUSD","NQUSD"]) })
+    Object.freeze({ id:"night",  session:"night", from:"18:00", to:"04:00", leaders:Object.freeze(["ESUSD","NQUSD"]) }),
+    Object.freeze({ id:"early",  session:"day",   from:"04:00", to:"09:30", leaders:Object.freeze(["ESUSD","NQUSD"]) }),
+    Object.freeze({ id:"market", session:"day",   from:"09:30", to:"16:30", leaders:Object.freeze(["SPY","QQQ"]) }),
+    Object.freeze({ id:"late",   session:"day",   from:"16:30", to:"18:00", leaders:Object.freeze(["ESUSD","NQUSD"]) })
   ]);
-  function stationSession(at) {
+  function nyClock(at) {
     const d = at instanceof Date ? at : new Date(at);
-    if (!Number.isFinite(d.getTime())) return "market";
+    if (!Number.isFinite(d.getTime())) return null;
     const parts = new Intl.DateTimeFormat("en-US",
       { timeZone:NY, weekday:"short", hour:"2-digit", minute:"2-digit", hour12:false }).formatToParts(d);
     const part = (type) => (parts.find((p) => p.type === type) || {}).value || "";
     const day = part("weekday");
-    if (day === "Sat" || day === "Sun") return "overnight";
-    const minutes = (Number(part("hour")) % 24) * 60 + Number(part("minute"));
-    if (minutes < 240) return "overnight";     // 00:00–03:59
-    if (minutes < 570) return "premarket";     // 04:00–09:29
-    if (minutes < 990) return "market";        // 09:30–16:29
-    if (minutes < 1200) return "after";        // 16:30–19:59
-    return "overnight";                        // 20:00–23:59
+    return { weekend: day === "Sat" || day === "Sun", minutes: (Number(part("hour")) % 24) * 60 + Number(part("minute")) };
+  }
+  function stationSession(at) {
+    const clock = nyClock(at);
+    if (!clock) return "day";                                              // an unreadable clock never empties the wall
+    if (clock.weekend) return "night";
+    return clock.minutes >= 240 && clock.minutes < 1080 ? "day" : "night";  // 04:00–17:59
+  }
+  function marketOpenAt(at) {
+    const clock = nyClock(at);
+    return !!clock && !clock.weekend && clock.minutes >= 570 && clock.minutes < 990;   // 09:30–16:29
   }
   function LEADERS(at) {
-    return stationSession(at) === "market" ? ["SPY","QQQ"] : ["ESUSD","NQUSD"];
+    return marketOpenAt(at) ? ["SPY","QQQ"] : ["ESUSD","NQUSD"];
   }
   /* WHICH PAGES ROTATE NOW. The deck re-asks this on every advance, so the lap changes at
-     04:00 and 20:00 (and the leaders at 09:30 and 16:30) without a reload. */
+     04:00 and 18:00 (and the leaders at 09:30 and 16:30) without a reload. By day the lap is
+     weekly + 3-day + intraday + daily + intraday, so an intraday page is never more than half
+     a lap away; by night the intraday four are out and everything else keeps its order. */
   function rotationScenesFor(session) {
-    return session === "overnight"
-      ? WORKFLOW_IDS.filter((id) => !INTRADAY_PAGES.includes(id))
-      : WORKFLOW_IDS.filter((id) => !WEEKLY_PAGES.includes(id));
+    const rest = WORKFLOW_IDS.filter((id) => !INTRADAY_PAGES.includes(id));
+    if (session === "night") return rest;
+    const lastThreeDay = rest.reduce((last, id, k) => (WORKFLOW_PAGES[id].range === "3D" ? k : last), -1);
+    return rest.slice(0, lastThreeDay + 1).concat(INTRADAY_PAGES, rest.slice(lastThreeDay + 1), INTRADAY_PAGES);
   }
   function rotationScenesAt(at) {
     return rotationScenesFor(stationSession(at));
@@ -500,12 +506,19 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
   /* Auto-rotate walks Alan's workflow; the arrows and the rail walk every page. The
      intraday four drop out after hours — the deck asks with the current time on every
      advance, so the rotation shrinks at 16:30 and grows back at 09:30 unaided. */
-  function nextRotatingScreenAt(scene, at) {
+  /* ONE STEP OF THE LAP. `position` is where the deck last stood in the lap (an intraday page
+     appears twice by day, so the page name alone cannot say which visit this is). A position
+     that no longer matches — the lap changed at 04:00/18:00, or Alan jumped pages by hand —
+     falls back to the page's first place in the lap; a page outside the lap starts it over. */
+  function rotationStepAt(scene, at, position) {
     const current = normalizeScene(scene);
     const order = rotationScenesAt(at || new Date());
-    const index = order.indexOf(current);
-    const next = order[(index + 1 + order.length) % order.length];
-    return screenForScene(next) || SCREENS[0];
+    const from = Number.isInteger(position) && order[position] === current ? position : order.indexOf(current);
+    const index = (from + 1) % order.length;                                // from = -1 → the first page
+    return { scene: order[index], position: index, lap: order.length, screen: screenForScene(order[index]) || SCREENS[0] };
+  }
+  function nextRotatingScreenAt(scene, at, position) {
+    return rotationStepAt(scene, at, position).screen;
   }
   function nextRotatingScreen(scene) {
     return nextRotatingScreenAt(scene, new Date());
@@ -648,6 +661,8 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     nextRotatingScreenAt,
     rotationScenesAt,
     rotationScenesFor,
+    rotationStepAt,
+    marketOpenAt,
     rotatingWindow,
     stationSession,
     SESSION_WINDOWS,

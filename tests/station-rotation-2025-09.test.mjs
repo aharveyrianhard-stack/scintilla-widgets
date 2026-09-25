@@ -73,32 +73,38 @@ test("rotatingWindow walks a list size-at-a-time, wrapping around the end", () =
 /* 25 Sep, later (P1): four sessions replaced "regular / after". The full minute-boundary
    and weekend coverage lives in station-modes-20260925.test.mjs; these three keep the
    original anchors (09:30 and 16:30 still move the leaders). */
-test("stationSession still opens the market at 09:30 and closes it at 16:30 New York", () => {
-  assert.equal(scenes.stationSession(WED("13:29:00")), "premarket", "09:29 ET is pre-market");
-  assert.equal(scenes.stationSession(WED("13:30:00")), "market", "09:30 ET opens the market session");
-  assert.equal(scenes.stationSession(WED("20:29:00")), "market", "16:29 ET is still the market");
-  assert.equal(scenes.stationSession(WED("20:30:00")), "after",  "16:30 ET starts the after-market");
-  assert.equal(scenes.stationSession(SATURDAY), "overnight", "a Saturday is overnight all day");
+test("stationSession is DAY 04:00–17:59 New York on a weekday and NIGHT otherwise; the market clock is 09:30–16:30", () => {
+  assert.equal(scenes.stationSession(WED("07:59:00")), "night", "03:59 ET is night");
+  assert.equal(scenes.stationSession(WED("08:00:00")), "day", "04:00 ET opens the day");
+  assert.equal(scenes.stationSession(WED("21:59:00")), "day", "17:59 ET is still day");
+  assert.equal(scenes.stationSession(WED("22:00:00")), "night", "18:00 ET starts the night");
+  assert.equal(scenes.stationSession(SATURDAY), "night", "a Saturday is night all day");
+  assert.equal(scenes.marketOpenAt(WED("13:29:00")), false, "09:29 ET: not yet");
+  assert.equal(scenes.marketOpenAt(WED("13:30:00")), true, "09:30 ET opens the market");
+  assert.equal(scenes.marketOpenAt(WED("20:29:00")), true, "16:29 ET is still the market");
+  assert.equal(scenes.marketOpenAt(WED("20:30:00")), false, "16:30 ET closes it");
 });
 
-test("LEADERS are SPY/QQQ in the market session and ES/NQ in the other three", () => {
+test("LEADERS are SPY/QQQ while the market is open and ES/NQ otherwise", () => {
   assert.deepEqual(arr(scenes.LEADERS(WED("14:00:00"))), ["SPY","QQQ"]);
-  assert.deepEqual(arr(scenes.LEADERS(WED("21:00:00"))), ["ESUSD","NQUSD"], "after-market");
-  assert.deepEqual(arr(scenes.LEADERS(WED("12:00:00"))), ["ESUSD","NQUSD"], "pre-market (08:00 ET)");
+  assert.deepEqual(arr(scenes.LEADERS(WED("21:00:00"))), ["ESUSD","NQUSD"], "17:00 ET, market closed");
+  assert.deepEqual(arr(scenes.LEADERS(WED("12:00:00"))), ["ESUSD","NQUSD"], "08:00 ET, before the open");
   assert.deepEqual(arr(scenes.LEADERS(SATURDAY)), ["ESUSD","NQUSD"]);
 });
 
-test("the intraday four rotate from 04:00 to 20:00; overnight they leave and the weeklies come in", () => {
-  for (const [utc, label] of [["09:00:00","pre-market"],["14:00:00","market"],["21:00:00","after-market"]]) {
+test("by day the intraday four ride the lap twice; from 18:00 ET and at the weekend they leave and the weeklies stay", () => {
+  const intraday = WORKFLOW_ORDER.slice(18);
+  for (const [utc, label] of [["09:00:00","05:00 ET"],["14:00:00","10:00 ET"],["21:00:00","17:00 ET"]]) {
     const lap = arr(scenes.rotationScenesAt(WED(utc)));
-    assert.equal(lap.length, 17, label + ": seventeen pages");
-    assert.equal(lap.includes("wkIndexes"), false, label + ": no weekly page");
-    assert.ok(lap.includes("intraday30m"), label + ": the intraday four are in");
+    assert.equal(lap.length, 26, label + ": twenty-six slots");
+    assert.deepEqual(lap, WORKFLOW_ORDER.slice(0, 11).concat(intraday, WORKFLOW_ORDER.slice(11, 18), intraday),
+      label + ": weekly, 3-day, intraday, daily, intraday");
   }
-  const overnight = arr(scenes.rotationScenesAt("2026-09-24T01:00:00Z"));   /* 21:00 ET */
-  assert.equal(overnight.length, 15, "overnight: the order without pages 16–19");
-  assert.deepEqual(overnight, WORKFLOW_ORDER.slice(0, 15));
-  assert.deepEqual(arr(scenes.rotationScenesAt(SATURDAY)), overnight, "a weekend is overnight");
+  const night = arr(scenes.rotationScenesAt("2026-09-24T01:00:00Z"));   /* 21:00 ET */
+  assert.equal(night.length, 18, "night: the order without the intraday four");
+  assert.deepEqual(night, WORKFLOW_ORDER.slice(0, 18));
+  assert.deepEqual(arr(scenes.rotationScenesAt(WED("22:00:00"))), night, "18:00 ET is already night");
+  assert.deepEqual(arr(scenes.rotationScenesAt(SATURDAY)), night, "a weekend is night");
 });
 
 test("MACRO · 4H keeps PCC in slot 4 on every visit while slots 1–3 rotate", () => {
@@ -165,8 +171,9 @@ test("the deck keeps the visit counter in one localStorage key and counts per sh
   assert.match(deck, /function pageVisit\(id\) \{/);
   assert.match(deck, /remember\(PAGE_VISITS_KEY, JSON\.stringify\(PAGE_VISITS\)\);/,
     "the counter is mirrored so a reload does not reset the windows");
-  assert.match(deck, /const next = SceneModel\.nextRotatingScreenAt\(SCENE, new Date\(\)\);/,
-    "auto-rotate re-asks the session every advance");
+  assert.match(deck, /const step = SceneModel\.rotationStepAt\(SCENE, new Date\(\), ROT_POS\);/,
+    "auto-rotate re-asks the session every advance, carrying the lap cursor (an intraday page sits twice in the day lap)");
+  assert.match(deck, /ROT_POS = step\.position;/, "the cursor is kept between advances");
   assert.match(deck, /station_targets\?select=position,ticker&order=position\.asc/,
     "TARGETS is the shared table, read in position order");
 });

@@ -205,23 +205,22 @@ test("normal wall chooser is two, six, or eight while INDEX NOW keeps its launch
 });
 
 test("the arrows walk every page while rotation keeps to Alan's workflow (22 pages since the RSI pages)", () => {
-  /* 25 Sep (K3): auto-rotate IS the workflow now — the nineteen pages in Alan's order,
-     with the intraday four leaving after 16:30 New York (rotationScenesAt; the full
-     after-hours behaviour is pinned in station-rotation-2025-09.test.mjs). The eight
-     old curated pages stay reachable by the arrows, rail and menu but no longer rotate. */
+  /* 25 Sep: auto-rotate IS the workflow now — the twenty-two pages in Alan's order. By day
+     (04:00–18:00 ET) the intraday four ride the lap twice; at night and at the weekend they
+     leave (rotationScenesAt; pinned in full in station-rotation-2025-09.test.mjs and
+     station-modes-20260925.test.mjs). The eight old curated pages stay reachable by the
+     arrows, rail and menu but no longer rotate. */
   assert.deepEqual(Array.from(scenes.ROTATION_IDS), [
     "wkIndexes","wkMacro","targets3D","sectors3D","mainIndexes3D","mag7","ai1","ai2","ai3","other3D","blueChip3D",
     "spyQqq1D","spyQqqOsc","otherIndexes1D","otherIndexesOsc","macro1D","targets1D","targetsOsc",
     "macroIntraday","intraday4h","intraday1h","intraday30m"],
     "the rotation is the workflow, in the workflow's order (25 Sep P2: an RSI page after each daily twin)");
-  assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T13:30:00Z").scene, "targets3D",
-    "rotation wraps inside the workflow (13:30 UTC is 09:30 ET, the regular session)");
-  /* 25 Sep, later (P1): four sessions. 16:30 ET is now the after-market session, which keeps the
-     intraday pages; they leave at 20:00 ET, when the overnight lap (with the weeklies) begins. */
-  assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T20:30:00Z").scene, "targets3D",
-    "after-market keeps the intraday four, so the last page still wraps to TARGETS");
+  assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T13:30:00Z").scene, "spyQqq1D",
+    "by day the first intraday block leads into the daily block (13:30 UTC is 09:30 ET)");
+  assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T20:30:00Z").scene, "spyQqq1D",
+    "16:30 ET is still day: the intraday four stay in the lap");
   assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-24T00:30:00Z").scene, "wkIndexes",
-    "overnight (20:30 ET) the intraday pages are out and the lap starts on the weekly INDEXES");
+    "night (20:30 ET): the intraday pages are out and the lap starts on the weekly INDEXES");
   assert.equal(scenes.nextRotatingScreenAt("tvMacro", "2026-09-23T13:30:00Z").scene, "targets1D",
     "a remembered tv page resolves through LEGACY to macro1D and advances from there");
   assert.equal(scenes.nextScreen("live").scene, "wkIndexes",
@@ -239,8 +238,8 @@ test("the arrows walk every page while rotation keeps to Alan's workflow (22 pag
   assert.equal(scenes.nextScreen("scratch").scene, "wkIndexes", "the last page wraps to the first");
   assert.equal(scenes.previousScreen("live").scene, "scratch");
   for (const page of ["scintillas", "todo", "scratch"])
-    assert.equal(scenes.nextRotatingScreenAt(page, "2026-09-23T13:30:00Z").scene, "targets3D",
-      "rotation never wanders onto a page you go to");
+    assert.equal(scenes.nextRotatingScreenAt(page, "2026-09-23T13:30:00Z").scene, "wkIndexes",
+      "rotation never wanders onto a page you go to (25 Sep: the weeklies open every lap, day and night)");
   assert.equal(scenes.nextScreen("internalsFast").scene, "sectorFamilies",
     "INTERNALS SLOW no longer sits between them");
   assert.equal(scenes.screenForScene("internalsFast").label, "INTERNALS");
