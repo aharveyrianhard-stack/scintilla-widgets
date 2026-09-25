@@ -1020,7 +1020,10 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
       note('unmapped timeframe ' + rawTf, symbol);
       return Promise.reject(S.absenceError(ABSENCE_TIMEFRAME_NOT_MAPPED, symbol, rawTf));
     }
-    var bounded = Math.min(Math.max(Number(limit) || 200, 1), 400);
+    /* 25 Sep (coordinator): the clamp was 400, which cut every cloud ribbon to about a year and a
+       half whatever the page showed (Alan: "we have a database that goes super long"). The chart API
+       serves daily bars back to 2003; 8,000 covers the HISTORY page and the ribbon's warm-up. */
+    var bounded = Math.min(Math.max(Number(limit) || 200, 1), 8000);
     var url = API + '/candles?symbol=' + encodeURIComponent(symbol) + '&tf=' + encodeURIComponent(tf) +
       '&authority=provider&limit=' + bounded;
     return jget(url, signal).then(null, function (e) {

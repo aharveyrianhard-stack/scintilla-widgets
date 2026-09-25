@@ -2597,6 +2597,8 @@ async function primeSceneState() {
   }
   const fixed = fixedSceneState(SCENE);
   if (fixed) {
+    const benchRange = SceneModel.workbenchFor(SCENE)?.range;
+    if (!QS.has("range") && RANGES.includes(benchRange)) RANGE = benchRange;   // a workbench opens on its own timeframe
     const editable = hasStoredScene(SCENE) ? editableState(SCENE) : null;
     const recovered = editable ? completeNamedPresetState(editable, fixed) : fixed;
     installSceneState(recovered);
@@ -2705,6 +2707,10 @@ async function applyScene(next, options) {
     if (RANGES.includes(state.range)) RANGE = state.range;
   }
   else if (fixedSceneState(requested)) {
+    /* A workbench page declares its own timeframe (HISTORY is daily; the oscillator workbench
+       is daily): the wall adopts it, as it does for a workflow page (coordinator, 25 Sep). */
+    const benchRange = SceneModel.workbenchFor(requested)?.range;
+    if (RANGES.includes(benchRange)) RANGE = benchRange;
     /* A chosen family is remembered before the preset is computed, and counts as an explicit
        choice: it must paint its DECLARED rows now, never a stored workspace under the new
        family's name. */
