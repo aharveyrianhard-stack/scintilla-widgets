@@ -42,7 +42,11 @@ test('the dock loses no control, no id and no accessible name', () => {
   /* 24 Sep (M69): one more deliberate control - copy layout, which puts the SCRATCH wall
      on the clipboard as one line so a layout can be handed back to be saved. */
   assert.ok(after.has('copyLayout'), 'copy layout is the deliberate new scratch control')
-  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 9)
+  /* 25 Sep (K3 workflow): one more deliberate control - save as targets, which writes the
+     SCRATCH wall's filled slots into public.station_targets, the eight names every
+     Station window's TARGETS and switching pages read. */
+  assert.ok(after.has('saveTargets'), 'save as targets is the deliberate new scratch control')
+  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 10)
 })
 
 test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {

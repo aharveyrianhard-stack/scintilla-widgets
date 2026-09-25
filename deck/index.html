@@ -2586,7 +2586,9 @@ function fixedSceneState(scene, requestedCount) {
 }
 async function primeSceneState() {
   if (SceneModel.WORKFLOW_IDS.includes(SCENE)) {
-    installSceneState(workflowSceneState(SCENE));
+    const state = workflowSceneState(SCENE);
+    if (!QS.has("range") && RANGES.includes(state.range)) RANGE = state.range;   // the chip says the page's timeframe
+    installSceneState(state);
     remember("station.scene", SCENE);
     return;
   }
@@ -2695,6 +2697,9 @@ async function applyScene(next, options) {
        this visit's rotating windows — never a stored workspace, so the page's slots
        always advance. */
     state = workflowSceneState(requested);
+    /* The wall's timeframe follows the page (coordinator, 25 Sep): the chip and the bar
+       must say 1W on a weekly page and 4H on an intraday one, never a stale 3H. */
+    if (RANGES.includes(state.range)) RANGE = state.range;
   }
   else if (fixedSceneState(requested)) {
     /* A chosen family is remembered before the preset is computed, and counts as an explicit

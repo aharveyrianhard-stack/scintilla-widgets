@@ -167,8 +167,8 @@ test("the five zoomed screens and FUNDAMENTALS are MENU entries that auto-rotate
   const rotation = ctx.StationScenes.ROTATION_SCENES;
   for (const s of D.DETAIL_SCREENS)
     assert.ok(!rotation.includes(s.id), s.id + " must not be in the rotation until Alan says so");
-  /* M69 (merged with this lane, 24 Sep) retired INTERNALS SLOW; the curated rotation is eight. */
-  assert.equal(ctx.StationScenes.ROTATION_SCENES.length, 8, "the curated rotation is untouched by this lane");
+  /* 25 Sep: the rotation is Alan's nineteen-page workflow (K3); the detail pages are still not in it. */
+  assert.equal(ctx.StationScenes.ROTATION_SCENES.length, 19, "the rotation is the nineteen-page workflow, untouched by this lane");
   /* and they answer the jump list's filter by name and by ticker */
   assert.deepEqual(plain(D.matchScreens("AVG").map((s) => s.id)), ["detailAVGO"]);
   assert.deepEqual(plain(D.matchScreens("FUND").map((s) => s.id)), ["fundamentals"]);

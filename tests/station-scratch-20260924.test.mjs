@@ -38,21 +38,21 @@ test("SCRATCH is the last page in the deck, and TO-DO is the one before it", () 
   const order = scenes.SCREENS.map((s) => s.scene);
   assert.equal(order[order.length - 1], "scratch", "SCRATCH ends the deck");
   assert.equal(order[order.length - 2], "todo", "TO-DO sits just before it");
-  assert.equal(scenes.nextScreen("scratch").scene, "indexNow", "and it wraps to the first page");
+  assert.equal(scenes.nextScreen("scratch").scene, "wkIndexes", "and it wraps to the first page - INDEXES · WEEK since the 25 Sep workflow");
   for (const page of ["todo", "scratch"])
     assert.equal(scenes.ROTATION_IDS.includes(page), false, `${page} is never auto-rotated onto`);
 });
 
-test("SCRATCH opens empty: six slots, no symbol invented for any of them", () => {
+test("SCRATCH opens empty: eight slots, no symbol invented for any of them", () => {
   const fresh = scenes.scratchState([], "3h");
-  assert.equal(fresh.chartCount, 6);
-  assert.deepEqual(Array.from(fresh.tickers), ["", "", "", "", "", ""]);
+  assert.equal(fresh.chartCount, 8, "eight since 25 Sep: SAVE AS TARGETS takes up to eight");
+  assert.deepEqual(Array.from(fresh.tickers), ["", "", "", "", "", "", "", ""]);
   assert.equal(fresh.empty, true);
   assert.equal(Array.from(fresh.tickers).some(Boolean), false,
     "no SPY/SNDK starter: an empty slot on SCRATCH is the state the user left");
 });
 
-test("SCRATCH is a workspace, not a preset — which is what keeps it six slots wide", () => {
+test("SCRATCH is a workspace, not a preset — which is what keeps it eight slots wide", () => {
   /* Found in a real browser during this build: with a PRESETS entry, the deck treated SCRATCH
      as a fixed page, handed its empty ticker list to basketWindow, got a chartCount of one and
      opened the "empty six" as a TWO-up wall. The page has no preset now, and says so. */
@@ -60,12 +60,12 @@ test("SCRATCH is a workspace, not a preset — which is what keeps it six slots 
   assert.match(deck, /if \(scene === "scratch"\) return null;/, "fixedSceneState refuses it by name");
   assert.match(deck, /RANGES\.includes\(QS\.get\("range"\)\) \? QS\.get\("range"\) : "3h";/,
     "and the wall still opens on 3h unless a URL or SCRATCH's own memory says otherwise");
-  assert.equal(scenes.scratchState([], "3h").chartCount, 6, "six slots, from the model");
+  assert.equal(scenes.scratchState([], "3h").chartCount, 8, "eight slots, from the model (grown from six on 25 Sep so a scratch wall can be saved as the eight TARGETS)");
 });
 
 test("SCRATCH keeps what was typed, cleans it, and keeps the gaps between", () => {
   const state = scenes.scratchState(["aapl", "", "nvda!!", "", "", "x".repeat(20)], "1D");
-  assert.deepEqual(Array.from(state.tickers), ["AAPL", "", "NVDA", "", "", "XXXXXXXXXXXX"]);
+  assert.deepEqual(Array.from(state.tickers), ["AAPL", "", "NVDA", "", "", "XXXXXXXXXXXX", "", ""], "eight slots since 25 Sep");
   assert.equal(state.range, "1D");
   assert.equal(state.totalItems, 3, "an empty slot is not a chart");
   assert.equal(scenes.scratchState(["SPY"], "3h", 8).tickers.length, 8, "an eight-up scratch wall is eight slots");
@@ -74,7 +74,8 @@ test("SCRATCH keeps what was typed, cleans it, and keeps the gaps between", () =
 test("copy layout is one line, and an empty slot is part of what it says", () => {
   const line = scenes.scratchLayout(["MU", "", "SNDK", "", "", ""], "3h");
   assert.equal(line.includes("\n"), false, "one line, so it survives a text message");
-  assert.deepEqual(JSON.parse(line), { scene: "scratch", tickers: ["MU", "", "SNDK", "", "", ""], range: "3h" });
+  assert.deepEqual(JSON.parse(line), { scene: "scratch", tickers: ["MU", "", "SNDK", "", "", "", "", ""], range: "3h" },
+    "eight slots since 25 Sep, and every empty one is part of what the line says");
   assert.deepEqual(JSON.parse(scenes.scratchLayout(["MU"], "1W", 2)),
     { scene: "scratch", tickers: ["MU", ""], range: "1W" });
 });

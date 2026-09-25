@@ -46,47 +46,62 @@ const LAYOUTS = [
   ["tvExtras", "EXTRAS", 2, ["MRVL","NVTS"]]
 ];
 
-test("every saved TradingView layout is a Station page with the same name, size and rows", () => {
-  for (const [id, label, count, tickers] of LAYOUTS) {
-    const preset = scenes.PRESETS[id];
-    assert.ok(preset, `${label} is a page`);
-    assert.equal(preset.label, label);
-    assert.equal(preset.chartCount, count, `${label} keeps its chart count`);
-    assert.deepEqual(Array.from(preset.tickers), tickers, `${label} keeps its rows, in order`);
-    const screen = scenes.screenForScene(id);
-    assert.ok(screen, `${label} is reachable by the arrows and the rail`);
-    assert.equal(screen.label, label);
-    assert.match(deck, new RegExp(`<option value="${id}">`), `${label} is in the scene menu too`);
+test("every retired TradingView-copy page lands on the workflow page that carries its names (25 Sep)", () => {
+  /* 25 Sep: the ten Station copies of the 23 Sep layouts are retired; Alan's new 22-layout
+     workflow replaced them (K3). A browser that remembered one lands on a real page, and the
+     workflow keeps the rows his layouts carry, in order. */
+  for (const [id, label] of LAYOUTS) {
+    assert.equal(scenes.PRESETS[id], undefined, `${label} is no longer its own page`);
+    const landing = scenes.LEGACY[id];
+    assert.ok(landing && scenes.screenForScene(landing), `${label} (${id}) lands on ${landing}`);
+    assert.equal(scenes.normalizeScene(id), landing, `${label} normalizes to its landing page`);
+    assert.doesNotMatch(deck, new RegExp(`<option value="${id}">`), `${label} is out of the scene menu`);
   }
-  assert.equal(scenes.SCREENS.length, 22,
-    "eight curated screens (INTERNALS SLOW retired), ten saved layouts, one workbench, SCINTILLAS, TO-DO and SCRATCH");
+  for (const [id, label, rows] of [
+    ["mag7", "MAG 7", ["MAGS","MSFT","NVDA","AMZN","AAPL","META","GOOGL","TSLA"]],
+    ["macro1D", "MACRO · DAY", ["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]],
+    ["sectors3D", "SECTORS", ["XLK","XLI","XLC","XLF","XLY","XLE"]],
+    ["blueChip3D", "BLUE CHIP", ["WMT","JPM","CAT","BAC","HD","MCD","COST","WM"]]
+  ]) {
+    assert.deepEqual(Array.from(scenes.WORKFLOW_PAGES[id].tickers), rows, `${label} keeps Alan's rows, in order`);
+    assert.equal(scenes.screenForScene(id).label, label);
+    assert.match(deck, new RegExp(`<option value="${id}">`), `${label} is in the scene menu`);
+  }
+  assert.equal(scenes.SCREENS.length, 31,
+    "nineteen workflow pages, SCINTILLAS, one workbench, eight old curated pages (menu only), TO-DO and SCRATCH");
 });
 
 test("a saved layout is a picture, not a basket: five rows stay five rows in a six-up wall", () => {
   /* basketWindow exists for cohorts and short family baskets — it pages a four or five
      name list into twos. Alan's INDEXES layout is five names in a six-up wall, and it
      must stay that way, with the sixth slot simply empty. */
-  const paged = scenes.basketWindow(scenes.PRESETS.tvIndexes.tickers, 0, 6);
+  const five = { tickers:["MAGS","SMH","IWM","DRAM","IGV"], chartCount:6 };
+  const paged = scenes.basketWindow(five.tickers, 0, 6);
   assert.equal(paged.tickers.length, 2, "the basket rule really would have paged it into twos");
-  const page = scenes.exactPage(scenes.PRESETS.tvIndexes);
+  const page = scenes.exactPage(five);
   assert.deepEqual(Array.from(page.tickers), ["MAGS","SMH","IWM","DRAM","IGV"]);
   assert.equal(page.chartCount, 6, "a six-up wall with one empty slot");
   assert.equal(page.hasNext, false);
   assert.equal(page.hasPrevious, false);
-  const fixedSceneState = functionFromDeck("fixedSceneState", {
-    SceneModel: scenes, BASKET_OFFSET: 0, familyFor: () => null, Object, Date
-  });
-  const state = fixedSceneState("tvIndexes");
-  assert.deepEqual(Array.from(state.tickers), ["MAGS","SMH","IWM","DRAM","IGV"]);
-  assert.equal(state.chartCount, 6);
+  /* 25 Sep: a workflow page is a picture too. INTRADAY · 1H is an honest four-up, which the
+     2/6/8 ladder would have retired to a two-up. */
+  assert.equal(scenes.chartCountForSize(4), 2, "the ladder really would retire a four-up");
+  const state = scenes.workflowPageState("intraday1h", { visit:0, at:new Date("2026-09-25T15:00:00Z") });
+  assert.equal(state.tickers.length, 4);
+  assert.equal(state.chartCount, 4, "four rows stay a four-up wall");
+  assert.equal(scenes.workflowPageState("otherIndexes1D", { visit:0 }).chartCount, 6, "six rows, a six-up wall");
 });
 
 test("TradingView spellings are translated once, in the page, and never leak", () => {
   for (const tvOnly of ["USOIL", "GOLD", "TSX:BOFA", "BOFA"])
     assert.doesNotMatch(source, new RegExp(`"${tvOnly}"`), `${tvOnly} is a TradingView name, not a served symbol`);
-  assert.ok(scenes.PRESETS.tvMacro.tickers.includes("CLUSD"), "USOIL became CLUSD");
-  assert.ok(scenes.PRESETS.tvMacro.tickers.includes("GCUSD"), "GOLD became GCUSD");
-  assert.ok(scenes.PRESETS.tvBlueChip.tickers.includes("BAC"), "TSX:BOFA became BAC");
+  /* 25 Sep: the workflow pages carry the same translations - DXY→DXUSD, GOLD→GCUSD, USOIL→CLUSD. */
+  for (const id of ["wkMacro", "macro1D"]) {
+    const rows = scenes.WORKFLOW_PAGES[id].tickers;
+    assert.ok(rows.includes("CLUSD") && rows.includes("GCUSD") && rows.includes("DXUSD"), id + " carries served symbols");
+  }
+  assert.doesNotMatch(source, /"DXY"/, "DXY is a TradingView name, not a served symbol");
+  assert.ok(scenes.WORKFLOW_PAGES.blueChip3D.tickers.includes("BAC"), "TSX:BOFA became BAC");
 });
 
 test("a workbench is a page TYPE: charts, named study stacks, and an optional own timeframe", () => {
@@ -150,7 +165,7 @@ test("no two page buttons read the same, at 81px", () => {
   assert.equal(scenes.shortLabel(scenes.screenForScene("internalsFast")), "INTERNALS");
   assert.equal(scenes.shortLabel(scenes.screenForScene("todo")), "TO-DO");
   assert.equal(scenes.shortLabel(scenes.screenForScene("scratch")), "SCRATCH");
-  assert.equal(scenes.shortLabel(scenes.screenForScene("tvMacro")), "MACRO", "a short name stands as it is");
+  assert.equal(scenes.shortLabel(scenes.screenForScene("sectors3D")), "SECTORS", "a short name stands as it is (25 Sep: the tv* pages are retired)");
   assert.match(deck, /b\.textContent = SceneModel\.shortLabel\(screen\); b\.title = screen\.label;/,
     "the full name stays on the tooltip");
 });
@@ -187,14 +202,16 @@ test("every button in the jump list is the same width too", () => {
 });
 
 test("the jump list finds a page by its name or by a ticker on it — PCC in one move", () => {
+  /* 25 Sep: PCC lives on MACRO · 4H (fixed fourth slot) and on INTERNALS; SCREENS order. */
   const byTicker = scenes.findPages("PCC");
-  assert.deepEqual(Array.from(byTicker, (m) => m.screen.label), ["INTERNALS", "MACRO"]);
+  assert.deepEqual(Array.from(byTicker, (m) => m.screen.label), ["MACRO · 4H", "INTERNALS"]);
   assert.equal(byTicker[0].why, "PCC", "the list says WHY a page matched a ticker");
   assert.deepEqual(Array.from(scenes.findPages("blue"), (m) => m.screen.label), ["BLUE CHIP"]);
-  assert.deepEqual(Array.from(scenes.findPages("MAC"), (m) => m.screen.label), ["MACRO CROSS-ASSET", "MACRO"]);
-  assert.deepEqual(Array.from(scenes.findPages("XLB"), (m) => m.screen.label), ["SECTOR FAMILIES", "SECTORS"],
+  assert.deepEqual(Array.from(scenes.findPages("MAC"), (m) => m.screen.label),
+    ["MACRO · WEEK", "MACRO · DAY", "MACRO · 4H", "MACRO CROSS-ASSET"], "every macro page, workflow first");
+  assert.deepEqual(Array.from(scenes.findPages("XLK"), (m) => m.screen.label), ["SECTORS", "SECTOR FAMILIES"],
     "a ticker on two pages offers both, rather than silently picking one");
-  assert.equal(scenes.findPages("").length, 22, "an empty box offers every page");
+  assert.equal(scenes.findPages("").length, 31, "an empty box offers every page");
   /* TO-DO is findable by the four symbols parked on it; SCRATCH is findable by name only,
      because its symbols live on the device and the list must never guess at them. */
   assert.deepEqual(Array.from(scenes.findPages("TRIN"), (m) => m.screen.label), ["TO-DO"]);
@@ -208,6 +225,9 @@ test("the two symbols the provider does not carry are named, not dropped", () =>
   /* IGV (INDEXES) and NVTS (EXTRAS) are not in the chart API's tracked universe on
      23 Sep. They stay in their layouts so the page is Alan's page; the pane paints the
      provider's named absence until the universe carries them. */
-  assert.ok(scenes.PRESETS.tvIndexes.tickers.includes("IGV"));
-  assert.ok(scenes.PRESETS.tvExtras.tickers.includes("NVTS"));
+  /* 25 Sep: the same rule on the workflow pages - IGV, NVTS and HUT stay in Alan's lists. */
+  assert.ok(scenes.WORKFLOW_PAGES.wkIndexes.tickers.includes("IGV"));
+  assert.ok(scenes.WORKFLOW_PAGES.otherIndexes1D.tickers.includes("IGV"));
+  assert.ok(scenes.WORKFLOW_PAGES.ai2.tickers.includes("NVTS"));
+  assert.ok(scenes.WORKFLOW_PAGES.ai3.tickers.includes("HUT"));
 });
