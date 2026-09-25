@@ -942,13 +942,17 @@ async function fetchRsiSource(t, key, need) {
   const inflightKey = t + "|" + key + "|" + need;
   if (rsiSourceInflight.has(inflightKey)) return rsiSourceInflight.get(inflightKey);
   const work = (async () => {
-    const line = window.SC_RSI_FAN.BY_KEY[key];
-    const rows = await fetchProviderCandles(t, line.tf, need, 2);
-    const bars = (Array.isArray(rows) ? rows : [])
+    const F = window.SC_RSI_FAN, line = F.BY_KEY[key];
+    const toBars = (rows) => (Array.isArray(rows) ? rows : [])
       .map((r) => ({ t: r.timestamp * 1000, c: +r.close }))
-      .filter((b) => Number.isFinite(b.t) && Number.isFinite(b.c) && b.c > 0)
-      .sort((a, b) => a.t - b.t);
-    const entry = { ts: Date.now(), asked: need, bars };
+      .filter((b) => Number.isFinite(b.t) && Number.isFinite(b.c) && b.c > 0);
+    /* A long read's newest bars can lag a short read's (see TAIL_LIMIT), so past it the tail is read
+       on its own and joined on timestamps; the tail wins, and a hole is never bridged. */
+    const [tailRows, historyRows] = await Promise.all([
+      fetchProviderCandles(t, line.tf, Math.min(need, F.TAIL_LIMIT), 2),
+      need > F.TAIL_LIMIT ? fetchProviderCandles(t, line.tf, need, 2) : Promise.resolve([])]);
+    const joined = F.joinTail(toBars(historyRows), toBars(tailRows));
+    const entry = { ts: Date.now(), asked: need, bars: joined.bars, hole: joined.hole };
     rsiSourceCache.set(t + "|" + key, entry);
     return entry;
   })();

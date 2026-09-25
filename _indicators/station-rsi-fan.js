@@ -64,6 +64,11 @@
      computed and not drawn, like the cloud ribbon's warm-up. */
   const WARMUP = 150;
   const MIN_SOURCE = 300, MAX_SOURCE = 3000;
+  /* MEASURED 25 Sep 19:40Z, read-only: the chart API's INTRADAY series end at a different bar
+     depending on how many are asked for. MU 3H: limit 400 → newest 23 Sep 16:00; limit 500 and
+     above → newest 22 Sep 13:00 (SPY 4H the same; daily unaffected up to 6,000). So a line that
+     needs more than TAIL_LIMIT bars reads the tail and the history separately and joins them. */
+  const TAIL_LIMIT = 400;
   const PANEL_SHARE = 0.26;            /* of the pane height, gap included: under the 28% ceiling */
   const PHONE_MAX = 390;
 
@@ -105,6 +110,19 @@
     /* rounded before the ceiling: 365 days x 252/365 is 252.00000000000003 in floating point */
     const need = Math.ceil(Math.round(sessions * line.perSession * 1e6) / 1e6) + WARMUP + 50;
     return Math.max(MIN_SOURCE, Math.min(MAX_SOURCE, need));
+  }
+
+  /* Join a long history read and a short tail read on timestamps; the tail wins where both have a
+     bar. If the two do not overlap, the history is NOT bridged across the hole: the tail alone is
+     returned (a shorter line is honest, an RSI computed across missing bars is not). */
+  function joinTail(history, tail) {
+    const h = (history || []).slice().sort((a, b) => a.t - b.t);
+    const tl = (tail || []).slice().sort((a, b) => a.t - b.t);
+    if (!tl.length) return { bars: h, joined: false, hole: false };
+    if (!h.length) return { bars: tl, joined: false, hole: false };
+    const first = tl[0].t;
+    if (h[h.length - 1].t < first) return { bars: tl, joined: false, hole: true };
+    return { bars: h.filter((b) => b.t < first).concat(tl), joined: true, hole: false };
   }
 
   /* bars: [{ t: ms, c: close }] ascending → [{ t, end, v }] with the warm-up set to null. */
@@ -166,7 +184,7 @@
   }
 
   root.SC_RSI_FAN = Object.freeze({
-    LINES, BY_KEY, INK, LENGTH, WARMUP, MIN_SOURCE, MAX_SOURCE, PANEL_SHARE, PHONE_MAX,
-    parseRsiParam, visibleAt, sourceLimit, lineSeries, carryBars, sampleToChart, lineStatus, ink
+    LINES, BY_KEY, INK, LENGTH, WARMUP, MIN_SOURCE, MAX_SOURCE, TAIL_LIMIT, PANEL_SHARE, PHONE_MAX,
+    parseRsiParam, visibleAt, sourceLimit, joinTail, lineSeries, carryBars, sampleToChart, lineStatus, ink
   });
 })(typeof globalThis === "object" ? globalThis : window);

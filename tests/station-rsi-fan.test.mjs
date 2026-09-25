@@ -144,6 +144,21 @@ test("a weekend is not a gap: the chart's own bars already skip it", () => {
     "Friday's value appears on the bar its session closed in and holds into Tuesday morning (Labor Day Monday)");
 });
 
+test("a long read whose newest bars lag is joined to the short read's tail; a hole is never bridged", () => {
+  /* The measured case: history (limit 1713) ends 22 Sep 13:00, the tail (limit 400) 23 Sep 16:00. */
+  const bar = (iso, c) => ({ t: ny(iso), c });
+  const history = [bar("2026-09-21T13:00:00Z", 1), bar("2026-09-22T10:00:00Z", 2), bar("2026-09-22T13:00:00Z", 3)];
+  const tail = [bar("2026-09-22T10:00:00Z", 20), bar("2026-09-22T13:00:00Z", 30), bar("2026-09-23T16:00:00Z", 40)];
+  const joined = F.joinTail(history, tail);
+  assert.equal(joined.joined, true);
+  assert.deepEqual(plain(joined.bars.map((b) => b.c)), [1, 20, 30, 40], "older history, then the tail - the tail wins where both have a bar");
+  const apart = F.joinTail([bar("2026-08-01T13:00:00Z", 1)], tail);
+  assert.equal(apart.hole, true);
+  assert.deepEqual(plain(apart.bars.map((b) => b.c)), [20, 30, 40], "no overlap: the tail alone, never a bridge");
+  assert.deepEqual(plain(F.joinTail([], tail).bars.map((b) => b.c)), [20, 30, 40]);
+  assert.equal(F.TAIL_LIMIT, 400, "the largest read measured to return the current tail");
+});
+
 test("how much source history a line asks for: the chart's span plus the warm-up, bounded", () => {
   assert.equal(F.sourceLimit("1D", 0), F.MIN_SOURCE);
   assert.equal(F.sourceLimit("2h", 10 * 365 * D), F.MAX_SOURCE, "a decade of 2H bars is capped");
@@ -199,7 +214,9 @@ test("wiring: both chart twins load the arithmetic and the fan, the panel sits u
   assert.match(chart, /ensureCloudDaily\(host, t, req, generation\);\s*\/\*[^*]*\*\/\s*ensureRsiFan\(host, t, req, generation\);/,
     "the fan is asked for after the price and the ribbon");
   assert.match(chart, /acquireChartLoadPermit\(host, req \+ "\|rsi", generation\)/, "one load permit per pane for the whole fan");
-  assert.match(chart, /fetchProviderCandles\(t, line\.tf, need, 2\)/, "through the pane's own provider route");
+  assert.match(chart, /fetchProviderCandles\(t, line\.tf, Math\.min\(need, F\.TAIL_LIMIT\), 2\)/, "the tail, through the pane's own provider route");
+  assert.match(chart, /need > F\.TAIL_LIMIT \? fetchProviderCandles\(t, line\.tf, need, 2\)/, "and, past the tail limit, the history beside it");
+  assert.match(chart, /F\.joinTail\(toBars\(historyRows\), toBars\(tailRows\)\)/, "joined on timestamps");
   assert.doesNotMatch(chart, /sc_rsi_/, "the fan's source bars are never written to local storage");
   assert.match(provider, /'6h':'6h','8h':'8h','12h':'12h'/, "the chart API serves 8h; the client now asks for it");
 });
