@@ -6,66 +6,86 @@
      preset, and it may not be filtered down to whichever members happen to be favorited. */
   const TV_IDS = ["tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras"];
   const WORKBENCH_IDS = ["oscWorkbench"];
-  const IDS = ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies"]
-    .concat(TV_IDS, WORKBENCH_IDS, ["scintillas","todo","scratch","cohort","custom"]);
+  /* ── ALAN'S CHARTING WORKFLOW, read 25 Sep 2026 (K3 / SCI-K3-002) ────────────────
+     Nineteen pages in a fixed order, replacing both the old curated auto-rotation and
+     the twelve saved TradingView layouts (whose ids remain in LEGACY so a browser that
+     remembered one lands on the page that now carries its names). Three slot kinds:
+       · a fixed ticker list (TradingView spellings translated: DXY→DXUSD, GOLD→GCUSD,
+         USOIL→CLUSD; HUT, IGV and NVTS are not in the provider's universe today and
+         their slots paint the provider's named absence, exactly as IGV/NVTS already
+         did on the old INDEXES/EXTRAS pages);
+       · TARGETS — Alan's eight names, shared by every Station window. The deck reads
+         public.station_targets at load and every five minutes; when the read fails or
+         is empty the model's TARGETS_DEFAULT stands in;
+       · LEADERS — SPY/QQQ in the regular New York session, ESUSD/NQUSD after hours.
+     Pages whose slots say "rotate" show a different window of their list on every
+     visit; the visit counter lives in the deck. Pages 16–19 are intraday and drop
+     out of the rotation outside 09:30–16:30 New York (rotationScenesAt). */
+  const TARGETS_DEFAULT = Object.freeze(["GOOGL","NBIS","AVGO","BE","AMZN","VST","MU","WMT"]);
+  const MACRO_4H = Object.freeze(["VIX","CLUSD","US10Y","DXUSD","GCUSD","BTCUSD"]);
+  const WORKFLOW_PAGES = Object.freeze({
+    wkIndexes:       Object.freeze({ label:"INDEXES · WEEK",      short:"INDEXES WK",  range:"1W", tickers:Object.freeze(["SPY","DIA","QQQ","MAGS","SMH","IWM","DRAM","IGV"]) }),
+    wkMacro:         Object.freeze({ label:"MACRO · WEEK",        short:"MACRO WK",    range:"1W", tickers:Object.freeze(["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]) }),
+    targets3D:       Object.freeze({ label:"TARGETS",             range:"3D", targets:true }),
+    sectors3D:       Object.freeze({ label:"SECTORS",             range:"3D", tickers:Object.freeze(["XLK","XLI","XLC","XLF","XLY","XLE"]) }),
+    mainIndexes3D:   Object.freeze({ label:"SPY + QQQ",           range:"3D", leaders:true }),
+    mag7:            Object.freeze({ label:"MAG 7",               range:"3D", tickers:Object.freeze(["MAGS","MSFT","NVDA","AMZN","AAPL","META","GOOGL","TSLA"]) }),
+    ai1:             Object.freeze({ label:"AI 1 · CORE",         range:"3D", tickers:Object.freeze(["TSM","ASML","AVGO","AMD","MU","NBIS","SNDK","IREN"]) }),
+    ai2:             Object.freeze({ label:"AI 2",                range:"3D", tickers:Object.freeze(["MRVL","NVTS","AMAT","ALAB","SMCI","CRDO","CRWV","WULF"]) }),
+    ai3:             Object.freeze({ label:"AI 3",                range:"3D", tickers:Object.freeze(["ARM","SOXX","WULF","HUT","CIFR","CRDO","SIMO","CDNS"]) }),
+    other3D:         Object.freeze({ label:"OTHER",               range:"3D", tickers:Object.freeze(["ORCL","SPCX","PLTR","OKLO","SHOP","USAR","HOOD","MSTR"]) }),
+    blueChip3D:      Object.freeze({ label:"BLUE CHIP",           range:"3D", tickers:Object.freeze(["WMT","JPM","CAT","BAC","HD","MCD","COST","WM"]) }),
+    spyQqq1D:        Object.freeze({ label:"SPY + QQQ · DAY",     short:"SPY+QQQ DAY", range:"1D", leaders:true }),
+    otherIndexes1D:  Object.freeze({ label:"OTHER INDEXES · DAY", short:"INDEXES DAY", range:"1D", tickers:Object.freeze(["SMH","DIA","DRAM","MAGS","IWM","IGV"]) }),
+    macro1D:         Object.freeze({ label:"MACRO · DAY",         short:"MACRO DAY",   range:"1D", tickers:Object.freeze(["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]) }),
+    targets1D:       Object.freeze({ label:"TARGETS · DAY",       short:"TARGETS DAY", range:"1D", targets:true }),
+    macroIntraday:   Object.freeze({ label:"MACRO · 4H",          range:"4h", rotate:Object.freeze({ list:MACRO_4H, size:3 }), tail:Object.freeze(["PCC"]) }),
+    intraday4h:      Object.freeze({ label:"INTRADAY · 4H",       short:"INTRA · 4H",  range:"4h", leaders:true, rotateTargets:Object.freeze({ size:4 }) }),
+    intraday1h:      Object.freeze({ label:"INTRADAY · 1H",       short:"INTRA · 1H",  range:"1h", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:3 }) }),
+    intraday30m:     Object.freeze({ label:"INTRADAY · 30M",      short:"INTRA · 30M", range:"30m", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:1 }) })
+  });
+  const WORKFLOW_IDS = Object.freeze(Object.keys(WORKFLOW_PAGES));
+  /* The intraday four (workflow pages 16–19) leave the rotation outside the regular
+     New York session; the other fifteen rotate around the clock. */
+  const AFTER_HOURS_PAGES = Object.freeze(["macroIntraday","intraday4h","intraday1h","intraday30m"]);
+  const OLD_CURATED_IDS = ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies"];
+  const IDS = ["live"].concat(WORKFLOW_IDS, ["scintillas"], WORKBENCH_IDS, OLD_CURATED_IDS, ["todo","scratch","cohort","custom"]);
   /* Every curated named scene is independently navigable.  LIVE and CUSTOM
      remain manual workspaces so arrowing/rotation never replaces a live or
      in-progress custom wall. */
-  const SCREENS = Object.freeze([
-    Object.freeze({ id:"indexNow", scene:"indexNow", label:"INDEX NOW" , short:"INDEX NOW"}),
-    Object.freeze({ id:"indexLeadership", scene:"indexLeadership", label:"INDEX LEADERSHIP" , short:"INDEX LEAD"}),
-    Object.freeze({ id:"companyLeadership", scene:"companyLeadership", label:"COMPANY LEADERSHIP" , short:"COMPANY LD"}),
-    Object.freeze({ id:"focus2", scene:"focus2", label:"FOCUS 2" , short:"FOCUS 2"}),
-    Object.freeze({ id:"macroCrossAsset", scene:"macroCrossAsset", label:"MACRO CROSS-ASSET" , short:"MACRO X-A"}),
-    /* Alan, 24 Sep: "save VIX and PCC on their own, which are more useful." The four
-       TradingView-drawn internals that used to crowd this page now live on TO-DO, so
-       INTERNALS is two Scintilla-served series and nothing grey. */
-    Object.freeze({ id:"internalsFast", scene:"internalsFast", label:"INTERNALS" , short:"INTERNALS"}),
-    Object.freeze({ id:"sectorFamilies", scene:"sectorFamilies", label:"SECTOR FAMILIES" , short:"SECTOR FAM"}),
-    Object.freeze({ id:"themeFamilies", scene:"themeFamilies", label:"THEME FAMILIES" , short:"THEME FAM"}),
-    /* ── ALAN'S OWN TRADINGVIEW LAYOUTS, in his order, as Station pages ───────────
-       23 Sep: "the TV dynamic needs to come to Station, to free up the space of
-       Chrome." Same names, same order, same chart counts, same tickers. */
-    Object.freeze({ id:"tvMacro", scene:"tvMacro", label:"MACRO" }),
-    Object.freeze({ id:"tvIndexes", scene:"tvIndexes", label:"INDEXES" }),
-    Object.freeze({ id:"tvSectors", scene:"tvSectors", label:"SECTORS" }),
-    Object.freeze({ id:"tvHome6", scene:"tvHome6", label:"HOME 6" }),
-    Object.freeze({ id:"tvPage2", scene:"tvPage2", label:"PAGE 2" }),
-    Object.freeze({ id:"tvPage3", scene:"tvPage3", label:"PAGE 3" }),
-    Object.freeze({ id:"tvOtherLC", scene:"tvOtherLC", label:"OTHER LC" }),
-    Object.freeze({ id:"tvOtherSC", scene:"tvOtherSC", label:"OTHER SC" }),
-    Object.freeze({ id:"tvBlueChip", scene:"tvBlueChip", label:"BLUE CHIP" }),
-    Object.freeze({ id:"tvExtras", scene:"tvExtras", label:"EXTRAS" }),
-    Object.freeze({ id:"oscWorkbench", scene:"oscWorkbench", label:"WORKBENCH" }),
-    /* ── THE DAY'S OUTLIERS, AS CHARTS (M48) ──────────────────────────────────────
-       Alan, 24 Sep: "there should be a multi-chart layout on station that displays
-       these kinds of things. It puts that chart on there. These scintillas go to
-       station." It fills itself from public.scintillas: nothing to choose, nothing
-       to maintain, and it is walked by the arrows and the jump list like any page. */
-    Object.freeze({ id:"scintillas", scene:"scintillas", label:"SCINTILLAS" }),
-    /* ── THE LAST TWO SCREENS (M69) ───────────────────────────────────────────────
-       Alan, 24 Sep: "if they're gonna be gray, I would send them to an empty layout
-       at the end, as kind of like to do reminders" and "one empty six chart screen
-       layout kind of as the ending screen so that I can search tickers in".
-       TO-DO holds what is not ours yet and says why. SCRATCH is the empty six, and
-       it is deliberately LAST: the deck ends where the next layout gets built. */
-    Object.freeze({ id:"todo", scene:"todo", label:"TO-DO" , short:"TO-DO"}),
-    Object.freeze({ id:"scratch", scene:"scratch", label:"SCRATCH" , short:"SCRATCH"})
-  ]);
-  /* ROTATION IS NOT THE PAGE LIST. Auto-rotate keeps cycling the nine curated
-     screens it always cycled; Alan's own layouts are pages you go to, not a
-     slideshow he did not ask for. The arrows, the rail and the jump list walk
-     every page in SCREENS. */
+  const SCREENS = Object.freeze(
+    WORKFLOW_IDS.map((id) => {
+      const page = WORKFLOW_PAGES[id];
+      /* A RAIL BUTTON IS 81 px, ABOUT ELEVEN CHARACTERS: pages whose full label is longer
+         carry a short name for the rail; the full label stays on the tooltip and menu. */
+      return Object.freeze(page.short ? { id, scene:id, label:page.label, short:page.short }
+        : { id, scene:id, label:page.label });
+    })
+    .concat([
+      Object.freeze({ id:"scintillas", scene:"scintillas", label:"SCINTILLAS" }),
+      Object.freeze({ id:"oscWorkbench", scene:"oscWorkbench", label:"WORKBENCH" }),
+      Object.freeze({ id:"indexNow", scene:"indexNow", label:"INDEX NOW" , short:"INDEX NOW"}),
+      Object.freeze({ id:"indexLeadership", scene:"indexLeadership", label:"INDEX LEADERSHIP" , short:"INDEX LEAD"}),
+      Object.freeze({ id:"companyLeadership", scene:"companyLeadership", label:"COMPANY LEADERSHIP" , short:"COMPANY LD"}),
+      Object.freeze({ id:"focus2", scene:"focus2", label:"FOCUS 2" , short:"FOCUS 2"}),
+      Object.freeze({ id:"macroCrossAsset", scene:"macroCrossAsset", label:"MACRO CROSS-ASSET" , short:"MACRO X-A"}),
+      Object.freeze({ id:"internalsFast", scene:"internalsFast", label:"INTERNALS" , short:"INTERNALS"}),
+      Object.freeze({ id:"sectorFamilies", scene:"sectorFamilies", label:"SECTOR FAMILIES" , short:"SECTOR FAM"}),
+      Object.freeze({ id:"themeFamilies", scene:"themeFamilies", label:"THEME FAMILIES" , short:"THEME FAM"}),
+      Object.freeze({ id:"todo", scene:"todo", label:"TO-DO" , short:"TO-DO"}),
+      Object.freeze({ id:"scratch", scene:"scratch", label:"SCRATCH" , short:"SCRATCH"})
+    ])
+  );
+  /* ROTATION IS ALAN'S WORKFLOW (25 Sep): the nineteen workflow pages in his order.
+     The eight old curated pages stay in SCREENS — menu, rail and arrows still reach
+     them — but they are no longer rotated. TO-DO and SCRATCH were never rotated. */
+const ROTATION_SCENES = Object.freeze(WORKFLOW_IDS.slice());
+  const ROTATION_IDS = ROTATION_SCENES;
   /* A RAIL BUTTON IS 81 px WIDE, WHICH IS ABOUT ELEVEN CHARACTERS. Two pages that both
      truncate to "INTERNALS …" are two buttons nobody can tell apart, so every page carries
      a short name for the rail; the full name stays on the button's tooltip, in the scene
      menu and in the jump list. */
   function shortLabel(screen) { return (screen && (screen.short || screen.label)) || ""; }
-  /* ROTATION NEVER WALKS TO-DO OR SCRATCH: a reminder list and a half-built wall are
-   not a slideshow, and rotating onto SCRATCH would mount Alan's scratch charts while
-   he is looking at something else. */
-const ROTATION_SCENES = Object.freeze(["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies"]);
-  const ROTATION_IDS = ROTATION_SCENES;
   const NY = "America/New_York";
   const FAMILIES = Object.freeze({
     sectorFamilies: Object.freeze([
@@ -98,24 +118,6 @@ const ROTATION_SCENES = Object.freeze(["indexNow","indexLeadership","companyLead
        ribbon like any other chart. They keep this page; the four TradingView pictures
        moved to TO-DO on 24 Sep. */
     internalsFast: Object.freeze({ label:"INTERNALS", tickers:Object.freeze(["VIX","PCC"]), chartCount:2, range:"3h" }),
-    /* ── THE TWELVE SAVED TRADINGVIEW LAYOUTS ────────────────────────────────────
-       TradingView spellings are translated to the symbols the chart API serves —
-       USOIL → CLUSD, GOLD → GCUSD, TSX:BOFA → BAC — and nothing else is renamed.
-       IGV (INDEXES) and NVTS (EXTRAS) are not in the provider's tracked universe
-       today: their slots paint the provider's named absence instead of quietly
-       disappearing, and they light up the day the universe carries them.
-       `exact:true` means the page shows ITS OWN rows at ITS OWN size: a saved
-       layout is a picture, and pictures are not paged into twos. */
-    tvMacro: Object.freeze({ label:"MACRO", tickers:Object.freeze(["VIX","US10Y","CLUSD","BTCUSD","GCUSD","PCC"]), chartCount:6, range:"1D", exact:true }),
-    tvIndexes: Object.freeze({ label:"INDEXES", tickers:Object.freeze(["MAGS","SMH","IWM","DRAM","IGV"]), chartCount:6, range:"1D", exact:true }),
-    tvSectors: Object.freeze({ label:"SECTORS", tickers:Object.freeze(["XLV","XLY","XLF","XLP","XLE","XLI","XLC","XLB"]), chartCount:8, range:"1D", exact:true }),
-    tvHome6: Object.freeze({ label:"HOME 6", tickers:Object.freeze(["SPY","QQQ","NVDA","BE","MU","NBIS"]), chartCount:6, range:"3h", exact:true }),
-    tvPage2: Object.freeze({ label:"PAGE 2", tickers:Object.freeze(["TSM","SNDK","GOOGL","IREN","AVGO","CRWV"]), chartCount:6, range:"3h", exact:true }),
-    tvPage3: Object.freeze({ label:"PAGE 3", tickers:Object.freeze(["AAPL","LRCX","AMZN","AMD","MSFT","META"]), chartCount:6, range:"3h", exact:true }),
-    tvOtherLC: Object.freeze({ label:"OTHER LC", tickers:Object.freeze(["ASML","META","PLTR","ORCL","SPCX","HOOD","TSLA","SHOP"]), chartCount:8, range:"1D", exact:true }),
-    tvOtherSC: Object.freeze({ label:"OTHER SC", tickers:Object.freeze(["ALAB","WULF","CRDO","SMR","SMCI","OKLO","ASTS","USAR"]), chartCount:8, range:"1D", exact:true }),
-    tvBlueChip: Object.freeze({ label:"BLUE CHIP", tickers:Object.freeze(["WMT","JPM","COST","BAC","CAT","MRVL"]), chartCount:6, range:"1D", exact:true }),
-    tvExtras: Object.freeze({ label:"EXTRAS", tickers:Object.freeze(["MRVL","NVTS"]), chartCount:2, range:"1D", exact:true }),
     /* SCINTILLAS carries no tickers of its own: the store decides them, session by session. */
     scintillas: Object.freeze({ label:"SCINTILLAS", tickers:Object.freeze([]), chartCount:6, range:"1D", filled:"scintillas" }),
     /* TO-DO's rows come from TODO_CHARTS below, because each one carries a reason and,
@@ -200,7 +202,11 @@ const ROTATION_SCENES = Object.freeze(["indexNow","indexLeadership","companyLead
      dropped. "cohort" resolves to itself now. */
   /* A REMEMBERED PAGE MUST STILL LAND SOMEWHERE. Every browser that last sat on INTERNALS
    SLOW opens on TO-DO, which is exactly where its TICK and TRIN panes went. */
-const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", company:"companyLeadership", sectors:"sectorFamilies", themes:"themeFamilies", internalsSlow:"todo" });
+const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", company:"companyLeadership", sectors:"sectorFamilies", themes:"themeFamilies", internalsSlow:"todo",
+  /* 25 Sep (K3): the twelve saved TradingView layouts are retired as pages. A browser that
+     remembered one lands on the workflow page that now carries its names. */
+  tvMacro:"macro1D", tvIndexes:"otherIndexes1D", tvSectors:"sectors3D", tvHome6:"intraday4h",
+  tvPage2:"ai1", tvPage3:"mag7", tvOtherLC:"other3D", tvOtherSC:"ai2", tvBlueChip:"blueChip3D", tvExtras:"ai2" });
   const normalizeScene = (value) => IDS.includes(LEGACY[value] || value) ? (LEGACY[value] || value) : "live";
 
   function indexNowLeaders(at) {
@@ -210,6 +216,88 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
   }
   function indexNowTickersFor(at) {
     return Object.freeze([...indexNowLeaders(at), "CLUSD"]);
+  }
+
+  /* ── THE WORKFLOW'S MOVING PARTS (K3) ────────────────────────────────────────────
+     rotatingWindow is the one rule behind every "rotate" and "alternates" slot: the
+     window starts at (visit × size), wrapping around the end of the list. The deck owns
+     the visit counter; this function is pure so the windows are checkable in a test. */
+  function rotatingWindow(list, size, visit) {
+    const all = (list || []).filter((x) => x != null && x !== "");
+    if (!all.length) return [];
+    const n = Math.max(1, Math.min(all.length, Number(size) || 1));
+    const start = (Math.max(0, Math.floor(Number(visit) || 0)) * n) % all.length;
+    return Array.from({ length: n }, (_, i) => all[(start + i) % all.length]);
+  }
+  /* "Regular" is a New York weekday with 09:30 <= time < 16:30. Measured on SPY's
+     30-minute bars: volume falls from 5.9M in the 16:00 bar to 195k at 16:30, and
+     pre-market never exceeds 100k — so the futures pair leads outside that window. */
+  function stationSession(at) {
+    const d = at instanceof Date ? at : new Date(at);
+    if (!Number.isFinite(d.getTime())) return "regular";
+    const parts = new Intl.DateTimeFormat("en-US",
+      { timeZone:NY, weekday:"short", hour:"2-digit", minute:"2-digit", hour12:false }).formatToParts(d);
+    const part = (type) => (parts.find((p) => p.type === type) || {}).value || "";
+    const day = part("weekday");
+    if (day === "Sat" || day === "Sun") return "after";
+    const minutes = (Number(part("hour")) % 24) * 60 + Number(part("minute"));
+    return minutes >= 570 && minutes < 990 ? "regular" : "after";
+  }
+  function LEADERS(at) {
+    return stationSession(at) === "regular" ? ["SPY","QQQ"] : ["ESUSD","NQUSD"];
+  }
+  /* THE INTRADAY FOUR LEAVE THE ROTATION AT 16:30 AND RETURN AT 09:30, without a
+     reload: the deck re-asks this on every advance. */
+  function rotationScenesAt(at) {
+    return stationSession(at) === "regular"
+      ? WORKFLOW_IDS.slice()
+      : WORKFLOW_IDS.filter((id) => !AFTER_HOURS_PAGES.includes(id));
+  }
+  /* A WORKFLOW PAGE'S CHARTS AT ONE MOMENT. opts: { visit, targets, at }. TARGETS slots
+     take the deck's current list (public.station_targets) or TARGETS_DEFAULT; LEADERS
+     slots take SPY/QQQ or ES/NQ by the clock. Every slot rides the page's timeframe as
+     a per-slot range — the workbench mechanism — so the wall's run-wide RANGE rule is
+     never overwritten by a page. */
+  function workflowTickersFor(id, opts) {
+    const page = WORKFLOW_PAGES[id];
+    if (!page) return null;
+    const options = opts || {};
+    const targets = (Array.isArray(options.targets) && options.targets.length ? options.targets : TARGETS_DEFAULT).slice(0, 8);
+    const leaders = LEADERS(options.at || new Date());
+    const visit = Math.max(0, Math.floor(Number(options.visit) || 0));
+    if (page.targets) return targets;
+    if (page.tickers) return page.tickers.slice();
+    let slots = [];
+    if (page.leaders) slots = slots.concat(page.leaderWindow ? rotatingWindow(leaders, 1, visit) : leaders);
+    if (page.rotate) slots = slots.concat(rotatingWindow(page.rotate.list, page.rotate.size, visit));
+    if (page.rotateTargets) slots = slots.concat(rotatingWindow(targets, page.rotateTargets.size, visit));
+    if (page.tail) slots = slots.concat(page.tail);
+    return slots.slice(0, 8);
+  }
+  function workflowPageState(id, opts) {
+    const page = WORKFLOW_PAGES[id];
+    if (!page) return null;
+    const tickers = workflowTickersFor(id, opts) || [];
+    /* Four-slot walls (MACRO · 4H, INTRADAY · 1H) are an honest four-up; chartCountForSize
+       would retire them to two. Everything else follows the usual ladder. */
+    const count = tickers.length === 4 ? 4 : chartCountForSize(tickers.length);
+    return { label:page.label, tickers, chartCount:count, range:page.range,
+      ranges:tickers.map(() => page.range),
+      offset:0, totalItems:tickers.length, hasPrevious:false, hasNext:false, empty:!tickers.length };
+  }
+  /* The jump list's answer for a workflow page is its FULL list: a rotating page reports
+     every name it can land on, a TARGETS page the default eight, a LEADERS page both pairs. */
+  function workflowPageTickers(id) {
+    const page = WORKFLOW_PAGES[id];
+    if (!page) return [];
+    const out = [];
+    if (page.tickers) out.push(...page.tickers);
+    if (page.targets) out.push(...TARGETS_DEFAULT);
+    if (page.leaders) out.push("SPY","QQQ","ESUSD","NQUSD");
+    if (page.rotate) out.push(...page.rotate.list);
+    if (page.rotateTargets) out.push(...TARGETS_DEFAULT);
+    if (page.tail) out.push(...page.tail);
+    return out;
   }
 
   function chartCountForSize(size) {
@@ -323,10 +411,12 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
      that I can search tickers in and that it'll work and that they will change... think
      of it like if I was creating the layouts in new pages, and then in that new page we
      will rearrange, and I'll tell you, okay, this one we save."
-     The page holds nothing of its own: six slots, whatever the device remembers, and one
-     line of text that can be pasted back to the coordinator to be promoted into a named
-     page above. An empty slot stays empty — SCRATCH never seeds SPY/SNDK like LIVE. */
-  const SCRATCH_SLOTS = 6;
+     The page holds nothing of its own: eight slots (grown from six on 25 Sep so a
+     finished scratch wall can be saved straight into TARGETS), whatever the device
+     remembers, and one line of text that can be pasted back to the coordinator to be
+     promoted into a named page above. An empty slot stays empty — SCRATCH never seeds
+     SPY/SNDK like LIVE. */
+  const SCRATCH_SLOTS = 8;
   function scratchState(charts, range, count) {
     const size = Math.max(1, Math.min(8, Number(count) || SCRATCH_SLOTS));
     const slots = Array.from({ length:size }, (_, i) =>
@@ -349,13 +439,18 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
   function screenForScene(scene) {
     return SCREENS.find((screen) => screen.scene === normalizeScene(scene)) || null;
   }
-  /* Auto-rotate walks the curated nine; the arrows and the rail walk every page. */
-  function nextRotatingScreen(scene) {
+  /* Auto-rotate walks Alan's workflow; the arrows and the rail walk every page. The
+     intraday four drop out after hours — the deck asks with the current time on every
+     advance, so the rotation shrinks at 16:30 and grows back at 09:30 unaided. */
+  function nextRotatingScreenAt(scene, at) {
     const current = normalizeScene(scene);
-    const order = ROTATION_SCENES;
+    const order = rotationScenesAt(at || new Date());
     const index = order.indexOf(current);
     const next = order[(index + 1 + order.length) % order.length];
     return screenForScene(next) || SCREENS[0];
+  }
+  function nextRotatingScreen(scene) {
+    return nextRotatingScreenAt(scene, new Date());
   }
   function nextScreen(scene) {
     const index = SCREENS.findIndex((screen) => screen.scene === normalizeScene(scene));
@@ -433,6 +528,7 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     const id = normalizeScene(scene);
     const bench = workbenchFor(id);
     if (bench) return bench.charts.map((c) => c.ticker);
+    if (WORKFLOW_PAGES[id]) return workflowPageTickers(id);
     if (id === "indexNow") return indexNowTickersFor(new Date()).slice();
     if (id === "todo") return TODO_CHARTS.map((c) => c.ticker);
     /* SCRATCH's symbols live on the device, not in the model, so the jump list finds it
@@ -468,6 +564,7 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
   root.StationScenes = Object.freeze({
     IDS: Object.freeze(IDS.slice()),
     SCREENS,
+    LEGACY,
     ROTATION_IDS,
     PRESETS,
     normalizeScene,
@@ -490,6 +587,16 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     WORKBENCH_IDS: Object.freeze(WORKBENCH_IDS.slice()),
     ROTATION_SCENES,
     nextRotatingScreen,
+    nextRotatingScreenAt,
+    rotationScenesAt,
+    rotatingWindow,
+    stationSession,
+    LEADERS,
+    TARGETS_DEFAULT,
+    WORKFLOW_IDS,
+    WORKFLOW_PAGES,
+    workflowPageState,
+    workflowPageTickers,
     STUDY_STACKS,
     WORKBENCHES,
     workbenchFor,

@@ -555,6 +555,27 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       <span class="control-label">scene</span>
       <select class="scene-mode" id="sceneMode" title="choose a chart scene; media panes stay in place" aria-label="Station scene">
         <option value="live">live</option>
+        <option value="wkIndexes">indexes · week</option>
+        <option value="wkMacro">macro · week</option>
+        <option value="targets3D">targets</option>
+        <option value="sectors3D">sectors</option>
+        <option value="mainIndexes3D">spy + qqq</option>
+        <option value="mag7">mag 7</option>
+        <option value="ai1">ai 1 · core</option>
+        <option value="ai2">ai 2</option>
+        <option value="ai3">ai 3</option>
+        <option value="other3D">other</option>
+        <option value="blueChip3D">blue chip</option>
+        <option value="spyQqq1D">spy + qqq · day</option>
+        <option value="otherIndexes1D">other indexes · day</option>
+        <option value="macro1D">macro · day</option>
+        <option value="targets1D">targets · day</option>
+        <option value="macroIntraday">macro · 4h</option>
+        <option value="intraday4h">intraday · 4h</option>
+        <option value="intraday1h">intraday · 1h</option>
+        <option value="intraday30m">intraday · 30m</option>
+        <option value="scintillas">scintillas</option>
+        <option value="oscWorkbench">oscillator workbench</option>
         <option value="indexNow">index now</option>
         <option value="indexLeadership">index leadership</option>
         <option value="companyLeadership">company leadership</option>
@@ -563,18 +584,6 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
         <option value="internalsFast">internals</option>
         <option value="sectorFamilies">sector families</option>
         <option value="themeFamilies">theme families</option>
-        <option value="tvMacro">macro</option>
-        <option value="tvIndexes">indexes</option>
-        <option value="tvSectors">sectors</option>
-        <option value="tvHome6">home 6</option>
-        <option value="tvPage2">page 2</option>
-        <option value="tvPage3">page 3</option>
-        <option value="tvOtherLC">other lc</option>
-        <option value="tvOtherSC">other sc</option>
-        <option value="tvBlueChip">blue chip</option>
-        <option value="tvExtras">extras</option>
-        <option value="oscWorkbench">oscillator workbench</option>
-        <option value="scintillas">scintillas</option>
         <option value="todo">to-do</option>
         <option value="scratch">scratch</option>
         <option value="cohort">cohort</option>
@@ -648,6 +657,8 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
          section next door is display:none, which is where this button first went and vanished. -->
     <button type="button" class="btn" id="copyLayout" hidden
       title="copy this wall as one line - its symbols and its timeframe - to hand back for saving">copy layout</button>
+    <button type="button" class="btn" id="saveTargets" hidden
+      title="save this wall's filled slots, in order, as the TARGETS list every Station window reads">save as targets</button>
   </span>
   <span class="dsec" data-sec="charts" role="group" aria-label="Number of charts">
     <span class="lbl">charts</span>
@@ -778,6 +789,21 @@ async function pg(path) {
   if (!r.ok) throw new Error("pg " + r.status);
   return r.json();
 }
+/* WRITES THROUGH THE SAME DOOR pg READS THROUGH. TARGETS is the deck's only write:
+   an upsert on position (merge-duplicates, the same Prefer the video pane's shared
+   Watch Later writes use) plus a delete of the positions above the count. */
+async function pgWrite(path, body, extraHeaders) {
+  const r = await fetch(SB + "/rest/v1/" + path, { method:"POST",
+    headers: Object.assign({ apikey: ANON, Authorization: "Bearer " + ANON,
+      "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" }, extraHeaders || {}),
+    body: JSON.stringify(body) });
+  if (!r.ok) throw new Error("pg write " + r.status);
+}
+async function pgDelete(path) {
+  const r = await fetch(SB + "/rest/v1/" + path, { method:"DELETE",
+    headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
+  if (!r.ok) throw new Error("pg delete " + r.status);
+}
 const el = (id) => document.getElementById(id);
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 
@@ -812,6 +838,41 @@ const sessionRemembered = (key) => { try { return sessionStorage.getItem(key) ||
 const sessionRemember = (key, value) => { try { sessionStorage.setItem(key, value); } catch (_) {} };
 const forgetSession = (key) => { try { sessionStorage.removeItem(key); } catch (_) {} };
 const SceneModel = window.StationScenes;
+/* ── TARGETS — ALAN'S EIGHT NAMES, SHARED BY EVERY STATION WINDOW (K3) ────────────
+   Read at load and every five minutes; a failed or empty read keeps the model's
+   default eight rather than blanking the TARGETS pages. SCRATCH's SAVE AS TARGETS
+   button writes this same table. */
+let TARGETS = Array.from(SceneModel.TARGETS_DEFAULT);
+async function loadTargets() {
+  try {
+    const rows = await pg("station_targets?select=position,ticker&order=position.asc");
+    const list = (Array.isArray(rows) ? rows : []).map((row) => CLEAN(row && row.ticker)).filter(Boolean);
+    if (list.length) TARGETS = list;
+  } catch (_) {}
+}
+setInterval(loadTargets, 300000);
+/* ── THE VISIT COUNTER BEHIND EVERY ROTATING SLOT (K3) ────────────────────────────
+   One object, mirrored to localStorage under one key so a reload does not reset the
+   windows. pageVisit(id) returns the count and increments it; the page's charts are
+   built from that count at show time. */
+const PAGE_VISITS_KEY = "station.visits.v1";
+const PAGE_VISITS = (() => {
+  try {
+    const stored = JSON.parse(remembered(PAGE_VISITS_KEY) || "{}");
+    return stored && typeof stored === "object" && !Array.isArray(stored) ? stored : {};
+  } catch (_) { return {}; }
+})();
+function pageVisit(id) {
+  const count = Math.max(0, Number(PAGE_VISITS[id]) || 0);
+  PAGE_VISITS[id] = count + 1;
+  remember(PAGE_VISITS_KEY, JSON.stringify(PAGE_VISITS));
+  return count;
+}
+/* A workflow page's wall, fresh on every show: the current TARGETS, the session's
+   LEADERS, and this visit's rotating windows. */
+function workflowSceneState(scene) {
+  return SceneModel.workflowPageState(scene, { visit: pageVisit(scene), targets: TARGETS, at: new Date() });
+}
 /* The everyday wall chooser is deliberately simple.  INDEX NOW retains its
    coherent three-symbol launch preset without turning three into a global
    manual wall choice.  One remains a chart-focus detail state, not a wall. */
@@ -824,6 +885,9 @@ const sceneChartCount = (value, scene = SCENE, fromPreset = false) => {
   /* A cohort page owns its own count: the last page of a seven-member cohort is one real
      chart, not one real chart plus a manufactured empty card. */
   if (fromPreset && (scene === "cohort" || scene === "scintillas")) return SceneModel.chartCountForSize(value);
+  /* A workflow page owns its count too: the wall is whatever the page's slots say,
+     including an honest four-up (MACRO · 4H, INTRADAY · 1H) the 2/6/8 ladder would retire. */
+  if (fromPreset && SceneModel.WORKFLOW_IDS.includes(scene)) return Math.max(1, Math.min(8, +value || 2));
   return fromPreset && scene === "indexNow" && +value === 3 ? 3 : chartCount(value);
 };
 /* CUSTOM deliberately exposes only 2 / 6 / 8.  A remembered four-up wall is
@@ -2451,6 +2515,8 @@ function paintSceneControls(note) {
     : "manual workspace · edit any slot");
   const copy = el("copyLayout");
   if (copy) copy.hidden = SCENE !== "scratch";
+  const saveT = el("saveTargets");
+  if (saveT) saveT.hidden = SCENE !== "scratch";
   const familyPicker = el("familyPicker");
   if (familyPicker) {
     const options = SceneModel.familyOptions(SCENE);
@@ -2490,7 +2556,7 @@ function installSceneState(state) {
   SLOT_RANGES.forEach((_, i) => { SLOT_RANGES[i] = RANGES.includes(ranges[i]) ? ranges[i] : ""; });
   CHART_COUNT = (SCENE === "custom" ? customChartCount : sceneChartCount)(
     state.chartCount || SceneModel.chartCountForSize(charts.length), SCENE,
-    SCENE === "indexNow" || SCENE === "cohort" || SCENE === "scintillas"
+    SCENE === "indexNow" || SCENE === "cohort" || SCENE === "scintillas" || SceneModel.WORKFLOW_IDS.includes(SCENE)
   );
 }
 function fixedSceneState(scene, requestedCount) {
@@ -2519,6 +2585,11 @@ function fixedSceneState(scene, requestedCount) {
   return preset ? Object.assign({}, preset, SceneModel.basketWindow(preset.tickers, BASKET_OFFSET, requestedCount || preset.chartCount), { range:preset.range }) : null;
 }
 async function primeSceneState() {
+  if (SceneModel.WORKFLOW_IDS.includes(SCENE)) {
+    installSceneState(workflowSceneState(SCENE));
+    remember("station.scene", SCENE);
+    return;
+  }
   const fixed = fixedSceneState(SCENE);
   if (fixed) {
     const editable = hasStoredScene(SCENE) ? editableState(SCENE) : null;
@@ -2619,7 +2690,13 @@ async function applyScene(next, options) {
   const requested = SceneModel.normalizeScene(next);
   if (previous !== requested) rememberEditableState();
   let state;
-  if (fixedSceneState(requested)) {
+  if (SceneModel.WORKFLOW_IDS.includes(requested)) {
+    /* A workflow page is computed at show time — current TARGETS, the session's LEADERS,
+       this visit's rotating windows — never a stored workspace, so the page's slots
+       always advance. */
+    state = workflowSceneState(requested);
+  }
+  else if (fixedSceneState(requested)) {
     /* A chosen family is remembered before the preset is computed, and counts as an explicit
        choice: it must paint its DECLARED rows now, never a stored workspace under the new
        family's name. */
@@ -2699,7 +2776,7 @@ function scheduleRotation() {
   rotateTimer = setTimeout(async () => {
     if (ROTATE_PAUSED || ROTATE_BUSY) return scheduleRotation();
     ROTATE_BUSY = true;
-    const next = SceneModel.nextRotatingScreen(SCENE);
+    const next = SceneModel.nextRotatingScreenAt(SCENE, new Date());
     try { await applyScene(next.scene, { rotate:true, screen:true }); }
     finally { ROTATE_BUSY = false; scheduleRotation(); }
   }, ROTATE_AT * 1000);
@@ -3162,7 +3239,7 @@ function applyChartCount(next, fromScene, transitionGeneration) {
   const requestedCount = SCENE === "custom" || SCENE === "scratch"
     ? customChartCount(next)
     : sceneChartCount(next, SCENE, !!fromScene);
-  /* SCRATCH keeps every slot it was given, filled or not: the empty six IS the page. */
+  /* SCRATCH keeps every slot it was given, filled or not: the empty eight IS the page. */
   if (SCENE === "scratch" || (SCENE === "custom" && requestedCount >= 6)) {
     /* Growing an existing Custom workspace creates intentional editable slots;
        it never reseeds, replaces, or evicts a symbol the user already chose. */
@@ -3228,6 +3305,31 @@ async function copyScratchLayout() {
   return ok;
 }
 el("copyLayout").addEventListener("click", () => { copyScratchLayout(); });
+/* SAVE AS TARGETS (K3). SCRATCH's filled slots, in order, become the eight-position
+   TARGETS list every Station window reads. The confirmation lives where COPY LAYOUT's
+   does: on the button itself, for three seconds. */
+let SAVE_TARGETS_REVERT = null;
+async function saveScratchTargets() {
+  const button = el("saveTargets");
+  const filled = CHARTS.slice(0, 8).map(CLEAN).filter(Boolean);
+  const say = (text) => {
+    if (!button) return;
+    button.textContent = text;
+    clearTimeout(SAVE_TARGETS_REVERT);
+    SAVE_TARGETS_REVERT = setTimeout(() => { button.textContent = "save as targets"; }, 3000);
+  };
+  if (!filled.length) { say("type the targets first"); return; }
+  try {
+    await pgWrite("station_targets?on_conflict=position",
+      filled.map((ticker, i) => ({ position: i + 1, ticker, updated_at: new Date().toISOString() })));
+    await pgDelete("station_targets?position=gt." + filled.length);
+    TARGETS = filled.slice();
+    say("targets saved · " + filled.length + " names");
+  } catch (_) {
+    say("targets save failed");
+  }
+}
+el("saveTargets").addEventListener("click", () => { saveScratchTargets(); });
 el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
 el("sceneMode").addEventListener("change", (e) => {
   if (e.target.value === "live" || e.target.value === "custom") setRotationPaused(true);
@@ -3288,6 +3390,7 @@ document.addEventListener("pointerdown", (e) => {
 });
 
 async function build() {
+  await loadTargets();
   await primeSceneState();
   if (SCENE === "live" && QS.get("c2") === "auto") {
     try {

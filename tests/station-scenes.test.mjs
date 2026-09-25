@@ -50,15 +50,18 @@ function withoutInlineScript(sourceText) {
   return sourceText.replace(/<script>[\s\S]*?<\/script>/, "<script></script>");
 }
 
-test("all eleven curated scenes are present with fixed baskets", () => {
+test("all named scenes are present, with Alan's 25 Sep workflow leading the id list", () => {
   /* "cohort" is first-class again by filed ruling — a chosen cohort's rows replace the
      favorites rows, so the scene cannot be collapsed into a family preset. */
-  /* 23 Sep: Alan's twelve saved TradingView layouts became Station pages, so the id
-     list grew by his ten fixed layouts and the workbench. The original twelve are
-     unchanged and still in their original order. */
-  /* 24 Sep (M69): INTERNALS SLOW retired into TO-DO, and TO-DO and SCRATCH close the deck. */
-  assert.deepEqual(Array.from(scenes.IDS), ["live","indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies",
-    "tvMacro","tvIndexes","tvSectors","tvHome6","tvPage2","tvPage3","tvOtherLC","tvOtherSC","tvBlueChip","tvExtras","oscWorkbench","scintillas","todo","scratch","cohort","custom"]);
+  /* 25 Sep (K3): Alan's new charting workflow replaced the ten tv* pages — the nineteen
+     workflow pages now lead, the eight old curated pages follow SCINTILLAS and WORKBENCH,
+     and TO-DO / SCRATCH still close the deck. */
+  assert.deepEqual(Array.from(scenes.IDS), ["live",
+    "wkIndexes","wkMacro","targets3D","sectors3D","mainIndexes3D","mag7","ai1","ai2","ai3","other3D","blueChip3D",
+    "spyQqq1D","otherIndexes1D","macro1D","targets1D","macroIntraday","intraday4h","intraday1h","intraday30m",
+    "scintillas","oscWorkbench",
+    "indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies",
+    "todo","scratch","cohort","custom"]);
   assert.deepEqual(Array.from(scenes.PRESETS.indexLeadership.tickers), ["SPY","QQQ","DIA","IWM","MAGS","SMH"]);
   assert.equal(scenes.PRESETS.companyLeadership.range, "3h");
   assert.equal(scenes.PRESETS.macroCrossAsset.chartCount, 6);
@@ -183,26 +186,37 @@ test("normal wall chooser is two, six, or eight while INDEX NOW keeps its launch
     "the INDEX NOW state remains representable without being shown in the menu");
 });
 
-test("the arrows walk every page while rotation keeps to the curated nine", () => {
-  /* ROTATION IS NOT THE PAGE LIST (23 Sep). Auto-rotate still cycles the nine curated
-     screens — a slideshow Alan set up — while the arrows, the rail and the jump list
-     walk all twenty pages, including his own saved layouts. */
-  assert.deepEqual(Array.from(scenes.ROTATION_IDS), ["indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies"]);
-  assert.equal(scenes.nextRotatingScreen("themeFamilies").scene, "indexNow",
-    "rotation wraps inside the curated nine and never wanders into a saved layout");
-  assert.equal(scenes.nextRotatingScreen("tvMacro").scene, "indexNow");
-  assert.equal(scenes.nextScreen("live").scene, "indexNow");
-  assert.equal(scenes.nextScreen("themeFamilies").scene, "tvMacro",
-    "the arrows continue into Alan's own layouts instead of wrapping early");
-  /* 24 Sep (M48/M69): SCINTILLAS, then TO-DO, then SCRATCH — pages you go to, never
-     part of the rotation, and SCRATCH is deliberately the last thing in the deck. */
-  assert.equal(scenes.nextScreen("oscWorkbench").scene, "scintillas");
-  assert.equal(scenes.nextScreen("scintillas").scene, "todo");
+test("the arrows walk every page while rotation keeps to Alan's nineteen-page workflow", () => {
+  /* 25 Sep (K3): auto-rotate IS the workflow now — the nineteen pages in Alan's order,
+     with the intraday four leaving after 16:30 New York (rotationScenesAt; the full
+     after-hours behaviour is pinned in station-rotation-2025-09.test.mjs). The eight
+     old curated pages stay reachable by the arrows, rail and menu but no longer rotate. */
+  assert.deepEqual(Array.from(scenes.ROTATION_IDS), [
+    "wkIndexes","wkMacro","targets3D","sectors3D","mainIndexes3D","mag7","ai1","ai2","ai3","other3D","blueChip3D",
+    "spyQqq1D","otherIndexes1D","macro1D","targets1D","macroIntraday","intraday4h","intraday1h","intraday30m"],
+    "the rotation is the workflow, in the workflow's order");
+  assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T13:30:00Z").scene, "wkIndexes",
+    "rotation wraps inside the workflow (13:30 UTC is 09:30 ET, the regular session)");
+  assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T20:30:00Z").scene, "wkIndexes",
+    "after hours the intraday pages are out, and the fifteenth page wraps to the first");
+  assert.equal(scenes.nextRotatingScreenAt("tvMacro", "2026-09-23T13:30:00Z").scene, "targets1D",
+    "a remembered tv page resolves through LEGACY to macro1D and advances from there");
+  assert.equal(scenes.nextScreen("live").scene, "wkIndexes",
+    "a manual workspace steps onto the first workflow page");
+  assert.equal(scenes.nextScreen("intraday30m").scene, "scintillas",
+    "the arrows continue past the workflow into SCINTILLAS");
+  assert.equal(scenes.nextScreen("scintillas").scene, "oscWorkbench");
+  assert.equal(scenes.nextScreen("oscWorkbench").scene, "indexNow",
+    "the eight old curated pages follow the workbench");
+  assert.equal(scenes.nextScreen("themeFamilies").scene, "todo",
+    "the old curated pages are followed by TO-DO, not the retired tv layouts");
+  /* 24 Sep (M48/M69): TO-DO, then SCRATCH — pages you go to, never part of the
+     rotation, and SCRATCH is deliberately the last thing in the deck. */
   assert.equal(scenes.nextScreen("todo").scene, "scratch");
-  assert.equal(scenes.nextScreen("scratch").scene, "indexNow", "the last page wraps to the first");
+  assert.equal(scenes.nextScreen("scratch").scene, "wkIndexes", "the last page wraps to the first");
   assert.equal(scenes.previousScreen("live").scene, "scratch");
   for (const page of ["scintillas", "todo", "scratch"])
-    assert.equal(scenes.nextRotatingScreen(page).scene, "indexNow",
+    assert.equal(scenes.nextRotatingScreenAt(page, "2026-09-23T13:30:00Z").scene, "wkIndexes",
       "rotation never wanders onto a page you go to");
   assert.equal(scenes.nextScreen("internalsFast").scene, "sectorFamilies",
     "INTERNALS SLOW no longer sits between them");
@@ -215,8 +229,8 @@ test("the arrows walk every page while rotation keeps to the curated nine", () =
   assert.match(deck, /id="rotateToggle"/);
   assert.match(deck, /setRotationPaused\(!ROTATE_PAUSED\)/);
   assert.match(deck, /setTimeout\(/);
-  assert.match(deck, /const next = SceneModel\.nextRotatingScreen\(SCENE\);\n    try \{ await applyScene\(next\.scene, \{ rotate:true, screen:true \}\); \}/,
-    "Auto Rotate applies a screen exactly the way the header control does, over the curated nine");
+  assert.match(deck, /const next = SceneModel\.nextRotatingScreenAt\(SCENE, new Date\(\)\);\n    try \{ await applyScene\(next\.scene, \{ rotate:true, screen:true \}\); \}/,
+    "Auto Rotate re-asks the model with the current time on every advance, so the intraday pages drop out at 16:30 and return at 09:30 without a reload");
   assert.match(deck, /el\("screenNext"\)\.addEventListener\("click", \(\) => stepScreen\(1\)\)/);
 });
 
