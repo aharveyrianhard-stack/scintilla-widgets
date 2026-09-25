@@ -18,6 +18,7 @@
      candles and provider quotes for equities; retained-owner ticks for non-equities.
      Params: ?t=MU · ?range=1D (15m 30m 1h 2h 3h 4h 6h 12h 1D 3D 1W)
        · ?steps=1 (cloud ribbon drawn stepped; the default is smoothed for the eye, labels exact)
+       · ?rsi=1 | ?rsi=2h,4h,1D | ?rsi=auto (the Indicator Lab's locked-timeframe RSI fan under the price)
        · ?bare=1 (pane mode — see the BARE note in the script)
        · ?tvrange=1D|5D|1M|3M|6M|YTD|12M|60M|ALL (TradingView opening window)
      LOOK rides the Visuals sprint — plumbing only, hub tokens as-is.
@@ -255,6 +256,9 @@ body.tvmodal-open{ overflow:hidden; }
 <!-- The cloud ribbon's arithmetic and geometry, ported from the Indicator Lab's
      approved Cloud Workshop. Pure functions: it reads no data and draws nothing. -->
 <script src="/_indicators/station-clouds.js"></script>
+<!-- The RSI fan: the detail view's own RSI arithmetic, and the Lab's locked-timeframe rules. -->
+<script src="/station-shells/detail-v1/indicators.js"></script>
+<script src="/_indicators/station-rsi-fan.js"></script>
 <script>
 /* ONE SOURCE (2026-09-22). This page holds no Supabase client, no anon key and no realtime
    channel. Every price, candle and previous close comes from the chart API through SC_PROVIDER;
@@ -367,6 +371,11 @@ let CLOUD_STEPS = QS.has("steps") ? QS.get("steps") === "1" : lsGet(CLOUD_STEPS_
    the same key written once for this browser - the quiet window line comes back, now carrying the
    Eastern clock time of the last COMPLETED bar. It answers, on screen, the question of 24 Sep:
    "all of this is a three hour chart ... would it change a lot in bars?" */
+/* THE RSI FAN (Alan, 25 Sep: "we do have a multi-timeframe RSI… you do have the RSI"). OFF unless the
+   URL asks: ?rsi=1 for the Lab's default six lines, ?rsi=2h,4h,1D to pick, ?rsi=auto when a deck page
+   asks on its own (then a phone-narrow pane stays clean). Nothing is stored for this browser. */
+const RSI_REQUEST = window.SC_RSI_FAN ? window.SC_RSI_FAN.parseRsiParam(QS.get("rsi")) : { on:false, lines:[] };
+const rsiFanOn = () => !!(window.SC_RSI_FAN && window.SC_DETAIL_MATH && window.SC_RSI_FAN.visibleAt(RSI_REQUEST, innerWidth));
 const BAR_RULE_KEY = "station.barrule";
 const BAR_RULE_ON = QS.has("barrule") ? QS.get("barrule") === "1" : lsGet(BAR_RULE_KEY) === "1";
 const S = {
@@ -913,6 +922,170 @@ function setCloudSteps(stepped) {
   CLOUD_STEPS = next;
   if (!BARE) { try { localStorage.setItem(CLOUD_STEPS_KEY, CLOUD_STEPS ? "1" : "0"); } catch (_) {} }
   for (const host of CHART_HOSTS) if (host.isConnected) scChartDraw(host);
+}
+/* ============================================================================
+   THE RSI FAN — its data lane. One read per locked source timeframe, through the same provider
+   route the price uses, cached per ticker + timeframe in this frame the way the ribbon's daily
+   read is. NOT written to local storage: six source histories per ticker would crowd the price
+   cache out of the browser's quota, and a price that cannot be cached is the worse loss.
+   ============================================================================ */
+const RSI_INTRADAY_REFRESH_MS = 600000;   /* 10 minutes: the shortest source bar is two hours */
+const RSI_DAILY_REFRESH_MS = 1800000;     /* 30 minutes, the ribbon's own daily cadence */
+const CHART_BAR_MS = { "15m":9e5, "30m":18e5, "1h":36e5, "2h":72e5, "3h":108e5, "4h":144e5, "6h":216e5,
+  "12h":432e5, "1D":864e5, "3D":2592e5, "1W":6048e5 };
+const rsiSourceCache = new Map();
+const rsiSourceInflight = new Map();
+function rsiSourceFresh(entry, key, need) {
+  const line = window.SC_RSI_FAN.BY_KEY[key];
+  const ttl = line && line.daily ? RSI_DAILY_REFRESH_MS : RSI_INTRADAY_REFRESH_MS;
+  return !!entry && entry.asked >= need && Date.now() - entry.ts < ttl;
+}
+async function fetchRsiSource(t, key, need) {
+  const inflightKey = t + "|" + key + "|" + need;
+  if (rsiSourceInflight.has(inflightKey)) return rsiSourceInflight.get(inflightKey);
+  const work = (async () => {
+    const F = window.SC_RSI_FAN, line = F.BY_KEY[key];
+    const toBars = (rows) => (Array.isArray(rows) ? rows : [])
+      .map((r) => ({ t: r.timestamp * 1000, c: +r.close }))
+      .filter((b) => Number.isFinite(b.t) && Number.isFinite(b.c) && b.c > 0);
+    /* A long read's newest bars can lag a short read's (see TAIL_LIMIT), so past it the tail is read
+       on its own and joined on timestamps; the tail wins, and a hole is never bridged. */
+    const [tailRows, historyRows] = await Promise.all([
+      fetchProviderCandles(t, line.tf, Math.min(need, F.TAIL_LIMIT), 2),
+      need > F.TAIL_LIMIT ? fetchProviderCandles(t, line.tf, need, 2) : Promise.resolve([])]);
+    const joined = F.joinTail(toBars(historyRows), toBars(tailRows));
+    const entry = { ts: Date.now(), asked: need, bars: joined.bars, hole: joined.hole };
+    rsiSourceCache.set(t + "|" + key, entry);
+    return entry;
+  })();
+  rsiSourceInflight.set(inflightKey, work);
+  try { return await work; }
+  finally { if (rsiSourceInflight.get(inflightKey) === work) rsiSourceInflight.delete(inflightKey); }
+}
+function rsiChartSpan(pts) {
+  return pts && pts.length >= 2 ? Date.parse(pts[pts.length - 1].d) - Date.parse(pts[0].d) : 0;
+}
+/* Asked for only after the price is on screen, under ONE load permit per pane, so a six-up page
+   adds six admissions to the wall's queue, not thirty-six. A line whose read fails keeps its name
+   (a named absence) or its "…" (a delay) on the legend; the other lines still draw. */
+async function ensureRsiFan(host, t, req, generation) {
+  if (!rsiFanOn() || !host || !host.isConnected) return;
+  const span = rsiChartSpan(host._series);
+  const due = RSI_REQUEST.lines.map((key) => [key, window.SC_RSI_FAN.sourceLimit(key, span)])
+    .filter(([key, need]) => !rsiSourceFresh(rsiSourceCache.get(t + "|" + key), key, need));
+  if (!due.length || host._rsiPending === req) return;
+  host._rsiPending = req;
+  let release = null;
+  try {
+    release = await acquireChartLoadPermit(host, req + "|rsi", generation);
+    if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
+    if (!host._rsiAbsence || host._rsiAbsence.t !== t) host._rsiAbsence = { t, byKey:{} };
+    const absence = host._rsiAbsence.byKey;
+    await Promise.all(due.map(async ([key, need]) => {
+      try { await fetchRsiSource(t, key, need); absence[key] = null; }
+      catch (error) { absence[key] = isNamedAbsence(error) ? "n/a" : "…"; }
+    }));
+    if (host.dataset.t === t && host.isConnected) scChartDraw(host);
+  } finally {
+    if (release) release();
+    if (host._rsiPending === req) host._rsiPending = null;
+  }
+}
+/* The fan for what is on screen now: computed once per change of bars, sources or absences, so
+   a scrub redraws without redoing the arithmetic. */
+function rsiFanFor(host, pts) {
+  if (!rsiFanOn() || !pts || pts.length < 2) return null;
+  const t = host.dataset.t, range = host._range || S.chartRange;
+  const absence = host._rsiAbsence && host._rsiAbsence.t === t ? host._rsiAbsence.byKey : {};
+  const entries = RSI_REQUEST.lines.map((key) => [key, rsiSourceCache.get(t + "|" + key) || null]);
+  const sig = t + "|" + range + "|" + pts.length + "|" + pts[0].d + "|" + pts[pts.length - 1].d + "|" +
+    entries.map(([key, e]) => key + ":" + (e ? e.ts : 0) + ":" + (absence[key] || "")).join(",");
+  if (host._rsiMemo && host._rsiMemo.sig === sig) return host._rsiMemo;
+  const F = window.SC_RSI_FAN, times = pts.map((p) => Date.parse(p.d));
+  const chartDur = CHART_BAR_MS[range] || CHART_BAR_MS["1D"];
+  /* The last COMPLETED bar: a live placeholder appended from a quote is not a finished bar. */
+  const lastIx = pts[pts.length - 1].live ? pts.length - 2 : pts.length - 1;
+  const lines = entries.map(([key, e]) => {
+    if (!e || !e.bars.length) return { key, values:null, status:null, absence:absence[key] || (e ? "n/a" : "…") };
+    const series = F.lineSeries(key, e.bars);
+    const values = F.sampleToChart(times, series, chartDur, F.carryBars(key, chartDur));
+    return { key, values, status:F.lineStatus(series, values, lastIx), absence:null };
+  });
+  host._rsiMemo = { sig, lines };
+  return host._rsiMemo;
+}
+const RSI_MONTHS = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+function rsiAsOf(ms) {
+  const d = new Date(ms);
+  return d.getUTCDate() + " " + RSI_MONTHS[d.getUTCMonth()];
+}
+/* THE FAN'S OWN PANEL, under the price, on the price's own x scale: bar i of the price and value i of
+   every line sit on the same vertical. 0-100 fixed, the Lab's 30/50/70 references, one ink per line. */
+function drawRsiFan(ctx, o) {
+  const F = window.SC_RSI_FAN, top = o.top, ph = o.height, left = o.left, width = o.width;
+  const RY = (v) => top + (1 - v / 100) * ph;
+  ctx.save();
+  ctx.strokeStyle = o.hairline; ctx.globalAlpha = .16; ctx.lineWidth = .6;
+  ctx.beginPath(); ctx.moveTo(left, Math.round(top - o.gap / 2) + .5); ctx.lineTo(left + width, Math.round(top - o.gap / 2) + .5); ctx.stroke();
+  ctx.globalAlpha = 1;
+  const ref = (v, colour, dash, alpha) => {
+    ctx.save(); ctx.strokeStyle = colour; ctx.globalAlpha = alpha; ctx.lineWidth = .8; ctx.setLineDash(dash);
+    const y = Math.round(RY(v)) + .5;
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + width, y); ctx.stroke(); ctx.restore();
+  };
+  ref(70, F.INK.upper, [], .7);
+  ref(30, F.INK.lower, [], .7);
+  ref(50, F.ink("1D"), [1.5, 3], .45);
+  ctx.save(); ctx.beginPath(); ctx.rect(left, top, width, ph); ctx.clip();
+  for (const line of o.fan.lines) {
+    if (!line.values) continue;
+    const daily = F.BY_KEY[line.key].daily;
+    ctx.beginPath();
+    let pen = false;
+    for (let i = o.start; i <= o.end; i++) {
+      const v = line.values[i];
+      if (v == null) { pen = false; continue; }
+      if (pen) ctx.lineTo(o.X(i), RY(v)); else { ctx.moveTo(o.X(i), RY(v)); pen = true; }
+    }
+    ctx.strokeStyle = F.ink(line.key); ctx.lineWidth = daily ? 1.6 : 1;
+    ctx.setLineDash(daily ? [4, 3] : []); ctx.lineJoin = "round";
+    ctx.stroke();
+  }
+  ctx.restore();
+  ctx.font = o.font + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  ctx.textBaseline = "middle"; ctx.textAlign = "right";
+  ctx.fillStyle = F.INK.upper; ctx.fillText("70", o.axisX, RY(70));
+  ctx.fillStyle = F.INK.lower; ctx.fillText("30", o.axisX, RY(30));
+  /* The legend: every line's name and value, in its own ink; a scrub reads the hovered bar. A source
+     that stopped says the day it stopped; a line that could not be read says so. */
+  const shown = [];
+  const items = [{ text:"RSI 14", ink:F.ink("1D", .1) }];
+  for (const line of o.fan.lines) {
+    const name = F.BY_KEY[line.key].label;
+    let text;
+    if (!line.values) text = name + " " + line.absence;
+    else {
+      const at = o.scrubIx != null ? line.values[o.scrubIx] : line.status.value;
+      text = name + " " + (at == null ? "—" : at.toFixed(1));
+      if (o.scrubIx == null && line.status.stale) text += " · " + rsiAsOf(line.status.t);
+      shown.push({ key:line.key, value:at == null ? null : +at.toFixed(2), stale:!!line.status.stale,
+        asOf:line.status.t == null ? null : new Date(line.status.t).toISOString() });
+    }
+    items.push({ text, ink:F.ink(line.key, .25) });
+  }
+  ctx.textAlign = "left";
+  const lineH = o.font + 4;
+  let x = left + 3, y = top + lineH / 2 + 1;
+  for (const item of items) {
+    const w = ctx.measureText(item.text).width;
+    if (x > left + 3 && x + w > left + width - 4) { x = left + 3; y += lineH; }
+    ctx.fillStyle = "rgba(5,6,12,.72)";
+    ctx.fillRect(x - 2, y - lineH / 2, w + 4, lineH);
+    ctx.fillStyle = item.ink; ctx.fillText(item.text, x, y);
+    x += w + 9;
+  }
+  ctx.restore();
+  return { top, height:ph, lines:shown };
 }
 const cloudSpecOptions = () => CLOUD_EXTRAS;
 /* Which completed daily observation each visible bar may show. Computed once per
@@ -1490,7 +1663,12 @@ function scChartDraw(host, scrub) {
        gutter. That lets the top-left readout stay a clean ticker/change cue
        instead of forcing the user to scan it for price. */
     padR = ipadProfile ? (h < 130 ? 34 : 39) * scale : (h < 130 ? 36 : 42), padL = 6 * scale;
-  const iw = w - padL - padR, ih = h - padT - padB;
+  /* The RSI fan takes a band under the price - never more than 28% of the pane - and only when
+     the pane is tall enough for both to stay readable. */
+  const fan = rsiFanFor(host, pts);
+  const fanBlock = fan && h >= 170 ? Math.floor(h * window.SC_RSI_FAN.PANEL_SHARE) : 0;
+  const fanGap = fanBlock ? 6 : 0;
+  const iw = w - padL - padR, ih = h - padT - padB - fanBlock;
   if (iw < 10 || ih < 10) return;
   const view = chartView(host, pts), start = view.start, end = view.end;
   let lo = Infinity, hi = -Infinity;
@@ -1591,6 +1769,10 @@ function scChartDraw(host, scrub) {
   host._cloudLabels = cloudLabels && cloudMap
     ? drawCloudLabels(ctx, { map:cloudMap, pts, end, X, Y, padL, padT, iw, ih, font:cloudFont }) : null;
   paintCloudCaption(host, { padB, show:!!cloudMap && iw >= 200 && ih >= 90 });
+  /* What the fan panel shows is kept on the host, like the ribbon's labels, so a proof can read it. */
+  host._rsiDrawn = fanBlock ? drawRsiFan(ctx, { fan, X, start, end, left:padL, width:iw,
+    top:padT + ih + fanGap, height:fanBlock - fanGap, gap:fanGap, axisX:w - 3, hairline:col.dim,
+    font:cloudFont, scrubIx:scrub && pts[scrub.ix] ? scrub.ix : null }) : null;
   ctx.save();
   ctx.font = ((ipadProfile ? 6.5 : 7) * scale) + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.fillStyle = col.dim; ctx.globalAlpha = .47; ctx.textAlign = "right";
@@ -2250,6 +2432,8 @@ async function scChartLoad(host) {
     scChartDraw(host);
     /* The price is on screen; only now is the ribbon's own daily read asked for. */
     ensureCloudDaily(host, t, req, generation);
+    /* ...and the RSI fan's locked-timeframe reads, after the ribbon's. */
+    ensureRsiFan(host, t, req, generation);
   } catch (err) {
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
     /* THE WHOLE POINT: a named answer is not retried. Retrying it would present a settled

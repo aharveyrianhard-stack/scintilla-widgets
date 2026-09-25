@@ -168,7 +168,8 @@ test("the five zoomed screens and FUNDAMENTALS are MENU entries that auto-rotate
   for (const s of D.DETAIL_SCREENS)
     assert.ok(!rotation.includes(s.id), s.id + " must not be in the rotation until Alan says so");
   /* 25 Sep: the rotation is Alan's nineteen-page workflow (K3); the detail pages are still not in it. */
-  assert.equal(ctx.StationScenes.ROTATION_SCENES.length, 19, "the rotation is the nineteen-page workflow, untouched by this lane");
+  /* 22 since 25 Sep P2 (three daily RSI pages); still no detail page in it. */
+  assert.equal(ctx.StationScenes.ROTATION_SCENES.length, 22, "the rotation is the workflow, which has no detail page");
   /* and they answer the jump list's filter by name and by ticker */
   assert.deepEqual(plain(D.matchScreens("AVG").map((s) => s.id)), ["detailAVGO"]);
   assert.deepEqual(plain(D.matchScreens("FUND").map((s) => s.id)), ["fundamentals"]);

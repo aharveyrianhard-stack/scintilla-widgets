@@ -1,0 +1,190 @@
+/* SCINTILLA · STATION — THE RSI FAN: one RSI(14) line per LOCKED source timeframe.
+   ============================================================================
+   Alan, 25 Sep: "we have a multi-timeframe RSI… I believe it's six lines — three hour, four
+   hour, eight hour… the ones that I established on the Chrome tab group with oscillators."
+
+   THE SOURCE OF TRUTH is the Indicator Lab's script (read, never edited):
+     INDICATOR_LAB/sprints/2026-09-24-stack-alignment/threshold-experiments-20260924T223332Z/
+       owner-review/RSI_MTF_Context_Threshold_Experiment_V1.pine
+   and before it SCINTILLA_RSI_Fixed_Timeframe_Fan_V1.pine + RSI_FIXED_FAN_REVIEW_2026-09-17.md.
+   Taken from it, exactly:
+     · ta.rsi(close, 14) computed INSIDE each source timeframe, never on a resampled close;
+     · source timeframes 2H 3H 4H 6H 8H 12H D; 2H is OFF by default, the other six ON;
+     · one ink family (the script's indigo #526DFF), slower = more solid: transparency
+       2H 55 · 3H 48 · 4H 40 · 6H 33 · 8H 26 · 12H 18 · D 10; every line width 1 except
+       the Daily, which the script draws wider and dashed;
+     · reference lines 30 / 50 / 70 with the "Upper green / lower red" boundary scheme:
+       70 = #39D98A, 30 = #F05B78, 50 dotted in the family ink.
+   Not taken (and why): the envelope cloud over 2D/3D/W/2W and the SMA20 signal (context the
+   brief did not ask for), and the experiment's green/red RECOLOURING of a line while it is
+   beyond 70/30 (the brief asks for one ink per line).
+
+   THE ARITHMETIC is not written here. RSI is SC_DETAIL_MATH.rsiSeries from the detail shell
+   (station-shells/detail-v1/indicators.js): Wilder smoothing seeded with the simple mean of
+   the first 14 changes, which is what ta.rsi does.
+
+   THE ONE RULE FOR PUTTING A SOURCE LINE ON A CHART BAR — NO PEEKING AHEAD:
+     a chart bar shows the RSI of the LAST SOURCE BAR THAT HAD FINISHED by the time that
+     chart bar finished. A 4H line on a daily chart shows the day's last 4H value; a daily
+     line on a 4H chart shows yesterday's value until today's daily bar has closed. This is
+     what the script's lookahead_off request (and, below the chart timeframe, its "last
+     intrabar" sample) shows on historical bars.
+   And one rule against lying by omission, counted in the CHART'S OWN BARS (which already skip
+   nights, weekends and holidays): a finished source value may stand on the chart for as many
+   bars as one source bar spans — a daily line on a 4H chart holds through today's five 4H bars,
+   a 3H line on a daily chart holds for none. So a session the source never delivered is a gap
+   in its line, a source that stopped stops on the chart, and the label names the day of the
+   value it shows whenever the line does not reach the last completed bar. Nothing is ever
+   stretched flat to the present.
+
+   Pure functions. No fetch, no DOM, no clock of its own. */
+(function (root) {
+  "use strict";
+
+  const HOUR = 3600000, DAY = 86400000;
+  const INK = Object.freeze({ family:"#526DFF", upper:"#39D98A", lower:"#F05B78" });
+  /* tf is the chart API token the provider client already maps (8h added to that map for this). */
+  const LINES = Object.freeze([
+    Object.freeze({ key:"2h",  tf:"2h",  label:"2H",  on:false, alpha:.45, durMs:2 * HOUR,  perSession:8 }),
+    Object.freeze({ key:"3h",  tf:"3h",  label:"3H",  on:true,  alpha:.52, durMs:3 * HOUR,  perSession:6 }),
+    Object.freeze({ key:"4h",  tf:"4h",  label:"4H",  on:true,  alpha:.60, durMs:4 * HOUR,  perSession:4 }),
+    Object.freeze({ key:"6h",  tf:"6h",  label:"6H",  on:true,  alpha:.67, durMs:6 * HOUR,  perSession:4 }),
+    Object.freeze({ key:"8h",  tf:"8h",  label:"8H",  on:true,  alpha:.74, durMs:8 * HOUR,  perSession:3 }),
+    Object.freeze({ key:"12h", tf:"12h", label:"12H", on:true,  alpha:.82, durMs:12 * HOUR, perSession:2 }),
+    /* A daily bar is stamped at midnight New York and its extended session ends at 20:00 New
+       York, so it has FINISHED 20 hours after its stamp, in summer and in winter alike. */
+    Object.freeze({ key:"1D",  tf:"1D",  label:"D",   on:true,  alpha:.90, durMs:20 * HOUR, perSession:1, daily:true })
+  ]);
+  const BY_KEY = Object.freeze(Object.fromEntries(LINES.map((l) => [l.key, l])));
+  const ALIASES = Object.freeze({ "2h":"2h", "120":"2h", "3h":"3h", "180":"3h", "4h":"4h", "240":"4h",
+    "6h":"6h", "8h":"8h", "12h":"12h", "1d":"1D", "d":"1D", "daily":"1D" });
+  const LENGTH = 14;
+  /* Wilder's average forgets its seed slowly; the first 150 values of a truncated history can
+     sit a point or more away from TradingView's, which starts at the listing. They are
+     computed and not drawn, like the cloud ribbon's warm-up. */
+  const WARMUP = 150;
+  const MIN_SOURCE = 300, MAX_SOURCE = 3000;
+  /* MEASURED 25 Sep 19:40Z, read-only: the chart API's INTRADAY series end at a different bar
+     depending on how many are asked for. MU 3H: limit 400 → newest 23 Sep 16:00; limit 500 and
+     above → newest 22 Sep 13:00 (SPY 4H the same; daily unaffected up to 6,000). So a line that
+     needs more than TAIL_LIMIT bars reads the tail and the history separately and joins them. */
+  const TAIL_LIMIT = 400;
+  const PANEL_SHARE = 0.26;            /* of the pane height, gap included: under the 28% ceiling */
+  const PHONE_MAX = 390;
+
+  /* ?rsi=  →  what the pane was asked for.
+       absent / 0 / off      nothing
+       1 / on / all          the script's default six (3H 4H 6H 8H 12H D)
+       2h,4h,1D              exactly those, in the fan's own order
+       auto                  the default six, asked for by a DECK PAGE rather than typed:
+                             hidden when the window is phone-narrow (≤ 390 px).
+     Tokens nobody recognises are dropped and reported, never guessed at. */
+  function parseRsiParam(raw) {
+    if (raw == null) return { on:false, explicit:false, lines:[], dropped:[] };
+    const text = String(raw).trim().toLowerCase();
+    if (text === "" || text === "0" || text === "off" || text === "false")
+      return { on:false, explicit:true, lines:[], dropped:[] };
+    const defaults = LINES.filter((l) => l.on).map((l) => l.key);
+    if (text === "1" || text === "on" || text === "all" || text === "true")
+      return { on:true, explicit:true, lines:defaults, dropped:[] };
+    if (text === "auto") return { on:true, explicit:false, lines:defaults, dropped:[] };
+    const want = new Set(), dropped = [];
+    for (const token of text.split(/[\s,]+/).filter(Boolean)) {
+      const key = ALIASES[token];
+      if (key) want.add(key); else dropped.push(token);
+    }
+    const lines = LINES.map((l) => l.key).filter((k) => want.has(k));
+    return { on:lines.length > 0, explicit:true, lines, dropped };
+  }
+  function visibleAt(request, windowWidth) {
+    if (!request || !request.on) return false;
+    return request.explicit || !(Number(windowWidth) <= PHONE_MAX);
+  }
+
+  /* How many source bars cover the chart's span plus the warm-up, bounded so a six-up
+     wall never asks for more than it can use. Sessions per calendar day: 252/365. */
+  function sourceLimit(key, spanMs) {
+    const line = BY_KEY[key];
+    if (!line) return MIN_SOURCE;
+    const sessions = Math.max(0, Number(spanMs) || 0) / DAY * (252 / 365);
+    /* rounded before the ceiling: 365 days x 252/365 is 252.00000000000003 in floating point */
+    const need = Math.ceil(Math.round(sessions * line.perSession * 1e6) / 1e6) + WARMUP + 50;
+    return Math.max(MIN_SOURCE, Math.min(MAX_SOURCE, need));
+  }
+
+  /* Join a long history read and a short tail read on timestamps; the tail wins where both have a
+     bar. If the two do not overlap, the history is NOT bridged across the hole: the tail alone is
+     returned (a shorter line is honest, an RSI computed across missing bars is not). */
+  function joinTail(history, tail) {
+    const h = (history || []).slice().sort((a, b) => a.t - b.t);
+    const tl = (tail || []).slice().sort((a, b) => a.t - b.t);
+    if (!tl.length) return { bars: h, joined: false, hole: false };
+    if (!h.length) return { bars: tl, joined: false, hole: false };
+    const first = tl[0].t;
+    if (h[h.length - 1].t < first) return { bars: tl, joined: false, hole: true };
+    return { bars: h.filter((b) => b.t < first).concat(tl), joined: true, hole: false };
+  }
+
+  /* bars: [{ t: ms, c: close }] ascending → [{ t, end, v }] with the warm-up set to null. */
+  function lineSeries(key, bars, math) {
+    const line = BY_KEY[key];
+    const M = math || root.SC_DETAIL_MATH;
+    if (!line || !M || typeof M.rsiSeries !== "function") return [];
+    const list = (bars || []).filter((b) => b && Number.isFinite(b.t) && Number.isFinite(b.c));
+    const values = M.rsiSeries(list, LENGTH);
+    return list.map((b, i) => ({ t:b.t, end:b.t + line.durMs, v:i < WARMUP ? null : values[i] }));
+  }
+
+  /* How many chart bars one finished source value may stand for: the whole number of chart bars
+     one source bar spans. 3H on 1D → 0; D on 4H → 5; 12H on 4H → 3; D on 1D → 0. */
+  function carryBars(key, chartDurMs) {
+    const line = BY_KEY[key];
+    const chart = Number(chartDurMs) || DAY;
+    return line ? Math.floor(line.durMs / chart) : 0;
+  }
+
+  /* chartTimes: ascending ms of the chart's bars; chartDurMs: the chart's own nominal bar length,
+     used only for the newest bar (every other bar ends where the next begins).
+     Returns one value (or null) per chart bar. Three pointers, all monotonic: O(chart + source). */
+  function sampleToChart(chartTimes, series, chartDurMs, carry) {
+    const n = chartTimes.length, out = new Array(n).fill(null);
+    const ends = chartTimes.map((t, i) => i + 1 < n ? chartTimes[i + 1] : t + (Number(chartDurMs) || DAY));
+    const allowance = Math.max(0, Math.floor(Number(carry) || 0));
+    let j = -1, k = 0;
+    for (let i = 0; i < n; i++) {
+      while (j + 1 < series.length && series[j + 1].end <= ends[i]) j++;
+      if (j < 0) continue;
+      const s = series[j];
+      if (s.v == null) continue;
+      /* k: the first chart bar that could show this value - the one during which it finished */
+      while (k < n && ends[k] < s.end) k++;
+      if (i - k > allowance) continue;
+      out[i] = s.v;
+    }
+    return out;
+  }
+
+  /* The label's facts: the newest finished value and when its source bar began, and whether the
+     line fails to reach the chart's last COMPLETED bar (lastIx) - then the label names its day. */
+  function lineStatus(series, values, lastIx) {
+    for (let i = series.length - 1; i >= 0; i--) {
+      if (series[i].v == null) continue;
+      const reaches = Array.isArray(values) && lastIx >= 0 && values[lastIx] != null;
+      return { value:series[i].v, t:series[i].t, end:series[i].end, stale:!reaches };
+    }
+    return { value:null, t:null, end:null, stale:false };
+  }
+
+  function ink(key, alphaBoost) {
+    const line = BY_KEY[key];
+    const a = Math.min(1, (line ? line.alpha : 1) + (alphaBoost || 0));
+    const hex = INK.family.slice(1);
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    return "rgba(" + r + "," + g + "," + b + "," + a.toFixed(2) + ")";
+  }
+
+  root.SC_RSI_FAN = Object.freeze({
+    LINES, BY_KEY, INK, LENGTH, WARMUP, MIN_SOURCE, MAX_SOURCE, TAIL_LIMIT, PANEL_SHARE, PHONE_MAX,
+    parseRsiParam, visibleAt, sourceLimit, joinTail, lineSeries, carryBars, sampleToChart, lineStatus, ink
+  });
+})(typeof globalThis === "object" ? globalThis : window);

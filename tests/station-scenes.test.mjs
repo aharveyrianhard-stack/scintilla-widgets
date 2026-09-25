@@ -73,7 +73,8 @@ test("all named scenes are present, with Alan's 25 Sep workflow leading the id l
      and TO-DO / SCRATCH still close the deck. */
   assert.deepEqual(Array.from(scenes.IDS), ["live",
     "wkIndexes","wkMacro","targets3D","sectors3D","mainIndexes3D","mag7","ai1","ai2","ai3","other3D","blueChip3D",
-    "spyQqq1D","otherIndexes1D","macro1D","targets1D","macroIntraday","intraday4h","intraday1h","intraday30m",
+    "spyQqq1D","spyQqqOsc","otherIndexes1D","otherIndexesOsc","macro1D","targets1D","targetsOsc",
+    "macroIntraday","intraday4h","intraday1h","intraday30m",
     /* 25 Sep, later: HISTORY is retired (Alan did not mean a page); it resolves through LEGACY. */
     "scintillas","oscWorkbench",
     "indexNow","indexLeadership","companyLeadership","focus2","macroCrossAsset","internalsFast","sectorFamilies","themeFamilies",
@@ -203,15 +204,16 @@ test("normal wall chooser is two, six, or eight while INDEX NOW keeps its launch
     "the INDEX NOW state remains representable without being shown in the menu");
 });
 
-test("the arrows walk every page while rotation keeps to Alan's nineteen-page workflow", () => {
+test("the arrows walk every page while rotation keeps to Alan's workflow (22 pages since the RSI pages)", () => {
   /* 25 Sep (K3): auto-rotate IS the workflow now — the nineteen pages in Alan's order,
      with the intraday four leaving after 16:30 New York (rotationScenesAt; the full
      after-hours behaviour is pinned in station-rotation-2025-09.test.mjs). The eight
      old curated pages stay reachable by the arrows, rail and menu but no longer rotate. */
   assert.deepEqual(Array.from(scenes.ROTATION_IDS), [
     "wkIndexes","wkMacro","targets3D","sectors3D","mainIndexes3D","mag7","ai1","ai2","ai3","other3D","blueChip3D",
-    "spyQqq1D","otherIndexes1D","macro1D","targets1D","macroIntraday","intraday4h","intraday1h","intraday30m"],
-    "the rotation is the workflow, in the workflow's order");
+    "spyQqq1D","spyQqqOsc","otherIndexes1D","otherIndexesOsc","macro1D","targets1D","targetsOsc",
+    "macroIntraday","intraday4h","intraday1h","intraday30m"],
+    "the rotation is the workflow, in the workflow's order (25 Sep P2: an RSI page after each daily twin)");
   assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T13:30:00Z").scene, "targets3D",
     "rotation wraps inside the workflow (13:30 UTC is 09:30 ET, the regular session)");
   /* 25 Sep, later (P1): four sessions. 16:30 ET is now the after-market session, which keeps the
