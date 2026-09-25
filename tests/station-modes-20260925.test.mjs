@@ -306,13 +306,25 @@ function retargetRig({ shown = "/station-shells/chart-v1?shell=v1&bare=1&t=MSFT&
 test("a cached symbol on a settled frame is swapped in place: quote first, then the symbol, no new src", () => {
   const r = retargetRig();
   assert.equal(r.retarget(r.pane, "TSM"), true);
-  assert.deepEqual(JSON.parse(JSON.stringify(r.posts)), [{ sc:"deck-quote", ticker:"TSM" }, { sc:"chart", ticker:"TSM", range:"3D" }],
+  assert.deepEqual(JSON.parse(JSON.stringify(r.posts)), [{ sc:"deck-quote", ticker:"TSM" }, { sc:"chart", ticker:"TSM", range:"3D", sharedAxis:true }],
     "the day's baseline arrives before the symbol, so the first paint has its direction");
   assert.deepEqual(r.sets, [], "the document is kept - nothing reloads, nothing goes blank");
   assert.equal(r.frame.dataset.shown, r.pane.def.src, "the frame records what it now shows");
   assert.equal(r.timers[0].ms, 1500);
   r.pane.reportedTicker = "TSM"; r.timers[0].fn();
   assert.deepEqual(r.sets, [], "the pane answered with the new symbol: no fallback");
+});
+
+test("a page with another chart count moves a frame between rows in place, axis mode by message", () => {
+  const down = retargetRig({ next: "/station-shells/chart-v1?shell=v1&bare=1&t=SPY&range=3D&view=auto&transition=7" });
+  assert.equal(down.retarget(down.pane, "SPY"), true, "8-up top row (borrowed axis) to 2-up (own axis)");
+  assert.deepEqual(JSON.parse(JSON.stringify(down.posts))[1], { sc:"chart", ticker:"SPY", range:"3D", sharedAxis:false });
+  assert.deepEqual(down.sets, [], "no reload");
+  for (const [label, src] of [["chart", chart], ["chart shell", chartShell]]) {
+    assert.match(src, /let SHARED_TIME_AXIS = QS\.get\("sharedAxis"\) === "1";/, label);
+    assert.match(src, /const axisChanged = typeof d\.sharedAxis === "boolean" && d\.sharedAxis !== SHARED_TIME_AXIS;\n  if \(axisChanged\) SHARED_TIME_AXIS = d\.sharedAxis;/, label);
+    assert.match(src, /else if \(axisChanged && host && host\._series && host\._series\.length >= 2\) scChartDraw\(host\);/, label + ": an axis-only change redraws");
+  }
 });
 
 test("a frame that does not answer within 1.5 s gets the URL after all", () => {
@@ -325,8 +337,8 @@ test("a frame that does not answer within 1.5 s gets the URL after all", () => {
 
 test("anything but a clean symbol swap takes the old path", () => {
   assert.equal(retargetRig({ cached:false }).retarget(retargetRig({ cached:false }).pane, "TSM"), false, "a cold symbol reloads (queued)");
-  const axis = retargetRig({ next: "/station-shells/chart-v1?shell=v1&bare=1&t=TSM&range=3D&view=auto" });
-  assert.equal(axis.retarget(axis.pane, "TSM"), false, "a different axis mode is a different document");
+  const axis = retargetRig({ next: "/station-shells/chart-v1?shell=v1&bare=1&t=TSM&range=3D&view=desk&sharedAxis=1" });
+  assert.equal(axis.retarget(axis.pane, "TSM"), false, "a different view profile is a different document");
   const loading = retargetRig({ reported: "NVDA" });
   assert.equal(loading.retarget(loading.pane, "TSM"), false, "a frame whose document has not reported what it shows is not trusted");
   const same = retargetRig({ next: "/station-shells/chart-v1?shell=v1&bare=1&t=MSFT&range=1D&view=auto&sharedAxis=1" });
@@ -350,4 +362,13 @@ test("the chart pane loads a new symbol straight at the new range - never the ol
     assert.match(src, /if \(host && !retarget\) holdAndReload\(host, S\.chartRange\);/, label);
   }
   assert.equal(chart, chartShell, "the two chart copies stay byte-identical");
+});
+
+test("a symbol swapped in place repaints its badge at once - never the old name over the new line", () => {
+  for (const [label, src] of [["chart", chart], ["chart shell", chartShell]]) {
+    const start = src.indexOf("function setChartTicker(");
+    const body = src.slice(start, src.indexOf("\n}\n", start));
+    assert.match(body, /scChartLoad\(host\);\n[\s\S]*paintLiveStatus\(host, liveQuote\[t\] \|\| null\);$/,
+      label + ": the badge is repainted after the cached draw, from the quote already delivered or none");
+  }
 });

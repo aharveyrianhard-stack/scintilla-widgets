@@ -3102,31 +3102,34 @@ function syncChartFrame(frame, nextSrc, message) {
    for ~150 ms before each new document drew from its cache - and some then drew a second time
    when their price arrived and the day's direction changed colour.
    The chart pane already takes a new symbol by message (setChartTicker) and, when the bars are
-   cached, draws it in the same task, so no empty frame is painted. So when ONLY the symbol
-   differs, its bars are cached, and the frame's document has reported the symbol this deck
-   thinks it shows, the frame is re-pointed in place:
+   cached, draws it in the same task, so no empty frame is painted. So when only the symbol
+   and/or the axis mode differ (a page with another chart count moves a frame between the top
+   row, which borrows the axis below it, and the bottom row), the bars are cached, and the
+   frame's document has reported the symbol this deck thinks it shows, the frame is re-pointed
+   in place:
      1. the deck's quote for the new symbol goes first, so the first paint has the day's
         baseline;
-     2. then { sc:"chart", ticker, range };
+     2. then { sc:"chart", ticker, range, sharedAxis };
      3. if the frame has not reported the new symbol within 1.5 s, its URL - still the durable
         identity - is set after all, exactly as before.
-   Anything else (a cold symbol, a different axis mode, a frame still loading) takes the old
-   path unchanged. */
+   Anything else (a cold symbol, a frame still loading, a slot that had no frame) takes the
+   old path unchanged. */
 const RETARGET_ACK_MS = 1500;
 function srcTicker(src) {
   try { return CLEAN(new URL(String(src || ""), location.origin).searchParams.get("t")); } catch (_) { return ""; }
 }
-const withoutTicker = (src) => frameIdentity(src).replace(/([?&])t=[^&]*&?/, "$1");
+const withoutTicker = (src) => frameIdentity(src).replace(/([?&])(t|sharedAxis)=[^&]*/g, "$1").replace(/&+/g, "&").replace(/[?&]$/, "");
 function retargetChartInPlace(pane, ticker) {
   const frame = pane && pane.frame, next = pane && pane.def.src;
   if (!frame || !frame.contentWindow || !next || !ticker) return false;
   const shown = frameShownSrc(frame);
   if (frameIdentity(shown) === frameIdentity(next)) return false;                 /* same symbol: the ordinary message */
-  if (withoutTicker(shown) !== withoutTicker(next)) return false;                 /* more than the symbol changed */
+  if (withoutTicker(shown) !== withoutTicker(next)) return false;                 /* more than symbol/axis changed */
   if (!pane.reportedTicker || pane.reportedTicker !== srcTicker(shown)) return false;   /* document not settled */
   if (!chartCachedInBrowser(ticker, RANGE)) return false;
   postDeckQuote(frame, ticker);
-  try { frame.contentWindow.postMessage({ sc:"chart", ticker, range:RANGE }, location.origin); }
+  const sharedAxis = /[?&]sharedAxis=1(&|$)/.test(next);
+  try { frame.contentWindow.postMessage({ sc:"chart", ticker, range:RANGE, sharedAxis }, location.origin); }
   catch (_) { return false; }
   frame.dataset.shown = next;
   const token = (pane.retargetToken || 0) + 1;

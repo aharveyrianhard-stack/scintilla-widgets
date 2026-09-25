@@ -159,7 +159,8 @@ test("six and eight chart grids pair each top chart with its column's lower axis
   assert.equal(scenes.hidesTopChartAxis(3, 8, ["A", "B", "C", "D", "E", "F", "G", ""]), false);
   assert.equal(scenes.hidesTopChartAxis(3, 6, ["A", "B", "C", "D", "E", "F"]), false);
   assert.match(deck, /sharedAxis=1/);
-  assert.match(chart, /const SHARED_TIME_AXIS = QS\.get\("sharedAxis"\) === "1"/);
+  /* a `let` since 25 Sep (P1): a mounted frame can change rows by message instead of reloading */
+  assert.match(chart, /let SHARED_TIME_AXIS = QS\.get\("sharedAxis"\) === "1"/);
   assert.match(chart, /if \(!SHARED_TIME_AXIS\) \{/);
   assert.match(chart, /padB = SHARED_TIME_AXIS \? 5 \* scale : axisBand/);
   assert.doesNotMatch(chart, /chart-axis/);
