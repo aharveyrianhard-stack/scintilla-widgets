@@ -251,8 +251,8 @@ test("the arrows walk every page while rotation keeps to Alan's workflow (22 pag
   assert.match(deck, /id="rotateToggle"/);
   assert.match(deck, /setRotationPaused\(!ROTATE_PAUSED\)/);
   assert.match(deck, /setTimeout\(/);
-  assert.match(deck, /const next = SceneModel\.nextRotatingScreenAt\(SCENE, new Date\(\)\);\n    try \{ await applyScene\(next\.scene, \{ rotate:true, screen:true \}\); \}/,
-    "Auto Rotate re-asks the model with the current time on every advance, so the intraday pages drop out at 16:30 and return at 09:30 without a reload");
+  assert.match(deck, /const step = SceneModel\.rotationStepAt\(SCENE, new Date\(\), ROT_POS\);[^\n]*\n    ROT_POS = step\.position;\n    try \{ await applyScene\(step\.scene, \{ rotate:true, screen:true \}\); \}/,
+    "Auto Rotate re-asks the model with the current time on every advance, so the intraday pages drop out at 18:00 and return at 04:00 without a reload, and the lap cursor rides along");
   assert.match(deck, /el\("screenNext"\)\.addEventListener\("click", \(\) => stepScreen\(1\)\)/);
 });
 
