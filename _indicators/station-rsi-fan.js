@@ -29,9 +29,13 @@
      line on a 4H chart shows yesterday's value until today's daily bar has closed. This is
      what the script's lookahead_off request (and, below the chart timeframe, its "last
      intrabar" sample) shows on historical bars.
-   And one rule against lying by omission: a value is carried forward only across an
-   ordinary market gap (MAX_CARRY_MS). A source that stopped updating stops on the chart
-   and its label says the date it stopped — it is never stretched flat to the present.
+   And one rule against lying by omission, counted in the CHART'S OWN BARS (which already skip
+   nights, weekends and holidays): a finished source value may stand on the chart for as many
+   bars as one source bar spans — a daily line on a 4H chart holds through today's five 4H bars,
+   a 3H line on a daily chart holds for none. So a session the source never delivered is a gap
+   in its line, a source that stopped stops on the chart, and the label names the day of the
+   value it shows whenever the line does not reach the last completed bar. Nothing is ever
+   stretched flat to the present.
 
    Pure functions. No fetch, no DOM, no clock of its own. */
 (function (root) {
@@ -60,7 +64,6 @@
      computed and not drawn, like the cloud ribbon's warm-up. */
   const WARMUP = 150;
   const MIN_SOURCE = 300, MAX_SOURCE = 3000;
-  const MAX_CARRY_MS = 4 * DAY;        /* a long weekend, never a stalled feed */
   const PANEL_SHARE = 0.26;            /* of the pane height, gap included: under the 28% ceiling */
   const PHONE_MAX = 390;
 
@@ -114,30 +117,42 @@
     return list.map((b, i) => ({ t:b.t, end:b.t + line.durMs, v:i < WARMUP ? null : values[i] }));
   }
 
-  /* chartTimes: ascending ms of the chart's bars; chartDurMs: the chart's own nominal bar
-     length, used only for the newest bar (every other bar ends where the next begins).
-     Returns one value (or null) per chart bar. Two pointers: O(chart + source). */
-  function sampleToChart(chartTimes, series, chartDurMs) {
+  /* How many chart bars one finished source value may stand for: the whole number of chart bars
+     one source bar spans. 3H on 1D → 0; D on 4H → 5; 12H on 4H → 3; D on 1D → 0. */
+  function carryBars(key, chartDurMs) {
+    const line = BY_KEY[key];
+    const chart = Number(chartDurMs) || DAY;
+    return line ? Math.floor(line.durMs / chart) : 0;
+  }
+
+  /* chartTimes: ascending ms of the chart's bars; chartDurMs: the chart's own nominal bar length,
+     used only for the newest bar (every other bar ends where the next begins).
+     Returns one value (or null) per chart bar. Three pointers, all monotonic: O(chart + source). */
+  function sampleToChart(chartTimes, series, chartDurMs, carry) {
     const n = chartTimes.length, out = new Array(n).fill(null);
-    let j = -1;
+    const ends = chartTimes.map((t, i) => i + 1 < n ? chartTimes[i + 1] : t + (Number(chartDurMs) || DAY));
+    const allowance = Math.max(0, Math.floor(Number(carry) || 0));
+    let j = -1, k = 0;
     for (let i = 0; i < n; i++) {
-      const end = i + 1 < n ? chartTimes[i + 1] : chartTimes[i] + (Number(chartDurMs) || DAY);
-      while (j + 1 < series.length && series[j + 1].end <= end) j++;
+      while (j + 1 < series.length && series[j + 1].end <= ends[i]) j++;
       if (j < 0) continue;
       const s = series[j];
-      if (s.v == null || end - s.end > MAX_CARRY_MS) continue;
+      if (s.v == null) continue;
+      /* k: the first chart bar that could show this value - the one during which it finished */
+      while (k < n && ends[k] < s.end) k++;
+      if (i - k > allowance) continue;
       out[i] = s.v;
     }
     return out;
   }
 
-  /* The label's facts: the newest finished value, when it finished, and whether the source
-     has fallen behind the chart by more than an ordinary gap. */
-  function lineStatus(series, chartLastEnd) {
+  /* The label's facts: the newest finished value and when its source bar began, and whether the
+     line fails to reach the chart's last COMPLETED bar (lastIx) - then the label names its day. */
+  function lineStatus(series, values, lastIx) {
     for (let i = series.length - 1; i >= 0; i--) {
       if (series[i].v == null) continue;
-      const stale = Number.isFinite(chartLastEnd) && chartLastEnd - series[i].end > MAX_CARRY_MS;
-      return { value:series[i].v, t:series[i].t, end:series[i].end, stale };
+      const reaches = Array.isArray(values) && lastIx >= 0 && values[lastIx] != null;
+      return { value:series[i].v, t:series[i].t, end:series[i].end, stale:!reaches };
     }
     return { value:null, t:null, end:null, stale:false };
   }
@@ -151,7 +166,7 @@
   }
 
   root.SC_RSI_FAN = Object.freeze({
-    LINES, BY_KEY, INK, LENGTH, WARMUP, MIN_SOURCE, MAX_SOURCE, MAX_CARRY_MS, PANEL_SHARE, PHONE_MAX,
-    parseRsiParam, visibleAt, sourceLimit, lineSeries, sampleToChart, lineStatus, ink
+    LINES, BY_KEY, INK, LENGTH, WARMUP, MIN_SOURCE, MAX_SOURCE, PANEL_SHARE, PHONE_MAX,
+    parseRsiParam, visibleAt, sourceLimit, lineSeries, carryBars, sampleToChart, lineStatus, ink
   });
 })(typeof globalThis === "object" ? globalThis : window);

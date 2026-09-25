@@ -997,11 +997,13 @@ function rsiFanFor(host, pts) {
   if (host._rsiMemo && host._rsiMemo.sig === sig) return host._rsiMemo;
   const F = window.SC_RSI_FAN, times = pts.map((p) => Date.parse(p.d));
   const chartDur = CHART_BAR_MS[range] || CHART_BAR_MS["1D"];
-  const lastEnd = times[times.length - 1] + chartDur;
+  /* The last COMPLETED bar: a live placeholder appended from a quote is not a finished bar. */
+  const lastIx = pts[pts.length - 1].live ? pts.length - 2 : pts.length - 1;
   const lines = entries.map(([key, e]) => {
     if (!e || !e.bars.length) return { key, values:null, status:null, absence:absence[key] || (e ? "n/a" : "…") };
     const series = F.lineSeries(key, e.bars);
-    return { key, values:F.sampleToChart(times, series, chartDur), status:F.lineStatus(series, lastEnd), absence:null };
+    const values = F.sampleToChart(times, series, chartDur, F.carryBars(key, chartDur));
+    return { key, values, status:F.lineStatus(series, values, lastIx), absence:null };
   });
   host._rsiMemo = { sig, lines };
   return host._rsiMemo;

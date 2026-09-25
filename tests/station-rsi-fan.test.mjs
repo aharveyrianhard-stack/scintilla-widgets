@@ -95,7 +95,8 @@ test("no peeking: a daily line on a 4H chart shows yesterday until today's daily
   /* Daily bars stamped at midnight New York (04:00Z in September) finish 20 h later. */
   const daily = [ny("2026-09-22T04:00:00Z"), ny("2026-09-23T04:00:00Z")].map((t, i) => ({ t, end: t + 20 * H, v: 40 + i * 10 }));
   const chart4h = ["2026-09-23T08:00:00Z","2026-09-23T12:00:00Z","2026-09-23T16:00:00Z","2026-09-23T20:00:00Z","2026-09-24T08:00:00Z"].map(ny);
-  const out = F.sampleToChart(chart4h, daily, 4 * H);
+  assert.equal(F.carryBars("1D", 4 * H), 5, "a daily value may stand for a day's five 4H bars");
+  const out = F.sampleToChart(chart4h, daily, 4 * H, F.carryBars("1D", 4 * H));
   assert.deepEqual(plain(out), [40, 40, 40, 50, 50],
     "Tuesday's value through Wednesday's session; Wednesday's appears on the bar that ends at its 20:00 close");
 });
@@ -105,26 +106,42 @@ test("a 3H line on a daily chart shows each day's last finished 3H value", () =>
   const three = [];
   for (const [day, base] of [["2026-09-22", 10], ["2026-09-23", 20]])
     ["08","11","14","17","20"].forEach((hh, k) => { const t = ny(day + "T" + hh + ":00:00Z"); three.push({ t, end: t + 3 * H, v: base + k }); });
-  assert.deepEqual(plain(F.sampleToChart(days, three, D)), [14, 24], "the day's last 3H bar, never the next day's");
+  assert.equal(F.carryBars("3h", D), 0, "a 3H value never stands for a later day");
+  assert.deepEqual(plain(F.sampleToChart(days, three, D, 0)), [14, 24], "the day's last 3H bar, never the next day's");
 });
 
-test("a stopped source stops on the chart and its label names the day it stopped", () => {
+test("a session the source never delivered is a gap, not a flat line, and the label names the day", () => {
+  /* 25 Sep, seen live: the chart API's 3H bars ended on 23 Sep while its daily bars reached 24 Sep.
+     A day-count allowance carried the 23rd across the 24th as a flat line; the bar count does not. */
+  const days = ["2026-09-22T04:00:00Z","2026-09-23T04:00:00Z","2026-09-24T04:00:00Z"].map(ny);
+  const three = [];
+  for (const [day, base] of [["2026-09-22", 10], ["2026-09-23", 20]])
+    ["08","11","14","17","20"].forEach((hh, k) => { const t = ny(day + "T" + hh + ":00:00Z"); three.push({ t, end: t + 3 * H, v: base + k }); });
+  const values = F.sampleToChart(days, three, D, F.carryBars("3h", D));
+  assert.deepEqual(plain(values), [14, 24, null], "the 24th has no 3H bars, so it has no 3H value");
+  const status = F.lineStatus(three, values, 2);
+  assert.equal(status.stale, true, "the line does not reach the last completed bar");
+  assert.equal(new Date(status.t).toISOString().slice(0, 10), "2026-09-23", "and the label names the 23rd");
+  assert.equal(F.lineStatus(three, values, 1).stale, false, "a line that reaches the last bar carries no date");
+});
+
+test("a stopped source stops on the chart the bar after it stopped", () => {
   const chart = []; for (let i = 0; i < 40; i++) chart.push(ny("2026-08-10T04:00:00Z") + i * D);
   const eight = []; for (let i = 0; i < 25; i++) { const t = ny("2026-08-10T12:00:00Z") + i * 8 * H; eight.push({ t, end: t + 8 * H, v: 50 + (i % 3) }); }
-  const out = F.sampleToChart(chart, eight, D);
-  const lastSource = eight[eight.length - 1].end;
-  out.forEach((v, i) => {
-    const end = i + 1 < chart.length ? chart[i + 1] : chart[i] + D;
-    if (end - lastSource > F.MAX_CARRY_MS) assert.equal(v, null, "no flat line after the source stopped (bar " + i + ")");
-  });
-  assert.ok(out.slice(0, 8).every((v) => v != null), "inside its history the line is drawn");
-  const status = F.lineStatus(eight, chart[chart.length - 1] + D);
-  assert.equal(status.stale, true);
-  assert.equal(status.t, eight[eight.length - 1].t, "the label's date is the last source bar's");
-  assert.equal(F.lineStatus(eight, lastSource + D).stale, false, "an ordinary gap is not stale");
-  /* a long weekend (Friday close to Tuesday) is carried; a stall is not */
+  const out = F.sampleToChart(chart, eight, D, F.carryBars("8h", D));
+  const lastEnd = eight[eight.length - 1].end;
+  const firstAfter = chart.findIndex((t, i) => (i + 1 < chart.length ? chart[i + 1] : t + D) >= lastEnd);
+  assert.ok(out.slice(0, firstAfter + 1).every((v) => v != null), "drawn through the bar it finished in");
+  assert.ok(out.slice(firstAfter + 1).every((v) => v === null), "and nothing after: no flat line to the present");
+  assert.equal(F.lineStatus(eight, out, chart.length - 1).stale, true);
+});
+
+test("a weekend is not a gap: the chart's own bars already skip it", () => {
+  /* Friday's daily bar finishes at 20:00 New York (00:00Z Saturday); the next 4H bars are Monday's. */
   const fri = { t: ny("2026-09-04T04:00:00Z"), end: ny("2026-09-05T00:00:00Z"), v: 55 };
-  assert.deepEqual(plain(F.sampleToChart([ny("2026-09-08T04:00:00Z")], [fri], 4 * H)), [55]);
+  const chart = ["2026-09-04T16:00:00Z","2026-09-04T20:00:00Z","2026-09-08T08:00:00Z","2026-09-08T12:00:00Z"].map(ny);
+  assert.deepEqual(plain(F.sampleToChart(chart, [fri], 4 * H, F.carryBars("1D", 4 * H))), [null, 55, 55, 55],
+    "Friday's value appears on the bar its session closed in and holds into Tuesday morning (Labor Day Monday)");
 });
 
 test("how much source history a line asks for: the chart's span plus the warm-up, bounded", () => {
