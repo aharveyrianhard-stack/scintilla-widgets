@@ -331,7 +331,9 @@ function applyIpadPaneScale(forced) {
   root.style.setProperty("--ipad-live-size", (14 * scale).toFixed(2) + "px");
 }
 applyIpadPaneScale();
-const SHARED_TIME_AXIS = QS.get("sharedAxis") === "1";
+/* A `let` since 25 Sep (P1): the deck re-points a mounted frame in place when a page change
+   moves it between the top row (borrowed axis) and the bottom row, instead of reloading it. */
+let SHARED_TIME_AXIS = QS.get("sharedAxis") === "1";
 let CHART_TRANSITION_GENERATION = Math.max(0, Number(QS.get("transition")) || 0);
 /* BARE MODE (?bare=1) — used when /chart is a pane inside /deck.
    Two things change, and only these two:
@@ -2494,6 +2496,11 @@ function setChartTicker(t) {
   const tin = el("tkin"); if (tin && tin.value.toUpperCase().trim() !== t) tin.value = t;
   if (DECK_QUOTE_MODE) requestDeckQuote(t); else pullPrevClose(t);
   scChartLoad(host);
+  /* THE BADGE NAMES THE CHART UNDER IT (25 Sep, P1). scChartLoad has just drawn the new symbol
+     from its cache; the badge kept the OLD symbol's name and price until the quote round trip,
+     so for ~100 ms a TSM line sat under "MAGS 72.52" (measured headlessly). Repaint it now: with
+     the quote the deck already sent when it has one, otherwise the new name and no price. */
+  paintLiveStatus(host, liveQuote[t] || null);
 }
 
 /* R22 FIX 8 — live tick → cheap last-point update (ported verbatim) */
@@ -2757,13 +2764,20 @@ addEventListener("message", (e) => {
   /* The Station dock owns one clouds switch for the whole wall. */
   if (typeof d.clouds === "boolean") setClouds(d.clouds);
   if (typeof d.steps === "boolean") setCloudSteps(d.steps);
+  /* A NEW SYMBOL AND A NEW RANGE IN ONE MESSAGE (the deck's page change, 25 Sep): the range is
+     set first and the new symbol loads at it. Reloading the OLD symbol at the new range first
+     cost a wasted provider read and, on a slow frame, a paint of the wrong chart. */
+  const host = document.querySelector("#chartSlot .sc-nchart");
+  const retarget = !!(d.ticker && host && String(d.ticker).toUpperCase().trim() !== host.dataset.t);
+  const axisChanged = typeof d.sharedAxis === "boolean" && d.sharedAxis !== SHARED_TIME_AXIS;
+  if (axisChanged) SHARED_TIME_AXIS = d.sharedAxis;
   if (d.range && CHART_RANGES.includes(d.range)) {
     S.chartRange = d.range;
     document.querySelectorAll('.sc-crange[data-act="chartrange"]').forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
-    const host = document.querySelector("#chartSlot .sc-nchart");
-    if (host) holdAndReload(host, S.chartRange);
+    if (host && !retarget) holdAndReload(host, S.chartRange);
   }
   if (d.ticker) setChartTicker(d.ticker);
+  else if (axisChanged && host && host._series && host._series.length >= 2) scChartDraw(host);
 });
 
 /* boot */

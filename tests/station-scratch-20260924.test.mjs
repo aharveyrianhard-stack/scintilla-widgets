@@ -140,6 +140,8 @@ function slotHarness(scene) {
     LIVE: [pane],
     el: (id) => (id === "t1" ? input : { textContent: "" }),
     rememberEditableState: () => {},
+    /* 25 Sep (P1): clearing a slot is an edit, and edits reach the shared list */
+    shareScratchSoon: () => { notes.push("shared"); },
     closeSymbolGuide: () => {},
     paintChips: () => {},
     paintPaneNotes: () => {}
@@ -154,7 +156,8 @@ test("on SCRATCH, clearing the field empties the slot and takes its chart down",
   assert.equal(h.pane.def.src, "", "and it is no longer pointed at a chart");
   assert.equal(h.pane.frame, null, "the frame is taken down, not left running behind a card");
   assert.equal(h.bindings.LIVE.length, 0, "and it leaves the live budget");
-  assert.deepEqual(h.notes, ["empty slot · type a symbol"], "the slot says what it is");
+  assert.deepEqual(h.notes, ["empty slot · type a symbol", "shared"],
+    "the slot says what it is, and the emptied slot is handed to the shared SCRATCH list (25 Sep)");
 });
 
 test("everywhere else, an emptied box still restores the symbol that was there", () => {

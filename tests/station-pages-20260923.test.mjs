@@ -66,10 +66,13 @@ test("every retired TradingView-copy page lands on the workflow page that carrie
     assert.equal(scenes.screenForScene(id).label, label);
     assert.match(deck, new RegExp(`<option value="${id}">`), `${label} is in the scene menu`);
   }
-  assert.deepEqual(Array.from(scenes.WORKFLOW_PAGES.sectors3D.rotate.list.slice(0, 6)), ["XLK","XLI","XLC","XLF","XLY","XLE"],
-    "SECTORS leads with Alan's six; the other five State Street sectors follow on the next lap (25 Sep)");
-  assert.equal(scenes.SCREENS.length, 32,
-    "nineteen workflow pages, SCINTILLAS, the workbench, HISTORY (25 Sep), eight old curated pages (menu only), TO-DO and SCRATCH");
+  /* 25 Sep, later (P1): Alan's six stay on screen; only the other five rotate, two at a time. */
+  assert.deepEqual(Array.from(scenes.WORKFLOW_PAGES.sectors3D.tickers), ["XLK","XLI","XLC","XLF","XLY","XLE"],
+    "SECTORS keeps Alan's six in slots 1-6 on every visit");
+  assert.deepEqual(Array.from(scenes.WORKFLOW_PAGES.sectors3D.rotate.list), ["XLP","XLV","XLU","XLRE","XLB"],
+    "and rotates only the other five State Street sectors through slots 7-8");
+  assert.equal(scenes.SCREENS.length, 31,
+    "nineteen workflow pages, SCINTILLAS, the workbench, eight old curated pages (menu only), TO-DO and SCRATCH (HISTORY retired 25 Sep)");
 });
 
 test("a saved layout is a picture, not a basket: five rows stay five rows in a six-up wall", () => {
@@ -128,7 +131,8 @@ test("a workbench slot carries its stack in its own URL; every other page's URL 
     STATION_SHELL: { chart:"/station-shells/chart-v1" },
     SceneModel: scenes, SLOT_STACKS: ["OSCILLATOR", "OSCILLATOR", "", "", "", "", "", ""],
     SLOT_RANGES: ["", "1W", "", "", "", "", "", ""],
-    /* 25 Sep: a slot may also ask for a number of bars (the HISTORY page asks for 6,000 daily) */
+    /* 25 Sep: a slot may also ask for a number of bars. The HISTORY page that asked for 6,000 daily
+       is retired (25 Sep, later); the mechanism stays, so it is still pinned here. */
     SLOT_BARS: [0, 0, 6000, 0, 0, 0, 0, 0]
   };
   bindings.chartSrc = functionFromDeck("chartSrc", bindings);
@@ -137,7 +141,7 @@ test("a workbench slot carries its stack in its own URL; every other page's URL 
   assert.match(paneChartSrc("MU", 0), /&clouds=1&ema8=1&sma100=1$/, "the declared stack is on the URL");
   assert.match(paneChartSrc("MU", 0), /range=1D/, "no per-chart timeframe: the wall's");
   assert.match(paneChartSrc("QQQ", 1), /range=1W/, "a per-chart timeframe wins for that slot only");
-  assert.match(paneChartSrc("SPY", 2), /&bars=6000$/, "a bars request rides on the slot's own URL (HISTORY, 25 Sep)");
+  assert.match(paneChartSrc("SPY", 2), /&bars=6000$/, "a bars request rides on the slot's own URL");
   assert.doesNotMatch(paneChartSrc("MU", 0), /bars=/, "and never on a slot that did not ask");
   const plain = { ...bindings, SLOT_STACKS: ["", "", "", "", "", "", "", ""], SLOT_RANGES: ["", "", "", "", "", "", "", ""], SLOT_BARS: [0, 0, 0, 0, 0, 0, 0, 0] };
   plain.chartSrc = functionFromDeck("chartSrc", plain);
@@ -216,7 +220,7 @@ test("the jump list finds a page by its name or by a ticker on it — PCC in one
     ["MACRO · WEEK", "MACRO · DAY", "MACRO · 4H", "MACRO CROSS-ASSET"], "every macro page, workflow first");
   assert.deepEqual(Array.from(scenes.findPages("XLK"), (m) => m.screen.label), ["SECTORS", "SECTOR FAMILIES"],
     "a ticker on two pages offers both, rather than silently picking one");
-  assert.equal(scenes.findPages("").length, 32, "an empty box offers every page (HISTORY joined on 25 Sep)");
+  assert.equal(scenes.findPages("").length, 31, "an empty box offers every page (HISTORY retired 25 Sep, later)");
   /* TO-DO is findable by the four symbols parked on it; SCRATCH is findable by name only,
      because its symbols live on the device and the list must never guess at them. */
   assert.deepEqual(Array.from(scenes.findPages("TRIN"), (m) => m.screen.label), ["TO-DO"]);

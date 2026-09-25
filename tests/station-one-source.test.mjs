@@ -30,7 +30,9 @@ test("the wall keeps only non-price reads: favourites and the canonical ticker l
      It is video metadata, not a price, so the one-source rule for prices still holds. */
   /* station_targets joined on 25 Sep: Alan's eight target names, shared by every Station window.
      A list of names, not a price, so the one-source rule for prices still holds. */
-  for (const table of reads) assert.ok(["hub_favorites", "tickers", "youtube_feed", "station_targets"].includes(table), "non-price read only: " + table);
+  /* station_lists joined on 25 Sep (P1): the shared SCRATCH wall and RADAR - lists of names,
+     not prices, so the one-source rule for prices still holds. */
+  for (const table of reads) assert.ok(["hub_favorites", "tickers", "youtube_feed", "station_targets", "station_lists"].includes(table), "non-price read only: " + table);
 });
 
 test("the provider client routes macro symbols to the chart API and names everything else", () => {
