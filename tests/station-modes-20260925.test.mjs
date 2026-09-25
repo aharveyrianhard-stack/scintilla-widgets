@@ -62,16 +62,16 @@ test("Saturday and Sunday are NIGHT all day, and Monday's day starts at 04:00", 
   assert.equal(scenes.stationSession("not a date"), "day", "an unreadable clock never empties the wall");
 });
 
-test("by day every page rotates and the intraday four come round twice; by night they are out and the weeklies stay", () => {
+test("by day the 3-day and daily pages rotate with the intraday four twice; by night the intraday four are out and the weeklies come in", () => {
   const weekly = ["wkIndexes","wkMacro"];
   const intraday = ["macroIntraday","intraday4h","intraday1h","intraday30m"];
   const threeDay = scenes.WORKFLOW_IDS.filter((id) => scenes.WORKFLOW_PAGES[id].range === "3D");
   const daily = scenes.WORKFLOW_IDS.filter((id) => scenes.WORKFLOW_PAGES[id].range === "1D");
   assert.equal(threeDay.length, 9, "the 3-day block"); assert.equal(daily.length, 7, "the daily block, RSI twins included");
-  assert.deepEqual(arr(scenes.rotationScenesFor("day")), weekly.concat(threeDay, intraday, daily, intraday),
-    "day: weekly + 3-day + intraday + daily + intraday (26 slots)");
-  assert.deepEqual(arr(scenes.rotationScenesFor("night")), weekly.concat(threeDay, daily),
-    "night: the same order without the intraday four (18 pages)");
+  assert.deepEqual(arr(scenes.rotationScenesFor("day")), arr(threeDay).concat(intraday, daily, intraday),
+    "day: 3-day + intraday + daily + intraday (24 slots); the weeklies wait for the night");
+  assert.deepEqual(arr(scenes.rotationScenesFor("night")), weekly.concat(arr(threeDay), arr(daily)),
+    "night: weekly + 3-day + daily, in the workflow's order (18 pages)");
   assert.deepEqual(arr(scenes.INTRADAY_PAGES), intraday);
   assert.deepEqual(arr(scenes.WEEKLY_PAGES), weekly);
   for (const id of scenes.WORKFLOW_IDS) assert.ok(scenes.screenForScene(id), `${id} is still a page in the menu`);
@@ -80,16 +80,16 @@ test("by day every page rotates and the intraday four come round twice; by night
 test("the lap cursor walks the day lap in order, visits the intraday four twice, and never loops on a repeated page", () => {
   const at = EDT("10:00");
   const lap = arr(scenes.rotationScenesFor("day"));
-  let scene = "wkIndexes", position = 0; const walked = [];
+  let scene = "targets3D", position = 0; const walked = [];
   for (let i = 0; i < lap.length; i++) {
     const step = scenes.rotationStepAt(scene, at, position);
     walked.push(step.scene); scene = step.scene; position = step.position;
   }
-  assert.deepEqual(walked, lap.slice(1).concat(lap.slice(0, 1)), "one full lap from INDEXES · WEEK returns to it");
+  assert.deepEqual(walked, lap.slice(1).concat(lap.slice(0, 1)), "one full lap from TARGETS returns to it");
   assert.equal(walked.filter((s) => s === "intraday30m").length, 2, "INTRADAY · 30M was visited twice");
   assert.equal(scenes.nextRotatingScreenAt("intraday30m", at).scene, "spyQqq1D",
     "the page name alone resolves to its first visit: after the first intraday block comes the daily block");
-  assert.equal(scenes.rotationStepAt("intraday30m", at, lap.length - 1).scene, "wkIndexes", "after the second visit the lap starts over");
+  assert.equal(scenes.rotationStepAt("intraday30m", at, lap.length - 1).scene, "targets3D", "after the second visit the day lap starts over on TARGETS");
   assert.equal(scenes.rotationStepAt("intraday30m", at, 3).scene, "spyQqq1D", "a position that does not match the page is ignored");
   assert.equal(scenes.rotationStepAt("intraday30m", EDT("19:00"), lap.length - 1).scene, "wkIndexes",
     "at night an intraday page is outside the lap: the lap starts over on the weekly INDEXES");

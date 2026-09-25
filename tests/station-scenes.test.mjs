@@ -238,8 +238,8 @@ test("the arrows walk every page while rotation keeps to Alan's workflow (22 pag
   assert.equal(scenes.nextScreen("scratch").scene, "wkIndexes", "the last page wraps to the first");
   assert.equal(scenes.previousScreen("live").scene, "scratch");
   for (const page of ["scintillas", "todo", "scratch"])
-    assert.equal(scenes.nextRotatingScreenAt(page, "2026-09-23T13:30:00Z").scene, "wkIndexes",
-      "rotation never wanders onto a page you go to (25 Sep: the weeklies open every lap, day and night)");
+    assert.equal(scenes.nextRotatingScreenAt(page, "2026-09-23T13:30:00Z").scene, "targets3D",
+      "rotation never wanders onto a page you go to (25 Sep: by day the lap opens on TARGETS; the weeklies open the night lap)");
   assert.equal(scenes.nextScreen("internalsFast").scene, "sectorFamilies",
     "INTERNALS SLOW no longer sits between them");
   assert.equal(scenes.screenForScene("internalsFast").label, "INTERNALS");

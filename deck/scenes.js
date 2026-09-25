@@ -265,9 +265,11 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
   /* SESSIONS — two, since 25 Sep (Alan, ~3:40 PM ET: "I do need to see intraday in the morning —
      early bird gets the worm. After hours it's just a slow-down… give more frequent screen time
      to the intraday views, and then not put them after hours — somewhere 5–6 PM").
-       DAY    04:00–18:00 ET, weekdays    every workflow page; the intraday four come round TWICE
-                                          per lap (after the 3-day block and again at the end)
-       NIGHT  18:00–04:00 ET + weekends   the same lap without the intraday four (weeklies stay in)
+       DAY    04:00–18:00 ET, weekdays    the 3-day and daily pages, with the intraday four TWICE
+                                          per lap (after the 3-day block and again at the end);
+                                          the two weekly pages wait for the night (Alan, 5:30 PM:
+                                          "those weekly charts should be more after hours and weekend")
+       NIGHT  18:00–04:00 ET + weekends   weekly + 3-day + daily, no intraday
      LEADERS ride the market clock, not the session: SPY/QQQ 09:30–16:30 ET on a weekday, ES/NQ
      otherwise. 16:30, not 16:00, closes the market: measured on SPY's 30-minute bars, volume
      falls from 5.9M in the 16:00 bar to 195k at 16:30. No holiday calendar: a weekday exchange
@@ -302,13 +304,14 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
   }
   /* WHICH PAGES ROTATE NOW. The deck re-asks this on every advance, so the lap changes at
      04:00 and 18:00 (and the leaders at 09:30 and 16:30) without a reload. By day the lap is
-     weekly + 3-day + intraday + daily + intraday, so an intraday page is never more than half
-     a lap away; by night the intraday four are out and everything else keeps its order. */
+     3-day + intraday + daily + intraday (24 slots), so an intraday page is never more than half
+     a lap away; by night it is weekly + 3-day + daily (18 pages) in the workflow's order. */
   function rotationScenesFor(session) {
     const rest = WORKFLOW_IDS.filter((id) => !INTRADAY_PAGES.includes(id));
-    if (session === "night") return rest;
-    const lastThreeDay = rest.reduce((last, id, k) => (WORKFLOW_PAGES[id].range === "3D" ? k : last), -1);
-    return rest.slice(0, lastThreeDay + 1).concat(INTRADAY_PAGES, rest.slice(lastThreeDay + 1), INTRADAY_PAGES);
+    if (session === "night") return rest;                                   // weekly + 3-day + daily
+    const day = rest.filter((id) => !WEEKLY_PAGES.includes(id));            // the weeklies wait for the night
+    const lastThreeDay = day.reduce((last, id, k) => (WORKFLOW_PAGES[id].range === "3D" ? k : last), -1);
+    return day.slice(0, lastThreeDay + 1).concat(INTRADAY_PAGES, day.slice(lastThreeDay + 1), INTRADAY_PAGES);
   }
   function rotationScenesAt(at) {
     return rotationScenesFor(stationSession(at));

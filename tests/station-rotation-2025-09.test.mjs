@@ -92,13 +92,13 @@ test("LEADERS are SPY/QQQ while the market is open and ES/NQ otherwise", () => {
   assert.deepEqual(arr(scenes.LEADERS(SATURDAY)), ["ESUSD","NQUSD"]);
 });
 
-test("by day the intraday four ride the lap twice; from 18:00 ET and at the weekend they leave and the weeklies stay", () => {
+test("by day the intraday four ride the lap twice; from 18:00 ET and at the weekend they leave and the weeklies come in", () => {
   const intraday = WORKFLOW_ORDER.slice(18);
   for (const [utc, label] of [["09:00:00","05:00 ET"],["14:00:00","10:00 ET"],["21:00:00","17:00 ET"]]) {
     const lap = arr(scenes.rotationScenesAt(WED(utc)));
-    assert.equal(lap.length, 26, label + ": twenty-six slots");
-    assert.deepEqual(lap, WORKFLOW_ORDER.slice(0, 11).concat(intraday, WORKFLOW_ORDER.slice(11, 18), intraday),
-      label + ": weekly, 3-day, intraday, daily, intraday");
+    assert.equal(lap.length, 24, label + ": twenty-four slots");
+    assert.deepEqual(lap, WORKFLOW_ORDER.slice(2, 11).concat(intraday, WORKFLOW_ORDER.slice(11, 18), intraday),
+      label + ": 3-day, intraday, daily, intraday (the weeklies wait for the night)");
   }
   const night = arr(scenes.rotationScenesAt("2026-09-24T01:00:00Z"));   /* 21:00 ET */
   assert.equal(night.length, 18, "night: the order without the intraday four");
