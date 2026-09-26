@@ -247,7 +247,8 @@ test("the arrows walk every page while rotation keeps to Alan's workflow (22 pag
      TO-DO, the page its two panes moved to, rather than nothing at all. */
   assert.equal(scenes.screenForScene("internalsSlow").scene, "todo");
   assert.equal(scenes.screenForScene("custom"), null, "manual Custom is excluded from global navigation");
-  assert.match(deck, /ROTATE_SECONDS = \[30,60,120\]/);
+  assert.match(deck, /ROTATE_SECONDS = \[20,33,60\]/);
+  assert.match(deck, /: 33;/, "33 s is the default (Alan, 25 Sep)");
   assert.match(deck, /id="rotateToggle"/);
   assert.match(deck, /setRotationPaused\(!ROTATE_PAUSED\)/);
   assert.match(deck, /setTimeout\(/);

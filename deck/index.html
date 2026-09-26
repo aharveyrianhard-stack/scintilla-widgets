@@ -616,7 +616,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
     <span class="control-group rotate-controls">
       <span class="control-label">auto rotate</span>
       <select class="scene-mode" id="rotateEvery" title="rotation interval" aria-label="Auto rotate interval">
-        <option value="30">30s</option><option value="60" selected>60s</option><option value="120">120s</option>
+        <option value="20">20s</option><option value="33" selected>33s</option><option value="60">60s</option>
       </select>
       <button type="button" class="btn" id="rotateToggle" title="start or pause curated scene rotation" aria-label="Start auto rotate">start</button>
     </span>
@@ -978,7 +978,10 @@ const customChartCount = (value) => {
 };
 const CUSTOM_WALL_STARTERS = Object.freeze(["SPY","QQQ","IWM","MAGS","SMH","AAPL","MSFT","AMZN"]);
 const ROTATE_SCENES = SceneModel.ROTATION_IDS;
-const ROTATE_SECONDS = [30,60,120];
+/* Alan, 25 Sep evening: "60 seconds is too long… I use more like 25 on the Google one… let's use 33."
+   33 s makes the day lap (24 slots) ~13 min and the night lap (18 pages) ~10 min. The remembered key
+   moved to .v2 so every device picks up the new default once; a later choice is remembered as before. */
+const ROTATE_SECONDS = [20,33,60];
 const VIEW_MODES = ["auto","desk","ipad","display","compact"];
 let VIEW = VIEW_MODES.includes(QS.get("view")) ? QS.get("view") :
   (VIEW_MODES.includes(sessionStorage.getItem("station.view")) ? sessionStorage.getItem("station.view") : "auto");
@@ -1328,7 +1331,7 @@ function fitVideoPane() {
   }
   measure();
 }
-let ROTATE_AT = ROTATE_SECONDS.includes(+remembered("station.rotate.seconds")) ? +remembered("station.rotate.seconds") : 60;
+let ROTATE_AT = ROTATE_SECONDS.includes(+remembered("station.rotate.seconds.v2")) ? +remembered("station.rotate.seconds.v2") : 33;
 /* Rotation is ON unless this browser has paused it; the toggle remembers per browser. */
 let ROTATE_PAUSED = remembered("station.rotate.paused") === "1";
 let rotateTimer = 0;
@@ -2893,7 +2896,7 @@ function setRotationPaused(paused) {
 function setRotationInterval(seconds) {
   if (!ROTATE_SECONDS.includes(+seconds)) return;
   ROTATE_AT = +seconds;
-  remember("station.rotate.seconds", String(ROTATE_AT));
+  remember("station.rotate.seconds.v2", String(ROTATE_AT));
   scheduleRotation();
 }
 
