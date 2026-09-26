@@ -36,8 +36,8 @@ test("the wall keeps only non-price reads: favourites and the canonical ticker l
 });
 
 test("the provider client routes macro symbols to the chart API and names everything else", () => {
-  assert.match(provider, /var MACRO_SYMBOLS = \{ VIX: 1, DXY: 1, US10Y: 1, DXUSD: 1, CLUSD: 1, GCUSD: 1, SIUSD: 1, BTCUSD: 1 \};/,
-    "oil, gold, silver, bitcoin and the dollar index come from the chart API like VIX (Alan, 23 Sep: CLUSD 4h \"not served\" was wrong)");
+  assert.match(provider, /var MACRO_SYMBOLS = \{ VIX: 1, DXY: 1, US10Y: 1, DXUSD: 1, CLUSD: 1, GCUSD: 1, SIUSD: 1, BTCUSD: 1, ESUSD: 1, NQUSD: 1 \};/,
+    "oil, gold, silver, bitcoin, the dollar index and the index futures come from the chart API like VIX (Alan, 23 Sep: CLUSD 4h \"not served\" was wrong; 26 Sep: FMP serves ESUSD/NQUSD)");
   assert.match(provider, /API \+ '\/macro\?symbols='/);
   /* 23 Sep: the Cboe put/call series join them on the same route. Everything still outside both
      maps is NOT_SERVED_BY_CHART_API, which is the point of the line. */

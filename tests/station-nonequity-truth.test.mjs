@@ -71,9 +71,11 @@ test("macro candles come from the chart API with the provider stated; other non-
   assert.equal(rows[0].provider_symbol, "^VIX");
   assert.equal(window.SC_PROVIDER.absenceFor("VIX", "D"), null, "a served series clears the old name");
   assert.ok(!paths.some((p) => /ohlcv_history/.test(p)));
-  await assert.rejects(() => window.SC_PROVIDER.marketCandles("ESUSD", "D", { limit:240 }),
+  /* ESZ6 (a specific contract code) stands in for the unserved case: 26 Sep, ESUSD itself is
+     served by the chart API from FMP, so it can no longer be the example of a named absence. */
+  await assert.rejects(() => window.SC_PROVIDER.marketCandles("ESZ6", "D", { limit:240 }),
     (error) => error.scAbsence === "NOT_SERVED_BY_CHART_API");
-  assert.equal(window.SC_PROVIDER.absenceFor("ESUSD", "D"), "NOT_SERVED_BY_CHART_API");
+  assert.equal(window.SC_PROVIDER.absenceFor("ESZ6", "D"), "NOT_SERVED_BY_CHART_API");
 });
 
 test("macro quotes are the API's last completed close, stamped with their session; stale series become a named absence", async () => {
@@ -82,12 +84,12 @@ test("macro quotes are the API's last completed close, stamped with their sessio
       quote:{ price:16.4, prev_close:15.5, change:0.9, chg_pct:5.806, session_et:"2026-09-22", price_observation_utc:"2026-09-22T04:00:00.000Z", basis:"FMP_DAILY_CLOSE" } },
     DXY:{ symbol:"DXY", provider:"FMP", provider_symbol:"DX-Y.NYB", state:"FMP_MACRO_SERIES_STALE", absence:"FMP_MACRO_STALE_25_SESSIONS", quote:null } } };
   const { window } = loadApi([["/macro?symbols=", macro]]);
-  const rows = await window.SC_PROVIDER.marketQuotes(["VIX", "DXY", "ESUSD"]);
+  const rows = await window.SC_PROVIDER.marketQuotes(["VIX", "DXY", "ESZ6"]);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].ticker, "VIX"); assert.equal(rows[0].price, 16.4); assert.equal(rows[0].prev_close, 15.5);
   assert.equal(rows[0].provider, "FMP"); assert.equal(rows[0].price_observation_utc, "2026-09-22T04:00:00.000Z");
   assert.equal(window.SC_PROVIDER.absenceFor("DXY"), "FMP_MACRO_STALE_25_SESSIONS", "a stopped series is loud, not a line");
-  assert.equal(window.SC_PROVIDER.absenceFor("ESUSD"), "NOT_SERVED_BY_CHART_API");
+  assert.equal(window.SC_PROVIDER.absenceFor("ESZ6"), "NOT_SERVED_BY_CHART_API");
   assert.equal(window.SC_PROVIDER.absenceFor("VIX"), null);
 });
 

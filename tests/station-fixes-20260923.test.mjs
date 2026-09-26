@@ -101,13 +101,16 @@ test("the line charts draw no direction-coloured fill under the price", () => {
 });
 
 /* ---- every pane is served ---- */
-test("the two symbols the chart API does not carry are routed to a TradingView series that draws", () => {
+/* 26 Sep 2026: FMP serves ESUSD/NQUSD through the chart API, so the futures pair left the
+   TradingView stand-in map and draws a Scintilla chart like CLUSD/GCUSD. The pin inverts:
+   they must NOT be in TV_INTERNALS, and no OANDA nearest-series embed remains for them. */
+test("the index futures are drawn from the chart API, not stood in for by a TradingView series", () => {
+  const block = chart.match(/const TV_INTERNALS = Object\.freeze\(\{[\s\S]*?\}\);/)[0];
   for (const t of ["ESUSD", "NQUSD"]) {
-    const entry = chart.match(new RegExp(t + ':\\s*Object\\.freeze\\(\\{([^}]*)\\}\\)'))[1];
-    assert.match(entry, /embeds:true/, t + " must mount the TradingView pane");
-    assert.match(entry, /near:true/, t + " is the nearest series, not the contract, and must say so");
-    assert.doesNotMatch(entry, /CME_MINI/, t + ": TradingView refuses CME futures inside an embed - measured 23 Sep");
+    assert.ok(!new RegExp(`^\\s*${t}:`, "m").test(block), t + " must no longer fall back to TradingView");
   }
+  assert.doesNotMatch(block, /OANDA:SPX500USD|OANDA:NAS100USD/, "the nearest-series embeds are gone");
+  assert.match(read("_provider/provider.js"), /ESUSD: 1, NQUSD: 1/, "the provider client routes them to the chart API");
 });
 
 /* ---- a way back ---- */

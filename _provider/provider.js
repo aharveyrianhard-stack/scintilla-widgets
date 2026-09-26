@@ -363,10 +363,11 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
 
      A previously VERIFIED map still survives a bad read - that is knowledge, not a guess. */
   var EXPECTED_EQUITY_UNIVERSE = 364;
-  /* THE MACRO SERIES THE CHART API CARRIES FROM FMP (2026-09-22): VIX, DXY, US10Y. Same /candles
-     route, provider stated on every response. Anything else that is not provider-owned equity is
-     NOT_SERVED_BY_CHART_API - a named absence the pane paints, never a legacy table read. */
-  var MACRO_SYMBOLS = { VIX: 1, DXY: 1, US10Y: 1, DXUSD: 1, CLUSD: 1, GCUSD: 1, SIUSD: 1, BTCUSD: 1 };
+  /* THE MACRO SERIES THE CHART API CARRIES FROM FMP (2026-09-22): VIX, DXY, US10Y, and from 26 Sep
+     the index futures ESUSD/NQUSD too. Same /candles route, provider stated on every response.
+     Anything else that is not provider-owned equity is NOT_SERVED_BY_CHART_API - a named absence
+     the pane paints, never a legacy table read. */
+  var MACRO_SYMBOLS = { VIX: 1, DXY: 1, US10Y: 1, DXUSD: 1, CLUSD: 1, GCUSD: 1, SIUSD: 1, BTCUSD: 1, ESUSD: 1, NQUSD: 1 };
   /* THE CBOE PUT/CALL SERIES (2026-09-23): PCC, PCCE, PCCI, PCSPX. Same /candles route, same
      sibling-namespace pattern as the macro series, publisher stated on every response. They are
      daily-only and never live - Cboe prints one number per session after the close - so the pane
