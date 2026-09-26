@@ -125,6 +125,10 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
    the Scintilla line actually exists. */
 .sc-nchart__live--pc .sc-nchart__live-companion[data-state="waiting"]{ display:none; }
 .sc-nchart__live-window{ color:var(--dim); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
+/* the last-bar stamp: quiet grey, 11 px; amber (Alan's colour for "not current") when stale */
+.sc-nchart__live-lastbar{ color:var(--dim); font:600 11px var(--mono); letter-spacing:.02em; line-height:1; opacity:.8; }
+.sc-nchart__live-lastbar:empty{ display:none; }
+.sc-nchart__live-lastbar[data-stale="1"]{ color:#c8953a; opacity:1; }
 /* THE REFERENCE TEXT STEPS BACK, THE PRICE AND THE LINE LEAD. "Prev 762.60 ≈41 trading days · since Jul 23" sat at full
    strength in a shadowed box over the top-left of every chart (Alan, live review 2026-09-18: the badges compete with the
    chart). Same words, same place, same size - only quieter; pointing at the badge or focusing the ticker brings them back. */
@@ -507,6 +511,86 @@ function chLastBarClock(pts, range) {
   if (!last) return "";
   const iso = chEtIso(last.d, range);
   return /T\d{2}:\d{2}/.test(iso) ? " \u00b7 bars to " + iso.slice(11, 16) : "";
+}
+/* A STALE CHART MUST LOOK STALE (S1, 25 Sep). Alan: "it's not very easy for me to tell that
+   something is not current\u2026 you have to be really, really careful." Every pane now says when its
+   newest completed bar began ("last bar 15:00 ET", or "last bar 24 Sep" for a session bar), and
+   while a session is on the stamp turns amber and says how old the line is ("4H \u00b7 2 d old") when:
+   - intraday: the newest bar began more than two bars ago (plus a small serving grace), counting
+     only session time - New York trading days, 04:00-20:00 ET, the hours these bars cover - so
+     the overnight and weekend gap never looks stale by itself;
+   - 1D: from 09:45 ET the daily line does not reach the previous session. Our daily bar is a
+     COMPLETED session (CH_BAR_RULE), so today's bar cannot exist until after the close; the
+     previous session is the newest one that can be there;
+   - 3D / 1W: more than two bars of sessions are missing (six sessions, ten sessions).
+   Outside a session - nights, weekends, NYSE holidays (provider.js's calendar) - nothing is judged
+   and the stamp stays quiet. Nothing here touches a bar; it only says how old the last one is. */
+const CH_STALE_TF = { "15m":"15M", "30m":"30M", "1h":"1H", "2h":"2H", "3h":"3H", "4h":"4H", "6h":"6H",
+  "12h":"12H", "1D":"1D", "3D":"3D", "1W":"1W" };
+const CH_SESSION_FROM_ET = 4 * 60, CH_SESSION_TO_ET = 20 * 60, CH_DAILY_JUDGED_ET = 9 * 60 + 45;
+const CH_SESSIONS_ALLOWED = { "1D":0, "3D":6, "1W":10 };
+function chNy(ms) {
+  const x = {};
+  for (const part of CH_ET_FMT.formatToParts(new Date(ms))) x[part.type] = part.value;
+  return { date: x.year + "-" + x.month + "-" + x.day, minutes: (+x.hour % 24) * 60 + (+x.minute) };
+}
+function chTradingDay(date) {
+  if (typeof gsIsTradingDay === "function") return gsIsTradingDay(date);
+  const dow = new Date(date + "T12:00:00Z").getUTCDay();
+  return dow >= 1 && dow <= 5;
+}
+function chPrevTradingDay(date) {
+  let t = Date.parse(date + "T12:00:00Z");
+  for (let i = 0; i < 15; i++) { t -= 86400000; const d = new Date(t).toISOString().slice(0, 10); if (chTradingDay(d)) return d; }
+  return date;
+}
+function chInSession(ms) {
+  const c = chNy(ms);
+  return chTradingDay(c.date) && c.minutes >= CH_SESSION_FROM_ET && c.minutes < CH_SESSION_TO_ET;
+}
+/* Session time between two instants, in 5-minute steps; it stops counting once past `cap`. */
+function chSessionMs(fromMs, toMs, cap) {
+  const step = 300000;
+  let n = 0;
+  for (let t = fromMs; t < toMs && n <= cap; t += step) if (chInSession(t)) n += Math.min(step, toMs - t);
+  return n;
+}
+function chAgeText(ms) {
+  if (ms < 3600000) return Math.max(1, Math.round(ms / 60000)) + " min old";
+  if (ms < 48 * 3600000) return Math.round(ms / 3600000) + " h old";
+  return Math.floor(ms / 86400000) + " d old";
+}
+function chDayMon(date) { return +date.slice(8, 10) + " " + (EV_MON[+date.slice(5, 7) - 1] || date.slice(5, 7)); }
+function chBarFreshness(pts, range, nowMs) {
+  const tf = CH_STALE_TF[range];
+  const last = tf ? chLastCompletedPoint(pts) : null;
+  if (!last) return null;
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const clock = chNy(now);
+  if (CH_INTRADAY.includes(range)) {
+    const start = Date.parse(last.d);
+    const iso = chEtIso(last.d, range);
+    if (!Number.isFinite(start) || !/T\d{2}:\d{2}/.test(iso)) return null;
+    const day = iso.slice(0, 10);
+    const text = "last bar " + (day === clock.date ? "" : chDayMon(day) + " ") + iso.slice(11, 16) + " ET";
+    const bucket = CH_RANGE_MS[range];
+    const limit = 2 * bucket + Math.min(bucket / 2, 900000);
+    /* session time is never more than wall time, so a line inside the limit on the wall clock is
+       fresh without counting */
+    const stale = chInSession(now) && now - start > limit && chSessionMs(start, now, limit) > limit;
+    return { text, stale, age: stale ? tf + " \u00b7 " + chAgeText(now - (start + bucket)) : "" };
+  }
+  const date = String(last.d).slice(0, 10);
+  const text = "last bar " + chDayMon(date);
+  let stale = false;
+  if (chTradingDay(clock.date) && clock.minutes >= CH_DAILY_JUDGED_ET && clock.minutes < CH_SESSION_TO_ET) {
+    /* sessions that have closed since the newest bar, up to the previous session */
+    let missing = 0;
+    for (let d = chPrevTradingDay(clock.date); d > date && missing <= 40; d = chPrevTradingDay(d)) missing++;
+    stale = missing > CH_SESSIONS_ALLOWED[range];
+  }
+  const days = Math.round((Date.parse(clock.date + "T12:00:00Z") - Date.parse(date + "T12:00:00Z")) / 86400000);
+  return { text, stale, age: stale ? tf + " \u00b7 " + days + " d old" : "" };
 }
 let CH_COL = null;
 function chColors() {
@@ -1972,7 +2056,8 @@ function ensureLiveParts(badge, host) {
   let change = badge.querySelector(".sc-nchart__live-change");
   let previous = badge.querySelector(".sc-nchart__live-prev");
   let historyWindow = badge.querySelector(".sc-nchart__live-window");
-  if (!ticker || !change || !previous || !historyWindow) {
+  let lastBar = badge.querySelector(".sc-nchart__live-lastbar");
+  if (!ticker || !change || !previous || !historyWindow || !lastBar) {
     badge.replaceChildren();
     ticker = document.createElement("button");
     ticker.type = "button";
@@ -1988,9 +2073,12 @@ function ensureLiveParts(badge, host) {
     previous.className = "sc-nchart__live-prev";
     historyWindow = document.createElement("span");
     historyWindow.className = "sc-nchart__live-window";
-    badge.append(ticker, change, previous, historyWindow);
+    /* the one reference line that stays on the pane: how old the newest bar is (S1, 25 Sep) */
+    lastBar = document.createElement("span");
+    lastBar.className = "sc-nchart__live-lastbar";
+    badge.append(ticker, change, lastBar, previous, historyWindow);
   }
-  return { ticker, change, previous, historyWindow };
+  return { ticker, change, previous, historyWindow, lastBar };
 }
 /* ============================================================================
    THE CBOE PUT/CALL SERIES — PCC, PCCE, PCCI, PCSPX
@@ -2317,10 +2405,25 @@ function paintChartHistoryWindow(host) {
     : "history loading";
   /* The count keeps its home in the tooltip: readable on the pane, available on hover - and beside
      it, in plain words, what one bar on this chart is and where TradingView cuts the same bar. */
+  paintLastBarStamp(host, pcPane ? null : pts);
   label.title = pts.length
     ? chartApproximateSpan(pts, host._range || S.chartRange) + " on screen \u00b7 " +
       chBarRuleText(host._range || S.chartRange)
     : "history loading";
+}
+/* "last bar 15:00 ET", amber with its age when the line has stopped during a session. A put/call
+   pane has its own session label, so it carries no stamp. */
+function paintLastBarStamp(host, pts) {
+  const stamp = host?.querySelector(".sc-nchart__live-lastbar");
+  if (!stamp) return;
+  const fresh = pts && pts.length ? chBarFreshness(pts, host._range || S.chartRange) : null;
+  const text = !fresh ? "" : fresh.stale ? fresh.text + " \u00b7 " + fresh.age : fresh.text;
+  if (stamp.textContent !== text) stamp.textContent = text;
+  const flag = fresh && fresh.stale ? "1" : "0";
+  if (stamp.dataset.stale !== flag) stamp.dataset.stale = flag;
+  stamp.title = !fresh ? "" : fresh.stale
+    ? "This line has stopped: the newest bar is older than this timeframe allows during a session."
+    : "When the newest completed bar on this chart began (Eastern time).";
 }
 function acquireChartLoadPermit(host, req, generation) {
   /* A Hub pane has no deck to grant loads: asking would only wait out the 5.5 s escape hatch. */
@@ -2974,7 +3077,12 @@ addEventListener("message", (e) => {
     document.querySelectorAll('.sc-crange[data-act="chartrange"]').forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));
     if (host && !retarget) holdAndReload(host, S.chartRange);
   }
-  if (d.ticker) setChartTicker(d.ticker);
+  /* THE SAME SYMBOL IS NOT A NEW SYMBOL (S1, 25 Sep). setChartTicker throws the drawn series
+     away, so a page change that kept a pane's symbol (a kept hidden frame coming back, or a name
+     on both pages) blanked that pane for ~100 ms and redrew it (measured headlessly: MU and WMT
+     empty from +79 ms to +180 ms on a six-to-eight change). A same-symbol message now keeps the
+     line; the range reload above already holds it dimmed when the timeframe changed. */
+  if (d.ticker && (retarget || !host)) setChartTicker(d.ticker);
   else if (axisChanged && host && host._series && host._series.length >= 2) scChartDraw(host);
 });
 
