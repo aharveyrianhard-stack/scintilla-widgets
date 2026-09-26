@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Station follow-ups — hidden charts, Hub pane, radar likes, stale stamp</title>
+<style>
+:root{ --bg:#0A0A0F; --panel:#0F0F1A; --line:#1A1A2A; --ink:#C8C8CE; --ink2:#8A8A93; --ink3:#6A6A72;
+  --bull:#00FFA3; --bear:#FF2D55; --amber:#c8953a; --mono:ui-monospace,SFMono-Regular,Menlo,monospace; }
+*{ box-sizing:border-box; }
+body{ margin:0; background:var(--bg); color:var(--ink); font:13px/1.65 var(--mono); }
+main{ max-width:1080px; margin:0 auto; padding:28px 16px 70px; }
+h1{ font-size:19px; letter-spacing:.05em; margin:0 0 6px; }
+h2{ font-size:14.5px; letter-spacing:.05em; margin:36px 0 10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+h3{ font-size:12.5px; letter-spacing:.04em; color:var(--ink2); margin:20px 0 6px; }
+p,li{ font-size:12.5px; }
+.lede{ color:var(--ink2); margin:0 0 4px; }
+.panel{ background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:14px 16px; margin:14px 0; }
+.quote{ border-left:2px solid #2C2C3E; padding-left:12px; margin:8px 0; color:var(--ink2); }
+table{ border-collapse:collapse; width:100%; margin:10px 0; font-size:12px; }
+th,td{ text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+th{ color:var(--ink2); font-weight:600; }
+.scroll{ overflow-x:auto; }
+code{ color:var(--ink2); font-size:11.5px; word-break:break-word; }
+.url{ display:block; padding:10px 12px; background:#101018; border:1px solid var(--line); border-radius:3px; color:var(--ink); font-size:12px; word-break:break-all; }
+.good{ color:var(--bull); } .bad{ color:var(--amber); }
+figure{ margin:16px 0; } img{ width:100%; border:1px solid var(--line); border-radius:4px; display:block; }
+figcaption{ color:var(--ink3); font-size:11px; padding-top:6px; }
+.pair{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.row2{ display:grid; grid-template-columns:3fr 1fr; gap:14px; align-items:start; }
+.phone{ max-width:260px; }
+ul{ padding-left:18px; } li{ margin:3px 0; }
+@media (max-width:760px){ .pair,.row2{ grid-template-columns:1fr; } .phone{ max-width:none; } }
+</style></head>
+<body><main>
+
+<h1>STATION FOLLOW-UPS</h1>
+<p class="lede">Hidden charts stay alive on the desk, a clean chart pane for the Hub, SAVE AS RADAR also likes the names,
+and a chart that has stopped now says so. 25 September 2026 · branch <code>station/followups-20260925</code>,
+built on <code>e9b4768</code> (the 33-second pages and the night-lap weeklies are unchanged) ·
+<b>nothing pushed, nothing deployed, nothing written to the live database</b>.</p>
+
+<div class="panel">
+<b>In one look</b>
+<ul>
+<li><b>1 · Page changes that add charts.</b> Going from two charts to six, the empty flash is gone
+(12 → 0 empty pane-frames). Going from six to eight, every chart is drawn by +85 ms instead of +218 ms. Both contact sheets are below.
+While measuring I found a second cause of blank panes: a chart that kept the same symbol through a page change was being wiped and
+redrawn. That is fixed too.</li>
+<li><b>2 · The Hub's chart.</b> A new mode, <code>?bare=hub</code>, shows just the chart: no range buttons and no ticker/TradingView strip inside the frame.
+It keeps the price badge, its own 10-second price refresh, clouds, RSI and the timeframe from the address.
+The address the Hub should use is in section 2.</li>
+<li><b>3 · SAVE AS RADAR.</b> It now also likes every saved name that wasn't liked yet, so the name shows in the Hub's RADAR tab.
+It only adds and never removes. The button says both halves, e.g. <code>RADAR +3 · 3 NAMES · LIKED +1</code>.</li>
+<li><b>4 · Stale charts.</b> Every chart now says <code>last bar 15:00 ET</code> (or <code>last bar 25 Sep</code> on daily and longer).
+During market hours, if the line has stopped, the stamp turns <span class="bad">amber</span> and says how old it is:
+<code>4H · 2 d old</code>.</li>
+</ul>
+</div>
+
+<!-- ================================================================== -->
+<h2>1 · HIDDEN CHARTS STAY ALIVE ON THE DESK</h2>
+<p><b>Before:</b> when a page had fewer charts, the Station threw away the chart frames it wasn't using. The next page with more charts had to
+start those frames from nothing, so its new slots sat empty for a moment.</p>
+<p><b>Now:</b> on a desk screen (1280 px wide or more), an unused chart frame is kept, hidden, still holding its last symbol.
+When a page needs it again, it switches symbol in place like every other frame.
+A phone still keeps only two live charts. When it has to pause one, it now pauses the <b>lowest</b> chart on the page, so the top of the page is always live
+(it used to pause chart 1, the one at the top).</p>
+<p><b>A second fix found by measuring:</b> a frame that came back with the <i>same</i> symbol (MU and WMT on the six-to-eight change) was wiped and
+redrawn from scratch and sat blank from +79 ms to +180 ms. The chart now keeps its line when it is told to show the symbol it is already showing.
+This also helps any chart that stays put across a page change.</p>
+
+<h3>How it was measured</h3>
+<p>A headless browser at 1680×1050 ran two laps of real Station pages. The first lap loads the prices; the second is the one that counts,
+as in the modes lane. On every frame the browser painted, it counted each chart pane as <i>empty</i>, <i>old symbol</i> or <i>drawn</i>.
+Separately, it took the picture that was on screen at each 100 ms mark. Before = the live code at <code>e9b4768</code>; after = this branch.
+Both runs used the same stored prices.</p>
+<div class="scroll"><table>
+<tr><th>change (second lap)</th><th>empty pane-frames</th><th>last empty frame</th><th>everything drawn at</th></tr>
+<tr><td><b>2 → 6</b> · SPY+QQQ·RSI → OTHER INDEXES·RSI<br><small>hidden slots last showed TARGETS·RSI</small></td><td>12 → <span class="good">0</span></td><td>+63 ms → <span class="good">none</span></td><td>5 of 6 at +200 ms → 5 of 6 at +0 ms*</td></tr>
+<tr><td><b>6 → 8</b> · OTHER INDEXES·RSI → TARGETS·RSI</td><td>9 → <span class="good">1</span></td><td>+158 ms → <span class="good">+3 ms</span></td><td>+218 ms → <span class="good">+85 ms</span></td></tr>
+<tr><td><b>2 → 6</b> · SPY+QQQ·RSI → OTHER INDEXES·RSI<br><small>hidden slots last showed AI 1 (3-day, no RSI)</small></td><td>18 → 6</td><td>+102 ms → +78 ms</td><td>—*</td></tr>
+<tr><td><b>6 → 8</b> · OTHER INDEXES·DAY → TARGETS·DAY</td><td>9 → <span class="good">1</span></td><td>+154 ms → <span class="good">+3 ms</span></td><td>+209 ms → <span class="good">+83 ms</span></td></tr>
+</table></div>
+<p><small>* IGV, one of the six on OTHER INDEXES, is not served by the chart API, so that page never has all six drawn, before or after.
+It is left out of the empty count. "Empty pane-frames" counts one pane on one painted frame, so two panes dark for three frames = 6.
+The single "+3 ms" empty is the slot that had held IGV, on the very first frame.</small></p>
+<p><b>Where the flash is left:</b> if the hidden slots last showed a different kind of page (another timeframe, or RSI on vs off), the frame still has
+to reload. That is the same rule every visible frame already follows, so the third row above still has 6 empty pane-frames.
+Also, in that case the old symbol shows a little longer before the swap (2 → 10 old-symbol pane-frames). You briefly see the previous chart instead of a dark box.</p>
+
+<figure><img src="screens/sheet-2to6.jpg" alt="contact sheet two to six"><figcaption>Contact sheet, two charts to six. Top: before. At +0 and +100 ms the lower row is dark (3 empty). Bottom: after. Every pane is drawn at +100 ms and nothing goes dark. The right-hand slot of the second row is IGV (not served) in both.</figcaption></figure>
+<figure><img src="screens/sheet-6to8.jpg" alt="contact sheet six to eight"><figcaption>Contact sheet, six charts to eight. Before: two slots on the right are still empty at +100 and +200 ms and fill in by +300 ms. After: all eight drawn at +100 ms.</figcaption></figure>
+
+<div class="row2">
+<figure><img src="screens/desk-targets-1680.jpg" alt="desk"><figcaption>Desk, 1680 wide, TARGETS · DAY (real clock, Friday night). Eight charts drawn, each with price, day change and the new grey "last bar 25 Sep".</figcaption></figure>
+<figure class="phone"><img src="screens/phone-targets-390.jpg" alt="phone"><figcaption>Phone, 390 wide, the same page. GOOGL and NBIS, the top two, are live. The harness confirmed the six below (AVGO, BE, AMZN, VST, MU, WMT) show "paused to keep the page light — tap to bring it back".</figcaption></figure>
+</div>
+
+<!-- ================================================================== -->
+<h2>2 · A BARE CHART PANE FOR THE HUB</h2>
+<p>The Hub's company CHART tab shows the Station chart inside a frame. Inside that frame the chart had its own header strip: ticker box,
+eleven range buttons, a clouds button and TradingView. The Hub already has its own timeframe row (1h 4h 1D 3D 1W) above the frame, so the strip was clutter.</p>
+<p><b>The address the Hub should use</b> (a change of one line in the Hub's <code>coChartSrc</code>; <b>I did not touch the Hub</b>):</p>
+<code class="url">https://station.scintillahub.ai/chart/?bare=hub&amp;t=NVDA&amp;range=1D&amp;clouds=1</code>
+<p>with <code>t</code> = the company, <code>range</code> = the Hub's timeframe row (1h, 4h, 1D, 3D or 1W), and <code>&amp;rsi=1</code> added when the Hub turns
+on its RSI switch (<code>CO_CHART_RSI</code>). In the Hub's code that is
+<code>STATION_CHART_URL + "?bare=hub&amp;t=" + …</code> in place of <code>STATION_CHART_URL + "?t=" + …</code>.</p>
+<p><b>What <code>bare=hub</code> keeps:</b> the badge (ticker, price, day change, and the new last-bar stamp); its own price refresh every 10 seconds, because
+nobody else feeds it prices on the Hub; clouds, RSI and the timeframe from the address; and the Hub's own RANGE row, which is outside the frame and drives it.
+<b>What it drops:</b> the header strip (ticker box, range buttons, clouds button, TradingView). Clicking the ticker no longer opens an editor, because on the Hub the
+company chooses the symbol. It never sends messages to the page around it, and it saves no settings in the browser (only the price cache the chart always keeps).</p>
+<p><b>A side benefit I measured:</b> with the Hub's current address, the chart first asks the page around it for permission to load, waits out a 5.5-second
+timeout because the Hub never answers, and only then fetches the clouds. At 8 seconds the "before" pane below still had no clouds, and that was also true on the untouched live code.
+<code>bare=hub</code> skips that wait, so the clouds are there at once.</p>
+<div class="pair">
+<figure><img src="screens/hub-before-1680.jpg" alt="hub before"><figcaption>Before: today's Hub address, 1680 wide. The grey stand-in timeframe row at the top is the Hub's. Inside the frame there is a second row: ticker box, 15m…1W, clouds, TradingView. No cloud ribbon yet after 8 s.</figcaption></figure>
+<figure><img src="screens/hub-after-1680.jpg" alt="hub after"><figcaption>After: <code>?bare=hub</code>. Only the Hub's row, then the chart. The badge reads "NVDA 225.00 +0.19% last bar 25 Sep", and the cloud ribbon and its 13D/21D/50D/200D labels are drawn.</figcaption></figure>
+</div>
+<div class="pair">
+<figure class="phone"><img src="screens/hub-before-390.jpg" alt="hub before phone"><figcaption>Before, 390 wide: the in-frame strip takes a row.</figcaption></figure>
+<figure class="phone"><img src="screens/hub-after-390.jpg" alt="hub after phone"><figcaption>After, 390 wide: badge and chart, with clouds.</figcaption></figure>
+</div>
+<p><small>The Hub here is a stand-in page I served from a second local address, so the chart ran as a cross-site frame, as it does on scintillahub.ai.
+It is not the Hub.</small></p>
+
+<!-- ================================================================== -->
+<h2>3 · SAVE AS RADAR ALSO LIKES THE NAMES</h2>
+<p>The Hub's RADAR tab shows names that are both <i>liked</i> and <i>on radar</i>. A name saved to radar from SCRATCH that had never been liked didn't show.
+SAVE AS RADAR now does both. It adds the names to radar as before, then likes every saved name that isn't liked yet. Like the radar save, it only
+<b>adds</b>: a name already liked is left exactly as it was, and nothing on the Station ever unlikes.</p>
+<p><b>The table, read first (read-only):</b> <code>public.hub_favorites</code> has three columns: <code>ticker</code>, <code>added_at</code> (filled by the
+database) and <code>owner_id</code>. It had 72 rows, all under the Hub's one shared owner <code>00000000-0000-0000-0000-000000000000</code>.
+That is the owner the Hub's own ♥ button writes (its <code>operator-write</code> function, unique on ticker + owner).</p>
+<p><b>What the button sent</b> when I saved NVDA, LRCX and ZETA from SCRATCH (the harness answered both writes; nothing reached the live table):</p>
+<div class="scroll"><table>
+<tr><th>write</th><th>body</th></tr>
+<tr><td><code>POST station_lists?on_conflict=list,position</code></td><td><code>[{list:"radar",position:1,ticker:"NVDA"}, {…2,"LRCX"}, {…3,"ZETA"}]</code> (as before)</td></tr>
+<tr><td><code>POST hub_favorites?on_conflict=ticker,owner_id</code><br><code>Prefer: resolution=ignore-duplicates</code></td><td><code>[{"ticker":"ZETA","owner_id":"00000000-0000-0000-0000-000000000000"}]</code>. Only ZETA, because the live list already liked NVDA and LRCX.</td></tr>
+</table></div>
+<figure><img src="screens/radar-receipt-zoom.jpg" alt="radar receipt"><figcaption>The dock after the press: "RADAR +3 · 3 NAMES · LIKED +1". The receipt stays 5 seconds (was 3) because it now has two halves.
+It says "ALL LIKED" when there was nothing to add, and "LIKE FAILED" if the like could not be written.</figcaption></figure>
+<p><b>If the table refuses a direct write</b> from the Station's public key, the Station falls back to the Hub's own ♥ path (<code>operator-write</code>, action
+<code>fav_add</code>), one name at a time, which writes the same row.</p>
+
+<!-- ================================================================== -->
+<h2>4 · A STALE CHART LOOKS STALE</h2>
+<p class="quote">"It's not very easy for me to tell that something is not current… you have to be really, really careful." (Alan)</p>
+<p>Every chart pane now has a small grey stamp after the price: <code>last bar 15:00 ET</code> on intraday charts (with the day if it isn't today),
+<code>last bar 25 Sep</code> on daily, 3-day and weekly. During market hours, if the line has stopped, the stamp turns amber and adds its age:</p>
+<ul>
+<li><b>Intraday (15m … 12h):</b> amber when the newest bar began more than two bars ago, plus up to 15 minutes' grace for the data to arrive.
+Only trading time counts (weekdays 04:00–20:00 ET, the hours these bars cover), so a Friday bar doesn't look stale at 04:30 Monday just because of the weekend.
+It <i>does</i> go amber at 06:30 Monday if Monday's pre-market bars haven't arrived.</li>
+<li><b>Daily:</b> from 09:45 ET, amber if the line doesn't reach the previous session.
+<i>Note:</i> the brief said "the daily bar is not today's". Our daily bar is a <b>finished</b> session, so today's bar only exists after the close.
+I checked: the chart API took today's daily bar at 17:48 ET. Under the brief's wording, every daily chart would be amber all day, every day.
+So the rule is "the newest bar must be yesterday's (the last finished session)". See decision 1.</li>
+<li><b>3-day and weekly:</b> amber when more than two bars' worth of sessions are missing (six and ten sessions).</li>
+<li>Nights, weekends and NYSE holidays are never judged (holidays come from the calendar already in <code>provider.js</code>, 2026–2027).</li>
+</ul>
+<figure><img src="screens/fresh-stamps-zoom.jpg" alt="fresh stamps"><figcaption>Tonight, real clock: grey "last bar 25 Sep" on each chart (GOOGL, NBIS, AVGO shown).</figcaption></figure>
+<figure><img src="screens/stale-stamps-zoom.jpg" alt="stale stamps"><figcaption>The same bars with the browser's clock set to Monday 28 Sep, 10:00 ET: "last bar 25 Sep 16:00 ET · 4H · 2 d old" in amber.
+This is what a 4H line that has not updated since Friday would look like on Monday morning. The Station's "4H" timeframe chip sits over part of the middle chart's stamp (see "what could be wrong").</figcaption></figure>
+<figure><img src="screens/stale-monday-1680.jpg" alt="stale desk"><figcaption>The whole INTRADAY · 4H page at 1680 wide under that Monday clock: all six stamps amber.</figcaption></figure>
+
+<!-- ================================================================== -->
+<h2>WHERE EACH NUMBER COMES FROM</h2>
+<ul>
+<li><b>Chart prices and bars:</b> the chart API <code>scintilla-massive-chart-api.fly.dev</code>. It only answers <code>scintillahub.ai</code>, so the harness
+asked it from outside the browser with that origin and handed the answers to the page (the same answers for before and after).</li>
+<li><b>Targets, radar list and liked list:</b> the live database, <b>read-only</b>. Every write the Station tried went to the harness and was logged. None reached the live database.</li>
+<li><b>Frame counts:</b> the harness's per-frame probe; pictures from Chrome's screencast (the picture on screen at each 100 ms mark).</li>
+<li><b>Test suite:</b> <code>node --test tests/</code>. 706 tests, 18 failing. Those are the same 18 that fail on the live code (<code>e9b4768</code>, run the same way).
+There are 41 more tests than on the live code, among them 12 for the stale stamp and 17 for items 1–3.</li>
+</ul>
+<details><summary>The 18 failures that already fail on the live code</summary><ul>
+<li>Personal subscriptions and the shared Scintilla discovery feed stay correctly scoped</li>
+<li>Station admits at most two visible chart requests and discards stale generation retries</li>
+<li>every served non-HTML file is inventoried — explicitly or by class, never silently</li>
+<li>every served surface appears in the inventory</li>
+<li>iPad header actions are single-activation controls with honest disabled state</li>
+<li>personal-video-v1: on air says LIVE, still to come says when</li>
+<li>personal-video-v1: the age is on the channel line, right-aligned into the empty space</li>
+<li>personal-video-v1: the label keeps up with the clock, on the pass that already runs</li>
+<li>reverse detection can actually see a retired standalone page</li>
+<li>scintilla-video-v1: on air says LIVE, still to come says when</li>
+<li>scintilla-video-v1: the age is on the channel line, right-aligned into the empty space</li>
+<li>scintilla-video-v1: the label keeps up with the clock, on the pass that already runs</li>
+<li>the dependency inventory states the counts it was generated against</li>
+<li>the inventory states the count it was generated against</li>
+<li>the pane's direction color is claimed from the day's baseline, or not claimed at all</li>
+<li>the standalone HTML files Vercel serves are inventoried too</li>
+<li>the visible chart badge reports an approximate span and actual start date</li>
+<li>video auto-next silently advances the next visible item and skips an unavailable embed</li>
+</ul></details>
+
+<h2>WHAT COULD BE WRONG</h2>
+<ul>
+<li><b>Hidden frames cost a little.</b> On the desk, up to six hidden charts keep their once-a-minute history refresh running. That is fewer requests than
+reloading them on every page change, but it isn't zero.</li>
+<li><b>Anyone allowed to write <code>hub_favorites</code>?</b> I made no live write, so I can't say whether the Station's public key may add rows.
+If it can't, the Hub's own ♥ path is used. If both fail, the button says "LIKE FAILED".</li>
+<li><b>The stamp and the timeframe chip.</b> On a three-across page the Station's centre timeframe chip can cover part of the middle chart's stamp when the stamp is long (the amber case).</li>
+<li><b>Half-day sessions</b> (day after Thanksgiving, Christmas Eve) are treated as full days, and the holiday list runs to the end of 2027.</li>
+<li><b>The stale screenshot used a set clock</b> (Monday 10:00 ET) over real Friday bars. Tonight's real screen is the grey one.</li>
+<li>Test browsers were headless. YouTube thumbnails and X are blocked in the harness, which is why the video panes are blank in the desk shots.</li>
+</ul>
+
+<h2>WHAT I DID NOT DO</h2>
+<ul>
+<li>No push, no deploy, no database write, no Hub change. The Hub address change in section 2 is for the coordinator.</li>
+<li>The 33-second pages and the night-lap weeklies were not touched.</li>
+<li>I didn't move the timeframe chip, and I didn't add an unfinished "today" bar to the daily chart.</li>
+<li>The frame harness from the modes lane was never committed, so I built a new one on the same method. It is in <code>harness/</code> next to this page.</li>
+</ul>
+
+<h2>DECISIONS FOR ALAN</h2>
+<ol>
+<li><b>Daily stamp rule.</b> Amber from 09:45 when the daily line doesn't reach <i>yesterday</i>, because today's bar can't exist until the close.
+<i>Recommendation: keep it.</i> The other choice is an unfinished "today" bar on daily charts, which is a bigger change to what the chart draws.</li>
+<li><b>Switch the Hub to <code>?bare=hub</code>.</b> One line in the Hub. <i>Recommendation: yes.</i> It's cleaner, and the clouds appear at once instead of after a 5.5 s wait.</li>
+<li><b>The timeframe chip over the middle stamp.</b> <i>Recommendation:</i> move the chip into the dock in a later polish pass rather than shorten the stamp.</li>
+</ol>
+
+</main></body></html>
