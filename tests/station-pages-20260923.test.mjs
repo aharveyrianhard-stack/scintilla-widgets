@@ -134,7 +134,8 @@ test("a workbench slot carries its stack in its own URL; every other page's URL 
     SLOT_RANGES: ["", "1W", "", "", "", "", "", ""],
     /* 25 Sep: a slot may also ask for a number of bars. The HISTORY page that asked for 6,000 daily
        is retired (25 Sep, later); the mechanism stays, so it is still pinned here. */
-    SLOT_BARS: [0, 0, 6000, 0, 0, 0, 0, 0]
+    SLOT_BARS: [0, 0, 6000, 0, 0, 0, 0, 0],
+    SLOT_BUBBLES: ["", "", "", "", "", "", "", ""]
   };
   bindings.chartSrc = functionFromDeck("chartSrc", bindings);
   const paneChartSrc = functionFromDeck("paneChartSrc", bindings);
@@ -144,7 +145,8 @@ test("a workbench slot carries its stack in its own URL; every other page's URL 
   assert.match(paneChartSrc("QQQ", 1), /range=1W/, "a per-chart timeframe wins for that slot only");
   assert.match(paneChartSrc("SPY", 2), /&bars=6000$/, "a bars request rides on the slot's own URL");
   assert.doesNotMatch(paneChartSrc("MU", 0), /bars=/, "and never on a slot that did not ask");
-  const plain = { ...bindings, SLOT_STACKS: ["", "", "", "", "", "", "", ""], SLOT_RANGES: ["", "", "", "", "", "", "", ""], SLOT_BARS: [0, 0, 0, 0, 0, 0, 0, 0] };
+  const plain = { ...bindings, SLOT_STACKS: ["", "", "", "", "", "", "", ""], SLOT_RANGES: ["", "", "", "", "", "", "", ""], SLOT_BARS: [0, 0, 0, 0, 0, 0, 0, 0],
+    SLOT_BUBBLES: ["", "", "", "", "", "", "", ""] };
   plain.chartSrc = functionFromDeck("chartSrc", plain);
   const plainPane = functionFromDeck("paneChartSrc", plain);
   assert.equal(plainPane("MU", 0), plain.chartSrc("MU", 0),

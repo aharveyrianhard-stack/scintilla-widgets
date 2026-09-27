@@ -322,6 +322,7 @@ function retargetRig({ shown = "/station-shells/chart-v1?shell=v1&bare=1&t=MSFT&
   bindings.frameShownSrc = arrowFromDeck("frameShownSrc");
   bindings.srcTicker = functionFromDeck("srcTicker", bindings);
   bindings.withoutTicker = arrowFromDeck("withoutTicker", bindings);
+  bindings.srcBubble = functionFromDeck("srcBubble", bindings);
   bindings.pointChartFrame = functionFromDeck("pointChartFrame");
   bindings.RETARGET_ACK_MS = 1500;
   return { pane, frame, posts, sets, timers, retarget: functionFromDeck("retargetChartInPlace", bindings) };
@@ -330,7 +331,7 @@ function retargetRig({ shown = "/station-shells/chart-v1?shell=v1&bare=1&t=MSFT&
 test("a cached symbol on a settled frame is swapped in place: quote first, then the symbol, no new src", () => {
   const r = retargetRig();
   assert.equal(r.retarget(r.pane, "TSM"), true);
-  assert.deepEqual(JSON.parse(JSON.stringify(r.posts)), [{ sc:"deck-quote", ticker:"TSM" }, { sc:"chart", ticker:"TSM", range:"3D", sharedAxis:true }],
+  assert.deepEqual(JSON.parse(JSON.stringify(r.posts)), [{ sc:"deck-quote", ticker:"TSM" }, { sc:"chart", ticker:"TSM", range:"3D", sharedAxis:true, bubble:"" }],
     "the day's baseline arrives before the symbol, so the first paint has its direction");
   assert.deepEqual(r.sets, [], "the document is kept - nothing reloads, nothing goes blank");
   assert.equal(r.frame.dataset.shown, r.pane.def.src, "the frame records what it now shows");
@@ -342,7 +343,7 @@ test("a cached symbol on a settled frame is swapped in place: quote first, then 
 test("a page with another chart count moves a frame between rows in place, axis mode by message", () => {
   const down = retargetRig({ next: "/station-shells/chart-v1?shell=v1&bare=1&t=SPY&range=3D&view=auto&transition=7" });
   assert.equal(down.retarget(down.pane, "SPY"), true, "8-up top row (borrowed axis) to 2-up (own axis)");
-  assert.deepEqual(JSON.parse(JSON.stringify(down.posts))[1], { sc:"chart", ticker:"SPY", range:"3D", sharedAxis:false });
+  assert.deepEqual(JSON.parse(JSON.stringify(down.posts))[1], { sc:"chart", ticker:"SPY", range:"3D", sharedAxis:false, bubble:"" });
   assert.deepEqual(down.sets, [], "no reload");
   for (const [label, src] of [["chart", chart], ["chart shell", chartShell]]) {
     assert.match(src, /let SHARED_TIME_AXIS = QS\.get\("sharedAxis"\) === "1";/, label);
@@ -371,7 +372,7 @@ test("anything but a clean symbol swap takes the old path", () => {
 });
 
 test("the deck wires the swap into the page change and every identity check reads what a frame shows", () => {
-  assert.match(deck, /else if \(!retargetChartInPlace\(o, ticker\)\)\n\s*syncChartFrame\(o\.frame, o\.def\.src, \{ sc:"chart", ticker, range:RANGE \}\);/);
+  assert.match(deck, /else if \(!retargetChartInPlace\(o, ticker\)\)\n\s*syncChartFrame\(o\.frame, o\.def\.src, \{ sc:"chart", ticker, range:RANGE, bubble:srcBubble\(o\.def\.src\) \}\);/);
   assert.match(deck, /frameIdentity\(frameShownSrc\(item\.frame\)\) === frameIdentity\(item\.def\.src\)/, "load admission");
   assert.match(deck, /frameShownSrc\(o\.frame\) !== o\.def\.src;/, "the cold-rotation check");
   assert.match(deck, /if \(reporter\) reporter\.reportedTicker = CLEAN\(event\.data\.ticker\);/, "the handshake");

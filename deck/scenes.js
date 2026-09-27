@@ -26,27 +26,31 @@
      session (two since 25 Sep, DAY and NIGHT — see stationSession and rotationScenesAt). */
   const TARGETS_DEFAULT = Object.freeze(["GOOGL","NBIS","AVGO","BE","AMZN","VST","MU","WMT"]);
   const MACRO_4H = Object.freeze(["VIX","CLUSD","US10Y","DXUSD","GCUSD","BTCUSD"]);
+  /* THE CONTEXT LENS (CL4, 27 Sep): every 3-day page carries a small bottom-left box of the same name's
+     30-minute candles for its last three sessions (Alan: "the last three trading days, only on the
+     3-day charts… I like this one at the bottom left"). The chart pane reads it as ?bubble=30m:3. */
+  const BUBBLE_3D = "30m:3";
   const WORKFLOW_PAGES = Object.freeze({
     wkIndexes:       Object.freeze({ label:"INDEXES · WEEK",      short:"INDEXES WK",  range:"1W", tickers:Object.freeze(["SPY","DIA","QQQ","MAGS","SMH","IWM","DRAM","IGV"]) }),
     wkMacro:         Object.freeze({ label:"MACRO · WEEK",        short:"MACRO WK",    range:"1W", tickers:Object.freeze(["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]) }),
-    targets3D:       Object.freeze({ label:"TARGETS",             range:"3D", targets:true }),
+    targets3D:       Object.freeze({ label:"TARGETS",             range:"3D", bubble:BUBBLE_3D, targets:true }),
     /* 25 Sep, Alan, later: "there is sectors that are more important in market cap, way more
        important. I don't know if I would rotate all of them." So his six stay on screen in slots
        1–6 on every visit, and only the other five State Street sectors rotate, two at a time,
        through slots 7–8: an eight-chart page. */
-    sectors3D:       Object.freeze({ label:"SECTORS",             range:"3D", tickers:Object.freeze(["XLK","XLI","XLC","XLF","XLY","XLE"]), rotate:Object.freeze({ list:Object.freeze(["XLP","XLV","XLU","XLRE","XLB"]), size:2 }) }),
-    mainIndexes3D:   Object.freeze({ label:"SPY + QQQ",           range:"3D", leaders:true }),
-    mag7:            Object.freeze({ label:"MAG 7",               range:"3D", tickers:Object.freeze(["MAGS","MSFT","NVDA","AMZN","AAPL","META","GOOGL","TSLA"]) }),
+    sectors3D:       Object.freeze({ label:"SECTORS",             range:"3D", bubble:BUBBLE_3D, tickers:Object.freeze(["XLK","XLI","XLC","XLF","XLY","XLE"]), rotate:Object.freeze({ list:Object.freeze(["XLP","XLV","XLU","XLRE","XLB"]), size:2 }) }),
+    mainIndexes3D:   Object.freeze({ label:"SPY + QQQ",           range:"3D", bubble:BUBBLE_3D, leaders:true }),
+    mag7:            Object.freeze({ label:"MAG 7",               range:"3D", bubble:BUBBLE_3D, tickers:Object.freeze(["MAGS","MSFT","NVDA","AMZN","AAPL","META","GOOGL","TSLA"]) }),
     /* 25 Sep, Alan on the AI pages: "don't go by the names of the layouts, I made a mega mess…
        WULF and CRDO don't need to be twice; NBIS and IREN need to be somewhere permanent…
        OK I like your split" - so three branches of the tree, no name twice, LRCX and WDC in:
        chips & equipment · memory, racks & optics · power & neoclouds. SOXX (a fund) and
        CDNS (design software) fell out; NBIS and IREN are permanent on AI 3. */
-    ai1:             Object.freeze({ label:"AI 1 · CHIPS",        short:"AI 1 CHIPS", range:"3D", tickers:Object.freeze(["TSM","ASML","AVGO","AMD","MU","AMAT","LRCX","ARM"]) }),
-    ai2:             Object.freeze({ label:"AI 2 · MEMORY, RACKS", short:"AI 2 RACKS", range:"3D", tickers:Object.freeze(["SNDK","WDC","MRVL","ALAB","CRDO","SMCI","SIMO","NVTS"]) }),
-    ai3:             Object.freeze({ label:"AI 3 · POWER, CLOUDS", short:"AI 3 POWER", range:"3D", tickers:Object.freeze(["NBIS","CRWV","IREN","CIFR","WULF","HUT","OKLO","BE"]) }),
-    other3D:         Object.freeze({ label:"OTHER",               range:"3D", tickers:Object.freeze(["ORCL","SPCX","PLTR","OKLO","SHOP","USAR","HOOD","MSTR"]) }),
-    blueChip3D:      Object.freeze({ label:"BLUE CHIP",           range:"3D", tickers:Object.freeze(["WMT","JPM","CAT","BAC","HD","MCD","COST","WM"]) }),
+    ai1:             Object.freeze({ label:"AI 1 · CHIPS",        short:"AI 1 CHIPS", range:"3D", bubble:BUBBLE_3D, tickers:Object.freeze(["TSM","ASML","AVGO","AMD","MU","AMAT","LRCX","ARM"]) }),
+    ai2:             Object.freeze({ label:"AI 2 · MEMORY, RACKS", short:"AI 2 RACKS", range:"3D", bubble:BUBBLE_3D, tickers:Object.freeze(["SNDK","WDC","MRVL","ALAB","CRDO","SMCI","SIMO","NVTS"]) }),
+    ai3:             Object.freeze({ label:"AI 3 · POWER, CLOUDS", short:"AI 3 POWER", range:"3D", bubble:BUBBLE_3D, tickers:Object.freeze(["NBIS","CRWV","IREN","CIFR","WULF","HUT","OKLO","BE"]) }),
+    other3D:         Object.freeze({ label:"OTHER",               range:"3D", bubble:BUBBLE_3D, tickers:Object.freeze(["ORCL","SPCX","PLTR","OKLO","SHOP","USAR","HOOD","MSTR"]) }),
+    blueChip3D:      Object.freeze({ label:"BLUE CHIP",           range:"3D", bubble:BUBBLE_3D, tickers:Object.freeze(["WMT","JPM","CAT","BAC","HD","MCD","COST","WM"]) }),
     spyQqq1D:        Object.freeze({ label:"SPY + QQQ · DAY",     short:"SPY+QQQ DAY", range:"1D", leaders:true }),
     /* 25 Sep, Alan: "you do have the RSI." Each oscillator page follows its price twin: the same
        names on the same daily bars, with the Lab's locked-timeframe RSI fan under every price.
@@ -350,6 +354,7 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     return { label:page.label, tickers, chartCount:count, range:page.range,
       ranges:tickers.map(() => page.range),
       stacks:tickers.map(() => study),
+      bubbles:tickers.map(() => page.bubble || ""),
       offset:0, totalItems:tickers.length, hasPrevious:false, hasNext:false, empty:!tickers.length };
   }
   /* The jump list's answer for a workflow page is its FULL list: a rotating page reports

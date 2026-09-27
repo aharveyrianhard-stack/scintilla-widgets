@@ -741,7 +741,7 @@ test("a frame whose URL already matches can use the fast chart message", () => {
   };
   assert.equal(syncChartFrame(frame, src, { sc:"chart", ticker:"GCUSD", range:"3D" }), false);
   assert.deepEqual(calls, [{ message:{ sc:"chart", ticker:"GCUSD", range:"3D" }, origin:"https://station.test" }]);
-  assert.match(deck, /syncChartFrame\(o\.frame, o\.def\.src, \{ sc:"chart", ticker, range:RANGE \}\)/);
+  assert.match(deck, /syncChartFrame\(o\.frame, o\.def\.src, \{ sc:"chart", ticker, range:RANGE, bubble:srcBubble\(o\.def\.src\) \}\)/);
 });
 
 test("media expansion is an explicit two-stage ladder that preserves X until asked", () => {
@@ -1097,5 +1097,42 @@ test("the price axis labels the price the gridline is actually at", () => {
     /* The thousands branch is unchanged and still exact at its own resolution. */
     assert.equal(chAxisPx(16000, 2000), "16K");
     assert.equal(chAxisPx(12500, 1000), "12.5K");
+  }
+});
+
+/* ── CL4, 27 Sep: THE CONTEXT LENS ON THE 3-DAY PAGES ─────────────────────────────── */
+test("the nine 3-day pages carry the context lens on every slot, and no other page does", () => {
+  const nine = ["targets3D", "sectors3D", "mainIndexes3D", "mag7", "ai1", "ai2", "ai3", "other3D", "blueChip3D"];
+  const at = new Date("2026-09-28T15:00:00Z");
+  for (const id of Object.keys(scenes.WORKFLOW_PAGES)) {
+    const state = scenes.workflowPageState(id, { at });
+    assert.equal(state.bubbles.length, state.tickers.length, `${id}: one entry per slot`);
+    if (nine.includes(id)) {
+      assert.equal(scenes.WORKFLOW_PAGES[id].range, "3D", `${id} is a 3-day page`);
+      assert.ok(state.bubbles.every((b) => b === "30m:3"), `${id}: every slot asks for 30-minute bars, three sessions`);
+    } else assert.ok(state.bubbles.every((b) => b === ""), `${id}: no lens`);
+  }
+});
+
+test("the deck puts the lens on the slot's URL, and a page change turns it on or off by message, not by reload", () => {
+  const bindings = { RANGE: "3D", VIEW: "auto", CHART_COUNT: 8, CHARTS: ["MU"], encodeURIComponent,
+    STATION_SHELL: { chart: "/station-shells/chart-v1" }, SceneModel: scenes,
+    SLOT_STACKS: Array(8).fill(""), SLOT_RANGES: ["3D", "", "", "", "", "", "", ""], SLOT_BARS: Array(8).fill(0),
+    SLOT_BUBBLES: ["30m:3", "", "", "", "", "", "", ""] };
+  bindings.chartSrc = functionFromDeck("chartSrc", bindings);
+  const paneChartSrc = functionFromDeck("paneChartSrc", bindings);
+  assert.match(paneChartSrc("MU", 0), /&range=3D&[^]*&bubble=30m%3A3$/);
+  assert.doesNotMatch(paneChartSrc("MU", 1), /bubble=/, "a slot that did not ask carries nothing");
+  const identity = deck.match(/const frameIdentity = (\([^\n]*);\n/)[1];
+  const frameIdentity = vm.runInNewContext("(" + identity + ")");
+  assert.equal(frameIdentity("/c?t=MU&range=3D&bubble=30m%3A3"), frameIdentity("/c?t=MU&range=1D"), "the lens is not a frame's identity");
+  const srcBubble = functionFromDeck("srcBubble", { URL, location: { origin: "https://x.test" } });
+  assert.equal(srcBubble("/c?t=MU&bubble=30m%3A3"), "30m:3");
+  assert.equal(srcBubble("/c?t=MU"), "");
+  assert.match(deck, /retargetChartInPlace[^]*postMessage\(\{ sc:"chart", ticker, range:RANGE, sharedAxis, bubble:srcBubble\(next\) \}/);
+  for (const src of [chart, chartShell]) {
+    assert.match(src, /if \(typeof d\.bubble === "string"\) setBubble\(d\.bubble\);/, "the pane takes it by message");
+    assert.match(src, /ensureRsiFan\(host, t, req, generation\);\n[^\n]*\n\s*lensEnsure\(host, t, req, generation\);/,
+      "its read is asked for only after the price is on screen");
   }
 });

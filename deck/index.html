@@ -1035,6 +1035,8 @@ function initialWorkspaceChart(incoming, stored, index, directCustom) {
 const SLOT_STACKS = Array.from({ length: 8 }, () => "");
 const SLOT_BARS = Array.from({ length: 8 }, () => 0);   /* a per-slot bars request (no page asks since HISTORY left, 25 Sep); 0 = the range's usual window */
 const SLOT_RANGES = Array.from({ length: 8 }, () => "");
+/* the context lens a slot's page asks for ("30m:3" on the 3-day pages, CL4 27 Sep; "" elsewhere) */
+const SLOT_BUBBLES = Array.from({ length: 8 }, () => "");
 const CHARTS = Array.from({ length: 8 }, (_, i) => {
   const incoming = URL_STATEFUL ? QS.get("c" + (i + 1)) : "";
   return initialWorkspaceChart(incoming, storedState("chart." + (i + 1)), i, DIRECT_CUSTOM_WORKSPACE);
@@ -2691,6 +2693,8 @@ function installSceneState(state) {
   const stacks = state.stacks || [], ranges = state.ranges || [];
   SLOT_STACKS.forEach((_, i) => { SLOT_STACKS[i] = String(stacks[i] || ""); });
   SLOT_RANGES.forEach((_, i) => { SLOT_RANGES[i] = RANGES.includes(ranges[i]) ? ranges[i] : ""; });
+  const bubbles = state.bubbles || [];
+  SLOT_BUBBLES.forEach((_, i) => { SLOT_BUBBLES[i] = /^[0-9a-z]+:[0-9]$/.test(String(bubbles[i] || "")) ? String(bubbles[i]) : ""; });
   const bars = state.bars || [];
   SLOT_BARS.forEach((_, i) => { SLOT_BARS[i] = Number(bars[i]) > 0 ? Math.min(8000, Math.floor(Number(bars[i]))) : 0; });
   CHART_COUNT = (SCENE === "custom" ? customChartCount : sceneChartCount)(
@@ -2825,7 +2829,7 @@ function syncChartPanes(transitionGeneration) {
         frameShownSrc(o.frame) !== o.def.src;
       if (coldRotation) queueRotationChartFrame(o.frame, o.def.src, transitionGeneration);
       else if (!retargetChartInPlace(o, ticker))
-        syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE });
+        syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE, bubble:srcBubble(o.def.src) });
     }
   });
   refreshDeckQuotes();
@@ -3112,9 +3116,14 @@ const videoShellFor = (account) => VIDEO_SHELL_BY_ACCOUNT[account] || STATION_SH
 function paneChartSrc(t, index, transitionGeneration) {
   const src = chartSrc(t, index, transitionGeneration);
   const stack = SLOT_STACKS[index], range = SLOT_RANGES[index], bars = SLOT_BARS[index];
-  if (!stack && !range && !bars) return src;
+  const bubble = SLOT_BUBBLES[index] ? "&bubble=" + encodeURIComponent(SLOT_BUBBLES[index]) : "";
+  if (!stack && !range && !bars) return src + bubble;
   return src.replace("&range=" + encodeURIComponent(RANGE),
-    "&range=" + encodeURIComponent(range || RANGE)) + SceneModel.studyQuery(stack) + (bars ? "&bars=" + bars : "");
+    "&range=" + encodeURIComponent(range || RANGE)) + SceneModel.studyQuery(stack) + (bars ? "&bars=" + bars : "") + bubble;
+}
+/* The lens is not part of a frame's identity either: a page change turns it on or off by message. */
+function srcBubble(src) {
+  try { return new URL(String(src || ""), location.origin).searchParams.get("bubble") || ""; } catch (_) { return ""; }
 }
 function chartSrc(t, index, transitionGeneration) {
   return STATION_SHELL.chart + "?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
@@ -3128,7 +3137,7 @@ function chartSrc(t, index, transitionGeneration) {
    message optimization after the URL already agrees with the displayed pane. */
 /* The timeframe is not part of a frame's identity: a mounted chart changes range in place through
    a message, keeping its document, its caches and its previous line on screen. */
-const frameIdentity = (src) => String(src || "").replace(/[?&](range|transition)=[^&]*/g, "");
+const frameIdentity = (src) => String(src || "").replace(/[?&](range|transition|bubble)=[^&]*/g, "");
 /* WHAT A CHART FRAME IS SHOWING. A frame re-pointed in place (retargetChartInPlace) keeps the
    document - and so the src attribute - it was loaded with; data-shown records the address it
    is showing now. Every identity check reads this, never the bare attribute. */
@@ -3186,7 +3195,7 @@ function retargetChartInPlace(pane, ticker) {
   if (!chartCachedInBrowser(ticker, RANGE)) return false;
   postDeckQuote(frame, ticker);
   const sharedAxis = /[?&]sharedAxis=1(&|$)/.test(next);
-  try { frame.contentWindow.postMessage({ sc:"chart", ticker, range:RANGE, sharedAxis }, location.origin); }
+  try { frame.contentWindow.postMessage({ sc:"chart", ticker, range:RANGE, sharedAxis, bubble:srcBubble(next) }, location.origin); }
   catch (_) { return false; }
   frame.dataset.shown = next;
   const token = (pane.retargetToken || 0) + 1;
@@ -3267,7 +3276,7 @@ function setRange(r) {
     const o = PANES.find((p) => p.def.key === k); if (!o) continue;
     o.def.src = CHARTS[i] ? paneChartSrc(CHARTS[i], i) : "";
     o.def.open = o.def.src.replace("bare=1&", "");
-    if (o.frame) syncChartFrame(o.frame, o.def.src, { sc:"chart", range:RANGE });
+    if (o.frame) syncChartFrame(o.frame, o.def.src, { sc:"chart", range:RANGE, bubble:srcBubble(o.def.src) });
   }
   rememberEditableState();
 }
@@ -3369,7 +3378,7 @@ function commitTicker(index, raw, input) {
     ? PANES.find((p) => p.def.key === "c" + (above + 1)) : null;
   if (upper) {
     upper.def.src = paneChartSrc(CHARTS[above], above); upper.def.open = upper.def.src.replace("bare=1&", "");
-    if (upper.frame) syncChartFrame(upper.frame, upper.def.src, { sc:"chart", ticker:CHARTS[above], range:RANGE });
+    if (upper.frame) syncChartFrame(upper.frame, upper.def.src, { sc:"chart", ticker:CHARTS[above], range:RANGE, bubble:srcBubble(upper.def.src) });
   }
   refreshDeckQuotes(); rememberEditableState(); closeSymbolGuide(); shareScratchSoon(); paintChips(); return true;
 }

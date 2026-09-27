@@ -24,9 +24,12 @@ const PAGE = "workshop/context-lens/index.html";
 const PICKS = JSON.parse(read("workshop/context-lens/picks.json"));
 
 test("the workshop carries the reviewed rules byte for byte, not a second copy that can drift", () => {
-  assert.equal(sha("workshop/context-lens/lens-placement.mjs"),
-               sha("deliverables/20260923/context-lens-2/lens-placement.mjs"),
-               "WHERE the lens sits must be the reviewed 23 Sep rule");
+  /* 27 Sep (CL4): the rule moved to /_indicators/lens-placement.mjs, where the live chart imports it;
+     both old paths re-export that one file, so there is still exactly one rule. */
+  for (const rel of ["workshop/context-lens/lens-placement.mjs", "deliverables/20260923/context-lens-2/lens-placement.mjs"])
+    assert.match(read(rel), /^export \* from "(\.\.\/)+_indicators\/lens-placement\.mjs";$/m,
+      `${rel}: WHERE the lens sits must be the reviewed 23 Sep rule, from the one shared file`);
+  assert.ok(fs.existsSync(path.join(ROOT, "_indicators/lens-placement.mjs")));
   assert.equal(sha("workshop/context-lens/lens-view.mjs"),
                sha("deliverables/20260924/station-calm/lens/lens-view.mjs"),
                "WHAT the lens shows must be M51's reviewed opposite-zoom rule");

@@ -391,6 +391,41 @@ let CLOUD_STEPS = QS.has("steps") ? QS.get("steps") === "1" : lsGet(CLOUD_STEPS_
    asks on its own (then a phone-narrow pane stays clean). Nothing is stored for this browser. */
 const RSI_REQUEST = window.SC_RSI_FAN ? window.SC_RSI_FAN.parseRsiParam(QS.get("rsi")) : { on:false, lines:[] };
 const rsiFanOn = () => !!(window.SC_RSI_FAN && window.SC_DETAIL_MATH && window.SC_RSI_FAN.visibleAt(RSI_REQUEST, innerWidth));
+/* THE CONTEXT LENS (CL4, 27 Sep; Alan: "I like this one at the bottom left… it could be smaller").
+   ?bubble=30m:3 draws the last three sessions of 30-minute candles in a small box bottom-left of a
+   3-DAY chart, on a second canvas. Without the switch nothing is loaded and nothing changes; with it,
+   any range but 3D shows no bubble. The deck adds it on the 3-day pages and changes it by message.
+   Everything else lives in /_indicators/station-lens.mjs. */
+let BUBBLE_REQUEST = QS.get("bubble") || "";
+let SC_LENS = null, scLensLoading = null;
+const SC_LENS_DEPS = {
+  request: () => BUBBLE_REQUEST, range: () => S.chartRange,
+  fetchCandles: (t, tf, limit, tries) => fetchProviderCandles(t, tf, limit, tries),
+  permit: (host, req, generation) => acquireChartLoadPermit(host, req, generation),
+  redraw: (host) => scChartDraw(host), colours: () => chColors(),
+  day: (host) => { const ref = chDayRef(host), px = chDayPrice(host, host._series);
+    return ref == null || px == null ? null : px >= ref ? "up" : "down"; },
+  settled: (ms) => SC_PROVIDER.expectedSettledSession(ms), isNamedAbsence: (e) => isNamedAbsence(e)
+};
+function scLens() {
+  if (!BUBBLE_REQUEST) return null;
+  if (!SC_LENS && !scLensLoading) scLensLoading = import("/_indicators/station-lens.mjs").then((m) => {
+    SC_LENS = m;
+    const host = document.querySelector("#chartSlot .sc-nchart");
+    if (host && host._req) { lensEnsure(host, host.dataset.t, host._req, host._transitionGeneration || 0); scChartDraw(host); }
+  }).catch(() => { scLensLoading = null; });
+  return SC_LENS;
+}
+function lensPaint(host) { const L = scLens(); if (L) L.paint(host, SC_LENS_DEPS); else if (host.querySelector(".sc-nchart__lens")) host.querySelector(".sc-nchart__lens").style.display = "none"; }
+function lensEnsure(host, t, req, generation) { const L = scLens(); if (L) L.ensure(host, SC_LENS_DEPS, req, generation); }
+function setBubble(value) {
+  if (String(value || "") === BUBBLE_REQUEST) return;
+  BUBBLE_REQUEST = String(value || "");
+  const host = document.querySelector("#chartSlot .sc-nchart");
+  if (!host) return;
+  if (host._req) lensEnsure(host, host.dataset.t, host._req, host._transitionGeneration || 0);
+  lensPaint(host);
+}
 const BAR_RULE_KEY = "station.barrule";
 const BAR_RULE_ON = QS.has("barrule") ? QS.get("barrule") === "1" : lsGet(BAR_RULE_KEY) === "1";
 const S = {
@@ -1648,6 +1683,8 @@ function scChartDraw(host, scrub) {
   const ctx = cv.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
+  /* the context lens repaints after this paint has finished, and only if its picture changed */
+  if (BUBBLE_REQUEST || host.querySelector(".sc-nchart__lens")) queueMicrotask(() => lensPaint(host));
   const pts = host._series;
   if (!pts || pts.length < 2) return;
   const col = chColors();
@@ -2495,6 +2532,8 @@ async function scChartLoad(host) {
     ensureCloudDaily(host, t, req, generation);
     /* ...and the RSI fan's locked-timeframe reads, after the ribbon's. */
     ensureRsiFan(host, t, req, generation);
+    /* ...and, on a 3-day chart that asked for it, the context lens's one 30-minute read. */
+    lensEnsure(host, t, req, generation);
   } catch (err) {
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
     /* THE WHOLE POINT: a named answer is not retried. Retrying it would present a settled
@@ -3013,6 +3052,8 @@ addEventListener("message", (e) => {
   /* The Station dock owns one clouds switch for the whole wall. */
   if (typeof d.clouds === "boolean") setClouds(d.clouds);
   if (typeof d.steps === "boolean") setCloudSteps(d.steps);
+  /* The deck's page says whether this chart carries the context lens ("" = none). */
+  if (typeof d.bubble === "string") setBubble(d.bubble);
   /* A NEW SYMBOL AND A NEW RANGE IN ONE MESSAGE (the deck's page change, 25 Sep): the range is
      set first and the new symbol loads at it. Reloading the OLD symbol at the new range first
      cost a wasted provider read and, on a slow frame, a paint of the wrong chart. */
