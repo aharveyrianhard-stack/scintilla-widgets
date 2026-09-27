@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>SCINTILLA · CONTEXT LENS 3 — the bar chart at zoom, in a corner of the 3-day line</title>
+<style>
+:root{
+  --bg:#101012; --panel:#17171a; --panel2:#1d1d21; --line:#2b2b30; --line2:#3a3a40;
+  --ink:#c9c9cf; --ink2:#9a9aa1; --ink3:#74747b; --hi:#d2d2d2;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink)}
+body{font:13px/1.6 var(--mono);padding:0 0 64px}
+.wrap{max-width:1560px;margin:0 auto;padding:0 20px}
+header{border-bottom:1px solid var(--line);padding:26px 0 20px;margin-bottom:22px}
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3)}
+h1{font-size:23px;margin:8px 0 10px;font-weight:600;letter-spacing:.01em;color:var(--hi)}
+h2{font-size:15px;margin:0 0 10px;font-weight:600;letter-spacing:.02em;color:var(--hi)}
+h3{font-size:12px;margin:0 0 6px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink2)}
+p{margin:0 0 10px;max-width:96ch}
+.lede{color:var(--ink2);font-size:13px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px 18px;margin:0 0 20px}
+.grid{display:grid;gap:18px}
+@media(min-width:1180px){.cases{grid-template-columns:1fr 1fr}}
+.knobs{position:sticky;top:0;z-index:20;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px;margin:0 0 22px}
+.knobrow{display:flex;flex-wrap:wrap;gap:14px 22px;align-items:flex-end}
+.knob{display:flex;flex-direction:column;gap:5px;min-width:126px}
+.knob label{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3)}
+.knob select{background:var(--panel2);color:var(--ink);border:1px solid var(--line2);border-radius:4px;font:12px var(--mono);padding:5px 6px;width:100%}
+.knob input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:18px;background:transparent}
+.knob input[type=range]::-webkit-slider-runnable-track{height:3px;background:#3a3a40;border-radius:2px}
+.knob input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:12px;height:12px;margin-top:-4.5px;border-radius:50%;background:#9a9aa1;border:1px solid #3a3a40}
+.knob input[type=range]::-moz-range-track{height:3px;background:#3a3a40;border-radius:2px}
+.knob input[type=range]::-moz-range-thumb{width:12px;height:12px;border-radius:50%;background:#9a9aa1;border:1px solid #3a3a40}
+.knob input[type=range]:focus-visible{outline:1px solid #565660;outline-offset:2px}
+.knob .rec{font-size:11px;color:var(--ink3)}
+.knob .rec b{color:var(--ink2);font-weight:600}
+button{background:var(--panel2);color:var(--ink);border:1px solid var(--line2);border-radius:4px;font:12px var(--mono);padding:7px 11px;cursor:pointer}
+button:hover{border-color:#4a4a50;color:var(--hi)}
+button[aria-pressed=true]{border-color:#565660;color:var(--hi);background:#232328}
+.case{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.case-head{padding:13px 15px 11px;border-bottom:1px solid var(--line)}
+.case-head .k{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
+.case-head .t{font-size:14px;color:var(--hi);margin:3px 0 2px}
+.case-head .s{font-size:11.5px;color:var(--ink2)}
+.frame-wrap{position:relative;background:#0c0c0e;display:flex;justify-content:center;align-items:flex-start;overflow:hidden}
+iframe.frame{display:block;width:100%;height:340px;border:0;background:#0c0c0e;flex:none}
+.frame-wrap[data-pane="8up"] iframe.frame{width:419px;height:277px}
+.frame-wrap[data-pane="6up"] iframe.frame{width:558px;height:277px}
+.frame-wrap[data-pane="2up"] iframe.frame{width:840px;height:554px;max-width:100%}
+.frame-wrap[data-pane="phone"] iframe.frame{width:100%;max-width:390px;height:473px}
+.frame-wrap[data-pane="card"] iframe.frame{width:100%;height:340px}
+body.stage .frame-wrap[data-pane] iframe.frame{width:100%;height:100%}
+@media(max-width:760px){
+  iframe.frame{height:300px}
+  .knobs{position:static}
+  .knob{min-width:100%}
+}
+.readout{padding:10px 15px 13px;border-top:1px solid var(--line);font-size:11.5px;color:var(--ink2)}
+.readout b{color:var(--hi);font-weight:600}
+.corners{margin-top:6px;display:flex;flex-wrap:wrap;gap:5px}
+.corner-chip{border:1px solid var(--line2);border-radius:3px;padding:2px 6px;font-size:11px;color:var(--ink3)}
+.corner-chip.on{border-color:#5a5a62;color:var(--hi)}
+.corner-chip.no{opacity:.55;text-decoration:line-through}
+table{border-collapse:collapse;width:100%;font-size:12px;margin:6px 0 4px}
+th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+th{color:var(--ink2);font-weight:600;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+ul,ol{margin:0 0 10px;padding-left:19px;max-width:96ch}li{margin:0 0 5px}
+code{background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:1px 5px;font-size:11.5px}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:10px 12px;font-size:11.5px;line-height:1.5;overflow:auto;max-width:100%}
+.note{color:var(--ink3);font-size:11.5px}
+.shots{display:grid;gap:14px}
+.shots img{width:100%;max-height:640px;object-fit:cover;object-position:top center;border:1px solid var(--line);border-radius:4px;display:block}
+.shots figure{margin:0}
+.shots figcaption{font-size:11.5px;color:var(--ink3);padding-top:6px}
+/* the six-pane stage, for the cost measurement only */
+body.stage{padding:0}
+body.stage .wrap{max-width:none;padding:0}
+body.stage header,body.stage .knobs,body.stage .panel,body.stage .shots{display:none}
+body.stage .cases{gap:1px;background:var(--line);grid-template-columns:repeat(3,minmax(0,1fr));height:100vh}
+body.stage .case{border:0;border-radius:0;display:flex;flex-direction:column}
+body.stage .case-head,body.stage .readout{display:none}
+body.stage .frame-wrap{flex:1 1 0;min-height:0}
+body.stage iframe.frame{height:100%}
+</style>
+</head><body>
+<div class="wrap">
+<header>
+  <div class="eyebrow">Scintilla · Station · workshop · 26 September 2026 · round 3 of the context lens</div>
+  <h1>Context Lens 3 — the bar chart at zoom, in a corner of the 3-day line</h1>
+  <p class="lede">Every big chart below is drawn by the Station's own chart code, with the Station's own clouds, on real
+  3-day prices from the chart API — the same picture as the TARGETS, SECTORS, SPY + QQQ and MAG 7 pages. The small box in a
+  corner is the new thing: <b>the same name's last few sessions as candles</b>, so a glance at the 3-day line also shows what
+  this week looks like up close. No tape. Nothing on the live Station: this is a workshop page on its own URL.</p>
+</header>
+
+<section class="panel">
+  <h2>What you are looking at</h2>
+  <p>The big chart is the 3-day line page as it is on the wall. The bubble is the bar chart at zoom: the last three sessions,
+  half-hour candles, each candle green when it closed above its open and red when below, a tiny time axis naming each session,
+  and the last price tagged at its own height. The bubble goes where the 23 September rule puts it: <b>never on the price line,
+  eight pixels clear of it, in the emptiest corner that is left, never on the newest fifth of the line</b>; rising lines get it
+  low, falling lines high. If no corner is free it shrinks, and if it still does not fit it parks under the chart.</p>
+  <p>Eight real cases: two up-trends, two down-trends, two sideways ranges, and two gaps at the open. Each is named on its card
+  with the Station page it comes from. <b>Each pane is drawn at the size it really has on the wall</b> — 419 × 277 pixels, the
+  8-up that TARGETS, SECTORS, MAG 7 and the AI pages use at 1680 wide, measured on the deck itself; the pane-size dial switches to
+  the 6-up, the 2-up (SPY + QQQ) and the phone. The pane's own badge (ticker, price, change) is painted too, from the newest
+  completed daily close, because on the wall it is the most-read thing in the corner and the bubble must not sit on it: where the
+  badge's corner is the only empty one, the bubble tucks in under the badge. The corners the rule did not take are drawn faded,
+  with the share of each already painted on, so you can see why one corner won. The faded boxes are a workshop aid; in the Station
+  they would be off.</p>
+</section>
+
+<div class="knobs" id="knobs">
+  <h3 style="margin-bottom:10px">Adjustment — every number here is a baseline you can move; the recommended value is marked</h3>
+  <div class="knobrow">
+    <div class="knob"><label for="k-pane">Pane size</label>
+      <select id="k-pane"><option value="8up">Station 8-up · 419 × 277</option><option value="6up">Station 6-up · 558 × 277</option>
+        <option value="2up">Station 2-up · 840 × 554</option><option value="phone">Phone · 390 × 473</option><option value="card">Fills the card</option></select>
+      <span class="rec">measured on the deck at 1680 wide · <b>8-up</b> is where most 3-day pages live</span></div>
+    <div class="knob"><label for="k-size">Bubble size</label>
+      <select id="k-size"><option value="L">Large · 48% × 52%</option><option value="M">Medium · 42% × 46%</option><option value="S">Small · 36% × 40%</option></select>
+      <span class="rec">recommended <b>Medium</b></span></div>
+    <div class="knob"><label for="k-tf">Timeframe</label>
+      <select id="k-tf"><option value="15m">15 minutes</option><option value="30m">30 minutes</option><option value="1h">1 hour</option></select>
+      <span class="rec">recommended <b>30 minutes</b></span></div>
+    <div class="knob"><label for="k-sessions">Sessions shown <span id="k-sessions-v">3</span></label>
+      <input id="k-sessions" type="range" min="1" max="5" step="1" value="3">
+      <span class="rec">recommended <b>3</b></span></div>
+    <div class="knob"><label for="k-hours">Hours</label>
+      <select id="k-hours"><option value="regular">Regular · 09:30–16:00 ET</option><option value="extended">Extended · 04:00–20:00 ET</option></select>
+      <span class="rec">recommended <b>Regular</b></span></div>
+    <div class="knob"><label for="k-prefer">Corner rule</label>
+      <select id="k-prefer"><option value="auto">Auto · follow the trend</option><option value="tr">Top right</option><option value="tl">Top left</option>
+        <option value="br">Bottom right</option><option value="bl">Bottom left</option><option value="tc">Top centre</option><option value="bc">Bottom centre</option></select>
+      <span class="rec">recommended <b>Auto</b></span></div>
+    <div class="knob"><label for="k-shelf">When no corner fits</label>
+      <select id="k-shelf"><option value="off">Leave the bubble off</option><option value="shelf">Park it under the chart</option></select>
+      <span class="rec">recommended <b>off</b> on the wall · the shelf is shown here so you can judge it</span></div>
+    <div class="knob"><label for="k-op">Opacity <span id="k-op-v">0.96</span></label>
+      <input id="k-op" type="range" min="0.5" max="1" step="0.02" value="0.96">
+      <span class="rec">recommended <b>0.96</b></span></div>
+    <div class="knob" style="min-width:auto"><label for="k-vol">Volume</label>
+      <button id="k-vol" aria-pressed="false">Hidden</button>
+      <span class="rec">recommended <b>hidden</b></span></div>
+    <div class="knob"><label for="k-colour">Candle colour</label>
+      <select id="k-colour"><option value="bar">Each bar · close vs open</option><option value="day">The day · all bars one colour</option></select>
+      <span class="rec">recommended <b>each bar</b></span></div>
+    <div class="knob"><label for="k-maxink">Busiest corner allowed <span id="k-maxink-v">55</span>%</label>
+      <input id="k-maxink" type="range" min="20" max="100" step="5" value="55">
+      <span class="rec">recommended <b>55%</b></span></div>
+    <div class="knob"><label for="k-margin">Clear of price (px) <span id="k-margin-v">8</span></label>
+      <input id="k-margin" type="range" min="0" max="40" step="1" value="8">
+      <span class="rec">recommended <b>8 px</b></span></div>
+    <div class="knob" style="min-width:auto"><label for="k-cand">Other corners</label>
+      <button id="k-cand" aria-pressed="true">Shown faded</button>
+      <span class="rec">recommended <b>shown here, off in Station</b></span></div>
+    <div class="knob" style="min-width:auto"><label for="k-bubble">Bubble</label>
+      <button id="k-bubble" aria-pressed="true">On</button>
+      <span class="rec">off = the page as it is today</span></div>
+    <div class="knob" style="min-width:auto"><label>&nbsp;</label><button id="k-reset">Back to recommended</button><span class="rec">&nbsp;</span></div>
+  </div>
+</div>
+
+<div class="grid cases" id="cases"></div>
+
+<section class="panel" id="rule">
+  <h2>The rule, in plain words</h2>
+  <ol>
+    <li><b>Never cover the price.</b> A corner is only allowed if the 3-day line — every bar and the line between them — stays
+      at least the clearance you set away from the bubble. Default 8 pixels. This is the 23 September rule, unchanged.</li>
+    <li><b>Never cover the newest fifth of the line.</b> The right-hand fifth of the drawn line is why the chart is on the wall.
+      No bubble sits in it, at any size, unless nothing else is left — and then only twice the usual clearance from the prices in it.</li>
+    <li><b>Take the emptiest allowed corner.</b> "Empty" is measured on the chart's own pixels: the line, the cloud ribbon, the
+      average names, the axis numbers. A corner more than the share you set already painted on is refused too.</li>
+    <li><b>Rising puts it low, falling puts it high.</b> Where the line is heading at the right edge is where the eye is; the
+      bubble goes to the other side. That is a preference, not an override — a corner that would cover the line is still refused.</li>
+    <li><b>Never on the badge.</b> The pane's ticker badge is not on the canvas, so the emptiness measure cannot see it; it is
+      given to the rule as a keep-out. A corner that would cover it is refused and named — and then offered a tuck: the bubble
+      moves down past the badge (or up, from a bottom corner) and the moved box is put to every test above again.</li>
+    <li><b>Wider than tall.</b> The 23 September lens was a tall box; candles want width. The bubble is 42% of the plot's width
+      by 46% of its height at Medium, never under 132 by 84 pixels and never over 340 by 210 (a 2-up pane would otherwise get a poster),
+      and the rule is asked to place that shape.</li>
+    <li><b>If it does not fit, it shrinks</b> — Large, then Medium, then Small. <b>If it still does not fit, the wall gets no
+      bubble on that pane.</b> This page can instead park it under the chart as a strip (the "when no corner fits" dial), so the
+      shelf can be judged, but a strip under a pane makes the wall heavier and the recommendation is inset or nothing.</li>
+  </ol>
+</section>
+
+<section class="panel">
+  <h2>Recommended settings</h2>
+  <table><thead><tr><th>Dial</th><th>Recommended</th><th>Why</th></tr></thead><tbody>
+    <tr><td>Pane size</td><td>Station 8-up · 419 × 277 (a workshop dial, not a Station setting)</td>
+      <td>Measured on the deck at 1680 wide: eight-ticker 3-day pages draw 419 × 277 panes, SPY + QQQ 840 × 554, a phone stacks one
+        390 × 473 pane. The page opens at the 8-up because that is where seven of the nine 3-day pages live.</td></tr>
+    <tr><td>Bubble size</td><td>Medium — 42% of the plot's width, 46% of its height</td>
+      <td>On an 8-up pane that is about 155 × 106 pixels: three sessions of half-hour candles at just under four pixels a candle,
+        readable as shape and colour, the last price and the session names legible. Large only fits quiet charts; Small makes the
+        candles one pixel wide. On the 2-up the box is capped at 340 × 210.</td></tr>
+    <tr><td>When no corner fits</td><td>Leave the bubble off (on the wall)</td>
+      <td>At the 8-up size three of the eight cases here (WMT, TSLA, XLY — lines through the middle with the newest prices on the
+        right) leave no corner that clears the price, its newest fifth and the badge. A strip under the pane costs the line a third
+        of its height on a page whose point is the line. Those panes simply have no bubble; the page still shows the strip when
+        the dial is turned so Alan can judge it.</td></tr>
+    <tr><td>Timeframe</td><td>30 minutes</td>
+      <td>13 candles a session: the open, the lunch drift and the close each get their own bars. 15 minutes doubles that and the
+        bodies vanish at this size; 1 hour gives seven a session and reads as blocks, better on a phone.</td></tr>
+    <tr><td>Sessions shown</td><td>3</td>
+      <td>Today and the two before it — enough to see a gap, a reversal or a grind, without the candles going under three pixels.
+        Five works at Large on a 2-up pane; one is the intraday page's job, not the bubble's.</td></tr>
+    <tr><td>Hours</td><td>Regular session</td>
+      <td>Extended hours add 19 thin, quiet bars a session that flatten the picture. The gap at the open is still visible between
+        regular sessions — the gap cases below show it.</td></tr>
+    <tr><td>Corner rule</td><td>Auto — follow the trend</td>
+      <td>The 23 September rule as approved: rising low, falling high, emptiest corner, never on price, never on the newest fifth.</td></tr>
+    <tr><td>Opacity</td><td>0.96</td><td>Slightly short of solid, so the bubble reads as part of the chart rather than a sticker on it.</td></tr>
+    <tr><td>Volume</td><td>Hidden</td>
+      <td>A volume strip takes a fifth of the bubble's height from the candles, and at this size it is texture, not information.
+        It is drawn in each bar's own colour at quarter strength — never grey — for when Alan wants it on a 2-up page.</td></tr>
+    <tr><td>Candle colour</td><td>Each bar by its own close against its open</td>
+      <td>That is what a bar chart is. The bubble's name in its head still carries the day's colour — green if the newest daily
+        close is at or above the one before, red if below — so the wall's one rule is on the bubble too. "The day" mode colours
+        every candle the same, which loses the reversals the bubble exists to show.</td></tr>
+    <tr><td>Busiest corner allowed</td><td>55% painted on</td><td>Carried from round 2, where it kept a corner on five of six cases.</td></tr>
+    <tr><td>Clear of price</td><td>8 pixels</td><td>Carried from round 2 and from v4.</td></tr>
+    <tr><td>Re-read the bars</td><td>Every 10 minutes while the page is on the wall</td>
+      <td>A completed half-hour bar cannot change, so the only new information in ten minutes is the newest bars. The Station
+        rotates pages every 33 seconds, so most bubbles are read once at mount and never refreshed.</td></tr>
+  </tbody></table>
+</section>
+
+<section class="panel" id="cost">
+  <h2>What it costs to run</h2>
+  <p id="cost-text">Measured 26 September, 22:05–22:15 UTC, in a headless browser on this MacBook: a six-pane 3-day stage built from
+  this page's own code at 1680 wide, with and without the bubble, alternating, four runs, then one run of the real deck's SECTORS page
+  as it is today for scale. I summed the CPU time of every browser process, including the pages, over 45 seconds of loading and then
+  one steady minute — the RSI-fan lane's method. The stage re-read its bars once a minute during the steady minute, six times the
+  recommended rate, so the steady number is an upper bound. The numbers are in <code>cpu-runs.json</code> beside this page.</p>
+  <table id="cost-table"><thead><tr><th>Stage</th><th>Run</th><th class="num">Loading (CPU seconds)</th><th class="num">Steady (CPU seconds per minute)</th><th class="num">Chart API reads</th></tr></thead>
+  <tbody id="cost-rows">
+    <tr><td>six 3-day panes · no bubble</td><td>1</td><td class="num">0.40</td><td class="num">0.02</td><td class="num">12</td></tr>
+    <tr><td>six 3-day panes · WITH bubbles</td><td>2</td><td class="num">0.40</td><td class="num">0.19</td><td class="num">24</td></tr>
+    <tr><td>six 3-day panes · no bubble</td><td>3</td><td class="num">0.36</td><td class="num">0.02</td><td class="num">12</td></tr>
+    <tr><td>six 3-day panes · WITH bubbles</td><td>4</td><td class="num">0.46</td><td class="num">0.21</td><td class="num">24</td></tr>
+    <tr><td>the real deck · SECTORS, 8 panes · as it is today, for scale</td><td>5</td><td class="num">1.32</td><td class="num">1.54</td><td class="num">92</td></tr>
+  </tbody></table>
+  <p id="cost-result"><b>Result:</b> with the bubble, loading cost +0.05 CPU seconds once (0.38 → 0.43) and the steady minute
+  +0.18 CPU seconds per minute (0.02 → 0.20) — with the bars re-read every minute. The run-to-run spread was 0.02, so that steady
+  difference is real, and almost all of it is the six re-reads and redraws a minute: at the recommended ten-minute refresh it is
+  about +0.02 per minute. Chart-API reads: 12 without (six 3-day, six daily for the clouds), 24 with (six intraday at mount, six
+  more in the test's steady minute). Against the real deck page at 1.54 CPU seconds a minute, and the +2 per minute ceiling the
+  RSI-fan lane worked to, the bubble is small.</p>
+  <p><b>Requests per lap.</b> A build would add one intraday read per 3-day pane when the page mounts — the same request the intraday
+  pages already make (<code>/candles?symbol=…&amp;tf=30&amp;limit=128</code>). The day lap has nine 3-day pages; with SPY + QQQ at
+  two panes and the rest at eight, that is <b><span id="lap-day">66 (9 pages, 66 panes)</span> extra reads per day lap</b> and
+  <b><span id="lap-night">66</span> per night lap</b>, on top of the 132 3-day and daily-cloud reads those panes already make — the
+  same 66 panes read twice today would read three times. A test holds this count to the deck's own page list. At 33 seconds a
+  page a day lap is about 13 minutes, so the 10-minute refresh fires at most once per pane per lap and only for a page that stays on
+  the wall — the rotation means it almost never fires.</p>
+</section>
+
+<section class="panel" id="recommendation">
+  <h2>One recommendation</h2>
+  <p><b>Build it: Medium, 30-minute candles, the last three regular sessions, no volume, each candle in its own colour, placed by
+  the 23 September rule with the badge as a keep-out — inset or nothing, never a strip under the pane.</b> Only on the nine 3-day
+  pages, with the faded candidate boxes off. What that gives on the wall, from the eight cases here at the real 8-up size: five
+  panes carry the bubble (MU, SPY, XLC, BE, NBIS) and three do not (WMT, TSLA, XLY), because on those the line and the badge leave
+  no corner; at the 2-up size seven of eight carry it; on the phone six of eight. The cost is one small request per pane at
+  mount, 66 a lap, and about +0.02 CPU seconds a minute at the ten-minute refresh. The one thing to decide is whether "some panes
+  have it and some don't" is acceptable on a page — the alternative, a strip under the line on every pane that has no corner, is
+  drawn here on the dial and is the heavier wall.</p>
+</section>
+
+<section class="panel" id="build">
+  <h2>Exactly what a build would change — not built</h2>
+  <p><b><code>chart/index.html</code></b> (which is <code>station-shells/chart-v1/index.html</code>, byte for byte):</p>
+  <ol>
+    <li>A new URL switch, <code>?bubble=30m:3</code> (timeframe and sessions; absent means no bubble). Read next to <code>?rsi=</code>,
+      stored nowhere, so a pane opened on its own is unchanged.</li>
+    <li>After the price has painted and the clouds have been asked for, one more read through the same admission queue:
+      <code>fetchProviderCandles(t, "30", 128)</code> — the same function, the same provider, the same limit rule (never above 240).
+      The rows are kept on the host as <code>host._bubbleBars</code> with their open, high, low, close and volume; nothing derives a
+      bar from a quote, and nothing is written to the chart cache in a shape the line does not already use.</li>
+    <li>At the end of <code>scChartDraw</code>, when the host carries bars: call <code>placeBubble</code> with <code>host._plot</code>,
+      <code>host._series</code> and an ink reader on the pane's own canvas, then <code>drawBubble</code> on a second canvas laid over
+      <code>.sc-nchart__area</code> (so the line's canvas is untouched and hover on the line still works). Both functions come from
+      <code>lens-bars.mjs</code>, imported as a module script beside <code>station-clouds.js</code>; the placement is the existing
+      <code>lens-placement.mjs</code>, moved from <code>deliverables/</code> to <code>_indicators/</code> with its tests' import paths
+      updated and its sha pinned as the lens-workshop test already does.</li>
+    <li>A re-read every 10 minutes while the host is connected, through the same permit, with the refresh interval a constant beside
+      <code>CLOUD_REFRESH_MS</code>. Pan, zoom and hover redraw from the stored bars and make no request.</li>
+    <li>The badge's box, <code>.sc-nchart__live.getBoundingClientRect()</code> in pane pixels, goes to <code>placeBubble</code> as
+      the keep-out, and a shelf answer means no bubble on that pane (the workshop's strip is not built). A pane that lost its
+      bars — a named absence or a failed read — draws the line as today and says nothing about a bubble.</li>
+  </ol>
+  <p><b><code>deck/scenes.js</code></b>:</p>
+  <ol>
+    <li>A page property, <code>bubble:"30m:3"</code>, on the nine 3-day workflow pages (<code>targets3D</code>, <code>sectors3D</code>,
+      <code>mainIndexes3D</code>, <code>mag7</code>, <code>ai1</code>, <code>ai2</code>, <code>ai3</code>, <code>other3D</code>,
+      <code>blueChip3D</code>) and on <code>macroCrossAsset</code> only if Alan wants it there — its symbols are not all provider-owned
+      intraday.</li>
+    <li><code>workflowPageState</code> returns it per slot as <code>bubbles:tickers.map(() =&gt; page.bubble || "")</code>, the way
+      <code>stacks</code> carries the RSI study, and <code>paneChartSrc</code> in <code>deck/index.html</code> appends
+      <code>&amp;bubble=…</code> to the frame URL the same way <code>studyQuery</code> appends <code>&amp;rsi=</code>. No other page gains
+      the parameter, and the dock's range button does not carry it, so a 3-day page switched to 1D by hand loses the bubble, which is right.</li>
+    <li>A test in <code>tests/station-scenes.test.mjs</code> that only the 3-day pages carry a bubble, and that the frame URL for a
+      1D page never does.</li>
+  </ol>
+  <p class="note">Not part of the build: no change to the pane's line, colours, clouds, badge or hover; no localStorage key; no new
+  provider route; no tape.</p>
+</section>
+
+<section class="panel">
+  <h2>Where each number comes from</h2>
+  <ul>
+    <li><b>The 3-day line.</b> The chart API, <code>/candles?symbol=…&amp;tf=3D&amp;authority=provider&amp;limit=240</code> — the
+      exact request the Station's 3-day pages make, provider-built, split-adjusted, completed bars only. Newest 3-day bar: the one
+      that began 24 September.</li>
+    <li><b>The clouds.</b> The Station's <code>_indicators/station-clouds.js</code>, from 930 daily closes
+      (<code>tf=D&amp;limit=930</code>), the same warm-up a 3-day page asks for.</li>
+    <li><b>The candles.</b> <code>tf=30&amp;limit=240</code> (and 15 and 60 for the timeframe dial). The provider's bars run
+      04:00 to 19:30 New York; the regular-hours dial keeps the 13 that start between 09:30 and 15:30. Newest half-hour bar: 25
+      September 19:30 ET for the shares, 16:00 ET for the sector funds.</li>
+    <li><b>The day's colour, and the badge.</b> The newest daily close against the one before, from the same daily bars. The big
+      pane is handed that close as its quote (stamped with the session's 16:00 ET close, marked not fresh) with the close before
+      it as the baseline, so the badge reads what the wall reads after hours and the line, the badge and the bubble's head all
+      colour by the same day.</li>
+    <li><b>The gap.</b> The newest session's first regular-hours open against the previous session's last regular-hours close.</li>
+    <li><b>Emptiness.</b> Read from the pane's own canvas after it has drawn: the share of pixels in a corner that carry ink above a
+      faint-wash threshold.</li>
+    <li><b>Every response is saved</b> next to this page in <code>cases/</code> with its URL and fetch time (26 September 2026, about
+      21:45 UTC), so the page draws the same picture every time it is opened, from anywhere the Station is served.</li>
+  </ul>
+</section>
+
+<section class="panel">
+  <h2>What could be wrong</h2>
+  <ul>
+    <li>The saved prices are a snapshot from Saturday 26 September. They do not update. On a live wall the newest session would be
+      today's, and the chosen corner could differ because the line would differ.</li>
+    <li>The badge here shows Friday's completed close, not a live price, because the workshop has no quote pump. On the wall the
+      badge is live and slightly wider or narrower as the price changes, which moves the tuck by a few pixels.</li>
+    <li>Emptiness is measured on the pixels as drawn at the size you are viewing. Resize the window and a corner can change.</li>
+    <li>The cost stage is this page's six panes, not the deck itself: it has no quote heartbeat, no dock, no media row. The
+      difference between with and without is what was measured; the absolute numbers are lower than the wall's, which run 5 was
+      there to show.</li>
+    <li>The 15-minute dial at five sessions cannot show five: the request is capped at 240 bars (above 400 the API's newest bar
+      moves), and 240 fifteen-minute bars with extended hours is under four sessions. The card says how many it drew.</li>
+    <li>Eight cases are eight cases, chosen by scoring the 22 names on the four pages named in the brief. The other five 3-day
+      pages (AI 1–3, OTHER, BLUE CHIP) were not drawn.</li>
+    <li>The sector funds' intraday bars stop at 16:00 ET; the shares' run to 19:30. With the extended-hours dial on, a sector
+      fund shows a shorter afternoon than a share, which is the provider's coverage, not a fault in the bubble.</li>
+  </ul>
+</section>
+
+<section class="panel">
+  <h2>What I did not do</h2>
+  <ul>
+    <li>I did not change the Station chart, the deck, the clouds or any live page. The chart pane and the deck do not reference the
+      bubble, and a test holds that.</li>
+    <li>I did not push or deploy. Nothing here is live until the coordinator merges it.</li>
+    <li>I did not draw a tape, a replay, Geiger motion or the Visual Engine. None belongs to the lens.</li>
+    <li>I did not open a visible browser. Every picture and every number came from a headless one, closed afterwards.</li>
+  </ul>
+</section>
+
+<section class="panel shots" id="shots">
+  <h2>Screenshots</h2>
+  <figure><img src="screens/gallery-1680.jpg" alt="The page at 1680 pixels wide"><figcaption>The page at 1680 wide, from the top; the whole strip is in <code>screens/gallery-1680.jpg</code>.</figcaption></figure>
+  <figure><img src="screens/gallery-390.jpg" alt="The page at 390 pixels wide"><figcaption>The page at 390 wide (phone).</figcaption></figure>
+  <figure><img src="screens/case-up-1-1680.png" alt="MU, up-trend, 8-up pane"><figcaption>MU, up-trend, at the real 8-up size: the line runs low-left to high-right, so the only empty corner is the badge's; the bubble tucks under it.</figcaption></figure>
+  <figure><img src="screens/case-gap-1-1680.png" alt="BE, gap, 8-up pane"><figcaption>BE, gap: Thursday opened 6.9% under Wednesday's close and the bubble shows it as air between the sessions.</figcaption></figure>
+  <figure><img src="screens/case-side-1-1680.png" alt="XLC, sideways, 8-up pane"><figcaption>XLC, sideways: bottom right, the only room left, sixteen pixels clear of the newest prices.</figcaption></figure>
+  <figure><img src="screens/case-down-1-1680.png" alt="WMT, down-trend, 8-up pane"><figcaption>WMT, down-trend: no corner clears the line, its newest fifth and the badge — the strip under the chart, which the wall would not draw.</figcaption></figure>
+  <figure><img src="screens/pane-2up-1680.png" alt="The 2-up pane size"><figcaption>The same names at the 2-up size (SPY + QQQ's): seven of eight keep the bubble inside.</figcaption></figure>
+  <figure><img src="screens/dial-1h-L-volume-1680.png" alt="1 hour, Large, volume on"><figcaption>The dials moved: 1-hour candles, Large, volume on.</figcaption></figure>
+  <figure><img src="screens/bubble-off-1680.png" alt="Bubble off"><figcaption>The bubble off: the page as it is today.</figcaption></figure>
+</section>
+</div>
+
+<script type="module">
+import { SHAPES, SHIPPED_SHAPE, DEFAULTS as PLACE_DEFAULTS } from "../../20260923/context-lens-2/lens-placement.mjs";
+import { DIALS, TIMEFRAMES, lastSessions, flatten, gapOf, dayDirection, placeBubble, drawBubble, fmtPrice, lapRequests,
+  barsToRequest } from "./lens-bars.mjs";
+
+const QS = new URLSearchParams(location.search);
+const STAGE = QS.get("stage") === "six";
+const KNOBS = { ...DIALS, candidates: !STAGE, bubble: STAGE ? QS.get("bubbles") !== "0" : true, shelf: STAGE ? "off" : "shelf", pane: QS.get("pane") || (matchMedia("(max-width:760px)").matches ? "phone" : "8up") };
+if (STAGE) { document.body.classList.add("stage"); KNOBS.refreshMin = Math.max(0.25, +QS.get("refresh") || DIALS.refreshMin); }
+const CORNER_NAME = { tl:"top left", tc:"top centre", tr:"top right", bl:"bottom left", bc:"bottom centre", br:"bottom right" };
+const STAGE_CSS = `
+  html,body{margin:0;background:#0c0c0e;height:100%}
+  #cl3-stage{position:relative;width:100%;height:100%;display:flex;flex-direction:column}
+  #cl3-chart{position:relative;flex:1 1 auto;min-height:0}
+  #cl3-shelfrow{flex:0 0 auto;border-top:1px solid #2b2b30;background:#0c0c0e;padding:5px 8px 7px}
+  #cl3-stage .sc-nchart{height:100%}
+  #cl3-stage .sc-nchart__bar{pointer-events:none}
+  .cl3-bubble{position:absolute;border:1px solid #55555c;background:#0B0B12;box-shadow:0 6px 18px rgba(0,0,0,.55);overflow:hidden;z-index:6}
+  .cl3-bubble canvas{display:block;width:100%;height:100%}
+  .cl3-cand{position:absolute;border:1px dashed #44444b;border-radius:5px;z-index:4;font:9.5px/1.3 "SF Mono",ui-monospace,Menlo,monospace;color:#6e6e75;padding:3px 5px}
+  .cl3-cand.no{border-style:dotted;opacity:.5}
+  .cl3-shelf{position:relative;width:100%;border:1px solid #55555c;background:#0B0B12}
+`;
+
+function syncKnobs() {
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+  const txt = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+  set("k-pane", KNOBS.pane); set("k-shelf", KNOBS.shelf); document.querySelectorAll(".frame-wrap").forEach((w) => { w.dataset.pane = KNOBS.pane; });
+  set("k-size", KNOBS.size); set("k-tf", KNOBS.timeframe); set("k-sessions", KNOBS.sessions); txt("k-sessions-v", KNOBS.sessions);
+  set("k-hours", KNOBS.hours); set("k-prefer", KNOBS.prefer); set("k-op", KNOBS.opacity); txt("k-op-v", KNOBS.opacity);
+  set("k-colour", KNOBS.colour); set("k-maxink", Math.round(KNOBS.maxInk * 100)); txt("k-maxink-v", Math.round(KNOBS.maxInk * 100));
+  set("k-margin", KNOBS.margin); txt("k-margin-v", KNOBS.margin);
+  const press = (id, on, yes, no) => { const b = document.getElementById(id); if (!b) return; b.setAttribute("aria-pressed", String(on)); b.textContent = on ? yes : no; };
+  press("k-vol", KNOBS.volume, "Shown", "Hidden"); press("k-cand", KNOBS.candidates, "Shown faded", "Hidden"); press("k-bubble", KNOBS.bubble, "On", "Off");
+}
+syncKnobs();
+
+/* Snapshots by default. ?live=1 asks the chart API itself for the same three things (works where the
+   Station is served, because the API answers that origin only); the stage uses live reads so the cost
+   measured includes the real requests. */
+const LIVE = QS.get("live") === "1" || STAGE;
+const API = "https://scintilla-massive-chart-api.fly.dev";
+const manifest = await fetch("cases/manifest.json").then((r) => r.json());
+const host = document.getElementById("cases");
+const cards = [];
+const caseList = STAGE ? manifest.cases.slice(0, 6) : manifest.cases;
+
+for (const c of caseList) {
+  const el = document.createElement("section");
+  el.className = "case";
+  el.innerHTML = `<div class="case-head">
+      <div class="k">${c.id.replace(/-\d$/, "").replace("side", "sideways")} · ${c.page}</div>
+      <div class="t">${c.title} — ${c.symbol}</div>
+      <div class="s">${c.plain}</div>
+    </div>
+    <div class="frame-wrap" data-pane="${KNOBS.pane}"><iframe class="frame" title="${c.title} — ${c.symbol}" src="../../../chart/index.html?bare=1&clouds=1&range=3D&t=${c.symbol}"></iframe></div>
+    <div class="readout"><span class="line">measuring…</span><div class="corners"></div></div>`;
+  host.appendChild(el);
+  const card = { def: c, el, frame: el.querySelector("iframe"), data: null, ready: false, apiCalls: 0 };
+  card.frame.addEventListener("load", () => { card.ready = true; paint(card); });
+  load(card);
+  cards.push(card);
+}
+
+async function candles(symbol, tf, limit, card) {
+  card.apiCalls++;
+  const r = await fetch(`${API}/candles?symbol=${encodeURIComponent(symbol)}&tf=${tf}&authority=provider&limit=${limit}`);
+  const j = await r.json();
+  return (j.series || []).map((b) => ({ t: b.t, o: +b.o, h: +b.h, l: +b.l, c: +b.c, v: +b.v || 0 }));
+}
+async function load(card) {
+  const c = card.def;
+  if (!LIVE) { card.data = await fetch(c.file).then((r) => r.json()); if (card.ready) paint(card); return; }
+  const tf = TIMEFRAMES[KNOBS.timeframe].tf;
+  const [three, daily] = await Promise.all([candles(c.symbol, "3D", 240, card), candles(c.symbol, "D", 930, card)]);
+  card.data = { symbol: c.symbol, threeDay: { bars: three.map((b) => [b.t, b.c]) }, daily: { bars: daily }, intraday: {} };
+  if (KNOBS.bubble) card.data.intraday[tf] = { bars: await candles(c.symbol, tf, barsToRequest(KNOBS.timeframe, KNOBS.sessions), card) };
+  if (card.ready) paint(card);
+}
+/* the live bubble re-reads its bars on the dial's interval — a completed bar cannot change, so this is the
+   only new information there is */
+if (LIVE) setInterval(async () => {
+  if (!KNOBS.bubble) return;
+  const tf = TIMEFRAMES[KNOBS.timeframe].tf;
+  for (const card of cards) {
+    if (!card.data) continue;
+    try { card.data.intraday[tf] = { bars: await candles(card.def.symbol, tf, barsToRequest(KNOBS.timeframe, KNOBS.sessions), card) }; paint(card); } catch (_) {}
+  }
+}, KNOBS.refreshMin * 60000);
+
+const seriesOf = (data) => data.threeDay.bars.map(([t, p]) => ({ d: new Date(t).toISOString(), p }));
+const dailyOf = (data) => data.daily.bars.map((b) => ({ d: new Date(b.t).toISOString(), p: b.c }));
+
+function paint(card) {
+  const { frame, data, def } = card;
+  if (!data) return;
+  const win = frame.contentWindow, doc = frame.contentDocument;
+  if (!win || !doc || !win.scChartDraw || !win.scChartHTML) {
+    card.waited = (card.waited || 0) + 1;
+    if (card.waited > 70) {
+      card.el.querySelector(".readout .line").textContent =
+        "the Station chart page could not be loaded from ../../../chart/index.html — open this page from the Station, over http, not from a file";
+      return;
+    }
+    setTimeout(() => paint(card), 120);
+    return;
+  }
+  card.waited = 0;
+  const wrap = card.el.querySelector(".frame-wrap");
+  if (wrap && wrap.dataset.pane !== KNOBS.pane) wrap.dataset.pane = KNOBS.pane;
+  if (!doc.getElementById("cl3-style")) { const st = doc.createElement("style"); st.id = "cl3-style"; st.textContent = STAGE_CSS; doc.head.appendChild(st); }
+  doc.body.innerHTML = '<div id="cl3-stage"><div id="cl3-chart"></div></div>';
+  const stage = doc.getElementById("cl3-stage"), chartBox = doc.getElementById("cl3-chart");
+  chartBox.innerHTML = win.scChartHTML(def.symbol);
+  const pane = chartBox.querySelector(".sc-nchart");
+  const pts = seriesOf(data);
+  pane.dataset.t = def.symbol;
+  pane._series = pts;
+  pane._range = "3D";
+  if (win.applyCloudRows) win.applyCloudRows(pane, def.symbol, dailyOf(data));
+  /* THE BADGE. On the wall the deck sends each pane a quote (price, time, previous close) and the pane
+     paints its ticker badge and colours its line from it. This workshop has no quote pump, so it sends
+     the pane the newest COMPLETED daily close with the close before it as the baseline - real provider
+     numbers, stamped with that session's 16:00 ET close, never a live price. The badge then shows what
+     the wall shows after hours, the line is coloured by the day, and the badge's box is real. */
+  const dl = data.daily.bars, lastD = dl[dl.length - 1], prevD = dl[dl.length - 2];
+  const quote = lastD && prevD ? { price: lastD.c, updated_ts: new Date(lastD.t + 20 * 3600000).toISOString(), prev_close: prevD.c } : null;
+  if (quote && win.scChartLive) win.scChartLive(def.symbol, quote.price, quote.updated_ts, quote.prev_close);
+  win.setChartView(pane, 0, pts.length - 1, true, false);
+  if (quote && win.paintLiveStatus) win.paintLiveStatus(pane, quote);
+
+  let plot = pane._plot;
+  const area = pane.querySelector(".sc-nchart__area"), cv = pane.querySelector(".sc-nchart__cv");
+  const out = card.el.querySelector(".readout .line"), chips = card.el.querySelector(".readout .corners");
+  chips.innerHTML = "";
+  if (!plot || !cv) { out.textContent = "the pane did not draw at this size"; return; }
+  if (!KNOBS.bubble) { out.innerHTML = "<b>no bubble</b> — the page as it is today"; record(card, { kind: "off" }); return; }
+
+  const dpr = cv.width / Math.max(1, area.clientWidth);
+  let img = null;
+  try { img = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height); } catch (_) {}
+  /* the pane's badge (ticker, price, change) is DOM, not canvas, so the canvas alone would call its corner
+     empty; on the wall it is the most-read ink on the pane, so its box counts as painted */
+  const badge = pane.querySelector(".sc-nchart__live");
+  const bRect = badge && badge.getBoundingClientRect(), aRect = area.getBoundingClientRect();
+  const badgeBox = bRect && bRect.width ? { x: bRect.left - aRect.left, y: bRect.top - aRect.top, w: bRect.width, h: bRect.height } : null;
+  const inBadge = (x, y) => !!badgeBox && x >= badgeBox.x && x <= badgeBox.x + badgeBox.w && y >= badgeBox.y && y <= badgeBox.y + badgeBox.h;
+  const ink = img ? (x, y) => { if (inBadge(x, y)) return true; const px = Math.round(x * dpr), py = Math.round(y * dpr);
+    if (px < 0 || py < 0 || px >= img.width || py >= img.height) return true;
+    return img.data[(py * img.width + px) * 4 + 3] > 24; } : null;
+
+  const res = placeBubble({ plot, series: pts, ink, size: KNOBS.size, prefer: KNOBS.prefer, margin: KNOBS.margin,
+    maxInk: KNOBS.maxInk, edge: PLACE_DEFAULTS.edge, keepOut: badgeBox ? [badgeBox] : [] });
+
+  /* the bars: the chosen timeframe, the last N sessions, the chosen hours */
+  const tf = TIMEFRAMES[KNOBS.timeframe].tf;
+  const raw = (data.intraday[tf] && data.intraday[tf].bars) || [];
+  const sessions = lastSessions(raw, KNOBS.sessions, KNOBS.hours);
+  const bars = flatten(sessions);
+  const day = dayDirection(data.daily.bars);
+  const gap = gapOf(sessions);
+  const last = bars.length ? bars[bars.length - 1] : null;
+  const gapText = gap ? ` · biggest gap: ${gap.weekday} open <b>${gap.pct > 0 ? "+" : ""}${gap.pct.toFixed(1)}%</b>` : "";
+
+  if (KNOBS.candidates && res.kind !== "shelf") {
+    for (const r of res.considered) {
+      if (res.spot && r.corner === res.spot.corner) continue;
+      const box = doc.createElement("div");
+      box.className = "cl3-cand" + (r.clear ? "" : " no");
+      box.style.cssText = `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px`;
+      box.textContent = r.w < 130 ? r.corner.toUpperCase()
+        : r.clear ? `${r.corner.toUpperCase()} · ${(r.ink * 100).toFixed(0)}% drawn on`
+        : r.refused === "too busy" ? `${r.corner.toUpperCase()} · too busy, ${(r.ink * 100).toFixed(0)}% drawn on`
+        : r.refused === "would cover the newest prices" ? `${r.corner.toUpperCase()} · covers the newest prices`
+        : r.refused === "would cover the badge" ? `${r.corner.toUpperCase()} · covers the badge`
+        : `${r.corner.toUpperCase()} · covers price`;
+      area.appendChild(box);
+    }
+  }
+
+  if (res.kind === "shelf" && KNOBS.shelf === "off") {
+    out.innerHTML = `<b>no bubble</b> — ${res.why.replace("so the lens parks below the chart", "and the wall's rule is inset or nothing")}${gapText}`;
+    for (const r of res.considered) {
+      const chip = document.createElement("span"); chip.className = "corner-chip no";
+      chip.textContent = `${r.corner.toUpperCase()} ${(r.ink * 100).toFixed(0)}%` + (r.refused ? ` · ${r.refused}` : ""); chips.appendChild(chip);
+    }
+    record(card, { kind: "off", why: res.why, size: res.size, trend: res.trend && res.trend.dir, bars: bars.length, sessions: sessions.length, last: last && last.c, day, gap: gap && +gap.pct.toFixed(2), plot: { iw: plot.iw, ih: plot.ih } });
+    return;
+  }
+  const bubble = doc.createElement("div");
+  bubble.className = "cl3-bubble";
+  bubble.style.opacity = String(KNOBS.opacity);
+  let rect;
+  if (res.kind === "shelf") {
+    bubble.classList.add("cl3-shelf");
+    const shelfH = Math.round(Math.min(132, Math.max(88, area.clientHeight * 0.36)));
+    bubble.style.height = shelfH + "px";
+    const row = doc.createElement("div"); row.id = "cl3-shelfrow"; row.appendChild(bubble); stage.appendChild(row);
+    win.scChartDraw(pane);
+    plot = pane._plot || plot;
+    rect = { x: 0, y: 0, w: bubble.clientWidth, h: shelfH };
+  } else {
+    bubble.style.cssText += SHAPES[SHIPPED_SHAPE].css(res.spot, res.spot.corner) +
+      `;left:${res.spot.x}px;top:${res.spot.y}px;width:${res.spot.w}px;height:${res.spot.h}px`;
+    area.appendChild(bubble);
+    rect = { x: 0, y: 0, w: res.spot.w, h: res.spot.h };
+  }
+  const canvas = doc.createElement("canvas");
+  const ratio = win.devicePixelRatio || 1;
+  canvas.width = Math.round(rect.w * ratio); canvas.height = Math.round(rect.h * ratio);
+  bubble.appendChild(canvas);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  drawBubble(ctx, rect, { bars, sessions, day, symbol: def.symbol, timeframe: KNOBS.timeframe.toUpperCase(),
+    colour: KNOBS.colour, volume: KNOBS.volume, font: rect.w >= 150 ? 9 : 8 });
+
+  const size = { L: "large", M: "medium", S: "small" }[res.size];
+  out.innerHTML = res.kind === "shelf"
+    ? `<b>under the chart</b> — ${res.why}${gapText}`
+    : `<b>${size}, ${CORNER_NAME[res.spot.corner]}</b>${res.shrunk ? " (shrunk)" : ""} — ${res.why} · ${bars.length} candles over ${sessions.length} session${sessions.length === 1 ? "" : "s"}` +
+      `${last ? ` · last <b>${fmtPrice(last.c)}</b>` : ""} · day <b>${day || "unknown"}</b>${gapText}`;
+  for (const r of res.considered) {
+    const chip = document.createElement("span");
+    chip.className = "corner-chip" + (res.spot && r.corner === res.spot.corner ? " on" : r.clear ? "" : " no");
+    chip.textContent = `${r.corner.toUpperCase()} ${(r.ink * 100).toFixed(0)}%` + (r.refused ? ` · ${r.refused}` : "");
+    chips.appendChild(chip);
+  }
+  record(card, { kind: res.kind, corner: res.spot && res.spot.corner, size: res.size, shrunk: res.shrunk, trend: res.trend && res.trend.dir,
+    why: res.why, bars: bars.length, sessions: sessions.length, last: last && last.c, day, gap: gap && +gap.pct.toFixed(2),
+    box: res.spot && { x: res.spot.x, y: res.spot.y, w: res.spot.w, h: res.spot.h }, plot: { iw: plot.iw, ih: plot.ih } });
+}
+function record(card, state) {
+  (window.__lensState = window.__lensState || {})[card.def.id + " " + card.def.symbol] = { ...state, apiCalls: card.apiCalls };
+  window.__lensDone = cards.every((c) => (window.__lensState || {})[c.def.id + " " + c.def.symbol]);
+}
+
+/* the lap arithmetic, from the deck's own page list */
+try {
+  const scenesSrc = await fetch("../../../deck/scenes.js").then((r) => r.text());
+  const box = { globalThis: {} };
+  new Function("globalThis", "window", scenesSrc)(box.globalThis, box.globalThis);
+  const S = box.globalThis.StationScenes;
+  const pages = (s) => S.rotationScenesFor(s).map((id) => S.workflowPageState(id, {}));
+  const d = lapRequests(pages("day"), (p) => p.chartCount), n = lapRequests(pages("night"), (p) => p.chartCount);
+  document.getElementById("lap-day").textContent = `${d.requests} (${d.pagesWithBubble} pages, ${d.panes} panes)`;
+  document.getElementById("lap-night").textContent = `${n.requests}`;
+} catch (e) { const el = document.getElementById("lap-day"); if (el) el.textContent = "(scenes.js not reachable from here)"; }
+
+/* the measured cost, when the harness has written it */
+try {
+  const runs = await fetch("cpu-runs.json").then((r) => (r.ok ? r.json() : null));
+  if (runs && runs.runs) {
+    const rows = document.getElementById("cost-rows"); rows.innerHTML = "";
+    for (const r of runs.runs) rows.insertAdjacentHTML("beforeend", `<tr><td>${r.label}</td><td>${r.run}</td><td class="num">${r.loadCpuS.toFixed(2)}</td><td class="num">${r.steadyCpuSPerMin.toFixed(2)}</td><td class="num">${r.apiCalls}</td></tr>`);
+    document.getElementById("cost-result").innerHTML = runs.summary || "";
+  }
+} catch (_) {}
+
+/* ---- the dials ---- */
+const repaint = () => cards.forEach((c) => c.ready && paint(c));
+const on = (id, ev, fn) => { const el = document.getElementById(id); if (el) el.addEventListener(ev, fn); };
+on("k-pane", "change", (e) => { KNOBS.pane = e.target.value; syncKnobs(); setTimeout(repaint, 250); });
+on("k-size", "change", (e) => { KNOBS.size = e.target.value; repaint(); });
+on("k-tf", "change", (e) => { KNOBS.timeframe = e.target.value; repaint(); });
+on("k-sessions", "input", (e) => { KNOBS.sessions = +e.target.value; document.getElementById("k-sessions-v").textContent = KNOBS.sessions; repaint(); });
+on("k-hours", "change", (e) => { KNOBS.hours = e.target.value; repaint(); });
+on("k-prefer", "change", (e) => { KNOBS.prefer = e.target.value; repaint(); });
+on("k-shelf", "change", (e) => { KNOBS.shelf = e.target.value; repaint(); });
+on("k-op", "input", (e) => { KNOBS.opacity = +e.target.value; document.getElementById("k-op-v").textContent = KNOBS.opacity; repaint(); });
+on("k-colour", "change", (e) => { KNOBS.colour = e.target.value; repaint(); });
+on("k-maxink", "input", (e) => { KNOBS.maxInk = +e.target.value / 100; document.getElementById("k-maxink-v").textContent = e.target.value; repaint(); });
+on("k-margin", "input", (e) => { KNOBS.margin = +e.target.value; document.getElementById("k-margin-v").textContent = KNOBS.margin; repaint(); });
+on("k-vol", "click", () => { KNOBS.volume = !KNOBS.volume; syncKnobs(); repaint(); });
+on("k-cand", "click", () => { KNOBS.candidates = !KNOBS.candidates; syncKnobs(); repaint(); });
+on("k-bubble", "click", () => { KNOBS.bubble = !KNOBS.bubble; syncKnobs(); repaint(); });
+on("k-reset", "click", () => { Object.assign(KNOBS, DIALS, { candidates: true, bubble: true, pane: "8up", shelf: "shelf" }); syncKnobs(); setTimeout(repaint, 250); });
+let resizeTimer = null;
+window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(repaint, 200); });
+window.__lensKnobs = KNOBS; window.__lensRepaint = repaint;
+</script>
+</body></html>
