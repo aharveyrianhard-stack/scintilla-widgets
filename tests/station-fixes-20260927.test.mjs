@@ -89,3 +89,21 @@ test("no grey DETAIL badge on the wall, and the expand square only shows under a
   assert.match(deck, /@media \(hover:hover\)\{ \.chart-full\{ opacity:0;/);
   assert.match(deck, /\.chart-pane:hover \.chart-full, \.chart-full:focus-visible\{ opacity:1; \}/);
 });
+
+test("the ribbon's browser copy: v2 is about a quarter of the size and gives back exactly the same bars; v1 still reads", () => {
+  const pack = fnFrom(chart, "cloudPack"), unpack = fnFrom(chart, "cloudUnpack", { Number, Array, Date, parseInt });
+  const pts = []; let t = Date.parse("2020-10-01T04:00:00.000Z");
+  for (let i = 0; i < 1500; i++) {
+    const day = new Date(t).getUTCDay();
+    t += (day === 5 ? 3 : 1) * 86400000 + (i === 700 ? 3600000 : i === 900 ? -3600000 : 0);   // weekends, and the clock changes
+    pts.push({ d: new Date(t).toISOString(), p: +(100 + (i % 97) * 3.17).toFixed(2) });
+  }
+  const v2 = pack(pts);
+  const back = unpack(JSON.parse(JSON.stringify(v2)));
+  assert.deepEqual(JSON.parse(JSON.stringify(back)), pts, "the same timestamps and closes, bar for bar");
+  const v1Len = JSON.stringify({ ts: 1, pts, asked: 1500 }).length, v2Len = JSON.stringify({ ts: 1, asked: 1500, ...v2 }).length;
+  assert.ok(v2Len * 3.5 < v1Len, `v2 ${v2Len} vs v1 ${v1Len} characters`);
+  assert.deepEqual(JSON.parse(JSON.stringify(unpack({ ts: 1, pts: pts.slice(0, 3) }))), pts.slice(0, 3), "a v1 copy is read as it is");
+  assert.equal(unpack({ v: 2, t0: 1, s: "0,1", c: [1] }), null, "a damaged copy is no copy");
+  assert.match(chart, /const tsOf = \(k\) => \{ const m = \/\^\\\{"ts":\(\\d\+\)\/\.exec/, "eviction reads the age from the first characters");
+});

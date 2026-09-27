@@ -6,12 +6,13 @@
    WHAT IT IS: a second canvas, bottom-left of the plot, drawing the same name's 30-minute candles for
    its last three regular sessions (09:30–16:00 ET). The geometry and the drawing are the reviewed
    26 Sep bubble (/_indicators/lens-bars.mjs) at 60% of its size; nothing here re-derives them.
-   WHEN: only when the pane's URL carries ?bubble=30m:3 (the deck adds it on the nine 3-day pages) AND
-   the pane is showing the 3D range. Without the switch the chart never even loads this file.
-   WHERE (the coordinator's ruling, on Alan's preference): FIXED bottom-left. It may cover the OLDEST
-   stretch of the 3-day line (the far past); it never covers the newest fifth of the line, and never
-   the pane's badge. If bottom-left would break either, the bubble takes the emptiest corner the
-   23 Sep rule allows, and the pane records why (data-lens-why, and the console).
+   WHEN: only when the pane's URL carries ?bubble= (O1, 27 Sep: 4h:12 on the nine 3-day pages, 30m:3 on
+   the daily pages) AND the pane is showing the 3D or 1D range. Without the switch the chart never even
+   loads this file.
+   WHERE (O1, 27 Sep, Alan: "position must seek the emptiest dark space (not fixed)"): the emptiest
+   region of the plot, bottom-left whenever bottom-left is as empty as anywhere; never the newest fifth,
+   never the badge or the deck's arrows; it holds its place unless somewhere is clearly emptier. The
+   pane records why (data-lens-why). A caret on the date axis marks where the lens' window starts.
    THE COST: one candle read per chart, re-read at most every ten minutes (a finished 30-minute bar
    cannot change), under the chart's own load permit so it never delays a price.
    STALE MUST LOOK STALE: if the newest bar belongs to a session older than the last one that has
@@ -213,7 +214,9 @@ export function paint(host, deps) {
   const badge = host.querySelector(".sc-nchart__live");
   const controls = deckControls(area);
   const sig = [controls.map((c) => [c.x, c.y, c.w, c.h].map(Math.round).join(",")).join(";"), area.clientWidth, area.clientHeight, plot.padL, plot.padT, plot.iw, plot.ih, plot.start, plot.end,
-    pts.length, pts[pts.length - 1].d, entry.ts, fresh.stale, day, badge ? badge.offsetHeight + "x" + badge.offsetWidth : ""].join("|");
+    pts.length, pts[pts.length - 1].d, entry.ts, fresh.stale, day, badge ? badge.offsetHeight + "x" + badge.offsetWidth : "",
+    /* the ribbon arriving after the lens repaints the ink it must avoid: place again */
+    (host._cloudTicker || "") + ":" + ((host._cloudRows && host._cloudRows.length) || 0)].join("|");
   if (host._lensMemo === sig) return;
   host._lensMemo = sig;
 
@@ -223,7 +226,8 @@ export function paint(host, deps) {
     keepOut.push({ x: b.left - a.left, y: b.top - a.top, w: b.width, h: b.height });
   }
   const main = host.querySelector(".sc-nchart__cv");
-  const inkAt = main ? inkReader(main) : null;
+  /* one read of the chart's pixels per paint, shared with the Geiger chip (host._inkAt, reset by the chart) */
+  const inkAt = host._inkAt || (main ? (host._inkAt = inkReader(main)) : null);
   const prev = host._lens && host._lens.spot && host._lens.t === t && host._lens.key === want.key ? host._lens.spot : null;
   const where = placeLens({ plot, series: pts, keepOut, slidePast: controls, ink: inkAt, prev });
   if (!where.spot) { hide(host, where.why); return; }
