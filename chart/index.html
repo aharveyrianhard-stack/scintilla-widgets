@@ -19,6 +19,7 @@
      Params: ?t=MU · ?range=1D (15m 30m 1h 2h 3h 4h 6h 12h 1D 3D 1W)
        · ?steps=1 (cloud ribbon drawn stepped; the default is smoothed for the eye, labels exact)
        · ?rsi=1 | ?rsi=2h,4h,1D | ?rsi=auto (the Indicator Lab's locked-timeframe RSI fan under the price)
+       · ?rsi=chart (ONE RSI(14) line of the pane's own timeframe — the Hub's company view)
        · ?bare=1 (pane mode — see the BARE note in the script)
        · ?bare=hub (the Hub's company view: pane mode with its own quote heartbeat — see HUB PANE)
        · ?tvrange=1D|5D|1M|3M|6M|YTD|12M|60M|ALL (TradingView opening window)
@@ -405,6 +406,9 @@ let CLOUD_STEPS = QS.has("steps") ? QS.get("steps") === "1" : lsGet(CLOUD_STEPS_
    URL asks: ?rsi=1 for the Lab's default six lines, ?rsi=2h,4h,1D to pick, ?rsi=auto when a deck page
    asks on its own (then a phone-narrow pane stays clean). Nothing is stored for this browser. */
 const RSI_REQUEST = window.SC_RSI_FAN ? window.SC_RSI_FAN.parseRsiParam(QS.get("rsi")) : { on:false, lines:[] };
+/* ?rsi=chart draws the one line of the pane's own range (D2, 27 Sep); every other request its fixed list */
+const rsiLinesFor = (host) => window.SC_RSI_FAN && window.SC_RSI_FAN.linesFor
+  ? window.SC_RSI_FAN.linesFor(RSI_REQUEST, (host && host._range) || S.chartRange) : RSI_REQUEST.lines;
 const rsiFanOn = () => !!(window.SC_RSI_FAN && window.SC_DETAIL_MATH && window.SC_RSI_FAN.visibleAt(RSI_REQUEST, innerWidth));
 const BAR_RULE_KEY = "station.barrule";
 const BAR_RULE_ON = QS.has("barrule") ? QS.get("barrule") === "1" : lsGet(BAR_RULE_KEY) === "1";
@@ -1048,7 +1052,7 @@ const rsiSourceCache = new Map();
 const rsiSourceInflight = new Map();
 function rsiSourceFresh(entry, key, need) {
   const line = window.SC_RSI_FAN.BY_KEY[key];
-  const ttl = line && line.daily ? RSI_DAILY_REFRESH_MS : RSI_INTRADAY_REFRESH_MS;
+  const ttl = line && (line.daily || line.durMs >= 864e5) ? RSI_DAILY_REFRESH_MS : RSI_INTRADAY_REFRESH_MS;
   return !!entry && entry.asked >= need && Date.now() - entry.ts < ttl;
 }
 async function fetchRsiSource(t, key, need) {
@@ -1082,7 +1086,7 @@ function rsiChartSpan(pts) {
 async function ensureRsiFan(host, t, req, generation) {
   if (!rsiFanOn() || !host || !host.isConnected) return;
   const span = rsiChartSpan(host._series);
-  const due = RSI_REQUEST.lines.map((key) => [key, window.SC_RSI_FAN.sourceLimit(key, span)])
+  const due = rsiLinesFor(host).map((key) => [key, window.SC_RSI_FAN.sourceLimit(key, span)])
     .filter(([key, need]) => !rsiSourceFresh(rsiSourceCache.get(t + "|" + key), key, need));
   if (!due.length || host._rsiPending === req) return;
   host._rsiPending = req;
@@ -1108,7 +1112,7 @@ function rsiFanFor(host, pts) {
   if (!rsiFanOn() || !pts || pts.length < 2) return null;
   const t = host.dataset.t, range = host._range || S.chartRange;
   const absence = host._rsiAbsence && host._rsiAbsence.t === t ? host._rsiAbsence.byKey : {};
-  const entries = RSI_REQUEST.lines.map((key) => [key, rsiSourceCache.get(t + "|" + key) || null]);
+  const entries = rsiLinesFor(host).map((key) => [key, rsiSourceCache.get(t + "|" + key) || null]);
   const sig = t + "|" + range + "|" + pts.length + "|" + pts[0].d + "|" + pts[pts.length - 1].d + "|" +
     entries.map(([key, e]) => key + ":" + (e ? e.ts : 0) + ":" + (absence[key] || "")).join(",");
   if (host._rsiMemo && host._rsiMemo.sig === sig) return host._rsiMemo;
@@ -1158,8 +1162,10 @@ function drawRsiFan(ctx, o) {
       if (v == null) { pen = false; continue; }
       if (pen) ctx.lineTo(o.X(i), RY(v)); else { ctx.moveTo(o.X(i), RY(v)); pen = true; }
     }
-    ctx.strokeStyle = F.ink(line.key); ctx.lineWidth = daily ? 1.6 : 1;
-    ctx.setLineDash(daily ? [4, 3] : []); ctx.lineJoin = "round";
+    /* a lone line (?rsi=chart, or one typed timeframe) is THE RSI: solid, a little heavier */
+    const solo = o.fan.lines.length === 1;
+    ctx.strokeStyle = F.ink(line.key); ctx.lineWidth = solo ? 1.4 : daily ? 1.6 : 1;
+    ctx.setLineDash(daily && !solo ? [4, 3] : []); ctx.lineJoin = "round";
     ctx.stroke();
   }
   ctx.restore();
