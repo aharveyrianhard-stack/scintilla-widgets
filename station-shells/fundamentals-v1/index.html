@@ -188,8 +188,13 @@ function render(fund, hist, ratios, bal, prof) {
     ? (+latest.net_income) / (+latest.revenue) : null;
 
   const cards = [];
-  cards.push(card("MARKET CAP", money(fund && fund.market_cap),
-    fund ? "fundamentals · source " + (fund.source || "?") + " · read " + day(fund.updated_ts) : "table holds no row for " + TICKER));
+  // Today's market cap is company_profile (FMP /profile, refreshed daily) — the same number the Hub board shows.
+  // fundamentals.market_cap is FMP key-metrics at the last fiscal period end (and in the filing currency for foreign filers), so it is only a labelled fallback.
+  const capProf = prof && Number.isFinite(+prof.market_cap) && +prof.market_cap > 0 ? +prof.market_cap : null;
+  cards.push(card("MARKET CAP", money(capProf != null ? capProf : fund && fund.market_cap),
+    capProf != null ? "company_profile · FMP profile · as of " + day(prof.updated_ts)
+      : fund && fund.market_cap != null ? "fundamentals · FMP value at fiscal period end" + (latest && latest.fiscal_date ? " " + day(latest.fiscal_date) : "") + " · not today's"
+      : "no stored market cap for " + TICKER));
   cards.push(card("P/E TRAILING", num(fund && fund.trailing_pe),
     fund ? "fundamentals · adjusted " + (num(fund.adjusted_pe) || "—") + " · read " + day(fund.updated_ts) : "not stored"));
   cards.push(card("REVENUE TTM", money(fund && fund.revenue_ttm),
