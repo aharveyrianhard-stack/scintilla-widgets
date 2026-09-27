@@ -56,7 +56,7 @@
 <body>
 
 <h1>Scintilla DCF V1.1 — DB-wired · Edge Score · Dispersion Score · 3-Stage Fade</h1>
-<div class="sub">The projected five-year financial statement drives every downstream valuation. Current equity price comes only from <code>SC_PROVIDER.equityQuotes</code>. Revenue and market cap come from <code>fundamentals</code>, beta and shares from <code>company_profile</code>, consensus revenue from <code>analyst_estimates</code>, risk-free from <code>treasury_rates</code>, and the FY baseline from the named balance/cash-flow/fundamentals history relations. Static baseline values remain visibly flagged for non-price fields only; the price is provider-or-disabled, never the snapshot.</div>
+<div class="sub">The projected five-year financial statement drives every downstream valuation. Current equity price comes only from <code>SC_PROVIDER.equityQuotes</code>. Revenue comes from <code>fundamentals</code>; market cap, beta and shares from <code>company_profile</code> (market cap falls back to the <code>fundamentals</code> period-end value only when the profile has none), consensus revenue from <code>analyst_estimates</code>, risk-free from <code>treasury_rates</code>, and the FY baseline from the named balance/cash-flow/fundamentals history relations. Static baseline values remain visibly flagged for non-price fields only; the price is provider-or-disabled, never the snapshot.</div>
 
 <div id="tickerBar" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:20px; padding:14px 18px; background:var(--panel); border:1px solid var(--border); border-radius:12px;">
   <span style="font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.05em; margin-right:2px;">Ticker:</span>
@@ -170,8 +170,8 @@
 const DATA_ASOF = '2026-07-24 (FMP quote/DCF/treasury/ERP pull)';   // STATIC BASELINE vintage — DB overlay below supersedes what it can
 /* ===================== C7 DB WIRING (2026-08-05) =====================
    Live overlay from Supabase scintilla-live (anon read-only key — publishable). The page NEVER calls FMP.
-   Per ticker: price (SC_PROVIDER.equityQuotes) · revenue_ttm + market_cap (fundamentals) · beta + shares_out
-   (company_profile; shares fallback = market_cap ÷ price) · consensus revenue path (analyst_estimates,
+   Per ticker: price (SC_PROVIDER.equityQuotes) · revenue_ttm (fundamentals) · market_cap + beta + shares_out
+   (company_profile; market_cap falls back to fundamentals; shares fallback = market_cap ÷ price) · consensus revenue path (analyst_estimates,
    annual, next 5 future fiscal years) · risk-free (treasury_rates.y10, uniform) · netDebt + D&A% + capex%
    + ΔNWC% (latest FY from balance_history / cashflow_history / fundamentals_history; a ratio is only
    computed when its numerator and denominator come from the SAME fiscal date — a ratio across two fiscal
@@ -297,10 +297,13 @@ async function refreshDB(){
     }).catch(()=>{}));
     J.push(sbGet(`fundamentals?select=revenue_ttm,market_cap,updated_ts&ticker=eq.${s}&limit=1`).then(r=>{
       if(r[0]&&r[0].revenue_ttm){ TICKERS[s].rev=r[0].revenue_ttm/1e9; (DB_SRC[s]=DB_SRC[s]||{}).rev=true; ok.fund++; }
-      if(r[0]&&r[0].market_cap) TICKERS[s]._mcap=r[0].market_cap;
+      if(r[0]&&r[0].market_cap&&!TICKERS[s]._mcapProf) TICKERS[s]._mcap=r[0].market_cap;   // period-end fallback only
     }).catch(()=>{}));
-    J.push(sbGet(`company_profile?select=beta,shares_out&ticker=eq.${s}&limit=1`).then(r=>{
+    J.push(sbGet(`company_profile?select=beta,shares_out,market_cap&ticker=eq.${s}&limit=1`).then(r=>{
       if(r[0]){
+        /* MARKET CAP IS TODAY'S (D2, 27 Sep): company_profile.market_cap (FMP /profile, refreshed daily - the Hub board's number) first;
+           fundamentals.market_cap is FMP's value at the last fiscal quarter end, in the filing currency for foreign filers, so it is only a fallback. */
+        if(+r[0].market_cap>0){ TICKERS[s]._mcap=+r[0].market_cap; TICKERS[s]._mcapProf=true; }
         // MU guard: FMP's broken 4.0 beta documented in this file's own flags — keep canonical if DB still carries it
         if(r[0].beta!=null && !(s==='MU' && +r[0].beta>3.5)){ TICKERS[s].beta=+r[0].beta; (DB_SRC[s]=DB_SRC[s]||{}).beta=true; }
         if(r[0].shares_out){ TICKERS[s].shares=+r[0].shares_out/1e9; (DB_SRC[s]=DB_SRC[s]||{}).shares='profile'; }

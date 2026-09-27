@@ -55,9 +55,25 @@
        York, so it has FINISHED 20 hours after its stamp, in summer and in winter alike. */
     Object.freeze({ key:"1D",  tf:"1D",  label:"D",   on:true,  alpha:.90, durMs:20 * HOUR, perSession:1, daily:true })
   ]);
-  const BY_KEY = Object.freeze(Object.fromEntries(LINES.map((l) => [l.key, l])));
+  const CHART_LINES = Object.freeze([
+    /* D2 (27 Sep) — the chart's OWN timeframes, so ?rsi=chart can draw the one RSI that matches the
+       pane (Alan, 27 Sep: "the RSI as an oscillator pane on the chart is just easier"). Off in the
+       default fan. durMs is when a bar has finished: 3D and 1W end on their last session's 20:00 ET. */
+    Object.freeze({ key:"15m", tf:"15m", label:"15M", on:false, alpha:.90, durMs:HOUR / 4, perSession:64 }),
+    Object.freeze({ key:"30m", tf:"30m", label:"30M", on:false, alpha:.90, durMs:HOUR / 2, perSession:32 }),
+    Object.freeze({ key:"1h",  tf:"1h",  label:"1H",  on:false, alpha:.90, durMs:HOUR,      perSession:16 }),
+    Object.freeze({ key:"3D",  tf:"3D",  label:"3D",  on:false, alpha:.90, durMs:2 * DAY + 20 * HOUR, perSession:1 / 3 }),
+    Object.freeze({ key:"1W",  tf:"1W",  label:"W",   on:false, alpha:.90, durMs:4 * DAY + 20 * HOUR, perSession:1 / 5 })
+  ]);
+  /* every line a pane can ask for: the Lab's seven first (the fan's own order), then the chart's own */
+  const ALL_LINES = Object.freeze(LINES.concat(CHART_LINES));
+  const BY_KEY = Object.freeze(Object.fromEntries(ALL_LINES.map((l) => [l.key, l])));
   const ALIASES = Object.freeze({ "2h":"2h", "120":"2h", "3h":"3h", "180":"3h", "4h":"4h", "240":"4h",
-    "6h":"6h", "8h":"8h", "12h":"12h", "1d":"1D", "d":"1D", "daily":"1D" });
+    "6h":"6h", "8h":"8h", "12h":"12h", "1d":"1D", "d":"1D", "daily":"1D",
+    "15m":"15m", "30m":"30m", "1h":"1h", "60":"1h", "3d":"3D", "1w":"1W", "w":"1W", "weekly":"1W" });
+  /* the chart's range → the line that IS that timeframe (?rsi=chart) */
+  const CHART_KEY = Object.freeze({ "15m":"15m", "30m":"30m", "1h":"1h", "2h":"2h", "3h":"3h", "4h":"4h",
+    "6h":"6h", "12h":"12h", "1D":"1D", "3D":"3D", "1W":"1W" });
   const LENGTH = 14;
   /* Wilder's average forgets its seed slowly; the first 150 values of a truncated history can
      sit a point or more away from TradingView's, which starts at the listing. They are
@@ -78,6 +94,8 @@
        2h,4h,1D              exactly those, in the fan's own order
        auto                  the default six, asked for by a DECK PAGE rather than typed:
                              hidden when the window is phone-narrow (≤ 390 px).
+       chart                 ONE line: RSI(14) of the chart's own timeframe (1h on a 1h chart,
+                             W on a 1W chart), following the pane's range. The Hub asks for this.
      Tokens nobody recognises are dropped and reported, never guessed at. */
   function parseRsiParam(raw) {
     if (raw == null) return { on:false, explicit:false, lines:[], dropped:[] };
@@ -88,13 +106,22 @@
     if (text === "1" || text === "on" || text === "all" || text === "true")
       return { on:true, explicit:true, lines:defaults, dropped:[] };
     if (text === "auto") return { on:true, explicit:false, lines:defaults, dropped:[] };
+    /* one line, the chart's own timeframe; it follows the pane when its range changes */
+    if (text === "chart") return { on:true, explicit:true, chart:true, lines:[], dropped:[] };
     const want = new Set(), dropped = [];
     for (const token of text.split(/[\s,]+/).filter(Boolean)) {
       const key = ALIASES[token];
       if (key) want.add(key); else dropped.push(token);
     }
-    const lines = LINES.map((l) => l.key).filter((k) => want.has(k));
+    const lines = ALL_LINES.map((l) => l.key).filter((k) => want.has(k));
     return { on:lines.length > 0, explicit:true, lines, dropped };
+  }
+  /* the lines a pane draws: the request's own list, or (?rsi=chart) the one line of its range */
+  function linesFor(request, range) {
+    if (!request || !request.on) return [];
+    if (!request.chart) return request.lines;
+    const key = CHART_KEY[range];
+    return key ? [key] : [];
   }
   function visibleAt(request, windowWidth) {
     if (!request || !request.on) return false;
@@ -184,7 +211,7 @@
   }
 
   root.SC_RSI_FAN = Object.freeze({
-    LINES, BY_KEY, INK, LENGTH, WARMUP, MIN_SOURCE, MAX_SOURCE, TAIL_LIMIT, PANEL_SHARE, PHONE_MAX,
-    parseRsiParam, visibleAt, sourceLimit, joinTail, lineSeries, carryBars, sampleToChart, lineStatus, ink
+    LINES, CHART_LINES, BY_KEY, INK, LENGTH, WARMUP, MIN_SOURCE, MAX_SOURCE, TAIL_LIMIT, PANEL_SHARE, PHONE_MAX,
+    CHART_KEY, parseRsiParam, linesFor, visibleAt, sourceLimit, joinTail, lineSeries, carryBars, sampleToChart, lineStatus, ink
   });
 })(typeof globalThis === "object" ? globalThis : window);

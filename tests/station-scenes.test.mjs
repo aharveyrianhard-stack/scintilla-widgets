@@ -706,7 +706,7 @@ test("the deck owns one deduplicated visible quote feed for embedded charts", ()
   assert.doesNotMatch(softArm, /abort/, "the soft threshold never cancels");
   assert.match(deck, /if \(deckQuoteInFlight\) \{ deckQuoteRerun = true; return; \}/,
     "a heartbeat cannot overlap a stalled active quote request");
-  assert.match(chart, /const DECK_QUOTE_MODE = BARE && window\.parent !== window/);
+  assert.match(chart, /const DECK_QUOTE_MODE = BARE_PARAM === "1" && window\.parent !== window/);
   assert.doesNotMatch(chart, /\.channel\("lq"\)/,
     "the chart opens no realtime subscription at all any more (retired 2026-09-22)");
   assert.match(chart, /window\.SC_REALTIME = \{ available: false, channel: "retired"/);

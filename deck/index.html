@@ -1529,6 +1529,27 @@ let STACKED = !keepsCompleteWall() && innerWidth < STACK_AT;   /* decided BEFORE
 /* Desk keeps a complete Custom 8 wall: eight charts, two video panes, and X.
    Phone retains its separately proven two-frame safety ceiling. */
 const LIVE_CAP = STACKED ? 2 : 11;
+/* HIDDEN CHARTS STAY ALIVE ON THE DESK (S1, 25 Sep). A page with fewer charts used to throw
+   away the frames of the slots it did not use, so the next page that grew again (two to six,
+   six to eight) had to boot those frames from nothing and showed empty slots for up to ~0.3 s
+   (deliverables/20260925/station-modes, section 5). On a desk at least 1280 px wide the unused
+   chart frames are kept mounted and hidden (.chart-off), still showing their last symbol, so a
+   page that grows switches them in place exactly like the frames that stayed on screen. The
+   cost is that a hidden frame keeps its own quiet reads going. A phone keeps its two-frame
+   ceiling and removes them as before. */
+const KEEP_HIDDEN_CHARTS_AT = 1280;
+const keepsHiddenCharts = () => !STACKED && innerWidth >= KEEP_HIDDEN_CHARTS_AT;
+/* THE BUDGET PAUSES FROM THE BOTTOM OF THE WALL (S1, 25 Sep). It used to pause the OLDEST
+   frame, so on a phone every page change paused chart 1 - the chart at the top - and kept a
+   lower one. Now the pane lowest on the wall is paused, so the top of the page is always live.
+   A tap (explicit) always brings back the pane that was tapped. */
+const PAUSED_NOTE = "paused to keep the page light — tap to bring it back";
+const wallOrder = (obj) => PANES.indexOf(obj);
+function lowestOnWall(panes, except) {
+  let low = null;
+  for (const p of panes) if (p !== except && (!low || wallOrder(p) > wallOrder(low))) low = p;
+  return low;
+}
 
 const PANES = [];
 const LIVE = [];
@@ -1567,7 +1588,7 @@ function makePane(def) {
       '<div class="go">' + (emptyChart ? "choose a symbol" : def.kind === "chart" ? "resume chart" : "load pane") + '</div>';
     c.addEventListener("click", () => {
       if (def.kind === "chart" && !def.src) focusTickerFor(def.key);
-      else mount(obj);
+      else mount(obj, { explicit:true });
     });
     body.appendChild(c);
   };
@@ -1575,9 +1596,14 @@ function makePane(def) {
   return obj;
 }
 
-function mount(obj) {
+function mount(obj, options) {
   if (obj.isDock || obj.frame) return;
   if (!obj.def.src) { obj.showCard(SCENE === "scratch" ? "empty slot \u00b7 type a symbol" : "empty editable slot"); return; }
+  /* over budget and lower on the wall than every live pane: this is the one to pause, so it is
+     never mounted at all (no request is started just to be thrown away) */
+  if (!options?.explicit && LIVE.length >= LIVE_CAP && LIVE.every((p) => wallOrder(p) < wallOrder(obj))) {
+    obj.showCard(PAUSED_NOTE); paintChips(); return;
+  }
   const c = obj.body.querySelector(".card"); if (c) c.remove();
   const f = document.createElement("iframe");
   f.src = obj.def.src; f.loading = "lazy";
@@ -1596,12 +1622,14 @@ function mount(obj) {
   });
   obj.body.appendChild(f); obj.frame = f;
   LIVE.push(obj);
-  /* the budget PAUSES — it never removes a pane from the layout or the chip row */
+  /* the budget PAUSES — it never removes a pane from the layout or the chip row — and it
+     pauses the pane lowest on the wall, never the one just asked for */
   while (LIVE.length > LIVE_CAP) {
-    const old = LIVE.shift();
-    if (old === obj) break;
-    if (old.frame) { old.frame.remove(); old.frame = null; }
-    old.showCard("paused to keep the page light — tap to bring it back");
+    const low = lowestOnWall(LIVE, obj);
+    if (!low) break;
+    LIVE.splice(LIVE.indexOf(low), 1);
+    if (low.frame) { low.frame.remove(); low.frame = null; }
+    low.showCard(PAUSED_NOTE);
   }
   paintChips();
 }
@@ -1685,7 +1713,7 @@ function setSolo(key) {
   for (const r of document.querySelectorAll(".deckrow")) r.classList.remove("empty");
   if (key) {
     const o = PANES.find((x) => x.def.key === key);
-    if (o && !o.frame && !o.isDock) mount(o);
+    if (o && !o.frame && !o.isDock) mount(o, { explicit:true });
   }
   measure(); paintChips();
 }
@@ -2458,7 +2486,7 @@ function paintChips() {
     c.addEventListener("click", () => {
       if (offTheWall) { setVideoFeed(o.def.key); return; }
       if (SOLO && SOLO !== o.def.key) { setSolo(o.def.key); return; }
-      if (!o.frame && !o.isDock) { mount(o); return; }
+      if (!o.frame && !o.isDock) { mount(o, { explicit:true }); return; }
       setSolo(SOLO === o.def.key ? null : o.def.key);
     });
     bar.appendChild(c);
@@ -2820,6 +2848,9 @@ function syncChartPanes(transitionGeneration) {
     o.def.open = ticker ? o.def.src.replace("bare=1&", "") : "";
     o.def.short = ticker || "chart " + (i + 1); o.def.title = ticker || "Choose a symbol";
     const input = el("t" + (i + 1)); if (input) input.value = ticker;
+    /* a slot this page does not use keeps its frame, hidden and untouched, on the desk:
+       it is re-pointed only when a page uses it again (never loaded while nobody can see it) */
+    if (i >= CHART_COUNT && o.frame && keepsHiddenCharts()) return;
     if (!ticker && o.frame) {
       o.frame.remove(); o.frame = null;
       const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
@@ -3369,7 +3400,7 @@ function commitTicker(index, raw, input) {
     const card = o.body.querySelector(".card"); if (card) card.remove();
     if (o.frame) {
       syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE });
-    } else if (index < CHART_COUNT) mount(o);
+    } else if (index < CHART_COUNT) mount(o, { explicit:true });
   }
   /* A lower slot that just gained a symbol now carries the column's time
      axis, so the chart above it hands its own back. */
@@ -3480,6 +3511,7 @@ function applyChartCount(next, fromScene, transitionGeneration) {
     const o = PANES.find((p) => p.def.key === "c" + (i + 1)); if (!o) return;
     const active = i < CHART_COUNT; o.node.classList.toggle("chart-off", !active);
     if (!active && o.frame) {
+      if (keepsHiddenCharts()) return;          /* hidden by .chart-off, still mounted */
       o.frame.remove(); o.frame = null;
       const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
     } else if (active && !o.frame) {
@@ -3555,6 +3587,48 @@ el("saveTargets").addEventListener("click", () => { saveScratchTargets(); });
    because the Hub adds to the same list one name at a time and a wall saved here must not
    erase those. */
 let SAVE_RADAR_REVERT = null;
+/* SAVE AS RADAR LIKES THE NAME (S1, 25 Sep). The Hub's RADAR tab is liked ∩ radar (hub_favorites ∩
+   station_lists "radar"), so a name saved to radar from SCRATCH that was never liked did not show
+   there. Every saved name is now also liked, by the same rule as the list: it ADDS, never removes.
+   The Hub keeps ONE liked list under the global owner (its operator-write function writes every ♥
+   there, unique on ticker + owner), so the rows are { ticker, owner_id: global } and
+   ignore-duplicates leaves a name that is already liked exactly as it was, keeping its place.
+   If the table refuses a direct write, the Hub's own ♥ door (operator-write fav_add) adds the same
+   rows. Nothing here ever unlikes. */
+const HUB_LIKED_OWNER = "00000000-0000-0000-0000-000000000000";
+const HUB_LIKE_DOOR = SB + "/functions/v1/operator-write";
+async function hubLikeDoor(ticker) {
+  const r = await fetch(HUB_LIKE_DOOR, { method:"POST",
+    headers: { apikey: ANON, Authorization: "Bearer " + ANON, "Content-Type": "application/json" },
+    body: JSON.stringify({ action:"fav_add", ticker }) });
+  if (!r.ok) throw new Error("hub like " + r.status);
+}
+async function likeNamesOnHub(names) {
+  let liked = null;
+  try {
+    const rows = await pg("hub_favorites?select=ticker");
+    liked = (Array.isArray(rows) ? rows : []).map((row) => CLEAN(row && row.ticker)).filter(Boolean);
+  } catch (_) { liked = null; }
+  const want = liked ? names.filter((ticker) => !liked.includes(ticker)) : names.slice();
+  if (!want.length) return { ok:true, added:0, counted:true };
+  try {
+    await pgWrite("hub_favorites?on_conflict=ticker,owner_id",
+      want.map((ticker) => ({ ticker, owner_id:HUB_LIKED_OWNER })),
+      { Prefer:"resolution=ignore-duplicates,return=minimal" });
+    return { ok:true, added:want.length, counted:!!liked, via:"table" };
+  } catch (_) {}
+  try {
+    for (const ticker of want) await hubLikeDoor(ticker);
+    return { ok:true, added:want.length, counted:!!liked, via:"hub" };
+  } catch (_) {
+    return { ok:false, added:0, counted:!!liked };
+  }
+}
+function likeReceipt(like) {
+  if (!like || !like.ok) return " · like failed";
+  if (!like.added) return " · all liked";
+  return like.counted ? " · liked +" + like.added : " · liked";
+}
 async function saveScratchRadar() {
   const button = el("saveRadar");
   const filled = Array.from(new Set(CHARTS.slice(0, 8).map(CLEAN).filter(Boolean)));
@@ -3562,7 +3636,7 @@ async function saveScratchRadar() {
     if (!button) return;
     button.textContent = text;
     clearTimeout(SAVE_RADAR_REVERT);
-    SAVE_RADAR_REVERT = setTimeout(() => { button.textContent = "save as radar"; }, 3000);
+    SAVE_RADAR_REVERT = setTimeout(() => { button.textContent = "save as radar"; }, 5000);   /* a longer receipt: two halves */
   };
   if (!filled.length) { say("type the names first"); return; }
   try {
@@ -3570,11 +3644,15 @@ async function saveScratchRadar() {
     const have = (Array.isArray(rows) ? rows : []).map((row) => CLEAN(row && row.ticker)).filter(Boolean);
     const last = (Array.isArray(rows) ? rows : []).reduce((top, row) => Math.max(top, Number(row && row.position) || 0), 0);
     const add = filled.filter((ticker) => !have.includes(ticker));
-    if (!add.length) { say("already on radar · " + have.length + " names"); return; }
-    const at = new Date().toISOString();
-    await pgWrite("station_lists?on_conflict=list,position",
-      add.map((ticker, i) => ({ list:"radar", position:last + i + 1, ticker, updated_at:at })));
-    say("radar +" + add.length + " · " + (have.length + add.length) + " names");
+    if (add.length) {
+      const at = new Date().toISOString();
+      await pgWrite("station_lists?on_conflict=list,position",
+        add.map((ticker, i) => ({ list:"radar", position:last + i + 1, ticker, updated_at:at })));
+    }
+    const radar = add.length ? "radar +" + add.length + " · " + (have.length + add.length) + " names"
+      : "already on radar · " + have.length + " names";
+    /* the receipt names both halves: what joined RADAR, and what was liked so the Hub shows it */
+    say(radar + likeReceipt(await likeNamesOnHub(filled)));
   } catch (_) {
     say("radar save failed");
   }

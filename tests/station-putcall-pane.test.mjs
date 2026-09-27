@@ -59,7 +59,7 @@ test("the shared readout builder is not recursive", () => {
   assert.ok(!/ensureLiveParts\(/.test(fn.slice("function ensureLiveParts".length)),
     "ensureLiveParts must not call itself");
   assert.match(fn, /badge\.querySelector\("\.sc-nchart__live-ticker"\)/);
-  assert.match(fn, /return \{ ticker, change, previous, historyWindow \};/);
+  assert.match(fn, /return \{ ticker, change, previous, historyWindow, lastBar \};/);
   assert.equal((chart.match(/function ensureLiveParts\(/g) || []).length, 1, "one definition");
   assert.equal((chart.match(/= ensureLiveParts\(badge, host\)/g) || []).length, 2,
     "two call sites: the live painter and the put/call painter");
