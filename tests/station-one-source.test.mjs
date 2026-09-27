@@ -52,7 +52,8 @@ test("the provider client routes macro symbols to the chart API and names everyt
 test("ownership identity is proven from the payload digest when no canonical reader is bound", () => {
   assert.match(provider, /function universeDigest \(syms\)/);
   assert.match(provider, /subtle\.digest\('SHA-256', new TextEncoder\(\)\.encode\(JSON\.stringify\(unique\)\)\)/);
-  assert.match(provider, /digest === ACCEPTED_UNIVERSE_SHA256 \? null/);
+  // admission v2 (27 Sep): no pinned digest - the recomputed digest must equal the one the payload claims
+  assert.match(provider, /digest === j\.universe_sha256 \? null/);
   assert.match(provider, /universe identity could not be computed/);
-  assert.match(provider, /'sha256 over the ' \+ syms\.length \+ ' returned symbols equals the pinned accepted universe digest'/);
+  assert.match(provider, /'sha256 over the ' \+ syms\.length \+ ' returned symbols equals the digest the payload claims/);
 });
