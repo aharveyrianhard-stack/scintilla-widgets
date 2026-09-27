@@ -1,6 +1,7 @@
 /* The Context Lens, round 3: the intraday-bars bubble on the 3-day line pages.
    Checked against the same module the workshop page draws with
-   (deliverables/20260926/context-lens-3/lens-bars.mjs). Nothing here touches the live Station. */
+   (deliverables/20260926/context-lens-3/lens-bars.mjs, which re-exports /_indicators/lens-bars.mjs
+   since 27 Sep, CL4: the live chart draws it now, at 60% of the 26 Sep size). */
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -219,7 +220,7 @@ test("the pane's badge is a keep-out: the bubble tucks under it rather than cove
   assert.ok(kept.spot.y >= badge.y + badge.h + 8, "moved down past the badge with the usual clearance");
   assert.ok(kept.why.includes("tucked under the badge"));
   /* a badge so tall the tuck would push the box onto the line: refused and named, and the bubble goes elsewhere */
-  const tall = { x: PLOT.padL + 8, y: PLOT.padT + 7, w: 96, h: 60 };
+  const tall = { x: PLOT.padL + 8, y: PLOT.padT + 7, w: 96, h: 150 };
   const elsewhere = placeBubble({ plot: PLOT, series: fallingLate, ink: inkFor(fallingLate), size: "M", prefer: "auto", keepOut: [tall] });
   assert.notEqual(elsewhere.spot && elsewhere.spot.corner, "tl");
   const tl = elsewhere.considered.find((c) => c.corner === "tl" && c.size === elsewhere.size);
@@ -263,10 +264,16 @@ test("the recommended dials are the ones the page opens with, and they are quiet
   assert.equal(DIALS.margin, 8); assert.equal(DIALS.maxInk, 0.55);
 });
 
-test("nothing on the live Station: the chart pane and the deck do not load the bubble", () => {
+test("on the live Station only through the switch: the pane loads the lens module when ?bubble= asks, never the review page", () => {
   for (const rel of ["../chart/index.html", "../station-shells/chart-v1/index.html", "../deck/index.html", "../deck/scenes.js"]) {
     const src = read(rel);
-    assert.ok(!/lens-bars\.mjs|context-lens-3/.test(src), `${rel} must not reference the bubble`);
+    assert.ok(!/context-lens-3/.test(src), `${rel} must not reference the review page`);
+  }
+  for (const rel of ["../chart/index.html", "../station-shells/chart-v1/index.html"]) {
+    const src = read(rel);
+    assert.equal((src.match(/import\("\/_indicators\/station-lens\.mjs"\)/g) || []).length, 1, `${rel}: one lazy import`);
+    assert.match(src, /let BUBBLE_REQUEST = QS\.get\("bubble"\) \|\| "";/);
+    assert.match(src, /function scLens\(\) \{\n  if \(!BUBBLE_REQUEST\) return null;/, "no switch, no import");
   }
 });
 
