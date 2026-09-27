@@ -51,6 +51,8 @@ export const MIN_FONT = 8;
 export const WEEKDAY_ONLY_BELOW = 120;
 /* the chamfer: the corner facing the price line cut at 45°, 8 px (it was 14 on the bigger box) */
 export const CHAMFER = 8;
+/* height at most this share of the width: candles want width more than height */
+export const MAX_ASPECT = 0.8;
 
 export const TIMEFRAMES = Object.freeze({
   "15m": Object.freeze({ tf: "15", minutes: 15, regular: 26, extended: 64 }),
@@ -223,8 +225,10 @@ export function lastPrice(bars) {
    shelf last, exactly as before. ---- */
 export function bubbleBox(plot, sizeKey) {
   const f = BUBBLE_SIZES[sizeKey] || BUBBLE_SIZES.M;
-  return { w: Math.min(CEILING.w, Math.max(FLOOR.w, Math.round(plot.iw * f.w))),
-           h: Math.min(CEILING.h, Math.max(FLOOR.h, Math.round(plot.ih * f.h))) };
+  const w = Math.min(CEILING.w, Math.max(FLOOR.w, Math.round(plot.iw * f.w)));
+  /* never taller than 0.8 of its width: on a tall phone pane the fraction alone made an 86 × 126 post */
+  const h = Math.min(CEILING.h, Math.round(w * MAX_ASPECT), Math.max(FLOOR.h, Math.round(plot.ih * f.h)));
+  return { w, h };
 }
 const overlaps = (a, b, pad = 0) => !(a.x + a.w + pad <= b.x || b.x + b.w + pad <= a.x || a.y + a.h + pad <= b.y || b.y + b.h + pad <= a.y);
 /* A corner that sits on the badge is not lost: the bubble TUCKS past it - down from a top corner, up from

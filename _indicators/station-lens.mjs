@@ -76,16 +76,22 @@ export function bottomLeft(plot, box, pts, keepOut = [], opt = {}) {
   const edge = opt.edge == null ? PLACE.edge : opt.edge, margin = opt.margin == null ? PLACE.margin : opt.margin;
   const rect = { corner: "bl", x: plot.padL + edge, y: plot.padT + plot.ih - edge - box.h, w: box.w, h: box.h };
   if (box.w + edge * 2 > plot.iw || box.h + edge * 2 > plot.ih) return { spot: null, why: "the plot is smaller than the bubble" };
+  /* a control the deck floats over the wall's left edge (its "previous page" arrow): the bubble slides
+     right just past it and stays bottom-left */
+  let slid = false;
+  for (const k of opt.slidePast || []) {
+    if (k && k.w > 0 && k.h > 0 && overlaps(rect, k, 4)) { rect.x = Math.max(rect.x, k.x + k.w + 4); slid = true; }
+  }
   if (!clearsTail(rect, plot) && !clearsTailPoints(rect, pts, plot, margin))
     return { spot: null, why: "bottom-left would cover the newest fifth of the line" };
   if (keepOut.some((k) => k && k.w > 0 && k.h > 0 && overlaps(rect, k, margin)))
     return { spot: null, why: "bottom-left would cover the badge" };
-  return { spot: rect, why: "bottom-left (fixed)" };
+  return { spot: rect, why: slid ? "bottom-left (fixed), moved right past the deck's page arrow" : "bottom-left (fixed)" };
 }
-export function placeLens({ plot, series, points, keepOut = [], ink, size = DIALS.size }) {
+export function placeLens({ plot, series, points, keepOut = [], slidePast = [], ink, size = DIALS.size }) {
   const box = bubbleBox(plot, size);
   const pts = points || pathPoints(plot, series || []);
-  const bl = bottomLeft(plot, box, pts, keepOut);
+  const bl = bottomLeft(plot, box, pts, keepOut, { slidePast });
   if (bl.spot) return { kind: "inset", spot: bl.spot, fixed: true, fallback: false, why: bl.why, box };
   /* the fallback: the reviewed rule at the SAME size, emptiest clear corner */
   const res = placeBubble({ plot, points: pts, keepOut, ink, size: "S", prefer: "auto" });
@@ -191,7 +197,8 @@ export function paint(host, deps) {
   const day = deps.day(host);
   const area = host.querySelector(".sc-nchart__area");
   const badge = host.querySelector(".sc-nchart__live");
-  const sig = [area.clientWidth, area.clientHeight, plot.padL, plot.padT, plot.iw, plot.ih, plot.start, plot.end,
+  const controls = deckControls(area);
+  const sig = [controls.map((c) => [c.x, c.y, c.w, c.h].map(Math.round).join(",")).join(";"), area.clientWidth, area.clientHeight, plot.padL, plot.padT, plot.iw, plot.ih, plot.start, plot.end,
     pts.length, pts[pts.length - 1].d, entry.ts, fresh.stale, day, badge ? badge.offsetHeight + "x" + badge.offsetWidth : ""].join("|");
   if (host._lensMemo === sig) return;
   host._lensMemo = sig;
@@ -203,7 +210,7 @@ export function paint(host, deps) {
   }
   const main = host.querySelector(".sc-nchart__cv");
   const inkAt = main ? inkReader(main) : null;
-  const where = placeLens({ plot, series: pts, keepOut, ink: inkAt });
+  const where = placeLens({ plot, series: pts, keepOut, slidePast: controls, ink: inkAt });
   if (!where.spot) { hide(host, where.why); return; }
   if (where.fallback) { try { console.info("[lens]", t, where.why); } catch (_) {} }
 
@@ -247,6 +254,23 @@ export function paint(host, deps) {
   host.dataset.lensWhy = where.why;
   host._lens = { spot: r, why: where.why, fallback: where.fallback, stale: fresh.stale, through: fresh.through,
                  expected: fresh.expected, bars: bars.length, sessions: sessions.length, readAt: entry.ts };
+}
+
+/* The deck's edge arrows (#edgePrev / #edgeNext) float over the wall, outside this frame. The frame is
+   same-origin, so their boxes are read from the deck and put into this pane's plot coordinates. */
+function deckControls(area) {
+  try {
+    const fe = window.frameElement;
+    if (!fe) return [];
+    const doc = fe.ownerDocument, f = fe.getBoundingClientRect(), a = area.getBoundingClientRect(), out = [];
+    for (const id of ["edgePrev", "edgeNext"]) {
+      const b = doc.getElementById(id);
+      if (!b || !b.offsetWidth) continue;
+      const r = b.getBoundingClientRect();
+      out.push({ x: r.left - f.left - a.left, y: r.top - f.top - a.top, w: r.width, h: r.height });
+    }
+    return out;
+  } catch (_) { return []; }
 }
 
 /* "anything the chart painted", read from its own canvas — only asked for when bottom-left is refused */

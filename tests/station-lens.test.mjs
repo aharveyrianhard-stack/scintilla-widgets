@@ -21,6 +21,7 @@ test("60% of the 26 Sep bubble: 93 × 68 on an 8-up pane, with the floor and the
   assert.deepEqual({ ...CEILING }, { w: 204, h: 126 });       // was 340 × 210
   const box = bubbleBox(PLOT, "M");
   assert.deepEqual(box, { w: 93, h: 68 });
+  assert.deepEqual(bubbleBox({ ...PLOT, iw: 342, ih: 440 }, "M"), { w: 86, h: 69 }, "a tall phone pane: never taller than 0.8 of its width");
   const share = (box.w * box.h) / (419 * 277);
   assert.ok(share > 0.05 && share < 0.06, `about 5.4% of the pane, got ${(share * 100).toFixed(1)}%`);
 });
@@ -42,6 +43,16 @@ test("fixed bottom-left, even over the far past of the line", () => {
   assert.equal(res.spot.x, PLOT.padL + 6);
   assert.equal(res.spot.y + res.spot.h, PLOT.padT + PLOT.ih - 6, "on the bottom edge of the plot, 6 px in");
   assert.ok(res.spot.x + res.spot.w < PLOT.padL + PLOT.iw * 0.8, "left of the newest fifth");
+});
+
+test("a deck arrow over the wall's left edge: the bubble slides right past it and stays bottom-left", () => {
+  const arrow = { x: -6, y: PLOT.padT + PLOT.ih - 60, w: 26, h: 72 };
+  const res = placeLens({ plot: PLOT, series: line(() => 50), slidePast: [arrow] });
+  assert.equal(res.spot.corner, "bl"); assert.equal(res.fallback, false);
+  assert.equal(res.spot.x, arrow.x + arrow.w + 4);
+  assert.match(res.why, /page arrow/);
+  const clear = placeLens({ plot: PLOT, series: line(() => 50), slidePast: [{ ...arrow, y: PLOT.padT }] });
+  assert.equal(clear.spot.x, PLOT.padL + 6, "an arrow elsewhere changes nothing");
 });
 
 test("if bottom-left would cover the newest fifth or the badge, it takes the emptiest clear corner and says why", () => {
