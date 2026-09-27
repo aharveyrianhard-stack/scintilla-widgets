@@ -248,7 +248,7 @@ async function boot(){
   const q={
     fav:'hub_favorites?select=ticker&limit=1000',
     funda:'fundamentals?select=ticker,price,market_cap,trailing_pe,adjusted_pe,eps_ttm,adjusted_eps_ttm,revenue_ttm,dcf,updated_ts&limit=1000',
-    prof:'company_profile?select=ticker,name,sector,beta,is_etf&limit=1000',
+    prof:'company_profile?select=ticker,name,sector,beta,is_etf,market_cap&limit=1000',
     sect:'sector_rankings?select=rank,sector,sector_name,score,trend,momentum,method,updated_at,date&order=date.desc,rank.asc&limit=200',
     y10:'treasury_rates?select=date,y10&order=date.desc&limit=1',
     vix:'vix_term?select=date,vix,vix3m,ratio&order=date.desc&limit=1',
@@ -382,7 +382,10 @@ function renderValue(){
        ("computed live, never the stale stored trailing_pe"); an unusable price or EPS yields null, not a stale
        number. */
     geig:m.g?m.g.composite:null, pe:livePe(m,'eps_ttm'), ape:livePe(m,'adjusted_eps_ttm'),
-    eps:m.f?m.f.eps_ttm:null, rev:m.f?m.f.revenue_ttm:null, mcap:m.f?m.f.market_cap:null,
+    eps:m.f?m.f.eps_ttm:null, rev:m.f?m.f.revenue_ttm:null,
+    /* MARKET CAP IS TODAY'S (D2, 27 Sep): company_profile.market_cap (FMP /profile, refreshed daily - the Hub board's number) first;
+       fundamentals.market_cap is FMP's value at the last fiscal quarter end, in the filing currency for foreign filers, so it is only a fallback. */
+    mcap:(m.p&&+m.p.market_cap>0)?+m.p.market_cap:(m.f?m.f.market_cap:null),
     dcf:m.f?m.f.dcf:null, fAge:m.f?m.f.updated_ts:null, ret:(S.ret&&S.ret[t]!=null?S.ret[t]:null)}});
   rows.sort((a,b)=>(((b[sortKey]==null?-1e18:+b[sortKey])-(a[sortKey]==null?-1e18:+a[sortKey]))*(-sortDir)));
   const th=(k,l)=>'<th onclick="setSort(\''+k+'\')">'+l+(sortKey===k?(sortDir<0?' ▾':' ▴'):'')+'</th>';
