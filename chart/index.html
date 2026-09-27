@@ -128,8 +128,8 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
 .sc-nchart__live-window{ color:var(--dim); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
 /* the last-bar stamp (O1, 27 Sep, Alan: "please remove that ... - show nothing when fine"): it is EMPTY
    while the line is current, and only a stale line during a session gets words - amber, Alan's colour
-   for "not current" - "STALE · last bar 24 Sep · 1D · 3 d old". */
-.sc-nchart__live-lastbar{ color:#c8953a; font:700 11px var(--mono); letter-spacing:.03em; line-height:1; }
+   for "not current" - "STALE · last bar 24 Sep · 3 d old". */
+.sc-nchart__live-lastbar{ color:#c8953a; font:700 11px var(--mono); letter-spacing:.03em; line-height:1; margin-left:6px; }
 .sc-nchart__live-lastbar:empty{ display:none; }
 /* THE REFERENCE TEXT STEPS BACK, THE PRICE AND THE LINE LEAD. "Prev 762.60 ≈41 trading days · since Jul 23" sat at full
    strength in a shadowed box over the top-left of every chart (Alan, live review 2026-09-18: the badges compete with the
@@ -2611,12 +2611,13 @@ function paintChartHistoryWindow(host) {
     : "history loading";
 }
 /* Nothing while the line is current (O1, 27 Sep). When it has stopped during a session: "STALE ·
-   last bar 15:00 ET · 4H · 2 h old", amber. A put/call pane has its own session label, so no stamp. */
+   last bar 15:00 ET · 2 h old", amber. A put/call pane has its own session label, so no stamp. */
 function paintLastBarStamp(host, pts) {
   const stamp = host?.querySelector(".sc-nchart__live-lastbar");
   if (!stamp) return;
   const fresh = pts && pts.length ? chBarFreshness(pts, host._range || S.chartRange) : null;
-  const text = fresh && fresh.stale ? "STALE \u00b7 " + fresh.text + " \u00b7 " + fresh.age : "";
+  /* the timeframe is on the pane already: "STALE · last bar 25 Sep · 4 d old" */
+  const text = fresh && fresh.stale ? "STALE \u00b7 " + fresh.text + " \u00b7 " + String(fresh.age).split(" \u00b7 ").pop() : "";
   if (stamp.textContent !== text) stamp.textContent = text;
   const flag = fresh && fresh.stale ? "1" : "0";
   if (stamp.dataset.stale !== flag) stamp.dataset.stale = flag;

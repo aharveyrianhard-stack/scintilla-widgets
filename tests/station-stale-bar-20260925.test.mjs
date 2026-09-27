@@ -142,7 +142,7 @@ test("the stamp says nothing while the line is current, and an amber STALE warni
   assert.equal(chart, shell, "chart/index.html and station-shells/chart-v1/index.html stay identical");
   assert.match(chart, /badge\.append\(ticker, change, lastBar, previous, historyWindow\);/);
   assert.match(chart, /paintLastBarStamp\(host, pcPane \? null : pts\);/, "a put/call pane keeps its own session label");
-  assert.match(chart, /const text = fresh && fresh\.stale \? "STALE \\u00b7 " \+ fresh\.text \+ " \\u00b7 " \+ fresh\.age : "";/,
+  assert.match(chart, /const text = fresh && fresh\.stale \? "STALE \\u00b7 " \+ fresh\.text \+ " \\u00b7 " \+ String\(fresh\.age\)\.split\(" \\u00b7 "\)\.pop\(\) : "";/,
     "empty when fresh; STALE, the last bar and its age when not");
   assert.match(chart, /\.sc-nchart__live-lastbar:empty\{ display:none; \}/);
   assert.doesNotMatch(chart, /"When the newest completed bar on this chart began/, "no quiet always-on stamp any more");
