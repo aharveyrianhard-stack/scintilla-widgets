@@ -138,6 +138,19 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
 /* A quote whose observation time the provider did not supply is neither fresh nor stale.
    It is marked so it cannot be read as either. */
 .sc-nchart__live[data-untimed="1"]{ border-bottom:1px dotted rgba(134,138,170,.7); }
+/* THE HUB'S GEIGER COMPOSITE BAR, SMALL (Alan, 27 Sep: "very small, very executive"). 48 x 6, the fixed
+   -1...+1 scale, the fill grows out of the centre: green right at or above zero, red left below it. The
+   centre is a notch cut in the track, not a drawn line. The number is the badge's own price size. A name
+   with no reading has no bar at all; a reading older than its source's cadence dims. */
+.sc-nchart__live-geiger{ display:inline-flex; align-items:center; gap:5px; align-self:center; }
+.sc-nchart__live-geiger[hidden]{ display:none; }
+.sc-nchart__live-geiger[data-side="up"]{ color:var(--bull); }
+.sc-nchart__live-geiger[data-side="down"]{ color:var(--bear); }
+.sc-nchart__live-geiger[data-stale="1"]{ opacity:.45; }
+.sc-gbar{ position:relative; flex:none; width:48px; height:6px; border-radius:2px; background:#15151d; overflow:hidden; }
+.sc-gbar::before{ content:""; position:absolute; left:calc(50% - .5px); top:0; bottom:0; width:1px; background:#05060c; z-index:2; }
+.sc-gbar i{ position:absolute; top:0; bottom:0; border-radius:2px; background:currentColor; box-shadow:0 0 5px currentColor; }
+.sc-gbar__v{ font:700 .86em var(--mono); letter-spacing:.02em; line-height:1; }
 .sc-nchart__msg{ position:absolute; inset:0; z-index:2; display:flex; align-items:center;
   justify-content:center; color:var(--dim); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
 .sc-nchart__msg[hidden]{ display:none; }
@@ -259,6 +272,8 @@ body.tvmodal-open{ overflow:hidden; }
 <!-- The RSI fan: the detail view's own RSI arithmetic, and the Lab's locked-timeframe rules. -->
 <script src="/station-shells/detail-v1/indicators.js"></script>
 <script src="/_indicators/station-rsi-fan.js"></script>
+<!-- The Hub's Geiger composite bar beside the badge: the scale, colours and age rule. Pure functions. -->
+<script src="/_indicators/station-geiger-bar.js"></script>
 <script>
 /* ONE SOURCE (2026-09-22). This page holds no Supabase client, no anon key and no realtime
    channel. Every price, candle and previous close comes from the chart API through SC_PROVIDER;
@@ -1966,6 +1981,66 @@ function ensureLiveParts(badge, host) {
   return { ticker, change, previous, historyWindow };
 }
 /* ============================================================================
+   THE GEIGER COMPOSITE BAR — its data lane (G1, 27 Sep).
+   Inside the deck the pane never reads it: the deck reads every visible chart's reading ONCE per
+   page change or minute and posts the map here ("deck-geiger"). Opened on its own (/chart/?t=MU)
+   the pane reads its one symbol, once a minute. A name with no reading shows nothing.
+   ============================================================================ */
+const GEIGER = { readings:{}, fromDeck:false, pulling:false };
+const GEIGER_REFRESH_MS = 60000;
+/* The bar is its own span, placed right after the price in the badge the two readout painters build.
+   It is created on the first reading and only hidden after that, so a name with no reading costs
+   nothing and the readout builder is untouched. */
+function paintGeigerBar(host) {
+  const badge = host?.querySelector(".sc-nchart__live");
+  if (!badge) return;
+  const B = window.SC_GEIGER_BAR;
+  const m = B ? B.model(GEIGER.readings[host.dataset.t], Date.now()) : null;
+  let node = badge.querySelector(".sc-nchart__live-geiger");
+  if (!m) {
+    if (node && !node.hidden) { node.hidden = true; node.removeAttribute("title"); node.removeAttribute("aria-label"); }
+    return;
+  }
+  if (!node) {
+    const change = badge.querySelector(".sc-nchart__live-change");
+    if (!change) return;   /* the readout is not built yet; its painter calls back here */
+    node = document.createElement("span");
+    node.className = "sc-nchart__live-geiger";
+    node.setAttribute("role", "img");
+    node.innerHTML = '<span class="sc-gbar"><i></i></span><span class="sc-gbar__v"></span>';
+    change.after(node);
+  }
+  node.hidden = false;
+  node.dataset.side = m.side;
+  node.dataset.stale = m.stale ? "1" : "0";
+  node.querySelector("i").setAttribute("style", B.fillStyle(m));
+  node.querySelector(".sc-gbar__v").textContent = m.text;
+  node.title = m.title;
+  node.setAttribute("aria-label", "Geiger composite " + m.text + (m.stale ? ", older than usual" : ""));
+}
+function paintGeigerBars() {
+  for (const host of CHART_HOSTS) if (host.isConnected) paintGeigerBar(host);
+}
+function applyDeckGeiger(readings) {
+  GEIGER.fromDeck = true;
+  GEIGER.readings = readings && typeof readings === "object" ? readings : {};
+  paintGeigerBars();
+}
+async function pullGeigerOne(t) {
+  const B = window.SC_GEIGER_BAR, P = window.SC_PROVIDER;
+  if (GEIGER.fromDeck || GEIGER.pulling || !B || !P || typeof P.equityGeigerOne !== "function" || !t) return;
+  GEIGER.pulling = true;
+  try {
+    const rows = await P.equityGeigerOne(t);
+    if (GEIGER.fromDeck) return;
+    GEIGER.readings = B.readingsFrom(rows, "PROVIDER_EQUALIZER");
+  } catch (_) {
+    /* A failed or refused read is no reading: the bar goes, it never keeps an unaccepted number. */
+    if (!GEIGER.fromDeck) GEIGER.readings = {};
+  } finally { GEIGER.pulling = false; }
+  paintGeigerBars();
+}
+/* ============================================================================
    THE CBOE PUT/CALL SERIES — PCC, PCCE, PCCI, PCSPX
    ----------------------------------------------------------------------------
    Until 23 Sep this pane showed TradingView's free USI:PCC widget, because the
@@ -2666,6 +2741,7 @@ function setChartTicker(t) {
   const tin = el("tkin"); if (tin && tin.value.toUpperCase().trim() !== t) tin.value = t;
   if (DECK_QUOTE_MODE) requestDeckQuote(t); else pullPrevClose(t);
   scChartLoad(host);
+  if (!GEIGER.fromDeck && !DECK_QUOTE_MODE) pullGeigerOne(t);
   /* THE BADGE NAMES THE CHART UNDER IT (25 Sep, P1). scChartLoad has just drawn the new symbol
      from its cache; the badge kept the OLD symbol's name and price until the quote round trip,
      so for ~100 ms a TSM line sat under "MAGS 72.52" (measured headlessly). Repaint it now: with
@@ -2779,6 +2855,7 @@ function paintLiveStatus(host, quote) {
   if (!badge) return;
   /* A published daily ratio has no quote and never will; it is painted from the
      session values themselves, which is why this returns before the live path. */
+  if (scPutCallPane(host?.dataset?.t)) paintGeigerBar(host);   /* no reading: a bar left by the name before goes */
   if (scPutCallPane(host?.dataset?.t)) { paintPutCallStatus(host); return; }
   const hasQuote = quotePrice(quote) != null;
   const observedAt = quoteInstant(quote);
@@ -2793,6 +2870,7 @@ function paintLiveStatus(host, quote) {
   const day = hasQuote ? chDayChange(quotePrice(quote), dayRef) : { text:"", tone:"flat" };
   badge.dataset.change = day.tone;
   const parts = ensureLiveParts(badge, host);
+  paintGeigerBar(host);   /* the reading follows the pane's CURRENT ticker, with or without a quote */
   const ticker = parts.ticker, change = parts.change, previous = parts.previous, historyWindow = parts.historyWindow;
   ticker.textContent = host.dataset.t;
   /* Alan, 22 Sep: "ticker, dollar value price, percentage change difference" - nothing else. */
@@ -2920,6 +2998,7 @@ addEventListener("message", (e) => {
   const d = e.data;
   if (!d) return;
   if (d.sc === "deck-quote") { applyDeckQuote(d.ticker, d.quote, d.state, d.absence); return; }
+  if (d.sc === "deck-geiger") { applyDeckGeiger(d.readings); return; }
   if (d.sc === "chart-load-grant") {
     const grant = chartLoadPermits.get(d.token);
     if (grant) { chartLoadPermits.delete(d.token); grant(); }
@@ -2963,6 +3042,12 @@ if (DECK_QUOTE_MODE) setTimeout(() => { if (prevClose[S.chartT] == null) pullPre
 /* A ten-second read-only heartbeat makes live status dependable even if the
    browser's realtime socket sleeps. The full history remains a 60-second pull. */
 if (!DECK_QUOTE_MODE) setInterval(() => pullPrevClose(S.chartT), 10000);
+/* THE GEIGER BAR. Opened alone, the pane reads its one reading now and once a minute. Inside the deck
+   it waits for the deck's shared map; a bare pane on a page that never answers (a workshop page's
+   iframe) reads its own after 4 s, so it is never left without one because nobody is sending. */
+if (!DECK_QUOTE_MODE) pullGeigerOne(S.chartT);
+else setTimeout(() => { if (!GEIGER.fromDeck) pullGeigerOne(S.chartT); }, 4000);
+setInterval(() => { if (!GEIGER.fromDeck) pullGeigerOne(S.chartT); else paintGeigerBars(); }, GEIGER_REFRESH_MS);
 /* refresh cadence — re-pull the active series every 60 s */
 setInterval(() => { const host = document.querySelector("#chartSlot .sc-nchart"); if (host) scChartLoad(host); }, 60000);
 

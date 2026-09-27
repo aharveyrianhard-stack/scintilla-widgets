@@ -1003,6 +1003,41 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     return rows;
   }
 
+  /* ONE LIGHT READING FOR ONE SYMBOL (27 Sep, the chart pane's Geiger bar when it is opened on its
+     own). /geiger?symbols=SYM returns the default projection - no per-rung audit - for exactly that
+     symbol, under the same Equalizer gate as the full read. Not cached into gCache: a one-symbol
+     payload is not the universe and must never answer for it. */
+  var gOneCache = {};
+  S.equityGeigerOne = function (symbol, options) {
+    options = options || {};
+    var sym = (normalizeSymbols(symbol) || [])[0];
+    if (!sym) return Promise.reject(transportError('equityGeigerOne needs a symbol', API + '/geiger', null));
+    return providerOwned(options.signal, readSupabase).then(function (own) {
+      /* Not a provider equity: this owner has no reading for it. Answered as "none", and NOT noted
+         as an absence - the absence book is what the chart's price lanes read, and a Geiger
+         question must not change what a price pane says. */
+      if (!own[sym]) return [];
+      var hit = gOneCache[sym];
+      if (hit && Date.now() - hit.at < 30000) return geigerRowsFrom([sym], hit.map, hit.computed_utc);
+      var url = API + '/geiger?symbols=' + encodeURIComponent(sym);
+      return jget(url, options.signal).then(function (j) {
+        if (!j || !j.symbols || j.requested !== 1 || j.returned !== 1 || !j.symbols[sym])
+          throw transportError('provider geiger reading incomplete for ' + sym, url, null);
+        if (!equalizerAccepted(j.equalizer_receipt_sha256))
+          throw transportError('provider geiger equalizer receipt not accepted', url, null);
+        gOneCache[sym] = { at: Date.now(), map: j.symbols, computed_utc: j.computed_utc || null };
+        return geigerRowsFrom([sym], j.symbols, j.computed_utc || null);
+      });
+    });
+  };
+  function geigerRowsFrom (symbols, map, computedUtc) {
+    return symbols.map(function (sym) {
+      var value = map[sym];
+      return { ticker: sym, tf: 'D', composite: value.composite, trend: value.trend, momentum: value.momentum,
+               computed_utc: computedUtc, updated_ts: computedUtc, provider: 'MASSIVE', authority: 'PROVIDER_EQUALIZER' };
+    });
+  }
+
   S.equityGeiger = function (symbols, options) {
     options = options || {};
     var requested = normalizeSymbols(symbols);
