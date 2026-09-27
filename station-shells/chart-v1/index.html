@@ -2216,7 +2216,7 @@ function paintGeigerBar(host) {
   node.querySelector(".sc-gbar__v").textContent = m.text;
   node.title = m.title;
   node.setAttribute("aria-label", "Geiger composite " + m.text + (m.stale ? ", older than usual" : ""));
-  host._geigerMemo = null; host._inkAt = null;
+  host._geigerMemo = null;   /* host._inkAt stays: it is this paint's pixels, reset by the next paint */
   placeGeiger(host);
 }
 /* Where the chip goes: lens-placement.mjs's emptiestSpot, the same rule the lens uses - never in the
@@ -2240,7 +2240,8 @@ function placeGeiger(host) {
   const badge = host.querySelector(".sc-nchart__live");
   const lens = host._lens && host._lens.spot;
   const sig = [box.w, box.h, plot.padL, plot.padT, plot.iw, plot.ih, plot.start, plot.end, pts.length,
-    pts[pts.length - 1].p, badge ? badge.offsetWidth + "x" + badge.offsetHeight : "", lens ? [lens.x, lens.y].join(",") : "",
+    /* the bar count and the newest bar's time, not its price: a live tick must not re-read the canvas */
+    pts[pts.length - 1].d, badge ? badge.offsetWidth + "x" + badge.offsetHeight : "", lens ? [lens.x, lens.y].join(",") : "",
     (host._cloudTicker || "") + ":" + ((host._cloudRows && host._cloudRows.length) || 0)].join("|");
   if (host._geigerMemo === sig) return;
   host._geigerMemo = sig;

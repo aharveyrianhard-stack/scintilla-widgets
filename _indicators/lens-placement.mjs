@@ -355,9 +355,30 @@ export function emptiestSpot(opts) {
   const y0 = plot.padT + edge, y1 = plot.padT + plot.ih - edge - box.h;
   if (x1 < x0 || y1 < y0) return { spot: null, why: "the plot left of the newest fifth is smaller than the box" };
   const hit = (r) => keepOut.some((k) => !(r.x + r.w + pad <= k.x || k.x + k.w + pad <= r.x || r.y + r.h + pad <= k.y || k.y + k.h + pad <= r.y));
+  /* The chart's pixels are sampled ONCE on a step grid over the plot and summed, so each candidate's
+     share of ink is four lookups rather than hundreds (the per-candidate sampling cost ~25 ms per wall
+     at the iMac-like 4x CPU profile). The same sampling points inkShare would use. */
+  const step = opts.step || 3;
+  /* the lens and the Geiger chip ask about the same paint with the same reader: build the table once */
+  const key = [plot.padL, plot.padT, plot.iw, plot.ih, step].join(",");
+  let inkIn = null;
+  if (opts.ink) {
+    if (opts.ink.__sumKey === key) inkIn = opts.ink.__sum;
+    else { inkIn = summedInk(plot, opts.ink, step); try { opts.ink.__sum = inkIn; opts.ink.__sumKey = key; } catch (_) {} }
+  }
+  /* the price points under a box and one either side: pathPoints is ordered by x */
+  const near = (r) => {
+    if (!pts.length) return pts;
+    const a = r.x - margin, b = r.x + r.w + margin;
+    let lo = 0, hi = pts.length - 1;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (pts[m].x < a) lo = m + 1; else hi = m; }
+    let end = lo;
+    while (end < pts.length && pts[end].x <= b) end++;
+    return pts.slice(Math.max(0, lo - 1), Math.min(pts.length, end + 1));
+  };
   const score = (r) => {
-    const share = opts.ink ? inkShare(r, opts.ink, opts.step || 3) : 0;
-    const covers = !clearsPrice(r, pts, margin);
+    const share = inkIn ? inkIn(r) : 0;
+    const covers = !clearsPrice(r, near(r), margin);
     return { ink: share, covers, score: share + (covers ? COVER_COST : 0) };
   };
   const xs = [], ys = [];
@@ -385,6 +406,28 @@ export function emptiestSpot(opts) {
     if (now.score <= best.score + MOVE_MARGIN) return { spot: now, why: "held: " + why + " is not meaningfully emptier", held: true, considered: cands.length };
   }
   return { spot: best, why: why + (best.covers ? " (nothing clear of the line was emptier)" : ""), held: false, considered: cands.length };
+}
+
+/* A summed table of ink samples on a `step` grid anchored at the plot's corner; returns rect -> share. */
+export function summedInk(plot, ink, step = 3) {
+  const x0 = Math.floor(plot.padL), y0 = Math.floor(plot.padT);
+  const cols = Math.max(1, Math.ceil(plot.iw / step) + 1), rows = Math.max(1, Math.ceil(plot.ih / step) + 1);
+  const S = new Uint32Array((cols + 1) * (rows + 1));
+  for (let j = 0; j < rows; j++) {
+    let run = 0;
+    for (let i = 0; i < cols; i++) {
+      if (ink(x0 + i * step, y0 + j * step)) run++;
+      S[(j + 1) * (cols + 1) + i + 1] = S[j * (cols + 1) + i + 1] + run;
+    }
+  }
+  const at = (i, j) => S[Math.max(0, Math.min(rows, j)) * (cols + 1) + Math.max(0, Math.min(cols, i))];
+  return (r) => {
+    const i0 = Math.ceil((r.x - x0) / step), i1 = Math.ceil((r.x + r.w - x0) / step);
+    const j0 = Math.ceil((r.y - y0) / step), j1 = Math.ceil((r.y + r.h - y0) / step);
+    const n = Math.max(0, i1 - i0) * Math.max(0, j1 - j0);
+    if (!n) return 1;
+    return (at(i1, j1) - at(i0, j1) - at(i1, j0) + at(i0, j0)) / n;
+  };
 }
 
 /* "anything the chart painted", read once from its own canvas (alpha > 40). Shared by the lens and

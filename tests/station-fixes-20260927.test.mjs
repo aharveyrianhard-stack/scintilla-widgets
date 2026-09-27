@@ -30,12 +30,12 @@ test("both chart copies stay byte-identical", () => {
   assert.equal(chart, shell);
 });
 
-test("the load queue serves the price first, then the ribbon and the lens, then the RSI fan", () => {
+test("the load queue serves the price first, then the ribbon, then the lens, then the RSI fan", () => {
   const priority = fnFrom(deck, "chartLoadPriority");
   assert.equal(priority("MU|3D|240|0"), 0, "a price read");
   assert.equal(priority("MU|3D|240|0|clouds"), 1);
-  assert.equal(priority("MU|3D|240|0|lens"), 1);
-  assert.equal(priority("MU|1D|240|0|rsi"), 2);
+  assert.equal(priority("MU|3D|240|0|lens"), 2);
+  assert.equal(priority("MU|1D|240|0|rsi"), 3);
   assert.equal(priority(undefined), 0, "an unlabelled read is treated as a price");
   assert.match(deck, /chartDataLoadQueue\.push\(\{ token:event\.data\.token, priority:chartLoadPriority\(event\.data\.req\),/);
   assert.match(deck, /const CHART_DATA_LOAD_LIMIT = 4;/, "how many run at once is unchanged");
