@@ -229,13 +229,14 @@ export function paint(host, deps) {
   framePath(ctx, r.w, r.h, r.corner);
   ctx.globalAlpha = DIALS.opacity; ctx.fillStyle = INK.paper; ctx.fill();
   ctx.globalAlpha = 1; ctx.clip();
-  if (fresh.stale) ctx.globalAlpha = STALE_ALPHA;
   const inner = { x: 0, y: 0, w: r.w, h: r.h };
   drawBubble(ctx, inner, { bars, sessions, day, symbol: t, timeframe: want.timeframe.toUpperCase(),
     colour: DIALS.colour, volume: false, font: 8 }, { palette });
   ctx.globalAlpha = 1;
   if (fresh.stale) {
-    /* the head's right side names it: STALE, over a paper patch so the dimmed text under it does not show */
+    /* dimmed: a paper veil over the whole drawing (drawBubble sets its own alpha, so it cannot be dimmed from
+       outside), then the head's right side names it: STALE, over a solid patch */
+    ctx.globalAlpha = 1 - STALE_ALPHA; ctx.fillStyle = INK.paper; ctx.fillRect(0, 0, r.w, r.h); ctx.globalAlpha = 1;
     const L = layout(inner, {});
     ctx.font = `600 8px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace`;
     ctx.textBaseline = "middle"; ctx.textAlign = "right";
