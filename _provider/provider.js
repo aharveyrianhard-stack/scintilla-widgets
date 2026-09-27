@@ -357,12 +357,19 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
      So the map must be VERIFIED COMPLETE before it is allowed to classify anything. The
      provider's universe is a known size; a payload of any other size is a disagreement, and a
      disagreement fails closed with a named reason rather than quietly becoming the new truth.
-     EXPECTED_EQUITY_UNIVERSE is an editable default: when the provider's universe genuinely
-     changes, this is the one line to move, and moving it is a deliberate act rather than
-     something that happens to a wall at 04:00.
+     (Until 27 Sep, EXPECTED_EQUITY_UNIVERSE was a pinned size moved by hand at every admission;
+     admission v2 replaced the pin with the checks described below, which still fail closed.)
 
      A previously VERIFIED map still survives a bad read - that is knowledge, not a guess. */
-  var EXPECTED_EQUITY_UNIVERSE = 364;
+  /* ADMISSION V2 (27 Sep) — THE STATION IS NOT A GATE. Alan: "why does a new ticker have to go through
+     the Station page?" This number no longer gates anything. What still gates ownership, and fails
+     closed exactly as before: the payload must be self-consistent (count = symbols, sha256 over the
+     symbols = the digest it claims) and, wherever the page binds a canonical reader, equal name by
+     name to the active equity rows of public.tickers. A new admission therefore needs no Station
+     change; a split between the chart API and the Hub's rows is still refused with its names. The
+     value below is kept only as the size last seen when it was a pin, for reviewers. */
+  var EXPECTED_EQUITY_UNIVERSE = null;
+  var LAST_PINNED_EQUITY_UNIVERSE = 364;
   /* THE MACRO SERIES THE CHART API CARRIES FROM FMP (2026-09-22): VIX, DXY, US10Y, and from 26 Sep
      the index futures ESUSD/NQUSD too. Same /candles route, provider stated on every response.
      Anything else that is not provider-owned equity is NOT_SERVED_BY_CHART_API - a named absence
@@ -400,6 +407,14 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
      which already accepts both (SC_FMP_REFERENCE_DIGESTS), kept showing it. Both identities are
      reference-only; neither controls Geiger membership. Anything else still fails closed. */
   var FMP_REFERENCE_UNIVERSE_SHA256S = [INDICATOR_UNIVERSE_SHA256, ACCEPTED_UNIVERSE_SHA256];
+  /* ADMISSION V2: FMP rows stamped with the identity the Station has itself VERIFIED this session are
+     accepted too, so moving the indicator writer to a new set needs no Station release. Nothing else
+     is widened: an unverified or unknown identity still fails closed. */
+  function fmpReferenceDigests () {
+    var served = S.ownership && S.ownership.verified === true ? S.ownership.universe_sha256 : null;
+    return served && FMP_REFERENCE_UNIVERSE_SHA256S.indexOf(served) < 0
+      ? FMP_REFERENCE_UNIVERSE_SHA256S.concat([served]) : FMP_REFERENCE_UNIVERSE_SHA256S;
+  }
   /* CARDINALITY IS NOT IDENTITY, AND THE CANONICAL SET IS DERIVABLE.
      Checking only that the payload holds 365 symbols passes a set of the RIGHT SIZE and the
      WRONG MEMBERS: drop AAPL, add TICK, and the count still says 365 while AAPL is quietly
@@ -495,7 +510,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     if (ownedFlight) return waitForOwnership(ownedFlight, signal);
     var fail = function (why, count) {
       S.ownership = { verified: false, count: count == null ? null : count,
-                      expected: EXPECTED_EQUITY_UNIVERSE, reason: why };
+                      expected: EXPECTED_EQUITY_UNIVERSE, reason: why };   // expected: null — nothing is pinned (admission v2)
       if (owned) return owned;                      // a verified map survives one bad answer
       throw transportError('provider ownership ' + why, API + '/universe', null);
     };
@@ -524,8 +539,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
          canonical set comparison below remains mandatory; quotes and charts must not wait
          for a score publication. The Geiger reader checks its own Equalizer separately. */
       if (j.provider !== 'MASSIVE' || j.count !== syms.length ||
-          syms.length !== EXPECTED_EQUITY_UNIVERSE ||
-          j.universe_sha256 !== ACCEPTED_UNIVERSE_SHA256)
+          !/^[a-f0-9]{64}$/.test(String(j.universe_sha256 || '')))
         return fail('universe contract not accepted', syms.length);
 
       var next = {};
@@ -545,8 +559,8 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
             return null;
           })())
         : universeDigest(syms).then(function (digest) {
-            return digest === ACCEPTED_UNIVERSE_SHA256 ? null
-              : 'universe identity: recomputed digest ' + String(digest).slice(0, 12) + ' is not the accepted set';
+            return digest === j.universe_sha256 ? null
+              : 'universe identity: recomputed digest ' + String(digest).slice(0, 12) + ' is not the digest the payload claims';
           }, function (e) {
             return 'universe identity could not be computed: ' + (e && e.message || 'unknown');
           });
@@ -560,7 +574,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
                         /* Stated so a reviewer can see what "verified" actually compared. */
                         identity: (canon && canon.length)
                           ? 'exact set match against ' + canon.length + ' canonical active tickers (type null, or not crypto/future/index/rate)'
-                          : 'sha256 over the ' + syms.length + ' returned symbols equals the pinned accepted universe digest' };
+                          : 'sha256 over the ' + syms.length + ' returned symbols equals the digest the payload claims (self-consistency; no pinned value since admission v2)' };
         return owned;
       });
     }, function (e) {
@@ -688,7 +702,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
   function geiger (signal) {
     if (gCache.map && Date.now() - gCache.at < 30000) return Promise.resolve(gCache.map);
     return jget(API + '/geiger', signal).then(function (j) {
-      if (!j || !j.symbols || Object.keys(j.symbols).length !== EXPECTED_EQUITY_UNIVERSE ||
+      if (!j || !j.symbols || !owned || Object.keys(j.symbols).length !== Object.keys(owned).length ||
           Object.keys(j.symbols).some(function (sym) { return !owned || !owned[sym]; })) {
         throw transportError('provider geiger unavailable', API + '/geiger', null);
       }
@@ -777,7 +791,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     });
     return 'provider_indicators_current?select=ticker,provider,timeframe,indicator,period_length,value,source_date,session_state,fetched_at,universe_hash' +
       '&ticker=in.(' + symbols.join(',') + ')' +
-      '&provider=eq.FMP&timeframe=eq.1day&universe_hash=in.(' + FMP_REFERENCE_UNIVERSE_SHA256S.join(',') + ')' +
+      '&provider=eq.FMP&timeframe=eq.1day&universe_hash=in.(' + fmpReferenceDigests().join(',') + ')' +
       (families.length && families.length < 9 ? '&indicator=in.(' + families.join(',') + ')' : '') +
       '&limit=1000';
   }
@@ -794,7 +808,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
         var ticker = String(r.ticker || '').toUpperCase();
         var key = String(r.indicator || '') + ':' + String(r.period_length);
         if (!requested[ticker] || !allowed[key] || r.provider !== 'FMP' || r.timeframe !== '1day' ||
-            FMP_REFERENCE_UNIVERSE_SHA256S.indexOf(r.universe_hash) < 0 || !isFinite(Number(r.value)) ||
+            fmpReferenceDigests().indexOf(r.universe_hash) < 0 || !isFinite(Number(r.value)) ||
             ['FORMING','SETTLED'].indexOf(String(r.session_state || '')) < 0 || !r.source_date) {
           throw transportError('provider indicator row violated the accepted FMP contract: ' +
             (ticker || 'UNKNOWN') + '/' + (key || 'UNKNOWN'), 'provider_indicators_current', null);
