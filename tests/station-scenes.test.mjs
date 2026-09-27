@@ -73,7 +73,7 @@ test("all named scenes are present, with Alan's 25 Sep workflow leading the id l
      and TO-DO / SCRATCH still close the deck. */
   assert.deepEqual(Array.from(scenes.IDS), ["live",
     "wkIndexes","wkMacro","targets3D","sectors3D","mainIndexes3D","mag7","ai1","ai2","ai3","other3D","blueChip3D",
-    "spyQqq1D","spyQqqOsc","otherIndexes1D","otherIndexesOsc","macro1D","targets1D","targetsOsc",
+    "spyQqq1D","otherIndexes1D","otherIndexesOsc","macro1D","targets1D","targetsOsc",
     "macroIntraday","intraday4h","intraday1h","intraday30m",
     /* 25 Sep, later: HISTORY is retired (Alan did not mean a page); it resolves through LEGACY. */
     "scintillas","oscWorkbench",
@@ -204,7 +204,7 @@ test("normal wall chooser is two, six, or eight while INDEX NOW keeps its launch
     "the INDEX NOW state remains representable without being shown in the menu");
 });
 
-test("the arrows walk every page while rotation keeps to Alan's workflow (22 pages since the RSI pages)", () => {
+test("the arrows walk every page while rotation keeps to Alan's workflow (21 pages since SPY + QQQ became one page)", () => {
   /* 25 Sep: auto-rotate IS the workflow now — the twenty-two pages in Alan's order. By day
      (04:00–18:00 ET) the intraday four ride the lap twice; at night and at the weekend they
      leave (rotationScenesAt; pinned in full in station-rotation-2025-09.test.mjs and
@@ -212,7 +212,7 @@ test("the arrows walk every page while rotation keeps to Alan's workflow (22 pag
      arrows, rail and menu but no longer rotate. */
   assert.deepEqual(Array.from(scenes.ROTATION_IDS), [
     "wkIndexes","wkMacro","targets3D","sectors3D","mainIndexes3D","mag7","ai1","ai2","ai3","other3D","blueChip3D",
-    "spyQqq1D","spyQqqOsc","otherIndexes1D","otherIndexesOsc","macro1D","targets1D","targetsOsc",
+    "spyQqq1D","otherIndexes1D","otherIndexesOsc","macro1D","targets1D","targetsOsc",
     "macroIntraday","intraday4h","intraday1h","intraday30m"],
     "the rotation is the workflow, in the workflow's order (25 Sep P2: an RSI page after each daily twin)");
   assert.equal(scenes.nextRotatingScreenAt("intraday30m", "2026-09-23T13:30:00Z").scene, "spyQqq1D",
@@ -1101,17 +1101,47 @@ test("the price axis labels the price the gridline is actually at", () => {
 });
 
 /* ── CL4, 27 Sep: THE CONTEXT LENS ON THE 3-DAY PAGES ─────────────────────────────── */
-test("the nine 3-day pages carry the context lens on every slot, and no other page does", () => {
+/* O1 (27 Sep), Alan: 4h on the 3-day charts, 30-minute on the daily charts, none on the weekly pages.
+   MACRO · DAY stays without one: macro intraday is not switched on without Alan. */
+test("the nine 3-day pages carry the 4h lens, the daily pages the 30-minute lens, and no other page any", () => {
   const nine = ["targets3D", "sectors3D", "mainIndexes3D", "mag7", "ai1", "ai2", "ai3", "other3D", "blueChip3D"];
+  const daily = ["spyQqq1D", "otherIndexes1D", "otherIndexesOsc", "targets1D", "targetsOsc"];
   const at = new Date("2026-09-28T15:00:00Z");
   for (const id of Object.keys(scenes.WORKFLOW_PAGES)) {
     const state = scenes.workflowPageState(id, { at });
     assert.equal(state.bubbles.length, state.tickers.length, `${id}: one entry per slot`);
     if (nine.includes(id)) {
       assert.equal(scenes.WORKFLOW_PAGES[id].range, "3D", `${id} is a 3-day page`);
-      assert.ok(state.bubbles.every((b) => b === "30m:3"), `${id}: every slot asks for 30-minute bars, three sessions`);
+      assert.ok(state.bubbles.every((b) => b === "4h:12"), `${id}: every slot asks for 4-hour bars, twelve sessions`);
+    } else if (daily.includes(id)) {
+      assert.equal(scenes.WORKFLOW_PAGES[id].range, "1D", `${id} is a daily page`);
+      assert.ok(state.bubbles.every((b) => b === "30m:3"), `${id}: 30-minute bars, three sessions`);
     } else assert.ok(state.bubbles.every((b) => b === ""), `${id}: no lens`);
   }
+  assert.ok(scenes.workflowPageState("macro1D", { at }).bubbles.every((b) => b === ""), "MACRO · DAY: none");
+  assert.ok(scenes.workflowPageState("wkMacro", { at }).bubbles.every((b) => b === ""), "weekly macro: none");
+  assert.match(deck, /\/\^\[0-9a-z\]\+:\[0-9\]\{1,2\}\$\/\.test\(String\(bubbles\[i\]/, "the deck lets a two-digit session count through");
+});
+
+/* O1 (27 Sep), Alan: "ES/NQ page then SPY/QQQ page appeared back to back — he expected ONE page whose
+   charts switch symbols by session… One page showed oscillators, the other didn't." */
+test("one SPY + QQQ daily page: SPY/QQQ in the market, ES/NQ outside it, the RSI fan either way", () => {
+  const market = scenes.workflowPageState("spyQqq1D", { at: "2026-09-28T15:00:00Z" });   // Mon 11:00 ET
+  const night = scenes.workflowPageState("spyQqq1D", { at: "2026-09-28T23:00:00Z" });    // Mon 19:00 ET
+  assert.deepEqual(Array.from(market.tickers), ["SPY", "QQQ"]);
+  assert.deepEqual(Array.from(night.tickers), ["ESUSD", "NQUSD"]);
+  assert.deepEqual(Array.from(market.stacks), ["RSI", "RSI"]);
+  assert.deepEqual(Array.from(night.stacks), ["RSI", "RSI"], "the oscillator is on in both sessions");
+  assert.equal(scenes.WORKFLOW_PAGES.spyQqqOsc, undefined, "the separate RSI page is gone");
+  assert.equal(scenes.normalizeScene("spyQqqOsc"), "spyQqq1D", "a browser that remembered it lands on the one page");
+  for (const at of ["2026-09-28T15:00:00Z", "2026-09-28T23:00:00Z", "2026-09-27T17:00:00Z"]) {
+    const lap = scenes.rotationScenesAt(at);
+    for (let i = 1; i < lap.length; i++)
+      assert.ok(!(scenes.WORKFLOW_PAGES[lap[i - 1]].leaders && scenes.WORKFLOW_PAGES[lap[i]].leaders &&
+        scenes.WORKFLOW_PAGES[lap[i - 1]].range === scenes.WORKFLOW_PAGES[lap[i]].range),
+        `${at}: no two leaders pages of the same timeframe back to back (${lap[i - 1]} → ${lap[i]})`);
+  }
+  assert.doesNotMatch(deck, /value="spyQqqOsc"/, "and it is out of the menu");
 });
 
 test("the deck puts the lens on the slot's URL, and a page change turns it on or off by message, not by reload", () => {

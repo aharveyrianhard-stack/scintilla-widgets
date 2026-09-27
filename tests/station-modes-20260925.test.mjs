@@ -67,11 +67,11 @@ test("by day the 3-day and daily pages rotate with the intraday four twice; by n
   const intraday = ["macroIntraday","intraday4h","intraday1h","intraday30m"];
   const threeDay = scenes.WORKFLOW_IDS.filter((id) => scenes.WORKFLOW_PAGES[id].range === "3D");
   const daily = scenes.WORKFLOW_IDS.filter((id) => scenes.WORKFLOW_PAGES[id].range === "1D");
-  assert.equal(threeDay.length, 9, "the 3-day block"); assert.equal(daily.length, 7, "the daily block, RSI twins included");
+  assert.equal(threeDay.length, 9, "the 3-day block"); assert.equal(daily.length, 6, "the daily block, RSI twins included (SPY + QQQ carries its own fan since 27 Sep)");
   assert.deepEqual(arr(scenes.rotationScenesFor("day")), arr(threeDay).concat(intraday, daily, intraday),
-    "day: 3-day + intraday + daily + intraday (24 slots); the weeklies wait for the night");
+    "day: 3-day + intraday + daily + intraday (23 slots); the weeklies wait for the night");
   assert.deepEqual(arr(scenes.rotationScenesFor("night")), weekly.concat(arr(threeDay), arr(daily)),
-    "night: weekly + 3-day + daily, in the workflow's order (18 pages)");
+    "night: weekly + 3-day + daily, in the workflow's order (17 pages)");
   assert.deepEqual(arr(scenes.INTRADAY_PAGES), intraday);
   assert.deepEqual(arr(scenes.WEEKLY_PAGES), weekly);
   for (const id of scenes.WORKFLOW_IDS) assert.ok(scenes.screenForScene(id), `${id} is still a page in the menu`);

@@ -167,9 +167,11 @@ test("how much source history a line asks for: the chart's span plus the warm-up
   assert.ok(F.MAX_SOURCE <= 8000, "never beyond the provider client's own clamp");
 });
 
-test("three oscillator pages, each right after its price twin, daily, with the RSI study", () => {
+/* 27 Sep (O1): SPY + QQQ · RSI is merged into SPY + QQQ · DAY, which carries the study itself (one page,
+   ES/NQ outside the market) - so two oscillator twins remain, and the SPY + QQQ page is its own. */
+test("two oscillator pages, each right after its price twin, daily, with the RSI study; SPY + QQQ carries its own", () => {
   const ids = Array.from(scenes.WORKFLOW_IDS);
-  for (const [twin, osc] of [["spyQqq1D","spyQqqOsc"],["otherIndexes1D","otherIndexesOsc"],["targets1D","targetsOsc"]]) {
+  for (const [twin, osc] of [["otherIndexes1D","otherIndexesOsc"],["targets1D","targetsOsc"]]) {
     assert.equal(ids.indexOf(osc), ids.indexOf(twin) + 1, osc + " follows " + twin);
     assert.equal(scenes.WORKFLOW_PAGES[osc].range, "1D");
     assert.equal(scenes.WORKFLOW_PAGES[osc].study, "RSI");
@@ -177,12 +179,12 @@ test("three oscillator pages, each right after its price twin, daily, with the R
     assert.ok(state.stacks.length === state.tickers.length && state.stacks.every((s) => s === "RSI"), "every slot carries the study");
     assert.ok(Array.from(scenes.ROTATION_SCENES).includes(osc), osc + " rotates");
   }
-  assert.deepEqual(Array.from(scenes.workflowPageState("spyQqqOsc", { at: "2026-09-23T22:00:00Z" }).tickers), ["SPY","QQQ"],
-    "SPY and QQQ, as the brief names them, in and out of the session");
+  for (const at of ["2026-09-23T14:00:00Z", "2026-09-23T22:00:00Z"])
+    assert.ok(Array.from(scenes.workflowPageState("spyQqq1D", { at }).stacks).every((s) => s === "RSI"), "SPY + QQQ · DAY has the fan " + at);
   assert.deepEqual(Array.from(scenes.workflowPageState("otherIndexesOsc", {}).tickers), ["SMH","DIA","DRAM","MAGS","IWM","IGV"]);
   assert.deepEqual(Array.from(scenes.workflowPageState("targetsOsc", { targets:["MU","NBIS"] }).tickers), ["MU","NBIS"],
     "TARGETS · RSI reads the same shared targets list as TARGETS · DAY");
-  for (const id of ["spyQqqOsc","otherIndexesOsc","targetsOsc"]) {
+  for (const id of ["spyQqq1D","otherIndexesOsc","targetsOsc"]) {
     const after = Array.from(scenes.rotationScenesAt("2026-09-23T22:00:00Z"));
     const inside = Array.from(scenes.rotationScenesAt("2026-09-23T14:00:00Z"));
     assert.ok(after.includes(id) && inside.includes(id), id + " rotates whenever the daily pages do");
@@ -196,10 +198,10 @@ test("the study becomes the pane's query without touching the wall's cloud switc
   assert.equal(scenes.studyQuery("OSCILLATOR"), "&clouds=1&ema8=1&sma100=1", "the existing stacks are unchanged");
   assert.equal(scenes.studyQuery("CLOUDS"), "&clouds=1");
   assert.equal(scenes.studyQuery(""), "");
-  const plainPage = scenes.workflowPageState("spyQqq1D", { at: "2026-09-23T14:00:00Z" });
+  const plainPage = scenes.workflowPageState("otherIndexes1D", { at: "2026-09-23T14:00:00Z" });
   assert.ok(plainPage.stacks.every((s) => s === ""), "a page with no study adds nothing to its panes' URLs");
   const deck = read("../deck/index.html");
-  for (const id of ["spyQqqOsc","otherIndexesOsc","targetsOsc"])
+  for (const id of ["spyQqq1D","otherIndexesOsc","targetsOsc"])
     assert.match(deck, new RegExp(`<option value="${id}">`), id + " is in the scene menu");
   assert.match(deck, /const stacks = state\.stacks \|\| \[\]/, "the deck installs a page's stacks per slot");
   assert.match(deck, /SceneModel\.studyQuery\(stack\)/, "and turns each into the pane's query");

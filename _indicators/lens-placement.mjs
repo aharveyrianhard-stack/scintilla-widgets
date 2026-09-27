@@ -324,3 +324,83 @@ export function chamferPath(corner, cut = 14) {
   return cuts[corner] || cuts.tl;
 }
 export const SHIPPED_SHAPE = "chamfer";
+
+/* ============================================================================
+   O1 (27 Sep) — THE EMPTIEST DARK REGION.
+   Alan: the lens' "position must seek the emptiest dark space (not fixed)". Corners are not
+   enough on a 3-day line that fills three of them, so this searches a grid of positions over
+   the whole plot and takes the one with the least already painted on it - the chart's own
+   pixels, clouds included. Rules, in order:
+     1. never in the newest fifth (the whole column, not just the line in it);
+     2. never on a keep-out box (the pane's badge, the deck's arrows, the lens for the Geiger chip);
+     3. covering the price line costs COVER_COST on top of the ink it already counts, so an empty
+        patch always beats a thin line, but a crowded chart still gets its least-bad spot;
+     4. the preferred spot (bottom-left for the lens) wins whenever it is within `tolerance`
+        of the best, and a spot already held keeps its place unless another is MOVE_MARGIN
+        emptier - it does not hop on every tick.
+   Pure: `ink(x, y)` is handed in (the page reads the chart canvas, the tests pass a function).
+   ========================================================================== */
+export const COVER_COST = 0.25;
+export function emptiestSpot(opts) {
+  const { plot, box } = opts;
+  const pts = opts.points || [];
+  const edge = opts.edge == null ? DEFAULTS.edge : opts.edge;
+  const margin = opts.margin == null ? 6 : opts.margin;
+  const pad = opts.keepOutPad == null ? 4 : opts.keepOutPad;
+  const tolerance = opts.tolerance == null ? 0.03 : opts.tolerance;
+  const cols = opts.cols || 10, rows = opts.rows || 6;
+  const keepOut = (opts.keepOut || []).filter((k) => k && k.w > 0 && k.h > 0);
+  const tail = tailBox(plot, opts.tailShare == null ? TAIL_SHARE : opts.tailShare);
+  const x0 = plot.padL + edge, x1 = Math.min(tail.x - box.w, plot.padL + plot.iw - edge - box.w);
+  const y0 = plot.padT + edge, y1 = plot.padT + plot.ih - edge - box.h;
+  if (x1 < x0 || y1 < y0) return { spot: null, why: "the plot left of the newest fifth is smaller than the box" };
+  const hit = (r) => keepOut.some((k) => !(r.x + r.w + pad <= k.x || k.x + k.w + pad <= r.x || r.y + r.h + pad <= k.y || k.y + k.h + pad <= r.y));
+  const score = (r) => {
+    const share = opts.ink ? inkShare(r, opts.ink, opts.step || 3) : 0;
+    const covers = !clearsPrice(r, pts, margin);
+    return { ink: share, covers, score: share + (covers ? COVER_COST : 0) };
+  };
+  const xs = [], ys = [];
+  for (let i = 0; i < cols; i++) xs.push(Math.round(x0 + (cols === 1 ? 0 : (i / (cols - 1)) * (x1 - x0))));
+  for (let j = 0; j < rows; j++) ys.push(Math.round(y1 - (rows === 1 ? 0 : (j / (rows - 1)) * (y1 - y0))));
+  const cands = [];
+  for (const y of ys) for (const x of xs) {
+    const r = { x, y, w: box.w, h: box.h };
+    if (hit(r)) continue;
+    cands.push({ ...r, ...score(r) });
+  }
+  /* a keep-out on the preferred corner (the deck's arrow): the same row slides right past it */
+  if (!cands.length) return { spot: null, why: "every position left of the newest fifth sits on the badge or a control" };
+  const prefer = opts.prefer || "bl";
+  const want = prefer === "bl" ? { x: x0, y: y1 } : prefer === "tl" ? { x: x0, y: y0 } : prefer;
+  const dist = (c) => Math.hypot(c.x - want.x, c.y - want.y);
+  const preferred = cands.slice().sort((a, b) => dist(a) - dist(b))[0];
+  let best = cands.slice().sort((a, b) => (a.score - b.score) || (dist(a) - dist(b)))[0];
+  let why = "the emptiest dark space";
+  if (preferred.score <= best.score + tolerance) { best = preferred; why = prefer === "bl" ? "bottom-left (preferred; as empty as anywhere)" : "the preferred spot (as empty as anywhere)"; }
+  /* hold still: the spot it already has stays unless the new one is meaningfully emptier */
+  const prev = opts.prev;
+  if (prev && prev.w === box.w && prev.h === box.h && prev.x >= x0 - 1 && prev.x <= x1 + 1 && prev.y >= y0 - 1 && prev.y <= y1 + 1 && !hit(prev)) {
+    const now = { ...prev, ...score(prev) };
+    if (now.score <= best.score + MOVE_MARGIN) return { spot: now, why: "held: " + why + " is not meaningfully emptier", held: true, considered: cands.length };
+  }
+  return { spot: best, why: why + (best.covers ? " (nothing clear of the line was emptier)" : ""), held: false, considered: cands.length };
+}
+
+/* "anything the chart painted", read once from its own canvas (alpha > 40). Shared by the lens and
+   the Geiger chip so both see the same pixels. */
+export function inkReader(canvas) {
+  let data = null, W = 0, H = 0, ratio = 1;
+  return (x, y) => {
+    if (!data) {
+      try {
+        const c = canvas.getContext("2d", { willReadFrequently: false }); W = canvas.width; H = canvas.height;
+        ratio = W / Math.max(1, canvas.clientWidth);
+        data = c.getImageData(0, 0, W, H).data;
+      } catch (_) { data = new Uint8ClampedArray(0); }
+    }
+    const px = Math.round(x * ratio), py = Math.round(y * ratio);
+    if (px < 0 || py < 0 || px >= W || py >= H) return false;
+    return data[(py * W + px) * 4 + 3] > 40;
+  };
+}

@@ -170,12 +170,26 @@
   const isOpen = () => !!OPEN;
   const current = () => (OPEN ? { kind:OPEN.kind, ticker:OPEN.ticker, url:OPEN.url } : null);
 
+  function detailBadgeOn() {
+    try { return new URLSearchParams(root.location.search).get("detail") === "1"; } catch (e) { return false; }
+  }
   /* ---- the ⤢ badge the deck puts on a chart pane ---- */
   function attach(pane) {
     if (!pane || !pane.node || !pane.def || pane.def.kind !== "chart") return false;
     if (pane.node.querySelector(".detail-open")) return false;
     const doc = root.document;
     ensureStyle(doc);
+    /* 27 Sep (O1), Alan: he never uses the DETAIL button - "detail belongs in the Hub". The grey
+       badge is no longer put on the wall's panes. The title double-click and the menu entries stay,
+       and ?detail=1 brings the badge back. */
+    const title0 = pane.node.querySelector(".t, .title, .ph");
+    if (!detailBadgeOn()) {
+      if (title0 && !title0.dataset.detailDbl) {
+        title0.dataset.detailDbl = "1";
+        title0.addEventListener("dblclick", () => { const t = clean(pane.def.ticker); if (t) open(t, { range:(root.RANGE || "3h") }); });
+      }
+      return false;
+    }
     const btn = doc.createElement("button");
     btn.type = "button";
     btn.className = "detail-open";

@@ -126,6 +126,7 @@ class Node {
     }
   }
   append(...nodes) { for (const n of nodes) { n.parent = this; this.children.push(n); } }
+  appendChild(n) { this.append(n); return n; }
   after(n) { const kids = this.parent.children; n.parent = this.parent; kids.splice(kids.indexOf(this) + 1, 0, n); }
   setAttribute(k, v) { this.attrs[k] = String(v); if (k === "style") this.style = String(v); }
   removeAttribute(k) { delete this.attrs[k]; if (k === "title") this.title = ""; }
@@ -140,27 +141,33 @@ function paneHarness({ provider: P = null, deckMode = false } = {}) {
   const badge = new Node("sc-nchart__live");
   badge.append(new Node("sc-nchart__live-ticker"), new Node("sc-nchart__live-change"),
     new Node("sc-nchart__live-prev"), new Node("sc-nchart__live-window"));
-  const host = new Node("sc-nchart");
-  host.dataset.t = "MU"; host.isConnected = true; host.append(badge);
+  const host = new Node("sc-nchart"), area = new Node("sc-nchart__area");
+  host.dataset.t = "MU"; host.isConnected = true; host.append(area); area.append(badge);
   const b = { window: { SC_GEIGER_BAR: G, SC_PROVIDER: P }, document: { createElement: () => new Node("") },
     Date, CHART_HOSTS: new Set([host]), DECK_QUOTE_MODE: deckMode };
   b.GEIGER = vm.runInNewContext("({ readings:{}, fromDeck:false, pulling:false })", b);
+  /* where the chip sits is emptiestSpot's job (tests/station-fixes-20260927.test.mjs); here it is a no-op */
+  b.placeGeiger = () => {};
   b.paintGeigerBar = fnFrom(chart, "paintGeigerBar", b);
   b.paintGeigerBars = fnFrom(chart, "paintGeigerBars", b);
   b.applyDeckGeiger = fnFrom(chart, "applyDeckGeiger", b);
   b.pullGeigerOne = fnFrom(chart, "pullGeigerOne", b);
-  const node = () => badge.querySelector(".sc-nchart__live-geiger");
-  return { b, host, badge, node };
+  const node = () => host.querySelector(".sc-nchart__live-geiger");
+  return { b, host, area, badge, node };
 }
 
-test("the pane: the bar sits right after the price, and a name without a reading has none", () => {
-  const { b, host, badge, node } = paneHarness();
+/* O1 (27 Sep): the bar no longer sits inside the badge (it bunched up there on the 8-up walls). It is
+   the chart area's own chip, placed in the emptiest dark patch; the badge keeps ticker and price. */
+test("the pane: the bar is its own chip in the chart area, and a name without a reading has none", () => {
+  const { b, host, area, badge, node } = paneHarness();
   b.paintGeigerBar(host);
   assert.equal(node(), null, "no reading: nothing is created at all");
   b.applyDeckGeiger({ MU: { composite: 0.761361, stamp: new Date().toISOString(), source: "PROVIDER_EQUALIZER" } });
   assert.equal(b.GEIGER.fromDeck, true);
   assert.deepEqual(badge.children.map((c) => c.className), ["sc-nchart__live-ticker", "sc-nchart__live-change",
-    "sc-nchart__live-geiger", "sc-nchart__live-prev", "sc-nchart__live-window"], "ticker, price, then the bar");
+    "sc-nchart__live-prev", "sc-nchart__live-window"], "the badge is ticker and price only");
+  assert.equal(node().parent, area, "the chip is the chart area's own");
+  assert.equal(node().className, "sc-nchart__live-geiger is-float");
   assert.equal(node().hidden, false);
   assert.equal(node().dataset.side, "up");
   assert.equal(node().dataset.stale, "0");
@@ -179,7 +186,7 @@ test("the pane: the bar sits right after the price, and a name without a reading
   assert.equal(node().dataset.side, "down");
   assert.equal(node().dataset.stale, "1");
   assert.equal(node().querySelector("i").style, "right:50%;width:42.33%");
-  assert.equal(badge.children.filter((c) => c.className === "sc-nchart__live-geiger").length, 1, "one bar, reused");
+  assert.equal(area.children.filter((c) => /sc-nchart__live-geiger/.test(c.className)).length, 1, "one bar, reused");
   b.applyDeckGeiger(null);
   assert.equal(node().hidden, true, "an empty map from the deck clears every bar");
 });

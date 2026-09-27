@@ -1,13 +1,14 @@
 /* CL4, 27 Sep: the context lens on the live chart pane — /_indicators/station-lens.mjs.
-   Sizes at 60% of the 26 Sep review, fixed bottom-left, 8 px text floor, stale looks stale,
-   and one 30-minute read per chart per refresh. */
+   Sizes at 60% of the 26 Sep review, 8 px text floor, stale looks stale, and one read per chart per
+   refresh. O1 (same evening): the emptiest dark space instead of fixed bottom-left, 4h on the 3-day
+   charts and 30m on the daily ones. */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseBubble, wanted, lastOpenedSession, freshness, bottomLeft, placeLens, ensure, framePath,
-  INK, REFRESH_MS } from "../_indicators/station-lens.mjs";
-import { bubbleBox, drawBubble, layout, sessionsOf, flatten, axisTicks, candleGeometry,
+import { parseBubble, wanted, lastOpenedSession, freshness, placeLens, ensure, framePath, markIndex,
+  INK, REFRESH_MS, RANGES } from "../_indicators/station-lens.mjs";
+import { bubbleBox, drawBubble, layout, sessionsOf, flatten, axisTicks, candleGeometry, fmtPrice, TIMEFRAMES, barsToRequest,
   FLOOR, CEILING, BUBBLE_SIZES, SHRINK, CHAMFER, MIN_FONT } from "../_indicators/lens-bars.mjs";
-import { pathPoints, candidateRects } from "../_indicators/lens-placement.mjs";
+import { pathPoints, candidateRects, tailBox, emptiestSpot, COVER_COST } from "../_indicators/lens-placement.mjs";
 
 /* an 8-up pane at 1680 is 419 × 277; the plot the chart draws in it is about 371 × 248 */
 const PLOT = { padL: 6, padT: 8, iw: 371, ih: 248, start: 0, end: 239, rightBars: 8, yLo: 0, yHi: 100 };
@@ -34,43 +35,59 @@ test("the placement rule's own S fraction no longer overrides the box it is aske
   assert.equal(old.w, 116); assert.equal(old.h, Math.round(248 * 0.36));
 });
 
-test("fixed bottom-left, even over the far past of the line", () => {
-  /* a line that starts low on the left runs right through the bottom-left corner: allowed */
-  const risingFromLow = line((i) => 5 + i * 0.38);
-  const res = placeLens({ plot: PLOT, series: risingFromLow });
+/* O1 (27 Sep), Alan: "position must seek the emptiest dark space (not fixed)". An ink function stands in
+   for the chart's canvas: here the line and a cloud block painted over part of the plot. */
+const inkOf = (...blocks) => (x, y) => blocks.some((b) => x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h);
+const overlap = (a, b) => !(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y);
+
+test("bottom-left when bottom-left is as empty as anywhere", () => {
+  const flatHigh = line(() => 90);                 // the line runs along the top: the bottom is empty
+  const res = placeLens({ plot: PLOT, series: flatHigh, ink: () => false });
   assert.equal(res.spot.corner, "bl");
-  assert.equal(res.fixed, true); assert.equal(res.fallback, false);
   assert.equal(res.spot.x, PLOT.padL + 6);
   assert.equal(res.spot.y + res.spot.h, PLOT.padT + PLOT.ih - 6, "on the bottom edge of the plot, 6 px in");
-  assert.ok(res.spot.x + res.spot.w < PLOT.padL + PLOT.iw * 0.8, "left of the newest fifth");
+  assert.match(res.why, /bottom-left/);
 });
 
-test("a deck arrow over the wall's left edge: the bubble slides right past it and stays bottom-left", () => {
+test("the emptiest dark space, not fixed: a line through the bottom-left sends the lens where nothing is drawn", () => {
+  /* a 3-day line that rises from the bottom-left corner - the lens used to sit on its far past */
+  const rising = line((i) => 5 + i * 0.38);
+  const pts = pathPoints(PLOT, rising);
+  const ink = (x, y) => pts.some((p) => Math.abs(p.x - x) < 2 && Math.abs(p.y - y) < 3);
+  const res = placeLens({ plot: PLOT, series: rising, ink });
+  assert.notEqual(res.spot.corner, "bl");
+  assert.equal(res.covers, false, "it clears the line");
+  assert.ok(res.spot.x + res.spot.w <= tailBox(PLOT).x, "never in the newest fifth");
+  /* a painted block (a cloud) makes a region busy: the lens avoids it */
+  const cloud = { x: PLOT.padL, y: PLOT.padT, w: 200, h: 120 };
+  const res2 = placeLens({ plot: PLOT, series: line(() => 50), ink: inkOf(cloud) });
+  assert.ok(!overlap(res2.spot, cloud), "not on the painted block");
+});
+
+test("never over the newest fifth or the badge, and it does not hop on a small change", () => {
+  const badge = { x: PLOT.padL, y: PLOT.padT + PLOT.ih - 80, w: 140, h: 80 };
+  const res = placeLens({ plot: PLOT, series: line(() => 90), keepOut: [badge], ink: () => false });
+  assert.ok(!overlap(res.spot, badge), "not on the badge");
+  assert.ok(res.spot.x + res.spot.w <= tailBox(PLOT).x);
+  /* a deck arrow on the left edge: the nearest clear spot to bottom-left, to its right */
   const arrow = { x: -6, y: PLOT.padT + PLOT.ih - 60, w: 26, h: 72 };
-  const res = placeLens({ plot: PLOT, series: line(() => 50), slidePast: [arrow] });
-  assert.equal(res.spot.corner, "bl"); assert.equal(res.fallback, false);
-  assert.equal(res.spot.x, arrow.x + arrow.w + 4);
-  assert.match(res.why, /page arrow/);
-  const clear = placeLens({ plot: PLOT, series: line(() => 50), slidePast: [{ ...arrow, y: PLOT.padT }] });
-  assert.equal(clear.spot.x, PLOT.padL + 6, "an arrow elsewhere changes nothing");
+  const slid = placeLens({ plot: PLOT, series: line(() => 90), slidePast: [arrow], ink: () => false });
+  assert.ok(slid.spot.x >= arrow.x + arrow.w, "right of the arrow");
+  /* hold: a spot already held stays unless another is clearly emptier */
+  const box = { w: 93, h: 68 };
+  const held = { x: PLOT.padL + 120, y: PLOT.padT + 40, ...box };
+  const again = emptiestSpot({ plot: PLOT, box, points: pathPoints(PLOT, line(() => 90)), ink: () => false, prev: held });
+  assert.equal(again.held, true); assert.equal(again.spot.x, held.x);
+  /* a plot too small to hold the box left of the newest fifth: no lens, and the reason */
+  const tiny = placeLens({ plot: { ...PLOT, iw: 100, ih: 60 }, series: line(() => 50) });
+  assert.equal(tiny.spot, null); assert.match(tiny.why, /smaller than the box/);
+  assert.equal(COVER_COST, 0.25);
 });
 
-test("if bottom-left would cover the newest fifth or the badge, it takes the emptiest clear corner and says why", () => {
-  /* a narrow plot: the bubble reaches into the newest fifth, and the newest prices run along the bottom */
-  const narrow = { ...PLOT, iw: 100, ih: 150 };
-  const lowTail = line((i) => (i < 120 ? 90 : 3));
-  const b = bottomLeft(narrow, bubbleBox(narrow, "M"), pathPoints(narrow, lowTail));
-  assert.equal(b.spot, null);
-  assert.match(b.why, /newest fifth/);
-  const res = placeLens({ plot: narrow, series: lowTail });
-  assert.equal(res.fallback, true);
-  assert.match(res.why, /^bottom-left would cover the newest fifth of the line; /);
-  if (res.spot) assert.notEqual(res.spot.corner, "bl");
-  /* the badge: a keep-out box over the bottom-left corner refuses it */
-  const badge = { x: PLOT.padL, y: PLOT.padT + PLOT.ih - 40, w: 120, h: 30 };
-  const kept = placeLens({ plot: PLOT, series: line((i) => 50), keepOut: [badge] });
-  assert.equal(kept.fallback, true);
-  assert.match(kept.why, /badge/);
+test("the lens-start mark: the chart bar that holds the lens' first candle", () => {
+  const days = Array.from({ length: 10 }, (_, i) => ({ d: new Date(Date.UTC(2026, 8, 14 + i * 3)).toISOString(), p: 1 }));
+  assert.equal(markIndex(days, Date.UTC(2026, 8, 20, 13)), 2, "inside the third 3-day bar");
+  assert.equal(markIndex(days, Date.UTC(2026, 8, 1)), -1, "before the chart: no mark");
 });
 
 /* a fake 2D context that records every font it is given */
@@ -104,7 +121,7 @@ test("every piece of text is 8 px or more, and under 120 px wide a day label is 
   for (const f of fonts) assert.ok(parseFloat(f) >= MIN_FONT, `font ${f}`);
   assert.equal(MIN_FONT, 8);
   const labels = texts.map((t) => t.s);
-  assert.ok(labels.includes("WED") && labels.includes("FRI"), `weekday labels, got ${labels.join(" | ")}`);
+  assert.ok(labels.includes("WED") && labels.includes("FRI"), `weekday labels (the workshop's drawing), got ${labels.join(" | ")}`);
   assert.ok(!labels.some((s) => /^[A-Z]{3} \d+$/.test(s)), "no day numbers at 93 px");
   assert.ok(!labels.includes("3 SESSIONS"), "the session count drops under 150 px");
   assert.equal(layout({ x: 0, y: 0, w: 93, h: 68 }).tag, null, "the price tag drops under 120 px (the badge already shows price)");
@@ -130,11 +147,26 @@ test("the chamfer is 8 px and the bubble's own colours are true greys, none brig
   }
 });
 
-test("the switch: 30m:3 on a 3-day chart, nothing otherwise", () => {
+test("the switch: 4h:12 and 30m:3 on the 3-day and daily charts, nothing otherwise", () => {
   assert.deepEqual(parseBubble("30m:3"), { timeframe: "30m", sessions: 3, key: "30m:3" });
-  for (const bad of ["", null, "30m", "30m:9", "2h:3", "30m:3;x"]) assert.equal(parseBubble(bad), null, String(bad));
-  assert.equal(wanted(parseBubble("30m:3"), "3D"), true);
-  for (const r of ["1D", "1W", "3h"]) assert.equal(wanted(parseBubble("30m:3"), r), false, r);
+  assert.deepEqual(parseBubble("4h:12"), { timeframe: "4h", sessions: 12, key: "4h:12" });
+  for (const bad of ["", null, "30m", "30m:0", "4h:16", "2h:3", "30m:3;x"]) assert.equal(parseBubble(bad), null, String(bad));
+  assert.deepEqual([...RANGES], ["3D", "1D"]);
+  assert.equal(wanted(parseBubble("4h:12"), "3D"), true);
+  assert.equal(wanted(parseBubble("30m:3"), "1D"), true);
+  for (const r of ["1W", "3h", "4h"]) assert.equal(wanted(parseBubble("30m:3"), r), false, r);
+});
+
+test("the Station's drawing: no ticker, no WED/THU/FRI, commas in prices, the timeframe tag only", () => {
+  const sessions = threeSessions(), bars = flatten(sessions).map((b) => ({ ...b, o: b.o * 11, h: b.h * 11, l: b.l * 11, c: b.c * 11 }));
+  const { ctx, texts } = recorder();
+  drawBubble(ctx, { x: 0, y: 0, w: 160, h: 90 }, { bars, sessions, day: "up", symbol: null, axis: false, timeframe: "4H", colour: "bar", volume: false, font: 8 });
+  const labels = texts.map((t) => t.s);
+  assert.ok(!labels.includes("MU"), "the badge names the ticker; the lens does not repeat it");
+  assert.ok(!labels.some((s) => /^(MON|TUE|WED|THU|FRI)\b/.test(s)), `no day labels, got ${labels.join(" | ")}`);
+  assert.ok(labels.includes("4H"));
+  assert.ok(labels.some((s) => /^\d{1,3}(,\d{3})+$/.test(s)), `a comma in the last-price tag, got ${labels.join(" | ")}`);
+  assert.equal(fmtPrice(1085.02), "1,085"); assert.equal(fmtPrice(30892.4), "30,892"); assert.equal(fmtPrice(485.85), "485.9");
 });
 
 test("stale looks stale: bars older than the last session that has opened", () => {
@@ -161,7 +193,7 @@ test("stale looks stale: bars older than the last session that has opened", () =
   assert.equal(monday.label, "FRI 25"); assert.equal(monday.expected, "2026-09-28");
 });
 
-test("one 30-minute read per chart per refresh, under the pane's own load permit, and none off the 3-day range", async () => {
+test("one read per chart per refresh, under the pane's own load permit, and none on a weekly or intraday range", async () => {
   let reads = 0, permits = 0, redraws = 0, range = "3D", request = "30m:3";
   const rows = threeSessions().flatMap((s) => s.bars).map((b) => ({ timestamp: b.t / 1000, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v }));
   const deps = { request: () => request, range: () => range,
@@ -174,11 +206,24 @@ test("one 30-minute read per chart per refresh, under the pane's own load permit
   assert.equal(reads, 1, "two at once and one more inside ten minutes: one read");
   assert.equal(permits, 1);
   assert.equal(REFRESH_MS, 600000);
-  range = "1D";
+  range = "1W";
   const other = { ...host, dataset: { t: "LENSOTHER" } };
   await ensure(other, deps, host._req, 0);
-  assert.equal(reads, 1, "a daily chart asks for nothing");
+  assert.equal(reads, 1, "a weekly chart asks for nothing");
   range = "3D"; request = "";
   await ensure(other, deps, host._req, 0);
   assert.equal(reads, 1, "no switch, no read");
+});
+
+test("4h on the 3-day pages: the provider's four bars a session, twelve sessions = 48 candles, 52 asked for", () => {
+  assert.deepEqual({ ...TIMEFRAMES["4h"] }, { tf: "240", minutes: 240, regular: 1, extended: 4, hours: "extended" });
+  assert.equal(barsToRequest("4h", 12), 52);
+  const bars = [];
+  for (let d = 8; d <= 26; d++) {
+    const w = new Date(Date.UTC(2026, 8, d)).getUTCDay(); if (w === 0 || w === 6) continue;
+    for (const hm of ["04:00", "08:00", "12:00", "16:00"]) { const t = NY(2026, 9, d, hm); bars.push({ t, o: 10, h: 11, l: 9, c: 10.5, v: 1 }); }
+  }
+  const all = sessionsOf(bars, "extended"), last = all.slice(-12);
+  assert.equal(flatten(last).length, 48, "inside the 40-60 Alan asked for");
+  assert.equal(sessionsOf(bars, "regular").flatMap((s) => s.bars).length, all.length, "regular hours alone would keep one bar a day");
 });

@@ -18,21 +18,23 @@ const arr = (x) => Array.from(x);
 
 const WORKFLOW_ORDER = [
   "wkIndexes","wkMacro","targets3D","sectors3D","mainIndexes3D","mag7","ai1","ai2","ai3",
-  "other3D","blueChip3D","spyQqq1D","spyQqqOsc","otherIndexes1D","otherIndexesOsc","macro1D","targets1D","targetsOsc",
+  "other3D","blueChip3D","spyQqq1D","otherIndexes1D","otherIndexesOsc","macro1D","targets1D","targetsOsc",
   "macroIntraday","intraday4h","intraday1h","intraday30m"
 ];
 /* 25 Sep (P2-STATION-RSI-FAN, SCI-11): Alan, "you do have the RSI" - three oscillator pages join the
-   nineteen, each right after its price twin, so the workflow is twenty-two pages. */
+   nineteen, each right after its price twin, so the workflow is twenty-two pages.
+   27 Sep (O1): SPY + QQQ · RSI merged into SPY + QQQ · DAY (one page, ES/NQ outside the market, the
+   fan always on) - twenty-one pages. */
 /* A Wednesday in New York (EDT, UTC-4): 09:30 ET = 13:30 UTC, 16:30 ET = 20:30 UTC. */
 const WED = (utc) => "2026-09-23T" + utc + "Z";
 const SATURDAY = "2026-09-26T14:00:00Z"; /* 10:00 ET on a Saturday */
 
-test("the rotation is the twenty-two workflow pages, in Alan's order", () => {
+test("the rotation is the twenty-one workflow pages, in Alan's order", () => {
   assert.deepEqual(arr(scenes.ROTATION_SCENES), WORKFLOW_ORDER,
     "the fixed order read off the TradingView tab group on 25 Sep");
-  assert.deepEqual(arr(scenes.SCREENS.slice(0, 22)).map((s) => s.scene), WORKFLOW_ORDER,
-    "and they are the first twenty-two entries of SCREENS");
-  assert.deepEqual(arr(scenes.SCREENS.slice(22)).map((s) => s.scene),
+  assert.deepEqual(arr(scenes.SCREENS.slice(0, 21)).map((s) => s.scene), WORKFLOW_ORDER,
+    "and they are the first twenty-one entries of SCREENS");
+  assert.deepEqual(arr(scenes.SCREENS.slice(21)).map((s) => s.scene),
     ["scintillas","oscWorkbench","indexNow","indexLeadership","companyLeadership","focus2",
      "macroCrossAsset","internalsFast","sectorFamilies","themeFamilies","todo","scratch"],
     "then SCINTILLAS, WORKBENCH, the eight old curated pages, TO-DO and SCRATCH last (HISTORY retired 25 Sep)");
@@ -45,7 +47,7 @@ test("every workflow page carries its stated range and chart count", () => {
     wkIndexes:["1W",8], wkMacro:["1W",6], targets3D:["3D",8], sectors3D:["3D",8],
     mainIndexes3D:["3D",2], mag7:["3D",8], ai1:["3D",8], ai2:["3D",8], ai3:["3D",8],
     other3D:["3D",8], blueChip3D:["3D",8], spyQqq1D:["1D",2], otherIndexes1D:["1D",6],
-    macro1D:["1D",6], targets1D:["1D",8], spyQqqOsc:["1D",2], otherIndexesOsc:["1D",6], targetsOsc:["1D",8], macroIntraday:["4h",4], intraday4h:["4h",6],
+    macro1D:["1D",6], targets1D:["1D",8], otherIndexesOsc:["1D",6], targetsOsc:["1D",8], macroIntraday:["4h",4], intraday4h:["4h",6],
     intraday1h:["1h",4], intraday30m:["30m",2]
   };
   for (const id of WORKFLOW_ORDER) {
@@ -93,16 +95,16 @@ test("LEADERS are SPY/QQQ while the market is open and ES/NQ otherwise", () => {
 });
 
 test("by day the intraday four ride the lap twice; from 18:00 ET and at the weekend they leave and the weeklies come in", () => {
-  const intraday = WORKFLOW_ORDER.slice(18);
+  const intraday = WORKFLOW_ORDER.slice(17);
   for (const [utc, label] of [["09:00:00","05:00 ET"],["14:00:00","10:00 ET"],["21:00:00","17:00 ET"]]) {
     const lap = arr(scenes.rotationScenesAt(WED(utc)));
-    assert.equal(lap.length, 24, label + ": twenty-four slots");
-    assert.deepEqual(lap, WORKFLOW_ORDER.slice(2, 11).concat(intraday, WORKFLOW_ORDER.slice(11, 18), intraday),
+    assert.equal(lap.length, 23, label + ": twenty-three slots");
+    assert.deepEqual(lap, WORKFLOW_ORDER.slice(2, 11).concat(intraday, WORKFLOW_ORDER.slice(11, 17), intraday),
       label + ": 3-day, intraday, daily, intraday (the weeklies wait for the night)");
   }
   const night = arr(scenes.rotationScenesAt("2026-09-24T01:00:00Z"));   /* 21:00 ET */
-  assert.equal(night.length, 18, "night: the order without the intraday four");
-  assert.deepEqual(night, WORKFLOW_ORDER.slice(0, 18));
+  assert.equal(night.length, 17, "night: the order without the intraday four");
+  assert.deepEqual(night, WORKFLOW_ORDER.slice(0, 17));
   assert.deepEqual(arr(scenes.rotationScenesAt(WED("22:00:00"))), night, "18:00 ET is already night");
   assert.deepEqual(arr(scenes.rotationScenesAt(SATURDAY)), night, "a weekend is night");
 });

@@ -19,9 +19,13 @@
    ============================================================================ */
 import { lastSessions, flatten, barsToRequest, drawBubble, bubbleBox, placeBubble, layout,
   CHAMFER, DIALS, TIMEFRAMES, etParts } from "./lens-bars.mjs";
-import { pathPoints, clearsTail, clearsTailPoints, DEFAULTS as PLACE } from "./lens-placement.mjs";
+import { pathPoints, clearsTail, clearsTailPoints, emptiestSpot, inkReader, DEFAULTS as PLACE } from "./lens-placement.mjs";
 
+/* O1 (27 Sep), Alan: "30-minute is too short for 3-day charts -> use 4h; on DAILY charts use the
+   30-minute lens. Weekly macro pages: no lens." The deck says which lens a page carries (4h:12 on the
+   3-day pages, 30m:3 on the daily ones); the pane draws one only on those two ranges. */
 export const RANGE = "3D";
+export const RANGES = Object.freeze(["3D", "1D"]);
 export const REFRESH_MS = DIALS.refreshMin * 60000;
 /* Its own colours. Candles follow the wall's rule (up green, down red: the chart's own --bull/--bear);
    everything else is a true grey (channels within 24 of each other, none above 210) and nothing white. */
@@ -29,13 +33,15 @@ export const INK = Object.freeze({ paper: "#0B0B0F", frame: "#4A4A50", ink: "#9C
 export const STALE_ALPHA = 0.42;
 
 /* ---- the switch ---- */
-/* "30m:3" → { timeframe:"30m", sessions:3 }. Anything else is off: a switch that cannot be read is
-   not quietly turned into some other bubble. */
+/* "30m:3" → { timeframe:"30m", sessions:3 }; "4h:12" → twelve sessions of 4-hour bars. Anything else
+   is off: a switch that cannot be read is not quietly turned into some other bubble. At most 15
+   sessions (60 candles of 4h), because the chart API's newest bar moves above 400 bars. */
 export function parseBubble(value) {
-  const m = /^(15m|30m|1h):([1-5])$/.exec(String(value || "").trim());
+  const m = /^(15m|30m|1h|4h):([1-9]|1[0-5])$/.exec(String(value || "").trim());
   return m ? { timeframe: m[1], sessions: +m[2], key: m[0] } : null;
 }
-export const wanted = (req, range) => !!req && range === RANGE;
+export const wanted = (req, range) => !!req && RANGES.includes(range);
+const hoursOf = (tf) => (TIMEFRAMES[tf] && TIMEFRAMES[tf].hours) || DIALS.hours;
 
 /* ---- stale or not ---- */
 /* The New York date of the newest session that has OPENED by `nowMs`: today once 09:30 ET has passed
@@ -88,16 +94,21 @@ export function bottomLeft(plot, box, pts, keepOut = [], opt = {}) {
     return { spot: null, why: "bottom-left would cover the badge" };
   return { spot: rect, why: slid ? "bottom-left (fixed), moved right past the deck's page arrow" : "bottom-left (fixed)" };
 }
-export function placeLens({ plot, series, points, keepOut = [], slidePast = [], ink, size = DIALS.size }) {
+/* O1 (27 Sep): no longer FIXED bottom-left. Alan: "position must seek the emptiest dark space (not
+   fixed)". The lens takes the emptiest region of the plot (lens-placement.mjs emptiestSpot), bottom-left
+   whenever bottom-left is as empty as anywhere, never in the newest fifth, never on the badge or the
+   deck's arrows, and it keeps its place unless somewhere is meaningfully emptier. */
+export function placeLens({ plot, series, points, keepOut = [], slidePast = [], ink, size = DIALS.size, prev = null }) {
   const box = bubbleBox(plot, size);
   const pts = points || pathPoints(plot, series || []);
-  const bl = bottomLeft(plot, box, pts, keepOut, { slidePast });
-  if (bl.spot) return { kind: "inset", spot: bl.spot, fixed: true, fallback: false, why: bl.why, box };
-  /* the fallback: the reviewed rule at the SAME size, emptiest clear corner */
-  const res = placeBubble({ plot, points: pts, keepOut, ink, size: "S", prefer: "auto" });
-  const why = `${bl.why}; ${res.spot ? `${res.spot.corner} instead — ${res.why}` : "no corner is clear, so no bubble"}`;
-  return { kind: res.spot ? "inset" : "none", spot: res.spot ? { ...res.spot, w: box.w, h: box.h } : null,
-           fixed: false, fallback: true, why, box };
+  const res = emptiestSpot({ plot, box, points: pts, ink, keepOut: keepOut.concat(slidePast), prefer: "bl", prev });
+  if (!res.spot) return { kind: "none", spot: null, fixed: false, fallback: true, why: res.why, box };
+  const x0 = plot.padL + PLACE.edge, y1 = plot.padT + plot.ih - PLACE.edge - box.h;
+  const corner = res.spot.y + box.h / 2 > plot.padT + plot.ih / 2 ? (res.spot.x + box.w / 2 < plot.padL + plot.iw / 2 ? "bl" : "br")
+                                                                   : (res.spot.x + box.w / 2 < plot.padL + plot.iw / 2 ? "tl" : "tr");
+  const atBL = Math.abs(res.spot.x - x0) <= 1 && Math.abs(res.spot.y - y1) <= 1;
+  return { kind: "inset", spot: { corner, x: res.spot.x, y: res.spot.y, w: box.w, h: box.h }, fixed: false,
+           fallback: !atBL, why: res.why, held: !!res.held, covers: !!res.spot.covers, box };
 }
 
 /* ---- the frame: a card with the corner that faces the chart cut at 45° ---- */
@@ -175,6 +186,9 @@ function canvasFor(host) {
 function hide(host, why) {
   const cv = host.querySelector(".sc-nchart__lens");
   if (cv) cv.style.display = "none";
+  const mk = host.querySelector(".sc-nchart__lensmark");
+  if (mk) mk.style.display = "none";
+  host._lens = null;
   host._lensMemo = null;
   if (why) host.dataset.lensWhy = why; else delete host.dataset.lensWhy;
   delete host.dataset.lensState;
@@ -188,11 +202,11 @@ export function paint(host, deps) {
   const plot = host._plot, pts = host._series, t = host.dataset.t;
   if (!plot || !pts || pts.length < 2) return hide(host, "the chart has not drawn yet");
   const entry = cache.get(t + "|" + want.timeframe);
-  if (!entry) return hide(host, "30-minute bars not read yet");
+  if (!entry) return hide(host, `${want.timeframe} bars not read yet`);
   if (entry.absence) return hide(host, `no ${want.timeframe} bars: ${entry.absence}`);
-  const sessions = lastSessions(entry.bars, want.sessions, DIALS.hours);
+  const sessions = lastSessions(entry.bars, want.sessions, hoursOf(want.timeframe));
   const bars = flatten(sessions);
-  if (!bars.length) return hide(host, `no ${want.timeframe} bars in regular hours`);
+  if (!bars.length) return hide(host, `no ${want.timeframe} bars in ${hoursOf(want.timeframe)} hours`);
   const fresh = freshness(sessions, Date.now(), deps.settled);
   const day = deps.day(host);
   const area = host.querySelector(".sc-nchart__area");
@@ -210,9 +224,9 @@ export function paint(host, deps) {
   }
   const main = host.querySelector(".sc-nchart__cv");
   const inkAt = main ? inkReader(main) : null;
-  const where = placeLens({ plot, series: pts, keepOut, slidePast: controls, ink: inkAt });
+  const prev = host._lens && host._lens.spot && host._lens.t === t && host._lens.key === want.key ? host._lens.spot : null;
+  const where = placeLens({ plot, series: pts, keepOut, slidePast: controls, ink: inkAt, prev });
   if (!where.spot) { hide(host, where.why); return; }
-  if (where.fallback) { try { console.info("[lens]", t, where.why); } catch (_) {} }
 
   const cv = canvasFor(host);
   if (!cv) return;
@@ -230,7 +244,9 @@ export function paint(host, deps) {
   ctx.globalAlpha = DIALS.opacity; ctx.fillStyle = INK.paper; ctx.fill();
   ctx.globalAlpha = 1; ctx.clip();
   const inner = { x: 0, y: 0, w: r.w, h: r.h };
-  drawBubble(ctx, inner, { bars, sessions, day, symbol: t, timeframe: want.timeframe.toUpperCase(),
+  /* O1: no ticker (the badge names it), no WED/THU/FRI; the small timeframe tag stays because the
+     3-day pages (4H) and the daily pages (30M) now carry different lenses */
+  drawBubble(ctx, inner, { bars, sessions, day, symbol: null, axis: false, timeframe: want.timeframe.toUpperCase(),
     colour: DIALS.colour, volume: false, font: 8 }, { palette });
   ctx.globalAlpha = 1;
   if (fresh.stale) {
@@ -253,8 +269,42 @@ export function paint(host, deps) {
     (fresh.stale ? ` — STALE: the last session that has opened is ${fresh.expected}` : ""));
   host.dataset.lensState = fresh.stale ? "stale" : "fresh";
   host.dataset.lensWhy = where.why;
-  host._lens = { spot: r, why: where.why, fallback: where.fallback, stale: fresh.stale, through: fresh.through,
-                 expected: fresh.expected, bars: bars.length, sessions: sessions.length, readAt: entry.ts };
+  const mark = paintMark(host, plot, pts, bars[0].t);
+  host._lens = { t, key: want.key, spot: r, why: where.why, fallback: where.fallback, stale: fresh.stale, through: fresh.through,
+                 expected: fresh.expected, bars: bars.length, sessions: sessions.length, readAt: entry.ts, markX: mark };
+}
+
+/* O1, Alan: "add a small mark on the date axis where the lens window starts". A 5-px caret under the
+   plot at the chart bar that holds the lens' first candle. When that bar is off screen (panned away),
+   no mark. Returns the x it drew at, or null. */
+export function markIndex(series, startMs) {
+  let at = -1;
+  for (let i = series.length - 1; i >= 0; i--) {
+    const d = Date.parse(series[i] && series[i].d);
+    if (Number.isFinite(d) && d <= startMs) { at = i; break; }
+  }
+  return at;
+}
+function paintMark(host, plot, series, startMs) {
+  const area = host.querySelector(".sc-nchart__area");
+  let el = host.querySelector(".sc-nchart__lensmark");
+  const i = markIndex(series, startMs);
+  if (i < plot.start || i > plot.end) { if (el) el.style.display = "none"; return null; }
+  const span = Math.max(1, plot.end - plot.start + (plot.rightBars || 0));
+  const x = plot.padL + ((i - plot.start) / span) * plot.iw;
+  if (!el && area) {
+    el = document.createElement("div");
+    el.className = "sc-nchart__lensmark";
+    el.setAttribute("aria-hidden", "true");
+    el.style.cssText = "position:absolute;z-index:2;pointer-events:none;width:0;height:0;" +
+      `border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:5px solid ${INK.ink}`;
+    area.appendChild(el);
+  }
+  if (!el) return null;
+  el.style.left = Math.round(x - 4) + "px";
+  el.style.top = Math.round(plot.padT + plot.ih + 1) + "px";
+  el.style.display = "block";
+  return x;
 }
 
 /* The deck's edge arrows (#edgePrev / #edgeNext) float over the wall, outside this frame. The frame is
@@ -272,21 +322,4 @@ function deckControls(area) {
     }
     return out;
   } catch (_) { return []; }
-}
-
-/* "anything the chart painted", read from its own canvas — only asked for when bottom-left is refused */
-function inkReader(canvas) {
-  let data = null, W = 0, H = 0, ratio = 1;
-  return (x, y) => {
-    if (!data) {
-      try {
-        const c = canvas.getContext("2d"); W = canvas.width; H = canvas.height;
-        ratio = W / Math.max(1, canvas.clientWidth);
-        data = c.getImageData(0, 0, W, H).data;
-      } catch (_) { data = new Uint8ClampedArray(0); }
-    }
-    const px = Math.round(x * ratio), py = Math.round(y * ratio);
-    if (px < 0 || py < 0 || px >= W || py >= H) return false;
-    return data[(py * W + px) * 4 + 3] > 40;
-  };
 }

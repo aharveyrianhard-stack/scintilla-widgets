@@ -58,6 +58,10 @@ export const TIMEFRAMES = Object.freeze({
   "15m": Object.freeze({ tf: "15", minutes: 15, regular: 26, extended: 64 }),
   "30m": Object.freeze({ tf: "30", minutes: 30, regular: 13, extended: 32 }),
   "1h":  Object.freeze({ tf: "60", minutes: 60, regular: 7,  extended: 16 }),
+  /* 27 Sep (O1), Alan: 30-minute is too short on the 3-day charts, use 4h. The provider's 4h bars start
+     at 04:00, 08:00, 12:00 and 16:00 ET, so only the 12:00 bar starts inside 09:30-16:00: a 4h lens
+     reads the whole 04:00-20:00 day (four bars a session) or it would be one candle a day. */
+  "4h":  Object.freeze({ tf: "240", minutes: 240, regular: 1, extended: 4, hours: "extended" }),
 });
 export const HOURS = Object.freeze({
   regular:  Object.freeze({ open: 9 * 60 + 30, close: 16 * 60, name: "09:30–16:00 ET" }),
@@ -153,7 +157,9 @@ export function barColour(bar, mode, day, palette = PALETTE) {
 /* ---- THE BOX INSIDE THE BOX. A head line (name · timeframe · sessions), the candles, an optional
    volume strip, and a tiny time axis. Pixels, not fractions: the head and the axis are text. ---- */
 export function layout(rect, opt = {}) {
-  const head = rect.h >= 96 ? 15 : 13, axis = 12;
+  /* the Station (27 Sep, O1) asks for no day labels (axis:false) and a head that carries only the
+     timeframe (compact:true): the pane's badge already names the ticker */
+  const head = opt.compact ? 11 : rect.h >= 96 ? 15 : 13, axis = opt.axis === false ? 0 : 12;
   const tag = rect.w >= 150 ? 40 : rect.w >= 120 ? 34 : 0;     // the last-price tag's gutter on the right
   const inner = { x: rect.x + 4, y: rect.y + head, w: rect.w - 8 - tag, h: rect.h - head - axis - 3 };
   const vol = opt.volume && inner.h >= 60 ? Math.round(inner.h * 0.22) : 0;
@@ -161,7 +167,7 @@ export function layout(rect, opt = {}) {
     head: { x: rect.x, y: rect.y, w: rect.w, h: head },
     plot: { x: inner.x, y: inner.y + 3, w: Math.max(10, inner.w), h: Math.max(10, inner.h - vol - 3 - (vol ? 3 : 0)) },
     vol: vol ? { x: inner.x, y: inner.y + inner.h - vol, w: Math.max(10, inner.w), h: vol } : null,
-    axis: { x: inner.x, y: rect.y + rect.h - axis, w: Math.max(10, inner.w), h: axis },
+    axis: axis ? { x: inner.x, y: rect.y + rect.h - axis, w: Math.max(10, inner.w), h: axis } : null,
     tag: tag ? { x: rect.x + rect.w - tag - 4, w: tag } : null,
   };
 }
@@ -310,7 +316,9 @@ export function lapRequests(pages, panesOf, opts = {}) {
 export function drawBubble(ctx, rect, model, opt = {}) {
   const { bars, sessions, day, timeframe, colour, volume, font } = model;
   const pal = opt.palette || PALETTE;
-  const L = layout(rect, { volume });
+  /* model.symbol === null: no ticker in the head; model.axis === false: no day labels (Station, O1) */
+  const compact = model.symbol == null, axis = model.axis !== false;
+  const L = layout(rect, { volume, compact, axis });
   ctx.save();
   const size = Math.max(MIN_FONT, font || MIN_FONT);
   ctx.font = `${size}px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace`;
@@ -318,12 +326,12 @@ export function drawBubble(ctx, rect, model, opt = {}) {
   /* head: name · timeframe · sessions, in the day's colour for the name */
   const dayColour = day === "down" ? pal.bear : day === "up" ? pal.bull : pal.ink;
   ctx.fillStyle = dayColour; ctx.textAlign = "left";
-  ctx.fillText(model.symbol, L.head.x + 6, L.head.y + L.head.h / 2 + 0.5);
+  if (!compact) ctx.fillText(model.symbol, L.head.x + 6, L.head.y + L.head.h / 2 + 0.5);
   ctx.fillStyle = pal.ink; ctx.globalAlpha = 0.85;
   const sub = `${timeframe} · ${sessions.length} ${sessions.length === 1 ? "SESSION" : "SESSIONS"}`;
-  ctx.textAlign = "right";
-  if (rect.w >= 150) ctx.fillText(sub, L.head.x + L.head.w - 6, L.head.y + L.head.h / 2 + 0.5);
-  else ctx.fillText(timeframe, L.head.x + L.head.w - 6, L.head.y + L.head.h / 2 + 0.5);
+  ctx.textAlign = compact ? "left" : "right";
+  const hx = compact ? L.head.x + 6 : L.head.x + L.head.w - 6;
+  if (timeframe) ctx.fillText(rect.w >= 150 && !compact ? sub : timeframe, hx, L.head.y + L.head.h / 2 + 0.5);
   ctx.globalAlpha = 1;
   if (!bars.length) {
     ctx.fillStyle = pal.ink; ctx.textAlign = "center";
@@ -368,6 +376,7 @@ export function drawBubble(ctx, rect, model, opt = {}) {
     ctx.setLineDash([]); ctx.globalAlpha = 1;
   }
   /* the tiny time axis: one label per session */
+  if (!L.axis) { ctx.restore(); return L; }
   ctx.fillStyle = pal.ink; ctx.globalAlpha = 0.8; ctx.textAlign = "left";
   ctx.font = `${Math.max(MIN_FONT, size - 1)}px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace`;
   let lastRight = -Infinity;
@@ -382,7 +391,9 @@ export function drawBubble(ctx, rect, model, opt = {}) {
   return L;
 }
 
+/* 27 Sep (O1), Alan: "commas in numbers" - 1,085 not 1085. */
+const PRICE_FMT = [0, 1, 2].map((d) => new Intl.NumberFormat("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }));
 export function fmtPrice(v) {
   if (!Number.isFinite(v)) return "—";
-  return v >= 1000 ? v.toFixed(0) : v >= 100 ? v.toFixed(1) : v.toFixed(2);
+  return PRICE_FMT[v >= 1000 ? 0 : v >= 100 ? 1 : 2].format(v);
 }

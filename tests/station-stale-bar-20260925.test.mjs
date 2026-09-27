@@ -135,16 +135,22 @@ test("a transient live point is not a completed bar, and no series makes no clai
   assert.equal(api.chBarFreshness(pts, "9x", Date.now()), null, "an unknown timeframe makes no claim");
 });
 
-test("the stamp is on every pane's badge, 11 px, grey, amber only when stale; both chart copies identical", () => {
+/* 27 Sep (O1), Alan: "REMOVE the grey 'last bar 25 Sep 18:00 ET' stamp… show nothing when fine; only a
+   clear warning when a chart is actually stale during a session." The judgement above is unchanged; only
+   what the badge shows changed: nothing while current, an amber STALE line when not. */
+test("the stamp says nothing while the line is current, and an amber STALE warning when it has stopped; both chart copies identical", () => {
   assert.equal(chart, shell, "chart/index.html and station-shells/chart-v1/index.html stay identical");
   assert.match(chart, /badge\.append\(ticker, change, lastBar, previous, historyWindow\);/);
   assert.match(chart, /paintLastBarStamp\(host, pcPane \? null : pts\);/, "a put/call pane keeps its own session label");
-  assert.match(chart, /\.sc-nchart__live-lastbar\{ color:var\(--dim\); font:600 11px var\(--mono\);/);
-  const amber = chart.match(/\.sc-nchart__live-lastbar\[data-stale="1"\]\{ color:#([0-9a-f]{6});/)[1];
+  assert.match(chart, /const text = fresh && fresh\.stale \? "STALE \\u00b7 " \+ fresh\.text \+ " \\u00b7 " \+ fresh\.age : "";/,
+    "empty when fresh; STALE, the last bar and its age when not");
+  assert.match(chart, /\.sc-nchart__live-lastbar:empty\{ display:none; \}/);
+  assert.doesNotMatch(chart, /"When the newest completed bar on this chart began/, "no quiet always-on stamp any more");
+  const amber = chart.match(/\.sc-nchart__live-lastbar\{ color:#([0-9a-f]{6}); font:700 11px var\(--mono\);/)[1];
   const ch = [0, 2, 4].map((i) => parseInt(amber.slice(i, i + 2), 16));
   assert.ok(Math.max(...ch) <= 210, "no channel above 210");
   assert.ok(ch[0] > ch[2] + 60, "amber, the colour Alan asked for, not a grey");
-  assert.doesNotMatch(chart, /\.sc-nchart__live-lastbar\{[^}]*display:none/, "never hidden like the window line");
+  assert.doesNotMatch(chart, /\.sc-nchart__live-lastbar\{[^}]*display:none/, "a stale warning is never hidden like the window line");
 });
 
 test("a same-symbol page-change message keeps the drawn line (no blank, no refetch of the symbol)", () => {

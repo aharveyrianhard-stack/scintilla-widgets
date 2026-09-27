@@ -487,6 +487,10 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
 .pane > .body{ position:relative; }
 .chart-full{ position:absolute; top:6px; right:7px; z-index:9; min-width:24px; min-height:24px;
   display:grid; place-items:center; padding:2px 5px; background:rgba(7,10,16,.72); }
+/* O1 (27 Sep), Alan: "the grey things at the top of charts are ugly". On a screen with a pointer the
+   expand square only appears while the pointer is over its chart; a touch screen keeps it. */
+@media (hover:hover){ .chart-full{ opacity:0; transition:opacity .15s ease; }
+  .chart-pane:hover .chart-full, .chart-full:focus-visible{ opacity:1; } }
 .body{ flex:1 1 0; position:relative; min-height:0; min-width:0; }
 .body iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block;
   background:var(--bg); }
@@ -567,7 +571,6 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
         <option value="other3D">other</option>
         <option value="blueChip3D">blue chip</option>
         <option value="spyQqq1D">spy + qqq · day</option>
-        <option value="spyQqqOsc">spy + qqq · rsi</option>
         <option value="otherIndexes1D">other indexes · day</option>
         <option value="otherIndexesOsc">other indexes · rsi</option>
         <option value="macro1D">macro · day</option>
@@ -1415,7 +1418,19 @@ function selectChartDataLoadAdmissions(state, limit = CHART_DATA_LOAD_LIMIT) {
   }
   return { active, queue, grants };
 }
+/* O1 (27 Sep), Alan: the clouds (and the lens) load slowly on the iMac. Every pane's reads shared one
+   first-come queue, so the ribbon of the first chart waited behind the RSI fan's six reads of the
+   charts before it. The queue now serves the price first, then the ribbon and the lens, then the fan;
+   within a rank it stays first-come. The number admitted at once does not change. */
+function chartLoadPriority(req) {
+  const r = String(req || "");
+  return /\|rsi$/.test(r) ? 2 : /\|(clouds|lens)$/.test(r) ? 1 : 0;
+}
 function runChartDataLoadQueue() {
+  chartDataLoadQueue = chartDataLoadQueue
+    .map((job, i) => ({ job, i }))
+    .sort((a, b) => (a.job.priority || 0) - (b.job.priority || 0) || a.i - b.i)
+    .map((x) => x.job);
   const next = selectChartDataLoadAdmissions({
     generation:ROTATION_GENERATION,
     active:Array.from(chartDataLoadActive.values()),
@@ -1965,7 +1980,7 @@ window.addEventListener("message", (event) => {
        carried generation 0, was never granted, and waited out its 5.5 s escape hatch. */
     const mountedPane = PANES.find((item) => item.frame?.contentWindow === event.source &&
       frameIdentity(frameShownSrc(item.frame)) === frameIdentity(item.def.src));
-    chartDataLoadQueue.push({ token:event.data.token,
+    chartDataLoadQueue.push({ token:event.data.token, priority:chartLoadPriority(event.data.req),
       generation:mountedPane ? ROTATION_GENERATION : (Number(event.data.generation) || 0), source:event.source });
     runChartDataLoadQueue(); return;
   }
@@ -2722,7 +2737,7 @@ function installSceneState(state) {
   SLOT_STACKS.forEach((_, i) => { SLOT_STACKS[i] = String(stacks[i] || ""); });
   SLOT_RANGES.forEach((_, i) => { SLOT_RANGES[i] = RANGES.includes(ranges[i]) ? ranges[i] : ""; });
   const bubbles = state.bubbles || [];
-  SLOT_BUBBLES.forEach((_, i) => { SLOT_BUBBLES[i] = /^[0-9a-z]+:[0-9]$/.test(String(bubbles[i] || "")) ? String(bubbles[i]) : ""; });
+  SLOT_BUBBLES.forEach((_, i) => { SLOT_BUBBLES[i] = /^[0-9a-z]+:[0-9]{1,2}$/.test(String(bubbles[i] || "")) ? String(bubbles[i]) : ""; });
   const bars = state.bars || [];
   SLOT_BARS.forEach((_, i) => { SLOT_BARS[i] = Number(bars[i]) > 0 ? Math.min(8000, Math.floor(Number(bars[i]))) : 0; });
   CHART_COUNT = (SCENE === "custom" ? customChartCount : sceneChartCount)(

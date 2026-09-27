@@ -80,8 +80,10 @@ test("the workshop answers the Station's load admission instead of waiting out t
 test("the lens is nowhere on the live Station, and the workshop is not linked from the deck", () => {
   for (const surface of ["deck/index.html", "chart/index.html"]) {
     const src = read(surface);
-    assert.ok(!/station-lens\.js|lens-placement\.mjs|lens-view\.mjs/.test(src),
-      `${surface} must not mount the lens until Alan approves it on the workshop`);
+    /* 27 Sep (O1): lens-placement.mjs is the shared placement rule (the approved CL4 lens and, since O1,
+       the Geiger chip use it); the 23 Sep band and lens view stay off the Station. */
+    assert.ok(!/station-lens\.js|lens-view\.mjs/.test(src),
+      `${surface} must not mount the 23 Sep lens until Alan approves it on the workshop`);
     assert.ok(!/workshop\/context-lens/.test(src), `${surface} must not link the workshop`);
   }
   assert.ok(!fs.existsSync(path.join(ROOT, "_indicators/station-lens.js")),

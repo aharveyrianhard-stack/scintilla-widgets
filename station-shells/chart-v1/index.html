@@ -66,7 +66,7 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
 .sc-nchart__cv.is-panning{ cursor:grabbing; }
 .sc-nchart__live{ position:absolute; top:7px; left:8px; z-index:3; pointer-events:auto;
   display:flex; flex-direction:row; align-items:baseline; gap:8px; max-width:calc(100% - 52px);
-  background:rgba(5,6,12,.76); border:.6px solid rgba(151,166,198,.2); border-radius:4px;
+  background:rgba(5,6,12,.76); border:0; border-radius:4px;
   padding:5px 7px; color:var(--dim); white-space:nowrap; box-sizing:border-box;
   font:700 clamp(12px,1.65vw,16px) var(--mono); letter-spacing:.01em; line-height:1;
   box-shadow:0 2px 10px rgba(0,0,0,.38); backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px); }
@@ -126,14 +126,15 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
    the Scintilla line actually exists. */
 .sc-nchart__live--pc .sc-nchart__live-companion[data-state="waiting"]{ display:none; }
 .sc-nchart__live-window{ color:var(--dim); font:600 .58em var(--mono); letter-spacing:.025em; line-height:1; }
-/* the last-bar stamp: quiet grey, 11 px; amber (Alan's colour for "not current") when stale */
-.sc-nchart__live-lastbar{ color:var(--dim); font:600 11px var(--mono); letter-spacing:.02em; line-height:1; opacity:.8; }
+/* the last-bar stamp (O1, 27 Sep, Alan: "please remove that ... - show nothing when fine"): it is EMPTY
+   while the line is current, and only a stale line during a session gets words - amber, Alan's colour
+   for "not current" - "STALE · last bar 24 Sep · 1D · 3 d old". */
+.sc-nchart__live-lastbar{ color:#c8953a; font:700 11px var(--mono); letter-spacing:.03em; line-height:1; }
 .sc-nchart__live-lastbar:empty{ display:none; }
-.sc-nchart__live-lastbar[data-stale="1"]{ color:#c8953a; opacity:1; }
 /* THE REFERENCE TEXT STEPS BACK, THE PRICE AND THE LINE LEAD. "Prev 762.60 ≈41 trading days · since Jul 23" sat at full
    strength in a shadowed box over the top-left of every chart (Alan, live review 2026-09-18: the badges compete with the
    chart). Same words, same place, same size - only quieter; pointing at the badge or focusing the ticker brings them back. */
-.sc-nchart__live{ background:rgba(5,6,12,.6); border-color:rgba(151,166,198,.12); box-shadow:none; }
+.sc-nchart__live{ background:rgba(5,6,12,.6); border:0; box-shadow:none; }
 .sc-nchart__live-prev, .sc-nchart__live-window{ opacity:.72; transition:opacity .12s ease; }
 .sc-nchart__live:hover .sc-nchart__live-prev, .sc-nchart__live:hover .sc-nchart__live-window,
 .sc-nchart__live:focus-within .sc-nchart__live-prev, .sc-nchart__live:focus-within .sc-nchart__live-window{ opacity:1; }
@@ -157,6 +158,11 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
 .sc-gbar::before{ content:""; position:absolute; left:calc(50% - .5px); top:0; bottom:0; width:1px; background:#05060c; z-index:2; }
 .sc-gbar i{ position:absolute; top:0; bottom:0; border-radius:2px; background:currentColor; box-shadow:0 0 5px currentColor; }
 .sc-gbar__v{ font:700 .86em var(--mono); letter-spacing:.02em; line-height:1; }
+/* O1 (27 Sep), Alan: on the 8-up walls the Geiger bar bunched up inside the badge. It now floats on its
+   own in the emptiest dark patch of the plot, preferring the spot right under the badge. */
+.sc-nchart__live-geiger.is-float{ position:absolute; z-index:3; top:0; left:0; visibility:hidden; padding:2px 4px;
+  border-radius:3px; background:rgba(5,6,12,.55); font:700 12px var(--mono); line-height:1; white-space:nowrap; }
+.sc-nchart__live-geiger.is-float .sc-gbar__v{ font-size:12px; }
 .sc-nchart__msg{ position:absolute; inset:0; z-index:2; display:flex; align-items:center;
   justify-content:center; color:var(--dim); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
 .sc-nchart__msg[hidden]{ display:none; }
@@ -437,6 +443,9 @@ function scLens() {
 }
 function lensPaint(host) { const L = scLens(); if (L) L.paint(host, SC_LENS_DEPS); else if (host.querySelector(".sc-nchart__lens")) host.querySelector(".sc-nchart__lens").style.display = "none"; }
 function lensEnsure(host, t, req, generation) { const L = scLens(); if (L) L.ensure(host, SC_LENS_DEPS, req, generation); }
+/* O1: the lens used to be fetched on the chart's first paint (three module round trips after the price
+   was already up). A pane that carries a lens now starts the fetch at boot, in parallel with its price. */
+if (BUBBLE_REQUEST) scLens();
 function setBubble(value) {
   if (String(value || "") === BUBBLE_REQUEST) return;
   BUBBLE_REQUEST = String(value || "");
@@ -1785,8 +1794,12 @@ function scChartDraw(host, scrub) {
   const ctx = cv.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  /* the context lens repaints after this paint has finished, and only if its picture changed */
-  if (BUBBLE_REQUEST || host.querySelector(".sc-nchart__lens")) queueMicrotask(() => lensPaint(host));
+  /* the context lens repaints after this paint has finished, and only if its picture changed; the
+     Geiger chip is placed after it, so it can step around the lens */
+  queueMicrotask(() => {
+    if (BUBBLE_REQUEST || host.querySelector(".sc-nchart__lens")) lensPaint(host);
+    placeGeiger(host);
+  });
   const pts = host._series;
   if (!pts || pts.length < 2) return;
   const col = chColors();
@@ -1798,7 +1811,12 @@ function scChartDraw(host, scrub) {
      than a second panel. The right price scale follows the same tighter rule. */
   const ipadProfile = VIEW_PROFILE === "ipad", scale = ipadProfile ? PANE_UI_SCALE : 1;
   const axisBand = ipadProfile ? (h < 130 ? 15 : 18) * scale : (h < 130 ? 17 : 21);
-  const padT = (ipadProfile ? 7 : 8) * scale, padB = SHARED_TIME_AXIS ? 5 * scale : axisBand,
+  /* O1 (27 Sep), Alan: "charts are crammed to the top". The plot now starts just under the pane's badge
+     (capped at 18% of the pane), so the newest high is never drawn under the ticker. */
+  const badgeEl = host.querySelector(".sc-nchart__live");
+  const badgeBottom = badgeEl && badgeEl.offsetWidth ? badgeEl.offsetTop + badgeEl.offsetHeight : 0;
+  const padT = Math.max((ipadProfile ? 7 : 8) * scale, Math.min(Math.round(h * .18), badgeBottom + 5)),
+    padB = SHARED_TIME_AXIS ? 5 * scale : axisBand,
     /* The current quote sits at its actual Y position in this compact right
        gutter. That lets the top-left readout stay a clean ticker/change cue
        instead of forcing the user to scan it for price. */
@@ -1829,8 +1847,9 @@ function scChartDraw(host, scrub) {
   const ref = chDayRef(host);
   let yLo = lo, yHi = hi;
   if (yHi === yLo) { yHi += 1; yLo -= 1; }
-  const yPad = (yHi - yLo) * .055;
-  yLo -= yPad; yHi += yPad;
+  /* TradingView-like price margins: 8% of the range above the high, 6% under the low */
+  const yRange = yHi - yLo;
+  yLo -= yRange * .06; yHi += yRange * .08;
   /* THE RIBBON'S OWN ROOM. Each average is named at the right edge, at the exact
      height of its own line, but only while the newest bar is on screen — so the band
      that holds those names is reserved before the x scale is built, and given back the
@@ -1980,21 +1999,32 @@ function scChartDraw(host, scrub) {
     const sy = Math.max(padT, Math.min(padT + ih, scrub.y));
     const price = yLo + (1 - (sy - padT) / ih) * (yHi - yLo);
     const markerFont = Math.max(6.5, (ipadProfile ? 7 : 7.5) * scale);
+    /* O1 (27 Sep), Alan: the crosshair's price bigger, and how far that level is from the current
+       price in percent - green above the current price, red below. */
+    const priceFont = Math.max(11, 11 * scale);
     const priceText = chPx(price, host.dataset.t);
+    const nowPx = livePriceValue != null ? livePriceValue : dayPx;
+    const pct = nowPx > 0 ? (price / nowPx - 1) * 100 : null;
+    const pctText = pct == null ? "" : (pct >= 0 ? "+" : "\u2212") + Math.abs(pct).toFixed(Math.abs(pct) < 10 ? 2 : 1) + "%";
     const timeText = chHoverTime(chEtIso(pts[scrub.ix].d, host._range || S.chartRange), host._range || S.chartRange);
     ctx.save();
     ctx.strokeStyle = col.dim; ctx.globalAlpha = .62; ctx.lineWidth = .75;
     ctx.beginPath(); ctx.moveTo(sx, padT); ctx.lineTo(sx, padT + ih); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(padL, sy); ctx.lineTo(padL + iw, sy); ctx.stroke();
     ctx.globalAlpha = 1;
-    ctx.font = markerFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
     ctx.textBaseline = "middle";
-    const priceW = Math.ceil(ctx.measureText(priceText).width) + 8;
+    ctx.font = "700 " + priceFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+    const pxW = Math.ceil(ctx.measureText(priceText).width);
+    const pctW = pctText ? Math.ceil(ctx.measureText(pctText).width) + 7 : 0;
+    const priceW = pxW + pctW + 10, boxH = Math.round(priceFont + 5);
     const priceX = Math.max(padL, w - priceW - 2);
-    ctx.fillStyle = "rgba(5,6,12,.92)";
-    ctx.fillRect(priceX, Math.max(padT, Math.min(padT + ih - 12, sy - 6)), priceW, 12);
+    const boxY = Math.max(padT, Math.min(padT + ih - boxH, sy - boxH / 2)), midY = boxY + boxH / 2 + .5;
+    ctx.fillStyle = "rgba(5,6,12,.94)";
+    ctx.fillRect(priceX, boxY, priceW, boxH);
     ctx.fillStyle = col.dim; ctx.textAlign = "right";
-    ctx.fillText(priceText, w - 5, sy);
+    ctx.fillText(priceText, w - 5, midY);
+    if (pctText) { ctx.fillStyle = pct >= 0 ? col.bull : col.bear; ctx.fillText(pctText, w - 5 - pxW - 7, midY); }
+    ctx.font = markerFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
     const timeW = Math.ceil(ctx.measureText(timeText).width) + 8;
     const timeX = Math.max(padL, Math.min(padL + iw - timeW, sx - timeW / 2));
     const timeY = Math.max(padT + 12, padT + ih - 7);
@@ -2140,19 +2170,19 @@ function paintGeigerBar(host) {
   if (!badge) return;
   const B = window.SC_GEIGER_BAR;
   const m = B ? B.model(GEIGER.readings[host.dataset.t], Date.now()) : null;
-  let node = badge.querySelector(".sc-nchart__live-geiger");
+  let node = host.querySelector(".sc-nchart__live-geiger");
   if (!m) {
     if (node && !node.hidden) { node.hidden = true; node.removeAttribute("title"); node.removeAttribute("aria-label"); }
     return;
   }
   if (!node) {
-    const change = badge.querySelector(".sc-nchart__live-change");
-    if (!change) return;   /* the readout is not built yet; its painter calls back here */
+    const area = host.querySelector(".sc-nchart__area");
+    if (!area) return;
     node = document.createElement("span");
-    node.className = "sc-nchart__live-geiger";
+    node.className = "sc-nchart__live-geiger is-float";
     node.setAttribute("role", "img");
     node.innerHTML = '<span class="sc-gbar"><i></i></span><span class="sc-gbar__v"></span>';
-    change.after(node);
+    area.appendChild(node);
   }
   node.hidden = false;
   node.dataset.side = m.side;
@@ -2161,6 +2191,44 @@ function paintGeigerBar(host) {
   node.querySelector(".sc-gbar__v").textContent = m.text;
   node.title = m.title;
   node.setAttribute("aria-label", "Geiger composite " + m.text + (m.stale ? ", older than usual" : ""));
+  host._geigerMemo = null;
+  placeGeiger(host);
+}
+/* Where the chip goes: lens-placement.mjs's emptiestSpot, the same rule the lens uses - never in the
+   newest fifth, never on the badge or the lens, the emptiest patch, and it stays put unless somewhere
+   is clearly emptier. Until the rule has loaded, or before the chart has drawn, the chip stays hidden. */
+let SC_PLACE = null, scPlaceLoading = null;
+function scPlace() {
+  if (!SC_PLACE && !scPlaceLoading) scPlaceLoading = import("/_indicators/lens-placement.mjs").then((m) => {
+    SC_PLACE = m;
+    for (const h of CHART_HOSTS) if (h.isConnected) { h._geigerMemo = null; placeGeiger(h); }
+  }).catch(() => { scPlaceLoading = null; });
+  return SC_PLACE;
+}
+function placeGeiger(host) {
+  const node = host?.querySelector(".sc-nchart__live-geiger.is-float");
+  if (!node || node.hidden) return;
+  const P = scPlace(), plot = host._plot, pts = host._series;
+  const area = host.querySelector(".sc-nchart__area"), cv = host.querySelector(".sc-nchart__cv");
+  if (!P || !plot || !pts || pts.length < 2 || !area || !cv) { node.style.visibility = "hidden"; return; }
+  const box = { w: node.offsetWidth, h: node.offsetHeight };
+  const badge = host.querySelector(".sc-nchart__live");
+  const lens = host._lens && host._lens.spot;
+  const sig = [box.w, box.h, plot.padL, plot.padT, plot.iw, plot.ih, plot.start, plot.end, pts.length,
+    pts[pts.length - 1].p, badge ? badge.offsetWidth + "x" + badge.offsetHeight : "", lens ? [lens.x, lens.y].join(",") : ""].join("|");
+  if (host._geigerMemo === sig) return;
+  host._geigerMemo = sig;
+  const keepOut = [];
+  const a = area.getBoundingClientRect();
+  if (badge && badge.offsetWidth) { const b = badge.getBoundingClientRect(); keepOut.push({ x: b.left - a.left, y: b.top - a.top, w: b.width, h: b.height }); }
+  if (lens) keepOut.push(lens);
+  const res = P.emptiestSpot({ plot, box, points: P.pathPoints(plot, pts), ink: P.inkReader(cv), keepOut,
+    prefer: { x: plot.padL + 6, y: plot.padT + 6 }, prev: host._geigerSpot, margin: 4, tolerance: 0.05, cols: 12, rows: 8 });
+  if (!res.spot) { node.style.visibility = "hidden"; host._geigerSpot = null; return; }
+  host._geigerSpot = { x: res.spot.x, y: res.spot.y, w: box.w, h: box.h };
+  node.style.transform = "translate(" + res.spot.x + "px," + res.spot.y + "px)";
+  node.style.visibility = "visible";
+  node.dataset.why = res.why;
 }
 function paintGeigerBars() {
   for (const host of CHART_HOSTS) if (host.isConnected) paintGeigerBar(host);
@@ -2515,19 +2583,18 @@ function paintChartHistoryWindow(host) {
       chBarRuleText(host._range || S.chartRange)
     : "history loading";
 }
-/* "last bar 15:00 ET", amber with its age when the line has stopped during a session. A put/call
-   pane has its own session label, so it carries no stamp. */
+/* Nothing while the line is current (O1, 27 Sep). When it has stopped during a session: "STALE ·
+   last bar 15:00 ET · 4H · 2 h old", amber. A put/call pane has its own session label, so no stamp. */
 function paintLastBarStamp(host, pts) {
   const stamp = host?.querySelector(".sc-nchart__live-lastbar");
   if (!stamp) return;
   const fresh = pts && pts.length ? chBarFreshness(pts, host._range || S.chartRange) : null;
-  const text = !fresh ? "" : fresh.stale ? fresh.text + " \u00b7 " + fresh.age : fresh.text;
+  const text = fresh && fresh.stale ? "STALE \u00b7 " + fresh.text + " \u00b7 " + fresh.age : "";
   if (stamp.textContent !== text) stamp.textContent = text;
   const flag = fresh && fresh.stale ? "1" : "0";
   if (stamp.dataset.stale !== flag) stamp.dataset.stale = flag;
-  stamp.title = !fresh ? "" : fresh.stale
-    ? "This line has stopped: the newest bar is older than this timeframe allows during a session."
-    : "When the newest completed bar on this chart began (Eastern time).";
+  stamp.title = fresh && fresh.stale
+    ? "This line has stopped: the newest bar is older than this timeframe allows during a session." : "";
 }
 function acquireChartLoadPermit(host, req, generation) {
   /* A Hub pane has no deck to grant loads: asking would only wait out the 5.5 s escape hatch. */

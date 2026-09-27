@@ -26,10 +26,15 @@
      session (two since 25 Sep, DAY and NIGHT — see stationSession and rotationScenesAt). */
   const TARGETS_DEFAULT = Object.freeze(["GOOGL","NBIS","AVGO","BE","AMZN","VST","MU","WMT"]);
   const MACRO_4H = Object.freeze(["VIX","CLUSD","US10Y","DXUSD","GCUSD","BTCUSD"]);
-  /* THE CONTEXT LENS (CL4, 27 Sep): every 3-day page carries a small bottom-left box of the same name's
-     30-minute candles for its last three sessions (Alan: "the last three trading days, only on the
-     3-day charts… I like this one at the bottom left"). The chart pane reads it as ?bubble=30m:3. */
-  const BUBBLE_3D = "30m:3";
+  /* THE CONTEXT LENS (CL4, 27 Sep; O1 the same evening). Alan: "30-minute is too short for 3-day charts
+     -> use 4h … on DAILY charts use the 30-minute lens. Weekly macro pages: no lens."
+       3-day pages   4h:12 - twelve sessions of 4-hour bars, four a session (04:00/08:00/12:00/16:00 ET),
+                     48 candles: inside the 40-60 asked for, about two and a half weeks;
+       daily pages   30m:3 - the last three regular sessions of 30-minute bars, 39 candles;
+       weekly pages and MACRO · DAY - none (macro intraday is not switched on without Alan).
+     The chart pane reads it as ?bubble=. */
+  const BUBBLE_3D = "4h:12";
+  const BUBBLE_1D = "30m:3";
   const WORKFLOW_PAGES = Object.freeze({
     wkIndexes:       Object.freeze({ label:"INDEXES · WEEK",      short:"INDEXES WK",  range:"1W", tickers:Object.freeze(["SPY","DIA","QQQ","MAGS","SMH","IWM","DRAM","IGV"]) }),
     wkMacro:         Object.freeze({ label:"MACRO · WEEK",        short:"MACRO WK",    range:"1W", tickers:Object.freeze(["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]) }),
@@ -51,16 +56,19 @@
     ai3:             Object.freeze({ label:"AI 3 · POWER, CLOUDS", short:"AI 3 POWER", range:"3D", bubble:BUBBLE_3D, tickers:Object.freeze(["NBIS","CRWV","IREN","CIFR","WULF","HUT","OKLO","BE"]) }),
     other3D:         Object.freeze({ label:"OTHER",               range:"3D", bubble:BUBBLE_3D, tickers:Object.freeze(["ORCL","SPCX","PLTR","OKLO","SHOP","USAR","HOOD","MSTR"]) }),
     blueChip3D:      Object.freeze({ label:"BLUE CHIP",           range:"3D", bubble:BUBBLE_3D, tickers:Object.freeze(["WMT","JPM","CAT","BAC","HD","MCD","COST","WM"]) }),
-    spyQqq1D:        Object.freeze({ label:"SPY + QQQ · DAY",     short:"SPY+QQQ DAY", range:"1D", leaders:true }),
+    /* 27 Sep (O1), Alan: "ES/NQ page then SPY/QQQ page appeared back to back — he expected ONE page whose
+       charts switch symbols by session… One page showed oscillators, the other didn't." Outside the
+       market this page showed ES/NQ without the RSI fan and the old SPY + QQQ · RSI page right after it
+       showed SPY/QQQ with it. Now it is ONE page: the leaders by the market clock (SPY/QQQ 09:30-16:30 ET
+       on a weekday, ES/NQ otherwise), always with the fan. spyQqqOsc lands here (LEGACY). */
+    spyQqq1D:        Object.freeze({ label:"SPY + QQQ · DAY",     short:"SPY+QQQ DAY", range:"1D", bubble:BUBBLE_1D, study:"RSI", leaders:true }),
     /* 25 Sep, Alan: "you do have the RSI." Each oscillator page follows its price twin: the same
-       names on the same daily bars, with the Lab's locked-timeframe RSI fan under every price.
-       SPY and QQQ stay SPY and QQQ after hours - the fan reads their own sessions' bars. */
-    spyQqqOsc:       Object.freeze({ label:"SPY + QQQ · RSI",     short:"SPY+QQQ RSI", range:"1D", study:"RSI", tickers:Object.freeze(["SPY","QQQ"]) }),
-    otherIndexes1D:  Object.freeze({ label:"OTHER INDEXES · DAY", short:"INDEXES DAY", range:"1D", tickers:Object.freeze(["SMH","DIA","DRAM","MAGS","IWM","IGV"]) }),
-    otherIndexesOsc: Object.freeze({ label:"OTHER INDEXES · RSI", short:"INDEXES RSI", range:"1D", study:"RSI", tickers:Object.freeze(["SMH","DIA","DRAM","MAGS","IWM","IGV"]) }),
+       names on the same daily bars, with the Lab's locked-timeframe RSI fan under every price. */
+    otherIndexes1D:  Object.freeze({ label:"OTHER INDEXES · DAY", short:"INDEXES DAY", range:"1D", bubble:BUBBLE_1D, tickers:Object.freeze(["SMH","DIA","DRAM","MAGS","IWM","IGV"]) }),
+    otherIndexesOsc: Object.freeze({ label:"OTHER INDEXES · RSI", short:"INDEXES RSI", range:"1D", bubble:BUBBLE_1D, study:"RSI", tickers:Object.freeze(["SMH","DIA","DRAM","MAGS","IWM","IGV"]) }),
     macro1D:         Object.freeze({ label:"MACRO · DAY",         short:"MACRO DAY",   range:"1D", tickers:Object.freeze(["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]) }),
-    targets1D:       Object.freeze({ label:"TARGETS · DAY",       short:"TARGETS DAY", range:"1D", targets:true }),
-    targetsOsc:      Object.freeze({ label:"TARGETS · RSI",       short:"TARGETS RSI", range:"1D", study:"RSI", targets:true }),
+    targets1D:       Object.freeze({ label:"TARGETS · DAY",       short:"TARGETS DAY", range:"1D", bubble:BUBBLE_1D, targets:true }),
+    targetsOsc:      Object.freeze({ label:"TARGETS · RSI",       short:"TARGETS RSI", range:"1D", bubble:BUBBLE_1D, study:"RSI", targets:true }),
     macroIntraday:   Object.freeze({ label:"MACRO · 4H",          range:"4h", rotate:Object.freeze({ list:MACRO_4H, size:3 }), tail:Object.freeze(["PCC"]) }),
     intraday4h:      Object.freeze({ label:"INTRADAY · 4H",       short:"INTRA · 4H",  range:"4h", leaders:true, rotateTargets:Object.freeze({ size:4 }) }),
     intraday1h:      Object.freeze({ label:"INTRADAY · 1H",       short:"INTRA · 1H",  range:"1h", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:3 }) }),
@@ -241,6 +249,8 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
      remembered one lands on the workflow page that now carries its names. */
   tvMacro:"macro1D", tvIndexes:"otherIndexes1D", tvSectors:"sectors3D", tvHome6:"intraday4h",
   tvPage2:"ai1", tvPage3:"mag7", tvOtherLC:"other3D", tvOtherSC:"ai2", tvBlueChip:"blueChip3D", tvExtras:"ai2",
+  /* 27 Sep (O1): SPY + QQQ · RSI merged into SPY + QQQ · DAY, which now carries the fan */
+  spyQqqOsc:"spyQqq1D",
   /* 25 Sep, later: HISTORY is retired. A browser that remembered it lands on MACRO · DAY, the
      daily page that carries three of its six names (gold, the 10-year, crude). */
   history:"macro1D" });

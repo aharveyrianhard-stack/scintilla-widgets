@@ -135,8 +135,17 @@ test("the shells' messages close the view and fill the queue", () => {
   assert.equal(D.isOpen(), false);
 });
 
-test("a chart pane gets one expand badge, and it opens that pane's ticker", () => {
+/* 27 Sep (O1), Alan: he never uses the DETAIL button - "detail belongs in the Hub". The wall's panes
+   no longer carry it; ?detail=1 brings it back, and that path is what the tests below still check. */
+test("the wall's chart panes carry no DETAIL badge unless ?detail=1 asks for it", () => {
   const { D, dom } = load();
+  const node = dom.document.createElement("div");
+  assert.equal(D.attach({ node, def:{ kind:"chart", ticker:"GOOGL", title:"GOOGL" } }), false);
+  assert.equal(node.children.find((c) => c.className === "detail-open"), undefined, "no grey DETAIL badge on the wall");
+});
+
+test("with ?detail=1 a chart pane gets one expand badge, and it opens that pane's ticker", () => {
+  const { D, dom } = load({ location:{ search:"?detail=1" } });
   const node = dom.document.createElement("div");
   const pane = { node, def:{ kind:"chart", ticker:"GOOGL", title:"GOOGL" } };
   assert.equal(D.attach(pane), true);
@@ -151,7 +160,7 @@ test("a chart pane gets one expand badge, and it opens that pane's ticker", () =
 
 test("an empty chart slot asks for a symbol instead of opening a view for one that isn't there", () => {
   let asked = null;
-  const { D, dom } = load({ focusTickerFor:(key) => { asked = key; } });
+  const { D, dom } = load({ focusTickerFor:(key) => { asked = key; }, location:{ search:"?detail=1" } });
   const node = dom.document.createElement("div");
   /* this is exactly what the deck builds for an unfilled slot: no ticker, a prompt as title */
   D.attach({ node, def:{ kind:"chart", ticker:"", title:"Choose a symbol", key:"c3" } });
@@ -169,7 +178,8 @@ test("the five zoomed screens and FUNDAMENTALS are MENU entries that auto-rotate
     assert.ok(!rotation.includes(s.id), s.id + " must not be in the rotation until Alan says so");
   /* 25 Sep: the rotation is Alan's nineteen-page workflow (K3); the detail pages are still not in it. */
   /* 22 since 25 Sep P2 (three daily RSI pages); still no detail page in it. */
-  assert.equal(ctx.StationScenes.ROTATION_SCENES.length, 22, "the rotation is the workflow, which has no detail page");
+  /* 21 since 27 Sep (O1): SPY + QQQ · RSI merged into SPY + QQQ · DAY. */
+  assert.equal(ctx.StationScenes.ROTATION_SCENES.length, 21, "the rotation is the workflow, which has no detail page");
   /* and they answer the jump list's filter by name and by ticker */
   assert.deepEqual(plain(D.matchScreens("AVG").map((s) => s.id)), ["detailAVGO"]);
   assert.deepEqual(plain(D.matchScreens("FUND").map((s) => s.id)), ["fundamentals"]);
