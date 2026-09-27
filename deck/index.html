@@ -780,6 +780,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
 <!-- M74 HOOK (station detail) — expand-in-place overlay + rotation queue, all of it in deck/detail.js -->
 <script src="/deck/detail.js?rev=001"></script>
 <script src="/_provider/provider.js"></script>
+<script src="/_indicators/station-geiger-bar.js"></script>
 <script src="/_cohorts/cohort-axis.js"></script>
 <script>
 /* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
@@ -1168,6 +1169,54 @@ async function fetchDeckQuotes(tickers, onSlow) {
     return await SC_PROVIDER.marketQuotes(tickers, { signal:controller?.signal });
   } finally { if (hard) clearTimeout(hard); clearTimeout(soft); }
 }
+/* THE GEIGER BAR ON EVERY CHART, READ ONCE FOR THE WHOLE PAGE (G1, 27 Sep).
+   The deck already knows every visible chart's ticker, so it reads their Geiger composites itself -
+   once when the visible set changes (a page change, a ticker edit, a chart count) and otherwise once
+   a minute - and posts ONE map to every chart frame on the existing channel. A pane never reads it
+   while the deck is answering. Two owners, the same two the Hub uses:
+     - provider equities (funds included): the chart API's /geiger under the accepted Equalizer;
+     - non-equities: the retained non-equity daily row (SC_NON_EQUITY.geiger), through the deck's own reader.
+   A failed or refused read leaves that owner's names with NO reading - the bar goes, it never keeps
+   a number the provider client did not accept. */
+const DECK_GEIGER = { key:"", at:0, inFlight:false, rerun:false, readings:{} };
+const DECK_GEIGER_MS = 60000;
+function postDeckGeiger(frame) {
+  if (!frame?.contentWindow) return;
+  try { frame.contentWindow.postMessage({ sc:"deck-geiger", readings:DECK_GEIGER.readings, at:DECK_GEIGER.at }, location.origin); } catch (_) {}
+}
+function fanoutDeckGeiger() {
+  for (const pane of PANES) if (pane.def.kind === "chart" && pane.frame) postDeckGeiger(pane.frame);
+}
+async function refreshDeckGeiger() {
+  const B = window.SC_GEIGER_BAR, P = window.SC_PROVIDER;
+  if (!B || !P) return;
+  const tickers = visibleChartTickers();
+  const key = tickers.join(",");
+  if (key === DECK_GEIGER.key && Date.now() - DECK_GEIGER.at < DECK_GEIGER_MS) return;
+  if (DECK_GEIGER.inFlight) { DECK_GEIGER.rerun = true; return; }
+  DECK_GEIGER.inFlight = true;
+  try {
+    let own = {};
+    try { own = (await P.verifyOwnership()) || {}; } catch (_) { own = {}; }
+    const equities = tickers.filter((t) => own[t]);
+    const others = tickers.filter((t) => !own[t]);
+    const [eqRows, neRows] = await Promise.all([
+      equities.length ? P.equityGeiger(equities).catch(() => []) : [],
+      others.length && window.SC_NON_EQUITY ? window.SC_NON_EQUITY.geiger(others).catch(() => []) : [],
+    ]);
+    DECK_GEIGER.readings = Object.assign({}, B.readingsFrom(neRows, "RETAINED_NON_EQUITY"),
+      B.readingsFrom(eqRows, "PROVIDER_EQUALIZER"));
+    DECK_GEIGER.key = key; DECK_GEIGER.at = Date.now();
+    fanoutDeckGeiger();
+  } finally {
+    DECK_GEIGER.inFlight = false;
+    if (DECK_GEIGER.rerun) { DECK_GEIGER.rerun = false; refreshDeckGeiger(); }
+  }
+}
+/* Its own clock, not the quote pump's: every 2 s it compares the visible set (a join of at most eight
+   names) and reads only when that set changed or a minute has passed - so a page change is picked up
+   within 2 s and the quote pump's invalidation rules are not touched. */
+setInterval(refreshDeckGeiger, 2000);
 async function refreshDeckQuotes() {
   deckQuoteRequest += 1;
   if (deckQuoteInFlight) { deckQuoteRerun = true; return; }
@@ -1902,7 +1951,7 @@ window.addEventListener("message", (event) => {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
     /* A booting chart announcing readiness has not changed the visible set: fetch soon, but
        never retire a read already in flight for these same panes. */
-    if (pane?.def.kind === "chart") { postDeckQuote(pane.frame, pane.def.ticker); deckQuoteHeartbeat(); }
+    if (pane?.def.kind === "chart") { postDeckQuote(pane.frame, pane.def.ticker); deckQuoteHeartbeat(); postDeckGeiger(pane.frame); refreshDeckGeiger(); }
     return;
   }
   if (event.data?.sc === "chart-status") {
