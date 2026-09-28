@@ -235,3 +235,12 @@ test("two reads of the same series at the same moment in one frame go out once",
   assert.deepEqual(plain(a), plain(b));
   assert.equal(candleCalls(st.calls).length - before, 1);
 });
+
+test("the chip steps fully left of the timeframe tag even when the tag's edge is a fraction of a pixel (was: fell into the plot)", async () => {
+  const P = await import("../_indicators/lens-placement.mjs");
+  /* measured headlessly on INTRADAY 30M, left pane, with the tag at the seam */
+  const res = P.topRightSpot({ plot: { padL: 0, padT: 38, iw: 798, ih: 340 }, box: { w: 98.328125, h: 16 },
+    badge: { x: 8, y: 7, w: 247.27, h: 26 }, keepOut: [{ x: 797.828125, y: 6, w: 39.171875, h: 21 }] });
+  assert.equal(res.why, "top right, in the badge row, left of the deck's tag");
+  assert.ok(res.spot.x + res.spot.w + 4 <= 797.828125);
+});

@@ -488,7 +488,7 @@ export function topRightSpot({ plot, box, badge = null, keepOut = [], pad = 4, g
   for (let guard = 0; guard < 8; guard++) {
     const k = outs.find((o) => hitBox({ x, y: rowY, w: box.w, h: box.h }, o, pad));
     if (!k) break;
-    x = Math.round(k.x - pad - box.w);
+    x = Math.floor(k.x - pad - box.w);   /* floor: a rounded-up x is still inside the pad and loops (L6) */
   }
   const row = { x, y: rowY, w: box.w, h: box.h };
   const rowFree = rowY >= 0 && x >= plot.padL && !outs.some((o) => hitBox(row, o, pad)) && !(badge && hitBox(row, badge, pad));
