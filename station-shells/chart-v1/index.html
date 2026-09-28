@@ -1346,16 +1346,20 @@ function drawRsiFan(ctx, o) {
     const ends = o.fan.lines.filter((l) => l.values && endOf(l) != null)
       .map((l) => ({ l, y:RY(endOf(l)) })).sort((a, b) => a.y - b.y);
     ctx.textAlign = "left";
+    const fits = (c) => o.X(o.end) + 4 + c * colW + colW - 4 <= left + width;
     for (const e of ends) {
-      let c = 0;
-      while (cols[c] != null && e.y - cols[c] < o.font + 1) c++;
+      let c = 0, y = e.y;
+      while (cols[c] != null && y - cols[c] < o.font + 1) c++;
+      /* no column left: the last resort is the first column, just under its lowest tag (a tag missing
+         is worse than a tag a few pixels off its line) */
+      if (!fits(c)) { c = 0; y = Math.max(e.y, (cols[0] == null ? e.y : cols[0] + o.font + 1)); }
+      if (!fits(c) || y > top + ph) continue;
       const x = o.X(o.end) + 4 + c * colW;
-      if (x + colW - 4 > left + width) continue;
-      cols[c] = e.y;
+      cols[c] = y;
       const text = F.BY_KEY[e.l.key].label;
       ctx.fillStyle = F.lineInk(e.l.key, e.l.dir, pal, .35);
-      ctx.fillText(text, x, e.y);
-      tags.push({ key:e.l.key, x:Math.round(x), y:Math.round(e.y), col:c });
+      ctx.fillText(text, x, y);
+      tags.push({ key:e.l.key, x:Math.round(x), y:Math.round(y), col:c, nudged:y !== e.y });
     }
   }
   /* The legend: every line's name and value, in its own ink; a scrub reads the hovered bar. A source
