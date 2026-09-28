@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Station follow-ups · 28 Sep 2026</title>
+<style>
+:root{--bg:#0A0A0F;--panel:#0F0F16;--line:#1C1C26;--ink:#C8C8D2;--body:#A8A8B6;--dim:#8C8C9A;--up:#00C98A;--dn:#D02E4C;--amber:#C8953A}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--body);font:17px/1.55 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:34px;margin:0 0 6px;color:var(--ink)} h2{font-size:25px;margin:44px 0 8px;color:var(--ink)} h3{font-size:19px;margin:26px 0 6px;color:var(--ink)}
+p,ul,ol{max-width:1100px} li{margin:6px 0} .lead{font-size:21px;color:var(--ink)} .note{color:var(--dim);font-size:14px}
+blockquote{margin:10px 0 18px;padding:8px 16px;border-left:3px solid #33333D;color:var(--ink);max-width:1000px}
+table{border-collapse:collapse;font-size:15px;margin:10px 0 6px;max-width:100%} th,td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+th{color:var(--dim);font-weight:600} td.num{font:14px ui-monospace,Menlo,monospace;text-align:right}
+code{font:14px ui-monospace,Menlo,monospace;background:var(--panel);padding:2px 6px;border-radius:4px;color:var(--ink)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;margin:12px 0 26px}
+.phones{display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 26px} .phones figure{width:300px}
+figure{margin:0} img{width:100%;height:auto;border:1px solid var(--line);display:block}
+figcaption{font:13px ui-monospace,Menlo,monospace;color:var(--dim);margin-top:5px}
+.box{border:1px solid var(--line);background:var(--panel);padding:12px 16px;margin:10px 0 16px;max-width:1100px}
+.up{color:var(--up)} .dn{color:var(--dn)} .amber{color:var(--amber)} b{color:var(--ink)}
+@media (max-width:760px){body{padding:18px 16px 60px;font-size:16px}.pair{grid-template-columns:1fr}h1{font-size:27px}
+  table{display:block;overflow-x:auto;max-width:100%} code{word-break:break-all} .phones figure{width:100%}}
+</style></head><body>
+
+<h1>Station · 28 Sep: rotation that is cheaper, clearer, and never shows one name twice</h1>
+<p class="lead">Branch <code>station/followups-20260928</code>, built on today's live Station (c9111f1). Pushed, <b>not deployed</b>. The six follow-ups from this morning's review are all built and checked in a real (hidden) browser.</p>
+
+<div class="box">
+<b>In one minute</b>
+<ul>
+<li><b>No more re-downloading.</b> On INTRADAY · 30M the Station was asking the chart service for about 145 things a minute, all day. Now it asks for each chart once; after the first two minutes it settles at <b>11–14 a minute</b>, and none of those are chart history (they're the live price and Geiger checks the wall always makes).</li>
+<li><b>Less work for the computer.</b> A rotating 8-chart page (SECTORS) now uses about <b>30% less CPU</b> (8.5 / 7.8 → 5.8 / 5.4 seconds per 2 minutes). Rotating slots now reuse their chart instead of building a new one each time, and the fade is drawn more cheaply.</li>
+<li><b>The Geiger chip is there when the chart fades in.</b> Checked on 73 fades: all 73 had the chip at the start of the fade (before: 37 of 49).</li>
+<li><b>Holding a chart no longer causes a duplicate.</b> A held chart keeps its name, and the others skip past it. With the pointer held on one chart for 70 seconds, 141 checks found no name on screen twice.</li>
+<li><b>The ↻ tag now lists the names</b>, as you asked: "↻ GOOGL · NBIS · AVGO · BE · AMZN · VST · MU · WMT", with the one on screen bright.</li>
+<li><b>The "30M" tag no longer covers a ticker.</b> On 2-chart pages it now sits just left of the middle line, so "BE" reads BE, not "3E".</li>
+<li><b>Tests:</b> 834 run, 816 pass. The 18 failures are exactly the 18 known ones; nothing new fails. 16 new checks were added.</li>
+</ul>
+</div>
+
+<h2>1 · Each chart is downloaded once, not every time it comes back</h2>
+<p><b>What was happening.</b> When a rotating slot changed to its next name, the new chart downloaded about 14 things from the chart service: the price bars, one set for each line of the RSI fan, and the daily bars for the clouds. It did this every time, even for a name it had shown 11 seconds earlier.</p>
+<p><b>What changed.</b> The Station now keeps one shared copy of everything a chart has downloaded, in the page that holds all the charts. The next chart for the same name reads that copy. A copy is kept until a new bar could exist. The chart service only sends finished bars, so a 30-minute chart's data can't change until the next half hour. Right after each :00 and :30 it's re-checked every 45 seconds for 3 minutes, in case the newest bar is a little late. Longer bars are kept no longer than the chart itself would keep them: 10 minutes for 2H–12H, 30 minutes for daily and longer. Failed downloads and "not available" answers are never kept. The check that a symbol is one of ours (the universe list) is shared the same way, so each new chart no longer repeats it.</p>
+<table>
+<tr><th>Calls to the chart service, per minute (5-minute run)</th><th>min 1</th><th>min 2</th><th>min 3</th><th>min 4</th><th>min 5</th></tr>
+<tr><td>INTRADAY · 30M, before</td><td class="num">189</td><td class="num">148</td><td class="num">144</td><td class="num">141</td><td class="num">172</td></tr>
+<tr><td>INTRADAY · 30M, after</td><td class="num">110</td><td class="num">51</td><td class="num">11</td><td class="num">14</td><td class="num">12</td></tr>
+<tr><td>… of which chart history, after</td><td class="num">92</td><td class="num">38</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
+<tr><td>INTRADAY · 1H, before</td><td class="num">53</td><td class="num">19</td><td class="num">21</td><td class="num">18</td><td class="num">24</td></tr>
+<tr><td>INTRADAY · 1H, after</td><td class="num">45</td><td class="num">20</td><td class="num">19</td><td class="num">22</td><td class="num">18</td></tr>
+</table>
+<p>The first two minutes on 30M are the first time each of the 10 names is seen (the target slot needs about 90 seconds to go through all 8 targets). After that, the 30M page downloads no chart history at all until a new bar closes. <b>INTRADAY · 1H didn't change</b>, because it wasn't re-downloading in the first place: it has no RSI fan, and its chart history was already read only once. Its ~20 calls a minute are the wall's live price and Geiger checks, which this work didn't touch.</p>
+
+<h2>2 · Rotating pages use less CPU</h2>
+<p><b>Where the time went.</b> I measured this rather than guessed, in a hidden browser, with each version run in turn so they got the same conditions. On a rotating page, the Station's own scripts were only about 1 second of every 80. The rest was two things:</p>
+<ul>
+<li><b>Building a brand-new chart page for every name change</b> and throwing the old one away.</li>
+<li><b>The fade itself.</b> A smooth fade redraws the whole chart about 54 times in 0.9 seconds. On INTRADAY · 1H that alone was about 40% of the page's CPU.</li>
+</ul>
+<p><b>What changed.</b></p>
+<ul>
+<li>Each rotating slot keeps the chart it has just faded away from, out of sight. At the next step it switches that same chart to the next name, the way page changes already do, instead of building a new one.</li>
+<li>The fade is the same length (0.9 seconds) but is drawn in 8 steps instead of about 54. A fade has no movement, so it still looks soft. Please look at it on the Station (decision 1).</li>
+<li>I also tried one more common tweak ("will-change"). It made things <i>worse</i> by about 7%, so it isn't used.</li>
+</ul>
+<table>
+<tr><th>CPU seconds</th><th>before</th><th>after</th></tr>
+<tr><td>SECTORS (8 charts, 2 rotating), 2 minutes, two runs each</td><td class="num">8.47 · 7.76</td><td class="num">5.76 · 5.44</td></tr>
+<tr><td>INTRADAY · 1H (4 rotating), 80 s, two runs each</td><td class="num">7.49 · 7.25</td><td class="num">4.02 · 3.86</td></tr>
+<tr><td>For comparison: INTRADAY · 1H with in-slot rotation switched off</td><td class="num" colspan="2">1.36 · 1.34</td></tr>
+<tr><td>Memory at the end of the SECTORS runs (MB)</td><td class="num">453 · 457</td><td class="num">413 · 473</td></tr>
+</table>
+<p><b>With the CPU slowed 4× to stand in for the old iMac</b> (the iMac itself was not used): both versions finished all 24 name changes in 2 minutes, with no long freezes. But the CPU-seconds number can't be used here: Chrome's slow-down itself keeps the page busy, so both read about 100 seconds. I can't honestly claim a number for the iMac from this. The real-speed measurements above are the reliable ones.</p>
+<p><b>Memory didn't clearly go down.</b> Each rotating slot now keeps two charts alive (the one on screen and the one waiting for the next step) instead of creating and dropping one every 11 seconds. The end-of-run totals are in the same 410–480 MB range as before.</p>
+
+<h2>3 · The Geiger chip arrives with the chart</h2>
+<p><b>What was happening.</b> The Station reads the Geiger once for all the charts on screen. A name that was about to fade in wasn't on screen yet, so its reading wasn't in that read. Its chip appeared 1–2 seconds after the fade, when the next read came back.</p>
+<p><b>What changed.</b> The read now includes every name the rotating slots cycle through, so the reading is already there. The reading is sent to the incoming chart just before its fade starts. If a read is still under way, the fade waits for it, but never more than 2 seconds.</p>
+<p><b>Checked:</b> in every run after the change, I recorded whether the chip was on the incoming chart at the moment its fade began: <b>73 of 73</b>. In the runs before the change: 37 of 49.</p>
+
+<h2>4 · Holding a chart never makes a duplicate</h2>
+<p><b>What was happening.</b> With the pointer over a chart, that chart kept its name, but its neighbours kept stepping through the same list. One of them could land on the held name, and then two panes showed the same ticker.</p>
+<p><b>What changed.</b> Each step is now planned for the whole page at once. A held chart keeps its name and claims it. A neighbour whose next name is claimed moves on to the next free name in its own list, and its ↻ tag shows the name it really shows. There's also a last safety check: a chart never fades in on a name another pane is still showing.</p>
+<p><b>Checked:</b> INTRADAY · 1H with the pointer held on chart 2 (GOOGL) for 70 seconds. The other three changed six times (for example SPY/AMZN/VST → SPY/WMT/BE → QQQ/AVGO/BE). In 141 checks, no name was ever on screen twice. The tests also try every combination of held charts on every rotating page, for 9 steps each.</p>
+
+<h2>5 · The ↻ tag lists the names</h2>
+<blockquote>"include the tickers between which we're going to be rotating — that'll be very clear."</blockquote>
+<p>The tag at the end of a rotating chart's top line now reads, for example, <b>↻ GOOGL · NBIS · AVGO · BE · AMZN · VST · MU · WMT</b>. The name on screen is bright and the others are quieter. The list stays in its own order, so the bright name moves along it as the slot steps. It always stays in the top line and leaves the Geiger chip its place at the right:</p>
+<ul>
+<li>if all the names fit, all of them are shown (2-chart pages at 1680 wide);</li>
+<li>if not, it shows the name on screen and the ones coming next, plus "+3" for the rest. For example "↻ XLV · XLRE +3" on the 8-chart SECTORS page, and "↻ GOOGL · NBIS +6" on a phone;</li>
+<li>if even that doesn't fit, it goes back to the short "↻ 2/5".</li>
+</ul>
+<p>Pointing at the tag still lists the whole cycle. It's 11 px text, in the same greys as the rest of the Station.</p>
+
+<h2>6 · The timeframe tag no longer covers a ticker</h2>
+<p>The "30M" tag sat exactly on the middle line of 2-chart pages, over the first letter of the right chart's ticker ("OOGL", "3E"). When the middle of the wall is a line between two charts, the tag now ends just left of that line. It sits at the top right of the left chart, and that chart's Geiger chip steps left of it. On every other layout it stays in the middle, as before. While checking this I found and fixed a half-pixel rounding error: it had pushed that left Geiger chip down into the chart instead of beside the tag.</p>
+
+<h2>Pictures (hidden browser, today, market open)</h2>
+<div class="pair">
+<figure><img src="shots/before-intraday30m-1680.png" alt="before: 30M tag over GOOGL, ↻ 1/2 and ↻ 1/8 tags"><figcaption>BEFORE · INTRADAY 30M · 1680 — "30M" covers the G of GOOGL; tags read ↻ 1/2, ↻ 1/8</figcaption></figure>
+<figure><img src="shots/after-intraday30m-1680-midfade.png" alt="after: mid-fade SPY to QQQ, tag left of the seam, full rotation list"><figcaption>AFTER · INTRADAY 30M · 1680 · mid-fade — left chart dissolving SPY → QQQ; "30M" left of the line with the chip beside it; right: ↻ GOOGL · NBIS · … · WMT, GOOGL bright</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/after-intraday30m-1680.png" alt="after: BE fully visible"><figcaption>AFTER · INTRADAY 30M · 1680 — "BE 265.06" reads in full (this morning it read "3E"); BE bright in its list</figcaption></figure>
+<figure><img src="shots/after-hover-intraday1h-1680-midfade.png" alt="after: INTRADAY 1H with pointer held on chart 2"><figcaption>AFTER · INTRADAY 1H · 1680 · mid-fade, pointer held on chart 2 — the others step, no duplicate</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/before-sectors3D-1680.png" alt="before: sectors ↻ 3/5"><figcaption>BEFORE · SECTORS · 1680 — slots 7–8 read ↻ 3/5</figcaption></figure>
+<figure><img src="shots/after-sectors3D-1680-midfade.png" alt="after: sectors mid-fade with names"><figcaption>AFTER · SECTORS · 1680 · mid-fade — slot 7 dissolving to XLB; slot 8 reads ↻ XLV · XLRE +3</figcaption></figure>
+</div>
+<div class="phones">
+<figure><img src="shots/after-intraday30m-390-midfade.png" alt="phone mid-fade"><figcaption>AFTER · 390 · 30M mid-fade — ↻ SPY · QQQ and ↻ GOOGL · NBIS +6; 30M tag bottom right as before</figcaption></figure>
+<figure><img src="shots/after-intraday30m-390.png" alt="phone settled"><figcaption>AFTER · 390 · 30M settled</figcaption></figure>
+<figure><img src="shots/after-sectors3D-390-midfade.png" alt="phone sectors"><figcaption>AFTER · 390 · SECTORS — the top of the stack is the fixed charts; the rotating ones are further down</figcaption></figure>
+</div>
+<p class="note">What's in the pictures: the prices and charts are today's live data. The video panes and the "X source is offline" pane are what a fresh hidden browser shows; they weren't part of this work. In the mid-fade pictures the pane with two overlapping lines is the dissolve caught halfway.</p>
+
+<h2>Where each number comes from</h2>
+<ul>
+<li><b>Prices, bars, Geiger:</b> the chart service (<code>scintilla-massive-chart-api.fly.dev</code>), read only. Nothing new is read; the same answers are simply kept and shared.</li>
+<li><b>Call counts and CPU:</b> a hidden Chrome (headless) on this MacBook, running the Station from each version's files. Each call to the chart service was counted as it went out. CPU is the whole browser's CPU time, split by process. Everything is in <code>harness/measurements.json</code>.</li>
+<li><b>How the local runs reached the chart service:</b> the chart service only answers <code>scintillahub.ai</code>, so the test browser's requests were passed on with that origin. Anything that wasn't a plain read was blocked.</li>
+</ul>
+
+<h2>What could be wrong</h2>
+<ul>
+<li><b>A late bar right after the half hour.</b> If the newest bar is still missing 3 minutes after it closes, a chart can go without it until the next half hour (at most 27 minutes more). Before this change, a chart re-checked every minute.</li>
+<li><b>Hidden charts still tick.</b> The chart waiting in each rotating slot keeps its own one-minute refresh running while hidden. That's cheap now (it reads the shared copy), but it isn't zero.</li>
+<li><b>The stepped fade</b> might look slightly less smooth to you than the old one. If so, it's a one-line change back (decision 1).</li>
+<li><b>The iMac number is missing.</b> The 4× slow-down test can't give a trustworthy CPU figure (see section 2).</li>
+<li><b>A held chart that is released</b> goes back to its normal place in the cycle at the next step. That can show one name again sooner than usual. It never shows two names at once.</li>
+</ul>
+
+<h2>What I did not do</h2>
+<ul>
+<li>No deploy, no Fly or Supabase command, no FMP request. The branch is pushed only.</li>
+<li>I did not use the iMac (the 4× slow-down stood in for it).</li>
+<li>I didn't make INTRADAY · 1H's live price and Geiger checks less frequent. They're the wall's heartbeat and weren't part of this brief.</li>
+<li>I didn't watch a full 13-minute page lap. Rotation was watched on SECTORS, INTRADAY 1H and INTRADAY 30M.</li>
+<li>Memory was not reduced (see section 2).</li>
+</ul>
+
+<h2>Decisions for you</h2>
+<ol>
+<li><b>Is the 8-step fade soft enough?</b> It uses about 30% less CPU than the smooth one. <i>Recommendation: keep it.</i> If it looks steppy on the big screen, going back is one line and costs about 1.5 seconds of CPU per 80.</li>
+<li><b>How many names should the ↻ tag show on 8-chart pages?</b> Right now it's the name on screen, the next one, then "+3". <i>Recommendation: keep it.</i> Showing all five would push the Geiger chip into the chart on 8-up pages.</li>
+<li><b>Should the waiting hidden chart be paused completely?</b> It would save a little more CPU, but it needs a change inside the chart itself. <i>Recommendation: not now.</i> The gain is small next to what's already done.</li>
+</ol>
+
+<p class="note">Harness (headless only; every browser closed when done): <code>harness/pd.mjs</code> (measurement rig), <code>harness/shots.mjs</code> (screenshots, <code>--fadeShot=1</code> for mid-fade), <code>runset.sh</code> / <code>ab.sh</code> / <code>final.sh</code> (the runs), <code>suite.sh</code> (tests against the known list). The scripts contain this session's scratch paths; point them at a copy of each version's files to rerun. Tests: <code>node --test tests/</code> → 834 run, 816 pass, 18 fail (the 18 known), 0 new. New checks: <code>tests/station-followups-20260928.test.mjs</code> (16), plus updates to the rotation, Geiger-bar and input-boundary tests where they pinned the old text.</p>
+</body></html>
