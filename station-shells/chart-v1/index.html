@@ -592,6 +592,7 @@ const CH_STALE_TF = { "15m":"15M", "30m":"30M", "1h":"1H", "2h":"2H", "3h":"3H",
   "12h":"12H", "1D":"1D", "3D":"3D", "1W":"1W" };
 const CH_SESSION_FROM_ET = 4 * 60, CH_SESSION_TO_ET = 20 * 60, CH_DAILY_JUDGED_ET = 9 * 60 + 45;
 const CH_SESSIONS_ALLOWED = { "1D":0, "3D":6, "1W":10 };
+const CH_CRYPTO_DAYS_ALLOWED = { "1D":0, "3D":6, "1W":14 };
 function chNy(ms) {
   const x = {};
   for (const part of CH_ET_FMT.formatToParts(new Date(ms))) x[part.type] = part.value;
@@ -611,11 +612,31 @@ function chInSession(ms) {
   const c = chNy(ms);
   return chTradingDay(c.date) && c.minutes >= CH_SESSION_FROM_ET && c.minutes < CH_SESSION_TO_ET;
 }
-/* Session time between two instants, in 5-minute steps; it stops counting once past `cap`. */
-function chSessionMs(fromMs, toMs, cap) {
+/* FUTURES AND CRYPTO KEEP THEIR OWN CLOCK (27 Sep). Alan: "Futures, commodities and Bitcoin don't
+   follow the stock calendar." Judged by NYSE hours, an ES line that stopped on Friday stayed quiet
+   all Sunday evening, and ES 30m turned amber every weekday during CME's 17:00-18:00 pause.
+   CME Globex: Sunday 18:00 ET to Friday 17:00 ET, paused 17:00-18:00 ET Monday-Thursday.
+   Crypto never closes. Everything else keeps the NYSE session above. */
+function chMarketOf(sym) {
+  const t = String(sym || "").toUpperCase();
+  if (typeof cryptoSet !== "undefined" && cryptoSet.has(t)) return "CRYPTO";
+  if (typeof futureSet !== "undefined" && futureSet.has(t)) return "CME";
+  return "NYSE";
+}
+function chOpenAt(ms, market) {
+  if (market === "CRYPTO") return true;
+  if (market !== "CME") return chInSession(ms);
+  const c = chNy(ms), dow = new Date(c.date + "T12:00:00Z").getUTCDay();
+  if (dow === 6) return false;
+  if (dow === 0) return c.minutes >= 18 * 60;
+  if (dow === 5) return c.minutes < 17 * 60;
+  return c.minutes < 17 * 60 || c.minutes >= 18 * 60;
+}
+/* Open time between two instants, in 5-minute steps; it stops counting once past `cap`. */
+function chSessionMs(fromMs, toMs, cap, market) {
   const step = 300000;
   let n = 0;
-  for (let t = fromMs; t < toMs && n <= cap; t += step) if (chInSession(t)) n += Math.min(step, toMs - t);
+  for (let t = fromMs; t < toMs && n <= cap; t += step) if (chOpenAt(t, market)) n += Math.min(step, toMs - t);
   return n;
 }
 function chAgeText(ms) {
@@ -624,8 +645,9 @@ function chAgeText(ms) {
   return Math.floor(ms / 86400000) + " d old";
 }
 function chDayMon(date) { return +date.slice(8, 10) + " " + (EV_MON[+date.slice(5, 7) - 1] || date.slice(5, 7)); }
-function chBarFreshness(pts, range, nowMs) {
+function chBarFreshness(pts, range, nowMs, sym) {
   const tf = CH_STALE_TF[range];
+  const market = chMarketOf(sym);
   const last = tf ? chLastCompletedPoint(pts) : null;
   if (!last) return null;
   const now = Number.isFinite(nowMs) ? nowMs : Date.now();
@@ -640,13 +662,20 @@ function chBarFreshness(pts, range, nowMs) {
     const limit = 2 * bucket + Math.min(bucket / 2, 900000);
     /* session time is never more than wall time, so a line inside the limit on the wall clock is
        fresh without counting */
-    const stale = chInSession(now) && now - start > limit && chSessionMs(start, now, limit) > limit;
+    const stale = chOpenAt(now, market) && now - start > limit && chSessionMs(start, now, limit, market) > limit;
     return { text, stale, age: stale ? tf + " \u00b7 " + chAgeText(now - (start + bucket)) : "" };
   }
   const date = String(last.d).slice(0, 10);
   const text = "last bar " + chDayMon(date);
   let stale = false;
-  if (chTradingDay(clock.date) && clock.minutes >= CH_DAILY_JUDGED_ET && clock.minutes < CH_SESSION_TO_ET) {
+  if (market === "CRYPTO") {
+    /* every calendar day has a bar; from 09:45 ET yesterday's must be there */
+    if (clock.minutes >= CH_DAILY_JUDGED_ET) {
+      const yday = new Date(Date.parse(clock.date + "T12:00:00Z") - 86400000).toISOString().slice(0, 10);
+      const missing = Math.max(0, Math.round((Date.parse(yday + "T12:00:00Z") - Date.parse(date + "T12:00:00Z")) / 86400000));
+      stale = missing > CH_CRYPTO_DAYS_ALLOWED[range];
+    }
+  } else if (chTradingDay(clock.date) && clock.minutes >= CH_DAILY_JUDGED_ET && clock.minutes < CH_SESSION_TO_ET) {
     /* sessions that have closed since the newest bar, up to the previous session */
     let missing = 0;
     for (let d = chPrevTradingDay(clock.date); d > date && missing <= 40; d = chPrevTradingDay(d)) missing++;
@@ -2615,7 +2644,7 @@ function paintChartHistoryWindow(host) {
 function paintLastBarStamp(host, pts) {
   const stamp = host?.querySelector(".sc-nchart__live-lastbar");
   if (!stamp) return;
-  const fresh = pts && pts.length ? chBarFreshness(pts, host._range || S.chartRange) : null;
+  const fresh = pts && pts.length ? chBarFreshness(pts, host._range || S.chartRange, undefined, host.dataset.t) : null;
   /* the timeframe is on the pane already: "STALE · last bar 25 Sep · 4 d old" */
   const text = fresh && fresh.stale ? "STALE \u00b7 " + fresh.text + " \u00b7 " + String(fresh.age).split(" \u00b7 ").pop() : "";
   if (stamp.textContent !== text) stamp.textContent = text;
