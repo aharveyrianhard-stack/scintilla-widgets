@@ -60,6 +60,17 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 .sc-nchart__cv{ position:absolute; inset:0; width:100%; height:100%; display:block;
   touch-action:none; overscroll-behavior:none; cursor:crosshair; }
 .sc-nchart__cv.is-panning{ cursor:grabbing; }
+.sc-cloud-labels{ position:absolute; inset:0; z-index:2; pointer-events:none; overflow:hidden; }
+.sc-cloud-end-label{ position:absolute; display:grid; grid-template-columns:auto auto; column-gap:3px;
+  transform:translateY(calc(var(--cloud-label-size, 9px) * -.5)); width:max-content;
+  color:var(--cloud-label-color); font-variant-numeric:tabular-nums; white-space:nowrap;
+  line-height:1; text-shadow:0 1px 3px #030508,0 0 4px #030508; }
+.sc-cloud-end-label b{ font-size:var(--cloud-label-size,9px); font-weight:700; }
+.sc-cloud-end-label .pct{ font-size:max(7px,calc(var(--cloud-label-size,9px) - 1px)); }
+.sc-cloud-end-label .price{ grid-column:1 / -1; margin-top:2px;
+  font-size:max(7px,calc(var(--cloud-label-size,9px) - 2px)); opacity:.72; }
+.sc-cloud-end-label.compact{ grid-template-columns:1fr; row-gap:2px; }
+.sc-cloud-end-label.compact .pct,.sc-cloud-end-label.compact .price{ grid-column:1; font-size:max(7px,calc(var(--cloud-label-size,9px) - 3px)); }
 .sc-nchart__live{ position:absolute; top:7px; left:8px; z-index:3; pointer-events:auto;
   display:flex; flex-direction:row; align-items:baseline; gap:8px; max-width:calc(100% - 52px);
   background:rgba(5,6,12,.76); border:.6px solid rgba(151,166,198,.2); border-radius:4px;
@@ -152,6 +163,7 @@ body.tvmodal-open{ overflow:hidden; }
 <div id="chartSlot"></div>
 <script src="/_vendor/supabase-js-2.112.3-umd.min.js" integrity="sha384-qafw21c/iciq0VXsi9FzkfoQv5I/V0iqE4lSNcKXPnW9/UTJLnv5CcN4FHxVLnKg"></script>
 <script src="/_provider/provider.js"></script>
+<script src="/_indicators/cloud-overlay.js"></script>
 <script>
 /* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
    Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
@@ -267,6 +279,7 @@ function applyIpadPaneScale(forced) {
 }
 applyIpadPaneScale();
 const SHARED_TIME_AXIS = QS.get("sharedAxis") === "1";
+let SHOW_SMA100 = QS.get("sma100") === "1";
 let CHART_TRANSITION_GENERATION = Math.max(0, Number(QS.get("transition")) || 0);
 /* BARE MODE (?bare=1) — used when /chart is a pane inside /deck.
    Two things change, and only these two:
@@ -291,6 +304,8 @@ let liveQuote = {};
 /* ---- chart caches + colors — ported verbatim ---- */
 const chartCache = new Map();
 const chartInflight = new Map();
+const cloudDailyCache = new Map();
+const cloudDailyInflight = new Map();
 const CHART_HOSTS = new Set();
 const CHART_RETRY_MS = 3000;
 const CHART_LOAD_COORDINATOR_TIMEOUT_MS = 5500;
@@ -549,6 +564,26 @@ async function fetchProviderCandles(t, tf, limit, tries){
   }
   throw last;
 }
+/* The overlay is computed from the same completed-candle authority as price.
+   Daily observations are fetched once per pane/ticker and stay daily-locked on
+   every chart timeframe; no intraday bar is substituted into an average. */
+async function fetchCloudDaily(t) {
+  const key=String(t || "").toUpperCase();
+  const hit=cloudDailyCache.get(key);
+  if (hit && Date.now()-hit.ts<300000) return hit.rows;
+  if (cloudDailyInflight.has(key)) return cloudDailyInflight.get(key);
+  const work=(async()=>{
+    if (!window.SC_CLOUD_OVERLAY) throw new Error("cloud overlay module unavailable");
+    const rows=await fetchProviderCandles(key,"D",400,2);
+    const computed=window.SC_CLOUD_OVERLAY.computeDaily(rows || []);
+    if (computed.length<2) throw new Error("insufficient daily history for cloud overlay");
+    cloudDailyCache.set(key,{ts:Date.now(),rows:computed});
+    return computed;
+  })();
+  cloudDailyInflight.set(key,work);
+  try { return await work; }
+  finally { if (cloudDailyInflight.get(key)===work) cloudDailyInflight.delete(key); }
+}
 async function fetchChartSeries(t, range, requestedLimit){
   const key = t + "|" + range;
   const hit = chartCache.get(key);
@@ -602,6 +637,7 @@ function scChartHTML(ticker) {
       POPOUT_SVG + "<span class=\"sc-tv__pop-lbl\"> TradingView</span></button>" +
     "</div>" +
     '<div class="sc-nchart__area"><canvas class="sc-nchart__cv"></canvas>' +
+    '<div class="sc-cloud-labels" aria-label="Daily moving-average levels"></div>' +
     '<div class="sc-nchart__live" data-fresh="0" title="Edit ticker"></div>' +
     '<div class="sc-nchart__msg" hidden></div></div></div>';
 }
@@ -759,9 +795,66 @@ function chartIndexAt(pts, iso, after) {
   return Math.max(0, Math.min(pts.length - 1, lo < pts.length && pts[lo].d === iso ? lo : lo - 1));
 }
 
+function chartFractionAtTime(pts, time) {
+  if (!pts.length || !Number.isFinite(time)) return null;
+  const first=new Date(pts[0].d).getTime(), last=new Date(pts[pts.length-1].d).getTime();
+  if (time<=first) return 0;
+  if (time>=last) return pts.length-1;
+  let lo=0,hi=pts.length-1;
+  while (lo+1<hi) {
+    const mid=(lo+hi)>>1, at=new Date(pts[mid].d).getTime();
+    if (at<=time) lo=mid; else hi=mid;
+  }
+  const a=new Date(pts[lo].d).getTime(), b=new Date(pts[hi].d).getTime();
+  return lo+(time-a)/Math.max(1,b-a);
+}
+function cloudDisplayAnchors(host,pts) {
+  if (!window.SC_CLOUD_OVERLAY || !host._cloudRows?.length || !pts.length) return [];
+  const through=new Date(pts[pts.length-1].d).getTime();
+  return window.SC_CLOUD_OVERLAY.curveAnchors(host._cloudRows,through).map((row)=>
+    Object.assign({},row,{displayIndex:chartFractionAtTime(pts,row.time)}));
+}
+function formatCloudPercent(value) {
+  if (!Number.isFinite(value)) return "—";
+  if (Math.abs(value)<.005) return "0.00%";
+  return (value>0?"+":"")+value.toFixed(2)+"%";
+}
+function paintCloudLabels(host, options) {
+  const layer=host.querySelector(".sc-cloud-labels");
+  if (!layer) return;
+  layer.replaceChildren();
+  const {anchors,pts,start,end,X,Y,w,h,metrics,padT,padB}=options;
+  if (!window.SC_CLOUD_OVERLAY || !anchors.length ||
+      !window.SC_CLOUD_OVERLAY.latestLabelsVisible(start,end,pts.length)) return;
+  const latest=anchors[anchors.length-1], reference=pts[end]?.p;
+  if (!Number.isFinite(reference)) return;
+  const items=window.SC_CLOUD_OVERLAY.activeSpecs(SHOW_SMA100).filter((spec)=>
+    Number.isFinite(latest[spec.key]) && Y(latest[spec.key])>=padT && Y(latest[spec.key])<=h-padB
+  ).map((spec)=>Object.assign({},spec,{y:Y(latest[spec.key]),value:latest[spec.key]}));
+  const rows=window.SC_CLOUD_OVERLAY.endpointLabels(items,{
+    width:w,height:h-padB,endpointX:X(end),labelWidth:metrics.labelWidth,gap:metrics.gap,font:metrics.font
+  });
+  for (const row of rows) {
+    const bullish=reference>=row.value;
+    const node=document.createElement("div");
+    node.className="sc-cloud-end-label"+(row.compact?" compact":"");
+    node.style.top=row.y+"px"; node.style.left=row.x+"px"; node.style.width=row.textWidth+"px";
+    node.style.setProperty("--cloud-label-size",(metrics.font+row.width*.3)+"px");
+    node.style.setProperty("--cloud-label-color",bullish?window.SC_CLOUD_OVERLAY.palette.blue:window.SC_CLOUD_OVERLAY.palette.pink);
+    const pct=window.SC_CLOUD_OVERLAY.signedPercent(row.value,reference);
+    node.title=row.label+" "+row.kind+": "+chPx(row.value,host.dataset.t)+" · "+formatCloudPercent(pct)+" from latest loaded close";
+    node.setAttribute("aria-label",node.title);
+    const name=document.createElement("b"); name.textContent=row.label;
+    const change=document.createElement("span"); change.className="pct"; change.textContent="("+formatCloudPercent(pct)+")";
+    const price=document.createElement("span"); price.className="price"; price.textContent=chPx(row.value,host.dataset.t);
+    node.append(name,change,price); layer.append(node);
+  }
+}
+
 function scChartDraw(host, scrub) {
   const area = host.querySelector(".sc-nchart__area");
   const cv = host.querySelector(".sc-nchart__cv");
+  const labelLayer = host.querySelector(".sc-cloud-labels");
   if (!area || !cv) return;
   const w = area.clientWidth, h = area.clientHeight;
   if (w < 30 || h < 30) return;
@@ -773,7 +866,7 @@ function scChartDraw(host, scrub) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
   const pts = host._series;
-  if (!pts || pts.length < 2) return;
+  if (!pts || pts.length < 2) { if (labelLayer) labelLayer.replaceChildren(); return; }
   const col = chColors();
   /* The old 58px price-axis reservation left a conspicuous empty gutter in
      every small Station chart. Keep the min/max as bare overlay text and give
@@ -808,9 +901,16 @@ function scChartDraw(host, scrub) {
   if (yHi === yLo) { yHi += 1; yLo -= 1; }
   const yPad = (yHi - yLo) * .055;
   yLo -= yPad; yHi += yPad;
+  const anchors=cloudDisplayAnchors(host,pts);
+  const cloudMetrics=window.SC_CLOUD_OVERLAY
+    ? window.SC_CLOUD_OVERLAY.displayMetrics(w,h,end-start)
+    : { scale:1,font:9,priceWidth:3.8,labelWidth:108,gap:29 };
   /* TradingView-style right margin: the latest bar stays in a stable place
      instead of jumping to the canvas edge as the user changes scale. */
-  const rightBars = end >= pts.length - 1 ? Math.max(2, Math.round((end - start) * .035)) : 0;
+  const showCloudLabels=anchors.length && end>=pts.length-1;
+  const annotationSpace=showCloudLabels?Math.min(Math.max(80,cloudMetrics.labelWidth+10),iw*.48):0;
+  const rightBars = end >= pts.length - 1
+    ? Math.max(2,(end-start)*Math.max(iw*.035,annotationSpace)/Math.max(60,iw-Math.max(iw*.035,annotationSpace))) : 0;
   const X = (i) => padL + ((i - start) / Math.max(1, end - start + rightBars)) * iw;
   const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * ih;
   host._plot = { padL, padT, iw, ih, start, end, rightBars, yLo, yHi };
@@ -845,19 +945,47 @@ function scChartDraw(host, scrub) {
     ctx.lineTo(X(end), Y(pts[end].p));
   };
   ctx.save(); ctx.beginPath(); ctx.rect(padL, padT, iw, ih); ctx.clip();
+  if (anchors.length && window.SC_CLOUD_OVERLAY) {
+    for (let i=1;i<anchors.length;i++) {
+      const a=anchors[i-1],b=anchors[i];
+      if (b.displayIndex<start || a.displayIndex>end || !Number.isFinite(a.displayIndex) || !Number.isFinite(b.displayIndex)) continue;
+      for (const band of window.SC_CLOUD_OVERLAY.cloudPolygons(a,b)) {
+        const xa=X(a.displayIndex)+(X(b.displayIndex)-X(a.displayIndex))*band.t0;
+        const xb=X(a.displayIndex)+(X(b.displayIndex)-X(a.displayIndex))*band.t1;
+        ctx.fillStyle=window.SC_CLOUD_OVERLAY.cloudInk(band);
+        ctx.beginPath(); ctx.moveTo(xa,Y(band.previousLo)); ctx.lineTo(xb,Y(band.lo));
+        ctx.lineTo(xb,Y(band.hi)); ctx.lineTo(xa,Y(band.previousHi)); ctx.closePath(); ctx.fill();
+      }
+    }
+    for (const spec of window.SC_CLOUD_OVERLAY.activeSpecs(SHOW_SMA100)) {
+      ctx.lineWidth=window.SC_CLOUD_OVERLAY.indicatorStroke(spec,cloudMetrics);
+      ctx.setLineDash(spec.style==="dashed"?(spec.key==="e8"?[3,5]:[5,5]):[]);
+      for (let i=1;i<anchors.length;i++) {
+        const a=anchors[i-1],b=anchors[i];
+        if (b.displayIndex<start || a.displayIndex>end || !Number.isFinite(a[spec.key]) || !Number.isFinite(b[spec.key])) continue;
+        const bullish=window.SC_CLOUD_OVERLAY.lineBullish(spec,b);
+        ctx.strokeStyle=window.SC_CLOUD_OVERLAY.ribbonInk(
+          bullish?window.SC_CLOUD_OVERLAY.palette.blue:window.SC_CLOUD_OVERLAY.palette.pink,
+          bullish?spec.blueOpacity:spec.pinkOpacity);
+        ctx.beginPath(); ctx.moveTo(X(a.displayIndex),Y(a[spec.key])); ctx.lineTo(X(b.displayIndex),Y(b[spec.key])); ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
+  }
   const g = ctx.createLinearGradient(0, padT, 0, padT + ih);
   g.addColorStop(0, c + "3D"); g.addColorStop(1, c + "00");
   ctx.beginPath(); trace();
   ctx.lineTo(X(end), padT + ih); ctx.lineTo(X(start), padT + ih); ctx.closePath();
   ctx.fillStyle = g; ctx.fill();
   ctx.beginPath(); trace();
-  ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.strokeStyle = c; ctx.lineWidth = cloudMetrics.priceWidth; ctx.lineJoin = "round"; ctx.lineCap = "round";
   ctx.stroke();
   if (end === pts.length - 1) {
     ctx.beginPath(); ctx.arc(X(end), Y(pts[end].p), 2.5, 0, Math.PI * 2);
     ctx.fillStyle = c; ctx.fill();
   }
   ctx.restore();
+  paintCloudLabels(host,{anchors,pts,start,end,X,Y,w,h,metrics:cloudMetrics,padT,padB});
   ctx.save();
   ctx.font = ((ipadProfile ? 6.5 : 7) * scale) + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.fillStyle = col.ink2; ctx.globalAlpha = .47; ctx.textAlign = "right";
@@ -1118,6 +1246,8 @@ async function scChartLoad(host) {
   host._req = req; host._range = range;
   const msg = host.querySelector(".sc-nchart__msg");
   const limit = host._historyLimit || chartInitialLimit(range);
+  const cloudHit=cloudDailyCache.get(t);
+  if (cloudHit?.rows?.length) { host._cloudRows=cloudHit.rows; host._cloudTicker=t; }
   const cachedPts = chartSeriesCached(t, range, limit);
   if (cachedPts && cachedPts.length >= 2) {
     host._series = cachedPts;
@@ -1153,6 +1283,16 @@ async function scChartLoad(host) {
     if (msg) msg.hidden = true;
     reportChartDataState(host, { history:"ready", historyAbsence:null });
     scChartDraw(host);
+    /* Overlay failure never replaces or delays a valid Station price chart.
+       It is a separate read of the same completed-candle provider contract. */
+    try {
+      const cloudRows=await fetchCloudDaily(t);
+      if (host._req===req && host.isConnected && host._transitionGeneration===generation) {
+        host._cloudRows=cloudRows; host._cloudTicker=t; host._cloudError=null; scChartDraw(host);
+      }
+    } catch (cloudError) {
+      if (host._req===req) host._cloudError=String(cloudError?.message || cloudError);
+    }
   } catch (err) {
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
     /* THE WHOLE POINT: a named answer is not retried. Retrying it would present a settled
@@ -1386,6 +1526,8 @@ function setChartTicker(t) {
   host.dataset.t = t;
   host._series = null;
   host._view = null;
+  host._cloudRows = null;
+  host._cloudTicker = null;
   const sym = TV_MAP[t] || t;
   const pop = host.querySelector(".sc-tv__pop");
   if (pop) pop.dataset.sym = sym;
@@ -1622,6 +1764,10 @@ addEventListener("message", (e) => {
     return;
   }
   if (d.sc !== "chart") return;
+  if (typeof d.sma100 === "boolean" && d.sma100 !== SHOW_SMA100) {
+    SHOW_SMA100=d.sma100;
+    for (const host of CHART_HOSTS) if (host.isConnected) scChartDraw(host);
+  }
   if (d.range && CHART_RANGES.includes(d.range)) {
     S.chartRange = d.range;
     document.querySelectorAll(".sc-crange").forEach((b) => b.classList.toggle("on", b.dataset.r === S.chartRange));

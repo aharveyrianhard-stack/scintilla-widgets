@@ -375,6 +375,9 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   <span class="symbol-note" id="symbolNote">Hub symbols</span>
   <span class="lbl">timeframe · all</span>
   <span class="tf" id="tf"></span>
+  <label class="control-label" title="Show optional dashed 100-day level on every chart">
+    <input type="checkbox" id="sma100Toggle" aria-label="Show dashed 100-day level">100D
+  </label>
 </div>
 <div id="symbolGuide" role="listbox" aria-label="Hub symbol suggestions"></div>
 
@@ -572,6 +575,7 @@ const CHARTS = Array.from({ length: 8 }, (_, i) => {
 /* One range for the loaded Station run. It never belongs to a scene preset:
    URL wins at launch; otherwise every fresh reload starts at 3h. */
 let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "3h";
+let SHOW_SMA100 = QS.get("sma100") === "1" || remembered("station.clouds.sma100") === "1";
 /* The whole wall shares one quote cache/realtime channel.  Chart frames keep
    their history work, but never multiply the same live quote request. */
 const deckSb = (typeof supabase !== "undefined" && supabase.createClient)
@@ -1753,6 +1757,7 @@ const STATION_SHELL = Object.freeze({
 function chartSrc(t, index, transitionGeneration) {
   return STATION_SHELL.chart + "?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) +
     "&view=" + encodeURIComponent(VIEW) +
+    (typeof SHOW_SMA100 !== "undefined" && SHOW_SMA100 ? "&sma100=1" : "") +
     (SceneModel.hidesTopChartAxis(index, CHART_COUNT, CHARTS) ? "&sharedAxis=1" : "") +
     (transitionGeneration ? "&transition=" + encodeURIComponent(transitionGeneration) : "");
 }
@@ -1796,6 +1801,21 @@ function paintTf() {
     b.addEventListener("click", () => setRange(r));
     box.appendChild(b);
   }
+}
+function paintSma100Toggle() {
+  const button=el("sma100Toggle"); if (!button) return;
+  button.checked=SHOW_SMA100;
+}
+function setSma100(next) {
+  SHOW_SMA100=!!next;
+  remember("station.clouds.sma100",SHOW_SMA100?"1":"0");
+  paintSma100Toggle();
+  CHARTS.forEach((ticker,i)=>{
+    const pane=PANES.find((item)=>item.def.key==="c"+(i+1));
+    if (!pane || !ticker) return;
+    pane.def.src=chartSrc(ticker,i); pane.def.open=pane.def.src.replace("bare=1&","");
+    try { pane.frame?.contentWindow?.postMessage({sc:"chart",sma100:SHOW_SMA100},location.origin); } catch (_) {}
+  });
 }
 function setRange(r) {
   if (!RANGES.includes(r) || r === RANGE) return;
@@ -1991,6 +2011,7 @@ function applyChartCount(next, fromScene, transitionGeneration) {
   relayout(); paintChips(); refreshDeckQuotes();
 }
 el("chartCount").addEventListener("change", (e) => applyChartCount(e.target.value));
+el("sma100Toggle").addEventListener("change",(event)=>setSma100(event.target.checked));
 el("sceneMode").addEventListener("change", (e) => {
   if (e.target.value === "live" || e.target.value === "custom") setRotationPaused(true);
   applyScene(e.target.value);
@@ -2077,7 +2098,7 @@ async function build() {
 
   for (const d of defs) { const o = makePane(d); PANES.push(o); rows[d.row].appendChild(o.node); }
 
-  paintTf(); el("viewMode").value = VIEW; paintSceneControls(); paintScreenBusy();
+  paintTf(); paintSma100Toggle(); el("viewMode").value = VIEW; paintSceneControls(); paintScreenBusy();
   paintTickerFields(); el("chartCount").value = String(CHART_COUNT);
   loadSymbolCatalog();
   applyChartCount(CHART_COUNT, true);
