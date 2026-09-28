@@ -213,7 +213,7 @@ test("wiring: both chart twins load the arithmetic and the fan, the panel sits u
   assert.match(chart, /parseRsiParam\(QS\.get\("rsi"\)\)/, "the pane reads ?rsi= from its own URL");
   assert.match(chart, /ih = h - padT - padB - fanBlock/, "the price gives up exactly the fan's band");
   assert.match(chart, /Math\.floor\(h \* window\.SC_RSI_FAN\.PANEL_SHARE\)/);
-  assert.match(chart, /ensureCloudDaily\(host, t, req, generation\);\s*\/\*[^*]*\*\/\s*ensureRsiFan\(host, t, req, generation\);/,
+  assert.match(chart, /ensureCloudDaily\(host, t, req, generation\),\s*\/\*[^*]*\*\/\s*ensureRsiFan\(host, t, req, generation\),/,
     "the fan is asked for after the price and the ribbon");
   assert.match(chart, /acquireChartLoadPermit\(host, req \+ "\|rsi", generation\)/, "one load permit per pane for the whole fan");
   assert.match(chart, /fetchProviderCandles\(t, tf, Math\.min\(need, F\.TAIL_LIMIT\), 2\)/, "the tail, through the pane's own provider route");
@@ -221,4 +221,32 @@ test("wiring: both chart twins load the arithmetic and the fan, the panel sits u
   assert.match(chart, /F\.joinTail\(toBars\(historyRows\), toBars\(tailRows\)\)/, "joined on timestamps");
   assert.doesNotMatch(chart, /sc_rsi_/, "the fan's source bars are never written to local storage");
   assert.match(provider, /'6h':'6h','8h':'8h','12h':'12h'/, "the chart API serves 8h; the client now asks for it");
+});
+
+/* ---- L2 CHART-SPEED (28 Sep): the D line reuses the ribbon's daily read -------------------------- */
+test("L2: the D line takes the ribbon's daily series when it is fresh and long enough, trimmed to the same newest bars", async () => {
+  const calls = [];
+  const day = 864e5, t0 = Date.UTC(2024, 0, 2);
+  const pts = Array.from({ length: 450 }, (_, i) => ({ d: new Date(t0 + i * day).toISOString(), p: 100 + i }));
+  const b = { Date, Number, Promise, Map, window: { SC_RSI_FAN: F }, RSI_DAILY_REFRESH_MS: 1800000,
+    cloudDailyCache: new Map([["MU", { ts: Date.now(), pts, asked: 450 }]]), cloudDailyInflight: new Map(),
+    rsiSourceCache: new Map(), rsiSourceInflight: new Map(),
+    fetchProviderCandles: (t, tf, limit) => { calls.push([t, tf, limit]); return Promise.resolve(pts.slice(-limit).map((q) => ({ timestamp: Date.parse(q.d) / 1000, close: q.p }))); } };
+  const src = (n) => { let s = chart.indexOf("function " + n + "("); if (chart.slice(s - 6, s) === "async ") s -= 6; let d = 0, e = -1;
+    for (let i = chart.indexOf("{", s); i < chart.length; i++) { if (chart[i] === "{") d++; if (chart[i] === "}") d--; if (!d) { e = i + 1; break; } } return chart.slice(s, e); };
+  b.cloudDailyFor = vm.runInNewContext("(" + src("cloudDailyFor") + ")", b);
+  const fetchRsiSource = vm.runInNewContext("(" + src("fetchRsiSource") + ")", b);
+  const e = await fetchRsiSource("MU", "1D", 440);
+  assert.equal(calls.length, 0, "no read: the ribbon's copy covers 440");
+  assert.equal(e.from, "ribbon");
+  assert.equal(e.bars.length, 440, "the newest 440 - the same bars the two reads produced");
+  assert.equal(e.bars[e.bars.length - 1].c, 549);
+  b.cloudDailyCache.get("MU").ts = Date.now() - 1800001;
+  b.rsiSourceInflight.clear();
+  const own = await fetchRsiSource("MU", "1D", 440);
+  assert.deepEqual(calls, [["MU", "1D", 440]], "a stale ribbon copy is not used: ONE read of the need, no tail split for daily bars");
+  assert.equal(own.from, "own");
+  calls.length = 0;
+  await fetchRsiSource("MU", "4h", 1159);
+  assert.deepEqual(calls.map((c) => c[2]).sort((x, y) => x - y), [400, 1159], "intraday lines keep the tail + history reads (TAIL_LIMIT)");
 });

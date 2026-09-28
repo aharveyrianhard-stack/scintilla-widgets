@@ -1162,7 +1162,8 @@ test("the deck puts the lens on the slot's URL, and a page change turns it on or
   assert.match(deck, /retargetChartInPlace[^]*postMessage\(\{ sc:"chart", ticker, range:RANGE, sharedAxis, bubble:srcBubble\(next\) \}/);
   for (const src of [chart, chartShell]) {
     assert.match(src, /if \(typeof d\.bubble === "string"\) setBubble\(d\.bubble\);/, "the pane takes it by message");
-    assert.match(src, /ensureRsiFan\(host, t, req, generation\);\n[^\n]*\n\s*lensEnsure\(host, t, req, generation\);/,
+    /* L2 CHART-SPEED: the three reads now sit in one list (so the pane's Geiger read can wait for them); order unchanged */
+    assert.match(src, /ensureRsiFan\(host, t, req, generation\),\n[^\n]*\n\s*lensEnsure\(host, t, req, generation\)\];/,
       "its read is asked for only after the price is on screen");
   }
 });

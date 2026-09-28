@@ -213,11 +213,12 @@ test("the pane alone reads ONE symbol; a refused read is no bar; the deck's map 
 
 test("the pane's wiring: deck map on the existing channel, own read only when alone or unanswered", () => {
   assert.match(chart, /if \(d\.sc === "deck-geiger"\) \{ applyDeckGeiger\(d\.readings\); return; \}/);
-  assert.match(chart, /if \(!DECK_QUOTE_MODE\) pullGeigerOne\(S\.chartT\);\nelse setTimeout\(\(\) => \{ if \(!GEIGER\.fromDeck\) pullGeigerOne\(S\.chartT\); \}, 4000\);/);
+  /* L2 CHART-SPEED: alone, the pane's own read waits for its chart reads (afterChartWave) */
+  assert.match(chart, /if \(!DECK_QUOTE_MODE\) afterChartWave\(\(\) => pullGeigerOne\(S\.chartT\)\);\nelse setTimeout\(\(\) => \{ if \(!GEIGER\.fromDeck\) pullGeigerOne\(S\.chartT\); \}, 4000\);/);
   assert.match(chart, /setInterval\(\(\) => \{ if \(!GEIGER\.fromDeck\) pullGeigerOne\(S\.chartT\); else paintGeigerBars\(\); \}, GEIGER_REFRESH_MS\);/,
     "once a minute: alone it re-reads, in the deck it only re-judges the age");
   assert.match(chart, /const GEIGER_REFRESH_MS = 60000;/);
-  assert.match(chart, /scChartLoad\(host\);\n  if \(!GEIGER\.fromDeck && !DECK_QUOTE_MODE\) pullGeigerOne\(t\);/, "a new symbol alone reads its own");
+  assert.match(chart, /scChartLoad\(host\);\n  if \(!GEIGER\.fromDeck && !DECK_QUOTE_MODE\) afterChartWave\(\(\) => pullGeigerOne\(S\.chartT\)\);/, "a new symbol alone reads its own, after its chart reads");
   assert.match(chart, /const parts = ensureLiveParts\(badge, host\);\n  paintGeigerBar\(host\);/, "every readout paint repaints the bar");
   assert.doesNotMatch(chart, /\/geiger/, "the pane never names the route itself - the provider client owns it");
 });
@@ -242,8 +243,16 @@ function deckHarness(tickers) {
       SC_NON_EQUITY: { geiger: (syms) => { reads.ne.push(syms.slice()); return Promise.resolve([{ ticker: "VIX", composite: -0.8465, updated_ts: 1790523120 }]); } },
     },
   };
-  b.DECK_GEIGER = vm.runInNewContext('({ key:"", at:0, inFlight:false, rerun:false, readings:{} })', b);
+  b.DECK_GEIGER = vm.runInNewContext('({ key:"", at:0, inFlight:false, rerun:false, readings:{}, setKey:"", setAt:0, holdTimer:0 })', b);
   b.DECK_GEIGER_MS = 60000;
+  /* L2 CHART-SPEED: the hold's inputs - every pane has drawn its price and nothing is queued, unless a test says otherwise */
+  b.DECK_GEIGER_HOLD_MS = 4000;
+  b.chartDataLoadQueue = [];
+  b.chartDataLoadActive = new Map();
+  b.CHART_STATUS = new Map(["MU", "SPY", "QQQ", "NVDA", "AAPL", "AMD", "VIX", "PCC"].map((t) => [t, { history: "ready" }]));
+  b.holdTimers = [];
+  b.setTimeout = (fn, ms) => { b.holdTimers.push({ fn, ms }); return b.holdTimers.length; };
+  b.deckPricesAndRibbonsSettled = fnFrom(deck, "deckPricesAndRibbonsSettled", b);
   b.postDeckGeiger = fnFrom(deck, "postDeckGeiger", b);
   b.fanoutDeckGeiger = fnFrom(deck, "fanoutDeckGeiger", b);
   /* L6: the read set is the visible names plus every rotating slot's cycle; a fixed page has no cycles */
@@ -309,4 +318,62 @@ test("wiring pins: both chart twins load the module and stay identical; the prov
   assert.match(one, /if \(!equalizerAccepted\(j\.equalizer_receipt_sha256\)\)/, "the same accepted receipt as the full read");
   assert.match(one, /if \(!own\[sym\]\) return \[\];/, "a non-equity is 'no reading', not a named absence in the price book");
   assert.doesNotMatch(one, /gCache/, "a one-symbol payload never answers for the universe");
+});
+
+/* ---- L2 CHART-SPEED (28 Sep): the Geiger read waits for the chart reads -------------------------- */
+test("L2: a new page's Geiger read holds while its prices or ribbons load, then goes; never past 4 s", async () => {
+  const { b, reads } = deckHarness(["QQQ", "NVDA"]);
+  b.CHART_STATUS.set("NVDA", { history: "loading" });
+  await b.refreshDeckGeiger();
+  assert.equal(reads.eq.length, 0, "a price still loading: the Geiger read waits");
+  assert.equal(b.holdTimers.length, 1, "and a timer guarantees it goes by the hold's end");
+  assert.ok(b.holdTimers[0].ms <= 4000);
+  b.CHART_STATUS.set("NVDA", { history: "ready" });
+  b.chartDataLoadQueue.push({ priority: 1 });
+  await b.refreshDeckGeiger();
+  assert.equal(reads.eq.length, 0, "a ribbon read still queued: it waits");
+  b.chartDataLoadQueue.length = 0;
+  b.chartDataLoadActive.set("t1", { priority: 3 });
+  await b.refreshDeckGeiger();
+  assert.deepEqual(plain(reads.eq), [["QQQ", "NVDA"]], "prices drawn and ribbons read: it goes, even with the fan's reads running");
+});
+test("L2: the hold ends at 4 s whatever is still loading", async () => {
+  const { b, reads } = deckHarness(["MU"]);
+  b.CHART_STATUS.set("MU", { history: "loading" });
+  await b.refreshDeckGeiger();
+  assert.equal(reads.eq.length, 0);
+  b.DECK_GEIGER.setAt -= 4001;
+  await b.refreshDeckGeiger();
+  assert.deepEqual(plain(reads.eq), [["MU"]], "past the hold it reads");
+  b.CHART_STATUS.set("MU", { history: "loading" });
+  await b.refreshDeckGeiger();
+  assert.equal(reads.eq.length, 1, "a page already read inside the minute is not held or re-read");
+});
+test("L2: the pane's own read waits for its chart reads; the wait starts at the price, and a failed price releases it", () => {
+  const b = { setTimeout: (fn, ms) => { b.timers.push({ fn, ms }); }, timers: [], GEIGER_WAIT_MAX_MS: 4000 };
+  const wave = vm.runInNewContext("({ req:null, done:true, waiters:[] })", b);
+  b.CHART_WAVE = wave;
+  for (const n of ["chartWaveBegin", "chartWaveEnd", "chartWavePriced", "afterChartWave"]) b[n] = fnFrom(chart, n, b);
+  let reads = 0;
+  b.chartWaveBegin("MU|1D");
+  b.afterChartWave(() => reads++);
+  assert.equal(reads, 0, "while the chart reads run, no Geiger read");
+  assert.equal(b.timers.length, 0, "no clock runs before the price is on screen");
+  b.chartWavePriced("MU|1D");
+  assert.equal(b.timers[0].ms, 4000, "from the price, at most 4 s");
+  b.chartWaveEnd("MU|1D");
+  assert.equal(reads, 1, "settled: it reads, once");
+  b.timers[0].fn();
+  assert.equal(reads, 1, "the cap firing later does not read again");
+  b.afterChartWave(() => reads++);
+  assert.equal(reads, 2, "with nothing loading it reads at once");
+  b.chartWaveBegin("NVDA|1D");
+  b.afterChartWave(() => reads++);
+  b.chartWaveEnd("MU|1D");
+  assert.equal(reads, 2, "an old symbol's wave cannot release the new one");
+  b.chartWaveEnd("NVDA|1D");
+  assert.equal(reads, 3);
+  assert.match(chart, /if \(host\._req !== req \|\| !host\.isConnected \|\| host\._transitionGeneration !== generation\) return;\n    chartWaveEnd\(req\);/,
+    "a failed price load ends the wave (nothing else will be read for it)");
+  assert.match(chart, /chartWavePriced\(req\);\n    Promise\.allSettled\(wave\)\.then\(\(\) => chartWaveEnd\(req\)\);/);
 });
