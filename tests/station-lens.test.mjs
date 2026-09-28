@@ -227,3 +227,22 @@ test("4h on the 3-day pages: the provider's four bars a session, twelve sessions
   assert.equal(flatten(last).length, 48, "inside the 40-60 Alan asked for");
   assert.equal(sessionsOf(bars, "regular").flatMap((s) => s.bars).length, all.length, "regular hours alone would keep one bar a day");
 });
+
+/* 28 Sep: no STALE before the first bar of the day can exist; futures on their own clock. */
+test("a lens is not stale before today's first bar in its hours can have been served", () => {
+  const friday = [{ day: "2026-09-25", weekday: "FRI", dom: 25, bars: [{ t: NY(2026, 9, 25, "15:30"), o: 1, h: 1, l: 1, c: 1 }] }];
+  const r30 = { hours: "regular", minutes: 30 };
+  assert.equal(freshness(friday, NY(2026, 9, 28, "09:50"), undefined, r30).stale, false, "09:50: the 09:30 bar has not finished");
+  assert.equal(freshness(friday, NY(2026, 9, 28, "10:15"), undefined, r30).stale, false, "10:15: inside the serving grace");
+  assert.equal(freshness(friday, NY(2026, 9, 28, "10:30"), undefined, r30).stale, true, "10:30: today's first bar should be here");
+  const x4 = { hours: "extended", minutes: 240 };
+  assert.equal(freshness(friday, NY(2026, 9, 28, "08:10"), undefined, x4).stale, false, "4h: the 04:00 bar ends 08:00");
+  assert.equal(freshness(friday, NY(2026, 9, 28, "08:30"), undefined, x4).stale, true);
+});
+test("a futures lens is judged on the CME clock", () => {
+  const es = (hhmm, d = 28) => [{ day: "2026-09-28", weekday: "MON", dom: 28, bars: [{ t: NY(2026, 9, d, hhmm), o: 1, h: 1, l: 1, c: 1 }] }];
+  const g = { hours: "globex", minutes: 30 };
+  assert.equal(freshness(es("09:00"), NY(2026, 9, 28, "09:50"), undefined, g).stale, false);
+  assert.equal(freshness(es("06:00"), NY(2026, 9, 28, "09:50"), undefined, g).stale, true);
+  assert.equal(freshness(es("16:30", 25), NY(2026, 9, 26, "12:00"), undefined, g).stale, false, "Saturday: closed");
+});

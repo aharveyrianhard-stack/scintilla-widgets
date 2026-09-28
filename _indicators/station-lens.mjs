@@ -19,7 +19,7 @@
    opened, the bubble is drawn dimmed and its head says STALE.
    ============================================================================ */
 import { lastSessions, flatten, barsToRequest, drawBubble, bubbleBox, placeBubble, layout,
-  CHAMFER, DIALS, TIMEFRAMES, etParts } from "./lens-bars.mjs";
+  CHAMFER, DIALS, TIMEFRAMES, HOURS, etParts } from "./lens-bars.mjs";
 import { pathPoints, clearsTail, clearsTailPoints, emptiestSpot, inkReader, DEFAULTS as PLACE } from "./lens-placement.mjs";
 
 /* O1 (27 Sep), Alan: "30-minute is too short for 3-day charts -> use 4h; on DAILY charts use the
@@ -54,11 +54,11 @@ export const hoursOf = (tf, t) => FUTURES.has(String(t || "").toUpperCase()) ? "
    on a trading day, otherwise the trading day before. `settled` is the provider's own calendar
    (SC_PROVIDER.expectedSettledSession: NYSE holidays included); a day is a trading day exactly when
    the calendar would call it settled at 21:00 that evening. */
-export function lastOpenedSession(nowMs, settled) {
+export function lastOpenedSession(nowMs, settled, dueMinutes = 9 * 60 + 30) {
   const now = etParts(nowMs);
   const cal = typeof settled === "function" ? settled : weekdayCalendar;
   const todayIsSession = cal(eveningOf(now.day)) === now.day;
-  if (todayIsSession && now.minutes >= 9 * 60 + 30) return now.day;
+  if (todayIsSession && now.minutes >= dueMinutes) return now.day;
   /* the calendar asked on yesterday evening: yesterday if it was a session, else the one before */
   return cal(eveningOf(new Date(Date.parse(now.day + "T12:00:00Z") - 86400e3).toISOString().slice(0, 10)));
 }
@@ -72,9 +72,33 @@ function weekdayCalendar(ms) {
   for (let i = 0; i < 10; i++) { d = new Date(Date.parse(d + "T12:00:00Z") - 86400e3).toISOString().slice(0, 10); if (isWeekday(d)) return d; }
   return d;
 }
-export function freshness(sessions, nowMs, settled) {
+/* NOT STALE BEFORE THE FIRST BAR CAN EXIST (28 Sep, Alan: "the Station says the context lens is stale.
+   Why?"). Today's session was expected from 09:30, but a 30-minute lens's first regular bar only
+   completes at 10:00 (and is served a few minutes later), so every daily-page lens said STALE for the
+   first half hour of each day. With `lens` = { hours, minutes }, today is expected only once its first
+   bar in those hours has had time to complete and be served (open + one bar + 20 minutes). Futures and
+   crypto lenses are judged on their own clock: stale only when the newest bar is more than two bars
+   plus 30 minutes old while that market is open. Without `lens` the old 09:30 rule stands. */
+const SERVE_GRACE_MIN = 20;
+function cmeOpen(ms) {
+  const e = etParts(ms), dow = new Date(e.day + "T12:00:00Z").getUTCDay();
+  if (dow === 6) return false;
+  if (dow === 0) return e.minutes >= 18 * 60;
+  if (dow === 5) return e.minutes < 17 * 60;
+  return e.minutes < 17 * 60 || e.minutes >= 18 * 60;
+}
+export function freshness(sessions, nowMs, settled, lens = null) {
   const newest = sessions && sessions.length ? sessions[sessions.length - 1] : null;
-  const expected = lastOpenedSession(nowMs, settled);
+  if (lens && (lens.hours === "globex" || lens.hours === "allday")) {
+    const last = newest && newest.bars.length ? newest.bars[newest.bars.length - 1] : null;
+    if (!last) return { stale: false, empty: true, expected: null, through: null };
+    const width = (lens.minutes || 30) * 60000;
+    const open = lens.hours === "allday" ? true : cmeOpen(nowMs);
+    return { stale: open && nowMs - (last.t + width) > 2 * width + 30 * 60000, empty: false, expected: null,
+             through: newest.day, label: `${newest.weekday} ${newest.dom}` };
+  }
+  const due = lens && HOURS[lens.hours] ? HOURS[lens.hours].open + (lens.minutes || 30) + SERVE_GRACE_MIN : 9 * 60 + 30;
+  const expected = lastOpenedSession(nowMs, settled, due);
   if (!newest) return { stale: false, empty: true, expected, through: null };
   return { stale: newest.day < expected, empty: false, expected, through: newest.day,
            label: `${newest.weekday} ${newest.dom}` };
@@ -213,7 +237,7 @@ export function paint(host, deps) {
   const sessions = lastSessions(entry.bars, want.sessions, hoursOf(want.timeframe, t));
   const bars = flatten(sessions);
   if (!bars.length) return hide(host, `no ${want.timeframe} bars in ${hoursOf(want.timeframe, t)} hours`);
-  const fresh = freshness(sessions, Date.now(), deps.settled);
+  const fresh = freshness(sessions, Date.now(), deps.settled, { hours: hoursOf(want.timeframe, t), minutes: TIMEFRAMES[want.timeframe].minutes });
   const day = deps.day(host);
   const area = host.querySelector(".sc-nchart__area");
   const badge = host.querySelector(".sc-nchart__live");
