@@ -450,7 +450,7 @@ function scLens() {
   return SC_LENS;
 }
 function lensPaint(host) { const L = scLens(); if (L) L.paint(host, SC_LENS_DEPS); else if (host.querySelector(".sc-nchart__lens")) host.querySelector(".sc-nchart__lens").style.display = "none"; }
-function lensEnsure(host, t, req, generation) { const L = scLens(); if (L) L.ensure(host, SC_LENS_DEPS, req, generation); }
+function lensEnsure(host, t, req, generation) { const L = scLens(); return L ? L.ensure(host, SC_LENS_DEPS, req, generation) : undefined; }
 /* O1: the lens used to be fetched on the chart's first paint (three module round trips after the price
    was already up). A pane that carries a lens now starts the fetch at boot, in parallel with its price. */
 if (BUBBLE_REQUEST) scLens();
@@ -2426,6 +2426,33 @@ function ensureLiveParts(badge, host) {
    page change or minute and posts the map here ("deck-geiger"). Opened on its own (/chart/?t=MU)
    the pane reads its one symbol, once a minute. A name with no reading shows nothing.
    ============================================================================ */
+/* L2 CHART-SPEED (28 Sep) — THE PANE'S OWN GEIGER READ WAITS FOR ITS CHART READS.
+   MEASURED, read-only, 28 Sep: while the chart API answers a Geiger read (/geiger, and often
+   /geiger?symbols=MU) every other request to it waits - a 0.11 s /universe took 2.1 s, and on the
+   Hub's company view the ribbon and RSI-fan reads that went out beside this pane's Geiger read all
+   finished only when it did (clouds 6.3 s, fan 9.2 s after the click). So the chip's read is asked
+   for once this pane's price, ribbon, fan and lens reads have settled, and never later than
+   GEIGER_WAIT_MAX_MS after they began: price first, then clouds, then the rest (Alan, 28 Sep). The
+   reading itself, its acceptance and its refresh are unchanged. */
+const GEIGER_WAIT_MAX_MS = 4000;
+const CHART_WAVE = { req:null, done:true, waiters:[] };
+function chartWaveBegin(req) {
+  if (CHART_WAVE.req === req && !CHART_WAVE.done) return;
+  CHART_WAVE.req = req; CHART_WAVE.done = false;
+}
+function chartWaveEnd(req) {
+  if (CHART_WAVE.req !== req || CHART_WAVE.done) return;
+  CHART_WAVE.done = true;
+  const run = CHART_WAVE.waiters.splice(0);
+  for (const fn of run) { try { fn(); } catch (_) {} }
+}
+function afterChartWave(fn) {
+  if (CHART_WAVE.done) { fn(); return; }
+  let ran = false;
+  const once = () => { if (ran) return; ran = true; fn(); };
+  CHART_WAVE.waiters.push(once);
+  setTimeout(once, GEIGER_WAIT_MAX_MS);
+}
 const GEIGER = { readings:{}, fromDeck:false, pulling:false };
 const GEIGER_REFRESH_MS = 60000;
 /* The bar is its own span, placed right after the price in the badge the two readout painters build.
@@ -2987,6 +3014,7 @@ async function scChartLoad(host) {
     showChartDelayed(host, t);
   }
   reportChartDataState(host, { history:"loading", historyAbsence:null });
+  chartWaveBegin(req);
   const load = (async () => {
     let releasePermit = null;
     try {
@@ -3010,13 +3038,16 @@ async function scChartLoad(host) {
     reportChartDataState(host, { history:"ready", historyAbsence:null });
     scChartDraw(host);
     /* The price is on screen; only now is the ribbon's own daily read asked for. */
-    ensureCloudDaily(host, t, req, generation);
+    const wave = [ensureCloudDaily(host, t, req, generation),
     /* ...and the RSI fan's locked-timeframe reads, after the ribbon's. */
-    ensureRsiFan(host, t, req, generation);
+      ensureRsiFan(host, t, req, generation),
     /* ...and, on a 3-day chart that asked for it, the context lens's one 30-minute read. */
-    lensEnsure(host, t, req, generation);
+      lensEnsure(host, t, req, generation)];
+    /* ...and when those have settled, the pane's own Geiger read (L2, above). */
+    Promise.allSettled(wave).then(() => chartWaveEnd(req));
   } catch (err) {
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
+    chartWaveEnd(req);
     /* THE WHOLE POINT: a named answer is not retried. Retrying it would present a settled
        fact as a transient one and spin forever on the non-equity scenes. */
     if (isNamedAbsence(err)) { showChartAbsent(host, err.scAbsence); return; }
@@ -3261,7 +3292,7 @@ function setChartTicker(t) {
   const tin = el("tkin"); if (tin && tin.value.toUpperCase().trim() !== t) tin.value = t;
   if (DECK_QUOTE_MODE) requestDeckQuote(t); else pullPrevClose(t);
   scChartLoad(host);
-  if (!GEIGER.fromDeck && !DECK_QUOTE_MODE) pullGeigerOne(t);
+  if (!GEIGER.fromDeck && !DECK_QUOTE_MODE) afterChartWave(() => pullGeigerOne(S.chartT));
   /* THE BADGE NAMES THE CHART UNDER IT (25 Sep, P1). scChartLoad has just drawn the new symbol
      from its cache; the badge kept the OLD symbol's name and price until the quote round trip,
      so for ~100 ms a TSM line sat under "MAGS 72.52" (measured headlessly). Repaint it now: with
@@ -3579,7 +3610,7 @@ if (!DECK_QUOTE_MODE) setInterval(() => pullPrevClose(S.chartT), 10000);
 /* THE GEIGER BAR. Opened alone, the pane reads its one reading now and once a minute. Inside the deck
    it waits for the deck's shared map; a bare pane on a page that never answers (a workshop page's
    iframe) reads its own after 4 s, so it is never left without one because nobody is sending. */
-if (!DECK_QUOTE_MODE) pullGeigerOne(S.chartT);
+if (!DECK_QUOTE_MODE) afterChartWave(() => pullGeigerOne(S.chartT));
 else setTimeout(() => { if (!GEIGER.fromDeck) pullGeigerOne(S.chartT); }, 4000);
 setInterval(() => { if (!GEIGER.fromDeck) pullGeigerOne(S.chartT); else paintGeigerBars(); }, GEIGER_REFRESH_MS);
 /* refresh cadence — re-pull the active series every 60 s */
