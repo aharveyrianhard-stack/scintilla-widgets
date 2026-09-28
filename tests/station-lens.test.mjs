@@ -236,8 +236,12 @@ test("a lens is not stale before today's first bar in its hours can have been se
   assert.equal(freshness(friday, NY(2026, 9, 28, "10:15"), undefined, r30).stale, false, "10:15: inside the serving grace");
   assert.equal(freshness(friday, NY(2026, 9, 28, "10:30"), undefined, r30).stale, true, "10:30: today's first bar should be here");
   const x4 = { hours: "extended", minutes: 240 };
-  assert.equal(freshness(friday, NY(2026, 9, 28, "08:10"), undefined, x4).stale, false, "4h: the 04:00 bar ends 08:00");
-  assert.equal(freshness(friday, NY(2026, 9, 28, "08:30"), undefined, x4).stale, true);
+  assert.equal(freshness(friday, NY(2026, 9, 28, "08:30"), undefined, x4).stale, false, "4h: judged from the regular open, not 04:00");
+  assert.equal(freshness(friday, NY(2026, 9, 28, "12:10"), undefined, x4).stale, false, "4h: the 08:00 bar ends 12:00, served by 12:20");
+  assert.equal(freshness(friday, NY(2026, 9, 28, "12:30"), undefined, x4).stale, true);
+  const x30 = { hours: "extended", minutes: 30 };
+  assert.equal(freshness(friday, NY(2026, 9, 28, "10:15"), undefined, x30).stale, false, "30m drawn from 04:00: due 10:20");
+  assert.equal(freshness(friday, NY(2026, 9, 28, "10:30"), undefined, x30).stale, true);
 });
 test("a futures lens is judged on the CME clock", () => {
   const es = (hhmm, d = 28) => [{ day: "2026-09-28", weekday: "MON", dom: 28, bars: [{ t: NY(2026, 9, d, hhmm), o: 1, h: 1, l: 1, c: 1 }] }];

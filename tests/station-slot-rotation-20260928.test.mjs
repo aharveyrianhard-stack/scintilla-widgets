@@ -104,7 +104,8 @@ test("chart: the badge row carries '↻ at/of' from deck-rotation, and nothing o
 test("merge kept live's three hotfixes: 04:00-20:00 lens, no STALE before the first bar, both equalizer receipts", () => {
   assert.match(read("_indicators/lens-bars.mjs"), /hours: "extended",/);
   const lens = read("_indicators/station-lens.mjs");
-  assert.match(lens, /HOURS\[lens\.hours\]\.open \+ \(lens\.minutes \|\| 30\) \+ SERVE_GRACE_MIN/);
+  /* 28 Sep midday: lateness is judged from the regular open on the lens's own bar grid (the no-pre-market case) */
+  assert.match(lens, /o \+ \(Math\.floor\(Math\.max\(0, reg - o\) \/ w\) \+ 1\) \* w \+ SERVE_GRACE_MIN/);
   assert.match(lens, /const fresh = freshness\(sessions, Date\.now\(\), deps\.settled, \{ hours: hoursOf\(want\.timeframe, t\), minutes: TIMEFRAMES\[want\.timeframe\]\.minutes \}\);/);
   /* and the zoom branch's hold-still rule sits in front of it */
   assert.ok(lens.indexOf("since < SETTLE_MS") < lens.indexOf("const fresh = freshness(sessions"));

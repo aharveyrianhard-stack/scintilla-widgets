@@ -97,7 +97,14 @@ export function freshness(sessions, nowMs, settled, lens = null) {
     return { stale: open && nowMs - (last.t + width) > 2 * width + 30 * 60000, empty: false, expected: null,
              through: newest.day, label: `${newest.weekday} ${newest.dom}` };
   }
-  const due = lens && HOURS[lens.hours] ? HOURS[lens.hours].open + (lens.minutes || 30) + SERVE_GRACE_MIN : 9 * 60 + 30;
+  /* 28 Sep midday: the candles are drawn from 04:00, but a name with no pre-market trade (XLRE today) has
+     no 04:00 bar, so lateness is judged from the REGULAR open: today is expected once the first bar that
+     ends after 09:30 (on the lens's own bar grid) has had time to be served — 30M after 10:20, 1H after
+     10:20, 4H after 12:20. */
+  const due = lens && HOURS[lens.hours]
+    ? (() => { const o = HOURS[lens.hours].open, w = lens.minutes || 30, reg = 9 * 60 + 30;
+               return o + (Math.floor(Math.max(0, reg - o) / w) + 1) * w + SERVE_GRACE_MIN; })()
+    : 9 * 60 + 30;
   const expected = lastOpenedSession(nowMs, settled, due);
   if (!newest) return { stale: false, empty: true, expected, through: null };
   return { stale: newest.day < expected, empty: false, expected, through: newest.day,
