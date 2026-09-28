@@ -125,30 +125,18 @@ test("the chip sits in the badge row at the plot's right edge; with no room ther
   assert.match(crowded.why, /inside the plot/);
 });
 
-/* ---- 4 · the pairs ------------------------------------------------------------------------ */
-test("a two-chart page shows a matching pair, and the leaders always come as their pair", () => {
-  const LEAD = ["SPY", "QQQ", "ESUSD", "NQUSD"];
-  const clocks = ["2026-09-28T15:00:00Z", "2026-09-28T12:00:00Z", "2026-09-28T21:30:00Z", "2026-09-27T01:30:00Z"];
-  for (const id of Array.from(scenes.WORKFLOW_IDS)) for (const at of clocks) for (const visit of [0, 1, 2, 3]) {
-    const tk = Array.from(scenes.workflowPageState(id, { at, visit }).tickers);
-    const leaders = tk.filter((t) => LEAD.includes(t));
-    if (tk.length === 2) assert.ok(leaders.length === 0 || leaders.length === 2, `${id} ${at} v${visit}: ${tk.join("+")} is a matching pair`);
-    if (leaders.length && scenes.WORKFLOW_PAGES[id].leaders) {
-      const pair = scenes.LEADERS(at);
-      assert.deepEqual(leaders, Array.from(pair), `${id}: the leader pair of the moment, both of them, in order`);
-    }
-  }
-});
-
-test("the re-planned intraday block: 4H pair + 4 targets, 1H pair + 2, 30M two targets; the lap is as long as before", () => {
+/* ---- 4 · the pairs: UNCHANGED at Alan's request ------------------------------------------------- */
+/* 28 Sep ~09:55 ET, Alan: "it was just me surprised" - keep the rotating leader-beside-target pages as they
+   were. These pins hold the dedbc31 layout so a pairing change cannot slip back in unasked. */
+test("the intraday pages keep the rotating leader beside the targets (dedbc31 layout, not re-paired)", () => {
   const targets = ["A","B","C","D","E","F","G","H"];
   const at = "2026-09-28T15:00:00Z";
   const s = (id, visit) => Array.from(scenes.workflowPageState(id, { at, visit, targets }).tickers);
   assert.deepEqual(s("intraday4h", 0), ["SPY","QQQ","A","B","C","D"]);
-  assert.deepEqual(s("intraday1h", 0), ["SPY","QQQ","E","F"]);
-  assert.deepEqual(s("intraday30m", 0), ["G","H"]);
-  assert.equal(scenes.workflowPageState("intraday30m", { at, visit: 0, targets }).chartCount, 2);
-  assert.deepEqual(Array.from(scenes.workflowPageState("intraday30m", { at, visit: 0, targets }).stacks), ["RSI","RSI"], "the 30M page keeps the fan");
+  assert.deepEqual(s("intraday1h", 0), ["SPY","A","B","C"]);
+  assert.deepEqual(s("intraday1h", 1), ["QQQ","D","E","F"], "slot 1 still alternates between the two leaders");
+  assert.deepEqual(s("intraday30m", 0), ["SPY","A"]);
+  assert.deepEqual(s("intraday30m", 2), ["SPY","C"], "one target at a time, one step per visit");
   assert.equal(scenes.rotationScenesFor("day").length, 23, "the day lap: 23 pages, as before");
   assert.equal(scenes.rotationScenesFor("night").length, 17, "the night lap: 17 pages, as before");
 });

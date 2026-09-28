@@ -119,27 +119,19 @@ test("MACRO · 4H keeps PCC in slot 4 on every visit while slots 1–3 rotate", 
 });
 
 test("the intraday pages compose LEADERS with rotating TARGETS windows", () => {
-  /* 28 Sep: the leaders always come as their pair, a two-chart page never puts a leader beside a stock,
-     and the three intraday pages share one stride through the targets (step 4, offsets 0 / 4 / 6) */
   const targets = ["A","B","C","D","E","F","G","H"];
   assert.deepEqual(arr(scenes.workflowPageState("intraday4h", { visit: 0, targets, at: WED("14:00:00") }).tickers),
     ["SPY","QQQ","A","B","C","D"]);
   assert.deepEqual(arr(scenes.workflowPageState("intraday4h", { visit: 1, targets, at: WED("21:00:00") }).tickers),
     ["ESUSD","NQUSD","E","F","G","H"], "after hours the leaders are the futures pair");
   assert.deepEqual(arr(scenes.workflowPageState("intraday1h", { visit: 0, targets, at: WED("14:00:00") }).tickers),
-    ["SPY","QQQ","E","F"], "the leader pair on top, two targets below");
-  assert.deepEqual(arr(scenes.workflowPageState("intraday1h", { visit: 1, targets, at: WED("21:00:00") }).tickers),
-    ["ESUSD","NQUSD","A","B"]);
+    ["SPY","A","B","C"]);
+  assert.deepEqual(arr(scenes.workflowPageState("intraday1h", { visit: 1, targets, at: WED("14:00:00") }).tickers),
+    ["QQQ","D","E","F"], "slot 1 alternates between the two LEADERS");
   assert.deepEqual(arr(scenes.workflowPageState("intraday30m", { visit: 0, targets, at: WED("14:00:00") }).tickers),
-    ["G","H"], "two targets, no leader");
-  assert.deepEqual(arr(scenes.workflowPageState("intraday30m", { visit: 1, targets, at: WED("21:00:00") }).tickers),
-    ["C","D"]);
-  /* one pass of the intraday block shows every target exactly once */
-  for (const visit of [0, 1, 2]) {
-    const seen = ["intraday4h","intraday1h","intraday30m"].flatMap((id) =>
-      arr(scenes.workflowPageState(id, { visit, targets, at: WED("14:00:00") }).tickers).filter((t) => targets.includes(t)));
-    assert.deepEqual(seen.slice().sort(), targets, `pass ${visit}: all eight targets, none twice`);
-  }
+    ["SPY","A"]);
+  assert.deepEqual(arr(scenes.workflowPageState("intraday30m", { visit: 2, targets, at: WED("14:00:00") }).tickers),
+    ["SPY","C"], "one target at a time, one step per visit");
 });
 
 test("TARGETS_DEFAULT is the eight names a failed or empty read falls back to", () => {
