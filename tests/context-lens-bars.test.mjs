@@ -260,7 +260,7 @@ test("what a build would add to a lap: one intraday read per 3-day pane, none on
 
 test("the recommended dials are the ones the page opens with, and they are quiet", () => {
   assert.equal(DIALS.size, "M"); assert.equal(DIALS.timeframe, "30m"); assert.equal(DIALS.sessions, 3);
-  assert.equal(DIALS.hours, "regular"); assert.equal(DIALS.volume, false); assert.equal(DIALS.opacity, 0.96);
+  assert.equal(DIALS.hours, "extended", "28 Sep, Alan: intraday bars apply from 04:00"); assert.equal(DIALS.volume, false); assert.equal(DIALS.opacity, 0.96);
   assert.equal(DIALS.margin, 8); assert.equal(DIALS.maxInk, 0.55);
 });
 

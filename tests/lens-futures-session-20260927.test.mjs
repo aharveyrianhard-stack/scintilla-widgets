@@ -13,7 +13,7 @@ test("futures and crypto pick their own hours; stocks unchanged", () => {
   assert.equal(hoursOf("30m", "ESUSD"), "globex");
   assert.equal(hoursOf("4h", "NQUSD"), "globex");
   assert.equal(hoursOf("30m", "BTCUSD"), "allday");
-  assert.equal(hoursOf("30m", "SPY"), "regular");
+  assert.equal(hoursOf("30m", "SPY"), "extended", "28 Sep: pre-market candles included");
   assert.equal(hoursOf("4h", "MU"), "extended");
 });
 

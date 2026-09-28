@@ -20,7 +20,7 @@ export const DIALS = Object.freeze({
   size: "M",            // of the plot the pane drew — see BUBBLE_SIZES
   timeframe: "30m",     // 15m | 30m | 1h
   sessions: 3,          // sessions shown, newest last
-  hours: "regular",     // regular 09:30–16:00 ET | extended 04:00–20:00 ET
+  hours: "extended",    // extended 04:00–20:00 ET (28 Sep, Alan: "intraday bars apply since 4 a.m. — why handcuff it to 9:30?") | regular 09:30–16:00 ET
   prefer: "auto",       // corner rule: auto = the 23 Sep rule follows the trend; or a fixed corner
   opacity: 0.96,
   volume: false,        // a volume strip under the candles
