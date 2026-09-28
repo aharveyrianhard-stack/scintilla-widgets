@@ -1248,7 +1248,8 @@ async function refreshDeckGeiger() {
   /* L2 — a set the wall has not read yet waits for its prices and ribbons (above) */
   if (key !== DECK_GEIGER.key) {
     if (key !== DECK_GEIGER.setKey) { DECK_GEIGER.setKey = key; DECK_GEIGER.setAt = Date.now(); }
-    if (Date.now() - DECK_GEIGER.setAt < DECK_GEIGER_HOLD_MS && !deckPricesAndRibbonsSettled(tickers)) {
+    /* only the names ON SCREEN have prices to wait for; a rotating slot's later names do not load until their step */
+    if (Date.now() - DECK_GEIGER.setAt < DECK_GEIGER_HOLD_MS && !deckPricesAndRibbonsSettled(visibleChartTickers())) {
       if (!DECK_GEIGER.holdTimer) DECK_GEIGER.holdTimer = setTimeout(() => { DECK_GEIGER.holdTimer = 0; refreshDeckGeiger(); },
         Math.max(50, DECK_GEIGER_HOLD_MS - (Date.now() - DECK_GEIGER.setAt)));
       return;

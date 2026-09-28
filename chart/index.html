@@ -1169,7 +1169,7 @@ async function fetchRsiSource(t, tf, need) {
     const toBars = (rows) => (Array.isArray(rows) ? rows : [])
       .map((r) => ({ t: r.timestamp * 1000, c: +r.close }))
       .filter((b) => Number.isFinite(b.t) && Number.isFinite(b.c) && b.c > 0);
-    if (line.daily) {
+    if (tf === "1D") {
       /* L2 CHART-SPEED (28 Sep): the D line and the cloud ribbon read the SAME series - completed daily
          closes from the provider's /candles?tf=D - and the ribbon asks for more of it (450 on a 1D page;
          the fan's D line needs 440). The fan used to read it twice more (tail 400 + history 440). Daily
@@ -1178,10 +1178,10 @@ async function fetchRsiSource(t, tf, need) {
          newest `need` bars the two reads produced; otherwise ONE read of `need`. */
       const cloud = await cloudDailyFor(t, need);
       const bars = cloud ? cloud.pts.map((q) => ({ t: Date.parse(q.d), c: q.p })).filter((b) => Number.isFinite(b.t) && Number.isFinite(b.c) && b.c > 0)
-        : toBars(await fetchProviderCandles(t, line.tf, need, 2));
+        : toBars(await fetchProviderCandles(t, tf, need, 2));
       const joined = F.joinTail([], bars.slice(-need));
       const entry = { ts: cloud ? cloud.ts : Date.now(), asked: need, bars: joined.bars, hole: joined.hole, from: cloud ? "ribbon" : "own" };
-      rsiSourceCache.set(t + "|" + key, entry);
+      rsiSourceCache.set(t + "|" + tf, entry);
       return entry;
     }
     /* A long read's newest bars can lag a short read's (see TAIL_LIMIT), so past it the tail is read

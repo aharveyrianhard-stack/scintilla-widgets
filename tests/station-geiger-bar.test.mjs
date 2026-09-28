@@ -377,3 +377,14 @@ test("L2: the pane's own read waits for its chart reads; the wait starts at the 
     "a failed price load ends the wave (nothing else will be read for it)");
   assert.match(chart, /chartWavePriced\(req\);\n    Promise\.allSettled\(wave\)\.then\(\(\) => chartWaveEnd\(req\)\);/);
 });
+test("L2: a rotating slot's later names (not on screen, no price yet) do not hold the read", async () => {
+  const { b, reads } = deckHarness(["MU", "SPY"]);
+  b.SceneModel = { WORKFLOW_IDS: ["targets3D"] }; b.SCENE = "targets3D";
+  b.SLOT_ROT = { marks: [{ names: ["MU", "SMCI", "NVDA"] }, null] };
+  b.geigerChartTickers = fnFrom(deck, "geigerChartTickers", b);
+  b.refreshDeckGeiger = fnFrom(deck, "refreshDeckGeiger", b);
+  assert.ok(!b.CHART_STATUS.has("SMCI"), "SMCI has never loaded: it is a later name in the cycle");
+  await b.refreshDeckGeiger();
+  assert.equal(reads.eq.length, 1, "the two names on screen have their prices: the read goes at once");
+  assert.ok(plain(reads.eq[0]).includes("NVDA"), "and it covers the cycle's later names, as L6 made it");
+});
