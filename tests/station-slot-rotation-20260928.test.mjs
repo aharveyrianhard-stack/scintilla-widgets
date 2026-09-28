@@ -65,7 +65,7 @@ test("the lap is unchanged (as live at bca97fa): 23 pages by day, 17 by night; s
 });
 
 test("deck: the next name fades in over the one on screen, only after it has drawn; the old frame goes last", () => {
-  assert.match(deck, /iframe\.slot-next\{ opacity:0;[^}]*transition:opacity \.9s ease; \}/);
+  assert.match(deck, /iframe\.slot-next\{ opacity:0;[^}]*transition:opacity \.9s steps\(8, jump-end\); \}/);   /* L6: the cheaper fade */
   assert.match(deck, /d\.sc === "chart-data-state" && CLEAN\(d\.ticker\) === job\.ticker && d\.hasSeries\) job\.ready\(\)/);
   const fade = deck.slice(deck.indexOf("function crossFadeSlot"), deck.indexOf("function stepRotatingSlots"));
   /* L6: the old frame is parked for the slot's next step instead of removed - still only after the fade */

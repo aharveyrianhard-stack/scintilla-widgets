@@ -505,8 +505,11 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
 .chart-pane > .body > iframe{ touch-action:none; }
 /* ROTATION INSIDE THE SLOT (I3, 28 Sep): the slot's next name loads in a second frame over the one on
    screen, invisible, and fades in once it has drawn - the old chart is never taken away first. */
-/* (L6 measured will-change:opacity here: ~7% MORE CPU on INTRADAY 1H, so it is not used; Chrome layers the fade itself) */
-.chart-pane > .body > iframe.slot-next{ opacity:0; pointer-events:none; z-index:2; transition:opacity .9s ease; }
+/* A CHEAPER FADE (L6, 28 Sep). The same 0.9 s dissolve, drawn in 8 steps of opacity instead of ~54
+   composited frames: measured headlessly on INTRADAY 1H, the fade was ~40% of the rotating page's CPU
+   (GPU process 2.4-2.6 s per 80 s; 0.86-0.90 s stepped). A dissolve has no motion, so 8 steps still read
+   as soft. (will-change:opacity was tried too: ~7% more CPU, not used.) */
+.chart-pane > .body > iframe.slot-next{ opacity:0; pointer-events:none; z-index:2; transition:opacity .9s steps(8, jump-end); }
 .chart-pane > .body > iframe.slot-next.in{ opacity:1; }
 /* L6: the frame a rotating slot faded away from, parked for the slot's next step: not painted, not hit */
 .chart-pane > .body > iframe.slot-spare{ visibility:hidden; opacity:0; pointer-events:none; z-index:0; }
