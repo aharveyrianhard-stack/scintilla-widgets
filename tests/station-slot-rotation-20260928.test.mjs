@@ -68,8 +68,9 @@ test("deck: the next name fades in over the one on screen, only after it has dra
   assert.match(deck, /iframe\.slot-next\{ opacity:0;[^}]*transition:opacity \.9s ease; \}/);
   assert.match(deck, /d\.sc === "chart-data-state" && CLEAN\(d\.ticker\) === job\.ticker && d\.hasSeries\) job\.ready\(\)/);
   const fade = deck.slice(deck.indexOf("function crossFadeSlot"), deck.indexOf("function stepRotatingSlots"));
-  assert.ok(fade.indexOf('f.classList.add("in")') < fade.indexOf("old.remove()"), "fade in before the old frame leaves");
-  assert.ok(fade.indexOf("pane.frame = f") < fade.indexOf("old.remove()"));
+  /* L6: the old frame is parked for the slot's next step instead of removed - still only after the fade */
+  assert.ok(fade.indexOf('f.classList.add("in")') < fade.indexOf("parkSpare(pane, old, oldTicker)"), "fade in before the old frame leaves");
+  assert.ok(fade.indexOf("pane.frame = f") < fade.indexOf("parkSpare(pane, old, oldTicker)"));
   assert.match(fade, /job\.timer = setTimeout\(drop, SLOT_READY_MAX_MS\)/);
   assert.match(deck, /const SLOT_FADE_MS = 900, SLOT_READY_MAX_MS = 9000, SLOT_STAGGER_MS = 700/);
   assert.match(deck, /setInterval\(stepRotatingSlots, 1000\);/);

@@ -23,7 +23,7 @@ test("child and parent chart boundaries synchronously cancel wheel and Safari ge
   assert.match(chart, /document\.addEventListener\(phase,[\s\S]*?event\.preventDefault\(\); event\.stopPropagation\(\); event\.stopImmediatePropagation\?\.\(\)/);
   assert.match(deck, /document\.addEventListener\("wheel"[\s\S]*?event\.preventDefault\(\); event\.stopPropagation\(\); event\.stopImmediatePropagation\?\.\(\)[\s\S]*?capture:true, passive:false/,
     "the Station document also cancels a boundary wheel before relaying it");
-  assert.match(deck, /document\.querySelector\("\.chart-pane:hover > \.body > iframe"\)/,
+  assert.match(deck, /document\.querySelector\("\.chart-pane:hover > \.body > iframe:not\(\.slot-spare\):not\(\.slot-next\)"\)/,
     "a Safari gesture without useful coordinates still resolves the hovered chart frame");
   assert.match(deck, /html,body\{[^}]*overscroll-behavior:none/);
   assert.match(chart, /html,body\{[^}]*overscroll-behavior:none/);

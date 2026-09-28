@@ -505,8 +505,11 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
 .chart-pane > .body > iframe{ touch-action:none; }
 /* ROTATION INSIDE THE SLOT (I3, 28 Sep): the slot's next name loads in a second frame over the one on
    screen, invisible, and fades in once it has drawn - the old chart is never taken away first. */
-.chart-pane > .body > iframe.slot-next{ opacity:0; pointer-events:none; z-index:2; transition:opacity .9s ease; }
+/* L6: its own compositor layer, so the fade is composited, not repainted */
+.chart-pane > .body > iframe.slot-next{ opacity:0; pointer-events:none; z-index:2; will-change:opacity; transition:opacity .9s ease; }
 .chart-pane > .body > iframe.slot-next.in{ opacity:1; }
+/* L6: the frame a rotating slot faded away from, parked for the slot's next step: not painted, not hit */
+.chart-pane > .body > iframe.slot-spare{ visibility:hidden; opacity:0; pointer-events:none; z-index:0; }
 body[data-view="ipad"]{ overscroll-behavior:none; }
 .card{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
   justify-content:center; gap:8px; cursor:pointer; text-align:center; padding:16px; }
@@ -2506,7 +2509,7 @@ function chartFrameForDeckGesture(event) {
     target = document.elementFromPoint(event.clientX, event.clientY);
     frame = target?.matches?.(selector) ? target : target?.closest?.(selector);
   }
-  if (!frame) frame = document.querySelector(".chart-pane:hover > .body > iframe");
+  if (!frame) frame = document.querySelector(".chart-pane:hover > .body > iframe:not(.slot-spare):not(.slot-next)");
   return frame instanceof HTMLIFrameElement ? frame : null;
 }
 function relayDeckChartInput(frame, data) {
@@ -3354,12 +3357,46 @@ function paintSlotMarks() {
 }
 function cancelSlotFades() {
   for (const pane of PANES) {
+    dropSpare(pane);
     const job = pane.slotNext;
     if (!job) continue;
     job.done = true; clearTimeout(job.timer);
     job.frame.remove(); pane.slotNext = null;
   }
   SLOT_ROT.busy = 0;
+}
+/* ── ONE DOCUMENT PER NAME WAS THE COST (L6, 28 Sep) ────────────────────────────────────
+   Rotating 8-up pages used ~2.5x the CPU of fixed ones. The main thread's own scripts were about a
+   second of it (measured with the profiler); the rest was the browser building a whole new chart
+   document for every step - parsing and compiling the page, its scripts, new canvases - and throwing
+   the old one away. So a rotating slot keeps the frame it has just faded away from, parked out of
+   sight (.slot-spare: not painted, not hit), and its next step re-points that frame by message -
+   the path page changes already use (retargetChartInPlace) - instead of opening a new one. Two
+   documents per rotating slot, reused for the life of the page. A spare is used only when its
+   document settled on a name and its address differs from the next one's only in symbol and axis;
+   anything else opens a new frame, as before. Leaving the page drops every spare. */
+function dropSpare(pane) {
+  if (!pane.spare) return;
+  pane.spare.remove(); pane.spare = null;
+}
+function parkSpare(pane, frame, ticker) {
+  dropSpare(pane);
+  if (!frame || !ticker) { if (frame) frame.remove(); return; }
+  frame.className = "slot-spare"; frame.setAttribute("aria-hidden", "true");
+  frame._spareTicker = ticker;
+  pane.spare = frame;
+}
+function takeSpare(pane, src) {
+  const f = pane.spare;
+  if (!f || f.parentNode !== pane.body || !f.contentWindow || !f._spareTicker) { dropSpare(pane); return null; }
+  if (withoutTicker(frameShownSrc(f)) !== withoutTicker(src)) { dropSpare(pane); return null; }
+  pane.spare = null;
+  return f;
+}
+function sweepSpares() {
+  const rotating = SceneModel.WORKFLOW_IDS.includes(SCENE);
+  for (const pane of PANES)
+    if (pane.spare && (!rotating || !pane.frame || pane.spare.parentNode !== pane.body || !slotMarkOf(pane))) dropSpare(pane);
 }
 function slotHeld(pane) {
   if (!pane?.node) return true;
@@ -3390,10 +3427,14 @@ function crossFadeSlot(pane, i, ticker, mark, scene) {
   if (!pane.frame) {                                   /* nothing on screen to fade from: an ordinary slot change */
     setSlotDef(pane, i, ticker, src); SLOT_ROT.marks[i] = mark; mount(pane); refreshDeckQuotes(); return;
   }
-  const f = document.createElement("iframe");
-  f.className = "slot-next"; f.src = src; f.allow = FRAME_ALLOW; f.setAttribute("allowfullscreen", "");
-  f.setAttribute("aria-hidden", "true");
-  const job = { frame:f, ticker, src, mark, scene, generation:ROTATION_GENERATION, done:false, timer:0 };
+  const reused = takeSpare(pane, src);
+  const f = reused || document.createElement("iframe");
+  if (reused) { f.className = "slot-next"; f.dataset.shown = src; f._spareTicker = null; }
+  else {
+    f.className = "slot-next"; f.src = src; f.allow = FRAME_ALLOW; f.setAttribute("allowfullscreen", "");
+    f.setAttribute("aria-hidden", "true");
+  }
+  const job = { frame:f, ticker, src, mark, scene, generation:ROTATION_GENERATION, done:false, timer:0, reused:!!reused };
   const fresh = () => !job.done && pane.slotNext === job && SCENE === scene && ROTATION_GENERATION === job.generation &&
     f.isConnected && paneChartSrc(ticker, i, 0) === src &&   /* the timeframe, view or axis moved on: drop it */
     !shownElsewhere(i, ticker);                              /* never two panes on one name */
@@ -3415,15 +3456,18 @@ function crossFadeSlot(pane, i, ticker, mark, scene) {
       f.classList.add("in");
       job.timer = setTimeout(() => {
         if (!fresh()) return drop();
-        const old = pane.frame;
+        const old = pane.frame, oldTicker = pane.reportedTicker;
         job.done = true; pane.slotNext = null; SLOT_ROT.busy = Math.max(0, SLOT_ROT.busy - 1);
         f.classList.remove("slot-next", "in"); f.removeAttribute("aria-hidden");
         f.dataset.shown = src;
         pane.frame = f; pane.reportedTicker = ticker;
-        if (old && old !== f) old.remove();
+        if (old && old !== f) parkSpare(pane, old, oldTicker);   /* kept for the next step (L6) */
         setSlotDef(pane, i, ticker, src);
         SLOT_ROT.marks[i] = mark;
-        f.addEventListener("load", () => { postViewProfile(pane); postDeckQuote(f, pane.def.ticker); postSlotMark(f, slotMarkOf(pane)); });
+        if (!f._deckLoadWired) {
+          f._deckLoadWired = true;
+          f.addEventListener("load", () => { if (pane.frame !== f) return; postViewProfile(pane); postDeckQuote(f, pane.def.ticker); postSlotMark(f, slotMarkOf(pane)); });
+        }
         paintChips(); refreshDeckQuotes(); refreshDeckGeiger();
       }, SLOT_FADE_MS);
     };
@@ -3442,7 +3486,16 @@ function crossFadeSlot(pane, i, ticker, mark, scene) {
   }, { once:true });
   pane.slotNext = job; SLOT_ROT.busy += 1;
   job.timer = setTimeout(drop, SLOT_READY_MAX_MS);
-  pane.body.appendChild(f);
+  if (!reused) pane.body.appendChild(f);
+  else {
+    /* the parked document takes the name by message: the quote first, so its first paint has the
+       day's baseline, then the wall's timeframe, axis, lens and clouds, which it may have missed */
+    try { f.contentWindow.postMessage({ type:"SCINTILLA_VIEW_PROFILE", view:VIEW, scale:paneIpadScale(pane) }, location.origin); } catch (_) {}
+    postDeckQuote(f, ticker); postDeckGeiger(f); postSlotMark(f, mark);
+    const sharedAxis = /[?&]sharedAxis=1(&|$)/.test(src);
+    try { f.contentWindow.postMessage({ sc:"chart", ticker, range:RANGE, sharedAxis, bubble:srcBubble(src), clouds:CLOUDS }, location.origin); }
+    catch (_) { drop(); return; }
+  }
   deckQuoteHeartbeat(); refreshDeckGeiger();
 }
 window.addEventListener("message", (event) => {
@@ -3454,6 +3507,7 @@ window.addEventListener("message", (event) => {
   if (d.sc === "chart-data-state" && CLEAN(d.ticker) === job.ticker && d.hasSeries) job.ready();
 });
 function stepRotatingSlots() {
+  sweepSpares();
   if (!SceneModel.WORKFLOW_IDS.includes(SCENE) || document.hidden) return;
   if (!SLOT_ROT.marks.some(Boolean) || SLOT_ROT.busy) return;
   if (Date.now() - SLOT_ROT.since < SceneModel.slotStepMs(ROTATE_AT)) return;
