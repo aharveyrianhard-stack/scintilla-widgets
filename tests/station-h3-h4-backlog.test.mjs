@@ -51,15 +51,19 @@ test("zoom is arithmetic over point indices, so every timeframe zooms identicall
   /* The claim under test is structural: nothing in the zoom path consults the timeframe, so
      there is no timeframe that can fail to zoom. setChartView is the single entry point. */
   const setView = fnFrom(chart, "setChartView", {
-    scChartDraw:() => {}, broadcastChartView:() => {}, Math, isFinite, Number,
+    scChartDraw:() => {}, broadcastChartView:() => {}, Math, isFinite, Number, performance:{ now:() => 0 },
   });
-  const view = fnFrom(chart, "chartView", { Math, isFinite });
+  /* 28 Sep (Alan approved): every range still READS its bars but OPENS on its newest N (CHART_VIEW_BARS) */
+  const viewBars = JSON.parse(chart.match(/const CHART_VIEW_BARS = Object\.freeze\((\{[^}]*\})\)/)[1]);
+  const defaultStart = fnFrom(chart, "chartDefaultStart", { Math, CHART_VIEW_BARS:viewBars, chartBarsOverride:() => 0, S:{ chartRange:"3h" } });
+  const view = fnFrom(chart, "chartView", { Math, isFinite, chartDefaultStart:defaultStart });
 
   for (const range of RANGES) {
     const pts = Array.from({ length:240 }, (_, i) => ({ d:"2026-08-19T00:00:00Z", p:i + 1 }));
     const host = { _series:pts, _range:range, _view:null };
     view(host, pts);
-    assert.deepEqual({ ...host._view }, { start:0, end:239 }, `${range} starts fully fitted`);
+    assert.ok(viewBars[range] > 0, `${range} has a first view`);
+    assert.deepEqual({ ...host._view }, { start:240 - viewBars[range], end:239 }, `${range} opens on its newest ${viewBars[range]} bars`);
 
     setView(host, 200, 239);                       // zoom in on the right edge
     assert.equal(host._view.end - host._view.start, 39, `${range} zooms in`);

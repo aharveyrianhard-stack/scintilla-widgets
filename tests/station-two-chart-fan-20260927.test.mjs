@@ -50,7 +50,8 @@ test("every two-chart workflow page asks each pane for the six-line fan, in ever
   /* the leaders switch by the clock and keep the fan either way */
   assert.deepEqual(arr(scenes.workflowPageState("mainIndexes3D", { at: CLOCKS[0] }).tickers), ["SPY", "QQQ"]);
   assert.deepEqual(arr(scenes.workflowPageState("mainIndexes3D", { at: CLOCKS[2] }).tickers), ["ESUSD", "NQUSD"]);
-  assert.deepEqual(arr(scenes.workflowPageState("intraday30m", { at: CLOCKS[2], visit: 0 }).tickers), ["ESUSD", "GOOGL"]);
+  /* 28 Sep: INTRADAY · 30M is two targets now (never a leader beside a stock) - still with the fan */
+  assert.deepEqual(arr(scenes.workflowPageState("intraday30m", { at: CLOCKS[2], visit: 0 }).tickers), ["MU", "WMT"]);
 });
 
 test("the 4-up and 8-up pages are unchanged: only the oscillator twins carried the study before, and still do", () => {

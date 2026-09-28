@@ -74,9 +74,20 @@
     targets1D:       Object.freeze({ label:"TARGETS · DAY",       short:"TARGETS DAY", range:"1D", bubble:BUBBLE_1D, targets:true }),
     targetsOsc:      Object.freeze({ label:"TARGETS · RSI",       short:"TARGETS RSI", range:"1D", bubble:BUBBLE_1D, study:"RSI", targets:true }),
     macroIntraday:   Object.freeze({ label:"MACRO · 4H",          range:"4h", rotate:Object.freeze({ list:MACRO_4H, size:3 }), tail:Object.freeze(["PCC"]) }),
-    intraday4h:      Object.freeze({ label:"INTRADAY · 4H",       short:"INTRA · 4H",  range:"4h", leaders:true, rotateTargets:Object.freeze({ size:4 }) }),
-    intraday1h:      Object.freeze({ label:"INTRADAY · 1H",       short:"INTRA · 1H",  range:"1h", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:3 }) }),
-    intraday30m:     Object.freeze({ label:"INTRADAY · 30M",      short:"INTRA · 30M", range:"30m", study:"RSI", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:1 }) })
+    /* 28 Sep, Alan: "I'm seeing this chart layout: S&P futures and Amazon. Then S&P futures and NASDAQ.
+       It's really weird." INTRADAY · 30M put ONE leader (SPY or ES, taking turns) beside ONE target, and
+       INTRADAY · 1H one leader beside three. The rule from now: the leaders always come as their pair
+       (SPY + QQQ in the market, ES + NQ outside it), and a two-chart page shows a matching pair - the
+       leaders, or two targets - never a leader beside a stock. The intraday block, re-planned:
+         INTRADAY · 4H   six charts: the leader pair + four targets              (unchanged)
+         INTRADAY · 1H   four charts: the leader pair on top + two targets below (was one leader + three)
+         INTRADAY · 30M  two charts: two targets, with the RSI fan               (was one leader + one target)
+       The three share one stride through the eight targets (step 4, offsets 0 / 4 / 6), so each pass of
+       the intraday block shows all eight targets once: 4H the first four, 1H the next two, 30M the last
+       two, and the next pass swaps the halves. Same pages, same count: the lap length is unchanged. */
+    intraday4h:      Object.freeze({ label:"INTRADAY · 4H",       short:"INTRA · 4H",  range:"4h", leaders:true, rotateTargets:Object.freeze({ size:4, step:4, offset:0 }) }),
+    intraday1h:      Object.freeze({ label:"INTRADAY · 1H",       short:"INTRA · 1H",  range:"1h", leaders:true, rotateTargets:Object.freeze({ size:2, step:4, offset:4 }) }),
+    intraday30m:     Object.freeze({ label:"INTRADAY · 30M",      short:"INTRA · 30M", range:"30m", study:"RSI", rotateTargets:Object.freeze({ size:2, step:4, offset:6 }) })
   });
   const WORKFLOW_IDS = Object.freeze(Object.keys(WORKFLOW_PAGES));
   /* The intraday four (workflow pages 16–19) rotate in the three sessions when something trades
@@ -283,11 +294,14 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
      rotatingWindow is the one rule behind every "rotate" and "alternates" slot: the
      window starts at (visit × size), wrapping around the end of the list. The deck owns
      the visit counter; this function is pure so the windows are checkable in a test. */
-  function rotatingWindow(list, size, visit) {
+  function rotatingWindow(list, size, visit, step, offset) {
     const all = (list || []).filter((x) => x != null && x !== "");
     if (!all.length) return [];
     const n = Math.max(1, Math.min(all.length, Number(size) || 1));
-    const start = (Math.max(0, Math.floor(Number(visit) || 0)) * n) % all.length;
+    /* step (default: the window's own size) and offset let pages share one stride through a list (28 Sep) */
+    const stride = Math.max(1, Math.floor(Number(step) || n));
+    const shift = Math.max(0, Math.floor(Number(offset) || 0));
+    const start = (Math.max(0, Math.floor(Number(visit) || 0)) * stride + shift) % all.length;
     return Array.from({ length: n }, (_, i) => all[(start + i) % all.length]);
   }
   /* SESSIONS — two, since 25 Sep (Alan, ~3:40 PM ET: "I do need to see intraday in the morning —
@@ -362,7 +376,7 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     let slots = page.tickers ? page.tickers.slice() : [];
     if (page.leaders) slots = slots.concat(page.leaderWindow ? rotatingWindow(leaders, 1, visit) : leaders);
     if (page.rotate) slots = slots.concat(rotatingWindow(page.rotate.list, page.rotate.size, visit));
-    if (page.rotateTargets) slots = slots.concat(rotatingWindow(targets, page.rotateTargets.size, visit));
+    if (page.rotateTargets) slots = slots.concat(rotatingWindow(targets, page.rotateTargets.size, visit, page.rotateTargets.step, page.rotateTargets.offset));
     if (page.tail) slots = slots.concat(page.tail);
     return slots.slice(0, 8);
   }

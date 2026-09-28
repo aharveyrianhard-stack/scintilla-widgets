@@ -1771,11 +1771,25 @@ function closeTvModal() {
   document.body.classList.remove("tvmodal-open");
 }
 
+/* THE FIRST VIEW (28 Sep, Alan APPROVED: "1W 3y->2y, 3D 2y->1y, 1D 11 1/2 -> 6 months, 4h 12 -> 6 weeks;
+   still zoom out"). Every chart still READS the same number of bars (CHART_DB_RANGE above), so zooming
+   out, the cloud ribbon and the RSI fan keep their full history; it only OPENS on the newest N of them.
+   1W 104 = 2 years, 3D 120 = 1 year, 1D 126 = 6 months, 4h 120 = 6 weeks (4 bars a session), 3h 120 =
+   4 weeks, 1h 80 = 1 week (16 a day, 04:00-20:00 ET), 30m 96 = 3 sessions; the four the proposal did not
+   name follow the same density: 15m 128 = 2 sessions, 2h 96 = 12 sessions, 6h 120 = 6 weeks, 12h 120 =
+   3 months. A double-click comes back to this view; ?bars=N (a deep history link) opens on all of it. */
+const CHART_VIEW_BARS = Object.freeze({"15m":128,"30m":96,"1h":80,"2h":96,"3h":120,"4h":120,"6h":120,"12h":120,"1D":126,"3D":120,"1W":104});
+function chartDefaultStart(host, pts) {
+  const last = Math.max(1, pts.length - 1);
+  if (chartBarsOverride()) return 0;
+  const n = CHART_VIEW_BARS[(host && host._range) || S.chartRange];
+  return n ? Math.max(0, last - (n - 1)) : 0;
+}
 function chartView(host, pts) {
   const last = Math.max(1, pts.length - 1);
   let view = host._view;
   if (!view || !isFinite(view.start) || !isFinite(view.end)) {
-    view = { start:0, end:last };
+    view = { start:chartDefaultStart(host, pts), end:last };
     host._followLatest = true;
   }
   let span = Math.max(8, Math.min(last, Math.round(view.end - view.start)));
@@ -1811,6 +1825,8 @@ function setChartView(host, start, end, followLatest, notify) {
   if (end > last) { start -= end - last; end = last; }
   host._view = { start:Math.max(0, start), end:Math.min(last, end) };
   host._followLatest = followLatest == null ? host._view.end >= last : !!followLatest;
+  /* the lens holds still while the view is moving and is placed again once it stops (station-lens.mjs) */
+  host._viewMovedAt = performance.now();
   scChartDraw(host);
   if (notify !== false) broadcastChartView(host);
 }
@@ -1818,6 +1834,7 @@ function setChartView(host, start, end, followLatest, notify) {
 function resetChartView(host, notify) {
   host._view = null;
   host._followLatest = true;
+  host._viewMovedAt = performance.now();
   scChartDraw(host);
   if (notify !== false) broadcastChartView(host);
 }
@@ -1847,12 +1864,12 @@ function scChartDraw(host, scrub) {
   const ctx = cv.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  /* the context lens repaints after this paint has finished, and only if its picture changed; the
-     Geiger chip is placed after it, so it can step around the lens */
+  /* after this paint has finished: the Geiger chip first (a fixed spot, top right), then the context
+     lens, which steps around the chip and repaints only if its picture changed */
   queueMicrotask(() => {
-    host._inkAt = null;   /* the lens and the Geiger chip share one read of this paint's pixels */
-    if (BUBBLE_REQUEST || host.querySelector(".sc-nchart__lens")) lensPaint(host);
+    host._inkAt = null;   /* the lens reads this paint's pixels once */
     placeGeiger(host);
+    if (BUBBLE_REQUEST || host.querySelector(".sc-nchart__lens")) lensPaint(host);
   });
   const pts = host._series;
   if (!pts || pts.length < 2) return;
@@ -2248,9 +2265,14 @@ function paintGeigerBar(host) {
   host._geigerMemo = null;   /* host._inkAt stays: it is this paint's pixels, reset by the next paint */
   placeGeiger(host);
 }
-/* Where the chip goes: lens-placement.mjs's emptiestSpot, the same rule the lens uses - never in the
-   newest fifth, never on the badge or the lens, the emptiest patch, and it stays put unless somewhere
-   is clearly emptier. Until the rule has loaded, or before the chart has drawn, the chip stays hidden. */
+/* WHERE THE CHIP GOES (28 Sep). Alan: "The system is having trouble with the locations of things, so as
+   not to consume space… I feel like the Geiger should take the TOP RIGHT." The chip no longer hunts for
+   an empty patch inside the plot (that was O1's rule, 27 Sep). It sits in the pane's top band - the row
+   the ticker badge already uses, above the plot - right-aligned to the plot's right edge: left of the
+   price scale, and above the live price label (both live inside the plot, which starts under the badge).
+   The deck's timeframe tag or arrows push it left, never onto the badge; with no room in that row it
+   takes the plot's top-right corner. The rule is lens-placement.mjs topRightSpot, so a test checks the
+   same rule the pane draws. Until the rule has loaded, or before the chart has drawn, it stays hidden. */
 let SC_PLACE = null, scPlaceLoading = null;
 function scPlace() {
   if (!SC_PLACE && !scPlaceLoading) scPlaceLoading = import("/_indicators/lens-placement.mjs").then((m) => {
@@ -2259,32 +2281,48 @@ function scPlace() {
   }).catch(() => { scPlaceLoading = null; });
   return SC_PLACE;
 }
+/* The deck's own floating controls (its page arrows and the timeframe tag at the top centre of the wall)
+   sit over this frame from outside. The frame is same-origin, so their boxes are read from the deck and
+   put into this pane's coordinates. */
+function deckKeepOut(area) {
+  try {
+    const fe = window.frameElement;
+    if (!fe || !area) return [];
+    const doc = fe.ownerDocument, f = fe.getBoundingClientRect(), a = area.getBoundingClientRect(), out = [];
+    for (const id of ["edgePrev", "edgeNext", "tfNow"]) {
+      const b = doc.getElementById(id);
+      if (!b || !b.offsetWidth) continue;
+      const r = b.getBoundingClientRect();
+      out.push({ x: r.left - f.left - a.left, y: r.top - f.top - a.top, w: r.width, h: r.height });
+    }
+    return out;
+  } catch (_) { return []; }
+}
 function placeGeiger(host) {
   const node = host?.querySelector(".sc-nchart__live-geiger.is-float");
   if (!node || node.hidden) return;
   const P = scPlace(), plot = host._plot, pts = host._series;
-  const area = host.querySelector(".sc-nchart__area"), cv = host.querySelector(".sc-nchart__cv");
-  if (!P || !plot || !pts || pts.length < 2 || !area || !cv) { node.style.visibility = "hidden"; return; }
+  const area = host.querySelector(".sc-nchart__area");
+  if (!P || !plot || !pts || pts.length < 2 || !area) { node.style.visibility = "hidden"; return; }
   const box = { w: node.offsetWidth, h: node.offsetHeight };
-  const badge = host.querySelector(".sc-nchart__live");
-  const lens = host._lens && host._lens.spot;
-  const sig = [box.w, box.h, plot.padL, plot.padT, plot.iw, plot.ih, plot.start, plot.end, pts.length,
-    /* the bar count and the newest bar's time, not its price: a live tick must not re-read the canvas */
-    pts[pts.length - 1].d, badge ? badge.offsetWidth + "x" + badge.offsetHeight : "", lens ? [lens.x, lens.y].join(",") : "",
-    (host._cloudTicker || "") + ":" + ((host._cloudRows && host._cloudRows.length) || 0)].join("|");
+  const badgeEl = host.querySelector(".sc-nchart__live");
+  const a = area.getBoundingClientRect();
+  let badge = null;
+  if (badgeEl && badgeEl.offsetWidth) { const b = badgeEl.getBoundingClientRect(); badge = { x: b.left - a.left, y: b.top - a.top, w: b.width, h: b.height }; }
+  const keepOut = deckKeepOut(area);
+  const sig = [box.w, box.h, plot.padL, plot.padT, plot.iw, plot.ih, area.clientWidth, area.clientHeight,
+    badge ? [badge.x, badge.y, badge.w, badge.h].map(Math.round).join(",") : "",
+    keepOut.map((k) => [k.x, k.y, k.w, k.h].map(Math.round).join(",")).join(";")].join("|");
   if (host._geigerMemo === sig) return;
   host._geigerMemo = sig;
-  const keepOut = [];
-  const a = area.getBoundingClientRect();
-  if (badge && badge.offsetWidth) { const b = badge.getBoundingClientRect(); keepOut.push({ x: b.left - a.left, y: b.top - a.top, w: b.width, h: b.height }); }
-  if (lens) keepOut.push(lens);
-  const res = P.emptiestSpot({ plot, box, points: P.pathPoints(plot, pts), ink: host._inkAt || (host._inkAt = P.inkReader(cv)), keepOut,
-    prefer: { x: plot.padL + 6, y: plot.padT + 6 }, prev: host._geigerSpot, margin: 4, tolerance: 0.05, cols: 12, rows: 8 });
-  if (!res.spot) { node.style.visibility = "hidden"; host._geigerSpot = null; return; }
+  const res = P.topRightSpot({ plot, box, badge, keepOut });
+  if (!res.spot) { node.style.visibility = "hidden"; host._geigerSpot = null; node.dataset.why = res.why; return; }
   host._geigerSpot = { x: res.spot.x, y: res.spot.y, w: box.w, h: box.h };
   node.style.transform = "translate(" + res.spot.x + "px," + res.spot.y + "px)";
   node.style.visibility = "visible";
   node.dataset.why = res.why;
+  /* the lens steps around the chip: a chip that moved invalidates the lens' last placement */
+  host._lensMemo = null;
 }
 function paintGeigerBars() {
   for (const host of CHART_HOSTS) if (host.isConnected) paintGeigerBar(host);
