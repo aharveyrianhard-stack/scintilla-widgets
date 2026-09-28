@@ -446,9 +446,15 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
      /health cannot grade the lane OK. */
   var ACCEPTED_EQUALIZER_SHA256 =
     'f6cf97b57cf26a37aeb8393dec676f1776b02da282dffcce95786e5762697ad1';
+  /* 28 Sep: Alan's Equalizer save of 27 Sep ("start the Geiger at three hours": 2h weight 0) changed
+     the receipt to d0da9a46…, and with only f6cf97b5… accepted every stock's Geiger chip went blank on
+     the Station while the Hub (which does not gate on the receipt) kept showing them. Both of Alan's
+     saved equalizers are accepted; any other receipt still fails closed. */
+  var ACCEPTED_EQUALIZER_SHA256S = [ACCEPTED_EQUALIZER_SHA256,
+    'd0da9a466c8f51dd48c0f7c45c9e731afc255e91c60c398c356d76af53d91728'];
   function equalizerAccepted (receipt) {
     return typeof receipt === 'string' &&
-           receipt.toLowerCase() === ACCEPTED_EQUALIZER_SHA256;
+           ACCEPTED_EQUALIZER_SHA256S.indexOf(receipt.toLowerCase()) >= 0;
   }
   function waitForOwnership (promise, signal) {
     /* A caller without a cancellation signal deliberately keeps the shared proof alive. Signal
