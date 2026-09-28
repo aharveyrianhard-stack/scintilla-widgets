@@ -219,6 +219,37 @@ let remoteFrameAt = 0;
 let remoteVisibilityCheck = null;
 const TRUSTED_IPAD_KEY = "scintilla.station.trusted-ipad.v1";
 const STATION_JOIN_TIMEOUT_MS = 5000;
+const REMOTE_JOIN_TIMEOUT_MS = 5000;
+const REMOTE_ANSWER_TIMEOUT_MS = 8000;
+
+/* A refreshed iPad page has the same trusted pair and the same viewer ID, but
+   it has a new peer/socket.  Treat a socket that never joins—or a joined
+   socket that never receives an answer—as a receiver-only renewal failure.
+   This never resets the iMac capture or pairing; the caller simply opens a
+   fresh receiver socket and re-offers from the stable viewer identity. */
+function remoteRenewalWatchdog(options) {
+  const { setTimer, clearTimer, onRenew } = options;
+  let joined = false, answered = false, joinTimer = null, answerTimer = null;
+  const clear = () => {
+    if (joinTimer) clearTimer(joinTimer);
+    if (answerTimer) clearTimer(answerTimer);
+    joinTimer = null; answerTimer = null;
+  };
+  return {
+    opened() {
+      clear();
+      joinTimer = setTimer(() => { if (!joined) onRenew("join"); }, REMOTE_JOIN_TIMEOUT_MS);
+    },
+    joined() {
+      joined = true;
+      if (joinTimer) clearTimer(joinTimer);
+      joinTimer = null;
+      answerTimer = setTimer(() => { if (!answered) onRenew("answer"); }, REMOTE_ANSWER_TIMEOUT_MS);
+    },
+    answered() { answered = true; clear(); },
+    close: clear
+  };
+}
 
 function stationRemoteKey(pairId, viewerId) {
   return String(pairId || "") + ":" + String(viewerId || "");
@@ -612,13 +643,25 @@ async function startRemoteStationViewer() {
   });
   remoteSocket = new WebSocket(STATION_REALTIME_URL + "?apikey=" + encodeURIComponent(STATION_REALTIME_KEY) + "&vsn=1.0.0");
   const activeRemoteSocket = remoteSocket;
+  const renew = remoteRenewalWatchdog({
+    setTimer: setTimeout,
+    clearTimer: clearTimeout,
+    onRenew: () => {
+      if (remoteSocket !== activeRemoteSocket || remotePeer !== activeRemotePeer) return;
+      showErr("Reconnecting to the iMac X source…");
+      scheduleRemoteStationReconnect();
+    }
+  });
   const send = (event, payload) => remoteSocket?.readyState === WebSocket.OPEN && remoteSocket.send(JSON.stringify({ topic:"realtime:station-ipad:" + REMOTE_PAIR, event, payload, ref:String(++ref), join_ref:"1" }));
-  remoteSocket.addEventListener("open", () => send("phx_join", { config:{ broadcast:{ self:false, ack:true }, presence:{ key:"" }, private:false } }));
+  remoteSocket.addEventListener("open", () => {
+    if (send("phx_join", { config:{ broadcast:{ self:false, ack:true }, presence:{ key:"" }, private:false } })) renew.opened();
+  });
   remoteSocket.addEventListener("message", async event => {
     let message; try { message = JSON.parse(event.data); } catch (_) { return; }
     if (message.event === "phx_reply" && message.ref === "1") {
       if (message.payload?.status !== "ok") return showErr("The iMac pairing room was refused.");
       joined = true;
+      renew.joined();
       await remotePeer.setLocalDescription(await remotePeer.createOffer());
       await waitForIceComplete(remotePeer);
       /* The iMac extension can be reattaching after a Station reload.  Mirror
@@ -639,18 +682,22 @@ async function startRemoteStationViewer() {
     }
     if (!joined || message.event !== "broadcast") return;
     const payload = message.payload || {};
-    if (payload.event === "answer" && payload.payload?.viewerId === REMOTE_VIEWER && payload.payload?.answer) remotePeer.setRemoteDescription(payload.payload.answer).then(() => {
+    if (payload.event === "answer" && payload.payload?.viewerId === REMOTE_VIEWER && payload.payload?.answer &&
+        remoteSocket === activeRemoteSocket && remotePeer === activeRemotePeer && !remotePeer.remoteDescription) remotePeer.setRemoteDescription(payload.payload.answer).then(() => {
       if (remoteOfferRetry) clearInterval(remoteOfferRetry);
       remoteOfferRetry = null;
+      renew.answered();
     }).catch(error => showErr("iMac X answer failed: " + error.message));
     if (payload.event === "crop") { xfloatCrop = payload.payload; paintXView(xfloatCrop?.activeView || "trading"); drawXFloat(); }
   });
   remoteSocket.addEventListener("error", () => {
     if (remoteSocket !== activeRemoteSocket) return;
+    renew.close();
     showErr("Reconnecting to the iMac X source…");
     scheduleRemoteStationReconnect();
   });
   remoteSocket.addEventListener("close", () => {
+    renew.close();
     if (remoteSocket === activeRemoteSocket) scheduleRemoteStationReconnect();
   });
 }

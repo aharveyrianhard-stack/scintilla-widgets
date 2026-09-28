@@ -31,9 +31,44 @@ test("a paired viewer keeps its identity through a browser-session reload", () =
   assert.equal(creates, 1);
 });
 
+test("a refreshed receiver renews its own offer path when join or answer silently stalls", () => {
+  const timers = [];
+  const renewals = [];
+  const watchdog = functionFromSource("remoteRenewalWatchdog", {
+    REMOTE_JOIN_TIMEOUT_MS:5000,
+    REMOTE_ANSWER_TIMEOUT_MS:8000
+  })({
+    setTimer:(fn, ms) => { const timer = { fn, ms, cleared:false }; timers.push(timer); return timer; },
+    clearTimer:(timer) => { if (timer) timer.cleared = true; },
+    onRenew:(reason) => renewals.push(reason)
+  });
+  watchdog.opened();
+  assert.equal(timers[0].ms, 5000);
+  timers[0].fn();
+  assert.deepEqual(renewals, ["join"], "a refreshed receiver retries if its new socket never joins");
+
+  const answered = functionFromSource("remoteRenewalWatchdog", {
+    REMOTE_JOIN_TIMEOUT_MS:5000,
+    REMOTE_ANSWER_TIMEOUT_MS:8000
+  })({
+    setTimer:(fn, ms) => { const timer = { fn, ms, cleared:false }; timers.push(timer); return timer; },
+    clearTimer:(timer) => { if (timer) timer.cleared = true; },
+    onRenew:(reason) => renewals.push(reason)
+  });
+  answered.opened(); answered.joined();
+  const answerTimer = timers.at(-1);
+  assert.equal(answerTimer.ms, 8000);
+  answerTimer.fn();
+  assert.deepEqual(renewals, ["join", "answer"], "a joined receiver re-offers through a fresh socket when no answer arrives");
+  answered.answered();
+  assert.equal(answerTimer.cleared, true);
+});
+
 test("the current paired-viewer path sends its stable viewer identity with offers", () => {
   assert.match(source, /viewerId:REMOTE_VIEWER/);
   assert.match(source, /event:"drop", payload:\{ code:REMOTE_CODE, viewerId:REMOTE_VIEWER \}/);
+  assert.match(source, /remoteRenewalWatchdog/);
+  assert.match(source, /remoteSocket === activeRemoteSocket && remotePeer === activeRemotePeer/);
 });
 
 test("the iMac pane buffers offers until one exact Bridge generation accepts them", () => {
