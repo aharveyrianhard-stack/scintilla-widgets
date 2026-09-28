@@ -39,8 +39,9 @@ const code = [
   line(chart, /const CH_CRYPTO_DAYS_ALLOWED = [^\n]*;/),
   line(chart, /const cryptoSet = [^\n]*;/).replace("Object.values(CB)", '["BTCUSD","ETHUSD","SOLUSD"]'),
   line(chart, /const futureSet = [^\n]*;/),
+  line(chart, /const CH_MACRO_CLOCK = \{[\s\S]*?\};/), line(chart, /const CH_EARLY_CLOSE_ET = [^\n]*;/),
   ...["chEtIso", "chLastCompletedPoint", "chNy", "chTradingDay", "chPrevTradingDay", "chInSession",
-    "chMarketOf", "chOpenAt", "chSessionMs", "chAgeText", "chDayMon", "chBarFreshness"].map(lift),
+    "chMarketOf", "chClockOpenAt", "chOpenAt", "chSessionMs", "chAgeText", "chDayMon", "chBarFreshness"].map(lift),
   "({ chBarFreshness, chInSession, chPrevTradingDay })",
 ].join("\n");
 const api = runInNewContext(code, { Date, Map, Intl, Number, Math, String, isFinite });

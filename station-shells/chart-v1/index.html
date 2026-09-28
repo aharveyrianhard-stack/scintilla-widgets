@@ -636,14 +636,34 @@ function chInSession(ms) {
    all Sunday evening, and ES 30m turned amber every weekday during CME's 17:00-18:00 pause.
    CME Globex: Sunday 18:00 ET to Friday 17:00 ET, paused 17:00-18:00 ET Monday-Thursday.
    Crypto never closes. Everything else keeps the NYSE session above. */
+/* VIX, THE DOLLAR AND THE YIELDS KEEP THEIR PUBLISHED HOURS (28 Sep). Alan saw DXUSD and US10Y say
+   "STALE 3 d". The chart API now refreshes them all session; this rule counts only the hours FMP
+   publishes their bars (measured 28 Sep, the same clocks the chart API uses): VIX 09:30-16:15 ET, the
+   dollar 00:00-17:00 ET (Friday to 16:00; its evening session has no 1h/15m bars), the Treasury
+   yields 07:20-14:00 ET. Judged on CME time the dollar's 1h line turned amber every evening; judged
+   on 04:00-20:00 the 10-year turned amber every afternoon. NYSE holidays count nothing; on the
+   NYSE early-close days counting stops at 13:00 ET. */
+const CH_MACRO_CLOCK = { VIX:"CBOE_VIX", DXY:"ICE_DOLLAR", DXUSD:"ICE_DOLLAR",
+  US10Y:"TREASURY_YIELD", US5Y:"TREASURY_YIELD", US30Y:"TREASURY_YIELD", US3M:"TREASURY_YIELD" };
+const CH_EARLY_CLOSE_ET = ["2026-11-27", "2026-12-24", "2027-11-26"];
 function chMarketOf(sym) {
   const t = String(sym || "").toUpperCase();
   if (typeof cryptoSet !== "undefined" && cryptoSet.has(t)) return "CRYPTO";
+  if (CH_MACRO_CLOCK[t]) return CH_MACRO_CLOCK[t];
   if (typeof futureSet !== "undefined" && futureSet.has(t)) return "CME";
   return "NYSE";
 }
+function chClockOpenAt(ms, market) {
+  const c = chNy(ms);
+  if (!chTradingDay(c.date)) return false;
+  const m = c.minutes, dow = new Date(c.date + "T12:00:00Z").getUTCDay();
+  const to = market === "CBOE_VIX" ? 16 * 60 + 15 : market === "TREASURY_YIELD" ? 14 * 60 : dow === 5 ? 16 * 60 : 17 * 60;
+  const from = market === "CBOE_VIX" ? 9 * 60 + 30 : market === "TREASURY_YIELD" ? 7 * 60 + 20 : 0;
+  return m >= from && m < (CH_EARLY_CLOSE_ET.includes(c.date) ? Math.min(to, 13 * 60) : to);
+}
 function chOpenAt(ms, market) {
   if (market === "CRYPTO") return true;
+  if (market === "CBOE_VIX" || market === "ICE_DOLLAR" || market === "TREASURY_YIELD") return chClockOpenAt(ms, market);
   if (market !== "CME") return chInSession(ms);
   const c = chNy(ms), dow = new Date(c.date + "T12:00:00Z").getUTCDay();
   if (dow === 6) return false;
