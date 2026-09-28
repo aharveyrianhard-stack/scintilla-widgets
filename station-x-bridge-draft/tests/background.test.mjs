@@ -70,13 +70,16 @@ async function harness(sessionSeed = {}) {
       },
       async sendMessage(tabId, message, options) {
         sent.push({ tabId, message, options });
+        if ((sessionData.__missingTabIds || []).includes(tabId)) {
+          throw new Error(`No tab with id: ${tabId}.`);
+        }
         return { ok: true };
       },
       async update(tabId, options) {
         tabUpdates.push({ tabId, options });
         return { id: tabId, windowId: 2 };
       },
-      async query() { return []; },
+      async query() { return sessionData.__queryTabs || []; },
       async create() { return { id: 99, windowId: 2, url: "https://x.com/home" }; },
       getZoom(_tabId, callback) { callback(1); },
       setZoom(_tabId, _zoom, callback) { callback(); }
@@ -189,8 +192,33 @@ test("one X action binds the exact source tab to the ready Station frame", async
     tabId === 7 && message.type === "XFF_START_STATION_SOURCE"));
   assert.ok(h.sent.some(({ tabId, message, options }) =>
     tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
-  assert.ok(h.tabUpdates.some(({ tabId, options }) => tabId === 11 && options.active));
-  assert.ok(h.windowUpdates.some(({ windowId, options }) => windowId === 2 && options.focused));
+  assert.equal(h.tabUpdates.length, 0, "attaching X must not steal focus to a Station display");
+  assert.equal(h.windowUpdates.length, 0, "attaching X must not focus a Station window");
+});
+
+test("one browser X source connects every already-open Station display without focusing either", async () => {
+  const h = await harness();
+  const first = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  const second = { tab: { id: 22, windowId: 4 }, frameId: 9 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, first);
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 620, height: 360
+  }, second);
+
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+
+  assert.equal(h.sent.filter(({ tabId, message }) =>
+    tabId === 7 && message.type === "XFF_START_STATION_SOURCE").length, 1,
+  "one source clock must serve every display");
+  for (const [tabId, frameId] of [[11, 5], [22, 9]]) {
+    assert.ok(h.sent.some(({ tabId: targetId, message, options }) =>
+      targetId === tabId && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === frameId),
+    `Station tab ${tabId} must receive its own viewer connection`);
+  }
+  assert.equal(h.tabUpdates.length, 0);
+  assert.equal(h.windowUpdates.length, 0);
 });
 
 test("Station controls relay to the active X source", async () => {
@@ -400,7 +428,7 @@ test("simultaneous Station clocks are deduplicated without slowing a surviving m
     type: "XFF_STATION_CONTROL", instanceId: "display", action: "tick", value: { at: 1010 }
   }, display);
   const next = await dispatchRuntime(h.runtimeListeners, {
-    type: "XFF_STATION_CONTROL", instanceId: "desk", action: "tick", value: { at: 1033 }
+    type: "XFF_STATION_CONTROL", instanceId: "desk", action: "tick", value: { at: 1017 }
   }, desk);
 
   assert.deepEqual(JSON.parse(JSON.stringify(first)), { ok: true });
@@ -409,7 +437,7 @@ test("simultaneous Station clocks are deduplicated without slowing a surviving m
   const ticks = h.sent.filter(({ message }) =>
     message.type === "XFF_STATION_CONTROL" && message.action === "tick");
   assert.equal(ticks.length, before + 2);
-  assert.deepEqual(ticks.slice(-2).map(({ message }) => message.value.at), [1000, 1033]);
+  assert.deepEqual(ticks.slice(-2).map(({ message }) => message.value.at), [1000, 1017]);
 });
 
 test("a standby Station reattaches after the active display closes", async () => {
@@ -437,6 +465,28 @@ test("a standby Station reattaches after the active display closes", async () =>
     message.type === "XFF_STATION_WEBRTC_START").length, starts + 1);
   assert.ok(h.sent.some(({ tabId, message, options }) =>
     tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
+});
+
+test("a dead direct Station viewer renegotiates without restarting the shared X source", async () => {
+  const h = await harness();
+  const sender = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId:"desk", width:430, height:260
+  }, sender);
+  await h.actionListeners[0]({ id:7, windowId:1, url:"https://x.com/home" });
+  const sourceStarts = h.sent.filter(({ message }) => message.type === "XFF_START_STATION_SOURCE").length;
+  const response = await dispatchRuntime(h.runtimeListeners, {
+    type:"XFF_STATION_RECONNECT_VIEWER", instanceId:"desk"
+  }, sender);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(response)), { ok:true });
+  assert.equal(h.sent.filter(({ message }) => message.type === "XFF_START_STATION_SOURCE").length, sourceStarts,
+    "a viewer repair never restarts or refocuses the existing X source");
+  assert.ok(h.sent.filter(({ tabId, message, options }) =>
+    tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5).length >= 2,
+  "the existing Station pane receives a fresh receiver peer");
+  assert.equal(h.tabUpdates.length, 0);
+  assert.equal(h.windowUpdates.length, 0);
 });
 
 test("Station offer is answered by the private extension media context", async () => {
@@ -473,7 +523,7 @@ test("one source crop is broadcast to every connected Station mirror", async () 
   }, display);
 
   await dispatchRuntime(h.runtimeListeners, {
-    type: "XFF_STATION_CROP", crop: { activeView: "trading", rect: { width: 430 } }
+    type: "XFF_STATION_CROP", crop: { activeView: "trading", rect: { width: 430 }, captureGeneration: 12, sequence: 44 }
   }, { tab: { id: 7, windowId: 1 }, frameId: 0 });
   await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -481,6 +531,9 @@ test("one source crop is broadcast to every connected Station mirror", async () 
     tabId === 11 && message.type === "XFF_STATION_CROP"));
   assert.ok(h.sent.some(({ tabId, message }) =>
     tabId === 22 && message.type === "XFF_STATION_CROP"));
+  const relayed = h.sent.find(({ tabId, message }) => tabId === 11 && message.type === "XFF_STATION_CROP");
+  assert.equal(relayed.message.crop.captureGeneration, 12);
+  assert.equal(relayed.message.crop.sequence, 44);
 });
 
 test("a Station reload reattaches the existing capture without a second user action", async () => {
@@ -537,23 +590,49 @@ test("the X source survives all Station tabs closing and attaches to a later dis
     tabId === 22 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 9));
 });
 
-test("pressing the Station action again reconnects instead of accidentally toggling capture off", async () => {
+test("pressing the X source action again replaces a stalled capture without opening another X tab", async () => {
   const h = await harness();
   await dispatchRuntime(h.runtimeListeners, {
     type: "XFF_STATION_READY", width: 430, height: 260
   }, { tab: { id: 11, windowId: 2 }, frameId: 5 });
   const xTab = { id: 7, windowId: 1, url: "https://x.com/home" };
   await h.actionListeners[0](xTab);
+  const firstCaptureCount = h.captures.length;
   const stopCount = h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length;
   await h.actionListeners[0](xTab);
 
-  assert.equal(h.captures.length, 1, "reconnect must not request a new stream");
-  assert.equal(h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length, stopCount);
-  assert.ok(!h.sent.some(({ tabId, message }) =>
-    tabId === 7 && message.type === "XFF_STOP_STATION_SOURCE"));
+  assert.equal(h.captures.length, firstCaptureCount + 1,
+    "the recovery click must request a fresh capture from the same X tab");
+  assert.equal(h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length, stopCount + 1);
+  assert.ok(h.sent.some(({ tabId, message }) =>
+    tabId === 7 && message.type === "XFF_STOP_STATION_SOURCE"),
+  "the old source-side session must be stopped before its replacement starts");
+  assert.equal(h.tabUpdates.length, 0, "recovery must not focus or replace the X source tab");
 });
 
-test("a restarted Chrome extension worker restores the approved source and Station frame", async () => {
+test("an X action discards a closed restored Station tab and reannounces the open pane", async () => {
+  const stale = { tabId: 157, windowId: 2, frameId: 5, instanceId: "closed", width: 430, height: 260, lastSeen: Date.now() };
+  const h = await harness({
+    __missingTabIds: [157],
+    __queryTabs: [{ id: 11, windowId: 2, url: "https://station.scintillahub.ai/" }],
+    stationXSessionV1: {
+      sourceTabId: null,
+      activeConsumerKey: "157:5:closed",
+      consumers: [stale]
+    }
+  });
+
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+
+  assert.ok(h.scriptInjections.some(({ target, files }) =>
+    target.tabId === 11 && target.allFrames && files[0] === "station-bridge.js"));
+  assert.ok(!h.sent.some(({ tabId }) => tabId === 157),
+    "a dead saved tab must not receive the new attach attempt");
+  assert.deepEqual(h.sessionData.stationXSessionV1.consumers, []);
+  assert.equal(h.sessionData.stationXSessionV1.activeConsumerKey, null);
+});
+
+test("an extension reload recreates the saved source capture and reconnects Station", async () => {
   const h = await harness({
     stationXSessionV1: {
       sourceTabId: 7,
@@ -565,10 +644,42 @@ test("a restarted Chrome extension worker restores the approved source and Stati
   });
   await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
 
-  assert.equal(h.captures.length, 0, "worker restart must not request another capture gesture");
+  assert.equal(h.captures.length, 1,
+    "a saved source tab without an offscreen capture must start a fresh capture");
+  assert.ok(h.runtimeSent.some(({ type }) => type === "XFF_OFFSCREEN_START"));
+  assert.ok(h.sent.some(({ tabId, message }) =>
+    tabId === 7 && message.type === "XFF_START_STATION_SOURCE"));
   assert.ok(h.sent.some(({ tabId, message, options }) =>
     tabId === 11 && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === 5));
-  assert.ok(h.tabUpdates.some(({ tabId, options }) => tabId === 11 && options.active));
+  assert.equal(h.tabUpdates.length, 0, "recovery must not bring a Station tab forward");
+});
+
+test("an explicit click on the existing X source refreshes only its capture and every Station viewer", async () => {
+  const h = await harness();
+  const first = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+  const second = { tab: { id: 22, windowId: 4 }, frameId: 9 };
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 430, height: 260
+  }, first);
+  await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", width: 620, height: 360
+  }, second);
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+  const firstCaptureCount = h.captures.length;
+
+  await h.actionListeners[0]({ id: 7, windowId: 1, url: "https://x.com/home" });
+
+  assert.equal(h.captures.length, firstCaptureCount + 1,
+    "the recovery click must replace a potentially black capture from the same X tab");
+  assert.ok(h.runtimeSent.filter(({ type }) => type === "XFF_OFFSCREEN_STOP").length >= 2,
+    "the previous offscreen decoder is stopped before a replacement is created");
+  for (const [tabId, frameId] of [[11, 5], [22, 9]]) {
+    assert.ok(h.sent.some(({ tabId: targetId, message, options }) =>
+      targetId === tabId && message.type === "XFF_STATION_WEBRTC_START" && options.frameId === frameId),
+    `Station viewer ${tabId} must receive the renewed capture`);
+  }
+  assert.equal(h.tabUpdates.length, 0, "capture recovery must not focus or replace any Station tab");
+  assert.equal(h.windowUpdates.length, 0, "capture recovery must not focus or replace the X tab");
 });
 
 test("a V079 pane reinjected after a background reload reannounces before the next X action", async () => {
@@ -671,6 +782,48 @@ test("worker restore prunes closed source and consumer tabs", async () => {
   assert.equal(saved.sourceTabId, null);
   assert.equal(saved.activeConsumerKey, null);
   assert.deepEqual(saved.consumers.map(({ tabId }) => tabId), [11]);
+});
+
+test("worker restart reinjects open Station panes so they reannounce without a toolbar click", async () => {
+  const h = await harness({
+    __queryTabs: [{ id: 11, windowId: 2, url: "https://station.scintillahub.ai/" }]
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.deepEqual(JSON.parse(JSON.stringify(h.scriptInjections)), [{
+    target: { tabId: 11, allFrames: true },
+    files: ["station-bridge.js"]
+  }]);
+});
+
+test("same Station pane recovers the existing X source when worker restart lost capture", async () => {
+  const now = Date.now();
+  const h = await harness({
+    stationXSessionV1: {
+      sourceTabId: 7,
+      activeConsumerKey: "11:5:pane",
+      consumers: [{
+        tabId: 11, windowId: 2, frameId: 5, instanceId: "pane",
+        width: 430, height: 260, lastSeen: now
+      }]
+    }
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const station = { tab: { id: 11, windowId: 2 }, frameId: 5 };
+
+  const response = await dispatchRuntime(h.runtimeListeners, {
+    type: "XFF_STATION_READY", instanceId: "pane", width: 430, height: 260
+  }, station);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(response)), {
+    ok: true, connected: true, active: true
+  });
+  assert.ok(h.sent.some(({ tabId, message }) => tabId === 7 &&
+    message.type === "XFF_START_STATION_SOURCE"),
+  "the saved X source is restarted when its offscreen capture is absent");
+  assert.ok(h.sent.some(({ tabId, message }) => tabId === 11 &&
+    message.type === "XFF_STATION_WEBRTC_START"),
+  "the existing Station pane is renegotiated after restart");
 });
 
 test("one iPad pair fans out to distinct viewer peers without restarting X capture", async () => {

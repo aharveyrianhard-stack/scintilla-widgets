@@ -17,6 +17,10 @@
     hideFeedTabs: true,
     minimizeSourceOnOpen: true
   };
+  /* A Station pane can miss a pointerleave while Chrome changes focus. Its
+     hover pause is therefore a renewable lease, never an indefinite stop of
+     the shared X source. */
+  const STATION_VIEWER_HOVER_LEASE_MS = 500;
 
   const session = {
     pipWindow: null,
@@ -43,16 +47,30 @@
     stationRenderedOffset: 0,
     stationScrollGeneration: 0,
     stationPendingScrollGeneration: 0,
+    stationPendingScrollAnchor: null,
+    stationPostAckAnchor: null,
+    stationPostAckTimer: null,
+    stationConfirmedCaptureGeneration: 0,
+    stationCropSequence: 0,
+    stationGeometryVersion: 0,
+    stationLastConfirmedScroll: null,
     stationMetrics: {
       ticks: 0,
       integerScrolls: 0,
       confirmedCaptureFrames: 0,
       geometryMeasures: 0,
       geometryInvalidations: 0,
-      negativeCommitOffsets: 0
+      negativeCommitOffsets: 0,
+      anchorCorrections: 0,
+      anchorReflowHeightChanges: 0,
+      lateAnchorChecks: 0,
+      lateAnchorCorrections: 0,
+      captureAckFallbacks: 0,
+      runawayOffsetResets: 0
     },
     scrollEnabled: false,
     pointerPause: false,
+    stationViewerPauseUntil: 0,
     resumeTimer: null,
     collapsed: false,
     closing: false,
@@ -61,6 +79,9 @@
     activeView: "trading",
     settings: { ...DEFAULT_SETTINGS },
     stationMode: false,
+    /* True only when the track serving the Station pane was cropped at the
+       source. The relayed capture is not, yet - see DESIGN notes. */
+    stationSourceCropped: false,
     stationConsumer: null,
     stationRelayTimer: null,
     stationHoverShield: null,
@@ -163,12 +184,16 @@
     return ((zoom - 0.25) / 0.75) * 100;
   }
 
+  function stationViewerPauseActive(now = Date.now()) {
+    return session.stationMode && Number(session.stationViewerPauseUntil || 0) > now;
+  }
+
   function isPaused() {
-    return !session.scrollEnabled || session.pointerPause;
+    return !session.scrollEnabled || session.pointerPause || stationViewerPauseActive();
   }
 
   function pauseLabel() {
-    if (session.pointerPause) {
+    if (session.pointerPause || stationViewerPauseActive()) {
       return "HOVER";
     }
     if (!session.scrollEnabled) {
@@ -288,6 +313,15 @@
       updateUi();
       if (session.stationMode) installStationHoverShield();
     }, session.settings.resumeDelayMs);
+  }
+
+  function nextStationViewerPauseDeadline(held, now = Date.now(), leaseMs = STATION_VIEWER_HOVER_LEASE_MS) {
+    return held ? now + leaseMs : 0;
+  }
+
+  function setStationViewerPause(held) {
+    session.stationViewerPauseUntil = nextStationViewerPauseDeadline(Boolean(held));
+    updateUi();
   }
 
   function pointerIsInsideStationCrop(event, rect) {
@@ -572,9 +606,13 @@
   // scrollTop: on an integer move the capture pipeline can still be painting
   // the pre-scroll frame for a couple of source frames. Replacing .9 with .2
   // at that instant is the backwards "bounce" the viewers were seeing.
+  /* The same band the Station pane honours (STATION_SCROLL_OFFSET_MAX_PX). */
+  const STATION_MAX_RENDERED_OFFSET_PX = 4;
+
   function nextStationScrollState(state, elapsedMs, speedPxPerSecond, appliedPixels) {
-    const accrued = Math.max(0, Number(state.carryPx) || 0) +
+    const visualDelta =
       (Math.max(0, Number(speedPxPerSecond) || 0) * Math.max(0, Number(elapsedMs) || 0)) / 1000;
+    const accrued = Math.max(0, Number(state.carryPx) || 0) + visualDelta;
     const requestedPixels = Math.floor(accrued);
     const movedPixels = Math.max(0, Math.min(requestedPixels, Number(appliedPixels) || 0));
 
@@ -593,13 +631,53 @@
     const integerMove = movedPixels > 0;
     return {
       carryPx,
-      // Do not replace the currently rendered fractional crop until the
-      // source has passed its post-scroll capture-frame settle barrier.
-      renderedOffset: integerMove ? (Number(state.renderedOffset) || 0) : carryPx,
+      /* The captured source frame can still be the pre-scroll frame while an
+         integer move settles.  Continue its fractional crop phase instead of
+         freezing it: that is the same local canvas behavior as X Feed Float.
+         The generation barrier still decides when the new source frame may
+         replace this phase-aligned old one. */
+      renderedOffset: (integerMove || state.keepVisualPhase)
+        ? (Math.max(0, Number(state.renderedOffset) || 0) + visualDelta)
+        : carryPx,
       generation: (Number(state.generation) || 0) + (integerMove ? 1 : 0),
       requestedPixels,
       movedPixels,
       needsSettle: integerMove
+    };
+  }
+
+  // X can asynchronously correct its virtualized timeline anchor after our
+  // deliberate integer scroll.  A decoded frame from that reflow must not be
+  // paired with the newer fractional crop offset: that is the remaining
+  // downward pulse after the normal capture-generation barrier.
+  function stationAnchorDisposition(anchor, snapshot) {
+    if (!anchor) return { hold: false, reflowed: false };
+    const expectedTop = Math.max(0, Number(anchor.appliedScrollTop) || 0);
+    const currentTop = Math.max(0, Number(snapshot?.scrollTop) || 0);
+    const reflowed = Number(snapshot?.scrollHeight) !== Number(anchor.scrollHeight);
+    return {
+      hold: currentTop + 0.25 < expectedTop,
+      reflowed
+    };
+  }
+
+  function stationScrollSnapshot(root = document.scrollingElement || document.documentElement) {
+    return {
+      scrollTop: Math.max(0, Number(root?.scrollTop) || 0),
+      scrollHeight: Math.max(0, Number(root?.scrollHeight) || 0),
+      geometryVersion: session.stationGeometryVersion
+    };
+  }
+
+  function applyStationSourceScroll(root, pixels, snapshot = stationScrollSnapshot) {
+    const before = snapshot(root);
+    const requestedPixels = Math.max(0, Math.floor(Number(pixels) || 0));
+    root.scrollTop = before.scrollTop + requestedPixels;
+    const after = snapshot(root);
+    return {
+      before,
+      after,
+      appliedPixels: Math.max(0, after.scrollTop - before.scrollTop)
     };
   }
 
@@ -610,6 +688,7 @@
     session.stationCropGeometry = calculateCropRect();
     session.stationCropGeometryDirty = false;
     session.stationMetrics.geometryMeasures += 1;
+    session.stationGeometryVersion += 1;
     return session.stationCropGeometry;
   }
 
@@ -641,22 +720,80 @@
     runtimeMessage({ type: "XFF_STATION_SCROLL_GENERATION", generation }).catch(() => {});
   }
 
-  function confirmStationCaptureFrame(generation) {
-    const confirmed = Math.max(0, Number(generation) || 0);
-    /* A late frame belongs to a scroll position we have already superseded.
-       Keep the last confirmed crop until the newest generation is decoded. */
-    if (!confirmed || confirmed !== session.stationPendingScrollGeneration) return false;
+  function clearStationPostAckAnchor() {
+    if (session.stationPostAckTimer) clearTimeout(session.stationPostAckTimer);
+    session.stationPostAckTimer = null;
+    session.stationPostAckAnchor = null;
+  }
+
+  function holdStationAnchor(anchor, disposition, { late = false } = {}) {
+    clearStationPostAckAnchor();
+    session.scrollCarryPx = Math.max(0, Number(session.scrollCarryPx) || 0);
     session.stationRenderedOffset = session.scrollCarryPx;
-    session.stationPendingScrollGeneration = 0;
+    session.stationMetrics.anchorCorrections += 1;
+    if (late) session.stationMetrics.lateAnchorCorrections += 1;
+    if (disposition.reflowed) session.stationMetrics.anchorReflowHeightChanges += 1;
+    return false;
+  }
+
+  /* The offscreen capture acknowledgement proves the source stream saw the
+     scroll, but X may still apply one last virtualized anchor correction.
+     Hold two short post-ack observations before exposing a new crop.  These
+     timers deliberately do not rely on rAF: the source tab is often hidden. */
+  function observeStationPostAckAnchor(generation) {
+    const pending = session.stationPostAckAnchor;
+    if (!pending || pending.generation !== generation || session.stationPendingScrollGeneration) return false;
+    const snapshot = stationScrollSnapshot();
+    const disposition = stationAnchorDisposition(pending.anchor, snapshot);
+    pending.checks += 1;
+    session.stationMetrics.lateAnchorChecks += 1;
+    if (disposition.hold) return holdStationAnchor(pending.anchor, disposition, { late:true });
+    if (pending.checks < 2) {
+      session.stationPostAckTimer = setTimeout(() => observeStationPostAckAnchor(generation), 16);
+      return false;
+    }
+    clearStationPostAckAnchor();
+    session.stationRenderedOffset = session.scrollCarryPx;
+    session.stationConfirmedCaptureGeneration = generation;
+    session.stationLastConfirmedScroll = snapshot;
     session.stationMetrics.confirmedCaptureFrames += 1;
     runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });
     return true;
   }
 
+  function confirmStationCaptureFrame(generation) {
+    const confirmed = Math.max(0, Number(generation) || 0);
+    /* A late frame belongs to a scroll position we have already superseded.
+       Keep the last confirmed crop until the newest generation is decoded. */
+    if (!confirmed || confirmed !== session.stationPendingScrollGeneration) return false;
+    const snapshot = stationScrollSnapshot();
+    const anchor = session.stationPendingScrollAnchor;
+    const disposition = stationAnchorDisposition(anchor, snapshot);
+    if (disposition.hold) {
+      // Keep the last confirmed composite while X settles its own anchor.  The
+      // next intentional source generation starts from that stable position;
+      // no backwards crop is emitted to either viewer.
+      session.stationPendingScrollGeneration = 0;
+      session.stationPendingScrollAnchor = null;
+      return holdStationAnchor(anchor, disposition);
+    }
+    session.stationPendingScrollGeneration = 0;
+    session.stationPendingScrollAnchor = null;
+    clearStationPostAckAnchor();
+    session.stationPostAckAnchor = { generation:confirmed, anchor, checks:0 };
+    session.stationPostAckTimer = setTimeout(() => observeStationPostAckAnchor(confirmed), 16);
+    return true;
+  }
+
   function resetStationScrollComposite() {
+    clearStationPostAckAnchor();
     session.scrollCarryPx = 0;
     session.stationRenderedOffset = 0;
     session.stationPendingScrollGeneration = 0;
+    session.stationPendingScrollAnchor = null;
+    session.stationConfirmedCaptureGeneration = 0;
+    session.stationCropSequence = 0;
+    session.stationLastConfirmedScroll = null;
   }
 
   function calculateCropRect() {
@@ -806,10 +943,10 @@
           chromeMediaSourceId: response.streamId,
           minWidth: 240,
           minHeight: 240,
-          maxWidth: 2560,
-          maxHeight: 1440,
+          maxWidth: 1920,
+          maxHeight: 1080,
           minFrameRate: 10,
-          maxFrameRate: 60
+          maxFrameRate: 15
         }
       },
       audio: false
@@ -1919,6 +2056,69 @@
     runtimeMessage({ type: "XFF_BADGE", active: false });
   }
 
+  /* Region Capture and Element Capture crop the TRACK at the source, so the
+     captured frame is the timeline column itself and no viewer has to map a
+     rectangle onto it. Measured present in Chrome 153 and Brave 153 on this
+     Mac; reported rather than assumed, because the pane's mapping must stay the
+     fallback wherever it is missing. */
+  function stationSourceCropSupported() {
+    try {
+      return typeof window.CropTarget?.fromElement === "function" &&
+        typeof window.BrowserCaptureMediaStreamTrack?.prototype?.cropTo === "function";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function stationElementCaptureSupported() {
+    try {
+      return typeof window.RestrictionTarget?.fromElement === "function" &&
+        typeof window.BrowserCaptureMediaStreamTrack?.prototype?.restrictTo === "function";
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /* Brave hides itself inside Chrome's brand list, so the brands are checked
+     last and navigator.brave first. */
+  function bridgeBrowserName(nav) {
+    try {
+      if (nav?.brave && typeof nav.brave.isBrave === "function") return "Brave";
+      const ua = String(nav?.userAgent || "");
+      if (/\bBrave\b/i.test(ua)) return "Brave";
+      const brands = (nav?.userAgentData?.brands || []).map((entry) => String(entry?.brand || ""));
+      if (brands.some((brand) => /brave/i.test(brand))) return "Brave";
+      if (brands.some((brand) => /google chrome/i.test(brand)) || /Chrome\//.test(ua)) return "Chrome";
+    } catch (_) {}
+    return "browser";
+  }
+
+  /* Derived from the screen the bridge is running on, and overridable by name
+     so a badge never has to guess: localStorage["xffBridgeMachine"]. */
+  function bridgeMachineName(screenLike, storage) {
+    try {
+      const named = storage?.getItem?.("xffBridgeMachine");
+      if (named) return String(named).slice(0, 24);
+    } catch (_) {}
+    const width = Number(screenLike?.width) || 0, height = Number(screenLike?.height) || 0;
+    if (!width || !height) return "this Mac";
+    if (width >= 2560 && height >= 1440) return "iMac 5K";
+    if (width >= 1680) return "MacBook Pro";
+    return width + "\u00d7" + height;
+  }
+
+  let stationSourceIdentityCache = null;
+  function stationSourceIdentity() {
+    if (stationSourceIdentityCache) return stationSourceIdentityCache;
+    let storage = null;
+    try { storage = window.localStorage; } catch (_) {}
+    stationSourceIdentityCache = {
+      browser: bridgeBrowserName(navigator),
+      machine: bridgeMachineName(window.screen, storage)
+    };
+    return stationSourceIdentityCache;
+  }
+
   function stationCropPayload() {
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
@@ -1926,8 +2126,32 @@
       rect: refreshStationCropGeometry(),
       viewport: { width: viewportWidth, height: viewportHeight },
       fractionalScrollOffset: session.stationRenderedOffset,
+      /* The crop is only eligible for a viewer after this source generation
+         has crossed the offscreen capture-frame acknowledgement.  Sequence
+         still advances for sub-pixel crops inside the same source frame. */
+      captureGeneration: session.stationConfirmedCaptureGeneration,
+      // Exposed instrumentation for a live source diagnosis.  These are
+      // measurements only; viewers continue to use the existing crop frame.
+      sourceScroll: session.stationLastConfirmedScroll || stationScrollSnapshot(),
+      sourceMetrics: {
+        anchorCorrections: session.stationMetrics.anchorCorrections,
+        anchorReflowHeightChanges: session.stationMetrics.anchorReflowHeightChanges,
+        lateAnchorChecks: session.stationMetrics.lateAnchorChecks,
+        lateAnchorCorrections: session.stationMetrics.lateAnchorCorrections,
+        captureAckFallbacks: session.stationMetrics.captureAckFallbacks,
+        runawayOffsetResets: session.stationMetrics.runawayOffsetResets
+      },
+      sequence: ++session.stationCropSequence,
       activeView: session.activeView,
-      paused: isPaused()
+      paused: isPaused(),
+      /* One contract for every browser: the pane is told whether these pixels
+         were already cropped at the source, what this browser can do, and which
+         machine and browser they came from. */
+      sourceCropped: Boolean(session.stationSourceCropped),
+      sourceCropSupported: stationSourceCropSupported(),
+      elementCaptureSupported: stationElementCaptureSupported(),
+      viewportDpr: window.devicePixelRatio || 1,
+      source: stationSourceIdentity()
     };
   }
 
@@ -1960,6 +2184,8 @@
     // activation and alignment below both move the real X page.
     if (session.stationMode) {
       session.stationConsumer = nextConsumer;
+      /* A new/reloaded pane cannot inherit an old pane's hover state. */
+      session.stationViewerPauseUntil = 0;
       applyCaptureColumnLayout();
       installStationHoverShield();
       scheduleCropTargetUpdate();
@@ -1969,6 +2195,7 @@
     session.stationMode = true;
     session.stationConsumer = nextConsumer;
     session.pointerPause = false;
+    session.stationViewerPauseUntil = 0;
     session.activeView = ["trading", "notifications"].includes(session.settings.activeView)
       ? session.settings.activeView
       : "trading";
@@ -1990,6 +2217,7 @@
     session.scrollEnabled = true;
     session.lastScrollTimestamp = null;
     resetStationScrollComposite();
+    session.stationLastConfirmedScroll = stationScrollSnapshot();
     updateUi();
     startStationRelay();
   }
@@ -1999,6 +2227,7 @@
     session.stationMode = false;
     session.stationConsumer = null;
     session.pointerPause = false;
+    session.stationViewerPauseUntil = 0;
     removeStationHoverShield();
     removeCaptureColumnLayout();
     removeCropTargetElement();
@@ -2018,16 +2247,30 @@
           (session.settings.speedPxPerSecond * elapsedMs) / 1000;
         const wholePixels = Math.floor(accrued);
         let appliedPixels = 0;
+        let scrollAnchor = null;
         if (wholePixels > 0) {
-          const before = root.scrollTop;
-          root.scrollTop = before + wholePixels;
-          appliedPixels = Math.max(0, root.scrollTop - before);
+          const movement = applyStationSourceScroll(root, wholePixels);
+          const { before, after } = movement;
+          appliedPixels = movement.appliedPixels;
+          if (appliedPixels > 0) {
+            scrollAnchor = {
+              requestedPixels: wholePixels,
+              appliedPixels,
+              scrollTop: before.scrollTop,
+              appliedScrollTop: after.scrollTop,
+              scrollHeight: after.scrollHeight,
+              geometryVersion: after.geometryVersion
+            };
+          }
         }
         const next = nextStationScrollState(
           {
             carryPx: session.scrollCarryPx,
             renderedOffset: session.stationRenderedOffset,
-            generation: session.stationScrollGeneration
+            generation: session.stationScrollGeneration,
+            keepVisualPhase: Boolean(
+              session.stationPendingScrollGeneration || session.stationPostAckAnchor
+            )
           },
           elapsedMs,
           session.settings.speedPxPerSecond,
@@ -2041,15 +2284,29 @@
         session.stationScrollGeneration = next.generation;
         if (next.needsSettle) {
           session.stationMetrics.integerScrolls += 1;
-          session.stationPendingScrollGeneration = next.generation;
-          requestStationCaptureFrame(next.generation);
-        } else if (!session.stationPendingScrollGeneration) {
           session.stationRenderedOffset = next.renderedOffset;
+          session.stationPendingScrollGeneration = next.generation;
+          session.stationPendingScrollAnchor = scrollAnchor;
+          requestStationCaptureFrame(next.generation);
+        } else if (session.stationPendingScrollGeneration || session.stationPostAckAnchor) {
+          session.stationRenderedOffset = next.renderedOffset;
+        } else if (!session.stationPendingScrollGeneration && !session.stationPostAckAnchor) {
+          session.stationRenderedOffset = next.renderedOffset;
+        }
+        /* 0.7.21: the offset is a phase, never a distance. If acknowledgements
+           stop arriving it would grow without limit and push every viewer's crop
+           off the picture, so past the band the pending step counts as settled. */
+        if (session.stationRenderedOffset > STATION_MAX_RENDERED_OFFSET_PX) {
+          clearStationPostAckAnchor();
+          session.stationPendingScrollGeneration = 0;
+          session.stationPendingScrollAnchor = null;
+          session.stationRenderedOffset = session.scrollCarryPx;
+          session.stationMetrics.runawayOffsetResets += 1;
         }
       }
       runtimeMessage({ type: "XFF_STATION_CROP", crop: stationCropPayload() });
     } else if (action === "pause") {
-      setPointerPause(Boolean(value));
+      setStationViewerPause(Boolean(value));
     } else if (action === "refresh") {
       await refreshCurrentView();
     } else if (action === "rewind") {
@@ -2129,6 +2386,7 @@
       return true;
     }
     if (message?.type === "XFF_STATION_CAPTURE_FRAME") {
+      if (message.fallback === true) session.stationMetrics.captureAckFallbacks += 1;
       confirmStationCaptureFrame(message.generation);
       sendResponse({ ok: true });
       return;

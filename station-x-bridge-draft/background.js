@@ -6,7 +6,10 @@ let stationActiveConsumerKey = null;
 let stationLastTickForwardedAt = 0;
 let stationLastCaptureFrameGeneration = 0;
 let stationPendingCaptureGeneration = 0;
-const STATION_TICK_MIN_INTERVAL_MS = 24;
+/* The elected visible pane owns the motion clock.  Keep duplicate-window
+   suppression below one display frame so it never converts a 60Hz source
+   crawl back into visible 30/10Hz steps. */
+const STATION_TICK_MIN_INTERVAL_MS = 12;
 const STATION_SESSION_KEY = "stationXSessionV1";
 
 function stationConsumerKey(consumer) {
@@ -64,7 +67,77 @@ async function persistStationSession() {
   } catch {}
 }
 
+function isMissingTabError(error) {
+  return /No tab with id/i.test(String(error?.message || error || ""));
+}
+
+async function discardStationConsumer(consumer) {
+  if (!consumer) return false;
+  const current = stationConsumers.get(consumer.tabId);
+  // A new pane may already have reannounced in the same tab.  Never remove it
+  // because an old frame's asynchronous send completed late.
+  if (stationConsumerKey(current) !== stationConsumerKey(consumer)) return false;
+  dropStationPeer(consumer);
+  stationConsumers.delete(consumer.tabId);
+  if (stationConsumerKey(consumer) === stationActiveConsumerKey) {
+    stationActiveConsumerKey = null;
+  }
+  await persistStationSession();
+  return true;
+}
+
+async function pruneClosedStationConsumers() {
+  let changed = false;
+  for (const consumer of [...stationConsumers.values()]) {
+    try {
+      await chrome.tabs.get(consumer.tabId);
+    } catch (error) {
+      if (isMissingTabError(error)) {
+        changed = (await discardStationConsumer(consumer)) || changed;
+      }
+    }
+  }
+  return changed;
+}
+
+async function reannounceOpenStationPanes() {
+  const stationTabs = await chrome.tabs.query({
+    url: ["https://station.scintillahub.ai/*"]
+  });
+  await Promise.allSettled(stationTabs.map((tab) =>
+    chrome.scripting.executeScript({
+      target: { tabId: tab.id, allFrames: true },
+      files: ["station-bridge.js"]
+    })
+  ));
+  // station-bridge.js immediately sends READY.  Yield one short task so this
+  // user-gesture click can reuse the current Station pane instead of a closed
+  // session-restored tab.
+  await new Promise((resolve) => setTimeout(resolve, 120));
+}
+
+async function currentStationSourceTab() {
+  if (!Number.isInteger(stationSourceTabId)) return null;
+  try {
+    return await chrome.tabs.get(stationSourceTabId);
+  } catch (error) {
+    if (isMissingTabError(error)) {
+      stationSourceTabId = null;
+      await persistStationSession();
+      return null;
+    }
+    throw error;
+  }
+}
+
 const stationRestore = restoreStationSession();
+
+// An extension worker restart does not reload an already-open Station pane.
+// Reinject the tiny bridge into every canonical Station tab once restoration
+// completes so those panes reannounce to the new worker without a toolbar
+// click or a user reload.  A V080 bridge simply reannounces its existing
+// receiver identity, so this neither duplicates a pane nor changes the X tab.
+stationRestore.then(() => reannounceOpenStationPanes().catch(() => {}));
 
 function activeStationConsumer() {
   return [...stationConsumers.values()].find((entry) =>
@@ -74,14 +147,18 @@ function activeStationConsumer() {
 }
 
 function freshestStationConsumer() {
-  const fresh = [...stationConsumers.values()]
-    .filter((entry) => Date.now() - entry.lastSeen < 10 * 60 * 1000)
-    .sort((a, b) => b.lastSeen - a.lastSeen);
+  const fresh = freshStationConsumers();
   const active = activeStationConsumer();
   if (active) return active;
   const fallback = fresh[0] || null;
   stationActiveConsumerKey = stationConsumerKey(fallback) || null;
   return fallback;
+}
+
+function freshStationConsumers() {
+  return [...stationConsumers.values()]
+    .filter((entry) => Date.now() - entry.lastSeen < 10 * 60 * 1000)
+    .sort((a, b) => b.lastSeen - a.lastSeen);
 }
 
 async function activateStationConsumer(consumer) {
@@ -123,6 +200,12 @@ function sendToStation(consumer, message) {
   if (!consumer) return Promise.resolve();
   return chrome.tabs.sendMessage(consumer.tabId, message, {
     frameId: consumer.frameId
+  }).catch(async (error) => {
+    if (isMissingTabError(error)) {
+      await discardStationConsumer(consumer);
+      return { ok: false, stale: true };
+    }
+    throw error;
   });
 }
 
@@ -141,6 +224,21 @@ async function ensureOffscreenDocument() {
     reasons: ["USER_MEDIA"],
     justification: "Consume the user-invoked X tab capture for the Station X pane."
   });
+}
+
+async function hasLiveStationCapture() {
+  try {
+    const documentUrl = chrome.runtime.getURL("offscreen.html");
+    const contexts = chrome.runtime.getContexts
+      ? await chrome.runtime.getContexts({
+          contextTypes: ["OFFSCREEN_DOCUMENT"],
+          documentUrls: [documentUrl]
+        })
+      : [];
+    if (contexts.length) return true;
+    if (chrome.offscreen.hasDocument) return await chrome.offscreen.hasDocument();
+  } catch {}
+  return false;
 }
 
 function captureStreamId(sourceTabId) {
@@ -190,8 +288,10 @@ async function stopStationCapture(detail = "stopped") {
 }
 
 async function reconnectStationConsumer(consumer, { controlSource = false } = {}) {
-  if (!stationSourceTabId || !consumer) return;
-  const sourceTabId = stationSourceTabId;
+  if (!consumer) return false;
+  const sourceTab = await currentStationSourceTab();
+  if (!sourceTab) return false;
+  const sourceTabId = sourceTab.id;
   if (controlSource) {
     await ensureContentScript(sourceTabId);
     await chrome.tabs.sendMessage(sourceTabId, {
@@ -210,19 +310,63 @@ async function reconnectStationConsumer(consumer, { controlSource = false } = {}
       ? "Station X reattached after reload."
       : "Station X mirror attached."
   });
+  return true;
 }
 
-async function startStationCapture(sourceTab, consumer) {
-  if (!sourceTab?.id || !consumer) return false;
-  await activateStationConsumer(consumer);
-  if (stationSourceTabId === sourceTab.id) {
-    await reconnectStationConsumer(consumer, { controlSource: true });
-    await chrome.tabs.update(consumer.tabId, { active: true });
-    await chrome.windows.update(consumer.windowId, { state: "normal", focused: true });
-    return true;
+async function reconnectStationConsumers({ controlSource = false } = {}) {
+  const sourceTab = await currentStationSourceTab();
+  const consumers = freshStationConsumers();
+  if (!sourceTab || !consumers.length) return false;
+
+  // One receiver supplies the shared source geometry, but every fresh Station
+  // pane is a peer display. Starting or reconnecting the source must never
+  // choose one display by focusing it or leave the other open displays offline.
+  const controller = activeStationConsumer() || consumers[0];
+  if (controlSource) {
+    await ensureContentScript(sourceTab.id);
+    await chrome.tabs.sendMessage(sourceTab.id, {
+      type: "XFF_START_STATION_SOURCE",
+      consumer: { width: controller.width, height: controller.height }
+    });
   }
 
-  await stopStationCapture("Switching X source…");
+  await Promise.allSettled(consumers.flatMap((entry) => [
+    sendToStation(entry, {
+      type: "XFF_STATION_WEBRTC_START",
+      sourceTabId: sourceTab.id
+    }),
+    sendToStation(entry, {
+      type: "XFF_STATION_STATUS",
+      status: "connecting",
+      detail: "Shared X source attached."
+    })
+  ]));
+  return true;
+}
+
+async function startStationCapture(sourceTab, consumer, { forceNewCapture = false } = {}) {
+  if (!sourceTab?.id || !consumer) return false;
+  await activateStationConsumer(consumer);
+  const replacingCurrentSource = stationSourceTabId === sourceTab.id;
+  if (replacingCurrentSource) {
+    if (!forceNewCapture && await hasLiveStationCapture()) {
+      await reconnectStationConsumers({ controlSource: true });
+      return true;
+    }
+  }
+
+  // An explicit toolbar click on the already-selected X tab is a recovery
+  // gesture.  The offscreen document can still exist while Chrome has left
+  // its tab-capture video black; a fresh user-authorized capture is the one
+  // reliable way to replace that dead decoder without opening another X tab.
+  // This is deliberately one stop/restart sequence, including after a full
+  // Bridge reload where the saved tab id survives but its capture does not.
+  const captureRecoveryDetail = replacingCurrentSource && forceNewCapture
+    ? "Station capture refreshed from the existing X tab."
+    : replacingCurrentSource
+      ? "Station capture restored after Bridge reload."
+      : "Switching X source…";
+  await stopStationCapture(captureRecoveryDetail);
   await ensureOffscreenDocument();
   const streamId = await captureStreamId(sourceTab.id);
   const capture = await chrome.runtime.sendMessage({
@@ -235,29 +379,10 @@ async function startStationCapture(sourceTab, consumer) {
   }
   stationSourceTabId = sourceTab.id;
   await persistStationSession();
-
-  await ensureContentScript(sourceTab.id);
-  await chrome.tabs.sendMessage(sourceTab.id, {
-    type: "XFF_START_STATION_SOURCE",
-    consumer: {
-      width: consumer.width,
-      height: consumer.height
-    }
-  });
-  await sendToStation(consumer, {
-    type: "XFF_STATION_WEBRTC_START",
-    sourceTabId: sourceTab.id
-  });
-  await sendToStation(consumer, {
-    type: "XFF_STATION_STATUS",
-    status: "connecting",
-    detail: "Station X owns the crop and scroll."
-  });
+  await reconnectStationConsumers({ controlSource: true });
 
   chrome.action.setBadgeBackgroundColor({ tabId: sourceTab.id, color: "#00d4ff" });
   chrome.action.setBadgeText({ tabId: sourceTab.id, text: "STN" });
-  await chrome.tabs.update(consumer.tabId, { active: true });
-  await chrome.windows.update(consumer.windowId, { state: "normal", focused: true });
   return true;
 }
 
@@ -373,9 +498,14 @@ chrome.action.onClicked.addListener(async (tab) => {
       await focusOrOpenX();
       return;
     }
-    const station = freshestStationConsumer();
+    await pruneClosedStationConsumers();
+    let station = freshestStationConsumer();
+    if (!station) {
+      await reannounceOpenStationPanes();
+      station = freshestStationConsumer();
+    }
     if (station) {
-      await startStationCapture(tab, station);
+      await startStationCapture(tab, station, { forceNewCapture: true });
       return;
     }
     chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: "#947e55" });
@@ -422,8 +552,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // already-known frame restarted startStationSource(), which realigned the
       // X page and repeatedly pulled the feed back to the same post. Only a new
       // or reloaded frame needs the WebRTC/source reattachment path.
+      // The background worker can restart while the Station document keeps its
+      // bridge and receiver identity.  In that case sameFrame/activeBefore are
+      // both true, but the offscreen capture has been destroyed.  Treat that
+      // exact state as a recovery: reattach the existing X source rather than
+      // leaving a visually-live Station pane with no video track.
+      const captureMissing = stationSourceTabId && !await hasLiveStationCapture();
       if (stationSourceTabId && stationConsumerKey(consumer) === stationActiveConsumerKey &&
-          (!sameFrame || !activeBefore)) {
+          (!sameFrame || !activeBefore || captureMissing)) {
         await reconnectStationConsumer(consumer, { controlSource: true });
       } else if (stationSourceTabId && !sameFrame) {
         await reconnectStationConsumer(consumer, { controlSource: false });
@@ -488,9 +624,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "XFF_STATION_CROP") {
     if (sender.tab?.id !== stationSourceTabId) return;
+    const crop = message.crop && typeof message.crop === "object"
+      ? Object.assign({}, message.crop, {
+        captureGeneration: Math.max(0, Number(message.crop.captureGeneration) || 0),
+        sequence: Math.max(0, Number(message.crop.sequence) || 0)
+      })
+      : message.crop;
     broadcastToStations({
       type: "XFF_STATION_CROP",
-      crop: message.crop
+      crop
     }).catch(() => {});
     return;
   }
@@ -515,7 +657,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     stationLastCaptureFrameGeneration = generation;
     stationPendingCaptureGeneration = 0;
     chrome.tabs.sendMessage(stationSourceTabId, {
-      type: "XFF_STATION_CAPTURE_FRAME", generation
+      type: "XFF_STATION_CAPTURE_FRAME", generation, fallback: message.fallback === true
     }).catch(() => {});
     return;
   }
@@ -589,6 +731,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       sendResponse({ ok: true });
     }).catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+
+  /* A receiver peer can be discarded by Chrome while the shared offscreen
+     capture and X source remain healthy.  Replace only that viewer peer; do
+     not restart the source, focus a tab, or affect another Station display. */
+  if (message?.type === "XFF_STATION_RECONNECT_VIEWER") {
+    const consumer = stationConsumers.get(sender.tab?.id);
+    const sameInstance = !message.instanceId ||
+      String(consumer?.instanceId || "") === String(message.instanceId);
+    if (!consumer || (sender.frameId || 0) !== consumer.frameId || !sameInstance) {
+      sendResponse({ ok:false, error:"The Station pane was not recognized." });
+      return;
+    }
+    (async () => {
+      consumer.lastSeen = Date.now();
+      await persistStationSession();
+      const reconnected = await reconnectStationConsumer(consumer, { controlSource:false });
+      if (!reconnected) throw new Error("The shared X source is not available.");
+      sendResponse({ ok:true });
+    })().catch((error) => sendResponse({ ok:false, error:error.message }));
     return true;
   }
 
@@ -851,3 +1014,63 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     persistStationSession().catch(() => {});
   }
 });
+
+
+/* ---- One folder, four browsers: the bridge keeps itself up to date ---------
+   Chrome and Brave on both Macs load the SAME unpacked folder, so an update has
+   to be a file change and not a visit to four browsers. An unpacked extension
+   serves its files from disk, so fetching manifest.json with no-store reports
+   what is IN the folder while getManifest() reports what this worker booted
+   from. When the folder is newer, the extension reloads itself. */
+const BRIDGE_VERSION_ALARM = "xffBridgeFolderVersion";
+const BRIDGE_VERSION_PERIOD_MINUTES = 1;
+const BRIDGE_VERSION_STATE_KEY = "xffBridgeVersionCheck";
+
+function compareBridgeVersions(left, right) {
+  const parse = (value) => String(value || "0").split(".").map((part) => parseInt(part, 10) || 0);
+  const a = parse(left), b = parse(right);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const x = a[index] || 0, y = b[index] || 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+/* A reload drops a live capture, so it waits for a moment when nothing is
+   feeding a pane. Alan must never watch the X pane die because a file changed;
+   an update that waits a minute is always better than a pane that blinks out. */
+function bridgeReloadDecision({ loaded, onDisk, feeding }) {
+  if (!onDisk) return { reload: false, reason: "folder version unreadable" };
+  if (compareBridgeVersions(loaded, onDisk) >= 0) return { reload: false, reason: "already current" };
+  if (feeding) return { reload: false, reason: "newer folder version waits for an idle pane" };
+  return { reload: true, reason: "folder carries " + onDisk };
+}
+
+async function bridgeFolderVersion() {
+  try {
+    const response = await fetch(chrome.runtime.getURL("manifest.json") + "?at=" + Date.now(), { cache: "no-store" });
+    if (!response.ok) return "";
+    const parsed = await response.json();
+    return typeof parsed?.version === "string" ? parsed.version : "";
+  } catch (_) {
+    return "";
+  }
+}
+
+async function checkBridgeFolderVersion() {
+  const loaded = chrome.runtime.getManifest().version;
+  const onDisk = await bridgeFolderVersion();
+  const decision = bridgeReloadDecision({ loaded, onDisk, feeding: stationSourceTabId !== null });
+  try {
+    await chrome.storage.session.set({
+      [BRIDGE_VERSION_STATE_KEY]: { at: Date.now(), loaded, onDisk, ...decision }
+    });
+  } catch (_) {}
+  if (decision.reload) chrome.runtime.reload();
+  return decision;
+}
+
+chrome.alarms?.onAlarm.addListener((alarm) => {
+  if (alarm?.name === BRIDGE_VERSION_ALARM) checkBridgeFolderVersion();
+});
+chrome.alarms?.create(BRIDGE_VERSION_ALARM, { periodInMinutes: BRIDGE_VERSION_PERIOD_MINUTES });

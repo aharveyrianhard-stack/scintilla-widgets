@@ -14,7 +14,10 @@
   }
 
   const ORIGIN = window.location.origin;
-  const isPane = /\/pane-x\/?$/.test(window.location.pathname);
+  // 0.7.18 (23 Sep 2026): the Station has mounted its X pane at /station-shells/x-v2 since 14 Aug. 0.7.17
+  // only recognised /pane-x, so on the Station the relay never started and the pane sat on "X SOURCE IS
+  // OFFLINE". Any versioned X shell is the same receiver.
+  const isPane = /\/(?:pane-x|station-shells\/x-v\d+)\/?$/.test(window.location.pathname);
   if (!isPane) return;
   const INSTANCE_ID = crypto.randomUUID();
 
@@ -43,7 +46,9 @@
       if (!result?.ok) return result;
       window.postMessage({
         type: "XFF_STATION_BRIDGE_READY",
-        instanceId: INSTANCE_ID
+        instanceId: INSTANCE_ID,
+        /* 0.7.20: the pane records which bridge version fed it (the X pane health register). */
+        version: chrome.runtime.getManifest().version
       }, ORIGIN);
       if (result.active === false) {
         window.postMessage({
@@ -137,6 +142,20 @@
             type: "XFF_STATION_STATUS",
             status: "error",
             detail: result.error || "Station X could not connect."
+          }, ORIGIN);
+        }
+      }).catch(() => {});
+    }
+    if (event.data?.type === "XFF_STATION_RECONNECT_VIEWER") {
+      runtimeMessage({
+        type: "XFF_STATION_RECONNECT_VIEWER",
+        instanceId: INSTANCE_ID
+      }).then((result) => {
+        if (result?.ok === false) {
+          window.postMessage({
+            type: "XFF_STATION_STATUS",
+            status: "error",
+            detail: result.error || "Station X could not reconnect."
           }, ORIGIN);
         }
       }).catch(() => {});
