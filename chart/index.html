@@ -1169,6 +1169,21 @@ async function fetchRsiSource(t, tf, need) {
     const toBars = (rows) => (Array.isArray(rows) ? rows : [])
       .map((r) => ({ t: r.timestamp * 1000, c: +r.close }))
       .filter((b) => Number.isFinite(b.t) && Number.isFinite(b.c) && b.c > 0);
+    if (line.daily) {
+      /* L2 CHART-SPEED (28 Sep): the D line and the cloud ribbon read the SAME series - completed daily
+         closes from the provider's /candles?tf=D - and the ribbon asks for more of it (450 on a 1D page;
+         the fan's D line needs 440). The fan used to read it twice more (tail 400 + history 440). Daily
+         bars do not lag with the read's length (see TAIL_LIMIT: "daily unaffected up to 6,000"), so the
+         ribbon's copy, when it is this fresh and this long, is used as it stands, trimmed to the same
+         newest `need` bars the two reads produced; otherwise ONE read of `need`. */
+      const cloud = await cloudDailyFor(t, need);
+      const bars = cloud ? cloud.pts.map((q) => ({ t: Date.parse(q.d), c: q.p })).filter((b) => Number.isFinite(b.t) && Number.isFinite(b.c) && b.c > 0)
+        : toBars(await fetchProviderCandles(t, line.tf, need, 2));
+      const joined = F.joinTail([], bars.slice(-need));
+      const entry = { ts: cloud ? cloud.ts : Date.now(), asked: need, bars: joined.bars, hole: joined.hole, from: cloud ? "ribbon" : "own" };
+      rsiSourceCache.set(t + "|" + key, entry);
+      return entry;
+    }
     /* A long read's newest bars can lag a short read's (see TAIL_LIMIT), so past it the tail is read
        on its own and joined on timestamps; the tail wins, and a hole is never bridged. */
     const [tailRows, historyRows] = await Promise.all([
@@ -1182,6 +1197,19 @@ async function fetchRsiSource(t, tf, need) {
   rsiSourceInflight.set(inflightKey, work);
   try { return await work; }
   finally { if (rsiSourceInflight.get(inflightKey) === work) rsiSourceInflight.delete(inflightKey); }
+}
+/* The ribbon's daily series for this ticker when it covers `need` bars and is fresher than the D line's
+   own refresh: the finished copy, or the read already on its way (never a new read). */
+async function cloudDailyFor(t, need) {
+  const fresh = (e) => e && e.pts && e.pts.length >= need && Date.now() - (e.ts || 0) < RSI_DAILY_REFRESH_MS;
+  const hit = cloudDailyCache.get(t);
+  if (fresh(hit)) return hit;
+  for (const [key, flight] of cloudDailyInflight) {
+    const bar = key.lastIndexOf("|");
+    if (key.slice(0, bar) !== t || Number(key.slice(bar + 1)) < need) continue;
+    try { const e = await flight; return fresh(e) ? e : null; } catch (_) { return null; }
+  }
+  return null;
 }
 function rsiChartSpan(pts) {
   return pts && pts.length >= 2 ? Date.parse(pts[pts.length - 1].d) - Date.parse(pts[0].d) : 0;
@@ -2434,7 +2462,15 @@ function ensureLiveParts(badge, host) {
    for once this pane's price, ribbon, fan and lens reads have settled, and never later than
    GEIGER_WAIT_MAX_MS after they began: price first, then clouds, then the rest (Alan, 28 Sep). The
    reading itself, its acceptance and its refresh are unchanged. */
+/* The wait is counted from the moment the price is on screen, not from boot: when the price read
+   itself is slow the server is already busy, and a Geiger read sent then lands on the fan's reads. A
+   price load that fails ends the wave at once (nothing else will be read for it); the provider's 20 s
+   hard bound guarantees one of the two. */
 const GEIGER_WAIT_MAX_MS = 4000;
+/* The Hub's company view holds its own Geiger-detail read until this pane says its reads have
+   settled (the same collision, from the Hub's side). Sent only to the Hub's origin, only in ?bare=hub,
+   carrying nothing but the symbol and the timeframe. */
+const HUB_ORIGIN = "https://scintillahub.ai";
 const CHART_WAVE = { req:null, done:true, waiters:[] };
 function chartWaveBegin(req) {
   if (CHART_WAVE.req === req && !CHART_WAVE.done) return;
@@ -2445,13 +2481,16 @@ function chartWaveEnd(req) {
   CHART_WAVE.done = true;
   const run = CHART_WAVE.waiters.splice(0);
   for (const fn of run) { try { fn(); } catch (_) {} }
+  if (HUB_PANE && window.parent !== window) {
+    const bar = req.lastIndexOf("|");
+    try { window.parent.postMessage({ sc:"chart-wave-settled", ticker:req.slice(0, bar), range:req.slice(bar + 1) }, HUB_ORIGIN); } catch (_) {}
+  }
 }
+function chartWavePriced(req) { setTimeout(() => chartWaveEnd(req), GEIGER_WAIT_MAX_MS); }
 function afterChartWave(fn) {
   if (CHART_WAVE.done) { fn(); return; }
   let ran = false;
-  const once = () => { if (ran) return; ran = true; fn(); };
-  CHART_WAVE.waiters.push(once);
-  setTimeout(once, GEIGER_WAIT_MAX_MS);
+  CHART_WAVE.waiters.push(() => { if (ran) return; ran = true; fn(); });
 }
 const GEIGER = { readings:{}, fromDeck:false, pulling:false };
 const GEIGER_REFRESH_MS = 60000;
@@ -3044,6 +3083,7 @@ async function scChartLoad(host) {
     /* ...and, on a 3-day chart that asked for it, the context lens's one 30-minute read. */
       lensEnsure(host, t, req, generation)];
     /* ...and when those have settled, the pane's own Geiger read (L2, above). */
+    chartWavePriced(req);
     Promise.allSettled(wave).then(() => chartWaveEnd(req));
   } catch (err) {
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
