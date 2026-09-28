@@ -1202,8 +1202,23 @@ async function fetchDeckQuotes(tickers, onSlow) {
      - non-equities: the retained non-equity daily row (SC_NON_EQUITY.geiger), through the deck's own reader.
    A failed or refused read leaves that owner's names with NO reading - the bar goes, it never keeps
    a number the provider client did not accept. */
-const DECK_GEIGER = { key:"", at:0, inFlight:false, rerun:false, readings:{} };
+const DECK_GEIGER = { key:"", at:0, inFlight:false, rerun:false, readings:{}, setKey:"", setAt:0, holdTimer:0 };
 const DECK_GEIGER_MS = 60000;
+/* L2 CHART-SPEED (28 Sep) — THE WALL'S GEIGER READ GOES OUT AFTER ITS PRICES AND RIBBONS.
+   MEASURED on TARGETS (8-up, 3D), headless, read-only: this read left at 0.48 s beside the eight price
+   reads, and while the chart API answered it (3 s) every other read waited - five of the eight prices
+   drew at 3.6-3.7 s, their ribbons at 4.4 s, and they did so the moment /geiger returned. (Measured
+   directly too: a 0.11 s /universe takes 2.1 s while /geiger is being answered.) So for a new set of
+   names the read waits until every visible pane has its price (or a named absence) and no price or
+   ribbon read is queued or running - then goes at once - and never waits more than DECK_GEIGER_HOLD_MS.
+   The reading, its owners, its acceptance and its one-minute refresh are unchanged. */
+const DECK_GEIGER_HOLD_MS = 4000;
+function deckPricesAndRibbonsSettled(tickers) {
+  const busy = (job) => (job.priority || 0) <= 1;
+  if (chartDataLoadQueue.some(busy)) return false;
+  for (const job of chartDataLoadActive.values()) if (busy(job)) return false;
+  return tickers.every((t) => { const st = CHART_STATUS.get(t); return st && (st.history === "ready" || st.history === "absent"); });
+}
 function postDeckGeiger(frame) {
   if (!frame?.contentWindow) return;
   try { frame.contentWindow.postMessage({ sc:"deck-geiger", readings:DECK_GEIGER.readings, at:DECK_GEIGER.at }, location.origin); } catch (_) {}
@@ -1230,6 +1245,15 @@ async function refreshDeckGeiger() {
   const key = tickers.slice().sort().join(",");
   if (key === DECK_GEIGER.key && Date.now() - DECK_GEIGER.at < DECK_GEIGER_MS) return;
   if (DECK_GEIGER.inFlight) { DECK_GEIGER.rerun = true; return; }
+  /* L2 — a set the wall has not read yet waits for its prices and ribbons (above) */
+  if (key !== DECK_GEIGER.key) {
+    if (key !== DECK_GEIGER.setKey) { DECK_GEIGER.setKey = key; DECK_GEIGER.setAt = Date.now(); }
+    if (Date.now() - DECK_GEIGER.setAt < DECK_GEIGER_HOLD_MS && !deckPricesAndRibbonsSettled(tickers)) {
+      if (!DECK_GEIGER.holdTimer) DECK_GEIGER.holdTimer = setTimeout(() => { DECK_GEIGER.holdTimer = 0; refreshDeckGeiger(); },
+        Math.max(50, DECK_GEIGER_HOLD_MS - (Date.now() - DECK_GEIGER.setAt)));
+      return;
+    }
+  }
   DECK_GEIGER.inFlight = true;
   try {
     let own = {};
@@ -1484,6 +1508,7 @@ function releaseChartDataLoad(token) {
   chartDataLoadActive.delete(token);
   chartDataLoads = Math.max(0, chartDataLoads - 1);
   runChartDataLoadQueue();
+  if (DECK_GEIGER.setKey && DECK_GEIGER.setKey !== DECK_GEIGER.key) refreshDeckGeiger();   /* L2 — a held Geiger read may go now */
 }
 
 /* CUSTOM is a manual workspace. Its requested 6/8 slots are meaningful even
@@ -2023,7 +2048,9 @@ window.addEventListener("message", (event) => {
     const reporter = PANES.find((item) => item.frame?.contentWindow === event.source);
     if (reporter) reporter.reportedTicker = CLEAN(event.data.ticker);
     const current = CHART_STATUS.get(event.data.ticker) || {};
-    CHART_STATUS.set(event.data.ticker, Object.assign({}, current, event.data)); paintMarketStatus(); return;
+    CHART_STATUS.set(event.data.ticker, Object.assign({}, current, event.data)); paintMarketStatus();
+    if (DECK_GEIGER.setKey && DECK_GEIGER.setKey !== DECK_GEIGER.key) refreshDeckGeiger();   /* L2 — a held Geiger read may go now */
+    return;
   }
   if (event.data?.sc === "chart-quote-ready") {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
@@ -2034,7 +2061,9 @@ window.addEventListener("message", (event) => {
   }
   if (event.data?.sc === "chart-status") {
     const current = CHART_STATUS.get(event.data.ticker) || {};
-    CHART_STATUS.set(event.data.ticker, Object.assign({}, current, event.data)); paintMarketStatus(); return;
+    CHART_STATUS.set(event.data.ticker, Object.assign({}, current, event.data)); paintMarketStatus();
+    if (DECK_GEIGER.setKey && DECK_GEIGER.setKey !== DECK_GEIGER.key) refreshDeckGeiger();   /* L2 — a held Geiger read may go now */
+    return;
   }
   if (event.data?.sc === "chart-focus-ticker") {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
