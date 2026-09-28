@@ -55,6 +55,7 @@ test("the chart page reads the lines per pane, draws a lone line solid, and the 
   assert.match(chart, /const rsiLinesFor = \(host\)/);
   assert.equal((chart.match(/RSI_REQUEST\.lines\.map/g) || []).length, 0, "no fixed list is read where a pane's list belongs");
   assert.match(chart, /const solo = o\.fan\.lines\.length === 1;/);
-  assert.match(chart, /setLineDash\(daily && !solo \? \[4, 3\] : \[\]\)/);
+  /* 28 Sep: no dashed daily any more - every line is solid, told apart by weight and its right-edge tag */
+  assert.match(chart, /ctx\.lineWidth = solo \? 1\.4 : \(spec\.width \|\| 1\);/);
   assert.equal(chart, twin, "chart and station-shells/chart-v1 stay the same file");
 });
