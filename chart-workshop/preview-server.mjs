@@ -3,10 +3,11 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import quoteHandler from '../api/cloud-workshop-quote.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const UPSTREAM = 'https://scintilla-massive-chart-api.fly.dev/candles';
-const TIMEFRAMES = new Set(['1m', '5m', '15', '30', '60', '120', '180', '240', '6h', '12h', 'D', '3D', 'W', '2W', 'M']);
+const TIMEFRAMES = new Set(['1m', '5m', '15', '30', '60', '120', '180', '240', '6h', '8h', '12h', 'D', '2D', '3D', 'W', '2W', 'M']);
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
@@ -48,6 +49,7 @@ export function createPreviewServer({ root = ROOT, fetchImpl = fetch } = {}) {
     try {
       if (req.method !== 'GET' && req.method !== 'HEAD') return json(res, 405, { error: 'Read-only preview: GET or HEAD only' });
       const url = new URL(req.url, 'http://127.0.0.1');
+      if (url.pathname === '/api/cloud-workshop-quote') return quoteHandler(req,res);
       if (url.pathname === '/workshop-data') {
         const query = validateDataQuery(url.searchParams);
         if (activeReads >= 6) return json(res, 429, { error: 'Preview read limit reached; retry shortly' });

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { once } from 'node:events';
-import { computeAverages, normalizeEnvelope, subtractRange, cloudBands, specs, palette, COMPUTATION_CONTRACT } from '../chart-workshop/model.mjs';
+import { readFileSync } from 'node:fs';
+import { computeAverages, normalizeEnvelope, subtractRange, cloudBands, cloudSegments, specs, palette, COMPUTATION_CONTRACT } from '../chart-workshop/model.mjs';
 import { validateDataQuery, upstreamURL, createPreviewServer } from '../chart-workshop/preview-server.mjs';
 
 const start = Date.UTC(2020, 0, 1);
@@ -11,6 +12,8 @@ const series = (count, fn = i => i + 10) => Array.from({ length: count }, (_, i)
 test('EMA first-close seed is explicit, provisional and not presented as database validation', () => {
   const rows = computeAverages([bar(100, 0), bar(114, 1)]);
   assert.equal(rows[0].e13, 100);
+  assert.equal(rows[0].e8,100);
+  assert.equal(rows[1].e8,100+14*2/9);
   assert.equal(rows[1].e13, 102);
   assert.equal(rows[1].e21, 100 + 14 * 2 / 22);
   assert.equal(rows[1].time, start + 86_400_000);
@@ -64,15 +67,52 @@ test('approved fastest cloud owns overlap; resulting bands never overlap in ever
   assert.deepEqual(cloudBands({ e13: 10, e21: 10, s50: null, s200: null, f: true, m: null, o: null }), []);
 });
 
-test('palette, widths and opacity are the approved Pine defaults', () => {
-  assert.deepEqual(palette, { blue: '#0C3299', pink: '#E6007E' });
-  assert.deepEqual(specs.map(x => x.width), [1, 2, 3, 3, 4]);
-  assert.deepEqual(specs.map(x => x.blueOpacity), [26, 32, 38, 41, 44]);
-  assert.deepEqual(specs.map(x => x.pinkOpacity), [10, 13, 16, 18.5, 21]);
+test('custom neon trial strengthens indigo; approved widths and opacity remain exact', () => {
+  assert.deepEqual(palette, { blue: '#3455FF', pink: '#FF00A8' });
+  assert.deepEqual(specs.map(x => x.width), [.6, 1, 2, 3, 3, 4]);
+  assert.deepEqual(specs.map(x => x.blueOpacity), [20, 26, 32, 38, 41, 44]);
+  assert.deepEqual(specs.map(x => x.pinkOpacity), [8, 10, 13, 16, 18.5, 21]);
   assert.equal(specs.find(x => x.key === 's100').stateKey, 'price');
   assert.equal(specs.find(x => x.key === 's100').disabledByDefault, true);
   const bands = cloudBands({ e13: 40, e21: 30, s50: 20, s200: 10, f: true, m: true, o: true });
   assert.deepEqual(bands.map(x => x.opacity), [26, 36, 44]);
+});
+
+test('cloud segments retain zero-to-positive and positive-to-zero transition triangles', () => {
+  // Analytical unit coordinates only; not substituted for provider chart data.
+  const equal = { e13: 100, e21: 100, s50: 90, s200: 80, f: true, m: true, o: true };
+  const open = { ...equal, e13: 102 };
+  const growing = cloudSegments(equal, open).find(b => b.key === 'fast');
+  const shrinking = cloudSegments(open, equal).find(b => b.key === 'fast');
+  assert.deepEqual([growing.previousLo, growing.previousHi, growing.lo, growing.hi], [100, 100, 100, 102]);
+  assert.deepEqual([shrinking.previousLo, shrinking.previousHi, shrinking.lo, shrinking.hi], [100, 102, 100, 100]);
+  for (const segment of [growing, shrinking]) {
+    const unitWidthArea = ((segment.previousHi - segment.previousLo) + (segment.hi - segment.lo)) / 2;
+    assert.equal(unitWidthArea, 1);
+    assert.equal(segment.color, palette.blue);
+    assert.equal(segment.opacity, 44);
+  }
+  assert.equal(cloudSegments(equal, equal).some(b => b.key === 'fast'), false);
+});
+
+test('residual cloud transitions retain their collapsed anchors without inventing missing data', () => {
+  const covered = { e13: 80, e21: 100, s50: 90, s200: 70, f: false, m: true, o: true };
+  const uncovered = { ...covered, e13: 95 };
+  const emerging = cloudSegments(covered, uncovered).find(b => b.key === 'middle-A');
+  const fading = cloudSegments(uncovered, covered).find(b => b.key === 'middle-A');
+  assert.deepEqual([emerging.previousLo, emerging.previousHi, emerging.lo, emerging.hi], [90, 90, 90, 95]);
+  assert.deepEqual([fading.previousLo, fading.previousHi, fading.lo, fading.hi], [90, 95, 90, 90]);
+  const missing = { ...uncovered, s50: null, m: null, o: null };
+  assert.equal(cloudSegments(missing, uncovered).some(b => b.layer !== 'fast'), false);
+  assert.equal(cloudSegments(uncovered, missing).some(b => b.layer !== 'fast'), false);
+});
+
+test('canvas consumes the tested adjacent-anchor segment helper', () => {
+  const renderer = readFileSync(new URL('../chart-workshop/workshop.mjs', import.meta.url), 'utf8');
+  assert.match(renderer, /for\(const v of cloudPolygons\(a,b\)\)/);
+  assert.match(renderer, /c.moveTo\(xa,y\(v.previousLo\)\)/);
+  assert.match(renderer, /c.lineTo\(xa,y\(v.previousHi\)\)/);
+  assert.doesNotMatch(renderer, /if\(!prev\)continue/);
 });
 
 test('normalization preserves source metadata and optional raw fields without coercing truth', () => {

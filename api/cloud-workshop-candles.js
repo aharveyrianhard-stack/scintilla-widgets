@@ -3,7 +3,7 @@
 // Preview-only read path. No credentials, alternate upstreams, writes, or stale-data fallback.
 // CommonJS handler works with the existing static Vercel project (Node.js 24).
 const UPSTREAM = 'https://scintilla-massive-chart-api.fly.dev/candles';
-const TIMEFRAMES = new Set(['1m', '5m', '15', '30', '60', '120', '180', '240', '6h', '12h', 'D', '3D', 'W', '2W', 'M']);
+const TIMEFRAMES = new Set(['1m', '5m', '15', '30', '60', '120', '180', '240', '6h', '8h', '12h', 'D', '2D', '3D', 'W', '2W', 'M']);
 const MAX_BYTES = 3_000_000;
 
 function validateQuery(params) {

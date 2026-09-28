@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {calculate,sma,atOrBefore,lineStyle,signalEnvelope} from '../indicator-workbench/math.mjs';
+import {railValue,sourceIndex,displayCapture,screen} from '../indicator-workbench/registry.mjs';
+const fixture=JSON.parse(fs.readFileSync(new URL('../indicator-workbench/geometry-capture.json',import.meta.url)));
+const bars=Array.from({length:100},(_,i)=>({t:1700000000000+i*14400000,c:100+i,h:102+i,l:98+i,o:99+i,v:1000}));
+test('RSI14 rise and confirmation availability',()=>{const r=calculate(bars);assert.equal(r.length,99);assert.equal(r[13].rsi,null);assert.equal(r[14].rsi,100);assert.equal(r[14].t,bars[15].t);assert.equal(atOrBefore(r,bars[14].t).rsi,null);});
+test('Williams shifted agrees with independently calculated range position; stochastic is smoothed',()=>{const r=calculate(bars);for(let i=16;i<98;i++){const lows=bars.slice(i-13,i+1).map(b=>b.l),highs=bars.slice(i-13,i+1).map(b=>b.h);const wr=-100*(Math.max(...highs)-bars[i].c)/(Math.max(...highs)-Math.min(...lows));assert.ok(Math.abs(r[i].w-(wr+100))<1e-10);assert.equal(r[i].k,(r[i].w+r[i-1].w+r[i-2].w)/3);}});
+test('future edits cannot change past confirmed outputs',()=>{const before=calculate(bars);const edited=bars.map((b,i)=>i<60?b:{...b,c:b.c*2,h:b.h*2});assert.deepEqual(calculate(edited).slice(0,60),before.slice(0,60));});
+test('signal is SMA14 of RSI, not 50 reference',()=>{const r=calculate(bars);assert.equal(r[26].signal,null);assert.equal(r[27].signal,100);assert.deepEqual(sma([null,1,2,3],3),[null,null,null,2]);assert.deepEqual(signalEnvelope([{rows:r},{rows:r}],bars[30].t),{lo:100,hi:100,n:2});});
+test('source roles and anchors survive all display aggregations',()=>{for(const c of fixture.captures){for(const r of c.rails){assert.ok(Math.abs(railValue(r,c.sourceBars,r.t1)-r.p1)<1e-7);assert.ok(Math.abs(railValue(r,c.sourceBars,r.t2)-r.p2)<1e-7);}}const base=fixture.captures[0].sourceBars;assert.ok(displayCapture(base,'D').length<base.length);assert.ok(displayCapture(base,'W').length<displayCapture(base,'D').length);assert.equal(fixture.captures.reduce((s,c)=>s+c.rails.length,0),24);});
+test('no invented anchors outside captured history; proximity signed and reproducible',()=>{const c=fixture.captures[0],b=c.sourceBars.at(-1);assert.equal(sourceIndex(c.sourceBars,b.t+1),null);const rows=screen(fixture,b.t,b.c);assert.ok(rows.length);for(const r of rows){assert.ok(Math.abs(r.distancePct-100*(r.value-b.c)/b.c)<1e-9);assert.equal(r.knownAt,null);}});
+test('timeframe line hierarchy remains monotonic when zoom changes',()=>{for(const span of[10,180,900])for(let r=0;r<9;r++){assert.ok(lineStyle(r,span).width<lineStyle(r+1,span).width);assert.ok(lineStyle(r,span).alpha<lineStyle(r+1,span).alpha);}});
