@@ -2467,10 +2467,6 @@ function ensureLiveParts(badge, host) {
    price load that fails ends the wave at once (nothing else will be read for it); the provider's 20 s
    hard bound guarantees one of the two. */
 const GEIGER_WAIT_MAX_MS = 4000;
-/* The Hub's company view holds its own Geiger-detail read until this pane says its reads have
-   settled (the same collision, from the Hub's side). Sent only to the Hub's origin, only in ?bare=hub,
-   carrying nothing but the symbol and the timeframe. */
-const HUB_ORIGIN = "https://scintillahub.ai";
 const CHART_WAVE = { req:null, done:true, waiters:[] };
 function chartWaveBegin(req) {
   if (CHART_WAVE.req === req && !CHART_WAVE.done) return;
@@ -2481,10 +2477,6 @@ function chartWaveEnd(req) {
   CHART_WAVE.done = true;
   const run = CHART_WAVE.waiters.splice(0);
   for (const fn of run) { try { fn(); } catch (_) {} }
-  if (HUB_PANE && window.parent !== window) {
-    const bar = req.lastIndexOf("|");
-    try { window.parent.postMessage({ sc:"chart-wave-settled", ticker:req.slice(0, bar), range:req.slice(bar + 1) }, HUB_ORIGIN); } catch (_) {}
-  }
 }
 function chartWavePriced(req) { setTimeout(() => chartWaveEnd(req), GEIGER_WAIT_MAX_MS); }
 function afterChartWave(fn) {
