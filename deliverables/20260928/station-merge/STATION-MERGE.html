@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Station merge · 28 Sep 2026</title>
+<style>
+:root{--bg:#0A0A0F;--panel:#0F0F16;--line:#1C1C26;--ink:#C8C8D2;--body:#A8A8B6;--dim:#8C8C9A;--up:#00C98A;--dn:#D02E4C;--amber:#C8953A}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--body);font:17px/1.55 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:34px;margin:0 0 6px;color:var(--ink)} h2{font-size:25px;margin:44px 0 8px;color:var(--ink)} h3{font-size:19px;margin:26px 0 6px;color:var(--ink)}
+p,ul,ol{max-width:1100px} li{margin:6px 0} .lead{font-size:21px;color:var(--ink)} .note{color:var(--dim);font-size:14px}
+blockquote{margin:10px 0 18px;padding:8px 16px;border-left:3px solid #33333D;color:var(--ink);max-width:1000px}
+table{border-collapse:collapse;font-size:15px;margin:10px 0 6px;max-width:100%} th,td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+th{color:var(--dim);font-weight:600} td.num{font:14px ui-monospace,Menlo,monospace;text-align:right}
+code{font:14px ui-monospace,Menlo,monospace;background:var(--panel);padding:2px 6px;border-radius:4px;color:var(--ink)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;margin:12px 0 26px}
+.one{margin:12px 0 26px;max-width:1400px}
+.phones{display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 26px} .phones figure{width:300px}
+figure{margin:0} img{width:100%;height:auto;border:1px solid var(--line);display:block}
+figcaption{font:13px ui-monospace,Menlo,monospace;color:var(--dim);margin-top:5px}
+.box{border:1px solid var(--line);background:var(--panel);padding:12px 16px;margin:10px 0 16px;max-width:1100px}
+.up{color:var(--up)} .dn{color:var(--dn)} .amber{color:var(--amber)} b{color:var(--ink)}
+@media (max-width:760px){body{padding:18px 16px 60px;font-size:16px}.pair{grid-template-columns:1fr}h1{font-size:27px}
+  table{display:block;overflow-x:auto;max-width:100%} code{word-break:break-all} .phones figure{width:100%}}
+</style></head><body>
+
+<h1>Station · 28 Sep: this morning's zoom and fan work merged onto the live Station, and rotation now happens inside the slot</h1>
+<p class="lead">Branch <code>station/merge-zoom-20260928</code>, pushed, <b>not deployed</b>. It is today's live Station (bca97fa), plus this morning's shorter first views, the rewritten lens rule, the Geiger chip in the top right and the full RSI fan. It keeps all three of this morning's live fixes exactly. On top of that, rotating slots now change names inside their own pane.</p>
+
+<div class="box">
+<b>In one minute</b>
+<ul>
+<li><b>Rotation inside the slot.</b> The pages rotate as before: the same pages, the same order, 33 seconds each. What's new is that on a page with rotating slots, those slots change names while you watch. Every 11 seconds (a third of the page's time on screen) the next name loads quietly behind the current chart and fades in over about a second, once it has drawn. You never see an empty pane. Each rotating slot carries a small <b>↻ 2/5</b> tag next to its price: "name 2 of the 5 this slot cycles through". A fixed slot has no tag.</li>
+<li><b>The merge.</b> The zoom/fan branch landed on today's live Station with one small overlap, which I resolved by keeping both sides. The live fixes are unchanged: the lens reads 04:00–20:00, a lens isn't called STALE before today's first bar can exist, and both of your Equalizer saves are accepted.</li>
+<li><b>Lens rule with the denser 04:00–20:00 candles.</b> I checked 48 lenses on 8-chart 3-day pages, daily pages, 2-chart pages, at phone width and zoomed out. 47 stay clear of the newest part of the line, the ticker badge, the Geiger chip and the price line. One crosses the price line: VST on TARGETS · DAY, the same chart as this morning, because it is filled edge to edge.</li>
+<li><b>Futures depth.</b> ES/NQ keep only about a month of hourly bars because every refresh re-downloads 30 days and <i>overwrites</i> the stored copy. A 6-month backfill is small (about 28 FMP requests, under a minute). But it only sticks if the refresh is first changed to keep older bars. Details in section 4. Nothing was run.</li>
+<li><b>Tests:</b> 818 run, 800 pass. The 18 failures are exactly the 18 known ones; nothing new fails. 8 new checks were added.</li>
+</ul>
+</div>
+
+<h2>1 · Rotation inside the slot</h2>
+<blockquote>"This chart with QQQ and Bloom Energy is the one that rotates between the watched ones. Not bad. But we should make it within the slot — within the slot, switch between them… a very simple, soft, flowy experience; I don't have to maintain it." · "I need some visual reminder of which charts rotate."</blockquote>
+<p><b>What you see.</b> On INTRADAY · 1H, the first chart swaps between SPY and QQQ (in market hours; ES and NQ outside them). The other three step through your eight targets, so the page might show SPY, GOOGL, NBIS and AVGO, and 11 seconds later QQQ, BE, AMZN and VST. The charts don't all change at once: each starts fading 0.7 seconds after the one before it, left to right. The timeframe, zoom, lens and oscillator stay the same; only the name changes.</p>
+<p><b>Which slots rotate</b>, and how many names each one cycles through:</p>
+<table>
+<tr><th>Page</th><th>Rotating slots</th><th>Tag reads</th></tr>
+<tr><td>INTRADAY · 30M (2 charts)</td><td>leader (SPY↔QQQ or ES↔NQ) · one target slot through all 8 targets</td><td>↻ 1/2 · ↻ 1/8 … 8/8</td></tr>
+<tr><td>INTRADAY · 1H (4 charts)</td><td>leader · three target slots, each through all 8 (never two the same at once)</td><td>↻ 1/2 · ↻ k/8</td></tr>
+<tr><td>INTRADAY · 4H (6 charts)</td><td>SPY+QQQ fixed · four target slots alternating between two halves of the list</td><td>↻ 1/2 · 2/2</td></tr>
+<tr><td>SECTORS (8 charts)</td><td>your six fixed · slots 7–8 through XLP, XLV, XLU, XLRE, XLB</td><td>↻ k/5</td></tr>
+<tr><td>MACRO · 4H (4 charts)</td><td>three slots between VIX/CL/10Y and DXY/gold/BTC · PCC fixed</td><td>↻ 1/2 · 2/2</td></tr>
+</table>
+<p>Every other page has no rotating slot and no tag. The names in each slot are the same windows the pages already used between visits; they are simply reached while you're looking now, not only on the next lap.</p>
+<p><b>You don't have to manage it.</b> It runs whenever such a page is on screen, including when the page rotation is paused. It holds a chart for you when:</p>
+<ul>
+<li>the pointer is over that chart;</li>
+<li>you touched, scrolled or zoomed that chart in the last 20 seconds;</li>
+<li>the Station tab is hidden.</li>
+</ul>
+<p>Hovering the ↻ tag lists the names that slot cycles through.</p>
+<p><b>The lap is unchanged</b>: 23 pages by day and 17 by night, at 33 seconds each (20 s → a step every 8 s; 60 s → every 20 s).</p>
+
+<div class="pair">
+<figure><img src="shots/rot-intraday1h-1680-mid.png" alt="INTRADAY 1H mid-rotation"><figcaption>INTRADAY · 1H caught mid-fade (live, ~10:55 ET). Top left: QQQ fading in over SPY (72% through; SPY's line is still faintly visible). BE and AMZN are already on 2/8. AVGO (bottom right) is still 1/8 because it starts 0.7 s later. Every rotating chart has its ↻ tag.</figcaption></figure>
+<figure><img src="shots/rot-intraday1h-1680.png" alt="INTRADAY 1H after the step"><figcaption>Four seconds later: QQQ ↻ 2/2, BE ↻ 2/8, AMZN ↻ 2/8, VST ↻ 2/8. The QQQ + Bloom Energy pairing you described, inside the page's own slots.</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/rot-intraday30m-1680-mid.png" alt="INTRADAY 30M mid-rotation"><figcaption>INTRADAY · 30M mid-fade: SPY coming in over QQQ (84%), shown with its RSI fan. The right-hand slot still shows NBIS ↻ 2/8.</figcaption></figure>
+<figure><img src="shots/rot-intraday30m-1680.png" alt="INTRADAY 30M after"><figcaption>After the step: SPY ↻ 1/2 and AVGO ↻ 3/8, with the full fan and the 2D–2W cloud on both.</figcaption></figure>
+</div>
+<div class="phones">
+<figure><img src="shots/rot-intraday30m-390-mid.png" alt="phone mid-rotation"><figcaption>Phone (390), mid-fade: SPY coming in over QQQ; NBIS ↻ 2/8 below.</figcaption></figure>
+<figure><img src="shots/rot-intraday30m-390.png" alt="phone after rotation"><figcaption>Phone, after the step.</figcaption></figure>
+</div>
+
+<h2>2 · The merge, and the three live fixes it keeps</h2>
+<p>This morning's zoom/fan branch (b39e40d) brings the following onto today's live code:</p>
+<ul>
+<li>shorter first views (daily 6 months, 3-day 1 year, weekly 2 years; you can still zoom out);</li>
+<li>the rewritten lens rule;</li>
+<li>the Geiger chip in the top right;</li>
+<li>the full RSI fan with the slow 2D–2W cloud and the widths composed from bars already read.</li>
+</ul>
+<p>It also keeps the rotating leader beside the targets, since your 09:55 correction had already undone the pairing change.</p>
+<p>Only one file had edits from both sides: the lens. From the zoom branch it keeps "hold still while you zoom, then place once". From live it keeps the fix that the lens isn't called STALE before today's first bar can exist. The three live fixes, checked line by line against live:</p>
+<table>
+<tr><th>Live fix</th><th>State on this branch</th></tr>
+<tr><td>Lens reads 04:00–20:00 ("intraday applies since 4 a.m.")</td><td>The lens-hours file is byte-identical to live</td></tr>
+<tr><td>Not STALE before today's first bar can exist (open + one bar + 20 min; futures and crypto on their own clock)</td><td>The rule's code is identical to live, and the lens still passes it its hours and bar size</td></tr>
+<tr><td>Both Equalizer saves accepted (f6cf97b5… and d0da9a46…)</td><td>The provider file is byte-identical to live. Geiger chips show on every stock chart in the pictures, with no workaround (this morning's pictures needed one).</td></tr>
+</table>
+
+<h2>3 · The lens rule with 04:00–20:00 candles (denser)</h2>
+<p>For every lens drawn, the harness asked the page afterwards: is the lens in the newest fifth of the line? On the ticker badge (which now includes the ↻ tag)? On the Geiger chip? Crossing the price line?</p>
+<table>
+<tr><th>Page</th><th>Width</th><th class="num">Lenses</th><th class="num">Clear on all four</th><th>Note</th></tr>
+<tr><td>SECTORS (8 × 3-day, 4H lens)</td><td>1680</td><td class="num">8</td><td class="num">8</td><td>XLRE's lens says STALE: see "what could be wrong"</td></tr>
+<tr><td>AI 1 · CHIPS (8 × 3-day)</td><td>1680</td><td class="num">8</td><td class="num">8</td><td></td></tr>
+<tr><td>TARGETS · DAY (8 × daily, 30M lens)</td><td>1680</td><td class="num">8</td><td class="num">7</td><td>VST crosses the price line (filled edge to edge; same as this morning)</td></tr>
+<tr><td>OTHER INDEXES · DAY (6 × daily)</td><td>1680</td><td class="num">6</td><td class="num">6</td><td></td></tr>
+<tr><td>SPY + QQQ (2 × 3-day, fan)</td><td>1680</td><td class="num">2</td><td class="num">2</td><td></td></tr>
+<tr><td>SPY + QQQ · DAY in session / as ES+NQ out of session</td><td>1680</td><td class="num">4</td><td class="num">4</td><td></td></tr>
+<tr><td>SPY + QQQ · DAY zoomed out 6 notches</td><td>1680</td><td class="num">2</td><td class="num">2</td><td>Placed once after the zoom settled</td></tr>
+<tr><td>SECTORS, TARGETS · DAY, SPY+QQQ in/out</td><td>390</td><td class="num">8</td><td class="num">8</td><td></td></tr>
+<tr><td><b>Total</b></td><td></td><td class="num"><b>48</b></td><td class="num"><b>47</b></td><td></td></tr>
+</table>
+
+<div class="one"><figure><img src="shots/sectors3D-1680.png" alt="SECTORS 8-up 3-day"><figcaption>SECTORS · 3-day, 8 charts: Geiger chips top right, 4H lenses in the darkest open space. XLU and XLRE (slots 7–8) carry ↻ 2/5. XLRE's lens head reads STALE (it has no pre-market bar today; see below).</figcaption></figure></div>
+<div class="pair">
+<figure><img src="shots/ai1-1680.png" alt="AI 1 3-day"><figcaption>AI 1 · CHIPS: eight 3-day charts, all eight lenses clear.</figcaption></figure>
+<figure><img src="shots/targets1D-1680.png" alt="TARGETS DAY"><figcaption>TARGETS · DAY: 6 months per chart. The 30M lenses now hold 04:00–20:00 candles. VST's lens (bottom row, second) touches the line.</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/spyQqq1D-insession-1680.png" alt="SPY QQQ in session"><figcaption>SPY + QQQ · DAY in session (live ~10:50 ET): SPY and QQQ, 30M lens, full fan and cloud, Geiger chips.</figcaption></figure>
+<figure><img src="shots/spyQqq1D-outofsession-1680.png" alt="ES NQ out of session"><figcaption>The same page with the clock set to 06:00 ET: it switches to ES + NQ. The prices are this morning's live ones. Dotted marks show where the futures' intraday lines begin ("4H/8H/12H from 19 Aug", "3H/6H from 8 Sep"); that is section 4.</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/mainIndexes3D-1680.png" alt="SPY QQQ 3-day"><figcaption>SPY + QQQ · 3-day (2 charts, fan): both lenses clear.</figcaption></figure>
+<figure><img src="shots/spyQqq1D-zoomedout-1680.png" alt="zoomed out"><figcaption>Zoomed out: six wheel notches on SPY; both charts widen together to the full 11½ months (from 13 Oct 2025). The lens re-placed once, and the fan and cloud run across the whole width.</figcaption></figure>
+</div>
+<div class="phones">
+<figure><img src="shots/sectors3D-390.png" alt="phone sectors"><figcaption>Phone · SECTORS</figcaption></figure>
+<figure><img src="shots/targets1D-390.png" alt="phone targets"><figcaption>Phone · TARGETS · DAY</figcaption></figure>
+<figure><img src="shots/spyQqq1D-insession-390.png" alt="phone spy qqq"><figcaption>Phone · SPY+QQQ in session</figcaption></figure>
+<figure><img src="shots/spyQqq1D-outofsession-390.png" alt="phone es nq"><figcaption>Phone · ES+NQ out of session</figcaption></figure>
+</div>
+
+<h2>4 · Futures fan depth: what a 6-month backfill would take (not run)</h2>
+<p><b>Measured today</b> from the chart API (read-only):</p>
+<table>
+<tr><th>ES and NQ width</th><th class="num">Bars</th><th>From</th><th>Where it comes from</th></tr>
+<tr><td>1h</td><td class="num">486 / 487</td><td>30 Aug</td><td>FMP hourly, last 30 days</td></tr>
+<tr><td>3h · 6h · 12h</td><td class="num">164 · 82 · 45</td><td>30 Aug</td><td>Built from that same hourly series</td></tr>
+<tr><td>4h</td><td class="num">254</td><td>30 Jul</td><td>FMP 4-hour, last 60 days</td></tr>
+<tr><td>8h</td><td class="num">—</td><td></td><td>Not served; the Station builds it from 4h</td></tr>
+</table>
+<p><b>Why only a month.</b> The bar service refreshes ES/NQ every few minutes. Each refresh asks FMP for the last 30 days of hourly bars and <b>replaces</b> the stored series with that answer (<code>services/rest-accel/fmp-macro-refresh.mjs</code>, <code>tail_days: 30</code>). Anything older is thrown away on every run, so a backfill on its own would disappear within minutes.</p>
+<p><b>What it would take</b>:</p>
+<ol>
+<li><b>Keep older bars on refresh</b> (provider repo, about 30 lines plus tests): when writing an intraday series, read the stored one and keep its completed bars older than the new download. Where both have a bar, FMP's newer copy wins. This has to ship in the next bar-service image <i>before</i> step 3.</li>
+<li><b>A one-off job script</b>, <code>scripts/backfill-fmp-intraday.mjs</code>. For ESUSD and NQUSD, 1h and 4h, it asks FMP in 30-day windows going back 183 days: 7 windows × 2 widths × 2 symbols = <b>28 FMP requests</b>. It joins the windows and writes the same stored object the refresh writes. Windows avoid any per-request span limit.</li>
+<li><b>Run it on Fly</b> (the coordinator, not this Mac): <code>fly machine run &lt;bar-service image&gt; --rm -a scintilla-massive-stocks-batch -- node scripts/backfill-fmp-intraday.mjs --symbols ESUSD,NQUSD --frames 60,240 --days 183</code></li>
+</ol>
+<p><b>Size and time.</b> 30 days of ES hourly was a 69.9 KB answer, so 6 months is about 3,000 hourly bars (~420 KB raw, well under 100 KB compressed) per symbol. The run takes under a minute. After it, 3h/6h/12h (built from 1h) and 8h (built by the Station from 4h) would reach back 6 months too, and the "from 19 Aug / from 8 Sep" marks would move to the left edge of a daily chart.</p>
+<p class="note">Not verified: whether FMP serves 6 months of intraday futures bars (the first window will show it), and how long the chart API keeps its copy of a series before it sees the new one. I ran no Fly command and made no FMP request.</p>
+
+<h2>What could be wrong</h2>
+<ul>
+<li><b>A lens that says STALE on a quiet pre-market name.</b> XLRE had no 04:00–08:00 bar today (nothing traded pre-market). Under the kept rule, a 4H lens is due at 08:20, so it reads STALE until the 08:00 bar lands at about 12:00. It's the rule doing what it says, but for thin names it's a false alarm (decision 2).</li>
+<li><b>Rotation timing on a slow chart API.</b> A name that hasn't drawn within 9 seconds is skipped and the slot keeps its chart until the next step. On a very slow morning a slot could stay on one name for a step or two. It will never show an empty pane.</li>
+<li><b>A held slot can briefly repeat a name.</b> While a slot is held (pointer over it), the others keep moving, so it can show the same name as a neighbour for one step.</li>
+<li><b>Phone: no fan under SPY/QQQ.</b> At 390 wide the two-chart pages ask for the fan but don't draw it. Today's live code does the same (I checked it the same way), so the merge didn't cause it; it hasn't been fixed either.</li>
+<li><b>Out-of-session pictures</b> set the page clock to 06:00 ET, but the prices are this morning's live ones.</li>
+</ul>
+
+<h2>What I did not do</h2>
+<ul>
+<li>No deploy, no Fly or Supabase command, no FMP request, no backfill. The branch is pushed only.</li>
+<li>The XLRE-type STALE was not changed: you asked for the three fixes to be kept exactly.</li>
+<li>The phone fan was not fixed (it's older than today).</li>
+<li>I didn't watch a full 13-minute lap in a browser. The lap order is checked by the tests, and rotation was watched on the 1H and 30M pages.</li>
+</ul>
+
+<h2>Decisions for you</h2>
+<ol>
+<li><b>Should "pause" also freeze the rotating slots?</b> Right now pause stops the pages, but the slots keep cycling (pointer or touch holds a chart). <i>Recommendation: keep it as is.</i> It's the "I don't have to maintain it" behaviour, and hovering a chart holds it.</li>
+<li><b>STALE on quiet pre-market names.</b> Keep drawing 04:00–20:00 candles, but judge "today's bar is late" from the regular open (for a 30M lens STALE only after 10:20, for a 4H lens after 12:20). <i>Recommendation: yes.</i> It removes false STALEs like XLRE's without hiding real gaps for long.</li>
+<li><b>Futures 6-month backfill.</b> First the refresh change (keep older bars), then the one-off 28-request job on Fly. <i>Recommendation: yes, in that order.</i> It makes the ES/NQ fan complete across a daily chart.</li>
+</ol>
+
+<p class="note">Harness (headless only, every browser closed when done): <code>harness/shot.mjs</code> and <code>rig.mjs</code> (with <code>--midrot=1</code> for the mid-fade shots), and <code>frames.mjs</code> for the phone comparison with live code. The chart API was reached through a local read-only relay carrying the scintillahub.ai origin (non-GET requests were blocked); the per-page readouts are the <code>*.json</code> files beside them. Tests: <code>node --test tests/</code> → 818 run, 800 pass, 18 fail (the 18 known), 0 new. The new suite is <code>tests/station-slot-rotation-20260928.test.mjs</code>.</p>
+</body></html>
