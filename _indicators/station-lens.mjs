@@ -19,7 +19,7 @@
    opened, the bubble is drawn dimmed and its head says STALE.
    ============================================================================ */
 import { lastSessions, flatten, barsToRequest, drawBubble, bubbleBox, placeBubble, layout,
-  CHAMFER, DIALS, TIMEFRAMES, etParts } from "./lens-bars.mjs";
+  CHAMFER, DIALS, TIMEFRAMES, etParts, FLOOR } from "./lens-bars.mjs";
 import { pathPoints, clearsTail, clearsTailPoints, emptiestSpot, inkReader, DEFAULTS as PLACE } from "./lens-placement.mjs";
 
 /* O1 (27 Sep), Alan: "30-minute is too short for 3-day charts -> use 4h; on DAILY charts use the
@@ -112,7 +112,8 @@ export function bottomLeft(plot, box, pts, keepOut = [], opt = {}) {
      2. never on the ticker badge, the Geiger chip (top right) or the deck's arrows and timeframe tag;
      3. among the spots left, the one with the least already drawn in it (price line, clouds, grid lines,
         all read from the chart's own pixels); a spot the price line runs through costs a quarter of a
-        box extra, so an empty patch always wins over a crossed one;
+        box extra, so an empty patch always wins over a crossed one; and when every spot at the usual
+        size crosses the line, the lens shrinks (one size down, then its smallest) before it sits on it;
      4. bottom-left whenever it is about as empty as the best spot (within 5% of the box);
      5. once placed it stays through data refreshes unless somewhere else is clearly (8%) emptier or its
         spot breaks rules 1-3;
@@ -122,10 +123,26 @@ export function bottomLeft(plot, box, pts, keepOut = [], opt = {}) {
    The same rule is checked by tests/station-zoom-fan-20260928.test.mjs. */
 export const LENS_TOLERANCE = 0.05;
 export const SETTLE_MS = 200;
+/* rule 3b: a lens that would sit on the price line shrinks first - one size down, then its smallest (80% of
+   that, never under the 79 x 50 floor) - and only when even that crosses the line does it take the
+   least-crossed spot at its usual size */
+export function lensBoxes(plot, size = DIALS.size) {
+  const usual = bubbleBox(plot, size), small = bubbleBox(plot, "S");
+  const least = { w: Math.max(FLOOR.w, Math.round(small.w * 0.8)), h: Math.max(FLOOR.h, Math.round(small.h * 0.8)) };
+  const out = [usual];
+  for (const b of [small, least]) if (!out.some((o) => o.w === b.w && o.h === b.h)) out.push(b);
+  return out;
+}
 export function placeLens({ plot, series, points, keepOut = [], slidePast = [], ink, size = DIALS.size, prev = null }) {
-  const box = bubbleBox(plot, size);
   const pts = points || pathPoints(plot, series || []);
-  const res = emptiestSpot({ plot, box, points: pts, ink, keepOut: keepOut.concat(slidePast), prefer: "bl", prev, tolerance: LENS_TOLERANCE });
+  const boxes = lensBoxes(plot, size);
+  let res = null, box = boxes[0], first = null;
+  for (const b of boxes) {
+    const r = emptiestSpot({ plot, box: b, points: pts, ink, keepOut: keepOut.concat(slidePast), prefer: "bl", prev, tolerance: LENS_TOLERANCE });
+    if (!first) first = { r, b };
+    if (r.spot && !r.spot.covers) { res = r; box = b; if (b !== boxes[0]) res = { ...r, why: r.why + " (smaller, so it clears the price line)" }; break; }
+  }
+  if (!res) { res = first.r; box = first.b; }
   if (!res.spot) return { kind: "none", spot: null, fixed: false, fallback: true, why: res.why, box };
   const x0 = plot.padL + PLACE.edge, y1 = plot.padT + plot.ih - PLACE.edge - box.h;
   const corner = res.spot.y + box.h / 2 > plot.padT + plot.ih / 2 ? (res.spot.x + box.w / 2 < plot.padL + plot.iw / 2 ? "bl" : "br")

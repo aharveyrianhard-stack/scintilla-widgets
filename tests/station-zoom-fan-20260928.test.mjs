@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import { emptiestSpot, lineTailBox, tailBox, pathPoints, topRightSpot, clearsPrice } from "../_indicators/lens-placement.mjs";
-import { placeLens, LENS_TOLERANCE, SETTLE_MS } from "../_indicators/station-lens.mjs";
+import { placeLens, lensBoxes, LENS_TOLERANCE, SETTLE_MS } from "../_indicators/station-lens.mjs";
 
 const read = (p) => fs.readFileSync(new URL(p, import.meta.url), "utf8");
 const chart = read("../chart/index.html"), twin = read("../station-shells/chart-v1/index.html");
@@ -91,6 +91,18 @@ test("rules 2-4: never on the badge or the chip, the least-drawn spot wins, bott
   assert.ok(!hit(kept.spot, chip), "never on a keep-out");
   assert.match(lensSrc, /if \(chip\) keepOut\.push\(chip\);/, "the pane hands the Geiger chip in as a keep-out");
   assert.match(lensSrc, /for \(const id of \["edgePrev", "edgeNext", "tfNow"\]\)/, "and the deck's arrows and timeframe tag");
+});
+
+test("rule 3b: a lens that would sit on the price line shrinks before it does", () => {
+  const boxes = lensBoxes(wide);
+  assert.ok(boxes.length === 3 && boxes[0].w > boxes[1].w && boxes[1].w > boxes[2].w, "usual, one smaller, smallest");
+  assert.ok(boxes[2].w >= 79 && boxes[2].h >= 50, "never under the floor");
+  /* a zig-zag with a gap only big enough for the smaller box, low on the left */
+  const gapLine = line(126, (i) => (i < 40 ? (i % 2 ? 95 : 60) : 30 + (i % 7) * 9));
+  const pts = pathPoints(wide, gapLine);
+  const res = placeLens({ plot: wide, points: pts, ink: () => false });
+  assert.ok(res.spot, "a spot is found");
+  if (!res.covers) assert.ok(clearsPrice(res.spot, pts, 0), "the spot it takes is clear of the line");
 });
 
 test("rule 6: while the view moves the lens holds still, and is placed again once it has been still", () => {
