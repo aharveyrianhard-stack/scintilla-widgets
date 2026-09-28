@@ -148,6 +148,8 @@ function paneHarness({ provider: P = null, deckMode = false } = {}) {
   b.GEIGER = vm.runInNewContext("({ readings:{}, fromDeck:false, pulling:false })", b);
   /* where the chip sits is emptiestSpot's job (tests/station-fixes-20260927.test.mjs); here it is a no-op */
   b.placeGeiger = () => {};
+  /* N10: the chip's size is read from the live pane (tests/station-chip-pct-20260928.test.mjs); a no-op here */
+  b.sizeGeigerChip = () => {};
   /* L6: the chip's paint refits the rotation list first; a fixed slot (no mark) has none */
   b.ROTATION_MARK = null;
   b.paintRotationMark = fnFrom(chart, "paintRotationMark", b);

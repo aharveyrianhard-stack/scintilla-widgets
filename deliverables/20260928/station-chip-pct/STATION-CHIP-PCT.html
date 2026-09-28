@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Station chip and crosshair · 28 Sep 2026</title>
+<style>
+:root{--bg:#0A0A0F;--panel:#0F0F16;--line:#1C1C26;--ink:#C8C8D2;--body:#A8A8B6;--dim:#8C8C9A;--up:#00C98A;--dn:#D02E4C}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--body);font:17px/1.55 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:34px;margin:0 0 6px;color:var(--ink)} h2{font-size:25px;margin:44px 0 8px;color:var(--ink)} h3{font-size:19px;margin:26px 0 6px;color:var(--ink)}
+p,ul,ol{max-width:1100px} li{margin:6px 0} .lead{font-size:21px;color:var(--ink)} .note{color:var(--dim);font-size:14px}
+blockquote{margin:10px 0 18px;padding:8px 16px;border-left:3px solid #33333D;color:var(--ink);max-width:1000px}
+table{border-collapse:collapse;font-size:15px;margin:10px 0 6px;max-width:100%} th,td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+th{color:var(--dim);font-weight:600} td.num{font:14px ui-monospace,Menlo,monospace;text-align:right}
+code{font:14px ui-monospace,Menlo,monospace;background:var(--panel);padding:2px 6px;border-radius:4px;color:var(--ink)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;margin:12px 0 26px}
+.phones{display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 26px} .phones figure{width:300px}
+figure{margin:0} img{width:100%;height:auto;border:1px solid var(--line);display:block}
+figcaption{font:13px ui-monospace,Menlo,monospace;color:var(--dim);margin-top:5px}
+.box{border:1px solid var(--line);background:var(--panel);padding:12px 16px;margin:10px 0 16px;max-width:1100px}
+.up{color:var(--up)} .dn{color:var(--dn)} b{color:var(--ink)}
+@media (max-width:760px){body{padding:18px 16px 60px;font-size:16px}.pair{grid-template-columns:1fr}h1{font-size:27px}
+  table{display:block;overflow-x:auto;max-width:100%} code{word-break:break-all} .phones figure{width:100%}}
+</style></head><body>
+
+<h1>Station · 28 Sep: a readable Geiger chip, and a crosshair % that stays off the chart</h1>
+<p class="lead">Branch <code>station/chip-pct-20260928</code>, built on today's live Station (64124b6). Pushed, <b>not deployed</b>. Both items from your 13:30 notes are built and checked in a hidden browser at 1680 wide and at phone width (390).</p>
+
+<div class="box">
+<b>In one minute</b>
+<ul>
+<li><b>The Geiger chip is bigger, and its bar is as tall as its number.</b> The number now matches the size of the price beside the ticker, and the coloured bar is exactly as tall as that number's capital letters. On the 8-chart walls the bar goes from 48 × 6 to <b>60 × 9</b> pixels, a modest step as you asked. On a 4-chart wall it's 76 × 10, on a 2-chart wall 83 × 10, and a single chart gets 112 × 12.</li>
+<li><b>Zero is easier to see.</b> A small tick above and below the bar marks the middle, in the reading's own green or red, so you can tell at a glance which way the bar grows.</li>
+<li><b>The crosshair % no longer covers the chart.</b> It now sits in the price strip on the right edge, as TradingView does: the price on the crosshair line, the % under it, and the words "from now" under that. Measured on every layout, including phone, the label starts at or right of the chart's edge.</li>
+<li><b>Your question: yes, the % uses the current price.</b> It's (price under the cursor ÷ current price − 1) × 100. "Current" is the live price, or the last bar's price when there's no live quote. That's unchanged; the "from now" label now says so on the pane.</li>
+<li><b>The RSI fan is untouched,</b> as asked, because you're redesigning it with the Indicator Lab.</li>
+<li><b>Tests:</b> 843 run, 825 pass. The 18 failures are exactly the 18 known ones; nothing new fails. 9 new checks were added.</li>
+</ul>
+</div>
+
+<h2>1 · The Geiger chip</h2>
+<blockquote>"Let's make the Geiger chip bigger. We have a ton of space there. Give it more space to see the green to red a little better. It seems undersized versus the numerical value — maintain proportions, match the height of the numerical value. Don't go too crazy on the 8-chart layouts."</blockquote>
+<p>The chip keeps its top-right place and the same rule: it grows right in green at or above zero and left in red below zero, on the same −1 to +1 scale as the Hub. I didn't touch the change that stopped the chip arriving late. What changed:</p>
+<ul>
+<li><b>Number size:</b> the same size as the price in the ticker badge on that chart (12 px on 8-up and phone, about 14 px on 2- and 4-up, 16 px on a single chart). Before, it was always 12 px.</li>
+<li><b>Bar height:</b> exactly the height of the number's capital letters. I measured this in the browser: 8.8 px against a letter height of 8.75 px at 12 px, and 10.1 against 10.13 at 14 px.</li>
+<li><b>Bar length:</b> it grows with the room the chart has, least on the crowded walls:</li>
+</ul>
+<table>
+<tr><th>Layout (1680-wide screen)</th><th>One chart's size</th><th>Bar before</th><th>Bar now</th></tr>
+<tr><td>8 charts (and 6)</td><td class="num">419 × 277</td><td class="num">48 × 6</td><td class="num">60 × 8.8</td></tr>
+<tr><td>4 charts</td><td class="num">840 × 277</td><td class="num">48 × 6</td><td class="num">76 × 10.1</td></tr>
+<tr><td>2 charts</td><td class="num">840 × 554</td><td class="num">48 × 6</td><td class="num">83 × 10.1</td></tr>
+<tr><td>1 chart alone</td><td class="num">1680 × 1021</td><td class="num">48 × 6</td><td class="num">112 × 11.7</td></tr>
+<tr><td>Phone (390 wide)</td><td class="num">390 × 473</td><td class="num">48 × 6</td><td class="num">60 × 8.8</td></tr>
+</table>
+<div class="pair">
+<figure><img src="shots/zoom-8up-msft-before.png" alt="Before: MSFT pane on the 8-chart wall, small chip and crosshair % over the chart"><figcaption>BEFORE · 8-up, MSFT: thin 48×6 bar; crosshair box "−3.61% 492.49" over the line and the 21D label</figcaption></figure>
+<figure><img src="shots/zoom-8up-msft-after.png" alt="After: MSFT pane, bigger chip with zero tick, crosshair label in the price strip"><figcaption>AFTER · 8-up, MSFT: bar as tall as "+0.71"'s capitals, zero tick; "492.49 / −3.60% / from now" in the price strip</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/zoom-2up-mu-before.png" alt="Before: MU on a 2-chart page"><figcaption>BEFORE · 2-up, MU</figcaption></figure>
+<figure><img src="shots/zoom-2up-mu-after.png" alt="After: MU on a 2-chart page"><figcaption>AFTER · 2-up, MU: 83×10 bar; the label reads "1049.47 / −0.27% / from now"</figcaption></figure>
+</div>
+
+<h2>2 · The crosshair %</h2>
+<blockquote>"I see the percentage thing, but you're taking over chart space. The percentage should be on the pane. Is the percentage based on the current price as a denominator — what % the price would need to change?"</blockquote>
+<ul>
+<li><b>Where it is now:</b> in the price strip on the right edge of each chart, the column where the price scale's numbers are. It's a small stacked label: the price (grey, on the crosshair line), the % (green if the level is above the current price, red if below), and "from now" in small type.</li>
+<li><b>Fitting the strip:</b> each line shrinks just enough to fit the strip. A price too long for it, such as MU at 1,049.47, drops its thousands comma first ("1049.47"), as price scales usually do. Only prices of 10,000 or more, such as Bitcoin at 112,345.67, can still reach a few pixels (at most about 5) into the chart at the smallest text size.</li>
+<li><b>What the % means:</b> how far the price would have to move from where it is now to reach the level under your cursor. For example, "−8.9% from now" means the price would have to fall 8.9% to get there.</li>
+</ul>
+<div class="phones">
+<figure><img src="shots/zoom-390-mu-before.png" alt="Before on phone"><figcaption>BEFORE · phone: "−0.43% 1,049.47" covers the last price dot</figcaption></figure>
+<figure><img src="shots/zoom-390-mu-after.png" alt="After on phone"><figcaption>AFTER · phone: "944.49 / −10.2% / from now" in the strip</figcaption></figure>
+</div>
+<p class="note">The before and after phone shots hovered at different heights. The measurement that matters is the label's left edge against the chart's right edge. After the change it was at or right of the edge on every layout checked (8-up 377/377, 2-up 798/798, single chart 1638/1638, phone 349/348 and 348/348).</p>
+
+<h2>Full walls</h2>
+<div class="pair">
+<figure><img src="shots/before-8up-1680.png" alt="8-chart wall before"><figcaption>BEFORE · MAG 7, 8-up, 1680, crosshair on MSFT</figcaption></figure>
+<figure><img src="shots/after-8up-1680.png" alt="8-chart wall after"><figcaption>AFTER · MAG 7, 8-up, 1680, crosshair on MSFT</figcaption></figure>
+<figure><img src="shots/before-2up-1680.png" alt="2-chart page before"><figcaption>BEFORE · FOCUS 2, 2-up, 1680, crosshair on MU</figcaption></figure>
+<figure><img src="shots/after-2up-1680.png" alt="2-chart page after"><figcaption>AFTER · FOCUS 2, 2-up, 1680, crosshair on MU</figcaption></figure>
+<figure><img src="shots/after-4up-1680.png" alt="4-chart page after"><figcaption>AFTER · INTRADAY 1H, 4-up: the ↻ lists still fit beside the bigger chips</figcaption></figure>
+<figure><img src="shots/after-1up-1680.png" alt="single chart after"><figcaption>AFTER · SPY alone, 1680: 112×12 bar</figcaption></figure>
+</div>
+<div class="phones">
+<figure><img src="shots/before-8up-390.png" alt="phone 8-up before"><figcaption>BEFORE · phone, MAG 7</figcaption></figure>
+<figure><img src="shots/after-8up-390.png" alt="phone 8-up after"><figcaption>AFTER · phone, MAG 7, crosshair on MAGS</figcaption></figure>
+<figure><img src="shots/before-2up-390.png" alt="phone 2-up before"><figcaption>BEFORE · phone, FOCUS 2</figcaption></figure>
+<figure><img src="shots/after-2up-390.png" alt="phone 2-up after"><figcaption>AFTER · phone, FOCUS 2, crosshair on MU</figcaption></figure>
+</div>
+
+<h2>Where each number comes from</h2>
+<ul>
+<li><b>Geiger value and colour:</b> unchanged. For stocks and funds it's the chart service's <code>/geiger</code> reading under the saved Equalizer; for futures, VIX, rates and crypto it's the retained non-equity Geiger row the Hub also uses.</li>
+<li><b>Chip sizes:</b> the pane sizes in the table were measured on the live wall layout in a hidden browser today. The rule is in <code>_indicators/station-geiger-bar.js</code> (<code>chipSize</code>).</li>
+<li><b>Crosshair %:</b> (price at the cursor ÷ current price − 1) × 100. The current price is the live quote, or the last bar's price when there's no quote. This is the same price the badge and the price line use.</li>
+<li><b>Screenshots:</b> real Chromium, hidden (headless), 1680 × 1050 and 390 × 844, with live data from the chart service. The chart service only answers requests that say they come from scintillahub.ai, so the test script fetched the data itself with that origin and passed it to the local page. Nothing was written anywhere.</li>
+</ul>
+
+<h2>What could be wrong</h2>
+<ul>
+<li>The bar's height uses the browser's "capital-letter height" unit. Current Chrome and Safari support it (Safari since 17.2). An older browser falls back to 70% of the number's size, which is within about half a pixel.</li>
+<li>A price of 10,000 or more (Bitcoin, for example) can still reach up to about 5 px into the chart at the smallest text size. None of today's shots had one.</li>
+<li>On the iPad profile the price strip is scaled with the pane. I didn't take an iPad-profile screenshot.</li>
+<li>In the 4-up shot, one lower chip was caught mid-crossfade between two rotating names, so a green and a red chip overlap for a moment. That's the existing fade, not a layout problem.</li>
+</ul>
+
+<h2>What I did not do</h2>
+<ul>
+<li>No deploy. The branch is pushed for the coordinator to merge and check.</li>
+<li>No change to the RSI fan, the lens, the rotation or the chip's late-arrival fix.</li>
+<li>No iPad or Apple TV screenshots.</li>
+</ul>
+<p class="note">Code: <code>chart/index.html</code> and its byte-identical Station copy <code>station-shells/chart-v1/index.html</code>, plus <code>_indicators/station-geiger-bar.js</code>. Tests: <code>tests/station-chip-pct-20260928.test.mjs</code> (new), two older tests updated for the moved label. Harness and measurements: <code>harness/</code>.</p>
+</body></html>
