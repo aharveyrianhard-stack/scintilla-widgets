@@ -1112,7 +1112,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
   var CANDLE_SHARED_KEY = '__SC_PROVIDER_CANDLES_V1';
   var CANDLE_SHARED_MAX_CHARS = 48e6;
   var CANDLE_SETTLE_MS = 180000, CANDLE_SETTLE_TTL_MS = 45000, HALF_HOUR_MS = 1800000;
-  var candleLocal = null;
+  var candleLocal = null, candleInflight = {};
   function candleShared () {
     /* the highest window of this origin that this document can reach */
     var w = window;
@@ -1189,13 +1189,23 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     var url = API + '/candles?symbol=' + encodeURIComponent(symbol) + '&tf=' + encodeURIComponent(tf) +
       '&authority=provider&limit=' + bounded;
     var cached = candleCacheGet(url);
-    var read = cached ? Promise.resolve(cached) : jget(url, signal).then(function (payload) {
-      /* only a complete, unnamed series is worth keeping; the checks below still run on every read */
-      if (payload && Array.isArray(payload.series) && payload.series.length &&
-          !(payload.absence || payload.reason || (payload.state && payload.state !== 'OK')))
-        candleCachePut(url, tf, payload);
-      return payload;
-    });
+    /* the same request already out in this frame (the fan and the ribbon both want the daily bars
+       at the same moment) is shared, not sent twice; a caller's abort stays its own */
+    var read = cached ? Promise.resolve(cached) : (!signal && candleInflight[url]) || (function () {
+      var p = jget(url, signal).then(function (payload) {
+        /* only a complete, unnamed series is worth keeping; the checks below still run on every read */
+        if (payload && Array.isArray(payload.series) && payload.series.length &&
+            !(payload.absence || payload.reason || (payload.state && payload.state !== 'OK')))
+          candleCachePut(url, tf, payload);
+        return payload;
+      });
+      if (!signal) {
+        candleInflight[url] = p;
+        var clear = function () { if (candleInflight[url] === p) delete candleInflight[url]; };
+        p.then(clear, clear);
+      }
+      return p;
+    })();
     return read.then(null, function (e) {
       /* The chart API refuses a width it cannot serve, or a series that has STOPPED, with a 404 that
          NAMES the absence (FMP_INTERVAL_NOT_SERVED, FMP_MACRO_STALE_n_SESSIONS). That is the answer,

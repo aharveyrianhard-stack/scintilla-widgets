@@ -225,3 +225,13 @@ test("the Geiger read set is the names on screen plus every rotating slot's whol
   b.SCENE = "manual";
   assert.equal(arr(fn()).length, 8, "a page that does not rotate reads only what is on screen");
 });
+
+test("two reads of the same series at the same moment in one frame go out once", async () => {
+  const st = station();
+  const f = st.frame(st.canonical);
+  await f.marketCandles("AAPL", "30m", { limit:5 });           /* ownership proven first, as in the pane */
+  const before = candleCalls(st.calls).length;
+  const [a, b] = await Promise.all([f.marketCandles("MU", "1D", { limit:400 }), f.marketCandles("MU", "1D", { limit:400 })]);
+  assert.deepEqual(plain(a), plain(b));
+  assert.equal(candleCalls(st.calls).length - before, 1);
+});
