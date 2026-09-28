@@ -124,9 +124,30 @@
     return out;
   }
 
+  /* HOW BIG THE CHIP IS ON A PANE (N10, 28 Sep). Alan: "Let's make the Geiger chip bigger. We have a ton
+     of space there… It seems undersized versus the numerical value - maintain proportions, match the
+     height of the numerical value. Don't go too crazy on the 8-chart layouts, we're tighter on space."
+     The chip's number takes the size of the badge's price beside it (the badge already sizes itself to
+     the pane), and the bar is as tall as that number's capital letters (CSS `1cap`). Only the bar's
+     length depends on how much room the pane has, in ems of that number, measured on the live wall
+     (28 Sep, 1680 wide): 8-up and 6-up panes are 419 x 277, 4-up 840 x 277, 2-up 840 x 554, one chart
+     alone 1680 x 1021; a phone pane is 390 wide.
+       s  - narrow pane (8-up, 6-up, phone): 5 em    (12 px number -> 60 x 8.5; was 48 x 6)
+       m  - wide but short (4-up):          5.5 em
+       l  - wide and tall (2-up):           6 em
+       xl - one chart alone:                7 em
+     areaW / areaH: the pane's plot area in CSS px; badgePx: the badge's computed font size. */
+  function chipSize (areaW, areaH, badgePx) {
+    var w = Number(areaW) || 0, h = Number(areaH) || 0, px = Number(badgePx);
+    var font = Number.isFinite(px) && px > 0 ? Math.round(Math.max(11, Math.min(18, px)) * 10) / 10 : 12;
+    var tier = w >= 1200 && h >= 600 ? "xl" : w >= 700 && h >= 440 ? "l" : w >= 700 ? "m" : "s";
+    var bar = { s: 5, m: 5.5, l: 6, xl: 7 }[tier];
+    return { tier: tier, font: font, barEm: bar, key: tier + ":" + font };
+  }
+
   root.SC_GEIGER_BAR = {
     SOURCES: SOURCES, PICKUP_MS: PICKUP_MS, TRACK_PX: TRACK_PX, HEIGHT_PX: HEIGHT_PX,
     value: value, stampMs: stampMs, staleAfterMs: staleAfterMs, signed: signed,
-    model: model, fillStyle: fillStyle, readingsFrom: readingsFrom
+    model: model, fillStyle: fillStyle, readingsFrom: readingsFrom, chipSize: chipSize
   };
 })(typeof window !== "undefined" ? window : globalThis);

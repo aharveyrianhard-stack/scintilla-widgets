@@ -53,7 +53,10 @@ test("the lens module is fetched at boot on a pane that carries one, not on its 
 test("the crosshair: the price at 11 px or more, and the percent from the current price, green above and red below", () => {
   assert.match(chart, /const priceFont = Math\.max\(11, 11 \* scale\);/);
   assert.match(chart, /const pct = nowPx > 0 \? \(price \/ nowPx - 1\) \* 100 : null;/);
-  assert.match(chart, /ctx\.fillStyle = pct >= 0 \? col\.bull : col\.bear; ctx\.fillText\(pctText,/);
+  /* N10 (28 Sep): the percent moved off the plot into the price-scale gutter, under the price, green above
+     and red below (tests/station-chip-pct-20260928.test.mjs holds the placement) */
+  assert.match(chart, /\{ text: o\.pctText, font: "700 " \+ cFont, size: cFont, ink: o\.up \? "bull" : "bear"/);
+  assert.match(chart, /pctText, up: pct >= 0, priceFont, scale \}\);/);
   assert.match(chart, /const nowPx = livePriceValue != null \? livePriceValue : dayPx;/, "the same one price the badge and line use");
 });
 

@@ -171,6 +171,17 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
 .sc-nchart__live-geiger.is-float{ position:absolute; z-index:3; top:0; left:0; visibility:hidden; padding:2px 4px;
   border-radius:3px; background:rgba(5,6,12,.55); font:700 12px var(--mono); line-height:1; white-space:nowrap; }
 .sc-nchart__live-geiger.is-float .sc-gbar__v{ font-size:12px; }
+/* N10 (28 Sep), Alan: "Let's make the Geiger chip bigger… match the height of the numerical value…
+   don't go too crazy on the 8-chart layouts." The number takes the badge price's size (--gchip-font,
+   set per pane by SC_GEIGER_BAR.chipSize), the bar is exactly as tall as that number's capitals (1cap;
+   .7em where cap is unknown) and --gchip-bar ems long. Zero is marked by two short ticks above and
+   below the track, in the reading's own green or red, around the dark notch that still cuts the bar. */
+.sc-nchart__live-geiger.is-float{ font-size:var(--gchip-font,12px); gap:.42em; }
+.sc-nchart__live-geiger.is-float .sc-gbar__v{ font-size:1em; }
+.sc-nchart__live-geiger.is-float .sc-gbar{ width:var(--gchip-bar,5em); height:.7em; height:1cap; overflow:visible; clip-path:inset(-3px 0); }
+.sc-nchart__live-geiger.is-float .sc-gbar::before{ left:calc(50% - 1px); width:2px; }
+.sc-nchart__live-geiger.is-float .sc-gbar::after{ content:""; position:absolute; z-index:3; left:calc(50% - 1px); width:2px; top:-3px; bottom:-3px;
+  background:linear-gradient(currentColor 3px, transparent 3px, transparent calc(100% - 3px), currentColor calc(100% - 3px)); }
 .sc-nchart__msg{ position:absolute; inset:0; z-index:2; display:flex; align-items:center;
   justify-content:center; color:var(--dim); font-size:10px; letter-spacing:.1em; text-transform:uppercase; }
 .sc-nchart__msg[hidden]{ display:none; }
@@ -2196,6 +2207,7 @@ function scChartDraw(host, scrub) {
       }
     }
   }
+  host._scrubLabel = null;
   if (scrub && pts[scrub.ix]) {
     const sx = Math.max(padL, Math.min(padL + iw, scrub.x));
     const sy = Math.max(padT, Math.min(padT + ih, scrub.y));
@@ -2215,17 +2227,25 @@ function scChartDraw(host, scrub) {
     ctx.beginPath(); ctx.moveTo(padL, sy); ctx.lineTo(padL + iw, sy); ctx.stroke();
     ctx.globalAlpha = 1;
     ctx.textBaseline = "middle";
-    ctx.font = "700 " + priceFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-    const pxW = Math.ceil(ctx.measureText(priceText).width);
-    const pctW = pctText ? Math.ceil(ctx.measureText(pctText).width) + 7 : 0;
-    const priceW = pxW + pctW + 10, boxH = Math.round(priceFont + 5);
-    const priceX = Math.max(padL, w - priceW - 2);
-    const boxY = Math.max(padT, Math.min(padT + ih - boxH, sy - boxH / 2)), midY = boxY + boxH / 2 + .5;
+    /* N10 (28 Sep), Alan: "I see the percentage thing, but you're taking over chart space. The percentage
+       should be on the pane." The label now lives in the price-scale gutter right of the plot, as
+       TradingView does: the price on the crosshair's line, the percent under it, and the words "from now"
+       under that - the percent is (this level ÷ the current price − 1), the current price being the live
+       quote or, without one, the last bar. Each line is fitted to the gutter's width, so nothing covers
+       the candles; only a price too long for the gutter even at 7 px (10,000 and up, e.g.
+       "112,345.67") can push the box a few px left of it. */
+    const MONO = 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+    const L = crosshairLabel((text, font) => { ctx.font = font + MONO; return ctx.measureText(text).width; },
+      { w, h, plotRight: padL + iw, sy, priceText, pctText, up: pct >= 0, priceFont, scale });
     ctx.fillStyle = "rgba(5,6,12,.94)";
-    ctx.fillRect(priceX, boxY, priceW, boxH);
-    ctx.fillStyle = col.dim; ctx.textAlign = "right";
-    ctx.fillText(priceText, w - 5, midY);
-    if (pctText) { ctx.fillStyle = pct >= 0 ? col.bull : col.bear; ctx.fillText(pctText, w - 5 - pxW - 7, midY); }
+    ctx.fillRect(L.x, L.y, L.w, L.h);
+    ctx.textAlign = "right";
+    for (const line of L.lines) {
+      ctx.font = line.font + MONO; ctx.fillStyle = col[line.ink]; ctx.globalAlpha = line.alpha;
+      ctx.fillText(line.text, w - 4, line.y);
+    }
+    ctx.globalAlpha = 1;
+    host._scrubLabel = { x: L.x, y: L.y, w: L.w, h: L.h, plotRight: padL + iw, pct: pctText, price: L.priceText };
     ctx.font = markerFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
     const timeW = Math.ceil(ctx.measureText(timeText).width) + 8;
     const timeX = Math.max(padL, Math.min(padL + iw - timeW, sx - timeW / 2));
@@ -2236,6 +2256,38 @@ function scChartDraw(host, scrub) {
     ctx.fillText(timeText, timeX + timeW / 2, timeY);
     ctx.restore();
   }
+}
+
+/* THE CROSSHAIR'S PRICE-SCALE LABEL (N10, 28 Sep) - where each line goes, as a pure function so a test can
+   check the geometry. measure(text, font) gives a text's width; o: the canvas width w and height h, the
+   plot's right edge, the crosshair's y, the price and percent texts, up (the percent is >= 0), the price
+   font and the pane scale. The box starts in the gutter right of the plot (plotRight + 1); each line is
+   fitted to the gutter's width less 8 px of padding. A price too wide at 8 px drops its thousands commas
+   first, then shrinks to 7 px; only a price too wide even then moves the box left of the gutter. */
+function crosshairLabel(measure, o) {
+  const gutX = o.plotRight + 1, gutIn = Math.max(10, o.w - gutX - 8);
+  const fitFont = (text, weight, max, min) => {
+    const tw = measure(text, weight + " " + max);
+    return tw <= gutIn ? max : Math.max(min, Math.floor(max * gutIn / tw * 10) / 10);
+  };
+  let priceText = o.priceText;
+  if (fitFont(priceText, 700, o.priceFont, 1) < 8) priceText = priceText.replace(/,/g, "");
+  const pFont = fitFont(priceText, 700, o.priceFont, 7);
+  const rows = [{ text: priceText, font: "700 " + pFont, size: pFont, ink: "dim", alpha: 1 }];
+  if (o.pctText) {
+    const cFont = fitFont(o.pctText, 700, Math.min(pFont, 10.5 * Math.max(1, o.scale || 1)), 7);
+    rows.push({ text: o.pctText, font: "700 " + cFont, size: cFont, ink: o.up ? "bull" : "bear", alpha: 1 },
+      { text: "from now", font: "400 " + fitFont("from now", 400, 8, 6.5), size: fitFont("from now", 400, 8, 6.5), ink: "dim", alpha: .8 });
+  }
+  const needW = Math.ceil(measure(priceText, "700 " + pFont)) + 6;
+  const x = Math.min(gutX, o.w - 2 - needW), wBox = o.w - 1 - x;
+  const lineH = rows.map((r) => Math.round(r.size + 3));
+  const hBox = lineH.reduce((a, b) => a + b, 0) + 3;
+  /* the price line sits on the crosshair; the box stays inside the pane's height */
+  const y = Math.max(1, Math.min(o.h - hBox - 1, o.sy - lineH[0] / 2 - 1.5));
+  let at = y + 1.5;
+  const lines = rows.map((r, k) => { const line = { text: r.text, font: r.font, ink: r.ink, alpha: r.alpha, y: at + lineH[k] / 2 + .5 }; at += lineH[k]; return line; });
+  return { x, y, w: wBox, h: hBox, lines, priceText };
 }
 
 function clearChartRetry(host) {
@@ -2458,6 +2510,7 @@ function paintGeigerBar(host) {
   node.title = m.title;
   node.setAttribute("aria-label", "Geiger composite " + m.text + (m.stale ? ", older than usual" : ""));
   host._geigerMemo = null;   /* host._inkAt stays: it is this paint's pixels, reset by the next paint */
+  sizeGeigerChip(host, node); /* before the rotation list measures the room the chip leaves it */
   paintRotationMark(badge);  /* the rotation list leaves the chip its room (L6) */
   placeGeiger(host);
 }
@@ -2494,9 +2547,21 @@ function deckKeepOut(area) {
     return out;
   } catch (_) { return []; }
 }
+/* The chip's size for this pane (N10): the badge price's size, and a bar length for the pane's room. */
+function sizeGeigerChip(host, node) {
+  const B = window.SC_GEIGER_BAR, area = host.querySelector(".sc-nchart__area");
+  if (!B || typeof B.chipSize !== "function" || !area || !node) return;
+  const badge = host.querySelector(".sc-nchart__live");
+  const z = B.chipSize(area.clientWidth, area.clientHeight, badge ? parseFloat(getComputedStyle(badge).fontSize) : NaN);
+  if (node.dataset.size === z.key) return;
+  node.dataset.size = z.key;
+  node.style.setProperty("--gchip-font", z.font + "px");
+  node.style.setProperty("--gchip-bar", z.barEm + "em");
+}
 function placeGeiger(host) {
   const node = host?.querySelector(".sc-nchart__live-geiger.is-float");
   if (!node || node.hidden) return;
+  sizeGeigerChip(host, node);
   const P = scPlace(), plot = host._plot, pts = host._series;
   const area = host.querySelector(".sc-nchart__area");
   if (!P || !plot || !pts || pts.length < 2 || !area) { node.style.visibility = "hidden"; return; }
