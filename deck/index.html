@@ -231,7 +231,15 @@ let STACKED = innerWidth < STACK_AT;   /* decided BEFORE anything mounts */
    the Safari crash work; everything above that is paused behind a tap and
    stays in the chip row. Never frozen before we know which layout we are
    in, which is a bug v3 caught in its own test sweep. */
-const LIVE_CAP = Math.max(1, Math.min(6, +(QS.get("live") || 0) || (STACKED ? 2 : 5)));
+/* Recompute this when the deck crosses the phone/desktop breakpoint. A link
+   can open into a temporarily narrow browser viewport and widen a moment
+   later; freezing the initial value left the Apple TV/desktop deck looking
+   like a PWA with three panes unnecessarily parked behind Tap to load. */
+let LIVE_CAP = 0;
+function wantedLiveCap() {
+  const pinned = +(QS.get("live") || 0);
+  return Math.max(1, Math.min(6, pinned || (STACKED ? 2 : 5)));
+}
 
 const PANES = [];
 const LIVE = [];
@@ -370,7 +378,25 @@ function relayout() {
      very first paint on a phone and leave it in deck layout */
   /* a pane narrower than this cannot carry prose — trim it, do not hide it */
   for (const o of PANES) o.node.classList.toggle("tight", o.node.clientWidth < 260);
+  enforceLiveBudget();
   measure();
+}
+
+function enforceLiveBudget() {
+  LIVE_CAP = wantedLiveCap();
+  while (LIVE.length > LIVE_CAP) {
+    const old = LIVE.shift();
+    if (!old || !old.frame) continue;
+    old.frame.remove(); old.frame = null;
+    old.showCard(STACKED
+      ? "paused on phone to keep Safari happy — tap to load"
+      : "paused to keep the page light — tap to bring it back");
+  }
+  for (const o of PANES) {
+    if (LIVE.length >= LIVE_CAP) break;
+    if (!o.isDock && !o.frame) mount(o);
+  }
+  paintChips();
 }
 function measure() {
   const a = PANES.find((p) => p.def.key === "c1"), b = PANES.find((p) => p.def.key === "c2");
