@@ -67,7 +67,7 @@ test("the Lab's inputs: RSI 14, 2H off by default, the six lines Alan named on, 
   const [r, g, b] = rgb(F.INK.family);
   assert.ok(Math.max(r, g, b) - Math.min(r, g, b) > 24, "the line ink is a colour, never a grey");
   assert.ok(!(r > 230 && g > 230 && b > 230), "and never white");
-  for (const l of F.LINES) assert.match(F.ink(l.key), /^rgba\(82,109,255,0\.\d\d\)$/, l.label + " uses the one family ink");
+  for (const l of F.LINES) assert.match(F.ink(l.key), /^rgba\(82,109,255,[01]\.\d\d\)$/, l.label + " keeps the family ink for the cloud and the 50 line");
   assert.ok(F.PANEL_SHARE <= 0.28, "the panel never takes more than 28% of the pane");
 });
 
@@ -216,8 +216,8 @@ test("wiring: both chart twins load the arithmetic and the fan, the panel sits u
   assert.match(chart, /ensureCloudDaily\(host, t, req, generation\);\s*\/\*[^*]*\*\/\s*ensureRsiFan\(host, t, req, generation\);/,
     "the fan is asked for after the price and the ribbon");
   assert.match(chart, /acquireChartLoadPermit\(host, req \+ "\|rsi", generation\)/, "one load permit per pane for the whole fan");
-  assert.match(chart, /fetchProviderCandles\(t, line\.tf, Math\.min\(need, F\.TAIL_LIMIT\), 2\)/, "the tail, through the pane's own provider route");
-  assert.match(chart, /need > F\.TAIL_LIMIT \? fetchProviderCandles\(t, line\.tf, need, 2\)/, "and, past the tail limit, the history beside it");
+  assert.match(chart, /fetchProviderCandles\(t, tf, Math\.min\(need, F\.TAIL_LIMIT\), 2\)/, "the tail, through the pane's own provider route");
+  assert.match(chart, /need > F\.TAIL_LIMIT \? fetchProviderCandles\(t, tf, need, 2\)/, "and, past the tail limit, the history beside it");
   assert.match(chart, /F\.joinTail\(toBars\(historyRows\), toBars\(tailRows\)\)/, "joined on timestamps");
   assert.doesNotMatch(chart, /sc_rsi_/, "the fan's source bars are never written to local storage");
   assert.match(provider, /'6h':'6h','8h':'8h','12h':'12h'/, "the chart API serves 8h; the client now asks for it");

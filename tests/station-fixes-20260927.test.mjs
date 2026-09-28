@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import { emptiestSpot, pathPoints, tailBox } from "../_indicators/lens-placement.mjs";
+import { emptiestSpot, pathPoints, tailBox, topRightSpot } from "../_indicators/lens-placement.mjs";
 
 const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), "utf8");
 const chart = read("../chart/index.html");
@@ -64,23 +64,22 @@ test("the plot starts under the badge (capped at 18% of the pane), with TradingV
   assert.match(chart, /background:rgba\(5,6,12,\.76\); border:0; border-radius:4px;/);
 });
 
-test("the Geiger chip takes the emptiest dark patch, preferring the spot under the badge, never on the lens or the newest fifth", () => {
+test("the Geiger chip takes the TOP RIGHT, in the badge row, clear of the price scale; the deck's tag pushes it left (28 Sep)", () => {
+  /* 27 Sep (O1) the chip hunted for the emptiest patch inside the plot; 28 Sep Alan: "I feel like the
+     Geiger should take the TOP RIGHT." */
   const plot = { padL: 6, padT: 34, iw: 371, ih: 214, start: 0, end: 239, rightBars: 8, yLo: 0, yHi: 100 };
-  const pts = pathPoints(plot, Array.from({ length: 240 }, (_, i) => ({ p: 20 + i * 0.3 })));
   const box = { w: 92, h: 16 };
-  const under = { x: plot.padL + 6, y: plot.padT + 6 };
-  const empty = emptiestSpot({ plot, box, points: pts, ink: () => false, prefer: under, margin: 4, tolerance: 0.05, cols: 12, rows: 8 });
-  assert.equal(empty.spot.x, under.x); assert.equal(empty.spot.y, under.y, "right under the badge when that is empty");
-  /* a lens sitting there: the chip steps around it */
-  const lens = { x: plot.padL + 6, y: plot.padT + 6, w: 93, h: 68 };
-  const moved = emptiestSpot({ plot, box, points: pts, ink: () => false, keepOut: [lens], prefer: under, margin: 4, cols: 12, rows: 8 });
+  const badge = { x: 8, y: 7, w: 180, h: 22 };
+  const top = topRightSpot({ plot, box, badge });
+  assert.equal(top.spot.x + box.w, plot.padL + plot.iw - 2, "right-aligned to the plot's right edge, left of the price scale");
+  assert.ok(top.spot.y + box.h <= plot.padT, "above the plot: never on the price line or the live price label");
+  const tag = { x: 330, y: 6, w: 30, h: 20 };
+  const pushed = topRightSpot({ plot, box, badge, keepOut: [tag] });
   const hits = (a, b) => !(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y);
-  assert.ok(!hits(moved.spot, lens), "not on the lens");
-  assert.ok(moved.spot.x + box.w <= tailBox(plot).x, "not in the newest fifth");
-  /* the chip is the area's own element, hidden until placed; the placement uses the shared rule */
+  assert.ok(!hits(pushed.spot, tag) && !hits(pushed.spot, badge), "slides left of the deck's tag, never onto the badge");
   assert.match(chart, /node\.className = "sc-nchart__live-geiger is-float";/);
   assert.match(chart, /import\("\/_indicators\/lens-placement\.mjs"\)/);
-  assert.match(chart, /if \(lens\) keepOut\.push\(lens\);/);
+  assert.match(chart, /const res = P\.topRightSpot\(\{ plot, box, badge, keepOut \}\);/);
 });
 
 test("no grey DETAIL badge on the wall, and the expand square only shows under a pointer", () => {

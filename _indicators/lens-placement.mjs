@@ -341,6 +341,22 @@ export const SHIPPED_SHAPE = "chamfer";
    Pure: `ink(x, y)` is handed in (the page reads the chart canvas, the tests pass a function).
    ========================================================================== */
 export const COVER_COST = 0.25;
+/* 28 Sep — THE NEWEST FIFTH IS A FIFTH OF THE LINE, not of the plot. With the new, shorter first views
+   the plot carries a right margin (a few empty bars, and the cloud ribbon's names) after the newest bar,
+   so "the right fifth of the plot" was only about a tenth of the drawn line. The newest fifth is now
+   measured on the line that is actually on screen: from its first drawn point to its last, the last
+   fifth of that distance, and everything right of it (the names column, the live point) with it. */
+export function lineTailBox(plot, pts, share = TAIL_SHARE) {
+  if (!pts || pts.length < 2) return tailBox(plot, share);
+  const left = pts[0].x, right = pts[pts.length - 1].x;
+  const x = Math.min(plot.padL + plot.iw * (1 - share), right - share * Math.max(0, right - left));
+  return { x, y: plot.padT, w: plot.padL + plot.iw - x, h: plot.ih };
+}
+/* The search grid follows the pane: about one position every 20 px across and 14 px down, so a wide
+   two-chart pane is searched as finely as a small eight-up one. */
+export function gridFor(span, step, lo, hi) {
+  return Math.max(lo, Math.min(hi, Math.round(span / step) + 1));
+}
 export function emptiestSpot(opts) {
   const { plot, box } = opts;
   const pts = opts.points || [];
@@ -348,12 +364,13 @@ export function emptiestSpot(opts) {
   const margin = opts.margin == null ? 6 : opts.margin;
   const pad = opts.keepOutPad == null ? 4 : opts.keepOutPad;
   const tolerance = opts.tolerance == null ? 0.03 : opts.tolerance;
-  const cols = opts.cols || 10, rows = opts.rows || 6;
   const keepOut = (opts.keepOut || []).filter((k) => k && k.w > 0 && k.h > 0);
-  const tail = tailBox(plot, opts.tailShare == null ? TAIL_SHARE : opts.tailShare);
+  const share = opts.tailShare == null ? TAIL_SHARE : opts.tailShare;
+  const tail = opts.tailFrom === "plot" ? tailBox(plot, share) : lineTailBox(plot, pts, share);
   const x0 = plot.padL + edge, x1 = Math.min(tail.x - box.w, plot.padL + plot.iw - edge - box.w);
   const y0 = plot.padT + edge, y1 = plot.padT + plot.ih - edge - box.h;
   if (x1 < x0 || y1 < y0) return { spot: null, why: "the plot left of the newest fifth is smaller than the box" };
+  const cols = opts.cols || gridFor(x1 - x0, 20, 6, 28), rows = opts.rows || gridFor(y1 - y0, 14, 4, 14);
   const hit = (r) => keepOut.some((k) => !(r.x + r.w + pad <= k.x || k.x + k.w + pad <= r.x || r.y + r.h + pad <= k.y || k.y + k.h + pad <= r.y));
   /* The chart's pixels are sampled ONCE on a step grid over the plot and summed, so each candidate's
      share of ink is four lookups rather than hundreds (the per-candidate sampling cost ~25 ms per wall
@@ -446,4 +463,38 @@ export function inkReader(canvas) {
     if (px < 0 || py < 0 || px >= W || py >= H) return false;
     return data[(py * W + px) * 4 + 3] > 40;
   };
+}
+
+/* ============================================================================
+   28 Sep — THE GEIGER CHIP TAKES THE TOP RIGHT.
+   Alan: "The system is having trouble with the locations of things, so as not to consume space… I feel
+   like the Geiger should take the TOP RIGHT."
+     1. its row is the badge's row: the band above the plot the ticker badge already sits in, so it covers
+        no price, no cloud and none of the lens' room;
+     2. right-aligned to the plot's right edge: the price scale and the live price label live right of that
+        edge (and below the plot's top), so the chip is clear of both;
+     3. a keep-out box in that row (the deck's timeframe tag, its arrows) pushes it left, never onto the
+        badge;
+     4. no room left in that row: the plot's own top-right corner, just inside the edge;
+     5. still no room: no chip, and the pane says why (data-why).
+   Pure: boxes in, a spot out.
+   ========================================================================== */
+const hitBox = (a, b, pad = 0) => !(a.x + a.w + pad <= b.x || b.x + b.w + pad <= a.x || a.y + a.h + pad <= b.y || b.y + b.h + pad <= a.y);
+export function topRightSpot({ plot, box, badge = null, keepOut = [], pad = 4, gap = 2 }) {
+  const right = plot.padL + plot.iw;
+  const outs = (keepOut || []).filter((k) => k && k.w > 0 && k.h > 0);
+  const rowY = badge && badge.h > 0 ? Math.round(badge.y + (badge.h - box.h) / 2) : Math.round(plot.padT - box.h - 3);
+  let x = Math.round(right - box.w - gap);
+  for (let guard = 0; guard < 8; guard++) {
+    const k = outs.find((o) => hitBox({ x, y: rowY, w: box.w, h: box.h }, o, pad));
+    if (!k) break;
+    x = Math.round(k.x - pad - box.w);
+  }
+  const row = { x, y: rowY, w: box.w, h: box.h };
+  const rowFree = rowY >= 0 && x >= plot.padL && !outs.some((o) => hitBox(row, o, pad)) && !(badge && hitBox(row, badge, pad));
+  if (rowFree) return { spot: row, why: x === Math.round(right - box.w - gap) ? "top right, in the badge row" : "top right, in the badge row, left of the deck's tag" };
+  const inside = { x: Math.round(right - box.w - gap), y: Math.round(plot.padT + gap), w: box.w, h: box.h };
+  if (!outs.some((o) => hitBox(inside, o, pad)) && !(badge && hitBox(inside, badge, pad)) && inside.x >= plot.padL)
+    return { spot: inside, why: "top right, just inside the plot (the badge row has no room)" };
+  return { spot: null, why: "no room at the top right" };
 }

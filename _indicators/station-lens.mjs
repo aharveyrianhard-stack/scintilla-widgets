@@ -19,7 +19,7 @@
    opened, the bubble is drawn dimmed and its head says STALE.
    ============================================================================ */
 import { lastSessions, flatten, barsToRequest, drawBubble, bubbleBox, placeBubble, layout,
-  CHAMFER, DIALS, TIMEFRAMES, HOURS, etParts } from "./lens-bars.mjs";
+  CHAMFER, DIALS, TIMEFRAMES, HOURS, etParts, FLOOR } from "./lens-bars.mjs";
 import { pathPoints, clearsTail, clearsTailPoints, emptiestSpot, inkReader, DEFAULTS as PLACE } from "./lens-placement.mjs";
 
 /* O1 (27 Sep), Alan: "30-minute is too short for 3-day charts -> use 4h; on DAILY charts use the
@@ -128,10 +128,45 @@ export function bottomLeft(plot, box, pts, keepOut = [], opt = {}) {
    fixed)". The lens takes the emptiest region of the plot (lens-placement.mjs emptiestSpot), bottom-left
    whenever bottom-left is as empty as anywhere, never in the newest fifth, never on the badge or the
    deck's arrows, and it keeps its place unless somewhere is meaningfully emptier. */
+/* 28 Sep — THE RULE, REWRITTEN FOR THE NEW FIRST VIEWS AND FOR ZOOMING. Alan: "You made some level of
+   rule but a partial rule; it doesn't consider zooming… play around with the default zooms and rewrite the
+   rules so it fits cleanly." In plain words, in order:
+     1. only over the OLDER four-fifths of the line on screen: never over its newest fifth, nor anything
+        right of it (the average names, the live point, the price scale) - lens-placement lineTailBox;
+     2. never on the ticker badge, the Geiger chip (top right) or the deck's arrows and timeframe tag;
+     3. among the spots left, the one with the least already drawn in it (price line, clouds, grid lines,
+        all read from the chart's own pixels); a spot the price line runs through costs a quarter of a
+        box extra, so an empty patch always wins over a crossed one; and when every spot at the usual
+        size crosses the line, the lens shrinks (one size down, then its smallest) before it sits on it;
+     4. bottom-left whenever it is about as empty as the best spot (within 5% of the box);
+     5. once placed it stays through data refreshes unless somewhere else is clearly (8%) emptier or its
+        spot breaks rules 1-3;
+     6. zoom and pan: while the view is moving the lens holds still (no re-reading of the pixels on every
+        wheel notch); 0.2 s after the view stops it is placed again by rules 1-5, from the new picture;
+     7. no spot at all (a pane too small for the box) - no lens, and the pane says why (data-lens-why).
+   The same rule is checked by tests/station-zoom-fan-20260928.test.mjs. */
+export const LENS_TOLERANCE = 0.05;
+export const SETTLE_MS = 200;
+/* rule 3b: a lens that would sit on the price line shrinks first - one size down, then its smallest (80% of
+   that, never under the 79 x 50 floor) - and only when even that crosses the line does it take the
+   least-crossed spot at its usual size */
+export function lensBoxes(plot, size = DIALS.size) {
+  const usual = bubbleBox(plot, size), small = bubbleBox(plot, "S");
+  const least = { w: Math.max(FLOOR.w, Math.round(small.w * 0.8)), h: Math.max(FLOOR.h, Math.round(small.h * 0.8)) };
+  const out = [usual];
+  for (const b of [small, least]) if (!out.some((o) => o.w === b.w && o.h === b.h)) out.push(b);
+  return out;
+}
 export function placeLens({ plot, series, points, keepOut = [], slidePast = [], ink, size = DIALS.size, prev = null }) {
-  const box = bubbleBox(plot, size);
   const pts = points || pathPoints(plot, series || []);
-  const res = emptiestSpot({ plot, box, points: pts, ink, keepOut: keepOut.concat(slidePast), prefer: "bl", prev });
+  const boxes = lensBoxes(plot, size);
+  let res = null, box = boxes[0], first = null;
+  for (const b of boxes) {
+    const r = emptiestSpot({ plot, box: b, points: pts, ink, keepOut: keepOut.concat(slidePast), prefer: "bl", prev, tolerance: LENS_TOLERANCE });
+    if (!first) first = { r, b };
+    if (r.spot && !r.spot.covers) { res = r; box = b; if (b !== boxes[0]) res = { ...r, why: r.why + " (smaller, so it clears the price line)" }; break; }
+  }
+  if (!res) { res = first.r; box = first.b; }
   if (!res.spot) return { kind: "none", spot: null, fixed: false, fallback: true, why: res.why, box };
   const x0 = plot.padL + PLACE.edge, y1 = plot.padT + plot.ih - PLACE.edge - box.h;
   const corner = res.spot.y + box.h / 2 > plot.padT + plot.ih / 2 ? (res.spot.x + box.w / 2 < plot.padL + plot.iw / 2 ? "bl" : "br")
@@ -237,13 +272,22 @@ export function paint(host, deps) {
   const sessions = lastSessions(entry.bars, want.sessions, hoursOf(want.timeframe, t));
   const bars = flatten(sessions);
   if (!bars.length) return hide(host, `no ${want.timeframe} bars in ${hoursOf(want.timeframe, t)} hours`);
+  /* rule 6: the view is moving (a wheel, a drag, a pinch) - a lens already on screen holds still, and one
+     placement is made once the view has been still for SETTLE_MS */
+  const since = host._viewMovedAt ? performance.now() - host._viewMovedAt : Infinity;
+  if (since < SETTLE_MS && host._lens && host._lens.spot && host._lens.t === t && host._lens.key === want.key) {
+    if (!host._lensSettle) host._lensSettle = setTimeout(() => { host._lensSettle = null; if (host.isConnected) deps.redraw(host); }, SETTLE_MS - since + 20);
+    return;
+  }
   const fresh = freshness(sessions, Date.now(), deps.settled, { hours: hoursOf(want.timeframe, t), minutes: TIMEFRAMES[want.timeframe].minutes });
   const day = deps.day(host);
   const area = host.querySelector(".sc-nchart__area");
   const badge = host.querySelector(".sc-nchart__live");
   const controls = deckControls(area);
+  const chip = host._geigerSpot && host.querySelector(".sc-nchart__live-geiger:not([hidden])") ? host._geigerSpot : null;
   const sig = [controls.map((c) => [c.x, c.y, c.w, c.h].map(Math.round).join(",")).join(";"), area.clientWidth, area.clientHeight, plot.padL, plot.padT, plot.iw, plot.ih, plot.start, plot.end,
     pts.length, pts[pts.length - 1].d, entry.ts, fresh.stale, day, badge ? badge.offsetHeight + "x" + badge.offsetWidth : "",
+    chip ? [chip.x, chip.y, chip.w, chip.h].map(Math.round).join(",") : "",
     /* the ribbon arriving after the lens repaints the ink it must avoid: place again */
     (host._cloudTicker || "") + ":" + ((host._cloudRows && host._cloudRows.length) || 0)].join("|");
   if (host._lensMemo === sig) return;
@@ -254,6 +298,7 @@ export function paint(host, deps) {
     const a = area.getBoundingClientRect(), b = badge.getBoundingClientRect();
     keepOut.push({ x: b.left - a.left, y: b.top - a.top, w: b.width, h: b.height });
   }
+  if (chip) keepOut.push(chip);
   const main = host.querySelector(".sc-nchart__cv");
   /* one read of the chart's pixels per paint, shared with the Geiger chip (host._inkAt, reset by the chart) */
   const inkAt = host._inkAt || (main ? (host._inkAt = inkReader(main)) : null);
@@ -347,7 +392,7 @@ function deckControls(area) {
     const fe = window.frameElement;
     if (!fe) return [];
     const doc = fe.ownerDocument, f = fe.getBoundingClientRect(), a = area.getBoundingClientRect(), out = [];
-    for (const id of ["edgePrev", "edgeNext"]) {
+    for (const id of ["edgePrev", "edgeNext", "tfNow"]) {
       const b = doc.getElementById(id);
       if (!b || !b.offsetWidth) continue;
       const r = b.getBoundingClientRect();
