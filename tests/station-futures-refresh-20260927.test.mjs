@@ -40,7 +40,7 @@ test("every pane re-pulls its series once a minute, with no session or market-ho
   assert.doesNotMatch(fetchSeries, /chInSession|marketOpen|futureSet|chTradingDay/);
 });
 
-test("a futures quote on Sunday evening becomes a transient point after Friday's last bar; an equity never does", () => {
+test("a futures quote on Sunday evening becomes a transient point after Friday's last bar; an equity now does too", () => {
   const code = [
     line(/const cryptoSet = new Set\(Object\.values\(CB\)\);/).replace("Object.values(CB)", "[]"),
     line(/const futureSet = new Set\(\[[^\]]*\]\);/),
@@ -57,12 +57,18 @@ test("a futures quote on Sunday evening becomes a transient point after Friday's
   try {
     const friday = [{ d: "2026-09-25T20:00:00.000Z", p: 7800 }, { d: "2026-09-25T20:30:00.000Z", p: 7805 }];
     const quote = { price: 7787.5, updated_ts: "2026-09-28T01:30:49Z" };
+    /* P3: the forming bucket starts one width after the last completed bar's START; a real 3D series'
+       last completed bucket before Sunday evening started Tuesday 22 Sep. */
+    const series = { "30m": friday, "1D": friday, "3D": [{ d: "2026-09-19T04:00:00.000Z", p: 7790 }, { d: "2026-09-22T04:00:00.000Z", p: 7805 }] };
     for (const range of ["30m", "1D", "3D"]) {
-      const out = chApplyLivePoint("ESUSD", friday, quote, range);
+      const input = series[range];
+      const out = chApplyLivePoint("ESUSD", input, quote, range);
       assert.equal(out.length, 3, `ESUSD ${range}: one transient point is added`);
       assert.deepEqual(JSON.parse(JSON.stringify(out[2])), { d: "2026-09-28T01:30:49.000Z", p: 7787.5, live: true });
-      assert.equal(friday.length, 2, "the completed bars are never touched");
+      assert.equal(input.length, 2, "the completed bars are never touched");
     }
-    assert.equal(chApplyLivePoint("SPY", friday, quote, "1D"), friday, "a provider-owned equity gets no transient point");
+    /* P3, 28 Sep: equities draw their forming point too (Alan: "not waiting for candle closes"). */
+    const spy = chApplyLivePoint("SPY", friday, quote, "1D");
+    assert.equal(spy.length, 3); assert.equal(spy[2].live, true); assert.equal(friday.length, 2);
   } finally { Date.now = RealNow; }
 });

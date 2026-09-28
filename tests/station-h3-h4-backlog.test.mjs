@@ -230,21 +230,21 @@ test("a live tick reaches the drawn series, and keeps reaching it", () => {
   const frozen = JSON.stringify(completed);
 
   /* First tick, a new day: one transient point is appended and the input is untouched. */
-  const first = apply("BTCUSD", completed, { price:60000, updated_ts:"2026-08-19T10:00:00.000Z" });
+  const first = apply("BTCUSD", completed, { price:60000, updated_ts:"2026-08-19T10:00:00.000Z" }, "1h");
   assert.equal(JSON.stringify(completed), frozen, "the completed series is never mutated");
   assert.equal(first.length, 3);
   assert.equal(first[2].p, 60000);
   assert.equal(first[2].live, true, "and it is flagged transient, not a bar");
 
   /* Second tick, same day as the transient point: it REPLACES it, and does not stack. */
-  const second = apply("BTCUSD", first, { price:60500, updated_ts:"2026-08-19T10:00:30.000Z" });
+  const second = apply("BTCUSD", first, { price:60500, updated_ts:"2026-08-19T10:00:30.000Z" }, "1h");
   assert.equal(second.length, 3, "the transient point is replaced, never appended twice");
   assert.equal(second[2].p, 60500, "the price actually moves on the second tick");
   assert.equal(second[2].d, "2026-08-19T10:00:30.000Z");
   assert.equal(first[2].p, 60000, "and the previous copy is left alone");
 
   /* A third tick keeps moving it. */
-  const third = apply("BTCUSD", second, { price:61000, updated_ts:"2026-08-19T10:01:00.000Z" });
+  const third = apply("BTCUSD", second, { price:61000, updated_ts:"2026-08-19T10:01:00.000Z" }, "1h");
   assert.equal(third.length, 3);
   assert.equal(third[2].p, 61000);
 
@@ -252,9 +252,10 @@ test("a live tick reaches the drawn series, and keeps reaching it", () => {
      routinely share a UTC date, and the old date-only guard refused every intraday tick after
      load — a futures pane sat on its 08:00 bar all session. The rule is the timestamp. */
   for (const [range, bar, tick] of [
-    ["15m", "2026-08-19T08:00:00.000Z", "2026-08-19T08:12:00.000Z"],
-    ["1h",  "2026-08-19T08:00:00.000Z", "2026-08-19T08:49:00.000Z"],
-    ["1D",  "2026-08-18T21:00:00.000Z", "2026-08-19T10:00:00.000Z"],
+    /* P3, 28 Sep: a completed bar's d is its bucket START, so the forming bucket begins one width later. */
+    ["15m", "2026-08-19T08:00:00.000Z", "2026-08-19T08:17:00.000Z"],
+    ["1h",  "2026-08-19T08:00:00.000Z", "2026-08-19T09:49:00.000Z"],
+    ["1D",  "2026-08-18T04:00:00.000Z", "2026-08-19T10:00:00.000Z"],
   ]) {
     const series = [{ d:"2026-08-19T07:00:00.000Z", p:100 }, { d:bar, p:101 }];
     const out = apply("BTCUSD", series, { price:777, updated_ts:tick }, range);
@@ -262,6 +263,11 @@ test("a live tick reaches the drawn series, and keeps reaching it", () => {
     assert.equal(out[1].p, 101, `${range}: the completed bar is untouched`);
     assert.equal(out[2].live, true, `${range}: and the new point is flagged transient`);
   }
+
+  /* P3: a tick inside the last completed bar's own bucket is not a forming bar (15m bar 08:00, tick 08:12). */
+  const inside = apply("BTCUSD", [{ d:"2026-08-19T07:45:00.000Z", p:100 }, { d:"2026-08-19T08:00:00.000Z", p:101 }],
+    { price:777, updated_ts:"2026-08-19T08:12:00.000Z" }, "15m");
+  assert.equal(inside.length, 2, "a quote inside a completed bucket draws nothing");
 
   /* A tick NOT later than the last completed bar adds nothing, whatever the date. */
   const stale = apply("BTCUSD", completed, { price:99999, updated_ts:"2026-08-18T20:30:00.000Z" }, "1h");
@@ -274,7 +280,8 @@ test("a live tick reaches the drawn series, and keeps reaching it", () => {
   assert.equal(backwards.length, 3);
   assert.equal(backwards[2].p, 60000, "the newer transient point stands");
 
-  /* A provider-owned equity is never touched at all, on any timeframe. */
+  /* P3, 28 Sep (Alan: "not waiting for candle closes"): a provider-owned equity now draws its forming
+     point too - a flagged COPY; the completed series itself is still never touched. */
   const equityApply = fnFrom(chart, "chApplyLivePoint", {
     window:{ SC_PROVIDER:{ isProviderOwned:(sym) => sym === "AAPL" } },
     futureSet:new Set(), cryptoSet:new Set(),
@@ -283,9 +290,10 @@ test("a live tick reaches the drawn series, and keeps reaching it", () => {
     CH_RANGE_MS, Array, isFinite, Number, Date:FixedDate,
   });
   const equitySeries = [{ d:"2026-08-19T08:00:00.000Z", p:100 }];
-  const equityOut = equityApply("AAPL", equitySeries, { price:999, updated_ts:"2026-08-19T08:49:00.000Z" }, "1h");
-  assert.equal(equityOut, equitySeries, "the equity series is returned untouched, not even copied");
-  assert.equal(equityOut.length, 1);
+  const equityOut = equityApply("AAPL", equitySeries, { price:999, updated_ts:"2026-08-19T09:49:00.000Z" }, "1h");
+  assert.notEqual(equityOut, equitySeries, "a copy, never the cached series");
+  assert.equal(equitySeries.length, 1, "the completed series is untouched");
+  assert.deepEqual(JSON.parse(JSON.stringify(equityOut[1])), { d:"2026-08-19T09:49:00.000Z", p:999, live:true });
 
   /* And the caller must assign what it gets back. */
   assert.match(chart, /const next = chApplyLivePoint\(t, s, liveQuote\[t\], host\._range \|\| S\.chartRange\);\n\s*host\._series = next;/);

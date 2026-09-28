@@ -107,8 +107,12 @@ test("the pane wires the rule into the label it already had, and changes no bar"
   assert.doesNotMatch(paint, /fetch|CHART_DB_RANGE\s*\[/, "the label reads nothing and requests nothing");
   /* The provider's own widths and limits are untouched by this repair. */
   assert.match(chart, /"3h":\["180",240\]/, "the 3h range still asks the chart API for 180-minute bars");
-  assert.match(chart, /if \(provider && provider\.isProviderOwned && provider\.isProviderOwned\(t\)\) return pts;/,
-    "an equity line still never takes a live tick as a bar");
+  /* P3, 28 Sep: a live tick is never a BAR - it is one flagged forming point (live:true), appended to a
+     copy only in the bucket after the last completed bar, and every statistic skips it. */
+  assert.match(chart, /if \(observedAt <= lastMs \|\| observedAt < lastMs \+ bucket\) return out;/,
+    "a quote inside a completed bar's bucket never becomes a point");
+  assert.match(chart, /out\.push\(\{ d, p:quotePrice\(quote\), live:true \}\);/, "the forming point is flagged live");
+  assert.match(chart, /const lastIx = pts\[pts\.length - 1\]\.live \? pts\.length - 2 : pts\.length - 1;/, "the RSI fan reads completed bars only");
 });
 
 test("the pane Alan approved is untouched unless somebody asks for the line", () => {
