@@ -151,6 +151,39 @@ test("the fan is the Lab's V4: six lines 3H-D and the slow context cloud of 2D, 
     "the cloud rides the full fan, never the Hub's lone ?rsi=chart line");
 });
 
+/* ---- 5b · review fixes: the lines can be told apart, and a late start is marked ------------------ */
+test("the six lines are told apart by a strong ramp and the two fastest are broken, not by their tags alone", () => {
+  const on = F.LINES.filter((l) => l.on);
+  const a = on.map((l) => l.alpha), w = on.map((l) => l.width);
+  assert.deepEqual(plain(a), plain(a.slice().sort((x, y) => x - y)), "lighter to more solid");
+  assert.ok(a[a.length - 1] - a[0] >= 0.6, "the ramp spans at least 0.6 of opacity (was .52 to 1)");
+  assert.ok(w[w.length - 1] / w[0] >= 2.5, "the slowest line is at least 2.5x as heavy as the fastest (was 2x)");
+  for (let i = 1; i < on.length; i++) assert.ok(a[i] - a[i - 1] >= 0.1, `${on[i].label} is clearly more solid than ${on[i - 1].label}`);
+  assert.deepEqual(plain(on.filter((l) => l.dash).map((l) => l.label)), ["3H", "4H"], "3H dotted, 4H dashed, the rest solid");
+  assert.match(chart, /ctx\.setLineDash\(solo \|\| !spec\.dash \? \[\] : Array\.from\(spec\.dash\)\)/);
+  assert.equal(chart, twin, "the Station chart and its shell twin stay identical");
+});
+
+test("lateStart: marks where the intraday lines begin when that is inside the window, never when they fill it", () => {
+  const vals = (n, from) => Array.from({ length: n }, (_, i) => (i >= from ? 50 : null));
+  const es = [
+    { key: "3h", values: vals(126, 80) }, { key: "4h", values: vals(126, 60) }, { key: "6h", values: vals(126, 82) },
+    { key: "8h", values: vals(126, 62) }, { key: "12h", values: vals(126, 64) }, { key: "1D", values: vals(126, 0) }
+  ];
+  const r = F.lateStart(es, 0, 125);
+  assert.equal(r.ix, 82, "the first bar where every intraday line has a value");
+  assert.deepEqual(plain(r.keys), ["3h", "4h", "6h", "8h", "12h"]);
+  assert.equal(r.text, "3H–12H");
+  const spy = es.map((l) => ({ key: l.key, values: vals(126, 0) }));
+  assert.equal(F.lateStart(spy, 0, 125), null, "a stock with the full history: no mark");
+  assert.equal(F.lateStart(es, 90, 125), null, "zoomed in past the start: no mark");
+  assert.equal(F.lateStart([{ key: "1D", values: vals(126, 50) }], 0, 125), null, "the D line alone never gets the mark");
+  const two = [{ key: "4h", values: vals(10, 0) }, { key: "8h", values: vals(10, 6) }, { key: "12h", values: vals(10, 5) }];
+  assert.equal(F.lateStart(two, 0, 9).text, "8H/12H");
+  assert.match(chart, /const late = solo \? null : F\.lateStart\(o\.fan\.lines, o\.start, o\.end\);/);
+  assert.match(chart, /dateAt:\(i\) => \(pts\[i\] \? Date\.parse\(pts\[i\]\.d\) : null\)/);
+});
+
 test("missing widths are composed on the Eastern clock from bars the fan already reads", () => {
   /* 4H bars at 00, 04, 08, 12, 16, 20 ET (04Z... in September) → 8H at 00/08/16, 12H at 00/12 */
   const four = Array.from({ length: 12 }, (_, i) => ({ t: Date.UTC(2026, 8, 21, 4 + 4 * i), c: 100 + i }));
@@ -201,7 +234,7 @@ test("colour: each line green when its RSI is at or above a day earlier, red whe
   assert.equal(F.dayDirection(up), "up"); assert.equal(F.dayDirection(down), "down");
   const pal = { bull: "#00FFA3", bear: "#FF2D55" };
   assert.match(F.lineInk("1D", "up", pal), /^rgba\(0,255,163,1\.00\)$/);
-  assert.match(F.lineInk("3h", "down", pal), /^rgba\(255,45,85,0\.52\)$/, "fast lines lighter, slow ones solid");
+  assert.match(F.lineInk("3h", "down", pal), /^rgba\(255,45,85,0\.34\)$/, "fast lines lighter, slow ones solid");
   assert.match(chart, /ctx\.strokeStyle = F\.lineInk\(line\.key, line\.dir, pal, solo \? 1 : 0\);/);
 });
 

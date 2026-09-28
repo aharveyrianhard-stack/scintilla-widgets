@@ -1324,10 +1324,34 @@ function drawRsiFan(ctx, o) {
     }
     ctx.strokeStyle = F.lineInk(line.key, line.dir, pal, solo ? 1 : 0);
     ctx.lineWidth = solo ? 1.4 : (spec.width || 1);
-    ctx.setLineDash([]); ctx.lineJoin = "round";
+    ctx.setLineDash(solo || !spec.dash ? [] : Array.from(spec.dash)); ctx.lineJoin = "round";
     ctx.stroke();
   }
+  ctx.setLineDash([]);
   ctx.restore();
+  /* WHERE THE INTRADAY LINES BEGIN (28 Sep review): futures are served about a month of intraday bars, so
+     on a long ES/NQ window the 3H-12H lines start part-way across. A dotted rule and a tag mark the point,
+     so the lone D line before it is not read as the whole fan. */
+  const late = solo ? null : F.lateStart(o.fan.lines, o.start, o.end);
+  let lateShown = null;
+  if (late) {
+    const lx = Math.round(o.X(late.ix)) + .5, when = o.dateAt ? o.dateAt(late.ix) : null;
+    const text = late.text + (when != null && isFinite(when) ? " from " + rsiAsOf(when) : " start here");
+    ctx.save();
+    ctx.strokeStyle = F.INK.family; ctx.globalAlpha = .75; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+    ctx.beginPath(); ctx.moveTo(lx, top); ctx.lineTo(lx, top + ph); ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+    ctx.font = o.font + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+    ctx.textBaseline = "bottom";
+    const tw = ctx.measureText(text).width;
+    /* the tag reads leftward from the rule when the rule is in the right half, else rightward */
+    const tx = lx > left + width / 2 ? Math.max(left + 2, lx - 4 - tw) : Math.min(lx + 4, left + width - tw - 2);
+    const ty = top + ph - 2;
+    ctx.fillStyle = "rgba(5,6,12,.78)"; ctx.fillRect(tx - 2, ty - o.font - 2, tw + 4, o.font + 3);
+    ctx.fillStyle = "rgba(150,165,255,.95)"; ctx.textAlign = "left"; ctx.fillText(text, tx, ty);
+    ctx.restore();
+    lateShown = { ix:late.ix, keys:Array.from(late.keys), text, x:Math.round(lx) };
+  }
   ctx.font = o.font + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.textBaseline = "middle"; ctx.textAlign = "right";
   ctx.fillStyle = F.INK.upper; ctx.fillText("70", o.axisX, RY(70));
@@ -1398,7 +1422,7 @@ function drawRsiFan(ctx, o) {
     x += w + 9;
   }
   ctx.restore();
-  return { top, height:ph, yLo, yHi, lines:shown, cloud:cloudShown, tags };
+  return { top, height:ph, yLo, yHi, lines:shown, cloud:cloudShown, tags, late:lateShown };
 }
 const cloudSpecOptions = () => CLOUD_EXTRAS;
 /* Which completed daily observation each visible bar may show. Computed once per
@@ -2101,7 +2125,8 @@ function scChartDraw(host, scrub) {
   /* What the fan panel shows is kept on the host, like the ribbon's labels, so a proof can read it. */
   host._rsiDrawn = fanBlock ? drawRsiFan(ctx, { fan, X, start, end, left:padL, width:iw, palette:col,
     top:padT + ih + fanGap, height:fanBlock - fanGap, gap:fanGap, axisX:w - 3, hairline:col.dim,
-    font:cloudFont, scrubIx:scrub && pts[scrub.ix] ? scrub.ix : null }) : null;
+    font:cloudFont, scrubIx:scrub && pts[scrub.ix] ? scrub.ix : null,
+    dateAt:(i) => (pts[i] ? Date.parse(pts[i].d) : null) }) : null;
   ctx.save();
   ctx.font = ((ipadProfile ? 6.5 : 7) * scale) + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.fillStyle = col.dim; ctx.globalAlpha = .47; ctx.textAlign = "right";

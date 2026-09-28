@@ -68,20 +68,24 @@
   const INK = Object.freeze({ family:"#526DFF", upper:"#39D98A", lower:"#F05B78" });
   /* tf is the chart API token the provider client already maps (8h added to that map for this). */
   const LINES = Object.freeze([
-    Object.freeze({ key:"2h",  tf:"2h",  label:"2H",  on:false, alpha:.45, width:1,   durMs:2 * HOUR,  perSession:8 }),
-    Object.freeze({ key:"3h",  tf:"3h",  label:"3H",  on:true,  alpha:.52, width:1,   durMs:3 * HOUR,  perSession:6 }),
-    Object.freeze({ key:"4h",  tf:"4h",  label:"4H",  on:true,  alpha:.60, width:1,   durMs:4 * HOUR,  perSession:4 }),
+    Object.freeze({ key:"2h",  tf:"2h",  label:"2H",  on:false, alpha:.26, width:.8,  durMs:2 * HOUR,  perSession:8 }),
+    /* 28 Sep review: the five intraday RSIs move together, so they almost always share a colour; the
+       first ramp (alpha .52-.84, width 1-1.6) read as one bundle at 1680. The timeframe is now told by a
+       STRONG ramp - light and thin for fast, solid and heavy for slow - and the two fastest are broken
+       (3H dotted, 4H dashed), so each line can be followed without its right-edge tag. */
+    Object.freeze({ key:"3h",  tf:"3h",  label:"3H",  on:true,  alpha:.34, width:.9,  durMs:3 * HOUR,  perSession:6, dash:Object.freeze([1.5, 2.5]) }),
+    Object.freeze({ key:"4h",  tf:"4h",  label:"4H",  on:true,  alpha:.46, width:1.1, durMs:4 * HOUR,  perSession:4, dash:Object.freeze([5, 3]) }),
     /* compose: { from, factor, gridH } - the served width is swapped for `factor` bars of `from` joined on
        the Eastern clock (buckets start every gridH hours from midnight New York) when pickSource says so */
-    Object.freeze({ key:"6h",  tf:"6h",  label:"6H",  on:true,  alpha:.67, width:1.2, durMs:6 * HOUR,  perSession:4,
+    Object.freeze({ key:"6h",  tf:"6h",  label:"6H",  on:true,  alpha:.58, width:1.3, durMs:6 * HOUR,  perSession:4,
       compose:Object.freeze({ from:"3h", factor:2, gridH:6 }) }),
-    Object.freeze({ key:"8h",  tf:"8h",  label:"8H",  on:true,  alpha:.74, width:1.3, durMs:8 * HOUR,  perSession:3,
+    Object.freeze({ key:"8h",  tf:"8h",  label:"8H",  on:true,  alpha:.72, width:1.7, durMs:8 * HOUR,  perSession:3,
       compose:Object.freeze({ from:"4h", factor:2, gridH:8 }) }),
-    Object.freeze({ key:"12h", tf:"12h", label:"12H", on:true,  alpha:.84, width:1.6, durMs:12 * HOUR, perSession:2,
+    Object.freeze({ key:"12h", tf:"12h", label:"12H", on:true,  alpha:.86, width:2.1, durMs:12 * HOUR, perSession:2,
       compose:Object.freeze({ from:"4h", factor:3, gridH:12 }) }),
     /* A daily bar is stamped at midnight New York and its extended session ends at 20:00 New
        York, so it has FINISHED 20 hours after its stamp, in summer and in winter alike. */
-    Object.freeze({ key:"1D",  tf:"1D",  label:"D",   on:true,  alpha:1,   width:2,   durMs:20 * HOUR, perSession:1, daily:true })
+    Object.freeze({ key:"1D",  tf:"1D",  label:"D",   on:true,  alpha:1,   width:2.6, durMs:20 * HOUR, perSession:1, daily:true })
   ]);
   /* THE SLOW CONTEXT CLOUD's four sources (Lab V4: min/max of 2D/3D/W/2W RSI14). Not lines: at each chart
      bar the band between the lowest and the highest of the four. A daily-and-longer bar has finished at
@@ -370,9 +374,36 @@
     return "rgba(" + r + "," + g + "," + b + "," + a.toFixed(2) + ")";
   }
 
+
+  /* WHERE THE INTRADAY LINES BEGIN, when that is inside the window on screen (28 Sep review). The chart
+     API serves futures only about a month of intraday bars, so on an ES/NQ daily chart the 3H-12H lines
+     start part-way across and the D line runs alone before that. The panel marks that point instead of
+     letting a lone D line pass for the whole fan. lines: the fan's lines ({ key, values }); start/end:
+     the visible bar indexes. Returns null when every intraday line is drawn from the window's left edge
+     (within `slack` bars), else { ix, keys, labels, text } - ix is the first bar where ALL of them have
+     a value, keys the lines that begin late. */
+  function lateStart(lines, start, end, slack) {
+    const s = Math.max(0, Number(start) || 0), e = Number(end), k = slack == null ? 2 : slack;
+    const late = [];
+    let ix = -1;
+    for (const line of lines || []) {
+      const spec = BY_KEY[line.key];
+      if (!spec || spec.daily || !line.values) continue;
+      let first = -1;
+      for (let i = s; i <= e; i++) if (line.values[i] != null) { first = i; break; }
+      if (first < 0) continue;
+      if (first > s + k) { late.push(line.key); if (first > ix) ix = first; }
+    }
+    if (!late.length || ix < 0 || ix > e) return null;
+    const order = LINES.map((l) => l.key).filter((key) => late.includes(key));
+    const labels = order.map((key) => BY_KEY[key].label);
+    const text = labels.length > 2 ? labels[0] + "–" + labels[labels.length - 1] : labels.join("/");
+    return { ix, keys:order, labels, text };
+  }
+
   root.SC_RSI_FAN = Object.freeze({
     LINES, CHART_LINES, CONTEXT, BY_KEY, INK, LENGTH, WARMUP, WARMUP_MIN, MIN_SOURCE, MAX_SOURCE, TAIL_LIMIT, PANEL_SHARE, PHONE_MAX,
     CHART_KEY, parseRsiParam, linesFor, visibleAt, sourceLimit, joinTail, lineSeries, carryBars, sampleToChart, lineStatus, ink,
-    warmFor, composeBars, pickSource, fetchPlan, envelope, dayDirection, lineInk, etDayHour
+    warmFor, composeBars, pickSource, fetchPlan, envelope, dayDirection, lineInk, etDayHour, lateStart
   });
 })(typeof globalThis === "object" ? globalThis : window);
