@@ -23,8 +23,8 @@ ol.rule li{margin:8px 0}
   table{display:block;overflow-x:auto;max-width:100%} code{word-break:break-all}}
 </style></head><body>
 
-<h1>Station · 28 Sep: shorter first views, the lens rule rewritten, Geiger top right, matching pairs, and your full RSI fan</h1>
-<p class="lead">Every chart now opens on a shorter window (daily on 6 months, 3-day on 1 year, weekly on 2 years) and still zooms out to everything it had. The context lens follows one written rule that also works when you zoom. The Geiger chip sits top right. A two-chart page is always a matching pair. And the oscillator under the two-chart pages is now the Lab's whole fan: six lines plus the slow 2D-to-2W cloud, with every line drawn on stocks and on ES/NQ.</p>
+<h1>Station · 28 Sep: shorter first views, the lens rule rewritten, Geiger top right, and your full RSI fan</h1>
+<p class="lead">Every chart now opens on a shorter window (daily on 6 months, 3-day on 1 year, weekly on 2 years) and still zooms out to everything it had. The context lens follows one written rule that also works when you zoom. The Geiger chip sits top right. The intraday pages keep the rotating leader beside the targets, as you asked at about 09:55 (section 4). And the oscillator under the fan pages (the two-chart pages and the TARGETS · RSI and OTHER INDEXES · RSI pages) is now the Lab's whole fan: six lines plus the slow 2D-to-2W cloud. On stocks every line runs across the whole chart. <b>On ES/NQ the intraday lines only cover about the last month</b> (that is all the chart API holds for futures), and the panel now marks where they begin.</p>
 <p class="note">Branch <code>station/zoom-fan-20260928</code> (from the live Station <code>dedbc31</code>), pushed to GitHub, <b>not deployed</b>. Pictures come from a headless browser on this MacBook (never on your screen), 1680 wide unless marked. The chart API only answers scintillahub.ai, so the test browser's reads went through a small local relay that asks with that address (read-only). One more relay change was made for the pictures only, and it is explained in section 6. Nothing was written to any database.</p>
 
 <h2>1 · The shorter first view (you approved it)</h2>
@@ -87,27 +87,26 @@ ol.rule li{margin:8px 0}
 <figure><img src="shots/zoom-pane-after-TSM.png" alt="after: TSM pane zoomed"><figcaption>AFTER (enlarged): the chip top right in the badge row, left of the price scale. The plot is free.</figcaption></figure>
 </div>
 
-<h2>4 · Two-chart pages are matching pairs</h2>
-<blockquote>"I'm seeing this chart layout: S&amp;P futures and Amazon. Then S&amp;P futures and NASDAQ. It's really weird."</blockquote>
-<p>That was INTRADAY · 30M (one leader, taking turns, next to one target) followed straight away by SPY + QQQ · DAY. The rule from now on: <b>the leaders always come as their pair</b> (SPY + QQQ from 09:30 to 16:30 New York time on weekdays, ES + NQ otherwise), and <b>a two-chart page is always a matching pair</b>, either the leaders or two targets, never a leader next to a stock.</p>
+<h2>4 · The intraday pages: unchanged, at your request</h2>
+<blockquote>"What I said about S&amp;P and NASDAQ was one that rotates between the turns, so I don't think it was wrong, it was just me surprised."</blockquote>
+<p>An earlier version of this branch re-paired the intraday pages (leaders only as a pair, two-chart pages never a leader beside a stock). You withdrew that at about 09:55, so <b>it has been taken back out</b>. The intraday pages are exactly as they are live:</p>
 <table>
-<tr><th>Page</th><th>Before</th><th>Now</th></tr>
-<tr><td>INTRADAY · 4H (6 charts)</td><td>leader pair + 4 targets</td><td>unchanged: leader pair + targets 1–4 (next pass 5–8)</td></tr>
-<tr><td>INTRADAY · 1H (4 charts)</td><td>one leader (SPY or QQQ by turns) + 3 targets</td><td><b>leader pair on top + 2 targets below</b> (targets 5–6, next pass 1–2)</td></tr>
-<tr><td>INTRADAY · 30M (2 charts, RSI fan)</td><td>one leader + 1 target (e.g. ES + AMZN)</td><td><b>two targets</b> (targets 7–8, next pass 3–4), fan kept</td></tr>
-<tr><td>SPY + QQQ (3-day), SPY + QQQ · DAY</td><td>leader pair</td><td>unchanged</td></tr>
+<tr><th>Page</th><th>Layout (same as live)</th></tr>
+<tr><td>INTRADAY · 4H (6 charts)</td><td>leader pair + 4 targets</td></tr>
+<tr><td>INTRADAY · 1H (4 charts)</td><td>one leader (SPY and QQQ taking turns) + 3 targets</td></tr>
+<tr><td>INTRADAY · 30M (2 charts, RSI fan)</td><td>one leader + 1 target, one step per visit</td></tr>
 </table>
-<p>The three intraday pages now step through your eight targets together, so <b>each pass of the intraday block shows all eight targets once</b>: 4H the first four, 1H the next two, 30M the last two. The next pass swaps the halves. Same pages, same count: the day lap is still 23 pages and the night lap 17, so a lap takes as long as before (about 12½ and 9½ minutes). One caveat: each page keeps its own visit count, so if you jump to one of these pages by hand, that page moves one step ahead of the other two.</p>
+<p>A test now pins this layout, so it cannot change again without someone deciding to. Your new idea, "within the slot, switch between them", is a separate job for the coordinator to route. It was not started here.</p>
 <div class="pair">
-<figure><img src="shots/before-intraday1h-1680.png" alt="before: intraday 1h"><figcaption>BEFORE · INTRADAY · 1H: ES alone + GOOGL, NBIS, AVGO.</figcaption></figure>
-<figure><img src="shots/after-intraday1h-live-1680.png" alt="after: intraday 1h"><figcaption>AFTER · SPY + QQQ on top (in session), AMZN + VST below, one week of hourly bars.</figcaption></figure>
+<figure><img src="shots/before-intraday1h-1680.png" alt="before: intraday 1h"><figcaption>LIVE TODAY · INTRADAY · 1H at 09:20: ES + GOOGL, NBIS, AVGO.</figcaption></figure>
+<figure><img src="shots/after-intraday1h-live-1680.png" alt="this branch: intraday 1h"><figcaption>THIS BRANCH · the same page in session: SPY + GOOGL, NBIS, AVGO. Same layout, one week of hourly bars (was three).</figcaption></figure>
 </div>
 <div class="pair">
-<figure><img src="shots/before-intraday30m-1680.png" alt="before: intraday 30m"><figcaption>BEFORE · INTRADAY · 30M: ES next to GOOGL, 9 days squeezed in.</figcaption></figure>
-<figure><img src="shots/after-intraday30m-live-1680.png" alt="after: intraday 30m"><figcaption>AFTER · MU + WMT, three sessions, the full RSI fan under both.</figcaption></figure>
+<figure><img src="shots/before-intraday30m-1680.png" alt="before: intraday 30m"><figcaption>LIVE TODAY · INTRADAY · 30M: ES next to GOOGL, 9 days squeezed in.</figcaption></figure>
+<figure><img src="shots/after-intraday30m-live-1680.png" alt="this branch: intraday 30m"><figcaption>THIS BRANCH · in session: SPY next to GOOGL (same layout), three sessions, the full RSI fan under both.</figcaption></figure>
 </div>
 
-<h2>5 · The RSI fan: your full fan, every line drawn</h2>
+<h2>5 · The RSI fan: your full fan</h2>
 <blockquote>"The oscillators look really weird to me. I don't think the oscillators include my RSI situation. Three hour, four hour, six hour, eight hour, 12 hour — that's not the full fan. And I only see one line in most of these."</blockquote>
 <h3>What the full fan is (read from the Indicator Lab, nothing there changed)</h3>
 <p>The current Lab version is <b>V4</b> (<code>INDICATOR_LAB/sprints/2026-09-24-stack-alignment/rotation-output/RSI_MTF_Context_V4.pine</code>, its review notes, and the "independent MTF" card on the Lab page):</p>
@@ -127,25 +126,50 @@ ol.rule li{margin:8px 0}
 <li><b>The cloud is drawn</b>: min–max of 2D, 3D, W and 2W RSI 14, in the Lab's own blue at 24%, behind the lines, and named in the legend ("2D–2W 55–69").</li>
 <li><b>Missing widths are built from bars we already read</b>, never invented: 8H = two 4H bars, 12H = three 4H bars, 6H = two 3H bars (joined on the Eastern clock the API itself uses), 2D = two sessions, 2W = two weeks. A built line is used only when the served one is missing, too short, or stops earlier. On ES that turns 8H from "n/a" into 51.9 and 12H from "—" into 53.7. On stocks 8H now reaches today.</li>
 <li><b>Short histories still draw.</b> With under 300 bars, a line settles over 42 to 84 bars instead of 150. Those values can sit a few tenths away from TradingView's, which starts at the listing, so the legend marks them "≈" (on ES today: 3H, 4H, 6H, 8H, 12H).</li>
-<li><b>Colour follows the Station rule</b>: each line is <span class="up">green</span> when its RSI is at or above where it stood a day earlier, <span class="dn">red</span> when below. Line thickness tells the timeframe (3H thin and light, daily thick and solid), and every line has its name at its right end (3H, 4H, 6H, 8H, 12H, D).</li>
+<li><b>Colour follows the Station rule</b>: each line is <span class="up">green</span> when its RSI is at or above where it stood a day earlier, <span class="dn">red</span> when below. The five intraday RSIs usually move together, so they usually share a colour. The timeframe is therefore told by a <b>strong ramp</b>: 3H is a faint dotted line, 4H a light dashed one, then 6H, 8H and 12H are solid and each heavier and more solid than the last, and the daily line is the heaviest. Every line also has its name at its right end (3H, 4H, 6H, 8H, 12H, D). The first version of this branch used a weak ramp, and a reviewer found the five still read as one red bundle. The ramp was strengthened after that review.</li>
+<li><b>Where the futures lines begin is marked.</b> On ES/NQ the intraday lines start part-way across a daily or 3-day chart. A dotted rule and a small tag, e.g. "4H/8H/12H from 19 Aug" and "3H/6H from 8 Sep", show where each group starts. Before those points only the daily line and the cloud are drawn, so a lone daily line is no longer mistaken for the whole fan. Stocks have the full history and get no mark.</li>
 <li><b>The panel's scale follows what is on screen</b> (always showing 30 and 70, a little room either side), so the lines spread out instead of sitting in a thin strip.</li>
 </ul>
 <div class="box"><b>Before and after, same page, same bars, same minute</b> (ES daily, 09:20 New York time):<br>
 BEFORE: 3H 50.5 · 4H 48.2 · <b>6H —</b> · <b>8H n/a</b> · <b>12H —</b> · D 58.9 · no cloud<br>
 AFTER: 3H ≈50.5 · 4H ≈48.2 · <b>6H ≈53.1</b> · <b>8H ≈51.9</b> · <b>12H ≈53.7</b> · D 58.9 · <b>cloud 2D–2W 58–69</b></div>
 <figure class="one"><img src="shots/zoom-fan-before-ES.png" alt="before: ES fan enlarged"><figcaption>BEFORE (enlarged): ES daily fan. One dashed blue daily line across; 3H and 4H only at the far right; 6H and 12H "—", 8H "n/a".</figcaption></figure>
-<figure class="one"><img src="shots/zoom-fan-after-ES.png" alt="after: ES fan enlarged"><figcaption>AFTER (enlarged): the blue 2D–2W cloud behind; the daily line green (up on the day); the five intraday lines red (down on the day), reaching back as far as the API's month of futures bars allows; every line named at its right end.</figcaption></figure>
-<figure class="one"><img src="shots/zoom-fan-after-SPY.png" alt="after: SPY fan enlarged"><figcaption>AFTER (enlarged), in session: SPY daily. All six lines across the whole 6 months, plus the cloud (55–69). The intraday lines are red (lower than a day ago), the daily green.</figcaption></figure>
-<figure class="one"><img src="shots/zoom-fan-after-MU-30m.png" alt="after: MU 30m fan enlarged"><figcaption>AFTER (enlarged): MU on 30-minute bars. Slower lines step, because a line only moves when its own bar has finished (the Station never shows an unfinished value, and TradingView's history looks the same way).</figcaption></figure>
+<figure class="one"><img src="shots/zoom-fan-after-ES.png" alt="after: ES fan enlarged"><figcaption>AFTER (enlarged): the blue 2D–2W cloud behind; the daily line green (up on the day); the intraday lines red (down on the day). 4H, 8H and 12H begin at the "from 19 Aug" rule and 3H/6H at the "from 8 Sep" rule. Before 19 Aug the daily line runs alone, because the API holds only about a month of futures intraday bars. Every line is named at its right end.</figcaption></figure>
+<figure class="one"><img src="shots/zoom-fan-firstramp-SPY.png" alt="first version: SPY fan enlarged"><figcaption>FIRST VERSION (enlarged, 09:45, before the review): SPY daily, the right half. The five intraday lines, all red, sit on top of each other with near-equal weight. Apart from the tags at the right edge they read as one red bundle.</figcaption></figure>
+<figure class="one"><img src="shots/zoom-fan-after-SPY.png" alt="after: SPY fan enlarged"><figcaption>NOW (enlarged, about 10:10, live data a little later than the picture above): SPY daily, the right half. 3H is the faint dotted line and 4H the light dashed one. 12H is the heaviest red, and D the heavy green. Where the timeframes separate (the dips in late August and early September) each line can be followed. On most days the five intraday RSIs, sampled at each day's close, sit within a few points of each other. They will always overlap there, whatever the styling.</figcaption></figure>
+<figure class="one"><img src="shots/zoom-fan-after-SPY-30m.png" alt="after: SPY 30m fan enlarged"><figcaption>NOW (enlarged): SPY on 30-minute bars (INTRADAY · 30M). Slower lines step, because a line only moves when its own bar has finished (the Station never shows an unfinished value, and TradingView's history looks the same way).</figcaption></figure>
 <div class="pair">
 <figure><img src="shots/before-mainIndexes3D-1680.png" alt="before: SPY+QQQ 3-day"><figcaption>BEFORE · SPY + QQQ (3-day) at 09:20 as ES/NQ: two years, one visible fan line.</figcaption></figure>
-<figure><img src="shots/after-mainIndexes3D-live-1680.png" alt="after: SPY+QQQ 3-day"><figcaption>AFTER · in session as SPY/QQQ: one year, full fan with cloud, 4H lens top-left, Geiger top right.</figcaption></figure>
+<figure><img src="shots/after-mainIndexes3D-live-1680.png" alt="after: SPY+QQQ 3-day"><figcaption>AFTER · in session as SPY/QQQ: one year, full fan with cloud across the whole year, 4H lens top-left, Geiger top right. (At 09:20 as ES/NQ the same page marks "3H/4H/8H/12H from 19 Aug" and "6H from 12 Sep".)</figcaption></figure>
 </div>
 <div class="pair">
-<figure><img src="shots/after-spyQqq1D-1680.png" alt="after: SPY+QQQ day outside market hours shows ES NQ"><figcaption>SPY + QQQ · DAY at 09:20 (outside 09:30–16:30): ES + NQ, six months, full fan.</figcaption></figure>
+<figure><img src="shots/after-spyQqq1D-1680.png" alt="after: SPY+QQQ day outside market hours shows ES NQ"><figcaption>SPY + QQQ · DAY at 09:20 (outside 09:30–16:30): ES + NQ, six months. The fan's intraday lines cover the right part only, and the rules mark where they begin.</figcaption></figure>
 <figure><img src="shots/after-spyQqq1D-live-1680.png" alt="after: SPY+QQQ day inside market hours"><figcaption>The same page at 09:45 (inside): SPY + QQQ. The lens says STALE here; see "what could be wrong".</figcaption></figure>
 </div>
 <figure class="phone"><img src="shots/after-chart-QQQ-1D-390.png" alt="phone: QQQ daily with fan"><figcaption>PHONE (390) · QQQ daily with ?rsi=1: Geiger top right, lens bottom-left clear of the line, fan with cloud and names. (On deck pages the fan still hides itself on a phone-narrow pane, as before.)</figcaption></figure>
+
+<h2>5b · The oscillator pages: TARGETS · RSI (8 charts) and OTHER INDEXES · RSI (6 charts)</h2>
+<p>These two pages carry the same fan under every chart, and they already did before today. The first version of this page wrongly said they had none. They are probably the pages you meant by "the oscillators look really weird". Before, each chart's fan was one indigo shade with no cloud, and <b>8H was six weeks old</b>: the tag read "18 Aug", because the API's stock 8h bars stop there. Now each chart has the cloud, green/red lines with the ramp, and 8H up to today (built from 4H bars).</p>
+<div class="pair">
+<figure><img src="shots/before-targetsOsc-1680.png" alt="before: targets RSI page"><figcaption>LIVE TODAY · TARGETS · RSI: 11½ months per chart, the fan all indigo, "8H … 18 Aug" on every chart, no cloud.</figcaption></figure>
+<figure><img src="shots/after-targetsOsc-1680.png" alt="after: targets RSI page"><figcaption>THIS BRANCH · 6 months per chart, the fan with the 2D–2W cloud, green/red lines, names at the right end, 8H current.</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/zoom-osc-before-GOOGL-NBIS.png" alt="before: GOOGL NBIS enlarged"><figcaption>BEFORE (enlarged): GOOGL and NBIS. One indigo scribble. 8H 42.1 is "18 Aug".</figcaption></figure>
+<figure><img src="shots/zoom-osc-after-GOOGL-NBIS.png" alt="after: GOOGL NBIS enlarged"><figcaption>AFTER (enlarged): the same two. The cloud (45–58, 52–60), GOOGL's daily line green and its intraday lines red, NBIS all red. On an 8-up page the fan panel is only about 50 pixels tall, so the lines are close together there by nature.</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/before-otherIndexesOsc-1680.png" alt="before: other indexes RSI page"><figcaption>LIVE TODAY · OTHER INDEXES · RSI (SMH, DIA, DRAM, MAGS, IWM, IGV).</figcaption></figure>
+<figure><img src="shots/after-otherIndexesOsc-1680.png" alt="after: other indexes RSI page"><figcaption>THIS BRANCH · the same six: full fan with cloud on each.</figcaption></figure>
+</div>
+<table>
+<tr><th>Measured (headless, 1680)</th><th>TARGETS · RSI</th><th>OTHER INDEXES · RSI</th></tr>
+<tr><td>Time until every chart's fan has all six lines and its cloud, <b>cold first load</b> (nothing cached, every bar read live)</td><td class="num">11.1 s (two runs, both 11.1 s; first chart 4 s, last BE at 11 s)</td><td class="num">4.0 s</td></tr>
+<tr><td>A lap page is on screen for about</td><td class="num" colspan="2">33 s. The fans fill well inside that, so no staggering or trimming was added.</td></tr>
+<tr><td>Lenses clear of the newest fifth, badge and chip</td><td>8 of 8</td><td>6 of 6</td></tr>
+<tr><td>Lenses clear of the price line</td><td><b>6 of 8</b>. BE and VST cross it: at 6 months those two charts are filled edge to edge. On the live page (11½ months) both were clear.</td><td>6 of 6</td></tr>
+</table>
+<p class="note">A reviewer saw AVGO and VST still empty at 18 s and full by 45 s. My cold runs (about 10:05 ET) took 11 s. The difference is probably how busy the chart API was at the time; I could not reproduce the slower read. Readouts: <code>harness/after-targetsOsc.json</code>, <code>after-otherIndexesOsc.json</code>, <code>before-*.json</code>; fill-time probe <code>harness/fill.mjs</code>.</p>
 
 <h2>6 · Where the numbers come from</h2>
 <ul>
@@ -157,30 +181,31 @@ AFTER: 3H ≈50.5 · 4H ≈48.2 · <b>6H ≈53.1</b> · <b>8H ≈51.9</b> · <b>
 
 <h2>7 · What could be wrong</h2>
 <ul>
-<li><b>Futures fan lines are short</b>: ES/NQ intraday lines only reach back about a month (the API keeps a month of futures intraday bars), and they carry "≈". On a 6-month daily chart they cover roughly the right fifth.</li>
+<li><b>The futures fan is only complete for about the last month</b>: ES/NQ intraday lines only reach back that far (the API keeps a month of futures intraday bars), and they carry "≈". On a 6-month daily chart the daily line runs alone for roughly the first two-thirds; the dotted rules mark where the others begin (decision 3 would fix it).</li>
 <li><b>Built lines vs TradingView</b>: our 8H/12H/6H are joined on the Eastern clock from 00:00 (as the API cuts its own), and TradingView cuts intraday bars from the session open, so values can differ by a few points (this was already true of every intraday width; see the bar-rule note on each chart). The 2D pairs are counted from a fixed date without the holiday calendar, so a pair can differ from TradingView's by one day around a holiday.</li>
-<li><b>One lens still crosses the line</b> (VST daily): the chart is filled from edge to edge, and even the smallest lens has nowhere clear to go. It takes the spot it crosses least.</li>
+<li><b>Three lenses still cross the line</b>: VST on TARGETS · DAY, and BE and VST on TARGETS · RSI. Those charts are filled from edge to edge at 6 months, and even the smallest lens has nowhere clear to go, so it takes the spot it crosses least.</li>
 <li><b>Lens says STALE from 09:30 to about 10:05 every morning</b> (seen in the in-session picture). This existed before today's change. The lens counts today's session as open at 09:30, but the first regular 30-minute bar only finishes at 10:00. Not changed here.</li>
 <li><b>Intraday stepping</b>: on 30m and 1h charts the slower lines are steps, because a line only moves when its own bar has finished. That is deliberate (no peeking ahead) and matches TradingView's history.</li>
 <li>The 2-chart fan now asks the API for two more widths per chart (3D and weekly, for the cloud), and more 4H bars for building 8H/12H.</li>
 </ul>
 
 <h2>8 · Tests</h2>
-<p>806 tests run, 788 pass. The 18 that fail are exactly the 18 that already fail on the live Station, by name; nothing new fails. New suite <code>tests/station-zoom-fan-20260928.test.mjs</code> (16 tests): first views and zoom-out, the scale following the window, the lens rules 1–6 (fifth of the drawn line, keep-outs, shrink before crossing, hold while moving), the chip top right, matching pairs at every clock and visit, all eight targets once per intraday pass, lap length unchanged, the fan's V4 lines and cloud, building 8H/12H/2D, when a built line is used, short-history warm-up and "≈", the cloud's min/max, green/red by the day. Tests in six older files were updated to the new behaviour (the O1 chip rule, the intraday windows, the 30M page's tickers, the first-view zoom test, the fan's colour and fetch pins).</p>
+<p>807 tests run, 789 pass. The 18 that fail are exactly the 18 that already fail on the live Station, by name; nothing new fails. New suite <code>tests/station-zoom-fan-20260928.test.mjs</code> (17 tests): first views and zoom-out, the scale following the window, the lens rules 1–6 (fifth of the drawn line, keep-outs, shrink before crossing, hold while moving), the chip top right, <b>the intraday pages kept exactly as live</b>, lap length unchanged, the fan's V4 lines and cloud, the strong ramp and the two broken lines, the "from &lt;day&gt;" marks (and no mark when the lines fill the window), building 8H/12H/2D, when a built line is used, short-history warm-up and "≈", the cloud's min/max, green/red by the day. Tests in four older files were updated to the new behaviour (the O1 chip rule, the first-view zoom test, the fan's colour and fetch pins). The two older files that pin the intraday pages are back exactly as they are live.</p>
 
 <h2>9 · What was not done</h2>
 <ul>
 <li>No deploy, no database write, no paid service, nothing on the iMac, nothing under the Indicator Lab (only read).</li>
 <li>The Station's accepted Geiger fingerprint was not changed (decision 1).</li>
 <li>No futures intraday history was backfilled (decision 3); the lens's 09:30–10:00 STALE was not changed.</li>
-<li>Four-up, six-up and eight-up pages still have no RSI fan (unchanged, as before).</li>
+<li>The intraday re-pairing was taken back out at your request (section 4). "Within the slot, switch between them" was not started; it is for the coordinator to route.</li>
+<li>Four-up and six-up pages without an RSI study (for example the TARGETS · DAY and AI pages) have no fan, as before. The two oscillator pages that do carry one are covered in section 5b.</li>
 </ul>
 
 <h2>10 · Decisions for you</h2>
 <ol>
 <li><b>Stock Geiger chips are hidden on the live Station today.</b> The Geiger's equalizer changed (this morning's reading is <code>d0da9a46…</code>; the Station accepts only <code>f6cf97b5…</code>). <i>Recommendation:</i> the coordinator confirms the change is the agreed one (2h weight set to 0) and updates the Station's accepted fingerprint in the same release as this branch.</li>
-<li><b>Fan colours.</b> Now each line is green or red by its own day (the Station rule), and the lines are told apart by thickness and their end names. The Lab draws them all in one blue. <i>Recommendation:</i> keep green/red. Say so if you want the Lab's single blue instead; it is a one-line switch.</li>
-<li><b>Futures RSI depth.</b> ES/NQ intraday lines reach back only a month, because the API holds a month of futures intraday bars. <i>Recommendation:</i> a keyed job on Fly backfills six months of futures hourly bars from FMP, after which the ES/NQ fan covers the whole daily view with no "≈".</li>
+<li><b>How the fan's lines are told apart.</b> Now: green or red by each line's own day (the Station rule), with a strong ramp from a faint dotted 3H to a heavy D (compare the two SPY pictures in section 5). The Lab draws them all in one blue, with the same kind of ramp. <i>Recommendation:</i> keep green/red with the strong ramp. If after a day of trading you still cannot follow one line, the next step is a different shade per timeframe inside green and red. That would bend the no-grey-lines rule, so it is your call.</li>
+<li><b>Futures RSI depth.</b> ES/NQ intraday lines reach back only a month, because the API holds a month of futures intraday bars. Until then the panel marks where they begin. <i>Recommendation:</i> a keyed job on Fly backfills at least six months of futures hourly (or 4-hour) bars from FMP. After that the ES/NQ fan covers the whole daily view with no "≈" and no marks.</li>
 </ol>
-<p class="note">Harness (headless only): <code>deliverables/20260928/station-zoom-fan/harness/shot.mjs</code> + <code>rig.mjs</code>; the per-page readouts are the <code>after-*.json</code> files beside them.</p>
+<p class="note">Harness (headless only): <code>deliverables/20260928/station-zoom-fan/harness/shot.mjs</code> + <code>rig.mjs</code> (+ <code>fill.mjs</code> for fan fill time); the per-page readouts are the <code>after-*.json</code> / <code>before-*.json</code> files beside them. "Before" pictures of the oscillator pages were taken from the live Station's code (<code>dedbc31</code>) on the same cached bars. The review fixes (the intraday pages put back, the strong ramp, the start marks, section 5b) came after an adversarial review of the first version.</p>
 </body></html>

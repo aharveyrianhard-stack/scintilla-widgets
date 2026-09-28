@@ -1333,29 +1333,28 @@ function drawRsiFan(ctx, o) {
      on a long ES/NQ window the 3H-12H lines start part-way across. A dotted rule and a tag mark the point,
      so the lone D line before it is not read as the whole fan. */
   const late = solo ? null : F.lateStart(o.fan.lines, o.start, o.end);
-  let lateShown = null;
+  const lateShown = [];
   if (late) {
-    const lx = Math.round(o.X(late.ix)) + .5, when = o.dateAt ? o.dateAt(late.ix) : null;
-    const text = late.text + (when != null && isFinite(when) ? " from " + rsiAsOf(when) : " start here");
     ctx.save();
-    ctx.strokeStyle = F.INK.family; ctx.globalAlpha = .75; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
-    ctx.beginPath(); ctx.moveTo(lx, top); ctx.lineTo(lx, top + ph); ctx.stroke();
-    ctx.setLineDash([]); ctx.globalAlpha = 1;
     ctx.font = o.font + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-    ctx.textBaseline = "bottom";
-    const tw = ctx.measureText(text).width;
-    /* the tag reads leftward from the rule when the rule is in the right half, else rightward */
-    const tx = lx > left + width / 2 ? Math.max(left + 2, lx - 4 - tw) : Math.min(lx + 4, left + width - tw - 2);
-    const ty = top + ph - 2;
-    ctx.fillStyle = "rgba(5,6,12,.78)"; ctx.fillRect(tx - 2, ty - o.font - 2, tw + 4, o.font + 3);
-    ctx.fillStyle = "rgba(150,165,255,.95)"; ctx.textAlign = "left"; ctx.fillText(text, tx, ty);
+    ctx.textBaseline = "bottom"; ctx.textAlign = "left";
+    late.groups.forEach((g, n) => {
+      const lx = Math.round(o.X(g.ix)) + .5, when = o.dateAt ? o.dateAt(g.ix) : null;
+      const text = g.text + (when != null && isFinite(when) ? " from " + rsiAsOf(when) : " start here");
+      ctx.strokeStyle = F.INK.family; ctx.globalAlpha = .75; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+      ctx.beginPath(); ctx.moveTo(lx, top); ctx.lineTo(lx, top + ph); ctx.stroke();
+      ctx.setLineDash([]); ctx.globalAlpha = 1;
+      const tw = ctx.measureText(text).width;
+      /* the tag reads leftward from its rule (into the stretch the lines do not cover) when there is room,
+         else rightward; a later group's tag sits one row higher so two never overlap */
+      const tx = lx - 4 - tw >= left + 2 ? lx - 4 - tw : Math.min(lx + 4, left + width - tw - 2);
+      const ty = top + ph - 2 - n * (o.font + 4);
+      ctx.fillStyle = "rgba(5,6,12,.78)"; ctx.fillRect(tx - 2, ty - o.font - 2, tw + 4, o.font + 3);
+      ctx.fillStyle = "rgba(150,165,255,.95)"; ctx.fillText(text, tx, ty);
+      lateShown.push({ ix:g.ix, keys:Array.from(g.keys), text, x:Math.round(lx) });
+    });
     ctx.restore();
-    lateShown = { ix:late.ix, keys:Array.from(late.keys), text, x:Math.round(lx) };
   }
-  ctx.font = o.font + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-  ctx.textBaseline = "middle"; ctx.textAlign = "right";
-  ctx.fillStyle = F.INK.upper; ctx.fillText("70", o.axisX, RY(70));
-  ctx.fillStyle = F.INK.lower; ctx.fillText("30", o.axisX, RY(30));
   /* THE NAMES AT THE RIGHT END, each at its own line's exact height (the Lab's labels): when two would
      touch, the second moves one column right, never up or down. Only while the newest bar is on screen
      and there is room right of it. */
@@ -1422,7 +1421,7 @@ function drawRsiFan(ctx, o) {
     x += w + 9;
   }
   ctx.restore();
-  return { top, height:ph, yLo, yHi, lines:shown, cloud:cloudShown, tags, late:lateShown };
+  return { top, height:ph, yLo, yHi, lines:shown, cloud:cloudShown, tags, late:lateShown.length ? lateShown : null };
 }
 const cloudSpecOptions = () => CLOUD_EXTRAS;
 /* Which completed daily observation each visible bar may show. Computed once per

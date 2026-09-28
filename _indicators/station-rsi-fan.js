@@ -377,28 +377,39 @@
 
   /* WHERE THE INTRADAY LINES BEGIN, when that is inside the window on screen (28 Sep review). The chart
      API serves futures only about a month of intraday bars, so on an ES/NQ daily chart the 3H-12H lines
-     start part-way across and the D line runs alone before that. The panel marks that point instead of
-     letting a lone D line pass for the whole fan. lines: the fan's lines ({ key, values }); start/end:
-     the visible bar indexes. Returns null when every intraday line is drawn from the window's left edge
-     (within `slack` bars), else { ix, keys, labels, text } - ix is the first bar where ALL of them have
-     a value, keys the lines that begin late. */
+     start part-way across (4H/8H/12H read from 4H bars, 3H/6H from the shorter 3H history) and the D line
+     runs alone before that. The panel marks those points instead of letting a lone D line pass for the
+     whole fan. lines: the fan's lines ({ key, values }); start/end: the visible bar indexes. Returns null
+     when every intraday line is drawn from the window's left edge (within `slack` bars), else
+     { ix, keys, groups:[{ ix, keys, labels, text }] } - one group per start point (lines starting within a
+     twentieth of the window of the group's first share its mark, so two rules never crowd), earliest
+     first; ix is the earliest late start. */
   function lateStart(lines, start, end, slack) {
     const s = Math.max(0, Number(start) || 0), e = Number(end), k = slack == null ? 2 : slack;
     const late = [];
-    let ix = -1;
     for (const line of lines || []) {
       const spec = BY_KEY[line.key];
       if (!spec || spec.daily || !line.values) continue;
       let first = -1;
       for (let i = s; i <= e; i++) if (line.values[i] != null) { first = i; break; }
-      if (first < 0) continue;
-      if (first > s + k) { late.push(line.key); if (first > ix) ix = first; }
+      if (first > s + k) late.push({ key:line.key, first });
     }
-    if (!late.length || ix < 0 || ix > e) return null;
-    const order = LINES.map((l) => l.key).filter((key) => late.includes(key));
-    const labels = order.map((key) => BY_KEY[key].label);
-    const text = labels.length > 2 ? labels[0] + "–" + labels[labels.length - 1] : labels.join("/");
-    return { ix, keys:order, labels, text };
+    if (!late.length) return null;
+    const rank = (key) => LINES.findIndex((l) => l.key === key);
+    late.sort((x, y) => x.first - y.first || rank(x.key) - rank(y.key));
+    const groups = [], near = Math.max(k, Math.round((e - s) / 20));
+    for (const l of late) {
+      const g = groups[groups.length - 1];
+      if (g && l.first - g.ix <= near) g.keys.push(l.key); else groups.push({ ix:l.first, keys:[l.key] });
+    }
+    const all = LINES.filter((l) => !l.daily && l.on).map((l) => l.key);
+    for (const g of groups) {
+      g.keys.sort((x, y) => rank(x) - rank(y));
+      g.labels = g.keys.map((key) => BY_KEY[key].label);
+      g.text = g.keys.length === all.length && g.keys.every((key, i) => key === all[i])
+        ? g.labels[0] + "–" + g.labels[g.labels.length - 1] : g.labels.join("/");
+    }
+    return { ix:groups[0].ix, keys:late.map((l) => l.key).sort((x, y) => rank(x) - rank(y)), groups };
   }
 
   root.SC_RSI_FAN = Object.freeze({

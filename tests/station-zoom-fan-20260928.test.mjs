@@ -171,15 +171,16 @@ test("lateStart: marks where the intraday lines begin when that is inside the wi
     { key: "8h", values: vals(126, 62) }, { key: "12h", values: vals(126, 64) }, { key: "1D", values: vals(126, 0) }
   ];
   const r = F.lateStart(es, 0, 125);
-  assert.equal(r.ix, 82, "the first bar where every intraday line has a value");
+  assert.equal(r.ix, 60, "the earliest late start: where the D line stops running alone");
   assert.deepEqual(plain(r.keys), ["3h", "4h", "6h", "8h", "12h"]);
-  assert.equal(r.text, "3H–12H");
+  assert.deepEqual(plain(r.groups.map((g) => [g.ix, g.text])), [[60, "4H/8H/12H"], [80, "3H/6H"]],
+    "one mark per start point: the 4H-read lines first, the 3H-read ones later");
+  const together = es.map((l) => ({ key: l.key, values: vals(126, l.key === "1D" ? 0 : 70) }));
+  assert.deepEqual(plain(F.lateStart(together, 0, 125).groups.map((g) => g.text)), ["3H–12H"], "all five at once: one mark");
   const spy = es.map((l) => ({ key: l.key, values: vals(126, 0) }));
   assert.equal(F.lateStart(spy, 0, 125), null, "a stock with the full history: no mark");
   assert.equal(F.lateStart(es, 90, 125), null, "zoomed in past the start: no mark");
   assert.equal(F.lateStart([{ key: "1D", values: vals(126, 50) }], 0, 125), null, "the D line alone never gets the mark");
-  const two = [{ key: "4h", values: vals(10, 0) }, { key: "8h", values: vals(10, 6) }, { key: "12h", values: vals(10, 5) }];
-  assert.equal(F.lateStart(two, 0, 9).text, "8H/12H");
   assert.match(chart, /const late = solo \? null : F\.lateStart\(o\.fan\.lines, o\.start, o\.end\);/);
   assert.match(chart, /dateAt:\(i\) => \(pts\[i\] \? Date\.parse\(pts\[i\]\.d\) : null\)/);
 });

@@ -49,7 +49,8 @@ for (const f of frames()) {
       from: s[pl.start] ? s[pl.start].d.slice(0, 10) : "-", to: s[pl.end] ? s[pl.end].d.slice(0, 16) : "-",
       lens: (h.dataset.lensWhy || "-") + (h._lens && h._lens.spot ? " @" + Math.round(h._lens.spot.x) + "," + Math.round(h._lens.spot.y) : ""),
       geiger: gs ? Math.round(gs.x) + "," + Math.round(gs.y) + " " + (g.dataset.why || "") : "none", plotW: Math.round(pl.iw), rsiLines: rs,
-      cloud: h._rsiDrawn && h._rsiDrawn.cloud ? h._rsiDrawn.cloud.lo + "-" + h._rsiDrawn.cloud.hi : "-", tags: h._rsiDrawn ? (h._rsiDrawn.tags || []).map((t) => t.key).join(",") : "-", lensCheck: check }; });
+      cloud: h._rsiDrawn && h._rsiDrawn.cloud ? h._rsiDrawn.cloud.lo + "-" + h._rsiDrawn.cloud.hi : "-", tags: h._rsiDrawn ? (h._rsiDrawn.tags || []).map((t) => t.key).join(",") : "-",
+      lateStart: h._rsiDrawn && h._rsiDrawn.late ? h._rsiDrawn.late.map((l) => l.text).join(" | ") : "-", lensCheck: check }; });
     if (x) info.push(x); } catch (_) {}
 }
 const label = await r.page.evaluate(() => (document.querySelector("#sceneMode") || {}).value || document.title);
