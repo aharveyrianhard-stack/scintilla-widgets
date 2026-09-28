@@ -44,7 +44,11 @@
        1–6 on every visit, and only the other five State Street sectors rotate, two at a time,
        through slots 7–8: an eight-chart page. */
     sectors3D:       Object.freeze({ label:"SECTORS",             range:"3D", bubble:BUBBLE_3D, tickers:Object.freeze(["XLK","XLI","XLC","XLF","XLY","XLE"]), rotate:Object.freeze({ list:Object.freeze(["XLP","XLV","XLU","XLRE","XLB"]), size:2 }) }),
-    mainIndexes3D:   Object.freeze({ label:"SPY + QQQ",           range:"3D", bubble:BUBBLE_3D, leaders:true }),
+    /* 27 Sep evening (P2), Alan: "The six-line multi-timeframe RSI fan goes on the Station two-chart pages
+       too - those should have the oscillator." Every page that shows exactly two charts carries study:"RSI"
+       (the same ?rsi=auto six lines as SPY + QQQ · DAY): this one, INTRADAY · 30M, and the two-chart menu
+       pages FOCUS 2 and INTERNALS below. The 4-up and 8-up pages are unchanged. */
+    mainIndexes3D:   Object.freeze({ label:"SPY + QQQ",           range:"3D", bubble:BUBBLE_3D, study:"RSI", leaders:true }),
     mag7:            Object.freeze({ label:"MAG 7",               range:"3D", bubble:BUBBLE_3D, tickers:Object.freeze(["MAGS","MSFT","NVDA","AMZN","AAPL","META","GOOGL","TSLA"]) }),
     /* 25 Sep, Alan on the AI pages: "don't go by the names of the layouts, I made a mega mess…
        WULF and CRDO don't need to be twice; NBIS and IREN need to be somewhere permanent…
@@ -72,7 +76,7 @@
     macroIntraday:   Object.freeze({ label:"MACRO · 4H",          range:"4h", rotate:Object.freeze({ list:MACRO_4H, size:3 }), tail:Object.freeze(["PCC"]) }),
     intraday4h:      Object.freeze({ label:"INTRADAY · 4H",       short:"INTRA · 4H",  range:"4h", leaders:true, rotateTargets:Object.freeze({ size:4 }) }),
     intraday1h:      Object.freeze({ label:"INTRADAY · 1H",       short:"INTRA · 1H",  range:"1h", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:3 }) }),
-    intraday30m:     Object.freeze({ label:"INTRADAY · 30M",      short:"INTRA · 30M", range:"30m", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:1 }) })
+    intraday30m:     Object.freeze({ label:"INTRADAY · 30M",      short:"INTRA · 30M", range:"30m", study:"RSI", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:1 }) })
   });
   const WORKFLOW_IDS = Object.freeze(Object.keys(WORKFLOW_PAGES));
   /* The intraday four (workflow pages 16–19) rotate in the three sessions when something trades
@@ -146,12 +150,14 @@ const ROTATION_SCENES = Object.freeze(WORKFLOW_IDS.slice());
       range: "3h"
     }),
     companyLeadership: Object.freeze({ label:"COMPANY LEADERSHIP", tickers:Object.freeze(["AAPL","MSFT","AMZN","GOOGL","META","TSLA"]), chartCount:6, range:"3h" }),
-    focus2: Object.freeze({ label:"FOCUS 2", tickers:Object.freeze(["MU","SNDK"]), chartCount:2, range:"3h" }),
+    /* P2 (27 Sep evening): the two two-chart menu pages carry the RSI fan too (see mainIndexes3D). A
+       preset's `study` rides every slot through presetStacks, the same stack name a workflow page uses. */
+    focus2: Object.freeze({ label:"FOCUS 2", tickers:Object.freeze(["MU","SNDK"]), chartCount:2, range:"3h", study:"RSI" }),
     macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", tickers:Object.freeze(["US10Y","DXUSD","GCUSD","SIUSD","CLUSD","BTCUSD"]), chartCount:6, range:"3D" }),
     /* VIX and PCC are Scintilla's own series, drawn from the chart API with the cloud
        ribbon like any other chart. They keep this page; the four TradingView pictures
        moved to TO-DO on 24 Sep. */
-    internalsFast: Object.freeze({ label:"INTERNALS", tickers:Object.freeze(["VIX","PCC"]), chartCount:2, range:"3h" }),
+    internalsFast: Object.freeze({ label:"INTERNALS", tickers:Object.freeze(["VIX","PCC"]), chartCount:2, range:"3h", study:"RSI" }),
     /* SCINTILLAS carries no tickers of its own: the store decides them, session by session. */
     scintillas: Object.freeze({ label:"SCINTILLAS", tickers:Object.freeze([]), chartCount:6, range:"1D", filled:"scintillas" }),
     /* TO-DO's rows come from TODO_CHARTS below, because each one carries a reason and,
@@ -237,6 +243,14 @@ const ROTATION_SCENES = Object.freeze(WORKFLOW_IDS.slice());
     const tickers = (preset?.tickers || []).slice(0, 8);
     return { tickers, chartCount: chartCountForSize(preset?.chartCount || tickers.length),
       offset: 0, totalItems: tickers.length, hasPrevious: false, hasNext: false, empty: !tickers.length };
+  }
+
+  /* A PRESET'S STUDY ON EVERY SLOT (P2, 27 Sep evening). A preset is an editable wall, so the study
+     covers all eight slots: a name typed into a slot is still that page's chart and still asks for the
+     fan. No study, or one the model does not know, gives no stacks at all - never a guessed one. */
+  function presetStacks(preset) {
+    const study = preset && preset.study && studyStack(preset.study) ? String(preset.study).toUpperCase() : "";
+    return study ? Array.from({ length:8 }, () => study) : null;
   }
 
   /* The old cohort→themeFamilies collapse silently discarded a chosen cohort: a user asking
@@ -700,6 +714,7 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     studyQuery,
     workbenchState,
     exactPage,
+    presetStacks,
     scintillasPage,
     scintillaLabel,
     TODO_CHARTS,

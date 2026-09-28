@@ -2766,9 +2766,18 @@ function fixedSceneState(scene, requestedCount) {
     return Object.assign({}, SceneModel.basketWindow(family?.tickers || [], BASKET_OFFSET, requestedCount || 6), { range:family?.range || "1D" });
   }
   const preset = SceneModel.PRESETS[scene];
+  /* P2 (27 Sep evening): a two-chart preset that declares a study (FOCUS 2, INTERNALS: the RSI fan) hands
+     it to every slot, exactly as a workflow page does; a preset without one adds nothing. */
+  const stacks = SceneModel.presetStacks(preset);
+  const study = stacks ? { stacks } : {};
   if (preset && preset.exact)
-    return Object.assign({}, preset, SceneModel.exactPage(preset), { range:preset.range });
-  return preset ? Object.assign({}, preset, SceneModel.basketWindow(preset.tickers, BASKET_OFFSET, requestedCount || preset.chartCount), { range:preset.range }) : null;
+    return Object.assign({}, preset, SceneModel.exactPage(preset), { range:preset.range }, study);
+  return preset ? Object.assign({}, preset, SceneModel.basketWindow(preset.tickers, BASKET_OFFSET, requestedCount || preset.chartCount), { range:preset.range }, study) : null;
+}
+/* A named page's remembered slots (a second visit in the same session) are symbols only; the page's
+   declared study stays the page's. Without this the fan - and a workbench's stack - fell off on revisit. */
+function withPageStacks(state, fixed) {
+  return state && !state.stacks && fixed && fixed.stacks ? Object.assign({}, state, { stacks:fixed.stacks }) : state;
 }
 async function primeSceneState() {
   if (SceneModel.WORKFLOW_IDS.includes(SCENE)) {
@@ -2783,7 +2792,7 @@ async function primeSceneState() {
     const benchRange = SceneModel.workbenchFor(SCENE)?.range;
     if (!QS.has("range") && RANGES.includes(benchRange)) RANGE = benchRange;   // a workbench opens on its own timeframe
     const editable = hasStoredScene(SCENE) ? editableState(SCENE) : null;
-    const recovered = editable ? completeNamedPresetState(editable, fixed) : fixed;
+    const recovered = editable ? withPageStacks(completeNamedPresetState(editable, fixed), fixed) : fixed;
     installSceneState(recovered);
     if (editable && recovered !== editable) rememberEditableState();
   }
@@ -2910,7 +2919,7 @@ async function applyScene(next, options) {
     const namedPage = Object.prototype.hasOwnProperty.call(options || {}, "offset") ||
       options?.family != null;
     state = !options?.reset && !namedPage && hasStoredScene(requested)
-      ? completeNamedPresetState(editableState(requested), fixed) : fixed;
+      ? withPageStacks(completeNamedPresetState(editableState(requested), fixed), fixed) : fixed;
   }
   else if (requested === "cohort") {
     try {
