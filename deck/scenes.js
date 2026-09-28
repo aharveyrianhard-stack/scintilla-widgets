@@ -408,6 +408,39 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     if (page.tail) marks = marks.concat(page.tail.map(() => null));
     return marks.slice(0, count);
   }
+  /* ── A HELD SLOT IS SKIPPED IN THE CYCLE (L6, 28 Sep) ────────────────────────────────
+     Holding the pointer on a slot keeps its name, but its neighbours kept stepping through the
+     same list and one of them landed on the held name: two panes, one ticker. So one step is
+     planned for the whole page at once. `next` is what workflowPageState gives each slot for the
+     step, `marks` its workflowSlotRotation, `current` what each slot shows now, `held[i]` true for
+     a slot that keeps its name. A held or fixed slot keeps its name and claims it; a stepping slot
+     whose next name is claimed moves on through its own cycle to the first name nobody holds,
+     and keeps what it shows when every name in its cycle is taken. Returns, per slot, null (no
+     change) or { ticker, mark } with mark.at pointing at the name actually shown. */
+  function slotStepPlan(next, marks, current, held) {
+    const n = Math.max((next || []).length, (current || []).length);
+    const clean = (x) => String(x == null ? "" : x).trim().toUpperCase();
+    const taken = new Set();
+    const plan = Array.from({ length: n }, () => null);
+    const stays = (i) => !!(held && held[i]) || !(marks && marks[i]) || clean(next[i]) === clean(current[i]) || !clean(next[i]);
+    for (let i = 0; i < n; i++) if (stays(i) && clean(current[i])) taken.add(clean(current[i]));
+    for (let i = 0; i < n; i++) {
+      if (stays(i)) continue;
+      const mark = marks[i], names = (mark.names || []).map(clean);
+      const want = clean(next[i]);
+      let pick = -1;
+      const start = Math.max(0, names.indexOf(want));
+      for (let k = 0; k < names.length; k++) {
+        const j = (start + k) % names.length;
+        if (names[j] && !taken.has(names[j])) { pick = j; break; }
+      }
+      if (pick < 0 && !names.length && !taken.has(want)) { taken.add(want); plan[i] = { ticker: want, mark }; continue; }
+      if (pick < 0 || names[pick] === clean(current[i])) { if (clean(current[i])) taken.add(clean(current[i])); continue; }
+      taken.add(names[pick]);
+      plan[i] = { ticker: names[pick], mark: Object.freeze({ at: pick + 1, of: mark.of, names: mark.names }) };
+    }
+    return plan;
+  }
   /* How often a rotating slot steps: a third of the page's dwell (33 s → 11 s, so each visit shows
      three names in a slot), never faster than every 8 s - time for a cold chart to draw before it
      is faded in. */
@@ -755,6 +788,7 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     WORKFLOW_PAGES,
     workflowPageState,
     workflowSlotRotation,
+    slotStepPlan,
     slotStepMs,
     workflowPageTickers,
     STUDY_STACKS,

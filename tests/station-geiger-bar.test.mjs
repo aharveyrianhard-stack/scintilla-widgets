@@ -148,6 +148,9 @@ function paneHarness({ provider: P = null, deckMode = false } = {}) {
   b.GEIGER = vm.runInNewContext("({ readings:{}, fromDeck:false, pulling:false })", b);
   /* where the chip sits is emptiestSpot's job (tests/station-fixes-20260927.test.mjs); here it is a no-op */
   b.placeGeiger = () => {};
+  /* L6: the chip's paint refits the rotation list first; a fixed slot (no mark) has none */
+  b.ROTATION_MARK = null;
+  b.paintRotationMark = fnFrom(chart, "paintRotationMark", b);
   b.paintGeigerBar = fnFrom(chart, "paintGeigerBar", b);
   b.paintGeigerBars = fnFrom(chart, "paintGeigerBars", b);
   b.applyDeckGeiger = fnFrom(chart, "applyDeckGeiger", b);
@@ -243,6 +246,11 @@ function deckHarness(tickers) {
   b.DECK_GEIGER_MS = 60000;
   b.postDeckGeiger = fnFrom(deck, "postDeckGeiger", b);
   b.fanoutDeckGeiger = fnFrom(deck, "fanoutDeckGeiger", b);
+  /* L6: the read set is the visible names plus every rotating slot's cycle; a fixed page has no cycles */
+  b.SceneModel = { WORKFLOW_IDS: [] };
+  b.SLOT_ROT = { marks: [] };
+  b.SCENE = "fixed"; b.CHART_COUNT = 8; b.CLEAN = (x) => String(x || "").trim().toUpperCase();
+  b.geigerChartTickers = fnFrom(deck, "geigerChartTickers", b);
   b.refreshDeckGeiger = fnFrom(deck, "refreshDeckGeiger", b);
   return { b, reads, posts, tickers };
 }

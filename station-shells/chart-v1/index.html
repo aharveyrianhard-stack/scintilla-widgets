@@ -132,9 +132,13 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
 .sc-nchart__live-lastbar{ color:#c8953a; font:700 11px var(--mono); letter-spacing:.03em; line-height:1; margin-left:6px; }
 .sc-nchart__live-lastbar:empty{ display:none; }
 /* I3 (28 Sep), Alan: "I need some visual reminder of which charts rotate." A slot the deck rotates
-   carries "↻ 2/5" at the end of its badge row: which name of the slot's cycle this is. */
-.sc-nchart__live-rot{ color:#b6b6c8; font:700 11px var(--mono); letter-spacing:.03em; line-height:1;
+   carries its cycle at the end of its badge row, "↻ QQQ · BE · AMZN", the name on screen bright (L6). */
+.sc-nchart__live-rot{ color:#8c8c9c; font:700 11px var(--mono); letter-spacing:.03em; line-height:1;
   margin-left:7px; padding:2px 5px 1px; border:1px solid rgba(150,150,166,.5); border-radius:2px; white-space:nowrap; }
+/* L6 (28 Sep): the cycle's names, the one on screen bright; separators and "+n" quieter still */
+.sc-nchart__rot-name{ font:inherit; }
+.sc-nchart__rot-name.is-now{ color:#d2d2d2; }
+.sc-nchart__rot-sep, .sc-nchart__rot-more{ font-style:normal; color:#6e6e7e; }
 /* THE REFERENCE TEXT STEPS BACK, THE PRICE AND THE LINE LEAD. "Prev 762.60 ≈41 trading days · since Jul 23" sat at full
    strength in a shadowed box over the top-left of every chart (Alan, live review 2026-09-18: the badges compete with the
    chart). Same words, same place, same size - only quieter; pointing at the badge or focusing the ticker brings them back. */
@@ -2325,16 +2329,66 @@ function chartReferenceCloseLabel(host) {
    the live-quote one for a price, and the put/call one for a published session. */
 /* The deck's word on this slot's rotation ("deck-rotation"): null for a fixed slot. */
 let ROTATION_MARK = null;
+/* L6 (28 Sep), Alan: "include the tickers between which we're going to be rotating - that'll be very
+   clear." The mark is the slot's cycle in its own order, "↻ QQQ · BE · AMZN", the name on screen
+   bright, so the bright name walks along the list as the slot steps. It must stay in the badge row
+   and leave the Geiger chip its top-right place, so it is fitted to the room left of the chip:
+     1. the whole cycle;
+     2. else the name on screen and the ones after it, as many as fit, and "+n" for the rest;
+     3. else "↻ 2/5" (name 2 of 5).
+   The full cycle is always in the hover title. */
+function rotationMarkRuns(mark, keep) {
+  const names = mark.names || [], of = names.length, at = mark.at - 1;
+  if (keep == null || keep >= of) return names.map((t, k) => ({ t, now: k === at }));
+  const runs = [];
+  for (let k = 0; k < keep; k++) { const j = (at + k) % of; runs.push({ t: names[j], now: j === at }); }
+  runs.push({ more: of - keep });
+  return runs;
+}
+function paintRotationRuns(node, runs) {
+  const sig = runs ? runs.map((r) => r.more ? "+" + r.more : (r.now ? "*" : "") + r.t).join(",") : "count:" + ROTATION_MARK.at + "/" + ROTATION_MARK.of;
+  if (node._runs === sig) return;
+  node._runs = sig;
+  node.textContent = "";
+  node.append("\u21bb ");
+  if (!runs) { node.append(ROTATION_MARK.at + "/" + ROTATION_MARK.of); return; }
+  runs.forEach((r, k) => {
+    if (k) { const sep = document.createElement("i"); sep.className = r.more ? "sc-nchart__rot-more" : "sc-nchart__rot-sep"; sep.textContent = r.more ? " +" + r.more : " \u00b7 "; node.append(sep); if (r.more) return; }
+    const name = document.createElement("b");
+    name.className = r.now ? "sc-nchart__rot-name is-now" : "sc-nchart__rot-name";
+    name.textContent = r.t;
+    node.append(name);
+  });
+}
+/* the room the row may take: up to the Geiger chip, which sits right-aligned on the plot's right edge */
+function rotationRoom(badge) {
+  const host = badge.closest(".sc-nchart"), area = host && host.querySelector(".sc-nchart__area");
+  if (!host || !area) return Infinity;
+  const plot = host._plot;
+  const right = plot ? plot.padL + plot.iw : area.clientWidth - 52;
+  const chip = host.querySelector(".sc-nchart__live-geiger.is-float");
+  const chipW = chip && !chip.hidden ? chip.offsetWidth + 10 : 0;
+  return right - chipW - badge.offsetLeft;
+}
 function paintRotationMark(badge) {
   if (!badge) return;
   let node = badge.querySelector(".sc-nchart__live-rot");
   if (!ROTATION_MARK) { if (node) node.remove(); return; }
   if (!node) { node = document.createElement("span"); node.className = "sc-nchart__live-rot"; }
   if (node.parentNode !== badge || node !== badge.lastElementChild) badge.appendChild(node);
-  const text = "\u21bb " + ROTATION_MARK.at + "/" + ROTATION_MARK.of;
-  if (node.textContent !== text) node.textContent = text;
-  const names = (ROTATION_MARK.names || []).join(" \u00b7 ");
-  node.title = "this slot rotates: name " + ROTATION_MARK.at + " of " + ROTATION_MARK.of + (names ? " (" + names + ")" : "");
+  const all = ROTATION_MARK.names || [];
+  node.title = "this slot rotates: name " + ROTATION_MARK.at + " of " + ROTATION_MARK.of + (all.length ? " (" + all.join(" \u00b7 ") + ")" : "");
+  if (!all.length) { paintRotationRuns(node, null); return; }
+  const room = rotationRoom(badge);
+  const fitSig = all.join(",") + "|" + ROTATION_MARK.at + "|" + Math.round(room) + "|" + badge.childElementCount;
+  if (node._fit === fitSig) return;
+  /* widest first, narrowing until the row fits; each try is one layout read */
+  for (let keep = all.length; keep >= 1; keep--) {
+    paintRotationRuns(node, rotationMarkRuns(ROTATION_MARK, keep));
+    if (badge.offsetWidth <= room) { node._fit = fitSig; return; }
+  }
+  paintRotationRuns(node, null);
+  node._fit = fitSig;
 }
 function ensureLiveParts(badge, host) {
   let ticker = badge.querySelector(".sc-nchart__live-ticker");
@@ -2404,6 +2458,7 @@ function paintGeigerBar(host) {
   node.title = m.title;
   node.setAttribute("aria-label", "Geiger composite " + m.text + (m.stale ? ", older than usual" : ""));
   host._geigerMemo = null;   /* host._inkAt stays: it is this paint's pixels, reset by the next paint */
+  paintRotationMark(badge);  /* the rotation list leaves the chip its room (L6) */
   placeGeiger(host);
 }
 /* WHERE THE CHIP GOES (28 Sep). Alan: "The system is having trouble with the locations of things, so as

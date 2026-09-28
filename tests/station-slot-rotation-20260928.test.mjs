@@ -76,7 +76,8 @@ test("deck: the next name fades in over the one on screen, only after it has dra
 });
 
 test("deck: held slots, admission, quotes, Geiger and the shared zoom reach the incoming frame", () => {
-  assert.match(deck, /if \(slotHeld\(pane\)\) return;/);
+  /* L6: a held slot is planned for with the rest of the page (SceneModel.slotStepPlan) */
+  assert.match(deck, /return !pane \|\| slotHeld\(pane\);/);
   assert.match(deck, /pane\.node\.matches\(":hover"\)/);
   assert.match(deck, /item\.slotNext && item\.slotNext\.frame\.contentWindow === event\.source/);
   assert.match(deck, /const incoming = PANES\.map\(\(p\) => p\.slotNext && p\.slotNext\.ticker\)/);
@@ -87,9 +88,10 @@ test("deck: held slots, admission, quotes, Geiger and the shared zoom reach the 
   assert.match(deck, /rotation: SceneModel\.workflowSlotRotation\(scene, opts\)/);
 });
 
-test("chart: the badge row carries '↻ at/of' from deck-rotation, and nothing on a fixed slot", () => {
+test("chart: the badge row carries the rotation mark from deck-rotation, and nothing on a fixed slot", () => {
   assert.match(chart, /if \(d\.sc === "deck-rotation"\)/);
-  assert.match(chart, /const text = "\\u21bb " \+ ROTATION_MARK\.at \+ "\/" \+ ROTATION_MARK\.of;/);
+  /* L6 (28 Sep) replaced the "↻ at/of" text with the cycle's names; "↻ at/of" is kept as the narrowest fallback */
+  assert.match(chart, /node\.append\(ROTATION_MARK\.at \+ "\/" \+ ROTATION_MARK\.of\)/);
   assert.match(chart, /if \(!ROTATION_MARK\) \{ if \(node\) node\.remove\(\); return; \}/);
   assert.match(chart, /paintRotationMark\(badge\);\n  return \{ ticker, change, previous, historyWindow, lastBar \};/);
   const css = chart.match(/\.sc-nchart__live-rot\{([^}]*)\}/)[1];

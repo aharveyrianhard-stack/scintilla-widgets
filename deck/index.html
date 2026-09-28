@@ -159,6 +159,9 @@ body.stack #dock #panebar{ display:flex; }
 #dock #tfReadout{ display:inline-block; min-width:34px; text-align:right; color:#A8AAC0;
   font-size:11px; letter-spacing:.1em; font-variant-numeric:tabular-nums; }
 body.stack #tfNow{ top:auto; bottom:6px; right:6px; left:auto; transform:none; }
+/* L6: at a pane seam the tag ends just left of the seam (placeTfNow sets left) */
+#tfNow.at-seam{ transform:translateX(-100%); }
+body.stack #tfNow.at-seam{ transform:none; }
 #edgePrev, #edgeNext{ position:fixed; top:50%; transform:translateY(-50%); z-index:24;
   width:26px; height:72px; display:flex; align-items:center; justify-content:center;
   background:rgba(15,15,26,.86); border:1px solid #2C2C46; color:#A6A8C0;
@@ -1203,11 +1206,22 @@ function fanoutDeckGeiger() {
   for (const pane of PANES) if (pane.def.kind === "chart" && pane.frame) postDeckGeiger(pane.frame);
   for (const pane of PANES) if (pane.slotNext) postDeckGeiger(pane.slotNext.frame);
 }
+/* L6 (28 Sep): "the Geiger chip arrives 1-2 s late on an incoming frame." The map held only the names
+   on screen, so a rotating slot's next name had no reading until a read that started with the step
+   came back. The read now covers every name the page's rotating slots cycle through, so the reading
+   is already in the map when the incoming frame is posted it - before its fade starts. The key is
+   sorted: a slot stepping inside its own cycle does not change the set, so it causes no read. */
+function geigerChartTickers() {
+  const cycles = [];
+  if (SceneModel.WORKFLOW_IDS.includes(SCENE))
+    SLOT_ROT.marks.slice(0, CHART_COUNT).forEach((m) => { if (m && m.names) cycles.push(...m.names); });
+  return Array.from(new Set(visibleChartTickers().concat(cycles.map(CLEAN)).filter(Boolean)));
+}
 async function refreshDeckGeiger() {
   const B = window.SC_GEIGER_BAR, P = window.SC_PROVIDER;
   if (!B || !P) return;
-  const tickers = visibleChartTickers();
-  const key = tickers.join(",");
+  const tickers = geigerChartTickers();
+  const key = tickers.slice().sort().join(",");
   if (key === DECK_GEIGER.key && Date.now() - DECK_GEIGER.at < DECK_GEIGER_MS) return;
   if (DECK_GEIGER.inFlight) { DECK_GEIGER.rerun = true; return; }
   DECK_GEIGER.inFlight = true;
@@ -2072,7 +2086,34 @@ function relayout() {
   for (const o of PANES) o.node.classList.toggle("tight", o.node.clientWidth < 260);
   paintIpadDensity();
   fitDock();
+  placeTfNow();
   measure();
+}
+/* THE TIMEFRAME TAG STAYS OFF THE TICKERS (L6, 28 Sep). At the top centre it sat exactly on the seam
+   of a two-chart row and covered the first letter of the right pane's ticker ("3E" for BE). When the
+   wall's centre falls on (or within the tag's width of) the left edge of a top-row chart, the tag moves
+   to end just left of that edge: it then sits at the top right of the left pane, where the Geiger chip
+   already steps around it (the chart reads this tag's box). Anywhere else it stays centred. */
+const TF_SEAM_REACH = 48;
+function placeTfNow() {
+  const tag = el("tfNow");
+  if (!tag) return;
+  let seam = null;
+  if (!STACKED) {
+    const cx = innerWidth / 2;
+    const tops = PANES.filter((p) => p.def.kind === "chart" && p.node && p.node.offsetParent).map((p) => p.node.getBoundingClientRect());
+    const top = tops.length ? Math.min(...tops.map((r) => Math.round(r.top))) : null;
+    for (const r of tops) {
+      if (Math.round(r.top) !== top || r.left < 1) continue;
+      if (r.left <= cx + TF_SEAM_REACH && r.left > cx - TF_SEAM_REACH) seam = r.left;
+    }
+  }
+  const left = seam != null ? Math.round(seam - 4) + "px" : "";
+  if (tag.style.left === left && tag.classList.contains("at-seam") === (seam != null)) return;
+  tag.classList.toggle("at-seam", seam != null);
+  tag.style.left = left;
+  /* the charts re-place their Geiger chips around the tag's new box (a deck-geiger post re-places them) */
+  if (typeof fanoutDeckGeiger === "function") fanoutDeckGeiger();
 }
 function measure() {
   el("size").textContent = Math.round(innerWidth) + "×" + Math.round(innerHeight) +
@@ -3293,6 +3334,7 @@ function retargetChartInPlace(pane, ticker) {
    or on a hidden tab holds its name.
    Every rotating slot carries "↻ 2/5" in its badge row (the chart pane draws it from
    "deck-rotation"); a fixed slot carries nothing. */
+const SLOT_GEIGER_WAIT_MS = 2000;
 const SLOT_FADE_MS = 900, SLOT_READY_MAX_MS = 9000, SLOT_STAGGER_MS = 700, SLOT_SETTLE_MS = 350, SLOT_TOUCH_HOLD_MS = 20000;
 const slotPane = (i) => PANES.find((p) => p.def.key === "c" + (i + 1));
 function slotMarkOf(pane) {
@@ -3332,6 +3374,16 @@ function setSlotDef(pane, i, ticker, src) {
   pane.def.short = ticker; pane.def.title = ticker;
   const input = el("t" + (i + 1)); if (input) input.value = ticker;
 }
+/* Another visible chart slot shows this name and is not itself fading away from it (a slot that is
+   held, or whose own step was dropped). */
+function shownElsewhere(i, ticker) {
+  for (let k = 0; k < CHART_COUNT; k++) {
+    if (k === i || CHARTS[k] !== ticker) continue;
+    const other = slotPane(k);
+    if (!other || !other.slotNext) return true;
+  }
+  return false;
+}
 function crossFadeSlot(pane, i, ticker, mark, scene) {
   if (SCENE !== scene || pane.slotNext || CHARTS[i] === ticker) return;
   const src = paneChartSrc(ticker, i, 0);
@@ -3343,7 +3395,8 @@ function crossFadeSlot(pane, i, ticker, mark, scene) {
   f.setAttribute("aria-hidden", "true");
   const job = { frame:f, ticker, src, mark, scene, generation:ROTATION_GENERATION, done:false, timer:0 };
   const fresh = () => !job.done && pane.slotNext === job && SCENE === scene && ROTATION_GENERATION === job.generation &&
-    f.isConnected && paneChartSrc(ticker, i, 0) === src;     /* the timeframe, view or axis moved on: drop it */
+    f.isConnected && paneChartSrc(ticker, i, 0) === src &&   /* the timeframe, view or axis moved on: drop it */
+    !shownElsewhere(i, ticker);                              /* never two panes on one name */
   const drop = () => {
     if (job.done) return;
     job.done = true; clearTimeout(job.timer); f.remove();
@@ -3355,8 +3408,10 @@ function crossFadeSlot(pane, i, ticker, mark, scene) {
     job.readyAt = Date.now(); clearTimeout(job.timer);
     postDeckQuote(f, ticker); postDeckGeiger(f); postSlotMark(f, mark);
     if (LAST_CHART_VIEW) { try { f.contentWindow.postMessage(Object.assign({ type:"SCINTILLA_CHART_VIEW" }, LAST_CHART_VIEW), location.origin); } catch (_) {} }
-    setTimeout(() => {
+    const fadeIn = () => {
       if (!fresh()) return drop();
+      /* the reading goes first, so the chip is on the chart before it starts to show (L6) */
+      postDeckGeiger(f);
       f.classList.add("in");
       job.timer = setTimeout(() => {
         if (!fresh()) return drop();
@@ -3371,7 +3426,15 @@ function crossFadeSlot(pane, i, ticker, mark, scene) {
         f.addEventListener("load", () => { postViewProfile(pane); postDeckQuote(f, pane.def.ticker); postSlotMark(f, slotMarkOf(pane)); });
         paintChips(); refreshDeckQuotes(); refreshDeckGeiger();
       }, SLOT_FADE_MS);
-    }, SLOT_SETTLE_MS);
+    };
+    /* A name with no reading yet while the page's read is still out waits for it, up to 2 s;
+       a name the Geiger does not cover (no reading after the read) fades in at once. */
+    const waitGeiger = (left) => {
+      if (!fresh()) return drop();
+      if (left > 0 && !DECK_GEIGER.readings[ticker] && DECK_GEIGER.inFlight) return setTimeout(() => waitGeiger(left - 150), 150);
+      fadeIn();
+    };
+    setTimeout(() => waitGeiger(SLOT_GEIGER_WAIT_MS), SLOT_SETTLE_MS);
   };
   f.addEventListener("load", () => {
     try { f.contentWindow.postMessage({ type:"SCINTILLA_VIEW_PROFILE", view:VIEW, scale:paneIpadScale(pane) }, location.origin); } catch (_) {}
@@ -3400,18 +3463,27 @@ function stepRotatingSlots() {
   const next = SceneModel.workflowPageState(scene, opts).tickers;
   const marks = SceneModel.workflowSlotRotation(scene, opts);
   SLOT_ROT.since = Date.now();
+  /* One plan for the page (SceneModel.slotStepPlan): a held slot keeps its name AND claims it, so a
+     neighbour stepping onto that name moves on past it through its own cycle (L6, 28 Sep). */
+  const count = Math.min(CHART_COUNT, next.length);
+  const current = CHARTS.slice(0, count);
+  const held = Array.from({ length: count }, (_, i) => { const pane = slotPane(i); return !pane || slotHeld(pane); });
+  const plan = SceneModel.slotStepPlan(next.slice(0, count).map(CLEAN), marks.slice(0, count), current, held);
   let wave = 0;
-  next.forEach((ticker, i) => {
-    const clean = CLEAN(ticker), pane = slotPane(i);
-    if (i >= CHART_COUNT || !clean || !pane) return;
-    if (clean === CHARTS[i]) {
-      SLOT_ROT.marks[i] = marks[i] || null;
-      if (pane.frame) postSlotMark(pane.frame, SLOT_ROT.marks[i]);
-      return;
+  for (let i = 0; i < count; i++) {
+    const pane = slotPane(i);
+    if (!pane) continue;
+    if (!plan[i]) {
+      /* unchanged: a slot whose name stays gets the step's mark; a held one keeps its own */
+      if (!held[i] && CLEAN(next[i]) === CHARTS[i]) {
+        SLOT_ROT.marks[i] = marks[i] || null;
+        if (pane.frame) postSlotMark(pane.frame, SLOT_ROT.marks[i]);
+      }
+      continue;
     }
-    if (slotHeld(pane)) return;                         /* held: keeps its name and its mark */
-    setTimeout(() => crossFadeSlot(pane, i, clean, marks[i] || null, scene), (wave++) * SLOT_STAGGER_MS);
-  });
+    const { ticker, mark } = plan[i];
+    setTimeout(() => crossFadeSlot(pane, i, ticker, mark || null, scene), (wave++) * SLOT_STAGGER_MS);
+  }
 }
 setInterval(stepRotatingSlots, 1000);
 function applyView(next) {

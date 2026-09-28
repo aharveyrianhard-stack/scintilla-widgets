@@ -502,6 +502,24 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
       return hex;
     });
   }
+  function shareOwnership (syms, at, by) {
+    try {
+      var store = candleShared();
+      store.ownedSyms = syms.join(','); store.ownedAt = at; store.ownedBy = String(by);
+    } catch (e) {}
+  }
+  function sharedOwnership () {
+    try {
+      var store = candleShared();
+      if (typeof store.ownedSyms !== 'string' || !store.ownedSyms || !(Date.now() - store.ownedAt < 300000)) return null;
+      var next = {};
+      store.ownedSyms.split(',').forEach(function (k) { next[k] = 1; });
+      owned = next; S.owned_map = owned; ownedAt = store.ownedAt;
+      S.ownership = { verified: true, count: Object.keys(next).length, expected: EXPECTED_EQUITY_UNIVERSE, reason: null,
+                      identity: 'adopted from this origin\'s ' + store.ownedBy + ' proof of ' + new Date(store.ownedAt).toISOString() };
+      return owned;
+    } catch (e) { return null; }
+  }
   function providerOwned (signal, origPg) {
     /* A warm map is knowledge and may answer without a read - but not for a caller who has
        already cancelled. Returning it here let the next call receive an aborted signal and run
@@ -509,6 +527,12 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     if (signal && signal.aborted)
       return Promise.reject(transportError('provider unreachable: cancelled by the caller', API + '/universe', null));
     if (owned && Date.now() - ownedAt < 300000) return Promise.resolve(owned);
+    /* A NEW FRAME TAKES THE DECK'S PROOF (L6, 28 Sep). Every frame a rotating slot opens used to read
+       /universe and re-prove it. A map another document of this origin VERIFIED in the last five
+       minutes (the same code, the same rules, both fail closed) is adopted instead; it is kept on the
+       deck as one string of symbols, so no frame's objects are held. Nothing unverified is shared. */
+    var adopted = sharedOwnership();
+    if (adopted) return Promise.resolve(adopted);
     /* A cold page can mount dozens of panes at once. They all need the SAME ownership fact, not
        dozens of simultaneous /universe + canonical-set handshakes. Share the in-flight proof while
        keeping each caller's abort local to its own wait; one cancelled pane cannot cancel the
@@ -575,6 +599,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
         owned = next;
         S.owned_map = owned;
         ownedAt = Date.now();
+        shareOwnership(syms, ownedAt, (canon && canon.length) ? 'deck' : 'frame');
         S.ownership = { verified: true, count: syms.length, expected: EXPECTED_EQUITY_UNIVERSE,
                         reason: null, universe_sha256: j.universe_sha256,
                         /* Stated so a reviewer can see what "verified" actually compared. */
@@ -1070,6 +1095,87 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     });
   };
 
+  /* ── ONE CANDLE CACHE FOR THE WHOLE DECK (L6, 28 Sep) ──────────────────────────────────────
+     A rotating slot loads its next name in a new frame, and every new frame asked the chart API
+     for the same ~14 series again (price, the RSI fan's widths, the cloud's daily bars) - even for
+     a name shown 11 s earlier: INTRADAY 30M made 280 chart-API calls in 95 s. The frames are
+     same-origin, so the cache lives on the highest same-origin window (the deck; a chart opened
+     on its own keeps it on itself) and every frame reads the one copy.
+     WHAT IS KEPT: the payload exactly as the API served it, keyed by the exact URL (symbol, width,
+     limit), as a JSON string. A string belongs to no frame, so a frame that is removed is never kept
+     alive by what it cached. Failures and named absences are never cached.
+     HOW LONG: the API serves COMPLETED bars only ("COMPLETED_PROVIDER_BARS_ONLY"), so a series
+     cannot change until the next bar closes. Every US bar closes on a :00 or :30 ET, so an entry
+     lasts until the next half hour; for the first 3 minutes after one it lasts 45 s, because the bar
+     that just closed may not have been published yet. A bar wider than an hour is also held no longer
+     than the frame's own refresh for it: 10 minutes for 2H-12H, 30 minutes for daily and longer. */
+  var CANDLE_SHARED_KEY = '__SC_PROVIDER_CANDLES_V1';
+  var CANDLE_SHARED_MAX_CHARS = 48e6;
+  var CANDLE_SETTLE_MS = 180000, CANDLE_SETTLE_TTL_MS = 45000, HALF_HOUR_MS = 1800000;
+  var candleLocal = null;
+  function candleShared () {
+    /* the highest window of this origin that this document can reach */
+    var w = window;
+    try {
+      while (w.parent && w.parent !== w) {
+        var p = w.parent;
+        if (p.location.origin !== location.origin) break;
+        w = p;
+      }
+    } catch (e) { /* a cross-origin parent ends the walk */ }
+    try {
+      var store = w[CANDLE_SHARED_KEY];
+      if (!store) {
+        /* made with the owner's own constructors, and holding only strings and numbers, so nothing in
+           it belongs to (or keeps alive) the frame that happened to create it */
+        store = new w.Object();
+        store.text = new w.Map(); store.expires = new w.Map();
+        store.chars = 0; store.hits = 0; store.misses = 0;
+        w[CANDLE_SHARED_KEY] = store;
+      }
+      return store;
+    } catch (e) {
+      if (!candleLocal) candleLocal = { text: new Map(), expires: new Map(), chars: 0, hits: 0, misses: 0 };
+      return candleLocal;
+    }
+  }
+  S.candleTtlMs = function (tf, fetchedAt) {
+    var at = Number(fetchedAt) || Date.now();
+    var sinceClose = at % HALF_HOUR_MS;
+    if (sinceClose < CANDLE_SETTLE_MS) return CANDLE_SETTLE_TTL_MS;
+    var tfs = String(tf);
+    var cap = /^(D|3D|W|2W|M)$/.test(tfs) ? 1800000 : /^(1m|2m|3m|5m|10m|15|30|60)$/.test(tfs) ? HALF_HOUR_MS : 600000;
+    return Math.min(HALF_HOUR_MS - sinceClose, cap);
+  };
+  function candleForget (store, url) {
+    var text = store.text.get(url);
+    if (text != null) store.chars -= text.length;
+    store.text.delete(url); store.expires.delete(url);
+  }
+  function candleCacheGet (url) {
+    var store = candleShared(), text = store.text.get(url);
+    if (text == null || !(Date.now() < store.expires.get(url))) { candleForget(store, url); store.misses++; return null; }
+    try { var payload = JSON.parse(text); store.hits++; return payload; }
+    catch (e) { candleForget(store, url); store.misses++; return null; }
+  }
+  function candleCachePut (url, tf, payload) {
+    var text;
+    try { text = JSON.stringify(payload); } catch (e) { return; }
+    if (typeof text !== 'string' || text.length > CANDLE_SHARED_MAX_CHARS / 4) return;
+    var store = candleShared(), now = Date.now();
+    candleForget(store, url);
+    /* oldest first out: a Map keeps insertion order */
+    while (store.chars + text.length > CANDLE_SHARED_MAX_CHARS && store.text.size)
+      candleForget(store, store.text.keys().next().value);
+    store.text.set(url, text);
+    store.expires.set(url, now + S.candleTtlMs(tf, now));
+    store.chars += text.length;
+  }
+  S.candleCacheStats = function () {
+    var store = candleShared();
+    return { entries: store.text.size, chars: store.chars, hits: store.hits, misses: store.misses };
+  };
+
   function providerCandleRows (symbol, rawTf, limit, signal) {
     var tf = TF[rawTf];
     if (!tf) {
@@ -1082,7 +1188,15 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     var bounded = Math.min(Math.max(Number(limit) || 200, 1), 8000);
     var url = API + '/candles?symbol=' + encodeURIComponent(symbol) + '&tf=' + encodeURIComponent(tf) +
       '&authority=provider&limit=' + bounded;
-    return jget(url, signal).then(null, function (e) {
+    var cached = candleCacheGet(url);
+    var read = cached ? Promise.resolve(cached) : jget(url, signal).then(function (payload) {
+      /* only a complete, unnamed series is worth keeping; the checks below still run on every read */
+      if (payload && Array.isArray(payload.series) && payload.series.length &&
+          !(payload.absence || payload.reason || (payload.state && payload.state !== 'OK')))
+        candleCachePut(url, tf, payload);
+      return payload;
+    });
+    return read.then(null, function (e) {
       /* The chart API refuses a width it cannot serve, or a series that has STOPPED, with a 404 that
          NAMES the absence (FMP_INTERVAL_NOT_SERVED, FMP_MACRO_STALE_n_SESSIONS). That is the answer,
          painted in words; a 503 or an unnamed refusal stays transport and retryable. */
