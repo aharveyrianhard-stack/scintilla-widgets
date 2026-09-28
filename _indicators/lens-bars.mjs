@@ -66,6 +66,12 @@ export const TIMEFRAMES = Object.freeze({
 export const HOURS = Object.freeze({
   regular:  Object.freeze({ open: 9 * 60 + 30, close: 16 * 60, name: "09:30–16:00 ET" }),
   extended: Object.freeze({ open: 4 * 60,      close: 20 * 60, name: "04:00–20:00 ET" }),
+  /* 27 Sep night, Alan: "Futures, commodities and Bitcoin don't follow the stock calendar." A futures
+     lens reads the whole CME session: it opens at 18:00 ET and belongs to the NEXT day's date (Sunday
+     18:00 is Monday's session), so `shift` moves the bar six hours forward before naming its day.
+     Crypto never closes: its sessions are plain New York calendar days. */
+  globex:   Object.freeze({ open: 0, close: 24 * 60, shift: 6 * 60, name: "CME session 18:00–17:00 ET" }),
+  allday:   Object.freeze({ open: 0, close: 24 * 60, name: "all day ET" }),
 });
 
 /* ---- TIME. Every bar is stamped in New York, because a session is a New York thing. ---- */
@@ -96,7 +102,8 @@ export function sessionsOf(bars, hours = "regular") {
     if (!b || !Number.isFinite(b.t) || !(b.c > 0) || !(b.o > 0)) continue;
     const et = etParts(b.t);
     if (et.minutes < win.open || et.minutes >= win.close) continue;
-    if (!cur || cur.day !== et.day) { cur = { day: et.day, weekday: et.weekday, dom: et.dom, bars: [] }; out.push(cur); }
+    const s = win.shift ? etParts(b.t + win.shift * 60000) : et;
+    if (!cur || cur.day !== s.day) { cur = { day: s.day, weekday: s.weekday, dom: s.dom, bars: [] }; out.push(cur); }
     cur.bars.push(b);
   }
   return out;
@@ -114,9 +121,10 @@ export function flatten(sessions) {
 /* How many bars to ask the chart API for. Extended-hours bars are on the same series, so the request
    has to cover them even when only the regular session is drawn. One spare session for a holiday or a
    half day; never more than 240, because above 400 the API's newest bar moves (RSI-fan lane, 25 Sep). */
-export function barsToRequest(timeframe, sessions) {
+export function barsToRequest(timeframe, sessions, hours) {
   const tf = TIMEFRAMES[timeframe] || TIMEFRAMES["30m"];
-  return Math.min(240, tf.extended * (Math.max(1, sessions | 0) + 1));
+  const perSession = hours === "globex" || hours === "allday" ? Math.ceil(24 * 60 / tf.minutes) : tf.extended;
+  return Math.min(240, perSession * (Math.max(1, sessions | 0) + 1));
 }
 
 /* The gap: each session's first bar against the previous session's last close, for the sessions shown.

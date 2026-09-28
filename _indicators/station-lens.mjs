@@ -42,7 +42,12 @@ export function parseBubble(value) {
   return m ? { timeframe: m[1], sessions: +m[2], key: m[0] } : null;
 }
 export const wanted = (req, range) => !!req && RANGES.includes(range);
-const hoursOf = (tf) => (TIMEFRAMES[tf] && TIMEFRAMES[tf].hours) || DIALS.hours;
+/* Futures and crypto keep their own clock (27 Sep night): the whole CME session, or the whole day. */
+const FUTURES = new Set(["ESUSD", "NQUSD", "CLUSD", "GCUSD", "SIUSD", "DXUSD"]);
+const CRYPTO = new Set(["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "DOGEUSD", "ADAUSD", "AVAXUSD", "LINKUSD", "LTCUSD"]);
+export const hoursOf = (tf, t) => FUTURES.has(String(t || "").toUpperCase()) ? "globex"
+  : CRYPTO.has(String(t || "").toUpperCase()) ? "allday"
+  : (TIMEFRAMES[tf] && TIMEFRAMES[tf].hours) || DIALS.hours;
 
 /* ---- stale or not ---- */
 /* The New York date of the newest session that has OPENED by `nowMs`: today once 09:30 ET has passed
@@ -151,7 +156,7 @@ export async function ensure(host, deps, req, generation) {
       release = await deps.permit(host, req + "|lens", generation);
       if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
       const tf = TIMEFRAMES[want.timeframe].tf;
-      const rows = await deps.fetchCandles(t, tf, barsToRequest(want.timeframe, want.sessions), 1);
+      const rows = await deps.fetchCandles(t, tf, barsToRequest(want.timeframe, want.sessions, hoursOf(want.timeframe, t)), 1);
       const bars = (Array.isArray(rows) ? rows : []).map((r) => ({ t: r.timestamp * 1000, o: +r.open, h: +r.high, l: +r.low, c: +r.close, v: +r.volume }))
         .filter((b) => Number.isFinite(b.t) && b.o > 0 && b.h > 0 && b.l > 0 && b.c > 0);
       cache.set(key, { ts: Date.now(), bars, absence: null });
@@ -205,9 +210,9 @@ export function paint(host, deps) {
   const entry = cache.get(t + "|" + want.timeframe);
   if (!entry) return hide(host, `${want.timeframe} bars not read yet`);
   if (entry.absence) return hide(host, `no ${want.timeframe} bars: ${entry.absence}`);
-  const sessions = lastSessions(entry.bars, want.sessions, hoursOf(want.timeframe));
+  const sessions = lastSessions(entry.bars, want.sessions, hoursOf(want.timeframe, t));
   const bars = flatten(sessions);
-  if (!bars.length) return hide(host, `no ${want.timeframe} bars in ${hoursOf(want.timeframe)} hours`);
+  if (!bars.length) return hide(host, `no ${want.timeframe} bars in ${hoursOf(want.timeframe, t)} hours`);
   const fresh = freshness(sessions, Date.now(), deps.settled);
   const day = deps.day(host);
   const area = host.querySelector(".sc-nchart__area");
