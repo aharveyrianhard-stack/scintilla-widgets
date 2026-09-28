@@ -500,6 +500,10 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
 .chart-pane,.chart-pane > .body,.chart-pane > .body > iframe{
   overscroll-behavior:none; -webkit-user-select:none; user-select:none; -webkit-user-drag:none; }
 .chart-pane > .body > iframe{ touch-action:none; }
+/* ROTATION INSIDE THE SLOT (I3, 28 Sep): the slot's next name loads in a second frame over the one on
+   screen, invisible, and fades in once it has drawn - the old chart is never taken away first. */
+.chart-pane > .body > iframe.slot-next{ opacity:0; pointer-events:none; z-index:2; transition:opacity .9s ease; }
+.chart-pane > .body > iframe.slot-next.in{ opacity:1; }
 body[data-view="ipad"]{ overscroll-behavior:none; }
 .card{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
   justify-content:center; gap:8px; cursor:pointer; text-align:center; padding:16px; }
@@ -951,10 +955,14 @@ function pageVisit(id) {
   remember(PAGE_VISITS_KEY, JSON.stringify(PAGE_VISITS));
   return count;
 }
+/* the in-slot rotation's state (I3, 28 Sep - see ROTATION INSIDE THE SLOT) and the wall's last shared zoom */
+const SLOT_ROT = { marks:[], since:0, busy:0 };
+let LAST_CHART_VIEW = null;
 /* A workflow page's wall, fresh on every show: the current TARGETS, the session's
    LEADERS, and this visit's rotating windows. */
 function workflowSceneState(scene) {
-  return SceneModel.workflowPageState(scene, { visit: pageVisit(scene), targets: TARGETS, at: new Date() });
+  const opts = { visit: pageVisit(scene), targets: TARGETS, at: new Date() };
+  return Object.assign(SceneModel.workflowPageState(scene, opts), { rotation: SceneModel.workflowSlotRotation(scene, opts) });
 }
 /* The everyday wall chooser is deliberately simple.  INDEX NOW retains its
    coherent three-symbol launch preset without turning three into a global
@@ -1110,7 +1118,9 @@ let deckQuoteRequest = 0;
 let deckQuoteInFlight = false;
 let deckQuoteRerun = false;
 function visibleChartTickers() {
-  return Array.from(new Set(CHARTS.slice(0, CHART_COUNT).map(CLEAN).filter(Boolean)));
+  /* a rotating slot's next name is read with the wall, so it fades in with its price and Geiger */
+  const incoming = PANES.map((p) => p.slotNext && p.slotNext.ticker).filter(Boolean);
+  return Array.from(new Set(CHARTS.slice(0, CHART_COUNT).concat(incoming).map(CLEAN).filter(Boolean)));
 }
 function deckQuoteFor(ticker) { return DECK_QUOTES.get(CLEAN(ticker)) || null; }
 /* ONLY A RECORDED NAME MAKES AN ABSENCE. This used to default to NOT_OBSERVED_BY_STREAM for
@@ -1191,6 +1201,7 @@ function postDeckGeiger(frame) {
 }
 function fanoutDeckGeiger() {
   for (const pane of PANES) if (pane.def.kind === "chart" && pane.frame) postDeckGeiger(pane.frame);
+  for (const pane of PANES) if (pane.slotNext) postDeckGeiger(pane.slotNext.frame);
 }
 async function refreshDeckGeiger() {
   const B = window.SC_GEIGER_BAR, P = window.SC_PROVIDER;
@@ -1630,6 +1641,7 @@ function mount(obj, options) {
     postViewProfile(obj);
     if (obj.def.kind === "chart") {
       postDeckQuote(f, obj.def.ticker);
+      postSlotMark(f, slotMarkOf(obj));
       /* A frame that mounts before its quote exists would sit in the neutral tone until the next
          ten-second heartbeat. Ask now; a read already in flight simply reruns. */
       if (!DECK_QUOTES.has(CLEAN(obj.def.ticker))) deckQuoteHeartbeat();
@@ -1978,8 +1990,9 @@ window.addEventListener("message", (event) => {
     /* A frame whose document is the one this deck mounted is current by definition, whatever
        generation it booted with. Without this, every frame that reloaded after a scene change
        carried generation 0, was never granted, and waited out its 5.5 s escape hatch. */
-    const mountedPane = PANES.find((item) => item.frame?.contentWindow === event.source &&
-      frameIdentity(frameShownSrc(item.frame)) === frameIdentity(item.def.src));
+    const mountedPane = PANES.find((item) => (item.frame?.contentWindow === event.source &&
+      frameIdentity(frameShownSrc(item.frame)) === frameIdentity(item.def.src)) ||
+      (item.slotNext && item.slotNext.frame.contentWindow === event.source));
     chartDataLoadQueue.push({ token:event.data.token, priority:chartLoadPriority(event.data.req),
       generation:mountedPane ? ROTATION_GENERATION : (Number(event.data.generation) || 0), source:event.source });
     runChartDataLoadQueue(); return;
@@ -1996,7 +2009,7 @@ window.addEventListener("message", (event) => {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
     /* A booting chart announcing readiness has not changed the visible set: fetch soon, but
        never retire a read already in flight for these same panes. */
-    if (pane?.def.kind === "chart") { postDeckQuote(pane.frame, pane.def.ticker); deckQuoteHeartbeat(); postDeckGeiger(pane.frame); refreshDeckGeiger(); }
+    if (pane?.def.kind === "chart") { postDeckQuote(pane.frame, pane.def.ticker); deckQuoteHeartbeat(); postDeckGeiger(pane.frame); refreshDeckGeiger(); postSlotMark(pane.frame, slotMarkOf(pane)); }
     return;
   }
   if (event.data?.sc === "chart-status") {
@@ -2009,6 +2022,7 @@ window.addEventListener("message", (event) => {
     return;
   }
   if (event.data?.sc === "chart-view") {
+    LAST_CHART_VIEW = { from:event.data.from, to:event.data.to, followLatest:!!event.data.followLatest };
     for (const pane of PANES) {
       if (pane.def.kind !== "chart" || !pane.frame || pane.frame.contentWindow === event.source) continue;
       try {
@@ -2731,6 +2745,11 @@ function paintSceneControls(note) {
   }
 }
 function installSceneState(state) {
+  cancelSlotFades();
+  SLOT_ROT.marks = Array.isArray(state.rotation) ? state.rotation.slice(0, 8) : [];
+  SLOT_ROT.since = Date.now();
+  LAST_CHART_VIEW = null;
+  setTimeout(paintSlotMarks, 0);   /* after the panes have been pointed at the page's names */
   const charts = (state.charts || state.tickers || []).slice(0, 8);
   CHARTS.forEach((_, i) => { CHARTS[i] = CLEAN(charts[i] || ""); });
   const stacks = state.stacks || [], ranges = state.ranges || [];
@@ -3261,6 +3280,140 @@ function retargetChartInPlace(pane, ticker) {
   }, RETARGET_ACK_MS);
   return true;
 }
+/* ── ROTATION INSIDE THE SLOT (I3, 28 Sep) ─────────────────────────────────────────────
+   Alan, ~09:55 ET: "within the slot, switch between them… a very simple, soft, flowy experience;
+   I don't have to maintain it" and "I need some visual reminder of which charts rotate".
+   The page lap is untouched: the same pages, ROTATE_AT seconds each. While a workflow page is on
+   screen, every SceneModel.slotStepMs(ROTATE_AT) (33 s → 11 s) the page's visit counter steps and
+   each rotating slot whose name changes loads that name - same timeframe, same lens, same study,
+   same shared zoom - in a second frame laid over the one on screen, and fades it in over 0.9 s
+   once it has drawn (its first series). Slots start 0.7 s apart, so a page never flips at once.
+   Nothing is taken off screen first: a name that has not drawn within 9 s is dropped and the
+   slot keeps its chart until the next step. A slot under the pointer, touched in the last 20 s,
+   or on a hidden tab holds its name.
+   Every rotating slot carries "↻ 2/5" in its badge row (the chart pane draws it from
+   "deck-rotation"); a fixed slot carries nothing. */
+const SLOT_FADE_MS = 900, SLOT_READY_MAX_MS = 9000, SLOT_STAGGER_MS = 700, SLOT_SETTLE_MS = 350, SLOT_TOUCH_HOLD_MS = 20000;
+const slotPane = (i) => PANES.find((p) => p.def.key === "c" + (i + 1));
+function slotMarkOf(pane) {
+  const i = Number(String(pane?.def?.key || "").replace(/^c/, "")) - 1;
+  if (!(i >= 0 && i < CHART_COUNT) || !SceneModel.WORKFLOW_IDS.includes(SCENE)) return null;
+  return SLOT_ROT.marks[i] || null;
+}
+function postSlotMark(frame, mark) {
+  if (!frame?.contentWindow) return;
+  try {
+    frame.contentWindow.postMessage({ sc:"deck-rotation",
+      mark: mark ? { at:mark.at, of:mark.of, names:Array.from(mark.names || []) } : null }, location.origin);
+  } catch (_) {}
+}
+function paintSlotMarks() {
+  for (const pane of PANES) if (pane.def.kind === "chart" && pane.frame) postSlotMark(pane.frame, slotMarkOf(pane));
+}
+function cancelSlotFades() {
+  for (const pane of PANES) {
+    const job = pane.slotNext;
+    if (!job) continue;
+    job.done = true; clearTimeout(job.timer);
+    job.frame.remove(); pane.slotNext = null;
+  }
+  SLOT_ROT.busy = 0;
+}
+function slotHeld(pane) {
+  if (!pane?.node) return true;
+  if (pane.node.matches(":hover")) return true;
+  const touched = PANE_ACTIVITY.get(pane.def.key);
+  return touched != null && Date.now() - touched < SLOT_TOUCH_HOLD_MS;
+}
+function setSlotDef(pane, i, ticker, src) {
+  CHARTS[i] = ticker;
+  pane.def.ticker = ticker; pane.def.src = src;
+  pane.def.open = src.replace("bare=1&", "");
+  pane.def.short = ticker; pane.def.title = ticker;
+  const input = el("t" + (i + 1)); if (input) input.value = ticker;
+}
+function crossFadeSlot(pane, i, ticker, mark, scene) {
+  if (SCENE !== scene || pane.slotNext || CHARTS[i] === ticker) return;
+  const src = paneChartSrc(ticker, i, 0);
+  if (!pane.frame) {                                   /* nothing on screen to fade from: an ordinary slot change */
+    setSlotDef(pane, i, ticker, src); SLOT_ROT.marks[i] = mark; mount(pane); refreshDeckQuotes(); return;
+  }
+  const f = document.createElement("iframe");
+  f.className = "slot-next"; f.src = src; f.allow = FRAME_ALLOW; f.setAttribute("allowfullscreen", "");
+  f.setAttribute("aria-hidden", "true");
+  const job = { frame:f, ticker, src, mark, scene, generation:ROTATION_GENERATION, done:false, timer:0 };
+  const fresh = () => !job.done && pane.slotNext === job && SCENE === scene && ROTATION_GENERATION === job.generation &&
+    f.isConnected && paneChartSrc(ticker, i, 0) === src;     /* the timeframe, view or axis moved on: drop it */
+  const drop = () => {
+    if (job.done) return;
+    job.done = true; clearTimeout(job.timer); f.remove();
+    if (pane.slotNext === job) pane.slotNext = null;
+    SLOT_ROT.busy = Math.max(0, SLOT_ROT.busy - 1);
+  };
+  job.ready = () => {
+    if (job.readyAt) return;
+    job.readyAt = Date.now(); clearTimeout(job.timer);
+    postDeckQuote(f, ticker); postDeckGeiger(f); postSlotMark(f, mark);
+    if (LAST_CHART_VIEW) { try { f.contentWindow.postMessage(Object.assign({ type:"SCINTILLA_CHART_VIEW" }, LAST_CHART_VIEW), location.origin); } catch (_) {} }
+    setTimeout(() => {
+      if (!fresh()) return drop();
+      f.classList.add("in");
+      job.timer = setTimeout(() => {
+        if (!fresh()) return drop();
+        const old = pane.frame;
+        job.done = true; pane.slotNext = null; SLOT_ROT.busy = Math.max(0, SLOT_ROT.busy - 1);
+        f.classList.remove("slot-next", "in"); f.removeAttribute("aria-hidden");
+        f.dataset.shown = src;
+        pane.frame = f; pane.reportedTicker = ticker;
+        if (old && old !== f) old.remove();
+        setSlotDef(pane, i, ticker, src);
+        SLOT_ROT.marks[i] = mark;
+        f.addEventListener("load", () => { postViewProfile(pane); postDeckQuote(f, pane.def.ticker); postSlotMark(f, slotMarkOf(pane)); });
+        paintChips(); refreshDeckQuotes(); refreshDeckGeiger();
+      }, SLOT_FADE_MS);
+    }, SLOT_SETTLE_MS);
+  };
+  f.addEventListener("load", () => {
+    try { f.contentWindow.postMessage({ type:"SCINTILLA_VIEW_PROFILE", view:VIEW, scale:paneIpadScale(pane) }, location.origin); } catch (_) {}
+    postDeckQuote(f, ticker); postDeckGeiger(f); postSlotMark(f, mark);
+  }, { once:true });
+  pane.slotNext = job; SLOT_ROT.busy += 1;
+  job.timer = setTimeout(drop, SLOT_READY_MAX_MS);
+  pane.body.appendChild(f);
+  deckQuoteHeartbeat(); refreshDeckGeiger();
+}
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin) return;
+  const pane = PANES.find((p) => p.slotNext && p.slotNext.frame.contentWindow === event.source);
+  if (!pane) return;
+  const job = pane.slotNext, d = event.data || {};
+  if (d.sc === "chart-quote-ready") { postDeckQuote(job.frame, job.ticker); postDeckGeiger(job.frame); postSlotMark(job.frame, job.mark); return; }
+  if (d.sc === "chart-data-state" && CLEAN(d.ticker) === job.ticker && d.hasSeries) job.ready();
+});
+function stepRotatingSlots() {
+  if (!SceneModel.WORKFLOW_IDS.includes(SCENE) || document.hidden) return;
+  if (!SLOT_ROT.marks.some(Boolean) || SLOT_ROT.busy) return;
+  if (Date.now() - SLOT_ROT.since < SceneModel.slotStepMs(ROTATE_AT)) return;
+  if (SCREEN_BUSY || ROTATE_BUSY || APPLYING_SCENE) return;
+  const scene = SCENE;
+  const opts = { visit: pageVisit(scene), targets: TARGETS, at: new Date() };
+  const next = SceneModel.workflowPageState(scene, opts).tickers;
+  const marks = SceneModel.workflowSlotRotation(scene, opts);
+  SLOT_ROT.since = Date.now();
+  let wave = 0;
+  next.forEach((ticker, i) => {
+    const clean = CLEAN(ticker), pane = slotPane(i);
+    if (i >= CHART_COUNT || !clean || !pane) return;
+    if (clean === CHARTS[i]) {
+      SLOT_ROT.marks[i] = marks[i] || null;
+      if (pane.frame) postSlotMark(pane.frame, SLOT_ROT.marks[i]);
+      return;
+    }
+    if (slotHeld(pane)) return;                         /* held: keeps its name and its mark */
+    setTimeout(() => crossFadeSlot(pane, i, clean, marks[i] || null, scene), (wave++) * SLOT_STAGGER_MS);
+  });
+}
+setInterval(stepRotatingSlots, 1000);
 function applyView(next) {
   VIEW = VIEW_MODES.includes(next) ? next : "auto";
   document.body.dataset.view = VIEW;

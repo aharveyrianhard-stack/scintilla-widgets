@@ -131,6 +131,10 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
    for "not current" - "STALE · last bar 24 Sep · 3 d old". */
 .sc-nchart__live-lastbar{ color:#c8953a; font:700 11px var(--mono); letter-spacing:.03em; line-height:1; margin-left:6px; }
 .sc-nchart__live-lastbar:empty{ display:none; }
+/* I3 (28 Sep), Alan: "I need some visual reminder of which charts rotate." A slot the deck rotates
+   carries "↻ 2/5" at the end of its badge row: which name of the slot's cycle this is. */
+.sc-nchart__live-rot{ color:#b6b6c8; font:700 11px var(--mono); letter-spacing:.03em; line-height:1;
+  margin-left:7px; padding:2px 5px 1px; border:1px solid rgba(150,150,166,.5); border-radius:2px; white-space:nowrap; }
 /* THE REFERENCE TEXT STEPS BACK, THE PRICE AND THE LINE LEAD. "Prev 762.60 ≈41 trading days · since Jul 23" sat at full
    strength in a shadowed box over the top-left of every chart (Alan, live review 2026-09-18: the badges compete with the
    chart). Same words, same place, same size - only quieter; pointing at the badge or focusing the ticker brings them back. */
@@ -2319,6 +2323,19 @@ function chartReferenceCloseLabel(host) {
 }
 /* The four spans of the pane readout, built once and reused by both painters:
    the live-quote one for a price, and the put/call one for a published session. */
+/* The deck's word on this slot's rotation ("deck-rotation"): null for a fixed slot. */
+let ROTATION_MARK = null;
+function paintRotationMark(badge) {
+  if (!badge) return;
+  let node = badge.querySelector(".sc-nchart__live-rot");
+  if (!ROTATION_MARK) { if (node) node.remove(); return; }
+  if (!node) { node = document.createElement("span"); node.className = "sc-nchart__live-rot"; }
+  if (node.parentNode !== badge || node !== badge.lastElementChild) badge.appendChild(node);
+  const text = "\u21bb " + ROTATION_MARK.at + "/" + ROTATION_MARK.of;
+  if (node.textContent !== text) node.textContent = text;
+  const names = (ROTATION_MARK.names || []).join(" \u00b7 ");
+  node.title = "this slot rotates: name " + ROTATION_MARK.at + " of " + ROTATION_MARK.of + (names ? " (" + names + ")" : "");
+}
 function ensureLiveParts(badge, host) {
   let ticker = badge.querySelector(".sc-nchart__live-ticker");
   let change = badge.querySelector(".sc-nchart__live-change");
@@ -2346,6 +2363,7 @@ function ensureLiveParts(badge, host) {
     lastBar.className = "sc-nchart__live-lastbar";
     badge.append(ticker, change, lastBar, previous, historyWindow);
   }
+  paintRotationMark(badge);
   return { ticker, change, previous, historyWindow, lastBar };
 }
 /* ============================================================================
@@ -3446,6 +3464,13 @@ addEventListener("message", (e) => {
   if (!d) return;
   if (d.sc === "deck-quote") { applyDeckQuote(d.ticker, d.quote, d.state, d.absence); return; }
   if (d.sc === "deck-geiger") { applyDeckGeiger(d.readings); return; }
+  if (d.sc === "deck-rotation") {
+    const m = d.mark;
+    ROTATION_MARK = m && Number(m.of) > 1 && Number(m.at) >= 1
+      ? { at:Math.floor(Number(m.at)), of:Math.floor(Number(m.of)), names:Array.isArray(m.names) ? m.names.map(String).slice(0, 12) : [] } : null;
+    for (const host of CHART_HOSTS) if (host.isConnected) paintRotationMark(host.querySelector(".sc-nchart__live"));
+    return;
+  }
   if (d.sc === "chart-load-grant") {
     const grant = chartLoadPermits.get(d.token);
     if (grant) { chartLoadPermits.delete(d.token); grant(); }

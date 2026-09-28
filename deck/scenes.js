@@ -366,6 +366,55 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     if (page.tail) slots = slots.concat(page.tail);
     return slots.slice(0, 8);
   }
+  /* ── ROTATION INSIDE THE SLOT (I3, 28 Sep) ────────────────────────────────────────
+     Alan, ~09:55 ET: "This chart with QQQ and Bloom Energy is the one that rotates between the
+     watched ones. Not bad. But we should make it within the slot — within the slot, switch
+     between them… a very simple, soft, flowy experience; I don't have to maintain it." And: "I
+     need some visual reminder of which charts rotate."
+     The page lap is unchanged (same pages, same seconds each). What changes is that a rotating
+     slot no longer waits for the page's next visit to show its next name: while the page is on
+     screen, the deck steps the page's counter every slotStepMs and each rotating slot cross-fades
+     to the name workflowTickersFor gives for that step - the very same windows as before, just
+     reached inside the dwell. Slot i of a window of `size` over a list of L names shows
+     list[(step × size + i) mod L], so it cycles L / gcd(size, L) names and no two slots on the
+     page ever show the same name at once.
+     workflowSlotRotation says, per slot, whether it rotates and where it stands: null for a
+     fixed slot, else { at, of, names } - "↻ at/of" is the mark in the pane's badge row. */
+  function gcd(a, b) { return b ? gcd(b, a % b) : Math.abs(a); }
+  function slotCycles(list, size, visit) {
+    const all = (list || []).filter((x) => x != null && x !== "");
+    if (!all.length) return [];
+    const n = Math.max(1, Math.min(all.length, Number(size) || 1));
+    const of = all.length / gcd(n, all.length);
+    const v = Math.max(0, Math.floor(Number(visit) || 0));
+    return Array.from({ length: n }, (_, i) => of < 2 ? null : Object.freeze({
+      at: (v % of) + 1, of,
+      names: Object.freeze(Array.from({ length: of }, (_, s) => all[(s * n + i) % all.length]))
+    }));
+  }
+  function workflowSlotRotation(id, opts) {
+    const page = WORKFLOW_PAGES[id];
+    if (!page) return [];
+    const options = opts || {};
+    const count = (workflowTickersFor(id, options) || []).length;
+    if (page.targets) return Array.from({ length: count }, () => null);
+    const targets = (Array.isArray(options.targets) && options.targets.length ? options.targets : TARGETS_DEFAULT).slice(0, 8);
+    const leaders = LEADERS(options.at || new Date());
+    const visit = Math.max(0, Math.floor(Number(options.visit) || 0));
+    let marks = page.tickers ? page.tickers.map(() => null) : [];
+    if (page.leaders) marks = marks.concat(page.leaderWindow ? slotCycles(leaders, 1, visit) : leaders.map(() => null));
+    if (page.rotate) marks = marks.concat(slotCycles(page.rotate.list, page.rotate.size, visit));
+    if (page.rotateTargets) marks = marks.concat(slotCycles(targets, page.rotateTargets.size, visit));
+    if (page.tail) marks = marks.concat(page.tail.map(() => null));
+    return marks.slice(0, count);
+  }
+  /* How often a rotating slot steps: a third of the page's dwell (33 s → 11 s, so each visit shows
+     three names in a slot), never faster than every 8 s - time for a cold chart to draw before it
+     is faded in. */
+  function slotStepMs(rotateSeconds) {
+    const s = Number(rotateSeconds) > 0 ? Number(rotateSeconds) : 33;
+    return Math.max(8, Math.round(s / 3)) * 1000;
+  }
   function workflowPageState(id, opts) {
     const page = WORKFLOW_PAGES[id];
     if (!page) return null;
@@ -705,6 +754,8 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     WORKFLOW_IDS,
     WORKFLOW_PAGES,
     workflowPageState,
+    workflowSlotRotation,
+    slotStepMs,
     workflowPageTickers,
     STUDY_STACKS,
     WORKBENCHES,
