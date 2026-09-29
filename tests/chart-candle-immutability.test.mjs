@@ -54,6 +54,9 @@ for (const file of FILES) {
   const out1 = f1('AAPL', cached, { price: 999, updated_ts: '2026-08-18T21:30:00.000Z' })
   ok('equity: cached array not mutated', JSON.stringify(cached) === snapshot, 'cache=' + JSON.stringify(cached))
   ok('equity: completed close unchanged', out1[out1.length - 1].p === 101, 'last=' + out1[out1.length - 1].p)
+  // P3, 28 Sep: an equity's forming point (next bucket) is a flagged copy; the cache is still untouched.
+  const out1b = f1('AAPL', cached, { price: 999, updated_ts: '2026-08-18T22:30:00.000Z' }, '1h')
+  ok('equity forming point: flagged, input not mutated', out1b.length === 3 && out1b[2].live === true && JSON.stringify(cached) === snapshot)
 
   // Same-day non-equity, LATER than the completed bar: the bar is untouched and a separate
   // transient point is appended. The rule is the timestamp, not the calendar date - on a 15m or
@@ -63,7 +66,8 @@ for (const file of FILES) {
   const f2 = factory(futureSet, cryptoSet, winOther)
   const c2 = [{ d: '2026-08-18T21:00:00.000Z', p: 101 }]
   const snap2 = JSON.stringify(c2)
-  const out2 = f2('BTCUSD', c2, { price: 777, updated_ts: '2026-08-18T21:30:00.000Z' }, '1h')
+  // P3, 28 Sep: a bar's d is its bucket START; the forming bucket after a completed 21:00 1h bar is 22:00.
+  const out2 = f2('BTCUSD', c2, { price: 777, updated_ts: '2026-08-18T22:30:00.000Z' }, '1h')
   ok('non-equity same day: input not mutated', JSON.stringify(c2) === snap2)
   ok('non-equity same day: completed bar NOT rewritten', out2[0].p === 101, 'bar=' + out2[0].p)
   ok('non-equity same day: transient appended and flagged',
@@ -74,14 +78,14 @@ for (const file of FILES) {
   ok('non-equity stale tick: nothing appended', out2b.length === 1 && out2b[0].p === 101)
 
   // Next-day non-equity: a transient point may be APPENDED, flagged, and never touches the input.
-  const c3 = [{ d: '2026-08-18T21:00:00.000Z', p: 101 }]
+  const c3 = [{ d: '2026-08-18T04:00:00.000Z', p: 101 }]   // a daily bar sits at New York midnight
   const snap3 = JSON.stringify(c3)
   const out3 = f2('BTCUSD', c3, { price: 777, updated_ts: '2026-08-19T14:00:00.000Z' })
   ok('non-equity next day: input not mutated', JSON.stringify(c3) === snap3)
   ok('non-equity next day: appended point flagged live', out3.length === 2 && out3[1].live === true)
 
   // Repeated live ticks can never accumulate into the cached array.
-  const c4 = [{ d: '2026-08-18T21:00:00.000Z', p: 101 }]
+  const c4 = [{ d: '2026-08-18T04:00:00.000Z', p: 101 }]
   for (let i = 0; i < 50; i++) f2('BTCUSD', c4, { price: 500 + i, updated_ts: '2026-08-19T14:00:00.000Z' })
   ok('50 live ticks leave the cached series length 1', c4.length === 1 && c4[0].p === 101, 'len=' + c4.length)
 
