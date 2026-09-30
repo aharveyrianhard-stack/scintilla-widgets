@@ -67,26 +67,45 @@
   const HOUR = 3600000, DAY = 86400000;
   const INK = Object.freeze({ family:"#526DFF", upper:"#39D98A", lower:"#F05B78" });
   /* tf is the chart API token the provider client already maps (8h added to that map for this). */
+  /* 29 SEP — THE RSI-ONLY VISUAL (S3). The Indicator Lab's handoff, authoritative for the look:
+     INDICATOR_LAB/handoffs/RSI_ONLY_STATION_VISUAL_HANDOFF_2026-09-29.md (Alan, 29 Sep: "HERE IS
+     INSTRUCTIONS FOR THE UPDATED RSI ONLY OSCILLATOR FOR OUR USE IN STATION PLEASE"). One pink family:
+     the five fast lines DOTTED, width 1, opacity 54-66%; the daily SOLID, width 3, 90%; the 2H (off) 50%.
+     alpha/width/dash below ARE that table (CSS pixels; the canvas already carries the device ratio once).
+     The 28 Sep green/red day colouring and strong ramp are superseded on the full fan; the Hub's lone
+     ?rsi=chart line keeps its own look (drawn at full ink, width 1.4, by the older path). */
+  const DOT = Object.freeze([1, 2]);
   const LINES = Object.freeze([
-    Object.freeze({ key:"2h",  tf:"2h",  label:"2H",  on:false, alpha:.26, width:.8,  durMs:2 * HOUR,  perSession:8 }),
-    /* 28 Sep review: the five intraday RSIs move together, so they almost always share a colour; the
-       first ramp (alpha .52-.84, width 1-1.6) read as one bundle at 1680. The timeframe is now told by a
-       STRONG ramp - light and thin for fast, solid and heavy for slow - and the two fastest are broken
-       (3H dotted, 4H dashed), so each line can be followed without its right-edge tag. */
-    Object.freeze({ key:"3h",  tf:"3h",  label:"3H",  on:true,  alpha:.34, width:.9,  durMs:3 * HOUR,  perSession:6, dash:Object.freeze([1.5, 2.5]) }),
-    Object.freeze({ key:"4h",  tf:"4h",  label:"4H",  on:true,  alpha:.46, width:1.1, durMs:4 * HOUR,  perSession:4, dash:Object.freeze([5, 3]) }),
+    Object.freeze({ key:"2h",  tf:"2h",  label:"2H",  on:false, alpha:.50, width:1, durMs:2 * HOUR,  perSession:8, dash:DOT }),
+    Object.freeze({ key:"3h",  tf:"3h",  label:"3H",  on:true,  alpha:.54, width:1, durMs:3 * HOUR,  perSession:6, dash:DOT }),
+    Object.freeze({ key:"4h",  tf:"4h",  label:"4H",  on:true,  alpha:.57, width:1, durMs:4 * HOUR,  perSession:4, dash:DOT }),
     /* compose: { from, factor, gridH } - the served width is swapped for `factor` bars of `from` joined on
        the Eastern clock (buckets start every gridH hours from midnight New York) when pickSource says so */
-    Object.freeze({ key:"6h",  tf:"6h",  label:"6H",  on:true,  alpha:.58, width:1.3, durMs:6 * HOUR,  perSession:4,
+    Object.freeze({ key:"6h",  tf:"6h",  label:"6H",  on:true,  alpha:.60, width:1, durMs:6 * HOUR,  perSession:4, dash:DOT,
       compose:Object.freeze({ from:"3h", factor:2, gridH:6 }) }),
-    Object.freeze({ key:"8h",  tf:"8h",  label:"8H",  on:true,  alpha:.72, width:1.7, durMs:8 * HOUR,  perSession:3,
+    Object.freeze({ key:"8h",  tf:"8h",  label:"8H",  on:true,  alpha:.63, width:1, durMs:8 * HOUR,  perSession:3, dash:DOT,
       compose:Object.freeze({ from:"4h", factor:2, gridH:8 }) }),
-    Object.freeze({ key:"12h", tf:"12h", label:"12H", on:true,  alpha:.86, width:2.1, durMs:12 * HOUR, perSession:2,
+    Object.freeze({ key:"12h", tf:"12h", label:"12H", on:true,  alpha:.66, width:1, durMs:12 * HOUR, perSession:2, dash:DOT,
       compose:Object.freeze({ from:"4h", factor:3, gridH:12 }) }),
     /* A daily bar is stamped at midnight New York and its extended session ends at 20:00 New
        York, so it has FINISHED 20 hours after its stamp, in summer and in winter alike. */
-    Object.freeze({ key:"1D",  tf:"1D",  label:"D",   on:true,  alpha:1,   width:2.6, durMs:20 * HOUR, perSession:1, daily:true })
+    Object.freeze({ key:"1D",  tf:"1D",  label:"D",   on:true,  alpha:.90, width:3, durMs:20 * HOUR, perSession:1, daily:true })
   ]);
+  /* The rest of the Lab's table: the slow cloud, the guides and the daily chip. Opacities, not transparencies. */
+  const VISUAL = Object.freeze({
+    ink:"#FF4FAD",
+    cloud:Object.freeze({ ink:"#C84C86", opacity:.30 }),
+    /* the native range on a FIXED domain; padPx keeps a width-3 stroke and the 0/100 guides inside the pane */
+    domain:Object.freeze([0, 100]), padPx:3,
+    guides:Object.freeze([
+      Object.freeze({ v:100, opacity:.15, width:1, dash:null }),
+      Object.freeze({ v:70,  opacity:.70, width:1, dash:null }),
+      Object.freeze({ v:50,  opacity:.30, width:1, dash:DOT }),
+      Object.freeze({ v:30,  opacity:.70, width:1, dash:null }),
+      Object.freeze({ v:0,   opacity:.15, width:1, dash:null })
+    ]),
+    chip:Object.freeze({ text:.95, fill:.18, leader:.55, gap:6 })
+  });
   /* THE SLOW CONTEXT CLOUD's four sources (Lab V4: min/max of 2D/3D/W/2W RSI14). Not lines: at each chart
      bar the band between the lowest and the highest of the four. A daily-and-longer bar has finished at
      its last session's 20:00 ET, which the NEXT bar's stamp tells better than a fixed length (a 3D bar
@@ -412,9 +431,75 @@
     return { ix:groups[0].ix, keys:late.map((l) => l.key).sort((x, y) => rank(x) - rank(y)), groups };
   }
 
+
+  /* ---- 29 Sep, the RSI-only visual: pure helpers the pane draws with ---------------------------- */
+  function rgba(hex, a) {
+    const h = String(hex || "").replace("#", "");
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+    return "rgba(" + r + "," + g + "," + b + "," + Math.max(0, Math.min(1, a)).toFixed(2) + ")";
+  }
+  /* A line's pink at its own opacity from the Lab's table. */
+  function visualInk(key) { const line = BY_KEY[key]; return rgba(VISUAL.ink, line && line.alpha != null ? line.alpha : 1); }
+  /* The fixed 0-100 scale: value -> y inside [top, top + height], padPx of room kept at each end. */
+  function rsiY(v, top, height) {
+    const p = VISUAL.padPx, lo = VISUAL.domain[0], hi = VISUAL.domain[1];
+    return top + p + (1 - (v - lo) / (hi - lo)) * Math.max(1, height - 2 * p);
+  }
+  /* DEVELOPING VALUES (the Lab's default): the newest chart bar shows the source bar that is still
+     forming inside it, not only the last finished one. Only that one bar changes; every earlier bar keeps
+     sampleToChart's no-peeking value. A source bar qualifies only when it overlaps the newest chart bar
+     (started before that bar ends, ends after it starts), so a source that stopped is still never
+     stretched to the present. now: ms, tells developing from finished. Returns { values, tip }. */
+  function developingTip(values, chartTimes, series, chartDurMs, now) {
+    const n = chartTimes ? chartTimes.length : 0;
+    if (!Array.isArray(values) || !n || !series || !series.length) return { values, tip:null };
+    const from = chartTimes[n - 1], to = from + (Number(chartDurMs) || DAY);
+    let j = series.length - 1;
+    while (j >= 0 && !(series[j].t < to)) j--;
+    if (j < 0 || series[j].v == null || !(series[j].end > from)) return { values, tip:null };
+    const s = series[j], out = values.slice();
+    out[n - 1] = s.v;
+    return { values:out, tip:{ ix:n - 1, t:s.t, end:s.end, v:s.v, developing:Number.isFinite(now) ? now < s.end : null } };
+  }
+  /* The cloud at bar i and, when it is hidden there, WHICH of its four sources has no value. parts:
+     [{ key, values, absence }] in CONTEXT order. Returns { band:{lo,hi}|null, missing:[labels] }. */
+  function cloudAt(parts, i) {
+    const missing = [], vals = [];
+    for (const p of parts || []) {
+      const v = p && p.values ? p.values[i] : null;
+      if (v == null) missing.push(BY_KEY[p.key] ? BY_KEY[p.key].label : p.key); else vals.push(v);
+    }
+    if (missing.length || vals.length < CONTEXT.length) return { band:null, missing };
+    return { band:{ lo:Math.min.apply(null, vals), hi:Math.max.apply(null, vals) }, missing };
+  }
+  /* WHERE THE DAILY CHIP GOES. The point (px, py) is the daily line's exact value and never moves; the
+     chip sits `gap` px right of it in the bounded gutter up to `right`. If it does not fit there it is
+     pulled left and moved above (or below) the point so it never covers it, and it is clamped inside
+     [top, bottom]; the leader always runs from the exact point to the chip's nearest edge, so a moved
+     chip still shows where its value is. Returns { x, y, w, h, leader:{x1,y1,x2,y2}, displaced }. */
+  function chipPlacement(o) {
+    const gap = o.gap == null ? VISUAL.chip.gap : o.gap, cw = o.cw, ch = o.ch;
+    let x = o.px + gap, y = o.py - ch / 2, displaced = false;
+    if (x + cw > o.right) {
+      x = Math.max(o.left == null ? -Infinity : o.left, o.right - cw);
+      if (x < o.px + 2) { displaced = true; y = o.py - ch - gap / 2; if (y < o.top) y = o.py + gap / 2; }
+    }
+    const clamped = Math.max(o.top, Math.min(o.bottom - ch, y));
+    if (Math.abs(clamped - y) > .01) displaced = true;
+    y = clamped;
+    if (Math.abs(y + ch / 2 - o.py) > .5) displaced = true;
+    const x2 = Math.max(x, Math.min(x + cw, o.px)), y2 = Math.max(y, Math.min(y + ch, o.py));
+    /* a chip right beside its point still gets a short horizontal leader to it */
+    const leader = x2 === o.px && y2 === o.py ? { x1:o.px, y1:o.py, x2:x, y2:o.py } : { x1:o.px, y1:o.py, x2, y2 };
+    return { x, y, w:cw, h:ch, leader, displaced };
+  }
+  /* "RSI D 52.3": the actual value at one decimal. */
+  function chipText(v) { return "RSI D " + (Number.isFinite(v) ? v.toFixed(1) : "—"); }
+
   root.SC_RSI_FAN = Object.freeze({
     LINES, CHART_LINES, CONTEXT, BY_KEY, INK, LENGTH, WARMUP, WARMUP_MIN, MIN_SOURCE, MAX_SOURCE, TAIL_LIMIT, PANEL_SHARE, PHONE_MAX,
     CHART_KEY, parseRsiParam, linesFor, visibleAt, sourceLimit, joinTail, lineSeries, carryBars, sampleToChart, lineStatus, ink,
-    warmFor, composeBars, pickSource, fetchPlan, envelope, dayDirection, lineInk, etDayHour, lateStart
+    warmFor, composeBars, pickSource, fetchPlan, envelope, dayDirection, lineInk, etDayHour, lateStart,
+    VISUAL, DOT, rgba, visualInk, rsiY, developingTip, cloudAt, chipPlacement, chipText
   });
 })(typeof globalThis === "object" ? globalThis : window);

@@ -152,15 +152,15 @@ test("the fan is the Lab's V4: six lines 3H-D and the slow context cloud of 2D, 
 });
 
 /* ---- 5b · review fixes: the lines can be told apart, and a late start is marked ------------------ */
-test("the six lines are told apart by a strong ramp and the two fastest are broken, not by their tags alone", () => {
+/* 29 Sep (S3): superseded by the Indicator Lab's RSI-only handoff - the five fast lines are all DOTTED, width 1,
+   told apart by a gentle opacity ramp (54-66%); the daily is solid and three times as heavy. The full check of
+   that table is in tests/station-rsi-only-20260929.test.mjs. What still holds from 28 Sep: slow is more solid. */
+test("the six lines: fast dotted and lighter, the daily solid and heaviest (S3 supersedes the 28 Sep ramp)", () => {
   const on = F.LINES.filter((l) => l.on);
-  const a = on.map((l) => l.alpha), w = on.map((l) => l.width);
+  const a = on.map((l) => l.alpha);
   assert.deepEqual(plain(a), plain(a.slice().sort((x, y) => x - y)), "lighter to more solid");
-  assert.ok(a[a.length - 1] - a[0] >= 0.6, "the ramp spans at least 0.6 of opacity (was .52 to 1)");
-  assert.ok(w[w.length - 1] / w[0] >= 2.5, "the slowest line is at least 2.5x as heavy as the fastest (was 2x)");
-  for (let i = 1; i < on.length; i++) assert.ok(a[i] - a[i - 1] >= 0.1, `${on[i].label} is clearly more solid than ${on[i - 1].label}`);
-  assert.deepEqual(plain(on.filter((l) => l.dash).map((l) => l.label)), ["3H", "4H"], "3H dotted, 4H dashed, the rest solid");
-  assert.match(chart, /ctx\.setLineDash\(solo \|\| !spec\.dash \? \[\] : Array\.from\(spec\.dash\)\)/);
+  assert.deepEqual(plain(on.filter((l) => l.dash).map((l) => l.label)), ["3H", "4H", "6H", "8H", "12H"], "every fast line dotted, the daily solid");
+  assert.match(chart, /ctx\.setLineDash\(spec\.dash \? Array\.from\(spec\.dash\) : \[\]\);/);
   assert.equal(chart, twin, "the Station chart and its shell twin stay identical");
 });
 
@@ -229,14 +229,14 @@ test("the context cloud is the band between the lowest and highest of the four, 
   assert.equal(new Date(s[0].end).toISOString(), "2026-09-22T00:00:00.000Z", "Thursday's 3D bar ends Monday 20:00 ET, not Saturday");
 });
 
-test("colour: each line green when its RSI is at or above a day earlier, red when below - the pane's own inks", () => {
+test("colour: the lone ?rsi=chart line keeps green up / red down; the full fan is the Lab's pink (S3)", () => {
   const up = [{ t: 0, end: 20 * H, v: 50 }, { t: D, end: D + 20 * H, v: 55 }];
   const down = [{ t: 0, end: 20 * H, v: 50 }, { t: D, end: D + 20 * H, v: 45 }];
   assert.equal(F.dayDirection(up), "up"); assert.equal(F.dayDirection(down), "down");
   const pal = { bull: "#00FFA3", bear: "#FF2D55" };
-  assert.match(F.lineInk("1D", "up", pal), /^rgba\(0,255,163,1\.00\)$/);
-  assert.match(F.lineInk("3h", "down", pal), /^rgba\(255,45,85,0\.34\)$/, "fast lines lighter, slow ones solid");
-  assert.match(chart, /ctx\.strokeStyle = F\.lineInk\(line\.key, line\.dir, pal, solo \? 1 : 0\);/);
+  assert.match(F.lineInk("1D", "up", pal, 1), /^rgba\(0,255,163,1\.00\)$/, "the lone line, at full ink");
+  assert.match(chart, /ctx\.strokeStyle = F\.lineInk\(line\.key, line\.dir, pal, solo \? 1 : 0\);/, "the older path, for the lone line");
+  assert.match(chart, /ctx\.strokeStyle = F\.visualInk\(line\.key\); ctx\.lineWidth = spec\.width;/, "the full fan: pink at the Lab's opacity");
 });
 
 test("the fetch plan: every line's width, the widths it is composed from, and the cloud's", () => {

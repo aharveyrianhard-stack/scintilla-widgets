@@ -1348,8 +1348,13 @@ function rsiFanFor(host, pts) {
   const sampled = (key) => {
     const got = rsiLineFrom(F, key, t, absence);
     if (!got.series) return { key, values:null, status:null, dir:null, approx:false, from:null, absence:got.absence };
-    const values = F.sampleToChart(times, got.series, chartDur, F.carryBars(key, chartDur));
-    return { key, values, status:F.lineStatus(got.series, values, lastIx), dir:F.dayDirection(got.series),
+    const finished = F.sampleToChart(times, got.series, chartDur, F.carryBars(key, chartDur));
+    /* S3 (29 Sep), the Lab's default: DEVELOPING values - the newest chart bar shows the source bar still
+       forming inside it (display sampling only; the RSI arithmetic is untouched). The lone ?rsi=chart line
+       keeps its finished-bars sampling. */
+    const dev = RSI_REQUEST.chart ? { values:finished, tip:null } : F.developingTip(finished, times, got.series, chartDur, Date.now());
+    const values = dev.values;
+    return { key, values, status:F.lineStatus(got.series, values, lastIx), dir:F.dayDirection(got.series), tip:dev.tip,
       approx:got.series.length ? !!got.series[got.series.length - 1].approx : false, from:got.from, absence:null };
   };
   const lines = keys.map(sampled);
@@ -1358,7 +1363,9 @@ function rsiFanFor(host, pts) {
     const parts = F.CONTEXT.map((c) => sampled(c.key));
     const band = F.envelope(parts.map((p) => p.values));
     const last = band ? (() => { for (let i = lastIx; i >= 0; i--) if (band[i]) return band[i]; return null; })() : null;
-    cloud = { band, last, parts:parts.map((p) => ({ key:p.key, value:p.status ? p.status.value : null, absence:p.absence, from:p.from })) };
+    /* the four source values per bar stay on the cloud, so a hidden segment can NAME what is missing */
+    cloud = { band, last, parts:parts.map((p) => ({ key:p.key, values:p.values, value:p.status ? p.status.value : null,
+      absence:p.absence, from:p.from, tip:p.tip || null })) };
   }
   host._rsiMemo = { sig, lines, cloud };
   return host._rsiMemo;
@@ -1529,6 +1536,166 @@ function drawRsiFan(ctx, o) {
   }
   ctx.restore();
   return { top, height:ph, yLo, yHi, lines:shown, cloud:cloudShown, tags, late:lateShown.length ? lateShown : null };
+}
+/* S3 (29 Sep) — THE RSI-ONLY PANE: the Indicator Lab's approved visual (RSI_ONLY_STATION_VISUAL_HANDOFF,
+   Alan 29 Sep: "HERE IS INSTRUCTIONS FOR THE UPDATED RSI ONLY OSCILLATOR FOR OUR USE IN STATION PLEASE").
+   Same data as the fan above (rsiFanFor: locked source widths, the daily line shared with the clouds),
+   drawn differently, in the Lab's order:
+     1. quiet 0 / 100 guides, 30 / 70 solid pink, 50 dotted - on a FIXED 0-100 scale;
+     2. the pink 2D-3D-W-2W cloud (min to max of the four, hidden wherever one is missing, and the missing
+        source named in the title row);
+     3. the dotted 3H 4H 6H 8H 12H lines above it;
+     4. the solid daily line above them;
+     5. the "RSI D 52.3" chip and its leader, anchored to the daily line's exact newest value, in a bounded
+        gutter right of the newest bar (never out in the future whitespace, never at a false height).
+   No right-edge tags on the intraday lines, no monthly, no signal line. Hover: the crosshair's time line
+   runs down through this panel and the title row reads every line's timeframe and value at that bar.
+   Shares the price's x scale (X) and viewport; its own y scale. */
+function drawRsiOnly(ctx, o) {
+  const F = window.SC_RSI_FAN, V = F.VISUAL, top = o.top, ph = o.height, left = o.left, width = o.width;
+  const RY = (v) => F.rsiY(v, top, ph);
+  const band = o.fan.cloud && o.fan.cloud.band;
+  const newestOn = o.end >= o.last;
+  ctx.save();
+  /* the seam between price and panel */
+  ctx.strokeStyle = o.hairline; ctx.globalAlpha = .16; ctx.lineWidth = .6;
+  ctx.beginPath(); ctx.moveTo(left, Math.round(top - o.gap / 2) + .5); ctx.lineTo(left + width, Math.round(top - o.gap / 2) + .5); ctx.stroke();
+  ctx.globalAlpha = 1;
+  /* 1 · the guides */
+  for (const g of V.guides) {
+    ctx.save(); ctx.strokeStyle = F.rgba(V.ink, g.opacity); ctx.lineWidth = g.width; ctx.setLineDash(g.dash ? Array.from(g.dash) : []);
+    const y = Math.round(RY(g.v)) + .5;
+    ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + width, y); ctx.stroke(); ctx.restore();
+  }
+  ctx.save(); ctx.beginPath(); ctx.rect(left, top, width, ph); ctx.clip();
+  /* 2 · the cloud: a fill only, its edges invisible; a run breaks wherever any of the four is missing */
+  if (band) {
+    ctx.fillStyle = F.rgba(V.cloud.ink, V.cloud.opacity);
+    let run = [];
+    const flush = () => {
+      if (run.length > 1) {
+        ctx.beginPath();
+        run.forEach((i, k) => { const x = o.X(i), y = RY(band[i].hi); if (k) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+        for (let k = run.length - 1; k >= 0; k--) ctx.lineTo(o.X(run[k]), RY(band[run[k]].lo));
+        ctx.closePath(); ctx.fill();
+      }
+      run = [];
+    };
+    for (let i = o.start; i <= o.end; i++) { if (band[i]) run.push(i); else flush(); }
+    flush();
+  }
+  /* 3 · the fast lines, dotted, then 4 · the daily, solid, last and on top */
+  const order = o.fan.lines.filter((l) => l.values && !F.BY_KEY[l.key].daily)
+    .concat(o.fan.lines.filter((l) => l.values && F.BY_KEY[l.key].daily));
+  ctx.lineJoin = "round"; ctx.lineCap = "butt";
+  for (const line of order) {
+    const spec = F.BY_KEY[line.key];
+    ctx.beginPath();
+    let pen = false;
+    for (let i = o.start; i <= o.end; i++) {
+      const v = line.values[i];
+      if (v == null) { pen = false; continue; }
+      if (pen) ctx.lineTo(o.X(i), RY(v)); else { ctx.moveTo(o.X(i), RY(v)); pen = true; }
+    }
+    ctx.strokeStyle = F.visualInk(line.key); ctx.lineWidth = spec.width;
+    ctx.setLineDash(spec.dash ? Array.from(spec.dash) : []);
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  /* where the intraday lines begin inside the window (futures: about a month of intraday bars) */
+  const late = F.lateStart(o.fan.lines, o.start, o.end);
+  const lateShown = [];
+  if (late) {
+    ctx.font = o.font + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+    ctx.textBaseline = "bottom"; ctx.textAlign = "left";
+    late.groups.forEach((g, n) => {
+      const lx = Math.round(o.X(g.ix)) + .5, when = o.dateAt ? o.dateAt(g.ix) : null;
+      const text = g.text + (when != null && isFinite(when) ? " from " + rsiAsOf(when) : " start here");
+      ctx.strokeStyle = F.rgba(V.ink, .45); ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+      ctx.beginPath(); ctx.moveTo(lx, top); ctx.lineTo(lx, top + ph); ctx.stroke(); ctx.setLineDash([]);
+      const tw = ctx.measureText(text).width;
+      const tx = lx - 4 - tw >= left + 2 ? lx - 4 - tw : Math.min(lx + 4, left + width - tw - 2);
+      const ty = top + ph - 2 - n * (o.font + 4);
+      ctx.fillStyle = "rgba(5,6,12,.78)"; ctx.fillRect(tx - 2, ty - o.font - 2, tw + 4, o.font + 3);
+      ctx.fillStyle = F.rgba(V.ink, .85); ctx.fillText(text, tx, ty);
+      lateShown.push({ ix:g.ix, keys:Array.from(g.keys), text, x:Math.round(lx) });
+    });
+  }
+  /* the crosshair's time, carried down from the price */
+  if (o.scrubIx != null) {
+    const sx = Math.round(o.X(o.scrubIx)) + .5;
+    ctx.strokeStyle = o.hairline; ctx.globalAlpha = .62; ctx.lineWidth = .75;
+    ctx.beginPath(); ctx.moveTo(sx, top); ctx.lineTo(sx, top + ph); ctx.stroke(); ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  /* 5 · THE DAILY CHIP: at the daily line's newest drawn value, only while the newest bar is on screen */
+  const daily = o.fan.lines.find((l) => F.BY_KEY[l.key].daily && l.values);
+  let chip = null;
+  if (daily && newestOn) {
+    let ix = -1;
+    for (let i = o.end; i >= Math.max(o.start, o.end - 3); i--) if (daily.values[i] != null) { ix = i; break; }
+    if (ix >= 0) {
+      const v = daily.values[ix], px = o.X(ix), py = RY(v);
+      const cf = o.chipFont;
+      ctx.save();
+      ctx.font = "600 " + cf + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+      const text = F.chipText(v), cw = Math.ceil(ctx.measureText(text).width) + 8, ch = Math.ceil(cf + 5);
+      const P = F.chipPlacement({ px, py, cw, ch, left, right:o.gutterRight, top, bottom:top + ph });
+      ctx.strokeStyle = F.rgba(V.ink, V.chip.leader); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(P.leader.x1, P.leader.y1); ctx.lineTo(P.leader.x2, P.leader.y2); ctx.stroke();
+      ctx.fillStyle = "rgba(5,6,12,.86)"; ctx.fillRect(P.x, P.y, P.w, P.h);
+      ctx.fillStyle = F.rgba(V.ink, V.chip.fill); ctx.fillRect(P.x, P.y, P.w, P.h);
+      ctx.fillStyle = F.rgba(V.ink, V.chip.text); ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      ctx.fillText(text, P.x + 4, P.y + P.h / 2 + .5);
+      ctx.restore();
+      const tip = daily.tip && daily.tip.ix === ix ? daily.tip : null;
+      chip = { text, value:+v.toFixed(2), ix, x:+px.toFixed(2), y:+py.toFixed(2),
+        box:{ x:+P.x.toFixed(2), y:+P.y.toFixed(2), w:P.w, h:P.h }, leader:P.leader, displaced:P.displaced,
+        developing:tip ? tip.developing : false, sourceBar:tip ? new Date(tip.t).toISOString() : null,
+        title:"RSI(14) " + v.toFixed(2) + ", source 1D, " + (tip && tip.developing ? "developing" : "confirmed") };
+    }
+  }
+  /* THE TITLE ROW: at rest "RSI 14" and anything missing, named; on hover every line's timeframe and value */
+  const at = o.scrubIx;
+  const items = [{ text:"RSI 14", ink:F.rgba(V.ink, .8) }];
+  const shown = [];
+  for (const line of o.fan.lines) {
+    const name = F.BY_KEY[line.key].label;
+    if (!line.values) { items.push({ text:name + " " + line.absence, ink:F.rgba(V.ink, .8) }); continue; }
+    const v = at != null ? line.values[at] : line.status.value;
+    shown.push({ key:line.key, value:v == null ? null : +v.toFixed(2), stale:!!line.status.stale, approx:!!line.approx, from:line.from,
+      developing:line.tip ? line.tip.developing : null, asOf:line.status.t == null ? null : new Date(line.status.t).toISOString() });
+    if (at != null) items.push({ text:name + " " + (v == null ? "—" : (line.approx ? "≈" : "") + v.toFixed(1)), ink:F.rgba(V.ink, Math.min(1, F.BY_KEY[line.key].alpha + .3)) });
+    else if (line.status.stale) items.push({ text:name + " to " + rsiAsOf(line.status.t), ink:F.rgba(V.ink, .8) });
+  }
+  let cloudShown = null;
+  if (o.fan.cloud) {
+    const parts = o.fan.cloud.parts;
+    const probe = at != null ? at : o.last;
+    const c = F.cloudAt(parts, probe);
+    const absent = parts.filter((p) => p.absence).map((p) => F.BY_KEY[p.key].label + " " + p.absence);
+    if (c.band && at != null) items.push({ text:"2D–2W " + c.band.lo.toFixed(1) + "–" + c.band.hi.toFixed(1), ink:F.rgba(V.cloud.ink, 1) });
+    else if (!c.band) items.push({ text:"CLOUD HIDDEN · " + (absent.length ? absent.join(" ") : c.missing.join("/") + " missing"), ink:F.rgba(V.cloud.ink, 1) });
+    cloudShown = { lo:c.band ? +c.band.lo.toFixed(2) : null, hi:c.band ? +c.band.hi.toFixed(2) : null, at:probe, missing:c.missing,
+      parts:parts.map((p) => ({ key:p.key, value:p.values && p.values[probe] != null ? +p.values[probe].toFixed(2) : null, absence:p.absence, from:p.from })) };
+  }
+  ctx.save();
+  ctx.font = o.font + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  const lineH = o.font + 4;
+  let x = left + 3, y = top + lineH / 2 + 1;
+  for (const item of items) {
+    const w = ctx.measureText(item.text).width;
+    if (x > left + 3 && x + w > left + width - 4) { x = left + 3; y += lineH; }
+    ctx.fillStyle = "rgba(5,6,12,.72)"; ctx.fillRect(x - 2, y - lineH / 2, w + 4, lineH);
+    ctx.fillStyle = item.ink; ctx.fillText(item.text, x, y);
+    x += w + 9;
+  }
+  ctx.restore();
+  ctx.restore();
+  return { mode:"rsi-only", top, height:ph, yLo:V.domain[0], yHi:V.domain[1], lines:shown, cloud:cloudShown, chip,
+    guides:V.guides.map((g) => ({ v:g.v, y:Math.round(RY(g.v)) + .5 })), late:lateShown.length ? lateShown : null,
+    hover:at != null ? items.slice(1).map((i) => i.text) : null };
 }
 const cloudSpecOptions = () => CLOUD_EXTRAS;
 /* Which completed daily observation each visible bar may show. Computed once per
@@ -2248,10 +2415,13 @@ function scChartDraw(host, scrub) {
     ? drawCloudLabels(ctx, { map:cloudMap, pts, end, X, Y, padL, padT, iw, ih, font:cloudFont }) : null;
   paintCloudCaption(host, { padB, show:!!cloudMap && iw >= 200 && ih >= 90 });
   /* What the fan panel shows is kept on the host, like the ribbon's labels, so a proof can read it. */
-  host._rsiDrawn = fanBlock ? drawRsiFan(ctx, { fan, X, start, end, left:padL, width:iw, palette:col,
+  /* S3 (29 Sep): the full fan is the Lab's RSI-only pane; the Hub's lone ?rsi=chart line keeps the older one. */
+  const fanOpts = { fan, X, start, end, last:pts.length - 1, left:padL, width:iw, palette:col,
     top:padT + ih + fanGap, height:fanBlock - fanGap, gap:fanGap, axisX:w - 3, hairline:col.dim,
-    font:cloudFont, scrubIx:scrub && pts[scrub.ix] ? scrub.ix : null,
-    dateAt:(i) => (pts[i] ? Date.parse(pts[i].d) : null) }) : null;
+    font:cloudFont, chipFont:Math.max(8.5, cloudFont + 1), gutterRight:w - 2,
+    scrubIx:scrub && pts[scrub.ix] ? scrub.ix : null,
+    dateAt:(i) => (pts[i] ? Date.parse(pts[i].d) : null) };
+  host._rsiDrawn = fanBlock ? (fan.lines.length > 1 ? drawRsiOnly(ctx, fanOpts) : drawRsiFan(ctx, fanOpts)) : null;
   ctx.save();
   ctx.font = ((ipadProfile ? 6.5 : 7) * scale) + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.fillStyle = col.dim; ctx.globalAlpha = .47; ctx.textAlign = "right";
