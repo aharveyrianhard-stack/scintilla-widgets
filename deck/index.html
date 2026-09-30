@@ -513,6 +513,18 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
 .chart-pane > .body > iframe.slot-next.in{ opacity:1; }
 /* L6: the frame a rotating slot faded away from, parked for the slot's next step: not painted, not hit */
 .chart-pane > .body > iframe.slot-spare{ visibility:hidden; opacity:0; pointer-events:none; z-index:0; }
+/* A PAGE CHANGE DISSOLVES THE SAME WAY (S2, 29 Sep - see PAGE CHANGES DISSOLVE). The next page's
+   charts are drawn, invisible, at the boxes they will have on the next page, over the page on screen,
+   and the whole page fades in at once over the same 0.9 s in the same 8 steps. z-index 11: over the
+   old charts, under the pane notes (12) and the timeframe tag (24). A chart that was hidden on the old
+   page comes in on its own pane, pinned to its next box for the fade (page-incoming). */
+.chart-pane > .body > iframe.page-next{ opacity:0; pointer-events:none; z-index:11; transition:opacity .9s steps(8, jump-end); }
+.chart-pane > .body > iframe.page-next.in{ opacity:1; }
+#rowTop.page-dissolving > .pane{ overflow:visible; }
+#rowTop.page-measure iframe{ display:none !important; }
+#rowTop > .pane.page-incoming{ display:flex; position:fixed; z-index:11; background:transparent; pointer-events:none; }
+#rowTop > .pane.page-incoming > :not(.body),
+#rowTop > .pane.page-incoming > .body > :not(iframe.page-next){ visibility:hidden; }
 body[data-view="ipad"]{ overscroll-behavior:none; }
 .card{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center;
   justify-content:center; gap:8px; cursor:pointer; text-align:center; padding:16px; }
@@ -966,6 +978,9 @@ function pageVisit(id) {
 }
 /* the in-slot rotation's state (I3, 28 Sep - see ROTATION INSIDE THE SLOT) and the wall's last shared zoom */
 const SLOT_ROT = { marks:[], since:0, busy:0 };
+/* the page change being prepared, if any (S2, 29 Sep - see PAGE CHANGES DISSOLVE) */
+let PAGE_FADE = null;
+let PAGE_SETTLED = null;   /* set only while that change's layout is being committed */
 let LAST_CHART_VIEW = null;
 /* A workflow page's wall, fresh on every show: the current TARGETS, the session's
    LEADERS, and this visit's rotating windows. */
@@ -1158,6 +1173,7 @@ function fanoutDeckQuote(ticker) {
   const clean = CLEAN(ticker);
   for (const pane of PANES) if (pane.def.kind === "chart" && pane.frame && CLEAN(pane.def.ticker) === clean)
     postDeckQuote(pane.frame, clean);
+  for (const pane of PANES) if (pane.pageNext && pane.pageNext.ticker === clean) postDeckQuote(pane.pageNext.frame, clean);
 }
 /* A ROW WITHOUT A WRITE TIME HAS NO WRITE TIME.
    This used to substitute `new Date()` for a missing updated_ts, which meant an undated quote
@@ -1209,8 +1225,11 @@ function postDeckGeiger(frame) {
   try { frame.contentWindow.postMessage({ sc:"deck-geiger", readings:DECK_GEIGER.readings, at:DECK_GEIGER.at }, location.origin); } catch (_) {}
 }
 function fanoutDeckGeiger() {
-  for (const pane of PANES) if (pane.def.kind === "chart" && pane.frame) postDeckGeiger(pane.frame);
+  /* while a page change is being prepared the map is the NEXT page's: the chart on screen keeps its
+     chip until its replacement has faded in over it (S2) */
+  for (const pane of PANES) if (pane.def.kind === "chart" && pane.frame && !pane.pageNext) postDeckGeiger(pane.frame);
   for (const pane of PANES) if (pane.slotNext) postDeckGeiger(pane.slotNext.frame);
+  for (const pane of PANES) if (pane.pageNext) postDeckGeiger(pane.pageNext.frame);
 }
 /* L6 (28 Sep): "the Geiger chip arrives 1-2 s late on an incoming frame." The map held only the names
    on screen, so a rotating slot's next name had no reading until a read that started with the step
@@ -2012,7 +2031,8 @@ window.addEventListener("message", (event) => {
        carried generation 0, was never granted, and waited out its 5.5 s escape hatch. */
     const mountedPane = PANES.find((item) => (item.frame?.contentWindow === event.source &&
       frameIdentity(frameShownSrc(item.frame)) === frameIdentity(item.def.src)) ||
-      (item.slotNext && item.slotNext.frame.contentWindow === event.source));
+      (item.slotNext && item.slotNext.frame.contentWindow === event.source) ||
+      (item.pageNext && item.pageNext.frame.contentWindow === event.source));
     chartDataLoadQueue.push({ token:event.data.token, priority:chartLoadPriority(event.data.req),
       generation:mountedPane ? ROTATION_GENERATION : (Number(event.data.generation) || 0), source:event.source });
     runChartDataLoadQueue(); return;
@@ -2937,6 +2957,8 @@ function beginRotationChartTransition() {
 }
 function syncChartPanes(transitionGeneration) {
   CHART_STATUS.clear();
+  /* S2: the slots a dissolving page change has already put on their names */
+  const settled = PAGE_SETTLED;
   CHARTS.forEach((ticker, i) => {
     const o = PANES.find((p) => p.def.key === "c" + (i + 1)); if (!o) return;
     o.def.ticker = ticker;
@@ -2952,6 +2974,7 @@ function syncChartPanes(transitionGeneration) {
       const at = LIVE.indexOf(o); if (at >= 0) LIVE.splice(at, 1);
       o.showCard("empty editable slot");
     } else if (ticker && o.frame) {
+      if (settled && settled.has(o.def.key)) return;
       const coldRotation = transitionGeneration && !chartCachedInBrowser(ticker, RANGE) &&
         frameShownSrc(o.frame) !== o.def.src;
       if (coldRotation) queueRotationChartFrame(o.frame, o.def.src, transitionGeneration);
@@ -3025,10 +3048,22 @@ async function applyScene(next, options) {
     state = hasStoredScene("scratch") ? editableState("scratch") : SceneModel.scratchState([], RANGE);
   } else state = editableState(requested);
 
+  /* a page asked for while another was still being prepared: that one is dropped, nothing moves */
+  abandonPageFade();
+  const fade = pageDissolves(requested, options) ? beginPageFade() : null;
   SCENE = requested; APPLYING_SCENE = true; installSceneState(state);
-  const transitionGeneration = options?.rotate ? beginRotationChartTransition() : 0;
-  applyChartCount(CHART_COUNT, true, transitionGeneration); paintTf();
-  APPLYING_SCENE = false;
+  if (fade) {
+    /* S2 (29 Sep): the next page is drawn off screen and dissolves in - see PAGE CHANGES DISSOLVE */
+    beginRotationChartTransition();
+    try {
+      const shown = await dissolveToPage(fade, options?.rotate ? PAGE_READY_MAX_MS : PAGE_READY_HAND_MS);
+      if (!shown) return;
+    } finally { if (!PAGE_FADE) APPLYING_SCENE = false; }
+  } else {
+    const transitionGeneration = options?.rotate ? beginRotationChartTransition() : 0;
+    applyChartCount(CHART_COUNT, true, transitionGeneration); paintTf();
+    APPLYING_SCENE = false;
+  }
   remember("station.scene", SCENE);
   if (SCENE === "cohort") {
     remember("station.cohort", COHORT); remember("station.cohortPage", String(COHORT_PAGE + 1));
@@ -3362,11 +3397,12 @@ function postSlotMark(frame, mark) {
   } catch (_) {}
 }
 function paintSlotMarks() {
+  if (PAGE_FADE) return;   /* the page on screen keeps its marks until the next one has faded in */
   for (const pane of PANES) if (pane.def.kind === "chart" && pane.frame) postSlotMark(pane.frame, slotMarkOf(pane));
 }
 function cancelSlotFades() {
   for (const pane of PANES) {
-    dropSpare(pane);
+    if (!PAGE_FADE) dropSpare(pane);   /* a page change being prepared re-uses the parked frames (S2) */
     const job = pane.slotNext;
     if (!job) continue;
     job.done = true; clearTimeout(job.timer);
@@ -3402,10 +3438,14 @@ function takeSpare(pane, src) {
   pane.spare = null;
   return f;
 }
+/* S2 (29 Sep): a page change parks the frame it faded away from too, so every chart slot on a workflow
+   page may keep one - not only a rotating slot. A slot the page does not show keeps none. */
 function sweepSpares() {
   const rotating = SceneModel.WORKFLOW_IDS.includes(SCENE);
-  for (const pane of PANES)
-    if (pane.spare && (!rotating || !pane.frame || pane.spare.parentNode !== pane.body || !slotMarkOf(pane))) dropSpare(pane);
+  for (const pane of PANES) {
+    const i = Number(String(pane.def.key || "").replace(/^c/, "")) - 1;
+    if (pane.spare && (!rotating || !pane.frame || pane.spare.parentNode !== pane.body || !(i >= 0 && i < CHART_COUNT))) dropSpare(pane);
+  }
 }
 function slotHeld(pane) {
   if (!pane?.node) return true;
@@ -3516,6 +3556,7 @@ window.addEventListener("message", (event) => {
   if (d.sc === "chart-data-state" && CLEAN(d.ticker) === job.ticker && d.hasSeries) job.ready();
 });
 function stepRotatingSlots() {
+  if (PAGE_FADE) return;
   sweepSpares();
   if (!SceneModel.WORKFLOW_IDS.includes(SCENE) || document.hidden) return;
   if (!SLOT_ROT.marks.some(Boolean) || SLOT_ROT.busy) return;
@@ -3549,6 +3590,210 @@ function stepRotatingSlots() {
   }
 }
 setInterval(stepRotatingSlots, 1000);
+/* ── PAGE CHANGES DISSOLVE (S2, 29 Sep) ───────────────────────────────────────────────────
+   Alan, 29 Sep evening: "THIS METHOD HOW IT LOOKS WHEN THE SAME CHART ROTATIONS HAPPEN - CAN IT BE
+   TESTED TO SEE IF IT WORKS FOR THE WHOLE ENTIRE ROTATION SOMEHOW? ITS VERY SMOOTH AND THE PAGE
+   CHANGES ARE VERY ROUGH."
+   A page change re-pointed every chart frame at once: a new document is blank until it draws, a name
+   that stayed was told its range again and showed "loading", and a change of chart count moved the old
+   charts into the new boxes before anything new was on them. It now works like the in-slot rotation
+   (I3/L6), for the whole page at once:
+     1. the next page's boxes are measured without painting (one synchronous layout, frames not laid out);
+     2. every slot whose chart changes gets its next frame at its NEXT box, invisible, over the page on
+        screen - the slot's parked frame (L6) or the chart it kept hidden, re-pointed by message, or a
+        new document when neither fits. A slot already showing exactly its next chart is left alone;
+     3. the page waits until every next frame has drawn its line with its price, clouds, lens and Geiger
+        chip - at most PAGE_READY_MAX_MS, or PAGE_READY_HAND_MS when Alan picked the page by hand;
+     4. every next frame fades in together: 0.9 s in 8 steps, L6's CSS and cost;
+     5. in one task the grid takes the next page's layout under frames already standing in it, the
+        frames faded away from are parked for the next change, and the page's chrome follows.
+   Nothing is taken off the screen before its replacement has drawn. A phone (stacked) wall, an
+   expanded pane, SCRATCH and CUSTOM keep the old path. */
+const PAGE_READY_MAX_MS = 8000, PAGE_READY_HAND_MS = 3000, PAGE_READY_POLL_MS = 100;
+function pageDissolves(requested, options) {
+  if (!options?.rotate && !options?.screen) return false;
+  if (STACKED || SOLO || MEDIA_STAGE || !el("rowTop")) return false;
+  return requested !== "scratch" && requested !== "custom";
+}
+const srcRange = (src) => { try { return new URL(String(src || ""), location.origin).searchParams.get("range") || ""; } catch (_) { return ""; } };
+const withoutTransition = (src) => String(src || "").replace(/([?&])transition=[^&]*&?/g, "$1").replace(/[?&]$/, "");
+const boxOf = (node) => { const r = node.getBoundingClientRect(); return { left:r.left, top:r.top, width:r.width, height:r.height }; };
+const sameBox = (a, b) => !!a && !!b && Math.abs(a.left - b.left) < 1 && Math.abs(a.top - b.top) < 1 &&
+  Math.abs(a.width - b.width) < 1 && Math.abs(a.height - b.height) < 1;
+/* The boxes every slot has now and will have on the next page. The row takes the next layout and gives
+   it back inside one task, so nothing is painted in between; the frames are out of the layout meanwhile,
+   so no chart is resized by the measuring. */
+function measurePageBoxes(count) {
+  const row = el("rowTop"), was = row.className;
+  const panes = Array.from({ length: 8 }, (_, i) => slotPane(i));
+  const off = panes.map((p) => !!p && p.node.classList.contains("chart-off"));
+  row.classList.add("page-measure");
+  const now = panes.map((p, i) => p && !off[i] ? { pane:boxOf(p.node), body:boxOf(p.body) } : null);
+  row.className = was.replace(/\bcharts-\d\b/, "charts-" + count) + " page-measure";
+  panes.forEach((p, i) => { if (p) p.node.classList.toggle("chart-off", i >= count); });
+  const next = panes.map((p, i) => p && i < count ? { pane:boxOf(p.node), body:boxOf(p.body) } : null);
+  row.className = was;
+  panes.forEach((p, i) => { if (p) p.node.classList.toggle("chart-off", off[i]); });
+  return { now, next };
+}
+/* Drawn and dressed: the line, the price in the badge (once the deck holds one), the clouds, the lens
+   (or its settled reason for none) and the Geiger chip (when there is a reading). The deck and its
+   chart frames share an origin; this only reads what the chart has drawn. */
+function pageFrameReady(job) {
+  let doc = null, h = null;
+  try { doc = job.frame.contentDocument; h = doc && doc.querySelector("#chartSlot .sc-nchart"); } catch (_) { return false; }
+  if (!h || h.dataset.t !== job.ticker || h.dataset.holding) return false;
+  /* a name with no bars (tonight: the put/call pane) has drawn its reason, and that is its finished state */
+  if (h._dataState && h._dataState.history === "absent" && !(h._series && h._series.length >= 2)) return true;
+  if (!(h._series && h._series.length >= 2 && h._plot)) return false;
+  const range = srcRange(job.src);
+  if (range && h._range && h._range !== range) return false;
+  if (DECK_QUOTES.has(job.ticker)) {
+    const badge = h.querySelector(".sc-nchart__live");
+    if (!badge || !/\d/.test(badge.textContent || "")) return false;
+  }
+  const clouds = doc.querySelector('[data-act="clouds"]');
+  if ((!clouds || clouds.classList.contains("on")) && !(h._cloudRows && h._cloudRows.length >= 2) && !h._cloudAbsence) return false;
+  if (srcBubble(job.src)) {
+    const lens = h.querySelector(".sc-nchart__lens"), why = h.dataset.lensWhy || "";
+    if (!(lens && lens.style.display === "block") && (!why || /not drawn yet|not read yet/.test(why))) return false;
+  }
+  if (DECK_GEIGER.readings[job.ticker]) {
+    const chip = h.querySelector(".sc-nchart__live-geiger.is-float");
+    if (!chip || chip.hidden || chip.style.visibility === "hidden") return false;
+  } else if (DECK_GEIGER.inFlight) return false;
+  return true;
+}
+function greetPageFrame(job) {
+  const f = job.frame;
+  try { f.contentWindow.postMessage({ type:"SCINTILLA_VIEW_PROFILE", view:VIEW, scale:paneIpadScale(job.pane) }, location.origin); } catch (_) {}
+  postDeckQuote(f, job.ticker); postDeckGeiger(f); postSlotMark(f, job.mark);
+}
+function preparePageSlot(pane, i, box, now, fade) {
+  const ticker = CHARTS[i], src = paneChartSrc(ticker, i, 0);
+  const shown = !!now;
+  /* exactly this chart, in exactly this box: nothing to do */
+  if (shown && pane.frame && sameBox(now.body, box.body) &&
+      withoutTransition(frameShownSrc(pane.frame)) === withoutTransition(src)) { fade.settled.add(pane.def.key); return null; }
+  let f = null, reused = false;
+  /* a slot the old page hid keeps its chart mounted: that document takes the next name */
+  if (!shown && pane.frame && pane.frame.contentWindow && pane.reportedTicker &&
+      withoutTicker(frameShownSrc(pane.frame)) === withoutTicker(src)) { f = pane.frame; reused = true; }
+  if (!f) { f = takeSpare(pane, src); reused = !!f; }
+  if (!f) {
+    f = document.createElement("iframe");
+    f.src = src; f.allow = FRAME_ALLOW; f.setAttribute("allowfullscreen", "");
+  }
+  f.className = "page-next"; f.setAttribute("aria-hidden", "true"); f._spareTicker = null;
+  const job = { pane, i, frame:f, ticker, src, mark:slotMarkOf(pane), shown, kept:f === pane.frame };
+  if (shown) {
+    /* stood at its next box, inside the pane it will belong to */
+    f.style.inset = "auto";
+    f.style.left = (box.body.left - now.body.left) + "px"; f.style.top = (box.body.top - now.body.top) + "px";
+    f.style.width = box.body.width + "px"; f.style.height = box.body.height + "px";
+  } else {
+    pane.node.classList.add("page-incoming");
+    pane.node.style.left = box.pane.left + "px"; pane.node.style.top = box.pane.top + "px";
+    pane.node.style.width = box.pane.width + "px"; pane.node.style.height = box.pane.height + "px";
+  }
+  pane.pageNext = job;
+  if (f.parentNode !== pane.body) pane.body.appendChild(f);
+  if (reused) {
+    greetPageFrame(job);
+    try {
+      f.contentWindow.postMessage({ sc:"chart", ticker, range:srcRange(src) || RANGE, sharedAxis:/[?&]sharedAxis=1(&|$)/.test(src),
+        bubble:srcBubble(src), clouds:CLOUDS }, location.origin);
+      f.dataset.shown = src;
+    } catch (_) { pointChartFrame(f, src); }
+  } else f.addEventListener("load", () => greetPageFrame(job), { once:true });
+  return job;
+}
+function clearPageSlot(job) {
+  const { pane, frame:f } = job;
+  f.classList.remove("page-next", "in"); f.removeAttribute("aria-hidden");
+  for (const k of ["inset", "left", "top", "width", "height"]) f.style[k] = "";
+  pane.node.classList.remove("page-incoming");
+  for (const k of ["left", "top", "width", "height"]) pane.node.style[k] = "";
+  if (pane.pageNext === job) pane.pageNext = null;
+}
+/* Another page was asked for before this one had faded in: its frames go, nothing on screen moves. */
+function abandonPageFade() {
+  const fade = PAGE_FADE;
+  if (!fade) return;
+  PAGE_FADE = null; fade.abandoned = true;
+  for (const job of fade.jobs) {
+    clearPageSlot(job);
+    if (!job.kept) job.frame.remove();
+  }
+  const row = el("rowTop"); if (row) row.classList.remove("page-dissolving");
+}
+function commitPageFade(fade) {
+  const row = el("rowTop");
+  for (const job of fade.jobs) {
+    const { pane, frame:f } = job, old = pane.frame;
+    clearPageSlot(job);
+    f.dataset.shown = job.src;
+    const card = pane.body.querySelector(".card"); if (card) card.remove();
+    if (old && old !== f) parkSpare(pane, old, pane.reportedTicker);   /* kept for the next change (L6) */
+    pane.frame = f; pane.reportedTicker = job.ticker;
+    if (!LIVE.includes(pane)) LIVE.push(pane);
+    if (!f._deckLoadWired) {
+      f._deckLoadWired = true;
+      f.addEventListener("load", () => { if (pane.frame !== f) return; postViewProfile(pane); postDeckQuote(f, pane.def.ticker); postSlotMark(f, slotMarkOf(pane)); });
+    }
+    fade.settled.add(pane.def.key);
+  }
+  row.classList.remove("page-dissolving");
+  PAGE_FADE = null;
+  /* the layout, the slot records, the chips and the notes follow, in this same task */
+  PAGE_SETTLED = fade.settled;
+  try { applyChartCount(CHART_COUNT, true, 0); } finally { PAGE_SETTLED = null; }
+  paintTf();
+  SLOT_ROT.since = Date.now();
+  paintSlotMarks(); fanoutDeckGeiger();
+}
+function beginPageFade() {
+  abandonPageFade();
+  PAGE_FADE = { jobs:[], settled:new Set(), abandoned:false, started:Date.now() };
+  return PAGE_FADE;
+}
+async function dissolveToPage(fade, waitMs) {
+  const row = el("rowTop");
+  const { now, next } = measurePageBoxes(CHART_COUNT);
+  for (let i = 0; i < CHART_COUNT; i++) {
+    const pane = slotPane(i);
+    if (!pane || !next[i] || !CLEAN(CHARTS[i])) continue;
+    const job = preparePageSlot(pane, i, next[i], now[i], fade);
+    if (job) fade.jobs.push(job);
+  }
+  if (fade.jobs.length) {
+    row.classList.add("page-dissolving");
+    deckQuoteHeartbeat(); refreshDeckGeiger();
+    const until = Date.now() + waitMs;
+    while (!fade.abandoned && Date.now() < until && !fade.jobs.every(pageFrameReady))
+      await new Promise((r) => setTimeout(r, PAGE_READY_POLL_MS));
+    if (fade.abandoned) return false;
+    fade.readyMs = Date.now() - fade.started;
+    fade.late = fade.jobs.filter((job) => !pageFrameReady(job)).map((job) => job.ticker);
+    for (const job of fade.jobs) { postDeckQuote(job.frame, job.ticker); postDeckGeiger(job.frame); postSlotMark(job.frame, job.mark); }
+    await new Promise((r) => requestAnimationFrame(r));
+    for (const job of fade.jobs) job.frame.classList.add("in");
+    await new Promise((r) => setTimeout(r, SLOT_FADE_MS));
+    /* the last of the 8 steps is painted before the switch-over, never a frame after it */
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    if (fade.abandoned) return false;
+  }
+  commitPageFade(fade);
+  window.__pageFadeLast = { readyMs:fade.readyMs || 0, late:fade.late || [], jobs:fade.jobs.length, settled:fade.settled.size };
+  return true;
+}
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin || !PAGE_FADE) return;
+  const pane = PANES.find((p) => p.pageNext && p.pageNext.frame.contentWindow === event.source);
+  if (!pane) return;
+  const job = pane.pageNext, d = event.data || {};
+  if (d.sc === "chart-quote-ready") greetPageFrame(job);
+});
 function applyView(next) {
   VIEW = VIEW_MODES.includes(next) ? next : "auto";
   document.body.dataset.view = VIEW;
