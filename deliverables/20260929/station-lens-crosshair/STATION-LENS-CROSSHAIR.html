@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Station lens and crosshair · 29 Sep 2026</title>
+<style>
+:root{--bg:#0A0A0F;--panel:#0F0F16;--line:#1C1C26;--ink:#C8C8D2;--body:#A8A8B6;--dim:#8C8C9A;--up:#00C98A;--dn:#D02E4C}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--body);font:17px/1.55 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:34px;margin:0 0 6px;color:var(--ink)} h2{font-size:25px;margin:44px 0 8px;color:var(--ink)} h3{font-size:19px;margin:26px 0 6px;color:var(--ink)}
+p,ul,ol{max-width:1100px} li{margin:6px 0} .lead{font-size:21px;color:var(--ink)} .note{color:var(--dim);font-size:14px}
+blockquote{margin:10px 0 18px;padding:8px 16px;border-left:3px solid #33333D;color:var(--ink);max-width:1000px}
+table{border-collapse:collapse;font-size:15px;margin:10px 0 6px;max-width:100%} th,td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+th{color:var(--dim);font-weight:600} td.num{font:14px ui-monospace,Menlo,monospace;text-align:right}
+code{font:14px ui-monospace,Menlo,monospace;background:var(--panel);padding:2px 6px;border-radius:4px;color:var(--ink)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;margin:12px 0 26px}
+.phones{display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 26px} .phones figure{width:300px}
+figure{margin:0 0 18px} img{width:100%;height:auto;border:1px solid var(--line);display:block}
+figcaption{font:13px ui-monospace,Menlo,monospace;color:var(--dim);margin-top:5px}
+.box{border:1px solid var(--line);background:var(--panel);padding:12px 16px;margin:10px 0 16px;max-width:1100px}
+.up{color:var(--up)} .dn{color:var(--dn)} b{color:var(--ink)}
+@media (max-width:760px){body{padding:18px 16px 60px;font-size:16px}.pair{grid-template-columns:1fr}h1{font-size:27px}
+  table{display:block;overflow-x:auto;max-width:100%} code{word-break:break-all} .phones figure{width:100%}}
+</style></head><body>
+
+<h1>Station · 29 Sep: lenses that match the live price, a lens on every page, a steady crosshair readout, faster clouds</h1>
+<p class="lead">Branch <code>station/lens-crosshair-20260929</code>, built on today's live Station (bacb424). <b>Not pushed, not deployed.</b> All four items from your evening notes are built, measured in a hidden browser, and screenshotted at 1680 wide and at phone width (390).</p>
+
+<div class="box">
+<b>In one minute</b>
+<ul>
+<li><b>The lens now matches the live price.</b> I reproduced your SPY case. After hours, both SPY lenses ended at <b>766.07</b> while the chart's badge said <b>764.20</b>. In a replay of 14:47 today, the 4H lens said <b>763.30</b> and the 30M lens <b>763.97</b> while the badge said <b>764.80</b>. The cause: the lens drew only finished candles, while the big chart has drawn its live, still-forming point since yesterday. The lens now draws the same live point. In all four cases the lens's last price now equals the badge's.</li>
+<li><b>Every page has a lens.</b> <b>152 of 160</b> charts across the 27 pages now show one, up from 96. The 8 without one have no chart of ours to put a lens on: the TO-DO page's six TradingView-only series, and the put/call chart (PCC) on two pages, which the chart service wasn't serving during the final check. Short charts (30M to 4H, and the 3H menu pages) show the <b>zoomed-out view: about three months of daily candles</b>. Weekly charts show the last 20 days. Daily and 3-day charts keep what they had. No lens showed STALE anywhere.</li>
+<li><b>The crosshair keeps the current-price label,</b> and its readout now sits in <b>one fixed spot: the bottom-right corner of every chart</b>. It is the same spot on all 8 charts of a page, measured. The <b>% is now the biggest text</b>: 18 px on every layout I measured, including 8-up and phone (it was 10.5 px), with the price under it. The lines and the time tag are unchanged, and a lens now fades back when the time tag passes under it.</li>
+<li><b>Clouds:</b> the slow ones were the pages with the RSI fan. There, each ticker's daily history was read three times at once, and the fan's other reads competed with it. Now it's read once, and the clouds load first. On those pages the typical wait between a chart's price and its clouds dropped from <b>1.2 s to 0.36 s</b> (SPY + QQQ · DAY: 1.7 s → 0.3 s), with <b>44% fewer daily reads</b> and no cloud drawn twice. One page is still slow: <b>MACRO · WEEK</b>, about 3.6 s. There the chart service itself takes 2–5.5 s to send ~1,000 days of VIX, the dollar, the 10-year and Bitcoin, before and after this change.</li>
+<li><b>Tests:</b> 868 run, 850 pass. The 18 failures are exactly the 18 that already fail on live, so nothing new fails. 19 new checks were added (one file), and 7 older checks were updated where they pinned the old behaviour this brief changes (no lens on weekly/short charts; the crosshair label riding the price strip). Each of the four commits was checked on its own against the same baseline.</li>
+<li><b>Two problems I found and fixed along the way:</b> the daily lens briefly showed STALE, because the daily candles arrive newest first and it took the oldest 60. And on the phone, a lens could hide the crosshair's date tag.</li>
+</ul>
+</div>
+
+<h2>1 · The lens matches the live price</h2>
+<blockquote>"THE CONTEXT LENSES AND CHARTS SOMETIMES DONT EVEN MATCH THE LIVE PRICE… I SAW A CONTEXT BAR FOR SPY THAT DIDNT MATCH THE LIVE PRICE OF THE CHART, THE BIGGER CHART."</blockquote>
+<p><b>What was wrong.</b> Since yesterday (P3), the big chart draws its forming bar from the live price, the way TradingView does. The lens didn't: it drew only candles that had finished. So between one candle closing and the next, and all evening after the last candle, the lens's last price was an older price than the badge's.</p>
+<p><b>What it does now.</b> The lens reads the same live price the badge prints, and uses it in one of two ways:</p>
+<ul>
+<li>If the live price belongs to a <b>new candle</b> within the lens's hours, the lens draws that candle as <b>forming</b>. It opens at the last finished close, grows its high and low with each tick, and is drawn with a <b>dashed outline</b>, the same way the big chart draws its forming point dashed.</li>
+<li>If the price falls <b>outside the lens's hours</b> (after 20:00, overnight), the <b>newest candle is extended</b>: its close becomes the live price. Its outline is also dashed, so you can tell it's live.</li>
+</ul>
+<p>Whether a lens is STALE is still judged on finished candles only, so a live tick can't make an old lens look fresh.</p>
+<table>
+<tr><th>SPY</th><th>Lens</th><th>Badge (live)</th><th>Lens before</th><th>Gap before</th><th>Lens after</th><th>Gap after</th></tr>
+<tr><td>After hours (now, 20:30 ET)</td><td>4H (3-day chart)</td><td class="num">764.20</td><td class="num">766.07</td><td class="num">+0.245%</td><td class="num">764.20</td><td class="num">0.000%</td></tr>
+<tr><td>After hours</td><td>30M (daily chart)</td><td class="num">764.20</td><td class="num">766.07</td><td class="num">+0.245%</td><td class="num">764.20</td><td class="num">0.000%</td></tr>
+<tr><td>Session replay, 14:47 ET</td><td>4H</td><td class="num">764.80</td><td class="num">763.30</td><td class="num">−0.196%</td><td class="num">764.80</td><td class="num">0.000%</td></tr>
+<tr><td>Session replay, 14:47 ET</td><td>30M</td><td class="num">764.80</td><td class="num">763.97</td><td class="num">−0.109%</td><td class="num">764.80</td><td class="num">0.000%</td></tr>
+</table>
+<p>The new daily lens was checked the same way (SPY on a 1H chart and a 1W chart): it shows 764.20 after hours and 764.80 in the replay, the badge's price both times.</p>
+<p class="note">How the replay works: the page's clock was set to 14:47 ET today. Every candle the chart service returned was cut to the ones finished by then. The live price pushed in was the real 1-minute close at 14:46, sent exactly the way the Station deck sends it. "Before" is the unchanged live code (bacb424); "after" is this branch. The sweep of all 27 pages (section 2) also found <b>0 of 152 lenses off the live price</b>.</p>
+
+<h2>2 · A lens on every page</h2>
+<blockquote>"THERE IS STILL A TON OF CHARTS WITHOUT A CONTEXT LENS… CONTEXT LENSES FOR SHORT TERM CHARTS ARE STILL USEFUL TO SHOW THE ZOOMED OUT VIEW."</blockquote>
+<p><b>The rule:</b> the lens shows the view the chart itself can't.</p>
+<table>
+<tr><th>The chart is</th><th>The lens shows</th></tr>
+<tr><td>30M, 1H, 3H, 4H (any 15M–12H)</td><td><b>Zoomed out</b>: daily candles for about three months (60 trading days)</td></tr>
+<tr><td>1D</td><td>Unchanged: the last 3 sessions of 30-minute candles</td></tr>
+<tr><td>3D</td><td>Unchanged: 12 sessions of 4-hour candles</td></tr>
+<tr><td>1W</td><td>The last 20 daily candles</td></tr>
+</table>
+<p><b>Measured on all 27 pages</b>, one hidden browser per page, reading every visible chart:</p>
+<table>
+<tr><th>Page</th><th>Charts with a lens, before</th><th>After</th><th>Lens drawn</th></tr>
+<tr><td>INDEXES · WEEK</td><td class="num">0 / 8</td><td class="num">8 / 8</td><td>20 days</td></tr>
+<tr><td>MACRO · WEEK</td><td class="num">0 / 6</td><td class="num">6 / 6</td><td>20 days</td></tr>
+<tr><td>MACRO · DAY</td><td class="num">0 / 6</td><td class="num">6 / 6</td><td>30M, 3 sessions</td></tr>
+<tr><td>MACRO · 4H</td><td class="num">0 / 4</td><td class="num">3 / 4</td><td>daily, 3 months (PCC: no chart, see note)</td></tr>
+<tr><td>INTRADAY · 4H</td><td class="num">0 / 6</td><td class="num">6 / 6</td><td>daily, 3 months</td></tr>
+<tr><td>INTRADAY · 1H</td><td class="num">0 / 4</td><td class="num">4 / 4</td><td>daily, 3 months</td></tr>
+<tr><td>INTRADAY · 30M</td><td class="num">0 / 2</td><td class="num">2 / 2</td><td>daily, 3 months</td></tr>
+<tr><td>SCINTILLAS</td><td class="num">0 / 6</td><td class="num">6 / 6</td><td>daily, 3 months (see note)</td></tr>
+<tr><td>COMPANY LEADERSHIP</td><td class="num">0 / 6</td><td class="num">6 / 6</td><td>daily, 3 months</td></tr>
+<tr><td>FOCUS 2</td><td class="num">0 / 2</td><td class="num">2 / 2</td><td>daily, 3 months</td></tr>
+<tr><td>MACRO CROSS-ASSET</td><td class="num">0 / 6</td><td class="num">6 / 6</td><td>daily, 3 months (see note)</td></tr>
+<tr><td>INTERNALS</td><td class="num">0 / 2</td><td class="num">1 / 2</td><td>daily, 3 months (PCC: no chart, see note)</td></tr>
+<tr><td>TO-DO</td><td class="num">0 / 6</td><td class="num">0 / 6</td><td>none: ADD, TICK, TRIN and cumulative tick are TradingView pictures, not charts of ours</td></tr>
+<tr><td>The 14 pages that already had one</td><td class="num">96 / 96</td><td class="num">96 / 96</td><td>unchanged</td></tr>
+<tr><td><b>All 27 pages</b></td><td class="num"><b>96 / 160</b></td><td class="num"><b>152 / 160</b></td><td>0 STALE, 0 off the live price</td></tr>
+</table>
+<p class="note"><b>Note on PCC.</b> During the final check the chart service answered the put/call series with "no series · PUTCALL_STALE_1_SESSION", so no PCC chart was drawn at all: the live code (before) and this branch behaved the same. In an earlier sweep the same evening, PCC drew and had its lens. It is a server-side state, not something this branch changed.</p>
+<p class="note"><b>Note on SCINTILLAS and MACRO CROSS-ASSET.</b> These pages are listed as 1D and 3D, but the Station's timeframe applies to every page at once (it starts at 3H after a reload, and menu pages don't override it). So in the test their charts really were 3H charts, and they correctly got the zoomed-out lens. When the wall is on 1D or 3D, the same pages get the 30M or 4H lens. The same holds if you switch the timeframe on any page: the lens follows what the chart is showing.</p>
+<p><b>No false STALE.</b> A daily lens counts as STALE only when <b>two</b> trading days are missing: one late daily bar is normal, and today's live candle is drawn anyway. That means Monday mornings and the day after a holiday are never STALE. Futures and crypto count as STALE only after four calendar days. The dollar (DXUSD) now keeps its published hours, the same fix you asked for on the charts on 28 Sep. On the CME clock it would have shown STALE every evening. Where the lens goes on the chart is decided by the existing placement rule, unchanged.</p>
+<p><b>What it costs.</b> A daily lens doesn't add a data read: it draws from the same daily read the cloud ribbon already makes (section 4).</p>
+<div class="pair">
+<figure><img src="shots/intraday1h-1680-before.png" alt="Before: INTRADAY 1H with no lenses"><figcaption>BEFORE · INTRADAY · 1H at 1680: no lens on any of the four charts</figcaption></figure>
+<figure><img src="shots/intraday1h-1680-after.png" alt="After: INTRADAY 1H, a 1D lens on each chart"><figcaption>AFTER · a 1D lens on all four (NQUSD bottom-left, BE top, AMZN top-centre, AVGO bottom-left); each lens's last price matches its badge (BE 294.0, AVGO 357.2)</figcaption></figure>
+</div>
+<figure style="max-width:900px"><img src="shots/intraday1h-pane-after.png" alt="Close-up: NQUSD 1H with the 1D lens"><figcaption>AFTER · close-up, NQUSD 1H: about three months of daily candles bottom-left, last 30,647 against the badge's 30,646.50 (the lens rounds prices above 1,000)</figcaption></figure>
+<div class="pair">
+<figure><img src="shots/macro4h-1680-before.png" alt="Before: MACRO 4H with no lenses"><figcaption>BEFORE · MACRO · 4H: no lens</figcaption></figure>
+<figure><img src="shots/macro4h-1680-after.png" alt="After: MACRO 4H with 1D lenses"><figcaption>AFTER · 1D lenses on DXUSD, GCUSD and BTCUSD, all fresh. PCC shows "PUTCALL STALE 1 SESSION": no chart, so no lens</figcaption></figure>
+</div>
+
+<h2>3 · The crosshair</h2>
+<blockquote>"i really like the axis markings and horizontal and vertical lines with the scroll on the mouse… it shows the percentage price difference and price but it removes the current price label for some reason. i dont like that. and i feel like it should appear in same location vertical and horizontal on all charts on that layout. plus the percentage price change needs to be bigger."</blockquote>
+<ul>
+<li><b>The current-price label stays.</b> It used to be hidden while the crosshair was up; now it's always drawn. It moves only in one case: when the readout is up and the two would touch, the label steps just above the readout.</li>
+<li><b>One fixed spot.</b> The readout no longer follows the crosshair up and down. It sits in the <b>bottom-right corner of each chart</b>, against the chart's right edge and just above the row where the time tag runs. Measured on TARGETS: all 8 charts put it at exactly the same place (x 330, y 205 of a 419 × 277 chart). That includes the top row, which shares the time axis of the chart below it.</li>
+<li><b>The % is the biggest text:</b> 18 px on the 8-chart walls, 2-chart pages and phone (only a chart shorter than 257 px gets less, down to 14 px), up from 10.5 px. The price is under it at 11 px. The % still follows yesterday's rule: (price under the cursor ÷ current price − 1), green above the current price and red below.</li>
+<li><b>Unchanged:</b> the horizontal and vertical lines and the time tag. A lens never sits in the readout's corner, and if the time tag passes under a lens, the lens fades back while the crosshair is up.</li>
+</ul>
+<div class="pair">
+<figure><img src="shots/targets3d-pane-before.png" alt="Before: GOOGL with the crosshair, label in the price strip, current price label gone"><figcaption>BEFORE · TARGETS 3D, GOOGL: the readout rides the crosshair in the price strip (357.97 / +4.83% / from now); the current price 341.48 is gone</figcaption></figure>
+<figure><img src="shots/targets3d-pane-after.png" alt="After: GOOGL with the crosshair, readout bottom right, current price label kept"><figcaption>AFTER · the current price 341.48 stays in the price strip; bottom-right: +4.83% (18 px, green) over 357.97; lines, time tag and 4H lens unchanged</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/targets3d-1680-before.png" alt="Before: TARGETS 3D wall at 1680"><figcaption>BEFORE · TARGETS 3D at 1680, crosshair on GOOGL</figcaption></figure>
+<figure><img src="shots/targets3d-1680-after.png" alt="After: TARGETS 3D wall at 1680"><figcaption>AFTER · the same; all 8 charts carry their 4H lens, and all 8 reserve the same readout corner</figcaption></figure>
+</div>
+<div class="phones">
+<figure><img src="shots/targets3d-390-before.png" alt="Before: phone"><figcaption>BEFORE · phone 390</figcaption></figure>
+<figure><img src="shots/targets3d-390-after.png" alt="After: phone"><figcaption>AFTER · phone 390: +4.83% / 357.97 bottom-right, 341.48 kept; the lens fades so "May 30, 2026" reads</figcaption></figure>
+</div>
+
+<h2>4 · Slow and odd-looking clouds</h2>
+<blockquote>"LOADING IS SLOW AND WEIRD ON SOME CLOUDS."</blockquote>
+<p><b>What I measured.</b> I opened every page in a fresh hidden browser, 3 times, for the live code (before) and this branch (after), side by side so both saw the same network. For every chart I recorded when its price appeared, when its clouds appeared, how often the clouds were drawn again, and every daily-history read.</p>
+<p><b>What was slow, and why.</b> The late clouds were on the pages with the RSI fan. There, each ticker's daily history was read <b>three times at once</b>: once for the clouds (450 days), and twice for the fan's daily line (400 + 602). On top of that ran the fan's hour-level reads, which L2b measured at up to 4.4 s cold. They all competed, so the clouds' read was the one that waited. The new daily lens would have added a fourth read. In one case a cloud was also drawn twice: the lens started its own daily read before the chart knew how much the fan needed, and the clouds then read again.</p>
+<p><b>What changed.</b> I took L2b's idea (the fan's daily line reuses the clouds' daily read), not its Geiger hold:</p>
+<ul>
+<li>One daily read per ticker, long enough for the clouds, the fan's daily line and the lens, all three sharing it. The candles stay in memory for the lens; what's saved in the browser stays as small as before.</li>
+<li>The fan's other reads wait for the clouds' read (3 s at most), so the clouds come first and the fan a moment after.</li>
+<li>A daily lens waits for the chart's price and then uses that same read, so the clouds are never read or drawn twice.</li>
+</ul>
+<table>
+<tr><th>Page (median of 3 cold runs)</th><th>Clouds after price, before</th><th>After</th><th>Daily reads, before</th><th>After</th></tr>
+<tr><td>SPY + QQQ · DAY</td><td class="num">1.72 s</td><td class="num">0.32 s</td><td class="num">8</td><td class="num">4</td></tr>
+<tr><td>OTHER INDEXES · RSI</td><td class="num">1.20 s</td><td class="num">0.85 s</td><td class="num">24</td><td class="num">12</td></tr>
+<tr><td>TARGETS · RSI</td><td class="num">1.23 s</td><td class="num">0.83 s</td><td class="num">32</td><td class="num">16</td></tr>
+<tr><td>SPY + QQQ (3D)</td><td class="num">1.18 s</td><td class="num">0.87 s</td><td class="num">6</td><td class="num">2</td></tr>
+<tr><td>INTRADAY · 30M</td><td class="num">0.87 s</td><td class="num">0.36 s</td><td class="num">8</td><td class="num">4</td></tr>
+<tr><td>FOCUS 2</td><td class="num">0.26 s</td><td class="num">0.36 s</td><td class="num">4</td><td class="num">2</td></tr>
+<tr><td>INTERNALS</td><td class="num">0.28 s</td><td class="num">0.26 s</td><td class="num">2</td><td class="num">1</td></tr>
+<tr><td>INTRADAY · 1H (4 new lenses)</td><td class="num">0.26 s</td><td class="num">0.34 s</td><td class="num">8</td><td class="num">8</td></tr>
+<tr><td>MACRO · WEEK (6 new lenses)</td><td class="num">3.77 s</td><td class="num">3.61 s</td><td class="num">6</td><td class="num">6</td></tr>
+<tr><td><b>These 9 pages</b></td><td class="num"><b>median 1.18 s</b></td><td class="num"><b>0.36 s</b></td><td class="num"><b>98</b></td><td class="num"><b>55</b></td></tr>
+</table>
+<p>No cloud was drawn twice in any run after the change. Pages above 1 s went from five to one (MACRO · WEEK).</p>
+<p><b>The whole Station, first pass</b> (all 27 pages × 3 runs, taken before the last two changes above): daily reads 246 → 205 while 58 new lenses were added, and the median page's clouds-after-price 0.53 s → 0.38 s. On the rotating pages the last cloud lands at about 14 s. That isn't slowness: the rotating slots bring in their later names on schedule, and each name's clouds follow its price by under 0.4 s.</p>
+<p><b>Not fixed: MACRO · WEEK.</b> Its clouds need about 1,000 days of history for VIX, the dollar, the 10-year, gold, oil and Bitcoin. The chart service takes 2–5.5 s to send each of those, before and after this change. That's a server-side cost; the page can't make it faster. See decision 2.</p>
+
+<h2>Decisions for you</h2>
+<ol>
+<li><b>The readout's corner.</b> I put it bottom-right, because the Geiger chip holds the top-right and the badge the top-left. With the % at 18 px, it covers a small corner of the price line while the crosshair is up. <b>My recommendation:</b> keep bottom-right. If you'd rather it sat top-right under the Geiger chip, it's a one-line change.</li>
+<li><b>MACRO · WEEK's clouds (about 3.6 s).</b> The wait is the chart service sending ~1,000 days of macro history per name. <b>My recommendation:</b> a backend lane keeps a warm copy of those six daily series on the chart service. It's a Fly job for the coordinator, not a page change.</li>
+<li><b>Lenses on your own workspaces</b> (LIVE, CUSTOM, SCRATCH). They have none, as before. <b>My recommendation:</b> leave them off until you've lived with the new lenses on the 27 pages for a day.</li>
+</ol>
+
+<h2>Where each number comes from</h2>
+<ul>
+<li>Prices, candles and the live quote: the chart service <code>scintilla-massive-chart-api.fly.dev</code>, read only. It accepts only scintillahub.ai as an origin, so the hidden browser's requests were passed through a small local relay that adds that origin. I say this because it's the one way the test setup differs from your browser.</li>
+<li>Lens prices: the lens's own record of the last price it drew. The "before" figures were recomputed from the lens's own read of the unchanged code.</li>
+<li>Cloud timings: measured in each chart window every 50 ms, from the moment the page was opened. Every data read was logged by the relay.</li>
+<li>The scripts are in <code>harness/</code> next to this page, and the raw results are in the <code>evidence-*.json</code> files.</li>
+</ul>
+
+<h2>What could be wrong</h2>
+<ul>
+<li>A forming lens candle opens at the last finished close, not at its true first trade, which we don't receive. The big chart's forming point has the same limit.</li>
+<li>The session replay cut real candles at 14:47. It wasn't a live market session, since the markets were closed when this was built. I'd look at it once live tomorrow.</li>
+<li>Cloud timings depend on the chart service and the network at the moment of measuring. That's why "before" and "after" ran at the same time on the same machine, 3 times each.</li>
+<li>On a very narrow chart the readout covers the bottom-right corner of the price line for as long as the crosshair is up. That's the cost of a fixed spot with a bigger %.</li>
+</ul>
+
+<h2>What I did not do</h2>
+<ul>
+<li>I didn't take L2b's Geiger hold, as the brief said. I took only its idea of reusing the daily read.</li>
+<li>No lens on LIVE, CUSTOM, COHORT or SCRATCH: those are your own workspaces. I can add one if you want it.</li>
+<li>No lens for the TO-DO page's TradingView pictures.</li>
+<li>I didn't push, deploy, or touch the Hub, the database or the Indicator Lab.</li>
+</ul>
+</body></html>
