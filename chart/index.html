@@ -2199,7 +2199,22 @@ function scChartDraw(host, scrub) {
   const quote = liveQuote[host.dataset.t];
   const livePriceValue = quotePrice(quote);
   const hasLiveQuote = livePriceValue != null;
-  if (hasLiveQuote && !scrub) {
+  /* S1 (29 Sep), Alan: "it shows the percentage price difference and price but it removes the current
+     price label for some reason. i dont like that. and i feel like it should appear in same location
+     vertical and horizontal on all charts on that layout. plus the percentage price change needs to be
+     bigger." The crosshair's readout now has ONE fixed spot per pane - the plot's bottom-right corner,
+     its right edge on the pane's edge, just above the time tag's row - the same spot on every pane, and
+     it is reserved (the lens never sits there). The current-price label is drawn whether or not the
+     crosshair is up; only when the readout is up and the two would touch does the label step just above
+     the readout. */
+  const MONO_PX = 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  const readoutMeasure = (text, font) => { ctx.font = font + MONO_PX; return ctx.measureText(text).width; };
+  /* a top-row pane that borrows the lower pane's time axis has a taller plot; the readout is anchored as if
+     it had its own axis band, so it sits at the same spot on every pane of the layout */
+  const readoutBottom = SHARED_TIME_AXIS ? padT + ih + padB - axisBand : padT + ih;
+  host._readoutSpot = crosshairReadout(readoutMeasure, { w, h, plotBottom: readoutBottom, plotTop: padT, priceText: "0,000.00", pctText: "+00.00%", up: true, scale }).box;
+  const scrubOn = !!(scrub && pts[scrub.ix]);
+  if (hasLiveQuote) {
     const livePrice = livePriceValue, liveY = Y(livePrice);
     if (liveY >= padT && liveY <= padT + ih) {
       const liveDay = chDayChange(livePrice, prevClose[host.dataset.t]);
@@ -2211,11 +2226,14 @@ function scChartDraw(host, scrub) {
       ctx.textBaseline = "middle";
       const liveW = Math.min(padR - 2, Math.ceil(ctx.measureText(liveText).width) + 6);
       const liveX = w - liveW - 1;
-      const liveTop = Math.max(padT, Math.min(padT + ih - 12, liveY - 6));
+      let liveTop = Math.max(padT, Math.min(padT + ih - 12, liveY - 6));
+      const R = host._readoutSpot;
+      if (scrubOn && R && liveTop + 12 > R.y - 1 && liveTop < R.y + R.h + 1) liveTop = Math.max(padT, R.y - 13);
+      const liveTextY = liveTop + 6;
       ctx.fillStyle = "rgba(5,6,12,.92)";
       ctx.fillRect(liveX, liveTop, liveW, 12);
       ctx.fillStyle = liveColor; ctx.textAlign = "right";
-      ctx.fillText(liveText, w - 4, liveY);
+      ctx.fillText(liveText, w - 4, liveTextY);
       ctx.restore();
     }
   }
@@ -2266,29 +2284,24 @@ function scChartDraw(host, scrub) {
     ctx.beginPath(); ctx.moveTo(padL, sy); ctx.lineTo(padL + iw, sy); ctx.stroke();
     ctx.globalAlpha = 1;
     ctx.textBaseline = "middle";
-    /* N10 (28 Sep), Alan: "I see the percentage thing, but you're taking over chart space. The percentage
-       should be on the pane." The label now lives in the price-scale gutter right of the plot, as
-       TradingView does: the price on the crosshair's line, the percent under it, and the words "from now"
-       under that - the percent is (this level ÷ the current price − 1), the current price being the live
-       quote or, without one, the last bar. Each line is fitted to the gutter's width, so nothing covers
-       the candles; only a price too long for the gutter even at 7 px (10,000 and up, e.g.
-       "112,345.67") can push the box a few px left of it. */
-    const MONO = 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-    const L = crosshairLabel((text, font) => { ctx.font = font + MONO; return ctx.measureText(text).width; },
-      { w, h, plotRight: padL + iw, sy, priceText, pctText, up: pct >= 0, priceFont, scale });
+    /* S1 (29 Sep): the readout in its fixed spot (see the current-price label above). N10's rule stands:
+       the percent is (this level / the current price - 1), the current price being the live quote or,
+       without one, the last bar. The percent is the biggest text, the price under it. */
+    const L = crosshairReadout(readoutMeasure, { w, h, plotBottom: readoutBottom, plotTop: padT, priceText, pctText, up: pct >= 0, scale });
     ctx.fillStyle = "rgba(5,6,12,.94)";
-    ctx.fillRect(L.x, L.y, L.w, L.h);
+    ctx.fillRect(L.box.x, L.box.y, L.box.w, L.box.h);
     ctx.textAlign = "right";
     for (const line of L.lines) {
-      ctx.font = line.font + MONO; ctx.fillStyle = col[line.ink]; ctx.globalAlpha = line.alpha;
-      ctx.fillText(line.text, w - 4, line.y);
+      ctx.font = line.font + MONO_PX; ctx.fillStyle = col[line.ink]; ctx.globalAlpha = line.alpha;
+      ctx.fillText(line.text, L.right, line.y);
     }
     ctx.globalAlpha = 1;
-    host._scrubLabel = { x: L.x, y: L.y, w: L.w, h: L.h, plotRight: padL + iw, pct: pctText, price: L.priceText };
+    host._scrubLabel = { x: L.box.x, y: L.box.y, w: L.box.w, h: L.box.h, plotRight: padL + iw, pct: pctText, price: priceText,
+      pctFont: L.pctFont, priceFont: L.priceFont };
     ctx.font = markerFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
     const timeW = Math.ceil(ctx.measureText(timeText).width) + 8;
     const timeX = Math.max(padL, Math.min(padL + iw - timeW, sx - timeW / 2));
-    const timeY = Math.max(padT + 12, padT + ih - 7);
+    const timeY = Math.max(padT + 12, padT + ih - 7);   /* its own row, under the readout's box */
     ctx.fillStyle = "rgba(5,6,12,.92)";
     ctx.fillRect(timeX, timeY - 6, timeW, 12);
     ctx.fillStyle = col.dim; ctx.textAlign = "center";
@@ -2297,36 +2310,38 @@ function scChartDraw(host, scrub) {
   }
 }
 
-/* THE CROSSHAIR'S PRICE-SCALE LABEL (N10, 28 Sep) - where each line goes, as a pure function so a test can
-   check the geometry. measure(text, font) gives a text's width; o: the canvas width w and height h, the
-   plot's right edge, the crosshair's y, the price and percent texts, up (the percent is >= 0), the price
-   font and the pane scale. The box starts in the gutter right of the plot (plotRight + 1); each line is
-   fitted to the gutter's width less 8 px of padding. A price too wide at 8 px drops its thousands commas
-   first, then shrinks to 7 px; only a price too wide even then moves the box left of the gutter. */
-function crosshairLabel(measure, o) {
-  const gutX = o.plotRight + 1, gutIn = Math.max(10, o.w - gutX - 8);
-  const fitFont = (text, weight, max, min) => {
-    const tw = measure(text, weight + " " + max);
-    return tw <= gutIn ? max : Math.max(min, Math.floor(max * gutIn / tw * 10) / 10);
-  };
-  let priceText = o.priceText;
-  if (fitFont(priceText, 700, o.priceFont, 1) < 8) priceText = priceText.replace(/,/g, "");
-  const pFont = fitFont(priceText, 700, o.priceFont, 7);
-  const rows = [{ text: priceText, font: "700 " + pFont, size: pFont, ink: "dim", alpha: 1 }];
-  if (o.pctText) {
-    const cFont = fitFont(o.pctText, 700, Math.min(pFont, 10.5 * Math.max(1, o.scale || 1)), 7);
-    rows.push({ text: o.pctText, font: "700 " + cFont, size: cFont, ink: o.up ? "bull" : "bear", alpha: 1 },
-      { text: "from now", font: "400 " + fitFont("from now", 400, 8, 6.5), size: fitFont("from now", 400, 8, 6.5), ink: "dim", alpha: .8 });
-  }
-  const needW = Math.ceil(measure(priceText, "700 " + pFont)) + 6;
-  const x = Math.min(gutX, o.w - 2 - needW), wBox = o.w - 1 - x;
-  const lineH = rows.map((r) => Math.round(r.size + 3));
-  const hBox = lineH.reduce((a, b) => a + b, 0) + 3;
-  /* the price line sits on the crosshair; the box stays inside the pane's height */
-  const y = Math.max(1, Math.min(o.h - hBox - 1, o.sy - lineH[0] / 2 - 1.5));
-  let at = y + 1.5;
-  const lines = rows.map((r, k) => { const line = { text: r.text, font: r.font, ink: r.ink, alpha: r.alpha, y: at + lineH[k] / 2 + .5 }; at += lineH[k]; return line; });
-  return { x, y, w: wBox, h: hBox, lines, priceText };
+/* THE CROSSHAIR'S READOUT (S1, 29 Sep; it replaces N10's label that rode the crosshair's y in the price
+   gutter). A pure function so a test can check the geometry. measure(text, font) gives a text's width; o:
+   the canvas width w and height h, the plot's top and bottom, the price and percent texts, up (the percent
+   is >= 0) and the pane scale. ONE FIXED SPOT per pane: the plot's bottom-right corner, the box's right
+   edge 1 px inside the pane's, its bottom 13 px above the plot's bottom so the crosshair's time tag keeps
+   its own row. The percent is the biggest text (14 px on an 8-up pane, up to 18 px from a 2-up pane
+   upwards, 7% of the pane's height between), the price under it at 11 px; with no current price there is
+   no percent and the price is the only line. `box` is the same rectangle whatever the texts measure in
+   the usual range, so the lens can keep out of it before any crosshair is up. */
+function crosshairReadout(measure, o) {
+  const k = Math.max(1, o.scale || 1);
+  const pctFont = Math.round(Math.max(14, Math.min(18, (o.h || 0) * 0.07)) * k * 10) / 10;
+  const priceFont = Math.round(11 * k * 10) / 10;
+  const rows = [];
+  if (o.pctText) rows.push({ text: o.pctText, font: "700 " + pctFont, size: pctFont, ink: o.up ? "bull" : "bear", alpha: 1 });
+  rows.push({ text: o.priceText, font: "700 " + priceFont, size: priceFont, ink: "dim", alpha: 1 });
+  /* the box is sized for the widest usual texts, so it does not jump as the crosshair moves */
+  const need = Math.max(measure("+00.00%", "700 " + pctFont), measure("0,000.00", "700 " + priceFont),
+    ...rows.map((r) => measure(r.text, r.font)));
+  const bw = Math.ceil(need) + 10;
+  const lineH = [Math.round(pctFont + 2), Math.round(priceFont + 3)];
+  const bh = lineH[0] + lineH[1] + 4;
+  const x = Math.max(1, o.w - 1 - bw);
+  const y = Math.max((o.plotTop || 0) + 1, (o.plotBottom || o.h) - 13 - bh);
+  const right = o.w - 5;
+  let at = y + 2;
+  const lines = [];
+  if (o.pctText) { lines.push({ text: rows[0].text, font: rows[0].font, ink: rows[0].ink, alpha: 1, y: at + lineH[0] / 2 + .5 }); }
+  at += lineH[0];
+  const pr = rows[rows.length - 1];
+  lines.push({ text: pr.text, font: pr.font, ink: pr.ink, alpha: 1, y: o.pctText ? at + lineH[1] / 2 + .5 : y + bh / 2 + .5 });
+  return { box: { x, y, w: o.w - 1 - x, h: bh }, lines, right, pctFont, priceFont };
 }
 
 function clearChartRetry(host) {

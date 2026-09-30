@@ -172,3 +172,59 @@ test("2: a daily lens is never falsely STALE - Monday morning, a late bar, the d
   assert.equal(marketOf("DXUSD"), "nyse"); assert.equal(hoursOf("30m", "DXUSD"), "extended");
   assert.equal(marketOf("ESUSD"), "globex"); assert.equal(marketOf("BTCUSD"), "allday"); assert.equal(marketOf("US10Y"), "nyse");
 });
+
+/* ---- 3. "it removes the current price label for some reason. i dont like that. and i feel like it should
+   appear in same location vertical and horizontal on all charts on that layout. plus the percentage price
+   change needs to be bigger." ---- */
+const fnFrom = (src, name) => vm.runInNewContext("(" + liftFrom(src, name) + ")");
+const readout = fnFrom(chart, "crosshairReadout");
+const measure = (text, font) => text.length * 0.6 * parseFloat(font.split(" ")[1]);   // monospace stand-in
+const PANES = [
+  { name: "8-up 1680", w: 419, h: 277, plotTop: 34, plotBottom: 256 },
+  { name: "6-up 1680", w: 559, h: 360, plotTop: 34, plotBottom: 339 },
+  { name: "2-up 1680", w: 840, h: 554, plotTop: 34, plotBottom: 533 },
+  { name: "phone 390", w: 390, h: 473, plotTop: 34, plotBottom: 452 },
+];
+
+test("3: one fixed spot per pane - the plot's bottom-right corner - whatever the crosshair's y or the texts", () => {
+  for (const p of PANES) {
+    const a = readout(measure, { ...p, priceText: "492.49", pctText: "−3.60%", up: false, scale: 1 });
+    const b = readout(measure, { ...p, priceText: "7,012.25", pctText: "+0.28%", up: true, scale: 1 });
+    assert.deepEqual(a.box, b.box, `${p.name}: the box does not move`);
+    assert.equal(a.box.x + a.box.w, p.w - 1, `${p.name}: right edge on the pane's edge`);
+    assert.equal(a.box.y + a.box.h, p.plotBottom - 13, `${p.name}: bottom just above the time tag's row`);
+    /* the same relative spot on every pane of a layout: equal panes, equal boxes */
+    assert.deepEqual(readout(measure, { ...p, priceText: "68.12", pctText: "+12.4%", up: true, scale: 1 }).box, a.box);
+  }
+  /* the function takes no crosshair position at all */
+  assert.doesNotMatch(liftFrom(chart, "crosshairReadout"), /\bsy\b/);
+});
+
+test("3: the percent is the biggest text, bigger than N10's (10.5 px), the price under it", () => {
+  for (const p of PANES) {
+    const L = readout(measure, { ...p, priceText: "492.49", pctText: "−3.60%", up: false, scale: 1 });
+    assert.deepEqual(Array.from(L.lines, (l) => l.text), ["−3.60%", "492.49"]);
+    assert.ok(L.pctFont >= 14 && L.pctFont > L.priceFont, `${p.name}: % ${L.pctFont}px > price ${L.priceFont}px`);
+    assert.ok(L.lines[0].y < L.lines[1].y, "percent on top, price under it");
+    assert.equal(L.lines[0].ink, "bear");
+    for (const l of L.lines) assert.ok(measure(l.text, l.font) <= L.box.w - 4, `${p.name}: "${l.text}" fits`);
+  }
+  assert.equal(readout(measure, { ...PANES[2], priceText: "1", pctText: "+1%", up: true, scale: 1 }).pctFont, 18, "capped at 18 px");
+});
+
+test("3: the current-price label stays up while the crosshair is up; lines and time tag kept; the lens keeps out", () => {
+  assert.doesNotMatch(chart, /if \(hasLiveQuote && !scrub\)/, "the label is no longer dropped while scrubbing");
+  assert.match(chart, /if \(hasLiveQuote\) \{/);
+  assert.match(chart, /if \(scrubOn && R && liveTop \+ 12 > R\.y - 1 && liveTop < R\.y \+ R\.h \+ 1\) liveTop = Math\.max\(padT, R\.y - 13\);/);
+  assert.match(chart, /ctx\.beginPath\(\); ctx\.moveTo\(sx, padT\); ctx\.lineTo\(sx, padT \+ ih\); ctx\.stroke\(\);/, "vertical line");
+  assert.match(chart, /ctx\.beginPath\(\); ctx\.moveTo\(padL, sy\); ctx\.lineTo\(padL \+ iw, sy\); ctx\.stroke\(\);/, "horizontal line");
+  assert.match(chart, /const timeText = chHoverTime\(/, "time tag");
+  assert.match(chart, /const nowPx = livePriceValue != null \? livePriceValue : dayPx;/, "N10: % from the current price");
+  assert.match(lens, /if \(host\._readoutSpot && host\._readoutSpot\.w > 0\) keepOut\.push\(host\._readoutSpot\);/);
+  assert.doesNotMatch(chart, /function crosshairLabel\(/);
+});
+
+test("3: a top-row pane (sharing the lower pane's time axis) puts the readout where the bottom row does", () => {
+  assert.match(chart, /const readoutBottom = SHARED_TIME_AXIS \? padT \+ ih \+ padB - axisBand : padT \+ ih;/);
+  assert.equal((chart.match(/plotBottom: readoutBottom/g) || []).length, 2, "the reserved spot and the drawn readout agree");
+});

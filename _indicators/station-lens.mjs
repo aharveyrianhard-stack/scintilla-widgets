@@ -404,6 +404,8 @@ export function paint(host, deps) {
     keepOut.push({ x: b.left - a.left, y: b.top - a.top, w: b.width, h: b.height });
   }
   if (chip) keepOut.push(chip);
+  /* the crosshair readout's fixed corner (S1, 29 Sep) is reserved, so a readout never lands on the lens */
+  if (host._readoutSpot && host._readoutSpot.w > 0) keepOut.push(host._readoutSpot);
   const main = host.querySelector(".sc-nchart__cv");
   /* one read of the chart's pixels per paint, shared with the Geiger chip (host._inkAt, reset by the chart) */
   const inkAt = host._inkAt || (main ? (host._inkAt = inkReader(main)) : null);

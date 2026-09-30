@@ -98,49 +98,17 @@ test("chip size is applied from the live pane, before the rotation list measures
 
 /* monospace stand-in: 0.6 em per character, as SF Mono / Menlo */
 const measure = (text, font) => text.length * 0.6 * parseFloat(font.split(" ")[1]);
-const label = fnFrom(chart, "crosshairLabel");
-
-test("the crosshair label sits in the price-scale gutter, never left of the plot's right edge", () => {
-  const panes = [
-    { name: "8-up 1680", w: 419, plotRight: 377, h: 277 },
-    { name: "2-up 1680", w: 840, plotRight: 798, h: 554 },
-    { name: "phone 390", w: 390, plotRight: 348, h: 473 },
-    { name: "alone 1680", w: 1680, plotRight: 1638, h: 1021 }
-  ];
-  for (const p of panes) for (const priceText of ["68.12", "492.49", "1,049.47", "7,012.25", "12.3456"]) {
-    const L = label(measure, { w: p.w, h: p.h, plotRight: p.plotRight, sy: 120, priceText, pctText: "−8.94%", up: false, priceFont: 11, scale: 1 });
-    assert.ok(L.x >= p.plotRight, `${p.name} ${priceText}: box at ${L.x}, plot ends ${p.plotRight}`);
-    assert.ok(L.x + L.w <= p.w, `${p.name} ${priceText}: inside the pane`);
-    assert.deepEqual(plain(L.lines.map((l) => l.text).slice(1)), ["−8.94%", "from now"]);
-    assert.equal(L.lines[1].ink, "bear");
-    for (const l of L.lines) assert.ok(measure(l.text, l.font) <= L.w, `${p.name}: "${l.text}" fits the box`);
-  }
-});
-
-test("a price too wide at 8 px drops its commas first; an extreme one may push left, and is the only case", () => {
-  const o = { w: 840, h: 554, plotRight: 798, sy: 100, pctText: "+0.28%", up: true, priceFont: 11, scale: 1 };
-  assert.equal(label(measure, { ...o, priceText: "1,049.47" }).priceText, "1049.47");
-  assert.equal(label(measure, { ...o, priceText: "492.49" }).priceText, "492.49", "a short price keeps its text");
-  const btc = label(measure, { ...o, priceText: "112,345.67" });
-  assert.equal(btc.priceText, "112345.67");
-  assert.ok(btc.x < o.plotRight && o.plotRight - btc.x <= 5, "nine digits at 7 px overlap the plot by a few px at most");
-});
-
-test("the price line sits on the crosshair; near the pane's bottom the box stays inside", () => {
-  const o = { w: 419, h: 277, plotRight: 377, priceText: "492.49", pctText: "−3.60%", up: false, priceFont: 11, scale: 1 };
-  const mid = label(measure, { ...o, sy: 120 });
-  assert.ok(Math.abs(mid.lines[0].y - 120) <= 1, "price line centre on the crosshair");
-  const low = label(measure, { ...o, sy: 270 });
-  assert.ok(low.y + low.h <= o.h - 1);
-  const top = label(measure, { ...o, sy: 0 });
-  assert.ok(top.y >= 1);
-});
+/* S1 (29 Sep) replaced N10's gutter label that rode the crosshair's y with ONE fixed readout per pane
+   (Alan: "it should appear in same location vertical and horizontal on all charts on that layout. plus the
+   percentage price change needs to be bigger"). The geometry is tested in
+   tests/station-lens-crosshair-20260929.test.mjs; this file keeps N10's percent rule below. */
+const readout = fnFrom(chart, "crosshairReadout");
 
 test("the percent is from the CURRENT price: live quote, else the last bar - unchanged, and said on the pane", () => {
   assert.match(chart, /const nowPx = livePriceValue != null \? livePriceValue : dayPx;/);
   assert.match(chart, /const pct = nowPx > 0 \? \(price \/ nowPx - 1\) \* 100 : null;/);
   assert.match(chart, /const dayPx = chDayPrice\(host, pts\);/);
   assert.match(fnFrom(chart, "chDayPrice").toString(), /const live = quotePrice\(liveQuote\[[\s\S]*if \(live != null\) return live;[\s\S]*pts\[pts\.length - 1\]\.p/);
-  const L = label(measure, { w: 419, h: 277, plotRight: 377, sy: 100, priceText: "492.49", pctText: "", up: true, priceFont: 11, scale: 1 });
-  assert.equal(L.lines.length, 1, "no current price, no percent and no \"from now\"");
+  const L = readout(measure, { w: 419, h: 277, plotTop: 30, plotBottom: 256, priceText: "492.49", pctText: "", up: true, scale: 1 });
+  assert.equal(L.lines.length, 1, "no current price, no percent: the price alone");
 });

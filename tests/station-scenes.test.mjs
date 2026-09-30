@@ -656,8 +656,9 @@ test("live price is a compact right-edge marker rather than top-readout clutter 
   assert.match(chart, /const hasLiveQuote = livePriceValue != null/);
   assert.match(chart, /liveY = Y\(livePrice\)/,
     "the marker tracks the actual live price coordinate");
-  assert.match(chart, /if \(hasLiveQuote && !scrub\)/,
-    "hover's moving price marker takes precedence while the cursor is active");
+  /* S1 (29 Sep), Alan: the crosshair "removes the current price label for some reason. i dont like that."
+     The marker now stays while the crosshair is up (the readout has its own fixed corner). */
+  assert.match(chart, /if \(hasLiveQuote\) \{/, "the live marker is drawn with or without the crosshair");
   assert.match(chart, /liveTop = Math\.max\(padT, Math\.min\(padT \+ ih - 12, liveY - 6\)\)/);
   assert.doesNotMatch(chart, /sc-nchart__live-price/,
     "the top-left readout is no longer a second price label");
