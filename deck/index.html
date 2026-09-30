@@ -3637,6 +3637,8 @@ function pageFrameReady(job) {
   let doc = null, h = null;
   try { doc = job.frame.contentDocument; h = doc && doc.querySelector("#chartSlot .sc-nchart"); } catch (_) { return false; }
   if (!h || h.dataset.t !== job.ticker || h.dataset.holding) return false;
+  /* a name with no bars (tonight: the put/call pane) has drawn its reason, and that is its finished state */
+  if (h._dataState && h._dataState.history === "absent" && !(h._series && h._series.length >= 2)) return true;
   if (!(h._series && h._series.length >= 2 && h._plot)) return false;
   const range = srcRange(job.src);
   if (range && h._range && h._range !== range) return false;
@@ -3771,6 +3773,8 @@ async function dissolveToPage(fade, waitMs) {
     await new Promise((r) => requestAnimationFrame(r));
     for (const job of fade.jobs) job.frame.classList.add("in");
     await new Promise((r) => setTimeout(r, SLOT_FADE_MS));
+    /* the last of the 8 steps is painted before the switch-over, never a frame after it */
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     if (fade.abandoned) return false;
   }
   commitPageFade(fade);
