@@ -109,9 +109,11 @@ test("merge kept live's three hotfixes: 04:00-20:00 lens, no STALE before the fi
   const lens = read("_indicators/station-lens.mjs");
   /* 28 Sep midday: lateness is judged from the regular open on the lens's own bar grid (the no-pre-market case) */
   assert.match(lens, /o \+ \(Math\.floor\(Math\.max\(0, reg - o\) \/ w\) \+ 1\) \* w \+ SERVE_GRACE_MIN/);
-  assert.match(lens, /const fresh = freshness\(sessions, Date\.now\(\), deps\.settled, \{ hours: hoursOf\(want\.timeframe, t\), minutes: TIMEFRAMES\[want\.timeframe\]\.minutes \}\);/);
+  /* 29 Sep (S1): judged on the COMPLETED sessions (`done`); the drawing carries the live price */
+  assert.match(lens, /const hours = hoursOf\(want\.timeframe, t\), minutes = TIMEFRAMES\[want\.timeframe\]\.minutes;/);
+  assert.match(lens, /const fresh = freshness\(done, Date\.now\(\), deps\.settled, \{ hours, minutes \}\);/);
   /* and the zoom branch's hold-still rule sits in front of it */
-  assert.ok(lens.indexOf("since < SETTLE_MS") < lens.indexOf("const fresh = freshness(sessions"));
+  assert.ok(lens.indexOf("since < SETTLE_MS") < lens.indexOf("const fresh = freshness(done"));
   const provider = read("_provider/provider.js");
   assert.match(provider, /f6cf97b57cf26a37aeb8393dec676f1776b02da282dffcce95786e5762697ad1/);
   assert.match(provider, /d0da9a466c8f51dd48c0f7c45c9e731afc255e91c60c398c356d76af53d91728/);

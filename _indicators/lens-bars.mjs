@@ -366,6 +366,15 @@ export function drawBubble(ctx, rect, model, opt = {}) {
     const wx = Math.round(c.x) + 0.5;
     ctx.beginPath(); ctx.moveTo(wx, c.yH); ctx.lineTo(wx, c.yL); ctx.stroke();
     const top = Math.min(c.yO, c.yC), hh = Math.max(1, Math.abs(c.yC - c.yO));
+    /* 29 Sep: a candle carrying the live price (station-lens liveBars) is drawn as forming, the way the
+       main chart draws its forming point: a dashed outline, never a finished body */
+    if (bars[i].live && c.w >= 2.5) {
+      ctx.fillStyle = pal.paper; ctx.fillRect(c.x - c.w / 2, top, c.w, hh);
+      ctx.setLineDash([2, 1.5]);
+      ctx.strokeRect(Math.round(c.x - c.w / 2) + 0.5, Math.round(top) + 0.5, Math.round(c.w) - 1, Math.max(1, Math.round(hh) - 1));
+      ctx.setLineDash([]);
+      continue;
+    }
     if (c.w >= 2.5) {
       /* an up candle is hollow so the two directions read apart even at four pixels wide */
       if (c.up) { ctx.fillStyle = pal.paper; ctx.fillRect(c.x - c.w / 2, top, c.w, hh); ctx.strokeRect(Math.round(c.x - c.w / 2) + 0.5, Math.round(top) + 0.5, Math.round(c.w) - 1, Math.max(1, Math.round(hh) - 1)); }
