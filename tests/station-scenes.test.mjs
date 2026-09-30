@@ -656,8 +656,9 @@ test("live price is a compact right-edge marker rather than top-readout clutter 
   assert.match(chart, /const hasLiveQuote = livePriceValue != null/);
   assert.match(chart, /liveY = Y\(livePrice\)/,
     "the marker tracks the actual live price coordinate");
-  assert.match(chart, /if \(hasLiveQuote && !scrub\)/,
-    "hover's moving price marker takes precedence while the cursor is active");
+  /* S1 (29 Sep), Alan: the crosshair "removes the current price label for some reason. i dont like that."
+     The marker now stays while the crosshair is up (the readout has its own fixed corner). */
+  assert.match(chart, /if \(hasLiveQuote\) \{/, "the live marker is drawn with or without the crosshair");
   assert.match(chart, /liveTop = Math\.max\(padT, Math\.min\(padT \+ ih - 12, liveY - 6\)\)/);
   assert.doesNotMatch(chart, /sc-nchart__live-price/,
     "the top-left readout is no longer a second price label");
@@ -1103,7 +1104,7 @@ test("the price axis labels the price the gridline is actually at", () => {
 /* ── CL4, 27 Sep: THE CONTEXT LENS ON THE 3-DAY PAGES ─────────────────────────────── */
 /* O1 (27 Sep), Alan: 4h on the 3-day charts, 30-minute on the daily charts, none on the weekly pages.
    MACRO · DAY stays without one: macro intraday is not switched on without Alan. */
-test("the nine 3-day pages carry the 4h lens, the daily pages the 30-minute lens, and no other page any", () => {
+test("the nine 3-day pages carry the 4h lens, the daily pages the 30-minute lens, and every other page its range's lens (S1)", () => {
   const nine = ["targets3D", "sectors3D", "mainIndexes3D", "mag7", "ai1", "ai2", "ai3", "other3D", "blueChip3D"];
   const daily = ["spyQqq1D", "otherIndexes1D", "otherIndexesOsc", "targets1D", "targetsOsc"];
   const at = new Date("2026-09-28T15:00:00Z");
@@ -1116,11 +1117,17 @@ test("the nine 3-day pages carry the 4h lens, the daily pages the 30-minute lens
     } else if (daily.includes(id)) {
       assert.equal(scenes.WORKFLOW_PAGES[id].range, "1D", `${id} is a daily page`);
       assert.ok(state.bubbles.every((b) => b === "30m:3"), `${id}: 30-minute bars, three sessions`);
-    } else assert.ok(state.bubbles.every((b) => b === ""), `${id}: no lens`);
+    } else {
+      /* 29 Sep (S1): "THERE IS STILL A TON OF CHARTS WITHOUT A CONTEXT LENS" - every other page its range's */
+      const want = scenes.lensForRange(scenes.WORKFLOW_PAGES[id].range);
+      assert.ok(want, `${id}: its range has a lens`);
+      assert.ok(state.bubbles.every((b) => b === want), `${id}: ${want}`);
+    }
   }
-  assert.ok(scenes.workflowPageState("macro1D", { at }).bubbles.every((b) => b === ""), "MACRO · DAY: none");
-  assert.ok(scenes.workflowPageState("wkMacro", { at }).bubbles.every((b) => b === ""), "weekly macro: none");
-  assert.match(deck, /\/\^\[0-9a-z\]\+:\[0-9\]\{1,2\}\$\/\.test\(String\(bubbles\[i\]/, "the deck lets a two-digit session count through");
+  assert.ok(scenes.workflowPageState("macro1D", { at }).bubbles.every((b) => b === "30m:3"), "MACRO · DAY: the 30-minute lens");
+  assert.ok(scenes.workflowPageState("wkMacro", { at }).bubbles.every((b) => b === "1d:20"), "weekly macro: twenty daily candles");
+  assert.match(deck, /lensOk = \(v\) => \/\^\[0-9a-z\]\+:\[0-9\]\{1,2\}\$\/\.test\(String\(v \|\| ""\)\)/, "the deck lets a two-digit session count through");
+  assert.match(deck, /SLOT_BUBBLES\[i\] = lensOk\(bubbles\[i\]\)/);
 });
 
 /* O1 (27 Sep), Alan: "ES/NQ page then SPY/QQQ page appeared back to back — he expected ONE page whose

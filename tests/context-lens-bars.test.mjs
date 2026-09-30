@@ -69,7 +69,9 @@ test("the request covers extended hours even when only the regular session is dr
   assert.equal(barsToRequest("1h", 3), 64);
   assert.equal(barsToRequest("15m", 3), 240);     // 4 × 64 = 256, capped
   assert.equal(barsToRequest("30m", 1), 64);
-  for (const k of Object.keys(TIMEFRAMES)) assert.ok(TIMEFRAMES[k].extended > TIMEFRAMES[k].regular);
+  /* a daily candle is a whole session: nothing extended about it (29 Sep, the zoomed-out lens) */
+  for (const k of Object.keys(TIMEFRAMES)) if (!TIMEFRAMES[k].daily) assert.ok(TIMEFRAMES[k].extended > TIMEFRAMES[k].regular);
+  assert.equal(barsToRequest("1d", 60), 65, "daily: one a session plus a week spare");
   assert.equal(HOURS.regular.open, MIN(9, 30)); assert.equal(HOURS.regular.close, MIN(16, 0));
 });
 
