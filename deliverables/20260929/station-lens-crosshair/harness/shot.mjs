@@ -41,6 +41,10 @@ try {
       for (const f of page.frames()) { try { const r = await f.evaluate((t) => { const hh = document.querySelector(".sc-nchart"); return hh && hh._scrubLabel ? Object.assign({ t: hh.dataset.t }, hh._scrubLabel) : null; }); if (r) scrub = r; } catch (_) {} }
     }
   }
-  await page.screenshot({ path: outPng });
+  if (opt.crop != null) {
+    /* a close-up of one pane: --crop=<pane index> (the pane's area, a few px of margin) */
+    const h = hosts[+opt.crop];
+    await page.screenshot({ path: outPng, clip: { x: Math.max(0, h.off[0] - 4), y: Math.max(0, h.off[1] - 4), width: h.area[0] + 8, height: h.area[1] + 8 } });
+  } else await page.screenshot({ path: outPng });
   console.log(JSON.stringify({ path: p, w: W, hosts, scrub, errs }));
 } finally { await browser.close(); server.close(); }

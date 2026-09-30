@@ -20,7 +20,9 @@ if (AT) {
 }
 const { server, origin } = await serve(root);
 const rows = [];
-for (const [range, bubble] of [["3D", "4h:12"], ["1D", "30m:3"]]) {
+/* --pairs=1h/1d:60,1W/1d:20 checks other range/lens pairs (default: the 3D and 1D lenses) */
+const PAIRS = opt.pairs ? opt.pairs.split(",").map((x) => x.split("/")) : [["3D", "4h:12"], ["1D", "30m:3"]];
+for (const [range, bubble] of PAIRS) {
   const { browser, context } = await open({ width: 1680 });
   try {
     if (AT) {

@@ -228,3 +228,54 @@ test("3: a top-row pane (sharing the lower pane's time axis) puts the readout wh
   assert.match(chart, /const readoutBottom = SHARED_TIME_AXIS \? padT \+ ih \+ padB - axisBand : padT \+ ih;/);
   assert.equal((chart.match(/plotBottom: readoutBottom/g) || []).length, 2, "the reserved spot and the drawn readout agree");
 });
+
+/* ---- 4. "LOADING IS SLOW AND WEIRD ON SOME CLOUDS." ---- */
+test("4: one daily read per ticker - the ribbon's read is long enough for the fan's D line and the lens, and shared", async () => {
+  /* the shared-read helpers, run against a fake provider */
+  const code = ["const cloudDailyCache = new Map(), cloudDailyInflight = new Map();",
+    "const CLOUD_DAILY_TF = 'D', CLOUD_DAILY_LIMIT = 400, CLOUD_DAILY_MAX = 6500, CLOUD_REFRESH_MS = 1800000;",
+    "function cloudDailyStore() {}",
+    liftFrom(chart, "dailyFlightFor"), liftFrom(chart, "sharedDaily"), "async " + liftFrom(chart, "fetchCloudDaily"),
+    "({ sharedDaily, fetchCloudDaily })"].join("\n");
+  let reads = 0;
+  const rows = Array.from({ length: 700 }, (_, i) => ({ timestamp: 1.7e9 + i * 86400, open: 10, high: 11, low: 9, close: 10 + i / 100 }));
+  /* the provider layer hands rows back NEWEST FIRST (measured: AVGO's lens read May 2025 and said STALE) */
+  const fetchProviderCandles = async (t, tf, limit) => { reads++; await new Promise((r) => setTimeout(r, 20)); return rows.slice(-limit).reverse(); };
+  const api = vm.runInNewContext(code, { fetchProviderCandles, Date, Math, Number, Array, Map, Promise, Error, JSON, isFinite });
+  /* the ribbon (asking for the fan's 602 too), the fan's D line and the lens, all at once */
+  const [ribbon, fan, lensRead] = await Promise.all([api.fetchCloudDaily("SPY", 602), api.sharedDaily("SPY", 602, false), api.sharedDaily("SPY", 65, true)]);
+  assert.equal(reads, 1, "three consumers, one read");
+  assert.equal(ribbon, fan); assert.equal(fan, lensRead);
+  assert.equal(lensRead.rows.length, 602, "the candles are kept for the lens");
+  assert.equal(lensRead.rows[lensRead.rows.length - 1].timestamp, rows[rows.length - 1].timestamp, "oldest first: the newest candle is last");
+  await api.sharedDaily("SPY", 450, true);
+  assert.equal(reads, 1, "a later, shorter ask is served from the finished read");
+  await api.sharedDaily("SPY", 900, false);
+  assert.equal(reads, 2, "a longer ask reads again");
+});
+
+test("4: the ribbon asks for the fan's D line too; the fan's D line and the daily lens go through the shared read", () => {
+  assert.match(chart, /function dailyNeedFor\(host\) \{[\s\S]*?return Math\.max\(cloudDailyNeed\(range, host && host\._historyLimit\), fanDailyNeed\(host\)\);/);
+  assert.match(chart, /const need = dailyNeedFor\(host\);\n  const covers = entry/);
+  assert.match(chart, /if \(tf === "1D"\) \{\n\s+\/\* S1[^\n]*\n\s+const daily = await sharedDaily\(t, need, false\);/);
+  assert.match(chart, /fetchCandles: \(t, tf, limit, tries\) => \{\n\s+if \(tf !== "D"\) return fetchProviderCandles\(t, tf, limit, tries\);/);
+  /* the browser copy stays closes-only (the store's size was the 27 Sep slow-cloud cause) */
+  assert.match(chart, /const payload = JSON\.stringify\(Object\.assign\(\{ ts:Date\.now\(\), asked:[^}]*\}, cloudPack\(kept\)\)\);/);
+  /* NOT L2b's Geiger hold */
+  assert.doesNotMatch(chart, /geigerHold|GEIGER_HOLD|waitForSettled/);
+});
+
+test("3: the time tag stays readable - a lens it passes under fades back while the crosshair is up", () => {
+  assert.match(chart, /host\._scrubTimeTag = \{ x: timeX, y: timeY - 6, w: timeW, h: 12 \};/);
+  assert.match(chart, /host\._scrubLabel = null; host\._scrubTimeTag = null;/);
+  assert.match(chart, /lensCv\.style\.opacity = under \? "0\.18" : "";/);
+});
+
+test("4: no second ribbon read and no ribbon redraw - the daily lens waits for the price; the fan waits for the ribbon", () => {
+  assert.match(chart, /const priced = \(\) => !!\(host && host\._series && host\._series\.length >= 2 && host\.dataset\.t === t\);/);
+  assert.match(chart, /return wait\(\)\.then\(\(\) => sharedDaily\(t, Math\.max\(limit, dailyNeedFor\(host\)\), true\)\)/);
+  assert.match(chart, /host\._ribbonWork = ensureCloudDaily\(host, t, req, generation\);/);
+  const fan = liftFrom(chart, "ensureRsiFan");
+  assert.ok(fan.indexOf("host._ribbonWork") < fan.indexOf("acquireChartLoadPermit"), "the fan waits before it takes a load permit");
+  assert.match(fan, /Promise\.race\(\[ribbon\.catch\(\(\) => null\), new Promise\(\(r\) => setTimeout\(r, 3000\)\)\]\)/, "3 s at most");
+});

@@ -444,7 +444,17 @@ let BUBBLE_REQUEST = QS.get("bubble") || "";
 let SC_LENS = null, scLensLoading = null;
 const SC_LENS_DEPS = {
   request: () => BUBBLE_REQUEST, range: () => S.chartRange,
-  fetchCandles: (t, tf, limit, tries) => fetchProviderCandles(t, tf, limit, tries),
+  /* a daily lens draws from the ribbon's one daily read (S1, 29 Sep); every other lens reads its own bars */
+  /* ...and only once the price is on screen: asked at boot it sized the read before the fan's need was
+     known, and the ribbon then read again and was drawn twice (measured: PCC, INTERNALS) */
+  fetchCandles: (t, tf, limit, tries) => {
+    if (tf !== "D") return fetchProviderCandles(t, tf, limit, tries);
+    const host = document.querySelector("#chartSlot .sc-nchart");
+    const priced = () => !!(host && host._series && host._series.length >= 2 && host.dataset.t === t);
+    const until = Date.now() + 15000;
+    const wait = () => priced() || Date.now() > until ? Promise.resolve() : new Promise((r) => setTimeout(r, 100)).then(wait);
+    return wait().then(() => sharedDaily(t, Math.max(limit, dailyNeedFor(host)), true)).then((e) => (e.rows || []).slice(-limit));
+  },
   permit: (host, req, generation) => acquireChartLoadPermit(host, req, generation),
   redraw: (host) => scChartDraw(host), colours: () => chColors(),
   day: (host) => { const ref = chDayRef(host), px = chDayPrice(host, host._series);
@@ -1102,10 +1112,45 @@ function cloudDailyStore(t, pts, asked) {
     localStorage.setItem(mine, payload);
   } catch (_) {}
 }
+/* ONE DAILY READ PER TICKER (S1, 29 Sep). Alan: "LOADING IS SLOW AND WEIRD ON SOME CLOUDS." Measured cold
+   on bacb424: a pane with the RSI fan read its ticker's daily series three times at once - the ribbon
+   (450), the fan's D line tail (400) and its history (602) - and the three slowed each other (NQ's ribbon
+   landed 2.1 s after its price, reads up to 3.0 s); the new daily lens would have been a fourth. L2b
+   (28 Sep, station/chart-speed @5f84bc0) found the fan's half; its idea is taken here, not its Geiger
+   hold. Now the ribbon's read asks for as many bars as the ribbon, the fan's D line and the lens need
+   (dailyNeedFor), any read already on its way that is long enough is shared (dailyFlightFor), and the
+   candles themselves stay in memory beside the closes, so the lens draws from the same read. Daily bars
+   do not lag with the read's length (TAIL_LIMIT: "daily unaffected up to 6,000"). */
+function dailyFlightFor(t, need) {
+  for (const [key, flight] of cloudDailyInflight) {
+    const bar = key.lastIndexOf("|");
+    if (key.slice(0, bar) === t && Number(key.slice(bar + 1)) >= need) return flight;
+  }
+  return null;
+}
+function fanDailyNeed(host) {
+  if (!host || !rsiFanOn() || !window.SC_RSI_FAN) return 0;
+  const plan = window.SC_RSI_FAN.fetchPlan(rsiLinesFor(host), rsiChartSpan(host._series), rsiContextFor(host));
+  const d = plan.find(([tf]) => tf === "1D");
+  return d ? d[1] : 0;
+}
+function dailyNeedFor(host) {
+  const range = (host && host._range) || S.chartRange;
+  return Math.max(cloudDailyNeed(range, host && host._historyLimit), fanDailyNeed(host));
+}
+/* the ribbon's daily entry when it is fresh and long enough (and carries candles, if asked), else the
+   one read - shared with any long-enough read already on its way */
+function sharedDaily(t, need, withRows) {
+  const hit = cloudDailyCache.get(t);
+  if (hit && hit.pts && Math.max(hit.asked || 0, hit.pts.length) >= need && Date.now() - (hit.ts || 0) < CLOUD_REFRESH_MS &&
+      (!withRows || hit.rows)) return Promise.resolve(hit);
+  return fetchCloudDaily(t, need);
+}
 async function fetchCloudDaily(t, need) {
   const asked = Math.max(CLOUD_DAILY_LIMIT, Math.min(CLOUD_DAILY_MAX, Number(need) || CLOUD_DAILY_LIMIT));
   const key = t + "|" + asked;
-  if (cloudDailyInflight.has(key)) return cloudDailyInflight.get(key);
+  const sharing = dailyFlightFor(t, asked);
+  if (sharing) return sharing;
   const work = (async () => {
     const rows = await fetchProviderCandles(t, CLOUD_DAILY_TF, asked, 2);
     const pts = (Array.isArray(rows) ? rows : [])
@@ -1113,7 +1158,9 @@ async function fetchCloudDaily(t, need) {
       .filter((q) => isFinite(q.p) && q.p > 0)
       .sort((a, b) => (a.d < b.d ? -1 : a.d > b.d ? 1 : 0));
     if (pts.length < 2) throw new Error("insufficient daily history for the cloud ribbon (" + pts.length + ")");
-    const entry = { ts:Date.now(), pts, asked };
+    /* the candles stay in memory only (the browser copy stays closes-only): the lens reads them */
+    /* sorted oldest first like `pts`: the provider hands rows back newest first, and the lens takes the newest N */
+    const entry = { ts:Date.now(), pts, asked, rows:Array.isArray(rows) ? rows.slice().sort((a, b) => a.timestamp - b.timestamp) : null };
     cloudDailyCache.set(t, entry);
     cloudDailyStore(t, pts, asked);
     return entry;
@@ -1139,7 +1186,7 @@ async function ensureCloudDaily(host, t, req, generation) {
   if (!CLOUDS_ON || !window.SC_CLOUDS || !host || !host.isConnected) return;
   const entry = paintCloudsFromCache(host, t);
   if (entry && host._cloudRows) scChartDraw(host);
-  const need = cloudDailyNeed(host._range || S.chartRange, host._historyLimit);
+  const need = dailyNeedFor(host);
   const covers = entry && (entry.pts.length >= need || (entry.asked || 0) >= need);
   if (entry && covers && entry.pts.length >= CLOUD_DAILY_ENOUGH && Date.now() - (entry.ts || 0) < CLOUD_REFRESH_MS) return;
   if (host._cloudPending === t) return;
@@ -1208,6 +1255,15 @@ async function fetchRsiSource(t, tf, need) {
     const toBars = (rows) => (Array.isArray(rows) ? rows : [])
       .map((r) => ({ t: r.timestamp * 1000, c: +r.close }))
       .filter((b) => Number.isFinite(b.t) && Number.isFinite(b.c) && b.c > 0);
+    if (tf === "1D") {
+      /* S1 (29 Sep): the D line is the ribbon's daily read (see sharedDaily), trimmed to its newest `need` */
+      const daily = await sharedDaily(t, need, false);
+      const bars = daily.pts.map((q) => ({ t: Date.parse(q.d), c: q.p })).filter((b) => Number.isFinite(b.t) && Number.isFinite(b.c) && b.c > 0);
+      const joined = F.joinTail([], bars.slice(-need));
+      const entry = { ts: daily.ts || Date.now(), asked: need, bars: joined.bars, hole: joined.hole, from: "ribbon" };
+      rsiSourceCache.set(t + "|" + tf, entry);
+      return entry;
+    }
     /* A long read's newest bars can lag a short read's (see TAIL_LIMIT), so past it the tail is read
        on its own and joined on timestamps; the tail wins, and a hole is never bridged. */
     const [tailRows, historyRows] = await Promise.all([
@@ -1239,6 +1295,10 @@ async function ensureRsiFan(host, t, req, generation) {
   host._rsiPending = req;
   let release = null;
   try {
+    /* S1 (29 Sep): the ribbon first. The fan's intraday reads (L2b measured 4.4 s cold on the 3H/6H
+       widths) slowed the ribbon's daily read they ran beside; they now wait for it, 3 s at most. */
+    const ribbon = host._ribbonWork;
+    if (ribbon) await Promise.race([ribbon.catch(() => null), new Promise((r) => setTimeout(r, 3000))]);
     release = await acquireChartLoadPermit(host, req + "|rsi", generation);
     if (host._req !== req || !host.isConnected || host._transitionGeneration !== generation) return;
     if (!host._rsiAbsence || host._rsiAbsence.t !== t) host._rsiAbsence = { t, byTf:{} };
@@ -2039,6 +2099,14 @@ function scChartDraw(host, scrub) {
     host._inkAt = null;   /* the lens reads this paint's pixels once */
     placeGeiger(host);
     if (BUBBLE_REQUEST || host.querySelector(".sc-nchart__lens")) lensPaint(host);
+    /* S1 (29 Sep): the lens is a layer above the chart; while the crosshair's time tag passes under it the
+       lens fades back so the tag stays readable (measured on the phone: the lens covered "May 30, 2026") */
+    const lensCv = host.querySelector(".sc-nchart__lens"), tag = host._scrubTimeTag;
+    if (lensCv) {
+      const lx = parseFloat(lensCv.style.left) || 0, ly = parseFloat(lensCv.style.top) || 0, lw = parseFloat(lensCv.style.width) || 0, lh = parseFloat(lensCv.style.height) || 0;
+      const under = !!tag && tag.x < lx + lw && lx < tag.x + tag.w && tag.y < ly + lh && ly < tag.y + tag.h;
+      lensCv.style.opacity = under ? "0.18" : "";
+    }
   });
   const pts = host._series;
   if (!pts || pts.length < 2) return;
@@ -2264,7 +2332,7 @@ function scChartDraw(host, scrub) {
       }
     }
   }
-  host._scrubLabel = null;
+  host._scrubLabel = null; host._scrubTimeTag = null;
   if (scrub && pts[scrub.ix]) {
     const sx = Math.max(padL, Math.min(padL + iw, scrub.x));
     const sy = Math.max(padT, Math.min(padT + ih, scrub.y));
@@ -2306,6 +2374,7 @@ function scChartDraw(host, scrub) {
     ctx.fillRect(timeX, timeY - 6, timeW, 12);
     ctx.fillStyle = col.dim; ctx.textAlign = "center";
     ctx.fillText(timeText, timeX + timeW / 2, timeY);
+    host._scrubTimeTag = { x: timeX, y: timeY - 6, w: timeW, h: 12 };
     ctx.restore();
   }
 }
@@ -3129,8 +3198,8 @@ async function scChartLoad(host) {
     reportChartDataState(host, { history:"ready", historyAbsence:null });
     scChartDraw(host);
     /* The price is on screen; only now is the ribbon's own daily read asked for. */
-    ensureCloudDaily(host, t, req, generation);
-    /* ...and the RSI fan's locked-timeframe reads, after the ribbon's. */
+    host._ribbonWork = ensureCloudDaily(host, t, req, generation);
+    /* ...and the RSI fan's locked-timeframe reads, after the ribbon's (they wait for it, S1). */
     ensureRsiFan(host, t, req, generation);
     /* ...and, on a 3-day chart that asked for it, the context lens's one 30-minute read. */
     lensEnsure(host, t, req, generation);
