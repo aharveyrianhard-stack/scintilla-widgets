@@ -26,7 +26,16 @@ import { pathPoints, clearsTail, clearsTailPoints, emptiestSpot, inkReader, DEFA
    30-minute lens. Weekly macro pages: no lens." The deck says which lens a page carries (4h:12 on the
    3-day pages, 30m:3 on the daily ones); the pane draws one only on those two ranges. */
 export const RANGE = "3D";
-export const RANGES = Object.freeze(["3D", "1D"]);
+/* 29 Sep, Alan: "THERE IS STILL A TON OF CHARTS WITHOUT A CONTEXT LENS… CONTEXT LENSES FOR SHORT TERM
+   CHARTS ARE STILL USEFUL TO SHOW THE ZOOMED OUT VIEW." THE RULE: the lens shows the view the chart itself
+   cannot. A 15-minute to 12-hour chart gets the zoomed-OUT view (daily candles, about three months); a 1D
+   chart keeps the last three sessions of 30-minute candles; a 3D chart keeps twelve sessions of 4-hour
+   candles; a 1W chart gets the last twenty daily candles. Every range on the ladder has one. */
+export const INTRADAY_RANGES = Object.freeze(["15m", "30m", "1h", "2h", "3h", "4h", "6h", "12h"]);
+export const LENS_FOR_RANGE = Object.freeze(Object.assign(
+  Object.fromEntries(INTRADAY_RANGES.map((r) => [r, "1d:60"])), { "1D": "30m:3", "3D": "4h:12", "1W": "1d:20" }));
+export const RANGES = Object.freeze(Object.keys(LENS_FOR_RANGE));
+export const lensForRange = (range) => LENS_FOR_RANGE[range] || null;
 export const REFRESH_MS = DIALS.refreshMin * 60000;
 /* Its own colours. Candles follow the wall's rule (up green, down red: the chart's own --bull/--bear);
    everything else is a true grey (channels within 24 of each other, none above 210) and nothing white. */
@@ -38,14 +47,36 @@ export const STALE_ALPHA = 0.42;
    is off: a switch that cannot be read is not quietly turned into some other bubble. At most 15
    sessions (60 candles of 4h), because the chart API's newest bar moves above 400 bars. */
 export function parseBubble(value) {
-  const m = /^(15m|30m|1h|4h):([1-9]|1[0-5])$/.exec(String(value || "").trim());
-  return m ? { timeframe: m[1], sessions: +m[2], key: m[0] } : null;
+  const v = String(value || "").trim();
+  const m = /^(15m|30m|1h|4h):([1-9]|1[0-5])$/.exec(v);
+  if (m) return { timeframe: m[1], sessions: +m[2], key: m[0] };
+  /* daily candles (29 Sep): 5 to 90 of them */
+  const d = /^1d:([5-9]|[1-8][0-9]|90)$/.exec(v);
+  return d ? { timeframe: "1d", sessions: +d[1], key: d[0] } : null;
 }
-export const wanted = (req, range) => !!req && RANGES.includes(range);
+/* a request FITS a range when it is that range's KIND of lens: intraday candles on a 1D or 3D chart (any
+   of 15m/30m/1h/4h, as before), daily candles on a short chart or a weekly one */
+export const wanted = (req, range) => {
+  const own = parseBubble(lensForRange(range));
+  return !!req && !!own && !!TIMEFRAMES[own.timeframe].daily === !!TIMEFRAMES[req.timeframe].daily;
+};
+/* The lens a pane draws: the page's own when it fits the pane's range; when the wall's timeframe bar has
+   moved the pane to a range the page's lens does not fit, that range's lens instead. No request, no lens. */
+export function lensFor(request, range) {
+  const req = parseBubble(request);
+  if (!req) return null;
+  return wanted(req, range) ? req : parseBubble(lensForRange(range));
+}
 /* Futures and crypto keep their own clock (27 Sep night): the whole CME session, or the whole day. */
-const FUTURES = new Set(["ESUSD", "NQUSD", "CLUSD", "GCUSD", "SIUSD", "DXUSD"]);
+/* 29 Sep: DXUSD left this list. The dollar's bars are published 00:00-17:00 ET only (P3, 28 Sep: "no
+   1h/15m bars in the dollar's evening session"), so on the CME clock its lens said STALE every evening;
+   it is read on the stock-day hours and judged on the NYSE calendar like VIX and the yields. */
+const FUTURES = new Set(["ESUSD", "NQUSD", "CLUSD", "GCUSD", "SIUSD"]);
+export const marketOf = (t) => FUTURES.has(String(t || "").toUpperCase()) ? "globex"
+  : CRYPTO.has(String(t || "").toUpperCase()) ? "allday" : "nyse";
 const CRYPTO = new Set(["BTCUSD", "ETHUSD", "SOLUSD", "XRPUSD", "DOGEUSD", "ADAUSD", "AVAXUSD", "LINKUSD", "LTCUSD"]);
-export const hoursOf = (tf, t) => FUTURES.has(String(t || "").toUpperCase()) ? "globex"
+export const hoursOf = (tf, t) => TIMEFRAMES[tf] && TIMEFRAMES[tf].daily ? "allday"
+  : FUTURES.has(String(t || "").toUpperCase()) ? "globex"
   : CRYPTO.has(String(t || "").toUpperCase()) ? "allday"
   : (TIMEFRAMES[tf] && TIMEFRAMES[tf].hours) || DIALS.hours;
 
@@ -89,6 +120,22 @@ function cmeOpen(ms) {
 }
 export function freshness(sessions, nowMs, settled, lens = null) {
   const newest = sessions && sessions.length ? sessions[sessions.length - 1] : null;
+  /* A DAILY LENS (29 Sep) is stale only when it is missing TWO sessions: the newest settled one may take
+     a while to be published, and a forming candle carries today anyway. Stocks, VIX, the dollar and the
+     yields count NYSE sessions (so a Monday morning or the day after a holiday is never stale); futures
+     and crypto only when their newest daily candle is more than four calendar days old. */
+  if (lens && lens.minutes >= 1440) {
+    if (!newest) return { stale: false, empty: true, expected: null, through: null };
+    const label = `${newest.weekday} ${newest.dom}`;
+    if (lens.market === "globex" || lens.market === "allday") {
+      const age = (Date.parse(etParts(nowMs).day + "T12:00:00Z") - Date.parse(newest.day + "T12:00:00Z")) / 86400e3;
+      return { stale: age > 4, empty: false, expected: null, through: newest.day, label };
+    }
+    const cal = typeof settled === "function" ? settled : weekdayCalendar;
+    const settledDay = cal(nowMs);
+    const before = cal(eveningOf(new Date(Date.parse(settledDay + "T12:00:00Z") - 86400e3).toISOString().slice(0, 10)));
+    return { stale: newest.day < before, empty: false, expected: before, through: newest.day, label };
+  }
   if (lens && (lens.hours === "globex" || lens.hours === "allday")) {
     const last = newest && newest.bars.length ? newest.bars[newest.bars.length - 1] : null;
     if (!last) return { stale: false, empty: true, expected: null, through: null };
@@ -248,8 +295,8 @@ const inflight = new Map();
 export function state(host) { return host && host._lens; }
 
 export async function ensure(host, deps, req, generation) {
-  const want = parseBubble(deps.request());
-  if (!want || !wanted(want, deps.range()) || !host || !host.isConnected) return;
+  const want = lensFor(deps.request(), deps.range());
+  if (!want || !host || !host.isConnected) return;
   const t = host.dataset.t, key = t + "|" + want.timeframe;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.ts < REFRESH_MS) { deps.redraw(host); return; }
@@ -308,8 +355,8 @@ function hide(host, why) {
 /* Called after every chart paint. Cheap when nothing changed: a hover or a scrub repaints the chart
    but not the bubble. */
 export function paint(host, deps) {
-  const want = parseBubble(deps.request());
-  if (!want || !wanted(want, deps.range())) return hide(host, null);
+  const want = lensFor(deps.request(), deps.range());
+  if (!want) return hide(host, null);
   const plot = host._plot, pts = host._series, t = host.dataset.t;
   if (!plot || !pts || pts.length < 2) return hide(host, "the chart has not drawn yet");
   const entry = cache.get(t + "|" + want.timeframe);
@@ -322,7 +369,9 @@ export function paint(host, deps) {
   const carry = host._lensForming && host._lensForming.t0 === t + "|" + want.key ? host._lensForming : null;
   const live = liveBars(flatten(sessionsOf(entry.bars, hours)), quote, { minutes, hours, carry });
   const sessions = lastSessions(live.bars, want.sessions, hours);
-  const bars = flatten(sessions);
+  const daily = !!TIMEFRAMES[want.timeframe].daily;
+  /* daily candles are one run, not sessions with air between them */
+  const bars = daily ? flatten(sessions).map((b) => ({ ...b, session: 0 })) : flatten(sessions);
   if (!bars.length) return hide(host, `no ${want.timeframe} bars in ${hours} hours`);
   host._lensForming = live.forming ? { ...live.forming, t0: t + "|" + want.key } : null;
   /* rule 6: the view is moving (a wheel, a drag, a pinch) - a lens already on screen holds still, and one
@@ -332,7 +381,7 @@ export function paint(host, deps) {
     if (!host._lensSettle) host._lensSettle = setTimeout(() => { host._lensSettle = null; if (host.isConnected) deps.redraw(host); }, SETTLE_MS - since + 20);
     return;
   }
-  const fresh = freshness(done, Date.now(), deps.settled, { hours, minutes });
+  const fresh = freshness(done, Date.now(), deps.settled, { hours, minutes, market: marketOf(t) });
   const day = deps.day(host);
   const area = host.querySelector(".sc-nchart__area");
   const badge = host.querySelector(".sc-nchart__live");
@@ -401,7 +450,7 @@ export function paint(host, deps) {
   ctx.strokeStyle = INK.frame; ctx.lineWidth = 1; ctx.globalAlpha = fresh.stale ? 0.6 : 1; ctx.stroke(); ctx.restore();
 
   const through = fresh.label ? ` through ${fresh.label}` : "";
-  cv.setAttribute("aria-label", `${t}: ${want.timeframe} candles, last ${sessions.length} sessions${through}` +
+  cv.setAttribute("aria-label", `${t}: ${want.timeframe} candles, last ${sessions.length} ${daily ? "days" : "sessions"}${through}` +
     (fresh.stale ? ` — STALE: the last session that has opened is ${fresh.expected}` : ""));
   host.dataset.lensState = fresh.stale ? "stale" : "fresh";
   host.dataset.lensWhy = where.why;

@@ -62,6 +62,10 @@ export const TIMEFRAMES = Object.freeze({
      at 04:00, 08:00, 12:00 and 16:00 ET, so only the 12:00 bar starts inside 09:30-16:00: a 4h lens
      reads the whole 04:00-20:00 day (four bars a session) or it would be one candle a day. */
   "4h":  Object.freeze({ tf: "240", minutes: 240, regular: 1, extended: 4, hours: "extended" }),
+  /* 29 Sep, Alan: "CONTEXT LENSES FOR SHORT TERM CHARTS ARE STILL USEFUL TO SHOW THE ZOOMED OUT VIEW." A
+     daily lens: one candle per trading day. The provider stamps a daily bar at New York midnight, so it is
+     read whole-day ("allday"), and a session is one candle. */
+  "1d":  Object.freeze({ tf: "D", minutes: 1440, regular: 1, extended: 1, hours: "allday", daily: true }),
 });
 export const HOURS = Object.freeze({
   regular:  Object.freeze({ open: 9 * 60 + 30, close: 16 * 60, name: "09:30–16:00 ET" }),
@@ -123,6 +127,8 @@ export function flatten(sessions) {
    half day; never more than 240, because above 400 the API's newest bar moves (RSI-fan lane, 25 Sep). */
 export function barsToRequest(timeframe, sessions, hours) {
   const tf = TIMEFRAMES[timeframe] || TIMEFRAMES["30m"];
+  /* daily: one bar a session, plus a week's spare for holidays */
+  if (tf.daily) return Math.min(240, Math.max(1, sessions | 0) + 5);
   const perSession = hours === "globex" || hours === "allday" ? Math.ceil(24 * 60 / tf.minutes) : tf.extended;
   return Math.min(240, perSession * (Math.max(1, sessions | 0) + 1));
 }

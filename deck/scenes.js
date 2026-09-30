@@ -35,9 +35,19 @@
      The chart pane reads it as ?bubble=. */
   const BUBBLE_3D = "4h:12";
   const BUBBLE_1D = "30m:3";
+  /* 29 Sep, Alan: "THERE IS STILL A TON OF CHARTS WITHOUT A CONTEXT LENS… CONTEXT LENSES FOR SHORT TERM
+     CHARTS ARE STILL USEFUL TO SHOW THE ZOOMED OUT VIEW." The rule: the lens shows the view the chart itself
+     cannot. 15m-12h charts - the zoomed-OUT view, daily candles for about three months (60 sessions);
+     1D - 30m:3; 3D - 4h:12; 1W - the last twenty daily candles. Every named page carries one (the weekly,
+     macro and intraday pages included); LIVE, CUSTOM, COHORT and SCRATCH are Alan's own workspaces. */
+  const BUBBLE_1W = "1d:20";
+  const BUBBLE_FAST = "1d:60";
+  const LENS_BY_RANGE = Object.freeze({ "15m":BUBBLE_FAST, "30m":BUBBLE_FAST, "1h":BUBBLE_FAST, "2h":BUBBLE_FAST,
+    "3h":BUBBLE_FAST, "4h":BUBBLE_FAST, "6h":BUBBLE_FAST, "12h":BUBBLE_FAST, "1D":BUBBLE_1D, "3D":BUBBLE_3D, "1W":BUBBLE_1W });
+  function lensForRange(range) { return LENS_BY_RANGE[range] || ""; }
   const WORKFLOW_PAGES = Object.freeze({
-    wkIndexes:       Object.freeze({ label:"INDEXES · WEEK",      short:"INDEXES WK",  range:"1W", tickers:Object.freeze(["SPY","DIA","QQQ","MAGS","SMH","IWM","DRAM","IGV"]) }),
-    wkMacro:         Object.freeze({ label:"MACRO · WEEK",        short:"MACRO WK",    range:"1W", tickers:Object.freeze(["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]) }),
+    wkIndexes:       Object.freeze({ label:"INDEXES · WEEK",      short:"INDEXES WK",  range:"1W", bubble:BUBBLE_1W, tickers:Object.freeze(["SPY","DIA","QQQ","MAGS","SMH","IWM","DRAM","IGV"]) }),
+    wkMacro:         Object.freeze({ label:"MACRO · WEEK",        short:"MACRO WK",    range:"1W", bubble:BUBBLE_1W, tickers:Object.freeze(["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]) }),
     targets3D:       Object.freeze({ label:"TARGETS",             range:"3D", bubble:BUBBLE_3D, targets:true }),
     /* 25 Sep, Alan, later: "there is sectors that are more important in market cap, way more
        important. I don't know if I would rotate all of them." So his six stay on screen in slots
@@ -70,13 +80,13 @@
        names on the same daily bars, with the Lab's locked-timeframe RSI fan under every price. */
     otherIndexes1D:  Object.freeze({ label:"OTHER INDEXES · DAY", short:"INDEXES DAY", range:"1D", bubble:BUBBLE_1D, tickers:Object.freeze(["SMH","DIA","DRAM","MAGS","IWM","IGV"]) }),
     otherIndexesOsc: Object.freeze({ label:"OTHER INDEXES · RSI", short:"INDEXES RSI", range:"1D", bubble:BUBBLE_1D, study:"RSI", tickers:Object.freeze(["SMH","DIA","DRAM","MAGS","IWM","IGV"]) }),
-    macro1D:         Object.freeze({ label:"MACRO · DAY",         short:"MACRO DAY",   range:"1D", tickers:Object.freeze(["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]) }),
+    macro1D:         Object.freeze({ label:"MACRO · DAY",         short:"MACRO DAY",   range:"1D", bubble:BUBBLE_1D, tickers:Object.freeze(["VIX","DXUSD","US10Y","GCUSD","CLUSD","BTCUSD"]) }),
     targets1D:       Object.freeze({ label:"TARGETS · DAY",       short:"TARGETS DAY", range:"1D", bubble:BUBBLE_1D, targets:true }),
     targetsOsc:      Object.freeze({ label:"TARGETS · RSI",       short:"TARGETS RSI", range:"1D", bubble:BUBBLE_1D, study:"RSI", targets:true }),
-    macroIntraday:   Object.freeze({ label:"MACRO · 4H",          range:"4h", rotate:Object.freeze({ list:MACRO_4H, size:3 }), tail:Object.freeze(["PCC"]) }),
-    intraday4h:      Object.freeze({ label:"INTRADAY · 4H",       short:"INTRA · 4H",  range:"4h", leaders:true, rotateTargets:Object.freeze({ size:4 }) }),
-    intraday1h:      Object.freeze({ label:"INTRADAY · 1H",       short:"INTRA · 1H",  range:"1h", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:3 }) }),
-    intraday30m:     Object.freeze({ label:"INTRADAY · 30M",      short:"INTRA · 30M", range:"30m", study:"RSI", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:1 }) })
+    macroIntraday:   Object.freeze({ label:"MACRO · 4H",          range:"4h", bubble:BUBBLE_FAST, rotate:Object.freeze({ list:MACRO_4H, size:3 }), tail:Object.freeze(["PCC"]) }),
+    intraday4h:      Object.freeze({ label:"INTRADAY · 4H",       short:"INTRA · 4H",  range:"4h", bubble:BUBBLE_FAST, leaders:true, rotateTargets:Object.freeze({ size:4 }) }),
+    intraday1h:      Object.freeze({ label:"INTRADAY · 1H",       short:"INTRA · 1H",  range:"1h", bubble:BUBBLE_FAST, leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:3 }) }),
+    intraday30m:     Object.freeze({ label:"INTRADAY · 30M",      short:"INTRA · 30M", range:"30m", bubble:BUBBLE_FAST, study:"RSI", leaders:true, leaderWindow:true, rotateTargets:Object.freeze({ size:1 }) })
   });
   const WORKFLOW_IDS = Object.freeze(Object.keys(WORKFLOW_PAGES));
   /* The intraday four (workflow pages 16–19) rotate in the three sessions when something trades
@@ -141,28 +151,30 @@ const ROTATION_SCENES = Object.freeze(WORKFLOW_IDS.slice());
       label: "INDEX NOW",
       tickers: Object.freeze(["ESUSD", "NQUSD", "CLUSD"]),
       chartCount: 3,
-      range: "3h"
+      range: "3h",
+      bubble: BUBBLE_FAST
     }),
     indexLeadership: Object.freeze({
       label: "INDEX LEADERSHIP",
       tickers: Object.freeze(["SPY", "QQQ", "DIA", "IWM", "MAGS", "SMH"]),
       chartCount: 6,
-      range: "3h"
+      range: "3h",
+      bubble: BUBBLE_FAST
     }),
-    companyLeadership: Object.freeze({ label:"COMPANY LEADERSHIP", tickers:Object.freeze(["AAPL","MSFT","AMZN","GOOGL","META","TSLA"]), chartCount:6, range:"3h" }),
+    companyLeadership: Object.freeze({ label:"COMPANY LEADERSHIP", tickers:Object.freeze(["AAPL","MSFT","AMZN","GOOGL","META","TSLA"]), chartCount:6, range:"3h", bubble:BUBBLE_FAST }),
     /* P2 (27 Sep evening): the two two-chart menu pages carry the RSI fan too (see mainIndexes3D). A
        preset's `study` rides every slot through presetStacks, the same stack name a workflow page uses. */
-    focus2: Object.freeze({ label:"FOCUS 2", tickers:Object.freeze(["MU","SNDK"]), chartCount:2, range:"3h", study:"RSI" }),
-    macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", tickers:Object.freeze(["US10Y","DXUSD","GCUSD","SIUSD","CLUSD","BTCUSD"]), chartCount:6, range:"3D" }),
+    focus2: Object.freeze({ label:"FOCUS 2", tickers:Object.freeze(["MU","SNDK"]), chartCount:2, range:"3h", study:"RSI", bubble:BUBBLE_FAST }),
+    macroCrossAsset: Object.freeze({ label:"MACRO CROSS-ASSET", tickers:Object.freeze(["US10Y","DXUSD","GCUSD","SIUSD","CLUSD","BTCUSD"]), chartCount:6, range:"3D", bubble:BUBBLE_3D }),
     /* VIX and PCC are Scintilla's own series, drawn from the chart API with the cloud
        ribbon like any other chart. They keep this page; the four TradingView pictures
        moved to TO-DO on 24 Sep. */
-    internalsFast: Object.freeze({ label:"INTERNALS", tickers:Object.freeze(["VIX","PCC"]), chartCount:2, range:"3h", study:"RSI" }),
+    internalsFast: Object.freeze({ label:"INTERNALS", tickers:Object.freeze(["VIX","PCC"]), chartCount:2, range:"3h", study:"RSI", bubble:BUBBLE_FAST }),
     /* SCINTILLAS carries no tickers of its own: the store decides them, session by session. */
-    scintillas: Object.freeze({ label:"SCINTILLAS", tickers:Object.freeze([]), chartCount:6, range:"1D", filled:"scintillas" }),
+    scintillas: Object.freeze({ label:"SCINTILLAS", tickers:Object.freeze([]), chartCount:6, range:"1D", filled:"scintillas", bubble:BUBBLE_1D }),
     /* TO-DO's rows come from TODO_CHARTS below, because each one carries a reason and,
        for the two that were INTERNALS SLOW, its own timeframe. */
-    todo: Object.freeze({ label:"TO-DO", tickers:Object.freeze(["ADD","CUMTICK","TICK","TRIN","TICK","TRIN"]), chartCount:6, range:"3h", filled:"todo" })
+    todo: Object.freeze({ label:"TO-DO", tickers:Object.freeze(["ADD","CUMTICK","TICK","TRIN","TICK","TRIN"]), chartCount:6, range:"3h", filled:"todo", bubble:BUBBLE_FAST })
     /* SCRATCH HAS NO PRESET, DELIBERATELY. It is a device workspace like LIVE and CUSTOM:
        its six slots come from scratchState() and the device, never from a table here. An
        entry in PRESETS would make the deck treat it as a fixed page, and an empty fixed
@@ -230,6 +242,7 @@ const ROTATION_SCENES = Object.freeze(WORKFLOW_IDS.slice());
          timeframe bar that drives the whole wall, exactly like every other page. */
       ranges: charts.map((c) => c.range || null),
       bars: charts.map((c) => (Number(c.bars) > 0 ? Math.min(8000, Math.floor(Number(c.bars))) : null)),
+      bubbles: charts.map((c) => lensForRange(c.range || bench.range || "1D")),
       chartCount: chartCountForSize(charts.length),
       range: bench.range || "1D",
       offset: 0, totalItems: charts.length, hasPrevious: false, hasNext: false, empty: !charts.length
@@ -573,6 +586,7 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
       notes:charts.map((c) => c.note),
       ranges:charts.map((c) => c.range || null),
       stacks:charts.map(() => ""),
+      bubbles:charts.map((c) => lensForRange(c.range || "3h")),
       chartCount:chartCountForSize(charts.length),
       range:"3h", offset:0, totalItems:charts.length, hasPrevious:false, hasNext:false, empty:!charts.length
     };
@@ -800,6 +814,8 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
     workbenchState,
     exactPage,
     presetStacks,
+    lensForRange,
+    LENS_BY_RANGE,
     scintillasPage,
     scintillaLabel,
     TODO_CHARTS,

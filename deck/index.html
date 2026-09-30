@@ -2664,7 +2664,7 @@ async function loadScintillas(force) {
 function scintillasState(requestedCount) {
   const state = SceneModel.scintillasPage(SCINT_ROWS || [], requestedCount || 6);
   SCINT_LABELS = new Map(state.cards.map((c) => [c.ticker, c.label]));
-  return Object.assign({}, state, { range: SceneModel.PRESETS.scintillas.range });
+  return Object.assign({}, state, { range: SceneModel.PRESETS.scintillas.range, bubble: SceneModel.PRESETS.scintillas.bubble });
 }
 /* the label rides in the pane head, and is cleared the moment another page is shown */
 /* ONE NOTE CELL, TWO PAGES. SCINTILLAS says why a chart is on the wall; TO-DO says why a
@@ -2802,8 +2802,13 @@ function installSceneState(state) {
   const stacks = state.stacks || [], ranges = state.ranges || [];
   SLOT_STACKS.forEach((_, i) => { SLOT_STACKS[i] = String(stacks[i] || ""); });
   SLOT_RANGES.forEach((_, i) => { SLOT_RANGES[i] = RANGES.includes(ranges[i]) ? ranges[i] : ""; });
-  const bubbles = state.bubbles || [];
-  SLOT_BUBBLES.forEach((_, i) => { SLOT_BUBBLES[i] = /^[0-9a-z]+:[0-9]{1,2}$/.test(String(bubbles[i] || "")) ? String(bubbles[i]) : ""; });
+  /* 29 Sep: every named page carries a lens - its per-slot list, else the `bubble` its preset declares,
+     else (a remembered revisit, a family basket) the lens of the slot's range (SceneModel.lensForRange).
+     LIVE, CUSTOM, COHORT and SCRATCH are Alan's own workspaces and carry none. */
+  const bubbles = state.bubbles || [], lensOk = (v) => /^[0-9a-z]+:[0-9]{1,2}$/.test(String(v || ""));
+  const named = !["live", "custom", "cohort", "scratch"].includes(SCENE);
+  SLOT_BUBBLES.forEach((_, i) => { SLOT_BUBBLES[i] = lensOk(bubbles[i]) ? String(bubbles[i]) : lensOk(state.bubble) ? String(state.bubble)
+    : named ? SceneModel.lensForRange(SLOT_RANGES[i] || state.range || RANGE) : ""; });
   const bars = state.bars || [];
   SLOT_BARS.forEach((_, i) => { SLOT_BARS[i] = Number(bars[i]) > 0 ? Math.min(8000, Math.floor(Number(bars[i]))) : 0; });
   CHART_COUNT = (SCENE === "custom" ? customChartCount : sceneChartCount)(
@@ -2829,7 +2834,8 @@ function fixedSceneState(scene, requestedCount) {
   }
   if (scene === "sectorFamilies" || scene === "themeFamilies") {
     const family = SceneModel.familyBasket(scene, familyFor(scene));
-    return Object.assign({}, SceneModel.basketWindow(family?.tickers || [], BASKET_OFFSET, requestedCount || 6), { range:family?.range || "1D" });
+    return Object.assign({}, SceneModel.basketWindow(family?.tickers || [], BASKET_OFFSET, requestedCount || 6), { range:family?.range || "1D",
+      bubble:SceneModel.lensForRange(family?.range || "1D") });
   }
   const preset = SceneModel.PRESETS[scene];
   /* P2 (27 Sep evening): a two-chart preset that declares a study (FOCUS 2, INTERNALS: the RSI fan) hands

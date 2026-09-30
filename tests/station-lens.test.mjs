@@ -151,7 +151,8 @@ test("the switch: 4h:12 and 30m:3 on the 3-day and daily charts, nothing otherwi
   assert.deepEqual(parseBubble("30m:3"), { timeframe: "30m", sessions: 3, key: "30m:3" });
   assert.deepEqual(parseBubble("4h:12"), { timeframe: "4h", sessions: 12, key: "4h:12" });
   for (const bad of ["", null, "30m", "30m:0", "4h:16", "2h:3", "30m:3;x"]) assert.equal(parseBubble(bad), null, String(bad));
-  assert.deepEqual([...RANGES], ["3D", "1D"]);
+  /* 29 Sep (S1): every range on the ladder now has its lens; a request still FITS only its own kind */
+  assert.deepEqual([...RANGES], ["15m", "30m", "1h", "2h", "3h", "4h", "6h", "12h", "1D", "3D", "1W"]);
   assert.equal(wanted(parseBubble("4h:12"), "3D"), true);
   assert.equal(wanted(parseBubble("30m:3"), "1D"), true);
   for (const r of ["1W", "3h", "4h"]) assert.equal(wanted(parseBubble("30m:3"), r), false, r);
@@ -193,11 +194,11 @@ test("stale looks stale: bars older than the last session that has opened", () =
   assert.equal(monday.label, "FRI 25"); assert.equal(monday.expected, "2026-09-28");
 });
 
-test("one read per chart per refresh, under the pane's own load permit, and none on a weekly or intraday range", async () => {
+test("one read per chart per refresh, under the pane's own load permit; a weekly chart reads its own daily lens, no switch reads nothing", async () => {
   let reads = 0, permits = 0, redraws = 0, range = "3D", request = "30m:3";
   const rows = threeSessions().flatMap((s) => s.bars).map((b) => ({ timestamp: b.t / 1000, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v }));
   const deps = { request: () => request, range: () => range,
-    fetchCandles: async (t, tf, limit) => { reads++; assert.equal(tf, "30"); assert.ok(limit <= 240); return rows; },
+    fetchCandles: async (t, tf, limit) => { reads++; assert.equal(tf, range === "1W" ? "D" : "30"); assert.ok(limit <= 240); return rows; },
     permit: async () => { permits++; return () => {}; }, redraw: () => { redraws++; },
     isNamedAbsence: () => false };
   const host = { isConnected: true, dataset: { t: "LENSTEST" }, _req: "LENSTEST|3D", _transitionGeneration: 0 };
@@ -209,10 +210,12 @@ test("one read per chart per refresh, under the pane's own load permit, and none
   range = "1W";
   const other = { ...host, dataset: { t: "LENSOTHER" } };
   await ensure(other, deps, host._req, 0);
-  assert.equal(reads, 1, "a weekly chart asks for nothing");
+  /* 29 Sep (S1): the wall's timeframe moved this pane to 1W; the page's 30m lens does not fit a weekly
+     chart, so it reads that range's own lens (20 daily candles) instead of showing none */
+  assert.equal(reads, 2, "a weekly chart reads its daily lens");
   range = "3D"; request = "";
   await ensure(other, deps, host._req, 0);
-  assert.equal(reads, 1, "no switch, no read");
+  assert.equal(reads, 2, "no switch, no read");
 });
 
 test("4h on the 3-day pages: the provider's four bars a session, twelve sessions = 48 candles, 52 asked for", () => {

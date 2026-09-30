@@ -3,12 +3,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { liveBars } from "../_indicators/station-lens.mjs";
+import vm from "node:vm";
+import { liveBars, lensFor, lensForRange, parseBubble, freshness, hoursOf, marketOf, RANGES } from "../_indicators/station-lens.mjs";
+import { barsToRequest, sessionsOf, TIMEFRAMES } from "../_indicators/lens-bars.mjs";
 
 const NY = (y, mo, d, hm, off = 4) => { const [h, m] = hm.split(":").map(Number); return Date.UTC(y, mo - 1, d, h + off, m); };
 const chart = fs.readFileSync(new URL("../chart/index.html", import.meta.url), "utf8");
 const shell = fs.readFileSync(new URL("../station-shells/chart-v1/index.html", import.meta.url), "utf8");
 const lens = fs.readFileSync(new URL("../_indicators/station-lens.mjs", import.meta.url), "utf8");
+const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
+const sceneCtx = { globalThis: {} };
+vm.runInNewContext(fs.readFileSync(new URL("../deck/scenes.js", import.meta.url), "utf8"), sceneCtx);
+const scenes = sceneCtx.globalThis.StationScenes;
+const liftFrom = (src, name) => {
+  const start = src.indexOf(`function ${name}(`);
+  assert.notEqual(start, -1, `declares ${name}`);
+  let depth = 0, i = src.indexOf("{", start);
+  for (; i < src.length; i++) { if (src[i] === "{") depth++; else if (src[i] === "}") { depth--; if (depth === 0) break; } }
+  return src.slice(start, i + 1);
+};
 
 test("the pinned chart shell is the chart, byte for byte", () => {
   assert.equal(shell, chart);
@@ -76,4 +89,86 @@ test("1: the pane hands the lens the badge's own quote, and the lens records the
   assert.match(lens, /const fresh = freshness\(done, /);
   /* a tick redraws the lens but does not re-read the chart's pixels to place it again */
   assert.match(lens, /host\._lensPlaced && host\._lensPlaced\.sig === sig/);
+});
+
+/* ---- 2. "THERE IS STILL A TON OF CHARTS WITHOUT A CONTEXT LENS… CONTEXT LENSES FOR SHORT TERM CHARTS ARE
+   STILL USEFUL TO SHOW THE ZOOMED OUT VIEW." ---- */
+const THIRTEEN = ["wkIndexes", "wkMacro", "macro1D", "scintillas", "macroCrossAsset", "macroIntraday", "intraday4h",
+  "intraday1h", "intraday30m", "companyLeadership", "focus2", "internalsFast", "todo"];
+
+test("2: the rule - the lens shows the view the chart cannot", () => {
+  for (const r of ["15m", "30m", "1h", "2h", "3h", "4h", "6h", "12h"]) assert.equal(lensForRange(r), "1d:60", r);
+  assert.equal(lensForRange("1D"), "30m:3");
+  assert.equal(lensForRange("3D"), "4h:12");
+  assert.equal(lensForRange("1W"), "1d:20");
+  assert.equal(RANGES.length, 11, "every range on the ladder");
+  for (const r of RANGES) assert.equal(scenes.lensForRange(r), lensForRange(r), `the deck and the pane agree on ${r}`);
+  assert.deepEqual(parseBubble("1d:60"), { timeframe: "1d", sessions: 60, key: "1d:60" });
+  assert.equal(parseBubble("1d:4"), null); assert.equal(parseBubble("1d:91"), null);
+  assert.equal(TIMEFRAMES["1d"].tf, "D");
+  assert.equal(barsToRequest("1d", 60), 65);
+  assert.equal(hoursOf("1d", "SPY"), "allday"); assert.equal(hoursOf("1d", "ESUSD"), "allday");
+  /* a daily bar is stamped at New York midnight: whole-day hours keep it */
+  assert.equal(sessionsOf([{ t: NY(2026, 9, 28, "00:00"), o: 1, h: 1, l: 1, c: 1 }], "allday").length, 1);
+});
+
+test("2: the page's lens when it fits the pane's range; that range's lens when the wall's timeframe moved it", () => {
+  assert.equal(lensFor("4h:12", "3D").key, "4h:12");
+  assert.equal(lensFor("30m:3", "3D").key, "30m:3", "an intraday lens on a 3-day chart still fits (as before)");
+  assert.equal(lensFor("4h:12", "1h").key, "1d:60", "a 3-day page switched to 1h: the zoomed-out lens");
+  assert.equal(lensFor("1d:60", "1D").key, "30m:3");
+  assert.equal(lensFor("1d:60", "1W").key, "1d:60");
+  assert.equal(lensFor("", "3D"), null, "no request, no lens");
+});
+
+test("2: the thirteen pages that had none now carry one, and all 27 scenes carry one on every slot", () => {
+  const at = new Date("2026-09-29T15:00:00Z");
+  const presetsCode = [liftFrom(deck, "fixedSceneState"), "({ fixedSceneState })"].join("\n");
+  const api = vm.runInNewContext(presetsCode, { SceneModel: scenes, BASKET_OFFSET: 0, familyFor: () => null, Object, Array, String });
+  const lensOf = (id) => {
+    if (scenes.WORKFLOW_PAGES[id]) return Array.from(scenes.workflowPageState(id, { at }).bubbles);
+    const st = api.fixedSceneState(id) || Object.assign({}, scenes.PRESETS[id]);
+    const n = Math.max(1, (st.tickers || []).length);
+    return st.bubbles ? Array.from(st.bubbles) : Array(n).fill(st.bubble);
+  };
+  const all = Object.keys(scenes.WORKFLOW_PAGES).concat(["scintillas", "companyLeadership", "focus2", "macroCrossAsset", "internalsFast", "todo"]);
+  assert.equal(all.length, 27);
+  for (const id of THIRTEEN) assert.ok(all.includes(id));
+  for (const id of all) {
+    const got = lensOf(id);
+    assert.ok(got.length && got.every((b) => parseBubble(b)), `${id}: a lens on every slot (${got})`);
+  }
+  assert.ok(lensOf("wkIndexes").every((b) => b === "1d:20"));
+  assert.ok(lensOf("intraday1h").every((b) => b === "1d:60"));
+  assert.ok(lensOf("macroIntraday").every((b) => b === "1d:60"));
+  assert.ok(lensOf("macroCrossAsset").every((b) => b === "4h:12"));
+  assert.ok(lensOf("scintillas").every((b) => b === "30m:3"));
+  assert.deepEqual(lensOf("todo"), ["1d:60", "1d:60", "1d:60", "1d:60", "30m:3", "30m:3"], "TO-DO's two 1D slots get the 1D lens");
+  /* the deck: a named page with no per-slot list falls back to its preset's bubble, then its range's lens */
+  assert.match(deck, /: named \? SceneModel\.lensForRange\(SLOT_RANGES\[i\] \|\| state\.range \|\| RANGE\) : ""/);
+  assert.match(deck, /const named = !\["live", "custom", "cohort", "scratch"\]\.includes\(SCENE\);/);
+  assert.match(deck, /bubble: SceneModel\.PRESETS\.scintillas\.bubble/);
+});
+
+/* 28 Sep: "DXUSD and US10Y say STALE 3 days"; the 30M lens said STALE before the first bar could exist. */
+test("2: a daily lens is never falsely STALE - Monday morning, a late bar, the day after a holiday, futures, crypto, the dollar", () => {
+  const day = (d, mo = 9) => ({ day: `2026-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`, weekday: "X", dom: d, bars: [{ t: NY(2026, mo, d, "00:00") }] });
+  const lensN = { hours: "allday", minutes: 1440, market: "nyse" };
+  /* Monday 28 Sep 10:00 ET, newest daily candle Friday 25th */
+  assert.equal(freshness([day(24), day(25)], NY(2026, 9, 28, "10:00"), null, lensN).stale, false, "Monday morning");
+  /* Tuesday evening, Tuesday's bar not yet published: one session late is not stale */
+  assert.equal(freshness([day(28)], NY(2026, 9, 29, "21:30"), null, lensN).stale, false);
+  /* two sessions missing (Monday and Tuesday) is stale */
+  assert.equal(freshness([day(25)], NY(2026, 9, 29, "21:30"), null, lensN).stale, true);
+  /* the day after a holiday, with the provider's calendar: Fri 27 Nov 2026 is a session, Thu 26 Nov is not */
+  const holidayCal = (ms) => { const d = new Date(ms - 4 * 3600e3 - 20 * 3600e3).toISOString().slice(0, 10);
+    const walk = (x) => { for (;;) { const w = new Date(x + "T12:00:00Z").getUTCDay(); if (w >= 1 && w <= 5 && x !== "2026-11-26") return x; x = new Date(Date.parse(x + "T12:00:00Z") - 864e5).toISOString().slice(0, 10); } };
+    return walk(d); };
+  assert.equal(freshness([day(25, 11)], NY(2026, 11, 27, "11:00", 5), holidayCal, lensN).stale, false, "Friday after Thanksgiving");
+  /* futures and crypto: four calendar days */
+  assert.equal(freshness([day(25)], NY(2026, 9, 28, "10:00"), null, { ...lensN, market: "globex" }).stale, false);
+  assert.equal(freshness([day(22)], NY(2026, 9, 28, "10:00"), null, { ...lensN, market: "allday" }).stale, true);
+  /* the dollar keeps its published hours (P3): stock-day hours and the NYSE calendar, not CME */
+  assert.equal(marketOf("DXUSD"), "nyse"); assert.equal(hoursOf("30m", "DXUSD"), "extended");
+  assert.equal(marketOf("ESUSD"), "globex"); assert.equal(marketOf("BTCUSD"), "allday"); assert.equal(marketOf("US10Y"), "nyse");
 });
