@@ -283,6 +283,13 @@
       }
       if (k !== key) { if (cur) out.push(cur); key = k; cur = { t:start == null ? b.t : start, c:b.c, n:1 }; }
       else { cur.c = b.c; cur.n++; }
+      /* S6 (1 Oct): the high and low ride along for Williams %R (highest high, lowest low of the members);
+         a bucket with any member lacking them carries none, so its range is never invented */
+      if (cur.n === 1) { if (Number.isFinite(b.h) && Number.isFinite(b.l)) { cur.h = b.h; cur.l = b.l; } }
+      else if (cur.h != null) {
+        if (Number.isFinite(b.h) && Number.isFinite(b.l)) { if (b.h > cur.h) cur.h = b.h; if (b.l < cur.l) cur.l = b.l; }
+        else { delete cur.h; delete cur.l; }
+      }
       /* P7: a composed bar whose newest member is still forming is itself forming */
       if (b.forming === true) cur.forming = true; else delete cur.forming;
     }

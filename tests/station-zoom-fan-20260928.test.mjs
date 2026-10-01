@@ -236,7 +236,9 @@ test("colour: the lone ?rsi=chart line keeps green up / red down; the full fan i
   const pal = { bull: "#00FFA3", bear: "#FF2D55" };
   assert.match(F.lineInk("1D", "up", pal, 1), /^rgba\(0,255,163,1\.00\)$/, "the lone line, at full ink");
   assert.match(chart, /ctx\.strokeStyle = F\.lineInk\(line\.key, line\.dir, pal, solo \? 1 : 0\);/, "the older path, for the lone line");
-  assert.match(chart, /ctx\.strokeStyle = F\.visualInk\(line\.key\); ctx\.lineWidth = spec\.width;/, "the full fan: pink at the Lab's opacity");
+  /* S6 (1 Oct): the same Lab opacity per line, in the pane's own ink (pink on the RSI pane, F.visualInk exactly as before) */
+  assert.match(chart, /const lineInk = \(key\) => \(L \? F\.rgba\(INK, F\.BY_KEY\[key\] && F\.BY_KEY\[key\]\.alpha != null \? F\.BY_KEY\[key\]\.alpha : 1\) : F\.visualInk\(key\)\);/);
+  assert.match(chart, /ctx\.strokeStyle = lineInk\(line\.key\); ctx\.lineWidth = spec\.width;/, "the full fan: pink at the Lab's opacity");
 });
 
 test("the fetch plan: every line's width, the widths it is composed from, and the cloud's", () => {
