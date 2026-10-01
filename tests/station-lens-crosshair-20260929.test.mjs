@@ -259,7 +259,8 @@ test("4: the ribbon asks for the fan's D line too; the fan's D line and the dail
   assert.match(chart, /function dailyNeedFor\(host\) \{[\s\S]*?return Math\.max\(cloudDailyNeed\(range, host && host\._historyLimit\), fanDailyNeed\(host\)\);/);
   assert.match(chart, /const need = dailyNeedFor\(host\);\n  const covers = entry/);
   /* P7 (1 Oct): the shared read still answers the D line; today's forming day is read beside it */
-  assert.match(chart, /if \(tf === "1D"\) \{\n\s+\/\* S1[^\n]*\n\s+const \[daily, tipRows\] = await Promise\.all\(\[sharedDaily\(t, need, false\),/);
+  /* S6 (1 Oct): the D line's read now asks for the candles too (withRows: its high and low feed Williams %R) */
+  assert.match(chart, /if \(tf === "1D"\) \{\n\s+\/\* S1[^\n]*\n\s+\/\* S6[^\n]*\n\s+const \[daily, tipRows\] = await Promise\.all\(\[sharedDaily\(t, need, true\),/);
   assert.match(chart, /fetchCandles: \(t, tf, limit, tries\) => \{\n\s+if \(tf !== "D"\) return fetchProviderCandles\(t, tf, limit, tries\);/);
   /* the browser copy stays closes-only (the store's size was the 27 Sep slow-cloud cause) */
   assert.match(chart, /const payload = JSON\.stringify\(Object\.assign\(\{ ts:Date\.now\(\), asked:[^}]*\}, cloudPack\(kept\)\)\);/);
