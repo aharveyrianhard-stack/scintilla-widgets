@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Station layout blueprint</title>
+<!-- W1 (1 Oct 2026) — a BLUEPRINT, not the Station. One static page that arranges the Station's own
+     panes (the chart shell, the video shell, the X shell, exactly the ones /deck mounts) in a proposed
+     layout. ?layout=today|A|B|C  ?charts=3|6|8. Nothing here edits the deck. -->
+<style>
+:root{ --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --dim:#868AAA; --mute:#3A3A52; --crk:#00D4FF; }
+*{ box-sizing:border-box; } html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink2); font:11px/1.4 ui-monospace,Menlo,monospace; overflow:hidden; }
+#stage{ position:fixed; inset:0; display:flex; gap:1px; background:var(--line); }
+.col{ display:flex; flex-direction:column; gap:1px; min-width:0; min-height:0; background:var(--line); }
+.row{ display:flex; flex-direction:row; gap:1px; min-width:0; min-height:0; background:var(--line); }
+.pane{ position:relative; background:var(--bg); display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
+.ph{ flex:none; display:flex; align-items:center; gap:6px; padding:3px 7px; background:var(--panel2); border-bottom:1px solid var(--line); height:20px; }
+.ph .t{ color:var(--ink2); font-size:8.5px; letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ph .k{ margin-left:auto; color:var(--dim); font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; white-space:nowrap; }
+.body{ flex:1 1 0; min-height:0; min-width:0; position:relative; }
+iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; background:var(--bg); }
+#charts{ flex:1 1 0; display:grid; gap:1px; background:var(--line); min-height:0; }
+#charts[data-n="3"]{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+#charts[data-n="6"]{ grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(2,minmax(0,1fr)); }
+#charts[data-n="8"]{ grid-template-columns:repeat(4,minmax(0,1fr)); grid-template-rows:repeat(2,minmax(0,1fr)); }
+#charts[data-n="7"]{ grid-template-columns:repeat(4,minmax(0,1fr)); grid-template-rows:repeat(2,minmax(0,1fr)); }
+/* X column: the real X shell underneath (its 20 px control bar stays visible), the post LADDER over its body.
+   Frames stand for posts. Their heights come from X's own geometry (a text post ≈ 215 px, a post with a
+   picture ≈ 560 px, at 100% zoom in X's 600 px column), scaled to this column's width. */
+#ladder{ position:absolute; left:0; right:0; top:20px; bottom:0; overflow:hidden; background:var(--bg); }
+#ladder .track{ position:absolute; left:8px; right:8px; top:22px; transition:transform .55s ease; }
+.post{ border-bottom:1px solid var(--line); padding:10px 10px 10px 54px; position:relative; color:var(--ink3); }
+.post .av{ position:absolute; left:10px; top:12px; width:34px; height:34px; border-radius:50%; background:var(--mute); }
+.post .nm{ color:var(--ink2); margin-bottom:4px; } .post .nm i{ color:var(--dim); font-style:normal; }
+.post .ln{ height:.9em; margin:.42em 0; background:var(--mute); border-radius:2px; opacity:.75; } .post .ln.s{ width:62%; }
+.post .md{ margin-top:8px; border:1px solid var(--mute); border-radius:6px; background:var(--panel2); }
+.post .idx{ position:absolute; right:10px; top:10px; color:var(--dim); }
+#ladder.paused .track{ transition:none; }
+#lstate{ position:absolute; right:8px; bottom:6px; color:var(--dim); font-size:11px; letter-spacing:.1em; background:var(--panel2); border:1px solid var(--line); padding:2px 6px; pointer-events:none; }
+#ladder.paused #lstate{ color:var(--ink); }
+#lnote{ position:absolute; left:8px; top:4px; color:var(--dim); font-size:11px; pointer-events:none; }
+/* messy chart header */
+.messy .ph input{ width:66px; background:var(--panel2); border:1px solid var(--line); color:var(--ink); font:inherit; font-size:11px; letter-spacing:.1em; padding:1px 5px; text-transform:uppercase; }
+.messy .ph button{ background:var(--panel2); border:1px solid var(--line); color:var(--ink3); font:inherit; font-size:8.5px; letter-spacing:.1em; padding:1px 5px; cursor:pointer; text-transform:uppercase; }
+.messy .ph button.on{ color:var(--ink); border-color:var(--ink3); } .messy .ph .tf{ display:flex; gap:3px; }
+#tag{ position:fixed; left:50%; bottom:0; transform:translateX(-50%); z-index:9; background:var(--panel2); border:1px solid var(--line); border-bottom:0; color:var(--dim); font-size:11px; letter-spacing:.14em; padding:2px 10px; text-transform:uppercase; pointer-events:none; }
+/* phone / iPad portrait: one column that scrolls, like the Station's stack */
+@media (max-width:900px), (orientation:portrait){
+  html,body{ height:auto; overflow:visible; } #stage{ position:static; flex-direction:column !important; height:auto; }
+  #stage > *{ flex:none !important; width:auto !important; height:auto !important; }
+  .col,.row{ flex-direction:column !important; } .row > .pane{ width:auto !important; }
+  #stage .pane, #stage #charts, #stage .col, #stage .row{ flex:none !important; width:auto !important; } #charts{ display:flex; flex-direction:column; height:auto !important; } #charts > .pane{ height:56vh !important; min-height:230px; }
+  #stage .pane.video{ height:auto !important; aspect-ratio:16/9; } #stage .pane.x{ height:72vh !important; } #stage .pane.messy{ height:56vh !important; }
+}
+</style></head><body>
+<div id="tag"></div>
+<div id="stage"></div>
+<script>
+"use strict";
+const Q = new URLSearchParams(location.search);
+const LAYOUT = (Q.get("layout") || "A").toUpperCase(), N = +(Q.get("charts") || 6), RANGE = Q.get("range") || "3H";
+const TICKERS = ["SPY","QQQ","IWM","MAGS","SMH","CLUSD","AAPL","MSFT"];
+const SHELL = { chart:"/station-shells/chart-v1/", video:"/station-shells/personal-video-v1/", x:"/station-shells/x-v2/" };
+const chartSrc = (t, r) => SHELL.chart + "?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(r || RANGE) + "&view=desk";
+const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const pane = (cls, title, key, own) => { const p = h("div", "pane " + cls); p.dataset.title = title.replace(/<[^>]+>/g, ""); if (key) p.dataset.key = key;
+  p.innerHTML = (own ? '<div class="ph"><span class="t">' + title + '</span></div>' : '') + '<div class="body"></div>'; return p; };
+function chartPane(t) { const p = pane("chart", t + " <i style='color:var(--dim)'>chart</i>"); p.dataset.t = t; const f = h("iframe"); f.src = chartSrc(t); p.querySelector(".body").appendChild(f); return p; }
+function chartsBlock(n) { const g = h("div"); g.id = "charts"; g.dataset.n = n; for (let i = 0; i < n; i++) g.appendChild(chartPane(TICKERS[i])); return g; }
+function videoPane() { const p = pane("video", "Personal YouTube", "fitted 16:9 · no bars"); const f = h("iframe"); f.src = SHELL.video + "?shell=v1&feed=personal&cols=2&view=desk"; p.querySelector(".body").appendChild(f); return p; }
+/* ---- THE MESSY CHART: his pane. Type a ticker, pick a timeframe, pin it. Remembers itself per browser. */
+const MESSY_KEY = "station.messy.v1", TFS = ["15M","30M","1H","2H","3H","1D","1W"];
+function messyPane() {
+  let st = { t:"MU", range:"1D", pinned:false }; try { Object.assign(st, JSON.parse(localStorage.getItem(MESSY_KEY) || "{}")); } catch (_) {}
+  const p = pane("messy", "Messy chart <i style='color:var(--dim)'>mine</i>", "", true); const ph = p.querySelector(".ph");
+  const inp = h("input"); inp.value = st.t; inp.title = "type a ticker, press Enter"; inp.setAttribute("aria-label", "ticker");
+  const tf = h("div", "tf"); TFS.forEach(r => { const b = h("button", r === st.range ? "on" : "", r); b.onclick = () => { st.range = r; save(); }; tf.appendChild(b); });
+  const pin = h("button", st.pinned ? "on" : "", st.pinned ? "pinned" : "pin"); pin.title = "pinned: rotation and page changes leave this pane alone";
+  pin.onclick = () => { st.pinned = !st.pinned; save(); };
+  ph.append(inp, tf, pin); const f = h("iframe"); p.querySelector(".body").appendChild(f);
+  function save() { try { localStorage.setItem(MESSY_KEY, JSON.stringify(st)); } catch (_) {} draw(); }
+  function draw() { tf.querySelectorAll("button").forEach(b => b.classList.toggle("on", b.textContent === st.range)); pin.textContent = st.pinned ? "pinned" : "pin"; pin.classList.toggle("on", st.pinned);
+    const src = chartSrc(st.t, st.range); if (f.getAttribute("src") !== src) f.src = src; }
+  inp.addEventListener("keydown", e => { if (e.key === "Enter") { st.t = inp.value.trim().toUpperCase() || st.t; inp.value = st.t; save(); } });
+  inp.addEventListener("focus", () => inp.select()); draw(); return p;
+}
+/* ---- X AS A COLUMN: the real shell + the post ladder. One post at a time, pauses under the pointer. */
+const POSTS = [ [215,0],[560,1],[200,0],[235,0],[560,1],[190,0],[225,0],[560,1],[210,0],[240,0],[560,1],[205,0] ]; // [height at 100% in X's 600px column, has picture]
+function xPane(mode) {
+  const p = pane("x", "X <i style='color:var(--dim)'>· live</i>", mode); const body = p.querySelector(".body");
+  const f = h("iframe"); f.src = SHELL.x + "?shell=v1&view=desk"; body.appendChild(f);
+  const lad = h("div"); lad.id = "ladder"; const track = h("div", "track"); lad.appendChild(track);
+  lad.appendChild(h("div", "", "")).id = "lnote"; lad.lastChild.textContent = "frames stand for posts · the live capture draws here";
+  const stt = h("div"); stt.id = "lstate"; stt.textContent = "advancing · 1 post / 6 s"; lad.appendChild(stt); body.appendChild(lad);
+  function build() {
+    const w = Math.max(1, lad.clientWidth - 16), s = w / 600; p.dataset.scale = s.toFixed(3); lad.style.fontSize = Math.max(11, 15 * s).toFixed(1) + "px";
+    track.innerHTML = ""; POSTS.forEach(([hh, md], i) => { const e = h("div", "post"); e.style.height = Math.round(hh * s) + "px";
+      e.innerHTML = '<div class="av"></div><div class="idx">post ' + (i + 1) + '</div><div class="nm">name <i>@handle · 2m</i></div><div class="ln"></div><div class="ln"></div><div class="ln s"></div>' + (md ? '<div class="md" style="height:' + Math.round(300 * s) + 'px"></div>' : ''); track.appendChild(e); });
+  }
+  let i = 0, y = 0, timer = 0; const step = () => { if (lad.classList.contains("paused")) return; const posts = track.children; if (i >= posts.length - 4) { i = 0; y = 0; } else { y += posts[i].offsetHeight; i++; } track.style.transform = "translateY(-" + y + "px)"; };
+  lad.addEventListener("pointerenter", () => { lad.classList.add("paused"); stt.textContent = "paused · pointer on the column"; });
+  lad.addEventListener("pointerleave", () => { lad.classList.remove("paused"); stt.textContent = "advancing · 1 post / 6 s"; });
+  build(); new ResizeObserver(build).observe(lad); timer = setInterval(step, 6000); p._ladder = { step, track }; return p;
+}
+/* ---- the layouts */
+const stage = document.getElementById("stage"); document.getElementById("tag").textContent = "blueprint " + LAYOUT + " · " + N + " charts · " + RANGE;
+function fitVideo(v, byHeight) {
+  // a 16:9 picture under the shell's one 28 px bar: the pane is exactly as wide (or as tall) as its picture needs
+  const fix = () => { if (byHeight) { const hh = v.parentElement.clientHeight - 28; v.style.width = Math.round(hh * 16 / 9) + "px"; }
+    else { const ww = v.parentElement.clientWidth; v.style.height = Math.round(ww * 9 / 16 + 28) + "px"; } };
+  fix(); addEventListener("resize", fix); new ResizeObserver(fix).observe(v.parentElement);
+}
+if (LAYOUT === "TODAY") {
+  stage.style.flexDirection = "column"; const top = chartsBlock(N); top.style.flex = "1.12 1 0"; const bot = h("div", "row"); bot.style.flex = "1 1 0";
+  const v = videoPane(); v.style.flex = "0 0 50%"; const x = xPane("today · half the row"); x.style.flex = "1 1 0"; bot.append(v, x); stage.append(top, bot);
+} else if (LAYOUT === "A" || LAYOUT === "B") {
+  const x = xPane(LAYOUT === "A" ? "left column" : "right rail"); x.style.flex = "0 0 clamp(440px, 27vw, 620px)";
+  const right = h("div", "col"); right.style.flex = "1 1 0"; const charts = chartsBlock(N); charts.style.flex = "1.44 1 0";
+  const strip = h("div", "row"); strip.style.flex = "1 1 0"; const m = messyPane(); m.style.flex = "1 1 0"; const v = videoPane(); v.style.flex = "0 0 auto";
+  const IPAD = innerWidth < 1200 && innerWidth > 900; // iPad landscape: no room for a strip of two; the messy chart becomes a chart slot, the video takes the strip
+  if (IPAD) { charts.replaceChild(m, charts.lastElementChild); strip.append(v); strip.style.flex = "0 0 auto"; } else if (LAYOUT === "A") strip.append(m, v); else strip.append(v, m);
+  right.append(charts, strip); if (LAYOUT === "A") stage.append(x, right); else stage.append(right, x); fitVideo(v, !IPAD); if (IPAD) v.style.flex = "1 1 0";
+} else if (LAYOUT === "C") {
+  const left = h("div", "col"); left.style.flex = "0 0 clamp(480px, 30vw, 700px)"; const v = videoPane(); v.style.flex = "0 0 auto"; const x = xPane("under the video"); x.style.flex = "1 1 0";
+  left.append(v, x); const charts = chartsBlock(N - 1); charts.style.flex = "1 1 0"; const m = messyPane(); charts.appendChild(m); charts.dataset.n = N; stage.append(left, charts); fitVideo(v, false);
+}
+window.__layout = () => { const r = el => { const b = el.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) }; };
+  const x = document.querySelector(".pane.x"), lad = document.getElementById("ladder"); const posts = [...lad.querySelectorAll(".post")].map(r);
+  const lb = r(lad), tr = lad.querySelector(".track").getBoundingClientRect(), ty = tr.top;
+  const fully = posts.filter(p => p.y >= lb.y - 1 && p.y + p.h <= lb.y + lb.h + 1).length, partly = posts.filter(p => p.y < lb.y + lb.h && p.y + p.h > lb.y).length;
+  const v = document.querySelector(".pane.video"), vb = r(v.querySelector(".body") || v); const pic = { w: Math.min(vb.w, Math.round((vb.h - 28) * 16 / 9)), h: Math.min(vb.h - 28, Math.round(vb.w * 9 / 16)) };
+  const cs = [...document.querySelectorAll("#charts > .pane.chart")].map(c => r(c)); const m = document.querySelector(".pane.messy");
+  return { layout: LAYOUT, vw: innerWidth, vh: innerHeight, x: r(x), xScale: +x.dataset.scale, xFont: parseFloat(getComputedStyle(lad).fontSize), postsFully: fully, postsPartly: partly,
+    video: r(v), videoBody: vb, picture: pic, blackEachSide: Math.round((vb.w - pic.w) / 2), charts: cs.length, chart0: cs[0], chartsBlock: r(document.getElementById("charts")), messy: m ? r(m) : null }; };
+</script></body></html>
