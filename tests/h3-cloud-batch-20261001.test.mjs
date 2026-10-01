@@ -26,7 +26,8 @@ test("the batch is filed under each pane's own url, waited on while it is out, a
   assert.match(provider, /S\.candlesMany = function \(symbols, rawTf, limit\)/);
   assert.match(provider, /'\/candles-multi\?symbols=' \+ want\.map\(encodeURIComponent\)\.join\(','\)/);
   assert.match(provider, /candleCachePut\(candleUrl\(sym, tf, bounded\), tf, c\)/, "filed under the single read's url");
-  assert.match(provider, /var url = candleUrl\(symbol, tf, bounded\);/, "the single read builds the same url");
+  /* merged with P7 (1 Oct): the single read builds the same url, plus &forming=1 only for a forming read */
+  assert.match(provider, /var url = candleUrl\(symbol, tf, bounded\) \+ \(forming \? '&forming=1' : ''\);/, "the single read builds the same url");
   assert.match(provider, /pend \? Promise\.resolve\(pend\)\.then\(function \(\) \{ return candleCacheGet\(url\) \|\| ownRead\(\); \}, ownRead\)/);
   assert.match(provider, /if \(!tf \|\| want\.length < 2\) return Promise\.resolve\(0\);/, "one name: nothing is batched");
   assert.match(deck, /deckCloudPrefetch\(\);   \/\* H3 — the page's clouds in one read/);

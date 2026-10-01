@@ -86,7 +86,8 @@ test("wiring: fetchRsiSource asks for the forming bar on D, 2D, 3D, W and 2W; th
 });
 
 test("wiring: the provider client sends forming=1, marks the row, and never caches a forming answer", () => {
-  assert.match(provider, /'&authority=provider&limit=' \+ bounded \+ \(forming \? '&forming=1' : ''\);/);
+  /* merged with H3 (1 Oct): the url comes from candleUrl(), the one the batch read files under */
+  assert.match(provider, /var url = candleUrl\(symbol, tf, bounded\) \+ \(forming \? '&forming=1' : ''\);/);
   assert.match(provider, /var cached = forming \? null : candleCacheGet\(url\);/);
   assert.match(provider, /if \(!forming && payload && Array\.isArray\(payload\.series\)/);
   assert.match(provider, /forming: bar\.forming === true/);
