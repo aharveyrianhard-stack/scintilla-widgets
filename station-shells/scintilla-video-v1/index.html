@@ -78,6 +78,11 @@ button.btn{ appearance:none; border-radius:0; font-family:var(--mono); line-heig
 body.searching #q{ display:block; }
 #q:focus{ border-color:var(--crk); }
 #bFull{ margin-left:0; }
+/* S5 (1 Oct): the float button, on the bar while a video plays, and the line that says which path it took */
+#bPipBar{ display:none; }
+body.playing #bPipBar{ display:inline-flex; }
+#pipNote{ display:none; color:var(--ink3); font-size:11px; letter-spacing:.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
+#pipNote:not(:empty){ display:inline; }
 /* Once the profile select is on the bar it names the feed; the label beside it said the same word. */
 body.has-profile-select .k{ display:none; }
 /* An awaiting channel explains itself in sentence case; the shouting caps are for one-line states. */
@@ -214,6 +219,9 @@ body.playing #chips{ display:none; }
     <button class="btn transport" id="bNext" type="button" aria-label="next video">next ›</button>
     <button class="btn" id="bMenu" type="button" aria-label="more video actions" aria-controls="more" aria-expanded="false">•••</button>
   </span>
+  <span id="pipNote" aria-live="polite"></span>
+  <button class="btn" id="bPipBar" type="button" aria-label="float this video in a picture-in-picture window"
+    title="float this video in its own window, outside the Station, at the same second">⧉ float</button>
   <span class="btn" id="bFull" title="expand this pane">⛶</span>
 </div>
 <div id="more" role="menu" hidden>
@@ -947,7 +955,8 @@ async function play(v, auto, queued = false, skipped = new Set(), direction = 1,
   el("bBack").style.display = "";
   el("bYt").style.display = ""; el("bYt").href = "https://www.youtube.com/watch?v=" + encodeURIComponent(v.video_id);
   el("bYt").textContent = IOS ? "open in youtube app ↗" : "open in youtube ↗";
-  el("bPip").style.display = canPip() ? "" : "none";
+  el("bPip").style.display = "";   /* S5: in a deck pane too - the deck opens the window */
+  notePip("");
   refreshSubscribeButton(v);
   syncUrl();
   if (queued) armPlayerFallback(token, skipped);
@@ -999,28 +1008,73 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pagehide", () => { captureActiveVideoPosition(); saveActiveVideoPosition(true); });
 
 /* ---- PICTURE-IN-PICTURE ----
-   Document PiP hosts real DOM, so it can carry the YouTube player into a
-   floating always-on-top window. It needs a top-level context, so inside a
-   deck pane this button hides and the DECK's pip button does the same job
-   from the top level using this pane's own ?v= URL. */
+   Document PiP hosts real DOM, so it can carry the YouTube player into a floating always-on-top window
+   outside the browser tab. It needs a top-level context: top-level, this pane opens it itself; inside the
+   Station (a deck pane) it hands the video and the second it is at to the deck, which opens it - the click
+   in this pane counts as the click the browser asks for. Where a browser has no Document PiP, a small
+   separate window plays it instead (not always on top). Either way the pane says which path was taken
+   and pauses, so the two do not play over each other.
+   S5 (1 Oct), Alan: "a little picture in picture player that actually goes off the station PWA… they're
+   discussing charts." His extension only gave a black frame: a cross-origin player cannot be lifted by
+   a video-element PiP; Document PiP moves the whole player instead. */
 function canPip() {
   try { return !!window.documentPictureInPicture && window.top === window.self; } catch (e) { return false; }
 }
-el("bPip").addEventListener("click", async () => {
-  if (!CUR || !canPip()) return;
-  try {
-    const w = await documentPictureInPicture.requestWindow({ width: 480, height: 300 });
-    const d = w.document;
-    d.body.style.cssText = "margin:0;background:#000;height:100%";
-    d.documentElement.style.height = "100%";
-    const f = d.createElement("iframe");
-    f.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0";
-    f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
-    f.src = "https://www.youtube.com/embed/" + encodeURIComponent(CUR.video_id) +
-            "?playsinline=1&rel=0&modestbranding=1&autoplay=1";
-    d.body.appendChild(f);
-  } catch (e) { /* user dismissed, or the browser said no */ }
+const PIP_SIZE = { width:480, height:270 };
+/* the Station's own float page holds the player (a YouTube embed put straight into the blank PiP document
+   is refused: Error 153) */
+function pipEmbedUrl(id, start) {
+  return location.origin + "/station-shells/pip-v1/?v=" + encodeURIComponent(id) +
+    "&start=" + Math.max(0, Math.floor(Number(start) || 0)) + "&title=" + encodeURIComponent(String(CUR && CUR.title || "").slice(0, 120));
+}
+function inDeckPane() {
+  try { return window.parent !== window && window.parent.location.origin === location.origin; } catch (e) { return false; }
+}
+function notePip(path) {
+  /* a function-local table: notePip can run from the first play, before later lines of this script */
+  const PIP_WORDS = {
+    document:"floating · picture-in-picture window (always on top)",
+    window:"floating · separate window (this browser has no always-on-top picture-in-picture)",
+    blocked:"the browser blocked the floating window",
+  };
+  document.body.dataset.pip = path || "";
+  el("pipNote").textContent = PIP_WORDS[path] || "";
+  el("pipNote").title = PIP_WORDS[path] || "";
+  if (path === "document" || path === "window") { try { if (YT_PLAYER_READY) YT_PLAYER.pauseVideo(); } catch (_) {} }
+}
+async function liftVideo() {
+  if (!CUR) return;
+  captureActiveVideoPosition();
+  const start = Math.max(0, Math.floor(PLAYER_POSITION.time || 0));
+  const id = CUR.video_id, title = String(CUR.title || "");
   setMenuOpen(false);
+  if (canPip()) {
+    try {
+      const w = await documentPictureInPicture.requestWindow(PIP_SIZE);
+      const d = w.document;
+      d.title = title || "SCINTILLA";
+      d.body.style.cssText = "margin:0;background:#000;height:100%";
+      d.documentElement.style.height = "100%";
+      const f = d.createElement("iframe");
+      f.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0";
+      f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+      f.src = pipEmbedUrl(id, start);
+      d.body.appendChild(f);
+      notePip("document");
+      return;
+    } catch (e) { /* dismissed or refused: fall through to the small window */ }
+  }
+  if (inDeckPane()) {
+    try { window.parent.postMessage({ sc:"video-pip", video_id:id, start, title }, location.origin); return; } catch (_) {}
+  }
+  const w = window.open("https://www.youtube.com/watch?v=" + encodeURIComponent(id) + "&t=" + start + "s", "scintilla-pip", "popup,width=" + PIP_SIZE.width + ",height=" + PIP_SIZE.height);
+  notePip(w ? "window" : "blocked");
+}
+el("bPip").addEventListener("click", liftVideo);
+el("bPipBar").addEventListener("click", liftVideo);
+window.addEventListener("message", (event) => {
+  if (event.origin !== location.origin || event.data?.type !== "SCINTILLA_VIDEO_PIP") return;
+  notePip(event.data.path);   /* the deck says which path it took */
 });
 
 /* ---- render ---- */

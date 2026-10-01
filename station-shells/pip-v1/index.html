@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>SCINTILLA · float</title>
+<!-- S5 (1 Oct) — THE FLOATING PLAYER'S PAGE. The deck (or a top-level video pane) opens a Document
+     Picture-in-Picture window and puts THIS page in it. It exists because a YouTube embed placed straight into
+     the blank PiP document has no page address to send, and YouTube refuses it ("Error 153 - video player
+     configuration error", measured headless 1 Oct). From here the embed has a real Station address, as the
+     video pane's own player does.
+     Params: ?v=VIDEOID (required) · ?start=SECONDS · ?title=TEXT. Reads nothing, writes nothing. -->
+<style>
+html,body{ margin:0; height:100%; background:#000; overflow:hidden; }
+iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; }
+.msg{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#868AAA;
+  font:600 11px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+</style>
+</head>
+<body>
+<script>
+(function () {
+  var qs = new URLSearchParams(location.search);
+  var id = qs.get("v") || "", start = Math.max(0, Math.floor(Number(qs.get("start")) || 0));
+  if (qs.get("title")) document.title = qs.get("title").slice(0, 120);
+  if (!/^[A-Za-z0-9_-]{6,20}$/.test(id)) {
+    var m = document.createElement("div"); m.className = "msg"; m.textContent = "no video named";
+    document.body.appendChild(m); return;
+  }
+  var f = document.createElement("iframe");
+  f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+  f.referrerPolicy = "strict-origin-when-cross-origin";
+  f.src = "https://www.youtube.com/embed/" + encodeURIComponent(id) +
+    "?playsinline=1&rel=0&modestbranding=1&autoplay=1&start=" + start +
+    "&origin=" + encodeURIComponent(location.origin);
+  document.body.appendChild(f);
+})();
+</script>
+</body>
+</html>

@@ -986,7 +986,41 @@ const SLOT_ROT = { marks:[], since:0, busy:0 };
 let PAGE_FADE = null;
 let PAGE_SETTLED = null;   /* set only while that change's layout is being committed */
 let LAST_CHART_VIEW = null;
-let CHART_HOVER_OWNER = null;   /* S5: the frame whose crosshair the wall is showing */
+let CHART_HOVER_OWNER = null;
+/* ---- PICTURE-IN-PICTURE for the video panes (S5, 1 Oct) ----
+   Alan: "a little picture in picture player that actually goes off the station PWA". The deck-level button
+   went in an earlier cleanup; the button is now on the video pane itself and the pane hands the deck its
+   video and the second it is at. Document Picture-in-Picture: a floating, always-on-top window outside the
+   Station, playing from that second. Without it (Safari, Firefox), a small separate window. Returns the
+   path taken - "document", "window" or "blocked" - and the pane says it in words. */
+async function openVideoPip(msg) {
+  const id = String(msg && msg.video_id || "");
+  if (!/^[A-Za-z0-9_-]{6,20}$/.test(id)) return "blocked";
+  const start = Math.max(0, Math.floor(Number(msg.start) || 0));
+  /* the window hosts the Station's own float page, which holds the player: a YouTube embed put straight into
+     the blank PiP document has no page address to send and YouTube refuses it (Error 153, measured headless) */
+  const url = location.origin + "/station-shells/pip-v1/?v=" + encodeURIComponent(id) + "&start=" + start +
+    "&title=" + encodeURIComponent(String(msg.title || "").slice(0, 120));
+  if (window.documentPictureInPicture) {
+    try {
+      const w = documentPictureInPicture.window || await documentPictureInPicture.requestWindow({ width:480, height:270 });
+      const d = w.document;
+      d.title = String(msg.title || "SCINTILLA").slice(0, 120);
+      d.documentElement.style.height = "100%";
+      d.body.style.cssText = "margin:0;background:#000;height:100%";
+      d.body.textContent = "";
+      const f = d.createElement("iframe");
+      f.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0";
+      f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+      f.src = url;
+      d.body.appendChild(f);
+      return "document";
+    } catch (_) { /* refused (no gesture, or dismissed): the small window below */ }
+  }
+  /* the small window plays YouTube's own watch page, at the same second */
+  const w = window.open("https://www.youtube.com/watch?v=" + encodeURIComponent(id) + "&t=" + start + "s", "scintilla-pip", "popup,width=480,height=270");
+  return w ? "window" : "blocked";
+}   /* S5: the frame whose crosshair the wall is showing */
 /* A workflow page's wall, fresh on every show: the current TARGETS, the session's
    LEADERS, and this visit's rotating windows. */
 function workflowSceneState(scene) {
@@ -2064,6 +2098,15 @@ window.addEventListener("message", (event) => {
   if (event.data?.sc === "chart-focus-ticker") {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
     if (pane) focusTickerFor(pane.def.key);
+    return;
+  }
+  if (event.data?.sc === "video-pip") {
+    /* S5 (1 Oct): a video pane asks to float its video. Document PiP needs the top level, which is here; the
+       click in the pane is the user's gesture (it reaches this window too). */
+    const source = event.source;
+    openVideoPip(event.data).then((path) => {
+      try { source.postMessage({ type:"SCINTILLA_VIDEO_PIP", path }, location.origin); } catch (_) {}
+    });
     return;
   }
   if (event.data?.sc === "chart-hover") {
