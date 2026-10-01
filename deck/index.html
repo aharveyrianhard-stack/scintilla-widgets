@@ -578,6 +578,12 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   <span class="dsec" data-sec="station" role="group" aria-label="Station">
     <span class="k">THE STATION</span>
     <a class="btn" href="/registry" title="back to the hub">hub</a>
+    <!-- S5 (1 Oct): CHARTS ONLY, where it can be seen. Alan: "a way to expand the chart area full screen so
+         that I do not see the YouTube and the X. I've mentioned that several times." It existed (M47) but
+         sat in the video section, which has been display:none since 23 Sep - so the button never showed;
+         only the W key worked. It now sits beside HUB, in the one section the dock always shows. -->
+    <button type="button" class="btn" id="chartsOnlyBtn" aria-pressed="false"
+      title="hide the video and X panes and give the whole wall to the charts - the W key does the same; remembered in this browser">charts only</button>
   </span>
   <span class="dsec" data-sec="scenes" role="group" aria-label="Scenes and screens">
     <span class="control-group scene-controls">
@@ -710,8 +716,6 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
   <span class="dsec" data-sec="video" role="group" aria-label="Which video feed is on the wall">
     <span class="video-note">video feed</span>
     <span class="tf" id="videoFeed" role="group" aria-label="Which YouTube feed is on the wall"></span>
-    <button type="button" class="btn" id="chartsOnlyBtn" aria-pressed="false"
-      title="hide the video and X panes and give the whole wall to the charts - the W key does the same; remembered in this browser">charts only</button>
   </span>
 </div>
 
@@ -982,6 +986,7 @@ const SLOT_ROT = { marks:[], since:0, busy:0 };
 let PAGE_FADE = null;
 let PAGE_SETTLED = null;   /* set only while that change's layout is being committed */
 let LAST_CHART_VIEW = null;
+let CHART_HOVER_OWNER = null;   /* S5: the frame whose crosshair the wall is showing */
 /* A workflow page's wall, fresh on every show: the current TARGETS, the session's
    LEADERS, and this visit's rotating windows. */
 function workflowSceneState(scene) {
@@ -2059,6 +2064,20 @@ window.addEventListener("message", (event) => {
   if (event.data?.sc === "chart-focus-ticker") {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
     if (pane) focusTickerFor(pane.def.key);
+    return;
+  }
+  if (event.data?.sc === "chart-hover") {
+    /* S5 (1 Oct): one pane's crosshair date, handed to every other chart pane on the wall (Alan: "make that
+       grid work on all of the charts"). The pane the pointer is on owns it; a "left" from a pane that no
+       longer owns it (the pointer already crossed into the next pane) is dropped, so it cannot wipe the
+       new one. */
+    const at = event.data.at == null ? null : Number(event.data.at);
+    if (at == null && CHART_HOVER_OWNER && CHART_HOVER_OWNER !== event.source) return;
+    CHART_HOVER_OWNER = at == null ? null : event.source;
+    for (const pane of PANES) {
+      if (pane.def.kind !== "chart" || !pane.frame || pane.frame.contentWindow === event.source) continue;
+      try { pane.frame.contentWindow.postMessage({ type:"SCINTILLA_CHART_HOVER", at }, location.origin); } catch (_) {}
+    }
     return;
   }
   if (event.data?.sc === "chart-view") {

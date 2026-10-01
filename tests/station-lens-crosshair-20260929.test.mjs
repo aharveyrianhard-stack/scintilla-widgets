@@ -204,12 +204,13 @@ test("3: the percent is the biggest text, bigger than N10's (10.5 px), the price
   for (const p of PANES) {
     const L = readout(measure, { ...p, priceText: "492.49", pctText: "−3.60%", up: false, scale: 1 });
     assert.deepEqual(Array.from(L.lines, (l) => l.text), ["−3.60%", "492.49"]);
-    assert.ok(L.pctFont >= 14 && L.pctFont > L.priceFont, `${p.name}: % ${L.pctFont}px > price ${L.priceFont}px`);
+    /* S5 (1 Oct): "too big, crazy big" - a quarter larger than the price, 12.5-16 px (was 14-18) */
+    assert.ok(L.pctFont >= 12.5 && L.pctFont <= 16 && L.pctFont > L.priceFont, `${p.name}: % ${L.pctFont}px > price ${L.priceFont}px`);
     assert.ok(L.lines[0].y < L.lines[1].y, "percent on top, price under it");
     assert.equal(L.lines[0].ink, "bear");
     for (const l of L.lines) assert.ok(measure(l.text, l.font) <= L.box.w - 4, `${p.name}: "${l.text}" fits`);
   }
-  assert.equal(readout(measure, { ...PANES[2], priceText: "1", pctText: "+1%", up: true, scale: 1 }).pctFont, 18, "capped at 18 px");
+  assert.equal(readout(measure, { ...PANES[2], priceText: "1", pctText: "+1%", up: true, scale: 1 }).pctFont, 16, "S5: capped at 16 px");
 });
 
 test("3: the current-price label stays up while the crosshair is up; lines and time tag kept; the lens keeps out", () => {
@@ -219,7 +220,7 @@ test("3: the current-price label stays up while the crosshair is up; lines and t
   assert.match(chart, /ctx\.beginPath\(\); ctx\.moveTo\(sx, padT\); ctx\.lineTo\(sx, padT \+ ih\); ctx\.stroke\(\);/, "vertical line");
   assert.match(chart, /ctx\.beginPath\(\); ctx\.moveTo\(padL, sy\); ctx\.lineTo\(padL \+ iw, sy\); ctx\.stroke\(\);/, "horizontal line");
   assert.match(chart, /const timeText = chHoverTime\(/, "time tag");
-  assert.match(chart, /const nowPx = livePriceValue != null \? livePriceValue : dayPx;/, "N10: % from the current price");
+  assert.match(chart, /const nowPx = g\.livePriceValue != null \? g\.livePriceValue : g\.dayPx;/, "N10: % from the current price");
   assert.match(lens, /if \(host\._readoutSpot && host\._readoutSpot\.w > 0\) keepOut\.push\(host\._readoutSpot\);/);
   assert.doesNotMatch(chart, /function crosshairLabel\(/);
 });
