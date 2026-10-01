@@ -134,15 +134,23 @@
     return Number(o.areaH) >= SPLIT_MIN_H ? "split" : "merged";
   }
   /* The oscillator block's share of the pane: the one merged pane keeps the RSI pane's 26%; the three stacked
-     take 46% (price keeps more than half), split evenly with a 6 px gap between them. */
-  const MERGED_SHARE = 0.26, SPLIT_SHARE = 0.46, SPLIT_GAP = 6;
+     take 46% (price keeps more than half; see splitBlock), split evenly with a 6 px gap between them. */
+  const MERGED_SHARE = 0.26, SPLIT_SHARE = 0.46, SPLIT_MAX_SHARE = 0.56, SPLIT_GAP = 6, SPLIT_MIN_PANE = 70;
+  /* The three panes' block for a pane h px tall: 46%, raised as far as 56% so each of the three keeps at least 70 px (the
+     approved 8-up RSI pane is 66 px); 0 when even that does not fit, and the pane then shows the merged one. Measured: the
+     deck's ⤢ pane at 1680 is 554 px tall, the Hub's EXPAND chart 527, the Hub on a phone 400. */
+  function splitBlock(h) {
+    const need = 3 * SPLIT_MIN_PANE + 2 * SPLIT_GAP, cap = Math.floor(h * SPLIT_MAX_SHARE);
+    const want = Math.max(Math.floor(h * SPLIT_SHARE), need);
+    return want <= cap ? want : 0;
+  }
   function splitPanes(top, height) {
     const each = Math.max(1, Math.floor((height - 2 * SPLIT_GAP) / 3));
     return ["merged", "rsi", "williams"].map((key, i) => ({ key, top:top + i * (each + SPLIT_GAP), height:each }));
   }
 
   root.SC_OSC_MERGE = Object.freeze({
-    RSI_OS, RSI_OB, W_OS, W_OB, WILLIAMS_PERIOD, MIX, LOOKS, SPLIT_MIN_H, MERGED_SHARE, SPLIT_SHARE, SPLIT_GAP,
+    RSI_OS, RSI_OB, W_OS, W_OB, WILLIAMS_PERIOD, MIX, LOOKS, SPLIT_MIN_H, MERGED_SHARE, SPLIT_SHARE, SPLIT_MAX_SHARE, SPLIT_GAP, SPLIT_MIN_PANE, splitBlock,
     mapRsi, mapWilliams, blend, toPane, fromPane, williamsValues, deriveSets, lookY, rgba, chipText, hoverItem, fmt,
     parseOscParam, resolveMode, splitPanes
   });

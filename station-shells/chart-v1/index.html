@@ -2387,11 +2387,12 @@ function scChartDraw(host, scrub) {
      the pane is tall enough for both to stay readable. */
   const fan = rsiFanFor(host, pts);
   /* S6: the full fan draws the oscillator block - merged in a compact pane, three stacked when there is room (and
-     three only when each keeps at least 90 px; otherwise the merged one) */
+     three only when each keeps at least 70 px - SC_OSC_MERGE.splitBlock; otherwise the merged one) */
   const osc = oscOn(fan);
   let oscMode = osc ? oscModeFor(host) : null;
-  if (oscMode === "split" && h * window.SC_OSC_MERGE.SPLIT_SHARE < 3 * 90 + 2 * window.SC_OSC_MERGE.SPLIT_GAP) oscMode = "merged";
-  const fanBlock = !fan || h < 170 ? 0 : oscMode === "split" ? Math.floor(h * window.SC_OSC_MERGE.SPLIT_SHARE)
+  const split = oscMode === "split" ? window.SC_OSC_MERGE.splitBlock(h) : 0;
+  if (oscMode === "split" && !split) oscMode = "merged";
+  const fanBlock = !fan || h < 170 ? 0 : split ? split
     : Math.floor(h * window.SC_RSI_FAN.PANEL_SHARE);
   const fanGap = fanBlock ? 6 : 0;
   const iw = w - padL - padR, ih = h - padT - padB - fanBlock;

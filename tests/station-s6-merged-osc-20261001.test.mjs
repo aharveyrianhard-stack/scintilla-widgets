@@ -163,6 +163,12 @@ test("the three stacked panes share the block without overlap, merged on top, th
   for (let i = 1; i < 3; i++) assert.equal(p[i].top, p[i - 1].top + p[i - 1].height + O.SPLIT_GAP);
   assert.ok(p[2].top + p[2].height <= 1000);
   assert.ok(p.every((x) => x.height === p[0].height && x.height >= 120));
+  /* the block: 46% when that gives each pane 70 px, raised up to 56% when not, none below that */
+  assert.equal(O.splitBlock(1000), 460);
+  assert.equal(O.splitBlock(554), 254);                 /* the deck's ⤢ pane at 1680: three of 80 px */
+  assert.equal(O.splitBlock(400), 222);                 /* the Hub on a phone: three of 70 px, 55.5% of the pane */
+  assert.equal(O.splitBlock(390), 0);                   /* 222 > 56% of 390: the merged one */
+  for (const h of [400, 527, 554, 900]) { const b = O.splitBlock(h); assert.ok(b <= h * O.SPLIT_MAX_SHARE && O.splitPanes(0, b)[0].height >= O.SPLIT_MIN_PANE); }
 });
 
 test("the looks: merged in a pink-family tint of its own, RSI the approved pink, Williams the Hub's cyan on -100…0", () => {
