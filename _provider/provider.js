@@ -1176,7 +1176,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     return { entries: store.text.size, chars: store.chars, hits: store.hits, misses: store.misses };
   };
 
-  function providerCandleRows (symbol, rawTf, limit, signal) {
+  function providerCandleRows (symbol, rawTf, limit, signal, forming) {
     var tf = TF[rawTf];
     if (!tf) {
       note('unmapped timeframe ' + rawTf, symbol);
@@ -1187,14 +1187,16 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
        serves daily bars back to 2003; 8,000 covers the HISTORY page and the ribbon's warm-up. */
     var bounded = Math.min(Math.max(Number(limit) || 200, 1), 8000);
     var url = API + '/candles?symbol=' + encodeURIComponent(symbol) + '&tf=' + encodeURIComponent(tf) +
-      '&authority=provider&limit=' + bounded;
-    var cached = candleCacheGet(url);
+      '&authority=provider&limit=' + bounded + (forming ? '&forming=1' : '');
+    /* P7 (1 Oct): forming=1 adds the bar still forming (marked forming:true) after the completed ones. It
+       moves with the price, so it is never put in the shared candle cache; only the RSI fan asks for it. */
+    var cached = forming ? null : candleCacheGet(url);
     /* the same request already out in this frame (the fan and the ribbon both want the daily bars
        at the same moment) is shared, not sent twice; a caller's abort stays its own */
     var read = cached ? Promise.resolve(cached) : (!signal && candleInflight[url]) || (function () {
       var p = jget(url, signal).then(function (payload) {
         /* only a complete, unnamed series is worth keeping; the checks below still run on every read */
-        if (payload && Array.isArray(payload.series) && payload.series.length &&
+        if (!forming && payload && Array.isArray(payload.series) && payload.series.length &&
             !(payload.absence || payload.reason || (payload.state && payload.state !== 'OK')))
           candleCachePut(url, tf, payload);
         return payload;
@@ -1242,7 +1244,8 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
           call_volume: Number.isFinite(bar.cv) ? Number(bar.cv) : null,
           provider: payload.provider || 'MASSIVE',
           provider_symbol: payload.provider_symbol || symbol,
-          authority: payload.bar_authority || 'PROVIDER_BUILT'
+          authority: payload.bar_authority || 'PROVIDER_BUILT',
+          forming: bar.forming === true
         };
       }).reverse().slice(0, bounded);
     });
@@ -1530,7 +1533,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     var sym = requested[0];
     return providerOwned(options.signal, readSupabase).then(function (own) {
       if (own[sym] || MACRO_SYMBOLS[sym] || PUTCALL_SYMBOLS[sym] || SCINTILLA_PUTCALL_SYMBOLS[sym])
-        return providerCandleRows(sym, String(timeframe || ''), options.limit, options.signal);
+        return providerCandleRows(sym, String(timeframe || ''), options.limit, options.signal, options.forming === true);
       throw S.absenceError(ABSENCE_NOT_SERVED, sym, String(timeframe || ''));
     });
   };

@@ -961,11 +961,11 @@ function chartSeriesCached(t, range, limit) {
   }
   return null;
 }
-async function fetchProviderCandles(t, tf, limit, tries){
+async function fetchProviderCandles(t, tf, limit, tries, forming){
   const attempts = tries == null ? 2 : Math.max(1, tries);
   let last;
   for (let attempt=0; attempt<attempts; attempt++) {
-    try { return await SC_PROVIDER.marketCandles(chFmpSym(t), tf, { limit }); }
+    try { return await SC_PROVIDER.marketCandles(chFmpSym(t), tf, forming ? { limit, forming:true } : { limit }); }
     catch (error) {
       if (error && error.scAbsence) throw error;
       last=error;
@@ -1252,13 +1252,24 @@ async function fetchRsiSource(t, tf, need) {
   if (rsiSourceInflight.has(inflightKey)) return rsiSourceInflight.get(inflightKey);
   const work = (async () => {
     const F = window.SC_RSI_FAN;
+    /* P7 (1 Oct): the fan asks for the bar still FORMING (forming=1: completed lower bars plus the live
+       price, marked forming) on D, 2D, 3D, W and 2W, so its developing values - the Lab's default - reach
+       the right edge instead of stopping at the last completed week ("CLOUD HIDDEN · W missing"). The bar
+       is the developing tip only: every finished value, the STALE rule and the statistics read completed
+       bars (station-rsi-fan.js), and the price chart's own reads never ask for it. */
     const toBars = (rows) => (Array.isArray(rows) ? rows : [])
-      .map((r) => ({ t: r.timestamp * 1000, c: +r.close }))
+      .map((r) => r.forming === true ? { t: r.timestamp * 1000, c: +r.close, forming: true } : { t: r.timestamp * 1000, c: +r.close })
       .filter((b) => Number.isFinite(b.t) && Number.isFinite(b.c) && b.c > 0);
+    const RSI_FORMING_TFS = ["1D", "2D", "3D", "1W", "2W"];
+    const forming = !RSI_REQUEST.chart && RSI_FORMING_TFS.includes(tf);
     if (tf === "1D") {
       /* S1 (29 Sep): the D line is the ribbon's daily read (see sharedDaily), trimmed to its newest `need` */
-      const daily = await sharedDaily(t, need, false);
+      const [daily, tipRows] = await Promise.all([sharedDaily(t, need, false),
+        forming ? fetchProviderCandles(t, "1D", 3, 1, true).catch(() => []) : Promise.resolve([])]);
       const bars = daily.pts.map((q) => ({ t: Date.parse(q.d), c: q.p })).filter((b) => Number.isFinite(b.t) && Number.isFinite(b.c) && b.c > 0);
+      /* the ribbon's completed days, then today's forming day when the API served one after them */
+      const tip = toBars(tipRows).filter((b) => b.forming);
+      if (tip.length && (!bars.length || tip[tip.length - 1].t > bars[bars.length - 1].t)) bars.push(tip[tip.length - 1]);
       const joined = F.joinTail([], bars.slice(-need));
       const entry = { ts: daily.ts || Date.now(), asked: need, bars: joined.bars, hole: joined.hole, from: "ribbon" };
       rsiSourceCache.set(t + "|" + tf, entry);
@@ -1267,7 +1278,7 @@ async function fetchRsiSource(t, tf, need) {
     /* A long read's newest bars can lag a short read's (see TAIL_LIMIT), so past it the tail is read
        on its own and joined on timestamps; the tail wins, and a hole is never bridged. */
     const [tailRows, historyRows] = await Promise.all([
-      fetchProviderCandles(t, tf, Math.min(need, F.TAIL_LIMIT), 2),
+      fetchProviderCandles(t, tf, Math.min(need, F.TAIL_LIMIT), 2, forming),
       need > F.TAIL_LIMIT ? fetchProviderCandles(t, tf, need, 2) : Promise.resolve([])]);
     const joined = F.joinTail(toBars(historyRows), toBars(tailRows));
     const entry = { ts: Date.now(), asked: need, bars: joined.bars, hole: joined.hole };
@@ -1348,7 +1359,7 @@ function rsiFanFor(host, pts) {
   const sampled = (key) => {
     const got = rsiLineFrom(F, key, t, absence);
     if (!got.series) return { key, values:null, status:null, dir:null, approx:false, from:null, absence:got.absence };
-    const finished = F.sampleToChart(times, got.series, chartDur, F.carryBars(key, chartDur));
+    const finished = F.sampleToChart(times, got.series, chartDur, F.carryBars(key, chartDur, { sevenDay: chMarketOf(t) === "CRYPTO" }));
     /* S3 (29 Sep), the Lab's default: DEVELOPING values - the newest chart bar shows the source bar still
        forming inside it (display sampling only; the RSI arithmetic is untouched). The lone ?rsi=chart line
        keeps its finished-bars sampling. */
