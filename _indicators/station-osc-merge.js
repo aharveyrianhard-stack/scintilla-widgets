@@ -109,8 +109,19 @@
     return look.chip + " " + (v < 0 ? "−" + Math.abs(v).toFixed(1) : v.toFixed(1));
   }
   const fmt = (v) => (v == null || !Number.isFinite(v) ? "—" : v < 0 ? "−" + Math.abs(v).toFixed(1) : v.toFixed(1));
-  /* the hover item for one timeframe on the merged pane: its merged value and both sources' own values */
-  function hoverItem(label, merged, rsi, wr) { return label + " " + fmt(merged) + " R" + fmt(rsi) + " W" + fmt(wr); }
+  /* the hover item for one timeframe on the merged pane: its merged value and both sources' own values ("3H 70.1 R54.8 W−20.5");
+     on a compact pane (readoutFor -> "merged") the merged value alone ("3H 70.1") */
+  function hoverItem(label, merged, rsi, wr, readout) {
+    return readout === "merged" ? label + " " + fmt(merged) : label + " " + fmt(merged) + " R" + fmt(rsi) + " W" + fmt(wr);
+  }
+  /* F1 (1 Oct; S6 decision 2, the coordinator's call) — WHICH HOVER READOUT THE MERGED PANE PRINTS. The full readout (merged,
+     R, W per timeframe) wrapped to three rows over an 8-up pane. A COMPACT pane - inside the deck or the Hub, and not the
+     deck's ⤢ pane nor the Hub's EXPAND - prints the merged values only, on one row. An expanded pane, or the chart opened on
+     its own, keeps the full readout. Same inputs as resolveMode. */
+  function readoutFor(o) {
+    if (!o || o.deckFull || o.hubSplit === true) return "full";
+    return o.embedded ? "merged" : "full";
+  }
 
   /* ---- which set the pane shows ---------------------------------------------------------------------------
      ?osc=  merged | split | auto (absent = auto). In auto:
@@ -152,6 +163,6 @@
   root.SC_OSC_MERGE = Object.freeze({
     RSI_OS, RSI_OB, W_OS, W_OB, WILLIAMS_PERIOD, MIX, LOOKS, SPLIT_MIN_H, MERGED_SHARE, SPLIT_SHARE, SPLIT_MAX_SHARE, SPLIT_GAP, SPLIT_MIN_PANE, splitBlock,
     mapRsi, mapWilliams, blend, toPane, fromPane, williamsValues, deriveSets, lookY, rgba, chipText, hoverItem, fmt,
-    parseOscParam, resolveMode, splitPanes
+    parseOscParam, resolveMode, readoutFor, splitPanes
   });
 })(typeof globalThis === "object" ? globalThis : window);

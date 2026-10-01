@@ -453,6 +453,9 @@ function oscModeFor(host) {
   return window.SC_OSC_MERGE.resolveMode({ param:OSC_PARAM, deckFull:OSC_DECK_FULL, hubSplit:OSC_HUB_SPLIT,
     embedded:BARE || HUB_PANE, areaH:area ? area.clientHeight : 0 });
 }
+/* F1 (1 Oct): the merged pane's hover readout - the merged values alone on a compact pane (the 8-up, the Hub not expanded),
+   the full readout (merged, R, W) on an expanded or lone chart (station-osc-merge.js readoutFor) */
+const oscReadoutFor = () => window.SC_OSC_MERGE.readoutFor({ deckFull:OSC_DECK_FULL, hubSplit:OSC_HUB_SPLIT, embedded:BARE || HUB_PANE });
 /* THE CONTEXT LENS (CL4, 27 Sep; Alan: "I like this one at the bottom left… it could be smaller").
    ?bubble=30m:3 draws the last three sessions of 30-minute candles in a small box bottom-left of a
    3-DAY chart, on a second canvas. Without the switch nothing is loaded and nothing changes; with it,
@@ -1714,8 +1717,12 @@ function drawRsiOnly(ctx, o) {
   /* THE TITLE ROW: at rest "RSI 14" and anything missing, named; on hover every line's timeframe and value */
   const at = o.scrubIx;
   const items = [{ text:L ? L.title : "RSI 14", ink:F.rgba(INK, .8) }];
-  /* S6: on the MERGED pane the hover reads each timeframe's merged value AND both sources' own (R = RSI, W = %R) */
+  /* S6: on the MERGED pane the hover reads each timeframe's merged value AND both sources' own (R = RSI, W = %R);
+     F1: on a compact pane the merged value alone, on ONE row (the title steps aside while hovering; what does not fit is
+     left off, never wrapped) */
   const src = L && L.key === "merged" && o.sets ? o.sets : null;
+  const readout = src && o.oscReadout === "merged" ? "merged" : "full";
+  const oneRow = readout === "merged" && at != null;
   const srcAt = (set, key, i) => { const l = src && src[set].lines.find((x) => x.key === key); return l && l.values ? l.values[i] : null; };
   const shown = [];
   for (const line of o.fan.lines) {
@@ -1724,7 +1731,7 @@ function drawRsiOnly(ctx, o) {
     const v = at != null ? line.values[at] : line.status.value;
     shown.push({ key:line.key, value:v == null ? null : +v.toFixed(2), stale:!!line.status.stale, approx:!!line.approx, from:line.from,
       developing:line.tip ? line.tip.developing : null, asOf:line.status.t == null ? null : new Date(line.status.t).toISOString() });
-    const hoverText = src ? M.hoverItem(name, v, srcAt("rsi", line.key, at), srcAt("williams", line.key, at))
+    const hoverText = src ? M.hoverItem(name, v, srcAt("rsi", line.key, at), srcAt("williams", line.key, at), readout)
       : name + " " + (v == null ? "—" : (line.approx ? "≈" : "") + fmtV(v));
     if (at != null) items.push({ text:hoverText, ink:F.rgba(INK, Math.min(1, F.BY_KEY[line.key].alpha + .3)) });
     else if (line.status.stale) items.push({ text:name + " to " + rsiAsOf(line.status.t), ink:F.rgba(INK, .8) });
@@ -1744,12 +1751,17 @@ function drawRsiOnly(ctx, o) {
   ctx.font = o.font + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.textAlign = "left"; ctx.textBaseline = "middle";
   const lineH = o.font + 4;
-  let x = left + 3, y = top + lineH / 2 + 1;
-  for (const item of items) {
+  let x = left + 3, y = top + lineH / 2 + 1, rows = 1;
+  const drawn = [], offRow = [];
+  for (const item of oneRow ? items.slice(1) : items) {
     const w = ctx.measureText(item.text).width;
-    if (x > left + 3 && x + w > left + width - 4) { x = left + 3; y += lineH; }
+    if (x > left + 3 && x + w > left + width - 4) {
+      if (oneRow) { offRow.push(item.text); continue; }
+      x = left + 3; y += lineH; rows++;
+    }
     ctx.fillStyle = "rgba(5,6,12,.72)"; ctx.fillRect(x - 2, y - lineH / 2, w + 4, lineH);
     ctx.fillStyle = item.ink; ctx.fillText(item.text, x, y);
+    drawn.push(item.text);
     x += w + 9;
   }
   ctx.restore();
@@ -1757,7 +1769,8 @@ function drawRsiOnly(ctx, o) {
   return { mode:L ? "osc-" + L.key : "rsi-only", top, height:ph, yLo:(L ? L.domain : V.domain)[0], yHi:(L ? L.domain : V.domain)[1],
     lines:shown, cloud:cloudShown, chip, ink:INK,
     guides:GUIDES.map((g) => ({ v:g.v, y:Math.round(RY(g.v)) + .5 })), late:lateShown.length ? lateShown : null,
-    hover:at != null ? items.slice(1).map((i) => i.text) : null };
+    hover:at != null ? (oneRow ? drawn : items.slice(1).map((i) => i.text)) : null,
+    readout:src ? readout : null, readoutRows:rows, leftOff:offRow.length ? offRow : null };
 }
 /* S6 (1 Oct) — THE OSCILLATOR BLOCK. Compact: ONE pane, the MERGED set (six timeframes of the 60/40 RSI + Williams %R
    blend, the slow cloud from the merged 2D-3D-W-2W values) in the orchid of the pink family, on the 0-100 axis with the
@@ -2513,7 +2526,7 @@ function scChartDraw(host, scrub) {
   const fanOpts = { fan, X, start, end, last:pts.length - 1, left:padL, width:iw, palette:col,
     top:padT + ih + fanGap, height:fanBlock - fanGap, gap:fanGap, axisX:w - 3, hairline:col.dim,
     font:cloudFont, chipFont:Math.max(8.5, cloudFont + 1), gutterRight:w - 2,
-    scrubIx:null, oscMode,
+    scrubIx:null, oscMode, oscReadout:oscMode === "merged" ? oscReadoutFor() : "full",
     dateAt:(i) => (pts[i] ? Date.parse(pts[i].d) : null) };
   const fanDraw = fanBlock ? (osc ? drawOsc : fan.lines.length > 1 ? drawRsiOnly : drawRsiFan) : null;
   host._rsiDrawn = fanDraw ? fanDraw(ctx, fanOpts) : null;
