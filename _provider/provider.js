@@ -1176,6 +1176,53 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     return { entries: store.text.size, chars: store.chars, hits: store.hits, misses: store.misses };
   };
 
+  /* the exact url a single read of this series uses: the key of the shared candle store */
+  function candleBound (limit) { return Math.min(Math.max(Number(limit) || 200, 1), 8000); }
+  function candleUrl (symbol, tf, bounded) {
+    return API + '/candles?symbol=' + encodeURIComponent(symbol) + '&tf=' + encodeURIComponent(tf) + '&authority=provider&limit=' + bounded;
+  }
+  /* H3 (1 Oct) — ONE READ FOR A PAGE'S CLOUDS. GET /candles-multi?symbols=A,B,…&tf=&limit=&authority=provider (chart API
+     P6, live since 1 Oct 07:45 ET as p6-2d67def). Each symbol's entry is field for field its own /candles answer (MEASURED
+     1 Oct: VIX daily 995 — every key and all 995 bars equal), so each is filed in the shared candle store under the EXACT
+     url a single read would use, and the pane that asks next finds it there. While the one read is out, a pane asking for
+     one of its names waits for it instead of sending its own (candlePendingGet). A name it refuses, a failure or a timeout
+     files nothing: that pane reads its series alone, exactly as before. Fewer than two names to read: nothing is sent. */
+  var CANDLES_MANY_MAX = 40, CANDLES_MANY_MS = 6000;
+  function candlePendingGet (url) {
+    var store = candleShared();
+    return store.pending && store.pending.get ? store.pending.get(url) || null : null;
+  }
+  S.candlesMany = function (symbols, rawTf, limit) {
+    var tf = TF[rawTf], bounded = candleBound(limit);
+    var want = (normalizeSymbols(symbols) || []).filter(function (sym) {
+      var url = candleUrl(sym, tf, bounded);
+      return tf && !candleShared().text.has(url) && !candlePendingGet(url) && !candleInflight[url];
+    }).slice(0, CANDLES_MANY_MAX);
+    if (!tf || want.length < 2) return Promise.resolve(0);
+    var store = candleShared();
+    if (!store.pending) store.pending = new store.text.constructor();   /* the owner's own Map, like the store itself */
+    var ctl = typeof AbortController === 'undefined' ? null : new AbortController();
+    var timer = ctl ? setTimeout(function () { ctl.abort(); }, CANDLES_MANY_MS) : null;
+    var read = jget(API + '/candles-multi?symbols=' + want.map(encodeURIComponent).join(',') + '&tf=' + encodeURIComponent(tf) +
+      '&authority=provider&limit=' + bounded, ctl ? ctl.signal : undefined).then(function (j) {
+        var filed = {};
+        want.forEach(function (sym) {
+          var c = j && j.candles && j.candles[sym];
+          if (c && Array.isArray(c.series) && c.series.length && !(c.absence || c.reason || (c.state && c.state !== 'OK'))) {
+            candleCachePut(candleUrl(sym, tf, bounded), tf, c); filed[sym] = true;
+          }
+        });
+        S.counts.candles_many = (S.counts.candles_many || 0) + 1;
+        return filed;
+      }, function () { return {}; });
+    want.forEach(function (sym) {
+      var url = candleUrl(sym, tf, bounded);
+      var one = read.then(function (filed) { return !!filed[sym]; });
+      store.pending.set(url, one);
+      one.then(function () { if (store.pending.get(url) === one) store.pending.delete(url); });
+    });
+    return read.then(function (filed) { if (timer) clearTimeout(timer); return Object.keys(filed).length; });
+  };
   function providerCandleRows (symbol, rawTf, limit, signal) {
     var tf = TF[rawTf];
     if (!tf) {
@@ -1185,13 +1232,18 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     /* 25 Sep (coordinator): the clamp was 400, which cut every cloud ribbon to about a year and a
        half whatever the page showed (Alan: "we have a database that goes super long"). The chart API
        serves daily bars back to 2003; 8,000 covers the HISTORY page and the ribbon's warm-up. */
-    var bounded = Math.min(Math.max(Number(limit) || 200, 1), 8000);
-    var url = API + '/candles?symbol=' + encodeURIComponent(symbol) + '&tf=' + encodeURIComponent(tf) +
-      '&authority=provider&limit=' + bounded;
+    var bounded = candleBound(limit);
+    var url = candleUrl(symbol, tf, bounded);
     var cached = candleCacheGet(url);
+    /* H3 — the page's one read for many (S.candlesMany) is out with this name in it: wait for it, and read
+       alone only if it did not bring this series back */
+    var pend = cached || signal ? null : candlePendingGet(url);
     /* the same request already out in this frame (the fan and the ribbon both want the daily bars
        at the same moment) is shared, not sent twice; a caller's abort stays its own */
-    var read = cached ? Promise.resolve(cached) : (!signal && candleInflight[url]) || (function () {
+    var read = cached ? Promise.resolve(cached)
+      : pend ? Promise.resolve(pend).then(function () { return candleCacheGet(url) || ownRead(); }, ownRead)   /* parsed here, in this frame */
+      : (!signal && candleInflight[url]) || ownRead();
+    function ownRead () { return (!signal && candleInflight[url]) || (function () {
       var p = jget(url, signal).then(function (payload) {
         /* only a complete, unnamed series is worth keeping; the checks below still run on every read */
         if (payload && Array.isArray(payload.series) && payload.series.length &&
@@ -1205,7 +1257,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
         p.then(clear, clear);
       }
       return p;
-    })();
+    })(); }
     return read.then(null, function (e) {
       /* The chart API refuses a width it cannot serve, or a series that has STOPPED, with a 404 that
          NAMES the absence (FMP_INTERVAL_NOT_SERVED, FMP_MACRO_STALE_n_SESSIONS). That is the answer,
