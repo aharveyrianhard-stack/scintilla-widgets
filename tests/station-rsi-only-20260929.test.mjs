@@ -264,7 +264,9 @@ test("hover names every timeframe and its value at that bar; the crosshair runs 
 });
 
 test("wiring: the full fan draws the RSI-only pane, the lone line keeps its path, the twins match", () => {
-  assert.match(chart, /host\._rsiDrawn = fanBlock \? \(fan\.lines\.length > 1 \? drawRsiOnly\(ctx, fanOpts\) : drawRsiFan\(ctx, fanOpts\)\) : null;/);
+  assert.match(chart, /const fanDraw = fanBlock \? \(fan\.lines\.length > 1 \? drawRsiOnly : drawRsiFan\) : null;\n  host\._rsiDrawn = fanDraw \? fanDraw\(ctx, fanOpts\) : null;/);
+  /* S5 (1 Oct): the hovered bar is drawn by the overlay, with the same drawer */
+  assert.match(chart, /host\._rsiDrawn = g\.fanDraw\(ctx, Object\.assign\(\{\}, o, \{ scrubIx:inView \? hover\.ix : null \}\)\);/);
   assert.match(chart, /F\.developingTip\(finished, times, got\.series, chartDur, Date\.now\(\)\)/, "developing values on the newest bar");
   assert.match(chart, /async function fetchRsiSource\(t, tf, need\)/, "the same source pipeline");
   assert.equal(chart, twin, "chart/ and station-shells/chart-v1/ stay byte-identical");

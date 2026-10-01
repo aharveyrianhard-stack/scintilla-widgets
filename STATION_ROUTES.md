@@ -29,6 +29,7 @@ be rolled forward or back without touching the others.
 | X | `/station-shells/x-v2` | `/pane-x` |
 | detail (M74) | `/station-shells/detail-v1` | no standalone page — it is opened OVER the wall by `/deck/detail.js`, never navigated to |
 | fundamentals (M74) | `/station-shells/fundamentals-v1` | no standalone page — a menu entry, one ticker, never in the rotation |
+| floating video (S5) | `/station-shells/pip-v1` | no standalone page — the page the deck (or a top-level video pane) puts inside the Document Picture-in-Picture window; `?v=` `&start=` `&title=`, reads and writes nothing |
 
 `/station-shells/video-v1` and `/station-shells/x-v1` are retained previous versions. They are
 not mounted by `/deck`; they exist so a rollback is a pointer change rather than a rebuild.

@@ -51,13 +51,15 @@ test("the lens module is fetched at boot on a pane that carries one, not on its 
 });
 
 test("the crosshair: the price at 11 px or more, and the percent from the current price, green above and red below", () => {
-  assert.match(chart, /const priceFont = Math\.max\(11, 11 \* scale\);/);
+  /* S5 (1 Oct): the hovered level's price and percent moved to the level tag on the horizontal line, at 11 px
+     (the corner readout now reads the hovered DATE - tests/station-crosshair-s5-20261001.test.mjs) */
+  assert.match(chart, /const levelFont = Math\.round\(11 \* scale \* 10\) \/ 10;/);
   assert.match(chart, /const pct = nowPx > 0 \? \(price \/ nowPx - 1\) \* 100 : null;/);
-  /* S1 (29 Sep): the percent is the readout's biggest text, green above and red below, in one fixed spot
+  assert.match(chart, /ctx\.fillStyle = pct >= 0 \? col\.bull : col\.bear;/, "green above the current price, red below");
+  /* S1 (29 Sep): the percent leads the readout, green or red, in one fixed spot
      (tests/station-lens-crosshair-20260929.test.mjs holds the placement) */
   assert.match(chart, /rows\.push\(\{ text: o\.pctText, font: "700 " \+ pctFont, size: pctFont, ink: o\.up \? "bull" : "bear"/);
-  assert.match(chart, /priceText, pctText, up: pct >= 0, scale \}\);/);
-  assert.match(chart, /const nowPx = livePriceValue != null \? livePriceValue : dayPx;/, "the same one price the badge and line use");
+  assert.match(chart, /const nowPx = g\.livePriceValue != null \? g\.livePriceValue : g\.dayPx;/, "the same one price the badge and line use");
 });
 
 test("the plot starts under the badge (capped at 18% of the pane), with TradingView-like price margins", () => {

@@ -53,7 +53,7 @@ test("intraday axis and hover print New York time; daily dates pass through (23 
   assert.equal(chEtIso("2026-09-22", "3h"), "2026-09-22", "a bare date is untouched");
   assert.equal(timeParts(chEtIso("2026-09-23T14:15:00.000Z", "3h"), "3h", false, 86400000)[1], "10:15");
   assert.match(chart, /chTimeParts\(chEtIso\(pts\[ix\]\.d, host\._range \|\| S\.chartRange\)/, "the axis passes New York time");
-  assert.match(chart, /chHoverTime\(chEtIso\(pts\[scrub\.ix\]\.d, host\._range \|\| S\.chartRange\)/, "the hover passes New York time");
+  assert.match(chart, /chHoverTime\(chEtIso\(bar\.d, host\._range \|\| S\.chartRange\)/, "the hover passes New York time");
 });
 
 test("a TradingView pane is labelled with its name only (23 Sep: \"Why are you labeling my shit?\")", () => {

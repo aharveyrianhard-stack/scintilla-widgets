@@ -105,7 +105,7 @@ const measure = (text, font) => text.length * 0.6 * parseFloat(font.split(" ")[1
 const readout = fnFrom(chart, "crosshairReadout");
 
 test("the percent is from the CURRENT price: live quote, else the last bar - unchanged, and said on the pane", () => {
-  assert.match(chart, /const nowPx = livePriceValue != null \? livePriceValue : dayPx;/);
+  assert.match(chart, /const nowPx = g\.livePriceValue != null \? g\.livePriceValue : g\.dayPx;/);
   assert.match(chart, /const pct = nowPx > 0 \? \(price \/ nowPx - 1\) \* 100 : null;/);
   assert.match(chart, /const dayPx = chDayPrice\(host, pts\);/);
   assert.match(fnFrom(chart, "chDayPrice").toString(), /const live = quotePrice\(liveQuote\[[\s\S]*if \(live != null\) return live;[\s\S]*pts\[pts\.length - 1\]\.p/);

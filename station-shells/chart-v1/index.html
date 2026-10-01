@@ -64,6 +64,9 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
 .sc-nchart__cv{ position:absolute; inset:0; width:100%; height:100%; display:block;
   touch-action:none; overscroll-behavior:none; cursor:crosshair; }
 .sc-nchart__cv.is-panning{ cursor:grabbing; }
+/* S5 (1 Oct): the crosshair, its readouts and the live-price marker live on their own transparent layer, so
+   moving the pointer repaints this layer only - never the price, the clouds or the lens under it. */
+.sc-nchart__ov{ position:absolute; inset:0; width:100%; height:100%; display:block; pointer-events:none; }
 .sc-nchart__live{ position:absolute; top:7px; left:8px; z-index:3; pointer-events:auto;
   display:flex; flex-direction:row; align-items:baseline; gap:8px; max-width:calc(100% - 52px);
   background:rgba(5,6,12,.76); border:0; border-radius:4px;
@@ -1879,7 +1882,7 @@ function scChartHTML(ticker) {
       '" title="Open ' + esc(ticker) + ' in TradingView with your indicator stack" aria-label="Open in TradingView">' +
       POPOUT_SVG + "<span class=\"sc-tv__pop-lbl\"> TradingView</span></button>" +
     "</div>" +
-    '<div class="sc-nchart__area"><canvas class="sc-nchart__cv"></canvas>' +
+    '<div class="sc-nchart__area"><canvas class="sc-nchart__cv"></canvas><canvas class="sc-nchart__ov" aria-hidden="true"></canvas>' +
     '<div class="sc-nchart__live" data-fresh="0" title="Edit ticker"></div>' +
     '<div class="sc-nchart__msg" hidden></div>' +
     '<button type="button" class="sc-nchart__cap" data-act="cloudsteps" hidden aria-label="Cloud ribbon drawing: smoothed for the eye, or stepped">smoothed for the eye · labels exact</button></div></div>';
@@ -2247,7 +2250,23 @@ function chartIndexAt(pts, iso, after) {
   return Math.max(0, Math.min(pts.length - 1, lo < pts.length && pts[lo].d === iso ? lo : lo - 1));
 }
 
+/* S1 (29 Sep): the lens is a layer above the chart; while the crosshair's time tag passes under it the
+   lens fades back so the tag stays readable (measured on the phone: the lens covered "May 30, 2026") */
+function lensFadeUnderTag(host) {
+  const lensCv = host.querySelector(".sc-nchart__lens"), tag = host._scrubTimeTag;
+  if (lensCv) {
+    const lx = parseFloat(lensCv.style.left) || 0, ly = parseFloat(lensCv.style.top) || 0, lw = parseFloat(lensCv.style.width) || 0, lh = parseFloat(lensCv.style.height) || 0;
+    const under = !!tag && tag.x < lx + lw && lx < tag.x + tag.w && tag.y < ly + lh && ly < tag.y + tag.h;
+    lensCv.style.opacity = under ? "0.18" : "";
+  }
+}
+
+/* The base paint: price, clouds, fan, grid, axes. It never draws the crosshair - that is scChartOverlay's,
+   called at the end of every base paint so a quote tick repaints the crosshair where it was instead of
+   wiping it (Alan, 1 Oct: "it goes away very quickly when I stop moving my mouse"). A `scrub` passed in
+   is taken as the pointer's spot on this pane. */
 function scChartDraw(host, scrub) {
+  if (scrub && scrub.x != null) host._hoverLocal = { x:scrub.x, y:scrub.y };
   const area = host.querySelector(".sc-nchart__area");
   const cv = host.querySelector(".sc-nchart__cv");
   if (!area || !cv) return;
@@ -2266,17 +2285,11 @@ function scChartDraw(host, scrub) {
     host._inkAt = null;   /* the lens reads this paint's pixels once */
     placeGeiger(host);
     if (BUBBLE_REQUEST || host.querySelector(".sc-nchart__lens")) lensPaint(host);
-    /* S1 (29 Sep): the lens is a layer above the chart; while the crosshair's time tag passes under it the
-       lens fades back so the tag stays readable (measured on the phone: the lens covered "May 30, 2026") */
-    const lensCv = host.querySelector(".sc-nchart__lens"), tag = host._scrubTimeTag;
-    if (lensCv) {
-      const lx = parseFloat(lensCv.style.left) || 0, ly = parseFloat(lensCv.style.top) || 0, lw = parseFloat(lensCv.style.width) || 0, lh = parseFloat(lensCv.style.height) || 0;
-      const under = !!tag && tag.x < lx + lw && lx < tag.x + tag.w && tag.y < ly + lh && ly < tag.y + tag.h;
-      lensCv.style.opacity = under ? "0.18" : "";
-    }
+    lensFadeUnderTag(host);
   });
   const pts = host._series;
-  if (!pts || pts.length < 2) return;
+  host._ov = null;
+  if (!pts || pts.length < 2) { scChartOverlay(host); return; }
   const col = chColors();
   /* The old 58px price-axis reservation left a conspicuous empty gutter in
      every small Station chart. Keep the min/max as bare overlay text and give
@@ -2302,7 +2315,7 @@ function scChartDraw(host, scrub) {
   const fanBlock = fan && h >= 170 ? Math.floor(h * window.SC_RSI_FAN.PANEL_SHARE) : 0;
   const fanGap = fanBlock ? 6 : 0;
   const iw = w - padL - padR, ih = h - padT - padB - fanBlock;
-  if (iw < 10 || ih < 10) return;
+  if (iw < 10 || ih < 10) { scChartOverlay(host); return; }
   const view = chartView(host, pts), start = view.start, end = view.end;
   let lo = Infinity, hi = -Infinity;
   for (let i = start; i <= end; i++) {
@@ -2419,9 +2432,10 @@ function scChartDraw(host, scrub) {
   const fanOpts = { fan, X, start, end, last:pts.length - 1, left:padL, width:iw, palette:col,
     top:padT + ih + fanGap, height:fanBlock - fanGap, gap:fanGap, axisX:w - 3, hairline:col.dim,
     font:cloudFont, chipFont:Math.max(8.5, cloudFont + 1), gutterRight:w - 2,
-    scrubIx:scrub && pts[scrub.ix] ? scrub.ix : null,
+    scrubIx:null,
     dateAt:(i) => (pts[i] ? Date.parse(pts[i].d) : null) };
-  host._rsiDrawn = fanBlock ? (fan.lines.length > 1 ? drawRsiOnly(ctx, fanOpts) : drawRsiFan(ctx, fanOpts)) : null;
+  const fanDraw = fanBlock ? (fan.lines.length > 1 ? drawRsiOnly : drawRsiFan) : null;
+  host._rsiDrawn = fanDraw ? fanDraw(ctx, fanOpts) : null;
   ctx.save();
   ctx.font = ((ipadProfile ? 6.5 : 7) * scale) + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
   ctx.fillStyle = col.dim; ctx.globalAlpha = .47; ctx.textAlign = "right";
@@ -2451,28 +2465,15 @@ function scChartDraw(host, scrub) {
      it had its own axis band, so it sits at the same spot on every pane of the layout */
   const readoutBottom = SHARED_TIME_AXIS ? padT + ih + padB - axisBand : padT + ih;
   host._readoutSpot = crosshairReadout(readoutMeasure, { w, h, plotBottom: readoutBottom, plotTop: padT, priceText: "0,000.00", pctText: "+00.00%", up: true, scale }).box;
-  const scrubOn = !!(scrub && pts[scrub.ix]);
+  /* the current-price marker is painted by the overlay (it steps above the crosshair's readout when the two
+     would touch); the base paint works out where it goes */
+  let live = null;
   if (hasLiveQuote) {
     const livePrice = livePriceValue, liveY = Y(livePrice);
     if (liveY >= padT && liveY <= padT + ih) {
       const liveDay = chDayChange(livePrice, prevClose[host.dataset.t]);
       const liveColor = liveDay.tone === "up" ? col.bull : liveDay.tone === "down" ? col.bear : col.dim;
-      const liveText = chPx(livePrice, host.dataset.t);
-      const liveFont = Math.max(6.5, (ipadProfile ? 7 : 7.5) * scale);
-      ctx.save();
-      ctx.font = liveFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-      ctx.textBaseline = "middle";
-      const liveW = Math.min(padR - 2, Math.ceil(ctx.measureText(liveText).width) + 6);
-      const liveX = w - liveW - 1;
-      let liveTop = Math.max(padT, Math.min(padT + ih - 12, liveY - 6));
-      const R = host._readoutSpot;
-      if (scrubOn && R && liveTop + 12 > R.y - 1 && liveTop < R.y + R.h + 1) liveTop = Math.max(padT, R.y - 13);
-      const liveTextY = liveTop + 6;
-      ctx.fillStyle = "rgba(5,6,12,.92)";
-      ctx.fillRect(liveX, liveTop, liveW, 12);
-      ctx.fillStyle = liveColor; ctx.textAlign = "right";
-      ctx.fillText(liveText, w - 4, liveTextY);
-      ctx.restore();
+      live = { y:liveY, color:liveColor, text:chPx(livePrice, host.dataset.t), font:Math.max(6.5, (ipadProfile ? 7 : 7.5) * scale) };
     }
   }
   if (!SHARED_TIME_AXIS) {
@@ -2502,41 +2503,163 @@ function scChartDraw(host, scrub) {
       }
     }
   }
-  host._scrubLabel = null; host._scrubTimeTag = null;
-  if (scrub && pts[scrub.ix]) {
-    const sx = Math.max(padL, Math.min(padL + iw, scrub.x));
-    const sy = Math.max(padT, Math.min(padT + ih, scrub.y));
-    const price = yLo + (1 - (sy - padT) / ih) * (yHi - yLo);
-    const markerFont = Math.max(6.5, (ipadProfile ? 7 : 7.5) * scale);
-    /* O1 (27 Sep), Alan: the crosshair's price bigger, and how far that level is from the current
-       price in percent - green above the current price, red below. */
-    const priceFont = Math.max(11, 11 * scale);
-    const priceText = chPx(price, host.dataset.t);
-    const nowPx = livePriceValue != null ? livePriceValue : dayPx;
-    const pct = nowPx > 0 ? (price / nowPx - 1) * 100 : null;
-    const pctText = pct == null ? "" : (pct >= 0 ? "+" : "\u2212") + Math.abs(pct).toFixed(Math.abs(pct) < 10 ? 2 : 1) + "%";
-    const timeText = chHoverTime(chEtIso(pts[scrub.ix].d, host._range || S.chartRange), host._range || S.chartRange);
+  /* everything the overlay needs to paint the crosshair without repainting any of the above */
+  host._ov = { w, h, dpr, padL, padT, padR, iw, ih, start, end, rightBars, yLo, yHi, X, Y, readoutBottom, scale, ipadProfile,
+    col, livePriceValue, dayPx, live, fanDraw, fanOpts:fanDraw ? fanOpts : null, fanRest:host._rsiDrawn };
+  scChartOverlay(host);
+}
+
+/* S5 (1 Oct) — THE CROSSHAIR ON EVERY CHART. Alan: "the charts are synced in terms of the date… make that
+   grid work on all of the charts… I see the percentage price change to all of the charts… a really cool way
+   of tracking my targets and upside downside in a very quick and easy visual way."
+   Hovering one pane puts the vertical line at the same date on every pane of the page (the pane sends the
+   date, the deck hands it to the others). Each pane's corner readout is ITS OWN price on that date and the
+   percent from that date to now - green when now is higher. The horizontal line and its level tag (N10's
+   rule: that level against the current price) stay on the pane under the pointer. A pane with no bar at
+   that moment uses its newest earlier bar; a pane whose series starts later shows nothing.
+   The hover is kept on the pane (_hoverLocal: the pointer here; _hoverAt: a date from another pane), so the
+   base paint that follows every quote tick repaints the crosshair instead of wiping it. It leaves when the
+   pointer leaves the chart area, or four seconds after the last touch. */
+const CHART_TOUCH_HOVER_MS = 4000;
+/* the newest bar at or before a moment; -1 when the series starts after it */
+function chartBarAtOrBefore(pts, ms) {
+  let lo = 0, hi = pts.length - 1, at = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (Date.parse(pts[mid].d) <= ms) { at = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return at;
+}
+function chartHoverIndex(host) {
+  const pts = host._series, plot = host._plot, local = host._hoverLocal;
+  if (!pts || pts.length < 2 || !plot) return null;
+  if (local) {
+    /* the same x scale the bars were drawn with, right margin included */
+    const f = Math.max(0, Math.min(1, (local.x - plot.padL) / plot.iw));
+    return { ix:Math.max(plot.start, Math.min(plot.end, Math.round(plot.start + f * (plot.end - plot.start + (plot.rightBars || 0))))), local:true };
+  }
+  if (host._hoverAt == null || !Number.isFinite(host._hoverAt)) return null;
+  /* a daily bar is stamped at a market's own midnight (New York for stocks, UTC for some feeds): on a daily
+     or longer chart a date matches the bar of that calendar day, not the day before it */
+  const intraday = ["15m","30m","1h","2h","3h","4h","6h","12h"].includes(host._range || S.chartRange);
+  const ix = chartBarAtOrBefore(pts, host._hoverAt + (intraday ? 0 : 18 * 3600e3));
+  return ix < 0 ? null : { ix, local:false };
+}
+/* the pointer's date to the other panes: once per bar, not once per pixel */
+function shareChartHover(host) {
+  const hv = host._hoverLocal ? chartHoverIndex(host) : null;
+  const at = hv && host._series && host._series[hv.ix] ? Date.parse(host._series[hv.ix].d) : null;
+  if (host._hoverSent === at) return;
+  host._hoverSent = at;
+  for (const other of CHART_HOSTS) if (other !== host && other.isConnected) { other._hoverAt = at; scChartOverlay(other); }
+  if (!BARE || HUB_PANE || window.parent === window) return;
+  try { parent.postMessage({ sc:"chart-hover", at }, location.origin); } catch (_) {}
+}
+const chartPctText = (pct) => pct == null || !isFinite(pct) ? "" : (pct >= 0 ? "+" : "−") + Math.abs(pct).toFixed(Math.abs(pct) < 10 ? 2 : 1) + "%";
+/* Paints the overlay only: the current-price marker, the crosshair, its readouts. Never the price or clouds. */
+function scChartOverlay(host) {
+  const area = host.querySelector(".sc-nchart__area"), ov = host.querySelector(".sc-nchart__ov");
+  host._scrubLabel = null; host._scrubTimeTag = null; host._levelTag = null;
+  if (!area || !ov) return;
+  const g = host._ov, pts = host._series;
+  const w = g ? g.w : area.clientWidth, h = g ? g.h : area.clientHeight;
+  const dpr = g ? g.dpr : (window.devicePixelRatio || 1);
+  if (ov.width !== Math.round(w * dpr) || ov.height !== Math.round(h * dpr)) {
+    ov.width = Math.round(w * dpr); ov.height = Math.round(h * dpr);
+  }
+  const ctx = ov.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  if (!g || !pts || pts.length < 2) { lensFadeUnderTag(host); return; }
+  const { padL, padT, iw, ih, X, yLo, yHi, readoutBottom, scale, ipadProfile, col } = g;
+  const t = host.dataset.t;
+  const MONO_PX = 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  const readoutMeasure = (text, font) => { ctx.font = font + MONO_PX; return ctx.measureText(text).width; };
+  const hover = chartHoverIndex(host);
+  const scrubOn = !!(hover && pts[hover.ix]);
+  const R = host._readoutSpot;
+  /* the RSI panel carries the crosshair's time down and reads every line at that bar: its band is repainted
+     here, on the overlay, over the base paint's resting copy */
+  if (g.fanOpts) {
+    if (scrubOn) {
+      const o = g.fanOpts, inView = hover.ix >= g.start && hover.ix <= g.end;
+      ctx.fillStyle = TV_PANE_BG;
+      ctx.fillRect(0, Math.floor(o.top - o.gap / 2) - 1, w, Math.ceil(o.height + o.gap / 2) + 2);
+      host._rsiDrawn = g.fanDraw(ctx, Object.assign({}, o, { scrubIx:inView ? hover.ix : null }));
+    } else host._rsiDrawn = g.fanRest || host._rsiDrawn;
+  }
+  /* the current-price marker, drawn whether or not the crosshair is up; it steps just above the readout
+     only when the two would touch (S1) */
+  if (g.live) {
+    const L0 = g.live;
     ctx.save();
-    ctx.strokeStyle = col.dim; ctx.globalAlpha = .62; ctx.lineWidth = .75;
-    ctx.beginPath(); ctx.moveTo(sx, padT); ctx.lineTo(sx, padT + ih); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(padL, sy); ctx.lineTo(padL + iw, sy); ctx.stroke();
-    ctx.globalAlpha = 1;
+    ctx.font = L0.font + MONO_PX;
     ctx.textBaseline = "middle";
-    /* S1 (29 Sep): the readout in its fixed spot (see the current-price label above). N10's rule stands:
-       the percent is (this level / the current price - 1), the current price being the live quote or,
-       without one, the last bar. The percent is the biggest text, the price under it. */
-    const L = crosshairReadout(readoutMeasure, { w, h, plotBottom: readoutBottom, plotTop: padT, priceText, pctText, up: pct >= 0, scale });
-    ctx.fillStyle = "rgba(5,6,12,.94)";
-    ctx.fillRect(L.box.x, L.box.y, L.box.w, L.box.h);
-    ctx.textAlign = "right";
-    for (const line of L.lines) {
-      ctx.font = line.font + MONO_PX; ctx.fillStyle = col[line.ink]; ctx.globalAlpha = line.alpha;
-      ctx.fillText(line.text, L.right, line.y);
-    }
-    ctx.globalAlpha = 1;
-    host._scrubLabel = { x: L.box.x, y: L.box.y, w: L.box.w, h: L.box.h, plotRight: padL + iw, pct: pctText, price: priceText,
-      pctFont: L.pctFont, priceFont: L.priceFont };
-    ctx.font = markerFont + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+    const liveW = Math.min(g.padR - 2, Math.ceil(ctx.measureText(L0.text).width) + 6);
+    const liveX = w - liveW - 1;
+    let liveTop = Math.max(padT, Math.min(padT + ih - 12, L0.y - 6));
+    if (scrubOn && R && liveTop + 12 > R.y - 1 && liveTop < R.y + R.h + 1) liveTop = Math.max(padT, R.y - 13);
+    ctx.fillStyle = "rgba(5,6,12,.92)";
+    ctx.fillRect(liveX, liveTop, liveW, 12);
+    ctx.fillStyle = L0.color; ctx.textAlign = "right";
+    ctx.fillText(L0.text, w - 4, liveTop + 6);
+    ctx.restore();
+    host._liveTag = { y:liveTop, h:12 };
+  }
+  if (!scrubOn) { lensFadeUnderTag(host); return; }
+  const ix = hover.ix, bar = pts[ix];
+  const markerFont = Math.max(6.5, (ipadProfile ? 7 : 7.5) * scale);
+  const nowPx = g.livePriceValue != null ? g.livePriceValue : g.dayPx;
+  const sx = hover.local ? Math.max(padL, Math.min(padL + iw, host._hoverLocal.x)) : X(ix);
+  const lineOn = sx >= padL - .5 && sx <= padL + iw + .5;   /* a date outside this pane's window: no line, the readout stays */
+  ctx.save();
+  ctx.strokeStyle = col.dim; ctx.globalAlpha = .62; ctx.lineWidth = .75;
+  if (lineOn) { ctx.beginPath(); ctx.moveTo(sx, padT); ctx.lineTo(sx, padT + ih); ctx.stroke(); }
+  let sy = null;
+  if (hover.local) {
+    sy = Math.max(padT, Math.min(padT + ih, host._hoverLocal.y));
+    ctx.beginPath(); ctx.moveTo(padL, sy); ctx.lineTo(padL + iw, sy); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  ctx.textBaseline = "middle";
+  /* THE CORNER READOUT, the same fixed spot on every pane (S1): this pane's price on the hovered date and the
+     percent from that date to now (the live quote, else the last bar) - green when now is higher. */
+  const then = bar.p;
+  const sincePct = nowPx > 0 && then > 0 ? (nowPx / then - 1) * 100 : null;
+  const L = crosshairReadout(readoutMeasure, { w, h, plotBottom: readoutBottom, plotTop: padT, priceText: chPx(then, t), pctText: chartPctText(sincePct), up: sincePct >= 0, scale });
+  ctx.fillStyle = "rgba(5,6,12,.94)";
+  ctx.fillRect(L.box.x, L.box.y, L.box.w, L.box.h);
+  ctx.textAlign = "right";
+  for (const line of L.lines) {
+    ctx.font = line.font + MONO_PX; ctx.fillStyle = col[line.ink]; ctx.globalAlpha = line.alpha;
+    ctx.fillText(line.text, L.right, line.y);
+  }
+  ctx.globalAlpha = 1;
+  host._scrubLabel = { x: L.box.x, y: L.box.y, w: L.box.w, h: L.box.h, plotRight: padL + iw, pct: chartPctText(sincePct), price: chPx(then, t),
+    pctFont: L.pctFont, priceFont: L.priceFont, date: bar.d, mode: hover.local ? "pointer" : "synced", up: sincePct >= 0 };
+  /* THE LEVEL TAG, on the pane under the pointer only: the horizontal line's price, and how far that level is
+     from the current price (N10 / O1: green above the current price, red below), at the line's height on
+     the right edge; it steps just above the corner readout rather than cover it */
+  if (sy != null) {
+    const price = yLo + (1 - (sy - padT) / ih) * (yHi - yLo);
+    const pct = nowPx > 0 ? (price / nowPx - 1) * 100 : null;
+    const levelFont = Math.round(11 * scale * 10) / 10;
+    const priceText = chPx(price, t), pctText = chartPctText(pct);
+    ctx.font = "600 " + levelFont + MONO_PX;
+    const gap = pctText ? 6 : 0;
+    const pw = ctx.measureText(pctText).width, qw = ctx.measureText(priceText).width;
+    const tagW = Math.ceil(pw + gap + qw) + 8, tagH = Math.round(levelFont + 4);
+    let tagY = Math.max(padT, Math.min(padT + ih - tagH, sy - tagH / 2));
+    if (tagY + tagH > L.box.y - 1 && tagY < L.box.y + L.box.h + 1) tagY = Math.max(padT, L.box.y - tagH - 1);
+    const tagX = w - 1 - tagW;
+    ctx.fillStyle = "rgba(5,6,12,.94)"; ctx.fillRect(tagX, tagY, tagW, tagH);
+    ctx.textAlign = "right"; ctx.fillStyle = col.dim; ctx.fillText(priceText, w - 5, tagY + tagH / 2 + .5);
+    if (pctText) { ctx.fillStyle = pct >= 0 ? col.bull : col.bear; ctx.fillText(pctText, w - 5 - qw - gap, tagY + tagH / 2 + .5); }
+    host._levelTag = { x: tagX, y: tagY, w: tagW, h: tagH, price: priceText, pct: pctText, font: levelFont };
+  }
+  if (lineOn) {
+    const timeText = chHoverTime(chEtIso(bar.d, host._range || S.chartRange), host._range || S.chartRange);
+    ctx.font = markerFont + MONO_PX;
     const timeW = Math.ceil(ctx.measureText(timeText).width) + 8;
     const timeX = Math.max(padL, Math.min(padL + iw - timeW, sx - timeW / 2));
     const timeY = Math.max(padT + 12, padT + ih - 7);   /* its own row, under the readout's box */
@@ -2545,8 +2668,9 @@ function scChartDraw(host, scrub) {
     ctx.fillStyle = col.dim; ctx.textAlign = "center";
     ctx.fillText(timeText, timeX + timeW / 2, timeY);
     host._scrubTimeTag = { x: timeX, y: timeY - 6, w: timeW, h: 12 };
-    ctx.restore();
   }
+  ctx.restore();
+  lensFadeUnderTag(host);
 }
 
 /* THE CROSSHAIR'S READOUT (S1, 29 Sep; it replaces N10's label that rode the crosshair's y in the price
@@ -2554,14 +2678,18 @@ function scChartDraw(host, scrub) {
    the canvas width w and height h, the plot's top and bottom, the price and percent texts, up (the percent
    is >= 0) and the pane scale. ONE FIXED SPOT per pane: the plot's bottom-right corner, the box's right
    edge 1 px inside the pane's, its bottom 13 px above the plot's bottom so the crosshair's time tag keeps
-   its own row. The percent is the biggest text (14 px on an 8-up pane, up to 18 px from a 2-up pane
-   upwards, 7% of the pane's height between), the price under it at 11 px; with no current price there is
-   no percent and the price is the only line. `box` is the same rectangle whatever the texts measure in
+   its own row. The percent leads, the price under it; with no current price there is no percent and the
+   price is the only line.
+   S5 (1 Oct), Alan: "you made the percent bigger but it's too big, bro, crazy big… think UI UX proportions."
+   It was 18 px on an 8-up pane (7% of the pane's height, 14-18 px). It is now about a quarter larger than
+   the price: 4.7% of the pane's height between 12.5 and 16 px (13 px on the 8-up at 1680), the price
+   1/1.25 of that and never under the wall's 11 px floor for text (so 11 px on the 8-up, 12.8 px at the cap). `box` is the same rectangle whatever the texts measure in
    the usual range, so the lens can keep out of it before any crosshair is up. */
 function crosshairReadout(measure, o) {
   const k = Math.max(1, o.scale || 1);
-  const pctFont = Math.round(Math.max(14, Math.min(18, (o.h || 0) * 0.07)) * k * 10) / 10;
-  const priceFont = Math.round(11 * k * 10) / 10;
+  const pct = Math.max(12.5, Math.min(16, (o.h || 0) * 0.047));
+  const pctFont = Math.round(pct * k * 10) / 10;
+  const priceFont = Math.round(Math.max(11, pct / 1.25) * k * 10) / 10;
   const rows = [];
   if (o.pctText) rows.push({ text: o.pctText, font: "700 " + pctFont, size: pctFont, ink: o.up ? "bull" : "bear", alpha: 1 });
   rows.push({ text: o.priceText, font: "700 " + priceFont, size: priceFont, ink: "dim", alpha: 1 });
@@ -3415,20 +3543,29 @@ function scChartScrub(host) {
   let gesture = null;
   let trackpadGesture = null;
   let wheelGesture = { mode:null, lastAt:0, absX:0, absY:0, ctrl:false };
+  /* S5 (1 Oct): the pointer's spot is KEPT on the pane and only the overlay repaints. The bar under it is
+     read in chartHoverIndex with the same x scale the bars were drawn with, right margin included. */
   const show = (clientX, clientY) => {
     const pts = host._series, plot = host._plot;
     if (!pts || pts.length < 2 || !plot) return;
     const r = cv.getBoundingClientRect();
-    let f = (clientX - r.left - plot.padL) / plot.iw;
-    f = Math.max(0, Math.min(1, f));
-    /* The right margin is part of the x scale — the ribbon's name band widened it —
-       so the bar under the crosshair is read with the same scale the bars were drawn
-       with, instead of stretching the visible span across the margin too. */
-    const ix = Math.max(plot.start, Math.min(plot.end,
-      Math.round(plot.start + f * (plot.end - plot.start + (plot.rightBars || 0)))));
-    scChartDraw(host, { ix, x:clientX - r.left, y:clientY - r.top });
+    host._hoverLocal = { x:clientX - r.left, y:clientY - r.top };
+    scChartOverlay(host);
+    shareChartHover(host);
   };
-  const hideScrub = () => { if (host._series) scChartDraw(host); };
+  const hideScrub = () => {
+    if (host._touchHoverTimer) { clearTimeout(host._touchHoverTimer); host._touchHoverTimer = null; }
+    if (!host._hoverLocal) return;
+    host._hoverLocal = null;
+    scChartOverlay(host);
+    shareChartHover(host);
+  };
+  /* touch has no hover: a tap puts the crosshair there, and it leaves four seconds after the last touch */
+  const touchHover = (clientX, clientY) => {
+    show(clientX, clientY);
+    if (host._touchHoverTimer) clearTimeout(host._touchHoverTimer);
+    host._touchHoverTimer = setTimeout(() => { host._touchHoverTimer = null; if (!pointers.size) hideScrub(); }, CHART_TOUCH_HOVER_MS);
+  };
   const snapshot = () => {
     const pts = host._series || [], v = chartView(host, pts);
     return { start:v.start, end:v.end };
@@ -3477,7 +3614,11 @@ function scChartScrub(host) {
     } else if (e.pointerType === "mouse") show(e.clientX, e.clientY);
   });
   const release = (e) => {
-    pointers.delete(e.pointerId); cv.classList.remove("is-panning"); hideScrub();
+    /* a press that never became a drag or a pinch is a tap: the crosshair stays (touch: for four seconds) */
+    const tap = e.type === "pointerup" && pointers.size === 1 && gesture && gesture.type === "pending";
+    pointers.delete(e.pointerId); cv.classList.remove("is-panning");
+    if (tap) { if (e.pointerType === "mouse") show(e.clientX, e.clientY); else touchHover(e.clientX, e.clientY); }
+    else hideScrub();
     if (pointers.size === 1) {
       const p = Array.from(pointers.values())[0]; gesture = { type:"pending", x:p.x, view:snapshot() };
     } else gesture = null;
@@ -3485,8 +3626,13 @@ function scChartScrub(host) {
   };
   cv.addEventListener("pointerup", release);
   cv.addEventListener("pointercancel", release);
-  cv.addEventListener("pointerleave", (e) => {
-    if (!pointers.has(e.pointerId)) hideScrub();
+  /* S5: the crosshair leaves when the pointer leaves the CHART AREA - not the canvas, which the pointer also
+     "leaves" for the ticker badge or the Geiger chip sitting on top of it. Over those it keeps following. */
+  area.addEventListener("pointermove", (e) => {
+    if (e.target !== cv && e.pointerType === "mouse" && !pointers.size) show(e.clientX, e.clientY);
+  });
+  area.addEventListener("pointerleave", (e) => {
+    if (e.pointerType === "mouse" && !pointers.has(e.pointerId)) hideScrub();
   });
   for (const type of ["selectstart", "dragstart"]) {
     area.addEventListener(type, (event) => event.preventDefault(), { capture:true });
@@ -3594,6 +3740,12 @@ window.addEventListener("message", (event) => {
     document.documentElement.dataset.view = VIEW_PROFILE;
     applyIpadPaneScale(event.data.scale);
     for (const host of CHART_HOSTS) if (host.isConnected) scChartDraw(host);
+    return;
+  }
+  if (event.data?.type === "SCINTILLA_CHART_HOVER") {
+    /* S5: the date another pane's crosshair is on (null: it left); only the overlay repaints */
+    const at = event.data.at == null ? null : Number(event.data.at);
+    for (const host of CHART_HOSTS) if (host.isConnected) { host._hoverAt = Number.isFinite(at) ? at : null; scChartOverlay(host); }
     return;
   }
   if (event.data?.type !== "SCINTILLA_CHART_VIEW") return;

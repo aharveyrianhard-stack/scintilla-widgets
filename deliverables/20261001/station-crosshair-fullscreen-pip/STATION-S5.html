@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Station · 1 Oct: crosshair, charts only, floating video</title>
+<style>
+:root{--bg:#0A0A0F;--panel:#0F0F16;--line:#1C1C26;--ink:#C8C8D2;--body:#A8A8B6;--dim:#8C8C9A;--up:#00C98A;--dn:#D02E4C}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--body);font:17px/1.55 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:34px;margin:0 0 6px;color:var(--ink)} h2{font-size:25px;margin:44px 0 8px;color:var(--ink)} h3{font-size:19px;margin:26px 0 6px;color:var(--ink)}
+p,ul,ol{max-width:1100px} li{margin:6px 0} .lead{font-size:21px;color:var(--ink)} .note{color:var(--dim);font-size:14px}
+blockquote{margin:10px 0 18px;padding:8px 16px;border-left:3px solid #33333D;color:var(--ink);max-width:1000px}
+table{border-collapse:collapse;font-size:15px;margin:10px 0 6px;max-width:100%} th,td{border:1px solid var(--line);padding:7px 11px;text-align:left;vertical-align:top}
+th{color:var(--dim);font-weight:600} td.num{font:14px ui-monospace,Menlo,monospace;text-align:right}
+code{font:14px ui-monospace,Menlo,monospace;background:var(--panel);padding:2px 6px;border-radius:4px;color:var(--ink)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;margin:12px 0 26px}
+.phones{display:flex;gap:16px;flex-wrap:wrap;margin:12px 0 26px} .phones figure{width:300px}
+figure{margin:0 0 18px} img{width:100%;height:auto;border:1px solid var(--line);display:block}
+figcaption{font:13px ui-monospace,Menlo,monospace;color:var(--dim);margin-top:5px}
+.box{border:1px solid var(--line);background:var(--panel);padding:12px 16px;margin:10px 0 16px;max-width:1100px}
+.up{color:var(--up)} .dn{color:var(--dn)} b{color:var(--ink)}
+@media (max-width:760px){body{padding:18px 16px 60px;font-size:16px}.pair{grid-template-columns:1fr}h1{font-size:27px}
+  table{display:block;overflow-x:auto;max-width:100%} code{word-break:break-all} .phones figure{width:100%}}
+</style></head><body>
+
+<h1>Station · 1 Oct: the crosshair stays and works on every chart, charts only, a floating video</h1>
+<p class="lead">Branch <code>station/s5-crosshair-fullscreen-pip-20261001</code>, built on today's live Station (<code>75e653c</code>). Before starting, I checked that the live Station serves exactly these files. <b>Not pushed, not deployed.</b> All five items are built. Each was tested in a hidden browser and photographed at 1680 wide and at phone width (390).</p>
+
+<div class="box">
+<b>In one minute</b>
+<ul>
+<li><b>The crosshair no longer disappears.</b> I reproduced it. On today's Station, with the mouse held still over a chart, the crosshair was gone after <b>5 seconds</b>. The cause was the chart's routine repaint for each new price, which wiped it. Now it stays as long as the mouse is over the chart (tested for 16 seconds, and through a repaint). It leaves when the mouse leaves the chart. On a phone or iPad, it leaves 4 seconds after your last touch.</li>
+<li><b>The % is in proportion.</b> On the 8-chart page it was <b>18 px</b>. It is now <b>13 px</b> over an 11 px price, so the % is a little bigger than the price. It grows with bigger charts, up to 16 px over 12.8 px.</li>
+<li><b>One date, every chart.</b> Hover one chart and the same date's line appears on every chart on the page. Each chart shows its own price on that date and the % from then to now, <span class="up">green</span> when it is higher now. On TARGETS at 2 Jun 2026: MU <span class="up">+5.52%</span>, AVGO <span class="dn">−15.9%</span>, WMT <span class="dn">−11.2%</span> and so on. The horizontal line and its price tag stay on the chart under your mouse.</li>
+<li><b>Charts only, at last visible.</b> The button already existed, but it sat in a part of the top strip that has been hidden since 23 Sep. That's why you never saw it. Only the <b>W</b> key worked. It is now the second button, right after <b>HUB</b>. It gives the whole screen to the charts (the chart area went from 554 to 1050 px tall). Rotation keeps running, and the setting is remembered.</li>
+<li><b>Floating video.</b> A <b>⧉ FLOAT</b> button on the video panel lifts the playing video into a floating window that stays on top. It starts at the same second (tested: the panel was at 24.0 s and the window started at 24 s). The panel pauses so the two don't play at once. Where a browser can't do this, a small separate window opens instead. The panel says in words which kind you got.</li>
+</ul>
+</div>
+
+<h2>1 · The crosshair stays</h2>
+<blockquote>"it goes away very quickly when I stop moving my mouse"</blockquote>
+<p>The chart repaints itself every time a new price arrives, every few seconds. The crosshair was drawn as part of that same picture, so each repaint wiped it. The crosshair now lives on its own see-through layer on top of the chart. The chart remembers where your mouse is, so a repaint puts the crosshair back in the same place.</p>
+<table>
+<tr><th>Mouse held still over GOOGL on TARGETS, checked once a second for 16 s</th><th>1 = crosshair drawn</th></tr>
+<tr><td>Today's Station (live code)</td><td class="num">1111100000000000</td></tr>
+<tr><td>This branch</td><td class="num">1111111111111111</td></tr>
+</table>
+<p>It also used to vanish when the mouse passed over the ticker badge or the Geiger chip, which sit on top of the chart. It now leaves only when the mouse leaves the chart area. Clicking without dragging keeps it. On a phone, tapping a chart puts the crosshair there for 4 seconds. Tested: drawn at 3 s, gone at 5 s.</p>
+
+<h2>2 · In proportion</h2>
+<blockquote>"you made the percent bigger but it's too big, bro, crazy big… think UI UX proportions"</blockquote>
+<p>Same corner as before: bottom right of each chart, with the % on top and the price under it.</p>
+<table>
+<tr><th>Chart size</th><th>% before</th><th>% now</th><th>price now</th></tr>
+<tr><td>8 charts at 1680 (277 px tall)</td><td class="num">18 px</td><td class="num">13 px</td><td class="num">11 px</td></tr>
+<tr><td>6 charts (360 px)</td><td class="num">18 px</td><td class="num">16 px</td><td class="num">12.8 px</td></tr>
+<tr><td>Phone (473 px)</td><td class="num">18 px</td><td class="num">16 px</td><td class="num">12.8 px</td></tr>
+</table>
+<p class="note">The price never goes below 11 px, the wall's minimum for text. So on the 8-chart page the % is about a fifth larger than the price, not a full quarter. That ratio reaches a quarter on bigger charts.</p>
+
+<h2>3 · On every chart at once</h2>
+<blockquote>"the charts are synced in terms of the date… make that grid work on all of the charts… I see the percentage price change to all of the charts… a really cool way of tracking my targets and upside downside"</blockquote>
+<div class="pair">
+<figure><img src="shots/before-targets-1680-hover-crop.png" alt="before"><figcaption>BEFORE (live code): only GOOGL, the chart under the mouse, has the crosshair. Its % is 18 px and measures the mouse's price level against now.</figcaption></figure>
+<figure><img src="shots/after-targets-1680-hover-crop.png" alt="after"><figcaption>AFTER: the same date line (2 Jun 2026) on GOOGL and NBIS. Each corner shows that chart's price on 2 Jun and the % from then to now. GOOGL also has the horizontal line, with its tag "−0.33% 348.59".</figcaption></figure>
+</div>
+<figure><img src="shots/after-targets-1680-hover.png" alt="whole wall"><figcaption>AFTER, the whole TARGETS page at 1680: all eight charts carry the 2 Jun line and their own readout. MU is the only one higher now (green +5.52%).</figcaption></figure>
+<figure><img src="shots/after-targetsOsc-1680-hover-crop.png" alt="rsi page"><figcaption>AFTER, TARGETS · RSI: the date line runs through the RSI panel, and each chart's RSI row reads its own values on that date (GOOGL "3H 72.3 4H 74.0 … D 61.1").</figcaption></figure>
+<div class="phones">
+<figure><img src="shots/after-targets-390-tap-crop.png" alt="phone"><figcaption>Phone 390, after a tap on GOOGL: % 16 px over a 12.8 px price; NBIS below shows the same date.</figcaption></figure>
+</div>
+<h3>What the numbers are</h3>
+<ul>
+<li><b>Price on that date</b> is that chart's own bar at the date you are pointing at. If a chart has no bar at that exact moment (futures and stocks keep different hours), it uses its <b>last bar before</b> that moment. On daily charts, a date means that calendar day, even when one market stamps its days at New York midnight and another at London midnight. If a chart's history starts after that date, it shows nothing.</li>
+<li><b>Now</b> is the same price the chart's badge shows: the live quote, or the last bar when there is no quote.</li>
+<li><b>% = now ÷ price on that date − 1.</b> Green when now is higher, red when lower.</li>
+<li><b>The tag on the horizontal line</b> (chart under the mouse only) keeps the old rule: that price level against now. It is green when the level is above the current price and red when below.</li>
+</ul>
+<p><b>Only the top layer is redrawn.</b> I counted: sweeping the mouse 40 steps across a chart redrew the top layer 40 times on every chart and the charts themselves <b>0 times</b>.</p>
+
+<h2>4 · Charts only</h2>
+<blockquote>"a way to expand the chart area full screen so that I do not see the YouTube and the X. I've mentioned that several times."</blockquote>
+<p>It was built on 24 Sep (M47). On 23 Sep, though, the top strip's "video feed" section was hidden, and the button lived inside that section. Only the W key ever worked. The button now sits beside <b>HUB</b>. Pressing it again brings the videos and X back. The setting is remembered in this browser.</p>
+<figure><img src="shots/after-chartsonly-1680-dock.png" alt="dock"><figcaption>The top strip with "CHARTS ONLY" beside HUB.</figcaption></figure>
+<figure><img src="shots/after-chartsonly-1680-on.png" alt="charts only"><figcaption>Charts only on, 1680: the eight TARGETS charts fill the screen (1050 px tall, up from 554).</figcaption></figure>
+<table>
+<tr><th>Checked in the hidden browser</th><th>1680</th><th>390</th></tr>
+<tr><td>Button visible in the strip</td><td>yes (78×18 px)</td><td>yes</td></tr>
+<tr><td>Press: video and X hidden, charts take the space</td><td>yes</td><td>yes</td></tr>
+<tr><td>Reload: still on</td><td>yes</td><td>yes</td></tr>
+<tr><td>Rotation keeps going (TARGETS → SECTORS while on)</td><td>yes</td><td>yes</td></tr>
+<tr><td>Press again: video and X back</td><td>yes</td><td>yes</td></tr>
+<tr><td>W key, twice: on, then off</td><td>yes</td><td>yes</td></tr>
+</table>
+<p class="note">The video and X are hidden, not closed: X keeps its live capture running behind the charts, as M47 intended, so bringing them back is instant.</p>
+
+<h2>5 · Floating video (picture-in-picture)</h2>
+<blockquote>"a little picture in picture player that actually goes off the station PWA… they're discussing charts"</blockquote>
+<p>Press <b>⧉ FLOAT</b> on the video panel's bar (it shows while a video plays; the same item is also in the ••• menu). The video opens in a floating window that stays above every other window, outside the Station, at the second it was at. The panel pauses and says which kind of window you got:</p>
+<ul>
+<li><b>"floating · picture-in-picture window (always on top)"</b>: the proper floating window. Chrome, Edge and Brave have it.</li>
+<li><b>"floating · separate window (this browser has no always-on-top picture-in-picture)"</b>: Safari and Firefox, and phones. A small normal window playing the video on YouTube, from the same second.</li>
+</ul>
+<div class="pair">
+<figure><img src="shots/after-pip-1680-station-after.png" alt="station after float"><figcaption>The Station after pressing FLOAT: the panel is paused, and its bar reads "floating · picture-in-picture window …" beside the ⧉ FLOAT button.</figcaption></figure>
+<figure><img src="shots/after-pip-1680-pipwindow.png" alt="pip window"><figcaption>The floating window itself, playing the same video from 24 s. (A hidden browser draws it at full size; on your screen it opens small, 480×270, and you can resize it.)</figcaption></figure>
+</div>
+<p><b>Why your extension gave a black frame:</b> YouTube plays inside its own sealed frame. A browser extension can only lift a bare video, so it got nothing. This button moves the whole player into the floating window instead.</p>
+<p><b>One snag I found and fixed:</b> my first attempt put the YouTube player straight into the floating window. YouTube refused it ("Error 153 · video player configuration error") because that window has no web address. The floating window now opens a tiny Station page, <code>/station-shells/pip-v1/</code>, which holds the player. That page reads and saves nothing.</p>
+<table>
+<tr><th>Checked in a hidden Chromium 151</th><th>Result</th></tr>
+<tr><td>Floating-window support present</td><td>yes</td></tr>
+<tr><td>Click in the panel → the Station opens the floating window</td><td>yes, opened</td></tr>
+<tr><td>Same second (1680 run)</td><td>panel at 24.03 s → window starts at 24 s</td></tr>
+<tr><td>Same second (390 run)</td><td>panel at 40.09 s → window starts at 40 s</td></tr>
+<tr><td>Panel paused</td><td>yes (YouTube state "paused")</td></tr>
+<tr><td>Browser without support (simulated)</td><td>separate window at <code>watch?v=…&amp;t=32s</code>; panel says so</td></tr>
+</table>
+
+<div class="box">
+<b>Your one-line check in Brave on the iMac</b> (after this is deployed):<br>
+Play any video on the Station, press <b>⧉ FLOAT</b>, and read the words on the video bar. <b>"picture-in-picture window (always on top)"</b> means Brave is using the proper path.<br>
+<span class="note">Or, before deploying: in Brave press ⌥⌘J and paste <code>'documentPictureInPicture' in window</code>. <b>true</b> means the proper path is available.</span>
+</div>
+
+<h2>What could be wrong</h2>
+<ul>
+<li><b>Brave itself was not tested.</b> I only tested Chromium, the engine Brave is built on, and never touched the iMac. Brave Shields could block the YouTube player inside the floating window; the check above will show it.</li>
+<li>The floating window's real on-screen size (480×270) and its staying on top can't be seen in a hidden browser. The test proves the window opens and plays the right video from the right second.</li>
+<li>When you close the floating window, the panel stays paused at the second you lifted it. It does not pick up where the floating window stopped.</li>
+<li>On the right-hand charts, the Station's own "›" next-page arrow partly covers the readout corner (visible on WMT). That was true before today and is unchanged.</li>
+<li>On a phone, the panel's status sentence is shortened to "float…" (the full sentence is its tooltip).</li>
+<li>The date line uses each chart's bar start time. Two charts with different bar sizes can each show a bar that "contains" the date, a few hours apart.</li>
+</ul>
+
+<h2>What I did not do</h2>
+<ul>
+<li>No push, no deploy, no data written anywhere. Nothing ran on the iMac.</li>
+<li>The X column on the left, the "blueprint" layout, and the editable chart space are not built. You asked for a blueprint first.</li>
+<li>The older top-level video page (<code>video-v1</code>, kept for rollback) is unchanged.</li>
+</ul>
+
+<h2>Tests</h2>
+<p><code>node --test tests/</code>: <b>910 tests, 891 pass, 18 fail</b>. The 18 failures are exactly the 18 that already fail on the live Station; none are new, and none were fixed. I added <code>tests/station-crosshair-s5-20261001.test.mjs</code> (16 tests covering all five items). I updated 6 older tests that pinned the old crosshair's exact code or the old 14–18 px rule; each change notes why.</p>
+<p class="note">Proof scripts: <code>harness/crosshair.mjs</code>, <code>hold.mjs</code>, <code>chartsonly.mjs</code>, <code>pip.mjs</code>. All ran hidden. Chart prices came from the chart service, fetched by the test script with the scintillahub.ai origin, because the service only answers that site. The browser's cross-site check was relaxed for these local runs.</p>
+</body></html>
