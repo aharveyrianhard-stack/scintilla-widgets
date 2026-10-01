@@ -216,7 +216,7 @@ test("wiring: both chart twins load the arithmetic and the fan, the panel sits u
   assert.match(chart, /ensureCloudDaily\(host, t, req, generation\);\s*\/\*[^*]*\*\/\s*ensureRsiFan\(host, t, req, generation\);/,
     "the fan is asked for after the price and the ribbon");
   assert.match(chart, /acquireChartLoadPermit\(host, req \+ "\|rsi", generation\)/, "one load permit per pane for the whole fan");
-  assert.match(chart, /fetchProviderCandles\(t, tf, Math\.min\(need, F\.TAIL_LIMIT\), 2\)/, "the tail, through the pane's own provider route");
+  assert.match(chart, /fetchProviderCandles\(t, tf, Math\.min\(need, F\.TAIL_LIMIT\), 2, forming\)/, "the tail, through the pane's own provider route (P7: with its forming bar)");
   assert.match(chart, /need > F\.TAIL_LIMIT \? fetchProviderCandles\(t, tf, need, 2\)/, "and, past the tail limit, the history beside it");
   assert.match(chart, /F\.joinTail\(toBars\(historyRows\), toBars\(tailRows\)\)/, "joined on timestamps");
   assert.doesNotMatch(chart, /sc_rsi_/, "the fan's source bars are never written to local storage");

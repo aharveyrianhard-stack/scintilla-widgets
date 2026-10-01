@@ -1223,7 +1223,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     });
     return read.then(function (filed) { if (timer) clearTimeout(timer); return Object.keys(filed).length; });
   };
-  function providerCandleRows (symbol, rawTf, limit, signal) {
+  function providerCandleRows (symbol, rawTf, limit, signal, forming) {
     var tf = TF[rawTf];
     if (!tf) {
       note('unmapped timeframe ' + rawTf, symbol);
@@ -1233,11 +1233,13 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
        half whatever the page showed (Alan: "we have a database that goes super long"). The chart API
        serves daily bars back to 2003; 8,000 covers the HISTORY page and the ribbon's warm-up. */
     var bounded = candleBound(limit);
-    var url = candleUrl(symbol, tf, bounded);
-    var cached = candleCacheGet(url);
+    /* P7 (1 Oct): forming=1 adds the bar still forming (marked forming:true) after the completed ones. It
+       moves with the price, so it is never put in the shared candle cache; only the RSI fan asks for it. */
+    var url = candleUrl(symbol, tf, bounded) + (forming ? '&forming=1' : '');
+    var cached = forming ? null : candleCacheGet(url);
     /* H3 — the page's one read for many (S.candlesMany) is out with this name in it: wait for it, and read
-       alone only if it did not bring this series back */
-    var pend = cached || signal ? null : candlePendingGet(url);
+       alone only if it did not bring this series back (a forming read is never part of that one read) */
+    var pend = cached || signal || forming ? null : candlePendingGet(url);
     /* the same request already out in this frame (the fan and the ribbon both want the daily bars
        at the same moment) is shared, not sent twice; a caller's abort stays its own */
     var read = cached ? Promise.resolve(cached)
@@ -1246,7 +1248,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     function ownRead () { return (!signal && candleInflight[url]) || (function () {
       var p = jget(url, signal).then(function (payload) {
         /* only a complete, unnamed series is worth keeping; the checks below still run on every read */
-        if (payload && Array.isArray(payload.series) && payload.series.length &&
+        if (!forming && payload && Array.isArray(payload.series) && payload.series.length &&
             !(payload.absence || payload.reason || (payload.state && payload.state !== 'OK')))
           candleCachePut(url, tf, payload);
         return payload;
@@ -1294,7 +1296,8 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
           call_volume: Number.isFinite(bar.cv) ? Number(bar.cv) : null,
           provider: payload.provider || 'MASSIVE',
           provider_symbol: payload.provider_symbol || symbol,
-          authority: payload.bar_authority || 'PROVIDER_BUILT'
+          authority: payload.bar_authority || 'PROVIDER_BUILT',
+          forming: bar.forming === true
         };
       }).reverse().slice(0, bounded);
     });
@@ -1582,7 +1585,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     var sym = requested[0];
     return providerOwned(options.signal, readSupabase).then(function (own) {
       if (own[sym] || MACRO_SYMBOLS[sym] || PUTCALL_SYMBOLS[sym] || SCINTILLA_PUTCALL_SYMBOLS[sym])
-        return providerCandleRows(sym, String(timeframe || ''), options.limit, options.signal);
+        return providerCandleRows(sym, String(timeframe || ''), options.limit, options.signal, options.forming === true);
       throw S.absenceError(ABSENCE_NOT_SERVED, sym, String(timeframe || ''));
     });
   };

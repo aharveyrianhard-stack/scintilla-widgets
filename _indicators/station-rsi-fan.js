@@ -236,9 +236,15 @@
     const list = (bars || []).filter((b) => b && Number.isFinite(b.t) && Number.isFinite(b.c));
     const values = M.rsiSeries(list, LENGTH);
     const warm = warmFor(list.length), approx = warm < WARMUP;
-    return list.map((b, i) => ({ t:b.t,
-      end:line.byNext && i + 1 < list.length ? Math.max(b.t + DAY, list[i + 1].t - 4 * HOUR) : b.t + line.durMs,
-      v:i < warm ? null : values[i], approx }));
+    /* P7 (1 Oct): a bar the chart API marks forming (forming=1) keeps the mark. It is the developing tip's
+       source only: sampleToChart, lineStatus and dayDirection treat finished bars alone as values. */
+    return list.map((b, i) => {
+      const p = { t:b.t,
+        end:line.byNext && i + 1 < list.length ? Math.max(b.t + DAY, list[i + 1].t - 4 * HOUR) : b.t + line.durMs,
+        v:i < warm ? null : values[i], approx };
+      if (b.forming === true) p.forming = true;
+      return p;
+    });
   }
 
   /* ---- composing a width from bars the fan already reads (28 Sep) ---- */
@@ -277,6 +283,8 @@
       }
       if (k !== key) { if (cur) out.push(cur); key = k; cur = { t:start == null ? b.t : start, c:b.c, n:1 }; }
       else { cur.c = b.c; cur.n++; }
+      /* P7: a composed bar whose newest member is still forming is itself forming */
+      if (b.forming === true) cur.forming = true; else delete cur.forming;
     }
     if (cur) out.push(cur);
     return out;
@@ -325,7 +333,7 @@
      before it (for the daily line, the day before). Equal is up, as it is for the price. */
   function dayDirection(series) {
     let last = -1;
-    for (let i = series.length - 1; i >= 0; i--) if (series[i].v != null) { last = i; break; }
+    for (let i = series.length - 1; i >= 0; i--) if (series[i].v != null && !series[i].forming) { last = i; break; }
     if (last < 0) return null;
     const cut = series[last].end - 20 * HOUR;
     for (let i = last - 1; i >= 0; i--) {
@@ -347,10 +355,16 @@
 
   /* How many chart bars one finished source value may stand for: the whole number of chart bars
      one source bar spans. 3H on 1D → 0; D on 4H → 5; 12H on 4H → 3; D on 1D → 0. */
-  function carryBars(key, chartDurMs) {
+  /* P7 (1 Oct): A CRYPTO WEEK HAS SEVEN DAYS. durMs counts a stock week (five sessions, a weekend gap), so on
+     a bitcoin daily chart the last finished W ran out two bars before the next one finished - the "BTC
+     Friday gap". sevenDay: the source spans its calendar days, whichever is longer. */
+  const CALENDAR_DAYS = Object.freeze({ c2D:2, c3D:3, cW:7, c2W:14, "3D":3, "1W":7, "1D":1 });
+  function carryBars(key, chartDurMs, opts) {
     const line = BY_KEY[key];
     const chart = Number(chartDurMs) || DAY;
-    return line ? Math.floor(line.durMs / chart) : 0;
+    if (!line) return 0;
+    const dur = opts && opts.sevenDay && CALENDAR_DAYS[key] ? Math.max(line.durMs, CALENDAR_DAYS[key] * DAY) : line.durMs;
+    return Math.floor(dur / chart);
   }
 
   /* chartTimes: ascending ms of the chart's bars; chartDurMs: the chart's own nominal bar length,
@@ -362,7 +376,7 @@
     const allowance = Math.max(0, Math.floor(Number(carry) || 0));
     let j = -1, k = 0;
     for (let i = 0; i < n; i++) {
-      while (j + 1 < series.length && series[j + 1].end <= ends[i]) j++;
+      while (j + 1 < series.length && !series[j + 1].forming && series[j + 1].end <= ends[i]) j++;
       if (j < 0) continue;
       const s = series[j];
       if (s.v == null) continue;
@@ -378,7 +392,7 @@
      line fails to reach the chart's last COMPLETED bar (lastIx) - then the label names its day. */
   function lineStatus(series, values, lastIx) {
     for (let i = series.length - 1; i >= 0; i--) {
-      if (series[i].v == null) continue;
+      if (series[i].v == null || series[i].forming) continue;
       const reaches = Array.isArray(values) && lastIx >= 0 && values[lastIx] != null;
       return { value:series[i].v, t:series[i].t, end:series[i].end, stale:!reaches };
     }
@@ -456,10 +470,12 @@
     const from = chartTimes[n - 1], to = from + (Number(chartDurMs) || DAY);
     let j = series.length - 1;
     while (j >= 0 && !(series[j].t < to)) j--;
-    if (j < 0 || series[j].v == null || !(series[j].end > from)) return { values, tip:null };
+    /* a bar the API marks forming is current by definition (a crypto week runs past its stock-week end) */
+    if (j < 0 || series[j].v == null || !(series[j].forming || series[j].end > from)) return { values, tip:null };
     const s = series[j], out = values.slice();
     out[n - 1] = s.v;
-    return { values:out, tip:{ ix:n - 1, t:s.t, end:s.end, v:s.v, developing:Number.isFinite(now) ? now < s.end : null } };
+    return { values:out, tip:{ ix:n - 1, t:s.t, end:s.end, v:s.v, forming:!!s.forming,
+      developing:s.forming ? true : Number.isFinite(now) ? now < s.end : null } };
   }
   /* The cloud at bar i and, when it is hidden there, WHICH of its four sources has no value. parts:
      [{ key, values, absence }] in CONTEXT order. Returns { band:{lo,hi}|null, missing:[labels] }. */
