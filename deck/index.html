@@ -2897,6 +2897,7 @@ function installSceneState(state) {
     state.chartCount || SceneModel.chartCountForSize(charts.length), SCENE,
     SCENE === "indexNow" || SCENE === "cohort" || SCENE === "scintillas" || SceneModel.WORKFLOW_IDS.includes(SCENE)
   );
+  deckCloudPrefetch();   /* H3 — the page's clouds in one read, started before its panes ask */
 }
 function fixedSceneState(scene, requestedCount) {
   const bench = SceneModel.workbenchState(scene);
@@ -3045,6 +3046,31 @@ function syncChartPanes(transitionGeneration) {
     }
   });
   refreshDeckQuotes();
+}
+/* H3 (1 Oct) — ONE READ FOR A PAGE'S CLOUDS. Alan, 30 Sep: "why the fuck do macro clouds take so long fix it"; 1 Oct:
+   "Fix the chart slowness in general." Each pane read its price, THEN its daily bars for the clouds (MEASURED 1 Oct on
+   MACRO · WEEK, cold: weekly reads 0.56–0.91 s, daily reads 0.77–1.14 s, the last cloud at 1.14 s). The deck knows the
+   page's names before any pane loads, so it asks the chart API for all their daily bars in ONE /candles-multi read the moment
+   the page is chosen (SC_PROVIDER.candlesMany). Each answer is filed under the exact address the pane's own read uses, so the
+   pane finds it there (or waits for it while it is out) and draws its clouds as soon as its price is up. The limit is the
+   pane's own (chart/index.html cloudDailyNeed with the range's first window; a test pins the two together). Clouds off, a
+   one-chart page, or a page whose panes ask for something else: nothing changes, each pane reads alone as before. */
+const DECK_CLOUD_DAYS_PER_BAR = { "15m":1/26, "30m":1/13, "1h":1/6.5, "2h":1/3.25, "3h":0.5, "4h":0.6, "6h":1, "12h":1, "1D":1, "3D":3, "1W":5 };
+function deckCloudDailyNeed(range, slotBars) {
+  /* chart/index.html CHART_DB_RANGE: every range opens on 240 bars, 1W on 157 — or the slot's own ?bars= */
+  const bars = Number(slotBars) > 0 ? Number(slotBars) : range === "1W" ? 157 : 240;
+  return Math.max(400, Math.min(6500, Math.ceil(bars * (DECK_CLOUD_DAYS_PER_BAR[range] || 1)) + 210));
+}
+function deckCloudPrefetch() {
+  if (!CLOUDS || !window.SC_PROVIDER || typeof SC_PROVIDER.candlesMany !== "function") return;
+  const groups = new Map();
+  CHARTS.forEach((t, i) => {
+    if (!t || i >= CHART_COUNT) return;
+    const need = deckCloudDailyNeed(SLOT_RANGES[i] || RANGE, SLOT_BARS[i]);
+    if (!groups.has(need)) groups.set(need, []);
+    groups.get(need).push(t);
+  });
+  for (const [need, names] of groups) SC_PROVIDER.candlesMany(names, "D", need).catch(() => {});
 }
 async function applyScene(next, options) {
   const previous = SCENE;
@@ -4340,6 +4366,7 @@ async function build() {
   await loadTargets();
   await loadSharedScratch(2500);
   await primeSceneState();
+  deckCloudPrefetch();   /* H3 — the first page too, however it was primed (names already asked for are skipped) */
   if (SCENE === "live" && QS.get("c2") === "auto") {
     try {
       const [fav, lq] = await Promise.all([pg("hub_favorites?select=ticker"), SC_PROVIDER.equityQuotes()]);
