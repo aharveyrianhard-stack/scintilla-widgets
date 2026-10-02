@@ -308,7 +308,7 @@ body.tvmodal-open{ overflow:hidden; }
 <script src="/_indicators/station-rsi-fan.js"></script>
 <!-- The Hub's Geiger composite bar beside the badge: the scale, colours and age rule. Pure functions. -->
 <script src="/_indicators/station-geiger-bar.js"></script>
-<!-- S6 (1 Oct): the merged oscillator - RSI + Williams %R blended 60/40 the Geiger's way, and the pane switch. -->
+<!-- S7 (2 Oct): the oscillator pane the way Indicator Lab draws it - RSI solid + Williams %R + 100 dotted, ONE pane. -->
 <script src="/_indicators/station-osc-merge.js"></script>
 <script>
 /* ONE SOURCE (2026-09-22). This page holds no Supabase client, no anon key and no realtime
@@ -440,22 +440,14 @@ const RSI_REQUEST = window.SC_RSI_FAN ? window.SC_RSI_FAN.parseRsiParam(QS.get("
 const rsiLinesFor = (host) => window.SC_RSI_FAN && window.SC_RSI_FAN.linesFor
   ? window.SC_RSI_FAN.linesFor(RSI_REQUEST, (host && host._range) || S.chartRange) : RSI_REQUEST.lines;
 const rsiFanOn = () => !!(window.SC_RSI_FAN && window.SC_DETAIL_MATH && window.SC_RSI_FAN.visibleAt(RSI_REQUEST, innerWidth));
-/* S6 (1 Oct) — WHICH OSCILLATOR SET THE PANE SHOWS (Alan: "wherever we have oscillators on Station and on Hub present the
-   merged; as I expand into more real estate, present the individuals"). The full fan (never ?rsi=chart, never one typed width)
-   draws the MERGED set in a compact pane, and MERGED + RSI + WILLIAMS %R stacked when the pane has the room: the deck's ⤢ on this
-   pane, the Hub's EXPAND, or this page opened alone and tall enough. ?osc=merged|split forces either (station-osc-merge.js). */
-const OSC_PARAM = QS.get("osc");
+/* S7 (2 Oct) — THE OSCILLATOR PANE, the Indicator Lab's "RSI + Williams MTF REVIEW V2" (Alan: "Take it as the guide. Display
+   the merged one — the merged one is enough"). The full fan (never ?rsi=chart, never one typed width) draws ONE pane everywhere:
+   RSI solid and Williams %R + 100 dotted in one pink family, the RSI-only cloud behind them (station-osc-merge.js). The deck's ⤢
+   and the Hub's EXPAND change only the hover: the Daily alone on a compact pane, every timeframe when expanded or alone. */
 let OSC_DECK_FULL = false;     /* the deck's SCINTILLA_DECK_FULL_STATE: this pane is the expanded one */
 let OSC_HUB_SPLIT = null;      /* the Hub's word: true while its company view is EXPANDED, false when not, null until told */
-const oscOn = (fan) => !!(window.SC_OSC_MERGE && fan && fan.sets && fan.lines.length > 1);
-function oscModeFor(host) {
-  const area = host && host.querySelector(".sc-nchart__area");
-  return window.SC_OSC_MERGE.resolveMode({ param:OSC_PARAM, deckFull:OSC_DECK_FULL, hubSplit:OSC_HUB_SPLIT,
-    embedded:BARE || HUB_PANE, areaH:area ? area.clientHeight : 0 });
-}
-/* F1 (1 Oct): the merged pane's hover readout - the merged values alone on a compact pane (the 8-up, the Hub not expanded),
-   the full readout (merged, R, W) on an expanded or lone chart (station-osc-merge.js readoutFor) */
-const oscReadoutFor = () => window.SC_OSC_MERGE.readoutFor({ deckFull:OSC_DECK_FULL, hubSplit:OSC_HUB_SPLIT, embedded:BARE || HUB_PANE });
+const oscOn = (fan) => !!(window.SC_OSC_LAB && fan && fan.sets && fan.lines.length > 1);
+const oscReadoutFor = () => window.SC_OSC_LAB.readoutFor({ deckFull:OSC_DECK_FULL, hubSplit:OSC_HUB_SPLIT, embedded:BARE || HUB_PANE });
 /* THE CONTEXT LENS (CL4, 27 Sep; Alan: "I like this one at the bottom left… it could be smaller").
    ?bubble=30m:3 draws the last three sessions of 30-minute candles in a small box bottom-left of a
    3-DAY chart, on a second canvas. Without the switch nothing is loaded and nothing changes; with it,
@@ -1368,8 +1360,8 @@ function rsiLineFrom(F, key, t, absence) {
     return { key, series:null, from:null, absence:why };
   }
   const series = F.lineSeries(key, pick.bars);
-  /* S6: the same bars' Williams %R(14), and the three series (RSI, Williams, merged) on the RSI series' clock */
-  const sets = window.SC_OSC_MERGE ? window.SC_OSC_MERGE.deriveSets(series, window.SC_OSC_MERGE.williamsValues(pick.bars)) : null;
+  /* S7: the same bars' Williams %R(14) + 100 on the RSI series' clock; the RSI series itself untouched */
+  const sets = window.SC_OSC_LAB ? window.SC_OSC_LAB.deriveSets(series, window.SC_OSC_LAB.williamsValues(pick.bars)) : null;
   return { key, series, sets, from:pick.from, absence:null };
 }
 /* The fan for what is on screen now: computed once per change of bars, sources or absences, so
@@ -1398,8 +1390,8 @@ function rsiFanFor(host, pts) {
       approx:series.length ? !!series[series.length - 1].approx : false, from, absence:null };
   };
   const absent = (key, why) => ({ key, values:null, status:null, dir:null, approx:false, from:null, absence:why });
-  /* S6: every source is sampled three times - its RSI, its Williams %R and the merged 60/40 - by the same rules */
-  const SETS = window.SC_OSC_MERGE && !RSI_REQUEST.chart && keys.length > 1 ? ["rsi", "williams", "merged"] : ["rsi"];
+  /* S7: every source is sampled twice - its RSI and its Williams %R + 100 - by the same rules */
+  const SETS = window.SC_OSC_LAB && !RSI_REQUEST.chart && keys.length > 1 ? ["rsi", "williams"] : ["rsi"];
   const got = new Map();
   const sampledSet = (key, set) => {
     if (!got.has(key)) got.set(key, rsiLineFrom(F, key, t, absence));
@@ -1418,7 +1410,8 @@ function rsiFanFor(host, pts) {
   const build = (set) => ({ lines:keys.map((k) => sampledSet(k, set)),
     cloud:context ? cloudOf(F.CONTEXT.map((c) => sampledSet(c.key, set))) : null });
   const rsi = build("rsi");
-  const sets = SETS.length > 1 ? { rsi, williams:build("williams"), merged:build("merged") } : null;
+  /* the cloud is RSI-only (the Lab: min/max of the raw RSI on 2D, 3D, W, 2W); Williams draws lines only */
+  const sets = SETS.length > 1 ? { rsi, williams:{ lines:keys.map((k) => sampledSet(k, "williams")), cloud:null } } : null;
   host._rsiMemo = { sig, lines:rsi.lines, cloud:rsi.cloud, sets };
   return host._rsiMemo;
 }
@@ -1605,13 +1598,12 @@ function drawRsiFan(ctx, o) {
    Shares the price's x scale (X) and viewport; its own y scale. */
 function drawRsiOnly(ctx, o) {
   const F = window.SC_RSI_FAN, V = F.VISUAL, top = o.top, ph = o.height, left = o.left, width = o.width;
-  /* S6 (1 Oct): o.look (station-osc-merge.js LOOKS) draws the same pane for the MERGED set, the RSI or Williams %R -
-     its own ink, cloud ink, fixed domain, guides and chip words; without one it is the RSI-only pane exactly as S3 drew it */
-  const M = window.SC_OSC_MERGE, L = o.look || null;
+  /* S7 (2 Oct): with o.look (station-osc-merge.js LOOK) and o.sets this is the Lab's RSI + Williams pane - RSI solid, Williams
+     %R + 100 dotted, one pink, its own guides and two chips; without them it is the RSI-only pane exactly as S3 drew it */
+  const M = window.SC_OSC_LAB, L = o.look && o.sets ? o.look : null;
   const INK = L ? L.ink : V.ink, CLOUD = L ? L.cloud : V.cloud, GUIDES = L ? L.guides : V.guides, CHIP = L ? L.chipLook : V.chip;
-  const RY = L ? (v) => M.lookY(L, v, top, ph) : (v) => F.rsiY(v, top, ph);
-  const lineInk = (key) => (L ? F.rgba(INK, F.BY_KEY[key] && F.BY_KEY[key].alpha != null ? F.BY_KEY[key].alpha : 1) : F.visualInk(key));
-  const fmtV = (v) => (L ? M.fmt(v) : v.toFixed(1));
+  const RY = L ? (v) => M.lookY(v, top, ph) : (v) => F.rsiY(v, top, ph);
+  const isDaily = (key) => !!(F.BY_KEY[key] && F.BY_KEY[key].daily);
   const band = o.fan.cloud && o.fan.cloud.band;
   const newestOn = o.end >= o.last;
   ctx.save();
@@ -1642,12 +1634,15 @@ function drawRsiOnly(ctx, o) {
     for (let i = o.start; i <= o.end; i++) { if (band[i]) run.push(i); else flush(); }
     flush();
   }
-  /* 3 · the fast lines, dotted, then 4 · the daily, solid, last and on top */
-  const order = o.fan.lines.filter((l) => l.values && !F.BY_KEY[l.key].daily)
-    .concat(o.fan.lines.filter((l) => l.values && F.BY_KEY[l.key].daily));
+  /* 3 · the lines. S3: the fast lines dotted, then the daily solid, last and on top. S7 (the Lab's paint order): Williams
+     12H…3H dotted, its Daily dotted width 2, then RSI 12H…3H solid, the RSI Daily solid width 3 last */
+  const order = L ? M.paintOrder({ rsi:o.sets.rsi.lines, williams:o.sets.williams.lines }, isDaily)
+    : o.fan.lines.filter((l) => l.values && !isDaily(l.key)).concat(o.fan.lines.filter((l) => l.values && isDaily(l.key)))
+      .map((line) => ({ set:"rsi", line }));
   ctx.lineJoin = "round"; ctx.lineCap = "butt";
-  for (const line of order) {
+  for (const { set, line } of order) {
     const spec = F.BY_KEY[line.key];
+    const st = L ? M.lineStyle(set, spec) : { alpha:null, width:spec.width, dash:spec.dash };
     ctx.beginPath();
     let pen = false;
     for (let i = o.start; i <= o.end; i++) {
@@ -1655,8 +1650,8 @@ function drawRsiOnly(ctx, o) {
       if (v == null) { pen = false; continue; }
       if (pen) ctx.lineTo(o.X(i), RY(v)); else { ctx.moveTo(o.X(i), RY(v)); pen = true; }
     }
-    ctx.strokeStyle = lineInk(line.key); ctx.lineWidth = spec.width;
-    ctx.setLineDash(spec.dash ? Array.from(spec.dash) : []);
+    ctx.strokeStyle = L ? F.rgba(INK, st.alpha) : F.visualInk(line.key); ctx.lineWidth = st.width;
+    ctx.setLineDash(st.dash ? Array.from(st.dash) : []);
     ctx.stroke();
   }
   ctx.setLineDash([]);
@@ -1686,55 +1681,91 @@ function drawRsiOnly(ctx, o) {
     ctx.beginPath(); ctx.moveTo(sx, top); ctx.lineTo(sx, top + ph); ctx.stroke(); ctx.globalAlpha = 1;
   }
   ctx.restore();
-  /* 5 · THE DAILY CHIP: at the daily line's newest drawn value, only while the newest bar is on screen */
-  const daily = o.fan.lines.find((l) => F.BY_KEY[l.key].daily && l.values);
-  let chip = null;
+  /* 5 · THE DAILY CHIPS: at the daily line's newest drawn value, only while the newest bar is on screen. S7: a second chip,
+     further right, at the Williams Daily's exact plotted height - "W D 85.6 · %R −14.4" - moved off the RSI chip if they touch */
+  const daily = o.fan.lines.find((l) => isDaily(l.key) && l.values);
+  const wDaily = L ? o.sets.williams.lines.find((l) => isDaily(l.key) && l.values) : null;
+  const cf = o.chipFont, chipH = Math.ceil(cf + 5);
+  const paintChip = (P, text) => {
+    ctx.strokeStyle = F.rgba(INK, CHIP.leader); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(P.leader.x1, P.leader.y1); ctx.lineTo(P.leader.x2, P.leader.y2); ctx.stroke();
+    ctx.fillStyle = "rgba(5,6,12,.86)"; ctx.fillRect(P.x, P.y, P.w, P.h);
+    ctx.fillStyle = F.rgba(INK, CHIP.fill); ctx.fillRect(P.x, P.y, P.w, P.h);
+    ctx.fillStyle = F.rgba(INK, CHIP.text); ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillText(text, P.x + 4, P.y + P.h / 2 + .5);
+  };
+  const box = (P) => ({ x:+P.x.toFixed(2), y:+P.y.toFixed(2), w:P.w, h:P.h });
+  const newestIx = (line) => { if (!line) return -1; for (let i = o.end; i >= Math.max(o.start, o.end - 3); i--) if (line.values[i] != null) return i; return -1; };
+  let chip = null, wChip = null;
   if (daily && newestOn) {
-    let ix = -1;
-    for (let i = o.end; i >= Math.max(o.start, o.end - 3); i--) if (daily.values[i] != null) { ix = i; break; }
+    const ix = newestIx(daily);
     if (ix >= 0) {
       const v = daily.values[ix], px = o.X(ix), py = RY(v);
-      const cf = o.chipFont;
       ctx.save();
       ctx.font = "600 " + cf + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
-      const text = L ? M.chipText(L, v) : F.chipText(v), cw = Math.ceil(ctx.measureText(text).width) + 8, ch = Math.ceil(cf + 5);
-      const P = F.chipPlacement({ px, py, cw, ch, left, right:o.gutterRight, top, bottom:top + ph });
-      ctx.strokeStyle = F.rgba(INK, CHIP.leader); ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(P.leader.x1, P.leader.y1); ctx.lineTo(P.leader.x2, P.leader.y2); ctx.stroke();
-      ctx.fillStyle = "rgba(5,6,12,.86)"; ctx.fillRect(P.x, P.y, P.w, P.h);
-      ctx.fillStyle = F.rgba(INK, CHIP.fill); ctx.fillRect(P.x, P.y, P.w, P.h);
-      ctx.fillStyle = F.rgba(INK, CHIP.text); ctx.textAlign = "left"; ctx.textBaseline = "middle";
-      ctx.fillText(text, P.x + 4, P.y + P.h / 2 + .5);
+      const text = L ? M.rsiChip(v) : F.chipText(v), cw = Math.ceil(ctx.measureText(text).width) + 8;
+      /* S7: on the Lab's pane the RSI chip keeps wChipOffset px clear of the gutter's end, so the Williams chip ends further right */
+      const P = F.chipPlacement({ px, py, cw, ch:chipH, left, right:o.gutterRight - (L ? L.wChipOffset : 0), top, bottom:top + ph });
+      paintChip(P, text);
       ctx.restore();
       const tip = daily.tip && daily.tip.ix === ix ? daily.tip : null;
-      chip = { text, value:+v.toFixed(2), ix, x:+px.toFixed(2), y:+py.toFixed(2),
-        box:{ x:+P.x.toFixed(2), y:+P.y.toFixed(2), w:P.w, h:P.h }, leader:P.leader, displaced:P.displaced,
+      chip = { text, value:+v.toFixed(2), ix, x:+px.toFixed(2), y:+py.toFixed(2), box:box(P), leader:P.leader, displaced:P.displaced,
         developing:tip ? tip.developing : false, sourceBar:tip ? new Date(tip.t).toISOString() : null,
-        title:(L && L.key === "merged" ? "merged 60% RSI(14) + 40% Williams %R(14) " : L && L.key === "williams" ? "Williams %R(14) " : "RSI(14) ") + v.toFixed(2) +
-          ", source 1D, " + (tip && tip.developing ? "developing" : "confirmed") };
+        title:"RSI(14) " + v.toFixed(2) + ", source 1D, " + (tip && tip.developing ? "developing" : "confirmed") };
     }
   }
-  /* THE TITLE ROW: at rest "RSI 14" and anything missing, named; on hover every line's timeframe and value */
+  if (wDaily && newestOn) {
+    const ix = newestIx(wDaily);
+    if (ix >= 0) {
+      const v = wDaily.values[ix], px = o.X(ix), py = RY(v);
+      ctx.save();
+      ctx.font = "600 " + cf + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+      const text = M.williamsChip(v), cw = Math.ceil(ctx.measureText(text).width) + 8;
+      let P = F.chipPlacement({ px, py, cw, ch:chipH, left, right:o.gutterRight, top, bottom:top + ph, gap:CHIP.gap + L.wChipOffset });
+      /* never on top of the RSI chip: stepped above it when the Williams value is the higher, below when not */
+      const R = chip && chip.box;
+      if (R && P.x < R.x + R.w && P.x + P.w > R.x && P.y < R.y + R.h && P.y + P.h > R.y) {
+        let y = v >= chip.value ? R.y - P.h - 2 : R.y + R.h + 2;
+        if (y < top || y + P.h > top + ph) y = v >= chip.value ? R.y + R.h + 2 : R.y - P.h - 2;
+        y = Math.max(top, Math.min(top + ph - P.h, y));
+        const x2 = Math.max(P.x, Math.min(P.x + P.w, px)), y2 = Math.max(y, Math.min(y + P.h, py));
+        P = { x:P.x, y, w:P.w, h:P.h, leader:{ x1:px, y1:py, x2, y2 }, displaced:true };
+      }
+      paintChip(P, text);
+      ctx.restore();
+      const tip = wDaily.tip && wDaily.tip.ix === ix ? wDaily.tip : null;
+      wChip = { text, value:+v.toFixed(2), native:+M.toNative(v).toFixed(2), ix, x:+px.toFixed(2), y:+py.toFixed(2), box:box(P),
+        leader:P.leader, displaced:P.displaced, developing:tip ? tip.developing : false,
+        title:"Williams %R(14) " + M.toNative(v).toFixed(2) + " (drawn at " + v.toFixed(2) + "), source 1D, " + (tip && tip.developing ? "developing" : "confirmed") };
+    }
+  }
+  /* THE TITLE ROW: at rest the title and anything missing, named; on hover every line's timeframe and value.
+     S7: on hover ONE row, never wrapped - the Daily alone on a compact pane ("D R49.2 W85.6"), every visible timeframe when
+     expanded or alone ("3H R54.8 W79.5 · … · D R49.2 W85.6"); the title steps aside while hovering, what does not fit is left off */
   const at = o.scrubIx;
   const items = [{ text:L ? L.title : "RSI 14", ink:F.rgba(INK, .8) }];
-  /* S6: on the MERGED pane the hover reads each timeframe's merged value AND both sources' own (R = RSI, W = %R);
-     F1: on a compact pane the merged value alone, on ONE row (the title steps aside while hovering; what does not fit is
-     left off, never wrapped) */
-  const src = L && L.key === "merged" && o.sets ? o.sets : null;
-  const readout = src && o.oscReadout === "merged" ? "merged" : "full";
-  const oneRow = readout === "merged" && at != null;
-  const srcAt = (set, key, i) => { const l = src && src[set].lines.find((x) => x.key === key); return l && l.values ? l.values[i] : null; };
-  const shown = [];
+  const readout = L ? (o.oscReadout === "compact" ? "compact" : "full") : null;
+  const oneRow = !!L && at != null;
+  const wAt = (key, i) => { const l = L && o.sets.williams.lines.find((x) => x.key === key); return l && l.values && i != null ? l.values[i] : null; };
+  const shown = [], wShown = [];
+  let hoverN = 0;
   for (const line of o.fan.lines) {
     const name = F.BY_KEY[line.key].label;
-    if (!line.values) { items.push({ text:name + " " + line.absence, ink:F.rgba(INK, .8) }); continue; }
+    if (!line.values) { if (!oneRow) items.push({ text:name + " " + line.absence, ink:F.rgba(INK, .8) }); continue; }
     const v = at != null ? line.values[at] : line.status.value;
     shown.push({ key:line.key, value:v == null ? null : +v.toFixed(2), stale:!!line.status.stale, approx:!!line.approx, from:line.from,
       developing:line.tip ? line.tip.developing : null, asOf:line.status.t == null ? null : new Date(line.status.t).toISOString() });
-    const hoverText = src ? M.hoverItem(name, v, srcAt("rsi", line.key, at), srcAt("williams", line.key, at), readout)
-      : name + " " + (v == null ? "—" : (line.approx ? "≈" : "") + fmtV(v));
-    if (at != null) items.push({ text:hoverText, ink:F.rgba(INK, Math.min(1, F.BY_KEY[line.key].alpha + .3)) });
-    else if (line.status.stale) items.push({ text:name + " to " + rsiAsOf(line.status.t), ink:F.rgba(INK, .8) });
+    if (L) {
+      const wl = o.sets.williams.lines.find((x) => x.key === line.key);
+      const w = wl && wl.values ? (at != null ? wl.values[at] : wl.status.value) : null;
+      wShown.push({ key:line.key, value:w == null ? null : +w.toFixed(2), native:w == null ? null : +M.toNative(w).toFixed(2) });
+    }
+    if (at != null) {
+      if (readout === "compact" && !isDaily(line.key)) continue;
+      const text = L ? (hoverN++ ? M.HOVER_SEP.trimStart() : "") + M.hoverItem(name, v, wAt(line.key, at))
+        : name + " " + (v == null ? "—" : (line.approx ? "≈" : "") + v.toFixed(1));
+      items.push({ text, ink:F.rgba(INK, Math.min(1, F.BY_KEY[line.key].alpha + .3)) });
+    } else if (line.status.stale) items.push({ text:name + " to " + rsiAsOf(line.status.t), ink:F.rgba(INK, .8) });
   }
   let cloudShown = null;
   if (o.fan.cloud) {
@@ -1742,8 +1773,10 @@ function drawRsiOnly(ctx, o) {
     const probe = at != null ? at : o.last;
     const c = F.cloudAt(parts, probe);
     const absent = parts.filter((p) => p.absence).map((p) => F.BY_KEY[p.key].label + " " + p.absence);
-    if (c.band && at != null) items.push({ text:"2D–2W " + fmtV(c.band.lo) + "–" + fmtV(c.band.hi), ink:F.rgba(CLOUD.ink, 1) });
-    else if (!c.band) items.push({ text:"CLOUD HIDDEN · " + (absent.length ? absent.join(" ") : c.missing.join("/") + " missing"), ink:F.rgba(CLOUD.ink, 1) });
+    if (!oneRow) {
+      if (c.band && at != null) items.push({ text:"2D–2W " + c.band.lo.toFixed(1) + "–" + c.band.hi.toFixed(1), ink:F.rgba(CLOUD.ink, 1) });
+      else if (!c.band) items.push({ text:"CLOUD HIDDEN · " + (absent.length ? absent.join(" ") : c.missing.join("/") + " missing"), ink:F.rgba(CLOUD.ink, 1) });
+    }
     cloudShown = { lo:c.band ? +c.band.lo.toFixed(2) : null, hi:c.band ? +c.band.hi.toFixed(2) : null, at:probe, missing:c.missing,
       parts:parts.map((p) => ({ key:p.key, value:p.values && p.values[probe] != null ? +p.values[probe].toFixed(2) : null, absence:p.absence, from:p.from })) };
   }
@@ -1762,30 +1795,22 @@ function drawRsiOnly(ctx, o) {
     ctx.fillStyle = "rgba(5,6,12,.72)"; ctx.fillRect(x - 2, y - lineH / 2, w + 4, lineH);
     ctx.fillStyle = item.ink; ctx.fillText(item.text, x, y);
     drawn.push(item.text);
-    x += w + 9;
+    x += w + (oneRow ? 5 : 9);
   }
   ctx.restore();
   ctx.restore();
-  return { mode:L ? "osc-" + L.key : "rsi-only", top, height:ph, yLo:(L ? L.domain : V.domain)[0], yHi:(L ? L.domain : V.domain)[1],
-    lines:shown, cloud:cloudShown, chip, ink:INK,
-    guides:GUIDES.map((g) => ({ v:g.v, y:Math.round(RY(g.v)) + .5 })), late:lateShown.length ? lateShown : null,
+  return { mode:L ? "osc-lab" : "rsi-only", top, height:ph, yLo:(L ? L.domain : V.domain)[0], yHi:(L ? L.domain : V.domain)[1],
+    lines:shown, williams:L ? wShown : null, cloud:cloudShown, chip, wChip, ink:INK,
+    guides:GUIDES.map((g) => ({ v:g.v, y:Math.round(RY(g.v)) + .5, dash:g.dash ? Array.from(g.dash) : null })), late:lateShown.length ? lateShown : null,
     hover:at != null ? (oneRow ? drawn : items.slice(1).map((i) => i.text)) : null,
-    readout:src ? readout : null, readoutRows:rows, leftOff:offRow.length ? offRow : null };
+    readout, readoutRows:rows, leftOff:offRow.length ? offRow : null };
 }
-/* S6 (1 Oct) — THE OSCILLATOR BLOCK. Compact: ONE pane, the MERGED set (six timeframes of the 60/40 RSI + Williams %R
-   blend, the slow cloud from the merged 2D-3D-W-2W values) in the orchid of the pink family, on the 0-100 axis with the
-   RSI's 30/70 guides. Expanded: THREE panes stacked - merged, RSI (the approved pink), Williams %R (the Hub's cyan, -100…0,
-   -20/-80 guides) - on the price's x scale, so the crosshair's time runs down through all three. */
+/* S7 (2 Oct) — THE OSCILLATOR PANE, everywhere the full fan shows (the 8-up, a chart alone, the deck's ⤢, the Hub collapsed and
+   on EXPAND): ONE pane, the Indicator Lab's "RSI + Williams MTF REVIEW V2" - RSI 14 solid and Williams %R 14 + 100 dotted in one
+   pink family, the RSI-only 2D-3D-W-2W cloud behind them, 30/70 solid, 20/80 dashed, 50 dotted, on the native 0-100 scale. */
 function drawOsc(ctx, o) {
-  const M = window.SC_OSC_MERGE, sets = o.fan.sets;
-  if (o.oscMode !== "split") {
-    const r = drawRsiOnly(ctx, Object.assign({}, o, { fan:sets.merged, look:M.LOOKS.merged, sets }));
-    return Object.assign(r, { osc:"merged", panes:[r] });
-  }
-  const panes = M.splitPanes(o.top, o.height).map((p, i) => drawRsiOnly(ctx, Object.assign({}, o, {
-    fan:sets[p.key], look:M.LOOKS[p.key], sets, top:p.top, height:p.height, gap:i ? M.SPLIT_GAP : o.gap })));
-  return { mode:"osc-split", osc:"split", top:o.top, height:o.height, panes,
-    hover:o.scrubIx != null ? panes.map((p) => p.hover) : null };
+  const r = drawRsiOnly(ctx, Object.assign({}, o, { fan:o.fan.sets.rsi, look:window.SC_OSC_LAB.LOOK, sets:o.fan.sets }));
+  return Object.assign(r, { osc:"lab", panes:[r] });
 }
 const cloudSpecOptions = () => CLOUD_EXTRAS;
 /* Which completed daily observation each visible bar may show. Computed once per
@@ -2399,14 +2424,9 @@ function scChartDraw(host, scrub) {
   /* The RSI fan takes a band under the price - never more than 28% of the pane - and only when
      the pane is tall enough for both to stay readable. */
   const fan = rsiFanFor(host, pts);
-  /* S6: the full fan draws the oscillator block - merged in a compact pane, three stacked when there is room (and
-     three only when each keeps at least 70 px - SC_OSC_MERGE.splitBlock; otherwise the merged one) */
+  /* S7: the full fan draws the Lab's ONE oscillator pane (RSI + Williams %R) in every mode, at the RSI pane's share */
   const osc = oscOn(fan);
-  let oscMode = osc ? oscModeFor(host) : null;
-  const split = oscMode === "split" ? window.SC_OSC_MERGE.splitBlock(h) : 0;
-  if (oscMode === "split" && !split) oscMode = "merged";
-  const fanBlock = !fan || h < 170 ? 0 : split ? split
-    : Math.floor(h * window.SC_RSI_FAN.PANEL_SHARE);
+  const fanBlock = !fan || h < 170 ? 0 : Math.floor(h * window.SC_RSI_FAN.PANEL_SHARE);
   const fanGap = fanBlock ? 6 : 0;
   const iw = w - padL - padR, ih = h - padT - padB - fanBlock;
   if (iw < 10 || ih < 10) { scChartOverlay(host); return; }
@@ -2526,7 +2546,7 @@ function scChartDraw(host, scrub) {
   const fanOpts = { fan, X, start, end, last:pts.length - 1, left:padL, width:iw, palette:col,
     top:padT + ih + fanGap, height:fanBlock - fanGap, gap:fanGap, axisX:w - 3, hairline:col.dim,
     font:cloudFont, chipFont:Math.max(8.5, cloudFont + 1), gutterRight:w - 2,
-    scrubIx:null, oscMode, oscReadout:oscMode === "merged" ? oscReadoutFor() : "full",
+    scrubIx:null, oscReadout:osc ? oscReadoutFor() : null,
     dateAt:(i) => (pts[i] ? Date.parse(pts[i].d) : null) };
   const fanDraw = fanBlock ? (osc ? drawOsc : fan.lines.length > 1 ? drawRsiOnly : drawRsiFan) : null;
   host._rsiDrawn = fanDraw ? fanDraw(ctx, fanOpts) : null;
@@ -3829,7 +3849,7 @@ window.addEventListener("message", (event) => {
     for (const host of CHART_HOSTS) if (host.isConnected) host._applyTrackpadInput?.(event.data);
     return;
   }
-  /* S6: the deck says whether THIS pane is the expanded one (⤢); the oscillator block follows (merged <-> three panes) */
+  /* S6/S7: the deck says whether THIS pane is the expanded one (⤢); the oscillator's hover follows (every timeframe when expanded) */
   if (event.data?.type === "SCINTILLA_DECK_FULL_STATE") {
     const full = !!event.data.active;
     if (full !== OSC_DECK_FULL) { OSC_DECK_FULL = full; for (const host of CHART_HOSTS) if (host.isConnected) scChartDraw(host); }
@@ -4124,8 +4144,9 @@ document.addEventListener("click", (e) => {
 });
 
 /* the deck (parent frame) drives the timeframe for BOTH charts through one bar */
-/* S6: the Hub's company view tells its embedded pane whether it is EXPANDED ({ sc:"osc", split:true|false }). Only the
-   Hub's own origins (or this one) are heard; the message changes nothing but which oscillator set is drawn. */
+/* S6/S7: the Hub's company view tells its embedded pane whether it is EXPANDED ({ sc:"osc", split:true|false }). Only the
+   Hub's own origins (or this one) are heard; since S7 the message changes nothing but the oscillator's hover (every timeframe
+   when expanded, the Daily alone when not) - the pane itself is the same ONE pane either way. */
 const OSC_HUB_ORIGINS = ["https://scintillahub.ai", "https://www.scintillahub.ai"];
 addEventListener("message", (e) => {
   const d = e.data;

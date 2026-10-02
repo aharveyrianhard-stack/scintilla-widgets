@@ -1,43 +1,32 @@
-/* SCINTILLA · STATION — THE MERGED OSCILLATOR (S6, 1 Oct): RSI + Williams %R, blended the Geiger's way.
+/* SCINTILLA · STATION — THE OSCILLATOR PANE THE WAY INDICATOR LAB DRAWS IT (S7, 2 Oct): RSI + Williams %R, ONE pane.
    ============================================================================
-   Alan, 1 Oct ~10:35 ET: "we do have Williams… why don't we present the oscillators for Williams anywhere?…
-   the merged oscillators, RSI and Williams alone without stochastic, I think it would look pretty clean… the
-   pink one is the latest visually approved… adding the merge of both with a slightly different colour;
-   wherever we have oscillators on Station and on Hub present the merged; as I expand into more real estate,
-   present the individuals." And: "the Geiger momentum is 60/40 RSI Williams — that one is correct. We keep it."
+   Alan, 2 Oct ~09:25 ET: "MRG — what is MRG? I have no clue what that is… Take a look at how Indicator Lab put it on the
+   TradingView desktop app ('Scintilla RSI plus Williams MTF review V2'). Take it as the guide. Display the merged one —
+   the merged one is enough… it doesn't look right to me compared with what Indicator Lab last did."
 
-   THE ARITHMETIC IS THE GEIGER'S, read (never edited) from the provider repo,
-   services/hot-query/geiger-publish-artifact.mjs (origin/provider/live-20260929 @ 2cce315) and its Equalizer
-   snapshot control/acceptance/EQUALIZER_SNAPSHOT_2026-08-18.json (momentum_mix rsi 0.6, williams 0.4):
-     RSI_OS 23, RSI_OB 77, W_OS -90, W_OB -10, RSI(14), Williams(14)
-     williams = hh > ll ? (hh - close) / (hh - ll) * -100 : -50      (hh/ll over the last 14 bars, this one included)
-     momentum = (cl((rsi - 23) / (77 - 23) * 2 - 1) * 0.6 + cl((wr + 90) / (-10 + 90) * 2 - 1) * 0.4) / 1.0
-   so RSI 23 -> -1 … 77 -> +1 and Williams -90 -> -1 … -10 -> +1, each clamped to -1…+1. Nothing is redesigned.
-   On the pane the signed value is drawn on the RSI pane's fixed 0-100 axis as (m + 1) * 50, so it sits with
-   the 30/70 guides: 0 = momentum -1, 50 = 0, 100 = +1.
+   THE GUIDE (read, never edited): INDICATOR_LAB/sprints/2026-10-02-rotation/
+   SCINTILLA_RSI_Williams_MTF_REVIEW_V2_Clear_Value.pine. "No Stoch, W/K dedupe, Geiger blend, new smoothing, clamping or
+   normalization." So S6's 60/40 blend of the Geiger's stretched, clamped maps is gone. What the pane draws instead:
+     · RSI 14, native 0-100: 3H 4H 6H 8H 12H solid width 1 on the opacity ladder (12H 66% … 3H 54%), the Daily solid
+       width 3 at 90%, painted last;
+     · Williams %R 14 + 100 (a display shift ONLY, so its native -100…0 sits on 0-100): the same timeframes, the same pink
+       and ladder, DOTTED; the Daily dotted width 2 at 90%;
+     · the RSI-only cloud: min/max of the raw RSI on 2D 3D W 2W, muted pink #C84C86 at 30%, none if one is missing;
+     · guides 30/70 solid, 20/80 dashed, 50 dotted; 0 and 100 not drawn; the 0-100 scale is never clipped to 20-80;
+     · two daily chips at their exact heights: "RSI D 49.2" and, further right, "W D 85.6 · %R −14.4" (the plotted height
+       first, the native Williams value second).
+   One pink family (#FF4FAD) for everything.
 
    Pure functions. No fetch, no DOM, no clock of its own. */
 (function (root) {
   "use strict";
 
-  const RSI_OS = 23, RSI_OB = 77, W_OS = -90, W_OB = -10, WILLIAMS_PERIOD = 14;
-  const MIX = Object.freeze({ rsi:0.6, williams:0.4 });
-  const cl = (x, a = -1, b = 1) => Math.max(a, Math.min(b, x));
+  const WILLIAMS_PERIOD = 14, SHIFT = 100;
 
-  /* the two maps and the blend, exactly the publisher's expressions */
-  function mapRsi(rsi) { return Number.isFinite(rsi) ? cl((rsi - RSI_OS) / (RSI_OB - RSI_OS) * 2 - 1) : null; }
-  function mapWilliams(wr) { return Number.isFinite(wr) ? cl((wr - W_OS) / (W_OB - W_OS) * 2 - 1) : null; }
-  function blend(rsi, wr, mix) {
-    const m = mix || MIX, a = mapRsi(rsi), b = mapWilliams(wr);
-    if (a == null || b == null) return null;
-    return (a * m.rsi + b * m.williams) / ((m.rsi + m.williams) || 1);
-  }
-  /* the signed -1…+1 on the 0-100 axis, and back */
-  const toPane = (m) => (Number.isFinite(m) ? (m + 1) * 50 : null);
-  const fromPane = (p) => (Number.isFinite(p) ? p / 50 - 1 : null);
-
-  /* Williams %R(14) at every bar: bars [{ h, l, c }] ascending. A bar without its own high and low cannot give
-     an honest range, so any window that holds one is null (never filled from closes). */
+  /* Williams %R(14) at every bar, TradingView's ta.wpr(14): 100 * (close - highest high) / (highest high - lowest low) over
+     the last 14 bars, this one included. bars [{ h, l, c }] ascending. A bar without its own high and low cannot give an
+     honest range, so any window that holds one is null (never filled from closes); a flat window (high = low) is null too,
+     as ta.wpr's division by zero is na in Pine. */
   function williamsValues(bars, period) {
     const n = period || WILLIAMS_PERIOD, list = bars || [], out = new Array(list.length).fill(null);
     for (let i = n - 1; i < list.length; i++) {
@@ -48,121 +37,76 @@
         if (b.h > hh) hh = b.h; if (b.l < ll) ll = b.l;
       }
       const c = list[i] && list[i].c;
-      if (!ok || !Number.isFinite(c)) continue;
-      out[i] = hh > ll ? (hh - c) / (hh - ll) * -100 : -50;
+      if (!ok || !Number.isFinite(c) || !(hh > ll)) continue;
+      out[i] = 100 * (c - hh) / (hh - ll);
     }
     return out;
   }
+  /* the Lab's display shift and back: native -100…0 <-> plotted 0…100 (w = ta.wpr(14) + 100) */
+  const toPlot = (wr) => (Number.isFinite(wr) ? wr + SHIFT : null);
+  const toNative = (p) => (Number.isFinite(p) ? p - SHIFT : null);
 
-  /* One source's three series from its RSI series (station-rsi-fan lineSeries: [{ t, end, v, approx, forming }])
-     and the same bars' Williams values. Every point keeps the RSI point's clock (t, end, forming), so the fan's
-     sampling, developing tip and STALE rule apply unchanged. The merged value exists only where both do (the
-     RSI warm-up hides it, as it hides the RSI). */
+  /* One source's two series from its RSI series (station-rsi-fan lineSeries: [{ t, end, v, approx, forming }]) and the same
+     bars' Williams values. Every Williams point keeps the RSI point's clock (t, end, forming), so the fan's sampling,
+     developing tip and STALE rule apply unchanged. RSI is passed through untouched. */
   function deriveSets(rsiSeries, wrValues) {
     const s = rsiSeries || [], w = wrValues || [];
-    const pick = (i, v) => { const p = Object.assign({}, s[i]); p.v = v; return p; };
-    const williams = s.map((p, i) => pick(i, w[i] == null ? null : w[i]));
-    const merged = s.map((p, i) => pick(i, p.v == null || w[i] == null ? null : toPane(blend(p.v, w[i]))));
-    return { rsi:s, williams, merged };
+    const williams = s.map((p, i) => { const q = Object.assign({}, p); q.v = w[i] == null ? null : toPlot(w[i]); return q; });
+    return { rsi:s, williams };
   }
 
-  /* ---- what each set looks like on its pane ------------------------------------------------------------ */
-  const DOT = Object.freeze([1, 2]);
-  /* the approved pink (the Lab's RSI-only table, station-rsi-fan VISUAL) */
+  /* ---- what the pane looks like: the Lab's script, line by line ---------------------------------------------------- */
+  const DOT = Object.freeze([1, 2]), DASH = Object.freeze([4, 3]);
   const PINK = "#FF4FAD", PINK_CLOUD = "#C84C86";
-  /* THE MERGED TINT: the same pink family turned toward orchid, so it reads as a cousin of the RSI pane and is
-     still told apart when the three are stacked. Same opacities, widths and dashes as the RSI table. */
-  const ORCHID = "#E86BF0", ORCHID_CLOUD = "#B45CC2";
-  /* WILLIAMS: the Hub's own token for Williams - the Equalizer's RSI | WILLIAMS mix slider draws WILLIAMS in
-     cherenkov cyan, --crk #00D4FF (scintilla-hub index.html :root and the .sc-eq__mixrow). */
-  const CYAN = "#00D4FF", CYAN_CLOUD = "#2A8FB0";
+  /* hline opacities from the script's transparencies: 30/70 color.new(pink, 30) -> 70%; 20/80 (55) -> 45%; 50 (70) -> 30% */
   const g = (v, opacity, dash) => Object.freeze({ v, opacity, width:1, dash:dash || null });
-  const LOOKS = Object.freeze({
-    merged: Object.freeze({ key:"merged", ink:ORCHID, cloud:Object.freeze({ ink:ORCHID_CLOUD, opacity:.30 }),
-      domain:Object.freeze([0, 100]), padPx:3, title:"MERGED RSI+%R 60/40", chip:"MRG D", short:"M",
-      guides:Object.freeze([g(100, .15), g(70, .70), g(50, .30, DOT), g(30, .70), g(0, .15)]),
-      chipLook:Object.freeze({ text:.95, fill:.18, leader:.55, gap:6 }) }),
-    rsi: Object.freeze({ key:"rsi", ink:PINK, cloud:Object.freeze({ ink:PINK_CLOUD, opacity:.30 }),
-      domain:Object.freeze([0, 100]), padPx:3, title:"RSI 14", chip:"RSI D", short:"R",
-      guides:Object.freeze([g(100, .15), g(70, .70), g(50, .30, DOT), g(30, .70), g(0, .15)]),
-      chipLook:Object.freeze({ text:.95, fill:.18, leader:.55, gap:6 }) }),
-    /* Williams' native range is -100…0; its usual bounds -20 (overbought) and -80 (oversold) take the place
-       of 70/30, drawn the same way */
-    williams: Object.freeze({ key:"williams", ink:CYAN, cloud:Object.freeze({ ink:CYAN_CLOUD, opacity:.30 }),
-      domain:Object.freeze([-100, 0]), padPx:3, title:"%R 14", chip:"%R D", short:"W",
-      guides:Object.freeze([g(0, .15), g(-20, .70), g(-50, .30, DOT), g(-80, .70), g(-100, .15)]),
-      chipLook:Object.freeze({ text:.95, fill:.18, leader:.55, gap:6 }) })
-  });
-  /* value -> y inside [top, top + height] on the look's fixed domain, padPx kept at each end */
-  function lookY(look, v, top, height) {
-    const p = look.padPx, lo = look.domain[0], hi = look.domain[1];
+  const LOOK = Object.freeze({ key:"lab", ink:PINK, cloud:Object.freeze({ ink:PINK_CLOUD, opacity:.30 }),
+    domain:Object.freeze([0, 100]), padPx:3, title:"RSI + WILLIAMS %R",
+    guides:Object.freeze([g(80, .45, DASH), g(70, .70), g(50, .30, DOT), g(30, .70), g(20, .45, DASH)]),
+    chipLook:Object.freeze({ text:.95, fill:.18, leader:.55, gap:6 }),
+    /* the Williams chip sits this much further right than the RSI chip (the script's wDailyOffset, in px) */
+    wChipOffset:14 });
+  /* how one line is stroked. spec is the fan's line (station-rsi-fan BY_KEY: alpha = the ladder, width, daily).
+     RSI: solid at the fan's width (intraday 1, Daily 3). Williams: dotted, intraday 1, Daily 2. Same opacity for both. */
+  function lineStyle(set, spec) {
+    const daily = !!(spec && spec.daily), alpha = spec && spec.alpha != null ? spec.alpha : 1;
+    if (set === "williams") return { alpha, width:daily ? 2 : 1, dash:DOT };
+    return { alpha, width:spec && spec.width ? spec.width : 1, dash:null };
+  }
+  /* The paint order, the script's explicit_plot_zorder: Williams 12H…3H then its Daily, then RSI 12H…3H, the RSI Daily last.
+     lines: { rsi:[{ key, values }], williams:[…] }; isDaily(key). Returns [{ set, line }] back to front. */
+  function paintOrder(lines, isDaily) {
+    const out = [];
+    for (const set of ["williams", "rsi"]) {
+      const l = (lines && lines[set]) || [];
+      const fast = l.filter((x) => x.values && !isDaily(x.key)).reverse(), day = l.filter((x) => x.values && isDaily(x.key));
+      for (const line of fast.concat(day)) out.push({ set, line });
+    }
+    return out;
+  }
+  /* value -> y inside [top, top + height] on the fixed 0-100 domain, padPx kept at each end */
+  function lookY(v, top, height) {
+    const p = LOOK.padPx, lo = LOOK.domain[0], hi = LOOK.domain[1];
     return top + p + (1 - (v - lo) / (hi - lo)) * Math.max(1, height - 2 * p);
   }
-  function rgba(hex, a) {
-    const h = String(hex || "").replace("#", "");
-    const [r, gg, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
-    return "rgba(" + r + "," + gg + "," + b + "," + Math.max(0, Math.min(1, a)).toFixed(2) + ")";
-  }
-  /* "MRG D 61.2" · "RSI D 52.3" · "%R D −23.4": the actual value at one decimal */
-  function chipText(look, v) {
-    if (!Number.isFinite(v)) return look.chip + " —";
-    return look.chip + " " + (v < 0 ? "−" + Math.abs(v).toFixed(1) : v.toFixed(1));
-  }
   const fmt = (v) => (v == null || !Number.isFinite(v) ? "—" : v < 0 ? "−" + Math.abs(v).toFixed(1) : v.toFixed(1));
-  /* the hover item for one timeframe on the merged pane: its merged value and both sources' own values ("3H 70.1 R54.8 W−20.5");
-     on a compact pane (readoutFor -> "merged") the merged value alone ("3H 70.1") */
-  function hoverItem(label, merged, rsi, wr, readout) {
-    return readout === "merged" ? label + " " + fmt(merged) : label + " " + fmt(merged) + " R" + fmt(rsi) + " W" + fmt(wr);
-  }
-  /* F1 (1 Oct; S6 decision 2, the coordinator's call) — WHICH HOVER READOUT THE MERGED PANE PRINTS. The full readout (merged,
-     R, W per timeframe) wrapped to three rows over an 8-up pane. A COMPACT pane - inside the deck or the Hub, and not the
-     deck's ⤢ pane nor the Hub's EXPAND - prints the merged values only, on one row. An expanded pane, or the chart opened on
-     its own, keeps the full readout. Same inputs as resolveMode. */
+  /* the two daily chips: "RSI D 49.2" · "W D 85.6 · %R −14.4" (plotted height first, the native Williams value second) */
+  const rsiChip = (v) => "RSI D " + fmt(v);
+  const williamsChip = (p) => "W D " + fmt(p) + " · %R " + fmt(toNative(p));
+  /* one timeframe on the hover row: "3H R54.8 W79.5" (Williams on the plotted 0-100 scale) */
+  const hoverItem = (label, r, w) => label + " R" + fmt(r) + " W" + fmt(w);
+  const HOVER_SEP = " · ";
+
+  /* WHICH HOVER THE PANE PRINTS. A COMPACT pane - inside the deck or the Hub, and not the deck's ⤢ pane nor the Hub's
+     EXPAND - prints the Daily alone ("D R49.2 W85.6"). An expanded pane, or the chart opened on its own, prints every visible
+     timeframe ("3H R54.8 W79.5 · … · D R49.2 W85.6"). Either way ONE row, never wrapped. */
   function readoutFor(o) {
     if (!o || o.deckFull || o.hubSplit === true) return "full";
-    return o.embedded ? "merged" : "full";
+    return o.embedded ? "compact" : "full";
   }
 
-  /* ---- which set the pane shows ---------------------------------------------------------------------------
-     ?osc=  merged | split | auto (absent = auto). In auto:
-       · a pane the deck has expanded (⤢, SCINTILLA_DECK_FULL_STATE active)        -> split
-       · the Hub's company chart, told by the Hub (EXPAND on)                      -> split
-       · the chart page opened on its own (not inside the deck or the Hub) and tall
-         enough for price plus three readable panes (SPLIT_MIN_H)                  -> split
-       · everything else - the 8-up and every compact wall pane, the Hub collapsed  -> merged
-     A typed ?osc=merged or ?osc=split always wins. */
-  const SPLIT_MIN_H = 560;
-  function parseOscParam(raw) {
-    const t = raw == null ? "" : String(raw).trim().toLowerCase();
-    return t === "merged" || t === "merge" || t === "m" ? "merged" : t === "split" || t === "three" || t === "3" ? "split" : "auto";
-  }
-  function resolveMode(o) {
-    const want = parseOscParam(o && o.param);
-    if (want !== "auto") return want;
-    if (o.deckFull) return "split";
-    if (o.hubSplit === true) return "split";
-    if (o.hubSplit === false || o.embedded) return "merged";
-    return Number(o.areaH) >= SPLIT_MIN_H ? "split" : "merged";
-  }
-  /* The oscillator block's share of the pane: the one merged pane keeps the RSI pane's 26%; the three stacked
-     take 46% (price keeps more than half; see splitBlock), split evenly with a 6 px gap between them. */
-  const MERGED_SHARE = 0.26, SPLIT_SHARE = 0.46, SPLIT_MAX_SHARE = 0.56, SPLIT_GAP = 6, SPLIT_MIN_PANE = 70;
-  /* The three panes' block for a pane h px tall: 46%, raised as far as 56% so each of the three keeps at least 70 px (the
-     approved 8-up RSI pane is 66 px); 0 when even that does not fit, and the pane then shows the merged one. Measured: the
-     deck's ⤢ pane at 1680 is 554 px tall, the Hub's EXPAND chart 527, the Hub on a phone 400. */
-  function splitBlock(h) {
-    const need = 3 * SPLIT_MIN_PANE + 2 * SPLIT_GAP, cap = Math.floor(h * SPLIT_MAX_SHARE);
-    const want = Math.max(Math.floor(h * SPLIT_SHARE), need);
-    return want <= cap ? want : 0;
-  }
-  function splitPanes(top, height) {
-    const each = Math.max(1, Math.floor((height - 2 * SPLIT_GAP) / 3));
-    return ["merged", "rsi", "williams"].map((key, i) => ({ key, top:top + i * (each + SPLIT_GAP), height:each }));
-  }
-
-  root.SC_OSC_MERGE = Object.freeze({
-    RSI_OS, RSI_OB, W_OS, W_OB, WILLIAMS_PERIOD, MIX, LOOKS, SPLIT_MIN_H, MERGED_SHARE, SPLIT_SHARE, SPLIT_MAX_SHARE, SPLIT_GAP, SPLIT_MIN_PANE, splitBlock,
-    mapRsi, mapWilliams, blend, toPane, fromPane, williamsValues, deriveSets, lookY, rgba, chipText, hoverItem, fmt,
-    parseOscParam, resolveMode, readoutFor, splitPanes
+  root.SC_OSC_LAB = Object.freeze({
+    WILLIAMS_PERIOD, SHIFT, LOOK, DOT, DASH, PINK, PINK_CLOUD, HOVER_SEP,
+    williamsValues, toPlot, toNative, deriveSets, lineStyle, paintOrder, lookY, fmt, rsiChip, williamsChip, hoverItem, readoutFor
   });
 })(typeof globalThis === "object" ? globalThis : window);
