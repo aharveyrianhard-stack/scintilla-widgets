@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Station floor plan · the X strip with YouTube at its foot</title>
+<!-- S8 (2 Oct 2026) — A MOCK, not the Station. Alan: "Station re-org proposal: X on the left in a strip, and at the bottom of
+     the strip YouTube, perhaps a bit smaller than now — that makes the charts have more real estate. Analyzed at pixel level,
+     like a floor plan in square feet."
+     One static page that arranges the Station's own shells (chart-v1, personal-video-v1, x-v2 — the ones /deck mounts) the way
+     he describes: a left STRIP of X posts, the video at the strip's FOOT, the charts taking everything else. The charts and the
+     video are live; the X shell is live too but has no capture in a hidden browser, so the strip shows frames that stand for
+     posts, drawn at X's real proportions (W1, 1 Oct: a text post ≈ 215 px, a post with a picture ≈ 560 px in X's 600 px column
+     at 100% zoom; body text 15 px). The measurements are printed on the page (the card bottom-right) and read by
+     harness/mock-shots.mjs through window.__floorplan(). Nothing here edits the deck.
+       ?charts=9|8|6 (default 9: the eight TARGETS and SPY)   ?range=3D   ?strip=456 (px; default clamp(456px, 27vw, 616px))
+       ?video=1 (the video's width as a share of the strip; default 1)   ?bubble=4h:12 (the charts' lens; default 4h:12) -->
+<style>
+:root{ --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --ink:#C8C8D0; --ink2:#B4B4BC; --ink3:#8E8E96; --dim:#707078; --mute:#36363E; }
+*{ box-sizing:border-box; } html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink2); font:11px/1.4 ui-monospace,Menlo,monospace; overflow:hidden; }
+#stage{ position:fixed; inset:0; display:flex; gap:1px; background:var(--line); }
+#strip{ display:flex; flex-direction:column; gap:1px; min-width:0; min-height:0; background:var(--line); flex:0 0 var(--strip); }
+.pane{ position:relative; background:var(--bg); display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
+.ph{ flex:none; display:flex; align-items:center; gap:6px; padding:3px 7px; background:var(--panel2); border-bottom:1px solid var(--line); height:20px; }
+.ph .t{ color:var(--ink2); font-size:8.5px; letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ph .k{ margin-left:auto; color:var(--dim); font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; white-space:nowrap; }
+.body{ flex:1 1 0; min-height:0; min-width:0; position:relative; }
+iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; background:var(--bg); }
+#charts{ flex:1 1 0; display:grid; gap:1px; background:var(--line); min-height:0; min-width:0; }
+#charts[data-cols="3"]{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+#charts[data-cols="4"]{ grid-template-columns:repeat(4,minmax(0,1fr)); }
+#charts[data-cols="2"]{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+.pane.x{ flex:1 1 0; } .pane.video{ flex:0 0 auto; }
+/* the X strip: the real X shell underneath (its 20 px control bar stays), the post ladder over its body */
+#ladder{ position:absolute; left:0; right:0; top:20px; bottom:0; overflow:hidden; background:var(--bg); }
+#ladder .track{ position:absolute; left:8px; right:8px; top:22px; transition:transform .55s ease; }
+.post{ border-bottom:1px solid var(--line); padding:10px 10px 10px 54px; position:relative; color:var(--ink3); }
+.post .av{ position:absolute; left:10px; top:12px; width:34px; height:34px; border-radius:50%; background:var(--mute); }
+.post .nm{ color:var(--ink2); margin-bottom:4px; } .post .nm i{ color:var(--dim); font-style:normal; }
+.post .ln{ height:.9em; margin:.42em 0; background:var(--mute); border-radius:2px; opacity:.75; } .post .ln.s{ width:62%; }
+.post .md{ margin-top:8px; border:1px solid var(--mute); border-radius:6px; background:var(--panel2); }
+.post .idx{ position:absolute; right:10px; top:10px; color:var(--dim); }
+#ladder.paused .track{ transition:none; }
+#lstate{ position:absolute; right:8px; bottom:6px; color:var(--dim); font-size:11px; letter-spacing:.1em; background:var(--panel2); border:1px solid var(--line); padding:2px 6px; pointer-events:none; }
+#ladder.paused #lstate{ color:var(--ink); }
+#lnote{ position:absolute; left:8px; top:4px; color:var(--dim); font-size:11px; pointer-events:none; }
+/* the floor plan card: the numbers, on the page */
+#plan{ position:fixed; right:10px; bottom:10px; z-index:9; background:rgba(15,15,26,.94); border:1px solid var(--mute); color:var(--ink2); font-size:11px; line-height:1.5; padding:8px 11px; max-width:min(560px, 92vw); pointer-events:none; }
+#plan b{ color:var(--ink); font-weight:600; } #plan .h{ color:var(--ink); letter-spacing:.14em; text-transform:uppercase; margin-bottom:3px; }
+#plan table{ border-collapse:collapse; margin-top:3px; } #plan td{ padding:0 10px 0 0; white-space:nowrap; vertical-align:top; } #plan td.n{ text-align:right; }
+#plan .up{ color:#39C27A; } #plan .down{ color:#D9544E; }
+/* phone / portrait: one column that scrolls, as the Station stacks — the charts first, the X strip as a block under them, the video last */
+@media (max-width:900px), (orientation:portrait){
+  html,body{ height:auto; overflow:visible; } #stage{ position:static; flex-direction:column; height:auto; }
+  #strip{ flex:none; order:2; } #charts{ flex:none; order:1; display:flex; flex-direction:column; height:auto !important; }
+  #charts > .pane{ height:56vh !important; min-height:230px; }
+  .pane.x{ flex:none; height:72vh; } .pane.video{ height:auto !important; width:auto !important; aspect-ratio:16/9; }
+  #plan{ position:static; max-width:none; margin:8px; }
+}
+</style></head><body>
+<div id="stage"></div>
+<div id="plan"></div>
+<script>
+"use strict";
+const Q = new URLSearchParams(location.search);
+const N = Math.max(1, Math.min(12, +(Q.get("charts") || 9))), RANGE = Q.get("range") || "3D", BUBBLE = Q.get("bubble") || "4h:12";
+const STRIP = Q.get("strip") ? Math.max(200, +Q.get("strip")) + "px" : "clamp(456px, 27vw, 616px)";
+const VIDEO_SHARE = Math.max(0.3, Math.min(1, +(Q.get("video") || 1)));
+/* the eight TARGETS (deck/scenes.js TARGETS_DEFAULT) and the index for the ninth slot */
+const TICKERS = ["GOOGL", "NBIS", "AVGO", "BE", "AMZN", "VST", "MU", "WMT", "SPY", "QQQ", "IWM", "SMH"];
+const SHELL = { chart: "/station-shells/chart-v1/", video: "/station-shells/personal-video-v1/", x: "/station-shells/x-v2/" };
+const chartSrc = (t) => SHELL.chart + "?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) + "&view=desk&bubble=" + encodeURIComponent(BUBBLE);
+const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const pane = (cls, title, key) => { const p = h("div", "pane " + cls); p.innerHTML = '<div class="ph"><span class="t">' + title + '</span>' + (key ? '<span class="k">' + key + '</span>' : '') + '</div><div class="body"></div>'; return p; };
+function chartPane(t) { const p = pane("chart", t + " <i style='color:var(--dim)'>" + RANGE + "</i>"); p.dataset.t = t; const f = h("iframe"); f.src = chartSrc(t); p.querySelector(".body").appendChild(f); return p; }
+/* the grid keeps a chart's shape: three columns for 7-9 charts, three for 6, four for 10-12, two for up to 4 */
+function chartsBlock(n) { const g = h("div"); g.id = "charts"; g.dataset.cols = n <= 4 ? 2 : n <= 9 ? 3 : 4; for (let i = 0; i < n; i++) g.appendChild(chartPane(TICKERS[i % TICKERS.length])); return g; }
+function videoPane() { const p = pane("video", "Personal YouTube", "at the strip's foot · 16:9"); const f = h("iframe"); f.src = SHELL.video + "?shell=v1&feed=personal&cols=2&view=desk"; p.querySelector(".body").appendChild(f); return p; }
+/* X AS A STRIP: the real shell + the post ladder (W1's frames: X's own post heights, scaled to the strip). One post at a time, pauses under the pointer. */
+const POSTS = [[215, 0], [560, 1], [200, 0], [235, 0], [560, 1], [190, 0], [225, 0], [560, 1], [210, 0], [240, 0], [560, 1], [205, 0]];
+function xPane() {
+  const p = pane("x", "X <i style='color:var(--dim)'>· live</i>", "left strip"); const body = p.querySelector(".body");
+  const f = h("iframe"); f.src = SHELL.x + "?shell=v1&view=desk"; body.appendChild(f);
+  const lad = h("div"); lad.id = "ladder"; const track = h("div", "track"); lad.appendChild(track);
+  const note = h("div"); note.id = "lnote"; note.textContent = "frames stand for posts · the live capture draws here"; lad.appendChild(note);
+  const stt = h("div"); stt.id = "lstate"; stt.textContent = "advancing · 1 post / 6 s"; lad.appendChild(stt); body.appendChild(lad);
+  function build() {
+    const w = Math.max(1, lad.clientWidth - 16), s = w / 600; p.dataset.scale = s.toFixed(3); lad.style.fontSize = Math.max(11, 15 * s).toFixed(1) + "px";
+    track.innerHTML = ""; POSTS.forEach(([hh, md], i) => { const e = h("div", "post"); e.style.height = Math.round(hh * s) + "px";
+      e.innerHTML = '<div class="av"></div><div class="idx">post ' + (i + 1) + '</div><div class="nm">name <i>@handle · 2m</i></div><div class="ln"></div><div class="ln"></div><div class="ln s"></div>' + (md ? '<div class="md" style="height:' + Math.round(300 * s) + 'px"></div>' : ''); track.appendChild(e); });
+    /* the numbers card repaints on its own clock (the strip and the video are built after this pane) */
+  }
+  let i = 0, y = 0; const step = () => { if (lad.classList.contains("paused")) return; const posts = track.children; if (i >= posts.length - 4) { i = 0; y = 0; } else { y += posts[i].offsetHeight; i++; } track.style.transform = "translateY(-" + y + "px)"; };
+  lad.addEventListener("pointerenter", () => { lad.classList.add("paused"); stt.textContent = "paused · pointer on the strip"; });
+  lad.addEventListener("pointerleave", () => { lad.classList.remove("paused"); stt.textContent = "advancing · 1 post / 6 s"; });
+  build(); new ResizeObserver(build).observe(lad); setInterval(step, 6000); p._ladder = { step, track }; return p;
+}
+/* ---- the floor plan: strip left (X, then the video at its foot), the charts right */
+const stage = document.getElementById("stage");
+document.documentElement.style.setProperty("--strip", STRIP);
+const strip = h("div"); strip.id = "strip"; const x = xPane(), v = videoPane(); strip.append(x, v);
+const charts = chartsBlock(N); stage.append(strip, charts);
+/* the video: as wide as the strip (or the share asked for), a 16:9 picture under the shell's 28 px bar, no black bars */
+function fitVideo() { const ww = Math.round(strip.clientWidth * VIDEO_SHARE); v.style.width = ww + "px"; v.style.height = Math.round(ww * 9 / 16 + 28) + "px"; }
+fitVideo(); addEventListener("resize", fitVideo); new ResizeObserver(fitVideo).observe(strip);
+/* ---- the numbers, measured on this page and printed on it; today's deck from harness/measure-today.json when it is there */
+const r = (el) => { const b = el.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) }; };
+const fmt = (n) => Math.round(n).toLocaleString("en-US");
+let TODAY = null;
+fetch("harness/measure-today.json").then((x) => x.ok ? x.json() : null).then((j) => { TODAY = j; paint(); }).catch(() => {});
+window.__floorplan = () => {
+  const lad = document.getElementById("ladder"), lb = r(lad), posts = [...lad.querySelectorAll(".post")].map(r);
+  const fully = posts.filter((p) => p.y >= lb.y - 1 && p.y + p.h <= lb.y + lb.h + 1).length, partly = posts.filter((p) => p.y < lb.y + lb.h && p.y + p.h > lb.y).length;
+  const xb = r(x), vb = r(v), cb = r(charts), cs = [...charts.querySelectorAll(".pane.chart")].map((c) => r(c));
+  const screen = innerWidth * innerHeight, chartsPx = cb.w * cb.h, xPx = xb.w * xb.h, vPx = vb.w * vb.h;
+  const pic = { w: vb.w, h: Math.max(0, vb.h - 28) };
+  const key = innerWidth + "x" + innerHeight, today = TODAY && TODAY[key] ? TODAY[key].floor : null;
+  return { vw: innerWidth, vh: innerHeight, strip: r(strip), x: xb, xScale: +x.dataset.scale, xFont: parseFloat(getComputedStyle(lad).fontSize), postsFully: fully, postsPartly: partly,
+    video: vb, picture: pic, charts: cs.length, cols: +charts.dataset.cols, chart0: cs[0] || null, chartsBlock: cb,
+    px: { screen, charts: chartsPx, x: xPx, video: vPx, chrome: Math.max(0, screen - chartsPx - xPx - vPx) },
+    share: { charts: +(chartsPx / screen).toFixed(3), x: +(xPx / screen).toFixed(3), video: +(vPx / screen).toFixed(3) }, today };
+};
+function paint() {
+  const m = window.__floorplan(); const t = m.today;
+  const row = (name, nowPx, nowBox, wasPx, wasBox) => {
+    const d = wasPx ? (nowPx / wasPx - 1) * 100 : null;
+    return "<tr><td>" + name + "</td><td class=n>" + (wasBox ? wasBox.w + "×" + wasBox.h : "—") + "</td><td class=n>" + (wasPx ? fmt(wasPx) + " px² · " + Math.round(wasPx / m.px.screen * 100) + "%" : "—") +
+      "</td><td class=n>" + nowBox.w + "×" + nowBox.h + "</td><td class=n>" + fmt(nowPx) + " px² · " + Math.round(nowPx / m.px.screen * 100) + "%</td><td class=n>" +
+      (d == null ? "" : "<span class='" + (d >= 0 ? "up" : "down") + "'>" + (d >= 0 ? "+" : "") + Math.round(d) + "%</span>") + "</td></tr>";
+  };
+  document.getElementById("plan").innerHTML = "<div class=h>floor plan · " + m.vw + " × " + m.vh + " · " + fmt(m.px.screen) + " px² in all</div>" +
+    "<table><tr><td></td><td class=n>today</td><td class=n></td><td class=n>this plan</td><td class=n></td><td></td></tr>" +
+    row("charts, all", m.px.charts, m.chartsBlock, t && t.charts, t && { w: Math.round(t.charts / (TODAY[m.vw + "x" + m.vh].rowTop.h || 1)), h: TODAY[m.vw + "x" + m.vh].rowTop.h }) +
+    row("one chart", m.chart0 ? m.chart0.w * m.chart0.h : 0, m.chart0 || { w: 0, h: 0 }, t && t.chart0 && t.chart0.w * t.chart0.h, t && t.chart0) +
+    row("X", m.px.x, m.x, t && t.x, t && TODAY[m.vw + "x" + m.vh].x && TODAY[m.vw + "x" + m.vh].x.box) +
+    row("YouTube", m.px.video, m.video, t && t.video, t && TODAY[m.vw + "x" + m.vh].video && TODAY[m.vw + "x" + m.vh].video.box) + "</table>" +
+    "<div>strip <b>" + m.strip.w + " px</b> wide · X text <b>" + m.xFont.toFixed(1) + " px</b> (" + (m.xScale * 100).toFixed(0) + "% of X's own) · <b>" + m.postsFully + "</b> posts fully, " + m.postsPartly + " partly · " +
+    m.charts + " charts in " + m.cols + " columns" + (m.chart0 ? " at " + m.chart0.w + "×" + m.chart0.h : "") + " · video picture " + m.picture.w + "×" + m.picture.h + (t ? "" : " · today's numbers: run harness/measure-today.mjs") + "</div>";
+}
+addEventListener("resize", paint); setTimeout(paint, 300); setInterval(paint, 4000);
+</script></body></html>

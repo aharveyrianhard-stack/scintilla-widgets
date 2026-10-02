@@ -672,6 +672,14 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       <button type="button" class="btn more-only" id="resetScene" title="restore this scene's original preset" aria-label="Reset scene preset">reset preset</button>
       <button type="button" class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen" aria-label="Toggle Station fullscreen">⛶</button>
       <button type="button" class="btn" id="dockHideToggle" title="tuck the strip away two seconds after the pointer leaves it; remembered in this browser" aria-pressed="true">auto-hide · on</button>
+      <!-- S8 (2 Oct): the context lens' shape. Alan: "oval-like shaped, from starting point to ending point, to save
+           as much screen real estate as possible." OVAL is the default; BOX is the 27 Sep card. Remembered in this browser. -->
+      <span class="control-group lens-controls">
+        <span class="control-label">lens</span>
+        <select class="scene-mode" id="lensShape" title="the context lens: an oval that hugs the zoomed-out series from its first bar to its last, or the old box; remembered in this browser" aria-label="Context lens shape">
+          <option value="oval" selected>oval</option><option value="box">box</option>
+        </select>
+      </span>
       <span class="more-readout"><span id="symbolNote">Hub symbols</span> · <span id="size"></span> <span id="rtNote" hidden style="color:var(--dim);font-size:9px;letter-spacing:.07em"></span></span>
     </div>
   </span>
@@ -4325,6 +4333,18 @@ el("resetScene").addEventListener("click", () => {
   applyScene(SCENE, { reset:true });
 });
 el("rotateEvery").addEventListener("change", (e) => setRotationInterval(e.target.value));
+/* S8 (2 Oct): the context lens' shape - one choice for the whole wall, remembered in this browser and told to every
+   chart frame (the frames also hear the storage event, so another Station window follows too) */
+const LENS_SHAPE_KEY = "station.lens.shape";
+function lensShape() { try { return localStorage.getItem(LENS_SHAPE_KEY) === "box" ? "box" : "oval"; } catch (_) { return "oval"; } }
+function setLensShape(value) {
+  const s = value === "box" ? "box" : "oval";
+  try { localStorage.setItem(LENS_SHAPE_KEY, s); } catch (_) {}
+  el("lensShape").value = s;
+  document.querySelectorAll("iframe").forEach((f) => { try { f.contentWindow.postMessage({ sc:"lens-shape", shape:s }, location.origin); } catch (_) {} });
+}
+el("lensShape").value = lensShape();
+el("lensShape").addEventListener("change", (e) => setLensShape(e.target.value));
 el("rotateToggle").addEventListener("click", () => setRotationPaused(!ROTATE_PAUSED));
 for (const [id, step] of [["pagePrev", -1], ["pageNext", 1], ["edgePrev", -1], ["edgeNext", 1]])
   el(id).addEventListener("click", () => stepScreen(step));

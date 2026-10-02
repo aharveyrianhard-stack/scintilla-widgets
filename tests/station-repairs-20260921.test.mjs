@@ -27,7 +27,11 @@ test('the dock loses no control, no id and no accessible name', () => {
     'every accessible name survives the consolidation')
   const selectsBefore = (baseDeck.match(/<select/g) || []).length
   const buttonsBefore = (baseDeck.match(/<button/g) || []).length
-  assert.equal((deck.match(/<select/g) || []).length, selectsBefore)
+  /* 2 Oct (S8): one deliberate new select, in the ⋯ drawer - the context lens' shape, OVAL (default) · BOX
+     (Alan: "oval-like shaped, from starting point to ending point, to save as much screen real estate as
+     possible"). Named here so the count can never drift silently. */
+  assert.ok(after.has('lensShape'), 'the lens shape select is the deliberate new ⋯ control')
+  assert.equal((deck.match(/<select/g) || []).length, selectsBefore + 1)
   /* The 23 Sep dock adds two buttons (the "more" drawer and the auto-hide lip); the 23 Sep
      evening page rail adds five more, each one named here so the count can never drift
      silently: page ‹, page ›, the "pages" jump button, and the two edge arrows on the wall.

@@ -364,29 +364,7 @@ export function drawBubble(ctx, rect, model, opt = {}) {
     }
     ctx.globalAlpha = 1;
   }
-  /* candles: wick then body, one colour per bar */
-  for (let i = 0; i < bars.length; i++) {
-    const c = g.candles[i];
-    const col = barColour(bars[i], colour, day, pal);
-    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1;
-    const wx = Math.round(c.x) + 0.5;
-    ctx.beginPath(); ctx.moveTo(wx, c.yH); ctx.lineTo(wx, c.yL); ctx.stroke();
-    const top = Math.min(c.yO, c.yC), hh = Math.max(1, Math.abs(c.yC - c.yO));
-    /* 29 Sep: a candle carrying the live price (station-lens liveBars) is drawn as forming, the way the
-       main chart draws its forming point: a dashed outline, never a finished body */
-    if (bars[i].live && c.w >= 2.5) {
-      ctx.fillStyle = pal.paper; ctx.fillRect(c.x - c.w / 2, top, c.w, hh);
-      ctx.setLineDash([2, 1.5]);
-      ctx.strokeRect(Math.round(c.x - c.w / 2) + 0.5, Math.round(top) + 0.5, Math.round(c.w) - 1, Math.max(1, Math.round(hh) - 1));
-      ctx.setLineDash([]);
-      continue;
-    }
-    if (c.w >= 2.5) {
-      /* an up candle is hollow so the two directions read apart even at four pixels wide */
-      if (c.up) { ctx.fillStyle = pal.paper; ctx.fillRect(c.x - c.w / 2, top, c.w, hh); ctx.strokeRect(Math.round(c.x - c.w / 2) + 0.5, Math.round(top) + 0.5, Math.round(c.w) - 1, Math.max(1, Math.round(hh) - 1)); }
-      else ctx.fillRect(c.x - c.w / 2, top, c.w, hh);
-    } else ctx.fillRect(c.x - c.w / 2, top, Math.max(1, c.w), hh);
-  }
+  drawCandles(ctx, bars, g, { colour, day, pal });
   /* the last price: a tag at its own height, in the last bar's colour */
   const lp = lastPrice(bars);
   if (lp && L.tag) {
@@ -412,6 +390,33 @@ export function drawBubble(ctx, rect, model, opt = {}) {
   ctx.globalAlpha = 1;
   ctx.restore();
   return L;
+}
+
+/* The candles themselves, from a geometry (candleGeometry): wick then body, one colour per bar. Shared by
+   the box (drawBubble) and the oval (station-lens.mjs, S8 2 Oct) so both shapes draw the same candle. */
+export function drawCandles(ctx, bars, g, { colour = DIALS.colour, day = null, pal = PALETTE } = {}) {
+  for (let i = 0; i < bars.length; i++) {
+    const c = g.candles[i];
+    const col = barColour(bars[i], colour, day, pal);
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1;
+    const wx = Math.round(c.x) + 0.5;
+    ctx.beginPath(); ctx.moveTo(wx, c.yH); ctx.lineTo(wx, c.yL); ctx.stroke();
+    const top = Math.min(c.yO, c.yC), hh = Math.max(1, Math.abs(c.yC - c.yO));
+    /* 29 Sep: a candle carrying the live price (station-lens liveBars) is drawn as forming, the way the
+       main chart draws its forming point: a dashed outline, never a finished body */
+    if (bars[i].live && c.w >= 2.5) {
+      ctx.fillStyle = pal.paper; ctx.fillRect(c.x - c.w / 2, top, c.w, hh);
+      ctx.setLineDash([2, 1.5]);
+      ctx.strokeRect(Math.round(c.x - c.w / 2) + 0.5, Math.round(top) + 0.5, Math.round(c.w) - 1, Math.max(1, Math.round(hh) - 1));
+      ctx.setLineDash([]);
+      continue;
+    }
+    if (c.w >= 2.5) {
+      /* an up candle is hollow so the two directions read apart even at four pixels wide */
+      if (c.up) { ctx.fillStyle = pal.paper; ctx.fillRect(c.x - c.w / 2, top, c.w, hh); ctx.strokeRect(Math.round(c.x - c.w / 2) + 0.5, Math.round(top) + 0.5, Math.round(c.w) - 1, Math.max(1, Math.round(hh) - 1)); }
+      else ctx.fillRect(c.x - c.w / 2, top, c.w, hh);
+    } else ctx.fillRect(c.x - c.w / 2, top, Math.max(1, c.w), hh);
+  }
 }
 
 /* 27 Sep (O1), Alan: "commas in numbers" - 1,085 not 1085. */
