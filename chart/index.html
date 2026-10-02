@@ -454,9 +454,23 @@ const oscReadoutFor = () => window.SC_OSC_LAB.readoutFor({ deckFull:OSC_DECK_FUL
    any range but 3D shows no bubble. The deck adds it on the 3-day pages and changes it by message.
    Everything else lives in /_indicators/station-lens.mjs. */
 let BUBBLE_REQUEST = QS.get("bubble") || "";
+/* S8 (2 Oct) — THE LENS' SHAPE. Alan: "oval-like shaped, from starting point to ending point, to save as much screen
+   real estate as possible." OVAL by default; BOX is the 27 Sep card. The deck's ⋯ menu sets it for the whole wall
+   (localStorage "station.lens.shape", told to every frame by message); ?lens=box on a pane's own URL wins. */
+const LENS_SHAPE_KEY = "station.lens.shape";
+const lensShapeOf = (v) => v === "box" ? "box" : "oval";
+let LENS_SHAPE = ["oval", "box"].includes(QS.get("lens")) ? QS.get("lens")
+  : (() => { try { return lensShapeOf(localStorage.getItem(LENS_SHAPE_KEY)); } catch (_) { return "oval"; } })();
+function setLensShape(value) {
+  const s = lensShapeOf(value);
+  if (s === LENS_SHAPE) return;
+  LENS_SHAPE = s;
+  for (const host of CHART_HOSTS) if (host.isConnected) { host._lensMemo = null; host._lensPlaced = null; scChartDraw(host); }
+}
+addEventListener("storage", (e) => { if (e.key === LENS_SHAPE_KEY && !["oval", "box"].includes(QS.get("lens"))) setLensShape(e.newValue); });
 let SC_LENS = null, scLensLoading = null;
 const SC_LENS_DEPS = {
-  request: () => BUBBLE_REQUEST, range: () => S.chartRange,
+  request: () => BUBBLE_REQUEST, range: () => S.chartRange, shape: () => LENS_SHAPE,
   /* a daily lens draws from the ribbon's one daily read (S1, 29 Sep); every other lens reads its own bars */
   /* ...and only once the price is on screen: asked at boot it sized the read before the fan's need was
      known, and the ribbon then read again and was drawn twice (measured: PCC, INTERNALS) */
@@ -4162,6 +4176,8 @@ addEventListener("message", (e) => {
   if (!d) return;
   if (d.sc === "deck-quote") { applyDeckQuote(d.ticker, d.quote, d.state, d.absence); return; }
   if (d.sc === "deck-geiger") { applyDeckGeiger(d.readings); return; }
+  /* S8: the deck's lens shape (oval · box), one choice for the whole wall; a pane's own ?lens= stays in charge */
+  if (d.sc === "lens-shape") { if (!["oval", "box"].includes(QS.get("lens"))) setLensShape(d.shape); return; }
   if (d.sc === "deck-rotation") {
     const m = d.mark;
     ROTATION_MARK = m && Number(m.of) > 1 && Number(m.at) >= 1

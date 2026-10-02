@@ -19,8 +19,8 @@
    opened, the bubble is drawn dimmed and its head says STALE.
    ============================================================================ */
 import { lastSessions, sessionsOf, flatten, barsToRequest, drawBubble, bubbleBox, placeBubble, layout,
-  CHAMFER, DIALS, TIMEFRAMES, HOURS, etParts, FLOOR } from "./lens-bars.mjs";
-import { pathPoints, clearsTail, clearsTailPoints, emptiestSpot, inkReader, DEFAULTS as PLACE } from "./lens-placement.mjs";
+  candleGeometry, drawCandles, CHAMFER, DIALS, TIMEFRAMES, HOURS, etParts, FLOOR } from "./lens-bars.mjs";
+import { pathPoints, clearsTail, clearsTailPoints, emptiestSpot, inkReader, lineTailBox, DEFAULTS as PLACE } from "./lens-placement.mjs";
 
 /* O1 (27 Sep), Alan: "30-minute is too short for 3-day charts -> use 4h; on DAILY charts use the
    30-minute lens. Weekly macro pages: no lens." The deck says which lens a page carries (4h:12 on the
@@ -268,6 +268,126 @@ export function placeLens({ plot, series, points, keepOut = [], slidePast = [], 
            fallback: !atBL, why: res.why, held: !!res.held, covers: !!res.spot.covers, box };
 }
 
+/* ============================================================================
+   S8 (2 Oct) — THE OVAL. Alan: "Context lens oval-like shaped, from starting point to ending point, to save
+   as much screen real estate as possible."
+   The lens is drawn inside an ellipse whose long axis runs from the lens series' first bar to its last: the
+   two tips are the start and the end of the zoomed-out view, so the oval TILTS with the series (a rising
+   three months tilts up to the right, a falling one down) and its short axis is only as tall as the series'
+   swings need. No box, no corner card: the candles are clipped to the ellipse, the edge is a faint line, the
+   paper inside is the same dark paper as before. The timeframe / STALE tag sits in a 10 px row above it.
+     · long axis  = the PANE width × 0.28 on a desktop, × 0.40 on a phone (the top window under 600 px);
+     · short axis = the least that keeps the candles readable: the price range is drawn PLOT_H px tall
+                    (a quarter of the long axis, 28 to 32 px - measured 2 Oct: letting it grow with the long
+                    axis made the oval on a 4-up pane bigger than the card it replaces), then the ellipse is
+                    grown just until every candle's
+                    high, low and body corner is inside it, plus PAD px of air, rounded up to a 4 px step so a
+                    tick does not resize it; never under MIN_SHORT, never taller than it is long;
+     · where      = the S1 rule, unchanged: the ellipse's bounding box is the box the rule places (the
+                    emptiest dark space, never the newest fifth, never the badge / chip / readout / arrows,
+                    bottom-left when as empty as anywhere, held unless somewhere is clearly emptier).
+   Toggle: deck ⋯ → lens: OVAL (default) · BOX. localStorage "station.lens.shape"; ?lens=box on a pane.
+   ========================================================================== */
+export const SHAPE_KEY = "station.lens.shape";
+export const SHAPES = Object.freeze(["oval", "box"]);
+export const OVAL = Object.freeze({ long: Object.freeze({ desktop: 0.28, phone: 0.40 }), phoneBelow: 600,
+  inset: 0.82, minPlotH: 28, maxPlotH: 32, plotShare: 0.25, minShort: 34, pad: 3, step: 4, maxTilt: 30, tag: 10 });
+/* ?lens= on the pane's own URL wins; then the browser's remembered choice; oval by default */
+export function readShape({ search = "", stored = null } = {}) {
+  const q = /(?:^|[?&])lens=(oval|box)(?:&|$)/.exec(String(search || ""));
+  if (q) return q[1];
+  return stored === "box" ? "box" : "oval";
+}
+export const isPhone = (topWidth) => Number(topWidth) > 0 && Number(topWidth) < OVAL.phoneBelow;
+/* the long axis in px: the pane's width times the share, never wider than the room the rule has left of the
+   newest fifth (so a lens is not dropped for being a few pixels too long) */
+export function ovalLongAxis(paneWidth, phone, room = Infinity) {
+  const want = Math.round(Math.max(0, Number(paneWidth) || 0) * (phone ? OVAL.long.phone : OVAL.long.desktop));
+  return Math.max(0, Math.min(want, Math.floor(room)));
+}
+export const ovalPlotHeight = (long) => Math.round(Math.max(OVAL.minPlotH, Math.min(OVAL.maxPlotH, long * OVAL.plotShare)));
+/* Pure. bars = the lens' candles (newest last, `session` set as flatten() sets it); long = the long axis in px.
+   Returns the ellipse (a, b, theta, centre), the candle geometry in the same frame, the box around the tilted
+   ellipse (bbox) and where the candle frame's origin sits inside that box (origin). Null without bars. */
+export function ovalGeometry(bars, opt = {}) {
+  const n = Array.isArray(bars) ? bars.length : 0;
+  const long = Number(opt.long) || 0;
+  if (!n || !(long > 0)) return null;
+  const inset = opt.inset == null ? OVAL.inset : opt.inset, pad = opt.pad == null ? OVAL.pad : opt.pad;
+  const step = opt.step == null ? OVAL.step : Math.max(1, opt.step), minShort = opt.minShort == null ? OVAL.minShort : opt.minShort;
+  const maxTilt = (opt.maxTilt == null ? OVAL.maxTilt : opt.maxTilt) * Math.PI / 180;
+  const plotH = opt.plotH > 0 ? opt.plotH : ovalPlotHeight(long);
+  const a = long / 2;
+  /* candleGeometry's own slots: one per bar, half a slot of air at each session break */
+  let breaks = 0;
+  for (let i = 1; i < n; i++) if (bars[i].session !== bars[i - 1].session) breaks++;
+  const slots = n + breaks * 0.5;
+  /* a first pass at the readable height gives the vertical distance between the start and the end point */
+  const probe = candleGeometry(bars, { x: 0, y: 0, w: 1000, h: plotH });
+  const mid = (c) => (c.yO + c.yC) / 2;
+  const dy = probe.candles[n - 1].yC - mid(probe.candles[0]);
+  /* the start and the end sit at ±inset of the long semi-axis; that distance less its vertical part is the
+     horizontal run from the first bar's centre to the last's, and the candle frame is that run plus the half
+     slots candleGeometry keeps outside the first and last centres */
+  const run = Math.sqrt(Math.max(100, (2 * a * inset) ** 2 - dy * dy));
+  const w = slots > 1 ? run * slots / (slots - 1) : run;
+  const g = candleGeometry(bars, { x: 0, y: 0, w, h: plotH });
+  const S = { x: g.candles[0].x, y: mid(g.candles[0]) }, E = { x: g.candles[n - 1].x, y: g.candles[n - 1].yC };
+  const theta = Math.max(-maxTilt, Math.min(maxTilt, Math.atan2(E.y - S.y, E.x - S.x)));
+  const centre = { x: (S.x + E.x) / 2, y: (S.y + E.y) / 2 };
+  const cos = Math.cos(theta), sin = Math.sin(theta);
+  /* the least short semi-axis that puts every candle inside: a point at (u, v) in the ellipse's own frame
+     needs b ≥ |v| / sqrt(1 - (u/a)²) */
+  const need = (x, y) => {
+    const dx = x - centre.x, dyy = y - centre.y;
+    const u = dx * cos + dyy * sin, v = -dx * sin + dyy * cos;
+    const k = 1 - (u / a) ** 2;
+    return k <= 1e-6 ? Infinity : Math.abs(v) / Math.sqrt(k);
+  };
+  let b = 0, binding = null;
+  for (const cd of g.candles) {
+    const hw = Math.max(0.5, cd.w / 2);
+    for (const x of [cd.x - hw, cd.x + hw]) for (const y of [cd.yH, cd.yL]) {
+      const r = need(x, y);
+      if (Number.isFinite(r) && r > b) { b = r; binding = { x, y, i: cd.i }; }
+    }
+  }
+  b = Math.max(minShort / 2, Math.ceil((b + pad) / step) * step);
+  b = Math.min(b, a);
+  const hw = Math.sqrt((a * cos) ** 2 + (b * sin) ** 2), hh = Math.sqrt((a * sin) ** 2 + (b * cos) ** 2);
+  const bbox = { w: Math.ceil(hw * 2), h: Math.ceil(hh * 2) };
+  return { a, b, theta, centre, candles: g, plotW: w, plotH, start: S, end: E, binding, bbox,
+           origin: { x: bbox.w / 2 - centre.x, y: bbox.h / 2 - centre.y }, area: Math.PI * a * b };
+}
+/* is a point (in the candle frame) inside the ellipse? — the clip the candles are drawn under */
+export function insideOval(geo, x, y, slack = 0) {
+  const dx = x - geo.centre.x, dy = y - geo.centre.y, cos = Math.cos(geo.theta), sin = Math.sin(geo.theta);
+  const u = dx * cos + dy * sin, v = -dx * sin + dy * cos;
+  return (u / (geo.a + slack)) ** 2 + (v / (geo.b + slack)) ** 2 <= 1;
+}
+/* the S1 placement, asked for the oval's box: the same rule, the same keep-outs, one box (the long axis is
+   fixed by the pane, so there is no size ladder to shrink down) */
+export function placeOval({ plot, series, points, keepOut = [], slidePast = [], ink, box, prev = null }) {
+  const pts = points || pathPoints(plot, series || []);
+  const res = emptiestSpot({ plot, box, points: pts, ink, keepOut: keepOut.concat(slidePast), prefer: "bl", prev, tolerance: LENS_TOLERANCE });
+  if (!res.spot) return { kind: "none", spot: null, fixed: false, fallback: true, why: res.why, box };
+  const x0 = plot.padL + PLACE.edge, y1 = plot.padT + plot.ih - PLACE.edge - box.h;
+  const corner = res.spot.y + box.h / 2 > plot.padT + plot.ih / 2 ? (res.spot.x + box.w / 2 < plot.padL + plot.iw / 2 ? "bl" : "br")
+                                                                   : (res.spot.x + box.w / 2 < plot.padL + plot.iw / 2 ? "tl" : "tr");
+  const atBL = Math.abs(res.spot.x - x0) <= 1 && Math.abs(res.spot.y - y1) <= 1;
+  return { kind: "inset", spot: { corner, x: res.spot.x, y: res.spot.y, w: box.w, h: box.h }, fixed: false,
+           fallback: !atBL, why: res.why, held: !!res.held, covers: !!res.spot.covers, box };
+}
+/* the pixels a lens covers: the card less its chamfer, or the ellipse */
+export const coveredByBox = (w, h) => Math.round(w * h - CHAMFER * CHAMFER / 2);
+export const coveredByOval = (geo) => Math.round(geo.area);
+function currentShape(deps) {
+  if (deps && typeof deps.shape === "function") { const s = deps.shape(); if (SHAPES.includes(s)) return s; }
+  try { return readShape({ search: typeof location !== "undefined" ? location.search : "", stored: typeof localStorage !== "undefined" ? localStorage.getItem(SHAPE_KEY) : null }); }
+  catch (_) { return "oval"; }
+}
+function topWidth() { try { return (window.top || window).innerWidth; } catch (_) { return window.innerWidth; } }
+
 /* ---- the frame: a card with the corner that faces the chart cut at 45° ---- */
 export function framePath(ctx, w, h, corner = "bl", cut = CHAMFER) {
   const c = Math.min(cut, w / 3, h / 3);
@@ -387,11 +507,21 @@ export function paint(host, deps) {
   const badge = host.querySelector(".sc-nchart__live");
   const controls = deckControls(area);
   const chip = host._geigerSpot && host.querySelector(".sc-nchart__live-geiger:not([hidden])") ? host._geigerSpot : null;
+  /* S8: the shape, and for the oval the box its series needs (the long axis from the pane, the short axis
+     from the candles) - a changed box is placed again; a tick inside the same box is not */
+  const shape = currentShape(deps);
+  const phone = isPhone(topWidth());
+  /* the line in pane pixels (pts is the chart's series of dates and prices); the room is what lies left of its newest fifth */
+  const path = pathPoints(plot, pts);
+  const room = lineTailBox(plot, path).x - plot.padL - PLACE.edge * 2;
+  const geo = shape === "oval" ? ovalGeometry(bars, { long: ovalLongAxis(area.clientWidth, phone, room) }) : null;
+  const ovalBox = geo ? { w: geo.bbox.w, h: geo.bbox.h + OVAL.tag } : null;
   const sig = [controls.map((c) => [c.x, c.y, c.w, c.h].map(Math.round).join(",")).join(";"), area.clientWidth, area.clientHeight, plot.padL, plot.padT, plot.iw, plot.ih, plot.start, plot.end,
     pts.length, pts[pts.length - 1].d, entry.ts, fresh.stale, day, badge ? badge.offsetHeight + "x" + badge.offsetWidth : "",
     chip ? [chip.x, chip.y, chip.w, chip.h].map(Math.round).join(",") : "",
     /* the ribbon arriving after the lens repaints the ink it must avoid: place again */
-    (host._cloudTicker || "") + ":" + ((host._cloudRows && host._cloudRows.length) || 0)].join("|");
+    (host._cloudTicker || "") + ":" + ((host._cloudRows && host._cloudRows.length) || 0),
+    shape, ovalBox ? ovalBox.w + "x" + ovalBox.h : ""].join("|");
   /* a tick changes the drawing, not the place: the pixels are read again only when the place signature moves */
   const last = bars[bars.length - 1];
   const drawSig = sig + "|" + [last.t, last.o, last.h, last.l, last.c].join(",");
@@ -411,7 +541,9 @@ export function paint(host, deps) {
   const inkAt = host._inkAt || (main ? (host._inkAt = inkReader(main)) : null);
   const prev = host._lens && host._lens.spot && host._lens.t === t && host._lens.key === want.key ? host._lens.spot : null;
   const where = host._lensPlaced && host._lensPlaced.sig === sig && host._lens && host._lens.t === t && host._lens.key === want.key
-    ? host._lensPlaced.where : placeLens({ plot, series: pts, keepOut, slidePast: controls, ink: inkAt, prev });
+    ? host._lensPlaced.where
+    : geo ? placeOval({ plot, points: path, keepOut, slidePast: controls, ink: inkAt, box: ovalBox, prev })
+          : placeLens({ plot, points: path, keepOut, slidePast: controls, ink: inkAt, prev });
   host._lensPlaced = { sig, where };
   if (!where.spot) { hide(host, where.why); return; }
 
@@ -426,6 +558,39 @@ export function paint(host, deps) {
   ctx.clearRect(0, 0, r.w, r.h);
   const col = deps.colours();
   const palette = { bull: col.bull, bear: col.bear, ink: INK.ink, dim: INK.dim, paper: INK.paper, frame: INK.frame };
+  if (geo) {
+    /* THE OVAL: paper inside the ellipse, the candles clipped to it, a faint edge, the tag in the row above */
+    const ox = geo.origin.x, oy = geo.origin.y + OVAL.tag, cx = geo.centre.x + ox, cy = geo.centre.y + oy;
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(cx, cy, geo.a, geo.b, geo.theta, 0, Math.PI * 2);
+    ctx.globalAlpha = DIALS.opacity; ctx.fillStyle = INK.paper; ctx.fill(); ctx.globalAlpha = 1; ctx.clip();
+    ctx.translate(ox, oy);
+    drawCandles(ctx, bars, geo.candles, { colour: DIALS.colour, day, pal: palette });
+    if (fresh.stale) { ctx.globalAlpha = 1 - STALE_ALPHA; ctx.fillStyle = INK.paper; ctx.fillRect(-ox, -oy, r.w, r.h); ctx.globalAlpha = 1; }
+    ctx.restore();
+    ctx.save();
+    ctx.beginPath(); ctx.ellipse(cx, cy, Math.max(1, geo.a - 0.5), Math.max(1, geo.b - 0.5), geo.theta, 0, Math.PI * 2);
+    ctx.strokeStyle = INK.frame; ctx.lineWidth = 1; ctx.globalAlpha = fresh.stale ? 0.45 : 0.7; ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.font = `600 8px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace`;
+    ctx.textBaseline = "middle"; ctx.textAlign = "center"; ctx.fillStyle = INK.ink; ctx.globalAlpha = 0.85;
+    ctx.fillText(want.timeframe.toUpperCase() + (fresh.stale ? " · STALE" : ""), cx, OVAL.tag / 2 + 0.5);
+    ctx.restore();
+    const through = fresh.label ? ` through ${fresh.label}` : "";
+    cv.setAttribute("aria-label", `${t}: ${want.timeframe} candles, last ${sessions.length} ${daily ? "days" : "sessions"}${through}, in an oval` +
+      (fresh.stale ? ` — STALE: the last session that has opened is ${fresh.expected}` : ""));
+    host.dataset.lensState = fresh.stale ? "stale" : "fresh";
+    host.dataset.lensWhy = where.why;
+    host.dataset.lensShape = "oval";
+    const mark = paintMark(host, plot, pts, bars[0].t);
+    host._lens = { t, key: want.key, spot: r, why: where.why, fallback: where.fallback, stale: fresh.stale, through: fresh.through,
+                   expected: fresh.expected, bars: bars.length, sessions: sessions.length, readAt: entry.ts, markX: mark,
+                   last: last.c, lastT: new Date(last.t).toISOString(), forming: live.forming ? live.forming.mode : null,
+                   shape: "oval", covered: coveredByOval(geo), boxCovered: coveredByBox(r.w, r.h - OVAL.tag),
+                   oval: { cx: r.x + cx, cy: r.y + cy, a: geo.a, b: geo.b, theta: geo.theta, long: geo.a * 2, short: geo.b * 2, plotH: geo.plotH, phone } };
+    return;
+  }
   ctx.save();
   framePath(ctx, r.w, r.h, r.corner);
   ctx.globalAlpha = DIALS.opacity; ctx.fillStyle = INK.paper; ctx.fill();
@@ -456,11 +621,13 @@ export function paint(host, deps) {
     (fresh.stale ? ` — STALE: the last session that has opened is ${fresh.expected}` : ""));
   host.dataset.lensState = fresh.stale ? "stale" : "fresh";
   host.dataset.lensWhy = where.why;
+  host.dataset.lensShape = "box";
   const mark = paintMark(host, plot, pts, bars[0].t);
   host._lens = { t, key: want.key, spot: r, why: where.why, fallback: where.fallback, stale: fresh.stale, through: fresh.through,
                  expected: fresh.expected, bars: bars.length, sessions: sessions.length, readAt: entry.ts, markX: mark,
                  /* the newest price the lens shows, and whether it is the live price (a forming or extended candle) */
-                 last: last.c, lastT: new Date(last.t).toISOString(), forming: live.forming ? live.forming.mode : null };
+                 last: last.c, lastT: new Date(last.t).toISOString(), forming: live.forming ? live.forming.mode : null,
+                 shape: "box", covered: coveredByBox(r.w, r.h) };
 }
 
 /* O1, Alan: "add a small mark on the date axis where the lens window starts". A 5-px caret under the
