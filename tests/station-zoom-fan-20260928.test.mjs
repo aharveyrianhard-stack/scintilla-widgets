@@ -160,7 +160,10 @@ test("the six lines: fast dotted and lighter, the daily solid and heaviest (S3 s
   const a = on.map((l) => l.alpha);
   assert.deepEqual(plain(a), plain(a.slice().sort((x, y) => x - y)), "lighter to more solid");
   assert.deepEqual(plain(on.filter((l) => l.dash).map((l) => l.label)), ["3H", "4H", "6H", "8H", "12H"], "every fast line dotted, the daily solid");
-  assert.match(chart, /ctx\.setLineDash\(spec\.dash \? Array\.from\(spec\.dash\) : \[\]\);/);
+  /* S7 (2 Oct): the stroke now comes from a style - the table above on the RSI-only pane; on the Lab's RSI + Williams pane
+     RSI solid and Williams dotted (station-osc-merge.js lineStyle, tests/station-s7-osc-lab-look-20261002.test.mjs) */
+  assert.match(chart, /const st = L \? M\.lineStyle\(set, spec\) : \{ alpha:null, width:spec\.width, dash:spec\.dash \};/);
+  assert.match(chart, /ctx\.setLineDash\(st\.dash \? Array\.from\(st\.dash\) : \[\]\);/);
   assert.equal(chart, twin, "the Station chart and its shell twin stay identical");
 });
 
@@ -236,9 +239,8 @@ test("colour: the lone ?rsi=chart line keeps green up / red down; the full fan i
   const pal = { bull: "#00FFA3", bear: "#FF2D55" };
   assert.match(F.lineInk("1D", "up", pal, 1), /^rgba\(0,255,163,1\.00\)$/, "the lone line, at full ink");
   assert.match(chart, /ctx\.strokeStyle = F\.lineInk\(line\.key, line\.dir, pal, solo \? 1 : 0\);/, "the older path, for the lone line");
-  /* S6 (1 Oct): the same Lab opacity per line, in the pane's own ink (pink on the RSI pane, F.visualInk exactly as before) */
-  assert.match(chart, /const lineInk = \(key\) => \(L \? F\.rgba\(INK, F\.BY_KEY\[key\] && F\.BY_KEY\[key\]\.alpha != null \? F\.BY_KEY\[key\]\.alpha : 1\) : F\.visualInk\(key\)\);/);
-  assert.match(chart, /ctx\.strokeStyle = lineInk\(line\.key\); ctx\.lineWidth = spec\.width;/, "the full fan: pink at the Lab's opacity");
+  /* S7 (2 Oct): the same Lab opacity per line, in one pink (F.visualInk on the RSI-only pane; the style's alpha on the Lab's pane) */
+  assert.match(chart, /ctx\.strokeStyle = L \? F\.rgba\(INK, st\.alpha\) : F\.visualInk\(line\.key\); ctx\.lineWidth = st\.width;/, "the full fan: pink at the Lab's opacity");
 });
 
 test("the fetch plan: every line's width, the widths it is composed from, and the cloud's", () => {
