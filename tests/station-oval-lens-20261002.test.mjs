@@ -26,11 +26,13 @@ const flat = bars(48, (i) => 100 + Math.sin(i / 3) * 2);
 const corners = (c) => [[c.x - c.w / 2, c.yH], [c.x + c.w / 2, c.yH], [c.x - c.w / 2, c.yL], [c.x + c.w / 2, c.yL]];
 
 /* ---- 1 · the axes --------------------------------------------------------------------------------- */
-test("the long axis is the pane's width × 0.28 on a desktop and × 0.40 on a phone", () => {
-  assert.deepEqual({ ...OVAL.long }, { desktop: 0.28, phone: 0.40 });
+test("the long axis is the pane's width × 0.28 on a desktop and × 0.32 on a phone", () => {
+  /* the phone share was 0.40 on the first build; measured headlessly it covered as much as the card (+4-6%), so the
+     coordinator set 0.32 (2 Oct) */
+  assert.deepEqual({ ...OVAL.long }, { desktop: 0.28, phone: 0.32 });
   assert.equal(ovalLongAxis(419, false), 117, "an 8-up pane at 1680");
   assert.equal(ovalLongAxis(840, false), 235, "a 2-up pane at 1680");
-  assert.equal(ovalLongAxis(390, true), 156, "the phone's one column");
+  assert.equal(ovalLongAxis(390, true), 125, "the phone's one column");
   assert.equal(isPhone(390), true); assert.equal(isPhone(599), true); assert.equal(isPhone(600), false); assert.equal(isPhone(1680), false);
   assert.equal(ovalLongAxis(419, false, 100), 100, "never longer than the room the rule has left of the newest fifth");
   assert.equal(ovalPlotHeight(117), 29, "the candles' price range is drawn a quarter of the long axis tall…");

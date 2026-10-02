@@ -276,7 +276,7 @@ export function placeLens({ plot, series, points, keepOut = [], slidePast = [], 
    three months tilts up to the right, a falling one down) and its short axis is only as tall as the series'
    swings need. No box, no corner card: the candles are clipped to the ellipse, the edge is a faint line, the
    paper inside is the same dark paper as before. The timeframe / STALE tag sits in a 10 px row above it.
-     · long axis  = the PANE width × 0.28 on a desktop, × 0.40 on a phone (the top window under 600 px);
+     · long axis  = the PANE width × 0.28 on a desktop, × 0.32 on a phone (the top window under 600 px);
      · short axis = the least that keeps the candles readable: the price range is drawn PLOT_H px tall
                     (a quarter of the long axis, 28 to 32 px - measured 2 Oct: letting it grow with the long
                     axis made the oval on a 4-up pane bigger than the card it replaces), then the ellipse is
@@ -290,7 +290,9 @@ export function placeLens({ plot, series, points, keepOut = [], slidePast = [], 
    ========================================================================== */
 export const SHAPE_KEY = "station.lens.shape";
 export const SHAPES = Object.freeze(["oval", "box"]);
-export const OVAL = Object.freeze({ long: Object.freeze({ desktop: 0.28, phone: 0.40 }), phoneBelow: 600,
+/* phone share 0.40 → 0.32 (coordinator, 2 Oct, after the first measurement): at 0.40 the phone oval covered as much as
+   the card it replaced (+4–6%); at 0.32 it saves screen there too */
+export const OVAL = Object.freeze({ long: Object.freeze({ desktop: 0.28, phone: 0.32 }), phoneBelow: 600,
   inset: 0.82, minPlotH: 28, maxPlotH: 32, plotShare: 0.25, minShort: 34, pad: 3, step: 4, maxTilt: 30, tag: 10 });
 /* ?lens= on the pane's own URL wins; then the browser's remembered choice; oval by default */
 export function readShape({ search = "", stored = null } = {}) {
