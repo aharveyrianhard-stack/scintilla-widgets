@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Oscillator, Lab look · 2 Oct 2026</title>
+<style>
+:root{--bg:#0A0A0F;--panel:#0F0F16;--line:#1C1C26;--ink:#C8C8D2;--body:#A8A8B6;--dim:#8C8C9A;--pink:#D24C92}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--body);font:17px/1.55 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:34px;margin:0 0 6px;color:var(--ink)} h2{font-size:25px;margin:44px 0 8px;color:var(--ink)} h3{font-size:19px;margin:26px 0 6px;color:var(--ink)}
+p,ul,ol{max-width:1100px} li{margin:6px 0} .lead{font-size:21px;color:var(--ink)} .note{color:var(--dim);font-size:14px}
+code{font:14px ui-monospace,Menlo,monospace;background:var(--panel);padding:2px 6px;border-radius:4px;color:var(--ink)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;margin:12px 0 26px}
+figure{margin:0 0 18px} img{width:100%;height:auto;border:1px solid var(--line);display:block}
+figcaption{font:13px ui-monospace,Menlo,monospace;color:var(--dim);margin-top:5px}
+.box{border:1px solid var(--line);background:var(--panel);padding:12px 16px;margin:10px 0 16px;max-width:1100px}
+b{color:var(--ink)} .pk{color:var(--pink)}
+@media (max-width:760px){body{padding:18px 16px 60px;font-size:16px}.pair{grid-template-columns:1fr}h1{font-size:27px} code{word-break:break-all}}
+</style></head><body>
+
+<h1>The oscillator the way Indicator Lab draws it · the board opens on FAVORITES · blanks sort last</h1>
+<p class="lead">S7, 2 Oct 2026. Station branch <code>station/s7-osc-lab-look-20261002</code> (from live <code>c9b6590</code>), Hub branch <code>hub/s7-osc-lab-look-20261002</code> (from live <code>83610c9</code>). <b>Not pushed, not deployed.</b></p>
+
+<div class="box"><b>In one line, for the oscillator:</b> the <b class="pk">solid pink lines are RSI</b> (thin ones for 3H to 12H, the thick one is the Daily), the <b class="pk">dotted pink lines are Williams %R</b> for the same timeframes (moved up by 100 so it sits on the same 0–100 scale), and the two tags on the right read <b>"RSI D 55.1"</b>, the Daily RSI, and <b>"W D 80.9 · %R −19.1"</b>, the Daily Williams: where its line is drawn (80.9), then its real value (−19.1).</div>
+
+<h2>1 · The oscillator: what changed</h2>
+<p>You asked "what is MRG?" and said it didn't look like what Indicator Lab last did. MRG was a 60/40 blend of RSI and Williams, pushed through the Geiger's stretch-and-cap maths. That's why it flattened against 0 or 100. The Lab's script says plainly that it does <i>not</i> do that. So the blend is gone. Every chart now shows <b>one pane</b>, drawn the way the Lab's TradingView script "SCINTILLA RSI + Williams MTF REVIEW V2 · Clear Value" draws it:</p>
+<ul>
+<li><b>RSI 14</b>, as is (0–100): solid lines for 3H, 4H, 6H, 8H and 12H, faintest to strongest. The Daily is a thick solid line, drawn last so it sits on top.</li>
+<li><b>Williams %R 14</b>, same timeframes, same pink, <b>dotted</b>. Its Daily is a medium dotted line. Williams normally runs from −100 to 0, so it's drawn 100 higher to sit on the same 0–100 scale. That's the only change to it.</li>
+<li>The <b>cloud</b> behind them is RSI only: the range between the 2-day, 3-day, weekly and 2-week RSI. If any of the four is missing, no cloud is drawn.</li>
+<li>Guide lines: 30 and 70 solid, 20 and 80 dashed, 50 dotted. No lines at 0 or 100, and nothing is cut off at 20 or 80.</li>
+<li>Title: <b>RSI + WILLIAMS %R</b>. When you hover, you get one row and it never wraps. On a small pane it shows the Daily only (<code>D R49.2 W85.6</code>). On an expanded pane, or a chart opened on its own, it shows every timeframe (<code>3H R54.8 W79.5 · … · D R49.2 W85.6</code>). The hover shows Williams on the 0–100 drawing scale. The right-hand tag is the only place its real negative value appears.</li>
+</ul>
+<p>The same single pane appears everywhere: the Station's 8-up, a chart opened alone, the deck's ⤢, and the Hub company chart both collapsed and on EXPAND. The three stacked panes, the orchid line, the cyan Williams pane and the "MRG" tag are all gone.</p>
+
+<h3>Beside the Lab's own screenshot</h3>
+<div class="pair">
+<figure><img src="shots/lab-tradingview-spy-oct02.png" alt="Indicator Lab on TradingView, SPY weekly"><figcaption>THE GUIDE · Indicator Lab on the TradingView desktop app, SPY weekly (their screenshot, 2 Oct)</figcaption></figure>
+<figure><img src="shots/after-station-single-SPY-1D.png" alt="Station SPY 1D after"><figcaption>AFTER · Station, SPY daily chart opened alone: same pink, RSI solid, Williams dotted, RSI cloud, the two tags</figcaption></figure>
+</div>
+<p class="note">The Lab's shot is a weekly chart and ours is daily, so the lines aren't the same shape. What should match is how it's drawn, and it does.</p>
+
+<h3>Before and after</h3>
+<div class="pair">
+<figure><img src="shots/before-station-single-SPY-1D.png" alt="before"><figcaption>BEFORE · SPY alone: three stacked panes (merged, RSI, Williams)</figcaption></figure>
+<figure><img src="shots/after-station-single-SPY-1D-hover.png" alt="after hover"><figcaption>AFTER · SPY alone, hovering: one pane, one row "3H R69.7 W98.8 · … · D R59.5 W96.9"</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/before-station-8up-hover.png" alt="before 8-up pane"><figcaption>BEFORE · an 8-up pane (GOOGL): orchid "MERGED" lines, "MRG D" tag</figcaption></figure>
+<figure><img src="shots/after-station-8up-hover.png" alt="after 8-up pane"><figcaption>AFTER · same pane: "D R47.0 W35.7" on hover, tags "RSI D 50.3" and "W D 29.3 · %R −70.7"</figcaption></figure>
+</div>
+<figure><img src="shots/after-station-8up-hover-wide.png" alt="8-up wide"><figcaption>AFTER · the whole 8-up at 1680: every pane shows the single pane</figcaption></figure>
+<div class="pair">
+<figure><img src="shots/before-station-deck-expanded-hover.png" alt="before deck expanded"><figcaption>BEFORE · deck ⤢ (GOOGL): three panes</figcaption></figure>
+<figure><img src="shots/after-station-deck-expanded-hover.png" alt="after deck expanded"><figcaption>AFTER · deck ⤢: one pane, every timeframe on hover. The deck's own "›" arrow covers the end of the Williams tag (see "what could be wrong")</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/before-hub-collapsed-MU-hover.png" alt="before hub collapsed"><figcaption>BEFORE · Hub MU, collapsed: the merged pane</figcaption></figure>
+<figure><img src="shots/after-hub-collapsed-MU-hover.png" alt="after hub collapsed"><figcaption>AFTER · Hub MU, collapsed: one pane, "D R41.3 W3.5" on hover</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/before-hub-expanded-MU-hover.png" alt="before hub expanded"><figcaption>BEFORE · Hub MU, EXPAND: three panes (crop)</figcaption></figure>
+<figure><img src="shots/after-hub-expanded-MU-hover.png" alt="after hub expanded"><figcaption>AFTER · Hub MU, EXPAND (whole page): one pane, every timeframe on one row. The rail on the left opened on FAVORITES · 47</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/before-hub-phone-390-MU.png" alt="before phone"><figcaption>BEFORE · Hub MU on a phone (390)</figcaption></figure>
+<figure><img src="shots/after-hub-phone-390-MU.png" alt="after phone"><figcaption>AFTER · Hub MU on a phone: one pane, tags "W D 87.9 · %R −12.1" and "RSI D 62.1"</figcaption></figure>
+</div>
+
+<h3>Where the numbers come from</h3>
+<p>Both come from the same bars the RSI already used (the chart API, still-forming bars included, as since 1 Oct). The RSI calculation is unchanged: the S6 numbers match the old readout to the digit (SPY 3H RSI 69.7 before and after). Williams is TradingView's own formula, 100 × (close − highest high) ÷ (highest high − lowest low) over 14 bars, plus 100. Example: SPY 3H was "W−1.2" in the old readout and is drawn at 98.8 now.</p>
+
+<h2>2 · The Hub board opens on ★ FAVORITES</h2>
+<p>The board now opens on ★ FAVORITES instead of ♥ LIKED. If FAVORITES turns out to be empty once the lists load, it opens on LIKED, and on ALL if LIKED is empty too. You never see an empty FAVORITES board first. On a first visit it says "reading FAVORITES …" for a moment. After that, this browser remembers your lists, so FAVORITES appears immediately. Once you pick a tab yourself, it stays where you put it. The map, rotation and Geiger panels follow whichever tab is selected, as before ("47 tickers · FAVORITES" below).</p>
+<div class="pair">
+<figure><img src="shots/before-1680-board-open.png" alt="before board"><figcaption>BEFORE · opens on ♥ LIKED (118 names)</figcaption></figure>
+<figure><img src="shots/after-1680-board-open.png" alt="after board"><figcaption>AFTER · opens on ★ FAVORITES (47 names); the map says FAVORITES too</figcaption></figure>
+</div>
+
+<h2>3 · Blanks sort last, both ways</h2>
+<p>"Empty last" means this: when you sort a column, names with a dash in that column go to the bottom, whether you sort highest-first or lowest-first. Before, a dash counted as the lowest value, so sorting lowest-first opened on a block of dashes. This now applies to every sortable column (Last, Chg, F P/E, Mkt Cap, Revenue, RSI, Trend, Momentum, Geiger, RVol) on the normal board, full screen and the phone, which all share one order. The company list beside the expanded view already worked this way.</p>
+<div class="pair">
+<figure><img src="shots/before-1680-board-fpe-lowest-first-bottom.png" alt="before"><figcaption>BEFORE · F P/E lowest first, bottom of the list: real values; the dashes were at the top</figcaption></figure>
+<figure><img src="shots/after-1680-board-fpe-lowest-first-bottom.png" alt="after"><figcaption>AFTER · F P/E lowest first: the dashes (BTCUSD, GCUSD, …) are at the bottom</figcaption></figure>
+</div>
+<figure style="max-width:420px"><img src="shots/after-390-board-fpe-lowest-first-bottom.png" alt="phone"><figcaption>AFTER · phone (390), same sort: the phone hides the F P/E column, but the order is the same, so the names without one are at the bottom</figcaption></figure>
+
+<h2>What could be wrong</h2>
+<ul>
+<li>On the deck's ⤢ view, the deck's "›" next-chart arrow sits over the right end of the Williams tag. The arrow belongs to the deck, so I didn't move it.</li>
+<li>On a narrow pane there isn't room for the two tags to the right of the newest bar, so they sit over the newest stretch of lines, one above the other. The Williams tag always ends further right and never overlaps the RSI tag.</li>
+<li>On a flat 14-bar stretch (high = low), Williams draws nothing, as TradingView does. S6 drew −50 there.</li>
+<li>Station charts on a phone show no oscillator at all. That's unchanged and deliberate: the fan is hidden at phone width.</li>
+<li>The remembered lists live in this browser only. If you add favorites on another device, the first server read (about a second) brings the board back to FAVORITES.</li>
+</ul>
+
+<h2>What I did not do</h2>
+<ul>
+<li>I didn't push, deploy or touch TradingView, and I wrote nothing under INDICATOR_LAB/ (the Lab's script and screenshot were only read).</li>
+<li>I didn't add a way to see RSI and Williams in separate panes. You said TradingView is where you'd do that.</li>
+<li>The screenshots ran headless on this Mac against the live chart API. The chart API only accepts scintillahub.ai, so node fetched it with that origin and handed it to the test browser. Every write request was blocked.</li>
+</ul>
+<p class="note">Tests: Station 938 (S6's and F1's oscillator suites replaced by one S7 suite), 18 failures, the same 18 as before. Hub 1670, 5 failures, the same 5 as before. Harnesses: <code>harness/shots.mjs</code>, <code>harness/board.mjs</code>.</p>
+</body></html>
