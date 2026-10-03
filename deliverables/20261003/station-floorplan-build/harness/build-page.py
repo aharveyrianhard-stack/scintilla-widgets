@@ -6,6 +6,7 @@ import json, os, sys, html
 HERE = os.path.dirname(os.path.abspath(__file__)); ROOT = os.path.dirname(HERE)
 SHA = sys.argv[1] if len(sys.argv) > 1 else "(unpushed)"
 shots = json.load(open(os.path.join(HERE, "shots.json")))
+theatre = json.load(open(os.path.join(HERE, "theatre.json"))) if os.path.exists(os.path.join(HERE, "theatre.json")) else {}
 esc = html.escape
 SCREENS = [("1680x1050", "MacBook", "1680 × 1050"), ("1920x1080", "Apple TV", "1920 × 1080"), ("2560x1440", "External", "2560 × 1440")]
 GRIDS = [(9, "9 · three by three"), (6, "6 · three by two"), (4, "4 · two by two")]
@@ -34,6 +35,55 @@ pics += "<h2>The corner: the foot of the X column and the YouTube box</h2>"
 for k, name, size in SCREENS:
     m = shots[f"{k}|9"]
     pics += shot(f"corner-{k}", f"{name} · the YouTube box flush with the column's left edge, its right edge and the bottom of the screen; X directly above it; the first column of charts beside it, one hairline away")
+# S11b (3 Oct): the video's one expand step (the theatre) and the YouTube control row — from harness/theatre.json (theatre.mjs)
+s11b = ""
+if theatre:
+    trows = ""
+    for k, name, size in SCREENS:
+        r = theatre[k]; t = r["theatre"]; rest = r["rest"]; back = r["backByButton"]
+        ok = t["pictureBlack"] == 0 and t["columnBlack"] == 0 and back["px"]["black"] == 0
+        trows += (f"<tr class=top><td class=scr><b>{name}</b><br><span class=dim>{size}</span></td>"
+                  f"<td class=n>{rest['picture']['w']} × {round(rest['picture']['h'])}<br><span class=dim>at the column's foot</span></td>"
+                  f"<td class=n><b>{t['picture']['w']} × {t['picture']['h']}</b> <span class=dim>16:9</span><br><span class=dim>{t['pictureShareOfChartArea']:.0f}% of the chart area · + its {round(t['bar'])} px bar</span></td>"
+                  f"<td class=n>{t['x']['w']} × {t['x']['h']}<br><span class=dim>the whole column</span></td>"
+                  f"<td class=n><b class={'ok' if t['pictureBlack'] == 0 else 'bad'}>{t['pictureBlack']} px</b></td>"
+                  f"<td class=n><b class={'ok' if t['columnBlack'] == 0 else 'bad'}>{t['columnBlack']} px</b></td>"
+                  f"<td class=n>{back['share']['chartsArea']:.1f}% · {back['widthShare']['column']:.1f}% · <b class={'ok' if back['px']['black'] == 0 else 'bad'}>{back['px']['black']} px</b></td></tr>")
+    crows = ""
+    MODE = {"as drawn": "fits as drawn", "compact": "fits, compact chips", "scrolling": "scrolls"}
+    for k, name, size in SCREENS:
+        r = theatre[k]
+        for row, label in ((r["rowPersonal"], "PERSONAL"), (r["rowScintilla"], "SCINTILLA")):
+            items = " · ".join(esc(i["what"].upper()) for i in row["items"])
+            crows += (f"<tr><td class=scr><b>{name}</b> <span class=dim>{row['width']} px</span></td><td>{label}</td><td>{items}</td>"
+                      f"<td class=n>{MODE[row['mode']]}</td><td class=n><b class={'ok' if not row['cut'] else 'bad'}>{'nothing' if not row['cut'] else esc(', '.join(row['cut']))}</b></td>"
+                      f"<td class=n>{'one line' if row['oneLine'] else '<b class=bad>wraps</b>'}</td></tr>")
+    tpics = ""
+    for k, name, size in SCREENS:
+        t = theatre[k]["theatre"]
+        tpics += shot(f"s11b-theatre-{k}", f"{name} · {size} · the theatre: the video {t['picture']['w']} × {t['picture']['h']} (16:9) centred over the chart area, the charts covered, X the whole column ({t['x']['w']} × {t['x']['h']}) · black in the picture {t['pictureBlack']} px, in the column {t['columnBlack']} px")
+        tpics += shot(f"s11b-rest-{k}", f"{name} · {size} · at rest, before the theatre: the column (X above, YouTube {theatre[k]['rest']['picture']['w']} × {round(theatre[k]['rest']['picture']['h'])} at its foot) and nine charts — S11's numbers; after BACK the same numbers were measured again")
+    cpics = ""
+    for k, name, size in SCREENS:
+        for feed in ("personal", "scintilla"):
+            cpics += shot(f"s11b-row-{k}-{feed}", f"{name} · {theatre[k]['rowPersonal']['width']} px · the {feed.upper()} control row, cropped")
+    ph = theatre.get("phone", {})
+    s11b = f"""<h2 id=s11b>S11b · the video's expand, and the YouTube buttons</h2>
+<p><b>The video's expand is now one step: the theatre.</b> Press ⛶ on the YouTube box and the playing video moves over the charts. It takes the largest 16:9 picture that fits the chart area (the 76% right of the column), centred. The charts are covered, not closed, and X gets the whole column, top to bottom. Press the same button (it now reads <b>↙ BACK</b>), or Esc, and the video goes back to the foot of the column. No step makes the video bigger inside the column any more, so the column never shows black.</p>
+<div class=wrap><table>
+<tr><th>Screen</th><th class=n>YouTube at rest</th><th class=n>Theatre picture</th><th class=n>X in the theatre</th><th class=n>Black in the picture</th><th class=n>Black in the column</th><th class=n>After BACK: charts · column · black</th></tr>
+{trows}
+</table></div>
+<p class=dim>Measured on the real page with a video playing, after a click on the box's own ⛶ button. BACK was checked three ways on every screen: the button, Esc while the video's controls had the focus, and Esc on the Station itself. Each one went back to the column. After BACK, the S11 numbers came back exactly: 76% charts, 24% column, a 16:9 picture and 0 px black. On the phone ({'unchanged' if ph and not ph.get('theatre') else 'see harness'}), the old two steps stay: the video grows in the scrolling column, then covers X.</p>
+{tpics}
+<p><b>The YouTube buttons fit the column.</b> The PERSONAL ▾ list was as wide as its longest choice. On the MacBook it took 187 of the 403 px and pushed SUBSCRIBED off the right edge. The list is now only as wide as the name it shows (86 px for PERSONAL). If the buttons still do not fit, they move closer together: same size of type, same colours. SCINTILLA has a longer row (ALL · SUBSCRIBED · WATCH LATER) and needs that on the MacBook and the Apple TV. Only if even that is not enough does the row scroll, with a fade at its edge.</p>
+<div class=wrap><table>
+<tr><th>Screen</th><th>Feed</th><th>The row, left to right</th><th class=n>How it fits</th><th class=n>Cut</th><th class=n>Lines</th></tr>
+{crows}
+</table></div>
+{cpics}
+<p class=dim>Not shown: the hidden test browser cannot decode YouTube video, so the theatre pictures show YouTube's own player (its controls and a loading ring) rather than a moving picture. The size and position of the box are measured, not drawn. On the Station the video plays in exactly that box.</p>
+"""
 page = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Station floor plan, built</title>
@@ -59,9 +109,10 @@ figcaption{{ font-size:12px; color:var(--ink2); padding:6px 2px 2px; }} p{{ marg
 </table></div>
 <p class=dim>Every number is measured on the live page at the moment its picture was taken. "Charts" is everything to the right of the column (the charts and the thin lines between them) as a share of the whole screen. The same measurement is used on every row. "X column" is its share of the screen's width and its width in pixels; "posts" is the part X fills above the YouTube box. "Black" is every pixel that is not a pane or a 1-pixel seam, including any black bars around the YouTube picture.{"" if allzero else " <b class=bad>Some rows have black — see the row.</b>"}</p>
 {pics}
+{s11b}
 <h2>Notes</h2>
 <ul>
-<li><b>What changed:</b> only the floor plan. The 19 pages, their order, and every page's charts and slots are as they were. Checked in the hidden browser: charts only (the column steps aside, the charts take the whole screen), a chart on its own, X on its own, the video's two expand steps (they now grow it down the column), turning to the next page, and the phone (still one scrolling column).</li>
+<li><b>What changed:</b> only the floor plan. The 19 pages, their order, and every page's charts and slots are as they were. Checked in the hidden browser: charts only (the column steps aside, the charts take the whole screen), a chart on its own, X on its own, the video's expand (S11b: now one step, the theatre, above), turning to the next page, and the phone (still one scrolling column).</li>
 <li><b>The nine-chart wall</b> is new: a ninth slot was added, and 9 now sits next to 2 / 6 / 8 on the chart-count choice. No named page holds nine names today, so the 9 row was measured on the LIVE wall set to nine. The 6 and 4 rows are real pages.</li>
 <li><b>Pages with eight charts</b> (TARGETS, MAG 7, the AI pages and most of the rotation) use the same rule: four by two, 318 × 525 each on the MacBook, with no black.</li>
 <li><b>Not shown:</b> X cannot be captured in a hidden browser, so its column says "X source is offline" in these pictures. On the Station it shows the live feed in exactly that box. Nothing here was deployed.</li>
