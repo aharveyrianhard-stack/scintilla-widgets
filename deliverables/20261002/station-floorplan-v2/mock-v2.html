@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Station floor plan v2 · a slimmer X strip, YouTube as a picture-in-picture</title>
+<!-- S9 (2 Oct 2026) — A MOCK, not the Station. Alan, 2 Oct ~21:30 ET: "make the X thing more narrow; YouTube more narrow too,
+     more like PIP size. Charts from 53 to 73% … a nine-chart layout will look better with X more slim … six and three charts
+     will be weird, four and two good … YouTube could drop more — the charts are more important."
+     S8's mock (../station-floorplan/mock-x-strip.html) put X on the left as a strip clamp(456px, 27vw, 616px) wide with the
+     video strip-wide at its foot. This page is the same arrangement with three knobs:
+       ?strip=today|-30|-50   the strip at S8's width, 30% slimmer, 50% slimmer (or a number of px)
+       ?pip=L|S|0             YouTube as a picture-in-picture at the strip's foot: L = 20% of the screen's width, S = 14%, both 16:9,
+                              never wider than the strip; 0 = no video at all
+       ?charts=2|4|6|9        how many charts fill the rest; ?cols=N forces the columns (default: 2→1, 4→2, 6→2, 9→3)
+       ?range=3D              the charts' timeframe (the TARGETS scene is 3-day)
+     The charts and the video are the Station's own shells, live. X has no capture in a hidden browser, so the strip shows
+     posts drawn with real text at the size X's text would have in that strip (X: 600 px column, 15 px text; floor 11 px), so
+     the characters per line and the posts that fit are measured, not guessed. window.__floorplan() hands the numbers to
+     harness/mock-shots.mjs; the card bottom-right prints them. Nothing here edits the deck. -->
+<style>
+:root{ --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --ink:#C8C8D0; --ink2:#B4B4BC; --ink3:#8E8E96; --dim:#707078; --mute:#36363E; }
+*{ box-sizing:border-box; } html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink2); font:11px/1.4 ui-monospace,Menlo,monospace; overflow:hidden; }
+#stage{ position:fixed; inset:0; display:flex; gap:1px; background:var(--line); }
+#strip{ display:flex; flex-direction:column; gap:1px; min-width:0; min-height:0; background:var(--line); flex:0 0 var(--strip); }
+.pane{ position:relative; background:var(--bg); display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
+.ph{ flex:none; display:flex; align-items:center; gap:6px; padding:3px 7px; background:var(--panel2); border-bottom:1px solid var(--line); height:20px; }
+.ph .t{ color:var(--ink2); font-size:8.5px; letter-spacing:.16em; text-transform:uppercase; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ph .k{ margin-left:auto; color:var(--dim); font-size:8.5px; letter-spacing:.12em; text-transform:uppercase; white-space:nowrap; }
+.body{ flex:1 1 0; min-height:0; min-width:0; position:relative; }
+iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; background:var(--bg); }
+#charts{ flex:1 1 0; display:grid; gap:1px; background:var(--line); min-height:0; min-width:0; grid-template-columns:repeat(var(--cols),minmax(0,1fr)); grid-auto-rows:minmax(0,1fr); }
+.pane.x{ flex:1 1 0; }
+/* the PIP: a 16:9 picture under the shell's 28 px bar, sitting in the strip's foot; when it is narrower than the strip the rest of the foot is dark */
+#foot{ flex:none; display:flex; align-items:flex-end; background:var(--bg); }
+.pane.video{ flex:none; }
+/* the X strip: the real X shell underneath (its 20 px control bar stays), the post ladder over its body */
+#ladder{ position:absolute; left:0; right:0; top:20px; bottom:0; overflow:hidden; background:var(--bg); font-family:-apple-system,"SF Pro Text",Helvetica,Arial,sans-serif; }
+#ladder .track{ position:absolute; left:0; right:0; top:0; transition:transform .55s ease; }
+.post{ border-bottom:1px solid var(--line); padding:10px 10px 8px var(--padL); position:relative; color:var(--ink2); line-height:1.3; }
+.post .av{ position:absolute; left:10px; top:12px; width:var(--av); height:var(--av); border-radius:50%; background:var(--mute); }
+.post .nm{ color:var(--ink); margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .post .nm i{ color:var(--dim); font-style:normal; font-weight:400; }
+.post .tx{ color:var(--ink2); word-wrap:break-word; }
+.post .md{ margin-top:8px; border:1px solid var(--mute); border-radius:6px; background:var(--panel2); aspect-ratio:16/9; }
+.post .ac{ margin-top:6px; color:var(--dim); font-size:.85em; letter-spacing:.06em; }
+.post .idx{ position:absolute; right:8px; top:6px; color:var(--mute); font-size:9px; font-family:ui-monospace,Menlo,monospace; }
+#ladder.paused .track{ transition:none; }
+#lstate{ position:absolute; right:6px; bottom:4px; color:var(--dim); font-size:10px; letter-spacing:.08em; background:var(--panel2); border:1px solid var(--line); padding:1px 5px; pointer-events:none; font-family:ui-monospace,Menlo,monospace; }
+#ladder.paused #lstate{ color:var(--ink); }
+/* the floor plan card: the numbers, on the page */
+#plan{ position:fixed; right:10px; bottom:10px; z-index:9; background:rgba(15,15,26,.94); border:1px solid var(--mute); color:var(--ink2); font-size:11px; line-height:1.5; padding:8px 11px; max-width:min(620px, 92vw); pointer-events:none; }
+#plan b{ color:var(--ink); font-weight:600; } #plan .h{ color:var(--ink); letter-spacing:.14em; text-transform:uppercase; margin-bottom:3px; }
+#plan table{ border-collapse:collapse; margin-top:3px; } #plan td{ padding:0 10px 0 0; white-space:nowrap; vertical-align:top; } #plan td.n{ text-align:right; }
+#plan .up{ color:#39C27A; } #plan .down{ color:#D9544E; }
+body.noplan #plan{ display:none; }
+/* phone / portrait: one column that scrolls, as the Station stacks — the charts first, the X strip as a block under them, the video last */
+@media (max-width:900px), (orientation:portrait){
+  html,body{ height:auto; overflow:visible; } #stage{ position:static; flex-direction:column; height:auto; }
+  #strip{ flex:none; order:2; } #charts{ flex:none; order:1; display:flex; flex-direction:column; height:auto !important; }
+  #charts > .pane{ height:56vh !important; min-height:230px; }
+  .pane.x{ flex:none; height:72vh; } #foot{ justify-content:center; }
+  #plan{ position:static; max-width:none; margin:8px; }
+}
+</style></head><body>
+<div id="stage"></div>
+<div id="plan"></div>
+<script>
+"use strict";
+const Q = new URLSearchParams(location.search);
+const N = Math.max(1, Math.min(12, +(Q.get("charts") || 9))), RANGE = Q.get("range") || "3D", BUBBLE = Q.get("bubble") || "4h:12";
+const STRIP_KEY = Q.get("strip") || "today", PIP_KEY = (Q.get("pip") || "L").toUpperCase();
+if (Q.get("plan") === "0") document.body.classList.add("noplan");
+/* S8's strip rule — the width the live-X column needs at 11 px text, 27% of the screen between 456 and 616 px — is "today's" strip */
+const s8Strip = () => Math.max(456, Math.min(616, Math.round(innerWidth * 0.27)));
+const stripPx = () => { const b = s8Strip(); if (STRIP_KEY === "-30") return Math.round(b * 0.7); if (STRIP_KEY === "-50") return Math.round(b * 0.5); if (/^\d+$/.test(STRIP_KEY)) return Math.max(160, +STRIP_KEY); return b; };
+/* the PIP: L = 20% of the screen's width, S = 14%; 16:9 picture + the video shell's 28 px bar; never wider than the strip */
+const pipW = (strip) => PIP_KEY === "0" ? 0 : Math.min(strip, Math.round(innerWidth * (PIP_KEY === "S" ? 0.14 : 0.20)));
+/* the eight TARGETS (deck/scenes.js TARGETS_DEFAULT) and the index for the ninth slot */
+const TICKERS = ["GOOGL", "NBIS", "AVGO", "BE", "AMZN", "VST", "MU", "WMT", "SPY", "QQQ", "IWM", "SMH"];
+const SHELL = { chart: "/station-shells/chart-v1/", video: "/station-shells/personal-video-v1/", x: "/station-shells/x-v2/" };
+const chartSrc = (t) => SHELL.chart + "?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) + "&view=desk&bubble=" + encodeURIComponent(BUBBLE);
+const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+const pane = (cls, title, key) => { const p = h("div", "pane " + cls); p.innerHTML = '<div class="ph"><span class="t">' + title + '</span>' + (key ? '<span class="k">' + key + '</span>' : '') + '</div><div class="body"></div>'; return p; };
+function chartPane(t) { const p = pane("chart", t + " <i style='color:var(--dim)'>" + RANGE + "</i>"); p.dataset.t = t; const f = h("iframe"); f.src = chartSrc(t); p.querySelector(".body").appendChild(f); return p; }
+/* the grid: 2 charts stacked (one column, each as wide as the floor), 4 in two columns, 6 in two columns of three, 9 in three columns; ?cols= overrides */
+const defaultCols = (n) => n <= 2 ? 1 : n <= 6 ? 2 : n <= 9 ? 3 : 4;
+const COLS = Q.get("cols") ? Math.max(1, +Q.get("cols")) : defaultCols(N);
+function chartsBlock(n) { const g = h("div"); g.id = "charts"; g.style.setProperty("--cols", COLS); g.dataset.cols = COLS; for (let i = 0; i < n; i++) g.appendChild(chartPane(TICKERS[i % TICKERS.length])); return g; }
+function videoPane() { const p = pane("video", "YouTube", "pip · 16:9"); const f = h("iframe"); f.src = SHELL.video + "?shell=v1&feed=personal&cols=1&view=desk"; p.querySelector(".body").appendChild(f); return p; }
+/* X AS A STRIP: the real shell + a ladder of posts with REAL text, so what fits is measured. X: 600 px column, 15 px text, 40 px avatar;
+   in the strip the text is 15 × (strip/600), never under 11 px (the floor); the avatar and padding scale the same way (floor 24 px). */
+const POSTS = [
+  ["Market Desk", "@marketdesk", "SPY holding the 20-day after the open. Breadth is better than the index shows: 62% of names green, semis leading again, financials flat. Watching 3pm for the usual push.", 0],
+  ["Rates Watch", "@rateswatch", "10-year back above 4.1% after the ISM print. Not a regime change yet, but growth names have noticed. Chart below.", 1],
+  ["Chip Flow", "@chipflow", "MU gapping up on the guide. Volume already 1.4× the full-day average by 10:30. Memory pricing commentary was the whole story.", 0],
+  ["Macro Notes", "@macronotes", "Claims steady at 221k. Nothing in the labour data argues for a faster cut path; the market still prices two by year-end.", 0],
+  ["Options Tape", "@optionstape", "Someone bought 12k of the GOOGL 200 calls for next month in one print. Open interest was 3k. That is a position, not a hedge.", 1],
+  ["Energy Desk", "@energydesk", "VST and the IPPs catching a bid on the data-centre PPA headline. Second time this month the group moves 4% on a contract.", 0],
+  ["Retail Read", "@retailread", "WMT: traffic up, ticket flat. Grocery share gains continue; general merchandise still soft. The stock does not care today.", 0],
+  ["Index Notes", "@indexnotes", "QQQ relative to IWM at a six-week high. Small caps lagging into the rate move, as usual.", 1],
+  ["Market Desk", "@marketdesk", "Closing read: SPY +0.4%, semis +1.8%, breadth 58/42. Quiet tape, strong leadership. Same again tomorrow unless rates say otherwise.", 0],
+  ["Chip Flow", "@chipflow", "AVGO sitting on the 50-day for the fourth day. Either it goes here or the whole group takes a breather.", 0],
+  ["Macro Notes", "@macronotes", "Fed speakers in a row this afternoon. Expect the usual: data dependent, no pre-commitment, higher for a little longer.", 1],
+  ["Options Tape", "@optionstape", "NBIS implied vol at 92 into the print. Straddle prices a 14% move. Last four were 9, 22, 11 and 17.", 0],
+];
+const SAMPLE = "SPY holding the 20-day after the open. Breadth is better than the index shows: 62% of names green, semis leading again.";
+function xPane() {
+  const p = pane("x", "X <i style='color:var(--dim)'>· live</i>", "left strip"); const body = p.querySelector(".body");
+  const f = h("iframe"); f.src = SHELL.x + "?shell=v1&view=desk"; body.appendChild(f);
+  const lad = h("div"); lad.id = "ladder"; const track = h("div", "track"); lad.appendChild(track);
+  const stt = h("div"); stt.id = "lstate"; stt.textContent = "advancing · 1 post / 6 s"; lad.appendChild(stt); body.appendChild(lad);
+  function build() {
+    const w = Math.max(1, lad.clientWidth), s = w / 600, font = Math.max(11, 15 * s), av = Math.max(24, Math.round(40 * s)), padL = av + 10 + Math.max(6, Math.round(12 * s));
+    p.dataset.scale = s.toFixed(3); lad.style.fontSize = font.toFixed(1) + "px"; lad.style.setProperty("--av", av + "px"); lad.style.setProperty("--padL", padL + "px");
+    track.innerHTML = ""; POSTS.forEach(([nm, hd, tx, md], i) => { const e = h("div", "post");
+      e.innerHTML = '<div class="av"></div><div class="idx">' + (i + 1) + '</div><div class="nm"><b>' + nm + '</b> <i>' + hd + ' · 2m</i></div><div class="tx">' + tx + '</div>' + (md ? '<div class="md"></div>' : '') + '<div class="ac">reply · repost · like · 2.1k</div>'; track.appendChild(e); });
+    /* characters per line: the text column's width over the average glyph width of a real sentence at this font */
+    const cv = document.createElement("canvas").getContext("2d"); cv.font = font.toFixed(1) + "px -apple-system, 'SF Pro Text', Helvetica, Arial, sans-serif";
+    const avg = cv.measureText(SAMPLE).width / SAMPLE.length; const col = w - padL - 10;
+    p.dataset.cpl = Math.floor(col / avg); p.dataset.font = font.toFixed(1); p.dataset.col = col;
+  }
+  let i = 0, y = 0; const step = () => { if (lad.classList.contains("paused")) return; const posts = track.children; if (i >= posts.length - 4) { i = 0; y = 0; } else { y += posts[i].offsetHeight; i++; } track.style.transform = "translateY(-" + y + "px)"; };
+  lad.addEventListener("pointerenter", () => { lad.classList.add("paused"); stt.textContent = "paused · pointer on the strip"; });
+  lad.addEventListener("pointerleave", () => { lad.classList.remove("paused"); stt.textContent = "advancing · 1 post / 6 s"; });
+  build(); new ResizeObserver(build).observe(lad); setInterval(step, 6000); p._ladder = { step, track }; return p;
+}
+/* ---- the floor plan: strip left (X, then the PIP at its foot), the charts right */
+const stage = document.getElementById("stage");
+const strip = h("div"); strip.id = "strip"; const x = xPane(); const foot = h("div"); foot.id = "foot"; const v = videoPane(); if (PIP_KEY !== "0") foot.appendChild(v); strip.append(x, foot);
+const charts = chartsBlock(N); stage.append(strip, charts);
+function layout() {
+  const sw = stripPx(); document.documentElement.style.setProperty("--strip", sw + "px");
+  const pw = pipW(sw); v.style.width = pw + "px"; v.style.height = pw ? Math.round(pw * 9 / 16 + 28) + "px" : "0px"; foot.style.height = pw ? Math.round(pw * 9 / 16 + 28) + "px" : "0px";
+}
+layout(); addEventListener("resize", layout);
+/* ---- the numbers, measured on this page and printed on it; today's deck from harness/measure-today.json when it is there */
+const r = (el) => { const b = el.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) }; };
+const fmt = (n) => Math.round(n).toLocaleString("en-US");
+let TODAY = null;
+fetch("harness/measure-today.json").then((x) => x.ok ? x.json() : null).then((j) => { TODAY = j; paint(); }).catch(() => {});
+window.__floorplan = () => {
+  const lad = document.getElementById("ladder"), lb = r(lad), posts = [...lad.querySelectorAll(".post")].map(r);
+  const fully = posts.filter((p) => p.y >= lb.y - 1 && p.y + p.h <= lb.y + lb.h + 1).length, partly = posts.filter((p) => p.y < lb.y + lb.h && p.y + p.h > lb.y).length;
+  const xb = r(x), vb = PIP_KEY === "0" ? { x: 0, y: 0, w: 0, h: 0 } : r(v), cb = r(charts), cs = [...charts.querySelectorAll(".pane.chart")].map((c) => r(c));
+  const screen = innerWidth * innerHeight, chartsPx = cb.w * cb.h, xPx = xb.w * xb.h, vPx = vb.w * vb.h;
+  const pic = { w: vb.w, h: Math.max(0, vb.h - 28) };
+  const key = innerWidth + "x" + innerHeight, today = TODAY && TODAY[key] ? TODAY[key].floor : null;
+  return { vw: innerWidth, vh: innerHeight, stripKey: STRIP_KEY, pipKey: PIP_KEY, strip: r(strip), x: xb, xScale: +x.dataset.scale, xFont: +x.dataset.font, charsPerLine: +x.dataset.cpl, textCol: +x.dataset.col, postsFully: fully, postsPartly: partly,
+    postHeights: posts.slice(0, 4).map((p) => p.h), video: vb, picture: pic, charts: cs.length, cols: COLS, chart0: cs[0] || null, chartsBlock: cb,
+    px: { screen, charts: chartsPx, x: xPx, video: vPx, chrome: Math.max(0, screen - chartsPx - xPx - vPx) },
+    share: { charts: +(chartsPx / screen).toFixed(3), x: +(xPx / screen).toFixed(3), video: +(vPx / screen).toFixed(3) }, today };
+};
+function paint() {
+  const m = window.__floorplan(); const t = m.today; const T = TODAY && TODAY[m.vw + "x" + m.vh];
+  const row = (name, nowPx, nowBox, wasPx, wasBox) => {
+    const d = wasPx ? Math.round(nowPx / m.px.screen * 100) - Math.round(wasPx / m.px.screen * 100) : null;
+    return "<tr><td>" + name + "</td><td class=n>" + (wasBox ? wasBox.w + "×" + wasBox.h : "—") + "</td><td class=n>" + (wasPx ? Math.round(wasPx / m.px.screen * 100) + "%" : "—") +
+      "</td><td class=n>" + nowBox.w + "×" + nowBox.h + "</td><td class=n>" + Math.round(nowPx / m.px.screen * 100) + "%</td><td class=n>" +
+      (d == null ? "" : "<span class='" + (d >= 0 ? "up" : "down") + "'>" + (d >= 0 ? "+" : "") + d + " pts</span>") + "</td></tr>";
+  };
+  document.getElementById("plan").innerHTML = "<div class=h>floor plan v2 · " + m.vw + " × " + m.vh + " · strip " + m.stripKey + " · pip " + m.pipKey + " · " + m.charts + " charts</div>" +
+    "<table><tr><td></td><td class=n>today</td><td class=n>of screen</td><td class=n>this plan</td><td class=n>of screen</td><td></td></tr>" +
+    row("charts, all", m.px.charts, m.chartsBlock, t && t.charts, T && T.rowTop) +
+    row("one chart", m.chart0 ? m.chart0.w * m.chart0.h : 0, m.chart0 || { w: 0, h: 0 }, t && t.chart0 && t.chart0.w * t.chart0.h, t && t.chart0) +
+    row("X", m.px.x, m.x, t && t.x, T && T.x && T.x.box) +
+    row("YouTube", m.px.video, m.video, t && t.video, T && T.video && T.video.box) + "</table>" +
+    "<div>strip <b>" + m.strip.w + " px</b> · X text <b>" + m.xFont.toFixed(1) + " px</b> · <b>" + m.charsPerLine + "</b> characters per line · <b>" + m.postsFully + "</b> posts fully, " + m.postsPartly + " partly · " +
+    m.charts + " charts in " + m.cols + " col" + (m.cols > 1 ? "s" : "") + (m.chart0 ? " at " + m.chart0.w + "×" + m.chart0.h : "") + " · pip picture " + m.picture.w + "×" + m.picture.h + (t ? "" : " · today's numbers: run harness/measure-today.mjs") + "</div>";
+}
+addEventListener("resize", paint); setTimeout(paint, 300); setInterval(paint, 4000);
+</script></body></html>
