@@ -176,7 +176,7 @@ test("HISTORY is not a page, not a workbench and not in the menu; a remembered o
   assert.equal(scenes.normalizeScene("history"), "macro1D");
   assert.ok(!scenes.findPages("HISTORY").length, "the jump list does not offer it");
   /* the per-slot bars request stays: harmless, and still read by the pane and the deck */
-  assert.match(deck, /const SLOT_BARS = Array\.from\(\{ length: 8 \}, \(\) => 0\);/);
+  assert.match(deck, /const SLOT_BARS = Array\.from\(\{ length:SLOT_MAX \}, \(\) => 0\);/);   /* S11 (3 Oct): nine slots */
   assert.match(source, /bars: charts\.map\(\(c\) => \(Number\(c\.bars\) > 0 \? Math\.min\(8000/);
   assert.match(chart, /const chartBarsOverride = \(\) => \{ const n = Math\.floor\(\+QS\.get\("bars"\)/, "the chart pane still honours ?bars=");
 });

@@ -30,7 +30,8 @@ function functionFromDeck(name, bindings = {}) {
     if (deck[index] === "}") depth -= 1;
     if (depth === 0) { end = index + 1; break; }
   }
-  return vm.runInNewContext(`(${deck.slice(start, end)})`, bindings);
+  /* S11 (3 Oct): the wall's slot arrays are sized by SLOT_MAX (nine since the floor plan build) */
+  return vm.runInNewContext(`(${deck.slice(start, end)})`, Object.assign({ SLOT_MAX: 9 }, bindings));
 }
 
 /* A one-line `const name = (…) => …;` from the deck, evaluated with the given bindings. */
@@ -184,8 +185,8 @@ test("CUSTOM six and eight chart walls preserve their manual symbols", () => {
   assert.doesNotMatch(deck, /option value="4"/,
     "the retired four-up choice is not offered");
   assert.match(deck, /function paintChartCountChoices\(\)/);
-  assert.match(deck, /\[2,6,8\]\.includes\(\+option\.value\)/,
-    "Custom presents only the purposeful two, six, and eight chart choices");
+  assert.match(deck, /\[2,6,8,9\]\.includes\(\+option\.value\)/,
+    "Custom presents only the purposeful two, six, eight and (S11) nine chart choices");
 });
 
 test("normal wall chooser is two, six, or eight while INDEX NOW keeps its launch trio", () => {
@@ -195,7 +196,7 @@ test("normal wall chooser is two, six, or eight while INDEX NOW keeps its launch
     "three-chart INDEX NOW remains a hidden preset state, not a global manual choice");
   assert.match(deck, /option value="1" hidden data-preset-only="true"/,
     "a one-chart cohort page is representable the same hidden preset-only way, never as a menu choice");
-  assert.match(deck, /const CHART_COUNTS = \[2,6,8\]/);
+  assert.match(deck, /const CHART_COUNTS = \[2,6,8,9\]/, "S11: nine (three by three) joins the manual wall chooser");
   assert.match(deck, /scene === "indexNow" && \+value === 3 \? 3 : chartCount\(value\)/,
     "only a preset-driven INDEX NOW launch retains its coherent three symbols");
   assert.match(deck, /sceneChartCount\(next, SCENE, !!fromScene\)/,
@@ -384,7 +385,8 @@ test("CUSTOM preserves the screenshot-shaped sparse six-slot workspace", () => {
     RANGES: ["15m","30m","1h","2h","3h","4h","6h","12h","1D","3D","1W"],
     RANGE: "3h",
     customChartCount: (value) => +value <= 2 ? 2 : +value <= 6 ? 6 : 8,
-    SceneModel: { chartCountForSize: scenes.chartCountForSize }
+    SceneModel: { chartCountForSize: scenes.chartCountForSize },
+    SLOT_MAX: 9
   };
   vm.runInNewContext(`${match[0]}; globalThis.preserve = preservedCustomState;`, customContext);
   const recovered = customContext.preserve({
@@ -393,15 +395,15 @@ test("CUSTOM preserves the screenshot-shaped sparse six-slot workspace", () => {
     range: "3h"
   });
   assert.equal(recovered.chartCount, 6);
-  assert.deepEqual(Array.from(recovered.charts), ["TSM", "WULF", "", "", "", "", "", ""]);
+  assert.deepEqual(Array.from(recovered.charts), ["TSM", "WULF", "", "", "", "", "", "", ""]);   /* S11: nine slots */
   assert.equal(recovered.charts.slice(0, recovered.chartCount).filter(Boolean).length, 2);
   const migratedFour = customContext.preserve({
     charts: ["TSM", "WULF", "SPY", "QQQ"], chartCount:4, range:"3h"
   });
   assert.equal(migratedFour.chartCount, 6, "a stored four-up Custom wall widens to six");
-  assert.deepEqual(Array.from(migratedFour.charts), ["TSM", "WULF", "SPY", "QQQ", "", "", "", ""],
+  assert.deepEqual(Array.from(migratedFour.charts), ["TSM", "WULF", "SPY", "QQQ", "", "", "", "", ""],
     "migration retains all four saved positions and creates only editable empty slots");
-  assert.match(deck, /const hasIncomingSlots = Array\.from\(\{ length:8 \}, \(_, i\) => QS\.has\("c" \+ \(i \+ 1\)\)\)\.some\(Boolean\)/);
+  assert.match(deck, /const hasIncomingSlots = Array\.from\(\{ length:SLOT_MAX \}, \(_, i\) => QS\.has\("c" \+ \(i \+ 1\)\)\)\.some\(Boolean\)/);
   assert.match(deck, /if \(hasIncomingSlots\) return;/);
   assert.match(deck, /if \(SCENE === "scratch" \|\| \(SCENE === "custom" && requestedCount >= 6\)\)/,
     "SCRATCH keeps every slot it was given; CUSTOM still only grows into empty ones");
@@ -480,10 +482,10 @@ test("hovered charts own trackpad wheel and Safari pinch without replacing touch
 });
 
 test("Custom uses a complete desk budget and explicit empty versus paused cards", () => {
-  assert.match(deck, /const LIVE_CAP = STACKED \? 2 : 11;/);
+  assert.match(deck, /const LIVE_CAP = STACKED \? 2 : 12;/, "S11: nine charts, two video panes and X");
   assert.match(deck, /empty editable slot/);
   assert.match(deck, /resume chart/);
-  assert.match(deck, /\^c\(\[1-8\]\)\$/);
+  assert.match(deck, /\^c\(\[1-9\]\)\$/);
   assert.match(deck, /syncChartPanes\(transitionGeneration\);\n  CHARTS\.forEach/,
     "count changes synchronize chart URLs before mounting active panes");
 });

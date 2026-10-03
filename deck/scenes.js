@@ -502,6 +502,8 @@ const LEGACY = Object.freeze({ overnight:"indexNow", indexes:"indexLeadership", 
   }
 
   function usesPairedColumnAxis(size) {
+    /* S11: the nine-chart wall is three rows, not two; every chart keeps its own time axis */
+    if (Number(size) === 9) return false;
     return [6, 8].includes(chartCountForSize(size));
   }
   /* A top chart borrows the time axis of the chart below it. When the caller

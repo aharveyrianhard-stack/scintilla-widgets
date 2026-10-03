@@ -97,7 +97,7 @@ test("a tap always brings the tapped pane back, pausing the lowest other one", (
 });
 
 test("the desk's budget is unchanged and fits the kept frames", () => {
-  assert.match(deck, /const LIVE_CAP = STACKED \? 2 : 11;/);
+  assert.match(deck, /const LIVE_CAP = STACKED \? 2 : 12;/);   /* S11 (3 Oct): nine charts, two video panes and X */
   const { b, pane, live } = wallRig({ cap: 11, live: ["c1","c2","c3","c4","c5","c6","c7","c8","vidA"] });
   b.mount(pane("x"));
   assert.equal(live().length, 10, "eight charts (shown or hidden), the video on the wall and X: nothing paused");

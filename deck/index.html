@@ -460,6 +460,39 @@ body.media-stage-two #rowBot > .pane.media-hidden{ display:none; }
 body.media-stage-one #rowBot > .pane.media-stage-target{ flex:2 1 0; }
 body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
 
+/* ── THE FLOOR PLAN (S11, 3 Oct 2026) ───────────────────────────────────────────────────────
+   Alan: "if we get above 70 we're really gaining — more Twitter posts on the page. YouTube is
+   mostly audio… a little bigger than that would be better. This location works a lot better."
+   "The YouTube is as wide as the X — exactly… everything has a position."
+   ONE column on the left takes 24% of the screen's width on every screen (MacBook 1680 → 403 px,
+   Apple TV 1920 → 461 px, external 2560 → 614 px): X fills it from the top and the YouTube pane
+   sits at its foot, exactly the column's width, its picture 16:9 under the shell's one bar. The
+   charts take the other 76% in an equal grid — 9 is three by three, 4 is two by two, 6 (and every
+   other count a page holds) is whichever exact grid is nearer square on this screen — with the
+   Station's 1 px seams and nothing left over. floorPlan() sets the numbers; the classes, panes,
+   pages and modes are the ones above. A phone (body.stack) keeps its scrolling column. */
+body:not(.stack) #grid{ flex-direction:row; }
+body:not(.stack) #grid > #rowBot{ order:-1; flex:0 0 var(--fp-col, 24%); flex-direction:column; }
+body:not(.stack) #grid > #rowBot > .pane[data-key="x"]{ order:-1; }
+body:not(.stack) #grid > #rowBot > .pane.video-fit{ flex:0 0 auto; width:auto; }
+body:not(.stack) #grid > #rowTop{ flex:1 1 0; grid-template-columns:repeat(var(--fp-c, 3), minmax(0,1fr));
+  grid-template-rows:repeat(var(--fp-r, 3), minmax(0,1fr)); }
+body:not(.stack) #grid > #rowTop > .pane{ grid-column:auto; }
+body:not(.stack) #grid > #rowTop.charts-1{ --fp-c:var(--fp-c1, 1); --fp-r:var(--fp-r1, 1); }
+body:not(.stack) #grid > #rowTop.charts-2{ --fp-c:var(--fp-c2, 2); --fp-r:var(--fp-r2, 1); }
+body:not(.stack) #grid > #rowTop.charts-3{ --fp-c:var(--fp-c3, 3); --fp-r:var(--fp-r3, 1); }
+body:not(.stack) #grid > #rowTop.charts-4{ --fp-c:var(--fp-c4, 2); --fp-r:var(--fp-r4, 2); }
+body:not(.stack) #grid > #rowTop.charts-6{ --fp-c:var(--fp-c6, 3); --fp-r:var(--fp-r6, 2); }
+body:not(.stack) #grid > #rowTop.charts-8{ --fp-c:var(--fp-c8, 4); --fp-r:var(--fp-r8, 2); }
+body:not(.stack) #grid > #rowTop.charts-9{ --fp-c:var(--fp-c9, 3); --fp-r:var(--fp-r9, 3); }
+/* a chart on its own (row solo) takes the whole chart area, every row of it */
+body.solo:not(.stack) #grid > #rowTop > .pane.expanded{ grid-column:1 / -1; grid-row:1 / -1; }
+/* CHARTS ONLY keeps the column's box, size and place (the X capture never re-lays-out) and draws it
+   at zero opacity behind the charts, which take the whole wall - the same rule as before, as a column */
+body.charts-only:not(.stack) #grid > #rowBot{ position:absolute; left:0; top:0; bottom:0; right:auto;
+  width:var(--fp-col, 24%); height:auto; }
+#skeletonGrid{ flex:1 1 0; }
+
 .pane{ position:relative; background:var(--bg); display:flex; flex-direction:column;
   min-height:0; min-width:0; overflow:hidden; }
 .ph{ flex:none; display:flex; align-items:center; gap:6px; padding:3px 7px; background:var(--panel2);
@@ -711,7 +744,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
     <span class="lbl">charts</span>
     <span id="countChips"></span>
     <select class="chart-count" id="chartCount" title="number of charts" aria-hidden="true" tabindex="-1">
-      <option value="2">2</option><option value="6">6</option><option value="8">8</option>
+      <option value="2">2</option><option value="6">6</option><option value="8">8</option><option value="9">9</option>
       <option value="3" hidden data-preset-only="true">3</option>
       <option value="1" hidden data-preset-only="true">1</option>
     </select>
@@ -768,7 +801,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
                 localStorage.getItem("station.chartCount") || "";
       remembered = parseInt(raw, 10) || 0;
     } catch (_) {}
-    if (!(remembered > 0 && remembered <= 8)) return;
+    if (!(remembered > 0 && remembered <= 9)) return;
     var frag = "";
     for (var i = 0; i < remembered; i++) {
       frag += '<div class="pane skeleton-pane" aria-hidden="true"><div class="skeleton-head"></div>' +
@@ -1038,9 +1071,12 @@ function workflowSceneState(scene) {
 /* The everyday wall chooser is deliberately simple.  INDEX NOW retains its
    coherent three-symbol launch preset without turning three into a global
    manual wall choice.  One remains a chart-focus detail state, not a wall. */
-const CHART_COUNTS = [2,6,8];
+/* S11 (3 Oct): a ninth slot, so the three-by-three wall Alan liked ("the nine chart looks good") is a
+   real choice on the manual walls. Every named page keeps its own count; none of them holds nine. */
+const SLOT_MAX = 9;
+const CHART_COUNTS = [2,6,8,9];
 const chartCount = (value) => {
-  const n = Math.max(1, Math.min(8, +value || 2));
+  const n = Math.max(1, Math.min(SLOT_MAX, +value || 2));
   return CHART_COUNTS.includes(n) ? n : 2;
 };
 const sceneChartCount = (value, scene = SCENE, fromPreset = false) => {
@@ -1056,8 +1092,8 @@ const sceneChartCount = (value, scene = SCENE, fromPreset = false) => {
    a migration case: retain its four chosen slots and widen it to six editable
    positions; never invent replacements. */
 const customChartCount = (value) => {
-  const n = Math.max(1, Math.min(8, +value || 2));
-  return n <= 2 ? 2 : n <= 6 ? 6 : 8;
+  const n = Math.max(1, Math.min(SLOT_MAX, +value || 2));
+  return n <= 2 ? 2 : n <= 6 ? 6 : n <= 8 ? 8 : 9;
 };
 const CUSTOM_WALL_STARTERS = Object.freeze(["SPY","QQQ","IWM","MAGS","SMH","AAPL","MSFT","AMZN"]);
 const ROTATE_SCENES = SceneModel.ROTATION_IDS;
@@ -1102,7 +1138,7 @@ const URL_STATEFUL = SCENE === "live" || SCENE === "custom";
    cN slot, omitted slots are deliberately empty—not permission to inherit a
    prior Custom/LIVE workspace or the generic SPY/SNDK defaults. */
 const DIRECT_CUSTOM_WORKSPACE = SCENE === "custom" &&
-  Array.from({ length:8 }, (_, i) => QS.has("c" + (i + 1))).some(Boolean);
+  Array.from({ length:SLOT_MAX }, (_, i) => QS.has("c" + (i + 1))).some(Boolean);
 let CHART_COUNT = (SCENE === "custom" ? customChartCount : sceneChartCount)(
   (URL_STATEFUL ? QS.get("charts") : "") || storedState("chartCount") || 2
 );
@@ -1114,12 +1150,12 @@ function initialWorkspaceChart(incoming, stored, index, directCustom) {
 /* A WORKBENCH PAGE GIVES EACH SLOT ITS OWN STUDY STACK, and may give it its own
    timeframe. Both are page DATA, parallel to CHARTS, and both are empty on every
    other page — so nothing about the ordinary wall changes. */
-const SLOT_STACKS = Array.from({ length: 8 }, () => "");
-const SLOT_BARS = Array.from({ length: 8 }, () => 0);   /* a per-slot bars request (no page asks since HISTORY left, 25 Sep); 0 = the range's usual window */
-const SLOT_RANGES = Array.from({ length: 8 }, () => "");
+const SLOT_STACKS = Array.from({ length:SLOT_MAX }, () => "");
+const SLOT_BARS = Array.from({ length:SLOT_MAX }, () => 0);   /* a per-slot bars request (no page asks since HISTORY left, 25 Sep); 0 = the range's usual window */
+const SLOT_RANGES = Array.from({ length:SLOT_MAX }, () => "");
 /* the context lens a slot's page asks for ("30m:3" on the 3-day pages, CL4 27 Sep; "" elsewhere) */
-const SLOT_BUBBLES = Array.from({ length: 8 }, () => "");
-const CHARTS = Array.from({ length: 8 }, (_, i) => {
+const SLOT_BUBBLES = Array.from({ length:SLOT_MAX }, () => "");
+const CHARTS = Array.from({ length:SLOT_MAX }, (_, i) => {
   const incoming = URL_STATEFUL ? QS.get("c" + (i + 1)) : "";
   return initialWorkspaceChart(incoming, storedState("chart." + (i + 1)), i, DIRECT_CUSTOM_WORKSPACE);
 });
@@ -1471,14 +1507,61 @@ function soloInBottomRow() {
   const pane = PANES.find((item) => item.def.key === SOLO);
   return !!pane && pane.def.row === 1;
 }
+/* ── THE FLOOR PLAN (S11, 3 Oct) — the numbers, pure (see the CSS block of the same name) ──
+   The column is 24% of the wall's width, the charts the other 76% less the one 1 px seam between
+   them. The YouTube pane is the column's width; its picture is 16:9 at that width and the shell's
+   one bar sits above it. A chart count is laid out as the exact grid (columns × rows = the count,
+   so no cell is ever empty) whose one chart is nearest a square: 9 → 3 × 3, 4 → 2 × 2, 6 → 3 × 2 or
+   2 × 3, 8 → 4 × 2 or 2 × 4. */
+const FLOOR_COLUMN_SHARE = 0.24;
+const FLOOR_SEAM_PX = 1;
+const FLOOR_COUNTS = [1, 2, 3, 4, 6, 8, 9];
+function floorGrid(count, width, height) {
+  const n = Math.max(1, Math.round(Number(count) || 1));
+  let best = null;
+  for (let c = 1; c <= n; c++) {
+    if (n % c) continue;
+    const r = n / c;
+    const cw = (width - (c - 1) * FLOOR_SEAM_PX) / c, ch = (height - (r - 1) * FLOOR_SEAM_PX) / r;
+    const off = Math.abs(Math.log(Math.max(1e-6, cw) / Math.max(1e-6, ch)));
+    if (!best || off < best.off - 1e-9) best = { cols:c, rows:r, off };
+  }
+  return { cols:best.cols, rows:best.rows };
+}
+function floorPlan(wallWidth, wallHeight, chromePx) {
+  const w = Math.max(0, Number(wallWidth) || 0), h = Math.max(0, Number(wallHeight) || 0);
+  const col = Math.round(w * FLOOR_COLUMN_SHARE);
+  const charts = { w:Math.max(0, w - col - FLOOR_SEAM_PX), h };
+  const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
+  const picture = { w:col, h:Math.round(col * 9 / 16) };
+  const grids = {};
+  for (const n of FLOOR_COUNTS) grids[n] = floorGrid(n, charts.w, charts.h);
+  return { col, charts, picture, videoPane:{ w:col, h:picture.h + chrome }, grids };
+}
 function fitVideoPane() {
   const row = el("rowBot"); if (!row) return;
+  const grid = el("grid"), top = el("rowTop");
+  const floor = !STACKED && !!grid && !!top;
+  const onWall = PANES.find((o) => o.def.kind === "video" && o.def.key === VIDEO_FEED);
+  const plan = floor ? floorPlan(grid.clientWidth, grid.clientHeight, onWall?.chromePx) : null;
+  if (grid) grid.style.setProperty("--fp-col", plan ? plan.col + "px" : "");
+  if (top) for (const n of FLOOR_COUNTS) {
+    top.style.setProperty("--fp-c" + n, plan ? String(plan.grids[n].cols) : "");
+    top.style.setProperty("--fp-r" + n, plan ? String(plan.grids[n].rows) : "");
+  }
   for (const o of PANES) {
     if (o.def.kind !== "video") continue;
     const lock = o.def.key === VIDEO_FEED && !STACKED && MEDIA_STAGE === 0 && !soloInBottomRow();
     o.node.classList.toggle("video-fit", lock);
-    if (!lock) { o.node.style.width = ""; continue; }
-    o.node.style.width = videoFitWidth(row.clientWidth, o.node.clientHeight, o.chromePx) + "px";
+    if (!lock) { o.node.style.width = ""; o.node.style.height = ""; continue; }
+    if (plan) {
+      /* the column's width; the height is the 16:9 picture plus the shell's own bar */
+      o.node.style.width = "";
+      o.node.style.height = (Math.round(plan.col * 9 / 16) + (Number.isFinite(o.chromePx) ? o.chromePx : VIDEO_CHROME_FALLBACK_PX)) + "px";
+    } else {
+      o.node.style.height = "";
+      o.node.style.width = videoFitWidth(row.clientWidth, o.node.clientHeight, o.chromePx) + "px";
+    }
   }
   measure();
 }
@@ -1556,11 +1639,11 @@ function releaseChartDataLoad(token) {
    when some are deliberately empty: a blank slot is editable, not evidence
    that the rest of the wall should be compacted or remounted. */
 function savedCustomCharts() {
-  return Array.from({ length:8 }, (_, i) => CLEAN(remembered("station.custom.chart." + (i + 1))));
+  return Array.from({ length:SLOT_MAX }, (_, i) => CLEAN(remembered("station.custom.chart." + (i + 1))));
 }
 function preservedCustomState(state) {
   return {
-    charts: Array.from({ length:8 }, (_, i) => CLEAN((state.charts || [])[i] || "")),
+    charts: Array.from({ length:SLOT_MAX }, (_, i) => CLEAN((state.charts || [])[i] || "")),
     chartCount: customChartCount(state.chartCount),
     range: RANGES.includes(state.range) ? state.range : RANGE
   };
@@ -1570,7 +1653,7 @@ function preservedCustomState(state) {
    receive the stable starter basket. */
 function fillCustomWall(charts, requestedCount) {
   const requested = chartCount(requestedCount);
-  const next = Array.from({ length:8 }, (_, i) => CLEAN((charts || [])[i] || ""));
+  const next = Array.from({ length:SLOT_MAX }, (_, i) => CLEAN((charts || [])[i] || ""));
   if (requested < 6) return next;
   const used = new Set(next.filter(Boolean));
   let seedAt = 0;
@@ -1593,7 +1676,7 @@ function customWallState(state, requestedCount) {
 }
 function recoverInitialCustomState() {
   if (SCENE !== "custom") return;
-  const hasIncomingSlots = Array.from({ length:8 }, (_, i) => QS.has("c" + (i + 1))).some(Boolean);
+  const hasIncomingSlots = Array.from({ length:SLOT_MAX }, (_, i) => QS.has("c" + (i + 1))).some(Boolean);
   /* A direct Custom URL is a complete workspace instruction. Preserve every
      supplied symbol and every intentional empty slot exactly as requested. */
   if (hasIncomingSlots) return;
@@ -1640,7 +1723,7 @@ let STACKED = !keepsCompleteWall() && innerWidth < STACK_AT;   /* decided BEFORE
    in, which is a bug v3 caught in its own test sweep. */
 /* Desk keeps a complete Custom 8 wall: eight charts, two video panes, and X.
    Phone retains its separately proven two-frame safety ceiling. */
-const LIVE_CAP = STACKED ? 2 : 11;
+const LIVE_CAP = STACKED ? 2 : 12;   /* S11: nine charts, two video panes and X */
 /* HIDDEN CHARTS STAY ALIVE ON THE DESK (S1, 25 Sep). A page with fewer charts used to throw
    away the frames of the slots it did not use, so the next page that grew again (two to six,
    six to eight) had to boot those frames from nothing and showed empty slots for up to ~0.3 s
@@ -1948,7 +2031,7 @@ function paintVideoFeed() {
 }
 
 function focusTickerFor(key) {
-  const m = String(key || "").match(/^c([1-8])$/);
+  const m = String(key || "").match(/^c([1-9])$/);
   if (!m) return;
   const input = el("t" + m[1]);
   if (!input) return;
@@ -2636,7 +2719,7 @@ function paintChips() {
   const bar = el("panebar");
   bar.innerHTML = '<span class="lbl">panes</span>';
   for (const o of PANES) {
-    if (/^c[1-8]$/.test(o.def.key) && +o.def.key.slice(1) > CHART_COUNT) continue;
+    if (/^c[1-9]$/.test(o.def.key) && +o.def.key.slice(1) > CHART_COUNT) continue;
     if (o.def.kind === "video" && !videoFeedChip(o.def.key)) continue;
     const c = document.createElement("span");
     /* A video pane that is not the one on the wall is not "paused" — it is behind the other
@@ -2691,7 +2774,7 @@ function editableState(scene) {
   /* SCRATCH and CUSTOM never seed a symbol: an empty slot on those pages is the state
      the user left, and SPY/SNDK appearing in it would be the deck answering a question
      nobody asked. */
-  const charts = Array.from({ length:8 }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
+  const charts = Array.from({ length:SLOT_MAX }, (_, i) => CLEAN(get("chart." + (i + 1))) ||
     (scene === "custom" || scene === "scratch" ? "" : i === 0 ? "SPY" : i === 1 ? "SNDK" : ""));
   if (scene === "custom") return preservedCustomState({ charts, chartCount:count, range });
   if (scene === "scratch") return SceneModel.scratchState(charts, scratchRange());
@@ -2710,7 +2793,7 @@ function completeNamedPresetState(state, preset) {
   const presetCharts = (preset?.tickers || preset?.charts || []).map(CLEAN);
   if (!Number.isFinite(count) || count !== presetCount ||
       presetCharts.slice(0, count).some((ticker) => !ticker)) return state;
-  const charts = Array.from({ length:8 }, (_, i) => CLEAN((state?.charts || [])[i] || ""));
+  const charts = Array.from({ length:SLOT_MAX }, (_, i) => CLEAN((state?.charts || [])[i] || ""));
   if (charts.slice(0, count).every(Boolean)) return state;
   for (let i = 0; i < count; i++) if (!charts[i]) charts[i] = presetCharts[i];
   return Object.assign({}, state, { charts });
@@ -2883,11 +2966,11 @@ function paintSceneControls(note) {
 }
 function installSceneState(state) {
   cancelSlotFades();
-  SLOT_ROT.marks = Array.isArray(state.rotation) ? state.rotation.slice(0, 8) : [];
+  SLOT_ROT.marks = Array.isArray(state.rotation) ? state.rotation.slice(0, SLOT_MAX) : [];
   SLOT_ROT.since = Date.now();
   LAST_CHART_VIEW = null;
   setTimeout(paintSlotMarks, 0);   /* after the panes have been pointed at the page's names */
-  const charts = (state.charts || state.tickers || []).slice(0, 8);
+  const charts = (state.charts || state.tickers || []).slice(0, SLOT_MAX);
   CHARTS.forEach((_, i) => { CHARTS[i] = CLEAN(charts[i] || ""); });
   const stacks = state.stacks || [], ranges = state.ranges || [];
   SLOT_STACKS.forEach((_, i) => { SLOT_STACKS[i] = String(stacks[i] || ""); });
@@ -3721,7 +3804,7 @@ const sameBox = (a, b) => !!a && !!b && Math.abs(a.left - b.left) < 1 && Math.ab
    so no chart is resized by the measuring. */
 function measurePageBoxes(count) {
   const row = el("rowTop"), was = row.className;
-  const panes = Array.from({ length: 8 }, (_, i) => slotPane(i));
+  const panes = Array.from({ length:SLOT_MAX }, (_, i) => slotPane(i));
   const off = panes.map((p) => !!p && p.node.classList.contains("chart-off"));
   row.classList.add("page-measure");
   const now = panes.map((p, i) => p && !off[i] ? { pane:boxOf(p.node), body:boxOf(p.body) } : null);
@@ -4133,7 +4216,7 @@ function paintChartCountChoices() {
   const custom = SCENE === "custom" || SCENE === "scratch";
   for (const option of el("chartCount").options) {
     const presetOnly = option.dataset.presetOnly === "true";
-    const allowed = presetOnly || !custom || [2,6,8].includes(+option.value);
+    const allowed = presetOnly || !custom || [2,6,8,9].includes(+option.value);
     option.hidden = presetOnly || !allowed;
     option.disabled = !allowed;
   }
@@ -4172,7 +4255,7 @@ function applyChartCount(next, fromScene, transitionGeneration) {
       else mount(o);
     }
   });
-  if (SOLO && /^c[1-8]$/.test(SOLO) && +SOLO.slice(1) > CHART_COUNT) setSolo(null);
+  if (SOLO && /^c[1-9]$/.test(SOLO) && +SOLO.slice(1) > CHART_COUNT) setSolo(null);
   if (!fromScene) rememberEditableState();
   try { paintPaneNotes(); } catch (_) {}      /* M48/M69 — why each chart is on the page */
   relayout(); paintChips(); refreshDeckQuotes();
@@ -4323,13 +4406,13 @@ el("cohortPageNext").addEventListener("click", () => applyScene("cohort", { coho
 el("resetScene").addEventListener("click", () => {
   if (SCENE === "cohort") {
     ["chartCount"].forEach((suffix) => forgetSession("station.flex.cohort." + suffix));
-    Array.from({ length:8 }, (_, i) => forgetSession("station.flex.cohort.chart." + (i + 1)));
+    Array.from({ length:SLOT_MAX }, (_, i) => forgetSession("station.flex.cohort.chart." + (i + 1)));
     applyScene("cohort", { cohort:COHORT, page:0, reset:true });
     return;
   }
   if (!fixedSceneState(SCENE)) return;
   ["chartCount"].forEach((suffix) => forgetSession("station.flex." + SCENE + "." + suffix));
-  Array.from({ length:8 }, (_, i) => forgetSession("station.flex." + SCENE + ".chart." + (i + 1)));
+  Array.from({ length:SLOT_MAX }, (_, i) => forgetSession("station.flex." + SCENE + ".chart." + (i + 1)));
   applyScene(SCENE, { reset:true });
 });
 el("rotateEvery").addEventListener("change", (e) => setRotationInterval(e.target.value));
