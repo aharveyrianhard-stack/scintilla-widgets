@@ -72,6 +72,17 @@ button.btn{ appearance:none; border-radius:0; font-family:var(--mono); line-heig
 /* GRID · VIDEOS · SHORTS sit first in the chip row; a hairline separates them from the list chips.
    Same .btn as every other control — no new colour, the active tab uses the existing "on" state. */
 #chips .sep{ flex:none; width:1px; height:11px; background:var(--line); margin:0 3px; align-self:center; }
+/* S11b (3 Oct): THE CONTROL ROW FITS THE COLUMN. At 24% the pane is 403 / 461 / 614 px wide, and the
+   profile select was as wide as its LONGEST option ("… · waiting for …", 187 px), which pushed the last chip
+   off the right edge. fitBar() sizes the select to the profile it shows; if the chips still do not fit they
+   go compact (tighter padding and tracking - the same 8 px type, the same colours); and only if even that
+   does not fit does the row scroll, with a fade at the edge that says there is more. One line, always. */
+#feedProfile{ max-width:132px; text-overflow:ellipsis; }
+body.bar-tight #chips{ gap:2px; }
+body.bar-tight #chips .btn{ padding-left:3px; padding-right:3px; letter-spacing:.04em; }
+body.bar-tight #chips .sep{ margin:0 2px; }
+body.bar-scroll #chips{ -webkit-mask-image:linear-gradient(to right, #000 calc(100% - 16px), transparent);
+  mask-image:linear-gradient(to right, #000 calc(100% - 16px), transparent); }
 #q{ display:none; flex:1 1 90px; min-width:70px; background:var(--bg); border:1px solid var(--line);
   color:var(--ink); font-family:var(--mono); font-size:11px; padding:3px 6px; outline:none;
   border-radius:0; -webkit-appearance:none; }
@@ -668,6 +679,7 @@ function paintFeedProfileSelector(rows) {
   }).join("");
   pick.style.display = "";
   document.body.classList.add("has-profile-select");
+  fitBar();
   pick.onchange = () => {
     const next = pick.value;
     if (!next || next === FEED) return;
@@ -723,7 +735,32 @@ function refreshSubscribeButton(v = CUR) {
 }
 
 /* ---- columns counted from OUR width, not the window ---- */
+function fitProfileSelect() {
+  const pick = el("feedProfile");
+  if (!pick || pick.style.display === "none") return;
+  const opt = pick.options[pick.selectedIndex];
+  if (!opt) return;
+  const cs = getComputedStyle(pick), probe = document.createElement("span");
+  probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;font-family:" + cs.fontFamily +
+    ";font-size:" + cs.fontSize + ";font-weight:" + cs.fontWeight + ";letter-spacing:" + cs.letterSpacing + ";text-transform:" + cs.textTransform;
+  probe.textContent = opt.textContent;
+  document.body.appendChild(probe);
+  const text = probe.getBoundingClientRect().width;
+  probe.remove();
+  /* the text, the select's own padding and border, and room for its arrow */
+  pick.style.width = Math.ceil(text + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + 2 + 20) + "px";
+}
+function fitBar() {
+  const body = document.body, chips = el("chips");
+  body.classList.remove("bar-tight", "bar-scroll");
+  fitProfileSelect();
+  if (!chips || !chips.offsetWidth) return;
+  const over = () => chips.scrollWidth > chips.clientWidth + 1;
+  if (over()) body.classList.add("bar-tight");
+  if (over()) body.classList.add("bar-scroll");
+}
 function relayout() {
+  fitBar();
   const w = document.documentElement.clientWidth;
   let cols = FORCE || (w < 210 ? 1 : w < 340 ? 2 : w < 520 ? 3 : w < 760 ? 4 : w < 1100 ? 5 : 6);
   document.body.classList.toggle("tiny", w < 340);
@@ -1311,6 +1348,7 @@ function paintChips() {
     b.addEventListener("click", () => { LIST = l.id; paintChips(); load(LIST === "watch"); });
     box.appendChild(b);
   }
+  fitBar();
 }
 
 /* ---- WHEN A STREAM ACTUALLY HAPPENED ----
@@ -1472,6 +1510,7 @@ window.addEventListener("message", (event) => {
     el("bFull").textContent = theatre ? "↙ back" : stage === 2 ? "↙ youtube" : stage === 1 ? "↙ normal" : "⛶";
     el("bFull").title = theatre ? "back to the column (Esc)" : stage === 2 ? "return to YouTube region" : stage === 1 ? "return to normal media layout" : "expand over the charts";
     el("bMenuFull").textContent = theatre ? "back to the column" : stage === 2 ? "return to youtube region" : stage === 1 ? "return to normal layout" : "expand pane";
+    fitBar();
     el("bCover").style.display = event.data.canCoverX ? "" : "none";
   }
 });
