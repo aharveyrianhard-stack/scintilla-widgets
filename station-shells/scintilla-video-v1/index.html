@@ -1001,7 +1001,13 @@ el("bMenu").addEventListener("click", () => setMenuOpen(el("more").hidden));
 document.addEventListener("pointerdown", (event) => {
   if (!el("more").hidden && !el("more").contains(event.target) && !el("bMenu").contains(event.target)) setMenuOpen(false);
 });
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") setMenuOpen(false); });
+/* Esc closes the menu; with the menu shut it is BACK - the deck puts an expanded video back in its place */
+let DECK_STAGE = 0;
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (!el("more").hidden) { setMenuOpen(false); return; }
+  if (DECK_STAGE > 0) parent.postMessage({ type: "SCINTILLA_DECK_MEDIA_BACK" }, location.origin);
+});
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") { captureActiveVideoPosition(); saveActiveVideoPosition(true); }
 });
@@ -1460,10 +1466,12 @@ window.addEventListener("message", (event) => {
     relayout(); postChrome(); return;
   }
   if (event.data?.type === "SCINTILLA_DECK_FULL_STATE") {
-    const stage = +event.data.stage || 0;
-    el("bFull").textContent = stage === 2 ? "↙ youtube" : stage === 1 ? "↙ normal" : "⛶";
-    el("bFull").title = stage === 2 ? "return to YouTube region" : stage === 1 ? "return to normal media layout" : "expand across YouTube region";
-    el("bMenuFull").textContent = stage === 2 ? "return to youtube region" : stage === 1 ? "return to normal layout" : "expand pane";
+    const stage = +event.data.stage || 0, theatre = !!event.data.theatre && stage > 0;
+    DECK_STAGE = stage;
+    /* the floor plan's one step (S11b): the video over the charts; BACK, or Esc, puts it home */
+    el("bFull").textContent = theatre ? "↙ back" : stage === 2 ? "↙ youtube" : stage === 1 ? "↙ normal" : "⛶";
+    el("bFull").title = theatre ? "back to the column (Esc)" : stage === 2 ? "return to YouTube region" : stage === 1 ? "return to normal media layout" : "expand over the charts";
+    el("bMenuFull").textContent = theatre ? "back to the column" : stage === 2 ? "return to youtube region" : stage === 1 ? "return to normal layout" : "expand pane";
     el("bCover").style.display = event.data.canCoverX ? "" : "none";
   }
 });

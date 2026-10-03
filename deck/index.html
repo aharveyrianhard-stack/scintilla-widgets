@@ -491,6 +491,15 @@ body.solo:not(.stack) #grid > #rowTop > .pane.expanded{ grid-column:1 / -1; grid
    at zero opacity behind the charts, which take the whole wall - the same rule as before, as a column */
 body.charts-only:not(.stack) #grid > #rowBot{ position:absolute; left:0; top:0; bottom:0; right:auto;
   width:var(--fp-col, 24%); height:auto; }
+/* THE THEATRE (S11b): the video's one expand step - see floorTheatre(). The pane leaves the column's flow
+   (it keeps its place in the document, so its iframe never reloads) and sits over the chart area at the
+   largest 16:9 that fits, centred; a plain cover hides the charts behind it (they keep running); X takes
+   the whole column. The timeframe tag names the hidden charts, so it steps aside. A phone keeps its ladder. */
+body.media-theatre:not(.stack) #grid{ position:relative; }
+body.media-theatre:not(.stack) #grid > #rowTop{ position:relative; }
+body.media-theatre:not(.stack) #grid > #rowTop::after{ content:""; position:absolute; inset:0; z-index:23; background:var(--bg); }
+body.media-theatre:not(.stack) #grid > #rowBot > .pane.theatre{ position:absolute; z-index:24; flex:none; }
+body.media-theatre:not(.stack) #tfNow{ display:none; }
 #skeletonGrid{ flex:1 1 0; }
 
 .pane{ position:relative; background:var(--bg); display:flex; flex-direction:column;
@@ -1538,6 +1547,20 @@ function floorPlan(wallWidth, wallHeight, chromePx) {
   for (const n of FLOOR_COUNTS) grids[n] = floorGrid(n, charts.w, charts.h);
   return { col, charts, picture, videoPane:{ w:col, h:picture.h + chrome }, grids };
 }
+/* ── THE THEATRE (S11b, 3 Oct) — the video's one expand step in the floor plan ──
+   Decided: one press and the playing video takes the chart area (the 76% right of the column) at the
+   largest 16:9 picture that fits, centred, the shell's one bar above the picture; the charts are
+   covered, X keeps the whole column. A second press, BACK or Esc puts it back at the column's foot.
+   The pane is exactly picture + bar, so the picture carries no black bars; the column never holds a
+   grown video again (S11 grew it down the column: black above and below a column-wide picture). */
+function floorTheatre(areaWidth, areaHeight, chromePx) {
+  const w = Math.max(0, Number(areaWidth) || 0), h = Math.max(0, Number(areaHeight) || 0);
+  const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
+  const pw = Math.max(0, Math.min(w, Math.floor((h - chrome) * 16 / 9)));
+  const picture = { w:pw, h:Math.round(pw * 9 / 16) };
+  const pane = { w:pw, h:picture.h + chrome };
+  return { picture, pane, left:Math.floor((w - pane.w) / 2), top:Math.floor((h - pane.h) / 2) };
+}
 function fitVideoPane() {
   const row = el("rowBot"); if (!row) return;
   const grid = el("grid"), top = el("rowTop");
@@ -1549,8 +1572,23 @@ function fitVideoPane() {
     top.style.setProperty("--fp-c" + n, plan ? String(plan.grids[n].cols) : "");
     top.style.setProperty("--fp-r" + n, plan ? String(plan.grids[n].rows) : "");
   }
+  const theatre = !!plan && MEDIA_STAGE > 0;
+  const theatreChanged = document.body.classList.contains("media-theatre") !== theatre;
+  document.body.classList.toggle("media-theatre", theatre);
   for (const o of PANES) {
     if (o.def.kind !== "video") continue;
+    const inTheatre = theatre && o.def.key === MEDIA_TARGET;
+    o.node.classList.toggle("theatre", inTheatre);
+    if (inTheatre) {
+      const t = floorTheatre(plan.charts.w, plan.charts.h, o.chromePx);
+      o.node.classList.remove("video-fit");
+      o.node.style.left = (plan.col + FLOOR_SEAM_PX + t.left) + "px"; o.node.style.top = t.top + "px";
+      o.node.style.width = t.pane.w + "px"; o.node.style.height = t.pane.h + "px";
+      if (theatreChanged) postMediaStage(o);
+      continue;
+    }
+    o.node.style.left = ""; o.node.style.top = "";
+    if (theatreChanged) postMediaStage(o);
     const lock = o.def.key === VIDEO_FEED && !STACKED && MEDIA_STAGE === 0 && !soloInBottomRow();
     o.node.classList.toggle("video-fit", lock);
     if (!lock) { o.node.style.width = ""; o.node.style.height = ""; continue; }
@@ -1921,7 +1959,8 @@ function postMediaStage(o) {
       type: "SCINTILLA_DECK_FULL_STATE",
       active: MEDIA_STAGE > 0 && o.def.key === MEDIA_TARGET,
       stage: o.def.key === MEDIA_TARGET ? MEDIA_STAGE : 0,
-      canCoverX: o.def.key === MEDIA_TARGET && MEDIA_STAGE === 1
+      canCoverX: o.def.key === MEDIA_TARGET && MEDIA_STAGE === 1 && STACKED,
+      theatre: o.def.key === MEDIA_TARGET && MEDIA_STAGE > 0 && !STACKED
     }, location.origin);
   } catch (_) {}
 }
@@ -1965,7 +2004,14 @@ function toggleMediaStage(key) {
 
 function coverMediaX(key) {
   if (SOLO) setSolo(null);
-  MEDIA_TARGET = key; MEDIA_STAGE = 2; applyMediaStage();
+  /* the floor plan has one step, the theatre (X keeps its column); covering X is the phone's second step */
+  MEDIA_TARGET = key; MEDIA_STAGE = STACKED ? 2 : 1; applyMediaStage();
+}
+/* BACK: the shell's Esc and the deck's Esc both land here - the video goes back to the column's foot */
+function mediaBack() {
+  if (!MEDIA_STAGE) return false;
+  resetMediaStage(); measure(); paintChips();
+  return true;
 }
 
 /* ── ONE VIDEO AT A TIME — the switch ───────────────────────────────────────────────────────
@@ -2239,6 +2285,11 @@ window.addEventListener("message", (event) => {
     if (key) setVideoFeed(key);
     return;
   }
+  if (event.data?.type === "SCINTILLA_DECK_MEDIA_BACK") {
+    const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
+    if (pane?.def.kind === "video") mediaBack();
+    return;
+  }
   if (event.data?.type === "SCINTILLA_DECK_MEDIA_COVER_X") {
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
     if (pane?.def.kind === "video") coverMediaX(pane.def.key);
@@ -2489,6 +2540,8 @@ function paintChartsOnly() {
   }
 }
 function setChartsOnly(on) {
+  /* the theatre's video lives in the column that charts only hides: bring it home first */
+  if (on && MEDIA_STAGE) resetMediaStage();
   try { localStorage.setItem(CHARTS_ONLY_KEY, on ? "1" : "0"); } catch (_) {}
   paintChartsOnly();
   /* the chart shells size themselves to their pane; tell them the wall changed shape.
@@ -3418,6 +3471,7 @@ addEventListener("keydown", (event) => {
   if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
   if (event.key === "Escape" && pageJumpOpen()) { setPageJump(false); el("pageJumpBtn").focus(); return; }
   if (typingTarget(event.target)) return;
+  if (event.key === "Escape" && mediaBack()) { event.preventDefault(); return; }
   if (event.key === "ArrowLeft") { event.preventDefault(); stepScreen(-1); }
   else if (event.key === "ArrowRight") { event.preventDefault(); stepScreen(1); }
   /* W for the wall: the same key hides the video and X panes and brings them back. */
