@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Station floor plan, done properly · one left column (X, then YouTube at its foot), charts fill the rest</title>
+<!-- S10 (2 Oct 2026, late night) — A MOCK, not the Station. Nothing here edits the deck.
+     Alan, 2 Oct ~23:05: "The whole left column is X and the YouTube; the YouTube is as wide as the X — exactly. The X could be
+     way narrower. Look at that black space to the right of the [YouTube] — no. Real nice and square, everything has a position.
+     The YouTube might be very slim. You're not helping me study this — square footage. I want a normal, standard, definitive
+     home and space."
+     So: ONE left column. X fills it from the top; the YouTube box sits at its foot, exactly the column's width, a 16:9 picture
+     under the player's own 28 px bar, never floating, never overlapping. The charts fill every other pixel in an equal grid
+     with the Station's 1 px hairline seams and nothing left over.
+       ?col=220|260|300   the column's width on the MacBook (1680 wide); on another screen it scales with the screen's width
+       ?charts=2|4|6|9    the chart grid: 2 = one column of two · 4 = two by two · 6 = two columns of three · 9 = three by three
+       ?range=3D          the charts' timeframe (the TARGETS scene is 3-day) · ?plan=0 hides the numbers card
+     The charts and the YouTube box are the Station's own shells, live. X cannot be captured in a hidden browser, so the X shell's
+     bar is real and the posts under it are drawn with real post text at the size X's text would have in that column (X: 600 px
+     column, 15 px text; floor 11 px), so characters per line, lines per post and posts on screen are measured, not guessed.
+     ONE measurement function, window.__floorplan(), feeds BOTH the card at the bottom right AND the study table in
+     FLOORPLAN-PROPER.html (harness/floorplan.mjs calls it and writes harness/plan.json; harness/build-page.py reads that). -->
+<style>
+:root{ --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --ink:#C8C8D0; --ink2:#B4B4BC; --dim:#707078; --mute:#36363E; }
+*{ box-sizing:border-box; } html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink2); font:11px/1.4 ui-monospace,Menlo,monospace; overflow:hidden; }
+#stage{ position:fixed; inset:0; display:flex; gap:1px; background:var(--line); }
+#col{ flex:0 0 var(--col); display:flex; flex-direction:column; gap:1px; min-width:0; min-height:0; background:var(--line); }
+.pane{ position:relative; background:var(--bg); min-width:0; min-height:0; overflow:hidden; }
+iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; background:var(--bg); }
+.pane.x{ flex:1 1 0; }
+.pane.video{ flex:none; height:var(--vid); }
+#charts{ flex:1 1 0; display:grid; gap:1px; background:var(--line); min-height:0; min-width:0;
+  grid-template-columns:repeat(var(--cols),minmax(0,1fr)); grid-template-rows:repeat(var(--rows),minmax(0,1fr)); }
+/* the X column: the real X shell underneath (its 20 px bar stays), the ladder of posts over its body */
+#ladder{ position:absolute; left:0; right:0; top:20px; bottom:0; overflow:hidden; background:var(--bg); font-family:-apple-system,"SF Pro Text",Helvetica,Arial,sans-serif; }
+#ladder .track{ position:absolute; left:0; right:0; top:0; }
+.post{ border-bottom:1px solid var(--line); padding:9px 8px 7px var(--padL); position:relative; color:var(--ink2); line-height:1.3; }
+.post .av{ position:absolute; left:8px; top:11px; width:var(--av); height:var(--av); border-radius:50%; background:var(--mute); }
+.post .nm{ color:var(--ink); margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .post .nm i{ color:var(--dim); font-style:normal; font-weight:400; }
+.post .tx{ color:var(--ink2); word-wrap:break-word; }
+.post .md{ margin-top:7px; border:1px solid var(--mute); border-radius:6px; background:var(--panel2); aspect-ratio:16/9; }
+.post .ac{ margin-top:5px; color:var(--dim); font-size:.85em; letter-spacing:.06em; }
+/* the numbers card: what __floorplan() measures, printed on the page */
+#plan{ position:fixed; right:10px; bottom:10px; z-index:9; background:rgba(15,15,26,.95); border:1px solid var(--mute); color:var(--ink2); font-size:11px; line-height:1.5; padding:8px 11px; max-width:min(680px, 92vw); pointer-events:none; }
+#plan b{ color:var(--ink); font-weight:600; } #plan .h{ color:var(--ink); letter-spacing:.14em; text-transform:uppercase; margin-bottom:3px; }
+#plan table{ border-collapse:collapse; margin-top:3px; } #plan td{ padding:0 10px 0 0; white-space:nowrap; vertical-align:top; } #plan td.n{ text-align:right; }
+#plan .ok{ color:#39C27A; } #plan .bad{ color:#D9544E; }
+body.noplan #plan{ display:none; }
+</style></head><body>
+<div id="stage"></div>
+<div id="plan"></div>
+<script>
+"use strict";
+const Q = new URLSearchParams(location.search);
+const N = [2, 4, 6, 9].includes(+Q.get("charts")) ? +Q.get("charts") : 9, RANGE = Q.get("range") || "3D", BUBBLE = Q.get("bubble") || "4h:12";
+const COL_MAC = Math.max(160, Math.min(600, +(Q.get("col") || 260)));           /* the column's width on the MacBook (1680 wide) */
+if (Q.get("plan") === "0") document.body.classList.add("noplan");
+const BAR_VIDEO = 28;                                                            /* the YouTube shell's one bar, above its 16:9 picture */
+/* the column on this screen: the MacBook width scaled by the screen's width, so 260 on the MacBook is 297 on the Apple TV and 396 on the external */
+const colPx = () => Math.round(COL_MAC * innerWidth / 1680);
+const videoPx = (col) => Math.round(col * 9 / 16) + BAR_VIDEO;                 /* box = the column's width × 16:9, plus the bar */
+/* the grid: 2 = one column of two (wide charts) · 4 = two by two · 6 = two columns of three · 9 = three by three */
+const GRID = { 2: [1, 2], 4: [2, 2], 6: [2, 3], 9: [3, 3] }; const [COLS, ROWS] = GRID[N];
+const TICKERS = ["GOOGL", "NBIS", "AVGO", "BE", "AMZN", "VST", "MU", "WMT", "SPY", "QQQ", "IWM", "SMH"];
+const SHELL = { chart: "/station-shells/chart-v1/", video: "/station-shells/personal-video-v1/", x: "/station-shells/x-v2/" };
+const chartSrc = (t) => SHELL.chart + "?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&range=" + encodeURIComponent(RANGE) + "&view=desk&bubble=" + encodeURIComponent(BUBBLE);
+const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+function chartPane(t) { const p = h("div", "pane chart"); p.dataset.t = t; const f = h("iframe"); f.src = chartSrc(t); p.appendChild(f); return p; }
+function chartsBlock(n) { const g = h("div"); g.id = "charts"; g.style.setProperty("--cols", COLS); g.style.setProperty("--rows", ROWS); for (let i = 0; i < n; i++) g.appendChild(chartPane(TICKERS[i % TICKERS.length])); return g; }
+function videoPane() { const p = h("div", "pane video"); const f = h("iframe"); f.src = SHELL.video + "?shell=v1&feed=personal&cols=1&view=desk"; p.appendChild(f); return p; }
+/* X: real post text, so what fits is measured. X: 600 px column, 15 px text, 40 px avatar; in the column the text is 15 × (col/600), never under 11 px. */
+const POSTS = [
+  ["Market Desk", "@marketdesk", "SPY holding the 20-day after the open. Breadth is better than the index shows: 62% of names green, semis leading again, financials flat. Watching 3pm for the usual push.", 0],
+  ["Rates Watch", "@rateswatch", "10-year back above 4.1% after the ISM print. Not a regime change yet, but growth names have noticed. Chart below.", 1],
+  ["Chip Flow", "@chipflow", "MU gapping up on the guide. Volume already 1.4× the full-day average by 10:30. Memory pricing commentary was the whole story.", 0],
+  ["Macro Notes", "@macronotes", "Claims steady at 221k. Nothing in the labour data argues for a faster cut path; the market still prices two by year-end.", 0],
+  ["Options Tape", "@optionstape", "Someone bought 12k of the GOOGL 200 calls for next month in one print. Open interest was 3k. That is a position, not a hedge.", 1],
+  ["Energy Desk", "@energydesk", "VST and the IPPs catching a bid on the data-centre PPA headline. Second time this month the group moves 4% on a contract.", 0],
+  ["Retail Read", "@retailread", "WMT: traffic up, ticket flat. Grocery share gains continue; general merchandise still soft. The stock does not care today.", 0],
+  ["Index Notes", "@indexnotes", "QQQ relative to IWM at a six-week high. Small caps lagging into the rate move, as usual.", 1],
+  ["Market Desk", "@marketdesk", "Closing read: SPY +0.4%, semis +1.8%, breadth 58/42. Quiet tape, strong leadership. Same again tomorrow unless rates say otherwise.", 0],
+  ["Chip Flow", "@chipflow", "AVGO sitting on the 50-day for the fourth day. Either it goes here or the whole group takes a breather.", 0],
+  ["Macro Notes", "@macronotes", "Fed speakers in a row this afternoon. Expect the usual: data dependent, no pre-commitment, higher for a little longer.", 1],
+  ["Options Tape", "@optionstape", "NBIS implied vol at 92 into the print. Straddle prices a 14% move. Last four were 9, 22, 11 and 17.", 0],
+];
+const SAMPLE = "SPY holding the 20-day after the open. Breadth is better than the index shows: 62% of names green, semis leading again.";
+function xPane() {
+  const p = h("div", "pane x"); const f = h("iframe"); f.src = SHELL.x + "?shell=v1&view=desk"; p.appendChild(f);
+  const lad = h("div"); lad.id = "ladder"; const track = h("div", "track"); lad.appendChild(track); p.appendChild(lad);
+  function build() {
+    const w = Math.max(1, lad.clientWidth), s = w / 600, font = Math.max(11, 15 * s), av = Math.max(24, Math.round(40 * s)), padL = av + 8 + Math.max(6, Math.round(12 * s));
+    lad.style.fontSize = font.toFixed(1) + "px"; lad.style.setProperty("--av", av + "px"); lad.style.setProperty("--padL", padL + "px");
+    track.innerHTML = ""; POSTS.forEach(([nm, hd, tx, md]) => { const e = h("div", "post");
+      e.innerHTML = '<div class="av"></div><div class="nm"><b>' + nm + '</b> <i>' + hd + ' · 2m</i></div><div class="tx">' + tx + '</div>' + (md ? '<div class="md"></div>' : '') + '<div class="ac">reply · repost · like · 2.1k</div>'; track.appendChild(e); });
+    const cv = document.createElement("canvas").getContext("2d"); cv.font = font.toFixed(1) + "px -apple-system, 'SF Pro Text', Helvetica, Arial, sans-serif";
+    const avg = cv.measureText(SAMPLE).width / SAMPLE.length; const colW = w - padL - 8;
+    p.dataset.cpl = Math.floor(colW / avg); p.dataset.font = font.toFixed(1); p.dataset.textcol = colW;
+  }
+  build(); new ResizeObserver(build).observe(lad); return p;
+}
+/* ---- the floor plan: the column on the left (X, then the YouTube box at its foot), the charts fill the rest */
+const stage = document.getElementById("stage");
+const col = h("div"); col.id = "col"; const x = xPane(); const v = videoPane(); col.append(x, v);
+const charts = chartsBlock(N); stage.append(col, charts);
+function layout() { const c = colPx(); document.documentElement.style.setProperty("--col", c + "px"); document.documentElement.style.setProperty("--vid", videoPx(c) + "px"); }
+layout(); addEventListener("resize", layout);
+/* ---- THE ONE MEASUREMENT FUNCTION. The card below and the study table in FLOORPLAN-PROPER.html both print what this returns. */
+const r = (el) => { const b = el.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; };
+const ri = (b) => ({ x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.w), h: Math.round(b.h) });
+window.__floorplan = () => {
+  const screen = innerWidth * innerHeight;
+  const xb = r(x), vb = r(v), cb = r(charts), cs = [...charts.querySelectorAll(".pane.chart")].map(r), colb = r(col);
+  const area = (b) => b.w * b.h;
+  const chartsPx = cs.reduce((s, b) => s + area(b), 0), xPx = area(xb), vPx = area(vb);
+  /* the seams, MEASURED: every gap between neighbouring panes and between a pane and the screen's edge. The Station's hairline is
+     1 px; a gap wider than that is a leftover strip and counts as black. (Sub-pixel rounding of the grid tracks can show a seam as
+     1.3 px; anything under 1.5 px is the hairline.) */
+  const gaps = [];
+  gaps.push({ what: "column → charts", w: cb.x - (colb.x + colb.w), len: innerHeight });
+  gaps.push({ what: "X → YouTube", w: vb.y - (xb.y + xb.h), len: colb.w });
+  gaps.push({ what: "YouTube → screen bottom", w: innerHeight - (vb.y + vb.h), len: colb.w });
+  gaps.push({ what: "screen left → column", w: colb.x, len: innerHeight });
+  for (let i = 0; i < cs.length; i++) { const b = cs[i], ci = i % COLS, rw = Math.floor(i / COLS);
+    if (ci < COLS - 1) gaps.push({ what: "chart " + (i + 1) + " → chart " + (i + 2), w: cs[i + 1].x - (b.x + b.w), len: b.h }); else gaps.push({ what: "chart " + (i + 1) + " → screen right", w: innerWidth - (b.x + b.w), len: b.h });
+    if (rw < ROWS - 1) gaps.push({ what: "chart " + (i + 1) + " → chart " + (i + 1 + COLS), w: cs[i + COLS].y - (b.y + b.h), len: b.w }); else gaps.push({ what: "chart " + (i + 1) + " → screen bottom", w: innerHeight - (b.y + b.h), len: b.w });
+  }
+  const seamPx = (g) => g.w < 1.5 ? Math.min(g.w, 1) * g.len : 1 * g.len;      /* the hairline part of each gap */
+  const blackPx = (g) => g.w < 1.5 ? 0 : (g.w - 1) * g.len;                     /* anything wider than the hairline */
+  const seams = gaps.reduce((s, g) => s + seamPx(g), 0), black = gaps.reduce((s, g) => s + blackPx(g), 0);
+  const widestGap = gaps.reduce((a, g) => g.w > a.w ? g : a, gaps[0]);
+  const unused = screen - chartsPx - xPx - vPx;                       /* every pixel that is not a pane (seams + black) */
+  /* the YouTube picture: the box minus the shell's bar; it is 16:9 at the column's width, so there is no bar beside it */
+  const pic = { w: vb.w, h: vb.h - BAR_VIDEO }; const picBlack = Math.max(0, Math.floor(pic.w - pic.h * 16 / 9 - 0.5)) * pic.h;   /* bars beside a 16:9 picture, whole pixels only (the box height is rounded) */
+  /* the X column's readability: real post text at this width */
+  const lad = document.getElementById("ladder"), lb = r(lad), font = +x.dataset.font, lh = font * 1.3;
+  const posts = [...lad.querySelectorAll(".post")]; const pb = posts.map(r);
+  const fully = pb.filter((p) => p.y >= lb.y - 1 && p.y + p.h <= lb.y + lb.h + 1).length, partly = pb.filter((p) => p.y < lb.y + lb.h && p.y + p.h > lb.y).length;
+  const lines = posts.map((p) => Math.round(p.querySelector(".tx").getBoundingClientRect().height / lh));
+  const avgLines = +(lines.reduce((a, b) => a + b, 0) / lines.length).toFixed(1), maxLines = Math.max(...lines);
+  const pct = (px) => +(px / screen * 100).toFixed(1);
+  return {
+    screen: { w: innerWidth, h: innerHeight, px: screen }, colMac: COL_MAC, chartsN: N, cols: COLS, rows: ROWS,
+    column: ri(colb), x: ri(xb), video: ri(vb), picture: { w: Math.round(pic.w), h: Math.round(pic.h) }, chartsBlock: ri(cb), chart0: cs[0] ? ri(cs[0]) : null,
+    px: { charts: Math.round(chartsPx), chart0: cs[0] ? Math.round(area(cs[0])) : 0, x: Math.round(xPx), video: Math.round(vPx), seams: Math.round(seams), unused: Math.round(unused), black: Math.round(black), videoBlackBeside: Math.round(picBlack) },
+    widestGap: { what: widestGap.what, px: +widestGap.w.toFixed(2) },
+    share: { charts: pct(chartsPx), chart0: cs[0] ? pct(area(cs[0])) : 0, x: pct(xPx), video: pct(vPx), seams: pct(seams), black: pct(black) },
+    flush: { videoWidthEqualsColumn: Math.abs(vb.w - colb.w) < 0.5, videoAtFoot: Math.abs((vb.y + vb.h) - innerHeight) < 0.5, videoLeftEdge: Math.abs(vb.x) < 0.5, xAboveVideo: Math.abs((xb.y + xb.h + 1) - vb.y) < 0.5 },
+    read: { font, charsPerLine: +x.dataset.cpl, textColumn: +x.dataset.textcol, linesPerPostAvg: avgLines, linesPerPostMax: maxLines, postsFully: fully, postsPartly: partly },
+  };
+};
+function paint() {
+  const m = window.__floorplan(); const S = m.share; const b = (o) => o.w + "×" + o.h;
+  const row = (name, box, px, sh) => "<tr><td>" + name + "</td><td class=n>" + box + "</td><td class=n>" + px.toLocaleString("en-US") + "</td><td class=n><b>" + sh.toFixed(1) + "%</b></td></tr>";
+  document.getElementById("plan").innerHTML = "<div class=h>floor plan · " + m.screen.w + " × " + m.screen.h + " · column " + m.colMac + " on the MacBook → " + m.column.w + " px here · " + m.chartsN + " charts (" + m.cols + " × " + m.rows + ")</div>" +
+    "<table><tr><td></td><td class=n>w × h</td><td class=n>px</td><td class=n>of screen</td></tr>" +
+    row("charts, all " + m.chartsN, b(m.chartsBlock), m.px.charts, S.charts) + row("one chart", m.chart0 ? b(m.chart0) : "—", m.px.chart0, S.chart0) +
+    row("X column", b(m.x), m.px.x, S.x) + row("YouTube box (bar + 16:9 picture " + b(m.picture) + ")", b(m.video), m.px.video, S.video) +
+    row("1 px seams", "", m.px.seams, S.seams) + row("black / unused", "", m.px.black, S.black) + "</table>" +
+    "<div>" + (m.px.black === 0 && m.px.videoBlackBeside === 0 ? "<span class=ok>no black: the YouTube box is the column's width, 16:9, at the column's foot</span>" : "<span class=bad>black found: " + m.px.black + " px, beside the video " + m.px.videoBlackBeside + " px</span>") +
+    " · X text <b>" + m.read.font.toFixed(1) + " px</b>, <b>" + m.read.charsPerLine + "</b> characters per line, <b>" + m.read.linesPerPostAvg + "</b> lines per post (longest " + m.read.linesPerPostMax + "), <b>" + m.read.postsFully + "</b> posts fully on screen, " + m.read.postsPartly + " partly</div>";
+}
+addEventListener("resize", paint); setTimeout(paint, 300); setInterval(paint, 4000);
+</script></body></html>
