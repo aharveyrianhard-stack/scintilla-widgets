@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCINTILLA · Station tapes — a proposal</title>
+<!-- S12 Part B (5 Oct 2026): a THROWAWAY Station page. Alan: "THIS EXTRA SPACE WE HAVE ON CHARTS IS PRETTY NICE — IT OPENS
+     THE DOOR TO HAVE MORE OF THE TICKER TAPE STUFF OF THE DASHBOARD, BUT I DON'T JUST WANNA THROW IT IN, LET'S THINK FRESH.
+     ONE TAPE FOR THE LIKED STOCKS, ANOTHER TAPE FOR THE FAVORITES, AND THE LIKED LIST DEDUPED FROM THE ONES ON FAVORITES."
+     The floor plan is drawn to S11's numbers (24% column, 76% charts, 9 slots); the charts are placeholders carrying real
+     quotes; the two tapes are real: LIKED = the Hub's liked names (hub_favorites, the ♥ on the Hub, 148 today), FAVORITES =
+     the Station's favorites list (station_lists · favorites, 63 today), LIKED shown without any name that is on FAVORITES.
+     Quotes and change from the chart API /quotes; the Geiger mark from /geiger (composite, −1 … +1). Nothing here is live.
+     ?v=top | between | foot   chooses the variant.   ?speed=45   px/s.   Nothing is written anywhere. -->
+<style>
+:root{ --bg:#0A0A0F; --panel2:#0F0F1A; --line:#1A1A2A; --hair:rgba(0,212,255,.34); --ink:#F2F2F8; --ink2:#C6C8DE; --ink3:#9A9AB6; --mute:#3A3A52;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; --tape:22px; }
+*{ box-sizing:border-box; min-width:0; }
+html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); font-family:var(--mono); font-size:11px; overflow:hidden; }
+#dock{ height:30px; display:flex; align-items:center; gap:14px; padding:0 10px; border-bottom:1px solid var(--line); color:var(--ink3); font-size:9px; letter-spacing:.14em; text-transform:uppercase; }
+#dock b{ color:var(--crk); font-weight:500; } #dock .v{ color:var(--ink2); border:1px solid var(--line); padding:2px 7px; } #dock .v.on{ color:var(--crk); border-color:var(--crk); }
+#dock a{ color:inherit; text-decoration:none; }
+#grid{ position:absolute; top:31px; left:0; right:0; bottom:0; display:flex; gap:1px; }
+#col{ flex:0 0 24%; display:flex; flex-direction:column; gap:1px; }
+#x{ flex:1 1 0; background:#000; position:relative; } #x .lbl{ position:absolute; left:8px; top:6px; color:var(--mute); font-size:8px; letter-spacing:.18em; }
+#x .post{ margin:34px 10px 0; color:var(--mute); font-size:10px; line-height:1.5; } #x .post + .post{ margin-top:14px; border-top:1px solid var(--line); padding-top:12px; }
+#yt{ flex:none; background:var(--panel2); border-top:1px solid var(--line); position:relative; } #yt .bar{ height:28px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:4px; padding:0 6px; font-size:8px; letter-spacing:.1em; color:var(--ink3); text-transform:uppercase; }
+#yt .bar span{ border:1px solid var(--line); padding:3px 7px; } #yt .bar span.on{ color:var(--crk); border-color:var(--crk); } #yt .pic{ position:absolute; inset:28px 0 0; background:#000; }
+#area{ flex:1 1 0; display:flex; flex-direction:column; gap:1px; min-width:0; }
+#charts{ flex:1 1 0; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); grid-template-rows:repeat(3,minmax(0,1fr)); gap:1px; min-height:0; }
+.chart{ background:var(--bg); border:1px solid var(--line); position:relative; padding:6px 8px; }
+.chart .t{ color:var(--crk); font-size:11px; letter-spacing:.06em; } .chart .p{ color:var(--ink2); font-size:11px; margin-left:8px; } .chart .c{ font-size:11px; margin-left:6px; }
+.chart svg{ position:absolute; left:0; right:0; bottom:0; height:62%; width:100%; }
+.up{ color:var(--bull); } .dn{ color:var(--bear); }
+/* THE TAPE. One row, 22 px: a pinned label cell at the left (the Hub's own pattern), the track scrolling in its window.
+   Hover pauses it. 45 px/s whatever the length (the Hub's rule). */
+.tape{ flex:none; height:var(--tape); display:flex; align-items:stretch; background:var(--panel2); border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.tape .lbl{ flex:none; min-width:92px; display:flex; align-items:center; padding:0 8px; color:var(--crk); font-size:8px; letter-spacing:.16em; text-transform:uppercase; border-right:1px solid var(--line); white-space:nowrap; }
+.tape .lbl small{ color:var(--mute); margin-left:6px; letter-spacing:.06em; }
+.tape .win{ flex:1 1 0; min-width:0; overflow:hidden; position:relative; }
+.tape .track{ position:absolute; left:0; top:0; height:100%; display:flex; align-items:center; white-space:nowrap; will-change:transform; animation:move linear infinite; }
+.tape:hover .track{ animation-play-state:paused; }
+@keyframes move{ from{ transform:translateX(0); } to{ transform:translateX(-50%); } }
+.cell{ display:inline-flex; align-items:center; gap:6px; padding:0 10px; height:100%; cursor:pointer; border-right:1px solid var(--line); position:relative; }
+.cell:hover{ background:#13131F; }
+.cell .tk{ color:var(--ink); letter-spacing:.06em; } .cell .px{ color:var(--ink2); } .cell .pc{ min-width:52px; text-align:right; }
+/* the Geiger mark: a 4-rung ladder, lit from the middle — up rungs cyan, down rungs red — by the composite */
+.g{ display:inline-flex; gap:1px; align-items:flex-end; height:10px; } .g i{ width:3px; background:var(--mute); display:block; } .g i:nth-child(1){ height:4px } .g i:nth-child(2){ height:6px } .g i:nth-child(3){ height:8px } .g i:nth-child(4){ height:10px }
+.g.p i.on{ background:var(--crk); } .g.n i.on{ background:var(--bear); }
+/* the scintilla: a tick, flashed. A cell whose price just changed takes one 600 ms flash, cyan, then rests. */
+.cell.flash .px{ animation:scin .6s ease-out; } @keyframes scin{ 0%{ color:var(--crk); text-shadow:0 0 8px rgba(0,212,255,.9); } 100%{ color:var(--ink2); text-shadow:none; } }
+#toast{ position:fixed; left:50%; bottom:14px; transform:translateX(-50%); background:rgba(10,10,15,.96); border:1px solid var(--hair); padding:6px 12px; color:var(--ink2); font-size:10px; letter-spacing:.06em; opacity:0; transition:opacity .2s; pointer-events:none; }
+#toast.show{ opacity:1; }
+/* page specs, below the fold of a 1080 screen; never inside the panel */
+details.sc-pagespecs{ position:fixed; left:0; right:0; bottom:0; z-index:9; background:var(--bg); border-top:1px solid var(--line); color:var(--ink3); font-size:10px; }
+details.sc-pagespecs summary{ padding:4px 10px; cursor:pointer; letter-spacing:.14em; font-size:8px; color:var(--mute); }
+details.sc-pagespecs div{ padding:4px 12px 10px; line-height:1.6; max-width:900px; }
+</style></head>
+<body>
+<div id="dock"><b>SCINTILLA · THE STATION</b><span>tapes · proposal</span>
+  <a class="v" id="vtop" href="?v=top">A · top of the chart area</a><a class="v" id="vbetween" href="?v=between">B · between the chart rows</a><a class="v" id="vfoot" href="?v=foot">C · a strip under the charts</a>
+  <span id="counts" style="margin-left:auto"></span></div>
+<div id="grid">
+  <div id="col"><div id="x"><span class="lbl">X · LIVE</span><div class="post">the X column, as it is</div><div class="post">(24% of the screen, S11)</div></div>
+    <div id="yt"><div class="bar"><span>PERSONAL ▾</span><span>↻</span><span class="on">VIDEOS · SUBSCRIBED ▾</span><span style="margin-left:auto">⛶</span></div><div class="pic"></div></div></div>
+  <div id="area"></div>
+</div>
+<div id="toast"></div>
+<details class="sc-pagespecs"><summary>PAGE SPECS</summary><div id="specs"></div></details>
+<script>
+"use strict";
+const QS = new URLSearchParams(location.search), V = ["top", "between", "foot"].includes(QS.get("v")) ? QS.get("v") : "top", SPEED = Math.max(10, +(QS.get("speed") || 45));
+const API = "https://scintilla-massive-chart-api.fly.dev", SB = "https://wadinxqplrggagkvrdag.supabase.co/rest/v1/";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+const NINE = ["GOOGL", "NBIS", "AVGO", "BE", "AMZN", "VST", "MU", "WMT", "SPY"];
+const el = (id) => document.getElementById(id);
+document.getElementById("v" + V).classList.add("on");
+const pg = (q) => fetch(SB + q, { headers: { apikey: ANON, Authorization: "Bearer " + ANON } }).then((r) => r.json());
+const jget = (u) => fetch(u).then((r) => r.json());
+const fmtPx = (p) => p == null ? "—" : p >= 1000 ? Math.round(p).toLocaleString() : p.toFixed(2);
+const fmtPc = (c) => c == null ? "" : (c >= 0 ? "+" : "") + c.toFixed(2) + "%";
+let QUOTES = {}, GEIGER = {}, LAST = {};
+function gmark(t) {
+  const g = GEIGER[t], c = g && Number.isFinite(g.composite) ? g.composite : null;
+  const n = c == null ? 0 : Math.min(4, Math.ceil(Math.abs(c) * 4));
+  return '<span class="g ' + (c == null ? "" : c >= 0 ? "p" : "n") + '" title="Geiger composite ' + (c == null ? "—" : c.toFixed(2)) + '">' + [1, 2, 3, 4].map((i) => "<i" + (i <= n ? ' class="on"' : "") + "></i>").join("") + "</span>";
+}
+function cell(t) {
+  const q = QUOTES[t], c = q ? q.change_pct : null;
+  return '<span class="cell" data-t="' + t + '"><span class="tk">' + t + '</span><span class="px">' + fmtPx(q && q.price) + '</span><span class="pc ' + (c == null ? "" : c >= 0 ? "up" : "dn") + '">' + fmtPc(c) + "</span>" + gmark(t) + "</span>";
+}
+function tape(label, names, note) {
+  const seg = names.map(cell).join("");
+  return '<div class="tape" data-tape="' + label + '"><span class="lbl">' + label + "<small>" + names.length + (note ? " · " + note : "") + '</small></span><div class="win"><div class="track">' + seg + seg + "</div></div></div>";
+}
+function chart(t) {
+  const q = QUOTES[t], c = q ? q.change_pct : null, up = c == null || c >= 0;
+  const pts = Array.from({ length: 24 }, (_, i) => (i * 100 / 23).toFixed(1) + "," + (70 - Math.sin(i / 3 + t.length) * 18 - (up ? i : -i) * 1.4).toFixed(1)).join(" ");
+  return '<div class="chart"><span class="t">' + t + '</span><span class="p">' + fmtPx(q && q.price) + '</span><span class="c ' + (up ? "up" : "dn") + '">' + fmtPc(c) + '</span><svg viewBox="0 0 100 100" preserveAspectRatio="none"><polyline fill="none" stroke="' + (up ? "#00FFA3" : "#FF2D55") + '" stroke-width=".8" points="' + pts + '"/></svg></div>';
+}
+function layout(liked, fav) {
+  el("yt").style.height = Math.round(el("col").clientWidth * 9 / 16 + 28) + "px";
+  const charts = '<div id="charts">' + NINE.map(chart).join("") + "</div>";
+  const T1 = tape("LIKED", liked, "minus favorites"), T2 = tape("FAVORITES", fav);
+  const area = el("area");
+  if (V === "top") area.innerHTML = T1 + T2 + charts;
+  else if (V === "foot") area.innerHTML = charts + T1 + T2;
+  else { /* between the rows: three grids of three, a tape after the first and the second */
+    const row = (ts) => '<div id="charts" class="row1" style="grid-template-rows:minmax(0,1fr)">' + ts.map(chart).join("") + "</div>";
+    area.innerHTML = row(NINE.slice(0, 3)) + T1 + row(NINE.slice(3, 6)) + T2 + row(NINE.slice(6, 9));
+  }
+  for (const tr of area.querySelectorAll(".track")) tr.style.animationDuration = Math.max(20, (tr.scrollWidth / 2) / SPEED) + "s";
+  for (const c of area.querySelectorAll(".cell")) c.addEventListener("click", () => { const t = c.dataset.t; el("toast").textContent = t + " → opens in chart slot 1 (on the Station: the slot's ticker field is set, the chart redraws)"; el("toast").classList.add("show"); setTimeout(() => el("toast").classList.remove("show"), 1800); });
+  measure();
+}
+function measure() {
+  const H = innerHeight, area = el("area").getBoundingClientRect(), tapes = [...document.querySelectorAll(".tape")].map((t) => t.getBoundingClientRect());
+  const charts = [...document.querySelectorAll(".chart")].map((c) => c.getBoundingClientRect()), c0 = charts[0];
+  const tapePx = tapes.reduce((s, b) => s + b.height, 0);
+  window.__TAPES = { variant: V, screen: { w: innerWidth, h: H }, chartsWidthShare: +(area.width / innerWidth * 100).toFixed(1), tapes: tapes.map((b) => ({ y: Math.round(b.y), h: Math.round(b.height), w: Math.round(b.width) })),
+    tapeHeightPx: Math.round(tapePx), tapeShareOfScreenHeight: +(tapePx / H * 100).toFixed(1), chart: { w: Math.round(c0.width), h: Math.round(c0.height) }, chartWithoutTapes: { w: Math.round(c0.width), h: Math.round(c0.height + tapePx / 3) },
+    cells: [...document.querySelectorAll('[data-tape="LIKED"] .cell')].length / 2, cellWidth: Math.round(document.querySelector(".cell").getBoundingClientRect().width), speed: SPEED };
+  el("specs").innerHTML = "Variant <b>" + V + "</b> · screen " + innerWidth + " × " + H + " · charts " + window.__TAPES.chartsWidthShare + "% of the width (S11's 76%, untouched) · each tape " + Math.round(tapes[0].height) + " px, both " + Math.round(tapePx) + " px = " + window.__TAPES.tapeShareOfScreenHeight + "% of the screen's height, taken from the charts' height (one chart " + window.__TAPES.chart.w + " × " + window.__TAPES.chart.h + ", it would be " + window.__TAPES.chartWithoutTapes.h + " tall without the tapes) · a cell is ticker · price · change % · the Geiger mark (4 rungs, cyan up, red down, from the composite) · a price that ticks flashes once (the scintilla) · " + SPEED + " px/s, pause on hover · tap a cell: that chart opens in a slot · LIKED = hub_favorites minus the names on FAVORITES (station_lists · favorites) · quotes: chart API /quotes · Geiger: /geiger · nothing live, nothing written.";
+}
+async function start() {
+  const [likedRows, favRows] = await Promise.all([pg("hub_favorites?select=ticker&order=added_at.asc"), pg("station_lists?select=position,ticker&list=eq.favorites&order=position.asc")]);
+  const fav = favRows.map((r) => r.ticker), favSet = new Set(fav), liked = likedRows.map((r) => r.ticker).filter((t) => !favSet.has(t));
+  const all = [...new Set([...liked, ...fav, ...NINE])];
+  el("counts").textContent = "liked " + likedRows.length + " · favorites " + fav.length + " · liked, deduped " + liked.length;
+  const tick = async () => {
+    try {
+      const out = {}; for (let i = 0; i < all.length; i += 40) { const j = await jget(API + "/quotes?symbols=" + encodeURIComponent(all.slice(i, i + 40).join(","))); Object.assign(out, j.quotes || {}); }
+      QUOTES = out;
+    } catch (_) {}
+    try { const g = await jget(API + "/geiger"); GEIGER = g.symbols || {}; } catch (_) {}
+    if (!document.querySelector(".tape")) layout(liked, fav);
+    else for (const c of document.querySelectorAll(".cell")) { const t = c.dataset.t, q = QUOTES[t]; if (!q) continue; const px = c.querySelector(".px"), pc = c.querySelector(".pc");
+      if (px.textContent !== fmtPx(q.price)) { px.textContent = fmtPx(q.price); c.classList.remove("flash"); void c.offsetWidth; c.classList.add("flash"); }
+      pc.textContent = fmtPc(q.change_pct); pc.className = "pc " + (q.change_pct >= 0 ? "up" : "dn"); }
+  };
+  await tick(); setInterval(tick, 15000);
+}
+start();
+</script>
+</body></html>
