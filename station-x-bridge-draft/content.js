@@ -817,23 +817,16 @@
     const baseWidth = Math.max(240, baseRight - baseLeft);
     const top = findFeedTabsBottom(viewportHeight);
 
-    // The useful visual lane starts where tweet text and media cards start,
-    // not at X's avatar rail. Prefer live tweet geometry and use the stable X
-    // column ratio as a fallback while the timeline is mounting.
-    const detectedContentLeft = findInnerContentLeft(column, top, viewportHeight);
-    const fallbackContentLeft = baseLeft + Math.min(64, baseWidth * 0.19);
-    const rightTrim = Math.min(18, baseWidth * 0.06);
-    const contentRight = baseRight - rightTrim;
-    const minimumContentWidth = Math.max(160, baseWidth * 0.68);
-    const contentLeft = Math.min(
-      contentRight - minimumContentWidth,
-      Math.max(baseLeft, detectedContentLeft ?? fallbackContentLeft)
-    );
-
+    // S12 (5 Oct 2026, Alan: "IT'S CROPPING THE RIGHT SIDE OF THE X FEED"): the crop is the WHOLE
+    // timeline column, border to border. The earlier rule started the lane where the tweet text starts
+    // (so the avatar rail, 52 px on a 600 px column, was never captured) and stopped 18 px short of the
+    // column's right edge (so the ··· menu and the end of long lines were). Nothing of a post is lost
+    // now: the pane scales the full column to its width. Measured on the stand-in at 1792 × 1080:
+    // 512 px of a 598 px column before, 598 after. findInnerContentLeft is no longer consulted.
     return {
-      left: contentLeft,
+      left: baseLeft,
       top,
-      width: Math.min(contentRight - contentLeft, viewportWidth - contentLeft),
+      width: Math.min(baseWidth, viewportWidth - baseLeft),
       height: Math.max(160, viewportHeight - top)
     };
   }

@@ -133,25 +133,37 @@ html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
    is a readable fact rather than a guess. */
 #xfSource{ color:var(--dim,#868AAA); opacity:.72; font-size:9px; letter-spacing:.06em;
   white-space:nowrap; align-self:center; }
+/* S12 (5 Oct): THE X BAR DOES NOT PILE UP. Every item in the bar is a flex child with min-width:0, so when the
+   row ran out of room the two labels (the state, the source) were squeezed to nothing and their text was
+   painted straight over the list and bell buttons — "bunched up", in Alan's word. The labels now keep their
+   size (the source name shortens with an ellipsis instead of overlapping) and the controls Alan uses while
+   watching stay on the bar: the state · list · notifications · refresh · ⛶. The rest — −30 s, the iPad link,
+   picture-in-picture and the source's name — sit behind one ⋯ at the row's end, one tap away. */
+#xfState, #xfSource, #bar > .btn, #bar > .k{ flex:none; }
+#xfSource{ flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; max-width:38%; }
+#bXMore{ width:26px; padding-left:0; padding-right:0; text-align:center; }
+body:not(.x-more) .x-sec{ display:none !important; }
+body.x-more #bXMore{ color:var(--crk); border-color:var(--crk); }
 </style>
 </head>
 <body>
 <div id="bar">
   <span class="k">X · XFLOAT</span>
   <span id="xfState" hidden>waiting</span>
-  <span id="xfSource" hidden></span>
+  <span id="xfSource" class="x-sec" hidden></span>
   <button class="btn icon" id="bXList" type="button" style="display:none" title="Trading list" aria-label="Show trading list">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4h8M5 8h8M5 12h8"/><path d="M2.5 4h.01M2.5 8h.01M2.5 12h.01"/></svg>
   </button>
   <button class="btn icon" id="bXNotify" type="button" style="display:none" title="Notifications" aria-label="Show notifications">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 11.5h9l-1.1-1.7V7a3.4 3.4 0 0 0-6.8 0v2.8z"/><path d="M6.6 13.2a1.6 1.6 0 0 0 2.8 0"/></svg>
   </button>
-  <span class="btn" id="bXBack" style="display:none">−30s</span>
   <span class="btn" id="bXRefresh" style="display:none">refresh</span>
+  <span class="btn x-sec" id="bXBack" style="display:none" title="rewind the feed 30 seconds">−30s</span>
   <span class="btn go" id="bStart" style="display:none">browser picker</span>
   <span class="btn" id="bStop" style="display:none">stop</span>
-  <button class="btn pair" id="bPair" type="button" style="display:none">iPad link</button>
-  <span class="btn" id="bPip" style="display:none" title="float this in its own always-on-top window">pip</span>
+  <button class="btn pair x-sec" id="bPair" type="button" style="display:none">iPad link</button>
+  <span class="btn x-sec" id="bPip" style="display:none" title="float this in its own always-on-top window">pip</span>
+  <button class="btn" id="bXMore" type="button" style="display:none" title="more: rewind, iPad link, picture-in-picture, the source" aria-label="more X controls" aria-expanded="false">⋯</button>
   <span class="lbl" id="lz" style="display:none">zoom</span>
   <input type="range" id="z" min="100" max="400" value="150" style="display:none">
   <span class="lbl" id="lx" style="display:none">pan</span>
@@ -944,11 +956,19 @@ function paintXView(view) {
 }
 
 function xfloatControls(on) {
-  for (const id of ["bXList", "bXNotify", "bXBack", "bXRefresh"])
+  for (const id of ["bXList", "bXNotify", "bXBack", "bXRefresh", "bXMore"])
     el(id).style.display = on ? "" : "none";
   el("bStart").style.display = "none";
   el("bPair").style.display = on && !REMOTE_MODE ? "" : "none";
+  if (!on) setXMore(false);
 }
+/* S12: the ⋯ opens the secondary controls in the same row; a second tap, or Esc, folds them away */
+function setXMore(open) {
+  document.body.classList.toggle("x-more", !!open);
+  el("bXMore").setAttribute("aria-expanded", open ? "true" : "false");
+}
+el("bXMore").addEventListener("click", () => setXMore(!document.body.classList.contains("x-more")));
+document.addEventListener("keydown", (event) => { if (event.key === "Escape" && document.body.classList.contains("x-more")) setXMore(false); });
 
 function stopXFloat({ notify = true } = {}) {
   if (xfloatFrame) cancelAnimationFrame(xfloatFrame);
