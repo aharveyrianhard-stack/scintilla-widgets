@@ -64,7 +64,9 @@ test("the crosshair: the price at 11 px or more, and the percent from the curren
 
 test("the plot starts under the badge (capped at 18% of the pane), with TradingView-like price margins", () => {
   assert.match(chart, /const padT = Math\.max\(\(ipadProfile \? 7 : 8\) \* scale, Math\.min\(Math\.round\(h \* \.18\), badgeBottom \+ 5\)\),/);
-  assert.match(chart, /yLo -= yRange \* \.06; yHi \+= yRange \* \.08;/);
+  /* CH1 (5 Oct): the margins live in chPriceRange, which also folds the visible clouds into the range */
+  assert.match(chart, /yLo: yLo >= 0 \? Math\.max\(0, yLo - yRange \* \.06\) : yLo - yRange \* \.06, yHi: yHi \+ yRange \* \.08/);
+  assert.match(chart, /const fit = chPriceRange\(lo, hi, cloudMap, start, end\);/);
   /* the badge lost its grey frame */
   assert.match(chart, /background:rgba\(5,6,12,\.76\); border:0; border-radius:4px;/);
 });
