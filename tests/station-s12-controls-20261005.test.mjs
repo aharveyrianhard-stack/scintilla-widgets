@@ -31,17 +31,19 @@ test("S12 · the X bar: labels keep their size, the secondary controls fold behi
   assert.match(xshell, /if \(event\.key === "Escape" && document\.body\.classList\.contains\("x-more"\)\) setXMore\(false\);/);
 });
 
-test("S12 · the YouTube bar: channel ▾ · ↻ · the filters chip · ⛶ on the bar; the filter row under it, over the grid only", () => {
+/* S13 (5 Oct 2026, ~12:30 ET) re-ordered this bar by use — NEXT · GRID · + WATCH LATER · ↻ on the bar, the channel
+   and the filters behind one ⋯ (tests/station-s13-tweaks-20261005.test.mjs pins that). What S12 built and S13 keeps is
+   pinned here: ↻ reads the list again, the filters are one tap away, a choice applies and folds them, Esc folds them. */
+test("S12 · the YouTube bar: ↻ on the bar; the filters one tap away, a choice folds them (S13 moved them behind the ⋯)", () => {
   assert.equal(shell, twin, "personal-video-v1 and scintilla-video-v1 stay byte-identical");
-  assert.match(shell, /<button class="btn" id="bRefresh" type="button" title="refresh this list now"/);
-  assert.match(shell, /<button class="btn" id="bFilters" type="button"[^>]*aria-controls="filters"/);
-  assert.match(shell, /<div id="filters" role="group" aria-label="grid filters" hidden><span id="chips"><\/span><\/div>\n<div id="grid">/, "the chips live in the row under the bar");
-  assert.match(shell, /#filters\{ position:absolute; z-index:5; left:0; right:0; top:calc\(27px \+ env\(safe-area-inset-top\)\);/, "the row hangs under the bar and takes no height from the picture");
-  assert.match(shell, /body\.playing #bFilters, body\.playing #bRefresh\{ display:none; \}/, "the player keeps its own bar");
-  assert.match(shell, /return mode \+ \(list \? " · " \+ list : ""\);/, "the chip names the filters in force");
-  assert.match(shell, /b\.addEventListener\("click", \(\) => \{ setMode\(id\); setFiltersOpen\(false\); \}\);/, "a choice folds the row");
+  assert.match(shell, /<button class="btn" id="bRefresh" type="button" aria-label="refresh the list" title="refresh this list now">/);
+  assert.match(shell, /<div class="sec" id="filters" role="group" aria-label="grid filters">[\s\S]*?<span id="chips"><\/span>/, "the chips live in the panel, not on the bar");
+  assert.match(shell, /#filters #chips\{ flex-wrap:wrap; overflow:visible; row-gap:4px; \}/, "in the panel the chips wrap instead of scrolling");
+  assert.match(shell, /return mode \+ \(list \? " · " \+ list : ""\);/, "the filters in force are named");
+  assert.match(shell, /b\.addEventListener\("click", \(\) => \{ setMode\(id\); setFiltersOpen\(false\); \}\);/, "a choice folds the panel");
+  assert.match(shell, /function setFiltersOpen\(open\) \{ if \(!open\) setMenuOpen\(false\); \}/);
   assert.match(shell, /try \{ await load\(LIST === "watch"\); \} finally \{ b\.classList\.remove\("busy"\); \}/, "↻ reads the list again, now");
-  assert.match(shell, /if \(!el\("filters"\)\.hidden\) \{ setFiltersOpen\(false\); return; \}/, "Esc folds the row first");
+  assert.match(shell, /if \(!el\("more"\)\.hidden\) \{ setMenuOpen\(false\); return; \}/, "Esc folds the panel first");
   const added = shell.slice(shell.indexOf("S12 (5 Oct 2026): CRITICAL CONTROLS"), shell.indexOf("#q{"));
   assert.doesNotMatch(added, /#fff\b|#ffffff|\bwhite(?!-space)|rgb\(255/i, "no white added");
 });
