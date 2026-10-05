@@ -500,6 +500,56 @@ body.media-theatre:not(.stack) #grid > #rowTop{ position:relative; }
 body.media-theatre:not(.stack) #grid > #rowTop::after{ content:""; position:absolute; inset:0; z-index:23; background:var(--bg); }
 body.media-theatre:not(.stack) #grid > #rowBot > .pane.theatre{ position:absolute; z-index:24; flex:none; }
 body.media-theatre:not(.stack) #tfNow{ display:none; }
+/* ── THE TWO TAPES ON THE CHART AREA (S14, 5 Oct 2026) ──────────────────────────────────────
+   Alan: "ONE TAPE FOR THE LIKED STOCKS, ANOTHER TAPE FOR THE FAVORITES, AND THE LIKED LIST DEDUPED
+   FROM THE ONES ON FAVORITES." · "The ticker tape on the chart area — do not take over the YouTube
+   and Twitter area, just the chart area."
+   The strip sits at the top of the chart area and nowhere else: it starts one seam right of the
+   column (S11's --fp-col) and ends at the screen's right edge, so the X / YouTube column keeps
+   every pixel it had. Two rows of 22 px with the Station's 1 px seam between them and under them
+   (--tapes-px: 46 px), and the chart row gives up exactly that height - its width is untouched.
+   CHARTS ONLY gives the charts the whole wall, so the strip takes the whole width with them. The
+   theatre covers the chart area: the strip goes plain with it (nothing is removed, nothing reloads).
+   A phone keeps its scrolling column and carries no tapes. */
+#tapes{ display:none; }
+body.tapes:not(.stack) #grid{ position:relative; }
+body.tapes:not(.stack) #grid > #rowTop{ margin-top:var(--tapes-px, 46px); }
+body.tapes:not(.stack) #tapes{ display:flex; flex-direction:column; gap:1px; position:absolute; z-index:2;
+  top:0; right:0; left:calc(var(--fp-col, 24%) + 1px); background:var(--line); }
+body.tapes.charts-only:not(.stack) #tapes{ left:0; }
+body.tapes.media-theatre:not(.stack) #tapes{ background:var(--bg); }
+body.tapes.media-theatre:not(.stack) #tapes > .tape{ visibility:hidden; }
+/* the timeframe tag sat over the charts' top edge; it keeps that place, now under the strip */
+body.tapes:not(.stack) #tfNow{ top:calc(6px + var(--tapes-px, 46px)); }
+.tape{ flex:none; height:22px; display:flex; align-items:stretch; background:var(--panel2); overflow:hidden; }
+.tape .lbl{ flex:none; min-width:104px; display:flex; align-items:center; padding:0 8px; color:var(--crk);
+  font-size:8.5px; letter-spacing:.16em; text-transform:uppercase; border-right:1px solid var(--line); white-space:nowrap; }
+.tape .lbl small{ color:var(--dim); margin-left:6px; font-size:8.5px; letter-spacing:.06em; }
+.tape .win{ flex:1 1 0; min-width:0; overflow:hidden; position:relative; }
+.tape .track{ position:absolute; left:0; top:0; height:100%; display:flex; align-items:center; white-space:nowrap; }
+.tape .track.run{ will-change:transform; animation:tape-move linear infinite; }
+/* the pointer over a tape holds it still, so a name can be read and tapped */
+.tape:hover .track.run{ animation-play-state:paused; }
+@keyframes tape-move{ from{ transform:translateX(0); } to{ transform:translateX(-50%); } }
+@media (prefers-reduced-motion: reduce){ .tape .track.run{ animation:none; } .tape .win{ overflow-x:auto; scrollbar-width:none; } }
+.tape .cell{ display:inline-flex; align-items:center; gap:6px; padding:0 10px; height:22px; cursor:pointer;
+  border:0; border-right:1px solid var(--line); background:transparent; font:11px var(--mono); }
+.tape .cell:hover,.tape .cell:focus-visible{ background:#13131F; outline:none; }
+.tape .cell .tk{ color:var(--ink); letter-spacing:.06em; } .tape .cell .px{ color:var(--ink2); }
+.tape .cell .pc{ min-width:52px; text-align:right; color:var(--ink3); }
+.tape .cell .pc.up{ color:var(--bull); } .tape .cell .pc.dn{ color:var(--bear); }
+/* the Geiger mark: four rungs, lit from the composite - cyan up, red down */
+.tape .g{ display:inline-flex; gap:1px; align-items:flex-end; height:10px; }
+.tape .g i{ width:3px; background:var(--mute); display:block; }
+.tape .g i:nth-child(1){ height:4px; } .tape .g i:nth-child(2){ height:6px; } .tape .g i:nth-child(3){ height:8px; } .tape .g i:nth-child(4){ height:10px; }
+.tape .g.p i.on{ background:var(--crk); } .tape .g.n i.on{ background:var(--bear); }
+/* the scintilla: a price that ticks flashes once, then rests */
+.tape .cell.flash .px{ animation:tape-scin .6s ease-out; }
+@keyframes tape-scin{ 0%{ color:var(--crk); text-shadow:0 0 8px rgba(0,212,255,.9); } 100%{ color:var(--ink2); text-shadow:none; } }
+/* the slot a tapped name went to says so for a moment */
+.chart-pane.tape-opened::after{ content:""; position:absolute; inset:0; z-index:13; pointer-events:none; border:1px solid var(--crk);
+  animation:tape-opened 1.4s ease-out forwards; }
+@keyframes tape-opened{ 0%{ opacity:1; } 100%{ opacity:0; } }
 #skeletonGrid{ flex:1 1 0; }
 
 .pane{ position:relative; background:var(--bg); display:flex; flex-direction:column;
@@ -714,6 +764,8 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       <button type="button" class="btn more-only" id="resetScene" title="restore this scene's original preset" aria-label="Reset scene preset">reset preset</button>
       <button type="button" class="btn" id="stationFullBtn" title="take the current Station view to browser fullscreen" aria-label="Toggle Station fullscreen">⛶</button>
       <button type="button" class="btn" id="dockHideToggle" title="tuck the strip away two seconds after the pointer leaves it; remembered in this browser" aria-pressed="true">auto-hide · on</button>
+      <!-- S14 (5 Oct): the two tapes over the chart area (LIKED, FAVORITES). On unless switched off here; remembered in this browser. -->
+      <button type="button" class="btn" id="tapesToggle" title="the LIKED and FAVORITES tapes at the top of the chart area; off gives the charts their 46 px back; remembered in this browser" aria-pressed="true">tapes · on</button>
       <!-- S8 (2 Oct): the context lens' shape. Alan: "oval-like shaped, from starting point to ending point, to save
            as much screen real estate as possible." OVAL is the default; BOX is the 27 Sep card. Remembered in this browser. -->
       <span class="control-group lens-controls">
@@ -1561,6 +1613,272 @@ function floorTheatre(areaWidth, areaHeight, chromePx) {
   const pane = { w:pw, h:picture.h + chrome };
   return { picture, pane, left:Math.floor((w - pane.w) / 2), top:Math.floor((h - pane.h) / 2) };
 }
+/* ── THE TWO TAPES ON THE CHART AREA (S14, 5 Oct) — the numbers and the lists, pure ──
+   Two rows of TAPE_ROW_PX with one seam between them and one under them: 46 px, taken from the chart
+   row's height and from nothing else. tapeLists() is the whole dedupe: FAVORITES is the Station's
+   favorites list in its own order; LIKED is the Hub's liked names, oldest like first, WITHOUT any name
+   that is on FAVORITES - a name is on one tape, never both, and never twice on its own tape. */
+const TAPE_ROW_PX = 22;
+const TAPE_SPEED_PX_S = 45;
+const TAPES_KEY = "station.tapes";
+function tapesHeight(on) { return on ? 2 * TAPE_ROW_PX + 2 * FLOOR_SEAM_PX : 0; }
+function tapeLists(likedRows, favoriteRows) {
+  const names = (rows) => {
+    const seen = new Set(), out = [];
+    for (const row of rows || []) {
+      const t = String((row && row.ticker) || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+      if (t && !seen.has(t)) { seen.add(t); out.push(t); }
+    }
+    return out;
+  };
+  const favorites = names((favoriteRows || []).slice().sort((a, b) => (Number(a && a.position) || 0) - (Number(b && b.position) || 0)));
+  const onFavorites = new Set(favorites);
+  const likedAll = names(likedRows);
+  return { liked:likedAll.filter((t) => !onFavorites.has(t)), favorites, likedTotal:likedAll.length };
+}
+/* the Geiger mark: the composite (−1 … +1) lights one to four rungs, its sign picks the colour */
+function tapeRungs(composite) {
+  const c = Number(composite);
+  if (composite == null || !Number.isFinite(c)) return { lit:0, side:"" };
+  return { lit:Math.min(4, Math.ceil(Math.abs(c) * 4)), side:c >= 0 ? "p" : "n" };
+}
+/* WHICH SLOT A TAPPED NAME OPENS IN - the deck's own order of preference, in one place: a name already
+   on the wall is not loaded twice (its slot is shown); else the first empty slot on the wall; else the
+   slots in turn, starting at the first, so a second tap never replaces the chart the first one opened. */
+function tapeSlotFor(charts, count, ticker, lastOpened) {
+  const n = Math.max(1, Math.round(Number(count) || 1)), wall = (charts || []).slice(0, n);
+  const showing = wall.indexOf(ticker);
+  if (showing >= 0) return { index:showing, already:true };
+  for (let i = 0; i < n; i++) if (!wall[i]) return { index:i, already:false };
+  const last = Number.isInteger(lastOpened) ? lastOpened : -1;
+  return { index:(last + 1) % n, already:false };
+}
+function tapesOn() { try { return localStorage.getItem(TAPES_KEY) !== "0"; } catch (_) { return true; } }
+/* ── the tapes, live. Lists: the same Hub mirror the deck already reads (hub_favorites = the ♥ on the
+   Hub; station_lists · favorites). Prices: SC_PROVIDER.marketQuotes, the read the charts' own badges
+   ride. Geiger: the read the charts' chips ride. Its own clock and its own cache - the wall's quote
+   pump, its request counter and its absence rules are not touched, and a tape read that fails leaves
+   the cells as they were. Nothing is read while the tapes are off, on a phone, or while the tab is hidden. */
+const TAPE_LISTS_MS = 300000, TAPE_QUOTE_MS = 15000, TAPE_GEIGER_MS = 60000, TAPE_BATCH = 40;
+const TAPES = { liked:[], favorites:[], likedTotal:0, key:"", quotes:new Map(), geiger:{}, listsAt:0, quotesAt:0, geigerAt:0,
+  listsBusy:false, quotesBusy:false, geigerBusy:false, lastSlot:-1, timer:0 };
+const tapePrice = (p) => p == null ? "—" : p >= 1000 ? Math.round(p).toLocaleString("en-US") : p.toFixed(2);
+const tapePct = (c) => c == null ? "" : (c >= 0 ? "+" : "") + c.toFixed(2) + "%";
+function tapesLive() { return tapesOn() && !STACKED && !!el("tapes"); }
+function tapeNames() { return Array.from(new Set(TAPES.liked.concat(TAPES.favorites))); }
+function tapeRow(label, names, note) {
+  const row = document.createElement("div");
+  row.className = "tape"; row.dataset.tape = label;
+  const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = label;
+  const small = document.createElement("small"); small.textContent = String(names.length); lbl.appendChild(small);
+  lbl.title = note;
+  const win = document.createElement("div"); win.className = "win";
+  const track = document.createElement("div"); track.className = "track";
+  const cell = (t, copy) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "cell"; b.dataset.t = t; b.title = t + " · open this chart in a slot";
+    if (copy) { b.tabIndex = -1; b.setAttribute("aria-hidden", "true"); }
+    b.innerHTML = '<span class="tk"></span><span class="px">—</span><span class="pc"></span><span class="g"><i></i><i></i><i></i><i></i></span>';
+    b.firstChild.textContent = t;
+    return b;
+  };
+  for (const t of names) track.appendChild(cell(t, false));
+  win.appendChild(track); row.appendChild(lbl); row.appendChild(win);
+  return row;
+}
+/* one length of names fills the window → the track is doubled and runs at 45 px a second whatever its
+   length (so a long list is not a blur and a short one is not a crawl); a list shorter than the
+   window stands still - there is nothing to bring round */
+function runTape(row) {
+  const win = row.querySelector(".win"), track = row.querySelector(".track");
+  if (!win || !track) return;
+  for (const copy of track.querySelectorAll('.cell[aria-hidden="true"]')) copy.remove();
+  track.classList.remove("run"); track.style.animationDuration = ""; track.style.animationDelay = "";
+  const one = track.scrollWidth;
+  if (!one || one <= win.clientWidth) return;
+  for (const cell of Array.from(track.children)) {
+    const copy = cell.cloneNode(true); copy.tabIndex = -1; copy.setAttribute("aria-hidden", "true"); track.appendChild(copy);
+  }
+  track.style.animationDuration = (one / TAPE_SPEED_PX_S).toFixed(2) + "s";
+  track.classList.add("run");
+}
+function paintTapeCells(first) {
+  const box = el("tapes"); if (!box) return;
+  for (const cell of box.querySelectorAll(".cell")) {
+    const t = cell.dataset.t, q = TAPES.quotes.get(t);
+    const px = cell.children[1], pc = cell.children[2], g = cell.children[3];
+    if (q) {
+      const text = tapePrice(q.price);
+      if (px.textContent !== text) {
+        const ticked = px.textContent !== "—" && !first;
+        px.textContent = text;
+        if (ticked) { cell.classList.remove("flash"); void cell.offsetWidth; cell.classList.add("flash"); }
+      }
+      const pct = tapePct(q.pct), cls = "pc" + (q.pct == null ? "" : q.pct >= 0 ? " up" : " dn");
+      if (pc.textContent !== pct) pc.textContent = pct;
+      if (pc.className !== cls) pc.className = cls;
+    }
+    const reading = TAPES.geiger[t], r = tapeRungs(reading ? reading.composite : null), gc = "g" + (r.side ? " " + r.side : "");
+    if (g.className !== gc) g.className = gc;
+    for (let i = 0; i < 4; i++) g.children[i].classList.toggle("on", i < r.lit);
+    g.title = "Geiger " + (reading && Number.isFinite(reading.composite) ? reading.composite.toFixed(2) : "—");
+  }
+}
+function paintTapes() {
+  const box = el("tapes"); if (!box) return;
+  const key = TAPES.liked.join(",") + "|" + TAPES.favorites.join(",");
+  if (key !== TAPES.key || !box.firstChild) {
+    TAPES.key = key; box.innerHTML = "";
+    box.appendChild(tapeRow("LIKED", TAPES.liked, "the Hub's liked names that are not on FAVORITES · " + TAPES.liked.length + " of " + TAPES.likedTotal + " liked"));
+    box.appendChild(tapeRow("FAVORITES", TAPES.favorites, "the Station's favorites list"));
+    paintTapeCells(true);
+  } else paintTapeCells(false);
+  fitTapes();
+}
+/* the cells' widths change with their prices, so the run is re-measured when the strip's own width or
+   a list's one-length width has changed - and only then (restarting an animation is a visible jump) */
+function fitTapes() {
+  const box = el("tapes"); if (!box || !tapesLive()) return;
+  for (const row of box.querySelectorAll(".tape")) {
+    const win = row.querySelector(".win"), track = row.querySelector(".track");
+    const originals = track.querySelectorAll('.cell:not([aria-hidden="true"])').length;
+    const one = track.classList.contains("run") ? track.scrollWidth / 2 : track.scrollWidth;
+    const mark = originals + ":" + win.clientWidth + ":" + (one > win.clientWidth ? "run" : "still");
+    if (row.dataset.fit === mark) {
+      /* same run, but the prices have widened the cells: keep 45 px a second, from where the tape is */
+      const want = one / TAPE_SPEED_PX_S, have = parseFloat(track.style.animationDuration) || 0;
+      if (track.classList.contains("run") && Math.abs(want - have) > want * 0.01) {
+        const at = -new DOMMatrixReadOnly(getComputedStyle(track).transform).m41;
+        track.classList.remove("run"); void track.offsetWidth;
+        track.style.animationDuration = want.toFixed(2) + "s";
+        track.style.animationDelay = (-(Math.max(0, at) % one) / TAPE_SPEED_PX_S).toFixed(2) + "s";
+        track.classList.add("run");
+      }
+      continue;
+    }
+    row.dataset.fit = mark; runTape(row);
+  }
+}
+async function refreshTapeLists() {
+  if (!tapesLive() || TAPES.listsBusy) return;
+  TAPES.listsBusy = true;
+  try {
+    const [liked, favorites] = await Promise.all([
+      pg("hub_favorites?select=ticker&order=added_at.asc"),
+      pg("station_lists?select=position,ticker&list=eq.favorites&order=position.asc")
+    ]);
+    Object.assign(TAPES, tapeLists(liked, favorites)); TAPES.listsAt = Date.now();
+    paintTapes();
+  } catch (_) { /* the lists on the tapes stay as they were; the next pass asks again */ }
+  finally { TAPES.listsBusy = false; }
+}
+/* marketQuotes refuses a whole batch that is missing one name (that is the wall's rule, and right for
+   nine charts). A tape of 150 names must not go blank for one of them: the names go in batches of 40;
+   when some batches land and one does not, that one is halved until the name that sank it is alone.
+   When NO batch lands the provider is not answering - nothing is split and the cells keep their prices. */
+async function tapeQuoteBatch(names, signal, split) {
+  try {
+    const rows = await SC_PROVIDER.marketQuotes(names, { signal });
+    for (const row of rows || []) {
+      const t = CLEAN(row && row.ticker); if (!t || row.price == null) continue;
+      const price = +row.price, prev = row.prev_close == null ? null : +row.prev_close;
+      TAPES.quotes.set(t, { price, pct:prev ? (price - prev) / prev * 100 : null });
+    }
+    return true;
+  } catch (_) {
+    if (!split || names.length <= 5) return false;
+    const half = Math.ceil(names.length / 2);
+    const parts = await Promise.all([tapeQuoteBatch(names.slice(0, half), signal, true), tapeQuoteBatch(names.slice(half), signal, true)]);
+    return parts[0] || parts[1];
+  }
+}
+async function refreshTapeQuotes() {
+  if (!tapesLive() || document.hidden || TAPES.quotesBusy || !window.SC_PROVIDER) return;
+  const names = tapeNames(); if (!names.length) return;
+  TAPES.quotesBusy = true;
+  const controller = typeof AbortController === "undefined" ? null : new AbortController();
+  const hard = controller ? setTimeout(() => controller.abort(), DECK_QUOTE_HARD_MS) : null;
+  try {
+    const batches = [];
+    for (let i = 0; i < names.length; i += TAPE_BATCH) batches.push(names.slice(i, i + TAPE_BATCH));
+    const landed = await Promise.all(batches.map((b) => tapeQuoteBatch(b, controller?.signal, false)));
+    if (landed.some(Boolean) && !landed.every(Boolean))
+      await Promise.all(batches.filter((_, i) => !landed[i]).map((b) => tapeQuoteBatch(b, controller?.signal, true)));
+    TAPES.quotesAt = Date.now();
+    paintTapeCells(false); fitTapes();
+  } finally { if (hard) clearTimeout(hard); TAPES.quotesBusy = false; }
+}
+async function refreshTapeGeiger() {
+  const B = window.SC_GEIGER_BAR, P = window.SC_PROVIDER;
+  if (!tapesLive() || document.hidden || TAPES.geigerBusy || !B || !P) return;
+  const names = tapeNames(); if (!names.length) return;
+  TAPES.geigerBusy = true;
+  try {
+    let own = {};
+    try { own = (await P.verifyOwnership()) || {}; } catch (_) { own = {}; }
+    const equities = names.filter((t) => own[t]), others = names.filter((t) => !own[t]);
+    const batches = [];
+    for (let i = 0; i < equities.length; i += TAPE_BATCH) batches.push(equities.slice(i, i + TAPE_BATCH));
+    const [eqRows, neRows] = await Promise.all([
+      Promise.all(batches.map((b) => P.equityGeiger(b).catch(() => []))).then((parts) => [].concat(...parts)),
+      others.length && window.SC_NON_EQUITY ? window.SC_NON_EQUITY.geiger(others).catch(() => []) : [],
+    ]);
+    TAPES.geiger = Object.assign({}, B.readingsFrom(neRows, "RETAINED_NON_EQUITY"), B.readingsFrom(eqRows, "PROVIDER_EQUALIZER"));
+    TAPES.geigerAt = Date.now();
+    paintTapeCells(false);
+  } finally { TAPES.geigerBusy = false; }
+}
+function tapesTick() {
+  if (!tapesLive() || document.hidden) return;
+  const now = Date.now();
+  if (now - TAPES.listsAt >= TAPE_LISTS_MS) refreshTapeLists().then(() => { if (!TAPES.quotesAt) { refreshTapeQuotes(); refreshTapeGeiger(); } });
+  if (now - TAPES.quotesAt >= TAPE_QUOTE_MS) refreshTapeQuotes();
+  if (now - TAPES.geigerAt >= TAPE_GEIGER_MS) refreshTapeGeiger();
+}
+/* a tapped name opens through commitTicker - the same door a symbol typed into a slot goes through */
+function openTapeTicker(ticker) {
+  const t = CLEAN(ticker); if (!t) return false;
+  const slot = tapeSlotFor(CHARTS.map(CLEAN), CHART_COUNT, t, TAPES.lastSlot);
+  if (!slot.already) {
+    if (!commitTicker(slot.index, t, el("t" + (slot.index + 1)))) return false;
+    TAPES.lastSlot = slot.index;
+  }
+  const pane = PANES.find((p) => p.def.key === "c" + (slot.index + 1));
+  if (pane) {
+    pane.node.classList.remove("tape-opened"); void pane.node.offsetWidth; pane.node.classList.add("tape-opened");
+    setTimeout(() => pane.node.classList.remove("tape-opened"), 1500);
+  }
+  el("symbolNote").textContent = slot.already ? t + " · already in slot " + (slot.index + 1) : "tape · " + t + " → slot " + (slot.index + 1);
+  return true;
+}
+function paintTapesToggle() {
+  const on = tapesOn(), t = el("tapesToggle");
+  if (!t) return;
+  t.textContent = "tapes · " + (on ? "on" : "off");
+  t.setAttribute("aria-pressed", on ? "true" : "false");
+  t.classList.toggle("on", on);
+}
+function setTapes(on) {
+  try { localStorage.setItem(TAPES_KEY, on ? "1" : "0"); } catch (_) {}
+  paintTapesToggle(); relayout();
+  if (on) { TAPES.quotesAt = 0; TAPES.geigerAt = 0; tapesTick(); }
+}
+function wireTapes(grid) {
+  const box = document.createElement("div");
+  box.id = "tapes"; box.setAttribute("role", "group"); box.setAttribute("aria-label", "Liked and favorites tapes");
+  grid.appendChild(box);
+  box.addEventListener("click", (event) => {
+    const cell = event.target.closest(".cell"); if (cell) openTapeTicker(cell.dataset.t);
+  });
+  const toggle = el("tapesToggle");
+  if (toggle && !toggle._wired) { toggle._wired = true; toggle.addEventListener("click", () => setTapes(!tapesOn())); }
+  paintTapesToggle(); paintTapes();
+  if (!TAPES.timer) {
+    TAPES.timer = setInterval(tapesTick, 5000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) tapesTick(); });
+  }
+  tapesTick();
+}
 function fitVideoPane() {
   const row = el("rowBot"); if (!row) return;
   const grid = el("grid"), top = el("rowTop");
@@ -1568,9 +1886,15 @@ function fitVideoPane() {
   const onWall = PANES.find((o) => o.def.kind === "video" && o.def.key === VIDEO_FEED);
   const plan = floor ? floorPlan(grid.clientWidth, grid.clientHeight, onWall?.chromePx) : null;
   if (grid) grid.style.setProperty("--fp-col", plan ? plan.col + "px" : "");
+  /* S14: the tapes take 46 px off the chart row's height (never its width), so each count's grid is
+     chosen for the height that is left - with the tapes off this is plan.grids, to the number */
+  const tapePx = plan ? tapesHeight(tapesOn()) : 0;
+  document.body.classList.toggle("tapes", tapePx > 0);
+  if (grid) grid.style.setProperty("--tapes-px", tapePx + "px");
   if (top) for (const n of FLOOR_COUNTS) {
-    top.style.setProperty("--fp-c" + n, plan ? String(plan.grids[n].cols) : "");
-    top.style.setProperty("--fp-r" + n, plan ? String(plan.grids[n].rows) : "");
+    const g = !plan ? null : tapePx ? floorGrid(n, plan.charts.w, plan.charts.h - tapePx) : plan.grids[n];
+    top.style.setProperty("--fp-c" + n, g ? String(g.cols) : "");
+    top.style.setProperty("--fp-r" + n, g ? String(g.rows) : "");
   }
   const theatre = !!plan && MEDIA_STAGE > 0;
   const theatreChanged = document.body.classList.contains("media-theatre") !== theatre;
@@ -1601,6 +1925,7 @@ function fitVideoPane() {
       o.node.style.width = videoFitWidth(row.clientWidth, o.node.clientHeight, o.chromePx) + "px";
     }
   }
+  fitTapes();
   measure();
 }
 let ROTATE_AT = ROTATE_SECONDS.includes(+remembered("station.rotate.seconds.v2")) ? +remembered("station.rotate.seconds.v2") : 33;
@@ -4572,6 +4897,7 @@ async function build() {
   rows[0].className = "deckrow charts-" + CHART_COUNT; rows[0].id = "rowTop";
   rows[1].className = "deckrow"; rows[1].id = "rowBot";
   grid.appendChild(rows[0]); grid.appendChild(rows[1]);
+  wireTapes(grid);   /* S14: the LIKED and FAVORITES tapes, over the chart area only */
 
   for (const d of defs) { const o = makePane(d); PANES.push(o); rows[d.row].appendChild(o.node);
     /* M74 HOOK (station detail) */ if (window.StationDetail) StationDetail.attach(o); }
