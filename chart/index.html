@@ -2311,6 +2311,31 @@ function chartDefaultStart(host, pts) {
   const n = CHART_VIEW_BARS[(host && host._range) || S.chartRange];
   return n ? Math.max(0, last - (n - 1)) : 0;
 }
+/* K1 (5 Oct, SCI-13) — axis navigation, the pure parts.
+   chartAxisZoneOf: which strip a point (in canvas pixels) is on — "price" = the gutter right of the plot, "time" = the
+     date band under it (only where the pane draws its own date band: at least 12 px), else null (the chart itself).
+   chartAxisSpan:   the bars to show after dragging the date strip dx pixels: every half plot-width doubles (left) or
+     halves (right) the span, never under 8 bars or over the whole series.
+   chartAxisYScale: the price scale's stretch after dragging the price strip dy pixels: every half plot-height halves
+     (up = taller moves) or doubles (down) the range shown, kept between a quarter and eight times the fitted range. */
+function chartAxisZoneOf(plot, w, h, x, y) {
+  if (!plot || !(plot.iw > 0) || !(plot.ih > 0)) return null;
+  const right = plot.padL + plot.iw, bottom = plot.padT + plot.ih;
+  if (x > right + 1 && y >= plot.padT && y <= bottom) return "price";
+  if (y > bottom + 1 && h - bottom >= 12 && x >= plot.padL && x <= right && !plot.fanBelow) return "time";
+  return null;
+}
+function chartAxisZone(host, cv, clientX, clientY) {
+  const r = cv.getBoundingClientRect();
+  return chartAxisZoneOf(host._plot, r.width, r.height, clientX - r.left, clientY - r.top);
+}
+function chartAxisSpan(baseSpan, dx, plotW, maxSpan) {
+  const span = baseSpan * Math.pow(2, -dx / Math.max(40, plotW / 2));
+  return Math.max(8, Math.min(Math.max(8, maxSpan), Math.round(span)));
+}
+function chartAxisYScale(base, dy, plotH) {
+  return Math.max(.25, Math.min(8, (base || 1) * Math.pow(2, dy / Math.max(40, plotH / 2))));
+}
 function chartView(host, pts) {
   const last = Math.max(1, pts.length - 1);
   let view = host._view;
@@ -2359,6 +2384,7 @@ function setChartView(host, start, end, followLatest, notify) {
 
 function resetChartView(host, notify) {
   host._view = null;
+  host._yScale = 1;   /* K1 (SCI-13): the price scale fitted again */
   host._followLatest = true;
   host._viewMovedAt = performance.now();
   scChartDraw(host);
@@ -2467,6 +2493,9 @@ function scChartDraw(host, scrub) {
   /* TradingView-like price margins: 8% of the range above the high, 6% under the low */
   const yRange = yHi - yLo;
   yLo -= yRange * .06; yHi += yRange * .08;
+  /* K1 (5 Oct, SCI-13 axis navigation): a drag on the price strip stretches or squeezes the price scale around its
+     middle (host._yScale, 1 = fitted to the bars on screen); double-click or a new symbol/range puts it back. */
+  if (host._yScale && host._yScale !== 1) { const mid = (yLo + yHi) / 2, half = (yHi - yLo) / 2 * host._yScale; yLo = mid - half; yHi = mid + half; }
   /* THE RIBBON'S OWN ROOM. Each average is named at the right edge, at the exact
      height of its own line, but only while the newest bar is on screen — so the band
      that holds those names is reserved before the x scale is built, and given back the
@@ -2484,7 +2513,7 @@ function scChartDraw(host, scrub) {
     : 0;
   const X = (i) => padL + ((i - start) / Math.max(1, end - start + rightBars)) * iw;
   const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * ih;
-  host._plot = { padL, padT, iw, ih, start, end, rightBars, yLo, yHi };
+  host._plot = { padL, padT, iw, ih, start, end, rightBars, yLo, yHi, fanBelow: fanBlock > 0 };
   /* 24 Sep, Alan (XLF): "the ticker and the percent change were green, the line is red ... went to
      zero and gray, the line is still red". The badge read the live quote while the line read the last
      point ON SCREEN - a point that trails the quote by a tick, and sits in history whenever the view
@@ -3578,7 +3607,7 @@ async function scChartLoad(host) {
   if (host._activeLoad && host._activeLoad.req === req && host._activeLoad.generation === generation)
     return host._activeLoad.promise;
   if (host._req !== req) {
-    host._view = null;
+    host._view = null; host._yScale = 1;
     host._followLatest = true;
     host._historyLimit = chartBarsOverride() || chartInitialLimit(range);
   }
@@ -3717,7 +3746,7 @@ function scChartScrub(host) {
     try { cv.setPointerCapture(e.pointerId); } catch (_) {}
     pointers.set(e.pointerId, { x:e.clientX, y:e.clientY, pointerType:e.pointerType });
     if (pointers.size >= 2) pinchStart();
-    else gesture = { type:"pending", x:e.clientX, view:snapshot() };
+    else gesture = { type:"pending", x:e.clientX, y:e.clientY, view:snapshot(), zone:chartAxisZone(host, cv, e.clientX, e.clientY), yScale:host._yScale || 1 };
   });
   cv.addEventListener("pointermove", (e) => {
     if (!pointers.has(e.pointerId)) { if (e.pointerType === "mouse") show(e.clientX, e.clientY); return; }
@@ -3734,6 +3763,27 @@ function scChartScrub(host) {
       return;
     }
     const dx = e.clientX - gesture.x;
+    /* K1 (SCI-13) — AXIS NAVIGATION, as on TradingView: a drag that starts on the date strip widens or narrows the time
+       shown (left = more history, right = less; the newest bar stays put while the chart follows it); a drag that starts
+       on the price strip stretches or squeezes the price scale (up = taller moves, down = flatter). A drag that starts on
+       the chart itself still pans. Double-click anywhere puts both back. */
+    if (gesture.type === "pending" && gesture.zone === "time" && Math.abs(dx) > 3) gesture.type = "time-axis";
+    if (gesture.type === "pending" && gesture.zone === "price" && Math.abs(e.clientY - gesture.y) > 3) gesture.type = "price-axis";
+    if (gesture.type === "time-axis") {
+      cv.classList.add("is-panning"); hideScrub();
+      const base = gesture.view, baseSpan = Math.max(8, base.end - base.start), span = chartAxisSpan(baseSpan, dx, host._plot?.iw || cv.clientWidth, (host._series?.length || 2) - 1);
+      if (host._followLatest !== false) applyLatestSpan(span);
+      else setChartView(host, base.end - span, base.end, false);
+      return;
+    }
+    if (gesture.type === "price-axis") {
+      cv.classList.add("is-panning"); hideScrub();
+      host._yScale = chartAxisYScale(gesture.yScale, e.clientY - gesture.y, host._plot?.ih || cv.clientHeight);
+      host._viewMovedAt = performance.now();
+      scChartDraw(host);
+      return;
+    }
+    if (gesture.type === "pending" && gesture.zone) { show(e.clientX, e.clientY); return; }   // a press on a strip never turns into a pan
     if (gesture.type === "pending" && Math.abs(dx) > 4) gesture.type = "pan";
     if (gesture.type === "pan") {
       cv.classList.add("is-panning"); hideScrub();
@@ -3759,6 +3809,11 @@ function scChartScrub(host) {
      "leaves" for the ticker badge or the Geiger chip sitting on top of it. Over those it keeps following. */
   area.addEventListener("pointermove", (e) => {
     if (e.target !== cv && e.pointerType === "mouse" && !pointers.size) show(e.clientX, e.clientY);
+  });
+  cv.addEventListener("pointermove", (e) => {   /* K1 (SCI-13): the pointer shows which way a strip can be dragged */
+    if (e.pointerType !== "mouse" || pointers.size) return;
+    const z = chartAxisZone(host, cv, e.clientX, e.clientY);
+    cv.style.cursor = z === "time" ? "ew-resize" : z === "price" ? "ns-resize" : "";
   });
   area.addEventListener("pointerleave", (e) => {
     if (e.pointerType === "mouse" && !pointers.has(e.pointerId)) hideScrub();
@@ -3896,7 +3951,7 @@ function setChartTicker(t) {
   if (!host) return;
   host.dataset.t = t;
   host._series = null;
-  host._view = null;
+  host._view = null; host._yScale = 1;
   /* A new symbol has a new ribbon: never carry the old one across a ticker change. */
   host._cloudRows = null; host._cloudTicker = null; host._cloudMap = null; host._cloudPending = null;
   delete host.dataset.holding; unmountTvInternal(host);
