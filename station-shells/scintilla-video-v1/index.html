@@ -83,6 +83,22 @@ body.bar-tight #chips .btn{ padding-left:3px; padding-right:3px; letter-spacing:
 body.bar-tight #chips .sep{ margin:0 2px; }
 body.bar-scroll #chips{ -webkit-mask-image:linear-gradient(to right, #000 calc(100% - 16px), transparent);
   mask-image:linear-gradient(to right, #000 calc(100% - 16px), transparent); }
+/* S12 (5 Oct 2026): CRITICAL CONTROLS ON THE BAR, THE REST ONE TAP AWAY. Alan: "we need to work on the controls
+   for the youtube — the switches to channels, the refreshing … it's bunched up … HAVE THE MAIN CRITICAL ONES AND
+   EXPAND OR SCROLL." The bar now holds what he reaches for: the channel switch (PERSONAL ▾), REFRESH (↻), one
+   chip that NAMES the filters in force (e.g. VIDEOS · SUBSCRIBED ▾) and ⛶. Tapping the chip opens the filter row
+   — GRID · VIDEOS · SHORTS | the lists — under the bar, over the thumbnails (never over the player: the chip and
+   the row are grid-only, the player keeps its transport). Choosing a filter applies it and folds the row away.
+   A swipeable row was the alternative; it hides the active filter off-screen at 403 px, so the named chip won. */
+#bRefresh{ width:26px; padding-left:0; padding-right:0; text-align:center; }
+#bRefresh.busy{ color:var(--crk); border-color:var(--crk); }
+#bFilters{ flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+#bFilters.on{ color:var(--crk); border-color:var(--crk); }
+#filters{ position:absolute; z-index:5; left:0; right:0; top:calc(27px + env(safe-area-inset-top)); padding:4px 6px;
+  border-bottom:1px solid var(--hair); background:rgba(10,10,15,.98); box-shadow:0 8px 24px rgba(0,0,0,.5); }
+#filters[hidden]{ display:none; }
+#filters #chips{ flex-wrap:wrap; overflow:visible; row-gap:4px; }
+body.playing #bFilters, body.playing #bRefresh{ display:none; }
 #q{ display:none; flex:1 1 90px; min-width:70px; background:var(--bg); border:1px solid var(--line);
   color:var(--ink); font-family:var(--mono); font-size:11px; padding:3px 6px; outline:none;
   border-radius:0; -webkit-appearance:none; }
@@ -222,7 +238,8 @@ body.playing #chips{ display:none; }
   <select id="feedProfile" class="btn" title="switch channel profile"
           aria-label="Channel profile" style="display:none"></select>
   <span class="btn" id="bBack" style="display:none">‹ grid</span>
-  <span id="chips"></span>
+  <button class="btn" id="bRefresh" type="button" title="refresh this list now" aria-label="refresh the list">↻</button>
+  <button class="btn" id="bFilters" type="button" title="the filters in force — tap to change them" aria-controls="filters" aria-expanded="false"></button>
   <span id="transport" aria-label="video queue controls">
     <button class="btn transport" id="bPrev" type="button" aria-label="previous video">‹ prev</button>
     <span id="nowq" aria-live="polite"></span>
@@ -243,6 +260,7 @@ body.playing #chips{ display:none; }
   <button class="btn" id="bMenuFull" type="button" role="menuitem">expand pane</button>
   <button class="btn" id="bCover" type="button" role="menuitem" style="display:none" title="intentionally expand this video across X">cover X</button>
 </div>
+<div id="filters" role="group" aria-label="grid filters" hidden><span id="chips"></span></div>
 <div id="grid"><div class="msg">loading…</div></div>
 <div id="stage">
   <div id="video"></div>
@@ -1042,6 +1060,7 @@ document.addEventListener("pointerdown", (event) => {
 let DECK_STAGE = 0;
 document.addEventListener("keydown", (event) => {
   if (event.key !== "Escape") return;
+  if (!el("filters").hidden) { setFiltersOpen(false); return; }
   if (!el("more").hidden) { setMenuOpen(false); return; }
   if (DECK_STAGE > 0) parent.postMessage({ type: "SCINTILLA_DECK_MEDIA_BACK" }, location.origin);
 });
@@ -1337,7 +1356,7 @@ function paintChips() {
     b.title = id === "grid" ? "everything in this list — videos and shorts together"
       : id === "videos" ? "videos only — no shorts (a short is flagged by YouTube, or 60 seconds or less)"
       : "shorts only — flagged by YouTube, or 60 seconds or less";
-    b.addEventListener("click", () => setMode(id));
+    b.addEventListener("click", () => { setMode(id); setFiltersOpen(false); });
     box.appendChild(b);
   }
   const sep = document.createElement("span"); sep.className = "sep"; box.appendChild(sep);
@@ -1345,11 +1364,38 @@ function paintChips() {
     const b = document.createElement("span");
     b.className = "btn" + (l.id === LIST ? " on" : "");
     b.textContent = l.n;
-    b.addEventListener("click", () => { LIST = l.id; paintChips(); load(LIST === "watch"); });
+    b.addEventListener("click", () => { LIST = l.id; paintChips(); load(LIST === "watch"); setFiltersOpen(false); });
     box.appendChild(b);
   }
+  paintFilterChip();
   fitBar();
 }
+/* S12: the one chip on the bar says which filters are in force: MODE · LIST (the list only where there is a choice) */
+function filterSummary() {
+  const mode = (MODES.find(([key]) => key === MODE) || [, "grid"])[1];
+  const list = LISTS.length > 1 ? (LISTS.find((l) => l.id === LIST) || LISTS[0]).n : "";
+  return mode + (list ? " · " + list : "");
+}
+function paintFilterChip() {
+  const b = el("bFilters"); if (!b) return;
+  b.textContent = filterSummary() + " ▾";
+  b.title = "filters in force: " + filterSummary() + " — tap to change";
+}
+function setFiltersOpen(open) {
+  const row = el("filters"), b = el("bFilters"); if (!row || !b) return;
+  row.hidden = !open; b.classList.toggle("on", !!open); b.setAttribute("aria-expanded", open ? "true" : "false");
+}
+el("bFilters").addEventListener("click", () => setFiltersOpen(el("filters").hidden));
+/* REFRESH: the list is read again now (the watch list re-synced when it is open); the button shows it is busy */
+el("bRefresh").addEventListener("click", async () => {
+  const b = el("bRefresh"); if (b.classList.contains("busy")) return;
+  b.classList.add("busy");
+  try { await load(LIST === "watch"); } finally { b.classList.remove("busy"); }
+});
+document.addEventListener("pointerdown", (event) => {
+  const row = el("filters"); if (!row || row.hidden) return;
+  if (!row.contains(event.target) && !el("bFilters").contains(event.target)) setFiltersOpen(false);
+});
 
 /* ---- WHEN A STREAM ACTUALLY HAPPENED ----
    YouTube dates a live stream from when it was SCHEDULED, so a stream that ran
