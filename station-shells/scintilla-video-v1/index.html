@@ -1532,6 +1532,50 @@ async function readFeed(offset) {
     return pg(feedQuery(offset));
   }
 }
+/* ---- ON AIR FIRST (Y2, 5 Oct 2026) ----
+   Alan: "Wolf Trading is live right now on X Spaces and on YouTube — I don't see it on our YouTube feed."
+   The grid is ordered by when a thing happened, so a stream that went on air two hours ago sits under two hours
+   of uploads, and one that started before the first page's oldest row is not on the page at all. A stream that
+   is on air NOW is asked for by itself (same filters) and put ahead of everything else, newest start first.
+   Three bounds keep that honest:
+     · only channels this feed CARRIES are put first — a "LIVE" stream a ticker search happened to find (the
+       fake "LIVE: … price prediction" streams are exactly that) keeps its ordinary place;
+     · a stream on air for more than ON_AIR_PIN_HOURS is a round-the-clock channel, not news — it keeps its
+       LIVE mark and its ordinary place;
+     · a feed that predates the stream times (FEED_LIVE_OK false) is left exactly as it was. */
+const ON_AIR_PIN_HOURS = 12;
+const ON_AIR_MAX = 20;
+function onAirQuery() {
+  if (!FEED_PROFILE.account) return "";
+  let q = "youtube_feed?select=" + FEED_SELECT_LIVE + "&live_state=eq.live&order=feed_at.desc&limit=" + ON_AIR_MAX +
+          "&subscription_accounts=cs." + encodeURIComponent("{" + FEED_PROFILE.account + "}");
+  q += modeClause(MODE);
+  if (TICK) q += "&tickers=ilike.*" + encodeURIComponent(TICK) + "*";
+  return q;
+}
+async function readOnAir() {
+  const q = FEED_LIVE_OK && LIST !== "watch" ? onAirQuery() : "";
+  if (!q) return [];
+  try { const rows = await pg(q, 1); return Array.isArray(rows) ? rows : []; }
+  catch (_) { return []; }   /* the grid never waits on, or fails with, the on-air read */
+}
+function onAirNow(video, nowMs) {
+  if (!video || video.live_state !== "live") return false;
+  const started = Date.parse(video.feed_at || "");
+  const now = isFinite(nowMs) ? nowMs : Date.now();
+  return isFinite(started) && started <= now + 300000 && now - started <= ON_AIR_PIN_HOURS * 3600000;
+}
+function liveFirst(rows, onAirRows, nowMs) {
+  const list = Array.isArray(rows) ? rows : [];
+  const seen = new Set(), pinned = [];
+  for (const video of Array.isArray(onAirRows) ? onAirRows : []) {
+    if (!onAirNow(video, nowMs) || seen.has(video.video_id)) continue;
+    seen.add(video.video_id); pinned.push(video);
+  }
+  if (!pinned.length) return list;
+  pinned.sort((a, b) => Date.parse(b.feed_at) - Date.parse(a.feed_at));
+  return pinned.concat(list.filter((video) => !seen.has(video.video_id)));
+}
 /* The SCINTILLA grid keeps unscoped discovery rows and rows the SCINTILLA
    account carries, and drops the rest. It runs over EVERY page, which is
    why a page that arrives full can still add only a few tiles — and why
@@ -1615,7 +1659,7 @@ async function load(forceWatch, quiet) {
   }
   if (!FEED_PRESENCE.size) await readFeedPresence();
   paintFeedProfileSelector(raw);
-  const nextRows = filterFeedRows(raw);
+  const nextRows = liveFirst(filterFeedRows(raw), await readOnAir());
   const signature = (items) => items.map((v) => [v.video_id, v.title, v.channel, v.published_at,
     v.feed_at || "", v.live_state || "", v.duration || "",
     Array.isArray(v.subscription_accounts) ? v.subscription_accounts.join("+") : ""].join("|")).join("\n");
