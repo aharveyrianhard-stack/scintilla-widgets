@@ -53,7 +53,10 @@ test('the dock loses no control, no id and no accessible name', () => {
   /* 25 Sep (P1): one more deliberate control - save as radar, beside save as targets, which
      adds the SCRATCH wall's filled slots to list "radar" in public.station_lists. */
   assert.ok(after.has('saveRadar'), 'save as radar is the deliberate new scratch control')
-  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 11)
+  /* 5 Oct (S14): one more deliberate control, in the ⋯ drawer - tapes on / off, the switch for the LIKED and
+     FAVORITES tapes over the chart area (Alan: "one tape for the liked stocks, another tape for the favorites"). */
+  assert.ok(after.has('tapesToggle'), 'tapes on / off is the deliberate new ⋯ control')
+  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 12)
 })
 
 test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {
