@@ -147,3 +147,43 @@ test("S13 · the bridge's page-up: X's own refresh, then the top — refused und
   assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.23"/);
   assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.23";/, "the health page expects the bridge that pages up");
 });
+
+test("S13 · measured on the real deck at 403 / 461 / 614: both bars one line, nothing cut; the + follows NEXT; the clock waits under a hand; the picture never blanks", () => {
+  const m = JSON.parse(read("../deliverables/20261005/station-controls/harness/s13.json"));
+  for (const [k, col] of [["1680x1050", 403], ["1920x1080", 461], ["2560x1440", 614]]) {
+    const r = m[k]; assert.ok(r, k + " was measured"); assert.equal(r.rest.column.w, col);
+    const y = r.youtube, x = r.x;
+    for (const [name, bar] of [["grid", y.grid], ["playing", y.playing], ["scintilla", r.scintilla], ["X", x.bar]]) {
+      assert.deepEqual([bar.cut, bar.squeezed, bar.overlaps, bar.noTooltip], [[], [], [], []], k + " " + name + ": nothing cut, squeezed, overlapping or without a tooltip");
+      assert.equal(bar.oneLine, true, k + " " + name + ": one line"); assert.equal(bar.overflow, 0, k + " " + name + ": no scrolling row");
+    }
+    assert.deepEqual(y.grid.order.filter((id) => id !== "kk"), ["bNext", "bBack", "bWatchBar", "bRefresh", "bFull", "bMenu"], k + ": the grid's bar");
+    assert.deepEqual(y.playing.order.filter((id) => id !== "kk"), ["bNext", "bBack", "bWatchBar", "bRefresh", "bPrev", "nowq", "bPipBar", "bFull", "bMenu"], k + ": the player's bar");
+    assert.equal(y.pointed.outlined, y.pointed.second, k + ": the thumbnail pointed at is the one outlined");
+    assert.deepEqual([y.addedFromGrid.on, y.addedFromGrid.inList], [true, true], k + ": + adds it from the grid");
+    assert.deepEqual([y.nextFromGrid.playing, y.nextFromGrid.cur], [true, y.nextFromGrid.first], k + ": NEXT on the grid starts the first video");
+    assert.deepEqual([y.addedPlaying.on, y.addedPlaying.inList], [true, true], k + ": + adds the playing video");
+    assert.deepEqual([y.afterNext.cur, y.afterNext.target], [y.afterNext.second, y.afterNext.second], k + ": after NEXT the + is for the next video");
+    assert.deepEqual([y.backToGrid.playing, y.backToGrid.gridShown, y.backToGrid.gridLit], [false, true, true], k + ": GRID is back on the thumbnails");
+    assert.equal(y.backToGrid.nextWillPlay, y.backToGrid.third, k + ": and NEXT carries on from where the queue was");
+    for (const p of [y.menuGrid, y.menuPlaying, x.panel]) assert.deepEqual([p.inside, p.cutInside], [true, []], k + ": the ⋯ panel opens inside the pane, nothing cut in it");
+    assert.ok(y.menuGrid.items.includes("channel") && y.menuGrid.items.includes("videos") && y.menuGrid.items.some((i) => /^select:PERSONAL\|SCINTILLA/.test(i)), k + ": the channel switch and the filters are in the ⋯");
+    assert.equal(y.menuAfterChoice.closed, true, k + ": a choice folds it");
+    assert.deepEqual([x.every.text, x.every.seconds, x.every.saved], ["60s", 60, null], k + ": 60 s with nothing saved");
+    assert.deepEqual(x.panelChoices, [{ s: "30s", on: false }, { s: "60s", on: true }, { s: "90s", on: false }]);
+    assert.deepEqual([x.chose90.text, x.chose90.saved, x.chose90.panelClosed], ["90s", "90", true], k + ": a choice is shown, kept and folds the panel");
+    assert.equal(x.clock.early, 0, k + ": nothing at 50 s of 60");
+    assert.deepEqual(x.clock.underPointer, { asks: 0, hover: true, waiting: true }, k + ": due, but the pointer is on the feed — it waits");
+    assert.deepEqual(x.clock.afterLeaving.asks, [{ action: "refresh", value: { pageUp: true, every: 60 } }], k + ": one page-up when the pointer leaves");
+    assert.equal(x.clock.nextCount.asks, 0, k + ": and the count starts again");
+    assert.deepEqual(x.ink.whileTurning, x.ink.reading, k + ": the source went empty and the pane kept its picture, to the pixel");
+    assert.ok(x.ink.landed.litPct > 5 && x.ink.landed.top !== x.ink.reading.top, k + ": then the new page is drawn");
+    assert.deepEqual(x.byHand, { asks: [{ action: "refresh", value: null }], restarted: true }, k + ": ↻ by hand is the plain refresh and restarts the count");
+    assert.deepEqual([r.after.share.chartsArea, r.after.px.black, r.errs], [76, 0, []], k + ": the floor plan is untouched, no page error");
+  }
+  const p = m.pageUp;
+  assert.equal(p.run.heldUnderHover.run, false); assert.equal(p.run.secondAskInside20s.run, false);
+  assert.deepEqual([p.run.out.result, p.run.out.readingOnScreen, p.run.out.newPosts, p.run.xRefreshes], ["top", true, 2, 1], "one refresh of X: two new posts on top, his post still on screen");
+  assert.equal(p.run.emptiestMomentPosts, 0, "the stand-in really did go empty while it refreshed — the case the hold is for");
+  assert.deepEqual([p.newestOnTop, p.readingStillOnScreen, p.after.scrollTop], [true, true, 0]);
+});
