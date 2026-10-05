@@ -293,7 +293,7 @@ export const SHAPES = Object.freeze(["oval", "box"]);
 /* phone share 0.40 → 0.32 (coordinator, 2 Oct, after the first measurement): at 0.40 the phone oval covered as much as
    the card it replaced (+4–6%); at 0.32 it saves screen there too */
 export const OVAL = Object.freeze({ long: Object.freeze({ desktop: 0.28, phone: 0.32 }), phoneBelow: 600,
-  inset: 0.82, minPlotH: 28, maxPlotH: 32, plotShare: 0.25, minShort: 34, pad: 3, step: 4, maxTilt: 30, tag: 10 });
+  inset: 0.82, minPlotH: 28, maxPlotH: 32, plotShare: 0.25, plotShareMax: 0.30, paneShare: 0.28, minShort: 34, pad: 3, step: 4, maxTilt: 30, tag: 10 });
 /* ?lens= on the pane's own URL wins; then the browser's remembered choice; oval by default */
 export function readShape({ search = "", stored = null } = {}) {
   const q = /(?:^|[?&])lens=(oval|box)(?:&|$)/.exec(String(search || ""));
@@ -308,6 +308,27 @@ export function ovalLongAxis(paneWidth, phone, room = Infinity) {
   return Math.max(0, Math.min(want, Math.floor(room)));
 }
 export const ovalPlotHeight = (long) => Math.round(Math.max(OVAL.minPlotH, Math.min(OVAL.maxPlotH, long * OVAL.plotShare)));
+/* CH1 (5 Oct 2026), RULE A — THE LENS FRAMES ITS OWN WINDOW: its candle plot is as tall as the move it holds.
+   Alan, 5 Oct: "CBRS is up 38%… the context lens is wrong… establish the boundaries dynamically." Until now the
+   candles' price range was always drawn 28-32 px tall, whatever the range was, so a +9% day and a flat day were
+   the same sliver and the move could not be read. Now the height is PX_PER_PCT pixels for every 1% the window's
+   candles span (high-to-low over the window's middle price), never under minPlotH, never over the cap the pane
+   gives (a share of its plot, and never taller than the oval's long axis × plotShareMax). The candles' own
+   min/max still frame the plot (candleGeometry), re-fitted on every refresh; the main chart's scale is never
+   inherited. A quiet day stays a slim sliver; a +38% day stands up. Pure. */
+export const PX_PER_PCT = 6;
+export function lensRangePct(bars) {
+  let lo = Infinity, hi = -Infinity;
+  for (const b of bars || []) { if (b.l < lo) lo = b.l; if (b.h > hi) hi = b.h; }
+  if (!(hi > lo) || !(lo > 0)) return 0;
+  return ((hi - lo) / ((hi + lo) / 2)) * 100;
+}
+export function lensPlotHeight(bars, long, cap = Infinity) {
+  const floor = ovalPlotHeight(long);
+  const ceiling = Math.max(floor, Math.min(Number.isFinite(cap) ? cap : Infinity, Math.round(long * OVAL.plotShareMax)));
+  const want = Math.round(lensRangePct(bars) * PX_PER_PCT);
+  return Math.max(floor, Math.min(ceiling, want));
+}
 /* Pure. bars = the lens' candles (newest last, `session` set as flatten() sets it); long = the long axis in px.
    Returns the ellipse (a, b, theta, centre), the candle geometry in the same frame, the box around the tilted
    ellipse (bbox) and where the candle frame's origin sits inside that box (origin). Null without bars. */
@@ -318,7 +339,7 @@ export function ovalGeometry(bars, opt = {}) {
   const inset = opt.inset == null ? OVAL.inset : opt.inset, pad = opt.pad == null ? OVAL.pad : opt.pad;
   const step = opt.step == null ? OVAL.step : Math.max(1, opt.step), minShort = opt.minShort == null ? OVAL.minShort : opt.minShort;
   const maxTilt = (opt.maxTilt == null ? OVAL.maxTilt : opt.maxTilt) * Math.PI / 180;
-  const plotH = opt.plotH > 0 ? opt.plotH : ovalPlotHeight(long);
+  const plotH = opt.plotH > 0 ? opt.plotH : lensPlotHeight(bars, long, opt.maxPlotH);
   const a = long / 2;
   /* candleGeometry's own slots: one per bar, half a slot of air at each session break */
   let breaks = 0;
@@ -516,8 +537,10 @@ export function paint(host, deps) {
   /* the line in pane pixels (pts is the chart's series of dates and prices); the room is what lies left of its newest fifth */
   const path = pathPoints(plot, pts);
   const room = lineTailBox(plot, path).x - plot.padL - PLACE.edge * 2;
-  const geo = shape === "oval" ? ovalGeometry(bars, { long: ovalLongAxis(area.clientWidth, phone, room) }) : null;
-  const ovalBox = geo ? { w: geo.bbox.w, h: geo.bbox.h + OVAL.tag } : null;
+  /* RULE A: the oval's candle plot is as tall as its move, capped at a share of the pane's plot */
+  const long = ovalLongAxis(area.clientWidth, phone, room), cap = Math.round(plot.ih * OVAL.paneShare);
+  let geo = shape === "oval" ? ovalGeometry(bars, { long, maxPlotH: cap }) : null;
+  let ovalBox = geo ? { w: geo.bbox.w, h: geo.bbox.h + OVAL.tag } : null;
   const sig = [controls.map((c) => [c.x, c.y, c.w, c.h].map(Math.round).join(",")).join(";"), area.clientWidth, area.clientHeight, plot.padL, plot.padT, plot.iw, plot.ih, plot.start, plot.end,
     pts.length, pts[pts.length - 1].d, entry.ts, fresh.stale, day, badge ? badge.offsetHeight + "x" + badge.offsetWidth : "",
     chip ? [chip.x, chip.y, chip.w, chip.h].map(Math.round).join(",") : "",
@@ -542,11 +565,19 @@ export function paint(host, deps) {
   /* one read of the chart's pixels per paint, shared with the Geiger chip (host._inkAt, reset by the chart) */
   const inkAt = host._inkAt || (main ? (host._inkAt = inkReader(main)) : null);
   const prev = host._lens && host._lens.spot && host._lens.t === t && host._lens.key === want.key ? host._lens.spot : null;
-  const where = host._lensPlaced && host._lensPlaced.sig === sig && host._lens && host._lens.t === t && host._lens.key === want.key
-    ? host._lensPlaced.where
-    : geo ? placeOval({ plot, points: path, keepOut, slidePast: controls, ink: inkAt, box: ovalBox, prev })
-          : placeLens({ plot, points: path, keepOut, slidePast: controls, ink: inkAt, prev });
-  host._lensPlaced = { sig, where };
+  let where;
+  if (host._lensPlaced && host._lensPlaced.sig === sig && host._lens && host._lens.t === t && host._lens.key === want.key) {
+    where = host._lensPlaced.where; if (host._lensPlaced.geo) { geo = host._lensPlaced.geo; ovalBox = { w: geo.bbox.w, h: geo.bbox.h + OVAL.tag }; }
+  } else if (geo) {
+    /* RULE A's ladder: a taller oval that finds no empty dark space steps down (never below the old height) rather than vanish */
+    where = placeOval({ plot, points: path, keepOut, slidePast: controls, ink: inkAt, box: ovalBox, prev });
+    for (const h of [Math.round((geo.plotH + ovalPlotHeight(long)) / 2), ovalPlotHeight(long)]) {
+      if (where.spot || h >= geo.plotH) break;
+      geo = ovalGeometry(bars, { long, plotH: h }); ovalBox = { w: geo.bbox.w, h: geo.bbox.h + OVAL.tag };
+      where = placeOval({ plot, points: path, keepOut, slidePast: controls, ink: inkAt, box: ovalBox, prev });
+    }
+  } else where = placeLens({ plot, points: path, keepOut, slidePast: controls, ink: inkAt, prev });
+  host._lensPlaced = { sig, where, geo };
   if (!where.spot) { hide(host, where.why); return; }
 
   const cv = canvasFor(host);

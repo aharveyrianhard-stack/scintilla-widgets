@@ -1616,9 +1616,21 @@ function drawRsiOnly(ctx, o) {
      %R + 100 dotted, one pink, its own guides and two chips; without them it is the RSI-only pane exactly as S3 drew it */
   const M = window.SC_OSC_LAB, L = o.look && o.sets ? o.look : null;
   const INK = L ? L.ink : V.ink, CLOUD = L ? L.cloud : V.cloud, GUIDES = L ? L.guides : V.guides, CHIP = L ? L.chipLook : V.chip;
-  const RY = L ? (v) => M.lookY(v, top, ph) : (v) => F.rsiY(v, top, ph);
   const isDaily = (key) => !!(F.BY_KEY[key] && F.BY_KEY[key].daily);
   const band = o.fan.cloud && o.fan.cloud.band;
+  /* CH1 RULE B (5 Oct): on the Lab pane the domain follows the visible traces (M.oscDomain); the RSI-only pane keeps its fixed scale */
+  let domain = null, visible = null;
+  if (L) {
+    const seen = [];
+    for (let i = o.start; i <= o.end; i++) {
+      for (const set of ["rsi", "williams"]) for (const line of o.sets[set].lines) { const v = line.values && line.values[i]; if (v != null) seen.push(v); }
+      const b = band && band[i]; if (b) seen.push(b.lo, b.hi);
+    }
+    domain = M.oscDomain(seen);
+    let a = Infinity, b = -Infinity; for (const v of seen) { if (v < a) a = v; if (v > b) b = v; }
+    visible = seen.length ? [a, b] : null;
+  }
+  const RY = L ? (v) => M.lookY(v, top, ph, domain) : (v) => F.rsiY(v, top, ph);
   const newestOn = o.end >= o.last;
   ctx.save();
   /* the seam between price and panel */
@@ -1627,6 +1639,7 @@ function drawRsiOnly(ctx, o) {
   ctx.globalAlpha = 1;
   /* 1 · the guides */
   for (const g of GUIDES) {
+    if (domain && (g.v < domain[0] || g.v > domain[1])) continue;   /* RULE B: a band outside the room is not drawn */
     ctx.save(); ctx.strokeStyle = F.rgba(INK, g.opacity); ctx.lineWidth = g.width; ctx.setLineDash(g.dash ? Array.from(g.dash) : []);
     const y = Math.round(RY(g.v)) + .5;
     ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + width, y); ctx.stroke(); ctx.restore();
@@ -1814,9 +1827,9 @@ function drawRsiOnly(ctx, o) {
   }
   ctx.restore();
   ctx.restore();
-  return { mode:L ? "osc-lab" : "rsi-only", top, height:ph, yLo:(L ? L.domain : V.domain)[0], yHi:(L ? L.domain : V.domain)[1],
+  return { mode:L ? "osc-lab" : "rsi-only", top, height:ph, yLo:(domain || V.domain)[0], yHi:(domain || V.domain)[1], visLo:visible ? visible[0] : null, visHi:visible ? visible[1] : null,
     lines:shown, williams:L ? wShown : null, cloud:cloudShown, chip, wChip, ink:INK,
-    guides:GUIDES.map((g) => ({ v:g.v, y:Math.round(RY(g.v)) + .5, dash:g.dash ? Array.from(g.dash) : null })), late:lateShown.length ? lateShown : null,
+    guides:GUIDES.filter((g) => !domain || (g.v >= domain[0] && g.v <= domain[1])).map((g) => ({ v:g.v, y:Math.round(RY(g.v)) + .5, dash:g.dash ? Array.from(g.dash) : null })), late:lateShown.length ? lateShown : null,
     hover:at != null ? (oneRow ? drawn : items.slice(1).map((i) => i.text)) : null,
     readout, readoutRows:rows, leftOff:offRow.length ? offRow : null };
 }
@@ -2462,17 +2475,19 @@ function scChartDraw(host, scrub) {
      green, red." The put/call pane was held to a neutral grey; it now follows the one rule every pane on
      this wall follows: green when the session closed above the one before it, red when below. */
   const ref = chDayRef(host);
-  let yLo = lo, yHi = hi;
-  if (yHi === yLo) { yHi += 1; yLo -= 1; }
-  /* TradingView-like price margins: 8% of the range above the high, 6% under the low */
-  const yRange = yHi - yLo;
-  yLo -= yRange * .06; yHi += yRange * .08;
+  /* CH1 (5 Oct 2026), RULE C — THE PRICE PANE'S ROOM IS THE VISIBLE WINDOW AND ITS CLOUDS: the y range is
+     fitted on every draw to the bars on screen AND the cloud ribbon under them (a cloud above the price used
+     to run off the top of the pane), then padded; nothing on screen is ever outside the pane. The window
+     itself is never widened to make a move look smaller: a +38% day on a 100-day chart is 38% of a
+     100-day range, exactly as big as it is (chPriceRange, pure). */
+  const cloudMap = cloudMapFor(host, pts);
+  const fit = chPriceRange(lo, hi, cloudMap, start, end);
+  let yLo = fit.yLo, yHi = fit.yHi;
   /* THE RIBBON'S OWN ROOM. Each average is named at the right edge, at the exact
      height of its own line, but only while the newest bar is on screen — so the band
      that holds those names is reserved before the x scale is built, and given back the
      moment the view is panned into history. A pane too small to hold a name honestly
      keeps its full width and shows none. */
-  const cloudMap = cloudMapFor(host, pts);
   const cloudFont = Math.max(6.6, (VIEW_PROFILE === "desk" ? 8.4 : ipadProfile ? 7.2 : 7.6) * scale);
   const cloudLabels = !!cloudMap && end >= pts.length - 1 && iw >= 200 && ih >= 90;
   const cloudBand = cloudLabels ? Math.max(30, Math.min(78, Math.round(iw * .17))) : 0;
@@ -3978,6 +3993,19 @@ function chIntradaySessionOpenRef(host) {
   }
   return Number.isFinite(first) && first !== 0 ? first : null;
 }
+/* CH1 RULE C (pure): the pane's y range = the visible bars' low..high widened by the visible clouds' low..high,
+   then TradingView's margins (6% of that range under, 8% over). A flat window gets ±1. */
+function chPriceRange(lo, hi, cloudMap, start, end) {
+  let yLo = lo, yHi = hi;
+  if (cloudMap) for (let i = start; i <= end; i++) {
+    const b = cloudMap[i]; if (!b) continue;
+    for (const v of [b.lo, b.hi, b.previousLo, b.previousHi]) if (Number.isFinite(v)) { if (v < yLo) yLo = v; if (v > yHi) yHi = v; }
+  }
+  if (!(yHi > yLo)) { yHi = (Number.isFinite(yHi) ? yHi : 0) + 1; yLo = (Number.isFinite(yLo) ? yLo : 0) - 1; }
+  const yRange = yHi - yLo;
+  return { yLo: yLo - yRange * .06, yHi: yHi + yRange * .08 };
+}
+if (typeof window !== "undefined") window.SC_CH1 = Object.assign(window.SC_CH1 || {}, { chPriceRange });
 function chDayRef(host) {
   const t = host && host.dataset ? host.dataset.t : null;
   const v = prevClose[t];

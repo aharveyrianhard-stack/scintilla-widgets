@@ -84,9 +84,23 @@
     }
     return out;
   }
-  /* value -> y inside [top, top + height] on the fixed 0-100 domain, padPx kept at each end */
-  function lookY(v, top, height) {
-    const p = LOOK.padPx, lo = LOOK.domain[0], hi = LOOK.domain[1];
+  /* CH1 (5 Oct 2026), RULE B — THE OSCILLATOR PANE'S ROOM FOLLOWS ITS TRACES: RSI and Williams keep their natural
+     0-100 numbers, but the pane's vertical room is spent where the visible traces are. The domain always holds the
+     30/70 bands (so the bands keep their meaning and a mid-range day is never blown up into drama), stretches from
+     there only as far as the visible values go plus a 4-point pad, and never past 0 or 100. A trace at 97 on a +38%
+     day is drawn at 97 near the top with air above it (never pinned on the frame); a window that lives in 40-60
+     fills the pane instead of a fifth of it. Pure: values = every visible value of every line and cloud edge. */
+  const DOMAIN_PAD = 4, BAND = Object.freeze([30, 70]);
+  function oscDomain(values) {
+    let lo = Infinity, hi = -Infinity;
+    for (const v of values || []) if (v != null && Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    const yLo = Math.max(0, Math.min(BAND[0], Number.isFinite(lo) ? lo : BAND[0]) - DOMAIN_PAD);
+    const yHi = Math.min(100, Math.max(BAND[1], Number.isFinite(hi) ? hi : BAND[1]) + DOMAIN_PAD);
+    return Object.freeze([yLo, yHi]);
+  }
+  /* value -> y inside [top, top + height] on the domain (the fixed 0-100 when none is given), padPx kept at each end */
+  function lookY(v, top, height, domain) {
+    const p = LOOK.padPx, d = domain || LOOK.domain, lo = d[0], hi = d[1];
     return top + p + (1 - (v - lo) / (hi - lo)) * Math.max(1, height - 2 * p);
   }
   const fmt = (v) => (v == null || !Number.isFinite(v) ? "—" : v < 0 ? "−" + Math.abs(v).toFixed(1) : v.toFixed(1));
@@ -107,6 +121,6 @@
 
   root.SC_OSC_LAB = Object.freeze({
     WILLIAMS_PERIOD, SHIFT, LOOK, DOT, DASH, PINK, PINK_CLOUD, HOVER_SEP,
-    williamsValues, toPlot, toNative, deriveSets, lineStyle, paintOrder, lookY, fmt, rsiChip, williamsChip, hoverItem, readoutFor
+    williamsValues, toPlot, toNative, deriveSets, lineStyle, paintOrder, lookY, oscDomain, DOMAIN_PAD, BAND, fmt, rsiChip, williamsChip, hoverItem, readoutFor
   });
 })(typeof globalThis === "object" ? globalThis : window);
