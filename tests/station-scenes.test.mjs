@@ -869,7 +869,8 @@ test("video transport stays in the one top bar and returns the full lower row to
     "the feed-mode chips yield their top-bar space to the active queue controls");
   assert.doesNotMatch(videoPane, /body\.playing[^\{]*#bFull[^\{]*\{[^}]*display:none/,
     "expand remains visibly available while the native player is active");
-  assert.match(videoPane, /id="bBack"[^>]*>‹ grid<\/span>/);
+  /* S13 (5 Oct 2026): GRID is an icon on the bar, there in the grid and in the player (it was the words "‹ grid", player only) */
+  assert.match(videoPane, /<button class="btn" id="bBack" type="button" aria-label="back to the grid of thumbnails"/);
   assert.match(videoPane, /id="bFull" title="expand this pane"/,
     "the same top-bar expansion control is available before and during playback");
   assert.doesNotMatch(videoPane, /[+−-]30s|seekTo\(/,
