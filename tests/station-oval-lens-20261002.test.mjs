@@ -9,7 +9,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { OVAL, SHAPES, SHAPE_KEY, readShape, isPhone, ovalLongAxis, ovalPlotHeight, ovalGeometry, insideOval, placeOval,
+import { OVAL, SHAPES, SHAPE_KEY, readShape, isPhone, ovalLongAxis, ovalPlotHeight, lensPlotHeight, ovalGeometry, insideOval, placeOval,
   coveredByBox, coveredByOval } from "../_indicators/station-lens.mjs";
 import { bubbleBox, candleGeometry, drawCandles, drawBubble, CHAMFER } from "../_indicators/lens-bars.mjs";
 import { lineTailBox, pathPoints, DEFAULTS as PLACE } from "../_indicators/lens-placement.mjs";
@@ -47,7 +47,8 @@ test("the short axis is the least that keeps every candle inside the clip; it ti
     assert.ok(g.b * 2 >= OVAL.minShort && g.b <= g.a, `${name}: short axis ${g.b * 2} px, between the floor and the long axis`);
     assert.ok(g.b === OVAL.minShort / 2 || g.b % OVAL.step === 0, `${name}: the floor or a 4 px step, so a tick does not resize it`);
     for (const c of g.candles.candles) for (const [x, y] of corners(c)) assert.ok(insideOval(g, x, y, 0.01), `${name}: candle ${c.i} is inside the ellipse`);
-    assert.ok(g.candles.candles.length === 48 && g.plotH === 29);
+    /* CH1 (5 Oct): the plot is as tall as the window's move, never under the 27 Sep height (lensPlotHeight) */
+    assert.ok(g.candles.candles.length === 48 && g.plotH === lensPlotHeight(b, 117) && g.plotH >= 29);
     /* minimal: without the air, the floor and the step, one pixel less cuts a candle */
     const tight = ovalGeometry(b, { long: 117, pad: 0, step: 1, minShort: 0 });
     const smaller = { ...tight, b: tight.b - 1 };

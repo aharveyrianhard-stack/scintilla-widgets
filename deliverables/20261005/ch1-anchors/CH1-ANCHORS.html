@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dynamic anchors · 5 Oct 2026</title>
+<style>
+:root{--bg:#0A0A0F;--panel:#0F0F16;--line:#1C1C26;--ink:#C8C8D2;--body:#A8A8B6;--dim:#8C8C9A;--pink:#D24C92;--bull:#39D98A}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--body);font:17px/1.55 -apple-system,"Helvetica Neue",Arial,sans-serif;padding:28px 34px 80px;max-width:1500px}
+h1{font-size:34px;margin:0 0 6px;color:var(--ink)} h2{font-size:25px;margin:44px 0 8px;color:var(--ink)} h3{font-size:19px;margin:26px 0 6px;color:var(--ink)}
+p,ul,ol{max-width:1100px} li{margin:6px 0} .lead{font-size:21px;color:var(--ink)} .note{color:var(--dim);font-size:14px}
+code{font:14px ui-monospace,Menlo,monospace;background:var(--panel);padding:2px 6px;border-radius:4px;color:var(--ink)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;margin:12px 0 26px}
+figure{margin:0 0 18px} img{width:100%;height:auto;border:1px solid var(--line);display:block}
+figcaption{font:13px ui-monospace,Menlo,monospace;color:var(--dim);margin-top:5px}
+.box{border:1px solid var(--line);background:var(--panel);padding:12px 16px;margin:10px 0 16px;max-width:1100px}
+b{color:var(--ink)} .pk{color:var(--pink)} .up{color:var(--bull)}
+table{border-collapse:collapse;font:14px ui-monospace,Menlo,monospace;margin:10px 0 20px} td,th{border:1px solid var(--line);padding:5px 10px;text-align:left} th{color:var(--ink)}
+details.sc-pagespecs{margin-top:50px;border-top:1px solid var(--line);padding-top:14px} details.sc-pagespecs summary{color:var(--dim);cursor:pointer;font:13px ui-monospace,Menlo,monospace;letter-spacing:.08em}
+@media (max-width:760px){body{padding:18px 16px 60px;font-size:16px}.pair{grid-template-columns:1fr}h1{font-size:27px} code{word-break:break-all}}
+</style></head><body>
+
+<h1>The chart's context lens and oscillators anchor themselves</h1>
+<p class="lead">CH1, 5 Oct 2026. Station branch <code>station/ch1-dynamic-anchors-20261005</code> from live <code>b9feb36</code>. <b>Not deployed.</b> Nothing here is on the Hub or the Station until you say so.</p>
+
+<div class="box"><b>In one line:</b> the little oval (the context lens) was always drawn 32 pixels tall whatever the move inside it, so CBRS's jump looked like a flat line. Now the lens, the oscillator pane and the price pane each size their own room to what they hold, every refresh, and nothing is ever cut off.</div>
+
+<h2>1 · CBRS, before and after</h2>
+<p>Your words: "CBRS is up 38.35%. I clicked on the ticker on the chart — I think the chart is right but the context lens is wrong. Do what TradingView cannot do: anchor the oscillators intelligently so that it always looks nice and clean. Always. Establish the boundaries dynamically."</p>
+<div class="pair">
+<figure><img src="shots/before-CBRS-1D-station-lens-crop.png" alt="before: the 30-minute lens on CBRS's daily chart, a flat sliver"><figcaption>BEFORE · CBRS 1D, the 30-minute lens: three sessions squashed into 32 px — the move cannot be read</figcaption></figure>
+<figure><img src="shots/after-CBRS-1D-station-lens-crop.png" alt="after: the same lens, standing 81 px tall, the jump readable"><figcaption>AFTER · the same three sessions: the lens is as tall as the move it holds (81 px for this window), Monday's jump reads as a jump</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/before-CBRS-1D-station.png" alt="before: the whole CBRS daily chart on the Station"><figcaption>BEFORE · CBRS 1D on the Station pane, 1680 × 1050</figcaption></figure>
+<figure><img src="shots/after-CBRS-1D-station.png" alt="after: the whole CBRS daily chart on the Station"><figcaption>AFTER · the same page</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/before-CBRS-1D-hub.png" alt="before: the Hub's embedded CBRS chart"><figcaption>BEFORE · the Hub's embed (bare=hub) of the same chart</figcaption></figure>
+<figure><img src="shots/after-CBRS-1D-hub.png" alt="after: the Hub's embedded CBRS chart"><figcaption>AFTER · the Hub's embed</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/before-CBRS-1h-station-lens-crop.png" alt="before: the daily lens on the 1-hour chart"><figcaption>BEFORE · CBRS 1h, the 60-day lens: sixty daily candles in a 48 px oval</figcaption></figure>
+<figure><img src="shots/after-CBRS-1h-station-lens-crop.png" alt="after: the daily lens on the 1-hour chart, tall"><figcaption>AFTER · the same sixty days: the window spans 60% of the price, so the oval takes its full height (141 px)</figcaption></figure>
+</div>
+
+<h3>What was wrong on CBRS</h3>
+<ul>
+<li><b>The chart's number was right.</b> Both the Station pane and the Hub's embed printed <b class="up">+9.2 to +9.5%</b>: the live price (about 181.7) against the provider-confirmed close of Thursday 2 October (166.43). The live Hub board, read at the same time, printed +9.54% off the same close. I could not find any source that gives +38%: a +38% would need a baseline near 131, which no quote, bar or table carries today. The +38.35% you saw at about 14:10 was the wrong number, and it was not on the board any more when I looked. I could not catch where it came from, so I cannot say it will not come back; it is noted below for the coordinator.</li>
+<li><b>The lens was wrong the way you said.</b> Its window was fresh (Wednesday, Thursday and today's 30-minute candles, the live price on the last one), and it did frame its own prices — but into a plot that was always 28 to 32 pixels tall, however big the move. A +9% window and a flat one were the same sliver. That is a fixed boundary where you asked for a dynamic one.</li>
+<li><b>Also seen, not changed:</b> the 3D and 1W pages say "May 12 – Sep 30" and "May 10 – Sep 27": the chart API's 3-day and weekly bars stop there, so the big line on those two pages ends a week ago while the badge and the lens are live. That is the provider's series, outside this lane.</li>
+</ul>
+
+<h2>2 · The four rules, in plain words</h2>
+<ol>
+<li><b>The lens frames its own window.</b> Its candles' own low and high set its plot (a small pad, re-fitted on every refresh, never the big chart's scale), and the plot is as tall as the move: six pixels for every 1% the window spans, never thinner than it was before (28–32 px), never taller than 30% of the oval's length or 28% of the chart's plot. A quiet day stays a slim sliver; a +38% day stands up. A taller oval that cannot find an empty dark patch steps down in height rather than disappear.</li>
+<li><b>The oscillator pane keeps its numbers and spends its room where the lines are.</b> RSI and Williams %R stay on their natural 0–100; the pane always shows the 30 and 70 bands, and stretches from there only as far as the visible lines and cloud go (plus 4), never past 0 or 100. A window that lives in 40–60 fills the pane instead of a fifth of it; a reading of 97 is drawn at 97 with air above it, never pinned on the frame. A band that lies outside the room (20 or 80) is simply not drawn.</li>
+<li><b>The price pane's room is the visible window and its clouds.</b> The y range fits the bars on screen and the cloud ribbon under them (a cloud above the price used to run off the top), then the usual margins (6% under, 8% over), and never goes below zero. The window is never widened to make a move look smaller: a +38% day on a hundred-day chart is exactly as big as it is.</li>
+<li><b>The Geiger readout and the labels never sit on the trace.</b> The Geiger chip takes an empty spot above the plot, the cloud names live in their own band at the right edge, the lens takes the emptiest dark space and keeps out of the chip and the badge. This is measured, not assumed: every picture below was checked by the harness for anything outside its canvas, any oscillator value outside its room, and any chip, lens or label on the price line.</li>
+</ol>
+
+<h2>3 · The other three names, after</h2>
+<p>Every picture passed the overflow check: nothing clipped, nothing on the trace, the oscillator room always holding 30/70.</p>
+<table>
+<tr><th>name · range · host</th><th>price room (what's visible)</th><th>lens</th><th>oscillator room</th></tr>
+<tr><td>SNDK 1D Station</td><td>613 .. 2465 (711 .. 2335 visible)</td><td>30m × 3 sessions, 88 candles, fresh</td><td>0 .. 100</td></tr>
+<tr><td>SNDK 1W Station</td><td>0 .. 2357 (30 .. 2185 visible) — floored at zero</td><td>20 daily candles, fresh</td><td>0 .. 100</td></tr>
+<tr><td>BTCUSD 1h Station</td><td>84,084 .. 87,009</td><td>60 daily candles, fresh</td><td>17.6 .. 100</td></tr>
+<tr><td>BTCUSD 1W Station</td><td>56,183 .. 127,460</td><td>20 daily candles, fresh</td><td>2.5 .. 100</td></tr>
+<tr><td>SPY 1h Station</td><td>759 .. 777</td><td>60 daily candles, fresh</td><td>0 .. 100</td></tr>
+<tr><td>SPY 1D Station · Hub</td><td>652 .. 787</td><td>30m × 3 sessions, 88 candles, fresh</td><td>0 .. 100</td></tr>
+</table>
+<div class="pair">
+<figure><img src="shots/after-SNDK-1D-station.png" alt="SNDK daily after"><figcaption>AFTER · SNDK 1D (its +3,000% year): the price room fits the year, the lens stands on its own</figcaption></figure>
+<figure><img src="shots/after-BTCUSD-1D-station.png" alt="BTCUSD daily after"><figcaption>AFTER · BTCUSD 1D (84,000-dollar prices)</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/after-SPY-1D-station.png" alt="SPY daily after"><figcaption>AFTER · SPY 1D (a quiet name): a quiet lens stays slim</figcaption></figure>
+<figure><img src="shots/after-SPY-1D-hub.png" alt="SPY daily on the Hub embed after"><figcaption>AFTER · SPY 1D on the Hub's embed</figcaption></figure>
+</div>
+<div class="pair">
+<figure><img src="shots/after-CBRS-1h-station.png" alt="CBRS 1h after"><figcaption>AFTER · CBRS 1h: the daily lens at its full height, the oscillator room 0 .. 93.7</figcaption></figure>
+<figure><img src="shots/after-CBRS-3D-station.png" alt="CBRS 3D after"><figcaption>AFTER · CBRS 3D: the 4-hour lens (note the big line ends 30 Sep: the provider's 3-day bars)</figcaption></figure>
+</div>
+
+<h2>4 · What could be wrong, what I did not do</h2>
+<ul>
+<li>The lens's full height (up to 28% of the plot) is bigger than the 27 Sep "quite a bit smaller" oval on names whose window spans a lot (CBRS's sixty days, SNDK). That is the rule working; if it is too much, the one dial is <code>PX_PER_PCT</code> (6 px per 1%) or the caps (30% of the length, 28% of the plot).</li>
+<li>The +38.35% is not explained. Both hosts and the board compute today's change off the chart API's settled 2 Oct close; nothing I can read gives +38%. If it shows again, a picture with the time will let the coordinator trace which read produced it.</li>
+<li>The 3D and 1W series ending on 30 Sep / 27 Sep is the provider's series, not touched here.</li>
+<li>Not deployed, not merged. Headless pictures only, at 1680 × 1050; no phone pictures this lane.</li>
+</ul>
+
+<details class="sc-pagespecs"><summary>PAGE SPECS</summary>
+<p class="note">Code: <code>_indicators/station-lens.mjs</code> (lensRangePct, lensPlotHeight, OVAL.plotShareMax 0.30, OVAL.paneShare 0.28, the step-down ladder in paint), <code>_indicators/station-osc-merge.js</code> (oscDomain, lookY with a domain), <code>chart/index.html</code> = <code>station-shells/chart-v1/index.html</code> (chPriceRange; drawRsiOnly's domain and guide filter). Harness: <code>deliverables/20261005/ch1-anchors/harness/shots.mjs</code> (headless Chromium, the Station served from the worktree, the chart API proxied with the admitted origin, every non-GET aborted) and <code>hub-row.mjs</code> (the live board's row, GET only). Measurements: <code>shots/before-shots.json</code>, <code>shots/after-shots.json</code>. Tests: <code>tests/station-ch1-dynamic-anchors-20261005.test.mjs</code>; Station suite 964 tests / 18 known failures before → 969 / the same 18 after. Data read: chart API candles (CBRS 30m, 1d) and quotes; the Hub's served live_quotes row for CBRS (price 217.25, prev_close 231.01, updated 18 Aug — stale, and not what the board prints today).</p>
+</details>
+</body></html>

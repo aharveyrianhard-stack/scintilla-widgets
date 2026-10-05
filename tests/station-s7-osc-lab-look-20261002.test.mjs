@@ -153,6 +153,10 @@ const TOP = 300, PH = 120;
 const baseOpts = (extra) => Object.assign({ fan:fanFixture(), X:(i) => 10 + i * 10, start:0, end:N - 1, last:N - 1, left:6, width:400,
   top:TOP, height:PH, gap:6, hairline:"#556", font:9, chipFont:10, gutterRight:460, scrubIx:null, oscReadout:"compact", dateAt:() => null }, extra);
 const pinkAt = (a) => F.rgba("#FF4FAD", a);
+/* CH1 (5 Oct 2026), RULE B: the pane's room follows its visible traces - this fixture's values run 44 (the cloud) to 90, so the
+   domain is 26..94 (the 30/70 bands always inside, a 4-point pad, never past 0/100); the 20 guide lies outside and is not drawn */
+const DOM = O.oscDomain([44, 58, 90, 50, 61.1, 85.6]);
+const yAt = (v) => O.lookY(v, TOP, PH, DOM);
 
 test("4 · ONE pane in every mode: compact, the deck's ⤢ / the Hub's EXPAND, and the chart alone", () => {
   for (const oscReadout of ["compact", "full"]) {
@@ -171,12 +175,14 @@ test("4 · the strokes: guides 80/20 dashed, 70/30 solid, 50 dotted, no 0/100; W
   const r = sandbox.drawOsc(ctx, baseOpts());
   const strokes = ops.filter((o) => o.op === "stroke");
   /* the guides: 5 horizontal strokes after the seam */
-  const guides = strokes.slice(1, 6);
-  const yOf = (v) => Math.round(O.lookY(v, TOP, PH)) + .5;
-  assert.deepEqual(plain(guides.map((g) => g.path[0][1])), [80, 70, 50, 30, 20].map(yOf));
-  assert.deepEqual(plain(guides.map((g) => g.dash)), [[4, 3], [], [1, 2], [], [4, 3]]);
-  assert.deepEqual(plain(guides.map((g) => g.style)), [pinkAt(.45), pinkAt(.70), pinkAt(.30), pinkAt(.70), pinkAt(.45)]);
-  assert.deepEqual(plain(r.guides.map((g) => g.v)), [80, 70, 50, 30, 20], "0 and 100 not drawn");
+  assert.deepEqual(plain(DOM), [26, 94]);
+  const guides = strokes.slice(1, 5);
+  const yOf = (v) => Math.round(yAt(v)) + .5;
+  assert.deepEqual(plain(guides.map((g) => g.path[0][1])), [80, 70, 50, 30].map(yOf));
+  assert.deepEqual(plain(guides.map((g) => g.dash)), [[4, 3], [], [1, 2], []]);
+  assert.deepEqual(plain(guides.map((g) => g.style)), [pinkAt(.45), pinkAt(.70), pinkAt(.30), pinkAt(.70)]);
+  assert.deepEqual(plain(r.guides.map((g) => g.v)), [80, 70, 50, 30], "0 and 100 never drawn; 20 lies outside this window's room (CH1)");
+  assert.deepEqual([r.yLo, r.yHi], [26, 94], "the pane reports its room");
   /* the twelve lines, back to front */
   const lines = strokes.filter((s) => s.path.length === N);
   assert.equal(lines.length, 12);
@@ -186,7 +192,7 @@ test("4 · the strokes: guides 80/20 dashed, 70/30 solid, 50 dotted, no 0/100; W
   lines.forEach((s, i) => {
     const [key, set] = want[i], spec = F.BY_KEY[key];
     const last = (set === "w" ? W_LAST : R_LAST)[key];
-    assert.equal(s.path[N - 1][1], O.lookY(last, TOP, PH), key + set + " ends at its own value");
+    assert.equal(s.path[N - 1][1], yAt(last), key + set + " ends at its own value");
     assert.equal(s.style, pinkAt(spec.alpha), key + set + " the ladder's opacity in the one pink");
     if (set === "w") { assert.deepEqual(plain(s.dash), [1, 2], key + " Williams dotted"); assert.equal(s.width, spec.daily ? 2 : 1); }
     else { assert.deepEqual(plain(s.dash), [], key + " RSI solid"); assert.equal(s.width, spec.daily ? 3 : 1); }
@@ -194,22 +200,22 @@ test("4 · the strokes: guides 80/20 dashed, 70/30 solid, 50 dotted, no 0/100; W
   /* the ladder is the Lab's: 12H 66% … 3H 54%, the Daily 90% */
   assert.deepEqual(KEYS.map((k) => F.BY_KEY[k].alpha), [.54, .57, .60, .63, .66, .90]);
   /* the Daily RSI at 90 is drawn at 90: no clamp */
-  assert.equal(lines[11].path[N - 1][1], O.lookY(90, TOP, PH));
+  assert.equal(lines[11].path[N - 1][1], yAt(90));
 });
 
 test("4 · the two daily chips at their exact heights: 'RSI D 90.0' and, further right, 'W D 85.6 · %R −14.4'", () => {
   const r = sandbox.drawOsc(recorder().ctx, baseOpts());
   assert.equal(r.chip.text, "RSI D 90.0"); assert.equal(r.chip.value, 90);
-  assert.equal(r.chip.y, +O.lookY(90, TOP, PH).toFixed(2));
+  assert.equal(r.chip.y, +yAt(90).toFixed(2));
   assert.equal(r.wChip.text, "W D 85.6 · %R −14.4"); assert.equal(r.wChip.value, 85.6); assert.equal(r.wChip.native, -14.4);
-  assert.equal(r.wChip.y, +O.lookY(85.6, TOP, PH).toFixed(2));
+  assert.equal(r.wChip.y, +yAt(85.6).toFixed(2));
   /* further right: its right end beyond the RSI chip's (in a narrow gutter both are pulled left, right-aligned, so the left edges
      follow the text widths) */
   assert.ok(r.wChip.box.x + r.wChip.box.w > r.chip.box.x + r.chip.box.w, "the Williams chip ends further right");
   const a = r.chip.box, b = r.wChip.box;
   assert.ok(!(a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y), "the chips never overlap");
   /* each leader starts at its exact point */
-  assert.equal(r.chip.leader.y1, O.lookY(90, TOP, PH)); assert.equal(r.wChip.leader.y1, O.lookY(85.6, TOP, PH));
+  assert.equal(r.chip.leader.y1, yAt(90)); assert.equal(r.wChip.leader.y1, yAt(85.6));
   assert.equal(O.williamsChip(85.6), "W D 85.6 · %R −14.4"); assert.equal(O.rsiChip(49.21), "RSI D 49.2");
 });
 
