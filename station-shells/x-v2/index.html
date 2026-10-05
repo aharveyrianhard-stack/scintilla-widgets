@@ -144,26 +144,39 @@ html[data-view="compact"] .btn.icon{ width:22px; height:18px; padding:2px; }
 #bXMore{ width:26px; padding-left:0; padding-right:0; text-align:center; }
 body:not(.x-more) .x-sec{ display:none !important; }
 body.x-more #bXMore{ color:var(--crk); border-color:var(--crk); }
+/* S13 (5 Oct, ~12:30 ET): ICONS ON THE BAR, AND THE REFRESH ON A CADENCE. Alan: "On the X one what's very
+   important is to refresh it; 30 seconds feels too fast — maybe a minute, a minute and a half; think of it like
+   'go a page up'. Make these buttons icons instead of words as much as we can, to save space."
+   On the bar: the state · list · notifications · ↻ with its cadence beside it (60s) · ⋯ · ⛶ — all icons. The ⋯
+   now opens a small panel over the top of the feed instead of widening the row: the cadence (30 s / 60 s / 90 s),
+   −30 s, the iPad link, picture-in-picture and the source's name, in words because there is room for words there. */
+#xfEvery{ flex:none; color:var(--dim); font-size:9px; letter-spacing:.04em; white-space:nowrap; align-self:center;
+  font-variant-numeric:tabular-nums; margin-left:-2px; }
+#xMore{ position:absolute; z-index:4; top:0; left:0; right:0; display:flex; flex-wrap:wrap; align-items:center; gap:4px;
+  padding:5px 6px; border-bottom:1px solid var(--hair); background:rgba(10,10,15,.98); box-shadow:0 8px 24px rgba(0,0,0,.5); }
+body:not(.x-more) #xMore{ display:none; }
+#xMore .lab{ flex:none; color:var(--dim); font-size:9px; letter-spacing:.1em; text-transform:uppercase; }
+#xMore .brk{ flex:0 0 100%; height:0; }
+#xMore #xfSource{ max-width:100%; }
 </style>
 </head>
 <body>
 <div id="bar">
   <span class="k">X · XFLOAT</span>
   <span id="xfState" hidden>waiting</span>
-  <span id="xfSource" class="x-sec" hidden></span>
   <button class="btn icon" id="bXList" type="button" style="display:none" title="Trading list" aria-label="Show trading list">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 4h8M5 8h8M5 12h8"/><path d="M2.5 4h.01M2.5 8h.01M2.5 12h.01"/></svg>
   </button>
   <button class="btn icon" id="bXNotify" type="button" style="display:none" title="Notifications" aria-label="Show notifications">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 11.5h9l-1.1-1.7V7a3.4 3.4 0 0 0-6.8 0v2.8z"/><path d="M6.6 13.2a1.6 1.6 0 0 0 2.8 0"/></svg>
   </button>
-  <span class="btn" id="bXRefresh" style="display:none">refresh</span>
-  <span class="btn x-sec" id="bXBack" style="display:none" title="rewind the feed 30 seconds">−30s</span>
+  <button class="btn icon" id="bXRefresh" type="button" style="display:none" title="refresh now — the newest posts to the top" aria-label="Refresh the feed now">
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13.2 2.4v3.1h-3.1"/></svg>
+  </button>
+  <span id="xfEvery" style="display:none"></span>
   <span class="btn go" id="bStart" style="display:none">browser picker</span>
   <span class="btn" id="bStop" style="display:none">stop</span>
-  <button class="btn pair x-sec" id="bPair" type="button" style="display:none">iPad link</button>
-  <span class="btn x-sec" id="bPip" style="display:none" title="float this in its own always-on-top window">pip</span>
-  <button class="btn" id="bXMore" type="button" style="display:none" title="more: rewind, iPad link, picture-in-picture, the source" aria-label="more X controls" aria-expanded="false">⋯</button>
+  <button class="btn" id="bXMore" type="button" style="display:none" title="more: how often it refreshes, rewind, iPad link, picture-in-picture, the source" aria-label="more X controls" aria-expanded="false">⋯</button>
   <span class="lbl" id="lz" style="display:none">zoom</span>
   <input type="range" id="z" min="100" max="400" value="150" style="display:none">
   <span class="lbl" id="lx" style="display:none">pan</span>
@@ -174,6 +187,17 @@ body.x-more #bXMore{ color:var(--crk); border-color:var(--crk); }
 <div id="body">
   <video id="v" autoplay muted playsinline></video>
   <canvas id="cv"></canvas>
+  <div id="xMore" role="group" aria-label="more X controls">
+    <span class="lab" title="how often the feed refreshes by itself — a page up: the newest posts to the top">a page up every</span>
+    <button class="btn xr" type="button" data-s="30" title="refresh every 30 seconds">30s</button>
+    <button class="btn xr" type="button" data-s="60" title="refresh every 60 seconds">60s</button>
+    <button class="btn xr" type="button" data-s="90" title="refresh every 90 seconds">90s</button>
+    <span class="brk"></span>
+    <span class="btn x-sec" id="bXBack" style="display:none" title="rewind the feed 30 seconds">−30s</span>
+    <button class="btn pair x-sec" id="bPair" type="button" style="display:none">iPad link</button>
+    <span class="btn x-sec" id="bPip" style="display:none" title="float this in its own always-on-top window">pip</span>
+    <span id="xfSource" class="x-sec" hidden></span>
+  </div>
   <div id="card">
     <div class="n">X source is offline</div>
     <div class="d">Open the dedicated <b>x.com</b> source tab in this Chrome profile and press
@@ -939,6 +963,77 @@ function stopStationHealth() {
   startStationWatch();
 }
 
+/* ---- S13: THE REFRESH CADENCE — "A PAGE UP" EVERY 30 / 60 / 90 SECONDS (60 BY DEFAULT) -------------------
+   Until now the feed refreshed only when ↻ was pressed. On the cadence chosen behind the ⋯ this pane now
+   asks the source for a page up: X's own refresh, then the source's own scroll to the top, so the newest
+   posts are at the top and what was being read sits just under them when it still fits. The count starts
+   again whenever the feed is refreshed by hand or the view is changed.
+   The rules this timer lives with, decided in one place (xRefreshPlan) and tested together:
+     · the hover hold — a pointer on the feed means he is reading: the refresh waits, and runs when it leaves;
+     · the ⋯ panel open — he is choosing something: it waits;
+     · a hidden pane has no clock, so it asks for nothing;
+     · two Station mirrors on one source: only the one that owns the scroll clock asks (and the bridge drops
+       a second ask inside 20 s);
+     · the iPad companion is a viewer of the Mac's source: it never asks.
+   While the source turns the page the pane keeps its last picture — never a blank between two pages. */
+const X_REFRESH_CHOICES = [30, 60, 90], X_REFRESH_DEFAULT = 60, X_REFRESH_KEY = "sc.x.refresh.seconds";
+const X_PAGEUP_HOLD_MS = 1500, X_PAGEUP_HOLD_MAX_MS = 5000;
+function xRefreshChoice(value) {
+  const seconds = Number(value);
+  return X_REFRESH_CHOICES.includes(seconds) ? seconds : X_REFRESH_DEFAULT;
+}
+function xRefreshPlan(state) {
+  if (!state.live) return { fire:false, wait:false, why:"no live source" };
+  if (state.remote) return { fire:false, wait:false, why:"the iPad follows the Mac's source" };
+  if (!state.visible) return { fire:false, wait:false, why:"the pane is hidden" };
+  if (!state.owner) return { fire:false, wait:false, why:"another mirror drives the source" };
+  if (state.now - state.lastAt < state.seconds * 1000) return { fire:false, wait:false, why:"not due" };
+  if (state.hover) return { fire:false, wait:true, why:"the pointer is on the feed" };
+  if (state.panel) return { fire:false, wait:true, why:"the ⋯ panel is open" };
+  return { fire:true, wait:false, why:"due" };
+}
+let xRefreshSeconds = X_REFRESH_DEFAULT, xRefreshAt = 0, xRefreshWaiting = false, xRefreshCount = 0;
+let xHoldStart = 0, xHoldUntil = 0, xHoldSeq = -1;
+try { xRefreshSeconds = xRefreshChoice(localStorage.getItem(X_REFRESH_KEY)); } catch (_) {}
+function paintXRefresh() {
+  for (const b of document.querySelectorAll("#xMore .xr")) {
+    const on = Number(b.dataset.s) === xRefreshSeconds;
+    b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  el("xfEvery").textContent = xRefreshSeconds + "s";
+  el("xfEvery").title = "refreshes by itself every " + xRefreshSeconds + " seconds — a page up · change it behind ⋯";
+  el("bXRefresh").title = "refresh now — the newest posts to the top (by itself every " + xRefreshSeconds + " s)";
+}
+function setXRefreshSeconds(value) {
+  xRefreshSeconds = xRefreshChoice(value);
+  try { localStorage.setItem(X_REFRESH_KEY, String(xRefreshSeconds)); } catch (_) {}
+  xRefreshAt = Date.now(); xRefreshWaiting = false;
+  paintXRefresh();
+}
+function holdXPicture(now = Date.now()) {
+  xHoldStart = now; xHoldUntil = now + X_PAGEUP_HOLD_MS;
+  xHoldSeq = Number(xfloatCrop?.pageUp?.seq ?? -1);
+}
+/* the source says how the page-up is going: hold while it is busy, let go just after it lands */
+function noteXPageUp(pageUp, now = Date.now()) {
+  if (!xHoldUntil || !pageUp) return;
+  if (pageUp.busy) xHoldUntil = Math.min(xHoldStart + X_PAGEUP_HOLD_MAX_MS, Math.max(xHoldUntil, now + 1000));
+  else if (Number(pageUp.seq) > xHoldSeq) { xHoldUntil = Math.min(xHoldUntil, now + 300); xHoldSeq = Number(pageUp.seq); }
+}
+function pageUpNow() {
+  xRefreshAt = Date.now(); xRefreshWaiting = false; xRefreshCount += 1;
+  holdXPicture();
+  postXFloat("refresh", { pageUp:true, every:xRefreshSeconds });
+}
+function runXRefreshClock() {
+  const plan = xRefreshPlan({ live:!!xfloatStream, remote:REMOTE_MODE, visible:document.visibilityState === "visible",
+    owner:viewerClockOwner, now:Date.now(), lastAt:xRefreshAt, seconds:xRefreshSeconds,
+    hover:stationHoverInside, panel:document.body.classList.contains("x-more") });
+  xRefreshWaiting = plan.wait;
+  if (plan.fire) pageUpNow();
+}
+setInterval(runXRefreshClock, 1000);
+
 function postXFloat(action, value) {
   if (REMOTE_MODE) {
     if (["view", "rewind", "refresh"].includes(action) && remoteSocket?.readyState === WebSocket.OPEN) {
@@ -958,6 +1053,8 @@ function paintXView(view) {
 function xfloatControls(on) {
   for (const id of ["bXList", "bXNotify", "bXBack", "bXRefresh", "bXMore"])
     el(id).style.display = on ? "" : "none";
+  el("xfEvery").style.display = on && !REMOTE_MODE ? "" : "none";
+  if (on) { xRefreshAt = Date.now(); paintXRefresh(); }   /* the first page-up is one cadence after the feed attaches */
   el("bStart").style.display = "none";
   el("bPair").style.display = on && !REMOTE_MODE ? "" : "none";
   if (!on) setXMore(false);
@@ -1011,6 +1108,11 @@ function drawXFloat(at = 0) {
   if (!xfloatStream) {
     xfloatFrame = requestAnimationFrame(drawXFloat);
     return;
+  }
+  /* S13: while the source turns the page the last picture stays up — never a blank between two pages */
+  if (xHoldUntil) {
+    if (Date.now() < xHoldUntil) { xfloatFrame = requestAnimationFrame(drawXFloat); return; }
+    xHoldUntil = 0;
   }
   /* 23 Sep: this used to wait for a crop as well, so a pane holding a perfectly
      good stream painted nothing at all until the source's first crop arrived -
@@ -1320,6 +1422,10 @@ el("bXBack").addEventListener("click", () => postXFloat("rewind"));
 el("bXRefresh").addEventListener("click", () => postXFloat("refresh"));
 el("bXList").addEventListener("click", () => postXFloat("view", "trading"));
 el("bXNotify").addEventListener("click", () => postXFloat("view", "notifications"));
+/* S13: a refresh by hand or a change of view starts the count again; a cadence chip sets it and folds the panel */
+for (const id of ["bXRefresh", "bXList", "bXNotify"]) el(id).addEventListener("click", () => { xRefreshAt = Date.now(); xRefreshWaiting = false; });
+for (const b of document.querySelectorAll("#xMore .xr")) b.addEventListener("click", () => { setXRefreshSeconds(b.dataset.s); setXMore(false); });
+paintXRefresh();
 el("bFull").addEventListener("click", () => {
   parent.postMessage({ type: "SCINTILLA_DECK_TOGGLE_FULL" }, location.origin);
 });
@@ -1371,6 +1477,7 @@ window.addEventListener("message", (event) => {
   if (event.data?.type === "XFF_STATION_CROP") {
     xfloatCrop = event.data.crop;
     stationLastCropAt = Date.now();
+    noteXPageUp(xfloatCrop?.pageUp);
     const paused = Boolean(xfloatCrop?.paused);
     showStationSource(xfloatCrop?.source);
     if (!stationFault && !stationWholeFrameWhy) showStationState(paused ? "paused" : "live", "on");

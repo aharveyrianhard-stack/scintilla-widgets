@@ -79,6 +79,8 @@
     activeView: "trading",
     settings: { ...DEFAULT_SETTINGS },
     stationMode: false,
+    /* S13 (0.7.23): the last "page up" refresh — a sequence the pane can wait on, and what came of it */
+    pageUp: { seq: 0, busy: false, at: 0, result: "", readingOnScreen: null, newPosts: null },
     /* True only when the track serving the Station pane was cropped at the
        source. The relayed capture is not, yet - see DESIGN notes. */
     stationSourceCropped: false,
@@ -1580,6 +1582,93 @@
     return activateView(session.activeView, { refresh: true });
   }
 
+  /* ---- S13 (0.7.23): THE TIMED REFRESH READS AS "A PAGE UP" ---------------------------------------
+     Alan, 5 Oct: "On the X one what's very important is to refresh it … maybe a minute, a minute and
+     a half; think of it like 'go a page up'." The Station pane asks for this on its cadence (30 / 60 /
+     90 s, 60 by default). It is X's own refresh — the "See new posts" pill, else a re-tap of the tab
+     that is already selected, exactly as the ↻ button — followed by this page's own scroll to the top,
+     so the newest posts are at the top of the capture and the posts that were being read sit just
+     below them when they still fit on the screen.
+     The rules it lives with, checked together:
+       · the hover hold — a pointer on the pane means he is reading: nothing moves under his hand;
+       · one view change at a time (session.switchingView) and one page-up at a time;
+       · two Station mirrors on one source may both ask: a second ask inside the minimum gap is dropped;
+       · never a jump to a blank — it settles only once posts are painted; if none are within the
+         wait, the page goes back to where it was and the result says so;
+       · the slow scroll's sub-pixel phase is reset, as every other jump of the source does.
+     The ↻ button (action "refresh" without pageUp) is unchanged. */
+  const PAGE_UP_MIN_GAP_MS = 20000;
+  const PAGE_UP_PAINT_WAIT_MS = 3500;
+
+  function visibleFeedPosts() {
+    const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+    const visibleTop = findFeedTabsBottom(viewportHeight);
+    return [...document.querySelectorAll('[data-testid="tweet"]')].filter((post) => {
+      const rect = post.getBoundingClientRect();
+      return rect.height > 0 && rect.bottom > visibleTop + 8 && rect.top < viewportHeight;
+    });
+  }
+
+  function feedPostKey(post) {
+    const link = post?.querySelector?.('a[href*="/status/"]');
+    return link ? String(link.getAttribute("href") || "").split("?")[0] : "";
+  }
+
+  /* Pure: what a page-up may do, from the facts at the moment it is asked. */
+  function pageUpPlan(state) {
+    if (!state.stationMode) return { run: false, why: "no Station is watching" };
+    if (state.busy || state.switchingView) return { run: false, why: "a refresh is already under way" };
+    if (state.paused) return { run: false, why: "held: the pointer is on the feed" };
+    if (state.now - state.lastAt < PAGE_UP_MIN_GAP_MS) return { run: false, why: "another mirror just asked" };
+    return { run: true, why: "" };
+  }
+
+  /* Pure: where a page-up ended, from what was read before and what is painted after. */
+  function pageUpOutcome(before, after) {
+    if (!after.painted) return { result: "kept", readingOnScreen: null, newPosts: null };
+    const at = before.readingKey ? after.keys.indexOf(before.readingKey) : -1;
+    return {
+      result: "top",
+      /* the post he was on is still on the screen, under the new ones */
+      readingOnScreen: before.readingKey ? at >= 0 : null,
+      /* posts painted above it now; null when it has left the screen (more than a screenful arrived) */
+      newPosts: at >= 0 ? at : null
+    };
+  }
+
+  async function pageUpRefresh() {
+    const now = Date.now();
+    const plan = pageUpPlan({
+      stationMode: session.stationMode, busy: session.pageUp.busy, switchingView: session.switchingView,
+      paused: session.pointerPause || stationViewerPauseActive(), now, lastAt: session.pageUp.at
+    });
+    if (!plan.run) return plan;
+    const root = document.scrollingElement || document.documentElement;
+    const before = { scrollTop: root.scrollTop, readingKey: feedPostKey(visibleFeedPosts()[0]) };
+    session.pageUp = { seq: session.pageUp.seq + 1, busy: true, at: now, result: "", readingOnScreen: null, newPosts: null };
+    let outcome = { result: "kept", readingOnScreen: null, newPosts: null };
+    try {
+      await activateView(session.activeView, { refresh: true, align: false });
+      root.scrollTo({ top: 0, behavior: "auto" });
+      const painted = await waitFor(() => visibleFeedPosts().length > 0, PAGE_UP_PAINT_WAIT_MS);
+      if (painted) {
+        alignCaptureToFirstVisiblePost();
+        await wait(120);
+      } else {
+        root.scrollTo({ top: before.scrollTop, behavior: "auto" });
+      }
+      outcome = pageUpOutcome(before, { painted: Boolean(painted), keys: visibleFeedPosts().map(feedPostKey) });
+    } catch (error) {
+      console.warn("Station X page-up kept the feed where it was:", error);
+      root.scrollTo({ top: before.scrollTop, behavior: "auto" });
+    } finally {
+      resetStationScrollComposite();
+      scheduleCropTargetUpdate();
+      session.pageUp = { ...session.pageUp, ...outcome, busy: false };
+    }
+    return { run: true, ...outcome };
+  }
+
   function rewindFeed() {
     const root = document.scrollingElement || document.documentElement;
     const thirtySeconds = Math.round(session.settings.speedPxPerSecond * 30);
@@ -2137,6 +2226,8 @@
       sequence: ++session.stationCropSequence,
       activeView: session.activeView,
       paused: isPaused(),
+      /* S13: the pane holds its last picture while a page-up is under way and lets go on the next sequence */
+      pageUp: { ...session.pageUp },
       /* One contract for every browser: the pane is told whether these pixels
          were already cropped at the source, what this browser can do, and which
          machine and browser they came from. */
@@ -2301,7 +2392,8 @@
     } else if (action === "pause") {
       setStationViewerPause(Boolean(value));
     } else if (action === "refresh") {
-      await refreshCurrentView();
+      if (value && value.pageUp) await pageUpRefresh();
+      else await refreshCurrentView();
     } else if (action === "rewind") {
       rewindFeed();
     } else if (action === "view" && ["trading", "notifications"].includes(value)) {
