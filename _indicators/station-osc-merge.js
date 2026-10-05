@@ -17,6 +17,14 @@
        first, the native Williams value second).
    One pink family (#FF4FAD) for everything.
 
+   O2 (5 Oct 2026, Linear SCI-69) — three more of the Lab's rules, read off its last saved revision (2.0, 2 Oct 13:51 UTC,
+   INDICATOR_LAB/sprints/2026-10-02-rotation/DESKTOP-DELIVERY.md) and its 3 Oct picture. CH1's room rule is kept as it is:
+     · the Williams chip is the Lab's: "W%R D −14.4", the native value alone (the Lab dropped the plotted number);
+     · a dot is as long as its line is wide, the gap twice that - so the Daily Williams (width 2) reads as a row of dots,
+       as it does on the Lab's pane, and not as fine hatching;
+     · the pane carries its numbers: 70 and 30 are printed on their bands at the right edge, as the Lab's pane has a
+       numbered scale (only for a band the room holds, and never under a chip).
+
    Pure functions. No fetch, no DOM, no clock of its own. */
 (function (root) {
   "use strict";
@@ -66,11 +74,27 @@
     chipLook:Object.freeze({ text:.95, fill:.18, leader:.55, gap:6 }),
     /* the Williams chip sits this much further right than the RSI chip (the script's wDailyOffset, in px) */
     wChipOffset:14 });
+  /* O2: a dotted line's dot is as long as the line is wide and its gap twice that (width 1 = the [1, 2] it always was) */
+  const dotFor = (width) => (width > 1 ? Object.freeze([width, 2 * width]) : DOT);
+  /* O2: THE PANE'S NUMBERS. Which bands get their number at the right edge: 70 and 30, each only when the room (CH1's
+     domain) holds it and no chip covers the spot. domain [lo, hi]; yOf(v) -> y; boxes [{ x, y, w, h }] = the chips drawn;
+     at { x, h, w(text) } = where a number would sit (right-aligned at x, h tall). Returns [{ v, text, y }]. Pure. */
+  const SCALE = Object.freeze({ values:Object.freeze([70, 30]), opacity:.70, pad:2 });
+  function scaleMarks(domain, yOf, boxes, at) {
+    const out = [];
+    for (const v of SCALE.values) {
+      if (domain && (v < domain[0] || v > domain[1])) continue;
+      const text = String(v), y = yOf(v), w = at && at.w ? at.w(text) : 0, h = (at && at.h) || 0, x1 = at ? at.x : 0, x0 = x1 - w;
+      const hit = (boxes || []).some((b) => b && x0 - SCALE.pad < b.x + b.w && x1 + SCALE.pad > b.x && y - h / 2 - SCALE.pad < b.y + b.h && y + h / 2 + SCALE.pad > b.y);
+      if (!hit) out.push({ v, text, y });
+    }
+    return out;
+  }
   /* how one line is stroked. spec is the fan's line (station-rsi-fan BY_KEY: alpha = the ladder, width, daily).
      RSI: solid at the fan's width (intraday 1, Daily 3). Williams: dotted, intraday 1, Daily 2. Same opacity for both. */
   function lineStyle(set, spec) {
     const daily = !!(spec && spec.daily), alpha = spec && spec.alpha != null ? spec.alpha : 1;
-    if (set === "williams") return { alpha, width:daily ? 2 : 1, dash:DOT };
+    if (set === "williams") { const width = daily ? 2 : 1; return { alpha, width, dash:dotFor(width) }; }
     return { alpha, width:spec && spec.width ? spec.width : 1, dash:null };
   }
   /* The paint order, the script's explicit_plot_zorder: Williams 12H…3H then its Daily, then RSI 12H…3H, the RSI Daily last.
@@ -104,9 +128,10 @@
     return top + p + (1 - (v - lo) / (hi - lo)) * Math.max(1, height - 2 * p);
   }
   const fmt = (v) => (v == null || !Number.isFinite(v) ? "—" : v < 0 ? "−" + Math.abs(v).toFixed(1) : v.toFixed(1));
-  /* the two daily chips: "RSI D 49.2" · "W D 85.6 · %R −14.4" (plotted height first, the native Williams value second) */
+  /* the two daily chips: "RSI D 49.2" · "W%R D −14.4". O2 (5 Oct): the Williams chip is the Lab's revision 2.0 - the native
+     value alone, at the plotted height (S7 printed "W D 85.6 · %R −14.4", the text the Lab had before it) */
   const rsiChip = (v) => "RSI D " + fmt(v);
-  const williamsChip = (p) => "W D " + fmt(p) + " · %R " + fmt(toNative(p));
+  const williamsChip = (p) => "W%R D " + fmt(toNative(p));
   /* one timeframe on the hover row: "3H R54.8 W79.5" (Williams on the plotted 0-100 scale) */
   const hoverItem = (label, r, w) => label + " R" + fmt(r) + " W" + fmt(w);
   const HOVER_SEP = " · ";
@@ -121,6 +146,6 @@
 
   root.SC_OSC_LAB = Object.freeze({
     WILLIAMS_PERIOD, SHIFT, LOOK, DOT, DASH, PINK, PINK_CLOUD, HOVER_SEP,
-    williamsValues, toPlot, toNative, deriveSets, lineStyle, paintOrder, lookY, oscDomain, DOMAIN_PAD, BAND, fmt, rsiChip, williamsChip, hoverItem, readoutFor
+    williamsValues, toPlot, toNative, deriveSets, lineStyle, dotFor, SCALE, scaleMarks, paintOrder, lookY, oscDomain, DOMAIN_PAD, BAND, fmt, rsiChip, williamsChip, hoverItem, readoutFor
   });
 })(typeof globalThis === "object" ? globalThis : window);

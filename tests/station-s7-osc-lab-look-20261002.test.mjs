@@ -194,7 +194,8 @@ test("4 · the strokes: guides 80/20 dashed, 70/30 solid, 50 dotted, no 0/100; W
     const last = (set === "w" ? W_LAST : R_LAST)[key];
     assert.equal(s.path[N - 1][1], yAt(last), key + set + " ends at its own value");
     assert.equal(s.style, pinkAt(spec.alpha), key + set + " the ladder's opacity in the one pink");
-    if (set === "w") { assert.deepEqual(plain(s.dash), [1, 2], key + " Williams dotted"); assert.equal(s.width, spec.daily ? 2 : 1); }
+    /* O2 (5 Oct): a dot is as long as its line is wide, the gap twice that - the width-2 Daily is [2, 4], the rest [1, 2] as before */
+    if (set === "w") { assert.deepEqual(plain(s.dash), spec.daily ? [2, 4] : [1, 2], key + " Williams dotted"); assert.equal(s.width, spec.daily ? 2 : 1); }
     else { assert.deepEqual(plain(s.dash), [], key + " RSI solid"); assert.equal(s.width, spec.daily ? 3 : 1); }
   });
   /* the ladder is the Lab's: 12H 66% … 3H 54%, the Daily 90% */
@@ -203,11 +204,13 @@ test("4 · the strokes: guides 80/20 dashed, 70/30 solid, 50 dotted, no 0/100; W
   assert.equal(lines[11].path[N - 1][1], yAt(90));
 });
 
-test("4 · the two daily chips at their exact heights: 'RSI D 90.0' and, further right, 'W D 85.6 · %R −14.4'", () => {
+/* O2 (5 Oct 2026): the Williams chip now reads the Lab's revision 2.0 text, "W%R D −14.4" (the native value alone); S7 pinned
+   "W D 85.6 · %R −14.4", the text the Lab had before it. Heights, leaders and the no-overlap rule are unchanged. */
+test("4 · the two daily chips at their exact heights: 'RSI D 90.0' and, further right, 'W%R D −14.4'", () => {
   const r = sandbox.drawOsc(recorder().ctx, baseOpts());
   assert.equal(r.chip.text, "RSI D 90.0"); assert.equal(r.chip.value, 90);
   assert.equal(r.chip.y, +yAt(90).toFixed(2));
-  assert.equal(r.wChip.text, "W D 85.6 · %R −14.4"); assert.equal(r.wChip.value, 85.6); assert.equal(r.wChip.native, -14.4);
+  assert.equal(r.wChip.text, "W%R D −14.4"); assert.equal(r.wChip.value, 85.6); assert.equal(r.wChip.native, -14.4);
   assert.equal(r.wChip.y, +yAt(85.6).toFixed(2));
   /* further right: its right end beyond the RSI chip's (in a narrow gutter both are pulled left, right-aligned, so the left edges
      follow the text widths) */
@@ -216,7 +219,7 @@ test("4 · the two daily chips at their exact heights: 'RSI D 90.0' and, further
   assert.ok(!(a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y), "the chips never overlap");
   /* each leader starts at its exact point */
   assert.equal(r.chip.leader.y1, yAt(90)); assert.equal(r.wChip.leader.y1, yAt(85.6));
-  assert.equal(O.williamsChip(85.6), "W D 85.6 · %R −14.4"); assert.equal(O.rsiChip(49.21), "RSI D 49.2");
+  assert.equal(O.williamsChip(85.6), "W%R D −14.4"); assert.equal(O.rsiChip(49.21), "RSI D 49.2");
 });
 
 test("4 · the hover: ONE row; compact the Daily alone 'D R90.0 W85.6', expanded every timeframe; Williams on 0-100", () => {

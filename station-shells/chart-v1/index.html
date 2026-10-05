@@ -1709,7 +1709,7 @@ function drawRsiOnly(ctx, o) {
   }
   ctx.restore();
   /* 5 · THE DAILY CHIPS: at the daily line's newest drawn value, only while the newest bar is on screen. S7: a second chip,
-     further right, at the Williams Daily's exact plotted height - "W D 85.6 · %R −14.4" - moved off the RSI chip if they touch */
+     further right, at the Williams Daily's exact plotted height - "W%R D −14.4" (O2: the Lab's revision 2.0 text) - moved off the RSI chip if they touch */
   const daily = o.fan.lines.find((l) => isDaily(l.key) && l.values);
   const wDaily = L ? o.sets.williams.lines.find((l) => isDaily(l.key) && l.values) : null;
   const cf = o.chipFont, chipH = Math.ceil(cf + 5);
@@ -1765,6 +1765,18 @@ function drawRsiOnly(ctx, o) {
         leader:P.leader, displaced:P.displaced, developing:tip ? tip.developing : false,
         title:"Williams %R(14) " + M.toNative(v).toFixed(2) + " (drawn at " + v.toFixed(2) + "), source 1D, " + (tip && tip.developing ? "developing" : "confirmed") };
     }
+  }
+  /* O2 (5 Oct) - THE PANE'S NUMBERS, like the Lab's numbered scale: 70 and 30 on their bands at the right edge, in the bands'
+     own pink and the price axis's small type; only a band the room holds (CH1), never under a chip */
+  let scale = null;
+  if (L) {
+    ctx.save();
+    const sf = o.axisFont || o.font;
+    ctx.font = sf + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+    ctx.textAlign = "right"; ctx.textBaseline = "middle"; ctx.fillStyle = F.rgba(INK, M.SCALE.opacity);
+    scale = M.scaleMarks(domain, RY, [chip && chip.box, wChip && wChip.box], { x:o.axisX, h:sf, w:(t) => ctx.measureText(t).width });
+    for (const m of scale) ctx.fillText(m.text, o.axisX, m.y + .5);
+    ctx.restore();
   }
   /* THE TITLE ROW: at rest the title and anything missing, named; on hover every line's timeframe and value.
      S7: on hover ONE row, never wrapped - the Daily alone on a compact pane ("D R49.2 W85.6"), every visible timeframe when
@@ -1828,7 +1840,7 @@ function drawRsiOnly(ctx, o) {
   ctx.restore();
   ctx.restore();
   return { mode:L ? "osc-lab" : "rsi-only", top, height:ph, yLo:(domain || V.domain)[0], yHi:(domain || V.domain)[1], visLo:visible ? visible[0] : null, visHi:visible ? visible[1] : null,
-    lines:shown, williams:L ? wShown : null, cloud:cloudShown, chip, wChip, ink:INK,
+    lines:shown, williams:L ? wShown : null, cloud:cloudShown, chip, wChip, scale, ink:INK,
     guides:GUIDES.filter((g) => !domain || (g.v >= domain[0] && g.v <= domain[1])).map((g) => ({ v:g.v, y:Math.round(RY(g.v)) + .5, dash:g.dash ? Array.from(g.dash) : null })), late:lateShown.length ? lateShown : null,
     hover:at != null ? (oneRow ? drawn : items.slice(1).map((i) => i.text)) : null,
     readout, readoutRows:rows, leftOff:offRow.length ? offRow : null };
@@ -2575,7 +2587,7 @@ function scChartDraw(host, scrub) {
   /* S3 (29 Sep): the full fan is the Lab's RSI-only pane; the Hub's lone ?rsi=chart line keeps the older one. */
   const fanOpts = { fan, X, start, end, last:pts.length - 1, left:padL, width:iw, palette:col,
     top:padT + ih + fanGap, height:fanBlock - fanGap, gap:fanGap, axisX:w - 3, hairline:col.dim,
-    font:cloudFont, chipFont:Math.max(8.5, cloudFont + 1), gutterRight:w - 2,
+    font:cloudFont, chipFont:Math.max(8.5, cloudFont + 1), gutterRight:w - 2, axisFont:(ipadProfile ? 6.5 : 7) * scale,
     scrubIx:null, oscReadout:osc ? oscReadoutFor() : null,
     dateAt:(i) => (pts[i] ? Date.parse(pts[i].d) : null) };
   const fanDraw = fanBlock ? (osc ? drawOsc : fan.lines.length > 1 ? drawRsiOnly : drawRsiFan) : null;
