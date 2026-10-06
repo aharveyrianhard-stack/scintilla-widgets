@@ -6,7 +6,7 @@
    2. The X pane refreshes by itself on a cadence — 30 / 60 / 90 s, 60 by default — as "a page up": the newest posts
       to the top, never a blank; the rules it lives with (hover hold, the ⋯ panel, a hidden pane, two mirrors, the
       iPad) are decided in one function and tested together here. Icons on the X bar too.
-   3. The bridge that does it is 0.7.23 and the health page expects it. */
+   3. The bridge that does it is 0.7.23 and the health page expects it (0.7.24 since ST3, 6 Oct). */
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -144,8 +144,8 @@ test("S13 · the bridge's page-up: X's own refresh, then the top — refused und
   assert.match(fn, /finally \{\n\s+resetStationScrollComposite\(\);/, "the slow scroll's phase is reset, as on every other jump");
   assert.match(bridge, /if \(value && value\.pageUp\) await pageUpRefresh\(\);\n\s+else await refreshCurrentView\(\);/, "↻ by hand keeps the old path");
   assert.match(bridge, /pageUp: \{ \.\.\.session\.pageUp \},/, "the pane is told how the page-up went");
-  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.23"/);
-  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.23";/, "the health page expects the bridge that pages up");
+  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.24"/);
+  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.24";/, "the health page expects the bridge that pages up");
 });
 
 test("S13 · measured on the real deck at 403 / 461 / 614: both bars one line, nothing cut; the + follows NEXT; the clock waits under a hand; the picture never blanks", () => {

@@ -4264,7 +4264,13 @@ addEventListener("message", (e) => {
     if (host) { host._transitionGeneration = Math.max(host._transitionGeneration || 0, Number(d.generation) || 0); clearChartRetry(host); }
     return;
   }
+  /* ST3 (6 Oct): the deck parked this document out of sight to re-use it for a later name. A parked
+     chart is on nobody's screen, so it skips its own 60 s history re-read; the deck's next "chart"
+     message with a name un-parks it, and a name it kept is then re-read once. */
+  if (d.sc === "deck-parked") { DECK_PARKED = true; return; }
   if (d.sc !== "chart") return;
+  let parkedStale = false;
+  if (d.ticker && DECK_PARKED) { DECK_PARKED = false; parkedStale = DECK_PARKED_MISSED; DECK_PARKED_MISSED = false; }
   /* The Station dock owns one clouds switch for the whole wall. */
   if (typeof d.clouds === "boolean") setClouds(d.clouds);
   if (typeof d.steps === "boolean") setCloudSteps(d.steps);
@@ -4288,7 +4294,10 @@ addEventListener("message", (e) => {
      empty from +79 ms to +180 ms on a six-to-eight change). A same-symbol message now keeps the
      line; the range reload above already holds it dimmed when the timeframe changed. */
   if (d.ticker && (retarget || !host)) setChartTicker(d.ticker);
-  else if (axisChanged && host && host._series && host._series.length >= 2) scChartDraw(host);
+  else {
+    if (axisChanged && host && host._series && host._series.length >= 2) scChartDraw(host);
+    if (parkedStale && host && !host.dataset.holding) scChartLoad(host);
+  }
 });
 
 /* boot */
@@ -4311,7 +4320,11 @@ if (!DECK_QUOTE_MODE) pullGeigerOne(S.chartT);
 else setTimeout(() => { if (!GEIGER.fromDeck) pullGeigerOne(S.chartT); }, 4000);
 setInterval(() => { if (!GEIGER.fromDeck) pullGeigerOne(S.chartT); else paintGeigerBars(); }, GEIGER_REFRESH_MS);
 /* refresh cadence — re-pull the active series every 60 s */
-setInterval(() => { const host = document.querySelector("#chartSlot .sc-nchart"); if (host) scChartLoad(host); }, 60000);
+let DECK_PARKED = false, DECK_PARKED_MISSED = false;
+setInterval(() => {
+  if (DECK_PARKED) { DECK_PARKED_MISSED = true; return; }
+  const host = document.querySelector("#chartSlot .sc-nchart"); if (host) scChartLoad(host);
+}, 60000);
 
 var STATION_ACTIVITY_PANE = "chart";
 /* ---- M51: TELL THE DECK WHEN ALAN IS USING THIS PANE --------------------------------------------

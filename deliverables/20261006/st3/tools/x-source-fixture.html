@@ -1,0 +1,45 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Home / X</title>
+<style>
+  :root{color-scheme:dark}
+  html,body{margin:0;background:#15202b;color:#e7e9ea;font:15px -apple-system,system-ui,sans-serif}
+  main{display:flex;justify-content:center}
+  [data-testid="primaryColumn"]{width:var(--xff-capture-column-width,600px);border-left:1px solid #2f3336;border-right:1px solid #2f3336}
+  [role="tablist"]{position:sticky;top:0;height:53px;display:flex;align-items:center;gap:24px;padding:0 16px;z-index:3;
+    background:rgba(21,32,43,.92);backdrop-filter:blur(8px);border-bottom:1px solid #2f3336;font-weight:700}
+  #feed{position:relative}
+  /* ST3: a ruler across the left of the column - a white bar every 48 px. Where the bars sit in the
+     pane's picture says, to a fraction of a pixel, how far the picture has really scrolled. */
+  #ruler{position:absolute;left:0;top:0;bottom:0;width:62%;z-index:2;pointer-events:none;
+    background:repeating-linear-gradient(to bottom,#fff 0,#fff 6px,transparent 6px,transparent 48px)}
+  [data-testid="tweet"]{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid #2f3336}
+  [data-testid="Tweet-User-Avatar"]{flex:none;width:40px;height:40px;border-radius:50%;background:#1d9bf0}
+  .body{flex:1 1 auto;min-width:0}
+  [data-testid="User-Name"]{font-weight:700}
+  [data-testid="User-Name"] span{color:#71767b;font-weight:400}
+  [data-testid="tweetText"]{margin:4px 0 8px;line-height:1.4}
+  .pic{height:180px;border-radius:14px;margin:0 0 8px;background:linear-gradient(135deg,#253341,#3a4b5c 40%,#1d9bf0)}
+  [role="group"]{display:flex;gap:42px;color:#71767b;font-size:13px}
+</style></head><body>
+<main role="main"><div data-testid="primaryColumn">
+  <div role="tablist"><span>For you</span><span>Following</span></div>
+  <div id="feed"><div id="ruler"></div></div>
+</div></main>
+<script>
+/* A deterministic stand-in for the logged-in timeline (after M29's): the landmarks the bridge
+   measures, a real scrollable document, every third post with a picture, no network. */
+const feed = document.getElementById("feed");
+const words = ["NVDA prints a new high","the tape is thin into the close","AAPL holds VWAP","rates bid, dollar soft",
+  "breadth is better than the index","semis leading again","crude fades the spike","flows into value"];
+for (let i = 0; i < 1500; i++) {
+  const row = document.createElement("article");
+  row.setAttribute("data-testid", "tweet");
+  row.innerHTML = '<div data-testid="Tweet-User-Avatar"></div><div class="body">' +
+    '<div data-testid="User-Name">Desk ' + (i % 17) + ' <span>@desk' + (i % 17) + ' · ' + (i % 59) + 'm</span></div>' +
+    '<div data-testid="tweetText">' + words[i % words.length] + ' — post ' + i + ' ' +
+    "stand-in text for a post, long enough to wrap onto a second line in the column.".slice(0, 30 + (i % 46)) + '</div>' +
+    (i % 3 === 0 ? '<div class="pic"></div>' : '') +
+    '<div role="group"><span data-testid="reply">12</span><span data-testid="retweet">34</span>' +
+    '<span data-testid="like">567</span></div></div>';
+  feed.appendChild(row);
+}
+</script></body></html>

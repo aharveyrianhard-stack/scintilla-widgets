@@ -130,7 +130,8 @@ test("the pane measures what it is actually painting", () => {
 
 test("a crop that misses the frame shows the whole frame instead of black", () => {
   assert.match(source, /if \(!region\.usable \|\| stationFullFrame\) \{/);
-  assert.match(source, /ctx\.drawImage\(video, 0, 0, video\.videoWidth, video\.videoHeight,/);
+  /* ST3 (6 Oct): what is drawn is "picture" - the <video>, or the one frame of it whose scroll code was read */
+  assert.match(source, /ctx\.drawImage\(picture, 0, 0, video\.videoWidth, video\.videoHeight,/);
   assert.match(source, /if \(stationFullFrame && !blind && stationCropInk !== null && stationCropInk > STATION_INK_FLOOR\) stationFullFrame = false;/);
 });
 

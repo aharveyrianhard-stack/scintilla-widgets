@@ -157,6 +157,7 @@ body.x-more #bXMore{ color:var(--crk); border-color:var(--crk); }
 body:not(.x-more) #xMore{ display:none; }
 #xMore .lab{ flex:none; color:var(--dim); font-size:9px; letter-spacing:.1em; text-transform:uppercase; }
 #xMore .brk{ flex:0 0 100%; height:0; }
+#xMore [hidden]{ display:none !important; }
 #xMore #xfSource{ max-width:100%; }
 </style>
 </head>
@@ -192,6 +193,11 @@ body:not(.x-more) #xMore{ display:none; }
     <button class="btn xr" type="button" data-s="30" title="refresh every 30 seconds">30s</button>
     <button class="btn xr" type="button" data-s="60" title="refresh every 60 seconds">60s</button>
     <button class="btn xr" type="button" data-s="90" title="refresh every 90 seconds">90s</button>
+    <span class="brk xs-row" hidden></span>
+    <span class="lab xs-row" hidden title="how fast the feed scrolls by itself">scroll</span>
+    <button class="btn xs xs-row" type="button" data-v="3" title="the calm pace: 3 pixels a second" hidden>1×</button>
+    <button class="btn xs xs-row" type="button" data-v="6" title="twice the calm pace: 6 pixels a second" hidden>2×</button>
+    <button class="btn xs xs-row" type="button" data-v="12" title="four times the calm pace: 12 pixels a second" hidden>4×</button>
     <span class="brk"></span>
     <span class="btn x-sec" id="bXBack" style="display:none" title="rewind the feed 30 seconds">−30s</span>
     <button class="btn pair x-sec" id="bPair" type="button" style="display:none">iPad link</button>
@@ -442,7 +448,121 @@ function stationCaptureFit(videoWidth, videoHeight, viewportWidth, viewportHeigh
 const STATION_SCROLL_OFFSET_MAX_PX = 4;
 function stationScrollOffset(crop) {
   const offset = Number(crop?.fractionalScrollOffset) || 0;
-  return offset >= 0 && offset <= STATION_SCROLL_OFFSET_MAX_PX ? offset : 0;
+  const plain = offset >= 0 && offset <= STATION_SCROLL_OFFSET_MAX_PX ? offset : 0;
+  const code = crop?.scrollCode;
+  if (!code || stationFrameCode === null || !(offset >= 0)) return plain;
+  const coded = stationCodedOffset(offset, code.value, stationFrameCode, code.dpr);
+  if (coded === null) return plain;
+  stationCodeStats.used += 1;
+  if (coded === 0 && offset > 0) stationCodeStats.ahead += 1;
+  return coded;
+}
+/* ── THE PICTURE SAYS HOW FAR IT HAS SCROLLED (ST3, 6 Oct; bridge 0.7.24) ───────────────────
+   The crop (a message) and the picture it belongs to (a decoded frame) reach this pane by two roads.
+   Around every whole-pixel step of the slow scroll they arrive apart, and for a paint or two the new
+   crop went on the old picture, or the old crop on the new one: the feed hopped back by the step and
+   forward again - measured headlessly at about one hop a second at 3 px/s
+   (deliverables/20261006/st3). Since 0.7.24 the source paints its scroll position into the corner of
+   the captured picture (a row of black and white squares, outside the column shown here). The pane
+   reads it from the frame it is about to draw, so the offset is "where the feed should be now" minus
+   "where THIS frame is" - never a guess - and what is shown can only move forward:
+       shown = frame's scroll + max(0, wanted - frame's scroll).
+   A crop without the code (an older bridge, a source that cropped its own track), a frame whose code
+   cannot be read, or a jump (a page up, a rewind) all fall back to the rule above, unchanged. */
+const STATION_CODE_MAX_STEPS = 24;       /* device pixels between the crop's scroll and the frame's: more is a jump */
+let stationFrameCode = null, stationFrameSerial = 0;
+const stationCodeStats = { reads:0, good:0, bad:0, used:0, ahead:0, rests:0, avgMs:0 };
+function decodeStationScrollCode(lums) {
+  /* lums: one brightness (0-255) per cell → the value, or null when it is not the code */
+  if (!Array.isArray(lums) || lums.length !== 15) return null;
+  const bits = [];
+  for (const lum of lums) { if (lum >= 150) bits.push(1); else if (lum <= 105) bits.push(0); else return null; }
+  if (bits[0] !== 1 || bits[1] !== 0 || bits[2] !== 1 || bits[3] !== 0 || bits[13] !== 0 || bits[14] !== 1) return null;
+  let value = 0, ones = 0;
+  for (let i = 4; i < 12; i++) { value = (value << 1) | bits[i]; ones += bits[i]; }
+  return ones % 2 === bits[12] ? value : null;
+}
+/* HOW THE CODE IS READ. Not through a second canvas: drawing the video into a small software canvas made
+   the browser convert the whole frame again on every paint (measured: 5-9 ms a read on the headless
+   MacBook). Instead one frame of the video is taken in hand (WebCodecs VideoFrame), only the code's
+   few rows of brightness are copied out of it, and that same frame is then painted - so the code and
+   the picture can never be from two different frames. A browser without VideoFrame, a frame format
+   this does not know, or a read that fails: no reading, and the old rule decides. */
+function stationCodeRect(frameWidth, frameHeight, crop) {
+  const code = crop?.scrollCode;
+  if (!code || crop.sourceCropped || Number(code.cells) !== 15) return null;
+  const viewport = crop.viewport || { width: frameWidth, height: frameHeight };
+  const fit = stationCaptureFit(frameWidth, frameHeight, viewport.width, viewport.height);
+  const cell = Number(code.cell) * fit.scale;
+  if (!(cell >= 2.5)) return null;                       /* too small in this capture to trust */
+  const left = fit.offsetX + Number(code.x) * fit.scale, top = fit.offsetY + Number(code.y) * fit.scale;
+  /* whole, even pixels (a 4:2:0 frame is copied in pairs), the middle of the squares' height */
+  const x = Math.max(0, Math.floor(left / 2) * 2), y = Math.max(0, Math.floor((top + cell * .3) / 2) * 2);
+  const width = Math.min(frameWidth - x, Math.ceil((left + cell * 15 - x) / 2) * 2), height = 2;
+  if (width < 30 || y + height > frameHeight) return null;
+  return { rect:{ x, y, width, height }, left: left - x, cell };
+}
+function stationCodeLums(bytes, stride, bytesPerSample, plan) {
+  /* the brightness of each square: the middle half of its width, both rows */
+  const lums = [];
+  for (let i = 0; i < 15; i++) {
+    const from = Math.ceil(plan.left + plan.cell * (i + .25)), to = Math.max(from, Math.floor(plan.left + plan.cell * (i + .75)));
+    let sum = 0, n = 0;
+    for (let row = 0; row < plan.rect.height; row++) for (let px = from; px <= to && px < plan.rect.width; px++) {
+      const k = row * stride + px * bytesPerSample;
+      sum += bytesPerSample === 1 ? bytes[k] : (bytes[k] + bytes[k + 1] + bytes[k + 2]) / 3; n += 1;
+    }
+    lums.push(n ? sum / n : 128);
+  }
+  return lums;
+}
+let stationCodeBuffer = new Uint8Array(0);
+async function readStationFrameCode(frame, crop) {
+  const plan = stationCodeRect(frame.displayWidth, frame.displayHeight, crop);
+  const format = String(frame.format || "");
+  const bytesPerSample = /^(I420|I420A|I422|I444|NV12)$/.test(format) ? 1 : /^(RGBA|RGBX|BGRA|BGRX)$/.test(format) ? 4 : 0;
+  if (!plan || !bytesPerSample) return null;
+  const size = frame.allocationSize({ rect: plan.rect });
+  if (stationCodeBuffer.byteLength < size) stationCodeBuffer = new Uint8Array(size);
+  const layout = await frame.copyTo(stationCodeBuffer, { rect: plan.rect });
+  const first = layout[0];                                /* the brightness plane, or the packed pixels */
+  return decodeStationScrollCode(stationCodeLums(stationCodeBuffer.subarray(first.offset), first.stride, bytesPerSample, plan));
+}
+/* ITS OWN BUDGET. Measured on a headless MacBook, not on the iMac. So the pane times how long each read
+   keeps a paint waiting: when the running average passes STATION_CODE_BUDGET_MS it stops reading for a
+   minute and the old rule is back (the hops return, the wait goes), then it tries again. The counts
+   are in window.__SCINTILLA_X_CADENCE.scrollCode for anyone looking. */
+const STATION_CODE_BUDGET_MS = 8, STATION_CODE_REST_MS = 60000;
+let stationCodeAvgMs = 0, stationCodeRestUntil = 0, stationCodeBusy = false;
+function stationCodeBudget(avgMs, reads, lastMs) {
+  const avg = reads <= 1 ? lastMs : avgMs + (lastMs - avgMs) / Math.min(reads, 40);
+  return { avg, rest: reads >= 30 && avg > STATION_CODE_BUDGET_MS };
+}
+/* → true when this paint is in hand here (the frame is painted as soon as its code is read) */
+function paintCodedFrame(video, crop, now = performance.now()) {
+  if (!crop?.scrollCode || crop.sourceCropped || typeof VideoFrame !== "function" || now < stationCodeRestUntil) return false;
+  if (stationCodeBusy) return true;                       /* the last read is still out: this paint is its paint */
+  let frame = null;
+  try { frame = new VideoFrame(video); } catch (_) { return false; }
+  stationCodeBusy = true;
+  const size = { videoWidth: frame.displayWidth, videoHeight: frame.displayHeight };
+  readStationFrameCode(frame, crop).then((value) => value, () => null).then((value) => {
+    stationFrameCode = value;
+    stationCodeStats.reads += 1; stationCodeStats[value === null ? "bad" : "good"] += 1;
+    const budget = stationCodeBudget(stationCodeAvgMs, stationCodeStats.reads, performance.now() - now);
+    stationCodeAvgMs = budget.avg; stationCodeStats.avgMs = Math.round(budget.avg * 100) / 100;
+    if (budget.rest) { stationCodeRestUntil = performance.now() + STATION_CODE_REST_MS; stationCodeStats.rests += 1; stationCodeStats.reads = 0; }
+    try { if (xfloatStream) paintXPicture(frame, size); } finally { frame.close(); stationCodeBusy = false; }
+  });
+  return true;
+}
+function stationCodedOffset(fraction, cropValue, frameValue, dpr) {
+  /* → the offset to draw this frame at, or null when the two are too far apart to be one slow scroll */
+  let steps = ((Number(frameValue) - Number(cropValue)) % 256 + 256) % 256;
+  if (steps > 127) steps -= 256;
+  if (Math.abs(steps) > STATION_CODE_MAX_STEPS) return null;
+  const offset = (Number(fraction) || 0) - steps / (Number(dpr) || 1);
+  return Math.max(0, Math.min(STATION_SCROLL_OFFSET_MAX_PX, offset));
 }
 
 function stationSourceRegion(video, crop) {
@@ -484,6 +604,7 @@ function publishViewerCadence() {
   /* Read-only diagnostics for the performance pass.  No user setting or
      persistent state is created; tests and a live inspector can read this. */
   window.__SCINTILLA_X_CADENCE = Object.assign({}, viewerCadence, {
+    scrollCode:stationCodeStats,
     owner:viewerClockOwner,
     visible:document.visibilityState === "visible"
   });
@@ -812,7 +933,7 @@ function setStationHoverPause(held) {
   }, STATION_HOVER_RENEW_MS);
 }
 
-function noteStationFrame() { stationLastFrameAt = Date.now(); }
+function noteStationFrame() { stationLastFrameAt = Date.now(); stationFrameSerial += 1; }
 
 /* A frame callback is the only honest evidence of a NEW frame: the draw loop
    runs on every animation frame whether or not the picture moved. Where the
@@ -1004,6 +1125,32 @@ function paintXRefresh() {
   el("xfEvery").title = "refreshes by itself every " + xRefreshSeconds + " seconds — a page up · change it behind ⋯";
   el("bXRefresh").title = "refresh now — the newest posts to the top (by itself every " + xRefreshSeconds + " s)";
 }
+/* ── THE FEED'S PACE (ST3, 6 Oct; bridge 0.7.24) ─────────────────────────────────────────
+   Alan, 6 Oct: "we can make the Twitter scrolling on station be faster." The pace lives in the source
+   (the bridge scrolls the real X page); the pane only asks for one of three and shows which is on -
+   the source says so in every crop. The row stays hidden until a source that reports its pace is
+   feeding the pane, so an older bridge shows nothing it cannot do. The iPad mirror never asks. */
+const X_SPEED_CHOICES = [3, 6, 12];
+function xSpeedChoice(value) {
+  const speed = Number(value);
+  return X_SPEED_CHOICES.includes(speed) ? speed : null;
+}
+let xSpeedShown = null;
+function paintXSpeed(speed) {
+  const known = Number.isFinite(Number(speed)) && Number(speed) > 0 && !REMOTE_MODE ? Number(speed) : null;
+  if (known === xSpeedShown) return;
+  xSpeedShown = known;
+  for (const node of document.querySelectorAll("#xMore .xs-row")) node.hidden = known === null;
+  for (const b of document.querySelectorAll("#xMore .xs")) {
+    const on = known !== null && Math.abs(Number(b.dataset.v) - known) < .05;
+    b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
+function setXSpeed(value) {
+  const speed = xSpeedChoice(value);
+  if (speed === null || REMOTE_MODE) return;
+  postXFloat("speed", speed);
+}
 function setXRefreshSeconds(value) {
   xRefreshSeconds = xRefreshChoice(value);
   try { localStorage.setItem(X_REFRESH_KEY, String(xRefreshSeconds)); } catch (_) {}
@@ -1127,50 +1274,59 @@ function drawXFloat(at = 0) {
   viewerCadence.paintFrames += 1;
   viewerCadence.lastPaintAt = at;
   publishViewerCadence();
-  const video = el("v"), canvas = el("cv"), host = el("body");
+  const video = el("v");
   if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA && video.videoWidth) {
-    const region = stationSourceRegion(video, xfloatCrop);
-    const { sx, sy, sw, shAvailable } = region;
-    const ratio = Math.min(1.25, devicePixelRatio || 1);
-    const tw = Math.max(280, Math.round(host.clientWidth * ratio));
-    const th = Math.max(220, Math.round(host.clientHeight * ratio));
-    if (canvas.width !== tw || canvas.height !== th) { canvas.width = tw; canvas.height = th; }
-    const ctx = canvas.getContext("2d", { alpha: false });
-    ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, tw, th);
-    /* 23 Sep: a crop that misses the frame used to leave exactly this black
-       fill on the screen. Whatever the crop says, the pane has a decoded frame
-       in its hands, so it shows that instead of showing nothing. */
-    if (!region.usable || stationFullFrame) {
-      noteStationWholeFrame(region.usable ? "refitting" : "crop missed the picture");
-      const fit = Math.min(tw / video.videoWidth, th / video.videoHeight);
-      const fw = Math.max(1, Math.round(video.videoWidth * fit));
-      const fh = Math.max(1, Math.round(video.videoHeight * fit));
-      ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight,
-        Math.round((tw - fw) / 2), Math.round((th - fh) / 2), fw, fh);
-    } else if (sw > 1 && shAvailable > 1) {
-      noteStationWholeFrame("");
-      const padCss = Math.max(4, Math.min(8, host.clientWidth * .015));
-      const pad = Math.round(padCss * ratio);
-      /* A narrow pane should use every pixel. When the pane expands across
-         the row, keep the feed at a readable, height-aware width instead of
-         stretching the same X column into billboard-sized text. */
-      /* The X source is already zoomed and cropped to its center column. A
-         second desk-only source crop clipped the left edge of names/text. */
-      const profileScale = VIEW_PROFILE === "compact" ? .92 : 1;
-      const sourceWidth = Math.max(1, Math.min(sw, sw / profileScale));
-      const sourceX = Math.max(sx, sx + (sw - sourceWidth) / 2);
-      const readableCssWidth = xfloatExpanded
-        ? Math.max(1, Math.min(host.clientWidth - padCss * 2, Math.max(420, host.clientHeight * 2.15), 540))
-        : Math.max(1, host.clientWidth - padCss * 2);
-      const dw = Math.max(1, Math.round(readableCssWidth * ratio));
-      const dx = Math.max(pad, Math.round((tw - dw) / 2));
-      const s2d = dw / sourceWidth;
-      const sh = Math.min(shAvailable, th / s2d), dh = sh * s2d;
-      ctx.drawImage(video, sourceX, sy, sourceWidth, sh, dx, 0, dw, dh);
-    }
+    /* ST3: with a scroll code in the picture, the frame is taken in hand, its code read, and THAT frame
+       painted; otherwise the video is painted straight, as always */
+    if (!paintCodedFrame(video, xfloatCrop)) { stationFrameCode = null; paintXPicture(video, video); }
   }
   xfloatFrame = requestAnimationFrame(drawXFloat);
+}
+
+/* The picture, from whatever holds it: the <video> itself, or one frame of it taken in hand (ST3).
+   `video` carries the frame's size (videoWidth, videoHeight); `picture` is what is drawn. */
+function paintXPicture(picture, video) {
+  const canvas = el("cv"), host = el("body");
+  const region = stationSourceRegion(video, xfloatCrop);
+  const { sx, sy, sw, shAvailable } = region;
+  const ratio = Math.min(1.25, devicePixelRatio || 1);
+  const tw = Math.max(280, Math.round(host.clientWidth * ratio));
+  const th = Math.max(220, Math.round(host.clientHeight * ratio));
+  if (canvas.width !== tw || canvas.height !== th) { canvas.width = tw; canvas.height = th; }
+  const ctx = canvas.getContext("2d", { alpha: false });
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, tw, th);
+  /* 23 Sep: a crop that misses the frame used to leave exactly this black
+     fill on the screen. Whatever the crop says, the pane has a decoded frame
+     in its hands, so it shows that instead of showing nothing. */
+  if (!region.usable || stationFullFrame) {
+    noteStationWholeFrame(region.usable ? "refitting" : "crop missed the picture");
+    const fit = Math.min(tw / video.videoWidth, th / video.videoHeight);
+    const fw = Math.max(1, Math.round(video.videoWidth * fit));
+    const fh = Math.max(1, Math.round(video.videoHeight * fit));
+    ctx.drawImage(picture, 0, 0, video.videoWidth, video.videoHeight,
+      Math.round((tw - fw) / 2), Math.round((th - fh) / 2), fw, fh);
+  } else if (sw > 1 && shAvailable > 1) {
+    noteStationWholeFrame("");
+    const padCss = Math.max(4, Math.min(8, host.clientWidth * .015));
+    const pad = Math.round(padCss * ratio);
+    /* A narrow pane should use every pixel. When the pane expands across
+       the row, keep the feed at a readable, height-aware width instead of
+       stretching the same X column into billboard-sized text. */
+    /* The X source is already zoomed and cropped to its center column. A
+       second desk-only source crop clipped the left edge of names/text. */
+    const profileScale = VIEW_PROFILE === "compact" ? .92 : 1;
+    const sourceWidth = Math.max(1, Math.min(sw, sw / profileScale));
+    const sourceX = Math.max(sx, sx + (sw - sourceWidth) / 2);
+    const readableCssWidth = xfloatExpanded
+      ? Math.max(1, Math.min(host.clientWidth - padCss * 2, Math.max(420, host.clientHeight * 2.15), 540))
+      : Math.max(1, host.clientWidth - padCss * 2);
+    const dw = Math.max(1, Math.round(readableCssWidth * ratio));
+    const dx = Math.max(pad, Math.round((tw - dw) / 2));
+    const s2d = dw / sourceWidth;
+    const sh = Math.min(shAvailable, th / s2d), dh = sh * s2d;
+    ctx.drawImage(picture, sourceX, sy, sourceWidth, sh, dx, 0, dw, dh);
+  }
 }
 
 function startStationClock() {
@@ -1425,6 +1581,7 @@ el("bXNotify").addEventListener("click", () => postXFloat("view", "notifications
 /* S13: a refresh by hand or a change of view starts the count again; a cadence chip sets it and folds the panel */
 for (const id of ["bXRefresh", "bXList", "bXNotify"]) el(id).addEventListener("click", () => { xRefreshAt = Date.now(); xRefreshWaiting = false; });
 for (const b of document.querySelectorAll("#xMore .xr")) b.addEventListener("click", () => { setXRefreshSeconds(b.dataset.s); setXMore(false); });
+for (const b of document.querySelectorAll("#xMore .xs")) b.addEventListener("click", () => { setXSpeed(b.dataset.v); setXMore(false); });
 paintXRefresh();
 el("bFull").addEventListener("click", () => {
   parent.postMessage({ type: "SCINTILLA_DECK_TOGGLE_FULL" }, location.origin);
@@ -1478,6 +1635,7 @@ window.addEventListener("message", (event) => {
     xfloatCrop = event.data.crop;
     stationLastCropAt = Date.now();
     noteXPageUp(xfloatCrop?.pageUp);
+    paintXSpeed(xfloatCrop?.speedPxPerSecond);
     const paused = Boolean(xfloatCrop?.paused);
     showStationSource(xfloatCrop?.source);
     if (!stationFault && !stationWholeFrameWhy) showStationState(paused ? "paused" : "live", "on");
