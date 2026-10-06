@@ -1,8 +1,9 @@
 /* ST3 · 6 OCT · the Station stops rebuilding its charts, and the X feed's picture stops hopping.
    Alan, 6 Oct ~14:05 ET: "with the reorganization of the station, I think we can make the Twitter
    scrolling on station be faster."
-   1. A chart slot keeps its parked frames through pages that hide it or carry another study (wide wall
-      only; a narrow wall keeps the old rules), and a parked chart stops its own 60 s history re-read.
+   1. A chart slot can keep its parked frames through pages that hide it or carry another study
+      (?keepcharts=1, wide wall only: measured, it built 74% fewer documents and bought no speed, so
+      it is off by default), and a parked chart stops its own 60 s history re-read.
    2. The X source paints its scroll position into the captured picture and the pane reads it from the
       frame it draws, so what is shown can only move forward; the pace is a choice behind the ⋯.
    Measurements and pictures: deliverables/20261006/st3. */
@@ -34,7 +35,7 @@ const constLine = (source, name) => {
 };
 
 /* ── 1. the parked frames ─────────────────────────────────────────────────────────────── */
-function deckWorld({ wide }) {
+function deckWorld({ wide, keep = true }) {
   const posted = [];
   const frame = (src) => {
     const f = { dataset:{}, className:"", attrs:{ src }, removed:false, parentNode:null, _spareTicker:null,
@@ -44,7 +45,7 @@ function deckWorld({ wide }) {
     return f;
   };
   const world = { posted, frame, Date, Number, String, Array, Math, location:{ origin:"https://station" },
-    wide, SCENE:"ai1", CHART_COUNT:8, SLOT_MAX:9, PANES:[],
+    wide, SPARE_KEEP:keep, SCENE:"ai1", CHART_COUNT:8, SLOT_MAX:9, PANES:[],
     SceneModel:{ WORKFLOW_IDS:["ai1", "ai2", "mainIndexes3D"] } };
   vm.createContext(world);
   vm.runInContext([
@@ -151,8 +152,17 @@ test("ST3 · a hidden slot keeps its parked frames on a wide wall; five minutes 
   assert.equal(a.removed && b.removed, true, "after five minutes away the memory is given back");
 });
 
-test("ST3 · a narrow wall (iPad, phone) keeps the old rules to the letter", () => {
-  const w = deckWorld({ wide:false });
+test("ST3 · keeping is off unless the address asks for it: measured, it bought no speed and cost memory", () => {
+  assert.match(deck, /const SPARE_KEEP = QS\.has\("keepcharts"\) \? QS\.get\("keepcharts"\) === "1" : remembered\("station\.keepcharts"\) === "1";/,
+    "off unless asked for; ?keepcharts=1 is remembered on that browser, ?keepcharts=0 forgets it");
+  assert.match(deck, /if \(QS\.has\("keepcharts"\)\) remember\("station\.keepcharts", SPARE_KEEP \? "1" : "0"\);/);
+  assert.match(constLine(deck, "spareRoom"), /SPARE_KEEP && keepsHiddenCharts\(\) \? SPARE_MAX : 1;/);
+  assert.match(deck, /documents built in 30 minutes 144 → 38[\s\S]{0,400}the heap stood about 40 MB higher/, "the numbers sit beside the switch");
+});
+
+for (const world of [{ wide:false, keep:true, name:"a narrow wall (iPad, phone)" }, { wide:true, keep:false, name:"a wide wall without ?keepcharts=1 (the default)" }])
+test("ST3 · " + world.name + " keeps the old rules to the letter", () => {
+  const w = deckWorld(world);
   const p = w.pane("c1"), hidden = w.pane("c7");
   const plain = w.park(p, PLAIN("NVDA"), "NVDA");
   const other = w.park(p, RSI("SPY"), "SPY");
@@ -166,6 +176,7 @@ test("ST3 · a narrow wall (iPad, phone) keeps the old rules to the letter", () 
   w.SCENE = "scratch"; w.sweepSpares();
   assert.equal(again.removed, true, "leaving the lap drops every parked frame at once");
   assert.match(deck, /if \(!PAGE_FADE && spareRoom\(\) < 2\) dropSpare\(pane\);/);
+  assert.deepEqual(JSON.parse(JSON.stringify(w.posted.slice(0, 1))), [[PLAIN("NVDA"), { sc:"deck-parked" }]], "the parked chart is still told, so it stops its own re-read");
 });
 
 /* ── 2. the X picture's scroll code ───────────────────────────────────────────────────── */

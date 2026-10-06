@@ -73,7 +73,8 @@ await cdp.send("HeapProfiler.enable");
 const metrics = async () => { const o = {}; for (const m of (await cdp.send("Performance.getMetrics")).metrics) o[m.name] = m.value; return o; };
 
 const t0 = Date.now();
-await page.goto(ORIGIN + "/", { waitUntil: "domcontentloaded", timeout: 60000 });
+/* ST3_QUERY="?keepcharts=1" turns the parked-chart keeping on (the "after" runs of the report had it on) */
+await page.goto(ORIGIN + "/" + (process.env.ST3_QUERY || ""), { waitUntil: "domcontentloaded", timeout: 60000 });
 try { await page.waitForLoadState("networkidle", { timeout: 30000 }); } catch {}
 await cdp.send("HeapProfiler.startSampling", { samplingInterval: 8192, includeObjectsCollectedByMajorGC: false, includeObjectsCollectedByMinorGC: false });
 await page.screenshot({ path: out("start.png") }).catch(() => {});

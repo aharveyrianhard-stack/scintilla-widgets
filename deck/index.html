@@ -4056,8 +4056,8 @@ function paintSlotMarks() {
 }
 function cancelSlotFades() {
   for (const pane of PANES) {
-    /* a page change being prepared re-uses the parked frames (S2); a wide wall keeps them through
-       every other change too and sweepSpares lets them go (ST3) */
+    /* a page change being prepared re-uses the parked frames (S2); with ?keepcharts=1 a wide wall keeps
+       them through every other change too and sweepSpares lets them go (ST3) */
     if (!PAGE_FADE && spareRoom() < 2) dropSpare(pane);
     const job = pane.slotNext;
     if (!job) continue;
@@ -4075,24 +4075,32 @@ function cancelSlotFades() {
    the path page changes already use (retargetChartInPlace) - instead of opening a new one. Two
    documents per rotating slot, reused for the life of the page. A spare is used only when its
    document settled on a name and its address differs from the next one's only in symbol and axis;
-   anything else opens a new frame, as before. Leaving the page drops every spare (since ST3, on a
-   narrow wall only - see below). */
-/* ── A PARKED FRAME IS KEPT, NOT REBUILT (ST3, 6 Oct) ───────────────────────────────────
-   Measured on a 30-minute headless soak of the lap (deliverables/20261006/st3): the wall still built
-   a new chart document for most page changes, because the one parked frame a slot kept was thrown
+   anything else opens a new frame, as before. Leaving the page drops every spare (unless
+   ?keepcharts=1 - see below). */
+/* ── A PARKED FRAME KEPT, NOT REBUILT (ST3, 6 Oct) — BUILT, MEASURED, AND LEFT OFF ───────────────
+   SLOW1 named "a new document per chart" as a cost: 86 built in 15 minutes. Measured on 30-minute
+   headless soaks of the lap (deliverables/20261006/st3): the one parked frame a slot kept was thrown
    away (a) whenever a page did not show that slot - every 2-, 4- and 6-chart page emptied the slots
    above it, (b) whenever the next page carried another study (the RSI pages' address differs from a
-   plain page's, so the parked plain frame was dropped and a new document opened, and the same again
-   on the way back), and (c) on every page outside the lap. Now, on a wall wide enough to keep its
-   hidden charts mounted (keepsHiddenCharts), a slot keeps up to SPARE_MAX parked frames, of either
-   kind of address (plain, RSI), through pages that hide it; the one parked longest goes first, and
-   all go after SPARE_IDLE_MS away from the lap. (A first try kept "one of each kind": it dropped
-   the second plain frame every time an RSI page came by - 48 documents built in 17 minutes.) A parked document is told so ("deck-parked") and stops its own
-   60 s history re-read until it is given a name again. A narrow wall (iPad, phone) keeps the old
-   rules to the letter: one parked frame, dropped as before. */
+   plain page's), and (c) on every page outside the lap. So with ?keepcharts=1, on a wall wide enough
+   to keep its hidden charts mounted (keepsHiddenCharts), a slot keeps up to SPARE_MAX parked frames,
+   of either kind of address (plain, RSI), through pages that hide it; the one parked longest goes
+   first, and all go after SPARE_IDLE_MS away from the lap. (A first try kept "one of each kind": it
+   dropped the second plain frame every time an RSI page came by - 48 documents built in 17 minutes.)
+   WHAT IT MEASURED: documents built in 30 minutes 144 → 38 (70 → 8 in the second half). And nothing
+   else: page changes were ready in the same 0.8 s, the main thread did the same work, the history
+   reads were the same - a new chart document reads from the shared stores - while 8-14 more
+   documents stayed alive and the heap stood about 40 MB higher. So it is OFF unless the address
+   asks for it, and the wall keeps the rules it had: one parked frame, dropped as before.
+   Either way a parked document is told so ("deck-parked") and stops its own 60 s history re-read
+   until it is given a name again. */
+/* ?keepcharts=1 turns it on and ?keepcharts=0 off; like the clouds switch, the choice is remembered on
+   this browser (the deck clears its address at start, and reloads itself after a release). */
+const SPARE_KEEP = QS.has("keepcharts") ? QS.get("keepcharts") === "1" : remembered("station.keepcharts") === "1";
+if (QS.has("keepcharts")) remember("station.keepcharts", SPARE_KEEP ? "1" : "0");
 const SPARE_MAX = 2, SPARE_IDLE_MS = 5 * 60 * 1000;
 let SPARE_LAP_SEEN = Date.now();
-const spareRoom = () => keepsHiddenCharts() ? SPARE_MAX : 1;
+const spareRoom = () => SPARE_KEEP && keepsHiddenCharts() ? SPARE_MAX : 1;
 const spareKind = (frame) => withoutTicker(frameShownSrc(frame));
 function dropSpare(pane, frame) {
   if (!pane.spares) return;
@@ -4121,8 +4129,8 @@ function takeSpare(pane, src) {
   return f;
 }
 /* S2 (29 Sep): a page change parks the frame it faded away from too, so every chart slot on a workflow
-   page may keep one - not only a rotating slot. ST3: on a wide wall a slot the page does not show
-   keeps its parked frames; on a narrow one it keeps none, as before. */
+   page may keep one - not only a rotating slot. ST3: with ?keepcharts=1 on a wide wall a slot the page
+   does not show keeps its parked frames; otherwise it keeps none, as before. */
 function sweepSpares() {
   const rotating = SceneModel.WORKFLOW_IDS.includes(SCENE), roomy = spareRoom() > 1;
   if (rotating) SPARE_LAP_SEEN = Date.now();

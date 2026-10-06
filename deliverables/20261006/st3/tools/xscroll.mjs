@@ -146,7 +146,7 @@ try {
     });
   });
   await holder.click("#go");
-  await holder.waitForTimeout(2500);
+  for (let i = 0; i < 12; i++) { await holder.waitForTimeout(1000); if (await holder.evaluate(() => !!window.__HOLDER)) break; }
   result.capture = await holder.evaluate(() => window.__HOLDER || { ok: false, error: "no result" });
   say("capture", result.capture);
   if (!result.capture.ok) throw new Error("no capture: " + result.capture.error);
@@ -198,7 +198,8 @@ try {
   result.cost = await phase(false, SECONDS);       /* without the read: what the pane itself costs */
   /* --pace-check 1: the pace choice, end to end - open the ⋯, press 2×, and see the source really go twice as fast */
   if (args.get("pace-check")) {
-    const srcSpeed = async (ms) => { const a = await xPage.evaluate(() => document.scrollingElement.scrollTop), t = Date.now(); await pane.waitForTimeout(ms); return +(((await xPage.evaluate(() => document.scrollingElement.scrollTop)) - a) / ((Date.now() - t) / 1000)).toFixed(2); };
+    /* the pointer leaves the pane first: a pointer on the feed pauses the scroll, by design */
+    const srcSpeed = async (ms) => { await pane.mouse.move(2, 2); await pane.dispatchEvent("body", "mouseleave").catch(() => {}); await pane.waitForTimeout(2500); const a = await xPage.evaluate(() => document.scrollingElement.scrollTop), t = Date.now(); await pane.waitForTimeout(ms); return +(((await xPage.evaluate(() => document.scrollingElement.scrollTop)) - a) / ((Date.now() - t) / 1000)).toFixed(2); };
     const row = () => pane.evaluate(() => ({ shown: [...document.querySelectorAll("#xMore .xs")].map((b) => [b.textContent, !b.hidden && getComputedStyle(b).display !== "none", b.classList.contains("on")]), reported: xfloatCrop?.speedPxPerSecond ?? null }));
     const check = { before: await row(), beforePxPerS: await srcSpeed(6000) };
     await pane.click("#bXMore"); await pane.waitForTimeout(400);
