@@ -53,10 +53,12 @@ test("the lens module is fetched at boot on a pane that carries one, not on its 
 test("the crosshair: the price at 11 px or more, and the percent from the current price, green above and red below", () => {
   /* S5 (1 Oct): the hovered level's price and percent moved to the level tag on the horizontal line, at 11 px
      (the corner readout now reads the hovered DATE - tests/station-crosshair-s5-20261001.test.mjs) */
-  assert.match(chart, /const levelFont = Math\.round\(11 \* scale \* 10\) \/ 10;/);
+  /* S16 (6 Oct): the level tag is crosshairLevelTag - still 11 px times the pane scale, the percent now UNDER the price */
+  assert.match(chart, /const font = Math\.round\(11 \* k \* 10\) \/ 10, f = "600 " \+ font;/);
   assert.match(chart, /const pct = nowPx > 0 \? \(price \/ nowPx - 1\) \* 100 : null;/);
-  assert.match(chart, /ctx\.fillStyle = pct >= 0 \? col\.bull : col\.bear;/, "green above the current price, red below");
-  /* S1 (29 Sep): the percent leads the readout, green or red, in one fixed spot
+  assert.match(chart, /lines\.push\(\{ text: o\.pctText, font: f, ink: o\.up \? "bull" : "bear"/, "green above the current price, red below");
+  assert.match(chart, /pctText: chartPctText\(pct\), up: pct >= 0, scale,/);
+  /* S1 (29 Sep): the readout's percent, green or red, in one fixed spot (S16: under the price)
      (tests/station-lens-crosshair-20260929.test.mjs holds the placement) */
   assert.match(chart, /rows\.push\(\{ text: o\.pctText, font: "700 " \+ pctFont, size: pctFont, ink: o\.up \? "bull" : "bear"/);
   assert.match(chart, /const nowPx = g\.livePriceValue != null \? g\.livePriceValue : g\.dayPx;/, "the same one price the badge and line use");

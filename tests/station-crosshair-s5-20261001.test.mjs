@@ -78,11 +78,12 @@ test("2: the percent is about a quarter larger than the price - 13 px on the 8-u
   assert.equal(at(277, 1.5).pctFont, 19.5, "the iPad scale multiplies it like every other pane text");
 });
 
-test("2: same fixed corner, the percent on top and the price under it", () => {
+test("2: same fixed corner; S16 (6 Oct) - the price on top and the percent under it", () => {
   const a = at(277), b = readout(measure, { w: 419, h: 277, plotTop: 34, plotBottom: 256, priceText: "7,012.25", pctText: "+0.28%", up: true, scale: 1 });
   assert.deepEqual(a.box, b.box);
   assert.equal(a.box.x + a.box.w, 418);
   assert.ok(a.lines[0].y < a.lines[1].y);
+  assert.deepEqual(Array.from(a.lines, (l) => l.text), ["492.49", "−3.60%"]);
 });
 
 /* ---- 3. "make that grid work on all of the charts… I see the percentage price change to all of the charts" ---- */
@@ -116,7 +117,9 @@ test("3: the corner reads this pane's price ON THAT DATE and the percent from th
   assert.match(ov, /const nowPx = g\.livePriceValue != null \? g\.livePriceValue : g\.dayPx;/, "now = the badge's own price");
   /* the horizontal line and its level tag only on the pane under the pointer */
   assert.match(ov, /if \(hover\.local\) \{\n\s+sy = /);
-  assert.match(ov, /if \(sy != null\) \{\n\s+const price = yLo \+ \(1 - \(sy - padT\) \/ ih\) \* \(yHi - yLo\);/);
+  /* S16 (6 Oct): one label per pane - the corner readout where the pointer is not, the level tag where it is */
+  assert.match(ov, /if \(sy == null\) \{\n\s+const then = bar\.p;/);
+  assert.match(ov, /\} else \{\n[\s\S]{0,420}const price = yLo \+ \(1 - \(sy - padT\) \/ ih\) \* \(yHi - yLo\);/);
 });
 
 test("3: only the overlay redraws - the pointer path never calls the base paint", () => {

@@ -25,11 +25,10 @@ const src = [
   grab(/const TAPE_SPEED_PX_S = \d+;/, "the tape's speed"),
   grab(/function tapesHeight\(on\) \{[^\n]*\}/, "tapesHeight"),
   grab(/function tapeLists\(likedRows, favoriteRows\) \{[\s\S]*?\n\}/, "tapeLists"),
-  grab(/function tapeRungs\(composite\) \{[\s\S]*?\n\}/, "tapeRungs"),
   grab(/function tapeSlotFor\(charts, count, ticker, lastOpened\) \{[\s\S]*?\n\}/, "tapeSlotFor"),
 ].join("\n");
-const ctx = {}; vm.runInNewContext(src + "\nglobalThis.out = { floorPlan, floorGrid, tapesHeight, tapeLists, tapeRungs, tapeSlotFor, TAPE_ROW_PX, TAPE_SPEED_PX_S, FLOOR_SEAM_PX };", ctx);
-const { floorPlan, floorGrid, tapesHeight, tapeLists, tapeRungs, tapeSlotFor, TAPE_ROW_PX, TAPE_SPEED_PX_S, FLOOR_SEAM_PX } = ctx.out;
+const ctx = {}; vm.runInNewContext(src + "\nglobalThis.out = { floorPlan, floorGrid, tapesHeight, tapeLists, tapeSlotFor, TAPE_ROW_PX, TAPE_SPEED_PX_S, FLOOR_SEAM_PX };", ctx);
+const { floorPlan, floorGrid, tapesHeight, tapeLists, tapeSlotFor, TAPE_ROW_PX, TAPE_SPEED_PX_S, FLOOR_SEAM_PX } = ctx.out;
 const plain = (o) => JSON.parse(JSON.stringify(o));
 const SCREENS = [[1680, 1050], [1920, 1080], [2560, 1440]];
 
@@ -100,9 +99,8 @@ test("S14 · the lists: LIKED is the Hub's liked names without the ones on FAVOR
 });
 
 test("S14 · the Geiger mark, the tap and the switch", () => {
-  assert.deepEqual(plain([0, 0.01, 0.25, 0.26, 0.5, 0.75, 0.76, 1, -0.19, -1, null, NaN].map((c) => tapeRungs(c))),
-    [{ lit: 0, side: "p" }, { lit: 1, side: "p" }, { lit: 1, side: "p" }, { lit: 2, side: "p" }, { lit: 2, side: "p" }, { lit: 3, side: "p" }, { lit: 4, side: "p" }, { lit: 4, side: "p" },
-     { lit: 1, side: "n" }, { lit: 4, side: "n" }, { lit: 0, side: "" }, { lit: 0, side: "" }]);
+  /* S16 (6 Oct): the four rungs became the Station's Geiger bar - tests/station-s16-hover-tapes-20261006.test.mjs */
+  assert.doesNotMatch(deck, /function tapeRungs\(/);
   /* the slot: a name on the wall is not loaded twice; else the first empty slot; else the slots in turn from the first */
   const wall = ["GOOGL", "NBIS", "AVGO", "BE", "AMZN", "VST", "MU", "WMT", "SPY"];
   assert.deepEqual(plain(tapeSlotFor(wall, 9, "SPY", -1)), { index: 8, already: true });

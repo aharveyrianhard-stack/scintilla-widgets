@@ -200,14 +200,14 @@ test("3: one fixed spot per pane - the plot's bottom-right corner - whatever the
   assert.doesNotMatch(liftFrom(chart, "crosshairReadout"), /\bsy\b/);
 });
 
-test("3: the percent is the biggest text, bigger than N10's (10.5 px), the price under it", () => {
+test("3: the percent is the biggest text, bigger than N10's (10.5 px); S16 - it sits UNDER the price", () => {
   for (const p of PANES) {
     const L = readout(measure, { ...p, priceText: "492.49", pctText: "−3.60%", up: false, scale: 1 });
-    assert.deepEqual(Array.from(L.lines, (l) => l.text), ["−3.60%", "492.49"]);
+    assert.deepEqual(Array.from(L.lines, (l) => l.text), ["492.49", "−3.60%"]);
     /* S5 (1 Oct): "too big, crazy big" - a quarter larger than the price, 12.5-16 px (was 14-18) */
     assert.ok(L.pctFont >= 12.5 && L.pctFont <= 16 && L.pctFont > L.priceFont, `${p.name}: % ${L.pctFont}px > price ${L.priceFont}px`);
-    assert.ok(L.lines[0].y < L.lines[1].y, "percent on top, price under it");
-    assert.equal(L.lines[0].ink, "bear");
+    assert.ok(L.lines[0].y < L.lines[1].y, "S16: the price on top, the percent under it");
+    assert.equal(L.lines[1].ink, "bear");
     for (const l of L.lines) assert.ok(measure(l.text, l.font) <= L.box.w - 4, `${p.name}: "${l.text}" fits`);
   }
   assert.equal(readout(measure, { ...PANES[2], priceText: "1", pctText: "+1%", up: true, scale: 1 }).pctFont, 16, "S5: capped at 16 px");
@@ -216,7 +216,8 @@ test("3: the percent is the biggest text, bigger than N10's (10.5 px), the price
 test("3: the current-price label stays up while the crosshair is up; lines and time tag kept; the lens keeps out", () => {
   assert.doesNotMatch(chart, /if \(hasLiveQuote && !scrub\)/, "the label is no longer dropped while scrubbing");
   assert.match(chart, /if \(hasLiveQuote\) \{/);
-  assert.match(chart, /if \(scrubOn && R && liveTop \+ 12 > R\.y - 1 && liveTop < R\.y \+ R\.h \+ 1\) liveTop = Math\.max\(padT, R\.y - 13\);/);
+  /* S16 (6 Oct): the corner readout is drawn only on the panes the pointer is NOT on, so the label steps only there */
+  assert.match(chart, /if \(scrubOn && !hover\.local && R && liveTop \+ 12 > R\.y - 1 && liveTop < R\.y \+ R\.h \+ 1\) liveTop = Math\.max\(padT, R\.y - 13\);/);
   assert.match(chart, /ctx\.beginPath\(\); ctx\.moveTo\(sx, padT\); ctx\.lineTo\(sx, padT \+ ih\); ctx\.stroke\(\);/, "vertical line");
   assert.match(chart, /ctx\.beginPath\(\); ctx\.moveTo\(padL, sy\); ctx\.lineTo\(padL \+ iw, sy\); ctx\.stroke\(\);/, "horizontal line");
   assert.match(chart, /const timeText = chHoverTime\(/, "time tag");

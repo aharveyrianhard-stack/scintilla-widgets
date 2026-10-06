@@ -2742,7 +2742,7 @@ function scChartOverlay(host) {
     const liveW = Math.min(g.padR - 2, Math.ceil(ctx.measureText(L0.text).width) + 6);
     const liveX = w - liveW - 1;
     let liveTop = Math.max(padT, Math.min(padT + ih - 12, L0.y - 6));
-    if (scrubOn && R && liveTop + 12 > R.y - 1 && liveTop < R.y + R.h + 1) liveTop = Math.max(padT, R.y - 13);
+    if (scrubOn && !hover.local && R && liveTop + 12 > R.y - 1 && liveTop < R.y + R.h + 1) liveTop = Math.max(padT, R.y - 13);
     ctx.fillStyle = "rgba(5,6,12,.92)";
     ctx.fillRect(liveX, liveTop, liveW, 12);
     ctx.fillStyle = L0.color; ctx.textAlign = "right";
@@ -2766,40 +2766,42 @@ function scChartOverlay(host) {
   }
   ctx.globalAlpha = 1;
   ctx.textBaseline = "middle";
-  /* THE CORNER READOUT, the same fixed spot on every pane (S1): this pane's price on the hovered date and the
-     percent from that date to now (the live quote, else the last bar) - green when now is higher. */
-  const then = bar.p;
-  const sincePct = nowPx > 0 && then > 0 ? (nowPx / then - 1) * 100 : null;
-  const L = crosshairReadout(readoutMeasure, { w, h, plotBottom: readoutBottom, plotTop: padT, priceText: chPx(then, t), pctText: chartPctText(sincePct), up: sincePct >= 0, scale });
-  ctx.fillStyle = "rgba(5,6,12,.94)";
-  ctx.fillRect(L.box.x, L.box.y, L.box.w, L.box.h);
-  ctx.textAlign = "right";
-  for (const line of L.lines) {
-    ctx.font = line.font + MONO_PX; ctx.fillStyle = col[line.ink]; ctx.globalAlpha = line.alpha;
-    ctx.fillText(line.text, L.right, line.y);
-  }
-  ctx.globalAlpha = 1;
-  host._scrubLabel = { x: L.box.x, y: L.box.y, w: L.box.w, h: L.box.h, plotRight: padL + iw, pct: chartPctText(sincePct), price: chPx(then, t),
-    pctFont: L.pctFont, priceFont: L.priceFont, date: bar.d, mode: hover.local ? "pointer" : "synced", up: sincePct >= 0 };
-  /* THE LEVEL TAG, on the pane under the pointer only: the horizontal line's price, and how far that level is
-     from the current price (N10 / O1: green above the current price, red below), at the line's height on
-     the right edge; it steps just above the corner readout rather than cover it */
-  if (sy != null) {
+  /* S16 (6 Oct), Alan: "there is this other thing with a price percentage difference and a price at the lower
+     level. It doesn't make any sense. And the price percentage change is to the left of the price on the
+     hover. I thought we had already put it below the price for space saving."
+     Since S5 the pane under the pointer carried TWO price-and-percent labels: the level tag on the pointer's
+     line and the corner readout below it, each with its own percent. ONE LABEL PER PANE now:
+       - the pane under the pointer: the level tag only - the pointer's price on its line, the percent UNDER
+         it (N10's layout of 28 Sep, which S5 had turned into one row with the percent on the left);
+       - every other pane: the corner readout only (S1's fixed spot, S5's reading) - this pane's price on the
+         hovered date, and under it the percent from that date to now, green when now is higher. */
+  if (sy == null) {
+    const then = bar.p;
+    const sincePct = nowPx > 0 && then > 0 ? (nowPx / then - 1) * 100 : null;
+    const L = crosshairReadout(readoutMeasure, { w, h, plotBottom: readoutBottom, plotTop: padT, priceText: chPx(then, t), pctText: chartPctText(sincePct), up: sincePct >= 0, scale });
+    ctx.fillStyle = "rgba(5,6,12,.94)";
+    ctx.fillRect(L.box.x, L.box.y, L.box.w, L.box.h);
+    ctx.textAlign = "right";
+    for (const line of L.lines) {
+      ctx.font = line.font + MONO_PX; ctx.fillStyle = col[line.ink]; ctx.globalAlpha = line.alpha;
+      ctx.fillText(line.text, L.right, line.y);
+    }
+    ctx.globalAlpha = 1;
+    host._scrubLabel = { x: L.box.x, y: L.box.y, w: L.box.w, h: L.box.h, plotRight: padL + iw, pct: chartPctText(sincePct), price: chPx(then, t),
+      pctFont: L.pctFont, priceFont: L.priceFont, date: bar.d, mode: "synced", up: sincePct >= 0 };
+  } else {
+    /* THE LEVEL TAG: the horizontal line's price, and how far that level is from the current price (N10 / O1:
+       green above the current price, red below), on the right edge at the line's height. It steps clear of
+       the current-price marker rather than cover it. */
     const price = yLo + (1 - (sy - padT) / ih) * (yHi - yLo);
     const pct = nowPx > 0 ? (price / nowPx - 1) * 100 : null;
-    const levelFont = Math.round(11 * scale * 10) / 10;
-    const priceText = chPx(price, t), pctText = chartPctText(pct);
-    ctx.font = "600 " + levelFont + MONO_PX;
-    const gap = pctText ? 6 : 0;
-    const pw = ctx.measureText(pctText).width, qw = ctx.measureText(priceText).width;
-    const tagW = Math.ceil(pw + gap + qw) + 8, tagH = Math.round(levelFont + 4);
-    let tagY = Math.max(padT, Math.min(padT + ih - tagH, sy - tagH / 2));
-    if (tagY + tagH > L.box.y - 1 && tagY < L.box.y + L.box.h + 1) tagY = Math.max(padT, L.box.y - tagH - 1);
-    const tagX = w - 1 - tagW;
-    ctx.fillStyle = "rgba(5,6,12,.94)"; ctx.fillRect(tagX, tagY, tagW, tagH);
-    ctx.textAlign = "right"; ctx.fillStyle = col.dim; ctx.fillText(priceText, w - 5, tagY + tagH / 2 + .5);
-    if (pctText) { ctx.fillStyle = pct >= 0 ? col.bull : col.bear; ctx.fillText(pctText, w - 5 - qw - gap, tagY + tagH / 2 + .5); }
-    host._levelTag = { x: tagX, y: tagY, w: tagW, h: tagH, price: priceText, pct: pctText, font: levelFont };
+    const T = crosshairLevelTag(readoutMeasure, { w, sy, plotTop: padT, plotBottom: padT + ih, priceText: chPx(price, t), pctText: chartPctText(pct), up: pct >= 0, scale,
+      avoid: g.live && host._liveTag ? host._liveTag : null });
+    ctx.fillStyle = "rgba(5,6,12,.94)"; ctx.fillRect(T.box.x, T.box.y, T.box.w, T.box.h);
+    ctx.textAlign = "right";
+    for (const line of T.lines) { ctx.font = line.font + MONO_PX; ctx.fillStyle = col[line.ink]; ctx.fillText(line.text, T.right, line.y); }
+    host._levelTag = { x: T.box.x, y: T.box.y, w: T.box.w, h: T.box.h, price: T.lines[0].text, pct: T.lines[1] ? T.lines[1].text : "", font: T.font,
+      priceY: T.lines[0].y, pctY: T.lines[1] ? T.lines[1].y : null, date: bar.d };
   }
   if (lineOn) {
     const timeText = chHoverTime(chEtIso(bar.d, host._range || S.chartRange), host._range || S.chartRange);
@@ -2822,8 +2824,9 @@ function scChartOverlay(host) {
    the canvas width w and height h, the plot's top and bottom, the price and percent texts, up (the percent
    is >= 0) and the pane scale. ONE FIXED SPOT per pane: the plot's bottom-right corner, the box's right
    edge 1 px inside the pane's, its bottom 13 px above the plot's bottom so the crosshair's time tag keeps
-   its own row. The percent leads, the price under it; with no current price there is no percent and the
-   price is the only line.
+   its own row. The price leads, the percent under it (S16, 6 Oct - Alan: "I thought we had already put it
+   below the price"; S1 had the percent on top); with no current price there is no percent and the price is
+   the only line.
    S5 (1 Oct), Alan: "you made the percent bigger but it's too big, bro, crazy big… think UI UX proportions."
    It was 18 px on an 8-up pane (7% of the pane's height, 14-18 px). It is now about a quarter larger than
    the price: 4.7% of the pane's height between 12.5 and 16 px (13 px on the 8-up at 1680), the price
@@ -2846,13 +2849,40 @@ function crosshairReadout(measure, o) {
   const x = Math.max(1, o.w - 1 - bw);
   const y = Math.max((o.plotTop || 0) + 1, (o.plotBottom || o.h) - 13 - bh);
   const right = o.w - 5;
-  let at = y + 2;
-  const lines = [];
-  if (o.pctText) { lines.push({ text: rows[0].text, font: rows[0].font, ink: rows[0].ink, alpha: 1, y: at + lineH[0] / 2 + .5 }); }
-  at += lineH[0];
   const pr = rows[rows.length - 1];
-  lines.push({ text: pr.text, font: pr.font, ink: pr.ink, alpha: 1, y: o.pctText ? at + lineH[1] / 2 + .5 : y + bh / 2 + .5 });
+  const lines = [{ text: pr.text, font: pr.font, ink: pr.ink, alpha: 1, y: o.pctText ? y + 2 + lineH[1] / 2 + .5 : y + bh / 2 + .5 }];
+  if (o.pctText) lines.push({ text: rows[0].text, font: rows[0].font, ink: rows[0].ink, alpha: 1, y: y + 2 + lineH[1] + lineH[0] / 2 + .5 });
   return { box: { x, y, w: o.w - 1 - x, h: bh }, lines, right, pctFont, priceFont };
+}
+
+/* THE POINTER'S LABEL (S16, 6 Oct) - a pure function, like the readout above, so a test can check it.
+   Two rows on the pane's right edge: the price of the pointer's level, centred ON the horizontal line, and
+   the percent from the current price to that level UNDER it (never beside it: one row was 97-111 px wide on
+   an 8-up pane and covered the plot; two rows are as wide as the longer text). Both rows are the wall's
+   11 px times the pane scale. The box stays inside the plot, and when it would touch the current-price
+   marker (o.avoid: { y, h }) it steps to the nearer side of it. With no current price there is no percent. */
+function crosshairLevelTag(measure, o) {
+  const k = Math.max(1, o.scale || 1);
+  const font = Math.round(11 * k * 10) / 10, f = "600 " + font;
+  const rowH = Math.round(font + 3);
+  const rows = o.pctText ? 2 : 1;
+  const bw = Math.ceil(Math.max(measure(o.priceText, f), o.pctText ? measure(o.pctText, f) : 0)) + 8;
+  const bh = rows * rowH + 2;
+  const top = o.plotTop || 0, bottom = Math.max(top + bh, o.plotBottom || 0);
+  const clamp = (v) => Math.max(top, Math.min(bottom - bh, v));
+  let y = clamp(o.sy - 1 - rowH / 2);
+  const a = o.avoid;
+  if (a && y + bh > a.y - 1 && y < a.y + a.h + 1) {
+    const above = a.y - 1 - bh, below = a.y + a.h + 1;
+    const fits = (v) => v >= top && v + bh <= bottom;
+    const want = o.sy < a.y + a.h / 2 ? [above, below] : [below, above];
+    const pick = want.find(fits);
+    if (pick != null) y = pick;
+  }
+  const x = Math.max(1, o.w - 1 - bw), right = o.w - 5;
+  const lines = [{ text: o.priceText, font: f, ink: "dim", y: y + 1 + rowH / 2 + .5 }];
+  if (o.pctText) lines.push({ text: o.pctText, font: f, ink: o.up ? "bull" : "bear", y: y + 1 + rowH + rowH / 2 + .5 });
+  return { box: { x, y, w: o.w - 1 - x, h: bh }, lines, right, font };
 }
 
 function clearChartRetry(host) {

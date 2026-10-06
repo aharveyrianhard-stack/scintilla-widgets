@@ -538,11 +538,22 @@ body.tapes.media-theatre:not(.stack) #tapes > .tape{ visibility:hidden; }
 .tape .cell .tk{ color:var(--ink); letter-spacing:.06em; } .tape .cell .px{ color:var(--ink2); }
 .tape .cell .pc{ min-width:52px; text-align:right; color:var(--ink3); }
 .tape .cell .pc.up{ color:var(--bull); } .tape .cell .pc.dn{ color:var(--bear); }
-/* the Geiger mark: four rungs, lit from the composite - cyan up, red down */
-.tape .g{ display:inline-flex; gap:1px; align-items:flex-end; height:10px; }
-.tape .g i{ width:3px; background:var(--mute); display:block; }
-.tape .g i:nth-child(1){ height:4px; } .tape .g i:nth-child(2){ height:6px; } .tape .g i:nth-child(3){ height:8px; } .tape .g i:nth-child(4){ height:10px; }
-.tape .g.p i.on{ background:var(--crk); } .tape .g.n i.on{ background:var(--bear); }
+/* S16 (6 Oct), Alan: "what's this, it looks like signal bars - is this volume on the ticker tapes? … very
+   different from what I'm used to on Station … I prefer the battery." The four rungs are gone. The mark is the
+   Station's own Geiger bar, the one beside every chart's badge (chart/index.html .sc-gbar): a dark track with
+   zero at its centre, the fill growing right in green for a reading at or above zero and left in red below it,
+   as tall as the tape's capital letters and 3.4 em long. No reading: the empty track. A reading older than its
+   source normally is: dimmed, as on the charts. */
+.tape .gb{ position:relative; flex:none; display:block; width:3.4em; height:.7em; height:1cap; border-radius:2px; background:#15151d; overflow:hidden; }
+.tape .gb::before{ content:""; position:absolute; left:calc(50% - .5px); top:0; bottom:0; width:1px; background:#05060c; z-index:2; }
+.tape .gb i{ position:absolute; top:0; bottom:0; border-radius:2px; background:currentColor; display:block; }
+.tape .gb.up{ color:var(--bull); } .tape .gb.down{ color:var(--bear); }
+.tape .gb.stale{ opacity:.45; }
+/* FAVORITES only: today's line from the open ("that iOS stocks widget that has a little bit of a line") -
+   green where the price is above the open, red where it is below. No line until two bars of today exist. */
+.tape .spark{ flex:none; display:block; width:40px; height:14px; overflow:visible; }
+.tape .spark path{ fill:none; stroke-width:1.25; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+.tape .spark .up{ stroke:var(--bull); } .tape .spark .dn{ stroke:var(--bear); }
 /* the scintilla: a price that ticks flashes once, then rests */
 .tape .cell.flash .px{ animation:tape-scin .6s ease-out; }
 @keyframes tape-scin{ 0%{ color:var(--crk); text-shadow:0 0 8px rgba(0,212,255,.9); } 100%{ color:var(--ink2); text-shadow:none; } }
@@ -1636,11 +1647,53 @@ function tapeLists(likedRows, favoriteRows) {
   const likedAll = names(likedRows);
   return { liked:likedAll.filter((t) => !onFavorites.has(t)), favorites, likedTotal:likedAll.length };
 }
-/* the Geiger mark: the composite (−1 … +1) lights one to four rungs, its sign picks the colour */
-function tapeRungs(composite) {
-  const c = Number(composite);
-  if (composite == null || !Number.isFinite(c)) return { lit:0, side:"" };
-  return { lit:Math.min(4, Math.ceil(Math.abs(c) * 4)), side:c >= 0 ? "p" : "n" };
+/* THE TAPE'S BATTERY (S16, 6 Oct): the Station's Geiger bar, read by the same pure functions the chart's chip uses
+   (SC_GEIGER_BAR.model / .fillStyle), so a name's bar on the tape and on its chart are one reading and one colour:
+   green at or above zero, red below, the fill from the centre, |reading| 1 = half the track. No reading (or the
+   functions not loaded): the empty track - never a zero. */
+function tapeBattery(B, reading, nowMs) {
+  const m = B && reading ? B.model(reading, nowMs) : null;
+  if (!m) return { side:"", fill:"", stale:false, title:"Geiger —" };
+  return { side:m.side, fill:B.fillStyle(m), stale:!!m.stale, title:m.title };
+}
+/* THE FAVORITES TAPE'S MINI LINE (S16) - today's line from the open, pure.
+   bars: 15-minute bars, oldest first, { t (ms), o, c }. etOf(t) gives the bar's New York day and minute of day.
+   TODAY is the newest bar's New York day. If that day has a bar at or after 09:30 the line starts at the 09:30
+   open (the US cash open - one rule for stocks, futures and crypto); before 09:30 it is the day's bars so far.
+   The points are the first bar's open, then each bar's close. The line is cut where it crosses the open: the
+   parts above it are `up` (green), the parts below `dn` (red); a part lying on the open goes with the day's side.
+   Fewer than two points, or a bad number: null - no line, never a flat one made up. */
+const TAPE_SPARK_W = 40, TAPE_SPARK_H = 14, TAPE_OPEN_MIN = 570;
+function tapeSpark(bars, etOf, w, h) {
+  const rows = (Array.isArray(bars) ? bars : []).filter((b) => b && Number.isFinite(b.t) && Number.isFinite(b.o) && Number.isFinite(b.c) && b.o > 0 && b.c > 0);
+  if (!rows.length) return null;
+  const tagged = rows.map((b) => Object.assign({ et:etOf(b.t) }, b));
+  const day = tagged[tagged.length - 1].et.day;
+  let today = tagged.filter((b) => b.et.day === day);
+  const fromOpen = today.filter((b) => b.et.min >= TAPE_OPEN_MIN);
+  const session = fromOpen.length > 0;
+  if (session) today = fromOpen;
+  if (!today.length) return null;
+  const open = today[0].o, vals = [open].concat(today.map((b) => b.c));
+  if (vals.length < 2) return null;
+  const last = vals[vals.length - 1], lo = Math.min(...vals), hi = Math.max(...vals);
+  const W = w || TAPE_SPARK_W, H = h || TAPE_SPARK_H, pad = 1;
+  const X = (i) => pad + (i / (vals.length - 1)) * (W - 2 * pad);
+  const Y = (v) => hi === lo ? H / 2 : pad + (1 - (v - lo) / (hi - lo)) * (H - 2 * pad);
+  const f = (n) => (Math.round(n * 10) / 10).toString();
+  const dayUp = last >= open, parts = { up:"", dn:"" };
+  const seg = (side, x1, y1, x2, y2) => { parts[side] += "M" + f(x1) + " " + f(y1) + "L" + f(x2) + " " + f(y2); };
+  for (let i = 1; i < vals.length; i++) {
+    const a = vals[i - 1], b = vals[i], x1 = X(i - 1), x2 = X(i), sa = Math.sign(a - open), sb = Math.sign(b - open);
+    if (sa * sb < 0) {   /* crosses the open: cut there */
+      const k = (open - a) / (b - a), xm = x1 + (x2 - x1) * k, ym = Y(open);
+      seg(sa > 0 ? "up" : "dn", x1, Y(a), xm, ym); seg(sb > 0 ? "up" : "dn", xm, ym, x2, Y(b));
+    } else {
+      const side = sa > 0 || sb > 0 ? "up" : sa < 0 || sb < 0 ? "dn" : dayUp ? "up" : "dn";
+      seg(side, x1, Y(a), x2, Y(b));
+    }
+  }
+  return { up:parts.up, dn:parts.dn, open, last, dayUp, points:vals.length, session, day, w:W, h:H, baseY:Y(open) };
 }
 /* WHICH SLOT A TAPPED NAME OPENS IN - the deck's own order of preference, in one place: a name already
    on the wall is not loaded twice (its slot is shown); else the first empty slot on the wall; else the
@@ -1660,8 +1713,15 @@ function tapesOn() { try { return localStorage.getItem(TAPES_KEY) !== "0"; } cat
    pump, its request counter and its absence rules are not touched, and a tape read that fails leaves
    the cells as they were. Nothing is read while the tapes are off, on a phone, or while the tab is hidden. */
 const TAPE_LISTS_MS = 300000, TAPE_QUOTE_MS = 15000, TAPE_GEIGER_MS = 60000, TAPE_BATCH = 40;
-const TAPES = { liked:[], favorites:[], likedTotal:0, key:"", quotes:new Map(), geiger:{}, listsAt:0, quotesAt:0, geigerAt:0,
-  listsBusy:false, quotesBusy:false, geigerBusy:false, lastSlot:-1, timer:0 };
+/* S16: the FAVORITES mini lines - 15-minute bars, 64 of them (a whole extended day), read every five minutes */
+const TAPE_SPARK_MS = 300000, TAPE_SPARK_TF = "15m", TAPE_SPARK_BARS = 64;
+const TAPES = { liked:[], favorites:[], likedTotal:0, key:"", quotes:new Map(), geiger:{}, sparks:new Map(), listsAt:0, quotesAt:0, geigerAt:0, sparksAt:0,
+  listsBusy:false, quotesBusy:false, geigerBusy:false, sparksBusy:false, lastSlot:-1, timer:0 };
+const TAPE_ET = new Intl.DateTimeFormat("en-CA", { timeZone:"America/New_York", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" });
+function tapeEt(ms) {
+  const p = {}; for (const part of TAPE_ET.formatToParts(new Date(ms))) p[part.type] = part.value;
+  return { day:p.year + "-" + p.month + "-" + p.day, min:(+p.hour % 24) * 60 + +p.minute };
+}
 const tapePrice = (p) => p == null ? "—" : p >= 1000 ? Math.round(p).toLocaleString("en-US") : p.toFixed(2);
 const tapePct = (c) => c == null ? "" : (c >= 0 ? "+" : "") + c.toFixed(2) + "%";
 function tapesLive() { return tapesOn() && !STACKED && !!el("tapes"); }
@@ -1678,7 +1738,10 @@ function tapeRow(label, names, note) {
     const b = document.createElement("button");
     b.type = "button"; b.className = "cell"; b.dataset.t = t; b.title = t + " · open this chart in a slot";
     if (copy) { b.tabIndex = -1; b.setAttribute("aria-hidden", "true"); }
-    b.innerHTML = '<span class="tk"></span><span class="px">—</span><span class="pc"></span><span class="g"><i></i><i></i><i></i><i></i></span>';
+    /* S16: FAVORITES carries the mini line before the battery; LIKED the battery only */
+    b.innerHTML = '<span class="tk"></span><span class="px">—</span><span class="pc"></span>' +
+      (label === "FAVORITES" ? '<svg class="spark" viewBox="0 0 ' + TAPE_SPARK_W + " " + TAPE_SPARK_H + '" aria-hidden="true"><path class="up"></path><path class="dn"></path></svg>' : "") +
+      '<span class="gb"><i></i></span>';
     b.firstChild.textContent = t;
     return b;
   };
@@ -1704,9 +1767,10 @@ function runTape(row) {
 }
 function paintTapeCells(first) {
   const box = el("tapes"); if (!box) return;
+  const now = Date.now();
   for (const cell of box.querySelectorAll(".cell")) {
     const t = cell.dataset.t, q = TAPES.quotes.get(t);
-    const px = cell.children[1], pc = cell.children[2], g = cell.children[3];
+    const px = cell.children[1], pc = cell.children[2], g = cell.querySelector(".gb"), sp = cell.querySelector(".spark");
     if (q) {
       const text = tapePrice(q.price);
       if (px.textContent !== text) {
@@ -1718,10 +1782,15 @@ function paintTapeCells(first) {
       if (pc.textContent !== pct) pc.textContent = pct;
       if (pc.className !== cls) pc.className = cls;
     }
-    const reading = TAPES.geiger[t], r = tapeRungs(reading ? reading.composite : null), gc = "g" + (r.side ? " " + r.side : "");
+    const m = tapeBattery(window.SC_GEIGER_BAR, TAPES.geiger[t], now), gc = "gb" + (m.side ? " " + m.side : "") + (m.stale ? " stale" : "");
     if (g.className !== gc) g.className = gc;
-    for (let i = 0; i < 4; i++) g.children[i].classList.toggle("on", i < r.lit);
-    g.title = "Geiger " + (reading && Number.isFinite(reading.composite) ? reading.composite.toFixed(2) : "—");
+    if (g.firstChild.getAttribute("style") !== m.fill) g.firstChild.setAttribute("style", m.fill);
+    if (g.title !== m.title) g.title = m.title;
+    if (sp) {
+      const line = TAPES.sparks.get(t), up = line ? line.up : "", dn = line ? line.dn : "";
+      if (sp.children[0].getAttribute("d") !== up) sp.children[0].setAttribute("d", up);
+      if (sp.children[1].getAttribute("d") !== dn) sp.children[1].setAttribute("d", dn);
+    }
   }
 }
 function paintTapes() {
@@ -1829,12 +1898,34 @@ async function refreshTapeGeiger() {
     paintTapeCells(false);
   } finally { TAPES.geigerBusy = false; }
 }
+/* S16: the FAVORITES mini lines. One read for up to 40 names (the chart API's /sparklines, through SC_PROVIDER); a
+   name it does not serve simply has no line. A read that fails leaves the lines as they were. */
+async function refreshTapeSparks() {
+  const P = window.SC_PROVIDER;
+  if (!tapesLive() || document.hidden || TAPES.sparksBusy || !P || !P.sparklines) return;
+  const names = TAPES.favorites.slice(); if (!names.length) return;
+  TAPES.sparksBusy = true;
+  try {
+    const batches = [];
+    for (let i = 0; i < names.length; i += TAPE_BATCH) batches.push(names.slice(i, i + TAPE_BATCH));
+    const parts = await Promise.all(batches.map((b) => P.sparklines(b, TAPE_SPARK_TF, TAPE_SPARK_BARS).catch(() => null)));
+    if (parts.some(Boolean)) {
+      for (const part of parts) for (const t of Object.keys(part || {})) {
+        const line = tapeSpark(part[t], tapeEt, TAPE_SPARK_W, TAPE_SPARK_H);
+        if (line) TAPES.sparks.set(t, line); else TAPES.sparks.delete(t);
+      }
+      TAPES.sparksAt = Date.now();
+      paintTapeCells(false);
+    }
+  } finally { TAPES.sparksBusy = false; }
+}
 function tapesTick() {
   if (!tapesLive() || document.hidden) return;
   const now = Date.now();
-  if (now - TAPES.listsAt >= TAPE_LISTS_MS) refreshTapeLists().then(() => { if (!TAPES.quotesAt) { refreshTapeQuotes(); refreshTapeGeiger(); } });
+  if (now - TAPES.listsAt >= TAPE_LISTS_MS) refreshTapeLists().then(() => { if (!TAPES.quotesAt) { refreshTapeQuotes(); refreshTapeGeiger(); refreshTapeSparks(); } });
   if (now - TAPES.quotesAt >= TAPE_QUOTE_MS) refreshTapeQuotes();
   if (now - TAPES.geigerAt >= TAPE_GEIGER_MS) refreshTapeGeiger();
+  if (TAPES.listsAt && now - TAPES.sparksAt >= TAPE_SPARK_MS) refreshTapeSparks();
 }
 /* a tapped name opens through commitTicker - the same door a symbol typed into a slot goes through */
 function openTapeTicker(ticker) {
@@ -1862,7 +1953,7 @@ function paintTapesToggle() {
 function setTapes(on) {
   try { localStorage.setItem(TAPES_KEY, on ? "1" : "0"); } catch (_) {}
   paintTapesToggle(); relayout();
-  if (on) { TAPES.quotesAt = 0; TAPES.geigerAt = 0; tapesTick(); }
+  if (on) { TAPES.quotesAt = 0; TAPES.geigerAt = 0; TAPES.sparksAt = 0; tapesTick(); }
 }
 function wireTapes(grid) {
   const box = document.createElement("div");

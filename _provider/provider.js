@@ -1223,6 +1223,26 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     });
     return read.then(function (filed) { if (timer) clearTimeout(timer); return Object.keys(filed).length; });
   };
+  /* S16 (6 Oct) — THE TAPES' MINI LINES. GET /sparklines?tf=&limit=&authority=provider&symbols=A,B,… (chart API P6, the
+     route the Hub's board has read since 1 Oct): each symbol's entry is its own /candles answer, and a name the API
+     does not serve is listed under `refused` instead of sinking the read. Returns { SYMBOL: [{ t, o, c }, …] } oldest
+     first, for the names that came back whole; nothing is cached here and nothing else is touched. */
+  S.sparklines = function (symbols, rawTf, limit, signal) {
+    var tf = TF[rawTf], want = (normalizeSymbols(symbols) || []).slice(0, CANDLES_MANY_MAX);
+    if (!tf || !want.length) return Promise.resolve({});
+    return jget(API + '/sparklines?tf=' + encodeURIComponent(tf) + '&limit=' + candleBound(limit) + '&authority=provider&symbols=' +
+      want.map(encodeURIComponent).join(','), signal).then(function (j) {
+        var out = {};
+        want.forEach(function (sym) {
+          var c = j && j.candles && j.candles[sym];
+          if (c && Array.isArray(c.series) && c.series.length && !(c.absence || c.reason || (c.state && c.state !== 'OK')))
+            out[sym] = c.series.map(function (bar) { return { t: Number(bar.t), o: Number(bar.o), c: Number(bar.c) }; })
+              .sort(function (a, b) { return a.t - b.t; });
+        });
+        S.counts.sparklines = (S.counts.sparklines || 0) + 1;
+        return out;
+      });
+  };
   function providerCandleRows (symbol, rawTf, limit, signal, forming) {
     var tf = TF[rawTf];
     if (!tf) {
