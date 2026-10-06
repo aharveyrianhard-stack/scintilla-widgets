@@ -303,6 +303,9 @@ body.tvmodal-open{ overflow:hidden; }
 <!-- The cloud ribbon's arithmetic and geometry, ported from the Indicator Lab's
      approved Cloud Workshop. Pure functions: it reads no data and draws nothing. -->
 <script src="/_indicators/station-clouds.js"></script>
+<!-- LB1 (6 Oct 2026): the Indicator Lab's Clean Review lines, drawn thin in the Lab's colours from a read-only extract
+     of its installed V24 packs (/_indicators/reviewed-lines-extract.json). Pure geometry: reads no data, draws nothing by itself. -->
+<script src="/_indicators/station-reviewed-lines.js"></script>
 <!-- The RSI fan: the detail view's own RSI arithmetic, and the Lab's locked-timeframe rules. -->
 <script src="/station-shells/detail-v1/indicators.js"></script>
 <script src="/_indicators/station-rsi-fan.js"></script>
@@ -423,6 +426,20 @@ const CLOUD_EXTRAS = Object.freeze({ ema8: QS.get("ema8") === "1", sma100: QS.ge
    that the current level in the labels is exact"). The ribbon is drawn as a monotone curve through one
    anchor per session by default; ?steps=1 restores the stepped drawing for a deep link or a comparison,
    and the caption on the pane switches it for this browser. Neither changes a single value. */
+/* LB1 (6 Oct 2026) — THE REVIEWED LINES ARE ON UNLESS SOMEBODY TURNED THEM OFF. ?reviewed=0 hides them for this page,
+   the dock may remember the choice under station.reviewed. The lines come from one read-only extract of the Lab's
+   installed packs, fetched once (GET) after boot; until it arrives the chart simply has no reviewed lines. */
+const REVIEWED_STATE_KEY = "station.reviewed";
+let REVIEWED_ON = QS.has("reviewed") ? QS.get("reviewed") !== "0" : lsGet(REVIEWED_STATE_KEY) !== "0";
+let REVIEWED_DATA = null;
+function reviewedLoad() {
+  if (!REVIEWED_ON || REVIEWED_DATA || !window.SC_REVIEWED) return;
+  fetch("/_indicators/reviewed-lines-extract.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+    if (!j || !Array.isArray(j.lines)) return;
+    REVIEWED_DATA = j;
+    for (const host of (typeof CHART_HOSTS !== "undefined" ? CHART_HOSTS : [])) if (host.isConnected) scChartDraw(host);
+  }).catch(() => {});
+}
 const CLOUD_STEPS_KEY = "station.clouds.steps";
 let CLOUD_STEPS = QS.has("steps") ? QS.get("steps") === "1" : lsGet(CLOUD_STEPS_KEY) === "1";
 /* WHAT A BAR IS, ON THE PANE — OFF BY DEFAULT, BECAUSE ALAN CLEARED THIS SPACE.
@@ -2554,6 +2571,13 @@ function scChartDraw(host, scrub) {
   ctx.beginPath(); trace();
   ctx.strokeStyle = c; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
   ctx.stroke();
+  /* LB1: the Lab's reviewed lines, thin, over the price, only the ones whose source timeframe is at or above this chart's.
+     The y range is NOT widened for them (CH1 rule C): a line outside the window is simply not on screen. */
+  if (REVIEWED_ON && REVIEWED_DATA && window.SC_REVIEWED) {
+    const rl = window.SC_REVIEWED.linesFor(REVIEWED_DATA, host.dataset.t, (host && host._range) || S.chartRange);
+    host._reviewedDrawn = rl.length ? window.SC_REVIEWED.draw({ ctx, pts, start, end, X, Y, padL, padT, iw, ih, yLo, yHi, rightBars, lines: rl,
+      font: Math.max(7, (VIEW_PROFILE === "desk" ? 8.4 : 7.6) * scale), labels: end >= pts.length - 1 }) : [];
+  } else host._reviewedDrawn = null;
   if (formingIx >= 0) {
     /* FORMING: dashed from the last completed bar to the live value, a hollow ring at its end. */
     ctx.beginPath(); ctx.moveTo(X(solidEnd), Y(pts[solidEnd].p)); ctx.lineTo(X(formingIx), Y(pts[formingIx].p));
@@ -3598,6 +3622,7 @@ async function scChartLoad(host) {
     host._historyLimit = chartBarsOverride() || chartInitialLimit(range);
   }
   host._req = req; host._range = range;
+  reviewedLoad();   /* LB1: one GET for the Lab's reviewed lines, the first time a chart mounts */
   const msg = host.querySelector(".sc-nchart__msg");
   const limit = host._historyLimit || chartInitialLimit(range);
   const cachedPts = chartSeriesCached(t, range, limit);
