@@ -544,16 +544,24 @@ body.tapes.media-theatre:not(.stack) #tapes > .tape{ visibility:hidden; }
    zero at its centre, the fill growing right in green for a reading at or above zero and left in red below it,
    as tall as the tape's capital letters and 3.4 em long. No reading: the empty track. A reading older than its
    source normally is: dimmed, as on the charts. */
-.tape .gb{ position:relative; flex:none; display:block; width:3.4em; height:.7em; height:1cap; border-radius:2px; background:#15151d; overflow:hidden; }
+/* S16b (6 Oct), Alan: "These look like Wi-Fi bars … I'm all for having the Geiger bar, but with a little price
+   line, maybe the Geiger thing below, lined up in the same left-to-right space." THE MARK is one 44 px column
+   at the end of every cell, on both tapes: today's price line (44 x 11) and, directly under it and exactly as
+   wide, the Geiger bar as a thin 4 px strip - so the Geiger reads under the move it describes. 11 + 1 + 4 =
+   16 px inside the 22 px row: the row, the strip and the type are the size Alan liked. */
+.tape .mk{ flex:none; display:flex; flex-direction:column; gap:1px; width:44px; }
+.tape .gb{ position:relative; flex:none; display:block; width:100%; height:4px; border-radius:1.5px; background:#15151d; overflow:hidden; }
 .tape .gb::before{ content:""; position:absolute; left:calc(50% - .5px); top:0; bottom:0; width:1px; background:#05060c; z-index:2; }
 .tape .gb i{ position:absolute; top:0; bottom:0; border-radius:2px; background:currentColor; display:block; }
 .tape .gb.up{ color:var(--bull); } .tape .gb.down{ color:var(--bear); }
 .tape .gb.stale{ opacity:.45; }
-/* FAVORITES only: today's line from the open ("that iOS stocks widget that has a little bit of a line") -
-   green where the price is above the open, red where it is below. No line until two bars of today exist. */
-.tape .spark{ flex:none; display:block; width:40px; height:14px; overflow:visible; }
-.tape .spark path{ fill:none; stroke-width:1.25; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke; }
-.tape .spark .up{ stroke:var(--bull); } .tape .spark .dn{ stroke:var(--bear); }
+/* today's line from the open ("that iOS stocks widget that has a little bit of a line"). ONE colour, the day's:
+   green when the name is up on the day, red when it is down - the same sign as the percent beside it (S16b;
+   S16 cut it green above / red below the open, which could put a red line beside a green percent). No line
+   until two bars of today exist; a name with no day sign yet has no line colour and so no line. */
+.tape .spark{ flex:none; display:block; width:100%; height:11px; overflow:visible; }
+.tape .spark path{ fill:none; stroke:none; stroke-width:1.25; stroke-linejoin:round; stroke-linecap:round; vector-effect:non-scaling-stroke; }
+.tape .spark.up path{ stroke:var(--bull); } .tape .spark.dn path{ stroke:var(--bear); }
 /* the scintilla: a price that ticks flashes once, then rests */
 .tape .cell.flash .px{ animation:tape-scin .6s ease-out; }
 @keyframes tape-scin{ 0%{ color:var(--crk); text-shadow:0 0 8px rgba(0,212,255,.9); } 100%{ color:var(--ink2); text-shadow:none; } }
@@ -1660,10 +1668,10 @@ function tapeBattery(B, reading, nowMs) {
    bars: 15-minute bars, oldest first, { t (ms), o, c }. etOf(t) gives the bar's New York day and minute of day.
    TODAY is the newest bar's New York day. If that day has a bar at or after 09:30 the line starts at the 09:30
    open (the US cash open - one rule for stocks, futures and crypto); before 09:30 it is the day's bars so far.
-   The points are the first bar's open, then each bar's close. The line is cut where it crosses the open: the
-   parts above it are `up` (green), the parts below `dn` (red); a part lying on the open goes with the day's side.
-   Fewer than two points, or a bad number: null - no line, never a flat one made up. */
-const TAPE_SPARK_W = 40, TAPE_SPARK_H = 14, TAPE_OPEN_MIN = 570;
+   The points are the first bar's open, then each bar's close, as ONE path `d` (S16b: one colour, the day's - the
+   page takes it from the quote's percent, and from `dayUp`, the last point against the open, only when there is
+   no quote yet). Fewer than two points, or a bad number: null - no line, never a flat one made up. */
+const TAPE_SPARK_W = 44, TAPE_SPARK_H = 11, TAPE_OPEN_MIN = 570;
 function tapeSpark(bars, etOf, w, h) {
   const rows = (Array.isArray(bars) ? bars : []).filter((b) => b && Number.isFinite(b.t) && Number.isFinite(b.o) && Number.isFinite(b.c) && b.o > 0 && b.c > 0);
   if (!rows.length) return null;
@@ -1681,19 +1689,8 @@ function tapeSpark(bars, etOf, w, h) {
   const X = (i) => pad + (i / (vals.length - 1)) * (W - 2 * pad);
   const Y = (v) => hi === lo ? H / 2 : pad + (1 - (v - lo) / (hi - lo)) * (H - 2 * pad);
   const f = (n) => (Math.round(n * 10) / 10).toString();
-  const dayUp = last >= open, parts = { up:"", dn:"" };
-  const seg = (side, x1, y1, x2, y2) => { parts[side] += "M" + f(x1) + " " + f(y1) + "L" + f(x2) + " " + f(y2); };
-  for (let i = 1; i < vals.length; i++) {
-    const a = vals[i - 1], b = vals[i], x1 = X(i - 1), x2 = X(i), sa = Math.sign(a - open), sb = Math.sign(b - open);
-    if (sa * sb < 0) {   /* crosses the open: cut there */
-      const k = (open - a) / (b - a), xm = x1 + (x2 - x1) * k, ym = Y(open);
-      seg(sa > 0 ? "up" : "dn", x1, Y(a), xm, ym); seg(sb > 0 ? "up" : "dn", xm, ym, x2, Y(b));
-    } else {
-      const side = sa > 0 || sb > 0 ? "up" : sa < 0 || sb < 0 ? "dn" : dayUp ? "up" : "dn";
-      seg(side, x1, Y(a), x2, Y(b));
-    }
-  }
-  return { up:parts.up, dn:parts.dn, open, last, dayUp, points:vals.length, session, day, w:W, h:H, baseY:Y(open) };
+  const d = vals.map((v, i) => (i ? "L" : "M") + f(X(i)) + " " + f(Y(v))).join("");
+  return { d, open, last, dayUp:last >= open, points:vals.length, session, day, w:W, h:H };
 }
 /* WHICH SLOT A TAPPED NAME OPENS IN - the deck's own order of preference, in one place: a name already
    on the wall is not loaded twice (its slot is shown); else the first empty slot on the wall; else the
@@ -1713,7 +1710,7 @@ function tapesOn() { try { return localStorage.getItem(TAPES_KEY) !== "0"; } cat
    pump, its request counter and its absence rules are not touched, and a tape read that fails leaves
    the cells as they were. Nothing is read while the tapes are off, on a phone, or while the tab is hidden. */
 const TAPE_LISTS_MS = 300000, TAPE_QUOTE_MS = 15000, TAPE_GEIGER_MS = 60000, TAPE_BATCH = 40;
-/* S16: the FAVORITES mini lines - 15-minute bars, 64 of them (a whole extended day), read every five minutes */
+/* S16 / S16b: the tapes' mini lines - 15-minute bars, 64 of them (a whole extended day), read every five minutes */
 const TAPE_SPARK_MS = 300000, TAPE_SPARK_TF = "15m", TAPE_SPARK_BARS = 64;
 const TAPES = { liked:[], favorites:[], likedTotal:0, key:"", quotes:new Map(), geiger:{}, sparks:new Map(), listsAt:0, quotesAt:0, geigerAt:0, sparksAt:0,
   listsBusy:false, quotesBusy:false, geigerBusy:false, sparksBusy:false, lastSlot:-1, timer:0 };
@@ -1724,6 +1721,13 @@ function tapeEt(ms) {
 }
 const tapePrice = (p) => p == null ? "—" : p >= 1000 ? Math.round(p).toLocaleString("en-US") : p.toFixed(2);
 const tapePct = (c) => c == null ? "" : (c >= 0 ? "+" : "") + c.toFixed(2) + "%";
+/* THE LINE'S COLOUR IS THE DAY'S (S16b; the Station's rule - daily up green, daily down red): the sign of the
+   percent printed beside it; with no quote yet, the line's own last point against its open; no line, no colour. */
+function tapeLineSide(q, line) {
+  if (!line) return "";
+  if (q && q.pct != null && Number.isFinite(q.pct)) return q.pct >= 0 ? " up" : " dn";
+  return line.dayUp ? " up" : " dn";
+}
 function tapesLive() { return tapesOn() && !STACKED && !!el("tapes"); }
 function tapeNames() { return Array.from(new Set(TAPES.liked.concat(TAPES.favorites))); }
 function tapeRow(label, names, note) {
@@ -1738,10 +1742,10 @@ function tapeRow(label, names, note) {
     const b = document.createElement("button");
     b.type = "button"; b.className = "cell"; b.dataset.t = t; b.title = t + " · open this chart in a slot";
     if (copy) { b.tabIndex = -1; b.setAttribute("aria-hidden", "true"); }
-    /* S16: FAVORITES carries the mini line before the battery; LIKED the battery only */
+    /* S16b: every cell ends in the mark - today's line, the Geiger bar under it, one width */
     b.innerHTML = '<span class="tk"></span><span class="px">—</span><span class="pc"></span>' +
-      (label === "FAVORITES" ? '<svg class="spark" viewBox="0 0 ' + TAPE_SPARK_W + " " + TAPE_SPARK_H + '" aria-hidden="true"><path class="up"></path><path class="dn"></path></svg>' : "") +
-      '<span class="gb"><i></i></span>';
+      '<span class="mk"><svg class="spark" viewBox="0 0 ' + TAPE_SPARK_W + " " + TAPE_SPARK_H + '" preserveAspectRatio="none" aria-hidden="true"><path></path></svg>' +
+      '<span class="gb"><i></i></span></span>';
     b.firstChild.textContent = t;
     return b;
   };
@@ -1787,9 +1791,9 @@ function paintTapeCells(first) {
     if (g.firstChild.getAttribute("style") !== m.fill) g.firstChild.setAttribute("style", m.fill);
     if (g.title !== m.title) g.title = m.title;
     if (sp) {
-      const line = TAPES.sparks.get(t), up = line ? line.up : "", dn = line ? line.dn : "";
-      if (sp.children[0].getAttribute("d") !== up) sp.children[0].setAttribute("d", up);
-      if (sp.children[1].getAttribute("d") !== dn) sp.children[1].setAttribute("d", dn);
+      const line = TAPES.sparks.get(t), d = line ? line.d : "", sc = "spark" + tapeLineSide(q, line);
+      if (sp.firstChild.getAttribute("d") !== d) sp.firstChild.setAttribute("d", d);
+      if (sp.getAttribute("class") !== sc) sp.setAttribute("class", sc);
     }
   }
 }
@@ -1898,12 +1902,12 @@ async function refreshTapeGeiger() {
     paintTapeCells(false);
   } finally { TAPES.geigerBusy = false; }
 }
-/* S16: the FAVORITES mini lines. One read for up to 40 names (the chart API's /sparklines, through SC_PROVIDER); a
+/* S16 / S16b: the tapes' mini lines, for every name on either tape. One read for up to 40 names (the chart API's /sparklines, through SC_PROVIDER); a
    name it does not serve simply has no line. A read that fails leaves the lines as they were. */
 async function refreshTapeSparks() {
   const P = window.SC_PROVIDER;
   if (!tapesLive() || document.hidden || TAPES.sparksBusy || !P || !P.sparklines) return;
-  const names = TAPES.favorites.slice(); if (!names.length) return;
+  const names = tapeNames(); if (!names.length) return;
   TAPES.sparksBusy = true;
   try {
     const batches = [];

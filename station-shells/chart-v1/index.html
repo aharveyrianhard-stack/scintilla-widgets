@@ -2732,8 +2732,20 @@ function scChartOverlay(host) {
       host._rsiDrawn = g.fanDraw(ctx, Object.assign({}, o, { scrubIx:inView ? hover.ix : null }));
     } else host._rsiDrawn = g.fanRest || host._rsiDrawn;
   }
+  /* S16b (6 Oct), Alan: "the stray label was not on the horizontal level of the hover". THE POINTER'S LABEL IS
+     WORKED OUT FIRST and always sits on the pointer's own line; S16 let it step off that line to clear the
+     current-price marker, so near the current price the one label was again not on the pointer's level. Now
+     the marker is the one that steps. */
+  const nowPx = g.livePriceValue != null ? g.livePriceValue : g.dayPx;
+  let sy = null, T = null;
+  if (scrubOn && hover.local) {
+    sy = Math.max(padT, Math.min(padT + ih, host._hoverLocal.y));
+    const price = yLo + (1 - (sy - padT) / ih) * (yHi - yLo);
+    const pct = nowPx > 0 ? (price / nowPx - 1) * 100 : null;
+    T = crosshairLevelTag(readoutMeasure, { w, sy, plotTop: padT, plotBottom: padT + ih, priceText: chPx(price, t), pctText: chartPctText(pct), up: pct >= 0, scale });
+  }
   /* the current-price marker, drawn whether or not the crosshair is up; it steps just above the readout
-     only when the two would touch (S1) */
+     only when the two would touch (S1), and to the nearer side of the pointer's label when those two would (S16b) */
   if (g.live) {
     const L0 = g.live;
     ctx.save();
@@ -2743,6 +2755,7 @@ function scChartOverlay(host) {
     const liveX = w - liveW - 1;
     let liveTop = Math.max(padT, Math.min(padT + ih - 12, L0.y - 6));
     if (scrubOn && !hover.local && R && liveTop + 12 > R.y - 1 && liveTop < R.y + R.h + 1) liveTop = Math.max(padT, R.y - 13);
+    if (T) liveTop = liveMarkerClear(liveTop, 12, T.box, padT, padT + ih);
     ctx.fillStyle = "rgba(5,6,12,.92)";
     ctx.fillRect(liveX, liveTop, liveW, 12);
     ctx.fillStyle = L0.color; ctx.textAlign = "right";
@@ -2753,17 +2766,12 @@ function scChartOverlay(host) {
   if (!scrubOn) { lensFadeUnderTag(host); return; }
   const ix = hover.ix, bar = pts[ix];
   const markerFont = Math.max(6.5, (ipadProfile ? 7 : 7.5) * scale);
-  const nowPx = g.livePriceValue != null ? g.livePriceValue : g.dayPx;
   const sx = hover.local ? Math.max(padL, Math.min(padL + iw, host._hoverLocal.x)) : X(ix);
   const lineOn = sx >= padL - .5 && sx <= padL + iw + .5;   /* a date outside this pane's window: no line, the readout stays */
   ctx.save();
   ctx.strokeStyle = col.dim; ctx.globalAlpha = .62; ctx.lineWidth = .75;
   if (lineOn) { ctx.beginPath(); ctx.moveTo(sx, padT); ctx.lineTo(sx, padT + ih); ctx.stroke(); }
-  let sy = null;
-  if (hover.local) {
-    sy = Math.max(padT, Math.min(padT + ih, host._hoverLocal.y));
-    ctx.beginPath(); ctx.moveTo(padL, sy); ctx.lineTo(padL + iw, sy); ctx.stroke();
-  }
+  if (sy != null) { ctx.beginPath(); ctx.moveTo(padL, sy); ctx.lineTo(padL + iw, sy); ctx.stroke(); }
   ctx.globalAlpha = 1;
   ctx.textBaseline = "middle";
   /* S16 (6 Oct), Alan: "there is this other thing with a price percentage difference and a price at the lower
@@ -2790,18 +2798,14 @@ function scChartOverlay(host) {
     host._scrubLabel = { x: L.box.x, y: L.box.y, w: L.box.w, h: L.box.h, plotRight: padL + iw, pct: chartPctText(sincePct), price: chPx(then, t),
       pctFont: L.pctFont, priceFont: L.priceFont, date: bar.d, mode: "synced", up: sincePct >= 0 };
   } else {
-    /* THE LEVEL TAG: the horizontal line's price, and how far that level is from the current price (N10 / O1:
-       green above the current price, red below), on the right edge at the line's height. It steps clear of
-       the current-price marker rather than cover it. */
-    const price = yLo + (1 - (sy - padT) / ih) * (yHi - yLo);
-    const pct = nowPx > 0 ? (price / nowPx - 1) * 100 : null;
-    const T = crosshairLevelTag(readoutMeasure, { w, sy, plotTop: padT, plotBottom: padT + ih, priceText: chPx(price, t), pctText: chartPctText(pct), up: pct >= 0, scale,
-      avoid: g.live && host._liveTag ? host._liveTag : null });
+    /* THE LEVEL TAG (worked out above): the horizontal line's price, and how far that level is from the current
+       price (N10 / O1: green above the current price, red below), on the right edge AT THE LINE'S HEIGHT - always
+       (S16b); the current-price marker stepped clear of it above. */
     ctx.fillStyle = "rgba(5,6,12,.94)"; ctx.fillRect(T.box.x, T.box.y, T.box.w, T.box.h);
     ctx.textAlign = "right";
     for (const line of T.lines) { ctx.font = line.font + MONO_PX; ctx.fillStyle = col[line.ink]; ctx.fillText(line.text, T.right, line.y); }
     host._levelTag = { x: T.box.x, y: T.box.y, w: T.box.w, h: T.box.h, price: T.lines[0].text, pct: T.lines[1] ? T.lines[1].text : "", font: T.font,
-      priceY: T.lines[0].y, pctY: T.lines[1] ? T.lines[1].y : null, date: bar.d };
+      priceY: T.lines[0].y, pctY: T.lines[1] ? T.lines[1].y : null, date: bar.d, lineY: sy };
   }
   if (lineOn) {
     const timeText = chHoverTime(chEtIso(bar.d, host._range || S.chartRange), host._range || S.chartRange);
@@ -2859,8 +2863,9 @@ function crosshairReadout(measure, o) {
    Two rows on the pane's right edge: the price of the pointer's level, centred ON the horizontal line, and
    the percent from the current price to that level UNDER it (never beside it: one row was 97-111 px wide on
    an 8-up pane and covered the plot; two rows are as wide as the longer text). Both rows are the wall's
-   11 px times the pane scale. The box stays inside the plot, and when it would touch the current-price
-   marker (o.avoid: { y, h }) it steps to the nearer side of it. With no current price there is no percent. */
+   11 px times the pane scale. The box stays inside the plot and NEVER leaves the pointer's line (S16b, Alan:
+   "the stray label was not on the horizontal level of the hover") - it is the current-price marker that
+   steps clear (liveMarkerClear). With no current price there is no percent. */
 function crosshairLevelTag(measure, o) {
   const k = Math.max(1, o.scale || 1);
   const font = Math.round(11 * k * 10) / 10, f = "600 " + font;
@@ -2870,19 +2875,24 @@ function crosshairLevelTag(measure, o) {
   const bh = rows * rowH + 2;
   const top = o.plotTop || 0, bottom = Math.max(top + bh, o.plotBottom || 0);
   const clamp = (v) => Math.max(top, Math.min(bottom - bh, v));
-  let y = clamp(o.sy - 1 - rowH / 2);
-  const a = o.avoid;
-  if (a && y + bh > a.y - 1 && y < a.y + a.h + 1) {
-    const above = a.y - 1 - bh, below = a.y + a.h + 1;
-    const fits = (v) => v >= top && v + bh <= bottom;
-    const want = o.sy < a.y + a.h / 2 ? [above, below] : [below, above];
-    const pick = want.find(fits);
-    if (pick != null) y = pick;
-  }
+  const y = clamp(o.sy - 1 - rowH / 2);
   const x = Math.max(1, o.w - 1 - bw), right = o.w - 5;
   const lines = [{ text: o.priceText, font: f, ink: "dim", y: y + 1 + rowH / 2 + .5 }];
   if (o.pctText) lines.push({ text: o.pctText, font: f, ink: o.up ? "bull" : "bear", y: y + 1 + rowH + rowH / 2 + .5 });
   return { box: { x, y, w: o.w - 1 - x, h: bh }, lines, right, font };
+}
+
+/* WHERE THE CURRENT-PRICE MARKER GOES WHILE THE POINTER'S LABEL IS UP (S16b) - pure. top / h: the marker's own
+   box; box: the pointer's label { y, h }; the plot's top and bottom. Clear of the label: it stays where it is.
+   Touching it: it steps to the nearer side of the label that fits in the plot (the same manners S1 gave it
+   beside the corner readout). Neither side fits (a plot shorter than both): it stays, under the label. */
+function liveMarkerClear(top, h, box, plotTop, plotBottom) {
+  if (!box || !(top + h > box.y - 1 && top < box.y + box.h + 1)) return top;
+  const above = box.y - 1 - h, below = box.y + box.h + 1;
+  const fits = (v) => v >= plotTop && v + h <= plotBottom;
+  const want = top + h / 2 < box.y + box.h / 2 ? [above, below] : [below, above];
+  const pick = want.find(fits);
+  return pick == null ? top : pick;
 }
 
 function clearChartRetry(host) {

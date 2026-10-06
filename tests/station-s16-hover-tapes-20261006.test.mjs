@@ -33,7 +33,8 @@ test("S16 · the chart page and its shell copy are still one file", () => { asse
 
 test("S16 · hover: one label per pane - the level tag under the pointer, the corner readout everywhere else", () => {
   const ov = lift(chart, "scChartOverlay");
-  assert.match(ov, /if \(sy == null\) \{[\s\S]*?crosshairReadout\([\s\S]*?\} else \{[\s\S]*?crosshairLevelTag\(/);
+  /* S16b: the level tag is worked out first (only when the pointer is on this pane) and drawn in the else branch */
+  assert.match(ov, /if \(scrubOn && hover\.local\) \{[\s\S]*?T = crosshairLevelTag\([\s\S]*?if \(sy == null\) \{[\s\S]*?crosshairReadout\([\s\S]*?\} else \{[\s\S]*?T\.lines/);
   assert.equal((ov.match(/crosshairReadout\(/g) || []).length, 1);
   assert.equal((ov.match(/crosshairLevelTag\(/g) || []).length, 1);
   /* the real page, before: both labels on the pointer's pane; after: one */
@@ -70,17 +71,14 @@ test("S16 · hover: the percent is UNDER the price - on the level tag and in the
   assert.ok(L.pctFont > L.priceFont, "S1 / S5 stand: the percent is still the bigger text");
 });
 
-test("S16 · hover: the level tag stays in the plot and never covers the current-price marker", () => {
+test("S16 · hover: the level tag stays in the plot; S16b - it no longer steps off the pointer's line (the marker steps instead)", () => {
   const tag = fn(chart, "crosshairLevelTag");
   const o = { w: 425, plotTop: 34, plotBottom: 300, priceText: "7,375.12", pctText: "−6.20%", up: false, scale: 1 };
   for (let sy = 34; sy <= 300; sy += 1) {
     const T = tag(measure, { ...o, sy });
     assert.ok(T.box.y >= 34 && T.box.y + T.box.h <= 300, "inside the plot at " + sy);
-    for (const liveY of [34, 60, 158, 250, 288]) {
-      const A = tag(measure, { ...o, sy, avoid: { y: liveY, h: 12 } });
-      assert.ok(!overlap(A.box, { y: liveY, h: 12 }), `pointer ${sy}, marker ${liveY}: ${A.box.y}`);
-      assert.ok(A.box.y >= 34 && A.box.y + A.box.h <= 300);
-    }
+    /* S16 moved the tag off the line when a marker was in the way; S16b: the same box whatever is passed */
+    for (const liveY of [34, 60, 158, 250, 288]) assert.equal(tag(measure, { ...o, sy, avoid: { y: liveY, h: 12 } }).box.y, T.box.y, `pointer ${sy}, marker ${liveY}`);
   }
   /* the real page: nothing on the pointer's pane overlaps */
   for (const k of ["XLI-mid", "XLI-low", "ESUSD-mid", "ESUSD-low"]) {
@@ -94,7 +92,7 @@ test("S16 · hover: the level tag stays in the plot and never covers the current
 /* ---- the tapes ---- */
 const B = (() => { const ctx = { globalThis: {} }; vm.runInNewContext(read("../_indicators/station-geiger-bar.js"), ctx); return ctx.SC_GEIGER_BAR || ctx.globalThis.SC_GEIGER_BAR; })();
 const tapeBattery = fn(deck, "tapeBattery");
-const tapeSpark = fn(deck, "tapeSpark", "const TAPE_SPARK_W = 40, TAPE_SPARK_H = 14, TAPE_OPEN_MIN = 570;\n");
+const tapeSpark = fn(deck, "tapeSpark", "const TAPE_SPARK_W = 44, TAPE_SPARK_H = 11, TAPE_OPEN_MIN = 570;\n");
 /* a stand-in clock: t is minutes since New York midnight of day 1 */
 const etOf = (t) => ({ day: "d" + Math.floor(t / 1440), min: t % 1440 });
 const bars = (startMin, closes, open) => closes.map((c, i) => ({ t: startMin + i * 15, o: i === 0 ? open : closes[i - 1], c }));
@@ -114,8 +112,9 @@ test("S16 · tapes: the mark is the Station's Geiger bar - green at or above zer
   /* the page */
   assert.doesNotMatch(deck, /function tapeRungs\(|<span class="g">|\.tape \.g\b/, "the four rungs are gone");
   assert.match(deck, /\.tape \.gb\.up\{ color:var\(--bull\); \} \.tape \.gb\.down\{ color:var\(--bear\); \}/);
-  assert.match(deck, /\.tape \.gb\{[^}]*width:3\.4em; height:\.7em; height:1cap;/, "as tall as the tape's capitals, like the chart's chip");
-  assert.match(deck, /'<span class="gb"><i><\/i><\/span>'/);
+  /* S16b: the bar became a thin strip under the price line, as wide as the line (tests/station-s16b-tape-cells-20261006.test.mjs) */
+  assert.match(deck, /\.tape \.gb\{[^}]*width:100%; height:4px;/);
+  assert.match(deck, /'<span class="gb"><i><\/i><\/span><\/span>'/);
   /* the real page */
   assert.equal(before.tapes.favorites.withRungs, 63); assert.equal(after.tapes.favorites.withRungs, 0); assert.equal(after.tapes.liked.withRungs, 0);
   assert.equal(after.tapes.favorites.withBar, after.tapes.favorites.n); assert.equal(after.tapes.liked.withBar, after.tapes.liked.n);
@@ -126,33 +125,21 @@ test("S16 · tapes: the mark is the Station's Geiger bar - green at or above zer
   assert.equal(after.tapes.tallest, 22, "no cell taller than its row"); assert.equal(after.tapes.stripPx, 46, "the strip is still 46 px");
 });
 
-test("S16 · tapes: FAVORITES carries today's line from the open; LIKED carries the bar only", () => {
-  assert.match(deck, /\(label === "FAVORITES" \? '<svg class="spark"/);
-  assert.match(deck, /\.tape \.spark \.up\{ stroke:var\(--bull\); \} \.tape \.spark \.dn\{ stroke:var\(--bear\); \}/);
-  assert.match(deck, /const names = TAPES\.favorites\.slice\(\); if \(!names\.length\) return;/, "only FAVORITES is read");
-  assert.equal(after.tapes.liked.withSpark, 0); assert.ok(after.tapes.favorites.withSpark >= after.tapes.favorites.n - 3, "the real page: " + after.tapes.favorites.withSpark + " of " + after.tapes.favorites.n + " lines drawn");
-  /* a day that opens at 100 and only rises: all green */
+test("S16 · tapes: today's line starts at the 09:30 open (S16b: one colour, on both tapes - see the S16b tests)", () => {
+  /* what S16 measured on the real page stands as history: 63 FAVORITES lines, none on LIKED */
+  assert.equal(after.tapes.liked.withSpark, 0); assert.ok(after.tapes.favorites.withSpark >= after.tapes.favorites.n - 3);
   const y1 = [...bars(1440 + 570 - 60, [99, 99.5, 99.8, 100], 98.9), ...bars(1440 + 570, [100.5, 101, 102], 100)];
   const upDay = tapeSpark(y1, etOf, 40, 14);
   assert.equal(upDay.open, 100, "the open is the 09:30 bar's open - the pre-market bars are not in the line");
-  assert.equal(upDay.points, 4); assert.equal(upDay.session, true); assert.ok(upDay.up.length > 0); assert.equal(upDay.dn, ""); assert.equal(upDay.dayUp, true);
-  /* only falls: all red */
-  const downDay = tapeSpark(bars(1440 + 570, [99, 98, 97.5], 100), etOf, 40, 14);
-  assert.equal(downDay.up, ""); assert.ok(downDay.dn.length > 0); assert.equal(downDay.dayUp, false);
-  /* crosses the open: both colours, and the cut is on the open's own height */
-  const cross = tapeSpark(bars(1440 + 570, [101, 99, 100.5], 100), etOf, 40, 14);
-  assert.ok(cross.up.length > 0 && cross.dn.length > 0);
-  const base = (Math.round(cross.baseY * 10) / 10).toString();
-  assert.ok(cross.up.includes(" " + base) && cross.dn.includes(" " + base), "both colours meet on the open");
+  assert.equal(upDay.points, 4); assert.equal(upDay.session, true); assert.equal(upDay.dayUp, true);
+  assert.equal(tapeSpark(bars(1440 + 570, [99, 98, 97.5], 100), etOf, 40, 14).dayUp, false);
   /* yesterday's bars never enter today's line; before 09:30 the line is the day's bars so far */
   const pre = tapeSpark([...bars(570, [50, 51], 49), ...bars(1440 + 240, [52, 53, 54], 51.5)], etOf, 40, 14);
   assert.equal(pre.session, false); assert.equal(pre.open, 51.5); assert.equal(pre.points, 4);
-  /* every point is inside the 40 x 14 box */
-  for (const line of [upDay, downDay, cross, pre]) for (const m of (line.up + line.dn).matchAll(/[ML]([\d.]+) ([\d.]+)/g)) { assert.ok(+m[1] >= 0 && +m[1] <= 40); assert.ok(+m[2] >= 0 && +m[2] <= 14); }
+  /* every point is inside the box */
+  for (const line of [upDay, pre]) for (const m of line.d.matchAll(/[ML]([\d.]+) ([\d.]+)/g)) { assert.ok(+m[1] >= 0 && +m[1] <= 40); assert.ok(+m[2] >= 0 && +m[2] <= 14); }
   /* nothing to draw: no line, never a made-up flat one */
   for (const none of [null, [], [{ t: 1, o: NaN, c: 1 }], [{ t: 1, o: 0, c: 0 }]]) assert.equal(tapeSpark(none, etOf, 40, 14), null);
-  /* a flat day still has a side */
-  const flat = tapeSpark(bars(1440 + 570, [100, 100], 100), etOf, 40, 14); assert.ok(flat.up.length > 0 && flat.dn === "");
 });
 
 test("S16 · tapes: the lines come through the provider client's one read; the tape's other reads are untouched", () => {

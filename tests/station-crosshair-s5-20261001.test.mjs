@@ -116,10 +116,12 @@ test("3: the corner reads this pane's price ON THAT DATE and the percent from th
   assert.match(ov, /priceText: chPx\(then, t\), pctText: chartPctText\(sincePct\), up: sincePct >= 0/);
   assert.match(ov, /const nowPx = g\.livePriceValue != null \? g\.livePriceValue : g\.dayPx;/, "now = the badge's own price");
   /* the horizontal line and its level tag only on the pane under the pointer */
-  assert.match(ov, /if \(hover\.local\) \{\n\s+sy = /);
+  assert.match(ov, /if \(scrubOn && hover\.local\) \{\n\s+sy = /);   /* S16b: worked out before the current-price marker is placed */
   /* S16 (6 Oct): one label per pane - the corner readout where the pointer is not, the level tag where it is */
   assert.match(ov, /if \(sy == null\) \{\n\s+const then = bar\.p;/);
-  assert.match(ov, /\} else \{\n[\s\S]{0,420}const price = yLo \+ \(1 - \(sy - padT\) \/ ih\) \* \(yHi - yLo\);/);
+  /* S16b: the level's price is worked out with the pointer's line, before the marker; the else branch draws it */
+  assert.match(ov, /if \(scrubOn && hover\.local\) \{\n\s+sy = [^\n]+\n\s+const price = yLo \+ \(1 - \(sy - padT\) \/ ih\) \* \(yHi - yLo\);/);
+  assert.match(ov, /\} else \{\n[\s\S]{0,520}ctx\.fillRect\(T\.box\.x, T\.box\.y, T\.box\.w, T\.box\.h\);/);
 });
 
 test("3: only the overlay redraws - the pointer path never calls the base paint", () => {

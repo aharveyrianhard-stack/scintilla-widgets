@@ -57,7 +57,7 @@ test("the crosshair: the price at 11 px or more, and the percent from the curren
   assert.match(chart, /const font = Math\.round\(11 \* k \* 10\) \/ 10, f = "600 " \+ font;/);
   assert.match(chart, /const pct = nowPx > 0 \? \(price \/ nowPx - 1\) \* 100 : null;/);
   assert.match(chart, /lines\.push\(\{ text: o\.pctText, font: f, ink: o\.up \? "bull" : "bear"/, "green above the current price, red below");
-  assert.match(chart, /pctText: chartPctText\(pct\), up: pct >= 0, scale,/);
+  assert.match(chart, /pctText: chartPctText\(pct\), up: pct >= 0, scale \}\);/);   /* S16b: no `avoid` after it - the label holds the pointer's line */
   /* S1 (29 Sep): the readout's percent, green or red, in one fixed spot (S16: under the price)
      (tests/station-lens-crosshair-20260929.test.mjs holds the placement) */
   assert.match(chart, /rows\.push\(\{ text: o\.pctText, font: "700 " \+ pctFont, size: pctFont, ink: o\.up \? "bull" : "bear"/);
