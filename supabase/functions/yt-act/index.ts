@@ -13,6 +13,16 @@ const WATCH_LATER_PLAYLIST_TITLE = "SCINTILLA · Watch Later";
 const LEGACY_WATCH_LATER_PLAYLIST_TITLES = new Set(["Station Watch Later"]);
 const WATCH_LATER_MIGRATION_KEY = "yt_wl_playlist_personal_migration_v1";
 const WATCH_LATER_CACHE_KEY = "yt_wl_playlist_personal_ids_v1";
+/* Y4 (6 Oct 2026) — Alan: "Watch later: 'shared watch later write failed, try again' … It's important for me to
+   save the watch later ones." Measured that morning: the Personal Google sign-in answers invalid_grant, and a
+   save stopped THERE, before our own list was touched — so nothing could be saved while the sign-in was down,
+   although the list the Station and the Hub read (yt_watch_later) lives in our own database.
+   The save is now our own list. YouTube's playlist is a copy that follows when the sign-in works: what could not
+   be copied waits in WATCH_LATER_PENDING_KEY and is sent with the next save or removal that finds the sign-in
+   alive (WATCH_LATER_PENDING_PER_CALL at a time — each playlist write costs 50 units of the YouTube allowance). */
+const WATCH_LATER_PENDING_KEY = "yt_wl_pending_personal_v1";
+const WATCH_LATER_PENDING_PER_CALL = 8;
+const VIDEO_ID = /^[A-Za-z0-9_-]{6,20}$/;
 
 function adminKey() {
   const current = Deno.env.get("SUPABASE_SECRET_KEYS");
@@ -166,20 +176,61 @@ async function writeWatchCache(sb: any, ids: string[]) {
 }
 
 async function updateWatchCache(sb: any, videoId: string, include: boolean) {
+  /* This is the saved list itself: the cross-device table the Station and the Hub read. Its write is the one
+     that must land, so its error is returned — a save is only reported as saved when this row is written. */
+  const write = include
+    ? await sb.from("yt_watch_later").upsert({ video_id: videoId, updated_at: new Date().toISOString() })
+    : await sb.from("yt_watch_later").delete().eq("video_id", videoId);
+  if (write?.error) return { error: String(write.error.message || write.error) };
   const cached = await readWatchCache(sb);
   if (cached) {
     const next = new Set(cached);
     if (include) next.add(videoId); else next.delete(videoId);
     await writeWatchCache(sb, Array.from(next));
   }
-  /* This is the fast, cross-device read model.  Google remains the authority
-     for writes, but Station and Hub never wait on its playlist endpoint just
-     to render a saved-video list. */
+  return { error: null };
+}
+
+/* What YouTube's playlist still has to be told. One video is in at most one of the two lists: a save after a
+   removal cancels the removal, and the other way round. */
+function pendingLists(value: unknown) {
+  let parsed: any = null;
+  try { parsed = JSON.parse(typeof value === "string" ? value : "null"); } catch (_) {}
+  const clean = (list: unknown) => Array.from(new Set((Array.isArray(list) ? list : [])
+    .filter((id) => typeof id === "string" && VIDEO_ID.test(id)))) as string[];
+  return { add: clean(parsed?.add), remove: clean(parsed?.remove) };
+}
+function pendingWith(pending: { add: string[]; remove: string[] }, videoId: string, include: boolean | null) {
+  const add = pending.add.filter((id) => id !== videoId), remove = pending.remove.filter((id) => id !== videoId);
+  if (include === true) add.push(videoId);
+  if (include === false) remove.push(videoId);
+  return { add, remove };
+}
+async function readPending(sb: any) {
+  const { data } = await sb.from("app_config").select("value").eq("key", WATCH_LATER_PENDING_KEY).maybeSingle();
+  return pendingLists(data?.value);
+}
+async function writePending(sb: any, pending: { add: string[]; remove: string[] }) {
+  await sb.from("app_config").upsert({ key: WATCH_LATER_PENDING_KEY, value: JSON.stringify(pending) });
+}
+/* One video, told to the playlist. ok = the playlist now agrees. A save YouTube already holds and an
+   already-complete YouTube-side removal both count as agreed — and because our own list is written before this
+   is asked, a stale local star never survives either of them. */
+async function playlistSet(token: string, playlist: string, videoId: string, include: boolean) {
+  const found = await yt(token, "GET",
+    "playlistItems?part=id&playlistId=" + playlist + "&videoId=" + videoId + "&maxResults=1");
+  if (found.status >= 300) return { ok: false, status: found.status };
+  const item = found.body?.items?.[0];
   if (include) {
-    await sb.from("yt_watch_later").upsert({ video_id: videoId, updated_at: new Date().toISOString() });
-  } else {
-    await sb.from("yt_watch_later").delete().eq("video_id", videoId);
+    if (item) return { ok: true, status: 200, already: true };
+    const added = await yt(token, "POST", "playlistItems?part=snippet", {
+      snippet: { playlistId: playlist, resourceId: { kind: "youtube#video", videoId } },
+    });
+    return { ok: added.status < 300, status: added.status };
   }
+  if (!item) return { ok: true, status: 204, already: true };
+  const removed = await yt(token, "DELETE", "playlistItems?id=" + item.id);
+  return { ok: removed.status < 300, status: removed.status };
 }
 
 async function migrateLegacyWatchLater(
@@ -336,56 +387,47 @@ Deno.serve(async (req) => {
     return J({ ok: true, account, ids: listed.ids });
   }
 
+  if (action === "star" || action === "unstar") {
+    const videoId = String(input.videoId || "");
+    if (!VIDEO_ID.test(videoId)) return J({ error: "no videoId" });
+    const include = action === "star";
+    /* 1 · OUR OWN LIST. This is the save. It needs no Google sign-in. */
+    const saved = await updateWatchCache(sb, videoId, include);
+    if (saved.error) return J({ ok: false, saved: false, error: "the watch-later list could not be written", account });
+    /* 2 · YOUTUBE'S PLAYLIST, a copy. When the sign-in is down the change waits its turn. */
+    let pending = pendingWith(await readPending(sb), videoId, include);
+    const auth = await accessToken(sb, account);
+    if (!auth.token) {
+      await writePending(sb, pending);
+      return J({ ok: true, saved: true, account, youtube: "waiting", waiting: pending.add.length + pending.remove.length,
+        why: auth.error, code: auth.code || null });
+    }
+    const playlist = await ensurePlaylist(sb, auth.token);
+    if (!playlist) {
+      await writePending(sb, pending);
+      return J({ ok: true, saved: true, account, youtube: "waiting", waiting: pending.add.length + pending.remove.length, why: "no playlist" });
+    }
+    /* this change first, then what was waiting — oldest first, a few at a time */
+    const queue = [[videoId, include] as [string, boolean],
+      ...pending.remove.filter((id) => id !== videoId).map((id) => [id, false] as [string, boolean]),
+      ...pending.add.filter((id) => id !== videoId).map((id) => [id, true] as [string, boolean])]
+      .slice(0, WATCH_LATER_PENDING_PER_CALL);
+    let status = 0, copied = 0, thisOne = false;
+    for (const [id, want] of queue) {
+      const told = await playlistSet(auth.token, playlist, id, want);
+      if (id === videoId) { thisOne = told.ok; status = told.status; }
+      if (told.ok) { pending = pendingWith(pending, id, null); copied++; }
+    }
+    await writePending(sb, pending);
+    return J({ ok: true, saved: true, account, youtube: thisOne ? "copied" : "waiting", status, copied,
+      waiting: pending.add.length + pending.remove.length });
+  }
+
   const auth = await accessToken(sb, account);
   if (!auth.token) {
     return J({ error: auth.error, account, status: auth.status || null, code: auth.code || null });
   }
   const token = auth.token;
-
-  if (action === "star") {
-    if (!input.videoId) return J({ error: "no videoId" });
-    const playlist = await ensurePlaylist(sb, token);
-    if (!playlist) return J({ error: "no playlist", account });
-    const existing = await yt(
-      token,
-      "GET",
-      "playlistItems?part=id&playlistId=" + playlist + "&videoId=" + input.videoId + "&maxResults=1",
-    );
-    if (existing.body?.items?.[0]) {
-      /* A previous YouTube-side save can predate the local read model. Repair
-         that harmless drift here so the next Hub/Station read agrees. */
-      await updateWatchCache(sb, input.videoId, true);
-      return J({ ok: true, already: true, account });
-    }
-    const added = await yt(token, "POST", "playlistItems?part=snippet", {
-      snippet: { playlistId: playlist, resourceId: { kind: "youtube#video", videoId: input.videoId } },
-    });
-    const ok = added.status < 300;
-    if (ok) await updateWatchCache(sb, input.videoId, true);
-    return J({ ok, status: added.status, account });
-  }
-
-  if (action === "unstar") {
-    if (!input.videoId) return J({ error: "no videoId" });
-    const playlist = await ensurePlaylist(sb, token);
-    if (!playlist) return J({ error: "no playlist", account });
-    const found = await yt(
-      token,
-      "GET",
-      "playlistItems?part=id&playlistId=" + playlist + "&videoId=" + input.videoId + "&maxResults=1",
-    );
-    const item = found.body?.items?.[0];
-    if (!item) {
-      /* Likewise, a stale local star must not survive an already-complete
-         YouTube-side removal. */
-      await updateWatchCache(sb, input.videoId, false);
-      return J({ ok: true, note: "not in playlist", account });
-    }
-    const removed = await yt(token, "DELETE", "playlistItems?id=" + item.id);
-    const ok = removed.status < 300;
-    if (ok) await updateWatchCache(sb, input.videoId, false);
-    return J({ ok, status: removed.status, account });
-  }
 
   const cacheKey = "yt_sub_channels_" + account;
   if (action === "sub") {
