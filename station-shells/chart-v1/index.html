@@ -310,6 +310,8 @@ body.tvmodal-open{ overflow:hidden; }
 <script src="/_indicators/station-geiger-bar.js"></script>
 <!-- S7 (2 Oct): the oscillator pane the way Indicator Lab draws it - RSI solid + Williams %R + 100 dotted, ONE pane. -->
 <script src="/_indicators/station-osc-merge.js"></script>
+<!-- RS1 (6 Oct): a name's daily RSI read against its own last two years - the chip's colour. Pure functions. -->
+<script src="/_indicators/station-rsi-own.js"></script>
 <script>
 /* ONE SOURCE (2026-09-22). This page holds no Supabase client, no anon key and no realtime
    channel. Every price, candle and previous close comes from the chart API through SC_PROVIDER;
@@ -1155,11 +1157,36 @@ function dailyFlightFor(t, need) {
   }
   return null;
 }
+/* RS1 (6 Oct) — THE NAME'S OWN RSI SCALE, FROM THE BARS THE PANE ALREADY HOLDS. The "RSI D" chip is coloured by where its
+   number sits in the name's own last two years (Alan: "I see Netflix at 33 and I don't think that's green enough"). This
+   page holds no database client (ONE SOURCE), so it does not read the Hub's nightly table: it builds the same scale, with
+   the same rule (_indicators/station-rsi-own.js), from the ONE daily read per ticker the ribbon and the D line already
+   share. That read is asked for 900 daily bars instead of 400-600 whenever the pane draws a daily RSI line: two calendar
+   years plus a run-in. The same single request, longer - never a second one (S1, 29 Sep) - and the browser copy still
+   keeps the newest 1,500 closes (O1, 27 Sep). */
+function rsiFanPlan(host) {
+  const plan = window.SC_RSI_FAN.fetchPlan(rsiLinesFor(host), rsiChartSpan(host._series), rsiContextFor(host));
+  const own = window.SC_RSI_OWN && !RSI_REQUEST.chart ? window.SC_RSI_OWN.DAILY_NEED : 0;
+  return own ? plan.map(([tf, need]) => (tf === "1D" ? [tf, Math.max(need, own)] : [tf, need])) : plan;
+}
 function fanDailyNeed(host) {
   if (!host || !rsiFanOn() || !window.SC_RSI_FAN) return 0;
-  const plan = window.SC_RSI_FAN.fetchPlan(rsiLinesFor(host), rsiChartSpan(host._series), rsiContextFor(host));
+  const plan = rsiFanPlan(host);
   const d = plan.find(([tf]) => tf === "1D");
   return d ? d[1] : 0;
+}
+/* the scale for the reading whose daily bar starts at `beforeMs` (only sessions before it are sampled); worked out once
+   per daily read and reading, because the pane repaints on every pointer move */
+function rsiOwnSource(host) {
+  const R = window.SC_RSI_OWN, t = host && host.dataset ? host.dataset.t : null;
+  const entry = R && t ? cloudDailyCache.get(t) : null;
+  if (!entry || !entry.pts || entry.pts.length < 60) return null;
+  const memo = host._rsiOwnMemo && host._rsiOwnMemo.pts === entry.pts ? host._rsiOwnMemo : (host._rsiOwnMemo = { pts:entry.pts, by:new Map() });
+  return { ticker:t, scaleAt:(beforeMs) => {
+    const k = Number.isFinite(beforeMs) ? beforeMs : 0;
+    if (!memo.by.has(k)) memo.by.set(k, R.scaleFrom(t, entry.pts, Number.isFinite(beforeMs) ? beforeMs : undefined));
+    return memo.by.get(k);
+  } };
 }
 function dailyNeedFor(host) {
   const range = (host && host._range) || S.chartRange;
@@ -1334,7 +1361,7 @@ const rsiContextFor = (host) => !RSI_REQUEST.chart && rsiLinesFor(host).length >
 async function ensureRsiFan(host, t, req, generation) {
   if (!rsiFanOn() || !host || !host.isConnected) return;
   const span = rsiChartSpan(host._series);
-  const due = window.SC_RSI_FAN.fetchPlan(rsiLinesFor(host), span, rsiContextFor(host))
+  const due = rsiFanPlan(host)
     .filter(([tf, need]) => !rsiSourceFresh(rsiSourceCache.get(t + "|" + tf), tf, need));
   if (!due.length || host._rsiPending === req) return;
   host._rsiPending = req;
@@ -1713,13 +1740,23 @@ function drawRsiOnly(ctx, o) {
   const daily = o.fan.lines.find((l) => isDaily(l.key) && l.values);
   const wDaily = L ? o.sets.williams.lines.find((l) => isDaily(l.key) && l.values) : null;
   const cf = o.chipFont, chipH = Math.ceil(cf + 5);
-  const paintChip = (P, text) => {
+  /* RS1 (6 Oct): `own` (the daily RSI chip only, and only when the name has an own scale) tints the NUMBER from the pane's
+     pink toward the Hub board's green or red by where it sits in the name's own two years - full green at its own 10th or
+     lower, full red at its own 90th or higher - and at those own extremes the number carries a steady glow and the chip an
+     edge in the same colour. Steady, not breathing: this pane is a drawing that repaints when data changes, and a breath
+     would mean repainting it sixty times a second (the cost SLOW1 took off the Hub). With no `own` nothing here changes. */
+  const paintChip = (P, text, own) => {
     ctx.strokeStyle = F.rgba(INK, CHIP.leader); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(P.leader.x1, P.leader.y1); ctx.lineTo(P.leader.x2, P.leader.y2); ctx.stroke();
     ctx.fillStyle = "rgba(5,6,12,.86)"; ctx.fillRect(P.x, P.y, P.w, P.h);
     ctx.fillStyle = F.rgba(INK, CHIP.fill); ctx.fillRect(P.x, P.y, P.w, P.h);
-    ctx.fillStyle = F.rgba(INK, CHIP.text); ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillStyle = own && own.ink ? own.ink : F.rgba(INK, CHIP.text); ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    if (own && own.ink && own.extreme) {
+      ctx.strokeStyle = own.ink; ctx.strokeRect(P.x + .5, P.y + .5, P.w - 1, P.h - 1);
+      ctx.shadowColor = own.ink; ctx.shadowBlur = 6;
+    }
     ctx.fillText(text, P.x + 4, P.y + P.h / 2 + .5);
+    if (own && own.ink && own.extreme) { ctx.shadowBlur = 0; ctx.shadowColor = "transparent"; }
   };
   const box = (P) => ({ x:+P.x.toFixed(2), y:+P.y.toFixed(2), w:P.w, h:P.h });
   const newestIx = (line) => { if (!line) return -1; for (let i = o.end; i >= Math.max(o.start, o.end - 3); i--) if (line.values[i] != null) return i; return -1; };
@@ -1733,12 +1770,19 @@ function drawRsiOnly(ctx, o) {
       const text = L ? M.rsiChip(v) : F.chipText(v), cw = Math.ceil(ctx.measureText(text).width) + 8;
       /* S7: on the Lab's pane the RSI chip keeps wChipOffset px clear of the gutter's end, so the Williams chip ends further right */
       const P = F.chipPlacement({ px, py, cw, ch:chipH, left, right:o.gutterRight - (L ? L.wChipOffset : 0), top, bottom:top + ph });
-      paintChip(P, text);
-      ctx.restore();
       const tip = daily.tip && daily.tip.ix === ix ? daily.tip : null;
+      /* RS1: the reading's own daily bar (today's forming one, else the newest finished one) is judged against the sessions before it */
+      const ownAt = o.own && window.SC_RSI_OWN ? (tip ? tip.t : (daily.status && daily.status.t != null ? daily.status.t : NaN)) : NaN;
+      const own = o.own && window.SC_RSI_OWN ? window.SC_RSI_OWN.read(o.own.ticker, v, o.own.scaleAt(ownAt), INK) : null;
+      paintChip(P, text, own);
+      ctx.restore();
       chip = { text, value:+v.toFixed(2), ix, x:+px.toFixed(2), y:+py.toFixed(2), box:box(P), leader:P.leader, displaced:P.displaced,
         developing:tip ? tip.developing : false, sourceBar:tip ? new Date(tip.t).toISOString() : null,
         title:"RSI(14) " + v.toFixed(2) + ", source 1D, " + (tip && tip.developing ? "developing" : "confirmed") };
+      if (own && own.title) {
+        chip.own = { pct:own.pct, scale:own.own, extreme:own.extreme, ink:own.ink, title:own.title };
+        chip.title = own.title + " \u00b7 " + chip.title;
+      }
     }
   }
   if (wDaily && newestOn) {
@@ -2577,7 +2621,8 @@ function scChartDraw(host, scrub) {
     top:padT + ih + fanGap, height:fanBlock - fanGap, gap:fanGap, axisX:w - 3, hairline:col.dim,
     font:cloudFont, chipFont:Math.max(8.5, cloudFont + 1), gutterRight:w - 2,
     scrubIx:null, oscReadout:osc ? oscReadoutFor() : null,
-    dateAt:(i) => (pts[i] ? Date.parse(pts[i].d) : null) };
+    dateAt:(i) => (pts[i] ? Date.parse(pts[i].d) : null),
+    own:rsiOwnSource(host) };   /* RS1: the name's own two-year RSI scale, for the daily chip's colour */
   const fanDraw = fanBlock ? (osc ? drawOsc : fan.lines.length > 1 ? drawRsiOnly : drawRsiFan) : null;
   host._rsiDrawn = fanDraw ? fanDraw(ctx, fanOpts) : null;
   ctx.save();
@@ -2732,6 +2777,11 @@ function scChartOverlay(host) {
       host._rsiDrawn = g.fanDraw(ctx, Object.assign({}, o, { scrubIx:inView ? hover.ix : null }));
     } else host._rsiDrawn = g.fanRest || host._rsiDrawn;
   }
+  /* RS1: the chip's own-scale line ("33 — lower than 86% of NFLX's last two years") as the browser's own hover, only
+     while the pointer rests on the chip - nothing is drawn, nothing takes the crosshair's events */
+  const ownChip = host._rsiDrawn && host._rsiDrawn.chip && host._rsiDrawn.chip.own ? host._rsiDrawn.chip : null, hp = host._hoverLocal;
+  const ownTip = ownChip && hp && hp.x >= ownChip.box.x && hp.x <= ownChip.box.x + ownChip.box.w && hp.y >= ownChip.box.y && hp.y <= ownChip.box.y + ownChip.box.h ? ownChip.title : "";
+  if (area.title !== ownTip) area.title = ownTip;
   /* S16b (6 Oct), Alan: "the stray label was not on the horizontal level of the hover". THE POINTER'S LABEL IS
      WORKED OUT FIRST and always sits on the pointer's own line; S16 let it step off that line to clear the
      current-price marker, so near the current price the one label was again not on the pointer's level. Now

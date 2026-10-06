@@ -194,6 +194,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--mono);
 </div>
 <div id="coRailContent"><div class="gsum"><div class="gs-empty" style="padding-top:15vh">loading geiger…</div></div></div>
 <script src="/_provider/provider.js"></script>
+<!-- RS1 (6 Oct): a name's daily RSI read against its own last two years - the RSI · DAILY row's colour and marks. Pure functions. -->
+<script src="/_indicators/station-rsi-own.js"></script>
 <script>
 /* EXPLICIT PROVIDER CLIENT — bind the page's narrow Supabase reader once.
    Market surfaces below call SC_PROVIDER by product result; pg remains non-market only. */
@@ -274,7 +276,11 @@ function gsNormTf(k){ const m={ "1d":"1D","3d":"3D","1w":"1W","2w":"2W" }; const
 async function geigerSummaryData(t) {
   const enc = encodeURIComponent(t);
   const dailyCandles = SC_PROVIDER.equityCandles(t, "D", { limit:30 }).catch(() => []);
-  const [comp, fmpLane, massiveLane, vol, last, ow, bvol] = await Promise.all([
+  /* RS1 (6 Oct): the name's own RSI scale - the nightly row the Hub board colours by (public.rsi_own_percentiles: the RSI
+     value at every percentile of its own last two years of finished daily sessions). One try, three weeks at most; no
+     row, an old row or no table leaves the RSI · DAILY row on 30 / 70 exactly as it was. */
+  const ownSince = new Date(Date.now() - 21 * 86400e3).toISOString().slice(0, 10);
+  const [comp, fmpLane, massiveLane, vol, last, ow, bvol, ownRows] = await Promise.all([
     SC_PROVIDER.equityGeiger([t], { detail:true }).catch(() => []),
     SC_PROVIDER.fmpDailyIndicators([t]).then((rows) => ({ ok:true, snapshot:rows[0] || null }))
       .catch((e) => ({ ok:false, state:e && e.scAbsence || "TRANSPORT_UNAVAILABLE" })),
@@ -284,7 +290,10 @@ async function geigerSummaryData(t) {
     dailyCandles,
     pg("operator_weights?dim=eq.timeframe&select=key,weight,enabled").catch(() => []),
     pg("board_volume?ticker=eq." + enc + "&select=rvol_at_time,cum_rvol,updated_ts&order=updated_ts.desc&limit=1").catch(() => []),
+    pg("rsi_own_percentiles?ticker=eq." + enc + "&as_of=gte." + ownSince + "&select=ticker,as_of,window_from,sessions,eligible,grid", 1).catch(() => []),
   ]);
+  const rsiOwn = ownRows && ownRows[0] && Array.isArray(ownRows[0].grid) && ownRows[0].grid.length === 101
+    ? Object.assign({}, ownRows[0], { grid:ownRows[0].grid.map(Number) }) : null;
 
   const c = (comp && comp[0]) || {};
   const fmpSnapshot = fmpLane.ok ? fmpLane.snapshot : null;
@@ -352,7 +361,7 @@ async function geigerSummaryData(t) {
     massiveCatalogSha: massiveSnapshot && massiveSnapshot.catalog_manifest_sha256 || null,
     massiveMacd,
     price: livePx != null ? livePx : ohlcvClose,
-    mas, rsiMtf, wprMtf, macd, volSeries, rvol, activeTfs,
+    mas, rsiMtf, wprMtf, macd, volSeries, rvol, activeTfs, rsiOwn, rsiOwnTicker:t,
     rvolAtTime: (bvol && bvol[0] && num(bvol[0].rvol_at_time) != null) ? num(bvol[0].rvol_at_time) : null,
     cumRvol: (bvol && bvol[0] && num(bvol[0].cum_rvol) != null) ? num(bvol[0].cum_rvol) : null,
   };
@@ -418,12 +427,13 @@ const gsTipW = (v) => v <= -80 ? "var(--gs-bull)" : v >= -20 ? "var(--gs-bear)" 
 function gsMbar(v, sc, tip){ const p=Math.max(4,Math.min(96,(v-sc.mn)/(sc.mx-sc.mn)*100));
   const lo=(sc.lo-sc.mn)/(sc.mx-sc.mn)*100, hi=(sc.hi-sc.mn)/(sc.mx-sc.mn)*100;
   return '<div class="gs-mbar"><span class="gs-zt" style="left:'+lo+'%"></span><span class="gs-zt" style="left:'+hi+'%"></span><span class="gs-mfill" style="width:'+p+'%;background:var(--gs-mom)"></span><span class="gs-mth" style="left:'+p+'%;background:'+tip+';box-shadow:0 0 7px '+tip+'"></span></div>'; }
-function gsMtf(node, rows, sc, tip, fmt){ if (!node) return;
+function gsMtf(node, rows, sc, tip, fmt, ttl){ if (!node) return;
   if (!rows || !rows.length){ node.innerHTML = '<div class="gs-empty">no data</div>'; return; }
   const lo=(sc.lo-sc.mn)/(sc.mx-sc.mn)*100, hi=(sc.hi-sc.mn)/(sc.mx-sc.mn)*100;
   const hdr = '<div class="gs-mhd"><span style="left:'+lo+'%">'+sc.loL+'</span><span style="left:'+hi+'%">'+sc.hiL+'</span></div>';
   node.innerHTML = hdr + rows.map(([tf, v]) => { const day = tf === "1D", t = tip(v), vc = t === GS_PUR ? "var(--gs-mom)" : t;
-    return '<div class="gs-mrow'+(day?" gs-day":"")+'"><span class="gs-tf">'+tf+'</span>'+gsMbar(v, sc, t)+'<span class="gs-mv" style="color:'+vc+'">'+fmt(v)+'</span></div>'; }).join("");
+    const hover = ttl ? String(ttl(v) || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;") : "";   /* RS1: the own-scale line */
+    return '<div class="gs-mrow'+(day?" gs-day":"")+'"'+(hover?' title="'+hover+'"':'')+'><span class="gs-tf">'+tf+'</span>'+gsMbar(v, sc, t)+'<span class="gs-mv" style="color:'+vc+'">'+fmt(v)+'</span></div>'; }).join("");
 }
 /* THE PROVIDER SERVES ONE MACD SNAPSHOT, NOT A SERIES (value, signal, histogram for the latest completed
    minute), so this "histogram" has exactly one bar. Scaled against itself, a lone bar always filled the full
@@ -760,7 +770,18 @@ function buildGeigerSummary(d) {
   const active = new Set(d.activeTfs && d.activeTfs.length ? d.activeTfs : GS_LADDER);
   const rsiRows = (d.rsiMtf || []).filter(([tf]) => active.has(tf));
   const wprRows = (d.wprMtf || []).filter(([tf]) => active.has(tf));
-  gsMtf(q("rsitable"), rsiRows, { mn:0, mx:100, lo:30, hi:70, loL:"30", hiL:"70" }, gsTipR, (v) => Math.round(v));
+  /* RS1 (6 Oct) — THE DAILY RSI ON THE NAME'S OWN TWO YEARS. This row was the one Station place that judged a daily RSI by
+     the textbook 30 / 70 (green at 30 or less, red at 70 or more). With the name's own scale: the two marks move to ITS OWN
+     10th and 90th percentile (labelled with those RSI values), the thumb and the number tint from the row's purple toward
+     green or red by where the reading sits for this name - full at its own 10th / 90th - and the row's hover says it in
+     words. Under a year of history, an old row or no table: 30 / 70, as before. */
+  const rsiOwn = d.rsiOwn && d.rsiOwn.eligible && typeof SC_RSI_OWN !== "undefined" ? d.rsiOwn : null;
+  const rsiOwnRead = (v) => SC_RSI_OWN.read(d.rsiOwnTicker, v, rsiOwn, [162, 75, 255]);
+  gsMtf(q("rsitable"), rsiRows,
+    rsiOwn ? { mn:0, mx:100, lo:rsiOwn.grid[10], hi:rsiOwn.grid[90], loL:String(Math.round(rsiOwn.grid[10])), hiL:String(Math.round(rsiOwn.grid[90])) }
+           : { mn:0, mx:100, lo:30, hi:70, loL:"30", hiL:"70" },
+    rsiOwn ? (v) => { const rd = rsiOwnRead(v); return rd.own ? (rd.ink || GS_PUR) : gsTipR(v); } : gsTipR,
+    (v) => Math.round(v), rsiOwn ? (v) => rsiOwnRead(v).title : null);
   gsMtf(q("wprtable"), wprRows, { mn:-100, mx:0, lo:-80, hi:-20, loL:"−80", hiL:"−20" }, gsTipW, (v) => Math.round(v));
 
   const mn = q("macdnow");
