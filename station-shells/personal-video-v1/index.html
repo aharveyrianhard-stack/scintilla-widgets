@@ -124,14 +124,30 @@ body.playing #bPipBar{ display:inline-flex; }
 .card.on{ outline:1px solid var(--crk); outline-offset:-1px; }
 .thumb{ position:relative; width:100%; aspect-ratio:16/9; background:#12121c; overflow:hidden; }
 .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
-.star{ position:absolute; top:0; right:0; width:34px; height:34px; padding:0; z-index:2;
-  box-sizing:border-box; border:0; border-radius:0; background:transparent;
-  color:var(--ink); cursor:pointer;
-  -webkit-text-stroke:.35px #000; text-shadow:0 1px 3px #000,0 0 8px #000,0 0 2px #000; }
-.star > span{ position:absolute; top:1px; right:1px; font:19px/1 var(--mono); }
-.star:hover{ color:var(--ink); }
-.star.on{ color:var(--vol); }
-.star.unk{ opacity:.65; }
+/* ---- WATCH LATER ON A TILE (Y4, 6 Oct) ----
+   Alan: "I can barely see the watch later thingy — maybe make it cyan like the ticker tags … It's important for
+   me to save the watch later ones." It was a thin white outline star laid over the picture. It is now a plate in
+   the ticker tag's own cyan, in the opposite corner: an outlined "☆ LATER" to save, a filled "★ SAVED" once the
+   save has landed, and a saved tile carries a cyan line under its picture so the saved ones read at a glance. */
+.star{ position:absolute; top:3px; right:3px; z-index:2; box-sizing:border-box; display:inline-flex; align-items:center;
+  gap:3px; padding:1px 4px; border:1px solid var(--crk); border-radius:0; background:rgba(4,4,10,.88);
+  color:var(--crk); cursor:pointer; font:600 8px/1.5 var(--mono); letter-spacing:.06em; }
+.star::before{ content:""; position:absolute; inset:-3px -3px -12px -10px; }   /* the finger's target stays generous */
+.star > span{ font:11px/1 var(--mono); }
+.star .w{ font:inherit; }
+.star:hover{ background:rgba(0,212,255,.28); }
+.star.on{ background:rgba(0,212,255,.92); color:#04040a; }
+.star.unk{ opacity:.7; }
+.card:has(.star.on) .cap{ box-shadow:inset 0 2px 0 var(--crk); }
+body.tiny .star .w{ display:none; }
+/* ---- WHERE A TILE CAME FROM (Y4) ----
+   Alan: "open to separating the searched tickers from subscribed channels with a different little icon." One
+   mark in the picture's lower-left corner: a bell for a channel the feed carries, a magnifier in the ticker
+   tag's cyan for a video a ticker search found. */
+.src{ position:absolute; left:3px; bottom:3px; width:15px; height:13px; display:inline-flex; align-items:center;
+  justify-content:center; background:rgba(0,0,0,.82); color:var(--ink2); }
+.src svg{ width:9px; height:9px; display:block; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.src[data-src="search"]{ color:var(--crk); }
 #wlFlash{ position:fixed; left:50%; bottom:12px; transform:translateX(-50%); z-index:60; pointer-events:none;
   font:600 11px/1.5 var(--mono); letter-spacing:.05em; color:#ffd24a;
   background:rgba(10,12,16,.92); border:1px solid #2a2f3a; border-radius:6px; padding:6px 12px;
@@ -177,10 +193,17 @@ body.playing #bPipBar{ display:inline-flex; }
    line, which is where it was asked for. One step quieter than the channel
    name: it reports, it never competes with the title. Tabular figures so the
    label does not twitch in width as the number ticks over. */
-.cap .s .age{ flex:0 0 auto; margin-left:auto; color:var(--dim);
+.cap .s .age{ flex:0 0 auto; margin-left:auto; color:var(--ink2); font-size:10px; font-weight:600;
   font-variant-numeric:tabular-nums; }
+/* Y4 (6 Oct) — Alan: "I cannot see how long ago each thing was posted." It was 9px in the dimmest reading ink
+   (#868AAA); it is now the title's own ink (#C6C8DE, 11.96:1) a step larger and heavier, and it is no longer
+   dropped in the smallest slots. A stream on air reads "LIVE · started 40m ago" on a line of its own. */
+.cap .s .age[data-live]::before{ content:"LIVE \00B7  started "; color:var(--crk); letter-spacing:.04em; }
+.cap .s:has(.age[data-live]){ flex-wrap:wrap; row-gap:1px; }
+.cap .s:has(.age[data-live]) .ch{ flex:1 1 100%; }
+.cap .s:has(.age[data-live]) .age{ margin-left:0; }
 /* very small slots: drop the caption, the picture is the interface */
-body.tiny .cap .s{ display:none; }
+body.tiny .cap .s .ch{ display:none; }
 body.tiny .cap{ padding:3px 4px 4px; }
 body.tiny .cap .t{ -webkit-line-clamp:2; font-size:9px; }
 html[data-view="desk"] .btn{ font-size:9px; padding:4px 8px; }
@@ -244,11 +267,13 @@ body.playing #chips{ display:none; }
 #bBack.on, #bMenu.on{ color:var(--crk); border-color:var(--crk); }
 /* + WATCH LATER: a clock with a plus; once saved, the clock with a tick, in the star's own colour */
 #bar #bWatchBar .saved{ display:none; }
-#bWatchBar.on{ color:var(--vol); border-color:rgba(255,138,0,.55); }
+/* Y4: the bar's + is the ticker tag's cyan too — outlined to save, filled once saved */
+#bar #bWatchBar{ color:var(--crk); border-color:var(--crk); }
+#bar #bWatchBar.on{ background:rgba(0,212,255,.92); color:#04040a; border-color:var(--crk); }
 #bar #bWatchBar.on .saved{ display:block; } #bar #bWatchBar.on .add{ display:none; }
 #bWatchBar.none, #bWatchBar.unk{ opacity:.6; }
 /* the thumbnail the + will add: the one under the pointer, outlined so the target is never a guess */
-.card.sel{ outline:1px solid rgba(255,138,0,.7); outline-offset:-1px; }
+.card.sel{ outline:1px solid rgba(0,212,255,.75); outline-offset:-1px; }
 /* the ⋯ panel: the channel, the filters, then (while a video plays) the player's other actions */
 #more .sec{ display:flex; align-items:center; gap:6px; }
 #more .sec > .lab{ flex:none; width:54px; color:var(--dim); font-size:9px; letter-spacing:.1em; text-transform:uppercase; }
@@ -399,7 +424,10 @@ const YOUTUBE_ACCOUNT = "personal";
        page and appends it, up to MAX_ROWS, which exists only so a phone does
        not try to hold three thousand <img> tags at once. */
 const LIMIT  = Math.max(10, Math.min(500, +(QS.get("limit") || 200)));
-const MAX_ROWS = Math.max(LIMIT, Math.min(2000, +(QS.get("max") || 1000)));
+/* Y4 (6 Oct): "no cap that hides subscribed videos (paginate instead)". The ceiling was 1,000 rows — about three
+   days of the SCINTILLA grid. It is now 5,000 (two to three weeks), reached only by scrolling that far; ?max=
+   still lowers it for a small device. */
+const MAX_ROWS = Math.max(LIMIT, Math.min(20000, +(QS.get("max") || 5000)));
 let PAGE_AT = 0;          /* rows REQUESTED so far — the next page's offset */
 let PAGE_MORE = true;     /* the last page came back full, so there is more behind it */
 let PAGE_BUSY = false;
@@ -608,7 +636,8 @@ async function ytAct(action, payload) {
     body: JSON.stringify(Object.assign({ action }, payload || {})),
   });
   let d = {}; try { d = await r.json(); } catch (e) {}
-  if (!r.ok || d.error) throw new Error(d.error || ("yt-act " + r.status));
+  /* Y4: "ok:false" with no error word is a refused write too — it must never read as saved */
+  if (!r.ok || d.error || d.ok === false) throw new Error(d.error || ("yt-act " + r.status));
   return d;
 }
 
@@ -1248,7 +1277,7 @@ function starHTML(v) {
   return '<button class="star' + (saved ? " on" : "") + '" data-star="' + esc(v.video_id) +
     '" aria-label="' + (saved ? "remove from" : "save to") + ' SCINTILLA Watch Later" title="' +
     (saved ? "remove from" : "save to") + ' SCINTILLA · Watch Later"><span aria-hidden="true">' +
-    (saved ? "★" : "☆") + '</span></button>';
+    (saved ? "★" : "☆") + '</span><b class="w">' + (saved ? "SAVED" : "LATER") + "</b></button>";
 }
 
 /* ---- HOW LONG AGO IT WAS POSTED ----
@@ -1301,7 +1330,9 @@ function videoAgeHTML(v) {
   const when = videoWhen(v);
   const label = videoAgeLabel(when);
   if (!label) return "";
-  return '<span class="age" data-published="' + esc(String(when)) + '">' + esc(label) + "</span>";
+  /* Y4: on air, the same element reads "LIVE · started 40m ago" (the words before the age are the style's) */
+  return '<span class="age" data-published="' + esc(String(when)) + '"' +
+    (v && v.live_state === "live" ? ' data-live="1" title="on air now"' : "") + ">" + esc(label) + "</span>";
 }
 /* The corner of the thumbnail: LIVE while a stream is on air, the start time
    while one is still to come, the video's length otherwise. Times are New York,
@@ -1339,13 +1370,25 @@ function paintAges() {
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") paintAges(); });
 
+/* ---- SUBSCRIBED, OR FOUND BY A TICKER SEARCH (Y4) ----
+   The feed says which accounts carry a video's channel (subscription_accounts). A row no account carries is
+   there only because a ticker search found it. */
+function videoSource(v) {
+  return Array.isArray(v && v.subscription_accounts) && v.subscription_accounts.length ? "sub" : "search";
+}
+function sourceHTML(v) {
+  const kind = videoSource(v);
+  return kind === "sub"
+    ? '<span class="src" data-src="sub" title="a channel this feed is subscribed to" aria-label="subscribed channel"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 8.2V5.4a3 3 0 0 1 6 0v2.8l1 1.1H2z"/><path d="M5.1 10.6h1.8"/></svg></span>'
+    : '<span class="src" data-src="search" title="found by the ticker search — not a channel you subscribe to" aria-label="ticker search result"><svg viewBox="0 0 12 12" aria-hidden="true"><circle cx="5.2" cy="5.2" r="3.2"/><path d="M7.6 7.6l2.6 2.6"/></svg></span>';
+}
 function cardHTML(v) {
   return '<div class="card' + (CUR && CUR.video_id === v.video_id ? " on" : "") + '" data-v="' + esc(v.video_id) + '">' +
       '<div class="thumb"><img loading="lazy" decoding="async" src="' +
         esc(v.thumb_url || ("https://i.ytimg.com/vi/" + v.video_id + "/mqdefault.jpg")) + '" alt="">' +
         starHTML(v) +
         (v.tickers ? '<span class="tk">' + esc(String(v.tickers).split(",")[0]) + "</span>" : "") +
-        videoBadgeHTML(v) +
+        videoBadgeHTML(v) + sourceHTML(v) +
       "</div>" +
       '<div class="cap"><div class="t">' + esc(v.title) + "</div>" +
       '<div class="s"><span class="ch">' + esc(v.channel || "") + "</span>" + videoAgeHTML(v) + "</div></div>" +
@@ -1508,6 +1551,19 @@ el("bRefresh").addEventListener("click", async () => {
 const FEED_SELECT = "video_id,title,channel,channel_id,tickers,duration,is_short,thumb_url,published_at,subscription_accounts";
 const FEED_SELECT_LIVE = FEED_SELECT + ",feed_at,live_state,starts_at";
 let FEED_LIVE_OK = true;
+/* ---- THE ORDER (Y4, 6 Oct 2026) ----
+   Alan: "I absolutely need it in chronological order. Everything subscribed … I need to see it when it starts."
+   Measured that morning: tiles 2 to 6 of the SCINTILLA grid were streams that had NOT started (one of them due the
+   next day) — a scheduled stream was filed under its scheduled time, which is in the future, so it sat above
+   everything that had actually happened. The rule now: a tile's place is the moment it became watchable — the
+   publish time for an upload, the actual start for a stream — newest first; a stream still to come is not on the
+   grid until it starts (the collector turns it "live" within one pass). Watch Later is exempt: what Alan saved
+   stays listed whatever its state.
+   The SCINTILLA grid's scope (what the SCINTILLA account carries + what the ticker search found) is now asked of
+   the database instead of being cut out of each page afterwards: 200 rows asked used to paint 167 tiles. */
+const NOT_UPCOMING = "&live_state=neq.upcoming";
+const SCINTILLA_SCOPE = "&or=(subscription_accounts.cs." + encodeURIComponent("{scintilla}") +
+  ",subscription_accounts.eq." + encodeURIComponent("{}") + ")";
 function feedQuery(offset) {
   let q = "youtube_feed?select=" + (FEED_LIVE_OK ? FEED_SELECT_LIVE : FEED_SELECT) +
           "&order=" + (FEED_LIVE_OK ? "feed_at" : "published_at") + ".desc&limit=" + LIMIT +
@@ -1515,7 +1571,11 @@ function feedQuery(offset) {
   const chosen = LISTS.find((l) => l.id === LIST);
   if (LIST === "watch") {
     q += "&video_id=in.(" + Array.from(WATCH).slice(0, 200).map(encodeURIComponent).join(",") + ")";
-  } else q += chosen.q;
+  } else {
+    q += chosen.q;
+    if (FEED_LIVE_OK) q += NOT_UPCOMING;
+    if (FEED === "scintilla" && !chosen.q) q += SCINTILLA_SCOPE;
+  }
   q += modeClause(MODE);
   if (TICK) q += "&tickers=ilike.*" + encodeURIComponent(TICK) + "*";
   return q;

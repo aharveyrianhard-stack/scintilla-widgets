@@ -78,6 +78,8 @@ for (const name of SHELLS) {
       FEED_SELECT: "video_id,title,channel,channel_id,tickers,duration,is_short,thumb_url,published_at,subscription_accounts",
       FEED_LIVE_OK: true, LIMIT: 200, LIST: "default", MODE: "grid", TICK: "",
       LISTS: [{ id: "default", n: "all", q: "" }], modeClause: () => "",
+      /* Y4 (6 Oct): the query also leaves out streams still to come and asks the database for the grid's scope */
+      FEED: "scintilla", NOT_UPCOMING: "&live_state=neq.upcoming", SCINTILLA_SCOPE: "&or=(scope)",
     });
     vm.runInContext("FEED_SELECT_LIVE = FEED_SELECT + ',feed_at,live_state,starts_at'", ctx);
     const q = ctx.feedQuery(0);
