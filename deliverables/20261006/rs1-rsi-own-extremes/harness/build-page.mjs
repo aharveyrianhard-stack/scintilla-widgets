@@ -1,0 +1,85 @@
+/* RS1 (6 Oct 2026) — builds RS1-STATION.html from the two shot records beside it (shots/before-shots.json,
+   shots/after-shots.json), so every number on the page is read from what the headless browser saw.
+   node deliverables/20261006/rs1-rsi-own-extremes/harness/build-page.mjs */
+import fs from "node:fs";
+const here = new URL("../", import.meta.url);
+const J = (p) => JSON.parse(fs.readFileSync(new URL(p, here), "utf8"));
+const b = J("shots/before-shots.json"), a = J("shots/after-shots.json");
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const S = (r, n) => r.shots.find((s) => s.name === n) || {}, chip = (r, n) => (S(r, n).pane || {}).chip || {}, g = (r, n) => S(r, n).geiger || {};
+const own = (n) => (chip(a, n).title || "").split(" · ")[0];
+const sum = (r, f) => r.shots.reduce((x, s) => x + f(s), 0);
+const row = (n, label) => `<tr><td class="k">${label}</td><td>${esc(chip(b, n).text)} · pink</td><td>${esc(chip(a, n).text)} · ${esc((chip(a, n).own || {}).ink || "pink")}${(chip(a, n).own || {}).extreme ? " · steady glow + edge" : ""}</td><td>${esc(own(n))}</td></tr>`;
+const html = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
+<title>STATION · RS1 · RSI BY EACH NAME'S OWN EXTREMES · 6 OCT</title>
+<style>
+:root{color-scheme:dark;--bg:#0e0e0e;--panel:#141414;--line:#2a2a2a;--line2:#363636;--ink:#cfcfcf;--ink2:#acacac;--dim:#8c8c8c;--mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace}
+*{box-sizing:border-box;min-width:0}html,body{margin:0;background:var(--bg);color:var(--ink2)}
+body{font-family:var(--mono);font-size:13px;line-height:1.6;letter-spacing:.02em;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1200px;margin:0 auto;padding:0 20px 80px;overflow-x:hidden}
+header{padding:16px 0 12px;border-bottom:1px solid var(--line);display:flex;gap:14px;align-items:baseline;flex-wrap:wrap}
+h1{font:600 13px/1.4 var(--mono);letter-spacing:.2em;color:var(--ink);margin:0}.stamp{margin-left:auto;font:400 11px/1.5 var(--mono);color:var(--dim);text-align:right}
+h2{font:600 12px/1.4 var(--mono);letter-spacing:.22em;color:var(--ink);margin:30px 0 8px;text-transform:uppercase}
+figure{margin:0 0 10px;border:1px solid var(--line);background:var(--panel);padding:12px 16px 14px}figure img{display:block;width:100%;height:auto;border:1px solid var(--line2)}
+figcaption{font:600 11px/1.4 var(--mono);letter-spacing:.18em;color:var(--ink);margin:0 0 6px}figure small{display:block;margin-top:6px;font-size:11px;color:var(--dim)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}.two.ph figure img{max-width:390px}
+.panel{border:1px solid var(--line);background:var(--panel);margin-bottom:8px}.words{padding:12px 16px 14px;font-size:12.5px}.words b{color:var(--ink);font-weight:600}.words p{margin:6px 0}.words ul{margin:4px 0 8px;padding-left:20px}.words li{margin:5px 0}.words code{font-size:12px;color:var(--ink)}
+table.t{width:100%;border-collapse:collapse;font-size:12px}table.t th,table.t td{padding:5px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+table.t th{font:400 11px/1.4 var(--mono);letter-spacing:.14em;color:var(--dim);text-transform:uppercase}table.t td.k{color:var(--ink)}.tw{overflow-x:auto;padding:0 16px 10px}
+details.sc-pagespecs{border:1px solid var(--line);background:var(--panel);margin:24px 0 8px}details.sc-pagespecs>summary{padding:8px 16px;cursor:pointer;font:400 11px/1.4 var(--mono);letter-spacing:.16em;color:var(--dim)}
+@media(max-width:760px){.wrap{padding:0 12px 60px}.two{grid-template-columns:1fr}.stamp{margin-left:0;text-align:left}}
+</style></head><body><div class="wrap">
+<header><h1>RS1 · STATION · THE DAILY RSI BY EACH NAME'S OWN EXTREMES</h1><span class="stamp">6 Oct 2026 · preview only · nothing is live · branch station/rs1-rsi-own-extremes-20261006</span></header>
+
+<h2>The chart's RSI chip — before, then after</h2>
+<div class="two">
+<figure><figcaption>BEFORE · TLT</figcaption><img src="shots/before-chart-TLT-1D-chip.png" alt="Before: pink chip"></figure>
+<figure><figcaption>AFTER · TLT</figcaption><img src="shots/after-chart-TLT-1D-chip.png" alt="After: green chip with an edge"><small>${esc(own("chart-TLT-1D"))}: full green, a steady glow, an edge.</small></figure>
+<figure><figcaption>BEFORE · NFLX</figcaption><img src="shots/before-chart-NFLX-1D-chip.png" alt="Before: pink chip"></figure>
+<figure><figcaption>AFTER · NFLX</figcaption><img src="shots/after-chart-NFLX-1D-chip.png" alt="After: the number tinted green"><small>${esc(own("chart-NFLX-1D"))}: tinted, not an own extreme, so no glow.</small></figure>
+<figure><figcaption>BEFORE · TSM (4h chart)</figcaption><img src="shots/before-chart-TSM-4h-chip.png" alt="Before: pink chip"></figure>
+<figure><figcaption>AFTER · TSM (4h chart)</figcaption><img src="shots/after-chart-TSM-4h-chip.png" alt="After: red chip with an edge"><small>${esc(own("chart-TSM-4h"))}: full red, a steady glow, an edge.</small></figure>
+</div>
+<figure><figcaption>AFTER · the whole NFLX pane at 1680 (lines, guides, cloud and the Williams chip are untouched)</figcaption><img src="shots/after-chart-NFLX-1D.png" alt="After: whole NFLX pane"></figure>
+<figure><figcaption>AFTER · inside the Hub's company view (the same pane, embedded)</figcaption><img src="shots/after-chart-NFLX-1D-hub.png" alt="After: the pane as the Hub embeds it"></figure>
+<div class="two ph">
+<figure><figcaption>BEFORE · phone, 390</figcaption><img src="shots/before-chart-NFLX-1D-phone.png" alt="Before, phone"></figure>
+<figure><figcaption>AFTER · phone, 390</figcaption><img src="shots/after-chart-NFLX-1D-phone.png" alt="After, phone"></figure>
+</div>
+
+<h2>/geiger — the RSI · DAILY row, before then after</h2>
+<div class="two">
+<figure><figcaption>BEFORE · NFLX</figcaption><img src="shots/before-geiger-NFLX-rsi-row.png" alt="Before: marks at 30 and 70, purple"><small>Marks at ${esc((g(b, "geiger-NFLX").marks || []).map((m) => m.split(" @")[0]).join(" and "))}; 33 is not 30 or lower, so it is plain purple.</small></figure>
+<figure><figcaption>AFTER · NFLX</figcaption><img src="shots/after-geiger-NFLX-rsi-row.png" alt="After: marks at 31 and 71, green"><small>Marks at Netflix's own 10th and 90th (${esc((g(a, "geiger-NFLX").marks || []).map((m) => m.split(" @")[0]).join(" and "))}); hover: "${esc(g(a, "geiger-NFLX").hover)}".</small></figure>
+<figure><figcaption>BEFORE · TLT</figcaption><img src="shots/before-geiger-TLT-rsi-row.png" alt="Before TLT"></figure>
+<figure><figcaption>AFTER · TLT</figcaption><img src="shots/after-geiger-TLT-rsi-row.png" alt="After TLT"><small>Marks at ${esc((g(a, "geiger-TLT").marks || []).map((m) => m.split(" @")[0]).join(" and "))}; hover: "${esc(g(a, "geiger-TLT").hover)}".</small></figure>
+</div>
+
+<h2>What was measured</h2>
+<div class="panel"><div class="tw"><table class="t"><thead><tr><th>Pane</th><th>Before</th><th>After</th><th>Hover on the chip, after</th></tr></thead><tbody>
+${row("chart-NFLX-1D", "NFLX · 1D")}
+${row("chart-NFLX-1D-hub", "NFLX · 1D · in the Hub")}
+${row("chart-TLT-1D", "TLT · 1D")}
+${row("chart-TSM-4h", "TSM · 4h")}
+${row("chart-SPY-1D", "SPY · 1D")}
+<tr><td class="k">Hover with the pointer on the chip / off it</td><td>none</td><td colspan="2">"${esc(S(a, "chart-NFLX-1D").pane.area_title_on_chip)}" / "${esc(S(a, "chart-NFLX-1D").pane.area_title_off_chip)}"</td></tr>
+<tr><td class="k">Daily-bar requests per pane (NFLX 1D · TSM 4h)</td><td>${esc(S(b, "chart-NFLX-1D").daily_requests.join(" + "))} · ${esc(S(b, "chart-TSM-4h").daily_requests.join(" + "))}</td><td colspan="2">${esc(S(a, "chart-NFLX-1D").daily_requests.join(" + "))} · ${esc(S(a, "chart-TSM-4h").daily_requests.join(" + "))} — the same number of requests, the long one longer</td></tr>
+<tr><td class="k">Chart pane reads of the database</td><td>${sum(b, (s) => s.own_table_reads_from_chart_page || 0)}</td><td colspan="2">${sum(a, (s) => s.own_table_reads_from_chart_page || 0)}</td></tr>
+<tr><td class="k">Page errors · writes attempted by the test browser (9 pages)</td><td>${sum(b, (s) => s.errors.length)} · ${sum(b, (s) => s.blocked_writes)}</td><td colspan="2">${sum(a, (s) => s.errors.length)} · ${sum(a, (s) => s.blocked_writes)}</td></tr>
+</tbody></table></div></div>
+
+<details class="sc-pagespecs"><summary>PAGE SPECS</summary><div class="words">
+<p><b>What it shows.</b> The Station's two daily-RSI readouts, read against each name's own last two years — the rule the Hub board's RSI column takes on the branch hub/rs1-rsi-own-extremes-20261006 (Alan, 6 Oct: "I see Netflix at 33 and I don't think that's green enough").</p>
+<ul><li><b>The chart's "RSI D" chip</b> (the wall, a chart alone, the Hub's company view): the number tints from the pane's pink toward green or red by where it sits in the name's own two years — full green at its own 10th percentile or lower, full red at its own 90th or higher — and at those own extremes it carries a steady glow and an edge. Steady, not breathing: the pane is a drawing that repaints when data changes, and a breath would mean repainting it sixty times a second. Resting the pointer on the chip shows the line in words.</li>
+<li><b>/geiger's RSI · DAILY row</b> was the one Station place that judged by the textbook 30 / 70. With the name's own scale its two marks move to the name's own 10th and 90th and the dot and number follow.</li></ul>
+<p><b>Where each number comes from.</b> The chart pane holds no database client and still holds none: it builds the scale in the browser from the daily bars it already reads for its ribbon (one request per ticker as before, now 900 daily bars instead of about 600). /geiger reads the Hub's nightly table <code>public.rsi_own_percentiles</code>. Both use <code>_indicators/station-rsi-own.js</code>, which the tests run against the Hub loader's own rows so the two repos cannot drift.</p>
+<p><b>The AFTER pictures of /geiger need a table that is not in the database yet.</b> Its one read was answered from the Hub loader's dry run (the 5 Oct close) in the shape the database would send; everything else was live. Without the table /geiger shows exactly the BEFORE picture.</p>
+<p><b>What could be wrong.</b> The chip includes today's forming bar, the scale is finished sessions: intraday the chip says "today so far against the days before". A name with under a year of history keeps the pink chip and says so on hover. A name whose daily read returns fewer than two years says how long its window really is.</p>
+<p><b>What was not done.</b> Nothing is deployed. No own 10th / 90th guide lines were added to the oscillator pane (its look is the Indicator Lab's; its 30 / 70 guides are unchanged). /ranks and /reflow (coloured by rank across names) and the detail view's "bands 30 · 70" were left as they are.</p>
+<p><b>Tests.</b> <code>tests/station-rs1-rsi-own-20261006.test.mjs</code> (7 new, passing). The suite is at its 18 known failures.</p>
+</div></details>
+</div></body></html>
+`;
+fs.writeFileSync(new URL("RS1-STATION.html", here), html);
+console.log("page written", html.length);
