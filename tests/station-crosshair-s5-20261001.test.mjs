@@ -190,7 +190,7 @@ test("5: Document PiP first, a small window where the browser lacks it, and the 
     const opened = [];
     const ctx = Object.assign({ location: { origin: "https://station.scintillahub.ai" }, encodeURIComponent, String, Number, Math,
       window: Object.assign({ open: (u) => { opened.push(u); return win.openReturns; } }, win.window || {}) }, win.globals || {});
-    ctx.window.open = ctx.window.open; ctx.documentPictureInPicture = ctx.window.documentPictureInPicture;
+    ctx.documentPictureInPicture = ctx.window.documentPictureInPicture;
     const fn = vm.runInNewContext("(" + src + ")", ctx);
     return { path: await fn(win.msg || { video_id: "u1sbtiTQk1s", start: 24.9, title: "t" }), opened };
   };

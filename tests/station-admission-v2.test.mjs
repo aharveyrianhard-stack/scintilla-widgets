@@ -69,6 +69,37 @@ function fixtureFetch(map, quoteOverrides = {}) {
 }
 
 
+/* Q5 (5 Oct 2026) — fixtureFetch above answers /indicators with massiveIndicatorPayload(), but this file never defined it
+   (the fixture was carried over from station-provider-native-client.test.mjs, which does). No test here asks for
+   /indicators today, so nothing failed — the first one that did would have died with a ReferenceError instead of a
+   payload. Same helper, same shape, as the file it came from. */
+function massiveIndicatorPayload(ticker = "AAPL") {
+  const ids = [
+    "massive.sma.close.50.minute.adjusted", "massive.sma.close.100.minute.adjusted",
+    "massive.sma.close.150.minute.adjusted", "massive.sma.close.200.minute.adjusted",
+    "massive.ema.close.5.minute.adjusted", "massive.ema.close.8.minute.adjusted",
+    "massive.ema.close.13.minute.adjusted", "massive.ema.close.21.minute.adjusted",
+    "massive.ema.close.34.minute.adjusted", "massive.macd.close.12-26-9.minute.adjusted",
+    "massive.rsi.close.14.minute.adjusted",
+  ];
+  const source = "2026-08-20T18:02:00.000Z";
+  const contracts = ids.map((id, i) => ({
+    id, family:id.split(".")[1], provider:"MASSIVE", timeframe:"minute", adjusted:true,
+    series_type:"close", state:"AVAILABLE", value:i + 0.25,
+    source_timestamp_utc:source, source_session_et:"2026-08-20",
+    source_market_session:"REGULAR", source_finality:"COMPLETED_PROVIDER_MINUTE",
+    ...(id.includes(".macd.") ? { signal:0.1, histogram:0.15 } : {}),
+  }));
+  return {
+    schema_version:"scintilla.provider-current-indicators.v1", provider:"MASSIVE",
+    symbol:ticker, provider_symbol:ticker, timeframe:"minute", adjusted:true, series_type:"close",
+    catalog_manifest_sha256:"2879b00ec0b681cdfd8055b252a425a52e9cffa016d83c8a76f29f429bcbc111",
+    catalog_fixed_spec_count:11, completed_minute_cutoff_utc:source,
+    generated_utc:"2026-08-20T18:03:00.000Z", available_count:11, unavailable_count:0,
+    historical_archive_dependency:false, contracts,
+  };
+}
+
 function indicatorRows(ticker = "AAPL") {
   const specs = [["ema",5,101],["ema",8,100],["ema",13,99],["ema",21,98],["ema",34,97],
     ["sma",50,96],["sma",100,95],["sma",150,94],["sma",200,93],["wma",20,97.5],
@@ -149,4 +180,16 @@ test("no pinned universe size or digest gates ownership any more", () => {
   assert.match(source, /var EXPECTED_EQUITY_UNIVERSE = null;/);
   assert.doesNotMatch(source, /syms\.length !== EXPECTED_EQUITY_UNIVERSE/);
   assert.doesNotMatch(source, /j\.universe_sha256 !== ACCEPTED_UNIVERSE_SHA256/);
+});
+
+test("the fixture answers every route it names, /indicators included (it used to throw ReferenceError)", async () => {
+  const fetchFixture = fixtureFetch(symbols());
+  for (const route of ["/universe", "/indicators?symbol=AAPL", "/quotes?symbols=AAPL", "/candles?symbol=AAPL&tf=1d", "/geiger"]) {
+    const answer = await fetchFixture("https://provider.invalid" + route);
+    assert.equal(answer.ok, true, route);
+  }
+  const body = await (await fetchFixture("https://provider.invalid/indicators?symbol=AAPL")).json();
+  assert.equal(body.provider, "MASSIVE");
+  assert.equal(body.contracts.length, 11);
+  assert.throws(() => fetchFixture("https://provider.invalid/nowhere"), /unexpected provider URL/);
 });
