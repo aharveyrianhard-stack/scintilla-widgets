@@ -4,13 +4,15 @@
    1. The tapes' width IS the chart area's: they start one seam right of the column and end at the screen's right edge.
    2. LIKED never carries a name that is on FAVORITES, and no tape carries a name twice.
    3. The charts give up 46 px of height (two 22 px rows + two 1 px seams) and no width; the switch gives it back.
-   The real page's measurement (deliverables/20261005/station-controls/harness/s14.mjs → s14.json) is pinned too. */
+   S15 (5 Oct, night) - Alan: "I like it. And I like the size of it … But no … at the bottom." The strip is at the BOTTOM of
+   the chart area, FAVORITES nearest the charts and LIKED along the screen's edge; same size, same cells, same behaviour.
+   The real page's measurement (deliverables/20261005/station-controls/harness/s15.mjs → s15.json) is pinned too. */
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 const deck = fs.readFileSync(new URL("../deck/index.html", import.meta.url), "utf8");
-const measured = JSON.parse(fs.readFileSync(new URL("../deliverables/20261005/station-controls/harness/s14.json", import.meta.url), "utf8"));
+const measured = JSON.parse(fs.readFileSync(new URL("../deliverables/20261005/station-controls/harness/s15.json", import.meta.url), "utf8"));
 const grab = (re, what) => { const m = deck.match(re); assert.ok(m, what + " must exist in the deck"); return m[0]; };
 const src = [
   grab(/const VIDEO_CHROME_FALLBACK_PX = \d+;/, "the video bar fallback"),
@@ -33,7 +35,7 @@ const SCREENS = [[1680, 1050], [1920, 1080], [2560, 1440]];
 
 test("S14 · the tapes are as wide as the chart area and never enter the X / YouTube column", () => {
   /* the rule, in the stylesheet: out of the grid's flow, from one seam right of the column to the right edge */
-  assert.match(deck, /body\.tapes:not\(\.stack\) #tapes\{ display:flex; flex-direction:column; gap:1px; position:absolute; z-index:2;\s*top:0; right:0; left:calc\(var\(--fp-col, 24%\) \+ 1px\); background:var\(--line\); \}/);
+  assert.match(deck, /body\.tapes:not\(\.stack\) #tapes\{ display:flex; flex-direction:column; gap:1px; position:absolute; z-index:2;\s*bottom:0; right:0; left:calc\(var\(--fp-col, 24%\) \+ 1px\); background:var\(--line\); \}/);
   assert.match(deck, /#tapes\{ display:none; \}/, "no tapes unless the floor plan carries them (a phone keeps its column)");
   assert.match(deck, /body\.tapes\.charts-only:not\(\.stack\) #tapes\{ left:0; \}/, "CHARTS ONLY: the chart area is the whole wall, the tapes go with it");
   assert.match(deck, /grid\.style\.setProperty\("--fp-col", plan \? plan\.col \+ "px" : ""\)/, "the same column number S11 lays the column out with");
@@ -64,7 +66,7 @@ test("S14 · the tapes are as wide as the chart area and never enter the X / You
 
 test("S14 · the height: two 22 px rows and two seams, taken from the chart row and from nothing else", () => {
   assert.equal(TAPE_ROW_PX, 22); assert.equal(tapesHeight(true), 46); assert.equal(tapesHeight(false), 0);
-  assert.match(deck, /body\.tapes:not\(\.stack\) #grid > #rowTop\{ margin-top:var\(--tapes-px, 46px\); \}/);
+  assert.match(deck, /body\.tapes:not\(\.stack\) #grid > #rowTop\{ margin-bottom:var\(--tapes-px, 46px\); \}/);
   assert.match(deck, /\.tape\{ flex:none; height:22px;/);
   assert.match(deck, /const g = !plan \? null : tapePx \? floorGrid\(n, plan\.charts\.w, plan\.charts\.h - tapePx\) : plan\.grids\[n\];/,
     "each count's grid is chosen for the height that is left; off, it is S11's own");
@@ -74,7 +76,8 @@ test("S14 · the height: two 22 px rows and two seams, taken from the chart row 
   /* the theatre still takes the whole chart area (S11b's line, unchanged); the strip goes plain under it */
   assert.match(deck, /const t = floorTheatre\(plan\.charts\.w, plan\.charts\.h, o\.chromePx\);/);
   assert.match(deck, /body\.tapes\.media-theatre:not\(\.stack\) #tapes > \.tape\{ visibility:hidden; \}/);
-  assert.match(deck, /body\.tapes:not\(\.stack\) #tfNow\{ top:calc\(6px \+ var\(--tapes-px, 46px\)\); \}/, "the timeframe tag keeps its place on the charts, under the strip");
+  assert.doesNotMatch(deck, /body\.tapes:not\(\.stack\) #tfNow\{/, "S15: the strip is at the bottom, so the timeframe tag is back at the charts' top edge");
+  for (const k of Object.keys(measured)) assert.equal(measured[k].tfNow, 6, k + ": the timeframe tag 6 px from the top");
 });
 
 test("S14 · the lists: LIKED is the Hub's liked names without the ones on FAVORITES; no name twice", () => {
@@ -121,4 +124,28 @@ test("S14 · the Geiger mark, the tap and the switch", () => {
     const tap = measured[`${w}x${h}-9`].tap;
     assert.equal(tap.taps[0].wall[0], tap.taps[0].tapped, "the first tap opens in slot 1"); assert.equal(tap.taps[1].wall[1], tap.taps[1].tapped, "the second in slot 2");
     assert.equal(tap.taps[1].wall[0], tap.taps[0].tapped, "and does not replace the first"); assert.equal(tap.nameAlreadyOnTheWall.same, true); }
+});
+
+test("S15 · the tapes are at the bottom of the chart area, FAVORITES nearest the charts, and the shares of the screen are the measured ones", () => {
+  assert.match(deck, /box\.appendChild\(tapeRow\("FAVORITES", TAPES\.favorites, [^\n]*\n\s*box\.appendChild\(tapeRow\("LIKED", TAPES\.liked,/, "FAVORITES is the first row, LIKED the second");
+  for (const [w, h] of SCREENS) {
+    const p = floorPlan(w, h, 28), A = w * h, pct = (v) => +(v * 100).toFixed(1);
+    for (const n of [9, 6, 4]) {
+      const m = measured[`${w}x${h}-${n}`];
+      assert.equal(m.tapesAtBottom, true); assert.deepEqual(m.order, ["FAVORITES", "LIKED"]);
+      assert.equal(m.chartArea.y, 0, "the charts start at the top of the screen"); assert.equal(m.chartArea.h, h - 46, "and end 46 px above its bottom");
+      assert.equal(m.tapes[0].y, h - 45, "FAVORITES: one seam under the charts"); assert.equal(m.tapes[1].y, h - 22, "LIKED: on the screen's bottom edge");
+      assert.equal(m.column.h, h, "the X / YouTube column keeps the screen's whole height");
+      /* the shares are plain rectangles: charts = their width × (height − 46); the tapes = that width × 46; the column = its width × the height */
+      assert.equal(m.share.chartsAreaPct, pct(p.charts.w * (h - 46) / A)); assert.equal(m.share.tapesAreaPct, pct(p.charts.w * 46 / A));
+      assert.equal(m.share.columnAreaPct, pct(p.col * h / A)); assert.equal(m.share.chartsWidthPct, pct(p.charts.w / w)); assert.equal(m.share.columnWidthPct, pct(p.col / w));
+    }
+    const nine = measured[`${w}x${h}-9`], off = nine.switch.off.share, full = nine.fullWidth;
+    assert.equal(off.chartsAreaPct, pct(p.charts.w * h / A), "tapes off: the charts have the chart area's whole height"); assert.equal(off.tapesAreaPct, 0);
+    assert.ok(nine.share.chartsAreaPct > 72 && nine.share.chartsAreaPct < 74 && off.chartsAreaPct > 75.5, `${w}: the charts are about 73% of the screen with the tapes, 76% without`);
+    /* the picture-only variant (the harness injects it; the deck does not carry it): same charts, the column pays instead */
+    assert.equal(full.isFull, true); assert.equal(full.tapes[0].x, 0); assert.equal(full.tapes[0].w, w); assert.equal(full.blackPx, 0); assert.deepEqual(full.cut, []); assert.equal(full.chartsDrawn, 9);
+    assert.equal(full.share.chartsAreaPct, nine.share.chartsAreaPct, "the charts' share is the same either way"); assert.equal(full.column.h, h - 46);
+    assert.doesNotMatch(deck, /#grid > #rowBot\{ margin-bottom/, "the full-width variant is a picture, not in the deck");
+  }
 });
