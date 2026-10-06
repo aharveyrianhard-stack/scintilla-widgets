@@ -4056,7 +4056,9 @@ function paintSlotMarks() {
 }
 function cancelSlotFades() {
   for (const pane of PANES) {
-    if (!PAGE_FADE) dropSpare(pane);   /* a page change being prepared re-uses the parked frames (S2) */
+    /* a page change being prepared re-uses the parked frames (S2); with ?keepcharts=1 a wide wall keeps
+       them through every other change too and sweepSpares lets them go (ST3) */
+    if (!PAGE_FADE && spareRoom() < 2) dropSpare(pane);
     const job = pane.slotNext;
     if (!job) continue;
     job.done = true; clearTimeout(job.timer);
@@ -4073,32 +4075,72 @@ function cancelSlotFades() {
    the path page changes already use (retargetChartInPlace) - instead of opening a new one. Two
    documents per rotating slot, reused for the life of the page. A spare is used only when its
    document settled on a name and its address differs from the next one's only in symbol and axis;
-   anything else opens a new frame, as before. Leaving the page drops every spare. */
-function dropSpare(pane) {
-  if (!pane.spare) return;
-  pane.spare.remove(); pane.spare = null;
+   anything else opens a new frame, as before. Leaving the page drops every spare (unless
+   ?keepcharts=1 - see below). */
+/* ── A PARKED FRAME KEPT, NOT REBUILT (ST3, 6 Oct) — BUILT, MEASURED, AND LEFT OFF ───────────────
+   SLOW1 named "a new document per chart" as a cost: 86 built in 15 minutes. Measured on 30-minute
+   headless soaks of the lap (deliverables/20261006/st3): the one parked frame a slot kept was thrown
+   away (a) whenever a page did not show that slot - every 2-, 4- and 6-chart page emptied the slots
+   above it, (b) whenever the next page carried another study (the RSI pages' address differs from a
+   plain page's), and (c) on every page outside the lap. So with ?keepcharts=1, on a wall wide enough
+   to keep its hidden charts mounted (keepsHiddenCharts), a slot keeps up to SPARE_MAX parked frames,
+   of either kind of address (plain, RSI), through pages that hide it; the one parked longest goes
+   first, and all go after SPARE_IDLE_MS away from the lap. (A first try kept "one of each kind": it
+   dropped the second plain frame every time an RSI page came by - 48 documents built in 17 minutes.)
+   WHAT IT MEASURED: documents built in 30 minutes 144 → 38 (70 → 8 in the second half). And nothing
+   else: page changes were ready in the same 0.8 s, the main thread did the same work, the history
+   reads were the same - a new chart document reads from the shared stores - while 8-14 more
+   documents stayed alive and the heap stood about 40 MB higher. So it is OFF unless the address
+   asks for it, and the wall keeps the rules it had: one parked frame, dropped as before.
+   Either way a parked document is told so ("deck-parked") and stops its own 60 s history re-read
+   until it is given a name again. */
+/* ?keepcharts=1 turns it on and ?keepcharts=0 off; like the clouds switch, the choice is remembered on
+   this browser (the deck clears its address at start, and reloads itself after a release). */
+const SPARE_KEEP = QS.has("keepcharts") ? QS.get("keepcharts") === "1" : remembered("station.keepcharts") === "1";
+if (QS.has("keepcharts")) remember("station.keepcharts", SPARE_KEEP ? "1" : "0");
+const SPARE_MAX = 2, SPARE_IDLE_MS = 5 * 60 * 1000;
+let SPARE_LAP_SEEN = Date.now();
+const spareRoom = () => SPARE_KEEP && keepsHiddenCharts() ? SPARE_MAX : 1;
+const spareKind = (frame) => withoutTicker(frameShownSrc(frame));
+function dropSpare(pane, frame) {
+  if (!pane.spares) return;
+  for (const f of pane.spares.slice()) {
+    if (frame && f !== frame) continue;
+    f.remove(); pane.spares.splice(pane.spares.indexOf(f), 1);
+  }
 }
 function parkSpare(pane, frame, ticker) {
-  dropSpare(pane);
-  if (!frame || !ticker) { if (frame) frame.remove(); return; }
+  if (!frame || !ticker) { if (frame) frame.remove(); if (spareRoom() < 2) dropSpare(pane); return; }
+  const spares = pane.spares || (pane.spares = []);
   frame.className = "slot-spare"; frame.setAttribute("aria-hidden", "true");
   frame._spareTicker = ticker;
-  pane.spare = frame;
+  /* over the room, the one parked longest goes */
+  if (!spares.includes(frame)) spares.push(frame);
+  while (spares.length > spareRoom()) dropSpare(pane, spares[0]);
+  try { frame.contentWindow.postMessage({ sc:"deck-parked" }, location.origin); } catch (_) {}
 }
 function takeSpare(pane, src) {
-  const f = pane.spare;
-  if (!f || f.parentNode !== pane.body || !f.contentWindow || !f._spareTicker) { dropSpare(pane); return null; }
-  if (withoutTicker(frameShownSrc(f)) !== withoutTicker(src)) { dropSpare(pane); return null; }
-  pane.spare = null;
+  const spares = pane.spares || [];
+  for (const f of spares.slice()) if (f.parentNode !== pane.body || !f.contentWindow || !f._spareTicker) dropSpare(pane, f);
+  const want = withoutTicker(src);
+  const f = spares.find((x) => spareKind(x) === want);
+  if (!f) { if (spareRoom() < 2) dropSpare(pane); return null; }
+  spares.splice(spares.indexOf(f), 1);
   return f;
 }
 /* S2 (29 Sep): a page change parks the frame it faded away from too, so every chart slot on a workflow
-   page may keep one - not only a rotating slot. A slot the page does not show keeps none. */
+   page may keep one - not only a rotating slot. ST3: with ?keepcharts=1 on a wide wall a slot the page
+   does not show keeps its parked frames; otherwise it keeps none, as before. */
 function sweepSpares() {
-  const rotating = SceneModel.WORKFLOW_IDS.includes(SCENE);
+  const rotating = SceneModel.WORKFLOW_IDS.includes(SCENE), roomy = spareRoom() > 1;
+  if (rotating) SPARE_LAP_SEEN = Date.now();
+  const away = !rotating && (!roomy || Date.now() - SPARE_LAP_SEEN > SPARE_IDLE_MS);
   for (const pane of PANES) {
+    if (!pane.spares || !pane.spares.length) continue;
     const i = Number(String(pane.def.key || "").replace(/^c/, "")) - 1;
-    if (pane.spare && (!rotating || !pane.frame || pane.spare.parentNode !== pane.body || !(i >= 0 && i < CHART_COUNT))) dropSpare(pane);
+    const shown = i >= 0 && i < CHART_COUNT;
+    if (away || !(i >= 0 && i < SLOT_MAX) || (shown && !pane.frame) || (!shown && !roomy)) { dropSpare(pane); continue; }
+    for (const f of pane.spares.slice()) if (f.parentNode !== pane.body) dropSpare(pane, f);
   }
 }
 function slotHeld(pane) {

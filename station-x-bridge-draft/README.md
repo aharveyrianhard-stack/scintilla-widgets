@@ -56,3 +56,18 @@ The visible proof used a synthetic X-origin feed because the temporary Chrome pr
 - Production Station: unchanged.
 - GitHub and Vercel: unchanged.
 - Google/YouTube authorization: unrelated to this X pane and unchanged.
+
+## 0.7.24 (ST3, 6 Oct 2026) — the picture says how far it has scrolled; the pace is a choice
+
+- While it feeds a Station pane, the source paints a row of fifteen black and white squares (120 × 8 px) in the
+  top-left corner of the X window: its scroll position, repainted in the same frame as every scroll. The corner
+  is in the captured picture and outside the column the viewers show. The pane (`station-shells/x-v2`) reads it
+  from the frame it is about to paint, so the crop and the picture can no longer be one step apart (measured
+  headlessly: about one backward hop a second before, none after). No square row when the source crops its own
+  track or when the column sits in that corner; a pane that cannot read it behaves as with 0.7.23.
+- New control `speed` (the pane's ⋯ → scroll 1× · 2× · 4× = 3 · 6 · 12 px/s), saved with the other settings,
+  bounded 0.5–30 px/s like the float's own slider. Every crop reports `speedPxPerSecond` and `scrollCode`.
+- Install: copy this folder over the loaded one and reload the extension once in each browser that feeds a
+  Station; `/x-health` shows which browsers still run an older bridge.
+- Measured with `deliverables/20261006/st3/tools/xscroll.mjs` (headless; a stand-in X page). Not yet seen on real X.
+

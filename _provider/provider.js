@@ -1112,6 +1112,7 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
   var CANDLE_SHARED_KEY = '__SC_PROVIDER_CANDLES_V1';
   var CANDLE_SHARED_MAX_CHARS = 48e6;
   var CANDLE_SETTLE_MS = 180000, CANDLE_SETTLE_TTL_MS = 45000, HALF_HOUR_MS = 1800000;
+  var CANDLE_SWEEP_MS = 60000;
   var candleLocal = null, candleInflight = {};
   function candleShared () {
     /* the highest window of this origin that this document can reach */
@@ -1164,6 +1165,15 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
     if (typeof text !== 'string' || text.length > CANDLE_SHARED_MAX_CHARS / 4) return;
     var store = candleShared(), now = Date.now();
     candleForget(store, url);
+    /* ST3 (6 Oct) — AN ENTRY PAST ITS TIME IS LET GO. Until now one was dropped only when its own url was
+       asked for again, or when the store reached its 48-million-character ceiling; a name the lap had moved
+       on from stayed for good. Measured on a 30-minute soak: this store was the Station's whole heap drift
+       (0.5 MB live at minute 5, 24 MB at minute 30, +0.5 MB a minute). A read never returns an expired entry,
+       so dropping them changes no answer. At most once a minute. */
+    if (!(now - store.sweptAt < CANDLE_SWEEP_MS)) {
+      store.sweptAt = now;
+      store.expires.forEach(function (at, key) { if (!(now < at)) candleForget(store, key); });
+    }
     /* oldest first out: a Map keeps insertion order */
     while (store.chars + text.length > CANDLE_SHARED_MAX_CHARS && store.text.size)
       candleForget(store, store.text.keys().next().value);

@@ -352,7 +352,7 @@ test("a page with another chart count moves a frame between rows in place, axis 
   for (const [label, src] of [["chart", chart], ["chart shell", chartShell]]) {
     assert.match(src, /let SHARED_TIME_AXIS = QS\.get\("sharedAxis"\) === "1";/, label);
     assert.match(src, /const axisChanged = typeof d\.sharedAxis === "boolean" && d\.sharedAxis !== SHARED_TIME_AXIS;\n  if \(axisChanged\) SHARED_TIME_AXIS = d\.sharedAxis;/, label);
-    assert.match(src, /else if \(axisChanged && host && host\._series && host\._series\.length >= 2\) scChartDraw\(host\);/, label + ": an axis-only change redraws");
+    assert.match(src, /if \(axisChanged && host && host\._series && host\._series\.length >= 2\) scChartDraw\(host\);/, label + ": an axis-only change redraws");
   }
 });
 

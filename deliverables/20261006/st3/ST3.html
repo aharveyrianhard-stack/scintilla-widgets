@@ -1,0 +1,155 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ST3 · Station speed and the X feed's scroll</title>
+<style>:root{--bg:#0A0A0F;--panel2:#0F0F1A;--line:#1A1A2A;--ink:#F2F2F8;--ink2:#C6C8DE;--ink3:#9A9AB6;--mute:#3A3A52;--crk:#00D4FF;--mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace}
+body{margin:0;background:var(--bg);color:var(--ink2);font-family:var(--mono);font-size:12px;line-height:1.6;padding:18px 22px 60px} h1{color:var(--ink);font-size:17px;letter-spacing:.06em;margin:0 0 4px} h2{color:var(--crk);font-size:12px;letter-spacing:.18em;text-transform:uppercase;margin:34px 0 10px;border-bottom:1px solid var(--line);padding-bottom:6px} h3{color:var(--ink);font-size:12px;margin:18px 0 6px}
+.sub{color:var(--ink3);font-size:11px} b{color:var(--ink);font-weight:600} small{color:var(--ink3);font-size:11px} p,ul,ol{max-width:980px}
+figure{margin:0;display:inline-block;vertical-align:top} figure img{display:block;max-width:100%;border:1px solid var(--line);background:#000} figcaption{color:var(--ink3);font-size:11px;margin:4px 0 12px;max-width:640px}
+.pics{display:flex;gap:14px;flex-wrap:wrap} .pics figure{flex:1 1 300px;min-width:0;max-width:820px} .pics.small figure{flex:0 1 300px}
+table{border-collapse:collapse;margin:8px 0 14px;font-size:11.5px;display:block;overflow-x:auto;max-width:100%} th,td{border:1px solid var(--line);padding:5px 9px;text-align:left;vertical-align:top} th{color:var(--crk);font-weight:500;letter-spacing:.08em;font-size:11px;text-transform:uppercase;background:var(--panel2)}
+.rec{border:1px solid rgba(0,212,255,.34);background:var(--panel2);padding:10px 14px;max-width:980px} pre{background:var(--panel2);border:1px solid var(--line);padding:10px;overflow-x:auto;font-size:11px;color:var(--ink3);max-width:1100px}
+.wide{overflow-x:auto} svg{max-width:100%;height:auto} svg text{font-family:var(--mono)}
+details.sc-pagespecs{margin-top:40px;color:var(--ink3);font-size:11px} details.sc-pagespecs summary{color:var(--ink3);letter-spacing:.16em;font-size:11px;cursor:pointer}</style></head><body>
+<h1>Station speed: the X feed stops hopping, the memory drift is found, and keeping charts did not buy speed</h1>
+<div class="sub">ST3 · 6 Oct 2026 · branch <b>station/st3-speed-x-20261006</b> · the real Station page in a hidden browser on the MacBook, live data · nothing deployed, nothing live · built 6 Oct 2026 16:18 ET</div>
+
+<h2>The short version</h2>
+<ol>
+<li><b>Charts.</b> Keeping parked charts instead of rebuilding them works: in 30 minutes the Station built <b>144</b> new chart documents, and with keeping on it built <b>38</b> (70 → 8 in the second half). <b>But it bought no speed.</b> Page changes were ready in the same time, the processor did the same work, and the heap stood about 39 MB higher. So it is built and <b>left off</b>; one word in the address turns it on.</li>
+<li><b>X feed.</b> The X pane is not a list of posts. It is a live picture of the real X tab, scrolled by the bridge. Measured: at today's pace the picture <b>hopped backwards about 86 times a minute</b> (up to 0.8 px each). With the change it hops <b>0</b> times. A pace choice (1× · 2× · 4×) sits behind the ⋯. This part needs the bridge extension reloaded once (0.7.24).</li>
+<li><b>Memory.</b> The drift was one thing: the Station's shared store of price history kept series long after they had expired. It now lets them go. When the half hour turned during the run it held 26 million characters, nearly all expired; four minutes later it held under 1 million.</li>
+</ol>
+
+<h2>1 · Charts: keeping parked charts — built, measured, left off</h2>
+<div class="pics">
+<figure><img src="shots/soak-before-end.png" alt="The Station after 30 minutes, before the change"><figcaption>Before · the Station after 30 minutes of its own lap, 1680 × 1050. Eight charts, the X column (no X source in a hidden browser, so it shows its offline card), the two tapes.</figcaption></figure>
+<figure><img src="shots/soak-after-end.png" alt="The Station after 30 minutes, with the change"><figcaption>After · the same run on this branch with keeping on. The same wall: the charts, their badges, lens and Geiger chips are where they were. Prices differ because the two pictures are 50 minutes apart.</figcaption></figure>
+</div>
+<h3>New chart documents built, minute by minute</h3>
+<svg viewBox="0 0 620 210" width="620" height="210" role="img" aria-label="new chart documents built, cumulative"><line x1="44" x2="510" y1="184.0" y2="184.0" stroke="#1A1A2A"/><text x="38" y="188.0" text-anchor="end" fill="#9A9AB6" font-size="11">0</text><line x1="44" x2="510" y1="141.0" y2="141.0" stroke="#1A1A2A"/><text x="38" y="145.0" text-anchor="end" fill="#9A9AB6" font-size="11">39</text><line x1="44" x2="510" y1="98.0" y2="98.0" stroke="#1A1A2A"/><text x="38" y="102.0" text-anchor="end" fill="#9A9AB6" font-size="11">79</text><line x1="44" x2="510" y1="55.0" y2="55.0" stroke="#1A1A2A"/><text x="38" y="59.0" text-anchor="end" fill="#9A9AB6" font-size="11">118</text><line x1="44" x2="510" y1="12.0" y2="12.0" stroke="#1A1A2A"/><text x="38" y="16.0" text-anchor="end" fill="#9A9AB6" font-size="11">158</text><text x="44.0" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">0 min</text><text x="121.7" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">5 min</text><text x="199.3" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">10 min</text><text x="277.0" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">15 min</text><text x="354.7" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">20 min</text><text x="432.3" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">25 min</text><text x="510.0" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">30 min</text><path d="M44.0,181.8 L59.5,173.1 L75.1,164.4 L90.6,155.6 L106.1,155.6 L121.7,155.6 L137.2,155.6 L152.7,153.5 L168.3,149.1 L183.8,146.9 L199.3,142.5 L214.9,127.3 L230.4,124.0 L245.9,118.6 L261.5,109.8 L277.0,101.1 L292.5,98.9 L308.1,90.2 L323.6,90.2 L339.1,90.2 L354.7,88.0 L370.2,85.8 L385.7,81.5 L401.3,77.1 L416.8,70.6 L432.3,61.8 L447.9,53.1 L463.4,48.7 L478.9,35.6 L494.5,33.5 L510.0,24.7" fill="none" stroke="#9A9AB6" stroke-width="1.5" stroke-dasharray="5 4"/><text x="516.0" y="28.7" fill="#9A9AB6" font-size="11">before · 146</text><path d="M44.0,181.8 L59.5,173.1 L75.1,164.4 L90.6,164.4 L106.1,164.4 L121.7,164.4 L137.2,164.4 L152.7,164.4 L168.3,162.2 L183.8,162.2 L199.3,157.8 L214.9,153.5 L230.4,153.5 L245.9,153.5 L261.5,151.3 L277.0,149.1 L292.5,149.1 L308.1,149.1 L323.6,149.1 L339.1,149.1 L354.7,149.1 L370.2,149.1 L385.7,146.9 L401.3,146.9 L416.8,144.7 L432.3,144.7 L447.9,144.7 L463.4,144.7 L478.9,140.4 L494.5,140.4 L510.0,140.4" fill="none" stroke="#F2F2F8" stroke-width="2"/><text x="516.0" y="144.4" fill="#F2F2F8" font-size="11">after · 40</text></svg>
+<p>The dashed line is today's Station: it keeps building. The solid line is this branch with keeping on: it builds what the first lap needs, then nearly stops. "After" in this section always means keeping on.</p>
+<h3>15 minutes</h3>
+<table><tr><th>What</th><th>Before</th><th>After</th></tr>
+<tr><td>New chart documents built</td><td>74</td><td><b>30</b></td></tr><tr><td>…of those, after the first lap (minutes 12–15)</td><td>21</td><td><b>4</b></td></tr><tr><td>History reads (/candles)</td><td>592</td><td><b>543</b></td></tr><tr><td>All requests</td><td>1863</td><td><b>1328</b></td></tr>
+<tr><td>Heap, average of minutes 5–15</td><td>55 MB</td><td><b>87 MB</b></td></tr>
+<tr><td>Documents alive (all frames), minutes 5–15</td><td>15–21</td><td><b>23–29</b></td></tr>
+</table>
+<h3>30 minutes</h3>
+<table><tr><th>What</th><th>Before</th><th>After</th></tr>
+<tr><td>New chart documents built, 30 minutes</td><td>144</td><td><b>38</b></td></tr><tr><td>…in the second half (minutes 15–30)</td><td>70</td><td><b>8</b></td></tr><tr><td>History reads (/candles), 30 minutes</td><td>1106</td><td><b>1049</b></td></tr><tr><td>…in the second half (minutes 15–30)</td><td>514</td><td><b>506</b></td></tr>
+<tr><td>Heap, average of minutes 20–30</td><td>62 MB</td><td><b>102 MB</b></td></tr>
+<tr><td>Documents alive (all frames), minutes 20–30</td><td>15–21</td><td><b>29–31</b></td></tr>
+<tr><td>Times a parked chart was re-used</td><td>232</td><td><b>338</b></td></tr>
+<tr><td>Times a new one was built because the parked one had been thrown away or did not fit</td><td>144</td><td><b>38</b></td></tr>
+<tr><td>…of those: the parked chart was the wrong kind (plain vs RSI page)</td><td>80</td><td><b>0</b></td></tr>
+</table>
+<h3>The same two pages run side by side, 12 minutes, same moment, same machine</h3><p>The long runs above were made one after the other, with other measurements running beside them, so their processor times cannot be compared fairly. This pair ran at the same time.</p><table><tr><th>What</th><th>Before</th><th>After</th></tr><tr><td>Script time</td><td>18.1 s</td><td><b>18.9 s</b></td></tr><tr><td>All main-thread work</td><td>50.7 s</td><td><b>51.5 s</b></td></tr><tr><td>Layout</td><td>3.0 s</td><td><b>2.9 s</b></td></tr><tr><td>Long tasks (over 50 ms)</td><td>56</td><td><b>63</b></td></tr><tr><td>New chart documents built</td><td>53</td><td><b>26</b></td></tr><tr><td>History reads (/candles)</td><td>433</td><td><b>421</b></td></tr><tr><td>Heap at the end</td><td>55 MB</td><td><b>99 MB</b></td></tr><tr><td>Documents alive at the end</td><td>17</td><td><b>29</b></td></tr></table>
+<h3>How long a page change waits before it fades in</h3><p>On a page change the Station draws the next page's charts out of sight and fades them in when all are ready. This is the wait, read from the Station's own record of each change, on two pages run side by side for the same minutes.</p><table><tr><th>Run</th><th>Page changes</th><th>Usual wait</th><th>Longest</th><th>Waits of 2 s or more</th><th>Chart documents built</th></tr><tr><td>Before</td><td>13</td><td>0.9 s</td><td>1.7 s</td><td>0</td><td>20</td></tr><tr><td>After</td><td>13</td><td>0.8 s</td><td>1.8 s</td><td>0</td><td>8</td></tr><tr><td>After · changes that built nothing</td><td>11</td><td>0.8 s</td><td>1.8 s</td><td>0</td><td>0</td></tr><tr><td>After · changes that built documents</td><td>2</td><td>0.8 s</td><td>0.8 s</td><td>0</td><td>8</td></tr></table>
+<h3>What was wrong</h3>
+<p>The Station already parked one chart per slot to re-use on the next step. It threw that parked chart away in three cases, and each one is a normal part of the lap: when a page shows fewer charts than the last one (every 2-, 4- and 6-chart page emptied the slots above it); when the next page carries the RSI study (the parked plain chart cannot become an RSI chart, so it was dropped and a new one built, and the same on the way back); and on any page outside the lap.</p>
+<h3>What was built</h3>
+<ul><li><b>Keeping (off by default).</b> On a wide screen, a slot keeps up to two parked charts, plain or RSI, through pages that hide it. They are let go after five minutes away from the lap. Opening the Station once with <code>?keepcharts=1</code> turns it on for that browser; <code>?keepcharts=0</code> turns it off again.</li>
+<li><b>Always on.</b> A parked chart is told it is parked and stops re-reading its history every minute until it is given a name again.</li>
+<li>With keeping off, and on iPad and phone either way, the rules are the old ones exactly: one parked chart, dropped as before.</li></ul>
+<h3>Why it is left off: what it costs, and what did not move</h3>
+<ul><li><b>Memory goes up, not down.</b> More charts are kept alive (15–21 documents before, 29–31 after), and each holds about 3.5 MB. Heap, average of minutes 20–30: 62 MB before, 102 MB after.</li>
+<li><b>The processor's work did not drop in the first lap.</b> Side by side for 12 minutes the two pages did the same work to within a few percent (table above). Building a chart document is cheap next to everything else the wall does; what is saved is the page, scripts and canvases of each rebuilt chart, and from the second lap on there are almost none to rebuild. The later minutes were not measured side by side.</li>
+<li><b>History reads barely move.</b> A new chart document mostly reads from the shared store, so building fewer documents does not save many reads. The reads are set by how long a series may be kept (45 seconds just after each half hour, then until the next one).</li></ul>
+
+<h2>2 · The X feed: the picture carries its own position, so it can only move forward</h2>
+<div class="pics small">
+<figure><img src="shots/x-before-3-pane.png" alt="The X pane before, on the stand-in feed"><figcaption>Before · the Station's X pane (520 × 820) showing the stand-in feed. The white bars are the test's ruler, not part of the product.</figcaption></figure>
+<figure><img src="shots/x-after-3-pane.png" alt="The X pane after"><figcaption>After · the same pane. Same bar, same crop, same text size; nothing new is on screen until ⋯ is opened.</figcaption></figure>
+<figure><img src="shots/x-after-more.png" alt="The X pane's ⋯ panel with the pace choice"><figcaption>After · the ⋯ panel: under the refresh choice, a new line "scroll 1× 2× 4×". 1× is today's pace.</figcaption></figure>
+<figure><img src="shots/x-source-corner.png" alt="The top-left corner of the X window, enlarged, with the row of squares"><figcaption>The X window's own top-left corner, enlarged six times: the row of black and white squares the bridge now paints there. It is 120 × 8 px, outside the column the Station shows.</figcaption></figure>
+</div>
+<h3>What "scrolling" is here</h3>
+<p>The bridge moves the real X page a whole pixel at a time (about four times a second at today's pace). The browser sends a new picture only when the page changes. Between two pictures the pane slides its crop by fractions of a pixel so the feed looks continuous. The pane paints 12 times a second. So a list that draws only what is visible, images that load late, and a scroll done with a transform are all things X's own page already does or that do not exist in a picture; they are not ours to add.</p>
+<h3>What was wrong</h3>
+<p>The picture and the crop that belongs to it reach the pane by two different roads. Around every whole-pixel step they arrive apart, and for a paint or two the pane put the new crop on the old picture, or the old crop on the new one. The feed jumped back by the step and forward again.</p>
+<h3>Measured, before → after</h3>
+<div class="wide"><table><tr><th>Pace</th><th>Backward hops a minute</th><th>Biggest usual move<br><small>19 paints in 20 are smaller</small></th><th>Biggest single move</th><th>Feed speed seen<br><small>px a second</small></th><th>Frames late<br><small>over 25 ms</small></th><th>Long tasks</th><th>Pane's own work<br><small>a minute</small></th><th>Paints · new pictures<br><small>a second</small></th></tr>
+<tr><td>3 px a second<br><small>1× · today</small></td><td>86 → <b>0</b><br><small>worst 0.84 → 0.04 px</small></td><td>1.10 → <b>0.33</b> px<br><small>a usual move is 0.29 px</small></td><td>1.14 → <b>0.36</b> px</td><td>2.8 → 2.5</td><td>11 of 1792 → 3 of 1789</td><td>0 → 2</td><td>12.7 → 11.4 s</td><td>12 · 3.5</td></tr><tr><td>6 px a second<br><small>2×</small></td><td>128 → <b>5</b><br><small>worst 0.90 → 0.14 px</small></td><td>1.46 → <b>0.68</b> px<br><small>a usual move is 0.57 px</small></td><td>1.50 → <b>1.43</b> px</td><td>5.7 → 5.4</td><td>20 of 1763 → 31 of 1744</td><td>7 → 12</td><td>16.5 → 16.0 s</td><td>12 · 7.0</td></tr><tr><td>12 px a second<br><small>4×</small></td><td>122 → <b>0</b><br><small>worst 16.83 → 0.06 px</small></td><td>3.75 → <b>1.63</b> px<br><small>a usual move is 1.20 px</small></td><td>8.89 → <b>3.42</b> px</td><td>10.2 → 11.6</td><td>90 of 1644 → 17 of 1771</td><td>32 → 6</td><td>23.4 → 16.4 s</td><td>11 · 3.6</td></tr>
+</table></div>
+<p>Each run is 30 seconds of motion and 30 seconds of cost, before and after back to back, with one chart soak running beside them. "Backward hop" means a paint where the picture moved up the feed by more than an eighth of a pixel.</p>
+<h3>What changed</h3>
+<ul><li><b>The bridge</b> paints the page's scroll position as a small row of squares in the corner of the X window, in the same frame as every scroll.</li>
+<li><b>The pane</b> reads that row from the very picture it is about to draw. It no longer guesses which scroll the picture holds, so what it shows can only move forward.</li>
+<li><b>Pace.</b> The ⋯ panel gains 1× · 2× · 4× (3, 6 and 12 px a second). The default stays 1×.</li>
+<li>With an older bridge, or if the squares cannot be read, the pane behaves exactly as it does today. The pane also times its own reading and falls back for a minute if a read keeps a paint waiting more than 8 ms on average (measured here: 3.36 ms at 1×, 3.08 ms at 4×, never over).</li></ul>
+
+<h2>3 · Memory: what was holding it</h2>
+<p>The browser was asked which lines of code made the objects still alive at minute 5 and at minute 30. One line accounts for the growth:</p>
+<pre>live sampled bytes: 34.1 MB → 48.0 MB
+   +23949 kB  (    512 →   24461)  candleCachePut @ :0   ← (anonymous)
+    +2727 kB  (   2644 →    5371)  (V8 API) @ :0   ← (root)
+    +1129 kB  (    493 →    1621)  cloudUnpack @ /station-shells/chart-v1:1102   ← cloudDailyCached
+     +402 kB  (     66 →     468)  scChartDraw @ /station-shells/chart-v1:2408   ← scChartLoad
+     +377 kB  (    385 →     763)  pageFrameReady @ /:4296   ← every
+     +267 kB  (   2252 →    2519)  dailyRows @ /_indicators/station-clouds.js:100   ← applyCloudRows
+     +146 kB  (    693 →     839)  (anonymous) @ /station-shells/chart-v1:313   ← (root)
+     +144 kB  (     29 →     173)  scChartLoad @ /station-shells/chart-v1:3629   ← scChartWire
+…shrank most:
+     -545 kB  (    930 →     385)  (anonymous) @ /station-shells/chart-v1:1021   ← map
+    -1998 kB  (   1998 →       0)  postDeckGeiger @ /:1386   ← fanoutDeckGeiger
+    -2661 kB  (   2717 →      56)  (anonymous) @ /station-shells/chart-v1:1184   ← map
+    -3976 kB  (   8753 →    4777)  candleCachePut @ /_provider/provider.js:1161   ← (anonymous)
+    -4773 kB  (   4965 →     192)  (anonymous) @ /_provider/provider.js:1301   ← map
+</pre>
+<p><b>candleCachePut</b> is the Station's shared store of price history (one copy for every chart). A series in it has a time limit, but an expired series was only removed when the same series was asked for again, or when the store reached 48 million characters. Names the lap had moved on from stayed.</p>
+<p>The store now removes expired series itself, at most once a minute. Measured on the after run, when the half hour turned: <b>480 series, 26.2 million characters</b> at minute 22 (431 of them expired) → <b>167 series, 12.9 million</b> at minute 23 → <b>21 series, 0.6 million</b> at minute 25. Before the change those series would have stayed until the store reached its 48-million-character ceiling.</p>
+<h3>Heap, minute by minute</h3>
+<svg viewBox="0 0 620 210" width="620" height="210" role="img" aria-label="JS heap in MB after a forced clean-up"><line x1="44" x2="510" y1="184.0" y2="184.0" stroke="#1A1A2A"/><text x="38" y="188.0" text-anchor="end" fill="#9A9AB6" font-size="11">0</text><line x1="44" x2="510" y1="141.0" y2="141.0" stroke="#1A1A2A"/><text x="38" y="145.0" text-anchor="end" fill="#9A9AB6" font-size="11">31</text><line x1="44" x2="510" y1="98.0" y2="98.0" stroke="#1A1A2A"/><text x="38" y="102.0" text-anchor="end" fill="#9A9AB6" font-size="11">62</text><line x1="44" x2="510" y1="55.0" y2="55.0" stroke="#1A1A2A"/><text x="38" y="59.0" text-anchor="end" fill="#9A9AB6" font-size="11">94</text><line x1="44" x2="510" y1="12.0" y2="12.0" stroke="#1A1A2A"/><text x="38" y="16.0" text-anchor="end" fill="#9A9AB6" font-size="11">125</text><text x="44.0" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">0 min</text><text x="121.7" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">5 min</text><text x="199.3" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">10 min</text><text x="277.0" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">15 min</text><text x="354.7" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">20 min</text><text x="432.3" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">25 min</text><text x="510.0" y="202" text-anchor="middle" fill="#9A9AB6" font-size="11">30 min</text><path d="M44.0,164.9 L59.5,147.8 L75.1,133.7 L90.6,122.3 L106.1,118.6 L121.7,112.9 L137.2,119.8 L152.7,116.2 L168.3,118.8 L183.8,114.1 L199.3,89.1 L214.9,104.7 L230.4,108.2 L245.9,106.4 L261.5,101.6 L277.0,94.9 L292.5,104.4 L308.1,96.9 L323.6,95.0 L339.1,93.4 L354.7,95.4 L370.2,102.3 L385.7,100.5 L401.3,84.3 L416.8,95.7 L432.3,105.6 L447.9,99.5 L463.4,103.4 L478.9,94.5 L494.5,102.2 L510.0,95.8" fill="none" stroke="#9A9AB6" stroke-width="1.5" stroke-dasharray="5 4"/><text x="516.0" y="99.8" fill="#9A9AB6" font-size="11">before · 64</text><path d="M44.0,164.5 L59.5,148.0 L75.1,117.1 L90.6,109.5 L106.1,106.8 L121.7,101.7 L137.2,96.2 L152.7,90.6 L168.3,87.2 L183.8,79.3 L199.3,54.7 L214.9,54.0 L230.4,48.2 L245.9,35.9 L261.5,32.3 L277.0,31.1 L292.5,28.8 L308.1,28.6 L323.6,29.7 L339.1,28.6 L354.7,27.4 L370.2,32.3 L385.7,24.7 L401.3,41.2 L416.8,49.3 L432.3,60.9 L447.9,57.5 L463.4,55.5 L478.9,45.4 L494.5,45.8 L510.0,42.8" fill="none" stroke="#F2F2F8" stroke-width="2"/><text x="516.0" y="46.8" fill="#F2F2F8" font-size="11">after · 102</text></svg>
+<p><b>The after line is higher for another reason</b>: that run had chart keeping on, so 8–14 more charts were alive (section 1). The store's part is the dip after minute 21: about 25 MB given back when the half hour turned. With keeping off, as the branch ships, the heap is the before line minus the store's drift; that combination was not run for 30 minutes.</p>
+<p>The heap after the change, same question, minute 5 → minute 30:</p>
+<pre>live sampled bytes: 40.8 MB → 82.1 MB
+   +10653 kB  (   2003 →   12655)  (anonymous) @ /station-shells/chart-v1:1289   ← map
+    +6062 kB  (   6899 →   12961)  (anonymous) @ /_provider/provider.js:1311   ← map
+    +3022 kB  (   1082 →    4104)  (anonymous) @ /station-shells/chart-v1:1021   ← map
+    +3021 kB  (   3182 →    6203)  (anonymous) @ /station-shells/chart-v1:1184   ← map
+    +2837 kB  (    403 →    3240)  cloudUnpack @ /station-shells/chart-v1:1102   ← cloudDailyCached
+    +1847 kB  (   9324 →   11171)  candleCachePut @ /_provider/provider.js:1162   ← (anonymous)
+    +1334 kB  (      0 →    1334)  postDeckQuote @ /:1326   ← fanoutDeckQuote
+    +1054 kB  (   2364 →    3418)  dailyRows @ /_indicators/station-clouds.js:100   ← applyCloudRows
+…shrank most:
+      -24 kB  (     24 →       0)  tapeQuoteBatch @ /:1853   ← (anonymous)
+      -24 kB  (     40 →      16)  (anonymous) @ /station-shells/chart-v1:1181   ← (anonymous)
+      -24 kB  (     32 →       8)  get @ :0   ← candleCacheGet
+      -30 kB  (     46 →      16)  (anonymous) @ /_provider/provider.js:337   ← (root)
+      -68 kB  (    399 →     331)  collectRoots @ :0   ← inPagePrepareForScreenshots
+</pre>
+
+<h2>Tests</h2>
+<p>Whole suite, <code>node --test</code> at the repo root. Live: 1080 tests, 27 failing (28 distinct names). Branch: 1095 tests, 27 failing (28 names). <b>New failing names: 0</b>. Fixed: 0. 15 tests were added for this work; 5 older tests that quoted exact lines were updated to the new wording.</p>
+
+<h2>What could be wrong</h2>
+<ul>
+<li><b>The X numbers come from a stand-in.</b> x.com refuses an automated browser, so the test used the real bridge and the real pane on a plain page shaped like the feed. Real X has videos, images arriving and its own re-anchoring. The hop itself comes from how the picture and the crop travel, which is the same on real X, but the counts will differ.</li>
+<li><b>Reading the squares is new work on every paint.</b> On the MacBook's hidden browser it did not raise the pane's own work (12.7 → 11.4 seconds a minute at 1×). The iMac's graphics may differ. That is why the pane times itself and steps back when a read is slow.</li>
+<li><b>At 4× the test machine was overloaded</b> in some runs (long tasks before and after alike), so those numbers are rough.</li>
+<li><b>Processor time in the two long chart runs is not comparable</b>; other measurements ran beside them. The side-by-side pair is the fair one.</li>
+<li>A parked chart that keeps its name for more than a minute is re-read when it returns; a hidden chart that is not parked still re-reads every minute, as before.</li>
+</ul>
+<h2>Not done</h2>
+<ul>
+<li>Nothing is deployed. The bridge on this Mac is still 0.7.21; the X part does nothing until 0.7.24 is loaded.</li>
+<li>The pace choice was checked end to end up to the source: pressing 2× made the source report 6 px a second and lit 2×; pressing 1× put it back. The speed after the press was not timed, because the test's pointer was resting on the feed, which pauses it by design. The 2× and 4× rows of the table were run by setting the pace in the bridge's settings.</li>
+<li>Seen, not investigated: in two of the twelve X runs the unchanged bridge settled on a wider crop, with a black band under the picture (<code>shots/x-before-3-pane-wide-crop.png</code>). It happened with the old code; the numbers of those two runs are in feed pixels, so they stand.</li>
+<li>Not seen on real X, on the iMac, or on the iPad mirror.</li>
+<li>The pane still paints 12 times a second against 10 crops a second, so about one paint in five moves nothing. Tying the paint to the crop would make every paint move; not built.</li>
+<li>The phone-width Station was only checked to load (picture below); its rules were not changed.</li>
+</ul>
+<div class="pics small"><figure><img src="shots/deck-390.png" alt="The Station at phone width on this branch"><figcaption>This branch at 390 px wide: the stacked phone wall, unchanged.</figcaption></figure></div>
+
+<h2>For Alan</h2>
+<div class="rec"><ol>
+<li><b>Ship the memory fix?</b> Recommend yes. It changes no answer and removes the drift.</li>
+<li><b>Turn on keeping parked charts?</b> Recommend no. It is on the branch, off. It rebuilds 74% fewer charts but nothing Alan would feel got faster, and it holds about 40 MB more.</li>
+<li><b>Ship the X change (it needs the bridge reloaded once on each browser), and at which pace?</b> Recommend yes, after one look at the real feed on the iMac; and 2× as the pace to try first. At 2× the feed travels about 360 px between two page-ups instead of 180, and it measured as smooth as 1×.</li>
+</ol></div>
+
+<details class="sc-pagespecs"><summary>PAGE SPECS</summary><div>
+<p>Chart runs: <code>tools/soak.mjs</code> — the live Station (station.scintillahub.ai) in headless Chromium at 1680 × 1050, with this checkout's files served in place of the deployed ones and every non-GET request blocked (79 before, 79 after). "Before" is commit 6051585 (S16b + SLOW1, byte-identical to live 46a7f73). Every "after" chart run was made with keeping on (it was the default while the runs were made; the code path is the one <code>?keepcharts=1</code> now selects, and a last 3-minute run with and without the switch confirmed both). A chart document is counted when the browser requests <code>/station-shells/chart-v1</code> as a document. Heap is read after a forced garbage collection. Data: <code>data/soak-*.json</code>, <code>data/pair-*.json</code>.</p>
+<p>Memory: <code>tools/heap-diff.py</code> on the browser's allocation samples (objects still alive, by the line that made them). Data: <code>data/heap-*.txt</code>.</p>
+<p>X runs: <code>tools/xscroll.mjs</code> + <code>tools/xscroll-analyze.py</code> — new headless Chromium (no window) with the bridge loaded from this checkout, a stand-in x.com page carrying a ruler (a white bar every 48 px), the bridge's own capture document handed a tab capture at its cap (1920 × 1080, at most 15 frames a second), and the pane from this checkout at 520 × 820. On every paint the ruler's position in the pane's canvas is read to a fraction of a pixel; that is the picture's real movement. The pane's 60-second page-up is held off during a run. Data: <code>data/x-*-summary.json</code>.</p>
+<p>Files changed: <code>deck/index.html</code> (parked charts), <code>station-shells/chart-v1/index.html</code> = <code>chart/index.html</code> (parked: no re-read), <code>_provider/provider.js</code> (expired series), <code>station-shells/x-v2/index.html</code> (reads the squares; pace), <code>station-x-bridge-draft/content.js</code> + <code>manifest.json</code> 0.7.24 (paints the squares; pace), <code>x-health/index.html</code> (expects 0.7.24), tests.</p>
+</div></details>
+</body></html>

@@ -18,9 +18,9 @@ test("S12 · the bridge crops the whole timeline column, and the health page exp
   assert.match(fn, /left: baseLeft,/, "the crop starts at the column's left border — the avatar rail is in");
   assert.match(fn, /width: Math\.min\(baseWidth, viewportWidth - baseLeft\),/, "and runs the column's full width — the ··· menu is in");
   assert.doesNotMatch(fn, /rightTrim|detectedContentLeft|minimumContentWidth/, "no trim on either side");
-  /* the crop rule shipped as 0.7.22; S13 added the page-up refresh on top of it, so the bridge to expect is 0.7.23 */
-  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.23"/);
-  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.23";/, "the health page says an older bridge needs the reload");
+  /* the crop rule shipped as 0.7.22; S13 added the page-up refresh on top of it, so the bridge to expect was 0.7.23; ST3 (6 Oct) added the scroll code and the pace, 0.7.24 */
+  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.24"/);
+  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.24";/, "the health page says an older bridge needs the reload");
 });
 
 test("S12 · the X bar: labels keep their size, the secondary controls fold behind ⋯", () => {
