@@ -578,6 +578,8 @@ export function paint(host, deps) {
     }
   } else where = placeLens({ plot, points: path, keepOut, slidePast: controls, ink: inkAt, prev });
   host._lensPlaced = { sig, where, geo };
+  /* RM1 (7 Oct): the place is chosen, so the copy of the chart's pixels goes back (lens-placement inkReader) */
+  if (inkAt && typeof inkAt.release === "function") inkAt.release();
   if (!where.spot) { hide(host, where.why); return; }
 
   const cv = canvasFor(host);
