@@ -29,7 +29,7 @@ const TAGS = { deck: "d1", chart: "c1", provider: "p1", video: "v1", personalVid
 
 test("the rule is 3 to 5 in the morning, after four hours open; thirty hours open is overdue", () => {
   assert.deepEqual({ ...RULE }, { fromHour: 3, toHour: 5, minOpenMs: 4 * H, overdueMs: 30 * H });
-  assert.equal(DEFAULT_ON, true);
+  assert.equal(DEFAULT_ON, false, "coordinator 7 Oct: off until a reload is shown not to strand the X pane");
   assert.equal(nightReloadDue(true, 5 * H, 3, RULE).due, true);
   assert.equal(nightReloadDue(true, 5 * H, 5, RULE).due, false, "5 am is past the window");
   assert.equal(nightReloadDue(true, 5 * H, 15, RULE).due, false, "never in the working day");
