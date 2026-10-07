@@ -21,9 +21,9 @@ const planSrc = deck.match(/const SELF_UPDATE_IDLE_MS = [\s\S]*?\nfunction selfU
   .replace(/let SELF_UPDATE_SEEN[\s\S]*?capture:true \}\);\n/, "").replace(/function xPaneLive[\s\S]*?\n/, "");
 const fn = (name) => { const s = deck.search(new RegExp("^function " + name + "\\b", "m")); assert.ok(s >= 0, name + " is declared at column 0"); return deck.slice(s, deck.indexOf("\n}\n", s) + 3); };
 const constLine = (name) => deck.match(new RegExp("^const " + name + " = [^\\n]*\\n", "m"))[0];
-const { selfUpdatePlan, nightReloadDue, placeToKeep, placeKept, RULE, DEFAULT_ON, IDLE, HOLD, KEEP_MAX } = new Function(
-  planSrc + constLine("NIGHT_RELOAD_DEFAULT_ON") + constLine("NIGHT_RELOAD_RULE") + constLine("KEEP_PLACE_KEY") + fn("nightReloadDue") + fn("placeToKeep") + fn("placeKept") +
-  "return { selfUpdatePlan, nightReloadDue, placeToKeep, placeKept, RULE: NIGHT_RELOAD_RULE, DEFAULT_ON: NIGHT_RELOAD_DEFAULT_ON, IDLE: SELF_UPDATE_IDLE_MS, HOLD: X_HOLD_MAX_MS, KEEP_MAX: KEEP_PLACE_MAX_MS };")();
+const { selfUpdatePlan, nightReloadDue, nightHold, placeToKeep, placeKept, RULE, DEFAULT_ON, IDLE, HOLD, KEEP_MAX } = new Function(
+  planSrc + constLine("NIGHT_RELOAD_DEFAULT_ON") + constLine("NIGHT_RELOAD_RULE") + constLine("KEEP_PLACE_KEY") + fn("nightReloadDue") + fn("nightHold") + fn("placeToKeep") + fn("placeKept") +
+  "return { selfUpdatePlan, nightReloadDue, nightHold, placeToKeep, placeKept, RULE: NIGHT_RELOAD_RULE, DEFAULT_ON: NIGHT_RELOAD_DEFAULT_ON, IDLE: SELF_UPDATE_IDLE_MS, HOLD: X_HOLD_MAX_MS, KEEP_MAX: KEEP_PLACE_MAX_MS };")();
 const H = 3600000;
 const TAGS = { deck: "d1", chart: "c1", provider: "p1", video: "v1", personalVideo: "pv1", x: "x1" };
 
@@ -40,19 +40,19 @@ test("the rule is 3 to 5 in the morning, after four hours open; thirty hours ope
 });
 
 /* What the deck does on each three-minute check, written out as the deck writes it. */
-const decide = ({ seen = TAGS, tags = TAGS, idleMs, videoOnStage = false, pending = false, xLive = false, xHeldMs = 0, on = true, openMs, hour }) => {
+const decide = ({ seen = TAGS, tags = TAGS, idleMs, videoOnStage = false, pending = false, xLive = false, xHeldMs = 0, on = true, openMs, hour, up = { browserFull: false, floating: false } }) => {
   const plan = selfUpdatePlan(seen, tags, idleMs, videoOnStage, pending, xLive, xHeldMs, false, false);
   if (plan.reloadPage) return "reload: release";
   const night = nightReloadDue(on, openMs, hour, RULE);
-  if (night.due && tags.deck && selfUpdatePlan(null, tags, idleMs, videoOnStage, true, xLive, xHeldMs, false, false).reloadPage) return "reload: night";
+  if (night.due && tags.deck && selfUpdatePlan(null, tags, idleMs, videoOnStage, true, xLive, xHeldMs, false, false).reloadPage && !nightHold(up)) return "reload: night";
   return "nothing";
 };
 const quiet = { idleMs: 10 * 60000, openMs: 8 * H, hour: 3 };
 
 test("the deck's own wiring is the decision tested here, and the release rule's lines are as they were", () => {
   assert.match(deck, /CHART_PENDING = plan\.chartPending;\n  if \(plan\.reloadPage\) \{ location\.reload\(\); return; \}\n/, "a release still reloads first, untouched");
-  assert.match(deck, /const night = nightReloadDue\(NIGHT_RELOAD_ON, Date\.now\(\) - STATION_LOADED_AT, new Date\(\)\.getHours\(\), NIGHT_RELOAD_RULE\);\n  if \(night\.due && tags\.deck && selfUpdatePlan\(null, tags, stationIdleMs\(\), selfUpdateVideoOnStage\(\), true, live,\n      X_HELD_SINCE \? Date\.now\(\) - X_HELD_SINCE : 0, false, false\)\.reloadPage\) \{\n    stationKeepPlace\(\); location\.reload\(\); return;/,
-    "the night reload asks selfUpdatePlan the release's own question, with the same hands, video and X answers");
+  assert.match(deck, /const night = nightReloadDue\(NIGHT_RELOAD_ON, Date\.now\(\) - STATION_LOADED_AT, new Date\(\)\.getHours\(\), NIGHT_RELOAD_RULE\);\n  if \(night\.due && tags\.deck && selfUpdatePlan\(null, tags, stationIdleMs\(\), selfUpdateVideoOnStage\(\), true, live,\n      X_HELD_SINCE \? Date\.now\(\) - X_HELD_SINCE : 0, false, false\)\.reloadPage && !nightHoldNow\(\)\) \{\n    stationKeepPlace\(\); location\.reload\(\); return;/,
+    "the night reload asks selfUpdatePlan the release's own question, with the same hands, video and X answers, and waits for full screen and a floating video");
   assert.match(deck, /setTimeout\(selfUpdateCheck, 15000\);\nsetInterval\(selfUpdateCheck, SELF_UPDATE_MS\);/, "no second clock: it rides the three-minute check");
 });
 
@@ -98,14 +98,29 @@ test("the switch is the address, remembered on that browser, like the clouds and
   assert.match(deck, /if \(QS\.has\("nightreload"\)\) remember\("station\.nightreload", NIGHT_RELOAD_ON \? "1" : "0"\);/);
 });
 
-test("the place of each video list is carried over the one reload, and nothing older", () => {
+test("it waits for what the release rule does not look at: the browser's full screen, a floating video", () => {
+  assert.equal(nightHold({ browserFull: false, floating: false }), "");
+  assert.match(nightHold({ browserFull: true, floating: false }), /full screen/, "a browser cannot be put back in full screen without a hand");
+  assert.match(nightHold({ browserFull: false, floating: true }), /floating/, "a floating video belongs to the page that opened it");
+  assert.equal(decide({ ...quiet, up: { browserFull: true, floating: false } }), "nothing");
+  assert.equal(decide({ ...quiet, up: { browserFull: false, floating: true } }), "nothing");
+  assert.equal(decide({ ...quiet, tags: { ...TAGS, deck: "d2" }, up: { browserFull: true, floating: false } }), "reload: release", "the release rule itself is not changed by the hold");
+  const now = fn("nightHoldNow");
+  assert.match(now, /document\.fullscreenElement/); assert.match(now, /documentPictureInPicture\.window/);
+});
+
+test("the expanded pane and the place of each video list are carried over the one reload, and nothing older", () => {
   const now = 1_800_000_000_000;
-  const kept = placeToKeep([["personal", 640.4], ["scintilla", 0], ["x", undefined]], now);
-  assert.deepEqual(kept, { at: now, panes: { personal: 640 } }, "only a list that was scrolled");
-  assert.deepEqual(placeKept(kept, now + 4000), { personal: 640 });
-  assert.deepEqual(placeKept(kept, now + KEEP_MAX), {}, "two minutes old: it belongs to an earlier load");
-  assert.deepEqual(placeKept(null, now), {}); assert.deepEqual(placeKept({ at: now }, now), {});
+  const kept = placeToKeep([["personal", 640.4], ["scintilla", 0], ["x", undefined]], "x", now);
+  assert.deepEqual(kept, { at: now, solo: "x", panes: { personal: 640 } }, "only a list that was scrolled; the pane that was expanded");
+  assert.deepEqual(placeKept(kept, now + 4000), { solo: "x", panes: { personal: 640 } });
+  assert.deepEqual(placeKept(kept, now + KEEP_MAX), { solo: null, panes: {} }, "two minutes old: it belongs to an earlier load");
+  assert.deepEqual(placeKept(null, now), { solo: null, panes: {} }); assert.deepEqual(placeKept({ at: now }, now), { solo: null, panes: {} });
+  assert.deepEqual(placeToKeep([], null, now), { at: now, solo: null, panes: {} }, "nothing expanded, nothing scrolled");
+  assert.equal(placeKept({ at: now, solo: 'x"],[y', panes: {} }, now).solo, null, "only a plain pane name is read back");
+  assert.match(deck, /if \(solo && PANES\.some\(\(pane\) => pane\.def\.key === solo\)\) \{ try \{ if \(SOLO !== solo\) setSolo\(solo\); \} catch \(_\) \{\} solo = null; \}/,
+    "it comes back through the deck's own switch, once the deck has built that pane (the deck builds after its first reads)");
   const keep = deck.slice(deck.indexOf("function stationKeepPlace()"), deck.indexOf("async function selfUpdateTags()"));
   assert.match(keep, /sessionStorage\.setItem\(KEEP_PLACE_KEY/); assert.match(keep, /sessionStorage\.removeItem\(KEEP_PLACE_KEY\)/, "used once");
-  assert.doesNotMatch(keep, /fetch\(|postMessage|chrome\.|x-v2|kind === "x"/, "it reads the video lists only: nothing is said to the X pane, its window or its extension");
+  assert.doesNotMatch(keep, /fetch\(|postMessage|chrome\.|x-v2|kind === "x"/, "it reads the video lists and the expanded pane only: nothing is said to the X pane, its window or its extension");
 });

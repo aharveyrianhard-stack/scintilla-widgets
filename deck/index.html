@@ -5157,8 +5157,11 @@ function selfUpdatePlan(seen, tags, idleMs, videoOnStage, deckPending, xLive, xH
    server has just answered, so the page is never reloaded into an error page. Nothing here reaches the X
    window or its extension: the bridge keeps the capture and the new X pane takes it back by itself, as it
    does after every release.
+   It also waits while the Station is in the browser's full screen (a browser cannot be put back there without
+   a hand) or a video is floating in its own window (nightHold).
    WHAT IS KEPT: the scene, the page, the lists, the feeds and the timeframe are remembered on this browser
-   already; the place each video list was scrolled to is carried over the one reload (stationKeepPlace).
+   already; the pane that was expanded and the place each video list was scrolled to are carried over the one
+   reload (stationKeepPlace).
    OFF: open the Station once with ?nightreload=0 (remembered on that browser; ?nightreload=1 turns it back
    on), or set NIGHT_RELOAD_DEFAULT_ON to false for every browser. */
 const NIGHT_RELOAD_DEFAULT_ON = true;
@@ -5170,42 +5173,59 @@ function nightReloadDue(on, openMs, hour, rule) {
   if (openMs >= rule.overdueMs) return { due: true, why: "open through a night it slept through" };
   return { due: false, why: "not the night hour" };
 }
+/* what the release rule does not look at, the night reload does, because nobody is there to forgive it */
+function nightHold(s) {
+  if (s.browserFull) return "the Station is full screen";
+  if (s.floating) return "a video is floating";
+  return "";
+}
+function nightHoldNow() {
+  let floating = false;
+  try { floating = !!(window.documentPictureInPicture && documentPictureInPicture.window); } catch (_) {}
+  return nightHold({ browserFull: !!document.fullscreenElement, floating });
+}
 const NIGHT_RELOAD_ON = QS.has("nightreload") ? QS.get("nightreload") !== "0"
   : remembered("station.nightreload") === "" ? NIGHT_RELOAD_DEFAULT_ON : remembered("station.nightreload") === "1";
 if (QS.has("nightreload")) remember("station.nightreload", NIGHT_RELOAD_ON ? "1" : "0");
 const STATION_LOADED_AT = Date.now();
-/* the place each video list was scrolled to, for the one reload that follows (two minutes, then it is stale) */
+/* the pane that was expanded and the place each video list was scrolled to, for the one reload that follows
+   (two minutes, then it is stale) */
 const KEEP_PLACE_KEY = "station.nightreload.place", KEEP_PLACE_MAX_MS = 120000;
-function placeToKeep(scrolled, now) {
+function placeToKeep(scrolled, solo, now) {
   const panes = {};
   for (const [key, top] of scrolled) if (Number(top) > 0) panes[key] = Math.round(Number(top));
-  return { at: now, panes };
+  return { at: now, solo: solo || null, panes };
 }
 function placeKept(saved, now) {
-  if (!saved || typeof saved !== "object" || !(now - Number(saved.at) < KEEP_PLACE_MAX_MS) || !saved.panes) return {};
-  const out = {};
-  for (const [key, top] of Object.entries(saved.panes)) if (Number(top) > 0) out[key] = Number(top);
-  return out;
+  const none = { solo: null, panes: {} };
+  if (!saved || typeof saved !== "object" || !(now - Number(saved.at) < KEEP_PLACE_MAX_MS)) return none;
+  const panes = {};
+  for (const [key, top] of Object.entries(saved.panes || {})) if (Number(top) > 0) panes[key] = Number(top);
+  return { solo: typeof saved.solo === "string" && /^[A-Za-z0-9_-]{1,16}$/.test(saved.solo) ? saved.solo : null, panes };
 }
 const paneGrid = (pane) => { try { return pane && pane.frame && pane.frame.contentDocument ? pane.frame.contentDocument.getElementById("grid") : null; } catch (_) { return null; } };
 function stationKeepPlace() {
   try {
     const scrolled = PANES.filter((pane) => pane.def.kind === "video").map((pane) => [pane.def.key, (paneGrid(pane) || {}).scrollTop || 0]);
-    sessionStorage.setItem(KEEP_PLACE_KEY, JSON.stringify(placeToKeep(scrolled, Date.now())));
+    sessionStorage.setItem(KEEP_PLACE_KEY, JSON.stringify(placeToKeep(scrolled, SOLO, Date.now())));
   } catch (_) {}
 }
 function stationRestorePlace() {
-  let left = {};
-  try { left = placeKept(JSON.parse(sessionStorage.getItem(KEEP_PLACE_KEY) || "null"), Date.now()); sessionStorage.removeItem(KEEP_PLACE_KEY); } catch (_) {}
-  if (!Object.keys(left).length) return;
-  /* a list is as long as its rows: wait for each to fill, up to 20 s, then leave it where it is */
+  let kept = { solo: null, panes: {} };
+  try { kept = placeKept(JSON.parse(sessionStorage.getItem(KEEP_PLACE_KEY) || "null"), Date.now()); sessionStorage.removeItem(KEEP_PLACE_KEY); } catch (_) {}
+  let solo = kept.solo; const left = kept.panes;
+  if (!solo && !Object.keys(left).length) return;
+  /* the deck builds its panes after its first reads, and a list is as long as its rows: wait for each, up to a
+     minute, then leave it where it is */
   let tries = 0;
   const timer = setInterval(() => {
+    /* the expanded pane comes back through the deck's own switch, as a press on its chip would */
+    if (solo && PANES.some((pane) => pane.def.key === solo)) { try { if (SOLO !== solo) setSolo(solo); } catch (_) {} solo = null; }
     for (const key of Object.keys(left)) {
       const grid = paneGrid(PANES.find((pane) => pane.def.key === key));
       if (grid && grid.scrollHeight - grid.clientHeight >= left[key]) { grid.scrollTop = left[key]; delete left[key]; }
     }
-    if (!Object.keys(left).length || ++tries >= 40) clearInterval(timer);
+    if ((!solo && !Object.keys(left).length) || ++tries >= 120) clearInterval(timer);
   }, 500);
 }
 stationRestorePlace();
@@ -5246,7 +5266,7 @@ async function selfUpdateCheck() {
      release reload this page at this moment - then, and only then. Nothing is remembered for a later round. */
   const night = nightReloadDue(NIGHT_RELOAD_ON, Date.now() - STATION_LOADED_AT, new Date().getHours(), NIGHT_RELOAD_RULE);
   if (night.due && tags.deck && selfUpdatePlan(null, tags, stationIdleMs(), selfUpdateVideoOnStage(), true, live,
-      X_HELD_SINCE ? Date.now() - X_HELD_SINCE : 0, false, false).reloadPage) {
+      X_HELD_SINCE ? Date.now() - X_HELD_SINCE : 0, false, false).reloadPage && !nightHoldNow()) {
     stationKeepPlace(); location.reload(); return;
   }
   if (plan.remountX) for (const pane of PANES) {
