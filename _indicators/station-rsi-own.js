@@ -70,7 +70,10 @@
     let k = 0;
     for (let i = 0; i < 100; i++) if (grid[i] <= x) k = i; else break;
     const a = grid[k], b = grid[k + 1];
-    return Math.round((k + (b > a ? (x - a) / (b - a) : 0)) * 10) / 10;
+    /* 0 and 100 are the true ends only (at or under its lowest day, at or over its highest): a reading a hair inside the
+       range reads 0.1 / 99.9, so the line never says "the lowest reading" of a name that has been lower. The Hub's rule. */
+    const p = Math.round((k + (b > a ? (x - a) / (b - a) : 0)) * 10) / 10;
+    return Math.min(99.9, x > grid[0] ? Math.max(0.1, p) : p);
   }
   function span(windowFrom, asOf) {
     const days = (Date.parse(asOf) - Date.parse(windowFrom)) / DAY;

@@ -97,6 +97,33 @@ test("4 · what a surface is handed: Netflix at 33, the ends in words, a young n
   for (const t of Object.keys(fx.rows)) if (fx.rows[t].eligible) assert.equal(R.read(t, fx.rows[t].rsi, fx.rows[t], PINK).pct, fx.rows[t].pct, t);
 });
 
+/* The same cases, with the same expected numbers, as the Hub's test of its own copy ("0 and 100 are the true ends only",
+   tests/rsi-own-extremes.test.mjs): a reading a hair inside the range used to round to exactly 0 or 100 and the line then
+   said "the lowest reading of X's last two years" when the name had been lower. */
+test("4b · 0 and 100 are the true ends only: a reading a hair inside the range is never called the lowest or the highest", () => {
+  const vals = []; for (let i = 0; i < 500; i++) vals.push(20 + 60 * ((i * 7919) % 500) / 499);
+  const g = plain(R.percentileGrid(vals));                    // lowest day 20, highest day 80
+  assert.equal(g[0], 20); assert.equal(g[100], 80);
+  assert.equal(R.percentileOf(g, 19.99), 0, "under its lowest day");
+  assert.equal(R.percentileOf(g, 20), 0, "exactly its lowest day");
+  assert.equal(R.percentileOf(g, 20.0001), 0.1, "a hair above its lowest day is not the lowest");
+  assert.equal(R.percentileOf(g, 79.9999), 99.9, "a hair under its highest day is not the highest");
+  assert.equal(R.percentileOf(g, 80), 100, "exactly its highest day");
+  assert.equal(R.percentileOf(g, 80.01), 100, "over its highest day");
+  for (let v = 20.001; v < 80; v += 0.0437) { const p = R.percentileOf(g, v); assert.ok(p >= 0.1 && p <= 99.9, v + " → " + p); }
+  /* the case that showed it (the Hub's 5 Oct dry run): CTVA at 6.38 against a lowest day of 5.73 */
+  const ctva = [5.73, 30.53, ...Array.from({ length: 99 }, (_, i) => 31 + i * 0.4)];
+  const scale = { eligible:true, grid:ctva, window_from:"2024-10-07", as_of:"2026-10-05" };
+  assert.equal(R.percentileOf(ctva, 6.38), 0.1);
+  assert.equal(R.read("CTVA", 6.38, scale, PINK).title, "6 — lower than 99% of CTVA's last two years");
+  assert.equal(R.read("CTVA", 5.73, scale, PINK).title, "6 — the lowest reading of CTVA's last two years");
+  assert.equal(R.read("CTVA", 6.38, scale, PINK).extreme, true, "still inside its own bottom tenth: the colour and the glow do not change");
+  /* a flat run inside the range takes the run's top (100 rising days, 40 days at exactly 42, 160 rising days) */
+  const g2 = plain(R.percentileGrid([...Array.from({ length: 100 }, (_, i) => 10 + i * 0.3), ...new Array(40).fill(42), ...Array.from({ length: 160 }, (_, i) => 50 + i * 0.1)]));
+  assert.equal(g2[34], 42); assert.equal(g2[46], 42);
+  assert.equal(R.percentileOf(g2, 42), 46);
+});
+
 /* ---- the chip, drawn by the page's own painter against a canvas that records what it is told ------------------------ */
 const drawSrc = chart.slice(chart.indexOf("function drawRsiOnly(ctx, o) {"), chart.indexOf("const cloudSpecOptions"));
 function recorder() {
