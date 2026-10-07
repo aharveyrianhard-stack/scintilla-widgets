@@ -5142,6 +5142,73 @@ function selfUpdatePlan(seen, tags, idleMs, videoOnStage, deckPending, xLive, xH
     seen: next
   };
 }
+/* ---- RM1 (7 Oct 2026): THE NIGHT RELOAD - a stopgap, and how to switch it off -----------------------
+   Alan, 7 Oct: "When I leave Scintilla open and the Station open, it takes a lot of RAM in Activity Monitor
+   after a while. When I quit and come back, it's perfectly fine... at least a calendar of overnight quitting
+   and restarting would be nice." The leaks found are fixed on this branch; whatever a browser still gathers
+   over days (the video player's own memory is not ours to fix) is cleared by loading the page again, which
+   is all a quit-and-reopen does for the Station.
+   THE RULE: between 3 and 5 in the morning, this computer's clock, a Station that has been open four hours
+   or more loads itself again - once, because a page that has just loaded is not four hours old. A Station
+   that has been open thirty hours (the Mac slept through its night) does the same at its next quiet moment.
+   ITS NEIGHBOURS, kept exactly: it happens only when a release reload would be allowed at that moment - it
+   asks selfUpdatePlan the same question - so two minutes without a hand on the deck or any pane (M51), no
+   video on the stage, and a live X pane given its 30 minutes (X_HOLD_MAX_MS); and only on a round where the
+   server has just answered, so the page is never reloaded into an error page. Nothing here reaches the X
+   window or its extension: the bridge keeps the capture and the new X pane takes it back by itself, as it
+   does after every release.
+   WHAT IS KEPT: the scene, the page, the lists, the feeds and the timeframe are remembered on this browser
+   already; the place each video list was scrolled to is carried over the one reload (stationKeepPlace).
+   OFF: open the Station once with ?nightreload=0 (remembered on that browser; ?nightreload=1 turns it back
+   on), or set NIGHT_RELOAD_DEFAULT_ON to false for every browser. */
+const NIGHT_RELOAD_DEFAULT_ON = true;
+const NIGHT_RELOAD_RULE = Object.freeze({ fromHour: 3, toHour: 5, minOpenMs: 4 * 3600000, overdueMs: 30 * 3600000 });
+function nightReloadDue(on, openMs, hour, rule) {
+  if (!on) return { due: false, why: "switched off" };
+  if (!(openMs >= rule.minOpenMs)) return { due: false, why: "open less than four hours" };
+  if (hour >= rule.fromHour && hour < rule.toHour) return { due: true, why: "the night hour" };
+  if (openMs >= rule.overdueMs) return { due: true, why: "open through a night it slept through" };
+  return { due: false, why: "not the night hour" };
+}
+const NIGHT_RELOAD_ON = QS.has("nightreload") ? QS.get("nightreload") !== "0"
+  : remembered("station.nightreload") === "" ? NIGHT_RELOAD_DEFAULT_ON : remembered("station.nightreload") === "1";
+if (QS.has("nightreload")) remember("station.nightreload", NIGHT_RELOAD_ON ? "1" : "0");
+const STATION_LOADED_AT = Date.now();
+/* the place each video list was scrolled to, for the one reload that follows (two minutes, then it is stale) */
+const KEEP_PLACE_KEY = "station.nightreload.place", KEEP_PLACE_MAX_MS = 120000;
+function placeToKeep(scrolled, now) {
+  const panes = {};
+  for (const [key, top] of scrolled) if (Number(top) > 0) panes[key] = Math.round(Number(top));
+  return { at: now, panes };
+}
+function placeKept(saved, now) {
+  if (!saved || typeof saved !== "object" || !(now - Number(saved.at) < KEEP_PLACE_MAX_MS) || !saved.panes) return {};
+  const out = {};
+  for (const [key, top] of Object.entries(saved.panes)) if (Number(top) > 0) out[key] = Number(top);
+  return out;
+}
+const paneGrid = (pane) => { try { return pane && pane.frame && pane.frame.contentDocument ? pane.frame.contentDocument.getElementById("grid") : null; } catch (_) { return null; } };
+function stationKeepPlace() {
+  try {
+    const scrolled = PANES.filter((pane) => pane.def.kind === "video").map((pane) => [pane.def.key, (paneGrid(pane) || {}).scrollTop || 0]);
+    sessionStorage.setItem(KEEP_PLACE_KEY, JSON.stringify(placeToKeep(scrolled, Date.now())));
+  } catch (_) {}
+}
+function stationRestorePlace() {
+  let left = {};
+  try { left = placeKept(JSON.parse(sessionStorage.getItem(KEEP_PLACE_KEY) || "null"), Date.now()); sessionStorage.removeItem(KEEP_PLACE_KEY); } catch (_) {}
+  if (!Object.keys(left).length) return;
+  /* a list is as long as its rows: wait for each to fill, up to 20 s, then leave it where it is */
+  let tries = 0;
+  const timer = setInterval(() => {
+    for (const key of Object.keys(left)) {
+      const grid = paneGrid(PANES.find((pane) => pane.def.key === key));
+      if (grid && grid.scrollHeight - grid.clientHeight >= left[key]) { grid.scrollTop = left[key]; delete left[key]; }
+    }
+    if (!Object.keys(left).length || ++tries >= 40) clearInterval(timer);
+  }, 500);
+}
+stationRestorePlace();
 async function selfUpdateTags() {
   /* The deck tidies its address to "/", and "/" is only the redirect page, so name the deck file itself. */
   /* 23 Sep: the video and X panes are watched too (a dropdown fix in the video shell never reached an open
@@ -5175,6 +5242,13 @@ async function selfUpdateCheck() {
   SELF_UPDATE_SEEN = plan.seen; SELF_UPDATE_DECK_PENDING = plan.deckPending; X_PENDING = plan.xPending;
   CHART_PENDING = plan.chartPending;
   if (plan.reloadPage) { location.reload(); return; }
+  /* RM1: the night reload. Due by the clock, the server just answered (tags.deck), and the plan would let a
+     release reload this page at this moment - then, and only then. Nothing is remembered for a later round. */
+  const night = nightReloadDue(NIGHT_RELOAD_ON, Date.now() - STATION_LOADED_AT, new Date().getHours(), NIGHT_RELOAD_RULE);
+  if (night.due && tags.deck && selfUpdatePlan(null, tags, stationIdleMs(), selfUpdateVideoOnStage(), true, live,
+      X_HELD_SINCE ? Date.now() - X_HELD_SINCE : 0, false, false).reloadPage) {
+    stationKeepPlace(); location.reload(); return;
+  }
   if (plan.remountX) for (const pane of PANES) {
     if (pane.def.kind !== "x" || !pane.frame) continue;
     try { pane.frame.contentWindow.location.reload(); } catch (_) {}
