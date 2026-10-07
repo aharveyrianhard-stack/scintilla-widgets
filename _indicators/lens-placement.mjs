@@ -448,10 +448,17 @@ export function summedInk(plot, ink, step = 3) {
 }
 
 /* "anything the chart painted", read once from its own canvas (alpha > 40). Shared by the lens and
-   the Geiger chip so both see the same pixels. */
+   the Geiger chip so both see the same pixels.
+   RM1 (7 Oct) — THE COPY IS HANDED BACK. The read is the whole canvas, four bytes a pixel: 2.4 MB for an
+   eight-up pane and 9.8 MB for a two-up one on a 1680-wide retina wall, more on the iMac. The chart kept the
+   reader until its next paint, so every chart on the wall - and every parked one, which never paints
+   again - sat on its copy: MEASURED on live b859b30, ten charts held 53.7 of the Station's 54.9 MB of
+   buffers. Nothing needs the pixels once a place has been chosen (the summed table above is what scores
+   every candidate), so the caller says release() and the copy goes; a later question simply reads the
+   canvas again, and gets the same pixels. */
 export function inkReader(canvas) {
   let data = null, W = 0, H = 0, ratio = 1;
-  return (x, y) => {
+  const read = (x, y) => {
     if (!data) {
       try {
         const c = canvas.getContext("2d", { willReadFrequently: false }); W = canvas.width; H = canvas.height;
@@ -463,6 +470,9 @@ export function inkReader(canvas) {
     if (px < 0 || py < 0 || px >= W || py >= H) return false;
     return data[(py * W + px) * 4 + 3] > 40;
   };
+  read.release = () => { data = null; };
+  read.held = () => (data ? data.length : 0);   /* bytes in hand right now (the tests read it) */
+  return read;
 }
 
 /* ============================================================================
