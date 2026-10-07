@@ -564,6 +564,37 @@ body.tapes.media-theatre:not(.stack) #tapes > .tape{ visibility:hidden; }
 .tape .spark.up path{ stroke:var(--bull); } .tape .spark.dn path{ stroke:var(--bear); }
 /* the scintilla: a price that ticks flashes once, then rests */
 .tape .cell.flash .px{ animation:tape-scin .6s ease-out; }
+/* ── THE PUT / CALL TAPE (HM2, 7 Oct 2026) ──────────────────────────────────────────────────
+   Alan: "how do I start tracking this? … it's like a two-factor thing — it can move because one or the other
+   moved … What's the best visual?" One more row on the strip, above FAVORITES, in the tapes' own type and
+   height. Each name carries the two factors side by side — calls so far today against the calls it usually has
+   by this time (green bar, C), puts against its usual puts (red bar, P), both on one scale with an upright line
+   at 1× — and then the ratio against its own usual, which is exactly P ÷ C. A name whose ratio is at 1.5× its
+   usual or more flashes; a thinly traded one is dimmed and never does.
+   It is its own row with its own class (.ptape, never .tape), so the two tapes' painter and fitter do not see it,
+   and its own switch: OFF until Alan says go — with it off the strip is the 46 px it was, to the pixel. */
+.ptape{ flex:none; height:22px; display:flex; align-items:stretch; background:var(--panel2); overflow:hidden; }
+.ptape .lbl{ flex:none; min-width:104px; display:flex; align-items:center; padding:0 8px; color:var(--crk);
+  font-size:8.5px; letter-spacing:.16em; text-transform:uppercase; border-right:1px solid var(--line); white-space:nowrap; }
+.ptape .lbl small{ color:var(--dim); margin-left:6px; font-size:8.5px; letter-spacing:.06em; }
+.ptape .win{ flex:1 1 0; min-width:0; overflow:hidden; position:relative; }
+.ptape .track{ position:absolute; left:0; top:0; height:100%; display:flex; align-items:center; white-space:nowrap; }
+.ptape .track.run{ will-change:transform; animation:tape-move linear infinite; }
+.ptape:hover .track.run{ animation-play-state:paused; }
+@media (prefers-reduced-motion: reduce){ .ptape .track.run{ animation:none; } .ptape .win{ overflow-x:auto; scrollbar-width:none; } }
+.ptape .pcell{ display:inline-flex; align-items:center; gap:6px; padding:0 10px; height:22px; cursor:pointer;
+  border:0; border-right:1px solid var(--line); background:transparent; font:11px var(--mono); }
+.ptape .pcell:hover,.ptape .pcell:focus-visible{ background:#13131F; outline:none; }
+.ptape .pcell .tk{ color:var(--ink); letter-spacing:.06em; }
+.ptape .pcell .pb{ flex:none; display:block; } .ptape .pb .t{ fill:#15151d; } .ptape .pb .c{ fill:var(--bull); } .ptape .pb .p{ fill:var(--bear); }
+.ptape .pb .u{ stroke:var(--ink); stroke-width:1; }
+.ptape .pcell .cx{ color:var(--bull); } .ptape .pcell .pxx{ color:var(--bear); }
+.ptape .pcell .rx{ color:var(--ink2); } .ptape .pcell .rx.up{ color:var(--bull); } .ptape .pcell .rx.dn{ color:var(--bear); }
+.ptape .pcell.hot .tk{ color:var(--bear); }
+.ptape .pcell.thin{ opacity:.6; }
+.ptape .pcell.flash .tk{ animation:pc-scin .6s ease-out; }
+@keyframes pc-scin{ 0%{ color:#fff; text-shadow:0 0 9px rgba(255,45,85,.95); } 100%{ color:var(--bear); text-shadow:none; } }
+body.tapes.media-theatre:not(.stack) #tapes > .ptape{ visibility:hidden; }
 @keyframes tape-scin{ 0%{ color:var(--crk); text-shadow:0 0 8px rgba(0,212,255,.9); } 100%{ color:var(--ink2); text-shadow:none; } }
 /* the slot a tapped name went to says so for a moment */
 .chart-pane.tape-opened::after{ content:""; position:absolute; inset:0; z-index:13; pointer-events:none; border:1px solid var(--crk);
@@ -785,6 +816,8 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
       <button type="button" class="btn" id="dockHideToggle" title="tuck the strip away two seconds after the pointer leaves it; remembered in this browser" aria-pressed="true">auto-hide · on</button>
       <!-- S14 (5 Oct): the two tapes on the chart area (FAVORITES, LIKED; S15: at its bottom). On unless switched off here; remembered in this browser. -->
       <button type="button" class="btn" id="tapesToggle" title="the FAVORITES and LIKED tapes at the bottom of the chart area; off gives the charts their 46 px back; remembered in this browser" aria-pressed="true">tapes · on</button>
+      <!-- HM2 (7 Oct): the put/call row on the strip. OFF until Alan says go; remembered in this browser. -->
+      <button type="button" class="btn" id="pcTapeToggle" title="the PUT / CALL row above the FAVORITES tape: each name's calls and puts against its usual day, and its ratio against its usual; on takes 23 px more from the charts; remembered in this browser" aria-pressed="false">put/call · off</button>
       <!-- S8 (2 Oct): the context lens' shape. Alan: "oval-like shaped, from starting point to ending point, to save
            as much screen real estate as possible." OVAL is the default; BOX is the 27 Sep card. Remembered in this browser. -->
       <span class="control-group lens-controls">
@@ -1641,6 +1674,22 @@ const TAPE_ROW_PX = 22;
 const TAPE_SPEED_PX_S = 45;
 const TAPES_KEY = "station.tapes";
 function tapesHeight(on) { return on ? 2 * TAPE_ROW_PX + 2 * FLOOR_SEAM_PX : 0; }
+/* ── THE PUT / CALL TAPE (HM2, 7 Oct) — the numbers, pure ──
+   One more row and one more seam on the strip when it is on, and only then: 23 px. */
+const PC_TAPE_KEY = "station.pctape";
+const PC_TAPE_DEFAULT_ON = false;      /* OFF until Alan says go — flip this one word to make it the default */
+const PC_TAPE_MS = 60000, PC_FLASH_X = 1.5, PC_FLASH_MS = 6000;
+function pcTapeHeight(on) { return on ? TAPE_ROW_PX + FLOOR_SEAM_PX : 0; }
+/* which names the row carries, in order: SPY and QQQ first, then the favourites and radar names, the one whose
+   ratio stands furthest above its own usual first; thinly traded names last */
+function pcTapeOrder(rows, names) {
+  const want = names && names.size ? (rows || []).filter((r) => names.has(r.ticker)) : (rows || []).slice();
+  const lead = ["SPY", "QQQ"].map((t) => want.find((r) => r.ticker === t)).filter(Boolean);
+  const rank = (r) => (r.thin ? -1 : +r.ratio_x || 0);
+  return lead.concat(want.filter((r) => r.ticker !== "SPY" && r.ticker !== "QQQ").sort((a, b) => rank(b) - rank(a)));
+}
+const pcX = (v) => (v == null || !Number.isFinite(+v) ? "—" : (+v >= 10 ? (+v).toFixed(0) : (+v).toFixed(1)) + "×");
+function pcHot(r) { return !!r && !r.thin && Number.isFinite(+r.ratio_x) && +r.ratio_x >= PC_FLASH_X; }
 function tapeLists(likedRows, favoriteRows) {
   const names = (rows) => {
     const seen = new Set(), out = [];
@@ -1806,6 +1855,7 @@ function paintTapes() {
     box.appendChild(tapeRow("FAVORITES", TAPES.favorites, "the Station's favorites list"));
     box.appendChild(tapeRow("LIKED", TAPES.liked, "the Hub's liked names that are not on FAVORITES · " + TAPES.liked.length + " of " + TAPES.likedTotal + " liked"));
     paintTapeCells(true);
+    PCT.sig = ""; paintPcTape();   /* HM2: the strip was rebuilt, so the put/call row goes back above it */
   } else paintTapeCells(false);
   fitTapes();
 }
@@ -1923,6 +1973,100 @@ async function refreshTapeSparks() {
     }
   } finally { TAPES.sparksBusy = false; }
 }
+/* ── the put/call row, live (HM2). It reads one view through the Hub mirror the deck already reads
+   (putcall_names_now: the newest quarter-hour, each name against the average of its last 20 sessions at the
+   same clock time) once a minute, and the radar list with the tapes' own lists. A read that fails leaves the
+   row as it was; until the view exists the row is simply not there. Nothing is read while it is off. */
+const PCT = { rows:[], radar:[], at:0, busy:false, sig:"", flashAt:new Map() };
+function pcTapeOn() { try { const v = localStorage.getItem(PC_TAPE_KEY); return v == null ? PC_TAPE_DEFAULT_ON : v === "1"; } catch (_) { return PC_TAPE_DEFAULT_ON; } }
+function pcTapeLive() { return tapesLive() && pcTapeOn(); }
+function pcCell(r) {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "pcell" + (pcHot(r) ? " hot" : "") + (r.thin ? " thin" : ""); b.dataset.t = r.ticker;
+  const n = (v) => Math.round(+v || 0).toLocaleString("en-US"), w = (x) => Math.max(1, Math.round(Math.min(3, +x || 0) / 3 * 30));
+  b.title = r.ticker + " · calls " + n(r.call_vol) + " (usually " + n(r.usual_call_vol) + " by now) · puts " + n(r.put_vol) + " (usually " + n(r.usual_put_vol) +
+    ") · put/call " + (+r.put_call).toFixed(2) + " against its usual " + (+r.usual_put_call).toFixed(2) + " · usual = its last " + r.usual_sessions +
+    " sessions at this time of day" + (r.thin ? " · thinly traded: never flashes" : "") + " · tap to open its chart";
+  const rx = +r.ratio_x;
+  b.innerHTML = '<span class="tk"></span><svg class="pb" viewBox="0 0 32 12" width="32" height="12" aria-hidden="true">' +
+    '<rect class="t" x="1" y="1" width="30" height="4"/><rect class="t" x="1" y="7" width="30" height="4"/>' +
+    '<rect class="c" x="1" y="1" width="' + w(r.calls_x) + '" height="4"/><rect class="p" x="1" y="7" width="' + w(r.puts_x) + '" height="4"/>' +
+    '<line class="u" x1="11" x2="11" y1="0" y2="12"/></svg>' +
+    '<span class="cx">C ' + pcX(r.calls_x) + '</span><span class="pxx">P ' + pcX(r.puts_x) + "</span>" +
+    '<span class="rx' + (!Number.isFinite(rx) || rx === 1 ? "" : rx > 1 ? " dn" : " up") + '">P/C ' + (+r.put_call).toFixed(2) + " · " + pcX(rx) + "</span>";
+  b.firstChild.textContent = r.ticker;
+  return b;
+}
+function runPcTape(row) {
+  const win = row.querySelector(".win"), track = row.querySelector(".track");
+  if (!win || !track) return;
+  for (const copy of track.querySelectorAll('.pcell[aria-hidden="true"]')) copy.remove();
+  track.classList.remove("run"); track.style.animationDuration = "";
+  const one = track.scrollWidth;
+  if (!one || one <= win.clientWidth) return;
+  for (const cell of Array.from(track.children)) { const copy = cell.cloneNode(true); copy.tabIndex = -1; copy.setAttribute("aria-hidden", "true"); track.appendChild(copy); }
+  track.style.animationDuration = (one / TAPE_SPEED_PX_S).toFixed(2) + "s";   /* the tapes' one speed */
+  track.classList.add("run");
+}
+function paintPcTape() {
+  const box = el("tapes"); if (!box) return;
+  let row = box.querySelector(".ptape");
+  const names = new Set(["SPY", "QQQ"].concat(TAPES.favorites, PCT.radar));
+  const list = pcTapeLive() ? pcTapeOrder(PCT.rows, names) : [];
+  if (!list.length) { if (row) row.remove(); PCT.sig = ""; return; }
+  const sig = list.map((r) => r.ticker + ":" + r.calls_x + ":" + r.puts_x).join(",") + "|" + box.clientWidth;
+  if (row && sig === PCT.sig) return;
+  PCT.sig = sig;
+  if (!row) {
+    row = document.createElement("div"); row.className = "ptape"; row.dataset.tape = "PUT / CALL";
+    row.innerHTML = '<span class="lbl">PUT / CALL<small></small></span><div class="win"><div class="track"></div></div>';
+    row.addEventListener("click", (event) => { const cell = event.target.closest(".pcell"); if (cell) openTapeTicker(cell.dataset.t); });
+    box.insertBefore(row, box.firstChild);          /* above FAVORITES: the two tapes stay where they are on the screen */
+  } else if (row !== box.firstChild) box.insertBefore(row, box.firstChild);
+  const lbl = row.querySelector(".lbl"), track = row.querySelector(".track");
+  lbl.title = "calls and puts so far today, each against what the name usually has by this time of day; P/C× is the ratio against its own usual and equals P ÷ C · a name flashes at " +
+    PC_FLASH_X + "× · IBKR volumes every 15 minutes, as of " + (list[0].hhmm || "") + " ET";
+  lbl.querySelector("small").textContent = list.filter(pcHot).length + " · " + (list[0].hhmm || "");
+  track.innerHTML = ""; for (const r of list) track.appendChild(pcCell(r));
+  runPcTape(row);
+}
+/* the flash: every name at 1.5× its usual ratio or more glows once every six seconds while it stays there */
+function flashPcTape(now) {
+  const row = el("tapes") && el("tapes").querySelector(".ptape"); if (!row || document.hidden) return 0;
+  let n = 0;
+  for (const cell of row.querySelectorAll(".pcell.hot")) {
+    const k = cell.dataset.t + (cell.getAttribute("aria-hidden") ? "|b" : "|a"), last = PCT.flashAt.get(k) || 0;
+    if (now - last < PC_FLASH_MS) continue;
+    PCT.flashAt.set(k, now); cell.classList.remove("flash"); void cell.offsetWidth; cell.classList.add("flash"); n++;
+  }
+  return n;
+}
+async function refreshPcTape() {
+  if (!pcTapeLive() || document.hidden || PCT.busy) return;
+  PCT.busy = true;
+  try {
+    const [rows, radar] = await Promise.all([
+      pg("putcall_names_now?select=*&limit=1000"),
+      pg("station_lists?select=position,ticker&list=eq.radar&order=position.asc").catch(() => null),
+    ]);
+    PCT.rows = Array.isArray(rows) ? rows : [];
+    if (Array.isArray(radar)) PCT.radar = radar.map((r) => CLEAN(r.ticker)).filter(Boolean);
+    PCT.at = Date.now(); paintPcTape();
+  } catch (_) { PCT.at = Date.now() - PC_TAPE_MS + 20000; /* not stored yet, or the mirror did not answer: ask again in 20 seconds, the row stays as it was */ }
+  finally { PCT.busy = false; }
+}
+function pcTapeTick(now) {
+  if (!pcTapeLive()) { paintPcTape(); return; }
+  if (now - PCT.at >= PC_TAPE_MS) refreshPcTape(); else { paintPcTape(); flashPcTape(now); }
+}
+function paintPcTapeToggle() {
+  const on = pcTapeOn(), t = el("pcTapeToggle"); if (!t) return;
+  t.textContent = "put/call · " + (on ? "on" : "off"); t.setAttribute("aria-pressed", on ? "true" : "false"); t.classList.toggle("on", on);
+}
+function setPcTape(on) {
+  try { localStorage.setItem(PC_TAPE_KEY, on ? "1" : "0"); } catch (_) {}
+  paintPcTapeToggle(); PCT.at = 0; PCT.sig = ""; relayout(); pcTapeTick(Date.now());
+}
 function tapesTick() {
   if (!tapesLive() || document.hidden) return;
   const now = Date.now();
@@ -1930,6 +2074,7 @@ function tapesTick() {
   if (now - TAPES.quotesAt >= TAPE_QUOTE_MS) refreshTapeQuotes();
   if (now - TAPES.geigerAt >= TAPE_GEIGER_MS) refreshTapeGeiger();
   if (TAPES.listsAt && now - TAPES.sparksAt >= TAPE_SPARK_MS) refreshTapeSparks();
+  pcTapeTick(now);   /* HM2: the put/call row keeps the tapes' own clock */
 }
 /* a tapped name opens through commitTicker - the same door a symbol typed into a slot goes through */
 function openTapeTicker(ticker) {
@@ -1968,6 +2113,9 @@ function wireTapes(grid) {
   });
   const toggle = el("tapesToggle");
   if (toggle && !toggle._wired) { toggle._wired = true; toggle.addEventListener("click", () => setTapes(!tapesOn())); }
+  const pcToggle = el("pcTapeToggle");   /* HM2 */
+  if (pcToggle && !pcToggle._wired) { pcToggle._wired = true; pcToggle.addEventListener("click", () => setPcTape(!pcTapeOn())); }
+  paintPcTapeToggle();
   paintTapesToggle(); paintTapes();
   if (!TAPES.timer) {
     TAPES.timer = setInterval(tapesTick, 5000);
@@ -1984,7 +2132,7 @@ function fitVideoPane() {
   if (grid) grid.style.setProperty("--fp-col", plan ? plan.col + "px" : "");
   /* S14: the tapes take 46 px off the chart row's height (never its width), so each count's grid is
      chosen for the height that is left - with the tapes off this is plan.grids, to the number */
-  const tapePx = plan ? tapesHeight(tapesOn()) : 0;
+  const tapePx = plan ? tapesHeight(tapesOn()) + pcTapeHeight(tapesOn() && pcTapeOn()) : 0;   /* HM2: the put/call row adds its 23 px only when it is on */
   document.body.classList.toggle("tapes", tapePx > 0);
   if (grid) grid.style.setProperty("--tapes-px", tapePx + "px");
   if (top) for (const n of FLOOR_COUNTS) {
