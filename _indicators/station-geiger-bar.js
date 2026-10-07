@@ -91,6 +91,21 @@
       "\n" + (at === null ? "no compute time on this reading"
         : "computed " + new Date(at).toISOString().replace(/\.\d{3}Z$/, "Z") + " · " + ageText(age)) +
       (stale ? "\nolder than this source normally is - at least one recompute has been missed" : "");
+    /* GL1 (7 Oct 2026) — TREND AND MOMENTUM APART, AND WHICH READING IT IS. Alan: "I would like to see [trend and
+       momentum] separately." Both were always in the provider's answer; since GL1 it also says `reading` ("live":
+       every rung counts the bar it is still building; "settled": finished bars only) and `price_utc`, the newest
+       price in the numbers. They are only MODELLED here; the pane draws them when tmOn() says so. A reading
+       without them (a non-equity row, an older answer) models exactly as before. */
+    var tr = value(reading.trend), mo = value(reading.momentum);
+    var part = function (x) { return x === null ? null : { value: x, side: x >= 0 ? "up" : "down", fillPct: Math.min(Math.abs(x), 1) * 50, text: signed(x) }; };
+    var rd = reading.reading === "live" || reading.reading === "settled" ? reading.reading : null;
+    var priceAt = stampMs(reading.price_utc);
+    var priceAge = priceAt === null ? null : Math.max(0, now - priceAt);
+    var tm = tr === null && mo === null ? null : { trend: part(tr), momentum: part(mo),
+      text: signed(v) + " · T " + (tr === null ? "—" : signed(tr)) + " · M " + (mo === null ? "—" : signed(mo)) };
+    if (tm) title += "\ntrend " + (tr === null ? "—" : signed(tr)) + " · momentum " + (mo === null ? "—" : signed(mo));
+    if (rd) title += "\n" + (rd === "live" ? "LIVE: every rung counts the bar it is still building" : "SETTLED: finished bars only") +
+      (priceAge === null ? "" : " · newest price " + ageText(priceAge));
     return {
       value: v,
       side: v >= 0 ? "up" : "down",
@@ -99,8 +114,33 @@
       stampMs: at,
       ageMs: age,
       stale: stale,
-      title: title
+      title: title,
+      tm: tm,
+      reading: rd,
+      priceAgeMs: priceAge
     };
+  }
+
+  /* GL1 — drawn only when switched on (no look change goes live without Alan's word): ?gl1=1 in the pane's or the
+     deck's address, or localStorage sc_gl1_tm = "1". */
+  function tmOn () {
+    try {
+      if (root.SC_GL1_TM === true) return true;
+      var href = String((root.location && root.location.href) || "");
+      var top = "";
+      try { top = String((root.parent && root.parent !== root && root.parent.location && root.parent.location.href) || ""); } catch (_) { top = ""; }
+      if (/[?&#]gl1=1(?![0-9])/.test(href) || /[?&#]gl1=1(?![0-9])/.test(top)) return true;
+      return !!(root.localStorage && root.localStorage.getItem("sc_gl1_tm") === "1");
+    } catch (_) { return false; }
+  }
+  /* the two thin bars' markup and the chip's text, for a model that has them; "" otherwise */
+  function tmBarsHTML (m) {
+    if (!m || !m.tm) return "";
+    var one = function (p, k) {
+      return '<span class="sc-gbar sc-gbar--thin" data-k="' + k + '"' + (p ? ' data-side="' + p.side + '"' : "") + ">" +
+        (p ? '<i style="' + (p.side === "up" ? "left" : "right") + ":50%;width:" + p.fillPct.toFixed(2) + '%"></i>' : "") + "</span>";
+    };
+    return one(m.tm.trend, "T") + one(m.tm.momentum, "M");
   }
 
   /* The fill's inline style: anchored at the centre, growing out to one side. */
@@ -120,6 +160,11 @@
       var prev = out[t];
       if (prev && (stampMs(prev.stamp) || 0) >= (stampMs(stamp) || 0)) return;   /* newest row wins */
       out[t] = { composite: value(row.composite), stamp: stamp == null ? null : stamp, source: source };
+      /* GL1 — carried when the row has them; a row without them is exactly the reading it was */
+      if (value(row.trend) !== null) out[t].trend = value(row.trend);
+      if (value(row.momentum) !== null) out[t].momentum = value(row.momentum);
+      if (row.reading === "live" || row.reading === "settled") out[t].reading = row.reading;
+      if (row.price_utc) out[t].price_utc = row.price_utc;
     });
     return out;
   }
@@ -148,6 +193,7 @@
   root.SC_GEIGER_BAR = {
     SOURCES: SOURCES, PICKUP_MS: PICKUP_MS, TRACK_PX: TRACK_PX, HEIGHT_PX: HEIGHT_PX,
     value: value, stampMs: stampMs, staleAfterMs: staleAfterMs, signed: signed,
-    model: model, fillStyle: fillStyle, readingsFrom: readingsFrom, chipSize: chipSize
+    model: model, fillStyle: fillStyle, readingsFrom: readingsFrom, chipSize: chipSize,
+    tmOn: tmOn, tmBarsHTML: tmBarsHTML
   };
 })(typeof window !== "undefined" ? window : globalThis);

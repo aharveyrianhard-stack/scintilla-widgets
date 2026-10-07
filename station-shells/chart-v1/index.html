@@ -182,6 +182,14 @@ body{ background:var(--bg); color:var(--ink3); font-family:var(--mono);
 .sc-nchart__live-geiger.is-float{ font-size:var(--gchip-font,12px); gap:.42em; }
 .sc-nchart__live-geiger.is-float .sc-gbar__v{ font-size:1em; }
 .sc-nchart__live-geiger.is-float .sc-gbar{ width:var(--gchip-bar,5em); height:.7em; height:1cap; overflow:visible; clip-path:inset(-3px 0); }
+/* GL1 (7 Oct 2026) — the two thin bars (TREND, then MOMENTUM) under the Geiger's own bar: same width, same centre line,
+   same −1 … +1 scale, green up and red down. Only present when the chip carries data-gl1. */
+.sc-nchart__live-geiger[data-gl1] .sc-gbar__stack{ display:inline-flex; flex-direction:column; gap:1px; vertical-align:middle; }
+.sc-nchart__live-geiger[data-gl1] .sc-gbar--thin{ position:relative; display:block; width:var(--gchip-bar,5em); height:2px; clip-path:none; background:rgba(120,120,132,.22); overflow:hidden; }
+.sc-nchart__live-geiger[data-gl1] .sc-gbar--thin::before{ content:""; position:absolute; left:50%; top:0; bottom:0; width:1px; background:rgba(160,160,172,.55); }
+.sc-nchart__live-geiger[data-gl1] .sc-gbar--thin > i{ position:absolute; top:0; bottom:0; max-width:50%; }
+.sc-nchart__live-geiger[data-gl1] .sc-gbar--thin[data-side="up"] > i{ background:var(--bull); }
+.sc-nchart__live-geiger[data-gl1] .sc-gbar--thin[data-side="down"] > i{ background:var(--bear); }
 .sc-nchart__live-geiger.is-float .sc-gbar::before{ left:calc(50% - 1px); width:2px; }
 .sc-nchart__live-geiger.is-float .sc-gbar::after{ content:""; position:absolute; z-index:3; left:calc(50% - 1px); width:2px; top:-3px; bottom:-3px;
   background:linear-gradient(currentColor 3px, transparent 3px, transparent calc(100% - 3px), currentColor calc(100% - 3px)); }
@@ -3111,11 +3119,25 @@ function paintGeigerBar(host) {
   node.dataset.side = m.side;
   node.dataset.stale = m.stale ? "1" : "0";
   node.querySelector("i").setAttribute("style", B.fillStyle(m));
+  /* GL1 (7 Oct 2026) — trend and momentum apart, only when switched on (?gl1=1): two thin bars under the Geiger's own,
+     on the same centre line and scale, and the three numbers "+0.39 · T +0.48 · M +0.30" where the pane has the room
+     (a narrow pane keeps the Geiger's number; the other two are in the hover). Off: the chip is exactly what it was. */
+  const gl1 = !!(B.tmOn && B.tmOn() && m.tm);
+  let stack = node.querySelector(".sc-gbar__stack");
+  if (gl1) {
+    if (!stack) { stack = document.createElement("span"); stack.className = "sc-gbar__stack"; const bar = node.querySelector(".sc-gbar"); bar.replaceWith(stack); stack.appendChild(bar); }
+    stack.querySelectorAll(".sc-gbar--thin").forEach((x) => x.remove());
+    stack.insertAdjacentHTML("beforeend", B.tmBarsHTML(m));
+    node.dataset.gl1 = "1";
+    node.dataset.reading = m.reading || "";
+  } else if (stack) { const bar = stack.querySelector(".sc-gbar:not(.sc-gbar--thin)"); stack.replaceWith(bar); delete node.dataset.gl1; delete node.dataset.reading; }
   node.querySelector(".sc-gbar__v").textContent = m.text;
   node.title = m.title;
   node.setAttribute("aria-label", "Geiger composite " + m.text + (m.stale ? ", older than usual" : ""));
   host._geigerMemo = null;   /* host._inkAt stays: it is this paint's pixels, reset by the next paint */
   sizeGeigerChip(host, node); /* before the rotation list measures the room the chip leaves it */
+  /* GL1 — the three numbers where the pane has the room (every size but the narrow 8-up / 6-up / phone pane) */
+  if (gl1 && String(node.dataset.size || "").charAt(0) !== "s") node.querySelector(".sc-gbar__v").textContent = m.tm.text;
   paintRotationMark(badge);  /* the rotation list leaves the chip its room (L6) */
   placeGeiger(host);
 }

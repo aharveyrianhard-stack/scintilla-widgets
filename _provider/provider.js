@@ -1040,6 +1040,10 @@ function gsDailySessionFreshness(sourceDate, sessionState, nowMs) {
         rungs: value.rungs || {},
         computed_utc: S.geiger_computed_utc || null,
         updated_ts: S.geiger_computed_utc || null,
+        /* GL1 (7 Oct 2026): which reading the three numbers are ("live" | "settled") and the newest price in them,
+           as the chart API says them. Absent on an answer from before GL1; never invented here. */
+        reading: value.reading === 'live' || value.reading === 'settled' ? value.reading : null,
+        price_utc: value.price_utc || null,
         provider: 'MASSIVE',
         authority: 'PROVIDER_EQUALIZER'
       };
