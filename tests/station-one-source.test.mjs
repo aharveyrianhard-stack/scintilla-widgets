@@ -32,7 +32,14 @@ test("the wall keeps only non-price reads: favourites and the canonical ticker l
      A list of names, not a price, so the one-source rule for prices still holds. */
   /* station_lists joined on 25 Sep (P1): the shared SCRATCH wall and RADAR - lists of names,
      not prices, so the one-source rule for prices still holds. */
-  for (const table of reads) assert.ok(["hub_favorites", "tickers", "youtube_feed", "station_targets", "station_lists"].includes(table), "non-price read only: " + table);
+  /* putcall_names_now joined on 7 Oct (HM2): the PUT / CALL row on the tape strip - each name's option
+     VOLUME today against its own usual day (contracts counted, a ratio of counts). No price, no bar, no quote
+     is in it, so the one-source rule for prices still holds: every price on the wall still comes from the
+     chart API. NEIGHBOUR, said out loud: the 24 Sep parts contract (services/ibkr-gateway/PUTCALL-PARTS-CONTRACT.md)
+     wanted put/call parts to ride the chart API; this row reads the mirror instead because the view is a list
+     of names with counts, like the lists beside it. If the chart API later serves it, refreshPcTape() is the
+     one function to repoint, and this entry goes. */
+  for (const table of reads) assert.ok(["hub_favorites", "tickers", "youtube_feed", "station_targets", "station_lists", "putcall_names_now"].includes(table), "non-price read only: " + table);
 });
 
 test("the provider client routes macro symbols to the chart API and names everything else", () => {

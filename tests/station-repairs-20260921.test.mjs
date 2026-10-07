@@ -56,7 +56,11 @@ test('the dock loses no control, no id and no accessible name', () => {
   /* 5 Oct (S14): one more deliberate control, in the ⋯ drawer - tapes on / off, the switch for the LIKED and
      FAVORITES tapes over the chart area (Alan: "one tape for the liked stocks, another tape for the favorites"). */
   assert.ok(after.has('tapesToggle'), 'tapes on / off is the deliberate new ⋯ control')
-  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 12)
+  /* 7 Oct (HM2): one more deliberate control, beside tapes on / off - put/call on / off, the switch for the
+     PUT / CALL row above the FAVORITES tape (Alan: "how do I start tracking this? … it's like a two-factor
+     thing"). OFF until he says go; with it off the strip is the 46 px it was. */
+  assert.ok(after.has('pcTapeToggle'), 'put/call on / off is the deliberate new ⋯ control')
+  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 13)
 })
 
 test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {
