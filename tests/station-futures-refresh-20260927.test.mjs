@@ -31,7 +31,8 @@ const line = (re) => { const m = chart.match(re); assert.ok(m, String(re)); retu
 
 test("every pane re-pulls its series once a minute, with no session or market-hours condition", () => {
   assert.equal(chart, twin, "chart/ and station-shells/chart-v1/ stay byte-identical");
-  const repull = line(/setInterval\(\(\) => \{ const host = document\.querySelector\("#chartSlot \.sc-nchart"\); if \(host\) scChartLoad\(host\); \}, 60000\);/);
+  /* ST3 (6 Oct): one exception, and it is not about the clock - a chart the deck has parked out of sight skips the read */
+  const repull = line(/setInterval\(\(\) => \{\n  if \(DECK_PARKED\) \{ DECK_PARKED_MISSED = true; return; \}\n  const host = document\.querySelector\("#chartSlot \.sc-nchart"\); if \(host\) scChartLoad\(host\);\n\}, 60000\);/);
   assert.doesNotMatch(repull, /Session|marketOpen|futureSet|chInSession|weekend/i);
   const load = liftFrom(chart, "scChartLoad");
   assert.doesNotMatch(load, /chInSession|marketOpen|futureSet|chTradingDay|weekend/, "loading a series never asks what time it is");

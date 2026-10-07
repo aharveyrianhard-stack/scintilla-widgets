@@ -671,10 +671,90 @@
     };
   }
 
+  /* ── THE PICTURE SAYS HOW FAR IT HAS SCROLLED (0.7.24, ST3 6 Oct) ───────────────────────
+     A viewer gets two things by two roads: the picture (captured, encoded, sent, decoded) and the
+     crop that goes with it (a message). Around every whole-pixel step of the slow scroll they
+     arrive apart, and for a paint or two the viewer puts the new crop on the old picture or the
+     old crop on the new picture - the picture hops back by the step and forward again. Measured
+     headlessly at 3 px/s: about one hop a second (deliverables/20261006/st3).
+     So the page now carries its own scroll position in the captured picture: a row of black and
+     white squares in the window's top-left corner, outside the column the viewers show, repainted
+     in the same frame as every scroll. A viewer reads it from the frame it is about to draw and
+     no longer has to guess which scroll that frame holds. In-band marks are how video tools keep
+     a frame and its data together (a burnt-in timecode); nothing else about the scroll changes.
+     Cells: 1 0 1 0 · eight bits of round(scrollTop × devicePixelRatio), high bit first · one
+     parity bit (even) · 0 1. A viewer that cannot read it behaves exactly as before. */
+  const STATION_SCROLL_CODE_CELL_PX = 8;
+  function stationScrollCodeValue(scrollTop, dpr) {
+    const steps = Math.round((Number(scrollTop) || 0) * (Number(dpr) || 1));
+    return ((steps % 256) + 256) % 256;
+  }
+  function stationScrollCodeCells(value) {
+    const v = ((Math.round(Number(value) || 0) % 256) + 256) % 256;
+    const bits = [];
+    for (let bit = 7; bit >= 0; bit -= 1) bits.push((v >> bit) & 1);
+    const parity = bits.reduce((sum, bit) => sum + bit, 0) % 2;
+    return [1, 0, 1, 0, ...bits, parity, 0, 1];
+  }
+  /* The corner must be in the captured picture and outside the column the viewers show. */
+  function stationScrollCodeFits(rect, cells, cellPx, sourceCropped) {
+    if (sourceCropped || !rect) return false;
+    const width = cells * cellPx;
+    return !(Number(rect.left) < width + 1 && Number(rect.top) < cellPx + 1);
+  }
+  function paintStationScrollCode() {
+    if (!session.stationMode) return;
+    const cells = stationScrollCodeCells(stationScrollCodeValue(
+      (document.scrollingElement || document.documentElement).scrollTop, window.devicePixelRatio || 1));
+    const key = cells.join("");
+    let mark = session.stationScrollCodeElement;
+    if (!mark || !mark.isConnected) {
+      mark = document.createElement("div");
+      mark.id = "x-feed-float-station-scroll-code";
+      mark.setAttribute("aria-hidden", "true");
+      Object.assign(mark.style, {
+        position: "fixed", left: "0", top: "0", zIndex: "2147483646", pointerEvents: "none",
+        width: `${cells.length * STATION_SCROLL_CODE_CELL_PX}px`, height: `${STATION_SCROLL_CODE_CELL_PX}px`
+      });
+      document.documentElement.appendChild(mark);
+      session.stationScrollCodeElement = mark;
+      session.stationScrollCodeKey = "";
+    }
+    if (session.stationScrollCodeKey === key) return;
+    session.stationScrollCodeKey = key;
+    const c = STATION_SCROLL_CODE_CELL_PX;
+    mark.style.background = "linear-gradient(to right," + cells.map((on, i) =>
+      `${on ? "#fff" : "#000"} ${i * c}px ${(i + 1) * c}px`).join(",") + ")";
+  }
+  function installStationScrollCode() {
+    if (session.stationScrollCodeListener) return;
+    /* a scroll of any kind - the slow one, a page up, X's own anchoring, a hand on the wheel */
+    session.stationScrollCodeListener = () => paintStationScrollCode();
+    window.addEventListener("scroll", session.stationScrollCodeListener, { passive: true, capture: true });
+    paintStationScrollCode();
+  }
+  function removeStationScrollCode() {
+    if (session.stationScrollCodeListener) {
+      window.removeEventListener("scroll", session.stationScrollCodeListener, { capture: true });
+      session.stationScrollCodeListener = null;
+    }
+    session.stationScrollCodeElement?.remove();
+    session.stationScrollCodeElement = null;
+    session.stationScrollCodeKey = "";
+  }
+  function stationScrollCodePayload(rect, confirmedScrollTop) {
+    const cells = stationScrollCodeCells(0).length;
+    if (!session.stationScrollCodeElement?.isConnected ||
+        !stationScrollCodeFits(rect, cells, STATION_SCROLL_CODE_CELL_PX, Boolean(session.stationSourceCropped))) return null;
+    const dpr = window.devicePixelRatio || 1;
+    return { x: 0, y: 0, cell: STATION_SCROLL_CODE_CELL_PX, cells, dpr, value: stationScrollCodeValue(confirmedScrollTop, dpr) };
+  }
+
   function applyStationSourceScroll(root, pixels, snapshot = stationScrollSnapshot) {
     const before = snapshot(root);
     const requestedPixels = Math.max(0, Math.floor(Number(pixels) || 0));
     root.scrollTop = before.scrollTop + requestedPixels;
+    if (typeof paintStationScrollCode === "function") paintStationScrollCode();   /* same frame as the scroll */
     const after = snapshot(root);
     return {
       before,
@@ -2204,10 +2284,12 @@
   function stationCropPayload() {
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
     const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
-    return {
+    const payload = {
       rect: refreshStationCropGeometry(),
       viewport: { width: viewportWidth, height: viewportHeight },
       fractionalScrollOffset: session.stationRenderedOffset,
+      /* 0.7.24: the pace, so the pane can show which one is on */
+      speedPxPerSecond: session.settings.speedPxPerSecond,
       /* The crop is only eligible for a viewer after this source generation
          has crossed the offscreen capture-frame acknowledgement.  Sequence
          still advances for sub-pixel crops inside the same source frame. */
@@ -2237,6 +2319,9 @@
       viewportDpr: window.devicePixelRatio || 1,
       source: stationSourceIdentity()
     };
+    /* 0.7.24: where the scroll code sits and what it reads at the confirmed scroll (null = none) */
+    payload.scrollCode = stationScrollCodePayload(payload.rect, payload.sourceScroll.scrollTop);
+    return payload;
   }
 
   function stopStationRelay() {
@@ -2301,6 +2386,7 @@
     session.scrollEnabled = true;
     session.lastScrollTimestamp = null;
     resetStationScrollComposite();
+    installStationScrollCode();
     session.stationLastConfirmedScroll = stationScrollSnapshot();
     updateUi();
     startStationRelay();
@@ -2313,6 +2399,7 @@
     session.pointerPause = false;
     session.stationViewerPauseUntil = 0;
     removeStationHoverShield();
+    removeStationScrollCode();
     removeCaptureColumnLayout();
     removeCropTargetElement();
     stopScrolling();
@@ -2394,6 +2481,11 @@
     } else if (action === "refresh") {
       if (value && value.pageUp) await pageUpRefresh();
       else await refreshCurrentView();
+    } else if (action === "speed") {
+      /* 0.7.24: the pane's pace choice. Same bounds as the float's own slider (0.5-30 px/s); the
+         carry is kept, so the picture does not jump when the pace changes. */
+      const speed = Number(value);
+      if (Number.isFinite(speed)) saveSettings({ speedPxPerSecond: Math.max(0.5, Math.min(30, speed)) });
     } else if (action === "rewind") {
       rewindFeed();
     } else if (action === "view" && ["trading", "notifications"].includes(value)) {

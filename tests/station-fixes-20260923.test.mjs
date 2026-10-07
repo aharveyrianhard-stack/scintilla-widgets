@@ -69,8 +69,9 @@ test("the pane renews its hover pause well inside the bridge's 500 ms lease", ()
   }
 });
 test("x-v2 takes the hold on enter and on movement, and releases it on leave, blur and hide", () => {
-  assert.match(xv2, /pointerenter", \(\) => \{ if \(xfloatStream\) setStationHoverPause\(true\)/);
-  assert.match(xv2, /pointermove", \(\) => \{ if \(xfloatStream && !stationHoverInside\) setStationHoverPause\(true\)/);
+  assert.match(xv2, /pointerenter", \(\) => \{ if \(xfloatStream && XF_HOVER_PAUSE\) setStationHoverPause\(true\)/);
+  assert.match(xv2, /const XF_HOVER_PAUSE = false;/);   // 6 Oct: Alan — no pause under the pointer
+  assert.match(xv2, /pointermove", \(\) => \{ if \(xfloatStream && XF_HOVER_PAUSE && !stationHoverInside\) setStationHoverPause\(true\)/);
   assert.match(xv2, /pointerleave", \(\) => \{ if \(xfloatStream && !xfloatPaused\) setStationHoverPause\(false\)/);
   assert.match(xv2, /window\.addEventListener\("blur", \(\) => setStationHoverPause\(false\)\)/);
   assert.match(xv2, /visibilitychange[\s\S]{0,120}setStationHoverPause\(false\)/);
