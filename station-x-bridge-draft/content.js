@@ -878,6 +878,11 @@
     session.stationLastConfirmedScroll = null;
   }
 
+  /* X1 (12 Oct 2026): how far short of the column's right border the crop stops. 0.7.21 stopped 18 px
+     short and cut the ··· menu and the end of a long line by 2-3 px (S12 measured 3 on the stand-in);
+     the 16 px of empty padding against the border would only make the text smaller on the pane. */
+  const STATION_CROP_RIGHT_TRIM_PX = 8;
+
   function calculateCropRect() {
     const column = findPrimaryColumn();
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
@@ -899,16 +904,32 @@
     const baseWidth = Math.max(240, baseRight - baseLeft);
     const top = findFeedTabsBottom(viewportHeight);
 
-    // S12 (5 Oct 2026, Alan: "IT'S CROPPING THE RIGHT SIDE OF THE X FEED"): the crop is the WHOLE
-    // timeline column, border to border. The earlier rule started the lane where the tweet text starts
-    // (so the avatar rail, 52 px on a 600 px column, was never captured) and stopped 18 px short of the
-    // column's right edge (so the ··· menu and the end of long lines were). Nothing of a post is lost
-    // now: the pane scales the full column to its width. Measured on the stand-in at 1792 × 1080:
-    // 512 px of a 598 px column before, 598 after. findInnerContentLeft is no longer consulted.
+    // X1 (12 Oct 2026, 0.7.25). Alan, on seeing S12's border-to-border crop (0.7.22-0.7.24) on the iMac:
+    // "now there's a bunch of black space to the left. There can never be the black space. It needs to be
+    // sized properly for the screen. I never asked to change any of that. Now it looks tiny."
+    // The crop is 0.7.21's lane again on the LEFT: it starts where the post text starts. (The avatar rail is
+    // hidden in capture mode, so on a black X those 65 px are black.) On the RIGHT it runs further than
+    // 0.7.21 did: to 8 px short of the column's border instead of 18, so the ··· menu and the end of a long
+    // line are in, while the empty padding against the border stays out.
+    // Measured on the iMac (public.station_x_health, client 58feb66c, 12 Oct; X window 1062 × 640, the column
+    // 115..427, text from 180): 0.7.21 gave 180, 54, 229 × 586 (what Alan wants); 0.7.24 gave 115, 54,
+    // 312 × 586 (everything 27% smaller on the pane); this rule gives 180, 54, 239 × 586 - the same left edge,
+    // 10 px more on the right, the text 1% smaller than 0.7.21's on a pane that uses its whole width.
+    // S12's whole-column rule is withdrawn by Alan's words above.
+    const detectedContentLeft = findInnerContentLeft(column, top, viewportHeight);
+    const fallbackContentLeft = baseLeft + Math.min(64, baseWidth * 0.19);
+    const rightTrim = Math.min(STATION_CROP_RIGHT_TRIM_PX, baseWidth * 0.03);
+    const contentRight = baseRight - rightTrim;
+    const minimumContentWidth = Math.max(160, baseWidth * 0.68);
+    const contentLeft = Math.min(
+      contentRight - minimumContentWidth,
+      Math.max(baseLeft, detectedContentLeft ?? fallbackContentLeft)
+    );
+
     return {
-      left: baseLeft,
+      left: contentLeft,
       top,
-      width: Math.min(baseWidth, viewportWidth - baseLeft),
+      width: Math.min(contentRight - contentLeft, viewportWidth - contentLeft),
       height: Math.max(160, viewportHeight - top)
     };
   }

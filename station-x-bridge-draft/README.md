@@ -71,3 +71,20 @@ The visible proof used a synthetic X-origin feed because the temporary Chrome pr
   Station; `/x-health` shows which browsers still run an older bridge.
 - Measured with `deliverables/20261006/st3/tools/xscroll.mjs` (headless; a stand-in X page). Not yet seen on real X.
 
+
+## 0.7.25 (X1, 12 Oct 2026) — the crop is the post column again, not the whole timeline column
+
+- Alan, 12 Oct 23:10 ET, on 0.7.24 installed on the iMac: "now there's a bunch of black space to the left. There can
+  never be the black space. It needs to be sized properly for the screen. I never asked to change any of that. Now it
+  looks tiny." The iMac was put back to 0.7.21 at 23:16.
+- `calculateCropRect` starts the crop where the post text starts (0.7.21's left edge: the avatar rail, hidden in
+  capture mode and black on a black X, is out) and stops 8 px short of the column's right border (0.7.21 stopped 18 px
+  short and cut the ··· menu and the end of a long line). At the iMac's parameters (X window 1062 × 640, the column
+  115..427, text from 180): 0.7.21 = 180, 54, 229 × 586 · 0.7.24 = 115, 54, 312 × 586 · 0.7.25 = 180, 54, 239 × 586.
+- Nothing else changes: the scroll code, the page-up refresh and the pace control of 0.7.23/0.7.24 stay. The pane's
+  pace row now offers 8× (24 px/s) as well; the bridge's bound (0.5–30 px/s) already allowed it.
+- Install (the iMac): copy this folder's files over `~/Scintilla/SCINTILLA X Bridge` — manifest.json, background.js,
+  content.js, station-bridge.js, offscreen.html, offscreen.js, launch.js, icons/ (README.md is harmless; tests/ is not
+  needed). The bridge watches its own folder once a minute and reloads itself at the first moment it feeds no pane
+  (a Station reload is such a moment); the 04:00 night job restarts Brave, which loads whatever is in the folder, and
+  presses Option+Shift+S. Back out: copy `~/Scintilla/_archive/SCINTILLA X Bridge-0.7.21-20261012-2300` over the folder.

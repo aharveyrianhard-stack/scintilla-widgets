@@ -30,7 +30,35 @@ function fromSource(source, name, context = {}) {
 }
 
 const captureFit = fromSource(shell, "stationCaptureFit");
-const sourceRegion = fromSource(shell, "stationSourceRegion", { stationCaptureFit: captureFit });
+/* 0.7.21 / ST3: the scroll offset has helpers of its own (the band, the scroll code); here no code is in the
+   picture, so the offset is the plain one. X1 (12 Oct): this context was missing and these tests could not run. */
+const offsetContext = { STATION_SCROLL_OFFSET_MAX_PX: 4, STATION_CODE_MAX_STEPS: 24, stationFrameCode: null,
+  stationCodeStats: { used: 0, ahead: 0 }, Number, Math };
+offsetContext.stationCodedOffset = fromSource(shell, "stationCodedOffset", offsetContext);
+const scrollOffset = fromSource(shell, "stationScrollOffset", offsetContext);
+const sourceRegion = fromSource(shell, "stationSourceRegion", { stationCaptureFit: captureFit, stationScrollOffset: scrollOffset, Number, Math });
+const paintPlan = fromSource(shell, "stationPaintPlan", { Math });
+const bridgeDraft = content;
+
+/* The bridge's own crop rule, run on a stand-in of the iMac's X window (its DOM as the rule reads it). */
+function cropRuleAt({ viewportWidth, viewportHeight, column, tabsBottom, textLeft, tweets = 4 }) {
+  const fn = (name) => { let i = bridgeDraft.indexOf("function " + name + "("); assert.notEqual(i, -1, name);
+    let depth = 0, at = bridgeDraft.indexOf("{", bridgeDraft.indexOf(")", i));
+    for (let j = at; j < bridgeDraft.length; j += 1) { if (bridgeDraft[j] === "{") depth += 1; if (bridgeDraft[j] === "}") depth -= 1; if (!depth) return bridgeDraft.slice(i, j + 1); } };
+  const trim = bridgeDraft.match(/^\s*const STATION_CROP_RIGHT_TRIM_PX = (\d+);/m); assert.ok(trim, "the right trim is a named number");
+  const box = (left, top, width, height) => ({ left, top, width, height, right: left + width, bottom: top + height });
+  const node = (rect, children = {}) => ({ getBoundingClientRect: () => rect, querySelector: (sel) => children[sel] || null,
+    querySelectorAll: (sel) => (children[sel] ? [].concat(children[sel]) : []) });
+  const posts = Array.from({ length: tweets }, (_, i) => node(box(column.left, tabsBottom + 1 + i * 150, column.width, 150),
+    { '[data-testid="tweetText"]': node(box(textLeft, tabsBottom + 31 + i * 150, column.left + column.width - 16 - textLeft, 60)) }));
+  const col = node(box(column.left, 0, column.width, viewportHeight), { '[role="tablist"]': node(box(column.left, 0, column.width, tabsBottom)), '[data-testid="tweet"]': posts });
+  const context = { session: { settings: { hideFeedTabs: true } }, Math, Number, Array,
+    document: { documentElement: { clientWidth: viewportWidth, clientHeight: viewportHeight }, querySelector: (sel) => (sel === '[data-testid="primaryColumn"]' ? col : null) },
+    window: { innerWidth: viewportWidth, innerHeight: viewportHeight, location: { pathname: "/home" } }, elementLabel: () => "" };
+  vm.createContext(context);
+  vm.runInContext(["const STATION_CROP_RIGHT_TRIM_PX = " + trim[1] + ";", fn("findPrimaryColumn"), fn("findFeedTabsBottom"), fn("findInnerContentLeft"), fn("calculateCropRect")].join("\n"), context);
+  return vm.runInContext("calculateCropRect()", context);
+}
 
 /* The mapping that shipped at 81e2ab7: one divide per axis, no bar offset. */
 function legacyRegion(video, crop) {
@@ -58,22 +86,63 @@ function trueColumnBox(frame, cssW, cssH, rect) {
     sw: rect.width * scale, sh: rect.height * scale };
 }
 
-/* Alan's X window on the iMac: 2x screen, resized away from the cap's 16:9. */
+/* Alan's X window on the iMac as M43 read it (24 Sep): 2x screen, resized away from the cap's 16:9. */
 const IMAC = { cssW: 1200, cssH: 1300, dpr: 2 };
 const SOAK = { cssW: 1470, cssH: 830, dpr: 2 };          // the shape M29 soaked
 const COLUMN = { left: 372, top: 96, width: 456, height: 1180 };
 
-test("the crop lands on the column at the iMac's parameters (it did not before)", () => {
-  const frame = captureFrame(IMAC.cssW, IMAC.cssH, IMAC.dpr, 2560, 1440);
-  const crop = { rect: COLUMN, viewport: { width: IMAC.cssW, height: IMAC.cssH } };
-  const truth = trueColumnBox(frame, IMAC.cssW, IMAC.cssH, COLUMN);
-  const fixed = sourceRegion(frame, crop);
-  const legacy = legacyRegion(frame, crop);
-  assert.ok(Math.abs(fixed.sx - truth.sx) < 1, `fixed sx ${fixed.sx} vs ${truth.sx}`);
-  assert.ok(Math.abs(fixed.sw - truth.sw) < 1, `fixed sw ${fixed.sw} vs ${truth.sw}`);
-  // the shipped mapping missed the column by hundreds of captured pixels
-  assert.ok(Math.abs(legacy.sx - truth.sx) > 100, `legacy sx off by ${Math.abs(legacy.sx - truth.sx)}`);
-  assert.ok(legacy.sw > truth.sw * 1.1, "legacy also drew the column too wide");
+/* X1 (12 Oct 2026): the iMac as the Station's own health table measured it that night (public.station_x_health,
+   client 58feb66c): the X window 1062 × 640 CSS px (X at 125% zoom on a 2x screen), captured at 1792 × 1080 - the
+   capture cap is 1920 × 1080, so 2124 × 1280 device pixels are scaled to fit the height - and the pane 255 × 450 at
+   dpr 2. The timeline column sat at 115..427 (312 wide, the bridge's own capture layout), its tabs 53 px tall, the
+   post text from 180. Three bridges, three crops (left, top, width × height):
+     0.7.21  180, 54, 229 × 586   what Alan wants: "text fills the column"
+     0.7.24  115, 54, 312 × 586   rejected at once: "a bunch of black space to the left … Now it looks tiny"
+     0.7.25  180, 54, 239 × 586   this bridge: the same left edge, 10 px more on the right (the ··· menu's edge) */
+const IMAC_NIGHT = { viewportWidth: 1062, viewportHeight: 640, frame: { videoWidth: 1792, videoHeight: 1080 },
+  pane: { hostWidth: 255, hostHeight: 450, ratio: Math.min(1.25, 2) }, column: { left: 115, width: 312 }, tabsBottom: 53, textLeft: 180 };
+const CROP_0721 = { left: 180, top: 54, width: 229, height: 586 };
+const CROP_0724 = { left: 115, top: 54, width: 312, height: 586 };
+const CROP_0725 = { left: 180, top: 54, width: 239, height: 586 };
+/* the picture he has today: 0.7.21's crop on the live pane, which kept a 4 px margin of its own on each side of a
+   255 px pane (padCss = max(4, min(8, 255 × .015)) = 4): the crop was drawn 247 CSS px wide → 247 / 229 pane px per
+   source px. One number, "the text size", is that ratio. */
+const TODAY = { drawnCssWidth: 255 - 2 * Math.max(4, Math.min(8, 255 * .015)), crop: CROP_0721 };
+TODAY.textScale = TODAY.drawnCssWidth / TODAY.crop.width;
+const textScaleOf = (plan, crop, ratio) => (plan.dw / ratio) / crop.width;
+
+test("the crop lands on the column at the iMac's parameters", () => {
+  const P = IMAC_NIGHT, viewport = { width: P.viewportWidth, height: P.viewportHeight };
+  /* 1 · the bridge's rule, on the iMac's column: 0.7.21's left edge, 8 px short of the border on the right */
+  const rule = cropRuleAt(P);
+  assert.deepEqual({ left: rule.left, top: rule.top, width: rule.width, height: rule.height }, CROP_0725, "180, 54, 239 × 586");
+  assert.equal(rule.left, CROP_0721.left, "the post text starts where it did with 0.7.21");
+  assert.equal(rule.left + rule.width, P.column.left + P.column.width - 8, "and the crop runs to 8 px short of the column's right border");
+  assert.ok(rule.width > CROP_0721.width && rule.width - CROP_0721.width <= 18, "extended to the RIGHT only, by " + (rule.width - CROP_0721.width) + " px");
+  /* 2 · that crop lands on the picture: the 1792 × 1080 capture of the 1062 × 640 window */
+  const truth = trueColumnBox(P.frame, P.viewportWidth, P.viewportHeight, rule);
+  const region = sourceRegion(P.frame, { rect: rule, viewport });
+  for (const k of ["sx", "sy", "sw"]) assert.ok(Math.abs(region[k] - truth[k]) < 1, k + ": " + region[k] + " vs " + truth[k]);
+  assert.equal(region.usable, true);
+  const fit = captureFit(P.frame.videoWidth, P.frame.videoHeight, P.viewportWidth, P.viewportHeight);
+  assert.ok(Math.abs((region.sx - fit.offsetX) / fit.scale - 180) < 0.01, "the first source pixel drawn is the text's left edge, 180");
+  /* 3 · and the pane paints it edge to edge: no blank pixel, the text within 8% of today's size (target 0) */
+  const plan = paintPlan({ ...P.pane, region, expanded: false, profile: "auto" });
+  assert.equal(plan.blank, 0, "no part of the pane is blank or dark padding");
+  assert.equal(plan.dx, 0); assert.equal(plan.dw, plan.tw, "the crop fills the pane's width");
+  assert.ok(Math.abs(plan.dh - plan.th) < 0.5, "and its height: " + plan.dh + " of " + plan.th);
+  const change = textScaleOf(plan, rule, P.pane.ratio) / TODAY.textScale - 1;
+  assert.ok(Math.abs(change) <= 0.08, "the text within 8% of today's size: " + (change * 100).toFixed(1) + "%");
+  assert.ok(change > -0.02 && change < 0.01, "and in fact about 1% smaller: " + (change * 100).toFixed(1) + "%");
+  /* 4 · the same pane with the bridge the iMac runs today (0.7.21): still edge to edge, the text 3% larger */
+  const old = paintPlan({ ...P.pane, region: sourceRegion(P.frame, { rect: CROP_0721, viewport }), expanded: false, profile: "auto" });
+  assert.equal(old.blank, 0);
+  const oldChange = textScaleOf(old, CROP_0721, P.pane.ratio) / TODAY.textScale - 1;
+  assert.ok(oldChange > 0.02 && oldChange < 0.04, "with 0.7.21: " + (oldChange * 100).toFixed(1) + "%");
+  /* 5 · what Alan rejected, in the same numbers: 0.7.24's crop on today's pane made everything 27% smaller */
+  const rejected = TODAY.drawnCssWidth / CROP_0724.width / TODAY.textScale - 1;
+  assert.ok(rejected < -0.25, "0.7.24: " + (rejected * 100).toFixed(1) + "%");
+  assert.equal(CROP_0724.left, P.column.left, "its 65 px on the left were the avatar rail: black on a black X");
 });
 
 test("the frame is letterboxed exactly where the old mapping assumed picture", () => {
