@@ -41,7 +41,7 @@ const constLine = (source, name) => {
 const IMAC = { viewportWidth: 1062, viewportHeight: 640, frame: { videoWidth: 1792, videoHeight: 1080 },
   pane: { hostWidth: 255, hostHeight: 450, ratio: Math.min(1.25, 2) }, column: { left: 115, width: 312 }, tabsBottom: 53, textLeft: 180 };
 const CROP = { "0.7.21": { left: 180, top: 54, width: 229, height: 586 }, "0.7.24": { left: 115, top: 54, width: 312, height: 586 },
-  "0.7.25": { left: 180, top: 54, width: 239, height: 586 } };
+  "0.7.25": { left: 180, top: 54, width: 239, height: 586 }, "0.7.26": { left: 180, top: 54, width: 229, height: 586 } };
 
 /* the bridge's crop rule, run on a stand-in of the iMac's X window: the DOM exactly as the rule reads it */
 function cropRuleAt(P) {
@@ -84,10 +84,12 @@ function painted(world, crop, P = IMAC, { expanded = false, profile = "auto" } =
 
 test("X1 · the picture rule at the iMac's parameters: the text from 0.7.21's left edge, edge to edge, no blank pixel, 1% smaller", () => {
   const rule = cropRuleAt(IMAC);
-  assert.deepEqual({ left: rule.left, top: rule.top, width: rule.width, height: rule.height }, CROP["0.7.25"], "the bridge's crop: 180, 54, 239 × 586");
+  /* X2 (13 Oct): the bridge on this branch is 0.7.26 and sends exactly the crop of 0.7.21, because Alan's page stays as deployed; X1's 239 waits for his eye */
+  assert.deepEqual({ left: rule.left, top: rule.top, width: rule.width, height: rule.height }, CROP["0.7.26"], "the bridge's crop: 180, 54, 229 × 586");
+  assert.deepEqual(CROP["0.7.26"], CROP["0.7.21"]);
   assert.equal(rule.left, CROP["0.7.21"].left, "the same left edge as 0.7.21: the avatar rail (black on a black X) stays out");
-  assert.equal(rule.left + rule.width, IMAC.column.left + IMAC.column.width - 8, "the right edge 8 px short of the column's border: the ··· menu is in, the empty padding is out");
-  assert.equal(rule.width - CROP["0.7.21"].width, 10, "extended to the RIGHT only, by 10 px");
+  assert.equal(rule.left + rule.width, IMAC.column.left + IMAC.column.width - 18, "the right edge 18 px short of the column's border, as 0.7.21");
+  assert.equal(rule.width - CROP["0.7.21"].width, 0, "not one pixel wider than 0.7.21");
   const w = paneWorld(), now = painted(w, rule);
   assert.equal(now.region.usable, true, "the crop lands on the 1792 × 1080 picture");
   assert.ok(Math.abs(now.firstSourceCssX - 180) < 0.01, "the first source pixel drawn is the text's left edge (180)");
@@ -95,7 +97,7 @@ test("X1 · the picture rule at the iMac's parameters: the text from 0.7.21's le
   assert.deepEqual([now.plan.dx, now.plan.dw], [0, now.plan.tw], "the crop fills the pane's width");
   assert.ok(Math.abs(now.plan.dh - now.plan.th) < 0.5, "and its height");
   assert.ok(Math.abs(now.textChange) <= 0.08, "the text within 8% of today's size: " + (now.textChange * 100).toFixed(1) + "%");
-  assert.ok(now.textChange > -0.02 && now.textChange < 0, "in fact about 1% smaller: " + (now.textChange * 100).toFixed(1) + "%");
+  assert.ok(now.textChange > 0.02 && now.textChange < 0.04, "on this pane (no margin) 3% larger; on the deployed pane it is the picture he has: " + (now.textChange * 100).toFixed(1) + "%");
   /* the same pane fed by the bridge the iMac runs today (0.7.21): still edge to edge, the text 3% larger (the margin is gone) */
   const old = painted(w, CROP["0.7.21"]);
   assert.equal(old.plan.blank, 0);
@@ -161,9 +163,9 @@ test("X1 · the refresh: 5 / 15 / 30 min / off, 15 min by default; a saved 30 / 
 });
 
 test("X1 · the bridge is 0.7.25, the health page expects it, and the pane behaves with 0.7.21 and 0.7.25 alike", () => {
-  assert.match(read("station-x-bridge-draft/manifest.json"), /"version": "0\.7\.25"/);
-  assert.match(read("x-health/index.html"), /const TARGET = "0\.7\.25";/);
-  assert.match(read("x-health/index.html"), /Target version: <b id="target">0\.7\.25<\/b>/);
+  assert.match(read("station-x-bridge-draft/manifest.json"), /"version": "0\.7\.26"/);
+  assert.match(read("x-health/index.html"), /const TARGET = "0\.7\.26";/);
+  assert.match(read("x-health/index.html"), /Target version: <b id="target">0\.7\.26<\/b>/);
   assert.match(read("station-x-bridge-draft/README.md"), /## 0\.7\.25 \(X1, 12 Oct 2026\)/);
   /* the pane asks nothing of the bridge that 0.7.21 cannot do: the crop message is read the same way, the pace row
      stays hidden until a source reports its pace, the page-up is a request the old bridge answers with a plain refresh */

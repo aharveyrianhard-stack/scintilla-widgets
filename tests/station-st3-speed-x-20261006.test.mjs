@@ -308,8 +308,8 @@ test("ST3 · the feed's pace is a choice behind the ⋯: 1× 2× 4× (X1 adds 8�
   assert.match(bridge, /speedPxPerSecond: session\.settings\.speedPxPerSecond,/);
   assert.match(bridge, /speedPxPerSecond: 3,/, "the default pace is unchanged: Alan picks the faster one");
   /* the bridge that carries both is 0.7.24 (0.7.25 since X1, 12 Oct), and the health page expects it */
-  assert.match(read("station-x-bridge-draft/manifest.json"), /"version": "0\.7\.25"/);
-  assert.match(read("x-health/index.html"), /const TARGET = "0\.7\.25";/);
+  assert.match(read("station-x-bridge-draft/manifest.json"), /"version": "0\.7\.26"/);
+  assert.match(read("x-health/index.html"), /const TARGET = "0\.7\.26";/);
 });
 
 /* ── 3. the shared price-history store lets go of what has expired ────────────────────── */

@@ -146,10 +146,10 @@ test("S13 · the bridge's page-up: X's own refresh, then the top — refused und
   assert.match(fn, /const painted = await waitFor\(\(\) => visibleFeedPosts\(\)\.length > 0, PAGE_UP_PAINT_WAIT_MS\);/, "it waits for posts to be painted");
   assert.match(fn, /\} else \{\n\s+root\.scrollTo\(\{ top: before\.scrollTop, behavior: "auto" \}\);/, "and goes back if none are");
   assert.match(fn, /finally \{\n\s+resetStationScrollComposite\(\);/, "the slow scroll's phase is reset, as on every other jump");
-  assert.match(bridge, /if \(value && value\.pageUp\) await pageUpRefresh\(\);\n\s+else await refreshCurrentView\(\);/, "↻ by hand keeps the old path");
+  assert.match(bridge, /if \(value && value\.pageUp\) \{\n\s+if \(STATION_TIMED_PAGE_UP_ON\) await pageUpRefresh\(\);\n\s+else declineTimedPageUp\(\);\n\s+\} else await refreshCurrentView\(\);/, "↻ by hand keeps the old path; the timed ask goes through a switch (X2: off)");
   assert.match(bridge, /pageUp: \{ \.\.\.session\.pageUp \},/, "the pane is told how the page-up went");
-  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.25"/);
-  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.25";/, "the health page expects the bridge that pages up");
+  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.26"/);
+  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.26";/, "the health page expects the bridge that pages up");
 });
 
 test("S13 · measured on the real deck at 403 / 461 / 614: both bars one line, nothing cut; the + follows NEXT; the clock waits under a hand; the picture never blanks", () => {

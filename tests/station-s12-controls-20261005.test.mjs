@@ -20,12 +20,12 @@ const SCREENS = ["1680x1050", "1920x1080", "2560x1440"];
 test("S12 · the X feed's right edge: the crop reaches the ··· menu (8 px short of the border) and starts at the post text — X1 withdrew the whole-column rule; the health page expects the bridge that does", () => {
   const fn = bridge.match(/function calculateCropRect\(\) \{[\s\S]*?\n  \}/)[0];
   assert.match(fn, /const detectedContentLeft = findInnerContentLeft\(column, top, viewportHeight\);/, "the crop starts where the post text starts (0.7.21's left edge)");
-  assert.match(fn, /const rightTrim = Math\.min\(STATION_CROP_RIGHT_TRIM_PX, baseWidth \* 0\.03\);/, "and stops a named number of pixels short of the border");
-  assert.match(bridge, /const STATION_CROP_RIGHT_TRIM_PX = 8;/, "8 px: past the ··· menu, before the empty padding (0.7.21: 18)");
+  assert.match(fn, /const rightTrim = Math\.min\(STATION_CROP_RIGHT_TRIM_PX, baseWidth \* 0\.06\);/, "and stops a named number of pixels short of the border");
+  assert.match(bridge, /const STATION_CROP_RIGHT_TRIM_PX = 18;/, "X2 (13 Oct): 18 again, the rule of 0.7.21, until Alan has seen X1's 8");
   assert.doesNotMatch(fn, /left: baseLeft,/, "never from the column's border: that is the avatar rail, black on a black X");
   /* the crop rule shipped as 0.7.22; S13 added the page-up refresh (0.7.23); ST3 the scroll code and the pace (0.7.24); X1 the post-column crop (0.7.25) */
-  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.25"/);
-  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.25";/, "the health page says an older bridge needs the reload");
+  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.26"/);
+  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.26";/, "the health page says an older bridge needs the reload");
 });
 
 test("S12 · the X bar: labels keep their size, the secondary controls fold behind ⋯", () => {

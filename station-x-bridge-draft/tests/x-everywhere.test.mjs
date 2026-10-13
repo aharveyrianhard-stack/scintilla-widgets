@@ -98,7 +98,8 @@ const COLUMN = { left: 372, top: 96, width: 456, height: 1180 };
    post text from 180. Three bridges, three crops (left, top, width × height):
      0.7.21  180, 54, 229 × 586   what Alan wants: "text fills the column"
      0.7.24  115, 54, 312 × 586   rejected at once: "a bunch of black space to the left … Now it looks tiny"
-     0.7.25  180, 54, 239 × 586   this bridge: the same left edge, 10 px more on the right (the ··· menu's edge) */
+     0.7.25  180, 54, 239 × 586   X1: the same left edge, 10 px more on the right (the ··· menu's edge) - waits for Alan's eye
+     0.7.26  180, 54, 229 × 586   this bridge (X2, 13 Oct): exactly 0.7.21's crop, because his page stays as deployed */
 const IMAC_NIGHT = { viewportWidth: 1062, viewportHeight: 640, frame: { videoWidth: 1792, videoHeight: 1080 },
   pane: { hostWidth: 255, hostHeight: 450, ratio: Math.min(1.25, 2) }, column: { left: 115, width: 312 }, tabsBottom: 53, textLeft: 180 };
 const CROP_0721 = { left: 180, top: 54, width: 229, height: 586 };
@@ -115,10 +116,11 @@ test("the crop lands on the column at the iMac's parameters", () => {
   const P = IMAC_NIGHT, viewport = { width: P.viewportWidth, height: P.viewportHeight };
   /* 1 · the bridge's rule, on the iMac's column: 0.7.21's left edge, 8 px short of the border on the right */
   const rule = cropRuleAt(P);
-  assert.deepEqual({ left: rule.left, top: rule.top, width: rule.width, height: rule.height }, CROP_0725, "180, 54, 239 × 586");
+  assert.deepEqual({ left: rule.left, top: rule.top, width: rule.width, height: rule.height }, CROP_0721, "180, 54, 229 × 586: exactly the crop of 0.7.21 (X2)");
+  assert.notDeepEqual({ left: rule.left, top: rule.top, width: rule.width, height: rule.height }, CROP_0725, "not X1's 239 until Alan has seen it");
   assert.equal(rule.left, CROP_0721.left, "the post text starts where it did with 0.7.21");
-  assert.equal(rule.left + rule.width, P.column.left + P.column.width - 8, "and the crop runs to 8 px short of the column's right border");
-  assert.ok(rule.width > CROP_0721.width && rule.width - CROP_0721.width <= 18, "extended to the RIGHT only, by " + (rule.width - CROP_0721.width) + " px");
+  assert.equal(rule.left + rule.width, P.column.left + P.column.width - 18, "and the crop stops 18 px short of the column's right border, as 0.7.21 did");
+  assert.equal(rule.width, CROP_0721.width, "not one pixel wider than 0.7.21");
   /* 2 · that crop lands on the picture: the 1792 × 1080 capture of the 1062 × 640 window */
   const truth = trueColumnBox(P.frame, P.viewportWidth, P.viewportHeight, rule);
   const region = sourceRegion(P.frame, { rect: rule, viewport });
@@ -133,7 +135,7 @@ test("the crop lands on the column at the iMac's parameters", () => {
   assert.ok(Math.abs(plan.dh - plan.th) < 0.5, "and its height: " + plan.dh + " of " + plan.th);
   const change = textScaleOf(plan, rule, P.pane.ratio) / TODAY.textScale - 1;
   assert.ok(Math.abs(change) <= 0.08, "the text within 8% of today's size: " + (change * 100).toFixed(1) + "%");
-  assert.ok(change > -0.02 && change < 0.01, "and in fact about 1% smaller: " + (change * 100).toFixed(1) + "%");
+  assert.ok(change > 0.02 && change < 0.04, "on the X1 pane (no margin) 0.7.21's crop reads 3% larger; on the deployed pane it is the picture he has: " + (change * 100).toFixed(1) + "%");
   /* 4 · the same pane with the bridge the iMac runs today (0.7.21): still edge to edge, the text 3% larger */
   const old = paintPlan({ ...P.pane, region: sourceRegion(P.frame, { rect: CROP_0721, viewport }), expanded: false, profile: "auto" });
   assert.equal(old.blank, 0);

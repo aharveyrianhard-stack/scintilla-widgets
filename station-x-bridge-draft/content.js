@@ -6,7 +6,7 @@
 
   const STORAGE_KEY = "xFeedFloatSettings";
   const DEFAULT_SETTINGS = {
-    settingsVersion: 9,
+    settingsVersion: 10,
     speedPxPerSecond: 3,
     sourceZoom: 1,
     resumeDelayMs: 550,
@@ -17,6 +17,12 @@
     hideFeedTabs: true,
     minimizeSourceOnOpen: true
   };
+  const STATION_FIRST_PACE_PX_PER_SECOND = 12;
+  /* X2 (0.7.26). Alan, 13 Oct 2026: "I don't think I ever asked for any type of reload ... No reload for now."
+     The deployed pane asks for "a page up" every 60 seconds; while this is false the source declines it and says so
+     (the sequence number moves, so the pane lets go of its short hold at once). The pane's own refresh button is
+     a different request and still works. Turn it back on only with his word on how often. */
+  const STATION_TIMED_PAGE_UP_ON = false;
   /* A Station pane can miss a pointerleave while Chrome changes focus. Its
      hover pause is therefore a renewable lease, never an indefinite stop of
      the shared X source. */
@@ -115,7 +121,7 @@
         session.settings = {
           ...DEFAULT_SETTINGS,
           ...saved,
-          settingsVersion: 9,
+          settingsVersion: 10,
           // The float is the working surface. Always tuck away its oversized
           // source after a successful launch, even if an older build saved a
           // stale false value for this preference.
@@ -138,6 +144,13 @@
             Number(session.settings.speedPxPerSecond) || DEFAULT_SETTINGS.speedPxPerSecond,
             DEFAULT_SETTINGS.speedPxPerSecond
           );
+        }
+
+        // X2 (0.7.26). Alan, 13 Oct 2026: "I need this to be faster than it is right now, quite a bit faster."
+        // The first session of this build starts at four times the calm pace (12 px/s); after that, whatever he
+        // picks on the pane (1x 2x 4x) is kept, because the version saved below is 10.
+        if ((saved.settingsVersion || 0) < 10) {
+          session.settings.speedPxPerSecond = STATION_FIRST_PACE_PX_PER_SECOND;
         }
 
         const savedSpeed = Number(session.settings.speedPxPerSecond);
@@ -881,7 +894,10 @@
   /* X1 (12 Oct 2026): how far short of the column's right border the crop stops. 0.7.21 stopped 18 px
      short and cut the ··· menu and the end of a long line by 2-3 px (S12 measured 3 on the stand-in);
      the 16 px of empty padding against the border would only make the text smaller on the pane. */
-  const STATION_CROP_RIGHT_TRIM_PX = 8;
+  /* X2 (13 Oct 2026, 0.7.26): back to 18, with the rule of 0.7.21 below. Alan asked for the pace control and for nothing else to
+     change tonight ("I never asked to change any of that"), and his Station page stays as deployed, so the crop must be the one
+     he is looking at: 180, 54, 229 x 586 on the iMac. The 8 px rule of X1 waits for his eye together with the X1 pane. */
+  const STATION_CROP_RIGHT_TRIM_PX = 18;
 
   function calculateCropRect() {
     const column = findPrimaryColumn();
@@ -918,7 +934,7 @@
     // S12's whole-column rule is withdrawn by Alan's words above.
     const detectedContentLeft = findInnerContentLeft(column, top, viewportHeight);
     const fallbackContentLeft = baseLeft + Math.min(64, baseWidth * 0.19);
-    const rightTrim = Math.min(STATION_CROP_RIGHT_TRIM_PX, baseWidth * 0.03);
+    const rightTrim = Math.min(STATION_CROP_RIGHT_TRIM_PX, baseWidth * 0.06);
     const contentRight = baseRight - rightTrim;
     const minimumContentWidth = Math.max(160, baseWidth * 0.68);
     const contentLeft = Math.min(
@@ -1737,6 +1753,14 @@
     };
   }
 
+  /* X2 (0.7.26): the timed page-up is switched off. Nothing moves; the pane is told at once. */
+  function declineTimedPageUp() {
+    session.pageUp = { ...session.pageUp, seq: session.pageUp.seq + 1, busy: false, at: Date.now(),
+      result: "off", readingOnScreen: null, newPosts: null };
+    scheduleCropTargetUpdate();
+    return { run: false, why: "the timed refresh is switched off" };
+  }
+
   async function pageUpRefresh() {
     const now = Date.now();
     const plan = pageUpPlan({
@@ -2500,8 +2524,10 @@
     } else if (action === "pause") {
       setStationViewerPause(Boolean(value));
     } else if (action === "refresh") {
-      if (value && value.pageUp) await pageUpRefresh();
-      else await refreshCurrentView();
+      if (value && value.pageUp) {
+        if (STATION_TIMED_PAGE_UP_ON) await pageUpRefresh();
+        else declineTimedPageUp();
+      } else await refreshCurrentView();
     } else if (action === "speed") {
       /* 0.7.24: the pane's pace choice. Same bounds as the float's own slider (0.5-30 px/s); the
          carry is kept, so the picture does not jump when the pace changes. */

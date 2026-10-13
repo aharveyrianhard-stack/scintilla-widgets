@@ -88,3 +88,18 @@ The visible proof used a synthetic X-origin feed because the temporary Chrome pr
   needed). The bridge watches its own folder once a minute and reloads itself at the first moment it feeds no pane
   (a Station reload is such a moment); the 04:00 night job restarts Brave, which loads whatever is in the folder, and
   presses Option+Shift+S. Back out: copy `~/Scintilla/_archive/SCINTILLA X Bridge-0.7.21-20261012-2300` over the folder.
+
+## 0.7.26 (X2, 13 Oct 2026) — the pace now, no timed reload, and not one pixel of the picture changed
+
+- Alan, 13 Oct ~00:15 ET: "I would prefer the speed control to go on there ... I need this to be faster than it is right now,
+  quite a bit faster ... Forget about the page updates. Let's leave it without page updates ... No reload for now."
+  So this build goes on the iMac by itself: the Station page stays exactly as deployed.
+- **The picture is 0.7.21's, exactly.** `calculateCropRect` uses 0.7.21's own rule again (`Math.min(18, baseWidth * 0.06)`):
+  at the iMac's parameters 180, 54, 229 x 586. X1's 239-wide crop (0.7.25) waits for his eye together with X1's pane.
+- **The pace.** The first session of this build starts at 12 px/s (four times the calm pace); `settingsVersion` 10 is saved,
+  so whatever he then picks on the pane's row (the deployed pane offers 1x 2x 4x) is kept.
+- **No timed reload.** The deployed pane asks for "a page up" every 60 seconds. `STATION_TIMED_PAGE_UP_ON = false`: the source
+  declines it (`declineTimedPageUp` moves the sequence number, so the pane's short hold ends at once) and nothing moves.
+  The pane's refresh button is a different request and still refreshes. Turn the switch on only with his word on how often.
+- Install: the same files as 0.7.25 (only `manifest.json`, `content.js` and this file differ). Back-out: copy
+  `~/Scintilla/_archive/SCINTILLA X Bridge-0.7.21-20261012-2300` back and restart Brave.
