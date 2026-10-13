@@ -295,11 +295,11 @@ test("ST3 · the pane times how long a read keeps a paint waiting and goes back 
   assert.match(constLine(pane, "STATION_CODE_BUDGET_MS"), /STATION_CODE_BUDGET_MS = 8, STATION_CODE_REST_MS = 60000;/);
 });
 
-test("ST3 · the feed's pace is a choice behind the ⋯: 1× 2× 4×, shown only when the source reports its pace", () => {
+test("ST3 · the feed's pace is a choice behind the ⋯: 1× 2× 4× (X1 adds 8×), shown only when the source reports its pace", () => {
   const ctx = vm.createContext({ Number });
   vm.runInContext(constLine(pane, "X_SPEED_CHOICES") + "\n" + fnSource(pane, "xSpeedChoice"), ctx);
-  assert.deepEqual([3, 6, 12, "6", 5, 0, 300, "fast"].map((v) => ctx.xSpeedChoice(v)), [3, 6, 12, 6, null, null, null, null]);
-  for (const v of [3, 6, 12]) assert.match(pane, new RegExp('<button class="btn xs xs-row" type="button" data-v="' + v + '"[^>]* hidden>'));
+  assert.deepEqual([3, 6, 12, 24, "6", 5, 0, 300, "fast"].map((v) => ctx.xSpeedChoice(v)), [3, 6, 12, 24, 6, null, null, null, null]);
+  for (const v of [3, 6, 12, 24]) assert.match(pane, new RegExp('<button class="btn xs xs-row" type="button" data-v="' + v + '"[^>]* hidden>'));
   assert.match(pane, /#xMore \[hidden\]\{ display:none !important; \}/);
   assert.match(fnSource(pane, "setXSpeed"), /if \(speed === null \|\| REMOTE_MODE\) return;\n\s+postXFloat\("speed", speed\);/, "the iPad mirror never asks");
   assert.match(pane, /paintXSpeed\(xfloatCrop\?\.speedPxPerSecond\);/);
@@ -307,9 +307,9 @@ test("ST3 · the feed's pace is a choice behind the ⋯: 1× 2× 4×, shown only
     "the same bounds as the float's own slider");
   assert.match(bridge, /speedPxPerSecond: session\.settings\.speedPxPerSecond,/);
   assert.match(bridge, /speedPxPerSecond: 3,/, "the default pace is unchanged: Alan picks the faster one");
-  /* the bridge that carries both is 0.7.24, and the health page expects it */
-  assert.match(read("station-x-bridge-draft/manifest.json"), /"version": "0\.7\.24"/);
-  assert.match(read("x-health/index.html"), /const TARGET = "0\.7\.24";/);
+  /* the bridge that carries both is 0.7.24 (0.7.25 since X1, 12 Oct), and the health page expects it */
+  assert.match(read("station-x-bridge-draft/manifest.json"), /"version": "0\.7\.25"/);
+  assert.match(read("x-health/index.html"), /const TARGET = "0\.7\.25";/);
 });
 
 /* ── 3. the shared price-history store lets go of what has expired ────────────────────── */

@@ -147,9 +147,13 @@ body.x-more #bXMore{ color:var(--crk); border-color:var(--crk); }
 /* S13 (5 Oct, ~12:30 ET): ICONS ON THE BAR, AND THE REFRESH ON A CADENCE. Alan: "On the X one what's very
    important is to refresh it; 30 seconds feels too fast — maybe a minute, a minute and a half; think of it like
    'go a page up'. Make these buttons icons instead of words as much as we can, to save space."
-   On the bar: the state · list · notifications · ↻ with its cadence beside it (60s) · ⋯ · ⛶ — all icons. The ⋯
-   now opens a small panel over the top of the feed instead of widening the row: the cadence (30 s / 60 s / 90 s),
-   −30 s, the iPad link, picture-in-picture and the source's name, in words because there is room for words there. */
+   On the bar: the state · list · notifications · ↻ with its cadence beside it (15m) · ⋯ · ⛶ — all icons. The ⋯
+   now opens a small panel over the top of the feed instead of widening the row: the cadence, −30 s, the iPad link,
+   picture-in-picture and the source's name, in words because there is room for words there.
+   X1 (12 Oct, Alan): "if it reloads so often, and I'm not looking at the screen … I prefer to let it run and then I get
+   the context of stuff and I refresh manually, but I do think there should be some refresh. Just definitely not as
+   tight as that." The cadence is 5 min / 15 min / 30 min / off, 15 min by default; the bar shows it as 5m · 15m · 30m
+   · off beside ↻. */
 #xfEvery{ flex:none; color:var(--dim); font-size:9px; letter-spacing:.04em; white-space:nowrap; align-self:center;
   font-variant-numeric:tabular-nums; margin-left:-2px; }
 #xMore{ position:absolute; z-index:4; top:0; left:0; right:0; display:flex; flex-wrap:wrap; align-items:center; gap:4px;
@@ -190,14 +194,16 @@ body:not(.x-more) #xMore{ display:none; }
   <canvas id="cv"></canvas>
   <div id="xMore" role="group" aria-label="more X controls">
     <span class="lab" title="how often the feed refreshes by itself — a page up: the newest posts to the top">a page up every</span>
-    <button class="btn xr" type="button" data-s="30" title="refresh every 30 seconds">30s</button>
-    <button class="btn xr" type="button" data-s="60" title="refresh every 60 seconds">60s</button>
-    <button class="btn xr" type="button" data-s="90" title="refresh every 90 seconds">90s</button>
+    <button class="btn xr" type="button" data-s="300" title="refresh every 5 minutes">5 min</button>
+    <button class="btn xr" type="button" data-s="900" title="refresh every 15 minutes">15 min</button>
+    <button class="btn xr" type="button" data-s="1800" title="refresh every 30 minutes">30 min</button>
+    <button class="btn xr" type="button" data-s="0" title="never by itself — only when ↻ is pressed">off</button>
     <span class="brk xs-row" hidden></span>
     <span class="lab xs-row" hidden title="how fast the feed scrolls by itself">scroll</span>
     <button class="btn xs xs-row" type="button" data-v="3" title="the calm pace: 3 pixels a second" hidden>1×</button>
     <button class="btn xs xs-row" type="button" data-v="6" title="twice the calm pace: 6 pixels a second" hidden>2×</button>
     <button class="btn xs xs-row" type="button" data-v="12" title="four times the calm pace: 12 pixels a second" hidden>4×</button>
+    <button class="btn xs xs-row" type="button" data-v="24" title="eight times the calm pace: 24 pixels a second" hidden>8×</button>
     <span class="brk"></span>
     <span class="btn x-sec" id="bXBack" style="display:none" title="rewind the feed 30 seconds">−30s</span>
     <button class="btn pair x-sec" id="bPair" type="button" style="display:none">iPad link</button>
@@ -278,6 +284,8 @@ let xfloatCrop = null;
 let xfloatFrame = 0;
 let xfloatPaused = false;
 let xfloatExpanded = false;
+/* X1: the last paint's plan (stationPaintPlan), for a live inspector (read-only; window.__SCINTILLA_X_PAINT) */
+let stationPaintLast = null;
 let xfloatDrawAt = 0;
 let stationTickFrame = 0;
 let stationTickAt = 0;
@@ -603,6 +611,7 @@ function stationInkOf(source, width, height, region) {
 function publishViewerCadence() {
   /* Read-only diagnostics for the performance pass.  No user setting or
      persistent state is created; tests and a live inspector can read this. */
+  window.__SCINTILLA_X_PAINT = stationPaintLast;
   window.__SCINTILLA_X_CADENCE = Object.assign({}, viewerCadence, {
     scrollCode:stationCodeStats,
     owner:viewerClockOwner,
@@ -1084,7 +1093,12 @@ function stopStationHealth() {
   startStationWatch();
 }
 
-/* ---- S13: THE REFRESH CADENCE — "A PAGE UP" EVERY 30 / 60 / 90 SECONDS (60 BY DEFAULT) -------------------
+/* ---- S13: THE REFRESH CADENCE — "A PAGE UP" ON A CADENCE CHOSEN BEHIND THE ⋯ ------------------------------
+   X1 (12 Oct 2026): the cadence is 5 min / 15 min / 30 min / off, 15 min by default. S13 shipped 30 / 60 / 90 s
+   (60 by default) and Alan, after a week with it: "if it reloads so often, and I'm not looking at the screen … I
+   prefer to let it run and then I get the context of stuff and I refresh manually, but I do think there should be
+   some refresh. Just definitely not as tight as that. Not anywhere near as tight as that." A saved 30 / 60 / 90
+   (the old choices) reads as 15 min. "off" asks for nothing: ↻ by hand only.
    Until now the feed refreshed only when ↻ was pressed. On the cadence chosen behind the ⋯ this pane now
    asks the source for a page up: X's own refresh, then the source's own scroll to the top, so the newest
    posts are at the top and what was being read sits just under them when it still fits. The count starts
@@ -1097,17 +1111,23 @@ function stopStationHealth() {
        a second ask inside 20 s);
      · the iPad companion is a viewer of the Mac's source: it never asks.
    While the source turns the page the pane keeps its last picture — never a blank between two pages. */
-const X_REFRESH_CHOICES = [30, 60, 90], X_REFRESH_DEFAULT = 60, X_REFRESH_KEY = "sc.x.refresh.seconds";
+const X_REFRESH_CHOICES = [300, 900, 1800, 0], X_REFRESH_DEFAULT = 900, X_REFRESH_KEY = "sc.x.refresh.seconds";
 const X_PAGEUP_HOLD_MS = 1500, X_PAGEUP_HOLD_MAX_MS = 5000;
 function xRefreshChoice(value) {
+  /* nothing saved, or an old choice (30 / 60 / 90), is the default; only an explicit "0" is off */
+  if (value === null || value === undefined || value === "") return X_REFRESH_DEFAULT;
   const seconds = Number(value);
   return X_REFRESH_CHOICES.includes(seconds) ? seconds : X_REFRESH_DEFAULT;
 }
+/* what the bar shows beside ↻ (5m · 15m · 30m · off) and what the tooltips say (5 minutes …) */
+function xRefreshLabel(seconds) { return seconds ? Math.round(seconds / 60) + "m" : "off"; }
+function xRefreshWords(seconds) { return seconds ? Math.round(seconds / 60) + " minute" + (seconds === 60 ? "" : "s") : "off"; }
 function xRefreshPlan(state) {
   if (!state.live) return { fire:false, wait:false, why:"no live source" };
   if (state.remote) return { fire:false, wait:false, why:"the iPad follows the Mac's source" };
   if (!state.visible) return { fire:false, wait:false, why:"the pane is hidden" };
   if (!state.owner) return { fire:false, wait:false, why:"another mirror drives the source" };
+  if (!state.seconds) return { fire:false, wait:false, why:"off: ↻ by hand only" };
   if (state.now - state.lastAt < state.seconds * 1000) return { fire:false, wait:false, why:"not due" };
   if (state.hover) return { fire:false, wait:true, why:"the pointer is on the feed" };
   if (state.panel) return { fire:false, wait:true, why:"the ⋯ panel is open" };
@@ -1121,16 +1141,21 @@ function paintXRefresh() {
     const on = Number(b.dataset.s) === xRefreshSeconds;
     b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
   }
-  el("xfEvery").textContent = xRefreshSeconds + "s";
-  el("xfEvery").title = "refreshes by itself every " + xRefreshSeconds + " seconds — a page up · change it behind ⋯";
-  el("bXRefresh").title = "refresh now — the newest posts to the top (by itself every " + xRefreshSeconds + " s)";
+  el("xfEvery").textContent = xRefreshLabel(xRefreshSeconds);
+  el("xfEvery").title = xRefreshSeconds
+    ? "refreshes by itself every " + xRefreshWords(xRefreshSeconds) + " — a page up · change it behind ⋯"
+    : "does not refresh by itself — ↻ when you want it · change it behind ⋯";
+  el("bXRefresh").title = "refresh now — the newest posts to the top" +
+    (xRefreshSeconds ? " (by itself every " + xRefreshWords(xRefreshSeconds) + ")" : " (by itself: off)");
 }
 /* ── THE FEED'S PACE (ST3, 6 Oct; bridge 0.7.24) ─────────────────────────────────────────
    Alan, 6 Oct: "we can make the Twitter scrolling on station be faster." The pace lives in the source
-   (the bridge scrolls the real X page); the pane only asks for one of three and shows which is on -
+   (the bridge scrolls the real X page); the pane only asks for one of four and shows which is on -
    the source says so in every crop. The row stays hidden until a source that reports its pace is
-   feeding the pane, so an older bridge shows nothing it cannot do. The iPad mirror never asks. */
-const X_SPEED_CHOICES = [3, 6, 12];
+   feeding the pane, so an older bridge shows nothing it cannot do. The iPad mirror never asks.
+   X1 (12 Oct, Alan: "I don't need this slow speed anymore. A little bit faster would probably be better."):
+   1× · 2× · 4× · 8× = 3 · 6 · 12 · 24 px/s; 1× stays the default - he chooses. */
+const X_SPEED_CHOICES = [3, 6, 12, 24];
 function xSpeedChoice(value) {
   const speed = Number(value);
   return X_SPEED_CHOICES.includes(speed) ? speed : null;
@@ -1283,15 +1308,48 @@ function drawXFloat(at = 0) {
   xfloatFrame = requestAnimationFrame(drawXFloat);
 }
 
+/* X1 (12 Oct 2026): THE PICTURE FILLS THE PANE. Alan, on the iMac: "There can never be the black space. It needs
+   to be sized properly for the screen." Where the crop lands on the picture is stationSourceRegion's; where that
+   region is painted on the pane is decided here, pure, so the iMac's numbers (a 255 × 450 pane at dpr 2 fed a
+   1792 × 1080 capture of a 1062 × 640 X window) can be checked without a browser.
+     · A narrow pane uses EVERY pixel of its width: the crop is drawn edge to edge. Until now the pane kept a
+       margin of its own, 4-8 px of black on each side (invisible on a black X, but padding all the same).
+     · An expanded pane (the X box across the lower row) keeps its readable, height-aware cap and is centred,
+       as before: the same X column is not stretched into billboard-sized text.
+     · The height is whatever the width's scale gives: the crop is tall enough that the pane is filled to the
+       bottom; the rest of the crop simply continues below (that is the scroll). */
+function stationPaintPlan({ hostWidth, hostHeight, ratio, region, expanded, profile }) {
+  const tw = Math.max(280, Math.round(hostWidth * ratio));
+  const th = Math.max(220, Math.round(hostHeight * ratio));
+  const { sx, sy, sw, shAvailable } = region;
+  /* The X source is already zoomed and cropped to its center column. A
+     second desk-only source crop clipped the left edge of names/text. */
+  const profileScale = profile === "compact" ? .92 : 1;
+  const sourceWidth = Math.max(1, Math.min(sw, sw / profileScale));
+  const sourceX = Math.max(sx, sx + (sw - sourceWidth) / 2);
+  const padCss = expanded ? Math.max(4, Math.min(8, hostWidth * .015)) : 0;
+  const pad = Math.round(padCss * ratio);
+  const dw = expanded
+    ? Math.max(1, Math.round(Math.max(1, Math.min(hostWidth - padCss * 2, Math.max(420, hostHeight * 2.15), 540)) * ratio))
+    : tw;
+  const dx = expanded ? Math.max(pad, Math.round((tw - dw) / 2)) : 0;
+  const s2d = dw / sourceWidth;
+  const sh = Math.min(shAvailable, th / s2d), dh = sh * s2d;
+  return { tw, th, sourceX, sy, sourceWidth, sh, dx, dy: 0, dw, dh,
+    /* what is NOT the picture, in canvas pixels: the pane's own black */
+    blank: Math.max(0, Math.round(tw * th - Math.min(tw, dw) * Math.min(th, dh))) };
+}
+
 /* The picture, from whatever holds it: the <video> itself, or one frame of it taken in hand (ST3).
    `video` carries the frame's size (videoWidth, videoHeight); `picture` is what is drawn. */
 function paintXPicture(picture, video) {
   const canvas = el("cv"), host = el("body");
   const region = stationSourceRegion(video, xfloatCrop);
-  const { sx, sy, sw, shAvailable } = region;
+  const { sw, shAvailable } = region;
   const ratio = Math.min(1.25, devicePixelRatio || 1);
-  const tw = Math.max(280, Math.round(host.clientWidth * ratio));
-  const th = Math.max(220, Math.round(host.clientHeight * ratio));
+  const plan = stationPaintPlan({ hostWidth: host.clientWidth, hostHeight: host.clientHeight, ratio, region,
+    expanded: xfloatExpanded, profile: VIEW_PROFILE });
+  const { tw, th } = plan;
   if (canvas.width !== tw || canvas.height !== th) { canvas.width = tw; canvas.height = th; }
   const ctx = canvas.getContext("2d", { alpha: false });
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
@@ -1308,26 +1366,11 @@ function paintXPicture(picture, video) {
       Math.round((tw - fw) / 2), Math.round((th - fh) / 2), fw, fh);
   } else if (sw > 1 && shAvailable > 1) {
     noteStationWholeFrame("");
-    const padCss = Math.max(4, Math.min(8, host.clientWidth * .015));
-    const pad = Math.round(padCss * ratio);
-    /* A narrow pane should use every pixel. When the pane expands across
-       the row, keep the feed at a readable, height-aware width instead of
-       stretching the same X column into billboard-sized text. */
-    /* The X source is already zoomed and cropped to its center column. A
-       second desk-only source crop clipped the left edge of names/text. */
-    const profileScale = VIEW_PROFILE === "compact" ? .92 : 1;
-    const sourceWidth = Math.max(1, Math.min(sw, sw / profileScale));
-    const sourceX = Math.max(sx, sx + (sw - sourceWidth) / 2);
-    const readableCssWidth = xfloatExpanded
-      ? Math.max(1, Math.min(host.clientWidth - padCss * 2, Math.max(420, host.clientHeight * 2.15), 540))
-      : Math.max(1, host.clientWidth - padCss * 2);
-    const dw = Math.max(1, Math.round(readableCssWidth * ratio));
-    const dx = Math.max(pad, Math.round((tw - dw) / 2));
-    const s2d = dw / sourceWidth;
-    const sh = Math.min(shAvailable, th / s2d), dh = sh * s2d;
-    ctx.drawImage(picture, sourceX, sy, sourceWidth, sh, dx, 0, dw, dh);
+    stationPaintLast = plan;
+    ctx.drawImage(picture, plan.sourceX, plan.sy, plan.sourceWidth, plan.sh, plan.dx, plan.dy, plan.dw, plan.dh);
   }
 }
+
 
 function startStationClock() {
   if (REMOTE_MODE || stationTickFrame || document.visibilityState !== "visible") return;

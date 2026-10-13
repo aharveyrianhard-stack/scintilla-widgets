@@ -1,6 +1,10 @@
 /* S12 (5 Oct 2026): the X feed's right edge, the X bar, and the YouTube control row — pinned.
    1. The X Bridge crops the WHOLE timeline column (border to border): no avatar-rail trim on the left, no 18 px trim on the
       right, so nothing of a post is lost; the X shell draws the full crop at the pane's width (measured on a stand-in).
+      WITHDRAWN by X1 (12 Oct 2026): Alan saw that crop on the iMac and rejected it at once ("a bunch of black space to the
+      left … Now it looks tiny"). The crop starts at the post text again (0.7.21's left edge) and runs 8 px short of the
+      column's right border (0.7.21 stopped 18 px short): the ··· menu is in, the rail is out. The first test below pins
+      THAT rule; the measured S12 fixture (s12-after.json) stays as the record of what S12 built.
    2. The X bar never piles its labels over its buttons; the secondary controls sit behind one ⋯.
    3. The YouTube bar keeps the critical controls (channel ▾ · ↻ · the chip naming the filters · ⛶); the filters open under
       the bar, over the grid, never over the player; measured: nothing cut, nothing squeezed, one line at 403 / 461 / 614. */
@@ -13,14 +17,15 @@ const shell = read("../station-shells/personal-video-v1/index.html"), twin = rea
 const measured = JSON.parse(read("../deliverables/20261005/station-controls/harness/s12-after.json"));
 const SCREENS = ["1680x1050", "1920x1080", "2560x1440"];
 
-test("S12 · the bridge crops the whole timeline column, and the health page expects the bridge that does", () => {
+test("S12 · the X feed's right edge: the crop reaches the ··· menu (8 px short of the border) and starts at the post text — X1 withdrew the whole-column rule; the health page expects the bridge that does", () => {
   const fn = bridge.match(/function calculateCropRect\(\) \{[\s\S]*?\n  \}/)[0];
-  assert.match(fn, /left: baseLeft,/, "the crop starts at the column's left border — the avatar rail is in");
-  assert.match(fn, /width: Math\.min\(baseWidth, viewportWidth - baseLeft\),/, "and runs the column's full width — the ··· menu is in");
-  assert.doesNotMatch(fn, /rightTrim|detectedContentLeft|minimumContentWidth/, "no trim on either side");
-  /* the crop rule shipped as 0.7.22; S13 added the page-up refresh on top of it, so the bridge to expect was 0.7.23; ST3 (6 Oct) added the scroll code and the pace, 0.7.24 */
-  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.24"/);
-  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.24";/, "the health page says an older bridge needs the reload");
+  assert.match(fn, /const detectedContentLeft = findInnerContentLeft\(column, top, viewportHeight\);/, "the crop starts where the post text starts (0.7.21's left edge)");
+  assert.match(fn, /const rightTrim = Math\.min\(STATION_CROP_RIGHT_TRIM_PX, baseWidth \* 0\.03\);/, "and stops a named number of pixels short of the border");
+  assert.match(bridge, /const STATION_CROP_RIGHT_TRIM_PX = 8;/, "8 px: past the ··· menu, before the empty padding (0.7.21: 18)");
+  assert.doesNotMatch(fn, /left: baseLeft,/, "never from the column's border: that is the avatar rail, black on a black X");
+  /* the crop rule shipped as 0.7.22; S13 added the page-up refresh (0.7.23); ST3 the scroll code and the pace (0.7.24); X1 the post-column crop (0.7.25) */
+  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.25"/);
+  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.25";/, "the health page says an older bridge needs the reload");
 });
 
 test("S12 · the X bar: labels keep their size, the secondary controls fold behind ⋯", () => {

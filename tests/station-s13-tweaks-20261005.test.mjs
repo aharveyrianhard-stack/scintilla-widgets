@@ -6,7 +6,9 @@
    2. The X pane refreshes by itself on a cadence — 30 / 60 / 90 s, 60 by default — as "a page up": the newest posts
       to the top, never a blank; the rules it lives with (hover hold, the ⋯ panel, a hidden pane, two mirrors, the
       iPad) are decided in one function and tested together here. Icons on the X bar too.
-   3. The bridge that does it is 0.7.23 and the health page expects it (0.7.24 since ST3, 6 Oct). */
+      X1 (12 Oct 2026): the cadence is 5 min / 15 min / 30 min / off, 15 min by default (Alan: "Just definitely not as
+      tight as that. Not anywhere near as tight as that."); the rules are unchanged and pinned below with the new numbers.
+   3. The bridge that does it is 0.7.23 and the health page expects it (0.7.24 since ST3, 6 Oct; 0.7.25 since X1, 12 Oct). */
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -71,18 +73,19 @@ test("S13 · NEXT from the grid, GRID from anywhere, + WATCH LATER on what is pl
   assert.match(shell, /if \(event\.pointerType && event\.pointerType !== "mouse"\) return;/, "a touch plays the card; only a mouse points");
 });
 
-test("S13 · the X cadence: 30 / 60 / 90 s, 60 by default, and the rules the timer lives with — together", () => {
+test("S13 · the X cadence (X1: 5 / 15 / 30 min / off, 15 min by default) and the rules the timer lives with — together", () => {
   const api = vm.runInNewContext(xshell.match(/const X_REFRESH_CHOICES = [^\n]*\n/)[0] + lift(xshell, "xRefreshChoice") + lift(xshell, "xRefreshPlan") +
     "({ X_REFRESH_CHOICES, X_REFRESH_DEFAULT, xRefreshChoice, xRefreshPlan })", { Number });
-  assert.deepEqual([...api.X_REFRESH_CHOICES], [30, 60, 90]);
-  assert.equal(api.X_REFRESH_DEFAULT, 60);
-  for (const [saved, want] of [[null, 60], ["", 60], ["45", 60], ["30", 30], ["90", 90], [60, 60]]) assert.equal(api.xRefreshChoice(saved), want, "a saved " + JSON.stringify(saved));
-  const due = { live: true, remote: false, visible: true, owner: true, now: 100000, lastAt: 40000, seconds: 60, hover: false, panel: false };
+  assert.deepEqual([...api.X_REFRESH_CHOICES], [300, 900, 1800, 0]);
+  assert.equal(api.X_REFRESH_DEFAULT, 900);
+  for (const [saved, want] of [[null, 900], ["", 900], ["45", 900], ["30", 900], ["60", 900], ["90", 900], ["300", 300], ["1800", 1800], ["0", 0]]) assert.equal(api.xRefreshChoice(saved), want, "a saved " + JSON.stringify(saved));
+  const due = { live: true, remote: false, visible: true, owner: true, now: 1000000, lastAt: 100000, seconds: 900, hover: false, panel: false };
   const plan = (patch) => api.xRefreshPlan(Object.assign({}, due, patch));
-  assert.equal(plan({}).fire, true, "60 s after the last refresh it asks for a page up");
-  assert.equal(plan({ lastAt: 40001 }).fire, false, "not a second early");
-  assert.equal(plan({ seconds: 90 }).fire, false, "90 s means 90 s");
-  assert.equal(plan({ seconds: 30, lastAt: 70000 }).fire, true, "30 s means 30 s");
+  assert.equal(plan({}).fire, true, "15 min after the last refresh it asks for a page up");
+  assert.equal(plan({ lastAt: 100001 }).fire, false, "not a moment early");
+  assert.equal(plan({ seconds: 1800 }).fire, false, "30 min means 30 min");
+  assert.equal(plan({ seconds: 300, lastAt: 700000 }).fire, true, "5 min means 5 min");
+  assert.deepEqual([plan({ seconds: 0 }).fire, plan({ seconds: 0 }).wait], [false, false], "off asks for nothing, ever");
   assert.deepEqual([plan({ hover: true }).fire, plan({ hover: true }).wait], [false, true], "the pointer on the feed: it waits, it is not dropped");
   assert.deepEqual([plan({ panel: true }).fire, plan({ panel: true }).wait], [false, true], "the ⋯ panel open: it waits");
   assert.equal(plan({ visible: false }).fire, false, "a hidden pane asks for nothing");
@@ -95,7 +98,8 @@ test("S13 · the X cadence: 30 / 60 / 90 s, 60 by default, and the rules the tim
   assert.match(xshell, /el\("bXRefresh"\)\.addEventListener\("click", \(\) => postXFloat\("refresh"\)\);/, "↻ by hand is unchanged");
   assert.match(xshell, /for \(const id of \["bXRefresh", "bXList", "bXNotify"\]\) el\(id\)\.addEventListener\("click", \(\) => \{ xRefreshAt = Date\.now\(\);/, "a refresh by hand or a change of view starts the count again");
   assert.match(xshell, /if \(on\) \{ xRefreshAt = Date\.now\(\); paintXRefresh\(\); \}/, "the first page-up is one cadence after the feed attaches");
-  for (const s of [30, 60, 90]) assert.match(xshell, new RegExp('<button class="btn xr" type="button" data-s="' + s + '" title="refresh every ' + s + ' seconds">' + s + "s</button>"));
+  for (const [s, m] of [[300, 5], [900, 15], [1800, 30]]) assert.match(xshell, new RegExp('<button class="btn xr" type="button" data-s="' + s + '" title="refresh every ' + m + ' minutes">' + m + " min</button>"));
+  assert.match(xshell, /<button class="btn xr" type="button" data-s="0" title="never by itself — only when ↻ is pressed">off<\/button>/);
 });
 
 test("S13 · the X pane keeps its last picture while the page turns, and the X bar is icons", () => {
@@ -144,8 +148,8 @@ test("S13 · the bridge's page-up: X's own refresh, then the top — refused und
   assert.match(fn, /finally \{\n\s+resetStationScrollComposite\(\);/, "the slow scroll's phase is reset, as on every other jump");
   assert.match(bridge, /if \(value && value\.pageUp\) await pageUpRefresh\(\);\n\s+else await refreshCurrentView\(\);/, "↻ by hand keeps the old path");
   assert.match(bridge, /pageUp: \{ \.\.\.session\.pageUp \},/, "the pane is told how the page-up went");
-  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.24"/);
-  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.24";/, "the health page expects the bridge that pages up");
+  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.25"/);
+  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.25";/, "the health page expects the bridge that pages up");
 });
 
 test("S13 · measured on the real deck at 403 / 461 / 614: both bars one line, nothing cut; the + follows NEXT; the clock waits under a hand; the picture never blanks", () => {
