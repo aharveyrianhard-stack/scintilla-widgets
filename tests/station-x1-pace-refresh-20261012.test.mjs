@@ -163,9 +163,9 @@ test("X1 · the refresh: 5 / 15 / 30 min / off, 15 min by default; a saved 30 / 
 });
 
 test("X1 · the bridge is 0.7.25, the health page expects it, and the pane behaves with 0.7.21 and 0.7.25 alike", () => {
-  assert.match(read("station-x-bridge-draft/manifest.json"), /"version": "0\.7\.26"/);
-  assert.match(read("x-health/index.html"), /const TARGET = "0\.7\.26";/);
-  assert.match(read("x-health/index.html"), /Target version: <b id="target">0\.7\.26<\/b>/);
+  assert.match(read("station-x-bridge-draft/manifest.json"), /"version": "0\.7\.27"/);
+  assert.match(read("x-health/index.html"), /const TARGET = "0\.7\.27";/);
+  assert.match(read("x-health/index.html"), /Target version: <b id="target">0\.7\.27<\/b>/);
   assert.match(read("station-x-bridge-draft/README.md"), /## 0\.7\.25 \(X1, 12 Oct 2026\)/);
   /* the pane asks nothing of the bridge that 0.7.21 cannot do: the crop message is read the same way, the pace row
      stays hidden until a source reports its pace, the page-up is a request the old bridge answers with a plain refresh */

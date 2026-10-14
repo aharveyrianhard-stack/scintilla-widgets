@@ -24,8 +24,8 @@ test("S12 · the X feed's right edge: the crop reaches the ··· menu (8 px sho
   assert.match(bridge, /const STATION_CROP_RIGHT_TRIM_PX = 18;/, "X2 (13 Oct): 18 again, the rule of 0.7.21, until Alan has seen X1's 8");
   assert.doesNotMatch(fn, /left: baseLeft,/, "never from the column's border: that is the avatar rail, black on a black X");
   /* the crop rule shipped as 0.7.22; S13 added the page-up refresh (0.7.23); ST3 the scroll code and the pace (0.7.24); X1 the post-column crop (0.7.25) */
-  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.26"/);
-  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.26";/, "the health page says an older bridge needs the reload");
+  assert.match(read("../station-x-bridge-draft/manifest.json"), /"version": "0\.7\.27"/);
+  assert.match(read("../x-health/index.html"), /const TARGET = "0\.7\.27";/, "the health page says an older bridge needs the reload");
 });
 
 test("S12 · the X bar: labels keep their size, the secondary controls fold behind ⋯", () => {

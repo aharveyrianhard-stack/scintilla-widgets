@@ -46,7 +46,9 @@ test("X2 · the timed page-up is declined: nothing moves and the pane is told at
   assert.match(bridge, /\} else await refreshCurrentView\(\);/, "a refresh asked by hand is still a refresh");
 });
 
-test("X2 · the bridge is 0.7.26", () => {
-  assert.match(read("station-x-bridge-draft/manifest.json"), /"version": "0\.7\.26"/);
+test("X2 · the bridge is 0.7.26 or later, and the 0.7.26 record stays", () => {
+  /* X3 (13 Oct, later that day): 0.7.27 changes the rewind only; the X2 rules above are pinned test by test */
+  const version = read("station-x-bridge-draft/manifest.json").match(/"version": "0\.7\.(\d+)"/)[1];
+  assert.ok(Number(version) >= 26, "0.7." + version);
   assert.match(read("station-x-bridge-draft/README.md"), /## 0\.7\.26 \(X2, 13 Oct 2026\)/);
 });

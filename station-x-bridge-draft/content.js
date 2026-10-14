@@ -1794,14 +1794,26 @@
     return { run: true, ...outcome };
   }
 
+  /* X3 (0.7.27, 13 Oct 2026): the rewind is a jump, not a glide. Until 0.7.26 it was a smooth scrollBy of
+     speed x 30 px, and a smooth scroll is cancelled by the next assignment to scrollTop - which the Station tick
+     makes every whole pixel (every 83 ms at 12 px/s). Measured headless with the deployed pane: at 4x the feed
+     went back 12-55 px of the 360 asked and carried on; at 1x, 89 of 90 (the whole glide fits between ticks).
+     Now it is the same kind of move as the page-up: an instant scroll, the slow scroll's phase reset, the crop
+     re-sent, so the pane shows the thirty seconds of feed at once. Never above the top of the page. */
+  function rewindPlan(scrollTop, speedPxPerSecond) {
+    const thirtySeconds = Math.round(Math.max(0, Number(speedPxPerSecond) || 0) * 30);
+    const top = Math.max(0, Math.max(0, Number(scrollTop) || 0) - Math.max(1, thirtySeconds));
+    return { pixels: thirtySeconds, top };
+  }
+
   function rewindFeed() {
     const root = document.scrollingElement || document.documentElement;
-    const thirtySeconds = Math.round(session.settings.speedPxPerSecond * 30);
+    const plan = rewindPlan(root.scrollTop, session.settings.speedPxPerSecond);
     resetStationScrollComposite();
-    root.scrollBy({
-      top: -Math.max(1, thirtySeconds),
-      behavior: "smooth"
-    });
+    root.scrollTo({ top: plan.top, behavior: "auto" });
+    if (typeof paintStationScrollCode === "function") paintStationScrollCode();   /* same frame as the scroll */
+    scheduleCropTargetUpdate();
+    return plan;
   }
 
   async function showSourceWindow() {

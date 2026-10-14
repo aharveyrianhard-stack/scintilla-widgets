@@ -103,3 +103,19 @@ The visible proof used a synthetic X-origin feed because the temporary Chrome pr
   The pane's refresh button is a different request and still refreshes. Turn the switch on only with his word on how often.
 - Install: the same files as 0.7.25 (only `manifest.json`, `content.js` and this file differ). Back-out: copy
   `~/Scintilla/_archive/SCINTILLA X Bridge-0.7.21-20261012-2300` back and restart Brave.
+
+## 0.7.27 (X3, 13 Oct 2026) — the rewind is a jump, not a glide
+
+- Alan, 13 Oct ~21:00 ET, on 0.7.26: "this button for minus 60 seconds on the Twitter scrolling is not working. I don't think it
+  even clicks." The button is the pane's −30s (⋯ panel); its request did leave the pane and did reach this bridge every time.
+- **The cause.** `rewindFeed` was a *smooth* `scrollBy` of pace × 30 px. A smooth scroll is cancelled by the next assignment to
+  `scrollTop`, and the Station tick makes one every whole pixel: every 83 ms at 12 px/s. Measured headless with the deployed pane
+  (`deliverables/20261013/x3`): at 4× the feed went back 12–55 px of the 360 asked and carried on; at 1× 89 of 90, because the
+  whole glide fits between two ticks. So at the pace he runs it looked like nothing.
+- **The fix.** The rewind is now the same kind of move as the page-up: an instant scroll of pace × 30 px (360 at 4×, 90 at 1×,
+  720 at 8×), never above the top, the slow scroll's phase reset, the scroll code repainted in the same frame, the crop re-sent.
+  Measured after: 358 of 360 at 4×, 89–90 of 90 at 1×, pointer on the pane or off it. The float's own −30s is the same function.
+- Nothing else changes: the crop (180, 54, 229 × 586 at the iMac), the pace and the declined timed page-up of 0.7.26 are as they were.
+- Install: the same files as 0.7.25 (only `manifest.json`, `content.js` and this file differ from 0.7.26). Archive the loaded
+  0.7.26 folder first (`~/Scintilla/_archive/SCINTILLA X Bridge-0.7.26-<date>`); back-out is that folder copied back, or
+  `git show 5bd4fa4:station-x-bridge-draft/<file>`, and a Brave restart (a downgrade does not load by itself).
