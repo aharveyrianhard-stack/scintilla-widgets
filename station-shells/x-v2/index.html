@@ -150,8 +150,17 @@ body.x-more #bXMore{ color:var(--crk); border-color:var(--crk); }
    On the bar: the state · list · notifications · ↻ with its cadence beside it (60s) · ⋯ · ⛶ — all icons. The ⋯
    now opens a small panel over the top of the feed instead of widening the row: the cadence (30 s / 60 s / 90 s),
    −30 s, the iPad link, picture-in-picture and the source's name, in words because there is room for words there. */
-#xfEvery{ flex:none; color:var(--dim); font-size:9px; letter-spacing:.04em; white-space:nowrap; align-self:center;
-  font-variant-numeric:tabular-nums; margin-left:-2px; }
+/* X4 (15 Oct): −30s ON THE BAR. Alan: "I have to click three dots to go back 30 seconds. And then this 60 seconds thing
+   is not even a button … Let's put the minus 30 seconds there, no?" The "60s" beside ↻ named a timed page-up the bridge
+   has declined since 0.7.26; it is gone, and −30s takes its place as a real button with the icons' box and frame, its
+   label in characters that fit that box. It left the ⋯ panel; the cadence choices stay there as they were. */
+#bXBack{ padding-left:0; padding-right:0; font-size:8px; letter-spacing:0; text-transform:none; white-space:nowrap; }
+html[data-view="desk"] #bXBack{ font-size:9px; }
+html[data-view="compact"] #bXBack{ font-size:7px; }
+/* At the iMac's pane (255 px) the bar was already 8 px wider than the pane, so ⋯ sat a little under ⛶, and −30s is 9 px
+   wider than the "60s" it replaces. On a pane this narrow the gaps and the left padding give those 9 px back, so ⋯ is no
+   further under ⛶ than before. Wider panes are unchanged. */
+@media (max-width: 300px){ #bar{ gap:3px; padding-left:3px; } }
 #xMore{ position:absolute; z-index:4; top:0; left:0; right:0; display:flex; flex-wrap:wrap; align-items:center; gap:4px;
   padding:5px 6px; border-bottom:1px solid var(--hair); background:var(--panel2); box-shadow:0 8px 24px rgba(0,0,0,.5); }
 body:not(.x-more) #xMore{ display:none; }
@@ -174,10 +183,10 @@ body:not(.x-more) #xMore{ display:none; }
   <button class="btn icon" id="bXRefresh" type="button" style="display:none" title="refresh now — the newest posts to the top" aria-label="Refresh the feed now">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13.2 2.4v3.1h-3.1"/></svg>
   </button>
-  <span id="xfEvery" style="display:none"></span>
+  <button class="btn icon" id="bXBack" type="button" style="display:none" title="back 30 seconds" aria-label="Back 30 seconds">−30s</button>
   <span class="btn go" id="bStart" style="display:none">browser picker</span>
   <span class="btn" id="bStop" style="display:none">stop</span>
-  <button class="btn" id="bXMore" type="button" style="display:none" title="more: how often it refreshes, rewind, iPad link, picture-in-picture, the source" aria-label="more X controls" aria-expanded="false">⋯</button>
+  <button class="btn" id="bXMore" type="button" style="display:none" title="more: how often it refreshes, iPad link, picture-in-picture, the source" aria-label="more X controls" aria-expanded="false">⋯</button>
   <span class="lbl" id="lz" style="display:none">zoom</span>
   <input type="range" id="z" min="100" max="400" value="150" style="display:none">
   <span class="lbl" id="lx" style="display:none">pan</span>
@@ -199,7 +208,6 @@ body:not(.x-more) #xMore{ display:none; }
     <button class="btn xs xs-row" type="button" data-v="6" title="twice the calm pace: 6 pixels a second" hidden>2×</button>
     <button class="btn xs xs-row" type="button" data-v="12" title="four times the calm pace: 12 pixels a second" hidden>4×</button>
     <span class="brk"></span>
-    <span class="btn x-sec" id="bXBack" style="display:none" title="rewind the feed 30 seconds">−30s</span>
     <button class="btn pair x-sec" id="bPair" type="button" style="display:none">iPad link</button>
     <span class="btn x-sec" id="bPip" style="display:none" title="float this in its own always-on-top window">pip</span>
     <span id="xfSource" class="x-sec" hidden></span>
@@ -1121,8 +1129,6 @@ function paintXRefresh() {
     const on = Number(b.dataset.s) === xRefreshSeconds;
     b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
   }
-  el("xfEvery").textContent = xRefreshSeconds + "s";
-  el("xfEvery").title = "refreshes by itself every " + xRefreshSeconds + " seconds — a page up · change it behind ⋯";
   el("bXRefresh").title = "refresh now — the newest posts to the top (by itself every " + xRefreshSeconds + " s)";
 }
 /* ── THE FEED'S PACE (ST3, 6 Oct; bridge 0.7.24) ─────────────────────────────────────────
@@ -1200,7 +1206,6 @@ function paintXView(view) {
 function xfloatControls(on) {
   for (const id of ["bXList", "bXNotify", "bXBack", "bXRefresh", "bXMore"])
     el(id).style.display = on ? "" : "none";
-  el("xfEvery").style.display = on && !REMOTE_MODE ? "" : "none";
   if (on) { xRefreshAt = Date.now(); paintXRefresh(); }   /* the first page-up is one cadence after the feed attaches */
   el("bStart").style.display = "none";
   el("bPair").style.display = on && !REMOTE_MODE ? "" : "none";
