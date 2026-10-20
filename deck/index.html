@@ -15,6 +15,9 @@
      SCINTILLA · /deck v4 — "THE STATION". Composition, not new widgets.
        top     /chart /chart              — always EXACTLY half and half
        bottom  video · video · X live     — three equal columns
+     (S11, 3 Oct 2026: the floor plan - X's column on the left, the charts' grid on the right;
+      Y7, 19 Oct 2026: the YouTube pane sits IN the chart grid, a block of its cells, bigger;
+      X has the whole column. See "THE VIDEO'S SLOT IN THE CHART GRID" below.)
 
      ---- v4 -------------------------------------------------------------------
      The two video slots now run /pane-video, which is built for a box: a
@@ -500,6 +503,26 @@ body.media-theatre:not(.stack) #grid > #rowTop{ position:relative; }
 body.media-theatre:not(.stack) #grid > #rowTop::after{ content:""; position:absolute; inset:0; z-index:23; background:var(--bg); }
 body.media-theatre:not(.stack) #grid > #rowBot > .pane.theatre{ position:absolute; z-index:24; flex:none; }
 body.media-theatre:not(.stack) #tfNow{ display:none; }
+/* ── THE VIDEO'S SLOT IN THE CHART GRID (Y7, 19 Oct 2026) ───────────────────────────────────
+   Alan, 19 Oct: "I need the YouTube to be bigger, bro. It's too small." He watches the TradingView
+   rotation for charts now; the Station is where the video plays. Measured before this change: the
+   pane was the column's width - 614 px at 2560 × 1440, 403 at 1680 × 1050, and 255 px in the
+   1062 × 685 Brave window the Station actually runs in on the iMac (a 255 × 143 picture).
+   The charts give the room, not X: the YouTube pane leaves the column's foot and takes a BLOCK of
+   the chart grid - the bottom-left 2 × 2 cells of a 3 × 3 wall (5 charts stay, 4 are off the wall),
+   never more than half the grid's cells (2 × 2 of 4 × 2; 2 × 1 of 3 × 2; one cell of two). X keeps
+   its 24 % column, now from top to bottom (more posts, which S11 wanted). The pane is exactly the
+   block, on the grid's own seams, so the tiles fill it and the player's 16:9 picture is the
+   largest the block holds. floorSlot() sets the numbers; placeChartsAroundSlot() puts the page's
+   first charts in the cells the block leaves, in reading order, and takes the rest off the wall
+   (hidden like .chart-off: still mounted, nothing reloads). The pane keeps its place in the
+   document (its iframe never reloads): it is lifted out of the column's flow and drawn over the
+   chart area, the way the theatre draws it, so ⛶ (the theatre), BACK and Esc are untouched.
+   A chart solo, CHARTS ONLY and a phone keep their own layouts: the slot stands down and the
+   pane goes back to the column's foot, where S11 put it. */
+body.video-slot:not(.stack) #grid{ position:relative; }
+body.video-slot:not(.stack) #grid > #rowBot > .pane.in-slot{ position:absolute; z-index:3; flex:none; width:auto; }
+body.video-slot:not(.stack) #grid > #rowTop > .pane.slot-off{ display:none; }
 /* ── THE TWO TAPES ON THE CHART AREA (S14, 5 Oct 2026) ──────────────────────────────────────
    Alan: "ONE TAPE FOR THE LIKED STOCKS, ANOTHER TAPE FOR THE FAVORITES, AND THE LIKED LIST DEDUPED
    FROM THE ONES ON FAVORITES." · "The ticker tape on the chart area — do not take over the YouTube
@@ -1632,6 +1655,61 @@ function floorTheatre(areaWidth, areaHeight, chromePx) {
   const pane = { w:pw, h:picture.h + chrome };
   return { picture, pane, left:Math.floor((w - pane.w) / 2), top:Math.floor((h - pane.h) / 2) };
 }
+/* ── THE VIDEO'S SLOT (Y7, 19 Oct) — the numbers, pure (see the CSS block of the same name) ──
+   grid is the count's exact grid (floorGrid) for the chart area, less the tapes. The block is a
+   bottom-left run of up to SLOT_SPAN × SLOT_SPAN cells and never more than half the grid's cells;
+   among those, the one whose 16:9 picture (under the shell's bar) is largest, and of equal pictures
+   the one with fewer cells, so a chart is never taken for black. 3 × 3 → 2 × 2 (five charts stay);
+   4 × 2 → 2 × 1 (a 2 × 2 there is only taller, not a bigger picture; six charts stay); 3 × 2 → 2 × 1;
+   2 × 1 → one cell; a one-cell grid has no room for a block and returns no cells for charts, which
+   the caller reads as "no slot". The box is the block's cells plus the seams between them. cells
+   are the free cells in reading order, as many as there are charts. */
+const SLOT_SPAN = 2;
+function floorSlot(grid, areaWidth, areaHeight, chromePx, count) {
+  const c = Math.max(1, Math.round(Number(grid && grid.cols) || 1)), r = Math.max(1, Math.round(Number(grid && grid.rows) || 1)), n = c * r;
+  const w = Math.max(0, Number(areaWidth) || 0), h = Math.max(0, Number(areaHeight) || 0);
+  const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
+  const cw = (w - (c - 1) * FLOOR_SEAM_PX) / c, ch = (h - (r - 1) * FLOOR_SEAM_PX) / r;
+  const boxOf = (bc, br) => ({ left:0, top:Math.round((r - br) * (ch + FLOOR_SEAM_PX)),
+    w:Math.round(bc * cw + (bc - 1) * FLOOR_SEAM_PX), h:Math.round(br * ch + (br - 1) * FLOOR_SEAM_PX) });
+  const pictureOf = (box) => { const pw = Math.max(0, Math.min(box.w, Math.floor((box.h - chrome) * 16 / 9))); return { w:pw, h:Math.round(pw * 9 / 16) }; };
+  let bc = 1, br = 1, best = null;
+  for (let tc = 1; tc <= Math.min(SLOT_SPAN, c); tc++) for (let tr = 1; tr <= Math.min(SLOT_SPAN, r); tr++) {
+    if (tc * tr > n / 2 && n > 1) continue;
+    const pic = pictureOf(boxOf(tc, tr)), area = pic.w * pic.h, cells = tc * tr;
+    if (!best || area > best.area || (area === best.area && cells < best.cells)) { best = { area, cells }; bc = tc; br = tr; }
+  }
+  const box = boxOf(bc, br), picture = pictureOf(box);
+  const free = [];
+  for (let row = 1; row <= r; row++) for (let col = 1; col <= c; col++)
+    if (!(col <= bc && row > r - br)) free.push({ col, row });
+  const wanted = Math.max(0, Math.round(Number(count) || 0));
+  const charts = Math.min(wanted, free.length);
+  return { cols:c, rows:r, block:{ cols:bc, rows:br }, box, picture, cells:free.slice(0, charts), charts, hidden:wanted - charts };
+}
+/* the slot for a count on this plan, or null where the slot stands down: a phone (no plan), a chart
+   solo, CHARTS ONLY, or a grid with no room for a block. SLOT_NOW is the one on the wall (fitVideoPane),
+   kept so a page change can measure the next page's boxes with the next page's slot. */
+let SLOT_NOW = null;
+function slotFor(count, plan, tapePx, chromePx) {
+  if (!plan || SOLO || document.body.classList.contains("charts-only")) return null;
+  const area = { w:plan.charts.w, h:plan.charts.h - (Number(tapePx) || 0) };
+  const slot = floorSlot(floorGrid(count, area.w, area.h), area.w, area.h, chromePx, count);
+  return slot.charts ? slot : null;
+}
+/* the charts around the block: the page's first charts in the free cells, the rest off the wall;
+   with no slot every chart goes back to the grid's own placement */
+function placeChartsAroundSlot(slot, count) {
+  const n = Number.isFinite(count) ? count : CHART_COUNT;
+  for (const o of PANES) {
+    if (o.def.kind !== "chart") continue;
+    const i = +String(o.def.key).slice(1) - 1;
+    const cell = slot && i >= 0 && i < n ? slot.cells[i] : null;
+    o.node.classList.toggle("slot-off", !!slot && i >= 0 && i < n && !cell);
+    o.node.style.gridColumn = cell ? String(cell.col) : "";
+    o.node.style.gridRow = cell ? String(cell.row) : "";
+  }
+}
 /* ── THE TWO TAPES ON THE CHART AREA (S14, 5 Oct) — the numbers and the lists, pure ──
    Two rows of TAPE_ROW_PX with one seam between them and one over them: 46 px, taken from the chart
    row's height and from nothing else. tapeLists() is the whole dedupe: FAVORITES is the Station's
@@ -1992,6 +2070,12 @@ function fitVideoPane() {
     top.style.setProperty("--fp-c" + n, g ? String(g.cols) : "");
     top.style.setProperty("--fp-r" + n, g ? String(g.rows) : "");
   }
+  /* Y7: the video's slot in the chart grid - for the page's count, in the area the tapes leave;
+     a chart solo and CHARTS ONLY have their own layouts, so the slot stands down for them */
+  const slot = slotFor(CHART_COUNT, plan, tapePx, onWall?.chromePx);
+  SLOT_NOW = { slot, plan, tapePx, chromePx:onWall?.chromePx };
+  document.body.classList.toggle("video-slot", !!slot);
+  placeChartsAroundSlot(slot);
   const theatre = !!plan && MEDIA_STAGE > 0;
   const theatreChanged = document.body.classList.contains("media-theatre") !== theatre;
   document.body.classList.toggle("media-theatre", theatre);
@@ -2009,6 +2093,15 @@ function fitVideoPane() {
     }
     o.node.style.left = ""; o.node.style.top = "";
     if (theatreChanged) postMediaStage(o);
+    /* Y7: the pane on the wall takes the block - the slot's box, on the chart grid's own seams */
+    const inSlot = !!slot && o.def.key === VIDEO_FEED && MEDIA_STAGE === 0;
+    o.node.classList.toggle("in-slot", inSlot);
+    if (inSlot) {
+      o.node.classList.remove("video-fit");
+      o.node.style.left = (plan.col + FLOOR_SEAM_PX + slot.box.left) + "px"; o.node.style.top = slot.box.top + "px";
+      o.node.style.width = slot.box.w + "px"; o.node.style.height = slot.box.h + "px";
+      continue;
+    }
     const lock = o.def.key === VIDEO_FEED && !STACKED && MEDIA_STAGE === 0 && !soloInBottomRow();
     o.node.classList.toggle("video-fit", lock);
     if (!lock) { o.node.style.width = ""; o.node.style.height = ""; continue; }
@@ -4327,9 +4420,12 @@ function measurePageBoxes(count) {
   const now = panes.map((p, i) => p && !off[i] ? { pane:boxOf(p.node), body:boxOf(p.body) } : null);
   row.className = was.replace(/\bcharts-\d\b/, "charts-" + count) + " page-measure";
   panes.forEach((p, i) => { if (p) p.node.classList.toggle("chart-off", i >= count); });
+  /* Y7: the next page's charts sit around the next page's slot (the block can change with the count) */
+  if (SLOT_NOW) placeChartsAroundSlot(slotFor(count, SLOT_NOW.plan, SLOT_NOW.tapePx, SLOT_NOW.chromePx), count);
   const next = panes.map((p, i) => p && i < count ? { pane:boxOf(p.node), body:boxOf(p.body) } : null);
   row.className = was;
   panes.forEach((p, i) => { if (p) p.node.classList.toggle("chart-off", off[i]); });
+  if (SLOT_NOW) placeChartsAroundSlot(SLOT_NOW.slot);
   return { now, next };
 }
 /* Drawn and dressed: the line, the price in the badge (once the deck holds one), the clouds, the lens
@@ -5164,7 +5260,7 @@ function selfUpdatePlan(seen, tags, idleMs, videoOnStage, deckPending, xLive, xH
    reload (stationKeepPlace).
    OFF: open the Station once with ?nightreload=0 (remembered on that browser; ?nightreload=1 turns it back
    on), or set NIGHT_RELOAD_DEFAULT_ON to false for every browser. */
-const NIGHT_RELOAD_DEFAULT_ON = true;
+const NIGHT_RELOAD_DEFAULT_ON = false; // coordinator 7 Oct: OFF until a reload is shown not to strand the X pane (it needs the extension re-run) - carried from the live deck so a Y7 deploy changes nothing else
 const NIGHT_RELOAD_RULE = Object.freeze({ fromHour: 3, toHour: 5, minOpenMs: 4 * 3600000, overdueMs: 30 * 3600000 });
 function nightReloadDue(on, openMs, hour, rule) {
   if (!on) return { due: false, why: "switched off" };
