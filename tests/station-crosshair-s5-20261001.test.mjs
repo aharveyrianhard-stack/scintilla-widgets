@@ -179,14 +179,16 @@ test("4: one key, one button, remembered, and the rotation is not touched", () =
 });
 
 /* ---- 5. "a little picture in picture player that actually goes off the station PWA" ---- */
-test("5: the pane's button lifts the video at the second it is at; in the Station the deck opens the window", () => {
+/* restated by Y8 (20 Oct): the pane now opens the Station's own window itself, through window.top (measured: a click or
+   a key in the pane is the gesture the browser asks for), and brings the video back - see station-y8-youtube-pip */
+test("5: the pane's button lifts the video at the second it is at, into the Station's own window (Y8)", () => {
   assert.match(pane, /<button class="btn" id="bPipBar" type="button"/);
-  assert.match(pane, /body\.playing #bPipBar\{ display:inline-flex; \}/, "on the bar while a video plays");
-  const lift = body(pane, "liftVideo");
-  assert.match(lift, /captureActiveVideoPosition\(\);\n\s+const start = Math\.max\(0, Math\.floor\(PLAYER_POSITION\.time \|\| 0\)\);/);
-  assert.match(lift, /window\.parent\.postMessage\(\{ sc:"video-pip", video_id:id, start, title \}, location\.origin\)/);
-  assert.match(pane, /el\("bPip"\)\.addEventListener\("click", liftVideo\);\nel\("bPipBar"\)\.addEventListener\("click", liftVideo\);/, "the menu item and the bar button do the same thing");
-  assert.match(body(pane, "notePip"), /YT_PLAYER\.pauseVideo\(\)/, "the pane pauses so the two do not play over each other");
+  assert.match(pane, /body\.playing\.can-float #bPipBar\{ display:inline-flex; \}/, "on the bar while a video plays, where the browser can float it");
+  const lift = body(pane, "floatVideo");
+  assert.match(lift, /captureActiveVideoPosition\(\);\n\s+const v = CUR, start = Math\.max\(0, Math\.floor\(PLAYER_POSITION\.time \|\| 0\)\);/);
+  assert.match(lift, /host\.documentPictureInPicture\.requestWindow\(floatSize\(\)\)/);
+  assert.match(pane, /el\("bPip"\)\.addEventListener\("click", toggleFloat\);\nel\("bPipBar"\)\.addEventListener\("click", toggleFloat\);/, "the menu item and the bar button do the same thing");
+  assert.match(lift, /YT_PLAYER\.pauseVideo\(\)/, "the pane pauses so the two do not play over each other");
 });
 
 test("5: Document PiP first, a small window where the browser lacks it, and the path is said", async () => {
