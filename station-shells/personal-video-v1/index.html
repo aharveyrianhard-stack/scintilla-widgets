@@ -1210,8 +1210,8 @@ window.addEventListener("pagehide", () => { captureActiveVideoPosition(); saveAc
    appended, or adopted first with adoptNode - loads again as a new page, and again on the way back; the one move
    that keeps a frame alive (moveBefore) refuses to cross documents (HierarchyRequestError). And a YouTube embed in
    the blank window has no page address, which YouTube refuses (Error 153, S5). So the window plays the Station's
-   float page (pip-v2) from this second, and the way back is a seek in this pane's own player, which never left:
-   about a second to start in the window, nothing reloads on the way back.
+   float page (pip-v2) from this second, and the way back asks this pane's own player - which never left, and is
+   never reloaded - for the video from the second the window reached.
    No Document PiP (Safari, Firefox, the iPad): no button, no menu item, no key - "open in youtube ↗" stays in the ⋯. */
 function floatHost() {
   try {
@@ -1330,14 +1330,10 @@ function floatClosed(win) {
   FLOAT = null;
   paintFloat();
   if (!CUR || CUR.video_id !== id) return;   /* back on the grid meanwhile: nothing to resume here */
+  /* back in this pane's own player - the same element, never reloaded - from the second the window reached: the
+     request the pane already makes to resume a shared position (and no seek control of the Station's own) */
   PLAYER_POSITION.time = at;
-  let here = false;
-  try { here = YT_PLAYER_READY && String(YT_PLAYER.getVideoData().video_id || "") === id; } catch (_) {}
-  if (here) {
-    /* the same video is still in this player, paused where it left: a seek, no reload */
-    try { YT_PLAYER.seekTo(at, true); YT_PLAYER.playVideo(); } catch (_) {}
-    startPlayerPositionPoll(PLAYER_TOKEN);
-  } else play(CUR, true, false, new Set(), 1, null, true, at);   /* chosen while it floated: it loads here, at that second */
+  play(CUR, true, false, new Set(), 1, null, true, at);
 }
 function floatKey(event) {
   if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.repeat) return false;
