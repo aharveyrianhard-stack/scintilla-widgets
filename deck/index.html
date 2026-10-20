@@ -3990,7 +3990,17 @@ addEventListener("keydown", (event) => {
   else if (event.key === "ArrowRight") { event.preventDefault(); stepScreen(1); }
   /* W for the wall: the same key hides the video and X panes and brings them back. */
   else if (event.key === "w" || event.key === "W") { event.preventDefault(); toggleChartsOnly(); }
+  /* P for picture-in-picture (Y8, 20 Oct): the video on the wall floats in an always-on-top window, P again brings
+     it back. The pane does it - it holds the video and the second it is at; this hands it the key, inside the key's
+     own gesture (the browser opens the window only from this, the top level - the pane opens it through window.top). */
+  else if ((event.key === "p" || event.key === "P") && !event.repeat) { if (floatVideoPane()) event.preventDefault(); }
 });
+function floatVideoPane() {
+  const pane = PANES.find((o) => o.def.kind === "video" && o.def.key === VIDEO_FEED);
+  const win = pane && pane.frame && pane.frame.contentWindow;
+  if (!win) return false;
+  try { win.postMessage({ type:"SCINTILLA_VIDEO_PIP_TOGGLE" }, location.origin); return true; } catch (_) { return false; }
+}
 wireChartsOnly();
 async function stepScreen(direction) {
   if (SCREEN_BUSY) return;

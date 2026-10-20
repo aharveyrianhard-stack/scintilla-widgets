@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>SCINTILLA · float</title>
+<!-- Y8 (20 Oct) — THE FLOATING PLAYER'S PAGE, v2. The video pane opens a Document Picture-in-Picture window and
+     puts THIS page in it (pip-v1, S5, stays as it was for a deck that still opens that one). Why a page at all: a
+     YouTube embed placed straight into the blank PiP document has no page address to send, and YouTube refuses it
+     ("Error 153 - video player configuration error", S5, measured headless 1 Oct); from here the embed has a real
+     Station address, as the pane's own player does.
+     What v2 adds: it SAYS the second it is at. The pane reads window.SC_FLOAT.at() (same origin) once a second and
+     as the window closes, so the way back resumes the pane's own player where the float left off; SC_FLOAT.ended()
+     lets the pane's queue carry on in the window. The player is YouTube's official IFrame player API - the one the
+     pane itself loads; if that script cannot load, v1's plain embed plays instead (from the second, silent about it).
+     Params: ?v=VIDEOID (required) · ?start=SECONDS · ?title=TEXT. Reads nothing, writes nothing. -->
+<style>
+html,body{ margin:0; height:100%; background:#000; overflow:hidden; }
+iframe, #p{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; }
+.msg{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#868AAA;
+  font:600 11px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; letter-spacing:.1em; text-transform:uppercase; }
+</style>
+</head>
+<body>
+<div id="p"></div>
+<script>
+(function () {
+  var qs = new URLSearchParams(location.search);
+  var id = qs.get("v") || "", start = Math.max(0, Math.floor(Number(qs.get("start")) || 0));
+  if (qs.get("title")) document.title = qs.get("title").slice(0, 120);
+  var state = { at: start, state: -1, ended: false, error: 0, api: "loading", blocked: false };
+  var player = null;
+  window.SC_FLOAT = {
+    id: id,
+    /* the second the float is at; until the player has one, the second it was asked to start from */
+    at: function () {
+      try { var t = Number(player && player.getCurrentTime && player.getCurrentTime()); if (t > 0) state.at = t; } catch (_) {}
+      return state.at;
+    },
+    ended: function () { return state.ended; },
+    /* the browser held the autoplay: the window waits for a click on ▶ (the pane says so) */
+    blocked: function () { return state.blocked; },
+    state: function () { return { at: state.at, state: state.state, ended: state.ended, error: state.error, api: state.api, blocked: state.blocked }; }
+  };
+  if (!/^[A-Za-z0-9_-]{6,20}$/.test(id)) {
+    var m = document.createElement("div"); m.className = "msg"; m.textContent = "no video named";
+    document.body.appendChild(m); return;
+  }
+  function plain() {
+    if (player || state.api === "plain") return;
+    state.api = "plain";
+    var f = document.createElement("iframe");
+    f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+    f.referrerPolicy = "strict-origin-when-cross-origin";
+    f.src = "https://www.youtube.com/embed/" + encodeURIComponent(id) +
+      "?playsinline=1&rel=0&modestbranding=1&autoplay=1&start=" + start +
+      "&origin=" + encodeURIComponent(location.origin);
+    document.body.appendChild(f);
+  }
+  window.onYouTubeIframeAPIReady = function () {
+    if (state.api === "plain") return;
+    state.api = "official";
+    player = new YT.Player("p", {
+      width: "100%", height: "100%", videoId: id,
+      playerVars: { autoplay: 1, start: start, playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin },
+      events: {
+        onReady: function (e) { try { e.target.playVideo(); } catch (_) {} },
+        onStateChange: function (e) { state.state = Number(e.data); if (state.state === 0) state.ended = true; if (state.state === 1) state.blocked = false; },
+        onAutoplayBlocked: function () { state.blocked = true; },
+        onError: function (e) { state.error = Number(e.data) || -1; }
+      }
+    });
+  };
+  var s = document.createElement("script");
+  s.src = "https://www.youtube.com/iframe_api"; s.async = true;
+  s.onerror = plain;
+  document.head.appendChild(s);
+  setTimeout(function () { if (!player) plain(); }, 15000);
+})();
+</script>
+</body>
+</html>
