@@ -29,13 +29,15 @@ iframe, #p{ position:absolute; inset:0; width:100%; height:100%; border:0; displ
   var qs = new URLSearchParams(location.search);
   var id = qs.get("v") || "", start = Math.max(0, Math.floor(Number(qs.get("start")) || 0));
   if (qs.get("title")) document.title = qs.get("title").slice(0, 120);
-  var state = { at: start, state: -1, ended: false, error: 0, api: "loading", blocked: false };
+  var state = { at: start, state: -1, ended: false, error: 0, api: "loading", blocked: false, played: false };
   var player = null;
   window.SC_FLOAT = {
     id: id,
-    /* the second the float is at; until the player has one, the second it was asked to start from */
+    /* the second the float is at - once it has played. Until then, the second it was asked to start from: a player
+       that is cued but held reports the keyframe before that second (seconds earlier, measured 20 Oct), and handing
+       that back would walk the video backwards on every float. */
     at: function () {
-      try { var t = Number(player && player.getCurrentTime && player.getCurrentTime()); if (t > 0) state.at = t; } catch (_) {}
+      try { var t = Number(state.played && player && player.getCurrentTime && player.getCurrentTime()); if (t > 0) state.at = t; } catch (_) {}
       return state.at;
     },
     ended: function () { return state.ended; },
@@ -66,7 +68,7 @@ iframe, #p{ position:absolute; inset:0; width:100%; height:100%; border:0; displ
       playerVars: { autoplay: 1, start: start, playsinline: 1, rel: 0, modestbranding: 1, origin: location.origin },
       events: {
         onReady: function (e) { try { e.target.playVideo(); } catch (_) {} },
-        onStateChange: function (e) { state.state = Number(e.data); if (state.state === 0) state.ended = true; if (state.state === 1) state.blocked = false; },
+        onStateChange: function (e) { state.state = Number(e.data); if (state.state === 0) state.ended = true; if (state.state === 1) { state.blocked = false; state.played = true; } },
         onAutoplayBlocked: function () { state.blocked = true; },
         onError: function (e) { state.error = Number(e.data) || -1; }
       }
