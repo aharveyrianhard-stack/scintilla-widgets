@@ -408,26 +408,33 @@ const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
 const AUTO   = QS.get("autoplay") === "1";
 const FORCE  = +(QS.get("cols") || 0);
 
-/* Personal is its own subscribed feed.  SCINTILLA is the shared Hub social
-   discovery grid: unscoped discovery plus channels deliberately subscribed
-   to SCINTILLA.  Its Subscribe action adds a channel to that durable feed;
-   it never asks the browser for Google device-code authorization. */
+/* Personal is its own subscribed feed.  SCINTILLA is its subscriptions too (Y7, 19 Oct 2026).
+   Alan: "I want to remove the search queries of the YouTube thing. At least on the station … on
+   the station, basically, I just want the subscribers feed. For the scintilla portion."
+   Until Y7 the SCINTILLA feed opened on an "all" list: every row in youtube_feed, which is the
+   SCINTILLA subscriptions PLUS the search collector's ticker-tagged clips (rows with no
+   subscription account at all). Measured on 19 Oct at 23:20 ET: of the 200 newest rows that list
+   asks for, 166 became tiles and 81 of them were search clips - half the grid. The "all" list is
+   gone from this pane: SCINTILLA opens on SUBSCRIBED (rows whose subscription_accounts carries
+   scintilla) and keeps the shared Watch Later. The MARKET SEARCH profile is untouched and still
+   answers its own URL (?feed=market) for the Hub's SOCIAL › YouTube, which keeps the searches;
+   the Station never opens it (the deck mounts only ?feed=<a channel>). Its Subscribe action adds
+   a channel to that durable feed; it never asks the browser for Google device-code authorization. */
 const SUBSCRIBED = {
   id: "default", n: "subscribed",
   q: "&subscription_accounts=cs." + encodeURIComponent("{" + FEED + "}")
 };
 const SCINTILLA_SUBSCRIBED = {
-  id: "subscribed", n: "subscribed",
+  id: "default", n: "subscribed",
   q: "&subscription_accounts=cs." + encodeURIComponent("{scintilla}")
 };
-/* A LIST says WHICH rows (this feed's subscriptions, the shared grid, the saved set, market
-   search). Whether shorts are in it is no longer a list's business: that is the MODE below. The old
-   "shorts" and "all market" chips were the same idea folded into a list, and they are kept as
-   URLs (?list=shorts, ?list=all) so nothing that linked here breaks. */
+/* A LIST says WHICH rows (this feed's subscriptions, the saved set, market search). Whether shorts
+   are in it is no longer a list's business: that is the MODE below. The old "shorts" and "all"
+   chips were the same idea folded into a list, and the URLs (?list=shorts, ?list=all) still land
+   (on the SHORTS tab and on the subscriptions, respectively) so nothing that linked here breaks. */
 const LISTS = FEED === "market" ? [
   { id: "default", n: "market", q: "&tickers=not.is.null&tickers=neq." },
 ] : FEED === "scintilla" ? [
-  { id: "default", n: "all", q: "" },
   SCINTILLA_SUBSCRIBED,
   { id: "watch", n: "watch later", q: "" },
 ] : [SUBSCRIBED];
@@ -447,8 +454,9 @@ let LIST = LISTS.some((l) => l.id === LEGACY_LIST) ? LEGACY_LIST : "default";
    every row that lands, including the id-based watch list.
 
    The default keeps what each feed showed before the tabs existed: a channel feed opened on its
-   videos only, the SCINTILLA grid and market search on everything. The choice is remembered per
-   feed on this device. */
+   videos only, the SCINTILLA grid and market search on everything (videos and shorts together -
+   that is this axis; WHICH rows is the list's, and on the Station SCINTILLA's list is its
+   subscriptions). The choice is remembered per feed on this device. */
 const MODES = [["grid", "grid"], ["videos", "videos"], ["shorts", "shorts"]];
 const MODE_KEYS = MODES.map(([key]) => key);
 const MODE_MEMORY = "station.video.mode." + FEED;
@@ -1576,18 +1584,21 @@ function liveFirst(rows, onAirRows, nowMs) {
   pinned.sort((a, b) => Date.parse(b.feed_at) - Date.parse(a.feed_at));
   return pinned.concat(list.filter((video) => !seen.has(video.video_id)));
 }
-/* The SCINTILLA grid keeps unscoped discovery rows and rows the SCINTILLA
-   account carries, and drops the rest. It runs over EVERY page, which is
-   why a page that arrives full can still add only a few tiles — and why
-   "is there more behind this?" is answered by the raw page size, never by
-   how many tiles survived the filter. */
+/* The SCINTILLA grid keeps the rows the SCINTILLA account carries and drops
+   the rest - a row with no account (a search clip) is not SCINTILLA's (Y7;
+   before Y7 the unscoped rows were kept, as the shared discovery grid). The
+   database asks the same question (the list's cs.{scintilla} clause); this
+   guard re-checks every row that lands, so a row served without the account
+   never reaches the Station. It runs over EVERY page, which is why a page
+   that arrives full can still add only a few tiles — and why "is there more
+   behind this?" is answered by the raw page size, never by how many tiles
+   survived the filter. Watch Later is Alan's own saved set and is not filtered. */
 function filterFeedRows(rows) {
   const accountsFor = (video) => Array.isArray(video?.subscription_accounts)
     ? video.subscription_accounts.map((account) => String(account).toLowerCase()) : [];
   return (Array.isArray(rows) ? rows : []).filter((video) => {
     if (FEED !== "scintilla" || LIST === "watch") return true;
-    const accounts = accountsFor(video);
-    return !accounts.length || accounts.includes("scintilla");
+    return accountsFor(video).includes("scintilla");
   });
 }
 /* Reaching the bottom of the grid asks for the page behind it. Watch Later is

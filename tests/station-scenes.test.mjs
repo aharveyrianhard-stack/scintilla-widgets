@@ -923,12 +923,15 @@ test("Personal subscriptions and the shared Scintilla discovery feed stay correc
      SCINTILLA "all" list reaches the same global shorts through that tab. */
   assert.match(videoPane, /const SHORT_CLAUSE = "&or=\(is_short\.eq\.true,duration\.like\.0:\*,duration\.eq\.1:00\)"/,
     "SCINTILLA discovery reaches the same global shorts as Hub, through the SHORTS tab");
-  assert.match(videoPane, /const SCINTILLA_SUBSCRIBED = \{\s*id: "subscribed", n: "subscribed",\s*q: "&subscription_accounts=cs\." \+ encodeURIComponent\("\{scintilla\}"\)\s*\}/,
-    "the restored SCINTILLA Subscribed tab asks for the existing durable Scintilla subscription account");
-  assert.match(videoPane, /FEED === "scintilla" \? \[\s*\{ id: "default", n: "all", q: "" \},\s*SCINTILLA_SUBSCRIBED,\s*\{ id: "watch"/,
-    "SCINTILLA visibly retains All, Subscribed and shared Watch Later in that order; Shorts is the tab beside them");
-  assert.match(videoPane, /return !accounts\.length \|\| accounts\.includes\("scintilla"\)/,
-    "the Station discovery grid excludes Personal-only videos while retaining unscoped and Scintilla videos");
+  /* Y7 (19 Oct 2026), Alan: "on the station, basically, I just want the subscribers feed. For the scintilla
+     portion." The SCINTILLA list is its subscriptions (the default) and the shared Watch Later; the "all"
+     list - subscriptions plus the search collector's ticker clips - is gone from the pane. */
+  assert.match(videoPane, /const SCINTILLA_SUBSCRIBED = \{\s*id: "default", n: "subscribed",\s*q: "&subscription_accounts=cs\." \+ encodeURIComponent\("\{scintilla\}"\)\s*\}/,
+    "the SCINTILLA Subscribed list is the default and asks for the existing durable Scintilla subscription account");
+  assert.match(videoPane, /FEED === "scintilla" \? \[\s*SCINTILLA_SUBSCRIBED,\s*\{ id: "watch"/,
+    "SCINTILLA offers Subscribed and shared Watch Later, in that order, and no All list; Shorts is the tab beside them");
+  assert.match(videoPane, /return accountsFor\(video\)\.includes\("scintilla"\);/,
+    "the Station grid keeps only videos the SCINTILLA account carries - no unscoped search clips, no Personal-only videos");
   assert.match(youtubeHub, /function ytHubAllowed\(r\)[\s\S]*?accounts\.includes\("scintilla"\)/,
     "Hub social uses the same Scintilla grid rule as Station");
   assert.match(videoPane, /\] : \[SUBSCRIBED\];/,
