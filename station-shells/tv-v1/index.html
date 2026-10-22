@@ -29,6 +29,11 @@ body{ display:flex; flex-direction:column; }
 #strip .tfs button{ font:9px var(--mono); letter-spacing:.08em; color:var(--ink3); background:transparent; border:1px solid transparent; padding:1px 6px; cursor:pointer; border-radius:0; }
 #strip .tfs button:hover{ color:var(--ink); border-color:var(--line); }
 #strip .tfs button.on{ color:var(--crk); border-color:var(--crk); }
+/* W3 (22 Oct): LIVE · TV on the strip - this shell is TV; LIVE asks the deck to swap the slot to live-v1 with the same symbol and interval */
+#strip .src{ display:flex; gap:2px; margin-left:6px; padding-left:6px; border-left:1px solid var(--line); }
+#strip .src button{ font:9px var(--mono); letter-spacing:.1em; color:var(--ink3); background:transparent; border:1px solid transparent; padding:1px 6px; cursor:pointer; border-radius:0; }
+#strip .src button:hover{ color:var(--ink); border-color:var(--line); }
+#strip .src button.on{ color:var(--bull); border-color:var(--bull); cursor:default; }
 #strip .note{ margin-left:auto; color:var(--mute); font-size:8.5px; letter-spacing:.08em; text-transform:uppercase; overflow:hidden; text-overflow:ellipsis; }
 #strip .note b{ color:var(--vol); font-weight:600; }
 #host{ flex:1 1 0; min-height:0; position:relative; }
@@ -41,6 +46,7 @@ body.bare #strip .sym{ display:none; }
 <div id="strip">
   <span class="sym" id="sym"></span>
   <span class="tfs" id="tfs" role="group" aria-label="Interval"></span>
+  <span class="src" id="src" role="group" aria-label="Chart source"><button type="button" id="srcLive" title="the house live chart: the whole tape, bars seconds after their close, VWAP to the cent, his clouds">LIVE</button><button type="button" id="srcTv" class="on" aria-pressed="true" title="this chart: TradingView's embed (delayed, Cboe One volume)">TV</button></span>
   <span class="note" id="note">TradingView · VWAP · <b>D</b> delayed bars, Cboe One volume</span>
 </div>
 <div id="host"></div>
@@ -88,6 +94,8 @@ function paintStrip() {
   }
 }
 function tell() { try { parent.postMessage({ type: "SCINTILLA_TV_STATE", n: N, ticker: SYMBOL, interval: INTERVAL }, location.origin); } catch (_) {} }
+/* W3: LIVE asks the deck for the other shell in this slot, the symbol and the interval carried; the deck remembers the choice */
+document.getElementById("srcLive").addEventListener("click", () => { try { parent.postMessage({ type: "SCINTILLA_CHART_SRC", n: N, src: "live", ticker: SYMBOL, interval: INTERVAL }, location.origin); } catch (_) {} });
 function setInterval_(i) {
   const next = tfOf(i); if (next === INTERVAL) return;
   INTERVAL = next; paintStrip(); mountWidget(); tell();

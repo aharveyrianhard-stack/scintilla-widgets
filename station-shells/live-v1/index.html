@@ -47,6 +47,9 @@ body{ display:flex; flex-direction:column; -webkit-font-smoothing:antialiased; }
 #strip .state b{ color:var(--dim); font-weight:600; }
 #strip .state[data-late="1"] b{ color:var(--late); }
 body.bare #strip .sym{ display:none; }
+/* W3 (22 Oct): LIVE · TV on the strip - this shell is LIVE; TV asks the deck to swap the slot to tv-v1 with the same symbol and interval */
+#strip .src{ display:flex; gap:2px; margin-left:4px; padding-left:6px; border-left:1px solid var(--line); }
+#strip .src button.on{ color:var(--bull); border-color:var(--bull); cursor:default; }
 @media (max-width:640px){ #strip{ gap:4px; padding:0 5px; } #strip button{ padding:1px 4px; } #strip .tfs{ margin-left:0; }
   #readout{ font-size:10px; } }
 #area{ flex:1 1 0; min-height:0; position:relative; overflow:hidden; touch-action:none; cursor:crosshair;
@@ -71,6 +74,7 @@ body.bare #strip .sym{ display:none; }
 <div id="strip">
   <span class="sym" id="sym"></span>
   <span class="tfs" id="tfs" role="group" aria-label="Interval"></span>
+  <span class="src" id="src" role="group" aria-label="Chart source"><button type="button" id="srcLive" class="on" aria-pressed="true" title="this chart: the house live chart - the whole tape, bars seconds after their close, VWAP to the cent, his clouds">LIVE</button><button type="button" id="srcTv" title="TradingView's embed in this slot instead (delayed, Cboe One volume; its drawing tools)">TV</button></span>
   <button type="button" id="cloudsBtn" title="His clouds: the 13/21-day EMAs and 50/200-day SMAs, daily-locked, as chart-v1 draws them">CLOUDS</button>
   <span class="px" id="px"></span>
   <span class="state" id="state"></span>
@@ -921,6 +925,8 @@ function setClouds(on) {
   S.cloudMap = null; paintStrip(); draw();
 }
 el("cloudsBtn").addEventListener("click", () => setClouds(!CLOUDS_ON));
+/* W3: TV asks the deck for the other shell in this slot, the symbol and the interval (in tv-v1's codes) carried; the deck remembers the choice */
+el("srcTv").addEventListener("click", () => { if (window.parent === window) return; try { parent.postMessage({ type:"SCINTILLA_CHART_SRC", n:N, src:"tv", ticker:SYMBOL, interval:TF.tv }, location.origin); } catch (_) {} });
 addEventListener("message", (e) => {
   if (e.origin !== location.origin || !e.data) return;
   const d = e.data;
