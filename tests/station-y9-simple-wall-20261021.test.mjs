@@ -179,10 +179,11 @@ test("Y9 · the sound: the first tap on the pane turns it on at the session's la
     const src = shells[name];
     /* a fresh session, the browser started the embed with its sound off: the first tap unmutes at 100 */
     let S = soundApi(src, { muted: true, volume: 100 });
-    S.soundOnPlaying(); assert.deepEqual(S.calls, [], name + ": playing before any tap touches nothing");
-    assert.equal(S.body.dataset.muted, "true", name + ": and the bar says muted");
+    /* 22 Oct (Y10, Alan: "I don't want it muted"): a video that starts is unmuted by default - restated from Y9's "playing before any tap touches nothing" */
+    S.soundOnPlaying(); assert.deepEqual(plain(S.calls), [["unMute"]], name + ": a video that starts is unmuted by default");
+    assert.equal(S.body.dataset.muted, "false", name + ": and the bar does not say muted");
     S.tap();
-    assert.deepEqual(plain(S.calls), [["unMute"]], name + ": the first tap unmutes (the volume is already 100)");
+    assert.deepEqual(plain(S.calls), [["unMute"]], name + ": the first tap adds nothing (the sound is already on at 100)");
     assert.equal(S.player.isMuted(), false); assert.equal(S.body.dataset.muted, "false");
     S.tap(); S.soundOnPlaying(); assert.equal(S.calls.length, 1, name + ": a second tap, a next video: nothing more is forced");
     /* the session remembered 37: the first tap unmutes at 37 */

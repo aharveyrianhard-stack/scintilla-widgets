@@ -1216,12 +1216,37 @@ function soundOnFirstTap() {
   } catch (_) {}
   paintSound(); setTimeout(paintSound, 1200);
 }
+/* ---- SOUND ON BY DEFAULT (22 Oct 2026) ----
+   Alan: "I don't want it muted." Every video that starts is unmuted at the session's volume (else 100) unless the user
+   muted it themselves. The Station runs as an installed web app, where the browser lets a video start with its sound.
+   Should a browser still refuse (a plain tab before any tap), it pauses the video: the pane then plays it on, muted, and
+   the bar says MUTED · TAP FOR SOUND (the Y9 path). Once the sound is on, the user's own later mute is remembered and
+   stands (rememberSound), and nothing here undoes it. */
+let SOUND_TRY_AT = 0;
+function soundOnByDefault() {
+  if (!YT_PLAYER_READY) return;
+  const want = rememberedSound();
+  if (want && want.muted) return;
+  try {
+    const vol = want && want.volume > 0 ? want.volume : (YT_PLAYER.getVolume() > 0 ? YT_PLAYER.getVolume() : 100);
+    if (YT_PLAYER.isMuted()) { SOUND_TRY_AT = Date.now(); YT_PLAYER.unMute(); }
+    if (YT_PLAYER.getVolume() !== vol) YT_PLAYER.setVolume(vol);
+  } catch (_) {}
+  setTimeout(() => {
+    try {
+      const st = YT_PLAYER.getPlayerState();
+      if (SOUND_TRY_AT && st === 2 && !SOUND_GESTURE) { YT_PLAYER.mute(); YT_PLAYER.playVideo(); }
+      else if (st === 1 && !YT_PLAYER.isMuted()) SOUND_DONE = true;
+    } catch (_) {}
+    SOUND_TRY_AT = 0; paintSound();
+  }, 900);
+}
 function soundOnPlayerReady(player) {
   const want = rememberedSound();
   if (want && want.volume > 0) try { player.setVolume(want.volume); } catch (_) {}
-  soundOnFirstTap(); paintSound();
+  soundOnFirstTap(); soundOnByDefault(); paintSound();
 }
-function soundOnPlaying() { soundOnFirstTap(); paintSound(); setTimeout(paintSound, 1500); }
+function soundOnPlaying() { soundOnFirstTap(); soundOnByDefault(); paintSound(); setTimeout(paintSound, 1500); }
 document.addEventListener("pointerdown", () => { SOUND_GESTURE = true; soundOnFirstTap(); }, { capture:true });
 document.addEventListener("keydown", () => { SOUND_GESTURE = true; soundOnFirstTap(); }, { capture:true });
 el("bSound").addEventListener("click", () => {
