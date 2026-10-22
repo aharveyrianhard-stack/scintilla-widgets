@@ -74,7 +74,9 @@ test("W2 · his clouds are chart-v1's own painting code, byte for byte, over the
   /* the map: daily-locked on every intraday width, exactly as chart-v1's cloudMapFor */
   const map = fn(live, "cloudMapNow");
   assert.match(map, /window\.SC_CLOUDS\.timeframeKind\(TF\.daily \? "1D" : "15m"\)/, "every intraday width maps like chart-v1's intraday ranges");
-  assert.match(map, /window\.SC_CLOUDS\.mapBarsToDaily\(S\.bars\.map\(\(b\) => b\.t\), S\.cloudRows, kind\)/);
+  /* W5 restated: a futures bar is mapped in its CME session (18:00 opens the next day); a stock bar as before */
+  assert.match(map, /const times = S\.bars\.map\(\(b\) => FUT && !TF\.daily \? b\.t \+ 6 \* 3600000 : b\.t\);/);
+  assert.match(map, /window\.SC_CLOUDS\.mapBarsToDaily\(times, S\.cloudRows, kind\)/);
   assert.match(fn(live, "readClouds"), /window\.SC_CLOUDS\.dailyRows\(pts\)/, "the rows are station-clouds.js's own");
   assert.match(fn(live, "readClouds"), /filter\(\(b\) => !b\.forming\)/, "completed daily closes only");
   assert.match(live, /drawCloudRibbon\(ctx, \{ map:cloudMap, start:first, end:last, X, Y, smooth:!CLOUD_STEPS,/);
@@ -120,7 +122,10 @@ test("W2 · VWAP from the full volume: hlc3 x volume over volume, the 04:00 and 
   const hourly = [bar("08:00", 1, 1, 1, 1, 10), bar("09:00", 2, 2, 2, 2, 10), bar("15:00", 3, 3, 3, 3, 10), bar("16:00", 4, 4, 4, 4, 10)];
   const vh = A.vwapSeries(hourly, 3600000, "0930");
   assert.ok(Number.isNaN(vh[0])); assert.equal(vh[1], 2); assert.equal(vh[2], 2.5); assert.ok(Number.isNaN(vh[3]));
-  assert.match(live, /S\.vw930 = TF\.daily \? \[\] : vwapSeries\(S\.bars, TF\.ms, "0930"\);/, "intraday only; a daily bar is its own session");
+  /* W5 restated: his VWAP (04:00 stocks, 18:00 futures, with its band) and the 09:30 line - intraday only, as before */
+  const rc = fn(live, "recompute");
+  assert.match(rc, /if \(TF\.daily\) \{ S\.vwMain = S\.vwUp = S\.vwLo = S\.vw930 = \[\]; S\.levels = null; \}/, "intraday only; a daily bar is its own session");
+  assert.match(rc, /S\.vw930 = vwapSeries\(S\.bars, TF\.ms, "0930"\);/);
 });
 
 test("W2 · precise numbers: a price prints exactly the decimals the tape sent; VWAP to the cent; shares to the share", () => {
@@ -152,7 +157,8 @@ test("W2 · the series: the provider's rows oldest first, the newest bars replac
   assert.equal(A.mergeTail(series, [{ t:5, c:5 }], 3).length, 3, "the series is bounded");
   assert.match(fn(live, "pollBars"), /const tail = await readBars\(TF\.daily \? 5 : 24\);/, "a poll reads the newest bars only");
   assert.match(fn(live, "pollBars"), /if \(S\.bars\.length < 2\) \{ loadAll\(\); return; \}/, "after a failed history read, the whole history again - never a 24-bar chart");
-  assert.match(fn(live, "loadAll"), /readQuote\(\);\n  if \(CLOUDS_ON\) readClouds\(\);\n  scheduleBars\(\);/, "a failed load still schedules the next turn");
+  /* W5 restated: the daily read now serves the futures levels too, so it is made whether or not the clouds are on */
+  assert.match(fn(live, "loadAll"), /readQuote\(\);\n  readLevelBars\(\);\n  readClouds\(\);\n  scheduleBars\(\);/, "a failed load still schedules the next turn");
   assert.match(fn(live, "scheduleBars"), /S\.bars\.length < 2 \? \{ at:Date\.now\(\) \+ \(S\.errorNamed \? POLL\.idleMs : POLL\.retryMs\), why:"reload" \}/,
     "a transport failure again in 15 s, a named absence in 5 minutes");
 });
@@ -211,7 +217,8 @@ test("W2 · the age of the last completed bar is always on the strip, narrow slo
   assert.equal(A.stateText(at("18:30"), last, null, 1074).late, true, "a bar ten minutes old in the session is late (amber)");
   assert.equal(A.stateText(at("21:30"), { t:at("19:55") }, null, 1074).text, "<b>closed</b> · whole tape · last bar 19:55 · closed 1 h 30 min ago");
   assert.equal(A.ageText(97000), "1 min 37 s"); assert.equal(A.ageText(5400000), "1 h 30 min");
-  assert.match(fn(live, "paintStrip"), /stateText\(now, last, q, document\.body\.clientWidth\)/);
+  /* W5 restated: the strip also knows futures sessions and failed reads */
+  assert.match(fn(live, "paintStrip"), /stateText\(now, last, q, document\.body\.clientWidth, FUT, S\.readFails \+ \(S\.quoteFails >= 3 \? 2 : 0\)\)/);
   assert.match(live, /setInterval\(paintStrip, 1000\);/, "the age counts every second");
 });
 
