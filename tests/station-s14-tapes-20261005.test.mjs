@@ -67,7 +67,8 @@ test("S14 · the height: two 22 px rows and two seams, taken from the chart row 
   assert.equal(TAPE_ROW_PX, 22); assert.equal(tapesHeight(true), 46); assert.equal(tapesHeight(false), 0);
   assert.match(deck, /body\.tapes:not\(\.stack\) #grid > #rowTop\{ margin-bottom:var\(--tapes-px, 46px\); \}/);
   assert.match(deck, /\.tape\{ flex:none; height:22px;/);
-  assert.match(deck, /const g = !plan \? null : tapePx \? floorGrid\(n, plan\.charts\.w, plan\.charts\.h - tapePx\) : plan\.grids\[n\];/,
+  /* Y9 (21 Oct): restated - SIMPLE's own grid (2 × 1) comes first on that line; the WALL's rule is unchanged */
+  assert.match(deck, /const g = simple \? \{ cols:slot\.cols, rows:slot\.rows \} : !plan \? null : tapePx \? floorGrid\(n, plan\.charts\.w, plan\.charts\.h - tapePx\) : plan\.grids\[n\];/,
     "each count's grid is chosen for the height that is left; off, it is S11's own");
   /* the three screens keep S11's grids with the tapes on: 9 → 3 × 3, 6 → 3 × 2, 4 → 2 × 2 */
   for (const [w, h] of SCREENS) { const p = floorPlan(w, h, 28);

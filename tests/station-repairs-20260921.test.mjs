@@ -56,7 +56,10 @@ test('the dock loses no control, no id and no accessible name', () => {
   /* 5 Oct (S14): one more deliberate control, in the ⋯ drawer - tapes on / off, the switch for the LIKED and
      FAVORITES tapes over the chart area (Alan: "one tape for the liked stocks, another tape for the favorites"). */
   assert.ok(after.has('tapesToggle'), 'tapes on / off is the deliberate new ⋯ control')
-  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 12)
+  /* 21 Oct (Y9): two more deliberate controls, beside CHARTS ONLY - WALL · SIMPLE, the wall mode remembered per
+     machine (Alan, on the MacBook: "the YouTube at the bottom and two charts that I change around manually"). */
+  assert.ok(after.has('wallBtn') && after.has('simpleBtn'), 'WALL · SIMPLE are the deliberate new wall-mode controls')
+  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 14)
 })
 
 test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {
