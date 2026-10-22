@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Station · TradingView chart</title>
+<!-- W1 (22 Oct 2026). Alan: "On the station, on the new station, just two trading view, like, widget charts. With VWAP …
+     I'm not going to be using this chart rotation anymore on station … It doesn't work for executing trades and stuff.
+     It's not precise enough. I need the bars, I need everything … Two trading view charts … that I switch between. That I
+     choose the security."
+     THIS SHELL is one TradingView Advanced Chart widget (the free embed, the same one his research board uses:
+     embed-widget-advanced-chart.js with "STD;VWAP"), candles, VWAP preloaded, the drawing toolbar on, dark, New York time,
+     extended hours asked for (extended_hours: true - a key the embed script lists). The deck mounts it in the WIDGETS wall's
+     two chart slots in place of chart-v1: ?t= is the symbol, ?tf= the interval (1 5 15 30 60 D), ?n= which chart (1 or 2).
+     WHAT IS REMEMBERED, AND BY WHOM. The deck remembers the symbol typed into ITS box (station.widgets.chart.N) and the
+     interval chosen on THIS strip (station.widgets.tf.N, told to the deck by message). The widget is a cross-origin frame
+     with no API: a symbol or an interval changed with the widget's OWN controls cannot be read back by this page, so it
+     lasts until the frame next loads and is not remembered - that is the embed's limit, not a bug here.
+     THE BARS: measured 22 Oct in a hidden browser (deliverables/20261022/w1/measure/tv-probe.json): the free widget's US stock
+     bars come from "Cboe One" (Cboe's own exchanges, not the whole tape) and carry the D (delayed) badge - see the RETURN. -->
+<style>
+:root{ --bg:#0A0A0F; --panel2:#0F0F17; --line:#1A1A2A; --ink:#F2F2F8; --ink2:#C8C8D8; --ink3:#9A9AB6; --mute:#6E6E80; --crk:#00D4FF; --vol:#FF8A00;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
+html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); font:11px var(--mono); overflow:hidden; }
+body{ display:flex; flex-direction:column; }
+#strip{ flex:none; height:22px; display:flex; align-items:center; gap:6px; padding:0 8px; background:var(--panel2); border-bottom:1px solid var(--line); white-space:nowrap; }
+#strip .sym{ color:var(--ink); letter-spacing:.14em; font-size:10px; text-transform:uppercase; }
+#strip .tfs{ display:flex; gap:2px; margin-left:4px; }
+#strip .tfs button{ font:9px var(--mono); letter-spacing:.08em; color:var(--ink3); background:transparent; border:1px solid transparent; padding:1px 6px; cursor:pointer; border-radius:0; }
+#strip .tfs button:hover{ color:var(--ink); border-color:var(--line); }
+#strip .tfs button.on{ color:var(--crk); border-color:var(--crk); }
+#strip .note{ margin-left:auto; color:var(--mute); font-size:8.5px; letter-spacing:.08em; text-transform:uppercase; overflow:hidden; text-overflow:ellipsis; }
+#strip .note b{ color:var(--vol); font-weight:600; }
+#host{ flex:1 1 0; min-height:0; position:relative; }
+#host .tradingview-widget-container, #host .tradingview-widget-container__widget{ height:100%; }
+#host iframe{ display:block; }
+body.bare #strip .sym{ display:none; }
+</style>
+</head>
+<body>
+<div id="strip">
+  <span class="sym" id="sym"></span>
+  <span class="tfs" id="tfs" role="group" aria-label="Interval"></span>
+  <span class="note" id="note">TradingView · VWAP · <b>D</b> delayed bars, Cboe One volume</span>
+</div>
+<div id="host"></div>
+<script>
+/* ---- the address ---- */
+const QS = new URLSearchParams(location.search);
+const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+const INTERVALS = ["1", "5", "15", "30", "60", "D"];
+const LABEL = { "1": "1m", "5": "5m", "15": "15m", "30": "30m", "60": "1h", "D": "1D" };
+const tfOf = (v) => INTERVALS.includes(String(v)) ? String(v) : "5";
+let SYMBOL = CLEAN(QS.get("t")) || "SPY";
+let INTERVAL = tfOf(QS.get("tf"));
+const N = /^[12]$/.test(QS.get("n") || "") ? +QS.get("n") : 1;
+if (QS.get("bare") === "1") document.body.classList.add("bare");
+/* the Station's own names on TradingView's symbology: the macro six and the two index futures; stocks pass through
+   (TradingView resolves a bare ticker to its primary listing) */
+const TV_SYMBOL = Object.freeze({ VIX: "TVC:VIX", US10Y: "TVC:US10Y", DXUSD: "TVC:DXY", GCUSD: "TVC:GOLD", CLUSD: "TVC:USOIL", SIUSD: "TVC:SILVER",
+  BTCUSD: "BITSTAMP:BTCUSD", ETHUSD: "BITSTAMP:ETHUSD", ESUSD: "CME_MINI:ES1!", NQUSD: "CME_MINI:NQ1!" });
+function tvSymbol(t) { const c = CLEAN(t); return TV_SYMBOL[c] || c; }
+/* the widget's configuration - the research board's, with the drawing toolbar on and extended hours asked for */
+function widgetConfig(symbol, interval) {
+  return { symbol: tvSymbol(symbol), interval, timezone: "America/New_York", theme: "dark", style: "1", locale: "en",
+    allow_symbol_change: true, hide_side_toolbar: false, hide_top_toolbar: false, hide_legend: false, extended_hours: true, withdateranges: false,
+    backgroundColor: "#0a0a0f", gridColor: "rgba(255,255,255,0.04)", studies: ["STD;VWAP"], autosize: true, support_host: "https://www.tradingview.com" };
+}
+/* the embed script reads its JSON from its own <script> body, so a new widget is a new container */
+function mountWidget() {
+  const host = document.getElementById("host"); host.innerHTML = "";
+  const box = document.createElement("div"); box.className = "tradingview-widget-container";
+  const inner = document.createElement("div"); inner.className = "tradingview-widget-container__widget";
+  const s = document.createElement("script"); s.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"; s.async = true;
+  s.textContent = JSON.stringify(widgetConfig(SYMBOL, INTERVAL));
+  box.appendChild(inner); box.appendChild(s); host.appendChild(box);
+  document.title = "Station · " + SYMBOL + " · " + LABEL[INTERVAL] + " · TradingView";
+}
+function paintStrip() {
+  document.getElementById("sym").textContent = SYMBOL;
+  const tfs = document.getElementById("tfs"); tfs.innerHTML = "";
+  for (const i of INTERVALS) {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = LABEL[i]; b.dataset.tf = i;
+    b.className = i === INTERVAL ? "on" : ""; b.title = LABEL[i] + " bars - remembered for chart " + N + " on this machine";
+    b.setAttribute("aria-pressed", i === INTERVAL ? "true" : "false");
+    b.addEventListener("click", () => setInterval_(i));
+    tfs.appendChild(b);
+  }
+}
+function tell() { try { parent.postMessage({ type: "SCINTILLA_TV_STATE", n: N, ticker: SYMBOL, interval: INTERVAL }, location.origin); } catch (_) {} }
+function setInterval_(i) {
+  const next = tfOf(i); if (next === INTERVAL) return;
+  INTERVAL = next; paintStrip(); mountWidget(); tell();
+}
+/* the deck re-points a slot by message when the frame's identity is unchanged (a page change on the same
+   shell); a new symbol here is a new widget */
+/* THE WIDGET'S OWN SYMBOL SEARCH IS HEARD (measured 22 Oct, tv-probe.json): the embed posts "quoteUpdate" messages to its
+   parent, each naming the symbol it is showing (short_name, e.g. "SPY"; original_name "BATS_DLY:SPY" - the delayed Cboe
+   feed). So a symbol picked with the widget's own box reaches this strip and the deck, which remembers it. The interval
+   picked inside the widget is NOT in those messages and stays the widget's until the frame next loads. */
+const WIDGET_ORIGIN = "https://www.tradingview-widget.com";
+function heardFromWidget(data) {
+  let m = data; try { if (typeof m === "string") m = JSON.parse(m); } catch (_) { return null; }
+  if (!m || m.name !== "quoteUpdate" || !m.data) return null;
+  const t = CLEAN(m.data.short_name); return t || null;
+}
+addEventListener("message", (e) => {
+  if (e.origin === WIDGET_ORIGIN) {
+    const t = heardFromWidget(e.data);
+    if (t && t !== SYMBOL && !Object.values(TV_SYMBOL).some((v) => v.endsWith(":" + t) && TV_SYMBOL[SYMBOL] === v)) { SYMBOL = t; paintStrip(); document.title = "Station · " + SYMBOL + " · " + LABEL[INTERVAL] + " · TradingView"; tell(); }
+    return;
+  }
+  if (e.origin !== location.origin || !e.data) return;
+  if (e.data.sc === "chart" && e.data.ticker) { const t = CLEAN(e.data.ticker); if (t && t !== SYMBOL) { SYMBOL = t; paintStrip(); mountWidget(); tell(); } return; }
+  if (e.data.type === "SCINTILLA_TV_INTERVAL") setInterval_(e.data.interval);
+});
+paintStrip(); mountWidget(); tell();
+</script>
+</body>
+</html>
