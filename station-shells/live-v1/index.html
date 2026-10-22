@@ -1,0 +1,1004 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Station · live chart</title>
+<!-- W2 (22 Oct 2026). Alan, 22 Oct ~17:55 ET: "Our own … chart … from trading live bars from the whole tape … the trading view is
+     more delayed … I feel like the big charts are my lines … If we can make it, I might not need to draw there." Earlier the same
+     day: "It doesn't work for executing trades … It's not precise enough. I need the bars, I need everything."
+     THIS SHELL is the house answer to the free TradingView embed (tv-v1) for the WIDGETS wall's two big slots: candles and volume
+     from the chart API (Massive, the consolidated tape, extended hours 04:00-20:00 ET), intervals 1m 5m 15m 30m 1h 1D, VWAP from the
+     full volume with two session anchors (09:30 and 04:00, labelled), a crosshair with price and time, a precise price axis, and
+     his clouds drawn exactly as chart-v1 draws them (the same arithmetic file, the same painting code - pinned byte-identical by
+     tests/station-w2-live-chart-20261022.test.mjs).
+     ADDRESS: ?symbol=SPY&tf=5m standalone; tv-v1's own keys are read too (?t= ?tf=1|5|15|30|60|D ?n= ?bare=1), so a WIDGETS slot
+     can be pointed here by changing the shell's path only. ?clouds=0|1 and ?steps=1 as on chart-v1.
+     WHERE EVERY NUMBER COMES FROM: one client, /_provider/provider.js - marketCandles for the bars, marketQuotes for the live price.
+     Nothing is fetched around it. The bars are the provider's COMPLETED bars, exactly as served; the bar still forming is shown the
+     way chart-v1 shows it (P3, 28 Sep): the live price from the stream, one dashed step and a hollow ring after the last completed
+     bar, never drawn as a finished candle. On 1D the API itself serves today's forming bar (forming=1, P7), drawn hollow.
+     LIVE, AND WHAT IT COSTS: see LIVE below. The age of the last completed bar is always printed on the strip.
+     WHAT IT DOES NOT DO: no line drawing (not in this pass), no deck change (the coordinator wires the TV <-> LIVE switch), no
+     writes anywhere except, when standalone (not ?bare), the clouds switch's own key as chart-v1 does. -->
+<style>
+:root{ --bg:#0A0A0F; --panel2:#0F0F17; --line:#1A1A2A; --line2:#252538; --ink:#F2F2F8; --ink2:#C8C8D8; --ink3:#9A9AB6; --dim:#868AAA;
+  --mute:#6E6E80; --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --late:#c8953a; --vwap:#F2B33D;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
+*{ box-sizing:border-box; }
+html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink3); font:11px var(--mono); overflow:hidden; }
+body{ display:flex; flex-direction:column; -webkit-font-smoothing:antialiased; }
+#strip{ flex:none; height:22px; display:flex; align-items:center; gap:6px; padding:0 8px; background:var(--panel2);
+  border-bottom:1px solid var(--line); white-space:nowrap; overflow:hidden; }
+#strip .sym{ color:var(--ink2); letter-spacing:.14em; font-size:10px; text-transform:uppercase; }
+#strip input.sym{ width:62px; background:transparent; border:1px solid var(--line2); padding:1px 4px; font:10px var(--mono);
+  outline:none; }
+#strip input.sym:focus{ border-color:var(--crk); color:var(--crk); }
+#strip .tfs{ display:flex; gap:2px; margin-left:2px; }
+#strip button{ font:9px var(--mono); letter-spacing:.08em; color:var(--ink3); background:transparent; border:1px solid transparent;
+  padding:1px 6px; cursor:pointer; border-radius:0; }
+#strip button:hover{ color:var(--ink2); border-color:var(--line2); }
+#strip button.on{ color:var(--crk); border-color:var(--crk); }
+#strip .px{ color:var(--ink3); font-size:10px; letter-spacing:.02em; font-variant-numeric:tabular-nums; }
+#strip .px[data-day="up"]{ color:var(--bull); }
+#strip .px[data-day="down"]{ color:var(--bear); }
+#strip .state{ margin-left:auto; color:var(--mute); font-size:8.5px; letter-spacing:.08em; text-transform:uppercase;
+  overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
+#strip .state b{ color:var(--dim); font-weight:600; }
+#strip .state[data-late="1"] b{ color:var(--late); }
+body.bare #strip .sym{ display:none; }
+/* W3 (22 Oct): LIVE · TV on the strip - this shell is LIVE; TV asks the deck to swap the slot to tv-v1 with the same symbol and interval */
+#strip .src{ display:flex; gap:2px; margin-left:4px; padding-left:6px; border-left:1px solid var(--line); }
+#strip .src button.on{ color:var(--bull); border-color:var(--bull); cursor:default; }
+@media (max-width:640px){ #strip{ gap:4px; padding:0 5px; } #strip button{ padding:1px 4px; } #strip .tfs{ margin-left:0; }
+  #readout{ font-size:10px; } }
+#area{ flex:1 1 0; min-height:0; position:relative; overflow:hidden; touch-action:none; cursor:crosshair;
+  -webkit-user-select:none; user-select:none; }
+#area.panning{ cursor:grabbing; }
+#cv, #ov{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+#ov{ pointer-events:none; }
+#readout{ position:absolute; left:8px; top:6px; z-index:2; pointer-events:none; font:600 11px var(--mono); line-height:1.45;
+  letter-spacing:.01em; color:var(--dim); font-variant-numeric:tabular-nums; white-space:nowrap; text-shadow:0 0 3px #05060c; }
+#readout .k{ color:var(--mute); font-weight:600; margin-left:7px; }
+#readout .k:first-child{ margin-left:0; }
+#readout .up{ color:var(--bull); } #readout .down{ color:var(--bear); }
+#readout .vw{ color:var(--vwap); }
+#readout .when{ color:var(--dim); margin-left:9px; }
+#readout .note{ color:var(--late); margin-left:7px; }
+#msg{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:10px;
+  letter-spacing:.1em; text-transform:uppercase; text-align:center; padding:20px; z-index:3; pointer-events:none; }
+#msg[hidden]{ display:none; }
+</style>
+</head>
+<body>
+<div id="strip">
+  <span class="sym" id="sym"></span>
+  <span class="tfs" id="tfs" role="group" aria-label="Interval"></span>
+  <span class="src" id="src" role="group" aria-label="Chart source"><button type="button" id="srcLive" class="on" aria-pressed="true" title="this chart: the house live chart - the whole tape, bars seconds after their close, VWAP to the cent, his clouds">LIVE</button><button type="button" id="srcTv" title="TradingView's embed in this slot instead (delayed, Cboe One volume; its drawing tools)">TV</button></span>
+  <button type="button" id="cloudsBtn" title="His clouds: the 13/21-day EMAs and 50/200-day SMAs, daily-locked, as chart-v1 draws them">CLOUDS</button>
+  <span class="px" id="px"></span>
+  <span class="state" id="state"></span>
+</div>
+<div id="area">
+  <canvas id="cv"></canvas>
+  <canvas id="ov"></canvas>
+  <div id="readout"></div>
+  <div id="msg">loading</div>
+</div>
+<script src="/_provider/provider.js"></script>
+<!-- His clouds: the arithmetic and geometry chart-v1 uses, unchanged (pure functions; reads no data, draws nothing). -->
+<script src="/_indicators/station-clouds.js"></script>
+<script>
+/* ONE SOURCE (2026-09-22): no database client here. Every bar and price comes from the chart API through SC_PROVIDER. */
+try { scBindProviderClient(); } catch (_) {}
+"use strict";
+
+/* ---- the address ---------------------------------------------------------------------------------------------------- */
+const QS = new URLSearchParams(location.search);
+const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+/* The six intervals. key = this shell's name, tv = tv-v1's code (the deck remembers a slot's interval in these), api = the
+   provider client's width, history = completed bars read on load (about three extended sessions on 5m). */
+const TFS = Object.freeze([
+  Object.freeze({ key:"1m",  tv:"1",  api:"1m",  ms:60000,    history:960 }),
+  Object.freeze({ key:"5m",  tv:"5",  api:"5m",  ms:300000,   history:600 }),
+  Object.freeze({ key:"15m", tv:"15", api:"15m", ms:900000,   history:400 }),
+  Object.freeze({ key:"30m", tv:"30", api:"30m", ms:1800000,  history:400 }),
+  Object.freeze({ key:"1h",  tv:"60", api:"1h",  ms:3600000,  history:400 }),
+  Object.freeze({ key:"1D",  tv:"D",  api:"1D",  ms:86400000, history:500, daily:true })
+]);
+function tfOf(value) {
+  const s = String(value == null ? "" : value).trim();
+  return TFS.find((x) => x.key === s || x.tv === s || x.key.toLowerCase() === s.toLowerCase()) || TFS[1];
+}
+let SYMBOL = CLEAN(QS.get("symbol") || QS.get("t")) || "SPY";
+let TF = tfOf(QS.get("tf"));
+const N = /^[12]$/.test(QS.get("n") || "") ? +QS.get("n") : 1;
+const BARE = QS.get("bare") === "1";
+if (BARE) document.body.classList.add("bare");
+function lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+/* THE CLOUDS, as chart-v1 reads them: on unless somebody turned them off. The Station dock owns the wall's switch (key
+   station.clouds, told to chart frames as { sc:"chart", clouds }); ?clouds= wins for one load. Standalone, the strip's
+   switch remembers the same key chart-v1 does; inside the deck (?bare=1) it never writes - the dock owns the key. */
+const CLOUD_STATE_KEY = "station.clouds";
+let CLOUDS_ON = QS.has("clouds") ? QS.get("clouds") !== "0" : lsGet(CLOUD_STATE_KEY) !== "0";
+const CLOUD_EXTRAS = Object.freeze({ ema8: QS.get("ema8") === "1", sma100: QS.get("sma100") === "1" });
+let CLOUD_STEPS = QS.has("steps") ? QS.get("steps") === "1" : lsGet("station.clouds.steps") === "1";
+
+/* ---- New York time --------------------------------------------------------------------------------------------------- */
+const ET_FMT = new Intl.DateTimeFormat("en-CA", { timeZone:"America/New_York", year:"numeric", month:"2-digit", day:"2-digit",
+  hour:"2-digit", minute:"2-digit", second:"2-digit", weekday:"short", hourCycle:"h23" });
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const ET_CACHE = new Map();
+function etParts(ms) {
+  const hit = ET_CACHE.get(ms);
+  if (hit) return hit;
+  const p = {};
+  for (const x of ET_FMT.formatToParts(new Date(ms))) p[x.type] = x.value;
+  const hh = +p.hour % 24, mm = +p.minute;
+  const out = { day:p.year + "-" + p.month + "-" + p.day, year:+p.year, month:+p.month, date:+p.day, min:hh * 60 + mm,
+    sec:+p.second, dow:p.weekday, hhmm:String(hh).padStart(2, "0") + ":" + p.minute };
+  if (ET_CACHE.size > 20000) ET_CACHE.clear();
+  ET_CACHE.set(ms, out);
+  return out;
+}
+/* The extended session the chart API serves: weekdays 04:00-20:00 New York. Holidays are not listed here; a day that brings no
+   bars slows the poll by itself (see LIVE). */
+function inSession(ms) {
+  const e = etParts(ms);
+  return e.dow !== "Sat" && e.dow !== "Sun" && e.min >= 240 && e.min < 1200;
+}
+
+/* ---- VWAP, from the full volume ---------------------------------------------------------------------------------------
+   TradingView's definition (W1 measured its widget against it): sum(hlc3 x volume) / sum(volume), cumulative from the anchor,
+   reset every New York day. Two anchors, each one of TradingView's own session modes:
+     0400 - the extended session: every bar that opens at or after 04:00 and before 20:00 (TradingView's VWAP on an
+            extended-hours chart);
+     0930 - the regular session: every bar that holds a minute of 09:30-16:00 (TradingView's VWAP on a regular-hours chart).
+            On 1m-30m bars that is exactly 09:30-16:00. The chart API's 1h bars are clock-aligned, so the 09:00 bar (09:00-10:00)
+            is the first one and carries half an hour of pre-market volume - stated, not hidden.
+   The volume is the provider's per-bar volume: the whole consolidated tape, not one venue. Returns one value per bar, NaN
+   where the bar is outside its anchor's session. Pure. */
+function hlc3(b) { return (b.h + b.l + b.c) / 3; }
+function vwapSeries(bars, tfMs, anchor) {
+  const out = new Array(bars.length).fill(NaN);
+  let day = null, pv = 0, vv = 0;
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i], e = etParts(b.t);
+    if (e.day !== day) { day = e.day; pv = 0; vv = 0; }
+    const endMin = e.min + tfMs / 60000;
+    const inside = anchor === "0930" ? endMin > 570 && e.min < 960 : e.min >= 240 && e.min < 1200;
+    if (!inside || (!(b.v > 0) && vv === 0)) continue;
+    if (b.v > 0) { pv += hlc3(b) * b.v; vv += b.v; }
+    out[i] = vv > 0 ? pv / vv : NaN;
+  }
+  return out;
+}
+
+/* ---- precise numbers ------------------------------------------------------------------------------------------------
+   A price is printed with as many decimals as the provider sent (764.0373 stays 764.0373; 764.13 is 764.13), never fewer than
+   two (four under a dollar): the shortest text that reads back as exactly the same number. */
+function fmtPx(v) {
+  if (!Number.isFinite(v)) return "—";
+  const min = Math.abs(v) < 1 ? 4 : 2;
+  for (let d = min; d <= 8; d++) if (+v.toFixed(d) === v) return v.toLocaleString("en-US", { minimumFractionDigits:d, maximumFractionDigits:d });
+  return v.toLocaleString("en-US", { minimumFractionDigits:min, maximumFractionDigits:8 });
+}
+/* Shares, rounded to the share (the tape carries fractional shares from odd-lot prints; the bar keeps the exact number). */
+function fmtVol(v) { return Number.isFinite(v) ? Math.round(v).toLocaleString("en-US") : "—"; }
+/* VWAP is a computed average, printed to the cent - the precision it is compared at. */
+function fmtVwap(v) { return Number.isFinite(v) ? v.toLocaleString("en-US", { minimumFractionDigits:2, maximumFractionDigits:2 }) : "—"; }
+/* Tags on the price axis must not sit on each other: the live price keeps its height, the others step away (pure). */
+function spreadTags(tags, gap, top, bottom) {
+  const placed = tags.filter((t) => t.fixed).map((t) => Object.assign({}, t, { at:t.y }));
+  for (const t of tags.filter((x) => !x.fixed).sort((a, b) => a.y - b.y)) {
+    /* the clear height nearest its own: its own, or just above or below a tag already placed */
+    const y0 = Math.max(top, Math.min(bottom, t.y));
+    const clear = (y) => y >= top && y <= bottom && placed.every((p) => Math.abs(p.at - y) >= gap);
+    const options = [y0].concat(...placed.map((p) => [p.at + gap, p.at - gap])).filter(clear)
+      .sort((a, b) => Math.abs(a - y0) - Math.abs(b - y0));
+    placed.push(Object.assign({}, t, { at:options.length ? options[0] : y0 }));
+  }
+  return placed;
+}
+/* The price axis: round levels, and as many decimals as the step itself needs (chart-v1's rule: a gridline at 12.5 reads
+   12.5, never 13). */
+function niceStep(range, ticks) {
+  const raw = Math.max(Number.EPSILON, range / Math.max(1, ticks));
+  const pow = Math.pow(10, Math.floor(Math.log10(raw))), r = raw / pow;
+  return (r <= 1 ? 1 : r <= 2 ? 2 : r <= 2.5 ? 2.5 : r <= 5 ? 5 : 10) * pow;
+}
+function stepDecimals(step) {
+  for (let d = 0; d <= 6; d++) { const s = step * Math.pow(10, d); if (Math.abs(s - Math.round(s)) < 1e-9) return d; }
+  return 6;
+}
+function ageText(ms) {
+  if (!Number.isFinite(ms)) return "—";
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return s + " s";
+  if (s < 3600) return Math.floor(s / 60) + " min " + String(s % 60).padStart(2, "0") + " s";
+  if (s < 86400) return Math.floor(s / 3600) + " h " + Math.floor((s % 3600) / 60) + " min";
+  return Math.floor(s / 86400) + " d " + Math.floor((s % 86400) / 3600) + " h";
+}
+
+/* ---- the series -------------------------------------------------------------------------------------------------------
+   The provider client hands rows newest first ({ timestamp in seconds, open, high, low, close, volume, forming }); the chart
+   keeps them oldest first as { t ms, o, h, l, c, v, forming }. A read of the newest bars replaces everything from its first
+   bar on (a corrected bar is taken as served) and keeps what came before. Pure. */
+function barsFromRows(rows) {
+  return (Array.isArray(rows) ? rows : []).map((r) => ({ t:Number(r.timestamp) * 1000, o:+r.open, h:+r.high, l:+r.low, c:+r.close,
+    v:+r.volume, forming:r.forming === true }))
+    .filter((b) => Number.isFinite(b.t) && [b.o, b.h, b.l, b.c].every(Number.isFinite))
+    .sort((a, b) => a.t - b.t);
+}
+function mergeTail(series, tail, keep) {
+  if (!tail.length) return series.slice();
+  const from = tail[0].t;
+  const out = series.filter((b) => b.t < from && !b.forming).concat(tail);
+  return keep && out.length > keep ? out.slice(out.length - keep) : out;
+}
+function lastCompleted(series) {
+  for (let i = series.length - 1; i >= 0; i--) if (!series[i].forming) return series[i];
+  return null;
+}
+/* THE BAR STILL FORMING, the way chart-v1 decides it (chApplyLivePoint): a live price belongs on the chart only when its own
+   observation time is later than the last completed bar's period - never inside it, never in the future. Returns the
+   bucket's start time, or null. 1D is a session question, not a clock one. Pure. */
+function formingBucket(quoteAt, last, tfMs, daily, now) {
+  if (!Number.isFinite(quoteAt) || !last) return null;
+  if (quoteAt > (Number.isFinite(now) ? now : Date.now()) + tfMs) return null;
+  if (daily) {
+    const qd = etParts(quoteAt).day, ld = etParts(last.t).day;
+    return qd > ld ? Date.parse(qd + "T04:00:00Z") : null;
+  }
+  if (quoteAt < last.t + tfMs) return null;
+  return Math.floor(quoteAt / tfMs) * tfMs;
+}
+
+/* ---- LIVE ------------------------------------------------------------------------------------------------------------
+   The chart API serves COMPLETED bars only, and serves each one within seconds of its close (it asks Massive for the
+   session on every read). Reads go through marketCandles with forming:true: on 1D that brings today's forming bar (P7); on
+   the intraday widths the API answers that it has none and serves the completed bars - and the forming read skips the
+   client's half-hour bar store and carries max-age 15 instead of 60, which is what keeps a 1m or 5m chart current.
+   THE SCHEDULE (one chart):
+     price - marketQuotes every 6 s (the stream's last trade; the API answers from memory, max-age 2). Not 5: the client keeps
+             a quote warm for 5 s from when its answer ARRIVED, so a 5 s timer found it warm every other tick (measured: one
+             real read per 10 s); at 6 s every tick is a real read.
+     bars  - one read of the newest bars 3 s after every bar closes (1m: every minute; 5m: every five), and if the bar is
+             not in yet, again every 15 s, at most three more times; nothing in between. After three closes in a row that
+             brought nothing (a quiet name after hours, a holiday), once a minute until one does. Outside 04:00-20:00 ET
+             (the 20:00 close itself still read), every 5 minutes. 1D: every 60 s while the API serves today's forming bar
+             or the regular session is on, otherwise every 5 minutes.
+   Pure: when the next bar read is due. */
+const POLL = Object.freeze({ quoteMs:6000, lagMs:3000, retryMs:15000, retries:3, quietMs:60000, dailyMs:60000, idleMs:300000 });
+function nextBarRead(now, tfMs, lastOpen, tries, idle, daily, formingServed) {
+  if (daily) {
+    const m = etParts(now).min, regular = inSession(now) && m >= 565 && m < 980;
+    return { at:now + (formingServed || regular ? POLL.dailyMs : POLL.idleMs), why:"daily" };
+  }
+  if (!inSession(now) && !inSession(now - 120000)) return { at:now + POLL.idleMs, why:"closed" };
+  if (idle) return { at:now + POLL.quietMs, why:"quiet" };
+  const closedOpen = Math.floor(now / tfMs) * tfMs - tfMs;          /* the bar whose period ended most recently */
+  const nextClose = Math.floor(now / tfMs) * tfMs + tfMs;
+  if (Number.isFinite(lastOpen) && lastOpen < closedOpen && tries < POLL.retries)
+    return { at:now + POLL.retryMs, why:"retry" };
+  return { at:nextClose + POLL.lagMs, why:"close" };
+}
+
+/* ---- state ------------------------------------------------------------------------------------------------------------ */
+const COL = Object.freeze({ bg:"#0A0A0F", bull:"#00FFA3", bear:"#FF2D55", dim:"#868AAA", ink3:"#9A9AB6", mute:"#6E6E80",
+  grid:"rgba(134,138,170,.085)", ext:"rgba(134,138,170,.04)", late:"#c8953a",
+  vwap930:"#F2B33D", vwap400:"#B88A35", volUp:"rgba(0,255,163,.26)", volDown:"rgba(255,45,85,.26)" });
+const S = {
+  bars:[], prevClose:null, quote:null, cloudRows:null, cloudTicker:null, cloudMap:null, cloudAt:0, cloudAsked:0,
+  vw930:[], vw400:[], gen:0, loading:true, error:null, lastRead:null, readAt:0, tries:0, misses:0, idle:false,
+  spacing:7, viewRight:null, hover:null, plot:null, log:[]
+};
+const el = (id) => document.getElementById(id);
+const cv = el("cv"), ov = el("ov"), area = el("area");
+function note(kind, ok, extra) {
+  S.log.push(Object.assign({ at:Date.now(), kind, ok }, extra || {}));
+  if (S.log.length > 400) S.log.splice(0, S.log.length - 400);
+}
+
+/* ---- reads ----------------------------------------------------------------------------------------------------------- */
+async function readBars(limit) {
+  const rows = await SC_PROVIDER.marketCandles(SYMBOL, TF.api, { limit, forming:true });
+  return barsFromRows(rows);
+}
+function recompute() {
+  S.vw930 = TF.daily ? [] : vwapSeries(S.bars, TF.ms, "0930");
+  S.vw400 = TF.daily ? [] : vwapSeries(S.bars, TF.ms, "0400");
+  S.cloudMap = null;
+}
+async function loadAll() {
+  const gen = ++S.gen;
+  S.loading = true; S.error = null; S.bars = []; S.quote = null; S.prevClose = null; S.viewRight = null; S.hover = null;
+  S.tries = 0; S.misses = 0; S.idle = false;
+  paintStrip(); showMsg("loading " + SYMBOL + " · " + TF.key); draw();
+  clearTimeout(barTimer);
+  try {
+    const bars = await readBars(TF.history);
+    if (gen !== S.gen) return;
+    note("bars", true, { n:bars.length, limit:TF.history });
+    if (bars.length < 2) throw new Error("the chart API served " + bars.length + " " + TF.key + " bars for " + SYMBOL);
+    S.bars = bars; S.readAt = Date.now(); S.loading = false;
+    recompute(); showMsg(null); draw();
+  } catch (error) {
+    if (gen !== S.gen) return;
+    note("bars", false, { error:String(error && (error.scAbsence || error.message) || error).slice(0, 160) });
+    S.loading = false; S.error = String(error && (error.scAbsence || error.message) || error); S.errorNamed = !!(error && error.scAbsence);
+    showMsg(SYMBOL + " · " + TF.key + " · " + S.error);
+  }
+  readQuote();
+  if (CLOUDS_ON) readClouds();
+  scheduleBars();
+  paintStrip();
+}
+let barTimer = 0;
+function scheduleBars() {
+  clearTimeout(barTimer);
+  const last = lastCompleted(S.bars), newest = S.bars[S.bars.length - 1];
+  /* no history yet: a transport failure is tried again in 15 s; an absence the API named, in 5 minutes */
+  const plan = S.bars.length < 2 ? { at:Date.now() + (S.errorNamed ? POLL.idleMs : POLL.retryMs), why:"reload" }
+    : nextBarRead(Date.now(), TF.ms, last ? last.t : NaN, S.tries, S.idle, !!TF.daily, !!(newest && newest.forming));
+  S.nextRead = plan;
+  barTimer = setTimeout(pollBars, Math.max(1000, plan.at - Date.now()));
+}
+async function pollBars() {
+  /* the history read failed (a transport error, a named absence): the next turn reads the whole history again, never a
+     24-bar tail standing in for the chart */
+  if (S.bars.length < 2) { loadAll(); return; }
+  const gen = S.gen, before = lastCompleted(S.bars);
+  try {
+    /* the newest bars only: enough to cover a missed close or two and any bar the provider corrected */
+    const tail = await readBars(TF.daily ? 5 : 24);
+    if (gen !== S.gen) return;
+    const merged = mergeTail(S.bars, tail, TF.history * 2);
+    const after = lastCompleted(merged);
+    const grew = !!(after && (!before || after.t > before.t));
+    note("tail", true, { n:tail.length, newest:after ? after.t : null, grew });
+    S.bars = merged; S.readAt = Date.now(); recompute();
+    if (grew) { S.tries = 0; S.misses = 0; S.idle = false; }
+    else if (!TF.daily) {
+      S.tries++;
+      const closed = Math.floor(Date.now() / TF.ms) * TF.ms - TF.ms;
+      if (S.tries > POLL.retries && after && after.t < closed) { S.misses++; S.tries = 0; if (S.misses >= 3) S.idle = true; }
+    }
+    draw();
+  } catch (error) {
+    if (gen !== S.gen) return;
+    note("tail", false, { error:String(error && (error.scAbsence || error.message) || error).slice(0, 160) });
+  }
+  paintStrip();
+  scheduleBars();
+}
+async function readQuote() {
+  const gen = S.gen, sym = SYMBOL;
+  try {
+    const rows = await SC_PROVIDER.marketQuotes([sym]);
+    if (gen !== S.gen) return;
+    const q = (rows || []).find((r) => r && r.ticker === sym);
+    note("quote", !!q);
+    if (q && Number.isFinite(+q.price) && +q.price > 0) {
+      const at = q.observed_at ? Date.parse(q.observed_at) : NaN;
+      S.quote = { price:+q.price, at, prev:Number.isFinite(+q.previous_close) && +q.previous_close > 0 ? +q.previous_close : null };
+      if (S.quote.prev) S.prevClose = S.quote.prev;
+      applyQuoteToFormingDay();
+      draw();
+    }
+  } catch (error) {
+    if (gen !== S.gen) return;
+    note("quote", false, { error:String(error && (error.scAbsence || error.message) || error).slice(0, 160) });
+  }
+  paintStrip();
+}
+setInterval(() => { if (!S.loading) readQuote(); }, POLL.quoteMs);
+setInterval(paintStrip, 1000);
+/* 1D: the forming bar the API served moves with the live price between reads - its close is the price, its range widens
+   to take it. Only a price from that bar's own session; a settled day never moves. */
+function applyQuoteToFormingDay() {
+  const b = S.bars[S.bars.length - 1], q = S.quote;
+  if (!TF.daily || !b || !b.forming || !q || !Number.isFinite(q.at)) return;
+  if (etParts(q.at).day !== etParts(b.t + 12 * 3600000).day) return;
+  b.c = q.price; if (q.price > b.h) b.h = q.price; if (q.price < b.l) b.l = q.price;
+}
+/* His clouds: the completed daily closes, read once per symbol through the same client chart-v1 uses (its own half-hour
+   store answers repeat reads), long enough for the 200-day average under every bar on screen. */
+const CLOUD_DAYS_PER_BAR = { "1m":1/960, "5m":1/192, "15m":1/64, "30m":1/32, "1h":1/16, "1D":1 };
+async function readClouds() {
+  if (!window.SC_CLOUDS || !CLOUDS_ON) return;
+  const sym = SYMBOL;
+  const need = Math.max(400, Math.min(6500, Math.ceil(TF.history * CLOUD_DAYS_PER_BAR[TF.key]) + 210));
+  if (S.cloudTicker === sym && S.cloudRows && S.cloudAsked >= need && Date.now() - S.cloudAt < 1800000) { S.cloudMap = null; draw(); return; }
+  try {
+    const rows = await SC_PROVIDER.marketCandles(sym, "1D", { limit:need });
+    if (sym !== SYMBOL) return;
+    const pts = barsFromRows(rows).filter((b) => !b.forming).map((b) => ({ d:new Date(b.t).toISOString(), p:b.c }));
+    const daily = window.SC_CLOUDS.dailyRows(pts);
+    note("clouds", daily.length >= 2, { n:pts.length });
+    if (sym !== SYMBOL || daily.length < 2) return;
+    S.cloudRows = daily; S.cloudTicker = sym; S.cloudAt = Date.now(); S.cloudAsked = need; S.cloudMap = null;
+    draw();
+  } catch (error) {
+    note("clouds", false, { error:String(error && (error.scAbsence || error.message) || error).slice(0, 160) });
+  }
+}
+
+/* ---- his clouds, painted ----------------------------------------------------------------------------------------------
+   COPIED FROM chart-v1 AND PINNED BYTE-IDENTICAL (tests/station-w2-live-chart-20261022.test.mjs): cloudSpecOptions,
+   cloudLineInk, drawCloudRibbon, cloudPercentText, drawCloudLabels and CLOUD_LABEL_INK are chart-v1's own text. The arithmetic
+   is /_indicators/station-clouds.js itself. A change to either copy fails the suite until the other follows. */
+const cloudSpecOptions = () => CLOUD_EXTRAS;
+function cloudLineInk(spec, bullish) {
+  return window.SC_CLOUDS.lineInk(bullish ? window.SC_CLOUDS.PALETTE.blue : window.SC_CLOUDS.PALETTE.pink,
+    bullish ? spec.blueOpacity : spec.pinkOpacity);
+}
+function drawCloudRibbon(ctx, options) {
+  const SC = window.SC_CLOUDS, map = options.map, X = options.X, Y = options.Y;
+  const runs = SC.runs(map, options.start - 1, options.end + 1);
+  if (!runs.length) return;
+  const specs = SC.activeSpecs(cloudSpecOptions());
+  const fills = new Map();
+  const addBand = (band, xa, xb) => {
+    if (!(xb - xa > .01)) return;
+    const ink = SC.cloudInk(band);
+    let path = fills.get(ink);
+    if (!path) { path = new Path2D(); fills.set(ink, path); }
+    path.moveTo(xa, Y(band.previousHi)); path.lineTo(xb, Y(band.hi));
+    path.lineTo(xb, Y(band.lo)); path.lineTo(xa, Y(band.previousLo)); path.closePath();
+  };
+  /* One polyline per (average, colour). A piece that starts where the last one ended continues
+     the pen instead of lifting it, so a sampled curve is one stroke, not a chain of dashes. */
+  const strokes = new Map();
+  const addLine = (spec, bullish, xa, ya, xb, yb) => {
+    const ink = cloudLineInk(spec, bullish), id = spec.key + "|" + ink;
+    let stroke = strokes.get(id);
+    if (!stroke) { stroke = { spec, ink, path:new Path2D(), x:NaN, y:NaN }; strokes.set(id, stroke); }
+    if (stroke.x !== xa || stroke.y !== ya) stroke.path.moveTo(xa, ya);
+    stroke.path.lineTo(xb, yb); stroke.x = xb; stroke.y = yb;
+  };
+  if (options.smooth) {
+    /* SMOOTHED FOR THE EYE, LABELS EXACT (Alan, 22 Sep). One anchor per session at that
+       session's last bar; a monotone curve through the anchors; the fill and every line follow
+       that curve, sampled about every two pixels and tiled with the approved crossing-split
+       geometry. The newest bar is an anchor, so where the labels sit is exactly where the
+       curve ends. Between anchors the shape is for the eye only. */
+    const keys = specs.map((spec) => spec.key);
+    for (const group of SC.curveGroups(runs)) {
+      const x0 = group.xs[0], x1 = group.xs[group.xs.length - 1];
+      if (!(x1 > x0)) continue;
+      const rowAt = SC.curveFor(group, keys);
+      const perBar = Math.max(1e-6, X(x0 + 1) - X(x0));
+      const step = Math.max(1 / 8, Math.min(1, 2 / perBar));
+      let px = x0, prev = rowAt(x0);
+      for (let x = x0 + step; ; x += step) {
+        const cx = Math.min(x, x1), row = rowAt(cx), xa = X(px), xb = X(cx), span = xb - xa;
+        for (const band of SC.cloudPolygons(prev, row)) addBand(band, xa + span * band.t0, xa + span * band.t1);
+        for (const spec of specs) {
+          const from = prev[spec.key], to = row[spec.key], state = SC.lineBullish(spec, row);
+          if (Number.isFinite(from) && Number.isFinite(to) && state !== null) addLine(spec, state, xa, Y(from), xb, Y(to));
+        }
+        px = cx; prev = row;
+        if (cx >= x1) break;
+      }
+    }
+  } else {
+    /* STEPPED: one level per session, straight between sessions - the drawing as it was. */
+    for (let i = 0; i < runs.length; i++) {
+      const run = runs[i];
+      if (run.to > run.from) for (const band of SC.cloudBands(run.row)) addBand(band, X(run.from), X(run.to));
+      const next = runs[i + 1];
+      if (!next || next.from !== run.to + 1) continue;
+      const xa = X(run.to), span = X(next.from) - xa;
+      for (const band of SC.cloudPolygons(run.row, next.row)) addBand(band, xa + span * band.t0, xa + span * band.t1);
+    }
+    for (const spec of specs) for (let i = 0; i < runs.length; i++) {
+      const run = runs[i], value = run.row[spec.key], state = SC.lineBullish(spec, run.row);
+      if (Number.isFinite(value) && state !== null && run.to > run.from)
+        addLine(spec, state, X(run.from), Y(value), X(run.to), Y(value));
+      const next = runs[i + 1];
+      if (!next || next.from !== run.to + 1) continue;
+      const from = run.row[spec.key], to = next.row[spec.key], nextState = SC.lineBullish(spec, next.row);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || nextState === null) continue;
+      addLine(spec, nextState, X(run.to), Y(from), X(next.from), Y(to));
+    }
+  }
+  /* One path per colour: adjacent bands then share an edge instead of leaving a
+     hairline seam between two separately antialiased fills. */
+  for (const [ink, path] of fills) { ctx.fillStyle = ink; ctx.fill(path); }
+  ctx.save();
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  for (const spec of specs) {
+    ctx.lineWidth = SC.strokeWidth(spec, options.scale);
+    ctx.setLineDash(spec.style === "dashed" ? (spec.key === "e8" ? [3, 5] : [5, 5]) : []);
+    for (const stroke of strokes.values()) if (stroke.spec === spec) { ctx.strokeStyle = stroke.ink; ctx.stroke(stroke.path); }
+  }
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+function cloudPercentText(pct) {
+  if (!Number.isFinite(pct)) return "";
+  if (Math.abs(pct) < .05) return "0.0%";
+  return (pct > 0 ? "+" : "−") + Math.abs(pct).toFixed(1) + "%";
+}
+/* The names sit at the exact height of their own average, beside the newest bar.
+   Crowded names step sideways into their own lane and drop the percentage; a name
+   with no honest room is not drawn rather than printed over the price scale. */
+function drawCloudLabels(ctx, options) {
+  const SC = window.SC_CLOUDS, map = options.map, row = map[options.end];
+  if (!row) return [];
+  const price = options.pts[options.end] ? options.pts[options.end].p : null;
+  const items = [];
+  for (const spec of SC.activeSpecs(cloudSpecOptions())) {
+    const value = row[spec.key];
+    if (!Number.isFinite(value)) continue;
+    const y = options.Y(value);
+    if (y < options.padT + 4 || y > options.padT + options.ih - 4) continue;
+    const bullish = Number.isFinite(price) ? price >= value : true;
+    const pct = cloudPercentText(SC.signedPercent(value, price));
+    items.push({ key:spec.key, y, value, bullish, short:spec.label,
+      full:pct ? spec.label + " (" + pct + ")" : spec.label });
+  }
+  if (!items.length) return [];
+  ctx.save();
+  ctx.font = "600 " + options.font.toFixed(1) + 'px "SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+  ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  const placed = SC.placeLabels(items, {
+    left:options.X(options.end) + 5, maxRight:options.padL + options.iw - 2,
+    rowHeight:options.font + 3.5, measure:(text) => ctx.measureText(text).width + 2
+  });
+  ctx.shadowColor = "rgba(3,5,8,.96)"; ctx.shadowBlur = 3;
+  for (const label of placed) {
+    ctx.fillStyle = label.bullish ? CLOUD_LABEL_INK.blue : CLOUD_LABEL_INK.pink;
+    ctx.fillText(label.text, label.x, label.y);
+    ctx.beginPath(); ctx.arc(options.X(options.end), label.y, 1.3, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+  return placed;
+}
+/* Text is read, a fill is only seen: the caption uses a brighter tone of the same
+   indigo family so a 7px name stays legible on the pane. No white, no second hue. */
+const CLOUD_LABEL_INK = Object.freeze({ blue:"#5C7BFF", pink:"#FF00A8" });
+/* Which completed daily observation each bar may show - chart-v1's cloudMapFor, for candles. Every intraday width is
+   daily-locked the same way; station-clouds.js names chart-v1's ranges, so the intraday kind is asked for by one of them. */
+function cloudMapNow() {
+  if (!CLOUDS_ON || !window.SC_CLOUDS || !S.cloudRows || S.cloudTicker !== SYMBOL || S.bars.length < 2) return null;
+  if (S.cloudMap && S.cloudMap.bars === S.bars) return S.cloudMap.map;
+  const kind = window.SC_CLOUDS.timeframeKind(TF.daily ? "1D" : "15m");
+  const map = window.SC_CLOUDS.mapBarsToDaily(S.bars.map((b) => b.t), S.cloudRows, kind);
+  S.cloudMap = { bars:S.bars, map };
+  return map;
+}
+
+/* ---- drawing ---------------------------------------------------------------------------------------------------------- */
+const MONO = '"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
+const AXIS_W = 62, TIME_H = 17, VOL_SHARE = .16;
+function sizeCanvas(c, w, h, dpr) {
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h); return ctx;
+}
+/* the slot after the last completed bar holds the bar still forming (intraday: the live price's step; 1D: the API's bar) */
+function formingNow() {
+  const last = lastCompleted(S.bars), q = S.quote;
+  if (!last || !q) return null;
+  if (TF.daily && S.bars[S.bars.length - 1].forming) return null;     /* the API's own forming day is drawn as a hollow candle */
+  const bucket = formingBucket(q.at, last, TF.ms, !!TF.daily, Date.now());
+  return bucket == null ? null : { t:bucket, price:q.price, from:last.c };
+}
+function liveEdge(n, rightPad) { return n - 1 + rightPad; }
+function draw() {
+  const w = area.clientWidth, h = area.clientHeight, dpr = window.devicePixelRatio || 1;
+  if (w < 40 || h < 40) return;
+  const ctx = sizeCanvas(cv, w, h, dpr);
+  const bars = S.bars, n = bars.length;
+  S.plot = null;
+  if (n < 2) { drawOverlay(); paintReadout(); return; }
+  const plotW = w - AXIS_W, plotH = h - TIME_H, padT = 8;
+  const cloudMap = cloudMapNow();
+  const forming = formingNow();
+  /* right margin: room for the forming step, and for the clouds' names when they are on and the newest bar is on screen */
+  const cloudBand = cloudMap && plotW >= 260 ? Math.max(30, Math.min(78, Math.round(plotW * .12))) : 0;
+  const rightPad = 2 + (forming ? 1 : 0) + Math.ceil(cloudBand / S.spacing);
+  const edge = liveEdge(n, rightPad);
+  const right = S.viewRight == null ? edge : Math.min(S.viewRight, edge);
+  const slots = plotW / S.spacing;
+  const first = Math.max(0, Math.floor(right - slots)), last = Math.min(n - 1, Math.ceil(right));
+  const X = (i) => plotW - (right - i) * S.spacing - S.spacing / 2;
+  /* the price range: the bars on screen, the two VWAPs under them and the live price - never the clouds (they are context,
+     drawn where they fall and clipped; chart-v1's own fit is the price too) */
+  let lo = Infinity, hi = -Infinity, vmax = 0;
+  for (let i = first; i <= last; i++) {
+    const b = bars[i]; if (b.l < lo) lo = b.l; if (b.h > hi) hi = b.h; if (b.v > vmax) vmax = b.v;
+    for (const v of [S.vw930[i], S.vw400[i]]) if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  }
+  if (forming && right >= n - 1) { lo = Math.min(lo, forming.price); hi = Math.max(hi, forming.price); }
+  if (!(hi > lo)) { hi = (Number.isFinite(hi) ? hi : 1) + .5; lo = hi - 1; }
+  const volH = Math.round(plotH * VOL_SHARE);
+  const priceBottom = plotH - volH - 4, priceH = priceBottom - padT;
+  const span = hi - lo, yLo = lo - span * .04, yHi = hi + span * .06;
+  const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * priceH;
+  const V = (v) => plotH - (vmax > 0 ? (v / vmax) * (volH - 2) : 0);
+  S.plot = { w, h, plotW, plotH, padT, priceH, priceBottom, right, first, last, yLo, yHi, X, Y, spacing:S.spacing, n, rightPad, edge };
+  /* extended hours, faintly: the pre- and after-market behind the bars (TradingView shades them too) */
+  if (!TF.daily) {
+    ctx.fillStyle = COL.ext;
+    let runStart = null;
+    for (let i = first; i <= last + 1; i++) {
+      const ext = i <= last && (() => { const m = etParts(bars[i].t).min; return m < 570 || m >= 960; })();
+      if (ext && runStart == null) runStart = i;
+      if (!ext && runStart != null) {
+        const xa = Math.max(0, X(runStart) - S.spacing / 2), xb = Math.min(plotW, X(i - 1) + S.spacing / 2);
+        ctx.fillRect(xa, 0, xb - xa, plotH); runStart = null;
+      }
+    }
+  }
+  /* his clouds, behind everything that is price */
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, plotW, priceBottom + 2); ctx.clip();
+  if (cloudMap) drawCloudRibbon(ctx, { map:cloudMap, start:first, end:last, X, Y, smooth:!CLOUD_STEPS,
+    scale:window.SC_CLOUDS.displayScale(plotW, Math.max(1, last - first + rightPad), 2) });
+  ctx.restore();
+  /* the price grid and the axis levels: a level about every 34 px, at round prices (drawn over the cloud fill, under price) */
+  const step = niceStep(yHi - yLo, Math.max(3, Math.round(priceH / 34))), dec = stepDecimals(step);
+  const levels = [];
+  for (let v = Math.ceil(yLo / step) * step; v <= yHi + step * 1e-6 && levels.length < 60; v += step) levels.push(+v.toPrecision(12));
+  ctx.save(); ctx.strokeStyle = COL.grid; ctx.lineWidth = 1;
+  for (const v of levels) { const yy = Math.round(Y(v)) + .5; if (yy < padT || yy > priceBottom) continue; ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(plotW, yy); ctx.stroke(); }
+  ctx.restore();
+  /* the time axis: a label every ~90 px on round New York times; the date where the day turns */
+  const timeLabels = timeTicks(bars, first, last, X);
+  ctx.save(); ctx.strokeStyle = COL.grid; ctx.lineWidth = 1;
+  for (const t of timeLabels) { const xx = Math.round(t.x) + .5; ctx.beginPath(); ctx.moveTo(xx, padT); ctx.lineTo(xx, plotH); ctx.stroke(); }
+  ctx.restore();
+  /* volume: the whole tape's shares per bar, in the bar's colour, at the foot of the pane */
+  const bw = Math.max(1, Math.round(S.spacing * .72) - (S.spacing >= 5 ? 1 : 0));
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, plotW, plotH); ctx.clip();
+  for (let i = first; i <= last; i++) {
+    const b = bars[i], x = Math.round(X(i) - bw / 2), top = V(b.v);
+    ctx.fillStyle = b.c >= b.o ? COL.volUp : COL.volDown;
+    ctx.fillRect(x, Math.round(top), bw, Math.max(1, Math.round(plotH - top)));
+  }
+  ctx.restore();
+  /* VWAP, the two anchors */
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, plotW, priceBottom + 2); ctx.clip();
+  drawLine(ctx, S.vw400, first, last, X, Y, COL.vwap400, 1.2, [5, 4]);
+  drawLine(ctx, S.vw930, first, last, X, Y, COL.vwap930, 1.6, []);
+  /* the candles: green when the bar closed at or above its open, red below; the wick the full range */
+  for (let i = first; i <= last; i++) {
+    const b = bars[i], up = b.c >= b.o, x = X(i), ink = up ? COL.bull : COL.bear;
+    const xc = Math.round(x) + .5;
+    ctx.strokeStyle = ink; ctx.fillStyle = ink; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(xc, Math.round(Y(b.h))); ctx.lineTo(xc, Math.round(Y(b.l)) + 1); ctx.stroke();
+    const yo = Y(b.o), yc = Y(b.c), top = Math.round(Math.min(yo, yc)), ht = Math.max(1, Math.round(Math.abs(yc - yo)));
+    if (b.forming) {
+      /* the API's forming day: hollow and dashed - not a finished bar */
+      ctx.fillStyle = "rgba(5,6,12,.95)"; ctx.fillRect(Math.round(x - bw / 2), top, bw, ht);
+      ctx.setLineDash([3, 2]); ctx.strokeRect(Math.round(x - bw / 2) + .5, top + .5, Math.max(1, bw - 1), Math.max(1, ht - 1)); ctx.setLineDash([]);
+    } else ctx.fillRect(Math.round(x - bw / 2), top, bw, ht);
+  }
+  /* the bar still forming, chart-v1's way: dashed from the last completed close to the live price, a hollow ring there */
+  if (forming && right >= n - 1) {
+    const x0 = X(n - 1), x1 = X(n), up = forming.price >= forming.from, ink = up ? COL.bull : COL.bear;
+    ctx.beginPath(); ctx.moveTo(x0, Y(forming.from)); ctx.lineTo(x1, Y(forming.price));
+    ctx.setLineDash([4, 3]); ctx.globalAlpha = .85; ctx.lineWidth = 1.4; ctx.strokeStyle = ink; ctx.stroke();
+    ctx.setLineDash([]); ctx.globalAlpha = 1;
+    ctx.beginPath(); ctx.arc(x1, Y(forming.price), 3, 0, Math.PI * 2);
+    ctx.lineWidth = 1.4; ctx.fillStyle = "rgba(5,6,12,.92)"; ctx.fill(); ctx.stroke();
+  }
+  ctx.restore();
+  /* his clouds' names, beside the newest bar, at their exact heights (chart-v1's labels) */
+  const cloudFont = Math.max(6.6, plotW >= 700 ? 8.4 : 7.6);
+  S.cloudLabels = cloudMap && last >= n - 1 && plotW >= 260 && priceH >= 90
+    ? drawCloudLabels(ctx, { map:cloudMap, pts:bars.map((b) => ({ p:b.c })), end:last, X, Y, padL:0, padT, iw:plotW, ih:priceH, font:cloudFont }) : null;
+  /* the price axis */
+  ctx.save();
+  ctx.fillStyle = COL.bg; ctx.fillRect(plotW, 0, AXIS_W, h);
+  ctx.strokeStyle = "#1A1A2A"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(plotW + .5, 0); ctx.lineTo(plotW + .5, h); ctx.stroke();
+  ctx.font = "10px " + MONO; ctx.textBaseline = "middle"; ctx.textAlign = "left"; ctx.fillStyle = COL.dim;
+  const tagYs = tagHeights(Y, padT, priceBottom, first, last);
+  for (const v of levels) {
+    const yy = Y(v); if (yy < padT + 4 || yy > priceBottom - 2 || tagYs.some((t) => Math.abs(t - yy) < 11)) continue;
+    ctx.fillText(v.toLocaleString("en-US", { minimumFractionDigits:dec, maximumFractionDigits:dec }), plotW + 5, yy);
+  }
+  ctx.restore();
+  /* the time axis */
+  ctx.save();
+  ctx.fillStyle = "#0A0A0F"; ctx.fillRect(0, plotH, plotW, TIME_H);
+  ctx.strokeStyle = "#1A1A2A"; ctx.beginPath(); ctx.moveTo(0, plotH + .5); ctx.lineTo(plotW, plotH + .5); ctx.stroke();
+  ctx.font = "10px " + MONO; ctx.textBaseline = "middle"; ctx.textAlign = "center";
+  for (const t of timeLabels) { ctx.fillStyle = t.day ? COL.ink3 : COL.dim; ctx.fillText(t.text, t.x, plotH + TIME_H / 2 + 1); }
+  ctx.restore();
+  /* the tags on the price axis: both VWAPs at their newest value on screen (to the cent) and the live price, which keeps
+     its own height; the live price in the day's colour (at or above yesterday's close green, below red) */
+  S.tags = spreadTags(wantedTags(Y, first, last), 15, padT + 7, priceBottom - 7);
+  ctx.save(); ctx.font = "600 10px " + MONO; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  for (const t of S.tags.slice().sort((a, b) => (a.fixed ? 1 : 0) - (b.fixed ? 1 : 0))) {
+    ctx.fillStyle = t.bg; ctx.fillRect(plotW + 1, Math.round(t.at - 7), AXIS_W - 1, 14);
+    ctx.fillStyle = t.ink; ctx.fillText(t.text, plotW + 5, t.at + .5);
+  }
+  ctx.restore();
+  drawOverlay();
+  paintReadout();
+}
+function wantedTags(Y, first, last) {
+  const lastValid = (arr) => { for (let i = Math.min(last, arr.length - 1); i >= first; i--) if (Number.isFinite(arr[i])) return arr[i]; return NaN; };
+  const live = S.quote ? S.quote.price : NaN;
+  const dayUp = S.prevClose != null && Number.isFinite(live) ? live >= S.prevClose : null;
+  const want = [], v4 = lastValid(S.vw400), v9 = lastValid(S.vw930);
+  if (Number.isFinite(v4)) want.push({ key:"vw0400", value:v4, text:fmtVwap(v4), bg:COL.vwap400, ink:COL.bg, y:Y(v4) });
+  if (Number.isFinite(v9)) want.push({ key:"vw0930", value:v9, text:fmtVwap(v9), bg:COL.vwap930, ink:COL.bg, y:Y(v9) });
+  if (Number.isFinite(live)) want.push({ key:"live", value:live, text:fmtPx(live), bg:dayUp == null ? COL.dim : dayUp ? COL.bull : COL.bear, ink:"#05060C", y:Y(live), fixed:true });
+  return want;
+}
+function tagHeights(Y, top, bottom, first, last) {
+  return spreadTags(wantedTags(Y, first, last), 15, top + 7, bottom - 7).map((t) => t.at);
+}
+function drawLine(ctx, arr, first, last, X, Y, ink, width, dash) {
+  ctx.save(); ctx.strokeStyle = ink; ctx.lineWidth = width; ctx.setLineDash(dash); ctx.lineJoin = "round";
+  ctx.beginPath();
+  let pen = false, prevDay = null;
+  for (let i = first; i <= last; i++) {
+    const v = arr[i], day = etParts(S.bars[i].t).day;
+    if (!Number.isFinite(v)) { pen = false; continue; }
+    if (!pen || day !== prevDay) ctx.moveTo(X(i), Y(v)); else ctx.lineTo(X(i), Y(v));
+    pen = true; prevDay = day;
+  }
+  ctx.stroke(); ctx.restore();
+}
+function timeTicks(bars, first, last, X) {
+  const out = [];
+  if (last <= first) return out;
+  const minGap = 88;
+  if (TF.daily) {
+    let prevMonth = null, lastX = -Infinity;
+    for (let i = first; i <= last; i++) {
+      const e = etParts(bars[i].t + 12 * 3600000), key = e.year * 12 + e.month;
+      if (key !== prevMonth && prevMonth !== null && X(i) - lastX >= minGap) {
+        out.push({ x:X(i), text:e.month === 1 ? String(e.year) : MON[e.month - 1], day:e.month === 1 }); lastX = X(i);
+      }
+      prevMonth = key;
+    }
+    return out;
+  }
+  /* times on round New York minutes while a day holds several labels; past that, the dates alone */
+  const tfMin = TF.ms / 60000, perPx = tfMin / S.spacing;
+  const stepMin = [5, 10, 15, 30, 60, 120, 240].find((m) => m >= minGap * perPx && m >= tfMin) || 0;
+  let prevDay = null, lastX = -Infinity;
+  for (let i = first; i <= last; i++) {
+    const e = etParts(bars[i].t), x = X(i);
+    if (e.day !== prevDay) {
+      if (prevDay !== null && x - lastX >= minGap * (stepMin ? .6 : 1)) { out.push({ x, text:MON[e.month - 1] + " " + e.date, day:true }); lastX = x; }
+      prevDay = e.day; continue;
+    }
+    if (stepMin && e.min % stepMin === 0 && x - lastX >= minGap) { out.push({ x, text:e.hhmm, day:false }); lastX = x; }
+  }
+  return out;
+}
+
+/* ---- the crosshair: price and time, on its own layer (moving the pointer repaints this layer only) ------------------------ */
+/* the bar under the pointer: X(i) = plotW - (right - i) x spacing - spacing / 2, solved for i */
+function hoverIndex() {
+  const P = S.plot, H = S.hover;
+  if (!P || !H) return null;
+  const ix = Math.round(P.right - (P.plotW - P.spacing / 2 - H.x) / P.spacing);
+  return Number.isFinite(ix) ? Math.max(P.first, Math.min(P.last, ix)) : null;
+}
+function drawOverlay() {
+  const w = area.clientWidth, h = area.clientHeight, dpr = window.devicePixelRatio || 1;
+  const ctx = sizeCanvas(ov, w, h, dpr);
+  const P = S.plot, H = S.hover;
+  S.crosshair = null;
+  if (!P || !H || H.x < 0 || H.x > P.plotW || H.y < 0 || H.y > P.plotH) return;
+  const ix = hoverIndex(), b = S.bars[ix];
+  if (!b) return;
+  const x = P.X(ix), y = H.y;
+  ctx.save();
+  ctx.strokeStyle = COL.dim; ctx.globalAlpha = .62; ctx.lineWidth = .75; ctx.setLineDash([4, 3]);
+  ctx.beginPath(); ctx.moveTo(Math.round(x) + .5, 0); ctx.lineTo(Math.round(x) + .5, P.plotH); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, Math.round(y) + .5); ctx.lineTo(P.plotW, Math.round(y) + .5); ctx.stroke();
+  ctx.restore();
+  /* the price at the pointer, on the axis - to the cent, finer when the axis itself is finer */
+  let price = null;
+  if (y >= P.padT && y <= P.priceBottom) {
+    price = P.yLo + (1 - (y - P.padT) / P.priceH) * (P.yHi - P.yLo);
+    const dec = Math.max(2, stepDecimals(niceStep(P.yHi - P.yLo, Math.max(3, Math.round(P.priceH / 34)))) + 1);
+    const text = price.toLocaleString("en-US", { minimumFractionDigits:dec, maximumFractionDigits:dec });
+    ctx.save(); ctx.fillStyle = "#252538"; ctx.fillRect(P.plotW + 1, Math.round(y - 8), AXIS_W - 1, 16);
+    ctx.fillStyle = COL.ink3; ctx.font = "600 10px " + MONO; ctx.textBaseline = "middle"; ctx.fillText(text, P.plotW + 5, y + .5); ctx.restore();
+    price = +price.toFixed(dec);
+  }
+  /* the bar's time, on the time axis */
+  const e = etParts(b.t);
+  const when = TF.daily ? e.dow + " " + e.date + " " + MON[e.month - 1] + " " + e.year : e.dow + " " + e.date + " " + MON[e.month - 1] + " " + e.hhmm;
+  ctx.save(); ctx.font = "600 10px " + MONO;
+  const tw = Math.ceil(ctx.measureText(when).width) + 10, tx = Math.max(0, Math.min(P.plotW - tw, x - tw / 2));
+  ctx.fillStyle = "#252538"; ctx.fillRect(tx, P.plotH + 1, tw, TIME_H - 1);
+  ctx.fillStyle = COL.ink3; ctx.textBaseline = "middle"; ctx.textAlign = "center"; ctx.fillText(when, tx + tw / 2, P.plotH + TIME_H / 2 + 1);
+  ctx.restore();
+  S.crosshair = { ix, t:b.t, price, when };
+}
+function readoutHtml(b, ix, hovering) {
+  const up = b.c >= b.o, cls = up ? "up" : "down", e = etParts(b.t), narrow = area.clientWidth < 700;
+  const when = TF.daily ? e.dow + " " + e.date + " " + MON[e.month - 1] + " " + e.year
+    : (narrow ? "" : e.dow + " ") + e.date + " " + MON[e.month - 1] + " " + e.hhmm + (narrow ? "" : " ET");
+  const v = (k, val) => '<span class="k">' + k + '</span> <span class="' + cls + '">' + val + "</span> ";
+  let html = v("O", fmtPx(b.o)) + v("H", fmtPx(b.h)) + v("L", fmtPx(b.l)) + v("C", fmtPx(b.c)) +
+    '<span class="k">V</span> <span>' + fmtVol(b.v) + "</span> " + '<span class="when">' + when + "</span>";
+  if (b.forming) html += ' <span class="note">forming</span>';
+  else if (!hovering && !narrow) html += ' <span class="k">last completed</span>';
+  if (!TF.daily) {
+    /* after 16:00 the regular session's VWAP has stopped: its 16:00 value is printed, and says so */
+    let a = S.vw930[ix], after = "";
+    if (!Number.isFinite(a) && etParts(b.t).min >= 960) {
+      for (let j = ix - 1; j >= 0 && etParts(S.bars[j].t).day === etParts(b.t).day; j--) if (Number.isFinite(S.vw930[j])) { a = S.vw930[j]; after = " (16:00)"; break; }
+    }
+    const c = S.vw400[ix];
+    html += "<br>" + '<span class="k">VWAP 09:30</span> <span class="vw">' + fmtVwap(a) + after + "</span> " +
+      '<span class="k">VWAP 04:00</span> <span class="vw">' + fmtVwap(c) + "</span>";
+  }
+  return html;
+}
+function paintReadout() {
+  const box = el("readout");
+  const P = S.plot;
+  if (!P || !S.bars.length) { box.innerHTML = ""; return; }
+  const hovering = !!(S.hover && S.crosshair);
+  const ix = hovering ? S.crosshair.ix : S.bars.lastIndexOf(lastCompleted(S.bars));
+  const b = S.bars[ix];
+  const html = b ? readoutHtml(b, ix, hovering) : "";
+  if (box.innerHTML !== html) box.innerHTML = html;
+  box.dataset.ix = String(ix);
+}
+
+/* ---- the strip: symbol, intervals, clouds, the live price, and the age of the last bar --------------------------------- */
+function paintStrip() {
+  const sym = el("sym");
+  if (sym.tagName !== "INPUT" && !BARE) {
+    const input = document.createElement("input"); input.className = "sym"; input.id = "sym"; input.spellcheck = false;
+    input.setAttribute("aria-label", "Symbol"); input.addEventListener("keydown", (e) => { if (e.key === "Enter") { setSymbol(input.value); input.blur(); } });
+    sym.replaceWith(input);
+  }
+  const s = el("sym");
+  if (s.tagName === "INPUT") { if (document.activeElement !== s) s.value = SYMBOL; } else s.textContent = SYMBOL;
+  const tfs = el("tfs");
+  if (tfs.childElementCount !== TFS.length) {
+    tfs.innerHTML = "";
+    for (const x of TFS) {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = x.key; b.dataset.tf = x.key;
+      b.title = x.key + " bars from the whole tape"; b.addEventListener("click", () => setTf(x.key)); tfs.appendChild(b);
+    }
+  }
+  for (const b of tfs.children) { const on = b.dataset.tf === TF.key; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); }
+  const cb = el("cloudsBtn"); cb.classList.toggle("on", CLOUDS_ON); cb.setAttribute("aria-pressed", CLOUDS_ON ? "true" : "false");
+  const px = el("px"), q = S.quote;
+  if (q) {
+    const pct = S.prevClose ? (q.price / S.prevClose - 1) * 100 : null;
+    px.textContent = fmtPx(q.price) + (pct == null ? "" : "  " + (pct >= 0 ? "+" : "−") + Math.abs(pct).toFixed(2) + "%");
+    px.dataset.day = pct == null ? "" : pct >= 0 ? "up" : "down";
+  } else { px.textContent = ""; px.dataset.day = ""; }
+  const st = el("state"), now = Date.now(), last = lastCompleted(S.bars);
+  const html = stateText(now, last, q, document.body.clientWidth);
+  if (st.innerHTML !== html.text) st.innerHTML = html.text;
+  st.dataset.late = html.late ? "1" : "0";
+}
+/* THE AGE OF THE LAST BAR, always on the strip: which bar is the newest completed one and how long ago it closed (the bar
+   still forming is the live price's, see LIVE). Narrow slots keep the age and drop the words around it. */
+function stateText(now, last, q, width) {
+  if (S.loading) return { text:"loading", late:false };
+  if (!last) return { text:S.error ? "no bars" : "", late:false };
+  const e = etParts(last.t), open = inSession(now);
+  const label = TF.daily ? e.date + " " + MON[e.month - 1] : e.hhmm;
+  const age = TF.daily ? null : now - (last.t + TF.ms);
+  const late = !TF.daily && open && age > TF.ms + 90000;
+  const head = open ? "<b>live</b>" : "<b>closed</b>";
+  if (width < 640) return { text:head + " · bar " + label + (age == null ? "" : " · " + ageText(age)), late };
+  let text = head + (width >= 900 ? " · whole tape" : "") + " · last bar " + label + (age == null ? "" : " · closed " + ageText(age) + " ago");
+  if (width >= 900 && q && Number.isFinite(q.at)) text += " · price " + ageText(now - q.at) + " old";
+  return { text, late };
+}
+function showMsg(text) { const m = el("msg"); if (text) { m.textContent = text; m.hidden = false; } else m.hidden = true; }
+
+/* ---- changes ------------------------------------------------------------------------------------------------------------ */
+function tell() {
+  if (window.parent === window) return;
+  /* NOT tv-v1's SCINTILLA_TV_STATE: the WIDGETS deck re-points a slot to the TradingView shell when it hears that one.
+     The same fields, its own name, for the coordinator to wire; the interval in tv-v1's codes so one memory serves both. */
+  try { parent.postMessage({ type:"SCINTILLA_LIVE_STATE", n:N, ticker:SYMBOL, interval:TF.tv, tf:TF.key }, location.origin); } catch (_) {}
+}
+function keepAddress() {
+  if (BARE || window.parent !== window) return;
+  const q = new URLSearchParams(location.search); q.delete("t"); q.set("symbol", SYMBOL); q.set("tf", TF.key);
+  try { history.replaceState(null, "", location.pathname + "?" + q.toString()); } catch (_) {}
+}
+function setSymbol(value) {
+  const t = CLEAN(value); if (!t || t === SYMBOL) { paintStrip(); return; }
+  SYMBOL = t; document.title = "Station · " + SYMBOL + " · " + TF.key + " · live"; keepAddress(); tell(); loadAll();
+}
+function setTf(value) {
+  const next = tfOf(value); if (next === TF) return;
+  TF = next; S.spacing = TF.daily ? 6 : 7; document.title = "Station · " + SYMBOL + " · " + TF.key + " · live"; keepAddress(); tell(); loadAll();
+}
+function setClouds(on) {
+  const next = !!on; if (next === CLOUDS_ON) return;
+  CLOUDS_ON = next;
+  if (!BARE) { try { localStorage.setItem(CLOUD_STATE_KEY, CLOUDS_ON ? "1" : "0"); } catch (_) {} }
+  if (CLOUDS_ON) readClouds();
+  S.cloudMap = null; paintStrip(); draw();
+}
+el("cloudsBtn").addEventListener("click", () => setClouds(!CLOUDS_ON));
+/* W3: TV asks the deck for the other shell in this slot, the symbol and the interval (in tv-v1's codes) carried; the deck remembers the choice */
+el("srcTv").addEventListener("click", () => { if (window.parent === window) return; try { parent.postMessage({ type:"SCINTILLA_CHART_SRC", n:N, src:"tv", ticker:SYMBOL, interval:TF.tv }, location.origin); } catch (_) {} });
+addEventListener("message", (e) => {
+  if (e.origin !== location.origin || !e.data) return;
+  const d = e.data;
+  if (d.sc === "chart") {
+    if (typeof d.clouds === "boolean") setClouds(d.clouds);
+    if (typeof d.steps === "boolean") { CLOUD_STEPS = d.steps; draw(); }
+    if (d.ticker) setSymbol(d.ticker);
+    return;
+  }
+  if (d.type === "SCINTILLA_TV_INTERVAL" || d.type === "SCINTILLA_LIVE_INTERVAL") setTf(d.interval);
+});
+
+/* ---- the pointer: crosshair, wheel to zoom, drag to pan, double-click back to now ----------------------------------------- */
+function local(e) { const r = area.getBoundingClientRect(); return { x:e.clientX - r.left, y:e.clientY - r.top }; }
+let drag = null;
+area.addEventListener("pointermove", (e) => {
+  const p = local(e);
+  if (drag && S.plot) {
+    const dx = p.x - drag.x;
+    if (Math.abs(dx) > 2) area.classList.add("panning");
+    S.viewRight = Math.min(S.plot.edge, Math.max(10, drag.right - dx / S.spacing));
+    if (S.viewRight >= S.plot.edge - .01) S.viewRight = null;
+    S.hover = p; draw(); return;
+  }
+  S.hover = p; drawOverlay(); paintReadout();
+});
+area.addEventListener("pointerleave", () => { S.hover = null; drawOverlay(); paintReadout(); });
+area.addEventListener("pointerdown", (e) => {
+  if (!S.plot) return;
+  drag = { x:local(e).x, right:S.viewRight == null ? S.plot.edge : S.viewRight };
+  try { area.setPointerCapture(e.pointerId); } catch (_) {}
+});
+const endDrag = () => { drag = null; area.classList.remove("panning"); };
+area.addEventListener("pointerup", endDrag); area.addEventListener("pointercancel", endDrag);
+area.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  if (!S.plot) return;
+  const before = S.spacing;
+  S.spacing = Math.max(2, Math.min(40, S.spacing * Math.exp(-e.deltaY * .0015)));
+  if (S.viewRight != null) {
+    /* keep the bar under the pointer where it is */
+    const p = local(e), atPointer = S.viewRight - (S.plot.plotW - p.x) / before;
+    S.viewRight = atPointer + (S.plot.plotW - p.x) / S.spacing;
+  }
+  draw();
+}, { passive:false });
+area.addEventListener("dblclick", () => { S.viewRight = null; S.spacing = TF.daily ? 6 : 7; draw(); });
+addEventListener("resize", () => draw());
+/* the deck cannot see a pointer inside a frame: say, once a second at most, that this pane is in use (chart-v1's message) */
+(function reportStationActivity() {
+  if (window.parent === window) return;
+  let last = 0;
+  const send = () => { const now = Date.now(); if (now - last < 1000) return; last = now;
+    try { window.parent.postMessage({ sc:"station-activity", pane:"live-v1-" + N, at:now }, location.origin); } catch (_) {} };
+  for (const ev of ["pointermove", "pointerdown", "wheel", "keydown"]) addEventListener(ev, send, { passive:true, capture:true });
+})();
+
+/* A proof can read what the pane holds and shows; nothing here changes it. */
+window.SC_LIVE = Object.freeze({
+  snapshot: () => ({ symbol:SYMBOL, tf:TF.key, n:N, bare:BARE, clouds:CLOUDS_ON, loading:S.loading, error:S.error,
+    bars:S.bars.map((b) => Object.assign({}, b)), quote:S.quote && Object.assign({}, S.quote), prevClose:S.prevClose,
+    vw930:S.vw930.slice(), vw400:S.vw400.slice(), tags:(S.tags || []).slice(), cloudLabels:S.cloudLabels || null,
+    cloudRows:S.cloudRows ? S.cloudRows.length : 0, forming:formingNow(), plot:S.plot && { first:S.plot.first, last:S.plot.last,
+      right:S.plot.right, spacing:S.plot.spacing, plotW:S.plot.plotW, plotH:S.plot.plotH, yLo:S.plot.yLo, yHi:S.plot.yHi },
+    readout:el("readout").textContent, readoutIx:+el("readout").dataset.ix, state:el("state").textContent,
+    crosshair:S.crosshair || null, nextRead:S.nextRead || null, log:S.log.slice() }),
+  xOf: (i) => S.plot ? S.plot.X(i) : null,
+  POLL
+});
+
+document.title = "Station · " + SYMBOL + " · " + TF.key + " · live";
+paintStrip(); tell(); loadAll();
+</script>
+</body>
+</html>

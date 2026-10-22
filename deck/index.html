@@ -1362,6 +1362,18 @@ function simpleChoice(stored, urlValue, screenWidth) {
    defaults), their intervals under station.widgets.tf.1/2 (5 and 30 to begin with), the arrangement under
    station.widgets.arrangement ("a" or "b"). */
 const WIDGETS_KEY = "station.widgets", WIDGETS_CHART_KEY = "station.widgets.chart.", WIDGETS_TF_KEY = "station.widgets.tf.", WIDGETS_ARR_KEY = "station.widgets.arrangement";
+/* W3 (22 Oct 2026): LIVE or TV in each of the two slots. Alan, undecided between drawing on TradingView's embed (18-21 min behind, Cboe One
+   volume) and the house live chart (the whole tape, bars 3 s after their close, his clouds): one of each, and a switch on each strip.
+   station.widgets.src.N is "live" or "tv" once chosen on this machine; ?chart1=live|tv / ?chart2= win for one load; with nothing stored
+   chart 1 is LIVE and chart 2 is TV, so he sees both side by side. A switch keeps the slot's symbol and interval (one memory serves both:
+   tv-v1's interval codes). */
+const WIDGETS_SRC_KEY = "station.widgets.src.", WIDGETS_SRCS = Object.freeze(["live", "tv"]), WIDGETS_SRC_DEFAULT = Object.freeze(["live", "tv"]);
+function widgetsSrcOf(stored, urlValue, index) {
+  if (WIDGETS_SRCS.includes(urlValue)) return urlValue;
+  if (WIDGETS_SRCS.includes(stored)) return stored;
+  return WIDGETS_SRC_DEFAULT[index] || "tv";
+}
+function widgetsSrc(index) { return widgetsSrcOf(remembered(WIDGETS_SRC_KEY + (index + 1)), QS.get("chart" + (index + 1)), index); }
 const WIDGETS_CHARTS = 2, WIDGETS_TFS = Object.freeze(["1", "5", "15", "30", "60", "D"]), WIDGETS_TF_DEFAULT = Object.freeze(["5", "30"]);
 const WIDGETS_TAPE_PX = 66;   /* W1C: the stacked cell - ticker, percent, price - and the line beside them */
 function widgetsChoice(stored, urlValue) {
@@ -2964,18 +2976,30 @@ window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
   /* W1: a TradingView slot says which interval it is on (chosen on its strip): remembered per chart on this machine, and
      the slot's address kept in step so a later re-point does not undo it. The symbol is the deck's own box's business. */
-  if (event.data?.type === "SCINTILLA_TV_STATE") {
+  /* W3: LIVE · TV on a slot's strip - remember the choice, re-point the slot to the other shell with the symbol and the interval it had */
+  if (event.data?.type === "SCINTILLA_CHART_SRC") {
+    const n = +event.data.n, src = String(event.data.src || ""), tf = String(event.data.interval || "");
+    const o = PANES.find((item) => item.def.key === "c" + n);
+    if ((n === 1 || n === 2) && WIDGETS_SRCS.includes(src) && o && o.frame && o.frame.contentWindow === event.source && widgetsOn()) {
+      if (WIDGETS_TFS.includes(tf)) remember(WIDGETS_TF_KEY + n, tf);
+      remember(WIDGETS_SRC_KEY + n, src);
+      if (CHARTS[n - 1]) retargetSlot(n - 1, CHARTS[n - 1]);
+    }
+    return;
+  }
+  if (event.data?.type === "SCINTILLA_TV_STATE" || event.data?.type === "SCINTILLA_LIVE_STATE") {
     const n = +event.data.n, tf = String(event.data.interval || ""), heard = CLEAN(event.data.ticker);
     const o = PANES.find((item) => item.def.key === "c" + n);
     const own = !!(o && o.frame && o.frame.contentWindow === event.source);
+    const live = event.data.type === "SCINTILLA_LIVE_STATE";   /* W3: live-v1's say - the interval in tv-v1's codes, one memory for both */
     if ((n === 1 || n === 2) && WIDGETS_TFS.includes(tf)) remember(WIDGETS_TF_KEY + n, tf);
     /* the widget's own symbol search, heard through the shell: the slot takes the name (its badge, its box, its quote) and remembers it */
-    if ((n === 1 || n === 2) && heard && heard !== CHARTS[n - 1] && own && widgetsOn()) {
+    if ((n === 1 || n === 2) && heard && heard !== CHARTS[n - 1] && own && widgetsOn() && !live) {
       CHARTS[n - 1] = heard; const input = el("t" + n); if (input) input.value = heard;
       if (o) { o.def.short = heard; o.def.title = heard; o.def.ticker = heard; const t = o.node.querySelector(".ph .t"); if (t) t.textContent = heard; }
       remember(WIDGETS_CHART_KEY + n, heard); refreshDeckQuotes(); rememberEditableState(); paintChips();
     }
-    if ((n === 1 || n === 2) && own && CHARTS[n - 1]) { o.def.src = tvChartSrc(CHARTS[n - 1], n - 1); o.def.open = o.def.src.replace("bare=1&", ""); if (o.frame.dataset) o.frame.dataset.shown = o.def.src; }
+    if ((n === 1 || n === 2) && own && CHARTS[n - 1]) { o.def.src = live ? liveChartSrc(CHARTS[n - 1], n - 1) : tvChartSrc(CHARTS[n - 1], n - 1); o.def.open = o.def.src.replace("bare=1&", ""); if (o.frame.dataset) o.frame.dataset.shown = o.def.src; }
     return;
   }
   /* W1: a tap on a lens opens that name in one of the two charts (the tape's own door) */
@@ -4429,6 +4453,7 @@ async function stepScreen(direction) {
 const STATION_SHELL = Object.freeze({
   chart: "/station-shells/chart-v1",
   tv: "/station-shells/tv-v1",   /* W1: the TradingView Advanced Chart widget, VWAP on, for the WIDGETS wall */
+  live: "/station-shells/live-v1",   /* W2/W3: the house live-bar chart - the whole tape, VWAP to the cent, his clouds; tv-v1's address */
   personalVideo: "/station-shells/personal-video-v1",
   scintillaVideo: "/station-shells/scintilla-video-v1",
   /* The channel feeds (soundscapes, golf, AI research, fitness) mount the SCINTILLA twin, which is
@@ -4445,12 +4470,17 @@ const videoShellFor = (account) => VIDEO_SHELL_BY_ACCOUNT[account] || STATION_SH
    declares — and its own timeframe when the page asked for one — on top of whatever
    chartSrc built, so no ordinary page gains a study parameter and the dock's clouds
    switch keeps working by message, without reloading a frame. */
-/* W1: in WIDGETS slots 1 and 2 are TradingView charts (tv-v1): the symbol, the remembered interval, which chart */
+/* W1: in WIDGETS slots 1 and 2 are TradingView charts (tv-v1): the symbol, the remembered interval, which chart.
+   W3: or the house live chart (live-v1) - the same address on the other shell, by the slot's remembered source. */
 function tvChartSrc(t, index) {
   return STATION_SHELL.tv + "/?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&tf=" + encodeURIComponent(widgetsTf(index)) + "&n=" + (index + 1) + "&view=" + encodeURIComponent(VIEW);
 }
+function liveChartSrc(t, index) {
+  return STATION_SHELL.live + "/?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&tf=" + encodeURIComponent(widgetsTf(index)) + "&n=" + (index + 1) + "&view=" + encodeURIComponent(VIEW);
+}
+function widgetsChartSrc(t, index) { return widgetsSrc(index) === "live" ? liveChartSrc(t, index) : tvChartSrc(t, index); }
 function paneChartSrc(t, index, transitionGeneration) {
-  if (widgetsOn() && index < WIDGETS_CHARTS && t) return tvChartSrc(t, index);
+  if (widgetsOn() && index < WIDGETS_CHARTS && t) return widgetsChartSrc(t, index);
   const src = chartSrc(t, index, transitionGeneration);
   const stack = SLOT_STACKS[index], range = SLOT_RANGES[index], bars = SLOT_BARS[index];
   const bubble = SLOT_BUBBLES[index] ? "&bubble=" + encodeURIComponent(SLOT_BUBBLES[index]) : "";
