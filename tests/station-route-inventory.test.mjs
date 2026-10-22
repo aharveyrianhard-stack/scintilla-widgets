@@ -224,8 +224,9 @@ test("the explicit provider client really is loaded by the pages the table claim
     catch { return false; }
   });
   /* W1 (22 Oct): 21 - the lens set (station-shells/lens-v1) loads it too; W2 + W3 (22 Oct): 22 - the live chart (station-shells/live-v1) */
-  assert.equal(loaders.length, 22, "the dependency table claims 22 provider-client loaders by script tag");
-  assert.match(inventory, /`\/_provider\/provider\.js` \| 22 pages by script tag/);
+  /* W6 (22 Oct): station-shells/pair-v1 is the 23rd */
+  assert.equal(loaders.length, 23, "the dependency table claims 23 provider-client loaders by script tag");
+  assert.match(inventory, /`\/_provider\/provider\.js` \| 23 pages by script tag/);
 });
 
 test("the deploy config carries exactly the documented Hub entry — and nothing else", () => {
