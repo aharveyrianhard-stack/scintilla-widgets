@@ -95,7 +95,7 @@ test("W1 · the two charts are TradingView (tv-v1) in WIDGETS; the symbol and th
   const place = fn(deck, "placeWidgetsSymbols");
   assert.match(place, /if \(CHARTS\[i\]\) retargetSlot\(i, CHARTS\[i\]\);/, "the shell changes with the mode, so every slot is re-pointed");
   /* the interval: the shell says, the deck remembers, and the slot's address is kept in step */
-  assert.match(deck, /if \(event\.data\?\.type === "SCINTILLA_TV_STATE"\) \{[\s\S]{0,900}?remember\(WIDGETS_TF_KEY \+ n, tf\);[\s\S]{0,1200}?o\.frame\.dataset\.shown = o\.def\.src;/);
+  assert.match(deck, /if \(event\.data\?\.type === "SCINTILLA_TV_STATE" \|\| event\.data\?\.type === "SCINTILLA_LIVE_STATE"\) \{[\s\S]{0,900}?remember\(WIDGETS_TF_KEY \+ n, tf\);[\s\S]{0,1200}?o\.frame\.dataset\.shown = o\.def\.src;/);
   /* the shell itself */
   assert.match(tv, /embed-widget-advanced-chart\.js/, "the free Advanced Chart embed, the research board's");
   assert.match(tv, /studies: \["STD;VWAP"\]/, "VWAP preloaded"); assert.match(tv, /style: "1"/, "candles"); assert.match(tv, /timezone: "America\/New_York"/); assert.match(tv, /theme: "dark"/);
@@ -108,7 +108,7 @@ test("W1 · the two charts are TradingView (tv-v1) in WIDGETS; the symbol and th
      widget's OWN search IS heard, and remembered through the deck; the interval chosen inside the widget is not posted */
   assert.match(tv, /const WIDGET_ORIGIN = "https:\/\/www\.tradingview-widget\.com";/);
   assert.match(fn(tv, "heardFromWidget"), /m\.name !== "quoteUpdate"/); assert.match(fn(tv, "heardFromWidget"), /short_name/);
-  assert.match(deck, /if \(\(n === 1 \|\| n === 2\) && heard && heard !== CHARTS\[n - 1\] && own && widgetsOn\(\)\)/, "the deck takes the widget's symbol into the slot and remembers it");
+  assert.match(deck, /if \(\(n === 1 \|\| n === 2\) && heard && heard !== CHARTS\[n - 1\] && own && widgetsOn\(\) && !live\)/, "the deck takes the widget's symbol into the slot and remembers it");
   assert.match(tv, /VIX: "TVC:VIX", US10Y: "TVC:US10Y", DXUSD: "TVC:DXY"/, "the Station's macro names on TradingView's symbology");
 });
 
