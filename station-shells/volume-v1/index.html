@@ -22,26 +22,53 @@
   --vline:#3987e5; --glow:#3987e5; --warm:#fab219; --hot:#ec835a; --grid:#2a2a28; --vtext:#9a9a94; --up:#19b419; --dn:#e05252; }
 html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); font:11px var(--mono); overflow:hidden; }
 body{ display:flex; flex-direction:column; }
-#head{ flex:none; padding:6px 10px 2px; display:flex; flex-direction:column; gap:4px; }
-#top{ display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
-#num{ font-size:34px; font-weight:800; letter-spacing:-.03em; line-height:1; color:var(--ink); font-variant-numeric:tabular-nums; }
-#num.warm{ color:var(--warm); text-shadow:0 0 18px rgba(250,178,25,.3); } #num.hot{ color:var(--hot); text-shadow:0 0 24px rgba(236,131,90,.45); }
-#of{ color:var(--ink3); font-size:10px; letter-spacing:.04em; line-height:1.35; }
-#of b{ color:var(--ink2); font-weight:600; font-variant-numeric:tabular-nums; }
-#state{ margin-left:auto; color:var(--mute); font-size:8px; letter-spacing:.14em; text-transform:uppercase; white-space:nowrap; }
+/* W4 (22 Oct, Alan): "the buy or sell flow needs to be way bigger. The lot size … make the important information big. I don't need the time,
+   although actually a timer for candle closes that flashes on candle closes would be pretty good … what matters is the current volume, just
+   like a heartbeat circle, like right where we are." The panel is the numbers now: FLOW biggest, TRADE SIZE and the BLOCK, VWAP and
+   DIRECTION, the heartbeat with the last hour's trace beside it, the 5-minute countdown that flashes at each close. */
+#head{ flex:none; padding:6px 10px 4px; display:flex; flex-direction:column; gap:6px; min-height:0; }
+#flow{ display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; }
+#flow .side{ display:flex; align-items:baseline; gap:6px; }
+#flow .big{ font-size:44px; font-weight:800; letter-spacing:-.03em; line-height:1; font-variant-numeric:tabular-nums; }
+#flow .big.up{ color:var(--bull); text-shadow:0 0 18px rgba(0,255,163,.25); } #flow .big.dn{ color:var(--bear); text-shadow:0 0 18px rgba(255,45,85,.25); }
+#flow .lab{ font-size:9px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink3); }
+#flow .mins{ color:var(--mute); font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; }
+#count{ margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+#count .mmss{ font-size:28px; font-weight:700; letter-spacing:-.02em; line-height:1; color:var(--ink2); font-variant-numeric:tabular-nums; }
+#count .lab{ font-size:7.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--mute); }
+#count.flash .mmss{ animation:closeflash 1.2s ease-out 1; }
+@keyframes closeflash{ 0%{ color:var(--crk); text-shadow:0 0 22px rgba(0,212,255,.9); } 100%{ color:var(--ink2); text-shadow:none; } }
+#size{ display:flex; gap:16px; flex-wrap:wrap; align-items:baseline; }
+#size .cell{ display:flex; flex-direction:column; gap:1px; }
+#size .k{ font-size:7.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--mute); }
+#size .v{ font-size:22px; font-weight:700; line-height:1.05; color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.01em; }
+#size .v small{ font-size:11px; font-weight:600; letter-spacing:.04em; margin-left:5px; color:var(--ink3); }
+#size .v .up{ color:var(--bull); } #size .v .dn{ color:var(--bear); }
+#lights{ display:flex; gap:5px; flex-wrap:wrap; }
+.light{ display:inline-flex; align-items:center; gap:6px; border:1px solid var(--hair); border-radius:999px; padding:3px 10px 3px 8px; font-size:11px; font-weight:600; letter-spacing:.06em; color:var(--mute); white-space:nowrap; }
+.light b{ width:9px; height:9px; border-radius:50%; background:#3a3a37; display:inline-block; }
+.light.amber{ color:var(--ink); border-color:rgba(250,178,25,.6); } .light.amber b{ background:var(--warm); box-shadow:0 0 10px var(--warm); }
+.light.green{ color:var(--ink); border-color:rgba(25,180,25,.65); } .light.green b{ background:var(--up); box-shadow:0 0 10px var(--up); }
+.light.red{ color:var(--ink); border-color:rgba(224,82,82,.65); } .light.red b{ background:var(--dn); box-shadow:0 0 10px var(--dn); }
+.light.small{ font-size:9px; padding:2px 7px 2px 6px; font-weight:500; } .light.small b{ width:7px; height:7px; }
+#msg{ color:var(--mute); font-size:9px; letter-spacing:.08em; min-height:0; } #msg:empty{ display:none; }
+#state{ color:var(--mute); font-size:8px; letter-spacing:.14em; text-transform:uppercase; white-space:nowrap; }
 #state i{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--mute); margin-right:5px; vertical-align:1px; }
 #state.open i{ background:var(--up); box-shadow:0 0 6px var(--up); }
-#lights{ display:flex; gap:4px; flex-wrap:wrap; }
-.light{ display:inline-flex; align-items:center; gap:5px; border:1px solid var(--hair); border-radius:999px; padding:2px 8px 2px 6px; font-size:9px; letter-spacing:.06em; color:var(--mute); white-space:nowrap; }
-.light b{ width:7px; height:7px; border-radius:50%; background:#3a3a37; display:inline-block; }
-.light.amber{ color:var(--ink2); border-color:rgba(250,178,25,.55); } .light.amber b{ background:var(--warm); box-shadow:0 0 8px var(--warm); }
-.light.green{ color:var(--ink2); border-color:rgba(25,180,25,.6); } .light.green b{ background:var(--up); box-shadow:0 0 8px var(--up); }
-.light.red{ color:var(--ink2); border-color:rgba(224,82,82,.6); } .light.red b{ background:var(--dn); box-shadow:0 0 8px var(--dn); }
-#facts{ display:flex; gap:12px; flex-wrap:wrap; font-size:9.5px; color:var(--ink3); letter-spacing:.04em; font-variant-numeric:tabular-nums; }
-#facts .k{ color:var(--mute); font-size:7.5px; letter-spacing:.16em; text-transform:uppercase; margin-right:4px; }
-#facts b{ color:var(--ink); font-weight:600; } #facts .up{ color:var(--bull); } #facts .dn{ color:var(--bear); }
-#msg{ color:var(--mute); font-size:9px; letter-spacing:.08em; min-height:0; } #msg:empty{ display:none; }
-#chart{ position:relative; flex:1 1 0; min-height:60px; margin:2px 4px 2px 4px; }
+/* the heartbeat: the current multiple as a circle sized and coloured by its level, the research page's colours, beating with it */
+#beat{ flex:none; display:flex; align-items:center; gap:12px; padding:2px 10px 6px; }
+#heart{ position:relative; width:84px; height:84px; flex:none; }
+#heart .core{ position:absolute; left:50%; top:50%; border-radius:50%; transform:translate(-50%,-50%); background:var(--glow); animation:thump var(--beat,1.6s) ease-in-out infinite; }
+#heart .ring{ position:absolute; left:50%; top:50%; border-radius:50%; transform:translate(-50%,-50%); border:2px solid var(--glow); animation:ring2 var(--beat,1.6s) ease-out infinite; }
+#heart.warm .core, #heart.warm .ring{ background-color:var(--warm); border-color:var(--warm); } #heart.hot .core, #heart.hot .ring{ background-color:var(--hot); border-color:var(--hot); }
+#heart .core{ box-shadow:0 0 var(--glowpx,14px) currentColor; }
+@keyframes thump{ 0%,100%{ transform:translate(-50%,-50%) scale(1); } 12%{ transform:translate(-50%,-50%) scale(1.3); } 24%{ transform:translate(-50%,-50%) scale(1); } 36%{ transform:translate(-50%,-50%) scale(1.15); } 50%{ transform:translate(-50%,-50%) scale(1); } }
+@keyframes ring2{ 0%{ transform:translate(-50%,-50%) scale(1); opacity:.9; } 100%{ transform:translate(-50%,-50%) scale(var(--spread,2.4)); opacity:0; } }
+#num{ font-size:34px; font-weight:800; letter-spacing:-.03em; line-height:1; color:var(--ink); font-variant-numeric:tabular-nums; }
+#num.warm{ color:var(--warm); } #num.hot{ color:var(--hot); }
+#of{ color:var(--ink3); font-size:9.5px; letter-spacing:.04em; line-height:1.35; } #of b{ color:var(--ink2); font-weight:600; font-variant-numeric:tabular-nums; }
+@media (prefers-reduced-motion: reduce){ #heart .core, #heart .ring{ animation:none; } #count.flash .mmss{ animation:none; } }
+#chart{ position:relative; flex:1 1 0; min-height:40px; margin:0 4px 2px 4px; }   /* W4: the last hour's trace, short */
 #chart svg{ position:absolute; inset:0; width:100%; height:100%; display:block; overflow:visible; }
 .beat-ring{ transform-box:fill-box; transform-origin:center; animation:ring var(--beat,1.6s) ease-out infinite; }
 @keyframes ring{ 0%{ transform:scale(1); opacity:.9; } 100%{ transform:scale(var(--spread,2.6)); opacity:0; } }
@@ -50,16 +77,18 @@ body{ display:flex; flex-direction:column; }
 @media (prefers-reduced-motion: reduce){ .beat-ring,.beat-core{ animation:none; } }
 .tip{ position:absolute; transform:translate(-50%,-120%); background:#1c1c1b; border:1px solid #333330; border-radius:6px; padding:4px 8px; font-size:10px; white-space:nowrap; pointer-events:none; display:none; color:var(--ink); z-index:2; }
 .tip span{ color:var(--vtext); }
-body.narrow #lights .light{ font-size:8px; padding:1px 6px 1px 5px; } body.narrow #num{ font-size:26px; }
+body.narrow #flow .big{ font-size:30px; } body.narrow #size .v{ font-size:16px; } body.narrow #count .mmss{ font-size:20px; } body.narrow #heart{ width:56px; height:56px; } body.narrow #num{ font-size:24px; }
 </style>
 </head>
 <body>
 <div id="head">
-  <div id="top"><span id="num" aria-live="polite">—</span><span id="of">of a usual 5 minutes<br>—</span><span id="state"><i></i><span id="stateText">loading</span></span></div>
+  <div id="flow"><span class="side"><span class="lab">buy</span><span class="big up" id="buy">—</span></span><span class="side"><span class="lab">sell</span><span class="big dn" id="sell">—</span></span><span class="mins" id="flowMins"></span>
+    <span id="count"><span class="mmss" id="mmss">—:——</span><span class="lab">to the 5-min close</span></span></div>
+  <div id="size"><span class="cell"><span class="k">trade size</span><span class="v" id="tsize">—</span></span><span class="cell"><span class="k">block</span><span class="v" id="block">—</span></span><span class="cell"><span class="k">state</span><span class="v" style="font-size:12px;padding-top:4px"><span id="state"><i></i><span id="stateText">loading</span></span></span></span></div>
   <div id="lights"></div>
-  <div id="facts"></div>
   <div id="msg"></div>
 </div>
+<div id="beat"><div id="heart"><span class="ring"></span><span class="core"></span></div><div><div id="num" aria-live="polite">—</div><div id="of">of a usual 5 minutes<br>—</div></div></div>
 <div id="chart"><div class="tip" id="tip"></div></div>
 <script>
 (() => {
@@ -98,8 +127,10 @@ body.narrow #lights .light{ font-size:8px; padding:1px 6px 1px 5px; } body.narro
     const box = $("chart"), W = box.clientWidth, H = box.clientHeight;
     box.querySelectorAll("svg").forEach((s) => s.remove());
     if (!data || !W || !H) return;
-    const slots = data.slots, n = slots.length;
-    const done = slots.map((s, i) => ({ ...s, i })).filter((s) => s.ratio != null);
+    /* W4: the trace is the last hour only (the newest 12 traded slots) - "just like a heartbeat circle, like right where we are" */
+    const all = data.slots.map((s, i) => ({ ...s, i })).filter((s) => s.ratio != null);
+    const slots = all.slice(-12), n = slots.length;
+    const done = slots.map((s, i) => ({ ...s, i }));
     const maxR = Math.max(2.5, ...done.map((s) => s.ratio)) * 1.08;
     const B = (data.blocks && data.blocks.items) || [];
     const narrow = W < 420;
@@ -118,17 +149,17 @@ body.narrow #lights .light{ font-size:8px; padding:1px 6px 1px 5px; } body.narro
       svg += `<line x1="${padL}" x2="${W - padR}" y1="${y(r)}" y2="${y(r)}" stroke="${col}" stroke-width="1.5" stroke-dasharray="${dash}"/>`;
       svg += `<text x="${W - padR + 5}" y="${y(r) + 4}" fill="var(--vtext)" font-size="${fs}">${label}</text>`;
     }
-    const slotOf = (t) => (Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) - 240) / 5;   /* the feed's slots start at 04:00 */
+    const first = slots.length ? slots[0].t : "04:00";
+    const slotOf = (t) => (Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5)) - (Number(first.slice(0, 2)) * 60 + Number(first.slice(3, 5)))) / 5;   /* from the trace's first slot */
     const maxBV = Math.max(1, ...B.map((b) => b.v)); const stack = {};
     svg += `<line x1="${padL}" x2="${W - padR}" y1="${laneY}" y2="${laneY}" stroke="var(--grid)" stroke-width="1"/>`;
     svg += `<text x="${W - padR + 5}" y="${laneY + 3}" fill="var(--vtext)" font-size="${fs - 1}">blocks</text>`;
     for (const b of B) {
-      const i = Math.floor(slotOf(b.t)), k = (stack[i] = (stack[i] || 0) + 1) - 1;
+      const i = Math.floor(slotOf(b.t)); if (i < 0 || i > n - 1) continue; const k = (stack[i] = (stack[i] || 0) + 1) - 1;
       const rr = (narrow ? 2 : 3) + (narrow ? 5 : 7) * Math.sqrt(b.v / maxBV), col = b.dir === "up" ? "var(--up)" : "var(--dn)";
       svg += `<circle cx="${x(slotOf(b.t)).toFixed(1)}" cy="${(laneY - k * 6).toFixed(1)}" r="${rr.toFixed(1)}" fill="${col}" fill-opacity=".8" stroke="#0a0a0f" stroke-width="1"/>`;
     }
-    const every = W < 360 ? 48 : W < 640 ? 24 : 12;   /* every hour, every other, every four */
-    slots.forEach((s, i) => { if (i % every === 0) svg += `<text x="${x(i)}" y="${H - 4}" fill="var(--vtext)" font-size="${fs}" text-anchor="${i === 0 ? "start" : "middle"}">${s.t.replace(/^0/, "")}</text>`; });
+    slots.forEach((s, i) => { if (i % 3 === 0) svg += `<text x="${x(i)}" y="${H - 4}" fill="var(--vtext)" font-size="${fs}" text-anchor="${i === 0 ? "start" : "middle"}">${s.t.replace(/^0/, "")}</text>`; });
     if (done.length) {
       const pts = done.map((s) => `${x(s.i).toFixed(1)},${y(s.ratio).toFixed(1)}`);
       if (done.length > 1) svg += `<polygon points="${x(done[0].i).toFixed(1)},${y(0)} ${pts.join(" ")} ${x(done[done.length - 1].i).toFixed(1)},${y(0)}" fill="url(#fill)"/>`;
@@ -141,7 +172,7 @@ body.narrow #lights .light{ font-size:8px; padding:1px 6px 1px 5px; } body.narro
     }
     const F = data.forming;
     if (data.live && data.marketState === "open" && F && F.pace != null) {
-      const fi = slotOf(F.t), fl = level(F.pace), fc = fl === "hot" ? "var(--hot)" : fl === "warm" ? "var(--warm)" : "var(--glow)";
+      const fi = Math.min(n, Math.max(0, slotOf(F.t))), fl = level(F.pace), fc = fl === "hot" ? "var(--hot)" : fl === "warm" ? "var(--warm)" : "var(--glow)";
       svg += `<circle cx="${x(fi)}" cy="${y(Math.min(F.pace, maxR))}" r="6" fill="none" stroke="${fc}" stroke-width="2" stroke-dasharray="3 3"/>`;
       svg += `<text x="${x(fi)}" y="${y(Math.min(F.pace, maxR)) - 10}" fill="${fc}" font-size="${fs - 1}" text-anchor="middle">now</text>`;
     }
@@ -166,17 +197,38 @@ body.narrow #lights .light{ font-size:8px; padding:1px 6px 1px 5px; } body.narro
     const r = useF ? F.pace : L ? L.ratio : null, lv = level(r);
     $("num").textContent = r == null ? "—" : r.toFixed(1) + "×"; $("num").className = lv === "hot" ? "hot" : lv === "warm" ? "warm" : "";
     const now = String(data.nyClock || "").slice(0, 5);
-    $("of").innerHTML = `of a usual 5 minutes${useF ? " · forming " + F.t : L ? " · last full bar " + L.t + "–" + (data.latestEnds || "") : ""}<br>now <b>${now}</b> ET · day <b>${data.dayRatio != null ? data.dayRatio.toFixed(2) + "×" : "—"}</b>${data.peak ? " · peak <b>" + data.peak.t + " " + xx(data.peak.ratio) + "</b>" : ""}`;
+    $("of").innerHTML = `of a usual 5 minutes${useF ? " · forming " + F.t : L ? " · last full bar " + L.t : ""}<br>day <b>${data.dayRatio != null ? data.dayRatio.toFixed(2) + "×" : "—"}</b>${data.peak ? " · peak <b>" + data.peak.t + " " + xx(data.peak.ratio) + "</b>" : ""} · <span style="color:var(--mute)">${now} ET</span>`;
+    /* the heartbeat: the research page's dot - size, beat and spread by the multiple, colour by its level */
+    const H = $("heart"); const core = Math.max(18, Math.min(64, 18 + ((r || 0) - 0.8) * 22)), beat = Math.max(0.55, Math.min(2.2, 1.7 / Math.max(r || 0.6, 0.6))), spread = Math.max(1.6, Math.min(3.2, 1.4 + (r || 0) * 0.8));
+    H.className = lv === "hot" ? "hot" : lv === "warm" ? "warm" : ""; H.style.setProperty("--beat", beat + "s"); H.style.setProperty("--spread", String(spread)); H.style.setProperty("--glowpx", Math.round(8 + (r || 0) * 10) + "px");
+    const c = H.querySelector(".core"), g = H.querySelector(".ring"); c.style.width = c.style.height = core + "px"; g.style.width = g.style.height = core + "px"; c.style.color = lv === "hot" ? "#ec835a" : lv === "warm" ? "#fab219" : "#3987e5";
+    if (!data.live) { c.style.animation = "none"; g.style.animation = "none"; } else { c.style.animation = ""; g.style.animation = ""; }
     $("state").className = st === "open" ? "open" : ""; $("stateText").textContent = st === "open" ? "market open" : st === "pre-market" ? "pre-market" : st === "after-hours" ? "after hours" : "closed";
+    /* the flow, biggest */
+    const flow = data.flow || {};
+    $("buy").textContent = flow.buyPct != null ? flow.buyPct + "%" : "—"; $("sell").textContent = flow.sellPct != null ? flow.sellPct + "%" : "—";
+    $("flowMins").textContent = flow.mins ? "last " + flow.mins + " min" + (flow.asOf ? " · " + flow.asOf : "") : "";
+    /* trade size and the block, big, with their side */
+    const sz = data.size || {}, nowS = sz.now || sz.last || {}, last = sz.last || {}, blk = last.block || nowS.block || null;
+    const side = (d) => d === "up" ? '<small class="up">▲ up</small>' : d === "down" ? '<small class="dn">▼ down</small>' : "";
+    $("tsize").innerHTML = (nowS.x != null ? nowS.x.toFixed(2) + "×" : "—") + side(nowS.dir) + (nowS.t ? `<small>${nowS.t}</small>` : "");
+    $("block").innerHTML = blk ? `${blk.sym} ${blk.x != null ? blk.x.toFixed(2) + "×" : ""}` + side(blk.dir) : "—";
+    /* the four lights - VWAP and DIRECTION big, the other two small */
     const Lg = lights((data.signals && data.signals.market) || []); const box = $("lights"); box.innerHTML = "";
-    for (const k of ["vol", "dir", "vwap", "hour"]) { const e = document.createElement("span"); e.className = "light " + Lg[k].s; e.dataset.k = k; e.innerHTML = "<b></b>" + Lg[k].label; e.title = Lg[k].why; box.appendChild(e); }
-    const sz = data.size || {}, nowS = sz.now || sz.last || {}, last = sz.last || {}, blk = last.block || nowS.block || null, flow = data.flow || {};   /* out of hours the feed's "now" is null: the last bar's size stands */
-    const side = (d) => d === "up" ? '<span class="up">▲ up</span>' : d === "down" ? '<span class="dn">▼ down</span>' : "";
-    $("facts").innerHTML = `<span><span class="k">trade size</span><b>${nowS.x != null ? nowS.x.toFixed(2) + "×" : "—"}</b> ${side(nowS.dir)}${nowS.t ? " <span style='color:var(--mute)'>" + nowS.t + "</span>" : ""}</span>` +
-      `<span><span class="k">block</span>${blk ? `<b>${blk.sym} ${blk.x != null ? blk.x.toFixed(2) + "×" : ""}</b> ${side(blk.dir)}` : "<b>—</b>"}</span>` +
-      `<span><span class="k">flow</span><span class="up">buy <b>${flow.buyPct != null ? flow.buyPct + "%" : "—"}</b></span> · <span class="dn">sell <b>${flow.sellPct != null ? flow.sellPct + "%" : "—"}</b></span>${flow.mins ? " <span style='color:var(--mute)'>last " + flow.mins + " min</span>" : ""}</span>`;
+    for (const k of ["vwap", "dir", "vol", "hour"]) { const e = document.createElement("span"); e.className = "light " + Lg[k].s + (k === "vwap" || k === "dir" ? "" : " small"); e.dataset.k = k; e.innerHTML = "<b></b>" + Lg[k].label; e.title = Lg[k].why; box.appendChild(e); }
     draw();
   }
+  /* W4: the 5-minute candle-close countdown (New York clock), flashing at each close */
+  const NY = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+  let lastBoundary = -1;
+  function countdown() {
+    const p = Object.fromEntries(NY.formatToParts(new Date()).map((x) => [x.type, x.value]));
+    const secs = (Number(p.hour) * 60 + Number(p.minute)) * 60 + Number(p.second), left = 300 - (secs % 300), boundary = Math.floor(secs / 300);
+    $("mmss").textContent = String(Math.floor(left / 60)) + ":" + String(left % 60).padStart(2, "0");
+    if (lastBoundary >= 0 && boundary !== lastBoundary) { const c = $("count"); c.classList.remove("flash"); void c.offsetWidth; c.classList.add("flash"); c.dataset.closedAt = p.hour + ":" + p.minute; }
+    lastBoundary = boundary;
+  }
+  countdown(); setInterval(countdown, 1000);
   function msg(t) { $("msg").textContent = t || ""; }
   async function load() {
     clearTimeout(timer); lastLoadAt = Date.now(); let wait = RETRY_MS;
