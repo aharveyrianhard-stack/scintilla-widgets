@@ -85,7 +85,7 @@ test("2b · the deck builds one pane per feed from the registry and keeps the tw
   assert.match(deck, /for \(const \[key, label, account\] of VIDEO_FEEDS\) \{\n    if \(key === "fb" \|\| key === "fa"\) continue;\n    defs\.splice\(defs\.length - 1, 0, \{/, "the channel panes are added before X; the two original pane literals are untouched");
   assert.match(deck, /\{ row: 1, key: "fb", short: "personal", title: "Personal YouTube", tag: "personal subscriptions",/);
   assert.match(deck, /\{ row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",/);
-  assert.match(deck, /"\?shell=v1&feed=" \+ account \+ "&cols=2&view="/);
+  assert.match(deck, /"\?shell=v1&feed=" \+ account \+ "&cols=2" \+ \(widgetsOn\(\) \? "&beside=1" : ""\) \+ "&view="/);   /* W1 (22 Oct): restated - the WIDGETS wall asks for the grid beside the player */
   assert.match(deck, /"Personal YouTube"/); assert.match(deck, /"SCINTILLA YouTube"/);
   assert.match(deck, /"SCINTILLA subscriptions · shared Watch Later"/);
   assert.match(deck, /channelVideo: "\/station-shells\/scintilla-video-v1"/, "the channel feeds ride the SCINTILLA twin");

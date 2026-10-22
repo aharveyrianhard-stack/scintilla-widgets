@@ -116,7 +116,7 @@ test("Y9 · the no-reflow rule: 1728 → 1440 keeps the same layout, only scaled
   assert.ok(blocks.size > 1, "today's six-chart wall takes " + blocks.size + " shapes over the same sweep (the 'changing')");
   /* in the deck: SIMPLE is a slot, so fitVideoPane lifts the pane as Y7 does, and the grid is told 2 × 1 for every count */
   const fit = fn(deck, "fitVideoPane");
-  assert.match(fit, /const simple = !!slot && !!slot\.simple;/);
+  assert.match(fit, /const simple = !!slot && \(!!slot\.simple \|\| !!slot\.widgets\);/);   /* W1 (22 Oct): restated - WIDGETS is a band too */
   assert.match(fit, /simple \? \{ cols:slot\.cols, rows:slot\.rows \}/, "every count's grid is SIMPLE's grid");
   assert.match(fit, /--simple-video-px/, "the band's height is handed to the CSS");
   assert.match(fit, /classList\.toggle\("simple", simpleOn\(\)\)/);
@@ -140,13 +140,13 @@ test("Y9 · the two symbols are typed into the panes' own boxes, remembered on t
   assert.match(deck, /n\.className = "tkin"; n\.id = "t" \+ \(i \+ 1\);/);
   assert.match(deck, /if \(event\.data\?\.sc === "chart-focus-ticker"\)/);
   /* a tape tap in SIMPLE lands in one of the two charts on the wall */
-  assert.match(fn(deck, "openTapeTicker"), /simpleOn\(\) \? Math\.min\(CHART_COUNT, SIMPLE_CHARTS\) : CHART_COUNT/);
+  assert.match(fn(deck, "openTapeTicker"), /simpleOn\(\) \? Math\.min\(CHART_COUNT, SIMPLE_CHARTS\) : widgetsOn\(\) \? Math\.min\(CHART_COUNT, WIDGETS_CHARTS\) : CHART_COUNT/);   /* W1: restated */
 });
 
 test("Y9 · no rotation in SIMPLE; the rotation, the slot and CHARTS ONLY are untouched for the WALL", () => {
-  assert.match(fn(deck, "scheduleRotation"), /if \(ROTATE_PAUSED \|\| simpleOn\(\)\) return;/);
+  assert.match(fn(deck, "scheduleRotation"), /if \(ROTATE_PAUSED \|\| simpleOn\(\) \|\| widgetsOn\(\)\) return;/);   /* W1 (22 Oct): restated - nor WIDGETS */
   const paint = fn(deck, "paintRotateControls");
-  assert.match(paint, /toggle\.disabled = simpleOn\(\);/); assert.match(paint, /no rotation in SIMPLE/);
+  assert.match(paint, /toggle\.disabled = still;/); assert.match(paint, /const still = simpleOn\(\) \|\| widgetsOn\(\);/); assert.match(paint, /no rotation in SIMPLE/);   /* W1 (22 Oct): restated - WIDGETS stills it too */
   assert.match(deck, /const SLOT_SPAN = 2;/); assert.match(deck, /function floorSlot\(grid, areaWidth, areaHeight, chromePx, count\)/);
   assert.match(deck, /const CHARTS_ONLY_KEY = "station\.chartsOnly";/);
   assert.match(fn(deck, "setChartsOnly"), /dispatchEvent\(new Event\("resize"\)\)/);

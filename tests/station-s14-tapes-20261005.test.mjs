@@ -20,7 +20,7 @@ const src = [
   grab(/const FLOOR_SEAM_PX = \d+;/, "the seam"),
   grab(/const FLOOR_COUNTS = \[[^\]]*\];/, "the counts"),
   grab(/function floorGrid\(count, width, height\) \{[\s\S]*?\n\}/, "floorGrid"),
-  grab(/function floorPlan\(wallWidth, wallHeight, chromePx\) \{[\s\S]*?\n\}/, "floorPlan"),
+  grab(/function floorPlan\(wallWidth, wallHeight, chromePx, columnShare\) \{[\s\S]*?\n\}/   /* W1B (22 Oct): restated - the column's share is a parameter (24 % unless the WIDGETS wall is playing a video) */, "floorPlan"),
   grab(/const TAPE_ROW_PX = \d+;/, "the tape's height"),
   grab(/const TAPE_SPEED_PX_S = \d+;/, "the tape's speed"),
   grab(/function tapesHeight\(on\) \{[^\n]*\}/, "tapesHeight"),
@@ -126,7 +126,8 @@ test("S14 · the Geiger mark, the tap and the switch", () => {
 });
 
 test("S15 · the tapes are at the bottom of the chart area, FAVORITES nearest the charts, and the shares of the screen are the measured ones", () => {
-  assert.match(deck, /box\.appendChild\(tapeRow\("FAVORITES", TAPES\.favorites, [^\n]*\n\s*box\.appendChild\(tapeRow\("LIKED", TAPES\.liked,/, "FAVORITES is the first row, LIKED the second");
+  /* W1 (22 Oct): restated - on the WIDGETS wall FAVORITES stands alone (one taller row); everywhere else LIKED follows it as before */
+  assert.match(deck, /box\.appendChild\(tapeRow\("FAVORITES", TAPES\.favorites, [^\n]*\n\s*if \(tall\)[^\n]*\n\s*else box\.appendChild\(tapeRow\("LIKED", TAPES\.liked,/, "FAVORITES is the first row, LIKED the second");
   for (const [w, h] of SCREENS) {
     const p = floorPlan(w, h, 28), A = w * h, pct = (v) => +(v * 100).toFixed(1);
     for (const n of [9, 6, 4]) {

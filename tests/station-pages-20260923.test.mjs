@@ -139,6 +139,7 @@ test("a workbench slot carries its stack in its own URL; every other page's URL 
     SLOT_BUBBLES: ["", "", "", "", "", "", "", ""]
   };
   bindings.chartSrc = functionFromDeck("chartSrc", bindings);
+  bindings.widgetsOn = () => false;   /* W1 (22 Oct): on the WIDGETS wall slots 1 and 2 are TradingView; these pages are the WALL's */
   const paneChartSrc = functionFromDeck("paneChartSrc", bindings);
   assert.match(paneChartSrc("MU", 0), /t=MU/);
   assert.match(paneChartSrc("MU", 0), /&clouds=1&ema8=1&sma100=1$/, "the declared stack is on the URL");
