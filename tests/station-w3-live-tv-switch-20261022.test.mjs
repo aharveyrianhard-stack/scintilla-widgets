@@ -17,9 +17,9 @@ function api() {
 
 test("W3 · the defaults: chart 1 LIVE, chart 2 TV; the stored choice wins; ?chart1= / ?chart2= win for one load and are not remembered", () => {
   const D = api();
-  assert.equal(D.WIDGETS_SRC_KEY, "station.widgets.src."); assert.deepEqual([...D.WIDGETS_SRCS], ["live", "tv"]); assert.deepEqual([...D.WIDGETS_SRC_DEFAULT], ["live", "tv"]);
+  assert.equal(D.WIDGETS_SRC_KEY, "station.widgets.src."); assert.deepEqual([...D.WIDGETS_SRCS], ["live", "tv"]); assert.deepEqual([...D.WIDGETS_SRC_DEFAULT], ["live", "live"]);   /* W4 (22 Oct 19:10): both LIVE by default */
   assert.equal(D.widgetsSrcOf("", "", 0), "live", "chart 1 is the house live chart with nothing stored");
-  assert.equal(D.widgetsSrcOf("", "", 1), "tv", "chart 2 is TradingView's embed with nothing stored");
+  assert.equal(D.widgetsSrcOf("", "", 1), "live", "chart 2 is the live chart too with nothing stored (W4: restated; TV one click away)");
   assert.equal(D.widgetsSrcOf(null, null, 5), "tv", "a slot past the two: TV");
   assert.equal(D.widgetsSrcOf("tv", "", 0), "tv", "the machine's choice stands"); assert.equal(D.widgetsSrcOf("live", "", 1), "live");
   assert.equal(D.widgetsSrcOf("tv", "live", 0), "live", "?chart1=live wins for that load"); assert.equal(D.widgetsSrcOf("live", "tv", 1), "tv");

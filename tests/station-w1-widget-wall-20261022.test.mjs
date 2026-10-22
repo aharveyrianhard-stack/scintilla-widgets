@@ -203,7 +203,7 @@ test("W1 · the lens set: RADAR · MACRO · MINE, remembered; MINE adds and remo
     "globalThis.out = { LISTS, MACRO, listChoice, mineOf, mineAdd, mineRemove };"].join("\n");
   const ctx = {}; vm.runInNewContext(src, ctx); const L = ctx.out;
   assert.deepEqual(plain(L.LISTS), ["radar", "macro", "mine"]);
-  assert.deepEqual(plain(L.MACRO), ["VIX", "DXUSD", "US10Y", "GCUSD", "CLUSD", "BTCUSD"], "MACRO · DAY's six (deck/scenes.js)");
+  assert.deepEqual(plain(L.MACRO), ["ESUSD", "NQUSD", "CLUSD", "GCUSD", "BTCUSD", "DXUSD", "US10Y", "VIX"], "W4: what trades overnight - the futures and oil first");
   assert.equal(L.listChoice("", ""), "radar", "opens on RADAR"); assert.equal(L.listChoice("macro", ""), "macro", "the remembered list"); assert.equal(L.listChoice("macro", "mine"), "mine", "the URL wins for that load"); assert.equal(L.listChoice("junk", "junk"), "radar");
   assert.deepEqual(plain(L.mineOf('["nvda","AMD","nvda"," x!y "]')), ["NVDA", "AMD", "XY"], "cleaned, deduped"); assert.deepEqual(plain(L.mineOf("junk")), []); assert.deepEqual(plain(L.mineOf("")), []);
   assert.deepEqual(plain(L.mineAdd(["NVDA"], "amd")), ["NVDA", "AMD"]); assert.deepEqual(plain(L.mineAdd(["NVDA"], "nvda")), ["NVDA"], "never twice"); assert.deepEqual(plain(L.mineAdd(["NVDA"], "!!")), ["NVDA"]);
@@ -213,12 +213,12 @@ test("W1 · the lens set: RADAR · MACRO · MINE, remembered; MINE adds and remo
   assert.match(lens, /station_lists\?select=position,ticker&list=eq\.radar&order=position\.asc/, "RADAR is the Hub's list, one GET");
   /* the drawing: chart-v1's oval (station-lens.mjs ovalGeometry, lens-bars drawCandles), the 1d:60 lens, the day's colour on the edge */
   assert.match(lens, /import \{ ovalGeometry, insideOval, INK \} from "\/_indicators\/station-lens\.mjs";/);
-  assert.match(lens, /const LENS_TF = TAPE \? "5m" : "1d", LENS_BARS = TAPE \? 120 : 60;/, "sixty daily candles in the column - the zoomed-out view the intraday ranges carry; W1C: 120 five-minute bars on the tape");
+  assert.match(lens, /const LENS_TF = TAPE \? "5m" : "1d", LENS_BARS = TAPE \? 30 : 60;/, "sixty daily candles in the column - the zoomed-out view the intraday ranges carry; W4: the latest 30 five-minute bars on the tape");
   assert.match(lens, /ctx\.strokeStyle = day === "up" \? PALETTE\.bull : day === "down" \? PALETTE\.bear : INK\.frame;/, "the oval's edge in the day's colour");
   assert.match(lens, /drawCandles\(ctx, bars, geo\.candles, \{ colour: "bar", day, pal: PALETTE \}\)/, "the candles as the lens draws them");
   assert.match(lens, /\.lens \.pc\.up, \.lens \.tk\.up\{ color:var\(--bull\); \} \.lens \.pc\.dn, \.lens \.tk\.dn\{ color:var\(--bear\); \}/, "the head in the day's colour");
   assert.match(lens, /\.lens \.tk\{ font-size:15px;/, "readable from the chair (the tape's type was 11 px)");
   assert.match(lens, /parent\.postMessage\(\{ type: "SCINTILLA_LENS_OPEN", ticker: t \}, location\.origin\)/, "a tap opens the name on the wall");
-  assert.match(lens, /P\.marketQuotes\(list, \{\}\)/); assert.match(lens, /P\.marketCandles\(t, LENS_TF, \{ limit: LENS_BARS \}\)/);
+  assert.match(lens, /P\.marketQuotes\(list, \{\}\)/); assert.match(lens, /P\.marketCandles\(t, LENS_TF, TAPE \? \{ limit: LENS_BARS, forming: true \} : \{ limit: LENS_BARS \}\)/);   /* W4: restated - a fresh read on the tape */
   assert.ok(!/pgWrite|method:\s*"POST"/.test(lens), "nothing here writes anywhere");
 });

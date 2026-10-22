@@ -15,23 +15,23 @@ const fn = (src, name) => grab(src, new RegExp("\\nfunction " + name + "\\([^)]*
 
 test("W1C · the lens tape: lens-v1 in tape mode - the chips at the left, one row of fixed lenses that runs like the other tapes, 5-minute bars", () => {
   assert.match(lens, /const TAPE = QS\.get\("mode"\) === "tape";/);
-  assert.match(lens, /const LENS_TF = TAPE \? "5m" : "1d", LENS_BARS = TAPE \? 120 : 60;/, "the last 120 completed 5-minute bars on the tape; the column's sixty daily candles stay");
+  assert.match(lens, /const LENS_TF = TAPE \? "5m" : "1d", LENS_BARS = TAPE \? 30 : 60;/, "the latest 30 completed 5-minute bars on the tape (W4: restated from 120); the column's sixty daily candles stay");
   assert.match(lens, /BARS_MS = TAPE \? 60000 : 600000/, "read every minute on the tape (a 5-minute bar completes every five)");
-  assert.match(lens, /const TAPE_SPEED_PX_S = 45;/, "the deck's tapes' pace");
+  assert.match(lens, /const TAPE_SPEED_PX_S = TAPE \? 90 : 45;/, "W4: twice the deck's tapes' pace on the tape");
   const run = fn(lens, "runTape");
   assert.match(run, /if \(!one \|\| one <= box\.clientWidth\) return;/, "a row that fits stands still");
   assert.match(run, /c\.setAttribute\("aria-hidden", "true"\)/, "doubled with copies"); assert.match(run, /animationDuration = \(one \/ TAPE_SPEED_PX_S\)\.toFixed\(2\) \+ "s"/);
   assert.match(lens, /body\.tape \.track\.run\{ will-change:transform; animation:lens-tape-move linear infinite; \}/);
   assert.match(lens, /body\.tape #set:hover \.track\.run\{ animation-play-state:paused; \}/, "the pointer holds it still");
   assert.match(lens, /@keyframes lens-tape-move\{ from\{ transform:translateX\(0\); \} to\{ transform:translateX\(-50%\); \} \}/);
-  assert.match(lens, /body\.tape \.lens\{ flex:none; width:var\(--lens-w, 290px\); height:100%; \}/, "a lens is 290 px wide on the tape, a little smaller than the column's 370");
+  assert.match(lens, /body\.tape \.lens\{ flex:none; width:var\(--lens-w, 150px\); height:100%; \}/, "a lens is 150 px wide on the tape (W4: restated from 290 - tight, many more on screen)");
   assert.match(lens, /body\.tape #bar\{ flex:none; width:96px; flex-direction:column;/, "the chips in a rail at the left");
   assert.match(lens, /remember\(LIST_KEY, l\)/, "the choice remembered");
   /* the drawing is the column's: the oval, the edge in the day's colour, never grey */
   assert.match(lens, /ctx\.strokeStyle = day === "up" \? PALETTE\.bull : day === "down" \? PALETTE\.bear : INK\.frame;/);
   /* the deck mounts it over the band and gives it its height */
   assert.match(fn(deck, "mountWidgets"), /WIDGETS_LENS_SHELL \+ "\/\?shell=v1&mode=tape&view="/);
-  assert.match(deck, /const WIDGETS_BAND = 0\.40, WIDGETS_VIDEO_W = 0\.62, WIDGETS_LENS_TAPE_PX = 160, WIDGETS_LENS_TAPE_NARROW_PX = 130, WIDGETS_LENS_TAPE_PLAYING_PX = 110, WIDGETS_VOLUME_MIN_PX = 120;/);
+  assert.match(deck, /const WIDGETS_BAND = 0\.40, WIDGETS_VIDEO_W = 0\.62, WIDGETS_LENS_TAPE_PX = 120, WIDGETS_LENS_TAPE_NARROW_PX = 100, WIDGETS_LENS_TAPE_PLAYING_PX = 90, WIDGETS_VOLUME_MIN_PX = 120;/);   /* W4: restated - the tape tighter */
 });
 
 test("W1C · the volume graph: volume-v1 reads the research session's public feed and draws its graph the same way; a compact head; 8 s open, 2 min closed", () => {
@@ -42,12 +42,12 @@ test("W1C · the volume graph: volume-v1 reads the research session's public fee
   assert.match(vol, /stop-color="var\(--vline\)"[\s\S]*?stop-color="var\(--warm\)"[\s\S]*?stop-color="var\(--hot\)"/);
   assert.match(vol, /\[\[2, "2×", "2 6", "var\(--grid\)"\], \[1, "normal", "6 6", "#4a4a46"\]\]/);
   assert.match(vol, /b\.dir === "up" \? "var\(--up\)" : "var\(--dn\)"/, "block dots green up, red down");
-  assert.match(vol, /const slotOf = \(t\) => \(Number\(t\.slice\(0, 2\)\) \* 60 \+ Number\(t\.slice\(3, 5\)\) - 240\) \/ 5;/, "the feed's slots start at 04:00 (192 of them to 19:55)");
+  assert.match(vol, /const slots = all\.slice\(-12\), n = slots\.length;/, "W4: the trace is the last hour of the feed's 04:00-20:00 slots");
   assert.match(vol, /class="beat-ring"/); assert.match(vol, /stroke-dasharray="3 3"/, "the forming bar's ring");
   assert.match(vol, /--vline:#3987e5; --glow:#3987e5; --warm:#fab219; --hot:#ec835a;/, "the page's own colours");
   /* the compact head */
   assert.match(vol, /const T1 = 1\.2, T2 = 1\.5;/, "the page's default thresholds");
-  assert.match(vol, /for \(const k of \["vol", "dir", "vwap", "hour"\]\)/, "the four lights");
+  assert.match(vol, /for \(const k of \["vwap", "dir", "vol", "hour"\]\)/, "the four lights (W4: restated - VWAP and DIRECTION first, big)");
   assert.match(vol, /<span class="k">trade size<\/span>/); assert.match(vol, /<span class="k">block<\/span>/); assert.match(vol, /<span class="k">flow<\/span>/);
   assert.match(vol, /nowS = sz\.now \|\| sz\.last \|\| \{\}/, "out of hours the last bar's size stands");
   assert.doesNotMatch(vol, /method:\s*"POST"|localStorage\.setItem/, "reads one GET, writes nothing");
