@@ -566,6 +566,42 @@ body.simple.video-slot:not(.stack):not(.media-theatre) #simpleHandle{ display:bl
 #simpleHandle:hover::after, #simpleHandle.dragging::after{ top:3px; height:3px; background:var(--crk); }
 #wallMode .btn.on, #wallMode .btn.on:hover{ color:var(--crk); border-color:var(--crk); }
 #dock #wallMode{ gap:2px; }
+/* ── WIDGETS (W1, 22 Oct 2026) ───────────────────────────────────────────────────────────────
+   Alan, 22 Oct: "just two trading view, like, widget charts. With VWAP … I'm not going to be using this chart
+   rotation anymore on station … I need the bars, I need everything … a few context lenses, YouTube, the grid,
+   tickers of the general hub in the bottom … taller and narrower."
+   WIDGETS is the third wall mode, the default on both Macs (WALL · SIMPLE · WIDGETS on the dock; remembered
+   per machine). X keeps its 24 % column. Right of it, floorWidgets lays out: two TradingView chart panes
+   (tv-v1 in slots 1 and 2, VWAP on each, the symbol typed into the pane's own box and remembered), the
+   volume meter (an iframe of the live meter) and the lens set (lens-v1: RADAR · MACRO · MINE) beside the
+   YouTube pane (which keeps its grid beside the player), and ONE taller FAVORITES tape at the bottom. Two
+   arrangements (A: the widgets in a column right of YouTube; B: a band of widgets between the charts and
+   YouTube), remembered. Nothing rotates. The band's height rides the same variable SIMPLE uses. */
+body.widgets.video-slot:not(.stack) #grid > #rowTop{ margin-bottom:calc(var(--simple-video-px, 0px) + 1px + var(--tapes-px, 0px)); }
+body.widgets.video-slot.tapes:not(.stack) #tapes{ bottom:calc(var(--simple-video-px, 0px) + 1px); }
+#wgMeter, #wgLenses{ display:none; }
+body.widgets.video-slot:not(.stack):not(.media-theatre) #wgMeter, body.widgets.video-slot:not(.stack):not(.media-theatre) #wgLenses{
+  display:flex; flex-direction:column; position:absolute; z-index:3; background:var(--bg); overflow:hidden; }
+#wgMeter > .ph, #wgLenses > .ph{ flex:none; display:flex; align-items:center; gap:6px; padding:3px 7px; background:var(--panel2); }
+#wgMeter > .ph .t, #wgLenses > .ph .t{ color:var(--ink2); font-size:8.5px; letter-spacing:.16em; text-transform:uppercase; }
+#wgMeter > .ph .tag, #wgLenses > .ph .tag{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; white-space:nowrap; margin-left:auto; }
+#wgMeter > .ph a, #wgLenses > .ph a{ color:var(--crk); text-decoration:none; font-size:7.5px; letter-spacing:.1em; text-transform:uppercase; }
+#wgMeter > .body, #wgLenses > .body{ flex:1 1 0; min-height:0; position:relative; }
+#wgMeter iframe, #wgLenses iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; background:var(--bg); }
+#wgMeter > .body{ display:flex; align-items:center; justify-content:center; }
+#wgMeter iframe{ position:static; height:52px; }
+/* W1: the tape, taller and narrower - one row (FAVORITES), each cell two lines: the ticker and the price on the first,
+   the day's percent under them, the line on the right across both; no Geiger bar in the tape. 48 px, type 12.5 px. */
+body.widgets #tapes .tape{ height:var(--tape-row-px, 22px); }
+body.widgets #tapes .tape.tall .lbl{ font-size:9.5px; }
+body.widgets #tapes .tape.tall .cell{ height:var(--tape-row-px, 48px); display:grid; grid-template-columns:auto auto; grid-template-rows:1fr 1fr; align-items:center;
+  column-gap:10px; row-gap:0; padding:0 12px; font-size:12.5px; }
+body.widgets #tapes .tape.tall .cell .tk{ grid-column:1; grid-row:1; align-self:end; letter-spacing:.08em; }
+body.widgets #tapes .tape.tall .cell .px{ grid-column:1; grid-row:1; align-self:end; margin-left:calc(5ch + 10px); }
+body.widgets #tapes .tape.tall .cell .pc{ grid-column:1; grid-row:2; align-self:start; min-width:0; text-align:left; font-size:11px; }
+body.widgets #tapes .tape.tall .cell .mk{ grid-column:2; grid-row:1 / span 2; width:64px; }
+body.widgets #tapes .tape.tall .cell .spark{ height:26px; }
+body.widgets #tapes .tape.tall .cell .gb{ display:none; }
 /* S15: with the strip at the bottom the timeframe tag is back on the charts' top edge, where it was before S14 */
 .tape{ flex:none; height:22px; display:flex; align-items:stretch; background:var(--panel2); overflow:hidden; }
 .tape .lbl{ flex:none; min-width:104px; display:flex; align-items:center; padding:0 8px; color:var(--crk);
@@ -748,6 +784,11 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
         title="WALL: the chart grid, the YouTube pane in a block of it, rotation and pages as before; remembered on this machine">wall</button>
       <button type="button" class="btn" id="simpleBtn" aria-pressed="false"
         title="SIMPLE: two charts you set by hand on top, YouTube across the bottom, X in its column; nothing moves by itself; remembered on this machine">simple</button>
+      <!-- W1 (22 Oct): WIDGETS, the default on both Macs: two TradingView charts with VWAP, the volume meter, the lens set,
+           YouTube with its grid beside the player, one taller FAVORITES tape, X; no rotation. -->
+      <button type="button" class="btn" id="widgetsBtn" aria-pressed="false"
+        title="WIDGETS: two TradingView charts with VWAP that you set, the volume meter, a set of context lenses (RADAR · MACRO · MINE), YouTube with its grid beside the player, one taller FAVORITES tape, X in its column; no rotation; remembered on this machine">widgets</button>
+      <button type="button" class="btn" id="widgetsArrBtn" aria-pressed="false" title="WIDGETS: A = the meter and the lenses in a column right of YouTube; B = a band of widgets between the charts and YouTube; remembered on this machine">A · B</button>
     </span>
   </span>
   <span class="dsec" data-sec="scenes" role="group" aria-label="Scenes and screens">
@@ -1310,7 +1351,31 @@ function simpleChoice(stored, urlValue, screenWidth) {
   if (stored === "1" || stored === "0") return stored === "1";
   return simpleDefault(screenWidth);
 }
+/* ── WIDGETS (W1, 22 Oct 2026) — the third wall mode, the default on both Macs ──
+   station.widgets is "1" or "0" once chosen on this machine; before any choice WIDGETS is on (Alan asked for it
+   as the new station on both Macs). ?widgets=1|0 on the URL wins for that load and is not remembered. WIDGETS on
+   means SIMPLE off (one mode at a time); WIDGETS off falls back to the WALL · SIMPLE choice as Y9 left it. The
+   two TradingView symbols are remembered under station.widgets.chart.1/2 (first from SIMPLE's two, the brief's
+   defaults), their intervals under station.widgets.tf.1/2 (5 and 30 to begin with), the arrangement under
+   station.widgets.arrangement ("a" or "b"). */
+const WIDGETS_KEY = "station.widgets", WIDGETS_CHART_KEY = "station.widgets.chart.", WIDGETS_TF_KEY = "station.widgets.tf.", WIDGETS_ARR_KEY = "station.widgets.arrangement";
+const WIDGETS_CHARTS = 2, WIDGETS_TFS = Object.freeze(["1", "5", "15", "30", "60", "D"]), WIDGETS_TF_DEFAULT = Object.freeze(["5", "30"]);
+const WIDGETS_TAPE_PX = 48;
+function widgetsChoice(stored, urlValue) {
+  if (urlValue === "1" || urlValue === "0") return urlValue === "1";
+  if (stored === "1" || stored === "0") return stored === "1";
+  return true;
+}
+function widgetsOn() { return widgetsChoice(remembered(WIDGETS_KEY), QS.get("widgets")); }
+const widgetsArrangementOf = (stored) => stored === "b" ? "b" : "a";
+function widgetsArrangement() { return widgetsArrangementOf(remembered(WIDGETS_ARR_KEY)); }
+function widgetsTfOf(stored, index) { return WIDGETS_TFS.includes(String(stored)) ? String(stored) : WIDGETS_TF_DEFAULT[index] || "5"; }
+function widgetsTf(index) { return widgetsTfOf(remembered(WIDGETS_TF_KEY + (index + 1)), index); }
+/* the symbol a WIDGETS chart starts with: its own memory, else the last SIMPLE symbol for that chart (the brief's default) */
+const widgetsSymbols = () => Array.from({ length:WIDGETS_CHARTS }, (_, i) => CLEAN(remembered(WIDGETS_CHART_KEY + (i + 1))) || CLEAN(remembered(SIMPLE_CHART_KEY + (i + 1))));
+let WIDGETS_NOW = null;   /* { on, slot, arrangement } after each fit */
 function simpleOn() {
+  if (widgetsOn()) return false;   /* W1: one wall mode at a time; WIDGETS is decided first */
   let sw = 0; try { sw = (window.screen && screen.width) || 0; } catch (_) {}
   return simpleChoice(remembered(SIMPLE_KEY), QS.get("simple"), sw);
 }
@@ -1322,6 +1387,7 @@ function simpleSplit() { return simpleSplitOf(remembered(SIMPLE_SPLIT_KEY)); }
 const simpleSymbols = () => Array.from({ length:SIMPLE_CHARTS }, (_, i) => CLEAN(remembered(SIMPLE_CHART_KEY + (i + 1))));
 let SIMPLE_NOW = null;   /* { on, slot } after each fit - what is on the wall */
 if (simpleOn()) simpleSymbols().forEach((t, i) => { if (t && !(URL_STATEFUL && QS.has("c" + (i + 1)))) CHARTS[i] = t; });
+if (widgetsOn()) widgetsSymbols().forEach((t, i) => { if (t && !(URL_STATEFUL && QS.has("c" + (i + 1)))) CHARTS[i] = t; });
 /* One range for the loaded Station run. It never belongs to a scene preset:
    URL wins at launch; otherwise every fresh reload starts at 3h. */
 let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "3h";
@@ -1770,8 +1836,42 @@ function floorSimple(areaWidth, areaHeight, tapePx, split, count, chromePx) {
   return { simple:true, split:s, cols, rows, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
     cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH };
 }
+/* ── WIDGETS' numbers (W1), pure — the same shape as floorSimple so fitVideoPane treats it as the slot ──
+   The chart area (the 76 % right of the column, full height) is the charts' row above and a band below, one seam between.
+   A ("column"): the band is 44 % of the height; YouTube takes 62 % of its width on the left; right of it a column: the
+   meter strip on top (METER_PX tall), the lens set under it. B ("band"): a 20 % band of widgets - the meter at its left
+   (16 % of the width), the lenses across the rest - then YouTube across the whole width below (28 % of the height). The
+   charts get what is left, less the tapes. Two charts, side by side; the page's other slots stay mounted and hidden. */
+const WIDGETS_METER_PX = 76, WIDGETS_A_BAND = 0.44, WIDGETS_A_VIDEO_W = 0.62, WIDGETS_B_BAND = 0.20, WIDGETS_B_VIDEO = 0.28, WIDGETS_B_METER_W = 0.16;
+function floorWidgets(areaWidth, areaHeight, tapePx, arrangement, count, chromePx) {
+  const w = Math.max(0, Number(areaWidth) || 0), h = Math.max(0, Number(areaHeight) || 0), tapes = Math.max(0, Number(tapePx) || 0);
+  const arr = widgetsArrangementOf(arrangement);
+  const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
+  const n = Math.max(0, Math.round(Number(count) || 0)), charts = Math.min(n, WIDGETS_CHARTS);
+  let box, meter, lenses, bandH;
+  if (arr === "a") {
+    bandH = Math.max(0, Math.round((h - FLOOR_SEAM_PX) * WIDGETS_A_BAND));
+    const top = h - bandH, vw = Math.round(w * WIDGETS_A_VIDEO_W), rx = vw + FLOOR_SEAM_PX, rw = Math.max(0, w - rx);
+    box = { left:0, top, w:vw, h:bandH };
+    meter = { left:rx, top, w:rw, h:Math.min(bandH, WIDGETS_METER_PX) };
+    lenses = { left:rx, top:top + meter.h + FLOOR_SEAM_PX, w:rw, h:Math.max(0, bandH - meter.h - FLOOR_SEAM_PX) };
+  } else {
+    const videoH = Math.max(0, Math.round((h - 2 * FLOOR_SEAM_PX) * WIDGETS_B_VIDEO)), stripH = Math.max(0, Math.round((h - 2 * FLOOR_SEAM_PX) * WIDGETS_B_BAND));
+    bandH = videoH + FLOOR_SEAM_PX + stripH;
+    const stripTop = h - bandH, mw = Math.round(w * WIDGETS_B_METER_W);
+    box = { left:0, top:h - videoH, w, h:videoH };
+    meter = { left:0, top:stripTop, w:mw, h:stripH };
+    lenses = { left:mw + FLOOR_SEAM_PX, top:stripTop, w:Math.max(0, w - mw - FLOOR_SEAM_PX), h:stripH };
+  }
+  const chartsH = Math.max(0, h - bandH - FLOOR_SEAM_PX - tapes);
+  const pw = Math.max(0, Math.min(box.w, Math.floor((box.h - chrome) * 16 / 9)));
+  return { widgets:true, arrangement:arr, cols:Math.max(1, charts), rows:1, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
+    cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH, bandH, meter, lenses };
+}
 function slotFor(count, plan, tapePx, chromePx) {
   if (!plan || document.body.classList.contains("charts-only")) return null;
+  /* W1: WIDGETS is its own slot (through a solo, like SIMPLE) */
+  if (widgetsOn()) return floorWidgets(plan.charts.w, plan.charts.h, tapePx, widgetsArrangement(), count, chromePx);
   /* Y9: SIMPLE is its own slot, and a chart solo keeps it (the solo chart takes the charts' row; the pane stays put) */
   if (simpleOn()) return floorSimple(plan.charts.w, plan.charts.h, tapePx, simpleSplit(), count, chromePx);
   if (SOLO) return null;
@@ -1788,8 +1888,8 @@ function placeChartsAroundSlot(slot, count) {
     const i = +String(o.def.key).slice(1) - 1;
     const cell = slot && i >= 0 && i < n ? slot.cells[i] : null;
     o.node.classList.toggle("slot-off", !!slot && i >= 0 && i < n && !cell);
-    /* Y9: in SIMPLE a chart solo (⤢) takes the whole charts' row; an inline cell would pin it to half */
-    const solo = !!slot && slot.simple && SOLO === o.def.key;
+    /* Y9: in SIMPLE a chart solo (⤢) takes the whole charts' row; an inline cell would pin it to half (W1: WIDGETS too) */
+    const solo = !!slot && (slot.simple || slot.widgets) && SOLO === o.def.key;
     o.node.style.gridColumn = solo ? "1 / -1" : cell ? String(cell.col) : "";
     o.node.style.gridRow = solo ? "1 / -1" : cell ? String(cell.row) : "";
   }
@@ -1803,6 +1903,8 @@ const TAPE_ROW_PX = 22;
 const TAPE_SPEED_PX_S = 45;
 const TAPES_KEY = "station.tapes";
 function tapesHeight(on) { return on ? 2 * TAPE_ROW_PX + 2 * FLOOR_SEAM_PX : 0; }
+/* W1: in WIDGETS one tape (FAVORITES), WIDGETS_TAPE_PX tall, its two seams; the LIKED tape is not on that wall */
+function widgetsTapesHeight(on) { return on ? WIDGETS_TAPE_PX + 2 * FLOOR_SEAM_PX : 0; }
 function tapeLists(likedRows, favoriteRows) {
   const names = (rows) => {
     const seen = new Set(), out = [];
@@ -1961,12 +2063,14 @@ function paintTapeCells(first) {
 }
 function paintTapes() {
   const box = el("tapes"); if (!box) return;
-  const key = TAPES.liked.join(",") + "|" + TAPES.favorites.join(",");
+  const tall = widgetsOn();   /* W1: one taller FAVORITES tape on the WIDGETS wall */
+  const key = (tall ? "tall|" : "") + TAPES.liked.join(",") + "|" + TAPES.favorites.join(",");
   if (key !== TAPES.key || !box.firstChild) {
     TAPES.key = key; box.innerHTML = "";
     /* S15: FAVORITES is the row nearest the charts, LIKED runs along the screen's bottom edge */
     box.appendChild(tapeRow("FAVORITES", TAPES.favorites, "the Station's favorites list"));
-    box.appendChild(tapeRow("LIKED", TAPES.liked, "the Hub's liked names that are not on FAVORITES · " + TAPES.liked.length + " of " + TAPES.likedTotal + " liked"));
+    if (tall) box.firstChild.classList.add("tall");
+    else box.appendChild(tapeRow("LIKED", TAPES.liked, "the Hub's liked names that are not on FAVORITES · " + TAPES.liked.length + " of " + TAPES.likedTotal + " liked"));
     paintTapeCells(true);
   } else paintTapeCells(false);
   fitTapes();
@@ -2096,7 +2200,7 @@ function tapesTick() {
 /* a tapped name opens through commitTicker - the same door a symbol typed into a slot goes through */
 function openTapeTicker(ticker) {
   const t = CLEAN(ticker); if (!t) return false;
-  const slot = tapeSlotFor(CHARTS.map(CLEAN), simpleOn() ? Math.min(CHART_COUNT, SIMPLE_CHARTS) : CHART_COUNT, t, TAPES.lastSlot);
+  const slot = tapeSlotFor(CHARTS.map(CLEAN), simpleOn() ? Math.min(CHART_COUNT, SIMPLE_CHARTS) : widgetsOn() ? Math.min(CHART_COUNT, WIDGETS_CHARTS) : CHART_COUNT, t, TAPES.lastSlot);
   if (!slot.already) {
     if (!commitTicker(slot.index, t, el("t" + (slot.index + 1)))) return false;
     TAPES.lastSlot = slot.index;
@@ -2126,6 +2230,7 @@ function wireTapes(grid) {
   box.id = "tapes"; box.setAttribute("role", "group"); box.setAttribute("aria-label", "Liked and favorites tapes");
   grid.appendChild(box);
   wireSimpleHandle(grid);   /* Y9: SIMPLE's handle on the seam between the charts and the YouTube pane */
+  wireWidgets(grid);        /* W1: the meter and the lens set of the WIDGETS wall */
   box.addEventListener("click", (event) => {
     const cell = event.target.closest(".cell"); if (cell) openTapeTicker(cell.dataset.t);
   });
@@ -2147,25 +2252,30 @@ function fitVideoPane() {
   if (grid) grid.style.setProperty("--fp-col", plan ? plan.col + "px" : "");
   /* S14: the tapes take 46 px off the chart row's height (never its width), so each count's grid is
      chosen for the height that is left - with the tapes off this is plan.grids, to the number */
-  const tapePx = plan ? tapesHeight(tapesOn()) : 0;
+  const tapePx = plan ? (widgetsOn() ? widgetsTapesHeight(tapesOn()) : tapesHeight(tapesOn())) : 0;
   document.body.classList.toggle("tapes", tapePx > 0);
   if (grid) grid.style.setProperty("--tapes-px", tapePx + "px");
+  if (grid) grid.style.setProperty("--tape-row-px", (widgetsOn() ? WIDGETS_TAPE_PX : TAPE_ROW_PX) + "px");
   /* Y7: the video's slot in the chart grid - for the page's count, in the area the tapes leave;
      a chart solo and CHARTS ONLY have their own layouts, so the slot stands down for them.
      Y9: in SIMPLE the slot is the band across the bottom, and the charts' grid is two by one. */
   const slot = slotFor(CHART_COUNT, plan, tapePx, onWall?.chromePx);
-  const simple = !!slot && !!slot.simple;
+  const simple = !!slot && (!!slot.simple || !!slot.widgets);   /* W1: WIDGETS is a band across the bottom too */
   if (top) for (const n of FLOOR_COUNTS) {
     const g = simple ? { cols:slot.cols, rows:slot.rows } : !plan ? null : tapePx ? floorGrid(n, plan.charts.w, plan.charts.h - tapePx) : plan.grids[n];
     top.style.setProperty("--fp-c" + n, g ? String(g.cols) : "");
     top.style.setProperty("--fp-r" + n, g ? String(g.rows) : "");
   }
   SLOT_NOW = { slot, plan, tapePx, chromePx:onWall?.chromePx };
-  SIMPLE_NOW = { on:simpleOn(), slot:simple ? slot : null };
+  SIMPLE_NOW = { on:simpleOn(), slot:simple && !slot.widgets ? slot : null };
+  WIDGETS_NOW = { on:widgetsOn(), slot:slot && slot.widgets ? slot : null, arrangement:widgetsArrangement() };
   document.body.classList.toggle("simple", simpleOn());
+  document.body.classList.toggle("widgets", widgetsOn());
   document.body.classList.toggle("video-slot", !!slot);
-  if (grid) grid.style.setProperty("--simple-video-px", simple ? slot.box.h + "px" : "0px");
+  /* the band the chart row gives up: SIMPLE's pane, or WIDGETS' whole band (YouTube and the widgets) */
+  if (grid) grid.style.setProperty("--simple-video-px", simple ? (slot.widgets ? slot.bandH : slot.box.h) + "px" : "0px");
   placeChartsAroundSlot(slot);
+  placeWidgets(slot && slot.widgets ? slot : null, plan);
   const handle = el("simpleHandle");
   if (handle && simple) {
     handle.style.left = (plan.col + FLOOR_SEAM_PX) + "px"; handle.style.width = plan.charts.w + "px";
@@ -2797,6 +2907,24 @@ setInterval(paintMarketStatus, 10000);
 setInterval(deckQuoteHeartbeat, DECK_QUOTE_HEARTBEAT_MS);
 window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
+  /* W1: a TradingView slot says which interval it is on (chosen on its strip): remembered per chart on this machine, and
+     the slot's address kept in step so a later re-point does not undo it. The symbol is the deck's own box's business. */
+  if (event.data?.type === "SCINTILLA_TV_STATE") {
+    const n = +event.data.n, tf = String(event.data.interval || ""), heard = CLEAN(event.data.ticker);
+    const o = PANES.find((item) => item.def.key === "c" + n);
+    const own = !!(o && o.frame && o.frame.contentWindow === event.source);
+    if ((n === 1 || n === 2) && WIDGETS_TFS.includes(tf)) remember(WIDGETS_TF_KEY + n, tf);
+    /* the widget's own symbol search, heard through the shell: the slot takes the name (its badge, its box, its quote) and remembers it */
+    if ((n === 1 || n === 2) && heard && heard !== CHARTS[n - 1] && own && widgetsOn()) {
+      CHARTS[n - 1] = heard; const input = el("t" + n); if (input) input.value = heard;
+      if (o) { o.def.short = heard; o.def.title = heard; o.def.ticker = heard; const t = o.node.querySelector(".ph .t"); if (t) t.textContent = heard; }
+      remember(WIDGETS_CHART_KEY + n, heard); refreshDeckQuotes(); rememberEditableState(); paintChips();
+    }
+    if ((n === 1 || n === 2) && own && CHARTS[n - 1]) { o.def.src = tvChartSrc(CHARTS[n - 1], n - 1); o.def.open = o.def.src.replace("bare=1&", ""); if (o.frame.dataset) o.frame.dataset.shown = o.def.src; }
+    return;
+  }
+  /* W1: a tap on a lens opens that name in one of the two charts (the tape's own door) */
+  if (event.data?.type === "SCINTILLA_LENS_OPEN") { openTapeTicker(event.data.ticker); return; }
   if (event.data?.type === "SCINTILLA_X_LIVE") {
     /* The X pane's own heartbeat. The deck cannot see inside that frame, and it
        must not reload a pane that is showing Alan his feed. */
@@ -3160,11 +3288,14 @@ function setChartsOnly(on) {
 function toggleChartsOnly() { setChartsOnly(!chartsOnlyOn()); }
 /* ---- WALL · SIMPLE (Y9, 21 Oct 2026): one pair of buttons, remembered per machine ---- */
 function paintSimple() {
-  const on = simpleOn();
+  const on = simpleOn(), wg = widgetsOn();
   document.body.classList.toggle("simple", on);
-  const w = el("wallBtn"), s = el("simpleBtn");
-  if (w) { w.classList.toggle("on", !on); w.setAttribute("aria-pressed", on ? "false" : "true"); }
+  document.body.classList.toggle("widgets", wg);
+  const w = el("wallBtn"), s = el("simpleBtn"), g = el("widgetsBtn"), a = el("widgetsArrBtn");
+  if (w) { w.classList.toggle("on", !on && !wg); w.setAttribute("aria-pressed", on || wg ? "false" : "true"); }
   if (s) { s.classList.toggle("on", on); s.setAttribute("aria-pressed", on ? "true" : "false"); }
+  if (g) { g.classList.toggle("on", wg); g.setAttribute("aria-pressed", wg ? "true" : "false"); }
+  if (a) { a.hidden = !wg; const arr = widgetsArrangement(); a.textContent = arr === "b" ? "B · band" : "A · column"; a.setAttribute("aria-pressed", arr === "b" ? "true" : "false"); }
 }
 /* SIMPLE's two symbols go back into slots 1 and 2 (the remembered ones; a slot with no memory keeps the symbol it has) */
 function placeSimpleSymbols() {
@@ -3176,18 +3307,87 @@ function placeSimpleSymbols() {
   refreshDeckQuotes(); rememberEditableState(); paintChips();
 }
 function setSimple(on) {
+  const wasWidgets = widgetsOn();
   try { localStorage.setItem(SIMPLE_KEY, on ? "1" : "0"); } catch (_) {}
+  try { localStorage.setItem(WIDGETS_KEY, "0"); } catch (_) {}   /* W1: WALL or SIMPLE chosen = WIDGETS off */
   paintSimple();
+  if (wasWidgets) leaveWidgets();
   if (on) placeSimpleSymbols();
   scheduleRotation();      /* SIMPLE: none; WALL: the remembered setting */
   relayout();
   try { dispatchEvent(new Event("resize")); } catch (_) {}   /* the chart shells size themselves to their pane */
 }
+/* ---- WIDGETS (W1, 22 Oct 2026): the switch, the arrangement, the two TradingView slots ---- */
+function setWidgets(on) {
+  if (on === widgetsOn()) return;
+  try { localStorage.setItem(WIDGETS_KEY, on ? "1" : "0"); } catch (_) {}
+  paintSimple();
+  if (on) { placeWidgetsSymbols(); tellVideoBeside(true); }
+  else { leaveWidgets(); if (simpleOn()) placeSimpleSymbols(); }
+  scheduleRotation();      /* WIDGETS: none */
+  TAPES.key = "";          /* the tape is rebuilt for the mode (one tall row, or the two) */
+  relayout(); paintTapes();
+  try { dispatchEvent(new Event("resize")); } catch (_) {}
+}
+function setWidgetsArrangement(arr) {
+  remember(WIDGETS_ARR_KEY, widgetsArrangementOf(arr));
+  paintSimple(); relayout();
+  try { dispatchEvent(new Event("resize")); } catch (_) {}
+}
+/* WIDGETS' two symbols go into slots 1 and 2 on the TradingView shell (a slot with no memory keeps its symbol, re-pointed to tv-v1) */
+function placeWidgetsSymbols() {
+  widgetsSymbols().forEach((t, i) => {
+    if (t && CHARTS[i] !== t) { CHARTS[i] = t; const n = el("t" + (i + 1)); if (n) n.value = t; }
+    if (CHARTS[i]) retargetSlot(i, CHARTS[i]);   /* the shell changes with the mode: chart-v1 → tv-v1 */
+  });
+  refreshDeckQuotes(); rememberEditableState(); paintChips();
+}
+/* leaving WIDGETS: the two slots go back to chart-v1 with the symbols they show; the pane's grid goes back under the player */
+function leaveWidgets() {
+  for (let i = 0; i < WIDGETS_CHARTS; i++) if (CHARTS[i]) retargetSlot(i, CHARTS[i]);
+  tellVideoBeside(false);
+}
+function tellVideoBeside(on) {
+  for (const o of PANES) {
+    if (o.def.kind !== "video" || !o.frame) continue;
+    try { o.frame.contentWindow.postMessage({ type:"SCINTILLA_VIDEO_BESIDE", on:!!on }, location.origin); } catch (_) {}
+  }
+}
 function wireSimple() {
-  const w = el("wallBtn"), s = el("simpleBtn");
+  const w = el("wallBtn"), s = el("simpleBtn"), g = el("widgetsBtn"), a = el("widgetsArrBtn");
   if (w && !w.__wired) { w.__wired = true; w.addEventListener("click", () => setSimple(false)); }
   if (s && !s.__wired) { s.__wired = true; s.addEventListener("click", () => setSimple(true)); }
+  if (g && !g.__wired) { g.__wired = true; g.addEventListener("click", () => setWidgets(true)); }
+  if (a && !a.__wired) { a.__wired = true; a.addEventListener("click", () => setWidgetsArrangement(widgetsArrangement() === "a" ? "b" : "a")); }
   paintSimple();
+}
+/* ── the widgets on the wall: the volume meter (the live meter, framed) and the lens set (lens-v1), placed by floorWidgets ──
+   Made once with the tapes; their frames mount the first time WIDGETS is on and stay (the meter is one pill; the lens
+   set is one page). A click on the meter opens the full volume page in its own window - the meter does that itself. */
+const WIDGETS_METER_URL = "https://volume-pulse-pied.vercel.app/meter.html", WIDGETS_METER_OPEN = "https://volume-pulse-pied.vercel.app/";
+const WIDGETS_LENS_SHELL = "/station-shells/lens-v1";
+function wireWidgets(grid) {
+  const make = (id, title, tag, open) => {
+    const n = document.createElement("div"); n.id = id; n.className = "widget";
+    n.innerHTML = '<div class="ph"><span class="t">' + esc(title) + '</span><span class="tag">' + esc(tag) + "</span>" + (open ? '<a href="' + esc(open) + '" target="_blank" rel="noopener" title="open the full page in its own window">open ↗</a>' : "") + '</div><div class="body"></div>';
+    grid.appendChild(n); return n;
+  };
+  make("wgMeter", "Volume", "volume-pulse · SPY QQQ DIA IWM · 5-minute multiple", WIDGETS_METER_OPEN);
+  make("wgLenses", "Lenses", "RADAR · MACRO · MINE · sixty daily candles", "");
+}
+function mountWidgets() {
+  const m = el("wgMeter"), l = el("wgLenses");
+  if (m && !m.querySelector("iframe")) { const f = document.createElement("iframe"); f.src = WIDGETS_METER_URL; f.loading = "lazy"; f.title = "volume meter"; m.querySelector(".body").appendChild(f); }
+  if (l && !l.querySelector("iframe")) { const f = document.createElement("iframe"); f.src = WIDGETS_LENS_SHELL + "/?shell=v1&view=" + encodeURIComponent(VIEW); f.loading = "lazy"; f.title = "context lenses"; l.querySelector(".body").appendChild(f); }
+}
+function placeWidgets(slot, plan) {
+  const m = el("wgMeter"), l = el("wgLenses");
+  if (!m || !l) return;
+  if (!slot || !plan) return;
+  mountWidgets();
+  const put = (n, b) => { n.style.left = (plan.col + FLOOR_SEAM_PX + b.left) + "px"; n.style.top = b.top + "px"; n.style.width = b.w + "px"; n.style.height = b.h + "px"; };
+  put(m, slot.meter); put(l, slot.lenses);
+  m.classList.toggle("tight", slot.meter.w < 260); l.classList.toggle("tight", slot.lenses.w < 260);
 }
 /* the handle on the seam between the charts and the YouTube pane: drag it, the split is remembered on this machine */
 function wireSimpleHandle(grid) {
@@ -3976,11 +4176,12 @@ function moveNamedSceneToCustom() {
 function paintRotateControls() {
   const timing = el("rotateEvery"), toggle = el("rotateToggle");
   timing.value = String(ROTATE_AT);
-  const running = !ROTATE_PAUSED && !simpleOn();
+  const still = simpleOn() || widgetsOn();   /* W1: WIDGETS never rotates either */
+  const running = !ROTATE_PAUSED && !still;
   toggle.textContent = running ? "pause" : "start";
   toggle.classList.toggle("on", running);
-  toggle.disabled = simpleOn();
-  toggle.title = simpleOn() ? "no rotation in SIMPLE - switch to WALL for the rotation" : running ? "pause curated scene rotation" : "start curated scene rotation";
+  toggle.disabled = still;
+  toggle.title = widgetsOn() ? "no rotation in WIDGETS - switch to WALL for the rotation" : simpleOn() ? "no rotation in SIMPLE - switch to WALL for the rotation" : running ? "pause curated scene rotation" : "start curated scene rotation";
   toggle.setAttribute("aria-label", running ? "Pause auto rotate" : "Start auto rotate");
 }
 let ROT_POS = -1;   /* where the last rotation step stood in the lap; -1 = not stepped yet */
@@ -3990,7 +4191,7 @@ function clearRotateTimer() {
 }
 function scheduleRotation() {
   clearRotateTimer(); paintRotateControls();
-  if (ROTATE_PAUSED || simpleOn()) return;   /* Y9: SIMPLE never rotates; the code stays for the WALL */
+  if (ROTATE_PAUSED || simpleOn() || widgetsOn()) return;   /* Y9: SIMPLE never rotates; W1: nor WIDGETS; the code stays for the WALL */
   rotateTimer = setTimeout(async () => {
     if (ROTATE_PAUSED || ROTATE_BUSY) return scheduleRotation();
     ROTATE_BUSY = true;
@@ -4168,6 +4369,7 @@ async function stepScreen(direction) {
    an already-pinned sibling merely because the deck is redeployed. */
 const STATION_SHELL = Object.freeze({
   chart: "/station-shells/chart-v1",
+  tv: "/station-shells/tv-v1",   /* W1: the TradingView Advanced Chart widget, VWAP on, for the WIDGETS wall */
   personalVideo: "/station-shells/personal-video-v1",
   scintillaVideo: "/station-shells/scintilla-video-v1",
   /* The channel feeds (soundscapes, golf, AI research, fitness) mount the SCINTILLA twin, which is
@@ -4184,7 +4386,12 @@ const videoShellFor = (account) => VIDEO_SHELL_BY_ACCOUNT[account] || STATION_SH
    declares — and its own timeframe when the page asked for one — on top of whatever
    chartSrc built, so no ordinary page gains a study parameter and the dock's clouds
    switch keeps working by message, without reloading a frame. */
+/* W1: in WIDGETS slots 1 and 2 are TradingView charts (tv-v1): the symbol, the remembered interval, which chart */
+function tvChartSrc(t, index) {
+  return STATION_SHELL.tv + "/?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&tf=" + encodeURIComponent(widgetsTf(index)) + "&n=" + (index + 1) + "&view=" + encodeURIComponent(VIEW);
+}
 function paneChartSrc(t, index, transitionGeneration) {
+  if (widgetsOn() && index < WIDGETS_CHARTS && t) return tvChartSrc(t, index);
   const src = chartSrc(t, index, transitionGeneration);
   const stack = SLOT_STACKS[index], range = SLOT_RANGES[index], bars = SLOT_BARS[index];
   const bubble = SLOT_BUBBLES[index] ? "&bubble=" + encodeURIComponent(SLOT_BUBBLES[index]) : "";
@@ -4906,6 +5113,8 @@ function commitTicker(index, raw, input) {
   retargetSlot(index, ticker);
   /* Y9: the two symbols set by hand in SIMPLE are this machine's, and come back with SIMPLE */
   if (simpleOn() && index < SIMPLE_CHARTS) remember(SIMPLE_CHART_KEY + (index + 1), ticker);
+  /* W1: the two symbols set by hand in WIDGETS are this machine's too (station.widgets.chart.N) */
+  if (widgetsOn() && index < WIDGETS_CHARTS) remember(WIDGETS_CHART_KEY + (index + 1), ticker);
   /* A lower slot that just gained a symbol now carries the column's time
      axis, so the chart above it hands its own back. */
   const above = index - CHART_COUNT / 2;
@@ -5271,9 +5480,9 @@ async function build() {
        uses — so the feed actually scrolls in the pane instead of offering a
        button. Both are embedded; neither is a dock. */
     { row: 1, key: "fb", short: "personal", title: "Personal YouTube", tag: "personal subscriptions",
-      kind: "video", src: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&cols=2&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&limit=200&cols=2" },
+      kind: "video", src: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&cols=2" + (widgetsOn() ? "&beside=1" : "") + "&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&limit=200&cols=2" },
     { row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",
-      kind: "video", src: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&cols=2&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&limit=200&cols=2" },
+      kind: "video", src: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&cols=2" + (widgetsOn() ? "&beside=1" : "") + "&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&limit=200&cols=2" },
     { row: 1, key: "x", short: "X", title: "X · live", tag: "live capture",
       kind: "x", src: IPAD_COMPANION
         ? STATION_SHELL.x + "?shell=v1&remote=1&pair=" + encodeURIComponent(IPAD_PAIR) + "&code=" + encodeURIComponent(IPAD_CODE) + "&view=" + encodeURIComponent(VIEW)
@@ -5286,7 +5495,7 @@ async function build() {
     if (key === "fb" || key === "fa") continue;
     defs.splice(defs.length - 1, 0, {
       row: 1, key, short: label, title: label + " YouTube", tag: account + " subscriptions", kind: "video",
-      src: videoShellFor(account) + "?shell=v1&feed=" + account + "&cols=2&view=" + encodeURIComponent(VIEW),
+      src: videoShellFor(account) + "?shell=v1&feed=" + account + "&cols=2" + (widgetsOn() ? "&beside=1" : "") + "&view=" + encodeURIComponent(VIEW),
       open: videoShellFor(account) + "?shell=v1&feed=" + account + "&limit=200&cols=2"
     });
   }
