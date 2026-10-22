@@ -207,6 +207,17 @@ html[data-view="compact"] .cap .t{ font-size:8.5px; }
 #stage{ display:none; flex:1 1 0; min-height:0; flex-direction:column; }
 body.playing #stage{ display:flex; }
 body.playing #grid{ display:none; }
+/* ---- W1 (22 Oct 2026): THE GRID BESIDE THE PLAYER. Alan: "I can see the rest of the grid while I'm watching another
+   video." With ?beside=1 (the WIDGETS wall's pane; the deck can also say so by message) a playing video takes about
+   two thirds of the pane and the thumbnails stay in a scrolling column on its right: a tap on another thumbnail
+   switches the video in place, BACK (or Esc) gives the whole pane back to the grid. Nothing else moves: the bar, the
+   float (Y8), the sound rule (Y10) and the theatre are as they were. The column counts its own width (relayout). */
+body.beside.playing{ display:grid; grid-template-columns:minmax(0,2fr) minmax(200px,1fr); grid-template-rows:auto minmax(0,1fr); }
+body.beside.playing > #bar{ grid-column:1 / -1; grid-row:1; }
+body.beside.playing > #stage{ grid-column:1; grid-row:2; display:flex; min-width:0; }
+body.beside.playing > #grid{ grid-column:2; grid-row:2; display:grid; border-left:1px solid var(--line); }
+body.beside.playing > :not(#bar):not(#grid):not(#stage){ grid-column:1 / -1; }
+body.beside.playing #grid .card.on{ outline:1px solid var(--crk); outline-offset:-1px; }
 #video{ flex:1 1 0; min-height:0; position:relative; background:#000; }
 #video iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; }
 #transport{ display:none; flex:1 1 0; min-width:0; align-items:center; justify-content:flex-end; gap:4px;
@@ -422,6 +433,10 @@ const TICK   = (QS.get("t") || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "");
 const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
 const AUTO   = QS.get("autoplay") === "1";
 const FORCE  = +(QS.get("cols") || 0);
+/* W1: the grid beside the player - asked for on the URL (?beside=1) or by the deck's message (SCINTILLA_VIDEO_BESIDE) */
+let BESIDE = QS.get("beside") === "1";
+function paintBeside() { document.body.classList.toggle("beside", BESIDE); }
+const besideNow = () => BESIDE && document.body.classList.contains("playing");
 
 /* Personal is its own subscribed feed.  SCINTILLA is its subscriptions too (Y7, 19 Oct 2026).
    Alan: "I want to remove the search queries of the YouTube thing. At least on the station … on
@@ -865,10 +880,14 @@ function fitBar() {
   if (over()) body.classList.add("bar-tight");
   if (over()) body.classList.add("bar-scroll");
 }
+/* W1, pure: the column beside the player - one thumbnail across under 400 px, two under 800, three above */
+function besideCols(width) { const w = Number(width) || 0; return w < 400 ? 1 : w < 800 ? 2 : 3; }
 function relayout() {
   fitBar();
-  const w = document.documentElement.clientWidth;
-  let cols = FORCE || (w < 210 ? 1 : w < 340 ? 2 : w < 520 ? 3 : w < 760 ? 4 : w < 1100 ? 5 : 6);
+  /* W1: beside the player the grid is a column; its own width decides, and the pane's ?cols= does not pin it */
+  const beside = besideNow();
+  const w = beside ? (el("grid").clientWidth || document.documentElement.clientWidth / 3) : document.documentElement.clientWidth;
+  let cols = beside ? besideCols(w) : FORCE || (w < 210 ? 1 : w < 340 ? 2 : w < 520 ? 3 : w < 760 ? 4 : w < 1100 ? 5 : 6);
   document.body.classList.toggle("tiny", w < 340);
   el("grid").style.setProperty("--cols", cols);
 }
@@ -1107,6 +1126,7 @@ async function play(v, auto, queued = false, skipped = new Set(), direction = 1,
   YT_PLAYER_REQUEST = { token, video:v, auto:!!auto, queued:!!queued, skipped:new Set(skipped),
     direction:direction < 0 ? -1 : 1, originVideo:originVideo || v, resumeAt };
   document.body.classList.add("playing");
+  if (BESIDE) relayout();   /* W1: the grid is now a column beside the player */
   refreshPlayerControls(v);
   el("bYt").style.display = ""; el("bYt").href = "https://www.youtube.com/watch?v=" + encodeURIComponent(v.video_id);
   el("bYt").textContent = IOS ? "open in youtube app ↗" : "open in youtube ↗";
@@ -1140,6 +1160,7 @@ function back() {
   if (CUR) LAST_PLAYED = CUR.video_id;
   CUR = null;
   document.body.classList.remove("playing");
+  if (BESIDE) relayout();   /* W1: the whole pane is the grid again */
   setMenuOpen(false); setAutoplayBlockedState(false); refreshWatchButton(); refreshTransport();
   syncUrl(); paint();
 }
@@ -1439,6 +1460,8 @@ window.addEventListener("message", (event) => {
   /* P on the deck: the deck hands the key here, where the video and its second are */
   if (event.data?.type === "SCINTILLA_VIDEO_PIP_TOGGLE") { if (FLOAT || (CUR && canFloat())) toggleFloat(); return; }
   if (event.data?.type === "SCINTILLA_VIDEO_PIP") notePip(event.data.path);   /* S5: a deck that opened the window itself says which path */
+  /* W1: the deck's WIDGETS wall asks for the grid beside the player; WALL and SIMPLE ask for the pane as it was */
+  if (event.data?.type === "SCINTILLA_VIDEO_BESIDE") { BESIDE = !!event.data.on; paintBeside(); relayout(); }
 });
 
 /* ---- render ---- */
@@ -1915,7 +1938,7 @@ window.addEventListener("message", (event) => {
   }
 });
 async function start() {
-  paintChips(); paintFeedProfileSelector([]); wireGrid(); paintFloat(); relayout(); postChrome(); load();
+  paintChips(); paintFeedProfileSelector([]); wireGrid(); paintFloat(); paintBeside(); relayout(); postChrome(); load();
   syncSharedVideoPositions();
   /* Prime one official player object behind the hidden stage.  Selecting or
      advancing a video then loads into this same object rather than replacing
