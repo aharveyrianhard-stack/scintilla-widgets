@@ -185,16 +185,14 @@ function fmtVol(v) { return Number.isFinite(v) ? Math.round(v).toLocaleString("e
 function fmtVwap(v) { return Number.isFinite(v) ? v.toLocaleString("en-US", { minimumFractionDigits:2, maximumFractionDigits:2 }) : "—"; }
 /* Tags on the price axis must not sit on each other: the live price keeps its height, the others step away (pure). */
 function spreadTags(tags, gap, top, bottom) {
-  const fixed = tags.filter((t) => t.fixed), free = tags.filter((t) => !t.fixed).sort((a, b) => a.y - b.y);
-  const placed = fixed.map((t) => Object.assign({}, t, { at:t.y }));
-  for (const t of free) {
-    let at = t.y;
-    for (let pass = 0; pass < 8; pass++) {
-      const hit = placed.find((p) => Math.abs(p.at - at) < gap);
-      if (!hit) break;
-      at = t.y >= hit.at ? hit.at + gap : hit.at - gap;
-    }
-    placed.push(Object.assign({}, t, { at:Math.max(top, Math.min(bottom, at)) }));
+  const placed = tags.filter((t) => t.fixed).map((t) => Object.assign({}, t, { at:t.y }));
+  for (const t of tags.filter((x) => !x.fixed).sort((a, b) => a.y - b.y)) {
+    /* the clear height nearest its own: its own, or just above or below a tag already placed */
+    const y0 = Math.max(top, Math.min(bottom, t.y));
+    const clear = (y) => y >= top && y <= bottom && placed.every((p) => Math.abs(p.at - y) >= gap);
+    const options = [y0].concat(...placed.map((p) => [p.at + gap, p.at - gap])).filter(clear)
+      .sort((a, b) => Math.abs(a - y0) - Math.abs(b - y0));
+    placed.push(Object.assign({}, t, { at:options.length ? options[0] : y0 }));
   }
   return placed;
 }
