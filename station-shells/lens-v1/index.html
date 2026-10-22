@@ -13,9 +13,15 @@
      zoomed-out series (chart-v1's lens drawing, S8's shape, the 1d:60 lens the intraday ranges carry: sixty daily candles),
      drawn big enough to read from the chair. Colours are the Station's: the head and the line in the day's colour, up
      green, down red - never grey. A tap on a lens opens that name in the wall's chart 1 (the deck decides which slot).
-     Reads: SC_PROVIDER.marketQuotes every 15 s (the read the charts' badges ride) and marketCandles 1d × 60 every ten
-     minutes (a finished daily bar cannot change). The lists: one Supabase GET for RADAR (the same door the deck reads
-     through); MACRO is a constant; MINE is localStorage. Nothing here writes anywhere. -->
+     Reads: SC_PROVIDER.marketQuotes every 15 s (the read the charts' badges ride) and marketCandles (1d × 60 every ten
+     minutes in the column; 5m × 120 every minute on the tape). The lists: one Supabase GET for RADAR (the same door the deck
+     reads through); MACRO is a constant; MINE is localStorage. Nothing here writes anywhere.
+     W1C (22 Oct, Alan): "Where you have the ticker tape is where I want a tape of context lenses … a little smaller …
+     make it 5 minute charts, the context lenses." ?mode=tape: the chips in a rail at the left, the lenses in ONE ROW that
+     runs like the Station's other tapes (one length wider than the window: the track is doubled and moves at 45 px a
+     second, the pointer holds it still; shorter: it stands); each lens a fixed 290 px wide; the bars are the last 120
+     completed 5-minute bars (ten hours of extended trading - today's session, with yesterday's close behind it early in
+     the day), read every minute. -->
 <style>
 :root{ --bg:#0A0A0F; --panel2:#0F0F17; --line:#1A1A2A; --hair:#2A2A3C; --ink:#F2F2F8; --ink2:#C8C8D8; --ink3:#9A9AB6; --mute:#6E6E80; --dim:#55556A;
   --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
@@ -46,6 +52,20 @@ body{ display:flex; flex-direction:column; }
 .lens .rm{ display:none; position:absolute; right:6px; top:6px; width:18px; height:18px; border:1px solid var(--line); background:var(--bg); color:var(--ink3); font:10px var(--mono); cursor:pointer; padding:0; border-radius:0; }
 body[data-list="mine"] .lens .rm{ display:block; } .lens .rm:hover{ color:var(--bear); border-color:var(--bear); }
 .msg{ grid-column:1 / -1; padding:18px 12px; color:var(--mute); font-size:9px; letter-spacing:.12em; text-transform:uppercase; text-align:center; background:var(--bg); }
+/* ---- W1C: the tape ---- */
+body.tape{ flex-direction:row; }
+body.tape #bar{ flex:none; width:96px; flex-direction:column; align-items:stretch; gap:3px; padding:5px 6px; border-bottom:0; border-right:1px solid var(--line); }
+body.tape #bar .k{ margin:0 0 2px; } body.tape #chips{ display:flex; flex-direction:column; gap:3px; } body.tape .chip{ text-align:left; padding:2px 6px; }
+body.tape #add{ width:100%; margin:2px 0 0; } body.tape #note{ margin:auto 0 0; white-space:normal; font-size:7px; line-height:1.3; }
+body.tape #set{ flex:1 1 0; min-width:0; display:block; overflow:hidden; position:relative; background:var(--bg); }
+body.tape .track{ position:absolute; left:0; top:0; height:100%; display:flex; gap:1px; background:var(--line); white-space:nowrap; }
+body.tape .track.run{ will-change:transform; animation:lens-tape-move linear infinite; }
+body.tape #set:hover .track.run{ animation-play-state:paused; }
+@keyframes lens-tape-move{ from{ transform:translateX(0); } to{ transform:translateX(-50%); } }
+@media (prefers-reduced-motion: reduce){ body.tape .track.run{ animation:none; } body.tape #set{ overflow-x:auto; scrollbar-width:none; } }
+body.tape .lens{ flex:none; width:var(--lens-w, 290px); height:100%; }
+body.tape .lens .head{ padding:5px 10px 0; gap:8px; } body.tape .lens .tk, body.tape .lens .px{ font-size:13px; } body.tape .lens .pc{ font-size:11px; }
+body.tape .msg{ padding:12px; }
 </style>
 </head>
 <body>
@@ -64,8 +84,13 @@ const LISTS = ["radar", "macro", "mine"];
 const MACRO = Object.freeze(["VIX", "DXUSD", "US10Y", "GCUSD", "CLUSD", "BTCUSD"]);   /* MACRO · DAY's six (deck/scenes.js) */
 const SB = "https://wadinxqplrggagkvrdag.supabase.co";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
-const LENS_TF = "1d", LENS_BARS = 60;   /* the zoomed-out view the intraday ranges carry (LENS_BY_RANGE "1d:60") */
-const QUOTE_MS = 15000, BARS_MS = 600000, LIST_MS = 300000, MAX_LENSES = 24;
+const TAPE = QS.get("mode") === "tape";   /* W1C: the lens tape */
+if (TAPE) document.body.classList.add("tape");
+/* the column's lens is the zoomed-out view the intraday ranges carry (LENS_BY_RANGE "1d:60"); the tape's is the last 120
+   completed 5-minute bars (extended hours, ten hours), Alan's "make it 5 minute charts" */
+const LENS_TF = TAPE ? "5m" : "1d", LENS_BARS = TAPE ? 120 : 60;
+const QUOTE_MS = 15000, BARS_MS = TAPE ? 60000 : 600000, LIST_MS = 300000, MAX_LENSES = 24;
+const TAPE_SPEED_PX_S = 45;   /* the deck's tapes' pace */
 const remembered = (k) => { try { return localStorage.getItem(k) || ""; } catch (_) { return ""; } };
 const remember = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
 /* pure: which list, and the names of MINE */
@@ -111,15 +136,31 @@ const pct = (c) => c == null ? "" : (c >= 0 ? "+" : "") + c.toFixed(2) + "%";
 function paintSet() {
   const box = el("set"); const list = names(); box.innerHTML = "";
   if (!list.length) { box.innerHTML = '<div class="msg">' + (LIST === "mine" ? "no picks yet · type a ticker above and press Enter" : LIST === "radar" && !radarAt ? "reading the radar list…" : "nothing on this list") + "</div>"; return; }
+  let host = box;
+  if (TAPE) { host = document.createElement("div"); host.className = "track"; box.appendChild(host); }
   for (const t of list) {
     const d = document.createElement("div"); d.className = "lens"; d.dataset.t = t; d.setAttribute("role", "listitem");
     d.innerHTML = '<div class="head"><span class="tk"></span><span class="px">—</span><span class="pc"></span></div><canvas></canvas><span class="why"></span><button type="button" class="rm" title="remove from MINE">×</button>';
     d.querySelector(".tk").textContent = t;
     d.addEventListener("click", (e) => { if (e.target.closest(".rm")) return; try { parent.postMessage({ type: "SCINTILLA_LENS_OPEN", ticker: t }, location.origin); } catch (_) {} });
     d.querySelector(".rm").addEventListener("click", () => { MINE = mineRemove(MINE, t); remember(MINE_KEY, JSON.stringify(MINE)); paintChips(); paintSet(); });
-    box.appendChild(d);
+    host.appendChild(d);
   }
   paintCells(true); drawAll();
+  if (TAPE) runTape();
+}
+/* W1C: one length of lenses wider than the window → the track is doubled and runs at 45 px a second, whatever its length;
+   a list that fits stands still (the deck's runTape rule) */
+function runTape() {
+  const box = el("set"), track = box.querySelector(".track"); if (!track) return;
+  for (const copy of track.querySelectorAll('.lens[aria-hidden="true"]')) copy.remove();
+  track.classList.remove("run"); track.style.animationDuration = "";
+  const one = track.scrollWidth;
+  if (!one || one <= box.clientWidth) return;
+  for (const d of Array.from(track.children)) { const c = d.cloneNode(true); c.setAttribute("aria-hidden", "true"); c.tabIndex = -1; track.appendChild(c); }
+  track.style.animationDuration = (one / TAPE_SPEED_PX_S).toFixed(2) + "s";
+  track.classList.add("run");
+  drawAll();
 }
 function paintCells(first) {
   for (const d of el("set").querySelectorAll(".lens")) {
@@ -197,6 +238,7 @@ async function readBars(force) {
       try {
         const payload = await P.marketCandles(t, LENS_TF, { limit: LENS_BARS });
         const rows = (Array.isArray(payload) ? payload : (payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0).slice(-LENS_BARS);
+        /* the candles are one run (the oval's long axis is the series start to end); a 5-minute series keeps no session air */
         S.bars.set(t, rows.length ? { bars: rows, at: Date.now() } : { absence: "no daily bars", at: Date.now() });
       } catch (e) { S.bars.set(t, { absence: String((e && e.message) || "not served").slice(0, 40).toLowerCase(), at: Date.now() }); }
       const d = el("set").querySelector('.lens[data-t="' + t + '"]'); if (d) drawOne(d);
@@ -212,7 +254,7 @@ async function tick(now) {
   readBars(false);
 }
 /* the lenses re-fit to their box (the deck resizes the pane) */
-let raf = 0; const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; drawAll(); }); };
+let raf = 0; const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; drawAll(); if (TAPE) runTape(); }); };
 if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
 addEventListener("resize", nudge);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(true); });
