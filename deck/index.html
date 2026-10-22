@@ -589,7 +589,8 @@ body.widgets.video-slot:not(.stack):not(.media-theatre) #wgMeter, body.widgets.v
 #wgMeter > .body, #wgLenses > .body{ flex:1 1 0; min-height:0; position:relative; }
 #wgMeter iframe, #wgLenses iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; background:var(--bg); }
 #wgMeter > .body{ display:flex; align-items:center; justify-content:center; }
-#wgMeter iframe{ position:static; height:52px; }
+#wgMeter iframe{ position:static; height:52px; width:340px; max-width:none; transform:scale(var(--meter-k, 1)); transform-origin:center center; }
+#wgMeter.off, #wgLenses.off{ display:none !important; }   /* W1B: stood down while the playing video has the room */
 /* W1: the tape, taller and narrower - one row (FAVORITES), each cell two lines: the ticker and the price on the first,
    the day's percent under them, the line on the right across both; no Geiger bar in the tape. 48 px, type 12.5 px. */
 body.widgets #tapes .tape{ height:var(--tape-row-px, 22px); }
@@ -1757,9 +1758,11 @@ function floorGrid(count, width, height) {
   }
   return { cols:best.cols, rows:best.rows };
 }
-function floorPlan(wallWidth, wallHeight, chromePx) {
+function floorPlan(wallWidth, wallHeight, chromePx, columnShare) {
   const w = Math.max(0, Number(wallWidth) || 0), h = Math.max(0, Number(wallHeight) || 0);
-  const col = Math.round(w * FLOOR_COLUMN_SHARE);
+  /* W1B: the column's share is 24 % everywhere but one case - the WIDGETS wall while a video plays, where X goes slimmer */
+  const share = Number.isFinite(columnShare) && columnShare > 0 && columnShare < 1 ? columnShare : FLOOR_COLUMN_SHARE;
+  const col = Math.round(w * share);
   const charts = { w:Math.max(0, w - col - FLOOR_SEAM_PX), h };
   const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
   const picture = { w:col, h:Math.round(col * 9 / 16) };
@@ -1868,8 +1871,57 @@ function floorWidgets(areaWidth, areaHeight, tapePx, arrangement, count, chromeP
   return { widgets:true, arrangement:arr, cols:Math.max(1, charts), rows:1, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
     cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH, bandH, meter, lenses };
 }
+/* ── W1B (22 Oct 2026) — THE PLAYING VIDEO KEEPS ITS SIZE. Alan, 14:10 ET: "I don't want YouTube to keep the grid next to it.
+   It's going to make the video smaller. I want the YouTube the size that it is, shift it to the side, keep the grid to the side of
+   it … the widget somewhere can fit there … If the Twitter has to be a little slimmer, that's fine."
+   THE FLOOR: the playing picture today, on this wall, is the larger of the WALL's (nine charts, the 2 × 2 block of the grid, Y7) and
+   SIMPLE's (the 60/40 band, Y9), both on today's 24 % column with today's two-row tapes - widgetsFloorPicture, pure, from the deck's
+   own numbers. Measured 22 Oct: 2560 × 1440 → the WALL's 1297 × 729; 1280 × 800 → the WALL's 648 × 365.
+   WHILE A VIDEO PLAYS ON WIDGETS (the shell says so, sc:"video-playing"): X's column goes slimmer (WIDGETS_X_SLIM_SHARE, its width
+   only); the pane becomes the floor picture plus the grid's column (WIDGETS_BESIDE_COL_PX, the shell's fixed column) at the bottom
+   left of the chart area, the picture at least the floor; the meter and the lens set take what is left to the right of it; the charts
+   above give up the height. Where the right column is too thin for a lens, the lens set stands down until the video stops; the meter
+   scales to the column. Arrangement A or B, the playing layout is this one. */
+const WIDGETS_X_SLIM_SHARE = 0.16, WIDGETS_BESIDE_COL_PX = 300, WIDGETS_BESIDE_COL_NARROW_PX = 220, WIDGETS_BESIDE_WIDE_PX = 1800;
+const WIDGETS_LENS_MIN_PX = 240, WIDGETS_METER_MIN_PX = 150, WIDGETS_METER_NATURAL_PX = 340;
+const widgetsBesideCol = (areaWidth) => (Number(areaWidth) || 0) >= WIDGETS_BESIDE_WIDE_PX ? WIDGETS_BESIDE_COL_PX : WIDGETS_BESIDE_COL_NARROW_PX;
+function widgetsFloorPicture(wallWidth, wallHeight, chromePx) {
+  const plan = floorPlan(wallWidth, wallHeight, chromePx);
+  const tapes = tapesHeight(true);
+  const area = { w:plan.charts.w, h:plan.charts.h - tapes };
+  const wall = floorSlot(floorGrid(9, area.w, area.h), area.w, area.h, chromePx, 9).picture || { w:0, h:0 };
+  const simple = floorSimple(plan.charts.w, plan.charts.h, tapes, SIMPLE_SPLIT_DEFAULT, 9, chromePx).picture || { w:0, h:0 };
+  return wall.w * wall.h >= simple.w * simple.h ? { w:wall.w, h:wall.h, from:"wall", wall, simple } : { w:simple.w, h:simple.h, from:"simple", wall, simple };
+}
+function floorWidgetsPlaying(areaWidth, areaHeight, tapePx, floor, besideCol, count, chromePx) {
+  const w = Math.max(0, Number(areaWidth) || 0), h = Math.max(0, Number(areaHeight) || 0), tapes = Math.max(0, Number(tapePx) || 0);
+  const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
+  const col = Math.max(0, Math.round(Number(besideCol) || 0));
+  const fw = Math.max(0, Number(floor && floor.w) || 0), fh = Math.max(0, Number(floor && floor.h) || 0);
+  const n = Math.max(0, Math.round(Number(count) || 0)), charts = Math.min(n, WIDGETS_CHARTS);
+  const paneW = Math.min(w, fw + col), paneH = Math.min(Math.max(0, h - FLOOR_SEAM_PX - tapes), fh + chrome);
+  const pw = Math.max(0, Math.min(paneW - col, Math.floor((paneH - chrome) * 16 / 9)));
+  const box = { left:0, top:h - paneH, w:paneW, h:paneH };
+  const rx = paneW + FLOOR_SEAM_PX, rw = Math.max(0, w - rx);
+  const lensesOn = rw >= WIDGETS_LENS_MIN_PX, meterOn = rw >= WIDGETS_METER_MIN_PX;
+  const meter = { left:rx, top:box.top, w:rw, h:Math.min(paneH, WIDGETS_METER_PX), on:meterOn, scale:Math.min(1, Math.max(0.3, (rw - 8) / WIDGETS_METER_NATURAL_PX)) };
+  const lenses = { left:rx, top:box.top + meter.h + FLOOR_SEAM_PX, w:rw, h:Math.max(0, paneH - meter.h - FLOOR_SEAM_PX), on:lensesOn };
+  const chartsH = Math.max(0, h - paneH - FLOOR_SEAM_PX - tapes);
+  return { widgets:true, playing:true, arrangement:"playing", cols:Math.max(1, charts), rows:1, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
+    floor:{ w:fw, h:fh, from:floor && floor.from }, besideCol:col, cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH, bandH:paneH, meter, lenses };
+}
+/* the shell says when a video plays in the pane on the wall; the theatre (⛶) keeps its own layout */
+const VIDEO_PLAYING = { on:false, key:"" };
+function widgetsPlaying() { return widgetsOn() && VIDEO_PLAYING.on && VIDEO_PLAYING.key === VIDEO_FEED && MEDIA_STAGE === 0 && !STACKED; }
+let WIDGETS_FLOOR_NOW = null;   /* the floor the last fit used, for the readout and the harness */
 function slotFor(count, plan, tapePx, chromePx) {
   if (!plan || document.body.classList.contains("charts-only")) return null;
+  /* W1B: a video playing on the WIDGETS wall - the picture at least today's size, the grid beside it, X slimmer */
+  if (widgetsPlaying()) {
+    const grid = el("grid"), floor = widgetsFloorPicture(grid ? grid.clientWidth : 0, grid ? grid.clientHeight : 0, chromePx);
+    WIDGETS_FLOOR_NOW = floor;
+    return floorWidgetsPlaying(plan.charts.w, plan.charts.h, tapePx, floor, widgetsBesideCol(plan.charts.w), count, chromePx);
+  }
   /* W1: WIDGETS is its own slot (through a solo, like SIMPLE) */
   if (widgetsOn()) return floorWidgets(plan.charts.w, plan.charts.h, tapePx, widgetsArrangement(), count, chromePx);
   /* Y9: SIMPLE is its own slot, and a chart solo keeps it (the solo chart takes the charts' row; the pane stays put) */
@@ -2248,7 +2300,7 @@ function fitVideoPane() {
   const grid = el("grid"), top = el("rowTop");
   const floor = !STACKED && !!grid && !!top;
   const onWall = PANES.find((o) => o.def.kind === "video" && o.def.key === VIDEO_FEED);
-  const plan = floor ? floorPlan(grid.clientWidth, grid.clientHeight, onWall?.chromePx) : null;
+  const plan = floor ? floorPlan(grid.clientWidth, grid.clientHeight, onWall?.chromePx, widgetsPlaying() ? WIDGETS_X_SLIM_SHARE : undefined) : null;
   if (grid) grid.style.setProperty("--fp-col", plan ? plan.col + "px" : "");
   /* S14: the tapes take 46 px off the chart row's height (never its width), so each count's grid is
      chosen for the height that is left - with the tapes off this is plan.grids, to the number */
@@ -2565,6 +2617,9 @@ function mount(obj, options) {
   f.setAttribute("allowfullscreen", "");
   f.addEventListener("load", () => {
     postViewProfile(obj);
+    /* W1B: a video pane that has just loaded is told the wall's beside state and the column's width (a message sent before it
+       listened was lost - measured: the shell kept its 300 px default on the 1280 wall and the picture came up 568 wide) */
+    if (obj.def.kind === "video") tellVideoBeside(widgetsOn());
     if (obj.def.kind === "chart") {
       postDeckQuote(f, obj.def.ticker);
       postSlotMark(f, slotMarkOf(obj));
@@ -3009,6 +3064,12 @@ window.addEventListener("message", (event) => {
     }
     return;
   }
+  if (event.data?.sc === "video-playing") {
+    /* W1B: the pane says a video started or stopped; on the WIDGETS wall the layout gives the picture its full size while it plays */
+    const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
+    if (pane) { const on = !!event.data.on; if (on !== VIDEO_PLAYING.on || pane.def.key !== VIDEO_PLAYING.key) { VIDEO_PLAYING.on = on; VIDEO_PLAYING.key = pane.def.key; relayout(); try { dispatchEvent(new Event("resize")); } catch (_) {} } }
+    return;
+  }
   if (event.data?.sc === "video-chrome") {
     /* The shell reports the height of its one bar; the lock subtracts it so the picture, not the
        pane, is 16:9. */
@@ -3350,7 +3411,7 @@ function leaveWidgets() {
 function tellVideoBeside(on) {
   for (const o of PANES) {
     if (o.def.kind !== "video" || !o.frame) continue;
-    try { o.frame.contentWindow.postMessage({ type:"SCINTILLA_VIDEO_BESIDE", on:!!on }, location.origin); } catch (_) {}
+    try { o.frame.contentWindow.postMessage({ type:"SCINTILLA_VIDEO_BESIDE", on:!!on, col:WIDGETS_BESIDE_SENT || widgetsBesideCol(SLOT_NOW && SLOT_NOW.plan ? SLOT_NOW.plan.charts.w : 0) }, location.origin); } catch (_) {}
   }
 }
 function wireSimple() {
@@ -3388,7 +3449,13 @@ function placeWidgets(slot, plan) {
   const put = (n, b) => { n.style.left = (plan.col + FLOOR_SEAM_PX + b.left) + "px"; n.style.top = b.top + "px"; n.style.width = b.w + "px"; n.style.height = b.h + "px"; };
   put(m, slot.meter); put(l, slot.lenses);
   m.classList.toggle("tight", slot.meter.w < 260); l.classList.toggle("tight", slot.lenses.w < 260);
+  /* W1B: while the playing video has the room, a column too thin for a lens stands the lens set down; the meter scales to its column */
+  l.classList.toggle("off", slot.lenses.on === false); m.classList.toggle("off", slot.meter.on === false);
+  m.style.setProperty("--meter-k", String(slot.meter.scale != null ? +slot.meter.scale.toFixed(3) : 1));
+  const beside = widgetsBesideCol(plan.charts.w);
+  if (beside !== WIDGETS_BESIDE_SENT) { WIDGETS_BESIDE_SENT = beside; tellVideoBeside(widgetsOn()); }
 }
+let WIDGETS_BESIDE_SENT = 0;
 /* the handle on the seam between the charts and the YouTube pane: drag it, the split is remembered on this machine */
 function wireSimpleHandle(grid) {
   const h = document.createElement("div");

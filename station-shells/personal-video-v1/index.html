@@ -212,7 +212,10 @@ body.playing #grid{ display:none; }
    two thirds of the pane and the thumbnails stay in a scrolling column on its right: a tap on another thumbnail
    switches the video in place, BACK (or Esc) gives the whole pane back to the grid. Nothing else moves: the bar, the
    float (Y8), the sound rule (Y10) and the theatre are as they were. The column counts its own width (relayout). */
-body.beside.playing{ display:grid; grid-template-columns:minmax(0,2fr) minmax(200px,1fr); grid-template-rows:auto minmax(0,1fr); }
+/* W1B (22 Oct, Alan: "don't shrink my YouTube size, please … shift it to the side, keep the grid to the side of it"): the column has
+   a FIXED width (--beside-col, the deck's number: 300 px on a wide wall, 220 on a narrow one) and the player takes the rest, so the
+   deck can size the pane as the picture it wants plus the column - the picture is never the smaller share of anything. */
+body.beside.playing{ display:grid; grid-template-columns:minmax(0,1fr) var(--beside-col, 300px); grid-template-rows:auto minmax(0,1fr); }
 body.beside.playing > #bar{ grid-column:1 / -1; grid-row:1; }
 body.beside.playing > #stage{ grid-column:1; grid-row:2; display:flex; min-width:0; }
 body.beside.playing > #grid{ grid-column:2; grid-row:2; display:grid; border-left:1px solid var(--line); }
@@ -434,8 +437,10 @@ const START  = (QS.get("v") || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 11);
 const AUTO   = QS.get("autoplay") === "1";
 const FORCE  = +(QS.get("cols") || 0);
 /* W1: the grid beside the player - asked for on the URL (?beside=1) or by the deck's message (SCINTILLA_VIDEO_BESIDE) */
-let BESIDE = QS.get("beside") === "1";
-function paintBeside() { document.body.classList.toggle("beside", BESIDE); }
+let BESIDE = QS.get("beside") === "1", BESIDE_COL = Math.max(120, Math.round(Number(QS.get("besideCol")) || 300));
+function paintBeside() { document.body.classList.toggle("beside", BESIDE); document.body.style.setProperty("--beside-col", BESIDE_COL + "px"); }
+/* W1B: the deck is told when a video starts and stops here, so the WIDGETS wall can give the playing picture its full size */
+function tellPlaying() { if (!EMBEDDED) return; try { parent.postMessage({ sc: "video-playing", on: document.body.classList.contains("playing"), feed: FEED }, location.origin); } catch (_) {} }
 const besideNow = () => BESIDE && document.body.classList.contains("playing");
 
 /* Personal is its own subscribed feed.  SCINTILLA is its subscriptions too (Y7, 19 Oct 2026).
@@ -1127,6 +1132,7 @@ async function play(v, auto, queued = false, skipped = new Set(), direction = 1,
     direction:direction < 0 ? -1 : 1, originVideo:originVideo || v, resumeAt };
   document.body.classList.add("playing");
   if (BESIDE) relayout();   /* W1: the grid is now a column beside the player */
+  tellPlaying();
   refreshPlayerControls(v);
   el("bYt").style.display = ""; el("bYt").href = "https://www.youtube.com/watch?v=" + encodeURIComponent(v.video_id);
   el("bYt").textContent = IOS ? "open in youtube app ↗" : "open in youtube ↗";
@@ -1161,6 +1167,7 @@ function back() {
   CUR = null;
   document.body.classList.remove("playing");
   if (BESIDE) relayout();   /* W1: the whole pane is the grid again */
+  tellPlaying();
   setMenuOpen(false); setAutoplayBlockedState(false); refreshWatchButton(); refreshTransport();
   syncUrl(); paint();
 }
@@ -1461,7 +1468,7 @@ window.addEventListener("message", (event) => {
   if (event.data?.type === "SCINTILLA_VIDEO_PIP_TOGGLE") { if (FLOAT || (CUR && canFloat())) toggleFloat(); return; }
   if (event.data?.type === "SCINTILLA_VIDEO_PIP") notePip(event.data.path);   /* S5: a deck that opened the window itself says which path */
   /* W1: the deck's WIDGETS wall asks for the grid beside the player; WALL and SIMPLE ask for the pane as it was */
-  if (event.data?.type === "SCINTILLA_VIDEO_BESIDE") { BESIDE = !!event.data.on; paintBeside(); relayout(); }
+  if (event.data?.type === "SCINTILLA_VIDEO_BESIDE") { BESIDE = !!event.data.on; BESIDE_COL = Math.max(120, Math.round(Number(event.data.col) || BESIDE_COL)); paintBeside(); relayout(); tellPlaying(); }
 });
 
 /* ---- render ---- */
