@@ -7,7 +7,7 @@
    2. VWAP from the full volume, two session anchors (09:30, 04:00), TradingView's hlc3 definition, printed to the cent.
    3. His clouds painted by chart-v1's own code - the copy is pinned byte-identical here - over the same arithmetic file.
    4. Live: the newest bars read 3 s after each close (forming:true skips the client's half-hour bar store), the stream price every
-      5 s, the bar still forming drawn chart-v1's way, the age of the last bar on the strip.
+      6 s, the bar still forming drawn chart-v1's way, the age of the last bar on the strip.
    5. It tells the deck SCINTILLA_LIVE_STATE, never tv-v1's SCINTILLA_TV_STATE (the WIDGETS deck re-points a slot to tv-v1 on that). */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -169,9 +169,9 @@ test("W2 · the bar still forming, chart-v1's rule: a live price later than the 
   assert.match(fn(live, "applyQuoteToFormingDay"), /if \(!TF\.daily \|\| !b \|\| !b\.forming/, "only the forming day moves with the price; a completed bar never does");
 });
 
-test("W2 · live: the newest bars 3 s after each close, 15 s retries, quiet and closed hours slow down; the price every 5 s", () => {
+test("W2 · live: the newest bars 3 s after each close, 15 s retries, quiet and closed hours slow down; the price every 6 s", () => {
   const A = api();
-  assert.deepEqual(plain(A.POLL), { quoteMs:5000, lagMs:3000, retryMs:15000, retries:3, quietMs:60000, dailyMs:60000, idleMs:300000 });
+  assert.deepEqual(plain(A.POLL), { quoteMs:6000, lagMs:3000, retryMs:15000, retries:3, quietMs:60000, dailyMs:60000, idleMs:300000 });
   const five = 300000;
   let r = A.nextBarRead(at("18:31"), five, at("18:25"), 0, false, false, false);
   assert.deepEqual(plain(r), { at:at("18:35") + 3000, why:"close" }, "up to date: the next close plus 3 s");
@@ -191,6 +191,9 @@ test("W2 · live: the newest bars 3 s after each close, 15 s retries, quiet and 
   assert.match(provider, /var cap = \/\^\(D\|3D\|W\|2W\|M\)\$\/\.test\(tfs\) \? 1800000 : \/\^\(1m\|2m\|3m\|5m\|10m\|15\|30\|60\)\$\/\.test\(tfs\) \? HALF_HOUR_MS : 600000;/);
   assert.match(provider, /var cached = forming \? null : candleCacheGet\(url\);/);
   assert.match(live, /setInterval\(\(\) => \{ if \(!S\.loading\) readQuote\(\); \}, POLL\.quoteMs\);/);
+  /* 6 s, not 5: the client keeps a quote warm for 5 s from its arrival, so a 5 s timer read the network every other tick */
+  assert.match(provider, /return \(s in qCache\.map\) && \(now - \(qCache\.at\[s\] \|\| 0\) < 5000\);/);
+  assert.ok(A.POLL.quoteMs > 5000);
 });
 
 test("W2 · the age of the last completed bar is always on the strip, narrow slots included", () => {

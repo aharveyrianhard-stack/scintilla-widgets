@@ -256,14 +256,16 @@ function formingBucket(quoteAt, last, tfMs, daily, now) {
    the intraday widths the API answers that it has none and serves the completed bars - and the forming read skips the
    client's half-hour bar store and carries max-age 15 instead of 60, which is what keeps a 1m or 5m chart current.
    THE SCHEDULE (one chart):
-     price - marketQuotes every 5 s (the stream's last trade; the API answers from memory, max-age 2).
+     price - marketQuotes every 6 s (the stream's last trade; the API answers from memory, max-age 2). Not 5: the client keeps
+             a quote warm for 5 s from when its answer ARRIVED, so a 5 s timer found it warm every other tick (measured: one
+             real read per 10 s); at 6 s every tick is a real read.
      bars  - one read of the newest bars 3 s after every bar closes (1m: every minute; 5m: every five), and if the bar is
              not in yet, again every 15 s, at most three more times; nothing in between. After three closes in a row that
              brought nothing (a quiet name after hours, a holiday), once a minute until one does. Outside 04:00-20:00 ET
              (the 20:00 close itself still read), every 5 minutes. 1D: every 60 s while the API serves today's forming bar
              or the regular session is on, otherwise every 5 minutes.
    Pure: when the next bar read is due. */
-const POLL = Object.freeze({ quoteMs:5000, lagMs:3000, retryMs:15000, retries:3, quietMs:60000, dailyMs:60000, idleMs:300000 });
+const POLL = Object.freeze({ quoteMs:6000, lagMs:3000, retryMs:15000, retries:3, quietMs:60000, dailyMs:60000, idleMs:300000 });
 function nextBarRead(now, tfMs, lastOpen, tries, idle, daily, formingServed) {
   if (daily) {
     const m = etParts(now).min, regular = inSession(now) && m >= 565 && m < 980;
