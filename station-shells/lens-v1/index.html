@@ -63,13 +63,20 @@ body.tape .track.run{ will-change:transform; animation:lens-tape-move linear inf
 body.tape #set:hover .track.run{ animation-play-state:paused; }
 @keyframes lens-tape-move{ from{ transform:translateX(0); } to{ transform:translateX(-50%); } }
 @media (prefers-reduced-motion: reduce){ body.tape .track.run{ animation:none; } body.tape #set{ overflow-x:auto; scrollbar-width:none; } }
-body.tape .lens{ flex:none; width:var(--lens-w, 290px); height:100%; }
-body.tape .lens .head{ padding:5px 10px 0; gap:8px; } body.tape .lens .tk, body.tape .lens .px{ font-size:13px; } body.tape .lens .pc{ font-size:11px; }
+/* W4 (22 Oct, Alan): "Keep it tight, make them smaller, and make them more on screen and faster … I don't see the need of the circle" -
+   150 px cells, the head one small line, the tight mini-chart under it (the latest 5-minute bars as a line in the day's colour) */
+body.tape .lens{ flex:none; width:var(--lens-w, 150px); height:100%; }
+body.tape .lens .head{ padding:3px 6px 0; gap:5px; } body.tape .lens .tk, body.tape .lens .px{ font-size:10px; } body.tape .lens .pc{ font-size:9.5px; }
+body.tape .lens .nm{ display:block; color:var(--mute); font-size:7.5px; letter-spacing:.1em; text-transform:uppercase; padding:0 6px; line-height:1.1; }
+body.tape .lens .nm:empty{ display:none; }
+body.tape #add{ display:block; width:100%; margin:4px 0 0; font-size:9px; padding:3px 5px; }
+body.tape #add::placeholder{ color:var(--dim); }
+body.tape #bar .k{ font-size:7px; }
 body.tape .msg{ padding:12px; }
 </style>
 </head>
 <body>
-<div id="bar"><span class="k">lenses</span><span id="chips" role="group" aria-label="Lens list"></span><input id="add" placeholder="+ ticker" aria-label="Add a ticker to MINE" maxlength="12"><span id="note"></span></div>
+<div id="bar"><span class="k">lenses</span><span id="chips" role="group" aria-label="Lens list"></span><input id="add" placeholder="+ ticker · Enter" title="type a ticker and press Enter: it joins MINE (the database list, both Macs)" aria-label="Add a ticker to MINE" maxlength="12"><span id="note"></span></div>
 <div id="set" role="list" aria-label="Context lenses"><div class="msg">loading…</div></div>
 <script src="/_provider/provider.js"></script>
 <script type="module">
@@ -81,36 +88,66 @@ const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").
 /* the lists, the keys, the clocks */
 const LIST_KEY = "station.lenses.list", MINE_KEY = "station.lenses.mine";
 const LISTS = ["radar", "macro", "mine"];
-const MACRO = Object.freeze(["VIX", "DXUSD", "US10Y", "GCUSD", "CLUSD", "BTCUSD"]);   /* MACRO · DAY's six (deck/scenes.js) */
+/* W4 (22 Oct, Alan: "I need NDX futures … S&P futures, NASDAQ futures … oil. Oil is extremely important"): MACRO is what trades overnight -
+   the index futures and oil first, then gold, bitcoin, the dollar, the 10-year, VIX; all answered by the chart API (FMP) on 5-minute bars after
+   the close (measured 22 Oct 19:00 ET). YMUSD RTYUSD BZUSD KOSPI are not tracked by the API and are left out. Plain names on the lens. */
+const MACRO = Object.freeze(["ESUSD", "NQUSD", "CLUSD", "GCUSD", "BTCUSD", "DXUSD", "US10Y", "VIX"]);
+const NAMES = Object.freeze({ ESUSD: "S&P FUT", NQUSD: "NASDAQ FUT", CLUSD: "OIL", GCUSD: "GOLD", BTCUSD: "BITCOIN", DXUSD: "DOLLAR", US10Y: "10-YEAR", VIX: "VIX" });
 const SB = "https://wadinxqplrggagkvrdag.supabase.co";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
 const TAPE = QS.get("mode") === "tape";   /* W1C: the lens tape */
 if (TAPE) document.body.classList.add("tape");
 /* the column's lens is the zoomed-out view the intraday ranges carry (LENS_BY_RANGE "1d:60"); the tape's is the last 120
    completed 5-minute bars (extended hours, ten hours), Alan's "make it 5 minute charts" */
-const LENS_TF = TAPE ? "5m" : "1d", LENS_BARS = TAPE ? 120 : 60;
-const QUOTE_MS = 15000, BARS_MS = TAPE ? 60000 : 600000, LIST_MS = 300000, MAX_LENSES = 24;
-const TAPE_SPEED_PX_S = 45;   /* the deck's tapes' pace */
+/* W4: the tape shows the LATEST 30 completed 5-minute bars (two and a half hours) as a tight line, the live price as its last point; the
+   bars are read 4 s after every 5-minute close (again at +15 and +30 s if the new bar is not in yet) and every minute besides; the quote
+   every 10 s. The column keeps its sixty daily candles. */
+const LENS_TF = TAPE ? "5m" : "1d", LENS_BARS = TAPE ? 30 : 60;
+const QUOTE_MS = TAPE ? 10000 : 15000, BARS_MS = TAPE ? 60000 : 600000, LIST_MS = 300000, MAX_LENSES = 24;
+/* measured 22 Oct 19:30 ET: at +4 s the API did not have the new bar for NBIS, MU or BTCUSD yet, the +15 s read did (on screen +16.5 s) - so the
+   retries come closer: +8, +12, +16, +25, +40 s, each only while the new bar is still missing */
+const CLOSE_READ_DELAY_MS = 4000, CLOSE_RETRY_MS = [8000, 12000, 16000, 25000, 40000];
+const TAPE_SPEED_PX_S = TAPE ? 90 : 45;   /* W4: twice the deck's tapes' pace on the lens tape */
 const remembered = (k) => { try { return localStorage.getItem(k) || ""; } catch (_) { return ""; } };
 const remember = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
 /* pure: which list, and the names of MINE */
-export function listChoice(stored, urlValue) { if (LISTS.includes(urlValue)) return urlValue; if (LISTS.includes(stored)) return stored; return "radar"; }
+/* W4: the tape opens on MINE (his own list, in the database, the same on both Macs); the column still opens on RADAR */
+export function listChoice(stored, urlValue, tape) { if (LISTS.includes(urlValue)) return urlValue; if (LISTS.includes(stored)) return stored; return tape ? "mine" : "radar"; }
 export function mineOf(stored) { try { const a = JSON.parse(stored || "[]"); return Array.isArray(a) ? Array.from(new Set(a.map(CLEAN).filter(Boolean))).slice(0, MAX_LENSES) : []; } catch (_) { return []; } }
 export function mineAdd(list, t) { const c = CLEAN(t); if (!c || list.includes(c)) return list.slice(); return list.concat([c]).slice(0, MAX_LENSES); }
 export function mineRemove(list, t) { const c = CLEAN(t); return list.filter((x) => x !== c); }
-let LIST = listChoice(remembered(LIST_KEY), QS.get("list"));
-let MINE = mineOf(remembered(MINE_KEY));
+/* the names of a station_lists read, in position order, deduped */
+export function listNames(rows) { const seen = new Set(), out = []; for (const row of (rows || []).slice().sort((a, b) => (Number(a && a.position) || 0) - (Number(b && b.position) || 0))) { const t = CLEAN(row && row.ticker); if (t && !seen.has(t)) { seen.add(t); out.push(t); } } return out.slice(0, MAX_LENSES); }
+let LIST = listChoice(remembered(LIST_KEY), QS.get("list"), TAPE);
+let MINE = mineOf(remembered(MINE_KEY)), mineAt = 0;   /* W4: a copy of the database list, read every five minutes; written through the same door */
 let RADAR = [], radarAt = 0;
 const S = { quotes: new Map(), bars: new Map(), quotesAt: 0, barsAt: 0, busyQ: false, busyB: false };
 function names() { return (LIST === "macro" ? MACRO : LIST === "mine" ? MINE : RADAR).slice(0, MAX_LENSES); }
+const PG = { apikey: ANON, Authorization: "Bearer " + ANON };
+async function pgRead(path) { const r = await fetch(SB + "/rest/v1/" + path, { headers: PG }); if (!r.ok) throw new Error("pg " + r.status); return r.json(); }
 async function readRadar() {
-  try {
-    const r = await fetch(SB + "/rest/v1/station_lists?select=position,ticker&list=eq.radar&order=position.asc", { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
-    if (!r.ok) throw new Error("pg " + r.status);
-    const rows = await r.json(); const seen = new Set(), out = [];
-    for (const row of rows) { const t = CLEAN(row && row.ticker); if (t && !seen.has(t)) { seen.add(t); out.push(t); } }
-    RADAR = out; radarAt = Date.now();
-  } catch (e) { el("note").textContent = "radar list not read"; }
+  try { RADAR = listNames(await pgRead("station_lists?select=position,ticker&list=eq.radar&order=position.asc")); radarAt = Date.now(); }
+  catch (e) { el("note").textContent = "radar list not read"; }
+}
+/* W4: MINE lives in public.station_lists as list "mine" (the coordinator seeded NBIS CRWV NVDA BE MU SNDK, positions 1-6); the add box upserts
+   the next position through the deck's door (POST, Prefer: resolution=merge-duplicates), × deletes the row; the local copy is the fallback */
+async function readMine() {
+  try { const rows = await pgRead("station_lists?select=position,ticker&list=eq.mine&order=position.asc"); MINE = listNames(rows); MINE_ROWS = rows; mineAt = Date.now(); remember(MINE_KEY, JSON.stringify(MINE)); }
+  catch (e) { el("note").textContent = "mine list not read"; }
+}
+let MINE_ROWS = [];
+async function mineWrite(t) {
+  const c = CLEAN(t); if (!c || MINE.includes(c)) return false;
+  const last = MINE_ROWS.reduce((m, r) => Math.max(m, Number(r && r.position) || 0), 0);
+  const r = await fetch(SB + "/rest/v1/station_lists?on_conflict=list,position", { method: "POST", headers: Object.assign({ "Content-Type": "application/json", Prefer: "resolution=merge-duplicates" }, PG),
+    body: JSON.stringify([{ list: "mine", position: last + 1, ticker: c, updated_at: new Date().toISOString() }]) });
+  if (!r.ok) throw new Error("pg write " + r.status);
+  return true;
+}
+async function mineDelete(t) {
+  const c = CLEAN(t); if (!c) return;
+  const r = await fetch(SB + "/rest/v1/station_lists?list=eq.mine&ticker=eq." + encodeURIComponent(c), { method: "DELETE", headers: PG });
+  if (!r.ok) throw new Error("pg delete " + r.status);
 }
 /* ---- the chips ---- */
 function paintChips() {
@@ -119,16 +156,21 @@ function paintChips() {
   for (const l of LISTS) {
     const b = document.createElement("button"); b.type = "button"; b.className = "chip" + (l === LIST ? " on" : "");
     b.innerHTML = l + "<small>" + count[l] + "</small>"; b.setAttribute("aria-pressed", l === LIST ? "true" : "false");
-    b.title = l === "radar" ? "the Hub's RADAR list" : l === "macro" ? "MACRO · DAY's six" : "your own picks - add a ticker on the right, × removes one; remembered on this machine";
+    b.title = l === "radar" ? "the Hub's RADAR list" : l === "macro" ? "what trades overnight: S&P and Nasdaq futures, oil, gold, bitcoin, the dollar, the 10-year, VIX" : "your own list (station_lists · mine, the same on both Macs) - type a ticker in the box, Enter adds it; × removes it";
     b.addEventListener("click", () => setList(l)); box.appendChild(b);
   }
   document.body.dataset.list = LIST;
 }
 function setList(l) { if (!LISTS.includes(l) || l === LIST) return; LIST = l; remember(LIST_KEY, l); paintChips(); paintSet(); tick(true); }
-el("add").addEventListener("keydown", (e) => {
+el("add").addEventListener("keydown", async (e) => {
   if (e.key !== "Enter") return;
-  const next = mineAdd(MINE, el("add").value); if (next.length === MINE.length) { el("add").value = ""; return; }
-  MINE = next; remember(MINE_KEY, JSON.stringify(MINE)); el("add").value = ""; paintChips(); paintSet(); tick(true);
+  const raw = el("add").value, next = mineAdd(MINE, raw); if (next.length === MINE.length) { el("add").value = ""; return; }
+  el("add").value = "";
+  /* W4: written to the database (both Macs see it); the local copy follows at once, the next read confirms */
+  const prev = MINE; MINE = next; remember(MINE_KEY, JSON.stringify(MINE));
+  if (LIST !== "mine") { LIST = "mine"; remember(LIST_KEY, LIST); }
+  paintChips(); paintSet(); tick(true);
+  try { await mineWrite(raw); await readMine(); paintChips(); paintSet(); } catch (err) { el("note").textContent = "not saved: " + String(err && err.message || err).slice(0, 40); MINE = prev; remember(MINE_KEY, JSON.stringify(MINE)); paintChips(); paintSet(); }
 });
 /* ---- the set ---- */
 const price = (p) => p == null ? "—" : p >= 1000 ? Math.round(p).toLocaleString("en-US") : p >= 100 ? p.toFixed(2) : p.toFixed(2);
@@ -140,10 +182,12 @@ function paintSet() {
   if (TAPE) { host = document.createElement("div"); host.className = "track"; box.appendChild(host); }
   for (const t of list) {
     const d = document.createElement("div"); d.className = "lens"; d.dataset.t = t; d.setAttribute("role", "listitem");
-    d.innerHTML = '<div class="head"><span class="tk"></span><span class="px">—</span><span class="pc"></span></div><canvas></canvas><span class="why"></span><button type="button" class="rm" title="remove from MINE">×</button>';
+    d.innerHTML = '<div class="head"><span class="tk"></span><span class="px">—</span><span class="pc"></span></div>' + (TAPE ? '<span class="nm"></span>' : "") + '<canvas></canvas><span class="why"></span><button type="button" class="rm" title="remove from MINE">×</button>';
     d.querySelector(".tk").textContent = t;
+    if (TAPE && NAMES[t]) d.querySelector(".nm").textContent = NAMES[t];
     d.addEventListener("click", (e) => { if (e.target.closest(".rm")) return; try { parent.postMessage({ type: "SCINTILLA_LENS_OPEN", ticker: t }, location.origin); } catch (_) {} });
-    d.querySelector(".rm").addEventListener("click", () => { MINE = mineRemove(MINE, t); remember(MINE_KEY, JSON.stringify(MINE)); paintChips(); paintSet(); });
+    d.querySelector(".rm").addEventListener("click", async () => { MINE = mineRemove(MINE, t); remember(MINE_KEY, JSON.stringify(MINE)); paintChips(); paintSet();
+      try { await mineDelete(t); await readMine(); paintChips(); paintSet(); } catch (err) { el("note").textContent = "not removed: " + String(err && err.message || err).slice(0, 40); } });
     host.appendChild(d);
   }
   paintCells(true); drawAll();
@@ -196,6 +240,26 @@ export function drawOval(ctx, W, H, bars, day) {
   ctx.restore();
   return geo;
 }
+/* W4, the tape: a tight line of the latest closed 5-minute bars in the day's colour, a faint fill under it, the live price as the last
+   point (a ring), the last close marked; no frame, no oval. Pure drawing on a (W × H) canvas. */
+export function drawTight(ctx, W, H, bars, day, livePrice) {
+  ctx.clearRect(0, 0, W, H);
+  const closes = bars.map((b) => b.c); if (livePrice > 0) closes.push(livePrice);
+  if (closes.length < 2) return null;
+  const lo = Math.min(...closes), hi = Math.max(...closes), pad = 4, padR = 10;
+  const X = (i) => pad + (i / (closes.length - 1)) * (W - pad - padR), Y = (v) => hi === lo ? H / 2 : pad + (1 - (v - lo) / (hi - lo)) * (H - 2 * pad);
+  const col = day === "down" ? PALETTE.bear : day === "up" ? PALETTE.bull : PALETTE.ink;
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(X(0), H); for (let i = 0; i < closes.length; i++) ctx.lineTo(X(i), Y(closes[i])); ctx.lineTo(X(closes.length - 1), H); ctx.closePath();
+  ctx.globalAlpha = 0.10; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.beginPath(); for (let i = 0; i < closes.length; i++) i ? ctx.lineTo(X(i), Y(closes[i])) : ctx.moveTo(X(i), Y(closes[i]));
+  ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.lineJoin = "round"; ctx.stroke();
+  const n = closes.length - 1;
+  if (livePrice > 0) { ctx.beginPath(); ctx.arc(X(n), Y(closes[n]), 2.6, 0, Math.PI * 2); ctx.fillStyle = "#0A0A0F"; ctx.fill(); ctx.stroke(); }
+  else { ctx.beginPath(); ctx.arc(X(n), Y(closes[n]), 2, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill(); }
+  ctx.restore();
+  return { lo, hi, points: closes.length };
+}
 function drawOne(d) {
   const t = d.dataset.t, cv = d.querySelector("canvas"), why = d.querySelector(".why");
   const entry = S.bars.get(t);
@@ -205,6 +269,13 @@ function drawOne(d) {
   if (!entry) { ctx.clearRect(0, 0, W, H); why.textContent = "reading daily bars…"; return; }
   if (entry.absence) { ctx.clearRect(0, 0, W, H); why.textContent = entry.absence; return; }
   const bars = entry.bars; const day = dayOf(t, bars);
+  if (TAPE) {
+    const q = S.quotes.get(t), geo = drawTight(ctx, W, H, bars, day, q && q.price > 0 ? q.price : 0);
+    why.textContent = geo ? "" : "no 5-minute bars";
+    cv.setAttribute("aria-label", t + ": the last " + bars.length + " five-minute closes as a line" + (day ? ", the day " + day : "") + (q ? ", the live price last" : ""));
+    d.dataset.day = day || ""; d.dataset.bars = String(bars.length); d.dataset.last = bars.length ? String(bars[bars.length - 1].t) : "";
+    return;
+  }
   const geo = drawOval(ctx, W, H, bars, day);
   why.textContent = geo ? "" : "no daily bars";
   cv.setAttribute("aria-label", t + ": " + bars.length + " daily candles in an oval" + (day ? ", the day " + day : ""));
@@ -236,8 +307,11 @@ async function readBars(force) {
     const want = list.filter((t) => force || !S.bars.has(t) || Date.now() - S.bars.get(t).at > BARS_MS);
     await Promise.all(want.map(async (t) => {
       try {
-        const payload = await P.marketCandles(t, LENS_TF, { limit: LENS_BARS });
-        const rows = (Array.isArray(payload) ? payload : (payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0).slice(-LENS_BARS);
+        /* W4: on the tape the read skips the provider client's shared store (forming:true, max-age 15), so a bar just closed is seen at once */
+        const payload = await P.marketCandles(t, LENS_TF, TAPE ? { limit: LENS_BARS, forming: true } : { limit: LENS_BARS });
+        /* W4: the provider hands its rows NEWEST FIRST (measured 22 Oct: timestamp 1792702800 before 1792702500) - oldest first here, always,
+           so the last row is the newest bar and the line runs left to right in time */
+        const rows = (Array.isArray(payload) ? payload : (payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0).sort((a, b) => a.t - b.t).slice(-LENS_BARS);
         /* the candles are one run (the oval's long axis is the series start to end); a 5-minute series keeps no session air */
         S.bars.set(t, rows.length ? { bars: rows, at: Date.now() } : { absence: "no daily bars", at: Date.now() });
       } catch (e) { S.bars.set(t, { absence: String((e && e.message) || "not served").slice(0, 40).toLowerCase(), at: Date.now() }); }
@@ -246,20 +320,36 @@ async function readBars(force) {
     S.barsAt = Date.now();
   } finally { S.busyB = false; }
 }
-let timer = 0;
+let timer = 0, lastCloseRead = 0;
+/* W4: the 5-minute close just passed, and the reads due after it (+4 s, then +15 and +30 s while the new bar is not in) */
+export function closeDue(nowMs, lastReadMs) {
+  const m = 5 * 60000, boundary = Math.floor(nowMs / m) * m, since = nowMs - boundary;
+  if (lastReadMs >= boundary + CLOSE_READ_DELAY_MS - 1000 && since > CLOSE_RETRY_MS[CLOSE_RETRY_MS.length - 1] + 5000) return null;
+  if (since >= CLOSE_READ_DELAY_MS && lastReadMs < boundary + CLOSE_READ_DELAY_MS - 1000) return { boundary, at: "close" };
+  for (const r of CLOSE_RETRY_MS) if (since >= r && lastReadMs < boundary + r - 1000) return { boundary, at: "retry" };
+  return null;
+}
+const barsStale = (boundary) => names().some((t) => { const e = S.bars.get(t); return !e || !e.bars || !e.bars.length || e.bars[e.bars.length - 1].t < boundary - 5 * 60000; });
 async function tick(now) {
   if (document.hidden && !now) return;
   if (LIST === "radar" && Date.now() - radarAt > LIST_MS) { await readRadar(); paintChips(); paintSet(); }
+  if (LIST === "mine" && Date.now() - mineAt > LIST_MS) { await readMine(); paintChips(); paintSet(); }
   if (now || Date.now() - S.quotesAt > QUOTE_MS) readQuotes();
+  if (TAPE) {
+    const due = closeDue(Date.now(), lastCloseRead);
+    if (due && (due.at === "close" || barsStale(due.boundary))) { lastCloseRead = Date.now(); readBars(true); return; }
+  }
   readBars(false);
 }
+/* for the harness and the strip: what the tape holds */
+window.__lens = { newest: () => Object.fromEntries([...S.bars].map(([t, e]) => [t, e.bars && e.bars.length ? e.bars[e.bars.length - 1].t : null])), quotes: () => Object.fromEntries([...S.quotes].map(([t, q]) => [t, q.price])), at: () => ({ bars: S.barsAt, quotes: S.quotesAt, lastCloseRead }), list: () => LIST, names, tf: LENS_TF, bars: LENS_BARS };
 /* the lenses re-fit to their box (the deck resizes the pane) */
 let raf = 0; const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; drawAll(); if (TAPE) runTape(); }); };
 if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
 addEventListener("resize", nudge);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(true); });
 paintChips(); paintSet();
-(async () => { if (LIST === "radar" || !radarAt) { await readRadar(); paintChips(); paintSet(); } tick(true); timer = setInterval(tick, 5000); })();
+(async () => { await Promise.all([readRadar(), readMine()]); paintChips(); paintSet(); tick(true); timer = setInterval(tick, TAPE ? 2000 : 5000); })();
 </script>
 </body>
 </html>
