@@ -12,14 +12,14 @@ const grab = (src, re, what) => { const m = src.match(re); assert.ok(m, what + "
 const fn = (src, name) => grab(src, new RegExp("\\nfunction " + name + "\\([^)]*\\) \\{[\\s\\S]*?\\n\\}"), name);
 const plain = (v) => JSON.parse(JSON.stringify(v));
 function lensApi() {
-  const src = ['const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\\-]/g, "").slice(0, 12); const MAX_LENSES = 24; const CLOSE_READ_DELAY_MS = 4000, CLOSE_RETRY_MS = [15000, 30000];',
+  const src = ['const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\\-]/g, "").slice(0, 12); const MAX_LENSES = 24; const CLOSE_READ_DELAY_MS = 4000, CLOSE_RETRY_MS = [8000, 12000, 16000, 25000, 40000];',
     grab(lens, /const LISTS = \[[^\]]*\];/, "LISTS"), grab(lens, /const MACRO = Object\.freeze\(\[[^\]]*\]\);/, "MACRO"), grab(lens, /const NAMES = Object\.freeze\(\{[^}]*\}\);/, "NAMES"),
     grab(lens, /export function listChoice[^\n]*/, "listChoice").replace("export ", ""), grab(lens, /export function listNames[^\n]*/, "listNames").replace("export ", ""), grab(lens, /export function closeDue\([^)]*\) \{[\s\S]*?\n\}/, "closeDue").replace("export ", ""),
     "globalThis.out = { LISTS, MACRO, NAMES, listChoice, listNames, closeDue };"].join("\n");
   const ctx = {}; vm.runInNewContext(src, ctx); return ctx.out;
 }
 
-test("W4 · the lenses are 5-minute and live: the latest 30 completed bars read 4 s after every close (again at +15 and +30 s), the quote every 10 s, the live price the last point; tight cells, no oval, twice the pace", () => {
+test("W4 · the lenses are 5-minute and live: the latest 30 completed bars read 4 s after every close (again at +8 +12 +16 +25 +40 s while missing), the quote every 10 s, the live price the last point; tight cells, no oval, twice the pace", () => {
   assert.match(lens, /const LENS_TF = TAPE \? "5m" : "1d", LENS_BARS = TAPE \? 30 : 60;/, "the chart API's tf=5m, the latest 30 bars");
   assert.match(lens, /const QUOTE_MS = TAPE \? 10000 : 15000, BARS_MS = TAPE \? 60000 : 600000/);
   assert.match(lens, /TAPE \? \{ limit: LENS_BARS, forming: true \} : \{ limit: LENS_BARS \}/, "a fresh read on the tape (the shared store skipped)");
@@ -30,9 +30,10 @@ test("W4 · the lenses are 5-minute and live: the latest 30 completed bars read 
   assert.equal(L.closeDue(b + 1000, 0), null, "a second after the close: not yet");
   assert.deepEqual(plain(L.closeDue(b + 4500, 0)), { boundary: b, at: "close" }, "4 s after the close: read");
   assert.equal(L.closeDue(b + 6000, b + 4500), null, "read once");
-  assert.deepEqual(plain(L.closeDue(b + 16000, b + 4500)), { boundary: b, at: "retry" }, "+15 s: again (the caller checks the bar is still missing)");
-  assert.deepEqual(plain(L.closeDue(b + 31000, b + 16000)), { boundary: b, at: "retry" }, "+30 s: again");
-  assert.equal(L.closeDue(b + 40000, b + 31000), null);
+  assert.deepEqual(plain(L.closeDue(b + 8500, b + 4500)), { boundary: b, at: "retry" }, "+8 s: again (the caller checks the bar is still missing)");
+  assert.deepEqual(plain(L.closeDue(b + 16500, b + 12500)), { boundary: b, at: "retry" }, "+16 s: again");
+  assert.deepEqual(plain(L.closeDue(b + 41000, b + 25500)), { boundary: b, at: "retry" }, "+40 s: the last");
+  assert.equal(L.closeDue(b + 50000, b + 41000), null);
   assert.equal(L.closeDue(b + m + 4500, b + 31000).at, "close", "the next close");
   /* the drawing: a tight line of the closes in the day's colour, the live price last, never grey when the day is known */
   const draw = grab(lens, /export function drawTight\([\s\S]*?\n\}/, "drawTight");
