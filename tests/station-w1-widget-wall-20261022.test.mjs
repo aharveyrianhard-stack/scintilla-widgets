@@ -32,9 +32,9 @@ function deckApi() {
     fn(deck, "simpleDefault"), fn(deck, "simpleChoice"), fn(deck, "simpleSplitOf"), fn(deck, "floorSimple"),
     grab(deck, /const WIDGETS_KEY = [\s\S]*?const WIDGETS_TAPE_PX = \d+;/, "the WIDGETS constants"),
     fn(deck, "widgetsChoice"), grab(deck, /const widgetsArrangementOf = [^\n]*/, "widgetsArrangementOf"), fn(deck, "widgetsTfOf"),
-    grab(deck, /const WIDGETS_METER_PX = [^\n]*/, "the arrangement shares"), fn(deck, "floorWidgets"),
+    grab(deck, /const WIDGETS_BAND = [^\n]*/, "the band's shares (W1C)"), grab(deck, /const WIDGETS_X_SLIM_SHARE = [^\n]*/, "W1B"), grab(deck, /const widgetsLensTapePx = [\s\S]*?;\n/, "widgetsLensTapePx"), fn(deck, "floorWidgets"),
     grab(deck, /const TAPE_ROW_PX = \d+;/, "the tape's height"), fn(deck, "tapesHeight"), fn(deck, "widgetsTapesHeight"),
-    "globalThis.out = { floorPlan, floorSimple, floorWidgets, widgetsChoice, widgetsArrangementOf, widgetsTfOf, tapesHeight, widgetsTapesHeight, WIDGETS_KEY, WIDGETS_CHART_KEY, WIDGETS_TF_KEY, WIDGETS_ARR_KEY, WIDGETS_CHARTS, WIDGETS_TFS, WIDGETS_TF_DEFAULT, WIDGETS_TAPE_PX, WIDGETS_A_BAND, WIDGETS_A_VIDEO_W, WIDGETS_B_BAND, WIDGETS_B_VIDEO, FLOOR_SEAM_PX };"
+    "globalThis.out = { floorPlan, floorSimple, floorWidgets, widgetsLensTapePx, widgetsChoice, widgetsArrangementOf, widgetsTfOf, tapesHeight, widgetsTapesHeight, WIDGETS_KEY, WIDGETS_CHART_KEY, WIDGETS_TF_KEY, WIDGETS_ARR_KEY, WIDGETS_CHARTS, WIDGETS_TFS, WIDGETS_TF_DEFAULT, WIDGETS_TAPE_PX, WIDGETS_BAND, WIDGETS_VIDEO_W, WIDGETS_LENS_TAPE_PX, WIDGETS_LENS_TAPE_NARROW_PX, FLOOR_SEAM_PX };"
   ].join("\n");
   const ctx = {}; vm.runInNewContext(src, ctx); return ctx.out;
 }
@@ -62,11 +62,10 @@ test("W1 · WIDGETS is the default on both Macs; the stored choice and the URL w
   assert.match(fn(deck, "setSimple"), /if \(wasWidgets\) leaveWidgets\(\)/);
   /* the dock */
   assert.match(deck, /<button type="button" class="btn" id="widgetsBtn"[\s\S]{0,600}>widgets<\/button>/, "WIDGETS on the dock");
-  assert.match(deck, /<button type="button" class="btn" id="widgetsArrBtn"/, "A · B on the dock");
   const station = grab(deck, /<span class="dsec" data-sec="station"[\s\S]*?<\/span>\n  <span class="dsec" data-sec="scenes"/, "the station section");
   assert.ok(station.includes('id="wallBtn"') && station.includes('id="simpleBtn"') && station.includes('id="widgetsBtn"'), "WALL · SIMPLE · WIDGETS, in the one section the dock always shows");
   const wire = fn(deck, "wireSimple");
-  assert.match(wire, /widgetsBtn[\s\S]*setWidgets\(true\)/); assert.match(wire, /widgetsArrBtn[\s\S]*setWidgetsArrangement\(/);
+  assert.match(wire, /widgetsBtn[\s\S]*setWidgets\(true\)/); assert.doesNotMatch(wire, /widgetsArrBtn/, "W1C: the A · B choice is gone - Alan placed the pieces");
   const paint = fn(deck, "paintSimple");
   assert.match(paint, /classList\.toggle\("widgets", wg\)/); assert.match(paint, /g\.classList\.toggle\("on", wg\)/);
   assert.match(paint, /w\.classList\.toggle\("on", !on && !wg\)/, "WALL lights only when neither SIMPLE nor WIDGETS is on");
@@ -113,48 +112,45 @@ test("W1 · the two charts are TradingView (tv-v1) in WIDGETS; the symbol and th
   assert.match(tv, /VIX: "TVC:VIX", US10Y: "TVC:US10Y", DXUSD: "TVC:DXY"/, "the Station's macro names on TradingView's symbology");
 });
 
-test("W1 · floorWidgets, pure: two arrangements at both screens - every piece a share, the charts side by side, the tape taller", () => {
+test("W1 · floorWidgets, pure (restated for W1C): the charts, the lens tape, the band (YouTube and the volume column), the FAVORITES tape at the bottom - every piece a share", () => {
   const D = deckApi();
-  assert.equal(D.WIDGETS_TAPE_PX, 48); assert.equal(D.widgetsTapesHeight(true), 50); assert.equal(D.widgetsTapesHeight(false), 0);
-  assert.ok(D.WIDGETS_TAPE_PX > 2 * 22 - 1, "a cell is taller than today's 22 px row - twice it");
+  assert.equal(D.WIDGETS_TAPE_PX, 66); assert.equal(D.widgetsTapesHeight(true), 68); assert.equal(D.widgetsTapesHeight(false), 0);
+  assert.ok(D.WIDGETS_TAPE_PX > 2 * 22 - 1, "a cell is taller than today's 22 px row - three lines of it");
   for (const [key, W, H] of SCREENS) {
     const plan = D.floorPlan(W, H, CHROME);
     assert.equal(plan.col, Math.round(W * 0.24), key + ": X's column is 24 % of the wall, as S11 set it");
-    for (const arr of ["a", "b"]) {
-      const s = D.floorWidgets(plan.charts.w, plan.charts.h, 50, arr, 9, CHROME);
-      assert.equal(s.widgets, true); assert.equal(s.arrangement, arr);
-      assert.equal(s.cols, 2); assert.equal(s.rows, 1); assert.equal(s.charts, 2); assert.equal(s.hidden, 7, "nine on the page: two shown, seven mounted and hidden");
-      assert.deepEqual(plain(s.cells), [{ col: 1, row: 1 }, { col: 2, row: 1 }]);
-      /* the pieces tile the area: charts over tapes over the band, no gap, no overlap */
-      assert.equal(s.chartsH + 50 + D.FLOOR_SEAM_PX + s.bandH, plan.charts.h, key + " " + arr + ": charts + tapes + seam + band = the height");
-      for (const b of [s.box, s.meter, s.lenses]) { assert.ok(b.w > 0 && b.h > 0, "every piece has room"); assert.ok(b.left >= 0 && b.left + b.w <= plan.charts.w + 1); assert.ok(b.top >= s.chartsH + 50 && b.top + b.h <= plan.charts.h + 1, "inside the band"); }
-      const ov = (p, q) => !(p.left + p.w <= q.left || q.left + q.w <= p.left || p.top + p.h <= q.top || q.top + q.h <= p.top);
-      assert.ok(!ov(s.box, s.meter) && !ov(s.box, s.lenses) && !ov(s.meter, s.lenses), "no two pieces overlap");
-      assert.equal(s.picture.h, Math.round(s.picture.w * 9 / 16), "the pane's picture is 16:9 under the bar");
-      if (arr === "a") {
-        assert.equal(s.bandH, Math.round((plan.charts.h - 1) * D.WIDGETS_A_BAND), "A: the band is 44 % of the height");
-        assert.equal(s.box.w, Math.round(plan.charts.w * D.WIDGETS_A_VIDEO_W), "A: YouTube takes 62 % of the band's width");
-        assert.equal(s.meter.h, 76); assert.equal(s.lenses.top, s.meter.top + 77, "A: the lenses under the meter");
-      } else {
-        assert.equal(s.box.w, plan.charts.w, "B: YouTube across the whole width");
-        assert.equal(s.box.h, Math.round((plan.charts.h - 2) * D.WIDGETS_B_VIDEO), "B: 28 % of the height");
-        assert.equal(s.meter.h, s.lenses.h, "B: the meter and the lenses share one band"); assert.equal(s.meter.top, s.lenses.top);
-      }
-    }
+    const lt = D.widgetsLensTapePx(plan.charts.w, false);
+    assert.equal(lt, W >= 2560 ? D.WIDGETS_LENS_TAPE_PX : D.WIDGETS_LENS_TAPE_NARROW_PX, key + ": the lens tape's height");
+    const s = D.floorWidgets(plan.charts.w, plan.charts.h, 68, lt, 9, CHROME);
+    assert.equal(s.widgets, true);
+    assert.equal(s.cols, 2); assert.equal(s.rows, 1); assert.equal(s.charts, 2); assert.equal(s.hidden, 7, "nine on the page: two shown, seven mounted and hidden");
+    assert.deepEqual(plain(s.cells), [{ col: 1, row: 1 }, { col: 2, row: 1 }]);
+    /* the pieces tile the area top to bottom: charts, seam, lens tape, seam, band, tapes - no gap, no overlap */
+    assert.equal(s.chartsH + 1 + s.lensTapeH + 1 + s.bandH + 68, plan.charts.h, key + ": charts + lens tape + band + tapes = the height");
+    assert.equal(s.rowBelow, s.bandH + 1 + s.lensTapeH, "what the chart row gives up");
+    assert.equal(s.lensTape.top, s.chartsH + 1); assert.equal(s.lensTape.w, plan.charts.w, "the lens tape spans the chart area");
+    assert.equal(s.box.top, s.lensTape.top + s.lensTapeH + 1); assert.equal(s.box.top + s.box.h, plan.charts.h - 68, "the band ends where the FAVORITES tape begins");
+    assert.equal(s.bandH, Math.round((plan.charts.h - 1) * D.WIDGETS_BAND), "the band is 40 % of the height");
+    assert.equal(s.box.w, Math.round(plan.charts.w * D.WIDGETS_VIDEO_W), "YouTube takes 62 % of the band's width");
+    assert.equal(s.volume.left, s.box.w + 1); assert.equal(s.volume.w, plan.charts.w - s.box.w - 1); assert.equal(s.volume.h, s.bandH, "the volume graph has the whole column");
+    assert.equal(s.volume.on, true); assert.equal(s.lensTape.on, true);
+    assert.ok(s.chartsH >= 280, key + ": the charts keep at least 280 px (" + s.chartsH + ")");
+    assert.equal(s.picture.h, Math.round(s.picture.w * 9 / 16), "the pane's picture is 16:9 under the bar");
   }
   /* the slot is planned before SIMPLE's, and fitVideoPane treats both as the band */
-  assert.match(fn(deck, "slotFor"), /if \(widgetsOn\(\)\) return floorWidgets\(plan\.charts\.w, plan\.charts\.h, tapePx, widgetsArrangement\(\), count, chromePx\);\n[\s\S]{0,200}?if \(simpleOn\(\)\) return floorSimple/);
+  assert.match(fn(deck, "slotFor"), /if \(widgetsOn\(\)\) return floorWidgets\(plan\.charts\.w, plan\.charts\.h, tapePx, widgetsLensTapePx\(plan\.charts\.w, false\), count, chromePx\);\n[\s\S]{0,200}?if \(simpleOn\(\)\) return floorSimple/);
   const fit = fn(deck, "fitVideoPane");
   assert.match(fit, /const simple = !!slot && \(!!slot\.simple \|\| !!slot\.widgets\);/);
-  assert.match(fit, /slot\.widgets \? slot\.bandH : slot\.box\.h/, "the chart row gives up the whole band");
+  assert.match(fit, /slot\.widgets \? slot\.rowBelow : slot\.box\.h/, "the chart row gives up the band and the lens tape (W1C)");
   assert.match(fit, /placeWidgets\(slot && slot\.widgets \? slot : null, plan\);/);
   assert.match(fit, /widgetsOn\(\) \? widgetsTapesHeight\(tapesOn\(\)\) : tapesHeight\(tapesOn\(\)\)/, "the taller tape's height is the band's");
   assert.match(deck, /body\.widgets\.video-slot:not\(\.stack\) #grid > #rowTop\{ margin-bottom:calc\(var\(--simple-video-px, 0px\) \+ 1px \+ var\(--tapes-px, 0px\)\); \}/);
-  assert.match(deck, /body\.widgets\.video-slot\.tapes:not\(\.stack\) #tapes\{ bottom:calc\(var\(--simple-video-px, 0px\) \+ 1px\); \}/);
-  /* the meter: the live meter framed (it frames: no X-Frame-Options, no frame-ancestors - checked 22 Oct), a click opens the full page itself */
-  assert.match(deck, /const WIDGETS_METER_URL = "https:\/\/volume-pulse-pied\.vercel\.app\/meter\.html", WIDGETS_METER_OPEN = "https:\/\/volume-pulse-pied\.vercel\.app\/";/);
-  assert.match(fn(deck, "mountWidgets"), /f\.src = WIDGETS_METER_URL/); assert.match(fn(deck, "mountWidgets"), /WIDGETS_LENS_SHELL \+ "\/\?shell=v1/);
-  assert.match(fn(deck, "wireWidgets"), /make\("wgMeter", "Volume"/); assert.match(fn(deck, "wireWidgets"), /make\("wgLenses", "Lenses"/);
+  assert.match(deck, /body\.widgets\.video-slot\.tapes:not\(\.stack\) #tapes\{ bottom:0; \}/, "W1C: the FAVORITES tape at the very bottom");
+  /* W1C: the volume graph (volume-v1) in the column, the lens tape (lens-v1 in tape mode) over the band; the pill meter left the wall */
+  assert.match(deck, /const WIDGETS_VOLUME_SHELL = "\/station-shells\/volume-v1", WIDGETS_VOLUME_OPEN = "https:\/\/volume-pulse-pied\.vercel\.app\/";/);
+  assert.match(fn(deck, "mountWidgets"), /WIDGETS_VOLUME_SHELL \+ "\/\?shell=v1/); assert.match(fn(deck, "mountWidgets"), /WIDGETS_LENS_SHELL \+ "\/\?shell=v1&mode=tape/);
+  assert.match(fn(deck, "wireWidgets"), /make\("wgVolume", "Volume"/); assert.match(fn(deck, "wireWidgets"), /make\("wgLensTape", ""/);
+  assert.doesNotMatch(deck, /meter\.html/, "the pill meter is not on the wall");
   assert.match(deck, /wireWidgets\(grid\);/, "made with the tapes");
 });
 
@@ -163,11 +159,12 @@ test("W1 · the tape: one FAVORITES row in WIDGETS, each cell two lines - ticker
   assert.match(paint, /const tall = widgetsOn\(\);/);
   assert.match(paint, /if \(tall\) box\.firstChild\.classList\.add\("tall"\);\n\s+else box\.appendChild\(tapeRow\("LIKED"/, "FAVORITES alone on the WIDGETS wall; both tapes elsewhere");
   assert.match(paint, /const key = \(tall \? "tall\|" : ""\) \+ TAPES\.liked/, "a mode change rebuilds the rows");
-  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell\{ height:var\(--tape-row-px, 48px\); display:grid; grid-template-columns:auto auto; grid-template-rows:1fr 1fr;[\s\S]{0,200}?font-size:12\.5px; \}/, "two rows, bigger type");
-  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.tk\{ grid-column:1; grid-row:1;/, "the ticker on the first line");
-  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.px\{ grid-column:1; grid-row:1;/, "the price beside it");
-  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.pc\{ grid-column:1; grid-row:2;/, "the percent under them");
-  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.mk\{ grid-column:2; grid-row:1 \/ span 2; width:64px; \}/, "the line on the right, across both lines, wider");
+  /* W1C: the stacked cell - ticker over percent over price, the line on the right across the three, every cell 156 px wide, tabular numbers */
+  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell\{ height:var\(--tape-row-px, 66px\); width:156px; display:grid; grid-template-columns:minmax\(0,1fr\) 64px; grid-template-rows:1fr 1fr 1fr;[\s\S]{0,200}?font-size:12px; font-variant-numeric:tabular-nums; \}/, "three rows, one width, tabular numbers");
+  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.tk\{ grid-column:1; grid-row:1;/, "the ticker on top");
+  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.pc\{ grid-column:1; grid-row:2;/, "the percent under it");
+  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.px\{ grid-column:1; grid-row:3;/, "the price under that");
+  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.mk\{ grid-column:2; grid-row:1 \/ span 3; width:64px; \}/, "the line on the right, across the three");
   assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.gb\{ display:none; \}/, "no Geiger in the tape");
   assert.match(deck, /grid\.style\.setProperty\("--tape-row-px", \(widgetsOn\(\) \? WIDGETS_TAPE_PX : TAPE_ROW_PX\) \+ "px"\);/);
   /* the flash, the line's colour and its side are the S16b ones, untouched */
@@ -216,7 +213,7 @@ test("W1 · the lens set: RADAR · MACRO · MINE, remembered; MINE adds and remo
   assert.match(lens, /station_lists\?select=position,ticker&list=eq\.radar&order=position\.asc/, "RADAR is the Hub's list, one GET");
   /* the drawing: chart-v1's oval (station-lens.mjs ovalGeometry, lens-bars drawCandles), the 1d:60 lens, the day's colour on the edge */
   assert.match(lens, /import \{ ovalGeometry, insideOval, INK \} from "\/_indicators\/station-lens\.mjs";/);
-  assert.match(lens, /const LENS_TF = "1d", LENS_BARS = 60;/, "sixty daily candles - the zoomed-out view the intraday ranges carry");
+  assert.match(lens, /const LENS_TF = TAPE \? "5m" : "1d", LENS_BARS = TAPE \? 120 : 60;/, "sixty daily candles in the column - the zoomed-out view the intraday ranges carry; W1C: 120 five-minute bars on the tape");
   assert.match(lens, /ctx\.strokeStyle = day === "up" \? PALETTE\.bull : day === "down" \? PALETTE\.bear : INK\.frame;/, "the oval's edge in the day's colour");
   assert.match(lens, /drawCandles\(ctx, bars, geo\.candles, \{ colour: "bar", day, pal: PALETTE \}\)/, "the candles as the lens draws them");
   assert.match(lens, /\.lens \.pc\.up, \.lens \.tk\.up\{ color:var\(--bull\); \} \.lens \.pc\.dn, \.lens \.tk\.dn\{ color:var\(--bear\); \}/, "the head in the day's colour");

@@ -29,11 +29,11 @@ function deckApi() {
     fn(deck, "simpleSplitOf"), fn(deck, "floorSimple"),
     grab(deck, /const WIDGETS_KEY = [\s\S]*?const WIDGETS_TAPE_PX = \d+;/, "the WIDGETS constants"),
     grab(deck, /const widgetsArrangementOf = [^\n]*/, "widgetsArrangementOf"),
-    grab(deck, /const WIDGETS_METER_PX = [^\n]*/, "the arrangement shares"), fn(deck, "floorWidgets"),
+    grab(deck, /const WIDGETS_BAND = [^\n]*/, "the band's shares (W1C)"), grab(deck, /const widgetsLensTapePx = [\s\S]*?;\n/, "widgetsLensTapePx"), fn(deck, "floorWidgets"),
     grab(deck, /const TAPE_ROW_PX = \d+;/, "the tape's height"), fn(deck, "tapesHeight"), fn(deck, "widgetsTapesHeight"),
-    grab(deck, /const WIDGETS_X_SLIM_SHARE = [^\n]*/, "the slim share"), grab(deck, /const WIDGETS_LENS_MIN_PX = [^\n]*/, "the minimums"),
+    grab(deck, /const WIDGETS_X_SLIM_SHARE = [^\n]*/, "the slim share"), grab(deck, /const WIDGETS_LENS_MIN_PX = [^\n]*/, "the old minimum, kept"),
     grab(deck, /const widgetsBesideCol = [^\n]*/, "widgetsBesideCol"), fn(deck, "widgetsFloorPicture"), fn(deck, "floorWidgetsPlaying"),
-    "globalThis.out = { floorPlan, floorWidgets, floorWidgetsPlaying, widgetsFloorPicture, widgetsBesideCol, widgetsTapesHeight, FLOOR_COLUMN_SHARE, WIDGETS_X_SLIM_SHARE, WIDGETS_BESIDE_COL_PX, WIDGETS_BESIDE_COL_NARROW_PX, WIDGETS_LENS_MIN_PX, WIDGETS_METER_MIN_PX, FLOOR_SEAM_PX };"
+    "globalThis.out = { floorPlan, floorWidgets, floorWidgetsPlaying, widgetsFloorPicture, widgetsBesideCol, widgetsTapesHeight, widgetsLensTapePx, FLOOR_COLUMN_SHARE, WIDGETS_X_SLIM_SHARE, WIDGETS_BESIDE_COL_PX, WIDGETS_BESIDE_COL_NARROW_PX, WIDGETS_LENS_MIN_PX, WIDGETS_VOLUME_MIN_PX, WIDGETS_LENS_TAPE_PLAYING_PX, FLOOR_SEAM_PX };"
   ].join("\n");
   const ctx = {}; vm.runInNewContext(src, ctx); return ctx.out;
 }
@@ -64,26 +64,28 @@ test("W1B · while a video plays on WIDGETS the picture is at least the floor, m
     const s = D.floorWidgetsPlaying(plan.charts.w, plan.charts.h, D.widgetsTapesHeight(true), floor, col, 9, CHROME);
     assert.equal(s.playing, true); assert.equal(s.widgets, true); assert.equal(s.cols, 2); assert.equal(s.charts, 2);
     assert.ok(s.picture.w >= floor.w && s.picture.h >= floor.h, key + ": the picture (" + s.picture.w + "×" + s.picture.h + ") is at least the floor (" + floor.w + "×" + floor.h + ")");
-    assert.equal(s.box.left, 0, "moved to the left of the chart area"); assert.equal(s.box.top + s.box.h, plan.charts.h, "at the bottom");
+    assert.equal(s.box.left, 0, "moved to the left of the chart area"); assert.equal(s.box.top + s.box.h, plan.charts.h - 68, "over the FAVORITES tape at the bottom (W1C)");
     assert.equal(s.box.w, floor.w + col, key + ": the pane is the picture plus the grid's column"); assert.equal(s.besideCol, col);
-    assert.equal(s.chartsH + 50 + D.FLOOR_SEAM_PX + s.bandH, plan.charts.h, "charts + tapes + seam + pane = the height");
-    assert.ok(s.chartsH > 300, key + ": the charts keep over 300 px (" + s.chartsH + ")");
-    assert.equal(s.meter.left, s.box.w + 1); assert.equal(s.lenses.left, s.box.w + 1); assert.equal(s.meter.w, plan.charts.w - s.box.w - 1, "the widgets take what is right of the pane");
+    /* W1C: the lens tape over the pane on a wide wall (110 px), none on a narrow one while a video plays */
+    assert.equal(s.lensTapeH, D.widgetsLensTapePx(plan.charts.w, true)); assert.equal(s.lensTapeH, t.W >= 2560 ? D.WIDGETS_LENS_TAPE_PLAYING_PX : 0);
+    assert.equal(s.chartsH + (s.lensTapeH ? s.lensTapeH + 1 : 0) + 1 + s.bandH + 68, plan.charts.h, "charts + lens tape + pane + tapes = the height");
+    assert.ok(s.chartsH > 200, key + ": the charts keep over 200 px (" + s.chartsH + ")");
+    assert.equal(s.volume.left, s.box.w + 1); assert.equal(s.volume.w, plan.charts.w - s.box.w - 1, "the volume graph takes what is right of the pane"); assert.equal(s.volume.h, s.bandH);
   }
-  /* at 2560 the right column holds lenses; at 1280 it is too thin and the lens set stands down, the meter scales */
+  /* at 2560 the column is 552 px; at 1280 it is 205 px - the graph still draws (anything 120 px and over) */
   const wide = D.floorPlan(2560, 1440, CHROME, 0.16), fw = D.widgetsFloorPicture(2560, 1440, CHROME);
-  const sw = D.floorWidgetsPlaying(wide.charts.w, wide.charts.h, 50, fw, 300, 9, CHROME);
-  assert.equal(sw.besideCol, 300); assert.equal(sw.lenses.on, true); assert.equal(sw.meter.on, true); assert.equal(sw.meter.scale, 1); assert.equal(sw.lenses.w, 552);
+  const sw = D.floorWidgetsPlaying(wide.charts.w, wide.charts.h, 68, fw, 300, 9, CHROME);
+  assert.equal(sw.besideCol, 300); assert.equal(sw.volume.on, true); assert.equal(sw.volume.w, 552); assert.equal(sw.lensTape.on, true);
   const narrow = D.floorPlan(1280, 800, CHROME, 0.16), fn_ = D.widgetsFloorPicture(1280, 800, CHROME);
-  const sn = D.floorWidgetsPlaying(narrow.charts.w, narrow.charts.h, 50, fn_, D.widgetsBesideCol(narrow.charts.w), 9, CHROME);
-  assert.equal(sn.besideCol, 220, "a narrower column on the small wall"); assert.equal(sn.lenses.on, false, "no room for a lens beside a 648 px picture and its column"); assert.equal(sn.meter.on, true); assert.ok(sn.meter.scale < 1 && sn.meter.scale >= 0.3);
+  const sn = D.floorWidgetsPlaying(narrow.charts.w, narrow.charts.h, 68, fn_, D.widgetsBesideCol(narrow.charts.w), 9, CHROME);
+  assert.equal(sn.besideCol, 220, "a narrower column on the small wall"); assert.equal(sn.volume.on, true); assert.equal(sn.volume.w, 205); assert.equal(sn.lensTape.on, false, "no room for the lens tape over a 365 px picture on an 800 px wall");
   /* the deck: the plan goes slim while playing, the playing slot is planned before WIDGETS' own, the lenses' off class, the shell's say */
   assert.match(fn(deck, "fitVideoPane"), /floorPlan\(grid\.clientWidth, grid\.clientHeight, onWall\?\.chromePx, widgetsPlaying\(\) \? WIDGETS_X_SLIM_SHARE : undefined\)/);
   assert.match(fn(deck, "slotFor"), /if \(widgetsPlaying\(\)\) \{[\s\S]{0,400}?return floorWidgetsPlaying\(plan\.charts\.w, plan\.charts\.h, tapePx, floor, widgetsBesideCol\(plan\.charts\.w\), count, chromePx\);/);
   assert.match(fn(deck, "widgetsPlaying"), /widgetsOn\(\) && VIDEO_PLAYING\.on && VIDEO_PLAYING\.key === VIDEO_FEED && MEDIA_STAGE === 0 && !STACKED/, "only the pane on the wall, never the theatre or a phone");
   assert.match(deck, /if \(event\.data\?\.sc === "video-playing"\) \{[\s\S]{0,600}?VIDEO_PLAYING\.on = on; VIDEO_PLAYING\.key = pane\.def\.key; relayout\(\);/);
-  assert.match(fn(deck, "placeWidgets"), /l\.classList\.toggle\("off", slot\.lenses\.on === false\); m\.classList\.toggle\("off", slot\.meter\.on === false\);/);
-  assert.match(deck, /#wgMeter\.off, #wgLenses\.off\{ display:none !important; \}/);
+  assert.match(fn(deck, "placeWidgets"), /v\.classList\.toggle\("off", slot\.volume\.on === false\); l\.classList\.toggle\("off", slot\.lensTape\.on === false\);/);   /* W1C: restated */
+  assert.match(deck, /#wgVolume\.off, #wgLensTape\.off\{ display:none !important; \}/);
   assert.match(deck, /if \(obj\.def\.kind === "video"\) tellVideoBeside\(widgetsOn\(\)\);/, "a pane that has just loaded is told the column");
   assert.match(fn(deck, "tellVideoBeside"), /type:"SCINTILLA_VIDEO_BESIDE", on:!!on, col:/);
   assert.match(lens, /minmax\(min\(var\(--lens-min, 290px\), 100%\), 1fr\)/, "a lens column narrower than a lens never overflows");

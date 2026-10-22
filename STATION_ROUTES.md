@@ -31,6 +31,7 @@ be rolled forward or back without touching the others.
 | fundamentals (M74) | `/station-shells/fundamentals-v1` | no standalone page — a menu entry, one ticker, never in the rotation |
 | floating video (S5) | `/station-shells/pip-v1` | no standalone page — the page the deck (or a top-level video pane) puts inside the Document Picture-in-Picture window; `?v=` `&start=` `&title=`, reads and writes nothing |
 | TradingView chart (W1) | `/station-shells/tv-v1` | no standalone page — the WIDGETS wall's two chart slots: one TradingView Advanced Chart embed (candles, VWAP, drawing toolbar, dark, New York time, extended hours); `?t=` `&tf=` `&n=`; tells the deck (same origin) its symbol and interval; reads and writes nothing of ours |
+| volume graph (W1C) | `/station-shells/volume-v1` | no standalone page — the WIDGETS wall's volume column: the research session's graph (volume-pulse) from its public feed, one GET every 8 s in session, 2 min closed; writes nothing |
 | lens set (W1) | `/station-shells/lens-v1` | no standalone page — the WIDGETS wall's context lenses: RADAR (one Supabase GET) · MACRO · MINE (localStorage); quotes and sixty daily candles through the provider client; writes nothing |
 | floating video, v2 (Y8) | `/station-shells/pip-v2` | no standalone page — the page the video pane (Y8) puts inside the Document Picture-in-Picture window; `?v=` `&start=` `&title=`; tells the pane (same origin) the second it is at, its end and a held autoplay; reads and writes nothing |
 
