@@ -217,6 +217,9 @@ body.playing #transport{ display:flex; }
 #bMenu{ width:32px; padding-left:0; padding-right:0; text-align:center; }
 #bContinue{ display:none; color:var(--vol); border-color:rgba(255,138,0,.55); }
 body[data-autoplay-blocked="true"] #bContinue{ display:inline-block; }
+/* Y9 (21 Oct 2026): the browser can start an embed with its sound off; said on the bar, and one tap turns it on */
+#bSound{ display:none; color:var(--vol); border-color:rgba(255,138,0,.55); }
+body.playing[data-muted="true"] #bSound{ display:inline-block; }
 #more{ position:fixed; z-index:5; right:6px; top:calc(32px + env(safe-area-inset-top)); width:min(300px,calc(100% - 12px));
   padding:5px; border:1px solid var(--hair); background:rgba(10,10,15,.98); box-shadow:0 8px 24px rgba(0,0,0,.5);
   display:flex; flex-direction:column; gap:4px; }
@@ -287,6 +290,7 @@ html[data-view="compact"] #bRefresh, html[data-view="compact"] #bPipBar, html[da
     <button class="btn transport" id="bPrev" type="button" aria-label="previous video" title="previous video"><svg viewBox="0 0 16 16" aria-hidden="true"><path class="f" d="M13 3.2v9.6L5.8 8z"/><path d="M3.4 3.4v9.2"/></svg></button>
     <span id="nowq" aria-live="polite"></span>
     <button class="btn" id="bContinue" type="button">tap to continue</button>
+    <button class="btn" id="bSound" type="button" title="the browser started this video with its sound off - tap for sound">muted · tap for sound</button>
   </span>
   <span id="pipNote" aria-live="polite"></span>
   <span id="barGap"></span>
@@ -620,6 +624,7 @@ function startPlayerPositionPoll(token) {
     if (token !== PLAYER_TOKEN || !CUR || !YT_PLAYER_READY) return;
     captureActiveVideoPosition();
     saveActiveVideoPosition(false);
+    rememberSound();
     PLAYER_POSITION_POLL = setTimeout(tick, 5000);
   };
   tick();
@@ -984,7 +989,7 @@ function handlePlayerStateChange(event) {
   if (!playerEventMatchesRequest(event, request)) return;
   PLAYER_ACCEPTED_TOKEN = request.token; clearPlayerFallback();
   captureActiveVideoPosition(event.target);
-  if (Number(event.data) === 1) setAutoplayBlockedState(false, request);
+  if (Number(event.data) === 1) { setAutoplayBlockedState(false, request); soundOnPlaying(); }
   if (Number(event.data) !== 0 || PLAYER_ENDED_TOKEN === request.token) return;
   PLAYER_ENDED_TOKEN = request.token;
   clearPlayerPositionPoll();
@@ -1025,6 +1030,7 @@ function ensureOfficialYouTubePlayer() {
             const frame = event.target.getIframe();
             frame.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
           } catch (_) {}
+          try { soundOnPlayerReady(event.target); } catch (_) {}
           resolve(event.target);
         },
         onStateChange:handlePlayerStateChange,
@@ -1169,6 +1175,60 @@ el("bWatchBar").addEventListener("click", async () => {
 el("bContinue").addEventListener("click", () => {
   try { if (YT_PLAYER_READY) YT_PLAYER.playVideo(); } catch (_) {}
 });
+/* ---- THE SOUND (Y9, 21 Oct 2026) ----
+   Alan, on the MacBook's Station: "the audio is not working." Chromium lets an embed start by itself only with its
+   sound off until the document has had a user gesture; YouTube's player also keeps the volume and the mute it was
+   last left with. Measured headless on a fresh profile (deliverables/20261021/y9/measure/*-audio.json): see RETURN.
+   The rule here, in words: the FIRST tap or key anywhere on this pane turns the sound on if the browser had it off,
+   at the volume this session last had (sessionStorage station.sound), else at 100. From then on the player's volume
+   and mute are the user's and are remembered every few seconds and on the way out; a video that starts while the
+   player is still muted (before any tap) says so on the bar - MUTED · TAP FOR SOUND - and that button is the tap.
+   A mute the user set themselves this session (remembered after the first tap) is kept, never undone. */
+const SOUND_KEY = "station.sound";
+let SOUND_GESTURE = false, SOUND_DONE = false;
+function rememberedSound() {
+  try { const o = JSON.parse(sessionStorage.getItem(SOUND_KEY) || "null");
+    if (o && Number.isFinite(+o.volume)) return { volume:Math.max(0, Math.min(100, Math.round(+o.volume))), muted:!!o.muted }; } catch (_) {}
+  return null;
+}
+function paintSound() {
+  let muted = false;
+  try { muted = !!(YT_PLAYER_READY && CUR && YT_PLAYER.isMuted()); } catch (_) {}
+  document.body.dataset.muted = muted ? "true" : "false";
+}
+/* the user's own setting, kept per session - written only once the first tap has had its say */
+function rememberSound() {
+  if (!YT_PLAYER_READY || !SOUND_DONE) { paintSound(); return; }
+  try { const volume = YT_PLAYER.getVolume(), muted = YT_PLAYER.isMuted();
+    if (Number.isFinite(volume)) sessionStorage.setItem(SOUND_KEY, JSON.stringify({ volume:Math.round(volume), muted:!!muted })); } catch (_) {}
+  paintSound();
+}
+/* the first tap: sound on, at the remembered volume; a remembered mute of the user's own stands */
+function soundOnFirstTap() {
+  if (SOUND_DONE || !SOUND_GESTURE || !YT_PLAYER_READY) return;
+  try {
+    const want = rememberedSound();
+    if (want && want.muted) { SOUND_DONE = true; paintSound(); return; }
+    const vol = want && want.volume > 0 ? want.volume : (YT_PLAYER.getVolume() > 0 ? YT_PLAYER.getVolume() : 100);
+    if (YT_PLAYER.isMuted()) YT_PLAYER.unMute();
+    if (YT_PLAYER.getVolume() !== vol) YT_PLAYER.setVolume(vol);
+    SOUND_DONE = true;
+  } catch (_) {}
+  paintSound(); setTimeout(paintSound, 1200);
+}
+function soundOnPlayerReady(player) {
+  const want = rememberedSound();
+  if (want && want.volume > 0) try { player.setVolume(want.volume); } catch (_) {}
+  soundOnFirstTap(); paintSound();
+}
+function soundOnPlaying() { soundOnFirstTap(); paintSound(); setTimeout(paintSound, 1500); }
+document.addEventListener("pointerdown", () => { SOUND_GESTURE = true; soundOnFirstTap(); }, { capture:true });
+document.addEventListener("keydown", () => { SOUND_GESTURE = true; soundOnFirstTap(); }, { capture:true });
+el("bSound").addEventListener("click", () => {
+  SOUND_GESTURE = true; SOUND_DONE = false;
+  try { sessionStorage.removeItem(SOUND_KEY); } catch (_) {}
+  soundOnFirstTap();
+});
 function setMenuOpen(open) {
   const menu = el("more"), button = el("bMenu");
   menu.hidden = !open; button.setAttribute("aria-expanded", open ? "true" : "false");
@@ -1188,7 +1248,7 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") { captureActiveVideoPosition(); saveActiveVideoPosition(true); }
 });
-window.addEventListener("pagehide", () => { captureActiveVideoPosition(); saveActiveVideoPosition(true); });
+window.addEventListener("pagehide", () => { captureActiveVideoPosition(); saveActiveVideoPosition(true); rememberSound(); });
 
 /* ---- PICTURE-IN-PICTURE: THE FLOAT, AND THE WAY BACK ----
    S5 (1 Oct), Alan: "a little picture in picture player that actually goes off the station PWA… they're discussing
