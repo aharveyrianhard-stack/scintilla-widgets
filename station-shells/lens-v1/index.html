@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Station · context lenses</title>
+<!-- W1 (22 Oct 2026). Alan: "I kind of like the context lens ones better … put another set of context lenses somewhere
+     that I can select the tickers for those … could we make the set of context lenses be the radar watch list? Maybe
+     radar and macro." And of the old tape marks: "very small. I can barely see them."
+     THIS SHELL is the lens set of the WIDGETS wall: a chip row - RADAR (station_lists · radar, the Hub's list), MACRO
+     (MACRO · DAY's six: VIX DXUSD US10Y GCUSD CLUSD BTCUSD), MINE (his own picks, added and removed here, remembered on
+     this machine) - and under it one context lens per name: the ticker, the price, the day's percent, and the OVAL of the
+     zoomed-out series (chart-v1's lens drawing, S8's shape, the 1d:60 lens the intraday ranges carry: sixty daily candles),
+     drawn big enough to read from the chair. Colours are the Station's: the head and the line in the day's colour, up
+     green, down red - never grey. A tap on a lens opens that name in the wall's chart 1 (the deck decides which slot).
+     Reads: SC_PROVIDER.marketQuotes every 15 s (the read the charts' badges ride) and marketCandles 1d × 60 every ten
+     minutes (a finished daily bar cannot change). The lists: one Supabase GET for RADAR (the same door the deck reads
+     through); MACRO is a constant; MINE is localStorage. Nothing here writes anywhere. -->
+<style>
+:root{ --bg:#0A0A0F; --panel2:#0F0F17; --line:#1A1A2A; --hair:#2A2A3C; --ink:#F2F2F8; --ink2:#C8C8D8; --ink3:#9A9AB6; --mute:#6E6E80; --dim:#55556A;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
+html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); font:11px var(--mono); overflow:hidden; }
+body{ display:flex; flex-direction:column; }
+#bar{ flex:none; display:flex; align-items:center; gap:4px; padding:3px 6px; background:var(--panel2); border-bottom:1px solid var(--line); min-height:22px; }
+#bar .k{ color:var(--crk); font-size:7.5px; letter-spacing:.18em; text-transform:uppercase; margin-right:4px; }
+.chip{ font:9px var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--ink3); background:transparent; border:1px solid var(--line); padding:2px 8px; cursor:pointer; border-radius:0; }
+.chip:hover{ color:var(--ink); border-color:var(--hair); } .chip.on{ color:var(--crk); border-color:var(--crk); }
+.chip small{ color:var(--dim); margin-left:5px; letter-spacing:.04em; }
+#add{ display:none; margin-left:4px; width:84px; background:var(--bg); border:1px solid var(--line); color:var(--ink); font:10px var(--mono); padding:2px 6px; outline:none; border-radius:0; text-transform:uppercase; }
+#add:focus{ border-color:var(--crk); } body[data-list="mine"] #add{ display:block; }
+#note{ margin-left:auto; color:var(--mute); font-size:8px; letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; }
+#set{ flex:1 1 0; min-height:0; overflow-y:auto; display:grid; gap:1px; background:var(--line); align-content:start;
+  grid-template-columns:repeat(auto-fill, minmax(var(--lens-min, 290px), 1fr)); }
+.lens{ position:relative; background:var(--bg); display:flex; flex-direction:column; min-width:0; cursor:pointer; height:var(--lens-h, 176px); }
+.lens:hover{ background:#0D0D15; }
+.lens .head{ flex:none; display:flex; align-items:baseline; gap:10px; padding:8px 12px 0; white-space:nowrap; }
+.lens .tk{ font-size:15px; letter-spacing:.1em; color:var(--ink); }
+.lens .px{ font-size:15px; color:var(--ink2); font-variant-numeric:tabular-nums; }
+.lens .pc{ font-size:12px; color:var(--ink3); font-variant-numeric:tabular-nums; margin-left:auto; }
+.lens .pc.up, .lens .tk.up{ color:var(--bull); } .lens .pc.dn, .lens .tk.dn{ color:var(--bear); }
+.lens .px.flash{ animation:scin .6s ease-out; }
+@keyframes scin{ 0%{ color:var(--crk); text-shadow:0 0 8px rgba(0,212,255,.9); } 100%{ color:var(--ink2); text-shadow:none; } }
+.lens canvas{ flex:1 1 0; min-height:0; width:100%; display:block; }
+.lens .why{ position:absolute; left:12px; bottom:8px; color:var(--mute); font-size:8px; letter-spacing:.1em; text-transform:uppercase; }
+.lens .why:empty{ display:none; }
+.lens .rm{ display:none; position:absolute; right:6px; top:6px; width:18px; height:18px; border:1px solid var(--line); background:var(--bg); color:var(--ink3); font:10px var(--mono); cursor:pointer; padding:0; border-radius:0; }
+body[data-list="mine"] .lens .rm{ display:block; } .lens .rm:hover{ color:var(--bear); border-color:var(--bear); }
+.msg{ grid-column:1 / -1; padding:18px 12px; color:var(--mute); font-size:9px; letter-spacing:.12em; text-transform:uppercase; text-align:center; background:var(--bg); }
+</style>
+</head>
+<body>
+<div id="bar"><span class="k">lenses</span><span id="chips" role="group" aria-label="Lens list"></span><input id="add" placeholder="+ ticker" aria-label="Add a ticker to MINE" maxlength="12"><span id="note"></span></div>
+<div id="set" role="list" aria-label="Context lenses"><div class="msg">loading…</div></div>
+<script src="/_provider/provider.js"></script>
+<script type="module">
+import { ovalGeometry, insideOval, INK } from "/_indicators/station-lens.mjs";
+import { drawCandles, PALETTE, DIALS } from "/_indicators/lens-bars.mjs";
+const el = (id) => document.getElementById(id);
+const QS = new URLSearchParams(location.search);
+const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+/* the lists, the keys, the clocks */
+const LIST_KEY = "station.lenses.list", MINE_KEY = "station.lenses.mine";
+const LISTS = ["radar", "macro", "mine"];
+const MACRO = Object.freeze(["VIX", "DXUSD", "US10Y", "GCUSD", "CLUSD", "BTCUSD"]);   /* MACRO · DAY's six (deck/scenes.js) */
+const SB = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+const LENS_TF = "1d", LENS_BARS = 60;   /* the zoomed-out view the intraday ranges carry (LENS_BY_RANGE "1d:60") */
+const QUOTE_MS = 15000, BARS_MS = 600000, LIST_MS = 300000, MAX_LENSES = 24;
+const remembered = (k) => { try { return localStorage.getItem(k) || ""; } catch (_) { return ""; } };
+const remember = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
+/* pure: which list, and the names of MINE */
+export function listChoice(stored, urlValue) { if (LISTS.includes(urlValue)) return urlValue; if (LISTS.includes(stored)) return stored; return "radar"; }
+export function mineOf(stored) { try { const a = JSON.parse(stored || "[]"); return Array.isArray(a) ? Array.from(new Set(a.map(CLEAN).filter(Boolean))).slice(0, MAX_LENSES) : []; } catch (_) { return []; } }
+export function mineAdd(list, t) { const c = CLEAN(t); if (!c || list.includes(c)) return list.slice(); return list.concat([c]).slice(0, MAX_LENSES); }
+export function mineRemove(list, t) { const c = CLEAN(t); return list.filter((x) => x !== c); }
+let LIST = listChoice(remembered(LIST_KEY), QS.get("list"));
+let MINE = mineOf(remembered(MINE_KEY));
+let RADAR = [], radarAt = 0;
+const S = { quotes: new Map(), bars: new Map(), quotesAt: 0, barsAt: 0, busyQ: false, busyB: false };
+function names() { return (LIST === "macro" ? MACRO : LIST === "mine" ? MINE : RADAR).slice(0, MAX_LENSES); }
+async function readRadar() {
+  try {
+    const r = await fetch(SB + "/rest/v1/station_lists?select=position,ticker&list=eq.radar&order=position.asc", { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
+    if (!r.ok) throw new Error("pg " + r.status);
+    const rows = await r.json(); const seen = new Set(), out = [];
+    for (const row of rows) { const t = CLEAN(row && row.ticker); if (t && !seen.has(t)) { seen.add(t); out.push(t); } }
+    RADAR = out; radarAt = Date.now();
+  } catch (e) { el("note").textContent = "radar list not read"; }
+}
+/* ---- the chips ---- */
+function paintChips() {
+  const box = el("chips"); box.innerHTML = "";
+  const count = { radar: RADAR.length, macro: MACRO.length, mine: MINE.length };
+  for (const l of LISTS) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "chip" + (l === LIST ? " on" : "");
+    b.innerHTML = l + "<small>" + count[l] + "</small>"; b.setAttribute("aria-pressed", l === LIST ? "true" : "false");
+    b.title = l === "radar" ? "the Hub's RADAR list" : l === "macro" ? "MACRO · DAY's six" : "your own picks - add a ticker on the right, × removes one; remembered on this machine";
+    b.addEventListener("click", () => setList(l)); box.appendChild(b);
+  }
+  document.body.dataset.list = LIST;
+}
+function setList(l) { if (!LISTS.includes(l) || l === LIST) return; LIST = l; remember(LIST_KEY, l); paintChips(); paintSet(); tick(true); }
+el("add").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const next = mineAdd(MINE, el("add").value); if (next.length === MINE.length) { el("add").value = ""; return; }
+  MINE = next; remember(MINE_KEY, JSON.stringify(MINE)); el("add").value = ""; paintChips(); paintSet(); tick(true);
+});
+/* ---- the set ---- */
+const price = (p) => p == null ? "—" : p >= 1000 ? Math.round(p).toLocaleString("en-US") : p >= 100 ? p.toFixed(2) : p.toFixed(2);
+const pct = (c) => c == null ? "" : (c >= 0 ? "+" : "") + c.toFixed(2) + "%";
+function paintSet() {
+  const box = el("set"); const list = names(); box.innerHTML = "";
+  if (!list.length) { box.innerHTML = '<div class="msg">' + (LIST === "mine" ? "no picks yet · type a ticker above and press Enter" : LIST === "radar" && !radarAt ? "reading the radar list…" : "nothing on this list") + "</div>"; return; }
+  for (const t of list) {
+    const d = document.createElement("div"); d.className = "lens"; d.dataset.t = t; d.setAttribute("role", "listitem");
+    d.innerHTML = '<div class="head"><span class="tk"></span><span class="px">—</span><span class="pc"></span></div><canvas></canvas><span class="why"></span><button type="button" class="rm" title="remove from MINE">×</button>';
+    d.querySelector(".tk").textContent = t;
+    d.addEventListener("click", (e) => { if (e.target.closest(".rm")) return; try { parent.postMessage({ type: "SCINTILLA_LENS_OPEN", ticker: t }, location.origin); } catch (_) {} });
+    d.querySelector(".rm").addEventListener("click", () => { MINE = mineRemove(MINE, t); remember(MINE_KEY, JSON.stringify(MINE)); paintChips(); paintSet(); });
+    box.appendChild(d);
+  }
+  paintCells(true); drawAll();
+}
+function paintCells(first) {
+  for (const d of el("set").querySelectorAll(".lens")) {
+    const q = S.quotes.get(d.dataset.t); if (!q) continue;
+    const px = d.querySelector(".px"), pc = d.querySelector(".pc"), tk = d.querySelector(".tk");
+    const text = price(q.price);
+    if (px.textContent !== text) { const ticked = px.textContent !== "—" && !first; px.textContent = text; if (ticked) { px.classList.remove("flash"); void px.offsetWidth; px.classList.add("flash"); } }
+    const side = q.pct == null ? "" : q.pct >= 0 ? " up" : " dn";
+    pc.textContent = pct(q.pct); pc.className = "pc" + side; tk.className = "tk" + side;
+  }
+}
+/* the day's colour for the oval: the quote's sign; without a quote, the last candle against the one before */
+function dayOf(t, bars) { const q = S.quotes.get(t); if (q && q.pct != null) return q.pct >= 0 ? "up" : "down"; if (bars.length >= 2) return bars[bars.length - 1].c >= bars[bars.length - 2].c ? "up" : "down"; return null; }
+/* the oval: S8's geometry for the lens' own canvas - the long axis is the canvas' width less a margin, the short axis
+   what the candles need; the candles are clipped to the ellipse, its edge a faint line (station-lens.mjs, the oval branch) */
+export function drawOval(ctx, W, H, bars, day) {
+  ctx.clearRect(0, 0, W, H);
+  if (!bars.length) return null;
+  const long = Math.max(60, W - 28);
+  const geo = ovalGeometry(bars, { long, maxPlotH: Math.max(28, H - 24) });
+  if (!geo) return null;
+  const cx = W / 2, cy = H / 2;
+  const ox = cx - geo.centre.x, oy = cy - geo.centre.y;
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(cx, cy, geo.a, geo.b, geo.theta, 0, Math.PI * 2);
+  ctx.globalAlpha = DIALS.opacity; ctx.fillStyle = INK.paper; ctx.fill(); ctx.globalAlpha = 1; ctx.clip();
+  ctx.translate(ox, oy);
+  drawCandles(ctx, bars, geo.candles, { colour: "bar", day, pal: PALETTE });
+  ctx.restore();
+  ctx.save();
+  ctx.beginPath(); ctx.ellipse(cx, cy, Math.max(1, geo.a - 0.5), Math.max(1, geo.b - 0.5), geo.theta, 0, Math.PI * 2);
+  ctx.strokeStyle = day === "up" ? PALETTE.bull : day === "down" ? PALETTE.bear : INK.frame; ctx.lineWidth = 1; ctx.globalAlpha = 0.75; ctx.stroke();
+  ctx.restore();
+  return geo;
+}
+function drawOne(d) {
+  const t = d.dataset.t, cv = d.querySelector("canvas"), why = d.querySelector(".why");
+  const entry = S.bars.get(t);
+  const W = Math.max(1, cv.clientWidth), H = Math.max(1, cv.clientHeight), dpr = Math.min(3, window.devicePixelRatio || 1);
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (!entry) { ctx.clearRect(0, 0, W, H); why.textContent = "reading daily bars…"; return; }
+  if (entry.absence) { ctx.clearRect(0, 0, W, H); why.textContent = entry.absence; return; }
+  const bars = entry.bars; const day = dayOf(t, bars);
+  const geo = drawOval(ctx, W, H, bars, day);
+  why.textContent = geo ? "" : "no daily bars";
+  cv.setAttribute("aria-label", t + ": " + bars.length + " daily candles in an oval" + (day ? ", the day " + day : ""));
+  d.dataset.day = day || "";
+}
+function drawAll() { for (const d of el("set").querySelectorAll(".lens")) drawOne(d); }
+/* ---- the reads ---- */
+async function readQuotes() {
+  const P = window.SC_PROVIDER; const list = names(); if (!P || !list.length || S.busyQ || document.hidden) return;
+  S.busyQ = true;
+  try {
+    const rows = await P.marketQuotes(list, {});
+    for (const row of rows || []) { const t = CLEAN(row && row.ticker); if (!t || row.price == null) continue; const p = +row.price, prev = row.prev_close == null ? null : +row.prev_close; S.quotes.set(t, { price: p, pct: prev ? (p - prev) / prev * 100 : (row.chg_pct == null ? null : +row.chg_pct) }); }
+    S.quotesAt = Date.now(); paintCells(false); drawAll();
+  } catch (_) {} finally { S.busyQ = false; }
+}
+const norm = (b) => { const t = typeof b.t === "number" ? (b.t > 1e12 ? b.t : b.t * 1000) : Date.parse(b.t || b.time || b.date); return { t, o: +b.o, h: +b.h, l: +b.l, c: +b.c, v: +(b.v || 0), session: 0 }; };
+async function readBars(force) {
+  const P = window.SC_PROVIDER; const list = names(); if (!P || !list.length || S.busyB || document.hidden) return;
+  S.busyB = true;
+  try {
+    const want = list.filter((t) => force || !S.bars.has(t) || Date.now() - S.bars.get(t).at > BARS_MS);
+    await Promise.all(want.map(async (t) => {
+      try {
+        const payload = await P.marketCandles(t, LENS_TF, { limit: LENS_BARS });
+        const rows = ((payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0).slice(-LENS_BARS);
+        S.bars.set(t, rows.length ? { bars: rows, at: Date.now() } : { absence: "no daily bars", at: Date.now() });
+      } catch (e) { S.bars.set(t, { absence: String((e && e.message) || "not served").slice(0, 40).toLowerCase(), at: Date.now() }); }
+      const d = el("set").querySelector('.lens[data-t="' + t + '"]'); if (d) drawOne(d);
+    }));
+    S.barsAt = Date.now();
+  } finally { S.busyB = false; }
+}
+let timer = 0;
+async function tick(now) {
+  if (document.hidden && !now) return;
+  if (LIST === "radar" && Date.now() - radarAt > LIST_MS) { await readRadar(); paintChips(); paintSet(); }
+  if (now || Date.now() - S.quotesAt > QUOTE_MS) readQuotes();
+  readBars(false);
+}
+/* the lenses re-fit to their box (the deck resizes the pane) */
+let raf = 0; const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; drawAll(); }); };
+if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
+addEventListener("resize", nudge);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(true); });
+paintChips(); paintSet();
+(async () => { if (LIST === "radar" || !radarAt) { await readRadar(); paintChips(); paintSet(); } tick(true); timer = setInterval(tick, 5000); })();
+</script>
+</body>
+</html>
