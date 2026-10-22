@@ -145,8 +145,12 @@ for (const shell of SHELLS) {
 
   test(`${shell}: no new timer, no new request, no new identity`, () => {
     const intervals = src.match(/setInterval\(/g) || [];
-    assert.equal(intervals.length, 2,
-      "still only the feed pass and the player-API poll — the ages added neither");
+    /* Y8 (20 Oct) added the third: the float's one-second reading, which runs only while a video is in the
+       floating window (cleared when it comes back) */
+    assert.equal(intervals.length, 3,
+      "still only the feed pass, the player-API poll and the float's reading — the ages added none");
+    assert.match(src, /FLOAT\.poll = setInterval\(tickFloat, 1000\);/);
+    assert.match(src, /clearInterval\(FLOAT\.poll\);\n\s+FLOAT = null;/, "and the float's ends with the float");
     /* paintAges reads the DOM and the clock. Nothing else. */
     const body = fnFrom(src, "paintAges", { document:{ querySelectorAll:() => [] }, Date,
       videoAgeLabel:() => "" });

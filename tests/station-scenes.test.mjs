@@ -861,8 +861,12 @@ test("video transport stays in the one top bar and returns the full lower row to
     assert.ok(topBar.includes('id="' + id + '"'), id + " stays in the existing top bar");
   assert.doesNotMatch(videoPane, /id="nowbar"|id="nowmeta"|id="nowt"/,
     "no title or second player-control row remains below the native YouTube surface");
-  assert.match(videoPane, /<div id="stage">\s*<div id="video"><\/div>\s*<\/div>/,
+  /* Y8 (20 Oct): the one thing in #video besides the player is the float note - an overlay that takes no height
+     (absolute, inset 0) and is hidden unless the video is in the floating window */
+  assert.match(videoPane, /<div id="stage">\s*<div id="video">(?:<div id="floatNote" hidden>[\s\S]*?<\/span><\/div>)?<\/div>\s*<\/div>/,
     "the player owns all remaining height below the one top bar");
+  assert.match(videoPane, /#floatNote\{ position:absolute; inset:0;[^}]*\}\n#floatNote\[hidden\]\{ display:none; \}/,
+    "the float note overlays the player; it takes none of its height");
   assert.match(videoPane, /id="more" role="menu" hidden[\s\S]*?id="bWatch"[\s\S]*?id="bSubscribe"[\s\S]*?id="bYt"[\s\S]*?id="bPip"[\s\S]*?id="bMenuFull"[\s\S]*?id="bCover"/,
     "Watch Later, Subscribe, YouTube, PiP, expansion, and explicit X cover remain available in one menu");
   assert.match(videoPane, /body\.playing #chips\{ display:none; \}/,

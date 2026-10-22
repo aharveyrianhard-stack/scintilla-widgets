@@ -543,6 +543,29 @@ body.tapes:not(.stack) #tapes{ display:flex; flex-direction:column; gap:1px; pos
 body.tapes.charts-only:not(.stack) #tapes{ left:0; }
 body.tapes.media-theatre:not(.stack) #tapes{ background:var(--bg); }
 body.tapes.media-theatre:not(.stack) #tapes > .tape{ visibility:hidden; }
+/* ── SIMPLE (Y9, 21 Oct 2026) ────────────────────────────────────────────────────────────────
+   Alan, 21 Oct, on the MacBook: "it looks weird on MacBook Pro, the size of YouTube and stuff, and
+   it's like changing. I think we should make it be the YouTube at the bottom and two charts that I
+   change around manually … keep it a lot simpler."
+   SIMPLE is a wall mode, chosen and remembered per machine (WALL · SIMPLE on the dock; on by itself
+   on a screen 1800 px wide or less - the MacBooks - and off on the iMac). X keeps its 24 % column
+   top to bottom. The rest of the wall is two rows: on top, two chart panes (the page's first two
+   slots, c1 and c2; the other slots stay mounted and hidden, like .chart-off) whose symbols are
+   typed into the panes' own symbol boxes and remembered on this machine; below, the YouTube pane
+   across the whole width. The rows split 60/40 (the handle on the seam moves it; remembered). It
+   is Y7's slot with other numbers (floorSimple): the pane keeps its place in the document (its
+   iframe never reloads), lifted out of the column and drawn over the chart area. Nothing here reads
+   the window's width: the column is a share, the split is a share, so a window change only scales
+   it. Rotation never runs in SIMPLE. CHARTS ONLY and a phone keep their own layouts, as before. */
+body.simple.video-slot:not(.stack) #grid > #rowTop{ margin-bottom:calc(var(--simple-video-px, 0px) + 1px + var(--tapes-px, 0px)); }
+body.simple.video-slot.tapes:not(.stack) #tapes{ bottom:calc(var(--simple-video-px, 0px) + 1px); }
+#simpleHandle{ display:none; }
+body.simple.video-slot:not(.stack):not(.media-theatre) #simpleHandle{ display:block; position:absolute; z-index:4; height:9px;
+  background:transparent; cursor:row-resize; touch-action:none; }
+#simpleHandle::after{ content:""; position:absolute; left:0; right:0; top:4px; height:1px; background:var(--line); }
+#simpleHandle:hover::after, #simpleHandle.dragging::after{ top:3px; height:3px; background:var(--crk); }
+#wallMode .btn.on, #wallMode .btn.on:hover{ color:var(--crk); border-color:var(--crk); }
+#dock #wallMode{ gap:2px; }
 /* S15: with the strip at the bottom the timeframe tag is back on the charts' top edge, where it was before S14 */
 .tape{ flex:none; height:22px; display:flex; align-items:stretch; background:var(--panel2); overflow:hidden; }
 .tape .lbl{ flex:none; min-width:104px; display:flex; align-items:center; padding:0 8px; color:var(--crk);
@@ -718,6 +741,14 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
          only the W key worked. It now sits beside HUB, in the one section the dock always shows. -->
     <button type="button" class="btn" id="chartsOnlyBtn" aria-pressed="false"
       title="hide the video and X panes and give the whole wall to the charts - the W key does the same; remembered in this browser">charts only</button>
+    <!-- Y9 (21 Oct): WALL · SIMPLE, the wall mode, remembered on this machine. SIMPLE: two charts set by hand on top,
+         YouTube across the bottom, X in its column; nothing moves by itself. On by itself on the MacBooks. -->
+    <span class="control-group" id="wallMode" role="group" aria-label="Wall mode">
+      <button type="button" class="btn" id="wallBtn" aria-pressed="false"
+        title="WALL: the chart grid, the YouTube pane in a block of it, rotation and pages as before; remembered on this machine">wall</button>
+      <button type="button" class="btn" id="simpleBtn" aria-pressed="false"
+        title="SIMPLE: two charts you set by hand on top, YouTube across the bottom, X in its column; nothing moves by itself; remembered on this machine">simple</button>
+    </span>
   </span>
   <span class="dsec" data-sec="scenes" role="group" aria-label="Scenes and screens">
     <span class="control-group scene-controls">
@@ -1262,6 +1293,35 @@ const CHARTS = Array.from({ length:SLOT_MAX }, (_, i) => {
   const incoming = URL_STATEFUL ? QS.get("c" + (i + 1)) : "";
   return initialWorkspaceChart(incoming, storedState("chart." + (i + 1)), i, DIRECT_CUSTOM_WORKSPACE);
 });
+/* ── SIMPLE (Y9, 21 Oct 2026) — the switch, its default, its memory ──
+   station.simple is "1" or "0" once chosen on this machine; before that the machine decides: a screen
+   1800 px wide or less (the MacBook Pros: 1728, 1512, 1440) is SIMPLE, a wider one (the iMac, 2560) is
+   the WALL. The SCREEN, not the window: the iMac's Station window measured 1062 px wide (Y7), which
+   the brief's "window ≤ 1800" would have read as a MacBook. ?simple=1|0 on the URL wins for that load
+   and is not remembered (the harness and the pictures use it). The two symbols typed in SIMPLE are
+   remembered under station.simple.chart.1/2 and put back in slots 1 and 2 whenever SIMPLE comes on,
+   including at boot (a URL that names the slot, c1=, c2=, wins, as everywhere). */
+const SIMPLE_KEY = "station.simple", SIMPLE_SPLIT_KEY = "station.simple.split", SIMPLE_CHART_KEY = "station.simple.chart.";
+const SIMPLE_MACHINE_PX = 1800, SIMPLE_CHARTS = 2;
+const SIMPLE_SPLIT_DEFAULT = 0.6, SIMPLE_SPLIT_MIN = 0.3, SIMPLE_SPLIT_MAX = 0.8;
+function simpleDefault(screenWidth) { const w = Number(screenWidth); return Number.isFinite(w) && w > 0 && w <= SIMPLE_MACHINE_PX; }
+function simpleChoice(stored, urlValue, screenWidth) {
+  if (urlValue === "1" || urlValue === "0") return urlValue === "1";
+  if (stored === "1" || stored === "0") return stored === "1";
+  return simpleDefault(screenWidth);
+}
+function simpleOn() {
+  let sw = 0; try { sw = (window.screen && screen.width) || 0; } catch (_) {}
+  return simpleChoice(remembered(SIMPLE_KEY), QS.get("simple"), sw);
+}
+function simpleSplitOf(stored) {
+  const v = parseFloat(stored);
+  return Number.isFinite(v) ? Math.min(SIMPLE_SPLIT_MAX, Math.max(SIMPLE_SPLIT_MIN, v)) : SIMPLE_SPLIT_DEFAULT;
+}
+function simpleSplit() { return simpleSplitOf(remembered(SIMPLE_SPLIT_KEY)); }
+const simpleSymbols = () => Array.from({ length:SIMPLE_CHARTS }, (_, i) => CLEAN(remembered(SIMPLE_CHART_KEY + (i + 1))));
+let SIMPLE_NOW = null;   /* { on, slot } after each fit - what is on the wall */
+if (simpleOn()) simpleSymbols().forEach((t, i) => { if (t && !(URL_STATEFUL && QS.has("c" + (i + 1)))) CHARTS[i] = t; });
 /* One range for the loaded Station run. It never belongs to a scene preset:
    URL wins at launch; otherwise every fresh reload starts at 3h. */
 let RANGE = RANGES.includes(QS.get("range")) ? QS.get("range") : "3h";
@@ -1691,8 +1751,30 @@ function floorSlot(grid, areaWidth, areaHeight, chromePx, count) {
    solo, CHARTS ONLY, or a grid with no room for a block. SLOT_NOW is the one on the wall (fitVideoPane),
    kept so a page change can measure the next page's boxes with the next page's slot. */
 let SLOT_NOW = null;
+/* ── SIMPLE's numbers (Y9), pure — the same shape as floorSlot so fitVideoPane treats it as the slot ──
+   The chart area (the 76 % right of the column, full height) splits into the charts' row above and the
+   YouTube pane below, one seam between them: the pane's height is (1 - split) of the height less the seam,
+   the whole width; the charts get what is left, less the tapes (which sit at the bottom of the chart row,
+   above the pane). At most two charts, side by side, one row: c1 and c2 in reading order; the page's other
+   slots are hidden (slot-off, still mounted). The picture inside the pane is 16:9 under the shell's bar. */
+function floorSimple(areaWidth, areaHeight, tapePx, split, count, chromePx) {
+  const w = Math.max(0, Number(areaWidth) || 0), h = Math.max(0, Number(areaHeight) || 0), tapes = Math.max(0, Number(tapePx) || 0);
+  const s = simpleSplitOf(split);
+  const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
+  const videoH = Math.max(0, Math.round((h - FLOOR_SEAM_PX) * (1 - s)));
+  const chartsH = Math.max(0, h - videoH - FLOOR_SEAM_PX - tapes);
+  const n = Math.max(0, Math.round(Number(count) || 0)), charts = Math.min(n, SIMPLE_CHARTS);
+  const cols = Math.max(1, charts), rows = 1;
+  const box = { left:0, top:h - videoH, w, h:videoH };
+  const pw = Math.max(0, Math.min(w, Math.floor((videoH - chrome) * 16 / 9)));
+  return { simple:true, split:s, cols, rows, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
+    cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH };
+}
 function slotFor(count, plan, tapePx, chromePx) {
-  if (!plan || SOLO || document.body.classList.contains("charts-only")) return null;
+  if (!plan || document.body.classList.contains("charts-only")) return null;
+  /* Y9: SIMPLE is its own slot, and a chart solo keeps it (the solo chart takes the charts' row; the pane stays put) */
+  if (simpleOn()) return floorSimple(plan.charts.w, plan.charts.h, tapePx, simpleSplit(), count, chromePx);
+  if (SOLO) return null;
   const area = { w:plan.charts.w, h:plan.charts.h - (Number(tapePx) || 0) };
   const slot = floorSlot(floorGrid(count, area.w, area.h), area.w, area.h, chromePx, count);
   return slot.charts ? slot : null;
@@ -1706,8 +1788,10 @@ function placeChartsAroundSlot(slot, count) {
     const i = +String(o.def.key).slice(1) - 1;
     const cell = slot && i >= 0 && i < n ? slot.cells[i] : null;
     o.node.classList.toggle("slot-off", !!slot && i >= 0 && i < n && !cell);
-    o.node.style.gridColumn = cell ? String(cell.col) : "";
-    o.node.style.gridRow = cell ? String(cell.row) : "";
+    /* Y9: in SIMPLE a chart solo (⤢) takes the whole charts' row; an inline cell would pin it to half */
+    const solo = !!slot && slot.simple && SOLO === o.def.key;
+    o.node.style.gridColumn = solo ? "1 / -1" : cell ? String(cell.col) : "";
+    o.node.style.gridRow = solo ? "1 / -1" : cell ? String(cell.row) : "";
   }
 }
 /* ── THE TWO TAPES ON THE CHART AREA (S14, 5 Oct) — the numbers and the lists, pure ──
@@ -2012,7 +2096,7 @@ function tapesTick() {
 /* a tapped name opens through commitTicker - the same door a symbol typed into a slot goes through */
 function openTapeTicker(ticker) {
   const t = CLEAN(ticker); if (!t) return false;
-  const slot = tapeSlotFor(CHARTS.map(CLEAN), CHART_COUNT, t, TAPES.lastSlot);
+  const slot = tapeSlotFor(CHARTS.map(CLEAN), simpleOn() ? Math.min(CHART_COUNT, SIMPLE_CHARTS) : CHART_COUNT, t, TAPES.lastSlot);
   if (!slot.already) {
     if (!commitTicker(slot.index, t, el("t" + (slot.index + 1)))) return false;
     TAPES.lastSlot = slot.index;
@@ -2041,6 +2125,7 @@ function wireTapes(grid) {
   const box = document.createElement("div");
   box.id = "tapes"; box.setAttribute("role", "group"); box.setAttribute("aria-label", "Liked and favorites tapes");
   grid.appendChild(box);
+  wireSimpleHandle(grid);   /* Y9: SIMPLE's handle on the seam between the charts and the YouTube pane */
   box.addEventListener("click", (event) => {
     const cell = event.target.closest(".cell"); if (cell) openTapeTicker(cell.dataset.t);
   });
@@ -2065,17 +2150,27 @@ function fitVideoPane() {
   const tapePx = plan ? tapesHeight(tapesOn()) : 0;
   document.body.classList.toggle("tapes", tapePx > 0);
   if (grid) grid.style.setProperty("--tapes-px", tapePx + "px");
+  /* Y7: the video's slot in the chart grid - for the page's count, in the area the tapes leave;
+     a chart solo and CHARTS ONLY have their own layouts, so the slot stands down for them.
+     Y9: in SIMPLE the slot is the band across the bottom, and the charts' grid is two by one. */
+  const slot = slotFor(CHART_COUNT, plan, tapePx, onWall?.chromePx);
+  const simple = !!slot && !!slot.simple;
   if (top) for (const n of FLOOR_COUNTS) {
-    const g = !plan ? null : tapePx ? floorGrid(n, plan.charts.w, plan.charts.h - tapePx) : plan.grids[n];
+    const g = simple ? { cols:slot.cols, rows:slot.rows } : !plan ? null : tapePx ? floorGrid(n, plan.charts.w, plan.charts.h - tapePx) : plan.grids[n];
     top.style.setProperty("--fp-c" + n, g ? String(g.cols) : "");
     top.style.setProperty("--fp-r" + n, g ? String(g.rows) : "");
   }
-  /* Y7: the video's slot in the chart grid - for the page's count, in the area the tapes leave;
-     a chart solo and CHARTS ONLY have their own layouts, so the slot stands down for them */
-  const slot = slotFor(CHART_COUNT, plan, tapePx, onWall?.chromePx);
   SLOT_NOW = { slot, plan, tapePx, chromePx:onWall?.chromePx };
+  SIMPLE_NOW = { on:simpleOn(), slot:simple ? slot : null };
+  document.body.classList.toggle("simple", simpleOn());
   document.body.classList.toggle("video-slot", !!slot);
+  if (grid) grid.style.setProperty("--simple-video-px", simple ? slot.box.h + "px" : "0px");
   placeChartsAroundSlot(slot);
+  const handle = el("simpleHandle");
+  if (handle && simple) {
+    handle.style.left = (plan.col + FLOOR_SEAM_PX) + "px"; handle.style.width = plan.charts.w + "px";
+    handle.style.top = (slot.box.top - FLOOR_SEAM_PX - 4) + "px";
+  }
   const theatre = !!plan && MEDIA_STAGE > 0;
   const theatreChanged = document.body.classList.contains("media-theatre") !== theatre;
   document.body.classList.toggle("media-theatre", theatre);
@@ -3063,6 +3158,61 @@ function setChartsOnly(on) {
   try { dispatchEvent(new Event("resize")); } catch (_) {}
 }
 function toggleChartsOnly() { setChartsOnly(!chartsOnlyOn()); }
+/* ---- WALL · SIMPLE (Y9, 21 Oct 2026): one pair of buttons, remembered per machine ---- */
+function paintSimple() {
+  const on = simpleOn();
+  document.body.classList.toggle("simple", on);
+  const w = el("wallBtn"), s = el("simpleBtn");
+  if (w) { w.classList.toggle("on", !on); w.setAttribute("aria-pressed", on ? "false" : "true"); }
+  if (s) { s.classList.toggle("on", on); s.setAttribute("aria-pressed", on ? "true" : "false"); }
+}
+/* SIMPLE's two symbols go back into slots 1 and 2 (the remembered ones; a slot with no memory keeps the symbol it has) */
+function placeSimpleSymbols() {
+  simpleSymbols().forEach((t, i) => {
+    if (!t || CHARTS[i] === t) return;
+    CHARTS[i] = t; const n = el("t" + (i + 1)); if (n) n.value = t;
+    retargetSlot(i, t);
+  });
+  refreshDeckQuotes(); rememberEditableState(); paintChips();
+}
+function setSimple(on) {
+  try { localStorage.setItem(SIMPLE_KEY, on ? "1" : "0"); } catch (_) {}
+  paintSimple();
+  if (on) placeSimpleSymbols();
+  scheduleRotation();      /* SIMPLE: none; WALL: the remembered setting */
+  relayout();
+  try { dispatchEvent(new Event("resize")); } catch (_) {}   /* the chart shells size themselves to their pane */
+}
+function wireSimple() {
+  const w = el("wallBtn"), s = el("simpleBtn");
+  if (w && !w.__wired) { w.__wired = true; w.addEventListener("click", () => setSimple(false)); }
+  if (s && !s.__wired) { s.__wired = true; s.addEventListener("click", () => setSimple(true)); }
+  paintSimple();
+}
+/* the handle on the seam between the charts and the YouTube pane: drag it, the split is remembered on this machine */
+function wireSimpleHandle(grid) {
+  const h = document.createElement("div");
+  h.id = "simpleHandle"; h.setAttribute("role", "separator"); h.setAttribute("aria-orientation", "horizontal");
+  h.title = "drag: more chart or more YouTube - remembered on this machine";
+  grid.appendChild(h);
+  let drag = null;
+  h.addEventListener("pointerdown", (e) => {
+    const plan = SLOT_NOW && SLOT_NOW.plan; if (!plan || !simpleOn()) return;
+    e.preventDefault(); h.setPointerCapture(e.pointerId); h.classList.add("dragging");
+    drag = { id:e.pointerId, top:grid.getBoundingClientRect().top, h:plan.charts.h, raf:0, split:simpleSplit() };
+  });
+  h.addEventListener("pointermove", (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag.split = simpleSplitOf((e.clientY - drag.top) / Math.max(1, drag.h));
+    if (!drag.raf) drag.raf = requestAnimationFrame(() => { drag.raf = 0; remember(SIMPLE_SPLIT_KEY, drag.split.toFixed(3)); fitVideoPane(); });
+  });
+  const done = (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    remember(SIMPLE_SPLIT_KEY, drag.split.toFixed(3)); drag = null; h.classList.remove("dragging"); relayout();
+    try { dispatchEvent(new Event("resize")); } catch (_) {}   /* the chart shells size themselves to their pane */
+  };
+  h.addEventListener("pointerup", done); h.addEventListener("pointercancel", done);
+}
 
 /* ---- auto-hide: the strip tucks to its lip and comes back on approach, tap or focus ---- */
 function dockAutoHideOn() {
@@ -3826,10 +3976,11 @@ function moveNamedSceneToCustom() {
 function paintRotateControls() {
   const timing = el("rotateEvery"), toggle = el("rotateToggle");
   timing.value = String(ROTATE_AT);
-  const running = !ROTATE_PAUSED;
+  const running = !ROTATE_PAUSED && !simpleOn();
   toggle.textContent = running ? "pause" : "start";
   toggle.classList.toggle("on", running);
-  toggle.title = running ? "pause curated scene rotation" : "start curated scene rotation";
+  toggle.disabled = simpleOn();
+  toggle.title = simpleOn() ? "no rotation in SIMPLE - switch to WALL for the rotation" : running ? "pause curated scene rotation" : "start curated scene rotation";
   toggle.setAttribute("aria-label", running ? "Pause auto rotate" : "Start auto rotate");
 }
 let ROT_POS = -1;   /* where the last rotation step stood in the lap; -1 = not stepped yet */
@@ -3839,7 +3990,7 @@ function clearRotateTimer() {
 }
 function scheduleRotation() {
   clearRotateTimer(); paintRotateControls();
-  if (ROTATE_PAUSED) return;
+  if (ROTATE_PAUSED || simpleOn()) return;   /* Y9: SIMPLE never rotates; the code stays for the WALL */
   rotateTimer = setTimeout(async () => {
     if (ROTATE_PAUSED || ROTATE_BUSY) return scheduleRotation();
     ROTATE_BUSY = true;
@@ -3990,8 +4141,19 @@ addEventListener("keydown", (event) => {
   else if (event.key === "ArrowRight") { event.preventDefault(); stepScreen(1); }
   /* W for the wall: the same key hides the video and X panes and brings them back. */
   else if (event.key === "w" || event.key === "W") { event.preventDefault(); toggleChartsOnly(); }
+  /* P for picture-in-picture (Y8, 20 Oct): the video on the wall floats in an always-on-top window, P again brings
+     it back. The pane does it - it holds the video and the second it is at; this hands it the key, inside the key's
+     own gesture (the browser opens the window only from this, the top level - the pane opens it through window.top). */
+  else if ((event.key === "p" || event.key === "P") && !event.repeat) { if (floatVideoPane()) event.preventDefault(); }
 });
+function floatVideoPane() {
+  const pane = PANES.find((o) => o.def.kind === "video" && o.def.key === VIDEO_FEED);
+  const win = pane && pane.frame && pane.frame.contentWindow;
+  if (!win) return false;
+  try { win.postMessage({ type:"SCINTILLA_VIDEO_PIP_TOGGLE" }, location.origin); return true; } catch (_) { return false; }
+}
 wireChartsOnly();
+wireSimple();
 async function stepScreen(direction) {
   if (SCREEN_BUSY) return;
   SCREEN_BUSY = true; paintScreenBusy();
@@ -4741,16 +4903,9 @@ function commitTicker(index, raw, input) {
   const original = aliasKey(raw);
   CHARTS[index] = ticker; n.value = ticker;
   el("symbolNote").textContent = original && original !== ticker ? original + " → " + ticker : "Hub · " + ticker;
-  const o = PANES.find((p) => p.def.key === "c" + (index + 1));
-  if (o) {
-    o.def.src = paneChartSrc(ticker, index); o.def.open = o.def.src.replace("bare=1&", "");
-    o.def.short = ticker; o.def.title = ticker;
-    const t = o.node.querySelector(".ph .t"); if (t) t.textContent = ticker;
-    const card = o.body.querySelector(".card"); if (card) card.remove();
-    if (o.frame) {
-      syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE });
-    } else if (index < CHART_COUNT) mount(o, { explicit:true });
-  }
+  retargetSlot(index, ticker);
+  /* Y9: the two symbols set by hand in SIMPLE are this machine's, and come back with SIMPLE */
+  if (simpleOn() && index < SIMPLE_CHARTS) remember(SIMPLE_CHART_KEY + (index + 1), ticker);
   /* A lower slot that just gained a symbol now carries the column's time
      axis, so the chart above it hands its own back. */
   const above = index - CHART_COUNT / 2;
@@ -4761,6 +4916,18 @@ function commitTicker(index, raw, input) {
     if (upper.frame) syncChartFrame(upper.frame, upper.def.src, { sc:"chart", ticker:CHARTS[above], range:RANGE, bubble:srcBubble(upper.def.src) });
   }
   refreshDeckQuotes(); rememberEditableState(); closeSymbolGuide(); shareScratchSoon(); paintChips(); return true;
+}
+/* the slot's pane follows its symbol: a mounted frame is re-pointed in place, an empty one mounted */
+function retargetSlot(index, ticker) {
+  const o = PANES.find((p) => p.def.key === "c" + (index + 1));
+  if (!o) return;
+  o.def.src = paneChartSrc(ticker, index); o.def.open = o.def.src.replace("bare=1&", "");
+  o.def.short = ticker; o.def.title = ticker;
+  const t = o.node.querySelector(".ph .t"); if (t) t.textContent = ticker;
+  const card = o.body.querySelector(".card"); if (card) card.remove();
+  if (o.frame) {
+    syncChartFrame(o.frame, o.def.src, { sc:"chart", ticker, range:RANGE });
+  } else if (index < CHART_COUNT) mount(o, { explicit:true });
 }
 /* CLEARING A FIELD EMPTIES THE SLOT (SCRATCH only). Alan, 24 Sep: "Clearing the field
    empties the slot." Everywhere else an emptied box still restores the symbol that was

@@ -100,11 +100,22 @@ body.bar-scroll #chips{ -webkit-mask-image:linear-gradient(to right, #000 calc(1
 body.searching #q{ display:block; }
 #q:focus{ border-color:var(--crk); }
 #bFull{ margin-left:0; }
-/* S5 (1 Oct): the float button, on the bar while a video plays, and the line that says which path it took */
+/* S5 (1 Oct): the float button, on the bar while a video plays, and the line that says which path it took.
+   Y8 (20 Oct): only where this browser can float it (Document Picture-in-Picture); anywhere else, no button at all */
 #bPipBar{ display:none; }
-body.playing #bPipBar{ display:inline-flex; }
+body.playing.can-float #bPipBar{ display:inline-flex; }
+body:not(.can-float) #bPip{ display:none !important; }
 #pipNote{ display:none; color:var(--ink3); font-size:11px; letter-spacing:.02em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:260px; }
 #pipNote:not(:empty){ display:inline; }
+/* Y8: while the video floats, the pane says where it is - and BRING IT BACK is one tap (or P, or closing the window) */
+#floatNote{ position:absolute; inset:0; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:8px; padding:12px; background:var(--bg); color:var(--ink3); font-size:11px; letter-spacing:.04em; text-align:center; }
+#floatNote[hidden]{ display:none; }
+#floatNote .line{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:center; }
+#floatNote .t{ max-width:92%; color:var(--dim); font-size:9.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#bBringBack{ color:var(--crk); border-color:var(--hair); }
+#floatHold{ color:var(--vol); font-size:9.5px; }
+#floatHold[hidden]{ display:none; }
 /* S13: the profile select lives behind the ⋯, so the label on the bar is what names the channel. */
 /* An awaiting channel explains itself in sentence case; the shouting caps are for one-line states. */
 .msg.note{ text-transform:none; letter-spacing:.04em; font-size:9.5px; line-height:1.6; color:var(--ink3);
@@ -206,6 +217,9 @@ body.playing #transport{ display:flex; }
 #bMenu{ width:32px; padding-left:0; padding-right:0; text-align:center; }
 #bContinue{ display:none; color:var(--vol); border-color:rgba(255,138,0,.55); }
 body[data-autoplay-blocked="true"] #bContinue{ display:inline-block; }
+/* Y9 (21 Oct 2026): the browser can start an embed with its sound off; said on the bar, and one tap turns it on */
+#bSound{ display:none; color:var(--vol); border-color:rgba(255,138,0,.55); }
+body.playing[data-muted="true"] #bSound{ display:inline-block; }
 #more{ position:fixed; z-index:5; right:6px; top:calc(32px + env(safe-area-inset-top)); width:min(300px,calc(100% - 12px));
   padding:5px; border:1px solid var(--hair); background:rgba(10,10,15,.98); box-shadow:0 8px 24px rgba(0,0,0,.5);
   display:flex; flex-direction:column; gap:4px; }
@@ -276,11 +290,12 @@ html[data-view="compact"] #bRefresh, html[data-view="compact"] #bPipBar, html[da
     <button class="btn transport" id="bPrev" type="button" aria-label="previous video" title="previous video"><svg viewBox="0 0 16 16" aria-hidden="true"><path class="f" d="M13 3.2v9.6L5.8 8z"/><path d="M3.4 3.4v9.2"/></svg></button>
     <span id="nowq" aria-live="polite"></span>
     <button class="btn" id="bContinue" type="button">tap to continue</button>
+    <button class="btn" id="bSound" type="button" title="the browser started this video with its sound off - tap for sound">muted · tap for sound</button>
   </span>
   <span id="pipNote" aria-live="polite"></span>
   <span id="barGap"></span>
   <button class="btn" id="bPipBar" type="button" aria-label="float this video in a picture-in-picture window"
-    title="float this video in its own window, outside the Station, at the same second"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11z"/><path class="f" d="M8 8h4.2v3.2H8z"/></svg></button>
+    title="float this video in an always-on-top window (P)"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 3.5h11v9h-11z"/><path class="f" d="M8 8h4.2v3.2H8z"/></svg></button>
   <span class="btn" id="bFull" title="expand this pane">⛶</span>
   <button class="btn" id="bMenu" type="button" aria-label="more: the channel, the filters, other video actions" title="more: the channel, the filters, other video actions" aria-controls="more" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path class="f" d="M2.4 6.8h2.4v2.4H2.4zM6.8 6.8h2.4v2.4H6.8zM11.2 6.8h2.4v2.4h-2.4z"/></svg></button>
 </div>
@@ -291,13 +306,13 @@ html[data-view="compact"] #bRefresh, html[data-view="compact"] #bPipBar, html[da
   <button class="btn pl" id="bWatch" type="button" role="menuitem"></button>
   <button class="btn pl" id="bSubscribe" type="button" role="menuitem" style="display:none"></button>
   <a class="btn out pl" id="bYt" role="menuitem" target="_blank" rel="noopener">open in youtube ↗</a>
-  <button class="btn pl" id="bPip" type="button" role="menuitem" style="display:none" title="float this video in its own always-on-top window">picture in picture</button>
+  <button class="btn pl" id="bPip" type="button" role="menuitem" title="float this video in its own always-on-top window (P)">picture in picture</button>
   <button class="btn" id="bMenuFull" type="button" role="menuitem">expand pane</button>
   <button class="btn pl" id="bCover" type="button" role="menuitem" style="display:none" title="intentionally expand this video across X">cover X</button>
 </div>
 <div id="grid"><div class="msg">loading…</div></div>
 <div id="stage">
-  <div id="video"></div>
+  <div id="video"><div id="floatNote" hidden><span class="line">playing in the floating window · <button class="btn" id="bBringBack" type="button" title="bring it back into the Station (P)">bring it back</button></span><span class="t" id="floatTitle"></span><span id="floatHold" hidden>the window is waiting for ▶ · the browser held its autoplay</span></div></div>
 </div>
 <script>
 "use strict";
@@ -525,6 +540,9 @@ const VIDEO_POSITION_SAVE_MS = 10000;
 const VIDEO_POSITION_NEAR_END_SECONDS = 12;
 const VIDEO_POSITION_INITIAL_WAIT_MS = 1500;
 let PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
+/* Y8: the floating window while the video is in it - { win, frame, id, at, ended, poll } - see PICTURE-IN-PICTURE */
+let FLOAT = null;
+const FLOAT_KEY = "station.float";   /* sessionStorage: the width last given to the window, for this session */
 let VIDEO_POSITION_REQUEST = null, VIDEO_POSITIONS_READY = false;
 const VIDEO_POSITIONS = new Map();
 
@@ -592,6 +610,8 @@ function clearPlayerPositionPoll() {
   PLAYER_POSITION_POLL = 0;
 }
 function captureActiveVideoPosition(player = YT_PLAYER) {
+  /* Y8: while the video floats, where it is is the window's second - this pane's player sits paused */
+  if (FLOAT && CUR && FLOAT.id === CUR.video_id) { PLAYER_POSITION.time = floatSecond() || PLAYER_POSITION.time; return; }
   if (!player || !YT_PLAYER_READY || !CUR) return;
   try {
     PLAYER_POSITION.time = Number(player.getCurrentTime()) || PLAYER_POSITION.time;
@@ -604,6 +624,7 @@ function startPlayerPositionPoll(token) {
     if (token !== PLAYER_TOKEN || !CUR || !YT_PLAYER_READY) return;
     captureActiveVideoPosition();
     saveActiveVideoPosition(false);
+    rememberSound();
     PLAYER_POSITION_POLL = setTimeout(tick, 5000);
   };
   tick();
@@ -968,7 +989,7 @@ function handlePlayerStateChange(event) {
   if (!playerEventMatchesRequest(event, request)) return;
   PLAYER_ACCEPTED_TOKEN = request.token; clearPlayerFallback();
   captureActiveVideoPosition(event.target);
-  if (Number(event.data) === 1) setAutoplayBlockedState(false, request);
+  if (Number(event.data) === 1) { setAutoplayBlockedState(false, request); soundOnPlaying(); }
   if (Number(event.data) !== 0 || PLAYER_ENDED_TOKEN === request.token) return;
   PLAYER_ENDED_TOKEN = request.token;
   clearPlayerPositionPoll();
@@ -1009,6 +1030,7 @@ function ensureOfficialYouTubePlayer() {
             const frame = event.target.getIframe();
             frame.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
           } catch (_) {}
+          try { soundOnPlayerReady(event.target); } catch (_) {}
           resolve(event.target);
         },
         onStateChange:handlePlayerStateChange,
@@ -1066,7 +1088,7 @@ function armPlayerFallback(token, skipped) {
   }, 10000);
 }
 async function play(v, auto, queued = false, skipped = new Set(), direction = 1, originVideo = null,
-                    userGesture = false) {
+                    userGesture = false, startAt = null) {
   if (!v) return;
   captureActiveVideoPosition();
   saveActiveVideoPosition(true);
@@ -1077,7 +1099,8 @@ async function play(v, auto, queued = false, skipped = new Set(), direction = 1,
      same user gesture.  Use the shared resume value already in page memory;
      never put a fresh network wait between that click and loadVideoById.
      Background/URL/queue playback may still take the bounded shared read. */
-  const resumeAt = userGesture ? resumePositionFor(v.video_id) : await resumePositionBeforePlay(v.video_id);
+  const resumeAt = startAt != null ? Math.max(0, Math.floor(Number(startAt) || 0))
+    : userGesture ? resumePositionFor(v.video_id) : await resumePositionBeforePlay(v.video_id);
   if (token !== PLAYER_TOKEN) return;
   CUR = v;
   PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
@@ -1087,10 +1110,11 @@ async function play(v, auto, queued = false, skipped = new Set(), direction = 1,
   refreshPlayerControls(v);
   el("bYt").style.display = ""; el("bYt").href = "https://www.youtube.com/watch?v=" + encodeURIComponent(v.video_id);
   el("bYt").textContent = IOS ? "open in youtube app ↗" : "open in youtube ↗";
-  el("bPip").style.display = "";   /* S5: in a deck pane too - the deck opens the window */
   notePip("");
   refreshSubscribeButton(v);
   syncUrl();
+  /* Y8: while the video floats, a new choice (a card, NEXT, PREVIOUS, the queue) goes to the window */
+  if (FLOAT) { loadIntoFloat(v, resumeAt); PLAYER_POSITION.time = resumeAt; paintFloat(); return null; }
   if (queued) armPlayerFallback(token, skipped);
   if (YT_PLAYER && YT_PLAYER_READY) {
     applyPlayerRequest(YT_PLAYER, YT_PLAYER_REQUEST); return YT_PLAYER;
@@ -1151,6 +1175,60 @@ el("bWatchBar").addEventListener("click", async () => {
 el("bContinue").addEventListener("click", () => {
   try { if (YT_PLAYER_READY) YT_PLAYER.playVideo(); } catch (_) {}
 });
+/* ---- THE SOUND (Y9, 21 Oct 2026) ----
+   Alan, on the MacBook's Station: "the audio is not working." Chromium lets an embed start by itself only with its
+   sound off until the document has had a user gesture; YouTube's player also keeps the volume and the mute it was
+   last left with. Measured headless on a fresh profile (deliverables/20261021/y9/measure/*-audio.json): see RETURN.
+   The rule here, in words: the FIRST tap or key anywhere on this pane turns the sound on if the browser had it off,
+   at the volume this session last had (sessionStorage station.sound), else at 100. From then on the player's volume
+   and mute are the user's and are remembered every few seconds and on the way out; a video that starts while the
+   player is still muted (before any tap) says so on the bar - MUTED · TAP FOR SOUND - and that button is the tap.
+   A mute the user set themselves this session (remembered after the first tap) is kept, never undone. */
+const SOUND_KEY = "station.sound";
+let SOUND_GESTURE = false, SOUND_DONE = false;
+function rememberedSound() {
+  try { const o = JSON.parse(sessionStorage.getItem(SOUND_KEY) || "null");
+    if (o && Number.isFinite(+o.volume)) return { volume:Math.max(0, Math.min(100, Math.round(+o.volume))), muted:!!o.muted }; } catch (_) {}
+  return null;
+}
+function paintSound() {
+  let muted = false;
+  try { muted = !!(YT_PLAYER_READY && CUR && YT_PLAYER.isMuted()); } catch (_) {}
+  document.body.dataset.muted = muted ? "true" : "false";
+}
+/* the user's own setting, kept per session - written only once the first tap has had its say */
+function rememberSound() {
+  if (!YT_PLAYER_READY || !SOUND_DONE) { paintSound(); return; }
+  try { const volume = YT_PLAYER.getVolume(), muted = YT_PLAYER.isMuted();
+    if (Number.isFinite(volume)) sessionStorage.setItem(SOUND_KEY, JSON.stringify({ volume:Math.round(volume), muted:!!muted })); } catch (_) {}
+  paintSound();
+}
+/* the first tap: sound on, at the remembered volume; a remembered mute of the user's own stands */
+function soundOnFirstTap() {
+  if (SOUND_DONE || !SOUND_GESTURE || !YT_PLAYER_READY) return;
+  try {
+    const want = rememberedSound();
+    if (want && want.muted) { SOUND_DONE = true; paintSound(); return; }
+    const vol = want && want.volume > 0 ? want.volume : (YT_PLAYER.getVolume() > 0 ? YT_PLAYER.getVolume() : 100);
+    if (YT_PLAYER.isMuted()) YT_PLAYER.unMute();
+    if (YT_PLAYER.getVolume() !== vol) YT_PLAYER.setVolume(vol);
+    SOUND_DONE = true;
+  } catch (_) {}
+  paintSound(); setTimeout(paintSound, 1200);
+}
+function soundOnPlayerReady(player) {
+  const want = rememberedSound();
+  if (want && want.volume > 0) try { player.setVolume(want.volume); } catch (_) {}
+  soundOnFirstTap(); paintSound();
+}
+function soundOnPlaying() { soundOnFirstTap(); paintSound(); setTimeout(paintSound, 1500); }
+document.addEventListener("pointerdown", () => { SOUND_GESTURE = true; soundOnFirstTap(); }, { capture:true });
+document.addEventListener("keydown", () => { SOUND_GESTURE = true; soundOnFirstTap(); }, { capture:true });
+el("bSound").addEventListener("click", () => {
+  SOUND_GESTURE = true; SOUND_DONE = false;
+  try { sessionStorage.removeItem(SOUND_KEY); } catch (_) {}
+  soundOnFirstTap();
+});
 function setMenuOpen(open) {
   const menu = el("more"), button = el("bMenu");
   menu.hidden = !open; button.setAttribute("aria-expanded", open ? "true" : "false");
@@ -1170,30 +1248,59 @@ document.addEventListener("keydown", (event) => {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") { captureActiveVideoPosition(); saveActiveVideoPosition(true); }
 });
-window.addEventListener("pagehide", () => { captureActiveVideoPosition(); saveActiveVideoPosition(true); });
+window.addEventListener("pagehide", () => { captureActiveVideoPosition(); saveActiveVideoPosition(true); rememberSound(); });
 
-/* ---- PICTURE-IN-PICTURE ----
-   Document PiP hosts real DOM, so it can carry the YouTube player into a floating always-on-top window
-   outside the browser tab. It needs a top-level context: top-level, this pane opens it itself; inside the
-   Station (a deck pane) it hands the video and the second it is at to the deck, which opens it - the click
-   in this pane counts as the click the browser asks for. Where a browser has no Document PiP, a small
-   separate window plays it instead (not always on top). Either way the pane says which path was taken
-   and pauses, so the two do not play over each other.
-   S5 (1 Oct), Alan: "a little picture in picture player that actually goes off the station PWA… they're
-   discussing charts." His extension only gave a black frame: a cross-origin player cannot be lifted by
-   a video-element PiP; Document PiP moves the whole player instead. */
-function canPip() {
-  try { return !!window.documentPictureInPicture && window.top === window.self; } catch (e) { return false; }
+/* ---- PICTURE-IN-PICTURE: THE FLOAT, AND THE WAY BACK ----
+   S5 (1 Oct), Alan: "a little picture in picture player that actually goes off the station PWA… they're discussing
+   charts." His extension only gave a black frame: a cross-origin player cannot be lifted by a video-element PiP;
+   Document Picture-in-Picture hosts real DOM in a floating, always-on-top window outside the browser tab.
+   Y8 (20 Oct), Alan: "Is there a way that we can have the YouTube that I have playing on the station have a trigger
+   to go picture in picture type style?" S5 opened a second player in the window and left this one paused where it
+   was; closing the window brought nothing back. Now it is one video, in one of two places:
+     · the float button on the bar (beside ⛶), "picture in picture" in the ⋯, or P - on this pane or on the deck -
+       floats it at the second it is at: 16:9, 480 wide the first time, then the width last given to the window
+       (this session); the pane says "playing in the floating window · bring it back";
+     · P again, BRING IT BACK, or simply closing the window (its ✕, or its back-to-tab) puts it back in this pane at
+       the second the float reached;
+     · choosing another video while it floats sends that one to the window, and the queue carries on there.
+   The window belongs to the top level (the browser opens it nowhere else): this pane opens it through window.top,
+   the Station's own window. A click or a key in this pane is the gesture the browser asks for, and a P on the deck
+   reaches here by message inside that gesture (measured 20 Oct, Chrome 155 and Brave 154, headless).
+   WHY THE PLAYER ITSELF IS NOT MOVED INTO THE WINDOW. Measured the same day: an iframe moved into the PiP window -
+   appended, or adopted first with adoptNode - loads again as a new page, and again on the way back; the one move
+   that keeps a frame alive (moveBefore) refuses to cross documents (HierarchyRequestError). And a YouTube embed in
+   the blank window has no page address, which YouTube refuses (Error 153, S5). So the window plays the Station's
+   float page (pip-v2) from this second, and the way back asks this pane's own player - which never left, and is
+   never reloaded - for the video from the second the window reached.
+   No Document PiP (Safari, Firefox, the iPad): no button, no menu item, no key - "open in youtube ↗" stays in the ⋯. */
+function floatHost() {
+  try {
+    const top = window.top;
+    return top.location.origin === location.origin && top.documentPictureInPicture ? top : null;
+  } catch (e) { return null; }
 }
-const PIP_SIZE = { width:480, height:270 };
+function canFloat() { return !!floatHost(); }
+function floatSize() {
+  let width = 480;
+  try {
+    const w = Number(JSON.parse(sessionStorage.getItem(FLOAT_KEY) || "{}").width);
+    if (w >= 240 && w <= 3840) width = Math.round(w);
+  } catch (_) {}
+  return { width, height:Math.round(width * 9 / 16) };
+}
 /* the Station's own float page holds the player (a YouTube embed put straight into the blank PiP document
    is refused: Error 153) */
-function pipEmbedUrl(id, start) {
-  return location.origin + "/station-shells/pip-v1/?v=" + encodeURIComponent(id) +
-    "&start=" + Math.max(0, Math.floor(Number(start) || 0)) + "&title=" + encodeURIComponent(String(CUR && CUR.title || "").slice(0, 120));
+function floatPageUrl(v, start) {
+  return location.origin + "/station-shells/pip-v2/?v=" + encodeURIComponent(v.video_id) +
+    "&start=" + Math.max(0, Math.floor(Number(start) || 0)) + "&title=" + encodeURIComponent(String(v.title || "").slice(0, 120));
 }
-function inDeckPane() {
-  try { return window.parent !== window && window.parent.location.origin === location.origin; } catch (e) { return false; }
+function floatSecond() {
+  if (!FLOAT) return 0;
+  try {
+    const t = Number(FLOAT.frame.contentWindow.SC_FLOAT.at());
+    if (Number.isFinite(t) && t >= 0) FLOAT.at = t;
+  } catch (_) {}
+  return FLOAT.at;
 }
 function notePip(path) {
   /* a function-local table: notePip can run from the first play, before later lines of this script */
@@ -1201,45 +1308,112 @@ function notePip(path) {
     document:"floating · picture-in-picture window (always on top)",
     window:"floating · separate window (this browser has no always-on-top picture-in-picture)",
     blocked:"the browser blocked the floating window",
+    refused:"the browser did not open the floating window",
   };
   document.body.dataset.pip = path || "";
   el("pipNote").textContent = PIP_WORDS[path] || "";
   el("pipNote").title = PIP_WORDS[path] || "";
   if (path === "document" || path === "window") { try { if (YT_PLAYER_READY) YT_PLAYER.pauseVideo(); } catch (_) {} }
 }
-async function liftVideo() {
-  if (!CUR) return;
-  captureActiveVideoPosition();
-  const start = Math.max(0, Math.floor(PLAYER_POSITION.time || 0));
-  const id = CUR.video_id, title = String(CUR.title || "");
-  setMenuOpen(false);
-  if (canPip()) {
-    try {
-      const w = await documentPictureInPicture.requestWindow(PIP_SIZE);
-      const d = w.document;
-      d.title = title || "SCINTILLA";
-      d.body.style.cssText = "margin:0;background:#000;height:100%";
-      d.documentElement.style.height = "100%";
-      const f = d.createElement("iframe");
-      f.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0";
-      f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
-      f.src = pipEmbedUrl(id, start);
-      d.body.appendChild(f);
-      notePip("document");
-      return;
-    } catch (e) { /* dismissed or refused: fall through to the small window */ }
-  }
-  if (inDeckPane()) {
-    try { window.parent.postMessage({ sc:"video-pip", video_id:id, start, title }, location.origin); return; } catch (_) {}
-  }
-  const w = window.open("https://www.youtube.com/watch?v=" + encodeURIComponent(id) + "&t=" + start + "s", "scintilla-pip", "popup,width=" + PIP_SIZE.width + ",height=" + PIP_SIZE.height);
-  notePip(w ? "window" : "blocked");
+function paintFloat() {
+  const on = !!FLOAT, bar = el("bPipBar");
+  document.body.classList.toggle("can-float", canFloat());
+  document.body.classList.toggle("floating", on);
+  bar.classList.toggle("on", on);
+  bar.title = on ? "bring it back into the Station (P)" : "float this video in an always-on-top window (P)";
+  bar.setAttribute("aria-label", on ? "bring the video back from the floating window" : "float this video in a picture-in-picture window");
+  el("bPip").textContent = on ? "bring it back from the floating window" : "picture in picture";
+  el("floatNote").hidden = !on;
+  el("floatTitle").textContent = on && CUR ? String(CUR.title || "") : "";
+  if (!on) el("floatHold").hidden = true;
 }
-el("bPip").addEventListener("click", liftVideo);
-el("bPipBar").addEventListener("click", liftVideo);
+function loadIntoFloat(v, start) {
+  const d = FLOAT.win.document, at = Math.max(0, Math.floor(Number(start) || 0));
+  d.title = String(v.title || "SCINTILLA").slice(0, 120);
+  d.body.textContent = "";
+  const f = d.createElement("iframe");
+  f.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:0";
+  f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+  f.src = floatPageUrl(v, at);
+  d.body.appendChild(f);
+  Object.assign(FLOAT, { frame:f, id:v.video_id, at, ended:false });
+}
+async function floatVideo() {
+  const host = floatHost();
+  if (FLOAT || !CUR || !host) return false;
+  captureActiveVideoPosition();
+  const v = CUR, start = Math.max(0, Math.floor(PLAYER_POSITION.time || 0));
+  setMenuOpen(false);
+  let win;
+  try { win = await host.documentPictureInPicture.requestWindow(floatSize()); }
+  catch (e) { notePip("refused"); return false; }
+  FLOAT = { win, frame:null, id:"", at:start, ended:false, poll:0 };
+  const d = win.document;
+  d.documentElement.style.cssText = "height:100%;background:#000";
+  d.body.style.cssText = "margin:0;height:100%;background:#000;overflow:hidden";
+  win.addEventListener("pagehide", () => floatClosed(win), { once:true });
+  win.addEventListener("resize", () => {
+    try { if (win.innerWidth >= 240) sessionStorage.setItem(FLOAT_KEY, JSON.stringify({ width:win.innerWidth })); } catch (_) {}
+  });
+  d.addEventListener("keydown", (event) => { if (floatKey(event)) { event.preventDefault(); bringBack(); } });
+  loadIntoFloat(v, start);
+  try { if (YT_PLAYER_READY) YT_PLAYER.pauseVideo(); } catch (_) {}
+  FLOAT.poll = setInterval(tickFloat, 1000);
+  notePip("");
+  paintFloat();
+  /* the theatre has nothing to show while the video is out: the wall comes back */
+  if (DECK_STAGE > 0) parent.postMessage({ type:"SCINTILLA_DECK_MEDIA_BACK" }, location.origin);
+  return true;
+}
+function tickFloat() {
+  if (!FLOAT) return;
+  floatSecond();
+  if (CUR && CUR.video_id === FLOAT.id) { captureActiveVideoPosition(); saveActiveVideoPosition(false); }
+  let ended = false, held = false;
+  try { ended = !!FLOAT.frame.contentWindow.SC_FLOAT.ended(); held = !!FLOAT.frame.contentWindow.SC_FLOAT.blocked(); } catch (_) {}
+  /* a window opened by the click is new to the browser: it may hold the autoplay until ▶ is clicked in it - said, not hidden */
+  el("floatHold").hidden = !held;
+  if (ended && !FLOAT.ended) { FLOAT.ended = true; advanceQueue(); }   /* the queue carries on in the window */
+}
+function bringBack() {
+  if (!FLOAT) return false;
+  const win = FLOAT.win;
+  floatSecond();
+  try { win.close(); } catch (_) {}
+  floatClosed(win);   /* the window's pagehide calls this too: whichever comes first does it, once */
+  return true;
+}
+function floatClosed(win) {
+  if (!FLOAT || FLOAT.win !== win) return;
+  const at = Math.floor(floatSecond()), id = FLOAT.id;
+  clearInterval(FLOAT.poll);
+  FLOAT = null;
+  paintFloat();
+  if (!CUR || CUR.video_id !== id) return;   /* back on the grid meanwhile: nothing to resume here */
+  /* back in this pane's own player - the same element, never reloaded - from the second the window reached: the
+     request the pane already makes to resume a shared position (and no seek control of the Station's own) */
+  PLAYER_POSITION.time = at;
+  play(CUR, true, false, new Set(), 1, null, true, at);
+}
+function floatKey(event) {
+  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.repeat) return false;
+  if (event.key !== "p" && event.key !== "P") return false;
+  const node = event.target, tag = String(node && node.tagName || "").toUpperCase();
+  return !(tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (node && node.isContentEditable === true));
+}
+function toggleFloat() { return FLOAT ? bringBack() : floatVideo(); }
+el("bPip").addEventListener("click", toggleFloat);
+el("bPipBar").addEventListener("click", toggleFloat);
+el("bBringBack").addEventListener("click", bringBack);
+document.addEventListener("keydown", (event) => {
+  if (!floatKey(event) || !(FLOAT || (CUR && canFloat()))) return;
+  event.preventDefault(); toggleFloat();
+});
 window.addEventListener("message", (event) => {
-  if (event.origin !== location.origin || event.data?.type !== "SCINTILLA_VIDEO_PIP") return;
-  notePip(event.data.path);   /* the deck says which path it took */
+  if (event.origin !== location.origin) return;
+  /* P on the deck: the deck hands the key here, where the video and its second are */
+  if (event.data?.type === "SCINTILLA_VIDEO_PIP_TOGGLE") { if (FLOAT || (CUR && canFloat())) toggleFloat(); return; }
+  if (event.data?.type === "SCINTILLA_VIDEO_PIP") notePip(event.data.path);   /* S5: a deck that opened the window itself says which path */
 });
 
 /* ---- render ---- */
@@ -1716,7 +1890,7 @@ window.addEventListener("message", (event) => {
   }
 });
 async function start() {
-  paintChips(); paintFeedProfileSelector([]); wireGrid(); relayout(); postChrome(); load();
+  paintChips(); paintFeedProfileSelector([]); wireGrid(); paintFloat(); relayout(); postChrome(); load();
   syncSharedVideoPositions();
   /* Prime one official player object behind the hidden stage.  Selecting or
      advancing a video then loads into this same object rather than replacing
