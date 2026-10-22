@@ -86,7 +86,7 @@ test("W1 · the two charts are TradingView (tv-v1) in WIDGETS; the symbol and th
   assert.equal(D.widgetsTfOf("", 0), "5"); assert.equal(D.widgetsTfOf("", 1), "30"); assert.equal(D.widgetsTfOf("60", 0), "60"); assert.equal(D.widgetsTfOf("7", 1), "30", "an interval the strip does not offer is not kept");
   assert.match(deck, /tv: "\/station-shells\/tv-v1"/, "the shell is registered");
   const src = fn(deck, "paneChartSrc");
-  assert.match(src, /if \(widgetsOn\(\) && index < WIDGETS_CHARTS && t\) return tvChartSrc\(t, index\);/, "slots 1 and 2 mount the TradingView shell in WIDGETS; the other slots keep chart-v1");
+  assert.match(src, /if \(widgetsOn\(\) && index < WIDGETS_CHARTS && t\) return widgetsChartSrc\(t, index\);/, "slots 1 and 2 mount the TradingView shell or the live shell in WIDGETS (W3: restated); the other slots keep chart-v1");
   assert.match(fn(deck, "tvChartSrc"), /STATION_SHELL\.tv \+ "\/\?shell=v1&bare=1&t=" \+ encodeURIComponent\(t\) \+ "&tf=" \+ encodeURIComponent\(widgetsTf\(index\)\) \+ "&n=" \+ \(index \+ 1\)/);
   /* the symbol: the deck's own box (the badge → the box → Enter) remembers it; the default is SIMPLE's last symbol */
   assert.match(fn(deck, "commitTicker"), /if \(widgetsOn\(\) && index < WIDGETS_CHARTS\) remember\(WIDGETS_CHART_KEY \+ \(index \+ 1\), ticker\);/);
