@@ -18,7 +18,7 @@ const src = [
   grab(/const FLOOR_SEAM_PX = \d+;/, "the seam"),
   grab(/const FLOOR_COUNTS = \[[^\]]*\];/, "the counts"),
   grab(/function floorGrid\(count, width, height\) \{[\s\S]*?\n\}/, "floorGrid"),
-  grab(/function floorPlan\(wallWidth, wallHeight, chromePx\) \{[\s\S]*?\n\}/, "floorPlan"),
+  grab(/function floorPlan\(wallWidth, wallHeight, chromePx, columnShare\) \{[\s\S]*?\n\}/   /* W1B (22 Oct): restated - the column's share is a parameter (24 % unless the WIDGETS wall is playing a video) */, "floorPlan"),
   grab(/function floorTheatre\(areaWidth, areaHeight, chromePx\) \{[\s\S]*?\n\}/, "floorTheatre"),
 ].join("\n");
 const ctx = {}; vm.runInNewContext(src + "\nglobalThis.out = { floorPlan, floorTheatre };", ctx);

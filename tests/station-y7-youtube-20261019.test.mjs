@@ -79,7 +79,7 @@ const lift = [
   grab(deck, /const FLOOR_SEAM_PX = \d+;/, "the seam"),
   grab(deck, /const FLOOR_COUNTS = \[[^\]]*\];/, "the counts"),
   grab(deck, /function floorGrid\(count, width, height\) \{[\s\S]*?\n\}/, "floorGrid"),
-  grab(deck, /function floorPlan\(wallWidth, wallHeight, chromePx\) \{[\s\S]*?\n\}/, "floorPlan"),
+  grab(deck, /function floorPlan\(wallWidth, wallHeight, chromePx, columnShare\) \{[\s\S]*?\n\}/   /* W1B (22 Oct): restated - the column's share is a parameter (24 % unless the WIDGETS wall is playing a video) */, "floorPlan"),
   grab(deck, /const SLOT_SPAN = \d+;/, "the slot span"),
   grab(deck, /function floorSlot\(grid, areaWidth, areaHeight, chromePx, count\) \{[\s\S]*?\n\}/, "floorSlot"),
 ].join("\n");
@@ -120,7 +120,7 @@ test("Y7 · the slot: the YouTube pane is a block of the chart grid, measured at
   assert.match(deck, /body\.video-slot:not\(\.stack\) #grid > #rowBot > \.pane\.in-slot\{ position:absolute; z-index:3; flex:none; width:auto; \}/, "the pane on the wall is drawn over the chart area, in the document where it was (no reload)");
   assert.match(deck, /body\.video-slot:not\(\.stack\) #grid > #rowTop > \.pane\.slot-off\{ display:none; \}/, "the charts the block takes are off the wall, still mounted");
   /* Y9 (21 Oct): restated - SIMPLE answers first (its own slot, kept through a chart solo); the WALL's rule follows unchanged */
-  assert.match(deck, /function slotFor\(count, plan, tapePx, chromePx\) \{\n\s+if \(!plan \|\| document\.body\.classList\.contains\("charts-only"\)\) return null;\n[\s\S]{0,400}?if \(simpleOn\(\)\) return floorSimple\([^;]*\);\n\s+if \(SOLO\) return null;\n\s+const area = \{ w:plan\.charts\.w, h:plan\.charts\.h - \(Number\(tapePx\) \|\| 0\) \};/, "the slot is planned for the page's count in the area the tapes leave; a phone, a chart solo and CHARTS ONLY stand it down");
+  assert.match(deck, /function slotFor\(count, plan, tapePx, chromePx\) \{\n\s+if \(!plan \|\| document\.body\.classList\.contains\("charts-only"\)\) return null;\n[\s\S]{0,1200}?if \(simpleOn\(\)\) return floorSimple\([^;]*\);\n\s+if \(SOLO\) return null;\n\s+const area = \{ w:plan\.charts\.w, h:plan\.charts\.h - \(Number\(tapePx\) \|\| 0\) \};/, "the slot is planned for the page's count in the area the tapes leave; a phone, a chart solo and CHARTS ONLY stand it down");
   /* Y9 (21 Oct): restated - the slot is planned before the grids (SIMPLE's grid is the slot's), so the lines sit a few apart */
   assert.match(deck, /const slot = slotFor\(CHART_COUNT, plan, tapePx, onWall\?\.chromePx\);\n[\s\S]{0,900}?SLOT_NOW = \{ slot, plan, tapePx, chromePx:onWall\?\.chromePx \};\n[\s\S]{0,500}?document\.body\.classList\.toggle\("video-slot", !!slot\);\n[\s\S]{0,300}?placeChartsAroundSlot\(slot\);/, "fitVideoPane plans it on every layout pass");
   assert.match(deck, /if \(SLOT_NOW\) placeChartsAroundSlot\(slotFor\(count, SLOT_NOW\.plan, SLOT_NOW\.tapePx, SLOT_NOW\.chromePx\), count\);/, "a page change measures the next page's boxes around the next page's slot");

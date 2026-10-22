@@ -179,9 +179,9 @@ test("W1 · the tape: one FAVORITES row in WIDGETS, each cell two lines - ticker
 test("W1 · the video shells: beside=1 keeps the grid in a column beside the player; a thumbnail switches; BACK gives the pane back; the twins are byte-identical", () => {
   assert.equal(shells["personal-video-v1"], shells["scintilla-video-v1"], "byte-identical twins");
   const s = shells["scintilla-video-v1"];
-  assert.match(s, /let BESIDE = QS\.get\("beside"\) === "1";/);
-  assert.match(s, /if \(event\.data\?\.type === "SCINTILLA_VIDEO_BESIDE"\) \{ BESIDE = !!event\.data\.on; paintBeside\(\); relayout\(\); \}/, "the deck can say so by message");
-  assert.match(s, /body\.beside\.playing\{ display:grid; grid-template-columns:minmax\(0,2fr\) minmax\(200px,1fr\);/, "the player about two thirds, the grid the rest");
+  assert.match(s, /let BESIDE = QS\.get\("beside"\) === "1", BESIDE_COL = /);   /* W1B: restated - the column's width came with it */
+  assert.match(s, /if \(event\.data\?\.type === "SCINTILLA_VIDEO_BESIDE"\) \{ BESIDE = !!event\.data\.on; BESIDE_COL = [^\n]*paintBeside\(\); relayout\(\); tellPlaying\(\); \}/, "the deck can say so by message (W1B: restated, the column's width and the reply)");
+  assert.match(s, /body\.beside\.playing\{ display:grid; grid-template-columns:minmax\(0,1fr\) var\(--beside-col, 300px\);/, "W1B: restated - the grid a fixed column, the player the rest (Alan: don't shrink my YouTube)");
   assert.match(s, /body\.beside\.playing > #grid\{ grid-column:2; grid-row:2; display:grid;/, "the grid stays shown while a video plays");
   assert.match(s, /body\.playing #grid\{ display:none; \}/, "without beside, the pane is as it was (Y7)");
   assert.match(fn(s, "besideCols"), /w < 400 \? 1 : w < 800 \? 2 : 3/);
@@ -194,7 +194,7 @@ test("W1 · the video shells: beside=1 keeps the grid in a column beside the pla
   /* the deck asks for it on the WIDGETS wall */
   assert.match(deck, /"\?shell=v1&feed=scintilla&cols=2" \+ \(widgetsOn\(\) \? "&beside=1" : ""\)/);
   assert.match(deck, /"\?shell=v1&feed=personal&cols=2" \+ \(widgetsOn\(\) \? "&beside=1" : ""\)/);
-  assert.match(fn(deck, "tellVideoBeside"), /postMessage\(\{ type:"SCINTILLA_VIDEO_BESIDE", on:!!on \}, location\.origin\)/);
+  assert.match(fn(deck, "tellVideoBeside"), /postMessage\(\{ type:"SCINTILLA_VIDEO_BESIDE", on:!!on, col:[^\n]*\}, location\.origin\)/);
 });
 
 test("W1 · the lens set: RADAR · MACRO · MINE, remembered; MINE adds and removes; the oval in the day's colour, never grey", () => {

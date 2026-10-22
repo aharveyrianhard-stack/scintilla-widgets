@@ -20,7 +20,7 @@ const src = [
   grab(/const FLOOR_SEAM_PX = \d+;/, "the seam"),
   grab(/const FLOOR_COUNTS = \[[^\]]*\];/, "the counts"),
   grab(/function floorGrid\(count, width, height\) \{[\s\S]*?\n\}/, "floorGrid"),
-  grab(/function floorPlan\(wallWidth, wallHeight, chromePx\) \{[\s\S]*?\n\}/, "floorPlan"),
+  grab(/function floorPlan\(wallWidth, wallHeight, chromePx, columnShare\) \{[\s\S]*?\n\}/   /* W1B (22 Oct): restated - the column's share is a parameter (24 % unless the WIDGETS wall is playing a video) */, "floorPlan"),
   grab(/const TAPE_ROW_PX = \d+;/, "the tape's height"),
   grab(/const TAPE_SPEED_PX_S = \d+;/, "the tape's speed"),
   grab(/function tapesHeight\(on\) \{[^\n]*\}/, "tapesHeight"),
