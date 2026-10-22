@@ -307,7 +307,9 @@ async function readBars(force) {
       try {
         /* W4: on the tape the read skips the provider client's shared store (forming:true, max-age 15), so a bar just closed is seen at once */
         const payload = await P.marketCandles(t, LENS_TF, TAPE ? { limit: LENS_BARS, forming: true } : { limit: LENS_BARS });
-        const rows = (Array.isArray(payload) ? payload : (payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0).slice(-LENS_BARS);
+        /* W4: the provider hands its rows NEWEST FIRST (measured 22 Oct: timestamp 1792702800 before 1792702500) - oldest first here, always,
+           so the last row is the newest bar and the line runs left to right in time */
+        const rows = (Array.isArray(payload) ? payload : (payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0).sort((a, b) => a.t - b.t).slice(-LENS_BARS);
         /* the candles are one run (the oval's long axis is the series start to end); a 5-minute series keeps no session air */
         S.bars.set(t, rows.length ? { bars: rows, at: Date.now() } : { absence: "no daily bars", at: Date.now() });
       } catch (e) { S.bars.set(t, { absence: String((e && e.message) || "not served").slice(0, 40).toLowerCase(), at: Date.now() }); }
