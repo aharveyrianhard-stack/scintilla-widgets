@@ -48,7 +48,7 @@ test("W1C · the volume graph: volume-v1 reads the research session's public fee
   /* the compact head */
   assert.match(vol, /const T1 = 1\.2, T2 = 1\.5;/, "the page's default thresholds");
   assert.match(vol, /for \(const k of \["vwap", "dir", "vol", "hour"\]\)/, "the four lights (W4: restated - VWAP and DIRECTION first, big)");
-  assert.match(vol, /<span class="k">trade size<\/span>/); assert.match(vol, /<span class="k">block<\/span>/); assert.match(vol, /<span class="k">flow<\/span>/);
+  assert.match(vol, /<span class="k">trade size<\/span>/); assert.match(vol, /<span class="k">block<\/span>/); assert.match(vol, /<span class="lab">buy<\/span>/); assert.match(vol, /<span class="lab">sell<\/span>/);   /* W4: restated - the flow is the big pair */
   assert.match(vol, /nowS = sz\.now \|\| sz\.last \|\| \{\}/, "out of hours the last bar's size stands");
   assert.doesNotMatch(vol, /method:\s*"POST"|localStorage\.setItem/, "reads one GET, writes nothing");
   /* the deck: the column is the graph's, no meter on the wall */

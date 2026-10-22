@@ -220,5 +220,7 @@ test("W1 · the lens set: RADAR · MACRO · MINE, remembered; MINE adds and remo
   assert.match(lens, /\.lens \.tk\{ font-size:15px;/, "readable from the chair (the tape's type was 11 px)");
   assert.match(lens, /parent\.postMessage\(\{ type: "SCINTILLA_LENS_OPEN", ticker: t \}, location\.origin\)/, "a tap opens the name on the wall");
   assert.match(lens, /P\.marketQuotes\(list, \{\}\)/); assert.match(lens, /P\.marketCandles\(t, LENS_TF, TAPE \? \{ limit: LENS_BARS, forming: true \} : \{ limit: LENS_BARS \}\)/);   /* W4: restated - a fresh read on the tape */
-  assert.ok(!/pgWrite|method:\s*"POST"/.test(lens), "nothing here writes anywhere");
+  /* W4 (22 Oct): restated - the tape's "+ ticker" box writes MINE to station_lists through the deck's door, and × deletes there; nothing else is written */
+  assert.equal((lens.match(/method: "POST"/g) || []).length, 1, "one write: the MINE upsert"); assert.equal((lens.match(/method: "DELETE"/g) || []).length, 1, "one delete: a MINE row");
+  assert.match(lens, /station_lists\?on_conflict=list,position", \{ method: "POST"/); assert.doesNotMatch(lens, /hub_favorites[^\n]*method/, "the Hub's lists are never written");
 });
