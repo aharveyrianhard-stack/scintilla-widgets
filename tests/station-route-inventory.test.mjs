@@ -214,7 +214,7 @@ test("the dependency inventory states the counts it was generated against", () =
 });
 
 test("the explicit provider client really is loaded by the pages the table claims", () => {
-  /* 20 pages load the explicit provider client BY SCRIPT TAG. A prose mention (like /health's)
+  /* 21 pages load the explicit provider client BY SCRIPT TAG (W2, 22 Oct: station-shells/live-v1 is the 21st). A prose mention (like /health's)
      is not a load, which is why the count is
      taken from the tag, not from a bare grep. */
   const loaders = routes.filter((route) => {
@@ -223,8 +223,8 @@ test("the explicit provider client really is loaded by the pages the table claim
     try { return fs.readFileSync(full, "utf8").includes('script src="/_provider/provider.js"'); }
     catch { return false; }
   });
-  assert.equal(loaders.length, 20, "the dependency table claims 20 provider-client loaders by script tag");
-  assert.match(inventory, /`\/_provider\/provider\.js` \| 20 pages by script tag/);
+  assert.equal(loaders.length, 21, "the dependency table claims 21 provider-client loaders by script tag");
+  assert.match(inventory, /`\/_provider\/provider\.js` \| 21 pages by script tag/);
 });
 
 test("the deploy config carries exactly the documented Hub entry — and nothing else", () => {
