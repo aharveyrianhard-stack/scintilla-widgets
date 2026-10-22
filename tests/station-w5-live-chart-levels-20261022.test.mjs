@@ -23,10 +23,10 @@ function api(extra) {
     "const ET_CACHE = new Map();", fn("etParts"),
     grab(live, /const FUTURES = Object\.freeze\(\[[^\]]*\]\);/, "the futures"), fn("isFutures"), fn("sessionDay"), fn("inSession"),
     fn("hlc3"), grab(live, /const VWAP_BAND_MULT = 1;/, "the band's multiplier"), fn("vwapCalc"), fn("vwapSeries"),
-    fn("dayLevels"), fn("levelLabels"), fn("ageText"),
+    fn("dayLevels"), fn("levelGroups"), fn("ageText"),
     grab(live, /const POLL = Object\.freeze\(\{[^}]*\}\);/, "POLL"), fn("failBackoff"), fn("failureWords"), fn("nextBarRead"), fn("stateText"),
     extra || "",
-    "globalThis.out = { etParts, isFutures, sessionDay, inSession, vwapCalc, vwapSeries, dayLevels, levelLabels, failBackoff, failureWords, nextBarRead, stateText, FUTURES };"
+    "globalThis.out = { etParts, isFutures, sessionDay, inSession, vwapCalc, vwapSeries, dayLevels, levelGroups, failBackoff, failureWords, nextBarRead, stateText, FUTURES };"
   ].join("\n");
   const ctx = {}; vm.runInNewContext(src, ctx); return ctx.out;
 }
@@ -103,13 +103,13 @@ test("W5 · his Day Levels on futures: the previous CME session (the provider's 
 });
 
 test("W5 · his labels: names that would touch share one label, highest price first; PDH and PDL heavier", () => {
+  /* W6 restated: the labels follow his indicator's own rule (pine/SCINTILLA_Day_Levels.pine, style E) - a level within 0.12 % of the
+     label above joins it - instead of W5's 12-pixel screen distance; highest price first and PDH / PDL heavier, as before */
   const A = api();
-  const Y = (v) => 1000 - v;                          /* one pixel per dollar */
-  const g = A.levelLabels([{ key:"PDH", value:500 }, { key:"PDC", value:495 }, { key:"PDO", value:450 }, { key:"PDL", value:441 }, { key:"PML", value:300 }], Y, 12);
+  const g = A.levelGroups([{ key:"PDH", value:500 }, { key:"PDC", value:499.5 }, { key:"PDO", value:450 }, { key:"PDL", value:449.6 }, { key:"PML", value:300 }]);
   assert.deepEqual(plain(g.map((x) => x.text)), ["PDH · PDC", "PDO · PDL", "PML"]);
-  assert.match(live, /const LEVEL_STYLE = Object\.freeze\(\{ PDH:\[2, \[\]\], PDL:\[2, \[\]\], PDO:\[1, \[5, 3\]\], PDC:\[1, \[5, 3\]\], PMH:\[1, \[1\.5, 2\.5\]\], PML:\[1, \[1\.5, 2\.5\]\], OPEN:\[1, \[\]\] \}\);/);
-  assert.match(fn("draw"), /drawLevels\(ctx, S\.levels, first, last, X, Y, plotW\);/);
-  assert.match(fn("draw"), /drawLevelLabels\(ctx, S\.levels, Y, plotW, padT, priceBottom\);/);
+  assert.match(live, /PDH:\["rgba\(245,185,66,1\)", 2\], PDL:\["rgba\(245,185,66,1\)", 2\]/, "PDH / PDL 2 px, the rest 1 px");
+  assert.match(fn("draw"), /drawLevelsE\(ctx, groupsE, S\.levels, right >= n - 1 \? \(forming \? n : n - 1\) : null, X, Y, plotW, padT, priceBottom\);/);
   assert.match(fn("recompute"), /S\.levels = dayLevels\(TF\.key === "5m" \? S\.bars : S\.levelBars, FUT, S\.dailyBars\);/, "from 5-minute bars on every intraday width");
 });
 

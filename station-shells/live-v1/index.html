@@ -31,7 +31,10 @@
          forms), as his TradingView study does; earlier sessions as chart-v1.
        - FUTURES (ESUSD NQUSD CLUSD GCUSD SIUSD): the 18:00-17:00 session, no pre/after-market shading, the live price from FMP.
        - IT MUST NOT FAIL: late = amber, stale or not answering = red and the chart steps back; a failed read is tried again in 15 s,
-         30 s, then every 60 s until it answers; a symbol the API does not track says so in words. -->
+         30 s, then every 60 s until it answers; a symbol the API does not track says so in words.
+     W6 (22 Oct): his Day Levels in his indicator's own default look, style E (pine/SCINTILLA_Day_Levels.pine): short lines just right
+       of the newest bar, the names to their right, levels within 0.12 % of each other sharing one label, one amber family, no white,
+       nothing on the price axis; the levels themselves (W5's rules) unchanged. -->
 <style>
 :root{ --bg:#0A0A0F; --panel2:#0F0F17; --line:#1A1A2A; --line2:#252538; --ink:#F2F2F8; --ink2:#C8C8D8; --ink3:#9A9AB6; --dim:#868AAA;
   --mute:#6E6E80; --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --late:#c8953a; --vwap:#F2B33D;
@@ -244,16 +247,17 @@ function dayLevels(bars, fut, dailyBars) {
   out.from = tb.length ? tb[0].t : null;
   return out;
 }
-/* Names that would sit on each other share one label, highest price first ("PDH · PDC"); PDH and PDL are drawn heavier. Pure. */
-function levelLabels(levels, Y, gap) {
-  const rows = levels.map((l) => ({ key:l.key, value:l.value, y:Y(l.value) })).sort((a, b) => a.y - b.y);
-  const groups = [];
+/* W6 - HIS STYLE E (pine/SCINTILLA_Day_Levels.pine, his default): levels sitting on top of each other share one label, the
+   rule his indicator uses - sorted highest first, a level joins the label above when it is within 0.12 % of that label's
+   price ("PDH · PML"); the label takes the colour of its first (highest) level. Pure. */
+function levelGroups(levels) {
+  const rows = (levels || []).slice().sort((a, b) => b.value - a.value), out = [];
   for (const r of rows) {
-    const g = groups[groups.length - 1];
-    if (g && r.y - g.y0 < gap) { g.keys.push(r.key); g.y = (g.y * (g.keys.length - 1) + r.y) / g.keys.length; }
-    else groups.push({ keys:[r.key], y:r.y, y0:r.y });
+    const g = out[out.length - 1];
+    if (g && Math.abs(r.value - g.value) <= g.value * 0.0012) { g.keys.push(r.key); g.text += " · " + r.key; }
+    else out.push({ key:r.key, keys:[r.key], text:r.key, value:r.value });
   }
-  return groups.map((g) => ({ text:g.keys.join(" · "), y:g.y, keys:g.keys }));
+  return out;
 }
 
 /* ---- precise numbers ------------------------------------------------------------------------------------------------
@@ -374,6 +378,9 @@ const COL = Object.freeze({ bg:"#0A0A0F", bull:"#00FFA3", bear:"#FF2D55", dim:"#
      levels in the dim ink family (never white): PDH / PDL 2 px, PDO / PDC dashed, PMH / PML dotted, OPEN solid 1 px. */
   vwap:"#F2B33D", band:"rgba(242,179,61,.5)", bandFill:"rgba(242,179,61,.07)", vwap930faint:"rgba(184,138,53,.75)",
   level:"#9A9AB6", levelSoft:"#868AAA", down:"#FF2D55" });
+/* W6: his Day Levels' inks and widths, from his Pine source (TradingView transparency t -> alpha 1 - t/100) */
+const LEVEL_E = Object.freeze({ PDH:["rgba(245,185,66,1)", 2], PDL:["rgba(245,185,66,1)", 2], PDO:["rgba(201,154,58,.75)", 1], PDC:["rgba(201,154,58,.75)", 1],
+  PMH:["rgba(232,163,74,.85)", 1], PML:["rgba(232,163,74,.85)", 1], OPEN:["rgba(184,134,46,.65)", 1] });
 const S = {
   bars:[], prevClose:null, quote:null, cloudRows:null, cloudTicker:null, cloudMap:null, cloudAt:0, cloudAsked:0,
   vw930:[], vw400:[], vwMain:[], vwUp:[], vwLo:[], levels:null, levelBars:null, dailyBars:null, cloudPts:null, cloudToday:null,
@@ -754,7 +761,9 @@ function draw() {
   const forming = formingNow();
   /* right margin: room for the forming step, and for the clouds' names when they are on and the newest bar is on screen */
   const cloudBand = cloudMap && plotW >= 260 ? Math.max(30, Math.min(78, Math.round(plotW * .12))) : 0;
-  const rightPad = 2 + (forming ? 1 : 0) + Math.ceil(cloudBand / S.spacing);
+  const groupsE = S.levels ? levelGroups(S.levels.levels) : [];
+  const nameW = groupsE.reduce((m, g) => Math.max(m, g.text.length), 0) * 5.6 + 8;
+  const rightPad = Math.max(2 + (forming ? 1 : 0) + Math.ceil(cloudBand / S.spacing), groupsE.length ? (forming ? 1 : 0) + 8 + Math.ceil(nameW / S.spacing) : 0);
   const edge = liveEdge(n, rightPad);
   const right = S.viewRight == null ? edge : Math.min(S.viewRight, edge);
   const slots = plotW / S.spacing;
@@ -823,8 +832,6 @@ function draw() {
   drawLine(ctx, S.vwLo, first, last, X, Y, COL.band, 1, []);
   drawLine(ctx, S.vw930, first, last, X, Y, COL.vwap930faint, 1, [4, 3]);
   drawLine(ctx, S.vwMain, first, last, X, Y, COL.vwap, 1.7, []);
-  /* HIS DAY LEVELS (W5): across today's session from its first bar; PDH and PDL heavier */
-  drawLevels(ctx, S.levels, first, last, X, Y, plotW);
   /* the candles: green when the bar closed at or above its open, red below; the wick the full range */
   for (let i = first; i <= last; i++) {
     const b = bars[i], up = b.c >= b.o, x = X(i), ink = up ? COL.bull : COL.bear;
@@ -852,7 +859,8 @@ function draw() {
   const cloudFont = Math.max(6.6, plotW >= 700 ? 8.4 : 7.6);
   S.cloudLabels = cloudMap && last >= n - 1 && plotW >= 260 && priceH >= 90
     ? drawCloudLabels(ctx, { map:cloudMap, pts:bars.map((b) => ({ p:b.c })), end:last, X, Y, padL:0, padT, iw:plotW, ih:priceH, font:cloudFont }) : null;
-  drawLevelLabels(ctx, S.levels, Y, plotW, padT, priceBottom);
+  /* HIS DAY LEVELS, STYLE E (W6): short lines just right of the newest bar, the names to their right */
+  drawLevelsE(ctx, groupsE, S.levels, right >= n - 1 ? (forming ? n : n - 1) : null, X, Y, plotW, padT, priceBottom);
   /* the price axis */
   ctx.save();
   ctx.fillStyle = COL.bg; ctx.fillRect(plotW, 0, AXIS_W, h);
@@ -915,36 +923,29 @@ function drawBand(ctx, up, lo, first, last, X, Y) {
   }
   flush(); ctx.restore();
 }
-/* His Day Levels: each line from the first bar of today's session to the right edge; the names at the right end, merged where
-   they would touch (levelLabels). The heights and names are kept for a proof (S.levelsDrawn). */
-const LEVEL_STYLE = Object.freeze({ PDH:[2, []], PDL:[2, []], PDO:[1, [5, 3]], PDC:[1, [5, 3]], PMH:[1, [1.5, 2.5]], PML:[1, [1.5, 2.5]], OPEN:[1, []] });
-function drawLevels(ctx, L, first, last, X, Y, plotW) {
+/* His Day Levels in his style E (his default): every level a short line from the bar after the newest to five bars on
+   (line.new(bar_index + 1 .. bar_index + 6)), 2 px for PDH / PDL, 1 px for the rest; the names at bar + 7, left-aligned, in the
+   colour of the label's highest level; no tags on the price axis. Drawn only while the newest bar is on screen (base = its
+   slot, or the forming step's). The heights and names are kept for a proof (S.levelsDrawn). */
+function drawLevelsE(ctx, groups, L, base, X, Y, plotW, top, bottom) {
   S.levelsDrawn = null;
-  if (!L || !L.levels.length || !S.bars.length) return;
-  let start = S.bars.findIndex((b) => b.t >= L.from);
-  if (start < 0) return;
-  const x0 = Math.max(0, X(Math.max(start, first)) - S.spacing / 2);
-  ctx.save();
+  if (!L || !L.levels.length || base == null) return;
+  ctx.save(); ctx.beginPath(); ctx.rect(0, top, plotW, bottom - top); ctx.clip();
+  const x0 = X(base + 1), x1 = X(base + 6), xl = X(base + 7);
   for (const l of L.levels) {
-    const y = Math.round(Y(l.value)) + .5, [wd, dash] = LEVEL_STYLE[l.key] || [1, []];
-    ctx.strokeStyle = l.key === "PDH" || l.key === "PDL" ? COL.level : COL.levelSoft; ctx.lineWidth = wd; ctx.setLineDash(dash);
-    ctx.globalAlpha = .9; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(plotW, y); ctx.stroke();
+    const [ink, wd] = LEVEL_E[l.key] || ["rgba(184,134,46,.65)", 1], y = Math.round(Y(l.value)) + (wd % 2 ? .5 : 0);
+    ctx.strokeStyle = ink; ctx.lineWidth = wd; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1, y); ctx.stroke();
+  }
+  ctx.font = "600 9px " + MONO; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  ctx.shadowColor = "rgba(3,5,8,.9)"; ctx.shadowBlur = 2;
+  const labels = [];
+  for (const g of groups) {
+    const y = Y(g.value); if (y < top + 4 || y > bottom - 4) continue;
+    ctx.fillStyle = (LEVEL_E[g.key] || ["rgba(184,134,46,.65)"])[0]; ctx.fillText(g.text, xl, y + .5);
+    labels.push({ text:g.text, value:g.value, y, x:xl });
   }
   ctx.restore();
-  S.levelsDrawn = { lines:L.levels.map((l) => ({ key:l.key, value:l.value, y:Y(l.value) })) };
-}
-function drawLevelLabels(ctx, L, Y, plotW, top, bottom) {
-  if (!L || !L.levels.length) return;
-  const labels = levelLabels(L.levels, Y, 12).filter((g) => g.y >= top + 4 && g.y <= bottom - 4);
-  ctx.save(); ctx.font = "600 9.5px " + MONO; ctx.textBaseline = "middle"; ctx.textAlign = "right";
-  for (const g of labels) {
-    const w = Math.ceil(ctx.measureText(g.text).width) + 8;
-    ctx.fillStyle = "rgba(5,6,12,.86)"; ctx.fillRect(plotW - w - 2, Math.round(g.y - 7), w, 13);
-    ctx.fillStyle = g.keys.some((k) => k === "PDH" || k === "PDL") ? COL.level : COL.levelSoft;
-    ctx.fillText(g.text, plotW - 6, g.y + .5);
-  }
-  ctx.restore();
-  if (S.levelsDrawn) S.levelsDrawn.labels = labels.map((g) => ({ text:g.text, y:g.y }));
+  S.levelsDrawn = { base, x0, x1, lines:L.levels.map((l) => ({ key:l.key, value:l.value, y:Y(l.value) })), labels };
 }
 function drawLine(ctx, arr, first, last, X, Y, ink, width, dash) {
   ctx.save(); ctx.strokeStyle = ink; ctx.lineWidth = width; ctx.setLineDash(dash); ctx.lineJoin = "round";
