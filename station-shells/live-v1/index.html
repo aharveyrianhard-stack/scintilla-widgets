@@ -20,7 +20,18 @@
      bar, never drawn as a finished candle. On 1D the API itself serves today's forming bar (forming=1, P7), drawn hollow.
      LIVE, AND WHAT IT COSTS: see LIVE below. The age of the last completed bar is always printed on the strip.
      WHAT IT DOES NOT DO: no line drawing (not in this pass), no deck change (the coordinator wires the TV <-> LIVE switch), no
-     writes anywhere except, when standalone (not ?bare), the clouds switch's own key as chart-v1 does. -->
+     writes anywhere except, when standalone (not ?bare), the clouds switch's own key as chart-v1 does.
+     W5 (22 Oct, ~19:10 ET, Alan: "just as long as you keep the exact same VWAP thing that I have, and … my clouds … these lines for
+     previous day high, previous day low, pre-market high, pre-market low … I need it to fucking work"):
+       - HIS VWAP: TradingView's VWAP anchored at his session's start (04:00 on stocks, 18:00 - the CME day - on futures) with Band #1
+         (one standard deviation, TradingView's formula); the 09:30 line stays, fainter.
+       - HIS DAY LEVELS: PDH PDL PDO PDC (the previous regular session), PMH PML (today's pre-market), OPEN (today's 09:30); futures:
+         the previous CME session, no pre-market. Names merged where they would touch, PDH / PDL heavier.
+       - HIS CLOUDS V17: the current session's bars carry the averages with the current session's close (the live price while it
+         forms), as his TradingView study does; earlier sessions as chart-v1.
+       - FUTURES (ESUSD NQUSD CLUSD GCUSD SIUSD): the 18:00-17:00 session, no pre/after-market shading, the live price from FMP.
+       - IT MUST NOT FAIL: late = amber, stale or not answering = red and the chart steps back; a failed read is tried again in 15 s,
+         30 s, then every 60 s until it answers; a symbol the API does not track says so in words. -->
 <style>
 :root{ --bg:#0A0A0F; --panel2:#0F0F17; --line:#1A1A2A; --line2:#252538; --ink:#F2F2F8; --ink2:#C8C8D8; --ink3:#9A9AB6; --dim:#868AAA;
   --mute:#6E6E80; --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --late:#c8953a; --vwap:#F2B33D;
@@ -46,6 +57,9 @@ body{ display:flex; flex-direction:column; -webkit-font-smoothing:antialiased; }
   overflow:hidden; text-overflow:ellipsis; font-variant-numeric:tabular-nums; }
 #strip .state b{ color:var(--dim); font-weight:600; }
 #strip .state[data-late="1"] b{ color:var(--late); }
+/* W5: stale or not answering - red, and the chart itself steps back so it can never pass for live */
+#strip .state[data-level="stale"] b, #strip .state[data-level="down"] b{ color:var(--bear); }
+#area[data-level="stale"] #cv, #area[data-level="down"] #cv{ opacity:.5; }
 body.bare #strip .sym{ display:none; }
 /* W3 (22 Oct): LIVE · TV on the strip - this shell is LIVE; TV asks the deck to swap the slot to tv-v1 with the same symbol and interval */
 #strip .src{ display:flex; gap:2px; margin-left:4px; padding-left:6px; border-left:1px solid var(--line); }
@@ -141,10 +155,22 @@ function etParts(ms) {
   ET_CACHE.set(ms, out);
   return out;
 }
-/* The extended session the chart API serves: weekdays 04:00-20:00 New York. Holidays are not listed here; a day that brings no
-   bars slows the poll by itself (see LIVE). */
-function inSession(ms) {
+/* W5 (22 Oct): THE FUTURES the chart API serves (FMP, CME Globex): 18:00-17:00 New York, each session named by the date it
+   closes on (an 18:05 bar on Thursday belongs to Friday's session), no pre- or after-market. Everything else is a US stock day. */
+const FUTURES = Object.freeze(["ESUSD", "NQUSD", "CLUSD", "GCUSD", "SIUSD"]);
+function isFutures(sym) { return FUTURES.includes(String(sym || "").toUpperCase()); }
+/* the session a bar belongs to: the New York date for a stock; for futures the date of the 17:00 close that ends it */
+function sessionDay(ms, fut) { return etParts(fut ? ms + 6 * 3600000 : ms).day; }
+/* When the chart API serves bars. Stocks: weekdays 04:00-20:00 New York. Futures: Sunday 18:00 to Friday 17:00, less 17:00-18:00
+   every day. Holidays are not listed here; a day that brings no bars slows the poll by itself (see LIVE). */
+function inSession(ms, fut) {
   const e = etParts(ms);
+  if (fut) {
+    if (e.dow === "Sat") return false;
+    if (e.dow === "Sun") return e.min >= 1080;
+    if (e.dow === "Fri") return e.min < 1020;
+    return e.min < 1020 || e.min >= 1080;
+  }
   return e.dow !== "Sat" && e.dow !== "Sun" && e.min >= 240 && e.min < 1200;
 }
 
@@ -159,19 +185,75 @@ function inSession(ms) {
    The volume is the provider's per-bar volume: the whole consolidated tape, not one venue. Returns one value per bar, NaN
    where the bar is outside its anchor's session. Pure. */
 function hlc3(b) { return (b.h + b.l + b.c) / 3; }
-function vwapSeries(bars, tfMs, anchor) {
-  const out = new Array(bars.length).fill(NaN);
-  let day = null, pv = 0, vv = 0;
-  for (let i = 0; i < bars.length; i++) {
-    const b = bars[i], e = etParts(b.t);
-    if (e.day !== day) { day = e.day; pv = 0; vv = 0; }
+/* W5: HIS VWAP is TradingView's built-in one with Band #1: the anchor is his session's start - 04:00 on his extended stock charts,
+   18:00 (the CME day) on futures - and the band is one standard deviation either side, TradingView's definition (ta.vwap):
+   variance = sum(volume x hlc3^2) / sum(volume) - vwap^2, floored at 0; band = vwap +/- mult x sqrt(variance).
+   anchor "1800": every bar of the CME session (the day named by its close). Pure. */
+const VWAP_BAND_MULT = 1;
+function vwapCalc(bars, tfMs, anchor, mult) {
+  const n = bars.length, vwap = new Array(n).fill(NaN), upper = new Array(n).fill(NaN), lower = new Array(n).fill(NaN);
+  let day = null, pv = 0, vv = 0, p2v = 0;
+  for (let i = 0; i < n; i++) {
+    const b = bars[i], e = etParts(b.t), key = anchor === "1800" ? sessionDay(b.t, true) : e.day;
+    if (key !== day) { day = key; pv = 0; vv = 0; p2v = 0; }
     const endMin = e.min + tfMs / 60000;
-    const inside = anchor === "0930" ? endMin > 570 && e.min < 960 : e.min >= 240 && e.min < 1200;
+    const inside = anchor === "0930" ? endMin > 570 && e.min < 960 : anchor === "1800" ? true : e.min >= 240 && e.min < 1200;
     if (!inside || (!(b.v > 0) && vv === 0)) continue;
-    if (b.v > 0) { pv += hlc3(b) * b.v; vv += b.v; }
-    out[i] = vv > 0 ? pv / vv : NaN;
+    if (b.v > 0) { const s = hlc3(b); pv += s * b.v; vv += b.v; p2v += s * s * b.v; }
+    if (vv > 0) {
+      const w = pv / vv, sd = Math.sqrt(Math.max(p2v / vv - w * w, 0));
+      vwap[i] = w; upper[i] = w + mult * sd; lower[i] = w - mult * sd;
+    }
   }
+  return { vwap, upper, lower };
+}
+function vwapSeries(bars, tfMs, anchor) { return vwapCalc(bars, tfMs, anchor, VWAP_BAND_MULT).vwap; }
+
+/* W5: HIS DAY LEVELS ("SCINTILLA · Day Levels" on his TradingView, its rules read off IWM against the chart API's bars):
+   PDH / PDL - the previous REGULAR session's (09:30-16:00) high and low; PDO / PDC - its first open and last close;
+   PMH / PML - today's pre-market (04:00-09:30) high and low; OPEN - today's 09:30 open. A futures session has no pre-market and
+   no separate regular session: PD* are the previous CME session's (18:00-17:00), OPEN is today's 18:00 open, no PMH / PML.
+   "Today" is the session of the newest bar. A level whose session has not happened yet is absent, never guessed. Pure. */
+function dayLevels(bars, fut, dailyBars) {
+  if (!bars || bars.length < 2) return null;
+  const today = sessionDay(bars[bars.length - 1].t, fut);
+  const regular = (b) => { const m = etParts(b.t).min; return fut || (m >= 570 && m < 960); };
+  let prev = null;
+  for (let i = bars.length - 1; i >= 0; i--) {
+    const d = sessionDay(bars[i].t, fut);
+    if (d < today && regular(bars[i])) { prev = d; break; }
+  }
+  const out = { today, prev, levels:[] };
+  const add = (key, value) => { if (Number.isFinite(value)) out.levels.push({ key, value }); };
+  /* futures: the provider's daily bar IS the CME session - taken when the daily read has it (its 5-minute bars can miss one:
+     FMP's NQ series had no 08:45 bar on 22 Oct, and the session low 29,033 was in it) */
+  const day = fut && prev && Array.isArray(dailyBars) ? dailyBars.find((d) => !d.forming && sessionDay(d.t, true) === prev) : null;
+  if (day) { add("PDH", day.h); add("PDL", day.l); add("PDO", day.o); add("PDC", day.c); out.prevFrom = "daily"; }
+  else if (prev) {
+    const pb = bars.filter((b) => sessionDay(b.t, fut) === prev && regular(b));
+    add("PDH", Math.max(...pb.map((b) => b.h))); add("PDL", Math.min(...pb.map((b) => b.l)));
+    add("PDO", pb[0].o); add("PDC", pb[pb.length - 1].c); out.prevFrom = "5m";
+  }
+  const tb = bars.filter((b) => sessionDay(b.t, fut) === today);
+  if (!fut) {
+    const pm = tb.filter((b) => { const m = etParts(b.t).min; return m >= 240 && m < 570; });
+    if (pm.length) { add("PMH", Math.max(...pm.map((b) => b.h))); add("PML", Math.min(...pm.map((b) => b.l))); }
+  }
+  const open = tb.find(regular);
+  if (open) add("OPEN", open.o);
+  out.from = tb.length ? tb[0].t : null;
   return out;
+}
+/* Names that would sit on each other share one label, highest price first ("PDH · PDC"); PDH and PDL are drawn heavier. Pure. */
+function levelLabels(levels, Y, gap) {
+  const rows = levels.map((l) => ({ key:l.key, value:l.value, y:Y(l.value) })).sort((a, b) => a.y - b.y);
+  const groups = [];
+  for (const r of rows) {
+    const g = groups[groups.length - 1];
+    if (g && r.y - g.y0 < gap) { g.keys.push(r.key); g.y = (g.y * (g.keys.length - 1) + r.y) / g.keys.length; }
+    else groups.push({ keys:[r.key], y:r.y, y0:r.y });
+  }
+  return groups.map((g) => ({ text:g.keys.join(" · "), y:g.y, keys:g.keys }));
 }
 
 /* ---- precise numbers ------------------------------------------------------------------------------------------------
@@ -270,12 +352,12 @@ function formingBucket(quoteAt, last, tfMs, daily, now) {
              or the regular session is on, otherwise every 5 minutes.
    Pure: when the next bar read is due. */
 const POLL = Object.freeze({ quoteMs:6000, lagMs:3000, retryMs:15000, retries:3, quietMs:60000, dailyMs:60000, idleMs:300000 });
-function nextBarRead(now, tfMs, lastOpen, tries, idle, daily, formingServed) {
+function nextBarRead(now, tfMs, lastOpen, tries, idle, daily, formingServed, fut) {
   if (daily) {
-    const m = etParts(now).min, regular = inSession(now) && m >= 565 && m < 980;
+    const m = etParts(now).min, regular = fut ? inSession(now, true) : inSession(now) && m >= 565 && m < 980;
     return { at:now + (formingServed || regular ? POLL.dailyMs : POLL.idleMs), why:"daily" };
   }
-  if (!inSession(now) && !inSession(now - 120000)) return { at:now + POLL.idleMs, why:"closed" };
+  if (!inSession(now, fut) && !inSession(now - 120000, fut)) return { at:now + POLL.idleMs, why:"closed" };
   if (idle) return { at:now + POLL.quietMs, why:"quiet" };
   const closedOpen = Math.floor(now / tfMs) * tfMs - tfMs;          /* the bar whose period ended most recently */
   const nextClose = Math.floor(now / tfMs) * tfMs + tfMs;
@@ -287,12 +369,18 @@ function nextBarRead(now, tfMs, lastOpen, tries, idle, daily, formingServed) {
 /* ---- state ------------------------------------------------------------------------------------------------------------ */
 const COL = Object.freeze({ bg:"#0A0A0F", bull:"#00FFA3", bear:"#FF2D55", dim:"#868AAA", ink3:"#9A9AB6", mute:"#6E6E80",
   grid:"rgba(134,138,170,.085)", ext:"rgba(134,138,170,.04)", late:"#c8953a",
-  vwap930:"#F2B33D", vwap400:"#B88A35", volUp:"rgba(0,255,163,.26)", volDown:"rgba(255,45,85,.26)" });
+  vwap930:"#F2B33D", vwap400:"#B88A35", volUp:"rgba(0,255,163,.26)", volDown:"rgba(255,45,85,.26)",
+  /* W5: his VWAP is the bright one; Band #1 the same amber, thinner, a faint fill between; the 09:30 line steps back. His day
+     levels in the dim ink family (never white): PDH / PDL 2 px, PDO / PDC dashed, PMH / PML dotted, OPEN solid 1 px. */
+  vwap:"#F2B33D", band:"rgba(242,179,61,.5)", bandFill:"rgba(242,179,61,.07)", vwap930faint:"rgba(184,138,53,.75)",
+  level:"#9A9AB6", levelSoft:"#868AAA", down:"#FF2D55" });
 const S = {
   bars:[], prevClose:null, quote:null, cloudRows:null, cloudTicker:null, cloudMap:null, cloudAt:0, cloudAsked:0,
-  vw930:[], vw400:[], gen:0, loading:true, error:null, lastRead:null, readAt:0, tries:0, misses:0, idle:false,
+  vw930:[], vw400:[], vwMain:[], vwUp:[], vwLo:[], levels:null, levelBars:null, dailyBars:null, cloudPts:null, cloudToday:null,
+  gen:0, loading:true, error:null, lastRead:null, readAt:0, tries:0, misses:0, idle:false, readFails:0, quoteFails:0,
   spacing:7, viewRight:null, hover:null, plot:null, log:[]
 };
+let FUT = isFutures(SYMBOL);
 const el = (id) => document.getElementById(id);
 const cv = el("cv"), ov = el("ov"), area = el("area");
 function note(kind, ok, extra) {
@@ -305,42 +393,75 @@ async function readBars(limit) {
   const rows = await SC_PROVIDER.marketCandles(SYMBOL, TF.api, { limit, forming:true });
   return barsFromRows(rows);
 }
+/* the main VWAP (his session's anchor) with its band, the fainter 09:30 line, his Day Levels (from 5-minute bars: the chart's own on
+   5m, a 5-minute read of their own on the other intraday widths), and the clouds' current-day row */
 function recompute() {
-  S.vw930 = TF.daily ? [] : vwapSeries(S.bars, TF.ms, "0930");
-  S.vw400 = TF.daily ? [] : vwapSeries(S.bars, TF.ms, "0400");
+  if (TF.daily) { S.vwMain = S.vwUp = S.vwLo = S.vw930 = []; S.levels = null; }
+  else {
+    const main = vwapCalc(S.bars, TF.ms, FUT ? "1800" : "0400", VWAP_BAND_MULT);
+    S.vwMain = main.vwap; S.vwUp = main.upper; S.vwLo = main.lower;
+    S.vw930 = vwapSeries(S.bars, TF.ms, "0930");
+    S.levels = dayLevels(TF.key === "5m" ? S.bars : S.levelBars, FUT, S.dailyBars);
+  }
+  S.vw400 = S.vwMain;
+  cloudToday();
   S.cloudMap = null;
 }
+async function readLevelBars() {
+  if (TF.daily || TF.key === "5m") return;
+  const gen = S.gen;
+  try {
+    const rows = await SC_PROVIDER.marketCandles(SYMBOL, "5m", { limit:600, forming:true });
+    if (gen !== S.gen) return;
+    S.levelBars = barsFromRows(rows); note("levels", true, { n:S.levelBars.length }); recompute(); draw();
+  } catch (error) { note("levels", false, { error:String(error && (error.scAbsence || error.message) || error).slice(0, 160) }); }
+}
+setInterval(() => { if (!S.loading && !TF.daily && TF.key !== "5m") readLevelBars(); }, 300000);
 async function loadAll() {
   const gen = ++S.gen;
-  S.loading = true; S.error = null; S.bars = []; S.quote = null; S.prevClose = null; S.viewRight = null; S.hover = null;
+  /* keep what is on screen while a reload after a failure runs; a new symbol or interval starts clean */
+  const sameChart = S.bars.length >= 2 && S.loadedKey === SYMBOL + "|" + TF.key;
+  FUT = isFutures(SYMBOL);
+  if (!sameChart) { S.bars = []; S.quote = null; S.prevClose = null; S.viewRight = null; S.hover = null; S.levelBars = null; S.dailyBars = null; S.cloudToday = null; }
+  S.loading = !sameChart; S.error = null;
   S.tries = 0; S.misses = 0; S.idle = false;
-  paintStrip(); showMsg("loading " + SYMBOL + " · " + TF.key); draw();
+  paintStrip(); if (!sameChart) showMsg("loading " + SYMBOL + " · " + TF.key); draw();
   clearTimeout(barTimer);
   try {
     const bars = await readBars(TF.history);
     if (gen !== S.gen) return;
     note("bars", true, { n:bars.length, limit:TF.history });
     if (bars.length < 2) throw new Error("the chart API served " + bars.length + " " + TF.key + " bars for " + SYMBOL);
-    S.bars = bars; S.readAt = Date.now(); S.loading = false;
+    S.bars = bars; S.readAt = Date.now(); S.loading = false; S.readFails = 0; S.loadedKey = SYMBOL + "|" + TF.key;
     recompute(); showMsg(null); draw();
   } catch (error) {
     if (gen !== S.gen) return;
     note("bars", false, { error:String(error && (error.scAbsence || error.message) || error).slice(0, 160) });
     S.loading = false; S.error = String(error && (error.scAbsence || error.message) || error); S.errorNamed = !!(error && error.scAbsence);
-    showMsg(SYMBOL + " · " + TF.key + " · " + S.error);
+    if (S.bars.length < 2) showMsg(failureWords(SYMBOL, TF.key, S.error, S.errorNamed)); else S.readFails++;
   }
   readQuote();
-  if (CLOUDS_ON) readClouds();
+  readLevelBars();
+  readClouds();
   scheduleBars();
   paintStrip();
+}
+/* A failure in words (W5: "it must not fail" - it may fail, but it says so and keeps trying). Pure. */
+function failureWords(sym, tf, error, named) {
+  const e = String(error || "");
+  if (/NOT_SERVED_BY_CHART_API|NOT_PROVIDER_OWNED/.test(e)) return sym + " is not a symbol the chart API tracks - nothing to draw (" + e + ")";
+  if (named) return sym + " · " + tf + " · the chart API has no bars for it: " + e + " · asking again in 5 minutes";
+  return sym + " · " + tf + " · the chart API did not answer (" + e + ") · trying again";
 }
 let barTimer = 0;
 function scheduleBars() {
   clearTimeout(barTimer);
   const last = lastCompleted(S.bars), newest = S.bars[S.bars.length - 1];
-  /* no history yet: a transport failure is tried again in 15 s; an absence the API named, in 5 minutes */
+  /* no history yet: a transport failure is tried again in 15 s; an absence the API named, in 5 minutes. W5: a failed read of the
+     newest bars is tried again in 15 s, 30 s, then every 60 s until one answers - never left until the next close */
   const plan = S.bars.length < 2 ? { at:Date.now() + (S.errorNamed ? POLL.idleMs : POLL.retryMs), why:"reload" }
-    : nextBarRead(Date.now(), TF.ms, last ? last.t : NaN, S.tries, S.idle, !!TF.daily, !!(newest && newest.forming));
+    : S.readFails > 0 ? { at:Date.now() + failBackoff(S.readFails), why:"recover" }
+    : nextBarRead(Date.now(), TF.ms, last ? last.t : NaN, S.tries, S.idle, !!TF.daily, !!(newest && newest.forming), FUT);
   S.nextRead = plan;
   barTimer = setTimeout(pollBars, Math.max(1000, plan.at - Date.now()));
 }
@@ -357,6 +478,7 @@ async function pollBars() {
     const after = lastCompleted(merged);
     const grew = !!(after && (!before || after.t > before.t));
     note("tail", true, { n:tail.length, newest:after ? after.t : null, grew });
+    S.readFails = 0;
     S.bars = merged; S.readAt = Date.now(); recompute();
     if (grew) { S.tries = 0; S.misses = 0; S.idle = false; }
     else if (!TF.daily) {
@@ -367,11 +489,14 @@ async function pollBars() {
     draw();
   } catch (error) {
     if (gen !== S.gen) return;
+    S.readFails++;
     note("tail", false, { error:String(error && (error.scAbsence || error.message) || error).slice(0, 160) });
   }
-  paintStrip();
+  paintStrip(); draw();
   scheduleBars();
 }
+/* 15 s, 30 s, then every 60 s (pure) */
+function failBackoff(fails) { return Math.min(60000, POLL.retryMs * Math.pow(2, Math.max(0, fails - 1))); }
 async function readQuote() {
   const gen = S.gen, sym = SYMBOL;
   try {
@@ -379,15 +504,20 @@ async function readQuote() {
     if (gen !== S.gen) return;
     const q = (rows || []).find((r) => r && r.ticker === sym);
     note("quote", !!q);
+    S.quoteFails = 0;
     if (q && Number.isFinite(+q.price) && +q.price > 0) {
-      const at = q.observed_at ? Date.parse(q.observed_at) : NaN;
-      S.quote = { price:+q.price, at, prev:Number.isFinite(+q.previous_close) && +q.previous_close > 0 ? +q.previous_close : null };
+      /* an equity row names its time observed_at and its reference previous_close; a futures (macro) row, updated_ts and prev_close */
+      const when = q.observed_at || q.updated_ts || q.price_observation_utc, prev = q.previous_close != null ? q.previous_close : q.prev_close;
+      const at = when ? Date.parse(when) : NaN;
+      S.quote = { price:+q.price, at, prev:Number.isFinite(+prev) && +prev > 0 ? +prev : null };
       if (S.quote.prev) S.prevClose = S.quote.prev;
       applyQuoteToFormingDay();
+      cloudToday(); S.cloudMap = null;
       draw();
     }
   } catch (error) {
     if (gen !== S.gen) return;
+    S.quoteFails++;
     note("quote", false, { error:String(error && (error.scAbsence || error.message) || error).slice(0, 160) });
   }
   paintStrip();
@@ -406,19 +536,20 @@ function applyQuoteToFormingDay() {
    store answers repeat reads), long enough for the 200-day average under every bar on screen. */
 const CLOUD_DAYS_PER_BAR = { "1m":1/960, "5m":1/192, "15m":1/64, "30m":1/32, "1h":1/16, "1D":1 };
 async function readClouds() {
-  if (!window.SC_CLOUDS || !CLOUDS_ON) return;
+  if (!window.SC_CLOUDS) return;
   const sym = SYMBOL;
   const need = Math.max(400, Math.min(6500, Math.ceil(TF.history * CLOUD_DAYS_PER_BAR[TF.key]) + 210));
   if (S.cloudTicker === sym && S.cloudRows && S.cloudAsked >= need && Date.now() - S.cloudAt < 1800000) { S.cloudMap = null; draw(); return; }
   try {
     const rows = await SC_PROVIDER.marketCandles(sym, "1D", { limit:need });
     if (sym !== SYMBOL) return;
-    const pts = barsFromRows(rows).filter((b) => !b.forming).map((b) => ({ d:new Date(b.t).toISOString(), p:b.c }));
+    S.dailyBars = barsFromRows(rows);
+    const pts = S.dailyBars.filter((b) => !b.forming).map((b) => ({ d:new Date(b.t).toISOString(), p:b.c }));
     const daily = window.SC_CLOUDS.dailyRows(pts);
     note("clouds", daily.length >= 2, { n:pts.length });
     if (sym !== SYMBOL || daily.length < 2) return;
-    S.cloudRows = daily; S.cloudTicker = sym; S.cloudAt = Date.now(); S.cloudAsked = need; S.cloudMap = null;
-    draw();
+    S.cloudRows = daily; S.cloudPts = pts; S.cloudTicker = sym; S.cloudAt = Date.now(); S.cloudAsked = need; S.cloudMap = null;
+    recompute(); draw();
   } catch (error) {
     note("clouds", false, { error:String(error && (error.scAbsence || error.message) || error).slice(0, 160) });
   }
@@ -563,11 +694,36 @@ const CLOUD_LABEL_INK = Object.freeze({ blue:"#5C7BFF", pink:"#FF00A8" });
    daily-locked the same way; station-clouds.js names chart-v1's ranges, so the intraday kind is asked for by one of them. */
 function cloudMapNow() {
   if (!CLOUDS_ON || !window.SC_CLOUDS || !S.cloudRows || S.cloudTicker !== SYMBOL || S.bars.length < 2) return null;
-  if (S.cloudMap && S.cloudMap.bars === S.bars) return S.cloudMap.map;
+  if (S.cloudMap && S.cloudMap.bars === S.bars && S.cloudMap.today === S.cloudToday) return S.cloudMap.map;
   const kind = window.SC_CLOUDS.timeframeKind(TF.daily ? "1D" : "15m");
-  const map = window.SC_CLOUDS.mapBarsToDaily(S.bars.map((b) => b.t), S.cloudRows, kind);
-  S.cloudMap = { bars:S.bars, map };
+  /* W5: a futures bar is placed in the CME session it belongs to (18:00 opens the next day), so it maps to the session that
+     closed before it; a stock bar to its New York date, as on chart-v1 */
+  const times = S.bars.map((b) => FUT && !TF.daily ? b.t + 6 * 3600000 : b.t);
+  const map = window.SC_CLOUDS.mapBarsToDaily(times, S.cloudRows, kind);
+  /* W5 - HIS CLOUDS V17: the current session's bars show the averages WITH the current session's close (the live price while it
+     forms, the settled close after), as his TradingView "Clean Clouds V17" does - measured on NQ 22 Oct 19:2x ET: 21D 30,105.16
+     against his 30,105.23, 13D 29,950.69 against 29,951.43 only this way. Every earlier session is unchanged. */
+  const today = S.cloudToday;
+  if (today) {
+    const fut = FUT && !TF.daily, dayNow = sessionDay(S.bars[S.bars.length - 1].t, fut);
+    for (let i = S.bars.length - 1; i >= 0 && sessionDay(S.bars[i].t, fut) === dayNow; i--) map[i] = today;
+  }
+  S.cloudMap = { bars:S.bars, today, map };
   return map;
+}
+/* The current session's row: the completed daily closes, then the current session's close - the settled one when the daily
+   series already has it, else the live price (or, with no price of that session, the newest bar's close) - through
+   station-clouds.js's own dailyRows. */
+function cloudToday() {
+  S.cloudToday = null;
+  if (!window.SC_CLOUDS || !S.cloudPts || S.cloudTicker !== SYMBOL || S.bars.length < 2) return;
+  const fut = FUT && !TF.daily, newest = S.bars[S.bars.length - 1], dayNow = sessionDay(newest.t, fut);
+  const rows = S.cloudRows, last = rows[rows.length - 1];
+  if (last.day >= dayNow) { S.cloudToday = last; return; }
+  const q = S.quote, live = q && Number.isFinite(q.at) && sessionDay(q.at, fut) === dayNow ? q.price : newest.c;
+  const formed = window.SC_CLOUDS.dailyRows(S.cloudPts.concat([{ d:dayNow + "T16:00:00Z", p:live }]));
+  S.cloudToday = formed[formed.length - 1];
+  S.cloudToday.forming = true;
 }
 
 /* ---- drawing ---------------------------------------------------------------------------------------------------------- */
@@ -604,14 +760,15 @@ function draw() {
   const slots = plotW / S.spacing;
   const first = Math.max(0, Math.floor(right - slots)), last = Math.min(n - 1, Math.ceil(right));
   const X = (i) => plotW - (right - i) * S.spacing - S.spacing / 2;
-  /* the price range: the bars on screen, the two VWAPs under them and the live price - never the clouds (they are context,
-     drawn where they fall and clipped; chart-v1's own fit is the price too) */
+  /* the price range: the bars on screen, the VWAPs and the band under them and the live price - never the clouds or the day
+     levels (context, drawn where they fall and clipped; chart-v1's own fit is the price too) */
   let lo = Infinity, hi = -Infinity, vmax = 0;
   for (let i = first; i <= last; i++) {
     const b = bars[i]; if (b.l < lo) lo = b.l; if (b.h > hi) hi = b.h; if (b.v > vmax) vmax = b.v;
-    for (const v of [S.vw930[i], S.vw400[i]]) if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    for (const v of [S.vw930[i], S.vwMain[i], S.vwUp[i], S.vwLo[i]]) if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; }
   }
   if (forming && right >= n - 1) { lo = Math.min(lo, forming.price); hi = Math.max(hi, forming.price); }
+  if (S.levels && hi > lo) { const sp = hi - lo; for (const l of S.levels.levels) if (l.value >= lo - sp && l.value <= hi + sp) { lo = Math.min(lo, l.value); hi = Math.max(hi, l.value); } }
   if (!(hi > lo)) { hi = (Number.isFinite(hi) ? hi : 1) + .5; lo = hi - 1; }
   const volH = Math.round(plotH * VOL_SHARE);
   const priceBottom = plotH - volH - 4, priceH = priceBottom - padT;
@@ -619,8 +776,8 @@ function draw() {
   const Y = (v) => padT + (1 - (v - yLo) / (yHi - yLo)) * priceH;
   const V = (v) => plotH - (vmax > 0 ? (v / vmax) * (volH - 2) : 0);
   S.plot = { w, h, plotW, plotH, padT, priceH, priceBottom, right, first, last, yLo, yHi, X, Y, spacing:S.spacing, n, rightPad, edge };
-  /* extended hours, faintly: the pre- and after-market behind the bars (TradingView shades them too) */
-  if (!TF.daily) {
+  /* extended hours, faintly: the pre- and after-market behind the bars (TradingView shades them too). A futures session has none. */
+  if (!TF.daily && !FUT) {
     ctx.fillStyle = COL.ext;
     let runStart = null;
     for (let i = first; i <= last + 1; i++) {
@@ -658,10 +815,16 @@ function draw() {
     ctx.fillRect(x, Math.round(top), bw, Math.max(1, Math.round(plotH - top)));
   }
   ctx.restore();
-  /* VWAP, the two anchors */
+  /* HIS VWAP (W5): the session-anchored line (04:00 stocks, 18:00 futures) with Band #1 - a faint fill between the band lines -
+     and the 09:30 line fainter, behind it */
   ctx.save(); ctx.beginPath(); ctx.rect(0, 0, plotW, priceBottom + 2); ctx.clip();
-  drawLine(ctx, S.vw400, first, last, X, Y, COL.vwap400, 1.2, [5, 4]);
-  drawLine(ctx, S.vw930, first, last, X, Y, COL.vwap930, 1.6, []);
+  drawBand(ctx, S.vwUp, S.vwLo, first, last, X, Y);
+  drawLine(ctx, S.vwUp, first, last, X, Y, COL.band, 1, []);
+  drawLine(ctx, S.vwLo, first, last, X, Y, COL.band, 1, []);
+  drawLine(ctx, S.vw930, first, last, X, Y, COL.vwap930faint, 1, [4, 3]);
+  drawLine(ctx, S.vwMain, first, last, X, Y, COL.vwap, 1.7, []);
+  /* HIS DAY LEVELS (W5): across today's session from its first bar; PDH and PDL heavier */
+  drawLevels(ctx, S.levels, first, last, X, Y, plotW);
   /* the candles: green when the bar closed at or above its open, red below; the wick the full range */
   for (let i = first; i <= last; i++) {
     const b = bars[i], up = b.c >= b.o, x = X(i), ink = up ? COL.bull : COL.bear;
@@ -689,6 +852,7 @@ function draw() {
   const cloudFont = Math.max(6.6, plotW >= 700 ? 8.4 : 7.6);
   S.cloudLabels = cloudMap && last >= n - 1 && plotW >= 260 && priceH >= 90
     ? drawCloudLabels(ctx, { map:cloudMap, pts:bars.map((b) => ({ p:b.c })), end:last, X, Y, padL:0, padT, iw:plotW, ih:priceH, font:cloudFont }) : null;
+  drawLevelLabels(ctx, S.levels, Y, plotW, padT, priceBottom);
   /* the price axis */
   ctx.save();
   ctx.fillStyle = COL.bg; ctx.fillRect(plotW, 0, AXIS_W, h);
@@ -723,21 +887,71 @@ function wantedTags(Y, first, last) {
   const lastValid = (arr) => { for (let i = Math.min(last, arr.length - 1); i >= first; i--) if (Number.isFinite(arr[i])) return arr[i]; return NaN; };
   const live = S.quote ? S.quote.price : NaN;
   const dayUp = S.prevClose != null && Number.isFinite(live) ? live >= S.prevClose : null;
-  const want = [], v4 = lastValid(S.vw400), v9 = lastValid(S.vw930);
-  if (Number.isFinite(v4)) want.push({ key:"vw0400", value:v4, text:fmtVwap(v4), bg:COL.vwap400, ink:COL.bg, y:Y(v4) });
-  if (Number.isFinite(v9)) want.push({ key:"vw0930", value:v9, text:fmtVwap(v9), bg:COL.vwap930, ink:COL.bg, y:Y(v9) });
+  const want = [], vm = lastValid(S.vwMain), v9 = lastValid(S.vw930);
+  if (Number.isFinite(vm)) want.push({ key:FUT ? "vw1800" : "vw0400", value:vm, text:fmtVwap(vm), bg:COL.vwap, ink:COL.bg, y:Y(vm) });
+  if (Number.isFinite(v9)) want.push({ key:"vw0930", value:v9, text:fmtVwap(v9), bg:COL.vwap400, ink:COL.bg, y:Y(v9) });
   if (Number.isFinite(live)) want.push({ key:"live", value:live, text:fmtPx(live), bg:dayUp == null ? COL.dim : dayUp ? COL.bull : COL.bear, ink:"#05060C", y:Y(live), fixed:true });
   return want;
 }
 function tagHeights(Y, top, bottom, first, last) {
   return spreadTags(wantedTags(Y, first, last), 15, top + 7, bottom - 7).map((t) => t.at);
 }
+/* Band #1's fill: one polygon per session, upper edge left to right, lower edge back */
+function drawBand(ctx, up, lo, first, last, X, Y) {
+  ctx.save(); ctx.fillStyle = COL.bandFill;
+  let run = [];
+  const flush = () => {
+    if (run.length > 1) {
+      ctx.beginPath(); ctx.moveTo(X(run[0]), Y(up[run[0]]));
+      for (const i of run) ctx.lineTo(X(i), Y(up[i]));
+      for (let k = run.length - 1; k >= 0; k--) ctx.lineTo(X(run[k]), Y(lo[run[k]]));
+      ctx.closePath(); ctx.fill();
+    }
+    run = [];
+  };
+  for (let i = first; i <= last; i++) {
+    if (!Number.isFinite(up[i]) || !Number.isFinite(lo[i]) || (run.length && sessionDay(S.bars[i].t, FUT) !== sessionDay(S.bars[run[0]].t, FUT))) flush();
+    if (Number.isFinite(up[i]) && Number.isFinite(lo[i])) run.push(i);
+  }
+  flush(); ctx.restore();
+}
+/* His Day Levels: each line from the first bar of today's session to the right edge; the names at the right end, merged where
+   they would touch (levelLabels). The heights and names are kept for a proof (S.levelsDrawn). */
+const LEVEL_STYLE = Object.freeze({ PDH:[2, []], PDL:[2, []], PDO:[1, [5, 3]], PDC:[1, [5, 3]], PMH:[1, [1.5, 2.5]], PML:[1, [1.5, 2.5]], OPEN:[1, []] });
+function drawLevels(ctx, L, first, last, X, Y, plotW) {
+  S.levelsDrawn = null;
+  if (!L || !L.levels.length || !S.bars.length) return;
+  let start = S.bars.findIndex((b) => b.t >= L.from);
+  if (start < 0) return;
+  const x0 = Math.max(0, X(Math.max(start, first)) - S.spacing / 2);
+  ctx.save();
+  for (const l of L.levels) {
+    const y = Math.round(Y(l.value)) + .5, [wd, dash] = LEVEL_STYLE[l.key] || [1, []];
+    ctx.strokeStyle = l.key === "PDH" || l.key === "PDL" ? COL.level : COL.levelSoft; ctx.lineWidth = wd; ctx.setLineDash(dash);
+    ctx.globalAlpha = .9; ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(plotW, y); ctx.stroke();
+  }
+  ctx.restore();
+  S.levelsDrawn = { lines:L.levels.map((l) => ({ key:l.key, value:l.value, y:Y(l.value) })) };
+}
+function drawLevelLabels(ctx, L, Y, plotW, top, bottom) {
+  if (!L || !L.levels.length) return;
+  const labels = levelLabels(L.levels, Y, 12).filter((g) => g.y >= top + 4 && g.y <= bottom - 4);
+  ctx.save(); ctx.font = "600 9.5px " + MONO; ctx.textBaseline = "middle"; ctx.textAlign = "right";
+  for (const g of labels) {
+    const w = Math.ceil(ctx.measureText(g.text).width) + 8;
+    ctx.fillStyle = "rgba(5,6,12,.86)"; ctx.fillRect(plotW - w - 2, Math.round(g.y - 7), w, 13);
+    ctx.fillStyle = g.keys.some((k) => k === "PDH" || k === "PDL") ? COL.level : COL.levelSoft;
+    ctx.fillText(g.text, plotW - 6, g.y + .5);
+  }
+  ctx.restore();
+  if (S.levelsDrawn) S.levelsDrawn.labels = labels.map((g) => ({ text:g.text, y:g.y }));
+}
 function drawLine(ctx, arr, first, last, X, Y, ink, width, dash) {
   ctx.save(); ctx.strokeStyle = ink; ctx.lineWidth = width; ctx.setLineDash(dash); ctx.lineJoin = "round";
   ctx.beginPath();
   let pen = false, prevDay = null;
   for (let i = first; i <= last; i++) {
-    const v = arr[i], day = etParts(S.bars[i].t).day;
+    const v = arr[i], day = sessionDay(S.bars[i].t, FUT);
     if (!Number.isFinite(v)) { pen = false; continue; }
     if (!pen || day !== prevDay) ctx.moveTo(X(i), Y(v)); else ctx.lineTo(X(i), Y(v));
     pen = true; prevDay = day;
@@ -831,9 +1045,10 @@ function readoutHtml(b, ix, hovering) {
     if (!Number.isFinite(a) && etParts(b.t).min >= 960) {
       for (let j = ix - 1; j >= 0 && etParts(S.bars[j].t).day === etParts(b.t).day; j--) if (Number.isFinite(S.vw930[j])) { a = S.vw930[j]; after = " (16:00)"; break; }
     }
-    const c = S.vw400[ix];
-    html += "<br>" + '<span class="k">VWAP 09:30</span> <span class="vw">' + fmtVwap(a) + after + "</span> " +
-      '<span class="k">VWAP 04:00</span> <span class="vw">' + fmtVwap(c) + "</span>";
+    const c = S.vwMain[ix], up = S.vwUp[ix], lo = S.vwLo[ix];
+    html += "<br>" + '<span class="k">VWAP ' + (FUT ? "18:00" : "04:00") + '</span> <span class="vw">' + fmtVwap(c) + "</span> " +
+      '<span class="k">band</span> <span class="vw">' + fmtVwap(up) + " / " + fmtVwap(lo) + "</span> " +
+      '<span class="k">VWAP 09:30</span> <span class="vw">' + fmtVwap(a) + after + "</span>";
   }
   return html;
 }
@@ -876,24 +1091,30 @@ function paintStrip() {
     px.dataset.day = pct == null ? "" : pct >= 0 ? "up" : "down";
   } else { px.textContent = ""; px.dataset.day = ""; }
   const st = el("state"), now = Date.now(), last = lastCompleted(S.bars);
-  const html = stateText(now, last, q, document.body.clientWidth);
+  const html = stateText(now, last, q, document.body.clientWidth, FUT, S.readFails + (S.quoteFails >= 3 ? 2 : 0));
   if (st.innerHTML !== html.text) st.innerHTML = html.text;
   st.dataset.late = html.late ? "1" : "0";
+  /* W5: never a frozen chart that looks live - stale or not answering, the strip says so in red and the chart steps back */
+  st.dataset.level = html.level; area.dataset.level = html.level; S.stateLevel = html.level;
 }
 /* THE AGE OF THE LAST BAR, always on the strip: which bar is the newest completed one and how long ago it closed (the bar
    still forming is the live price's, see LIVE). Narrow slots keep the age and drop the words around it. */
-function stateText(now, last, q, width) {
-  if (S.loading) return { text:"loading", late:false };
-  if (!last) return { text:S.error ? "no bars" : "", late:false };
-  const e = etParts(last.t), open = inSession(now);
+/* W5 - the levels: ok; late (amber) - in session, the newest bar more than one interval and 90 s overdue; stale (red) - more than
+   three intervals and 10 minutes overdue; down (red) - two reads in a row got no answer ("no reply · retrying"). */
+function stateText(now, last, q, width, fut, fails) {
+  if (S.loading) return { text:"loading", late:false, level:"ok" };
+  if (!last) return { text:S.error ? (fails >= 2 || !S.errorNamed ? "<b>no reply</b> · retrying" : "no bars") : "", late:!!S.error, level:S.error ? "down" : "ok" };
+  const e = etParts(last.t), open = inSession(now, fut);
   const label = TF.daily ? e.date + " " + MON[e.month - 1] : e.hhmm;
   const age = TF.daily ? null : now - (last.t + TF.ms);
-  const late = !TF.daily && open && age > TF.ms + 90000;
-  const head = open ? "<b>live</b>" : "<b>closed</b>";
-  if (width < 640) return { text:head + " · bar " + label + (age == null ? "" : " · " + ageText(age)), late };
-  let text = head + (width >= 900 ? " · whole tape" : "") + " · last bar " + label + (age == null ? "" : " · closed " + ageText(age) + " ago");
+  const stale = !TF.daily && open && age > 3 * TF.ms + 600000;
+  const level = fails >= 2 ? "down" : stale ? "stale" : (!TF.daily && open && age > TF.ms + 90000) || fails === 1 ? "late" : "ok";
+  const late = level !== "ok";
+  const head = level === "down" ? "<b>no reply</b> · retrying" : level === "stale" ? "<b>stale</b>" : open ? "<b>live</b>" : "<b>closed</b>";
+  if (width < 640) return { text:head + " · bar " + label + (age == null ? "" : " · " + ageText(age)), late, level };
+  let text = head + (width >= 900 ? (fut ? " · CME session 18:00" : " · whole tape") : "") + " · last bar " + label + (age == null ? "" : " · closed " + ageText(age) + " ago");
   if (width >= 900 && q && Number.isFinite(q.at)) text += " · price " + ageText(now - q.at) + " old";
-  return { text, late };
+  return { text, late, level };
 }
 function showMsg(text) { const m = el("msg"); if (text) { m.textContent = text; m.hidden = false; } else m.hidden = true; }
 
@@ -989,6 +1210,8 @@ window.SC_LIVE = Object.freeze({
   snapshot: () => ({ symbol:SYMBOL, tf:TF.key, n:N, bare:BARE, clouds:CLOUDS_ON, loading:S.loading, error:S.error,
     bars:S.bars.map((b) => Object.assign({}, b)), quote:S.quote && Object.assign({}, S.quote), prevClose:S.prevClose,
     vw930:S.vw930.slice(), vw400:S.vw400.slice(), tags:(S.tags || []).slice(), cloudLabels:S.cloudLabels || null,
+    fut:FUT, vwMain:S.vwMain.slice(), vwUp:S.vwUp.slice(), vwLo:S.vwLo.slice(), levels:S.levels, levelsDrawn:S.levelsDrawn || null,
+    cloudToday:S.cloudToday && Object.assign({}, S.cloudToday), readFails:S.readFails, quoteFails:S.quoteFails, level:S.stateLevel || null,
     cloudRows:S.cloudRows ? S.cloudRows.length : 0, forming:formingNow(), plot:S.plot && { first:S.plot.first, last:S.plot.last,
       right:S.plot.right, spacing:S.plot.spacing, plotW:S.plot.plotW, plotH:S.plot.plotH, yLo:S.plot.yLo, yHi:S.plot.yHi },
     readout:el("readout").textContent, readoutIx:+el("readout").dataset.ix, state:el("state").textContent,
