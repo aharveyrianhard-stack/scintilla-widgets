@@ -198,6 +198,7 @@ body:not(.x-more) #xMore{ display:none; }
     <button class="btn xs xs-row" type="button" data-v="3" title="the calm pace: 3 pixels a second" hidden>1×</button>
     <button class="btn xs xs-row" type="button" data-v="6" title="twice the calm pace: 6 pixels a second" hidden>2×</button>
     <button class="btn xs xs-row" type="button" data-v="12" title="four times the calm pace: 12 pixels a second" hidden>4×</button>
+    <button class="btn xs xs-row" type="button" data-v="24" title="eight times the calm pace: 24 pixels a second" hidden>8×</button>
     <span class="brk"></span>
     <span class="btn x-sec" id="bXBack" style="display:none" title="rewind the feed 30 seconds">−30s</span>
     <button class="btn pair x-sec" id="bPair" type="button" style="display:none">iPad link</button>
@@ -1130,7 +1131,19 @@ function paintXRefresh() {
    (the bridge scrolls the real X page); the pane only asks for one of three and shows which is on -
    the source says so in every crop. The row stays hidden until a source that reports its pace is
    feeding the pane, so an older bridge shows nothing it cannot do. The iPad mirror never asks. */
-const X_SPEED_CHOICES = [3, 6, 12];
+const X_SPEED_CHOICES = [3, 6, 12, 24];
+/* X5 (22 Oct). Alan, 22 Oct: "let's make the X scrolling faster. Please." 8× (24 px/s, inside the bridge's own 30 px/s
+   cap, so no bridge change) joins the row, and the first pace a source reports in this browser after this build is moved
+   up to 8× once if it is slower; after that whatever he picks stands. The iPad mirror never asks. */
+const X_FASTER_PACE = 24, X_FASTER_KEY = "station.x.pace.8x";
+let xFasterAsked = false;
+function nudgeXFaster(speed) {
+  if (xFasterAsked || REMOTE_MODE || !(Number(speed) > 0)) return;
+  xFasterAsked = true;
+  let done = null;
+  try { done = localStorage.getItem(X_FASTER_KEY); localStorage.setItem(X_FASTER_KEY, "1"); } catch (_) {}
+  if (!done && Number(speed) < X_FASTER_PACE) postXFloat("speed", X_FASTER_PACE);
+}
 function xSpeedChoice(value) {
   const speed = Number(value);
   return X_SPEED_CHOICES.includes(speed) ? speed : null;
@@ -1639,6 +1652,7 @@ window.addEventListener("message", (event) => {
     stationLastCropAt = Date.now();
     noteXPageUp(xfloatCrop?.pageUp);
     paintXSpeed(xfloatCrop?.speedPxPerSecond);
+    nudgeXFaster(xfloatCrop?.speedPxPerSecond);
     const paused = Boolean(xfloatCrop?.paused);
     showStationSource(xfloatCrop?.source);
     if (!stationFault && !stationWholeFrameWhy) showStationState(paused ? "paused" : "live", "on");
