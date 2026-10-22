@@ -151,6 +151,10 @@ test("W2 · the series: the provider's rows oldest first, the newest bars replac
   assert.equal(A.lastCompleted(merged).t, 4);
   assert.equal(A.mergeTail(series, [{ t:5, c:5 }], 3).length, 3, "the series is bounded");
   assert.match(fn(live, "pollBars"), /const tail = await readBars\(TF\.daily \? 5 : 24\);/, "a poll reads the newest bars only");
+  assert.match(fn(live, "pollBars"), /if \(S\.bars\.length < 2\) \{ loadAll\(\); return; \}/, "after a failed history read, the whole history again - never a 24-bar chart");
+  assert.match(fn(live, "loadAll"), /readQuote\(\);\n  if \(CLOUDS_ON\) readClouds\(\);\n  scheduleBars\(\);/, "a failed load still schedules the next turn");
+  assert.match(fn(live, "scheduleBars"), /S\.bars\.length < 2 \? \{ at:Date\.now\(\) \+ \(S\.errorNamed \? POLL\.idleMs : POLL\.retryMs\), why:"reload" \}/,
+    "a transport failure again in 15 s, a named absence in 5 minutes");
 });
 
 test("W2 · the bar still forming, chart-v1's rule: a live price later than the last completed bar's period, never inside it, never in the future", () => {

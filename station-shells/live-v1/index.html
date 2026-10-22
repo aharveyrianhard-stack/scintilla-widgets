@@ -322,7 +322,7 @@ async function loadAll() {
   } catch (error) {
     if (gen !== S.gen) return;
     note("bars", false, { error:String(error && (error.scAbsence || error.message) || error).slice(0, 160) });
-    S.loading = false; S.error = String(error && (error.scAbsence || error.message) || error);
+    S.loading = false; S.error = String(error && (error.scAbsence || error.message) || error); S.errorNamed = !!(error && error.scAbsence);
     showMsg(SYMBOL + " · " + TF.key + " · " + S.error);
   }
   readQuote();
@@ -334,11 +334,16 @@ let barTimer = 0;
 function scheduleBars() {
   clearTimeout(barTimer);
   const last = lastCompleted(S.bars), newest = S.bars[S.bars.length - 1];
-  const plan = nextBarRead(Date.now(), TF.ms, last ? last.t : NaN, S.tries, S.idle, !!TF.daily, !!(newest && newest.forming));
+  /* no history yet: a transport failure is tried again in 15 s; an absence the API named, in 5 minutes */
+  const plan = S.bars.length < 2 ? { at:Date.now() + (S.errorNamed ? POLL.idleMs : POLL.retryMs), why:"reload" }
+    : nextBarRead(Date.now(), TF.ms, last ? last.t : NaN, S.tries, S.idle, !!TF.daily, !!(newest && newest.forming));
   S.nextRead = plan;
   barTimer = setTimeout(pollBars, Math.max(1000, plan.at - Date.now()));
 }
 async function pollBars() {
+  /* the history read failed (a transport error, a named absence): the next turn reads the whole history again, never a
+     24-bar tail standing in for the chart */
+  if (S.bars.length < 2) { loadAll(); return; }
   const gen = S.gen, before = lastCompleted(S.bars);
   try {
     /* the newest bars only: enough to cover a missed close or two and any bar the provider corrected */
