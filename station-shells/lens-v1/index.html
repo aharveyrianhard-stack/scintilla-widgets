@@ -180,7 +180,14 @@ async function readQuotes() {
     S.quotesAt = Date.now(); paintCells(false); drawAll();
   } catch (_) {} finally { S.busyQ = false; }
 }
-const norm = (b) => { const t = typeof b.t === "number" ? (b.t > 1e12 ? b.t : b.t * 1000) : Date.parse(b.t || b.time || b.date); return { t, o: +b.o, h: +b.h, l: +b.l, c: +b.c, v: +(b.v || 0), session: 0 }; };
+/* the provider hands rows as { timestamp (seconds), open, high, low, close, volume } (providerCandleRows); a raw payload's
+   series ({ t (ms), o, h, l, c, v }) is read too */
+const norm = (b) => {
+  const raw = b.t != null ? b.t : b.timestamp != null ? b.timestamp : (b.time || b.date);
+  const t = typeof raw === "number" ? (raw > 1e12 ? raw : raw * 1000) : Date.parse(raw);
+  const n = (a, c) => +(a != null ? a : c);
+  return { t, o: n(b.o, b.open), h: n(b.h, b.high), l: n(b.l, b.low), c: n(b.c, b.close), v: n(b.v, b.volume) || 0, session: 0 };
+};
 async function readBars(force) {
   const P = window.SC_PROVIDER; const list = names(); if (!P || !list.length || S.busyB || document.hidden) return;
   S.busyB = true;
@@ -189,7 +196,7 @@ async function readBars(force) {
     await Promise.all(want.map(async (t) => {
       try {
         const payload = await P.marketCandles(t, LENS_TF, { limit: LENS_BARS });
-        const rows = ((payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0).slice(-LENS_BARS);
+        const rows = (Array.isArray(payload) ? payload : (payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0).slice(-LENS_BARS);
         S.bars.set(t, rows.length ? { bars: rows, at: Date.now() } : { absence: "no daily bars", at: Date.now() });
       } catch (e) { S.bars.set(t, { absence: String((e && e.message) || "not served").slice(0, 40).toLowerCase(), at: Date.now() }); }
       const d = el("set").querySelector('.lens[data-t="' + t + '"]'); if (d) drawOne(d);

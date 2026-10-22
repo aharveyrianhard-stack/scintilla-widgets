@@ -59,7 +59,11 @@ test('the dock loses no control, no id and no accessible name', () => {
   /* 21 Oct (Y9): two more deliberate controls, beside CHARTS ONLY - WALL · SIMPLE, the wall mode remembered per
      machine (Alan, on the MacBook: "the YouTube at the bottom and two charts that I change around manually"). */
   assert.ok(after.has('wallBtn') && after.has('simpleBtn'), 'WALL · SIMPLE are the deliberate new wall-mode controls')
-  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 14)
+  /* 22 Oct (W1): two more deliberate controls beside them - WIDGETS, the third wall mode (two TradingView charts with
+     VWAP, the meter, the lens set, YouTube with its grid beside the player, one taller tape, X; no rotation) and its
+     A · B arrangement button (Alan: "just two trading view, like, widget charts. With VWAP"). */
+  assert.ok(after.has('widgetsBtn') && after.has('widgetsArrBtn'), 'WIDGETS and A · B are the deliberate new wall-mode controls')
+  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 16)
 })
 
 test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {

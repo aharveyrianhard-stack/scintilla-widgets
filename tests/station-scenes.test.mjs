@@ -1168,6 +1168,7 @@ test("the deck puts the lens on the slot's URL, and a page change turns it on or
     SLOT_STACKS: Array(8).fill(""), SLOT_RANGES: ["3D", "", "", "", "", "", "", ""], SLOT_BARS: Array(8).fill(0),
     SLOT_BUBBLES: ["30m:3", "", "", "", "", "", "", ""] };
   bindings.chartSrc = functionFromDeck("chartSrc", bindings);
+  bindings.widgetsOn = () => false;   /* W1 (22 Oct): on the WIDGETS wall slots 1 and 2 are TradingView; these pages are the WALL's */
   const paneChartSrc = functionFromDeck("paneChartSrc", bindings);
   assert.match(paneChartSrc("MU", 0), /&range=3D&[^]*&bubble=30m%3A3$/);
   assert.doesNotMatch(paneChartSrc("MU", 1), /bubble=/, "a slot that did not ask carries nothing");

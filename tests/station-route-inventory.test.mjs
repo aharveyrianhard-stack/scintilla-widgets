@@ -223,8 +223,9 @@ test("the explicit provider client really is loaded by the pages the table claim
     try { return fs.readFileSync(full, "utf8").includes('script src="/_provider/provider.js"'); }
     catch { return false; }
   });
-  assert.equal(loaders.length, 20, "the dependency table claims 20 provider-client loaders by script tag");
-  assert.match(inventory, /`\/_provider\/provider\.js` \| 20 pages by script tag/);
+  /* W1 (22 Oct): 21 - the lens set (station-shells/lens-v1) loads it too */
+  assert.equal(loaders.length, 21, "the dependency table claims 21 provider-client loaders by script tag");
+  assert.match(inventory, /`\/_provider\/provider\.js` \| 21 pages by script tag/);
 });
 
 test("the deploy config carries exactly the documented Hub entry — and nothing else", () => {
