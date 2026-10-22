@@ -27,7 +27,8 @@ test("S12 · the X bar: labels keep their size, the secondary controls fold behi
   assert.match(xshell, /#xfState, #xfSource, #bar > \.btn, #bar > \.k\{ flex:none; \}/, "nothing in the bar shrinks under a neighbour");
   assert.match(xshell, /#xfSource\{ flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; max-width:38%; \}/, "the source name shortens, never overlaps");
   assert.match(xshell, /body:not\(\.x-more\) \.x-sec\{ display:none !important; \}/);
-  for (const id of ["bXBack", "bPair", "bPip", "xfSource"]) assert.match(xshell, new RegExp('id="' + id + '"[^>]*class="[^"]*x-sec|class="[^"]*x-sec[^"]*"[^>]*id="' + id + '"'), id + " is secondary");
+  /* X4 (15 Oct) put −30s (bXBack) back on the bar, in the place of the "60s" label: tests/station-x4-rewind-on-the-bar-20261015.test.mjs */
+  for (const id of ["bPair", "bPip", "xfSource"]) assert.match(xshell, new RegExp('id="' + id + '"[^>]*class="[^"]*x-sec|class="[^"]*x-sec[^"]*"[^>]*id="' + id + '"'), id + " is secondary");
   assert.match(xshell, /for \(const id of \["bXList", "bXNotify", "bXBack", "bXRefresh", "bXMore"\]\)/, "⋯ appears with the live controls");
   assert.match(xshell, /if \(event\.key === "Escape" && document\.body\.classList\.contains\("x-more"\)\) setXMore\(false\);/);
 });

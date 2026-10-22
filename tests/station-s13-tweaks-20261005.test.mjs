@@ -114,8 +114,9 @@ test("S13 · the X pane keeps its last picture while the page turns, and the X b
   const xbar = xshell.slice(xshell.indexOf('<div id="bar">'), xshell.indexOf('<div id="body">'));
   for (const id of ["bXList", "bXNotify", "bXRefresh"]) assert.match(xbar, new RegExp('<button class="btn icon" id="' + id + '"[^>]*title="[^"]+"[^>]*aria-label="[^"]+">\\s*<svg'), id + " is an icon with a tooltip");
   assert.doesNotMatch(xbar, />refresh</, "the word is gone from the bar");
-  assert.doesNotMatch(xbar, /id="bXBack"|id="bPair"|id="bPip"|id="xfSource"/, "the secondary controls left the bar");
-  assert.match(xshell, /<div id="xMore" role="group" aria-label="more X controls">[\s\S]*?id="bXBack"[\s\S]*?id="bPair"[\s\S]*?id="bPip"[\s\S]*?id="xfSource"[\s\S]*?<\/div>/, "they are in the ⋯ panel");
+  /* X4 (15 Oct) put −30s (bXBack) back on the bar, in the place of the "60s" label: tests/station-x4-rewind-on-the-bar-20261015.test.mjs */
+  assert.doesNotMatch(xbar, /id="bPair"|id="bPip"|id="xfSource"/, "the secondary controls left the bar");
+  assert.match(xshell, /<div id="xMore" role="group" aria-label="more X controls">[\s\S]*?id="bPair"[\s\S]*?id="bPip"[\s\S]*?id="xfSource"[\s\S]*?<\/div>/, "they are in the ⋯ panel");
   assert.match(xshell, /body:not\(\.x-more\) #xMore\{ display:none; \}/);
 });
 
