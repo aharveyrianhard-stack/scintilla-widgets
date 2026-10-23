@@ -1,0 +1,42 @@
+// W10: the picture. Idle and playing at 2560 x 1440 and 1920 x 1080 (the same boxes), the tapes, the volume panel in session (a recorded
+// heartbeat) and closed (live), with the sweep, the tape-smoothness and the grid-reload numbers. Real pixels from ../shots; facts from ../measure.
+//   node picture.mjs -> ../W10-WALL.png
+import fs from "node:fs"; import path from "node:path"; import { fileURLToPath } from "node:url";
+import { chromium, EXE } from "../../../20261001/station-layout-workshop/harness/rig.mjs";
+const HERE = path.dirname(fileURLToPath(import.meta.url)), W10 = path.resolve(HERE, "..");
+const m = JSON.parse(fs.readFileSync(path.join(W10, "measure", "w10-all.json"), "utf8"));
+const img = (f) => fs.existsSync(path.join(W10, "shots", f)) ? "data:image/png;base64," + fs.readFileSync(path.join(W10, "shots", f)).toString("base64") : "";
+const PW = 1150;
+const panel = (file, W, H, cap, pw = PW) => { const k = pw / W; return `<div class="p"><div class="cap">${cap}</div><div class="frame" style="width:${pw}px;height:${Math.round(H * k)}px;background:url(${img(file)}) no-repeat;background-size:${pw}px ${Math.round(H * k)}px"></div></div>`; };
+const v = (k) => m.video.find((x) => x.screen === k);
+const px = (b) => b ? b.w + " × " + b.h : "—";
+const sh = (b) => Object.entries(b.shares).map(([k, s]) => k + " " + s + " %").join(" · ");
+const row = (key, W, H) => { const w = v(key); return `<div class="row">${panel(`w10-idle-${key}.png`, W, H, `<b>${key}${key === "1920x1080" ? " (his Apple TV)" : ""}, idle</b> · X ${px(w.idle.x)} · charts ${px(w.idle.c1)} each · the feed column + player ${px(w.idle.video)} (the grid ${w.shell0.col} wide on the left, always) · lens grid ${px(w.idle.lens)}, ${w.idle.rows} rows · volume ${px(w.idle.volume)} · tape ${px(w.idle.tapes)} · ${sh(w.idle)}`)}${panel(`w10-playing-${key}.png`, W, H, `<b>the same, a video playing, then the grid reloaded twice</b> · every box in the same place: <b>${w.sameBoxesPlaying ? "yes" : "NO"}</b> · the player's iframe the same node through both reloads: ${w.reloads.map((r) => r.sameIframe).join(", ")} · the video (${w.play && w.play.cur}) still the current one: ${w.reloads.map((r) => r.cur === w.play.cur).join(", ")} · the grid repainted with ${w.reloads.map((r) => r.cards).join(" / ")} cards`)}</div>`; };
+const sw = m.sweep, worst = Object.entries(sw.linearity).sort((a, b) => b[1].maxResidualPx - a[1].maxResidualPx)[0];
+const tp = m.tapes; const t2 = JSON.parse(fs.readFileSync(path.join(W10, "measure", "w10-tapes2.json"), "utf8")).tapes2;
+const mg = (x) => x ? `${x.frames} frames in 30 s; per frame median ${x.step.median} px, max ${x.step.max} px, ${x.step.over2x} steps over twice the median, ${x.step.negative} backwards; per unit of time (the stalled frame and its catch-up frame taken together) ${x.merged.speedMedian} px/ms median, over the ${x.merged.longest.length} stalls ${x.merged.longest.map((l) => l[2]).join(" / ")} px/ms` : "not sampled";
+const stalls = (t2.longTasks || []).filter((l) => l.ms).map((l) => l.ms + " ms " + (l.where.includes("t=SPY") ? "SPY" : l.where.includes("t=QQQ") ? "QQQ" : l.where)).join(", ");
+const html = `<!doctype html><meta charset="utf-8"><style>
+body{margin:0;background:#0A0A0F;color:#F2F2F8;font:16px "SF Mono",Menlo,monospace;width:2440px;padding:28px 34px;box-sizing:border-box}
+h1{font-size:30px;margin:0 0 4px;letter-spacing:.02em} .sub{color:#9A9AB6;font-size:16px;margin-bottom:22px;line-height:1.4}
+.row{display:flex;gap:34px;align-items:flex-start;margin-bottom:26px;flex-wrap:wrap} .cap{color:#00D4FF;font-size:15px;margin:0 0 8px;letter-spacing:.04em;max-width:${PW}px;line-height:1.4}
+.cap b{color:#F2F2F8;font-weight:600} .frame{position:relative;border:1px solid #1A1A2A}
+.facts{display:grid;grid-template-columns:200px 1fr;gap:10px 18px;font-size:14.5px;line-height:1.45;margin-top:6px;max-width:2360px} .facts .k{color:#00D4FF;letter-spacing:.06em;text-transform:uppercase;font-size:13px;padding-top:2px}
+</style><body>
+<h1>W10 · one fixed wall</h1>
+<div class="sub">nothing moves when a video plays or the window resizes · the YouTube grid a permanent feed column · smooth tapes · the volume panel with the research graph back, lot size big, no descriptions · RVol as a sideways thermometer · measured headless on the real deck, ${m.at.slice(0, 16).replace("T", " ")} UTC · branch station/w10-fixed-wall-20261023 on ead5387</div>
+${row("2560x1440", 2560, 1440)}
+${row("1920x1080", 1920, 1080)}
+<div class="row">${panel("w10-tape-2560x1440.png", 1400, 66, "<b>the FAVORITES tape</b> · the RVol tube (the volume panel's, flat) just above the line", 1150)}${fs.existsSync(path.join(W10, "shots", "w10-tape-lens-macro.png")) ? panel("w10-tape-lens-macro.png", 1400, 66, "<b>the lens tape running</b> (MACRO) · bars inset, a clear gap, the tube above each", 1150) : ""}${panel("w10-lens-2560x1440.png", v("2560x1440").idle.lens.w, v("2560x1440").idle.lens.h, "<b>the lens grid</b> · the bars inset with a clear gap between neighbours, the RVol tube above each chart", 1150)}</div>
+<div class="row">${panel("w10-volume-recorded.png", 435, 460, `<b>the volume panel in session</b> (a recorded heartbeat, 22 Oct 18:01 ET - after hours with size and flow) · ${m.volume_recorded.reading.num} with the tube · 2 MIN buy ${m.volume_recorded.reading.buy} / sell ${m.volume_recorded.reading.sell} · LOT SIZE ${m.volume_recorded.reading.tsize.replace(/\\n/g, " ")} ${m.volume_recorded.reading.sizeAt} · block ${m.volume_recorded.reading.block.replace(/\\n/g, " ")} · badges ${m.volume_recorded.reading.badges.join(", ")} · the graph: the line, the lines, the dots, the pulsing dot at NOW (${m.volume_recorded.reading.graph.circles} circles) · descriptions on the panel: ${m.volume_recorded.reading.descriptions}`, 435)}${panel("w10-volume-live.png", 435, 460, `<b>the same, live now (${m.volume_live.reading.state})</b> · lot size ${m.volume_live.reading.tsize.replace(/\\n/g, " ")} ${m.volume_live.reading.sizeAt}`, 435)}</div>
+<div class="facts">
+<div class="k">the resize sweep</div><div>one window 1280 × 720 → 2560 × 1440 in 12 steps, then 1920 × 1080: the boxes keep one order in every step (${sw.sameOrder}); every box edge against the window width fits a straight line - the largest residual of any edge is ${worst[1].maxResidualPx} px (${worst[0]}). On the Apple TV's 1920 × 1080 the charts are ${px(sw.appleTv.c1)} each.</div>
+<div class="k">the tapes</div><div><b>FAVORITES:</b> ${mg(t2.favorites)}. <b>the lens tape</b> (on MACRO, 12 names, so it runs): ${mg(t2.lens)}. <b>Where the jump comes from:</b> every oversize step is a stalled frame followed by a catch-up frame under 1 ms later; the stalls are long tasks in the two live-v1 chart frames (${stalls}), about one every 6 s per chart, which block the shared main thread. Both tracks are will-change:transform, so the motion itself is the compositor's and uniform in time - the tape covers the same distance across a stall as it would have without it. What was fixed on the tapes themselves: the lens tape was rebuilt on every five-minute list read and every track restarted on every resize observation (a visible jump back to the start each time), and a changed cell width restarted FAVORITES; now a list that comes back the same is left alone (setKey ${t2.lensState && t2.lensState.setKey}), a same run is never restarted (fit ${t2.lensState && t2.lensState.tracks.map((t) => t.fit + " " + t.duration).join(", ")}), and the cells are fixed-width. If the TV still hitches, the 130-213 ms tasks in live-v1 are the next thing to look at (W11's file, not touched here).</div>
+<div class="k">the grid and the player</div><div>the grid is #grid, the player is #stage; the grid's refresh repaints #grid only. Measured: the player's iframe is the same DOM node after two refreshes and the current video is unchanged. The headless shell never plays YouTube (the player sits buffering at 0:00 in every run since Y9), so the clock itself could not be watched here; the identity is the proof the rig can give.</div>
+</div>
+</body>`;
+const browser = await chromium.launch({ executablePath: EXE, headless: true, args: ["--no-sandbox"] });
+const page = await browser.newPage({ viewport: { width: 2440, height: 1200 }, deviceScaleFactor: 1 });
+await page.setContent(html); await page.waitForTimeout(600);
+await page.screenshot({ path: path.join(W10, "W10-WALL.png"), fullPage: true });
+await browser.close(); console.log("wrote", path.join(W10, "W10-WALL.png"));
