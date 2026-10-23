@@ -350,9 +350,13 @@ function drawOne(d) {
 }
 function drawAll() { for (const d of el("set").querySelectorAll(".lens")) drawOne(d); }
 /* ---- the reads ---- */
+/* W7: the RVol read covers the lenses' names and the names the deck's tape asked for (SCINTILLA_RVOL_WANT) - the deck keeps only non-price
+   reads of its own, so the tape's RVol comes back from here (SCINTILLA_RVOL) */
+let WANTED = [];
 async function readRvol() {
-  const list = names().filter((t) => !NUMBER_LENS[t]); if (!list.length || S.busyR) return; S.busyR = true;
-  try { const rows = await pgRead("board_volume?select=ticker,rvol_at_time&ticker=in.(" + list.map(encodeURIComponent).join(",") + ")"); for (const r of rows || []) { const t = CLEAN(r && r.ticker); if (t && r.rvol_at_time != null) S.rvol.set(t, +r.rvol_at_time); } S.rvolAt = Date.now(); paintCells(false); }
+  const list = Array.from(new Set(names().filter((t) => !NUMBER_LENS[t]).concat(WANTED))); if (!list.length || S.busyR) return; S.busyR = true;
+  try { const rows = await pgRead("board_volume?select=ticker,rvol_at_time&ticker=in.(" + list.map(encodeURIComponent).join(",") + ")"); for (const r of rows || []) { const t = CLEAN(r && r.ticker); if (t && r.rvol_at_time != null) S.rvol.set(t, +r.rvol_at_time); } S.rvolAt = Date.now(); paintCells(false);
+    if (WANTED.length && window.parent !== window) { try { parent.postMessage({ type:"SCINTILLA_RVOL", rvol:Object.fromEntries(WANTED.filter((t) => S.rvol.has(t)).map((t) => [t, S.rvol.get(t)])) }, location.origin); } catch (_) {} } }
   catch (_) {} finally { S.busyR = false; }
 }
 async function readBreadth() {
@@ -423,7 +427,11 @@ async function tick(now) {
 }
 /* for the harness and the strip: what the tape holds */
 /* W7: the deck says how many rows its band holds */
-addEventListener("message", (e) => { if (e.origin !== location.origin || !e.data || e.data.type !== "SCINTILLA_LENS_ROWS") return; const r = Math.max(1, Math.min(6, +e.data.rows || 1)); if (r !== ROWS) { ROWS = r; paintSet(); } });
+addEventListener("message", (e) => {
+  if (e.origin !== location.origin || !e.data) return;
+  if (e.data.type === "SCINTILLA_LENS_ROWS") { const r = Math.max(1, Math.min(6, +e.data.rows || 1)); if (r !== ROWS) { ROWS = r; paintSet(); } return; }
+  if (e.data.type === "SCINTILLA_RVOL_WANT") { WANTED = Array.from(new Set((e.data.names || []).map(CLEAN).filter(Boolean))).slice(0, 200); S.rvolAt = 0; readRvol(); }
+});
 window.__lens = { style: () => STYLE, rows: () => ROWS, rvol: () => Object.fromEntries(S.rvol), newest: () => Object.fromEntries([...S.bars].map(([t, e]) => [t, e.bars && e.bars.length ? e.bars[e.bars.length - 1].t : null])), quotes: () => Object.fromEntries([...S.quotes].map(([t, q]) => [t, q.price])), at: () => ({ bars: S.barsAt, quotes: S.quotesAt, lastCloseRead }), list: () => LIST, names, tf: LENS_TF, bars: LENS_BARS };
 /* the lenses re-fit to their box (the deck resizes the pane) */
 let raf = 0; const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; drawAll(); if (TAPE) runTape(); }); };

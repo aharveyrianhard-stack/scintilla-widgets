@@ -2294,16 +2294,15 @@ async function refreshTapeSparks() {
     }
   } finally { TAPES.sparksBusy = false; }
 }
-/* W7: the Hub's RVol for the names on the tape - board_volume.rvol_at_time, one GET a minute, the same door the deck reads lists through */
-async function refreshTapeRvol() {
-  if (!tapesLive() || document.hidden || TAPES.rvolBusy || !widgetsOn()) return;
+/* W7: the Hub's RVol for the names on the tape. THE WALL KEEPS ONLY NON-PRICE READS (the one-source rule): the deck does not read
+   board_volume itself - it asks the lens frame, which reads the Hub's RVol for its own names already, to read these names too and hand
+   the numbers back (SCINTILLA_RVOL_WANT → SCINTILLA_RVOL), once a minute. */
+function refreshTapeRvol() {
+  if (!tapesLive() || document.hidden || !widgetsOn()) return;
   const names = tapeNames(); if (!names.length) return;
-  TAPES.rvolBusy = true;
-  try {
-    const rows = await pg("board_volume?select=ticker,rvol_at_time&ticker=in.(" + names.map(encodeURIComponent).join(",") + ")");
-    for (const r of rows || []) { const t = CLEAN(r && r.ticker); if (t && r.rvol_at_time != null) TAPES.rvol.set(t, +r.rvol_at_time); }
-    TAPES.rvolAt = Date.now(); paintTapeCells(false);
-  } catch (_) {} finally { TAPES.rvolBusy = false; }
+  const l = el("wgLensTape"), f = l && l.querySelector("iframe"); if (!f) return;
+  TAPES.rvolAt = Date.now();
+  try { f.contentWindow.postMessage({ type:"SCINTILLA_RVOL_WANT", names }, location.origin); } catch (_) {}
 }
 function tapesTick() {
   if (!tapesLive() || document.hidden) return;
@@ -3029,6 +3028,12 @@ window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
   /* W1: a TradingView slot says which interval it is on (chosen on its strip): remembered per chart on this machine, and
      the slot's address kept in step so a later re-point does not undo it. The symbol is the deck's own box's business. */
+  /* W7: the lens frame hands back the Hub's RVol for the names the tape asked for */
+  if (event.data?.type === "SCINTILLA_RVOL") {
+    const map = event.data.rvol || {};
+    for (const [t, v] of Object.entries(map)) { const c = CLEAN(t); if (c && Number.isFinite(+v)) TAPES.rvol.set(c, +v); }
+    paintTapeCells(false); return;
+  }
   /* W7: a chart's own ticker box (live-v1 with sync=1, tv-v1's strip): the slot takes the name as the badge door does - the badge, the box, the
      memory, the quote; the frame already shows it, so it is not re-pointed */
   if (event.data?.type === "SCINTILLA_CHART_TICKER") {
@@ -3555,7 +3560,7 @@ function setWidgetsClouds(on) {
 function mountWidgets() {
   const v = el("wgVolume"), l = el("wgLensTape");
   if (v && !v.querySelector("iframe")) { const f = document.createElement("iframe"); f.src = WIDGETS_VOLUME_SHELL + "/?shell=v1&view=" + encodeURIComponent(VIEW); f.loading = "lazy"; f.title = "volume graph"; v.querySelector(".body").appendChild(f); }
-  if (l && !l.querySelector("iframe")) { const f = document.createElement("iframe"); f.src = WIDGETS_LENS_SHELL + "/?shell=v1&mode=tape&view=" + encodeURIComponent(VIEW); f.loading = "lazy"; f.title = "context lens tape"; l.querySelector(".body").appendChild(f); }
+  if (l && !l.querySelector("iframe")) { const f = document.createElement("iframe"); const rows = WIDGETS_NOW && WIDGETS_NOW.slot && WIDGETS_NOW.slot.lensTape ? WIDGETS_NOW.slot.lensTape.rows : 1; f.src = WIDGETS_LENS_SHELL + "/?shell=v1&mode=tape&rows=" + rows + "&view=" + encodeURIComponent(VIEW); f.loading = "lazy"; f.title = "context lens tape"; l.querySelector(".body").appendChild(f); }
 }
 function placeWidgets(slot, plan) {
   const v = el("wgVolume"), l = el("wgLensTape");
@@ -3565,7 +3570,7 @@ function placeWidgets(slot, plan) {
   const put = (n, b) => { n.style.left = (plan.col + FLOOR_SEAM_PX + b.left) + "px"; n.style.top = b.top + "px"; n.style.width = b.w + "px"; n.style.height = b.h + "px"; };
   put(v, slot.volume); put(l, slot.lensTape);
   /* W7: the lens grid's rows follow the band; the FAVORITES tape starts at YouTube's right edge; the control row sits over the charts */
-  const lf = l.querySelector("iframe"); if (lf && slot.lensTape.rows && String(slot.lensTape.rows) !== lf.dataset.rows) { lf.dataset.rows = String(slot.lensTape.rows); try { lf.contentWindow.postMessage({ type:"SCINTILLA_LENS_ROWS", rows:slot.lensTape.rows }, location.origin); } catch (_) {} }
+  const lf = l.querySelector("iframe"); if (lf && slot.lensTape.rows) { try { lf.contentWindow.postMessage({ type:"SCINTILLA_LENS_ROWS", rows:slot.lensTape.rows }, location.origin); } catch (_) {} }   /* on every fit: the frame ignores a number it already has; a frame that has not loaded yet reads ?rows= */
   const grid = el("grid"); if (grid) grid.style.setProperty("--widgets-tape-left", (slot.tapeLeft != null ? slot.tapeLeft : plan.col + FLOOR_SEAM_PX) + "px");
   const ctl = el("wgCtl"); if (ctl) { ctl.style.left = (plan.col + FLOOR_SEAM_PX) + "px"; ctl.style.top = "0px"; ctl.style.width = plan.charts.w + "px"; }
   v.classList.toggle("tight", slot.volume.w < 260);

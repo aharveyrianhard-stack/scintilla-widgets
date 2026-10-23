@@ -44,7 +44,7 @@ test("W4 · the lenses are 5-minute and live: the latest 30 completed bars read 
   assert.match(lens, /window\.__lens = \{ style: \(\) => STYLE, rows: \(\) => ROWS, rvol: [^\n]*newest:/, "the harness reads what the tape holds (W7: the style, the rows, the RVol too)");
   assert.match(lens, /\.map\(norm\)\.filter\(\(b\) => Number\.isFinite\(b\.t\) && b\.o > 0 && b\.c > 0\)\.sort\(\(a, b\) => a\.t - b\.t\)\.slice\(-LENS_BARS\)/, "the provider's rows come newest first: sorted oldest first, so the last row is the newest bar");
   /* the deck: the tape shorter */
-  assert.match(deck, /WIDGETS_LENS_TAPE_PX = 120, WIDGETS_LENS_TAPE_NARROW_PX = 100, WIDGETS_LENS_TAPE_PLAYING_PX = 90/);
+  assert.match(deck, /WIDGETS_LENS_ROW_PX = 150/, "W7: restated - the lenses in rows of about 150 px");
 });
 
 test("W4 · MINE from the database (station_lists · mine), the tape opens on it, a visible '+ ticker · Enter' box writes there and × deletes there; MACRO is what trades overnight with plain names", () => {

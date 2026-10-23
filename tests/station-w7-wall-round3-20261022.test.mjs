@@ -34,12 +34,14 @@ test("W7 · the lens tape: bars by default with a LINE · BARS switch remembered
   const bars = grab(lens, /export function drawBars\([\s\S]*?\n\}/, "drawBars");
   assert.match(bars, /const b = bars\[i\], col = b\.c >= b\.o \? PALETTE\.bull : PALETTE\.bear/, "green up, red down, never grey");
   assert.match(lens, /body\.tape \.lens \.tk, body\.tape \.lens \.px\{ font-size:12px; \}/, "the ticker and the price at 12 px");
-  assert.match(lens, /if \(TAPE\) host = hosts\[i % ROWS\];/, "the names dealt round the rows"); assert.match(lens, /e\.data\.type !== "SCINTILLA_LENS_ROWS"/, "the deck says how many rows");
+  assert.match(lens, /if \(TAPE\) host = hosts\[i % ROWS\];/, "the names dealt round the rows"); assert.match(lens, /if \(e\.data\.type === "SCINTILLA_LENS_ROWS"\)/, "the deck says how many rows"); assert.match(deck, /mode=tape&rows=" \+ rows \+ "&view=/, "and on the address at mount");
   assert.match(lens, /board_volume\?select=ticker,rvol_at_time&ticker=in\.\(/, "the Hub's RVol per name"); assert.match(lens, /const RVOL_MS = 60000;/);
   assert.match(lens, /const DAILY_ONLY = Object\.freeze\(\{ PCC: true \}\);/, "the put/call ratio is daily at the API"); assert.match(lens, /const NUMBER_LENS = Object\.freeze\(\{ ADVDEC: true \}\);/, "advance/decline is a number lens from the volume feed's breadth");
   assert.doesNotMatch(lens, /indexNowLeaders|ESUSD" : "SPY/, "SPY and QQQ are never swapped for their futures");
   /* the deck: the tape's RVol */
-  assert.match(grab(deck, /async function refreshTapeRvol\([\s\S]*?\n\}/, "refreshTapeRvol"), /board_volume\?select=ticker,rvol_at_time&ticker=in\.\(/); assert.match(deck, /const TAPE_RVOL_MS = 60000;/);
+  assert.match(fn(deck, "refreshTapeRvol"), /postMessage\(\{ type:"SCINTILLA_RVOL_WANT", names \}, location\.origin\)/, "the deck asks the lens frame (it keeps only non-price reads)"); assert.match(deck, /const TAPE_RVOL_MS = 60000;/);
+  assert.match(deck, /if \(event\.data\?\.type === "SCINTILLA_RVOL"\) \{/, "and takes the numbers back"); assert.doesNotMatch(deck, /pg\("board_volume/, "the deck never reads board_volume itself");
+  assert.match(lens, /if \(e\.data\.type === "SCINTILLA_RVOL_WANT"\)/); assert.match(lens, /parent\.postMessage\(\{ type:"SCINTILLA_RVOL", rvol:/);
   assert.match(deck, /if \(widgetsOn\(\)\) b\.insertAdjacentHTML\("beforeend", '<span class="rv"/, "the RVol battery on the tall cell only");
 });
 
