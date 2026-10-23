@@ -86,7 +86,7 @@ try {
   const sameBoxes = (a, b) => JSON.stringify([a.x, a.c1, a.c2, a.video, a.lens, a.volume, a.tapes]) === JSON.stringify([b.x, b.c1, b.c2, b.video, b.lens, b.volume, b.tapes]);
   /* a flash caught mid-pulse: the real pulse re-run on a lens that IS unusual right now (its class removed and put back), the shot 200 ms in */
   const midPulse = async (page, file) => { const lf = page.frames().find((f) => /lens-v1\//.test(f.url())); if (!lf) return null;
-    const box = await lf.evaluate(() => { const d = document.querySelector(".lens.glow"); if (!d) return null; d.classList.remove("pulse"); void d.offsetWidth; d.classList.add("pulse"); const b = d.getBoundingClientRect(); return { t: d.dataset.t, words: d.querySelector(".un").textContent, x: b.x, y: b.y, w: b.width, h: b.height }; });
+    const box = await lf.evaluate(() => { const d = [...document.querySelectorAll(".lens.glow")].find((e) => { const b = e.getBoundingClientRect(); return b.x >= 0 && b.right <= innerWidth && b.y >= 0 && b.bottom <= innerHeight; }); if (!d) return null; d.classList.remove("pulse"); void d.offsetWidth; d.classList.add("pulse"); const b = d.getBoundingClientRect(); return { t: d.dataset.t, words: d.querySelector(".un").textContent, x: b.x, y: b.y, w: b.width, h: b.height }; });
     if (!box) return null; await sleep(200);
     const fb = await page.evaluate(() => { const f = document.querySelector('iframe[src*="lens-v1"]'); const b = f.getBoundingClientRect(); return { x: b.x, y: b.y }; });
     await page.screenshot({ path: path.join(SHOTS, file), clip: { x: fb.x + box.x - 6, y: fb.y + box.y - 6, width: box.w + 12, height: box.h + 12 } }).catch(() => {}); return box; };
@@ -139,6 +139,14 @@ try {
       log("phone", key, JSON.stringify(idle), JSON.stringify(meta), "lens", JSON.stringify(lens).slice(0, 240), "| vol", JSON.stringify(vol).slice(0, 200), "| shell", JSON.stringify(shell0), "| reloads", JSON.stringify((pr && pr.reloads || []).map((r) => [r.sameIframe, r.cur, r.cards, r.stage])), "| same boxes", same, "stage same", stageSame, "errs", errs.length ? errs.slice(0, 2) : 0);
       await context.close();
     }
+  }
+  if (ONLY === "pulse") {
+    /* the mid-pulse shots alone: a visible unusual lens on the 2560 wall and on the phone */
+    const { context, page, errs } = await open(browser, 2560, 1440, 1, { youtube: false });
+    await page.goto(origin + "/deck/?scene=live&charts=9&range=3h", { waitUntil: "domcontentloaded" }); await sleep(16000);
+    out.wallPulse = await midPulse(page, "w12-wall-pulse-2560x1440.png"); log("wall pulse", JSON.stringify(out.wallPulse)); await context.close();
+    const ph = await open(browser, 390, 844, 3, { mobile: true }); await ph.page.goto(origin + "/phone/", { waitUntil: "domcontentloaded" }); await sleep(16000);
+    out.phonePulse = await midPulse(ph.page, "w12-phone-pulse-390x844.png"); log("phone pulse", JSON.stringify(out.phonePulse)); await ph.context.close();
   }
   if (ONLY === "all" || ONLY === "sweep") {
     const { context, page, errs } = await open(browser, 1280, 720, 1, { youtube: false });
