@@ -222,6 +222,20 @@ body.beside.playing > #stage{ grid-column:1; grid-row:2; display:flex; min-width
 body.beside.playing > #grid{ grid-column:2; grid-row:2; display:grid; border-left:1px solid var(--line); }
 body.beside.playing > :not(#bar):not(#grid):not(#stage){ grid-column:1 / -1; }
 body.beside.playing #grid .card.on{ outline:1px solid var(--crk); outline-offset:-1px; }
+/* ---- W10 (23 Oct 2026): THE GRID IS A PERMANENT FEED. Alan: "I need the grid to have a permanent spot. No shifting … let's put it to the left in
+   the line of the Twitter and then the YouTube goes more to the middle. But fixed, okay? Not open and close." With ?fixed=1 (the WIDGETS wall) the
+   grid is a column on the LEFT at the width the deck gives it (--beside-col, X's column), always on screen and scrolling; the player is the rest,
+   always there - an empty stage with one line until a video is tapped; a tap plays in place; BACK stops the video and nothing moves. The grid's
+   refresh repaints #grid only; the player lives in #stage and is never touched by it. */
+body.fixed{ display:grid; grid-template-columns:var(--beside-col, 300px) minmax(0,1fr); grid-template-rows:auto minmax(0,1fr); }
+body.fixed > #bar{ grid-column:1 / -1; grid-row:1; }
+body.fixed > #grid{ grid-column:1; grid-row:2; display:grid; border-right:1px solid var(--line); }
+body.fixed > #stage{ grid-column:2; grid-row:2; display:flex; min-width:0; }
+body.fixed > :not(#bar):not(#grid):not(#stage){ grid-column:1 / -1; }
+body.fixed #grid .card.on{ outline:1px solid var(--crk); outline-offset:-1px; }
+#idleNote{ display:none; position:absolute; inset:0; align-items:center; justify-content:center; color:var(--mute); font-size:9px; letter-spacing:.16em; text-transform:uppercase; pointer-events:none; }
+body.fixed:not(.playing) #idleNote{ display:flex; }
+body.fixed:not(.playing) #video iframe{ visibility:hidden; }
 #video{ flex:1 1 0; min-height:0; position:relative; background:#000; }
 #video iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; }
 #transport{ display:none; flex:1 1 0; min-width:0; align-items:center; justify-content:flex-end; gap:4px;
@@ -327,7 +341,7 @@ html[data-view="compact"] #bRefresh, html[data-view="compact"] #bPipBar, html[da
 </div>
 <div id="grid"><div class="msg">loading…</div></div>
 <div id="stage">
-  <div id="video"><div id="floatNote" hidden><span class="line">playing in the floating window · <button class="btn" id="bBringBack" type="button" title="bring it back into the Station (P)">bring it back</button></span><span class="t" id="floatTitle"></span><span id="floatHold" hidden>the window is waiting for ▶ · the browser held its autoplay</span></div></div>
+  <div id="video"><div id="idleNote">tap a title on the left to play it here</div><div id="floatNote" hidden><span class="line">playing in the floating window · <button class="btn" id="bBringBack" type="button" title="bring it back into the Station (P)">bring it back</button></span><span class="t" id="floatTitle"></span><span id="floatHold" hidden>the window is waiting for ▶ · the browser held its autoplay</span></div></div>
 </div>
 <script>
 "use strict";
@@ -439,10 +453,12 @@ const AUTO   = QS.get("autoplay") === "1";
 const FORCE  = +(QS.get("cols") || 0);
 /* W1: the grid beside the player - asked for on the URL (?beside=1) or by the deck's message (SCINTILLA_VIDEO_BESIDE) */
 let BESIDE = QS.get("beside") === "1", BESIDE_COL = Math.max(120, Math.round(Number(QS.get("besideCol")) || 300));
-function paintBeside() { document.body.classList.toggle("beside", BESIDE); document.body.style.setProperty("--beside-col", BESIDE_COL + "px"); }
+/* W10: the permanent feed column (the grid on the left, the player the rest, always) */
+let FIXED = QS.get("fixed") === "1";
+function paintBeside() { document.body.classList.toggle("beside", BESIDE && !FIXED); document.body.classList.toggle("fixed", FIXED); document.body.style.setProperty("--beside-col", BESIDE_COL + "px"); }
 /* W1B: the deck is told when a video starts and stops here, so the WIDGETS wall can give the playing picture its full size */
 function tellPlaying() { if (!EMBEDDED) return; try { parent.postMessage({ sc: "video-playing", on: document.body.classList.contains("playing"), feed: FEED }, location.origin); } catch (_) {} }
-const besideNow = () => BESIDE && document.body.classList.contains("playing");
+const besideNow = () => FIXED || (BESIDE && document.body.classList.contains("playing"));
 
 /* Personal is its own subscribed feed.  SCINTILLA is its subscriptions too (Y7, 19 Oct 2026).
    Alan: "I want to remove the search queries of the YouTube thing. At least on the station … on
@@ -1469,7 +1485,7 @@ window.addEventListener("message", (event) => {
   if (event.data?.type === "SCINTILLA_VIDEO_PIP_TOGGLE") { if (FLOAT || (CUR && canFloat())) toggleFloat(); return; }
   if (event.data?.type === "SCINTILLA_VIDEO_PIP") notePip(event.data.path);   /* S5: a deck that opened the window itself says which path */
   /* W1: the deck's WIDGETS wall asks for the grid beside the player; WALL and SIMPLE ask for the pane as it was */
-  if (event.data?.type === "SCINTILLA_VIDEO_BESIDE") { BESIDE = !!event.data.on; BESIDE_COL = Math.max(120, Math.round(Number(event.data.col) || BESIDE_COL)); paintBeside(); relayout(); tellPlaying(); }
+  if (event.data?.type === "SCINTILLA_VIDEO_BESIDE") { BESIDE = !!event.data.on; if (typeof event.data.fixed === "boolean") FIXED = event.data.fixed; BESIDE_COL = Math.max(120, Math.round(Number(event.data.col) || BESIDE_COL)); paintBeside(); relayout(); tellPlaying(); }
 });
 
 /* ---- render ---- */
