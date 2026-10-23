@@ -15,8 +15,8 @@ const fn = (src, name) => grab(src, new RegExp("\\nfunction " + name + "\\([^)]*
 
 test("W1C · the lens tape: lens-v1 in tape mode - the chips at the left, one row of fixed lenses that runs like the other tapes, 5-minute bars", () => {
   assert.match(lens, /const TAPE = QS\.get\("mode"\) === "tape";/);
-  assert.match(lens, /const LENS_TF = TAPE \? "5m" : "1d", LENS_BARS = TAPE \? 30 : 60;/, "the latest 30 completed 5-minute bars on the tape (W4: restated from 120); the column's sixty daily candles stay");
-  assert.match(lens, /BARS_MS = TAPE \? 60000 : 600000/, "read every minute on the tape (a 5-minute bar completes every five)");
+  assert.match(lens, /const LENS_BARS = 30, USUAL_MS = 1800000;/   /* W12: the timeframe is the TF chips'; 30 bars at any of them */, "the latest 30 completed 5-minute bars on the tape (W4: restated from 120); the column's sixty daily candles stay");
+  assert.match(lens, /BARS_MS = 60000/   /* W12: every minute everywhere */, "read every minute on the tape (a 5-minute bar completes every five)");
   assert.match(lens, /const TAPE_SPEED_PX_S = TAPE \? 90 : 45;/, "W4: twice the deck's tapes' pace on the tape");
   const run = fn(lens, "runTape");
   assert.match(run, /if \(!len \|\| len <= win\) continue;/, "a row that fits stands still (W10: and a run that is the same is never restarted)");
@@ -26,7 +26,7 @@ test("W1C · the lens tape: lens-v1 in tape mode - the chips at the left, one ro
   assert.match(lens, /@keyframes lens-tape-move\{ from\{ transform:translateX\(0\); \} to\{ transform:translateX\(-50%\); \} \}/);
   assert.match(lens, /body\.tape \.lens\{ flex:none; width:var\(--lens-w, 170px\); height:100%; background:var\(--panel2\); \}/, "a lens is 170 px wide on the tape (W7: bigger type; W10: its own panel colour, the gap between neighbours shows the floor)");
   assert.match(lens, /body\.tape #bar\{ flex:none; width:96px; flex-direction:column;/, "the chips in a rail at the left");
-  assert.match(lens, /remember\(LIST_KEY, l\)/, "the choice remembered");
+  assert.match(lens, /remember\(MINE_ON_KEY, MINE_ON \? "1" : "0"\)/   /* W12: the memory is whether MINE is open; RADAR and MACRO always */, "the choice remembered");
   /* the drawing is the column's: the oval, the edge in the day's colour, never grey */
   assert.match(lens, /ctx\.strokeStyle = day === "up" \? PALETTE\.bull : day === "down" \? PALETTE\.bear : INK\.frame;/);
   /* the deck mounts it over the band and gives it its height */
@@ -42,7 +42,7 @@ test("W1C · the volume panel (restated for W7): volume-v1 reads the research se
   assert.match(vol, /@keyframes vmpulse/); assert.match(vol, /#fill\{[^}]*background:linear-gradient\(var\(--hot\), var\(--warm\) 45%, var\(--glow\)\)/, "the tube's gradient");
   assert.match(vol, /--glow:#3987e5; --warm:#fab219; --hot:#ec835a; --up:#19b419; --dn:#e05252;/, "the page's own colours");
   assert.match(vol, /const T1 = 1\.2, T2 = 1\.5;/, "the page's default thresholds");
-  assert.match(vol, /<span class="k">lot size<em id="sizeAt"><\/em><\/span>/); assert.match(vol, /<span class="k">block<em id="blockAt"><\/em><\/span>/);   /* W10: restated */
+  assert.match(vol, /<span class="ib" id="iSize"[^>]*><i>◫<\/i><b id="tsize">—<\/b><em id="sizeAt"><\/em><\/span>/   /* W12: a small icon badge */); assert.match(vol, /<span class="ib" id="iBlock"[^>]*><i>■<\/i><b id="block">—<\/b><em id="blockAt"><\/em><\/span>/   /* W12: an icon badge */);   /* W10: restated */
   assert.match(vol, /nowS = sz\.now \|\| sz\.last \|\| null/, "out of hours the last bar's size stands (W10: and the last one seen is kept)");
   assert.doesNotMatch(vol, /method:\s*"POST"|localStorage\.setItem/, "reads one GET, writes nothing");
   /* the deck: the column is the panel's, no meter on the wall */

@@ -210,11 +210,11 @@ test("W1 · the lens set: RADAR · MACRO · MINE, remembered; MINE adds and remo
   assert.deepEqual(plain(L.mineAdd(["NVDA"], "amd")), ["NVDA", "AMD"]); assert.deepEqual(plain(L.mineAdd(["NVDA"], "nvda")), ["NVDA"], "never twice"); assert.deepEqual(plain(L.mineAdd(["NVDA"], "!!")), ["NVDA"]);
   assert.deepEqual(plain(L.mineRemove(["NVDA", "AMD"], "nvda")), ["AMD"]);
   assert.match(lens, /const LIST_KEY = "station\.lenses\.list", MINE_KEY = "station\.lenses\.mine";/, "remembered on this machine");
-  assert.match(lens, /remember\(MINE_KEY, JSON\.stringify\(MINE\)\)/); assert.match(lens, /remember\(LIST_KEY, l\)/);
+  assert.match(lens, /remember\(MINE_KEY, JSON\.stringify\(MINE\)\)/); assert.match(lens, /remember\(MINE_ON_KEY, MINE_ON \? "1" : "0"\)/   /* W12: RADAR and MACRO always on; the memory is whether MINE is open */);
   assert.match(lens, /station_lists\?select=position,ticker&list=eq\.radar&order=position\.asc/, "RADAR is the Hub's list, one GET");
   /* the drawing: chart-v1's oval (station-lens.mjs ovalGeometry, lens-bars drawCandles), the 1d:60 lens, the day's colour on the edge */
   assert.match(lens, /import \{ ovalGeometry, insideOval, INK \} from "\/_indicators\/station-lens\.mjs";/);
-  assert.match(lens, /const LENS_TF = TAPE \? "5m" : "1d", LENS_BARS = TAPE \? 30 : 60;/, "sixty daily candles in the column - the zoomed-out view the intraday ranges carry; W4: the latest 30 five-minute bars on the tape");
+  assert.match(lens, /const LENS_BARS = 30, USUAL_MS = 1800000;/   /* W12: 30 bars at the TF chips' timeframe, everywhere */, "sixty daily candles in the column - the zoomed-out view the intraday ranges carry; W4: the latest 30 five-minute bars on the tape");
   assert.match(lens, /ctx\.strokeStyle = day === "up" \? PALETTE\.bull : day === "down" \? PALETTE\.bear : INK\.frame;/, "the oval's edge in the day's colour");
   assert.match(lens, /drawCandles\(ctx, bars, geo\.candles, \{ colour: "bar", day, pal: PALETTE \}\)/, "the candles as the lens draws them");
   assert.match(lens, /\.lens \.pc\.up, \.lens \.tk\.up\{ color:var\(--bull\); \} \.lens \.pc\.dn, \.lens \.tk\.dn\{ color:var\(--bear\); \}/, "the head in the day's colour");

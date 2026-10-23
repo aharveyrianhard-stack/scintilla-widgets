@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Station">
+<meta name="theme-color" content="#0A0A0F">
+<link rel="apple-touch-icon" href="/phone/icon.png"><link rel="manifest" href="/phone/manifest.webmanifest">
+<title>Station · phone</title>
+<!-- W12 (23 Oct 2026). Alan: "I need another one for the phone. And I think that the simplest way to do that one is the context lenses only …
+     That I can change the time frame of the bars on … So the volume thing applies in all of them. And the YouTube in all of them. The Twitter
+     is not going to work on mobile, so let's not even bother."
+     THE PHONE STATION: one column, no X, three fixed blocks - the lenses (lens-v1, RADAR and MACRO together, MINE a chip, the TF chips, touch
+     sizes), the volume panel (volume-v1: the graph, the icon badges, the countdown), YouTube (the video shell stacked: the player at 16:9 across
+     the width, the feed under it). Every block a fixed share of the screen: nothing moves when a video plays, a feed reload never touches the
+     player (the shell repaints #grid only). Add to Home Screen: standalone, black status bar, the Station icon. iPhone 390x844 and 430x932
+     measured. The shells read what they read on the wall (the chart API, the Hub mirror, the volume feed); this page reads nothing itself. -->
+<style>
+:root{ --bg:#0A0A0F; --panel2:#0F0F17; --line:#1A1A2A; --ink:#F2F2F8; --mute:#6E6E80; --crk:#00D4FF; --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
+/* W12B (the coordinator, from the pictures: "the phone shows ONE lens at a time … RADAR and MACRO are not on the screen together"): the FIRST
+   SCREEN is the head, the lenses as the wall's tape - RADAR a running row, MACRO a running row, the chips on top - and the volume panel with its
+   graph; YouTube (the player at 16:9, the feed under it) sits under the first screen and the page scrolls down to it. Each block a fixed height. */
+html,body{ margin:0; background:var(--bg); color:var(--ink); font:12px var(--mono); overscroll-behavior-x:none; }
+html{ height:100%; } body{ min-height:100%; display:block; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing:border-box; }
+#first{ height:var(--screen-h, 100vh); display:grid; grid-template-rows:auto minmax(0,1fr) var(--vol-h, 36vh); }
+#head{ display:flex; align-items:center; gap:10px; padding:6px 12px; border-bottom:1px solid var(--line); background:var(--panel2); min-height:30px; }
+#head .k{ color:var(--crk); font-size:9px; letter-spacing:.2em; text-transform:uppercase; margin-right:auto; }
+#head a{ color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; text-decoration:none; padding:6px 0 6px 10px; }
+section{ position:relative; min-height:0; border-bottom:1px solid var(--line); }
+section iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; background:var(--bg); display:block; }
+#lenses{ }
+#volume{ }
+/* the YouTube block under the first screen: the shell's bar (32 px) + the player at 16:9 of the width + 260 px of the feed, a fixed height whatever plays */
+#video{ height:calc(32px + 56.25vw + 260px); border-bottom:0; }
+</style>
+</head>
+<body>
+<div id="first">
+<div id="head"><span class="k">Station · phone</span><a href="#video" id="toVideo" title="down to YouTube">youtube ▾</a><a href="/ipad/" title="the iPad / desktop Station (no X)">full station ›</a></div>
+<section id="lenses" aria-label="Context lenses"><iframe src="/station-shells/lens-v1/?shell=v1&mode=tape&rows=2&touch=1&view=phone" title="context lenses: RADAR a row, MACRO a row, the timeframe chips" loading="eager"></iframe></section>
+<section id="volume" aria-label="Volume"><iframe src="/station-shells/volume-v1/?shell=v1&touch=1&view=phone" title="the market's volume: the graph, the icon badges, the countdown" loading="eager"></iframe></section>
+</div>
+<section id="video" aria-label="YouTube"><iframe src="/station-shells/scintilla-video-v1/?shell=v1&feed=scintilla&cols=2&stack=1&view=phone" title="YouTube: the player, the feed under it" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen loading="eager"></iframe></section>
+<script>
+/* the first screen is the window's height (the address bar's own height taken out on iOS); the volume block 36 % of it, at least 220 px */
+(() => { const fit = () => { const h = innerHeight; document.documentElement.style.setProperty("--screen-h", h + "px"); document.documentElement.style.setProperty("--vol-h", Math.max(220, Math.round(h * 0.36)) + "px"); }; fit(); addEventListener("resize", fit); })();
+</script>
+</body>
+</html>

@@ -17,7 +17,7 @@ test("W10 · the grid is a permanent feed: a fixed column on the left, the playe
   assert.match(s, /body\.fixed > #grid\{ grid-column:1; grid-row:2; display:grid; border-right:1px solid var\(--line\); \}/, "the grid always shown, on the left");
   assert.match(s, /body\.fixed > #stage\{ grid-column:2; grid-row:2; display:flex; min-width:0; \}/, "the player always there");
   assert.match(s, /body\.fixed:not\(\.playing\) #idleNote\{ display:flex; \}/, "one line until a video is tapped");
-  assert.match(fn(s, "paintBeside"), /classList\.toggle\("fixed", FIXED\)/);
+  assert.match(fn(s, "paintBeside"), /classList\.toggle\("fixed", FIXED && !STACK\)/   /* W12: the phone's one column is STACK */);
   assert.match(s, /const besideNow = \(\) => FIXED \|\| \(BESIDE && document\.body\.classList\.contains\("playing"\)\);/, "the column counts its own width always");
   /* the refresh touches #grid only; the player is in #stage */
   assert.match(fn(s, "paint"), /grid\.innerHTML = rows\.map\(cardHTML\)\.join\(""\);/); assert.doesNotMatch(fn(s, "paint"), /stage|YT_PLAYER|#video/, "a repaint of the grid never touches the player");
@@ -27,7 +27,7 @@ test("W10 · the grid is a permanent feed: a fixed column on the left, the playe
 });
 
 test("W10 · the tapes do not jump: the lens tape is never rebuilt for the same names and a track is never restarted while its run is the same", () => {
-  assert.match(fn(lens, "paintSet"), /const key = LIST \+ "\|" \+ ROWS \+ "\|" \+ list\.join\(","\);\n\s+if \(!force && key === SET_KEY && box\.firstChild\) return;/);
+  assert.match(fn(lens, "paintSet"), /const key = sets\(\)\.join\("\+"\) \+ "\|" \+ ROWS \+ "\|" \+ list\.join\(","\);\n\s+if \(!force && key === SET_KEY && box\.firstChild\) return;/   /* W12: the sets in the key */);
   const run = fn(lens, "runTape");
   assert.match(run, /const mark = originals \+ ":" \+ win \+ ":" \+ \(one > win \? "run" : "still"\);\n\s+if \(track\.dataset\.fit === mark\) continue;/, "the same run is never restarted (the restart was the jump)");
   assert.match(lens, /if \(r !== ROWS\) \{ ROWS = r; paintSet\(true\); \}/, "a changed row count rebuilds; the same count does not");
@@ -48,10 +48,10 @@ test("W10 · the volume panel: the research graph back with its pulsing dot at N
   assert.match(vol, /const slots = all\.slice\(-24\), n = slots\.length;/, "the last two hours");
   assert.match(vol, /class="beat-ring"/); assert.match(vol, /class="\$\{data\.live \? "beat-core" : ""\}"/, "its glowing pulsing dot at NOW");
   assert.match(vol, /\[\[2, "2×", "2 6", "var\(--grid\)"\], \[1, "normal", "6 6", "#4a4a46"\]\]/); assert.match(vol, /b\.dir === "up" \? "var\(--up\)" : "var\(--dn\)"/, "the block dots");
-  assert.match(vol, /<span class="k">lot size<em id="sizeAt"><\/em><\/span>/); assert.match(vol, /if \(nowS && nowS\.x != null\) LAST_SIZE = \{/, "the last size seen is kept"); assert.match(vol, /"closed · none in the feed"/, "and said when there is none");
-  assert.match(vol, /badge\("bVol", Lg\.vol\); badge\("bDir", Lg\.dir\); badge\("bVwap", Lg\.vwap\); badge\("bHour", Lg\.hour\);/, "the four badges");
+  assert.match(vol, /<span class="ib" id="iSize"[^>]*><i>◫<\/i><b id="tsize">—<\/b><em id="sizeAt"><\/em><\/span>/   /* W12: a small icon badge */); assert.match(vol, /if \(nowS && nowS\.x != null\) LAST_SIZE = \{/, "the last size seen is kept"); assert.match(vol, /"closed · none in the feed"/, "and said when there is none");
+  assert.match(vol, /badge\("bVol", "vol", Lg\.vol\); badge\("bDir", "dir", Lg\.dir\); badge\("bVwap", "vwap", Lg\.vwap\); badge\("bHour", "hour", Lg\.hour\);/   /* W12: lights in icon badges */, "the four badges");
   assert.doesNotMatch(vol, /of a usual|who is in control|does it sustain/, "no descriptions");
-  assert.match(vol, /#tube\{ position:relative; width:12px; height:40px;/); assert.match(vol, /@keyframes vmpulse/);
+  assert.match(vol, /#tube\{ position:relative; width:8px; height:22px;/   /* W12: small */); assert.match(vol, /@keyframes vmpulse/);
   assert.match(deck, /if \(event\.data\?\.type === "SCINTILLA_CHART_VIEW" && event\.data\.view && typeof event\.data\.view === "object"\) \{/, "the zoom message");
   assert.match(deck, /other\.frame\.contentWindow !== event\.source && widgetsSrc\(n === 1 \? 1 : 0\) === "live"\) \{ try \{ other\.frame\.contentWindow\.postMessage\(\{ sc:"chart", view \}, location\.origin\); \}/, "to the other live chart, never the sender");
 });

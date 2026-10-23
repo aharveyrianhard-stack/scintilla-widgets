@@ -34,7 +34,7 @@ test("W7 · the lens tape: bars by default with a LINE · BARS switch remembered
   const bars = grab(lens, /export function drawBars\([\s\S]*?\n\}/, "drawBars");
   assert.match(bars, /const b = bars\[i\], col = b\.c >= b\.o \? PALETTE\.bull : PALETTE\.bear/, "green up, red down, never grey");
   assert.match(lens, /body\.tape \.lens \.tk, body\.tape \.lens \.px\{ font-size:12px; \}/, "the ticker and the price at 12 px");
-  assert.match(lens, /if \(TAPE\) host = hosts\[i % ROWS\];/, "the names dealt round the rows"); assert.match(lens, /if \(e\.data\.type === "SCINTILLA_LENS_ROWS"\)/, "the deck says how many rows"); assert.match(deck, /mode=tape&rows=" \+ rows \+ "&view=/, "and on the address at mount");
+  assert.match(lens, /g\.names\.forEach\(\(t, i\) => cells\.push\(\[t, g\.s, hosts\[i % hosts\.length\]\]\)\)/   /* W12: each set's names dealt round its own rows */, "the names dealt round the rows"); assert.match(lens, /if \(e\.data\.type === "SCINTILLA_LENS_ROWS"\)/, "the deck says how many rows"); assert.match(deck, /mode=tape&rows=" \+ rows \+ "&view=/, "and on the address at mount");
   assert.match(lens, /board_volume\?select=ticker,rvol_at_time&ticker=in\.\(/, "the Hub's RVol per name"); assert.match(lens, /const RVOL_MS = 60000;/);
   assert.match(lens, /const DAILY_ONLY = Object\.freeze\(\{ PCC: true \}\);/, "the put/call ratio is daily at the API"); assert.match(lens, /const NUMBER_LENS = Object\.freeze\(\{ ADVDEC: true \}\);/, "advance/decline is a number lens from the volume feed's breadth");
   assert.doesNotMatch(lens, /indexNowLeaders|ESUSD" : "SPY/, "SPY and QQQ are never swapped for their futures");
@@ -56,11 +56,11 @@ test("W7 · the layout: X slimmer, YouTube in the bottom-left corner, the charts
     assert.equal(s.lensTape.rows, rows, W + "×" + H + ": " + rows + " row(s) of lenses in the band");
     assert.equal(s.box.left, -(plan.col + 1)); assert.equal(s.box.w, plan.col + 1 + Math.round(W * 0.35), "W10: the feed column and the player"); assert.equal(s.volume.w, Math.round(W * 0.17));
   }
-  assert.match(vol, /#dot\{ width:14px; height:14px; border-radius:50%;[^}]*animation:vmpulse/, "the meter's pulsing dot (W10: the graph's own dot at NOW beside it, as the research page draws it)");
-  assert.match(vol, /#tube\{ position:relative; width:12px; height:40px;/, "the thermometer tube (W10: 40 px, beside the 40 px number)"); assert.match(vol, /\$\("fill"\)\.style\.height = \(r == null \? 0 : Math\.round\(Math\.min\(1, r \/ 3\) \* 100\)\) \+ "%";/, "3× is the top of the tube");
-  assert.match(vol, /<span class="k">2 min<em id="flowAt"><\/em><\/span>/); assert.match(vol, /id="bar5"/, "the two halves, labelled (W10: no descriptions - Alan: 'I don't like descriptions')"); assert.doesNotMatch(vol, /who is in control|does it sustain|of a usual/);
+  assert.match(vol, /#dot\{ width:10px; height:10px; border-radius:50%;[^}]*animation:vmpulse/   /* W12: the top line compact */, "the meter's pulsing dot (W10: the graph's own dot at NOW beside it, as the research page draws it)");
+  assert.match(vol, /#tube\{ position:relative; width:8px; height:22px;/, "the thermometer tube (W12: small, beside the 22 px number)"); assert.match(vol, /\$\("fill"\)\.style\.height = \(r == null \? 0 : Math\.round\(Math\.min\(1, r \/ 3\) \* 100\)\) \+ "%";/, "3× is the top of the tube");
+  assert.match(vol, /<span class="ib" id="iFlow"[^>]*><i>⇅<\/i><b class="up" id="buy">—<\/b><b class="dn" id="sell">—<\/b><\/span>/   /* W12: an icon badge */); assert.match(vol, /id="bar5"/, "the two halves, labelled (W10: no descriptions - Alan: 'I don't like descriptions')"); assert.doesNotMatch(vol, /who is in control|does it sustain|of a usual/);
   assert.match(vol, /const done = slots\.map\(\(s, i\) => \(\{ \.\.\.s, i \}\)\);/, "the 5-minute multiple from the bars (W10: restated)");
   /* W10: the graph is back as the research page draws it (Alan: "you removed the graph now?"); its beating dot at NOW is the one in the graph, the meter's dot the other */
   assert.match(vol, /beat-core/); assert.match(vol, /id="chart"/);
-  assert.match(vol, /\.badge\{[^}]*font-size:14px; font-weight:700;/, "badges a TV can read");
+  assert.match(vol, /\.ib\{[^}]*font-size:10\.5px; font-weight:700;/   /* W12 (Alan: "everything is oversized and the volume oscillator is undersized"): the badges small icons, the graph big */, "badges a TV can read");
 });
