@@ -155,6 +155,7 @@ body:not(.can-float) #bPip{ display:none !important; }
 .dur.live{ letter-spacing:.08em; }  /* the dot and the spacing carry it — no new colour is introduced */
 .dur.live::before{ content:"\25CF"; font-size:7px; margin-right:3px; vertical-align:1px; }
 .dur.soon{ color:var(--ink3); letter-spacing:.04em; }
+.dur.soon.due{ color:#fff; }  /* W9: its time has come - as bright as LIVE, without the dot until YouTube says so */
 .tk{ position:absolute; left:3px; top:3px; background:rgba(0,212,255,.9); color:#04040a;
   font-size:8px; padding:1px 4px; letter-spacing:.04em; font-weight:600; }
 .cap{ padding:4px 5px 6px; }
@@ -1535,6 +1536,8 @@ function videoAgeLabel(value, nowMs) {
    about stream times still has published_at and reads exactly as it did. */
 function videoWhen(v) { return (v && (v.feed_at || v.published_at)) || ""; }
 function videoAgeHTML(v) {
+  /* W9: a stream still to come has no age yet - its corner says when it goes on air */
+  if (v && v.live_state === "upcoming") return "";
   const when = videoWhen(v);
   const label = videoAgeLabel(when);
   if (!label) return "";
@@ -1555,11 +1558,16 @@ function startLabel(value, nowMs) {
   const time = START_TIME_NY.format(at).replace(/\s?([AP])M/, (m, half) => half.toLowerCase() + "m");
   return NY_DAY.format(at) === NY_DAY.format(now) ? time : START_DAY_NY.format(at) + " " + time;
 }
-function videoBadgeHTML(v) {
+/* W9: "LIVE at 9:00am" until it starts (another day carries its day: "LIVE Oct 24 9:00am"); an hour past its start
+   with YouTube still not calling it live, it no longer claims to be coming and says "set for 9:00am" */
+function videoBadgeHTML(v, nowMs) {
   if (v && v.live_state === "live") return '<span class="dur live">LIVE</span>';
   if (v && v.live_state === "upcoming") {
-    const label = startLabel(v.starts_at);
-    return label ? '<span class="dur soon">' + esc(label) + "</span>" : "";
+    const label = startLabel(v.starts_at, nowMs);
+    if (!label) return "";
+    const place = streamPlace(v, nowMs);
+    const words = place === "past" ? "set for " + label : (/^[A-Z][a-z]{2} /.test(label) ? "LIVE " : "LIVE at ") + label;
+    return '<span class="dur soon' + (place === "due" ? " due" : "") + '">' + esc(words) + "</span>";
   }
   return v && v.duration ? '<span class="dur">' + esc(v.duration) + "</span>" : "";
 }
@@ -1813,6 +1821,43 @@ function liveFirst(rows, onAirRows, nowMs) {
   pinned.sort((a, b) => Date.parse(b.feed_at) - Date.parse(a.feed_at));
   return pinned.concat(list.filter((video) => !seen.has(video.video_id)));
 }
+/* ---- A SCHEDULED STREAM IS ON THE FEED AT ITS TIME (W9, 22 Oct 2026) ----
+   Alan: "put them on the feed at the time they're actually scheduled. And at time that live videos are scheduled,
+   do a pull … I already see live videos on there for tomorrow, and then tomorrow I'm going to have to go and find
+   them in the bottom."
+   Measured 23 Oct 00:00 ET: tomorrow's seven SCINTILLA streams were tiles 1-7, the 4:20pm one first and the 8:15am
+   one seventh, and the two created more than three days ahead were no longer being re-read by the sweep, so they
+   would never have said LIVE and would have sunk under the day's uploads. Under ON AIR FIRST the page reads:
+     · DUE - its start time has come (2 minutes before it, until an hour after) and YouTube does not call it live
+       yet: the streamer is late or the pull has not caught it. It is at the top all the same, earliest first;
+     · LATER TODAY - the rest of today's (New York) streams, soonest first, each saying "LIVE at 4:20pm";
+     · then everything by the moment it became watchable, as before: an upload at its publish time, a stream that ran
+       at its real start. A stream set for another day is not on the feed until its day (it used to sit at the hour
+       its page was made); one whose hour passed without a start keeps that hour and says "set for 8:15am".
+   Today's streams are always on the first page (the feed files them at their start time), so this costs no read of
+   its own. Watch Later is Alan's saved set and keeps its order. */
+const DUE_BEFORE_MS = 2 * 60000;
+const DUE_AFTER_MS = 60 * 60000;
+function streamPlace(video, nowMs) {
+  if (!video || video.live_state !== "upcoming") return null;
+  const t = videoPublishedMs(video.starts_at);
+  if (t == null) return null;   /* no start time: an ordinary row at its feed time */
+  const now = isFinite(nowMs) ? nowMs : Date.now();
+  if (t <= now + DUE_BEFORE_MS) return now - t <= DUE_AFTER_MS ? "due" : "past";
+  return NY_DAY.format(new Date(t)) === NY_DAY.format(new Date(now)) ? "today" : "later";
+}
+const notOnTheFeedYet = (video, nowMs) => streamPlace(video, nowMs) === "later";
+function scheduledInPlace(rows, nowMs) {
+  const due = [], today = [], rest = [];
+  for (const video of Array.isArray(rows) ? rows : []) {
+    const place = streamPlace(video, nowMs);
+    if (place === "due") due.push(video);
+    else if (place === "today") today.push(video);
+    else if (place !== "later") rest.push(video);
+  }
+  const byStart = (a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at);
+  return due.sort(byStart).concat(today.sort(byStart), rest);
+}
 /* The SCINTILLA grid keeps the rows the SCINTILLA account carries and drops
    the rest - a row with no account (a search clip) is not SCINTILLA's (Y7;
    before Y7 the unscoped rows were kept, as the shared discovery grid). The
@@ -1841,7 +1886,7 @@ async function loadMore() {
     PAGE_AT += raw.length;
     PAGE_MORE = raw.length >= LIMIT && PAGE_AT < MAX_ROWS;
     const known = new Set(ROWS.map((v) => v.video_id));
-    const added = filterFeedRows(raw).filter((v) => !known.has(v.video_id));
+    const added = filterFeedRows(raw).filter((v) => !known.has(v.video_id) && !notOnTheFeedYet(v));
     if (added.length) {
       ROWS = ROWS.concat(added);
       for (const v of added) BYID[v.video_id] = v;
@@ -1899,10 +1944,11 @@ async function load(forceWatch, quiet) {
   }
   if (!FEED_PRESENCE.size) await readFeedPresence();
   paintFeedProfileSelector(raw);
-  const nextRows = liveFirst(filterFeedRows(raw), await readOnAir());
+  const kept = filterFeedRows(raw);
+  const nextRows = liveFirst(LIST === "watch" ? kept : scheduledInPlace(kept), await readOnAir());
   const signature = (items) => items.map((v) => [v.video_id, v.title, v.channel, v.published_at,
     v.feed_at || "", v.live_state || "", v.duration || "",
-    Array.isArray(v.subscription_accounts) ? v.subscription_accounts.join("+") : ""].join("|")).join("\n");
+    Array.isArray(v.subscription_accounts) ? v.subscription_accounts.join("+") : "", streamPlace(v) || ""].join("|")).join("\n");
   const changed = signature(nextRows) !== signature(ROWS.slice(0, nextRows.length));
   ROWS = nextRows;
   BYID = {}; for (const v of ROWS) BYID[v.video_id] = v;

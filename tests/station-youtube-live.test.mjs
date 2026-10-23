@@ -108,15 +108,16 @@ for (const name of SHELLS) {
   });
 
   test(`${name}: on air says LIVE, still to come says when`, () => {
-    const ctx = ctxWith(src, ["startLabel", "videoBadgeHTML"]);
+    const ctx = ctxWith(src, ["startLabel", "streamPlace", "videoBadgeHTML"], { DUE_BEFORE_MS: 2 * 60000, DUE_AFTER_MS: 60 * 60000 });
     const live = ctx.videoBadgeHTML({ live_state: "live", duration: "LIVE" });
     assert.match(live, /class="dur live">LIVE</, "a stream on air says LIVE");
 
-    const soon = ctx.videoBadgeHTML({ live_state: "upcoming", starts_at: "2026-09-23T19:30:00+00:00" });
-    assert.match(soon, /class="dur soon">3:30pm</, "3:30pm New York, not 19:30 UTC");
+    /* W9 (22 Oct): the corner says "LIVE at …", read against the clock of the day it was written (NOW), not the test run's */
+    const soon = ctx.videoBadgeHTML({ live_state: "upcoming", starts_at: "2026-09-23T19:30:00+00:00" }, NOW);
+    assert.match(soon, /class="dur soon">LIVE at 3:30pm</, "3:30pm New York, not 19:30 UTC");
 
-    const later = ctx.videoBadgeHTML({ live_state: "upcoming", starts_at: "2026-09-25T13:30:00+00:00" });
-    assert.match(later, /Sep 25 9:30am/, "another day carries its day");
+    const later = ctx.videoBadgeHTML({ live_state: "upcoming", starts_at: "2026-09-25T13:30:00+00:00" }, NOW);
+    assert.match(later, /LIVE Sep 25 9:30am/, "another day carries its day");
 
     assert.equal(ctx.videoBadgeHTML({ live_state: "upcoming", starts_at: null }), "",
       "no start time means no badge, never an invented one");

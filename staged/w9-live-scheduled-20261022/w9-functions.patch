@@ -1,0 +1,275 @@
+diff --git a/supabase/functions/_shared/yt-live-due.mjs b/supabase/functions/_shared/yt-live-due.mjs
+new file mode 100644
+index 0000000..2d29f71
+--- /dev/null
++++ b/supabase/functions/_shared/yt-live-due.mjs
+@@ -0,0 +1,85 @@
++// SCINTILLA · yt-live-due — W9 (22 Oct 2026): a scheduled stream is pulled again at its scheduled time.
++//
++// Alan, 22 Oct: "put them on the feed at the time they're actually scheduled. And at time that live videos are
++// scheduled, do a pull … If you have to reduce the amount of queries of the other videos where we search for tickers
++// to give room for this, do that."
++//
++// WHY. The 5-minute pass re-asks a stream only while its page is under REFRESH_DAYS (3) days old. A channel that sets
++// up its stream earlier than that (Arete Trading's pre-market show, WOLF Trading's day-trading stream: five to six days
++// ahead) is never asked again, so in our table it stays "upcoming" for ever: measured 23 Oct 04:00Z, 77 rows say
++// upcoming or live and most of the upcoming ones are long past their hour.
++//
++// TWO PULLS, ONE VIDEOS CALL (1 unit per 50 ids) EACH:
++//   the door   yt-rss-sweep?due=1, called by pg_cron every minute ONLY while a stream is due (the cron's own SQL checks
++//              first, so a quiet minute costs nothing): every row still "upcoming" whose scheduled start is from
++//              DUE_LEAD_MIN minutes ahead to DUE_TAIL_MIN minutes past. Measured 8–22 Oct: of 327 streams that started,
++//              half were on air within 0.5 min of their hour, 76 % within 2, 90 % within 4.8 — so a stream costs about
++//              three to five asks before YouTube calls it live and the cron stops asking.
++//   the pass   the 5-minute sweep puts the streams due within SETTLE_HOURS (and, once each, every older "upcoming" row
++//              last asked before its hour) at the front of the re-asks it already makes, whatever the page's age.
++//              They ride calls the pass already pays for; the stale rows settle in a pass or two.
++//
++// WHAT IT MAY SPEND. The door counts its calls in its own row (DUE_KEY) per Pacific day and stops at DUE_UNITS_PER_DAY.
++// The sweep adds them to its own videos calls before working out what the second way may spend (dayGuard), so the day
++// still adds up whatever else is changed. The room comes out of the ticker searches (the app_config row
++// yt_search_budget_units, which youtube-feed reads on every run): searchMaxUnits says what that row allows.
++//
++// Plain ESM, read by Deno (yt-rss-sweep) and Node (the tests) alike. No key is read, returned or stored here.
++import { pacificClock, SEARCH_BUDGET_UNITS, COST_PER_SEARCH } from "./yt-search-plan.mjs";
++
++export const DUE_KEY = "yt_live_due";
++export const DUE_LEAD_MIN = 2;
++export const DUE_TAIL_MIN = 15;
++export const SETTLE_HOURS = 6;
++export const SETTLE_MAX = 50;
++export const DUE_MAX_IDS = 50;
++export const DUE_UNITS_PER_DAY = 300;
++
++const iso = (sec) => new Date(sec * 1000).toISOString();
++
++/** the door's window: the streams it re-asks about this minute */
++export function dueWindow(nowSec) {
++  return { from: iso(nowSec - DUE_TAIL_MIN * 60), to: iso(nowSec + DUE_LEAD_MIN * 60) };
++}
++/** the pass's window: streams whose hour is near or came within SETTLE_HOURS, asked every pass until YouTube moves them */
++export function settleWindow(nowSec) {
++  return { from: iso(nowSec - SETTLE_HOURS * 3600), to: iso(nowSec + DUE_LEAD_MIN * 60) };
++}
++/** an older "upcoming" row is asked once after its hour, then left alone (a stream that never ran stays as YouTube says) */
++export function needsSettling(row) {
++  const at = Date.parse(String((row && row.live_scheduled_at) || ""));
++  if (!isFinite(at)) return false;
++  const asked = Number(row.live_checked_ts) || 0;
++  return asked * 1000 < at;
++}
++
++/** the door's row: { day, calls } for the Pacific day, and what the last call did */
++export function parseDue(raw) {
++  let row = null;
++  try { row = typeof raw === "string" ? JSON.parse(raw) : raw; } catch (_) { row = null; }
++  return row && typeof row === "object" && !Array.isArray(row) ? row : {};
++}
++/** the door's calls so far today (0 on a new Pacific day or an unreadable row) */
++export function dueCallsToday(raw, nowSec) {
++  const row = parseDue(raw);
++  if (row.day !== pacificClock(nowSec * 1000).day) return 0;
++  const n = Math.floor(Number(row.calls));
++  return Number.isFinite(n) && n > 0 ? n : 0;
++}
++/** may the door call YouTube now? */
++export function dueRoom(raw, nowSec) {
++  return Math.max(0, DUE_UNITS_PER_DAY - dueCallsToday(raw, nowSec));
++}
++/** the row after a door call: the day's count and the last call in words */
++export function nextDue({ raw, nowSec, sent, asked, moved }) {
++  const day = pacificClock(nowSec * 1000).day;
++  return { day, calls: dueCallsToday(raw, nowSec) + Math.max(0, sent || 0),
++    last: { at: iso(nowSec), asked: asked || 0, moved: moved || [] } };
++}
++
++/** what the ticker searches may spend today, read exactly as youtube-feed reads its row (yt_search_budget_units,
++    clamped to 0–9000; no row, or one that reads as 0, is SEARCH_BUDGET_UNITS), in whole searches of COST_PER_SEARCH */
++export function searchMaxUnits(raw) {
++  const budget = Math.min(9000, Math.max(0, +(raw || SEARCH_BUDGET_UNITS) || SEARCH_BUDGET_UNITS));
++  return Math.floor(budget / COST_PER_SEARCH) * COST_PER_SEARCH;
++}
+diff --git a/supabase/functions/_shared/yt-upload-notice.mjs b/supabase/functions/_shared/yt-upload-notice.mjs
+index f2bc33d..3777475 100644
+--- a/supabase/functions/_shared/yt-upload-notice.mjs
++++ b/supabase/functions/_shared/yt-upload-notice.mjs
+@@ -82,11 +82,13 @@ export function tiersOf(accountChannels, accounts) {
+ 
+ /** THE NEIGHBOURS' GUARD: the most the second way may come to today, whatever its own number says — the day's
+     allowance less RADAR's searches, less this sweep's own videos calls so far, less two a pass for the passes
+-    still to come, less a margin. ownToday comes from the last result row (ownCallsToday). */
+-export function dayGuard({ nowSec, ownToday = 0 }) {
++    still to come, less a margin. ownToday comes from the last result row (ownCallsToday). W9: searchUnits is what
++    the ticker searches may actually spend (searchMaxUnits of their row), so a cut there is room here; ownToday also
++    carries the due door's calls. */
++export function dayGuard({ nowSec, ownToday = 0, searchUnits = SEARCH_MAX_UNITS }) {
+   const clock = pacificClock(nowSec * 1000);
+   const passesLeft = Math.ceil((1440 - clock.minute) / SWEEP_EVERY_MIN);
+-  return Math.max(0, DAILY_QUOTA - SEARCH_MAX_UNITS - Math.max(0, ownToday) - OWN_CALLS_A_PASS * passesLeft - GUARD_MARGIN);
++  return Math.max(0, DAILY_QUOTA - Math.max(0, searchUnits) - Math.max(0, ownToday) - OWN_CALLS_A_PASS * passesLeft - GUARD_MARGIN);
+ }
+ /** this sweep's own videos calls so far in the Pacific day, as the last pass's result row left them */
+ export function ownCallsToday(raw, nowSec) {
+@@ -100,10 +102,10 @@ export function ownCallsToday(raw, nowSec) {
+ 
+ /** THE PASS'S PURSE. room() is what anything may still spend today; paced() is what may be spent by whatever is
+     held to the day's even share. spend(n) is called as the pass goes. Nothing here calls anything. */
+-export function passBudget({ health, settings, nowSec, ownToday = 0 }) {
++export function passBudget({ health, settings, nowSec, ownToday = 0, searchUnits = SEARCH_MAX_UNITS }) {
+   const clock = pacificClock(nowSec * 1000);
+   const usedBefore = health.day === clock.day ? health.used : 0;
+-  const guard = dayGuard({ nowSec, ownToday });
++  const guard = dayGuard({ nowSec, ownToday, searchUnits });
+   const ceiling = Math.max(0, Math.min(settings.per_day, guard));
+   const byNow = Math.min(allowedByNow(settings.per_day, clock.minute), ceiling);
+   const budget = {
+diff --git a/supabase/functions/youtube-feed/index.ts b/supabase/functions/youtube-feed/index.ts
+index 8ee5cda..07f327f 100644
+--- a/supabase/functions/youtube-feed/index.ts
++++ b/supabase/functions/youtube-feed/index.ts
+@@ -48,7 +48,10 @@ Deno.serve(async(req)=>{
+   for(let i=0;i<uniq.length;i+=16){const b=uniq.slice(i,i+16); await Promise.all(b.map(async r=>{shortMap[r.video_id]=await isShort(r.video_id)}))}
+   for(const r of uniq){r.duration_sec=dur[r.video_id]||null; r.is_short=shortMap[r.video_id]===true}
+   const upcomingIds=Object.keys(live).filter(id=>live[id]==='upcoming')
+-  if(upcomingIds.length){await sb.from('youtube_videos').delete().in('video_id',upcomingIds)}
++  // W9 (22 Oct): a search hit that is a stream still to come is removed only if THIS lane stored it. The same video may be
++  // a followed channel's stream the sweep keeps (with its start time) so it can sit on the feed at its hour; deleting it
++  // by id took that row away until the next sweep pass found it again.
++  if(upcomingIds.length){await sb.from('youtube_videos').delete().in('video_id',upcomingIds).eq('source','search')}
+   let wrote=0, upErr=null
+   for(let i=0;i<uniq.length;i+=200){const {error}=await sb.from('youtube_videos').upsert(uniq.slice(i,i+200),{onConflict:'video_id'}); if(error){upErr=error.message}else{wrote+=uniq.slice(i,i+200).length}}
+   const planOut={day:plan.day,searches_today:plan.searches_today,cursor:plan.cursor,units_today_max:plan.units_today_max,allowed_by_now:plan.allowed_by_now,every_min:everyMin,budget_units:budget}
+diff --git a/supabase/functions/yt-rss-sweep/index.ts b/supabase/functions/yt-rss-sweep/index.ts
+index 47a776a..12e2214 100644
+--- a/supabase/functions/yt-rss-sweep/index.ts
++++ b/supabase/functions/yt-rss-sweep/index.ts
+@@ -39,6 +39,11 @@
+ // (_shared/yt-upload-notice.mjs). Y5's blind read stays underneath as the net. Every unit — list pages, count
+ // calls, reads — comes out of the same day's number, and the result row says what the pass and the day spent.
+ // A fourth read-only door:  ?dry=lists  each account's list read the public way and set against the saved one.
++// W9 (22 Oct): Alan: "put them on the feed at the time they're actually scheduled. And at time that live videos are
++// scheduled, do a pull." A stream set up more than three days ahead fell out of the re-asks and stayed "upcoming" for
++// ever. The pass now puts every stream whose hour is near or came within six hours at the front of its re-asks, whatever
++// its page's age, and settles the older ones once; a fifth door,  ?due=1 , called by pg_cron only in a minute when a
++// stream is due, re-asks those streams at their hour (_shared/yt-live-due.mjs). Its calls count against the same day.
+ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+ // @ts-ignore  plain ESM shared with the resolver and the Node tests
+ import { bridgeChannelIds, withBridge, onAirPass, onAirLine, probeLive, isChannelId, isVideoId, liveProbeDue, liveProbePick, liveCandidateRow, LIVE_EVERY_MIN,
+@@ -47,6 +52,8 @@ import { bridgeChannelIds, withBridge, onAirPass, onAirLine, probeLive, isChanne
+   noticeSettings, afterLists, passBudget, ownCallsToday, tiersOf, secondWayPass,
+   ownChannelKey, readPublicList, askStillSubscribed, stillFromAnswer, acceptList, missingFrom, settleList, untagGroups, publicWayDue, keptWords, listSays,
+   LISTS_BUDGET_MS, LIST_MAX_PAGES } from "../_shared/yt-bridge.mjs";
++// @ts-ignore  plain ESM shared with the Node tests
++import { DUE_KEY, DUE_MAX_IDS, SETTLE_MAX, dueWindow, settleWindow, needsSettling, dueCallsToday, dueRoom, nextDue, searchMaxUnits } from "../_shared/yt-live-due.mjs";
+ 
+ const SB_URL = Deno.env.get("SUPABASE_URL") || "";
+ 
+@@ -361,6 +368,39 @@ Deno.serve(async (req?: Request) => {
+       rule: { taken_if_pct_of_saved: [notice.list_min_pct, notice.list_max_pct], pages_at_most: LIST_MAX_PAGES },
+       note: "a look writes nothing: no list is saved, no tag is taken off, and the units it spends are not added to the day's count in " + HEALTH_KEY });
+   }
++  /* ---- W9 · THE PULL AT THE SCHEDULED TIME (?due=1) ----
++     Called by pg_cron every minute, and only in a minute when a stream is due (the job's own SQL checks first). Re-asks
++     YouTube about every stream still "upcoming" whose hour is from DUE_LEAD_MIN minutes ahead to DUE_TAIL_MIN past -
++     one videos call for up to fifty - and writes their live state, real start and end exactly as a pass does. It takes
++     no lock and writes no other video row: the 5-minute pass may run beside it, and both write what YouTube said. Its
++     calls are counted per Pacific day in DUE_KEY and stop at DUE_UNITS_PER_DAY; the pass adds them to its own. ---- */
++  if (ask.get("due") === "1") {
++    const { data: conf } = await sb.from("app_config").select("key,value").in("key", ["YT_API_KEY", DUE_KEY]);
++    const d: Record<string, string> = {};
++    for (const row of conf || []) d[row.key] = row.value;
++    const dueApiKey = (d.YT_API_KEY || "").trim();
++    if (!dueApiKey) return json({ due: "door", error: "missing YouTube API key" });
++    const w = dueWindow(now);
++    const { data: dueRows, error: dueReadError } = await sb.from("youtube_videos").select("video_id")
++      .eq("live_broadcast", "upcoming").gte("live_scheduled_at", w.from).lte("live_scheduled_at", w.to)
++      .order("live_scheduled_at", { ascending: true }).limit(DUE_MAX_IDS);
++    if (dueReadError) return json({ due: "door", error: dueReadError.message });
++    const dueIds = (dueRows || []).map((row) => row.video_id as string);
++    if (!dueIds.length) return json({ due: "door", asked: 0, wrote: "nothing" });
++    if (dueRoom(d[DUE_KEY], now) < 1) return json({ due: "door", asked: 0, due_now: dueIds.length, held: "the day's due calls are spent" });
++    const r = await apiKeyRequest("videos?part=" + LIVE_PART + "&id=" + dueIds.join(",") + "&maxResults=50", dueApiKey);
++    const moved: string[] = [];
++    let dueWrote = 0;
++    let dueWriteError: string | null = null;
++    for (const item of r.body?.items || []) {
++      const fields = liveFields(item, now);
++      if (fields.live_broadcast !== "upcoming") moved.push(item.id);
++      const { error } = await sb.from("youtube_videos").update(fields).eq("video_id", item.id);
++      if (error) dueWriteError = error.message; else dueWrote++;
++    }
++    await sb.from("app_config").upsert({ key: DUE_KEY, value: JSON.stringify(nextDue({ raw: d[DUE_KEY], nowSec: now, sent: 1, asked: dueIds.length, moved })) });
++    return json({ due: "door", asked: dueIds.length, status: r.status, refreshed: dueWrote, moved, write_error: dueWriteError, at: new Date(now * 1000).toISOString() });
++  }
+   const configKeys = [
+     "YT_API_KEY",
+     "YT_OAUTH_CLIENT_ID",
+@@ -377,6 +417,9 @@ Deno.serve(async (req?: Request) => {
+        day's count of this sweep's own videos calls) */
+     ...ACCOUNTS.map((account) => ownChannelKey(account)),
+     "yt_rss_result",
++    /* W9: the due door's calls today, and what the ticker searches may spend (the room a cut there gives) */
++    DUE_KEY,
++    "yt_search_budget_units",
+   ];
+   const { data: cfg } = await sb.from("app_config").select("key,value").in("key", configKeys);
+   const c: Record<string, string> = {};
+@@ -407,7 +450,10 @@ Deno.serve(async (req?: Request) => {
+   const settings: Record<string, any> = fallbackSettings(c[SETTINGS_KEY]);
+   const notice: Record<string, any> = noticeSettings(c[SETTINGS_KEY]);
+   const ownBefore: number = ownCallsToday(c.yt_rss_result, now);
+-  const budget: Record<string, any> = passBudget({ health: health0, settings, nowSec: now, ownToday: ownBefore });
++  /* W9: the due door's calls are this sweep's too, and the searches' row says what they may spend */
++  const dueToday: number = dueCallsToday(c[DUE_KEY], now);
++  const searchUnits: number = searchMaxUnits(c.yt_search_budget_units);
++  const budget: Record<string, any> = passBudget({ health: health0, settings, nowSec: now, ownToday: ownBefore + dueToday, searchUnits });
+   /* the channels that ride with the SCINTILLA list (the bridge) — read here, because a channel that rides does
+      not "leave" when the account stops following it */
+   let bridgeIds: string[] = [];
+@@ -820,6 +866,7 @@ Deno.serve(async (req?: Request) => {
+      no length yet. Bounded to REFRESH_MAX rows over REFRESH_DAYS days. */
+   let refreshed = 0;
+   let liveGone = 0;
++  let settled = 0;
+   let refreshError: string | null = null;
+   try {
+     const since = new Date((now - REFRESH_DAYS * 86400) * 1000).toISOString();
+@@ -837,8 +884,20 @@ Deno.serve(async (req?: Request) => {
+       .select("video_id").eq("live_broadcast", "live")
+       .order("live_checked_ts", { ascending: true, nullsFirst: true }).limit(50);
+     const liveSaid = new Set((stillLive || []).map((row) => row.video_id as string));
++    /* W9: a stream whose hour is near or came within SETTLE_HOURS is re-asked on every pass whatever its page's age (the
++       three-day window let go of streams set up earlier), and an older row still saying "upcoming" is asked once after
++       its hour. They go before the three-day rows, inside the same REFRESH_MAX. */
++    const settle = settleWindow(now);
++    const { data: dueSoon } = await sb.from("youtube_videos").select("video_id")
++      .eq("live_broadcast", "upcoming").gte("live_scheduled_at", settle.from).lte("live_scheduled_at", settle.to)
++      .order("live_scheduled_at", { ascending: true }).limit(SETTLE_MAX);
++    const { data: lingering } = await sb.from("youtube_videos").select("video_id,live_scheduled_at,live_checked_ts")
++      .eq("live_broadcast", "upcoming").lt("live_scheduled_at", settle.from)
++      .order("live_scheduled_at", { ascending: false }).limit(SETTLE_MAX);
++    const settleIds = [...(dueSoon || []), ...(lingering || []).filter(needsSettling)].map((row) => row.video_id as string);
++    settled = settleIds.length;
+     const watchIds = [...new Set([...forceRefresh, ...(stillLive || []).map((row) => row.video_id as string),
+-      ...(watching || []).map((row) => row.video_id as string)])].slice(0, REFRESH_MAX);
++      ...settleIds, ...(watching || []).map((row) => row.video_id as string)])].slice(0, REFRESH_MAX);
+     for (let i = 0; i < watchIds.length; i += 50) {
+       videosCalls++;
+       const r = await apiKeyRequest(
+@@ -935,12 +994,15 @@ Deno.serve(async (req?: Request) => {
+     units: {
+       pass: { lists: listsNow.units, counts: countCalls, uploads: uploadsCalls, videos: videosCalls, total: listsNow.units + countCalls + uploadsCalls + videosCalls },
+       today: { day: healthNow.day || budget.day, second_way: healthNow.used, videos_calls: ownBefore + videosCalls,
+-        total: healthNow.used + ownBefore + videosCalls, second_way_per_day: settings.per_day, second_way_may_come_to: budget.ceiling },
++        due_calls: dueToday, search_units_max: searchUnits,
++        total: healthNow.used + ownBefore + videosCalls + dueToday, second_way_per_day: settings.per_day, second_way_may_come_to: budget.ceiling },
+     },
+     new_videos: wrote,
+     membership_updates: membershipUpdates,
+     live_refreshed: refreshed,
+     live_gone: liveGone,
++    /* W9: how many streams near or past their hour were put at the front of this pass's re-asks */
++    live_settle: settled,
+     refresh_error: refreshError,
+     videos_calls_not_ok: videosNotOk,
+     dropped,
