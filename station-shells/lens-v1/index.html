@@ -35,6 +35,7 @@ html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); font:1
 #tf{ display:flex; gap:2px; margin-left:6px; } #tf .chip{ padding:2px 6px; font-size:8.5px; letter-spacing:.08em; }
 .sethead{ grid-column:1 / -1; padding:7px 12px 3px; font-size:9px; letter-spacing:.18em; text-transform:uppercase; color:var(--crk); background:var(--bg); display:flex; gap:8px; align-items:baseline; }
 .sethead[data-set="macro"]{ color:var(--warm); } .sethead small{ color:var(--dim); letter-spacing:.06em; }
+.setgrp{ display:contents; }   /* the set's lenses follow its head in the grid */
 .lens .un{ position:absolute; right:9px; bottom:6px; font-size:8px; letter-spacing:.1em; text-transform:uppercase; color:var(--crk); background:rgba(10,10,15,.85); padding:1px 4px; max-width:80%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; z-index:1; }
 .lens .un:empty{ display:none; }
 .lens.glow{ box-shadow:inset 0 0 0 1px var(--crk), 0 0 12px rgba(0,212,255,.45); z-index:1; }
@@ -303,7 +304,7 @@ function paintSet(force) {
       let i = 0; for (const g of live) for (const t of g.names) cells.push([t, g.s, hosts[(i++) % ROWS]]);
     } else live.forEach((g, gi) => { const hosts = []; for (let r = 0; r < per[gi]; r++) { const win = document.createElement("div"); win.className = "trackwin"; win.dataset.set = g.s; const tr = document.createElement("div"); tr.className = "track"; win.appendChild(tr); box.appendChild(win); hosts.push(tr); }
       g.names.forEach((t, i) => cells.push([t, g.s, hosts[i % hosts.length]])); });
-  } else for (const g of groups) { const h = document.createElement("div"); h.className = "sethead"; h.dataset.set = g.s; h.innerHTML = g.s + "<small>" + g.names.length + "</small>"; box.appendChild(h); if (!g.names.length) { const m = document.createElement("div"); m.className = "msg"; m.textContent = g.s === "mine" ? "no picks yet · type a ticker above and press Enter" : g.s === "radar" && !radarAt ? "reading the radar list…" : "nothing on this list"; box.appendChild(m); } for (const t of g.names) cells.push([t, g.s, box]); }
+  } else for (const g of groups) { const h = document.createElement("div"); h.className = "sethead"; h.dataset.set = g.s; h.innerHTML = g.s + "<small>" + g.names.length + "</small>"; box.appendChild(h); if (!g.names.length) { const m = document.createElement("div"); m.className = "msg"; m.textContent = g.s === "mine" ? "no picks yet · type a ticker above and press Enter" : g.s === "radar" && !radarAt ? "reading the radar list…" : "nothing on this list"; box.appendChild(m); } const grp = document.createElement("div"); grp.className = "setgrp"; grp.dataset.set = g.s; box.appendChild(grp); for (const t of g.names) cells.push([t, g.s, grp]); }
   const seen = new Set();
   cells.forEach(([t, setName, host]) => {
     if (seen.has(t + "|" + setName)) return; seen.add(t + "|" + setName);
