@@ -33,13 +33,17 @@ test("W12 · the lenses: a timeframe switch for the bars (1m 5m 15m 30m 1h 1D, r
 });
 
 test("W12 · the unusual flashes, the same rule everywhere: a day move at 2× the name's usual day and over, RVol at 2× and over; one bright pulse, a steady glow, in words", () => {
-  const unusualOf = pure(lens, "unusualOf"), usualOf = pure(lens, "usualOf");
+  const unusualOf = pure(lens, "unusualOf");
   assert.deepEqual(unusualOf(4.6, 2.0, 1.1), ["2.3× its usual day"]); assert.deepEqual(unusualOf(-4.6, 2.0, 2.7), ["2.3× its usual day", "rvol 2.7×"]); assert.deepEqual(unusualOf(3.9, 2.0, 1.9), [], "under twice: nothing"); assert.deepEqual(unusualOf(null, null, 2.0), ["rvol 2.0×"]);
-  assert.equal(usualOf([100, 101, 100, 102, 101, 103, 102, 104, 103, 105, 104]).toFixed(2), "1.00", "the median absolute day change"); assert.equal(usualOf([100, 101, 102]), null, "too few closes: no usual");
-  assert.match(lens, /the median absolute day change of its last 20 daily closes, read from the chart\n\s+API - the Hub's board_volume carries RVol only, no usual move/, "where the usual comes from, said");
-  assert.match(fn(lens, "readUsual"), /P\.marketCandles\(t, "1d", \{ limit: 22 \}\)/);
-  assert.match(fn(lens, "paintCells"), /if \(now && !was\) \{ d\.classList\.add\("glow"\); d\.classList\.remove\("pulse"\); void d\.offsetWidth; d\.classList\.add\("pulse"\);/, "the pulse once, the glow while it holds");
-  assert.match(lens, /\.lens\.pulse\{ animation:scint 1\.1s ease-out 1; \}/); assert.match(lens, /\.lens\.glow\{ box-shadow:inset 0 0 0 1px var\(--crk\), 0 0 12px rgba\(0,212,255,\.45\); z-index:1; \}/);
+  /* coordinator 23 Oct: one rule on every surface - the usual day is the Hub's usual_day_60, the number the live charts flash on (W13) */
+  assert.match(lens, /the Hub's own usual day, ticker_heartbeat_daily\.usual_day_60/, "where the usual comes from, said");
+  assert.match(fn(lens, "readUsual"), /pgRead\("ticker_heartbeat_daily\?select=ticker,date,usual_day_60&ticker=in\./);
+  const usualSpread = pure(lens, "usualSpread"), moves = [1, -1, 2, -2, 0.5, -0.5, 1.5, -1.5, 3, -3, 1, -1, 2, -2, 0.5, -0.5, 1.5, -1.5, 3, -3];
+  const closes = moves.reduce((c, m) => (c.push(c[c.length - 1] * (1 + m / 100)), c), [100]);
+  assert.equal(usualSpread(closes).toFixed(3), "1.864", "the sample standard deviation of the daily % moves, as the Hub's usual_day_60");
+  assert.equal(usualSpread(closes.slice(0, 15)), null, "fewer than 20 moves: no usual");
+  assert.match(fn(lens, "readUsual"), /else missing\.push\(t\)/, "the Hub's row first; only a name without one is computed");
+  assert.match(fn(lens, "readUsual"), /P\.marketCandles\(t, "1d", \{ limit: 62 \}\)/);
   /* the deck's FAVORITES tape: the same rule, the usual by message from the lens frame */
   assert.match(fn(deck, "tapeUnusual"), /Math\.abs\(pct\) >= 2 \* usual/); assert.match(fn(deck, "tapeUnusual"), /rvol >= 2/);
   assert.match(deck, /for \(const \[t, v\] of Object\.entries\(event\.data\.usual \|\| \{\}\)\) \{ const c = CLEAN\(t\); if \(c && Number\.isFinite\(\+v\)\) TAPES\.usual\.set\(c, \+v\); \}/);

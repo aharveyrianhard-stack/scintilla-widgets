@@ -156,15 +156,19 @@ const TFS = Object.freeze(["1m", "5m", "15m", "30m", "1h", "1D"]);
 const TF_API = Object.freeze({ "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m", "1h": "1h", "1D": "1d" });
 export function tfOf(stored, urlValue) { const u = String(urlValue || "").replace(/^1d$/, "1D"), st = String(stored || "").replace(/^1d$/, "1D"); return TFS.includes(u) ? u : TFS.includes(st) ? st : "5m"; }
 export function mineOnOf(stored, urlList) { return urlList === "mine" || stored === "1"; }
-/* the unusual: a day move at least twice the name's usual day (the median absolute day change of its last 20 daily closes, read from the chart
-   API - the Hub's board_volume carries RVol only, no usual move; the Hub's own board marks the same idea with a ◆), or RVol at 2× and over */
+/* the unusual: a day move at least twice the name's usual day (the Hub's own usual day, ticker_heartbeat_daily.usual_day_60 - the spread of
+   the name's daily % moves over 60 sessions, the number the live charts flash on (W13); coordinator 23 Oct: one rule on every surface), or RVol
+   at 2× and over */
 export function unusualOf(pct, usual, rvol) {
   const out = [];
   if (pct != null && usual > 0 && Math.abs(pct) >= 2 * usual) out.push((Math.abs(pct) / usual).toFixed(1) + "× its usual day");
   if (rvol != null && rvol >= 2) out.push("rvol " + rvol.toFixed(1) + "×");
   return out;
 }
-export function usualOf(closes) { const a = []; for (let i = 1; i < closes.length; i++) if (closes[i - 1] > 0 && closes[i] > 0) a.push(Math.abs(closes[i] / closes[i - 1] - 1) * 100); const last = a.slice(-20).sort((x, y) => x - y); return last.length >= 5 ? last[Math.floor(last.length / 2)] : null; }
+/* the Hub's usual_day_60 is the sample standard deviation of the name's last 60 daily close-to-close % moves (reproduced to the third decimal
+   on MU, BE, NVDA and CCI, 23 Oct); a name the Hub has no current row for (futures, rates, crypto) gets the same number from the chart API's
+   daily bars, so every name is measured one way */
+export function usualSpread(closes) { const a = []; for (let i = 1; i < closes.length; i++) if (closes[i - 1] > 0 && closes[i] > 0) a.push((closes[i] / closes[i - 1] - 1) * 100); const x = a.slice(-60); if (x.length < 20) return null; const m = x.reduce((u, v) => u + v, 0) / x.length; return Math.sqrt(x.reduce((u, v) => u + (v - m) * (v - m), 0) / (x.length - 1)); }
 /* the rows of the tape dealt to the sets: each set at least one row when there are enough, the rest by the names' count; fewer rows than sets -
    one row holds them in sequence */
 export function rowsForSets(rows, counts) {
@@ -486,13 +490,23 @@ async function readRvol() {
     postRvol(); }
   catch (_) {} finally { S.busyR = false; }
 }
-/* W12: each name's usual day - the median absolute day change of its last 20 daily closes (the chart API's daily bars), every 30 minutes */
+/* each name's usual day - the Hub's own (coordinator 23 Oct, the same reading as the live charts): ticker_heartbeat_daily.usual_day_60, the
+   newest row of the last week, read for new names and every 30 minutes; a name with no current row (futures, rates, a name the Hub does not
+   follow) gets the same spread computed from the chart API's daily bars (usualSpread) */
 async function readUsual() {
-  const P = window.SC_PROVIDER; const list = Array.from(new Set(names().concat(WANTED))).filter((t) => !NUMBER_LENS[t] && !DAILY_ONLY[t] && (!S.usual.has(t) || Date.now() - S.usualAt > USUAL_MS)); if (!P || !list.length || S.busyU || document.hidden) return; S.busyU = true;
+  const list = Array.from(new Set(names().concat(WANTED))).filter((t) => !NUMBER_LENS[t] && !DAILY_ONLY[t] && (!S.usual.has(t) || Date.now() - S.usualAt > USUAL_MS)); if (!list.length || S.busyU || document.hidden) return; S.busyU = true;
   try {
-    await Promise.all(list.map(async (t) => { try { const payload = await P.marketCandles(t, "1d", { limit: 22 }); const rows = (Array.isArray(payload) ? payload : (payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.c > 0).sort((a, b) => a.t - b.t); const u = usualOf(rows.map((b) => b.c)); if (u != null) S.usual.set(t, u); } catch (_) {} }));
+    const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10), best = new Map();
+    for (let i = 0; i < list.length; i += 60) {
+      const rows = await pgRead("ticker_heartbeat_daily?select=ticker,date,usual_day_60&ticker=in.(" + list.slice(i, i + 60).map(encodeURIComponent).join(",") + ")&date=gte." + since + "&order=date.desc");
+      for (const r of rows || []) { const t = CLEAN(r && r.ticker); if (t && !best.has(t)) best.set(t, r); }
+    }
+    const P = window.SC_PROVIDER, missing = [];
+    for (const t of list) { const r = best.get(t), v = r && r.usual_day_60 != null ? +r.usual_day_60 : NaN; if (Number.isFinite(v) && v > 0) S.usual.set(t, v); else missing.push(t); }
+    /* no current Hub row: the same spread from the chart API's daily bars, finished sessions only (a bar stamped in the last 24 h is today's) */
+    if (P && missing.length) await Promise.all(missing.map(async (t) => { try { const payload = await P.marketCandles(t, "1d", { limit: 62 }); const cut = Date.now() - 86400000; const rows = (Array.isArray(payload) ? payload : (payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.c > 0 && b.t <= cut).sort((a, b) => a.t - b.t); const u = usualSpread(rows.map((b) => b.c)); if (u != null && u > 0) S.usual.set(t, u); else S.usual.delete(t); } catch (_) {} }));
     S.usualAt = Date.now(); paintCells(false); postRvol();
-  } finally { S.busyU = false; }
+  } catch (_) {} finally { S.busyU = false; }
 }
 function postRvol() { if (WANTED.length && window.parent !== window) { try { parent.postMessage({ type:"SCINTILLA_RVOL", rvol:Object.fromEntries(WANTED.filter((t) => S.rvol.has(t)).map((t) => [t, S.rvol.get(t)])), usual:Object.fromEntries(WANTED.filter((t) => S.usual.has(t)).map((t) => [t, S.usual.get(t)])) }, location.origin); } catch (_) {} } }
 async function readBreadth() {
