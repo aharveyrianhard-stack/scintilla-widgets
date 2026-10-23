@@ -116,7 +116,7 @@ const BREADTH_FEED = "https://volume-pulse-pied.vercel.app/api/heartbeat";
 /* W7: LINE · BARS, remembered on this machine; bars by default (Alan: "it needs to be bars, please. 5-minute bars") */
 const STYLE_KEY = "station.lenses.style";
 export const styleOf = (stored) => stored === "line" ? "line" : "bars";
-let STYLE = styleOf(remembered(STYLE_KEY));
+let STYLE = "bars";   /* read from the machine below, once `remembered` exists */
 /* W7: the rows the deck's band holds (SCINTILLA_LENS_ROWS); ?rows= stands alone */
 let ROWS = Math.max(1, Math.min(6, +QS.get("rows") || 1));
 /* W7: each name's RVol, the Hub's board_volume.rvol_at_time, once a minute */
@@ -147,6 +147,7 @@ export function mineRemove(list, t) { const c = CLEAN(t); return list.filter((x)
 /* the names of a station_lists read, in position order, deduped */
 export function listNames(rows) { const seen = new Set(), out = []; for (const row of (rows || []).slice().sort((a, b) => (Number(a && a.position) || 0) - (Number(b && b.position) || 0))) { const t = CLEAN(row && row.ticker); if (t && !seen.has(t)) { seen.add(t); out.push(t); } } return out.slice(0, MAX_LENSES); }
 let LIST = listChoice(remembered(LIST_KEY), QS.get("list"), TAPE);
+STYLE = styleOf(remembered(STYLE_KEY));
 let MINE = mineOf(remembered(MINE_KEY)), mineAt = 0;   /* W4: a copy of the database list, read every five minutes; written through the same door */
 let RADAR = [], radarAt = 0;
 const S = { quotes: new Map(), bars: new Map(), rvol: new Map(), breadth: null, quotesAt: 0, barsAt: 0, rvolAt: 0, breadthAt: 0, busyQ: false, busyB: false, busyR: false, busyBr: false };
