@@ -30,7 +30,7 @@ test("W3 · the defaults: chart 1 LIVE, chart 2 TV; the stored choice wins; ?cha
 
 test("W3 · the slot mounts live-v1 or tv-v1 on the same address by its source; the Y9 door drives whichever is mounted", () => {
   assert.match(deck, /live: "\/station-shells\/live-v1",/, "the shell is registered");
-  assert.match(fn(deck, "liveChartSrc"), /STATION_SHELL\.live \+ "\/\?shell=v1&bare=1&t=" \+ encodeURIComponent\(t\) \+ "&tf=" \+ encodeURIComponent\(widgetsTf\(index\)\) \+ "&n=" \+ \(index \+ 1\)/, "tv-v1's address on the live shell");
+  assert.match(fn(deck, "liveChartSrc"), /STATION_SHELL\.live \+ "\/\?shell=v1&bare=1&sync=1&t=" \+ encodeURIComponent\(t\) \+ "&tf=" \+ encodeURIComponent\(widgetsTf\(index\)\) \+ "&clouds=" \+ \(widgetsClouds\(\) \? "1" : "0"\) \+ "&n=" \+ \(index \+ 1\)/, "tv-v1's address on the live shell (W7: with sync=1 and the clouds)");
   assert.match(fn(deck, "widgetsChartSrc"), /widgetsSrc\(index\) === "live" \? liveChartSrc\(t, index\) : tvChartSrc\(t, index\)/);
   assert.match(fn(deck, "paneChartSrc"), /if \(widgetsOn\(\) && index < WIDGETS_CHARTS && t\) return widgetsChartSrc\(t, index\);/);
   /* commitTicker → retargetSlot → paneChartSrc: the typed symbol lands on whichever shell the slot carries (W1's door, untouched) */

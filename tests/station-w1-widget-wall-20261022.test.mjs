@@ -32,9 +32,9 @@ function deckApi() {
     fn(deck, "simpleDefault"), fn(deck, "simpleChoice"), fn(deck, "simpleSplitOf"), fn(deck, "floorSimple"),
     grab(deck, /const WIDGETS_KEY = [\s\S]*?const WIDGETS_TAPE_PX = \d+;/, "the WIDGETS constants"),
     fn(deck, "widgetsChoice"), grab(deck, /const widgetsArrangementOf = [^\n]*/, "widgetsArrangementOf"), fn(deck, "widgetsTfOf"),
-    grab(deck, /const WIDGETS_BAND = [^\n]*/, "the band's shares (W1C)"), grab(deck, /const WIDGETS_X_SLIM_SHARE = [^\n]*/, "W1B"), grab(deck, /const widgetsLensTapePx = [\s\S]*?;\n/, "widgetsLensTapePx"), fn(deck, "floorWidgets"),
+    grab(deck, /const WIDGETS_X_SHARE = [^\n]*/, "the wall's shares (W7)"), grab(deck, /const WIDGETS_X_SLIM_SHARE = [^\n]*/, "W1B"), grab(deck, /const widgetsLensRows = [^\n]*/, "widgetsLensRows"), fn(deck, "floorWidgets"),
     grab(deck, /const TAPE_ROW_PX = \d+;/, "the tape's height"), fn(deck, "tapesHeight"), fn(deck, "widgetsTapesHeight"),
-    "globalThis.out = { floorPlan, floorSimple, floorWidgets, widgetsLensTapePx, widgetsChoice, widgetsArrangementOf, widgetsTfOf, tapesHeight, widgetsTapesHeight, WIDGETS_KEY, WIDGETS_CHART_KEY, WIDGETS_TF_KEY, WIDGETS_ARR_KEY, WIDGETS_CHARTS, WIDGETS_TFS, WIDGETS_TF_DEFAULT, WIDGETS_TAPE_PX, WIDGETS_BAND, WIDGETS_VIDEO_W, WIDGETS_LENS_TAPE_PX, WIDGETS_LENS_TAPE_NARROW_PX, FLOOR_SEAM_PX };"
+    "globalThis.out = { floorPlan, floorSimple, floorWidgets, widgetsLensRows, widgetsChoice, widgetsArrangementOf, widgetsTfOf, tapesHeight, widgetsTapesHeight, WIDGETS_KEY, WIDGETS_CHART_KEY, WIDGETS_TF_KEY, WIDGETS_ARR_KEY, WIDGETS_CHARTS, WIDGETS_TFS, WIDGETS_TF_DEFAULT, WIDGETS_TAPE_PX, WIDGETS_X_SHARE, WIDGETS_YT_W, WIDGETS_VOL_W, WIDGETS_LENS_ROW_PX, FLOOR_SEAM_PX };"
   ].join("\n");
   const ctx = {}; vm.runInNewContext(src, ctx); return ctx.out;
 }
@@ -87,7 +87,7 @@ test("W1 · the two charts are TradingView (tv-v1) in WIDGETS; the symbol and th
   assert.match(deck, /tv: "\/station-shells\/tv-v1"/, "the shell is registered");
   const src = fn(deck, "paneChartSrc");
   assert.match(src, /if \(widgetsOn\(\) && index < WIDGETS_CHARTS && t\) return widgetsChartSrc\(t, index\);/, "slots 1 and 2 mount the TradingView shell or the live shell in WIDGETS (W3: restated); the other slots keep chart-v1");
-  assert.match(fn(deck, "tvChartSrc"), /STATION_SHELL\.tv \+ "\/\?shell=v1&bare=1&t=" \+ encodeURIComponent\(t\) \+ "&tf=" \+ encodeURIComponent\(widgetsTf\(index\)\) \+ "&n=" \+ \(index \+ 1\)/);
+  assert.match(fn(deck, "tvChartSrc"), /STATION_SHELL\.tv \+ "\/\?shell=v1&bare=1&sync=1&t=" \+ encodeURIComponent\(t\) \+ "&tf=" \+ encodeURIComponent\(widgetsTf\(index\)\) \+ "&n=" \+ \(index \+ 1\)/);   /* W7: sync=1 - the deck's row owns the timeframe */
   /* the symbol: the deck's own box (the badge → the box → Enter) remembers it; the default is SIMPLE's last symbol */
   assert.match(fn(deck, "commitTicker"), /if \(widgetsOn\(\) && index < WIDGETS_CHARTS\) remember\(WIDGETS_CHART_KEY \+ \(index \+ 1\), ticker\);/);
   assert.match(deck, /const widgetsSymbols = \(\) => Array\.from\(\{ length:WIDGETS_CHARTS \}, \(_, i\) => CLEAN\(remembered\(WIDGETS_CHART_KEY \+ \(i \+ 1\)\)\) \|\| CLEAN\(remembered\(SIMPLE_CHART_KEY \+ \(i \+ 1\)\)\)\);/, "its own memory first, then the last SIMPLE symbol for that chart");
@@ -95,7 +95,7 @@ test("W1 · the two charts are TradingView (tv-v1) in WIDGETS; the symbol and th
   const place = fn(deck, "placeWidgetsSymbols");
   assert.match(place, /if \(CHARTS\[i\]\) retargetSlot\(i, CHARTS\[i\]\);/, "the shell changes with the mode, so every slot is re-pointed");
   /* the interval: the shell says, the deck remembers, and the slot's address is kept in step */
-  assert.match(deck, /if \(event\.data\?\.type === "SCINTILLA_TV_STATE" \|\| event\.data\?\.type === "SCINTILLA_LIVE_STATE"\) \{[\s\S]{0,900}?remember\(WIDGETS_TF_KEY \+ n, tf\);[\s\S]{0,1200}?o\.frame\.dataset\.shown = o\.def\.src;/);
+  assert.match(deck, /if \(event\.data\?\.type === "SCINTILLA_TV_STATE" \|\| event\.data\?\.type === "SCINTILLA_LIVE_STATE"\) \{[\s\S]{0,900}?setWidgetsTf\(tf\); return; \}[\s\S]{0,1200}?o\.frame\.dataset\.shown = o\.def\.src;/);
   /* the shell itself */
   assert.match(tv, /embed-widget-advanced-chart\.js/, "the free Advanced Chart embed, the research board's");
   assert.match(tv, /studies: \["STD;VWAP"\]/, "VWAP preloaded"); assert.match(tv, /style: "1"/, "candles"); assert.match(tv, /timezone: "America\/New_York"/); assert.match(tv, /theme: "dark"/);
@@ -112,40 +112,36 @@ test("W1 · the two charts are TradingView (tv-v1) in WIDGETS; the symbol and th
   assert.match(tv, /VIX: "TVC:VIX", US10Y: "TVC:US10Y", DXUSD: "TVC:DXY"/, "the Station's macro names on TradingView's symbology");
 });
 
-test("W1 · floorWidgets, pure (restated for W1C): the charts, the lens tape, the band (YouTube and the volume column), the FAVORITES tape at the bottom - every piece a share", () => {
+test("W1 · floorWidgets, pure (restated for W7): X slimmer, YouTube in the bottom-left corner, the charts the whole area above the band, the lens grid and the volume right of YouTube over the FAVORITES tape", () => {
   const D = deckApi();
   assert.equal(D.WIDGETS_TAPE_PX, 66); assert.equal(D.widgetsTapesHeight(true), 68); assert.equal(D.widgetsTapesHeight(false), 0);
-  assert.ok(D.WIDGETS_TAPE_PX > 2 * 22 - 1, "a cell is taller than today's 22 px row - three lines of it");
-  for (const [key, W, H] of SCREENS) {
-    const plan = D.floorPlan(W, H, CHROME);
-    assert.equal(plan.col, Math.round(W * 0.24), key + ": X's column is 24 % of the wall, as S11 set it");
-    const lt = D.widgetsLensTapePx(plan.charts.w, false);
-    assert.equal(lt, W >= 2560 ? D.WIDGETS_LENS_TAPE_PX : D.WIDGETS_LENS_TAPE_NARROW_PX, key + ": the lens tape's height");
-    const s = D.floorWidgets(plan.charts.w, plan.charts.h, 68, lt, 9, CHROME);
-    assert.equal(s.widgets, true);
-    assert.equal(s.cols, 2); assert.equal(s.rows, 1); assert.equal(s.charts, 2); assert.equal(s.hidden, 7, "nine on the page: two shown, seven mounted and hidden");
-    assert.deepEqual(plain(s.cells), [{ col: 1, row: 1 }, { col: 2, row: 1 }]);
-    /* the pieces tile the area top to bottom: charts, seam, lens tape, seam, band, tapes - no gap, no overlap */
-    assert.equal(s.chartsH + 1 + s.lensTapeH + 1 + s.bandH + 68, plan.charts.h, key + ": charts + lens tape + band + tapes = the height");
-    assert.equal(s.rowBelow, s.bandH + 1 + s.lensTapeH, "what the chart row gives up");
-    assert.equal(s.lensTape.top, s.chartsH + 1); assert.equal(s.lensTape.w, plan.charts.w, "the lens tape spans the chart area");
-    assert.equal(s.box.top, s.lensTape.top + s.lensTapeH + 1); assert.equal(s.box.top + s.box.h, plan.charts.h - 68, "the band ends where the FAVORITES tape begins");
-    assert.equal(s.bandH, Math.round((plan.charts.h - 1) * D.WIDGETS_BAND), "the band is 40 % of the height");
-    assert.equal(s.box.w, Math.round(plan.charts.w * D.WIDGETS_VIDEO_W), "YouTube takes 62 % of the band's width");
-    assert.equal(s.volume.left, s.box.w + 1); assert.equal(s.volume.w, plan.charts.w - s.box.w - 1); assert.equal(s.volume.h, s.bandH, "the volume graph has the whole column");
-    assert.equal(s.volume.on, true); assert.equal(s.lensTape.on, true);
-    assert.ok(s.chartsH >= 280, key + ": the charts keep at least 280 px (" + s.chartsH + ")");
-    assert.equal(s.picture.h, Math.round(s.picture.w * 9 / 16), "the pane's picture is 16:9 under the bar");
+  assert.equal(D.WIDGETS_X_SHARE, 0.18); assert.equal(D.WIDGETS_YT_W, 0.34); assert.equal(D.WIDGETS_VOL_W, 0.17); assert.equal(D.WIDGETS_LENS_ROW_PX, 150);
+  for (const [key, W, H] of SCREENS.concat([["1920x1080", 1920, 1080]])) {
+    const plan = D.floorPlan(W, H, CHROME, D.WIDGETS_X_SHARE);
+    assert.equal(plan.col, Math.round(W * 0.18), key + ": X's column is 18 % of the wall on the WIDGETS wall");
+    const s = D.floorWidgets(plan.charts.w, plan.charts.h, 68, plan.col, 9, CHROME);
+    assert.equal(s.widgets, true); assert.equal(s.cols, 2); assert.equal(s.rows, 1); assert.equal(s.charts, 2); assert.equal(s.hidden, 7);
+    assert.equal(s.wall, W, "the wall is the column, the seam and the chart area");
+    assert.equal(s.box.w, Math.round(W * 0.34), key + ": YouTube is 34 % of the wall wide"); assert.equal(s.box.left, -(plan.col + 1), "from the screen's left edge");
+    assert.equal(s.bandH, Math.round(s.box.w * 9 / 16) + CHROME, "the band is YouTube's 16:9 picture plus the bar"); assert.equal(s.box.top + s.box.h, plan.charts.h, "at the bottom");
+    assert.equal(s.chartsH + 1 + s.bandH, plan.charts.h, "the charts have everything above the band");
+    assert.equal(s.volume.w, Math.round(W * 0.17)); assert.equal(s.volume.left + s.volume.w, plan.charts.w, "the volume panel at the right"); assert.equal(s.volume.h, s.bandH - 68, "over the tape");
+    assert.equal(s.lensTape.left, s.box.w - plan.col - 1 + 1, "the lens grid starts at YouTube's right edge"); assert.equal(s.lensTape.left + s.lensTape.w + 1, s.volume.left, "and ends at the volume panel");
+    assert.equal(s.lensTape.h, s.bandH - 68); assert.equal(s.lensTape.rows, D.widgetsLensRows(s.bandH - 68)); assert.ok(s.lensTape.rows >= 1);
+    assert.equal(s.tapeLeft, s.box.w + 1, "the FAVORITES tape starts at YouTube's right edge"); assert.equal(s.rowBelow, s.bandH - 68);
+    assert.ok(s.chartsH >= 500, key + ": the charts keep at least 500 px (" + s.chartsH + ")");
+    assert.equal(s.picture.h, Math.round(s.picture.w * 9 / 16));
   }
+  assert.equal(D.widgetsLensRows(450), 3, "three rows of 150 px lenses in 450 px (the 2560 band)"); assert.equal(D.widgetsLensRows(325), 2, "two on the 1920 band"); assert.equal(D.widgetsLensRows(206), 1); assert.equal(D.widgetsLensRows(10), 1, "never none");
   /* the slot is planned before SIMPLE's, and fitVideoPane treats both as the band */
-  assert.match(fn(deck, "slotFor"), /if \(widgetsOn\(\)\) return floorWidgets\(plan\.charts\.w, plan\.charts\.h, tapePx, widgetsLensTapePx\(plan\.charts\.w, false\), count, chromePx\);\n[\s\S]{0,200}?if \(simpleOn\(\)\) return floorSimple/);
+  assert.match(fn(deck, "slotFor"), /if \(widgetsOn\(\)\) return floorWidgets\(plan\.charts\.w, plan\.charts\.h, tapePx, plan\.col, count, chromePx\);\n[\s\S]{0,200}?if \(simpleOn\(\)\) return floorSimple/);
   const fit = fn(deck, "fitVideoPane");
   assert.match(fit, /const simple = !!slot && \(!!slot\.simple \|\| !!slot\.widgets\);/);
-  assert.match(fit, /slot\.widgets \? slot\.rowBelow : slot\.box\.h/, "the chart row gives up the band and the lens tape (W1C)");
+  assert.match(fit, /slot\.widgets \? slot\.rowBelow : slot\.box\.h/, "the chart row gives up the band (W7: the band less the tape under the grid)");
   assert.match(fit, /placeWidgets\(slot && slot\.widgets \? slot : null, plan\);/);
   assert.match(fit, /widgetsOn\(\) \? widgetsTapesHeight\(tapesOn\(\)\) : tapesHeight\(tapesOn\(\)\)/, "the taller tape's height is the band's");
   assert.match(deck, /body\.widgets\.video-slot:not\(\.stack\) #grid > #rowTop\{ margin-bottom:calc\(var\(--simple-video-px, 0px\) \+ 1px \+ var\(--tapes-px, 0px\)\); \}/);
-  assert.match(deck, /body\.widgets\.video-slot\.tapes:not\(\.stack\) #tapes\{ bottom:0; \}/, "W1C: the FAVORITES tape at the very bottom");
+  assert.match(deck, /body\.widgets\.video-slot\.tapes:not\(\.stack\) #tapes\{ bottom:0; left:var\(--widgets-tape-left, [^\n]*\}/, "W1C: the FAVORITES tape at the very bottom; W7: from YouTube's right edge");
   /* W1C: the volume graph (volume-v1) in the column, the lens tape (lens-v1 in tape mode) over the band; the pill meter left the wall */
   assert.match(deck, /const WIDGETS_VOLUME_SHELL = "\/station-shells\/volume-v1", WIDGETS_VOLUME_OPEN = "https:\/\/volume-pulse-pied\.vercel\.app\/";/);
   assert.match(fn(deck, "mountWidgets"), /WIDGETS_VOLUME_SHELL \+ "\/\?shell=v1/); assert.match(fn(deck, "mountWidgets"), /WIDGETS_LENS_SHELL \+ "\/\?shell=v1&mode=tape/);
@@ -160,7 +156,7 @@ test("W1 · the tape: one FAVORITES row in WIDGETS, each cell two lines - ticker
   assert.match(paint, /if \(tall\) box\.firstChild\.classList\.add\("tall"\);\n\s+else box\.appendChild\(tapeRow\("LIKED"/, "FAVORITES alone on the WIDGETS wall; both tapes elsewhere");
   assert.match(paint, /const key = \(tall \? "tall\|" : ""\) \+ TAPES\.liked/, "a mode change rebuilds the rows");
   /* W1C: the stacked cell - ticker over percent over price, the line on the right across the three, every cell 156 px wide, tabular numbers */
-  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell\{ height:var\(--tape-row-px, 66px\); width:156px; display:grid; grid-template-columns:minmax\(0,1fr\) 64px; grid-template-rows:1fr 1fr 1fr;[\s\S]{0,200}?font-size:12px; font-variant-numeric:tabular-nums; \}/, "three rows, one width, tabular numbers");
+  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell\{ height:var\(--tape-row-px, 66px\); width:196px; display:grid; grid-template-columns:minmax\(0,1fr\) 64px 34px; grid-template-rows:1fr 1fr 1fr;[\s\S]{0,200}?font-size:12px; font-variant-numeric:tabular-nums; \}/, "three rows, one width, tabular numbers (W7: a third column for the RVol)");
   assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.tk\{ grid-column:1; grid-row:1;/, "the ticker on top");
   assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.pc\{ grid-column:1; grid-row:2;/, "the percent under it");
   assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.px\{ grid-column:1; grid-row:3;/, "the price under that");
@@ -203,7 +199,7 @@ test("W1 · the lens set: RADAR · MACRO · MINE, remembered; MINE adds and remo
     "globalThis.out = { LISTS, MACRO, listChoice, mineOf, mineAdd, mineRemove };"].join("\n");
   const ctx = {}; vm.runInNewContext(src, ctx); const L = ctx.out;
   assert.deepEqual(plain(L.LISTS), ["radar", "macro", "mine"]);
-  assert.deepEqual(plain(L.MACRO), ["ESUSD", "NQUSD", "CLUSD", "GCUSD", "BTCUSD", "DXUSD", "US10Y", "VIX"], "W4: what trades overnight - the futures and oil first");
+  assert.deepEqual(plain(L.MACRO), ["SPY", "QQQ", "ESUSD", "NQUSD", "VIX", "PCC", "ADVDEC", "CLUSD", "US10Y", "BTCUSD", "GCUSD", "DXUSD"], "W7: SPY and QQQ, the futures beside them, VIX, put/call, advance/decline, oil, the 10-year, bitcoin, gold, the dollar");
   assert.equal(L.listChoice("", ""), "radar", "opens on RADAR"); assert.equal(L.listChoice("macro", ""), "macro", "the remembered list"); assert.equal(L.listChoice("macro", "mine"), "mine", "the URL wins for that load"); assert.equal(L.listChoice("junk", "junk"), "radar");
   assert.deepEqual(plain(L.mineOf('["nvda","AMD","nvda"," x!y "]')), ["NVDA", "AMD", "XY"], "cleaned, deduped"); assert.deepEqual(plain(L.mineOf("junk")), []); assert.deepEqual(plain(L.mineOf("")), []);
   assert.deepEqual(plain(L.mineAdd(["NVDA"], "amd")), ["NVDA", "AMD"]); assert.deepEqual(plain(L.mineAdd(["NVDA"], "nvda")), ["NVDA"], "never twice"); assert.deepEqual(plain(L.mineAdd(["NVDA"], "!!")), ["NVDA"]);
@@ -219,7 +215,7 @@ test("W1 · the lens set: RADAR · MACRO · MINE, remembered; MINE adds and remo
   assert.match(lens, /\.lens \.pc\.up, \.lens \.tk\.up\{ color:var\(--bull\); \} \.lens \.pc\.dn, \.lens \.tk\.dn\{ color:var\(--bear\); \}/, "the head in the day's colour");
   assert.match(lens, /\.lens \.tk\{ font-size:15px;/, "readable from the chair (the tape's type was 11 px)");
   assert.match(lens, /parent\.postMessage\(\{ type: "SCINTILLA_LENS_OPEN", ticker: t \}, location\.origin\)/, "a tap opens the name on the wall");
-  assert.match(lens, /P\.marketQuotes\(list, \{\}\)/); assert.match(lens, /P\.marketCandles\(t, LENS_TF, TAPE \? \{ limit: LENS_BARS, forming: true \} : \{ limit: LENS_BARS \}\)/);   /* W4: restated - a fresh read on the tape */
+  assert.match(lens, /P\.marketQuotes\(list, \{\}\)/); assert.match(lens, /P\.marketCandles\(t, tf, TAPE \? \{ limit: LENS_BARS, forming: true \} : \{ limit: LENS_BARS \}\)/);   /* W4: restated - a fresh read on the tape; W7: the timeframe per name (the put/call ratio is daily) */
   /* W4 (22 Oct): restated - the tape's "+ ticker" box writes MINE to station_lists through the deck's door, and × deletes there; nothing else is written */
   assert.equal((lens.match(/method: "POST"/g) || []).length, 1, "one write: the MINE upsert"); assert.equal((lens.match(/method: "DELETE"/g) || []).length, 1, "one delete: a MINE row");
   assert.match(lens, /station_lists\?on_conflict=list,position", \{ method: "POST"/); assert.doesNotMatch(lens, /hub_favorites[^\n]*method/, "the Hub's lists are never written");
