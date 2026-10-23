@@ -606,21 +606,23 @@ body.widgets #tapes .tape.tall .lbl{ font-size:9.5px; }
 /* W1C (22 Oct), Alan: "Ticker percentage price and dollar value. Like top to down, and then the line to the right … check how the idea is
    to compress it." A cell is a vertical stack - the ticker, the day's percent, the price - with the line on the right across the three;
    every cell the same width (156 px) on the same baselines (tabular numbers); no Geiger. 66 px tall. */
-body.widgets #tapes .tape.tall .cell{ height:var(--tape-row-px, 66px); width:196px; display:grid; grid-template-columns:minmax(0,1fr) 64px 34px; grid-template-rows:1fr 1fr 1fr; align-items:center;
+body.widgets #tapes .tape.tall .cell{ height:var(--tape-row-px, 66px); width:176px; display:grid; grid-template-columns:minmax(0,1fr) 64px; grid-template-rows:1fr 1fr 1fr; align-items:center;
   column-gap:8px; row-gap:0; padding:0 10px; font-size:12px; font-variant-numeric:tabular-nums; }
 body.widgets #tapes .tape.tall .cell .tk{ grid-column:1; grid-row:1; letter-spacing:.08em; text-align:left; }
 body.widgets #tapes .tape.tall .cell .pc{ grid-column:1; grid-row:2; min-width:0; text-align:left; font-size:11.5px; }
 body.widgets #tapes .tape.tall .cell .px{ grid-column:1; grid-row:3; margin:0; text-align:left; }
-body.widgets #tapes .tape.tall .cell .mk{ grid-column:2; grid-row:1 / span 3; width:64px; }
-body.widgets #tapes .tape.tall .cell .spark{ height:30px; }
+body.widgets #tapes .tape.tall .cell .mk{ grid-column:2; grid-row:1 / span 3; width:64px; gap:3px; }
+body.widgets #tapes .tape.tall .cell .spark{ height:26px; }
 body.widgets #tapes .tape.tall .cell .gb{ display:none; }
-/* W7: each name's RVol on the tape cell (the Hub's board_volume.rvol_at_time) - a small battery and the multiple, in the third column */
-body.widgets #tapes .tape.tall .cell .rv{ grid-column:3; grid-row:1 / span 3; display:flex; flex-direction:column; align-items:flex-start; gap:3px; }
-body.widgets #tapes .tape.tall .cell .rv i{ display:block; width:30px; height:6px; border-radius:2px; background:#15151d; position:relative; overflow:hidden; }
-body.widgets #tapes .tape.tall .cell .rv i::after{ content:""; position:absolute; left:0; top:0; bottom:0; width:var(--rv, 0%); background:var(--crk); }
-body.widgets #tapes .tape.tall .cell .rv.hot i::after{ background:var(--vol); } body.widgets #tapes .tape.tall .cell .rv.cold i::after{ background:var(--dim); }
-body.widgets #tapes .tape.tall .cell .rv em{ font-style:normal; font-size:10px; color:var(--ink3); font-variant-numeric:tabular-nums; }
-body.widgets #tapes .tape.tall .cell .rv.hot em{ color:var(--vol); }
+/* W10 (Alan: "put it as in the thermometer bar … sideways … on top of the line"): each name's RVol is the volume panel's tube laid flat - the dark
+   tube with its 1x and 2x ticks, the meter's gradient fill to the multiple (3x the end) - just above the line, the multiple beside it. One look
+   everywhere: this tube, the lens tape's, the volume panel's. */
+body.widgets #tapes .tape.tall .cell .rv{ order:-1; display:flex; align-items:center; gap:4px; width:64px; }
+body.widgets #tapes .tape.tall .cell .rv i{ display:block; flex:1 1 0; height:6px; border-radius:3px; background:#1d1d1b; border:1px solid #33332f; position:relative; overflow:hidden; }
+body.widgets #tapes .tape.tall .cell .rv i::after{ content:""; position:absolute; left:0; top:0; bottom:0; width:var(--rv, 0%); background:linear-gradient(90deg, #3987e5, #fab219 55%, #ec835a); transition:width .8s; }
+body.widgets #tapes .tape.tall .cell .rv i::before{ content:""; position:absolute; inset:0; z-index:1; opacity:.7; background:linear-gradient(#8c8b83,#8c8b83) 33% 0 / 1px 100% no-repeat, linear-gradient(#8c8b83,#8c8b83) 66% 0 / 1px 100% no-repeat; }
+body.widgets #tapes .tape.tall .cell .rv em{ font-style:normal; font-size:8.5px; color:var(--ink3); font-variant-numeric:tabular-nums; min-width:24px; text-align:right; }
+body.widgets #tapes .tape.tall .cell .rv.hot em{ color:#ec835a; }
 .tape .cell .rv{ display:none; }
 /* S15: with the strip at the bottom the timeframe tag is back on the charts' top edge, where it was before S14 */
 .tape{ flex:none; height:22px; display:flex; align-items:stretch; background:var(--panel2); overflow:hidden; }
@@ -1896,7 +1898,12 @@ function floorSimple(areaWidth, areaHeight, tapePx, split, count, chromePx) {
    the band; in the band, right of YouTube: the LENS GRID (rows of 150 px lenses, as many rows as the band holds) and, at the right, the VOLUME
    panel (17 % of the wall), both over the FAVORITES tape, which runs from YouTube's right edge to the screen's right edge at the very bottom.
    The boxes are in chart-area coordinates; YouTube's left is negative (it starts at the screen's edge). */
-const WIDGETS_X_SHARE = 0.18, WIDGETS_YT_W = 0.34, WIDGETS_VOL_W = 0.17, WIDGETS_LENS_ROW_PX = 150, WIDGETS_VOLUME_MIN_PX = 120;
+/* W10 (23 Oct, Alan: "The positions of things are fixed … No shifting … everything is getting out of whack"): ONE arrangement, every box a share
+   of the window, nothing else - a video playing, stopping, a refresh or a resize never moves a box, only scales it. The band at the bottom holds,
+   left to right: the YouTube FEED column (X's width, "in the line of the Twitter"), the PLAYER (35 % of the wall, "more to the middle"), the lens
+   grid, the volume panel (17 %); the band is the player's 16:9 picture plus the bar (never over 45 % of the height); the FAVORITES tape runs from
+   the player's right edge under the lenses and the volume panel. The playing layout of W1B is gone. */
+const WIDGETS_X_SHARE = 0.18, WIDGETS_PLAYER_W = 0.35, WIDGETS_VOL_W = 0.17, WIDGETS_BAND_MAX = 0.45, WIDGETS_LENS_ROW_PX = 150, WIDGETS_VOLUME_MIN_PX = 120;
 /* the rows the band holds: about 150 px each, never under 120 - the rows share the band's height (the lens cells are 100 % of their row) */
 const widgetsLensRows = (regionH) => { const h = Math.max(0, Number(regionH) || 0); return Math.max(1, Math.min(Math.floor(h / 120), Math.round((h + FLOOR_SEAM_PX) / (WIDGETS_LENS_ROW_PX + FLOOR_SEAM_PX)))); };
 function floorWidgets(areaWidth, areaHeight, tapePx, colPx, count, chromePx) {
@@ -1904,16 +1911,18 @@ function floorWidgets(areaWidth, areaHeight, tapePx, colPx, count, chromePx) {
   const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
   const n = Math.max(0, Math.round(Number(count) || 0)), charts = Math.min(n, WIDGETS_CHARTS);
   const wall = col + FLOOR_SEAM_PX + w;
-  const ytW = Math.round(wall * WIDGETS_YT_W), pw = Math.max(0, ytW), bandH = Math.round(pw * 9 / 16) + chrome;
+  const playerW = Math.round(wall * WIDGETS_PLAYER_W), paneW = col + FLOOR_SEAM_PX + playerW;   /* the feed column (X's width) + the player */
+  const bandH = Math.min(Math.round(playerW * 9 / 16) + chrome, Math.round(h * WIDGETS_BAND_MAX));
+  const pw = Math.max(0, Math.min(playerW, Math.floor((bandH - chrome) * 16 / 9)));
   const top = h - bandH;
-  const box = { left:-(col + FLOOR_SEAM_PX), top, w:ytW, h:bandH };   /* from the screen's left edge */
+  const box = { left:-(col + FLOOR_SEAM_PX), top, w:paneW, h:bandH, feedCol:col };   /* from the screen's left edge; the shell splits it feed | player */
   const volW = Math.min(w, Math.round(wall * WIDGETS_VOL_W));
   const volume = { left:w - volW, top, w:volW, h:Math.max(0, bandH - tapes), on:volW >= WIDGETS_VOLUME_MIN_PX };
-  const lensLeft = Math.max(0, ytW - col - FLOOR_SEAM_PX + FLOOR_SEAM_PX), lensW = Math.max(0, volume.left - FLOOR_SEAM_PX - lensLeft), lensH = Math.max(0, bandH - tapes);
+  const lensLeft = playerW + FLOOR_SEAM_PX, lensW = Math.max(0, volume.left - FLOOR_SEAM_PX - lensLeft), lensH = Math.max(0, bandH - tapes);
   const lensTape = { left:lensLeft, top, w:lensW, h:lensH, rows:widgetsLensRows(lensH), on:lensW >= WIDGETS_LENS_ROW_PX };
   const chartsH = Math.max(0, top - FLOOR_SEAM_PX);
   return { widgets:true, cols:Math.max(1, charts), rows:1, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
-    cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH, bandH, rowBelow:Math.max(0, bandH - tapes), volume, lensTape, tapeLeft:ytW + FLOOR_SEAM_PX, wall, col };
+    cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH, bandH, rowBelow:Math.max(0, bandH - tapes), volume, lensTape, tapeLeft:paneW + FLOOR_SEAM_PX, wall, col, playerW };
 }
 /* ── W1B (22 Oct 2026) — THE PLAYING VIDEO KEEPS ITS SIZE. Alan, 14:10 ET: "I don't want YouTube to keep the grid next to it.
    It's going to make the video smaller. I want the YouTube the size that it is, shift it to the side, keep the grid to the side of
@@ -1928,7 +1937,8 @@ function floorWidgets(areaWidth, areaHeight, tapePx, colPx, count, chromePx) {
    scales to the column. Arrangement A or B, the playing layout is this one. */
 const WIDGETS_X_SLIM_SHARE = 0.16, WIDGETS_BESIDE_COL_PX = 300, WIDGETS_BESIDE_COL_NARROW_PX = 220, WIDGETS_BESIDE_WIDE_PX = 1800;
 const WIDGETS_LENS_MIN_PX = 240;   /* W1B's rule, kept for the record: a lens column thinner than this stood down */
-const widgetsBesideCol = (areaWidth) => (Number(areaWidth) || 0) >= WIDGETS_BESIDE_WIDE_PX ? WIDGETS_BESIDE_COL_PX : WIDGETS_BESIDE_COL_NARROW_PX;
+/* W10: the feed column is X's column's width ("to the left in the line of the Twitter") */
+const widgetsBesideCol = (areaWidth) => SLOT_NOW && SLOT_NOW.plan ? SLOT_NOW.plan.col : ((Number(areaWidth) || 0) >= WIDGETS_BESIDE_WIDE_PX ? WIDGETS_BESIDE_COL_PX : WIDGETS_BESIDE_COL_NARROW_PX);
 function widgetsFloorPicture(wallWidth, wallHeight, chromePx) {
   const plan = floorPlan(wallWidth, wallHeight, chromePx);
   const tapes = tapesHeight(true);
@@ -1937,38 +1947,15 @@ function widgetsFloorPicture(wallWidth, wallHeight, chromePx) {
   const simple = floorSimple(plan.charts.w, plan.charts.h, tapes, SIMPLE_SPLIT_DEFAULT, 9, chromePx).picture || { w:0, h:0 };
   return wall.w * wall.h >= simple.w * simple.h ? { w:wall.w, h:wall.h, from:"wall", wall, simple } : { w:simple.w, h:simple.h, from:"simple", wall, simple };
 }
-function floorWidgetsPlaying(areaWidth, areaHeight, tapePx, floor, besideCol, count, chromePx) {
-  const w = Math.max(0, Number(areaWidth) || 0), h = Math.max(0, Number(areaHeight) || 0), tapes = Math.max(0, Number(tapePx) || 0);
-  const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
-  const col = Math.max(0, Math.round(Number(besideCol) || 0));
-  const fw = Math.max(0, Number(floor && floor.w) || 0), fh = Math.max(0, Number(floor && floor.h) || 0);
-  const n = Math.max(0, Math.round(Number(count) || 0)), charts = Math.min(n, WIDGETS_CHARTS);
-  /* W7: the pane from the screen's left edge (over the foot of X's column), the lens grid and the volume panel right of it in the band, the
-     FAVORITES tape at the very bottom from the pane's right edge */
-  const xcol = Math.max(0, Number(arguments[7]) || 0), wall = xcol + FLOOR_SEAM_PX + w;
-  const paneW = Math.min(wall, fw + col), paneH = Math.min(Math.max(0, h - FLOOR_SEAM_PX), fh + chrome);
-  const pw = Math.max(0, Math.min(paneW - col, Math.floor((paneH - chrome) * 16 / 9)));
-  const box = { left:-(xcol + FLOOR_SEAM_PX), top:h - paneH, w:paneW, h:paneH };
-  const volW = Math.min(w, Math.round(wall * WIDGETS_VOL_W));
-  const volume = { left:w - volW, top:box.top, w:volW, h:Math.max(0, paneH - tapes), on:volW >= WIDGETS_VOLUME_MIN_PX };
-  const lensLeft = Math.max(0, paneW - xcol - FLOOR_SEAM_PX + FLOOR_SEAM_PX), lensW = Math.max(0, volume.left - FLOOR_SEAM_PX - lensLeft), lensH = Math.max(0, paneH - tapes);
-  const lensTape = { left:lensLeft, top:box.top, w:lensW, h:lensH, rows:widgetsLensRows(lensH), on:lensW >= WIDGETS_LENS_ROW_PX };
-  const chartsH = Math.max(0, box.top - FLOOR_SEAM_PX);
-  return { widgets:true, playing:true, cols:Math.max(1, charts), rows:1, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
-    floor:{ w:fw, h:fh, from:floor && floor.from }, besideCol:col, cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH, bandH:paneH, rowBelow:Math.max(0, paneH - tapes), volume, lensTape, tapeLeft:paneW + FLOOR_SEAM_PX, wall, col:xcol };
-}
+/* W10: floorWidgetsPlaying (W1B) is gone - the wall does not change when a video plays */
 /* the shell says when a video plays in the pane on the wall; the theatre (⛶) keeps its own layout */
 const VIDEO_PLAYING = { on:false, key:"" };
-function widgetsPlaying() { return widgetsOn() && VIDEO_PLAYING.on && VIDEO_PLAYING.key === VIDEO_FEED && MEDIA_STAGE === 0 && !STACKED; }
+/* W10: a playing video changes nothing on the wall; the state is kept for the record only */
+function widgetsPlaying() { return false; }
 let WIDGETS_FLOOR_NOW = null;   /* the floor the last fit used, for the readout and the harness */
 function slotFor(count, plan, tapePx, chromePx) {
   if (!plan || document.body.classList.contains("charts-only")) return null;
-  /* W1B: a video playing on the WIDGETS wall - the picture at least today's size, the grid beside it, X slimmer */
-  if (widgetsPlaying()) {
-    const grid = el("grid"), floor = widgetsFloorPicture(grid ? grid.clientWidth : 0, grid ? grid.clientHeight : 0, chromePx);
-    WIDGETS_FLOOR_NOW = floor;
-    return floorWidgetsPlaying(plan.charts.w, plan.charts.h, tapePx, floor, widgetsBesideCol(plan.charts.w), count, chromePx, plan.col);
-  }
+  /* W10: no playing layout - the WIDGETS wall is one fixed arrangement whatever the video does (W1B's switch is gone) */
   /* W1: WIDGETS is its own slot (through a solo, like SIMPLE) */
   if (widgetsOn()) return floorWidgets(plan.charts.w, plan.charts.h, tapePx, plan.col, count, chromePx);
   /* Y9: SIMPLE is its own slot, and a chart solo keeps it (the solo chart takes the charts' row; the pane stays put) */
@@ -2112,7 +2099,7 @@ function tapeRow(label, names, note) {
       '<span class="gb"><i></i></span></span>';
     b.firstChild.textContent = t;
     /* W7: each name's RVol (the Hub's board_volume.rvol_at_time) on the WIDGETS wall's tall cell - a small battery and the multiple */
-    if (widgetsOn()) b.insertAdjacentHTML("beforeend", '<span class="rv" title="relative volume: this name\'s pace against its usual day (the Hub\'s RVol)"><i></i><em>—</em></span>');
+    if (widgetsOn()) b.querySelector(".mk").insertAdjacentHTML("afterbegin", '<span class="rv" title="relative volume: this name\'s pace against its usual day (the Hub\'s RVol) - the tube, 3× the end"><i></i><em>—</em></span>');
     return b;
   };
   for (const t of names) track.appendChild(cell(t, false));
@@ -2364,7 +2351,7 @@ function fitVideoPane() {
   const grid = el("grid"), top = el("rowTop");
   const floor = !STACKED && !!grid && !!top;
   const onWall = PANES.find((o) => o.def.kind === "video" && o.def.key === VIDEO_FEED);
-  const plan = floor ? floorPlan(grid.clientWidth, grid.clientHeight, onWall?.chromePx, widgetsPlaying() ? WIDGETS_X_SLIM_SHARE : widgetsOn() ? WIDGETS_X_SHARE : undefined) : null;
+  const plan = floor ? floorPlan(grid.clientWidth, grid.clientHeight, onWall?.chromePx, widgetsOn() ? WIDGETS_X_SHARE : undefined) : null;
   if (grid) grid.style.setProperty("--fp-col", plan ? plan.col + "px" : "");
   /* S14: the tapes take 46 px off the chart row's height (never its width), so each count's grid is
      chosen for the height that is left - with the tapes off this is plan.grids, to the number */
@@ -3148,6 +3135,15 @@ window.addEventListener("message", (event) => {
     }
     return;
   }
+  /* W10: synced zoom (the deck's side) - a live chart's view { span, end } goes to the OTHER live chart, never back to the sender (W11 implements live-v1's side) */
+  if (event.data?.type === "SCINTILLA_CHART_VIEW" && event.data.view && typeof event.data.view === "object") {
+    const n = +event.data.n, view = { span:Number(event.data.view.span) || 0, end:event.data.view.end == null ? null : Number(event.data.view.end) };
+    if (view.span > 0 && (n === 1 || n === 2) && widgetsOn()) {
+      const other = PANES.find((item) => item.def.key === "c" + (n === 1 ? 2 : 1));
+      if (other && other.frame && other.frame.contentWindow !== event.source && widgetsSrc(n === 1 ? 1 : 0) === "live") { try { other.frame.contentWindow.postMessage({ sc:"chart", view }, location.origin); } catch (_) {} }
+    }
+    return;
+  }
   if (event.data?.sc === "chart-view") {
     LAST_CHART_VIEW = { from:event.data.from, to:event.data.to, followLatest:!!event.data.followLatest };
     for (const pane of PANES) {
@@ -3163,7 +3159,7 @@ window.addEventListener("message", (event) => {
   if (event.data?.sc === "video-playing") {
     /* W1B: the pane says a video started or stopped; on the WIDGETS wall the layout gives the picture its full size while it plays */
     const pane = PANES.find((item) => item.frame?.contentWindow === event.source);
-    if (pane) { const on = !!event.data.on; if (on !== VIDEO_PLAYING.on || pane.def.key !== VIDEO_PLAYING.key) { VIDEO_PLAYING.on = on; VIDEO_PLAYING.key = pane.def.key; relayout(); try { dispatchEvent(new Event("resize")); } catch (_) {} } }
+    if (pane) { VIDEO_PLAYING.on = !!event.data.on; VIDEO_PLAYING.key = pane.def.key; }   /* W10: noted, nothing re-laid - the wall is fixed */
     return;
   }
   if (event.data?.sc === "video-chrome") {
@@ -3501,7 +3497,7 @@ function leaveWidgets() {
 function tellVideoBeside(on) {
   for (const o of PANES) {
     if (o.def.kind !== "video" || !o.frame) continue;
-    try { o.frame.contentWindow.postMessage({ type:"SCINTILLA_VIDEO_BESIDE", on:!!on, col:WIDGETS_BESIDE_SENT || widgetsBesideCol(SLOT_NOW && SLOT_NOW.plan ? SLOT_NOW.plan.charts.w : 0) }, location.origin); } catch (_) {}
+    try { o.frame.contentWindow.postMessage({ type:"SCINTILLA_VIDEO_BESIDE", on:!!on, fixed:!!on, col:WIDGETS_BESIDE_SENT || widgetsBesideCol(SLOT_NOW && SLOT_NOW.plan ? SLOT_NOW.plan.charts.w : 0) }, location.origin); } catch (_) {}
   }
 }
 function wireSimple() {
@@ -5678,9 +5674,9 @@ async function build() {
        uses — so the feed actually scrolls in the pane instead of offering a
        button. Both are embedded; neither is a dock. */
     { row: 1, key: "fb", short: "personal", title: "Personal YouTube", tag: "personal subscriptions",
-      kind: "video", src: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&cols=2" + (widgetsOn() ? "&beside=1" : "") + "&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&limit=200&cols=2" },
+      kind: "video", src: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&cols=2" + (widgetsOn() ? "&beside=1&fixed=1" : "") + "&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.personalVideo + "?shell=v1&feed=personal&limit=200&cols=2" },
     { row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",
-      kind: "video", src: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&cols=2" + (widgetsOn() ? "&beside=1" : "") + "&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&limit=200&cols=2" },
+      kind: "video", src: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&cols=2" + (widgetsOn() ? "&beside=1&fixed=1" : "") + "&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&limit=200&cols=2" },
     { row: 1, key: "x", short: "X", title: "X · live", tag: "live capture",
       kind: "x", src: IPAD_COMPANION
         ? STATION_SHELL.x + "?shell=v1&remote=1&pair=" + encodeURIComponent(IPAD_PAIR) + "&code=" + encodeURIComponent(IPAD_CODE) + "&view=" + encodeURIComponent(VIEW)
@@ -5693,7 +5689,7 @@ async function build() {
     if (key === "fb" || key === "fa") continue;
     defs.splice(defs.length - 1, 0, {
       row: 1, key, short: label, title: label + " YouTube", tag: account + " subscriptions", kind: "video",
-      src: videoShellFor(account) + "?shell=v1&feed=" + account + "&cols=2" + (widgetsOn() ? "&beside=1" : "") + "&view=" + encodeURIComponent(VIEW),
+      src: videoShellFor(account) + "?shell=v1&feed=" + account + "&cols=2" + (widgetsOn() ? "&beside=1&fixed=1" : "") + "&view=" + encodeURIComponent(VIEW),
       open: videoShellFor(account) + "?shell=v1&feed=" + account + "&limit=200&cols=2"
     });
   }
