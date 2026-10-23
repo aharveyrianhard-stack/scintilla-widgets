@@ -580,7 +580,15 @@ body.simple.video-slot:not(.stack):not(.media-theatre) #simpleHandle{ display:bl
 body.widgets.video-slot:not(.stack) #grid > #rowTop{ margin-bottom:calc(var(--simple-video-px, 0px) + 1px + var(--tapes-px, 0px)); }
 /* W1C (22 Oct, Alan): the FAVORITES tape at the very bottom of the screen; the lens tape where it was (between the charts and the
    band); the volume graph (volume-v1) in the column right of YouTube. --simple-video-px is the band plus the lens tape. */
-body.widgets.video-slot.tapes:not(.stack) #tapes{ bottom:0; }
+body.widgets.video-slot.tapes:not(.stack) #tapes{ bottom:0; left:var(--widgets-tape-left, calc(var(--fp-col, 24%) + 1px)); }   /* W7: from YouTube's right edge */
+/* W7 (22 Oct, Alan): one control row above both charts - the timeframe and CLOUDS for both at once; each chart keeps its own ticker */
+#wgCtl{ display:none; }
+body.widgets.video-slot:not(.stack):not(.media-theatre) #wgCtl{ display:flex; align-items:center; gap:4px; position:absolute; z-index:4; height:24px; padding:0 8px; background:var(--panel2); border-bottom:1px solid var(--line); }
+#wgCtl .k{ color:var(--crk); font-size:7.5px; letter-spacing:.18em; text-transform:uppercase; margin-right:6px; }
+#wgCtl button{ font:10px var(--mono); letter-spacing:.08em; color:var(--ink3); background:transparent; border:1px solid transparent; padding:2px 8px; cursor:pointer; border-radius:0; }
+#wgCtl button:hover{ color:var(--ink); border-color:var(--line); } #wgCtl button.on{ color:var(--crk); border-color:var(--crk); }
+#wgCtl .note{ margin-left:auto; color:var(--mute); font-size:8px; letter-spacing:.1em; text-transform:uppercase; }
+body.widgets.video-slot:not(.stack):not(.media-theatre) #grid > #rowTop{ margin-top:25px; }
 #wgVolume, #wgLensTape{ display:none; }
 body.widgets.video-slot:not(.stack):not(.media-theatre) #wgVolume, body.widgets.video-slot:not(.stack):not(.media-theatre) #wgLensTape{
   display:flex; flex-direction:column; position:absolute; z-index:3; background:var(--bg); overflow:hidden; }
@@ -598,7 +606,7 @@ body.widgets #tapes .tape.tall .lbl{ font-size:9.5px; }
 /* W1C (22 Oct), Alan: "Ticker percentage price and dollar value. Like top to down, and then the line to the right … check how the idea is
    to compress it." A cell is a vertical stack - the ticker, the day's percent, the price - with the line on the right across the three;
    every cell the same width (156 px) on the same baselines (tabular numbers); no Geiger. 66 px tall. */
-body.widgets #tapes .tape.tall .cell{ height:var(--tape-row-px, 66px); width:156px; display:grid; grid-template-columns:minmax(0,1fr) 64px; grid-template-rows:1fr 1fr 1fr; align-items:center;
+body.widgets #tapes .tape.tall .cell{ height:var(--tape-row-px, 66px); width:196px; display:grid; grid-template-columns:minmax(0,1fr) 64px 34px; grid-template-rows:1fr 1fr 1fr; align-items:center;
   column-gap:8px; row-gap:0; padding:0 10px; font-size:12px; font-variant-numeric:tabular-nums; }
 body.widgets #tapes .tape.tall .cell .tk{ grid-column:1; grid-row:1; letter-spacing:.08em; text-align:left; }
 body.widgets #tapes .tape.tall .cell .pc{ grid-column:1; grid-row:2; min-width:0; text-align:left; font-size:11.5px; }
@@ -606,6 +614,14 @@ body.widgets #tapes .tape.tall .cell .px{ grid-column:1; grid-row:3; margin:0; t
 body.widgets #tapes .tape.tall .cell .mk{ grid-column:2; grid-row:1 / span 3; width:64px; }
 body.widgets #tapes .tape.tall .cell .spark{ height:30px; }
 body.widgets #tapes .tape.tall .cell .gb{ display:none; }
+/* W7: each name's RVol on the tape cell (the Hub's board_volume.rvol_at_time) - a small battery and the multiple, in the third column */
+body.widgets #tapes .tape.tall .cell .rv{ grid-column:3; grid-row:1 / span 3; display:flex; flex-direction:column; align-items:flex-start; gap:3px; }
+body.widgets #tapes .tape.tall .cell .rv i{ display:block; width:30px; height:6px; border-radius:2px; background:#15151d; position:relative; overflow:hidden; }
+body.widgets #tapes .tape.tall .cell .rv i::after{ content:""; position:absolute; left:0; top:0; bottom:0; width:var(--rv, 0%); background:var(--crk); }
+body.widgets #tapes .tape.tall .cell .rv.hot i::after{ background:var(--vol); } body.widgets #tapes .tape.tall .cell .rv.cold i::after{ background:var(--dim); }
+body.widgets #tapes .tape.tall .cell .rv em{ font-style:normal; font-size:10px; color:var(--ink3); font-variant-numeric:tabular-nums; }
+body.widgets #tapes .tape.tall .cell .rv.hot em{ color:var(--vol); }
+.tape .cell .rv{ display:none; }
 /* S15: with the strip at the bottom the timeframe tag is back on the charts' top edge, where it was before S14 */
 .tape{ flex:none; height:22px; display:flex; align-items:stretch; background:var(--panel2); overflow:hidden; }
 .tape .lbl{ flex:none; min-width:104px; display:flex; align-items:center; padding:0 8px; color:var(--crk);
@@ -1377,6 +1393,13 @@ function widgetsSrcOf(stored, urlValue, index) {
 function widgetsSrc(index) { return widgetsSrcOf(remembered(WIDGETS_SRC_KEY + (index + 1)), QS.get("chart" + (index + 1)), index); }
 const WIDGETS_CHARTS = 2, WIDGETS_TFS = Object.freeze(["1", "5", "15", "30", "60", "D"]), WIDGETS_TF_DEFAULT = Object.freeze(["5", "30"]);
 const WIDGETS_TAPE_PX = 66;   /* W1C: the stacked cell - ticker, percent, price - and the line beside them */
+/* W7 (22 Oct, Alan: "I don't want to be able to change independently the time frames of each chart. Charts synced in every way except
+   ticker"): ONE timeframe and ONE clouds switch for both charts (station.widgets.tf, station.widgets.clouds), on a control row above them;
+   the per-chart keys of W1 stay readable as the first value. Each chart keeps its own ticker (a visible box on each). */
+const WIDGETS_TF_ONE_KEY = "station.widgets.tf", WIDGETS_CLOUDS_KEY = "station.widgets.clouds";
+const WIDGETS_TF_LABEL = Object.freeze({ "1": "1m", "5": "5m", "15": "15m", "30": "30m", "60": "1h", "D": "1D" });
+function widgetsTfOne() { const one = remembered(WIDGETS_TF_ONE_KEY); if (WIDGETS_TFS.includes(one)) return one; const first = remembered(WIDGETS_TF_KEY + "1"); return WIDGETS_TFS.includes(first) ? first : "5"; }
+function widgetsClouds() { return remembered(WIDGETS_CLOUDS_KEY) !== "0"; }
 function widgetsChoice(stored, urlValue) {
   if (urlValue === "1" || urlValue === "0") return urlValue === "1";
   if (stored === "1" || stored === "0") return stored === "1";
@@ -1387,7 +1410,7 @@ function widgetsOn() { return widgetsChoice(remembered(WIDGETS_KEY), QS.get("wid
    FAVORITES tape at the bottom); the key is left alone where a machine still carries it */
 const widgetsArrangementOf = (stored) => "a";
 function widgetsTfOf(stored, index) { return WIDGETS_TFS.includes(String(stored)) ? String(stored) : WIDGETS_TF_DEFAULT[index] || "5"; }
-function widgetsTf(index) { return widgetsTfOf(remembered(WIDGETS_TF_KEY + (index + 1)), index); }
+function widgetsTf(index) { return widgetsTfOne(); }   /* W7: one timeframe for both */
 /* the symbol a WIDGETS chart starts with: its own memory, else the last SIMPLE symbol for that chart (the brief's default) */
 const widgetsSymbols = () => Array.from({ length:WIDGETS_CHARTS }, (_, i) => CLEAN(remembered(WIDGETS_CHART_KEY + (i + 1))) || CLEAN(remembered(SIMPLE_CHART_KEY + (i + 1))));
 let WIDGETS_NOW = null;   /* { on, slot } after each fit */
@@ -1866,23 +1889,31 @@ function floorSimple(areaWidth, areaHeight, tapePx, split, count, chromePx) {
    it; the FAVORITES tape at the very bottom (one row of stacked cells). The band is 40 % of the height; the lens tape 160 px on a wide
    wall, 130 on a narrow one. The pill meter left the wall (it stays his PiP). */
 /* W4 (22 Oct, Alan: "Keep it tight, make them smaller"): the lens tape is 120 px on a wide wall, 100 narrow, 90 while a video plays */
-const WIDGETS_BAND = 0.40, WIDGETS_VIDEO_W = 0.62, WIDGETS_LENS_TAPE_PX = 120, WIDGETS_LENS_TAPE_NARROW_PX = 100, WIDGETS_LENS_TAPE_PLAYING_PX = 90, WIDGETS_VOLUME_MIN_PX = 120;
-const widgetsLensTapePx = (areaWidth, playing) => playing ? ((Number(areaWidth) || 0) >= WIDGETS_BESIDE_WIDE_PX ? WIDGETS_LENS_TAPE_PLAYING_PX : 0)
-  : ((Number(areaWidth) || 0) >= WIDGETS_BESIDE_WIDE_PX ? WIDGETS_LENS_TAPE_PX : WIDGETS_LENS_TAPE_NARROW_PX);
-function floorWidgets(areaWidth, areaHeight, tapePx, lensTapePx, count, chromePx) {
-  const w = Math.max(0, Number(areaWidth) || 0), h = Math.max(0, Number(areaHeight) || 0), tapes = Math.max(0, Number(tapePx) || 0);
-  const lt = Math.max(0, Math.round(Number(lensTapePx) || 0));
+/* W7 (22 Oct, Alan: "if we give more size to the charts, to the two charts, and secondly to the YouTube, that's perfect … YouTube goes to the
+   bottom left corner … At the top of that is the Twitter … slimmer … the ticker tape all the way to the bottom … just gets to the YouTube"):
+   X's column slimmer (18 % of the wall, 16 % while a video plays); YOUTUBE in the screen's bottom-left corner, 34 % of the wall wide (over the
+   foot of X's column and into the chart area), the band as tall as its 16:9 picture plus the bar; the two CHARTS the whole chart area above
+   the band; in the band, right of YouTube: the LENS GRID (rows of 150 px lenses, as many rows as the band holds) and, at the right, the VOLUME
+   panel (17 % of the wall), both over the FAVORITES tape, which runs from YouTube's right edge to the screen's right edge at the very bottom.
+   The boxes are in chart-area coordinates; YouTube's left is negative (it starts at the screen's edge). */
+const WIDGETS_X_SHARE = 0.18, WIDGETS_YT_W = 0.34, WIDGETS_VOL_W = 0.17, WIDGETS_LENS_ROW_PX = 150, WIDGETS_VOLUME_MIN_PX = 120;
+/* the rows the band holds: about 150 px each, never under 120 - the rows share the band's height (the lens cells are 100 % of their row) */
+const widgetsLensRows = (regionH) => { const h = Math.max(0, Number(regionH) || 0); return Math.max(1, Math.min(Math.floor(h / 120), Math.round((h + FLOOR_SEAM_PX) / (WIDGETS_LENS_ROW_PX + FLOOR_SEAM_PX)))); };
+function floorWidgets(areaWidth, areaHeight, tapePx, colPx, count, chromePx) {
+  const w = Math.max(0, Number(areaWidth) || 0), h = Math.max(0, Number(areaHeight) || 0), tapes = Math.max(0, Number(tapePx) || 0), col = Math.max(0, Number(colPx) || 0);
   const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
   const n = Math.max(0, Math.round(Number(count) || 0)), charts = Math.min(n, WIDGETS_CHARTS);
-  const bandH = Math.max(0, Math.round((h - FLOOR_SEAM_PX) * WIDGETS_BAND));
-  const top = h - tapes - bandH, vw = Math.round(w * WIDGETS_VIDEO_W), rx = vw + FLOOR_SEAM_PX, rw = Math.max(0, w - rx);
-  const box = { left:0, top, w:vw, h:bandH };
-  const volume = { left:rx, top, w:rw, h:bandH, on:rw >= WIDGETS_VOLUME_MIN_PX };
-  const lensTape = { left:0, top:top - (lt ? FLOOR_SEAM_PX + lt : 0), w, h:lt, on:lt > 0 };
-  const chartsH = Math.max(0, lensTape.top - FLOOR_SEAM_PX);
-  const pw = Math.max(0, Math.min(box.w, Math.floor((box.h - chrome) * 16 / 9)));
+  const wall = col + FLOOR_SEAM_PX + w;
+  const ytW = Math.round(wall * WIDGETS_YT_W), pw = Math.max(0, ytW), bandH = Math.round(pw * 9 / 16) + chrome;
+  const top = h - bandH;
+  const box = { left:-(col + FLOOR_SEAM_PX), top, w:ytW, h:bandH };   /* from the screen's left edge */
+  const volW = Math.min(w, Math.round(wall * WIDGETS_VOL_W));
+  const volume = { left:w - volW, top, w:volW, h:Math.max(0, bandH - tapes), on:volW >= WIDGETS_VOLUME_MIN_PX };
+  const lensLeft = Math.max(0, ytW - col - FLOOR_SEAM_PX + FLOOR_SEAM_PX), lensW = Math.max(0, volume.left - FLOOR_SEAM_PX - lensLeft), lensH = Math.max(0, bandH - tapes);
+  const lensTape = { left:lensLeft, top, w:lensW, h:lensH, rows:widgetsLensRows(lensH), on:lensW >= WIDGETS_LENS_ROW_PX };
+  const chartsH = Math.max(0, top - FLOOR_SEAM_PX);
   return { widgets:true, cols:Math.max(1, charts), rows:1, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
-    cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH, bandH, lensTapeH:lt, rowBelow:bandH + (lt ? FLOOR_SEAM_PX + lt : 0), volume, lensTape };
+    cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH, bandH, rowBelow:Math.max(0, bandH - tapes), volume, lensTape, tapeLeft:ytW + FLOOR_SEAM_PX, wall, col };
 }
 /* ── W1B (22 Oct 2026) — THE PLAYING VIDEO KEEPS ITS SIZE. Alan, 14:10 ET: "I don't want YouTube to keep the grid next to it.
    It's going to make the video smaller. I want the YouTube the size that it is, shift it to the side, keep the grid to the side of
@@ -1912,17 +1943,19 @@ function floorWidgetsPlaying(areaWidth, areaHeight, tapePx, floor, besideCol, co
   const col = Math.max(0, Math.round(Number(besideCol) || 0));
   const fw = Math.max(0, Number(floor && floor.w) || 0), fh = Math.max(0, Number(floor && floor.h) || 0);
   const n = Math.max(0, Math.round(Number(count) || 0)), charts = Math.min(n, WIDGETS_CHARTS);
-  /* W1C: the lens tape sits over the pane (110 px on a wide wall; none on a narrow one while a video plays), the FAVORITES tape at the bottom */
-  const lt = widgetsLensTapePx(w, true);
-  const paneW = Math.min(w, fw + col), paneH = Math.min(Math.max(0, h - FLOOR_SEAM_PX - tapes - (lt ? lt + FLOOR_SEAM_PX : 0)), fh + chrome);
+  /* W7: the pane from the screen's left edge (over the foot of X's column), the lens grid and the volume panel right of it in the band, the
+     FAVORITES tape at the very bottom from the pane's right edge */
+  const xcol = Math.max(0, Number(arguments[7]) || 0), wall = xcol + FLOOR_SEAM_PX + w;
+  const paneW = Math.min(wall, fw + col), paneH = Math.min(Math.max(0, h - FLOOR_SEAM_PX), fh + chrome);
   const pw = Math.max(0, Math.min(paneW - col, Math.floor((paneH - chrome) * 16 / 9)));
-  const box = { left:0, top:h - tapes - paneH, w:paneW, h:paneH };
-  const rx = paneW + FLOOR_SEAM_PX, rw = Math.max(0, w - rx);
-  const volume = { left:rx, top:box.top, w:rw, h:paneH, on:rw >= WIDGETS_VOLUME_MIN_PX };
-  const lensTape = { left:0, top:box.top - (lt ? FLOOR_SEAM_PX + lt : 0), w, h:lt, on:lt > 0 };
-  const chartsH = Math.max(0, lensTape.top - FLOOR_SEAM_PX);
+  const box = { left:-(xcol + FLOOR_SEAM_PX), top:h - paneH, w:paneW, h:paneH };
+  const volW = Math.min(w, Math.round(wall * WIDGETS_VOL_W));
+  const volume = { left:w - volW, top:box.top, w:volW, h:Math.max(0, paneH - tapes), on:volW >= WIDGETS_VOLUME_MIN_PX };
+  const lensLeft = Math.max(0, paneW - xcol - FLOOR_SEAM_PX + FLOOR_SEAM_PX), lensW = Math.max(0, volume.left - FLOOR_SEAM_PX - lensLeft), lensH = Math.max(0, paneH - tapes);
+  const lensTape = { left:lensLeft, top:box.top, w:lensW, h:lensH, rows:widgetsLensRows(lensH), on:lensW >= WIDGETS_LENS_ROW_PX };
+  const chartsH = Math.max(0, box.top - FLOOR_SEAM_PX);
   return { widgets:true, playing:true, cols:Math.max(1, charts), rows:1, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
-    floor:{ w:fw, h:fh, from:floor && floor.from }, besideCol:col, cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH, bandH:paneH, lensTapeH:lt, rowBelow:paneH + (lt ? FLOOR_SEAM_PX + lt : 0), volume, lensTape };
+    floor:{ w:fw, h:fh, from:floor && floor.from }, besideCol:col, cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH, bandH:paneH, rowBelow:Math.max(0, paneH - tapes), volume, lensTape, tapeLeft:paneW + FLOOR_SEAM_PX, wall, col:xcol };
 }
 /* the shell says when a video plays in the pane on the wall; the theatre (⛶) keeps its own layout */
 const VIDEO_PLAYING = { on:false, key:"" };
@@ -1934,10 +1967,10 @@ function slotFor(count, plan, tapePx, chromePx) {
   if (widgetsPlaying()) {
     const grid = el("grid"), floor = widgetsFloorPicture(grid ? grid.clientWidth : 0, grid ? grid.clientHeight : 0, chromePx);
     WIDGETS_FLOOR_NOW = floor;
-    return floorWidgetsPlaying(plan.charts.w, plan.charts.h, tapePx, floor, widgetsBesideCol(plan.charts.w), count, chromePx);
+    return floorWidgetsPlaying(plan.charts.w, plan.charts.h, tapePx, floor, widgetsBesideCol(plan.charts.w), count, chromePx, plan.col);
   }
   /* W1: WIDGETS is its own slot (through a solo, like SIMPLE) */
-  if (widgetsOn()) return floorWidgets(plan.charts.w, plan.charts.h, tapePx, widgetsLensTapePx(plan.charts.w, false), count, chromePx);
+  if (widgetsOn()) return floorWidgets(plan.charts.w, plan.charts.h, tapePx, plan.col, count, chromePx);
   /* Y9: SIMPLE is its own slot, and a chart solo keeps it (the solo chart takes the charts' row; the pane stays put) */
   if (simpleOn()) return floorSimple(plan.charts.w, plan.charts.h, tapePx, simpleSplit(), count, chromePx);
   if (SOLO) return null;
@@ -2042,7 +2075,8 @@ function tapesOn() { try { return localStorage.getItem(TAPES_KEY) !== "0"; } cat
 const TAPE_LISTS_MS = 300000, TAPE_QUOTE_MS = 15000, TAPE_GEIGER_MS = 60000, TAPE_BATCH = 40;
 /* S16 / S16b: the tapes' mini lines - 15-minute bars, 64 of them (a whole extended day), read every five minutes */
 const TAPE_SPARK_MS = 300000, TAPE_SPARK_TF = "15m", TAPE_SPARK_BARS = 64;
-const TAPES = { liked:[], favorites:[], likedTotal:0, key:"", quotes:new Map(), geiger:{}, sparks:new Map(), listsAt:0, quotesAt:0, geigerAt:0, sparksAt:0,
+const TAPE_RVOL_MS = 60000;   /* W7: the Hub's RVol per name, once a minute */
+const TAPES = { liked:[], favorites:[], likedTotal:0, key:"", quotes:new Map(), geiger:{}, sparks:new Map(), rvol:new Map(), rvolAt:0, rvolBusy:false, listsAt:0, quotesAt:0, geigerAt:0, sparksAt:0,
   listsBusy:false, quotesBusy:false, geigerBusy:false, sparksBusy:false, lastSlot:-1, timer:0 };
 const TAPE_ET = new Intl.DateTimeFormat("en-CA", { timeZone:"America/New_York", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" });
 function tapeEt(ms) {
@@ -2077,6 +2111,8 @@ function tapeRow(label, names, note) {
       '<span class="mk"><svg class="spark" viewBox="0 0 ' + TAPE_SPARK_W + " " + TAPE_SPARK_H + '" preserveAspectRatio="none" aria-hidden="true"><path></path></svg>' +
       '<span class="gb"><i></i></span></span>';
     b.firstChild.textContent = t;
+    /* W7: each name's RVol (the Hub's board_volume.rvol_at_time) on the WIDGETS wall's tall cell - a small battery and the multiple */
+    if (widgetsOn()) b.insertAdjacentHTML("beforeend", '<span class="rv" title="relative volume: this name\'s pace against its usual day (the Hub\'s RVol)"><i></i><em>—</em></span>');
     return b;
   };
   for (const t of names) track.appendChild(cell(t, false));
@@ -2120,6 +2156,9 @@ function paintTapeCells(first) {
     if (g.className !== gc) g.className = gc;
     if (g.firstChild.getAttribute("style") !== m.fill) g.firstChild.setAttribute("style", m.fill);
     if (g.title !== m.title) g.title = m.title;
+    const rv = cell.querySelector(".rv");
+    if (rv) { const r = TAPES.rvol.get(t); const cls = "rv" + (r == null ? "" : r >= 1.5 ? " hot" : r < 0.7 ? " cold" : ""), txt = r == null ? "—" : r.toFixed(1) + "×";
+      if (rv.className !== cls) rv.className = cls; if (rv.lastChild.textContent !== txt) rv.lastChild.textContent = txt; rv.firstChild.style.setProperty("--rv", Math.round(Math.min(1, (r || 0) / 3) * 100) + "%"); }
     if (sp) {
       const line = TAPES.sparks.get(t), d = line ? line.d : "", sc = "spark" + tapeLineSide(q, line);
       if (sp.firstChild.getAttribute("d") !== d) sp.firstChild.setAttribute("d", d);
@@ -2255,9 +2294,20 @@ async function refreshTapeSparks() {
     }
   } finally { TAPES.sparksBusy = false; }
 }
+/* W7: the Hub's RVol for the names on the tape. THE WALL KEEPS ONLY NON-PRICE READS (the one-source rule): the deck does not read
+   board_volume itself - it asks the lens frame, which reads the Hub's RVol for its own names already, to read these names too and hand
+   the numbers back (SCINTILLA_RVOL_WANT → SCINTILLA_RVOL), once a minute. */
+function refreshTapeRvol() {
+  if (!tapesLive() || document.hidden || !widgetsOn()) return;
+  const names = tapeNames(); if (!names.length) return;
+  const l = el("wgLensTape"), f = l && l.querySelector("iframe"); if (!f) return;
+  TAPES.rvolAt = Date.now();
+  try { f.contentWindow.postMessage({ type:"SCINTILLA_RVOL_WANT", names }, location.origin); } catch (_) {}
+}
 function tapesTick() {
   if (!tapesLive() || document.hidden) return;
   const now = Date.now();
+  if (TAPES.listsAt && now - TAPES.rvolAt >= TAPE_RVOL_MS) refreshTapeRvol();
   if (now - TAPES.listsAt >= TAPE_LISTS_MS) refreshTapeLists().then(() => { if (!TAPES.quotesAt) { refreshTapeQuotes(); refreshTapeGeiger(); refreshTapeSparks(); } });
   if (now - TAPES.quotesAt >= TAPE_QUOTE_MS) refreshTapeQuotes();
   if (now - TAPES.geigerAt >= TAPE_GEIGER_MS) refreshTapeGeiger();
@@ -2314,7 +2364,7 @@ function fitVideoPane() {
   const grid = el("grid"), top = el("rowTop");
   const floor = !STACKED && !!grid && !!top;
   const onWall = PANES.find((o) => o.def.kind === "video" && o.def.key === VIDEO_FEED);
-  const plan = floor ? floorPlan(grid.clientWidth, grid.clientHeight, onWall?.chromePx, widgetsPlaying() ? WIDGETS_X_SLIM_SHARE : undefined) : null;
+  const plan = floor ? floorPlan(grid.clientWidth, grid.clientHeight, onWall?.chromePx, widgetsPlaying() ? WIDGETS_X_SLIM_SHARE : widgetsOn() ? WIDGETS_X_SHARE : undefined) : null;
   if (grid) grid.style.setProperty("--fp-col", plan ? plan.col + "px" : "");
   /* S14: the tapes take 46 px off the chart row's height (never its width), so each count's grid is
      chosen for the height that is left - with the tapes off this is plan.grids, to the number */
@@ -2978,6 +3028,25 @@ window.addEventListener("message", (event) => {
   if (event.origin !== location.origin) return;
   /* W1: a TradingView slot says which interval it is on (chosen on its strip): remembered per chart on this machine, and
      the slot's address kept in step so a later re-point does not undo it. The symbol is the deck's own box's business. */
+  /* W7: the lens frame hands back the Hub's RVol for the names the tape asked for */
+  if (event.data?.type === "SCINTILLA_RVOL") {
+    const map = event.data.rvol || {};
+    for (const [t, v] of Object.entries(map)) { const c = CLEAN(t); if (c && Number.isFinite(+v)) TAPES.rvol.set(c, +v); }
+    paintTapeCells(false); return;
+  }
+  /* W7: a chart's own ticker box (live-v1 with sync=1, tv-v1's strip): the slot takes the name as the badge door does - the badge, the box, the
+     memory, the quote; the frame already shows it, so it is not re-pointed */
+  if (event.data?.type === "SCINTILLA_CHART_TICKER") {
+    const n = +event.data.n, t = CLEAN(event.data.ticker);
+    const o = PANES.find((item) => item.def.key === "c" + n);
+    if ((n === 1 || n === 2) && t && o && o.frame && o.frame.contentWindow === event.source && widgetsOn() && t !== CHARTS[n - 1]) {
+      CHARTS[n - 1] = t; const input = el("t" + n); if (input) input.value = t;
+      o.def.short = t; o.def.title = t; o.def.ticker = t; const b = o.node.querySelector(".ph .t"); if (b) b.textContent = t;
+      o.def.src = widgetsChartSrc(t, n - 1); o.def.open = o.def.src.replace("bare=1&", ""); if (o.frame.dataset) o.frame.dataset.shown = o.def.src;
+      remember(WIDGETS_CHART_KEY + n, t); refreshDeckQuotes(); rememberEditableState(); paintChips();
+    }
+    return;
+  }
   /* W3: LIVE · TV on a slot's strip - remember the choice, re-point the slot to the other shell with the symbol and the interval it had */
   if (event.data?.type === "SCINTILLA_CHART_SRC") {
     const n = +event.data.n, src = String(event.data.src || ""), tf = String(event.data.interval || "");
@@ -2994,7 +3063,8 @@ window.addEventListener("message", (event) => {
     const o = PANES.find((item) => item.def.key === "c" + n);
     const own = !!(o && o.frame && o.frame.contentWindow === event.source);
     const live = event.data.type === "SCINTILLA_LIVE_STATE";   /* W3: live-v1's say - the interval in tv-v1's codes, one memory for both */
-    if ((n === 1 || n === 2) && WIDGETS_TFS.includes(tf)) remember(WIDGETS_TF_KEY + n, tf);
+    /* W7: an interval chosen on a strip is both charts' (no independent timeframes) */
+    if ((n === 1 || n === 2) && WIDGETS_TFS.includes(tf) && tf !== widgetsTfOne() && own) { setWidgetsTf(tf); return; }
     /* the widget's own symbol search, heard through the shell: the slot takes the name (its badge, its box, its quote) and remembers it */
     if ((n === 1 || n === 2) && heard && heard !== CHARTS[n - 1] && own && widgetsOn() && !live) {
       CHARTS[n - 1] = heard; const input = el("t" + n); if (input) input.value = heard;
@@ -3454,11 +3524,43 @@ function wireWidgets(grid) {
   };
   make("wgVolume", "Volume", "volume-pulse · SPY QQQ DIA IWM · × a usual 5 minutes", WIDGETS_VOLUME_OPEN);
   make("wgLensTape", "", "", "");   /* the lens tape carries its own chips rail; no header, the height is the lenses' */
+  /* W7: the one control row above both charts */
+  const c = document.createElement("div"); c.id = "wgCtl"; c.setAttribute("role", "toolbar"); c.setAttribute("aria-label", "Both charts");
+  c.innerHTML = '<span class="k">both charts</span>' + WIDGETS_TFS.map((t) => '<button type="button" data-tf="' + t + '" title="' + WIDGETS_TF_LABEL[t] + ' bars on both charts - remembered on this machine">' + WIDGETS_TF_LABEL[t] + '</button>').join("") +
+    '<button type="button" id="wgClouds" title="his clouds on both live charts - remembered on this machine">clouds</button><span class="note">synced on everything but the ticker · type a ticker on either chart</span>';
+  grid.appendChild(c);
+  c.addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; if (b.id === "wgClouds") setWidgetsClouds(!widgetsClouds()); else if (b.dataset.tf) setWidgetsTf(b.dataset.tf); });
+  paintWidgetsCtl();
+}
+function paintWidgetsCtl() {
+  const c = el("wgCtl"); if (!c) return;
+  const tf = widgetsTfOne(), clouds = widgetsClouds();
+  for (const b of c.querySelectorAll("button[data-tf]")) { b.classList.toggle("on", b.dataset.tf === tf); b.setAttribute("aria-pressed", b.dataset.tf === tf ? "true" : "false"); }
+  const k = el("wgClouds"); if (k) { k.classList.toggle("on", clouds); k.setAttribute("aria-pressed", clouds ? "true" : "false"); }
+}
+/* W7: the timeframe and the clouds go to both charts - the live frames by message ({ sc:"chart", tf, clouds }), the TV frames by their address */
+function tellWidgetsCharts() {
+  const tf = widgetsTfOne(), clouds = widgetsClouds();
+  for (let i = 0; i < WIDGETS_CHARTS; i++) {
+    const o = PANES.find((p) => p.def.key === "c" + (i + 1)); if (!o || !o.frame || !CHARTS[i]) continue;
+    if (widgetsSrc(i) === "live") {
+      try { o.frame.contentWindow.postMessage({ sc:"chart", tf:WIDGETS_TF_LABEL[tf], clouds }, location.origin); } catch (_) {}
+      o.def.src = liveChartSrc(CHARTS[i], i); o.def.open = o.def.src.replace("bare=1&", ""); if (o.frame.dataset) o.frame.dataset.shown = o.def.src;
+    } else retargetSlot(i, CHARTS[i]);
+  }
+}
+function setWidgetsTf(tf) {
+  if (!WIDGETS_TFS.includes(String(tf)) || String(tf) === widgetsTfOne()) { paintWidgetsCtl(); return; }
+  remember(WIDGETS_TF_ONE_KEY, String(tf)); remember(WIDGETS_TF_KEY + "1", String(tf)); remember(WIDGETS_TF_KEY + "2", String(tf));
+  paintWidgetsCtl(); tellWidgetsCharts();
+}
+function setWidgetsClouds(on) {
+  remember(WIDGETS_CLOUDS_KEY, on ? "1" : "0"); paintWidgetsCtl(); tellWidgetsCharts();
 }
 function mountWidgets() {
   const v = el("wgVolume"), l = el("wgLensTape");
   if (v && !v.querySelector("iframe")) { const f = document.createElement("iframe"); f.src = WIDGETS_VOLUME_SHELL + "/?shell=v1&view=" + encodeURIComponent(VIEW); f.loading = "lazy"; f.title = "volume graph"; v.querySelector(".body").appendChild(f); }
-  if (l && !l.querySelector("iframe")) { const f = document.createElement("iframe"); f.src = WIDGETS_LENS_SHELL + "/?shell=v1&mode=tape&view=" + encodeURIComponent(VIEW); f.loading = "lazy"; f.title = "context lens tape"; l.querySelector(".body").appendChild(f); }
+  if (l && !l.querySelector("iframe")) { const f = document.createElement("iframe"); const rows = WIDGETS_NOW && WIDGETS_NOW.slot && WIDGETS_NOW.slot.lensTape ? WIDGETS_NOW.slot.lensTape.rows : 1; f.src = WIDGETS_LENS_SHELL + "/?shell=v1&mode=tape&rows=" + rows + "&view=" + encodeURIComponent(VIEW); f.loading = "lazy"; f.title = "context lens tape"; l.querySelector(".body").appendChild(f); }
 }
 function placeWidgets(slot, plan) {
   const v = el("wgVolume"), l = el("wgLensTape");
@@ -3467,6 +3569,10 @@ function placeWidgets(slot, plan) {
   mountWidgets();
   const put = (n, b) => { n.style.left = (plan.col + FLOOR_SEAM_PX + b.left) + "px"; n.style.top = b.top + "px"; n.style.width = b.w + "px"; n.style.height = b.h + "px"; };
   put(v, slot.volume); put(l, slot.lensTape);
+  /* W7: the lens grid's rows follow the band; the FAVORITES tape starts at YouTube's right edge; the control row sits over the charts */
+  const lf = l.querySelector("iframe"); if (lf && slot.lensTape.rows) { try { lf.contentWindow.postMessage({ type:"SCINTILLA_LENS_ROWS", rows:slot.lensTape.rows }, location.origin); } catch (_) {} }   /* on every fit: the frame ignores a number it already has; a frame that has not loaded yet reads ?rows= */
+  const grid = el("grid"); if (grid) grid.style.setProperty("--widgets-tape-left", (slot.tapeLeft != null ? slot.tapeLeft : plan.col + FLOOR_SEAM_PX) + "px");
+  const ctl = el("wgCtl"); if (ctl) { ctl.style.left = (plan.col + FLOOR_SEAM_PX) + "px"; ctl.style.top = "0px"; ctl.style.width = plan.charts.w + "px"; }
   v.classList.toggle("tight", slot.volume.w < 260);
   /* stood down only where there is no room: a volume column under 120 px, the lens tape on a narrow wall while a video plays */
   v.classList.toggle("off", slot.volume.on === false); l.classList.toggle("off", slot.lensTape.on === false);
@@ -4475,10 +4581,11 @@ const videoShellFor = (account) => VIDEO_SHELL_BY_ACCOUNT[account] || STATION_SH
 /* W1: in WIDGETS slots 1 and 2 are TradingView charts (tv-v1): the symbol, the remembered interval, which chart.
    W3: or the house live chart (live-v1) - the same address on the other shell, by the slot's remembered source. */
 function tvChartSrc(t, index) {
-  return STATION_SHELL.tv + "/?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&tf=" + encodeURIComponent(widgetsTf(index)) + "&n=" + (index + 1) + "&view=" + encodeURIComponent(VIEW);
+  return STATION_SHELL.tv + "/?shell=v1&bare=1&sync=1&t=" + encodeURIComponent(t) + "&tf=" + encodeURIComponent(widgetsTf(index)) + "&n=" + (index + 1) + "&view=" + encodeURIComponent(VIEW);
 }
 function liveChartSrc(t, index) {
-  return STATION_SHELL.live + "/?shell=v1&bare=1&t=" + encodeURIComponent(t) + "&tf=" + encodeURIComponent(widgetsTf(index)) + "&n=" + (index + 1) + "&view=" + encodeURIComponent(VIEW);
+  /* W7: &sync=1 - live-v1 hides its own interval buttons and CLOUDS and shows a ticker box; the deck's control row drives both charts */
+  return STATION_SHELL.live + "/?shell=v1&bare=1&sync=1&t=" + encodeURIComponent(t) + "&tf=" + encodeURIComponent(widgetsTf(index)) + "&clouds=" + (widgetsClouds() ? "1" : "0") + "&n=" + (index + 1) + "&view=" + encodeURIComponent(VIEW);
 }
 function widgetsChartSrc(t, index) { return widgetsSrc(index) === "live" ? liveChartSrc(t, index) : tvChartSrc(t, index); }
 function paneChartSrc(t, index, transitionGeneration) {
