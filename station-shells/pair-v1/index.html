@@ -4,57 +4,64 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Station · live pair</title>
-<!-- W6 (22 Oct 2026). Alan, ~19:10 ET: "if it would be like a risk, if the chart works or doesn't work, then what I need is the chart,
-     like a separate kind of like layout kind of thing … Maybe if you establish the rotation that I have on TradingView, could be good …
-     maybe a two chart version like that I just track, and that's like even more live than TradingView and how what I use to like
-     confirm kind of things."
-     THIS PAGE is that confirm screen: two live-v1 charts side by side (5-minute, the whole tape), rotating the way his TradingView
-     rotation does - chart A on his FLASH WATCH lane 0 (indexes + macro; SPY / QQQ become ESUSD / NQUSD, the chart API's futures,
-     outside 09:30-18:00 New York on weekdays - his rule), chart B on lane 1 (the radar: station_lists · radar, the list his Hub keeps),
-     20 s a name. Standalone, its own URL; nothing on the WIDGETS wall changes.
-     A name his TradingView lists that the chart API does not track at 5 minutes is skipped, never shown as an error, and named in the
-     small print. The pointer on a chart holds that chart's rotation; each chart has its lane, the name now and next, PAUSE / PLAY,
-     NEXT, and a box to show any symbol (which pauses that chart until PLAY).
-     ?session=day|night pins the session (for a proof); otherwise the New York clock decides. Reads: the provider client's ownership
-     proof (shared with the two charts), one Supabase GET of the radar list; it writes nothing. -->
+<!-- W6 (22 Oct 2026) - the confirm screen: two live-v1 charts side by side, rotating like his TradingView, standalone at its own URL.
+     W8 (22 Oct ~20:10 ET), Alan: "it has to be … not the full rotation. It's just what's on the top two charts. So it's like radar, indexes,
+     macro on the left, and then companies on the right … probably whatever I select on the lens … That way I can switch it between certain
+     lists … I don't want on the right chart the full radar names. Just the ones that are on the top right of the rotation … we've been
+     replacing the QQQ and SPY with their futures at a certain hour … I don't want to do that anymore. Both things, to watch them both …
+     at the top I can change time frames … Charts synced in every way except ticker, and I don't see where I change the ticker."
+     SO: LEFT = his top-left gauges (claude_focus_rotation.js pane 0: SPY, QQQ, VIX, put/call; ADD is not served) with the S&P and Nasdaq
+     futures (ESUSD, NQUSD) beside SPY and QQQ - all of them, always, no swap at any hour; the put/call ratio is daily (the chart API has no
+     intraday put/call), so its turn is drawn on daily bars and says so. RIGHT = the list he picks on the right chart's chips: TARGETS (his
+     top-right, pane 1: MU NBIS CRWV BE - the default), MINE and RADAR (station_lists, the lens set's lists), MACRO (the lens set's eight);
+     remembered (station.pair.list). 25 s a name on the left, 20 s on the right (his dwells).
+     SYNCED: one timeframe row (1m 5m 15m 30m 1h 1D) and CLOUDS at the top drive both charts (live-v1's &sync=1 contract); each chart keeps
+     its own ticker box on its own strip - typing one pauses that chart's rotation until PLAY. The pointer on a chart holds it; PAUSE / PLAY
+     and NEXT per chart. Reads: the provider client's ownership proof (shared with the charts), one Supabase GET of MINE and RADAR every
+     five minutes, one daily put/call read; it writes only its own three keys (station.pair.list, .tf, .clouds). -->
 <style>
 :root{ --bg:#0A0A0F; --panel2:#0F0F17; --line:#1A1A2A; --line2:#252538; --ink2:#C8C8D8; --ink3:#9A9AB6; --dim:#868AAA; --mute:#6E6E80;
   --crk:#00D4FF; --bull:#00FFA3; --late:#c8953a; --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
 *{ box-sizing:border-box; }
 html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink3); font:11px var(--mono); overflow:hidden; }
 body{ display:flex; flex-direction:column; }
+#top{ flex:none; height:26px; display:flex; align-items:center; gap:8px; padding:0 10px; background:var(--panel2); border-bottom:1px solid var(--line); white-space:nowrap; }
+#top .ttl{ color:var(--crk); letter-spacing:.16em; font-size:10px; margin-right:6px; }
+#top .tfs{ display:flex; gap:2px; }
+button{ font:10px var(--mono); letter-spacing:.06em; color:var(--ink3); background:transparent; border:1px solid var(--line2); padding:0 7px; height:18px; cursor:pointer; }
+button:hover{ color:var(--ink2); border-color:var(--dim); }
+button.on{ color:var(--crk); border-color:var(--crk); }
+#top .note{ margin-left:auto; color:var(--mute); font-size:9px; letter-spacing:.06em; }
 #pair{ flex:1 1 0; min-height:0; display:grid; grid-template-columns:1fr 1fr; gap:6px; padding:4px 4px 0; }
 .side{ display:flex; flex-direction:column; min-width:0; min-height:0; border:1px solid var(--line); }
 .side.held{ border-color:rgba(0,212,255,.45); }
 .bar{ flex:none; height:24px; display:flex; align-items:center; gap:8px; padding:0 8px; background:var(--panel2); border-bottom:1px solid var(--line);
   white-space:nowrap; overflow:hidden; font-size:10px; letter-spacing:.06em; }
 .bar .lane{ color:var(--crk); text-transform:uppercase; letter-spacing:.12em; font-size:9.5px; }
-.bar .now{ color:var(--ink2); font-weight:600; letter-spacing:.1em; }
+.bar .chips{ display:flex; gap:2px; }
+.bar .chips button{ font-size:9px; letter-spacing:.1em; padding:0 6px; }
+.bar .now{ color:var(--ink2); font-weight:600; letter-spacing:.08em; }
 .bar .next{ color:var(--mute); }
 .bar .hold{ color:var(--late); }
-.bar button{ font:10px var(--mono); color:var(--ink3); background:transparent; border:1px solid var(--line2); padding:0 7px; height:18px; cursor:pointer; }
-.bar button:hover{ color:var(--ink2); border-color:var(--dim); }
-.bar input{ margin-left:auto; width:84px; height:18px; background:transparent; color:var(--ink2); border:1px solid var(--line2); padding:0 6px;
-  font:10px var(--mono); letter-spacing:.1em; text-transform:uppercase; outline:none; }
-.bar input:focus{ border-color:var(--crk); color:var(--crk); }
+.bar .pp{ margin-left:auto; }
 .chart{ flex:1 1 0; min-height:0; width:100%; border:0; display:block; background:var(--bg); }
 #fine{ flex:none; padding:3px 10px 4px; color:var(--mute); font-size:9px; letter-spacing:.03em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 #fine b{ color:var(--dim); font-weight:600; }
 </style>
 </head>
 <body>
+<div id="top"><span class="ttl">LIVE PAIR</span><span class="tfs" id="tfs" role="group" aria-label="Timeframe, both charts"></span>
+  <button type="button" id="clouds" title="His clouds on both charts">CLOUDS</button><span class="note">both charts · the ticker box is on each chart's strip</span></div>
 <main id="pair">
   <section class="side" id="sideA">
-    <div class="bar"><span class="lane"></span><span class="now"></span><span class="next"></span><span class="hold"></span>
-      <button type="button" class="pp" title="Pause / play this chart's rotation">⏸</button><button type="button" class="nx" title="The next name now">⏭</button>
-      <input class="box" spellcheck="false" placeholder="SYMBOL" aria-label="Show a symbol on this chart"></div>
-    <iframe class="chart" title="Chart A"></iframe>
+    <div class="bar"><span class="lane">gauges</span><span class="now"></span><span class="next"></span><span class="hold"></span>
+      <button type="button" class="pp" title="Pause / play this chart's rotation">⏸</button><button type="button" class="nx" title="The next name now">⏭</button></div>
+    <iframe class="chart" title="Chart A - the gauges"></iframe>
   </section>
   <section class="side" id="sideB">
-    <div class="bar"><span class="lane"></span><span class="now"></span><span class="next"></span><span class="hold"></span>
-      <button type="button" class="pp" title="Pause / play this chart's rotation">⏸</button><button type="button" class="nx" title="The next name now">⏭</button>
-      <input class="box" spellcheck="false" placeholder="SYMBOL" aria-label="Show a symbol on this chart"></div>
-    <iframe class="chart" title="Chart B"></iframe>
+    <div class="bar"><span class="chips" role="group" aria-label="The right chart's list"></span><span class="now"></span><span class="next"></span><span class="hold"></span>
+      <button type="button" class="pp" title="Pause / play this chart's rotation">⏸</button><button type="button" class="nx" title="The next name now">⏭</button></div>
+    <iframe class="chart" title="Chart B - the chosen list"></iframe>
   </section>
 </main>
 <footer id="fine"></footer>
@@ -64,100 +71,104 @@ body{ display:flex; flex-direction:column; }
 try { scBindProviderClient(); } catch (_) {}
 const QS = new URLSearchParams(location.search);
 const CLEAN = (t) => String(t || "").toUpperCase().replace(/[^A-Z0-9.\-]/g, "").slice(0, 12);
+function lsGet(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (_) {} }
 
-/* ---- his lanes (read off his rotation scripts, /Users/alanharvey/Claude/CLAUDE SET UP/daily-report/tv, read-only) ---------------------
-   claude_rotation.js, FLASH WATCH: lane 0 "WATCH left cycle (macro + indexes)" and lane 1 "Hub Radar (priority)", 20 s each.
-   "SPY*" / "QQQ*" = SPY / QQQ during 09:30-18:00 New York on weekdays, the index futures otherwise (his resolve()). */
-const LANE_A = Object.freeze({ name:"lane 0 · indexes + macro", list:Object.freeze(["SPY*", "QQQ*", "TVC:USOIL", "TVC:US10Y", "BATS:NVDA", "TVC:VIX",
-  "BATS:MU", "SPY*", "QQQ*", "USI:PCC", "USI:ADD", "BATS:SMH", "BATS:NBIS", "TVC:US03MY"]) });
-/* lane 1's own list, used only when the radar cannot be read (said so in the small print) */
-const LANE_B_TV = Object.freeze(["BATS:MU", "BATS:NBIS", "BATS:GOOGL", "BATS:AMZN", "BATS:IREN", "BATS:AVGO", "BATS:BE", "BATS:VST", "BATS:NVDA",
-  "CRYPTO:BTCUSD", "BATS:CRDO", "BATS:CBRS", "BATS:WMT", "BATS:WDC", "BATS:SNDK", "BATS:ORCL", "BATS:NFLX", "BATS:CAT", "NASDAQ:AAOI", "BATS:TSM",
-  "BATS:APLD", "BATS:SHOP", "NASDAQ:QCOM"]);
-const DWELL_MS = 20000;
+/* ---- the lanes -------------------------------------------------------------------------------------------------------------------
+   LEFT: his top-left gauges (claude_focus_rotation.js pane 0, read only: BATS:SPY, BATS:QQQ, TVC:VIX, USI:PCC, USI:ADD) with the S&P and
+   Nasdaq futures beside SPY and QQQ - always all of them (Alan 20:10: "I don't want to do that anymore. Both things, to watch them both").
+   USI:ADD (NYSE advance / decline) is not served by the chart API; the put/call ratio (PCC) is daily only. */
+const LEFT = Object.freeze(["SPY", "QQQ", "ESUSD", "NQUSD", "VIX", "PCC"]);
+const LEFT_NOT_SERVED = Object.freeze(["USI:ADD"]);
+const NAMES = Object.freeze({ ESUSD:"S&P FUT", NQUSD:"NASDAQ FUT", PCC:"PUT/CALL" });
+/* RIGHT: the list he picks. TARGETS = his top-right (pane 1: BATS:MU, BATS:NBIS, BATS:CRWV, BATS:BE); MINE and RADAR = station_lists (the
+   lens set's lists); MACRO = the lens set's eight (lens-v1's MACRO). */
+const TARGETS = Object.freeze(["MU", "NBIS", "CRWV", "BE"]);
+const MACRO = Object.freeze(["ESUSD", "NQUSD", "CLUSD", "GCUSD", "BTCUSD", "DXUSD", "US10Y", "VIX"]);
+const LISTS = Object.freeze(["targets", "mine", "radar", "macro"]);
+const LIST_LABEL = Object.freeze({ targets:"TARGETS", mine:"MINE", radar:"RADAR", macro:"MACRO" });
+const LIST_KEY = "station.pair.list", TF_KEY = "station.pair.tf", CLOUDS_KEY = "station.pair.clouds";
+const TFS = Object.freeze(["1m", "5m", "15m", "30m", "1h", "1D"]);
+const DWELL = Object.freeze({ A:25000, B:20000 });
+/* the list he chose: the URL's for one load, else the one remembered, else TARGETS (pure) */
+function listChoice(stored, url) { return LISTS.includes(url) ? url : LISTS.includes(stored) ? stored : "targets"; }
+function tfChoice(stored, url) { return TFS.includes(url) ? url : TFS.includes(stored) ? stored : "5m"; }
+/* Whether the chart API draws a name, and how: the provider's equity universe and its macro names on the pair's timeframe; the put/call
+   series on daily bars only, when the API answers it (pure). */
+function tracked(sym, owned, isMacro, isPutCall, putCallServed) {
+  if (isPutCall(sym)) return putCallServed ? { ok:true, daily:true, why:"daily only" } : { ok:false, daily:true, why:"not answered" };
+  if (owned[sym] || isMacro(sym)) return { ok:true, daily:false, why:"" };
+  return { ok:false, daily:false, why:"not tracked" };
+}
+/* a lane: each name it can draw, daily or not, and the ones set aside with the reason (pure) */
+function laneOf(list, owned, isMacro, isPutCall, putCallServed) {
+  const show = [], skipped = [];
+  for (const sym of list) { const t = tracked(sym, owned, isMacro, isPutCall, putCallServed); if (t.ok) show.push({ sym, daily:t.daily }); else skipped.push({ sym, why:t.why }); }
+  return { show, skipped };
+}
+function label(item) { return item ? item.sym + (NAMES[item.sym] ? " · " + NAMES[item.sym] : "") + (item.daily ? " · daily bars" : "") : ""; }
 
-/* ---- New York time, and his session rule ---------------------------------------------------------------------------------------- */
-const ET_FMT = new Intl.DateTimeFormat("en-US", { timeZone:"America/New_York", weekday:"short", hour:"2-digit", minute:"2-digit", hourCycle:"h23" });
-function etNow(ms) { const p = {}; for (const x of ET_FMT.formatToParts(new Date(ms))) p[x.type] = x.value; return { dow:p.weekday, min:(+p.hour % 24) * 60 + +p.minute }; }
-/* his FLASH WATCH rule (resolve()): the cash names on weekdays 09:30-18:00 New York, the futures otherwise. ?session= pins it. Pure. */
-function cashSession(ms, pinned) {
-  if (pinned === "day") return true;
-  if (pinned === "night") return false;
-  const e = etNow(ms);
-  return e.dow !== "Sat" && e.dow !== "Sun" && e.min >= 570 && e.min < 1080;
-}
-/* his TradingView name -> the chart API's: the exchange prefix dropped; his futures and oil named as ours. Pure. */
-const OURS = Object.freeze({ "ES1!":"ESUSD", "NQ1!":"NQUSD", "USOIL":"CLUSD", "CL1!":"CLUSD", "GOLD":"GCUSD", "SILVER":"SIUSD", "GC1!":"GCUSD", "SI1!":"SIUSD" });
-function ourSymbol(tv, cash) {
-  const raw = String(tv || "").trim().toUpperCase();
-  if (raw.endsWith("*")) { const b = raw.slice(0, -1); return cash ? b : b === "SPY" ? "ESUSD" : b === "QQQ" ? "NQUSD" : b; }
-  const bare = raw.includes(":") ? raw.slice(raw.lastIndexOf(":") + 1) : raw;
-  return OURS[bare] || bare;
-}
-/* Whether the chart API draws a name at 5 minutes: the provider's own equity universe or its macro names; the put/call series are
-   daily (asked for 5 minutes, the API answers with daily bars). Pure. */
-function tracked(sym, owned, isMacro, isPutCall) {
-  if (isPutCall(sym)) return { ok:false, why:"daily only" };
-  if (owned[sym] || isMacro(sym)) return { ok:true, why:"" };
-  return { ok:false, why:"not tracked" };
-}
-/* A lane's names for this session: each of his names as ours, the ones the API cannot draw set aside with the reason. Pure. */
-function laneFor(list, cash, owned, isMacro, isPutCall) {
-  const show = [], skipped = [], mapped = [];
-  for (const tv of list) {
-    const sym = ourSymbol(tv, cash), t = tracked(sym, owned, isMacro, isPutCall);
-    if (!t.ok) { if (!skipped.some((s) => s.tv === tv)) skipped.push({ tv, sym, why:t.why }); continue; }
-    const bare = tv.replace(/\*$/, "").split(":").pop();
-    if (bare !== sym && !mapped.some((m) => m.tv === tv)) mapped.push({ tv, sym });
-    show.push(sym);
-  }
-  return { show, skipped, mapped };
-}
-
-/* ---- the two charts ------------------------------------------------------------------------------------------------------------- */
-const PINNED = ["day", "night"].includes(QS.get("session")) ? QS.get("session") : null;
+/* ---- state -------------------------------------------------------------------------------------------------------------------- */
+const PAIR = { tf:tfChoice(lsGet(TF_KEY), QS.get("tf")), clouds:lsGet(CLOUDS_KEY) !== "0", list:listChoice(lsGet(LIST_KEY), QS.get("list")) };
 const SIDES = [
-  { key:"A", n:1, el:document.getElementById("sideA"), laneName:LANE_A.name, tv:LANE_A.list },
-  { key:"B", n:2, el:document.getElementById("sideB"), laneName:"lane 1 · radar", tv:LANE_B_TV }
+  { key:"A", n:1, el:document.getElementById("sideA"), dwell:DWELL.A },
+  { key:"B", n:2, el:document.getElementById("sideB"), dwell:DWELL.B }
 ];
-for (const s of SIDES) Object.assign(s, { frame:s.el.querySelector("iframe"), show:[], skipped:[], mapped:[], idx:0, next:0, playing:true, manual:null,
-  hover:false, activityAt:0, nowSym:null });
-let OWNED = null, RADAR_NOTE = "", CASH = null;
+for (const s of SIDES) Object.assign(s, { frame:s.el.querySelector("iframe"), show:[], skipped:[], idx:0, next:0, playing:true, manual:null, hover:false, activityAt:0, nowSym:null, item:null });
+let OWNED = {}, PUTCALL = false, DB = { mine:[], radar:[], at:0, note:"" };
 const isMacro = (s) => !!(window.SC_PROVIDER && SC_PROVIDER.isMacroSymbol(s));
 const isPutCall = (s) => !!(window.SC_PROVIDER && (SC_PROVIDER.isPutCallSymbol(s) || (SC_PROVIDER.isScintillaPutCallSymbol && SC_PROVIDER.isScintillaPutCallSymbol(s))));
-function relane() {
-  CASH = cashSession(Date.now(), PINNED);
-  for (const s of SIDES) {
-    const r = laneFor(s.tv, CASH, OWNED || {}, isMacro, isPutCall);
-    s.show = r.show; s.skipped = r.skipped; s.mapped = r.mapped;
-    if (s.idx >= s.show.length) s.idx = 0;
-  }
-  paintFine();
+function rightList(name) { return name === "targets" ? TARGETS : name === "macro" ? MACRO : name === "mine" ? DB.mine : DB.radar; }
+function relane(keepRight) {
+  const a = laneOf(LEFT, OWNED, isMacro, isPutCall, PUTCALL), b = laneOf(rightList(PAIR.list), OWNED, isMacro, isPutCall, PUTCALL);
+  SIDES[0].show = a.show; SIDES[0].skipped = a.skipped;
+  SIDES[1].show = b.show; SIDES[1].skipped = b.skipped;
+  for (const s of SIDES) if (s.idx >= s.show.length) s.idx = 0;
+  if (!keepRight) SIDES[1].idx = 0;
+  paintTop(); paintFine();
 }
-function frameSrc(s, sym) { return "/station-shells/live-v1/?t=" + encodeURIComponent(sym) + "&tf=5&n=" + s.n + "&bare=1"; }
-function show(s, sym) {
-  if (!sym) return;
-  s.nowSym = sym;
-  if (!s.frame.getAttribute("src")) { s.frame.setAttribute("src", frameSrc(s, sym)); }
-  else { try { s.frame.contentWindow.postMessage({ sc:"chart", ticker:sym }, location.origin); } catch (_) { s.frame.setAttribute("src", frameSrc(s, sym)); } }
+
+/* ---- the charts: live-v1 in synced mode; the pair owns the timeframe and the clouds, each chart its ticker ------------------------- */
+function frameSrc(s, item) {
+  return "/station-shells/live-v1/?t=" + encodeURIComponent(item.sym) + "&tf=" + (item.daily ? "1D" : PAIR.tf) + "&n=" + s.n + "&bare=1&sync=1&clouds=" + (PAIR.clouds ? "1" : "0");
+}
+function post(s, msg) { try { s.frame.contentWindow.postMessage(msg, location.origin); } catch (_) {} }
+function show(s, item) {
+  if (!item) return;
+  s.item = item; s.nowSym = item.sym;
+  if (!s.frame.getAttribute("src")) s.frame.setAttribute("src", frameSrc(s, item));
+  /* a name and its timeframe in one message: one load (live-v1's synced door) - the put/call's turn on daily bars, then back */
+  else post(s, { sc:"chart", ticker:item.sym, tf:item.daily ? "1D" : PAIR.tf });
   paintBar(s);
 }
 function step(s) {
   if (!s.show.length) return;
   s.idx = (s.idx + 1) % s.show.length;
   show(s, s.show[s.idx]);
-  s.next = Date.now() + DWELL_MS;
+  s.next = Date.now() + s.dwell;
 }
-/* the pointer on a chart holds it: over the frame (the parent sees the frame's enter / leave), or the chart saying it is in use */
+function setTf(tf) {
+  if (!TFS.includes(tf) || tf === PAIR.tf) return;
+  PAIR.tf = tf; lsSet(TF_KEY, tf);
+  for (const s of SIDES) if (!(s.item && s.item.daily && !s.manual)) post(s, { sc:"chart", tf });
+  paintTop();
+}
+function setClouds(on) {
+  PAIR.clouds = !!on; lsSet(CLOUDS_KEY, PAIR.clouds ? "1" : "0");
+  for (const s of SIDES) post(s, { sc:"chart", clouds:PAIR.clouds });
+  paintTop();
+}
+function setList(name) {
+  if (!LISTS.includes(name)) return;
+  PAIR.list = name; lsSet(LIST_KEY, name);
+  const s = SIDES[1];
+  relane(false);
+  s.manual = null; s.playing = true;
+  show(s, s.show[0]); s.next = Date.now() + s.dwell;
+}
+/* the pointer on a chart holds it: over its frame, or the chart saying it is in use */
 const held = (s) => s.hover || Date.now() - s.activityAt < 4000;
 function tick() {
-  const cash = cashSession(Date.now(), PINNED);
-  if (cash !== CASH && OWNED) {
-    /* the session turned (09:30 or 18:00): the lane's names change - SPY / QQQ <-> ESUSD / NQUSD - in place */
-    const was = SIDES.map((s) => s.show[s.idx]);
-    relane();
-    SIDES.forEach((s, i) => { if (!s.manual && s.show[s.idx] !== was[i]) show(s, s.show[s.idx]); });
-  }
   const now = Date.now();
   for (const s of SIDES) {
     s.el.classList.toggle("held", held(s));
@@ -167,48 +178,54 @@ function tick() {
     paintBar(s);
   }
 }
+
+/* ---- paint ----------------------------------------------------------------------------------------------------------------------- */
+function paintTop() {
+  const tfs = document.getElementById("tfs");
+  if (tfs.childElementCount !== TFS.length) {
+    tfs.innerHTML = "";
+    for (const tf of TFS) { const b = document.createElement("button"); b.type = "button"; b.textContent = tf; b.dataset.tf = tf; b.title = tf + " bars on both charts"; b.addEventListener("click", () => setTf(tf)); tfs.appendChild(b); }
+  }
+  for (const b of tfs.children) { const on = b.dataset.tf === PAIR.tf; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); }
+  const c = document.getElementById("clouds"); c.classList.toggle("on", PAIR.clouds); c.setAttribute("aria-pressed", PAIR.clouds ? "true" : "false");
+  const chips = SIDES[1].el.querySelector(".chips");
+  if (chips.childElementCount !== LISTS.length) {
+    chips.innerHTML = "";
+    for (const name of LISTS) { const b = document.createElement("button"); b.type = "button"; b.textContent = LIST_LABEL[name]; b.dataset.list = name; b.addEventListener("click", () => setList(name)); chips.appendChild(b); }
+  }
+  for (const b of chips.children) { const on = b.dataset.list === PAIR.list; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); }
+}
 function paintBar(s) {
   const bar = s.el.querySelector(".bar");
-  bar.querySelector(".lane").textContent = s.laneName;
-  bar.querySelector(".now").textContent = s.nowSym || "";
-  const nextSym = s.show.length ? s.show[(s.idx + 1) % s.show.length] : "";
+  bar.querySelector(".now").textContent = s.manual ? s.manual : label(s.item);
+  const nextItem = s.show.length ? s.show[(s.idx + 1) % s.show.length] : null;
   const secs = Math.max(0, Math.ceil((s.next - Date.now()) / 1000));
-  bar.querySelector(".next").textContent = s.manual ? "manual · ▶ resumes the lane" : !s.playing ? "paused · next " + nextSym
-    : nextSym ? "next " + nextSym + " in " + secs + " s" : "";
+  bar.querySelector(".next").textContent = s.manual ? "typed · ▶ resumes the lane" : !s.playing ? "paused · next " + (nextItem ? nextItem.sym : "")
+    : nextItem ? "next " + nextItem.sym + " in " + secs + " s" : "";
   bar.querySelector(".hold").textContent = s.playing && !s.manual && held(s) ? "held" : "";
   bar.querySelector(".pp").textContent = s.playing && !s.manual ? "⏸" : "▶";
 }
 function paintFine() {
-  const skipped = [], mapped = [];
-  for (const s of SIDES) {
-    for (const k of s.skipped) if (!skipped.some((x) => x.tv === k.tv)) skipped.push(k);
-    for (const m of s.mapped) if (!mapped.some((x) => x.tv === m.tv)) mapped.push(m);
-  }
-  const fine = document.getElementById("fine");
-  fine.innerHTML = "<b>his TradingView rotation, on the house live chart</b> · A: FLASH WATCH lane 0 · B: lane 1 = " +
-    (RADAR_NOTE || "station_lists · radar") + " · 20 s a name · the pointer on a chart holds it · " +
-    (CASH ? "day: SPY / QQQ" : "night: SPY / QQQ shown as ESUSD / NQUSD (09:30-18:00 New York = SPY / QQQ)") +
-    (mapped.length ? " · shown as ours: " + mapped.map((m) => m.tv + " → " + m.sym).join(", ") : "") +
-    (skipped.length ? " · <b>skipped</b> (the chart API does not draw them at 5 minutes): " + skipped.map((k) => k.tv + (k.why === "daily only" ? " (daily only)" : "")).join(", ") : "");
-  fine.dataset.skipped = JSON.stringify(skipped);
+  const skipped = [];
+  for (const s of SIDES) for (const k of s.skipped) if (!skipped.some((x) => x.sym === k.sym)) skipped.push(k);
+  document.getElementById("fine").innerHTML = "<b>live pair</b> · left: his top-left gauges SPY · QQQ · VIX · put/call with the S&amp;P and Nasdaq futures (ESUSD, NQUSD) always beside SPY and QQQ - no swap at any hour · " +
+    (PUTCALL ? "PUT/CALL = PCC on daily bars (the chart API has no intraday put/call)" : "PUT/CALL not answered by the chart API") +
+    " · <b>not served</b>: " + LEFT_NOT_SERVED.join(", ") + " (NYSE advance/decline)" +
+    " · right: " + LIST_LABEL[PAIR.list] + (PAIR.list === "targets" ? " = his top-right (MU NBIS CRWV BE)" : PAIR.list === "macro" ? " = the lens set's eight" : " = station_lists · " + PAIR.list + (DB.note ? " (" + DB.note + ")" : "")) +
+    " · 25 s a name left, 20 s right · the pointer on a chart holds it" +
+    (skipped.length ? " · <b>skipped</b>: " + skipped.map((k) => k.sym + " (" + k.why + ")").join(", ") : "");
+  document.getElementById("fine").dataset.skipped = JSON.stringify(skipped);
 }
 
-/* ---- the controls ------------------------------------------------------------------------------------------------------------------ */
+/* ---- the controls -------------------------------------------------------------------------------------------------------------- */
+document.getElementById("clouds").addEventListener("click", () => setClouds(!PAIR.clouds));
 for (const s of SIDES) {
   s.el.querySelector(".pp").addEventListener("click", () => {
-    if (s.manual) { s.manual = null; s.playing = true; show(s, s.show[s.idx]); s.next = Date.now() + DWELL_MS; }
+    if (s.manual) { s.manual = null; s.playing = true; show(s, s.show[s.idx]); s.next = Date.now() + s.dwell; }
     else { s.playing = !s.playing; if (s.playing) s.next = Date.now() + 3000; }
     paintBar(s);
   });
   s.el.querySelector(".nx").addEventListener("click", () => { s.manual = null; s.playing = true; step(s); });
-  const box = s.el.querySelector(".box");
-  box.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    const sym = CLEAN(box.value); box.value = ""; box.blur();
-    if (!sym) return;
-    /* any symbol, tracked or not: live-v1 says in words when the API does not track it; the lane waits until PLAY */
-    s.manual = sym; show(s, sym);
-  });
   s.frame.addEventListener("mouseenter", () => { s.hover = true; });
   s.frame.addEventListener("mouseleave", () => { s.hover = false; });
 }
@@ -217,31 +234,38 @@ addEventListener("message", (e) => {
   const s = SIDES.find((x) => x.frame.contentWindow === e.source);
   if (!s) return;
   if (e.data.sc === "station-activity") { s.activityAt = Date.now(); return; }
-  if (e.data.type === "SCINTILLA_LIVE_STATE" && e.data.ticker) { s.nowSym = e.data.ticker; paintBar(s); }
+  /* a ticker typed in a chart's own box: that chart shows it (it switched itself) and its lane waits until PLAY */
+  if (e.data.type === "SCINTILLA_CHART_TICKER" && e.data.ticker) { s.manual = CLEAN(e.data.ticker); s.nowSym = s.manual; paintBar(s); return; }
+  if (e.data.type === "SCINTILLA_LIVE_STATE" && e.data.ticker && !s.manual) { s.nowSym = e.data.ticker; }
 });
 
-/* ---- start: the ownership proof (shared with both charts), the radar, then the lanes --------------------------------------------- */
-async function start() {
-  try { OWNED = (await SC_PROVIDER.verifyOwnership()) || {}; }
-  catch (_) { OWNED = {}; }
+/* ---- start: the ownership proof, the put/call's daily answer, MINE and RADAR, then both lanes ------------------------------------ */
+async function readLists() {
   try {
     const SB = "https://wadinxqplrggagkvrdag.supabase.co";
     const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
-    const r = await fetch(SB + "/rest/v1/station_lists?select=position,ticker&list=eq.radar&order=position.asc", { headers:{ apikey:ANON, Authorization:"Bearer " + ANON } });
+    const r = await fetch(SB + "/rest/v1/station_lists?select=list,position,ticker&list=in.(mine,radar)&order=position.asc", { headers:{ apikey:ANON, Authorization:"Bearer " + ANON } });
     if (!r.ok) throw new Error("HTTP " + r.status);
-    const rows = await r.json(), names = [];
-    for (const row of rows) { const t = CLEAN(row && row.ticker); if (t && !names.includes(t)) names.push(t); }
-    if (!names.length) throw new Error("empty");
-    SIDES[1].tv = names; RADAR_NOTE = "station_lists · radar (" + names.length + " names)";
-  } catch (error) { RADAR_NOTE = "his TradingView lane 1 list (the radar was not read: " + String(error && error.message || error).slice(0, 40) + ")"; }
-  relane();
-  SIDES.forEach((s, i) => { show(s, s.show[0]); s.next = Date.now() + DWELL_MS + i * 10000; });
+    const rows = await r.json(), out = { mine:[], radar:[] };
+    for (const row of rows) { const t = CLEAN(row && row.ticker), l = row && row.list; if (t && out[l] && !out[l].includes(t)) out[l].push(t); }
+    DB.mine = out.mine; DB.radar = out.radar; DB.at = Date.now(); DB.note = "";
+  } catch (error) { DB.note = "not read: " + String(error && error.message || error).slice(0, 40); }
+}
+async function start() {
+  paintTop();
+  try { OWNED = (await SC_PROVIDER.verifyOwnership()) || {}; } catch (_) { OWNED = {}; }
+  try { const rows = await SC_PROVIDER.marketCandles("PCC", "1D", { limit:2 }); PUTCALL = Array.isArray(rows) && rows.length > 0; } catch (_) { PUTCALL = false; }
+  await readLists();
+  relane(false);
+  SIDES.forEach((s, i) => { show(s, s.show[0]); s.next = Date.now() + s.dwell + i * 10000; });
   setInterval(tick, 500);
+  /* MINE changes from the lens set's add box: read again every five minutes; the right lane keeps its place */
+  setInterval(async () => { await readLists(); relane(true); }, 300000);
 }
 /* A proof can read what the page holds; nothing here changes it. */
-window.SC_PAIR = Object.freeze({ state:() => ({ cash:CASH, pinned:PINNED, radar:RADAR_NOTE, sides:SIDES.map((s) => ({ key:s.key, lane:s.laneName, now:s.nowSym,
-  next:s.show.length ? s.show[(s.idx + 1) % s.show.length] : null, inMs:s.next - Date.now(), playing:s.playing, manual:s.manual, held:held(s),
-  show:s.show.slice(), skipped:s.skipped.slice(), mapped:s.mapped.slice() })) }) });
+window.SC_PAIR = Object.freeze({ state:() => ({ tf:PAIR.tf, clouds:PAIR.clouds, list:PAIR.list, putcall:PUTCALL, db:{ mine:DB.mine.slice(), radar:DB.radar.length, note:DB.note },
+  sides:SIDES.map((s) => ({ key:s.key, now:s.nowSym, item:s.item, label:s.manual || label(s.item), next:s.show.length ? s.show[(s.idx + 1) % s.show.length].sym : null,
+    inMs:s.next - Date.now(), playing:s.playing, manual:s.manual, held:held(s), show:s.show.map((x) => x.sym + (x.daily ? "(D)" : "")), skipped:s.skipped.slice() })) }) });
 start();
 </script>
 </body>

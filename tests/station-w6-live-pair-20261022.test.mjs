@@ -14,66 +14,61 @@ const live = read("../station-shells/live-v1/index.html");
 const grab = (src, re, what) => { const m = src.match(re); assert.ok(m, what + " must exist"); return m[0]; };
 const fnOf = (src, name) => grab(src, new RegExp("\\n(?:async )?function " + name + "\\([^)]*\\) \\{\\n[\\s\\S]*?\\n\\}\\n|\\nfunction " + name + "\\([^)]*\\) \\{[^\\n]*\\}\\n"), name);
 const plain = (v) => JSON.parse(JSON.stringify(v));
+/* W8 restated (Alan 22 Oct ~20:10 ET): the pair follows only his top two charts - the gauges left with the futures always beside SPY and
+   QQQ (no swap at any hour), the list he picks right (TARGETS = his top-right by default). The four W6 tests below keep their intent -
+   his lanes, his session rule, the names the API cannot draw, two live-v1 frames rotated by message - on the new truth. */
 function pairApi() {
-  const src = [grab(pair, /const LANE_A = Object\.freeze\(\{[\s\S]*?\]\) \}\);/, "lane 0"), grab(pair, /const LANE_B_TV = Object\.freeze\(\[[\s\S]*?\]\);/, "lane 1"),
-    grab(pair, /const DWELL_MS = \d+;/, "the dwell"), grab(pair, /const ET_FMT = [^\n]*/, "the clock"), fnOf(pair, "etNow"), fnOf(pair, "cashSession"),
-    grab(pair, /const OURS = Object\.freeze\(\{[^}]*\}\);/, "the name map"), fnOf(pair, "ourSymbol"), fnOf(pair, "tracked"), fnOf(pair, "laneFor"),
-    "globalThis.out = { LANE_A, LANE_B_TV, DWELL_MS, cashSession, ourSymbol, tracked, laneFor };"].join("\n");
+  const src = [grab(pair, /const LEFT = Object\.freeze\(\[[^\]]*\]\);/, "the left lane"), grab(pair, /const LEFT_NOT_SERVED = Object\.freeze\(\[[^\]]*\]\);/, "not served"),
+    grab(pair, /const NAMES = Object\.freeze\(\{[^}]*\}\);/, "names"), grab(pair, /const TARGETS = Object\.freeze\(\[[^\]]*\]\);/, "targets"),
+    grab(pair, /const MACRO = Object\.freeze\(\[[^\]]*\]\);/, "macro"), grab(pair, /const LISTS = Object\.freeze\(\[[^\]]*\]\);/, "lists"),
+    grab(pair, /const DWELL = Object\.freeze\(\{[^}]*\}\);/, "dwells"), fnOf(pair, "tracked"), fnOf(pair, "laneOf"), fnOf(pair, "label"),
+    "globalThis.out = { LEFT, LEFT_NOT_SERVED, NAMES, TARGETS, MACRO, LISTS, DWELL, tracked, laneOf, label };"].join("\n");
   const ctx = {}; vm.runInNewContext(src, ctx); return ctx.out;
 }
-const at = (iso) => Date.parse(iso);
-const OWNED = Object.fromEntries("SPY QQQ NVDA MU SMH NBIS GOOGL AMZN".split(" ").map((s) => [s, 1]));
-const MACRO = new Set(["VIX", "DXY", "US10Y", "DXUSD", "CLUSD", "GCUSD", "SIUSD", "BTCUSD", "ESUSD", "NQUSD"]);
-const isMacro = (s) => MACRO.has(s), isPutCall = (s) => ["PCC", "PCCE", "PCCI", "PCSPX"].includes(s);
+const OWNED = Object.fromEntries("SPY QQQ NVDA MU SMH NBIS CRWV BE GOOGL AMZN".split(" ").map((s) => [s, 1]));
+const MACRO_SET = new Set(["VIX", "DXY", "US10Y", "DXUSD", "CLUSD", "GCUSD", "SIUSD", "BTCUSD", "ESUSD", "NQUSD"]);
+const isMacro = (s) => MACRO_SET.has(s), isPutCall = (s) => ["PCC", "PCCE", "PCCI", "PCSPX"].includes(s);
 
 test("W6 · his lanes, copied exactly: FLASH WATCH lane 0 and lane 1, 20 s a name", () => {
+  /* W8 restated: his top two charts (claude_focus_rotation.js panes 0 and 1), 25 s and 20 s */
   const A = pairApi();
-  assert.deepEqual(plain(A.LANE_A.list), ["SPY*", "QQQ*", "TVC:USOIL", "TVC:US10Y", "BATS:NVDA", "TVC:VIX", "BATS:MU", "SPY*", "QQQ*", "USI:PCC", "USI:ADD", "BATS:SMH", "BATS:NBIS", "TVC:US03MY"]);
-  assert.equal(A.LANE_B_TV.length, 23); assert.equal(A.LANE_B_TV[0], "BATS:MU"); assert.equal(A.LANE_B_TV[22], "NASDAQ:QCOM");
-  assert.equal(A.DWELL_MS, 20000);
-  assert.match(pair, /station_lists\?select=position,ticker&list=eq\.radar&order=position\.asc/, "lane 1 is the Hub's radar list, read once");
+  assert.deepEqual(plain(A.LEFT), ["SPY", "QQQ", "ESUSD", "NQUSD", "VIX", "PCC"], "his gauges with both futures");
+  assert.deepEqual(plain(A.TARGETS), ["MU", "NBIS", "CRWV", "BE"], "his top-right, the right chart's default");
+  assert.deepEqual(plain(A.DWELL), { A:25000, B:20000 });
+  assert.match(pair, /station_lists\?select=list,position,ticker&list=in\.\(mine,radar\)&order=position\.asc/, "MINE and RADAR in one read");
 });
 
 test("W6 · his session rule: SPY / QQQ on weekdays 09:30-18:00 New York, ESUSD / NQUSD otherwise; ?session= pins it", () => {
+  /* W8 restated: "I don't want to do that anymore. Both things, to watch them both" - no swap at any hour, nothing pins a session */
+  const code = pair.replace(/<!--[\s\S]*?-->/g, "");
+  assert.doesNotMatch(code, /cashSession|session=|\bresolve\(/, "no session rule left");
   const A = pairApi();
-  assert.equal(A.cashSession(at("2026-10-22T10:00:00-04:00")), true);
-  assert.equal(A.cashSession(at("2026-10-22T17:59:00-04:00")), true, "his rule runs to 18:00, not 16:00");
-  assert.equal(A.cashSession(at("2026-10-22T18:00:00-04:00")), false);
-  assert.equal(A.cashSession(at("2026-10-22T09:29:00-04:00")), false);
-  assert.equal(A.cashSession(at("2026-10-24T12:00:00-04:00")), false, "Saturday");
-  assert.equal(A.cashSession(at("2026-10-22T20:00:00-04:00"), "day"), true); assert.equal(A.cashSession(at("2026-10-22T11:00:00-04:00"), "night"), false);
-  for (const [tv, day, night] of [["SPY*", "SPY", "ESUSD"], ["QQQ*", "QQQ", "NQUSD"], ["TVC:USOIL", "CLUSD", "CLUSD"], ["BATS:NVDA", "NVDA", "NVDA"],
-    ["CME_MINI:ES1!", "ESUSD", "ESUSD"], ["CRYPTO:BTCUSD", "BTCUSD", "BTCUSD"], ["TVC:VIX", "VIX", "VIX"]]) {
-    assert.equal(A.ourSymbol(tv, true), day, tv + " by day"); assert.equal(A.ourSymbol(tv, false), night, tv + " by night");
-  }
+  const left = A.laneOf(A.LEFT, OWNED, isMacro, isPutCall, true);
+  assert.deepEqual(plain(left.show.map((x) => x.sym)), ["SPY", "QQQ", "ESUSD", "NQUSD", "VIX", "PCC"], "SPY, QQQ and both futures, always");
 });
 
 test("W6 · a name the chart API does not draw at 5 minutes is skipped and named, never shown as an error", () => {
+  /* W8 restated: ADD is named as not served; the put/call is drawn on daily bars and labelled when the API answers it */
   const A = pairApi();
-  assert.deepEqual(plain(A.tracked("PCC", OWNED, isMacro, isPutCall)), { ok:false, why:"daily only" });
-  assert.deepEqual(plain(A.tracked("ADD", OWNED, isMacro, isPutCall)), { ok:false, why:"not tracked" });
-  assert.equal(A.tracked("VIX", OWNED, isMacro, isPutCall).ok, true); assert.equal(A.tracked("NVDA", OWNED, isMacro, isPutCall).ok, true);
-  const night = A.laneFor(A.LANE_A.list, false, OWNED, isMacro, isPutCall);
-  assert.deepEqual(plain(night.show), ["ESUSD", "NQUSD", "CLUSD", "US10Y", "NVDA", "VIX", "MU", "ESUSD", "NQUSD", "SMH", "NBIS"]);
-  assert.deepEqual(plain(night.skipped.map((k) => k.tv + " " + k.why)), ["USI:PCC daily only", "USI:ADD not tracked", "TVC:US03MY not tracked"]);
-  assert.deepEqual(plain(night.mapped.map((m) => m.tv + ">" + m.sym)), ["SPY*>ESUSD", "QQQ*>NQUSD", "TVC:USOIL>CLUSD"]);
-  const day = A.laneFor(A.LANE_A.list, true, OWNED, isMacro, isPutCall);
-  assert.deepEqual(plain(day.show.slice(0, 2)), ["SPY", "QQQ"]);
-  assert.match(pair, /<b>skipped<\/b> \(the chart API does not draw them at 5 minutes\): /, "named in the small print");
+  assert.deepEqual(plain(A.LEFT_NOT_SERVED), ["USI:ADD"]);
+  assert.deepEqual(plain(A.tracked("PCC", OWNED, isMacro, isPutCall, true)), { ok:true, daily:true, why:"daily only" });
+  assert.deepEqual(plain(A.tracked("PCC", OWNED, isMacro, isPutCall, false)), { ok:false, daily:true, why:"not answered" });
+  assert.deepEqual(plain(A.tracked("ZZZZ", OWNED, isMacro, isPutCall, true)), { ok:false, daily:false, why:"not tracked" });
+  assert.equal(A.label({ sym:"PCC", daily:true }), "PCC · PUT/CALL · daily bars");
+  assert.equal(A.label({ sym:"ESUSD", daily:false }), "ESUSD · S&P FUT");
+  assert.match(pair, /<b>not served<\/b>: " \+ LEFT_NOT_SERVED\.join\(", "\)/, "named in the small print");
 });
 
 test("W6 · the pair: two live-v1 frames, rotated by message; the pointer holds a chart; PAUSE / PLAY, NEXT and a symbol box", () => {
+  /* W8 restated: the frames are live-v1 in synced mode; the symbol box is each chart's own (live-v1's), whose word pauses the lane */
   assert.equal((pair.match(/<iframe class="chart"/g) || []).length, 2);
-  assert.match(fnOf(pair, "frameSrc"), /"\/station-shells\/live-v1\/\?t=" \+ encodeURIComponent\(sym\) \+ "&tf=5&n=" \+ s\.n \+ "&bare=1"/);
-  assert.match(fnOf(pair, "show"), /s\.frame\.contentWindow\.postMessage\(\{ sc:"chart", ticker:sym \}, location\.origin\)/, "live-v1's own door (W2): no reload");
+  assert.match(fnOf(pair, "frameSrc"), /&n=" \+ s\.n \+ "&bare=1&sync=1&clouds=" \+ \(PAIR\.clouds \? "1" : "0"\)/);
+  assert.match(fnOf(pair, "show"), /post\(s, \{ sc:"chart", ticker:item\.sym, tf:item\.daily \? "1D" : PAIR\.tf \}\)/, "the name and its timeframe in one message");
   assert.match(pair, /const held = \(s\) => s\.hover \|\| Date\.now\(\) - s\.activityAt < 4000;/);
   assert.match(pair, /s\.frame\.addEventListener\("mouseenter", \(\) => \{ s\.hover = true; \}\);/);
-  assert.match(pair, /if \(e\.data\.sc === "station-activity"\) \{ s\.activityAt = Date\.now\(\); return; \}/, "the chart saying it is in use (live-v1's message)");
-  assert.match(fnOf(pair, "tick"), /if \(held\(s\)\) \{ s\.next \+= 500; paintBar\(s\); continue; \}/, "held = the countdown waits");
-  assert.match(pair, /s\.manual = sym; show\(s, sym\);/, "a typed symbol pauses that chart's lane until PLAY");
-  assert.match(pair, /SIDES\.forEach\(\(s, i\) => \{ show\(s, s\.show\[0\]\); s\.next = Date\.now\(\) \+ DWELL_MS \+ i \* 10000; \}\);/, "B ten seconds after A");
-  assert.doesNotMatch(pair.replace(/<!--[\s\S]*?-->/g, ""), /method:\s*"(POST|PATCH|PUT|DELETE)"|localStorage\.setItem/, "it writes nothing");
-  for (const bad of [/#fff\b/i, /#ffffff/i, /\bwhite\b(?!-space)/i]) assert.doesNotMatch(pair.replace(/<!--[\s\S]*?-->/g, ""), bad);
+  assert.match(fnOf(pair, "tick"), /if \(held\(s\)\) \{ s\.next \+= 500; paintBar\(s\); continue; \}/);
+  assert.match(pair, /if \(e\.data\.type === "SCINTILLA_CHART_TICKER" && e\.data\.ticker\) \{ s\.manual = CLEAN\(e\.data\.ticker\);/, "a typed ticker pauses that chart until PLAY");
+  assert.doesNotMatch(pair.replace(/<!--[\s\S]*?-->/g, ""), /method:\s*"(POST|PATCH|PUT|DELETE)"/, "it writes nothing to the database");
 });
 
 test("W6 · style E: short lines just right of the newest bar, the names at bar + 7, his amber family, his grouping, nothing on the axis", () => {
