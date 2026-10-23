@@ -15,6 +15,8 @@
      intraday put/call), so its turn is drawn on daily bars and says so. RIGHT = the list he picks on the right chart's chips: TARGETS (his
      top-right, pane 1: MU NBIS CRWV BE - the default), MINE and RADAR (station_lists, the lens set's lists), MACRO (the lens set's eight);
      remembered (station.pair.list). 25 s a name on the left, 20 s on the right (his dwells).
+     W11 (23 Oct): the zoom and the range too - his wheel, drag or double-click on one chart is the other's time window (live-v1's
+     SCINTILLA_CHART_VIEW, forwarded to the other chart only, never back).
      SYNCED: one timeframe row (1m 5m 15m 30m 1h 1D) and CLOUDS at the top drive both charts (live-v1's &sync=1 contract); each chart keeps
      its own ticker box on its own strip - typing one pauses that chart's rotation until PLAY. The pointer on a chart holds it; PAUSE / PLAY
      and NEXT per chart. Reads: the provider client's ownership proof (shared with the charts), one Supabase GET of MINE and RADAR every
@@ -109,7 +111,7 @@ function laneOf(list, owned, isMacro, isPutCall, putCallServed) {
 function label(item) { return item ? item.sym + (NAMES[item.sym] ? " · " + NAMES[item.sym] : "") + (item.daily ? " · daily bars" : "") : ""; }
 
 /* ---- state -------------------------------------------------------------------------------------------------------------------- */
-const PAIR = { tf:tfChoice(lsGet(TF_KEY), QS.get("tf")), clouds:lsGet(CLOUDS_KEY) !== "0", list:listChoice(lsGet(LIST_KEY), QS.get("list")) };
+const PAIR = { tf:tfChoice(lsGet(TF_KEY), QS.get("tf")), clouds:lsGet(CLOUDS_KEY) !== "0", list:listChoice(lsGet(LIST_KEY), QS.get("list")), view:null, viewsForwarded:0 };
 const SIDES = [
   { key:"A", n:1, el:document.getElementById("sideA"), dwell:DWELL.A },
   { key:"B", n:2, el:document.getElementById("sideB"), dwell:DWELL.B }
@@ -234,6 +236,13 @@ addEventListener("message", (e) => {
   const s = SIDES.find((x) => x.frame.contentWindow === e.source);
   if (!s) return;
   if (e.data.sc === "station-activity") { s.activityAt = Date.now(); return; }
+  /* W11: his zoom and range on one chart is the other's - forwarded to the other chart only, never back to the sender */
+  if (e.data.type === "SCINTILLA_CHART_VIEW" && e.data.view && typeof e.data.view === "object") {
+    const other = SIDES.find((x) => x !== s);
+    PAIR.view = e.data.view; PAIR.viewsForwarded++;
+    post(other, { sc:"chart", view:e.data.view });
+    return;
+  }
   /* a ticker typed in a chart's own box: that chart shows it (it switched itself) and its lane waits until PLAY */
   if (e.data.type === "SCINTILLA_CHART_TICKER" && e.data.ticker) { s.manual = CLEAN(e.data.ticker); s.nowSym = s.manual; paintBar(s); return; }
   if (e.data.type === "SCINTILLA_LIVE_STATE" && e.data.ticker && !s.manual) { s.nowSym = e.data.ticker; }
@@ -263,7 +272,7 @@ async function start() {
   setInterval(async () => { await readLists(); relane(true); }, 300000);
 }
 /* A proof can read what the page holds; nothing here changes it. */
-window.SC_PAIR = Object.freeze({ state:() => ({ tf:PAIR.tf, clouds:PAIR.clouds, list:PAIR.list, putcall:PUTCALL, db:{ mine:DB.mine.slice(), radar:DB.radar.length, note:DB.note },
+window.SC_PAIR = Object.freeze({ state:() => ({ tf:PAIR.tf, clouds:PAIR.clouds, list:PAIR.list, putcall:PUTCALL, view:PAIR.view, viewsForwarded:PAIR.viewsForwarded, db:{ mine:DB.mine.slice(), radar:DB.radar.length, note:DB.note },
   sides:SIDES.map((s) => ({ key:s.key, now:s.nowSym, item:s.item, label:s.manual || label(s.item), next:s.show.length ? s.show[(s.idx + 1) % s.show.length].sym : null,
     inMs:s.next - Date.now(), playing:s.playing, manual:s.manual, held:held(s), show:s.show.map((x) => x.sym + (x.daily ? "(D)" : "")), skipped:s.skipped.slice() })) }) });
 start();
