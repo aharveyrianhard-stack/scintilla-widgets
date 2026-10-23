@@ -20,8 +20,8 @@ function lensApi() {
 }
 
 test("W4 · the lenses are 5-minute and live: the latest 30 completed bars read 4 s after every close (again at +8 +12 +16 +25 +40 s while missing), the quote every 10 s, the live price the last point; tight cells, no oval, twice the pace", () => {
-  assert.match(lens, /const LENS_TF = TAPE \? "5m" : "1d", LENS_BARS = TAPE \? 30 : 60;/, "the chart API's tf=5m, the latest 30 bars");
-  assert.match(lens, /const QUOTE_MS = TAPE \? 10000 : 15000, BARS_MS = TAPE \? 60000 : 600000/);
+  assert.match(lens, /const LENS_BARS = 30, USUAL_MS = 1800000;/   /* W12: the timeframe is the TF chips' */, "the chart API's tf=5m, the latest 30 bars");
+  assert.match(lens, /const QUOTE_MS = TAPE \? 10000 : 15000, BARS_MS = 60000/   /* W12 */);
   assert.match(lens, /TAPE \? \{ limit: LENS_BARS, forming: true \} : \{ limit: LENS_BARS \}/, "a fresh read on the tape (the shared store skipped)");
   assert.match(lens, /const TAPE_SPEED_PX_S = TAPE \? 90 : 45;/, "twice the deck's tapes' pace");
   assert.match(lens, /body\.tape \.lens\{ flex:none; width:var\(--lens-w, 170px\); height:100%; background:var\(--panel2\); \}/, "170 px cells (W10: each its own panel, a gap between)");
@@ -40,7 +40,7 @@ test("W4 · the lenses are 5-minute and live: the latest 30 completed bars read 
   assert.match(draw, /const closes = bars\.map\(\(b\) => b\.c\); if \(livePrice > 0\) closes\.push\(livePrice\);/);
   assert.match(draw, /const col = day === "down" \? PALETTE\.bear : day === "up" \? PALETTE\.bull : PALETTE\.ink;/);
   assert.doesNotMatch(draw, /ellipse|ovalGeometry/, "no oval on the tape");
-  assert.match(fn(lens, "drawOne"), /if \(TAPE\) \{\n\s+const q = S\.quotes\.get\(t\), live = q && q\.price > 0 \? q\.price : 0;\n\s+const geo = STYLE === "bars" \? drawBars\(ctx, W, H, bars, live\) : drawTight\(ctx, W, H, bars, day, live\);/, "W7: bars by default, the line on the switch");
+  assert.match(fn(lens, "drawOne"), /if \(TAPE \|\| !QS\.get\("oval"\)\) \{[^\n]*\n\s+const q = S\.quotes\.get\(t\), live = q && q\.price > 0 \? q\.price : 0;\n\s+const geo = STYLE === "bars" \? drawBars\(ctx, W, H, bars, live\) : drawTight\(ctx, W, H, bars, day, live\);/, "W7: bars by default, the line on the switch");
   assert.match(lens, /window\.__lens = \{ style: \(\) => STYLE, rows: \(\) => ROWS, rvol: [^\n]*newest:/, "the harness reads what the tape holds (W7: the style, the rows, the RVol too)");
   assert.match(lens, /\.map\(norm\)\.filter\(\(b\) => Number\.isFinite\(b\.t\) && b\.o > 0 && b\.c > 0\)\.sort\(\(a, b\) => a\.t - b\.t\)\.slice\(-LENS_BARS\)/, "the provider's rows come newest first: sorted oldest first, so the last row is the newest bar");
   /* the deck: the tape shorter */
@@ -59,18 +59,18 @@ test("W4 · MINE from the database (station_lists · mine), the tape opens on it
   assert.match(mineDelete, /station_lists\?list=eq\.mine&ticker=eq\." \+ encodeURIComponent\(c\), \{ method: "DELETE", headers: PG \}/);
   assert.match(lens, /<input id="add" placeholder="\+ ticker · Enter"/, "the box says what it does");
   assert.match(lens, /body\.tape #add\{ display:block; width:100%;/, "visible on the tape, always");
-  assert.match(lens, /if \(LIST !== "mine"\) \{ LIST = "mine"; remember\(LIST_KEY, LIST\); \}/, "an add goes to MINE");
+  assert.match(lens, /if \(!MINE_ON\) \{ MINE_ON = true; remember\(MINE_ON_KEY, "1"\); \}/   /* W12: an add opens MINE beside RADAR and MACRO */, "an add goes to MINE");
   assert.deepEqual(plain(L.MACRO), ["SPY", "QQQ", "ESUSD", "NQUSD", "VIX", "PCC", "ADVDEC", "CLUSD", "US10Y", "BTCUSD", "GCUSD", "DXUSD"], "W7: SPY and QQQ (never swapped for futures), the futures beside them, VIX, put/call, advance/decline, oil, the 10-year, bitcoin, gold, the dollar; NDX not served");
   assert.equal(L.NAMES.ESUSD, "S&P FUT"); assert.equal(L.NAMES.NQUSD, "NASDAQ FUT"); assert.equal(L.NAMES.CLUSD, "OIL"); assert.equal(L.NAMES.PCC, "PUT/CALL · daily"); assert.equal(L.NAMES.ADVDEC, "ADVANCE / DECLINE");
-  assert.match(lens, /if \(TAPE && NAMES\[t\]\) d\.querySelector\("\.nm"\)\.textContent = NAMES\[t\];/, "the plain name on the lens");
+  assert.match(lens, /if \(NAMES\[t\]\) d\.querySelector\("\.nm"\)\.textContent = NAMES\[t\];/   /* W12: on the grid too */, "the plain name on the lens");
 });
 
 test("W4 · the volume panel (restated for W7): the flow and the 5-minute multiple side by side, big badges, trade size and the block, the heartbeat dot by level, no clock, a 5-minute countdown that flashes at the close", () => {
-  assert.match(vol, /\.cell \.big\{ font-size:26px; font-weight:800;/, "the numbers big (W10: restated)");
+  assert.match(vol, /\.ib b\{ color:var\(--ink\); font-weight:800; \}/   /* W12: the numbers small in icon badges, the graph big (Alan) */, "the numbers big (W10: restated)");
   assert.match(vol, /\$\("buy"\)\.textContent = flow\.buyPct != null \? flow\.buyPct \+ "%" : "—"; \$\("sell"\)\.textContent = flow\.sellPct != null \? flow\.sellPct \+ "%" : "—";/);
-  assert.match(vol, /<span class="k">lot size<em id="sizeAt"><\/em><\/span><span class="big" id="tsize">/, "lot size big (W10: restated)");
+  assert.match(vol, /<span class="ib" id="iSize"[^>]*><i>◫<\/i><b id="tsize">—<\/b><em id="sizeAt"><\/em><\/span>/, "lot size as an icon badge (W12: the graph is the big thing)");
   assert.match(vol, /\$\("tsize"\)\.innerHTML = S \? S\.x\.toFixed\(2\) \+ "×" \+ side\(S\.dir\) : "—"; \$\("sizeAt"\)\.textContent = S \? \(S\.t \|\| ""\) \+ \(nowS \? "" : " · last"\) : \(data\.live \? "" : "closed · none in the feed"\);/, "W10: the lot size is the last one seen, with its time; never a bare dash while one was seen");
-  assert.match(vol, /badge\("bVol", Lg\.vol\); badge\("bDir", Lg\.dir\); badge\("bVwap", Lg\.vwap\); badge\("bHour", Lg\.hour\);/, "VWAP and DIRECTION as badges (W10: the four of them, the research page's order)"); assert.match(vol, /\.badge\{[^}]*font-size:14px; font-weight:700;/, "readable from a TV");
+  assert.match(vol, /badge\("bVol", "vol", Lg\.vol\); badge\("bDir", "dir", Lg\.dir\); badge\("bVwap", "vwap", Lg\.vwap\); badge\("bHour", "hour", Lg\.hour\);/   /* W12 */, "VWAP and DIRECTION as badges (W10: the four of them, the research page's order)"); assert.match(vol, /\.ib\{[^}]*font-size:10\.5px; font-weight:700;/   /* W12 (Alan: "everything is oversized and the volume oscillator is undersized"): the badges small icons, the graph big */, "readable from a TV");
   assert.match(vol, /document\.body\.classList\.toggle\("warm", lv === "warm"\); document\.body\.classList\.toggle\("hot", lv === "hot"\);/, "the dot coloured by its level");
   assert.doesNotMatch(vol, /id="clock"/, "no clock"); assert.match(vol, /beat-core/, "W10: the graph is back (Alan: \"you removed the graph now?\"); its dot at NOW beats as on the research page");
   assert.match(vol, /left = 300 - \(secs % 300\), boundary = Math\.floor\(secs \/ 300\);/, "the 5-minute countdown on the New York clock");
