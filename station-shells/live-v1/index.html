@@ -553,7 +553,7 @@ async function readQuote() {
       S.quote = { price:+q.price, at, prev:Number.isFinite(+prev) && +prev > 0 ? +prev : null };
       if (S.quote.prev) S.prevClose = S.quote.prev;
       applyQuoteToFormingDay();
-      cloudToday(); S.cloudMap = null;
+      quoteMovesClouds();
       draw();
     }
   } catch (error) {
@@ -767,6 +767,128 @@ function cloudToday() {
   S.cloudToday.forming = true;
 }
 
+/* ---- W13: THE HITCH ---------------------------------------------------------------------------------------------------------
+   W10 measured 130-213 ms long tasks in each live-v1 frame about every 6 s: the frames share the Station's main thread, so its tapes
+   hitched. MEASURED (W13, headless, 2560 x 1440, two charts, 81ec44b): 19 long tasks in 2 minutes, up to 511 ms. The script of a whole
+   draw is 6-9 ms; PAINTING it is ~480 ms, and all of that is his clouds' fill - ~1,650 thin polygons in one path per colour (strokes,
+   dashes and text shadows cost nothing measurable; with the clouds off a whole draw paints in ~1 ms). Every quote (6 s) redrew it.
+   NOW the ribbon is a bitmap kept for exactly what shapes it - the bars on screen, the bar width, the price scale, the clouds' rows, the
+   size (ribbonKey). A quote that leaves those alone lays the same bitmap down again and redraws the rest (a few ms). The clouds'
+   current-session row is re-taken from a quote when that moves the drawing by half a pixel or more, changes a line's colour or a name's
+   percentage (cloudDrift) - otherwise the drawn row stays. When the key does change (a new bar, a rescale, a zoom, a drag) the ribbon is
+   painted by chart-v1's own drawCloudRibbon - the same function text, handed to a worker - on an OffscreenCanvas, off this thread;
+   until it arrives the last bitmap is moved and scaled onto the new view (bars and prices map to pixels linearly), so the clouds
+   follow at once and sharpen a moment later. No worker canvas: the ribbon is painted here, once per key, as before. */
+const RIBBON = { worker:null, failed:false, inflight:null, want:null, bmp:null, geo:null, here:null, hereKey:null, asked:0, got:0, paintedHere:0 };
+const MAP_IDS = new WeakMap();
+let mapSerial = 0;
+function mapIdOf(map) { let id = MAP_IDS.get(map); if (!id) { id = ++mapSerial; MAP_IDS.set(map, id); } return id; }
+/* everything that shapes the ribbon's pixels (pure) */
+function ribbonKey(g) {
+  return [g.sym, g.tf, g.bar0, g.mapId, g.start, g.end, g.right, g.spacing, g.plotW, g.priceBottom, g.padT, g.priceH, g.yLo, g.yHi,
+    g.smooth ? 1 : 0, g.scale, g.w, g.h, g.dpr].join("|");
+}
+/* an earlier ribbon's pixels onto this view: x' = a x + b, y' = c y + d in CSS pixels - X(i) and Y(v) are linear in the bar and the price.
+   null when the symbol, the interval, the series' first bar or the pixel ratio differ (pure) */
+function ribbonWarp(g0, g1) {
+  if (!g0 || !g1 || g0.sym !== g1.sym || g0.tf !== g1.tf || g0.bar0 !== g1.bar0 || g0.dpr !== g1.dpr || g0.smooth !== g1.smooth) return null;
+  const a = g1.spacing / g0.spacing, b = g1.plotW - g1.spacing / 2 - g1.spacing * (g1.right - g0.right) - a * (g0.plotW - g0.spacing / 2);
+  const k0 = g0.priceH / (g0.yHi - g0.yLo), k1 = g1.priceH / (g1.yHi - g1.yLo), c = k1 / k0;
+  const d = g1.padT + g1.priceH - k1 * (g0.yLo - g1.yLo) - c * (g0.padT + g0.priceH);
+  return [a, b, c, d].every(Number.isFinite) ? { a, b, c, d } : null;
+}
+/* the ribbon alone on its own canvas, exactly where draw() put it: the same X and Y, the same clip. Runs in the worker as well. */
+function ribbonPaint(ctx, d) {
+  const X = (i) => d.plotW - (d.right - i) * d.spacing - d.spacing / 2;
+  const Y = (v) => d.padT + (1 - (v - d.yLo) / (d.yHi - d.yLo)) * d.priceH;
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+  ctx.setTransform(d.dpr, 0, 0, d.dpr, 0, 0);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, d.plotW, d.priceBottom + 2); ctx.clip();
+  drawCloudRibbon(ctx, { map:d.map, start:d.start, end:d.end, X, Y, smooth:d.smooth, scale:d.scale });
+  ctx.restore();
+}
+/* the worker: station-clouds.js itself, and this page's own cloudLineInk, drawCloudRibbon and ribbonPaint - their text, not a copy */
+function ribbonWorker() {
+  if (RIBBON.worker || RIBBON.failed) return RIBBON.worker;
+  try {
+    if (typeof OffscreenCanvas !== "function" || typeof Worker !== "function" || typeof Blob !== "function") throw new Error("no worker canvas");
+    const src = ['"use strict";', "self.window = self;",
+      "importScripts(" + JSON.stringify(new URL("/_indicators/station-clouds.js", location.href).href) + ");",
+      "const CLOUD_EXTRAS = " + JSON.stringify(CLOUD_EXTRAS) + ";", "const cloudSpecOptions = () => CLOUD_EXTRAS;",
+      cloudLineInk.toString(), drawCloudRibbon.toString(), ribbonPaint.toString(),
+      "let canvas = null;",
+      "onmessage = (e) => { const d = e.data, W = Math.round(d.w * d.dpr), H = Math.round(d.h * d.dpr);",
+      "  if (!canvas || canvas.width !== W || canvas.height !== H) canvas = new OffscreenCanvas(W, H);",
+      '  ribbonPaint(canvas.getContext("2d"), d); const bmp = canvas.transferToImageBitmap(); postMessage({ key:d.key, bmp }, [bmp]); };'].join("\n");
+    const worker = new Worker(URL.createObjectURL(new Blob([src], { type:"text/javascript" })));
+    worker.onmessage = (e) => ribbonArrived(e.data);
+    worker.onerror = () => { RIBBON.failed = true; RIBBON.worker = null; RIBBON.inflight = null; RIBBON.want = null; draw(); };
+    RIBBON.worker = worker;
+  } catch (_) { RIBBON.failed = true; }
+  return RIBBON.worker;
+}
+function ribbonSend(job) {
+  RIBBON.inflight = job.geo; RIBBON.asked++;
+  try { RIBBON.worker.postMessage(Object.assign({ map:job.map }, job.geo)); }
+  catch (_) { RIBBON.inflight = null; RIBBON.failed = true; RIBBON.worker = null; }
+}
+function ribbonArrived(m) {
+  const geo = RIBBON.inflight; RIBBON.inflight = null; RIBBON.got++;
+  if (geo && m && m.bmp && m.key === geo.key) { if (RIBBON.bmp && RIBBON.bmp.close) RIBBON.bmp.close(); RIBBON.bmp = m.bmp; RIBBON.geo = geo; }
+  if (RIBBON.want) { const next = RIBBON.want; RIBBON.want = null; ribbonSend(next); }
+  if (S.plot) draw();
+}
+function blitRibbon(ctx, img, warp, g) {
+  ctx.save();
+  if (warp) { ctx.beginPath(); ctx.rect(0, 0, g.plotW, g.priceBottom + 2); ctx.clip(); ctx.setTransform(warp.a, 0, 0, warp.c, warp.b * g.dpr, warp.d * g.dpr); }
+  else ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(img, 0, 0); ctx.restore();
+}
+/* the clouds into the base, at their place in the order: the kept bitmap when the key is the same; else the last one moved onto this view
+   while the worker paints the new one (one at a time, the newest view waiting); no worker canvas - painted here once per key */
+function paintClouds(ctx, map, g) {
+  g.sym = SYMBOL; g.tf = TF.key; g.bar0 = S.bars[0].t; g.mapId = mapIdOf(map); g.key = ribbonKey(g);
+  if (RIBBON.bmp && RIBBON.geo && RIBBON.geo.key === g.key) { blitRibbon(ctx, RIBBON.bmp, null, g); S.ribbonShown = "kept"; return; }
+  if (!ribbonWorker()) {
+    if (RIBBON.hereKey !== g.key) {
+      const c = RIBBON.here || (RIBBON.here = document.createElement("canvas"));
+      c.width = Math.round(g.w * g.dpr); c.height = Math.round(g.h * g.dpr);
+      ribbonPaint(c.getContext("2d"), Object.assign({ map }, g)); RIBBON.hereKey = g.key; RIBBON.paintedHere++;
+    }
+    blitRibbon(ctx, RIBBON.here, null, g); S.ribbonShown = "here"; return;
+  }
+  const warp = RIBBON.bmp ? ribbonWarp(RIBBON.geo, g) : null;
+  if (warp) blitRibbon(ctx, RIBBON.bmp, warp, g);
+  S.ribbonShown = warp ? "moved" : "waiting";
+  if ((RIBBON.inflight && RIBBON.inflight.key === g.key) || (RIBBON.want && RIBBON.want.geo.key === g.key)) return;
+  const job = { geo:g, map };
+  if (RIBBON.inflight) RIBBON.want = job; else ribbonSend(job);
+}
+/* a quote and the clouds' current-session row: re-taken when the drawing would show it (cloudDrift), else the drawn row stays - and with
+   it the kept ribbon */
+function quoteMovesClouds() {
+  const before = S.cloudToday;
+  cloudToday();
+  if (before && S.cloudToday && before !== S.cloudToday && S.plot && !cloudDrift(before, S.cloudToday, S.plot, S.bars[S.plot.last])) S.cloudToday = before;
+  else S.cloudMap = null;
+}
+/* whether a new row for the current session changes what is drawn: an average moving half a pixel or more, a line's colour, or a name's
+   percentage beside the newest bar (pure, given the plot's Y) */
+function cloudDrift(a, b, P, lastBar) {
+  const SC = window.SC_CLOUDS;
+  if (!SC || !a || !b || !P) return true;
+  const price = lastBar ? lastBar.c : NaN;
+  for (const spec of SC.activeSpecs(cloudSpecOptions())) {
+    const va = a[spec.key], vb = b[spec.key];
+    if (Number.isFinite(va) !== Number.isFinite(vb)) return true;
+    if (!Number.isFinite(vb)) continue;
+    if (Math.abs(P.Y(va) - P.Y(vb)) >= .5) return true;
+    if (SC.lineBullish(spec, a) !== SC.lineBullish(spec, b)) return true;
+    if (cloudPercentText(SC.signedPercent(va, price)) !== cloudPercentText(SC.signedPercent(vb, price))) return true;
+  }
+  return false;
+}
+
 /* ---- drawing ---------------------------------------------------------------------------------------------------------- */
 const MONO = '"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace';
 const AXIS_W = 62, TIME_H = 17, VOL_SHARE = .16;
@@ -832,11 +954,10 @@ function draw() {
       }
     }
   }
-  /* his clouds, behind everything that is price */
-  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, plotW, priceBottom + 2); ctx.clip();
-  if (cloudMap) drawCloudRibbon(ctx, { map:cloudMap, start:first, end:last, X, Y, smooth:!CLOUD_STEPS,
-    scale:window.SC_CLOUDS.displayScale(plotW, Math.max(1, last - first + rightPad), 2) });
-  ctx.restore();
+  /* his clouds, behind everything that is price - W13: a bitmap kept per view and painted off this thread where it can be (THE HITCH) */
+  if (cloudMap) paintClouds(ctx, cloudMap, { start:first, end:last, right, spacing:S.spacing, plotW, priceBottom, padT, priceH, yLo, yHi, smooth:!CLOUD_STEPS,
+    scale:window.SC_CLOUDS.displayScale(plotW, Math.max(1, last - first + rightPad), 2), w, h, dpr });
+  else S.ribbonShown = null;
   /* the price grid and the axis levels: a level about every 34 px, at round prices (drawn over the cloud fill, under price) */
   const step = niceStep(yHi - yLo, Math.max(3, Math.round(priceH / 34))), dec = stepDecimals(step);
   const levels = [];
@@ -1306,7 +1427,8 @@ window.SC_LIVE = Object.freeze({
     cloudRows:S.cloudRows ? S.cloudRows.length : 0, forming:formingNow(), plot:S.plot && { first:S.plot.first, last:S.plot.last,
       right:S.plot.right, spacing:S.plot.spacing, plotW:S.plot.plotW, plotH:S.plot.plotH, yLo:S.plot.yLo, yHi:S.plot.yHi },
     readout:el("readout").textContent, readoutIx:+el("readout").dataset.ix, state:el("state").textContent,
-    crosshair:S.crosshair || null, nextRead:S.nextRead || null, log:S.log.slice() }),
+    crosshair:S.crosshair || null, nextRead:S.nextRead || null, log:S.log.slice(),
+    ribbon:{ shown:S.ribbonShown || null, worker:!!RIBBON.worker, failed:RIBBON.failed, asked:RIBBON.asked, got:RIBBON.got, paintedHere:RIBBON.paintedHere } }),
   xOf: (i) => S.plot ? S.plot.X(i) : null,
   POLL
 });
