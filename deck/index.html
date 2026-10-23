@@ -477,6 +477,9 @@ body.media-stage-two #rowBot > .pane.media-stage-target{ flex:1 1 0; }
 body:not(.stack) #grid{ flex-direction:row; }
 body:not(.stack) #grid > #rowBot{ order:-1; flex:0 0 var(--fp-col, 24%); flex-direction:column; }
 body:not(.stack) #grid > #rowBot > .pane[data-key="x"]{ order:-1; }
+/* iPad, no X (?nox=1): the X pane is gone and the charts' row takes the column's top, from the screen's left edge */
+html.nox .pane[data-key="x"]{ display:none !important; }
+html.nox body:not(.stack) #grid > #rowTop{ margin-left:calc(-1 * (var(--fp-col, 24%) + 1px)); position:relative; z-index:2; }
 body:not(.stack) #grid > #rowBot > .pane.video-fit{ flex:0 0 auto; width:auto; }
 body:not(.stack) #grid > #rowTop{ flex:1 1 0; grid-template-columns:repeat(var(--fp-c, 3), minmax(0,1fr));
   grid-template-rows:repeat(var(--fp-r, 3), minmax(0,1fr)); }
@@ -1088,6 +1091,10 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
    address; protected previews keep their /deck/ path but lose query noise.
    All subsequent scene/chart/view state is remembered locally below. */
 const QS = new URLSearchParams(location.search);
+/* iPad (23 Oct, Alan: "i need a version of the station with no x for ipad pls asap"): ?nox=1 mounts no X at all and gives its
+   column's top to the two charts; the band below (the YouTube feed, the player, the lenses, the volume) keeps its places. */
+const NO_X = QS.get("nox") === "1";
+if (NO_X) document.documentElement.classList.add("nox");
 /* iPad Companion deliberately reuses this exact deck.  Its only substitution
    is the X pane: iPad receives the already-approved iMac capture instead of
    trying to create a second browser capture. */
@@ -3568,7 +3575,7 @@ function placeWidgets(slot, plan) {
   /* W7: the lens grid's rows follow the band; the FAVORITES tape starts at YouTube's right edge; the control row sits over the charts */
   const lf = l.querySelector("iframe"); if (lf && slot.lensTape.rows) { try { lf.contentWindow.postMessage({ type:"SCINTILLA_LENS_ROWS", rows:slot.lensTape.rows }, location.origin); } catch (_) {} }   /* on every fit: the frame ignores a number it already has; a frame that has not loaded yet reads ?rows= */
   const grid = el("grid"); if (grid) grid.style.setProperty("--widgets-tape-left", (slot.tapeLeft != null ? slot.tapeLeft : plan.col + FLOOR_SEAM_PX) + "px");
-  const ctl = el("wgCtl"); if (ctl) { ctl.style.left = (plan.col + FLOOR_SEAM_PX) + "px"; ctl.style.top = "0px"; ctl.style.width = plan.charts.w + "px"; }
+  const ctl = el("wgCtl"); if (ctl) { ctl.style.left = (NO_X ? 0 : plan.col + FLOOR_SEAM_PX) + "px"; ctl.style.top = "0px"; ctl.style.width = (NO_X ? plan.col + FLOOR_SEAM_PX + plan.charts.w : plan.charts.w) + "px"; }
   v.classList.toggle("tight", slot.volume.w < 260);
   /* stood down only where there is no room: a volume column under 120 px, the lens tape on a narrow wall while a video plays */
   v.classList.toggle("off", slot.volume.on === false); l.classList.toggle("off", slot.lensTape.on === false);
@@ -5678,7 +5685,7 @@ async function build() {
     { row: 1, key: "fa", short: "SCINTILLA", title: "SCINTILLA YouTube", tag: "SCINTILLA subscriptions · shared Watch Later",
       kind: "video", src: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&cols=2" + (widgetsOn() ? "&beside=1&fixed=1" : "") + "&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.scintillaVideo + "?shell=v1&feed=scintilla&limit=200&cols=2" },
     { row: 1, key: "x", short: "X", title: "X · live", tag: "live capture",
-      kind: "x", src: IPAD_COMPANION
+      kind: "x", src: NO_X ? "about:blank" : IPAD_COMPANION
         ? STATION_SHELL.x + "?shell=v1&remote=1&pair=" + encodeURIComponent(IPAD_PAIR) + "&code=" + encodeURIComponent(IPAD_CODE) + "&view=" + encodeURIComponent(VIEW)
         : STATION_SHELL.x + "?shell=v1&view=" + encodeURIComponent(VIEW), open: STATION_SHELL.x + "?shell=v1" },
   ]);
