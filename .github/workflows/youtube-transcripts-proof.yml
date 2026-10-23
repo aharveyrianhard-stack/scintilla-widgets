@@ -1,0 +1,138 @@
+# Live proof for youtube-transcripts/: runs the sprint script verbatim on a
+# hosted runner (the sandbox this PoC was written in cannot reach youtube.com),
+# so the job log is the extraction receipt. The proof video must extract and
+# validate; the Shorts and dispatch-URL steps are informational because
+# YouTube answers datacenter IPs with a sign-in prompt for nearly every
+# video, Shorts and standard alike (see the README).
+name: youtube-transcripts live proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      urls:
+        description: "Space-separated YouTube URLs or IDs (blank = hardcoded proof list)"
+        required: false
+        default: ""
+      probe:
+        description: "Also run probe_clients.py (which InnerTube client / yt-dlp gets captions from the runner)"
+        type: boolean
+        required: false
+        default: false
+      sample_shorts:
+        description: "Search this many Shorts from the runner and run the ordinary chain on each (blank = skip)"
+        required: false
+        default: ""
+  push:
+    paths:
+      - "youtube-transcripts/**"
+      - ".github/workflows/youtube-transcripts-proof.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # Optional. Add a repository secret named GEMINI_API_KEY (from
+      # https://aistudio.google.com/apikey) and the Gemini steps below switch on.
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    defaults:
+      run:
+        working-directory: youtube-transcripts
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -c "import importlib.metadata as m; print('youtube-transcript-api', m.version('youtube-transcript-api'))"
+
+      - name: Offline suite
+        run: python -m unittest -v test_yt_transcripts
+
+      - name: Proof-of-origin token provider for the yt-dlp fallback
+        # Runner IPs get YouTube's bot check; yt-dlp answers it with a token from this server.
+        run: |
+          docker run -d --name bgutil -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:4416/ping >/dev/null 2>&1 && break; sleep 1; done
+          curl -s http://127.0.0.1:4416/ping || echo "(provider gave no /ping answer; continuing)"
+          echo
+          # Receipt that yt-dlp actually loaded the provider plugin and used a
+          # token: its verbose log names the PO token providers it found.
+          for u in https://www.youtube.com/watch?v=dQw4w9WgXcQ https://www.youtube.com/shorts/uOLqPKuO2Bo; do
+            echo "--- yt-dlp -v $u (token-provider lines only)"
+            yt-dlp -v --skip-download --print id "$u" 2>&1 | grep -iE "\[pot\]|plugin|bgutil|po token|sign in" || echo "(no provider lines in yt-dlp's verbose output)"
+          done
+
+      - name: Probe clients (diagnostic, on request)
+        if: ${{ inputs.probe }}
+        env:
+          URLS: ${{ inputs.urls }}
+        run: python probe_clients.py $URLS
+
+      - name: Live extraction, standard video (required; timestamped preview, every format captured)
+        run: |
+          set -o pipefail
+          python yt_transcripts.py --format timestamped --out proof https://www.youtube.com/watch?v=dQw4w9WgXcQ | tee proof.txt
+
+      - name: Live extraction, Shorts (informational; YouTube asks datacenter IPs to sign in)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python yt_transcripts.py --format timestamped --out proof https://www.youtube.com/shorts/uOLqPKuO2Bo https://www.youtube.com/shorts/8rJJUfkeZvI | tee -a proof.txt
+
+      - name: Live extraction through Gemini, video + Shorts (runs only when the GEMINI_API_KEY secret is set)
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          python yt_transcripts.py --backend gemini --format timestamped --out proof-gemini https://www.youtube.com/watch?v=dQw4w9WgXcQ https://www.youtube.com/shorts/uOLqPKuO2Bo https://www.youtube.com/shorts/8rJJUfkeZvI | tee -a proof.txt
+
+      - name: Gemini reviews the README (runs only when the GEMINI_API_KEY secret is set)
+        if: ${{ env.GEMINI_API_KEY != '' }}
+        continue-on-error: true
+        run: |
+          python ask_gemini.py --file README.md "Review this README as a senior engineer who knows YouTube's caption and bot-check behaviour. List, briefly and specifically, anything wrong, missing, risky, or unclear about extracting transcripts this way: standard videos, Shorts, timestamps, and access from servers." | tee gemini-review.md
+
+      - name: Live extraction, URLs given on dispatch (informational)
+        if: ${{ inputs.urls != '' }}
+        continue-on-error: true
+        env:
+          URLS: ${{ inputs.urls }}
+        run: |
+          set -o pipefail
+          python yt_transcripts.py --format timestamped --out proof $URLS | tee -a proof.txt
+
+      - name: Sample other Shorts from the runner (on request; measures whether the bot check is per clip or per class)
+        if: ${{ inputs.sample_shorts != '' }}
+        continue-on-error: true
+        env:
+          COUNT: ${{ inputs.sample_shorts }}
+        run: |
+          set -o pipefail
+          python probe_clients.py --sample-shorts "$COUNT" | tee -a proof.txt
+
+      - name: Validate the captured files (required; every format must agree)
+        run: |
+          for f in proof/*; do echo "--- $f"; head -c 300 "$f"; echo; done
+          python validate_captures.py proof
+          if [ -d proof-gemini ]; then python validate_captures.py proof-gemini; fi
+
+      - name: Upload proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcript-proof
+          path: |
+            youtube-transcripts/proof.txt
+            youtube-transcripts/proof/
+            youtube-transcripts/proof-gemini/
+            youtube-transcripts/gemini-review.md
+          if-no-files-found: ignore
