@@ -332,6 +332,29 @@ function mergeTail(series, tail, keep) {
   const out = series.filter((b) => b.t < from && !b.forming).concat(tail);
   return keep && out.length > keep ? out.slice(out.length - keep) : out;
 }
+/* W11 - THE TIME WINDOW (Alan, 23 Oct ~00:50 ET: "The zooming of the charts needs to be synced. The date range kind of thing.").
+   A view in clock time, the same on any chart: span = the milliseconds from the open of the first visible bar to the close of the
+   last; end = that close, or null when the chart is pinned to now (following new bars). Pure. */
+function viewOf(bars, first, last, tfMs, pinned) {
+  if (!bars || !bars.length || !(last >= first) || !bars[first] || !bars[last]) return null;
+  const end = bars[last].t + tfMs;
+  return { span:end - bars[first].t, end:pinned ? null : end };
+}
+/* A chart's own bars in a clock window: from the first that opens at or after end - span to the last that opens before end
+   (pinned: end = its own newest bar's close). A symbol with gaps or another session keeps the same clock window on its own bars. Pure. */
+function windowBars(bars, view, tfMs) {
+  if (!bars || !bars.length || !view || !(view.span > 0)) return null;
+  const end = view.end == null ? bars[bars.length - 1].t + tfMs : view.end, start = end - view.span;
+  let first = -1, last = -1;
+  for (let i = 0; i < bars.length; i++) { if (first < 0 && bars[i].t >= start) first = i; if (bars[i].t < end) last = i; }
+  if (first < 0 || last < first) return null;
+  return { first, last, count:last - first + 1, pinned:view.end == null };
+}
+/* which bars a plot shows, by their centres (pure): bar i is centred at plotW - (right - i) x spacing - spacing / 2 */
+function visibleBars(n, right, plotW, spacing) {
+  const first = Math.max(0, Math.ceil(right - plotW / spacing + .5)), last = Math.min(n - 1, Math.floor(right + .5));
+  return { first, last };
+}
 function lastCompleted(series) {
   for (let i = series.length - 1; i >= 0; i--) if (!series[i].forming) return series[i];
   return null;
@@ -395,7 +418,7 @@ const S = {
   bars:[], prevClose:null, quote:null, cloudRows:null, cloudTicker:null, cloudMap:null, cloudAt:0, cloudAsked:0,
   vw930:[], vw400:[], vwMain:[], vwUp:[], vwLo:[], levels:null, levelBars:null, dailyBars:null, cloudPts:null, cloudToday:null,
   gen:0, loading:true, error:null, lastRead:null, readAt:0, tries:0, misses:0, idle:false, readFails:0, quoteFails:0,
-  spacing:7, viewRight:null, hover:null, plot:null, log:[]
+  spacing:7, viewRight:null, hover:null, plot:null, log:[], timeView:null
 };
 let FUT = isFutures(SYMBOL);
 const el = (id) => document.getElementById(id);
@@ -451,6 +474,7 @@ async function loadAll() {
     if (bars.length < 2) throw new Error("the chart API served " + bars.length + " " + TF.key + " bars for " + SYMBOL);
     S.bars = bars; S.readAt = Date.now(); S.loading = false; S.readFails = 0; S.loadedKey = SYMBOL + "|" + TF.key;
     recompute(); showMsg(null); draw();
+    if (SYNC && S.timeView) applyView(S.timeView, true);
   } catch (error) {
     if (gen !== S.gen) return;
     note("bars", false, { error:String(error && (error.scAbsence || error.message) || error).slice(0, 160) });
@@ -1178,10 +1202,52 @@ addEventListener("message", (e) => {
     if (tf && t && t !== SYMBOL && tf !== TF) { TF = tf; S.spacing = TF.daily ? 6 : 7; setSymbol(t); return; }
     if (tf) setTf(tf.key);
     if (t) setSymbol(t);
+    /* W11: the window the parent shows every chart - fitted to this chart's own bars, and never posted back */
+    if (SYNC && d.view && typeof d.view === "object" && d.view.span > 0 && (d.view.end == null || Number.isFinite(d.view.end)))
+      applyView({ span:+d.view.span, end:d.view.end == null ? null : +d.view.end });
     return;
   }
   if (d.type === "SCINTILLA_TV_INTERVAL" || d.type === "SCINTILLA_LIVE_INTERVAL") setTf(d.interval);
 });
+
+/* ---- W11: the synced view - a parent shows every chart the same clock window -------------------------------------------------
+   OBEYED: { sc:"chart", view:{ span, end } } fits this chart's own bars in that window (applyView) and posts nothing back.
+   POSTED: after his wheel, drag or double-click only, at most ten a second (the last one always sent):
+   { type:"SCINTILLA_CHART_VIEW", n, view:{ span, end } }. A new symbol or timeframe keeps the window when at least ten bars of the new
+   interval fit it (5m -> 15m keeps the clock window; a few hours on 1D does not, and the chart opens pinned at its default zoom). */
+/* bars may be up to 160 px wide, so a deep 5m zoom keeps its clock window on 15m (13 bars across a slot need ~60 px); the wheel shares the range */
+const VIEW_MIN_BARS = 10, VIEW_POST_MS = 100, SPACING_MAX = 160;
+function currentView() {
+  const P = S.plot;
+  if (!P || S.bars.length < 2) return null;
+  const v = visibleBars(S.bars.length, P.right, P.plotW, P.spacing);
+  return viewOf(S.bars, v.first, v.last, TF.ms, S.viewRight == null);
+}
+function applyView(view, afterLoad) {
+  S.timeView = view;
+  if (!S.plot || S.bars.length < 2) return;
+  const w = windowBars(S.bars, view, TF.ms);
+  if (!w || w.count < VIEW_MIN_BARS) { if (!afterLoad) draw(); return; }
+  /* twice: the right margin (forming step, names) depends on the bar width */
+  for (let pass = 0; pass < 2; pass++) {
+    const P = S.plot;
+    if (w.pinned) { S.viewRight = null; S.spacing = Math.max(2, Math.min(SPACING_MAX, P.plotW / (w.count + P.rightPad))); }
+    else { S.viewRight = w.last; S.spacing = Math.max(2, Math.min(SPACING_MAX, P.plotW / w.count)); }
+    draw();
+  }
+}
+let viewPostAt = 0, viewPostTimer = 0;
+function postViewSoon() {
+  if (!SYNC || window.parent === window) return;
+  clearTimeout(viewPostTimer);
+  viewPostTimer = setTimeout(() => {
+    viewPostAt = Date.now();
+    const view = currentView();
+    if (!view) return;
+    S.timeView = view;
+    try { parent.postMessage({ type:"SCINTILLA_CHART_VIEW", n:N, view }, location.origin); } catch (_) {}
+  }, Math.max(0, VIEW_POST_MS - (Date.now() - viewPostAt)));
+}
 
 /* ---- the pointer: crosshair, wheel to zoom, drag to pan, double-click back to now ----------------------------------------- */
 function local(e) { const r = area.getBoundingClientRect(); return { x:e.clientX - r.left, y:e.clientY - r.top }; }
@@ -1193,7 +1259,7 @@ area.addEventListener("pointermove", (e) => {
     if (Math.abs(dx) > 2) area.classList.add("panning");
     S.viewRight = Math.min(S.plot.edge, Math.max(10, drag.right - dx / S.spacing));
     if (S.viewRight >= S.plot.edge - .01) S.viewRight = null;
-    S.hover = p; draw(); return;
+    S.hover = p; draw(); postViewSoon(); return;
   }
   S.hover = p; drawOverlay(); paintReadout();
 });
@@ -1209,15 +1275,15 @@ area.addEventListener("wheel", (e) => {
   e.preventDefault();
   if (!S.plot) return;
   const before = S.spacing;
-  S.spacing = Math.max(2, Math.min(40, S.spacing * Math.exp(-e.deltaY * .0015)));
+  S.spacing = Math.max(2, Math.min(SPACING_MAX, S.spacing * Math.exp(-e.deltaY * .0015)));
   if (S.viewRight != null) {
     /* keep the bar under the pointer where it is */
     const p = local(e), atPointer = S.viewRight - (S.plot.plotW - p.x) / before;
     S.viewRight = atPointer + (S.plot.plotW - p.x) / S.spacing;
   }
-  draw();
+  draw(); postViewSoon();
 }, { passive:false });
-area.addEventListener("dblclick", () => { S.viewRight = null; S.spacing = TF.daily ? 6 : 7; draw(); });
+area.addEventListener("dblclick", () => { S.viewRight = null; S.spacing = TF.daily ? 6 : 7; draw(); postViewSoon(); });
 addEventListener("resize", () => draw());
 /* the deck cannot see a pointer inside a frame: say, once a second at most, that this pane is in use (chart-v1's message) */
 (function reportStationActivity() {
@@ -1233,6 +1299,8 @@ window.SC_LIVE = Object.freeze({
   snapshot: () => ({ symbol:SYMBOL, tf:TF.key, n:N, bare:BARE, clouds:CLOUDS_ON, loading:S.loading, error:S.error,
     bars:S.bars.map((b) => Object.assign({}, b)), quote:S.quote && Object.assign({}, S.quote), prevClose:S.prevClose,
     vw930:S.vw930.slice(), vw400:S.vw400.slice(), tags:(S.tags || []).slice(), cloudLabels:S.cloudLabels || null,
+    timeView:S.timeView, visible:S.plot ? (() => { const v = visibleBars(S.bars.length, S.plot.right, S.plot.plotW, S.plot.spacing); return { first:v.first, last:v.last,
+      firstT:S.bars[v.first] ? S.bars[v.first].t : null, lastT:S.bars[v.last] ? S.bars[v.last].t : null, pinned:S.viewRight == null, spacing:S.plot.spacing }; })() : null,
     fut:FUT, vwMain:S.vwMain.slice(), vwUp:S.vwUp.slice(), vwLo:S.vwLo.slice(), levels:S.levels, levelsDrawn:S.levelsDrawn || null,
     cloudToday:S.cloudToday && Object.assign({}, S.cloudToday), readFails:S.readFails, quoteFails:S.quoteFails, level:S.stateLevel || null,
     cloudRows:S.cloudRows ? S.cloudRows.length : 0, forming:formingNow(), plot:S.plot && { first:S.plot.first, last:S.plot.last,
