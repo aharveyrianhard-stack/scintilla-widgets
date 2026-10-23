@@ -627,6 +627,18 @@ body.widgets #tapes .tape.tall .cell .rv i::before{ content:""; position:absolut
 body.widgets #tapes .tape.tall .cell .rv em{ font-style:normal; font-size:8.5px; color:var(--ink3); font-variant-numeric:tabular-nums; min-width:24px; text-align:right; }
 body.widgets #tapes .tape.tall .cell .rv.hot em{ color:#ec835a; }
 .tape .cell .rv{ display:none; }
+/* W12: the unusual on the FAVORITES tape - one bright pulse, then a steady glow (the same look as a lens) */
+body.widgets #tapes .tape.tall .cell.glow{ box-shadow:inset 0 0 0 1px #00D4FF, 0 0 12px rgba(0,212,255,.45); }
+body.widgets #tapes .tape.tall .cell.pulse{ animation:tape-unusual 1.1s ease-out 1; }
+@keyframes tape-unusual{ 0%{ box-shadow:inset 0 0 0 2px #fff, 0 0 34px rgba(0,212,255,1); background:#15223a; } 100%{ box-shadow:inset 0 0 0 1px #00D4FF, 0 0 12px rgba(0,212,255,.45); } }
+@media (prefers-reduced-motion: reduce){ body.widgets #tapes .tape.tall .cell.pulse{ animation:none; } }
+/* W12 (Alan: "you need to be careful with all of the shit that's in the header thing, because I believe half of that is not useful anymore"):
+   on the WIDGETS wall the controls that do nothing there are HIDDEN, not deleted - the screen arrows and the page rail (the WIDGETS wall has no
+   pages), auto rotate (never rotates: W1), reset preset (a scene preset; the two charts are set by hand), the old oval/box lens shape (chart-v1's
+   context lens, not the lens set), the "screen 1 / 9" readout. WALL · SIMPLE · WIDGETS, the feed choice, charts only, the scene, the layout, the
+   display window, fullscreen, auto-hide, the tapes switch and the timeframe readout stay. The list is in the W12 RETURN. */
+body.widgets #dock #screenControls, body.widgets #dock #pageRail, body.widgets #dock .rotate-controls, body.widgets #dock #resetScene,
+body.widgets #dock .lens-controls, body.widgets #dock #screenIndicator{ display:none !important; }
 /* S15: with the strip at the bottom the timeframe tag is back on the charts' top edge, where it was before S14 */
 .tape{ flex:none; height:22px; display:flex; align-items:stretch; background:var(--panel2); overflow:hidden; }
 .tape .lbl{ flex:none; min-width:104px; display:flex; align-items:center; padding:0 8px; color:var(--crk);
@@ -2071,7 +2083,7 @@ const TAPE_LISTS_MS = 300000, TAPE_QUOTE_MS = 15000, TAPE_GEIGER_MS = 60000, TAP
 /* S16 / S16b: the tapes' mini lines - 15-minute bars, 64 of them (a whole extended day), read every five minutes */
 const TAPE_SPARK_MS = 300000, TAPE_SPARK_TF = "15m", TAPE_SPARK_BARS = 64;
 const TAPE_RVOL_MS = 60000;   /* W7: the Hub's RVol per name, once a minute */
-const TAPES = { liked:[], favorites:[], likedTotal:0, key:"", quotes:new Map(), geiger:{}, sparks:new Map(), rvol:new Map(), rvolAt:0, rvolBusy:false, listsAt:0, quotesAt:0, geigerAt:0, sparksAt:0,
+const TAPES = { liked:[], favorites:[], likedTotal:0, key:"", quotes:new Map(), geiger:{}, sparks:new Map(), rvol:new Map(), usual:new Map(), rvolAt:0, rvolBusy:false, listsAt:0, quotesAt:0, geigerAt:0, sparksAt:0,
   listsBusy:false, quotesBusy:false, geigerBusy:false, sparksBusy:false, lastSlot:-1, timer:0 };
 const TAPE_ET = new Intl.DateTimeFormat("en-CA", { timeZone:"America/New_York", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" });
 function tapeEt(ms) {
@@ -2130,6 +2142,8 @@ function runTape(row) {
   track.style.animationDuration = (one / TAPE_SPEED_PX_S).toFixed(2) + "s";
   track.classList.add("run");
 }
+/* W12, pure: the unusual on a tape cell - the lens shell's rule (unusualOf) restated here so the deck needs no import */
+function tapeUnusual(pct, usual, rvol) { const out = []; if (pct != null && usual > 0 && Math.abs(pct) >= 2 * usual) out.push((Math.abs(pct) / usual).toFixed(1) + "× its usual day"); if (rvol != null && rvol >= 2) out.push("rvol " + rvol.toFixed(1) + "×"); return out; }
 function paintTapeCells(first) {
   const box = el("tapes"); if (!box) return;
   const now = Date.now();
@@ -2153,7 +2167,14 @@ function paintTapeCells(first) {
     if (g.title !== m.title) g.title = m.title;
     const rv = cell.querySelector(".rv");
     if (rv) { const r = TAPES.rvol.get(t); const cls = "rv" + (r == null ? "" : r >= 1.5 ? " hot" : r < 0.7 ? " cold" : ""), txt = r == null ? "—" : r.toFixed(1) + "×";
-      if (rv.className !== cls) rv.className = cls; if (rv.lastChild.textContent !== txt) rv.lastChild.textContent = txt; rv.firstChild.style.setProperty("--rv", Math.round(Math.min(1, (r || 0) / 3) * 100) + "%"); }
+      if (rv.className !== cls) rv.className = cls; if (rv.lastChild.textContent !== txt) rv.lastChild.textContent = txt; rv.firstChild.style.setProperty("--rv", Math.round(Math.min(1, (r || 0) / 3) * 100) + "%");
+      /* W12 (Alan: "we should flash things when they are high … unusual day percentages, when [RVol] is high"): the same rules as the lenses and
+         the charts - a day move at twice the name's usual day and over, or RVol at 2× and over; one bright pulse when it starts, a glow while it
+         holds, the words in the title ("2.3× its usual day") */
+      const words = tapeUnusual(q ? q.pct : null, TAPES.usual.get(t), r), on = words.length > 0, was = cell.classList.contains("glow");
+      if (on && !was) { cell.classList.add("glow"); cell.classList.remove("pulse"); void cell.offsetWidth; cell.classList.add("pulse"); }
+      else if (!on && was) cell.classList.remove("glow", "pulse");
+      const title = words.join(" · "); if (cell.title !== title) cell.title = title; }
     if (sp) {
       const line = TAPES.sparks.get(t), d = line ? line.d : "", sc = "spark" + tapeLineSide(q, line);
       if (sp.firstChild.getAttribute("d") !== d) sp.firstChild.setAttribute("d", d);
@@ -3027,6 +3048,8 @@ window.addEventListener("message", (event) => {
   if (event.data?.type === "SCINTILLA_RVOL") {
     const map = event.data.rvol || {};
     for (const [t, v] of Object.entries(map)) { const c = CLEAN(t); if (c && Number.isFinite(+v)) TAPES.rvol.set(c, +v); }
+    /* W12: each name's usual day (the lens frame's read: the median absolute day change of its last 20 daily closes) - for the flash */
+    for (const [t, v] of Object.entries(event.data.usual || {})) { const c = CLEAN(t); if (c && Number.isFinite(+v)) TAPES.usual.set(c, +v); }
     paintTapeCells(false); return;
   }
   /* W7: a chart's own ticker box (live-v1 with sync=1, tv-v1's strip): the slot takes the name as the badge door does - the badge, the box, the
