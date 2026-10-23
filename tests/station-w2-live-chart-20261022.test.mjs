@@ -228,7 +228,8 @@ test("W2 · it tells the deck its own message, never tv-v1's, and hears the deck
   assert.doesNotMatch(live.replace(/\/\*[\s\S]*?\*\//g, ""), /type:\s*"SCINTILLA_TV_STATE"/, "the WIDGETS deck re-points a slot to tv-v1 when it hears SCINTILLA_TV_STATE");
   assert.match(tell, /if \(window\.parent === window\) return;/);
   assert.match(live, /if \(e\.origin !== location\.origin \|\| !e\.data\) return;/, "same-origin messages only");
-  assert.match(live, /if \(d\.ticker\) setSymbol\(d\.ticker\);/);
+  /* W8 restated: the deck's ticker is cleaned first (and joins a synced timeframe change in one load) - still the deck's door */
+  assert.match(live, /const t = d\.ticker \? CLEAN\(d\.ticker\) : "";/); assert.match(live, /if \(t\) setSymbol\(t\);/);
   assert.match(live, /if \(d\.type === "SCINTILLA_TV_INTERVAL" \|\| d\.type === "SCINTILLA_LIVE_INTERVAL"\) setTf\(d\.interval\);/);
   assert.match(live, /postMessage\(\{ sc:"station-activity", pane:"live-v1-" \+ N, at:now \}, location\.origin\)/, "the deck's self-update never reloads under his hand");
 });
