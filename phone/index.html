@@ -18,28 +18,33 @@
      measured. The shells read what they read on the wall (the chart API, the Hub mirror, the volume feed); this page reads nothing itself. -->
 <style>
 :root{ --bg:#0A0A0F; --panel2:#0F0F17; --line:#1A1A2A; --ink:#F2F2F8; --mute:#6E6E80; --crk:#00D4FF; --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
-html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); font:12px var(--mono); overflow:hidden; overscroll-behavior:none; }
-body{ display:grid; grid-template-rows:auto minmax(0,1fr) var(--vol-h, 22vh) auto; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing:border-box; }
+/* W12B (the coordinator, from the pictures: "the phone shows ONE lens at a time … RADAR and MACRO are not on the screen together"): the FIRST
+   SCREEN is the head, the lenses as the wall's tape - RADAR a running row, MACRO a running row, the chips on top - and the volume panel with its
+   graph; YouTube (the player at 16:9, the feed under it) sits under the first screen and the page scrolls down to it. Each block a fixed height. */
+html,body{ margin:0; background:var(--bg); color:var(--ink); font:12px var(--mono); overscroll-behavior-x:none; }
+html{ height:100%; } body{ min-height:100%; display:block; padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing:border-box; }
+#first{ height:var(--screen-h, 100vh); display:grid; grid-template-rows:auto minmax(0,1fr) var(--vol-h, 36vh); }
 #head{ display:flex; align-items:center; gap:10px; padding:6px 12px; border-bottom:1px solid var(--line); background:var(--panel2); min-height:30px; }
-#head .k{ color:var(--crk); font-size:9px; letter-spacing:.2em; text-transform:uppercase; }
-#head a{ margin-left:auto; color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; text-decoration:none; padding:6px 0 6px 10px; }
+#head .k{ color:var(--crk); font-size:9px; letter-spacing:.2em; text-transform:uppercase; margin-right:auto; }
+#head a{ color:var(--mute); font-size:9px; letter-spacing:.14em; text-transform:uppercase; text-decoration:none; padding:6px 0 6px 10px; }
 section{ position:relative; min-height:0; border-bottom:1px solid var(--line); }
 section iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; background:var(--bg); display:block; }
 #lenses{ }
 #volume{ }
-/* the YouTube block: the shell's bar (32 px) + the player at 16:9 of the width + 120 px of the feed under it, a fixed height whatever plays */
-#video{ height:calc(32px + 56.25vw + 120px); border-bottom:0; }
-@media (min-height: 900px){ #video{ height:calc(32px + 56.25vw + 170px); } }
+/* the YouTube block under the first screen: the shell's bar (32 px) + the player at 16:9 of the width + 260 px of the feed, a fixed height whatever plays */
+#video{ height:calc(32px + 56.25vw + 260px); border-bottom:0; }
 </style>
 </head>
 <body>
-<div id="head"><span class="k">Station · phone</span><a href="/ipad/" title="the iPad / desktop Station (no X)">full station ›</a></div>
-<section id="lenses" aria-label="Context lenses"><iframe src="/station-shells/lens-v1/?shell=v1&touch=1&view=phone" title="context lenses: RADAR and MACRO, the timeframe chips" loading="eager"></iframe></section>
+<div id="first">
+<div id="head"><span class="k">Station · phone</span><a href="#video" id="toVideo" title="down to YouTube">youtube ▾</a><a href="/ipad/" title="the iPad / desktop Station (no X)">full station ›</a></div>
+<section id="lenses" aria-label="Context lenses"><iframe src="/station-shells/lens-v1/?shell=v1&mode=tape&rows=2&touch=1&view=phone" title="context lenses: RADAR a row, MACRO a row, the timeframe chips" loading="eager"></iframe></section>
 <section id="volume" aria-label="Volume"><iframe src="/station-shells/volume-v1/?shell=v1&touch=1&view=phone" title="the market's volume: the graph, the icon badges, the countdown" loading="eager"></iframe></section>
+</div>
 <section id="video" aria-label="YouTube"><iframe src="/station-shells/scintilla-video-v1/?shell=v1&feed=scintilla&cols=2&stack=1&view=phone" title="YouTube: the player, the feed under it" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen loading="eager"></iframe></section>
 <script>
-/* nothing to run: the blocks are CSS shares; the volume block's height follows the screen (22 % of it, at least 150 px) */
-(() => { const fit = () => { document.documentElement.style.setProperty("--vol-h", Math.max(150, Math.round(innerHeight * 0.22)) + "px"); }; fit(); addEventListener("resize", fit); })();
+/* the first screen is the window's height (the address bar's own height taken out on iOS); the volume block 36 % of it, at least 220 px */
+(() => { const fit = () => { const h = innerHeight; document.documentElement.style.setProperty("--screen-h", h + "px"); document.documentElement.style.setProperty("--vol-h", Math.max(220, Math.round(h * 0.36)) + "px"); }; fit(); addEventListener("resize", fit); })();
 </script>
 </body>
 </html>
