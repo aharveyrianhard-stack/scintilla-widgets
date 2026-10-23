@@ -63,7 +63,6 @@ body{ display:flex; flex-direction:column; -webkit-font-smoothing:antialiased; }
 /* W5: stale or not answering - red, and the chart itself steps back so it can never pass for live */
 #strip .state[data-level="stale"] b, #strip .state[data-level="down"] b{ color:var(--bear); }
 #area[data-level="stale"] #cv, #area[data-level="down"] #cv{ opacity:.5; }
-body.bare #strip .sym{ display:none; }
 /* W8: in synced mode the parent owns the interval and the clouds; the ticker box is this chart's own and always shows */
 body.sync #tfs, body.sync #cloudsBtn{ display:none; }
 body.sync #strip .sym{ display:inline-block; }
@@ -88,15 +87,55 @@ body.sync #strip .sym{ display:inline-block; }
 #msg{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--dim); font-size:10px;
   letter-spacing:.1em; text-transform:uppercase; text-align:center; padding:20px; z-index:3; pointer-events:none; }
 #msg[hidden]{ display:none; }
+/* W13 (Alan, 23 Oct: "the ticker and the percentage could be bigger … I don't like all of the data above. I'm more visual than numerical"):
+   the strip is the chart's header - the ticker and the day % big enough to read across a room on a TV, the price beside them, the RVol
+   tube by the ticker; the intervals, LIVE · TV, CLOUDS and the state stay small on the right. --hd is the big size, from this frame's own
+   width (a 2560 WIDGETS slot ~38 px, 1920 ~30 px, an iPad pair side ~17 px). */
+:root{ --hd:clamp(17px, 2.5vw, 38px); }
+#strip{ height:calc(var(--hd) * 1.42); gap:calc(var(--hd) * .34); }
+#strip .sym, #strip input.sym{ font:700 var(--hd) var(--mono); letter-spacing:.03em; color:var(--ink); }
+#strip input.sym{ width:5.6ch; border-color:transparent; padding:0 2px; }
+#strip input.sym:hover{ border-color:var(--line2); }
+#strip .day{ display:inline-block; font:700 var(--hd) var(--mono); letter-spacing:0; font-variant-numeric:tabular-nums; color:var(--ink3);
+  transform-origin:left center; }
+#strip .day[data-day="up"]{ color:var(--bull); }
+#strip .day[data-day="down"]{ color:var(--bear); }
+#strip .px{ font-size:calc(var(--hd) * .58); color:var(--ink2); }
+/* the RVol tube: the lenses' and the FAVORITES tape's thermometer laid flat - the dark tube, its 1x and 2x ticks, the meter's gradient to
+   the multiple (3x the end), the multiple beside it */
+#rv{ display:inline-flex; align-items:center; gap:.45em; font-size:calc(var(--hd) * .4); }
+#rv i{ display:block; width:calc(var(--hd) * 3.2); height:calc(var(--hd) * .3); border-radius:calc(var(--hd) * .15); background:#1d1d1b;
+  border:1px solid #33332f; position:relative; overflow:hidden; }
+#rv i::before{ content:""; position:absolute; inset:0; z-index:1; opacity:.7; background:linear-gradient(#8c8b83,#8c8b83) 33% 0 / 1px 100% no-repeat, linear-gradient(#8c8b83,#8c8b83) 66% 0 / 1px 100% no-repeat; }
+#rv i::after{ content:""; position:absolute; left:0; top:0; bottom:0; width:var(--rv, 0%); background:linear-gradient(90deg, #3987e5, #fab219 55%, #ec835a); transition:width .8s; }
+#rv em{ font-style:normal; color:var(--ink3); font-variant-numeric:tabular-nums; min-width:2.6em; }
+#rv.hot em{ color:#ec835a; }
+#rv.old{ opacity:.45; }
+/* the words, when something is unusual ("2.3× its usual day") */
+#why{ flex:0 1 auto; font-size:calc(var(--hd) * .4); color:var(--late); letter-spacing:.02em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+/* the state yields its room first (it keeps its first word: live, closed, stale, no reply) */
+#strip .state{ flex:0 4 auto; min-width:4.5em; }
+#why b{ font-weight:700; }
+#why .up{ color:var(--bull); } #why .down{ color:var(--bear); } #why .vol{ color:#ec835a; }
+/* FLASHES (W13 - the rules W12 uses): one bright pulse when it starts, a steady glow while it holds */
+@keyframes scFlash{ 0%{ filter:brightness(2.3) saturate(1.5); transform:scale(1.16); } 55%{ filter:brightness(1.45); transform:scale(1.04); } 100%{ filter:none; transform:none; } }
+#strip .day.glow{ text-shadow:0 0 .3em currentColor, 0 0 .8em currentColor; }
+#strip .day.pulse, #rv.pulse, #why.pulse{ animation:scFlash 1.2s ease-out 1; }
+#rv.glow i{ border-color:#ec835a; box-shadow:0 0 .45em #ec835a, 0 0 1em rgba(236,131,90,.6); }
+#rv.glow em{ color:#ec835a; text-shadow:0 0 .4em #ec835a; }
+#rv{ transform-origin:left center; }
 </style>
 </head>
 <body>
 <div id="strip">
   <span class="sym" id="sym"></span>
+  <span id="rv" title="relative volume: this name's pace against its usual day (the Hub's RVol, board_volume.rvol_at_time) - the tube, 3× the end"><i></i><em>—</em></span>
+  <span class="day" id="day"></span>
+  <span class="px" id="px"></span>
+  <span id="why"></span>
   <span class="tfs" id="tfs" role="group" aria-label="Interval"></span>
   <span class="src" id="src" role="group" aria-label="Chart source"><button type="button" id="srcLive" class="on" aria-pressed="true" title="this chart: the house live chart - the whole tape, bars seconds after their close, VWAP to the cent, his clouds">LIVE</button><button type="button" id="srcTv" title="TradingView's embed in this slot instead (delayed, Cboe One volume; its drawing tools)">TV</button></span>
   <button type="button" id="cloudsBtn" title="His clouds: the 13/21-day EMAs and 50/200-day SMAs, daily-locked, as chart-v1 draws them">CLOUDS</button>
-  <span class="px" id="px"></span>
   <span class="state" id="state"></span>
 </div>
 <div id="area">
@@ -485,6 +524,7 @@ async function loadAll() {
   readLevelBars();
   readClouds();
   scheduleBars();
+  readHub();
   paintStrip();
 }
 /* A failure in words (W5: "it must not fail" - it may fail, but it says so and keeps trying). Pure. */
@@ -1213,11 +1253,112 @@ function paintReadout() {
   const P = S.plot;
   if (!P || !S.bars.length) { box.innerHTML = ""; return; }
   const hovering = !!(S.hover && S.crosshair);
-  const ix = hovering ? S.crosshair.ix : S.bars.lastIndexOf(lastCompleted(S.bars));
-  const b = S.bars[ix];
+  /* W13: the bar's numbers (O H L C V, VWAP, band) only with the crosshair - visual until he points at a bar */
+  const ix = hovering ? S.crosshair.ix : -1;
+  const b = hovering ? S.bars[ix] : null;
   const html = b ? readoutHtml(b, ix, hovering) : "";
   if (box.innerHTML !== html) box.innerHTML = html;
   box.dataset.ix = String(ix);
+}
+
+/* ---- W13: the header's two numbers that are not prices - the Hub's own, read the way the lenses read them -------------------------
+   RVOL: board_volume.rvol_at_time (the Hub's RVol for the name), once a minute.
+   THE USUAL DAY: ticker_heartbeat_daily.usual_day_60 - the spread (standard deviation) of the name's own daily close-to-close % moves over
+   60 sessions, the Hub's "usual ±x%" - its newest row of the last three weeks, for each new name and every 30 minutes; older than a week
+   it is the Hub's "not a current reading" and flashes nothing. An RVol row the store has not rewritten for 18 hours (a name it no longer
+   follows) is shown dimmed and flashes nothing either.
+   Two GETs of the Station's public store with its public key (the one the lenses and pair-v1 carry). No price is read here: every bar
+   and price on this chart still comes through the provider client. */
+const HUB_REST = "https://wadinxqplrggagkvrdag.supabase.co/rest/v1/";
+const HUB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+const HUB_MS = Object.freeze({ rvol:60000, usual:1800000, usualStaleDays:7, rvolFreshMs:18 * 3600000 });
+const HUBN = { sym:null, rvol:null, rvolTs:null, rvolAt:0, usual:null, usualDate:null, usualAt:0 };
+async function hubRead(path) {
+  const r = await fetch(HUB_REST + path, { headers:{ apikey:HUB_KEY, Authorization:"Bearer " + HUB_KEY } });
+  if (!r.ok) throw new Error("store " + r.status);
+  return r.json();
+}
+async function readRvol() {
+  const sym = SYMBOL;
+  try {
+    const rows = await hubRead("board_volume?select=ticker,rvol_at_time,updated_ts&ticker=eq." + encodeURIComponent(sym));
+    if (sym !== SYMBOL) return;
+    const r = Array.isArray(rows) ? rows[0] : null, v = r && r.rvol_at_time != null ? +r.rvol_at_time : NaN;
+    HUBN.sym = sym; HUBN.rvol = Number.isFinite(v) ? v : null; HUBN.rvolTs = r ? r.updated_ts || null : null; HUBN.rvolAt = Date.now();
+    note("rvol", true, { rvol:HUBN.rvol });
+  } catch (error) { note("rvol", false, { error:String(error && error.message || error).slice(0, 120) }); }
+  paintHeader();
+}
+async function readUsual() {
+  const sym = SYMBOL, since = new Date(Date.now() - 21 * 86400000).toISOString().slice(0, 10);
+  try {
+    const rows = await hubRead("ticker_heartbeat_daily?select=ticker,date,usual_day_60&ticker=eq." + encodeURIComponent(sym) + "&date=gte." + since + "&order=date.desc&limit=1");
+    if (sym !== SYMBOL) return;
+    const r = Array.isArray(rows) ? rows[0] : null, v = r && r.usual_day_60 != null ? +r.usual_day_60 : NaN;
+    HUBN.sym = sym; HUBN.usual = Number.isFinite(v) && v > 0 ? v : null; HUBN.usualDate = r ? r.date || null : null; HUBN.usualAt = Date.now();
+    note("usual", true, { usual:HUBN.usual, date:HUBN.usualDate });
+  } catch (error) { note("usual", false, { error:String(error && error.message || error).slice(0, 120) }); }
+  paintHeader();
+}
+function readHub() { if (HUBN.sym !== SYMBOL) Object.assign(HUBN, { sym:SYMBOL, rvol:null, rvolTs:null, usual:null, usualDate:null }); readRvol(); readUsual(); }
+setInterval(() => { if (!document.hidden) readRvol(); }, HUB_MS.rvol);
+setInterval(() => { if (!document.hidden) readUsual(); }, HUB_MS.usual);
+/* an RVol the store rewrote in the last 18 hours (pure) */
+function rvolFresh(ts, now) { const t = Date.parse(String(ts || "")); return Number.isFinite(t) && (Number.isFinite(now) ? now : Date.now()) - t < HUB_MS.rvolFreshMs; }
+/* older than a week: the Hub dims it as "not a current reading" (its SC_HB_STALE_DAYS) - pure */
+function usualStale(date, now) {
+  const t = Date.parse(String(date || "") + "T00:00:00Z");
+  return !Number.isFinite(t) || Math.floor(((Number.isFinite(now) ? now : Date.now()) - t) / 86400000) > HUB_MS.usualStaleDays;
+}
+
+/* ---- W13: the header - the ticker and the day % big, the price beside them, the RVol tube, and what is unusual, flashing --------
+   FLASHES, the rules W12 uses on the lenses, the tapes and the volume panel: the day % at least 2x the name's usual day (the Hub's own bar,
+   SC_HB_X_UNUSUAL = 2, "about 1 day in 20"); RVol at least 2x. One bright pulse when it starts, a steady glow while it holds, and the words
+   beside it ("2.3× its usual day", "2.1× its usual volume"). LOT SIZE and BLOCK: the store keeps no per-name reading (board_volume carries
+   RVol only; the volume-pulse feed's lot size and blocks are the SPY + QQQ + DIA + IWM basket's, the volume panel's) - none on a chart. */
+const FLASH_X = 2;
+/* what is unusual now (pure): the day's move in the name's own units, and its RVol */
+function unusualNow(pct, usual, stale, rvol) {
+  const out = [];
+  const x = Number.isFinite(pct) && usual > 0 && !stale ? Math.abs(pct) / usual : null;
+  if (x != null && x >= FLASH_X) out.push({ key:"day", x:+x.toFixed(2), side:pct >= 0 ? "up" : "down", words:x.toFixed(1) + "× its usual day", short:x.toFixed(1) + "× day" });
+  if (Number.isFinite(rvol) && rvol >= FLASH_X) out.push({ key:"rvol", x:rvol, side:"vol", words:rvol.toFixed(1) + "× its usual volume", short:rvol.toFixed(1) + "× vol" });
+  return out;
+}
+const FLASHING = { day:false, rvol:false, since:{}, pulses:0 };
+function flash(node, on, key) {
+  const was = FLASHING[key];
+  FLASHING[key] = on;
+  node.classList.toggle("glow", on);
+  if (on && !was) { FLASHING.since[key] = Date.now(); FLASHING.pulses++; node.classList.remove("pulse"); void node.offsetWidth; node.classList.add("pulse"); }
+  else if (!on) node.classList.remove("pulse");
+}
+function paintHeader() {
+  const q = S.quote, pct = q && S.prevClose ? (q.price / S.prevClose - 1) * 100 : null;
+  const px = el("px"), day = el("day"), rv = el("rv"), why = el("why");
+  const pxText = q ? fmtPx(q.price) : "", dayText = pct == null ? "" : (pct >= 0 ? "+" : "−") + Math.abs(pct).toFixed(2) + "%";
+  if (px.textContent !== pxText) px.textContent = pxText;
+  if (day.textContent !== dayText) day.textContent = dayText;
+  day.dataset.day = pct == null ? "" : pct >= 0 ? "up" : "down";
+  const mine = HUBN.sym === SYMBOL, r = mine ? HUBN.rvol : null, usual = mine ? HUBN.usual : null, stale = usual != null && usualStale(HUBN.usualDate);
+  const rvFresh = r != null && rvolFresh(HUBN.rvolTs);
+  /* the tube: the name's RVol, 3x the end */
+  rv.classList.toggle("hot", r != null && r >= 1.5); rv.classList.toggle("cold", r != null && r < .7); rv.classList.toggle("old", r != null && !rvFresh);
+  const rvText = r == null ? "—" : r.toFixed(1) + "×";
+  if (rv.lastChild.textContent !== rvText) rv.lastChild.textContent = rvText;
+  rv.firstChild.style.setProperty("--rv", Math.round(Math.min(1, (r || 0) / 3) * 100) + "%");
+  rv.title = "relative volume: " + SYMBOL + "'s pace against its usual day - " + (r == null ? "no reading in the store" : r.toFixed(2) + "× (the Hub's RVol, board_volume.rvol_at_time" + (HUBN.rvolTs ? ", " + HUBN.rvolTs.slice(11, 16) + " UTC" : "") + ")") + " - the tube, 3× the end";
+  day.title = usual == null ? "the day's move against yesterday's close - no usual day stored for " + SYMBOL
+    : "usual day ±" + usual.toFixed(1) + "% over 60 sessions (ticker_heartbeat_daily.usual_day_60, to " + HUBN.usualDate + (stale ? " - more than a week old, not a current reading" : "") + ")" +
+      (pct == null ? "" : " · today " + (Math.abs(pct) / usual).toFixed(1) + "× its usual day");
+  /* unusual: a pulse when it starts, a glow while it holds, the words */
+  const U = unusualNow(pct, usual, stale, rvFresh ? r : null);
+  flash(day, U.some((u) => u.key === "day"), "day");
+  flash(rv, U.some((u) => u.key === "rvol"), "rvol");
+  const narrow = document.body.clientWidth < 760;   /* an iPad pair's side: the short words */
+  const html = U.map((u) => '<b class="' + u.side + '" title="' + u.words + '">' + (narrow ? u.short : u.words) + "</b>").join(" · ");
+  if (why.innerHTML !== html) why.innerHTML = html;
+  S.unusual = U;
 }
 
 /* ---- the strip: symbol, intervals, clouds, the live price, and the age of the last bar --------------------------------- */
@@ -1240,13 +1381,8 @@ function paintStrip() {
   }
   for (const b of tfs.children) { const on = b.dataset.tf === TF.key; b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false"); }
   const cb = el("cloudsBtn"); cb.classList.toggle("on", CLOUDS_ON); cb.setAttribute("aria-pressed", CLOUDS_ON ? "true" : "false");
-  const px = el("px"), q = S.quote;
-  if (q) {
-    const pct = S.prevClose ? (q.price / S.prevClose - 1) * 100 : null;
-    px.textContent = fmtPx(q.price) + (pct == null ? "" : "  " + (pct >= 0 ? "+" : "−") + Math.abs(pct).toFixed(2) + "%");
-    px.dataset.day = pct == null ? "" : pct >= 0 ? "up" : "down";
-  } else { px.textContent = ""; px.dataset.day = ""; }
-  const st = el("state"), now = Date.now(), last = lastCompleted(S.bars);
+  paintHeader();
+  const q = S.quote, st = el("state"), now = Date.now(), last = lastCompleted(S.bars);
   const html = stateText(now, last, q, document.body.clientWidth, FUT, S.readFails + (S.quoteFails >= 3 ? 2 : 0));
   if (st.innerHTML !== html.text) st.innerHTML = html.text;
   st.dataset.late = html.late ? "1" : "0";
@@ -1428,7 +1564,10 @@ window.SC_LIVE = Object.freeze({
       right:S.plot.right, spacing:S.plot.spacing, plotW:S.plot.plotW, plotH:S.plot.plotH, yLo:S.plot.yLo, yHi:S.plot.yHi },
     readout:el("readout").textContent, readoutIx:+el("readout").dataset.ix, state:el("state").textContent,
     crosshair:S.crosshair || null, nextRead:S.nextRead || null, log:S.log.slice(),
-    ribbon:{ shown:S.ribbonShown || null, worker:!!RIBBON.worker, failed:RIBBON.failed, asked:RIBBON.asked, got:RIBBON.got, paintedHere:RIBBON.paintedHere } }),
+    ribbon:{ shown:S.ribbonShown || null, worker:!!RIBBON.worker, failed:RIBBON.failed, asked:RIBBON.asked, got:RIBBON.got, paintedHere:RIBBON.paintedHere },
+    header:{ day:el("day").textContent, px:el("px").textContent, rvol:HUBN.sym === SYMBOL ? HUBN.rvol : null, rvolText:el("rv").lastChild.textContent,
+      usual:HUBN.sym === SYMBOL ? HUBN.usual : null, usualDate:HUBN.usualDate, unusual:(S.unusual || []).slice(), why:el("why").textContent,
+      flashing:{ day:FLASHING.day, rvol:FLASHING.rvol }, pulses:FLASHING.pulses, fontPx:parseFloat(getComputedStyle(el("day")).fontSize) || null } }),
   xOf: (i) => S.plot ? S.plot.X(i) : null,
   POLL
 });
