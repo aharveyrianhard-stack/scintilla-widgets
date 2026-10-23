@@ -236,6 +236,17 @@ body.fixed #grid .card.on{ outline:1px solid var(--crk); outline-offset:-1px; }
 #idleNote{ display:none; position:absolute; inset:0; align-items:center; justify-content:center; color:var(--mute); font-size:9px; letter-spacing:.16em; text-transform:uppercase; pointer-events:none; }
 body.fixed:not(.playing) #idleNote{ display:flex; }
 body.fixed:not(.playing) #video iframe{ visibility:hidden; }
+/* W12 (23 Oct): the PHONE - ?stack=1: one column; the bar, then the player at 16:9 across the width (its place fixed, playing or not), then the
+   feed under it, scrolling. A feed refresh repaints #grid only, as on the wall; nothing moves when a video starts. */
+body.stack{ display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:auto auto minmax(0,1fr); }
+body.stack > #bar{ grid-row:1; }
+body.stack > #stage{ grid-row:2; display:flex; min-width:0; aspect-ratio:16 / 9; }
+body.stack > #grid{ grid-row:3; display:grid; overflow-y:auto; border-top:1px solid var(--line); }
+body.stack > :not(#bar):not(#grid):not(#stage){ grid-column:1; }
+body.stack #grid .card.on{ outline:1px solid var(--crk); outline-offset:-1px; }
+body.stack:not(.playing) #idleNote{ display:flex; font-size:11px; }
+body.stack:not(.playing) #video iframe{ visibility:hidden; }
+body.stack .card{ min-height:44px; }
 #video{ flex:1 1 0; min-height:0; position:relative; background:#000; }
 #video iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; }
 #transport{ display:none; flex:1 1 0; min-width:0; align-items:center; justify-content:flex-end; gap:4px;
@@ -455,7 +466,8 @@ const FORCE  = +(QS.get("cols") || 0);
 let BESIDE = QS.get("beside") === "1", BESIDE_COL = Math.max(120, Math.round(Number(QS.get("besideCol")) || 300));
 /* W10: the permanent feed column (the grid on the left, the player the rest, always) */
 let FIXED = QS.get("fixed") === "1";
-function paintBeside() { document.body.classList.toggle("beside", BESIDE && !FIXED); document.body.classList.toggle("fixed", FIXED); document.body.style.setProperty("--beside-col", BESIDE_COL + "px"); }
+const STACK = QS.get("stack") === "1";   /* W12: the phone's one column */
+function paintBeside() { document.body.classList.toggle("stack", STACK); document.body.classList.toggle("beside", BESIDE && !FIXED && !STACK); document.body.classList.toggle("fixed", FIXED && !STACK); document.body.style.setProperty("--beside-col", BESIDE_COL + "px"); }
 /* W1B: the deck is told when a video starts and stops here, so the WIDGETS wall can give the playing picture its full size */
 function tellPlaying() { if (!EMBEDDED) return; try { parent.postMessage({ sc: "video-playing", on: document.body.classList.contains("playing"), feed: FEED }, location.origin); } catch (_) {} }
 const besideNow = () => FIXED || (BESIDE && document.body.classList.contains("playing"));
