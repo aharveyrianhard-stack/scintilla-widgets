@@ -78,7 +78,7 @@ for (const [name, src] of SRC) {
     assert.deepEqual(Array.from(await make({ pg: async () => { throw new Error("pg 503"); } }).readOnAir()), [], "a failed read is an empty read");
     assert.deepEqual(Array.from(await make({ FEED_LIVE_OK: false }).readOnAir()), [], "an older feed has no live_state to ask about");
     assert.deepEqual(Array.from(await make({ LIST: "watch" }).readOnAir()), [], "Watch Later is Alan's own order");
-    assert.match(source(src, "load"), /const nextRows = liveFirst\(filterFeedRows\(raw\), await readOnAir\(\)\);/, "the grid's first page goes through it");
+    assert.match(source(src, "load"), /const kept = filterFeedRows\(raw\);\n\s+const nextRows = liveFirst\(LIST === "watch" \? kept : scheduledInPlace\(kept\), await readOnAir\(\)\);/, "the grid's first page goes through it (W9: after today's streams are put at their time)");
   });
 }
 
