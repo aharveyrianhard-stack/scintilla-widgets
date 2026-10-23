@@ -30,7 +30,7 @@ test("W1C · the lens tape: lens-v1 in tape mode - the chips at the left, one ro
   /* the drawing is the column's: the oval, the edge in the day's colour, never grey */
   assert.match(lens, /ctx\.strokeStyle = day === "up" \? PALETTE\.bull : day === "down" \? PALETTE\.bear : INK\.frame;/);
   /* the deck mounts it over the band and gives it its height */
-  assert.match(fn(deck, "mountWidgets"), /WIDGETS_LENS_SHELL \+ "\/\?shell=v1&mode=tape&view="/);
+  assert.match(fn(deck, "mountWidgets"), /WIDGETS_LENS_SHELL \+ "\/\?shell=v1&mode=tape&rows=" \+ rows \+ "&view="/);   /* W7: the rows on the address */
   assert.match(deck, /const WIDGETS_X_SHARE = 0\.18, WIDGETS_YT_W = 0\.34, WIDGETS_VOL_W = 0\.17, WIDGETS_LENS_ROW_PX = 150, WIDGETS_VOLUME_MIN_PX = 120;/);   /* W7: restated - the round-3 layout */
 });
 
