@@ -54,7 +54,11 @@ body.warm #num{ color:var(--warm); } body.hot #num{ color:var(--hot); }
 @keyframes lastmin{ 0%{ color:#fff; text-shadow:0 0 18px var(--hot); } 100%{ color:var(--hot); text-shadow:none; } }
 @keyframes closeflash{ 0%{ color:var(--crk); text-shadow:0 0 22px rgba(0,212,255,.9); } 100%{ color:var(--ink2); text-shadow:none; } }
 /* W12: the icon badges - an icon, a number or a light, nothing else */
-#icons{ display:flex; flex-wrap:wrap; gap:4px; flex:none; }
+/* W12B (the coordinator: "the badges wrap into three rows and the graph is cut"): ONE row always - it scrolls sideways when it must; on a narrow
+   panel the least important chips (the day, the last hour) drop; a short panel shrinks the top line; the graph keeps 70 % and over */
+#icons{ display:flex; flex-wrap:nowrap; gap:4px; flex:none; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+#icons::-webkit-scrollbar{ display:none; }
+body.narrow #iDay, body.narrow #bHour{ display:none; }
 .ib{ display:inline-flex; align-items:center; gap:4px; padding:3px 6px; border:1px solid var(--line); background:var(--panel2); font-size:10.5px; font-weight:700; color:var(--ink3); font-variant-numeric:tabular-nums; white-space:nowrap; min-width:0; letter-spacing:.02em; }
 .ib i{ font-style:normal; font-size:11px; width:12px; text-align:center; color:var(--mute); flex:none; }
 .ib b{ color:var(--ink); font-weight:800; } .ib b.up{ color:var(--bull); } .ib b.dn{ color:var(--bear); } .ib b small{ font-size:9px; font-weight:700; margin-left:2px; } .ib b small.up{ color:var(--bull); } .ib b small.dn{ color:var(--bear); }
@@ -67,7 +71,7 @@ body.warm #num{ color:var(--warm); } body.hot #num{ color:var(--hot); }
 .ib.glow{ border-color:var(--crk); box-shadow:0 0 10px rgba(0,212,255,.55); color:var(--ink); } .ib.glow i{ color:var(--crk); }
 .ib.pulse{ animation:ibscint 1.1s ease-out 1; }
 @keyframes ibscint{ 0%{ box-shadow:0 0 30px rgba(0,212,255,1); background:#15223a; border-color:#fff; } 100%{ box-shadow:0 0 10px rgba(0,212,255,.55); } }
-#chart{ position:relative; flex:1 1 0; min-height:90px; margin:2px 2px 0; }
+#chart{ position:relative; flex:1 1 0; min-height:0; margin:2px 2px 0; }
 #chart svg{ position:absolute; inset:0; width:100%; height:100%; display:block; overflow:visible; }
 .beat-ring{ transform-box:fill-box; transform-origin:center; animation:ring var(--beat,1.6s) ease-out infinite; }
 @keyframes ring{ 0%{ transform:scale(1); opacity:.9; } 100%{ transform:scale(var(--spread,2.6)); opacity:0; } }
@@ -77,8 +81,10 @@ body.warm #num{ color:var(--warm); } body.hot #num{ color:var(--hot); }
 .tip span{ color:var(--vtext); }
 #msg{ color:var(--mute); font-size:9px; } #msg:empty{ display:none; }
 body.narrow{ gap:3px; padding:4px 6px; } body.narrow #num{ font-size:18px; } body.narrow .ib{ font-size:9.5px; padding:2px 5px; } body.narrow #count .mmss{ font-size:15px; }
+body.short{ gap:2px; padding:2px 6px 1px; } body.short #now{ gap:6px; } body.short #bar5{ display:none; }   /* a short panel: the bar's three small lines go, the graph keeps 70 % */ body.short #num{ font-size:17px; } body.short #tube{ height:17px; width:7px; } body.short #count .mmss{ font-size:14px; } body.short #bar5 .k{ font-size:7px; } body.short #bar5 b{ font-size:9.5px; } body.short #bar5{ gap:0; }
+body.short .ib{ font-size:9px; padding:1px 5px; } body.short .ib i{ font-size:9px; } body.short #icons{ gap:3px; }
 body.touch .ib{ font-size:12px; padding:6px 8px; } body.touch #num{ font-size:26px; } body.touch #count .mmss{ font-size:22px; }
-body.touch #icons{ flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; -webkit-overflow-scrolling:touch; } body.touch #icons::-webkit-scrollbar{ display:none; }   /* the phone: one row of badges that scrolls sideways; the graph keeps its room */
+body.touch .ib{ font-size:11px; padding:4px 7px; }
 @media (prefers-reduced-motion: reduce){ #dot, .beat-ring, .beat-core{ animation:none; } #count.flash .mmss, #count.last .mmss, .ib.pulse, #now.pulse #num{ animation:none; } }
 </style>
 </head>
@@ -240,7 +246,7 @@ body.touch #icons{ flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; -web
     timer = setTimeout(load, wait);
   }
   if (new URLSearchParams(location.search).get("touch") === "1") document.body.classList.add("touch");
-  const fit = () => { document.body.classList.toggle("narrow", document.documentElement.clientWidth < 300); draw(); };
+  const fit = () => { document.body.classList.toggle("narrow", document.documentElement.clientWidth < 340); document.body.classList.toggle("short", document.documentElement.clientHeight < 260); draw(); };
   new ResizeObserver(fit).observe(document.documentElement);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - lastLoadAt > OPEN_MS) load(); });
   load();
