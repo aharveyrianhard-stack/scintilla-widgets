@@ -69,7 +69,7 @@ test("Y7 · the Station's scintilla feed carries no search rows and no market ch
   const accounts = vm.runInNewContext(feeds + "\nVIDEO_FEEDS.map((f) => f[2])", {});
   assert.deepEqual(plainArr(accounts), ["personal", "scintilla", "soundscapes", "golf", "ai_research", "fitness"]);
   assert.doesNotMatch(deck, /feed=market/, "the deck never mounts ?feed=market");
-  assert.match(deck, /feed=scintilla&cols=2" \+ \(widgetsOn\(\) \? "&beside=1" : ""\) \+ "&view=/, "the SCINTILLA pane is mounted on its subscriptions, two tiles across (W1: restated, the WIDGETS wall adds beside=1)");
+  assert.match(deck, /feed=scintilla&cols=2" \+ \(widgetsOn\(\) \? "&beside=1&fixed=1" : ""\) \+ "&view=/, "the SCINTILLA pane is mounted on its subscriptions, two tiles across (W10: restated, the WIDGETS wall adds beside=1&fixed=1)");
 });
 
 /* the floor plan's numbers, lifted as S11 lifts them, plus the slot */

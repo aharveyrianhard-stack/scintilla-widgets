@@ -34,7 +34,7 @@ function deckApi() {
     fn(deck, "widgetsChoice"), grab(deck, /const widgetsArrangementOf = [^\n]*/, "widgetsArrangementOf"), fn(deck, "widgetsTfOf"),
     grab(deck, /const WIDGETS_X_SHARE = [^\n]*/, "the wall's shares (W7)"), grab(deck, /const WIDGETS_X_SLIM_SHARE = [^\n]*/, "W1B"), grab(deck, /const widgetsLensRows = [^\n]*/, "widgetsLensRows"), fn(deck, "floorWidgets"),
     grab(deck, /const TAPE_ROW_PX = \d+;/, "the tape's height"), fn(deck, "tapesHeight"), fn(deck, "widgetsTapesHeight"),
-    "globalThis.out = { floorPlan, floorSimple, floorWidgets, widgetsLensRows, widgetsChoice, widgetsArrangementOf, widgetsTfOf, tapesHeight, widgetsTapesHeight, WIDGETS_KEY, WIDGETS_CHART_KEY, WIDGETS_TF_KEY, WIDGETS_ARR_KEY, WIDGETS_CHARTS, WIDGETS_TFS, WIDGETS_TF_DEFAULT, WIDGETS_TAPE_PX, WIDGETS_X_SHARE, WIDGETS_YT_W, WIDGETS_VOL_W, WIDGETS_LENS_ROW_PX, FLOOR_SEAM_PX };"
+    "globalThis.out = { floorPlan, floorSimple, floorWidgets, widgetsLensRows, widgetsChoice, widgetsArrangementOf, widgetsTfOf, tapesHeight, widgetsTapesHeight, WIDGETS_KEY, WIDGETS_CHART_KEY, WIDGETS_TF_KEY, WIDGETS_ARR_KEY, WIDGETS_CHARTS, WIDGETS_TFS, WIDGETS_TF_DEFAULT, WIDGETS_TAPE_PX, WIDGETS_X_SHARE, WIDGETS_PLAYER_W, WIDGETS_VOL_W, WIDGETS_BAND_MAX, WIDGETS_LENS_ROW_PX, FLOOR_SEAM_PX };"
   ].join("\n");
   const ctx = {}; vm.runInNewContext(src, ctx); return ctx.out;
 }
@@ -112,26 +112,31 @@ test("W1 · the two charts are TradingView (tv-v1) in WIDGETS; the symbol and th
   assert.match(tv, /VIX: "TVC:VIX", US10Y: "TVC:US10Y", DXUSD: "TVC:DXY"/, "the Station's macro names on TradingView's symbology");
 });
 
-test("W1 · floorWidgets, pure (restated for W7): X slimmer, YouTube in the bottom-left corner, the charts the whole area above the band, the lens grid and the volume right of YouTube over the FAVORITES tape", () => {
+test("W1 · floorWidgets, pure (restated for W10): one fixed arrangement - X's column, the feed column and the player in the band from the screen's left edge, the lens grid and the volume panel over the FAVORITES tape, the charts everything above", () => {
   const D = deckApi();
   assert.equal(D.WIDGETS_TAPE_PX, 66); assert.equal(D.widgetsTapesHeight(true), 68); assert.equal(D.widgetsTapesHeight(false), 0);
-  assert.equal(D.WIDGETS_X_SHARE, 0.18); assert.equal(D.WIDGETS_YT_W, 0.34); assert.equal(D.WIDGETS_VOL_W, 0.17); assert.equal(D.WIDGETS_LENS_ROW_PX, 150);
-  for (const [key, W, H] of SCREENS.concat([["1920x1080", 1920, 1080]])) {
+  assert.equal(D.WIDGETS_X_SHARE, 0.18); assert.equal(D.WIDGETS_PLAYER_W, 0.35); assert.equal(D.WIDGETS_VOL_W, 0.17); assert.equal(D.WIDGETS_LENS_ROW_PX, 150); assert.equal(D.WIDGETS_BAND_MAX, 0.45);
+  for (const [key, W, H] of SCREENS.concat([["1920x1080", 1920, 1080], ["1280x720", 1280, 720]])) {
     const plan = D.floorPlan(W, H, CHROME, D.WIDGETS_X_SHARE);
-    assert.equal(plan.col, Math.round(W * 0.18), key + ": X's column is 18 % of the wall on the WIDGETS wall");
+    assert.equal(plan.col, Math.round(W * 0.18), key + ": X's column is 18 % of the wall");
     const s = D.floorWidgets(plan.charts.w, plan.charts.h, 68, plan.col, 9, CHROME);
     assert.equal(s.widgets, true); assert.equal(s.cols, 2); assert.equal(s.rows, 1); assert.equal(s.charts, 2); assert.equal(s.hidden, 7);
-    assert.equal(s.wall, W, "the wall is the column, the seam and the chart area");
-    assert.equal(s.box.w, Math.round(W * 0.34), key + ": YouTube is 34 % of the wall wide"); assert.equal(s.box.left, -(plan.col + 1), "from the screen's left edge");
-    assert.equal(s.bandH, Math.round(s.box.w * 9 / 16) + CHROME, "the band is YouTube's 16:9 picture plus the bar"); assert.equal(s.box.top + s.box.h, plan.charts.h, "at the bottom");
+    assert.equal(s.wall, W); assert.equal(s.playerW, Math.round(W * 0.35), key + ": the player is 35 % of the wall");
+    assert.equal(s.box.left, -(plan.col + 1), "the pane from the screen's left edge"); assert.equal(s.box.w, plan.col + 1 + s.playerW, "the feed column (X's width) and the player");
+    assert.equal(s.bandH, Math.min(Math.round(s.playerW * 9 / 16) + CHROME, Math.round(plan.charts.h * 0.45)), "the band is the player's picture plus the bar, never over 45 %"); assert.equal(s.box.top + s.box.h, plan.charts.h, "at the bottom");
     assert.equal(s.chartsH + 1 + s.bandH, plan.charts.h, "the charts have everything above the band");
     assert.equal(s.volume.w, Math.round(W * 0.17)); assert.equal(s.volume.left + s.volume.w, plan.charts.w, "the volume panel at the right"); assert.equal(s.volume.h, s.bandH - 68, "over the tape");
-    assert.equal(s.lensTape.left, s.box.w - plan.col - 1 + 1, "the lens grid starts at YouTube's right edge"); assert.equal(s.lensTape.left + s.lensTape.w + 1, s.volume.left, "and ends at the volume panel");
+    assert.equal(s.lensTape.left, s.playerW + 1, "the lens grid from the player's right edge"); assert.equal(s.lensTape.left + s.lensTape.w + 1, s.volume.left, "to the volume panel");
     assert.equal(s.lensTape.h, s.bandH - 68); assert.equal(s.lensTape.rows, D.widgetsLensRows(s.bandH - 68)); assert.ok(s.lensTape.rows >= 1);
-    assert.equal(s.tapeLeft, s.box.w + 1, "the FAVORITES tape starts at YouTube's right edge"); assert.equal(s.rowBelow, s.bandH - 68);
-    assert.ok(s.chartsH >= 500, key + ": the charts keep at least 500 px (" + s.chartsH + ")");
+    assert.equal(s.tapeLeft, s.box.w + 1, "the FAVORITES tape from the player's right edge"); assert.equal(s.rowBelow, s.bandH - 68);
+    assert.ok(s.chartsH >= 0.55 * plan.charts.h, key + ": the charts keep over half the height (" + s.chartsH + " of " + plan.charts.h + ")");
     assert.equal(s.picture.h, Math.round(s.picture.w * 9 / 16));
   }
+  /* every box a straight line of the window: two windows, the same shares (within a pixel of rounding) */
+  const a = D.floorPlan(1280, 720, CHROME, D.WIDGETS_X_SHARE), sa = D.floorWidgets(a.charts.w, a.charts.h, 68, a.col, 9, CHROME);
+  const b = D.floorPlan(2560, 1440, CHROME, D.WIDGETS_X_SHARE), sb = D.floorWidgets(b.charts.w, b.charts.h, 68, b.col, 9, CHROME);
+  for (const k of ["playerW", "bandH"]) assert.ok(Math.abs(sb[k] - 2 * sa[k]) <= 2 + 68, k + " scales with the window (" + sa[k] + " -> " + sb[k] + ")");
+  assert.ok(Math.abs(sb.volume.w - 2 * sa.volume.w) <= 2); assert.ok(Math.abs(sb.box.w - 2 * sa.box.w) <= 3);
   assert.equal(D.widgetsLensRows(450), 3, "three rows of 150 px lenses in 450 px (the 2560 band)"); assert.equal(D.widgetsLensRows(325), 2, "two on the 1920 band"); assert.equal(D.widgetsLensRows(206), 1); assert.equal(D.widgetsLensRows(10), 1, "never none");
   /* the slot is planned before SIMPLE's, and fitVideoPane treats both as the band */
   assert.match(fn(deck, "slotFor"), /if \(widgetsOn\(\)\) return floorWidgets\(plan\.charts\.w, plan\.charts\.h, tapePx, plan\.col, count, chromePx\);\n[\s\S]{0,200}?if \(simpleOn\(\)\) return floorSimple/);
@@ -156,11 +161,11 @@ test("W1 · the tape: one FAVORITES row in WIDGETS, each cell two lines - ticker
   assert.match(paint, /if \(tall\) box\.firstChild\.classList\.add\("tall"\);\n\s+else box\.appendChild\(tapeRow\("LIKED"/, "FAVORITES alone on the WIDGETS wall; both tapes elsewhere");
   assert.match(paint, /const key = \(tall \? "tall\|" : ""\) \+ TAPES\.liked/, "a mode change rebuilds the rows");
   /* W1C: the stacked cell - ticker over percent over price, the line on the right across the three, every cell 156 px wide, tabular numbers */
-  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell\{ height:var\(--tape-row-px, 66px\); width:196px; display:grid; grid-template-columns:minmax\(0,1fr\) 64px 34px; grid-template-rows:1fr 1fr 1fr;[\s\S]{0,200}?font-size:12px; font-variant-numeric:tabular-nums; \}/, "three rows, one width, tabular numbers (W7: a third column for the RVol)");
+  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell\{ height:var\(--tape-row-px, 66px\); width:176px; display:grid; grid-template-columns:minmax\(0,1fr\) 64px; grid-template-rows:1fr 1fr 1fr;[\s\S]{0,200}?font-size:12px; font-variant-numeric:tabular-nums; \}/, "three rows, one width, tabular numbers (W10: the RVol tube sits in the mark column, above the line)");
   assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.tk\{ grid-column:1; grid-row:1;/, "the ticker on top");
   assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.pc\{ grid-column:1; grid-row:2;/, "the percent under it");
   assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.px\{ grid-column:1; grid-row:3;/, "the price under that");
-  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.mk\{ grid-column:2; grid-row:1 \/ span 3; width:64px; \}/, "the line on the right, across the three");
+  assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.mk\{ grid-column:2; grid-row:1 \/ span 3; width:64px; gap:3px; \}/, "the line on the right, across the three (W10: the RVol tube above it)");
   assert.match(deck, /body\.widgets #tapes \.tape\.tall \.cell \.gb\{ display:none; \}/, "no Geiger in the tape");
   assert.match(deck, /grid\.style\.setProperty\("--tape-row-px", \(widgetsOn\(\) \? WIDGETS_TAPE_PX : TAPE_ROW_PX\) \+ "px"\);/);
   /* the flash, the line's colour and its side are the S16b ones, untouched */
@@ -173,7 +178,7 @@ test("W1 · the video shells: beside=1 keeps the grid in a column beside the pla
   assert.equal(shells["personal-video-v1"], shells["scintilla-video-v1"], "byte-identical twins");
   const s = shells["scintilla-video-v1"];
   assert.match(s, /let BESIDE = QS\.get\("beside"\) === "1", BESIDE_COL = /);   /* W1B: restated - the column's width came with it */
-  assert.match(s, /if \(event\.data\?\.type === "SCINTILLA_VIDEO_BESIDE"\) \{ BESIDE = !!event\.data\.on; BESIDE_COL = [^\n]*paintBeside\(\); relayout\(\); tellPlaying\(\); \}/, "the deck can say so by message (W1B: restated, the column's width and the reply)");
+  assert.match(s, /if \(event\.data\?\.type === "SCINTILLA_VIDEO_BESIDE"\) \{ BESIDE = !!event\.data\.on; if \(typeof event\.data\.fixed === "boolean"\) FIXED = event\.data\.fixed; BESIDE_COL = [^\n]*paintBeside\(\); relayout\(\); tellPlaying\(\); \}/, "the deck can say so by message (W10: restated - the fixed feed column too)");
   assert.match(s, /body\.beside\.playing\{ display:grid; grid-template-columns:minmax\(0,1fr\) var\(--beside-col, 300px\);/, "W1B: restated - the grid a fixed column, the player the rest (Alan: don't shrink my YouTube)");
   assert.match(s, /body\.beside\.playing > #grid\{ grid-column:2; grid-row:2; display:grid;/, "the grid stays shown while a video plays");
   assert.match(s, /body\.playing #grid\{ display:none; \}/, "without beside, the pane is as it was (Y7)");
@@ -185,8 +190,8 @@ test("W1 · the video shells: beside=1 keeps the grid in a column beside the pla
   /* Y7, Y8, Y10 untouched */
   assert.match(s, /function soundOnFirstTap/); assert.match(s, /SCINTILLA_VIDEO_PIP_TOGGLE/); assert.match(s, /body\.playing\.can-float #bPipBar\{ display:inline-flex; \}/);
   /* the deck asks for it on the WIDGETS wall */
-  assert.match(deck, /"\?shell=v1&feed=scintilla&cols=2" \+ \(widgetsOn\(\) \? "&beside=1" : ""\)/);
-  assert.match(deck, /"\?shell=v1&feed=personal&cols=2" \+ \(widgetsOn\(\) \? "&beside=1" : ""\)/);
+  assert.match(deck, /"\?shell=v1&feed=scintilla&cols=2" \+ \(widgetsOn\(\) \? "&beside=1&fixed=1" : ""\)/);   /* W10: the fixed feed column */
+  assert.match(deck, /"\?shell=v1&feed=personal&cols=2" \+ \(widgetsOn\(\) \? "&beside=1&fixed=1" : ""\)/);
   assert.match(fn(deck, "tellVideoBeside"), /postMessage\(\{ type:"SCINTILLA_VIDEO_BESIDE", on:!!on, col:[^\n]*\}, location\.origin\)/);
 });
 

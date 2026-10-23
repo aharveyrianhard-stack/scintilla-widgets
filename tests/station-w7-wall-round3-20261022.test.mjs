@@ -42,7 +42,7 @@ test("W7 · the lens tape: bars by default with a LINE · BARS switch remembered
   assert.match(fn(deck, "refreshTapeRvol"), /postMessage\(\{ type:"SCINTILLA_RVOL_WANT", names \}, location\.origin\)/, "the deck asks the lens frame (it keeps only non-price reads)"); assert.match(deck, /const TAPE_RVOL_MS = 60000;/);
   assert.match(deck, /if \(event\.data\?\.type === "SCINTILLA_RVOL"\) \{/, "and takes the numbers back"); assert.doesNotMatch(deck, /pg\("board_volume/, "the deck never reads board_volume itself");
   assert.match(lens, /if \(e\.data\.type === "SCINTILLA_RVOL_WANT"\)/); assert.match(lens, /parent\.postMessage\(\{ type:"SCINTILLA_RVOL", rvol:/);
-  assert.match(deck, /if \(widgetsOn\(\)\) b\.insertAdjacentHTML\("beforeend", '<span class="rv"/, "the RVol battery on the tall cell only");
+  assert.match(deck, /if \(widgetsOn\(\)\) b\.querySelector\("\.mk"\)\.insertAdjacentHTML\("afterbegin", '<span class="rv"/, "the RVol tube on the tall cell only, above the line (W10)");
 });
 
 test("W7 · the layout: X slimmer, YouTube in the bottom-left corner, the charts above, the lens grid and the volume panel right of YouTube; the volume panel as the meter would read on a TV, one pulsing dot", () => {
@@ -50,13 +50,13 @@ test("W7 · the layout: X slimmer, YouTube in the bottom-left corner, the charts
     grab(deck, /const WIDGETS_KEY = [\s\S]*?const WIDGETS_TAPE_PX = \d+;/, "WIDGETS constants"), grab(deck, /const WIDGETS_X_SHARE = [^\n]*/, "shares"), grab(deck, /const widgetsLensRows = [^\n]*/, "rows"), fn(deck, "floorWidgets"),
     "globalThis.out = { floorPlan, floorWidgets, WIDGETS_X_SHARE };"].join("\n");
   const ctx = {}; vm.runInNewContext(src, ctx); const D = ctx.out;
-  for (const [W, H, minCharts, rows] of [[2560, 1440, 900, 3], [1920, 1080, 650, 2], [1280, 800, 480, 1]]) {
+  for (const [W, H, minCharts, rows] of [[2560, 1440, 880, 3], [1920, 1080, 650, 2], [1280, 800, 500, 1]]) {
     const plan = D.floorPlan(W, H, 26, D.WIDGETS_X_SHARE), s = D.floorWidgets(plan.charts.w, plan.charts.h, 68, plan.col, 9, 26);
     assert.ok(s.chartsH >= minCharts, W + "×" + H + ": the charts " + s.chartsH + " px tall (at least " + minCharts + ")");
     assert.equal(s.lensTape.rows, rows, W + "×" + H + ": " + rows + " row(s) of lenses in the band");
-    assert.equal(s.box.left, -(plan.col + 1)); assert.equal(s.box.w, Math.round(W * 0.34)); assert.equal(s.volume.w, Math.round(W * 0.17));
+    assert.equal(s.box.left, -(plan.col + 1)); assert.equal(s.box.w, plan.col + 1 + Math.round(W * 0.35), "W10: the feed column and the player"); assert.equal(s.volume.w, Math.round(W * 0.17));
   }
-  assert.match(vol, /#dot\{ width:16px; height:16px; border-radius:50%;[^}]*animation:vmpulse/, "ONE pulsing dot (the meter's)");
+  assert.match(vol, /#dot\{ width:14px; height:14px; border-radius:50%;[^}]*animation:vmpulse/, "the meter's pulsing dot (W10: the graph's own dot at NOW beside it, as the research page draws it)");
   assert.match(vol, /#tube\{ position:relative; width:12px; height:46px;/, "the thermometer tube"); assert.match(vol, /\$\("fill"\)\.style\.height = \(r == null \? 0 : Math\.round\(Math\.min\(1, r \/ 3\) \* 100\)\) \+ "%";/, "3× is the top of the tube");
   assert.match(vol, /<span class="k">2-min flow<em>who is in control now<\/em><\/span>/); assert.match(vol, /<span class="k">5-min multiple<em>does it sustain<\/em><\/span>/, "the two halves, labelled");
   assert.match(vol, /const done = \(data\.slots \|\| \[\]\)\.filter\(\(x\) => x\.ratio != null\), last = done\[done\.length - 1\], prev = done\[done\.length - 2\];/, "the 5-minute multiple from the last full bar");

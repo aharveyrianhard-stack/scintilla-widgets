@@ -19,8 +19,8 @@ test("W1C · the lens tape: lens-v1 in tape mode - the chips at the left, one ro
   assert.match(lens, /BARS_MS = TAPE \? 60000 : 600000/, "read every minute on the tape (a 5-minute bar completes every five)");
   assert.match(lens, /const TAPE_SPEED_PX_S = TAPE \? 90 : 45;/, "W4: twice the deck's tapes' pace on the tape");
   const run = fn(lens, "runTape");
-  assert.match(run, /if \(!one \|\| one <= win\) continue;/, "a row that fits stands still (W7: every row its own track)");
-  assert.match(run, /c\.setAttribute\("aria-hidden", "true"\)/, "doubled with copies"); assert.match(run, /animationDuration = \(one \/ TAPE_SPEED_PX_S\)\.toFixed\(2\) \+ "s"/);
+  assert.match(run, /if \(!len \|\| len <= win\) continue;/, "a row that fits stands still (W10: and a run that is the same is never restarted)");
+  assert.match(run, /c\.setAttribute\("aria-hidden", "true"\)/, "doubled with copies"); assert.match(run, /animationDuration = \(len \/ TAPE_SPEED_PX_S\)\.toFixed\(2\) \+ "s"/);   /* W10: restated */
   assert.match(lens, /body\.tape \.track\.run\{ will-change:transform; animation:lens-tape-move linear infinite; \}/);
   assert.match(lens, /body\.tape #set:hover \.track\.run\{ animation-play-state:paused; \}/, "the pointer holds it still");
   assert.match(lens, /@keyframes lens-tape-move\{ from\{ transform:translateX\(0\); \} to\{ transform:translateX\(-50%\); \} \}/);
@@ -42,8 +42,8 @@ test("W1C · the volume panel (restated for W7): volume-v1 reads the research se
   assert.match(vol, /@keyframes vmpulse/); assert.match(vol, /#fill\{[^}]*background:linear-gradient\(var\(--hot\), var\(--warm\) 45%, var\(--glow\)\)/, "the tube's gradient");
   assert.match(vol, /--glow:#3987e5; --warm:#fab219; --hot:#ec835a; --up:#19b419; --dn:#e05252;/, "the page's own colours");
   assert.match(vol, /const T1 = 1\.2, T2 = 1\.5;/, "the page's default thresholds");
-  assert.match(vol, /<span class="k">trade size<\/span>/); assert.match(vol, /<span class="k">last block<\/span>/);
-  assert.match(vol, /nowS = sz\.now \|\| sz\.last \|\| \{\}/, "out of hours the last bar's size stands");
+  assert.match(vol, /<span class="k">lot size<em id="sizeAt"><\/em><\/span>/); assert.match(vol, /<span class="k">block<em id="blockAt"><\/em><\/span>/);   /* W10: restated */
+  assert.match(vol, /nowS = sz\.now \|\| sz\.last \|\| null/, "out of hours the last bar's size stands (W10: and the last one seen is kept)");
   assert.doesNotMatch(vol, /method:\s*"POST"|localStorage\.setItem/, "reads one GET, writes nothing");
   /* the deck: the column is the panel's, no meter on the wall */
   assert.match(deck, /make\("wgVolume", "Volume", "volume-pulse · SPY QQQ DIA IWM · × a usual 5 minutes", WIDGETS_VOLUME_OPEN\);/);
@@ -52,7 +52,7 @@ test("W1C · the volume panel (restated for W7): volume-v1 reads the research se
 
 test("W1C · untouched: the two chart slots (tv-v1 as W1 built it), the video keeps W1B's size with the grid beside it, WALL and SIMPLE one click away", () => {
   assert.match(tv, /studies: \["STD;VWAP"\]/); assert.match(tv, /extended_hours: true/); assert.match(tv, /function heardFromWidget/);
-  assert.match(fn(deck, "slotFor"), /if \(widgetsPlaying\(\)\) \{[\s\S]{0,400}?return floorWidgetsPlaying\(/);
+  assert.doesNotMatch(fn(deck, "slotFor"), /floorWidgetsPlaying/, "W10: no playing layout");
   assert.match(deck, /<button type="button" class="btn" id="wallBtn"/); assert.match(deck, /<button type="button" class="btn" id="simpleBtn"/); assert.match(deck, /<button type="button" class="btn" id="widgetsBtn"/);
   assert.doesNotMatch(deck, /widgetsArrBtn/, "the A · B button is gone");
 });
