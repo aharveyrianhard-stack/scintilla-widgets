@@ -65,8 +65,20 @@ body.tape #set:hover .track.run{ animation-play-state:paused; }
 @media (prefers-reduced-motion: reduce){ body.tape .track.run{ animation:none; } body.tape #set{ overflow-x:auto; scrollbar-width:none; } }
 /* W4 (22 Oct, Alan): "Keep it tight, make them smaller, and make them more on screen and faster … I don't see the need of the circle" -
    150 px cells, the head one small line, the tight mini-chart under it (the latest 5-minute bars as a line in the day's colour) */
-body.tape .lens{ flex:none; width:var(--lens-w, 150px); height:100%; }
-body.tape .lens .head{ padding:3px 6px 0; gap:5px; } body.tape .lens .tk, body.tape .lens .px{ font-size:10px; } body.tape .lens .pc{ font-size:9.5px; }
+/* W7 (22 Oct, Alan): "give me a little bit more size in the ticker and the data. Push the lines a little bit further down" - 170 px cells, 12 px
+   ticker and price, the RVol battery beside them, the chart under; the tape in ROWS (the deck says how many fit the band), each row its own track */
+body.tape #set{ display:flex; flex-direction:column; gap:1px; }
+body.tape .trackwin{ position:relative; flex:1 1 0; min-height:0; overflow:hidden; }
+body.tape .track{ height:100%; }
+body.tape .lens{ flex:none; width:var(--lens-w, 170px); height:100%; }
+body.tape .lens .head{ padding:5px 7px 0; gap:6px; flex-wrap:wrap; row-gap:1px; } body.tape .lens .tk, body.tape .lens .px{ font-size:12px; } body.tape .lens .pc{ font-size:11px; }
+body.tape .lens .rv{ display:inline-flex; align-items:center; gap:4px; margin-left:auto; } body.tape .lens .rv i{ display:block; width:26px; height:6px; border-radius:2px; background:#15151d; position:relative; overflow:hidden; }
+body.tape .lens .rv i::after{ content:""; position:absolute; left:0; top:0; bottom:0; width:var(--rv, 0%); background:var(--crk); } body.tape .lens .rv.hot i::after{ background:#FF8A00; } body.tape .lens .rv.cold i::after{ background:var(--dim); }
+body.tape .lens .rv em{ font-style:normal; font-size:10px; color:var(--ink3); font-variant-numeric:tabular-nums; } body.tape .lens .rv.hot em{ color:#FF8A00; }
+body.tape .lens .nm{ padding:0 7px; }
+body.tape .lens .num{ position:absolute; left:0; right:0; top:46px; bottom:4px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:12px; color:var(--ink2); font-variant-numeric:tabular-nums; }
+body.tape .lens .num b{ font-size:20px; color:var(--ink); } body.tape .lens .num small{ color:var(--mute); font-size:8px; letter-spacing:.12em; text-transform:uppercase; }
+body.tape #style{ display:flex; gap:2px; margin-top:4px; } body.tape #style .chip{ flex:1; text-align:center; padding:2px 4px; font-size:8px; }
 body.tape .lens .nm{ display:block; color:var(--mute); font-size:7.5px; letter-spacing:.1em; text-transform:uppercase; padding:0 6px; line-height:1.1; }
 body.tape .lens .nm:empty{ display:none; }
 body.tape #add{ display:block; width:100%; margin:4px 0 0; font-size:9px; padding:3px 5px; }
@@ -76,7 +88,7 @@ body.tape .msg{ padding:12px; }
 </style>
 </head>
 <body>
-<div id="bar"><span class="k">lenses</span><span id="chips" role="group" aria-label="Lens list"></span><input id="add" placeholder="+ ticker · Enter" title="type a ticker and press Enter: it joins MINE (the database list, both Macs)" aria-label="Add a ticker to MINE" maxlength="12"><span id="note"></span></div>
+<div id="bar"><span class="k">lenses</span><span id="chips" role="group" aria-label="Lens list"></span><input id="add" placeholder="+ ticker · Enter" title="type a ticker and press Enter: it joins MINE (the database list, both Macs)" aria-label="Add a ticker to MINE" maxlength="12"><span id="style" role="group" aria-label="Lens style" hidden><button type="button" class="chip" data-style="bars" title="5-minute candles">bars</button><button type="button" class="chip" data-style="line" title="a line of the closes">line</button></span><span id="note"></span></div>
 <div id="set" role="list" aria-label="Context lenses"><div class="msg">loading…</div></div>
 <script src="/_provider/provider.js"></script>
 <script type="module">
@@ -91,8 +103,24 @@ const LISTS = ["radar", "macro", "mine"];
 /* W4 (22 Oct, Alan: "I need NDX futures … S&P futures, NASDAQ futures … oil. Oil is extremely important"): MACRO is what trades overnight -
    the index futures and oil first, then gold, bitcoin, the dollar, the 10-year, VIX; all answered by the chart API (FMP) on 5-minute bars after
    the close (measured 22 Oct 19:00 ET). YMUSD RTYUSD BZUSD KOSPI are not tracked by the API and are left out. Plain names on the lens. */
-const MACRO = Object.freeze(["ESUSD", "NQUSD", "CLUSD", "GCUSD", "BTCUSD", "DXUSD", "US10Y", "VIX"]);
-const NAMES = Object.freeze({ ESUSD: "S&P FUT", NQUSD: "NASDAQ FUT", CLUSD: "OIL", GCUSD: "GOLD", BTCUSD: "BITCOIN", DXUSD: "DOLLAR", US10Y: "10-YEAR", VIX: "VIX" });
+/* W7 (22 Oct, Alan): "the VIX, put to call ratio, advanced decline line … oil, and the 10-year treasury, and the SPY and QQQ, and the NDX … Bitcoin …
+   we've been replacing the QQQ and SPY with their futures at a certain hour … I don't want to do that anymore. Both things." SPY and QQQ stay SPY and
+   QQQ at every hour, the futures beside them. NDX is not served by the chart API (asked 22 Oct 23:46 ET: no series) - left out, said. PUT/CALL is
+   the CBOE daily ratio (PCC) - its daily bars, labelled. ADVANCE/DECLINE has no series the API serves; the volume feed's breadth (adv, dec, the
+   ratio) is live - a number lens. */
+const MACRO = Object.freeze(["SPY", "QQQ", "ESUSD", "NQUSD", "VIX", "PCC", "ADVDEC", "CLUSD", "US10Y", "BTCUSD", "GCUSD", "DXUSD"]);
+const NAMES = Object.freeze({ SPY: "S&P 500 ETF", QQQ: "NASDAQ 100 ETF", ESUSD: "S&P FUT", NQUSD: "NASDAQ FUT", VIX: "VIX", PCC: "PUT/CALL · daily", ADVDEC: "ADVANCE / DECLINE", CLUSD: "OIL", US10Y: "10-YEAR", BTCUSD: "BITCOIN", GCUSD: "GOLD", DXUSD: "DOLLAR" });
+const DAILY_ONLY = Object.freeze({ PCC: true });   /* the API serves the ratio daily only */
+const NUMBER_LENS = Object.freeze({ ADVDEC: true });
+const BREADTH_FEED = "https://volume-pulse-pied.vercel.app/api/heartbeat";
+/* W7: LINE · BARS, remembered on this machine; bars by default (Alan: "it needs to be bars, please. 5-minute bars") */
+const STYLE_KEY = "station.lenses.style";
+export const styleOf = (stored) => stored === "line" ? "line" : "bars";
+let STYLE = styleOf(remembered(STYLE_KEY));
+/* W7: the rows the deck's band holds (SCINTILLA_LENS_ROWS); ?rows= stands alone */
+let ROWS = Math.max(1, Math.min(6, +QS.get("rows") || 1));
+/* W7: each name's RVol, the Hub's board_volume.rvol_at_time, once a minute */
+const RVOL_MS = 60000;
 const SB = "https://wadinxqplrggagkvrdag.supabase.co";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
 const TAPE = QS.get("mode") === "tape";   /* W1C: the lens tape */
@@ -121,7 +149,7 @@ export function listNames(rows) { const seen = new Set(), out = []; for (const r
 let LIST = listChoice(remembered(LIST_KEY), QS.get("list"), TAPE);
 let MINE = mineOf(remembered(MINE_KEY)), mineAt = 0;   /* W4: a copy of the database list, read every five minutes; written through the same door */
 let RADAR = [], radarAt = 0;
-const S = { quotes: new Map(), bars: new Map(), quotesAt: 0, barsAt: 0, busyQ: false, busyB: false };
+const S = { quotes: new Map(), bars: new Map(), rvol: new Map(), breadth: null, quotesAt: 0, barsAt: 0, rvolAt: 0, breadthAt: 0, busyQ: false, busyB: false, busyR: false, busyBr: false };
 function names() { return (LIST === "macro" ? MACRO : LIST === "mine" ? MINE : RADAR).slice(0, MAX_LENSES); }
 const PG = { apikey: ANON, Authorization: "Bearer " + ANON };
 async function pgRead(path) { const r = await fetch(SB + "/rest/v1/" + path, { headers: PG }); if (!r.ok) throw new Error("pg " + r.status); return r.json(); }
@@ -178,33 +206,39 @@ const pct = (c) => c == null ? "" : (c >= 0 ? "+" : "") + c.toFixed(2) + "%";
 function paintSet() {
   const box = el("set"); const list = names(); box.innerHTML = "";
   if (!list.length) { box.innerHTML = '<div class="msg">' + (LIST === "mine" ? "no picks yet · type a ticker above and press Enter" : LIST === "radar" && !radarAt ? "reading the radar list…" : "nothing on this list") + "</div>"; return; }
-  let host = box;
-  if (TAPE) { host = document.createElement("div"); host.className = "track"; box.appendChild(host); }
-  for (const t of list) {
+  let host = box; const hosts = [];
+  if (TAPE) { for (let r = 0; r < ROWS; r++) { const win = document.createElement("div"); win.className = "trackwin"; const tr = document.createElement("div"); tr.className = "track"; win.appendChild(tr); box.appendChild(win); hosts.push(tr); } host = hosts[0]; }
+  list.forEach((t, i) => {
+    if (TAPE) host = hosts[i % ROWS];   /* the names dealt round the rows */
     const d = document.createElement("div"); d.className = "lens"; d.dataset.t = t; d.setAttribute("role", "listitem");
-    d.innerHTML = '<div class="head"><span class="tk"></span><span class="px">—</span><span class="pc"></span></div>' + (TAPE ? '<span class="nm"></span>' : "") + '<canvas></canvas><span class="why"></span><button type="button" class="rm" title="remove from MINE">×</button>';
-    d.querySelector(".tk").textContent = t;
+    d.innerHTML = '<div class="head"><span class="tk"></span><span class="px">—</span><span class="pc"></span>' + (TAPE ? '<span class="rv" title="relative volume: this name\'s pace against its usual day (the Hub\'s RVol)"><i></i><em>—</em></span>' : "") + '</div>' + (TAPE ? '<span class="nm"></span>' : "") + (NUMBER_LENS[t] ? '<div class="num"><b>—</b><span></span><small>advancers / decliners</small></div>' : '<canvas></canvas>') + '<span class="why"></span><button type="button" class="rm" title="remove from MINE">×</button>';
+    d.querySelector(".tk").textContent = t === "ADVDEC" ? "ADV/DEC" : t;
     if (TAPE && NAMES[t]) d.querySelector(".nm").textContent = NAMES[t];
     d.addEventListener("click", (e) => { if (e.target.closest(".rm")) return; try { parent.postMessage({ type: "SCINTILLA_LENS_OPEN", ticker: t }, location.origin); } catch (_) {} });
     d.querySelector(".rm").addEventListener("click", async () => { MINE = mineRemove(MINE, t); remember(MINE_KEY, JSON.stringify(MINE)); paintChips(); paintSet();
       try { await mineDelete(t); await readMine(); paintChips(); paintSet(); } catch (err) { el("note").textContent = "not removed: " + String(err && err.message || err).slice(0, 40); } });
     host.appendChild(d);
-  }
+  });
   paintCells(true); drawAll();
   if (TAPE) runTape();
 }
+function paintStyle() { const s = el("style"); if (!s) return; s.hidden = !TAPE; for (const b of s.querySelectorAll("button")) { b.classList.toggle("on", b.dataset.style === STYLE); b.setAttribute("aria-pressed", b.dataset.style === STYLE ? "true" : "false"); } }
+el("style").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b || b.dataset.style === STYLE) return; STYLE = styleOf(b.dataset.style); remember(STYLE_KEY, STYLE); paintStyle(); drawAll(); });
+paintStyle();
 /* W1C: one length of lenses wider than the window → the track is doubled and runs at 45 px a second, whatever its length;
    a list that fits stands still (the deck's runTape rule) */
 function runTape() {
-  const box = el("set"), track = box.querySelector(".track"); if (!track) return;
-  for (const copy of track.querySelectorAll('.lens[aria-hidden="true"]')) copy.remove();
-  track.classList.remove("run"); track.style.animationDuration = "";
-  const one = track.scrollWidth;
-  if (!one || one <= box.clientWidth) return;
-  for (const d of Array.from(track.children)) { const c = d.cloneNode(true); c.setAttribute("aria-hidden", "true"); c.tabIndex = -1; track.appendChild(c); }
-  track.style.animationDuration = (one / TAPE_SPEED_PX_S).toFixed(2) + "s";
-  track.classList.add("run");
-  drawAll();
+  const box = el("set"); let any = false;
+  for (const track of box.querySelectorAll(".track")) {
+    for (const copy of track.querySelectorAll('.lens[aria-hidden="true"]')) copy.remove();
+    track.classList.remove("run"); track.style.animationDuration = "";
+    const one = track.scrollWidth, win = track.parentElement.clientWidth;
+    if (!one || one <= win) continue;
+    for (const d of Array.from(track.children)) { const c = d.cloneNode(true); c.setAttribute("aria-hidden", "true"); c.tabIndex = -1; track.appendChild(c); }
+    track.style.animationDuration = (one / TAPE_SPEED_PX_S).toFixed(2) + "s";
+    track.classList.add("run"); any = true;
+  }
+  if (any) drawAll();
 }
 function paintCells(first) {
   for (const d of el("set").querySelectorAll(".lens")) {
@@ -215,6 +249,13 @@ function paintCells(first) {
     const side = q.pct == null ? "" : q.pct >= 0 ? " up" : " dn";
     pc.textContent = pct(q.pct); pc.className = "pc" + side; tk.className = "tk" + side;
   }
+  /* W7: the RVol battery and multiple on every lens (the tape) */
+  for (const d of el("set").querySelectorAll(".lens .rv")) {
+    const r = S.rvol.get(d.closest(".lens").dataset.t); const cls = "rv" + (r == null ? "" : r >= 1.5 ? " hot" : r < 0.7 ? " cold" : ""), txt = r == null ? "—" : r.toFixed(1) + "×";
+    if (d.className !== cls) d.className = cls; if (d.lastChild.textContent !== txt) d.lastChild.textContent = txt; d.firstChild.style.setProperty("--rv", Math.round(Math.min(1, (r || 0) / 3) * 100) + "%");
+  }
+  /* W7: the number lens (advance / decline from the volume feed's breadth) */
+  for (const d of el("set").querySelectorAll(".lens .num")) { const b = S.breadth; if (!b) continue; d.firstChild.textContent = b.adv != null ? b.adv.toLocaleString("en-US") + " / " + b.dec.toLocaleString("en-US") : "—"; d.children[1].textContent = b.ratio != null ? "ratio " + b.ratio.toFixed(2) + (b.upDollarBn != null ? " · $" + b.upDollarBn + "bn up / $" + b.downDollarBn + "bn down" : "") : ""; d.firstChild.style.color = b.ratio == null ? "" : b.ratio >= 1 ? "var(--bull)" : "var(--bear)"; }
 }
 /* the day's colour for the oval: the quote's sign; without a quote, the last candle against the one before */
 function dayOf(t, bars) { const q = S.quotes.get(t); if (q && q.pct != null) return q.pct >= 0 ? "up" : "down"; if (bars.length >= 2) return bars[bars.length - 1].c >= bars[bars.length - 2].c ? "up" : "down"; return null; }
@@ -260,8 +301,32 @@ export function drawTight(ctx, W, H, bars, day, livePrice) {
   ctx.restore();
   return { lo, hi, points: closes.length };
 }
+/* W7, the tape's BARS: the latest bars as candles - green when the bar closed at or above its open, red below (the Station's rule), the wick
+   and the body, the live price a hollow ring at the end; pure drawing on a (W × H) canvas */
+export function drawBars(ctx, W, H, bars, livePrice) {
+  ctx.clearRect(0, 0, W, H);
+  if (!bars.length) return null;
+  const n = bars.length, pad = 4, padR = 12;
+  let lo = Infinity, hi = -Infinity; for (const b of bars) { if (b.l < lo) lo = b.l; if (b.h > hi) hi = b.h; } if (livePrice > 0) { lo = Math.min(lo, livePrice); hi = Math.max(hi, livePrice); }
+  if (!(hi > lo)) { hi = lo * 1.001 + 0.01; lo = lo * 0.999 - 0.01; }
+  const slot = (W - pad - padR) / (n + (livePrice > 0 ? 1 : 0)), bw = Math.max(1, Math.min(6, Math.floor(slot * 0.6)));
+  const X = (i) => pad + slot * (i + 0.5), Y = (v) => pad + (1 - (v - lo) / (hi - lo)) * (H - 2 * pad);
+  ctx.save(); ctx.lineWidth = 1;
+  for (let i = 0; i < n; i++) {
+    const b = bars[i], col = b.c >= b.o ? PALETTE.bull : PALETTE.bear, x = Math.round(X(i)) + 0.5;
+    ctx.strokeStyle = col; ctx.fillStyle = col;
+    ctx.beginPath(); ctx.moveTo(x, Y(b.h)); ctx.lineTo(x, Y(b.l)); ctx.stroke();
+    const top = Math.min(Y(b.o), Y(b.c)), hh = Math.max(1, Math.abs(Y(b.c) - Y(b.o)));
+    if (bw >= 3 && b.c >= b.o) { ctx.fillStyle = "#0A0A0F"; ctx.fillRect(x - bw / 2, top, bw, hh); ctx.strokeRect(Math.round(x - bw / 2) + 0.5, Math.round(top) + 0.5, bw - 1, Math.max(1, Math.round(hh) - 1)); }
+    else ctx.fillRect(x - bw / 2, top, bw, hh);
+  }
+  if (livePrice > 0) { const last = bars[n - 1], col = livePrice >= last.c ? PALETTE.bull : PALETTE.bear; ctx.strokeStyle = col; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(X(n - 1), Y(last.c)); ctx.lineTo(X(n), Y(livePrice)); ctx.stroke(); ctx.setLineDash([]); ctx.beginPath(); ctx.arc(X(n), Y(livePrice), 2.6, 0, Math.PI * 2); ctx.fillStyle = "#0A0A0F"; ctx.fill(); ctx.stroke(); }
+  ctx.restore();
+  return { lo, hi, bars: n };
+}
 function drawOne(d) {
   const t = d.dataset.t, cv = d.querySelector("canvas"), why = d.querySelector(".why");
+  if (!cv) return;   /* W7: a number lens draws nothing */
   const entry = S.bars.get(t);
   const W = Math.max(1, cv.clientWidth), H = Math.max(1, cv.clientHeight), dpr = Math.min(3, window.devicePixelRatio || 1);
   if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
@@ -270,9 +335,10 @@ function drawOne(d) {
   if (entry.absence) { ctx.clearRect(0, 0, W, H); why.textContent = entry.absence; return; }
   const bars = entry.bars; const day = dayOf(t, bars);
   if (TAPE) {
-    const q = S.quotes.get(t), geo = drawTight(ctx, W, H, bars, day, q && q.price > 0 ? q.price : 0);
-    why.textContent = geo ? "" : "no 5-minute bars";
-    cv.setAttribute("aria-label", t + ": the last " + bars.length + " five-minute closes as a line" + (day ? ", the day " + day : "") + (q ? ", the live price last" : ""));
+    const q = S.quotes.get(t), live = q && q.price > 0 ? q.price : 0;
+    const geo = STYLE === "bars" ? drawBars(ctx, W, H, bars, live) : drawTight(ctx, W, H, bars, day, live);
+    why.textContent = geo ? "" : (DAILY_ONLY[t] ? "no daily bars" : "no 5-minute bars");
+    cv.setAttribute("aria-label", t + ": the last " + bars.length + (DAILY_ONLY[t] ? " daily" : " five-minute") + (STYLE === "bars" ? " candles" : " closes as a line") + (day ? ", the day " + day : "") + (q ? ", the live price last" : ""));
     d.dataset.day = day || ""; d.dataset.bars = String(bars.length); d.dataset.last = bars.length ? String(bars[bars.length - 1].t) : "";
     return;
   }
@@ -283,8 +349,18 @@ function drawOne(d) {
 }
 function drawAll() { for (const d of el("set").querySelectorAll(".lens")) drawOne(d); }
 /* ---- the reads ---- */
+async function readRvol() {
+  const list = names().filter((t) => !NUMBER_LENS[t]); if (!list.length || S.busyR) return; S.busyR = true;
+  try { const rows = await pgRead("board_volume?select=ticker,rvol_at_time&ticker=in.(" + list.map(encodeURIComponent).join(",") + ")"); for (const r of rows || []) { const t = CLEAN(r && r.ticker); if (t && r.rvol_at_time != null) S.rvol.set(t, +r.rvol_at_time); } S.rvolAt = Date.now(); paintCells(false); }
+  catch (_) {} finally { S.busyR = false; }
+}
+async function readBreadth() {
+  if (!names().some((t) => NUMBER_LENS[t]) || S.busyBr) return; S.busyBr = true;
+  try { const r = await fetch(BREADTH_FEED, { cache: "no-store" }); const j = await r.json(); if (j && j.breadth) { S.breadth = j.breadth; S.breadthAt = Date.now(); paintCells(false); } }
+  catch (_) {} finally { S.busyBr = false; }
+}
 async function readQuotes() {
-  const P = window.SC_PROVIDER; const list = names(); if (!P || !list.length || S.busyQ || document.hidden) return;
+  const P = window.SC_PROVIDER; const list = names().filter((t) => !NUMBER_LENS[t]); if (!P || !list.length || S.busyQ || document.hidden) return;
   S.busyQ = true;
   try {
     const rows = await P.marketQuotes(list, {});
@@ -308,7 +384,9 @@ async function readBars(force) {
     await Promise.all(want.map(async (t) => {
       try {
         /* W4: on the tape the read skips the provider client's shared store (forming:true, max-age 15), so a bar just closed is seen at once */
-        const payload = await P.marketCandles(t, LENS_TF, TAPE ? { limit: LENS_BARS, forming: true } : { limit: LENS_BARS });
+        if (NUMBER_LENS[t]) { S.bars.set(t, { bars: [], at: Date.now() }); return; }
+        const tf = DAILY_ONLY[t] ? "1d" : LENS_TF;   /* W7: the put/call ratio is a daily series at the API */
+        const payload = await P.marketCandles(t, tf, TAPE ? { limit: LENS_BARS, forming: true } : { limit: LENS_BARS });
         /* W4: the provider hands its rows NEWEST FIRST (measured 22 Oct: timestamp 1792702800 before 1792702500) - oldest first here, always,
            so the last row is the newest bar and the line runs left to right in time */
         const rows = (Array.isArray(payload) ? payload : (payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0).sort((a, b) => a.t - b.t).slice(-LENS_BARS);
@@ -335,6 +413,7 @@ async function tick(now) {
   if (LIST === "radar" && Date.now() - radarAt > LIST_MS) { await readRadar(); paintChips(); paintSet(); }
   if (LIST === "mine" && Date.now() - mineAt > LIST_MS) { await readMine(); paintChips(); paintSet(); }
   if (now || Date.now() - S.quotesAt > QUOTE_MS) readQuotes();
+  if (TAPE && (now || Date.now() - S.rvolAt > RVOL_MS)) { readRvol(); readBreadth(); }
   if (TAPE) {
     const due = closeDue(Date.now(), lastCloseRead);
     if (due && (due.at === "close" || barsStale(due.boundary))) { lastCloseRead = Date.now(); readBars(true); return; }
@@ -342,7 +421,9 @@ async function tick(now) {
   readBars(false);
 }
 /* for the harness and the strip: what the tape holds */
-window.__lens = { newest: () => Object.fromEntries([...S.bars].map(([t, e]) => [t, e.bars && e.bars.length ? e.bars[e.bars.length - 1].t : null])), quotes: () => Object.fromEntries([...S.quotes].map(([t, q]) => [t, q.price])), at: () => ({ bars: S.barsAt, quotes: S.quotesAt, lastCloseRead }), list: () => LIST, names, tf: LENS_TF, bars: LENS_BARS };
+/* W7: the deck says how many rows its band holds */
+addEventListener("message", (e) => { if (e.origin !== location.origin || !e.data || e.data.type !== "SCINTILLA_LENS_ROWS") return; const r = Math.max(1, Math.min(6, +e.data.rows || 1)); if (r !== ROWS) { ROWS = r; paintSet(); } });
+window.__lens = { style: () => STYLE, rows: () => ROWS, rvol: () => Object.fromEntries(S.rvol), newest: () => Object.fromEntries([...S.bars].map(([t, e]) => [t, e.bars && e.bars.length ? e.bars[e.bars.length - 1].t : null])), quotes: () => Object.fromEntries([...S.quotes].map(([t, q]) => [t, q.price])), at: () => ({ bars: S.barsAt, quotes: S.quotesAt, lastCloseRead }), list: () => LIST, names, tf: LENS_TF, bars: LENS_BARS };
 /* the lenses re-fit to their box (the deck resizes the pane) */
 let raf = 0; const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; drawAll(); if (TAPE) runTape(); }); };
 if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
