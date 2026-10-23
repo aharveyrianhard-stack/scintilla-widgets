@@ -124,19 +124,38 @@ try {
   }
   if (ONLY === "all" || ONLY === "phone") {
     out.phone = [];
-    const phoneBoxes = () => { const R = (q) => { const e = document.querySelector(q); if (!e) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) }; }; return { win: { w: innerWidth, h: innerHeight }, head: R("#head"), lenses: R("#lenses"), volume: R("#volume"), video: R("#video"), scrollH: document.documentElement.scrollHeight }; };
+    const phoneBoxes = () => { const R = (q) => { const e = document.querySelector(q); if (!e) return null; const b = e.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y + scrollY), w: Math.round(b.width), h: Math.round(b.height) }; }; return { win: { w: innerWidth, h: innerHeight }, head: R("#head"), first: R("#first"), lenses: R("#lenses"), volume: R("#volume"), video: R("#video"), scrollH: document.documentElement.scrollHeight, scrollY: Math.round(scrollY) }; };
     for (const [key, W, H] of [["390x844", 390, 844], ["430x932", 430, 932]]) {
       const { context, page, errs } = await open(browser, W, H, 3, { mobile: true });
       await page.goto(origin + "/phone/", { waitUntil: "domcontentloaded" }); await sleep(16000);
       const idle = await page.evaluate(phoneBoxes); await page.screenshot({ path: path.join(SHOTS, `w12-phone-${key}.png`) });
+      /* W12B: the first screen holds the lenses (two running rows) and the volume panel; YouTube is under it - scrolled to for its picture */
+      const firstScreen = { lensesOnFirst: idle.lenses && idle.lenses.y + idle.lenses.h <= H, volumeOnFirst: idle.volume && idle.volume.y + idle.volume.h <= H, videoBelow: idle.video && idle.video.y >= H - 1, shares: { head: +(100 * idle.head.h / H).toFixed(1), lenses: +(100 * idle.lenses.h / H).toFixed(1), volume: +(100 * idle.volume.h / H).toFixed(1) } };
+      await page.evaluate(() => document.getElementById("video").scrollIntoView()); await sleep(600); await page.screenshot({ path: path.join(SHOTS, `w12-phone-youtube-${key}.png`) });
+      const lensShell = await page.frames().find((f) => /lens-v1\//.test(f.url())).evaluate(() => ({ tape: document.body.classList.contains("tape"), touch: document.body.classList.contains("touch"), rows: [...document.querySelectorAll(".trackwin")].map((t) => t.dataset.set + ":" + (t.querySelector(".track").classList.contains("run") ? "runs" : "still")), cellW: document.querySelector(".lens") && Math.round(document.querySelector(".lens").getBoundingClientRect().width), cellH: document.querySelector(".lens") && Math.round(document.querySelector(".lens").getBoundingClientRect().height), tk: document.querySelector(".lens .tk") && getComputedStyle(document.querySelector(".lens .tk")).fontSize })).catch((e) => ({ err: String(e).slice(0, 80) }));
       const meta = await page.evaluate(() => ({ title: document.title, icon: !!document.querySelector('link[rel="apple-touch-icon"]'), manifest: !!document.querySelector('link[rel="manifest"]'), capable: !!document.querySelector('meta[name="apple-mobile-web-app-capable"][content="yes"]'), viewport: document.querySelector('meta[name="viewport"]').content }));
       const lens = await lensState(page), vol = await volState(page), pulse = await midPulse(page, `w12-phone-pulse-${key}.png`);
       const vf = videoFrame(page); const shell0 = vf ? await snapShell(vf) : null; const pr = vf ? await playAndReload(vf) : null;
       const playing = await page.evaluate(phoneBoxes); await page.screenshot({ path: path.join(SHOTS, `w12-phone-playing-${key}.png`) });
-      const same = JSON.stringify([idle.lenses, idle.volume, idle.video]) === JSON.stringify([playing.lenses, playing.volume, playing.video]);
+      const same = JSON.stringify([idle.first, idle.lenses, idle.volume, idle.video]) === JSON.stringify([playing.first, playing.lenses, playing.volume, playing.video]);
       const stageSame = pr && pr.play && shell0 && JSON.stringify(pr.play.stage) === JSON.stringify(shell0.stage) && pr.reloads.every((r) => JSON.stringify(r.stage) === JSON.stringify(shell0.stage));
-      out.phone.push({ screen: key, idle, meta, lens, vol, pulse, shell0, ...pr, playing, sameBoxesPlaying: same, stageSame, errors: errs });
-      log("phone", key, JSON.stringify(idle), JSON.stringify(meta), "lens", JSON.stringify(lens).slice(0, 240), "| vol", JSON.stringify(vol).slice(0, 200), "| shell", JSON.stringify(shell0), "| reloads", JSON.stringify((pr && pr.reloads || []).map((r) => [r.sameIframe, r.cur, r.cards, r.stage])), "| same boxes", same, "stage same", stageSame, "errs", errs.length ? errs.slice(0, 2) : 0);
+      const idleNote = vf ? await vf.evaluate(() => document.getElementById("idleNote").textContent).catch(() => null) : null;
+      out.phone.push({ screen: key, idle, firstScreen, lensShell, idleNote, meta, lens, vol, pulse, shell0, ...pr, playing, sameBoxesPlaying: same, stageSame, errors: errs });
+      log("phone", key, JSON.stringify(idle), "first screen", JSON.stringify(firstScreen), "lens shell", JSON.stringify(lensShell), "idle note", idleNote, JSON.stringify(meta), "lens", JSON.stringify(lens).slice(0, 240), "| vol", JSON.stringify(vol).slice(0, 200), "| shell", JSON.stringify(shell0), "| reloads", JSON.stringify((pr && pr.reloads || []).map((r) => [r.sameIframe, r.cur, r.cards, r.stage])), "| same boxes", same, "stage same", stageSame, "errs", errs.length ? errs.slice(0, 2) : 0);
+      await context.close();
+    }
+  }
+  if (ONLY === "all" || ONLY === "volshare") {
+    /* W12B: the graph's share of the volume panel at every screen */
+    out.volshare = [];
+    for (const [key, W, H, url, mobile] of [["wall 2560x1440", 2560, 1440, "/deck/?scene=live&charts=9&range=3h", false], ["wall 1920x1080", 1920, 1080, "/deck/?scene=live&charts=9&range=3h", false], ["ipad 1366x1024", 1366, 1024, "/deck/?nox=1&widgets=1&scene=live&charts=9&range=3h", false], ["ipad 1180x820", 1180, 820, "/deck/?nox=1&widgets=1&scene=live&charts=9&range=3h", false], ["phone 430x932", 430, 932, "/phone/", true], ["phone 390x844", 390, 844, "/phone/", true]]) {
+      const { context, page, errs } = await open(browser, W, H, mobile ? 3 : 1, { youtube: false, mobile });
+      await page.goto(origin + url, { waitUntil: "domcontentloaded" }); await sleep(12000);
+      const v = await volState(page); const vf = page.frames().find((f) => /volume-v1\//.test(f.url()));
+      const more = vf ? await vf.evaluate(() => ({ iconRows: new Set([...document.querySelectorAll(".ib")].filter((e) => getComputedStyle(e).display !== "none").map((e) => Math.round(e.getBoundingClientRect().top))).size, iconsShown: [...document.querySelectorAll(".ib")].filter((e) => getComputedStyle(e).display !== "none").length, short: document.body.classList.contains("short"), narrow: document.body.classList.contains("narrow"), numPx: getComputedStyle(document.getElementById("num")).fontSize, mmssPx: getComputedStyle(document.getElementById("mmss")).fontSize, chartClipped: document.getElementById("chart").getBoundingClientRect().bottom > innerHeight + 1 })).catch((e) => ({ err: String(e).slice(0, 60) })) : null;
+      const fb = await page.evaluate(() => { const f = document.querySelector('iframe[src*="volume-v1"]'); if (!f) return null; const b = f.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height }; });
+      if (fb) await page.screenshot({ path: path.join(SHOTS, `w12b-volume-${key.replace(" ", "-")}.png`), clip: fb }).catch(() => {});
+      out.volshare.push({ screen: key, vol: v, more, box: fb, errors: errs }); log("volshare", key, JSON.stringify(v), JSON.stringify(more), "errs", errs.length);
       await context.close();
     }
   }

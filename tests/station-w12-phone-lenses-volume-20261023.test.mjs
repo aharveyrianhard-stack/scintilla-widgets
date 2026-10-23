@@ -52,7 +52,7 @@ test("W12 · the unusual flashes, the same rule everywhere: a day move at 2× th
 });
 
 test("W12 · the volume panel is its graph; everything else small icon badges; no descriptions; the countdown flashes through the last 60 s", () => {
-  assert.match(vol, /#chart\{ position:relative; flex:1 1 0; min-height:90px;/, "the graph takes what is left - most of the panel");
+  assert.match(vol, /#chart\{ position:relative; flex:1 1 0; min-height:0;/, "the graph takes what is left - most of the panel (W12B: 70 % and over, measured)");
   assert.match(vol, /#num\{ font-size:22px; font-weight:800;/); assert.match(vol, /#tube\{ position:relative; width:8px; height:22px;/); assert.match(vol, /#count \.mmss\{ font-size:18px;/, "the top line compact");
   assert.doesNotMatch(vol, /id="nums"|class="cell"|id="badges"|class="badge"/, "the big cells and the big badges are gone");
   for (const id of ["iFlow", "iSize", "iBlock", "iDay", "bVol", "bDir", "bVwap", "bHour"]) assert.match(vol, new RegExp('<span class="ib" id="' + id + '"'), id + " is an icon badge");
@@ -67,12 +67,14 @@ test("W12 · the volume panel is its graph; everything else small icon badges; n
 test("W12 · the phone Station: one column, no X - the lenses, the volume panel, YouTube stacked; fixed shares; Add to Home Screen ready", () => {
   assert.match(phone, /<meta name="apple-mobile-web-app-capable" content="yes">/); assert.match(phone, /<link rel="apple-touch-icon" href="\/phone\/icon\.png">/); assert.match(phone, /<link rel="manifest" href="\/phone\/manifest\.webmanifest">/); assert.match(phone, /viewport-fit=cover/);
   assert.match(phone, /<title>Station · phone<\/title>/);
-  assert.match(phone, /<section id="lenses"[^>]*><iframe src="\/station-shells\/lens-v1\/\?shell=v1&touch=1&view=phone"/);
+  assert.match(phone, /<section id="lenses"[^>]*><iframe src="\/station-shells\/lens-v1\/\?shell=v1&mode=tape&rows=2&touch=1&view=phone"/, "W12B: the wall's tape - RADAR a row, MACRO a row");
   assert.match(phone, /<section id="volume"[^>]*><iframe src="\/station-shells\/volume-v1\/\?shell=v1&touch=1&view=phone"/);
   assert.match(phone, /<section id="video"[^>]*><iframe src="\/station-shells\/scintilla-video-v1\/\?shell=v1&feed=scintilla&cols=2&stack=1&view=phone"/);
   assert.doesNotMatch(phone, /pane-x|x-bridge|\/x\//, "no X on the phone");
-  assert.match(phone, /body\{ display:grid; grid-template-rows:auto minmax\(0,1fr\) var\(--vol-h, 22vh\) auto;/, "three fixed blocks");
-  assert.match(phone, /#video\{ height:calc\(32px \+ 56\.25vw \+ 120px\);/, "the YouTube block's height is the bar, the 16:9 player and a strip of the feed - whatever plays");
+  /* W12B: the first screen is the head, the lens tape and the volume panel; YouTube under it, the page scrolls */
+  assert.match(phone, /#first\{ height:var\(--screen-h, 100vh\); display:grid; grid-template-rows:auto minmax\(0,1fr\) var\(--vol-h, 36vh\); \}/, "the first screen's three fixed rows");
+  assert.match(phone, /#video\{ height:calc\(32px \+ 56\.25vw \+ 260px\);/, "the YouTube block's height is the bar, the 16:9 player and the feed - whatever plays");
+  assert.match(phone, /document\.documentElement\.style\.setProperty\("--vol-h", Math\.max\(220, Math\.round\(h \* 0\.36\)\) \+ "px"\)/, "the volume block 36 % of the screen, at least 220 px");
   assert.ok(fs.existsSync(new URL("../phone/icon.png", import.meta.url)), "the icon"); assert.match(read("../phone/manifest.webmanifest"), /"display": "standalone"/);
   /* the video shells' one column */
   assert.equal(shells["personal-video-v1"], shells["scintilla-video-v1"], "byte-identical twins");
@@ -82,6 +84,11 @@ test("W12 · the phone Station: one column, no X - the lenses, the volume panel,
   assert.match(s, /body\.stack > #stage\{ grid-row:2; display:flex; min-width:0; aspect-ratio:16 \/ 9; \}/, "the player's place is fixed, playing or not");
   assert.match(s, /body\.stack > #grid\{ grid-row:3; display:grid; overflow-y:auto;/, "the feed under it, scrolling");
   assert.match(fn(s, "paintBeside"), /classList\.toggle\("stack", STACK\)/);
+  assert.match(s, /if \(STACK\) \{ const n = document\.getElementById\("idleNote"\); if \(n\) n\.textContent = "tap a title below to play it here"; \}/, "W12B: the feed is under the player there");
+  /* W12B: the volume badges one row everywhere, the least important dropping on a narrow panel; the lens tape's chips on top for touch */
+  assert.match(vol, /#icons\{ display:flex; flex-wrap:nowrap; gap:4px; flex:none; overflow-x:auto; overflow-y:hidden; scrollbar-width:none;/); assert.match(vol, /body\.narrow #iDay, body\.narrow #bHour\{ display:none; \}/);
+  assert.match(vol, /document\.body\.classList\.toggle\("short", document\.documentElement\.clientHeight < 260\)/);
+  assert.match(lens, /body\.tape\.touch\{ flex-direction:column; \}/); assert.match(lens, /body\.tape\.touch \.lens\{ width:var\(--lens-w, 200px\); \}/);
 });
 
 test("W12 · the dock on the WIDGETS wall: what does nothing there is hidden, not deleted; WALL · SIMPLE · WIDGETS, the feed choice and the scene stay", () => {
