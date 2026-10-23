@@ -57,9 +57,10 @@ test("W7 · the layout: X slimmer, YouTube in the bottom-left corner, the charts
     assert.equal(s.box.left, -(plan.col + 1)); assert.equal(s.box.w, plan.col + 1 + Math.round(W * 0.35), "W10: the feed column and the player"); assert.equal(s.volume.w, Math.round(W * 0.17));
   }
   assert.match(vol, /#dot\{ width:14px; height:14px; border-radius:50%;[^}]*animation:vmpulse/, "the meter's pulsing dot (W10: the graph's own dot at NOW beside it, as the research page draws it)");
-  assert.match(vol, /#tube\{ position:relative; width:12px; height:46px;/, "the thermometer tube"); assert.match(vol, /\$\("fill"\)\.style\.height = \(r == null \? 0 : Math\.round\(Math\.min\(1, r \/ 3\) \* 100\)\) \+ "%";/, "3× is the top of the tube");
-  assert.match(vol, /<span class="k">2-min flow<em>who is in control now<\/em><\/span>/); assert.match(vol, /<span class="k">5-min multiple<em>does it sustain<\/em><\/span>/, "the two halves, labelled");
-  assert.match(vol, /const done = \(data\.slots \|\| \[\]\)\.filter\(\(x\) => x\.ratio != null\), last = done\[done\.length - 1\], prev = done\[done\.length - 2\];/, "the 5-minute multiple from the last full bar");
-  assert.doesNotMatch(vol, /beat-core|beat-ring|<polyline|id="chart"/, "no graph - the beating last point of the trace was the second flashing point at 2.2×");
+  assert.match(vol, /#tube\{ position:relative; width:12px; height:40px;/, "the thermometer tube (W10: 40 px, beside the 40 px number)"); assert.match(vol, /\$\("fill"\)\.style\.height = \(r == null \? 0 : Math\.round\(Math\.min\(1, r \/ 3\) \* 100\)\) \+ "%";/, "3× is the top of the tube");
+  assert.match(vol, /<span class="k">2 min<em id="flowAt"><\/em><\/span>/); assert.match(vol, /id="bar5"/, "the two halves, labelled (W10: no descriptions - Alan: 'I don't like descriptions')"); assert.doesNotMatch(vol, /who is in control|does it sustain|of a usual/);
+  assert.match(vol, /const done = slots\.map\(\(s, i\) => \(\{ \.\.\.s, i \}\)\);/, "the 5-minute multiple from the bars (W10: restated)");
+  /* W10: the graph is back as the research page draws it (Alan: "you removed the graph now?"); its beating dot at NOW is the one in the graph, the meter's dot the other */
+  assert.match(vol, /beat-core/); assert.match(vol, /id="chart"/);
   assert.match(vol, /\.badge\{[^}]*font-size:14px; font-weight:700;/, "badges a TV can read");
 });

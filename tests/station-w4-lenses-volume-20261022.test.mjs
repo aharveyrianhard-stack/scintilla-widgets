@@ -69,10 +69,10 @@ test("W4 · the volume panel (restated for W7): the flow and the 5-minute multip
   assert.match(vol, /\.cell \.big\{ font-size:26px; font-weight:800;/, "the numbers big (W10: restated)");
   assert.match(vol, /\$\("buy"\)\.textContent = flow\.buyPct != null \? flow\.buyPct \+ "%" : "—"; \$\("sell"\)\.textContent = flow\.sellPct != null \? flow\.sellPct \+ "%" : "—";/);
   assert.match(vol, /<span class="k">lot size<em id="sizeAt"><\/em><\/span><span class="big" id="tsize">/, "lot size big (W10: restated)");
-  assert.match(vol, /\$\("tsize"\)\.innerHTML = \(nowS\.x != null \? nowS\.x\.toFixed\(2\) \+ "×" : "—"\) \+ side\(nowS\.dir\)/);
-  assert.match(vol, /badge\("bVwap", Lg\.vwap\); badge\("bDir", Lg\.dir\);/, "VWAP and DIRECTION as badges"); assert.match(vol, /\.badge\{[^}]*font-size:14px; font-weight:700;/, "readable from a TV");
+  assert.match(vol, /\$\("tsize"\)\.innerHTML = S \? S\.x\.toFixed\(2\) \+ "×" \+ side\(S\.dir\) : "—"; \$\("sizeAt"\)\.textContent = S \? \(S\.t \|\| ""\) \+ \(nowS \? "" : " · last"\) : \(data\.live \? "" : "closed · none in the feed"\);/, "W10: the lot size is the last one seen, with its time; never a bare dash while one was seen");
+  assert.match(vol, /badge\("bVol", Lg\.vol\); badge\("bDir", Lg\.dir\); badge\("bVwap", Lg\.vwap\); badge\("bHour", Lg\.hour\);/, "VWAP and DIRECTION as badges (W10: the four of them, the research page's order)"); assert.match(vol, /\.badge\{[^}]*font-size:14px; font-weight:700;/, "readable from a TV");
   assert.match(vol, /document\.body\.classList\.toggle\("warm", lv === "warm"\); document\.body\.classList\.toggle\("hot", lv === "hot"\);/, "the dot coloured by its level");
-  assert.doesNotMatch(vol, /id="clock"/, "no clock"); assert.doesNotMatch(vol, /beat-core|beat-ring|<polyline/, "no graph, no second pulsing point");
+  assert.doesNotMatch(vol, /id="clock"/, "no clock"); assert.match(vol, /beat-core/, "W10: the graph is back (Alan: \"you removed the graph now?\"); its dot at NOW beats as on the research page");
   assert.match(vol, /left = 300 - \(secs % 300\), boundary = Math\.floor\(secs \/ 300\);/, "the 5-minute countdown on the New York clock");
   assert.match(vol, /if \(lastBoundary >= 0 && boundary !== lastBoundary\) \{ const c = \$\("count"\); c\.classList\.remove\("flash"\); void c\.offsetWidth; c\.classList\.add\("flash"\);/, "flashes at each close");
   assert.match(vol, /@keyframes closeflash/);

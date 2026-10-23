@@ -863,7 +863,9 @@ test("video transport stays in the one top bar and returns the full lower row to
     "no title or second player-control row remains below the native YouTube surface");
   /* Y8 (20 Oct): the one thing in #video besides the player is the float note - an overlay that takes no height
      (absolute, inset 0) and is hidden unless the video is in the floating window */
-  assert.match(videoPane, /<div id="stage">\s*<div id="video">(?:<div id="floatNote" hidden>[\s\S]*?<\/span><\/div>)?<\/div>\s*<\/div>/,
+  /* W10 (23 Oct): the idle note ("tap a title on the left") sits in the player's place while nothing plays - the fixed feed column's player
+     is always there; the note, like the float note, is an overlay inside #video */
+  assert.match(videoPane, /<div id="stage">\s*<div id="video">(?:<div id="idleNote">[^<]*<\/div>)?(?:<div id="floatNote" hidden>[\s\S]*?<\/span><\/div>)?<\/div>\s*<\/div>/,
     "the player owns all remaining height below the one top bar");
   assert.match(videoPane, /#floatNote\{ position:absolute; inset:0;[^}]*\}\n#floatNote\[hidden\]\{ display:none; \}/,
     "the float note overlays the player; it takes none of its height");

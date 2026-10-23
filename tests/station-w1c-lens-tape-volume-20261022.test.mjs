@@ -24,14 +24,14 @@ test("W1C · the lens tape: lens-v1 in tape mode - the chips at the left, one ro
   assert.match(lens, /body\.tape \.track\.run\{ will-change:transform; animation:lens-tape-move linear infinite; \}/);
   assert.match(lens, /body\.tape #set:hover \.track\.run\{ animation-play-state:paused; \}/, "the pointer holds it still");
   assert.match(lens, /@keyframes lens-tape-move\{ from\{ transform:translateX\(0\); \} to\{ transform:translateX\(-50%\); \} \}/);
-  assert.match(lens, /body\.tape \.lens\{ flex:none; width:var\(--lens-w, 170px\); height:100%; \}/, "a lens is 170 px wide on the tape (W7: bigger type)");
+  assert.match(lens, /body\.tape \.lens\{ flex:none; width:var\(--lens-w, 170px\); height:100%; background:var\(--panel2\); \}/, "a lens is 170 px wide on the tape (W7: bigger type; W10: its own panel colour, the gap between neighbours shows the floor)");
   assert.match(lens, /body\.tape #bar\{ flex:none; width:96px; flex-direction:column;/, "the chips in a rail at the left");
   assert.match(lens, /remember\(LIST_KEY, l\)/, "the choice remembered");
   /* the drawing is the column's: the oval, the edge in the day's colour, never grey */
   assert.match(lens, /ctx\.strokeStyle = day === "up" \? PALETTE\.bull : day === "down" \? PALETTE\.bear : INK\.frame;/);
   /* the deck mounts it over the band and gives it its height */
   assert.match(fn(deck, "mountWidgets"), /WIDGETS_LENS_SHELL \+ "\/\?shell=v1&mode=tape&rows=" \+ rows \+ "&view="/);   /* W7: the rows on the address */
-  assert.match(deck, /const WIDGETS_X_SHARE = 0\.18, WIDGETS_YT_W = 0\.34, WIDGETS_VOL_W = 0\.17, WIDGETS_LENS_ROW_PX = 150, WIDGETS_VOLUME_MIN_PX = 120;/);   /* W7: restated - the round-3 layout */
+  assert.match(deck, /const WIDGETS_X_SHARE = 0\.18, WIDGETS_PLAYER_W = 0\.35, WIDGETS_VOL_W = 0\.17, WIDGETS_BAND_MAX = 0\.45, WIDGETS_LENS_ROW_PX = 150, WIDGETS_VOLUME_MIN_PX = 120;/   /* W10: the player's own share, the band capped */);   /* W7: restated - the round-3 layout */
 });
 
 test("W1C · the volume panel (restated for W7): volume-v1 reads the research session's public feed; the meter's look - one pulsing dot, the thermometer tube; 8 s open, 2 min closed", () => {

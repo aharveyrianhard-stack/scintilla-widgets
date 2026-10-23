@@ -192,7 +192,7 @@ test("W1 · the video shells: beside=1 keeps the grid in a column beside the pla
   /* the deck asks for it on the WIDGETS wall */
   assert.match(deck, /"\?shell=v1&feed=scintilla&cols=2" \+ \(widgetsOn\(\) \? "&beside=1&fixed=1" : ""\)/);   /* W10: the fixed feed column */
   assert.match(deck, /"\?shell=v1&feed=personal&cols=2" \+ \(widgetsOn\(\) \? "&beside=1&fixed=1" : ""\)/);
-  assert.match(fn(deck, "tellVideoBeside"), /postMessage\(\{ type:"SCINTILLA_VIDEO_BESIDE", on:!!on, col:[^\n]*\}, location\.origin\)/);
+  assert.match(fn(deck, "tellVideoBeside"), /postMessage\(\{ type:"SCINTILLA_VIDEO_BESIDE", on:!!on, fixed:!!on, col:[^\n]*\}, location\.origin\)/);
 });
 
 test("W1 · the lens set: RADAR · MACRO · MINE, remembered; MINE adds and removes; the oval in the day's colour, never grey", () => {
