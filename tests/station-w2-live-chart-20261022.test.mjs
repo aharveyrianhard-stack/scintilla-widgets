@@ -55,12 +55,21 @@ const bar = (hhmm, o, h, l, c, v, day) => ({ t:at(hhmm, day), o, h, l, c, v });
 
 test("W2 · one client: every bar and price through /_provider/provider.js, his clouds' arithmetic from station-clouds.js, nothing fetched around them", () => {
   const tags = [...live.matchAll(/<script src="([^"]+)"><\/script>/g)].map((m) => m[1]);
-  assert.deepEqual(tags, ["/_provider/provider.js", "/_indicators/station-clouds.js"]);
+  /* W13 restated: the Station's Geiger bar functions join (pure: they read nothing and draw nothing) */
+  assert.deepEqual(tags, ["/_provider/provider.js", "/_indicators/station-clouds.js", "/_indicators/station-geiger-bar.js"]);
   assert.match(live, /SC_PROVIDER\.marketCandles\(SYMBOL, TF\.api, \{ limit, forming:true \}\)/, "the bars: the provider client's candle product");
   assert.match(live, /SC_PROVIDER\.marketQuotes\(\[sym\]\)/, "the live price: the provider client's quote product");
   assert.match(live, /SC_PROVIDER\.marketCandles\(sym, "1D", \{ limit:need \}\)/, "his clouds' daily closes: the same client chart-v1 reads them through");
-  for (const bad of [/fetch\(/, /XMLHttpRequest/, /massive-chart-api/, /supabase/i, /createClient\(/, /WebSocket\(/])
+  for (const bad of [/XMLHttpRequest/, /massive-chart-api/, /createClient\(/, /WebSocket\(/])
     assert.doesNotMatch(live.replace(/<!--[\s\S]*?-->/g, ""), bad, "no second data path: " + bad);
+  /* W13 restated, the intent kept - no PRICE is read around the client: the one fetch is the Station store's REST for two non-price numbers
+     (the Hub's RVol and its usual day, as the lenses read them), GET only */
+  const code = live.replace(/<!--[\s\S]*?-->/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.equal((code.match(/fetch\(/g) || []).length, 1, "one fetch");
+  assert.match(fn(live, "hubRead"), /const r = await fetch\(HUB_REST \+ path, \{ headers:\{ apikey:HUB_KEY, Authorization:"Bearer " \+ HUB_KEY \} \}\);/);
+  const reads = [...code.matchAll(/hubRead\("([a-z_]+)\?select=([a-z_0-9,]+)/g)].map((m) => m[1] + ":" + m[2]);
+  assert.deepEqual(reads, ["board_volume:ticker,rvol_at_time,updated_ts", "ticker_heartbeat_daily:ticker,date,usual_day_60"], "two non-price reads, nothing else");
+  assert.doesNotMatch(code, /method\s*:/, "GET only");
   assert.match(live, /try \{ scBindProviderClient\(\); \} catch \(_\) \{\}/, "bound like chart-v1: no reader, so ownership is proven from the universe digest");
 });
 
@@ -79,7 +88,11 @@ test("W2 · his clouds are chart-v1's own painting code, byte for byte, over the
   assert.match(map, /window\.SC_CLOUDS\.mapBarsToDaily\(times, S\.cloudRows, kind\)/);
   assert.match(fn(live, "readClouds"), /window\.SC_CLOUDS\.dailyRows\(pts\)/, "the rows are station-clouds.js's own");
   assert.match(fn(live, "readClouds"), /filter\(\(b\) => !b\.forming\)/, "completed daily closes only");
-  assert.match(live, /drawCloudRibbon\(ctx, \{ map:cloudMap, start:first, end:last, X, Y, smooth:!CLOUD_STEPS,/);
+  /* W13 restated: the ribbon is still drawCloudRibbon over the bars on screen with his smooth / steps choice - handed its geometry by draw()
+     and painted by ribbonPaint (in the worker, from this page's own function text, or here) */
+  assert.match(live, /if \(cloudMap\) paintClouds\(ctx, cloudMap, \{ start:first, end:last, right, spacing:S\.spacing, plotW, priceBottom, padT, priceH, yLo, yHi, smooth:!CLOUD_STEPS,/);
+  assert.match(fn(live, "ribbonPaint"), /drawCloudRibbon\(ctx, \{ map:d\.map, start:d\.start, end:d\.end, X, Y, smooth:d\.smooth, scale:d\.scale \}\);/);
+  assert.match(fn(live, "ribbonWorker"), /cloudLineInk\.toString\(\), drawCloudRibbon\.toString\(\), ribbonPaint\.toString\(\),/, "the worker runs this page's own text");
   /* the switch: station.clouds as chart-v1 reads it; the deck's { sc:"chart", clouds } message; no write inside the deck */
   assert.match(live, /let CLOUDS_ON = QS\.has\("clouds"\) \? QS\.get\("clouds"\) !== "0" : lsGet\(CLOUD_STATE_KEY\) !== "0";/);
   assert.match(fn(live, "setClouds"), /if \(!BARE\) \{ try \{ localStorage\.setItem\(CLOUD_STATE_KEY, CLOUDS_ON \? "1" : "0"\); \} catch \(_\) \{\} \}/);
