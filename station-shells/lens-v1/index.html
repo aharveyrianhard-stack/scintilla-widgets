@@ -256,7 +256,9 @@ function paintCells(first) {
     if (d.className !== cls) d.className = cls; if (d.lastChild.textContent !== txt) d.lastChild.textContent = txt; d.firstChild.style.setProperty("--rv", Math.round(Math.min(1, (r || 0) / 3) * 100) + "%");
   }
   /* W7: the number lens (advance / decline from the volume feed's breadth) */
-  for (const d of el("set").querySelectorAll(".lens .num")) { const b = S.breadth; if (!b) continue; d.firstChild.textContent = b.adv != null ? b.adv.toLocaleString("en-US") + " / " + b.dec.toLocaleString("en-US") : "—"; d.children[1].textContent = b.ratio != null ? "ratio " + b.ratio.toFixed(2) + (b.upDollarBn != null ? " · $" + b.upDollarBn + "bn up / $" + b.downDollarBn + "bn down" : "") : ""; d.firstChild.style.color = b.ratio == null ? "" : b.ratio >= 1 ? "var(--bull)" : "var(--bear)"; }
+  for (const d of el("set").querySelectorAll(".lens .num")) { const b = S.breadth;
+    /* measured 23 Oct 00:03 ET: the feed's breadth is null once the market is closed - said, not left as a dash */
+    if (!b) { if (S.breadthNone) { d.children[1].textContent = "no breadth while the market is " + (S.breadthState || "closed"); } continue; } d.firstChild.textContent = b.adv != null ? b.adv.toLocaleString("en-US") + " / " + b.dec.toLocaleString("en-US") : "—"; d.children[1].textContent = b.ratio != null ? "ratio " + b.ratio.toFixed(2) + (b.upDollarBn != null ? " · $" + b.upDollarBn + "bn up / $" + b.downDollarBn + "bn down" : "") : ""; d.firstChild.style.color = b.ratio == null ? "" : b.ratio >= 1 ? "var(--bull)" : "var(--bear)"; }
 }
 /* the day's colour for the oval: the quote's sign; without a quote, the last candle against the one before */
 function dayOf(t, bars) { const q = S.quotes.get(t); if (q && q.pct != null) return q.pct >= 0 ? "up" : "down"; if (bars.length >= 2) return bars[bars.length - 1].c >= bars[bars.length - 2].c ? "up" : "down"; return null; }
@@ -361,7 +363,7 @@ async function readRvol() {
 }
 async function readBreadth() {
   if (!names().some((t) => NUMBER_LENS[t]) || S.busyBr) return; S.busyBr = true;
-  try { const r = await fetch(BREADTH_FEED, { cache: "no-store" }); const j = await r.json(); if (j && j.breadth) { S.breadth = j.breadth; S.breadthAt = Date.now(); paintCells(false); } }
+  try { const r = await fetch(BREADTH_FEED, { cache: "no-store" }); const j = await r.json(); S.breadthAt = Date.now(); S.breadthState = j && j.marketState || ""; if (j && j.breadth) S.breadth = j.breadth; else S.breadthNone = true; paintCells(false); }
   catch (_) {} finally { S.busyBr = false; }
 }
 async function readQuotes() {
@@ -432,7 +434,7 @@ addEventListener("message", (e) => {
   if (e.data.type === "SCINTILLA_LENS_ROWS") { const r = Math.max(1, Math.min(6, +e.data.rows || 1)); if (r !== ROWS) { ROWS = r; paintSet(); } return; }
   if (e.data.type === "SCINTILLA_RVOL_WANT") { WANTED = Array.from(new Set((e.data.names || []).map(CLEAN).filter(Boolean))).slice(0, 200); S.rvolAt = 0; readRvol(); }
 });
-window.__lens = { style: () => STYLE, rows: () => ROWS, rvol: () => Object.fromEntries(S.rvol), newest: () => Object.fromEntries([...S.bars].map(([t, e]) => [t, e.bars && e.bars.length ? e.bars[e.bars.length - 1].t : null])), quotes: () => Object.fromEntries([...S.quotes].map(([t, q]) => [t, q.price])), at: () => ({ bars: S.barsAt, quotes: S.quotesAt, lastCloseRead }), list: () => LIST, names, tf: LENS_TF, bars: LENS_BARS };
+window.__lens = { style: () => STYLE, rows: () => ROWS, rvol: () => Object.fromEntries(S.rvol), breadth: () => S.breadth, newest: () => Object.fromEntries([...S.bars].map(([t, e]) => [t, e.bars && e.bars.length ? e.bars[e.bars.length - 1].t : null])), quotes: () => Object.fromEntries([...S.quotes].map(([t, q]) => [t, q.price])), at: () => ({ bars: S.barsAt, quotes: S.quotesAt, lastCloseRead }), list: () => LIST, names, tf: LENS_TF, bars: LENS_BARS };
 /* the lenses re-fit to their box (the deck resizes the pane) */
 let raf = 0; const nudge = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; drawAll(); if (TAPE) runTape(); }); };
 if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentElement);
