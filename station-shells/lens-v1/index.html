@@ -69,13 +69,19 @@ body.tape #set:hover .track.run{ animation-play-state:paused; }
    ticker and price, the RVol battery beside them, the chart under; the tape in ROWS (the deck says how many fit the band), each row its own track */
 body.tape #set{ display:flex; flex-direction:column; gap:1px; }
 body.tape .trackwin{ position:relative; flex:1 1 0; min-height:0; overflow:hidden; }
-body.tape .track{ height:100%; }
-body.tape .lens{ flex:none; width:var(--lens-w, 170px); height:100%; }
-body.tape .lens .head{ padding:5px 7px 0; gap:6px; flex-wrap:wrap; row-gap:1px; } body.tape .lens .tk, body.tape .lens .px{ font-size:12px; } body.tape .lens .pc{ font-size:11px; }
-body.tape .lens .rv{ display:inline-flex; align-items:center; gap:4px; margin-left:auto; } body.tape .lens .rv i{ display:block; width:26px; height:6px; border-radius:2px; background:#15151d; position:relative; overflow:hidden; }
-body.tape .lens .rv i::after{ content:""; position:absolute; left:0; top:0; bottom:0; width:var(--rv, 0%); background:var(--crk); } body.tape .lens .rv.hot i::after{ background:#FF8A00; } body.tape .lens .rv.cold i::after{ background:var(--dim); }
-body.tape .lens .rv em{ font-style:normal; font-size:10px; color:var(--ink3); font-variant-numeric:tabular-nums; } body.tape .lens .rv.hot em{ color:#FF8A00; }
-body.tape .lens .nm{ padding:0 7px; }
+body.tape .track{ height:100%; gap:6px; background:var(--bg); }   /* W10: a clear gap between neighbours */
+body.tape .lens{ flex:none; width:var(--lens-w, 170px); height:100%; background:var(--panel2); }
+body.tape .lens .head{ padding:5px 9px 0; gap:6px; flex-wrap:wrap; row-gap:1px; } body.tape .lens .tk, body.tape .lens .px{ font-size:12px; } body.tape .lens .pc{ font-size:11px; }
+/* W10 (Alan: "put it as in the thermometer bar … sideways … on top of the line"): the RVol is the volume panel's tube laid flat, just above the
+   chart - the dark tube, its 1x and 2x ticks, the meter's gradient fill to the multiple (3x the end), the multiple beside it */
+body.tape .lens .rv{ display:flex; align-items:center; gap:5px; margin:3px 9px 0; }
+body.tape .lens .rv i{ display:block; flex:1 1 0; height:6px; border-radius:3px; background:#1d1d1b; border:1px solid #33332f; position:relative; overflow:hidden; }
+body.tape .lens .rv i::before{ content:""; position:absolute; inset:0; z-index:1; opacity:.7; background:linear-gradient(#8c8b83,#8c8b83) 33% 0 / 1px 100% no-repeat, linear-gradient(#8c8b83,#8c8b83) 66% 0 / 1px 100% no-repeat; }
+body.tape .lens .rv i::after{ content:""; position:absolute; left:0; top:0; bottom:0; width:var(--rv, 0%); background:linear-gradient(90deg, #3987e5, #fab219 55%, #ec835a); transition:width .8s; }
+body.tape .lens .rv em{ font-style:normal; font-size:9.5px; color:var(--ink3); font-variant-numeric:tabular-nums; min-width:26px; text-align:right; } body.tape .lens .rv.hot em{ color:#ec835a; }
+body.tape .lens .nm{ padding:0 9px; }
+/* W10 (Alan: "bring the bars and the chart a little bit tighter into the center"): the chart inset from the cell's sides and foot */
+body.tape .lens canvas{ margin:2px 10px 7px; width:calc(100% - 20px); }
 body.tape .lens .num{ position:absolute; left:0; right:0; top:46px; bottom:4px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:12px; color:var(--ink2); font-variant-numeric:tabular-nums; }
 body.tape .lens .num b{ font-size:20px; color:var(--ink); } body.tape .lens .num small{ color:var(--mute); font-size:8px; letter-spacing:.12em; text-transform:uppercase; }
 body.tape #style{ display:flex; gap:2px; margin-top:4px; } body.tape #style .chip{ flex:1; text-align:center; padding:2px 4px; font-size:8px; }
@@ -204,15 +210,21 @@ el("add").addEventListener("keydown", async (e) => {
 /* ---- the set ---- */
 const price = (p) => p == null ? "—" : p >= 1000 ? Math.round(p).toLocaleString("en-US") : p >= 100 ? p.toFixed(2) : p.toFixed(2);
 const pct = (c) => c == null ? "" : (c >= 0 ? "+" : "") + c.toFixed(2) + "%";
-function paintSet() {
-  const box = el("set"); const list = names(); box.innerHTML = "";
+let SET_KEY = "";
+function paintSet(force) {
+  const box = el("set"); const list = names();
+  /* W10 (Alan: "why are the context lens and the ticker tape jumpy?"): a list read that brings the same names back does not rebuild the tape -
+     the cells are updated in place; only a changed list, a changed row count or a changed style rebuilds */
+  const key = LIST + "|" + ROWS + "|" + list.join(",");
+  if (!force && key === SET_KEY && box.firstChild) return;
+  SET_KEY = key; box.innerHTML = "";
   if (!list.length) { box.innerHTML = '<div class="msg">' + (LIST === "mine" ? "no picks yet · type a ticker above and press Enter" : LIST === "radar" && !radarAt ? "reading the radar list…" : "nothing on this list") + "</div>"; return; }
   let host = box; const hosts = [];
   if (TAPE) { for (let r = 0; r < ROWS; r++) { const win = document.createElement("div"); win.className = "trackwin"; const tr = document.createElement("div"); tr.className = "track"; win.appendChild(tr); box.appendChild(win); hosts.push(tr); } host = hosts[0]; }
   list.forEach((t, i) => {
     if (TAPE) host = hosts[i % ROWS];   /* the names dealt round the rows */
     const d = document.createElement("div"); d.className = "lens"; d.dataset.t = t; d.setAttribute("role", "listitem");
-    d.innerHTML = '<div class="head"><span class="tk"></span><span class="px">—</span><span class="pc"></span>' + (TAPE ? '<span class="rv" title="relative volume: this name\'s pace against its usual day (the Hub\'s RVol)"><i></i><em>—</em></span>' : "") + '</div>' + (TAPE ? '<span class="nm"></span>' : "") + (NUMBER_LENS[t] ? '<div class="num"><b>—</b><span></span><small>advancers / decliners</small></div>' : '<canvas></canvas>') + '<span class="why"></span><button type="button" class="rm" title="remove from MINE">×</button>';
+    d.innerHTML = '<div class="head"><span class="tk"></span><span class="px">—</span><span class="pc"></span></div>' + (TAPE ? '<span class="nm"></span><span class="rv" title="relative volume: this name\'s pace against its usual day (the Hub\'s RVol) - the tube, 3× the end"><i></i><em>—</em></span>' : "") + (NUMBER_LENS[t] ? '<div class="num"><b>—</b><span></span><small>advancers / decliners</small></div>' : '<canvas></canvas>') + '<span class="why"></span><button type="button" class="rm" title="remove from MINE">×</button>';
     d.querySelector(".tk").textContent = t === "ADVDEC" ? "ADV/DEC" : t;
     if (TAPE && NAMES[t]) d.querySelector(".nm").textContent = NAMES[t];
     d.addEventListener("click", (e) => { if (e.target.closest(".rm")) return; try { parent.postMessage({ type: "SCINTILLA_LENS_OPEN", ticker: t }, location.origin); } catch (_) {} });
@@ -225,18 +237,26 @@ function paintSet() {
 }
 function paintStyle() { const s = el("style"); if (!s) return; s.hidden = !TAPE; for (const b of s.querySelectorAll("button")) { b.classList.toggle("on", b.dataset.style === STYLE); b.setAttribute("aria-pressed", b.dataset.style === STYLE ? "true" : "false"); } }
 el("style").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b || b.dataset.style === STYLE) return; STYLE = styleOf(b.dataset.style); remember(STYLE_KEY, STYLE); paintStyle(); drawAll(); });
+/* for the harness: the tape's state */
+window.__tape = { setKey: () => SET_KEY, tracks: () => [...document.querySelectorAll(".track")].map((t) => ({ fit: t.dataset.fit, run: t.classList.contains("run"), duration: t.style.animationDuration })) };
 paintStyle();
 /* W1C: one length of lenses wider than the window → the track is doubled and runs at 45 px a second, whatever its length;
    a list that fits stands still (the deck's runTape rule) */
 function runTape() {
   const box = el("set"); let any = false;
   for (const track of box.querySelectorAll(".track")) {
+    const win = track.parentElement.clientWidth;
+    const originals = track.querySelectorAll('.lens:not([aria-hidden="true"])').length;
+    const one = track.classList.contains("run") ? track.scrollWidth / 2 : track.scrollWidth;
+    const mark = originals + ":" + win + ":" + (one > win ? "run" : "still");
+    if (track.dataset.fit === mark) continue;   /* W10: the same run - never restarted (a restart is the jump) */
+    track.dataset.fit = mark;
     for (const copy of track.querySelectorAll('.lens[aria-hidden="true"]')) copy.remove();
     track.classList.remove("run"); track.style.animationDuration = "";
-    const one = track.scrollWidth, win = track.parentElement.clientWidth;
-    if (!one || one <= win) continue;
+    const len = track.scrollWidth;
+    if (!len || len <= win) continue;
     for (const d of Array.from(track.children)) { const c = d.cloneNode(true); c.setAttribute("aria-hidden", "true"); c.tabIndex = -1; track.appendChild(c); }
-    track.style.animationDuration = (one / TAPE_SPEED_PX_S).toFixed(2) + "s";
+    track.style.animationDuration = (len / TAPE_SPEED_PX_S).toFixed(2) + "s";
     track.classList.add("run"); any = true;
   }
   if (any) drawAll();
@@ -431,7 +451,7 @@ async function tick(now) {
 /* W7: the deck says how many rows its band holds */
 addEventListener("message", (e) => {
   if (e.origin !== location.origin || !e.data) return;
-  if (e.data.type === "SCINTILLA_LENS_ROWS") { const r = Math.max(1, Math.min(6, +e.data.rows || 1)); if (r !== ROWS) { ROWS = r; paintSet(); } return; }
+  if (e.data.type === "SCINTILLA_LENS_ROWS") { const r = Math.max(1, Math.min(6, +e.data.rows || 1)); if (r !== ROWS) { ROWS = r; paintSet(true); } return; }
   if (e.data.type === "SCINTILLA_RVOL_WANT") { WANTED = Array.from(new Set((e.data.names || []).map(CLEAN).filter(Boolean))).slice(0, 200); S.rvolAt = 0; readRvol(); }
 });
 window.__lens = { style: () => STYLE, rows: () => ROWS, rvol: () => Object.fromEntries(S.rvol), breadth: () => S.breadth, newest: () => Object.fromEntries([...S.bars].map(([t, e]) => [t, e.bars && e.bars.length ? e.bars[e.bars.length - 1].t : null])), quotes: () => Object.fromEntries([...S.quotes].map(([t, q]) => [t, q.price])), at: () => ({ bars: S.barsAt, quotes: S.quotesAt, lastCloseRead }), list: () => LIST, names, tf: LENS_TF, bars: LENS_BARS };
