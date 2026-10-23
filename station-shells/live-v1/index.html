@@ -124,6 +124,18 @@ body.sync #strip .sym{ display:inline-block; }
 #rv.glow i{ border-color:#ec835a; box-shadow:0 0 .45em #ec835a, 0 0 1em rgba(236,131,90,.6); }
 #rv.glow em{ color:#ec835a; text-shadow:0 0 .4em #ec835a; }
 #rv{ transform-origin:left center; }
+/* THE GEIGER BAR at the foot of the chart: the Station's own (SC_GEIGER_BAR model + fillStyle, the tapes' reading) - green at or above
+   zero, red below, the fill from the centre, |reading| 1 = half the track; no reading, an empty track (never a zero) */
+#geiger{ flex:none; height:calc(var(--hd) * .66); display:flex; align-items:center; gap:.7em; padding:0 8px; background:var(--panel2);
+  border-top:1px solid var(--line); font-size:calc(var(--hd) * .36); white-space:nowrap; }
+#geiger .k{ color:var(--mute); letter-spacing:.14em; font-size:.8em; }
+#geiger .gbar{ position:relative; flex:1 1 0; height:calc(var(--hd) * .26); border-radius:2px; background:#15151d; overflow:hidden; }
+#geiger .gbar::before{ content:""; position:absolute; left:calc(50% - 1px); top:0; bottom:0; width:2px; background:#05060c; z-index:2; }
+#geiger .gbar i{ position:absolute; top:0; bottom:0; border-radius:2px; background:currentColor; display:block; }
+#geiger .gv{ min-width:3.6em; text-align:right; font-weight:700; font-variant-numeric:tabular-nums; color:var(--dim); }
+#geiger[data-side="up"] .gbar, #geiger[data-side="up"] .gv{ color:var(--bull); }
+#geiger[data-side="down"] .gbar, #geiger[data-side="down"] .gv{ color:var(--bear); }
+#geiger[data-stale="1"] .gbar, #geiger[data-stale="1"] .gv{ opacity:.45; }
 </style>
 </head>
 <body>
@@ -144,9 +156,12 @@ body.sync #strip .sym{ display:inline-block; }
   <div id="readout"></div>
   <div id="msg">loading</div>
 </div>
+<div id="geiger" role="img"><span class="k">GEIGER</span><span class="gbar"><i></i></span><span class="gv">—</span></div>
 <script src="/_provider/provider.js"></script>
 <!-- His clouds: the arithmetic and geometry chart-v1 uses, unchanged (pure functions; reads no data, draws nothing). -->
 <script src="/_indicators/station-clouds.js"></script>
+<!-- W13: the Station's Geiger bar - its model and fill, the same pure functions the deck's tapes and chart-v1's chip use. -->
+<script src="/_indicators/station-geiger-bar.js"></script>
 <script>
 /* ONE SOURCE (2026-09-22): no database client here. Every bar and price comes from the chart API through SC_PROVIDER. */
 try { scBindProviderClient(); } catch (_) {}
@@ -525,6 +540,8 @@ async function loadAll() {
   readClouds();
   scheduleBars();
   readHub();
+  if (!sameChart && !GEIGER.fromDeck) GEIGER.readings = {};
+  pullGeiger();
   paintStrip();
 }
 /* A failure in words (W5: "it must not fail" - it may fail, but it says so and keeps trying). Pure. */
@@ -1311,6 +1328,35 @@ function usualStale(date, now) {
   return !Number.isFinite(t) || Math.floor(((Number.isFinite(now) ? now : Date.now()) - t) / 86400000) > HUB_MS.usualStaleDays;
 }
 
+/* ---- W13: THE GEIGER BAR - where its reading comes from ------------------------------------------------------------------------
+   Inside the deck: the deck reads every chart's reading once per page change or minute and posts the map ({ sc:"deck-geiger" }, the message
+   chart-v1 takes) - taken here the same way, for every name it carries (non-equities included: the deck reads their retained row).
+   Anywhere else (pair-v1, on its own): this chart reads its one name once a minute through the provider client's light read,
+   SC_PROVIDER.equityGeigerOne - the chart API's /geiger under the saved Equalizer, the owner the deck's tapes read for equities. A futures,
+   VIX or rates chart outside the deck has no reader for its retained row: an empty track, never a zero. */
+const GEIGER = { readings:{}, fromDeck:false, pulling:false, at:0 };
+async function pullGeiger() {
+  const B = window.SC_GEIGER_BAR, P = window.SC_PROVIDER, sym = SYMBOL;
+  if (GEIGER.fromDeck || GEIGER.pulling || !B || !P || typeof P.equityGeigerOne !== "function") { paintGeiger(); return; }
+  GEIGER.pulling = true;
+  try { const rows = await P.equityGeigerOne(sym); if (!GEIGER.fromDeck && sym === SYMBOL) GEIGER.readings = B.readingsFrom(rows, "PROVIDER_EQUALIZER"); }
+  catch (_) { if (!GEIGER.fromDeck) GEIGER.readings = {}; }   /* a failed or refused read is no reading: the bar empties, it never keeps an unaccepted number */
+  finally { GEIGER.pulling = false; GEIGER.at = Date.now(); }
+  paintGeiger();
+}
+setInterval(() => { if (!GEIGER.fromDeck && !document.hidden) pullGeiger(); else paintGeiger(); }, 60000);
+function paintGeiger() {
+  const B = window.SC_GEIGER_BAR, box = el("geiger");
+  const m = B ? B.model(GEIGER.readings[SYMBOL], Date.now()) : null;
+  box.dataset.side = m ? m.side : ""; box.dataset.stale = m && m.stale ? "1" : "0";
+  const fill = m ? B.fillStyle(m) : "", i = box.querySelector("i");
+  if ((i.getAttribute("style") || "") !== fill) i.setAttribute("style", fill);
+  const gv = box.querySelector(".gv"), text = m ? m.text : "—";
+  if (gv.textContent !== text) gv.textContent = text;
+  box.title = m ? m.title : "Geiger — no reading for " + SYMBOL + (GEIGER.fromDeck ? " in the deck's map" : " here (on its own a chart reads equities only; the deck carries the rest)");
+  box.setAttribute("aria-label", m ? "Geiger composite " + m.text + (m.stale ? ", older than usual" : "") : "Geiger, no reading");
+}
+
 /* ---- W13: the header - the ticker and the day % big, the price beside them, the RVol tube, and what is unusual, flashing --------
    FLASHES, the rules W12 uses on the lenses, the tapes and the volume panel: the day % at least 2x the name's usual day (the Hub's own bar,
    SC_HB_X_UNUSUAL = 2, "about 1 day in 20"); RVol at least 2x. One bright pulse when it starts, a steady glow while it holds, and the words
@@ -1450,6 +1496,8 @@ el("srcTv").addEventListener("click", () => { if (window.parent === window) retu
 addEventListener("message", (e) => {
   if (e.origin !== location.origin || !e.data) return;
   const d = e.data;
+  /* W13: the deck's Geiger map, as chart-v1 takes it - from then on this chart reads none of its own */
+  if (d.sc === "deck-geiger") { GEIGER.fromDeck = true; GEIGER.readings = d.readings && typeof d.readings === "object" ? d.readings : {}; paintGeiger(); return; }
   if (d.sc === "chart") {
     if (typeof d.clouds === "boolean") setClouds(d.clouds);
     if (typeof d.steps === "boolean") { CLOUD_STEPS = d.steps; draw(); }
@@ -1567,7 +1615,9 @@ window.SC_LIVE = Object.freeze({
     ribbon:{ shown:S.ribbonShown || null, worker:!!RIBBON.worker, failed:RIBBON.failed, asked:RIBBON.asked, got:RIBBON.got, paintedHere:RIBBON.paintedHere },
     header:{ day:el("day").textContent, px:el("px").textContent, rvol:HUBN.sym === SYMBOL ? HUBN.rvol : null, rvolText:el("rv").lastChild.textContent,
       usual:HUBN.sym === SYMBOL ? HUBN.usual : null, usualDate:HUBN.usualDate, unusual:(S.unusual || []).slice(), why:el("why").textContent,
-      flashing:{ day:FLASHING.day, rvol:FLASHING.rvol }, pulses:FLASHING.pulses, fontPx:parseFloat(getComputedStyle(el("day")).fontSize) || null } }),
+      flashing:{ day:FLASHING.day, rvol:FLASHING.rvol }, pulses:FLASHING.pulses, fontPx:parseFloat(getComputedStyle(el("day")).fontSize) || null },
+    geiger:{ text:document.querySelector("#geiger .gv").textContent, side:el("geiger").dataset.side || null, stale:el("geiger").dataset.stale === "1",
+      fromDeck:GEIGER.fromDeck, fill:document.querySelector("#geiger i").getAttribute("style") || "" } }),
   xOf: (i) => S.plot ? S.plot.X(i) : null,
   POLL
 });
