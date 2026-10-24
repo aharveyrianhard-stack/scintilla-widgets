@@ -71,14 +71,20 @@ test("W12 · the volume panel is its graph; everything else small icon badges; n
 test("W12 · the phone Station: one column, no X - the lenses, the volume panel, YouTube stacked; fixed shares; Add to Home Screen ready", () => {
   assert.match(phone, /<meta name="apple-mobile-web-app-capable" content="yes">/); assert.match(phone, /<link rel="apple-touch-icon" href="\/phone\/icon\.png">/); assert.match(phone, /<link rel="manifest" href="\/phone\/manifest\.webmanifest">/); assert.match(phone, /viewport-fit=cover/);
   assert.match(phone, /<title>Station · phone<\/title>/);
-  assert.match(phone, /<section id="lenses"[^>]*><iframe src="\/station-shells\/lens-v1\/\?shell=v1&mode=tape&rows=2&touch=1&view=phone"/, "W12B: the wall's tape - RADAR a row, MACRO a row");
+  assert.match(phone, /<section id="lenses"[^>]*><iframe src="\/station-shells\/lens-v1\/\?shell=v1&mode=tape&rows=1&touch=1&view=phone"/, "W12C: one running row - RADAR then MACRO");
   assert.match(phone, /<section id="volume"[^>]*><iframe src="\/station-shells\/volume-v1\/\?shell=v1&touch=1&view=phone"/);
   assert.match(phone, /<section id="video"[^>]*><iframe src="\/station-shells\/scintilla-video-v1\/\?shell=v1&feed=scintilla&cols=2&stack=1&view=phone"/);
   assert.doesNotMatch(phone, /pane-x|x-bridge|\/x\//, "no X on the phone");
-  /* W12B: the first screen is the head, the lens tape and the volume panel; YouTube under it, the page scrolls */
-  assert.match(phone, /#first\{ height:var\(--screen-h, 100vh\); display:grid; grid-template-rows:auto minmax\(0,1fr\) var\(--vol-h, 36vh\); \}/, "the first screen's three fixed rows");
-  assert.match(phone, /#video\{ height:calc\(32px \+ 56\.25vw \+ 260px\);/, "the YouTube block's height is the bar, the 16:9 player and the feed - whatever plays");
-  assert.match(phone, /document\.documentElement\.style\.setProperty\("--vol-h", Math\.max\(220, Math\.round\(h \* 0\.36\)\) \+ "px"\)/, "the volume block 36 % of the screen, at least 220 px");
+  /* W12C (Alan: "All on one screen … YouTube visible with the rest"): one screen, nothing scrolls the page - the window's height in fixed shares */
+  assert.match(phone, /html,body\{ margin:0; height:100%;[^}]*overflow:hidden;/, "the page never scrolls");
+  assert.match(phone, /body\{ display:grid; grid-template-rows:auto 22fr 26fr 48fr; height:var\(--screen-h, 100vh\);/, "the head, the lenses 22, the volume 26, YouTube 48 - fixed shares of the window");
+  assert.doesNotMatch(phone, /id="first"|#video\{ height:calc|--vol-h/, "no first screen with YouTube under it any more");
+  assert.match(phone, /document\.documentElement\.style\.setProperty\("--screen-h", innerHeight \+ "px"\)/, "the window's own height on iOS");
+  /* the lens shell's phone bar: one row, the set's first cell marked clear of the ticker */
+  assert.match(lens, /body\.tape\.touch #bar\{ flex-wrap:nowrap;/); assert.match(lens, /body\.tape\.touch #chips \.chip small\{ display:none; \}/); assert.match(lens, /body\.tape\.touch #style\{ display:none !important; \}/);
+  assert.match(lens, /body\.tape\.touch \.trackwin::before\{ display:none; \}/, "the label over the first cell's ticker is gone on the phone");
+  assert.match(lens, /body\.tape\.touch \.lens\.setfirst::after\{ content:attr\(data-set\); position:absolute; left:6px; bottom:4px;/, "the set's name at the first cell's foot");
+  assert.match(fn(lens, "paintSet"), /if \(!seen\.has\("first\|" \+ setName\)\) \{ seen\.add\("first\|" \+ setName\); d\.classList\.add\("setfirst"\); \}/);
   assert.ok(fs.existsSync(new URL("../phone/icon.png", import.meta.url)), "the icon"); assert.match(read("../phone/manifest.webmanifest"), /"display": "standalone"/);
   /* the video shells' one column */
   assert.equal(shells["personal-video-v1"], shells["scintilla-video-v1"], "byte-identical twins");
