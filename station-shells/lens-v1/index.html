@@ -128,7 +128,19 @@ body.tape.touch #style{ margin:0; } body.tape.touch #style .chip{ font-size:9px;
 body.tape.touch #note{ display:none; } body.tape.touch:not([data-list="mine"]) #add{ display:none; }   /* the add box only when MINE is open */
 body.tape.touch .lens{ width:var(--lens-w, 200px); } body.tape.touch .lens .tk, body.tape.touch .lens .px{ font-size:15px; } body.tape.touch .lens .pc{ font-size:13px; }
 body.tape.touch .lens .rv em{ font-size:11px; } body.tape.touch .lens .nm{ font-size:8.5px; } body.tape.touch .lens .un{ font-size:8px; }
-body.tape.touch .trackwin::before{ font-size:9px; padding:2px 6px; }
+/* W12C (Alan on the live phone: "All on one screen. Context lenses take one row"): ONE slim bar - the set chips and the TF chips in one row (the
+   counts, the LENSES word, BARS/LINE and the add box drop on the phone); the lenses one running row, RADAR then MACRO, each set's first cell
+   marked with its name at the cell's foot (never over the ticker or the price); the row label at the edge is gone there */
+body.tape.touch .trackwin::before{ display:none; }
+body.tape.touch #bar{ flex-wrap:nowrap; gap:4px; padding:4px 6px; overflow-x:auto; scrollbar-width:none; min-height:0; } body.tape.touch #bar::-webkit-scrollbar{ display:none; }
+body.tape.touch #bar .k{ display:none; } body.tape.touch #style{ display:none !important; } body.tape.touch #add{ display:none !important; }
+body.tape.touch #chips{ gap:3px; flex:none; } body.tape.touch #chips .chip{ padding:5px 7px; font-size:10px; } body.tape.touch #chips .chip small{ display:none; }
+body.tape.touch #tf{ flex:1 1 auto; margin-left:4px; gap:3px; } body.tape.touch #tf .chip{ flex:1 1 0; padding:5px 3px; font-size:9.5px; letter-spacing:.02em; min-width:0; }
+body.tape.touch .lens{ width:var(--lens-w, 180px); }
+body.tape.touch .lens.setfirst{ border-left:2px solid var(--crk); } body.tape.touch .lens.setfirst[data-set="macro"]{ border-left-color:var(--warm); }
+body.tape.touch .lens.setfirst::after{ content:attr(data-set); position:absolute; left:6px; bottom:4px; font-size:8px; letter-spacing:.14em; text-transform:uppercase; color:var(--crk); background:rgba(10,10,15,.88); padding:1px 4px; pointer-events:none; z-index:1; }
+body.tape.touch .lens.setfirst[data-set="macro"]::after{ color:var(--warm); }
+body.tape.touch .lens .why{ left:auto; right:9px; bottom:14px; }
 body.tape .lens .nm{ display:block; color:var(--mute); font-size:7.5px; letter-spacing:.1em; text-transform:uppercase; padding:0 6px; line-height:1.1; }
 body.tape .lens .nm:empty{ display:none; }
 body.tape #add{ display:block; width:100%; margin:4px 0 0; font-size:9px; padding:3px 5px; }
@@ -326,6 +338,7 @@ function paintSet(force) {
     d.innerHTML = '<div class="head"><span class="tk"></span><span class="px">—</span><span class="pc"></span></div>' + ('<span class="nm"></span><span class="rv" title="relative volume: this name\'s pace against its usual day (the Hub\'s RVol) - the tube, 3× the end"><i></i><em>—</em></span>') + (NUMBER_LENS[t] ? '<div class="num"><b>—</b><span></span><small>advancers / decliners</small></div>' : '<canvas></canvas>') + '<span class="why"></span><span class="un"></span><button type="button" class="rm" title="remove from MINE">×</button>';
     d.querySelector(".tk").textContent = t === "ADVDEC" ? "ADV/DEC" : t;
     if (NAMES[t]) d.querySelector(".nm").textContent = NAMES[t]; else if (TAPE && !rowsForSets(ROWS, sets().map(() => 1))) d.querySelector(".nm").textContent = setName;
+    if (!seen.has("first|" + setName)) { seen.add("first|" + setName); d.classList.add("setfirst"); }   /* W12C: the set's first cell carries its name */
     if (setName !== "mine") d.querySelector(".rm").hidden = true;
     d.addEventListener("click", (e) => { if (e.target.closest(".rm")) return; try { parent.postMessage({ type: "SCINTILLA_LENS_OPEN", ticker: t }, location.origin); } catch (_) {} });
     d.querySelector(".rm").addEventListener("click", async () => { MINE = mineRemove(MINE, t); remember(MINE_KEY, JSON.stringify(MINE)); paintChips(); paintSet();
