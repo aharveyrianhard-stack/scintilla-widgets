@@ -256,7 +256,10 @@ test("the mounted video shells and /pane-video: saved-or-not is only claimed fro
     /* starHTML: unknown is a said state, never painted as "unsaved". */
     const mk = (bind) => fnFromSource(src, "starHTML", Object.assign({ esc: (s) => String(s) }, bind));
     const v = { video_id: "vidX" };
-    assert.equal(mk({ FEED: "personal" })(v), "", name + ": no star lane outside the scintilla feed");
+    /* restated 26 Oct (coordinator): the shell draws the star on every feed (one shared Watch Later list; Alan "I don't think I even see the
+       stars anymore" with the wall on PERSONAL); /pane-video keeps its scintilla-only lane */
+    if (name === "shell") assert.match(mk({ FEED: "personal", WATCH_READY: true, WATCH: new Set() })(v), /☆/, name + ": the star on the personal feed too");
+    else assert.equal(mk({ FEED: "personal" })(v), "", name + ": no star lane outside the scintilla feed");
     const unknownFailed = mk({ FEED: "scintilla", WATCH_READY: false, WATCH_ERROR: "x", WATCH: new Set() })(v);
     assert.match(unknownFailed, /star unk/, name);
     assert.match(unknownFailed, /watch-later state unknown — the saved-list read failed · a click retries the read/, name);

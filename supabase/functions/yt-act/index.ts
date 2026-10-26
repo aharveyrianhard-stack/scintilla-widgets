@@ -336,56 +336,47 @@ Deno.serve(async (req) => {
     return J({ ok: true, account, ids: listed.ids });
   }
 
+  /* 26 Oct 2026 (coordinator) - Alan: "the watch later for station YouTube it's been a long time since I've been able to put something …
+     when I did see them, it would bring an error." The Personal YouTube sign-in answers invalid_grant since 30 Sep, and a star counted only
+     once Google had taken it, so nothing was saved after 29 Sep. Now Watch Later is the project's own list FIRST (yt_watch_later + the
+     cross-device cache, what the Station and the Hub read): the star saves there at once; the copy into the YouTube playlist follows when
+     the sign-in works and is said in the answer (youtube: "synced" | "not synced") - a lost YouTube copy never loses the save. */
+  if (action === "star" || action === "unstar") {
+    const videoId = String(input.videoId || "");
+    if (!/^[A-Za-z0-9_-]{6,20}$/.test(videoId)) return J({ error: "no videoId" });
+    const include = action === "star";
+    await updateWatchCache(sb, videoId, include);
+    const auth = await accessToken(sb, account);
+    if (!auth.token) {
+      return J({ ok: true, saved: include, account, youtube: "not synced", reason: auth.error, code: auth.code || null });
+    }
+    const token = auth.token;
+    try {
+      const playlist = await ensurePlaylist(sb, token);
+      if (!playlist) return J({ ok: true, saved: include, account, youtube: "not synced", reason: "no playlist" });
+      const found = await yt(token, "GET", "playlistItems?part=id&playlistId=" + playlist + "&videoId=" + videoId + "&maxResults=1");
+      const item = found.body?.items?.[0];
+      if (include) {
+        if (item) return J({ ok: true, saved: true, already: true, account, youtube: "synced" });
+        const added = await yt(token, "POST", "playlistItems?part=snippet", {
+          snippet: { playlistId: playlist, resourceId: { kind: "youtube#video", videoId } },
+        });
+        return J({ ok: true, saved: true, account, youtube: added.status < 300 ? "synced" : "not synced", status: added.status });
+      }
+      /* an already-complete YouTube-side removal: the shared entry was cleared above, so no stale saved entry survives */
+      if (!item) return J({ ok: true, saved: false, note: "not in playlist", account, youtube: "synced" });
+      const removed = await yt(token, "DELETE", "playlistItems?id=" + item.id);
+      return J({ ok: true, saved: false, account, youtube: removed.status < 300 ? "synced" : "not synced", status: removed.status });
+    } catch (e) {
+      return J({ ok: true, saved: include, account, youtube: "not synced", reason: String((e as Error)?.message || e).slice(0, 120) });
+    }
+  }
+
   const auth = await accessToken(sb, account);
   if (!auth.token) {
     return J({ error: auth.error, account, status: auth.status || null, code: auth.code || null });
   }
   const token = auth.token;
-
-  if (action === "star") {
-    if (!input.videoId) return J({ error: "no videoId" });
-    const playlist = await ensurePlaylist(sb, token);
-    if (!playlist) return J({ error: "no playlist", account });
-    const existing = await yt(
-      token,
-      "GET",
-      "playlistItems?part=id&playlistId=" + playlist + "&videoId=" + input.videoId + "&maxResults=1",
-    );
-    if (existing.body?.items?.[0]) {
-      /* A previous YouTube-side save can predate the local read model. Repair
-         that harmless drift here so the next Hub/Station read agrees. */
-      await updateWatchCache(sb, input.videoId, true);
-      return J({ ok: true, already: true, account });
-    }
-    const added = await yt(token, "POST", "playlistItems?part=snippet", {
-      snippet: { playlistId: playlist, resourceId: { kind: "youtube#video", videoId: input.videoId } },
-    });
-    const ok = added.status < 300;
-    if (ok) await updateWatchCache(sb, input.videoId, true);
-    return J({ ok, status: added.status, account });
-  }
-
-  if (action === "unstar") {
-    if (!input.videoId) return J({ error: "no videoId" });
-    const playlist = await ensurePlaylist(sb, token);
-    if (!playlist) return J({ error: "no playlist", account });
-    const found = await yt(
-      token,
-      "GET",
-      "playlistItems?part=id&playlistId=" + playlist + "&videoId=" + input.videoId + "&maxResults=1",
-    );
-    const item = found.body?.items?.[0];
-    if (!item) {
-      /* Likewise, a stale local star must not survive an already-complete
-         YouTube-side removal. */
-      await updateWatchCache(sb, input.videoId, false);
-      return J({ ok: true, note: "not in playlist", account });
-    }
-    const removed = await yt(token, "DELETE", "playlistItems?id=" + item.id);
-    const ok = removed.status < 300;
-    if (ok) await updateWatchCache(sb, input.videoId, false);
-    return J({ ok, status: removed.status, account });
-  }
 
   const cacheKey = "yt_sub_channels_" + account;
   if (action === "sub") {
