@@ -1008,10 +1008,11 @@ test("visible video feeds share one durable Personal YouTube action identity", (
     "Watch Later returns the verified shared cache before an unreliable Google playlist read can delay the pane");
   assert.match(ytAction, /if \(action === "list"\) \{\s*const cached = await readWatchCache\(sb\);\s*if \(cached\) return J\([\s\S]*?const auth = await accessToken/,
     "a cached Watch Later read bypasses the Google OAuth refresh too");
-  assert.match(ytAction, /updateWatchCache\(sb, input\.videoId, true\)/,
-    "a save updates the same shared cache immediately");
-  assert.match(ytAction, /updateWatchCache\(sb, input\.videoId, false\)/,
-    "a removal updates the same shared cache immediately");
+  /* restated 26 Oct (coordinator): the save and the removal land on the shared list FIRST, before the Google sign-in is even asked - the
+     Personal sign-in answered invalid_grant from 30 Sep and nothing could be saved; the YouTube copy follows and is said (synced / not) */
+  assert.match(ytAction, /const include = action === "star";\s*await updateWatchCache\(sb, videoId, include\);\s*const auth = await accessToken/,
+    "a save or a removal updates the same shared cache immediately, before Google");
+  assert.match(ytAction, /youtube: "not synced"/, "a lost YouTube copy is said and never loses the save");
   assert.match(ytAction, /from\("yt_watch_later"\)\.upsert/,
     "a successful YouTube save updates the shared read model");
   assert.match(ytAction, /from\("yt_watch_later"\)\.delete\(\)\.eq\("video_id", videoId\)/,
