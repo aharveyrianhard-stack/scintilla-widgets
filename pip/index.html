@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Volume float">
+<meta name="theme-color" content="#0A0A0F">
+<link rel="apple-touch-icon" href="/phone/icon.png">
+<title>Station · float</title>
+<!-- 26 Oct 2026 (coordinator). Alan: "more than anything, I need, like, something that floats on the mobile devices … similar to the one that we
+     have here [the PIP on his Macs]". iOS and iPadOS float only video (picture-in-picture), so this page draws the volume meter - version D's
+     reading on the PIP's rule - on a canvas, plays the canvas as a muted video, and asks the phone to float that video over every app.
+     Data: the two public feeds of volume-pulse (heartbeat every 8 s in a session, ratios every 2 s). Writes nothing. -->
+<style>
+:root{ --bg:#0A0A0F; --ink:#E7ECF5; --ink2:#8c8b83; --cyan:#00E5FF; }
+html,body{ margin:0; min-height:100%; background:var(--bg); color:var(--ink); font:15px -apple-system, system-ui, sans-serif; -webkit-font-smoothing:antialiased; }
+body{ display:flex; flex-direction:column; align-items:center; gap:14px; box-sizing:border-box;
+  padding:calc(14px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom)); }
+h1{ margin:0; font-size:12px; letter-spacing:.22em; color:var(--cyan); font-weight:700; align-self:stretch; display:flex; justify-content:space-between; }
+h1 a{ color:var(--ink2); text-decoration:none; letter-spacing:.14em; }
+video{ width:100%; max-width:640px; aspect-ratio:4 / 3; background:#000; border-radius:14px; display:block; }
+#float{ appearance:none; border:0; border-radius:14px; background:var(--cyan); color:#05070c; font:800 22px -apple-system, system-ui, sans-serif;
+  letter-spacing:.14em; padding:16px 0; width:100%; max-width:640px; cursor:pointer; }
+#float.on{ background:#1b1d26; color:var(--cyan); }
+#note{ color:var(--ink2); font-size:14px; line-height:1.45; max-width:640px; text-align:center; }
+canvas{ display:none; }
+</style>
+</head>
+<body>
+<h1><span>STATION · FLOAT</span><a href="/phone/">phone station ›</a></h1>
+<video id="v" muted playsinline autoplay aria-label="the volume meter, live"></video>
+<button id="float" type="button">FLOAT</button>
+<div id="note">Tap FLOAT and the meter floats over every app. Drag it anywhere, pinch it bigger, swipe it to the edge to tuck it away.</div>
+<canvas id="c" width="1280" height="960"></canvas>
+<script>
+(function () {
+  "use strict";
+  var BASE = "https://volume-pulse-pied.vercel.app", HB = BASE + "/api/heartbeat", RT = BASE + "/api/ratios";
+  var W = 640, H = 480, C = document.getElementById("c"), X = C.getContext("2d"); X.scale(2, 2);
+  var COL = { cool: "#3987e5", lift: "#8fc1ff", warm: "#fab219", hot: "#ec835a" }, UP = "#3CE08A", DN = "#FF5A6E", INK = "#E7ECF5", INK2 = "#8c8b83", CYAN = "#00E5FF";
+  var FONT = "-apple-system, system-ui, 'Helvetica Neue', sans-serif";
+  var lvl = function (r) { return r == null ? "cool" : r >= 2 ? "hot" : r >= 1.5 ? "warm" : r >= 1.2 ? "lift" : "cool"; };
+  var fmtX = function (r) { return r == null ? "—" : (r >= 10 ? r.toFixed(0) : r.toFixed(1)) + "×"; };
+  var hb = null, clockBase = null, buf = {}, pairs = [], lastOk = 0;
+  var LIVE_STATES = ["open", "pre-market", "after-hours"];
+
+  /* the reading - the PIP's rule (meter.js, version D): the forming bar's pace in any live session, else the last settled bar */
+  function reading() {
+    if (!hb) return null;
+    var st = hb.marketState, F = hb.forming, L = hb.latest;
+    var live = hb.live !== false && LIVE_STATES.indexOf(st) >= 0;
+    var usePace = !!hb.live && LIVE_STATES.indexOf(st) >= 0 && F && F.pace != null;
+    return { st: st, F: F, L: L, live: live, usePace: usePace, r: usePace ? F.pace : L ? L.ratio : null };
+  }
+  function nyMinutes() { if (!clockBase) return null; return Math.floor((clockBase.sec + (performance.now() - clockBase.at) / 1000) / 60) % 1440; }
+  function session(st, m) {
+    var left = function (to) { var x = Math.max(0, to - m), h = Math.floor(x / 60), mm = x % 60; return h ? h + "h " + (mm < 10 ? "0" : "") + mm + "m" : mm + "m"; };
+    if (st === "open") return ["MARKET OPEN", "close in " + left(960)];
+    if (st === "pre-market") return ["PRE-MARKET", "open in " + left(570)];
+    if (st === "after-hours") return ["AFTER HOURS", "ends in " + left(1200)];
+    return ["CLOSED", "opens 9:30"];
+  }
+  function text(t, x, y, size, color, weight, align) { X.font = (weight || 400) + " " + size + "px " + FONT; X.fillStyle = color; X.textAlign = align || "left"; X.textBaseline = "alphabetic"; X.fillText(t, x, y); }
+
+  function draw() {
+    X.clearRect(0, 0, W, H); X.fillStyle = "#0A0A0F"; X.fillRect(0, 0, W, H);
+    var R = reading(), now = performance.now();
+    if (!R) { text("connecting…", W / 2, H / 2, 26, INK2, 600, "center"); return; }
+    var col = COL[lvl(R.r)], m = nyMinutes();
+    /* row 1: the dot (it beats while a session is live), the multiple big in its heat colour, when; the session and the New York clock */
+    var beat = R.live ? Math.max(0.6, Math.min(2.4, 1.7 / Math.max(R.r || 1, 0.6))) : 0, ph = beat ? ((now / 1000) % beat) / beat : 0;
+    var rad = 11 * (beat ? (ph < 0.18 ? 1 + ph / 0.18 * 0.45 : ph < 0.4 ? 1.45 - (ph - 0.18) / 0.22 * 0.45 : 1) : 1);
+    X.save(); X.shadowColor = R.live ? col : "transparent"; X.shadowBlur = R.live ? 16 : 0; X.fillStyle = R.live ? col : "#3a3c44";
+    X.beginPath(); X.arc(32, 82, rad, 0, Math.PI * 2); X.fill(); X.restore();
+    text(fmtX(R.r), 56, 116, 92, R.r >= 1.2 ? col : INK, 800);
+    var sub = [R.usePace ? "now " + R.F.t : R.L ? (R.live ? "bar " : "last ") + R.L.t : "", hb.dayRatio != null ? "day " + fmtX(hb.dayRatio) : ""].filter(Boolean).join(" · ");
+    text(sub, 58, 146, 20, INK2, 500);
+    var si = session(R.st, m == null ? 0 : m), stale = R.live && Date.now() - lastOk > 60000;
+    text(stale ? "RECONNECTING" : si[0], W - 20, 46, 18, stale ? "#fab219" : R.live ? CYAN : INK2, 700, "right");
+    if (m != null) text((Math.floor(m / 60) < 10 ? "0" : "") + Math.floor(m / 60) + ":" + (m % 60 < 10 ? "0" : "") + (m % 60), W - 20, 98, 46, INK, 700, "right");
+    text(si[1], W - 20, 130, 18, INK2, 500, "right");
+    /* row 2: the multiple over the last two hours, fitted to the data (a spike reaches the top), 1x dashed when in range, blocks as dots */
+    var pts = (hb.slots || []).filter(function (s) { return s.ratio != null && isFinite(s.ratio); }).slice(-24).map(function (s) { return { t: s.t, v: s.ratio }; });
+    if (R.usePace && (!pts.length || pts[pts.length - 1].t !== R.F.t)) pts.push({ t: R.F.t, v: R.F.pace, live: true });
+    var gx = 20, gy = 166, gw = W - 40 - 34, gh = 150;
+    if (pts.length >= 2) {
+      var vs = pts.map(function (p) { return p.v; }), lo = Math.min.apply(null, vs), hi = Math.max.apply(null, vs), span = Math.max(hi - lo, 0.15), pad = span * 0.12;
+      lo = Math.max(0, lo - pad); hi = hi + pad;
+      var PX = function (i) { return gx + (i / (pts.length - 1)) * gw; }, PY = function (v) { return gy + 6 + (gh - 12) * (1 - (v - lo) / (hi - lo)); };
+      if (1 > lo && 1 < hi) { X.save(); X.setLineDash([6, 5]); X.strokeStyle = "rgba(201,200,192,.5)"; X.lineWidth = 1.5; X.beginPath(); X.moveTo(gx, PY(1)); X.lineTo(gx + gw, PY(1)); X.stroke(); X.restore(); text("1×", W - 20, PY(1) + 6, 16, INK2, 600, "right"); }
+      text(Math.max.apply(null, vs).toFixed(1) + "×", W - 20, PY(Math.max.apply(null, vs)) + 6, 15, "#5c5f6a", 500, "right");
+      var g = X.createLinearGradient(0, gy, 0, gy + gh); g.addColorStop(0, "rgba(57,135,229,.30)"); g.addColorStop(1, "rgba(57,135,229,0)");
+      X.beginPath(); X.moveTo(PX(0), gy + gh); pts.forEach(function (p, i) { X.lineTo(PX(i), PY(p.v)); }); X.lineTo(PX(pts.length - 1), gy + gh); X.closePath(); X.fillStyle = g; X.fill();
+      X.beginPath(); pts.forEach(function (p, i) { if (i) X.lineTo(PX(i), PY(p.v)); else X.moveTo(PX(i), PY(p.v)); }); X.strokeStyle = "#3987e5"; X.lineWidth = 3.5; X.lineJoin = "round"; X.lineCap = "round"; X.stroke();
+      var idx = {}; pts.forEach(function (p, i) { idx[p.t] = i; });
+      ((hb.blocks && hb.blocks.items) || []).forEach(function (b) { var i = idx[b.t]; if (i == null) return; X.beginPath(); X.arc(PX(i), PY(pts[i].v), 6, 0, Math.PI * 2); X.fillStyle = b.dir === "up" ? UP : DN; X.fill(); X.lineWidth = 2; X.strokeStyle = "#0A0A0F"; X.stroke(); });
+      var Lp = pts[pts.length - 1], lc = COL[lvl(Lp.v)];
+      X.save(); X.shadowColor = lc; X.shadowBlur = 14; X.beginPath(); X.arc(PX(pts.length - 1), PY(Lp.v), 8, 0, Math.PI * 2); X.fillStyle = lc; X.fill(); X.restore();
+      var mid = Math.floor((pts.length - 1) / 2);
+      text(pts[0].t, gx, gy + gh + 20, 15, INK2, 500); text(pts[mid].t, PX(mid), gy + gh + 20, 15, INK2, 500, "center"); text(Lp.live ? "now" : Lp.t, gx + gw, gy + gh + 20, 15, INK2, 500, "right");
+    }
+    /* row 3: TRADE SIZE (or the live BLOCK) · 2-MIN FLOW · BREADTH - big values, small labels */
+    var cards = [], B = (hb.flow && hb.flow.block) || (hb.size && hb.size.now && hb.size.now.block) || (hb.size && hb.size.last && hb.size.last.block) || null;
+    if (B && typeof B === "object") { var side = B.side || (B.dir === "up" ? "buy" : B.dir === "down" ? "sell" : ""); cards.push([((B.sym || "") + " BLOCK").trim(), fmtX(B.x != null ? B.x : B.sizeX), side === "buy" ? UP : side === "sell" ? DN : INK, side === "buy" ? "BUY" : side === "sell" ? "SELL" : ""]); }
+    else { var Z = hb.size && (hb.size.now || hb.size.last); cards.push(["TRADE SIZE", Z && Z.x != null ? fmtX(Z.x) : "—", Z && Z.x >= 1.5 ? "#fab219" : INK, ""]); }
+    var Fl = hb.flow;
+    if (Fl && Fl.buyPct != null) { var buy = Fl.buyPct >= Fl.sellPct, p = buy ? Fl.buyPct : Fl.sellPct; cards.push(["2-MIN FLOW", Math.round(p) + "%", p >= 60 ? (buy ? UP : DN) : INK, buy ? "BUY" : "SELL"]); }
+    else cards.push(["2-MIN FLOW", "—", INK, ""]);
+    var Bz = hb.breadth;
+    if (Bz && Bz.adv + Bz.dec > 0) { var upB = Bz.adv >= Bz.dec, k = upB ? Bz.adv / Math.max(1, Bz.dec) : Bz.dec / Math.max(1, Bz.adv), kt = k >= 10 ? k.toFixed(0) : k.toFixed(1); cards.push(["BREADTH", upB ? kt + ":1" : "1:" + kt, k >= 2 ? (upB ? UP : DN) : INK, ""]); }
+    else cards.push(["BREADTH", "—", INK, ""]);
+    var cw = (W - 40 - 16) / 3;
+    cards.forEach(function (c, i) {
+      var x = 20 + i * (cw + 8), y = 350;
+      X.fillStyle = "#0f1016"; X.strokeStyle = "#1A2230"; X.lineWidth = 1.5; X.beginPath(); if (X.roundRect) X.roundRect(x, y, cw, 70, 10); else X.rect(x, y, cw, 70); X.fill(); X.stroke();
+      text(c[0], x + cw / 2, y + 22, 14, INK2, 700, "center");
+      X.font = "800 34px " + FONT; var vw = X.measureText(c[1]).width; X.font = "800 14px " + FONT; var tw = c[3] ? X.measureText(c[3]).width + 6 : 0;
+      text(c[1], x + cw / 2 - tw / 2, y + 58, 34, c[2], 800, "center"); if (c[3]) text(c[3], x + cw / 2 + vw / 2 - tw / 2 + 6, y + 58, 14, c[2], 800, "left");
+    });
+    /* row 4: the ratio traffic lights - green rising, yellow flat, red falling over the last ~30 s; NO percentages (Alan's rule) */
+    ["SPY/QQQ", "RSP/SPY", "SMH/QQQ"].forEach(function (k, i) {
+      var d = dirOf(k), lc = d === "up" ? UP : d === "dn" ? DN : d === "flat" ? "#fab219" : "#2a2d38", x = 20 + i * (cw + 8) + cw / 2 - 52, y = 452;
+      X.save(); X.shadowColor = d === "na" ? "transparent" : lc; X.shadowBlur = 12; X.beginPath(); X.arc(x, y - 6, 11, 0, Math.PI * 2); X.fillStyle = lc; X.fill(); X.restore();
+      text(k, x + 20, y, 20, "#d6d5cf", 700);
+    });
+  }
+  function dirOf(k) {
+    var now = Date.now(), pts = (buf[k] || []).filter(function (p) { return now - p[0] <= 600000; });
+    var cur = pairs.filter(function (x) { return x.a + "/" + x.b === k; })[0];
+    if (!cur || cur.r == null || !pts.length) return "na";
+    var ref = null; for (var i = pts.length - 1; i >= 0; i--) if (now - pts[i][0] >= 30000) { ref = pts[i]; break; }
+    ref = ref || pts[0];
+    var mv = (cur.r / ref[1] - 1) * 100;
+    return mv > 0.01 ? "up" : mv < -0.01 ? "dn" : "flat";
+  }
+
+  async function loadHB() {
+    try {
+      var d = await (await fetch(HB, { cache: "no-store" })).json();
+      if (d && !d.error && d.slots) { hb = d; lastOk = Date.now(); if (d.nyClock) { var p = d.nyClock.split(":"); clockBase = { sec: (+p[0]) * 3600 + (+p[1]) * 60 + (+(p[2] || 0)), at: performance.now() }; } }
+    } catch (e) {}
+    var R = reading(); setTimeout(loadHB, R && R.live ? 8000 : 60000);
+  }
+  var first = true;
+  async function loadRT() {
+    try {
+      var d = await (await fetch(RT + (first ? "?seed=1" : ""), { cache: "no-store" })).json();
+      if (d && d.pairs) {
+        var now = Date.now();
+        if (d.seed) d.seed.forEach(function (s) { var k = s.a + "/" + s.b; buf[k] = s.pts.map(function (p) { return [p[0], p[1]]; }).concat(buf[k] || []); });
+        d.pairs.forEach(function (x) { if (x.r == null) return; var k = x.a + "/" + x.b; (buf[k] = buf[k] || []).push([now, x.r]); buf[k] = buf[k].filter(function (p) { return now - p[0] <= 720000; }); });
+        pairs = d.pairs; first = false;
+      }
+    } catch (e) {}
+    var R = reading(); setTimeout(loadRT, !R || R.live ? 2000 : 60000);
+  }
+
+  /* the canvas as a video: redrawn four times a second (timers, not animation frames, so it keeps moving behind other apps) */
+  var v = document.getElementById("v"), btn = document.getElementById("float"), note = document.getElementById("note"), stream = null;
+  function say(t) { note.textContent = t; }
+  function ensureStream() {
+    if (!stream && C.captureStream) { stream = C.captureStream(8); v.srcObject = stream; }
+    if (!stream) say("This browser cannot turn the meter into a video. On iPhone and iPad open this page in Safari.");
+    return stream;
+  }
+  draw(); setInterval(draw, 250);
+  ensureStream(); v.play().catch(function () {});
+  btn.addEventListener("click", async function () {
+    ensureStream();
+    try { await v.play(); } catch (e) {}
+    try {
+      if (document.pictureInPictureElement) { await document.exitPictureInPicture(); return; }
+      if (v.webkitPresentationMode === "picture-in-picture") { v.webkitSetPresentationMode("inline"); return; }
+      if (v.requestPictureInPicture && document.pictureInPictureEnabled !== false) { await v.requestPictureInPicture(); return; }
+      if (v.webkitSupportsPresentationMode && v.webkitSupportsPresentationMode("picture-in-picture")) { v.webkitSetPresentationMode("picture-in-picture"); return; }
+      say("This browser cannot float a window. On iPhone and iPad open this page in Safari.");
+    } catch (e) { say("It did not float (" + (e && e.message || e) + "). Tap FLOAT again."); }
+  });
+  function floating(on) { btn.classList.toggle("on", on); btn.textContent = on ? "FLOATING" : "FLOAT"; say(on ? "Floating. Go to any app - it stays on top. Tap FLOATING to bring it back." : "Tap FLOAT and the meter floats over every app. Drag it anywhere, pinch it bigger, swipe it to the edge to tuck it away."); }
+  v.addEventListener("enterpictureinpicture", function () { floating(true); });
+  v.addEventListener("leavepictureinpicture", function () { floating(false); });
+  v.addEventListener("webkitpresentationmodechanged", function () { floating(v.webkitPresentationMode === "picture-in-picture"); });
+  window.__float = { reading: reading, draw: draw, stream: function () { return stream; }, dirOf: dirOf };
+  loadHB(); loadRT();
+})();
+</script>
+</body>
+</html>
