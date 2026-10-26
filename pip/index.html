@@ -20,10 +20,11 @@ body{ display:flex; flex-direction:column; align-items:center; gap:14px; box-siz
 h1{ margin:0; font-size:12px; letter-spacing:.22em; color:var(--cyan); font-weight:700; align-self:stretch; display:flex; justify-content:space-between; }
 h1 a{ color:var(--ink2); text-decoration:none; letter-spacing:.14em; }
 video{ width:100%; max-width:640px; aspect-ratio:4 / 3; background:#000; border-radius:14px; display:block; }
-#float{ appearance:none; border:0; border-radius:14px; background:var(--cyan); color:#05070c; font:800 22px -apple-system, system-ui, sans-serif;
-  letter-spacing:.14em; padding:16px 0; width:100%; max-width:640px; cursor:pointer; }
+/* 26 Oct (Alan: "the fucking buttons are massive. It's a little disproportional"): a normal-sized button under the picture */
+#float{ appearance:none; border:0; border-radius:12px; background:var(--cyan); color:#05070c; font:800 15px -apple-system, system-ui, sans-serif;
+  letter-spacing:.14em; padding:11px 28px; min-width:180px; cursor:pointer; }
 #float.on{ background:#1b1d26; color:var(--cyan); }
-#note{ color:var(--ink2); font-size:14px; line-height:1.45; max-width:640px; text-align:center; }
+#note{ color:var(--ink2); font-size:13px; line-height:1.45; max-width:640px; text-align:center; }
 canvas{ display:none; }
 </style>
 </head>
@@ -166,16 +167,19 @@ canvas{ display:none; }
   }
   draw(); setInterval(draw, 250);
   ensureStream(); v.play().catch(function () {});
-  btn.addEventListener("click", async function () {
+  /* 26 Oct: iOS answered "The request is not triggered by user activation" - the tap's permission lasts only while the tap is being handled,
+     and the old handler waited for play() first. Now the float is asked for at once, inside the tap: Safari's own presentation mode first (it
+     is synchronous), then the standard request; the video was already started muted when the page loaded. */
+  btn.addEventListener("click", function () {
     ensureStream();
-    try { await v.play(); } catch (e) {}
+    if (v.paused) { try { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {} }
     try {
-      if (document.pictureInPictureElement) { await document.exitPictureInPicture(); return; }
+      if (document.pictureInPictureElement) { document.exitPictureInPicture().catch(function () {}); return; }
       if (v.webkitPresentationMode === "picture-in-picture") { v.webkitSetPresentationMode("inline"); return; }
-      if (v.requestPictureInPicture && document.pictureInPictureEnabled !== false) { await v.requestPictureInPicture(); return; }
       if (v.webkitSupportsPresentationMode && v.webkitSupportsPresentationMode("picture-in-picture")) { v.webkitSetPresentationMode("picture-in-picture"); return; }
+      if (v.requestPictureInPicture) { v.requestPictureInPicture().catch(function (e) { say("It did not float (" + (e && e.message || e) + ")."); }); return; }
       say("This browser cannot float a window. On iPhone and iPad open this page in Safari.");
-    } catch (e) { say("It did not float (" + (e && e.message || e) + "). Tap FLOAT again."); }
+    } catch (e) { say("It did not float (" + (e && e.message || e) + ")."); }
   });
   function floating(on) { btn.classList.toggle("on", on); btn.textContent = on ? "FLOATING" : "FLOAT"; say(on ? "Floating. Go to any app - it stays on top. Tap FLOATING to bring it back." : "Tap FLOAT and the meter floats over every app. Drag it anywhere, pinch it bigger, swipe it to the edge to tuck it away."); }
   v.addEventListener("enterpictureinpicture", function () { floating(true); });
