@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Station Volume D</title>
+<!-- LIVE ON THE STATION since 26 Oct 2026 (coordinator): version D, Alan 26 Oct ~17:20 ET "That one I like, yeah, nice and simple, big, I like it" ...
+     "go ahead and update the station one". Made by the volume-pulse session (its proposals/station-volume-d.html, sha256 dfdefc38afaeb35b),
+     copied here unchanged below this note; the deck's WIDGETS_VOLUME_SHELL points the wall's (and the iPad's) volume panel here. volume-v1 stays
+     for the phone page and as the rollback.
+     PROPOSAL (26 Oct 2026) - "glanceable stack" for the bottom-right volume panel of SCINTILLA · The Station (iframe 326 x 314). Read from across the room, top to bottom:
+       1. the multiple, big, with its pulsing dot, an up/down arrow (is volume picking up or easing right now) and the tube;
+          the session and the New York clock on the right
+       2. the day as a thin band: one column per 5-minute bar, 04:00-20:00 (pre-market and after-hours squeezed to half width,
+          the regular session full width), the dashed 1x "normal" line, block trades as green (up) / red (down) dots
+       3. TRADE SIZE (or the live BLOCK), 2-MIN FLOW, BREADTH - big values, small labels
+       4. the three live ratio headlights - SPY/QQQ, RSP/SPY, SMH/QQQ - an arrow for which way each is going right now
+          (last ~30 s, refreshed every 2 s) and today's % change. No lines, no bars (Alan, 26 Oct).
+     Everything is sized in rem and 1rem = 1/32.6 of the frame width (or 1/31.4 of its height, whichever is smaller), so the
+     same layout fills 326 x 314 and 652 x 628 identically. Data: two public GETs (CORS open). Writes nothing.
+     Test data without the feed: add ?demo=open, ?demo=block, ?demo=worst or ?demo=closed to the URL. -->
+<style>
+:root{
+  --bg:#0A0A0F; --panel:#0f1016; --hair:#1A2230; --ink:#E7ECF5; --ink2:#8c8b83; --ink3:#5c5f6a;
+  --cyan:#00E5FF; --up:#3CE08A; --dn:#FF5A6E;
+  --cool:#3987e5; --lift:#8fc1ff; --warm:#fab219; --hot:#ec835a; --lvl:var(--cool);
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text","Helvetica Neue",system-ui,sans-serif;
+  /* one design unit: 10 px at 326 x 314, 20 px at 652 x 628 */
+  font-size:min(calc(100vw / 32.6), calc(100vh / 31.4));
+}
+*{ box-sizing:border-box; }
+html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); overflow:hidden; }
+body{ font-family:var(--sans); font-size:1.2rem; -webkit-font-smoothing:antialiased; }
+b,i{ font-style:normal; }
+.num,.clock,.val,.pct{ font-variant-numeric:tabular-nums; }
+
+#app{ height:100vh; width:100vw; display:grid; grid-template-rows:auto minmax(4.6rem,1fr) auto auto; gap:.8rem; padding:.9rem 1rem 1rem; }
+.lab{ font-size:1.15rem; font-weight:600; letter-spacing:.08em; color:var(--ink2); line-height:1.2; white-space:nowrap; }
+
+/* ---- row 1: the multiple + the session ---- */
+.hero{ display:grid; grid-template-columns:1fr auto; align-items:center; column-gap:.8rem; }
+.mult{ display:flex; align-items:center; gap:.7rem; min-width:0; }
+.dot{ flex:none; width:1.1rem; height:1.1rem; border-radius:50%; background:var(--lvl); box-shadow:0 0 .8rem var(--lvl); }
+.live .dot{ animation:beat var(--b,1.8s) ease-out infinite; }
+.shut .dot{ background:#3a3c44; box-shadow:none; }
+@keyframes beat{ 0%{transform:scale(1);opacity:1} 18%{transform:scale(1.45)} 40%{transform:scale(1);opacity:.75} 100%{opacity:1} }
+.num{ font-size:4.8rem; font-weight:800; letter-spacing:-.035em; line-height:.95; white-space:nowrap; color:var(--ink); }
+.lift .num{ color:var(--lift); } .warm .num{ color:var(--warm); } .hot .num{ color:var(--hot); }
+.hot .num{ text-shadow:0 0 1.4rem rgba(236,131,90,.45); }
+.vdir{ flex:none; width:1.6rem; height:1.6rem; display:block; margin-left:-.2rem; }
+.tube{ flex:none; position:relative; width:.8rem; height:4.2rem; border-radius:.5rem; background:#16171d; border:1px solid #2a2d38; overflow:hidden; }
+.fill{ position:absolute; left:0; right:0; bottom:0; height:0; background:linear-gradient(var(--hot),var(--warm) 45%,var(--cool)); transition:height .8s; }
+.tick{ position:absolute; left:0; right:0; height:1px; background:var(--ink2); opacity:.6; }
+.sub{ grid-column:1; font-size:1.15rem; color:var(--ink2); white-space:nowrap; margin-top:.35rem; padding-left:1.8rem; }
+.state{ grid-column:2; grid-row:1 / span 2; text-align:right; display:flex; flex-direction:column; align-items:flex-end; gap:.15rem; }
+.st{ font-size:1.15rem; font-weight:700; letter-spacing:.1em; color:var(--cyan); white-space:nowrap; }
+.shut .st{ color:var(--ink2); } .st.warn{ color:var(--warm); }
+.clock{ font-size:2.5rem; font-weight:700; letter-spacing:-.01em; line-height:1.05; }
+.cd{ font-size:1.15rem; color:var(--ink2); white-space:nowrap; }
+
+/* ---- the band: today's 5-minute bars ---- */
+.band{ position:relative; min-height:0; }
+.band svg{ position:absolute; inset:0; width:100%; height:100%; display:block; overflow:visible; }
+.tip{ position:absolute; top:0; padding:.2rem .5rem; border-radius:.4rem; background:#1b1d26; border:1px solid var(--hair);
+  font-size:1.15rem; color:var(--ink); white-space:nowrap; pointer-events:none; opacity:0; transition:opacity .12s; font-variant-numeric:tabular-nums; }
+.tip.on{ opacity:1; }
+
+/* ---- rows 3 and 4: cards ---- */
+.card{ display:grid; background:var(--panel); border:1px solid var(--hair); border-radius:.8rem; }
+.card > div{ min-width:0; padding:.75rem .6rem .7rem; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.3rem; text-align:center; }
+.card > div + div{ border-left:1px solid var(--hair); }
+.stats{ grid-template-columns:1fr 1.2fr .8fr; }
+.stats > div{ padding-left:.45rem; padding-right:.45rem; }
+.val{ display:flex; align-items:baseline; justify-content:center; gap:.35rem; white-space:nowrap; line-height:1; }
+.val b{ font-size:2.6rem; font-weight:800; letter-spacing:-.02em; }
+.val i{ font-size:1.15rem; font-weight:800; letter-spacing:.06em; }
+.is-up b,.is-up i{ color:var(--up); } .is-dn b,.is-dn i{ color:var(--dn); } .is-amber b{ color:var(--warm); }
+.blk{ background:rgba(60,224,138,.08); } .blk.sell{ background:rgba(255,90,110,.09); }
+.blk .lab{ color:var(--ink); }
+.lights{ grid-template-columns:1fr 1fr 1fr; }
+/* traffic lights (Alan 26 Oct: "no percentages... green, yellow, red"): green = the ratio is rising right now, yellow = flat,
+   red = falling (last ~30 s, checked every 2 s); the lamp pulses when it moves fast */
+.lights > div{ flex-direction:row; gap:.6rem; padding:.7rem .4rem; }
+.lights .lab{ font-size:1.35rem; font-weight:700; letter-spacing:.03em; color:#d6d5cf; }
+.lamp{ flex:none; width:1.9rem; height:1.9rem; border-radius:50%; background:var(--warm); box-shadow:0 0 .9rem rgba(250,178,25,.55); }
+.lights .up .lamp{ background:var(--up); box-shadow:0 0 1rem rgba(60,224,138,.7); }
+.lights .dn .lamp{ background:var(--dn); box-shadow:0 0 1rem rgba(255,90,110,.7); }
+.lights .na .lamp{ background:#2a2d38; box-shadow:none; }
+.lights .hotmove .lamp{ animation:beat .9s ease-out infinite; }
+
+@media (prefers-reduced-motion: reduce){ .dot{ animation:none !important; } .fill{ transition:none; } }
+</style>
+</head>
+<body>
+<main id="app" class="shut" aria-label="Market volume and live ratios">
+  <section class="hero" aria-live="polite">
+    <div class="mult">
+      <span class="dot" aria-hidden="true"></span>
+      <span class="num" id="num">—</span>
+      <svg class="vdir" id="vdir" viewBox="0 0 16 16" aria-hidden="true"></svg>
+      <span class="tube" aria-hidden="true"><span class="fill" id="fill"></span><span class="tick" style="bottom:33.3%"></span><span class="tick" style="bottom:66.6%"></span></span>
+    </div>
+    <div class="sub" id="sub">volume vs normal</div>
+    <div class="state">
+      <div class="st" id="st">CONNECTING</div>
+      <div class="clock" id="clock">--:--</div>
+      <div class="cd" id="cd">New York</div>
+    </div>
+  </section>
+
+  <section class="band" id="band" aria-label="Volume as a multiple of normal, last 2 hours, auto-fitted">
+    <svg id="chart"></svg>
+    <div class="tip" id="tip"></div>
+  </section>
+
+  <section class="card stats">
+    <div id="cSize"><div class="lab" id="szLab">TRADE SIZE</div><div class="val"><b id="szV">—</b><i id="szT"></i></div></div>
+    <div id="cFlow"><div class="lab">2-MIN FLOW</div><div class="val"><b id="flV">—</b><i id="flT"></i></div></div>
+    <div id="cBr"><div class="lab">BREADTH</div><div class="val"><b id="brV">—</b></div></div>
+  </section>
+
+  <section class="card lights" id="lights" aria-label="Live ratio traffic lights">
+    <div data-k="SPY/QQQ" class="na"><i class="lamp"></i><div class="lab">SPY/QQQ</div></div>
+    <div data-k="RSP/SPY" class="na"><i class="lamp"></i><div class="lab">RSP/SPY</div></div>
+    <div data-k="SMH/QQQ" class="na"><i class="lamp"></i><div class="lab">SMH/QQQ</div></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var BASE = 'https://volume-pulse-pied.vercel.app';
+  var HB = BASE + '/api/heartbeat', RT = BASE + '/api/ratios';
+  var DEMO = (location.search.match(/[?&]demo=(\w+)/) || [])[1] || '';
+  var app = document.getElementById('app');
+  var $ = function (id) { return document.getElementById(id); };
+  var COL = { cool: '#3987e5', lift: '#8fc1ff', warm: '#fab219', hot: '#ec835a' };
+  var UP = '#3CE08A', DN = '#FF5A6E';
+
+  // write only when the text actually changes (keeps the panel calm)
+  function setText(el, t) { if (el.textContent !== t) el.textContent = t; }
+  function setClass(el, c) { if (el.className !== c) el.className = c; }
+  function setHTML(el, h) { if (el._h !== h) { el._h = h; el.innerHTML = h; } }
+  var lvl = function (r) { return r == null ? 'cool' : r >= 2 ? 'hot' : r >= 1.5 ? 'warm' : r >= 1.2 ? 'lift' : 'cool'; };
+  var fmtX = function (r) { return r == null ? '—' : (r >= 10 ? r.toFixed(0) : r.toFixed(1)) + '×'; };
+  var mins = function (t) { var p = t.split(':'); return (+p[0]) * 60 + (+p[1]); };
+  var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+
+  // arrows as shapes, so they are the same size in every font
+  var TRI_UP = '<path d="M10 3 L18 16 L2 16 Z" fill="currentColor"/>';
+  var TRI_DN = '<path d="M10 17 L18 4 L2 4 Z" fill="currentColor"/>';
+  var DOTSVG = '<circle cx="10" cy="10" r="3.6" fill="currentColor"/>';
+
+  /* ================= heartbeat (volume) ================= */
+  var hb = null, lastOk = 0, clockBase = null, liveSession = false, hbTimer = 0;
+
+  function sessionInfo(state, nowMin) {
+    var left = function (to) { var m = Math.max(0, to - nowMin), h = Math.floor(m / 60), mm = m % 60; return h ? h + 'h ' + (mm < 10 ? '0' : '') + mm + 'm' : mm + 'm'; };
+    if (state === 'open') return ['MARKET OPEN', 'close in ' + left(16 * 60)];
+    if (state === 'pre-market') return ['PRE-MARKET', 'open in ' + left(9 * 60 + 30)];
+    if (state === 'after-hours') return ['AFTER HOURS', 'ends in ' + left(20 * 60)];
+    return ['CLOSED', 'opens 9:30'];
+  }
+
+  function nyMinutesNow() {
+    if (!clockBase) return null;
+    var s = clockBase.sec + (performance.now() - clockBase.at) / 1000;
+    return Math.floor(s / 60) % (24 * 60);
+  }
+
+  function tickClock() {
+    var m = nyMinutesNow();
+    if (m == null || !hb) return;
+    var hh = Math.floor(m / 60), mm = m % 60;
+    setText($('clock'), (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm);
+    var si = sessionInfo(hb.marketState, m);
+    var stale = liveSession && Date.now() - lastOk > 60000;
+    setText($('st'), stale ? 'RECONNECTING' : si[0]);
+    setClass($('st'), stale ? 'st warn' : 'st');
+    setText($('cd'), si[1]);
+  }
+
+  function renderHeartbeat(d) {
+    hb = d;
+    var state = d.marketState, F = d.forming, L = d.latest;
+    liveSession = d.live !== false && (state === 'open' || state === 'pre-market' || state === 'after-hours');
+    var usePace = state === 'open' && F && F.pace != null;
+    var r = usePace ? F.pace : (L ? L.ratio : null);
+    var lv = lvl(r);
+    setClass(app, lv + (liveSession ? ' live' : ' shut'));
+    app.style.setProperty('--lvl', COL[lv]);
+    app.style.setProperty('--b', Math.max(0.6, Math.min(2.4, 1.7 / Math.max(r || 1, 0.6))).toFixed(2) + 's');
+    setText($('num'), fmtX(r));
+    $('fill').style.height = Math.min(100, ((r || 0) / 3) * 100).toFixed(1) + '%';
+
+    // is volume picking up or easing right now?  live bar vs last settled bar, or last settled vs the one before (10% band)
+    var dir = '', cmp = null;
+    if (liveSession && r != null) {
+      if (usePace && L && L.ratio != null) cmp = L.ratio;
+      else if (L && d.slots) {
+        var settled = d.slots.filter(function (s) { return s.ratio != null && s.t < L.t; });
+        if (settled.length) cmp = settled[settled.length - 1].ratio;
+      }
+      if (cmp != null && cmp > 0) dir = r > cmp * 1.1 ? 'up' : r < cmp / 1.1 ? 'dn' : 'flat';
+    }
+    var vd = $('vdir');
+    setHTML(vd, dir === 'up' ? TRI_UP.replace('M10 3 L18 16 L2 16', 'M8 2 L15 14 L1 14') : dir === 'dn' ? TRI_DN.replace('M10 17 L18 4 L2 4', 'M8 14 L15 2 L1 2') : dir === 'flat' ? '<circle cx="8" cy="8" r="2.6" fill="currentColor"/>' : '');
+    vd.style.color = dir === 'flat' ? '#5c5f6a' : '#E7ECF5';
+    vd.style.display = dir ? '' : 'none';
+    vd.setAttribute('aria-label', dir === 'up' ? 'volume picking up' : dir === 'dn' ? 'volume easing' : '');
+
+    var basis = usePace ? 'now ' + F.t : L ? (liveSession ? 'bar ' : 'last ') + L.t : '';
+    var sub = [basis, d.dayRatio != null ? 'day ' + fmtX(d.dayRatio) : ''].filter(Boolean).join(' · ');
+    setText($('sub'), sub || 'volume vs normal');
+    $('num').title = 'SPY + QQQ + DIA + IWM volume as a multiple of the usual for this time of day' + (d.peak ? '. Peak today ' + fmtX(d.peak.ratio) + ' at ' + d.peak.t : '');
+
+    // ---- TRADE SIZE, or the live BLOCK banner
+    var cS = $('cSize'), szV = $('szV'), szT = $('szT'), szLab = $('szLab');
+    var B = (d.flow && d.flow.block) || (d.size && d.size.now && d.size.now.block) || (d.size && d.size.last && d.size.last.block) || null;
+    if (B && typeof B === 'object') {
+      var side = B.side || (B.dir === 'up' ? 'buy' : B.dir === 'down' ? 'sell' : '');
+      setClass(cS, 'blk' + (side === 'sell' ? ' sell' : ''));
+      setText(szLab, ((B.sym || '') + ' BLOCK').trim());
+      setText(szV, B.x != null ? fmtX(B.x) : B.sizeX != null ? fmtX(B.sizeX) : '—');
+      setText(szT, side === 'buy' ? 'BUY' : side === 'sell' ? 'SELL' : '');
+      setClass(szV.parentNode, 'val' + (side === 'buy' ? ' is-up' : side === 'sell' ? ' is-dn' : ''));
+      cS.title = 'Live block print' + (B.t ? ' at ' + B.t : '') + ': average trade ' + fmtX(B.x) + ' the usual size, ' + (side === 'buy' ? 'a buyer' : side === 'sell' ? 'a seller' : '');
+    } else {
+      var Z = d.size && (d.size.now || d.size.last);
+      setClass(cS, '');
+      setText(szLab, 'TRADE SIZE');
+      setText(szV, Z && Z.x != null ? fmtX(Z.x) : '—');
+      setText(szT, '');
+      setClass(szV.parentNode, 'val' + (Z && Z.x >= 1.5 ? ' is-amber' : ''));
+      cS.title = Z ? 'Average trade size ' + fmtX(Z.x) + ' its usual' + (Z.t ? ' (bar ' + Z.t + ')' : '') : '';
+    }
+
+    // ---- 2-MIN FLOW
+    var Fl = d.flow;
+    if (Fl && Fl.buyPct != null) {
+      var buy = Fl.buyPct >= Fl.sellPct, p = buy ? Fl.buyPct : Fl.sellPct;
+      setText($('flV'), Math.round(p) + '%');
+      setText($('flT'), buy ? 'BUY' : 'SELL');
+      setClass($('flV').parentNode, 'val' + (p >= 60 ? (buy ? ' is-up' : ' is-dn') : ''));
+      $('cFlow').title = 'Last ' + Fl.mins + ' minutes to ' + Fl.asOf + ': ' + Fl.buyPct + '% of volume on rising minutes, ' + Fl.sellPct + '% on falling minutes';
+    } else { setText($('flV'), '—'); setText($('flT'), ''); setClass($('flV').parentNode, 'val'); }
+
+    // ---- BREADTH
+    var Bz = d.breadth;
+    if (Bz && Bz.adv + Bz.dec > 0) {
+      var upB = Bz.adv >= Bz.dec, k = upB ? Bz.adv / Math.max(1, Bz.dec) : Bz.dec / Math.max(1, Bz.adv);
+      var kt = k >= 10 ? k.toFixed(0) : k.toFixed(1);
+      setText($('brV'), upB ? kt + ':1' : '1:' + kt);
+      setClass($('brV').parentNode, 'val' + (k >= 2 ? (upB ? ' is-up' : ' is-dn') : ''));
+      $('cBr').title = Bz.adv + ' stocks up, ' + Bz.dec + ' down';
+    } else { setText($('brV'), '—'); setClass($('brV').parentNode, 'val'); }
+
+    tickClock();
+    drawChart();
+  }
+
+  async function loadHeartbeat() {
+    clearTimeout(hbTimer);
+    var wait = liveSession ? 8000 : 120000;
+    try {
+      var d = DEMO ? demoHeartbeat() : await (await fetch(HB, { cache: 'no-store' })).json();
+      if (d && !d.error && d.slots) {
+        lastOk = Date.now();
+        if (d.nyClock) { var p = d.nyClock.split(':'); clockBase = { sec: (+p[0]) * 3600 + (+p[1]) * 60 + (+(p[2] || 0)), at: performance.now() }; }
+        renderHeartbeat(d);
+        wait = liveSession ? 8000 : 120000;
+        retime();
+      }
+    } catch (e) { tickClock(); }
+    hbTimer = setTimeout(loadHeartbeat, wait);
+  }
+
+  /* ================= the line: the multiple over the last 2 hours, auto-fitted ================= */
+  // Alan 26 Oct: "I like the line graph... without the whole black space, it should adjust; if it spikes the spike becomes
+  // visible - dynamic zooming, auto-fitting". y always spans just the data in view (plus a little air), so the line fills
+  // the box; x = the last 24 five-minute bars plus the live point.
+  var chartSig = '', chartGeo = null, WIN = 24;
+  function drawChart() {
+    var d = hb, svg = $('chart'), band = $('band');
+    if (!d || !d.slots || !d.slots.length) return;
+    var W = band.clientWidth, H = band.clientHeight;
+    if (W < 20 || H < 20) return;
+    var rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 10;
+    var F = d.forming, live = liveSession && F && F.pace != null;
+    var pts = d.slots.filter(function (s) { return s.ratio != null && isFinite(s.ratio); }).slice(-WIN).map(function (s) { return { t: s.t, v: s.ratio }; });
+    if (live && (!pts.length || pts[pts.length - 1].t !== F.t)) pts.push({ t: F.t, v: F.pace, live: true });
+    if (pts.length < 2) { svg.innerHTML = ''; return; }
+    var blocks = ((d.blocks && d.blocks.items) || []);
+    var sig = [W, H, rem, pts.map(function (p) { return p.t + p.v.toFixed(3); }).join(','), blocks.map(function (b) { return b.sym + b.t + b.dir; }).join(',')].join('|');
+    if (sig === chartSig) return;
+    chartSig = sig;
+    var axisH = 1.45 * rem, gutter = 2.6 * rem, PW = W - gutter, PH = H - axisH, top = 0.5 * rem, bot = 0.4 * rem;
+    var vs = pts.map(function (p) { return p.v; }), lo = Math.min.apply(null, vs), hi = Math.max.apply(null, vs);
+    var span = Math.max(hi - lo, 0.15), pad = span * 0.12; lo = Math.max(0, lo - pad); hi = hi + pad;
+    var X = function (i) { return (i / (pts.length - 1)) * PW; };
+    var Y = function (v) { return top + (PH - top - bot) * (1 - (v - lo) / (hi - lo)); };
+    var o = [];
+    o.push('<defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3987e5" stop-opacity=".28"/><stop offset="1" stop-color="#3987e5" stop-opacity="0"/></linearGradient></defs>');
+    if (1 > lo && 1 < hi) {   // normal = 1x, only when it falls inside the fitted range
+      var y1 = Y(1);
+      o.push('<line x1="0" x2="' + PW + '" y1="' + y1.toFixed(2) + '" y2="' + y1.toFixed(2) + '" stroke="#c9c8c0" stroke-opacity=".5" stroke-width="1" stroke-dasharray="' + (0.4 * rem) + ' ' + (0.3 * rem) + '"/>');
+      o.push('<text x="' + (W - 0.1 * rem) + '" y="' + (y1 + 0.4 * rem).toFixed(2) + '" text-anchor="end" font-size="' + (1.15 * rem) + '" font-weight="600" fill="#8c8b83">1×</text>');
+    } else {
+      o.push('<text x="' + (W - 0.1 * rem) + '" y="' + (1 < lo ? PH : top + rem).toFixed(2) + '" text-anchor="end" font-size="' + (1.15 * rem) + '" font-weight="600" fill="#8c8b83">' + (1 < lo ? '1× ↓' : '1× ↑') + '</text>');
+    }
+    // max / min labels so the zoom is honest
+    o.push('<text x="' + (W - 0.1 * rem) + '" y="' + (Y(Math.max.apply(null, vs)) + 0.4 * rem).toFixed(2) + '" text-anchor="end" font-size="' + (1.1 * rem) + '" fill="#5c5f6a">' + Math.max.apply(null, vs).toFixed(1) + '×</text>');
+    var line = pts.map(function (p, i) { return X(i).toFixed(2) + ',' + Y(p.v).toFixed(2); }).join(' ');
+    o.push('<polygon points="0,' + PH + ' ' + line + ' ' + PW + ',' + PH + '" fill="url(#ag)"/>');
+    o.push('<polyline points="' + line + '" fill="none" stroke="#3987e5" stroke-width="' + (0.22 * rem).toFixed(2) + '" stroke-linejoin="round" stroke-linecap="round"/>');
+    // block trades on the line
+    var idx = {}; pts.forEach(function (p, i) { idx[p.t] = i; });
+    blocks.forEach(function (b) { var i = idx[b.t]; if (i == null) return;
+      o.push('<circle cx="' + X(i).toFixed(2) + '" cy="' + Y(pts[i].v).toFixed(2) + '" r="' + (0.42 * rem).toFixed(2) + '" fill="' + (b.dir === 'up' ? UP : DN) + '" stroke="#0A0A0F" stroke-width="' + (0.15 * rem).toFixed(2) + '"><title>' + esc(b.sym + ' block ' + b.t) + '</title></circle>'); });
+    // the latest point: glowing, in its heat colour
+    var L = pts[pts.length - 1], c = COL[lvl(L.v)];
+    o.push('<circle cx="' + X(pts.length - 1).toFixed(2) + '" cy="' + Y(L.v).toFixed(2) + '" r="' + (0.55 * rem).toFixed(2) + '" fill="' + c + '" style="filter:drop-shadow(0 0 ' + (0.5 * rem) + 'px ' + c + ')"/>');
+    o.push('<line x1="0" x2="' + PW + '" y1="' + PH + '" y2="' + PH + '" stroke="#1A2230" stroke-width="1"/>');
+    var lab = function (x, t, anchor) { return '<text x="' + x.toFixed(2) + '" y="' + (H - 0.15 * rem).toFixed(2) + '" text-anchor="' + anchor + '" font-size="' + (1.15 * rem) + '" fill="#8c8b83">' + t + '</text>'; };
+    o.push(lab(0, pts[0].t, 'start')); o.push(lab(X(Math.floor((pts.length - 1) / 2)), pts[Math.floor((pts.length - 1) / 2)].t, 'middle')); o.push(lab(PW, L.live ? 'now' : L.t, 'end'));
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svg.innerHTML = o.join('');
+    chartGeo = { X: X, pts: pts, PW: PW };
+  }
+
+  // hover readout: time and multiple of the point under the pointer
+  (function hover() {
+    var band = $('band'), tip = $('tip');
+    band.addEventListener('mousemove', function (e) {
+      if (!chartGeo) return;
+      var r = band.getBoundingClientRect(), x = e.clientX - r.left, g = chartGeo, n = g.pts.length;
+      var i = Math.max(0, Math.min(n - 1, Math.round((x / g.PW) * (n - 1)))), p = g.pts[i];
+      tip.textContent = p.t + ' · ' + p.v.toFixed(2) + '× normal' + (p.live ? ' (live)' : '');
+      var tw = tip.offsetWidth; tip.style.left = Math.max(0, Math.min(r.width - tw, x - tw / 2)) + 'px'; tip.classList.add('on');
+    });
+    band.addEventListener('mouseleave', function () { tip.classList.remove('on'); });
+  })();
+
+  /* ================= ratio headlights (every 2 s) ================= */
+  var buf = {}, KEEP = 12 * 60 * 1000, rtTimer = 0, rtFirst = true;
+  var cells = {};
+  Array.prototype.forEach.call(document.querySelectorAll('#lights > div'), function (c) { cells[c.getAttribute('data-k')] = c; });
+
+  function drawRatios(pairs) {
+    var now = Date.now();
+    pairs.forEach(function (x) {
+      var k = x.a + '/' + x.b, c = cells[k]; if (!c) return;
+      var pts = (buf[k] || []).filter(function (p) { return now - p[0] <= 10 * 60 * 1000; });
+      var dir = 'na', mv = 0;
+      if (x.r != null && pts.length) {
+        var ref = null;
+        for (var i = pts.length - 1; i >= 0; i--) if (now - pts[i][0] >= 30000) { ref = pts[i]; break; }
+        ref = ref || pts[0];
+        mv = (x.r / ref[1] - 1) * 100;
+        dir = mv > 0.01 ? 'up' : mv < -0.01 ? 'dn' : 'flat';
+      }
+      setClass(c, dir + (Math.abs(mv) >= 0.05 ? ' hotmove' : ''));
+      c.title = k + (x.r != null ? ' = ' + x.r.toFixed(4) : '') +
+        '\nGreen = rising right now, yellow = flat, red = falling (last ~30 s). Pulsing = moving fast.';
+    });
+  }
+
+  async function loadRatios() {
+    clearTimeout(rtTimer);
+    try {
+      var d = DEMO ? demoRatios(rtFirst) : await (await fetch(RT + (rtFirst ? '?seed=1' : ''), { cache: 'no-store' })).json();
+      if (d && d.pairs) {
+        var now = Date.now();
+        if (d.seed) d.seed.forEach(function (s) { var k = s.a + '/' + s.b; buf[k] = s.pts.map(function (p) { return [p[0], p[1]]; }).concat(buf[k] || []); });
+        d.pairs.forEach(function (x) {
+          if (x.r == null) return;
+          var k = x.a + '/' + x.b;
+          (buf[k] = buf[k] || []).push([now, x.r]);
+          buf[k] = buf[k].filter(function (p) { return now - p[0] <= KEEP; });
+        });
+        rtFirst = false;
+        drawRatios(d.pairs);
+      }
+    } catch (e) {}
+    rtTimer = setTimeout(loadRatios, (liveSession || !hb) ? 2000 : 60000);
+  }
+  // when the session opens or closes, move the ratio loop onto the right pace
+  var lastLive = null;
+  function retime() { if (lastLive !== null && lastLive !== liveSession) loadRatios(); lastLive = liveSession; }
+
+  /* ================= start ================= */
+  setInterval(tickClock, 5000);
+  if (window.ResizeObserver) new ResizeObserver(function () { drawChart(); }).observe($('band'));
+  else window.addEventListener('resize', drawChart);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { loadHeartbeat(); loadRatios(); } });
+  loadHeartbeat();
+  loadRatios();
+
+  /* ================= demo data (?demo=open | block | worst | closed) - for checking the layout without the feed ================= */
+  function demoHeartbeat() {
+    var slots = [], t = 4 * 60, seed = 7;
+    var rnd = function () { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+    var nowT = DEMO === 'worst' ? 15 * 60 + 52 : 11 * 60 + 47;
+    for (; t < 20 * 60; t += 5) {
+      var hh = Math.floor(t / 60), mm = t % 60, tt = (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+      var ext = tt < '09:30' || tt >= '16:00', r = null;
+      if (t + 5 <= nowT) r = (ext ? 0.4 + rnd() * 1.4 : 0.6 + rnd() * 0.9) * (DEMO === 'worst' ? 1.6 : 1);
+      if (tt === '07:50') r = 6.6;
+      if (tt === '10:15' && DEMO === 'block') r = 2.6;
+      slots.push({ t: tt, ext: ext, vol: r == null ? null : 1, usual: 1, ratio: r });
+    }
+    var ft = Math.floor(nowT / 5) * 5, fts = (Math.floor(ft / 60) < 10 ? '0' : '') + Math.floor(ft / 60) + ':' + ((ft % 60) < 10 ? '0' : '') + (ft % 60);
+    var last = slots.filter(function (s) { return s.ratio != null; }).pop();
+    var worst = DEMO === 'worst';
+    return {
+      marketState: DEMO === 'closed' ? 'closed' : 'open', live: true, nyClock: Math.floor(nowT / 60) + ':' + (nowT % 60) + ':10',
+      forming: { t: fts, ext: false, elapsedSec: 150, pace: worst ? 12.4 : DEMO === 'block' ? 2.3 : 1.62 },
+      latest: { t: last.t, ext: false, ratio: last.ratio }, slots: slots, dayRatio: worst ? 10.3 : 1.08, peak: { t: '07:50', ratio: 6.6 },
+      size: { now: { x: worst ? 12.6 : 1.7, dir: 'up', t: fts }, last: { x: 1.2, dir: 'down', t: last.t } },
+      flow: { buyPct: worst ? 0 : 79, sellPct: worst ? 100 : 21, mins: 2, asOf: fts,
+        block: DEMO === 'block' ? { sym: 'SPY', side: 'buy', x: 2.4, t: fts } : worst ? { sym: 'IWM', side: 'sell', x: 12.7, t: fts } : null },
+      breadth: worst ? { adv: 210, dec: 3890 } : { adv: 2371, dec: 1670 },
+      blocks: { items: [{ sym: 'SPY', t: '10:15', sizeX: 2.6, dir: 'up' }, { sym: 'QQQ', t: '10:15', sizeX: 2.1, dir: 'down' }, { sym: 'IWM', t: '09:45', sizeX: 2.3, dir: 'down' }, { sym: 'SPY', t: '11:20', sizeX: 3.1, dir: 'up' }] }
+    };
+  }
+  var demoN = 0;
+  function demoRatios(first) {
+    demoN = (demoN || 0) + 1;   // (the start-up call runs before this var is assigned)
+    var now = Date.now(), w = DEMO === 'worst';
+    var pairs = [
+      { a: 'SPY', b: 'QQQ', r: 1.074 + demoN * 0.0004, day: w ? -12.34 : -0.46 },
+      { a: 'RSP', b: 'SPY', r: 0.2840 - demoN * 0.0001, day: w ? 10.5 : -0.34 },
+      { a: 'SMH', b: 'QQQ', r: 0.7602, day: w ? -9.99 : 1.57 }];
+    var out = { pairs: pairs };
+    if (first) out.seed = pairs.map(function (p) { return { a: p.a, b: p.b, pts: [[now - 60000, p.r], [now - 45000, p.r]] }; });
+    return out;
+  }
+})();
+</script>
+</body>
+</html>
