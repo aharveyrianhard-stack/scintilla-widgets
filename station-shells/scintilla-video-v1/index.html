@@ -317,6 +317,18 @@ html[data-view="desk"] #bNext, html[data-view="desk"] #bPrev, html[data-view="de
 html[data-view="desk"] #bRefresh, html[data-view="desk"] #bPipBar, html[data-view="desk"] #bMenu{ width:28px; height:23px; padding:4px 0; }
 html[data-view="compact"] #bNext, html[data-view="compact"] #bPrev, html[data-view="compact"] #bBack, html[data-view="compact"] #bWatchBar,
 html[data-view="compact"] #bRefresh, html[data-view="compact"] #bPipBar, html[data-view="compact"] #bMenu{ width:22px; height:18px; padding:2px 0; }
+/* 26 Oct (Alan: "I can't switch back to my Scintilla feed. It's on the personal, the three dots. I can barely see any of that shit, and it's
+   not working"): the two feeds he uses are two clear buttons at the left of the bar, always there - the lit one is on; the other channels
+   stay behind the ⋯. The bar's icon buttons one size up so they can be seen across the room. */
+#feedSwitch{ flex:none; display:inline-flex; margin-right:6px; }
+#feedSwitch .btn{ font-size:11px; font-weight:700; letter-spacing:.08em; padding:4px 10px; line-height:16px; color:var(--ink2, #b9b9c6); }
+#feedSwitch .btn + .btn{ border-left:0; }
+#feedSwitch .btn.on{ color:#05070c; background:var(--crk); border-color:var(--crk); }
+html:not([data-view="compact"]) #bar #bNext, html:not([data-view="compact"]) #bar #bPrev, html:not([data-view="compact"]) #bar #bBack,
+html:not([data-view="compact"]) #bar #bWatchBar, html:not([data-view="compact"]) #bar #bRefresh, html:not([data-view="compact"]) #bar #bPipBar,
+html:not([data-view="compact"]) #bar #bMenu{ width:32px; height:26px; }
+html:not([data-view="compact"]) #bar .btn svg{ width:15px; height:15px; }
+html:not([data-view="compact"]) #bar #bFull{ font-size:13px; line-height:18px; }
 </style>
 </head>
 <body>
@@ -2072,6 +2084,24 @@ var STATION_ACTIVITY_PANE = "video";
   var events = ["pointermove", "pointerdown", "wheel", "touchstart", "touchmove", "keydown", "scroll"];
   for (var i = 0; i < events.length; i++)
     window.addEventListener(events[i], send, { passive: true, capture: true });
+})();
+/* 26 Oct: SCINTILLA and PERSONAL as two buttons on the bar (see the style note). On the wall and the iPad the deck owns which feed is on
+   (the pane asks it, as the ⋯ channel list does); on the phone page, which has no deck, the pane reloads itself on the other feed. */
+function switchFeed(next) {
+  if (!next || next === FEED) return;
+  if (EMBEDDED && QS.get("view") !== "phone") { try { parent.postMessage({ sc: "video-feed", account: next }, location.origin); } catch (_) {} return; }
+  const url = new URL(location.href); url.searchParams.set("feed", next); location.replace(url.href);
+}
+(function feedSwitch() {
+  const kk = el("kk"); if (!kk) return;
+  const box = document.createElement("span"); box.id = "feedSwitch"; box.setAttribute("role", "group"); box.setAttribute("aria-label", "YouTube feed");
+  for (const [key, label] of [["scintilla", "SCINTILLA"], ["personal", "PERSONAL"]]) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "btn" + (FEED === key ? " on" : ""); b.textContent = label; b.dataset.feed = key;
+    b.setAttribute("aria-pressed", FEED === key ? "true" : "false"); b.title = FEED === key ? label + " is the feed here" : "switch to " + label;
+    b.addEventListener("click", () => switchFeed(key)); box.appendChild(b);
+  }
+  kk.after(box);
+  if (FEED === "scintilla" || FEED === "personal") kk.style.display = "none";
 })();
 </script>
 <div id="wlFlash" role="status" aria-live="polite"></div>
