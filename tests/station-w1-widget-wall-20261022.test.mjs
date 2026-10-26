@@ -148,7 +148,8 @@ test("W1 · floorWidgets, pure (restated for W10): one fixed arrangement - X's c
   assert.match(deck, /body\.widgets\.video-slot:not\(\.stack\) #grid > #rowTop\{ margin-bottom:calc\(var\(--simple-video-px, 0px\) \+ 1px \+ var\(--tapes-px, 0px\)\); \}/);
   assert.match(deck, /body\.widgets\.video-slot\.tapes:not\(\.stack\) #tapes\{ bottom:0; left:var\(--widgets-tape-left, [^\n]*\}/, "W1C: the FAVORITES tape at the very bottom; W7: from YouTube's right edge");
   /* W1C: the volume graph (volume-v1) in the column, the lens tape (lens-v1 in tape mode) over the band; the pill meter left the wall */
-  assert.match(deck, /const WIDGETS_VOLUME_SHELL = "\/station-shells\/volume-v1", WIDGETS_VOLUME_OPEN = "https:\/\/volume-pulse-pied\.vercel\.app\/";/);
+  /* restated 26 Oct (coordinator): the wall's volume panel is version D (Alan approved it 26 Oct); the open link is unchanged */
+  assert.match(deck, /const WIDGETS_VOLUME_SHELL = "\/station-shells\/volume-d", WIDGETS_VOLUME_OPEN = "https:\/\/volume-pulse-pied\.vercel\.app\/";/);
   assert.match(fn(deck, "mountWidgets"), /WIDGETS_VOLUME_SHELL \+ "\/\?shell=v1/); assert.match(fn(deck, "mountWidgets"), /WIDGETS_LENS_SHELL \+ "\/\?shell=v1&mode=tape/);
   assert.match(fn(deck, "wireWidgets"), /make\("wgVolume", "Volume"/); assert.match(fn(deck, "wireWidgets"), /make\("wgLensTape", ""/);
   assert.doesNotMatch(deck, /meter\.html/, "the pill meter is not on the wall");
