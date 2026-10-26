@@ -178,7 +178,7 @@ body.touch .ib{ font-size:11px; padding:4px 7px; }
     if (data.live) svg += `<circle class="beat-ring" cx="${x(n - 1)}" cy="${y(r)}" r="${core}" fill="none" stroke="${col}" stroke-width="2" style="--beat:${beat}s;--spread:${spread}"/>`;
     svg += `<circle class="${data.live ? "beat-core" : ""}" cx="${x(n - 1)}" cy="${y(r)}" r="${core}" fill="${col}" style="--beat:${beat}s;filter:drop-shadow(0 0 ${(5 + r * 7).toFixed(0)}px ${col})"/>`;
     const F = data.forming;
-    if (data.live && data.marketState === "open" && F && F.pace != null) { const fi = Math.min(n, Math.max(0, slotOf(F.t))), fl = level(F.pace), fc = fl === "hot" ? "var(--hot)" : fl === "warm" ? "var(--warm)" : "var(--glow)";
+    if (data.live && ["open", "pre-market", "after-hours"].includes(data.marketState) && F && F.pace != null) { const fi = Math.min(n, Math.max(0, slotOf(F.t))), fl = level(F.pace), fc = fl === "hot" ? "var(--hot)" : fl === "warm" ? "var(--warm)" : "var(--glow)";
       svg += `<circle cx="${x(fi)}" cy="${y(Math.min(F.pace, maxR))}" r="6" fill="none" stroke="${fc}" stroke-width="2" stroke-dasharray="3 3"/><text x="${x(fi)}" y="${y(Math.min(F.pace, maxR)) - 10}" fill="${fc}" font-size="${fs - 1}" text-anchor="middle">now</text>`; }
     svg += `<line id="xh" x1="0" x2="0" y1="${padT}" y2="${H - padB}" stroke="#55554f" stroke-width="1" visibility="hidden"/></svg>`;
     box.insertAdjacentHTML("afterbegin", svg);
@@ -195,7 +195,9 @@ body.touch .ib{ font-size:11px; padding:4px 7px; }
   let LAST_SIZE = null;
   function render() {
     const L = data.latest, F = data.forming, st = data.marketState;
-    const useF = data.live && st === "open" && F && F.pace != null;
+    /* 26 Oct (Alan: "the RVOL thing on the station and on the PIPs is showing something different"): the PIP's rule (meter.js), as version D -
+       the forming bar's pace in ANY live session (pre-market, open, after-hours), else the last settled bar */
+    const useF = data.live && ["open", "pre-market", "after-hours"].includes(st) && F && F.pace != null;
     const r = useF ? F.pace : L ? L.ratio : null, lv = level(r);
     document.body.classList.toggle("warm", lv === "warm"); document.body.classList.toggle("hot", lv === "hot"); document.body.classList.toggle("shut", !data.live);
     document.body.style.setProperty("--b", Math.max(0.5, Math.min(2.2, 1.7 / Math.max(r || 1, 0.6))) + "s");
