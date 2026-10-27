@@ -696,8 +696,9 @@ function clearPlayerPositionPoll() {
   PLAYER_POSITION_POLL = 0;
 }
 function captureActiveVideoPosition(player = YT_PLAYER) {
-  /* Y8: while the video floats, where it is is the window's second - this pane's player sits paused */
-  if (FLOAT && CUR && FLOAT.id === CUR.video_id) { PLAYER_POSITION.time = floatSecond() || PLAYER_POSITION.time; return; }
+  /* Y8: while the video floats, where it is is the window's second - this pane's player sits paused. 27 Oct: until the
+     window plays its own sound, this pane's player plays on (FLOAT.sound "station") and its second is the one */
+  if (FLOAT && FLOAT.sound !== "station" && CUR && FLOAT.id === CUR.video_id) { PLAYER_POSITION.time = floatSecond() || PLAYER_POSITION.time; return; }
   if (!player || !YT_PLAYER_READY || !CUR) return;
   try {
     PLAYER_POSITION.time = Number(player.getCurrentTime()) || PLAYER_POSITION.time;
@@ -1244,7 +1245,9 @@ async function play(v, auto, queued = false, skipped = new Set(), direction = 1,
   refreshSubscribeButton(v);
   syncUrl();
   /* Y8: while the video floats, a new choice (a card, NEXT, PREVIOUS, the queue) goes to the window */
-  if (FLOAT) { loadIntoFloat(v, resumeAt); PLAYER_POSITION.time = resumeAt; paintFloat(); return null; }
+  if (FLOAT && FLOAT.sound !== "station") { loadIntoFloat(v, resumeAt); PLAYER_POSITION.time = resumeAt; paintFloat(); return null; }
+  /* 27 Oct: the sound still here - this pane plays the new choice and the window shows it */
+  if (FLOAT) { loadIntoFloat(v, resumeAt); paintFloat(); }
   if (queued) armPlayerFallback(token, skipped);
   if (YT_PLAYER && YT_PLAYER_READY) {
     applyPlayerRequest(YT_PLAYER, YT_PLAYER_REQUEST); return YT_PLAYER;
@@ -1508,7 +1511,7 @@ async function floatVideo() {
   let win;
   try { win = await host.documentPictureInPicture.requestWindow(floatSize()); }
   catch (e) { notePip("refused"); return false; }
-  FLOAT = { win, frame:null, id:"", at:start, ended:false, poll:0 };
+  FLOAT = { win, frame:null, id:"", at:start, ended:false, poll:0, sound:"station" };
   const d = win.document;
   d.documentElement.style.cssText = "height:100%;background:#000";
   d.body.style.cssText = "margin:0;height:100%;background:#000;overflow:hidden";
@@ -1518,8 +1521,9 @@ async function floatVideo() {
   });
   d.addEventListener("keydown", (event) => { if (floatKey(event)) { event.preventDefault(); bringBack(); } });
   loadIntoFloat(v, start);
-  try { if (YT_PLAYER_READY) YT_PLAYER.pauseVideo(); } catch (_) {}
-  FLOAT.poll = setInterval(tickFloat, 1000);
+  /* 27 Oct: this pane's player is NOT paused here - it keeps playing, with the sound, until the window plays its own
+     (tickFloat hands it over, within a quarter second) */
+  FLOAT.poll = setInterval(tickFloat, 250);
   notePip("");
   paintFloat();
   /* the theatre has nothing to show while the video is out: the wall comes back */
@@ -1529,9 +1533,31 @@ async function floatVideo() {
 function tickFloat() {
   if (!FLOAT) return;
   floatSecond();
+  let page = null; try { page = FLOAT.frame.contentWindow.SC_FLOAT; } catch (_) {}
+  if (FLOAT.sound === "station") {
+    /* 27 Oct, Alan: "it should just play from where I was, you know what I mean? Just go." A new window is new to the
+       browser, and it holds that window's sound until a click lands in it (measured: Chrome 155 headless, and his
+       MacBook's Brave keeps no autoplay exception for the Station). So the window plays the picture at once, without
+       its sound, and the sound stays with this pane's player, which plays on; the window keeps to this second. The
+       moment the window plays its own sound (a click in it, or a browser that let it start) it takes over from this
+       second and this player pauses: the sound never twice, and never a stop. */
+    let has = false; try { has = !!page.sound(); } catch (_) {}
+    captureActiveVideoPosition();
+    if (has) {
+      try { page.align(PLAYER_POSITION.time); } catch (_) {}
+      FLOAT.sound = "window";
+      try { if (YT_PLAYER_READY) YT_PLAYER.pauseVideo(); } catch (_) {}
+    } else {
+      let playing = true; try { playing = [1, 3].includes(YT_PLAYER.getPlayerState()); } catch (_) {}
+      try { page.follow(PLAYER_POSITION.time, playing); } catch (_) {}
+      saveActiveVideoPosition(false);
+      el("floatHold").hidden = true;
+      return;
+    }
+  }
   if (CUR && CUR.video_id === FLOAT.id) { captureActiveVideoPosition(); saveActiveVideoPosition(false); }
   let ended = false, held = false;
-  try { ended = !!FLOAT.frame.contentWindow.SC_FLOAT.ended(); held = !!FLOAT.frame.contentWindow.SC_FLOAT.blocked(); } catch (_) {}
+  try { ended = !!page.ended(); held = !!page.blocked(); } catch (_) {}
   /* a window opened by the click is new to the browser: it may hold the autoplay until ▶ is clicked in it - said, not hidden */
   el("floatHold").hidden = !held;
   if (ended && !FLOAT.ended) { FLOAT.ended = true; advanceQueue(); }   /* the queue carries on in the window */
@@ -1546,10 +1572,11 @@ function bringBack() {
 }
 function floatClosed(win) {
   if (!FLOAT || FLOAT.win !== win) return;
-  const at = Math.floor(floatSecond()), id = FLOAT.id;
+  const at = Math.floor(floatSecond()), id = FLOAT.id, kept = FLOAT.sound === "station";
   clearInterval(FLOAT.poll);
   FLOAT = null;
   paintFloat();
+  if (kept) return;   /* 27 Oct: the sound never left - this pane's player is still playing, at its own second */
   if (!CUR || CUR.video_id !== id) return;   /* back on the grid meanwhile: nothing to resume here */
   /* back in this pane's own player - the same element, never reloaded - from the second the window reached: the
      request the pane already makes to resume a shared position (and no seek control of the Station's own) */

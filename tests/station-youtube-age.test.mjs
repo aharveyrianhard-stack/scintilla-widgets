@@ -149,7 +149,8 @@ for (const shell of SHELLS) {
        floating window (cleared when it comes back) */
     assert.equal(intervals.length, 3,
       "still only the feed pass, the player-API poll and the float's reading — the ages added none");
-    assert.match(src, /FLOAT\.poll = setInterval\(tickFloat, 1000\);/);
+    /* 27 Oct: the same reading, four times a second - it hands the sound over to the window within a quarter second */
+    assert.match(src, /FLOAT\.poll = setInterval\(tickFloat, 250\);/);
     assert.match(src, /clearInterval\(FLOAT\.poll\);\n\s+FLOAT = null;/, "and the float's ends with the float");
     /* paintAges reads the DOM and the clock. Nothing else. */
     const body = fnFrom(src, "paintAges", { document:{ querySelectorAll:() => [] }, Date,

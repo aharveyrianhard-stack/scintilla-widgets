@@ -188,7 +188,10 @@ test("5: the pane's button lifts the video at the second it is at, into the Stat
   assert.match(lift, /captureActiveVideoPosition\(\);\n\s+const v = CUR, start = Math\.max\(0, Math\.floor\(PLAYER_POSITION\.time \|\| 0\)\);/);
   assert.match(lift, /host\.documentPictureInPicture\.requestWindow\(floatSize\(\)\)/);
   assert.match(pane, /el\("bPip"\)\.addEventListener\("click", toggleFloat\);\nel\("bPipBar"\)\.addEventListener\("click", toggleFloat\);/, "the menu item and the bar button do the same thing");
-  assert.match(lift, /YT_PLAYER\.pauseVideo\(\)/, "the pane pauses so the two do not play over each other");
+  /* 27 Oct: floating no longer stops the pane - it keeps the sound until the window plays its own, then pauses */
+  assert.doesNotMatch(lift, /pauseVideo/, "floating does not stop this pane's player");
+  assert.match(body(pane, "tickFloat"), /FLOAT\.sound = "window";\n\s+try \{ if \(YT_PLAYER_READY\) YT_PLAYER\.pauseVideo\(\); \} catch \(_\) \{\}/,
+    "the pane pauses the moment the window has its own sound, so the two never play their sound over each other");
 });
 
 test("5: Document PiP first, a small window where the browser lacks it, and the path is said", async () => {
