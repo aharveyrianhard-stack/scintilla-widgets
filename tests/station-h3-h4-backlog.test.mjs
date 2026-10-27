@@ -123,7 +123,9 @@ test("both video shells keep a subscribed feed, correctly scoped", () => {
   /* Personal is its own subscribed feed; SCINTILLA is the shared discovery grid and carries
      its own separate subscribed list. They must not collapse into one. */
   assert.match(personal, /SCINTILLA_SUBSCRIBED/);
-  assert.match(personal, /\] : \[SUBSCRIBED\];/, "a personal feed offers only its own subscribed list");
+  /* restated 26 Oct (coordinator): every channel feed also carries the shared WATCH LATER list, as a tab on the bar (Alan: "show
+     me … a scrollable area of what's in my watch later … and for that to run through") - one list for both feeds, never mixed in */
+  assert.match(personal, /\] : \[SUBSCRIBED, WATCH_LIST\];/, "a personal feed offers its own subscribed list and the shared Watch Later");
 });
 
 test("previous and next are real, and are disabled when there is nowhere to go", () => {
