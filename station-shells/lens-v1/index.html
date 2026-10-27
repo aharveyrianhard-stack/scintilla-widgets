@@ -109,6 +109,15 @@ body.tape .lens .rv i::before{ content:""; position:absolute; inset:0; z-index:1
 body.tape .lens .rv i::after{ content:""; position:absolute; left:0; top:0; bottom:0; width:var(--rv, 0%); background:linear-gradient(90deg, #3987e5, #fab219 55%, #ec835a); transition:width .8s; }
 body.tape .lens .rv em{ font-style:normal; font-size:9.5px; color:var(--ink3); font-variant-numeric:tabular-nums; min-width:26px; text-align:right; } body.tape .lens .rv.hot em{ color:#ec835a; }
 body.tape .lens .nm{ padding:0 9px; }
+/* W15c: the lens wall's wide cells - the ticker and the price 18 px, the percent 16, the multiple 13, the name 10 */
+body.tape.bigcells .lens .head{ padding:8px 12px 0; gap:9px; } body.tape.bigcells .lens .tk, body.tape.bigcells .lens .px{ font-size:18px; }
+body.tape.bigcells .lens .pc{ font-size:16px; } body.tape.bigcells .lens .rv{ margin:5px 12px 0; } body.tape.bigcells .lens .rv i{ height:8px; }
+body.tape.bigcells .lens .rv em{ font-size:13px; min-width:34px; } body.tape.bigcells .lens .nm{ padding:0 12px; font-size:10px; }
+/* W15c (Alan: "flashing … if their volume is kind of rising"): RISING - the multiple at 1.2x or more and up 0.1x or more since the last
+   minute's read: a green arrow by the multiple and one pulse of the tube (the 2x glow of the one rule is unchanged) */
+.lens .rv.rising em::after{ content:" \25B2"; color:var(--bull); }
+.lens .rv.rising.pulse i{ animation:rvpulse 1.6s ease-out 1; }
+@keyframes rvpulse{ 0%{ box-shadow:0 0 0 0 rgba(0,255,163,.0); } 25%{ box-shadow:0 0 10px 2px rgba(0,255,163,.55); } 100%{ box-shadow:0 0 0 0 rgba(0,255,163,0); } }
 /* W10 (Alan: "bring the bars and the chart a little bit tighter into the center"): the chart inset from the cell's sides and foot */
 body.tape .lens canvas{ margin:2px 10px 7px; width:calc(100% - 20px); }
 body.tape .lens .num{ position:absolute; left:0; right:0; top:46px; bottom:4px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; font-size:12px; color:var(--ink2); font-variant-numeric:tabular-nums; }
@@ -186,6 +195,14 @@ export function unusualOf(pct, usual, rvol) {
 export function usualSpread(closes) { const a = []; for (let i = 1; i < closes.length; i++) if (closes[i - 1] > 0 && closes[i] > 0) a.push((closes[i] / closes[i - 1] - 1) * 100); const x = a.slice(-60); if (x.length < 20) return null; const m = x.reduce((u, v) => u + v, 0) / x.length; return Math.sqrt(x.reduce((u, v) => u + (v - m) * (v - m), 0) / (x.length - 1)); }
 /* the rows of the tape dealt to the sets: each set at least one row when there are enough, the rest by the names' count; fewer rows than sets -
    one row holds them in sequence */
+/* W15c (26 Oct, Alan: "I just saw Bitcoin twice … right above each other"): a name is on one row. MACRO and MINE keep their own names (fixed
+   context); RADAR, the moving list, leaves out what they already show - BTCUSD sits in MACRO and was also on the radar. */
+/* W15c: RISING - the multiple at 1.2x or more and up 0.1x or more since the last read (about a minute) */
+export function rvolRising(now, before) { return now != null && before != null && now >= 1.2 && now - before >= 0.1; }
+export function onceAcrossSets(groups) {
+  const claimed = new Set(groups.filter((g) => g.s !== "radar").flatMap((g) => g.names));
+  return groups.map((g) => g.s === "radar" ? { s:g.s, names:g.names.filter((t) => !claimed.has(t)) } : g);
+}
 export function rowsForSets(rows, counts) {
   const n = counts.length; if (!n) return [];
   if (rows < n) return null;
@@ -217,6 +234,8 @@ let ROWS = Math.max(1, Math.min(6, +QS.get("rows") || 1));
 /* W15b (26 Oct, Alan: "let's do bigger ones, please"): the lens wall asks for wider cells (?cellw=, px); 170 stays the default */
 const CELL_W = Math.max(0, Math.min(480, Math.round(+QS.get("cellw") || 0)));
 if (CELL_W) document.documentElement.style.setProperty("--lens-w", CELL_W + "px");
+/* W15c (Alan: "making things bigger, you know, the tickers of the symbols, the percentage … we have space"): wide cells, a size up */
+if (CELL_W >= 220) document.body.classList.add("bigcells");
 /* W7: each name's RVol, the Hub's board_volume.rvol_at_time, once a minute */
 const RVOL_MS = 60000;
 const SB = "https://wadinxqplrggagkvrdag.supabase.co";
@@ -268,15 +287,18 @@ function etParts(ms) {
   ET_CACHE.set(ms, out); return out;
 }
 const FUTURES = Object.freeze(["ESUSD", "NQUSD", "CLUSD", "GCUSD", "SIUSD"]);   /* live-v1's list: the futures the chart API serves */
+/* W15c (Alan: Bitcoin "doesn't have the VWAP coming all the way through"): crypto trades round the clock - its VWAP runs the whole UTC day
+   (TradingView's session for a crypto exchange), not the stock day's 04:00-20:00 */
+const CRYPTO = Object.freeze(["BTCUSD", "ETHUSD", "SOLUSD"]);
 const sessionDay = (ms, fut) => etParts(fut ? ms + 6 * 3600000 : ms).day;
 const hlc3 = (b) => (b.h + b.l + b.c) / 3;
 export function vwapCalc(bars, tfMs, anchor, mult) {
   const n = bars.length, vwap = new Array(n).fill(NaN), upper = new Array(n).fill(NaN), lower = new Array(n).fill(NaN);
   let day = null, pv = 0, vv = 0, p2v = 0;
   for (let i = 0; i < n; i++) {
-    const b = bars[i], e = etParts(b.t), key = anchor === "1800" ? sessionDay(b.t, true) : e.day;
+    const b = bars[i], e = etParts(b.t), key = anchor === "1800" ? sessionDay(b.t, true) : anchor === "UTC" ? new Date(b.t).toISOString().slice(0, 10) : e.day;
     if (key !== day) { day = key; pv = 0; vv = 0; p2v = 0; }
-    const inside = anchor === "1800" ? true : e.min >= 240 && e.min < 1200;
+    const inside = anchor === "1800" || anchor === "UTC" ? true : e.min >= 240 && e.min < 1200;
     if (!inside || (!(b.v > 0) && vv === 0)) continue;
     if (b.v > 0) { const s = hlc3(b); pv += s * b.v; vv += b.v; p2v += s * s * b.v; }
     if (vv > 0) {
@@ -288,7 +310,7 @@ export function vwapCalc(bars, tfMs, anchor, mult) {
 }
 const TF_MIN = Object.freeze({ "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60 });
 /* the bars a lens reads for its VWAP: a whole session (stocks 04:00-20:00 = 960 minutes, futures 18:00-17:00 = 1,380) and a few more */
-export function vwapLimit(tf, fut) { const m = TF_MIN[tf]; return m ? Math.min(1000, Math.ceil((fut ? 1380 : 960) / m) + 4) : 0; }
+export function vwapLimit(tf, fut, crypto) { const m = TF_MIN[tf]; return m ? Math.min(1000, Math.ceil((crypto ? 1440 : fut ? 1380 : 960) / m) + 4) : 0; }
 /* W15b (26 Oct, Alan: "make the VWAP a little more subtle"): live-v1's amber, quieter - the line at 55 %, the band at 26 %, the fill at 4 % */
 export const VWAP_COL = Object.freeze({ line:"rgba(242,179,61,.55)", band:"rgba(242,179,61,.26)", fill:"rgba(242,179,61,.04)" });
 /* the VWAP and its band, on the lens's own x and y (a run per session: a NaN breaks the line) */
@@ -320,7 +342,7 @@ if (QS.get("touch") === "1") document.body.classList.add("touch");
 STYLE = styleOf(remembered(STYLE_KEY));
 let MINE = mineOf(remembered(MINE_KEY)), mineAt = 0;   /* W4: a copy of the database list, read every five minutes; written through the same door */
 let RADAR = [], radarAt = 0;
-const S = { quotes: new Map(), bars: new Map(), rvol: new Map(), usual: new Map(), breadth: null, quotesAt: 0, barsAt: 0, rvolAt: 0, breadthAt: 0, usualAt: 0, busyQ: false, busyB: false, busyR: false, busyBr: false, busyU: false };
+const S = { quotes: new Map(), bars: new Map(), rvol: new Map(), rvolPrev: new Map(), usual: new Map(), breadth: null, quotesAt: 0, barsAt: 0, rvolAt: 0, breadthAt: 0, usualAt: 0, busyQ: false, busyB: false, busyR: false, busyBr: false, busyU: false };
 function sets() { return MINE_ON ? ["radar", "macro", "mine"] : ["radar", "macro"]; }
 function setNames(s) { return (s === "macro" ? MACRO : s === "mine" ? MINE : RADAR).slice(0, MAX_LENSES); }
 function names() { const seen = new Set(), out = []; for (const s of sets()) for (const t of setNames(s)) if (!seen.has(t)) { seen.add(t); out.push(t); } return out; }
@@ -391,7 +413,7 @@ function paintSet(force) {
   /* W10 (Alan: "why are the context lens and the ticker tape jumpy?"): a list read that brings the same names back does not rebuild the tape -
      the cells are updated in place; only a changed list, a changed row count or a changed style rebuilds */
   /* W12: every set on screen - RADAR then MACRO (then MINE when open); the tape's rows dealt to the sets, the grid with a head per set */
-  const groups = sets().map((s) => ({ s, names: setNames(s) }));
+  const groups = onceAcrossSets(sets().map((s) => ({ s, names: setNames(s) })));   /* W15c: a name once */
   const key = sets().join("+") + "|" + ROWS + "|" + list.join(",");
   if (!force && key === SET_KEY && box.firstChild) return;
   SET_KEY = key; box.innerHTML = "";
@@ -468,7 +490,9 @@ function paintCells(first) {
   }
   /* W7: the RVol battery and multiple on every lens (the tape) */
   for (const d of el("set").querySelectorAll(".lens .rv")) {
-    const r = S.rvol.get(d.closest(".lens").dataset.t); const cls = "rv" + (r == null ? "" : r >= 1.5 ? " hot" : r < 0.7 ? " cold" : ""), txt = r == null ? "—" : r.toFixed(1) + "×";
+    const t = d.closest(".lens").dataset.t, r = S.rvol.get(t), up = rvolRising(r, S.rvolPrev.get(t));
+    const cls = "rv" + (r == null ? "" : r >= 1.5 ? " hot" : r < 0.7 ? " cold" : "") + (up ? " rising" : ""), txt = r == null ? "—" : r.toFixed(1) + "×";
+    if (up && !d.classList.contains("rising")) { d.classList.remove("pulse"); void d.offsetWidth; requestAnimationFrame(() => d.classList.add("pulse")); }   /* W15c: one pulse as it starts rising */
     if (d.className !== cls) d.className = cls; if (d.lastChild.textContent !== txt) d.lastChild.textContent = txt; d.firstChild.style.setProperty("--rv", Math.round(Math.min(1, (r || 0) / 3) * 100) + "%");
   }
   /* W7: the number lens (advance / decline from the volume feed's breadth) */
@@ -576,7 +600,7 @@ function drawAll() { for (const d of el("set").querySelectorAll(".lens")) drawOn
 let WANTED = [];
 async function readRvol() {
   const list = Array.from(new Set(names().filter((t) => !NUMBER_LENS[t]).concat(WANTED))); if (!list.length || S.busyR) return; S.busyR = true;
-  try { const rows = await pgRead("board_volume?select=ticker,rvol_at_time&ticker=in.(" + list.map(encodeURIComponent).join(",") + ")"); for (const r of rows || []) { const t = CLEAN(r && r.ticker); if (t && r.rvol_at_time != null) S.rvol.set(t, +r.rvol_at_time); } S.rvolAt = Date.now(); paintCells(false);
+  try { const rows = await pgRead("board_volume?select=ticker,rvol_at_time&ticker=in.(" + list.map(encodeURIComponent).join(",") + ")"); for (const r of rows || []) { const t = CLEAN(r && r.ticker); if (t && r.rvol_at_time != null) { if (S.rvol.has(t)) S.rvolPrev.set(t, S.rvol.get(t)); S.rvol.set(t, +r.rvol_at_time); } } S.rvolAt = Date.now(); paintCells(false);
     postRvol(); }
   catch (_) {} finally { S.busyR = false; }
 }
@@ -631,7 +655,7 @@ async function readBars(force) {
         /* W4: on the tape the read skips the provider client's shared store (forming:true, max-age 15), so a bar just closed is seen at once */
         if (NUMBER_LENS[t]) { S.bars.set(t, { bars: [], at: Date.now() }); return; }
         const tf = lensTf(t);   /* W7: the put/call ratio is a daily series at the API; W12: the TF chips' timeframe otherwise */
-        const fut = FUTURES.includes(t), vlim = DAILY_ONLY[t] ? 0 : vwapLimit(TF, fut);   /* W15: the whole session, for the VWAP */
+        const fut = FUTURES.includes(t), crypto = CRYPTO.includes(t), vlim = DAILY_ONLY[t] ? 0 : vwapLimit(TF, fut, crypto);   /* W15: the whole session, for the VWAP */
         const payload = await P.marketCandles(t, tf, TAPE ? { limit: Math.max(LENS_BARS, vlim), forming: true } : { limit: Math.max(LENS_BARS, vlim) });
         /* W4: the provider hands its rows NEWEST FIRST (measured 22 Oct: timestamp 1792702800 before 1792702500) - oldest first here, always,
            so the last row is the newest bar and the line runs left to right in time */
@@ -640,7 +664,7 @@ async function readBars(force) {
         /* W15: the VWAP over the whole session read, kept for the bars the lens draws */
         let vw = null;
         if (vlim && all.some((b) => b.v > 0)) {
-          const full = vwapCalc(all, TF_MIN[TF] * 60000, fut ? "1800" : "0400", 1), off = all.length - rows.length;
+          const full = vwapCalc(all, TF_MIN[TF] * 60000, crypto ? "UTC" : fut ? "1800" : "0400", 1), off = all.length - rows.length;
           vw = { vwap:full.vwap.slice(off), upper:full.upper.slice(off), lower:full.lower.slice(off) };
           if (!vw.vwap.some(Number.isFinite)) vw = null;
         }
