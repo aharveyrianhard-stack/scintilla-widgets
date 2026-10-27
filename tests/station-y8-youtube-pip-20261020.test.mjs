@@ -36,13 +36,17 @@ function station({ api = true, crossOrigin = false, stored = null, loadedId = "u
     setAttribute(k, v) { this.attrs[k] = v; } });
   const nodes = {}; const el = (id) => (nodes[id] = nodes[id] || node(id));
   const body = { classList: node("body").classList, dataset: {} };
-  const floatPage = { t: 0, ended: false, blocked: false };
+  /* sound: the window plays its own sound (true: a browser that let it start, or a click in it; false: the browser
+     held it and the picture plays without it - 27 Oct). follows/aligns: what the pane asked of it */
+  const floatPage = { t: 0, ended: false, blocked: false, sound: true, follows: [], aligns: [] };
   let pipWin = null;
   const makeWin = (o) => {
     const winListeners = {};
     const doc = { title: "", documentElement: { style: {} }, body: { style: {}, set textContent(v) { made.length = 0; }, appendChild: (n) => made.push(n) },
       createElement: () => ({ style: {}, src: "", allow: "", contentWindow: { SC_FLOAT: {
-        at: () => floatPage.t, ended: () => floatPage.ended, blocked: () => floatPage.blocked } } }),
+        at: () => floatPage.t, ended: () => floatPage.ended, blocked: () => floatPage.blocked,
+        sound: () => floatPage.sound, muted: () => !floatPage.sound,
+        follow: (t, playing) => { floatPage.follows.push([t, playing]); return true; }, align: (t) => floatPage.aligns.push(t) } } }),
       addEventListener: (t, fn) => { (winListeners["doc:" + t] = winListeners["doc:" + t] || []).push(fn); } };
     pipWin = { size: o, innerWidth: o.width, innerHeight: o.height, document: doc, closed: 0,
       addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); },
@@ -54,7 +58,7 @@ function station({ api = true, crossOrigin = false, stored = null, loadedId = "u
   const top = crossOrigin ? { get location() { throw new Error("SecurityError: cross-origin"); } }
     : { location: { origin: "https://station.scintillahub.ai" }, documentPictureInPicture: api ? dpip : undefined };
   const player = { pauseVideo: () => calls.push("pause"), playVideo: () => calls.push("play"), seekTo: (t, a) => calls.push(["seek", t, a]),
-    getVideoData: () => ({ video_id: loadedId }), getCurrentTime: () => paneTime, getDuration: () => 600 };
+    getVideoData: () => ({ video_id: loadedId }), getCurrentTime: () => paneTime, getDuration: () => 600, getPlayerState: () => 1 };
   const ctx = {
     window: { top }, location: { origin: "https://station.scintillahub.ai" }, document: { body },
     parent: { postMessage: (m) => calls.push(["parent", m.type]) },
@@ -86,7 +90,10 @@ test("1: the float opens at the second the pane is at - 16:9, 480 wide - and the
   assert.equal(s.made.length, 1, "one player in the window");
   assert.equal(s.made[0].src, "https://station.scintillahub.ai/station-shells/pip-v2/?v=u1sbtiTQk1s&start=24&title=t", "the same video, the same second");
   assert.match(s.made[0].allow, /autoplay/);
-  assert.ok(s.calls.includes("pause"), "the pane's own player pauses - the two never play over each other");
+  assert.ok(!s.calls.includes("pause"), "27 Oct: floating does not stop this pane - it keeps the sound until the window plays its own");
+  s.api.tickFloat();
+  assert.ok(s.calls.includes("pause"), "the window plays its own sound: the pane's player pauses - the two never play their sound over each other");
+  assert.deepEqual(s.floatPage.aligns, [24.9], "and the window takes the second the pane had reached");
   assert.equal(s.api.FLOAT.id, "u1sbtiTQk1s");
   assert.equal(s.el("floatNote").hidden, false, "the pane says: playing in the floating window · bring it back");
   assert.ok(s.body.classList.contains("floating"));
@@ -115,6 +122,7 @@ test("1: closing the window (its ✕) brings it back - the pane's own player, fr
 test("1: BRING IT BACK (or P again) closes the window and resumes once, though the window's pagehide also fires", async () => {
   const s = station();
   await s.api.floatVideo();
+  s.api.tickFloat();                        /* the window has its own sound */
   s.floatPage.t = 90.2; s.calls.length = 0;
   assert.equal(s.api.toggleFloat(), true);
   assert.equal(s.win().closed, 1);
@@ -125,6 +133,7 @@ test("1: BRING IT BACK (or P again) closes the window and resumes once, though t
 test("1: a video chosen while it floats goes to the window; closing then loads THAT video here, at the window's second", async () => {
   const s = station();
   await s.api.floatVideo();
+  s.api.tickFloat();                        /* the window has its own sound */
   /* what play() does while FLOAT is set (asserted on the source below): the window gets the new choice */
   s.ctx.CUR = { video_id: "raZLuvMSX-c", title: "next" };
   vm.runInContext("loadIntoFloat(CUR, 0)", s.ctx);
@@ -133,8 +142,10 @@ test("1: a video chosen while it floats goes to the window; closing then loads T
   s.win().close();
   assert.deepEqual(s.calls.find((c) => Array.isArray(c) && c[0] === "play()"), ["play()", "raZLuvMSX-c", 33], "loaded here at 33 s");
   const play = liftFrom(pane, "play");
-  assert.match(play, /if \(FLOAT\) \{ loadIntoFloat\(v, resumeAt\); PLAYER_POSITION\.time = resumeAt; paintFloat\(\); return null; \}\n\s+if \(queued\) armPlayerFallback/,
-    "play() routes a new choice to the window before it touches this pane's player");
+  assert.match(play, /if \(FLOAT && FLOAT\.sound !== "station"\) \{ loadIntoFloat\(v, resumeAt\); PLAYER_POSITION\.time = resumeAt; paintFloat\(\); return null; \}/,
+    "play() routes a new choice to the window before it touches this pane's player, once the window has the sound");
+  assert.match(play, /if \(FLOAT\) \{ loadIntoFloat\(v, resumeAt\); paintFloat\(\); \}\n\s+if \(queued\) armPlayerFallback/,
+    "while the sound is still here, this pane plays the new choice and the window shows it");
   assert.match(play, /const resumeAt = startAt != null \? Math\.max\(0, Math\.floor\(Number\(startAt\) \|\| 0\)\)/, "the way back can name the second");
 });
 
@@ -202,14 +213,15 @@ test("3: the float page (pip-v2) gives YouTube a real address, says its second, 
   assert.match(pip2, /if \(!\/\^\[A-Za-z0-9_-\]\{6,20\}\$\/\.test\(id\)\)/);
   assert.match(pip2, /s\.src = "https:\/\/www\.youtube\.com\/iframe_api"/, "YouTube's official player, as the pane uses");
   assert.match(pip2, /playerVars: \{ autoplay: 1, start: start, playsinline: 1, rel: 0, modestbranding: 1, origin: location\.origin \}/);
-  assert.match(pip2, /onAutoplayBlocked: function \(\) \{ state\.blocked = true; \}/);
+  assert.match(pip2, /onAutoplayBlocked: function \(\) \{ state\.blocked = true; quiet\(\); \}/, "27 Oct: a held sound starts the picture without it");
   assert.match(pip2, /s\.onerror = plain;/, "if the API script cannot load, the plain embed still plays");
   assert.doesNotMatch(pip2, /fetch\(|localStorage|sessionStorage|supabase/i, "it reads nothing and writes nothing");
   /* run the page's script against a fake document: SC_FLOAT answers before the player exists, then from the player */
   const script = pip2.match(/<script>([\s\S]*?)<\/script>/)[1];
   const win = {}; const appended = [];
+  const tapFns = {}, tap = { hidden: true, addEventListener: (t, fn) => { tapFns[t] = fn; } };
   const doc = { title: "", body: { appendChild: (n) => appended.push(n) }, head: { appendChild: (n) => appended.push(n) },
-    createElement: (t) => ({ tag: t, style: {} }), querySelector: () => null };
+    createElement: (t) => ({ tag: t, style: {} }), querySelector: () => null, getElementById: (i) => (i === "tap" ? tap : null) };
   const ctx = { window: win, document: doc, location: { search: "?v=u1sbtiTQk1s&start=24&title=t", origin: "https://station.scintillahub.ai" },
     URLSearchParams, Number, Math, setTimeout: () => 0 };
   vm.runInNewContext(script, ctx);
@@ -223,8 +235,49 @@ test("3: the float page (pip-v2) gives YouTube a real address, says its second, 
   opts.events.onStateChange({ data: 1 });
   assert.equal(win.SC_FLOAT.at(), 31.5, "once it plays, the player's own second");
   assert.equal(win.SC_FLOAT.ended(), false);
+  assert.equal(win.SC_FLOAT.sound(), true, "playing, not muted: the window has its own sound");
   opts.events.onAutoplayBlocked(); assert.equal(win.SC_FLOAT.blocked(), true);
+  /* 27 Oct: held - the picture plays at once without its sound, and the first click here brings it */
+  assert.equal(win.SC_FLOAT.muted(), true, "the picture plays without its sound - never a wait for ▶");
+  assert.equal(win.SC_FLOAT.sound(), false, "so the pane keeps the sound");
+  assert.equal(tap.hidden, false, "the layer that takes the first click is over the player");
+  tapFns.pointerdown();
+  assert.equal(tap.hidden, true); assert.equal(win.SC_FLOAT.muted(), false);
+  opts.events.onStateChange({ data: 1 });
+  assert.equal(win.SC_FLOAT.sound(), true, "the click brought the sound here: the pane hands over");
   opts.events.onStateChange({ data: 0 }); assert.equal(win.SC_FLOAT.ended(), true);
+});
+
+test("3b: 27 Oct - while the window holds no sound, the pane plays on with it; the window keeps to its second; nothing stops", async () => {
+  const s = station();
+  s.floatPage.sound = false;                /* the browser held the window's sound: the picture plays without it */
+  await s.api.floatVideo();
+  s.api.tickFloat(); s.api.tickFloat();
+  assert.ok(!s.calls.includes("pause"), "the pane's player is never paused while the sound is still here");
+  assert.deepEqual(s.floatPage.follows, [[24.9, true], [24.9, true]], "the window is handed the pane's second and its play state");
+  assert.equal(s.ctx.PLAYER_POSITION.time, 24.9, "where the video is, is this pane's second");
+  assert.equal(s.el("floatHold").hidden, true, "no 'waiting for ▶': nothing waits");
+  /* a click in the window brings the sound there: from then on it is the window's, as before */
+  s.floatPage.sound = true; s.floatPage.t = 30.1; s.api.tickFloat();
+  assert.ok(s.calls.includes("pause"), "the hand-over pauses this pane");
+  assert.deepEqual(s.floatPage.aligns, [24.9], "at the second the pane had reached");
+  s.calls.length = 0; s.win().close();
+  assert.deepEqual(s.calls.find((c) => Array.isArray(c) && c[0] === "play()"), ["play()", "u1sbtiTQk1s", 30], "closing then brings it back here at the window's second");
+});
+
+test("3b: 27 Oct - closing the window before it ever had the sound resumes nothing: the pane never stopped", async () => {
+  const s = station();
+  s.floatPage.sound = false;
+  await s.api.floatVideo();
+  s.api.tickFloat();
+  s.floatPage.ended = true; s.api.tickFloat();
+  assert.equal(s.calls.filter((c) => c === "advanceQueue").length, 0, "the window's end is not the queue's: this pane's own player carries it");
+  s.calls.length = 0;
+  s.win().close();
+  assert.equal(s.api.FLOAT, null);
+  assert.equal(s.calls.filter((c) => Array.isArray(c) && c[0] === "play()").length, 0, "no reload of this pane's player");
+  assert.ok(!s.calls.includes("pause"));
+  assert.equal(s.el("floatNote").hidden, true);
 });
 
 test("3: the new page is in the route inventory", () => {
