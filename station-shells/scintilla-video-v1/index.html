@@ -557,7 +557,12 @@ const MODE_KEYS = MODES.map(([key]) => key);
 const MODE_MEMORY = "station.video.mode." + FEED;
 const MODE_DEFAULT = FEED === "scintilla" || FEED === "market" ? "grid" : "videos";
 const SHORT_CLAUSE = "&or=(is_short.eq.true,duration.like.0:*,duration.eq.1:00)";
-const LONG_CLAUSE = "&is_short=eq.false&duration=not.like.0:*&duration=neq.1:00";
+/* 27 Oct: a stream that has not gone on air has no length yet, and SQL drops a NULL from both length tests, so the
+   VIDEOS tab never showed a scheduled stream: 18 on the SCINTILLA feed at 08:30 ET, Arete Trading's late 8:15am one
+   among them. Alan: "I see this video from Arete Trading ... on the station for the MacBook Pro ... it's not even
+   available on the station for the iMac" (the iMac on VIDEOS, the MacBook on GRID). No length is not a short -
+   isShortVideo already says so - and now the query agrees: a row without a length stays in VIDEOS. */
+const LONG_CLAUSE = "&is_short=eq.false&or=(duration.is.null,and(duration.not.like.0:*,duration.neq.1:00))";
 function modeClause(mode) { return mode === "shorts" ? SHORT_CLAUSE : mode === "videos" ? LONG_CLAUSE : ""; }
 function durationSeconds(text) {
   const parts = String(text == null ? "" : text).trim().split(":");

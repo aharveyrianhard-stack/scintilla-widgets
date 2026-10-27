@@ -119,7 +119,10 @@ test("3 · a short is the platform's flag OR sixty seconds or less; the page and
   assert.equal(modeClause("shorts"), SHORT_CLAUSE);
   assert.equal(modeClause("videos"), LONG_CLAUSE);
   for (const piece of ["is_short.eq.true", "duration.like.0:*", "duration.eq.1:00"]) assert.ok(SHORT_CLAUSE.includes(piece), `the SHORTS query asks for ${piece}`);
-  for (const piece of ["is_short=eq.false", "duration=not.like.0:*", "duration=neq.1:00"]) assert.ok(LONG_CLAUSE.includes(piece), `the VIDEOS query excludes ${piece}`);
+  for (const piece of ["is_short=eq.false", "duration.not.like.0:*", "duration.neq.1:00"]) assert.ok(LONG_CLAUSE.includes(piece), `the VIDEOS query excludes ${piece}`);
+  /* 27 Oct: a stream not on air yet has no length - not a short, so the VIDEOS query keeps it, as the page does */
+  assert.equal(inMode({ is_short: false, duration: null }, "videos"), true, "a stream not on air yet is in VIDEOS");
+  assert.ok(LONG_CLAUSE.includes("or=(duration.is.null,and(duration.not.like.0:*,duration.neq.1:00))"), "the VIDEOS query keeps a row with no length");
 });
 
 test("3b · the tabs come first, every list keeps its chip, the old links still land", () => {
