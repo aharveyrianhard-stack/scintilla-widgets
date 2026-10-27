@@ -3223,10 +3223,43 @@ window.addEventListener("message", (event) => {
   else setSolo(SOLO === pane.def.key ? null : pane.def.key);
 });
 
+/* ---- TV SCALE (26 Oct 2026, coordinator) ------------------------------------------------------------
+   Alan, ~20:40 ET, moving the Station from the iMac's screen to the TV: "everything gets much smaller. I see two videos of the
+   YouTube per row. I see more rows of context lenses. It's shifting. I would prefer if the computer one kind of stays the same
+   even if it's on the Apple TV, please." W10 made every box a share of the window, but the YouTube feed column's cards per row
+   (besideCols: one under 400 px), the lens rows (about 150 px each), the tapes and every shell's type are pixels, so a bigger window
+   showed more of them, smaller. A window bigger than the computer's in BOTH directions now lays the wall out at the computer's size
+   and magnifies the whole page to fill the window (CSS zoom on the root): the same rows, columns and type as on the computer, bigger.
+   The frames inherit the zoom in their devicePixelRatio (measured: 1.5 → 2.316 at ×1.544), so charts, X and the lenses draw at the
+   TV's own sharpness. Never below 1, so the computer and the MacBook are unchanged; never on the iPad page (its own density).
+   THE REFERENCE, measured 26 Oct: the Station window on the iMac's screen, 1062 × 690 points less its title bar, at Brave's 75 %
+   = 1416 × 883 CSS px. The TV window (1920 × 1050 points, 75 %) is 2560 × 1363 → ×1.544, laid out at 1658 × 883.
+   Client coordinates (getBoundingClientRect, pointer clientX/Y) are the magnified picture's; style lengths are the wall's own:
+   code that turns one into the other divides by deckZoom(). innerWidth/innerHeight are the window's and do not move with the zoom.
+   Off for one load: ?tvscale=0. */
+const TV_SCALE_REF = Object.freeze({ w:1416, h:883 }), TV_SCALE_MIN = 1.05, TV_SCALE_MAX = 3;
+function tvScaleOf(width, height, view, off, ref = TV_SCALE_REF) {
+  if (off || view === "ipad") return 1;
+  const s = Math.min((Number(width) || 0) / ref.w, (Number(height) || 0) / ref.h);
+  return Number.isFinite(s) && s >= TV_SCALE_MIN ? Math.round(Math.min(TV_SCALE_MAX, s) * 1000) / 1000 : 1;
+}
+let TV_SCALE = 1;
+const deckZoom = () => TV_SCALE || 1;
+function applyTvScale() {
+  const s = tvScaleOf(innerWidth, innerHeight, VIEW, QS.get("tvscale") === "0");
+  if (s === TV_SCALE) return false;
+  TV_SCALE = s;
+  document.documentElement.style.zoom = s === 1 ? "" : String(s);
+  document.body.dataset.tvScale = String(s);
+  return true;
+}
+applyTvScale();   /* before the first fit, so the wall is never laid out once at the TV's pixels */
+
 /* ---- the resize path. ResizeObserver on the deck, not window resize. ----
    Stage Manager and Split View change the element's box without always
    giving a useful window resize; visualViewport covers pinch and keyboard. */
 function relayout() {
+  applyTvScale();   /* TV SCALE: the zoom first, then every measurement below is the wall's own size */
   const w = el("grid").clientWidth || innerWidth;
   STACKED = !keepsCompleteWall() && w < STACK_AT;
   document.body.classList.toggle("stack", STACKED);   /* set every time — the
@@ -3259,7 +3292,7 @@ function placeTfNow() {
       if (r.left <= cx + TF_SEAM_REACH && r.left > cx - TF_SEAM_REACH) seam = r.left;
     }
   }
-  const left = seam != null ? Math.round(seam - 4) + "px" : "";
+  const left = seam != null ? Math.round(seam / deckZoom() - 4) + "px" : "";   /* TV SCALE: a rect is the magnified picture's */
   if (tag.style.left === left && tag.classList.contains("at-seam") === (seam != null)) return;
   tag.classList.toggle("at-seam", seam != null);
   tag.style.left = left;
@@ -3267,7 +3300,7 @@ function placeTfNow() {
   if (typeof fanoutDeckGeiger === "function") fanoutDeckGeiger();
 }
 function measure() {
-  el("size").textContent = Math.round(innerWidth) + "×" + Math.round(innerHeight) +
+  el("size").textContent = Math.round(innerWidth) + "×" + Math.round(innerHeight) + (deckZoom() !== 1 ? " · TV ×" + deckZoom() : "") +
     (STACKED ? " · stacked" : " · " + CHART_COUNT + (CHART_COUNT === 1 ? " chart" : " charts"));
   const xr = el("xrect");
   if (xr) {
@@ -3623,7 +3656,7 @@ function wireSimpleHandle(grid) {
   });
   h.addEventListener("pointermove", (e) => {
     if (!drag || e.pointerId !== drag.id) return;
-    drag.split = simpleSplitOf((e.clientY - drag.top) / Math.max(1, drag.h));
+    drag.split = simpleSplitOf((e.clientY - drag.top) / deckZoom() / Math.max(1, drag.h));
     if (!drag.raf) drag.raf = requestAnimationFrame(() => { drag.raf = 0; remember(SIMPLE_SPLIT_KEY, drag.split.toFixed(3)); fitVideoPane(); });
   });
   const done = (e) => {
@@ -3700,7 +3733,7 @@ function wireMore() {
     /* in the scrolling strip the panel is fixed to the viewport: hang it just under the strip */
     const dock = el("dock");
     if (open && dock && dock.classList.contains("dock-scroll"))
-      group.style.top = Math.round(dock.getBoundingClientRect().bottom + 2) + "px";
+      group.style.top = Math.round(dock.getBoundingClientRect().bottom / deckZoom() + 2) + "px";
     else group.style.top = "";
   };
   btn.addEventListener("click", () => set(group.hidden));
@@ -3753,7 +3786,7 @@ function wireDock() {
   const dock = el("dock");
   if (!dock || dock._docked) return;
   dock._docked = true;
-  const pointerAt = (clientX) => (clientX - dock.getBoundingClientRect().left) / dockFit();
+  const pointerAt = (clientX) => (clientX - dock.getBoundingClientRect().left) / deckZoom() / dockFit();
   dock.addEventListener("pointermove", (event) => {
     /* A finger gets no magnification: it has no hover, and a tap must land on what it aimed at. */
     if (event.pointerType !== "mouse" || !dockMagnifies() || dock.classList.contains("tucked")) return;
@@ -3829,8 +3862,8 @@ function relayDeckChartInput(frame, data) {
   if (!frame?.contentWindow) return;
   const rect = frame.getBoundingClientRect();
   frame.contentWindow.postMessage(Object.assign({ type:"SCINTILLA_CHART_TRACKPAD" }, data, {
-    clientX:Number(data.clientX || 0) - rect.left,
-    clientY:Number(data.clientY || 0) - rect.top
+    clientX:(Number(data.clientX || 0) - rect.left) / deckZoom(),   /* the frame's own CSS px (TV SCALE) */
+    clientY:(Number(data.clientY || 0) - rect.top) / deckZoom()
   }), location.origin);
 }
 document.addEventListener("wheel", (event) => {
@@ -4515,9 +4548,9 @@ function setPageJump(open) {
   button.classList.toggle("on", open);
   if (!open) return;
   const box = el("dock").getBoundingClientRect();
-  panel.style.top = Math.round(box.bottom + 6) + "px";
+  panel.style.top = Math.round(box.bottom / deckZoom() + 6) + "px";
   panel.style.left = "8px";
-  panel.style.width = Math.min(560, innerWidth - 16) + "px";
+  panel.style.width = Math.min(560, innerWidth / deckZoom() - 16) + "px";
   el("pageJumpQ").value = "";
   paintPageJump("");
   el("pageJumpQ").focus();
@@ -5300,9 +5333,9 @@ function paintSymbolGuide(input) {
       '<span class="sg-sym">' + esc(row.ticker) + '</span><span class="sg-copy">' + esc(description) +
       (aliases ? '<small>' + esc(aliases) + '</small>' : "") + '</span></div>';
   }).join("");
-  const r = input.getBoundingClientRect();
-  box.style.left = Math.max(9, Math.min(innerWidth - Math.min(390, innerWidth - 18) - 9, r.left)) + "px";
-  box.style.top = Math.min(innerHeight - 80, r.bottom + 4) + "px";
+  const r = input.getBoundingClientRect(), z = deckZoom(), W = innerWidth / z, H = innerHeight / z;   /* TV SCALE */
+  box.style.left = Math.max(9, Math.min(W - Math.min(390, W - 18) - 9, r.left / z)) + "px";
+  box.style.top = Math.min(H - 80, r.bottom / z + 4) + "px";
   box.classList.add("open");
   for (const row of box.querySelectorAll(".sg-row[data-i]")) {
     row.addEventListener("pointerdown", (e) => {
