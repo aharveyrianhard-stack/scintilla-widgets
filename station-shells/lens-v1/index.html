@@ -242,6 +242,69 @@ export function listNames(rows) { const seen = new Set(), out = []; for (const r
 let LIST = listChoice(remembered(LIST_KEY), QS.get("list"), TAPE);   /* kept for the memory's sake; W12 shows every set */
 let MINE_ON = mineOnOf(remembered(MINE_ON_KEY), QS.get("list")), TF = tfOf(remembered(TF_KEY), QS.get("tf"));
 const lensTf = (t) => DAILY_ONLY[t] ? "1d" : TF_API[TF];
+/* ---- W15 (26 Oct 2026, coordinator): HIS VWAP ON EVERY LENS ----------------------------------------------------------------------
+   Alan: "cover the chart area of the two charts with context lenses, but with the VWAP … I see that's like proper support resistance
+   … of the intraday, in the very short term." The live chart's VWAP exactly (live-v1 W5 = his TradingView): anchored at his session's
+   start - 04:00 New York on stocks (the extended day, 04:00-20:00), 18:00 on futures (the CME day, named by its 17:00 close) - with
+   Band #1, one standard deviation either side. TradingView's definition: sum(hlc3 x volume) / sum(volume); variance = sum(volume x
+   hlc3^2) / sum(volume) - vwap^2, floored at 0. Drawn behind the bars: the band's two thin lines with a faint fill between, the VWAP
+   bright amber (live-v1's colours). A lens reads the whole session for it (vwapLimit) and draws its last LENS_BARS. 1-minute futures
+   stop at 1,000 bars (~16.7 hours, so the line starts after 18:00) - said, not hidden. No VWAP on 1D, on a daily-only or number lens,
+   or on a series with no volume (VIX, US10Y). */
+const ET_FMT = new Intl.DateTimeFormat("en-US", { timeZone:"America/New_York", year:"numeric", month:"2-digit", day:"2-digit",
+  hour:"2-digit", minute:"2-digit", hourCycle:"h23" });
+const ET_CACHE = new Map();
+function etParts(ms) {
+  const hit = ET_CACHE.get(ms); if (hit) return hit;
+  const p = {}; for (const x of ET_FMT.formatToParts(new Date(ms))) p[x.type] = x.value;
+  const out = { day:p.year + "-" + p.month + "-" + p.day, min:(+p.hour % 24) * 60 + +p.minute };
+  if (ET_CACHE.size > 20000) ET_CACHE.clear();
+  ET_CACHE.set(ms, out); return out;
+}
+const FUTURES = Object.freeze(["ESUSD", "NQUSD", "CLUSD", "GCUSD", "SIUSD"]);   /* live-v1's list: the futures the chart API serves */
+const sessionDay = (ms, fut) => etParts(fut ? ms + 6 * 3600000 : ms).day;
+const hlc3 = (b) => (b.h + b.l + b.c) / 3;
+export function vwapCalc(bars, tfMs, anchor, mult) {
+  const n = bars.length, vwap = new Array(n).fill(NaN), upper = new Array(n).fill(NaN), lower = new Array(n).fill(NaN);
+  let day = null, pv = 0, vv = 0, p2v = 0;
+  for (let i = 0; i < n; i++) {
+    const b = bars[i], e = etParts(b.t), key = anchor === "1800" ? sessionDay(b.t, true) : e.day;
+    if (key !== day) { day = key; pv = 0; vv = 0; p2v = 0; }
+    const inside = anchor === "1800" ? true : e.min >= 240 && e.min < 1200;
+    if (!inside || (!(b.v > 0) && vv === 0)) continue;
+    if (b.v > 0) { const s = hlc3(b); pv += s * b.v; vv += b.v; p2v += s * s * b.v; }
+    if (vv > 0) {
+      const w = pv / vv, sd = Math.sqrt(Math.max(p2v / vv - w * w, 0));
+      vwap[i] = w; upper[i] = w + mult * sd; lower[i] = w - mult * sd;
+    }
+  }
+  return { vwap, upper, lower };
+}
+const TF_MIN = Object.freeze({ "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60 });
+/* the bars a lens reads for its VWAP: a whole session (stocks 04:00-20:00 = 960 minutes, futures 18:00-17:00 = 1,380) and a few more */
+export function vwapLimit(tf, fut) { const m = TF_MIN[tf]; return m ? Math.min(1000, Math.ceil((fut ? 1380 : 960) / m) + 4) : 0; }
+export const VWAP_COL = Object.freeze({ line:"#F2B33D", band:"rgba(242,179,61,.5)", fill:"rgba(242,179,61,.07)" });
+/* the VWAP and its band, on the lens's own x and y (a run per session: a NaN breaks the line) */
+export function drawVwap(ctx, vw, n, X, Y) {
+  if (!vw) return;
+  const ok = (i) => Number.isFinite(vw.upper[i]) && Number.isFinite(vw.lower[i]);
+  ctx.save();
+  ctx.fillStyle = VWAP_COL.fill;
+  for (let i = 0; i < n;) {
+    while (i < n && !ok(i)) i++;
+    const s = i; while (i < n && ok(i)) i++;
+    if (i - s >= 2) { ctx.beginPath(); for (let k = s; k < i; k++) ctx.lineTo(X(k), Y(vw.upper[k])); for (let k = i - 1; k >= s; k--) ctx.lineTo(X(k), Y(vw.lower[k])); ctx.closePath(); ctx.fill(); }
+  }
+  const line = (arr) => { ctx.beginPath(); let on = false; for (let i = 0; i < n; i++) { const v = arr[i]; if (!Number.isFinite(v)) { on = false; continue; } if (on) ctx.lineTo(X(i), Y(v)); else { ctx.moveTo(X(i), Y(v)); on = true; } } ctx.stroke(); };
+  ctx.lineWidth = 1; ctx.strokeStyle = VWAP_COL.band; line(vw.upper); line(vw.lower);
+  ctx.lineWidth = 1.6; ctx.strokeStyle = VWAP_COL.line; line(vw.vwap);
+  ctx.restore();
+}
+/* the price range a lens draws: the bars (and the live price) with the VWAP and its band in it, as TradingView scales a chart with them on */
+function withVwap(lo, hi, vw, n) {
+  if (vw) for (let i = 0; i < n; i++) for (const v of [vw.upper[i], vw.lower[i], vw.vwap[i]]) if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; }
+  return [lo, hi];
+}
 if (QS.get("touch") === "1") document.body.classList.add("touch");
 STYLE = styleOf(remembered(STYLE_KEY));
 let MINE = mineOf(remembered(MINE_KEY)), mineAt = 0;   /* W4: a copy of the database list, read every five minutes; written through the same door */
@@ -428,13 +491,14 @@ export function drawOval(ctx, W, H, bars, day) {
 }
 /* W4, the tape: a tight line of the latest closed 5-minute bars in the day's colour, a faint fill under it, the live price as the last
    point (a ring), the last close marked; no frame, no oval. Pure drawing on a (W × H) canvas. */
-export function drawTight(ctx, W, H, bars, day, livePrice) {
+export function drawTight(ctx, W, H, bars, day, livePrice, vw) {
   ctx.clearRect(0, 0, W, H);
   const closes = bars.map((b) => b.c); if (livePrice > 0) closes.push(livePrice);
   if (closes.length < 2) return null;
-  const lo = Math.min(...closes), hi = Math.max(...closes), pad = 4, padR = 10;
+  const [lo, hi] = withVwap(Math.min(...closes), Math.max(...closes), vw, bars.length), pad = 4, padR = 10;   /* W15: the VWAP in the range */
   const X = (i) => pad + (i / (closes.length - 1)) * (W - pad - padR), Y = (v) => hi === lo ? H / 2 : pad + (1 - (v - lo) / (hi - lo)) * (H - 2 * pad);
   const col = day === "down" ? PALETTE.bear : day === "up" ? PALETTE.bull : PALETTE.ink;
+  drawVwap(ctx, vw, bars.length, X, Y);   /* W15: behind the line */
   ctx.save();
   ctx.beginPath(); ctx.moveTo(X(0), H); for (let i = 0; i < closes.length; i++) ctx.lineTo(X(i), Y(closes[i])); ctx.lineTo(X(closes.length - 1), H); ctx.closePath();
   ctx.globalAlpha = 0.10; ctx.fillStyle = col; ctx.fill(); ctx.globalAlpha = 1;
@@ -448,14 +512,16 @@ export function drawTight(ctx, W, H, bars, day, livePrice) {
 }
 /* W7, the tape's BARS: the latest bars as candles - green when the bar closed at or above its open, red below (the Station's rule), the wick
    and the body, the live price a hollow ring at the end; pure drawing on a (W × H) canvas */
-export function drawBars(ctx, W, H, bars, livePrice) {
+export function drawBars(ctx, W, H, bars, livePrice, vw) {
   ctx.clearRect(0, 0, W, H);
   if (!bars.length) return null;
   const n = bars.length, pad = 4, padR = 12;
   let lo = Infinity, hi = -Infinity; for (const b of bars) { if (b.l < lo) lo = b.l; if (b.h > hi) hi = b.h; } if (livePrice > 0) { lo = Math.min(lo, livePrice); hi = Math.max(hi, livePrice); }
+  [lo, hi] = withVwap(lo, hi, vw, n);   /* W15: the VWAP and its band in the range */
   if (!(hi > lo)) { hi = lo * 1.001 + 0.01; lo = lo * 0.999 - 0.01; }
   const slot = (W - pad - padR) / (n + (livePrice > 0 ? 1 : 0)), bw = Math.max(1, Math.min(6, Math.floor(slot * 0.6)));
   const X = (i) => pad + slot * (i + 0.5), Y = (v) => pad + (1 - (v - lo) / (hi - lo)) * (H - 2 * pad);
+  drawVwap(ctx, vw, n, X, Y);   /* W15: behind the candles */
   ctx.save(); ctx.lineWidth = 1;
   for (let i = 0; i < n; i++) {
     const b = bars[i], col = b.c >= b.o ? PALETTE.bull : PALETTE.bear, x = Math.round(X(i)) + 0.5;
@@ -481,7 +547,7 @@ function drawOne(d) {
   const bars = entry.bars; const day = dayOf(t, bars);
   if (TAPE || !QS.get("oval")) {   /* W12: the grid (the phone) draws the same bars as the tape; ?oval=1 keeps the column's oval */
     const q = S.quotes.get(t), live = q && q.price > 0 ? q.price : 0;
-    const geo = STYLE === "bars" ? drawBars(ctx, W, H, bars, live) : drawTight(ctx, W, H, bars, day, live);
+    const geo = STYLE === "bars" ? drawBars(ctx, W, H, bars, live, entry.vw) : drawTight(ctx, W, H, bars, day, live, entry.vw);
     why.textContent = geo ? "" : (DAILY_ONLY[t] ? "no daily bars" : "no 5-minute bars");
     cv.setAttribute("aria-label", t + ": the last " + bars.length + (DAILY_ONLY[t] ? " daily" : " " + TF) + (STYLE === "bars" ? " candles" : " closes as a line") + (day ? ", the day " + day : "") + (q ? ", the live price last" : ""));
     d.dataset.day = day || ""; d.dataset.bars = String(bars.length); d.dataset.last = bars.length ? String(bars[bars.length - 1].t) : "";
@@ -554,12 +620,21 @@ async function readBars(force) {
         /* W4: on the tape the read skips the provider client's shared store (forming:true, max-age 15), so a bar just closed is seen at once */
         if (NUMBER_LENS[t]) { S.bars.set(t, { bars: [], at: Date.now() }); return; }
         const tf = lensTf(t);   /* W7: the put/call ratio is a daily series at the API; W12: the TF chips' timeframe otherwise */
-        const payload = await P.marketCandles(t, tf, TAPE ? { limit: LENS_BARS, forming: true } : { limit: LENS_BARS });
+        const fut = FUTURES.includes(t), vlim = DAILY_ONLY[t] ? 0 : vwapLimit(TF, fut);   /* W15: the whole session, for the VWAP */
+        const payload = await P.marketCandles(t, tf, TAPE ? { limit: Math.max(LENS_BARS, vlim), forming: true } : { limit: Math.max(LENS_BARS, vlim) });
         /* W4: the provider hands its rows NEWEST FIRST (measured 22 Oct: timestamp 1792702800 before 1792702500) - oldest first here, always,
            so the last row is the newest bar and the line runs left to right in time */
-        const rows = (Array.isArray(payload) ? payload : (payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0).sort((a, b) => a.t - b.t).slice(-LENS_BARS);
+        const all = (Array.isArray(payload) ? payload : (payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0).sort((a, b) => a.t - b.t);
+        const rows = all.slice(-LENS_BARS);
+        /* W15: the VWAP over the whole session read, kept for the bars the lens draws */
+        let vw = null;
+        if (vlim && all.some((b) => b.v > 0)) {
+          const full = vwapCalc(all, TF_MIN[TF] * 60000, fut ? "1800" : "0400", 1), off = all.length - rows.length;
+          vw = { vwap:full.vwap.slice(off), upper:full.upper.slice(off), lower:full.lower.slice(off) };
+          if (!vw.vwap.some(Number.isFinite)) vw = null;
+        }
         /* the candles are one run (the oval's long axis is the series start to end); a 5-minute series keeps no session air */
-        S.bars.set(t, rows.length ? { bars: rows, at: Date.now() } : { absence: "no daily bars", at: Date.now() });
+        S.bars.set(t, rows.length ? { bars: rows, vw, at: Date.now() } : { absence: "no daily bars", at: Date.now() });
       } catch (e) { S.bars.set(t, { absence: String((e && e.message) || "not served").slice(0, 40).toLowerCase(), at: Date.now() }); }
       const d = el("set").querySelector('.lens[data-t="' + t + '"]'); if (d) drawOne(d);
     }));

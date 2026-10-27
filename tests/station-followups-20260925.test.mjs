@@ -61,7 +61,7 @@ function wallRig({ cap = 2, live = [], keys = ["c1","c2","c3","c4","c5","c6","c7
   for (const key of live) { const p = PANES.find((x) => x.def.key === key); p.frame = frame(); LIVE.push(p); }
   const b = { PANES, LIVE, LIVE_CAP: cap, SCENE:"ai1", FRAME_ALLOW:"", PAUSED_NOTE:"paused to keep the page light — tap to bring it back",
     document:{ createElement: frame }, paintChips(){}, postViewProfile(){}, postDeckQuote(){}, deckQuoteHeartbeat(){},
-    DECK_QUOTES: new Map(), CLEAN };
+    DECK_QUOTES: new Map(), CLEAN, lensWallOn: () => false };   /* W15 (26 Oct): mount() asks whether the lens wall is up - not here */
   b.wallOrder = arrowFromDeck("wallOrder", b);
   b.lowestOnWall = functionFromDeck("lowestOnWall", b);
   b.mount = functionFromDeck("mount", b);
