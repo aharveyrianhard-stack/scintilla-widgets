@@ -99,7 +99,7 @@ test("W15 · each lens reads its whole session for the VWAP, and draws its last 
   assert.equal(vwapLimit("5m", false), 196); assert.equal(vwapLimit("5m", true), 280); assert.equal(vwapLimit("1h", false), 20);
   assert.equal(vwapLimit("1m", true), 1000, "1-minute futures stop at 1,000 bars (said in the source)");
   assert.equal(vwapLimit("1D", false), 0, "no VWAP on daily");
-  assert.match(lens, /const fut = FUTURES\.includes\(t\), vlim = DAILY_ONLY\[t\] \? 0 : vwapLimit\(TF, fut\);/);
+  assert.match(lens, /const fut = FUTURES\.includes\(t\), crypto = CRYPTO\.includes\(t\), vlim = DAILY_ONLY\[t\] \? 0 : vwapLimit\(TF, fut, crypto\);/);   /* W15c: + crypto */
   assert.match(lens, /const rows = all\.slice\(-LENS_BARS\);/);
   assert.match(lens, /drawBars\(ctx, W, H, bars, live, entry\.vw\) : drawTight\(ctx, W, H, bars, day, live, entry\.vw\)/);
   assert.match(lens, /drawVwap\(ctx, vw, n, X, Y\);   \/\* W15: behind the candles \*\//);
@@ -115,4 +115,31 @@ test("W15b · bigger lenses, a quieter VWAP, TradingView's margins, the timefram
   assert.equal((lens.match(/padY \+ \(1 - \(v - lo\) \/ \(hi - lo\)\) \* \(H - 2 \* padY\)/g) || []).length, 2, "both drawings keep 12 % above and below");
   assert.match(lens, /<span class="k tfk">timeframe<\/span><span id="tf" role="group" aria-label="Bars timeframe"><\/span>/);
   assert.match(lens, /body\.tape #tf \.chip\{ font-size:9\.5px; padding:3px 2px; \}/);
+});
+
+test("W15c · a name once on the tape, crypto's VWAP through the whole UTC day, wide cells a size up, RISING volume", () => {
+  const onceAcrossSets = fnFromSource(lens, "onceAcrossSets");
+  const g = onceAcrossSets([{ s:"radar", names:["MU", "BTCUSD", "NBIS"] }, { s:"macro", names:["SPY", "BTCUSD"] }, { s:"mine", names:["NBIS"] }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(g)), [{ s:"radar", names:["MU"] }, { s:"macro", names:["SPY", "BTCUSD"] }, { s:"mine", names:["NBIS"] }],
+    "BTCUSD stays in MACRO, NBIS in MINE; the radar row leaves them out");
+  assert.match(lens, /const groups = onceAcrossSets\(sets\(\)\.map\(\(s\) => \(\{ s, names: setNames\(s\) \}\)\)\);/);
+  const ET_OPTS = { timeZone:"America/New_York", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" };
+  const etParts2 = fnFromSource(lens, "etParts", { ET_FMT:new Intl.DateTimeFormat("en-US", ET_OPTS), ET_CACHE:new Map() });
+  const sessionDay2 = vm.runInNewContext(lens.match(/const sessionDay = [^\n]*;/)[0] + "; sessionDay", { etParts:etParts2 });
+  const calc = fnFromSource(lens, "vwapCalc", { etParts:etParts2, sessionDay:sessionDay2, hlc3:(b) => (b.h + b.l + b.c) / 3 });
+  const b = (iso, c) => ({ t:Date.parse(iso), o:c, h:c, l:c, c, v:100 });
+  const btc = calc([b("2026-10-26T19:55:00-04:00", 10), b("2026-10-26T21:00:00-04:00", 20), b("2026-10-27T01:00:00-04:00", 30)], 300000, "UTC", 1);
+  assert.equal(btc.vwap[0], 10, "19:55 New York is inside the UTC day");
+  assert.equal(btc.vwap[1], 20, "21:00 New York = 01:00 UTC: a new UTC day starts the line again");
+  assert.equal(btc.vwap[2], 25, "and it runs on through the night, no 20:00-04:00 hole");
+  assert.match(lens, /crypto \? "UTC" : fut \? "1800" : "0400"/);
+  const vwapLimit = fnFromSource(lens, "vwapLimit", { TF_MIN:{ "1m":1, "5m":5, "15m":15, "30m":30, "1h":60 } });
+  assert.equal(vwapLimit("5m", false, true), 292, "a whole UTC day of 5-minute bars");
+  assert.match(lens, /if \(CELL_W >= 220\) document\.body\.classList\.add\("bigcells"\);/);
+  assert.match(lens, /body\.tape\.bigcells \.lens \.tk, body\.tape\.bigcells \.lens \.px\{ font-size:18px; \}/);
+  const rising = fnFromSource(lens, "rvolRising");
+  assert.equal(rising(1.5, 1.3), true); assert.equal(rising(1.5, 1.45), false, "barely moved"); assert.equal(rising(1.1, 0.8), false, "under 1.2x");
+  assert.equal(rising(1.5, null), false, "no earlier read"); assert.equal(rising(null, 1.2), false);
+  assert.match(lens, /if \(S\.rvol\.has\(t\)\) S\.rvolPrev\.set\(t, S\.rvol\.get\(t\)\); S\.rvol\.set\(t, \+r\.rvol_at_time\);/, "the last read kept");
+  assert.match(lens, /\.lens \.rv\.rising em::after\{ content:" \\25B2"; color:var\(--bull\); \}/);
 });
