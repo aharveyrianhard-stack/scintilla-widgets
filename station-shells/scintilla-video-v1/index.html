@@ -976,10 +976,22 @@ function syncUrl() {
 function queueRows(rows, list, watch, keepId) {
   return list === "watch" ? rows.filter((v) => watch.has(v.video_id) || (!!keepId && v.video_id === keepId)) : rows.slice();
 }
-/* 26 Oct: Watch Later in the order it was saved, the newest star first - the order the list shows and the queue plays */
+/* 26 Oct: Watch Later in the order it was saved, OLDEST first (YouTube's own order) - the order the list shows and the queue plays, so a
+   video starred while one plays joins the end of the run; an id with no saved time yet was starred just now and goes last */
 function watchOrder(rows, at) {
-  const when = at || new Map();
-  return (Array.isArray(rows) ? rows : []).slice().sort((a, b) => (when.get(b.video_id) || 0) - (when.get(a.video_id) || 0));
+  const when = at || new Map(), t = (id) => (when.has(id) ? when.get(id) : Infinity);
+  return (Array.isArray(rows) ? rows : []).slice().sort((a, b) => { const x = t(a.video_id), y = t(b.video_id); return x === y ? 0 : x < y ? -1 : 1; });
+}
+/* 26 Oct (coordinator): THE QUEUE KEEPS ITS LIST. Alan: "I was … watching a YouTube video from the Watch Later. Everything great. And I
+   click the grid and it removes my video. I need to be able to scroll my grid while watching videos and add new stuff to the Watch Later."
+   A video started from a list plays through THAT list, whatever the column shows while it plays: browsing the feed during a Watch Later
+   video leaves the Watch Later run going, and a video starred meanwhile joins its end. QUEUE is set by a play that is not a queue step,
+   refreshed when its list is read again, and cleared when the video is stopped. */
+let QUEUE = { list:"", rows:[] };
+function watchQueueRows(rows, watch, byId, at) {
+  const have = new Set(rows.map((v) => v.video_id));
+  const added = [...watch].filter((id) => !have.has(id) && byId[id]).map((id) => byId[id]);
+  return watchOrder(rows.concat(added), at);
 }
 const UNAVAILABLE_VIDEO_IDS = new Set();
 function queuedVideo(rows, currentId, direction, skipped = new Set()) {
@@ -998,9 +1010,11 @@ function previousQueuedVideo(rows, currentId, skipped = new Set()) {
   return queuedVideo(rows, currentId, -1, skipped);
 }
 function visibleQueue() {
-  /* 26 Oct: WATCH LATER is the whole saved list - shorts too, whatever the grid · videos · shorts tab says */
-  if (LIST === "watch") return queueRows(ROWS, LIST, WATCH, CUR && CUR.video_id);
-  return queueRows(ROWS, LIST, WATCH).filter((v) => inMode(v));
+  /* 26 Oct: the queue is the list the playing video came from (QUEUE), not necessarily the one on screen; WATCH LATER is the whole saved
+     list - shorts too, whatever the grid · videos · shorts tab says - with anything starred since at its end */
+  const own = !!CUR && !!QUEUE.list && QUEUE.list !== LIST, list = own ? QUEUE.list : LIST, rows = own ? QUEUE.rows : ROWS;
+  if (list === "watch") return queueRows(watchQueueRows(rows, WATCH, BYID, WATCH_AT), list, WATCH, CUR && CUR.video_id);
+  return queueRows(rows, list, WATCH).filter((v) => inMode(v));
 }
 /* S13: NEXT pressed on the grid. After a trip back to the grid it carries on from the video that was playing;
    with nothing watched yet it starts at the first video of the list as filtered. */
@@ -1017,7 +1031,9 @@ function refreshTransport() {
   if (!CUR) el("bNext").disabled = !gridNextVideo(rows);
   el("bNext").title = CUR ? "next video" : "next video — plays the one after the last you watched, or the first";
   el("bBack").classList.toggle("on", !CUR);
-  el("bBack").title = CUR ? "back to the grid of thumbnails" : "the grid of thumbnails — you are here · tap for the top";
+  el("bBack").title = !CUR ? "the grid of thumbnails — you are here · tap for the top"
+    : (FIXED || STACK || BESIDE) ? (LIST === "watch" ? "your feed's grid — the Watch Later video keeps playing" : "the top of the grid — the video keeps playing")
+    : "back to the grid of thumbnails";
   el("nowq").textContent = at >= 0 ? (at + 1) + " / " + rows.length : "";
   setTransportNotice(at >= 0 ? "video " + (at + 1) + " of " + rows.length : "video queue");
 }
@@ -1199,6 +1215,7 @@ async function play(v, auto, queued = false, skipped = new Set(), direction = 1,
     : userGesture ? resumePositionFor(v.video_id) : await resumePositionBeforePlay(v.video_id);
   if (token !== PLAYER_TOKEN) return;
   CUR = v;
+  if (!queued) QUEUE = { list:LIST, rows:ROWS.slice() };   /* 26 Oct: this list is the run, whatever the column shows next */
   PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
   YT_PLAYER_REQUEST = { token, video:v, auto:!!auto, queued:!!queued, skipped:new Set(skipped),
     direction:direction < 0 ? -1 : 1, originVideo:originVideo || v, resumeAt };
@@ -1236,7 +1253,7 @@ function back() {
   clearPlayerFallback(); ++PLAYER_TOKEN; YT_PLAYER_REQUEST = null; PLAYER_ACCEPTED_TOKEN = 0;
   try { if (YT_PLAYER_READY) YT_PLAYER.stopVideo(); } catch (_) {}
   if (CUR) LAST_PLAYED = CUR.video_id;
-  CUR = null;
+  CUR = null; QUEUE = { list:"", rows:[] };
   document.body.classList.remove("playing");
   if (BESIDE) relayout();   /* W1: the whole pane is the grid again */
   tellPlaying();
@@ -1248,6 +1265,10 @@ function back() {
 function goGrid() {
   setMenuOpen(false);
   if (DECK_STAGE > 0) parent.postMessage({ type: "SCINTILLA_DECK_MEDIA_BACK" }, location.origin);
+  /* 26 Oct (Alan: "I click the grid and it removes my video"): where the grid is on screen with the player - the wall's column (FIXED), the
+     phone's feed (STACK), the beside column - GRID never stops the video: from WATCH LATER it shows the feed's grid while the Watch Later
+     run plays on; on a feed it goes to the top. Only a pane whose player covers the grid still goes back to it (and stops). */
+  if (CUR && (FIXED || STACK || BESIDE)) { if (LIST === "watch") showWatchLater(false); else el("grid").scrollTop = 0; return; }
   if (CUR) back(); else el("grid").scrollTop = 0;
 }
 el("bBack").addEventListener("click", goGrid);
@@ -2034,6 +2055,7 @@ async function load(forceWatch, quiet) {
   const changed = signature(nextRows) !== signature(ROWS.slice(0, nextRows.length));
   ROWS = nextRows;
   BYID = {}; for (const v of ROWS) BYID[v.video_id] = v;
+  if (QUEUE.list === LIST && CUR) QUEUE.rows = ROWS.slice();   /* 26 Oct: the run's own list, read again */
   if (changed || !quiet) { paint(); relayout(); refreshTransport(); }
   fillViewport();
   /* the ONLY preselect: you asked for a video by id */
@@ -2147,7 +2169,7 @@ function showWatchLater(on) {
   rememberWatchTab(on);
   const next = on ? "watch" : "default";
   if (LIST === next) { paintFeedSwitch(); return; }
-  LIST = next; paintChips(); load(on);
+  LIST = next; paintChips(); load(on); syncUrl();   /* the pane's own address says the list too (a frame reload comes back to it) */
 }
 (function feedSwitch() {
   const kk = el("kk"); if (!kk) return;

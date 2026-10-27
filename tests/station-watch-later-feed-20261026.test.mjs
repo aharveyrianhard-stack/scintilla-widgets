@@ -49,27 +49,60 @@ test("WATCH LATER: lit tabs - the saved list lights only WATCH LATER", () => {
   assert.deepEqual(btns.map((b) => b.cls.has("on")), [false, true, false]);
 });
 
-test("WATCH LATER: the newest star first, and the queue plays down that order", () => {
+test("WATCH LATER: saved order, oldest first (YouTube's own), and the queue plays down that order", () => {
+  /* restated 26 Oct ~21:35 (coordinator): newest-first became oldest-first so a video starred while one plays joins the END of the run
+     (Alan: "I need to be able to scroll my grid while watching videos and add new stuff to the Watch Later") */
   const at = new Map([["old", Date.parse("2026-10-26T20:22:00-04:00")], ["mid", Date.parse("2026-10-26T20:35:00-04:00")],
     ["new", Date.parse("2026-10-26T20:41:00-04:00")]]);
   const watchOrder = fnFromSource(shell, "watchOrder");
-  const rows = watchOrder([{ video_id:"mid" }, { video_id:"old" }, { video_id:"new" }], at);
-  assert.deepEqual(ids(rows), ["new", "mid", "old"]);
+  const rows = watchOrder([{ video_id:"mid" }, { video_id:"new" }, { video_id:"old" }], at);
+  assert.deepEqual(ids(rows), ["old", "mid", "new"]);
+  assert.deepEqual(ids(watchOrder([{ video_id:"just" }, { video_id:"new" }, { video_id:"old" }], at)), ["old", "new", "just"],
+    "an id with no saved time yet was starred just now: last");
   const queueRows = fnFromSource(shell, "queueRows");
   const queuedVideo = fnFromSource(shell, "queuedVideo", { UNAVAILABLE_VIDEO_IDS: new Set() });
   const watch = new Set(["new", "mid", "old"]);
-  assert.equal(queuedVideo(queueRows(rows, "watch", watch), "new", 1).video_id, "mid", "after the first saved video, the second");
+  assert.equal(queuedVideo(queueRows(rows, "watch", watch), "old", 1).video_id, "mid", "after the first saved video, the second");
   /* un-starring the one playing takes it off the list, and the next saved one still follows it */
-  const without = new Set(["mid", "old"]);
-  assert.deepEqual(ids(queueRows(rows, "watch", without)), ["mid", "old"]);
-  assert.equal(queuedVideo(queueRows(rows, "watch", without, "new"), "new", 1).video_id, "mid");
+  const without = new Set(["mid", "new"]);
+  assert.deepEqual(ids(queueRows(rows, "watch", without)), ["mid", "new"]);
+  assert.equal(queuedVideo(queueRows(rows, "watch", without, "old"), "old", 1).video_id, "mid");
+});
+
+test("WATCH LATER: the run keeps its list while the column shows the feed, and a video starred meanwhile joins its end", () => {
+  const watchOrder = fnFromSource(shell, "watchOrder");
+  const watchQueueRows = fnFromSource(shell, "watchQueueRows", { watchOrder });
+  const queueRows = fnFromSource(shell, "queueRows");
+  const queuedVideo = fnFromSource(shell, "queuedVideo", { UNAVAILABLE_VIDEO_IDS: new Set() });
+  const w1 = { video_id:"w1" }, w2 = { video_id:"w2" }, f1 = { video_id:"f1" }, f2 = { video_id:"f2" };
+  const env = { CUR:w1, QUEUE:{ list:"watch", rows:[w1, w2] }, LIST:"default", ROWS:[f1, f2], BYID:{ f1, f2 },
+    WATCH:new Set(["w1", "w2", "f2"]), WATCH_AT:new Map([["w1", 1], ["w2", 2]]), queueRows, watchQueueRows, inMode:() => true };
+  const visibleQueue = fnFromSource(shell, "visibleQueue", env);
+  assert.deepEqual(ids(visibleQueue()), ["w1", "w2", "f2"], "the Watch Later run, the feed's new star at its end");
+  assert.equal(queuedVideo(visibleQueue(), "w1", 1).video_id, "w2");
+  assert.equal(queuedVideo(visibleQueue(), "w2", 1).video_id, "f2", "then what was starred while watching");
+  env.CUR = null;   /* stopped: the column's own list again */
+  assert.deepEqual(ids(fnFromSource(shell, "visibleQueue", env)()), ["f1", "f2"]);
+  assert.match(shell, /if \(!queued\) QUEUE = \{ list:LIST, rows:ROWS\.slice\(\) \};/, "a play that is not a queue step sets the run");
+  assert.match(shell, /CUR = null; QUEUE = \{ list:"", rows:\[\] \};/, "stopping ends it");
+  assert.match(shell, /if \(QUEUE\.list === LIST && CUR\) QUEUE\.rows = ROWS\.slice\(\);/, "its list read again keeps it fresh");
+});
+
+test("WATCH LATER: GRID never stops the video where the grid is on screen with it", () => {
+  const calls = [];
+  const go = (env) => fnFromSource(shell, "goGrid", Object.assign({ setMenuOpen(){}, DECK_STAGE:0, parent:{ postMessage(){} }, location:{ origin:"x" },
+    showWatchLater:(on) => calls.push("watch:" + on), back:() => calls.push("back"), el:() => ({ set scrollTop(v) { calls.push("top:" + v); } }) }, env))();
+  go({ CUR:{}, FIXED:true, STACK:false, BESIDE:false, LIST:"watch" }); assert.deepEqual(calls.splice(0), ["watch:false"], "the wall: the feed's grid, the video plays on");
+  go({ CUR:{}, FIXED:false, STACK:true, BESIDE:false, LIST:"default" }); assert.deepEqual(calls.splice(0), ["top:0"], "the phone: the top of the feed, the video plays on");
+  go({ CUR:{}, FIXED:false, STACK:false, BESIDE:false, LIST:"default" }); assert.deepEqual(calls.splice(0), ["back"], "a pane whose player covers the grid still goes back");
+  go({ CUR:null, FIXED:true, STACK:false, BESIDE:false, LIST:"default" }); assert.deepEqual(calls.splice(0), ["top:0"], "nothing playing: the top");
 });
 
 test("WATCH LATER: the whole saved list in one read, shorts too, no ticker filter", () => {
   assert.match(shell, /pg\("yt_watch_later\?select=video_id,updated_at"\)/);
   assert.match(shell, /return "youtube_feed\?select=" \+ \(FEED_LIVE_OK \? FEED_SELECT_LIVE : FEED_SELECT\) \+ "&limit=200" \+/);
   assert.match(shell, /if \(LIST === "watch"\) return ROWS\.filter\(\(v\) => WATCH\.has\(v\.video_id\)\);/, "the grid: no grid·videos·shorts filter");
-  assert.match(shell, /if \(LIST === "watch"\) return queueRows\(ROWS, LIST, WATCH, CUR && CUR\.video_id\);/, "the queue: the same list");
+  assert.match(shell, /if \(list === "watch"\) return queueRows\(watchQueueRows\(rows, WATCH, BYID, WATCH_AT\), list, WATCH, CUR && CUR\.video_id\);/, "the queue: the same list (the run's own, 26 Oct ~21:35)");
   assert.match(shell, /const raw = LIST === "watch" \? watchOrder\(rows, WATCH_AT\) : Array\.isArray\(rows\) \? rows : \[\];/);
 });
 
