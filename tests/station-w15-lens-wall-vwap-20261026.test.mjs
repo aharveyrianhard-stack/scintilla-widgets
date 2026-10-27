@@ -23,7 +23,7 @@ function fnFromSource(source, name, bindings = {}) {
 const SEAM = +deck.match(/const FLOOR_SEAM_PX = (\d+)/)[1];
 const floorLensWall = fnFromSource(deck, "floorLensWall", { FLOOR_SEAM_PX:SEAM, VIDEO_CHROME_FALLBACK_PX:36, LENSWALL_PLAYER_W:0.48, LENSWALL_BAND_MAX:0.48,
   WIDGETS_VOLUME_MIN_PX:120, WIDGETS_LENS_ROW_PX:150,
-  widgetsLensRows:(h) => Math.max(1, Math.min(Math.floor(h / 120), Math.round((h + SEAM) / (150 + SEAM)))) });
+  lensWallRows:(h) => Math.max(1, Math.min(6, Math.round((Math.max(0, Number(h) || 0) + SEAM) / (210 + SEAM)))) });
 
 test("W15 · the lens wall: no chart, the lenses over the charts' whole area, YouTube and the volume share the band", () => {
   /* the computer's window (1416 × 883, X's column 255) and the TV's laid-out wall (1658 × 883, X's column 298) */
@@ -32,7 +32,7 @@ test("W15 · the lens wall: no chart, the lenses over the charts' whole area, Yo
     assert.equal(s.lensWall, true); assert.equal(s.charts, 0); assert.equal(s.cells.length, 0); assert.equal(s.hidden, 2);
     assert.deepEqual([s.lensTape.left, s.lensTape.top, s.lensTape.w], [0, 0, w], "the lenses take the charts' whole width, from the top");
     assert.equal(s.lensTape.h, s.box.top - SEAM, "down to the band");
-    assert.equal(s.lensTape.rows, 3, "three ~150 px rows");
+    assert.equal(s.lensTape.rows, 2, "W15b: two ~210 px rows (Alan: \"let's do bigger ones\")");
     assert.ok(s.bandH <= Math.round(h * 0.48), "the band never over 48 % of the height");
     assert.ok(s.playerW <= Math.round((col + SEAM + w) * 0.48), "the player at most 48 % of the wall");
     assert.equal(s.box.w, col + SEAM + s.playerW, "the YouTube pane: the feed column in X's line + the player");
@@ -103,5 +103,16 @@ test("W15 · each lens reads its whole session for the VWAP, and draws its last 
   assert.match(lens, /const rows = all\.slice\(-LENS_BARS\);/);
   assert.match(lens, /drawBars\(ctx, W, H, bars, live, entry\.vw\) : drawTight\(ctx, W, H, bars, day, live, entry\.vw\)/);
   assert.match(lens, /drawVwap\(ctx, vw, n, X, Y\);   \/\* W15: behind the candles \*\//);
-  assert.match(lens, /export const VWAP_COL = Object\.freeze\(\{ line:"#F2B33D", band:"rgba\(242,179,61,\.5\)", fill:"rgba\(242,179,61,\.07\)" \}\);/, "live-v1's amber");
+  assert.match(lens, /export const VWAP_COL = Object\.freeze\(\{ line:"rgba\(242,179,61,\.55\)", band:"rgba\(242,179,61,\.26\)", fill:"rgba\(242,179,61,\.04\)" \}\);/, "W15b: live-v1's amber, quieter");
+});
+
+test("W15b · bigger lenses, a quieter VWAP, TradingView's margins, the timeframe named", () => {
+  assert.match(deck, /const LENSWALL_LENS_ROW_PX = 210, LENSWALL_LENS_CELL_PX = 250;/);
+  assert.match(deck, /\(lensWallOn\(\) \? "&cellw=" \+ LENSWALL_LENS_CELL_PX : ""\)/, "the lens wall asks for 250 px cells");
+  assert.match(lens, /const CELL_W = Math\.max\(0, Math\.min\(480, Math\.round\(\+QS\.get\("cellw"\) \|\| 0\)\)\);\nif \(CELL_W\) document\.documentElement\.style\.setProperty\("--lens-w", CELL_W \+ "px"\);/);
+  assert.match(lens, /ctx\.lineWidth = 0\.8; ctx\.strokeStyle = VWAP_COL\.band;[^\n]*\n  ctx\.lineWidth = 1\.25; ctx\.strokeStyle = VWAP_COL\.line;/, "thinner lines");
+  assert.match(lens, /export const LENS_PAD = Object\.freeze\(\{ y:0\.12, l:8, r:16 \}\);/);
+  assert.equal((lens.match(/padY \+ \(1 - \(v - lo\) \/ \(hi - lo\)\) \* \(H - 2 \* padY\)/g) || []).length, 2, "both drawings keep 12 % above and below");
+  assert.match(lens, /<span class="k tfk">timeframe<\/span><span id="tf" role="group" aria-label="Bars timeframe"><\/span>/);
+  assert.match(lens, /body\.tape #tf \.chip\{ font-size:9\.5px; padding:3px 2px; \}/);
 });

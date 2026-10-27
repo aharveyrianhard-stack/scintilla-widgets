@@ -1956,6 +1956,10 @@ function floorWidgets(areaWidth, areaHeight, tapePx, colPx, count, chromePx) {
    share of the window, nothing moves when a video plays. ?charts=1 (one load) or station.widgets.charts = "1" (this machine) puts the
    two charts back (W10's wall). Boxes in chart-area coordinates, as floorWidgets. */
 const LENSWALL_PLAYER_W = 0.48, LENSWALL_BAND_MAX = 0.48, LENSWALL_CHARTS_KEY = "station.widgets.charts";
+/* W15b (26 Oct, Alan: "let's do bigger ones, please"): on the lens wall a lens row is ~210 px (two rows where W10 held three) and a lens
+   250 px wide (the shell's ?cellw=) */
+const LENSWALL_LENS_ROW_PX = 210, LENSWALL_LENS_CELL_PX = 250;
+const lensWallRows = (regionH) => Math.max(1, Math.min(6, Math.round((Math.max(0, Number(regionH) || 0) + FLOOR_SEAM_PX) / (LENSWALL_LENS_ROW_PX + FLOOR_SEAM_PX))));
 function lensWallChoice(stored, urlValue) {
   if (urlValue === "1" || urlValue === "0") return urlValue === "0";
   return stored !== "1";
@@ -1974,7 +1978,7 @@ function floorLensWall(areaWidth, areaHeight, tapePx, colPx, count, chromePx) {
   const volLeft = Math.min(w, pw + FLOOR_SEAM_PX), volW = Math.max(0, w - volLeft);
   const volume = { left:volLeft, top, w:volW, h:Math.max(0, bandH - tapes), on:volW >= WIDGETS_VOLUME_MIN_PX };
   const lensH = Math.max(0, top - FLOOR_SEAM_PX);
-  const lensTape = { left:0, top:0, w, h:lensH, rows:widgetsLensRows(lensH), on:w >= WIDGETS_LENS_ROW_PX && lensH >= 120 };
+  const lensTape = { left:0, top:0, w, h:lensH, rows:lensWallRows(lensH), on:w >= WIDGETS_LENS_ROW_PX && lensH >= 120 };
   return { widgets:true, lensWall:true, cols:1, rows:1, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
     cells:[], charts:0, hidden:n, chartsH:0, bandH, rowBelow:Math.max(0, bandH - tapes), volume, lensTape, tapeLeft:paneW + FLOOR_SEAM_PX, wall, col, playerW:pw };
 }
@@ -3659,7 +3663,7 @@ function setWidgetsClouds(on) {
 function mountWidgets() {
   const v = el("wgVolume"), l = el("wgLensTape");
   if (v && !v.querySelector("iframe")) { const f = document.createElement("iframe"); f.src = WIDGETS_VOLUME_SHELL + "/?shell=v1&view=" + encodeURIComponent(VIEW); f.loading = "lazy"; f.title = "volume graph"; v.querySelector(".body").appendChild(f); }
-  if (l && !l.querySelector("iframe")) { const f = document.createElement("iframe"); const rows = WIDGETS_NOW && WIDGETS_NOW.slot && WIDGETS_NOW.slot.lensTape ? WIDGETS_NOW.slot.lensTape.rows : 1; f.src = WIDGETS_LENS_SHELL + "/?shell=v1&mode=tape&rows=" + rows + "&view=" + encodeURIComponent(VIEW); f.loading = "lazy"; f.title = "context lens tape"; l.querySelector(".body").appendChild(f); }
+  if (l && !l.querySelector("iframe")) { const f = document.createElement("iframe"); const rows = WIDGETS_NOW && WIDGETS_NOW.slot && WIDGETS_NOW.slot.lensTape ? WIDGETS_NOW.slot.lensTape.rows : 1; f.src = WIDGETS_LENS_SHELL + "/?shell=v1&mode=tape&rows=" + rows + "&view=" + encodeURIComponent(VIEW) + (lensWallOn() ? "&cellw=" + LENSWALL_LENS_CELL_PX : ""); f.loading = "lazy"; f.title = "context lens tape"; l.querySelector(".body").appendChild(f); }
 }
 function placeWidgets(slot, plan) {
   const v = el("wgVolume"), l = el("wgLensTape");
