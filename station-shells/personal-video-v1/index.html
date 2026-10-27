@@ -326,6 +326,13 @@ html[data-view="compact"] #bRefresh, html[data-view="compact"] #bPipBar, html[da
 #feedSwitch .btn{ font-size:11px; font-weight:700; letter-spacing:.08em; padding:4px 10px; line-height:16px; color:var(--ink2, #b9b9c6); }
 #feedSwitch .btn + .btn{ border-left:0; }
 #feedSwitch .btn.on{ color:#05070c; background:var(--crk); border-color:var(--crk); }
+#feedSwitch .wl-short{ display:none; }
+body.bar-tight #feedSwitch .wl-long{ display:none; }
+body.bar-tight #feedSwitch .wl-short{ display:inline; }
+/* 26 Oct: on a phone the three tabs and the bar's buttons must all stay on the bar (it clips, it does not scroll) */
+@media (max-width:560px){ #feedSwitch .wl-long{ display:none; } #feedSwitch .wl-short{ display:inline; }
+  #feedSwitch .btn{ font-size:10px; letter-spacing:.03em; padding:4px 6px; } #bar{ gap:2px; } #feedSwitch{ margin-right:2px; } }
+.msg.wlmissing{ grid-column:1 / -1; }
 html:not([data-view="compact"]) #bar #bNext, html:not([data-view="compact"]) #bar #bPrev, html:not([data-view="compact"]) #bar #bBack,
 html:not([data-view="compact"]) #bar #bWatchBar, html:not([data-view="compact"]) #bar #bRefresh, html:not([data-view="compact"]) #bar #bPipBar,
 html:not([data-view="compact"]) #bar #bMenu{ width:32px; height:26px; }
@@ -511,14 +518,23 @@ const SCINTILLA_SUBSCRIBED = {
    are in it is no longer a list's business: that is the MODE below. The old "shorts" and "all"
    chips were the same idea folded into a list, and the URLs (?list=shorts, ?list=all) still land
    (on the SHORTS tab and on the subscriptions, respectively) so nothing that linked here breaks. */
+/* 26 Oct (coordinator): WATCH LATER is a tab on the bar beside SCINTILLA and PERSONAL, on every channel feed - one shared
+   list. Alan: "the watch later is supposed to … show me … a scrollable area of what's in my watch later, and for me to play
+   that and for that to run through … It looks like it's just a filter". The tab is remembered on this browser
+   (station.yt.watchTab), so a reload, or the other feed's pane, opens where he left it; ?list=watch still lands on it. */
+const WATCH_LIST = { id: "watch", n: "watch later", q: "" };
 const LISTS = FEED === "market" ? [
   { id: "default", n: "market", q: "&tickers=not.is.null&tickers=neq." },
 ] : FEED === "scintilla" ? [
   SCINTILLA_SUBSCRIBED,
-  { id: "watch", n: "watch later", q: "" },
-] : [SUBSCRIBED];
+  WATCH_LIST,
+] : [SUBSCRIBED, WATCH_LIST];
 const LEGACY_LIST = QS.get("list") || "";
-let LIST = LISTS.some((l) => l.id === LEGACY_LIST) ? LEGACY_LIST : "default";
+const WATCH_TAB_KEY = "station.yt.watchTab";
+function watchTabRemembered() { try { return localStorage.getItem(WATCH_TAB_KEY) === "1"; } catch (_) { return false; } }
+function rememberWatchTab(on) { try { localStorage.setItem(WATCH_TAB_KEY, on ? "1" : "0"); } catch (_) {} }
+let LIST = LISTS.some((l) => l.id === LEGACY_LIST) ? LEGACY_LIST
+  : watchTabRemembered() && LISTS.some((l) => l.id === "watch") ? "watch" : "default";
 
 /* ── GRID · VIDEOS · SHORTS ──────────────────────────────────────────────────────────────────
    Alan, 22 Sep: "a lot of very short shorts contaminate the grid. A combined grid, one of only
@@ -578,6 +594,7 @@ function postChrome() {
 el("kk").textContent = FEED_PROFILE.label;
 
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
+let WATCH_AT = new Map(), WATCH_MISSING = 0;   /* 26 Oct: when each video was starred (the list's order), and saved ids the feed table no longer has */
 /* S13: SEL is the thumbnail under the pointer (what + WATCH LATER adds from the grid); LAST_PLAYED is where
    NEXT picks the queue up again after a trip back to the grid. */
 let SEL = "", LAST_PLAYED = "";
@@ -707,8 +724,10 @@ async function ytAct(action, payload) {
 
 async function syncWatch(force) {
   if (WATCH_READY && !force) return WATCH;
-  const rows = await pg("yt_watch_later?select=video_id");
-  WATCH = new Set((Array.isArray(rows) ? rows : []).map((row) => row.video_id).filter(Boolean));
+  const rows = await pg("yt_watch_later?select=video_id,updated_at");
+  const saved = (Array.isArray(rows) ? rows : []).filter((row) => row && row.video_id);
+  WATCH = new Set(saved.map((row) => row.video_id));
+  WATCH_AT = new Map(saved.map((row) => [row.video_id, Date.parse(row.updated_at || "") || 0]));
   WATCH_READY = true;
   WATCH_ERROR = "";
   return WATCH;
@@ -952,8 +971,15 @@ function syncUrl() {
   p.set("feed", FEED); p.set("list", LIST); p.set("mode", MODE);
   history.replaceState(null, "", "?" + p.toString());
 }
-function queueRows(rows, list, watch) {
-  return list === "watch" ? rows.filter((v) => watch.has(v.video_id)) : rows.slice();
+/* 26 Oct: keepId is the video playing - un-starring it in WATCH LATER takes it off the list, but the queue still knows where
+   it was, so the next saved video plays when it ends */
+function queueRows(rows, list, watch, keepId) {
+  return list === "watch" ? rows.filter((v) => watch.has(v.video_id) || (!!keepId && v.video_id === keepId)) : rows.slice();
+}
+/* 26 Oct: Watch Later in the order it was saved, the newest star first - the order the list shows and the queue plays */
+function watchOrder(rows, at) {
+  const when = at || new Map();
+  return (Array.isArray(rows) ? rows : []).slice().sort((a, b) => (when.get(b.video_id) || 0) - (when.get(a.video_id) || 0));
 }
 const UNAVAILABLE_VIDEO_IDS = new Set();
 function queuedVideo(rows, currentId, direction, skipped = new Set()) {
@@ -972,6 +998,8 @@ function previousQueuedVideo(rows, currentId, skipped = new Set()) {
   return queuedVideo(rows, currentId, -1, skipped);
 }
 function visibleQueue() {
+  /* 26 Oct: WATCH LATER is the whole saved list - shorts too, whatever the grid · videos · shorts tab says */
+  if (LIST === "watch") return queueRows(ROWS, LIST, WATCH, CUR && CUR.video_id);
   return queueRows(ROWS, LIST, WATCH).filter((v) => inMode(v));
 }
 /* S13: NEXT pressed on the grid. After a trip back to the grid it carries on from the video that was playing;
@@ -1640,8 +1668,8 @@ function cardHTML(v) {
     "</div>";
 }
 function visibleRows() {
-  const rows = LIST === "watch" ? ROWS.filter((v) => WATCH.has(v.video_id)) : ROWS;
-  return rows.filter((v) => inMode(v));
+  if (LIST === "watch") return ROWS.filter((v) => WATCH.has(v.video_id));   /* 26 Oct: the whole saved list, shorts too */
+  return ROWS.filter((v) => inMode(v));
 }
 /* A full repaint replaces every child of the scroller, which momentarily takes
    its scrollHeight to zero — the browser then clamps scrollTop and Alan is
@@ -1670,7 +1698,8 @@ function paint() {
   const grid = el("grid"), keep = scrollAnchor(grid);
   const rows = visibleRows();
   if (!rows.length) {
-    grid.innerHTML = ACCOUNT_EMPTY
+    grid.innerHTML = LIST === "watch" ? '<div class="msg">Nothing saved yet — tap the cyan ★ on any video to save it here.</div>'
+      : ACCOUNT_EMPTY
       ? '<div class="msg note"><b>' + esc(FEED_PROFILE.label) + "</b> has no videos here yet \u2014 " +
         esc(FEED_PROFILE.note || "this channel is not connected yet") + '. <a class="step" href="' + CONNECT_PAGE +
         "?account=" + encodeURIComponent(FEED_PROFILE.account) + '" target="_blank" rel="noopener">connect ' +
@@ -1679,6 +1708,8 @@ function paint() {
     return;
   }
   grid.innerHTML = rows.map(cardHTML).join("");
+  if (LIST === "watch" && WATCH_MISSING) grid.insertAdjacentHTML("beforeend", '<div class="msg wlmissing">' + WATCH_MISSING +
+    " saved video" + (WATCH_MISSING === 1 ? " is" : "s are") + " no longer in the feed store</div>");
   restoreAnchor(grid, keep);
   if (SEL && !BYID[SEL]) SEL = "";
   markSel(); paintWatchBar();
@@ -1754,19 +1785,23 @@ function paintChips() {
   }
   const sep = document.createElement("span"); sep.className = "sep"; box.appendChild(sep);
   for (const l of LISTS) {
+    if (l.id === "watch") continue;   /* 26 Oct: WATCH LATER is its own tab on the bar now, not a chip in here */
     const b = document.createElement("span");
     b.className = "btn" + (l.id === LIST ? " on" : "");
     b.textContent = l.n;
-    b.addEventListener("click", () => { LIST = l.id; paintChips(); load(LIST === "watch"); setFiltersOpen(false); });
+    b.addEventListener("click", () => { if (LIST === "watch") rememberWatchTab(false); LIST = l.id; paintChips(); load(LIST === "watch"); setFiltersOpen(false); });
     box.appendChild(b);
   }
   paintFilterChip();
+  paintFeedSwitch();
   fitBar();
 }
 /* S12: the one chip on the bar says which filters are in force: MODE · LIST (the list only where there is a choice) */
 function filterSummary() {
   const mode = (MODES.find(([key]) => key === MODE) || [, "grid"])[1];
-  const list = LISTS.length > 1 ? (LISTS.find((l) => l.id === LIST) || LISTS[0]).n : "";
+  const lists = LISTS.filter((l) => l.id !== "watch");
+  if (LIST === "watch") return "watch later";
+  const list = lists.length > 1 ? (lists.find((l) => l.id === LIST) || lists[0]).n : "";
   return mode + (list ? " · " + list : "");
 }
 /* S13: the filters live behind the ⋯ with the channel. What is in force is said on the ⋯'s own tooltip and
@@ -1802,7 +1837,9 @@ function feedQuery(offset) {
           (offset ? "&offset=" + offset : "");
   const chosen = LISTS.find((l) => l.id === LIST);
   if (LIST === "watch") {
-    q += "&video_id=in.(" + Array.from(WATCH).slice(0, 200).map(encodeURIComponent).join(",") + ")";
+    /* 26 Oct: the whole saved list in one read (up to 200), no mode or ticker filter; watchOrder puts it in saved order */
+    return "youtube_feed?select=" + (FEED_LIVE_OK ? FEED_SELECT_LIVE : FEED_SELECT) + "&limit=200" +
+      "&video_id=in.(" + Array.from(WATCH).slice(0, 200).map(encodeURIComponent).join(",") + ")";
   } else q += chosen.q;
   q += modeClause(MODE);
   if (TICK) q += "&tickers=ilike.*" + encodeURIComponent(TICK) + "*";
@@ -1974,7 +2011,8 @@ async function load(forceWatch, quiet) {
     if (!quiet || !ROWS.length) el("grid").innerHTML = '<div class="msg">feed unavailable</div>';
     return;
   }
-  const raw = Array.isArray(rows) ? rows : [];
+  /* 26 Oct: WATCH LATER in saved order, newest star first (the read itself has no order) - what the list shows and the queue plays */
+  const raw = LIST === "watch" ? watchOrder(rows, WATCH_AT) : Array.isArray(rows) ? rows : [];
   PAGE_AT = raw.length;
   PAGE_MORE = LIST !== "watch" && raw.length >= LIMIT && PAGE_AT < MAX_ROWS;
   ACCOUNT_EMPTY = false;
@@ -1989,6 +2027,7 @@ async function load(forceWatch, quiet) {
   paintFeedProfileSelector(raw);
   const kept = filterFeedRows(raw);
   const nextRows = liveFirst(LIST === "watch" ? kept : scheduledInPlace(kept), await readOnAir());
+  WATCH_MISSING = LIST === "watch" ? Math.max(0, Math.min(WATCH.size, 200) - kept.length) : 0;
   const signature = (items) => items.map((v) => [v.video_id, v.title, v.channel, v.published_at,
     v.feed_at || "", v.live_state || "", v.duration || "",
     Array.isArray(v.subscription_accounts) ? v.subscription_accounts.join("+") : "", streamPlace(v) || ""].join("|")).join("\n");
@@ -2094,17 +2133,49 @@ function switchFeed(next) {
   if (EMBEDDED && QS.get("view") !== "phone") { try { parent.postMessage({ sc: "video-feed", account: next }, location.origin); } catch (_) {} return; }
   const url = new URL(location.href); url.searchParams.set("feed", next); location.replace(url.href);
 }
+/* 26 Oct: the third tab, WATCH LATER - the saved list in this pane (no deck message, no reload). A feed tab leaves it: this
+   feed's own list at once, the other feed through switchFeed (its pane reads the remembered "0" and opens on its list). */
+function paintFeedSwitch() {
+  const box = el("feedSwitch"); if (!box) return;
+  for (const b of box.querySelectorAll("button")) {
+    const on = b.dataset.list === "watch" ? LIST === "watch" : FEED === b.dataset.feed && LIST !== "watch";
+    b.classList.toggle("on", on); b.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
+function showWatchLater(on) {
+  if (!LISTS.some((l) => l.id === "watch")) return;
+  rememberWatchTab(on);
+  const next = on ? "watch" : "default";
+  if (LIST === next) { paintFeedSwitch(); return; }
+  LIST = next; paintChips(); load(on);
+}
 (function feedSwitch() {
   const kk = el("kk"); if (!kk) return;
   const box = document.createElement("span"); box.id = "feedSwitch"; box.setAttribute("role", "group"); box.setAttribute("aria-label", "YouTube feed");
   for (const [key, label] of [["scintilla", "SCINTILLA"], ["personal", "PERSONAL"]]) {
-    const b = document.createElement("button"); b.type = "button"; b.className = "btn" + (FEED === key ? " on" : ""); b.textContent = label; b.dataset.feed = key;
-    b.setAttribute("aria-pressed", FEED === key ? "true" : "false"); b.title = FEED === key ? label + " is the feed here" : "switch to " + label;
-    b.addEventListener("click", () => switchFeed(key)); box.appendChild(b);
+    const b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.textContent = label; b.dataset.feed = key;
+    b.title = FEED === key ? label + " is the feed here" : "switch to " + label;
+    b.addEventListener("click", () => { if (key === FEED) showWatchLater(false); else { rememberWatchTab(false); switchFeed(key); } });
+    box.appendChild(b);
+  }
+  if (LISTS.some((l) => l.id === "watch")) {
+    const w = document.createElement("button"); w.type = "button"; w.className = "btn wl"; w.dataset.list = "watch";
+    w.innerHTML = '<span class="wl-long">WATCH LATER</span><span class="wl-short">LATER</span>';
+    w.title = "WATCH LATER — every video you starred, newest first; play one and the list plays through";
+    w.addEventListener("click", () => showWatchLater(true));
+    box.appendChild(w);
   }
   kk.after(box);
+  paintFeedSwitch();
   if (FEED === "scintilla" || FEED === "personal") kk.style.display = "none";
 })();
+/* the other feed's pane follows the tab (the same browser storage, a storage event in every other window of this site) */
+window.addEventListener("storage", (event) => {
+  if (event.key !== WATCH_TAB_KEY || !LISTS.some((l) => l.id === "watch")) return;
+  const on = event.newValue === "1";
+  if (on === (LIST === "watch")) return;
+  LIST = on ? "watch" : "default"; paintChips(); load(on);
+});
 </script>
 <div id="wlFlash" role="status" aria-live="polite"></div>
 </body>

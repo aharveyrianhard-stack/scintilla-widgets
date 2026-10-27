@@ -19,7 +19,7 @@ const grab = (src, re, what) => { const m = src.match(re); assert.ok(m, what + "
 /* the pane's lists and its row guard, run as the pane runs them for a given feed and list */
 function paneApi(src, feed, list) {
   const profiles = src.slice(src.indexOf("const FEED_PROFILES = ["), src.indexOf("const FEED_PROFILE_KEYS"));
-  const lists = grab(src, /const SUBSCRIBED = \{[\s\S]*?\] : \[SUBSCRIBED\];/, "the lists");
+  const lists = grab(src, /const SUBSCRIBED = \{[\s\S]*?\] : \[SUBSCRIBED, WATCH_LIST\];/, "the lists");   /* 26 Oct: + the shared WATCH LATER tab */
   const filter = grab(src, /function filterFeedRows\(rows\) \{[\s\S]*?\n\}/, "filterFeedRows");
   const ctx = { encodeURIComponent, FEED: feed, LIST: list || "default" };
   vm.runInNewContext(profiles + "\n" + lists + "\n" + filter + "\nglobalThis.out = { LISTS, filterFeedRows, FEED_PROFILES };", ctx);
@@ -54,7 +54,8 @@ test("Y7 · the Station's scintilla feed carries no search rows and no market ch
     assert.equal(sc.filterFeedRows([]).length, 0);
     assert.equal(paneApi(src, "scintilla", "watch").filterFeedRows(tonight).length, 200, name + ": Watch Later is Alan's own set and is not filtered");
     /* the other feeds are untouched */
-    assert.deepEqual(plainArr(paneApi(src, "personal").LISTS.map((l) => l.id)), ["default"], name + ": PERSONAL keeps its one subscribed list");
+    /* restated 26 Oct (coordinator): PERSONAL keeps its one subscribed list and gains the shared WATCH LATER tab (one list for both feeds) */
+    assert.deepEqual(plainArr(paneApi(src, "personal").LISTS.map((l) => l.id)), ["default", "watch"], name + ": PERSONAL keeps its one subscribed list, plus Watch Later");
     assert.equal(paneApi(src, "personal").filterFeedRows(tonight).length, 200, name + ": the guard is SCINTILLA's alone");
     const mk = paneApi(src, "market");
     assert.deepEqual(plainArr(mk.LISTS.map((l) => l.n)), ["market"], name + ": the market profile still answers its own URL for the Hub");
