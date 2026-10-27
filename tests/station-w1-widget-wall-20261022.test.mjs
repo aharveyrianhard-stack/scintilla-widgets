@@ -139,7 +139,7 @@ test("W1 · floorWidgets, pure (restated for W10): one fixed arrangement - X's c
   assert.ok(Math.abs(sb.volume.w - 2 * sa.volume.w) <= 2); assert.ok(Math.abs(sb.box.w - 2 * sa.box.w) <= 3);
   assert.equal(D.widgetsLensRows(450), 3, "three rows of 150 px lenses in 450 px (the 2560 band)"); assert.equal(D.widgetsLensRows(325), 2, "two on the 1920 band"); assert.equal(D.widgetsLensRows(206), 1); assert.equal(D.widgetsLensRows(10), 1, "never none");
   /* the slot is planned before SIMPLE's, and fitVideoPane treats both as the band */
-  assert.match(fn(deck, "slotFor"), /if \(widgetsOn\(\)\) return floorWidgets\(plan\.charts\.w, plan\.charts\.h, tapePx, plan\.col, count, chromePx\);\n[\s\S]{0,200}?if \(simpleOn\(\)\) return floorSimple/);
+  assert.match(fn(deck, "slotFor"), /if \(widgetsOn\(\)\) return \(lensWallOn\(\) \? floorLensWall : floorWidgets\)\(plan\.charts\.w, plan\.charts\.h, tapePx, plan\.col, count, chromePx\);   \/\* W15 \*\/\n[\s\S]{0,200}?if \(simpleOn\(\)\) return floorSimple/);
   const fit = fn(deck, "fitVideoPane");
   assert.match(fit, /const simple = !!slot && \(!!slot\.simple \|\| !!slot\.widgets\);/);
   assert.match(fit, /slot\.widgets \? slot\.rowBelow : slot\.box\.h/, "the chart row gives up the band (W7: the band less the tape under the grid)");
@@ -221,7 +221,7 @@ test("W1 · the lens set: RADAR · MACRO · MINE, remembered; MINE adds and remo
   assert.match(lens, /\.lens \.pc\.up, \.lens \.tk\.up\{ color:var\(--bull\); \} \.lens \.pc\.dn, \.lens \.tk\.dn\{ color:var\(--bear\); \}/, "the head in the day's colour");
   assert.match(lens, /\.lens \.tk\{ font-size:15px;/, "readable from the chair (the tape's type was 11 px)");
   assert.match(lens, /parent\.postMessage\(\{ type: "SCINTILLA_LENS_OPEN", ticker: t \}, location\.origin\)/, "a tap opens the name on the wall");
-  assert.match(lens, /P\.marketQuotes\(list, \{\}\)/); assert.match(lens, /P\.marketCandles\(t, tf, TAPE \? \{ limit: LENS_BARS, forming: true \} : \{ limit: LENS_BARS \}\)/);   /* W4: restated - a fresh read on the tape; W7: the timeframe per name (the put/call ratio is daily) */
+  assert.match(lens, /P\.marketQuotes\(list, \{\}\)/); assert.match(lens, /P\.marketCandles\(t, tf, TAPE \? \{ limit: Math\.max\(LENS_BARS, vlim\), forming: true \} : \{ limit: Math\.max\(LENS_BARS, vlim\) \}\)/);   /* W15 (26 Oct): restated - the read covers the session for his VWAP; the lens still draws LENS_BARS */   /* W4: restated - a fresh read on the tape; W7: the timeframe per name (the put/call ratio is daily) */
   /* W4 (22 Oct): restated - the tape's "+ ticker" box writes MINE to station_lists through the deck's door, and × deletes there; nothing else is written */
   assert.equal((lens.match(/method: "POST"/g) || []).length, 1, "one write: the MINE upsert"); assert.equal((lens.match(/method: "DELETE"/g) || []).length, 1, "one delete: a MINE row");
   assert.match(lens, /station_lists\?on_conflict=list,position", \{ method: "POST"/); assert.doesNotMatch(lens, /hub_favorites[^\n]*method/, "the Hub's lists are never written");

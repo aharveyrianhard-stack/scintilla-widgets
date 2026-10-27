@@ -22,7 +22,7 @@ function lensApi() {
 test("W4 · the lenses are 5-minute and live: the latest 30 completed bars read 4 s after every close (again at +8 +12 +16 +25 +40 s while missing), the quote every 10 s, the live price the last point; tight cells, no oval, twice the pace", () => {
   assert.match(lens, /const LENS_BARS = 30, USUAL_MS = 1800000;/   /* W12: the timeframe is the TF chips' */, "the chart API's tf=5m, the latest 30 bars");
   assert.match(lens, /const QUOTE_MS = TAPE \? 10000 : 15000, BARS_MS = 60000/   /* W12 */);
-  assert.match(lens, /TAPE \? \{ limit: LENS_BARS, forming: true \} : \{ limit: LENS_BARS \}/, "a fresh read on the tape (the shared store skipped)");
+  assert.match(lens, /TAPE \? \{ limit: Math\.max\(LENS_BARS, vlim\), forming: true \} : \{ limit: Math\.max\(LENS_BARS, vlim\) \}/, "a fresh read on the tape (the shared store skipped); W15: the whole session for the VWAP");
   assert.match(lens, /const TAPE_SPEED_PX_S = TAPE \? 90 : 45;/, "twice the deck's tapes' pace");
   assert.match(lens, /body\.tape \.lens\{ flex:none; width:var\(--lens-w, 170px\); height:100%; background:var\(--panel2\); \}/, "170 px cells (W10: each its own panel, a gap between)");
   const L = lensApi();
@@ -40,9 +40,9 @@ test("W4 · the lenses are 5-minute and live: the latest 30 completed bars read 
   assert.match(draw, /const closes = bars\.map\(\(b\) => b\.c\); if \(livePrice > 0\) closes\.push\(livePrice\);/);
   assert.match(draw, /const col = day === "down" \? PALETTE\.bear : day === "up" \? PALETTE\.bull : PALETTE\.ink;/);
   assert.doesNotMatch(draw, /ellipse|ovalGeometry/, "no oval on the tape");
-  assert.match(fn(lens, "drawOne"), /if \(TAPE \|\| !QS\.get\("oval"\)\) \{[^\n]*\n\s+const q = S\.quotes\.get\(t\), live = q && q\.price > 0 \? q\.price : 0;\n\s+const geo = STYLE === "bars" \? drawBars\(ctx, W, H, bars, live\) : drawTight\(ctx, W, H, bars, day, live\);/, "W7: bars by default, the line on the switch");
+  assert.match(fn(lens, "drawOne"), /if \(TAPE \|\| !QS\.get\("oval"\)\) \{[^\n]*\n\s+const q = S\.quotes\.get\(t\), live = q && q\.price > 0 \? q\.price : 0;\n\s+const geo = STYLE === "bars" \? drawBars\(ctx, W, H, bars, live, entry\.vw\) : drawTight\(ctx, W, H, bars, day, live, entry\.vw\);/, "W7: bars by default, the line on the switch (W15: with his VWAP)");
   assert.match(lens, /window\.__lens = \{ style: \(\) => STYLE, rows: \(\) => ROWS, rvol: [^\n]*newest:/, "the harness reads what the tape holds (W7: the style, the rows, the RVol too)");
-  assert.match(lens, /\.map\(norm\)\.filter\(\(b\) => Number\.isFinite\(b\.t\) && b\.o > 0 && b\.c > 0\)\.sort\(\(a, b\) => a\.t - b\.t\)\.slice\(-LENS_BARS\)/, "the provider's rows come newest first: sorted oldest first, so the last row is the newest bar");
+  assert.match(lens, /\.map\(norm\)\.filter\(\(b\) => Number\.isFinite\(b\.t\) && b\.o > 0 && b\.c > 0\)\.sort\(\(a, b\) => a\.t - b\.t\);\n\s+const rows = all\.slice\(-LENS_BARS\);/   /* W15 (26 Oct): restated - the whole sorted session is kept for the VWAP, the lens draws its last LENS_BARS */, "the provider's rows come newest first: sorted oldest first, so the last row is the newest bar");
   /* the deck: the tape shorter */
   assert.match(deck, /WIDGETS_LENS_ROW_PX = 150/, "W7: restated - the lenses in rows of about 150 px");
 });

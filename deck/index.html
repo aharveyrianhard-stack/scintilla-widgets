@@ -586,6 +586,7 @@ body.widgets.video-slot:not(.stack) #grid > #rowTop{ margin-bottom:calc(var(--si
 body.widgets.video-slot.tapes:not(.stack) #tapes{ bottom:0; left:var(--widgets-tape-left, calc(var(--fp-col, 24%) + 1px)); }   /* W7: from YouTube's right edge */
 /* W7 (22 Oct, Alan): one control row above both charts - the timeframe and CLOUDS for both at once; each chart keeps its own ticker */
 #wgCtl{ display:none; }
+body.lens-wall #wgCtl, body.lens-wall #tfNow{ display:none !important; }   /* W15: no charts, no chart controls */
 body.widgets.video-slot:not(.stack):not(.media-theatre) #wgCtl{ display:flex; align-items:center; gap:4px; position:absolute; z-index:4; height:24px; padding:0 8px; background:var(--panel2); border-bottom:1px solid var(--line); }
 #wgCtl .k{ color:var(--crk); font-size:7.5px; letter-spacing:.18em; text-transform:uppercase; margin-right:6px; }
 #wgCtl button{ font:10px var(--mono); letter-spacing:.08em; color:var(--ink3); background:transparent; border:1px solid transparent; padding:2px 8px; cursor:pointer; border-radius:0; }
@@ -1944,6 +1945,39 @@ function floorWidgets(areaWidth, areaHeight, tapePx, colPx, count, chromePx) {
   return { widgets:true, cols:Math.max(1, charts), rows:1, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
     cells:Array.from({ length:charts }, (_, i) => ({ col:i + 1, row:1 })), charts, hidden:n - charts, chartsH, bandH, rowBelow:Math.max(0, bandH - tapes), volume, lensTape, tapeLeft:paneW + FLOOR_SEAM_PX, wall, col, playerW };
 }
+/* ── W15 (26 Oct 2026, coordinator) — THE LENS WALL, pure ──
+   Alan: "I don't really use our charts too much, bro. I think we should make … the YouTubes a little bit bigger, the volume a little bit
+   bigger. And then cover the chart area of the two charts with context lenses, but with the VWAP … that's like proper support
+   resistance … of the intraday … it makes me … check the charts in a little bit of a higher time frame [on TradingView]." The two charts
+   leave the wall and are never mounted (two live charts less on the iMac); the lens tape (each lens with his VWAP) takes their whole
+   area in as many ~150 px rows as it holds. The band below: YouTube - the feed column in X's line and the player, 48 % of the wall
+   where the height allows (never over 48 % of the height), as wide as its own picture - and the volume panel, which takes the rest of
+   the band; the FAVORITES tape runs under the volume panel from the player's right edge, as before. W10's rule holds: every box is a
+   share of the window, nothing moves when a video plays. ?charts=1 (one load) or station.widgets.charts = "1" (this machine) puts the
+   two charts back (W10's wall). Boxes in chart-area coordinates, as floorWidgets. */
+const LENSWALL_PLAYER_W = 0.48, LENSWALL_BAND_MAX = 0.48, LENSWALL_CHARTS_KEY = "station.widgets.charts";
+function lensWallChoice(stored, urlValue) {
+  if (urlValue === "1" || urlValue === "0") return urlValue === "0";
+  return stored !== "1";
+}
+function lensWallOn() { return widgetsOn() && lensWallChoice(remembered(LENSWALL_CHARTS_KEY), QS.get("charts")); }
+function floorLensWall(areaWidth, areaHeight, tapePx, colPx, count, chromePx) {
+  const w = Math.max(0, Number(areaWidth) || 0), h = Math.max(0, Number(areaHeight) || 0), tapes = Math.max(0, Number(tapePx) || 0), col = Math.max(0, Number(colPx) || 0);
+  const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
+  const n = Math.max(0, Math.round(Number(count) || 0));
+  const wall = col + FLOOR_SEAM_PX + w;
+  const want = Math.round(wall * LENSWALL_PLAYER_W);
+  const bandH = Math.min(Math.round(want * 9 / 16) + chrome, Math.round(h * LENSWALL_BAND_MAX));
+  const pw = Math.max(0, Math.min(want, w, Math.floor((bandH - chrome) * 16 / 9)));   /* the player as wide as its picture: no black bars */
+  const paneW = col + FLOOR_SEAM_PX + pw, top = h - bandH;
+  const box = { left:-(col + FLOOR_SEAM_PX), top, w:paneW, h:bandH, feedCol:col };
+  const volLeft = Math.min(w, pw + FLOOR_SEAM_PX), volW = Math.max(0, w - volLeft);
+  const volume = { left:volLeft, top, w:volW, h:Math.max(0, bandH - tapes), on:volW >= WIDGETS_VOLUME_MIN_PX };
+  const lensH = Math.max(0, top - FLOOR_SEAM_PX);
+  const lensTape = { left:0, top:0, w, h:lensH, rows:widgetsLensRows(lensH), on:w >= WIDGETS_LENS_ROW_PX && lensH >= 120 };
+  return { widgets:true, lensWall:true, cols:1, rows:1, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
+    cells:[], charts:0, hidden:n, chartsH:0, bandH, rowBelow:Math.max(0, bandH - tapes), volume, lensTape, tapeLeft:paneW + FLOOR_SEAM_PX, wall, col, playerW:pw };
+}
 /* ── W1B (22 Oct 2026) — THE PLAYING VIDEO KEEPS ITS SIZE. Alan, 14:10 ET: "I don't want YouTube to keep the grid next to it.
    It's going to make the video smaller. I want the YouTube the size that it is, shift it to the side, keep the grid to the side of
    it … the widget somewhere can fit there … If the Twitter has to be a little slimmer, that's fine."
@@ -1977,7 +2011,7 @@ function slotFor(count, plan, tapePx, chromePx) {
   if (!plan || document.body.classList.contains("charts-only")) return null;
   /* W10: no playing layout - the WIDGETS wall is one fixed arrangement whatever the video does (W1B's switch is gone) */
   /* W1: WIDGETS is its own slot (through a solo, like SIMPLE) */
-  if (widgetsOn()) return floorWidgets(plan.charts.w, plan.charts.h, tapePx, plan.col, count, chromePx);
+  if (widgetsOn()) return (lensWallOn() ? floorLensWall : floorWidgets)(plan.charts.w, plan.charts.h, tapePx, plan.col, count, chromePx);   /* W15 */
   /* Y9: SIMPLE is its own slot, and a chart solo keeps it (the solo chart takes the charts' row; the pane stays put) */
   if (simpleOn()) return floorSimple(plan.charts.w, plan.charts.h, tapePx, simpleSplit(), count, chromePx);
   if (SOLO) return null;
@@ -2399,6 +2433,8 @@ function fitVideoPane() {
     top.style.setProperty("--fp-r" + n, g ? String(g.rows) : "");
   }
   SLOT_NOW = { slot, plan, tapePx, chromePx:onWall?.chromePx };
+  document.body.classList.toggle("lens-wall", !!slot && !!slot.lensWall);
+  if (slot && slot.lensWall) parkChartsForLensWall();
   SIMPLE_NOW = { on:simpleOn(), slot:simple && !slot.widgets ? slot : null };
   WIDGETS_NOW = { on:widgetsOn(), slot:slot && slot.widgets ? slot : null };
   document.body.classList.toggle("simple", simpleOn());
@@ -2682,6 +2718,7 @@ function makePane(def) {
 
 function mount(obj, options) {
   if (obj.isDock || obj.frame) return;
+  if (obj.def.kind === "chart" && lensWallOn()) return;   /* W15: the lens wall mounts no chart (rotation, page changes and scenes included) */
   if (!obj.def.src) { obj.showCard(SCENE === "scratch" ? "empty slot \u00b7 type a symbol" : "empty editable slot"); return; }
   /* over budget and lower on the wall than every live pane: this is the one to pause, so it is
      never mounted at all (no request is started just to be thrown away) */
@@ -3642,6 +3679,17 @@ function placeWidgets(slot, plan) {
   if (beside !== WIDGETS_BESIDE_SENT) { WIDGETS_BESIDE_SENT = beside; tellVideoBeside(widgetsOn()); }
 }
 let WIDGETS_BESIDE_SENT = 0;
+/* W15: on the lens wall the chart frames come off - the one on screen, the fading next one, the next page's and the parked spares - so
+   no chart keeps reading the API behind the lenses. mount() and preparePageSlot() keep them off. */
+function parkChartsForLensWall() {
+  for (const o of PANES) {
+    if (o.def.kind !== "chart") continue;
+    if (o.slotNext) { try { clearTimeout(o.slotNext.timer); } catch (_) {} if (o.slotNext.frame) o.slotNext.frame.remove(); o.slotNext = null; SLOT_ROT.busy = Math.max(0, SLOT_ROT.busy - 1); }
+    if (o.pageNext) { if (o.pageNext.frame) o.pageNext.frame.remove(); o.pageNext = null; }
+    for (const f of (o.spares || []).splice(0)) f.remove();
+    if (o.frame) { o.frame.remove(); o.frame = null; const k = LIVE.indexOf(o); if (k >= 0) LIVE.splice(k, 1); }
+  }
+}
 /* the handle on the seam between the charts and the YouTube pane: drag it, the split is remembered on this machine */
 function wireSimpleHandle(grid) {
   const h = document.createElement("div");
@@ -5091,6 +5139,7 @@ function greetPageFrame(job) {
   postDeckQuote(f, job.ticker); postDeckGeiger(f); postSlotMark(f, job.mark);
 }
 function preparePageSlot(pane, i, box, now, fade) {
+  if (lensWallOn()) return null;   /* W15 */
   const ticker = CHARTS[i], src = paneChartSrc(ticker, i, 0);
   const shown = !!now;
   /* exactly this chart, in exactly this box: nothing to do */
