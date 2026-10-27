@@ -146,11 +146,14 @@ body.tape .lens .nm:empty{ display:none; }
 body.tape #add{ display:block; width:100%; margin:4px 0 0; font-size:9px; padding:3px 5px; }
 body.tape #add::placeholder{ color:var(--dim); }
 body.tape #bar .k{ font-size:7px; }
+/* W15b (26 Oct, Alan: "where do I change the time frame? … I don't see an option"): the side column names it and the chips are a size up */
+.tfk{ display:none; } body.tape .tfk{ display:block; margin:7px 0 0; }
+body.tape #tf .chip{ font-size:9.5px; padding:3px 2px; }
 body.tape .msg{ padding:12px; }
 </style>
 </head>
 <body>
-<div id="bar"><span class="k">lenses</span><span id="chips" role="group" aria-label="Lens list"></span><input id="add" placeholder="+ ticker · Enter" title="type a ticker and press Enter: it joins MINE (the database list, both Macs)" aria-label="Add a ticker to MINE" maxlength="12"><span id="tf" role="group" aria-label="Bars timeframe"></span><span id="style" role="group" aria-label="Lens style" hidden><button type="button" class="chip" data-style="bars" title="5-minute candles">bars</button><button type="button" class="chip" data-style="line" title="a line of the closes">line</button></span><span id="note"></span></div>
+<div id="bar"><span class="k">lenses</span><span id="chips" role="group" aria-label="Lens list"></span><input id="add" placeholder="+ ticker · Enter" title="type a ticker and press Enter: it joins MINE (the database list, both Macs)" aria-label="Add a ticker to MINE" maxlength="12"><span class="k tfk">timeframe</span><span id="tf" role="group" aria-label="Bars timeframe"></span><span id="style" role="group" aria-label="Lens style" hidden><button type="button" class="chip" data-style="bars" title="5-minute candles">bars</button><button type="button" class="chip" data-style="line" title="a line of the closes">line</button></span><span id="note"></span></div>
 <div id="set" role="list" aria-label="Context lenses"><div class="msg">loading…</div></div>
 <script src="/_provider/provider.js"></script>
 <script type="module">
@@ -211,6 +214,9 @@ export const styleOf = (stored) => stored === "line" ? "line" : "bars";
 let STYLE = "bars";   /* read from the machine below, once `remembered` exists */
 /* W7: the rows the deck's band holds (SCINTILLA_LENS_ROWS); ?rows= stands alone */
 let ROWS = Math.max(1, Math.min(6, +QS.get("rows") || 1));
+/* W15b (26 Oct, Alan: "let's do bigger ones, please"): the lens wall asks for wider cells (?cellw=, px); 170 stays the default */
+const CELL_W = Math.max(0, Math.min(480, Math.round(+QS.get("cellw") || 0)));
+if (CELL_W) document.documentElement.style.setProperty("--lens-w", CELL_W + "px");
 /* W7: each name's RVol, the Hub's board_volume.rvol_at_time, once a minute */
 const RVOL_MS = 60000;
 const SB = "https://wadinxqplrggagkvrdag.supabase.co";
@@ -283,7 +289,8 @@ export function vwapCalc(bars, tfMs, anchor, mult) {
 const TF_MIN = Object.freeze({ "1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60 });
 /* the bars a lens reads for its VWAP: a whole session (stocks 04:00-20:00 = 960 minutes, futures 18:00-17:00 = 1,380) and a few more */
 export function vwapLimit(tf, fut) { const m = TF_MIN[tf]; return m ? Math.min(1000, Math.ceil((fut ? 1380 : 960) / m) + 4) : 0; }
-export const VWAP_COL = Object.freeze({ line:"#F2B33D", band:"rgba(242,179,61,.5)", fill:"rgba(242,179,61,.07)" });
+/* W15b (26 Oct, Alan: "make the VWAP a little more subtle"): live-v1's amber, quieter - the line at 55 %, the band at 26 %, the fill at 4 % */
+export const VWAP_COL = Object.freeze({ line:"rgba(242,179,61,.55)", band:"rgba(242,179,61,.26)", fill:"rgba(242,179,61,.04)" });
 /* the VWAP and its band, on the lens's own x and y (a run per session: a NaN breaks the line) */
 export function drawVwap(ctx, vw, n, X, Y) {
   if (!vw) return;
@@ -296,10 +303,14 @@ export function drawVwap(ctx, vw, n, X, Y) {
     if (i - s >= 2) { ctx.beginPath(); for (let k = s; k < i; k++) ctx.lineTo(X(k), Y(vw.upper[k])); for (let k = i - 1; k >= s; k--) ctx.lineTo(X(k), Y(vw.lower[k])); ctx.closePath(); ctx.fill(); }
   }
   const line = (arr) => { ctx.beginPath(); let on = false; for (let i = 0; i < n; i++) { const v = arr[i]; if (!Number.isFinite(v)) { on = false; continue; } if (on) ctx.lineTo(X(i), Y(v)); else { ctx.moveTo(X(i), Y(v)); on = true; } } ctx.stroke(); };
-  ctx.lineWidth = 1; ctx.strokeStyle = VWAP_COL.band; line(vw.upper); line(vw.lower);
-  ctx.lineWidth = 1.6; ctx.strokeStyle = VWAP_COL.line; line(vw.vwap);
+  ctx.lineWidth = 0.8; ctx.strokeStyle = VWAP_COL.band; line(vw.upper); line(vw.lower);
+  ctx.lineWidth = 1.25; ctx.strokeStyle = VWAP_COL.line; line(vw.vwap);
   ctx.restore();
 }
+/* W15b (26 Oct, Alan: "give it more breathing room between the edges of the chart … the margin … from the left, right, up and down. Like,
+   don't make it tight"): TradingView's scale margins - 12 % of the cell above and below the range (never under 6 px), 8 px left, 16 px right */
+export const LENS_PAD = Object.freeze({ y:0.12, l:8, r:16 });
+const padYOf = (H) => Math.max(6, Math.round(H * LENS_PAD.y));
 /* the price range a lens draws: the bars (and the live price) with the VWAP and its band in it, as TradingView scales a chart with them on */
 function withVwap(lo, hi, vw, n) {
   if (vw) for (let i = 0; i < n; i++) for (const v of [vw.upper[i], vw.lower[i], vw.vwap[i]]) if (Number.isFinite(v)) { if (v < lo) lo = v; if (v > hi) hi = v; }
@@ -495,8 +506,8 @@ export function drawTight(ctx, W, H, bars, day, livePrice, vw) {
   ctx.clearRect(0, 0, W, H);
   const closes = bars.map((b) => b.c); if (livePrice > 0) closes.push(livePrice);
   if (closes.length < 2) return null;
-  const [lo, hi] = withVwap(Math.min(...closes), Math.max(...closes), vw, bars.length), pad = 4, padR = 10;   /* W15: the VWAP in the range */
-  const X = (i) => pad + (i / (closes.length - 1)) * (W - pad - padR), Y = (v) => hi === lo ? H / 2 : pad + (1 - (v - lo) / (hi - lo)) * (H - 2 * pad);
+  const [lo, hi] = withVwap(Math.min(...closes), Math.max(...closes), vw, bars.length), padL = LENS_PAD.l, padR = LENS_PAD.r, padY = padYOf(H);   /* W15: the VWAP in the range; W15b: the margins */
+  const X = (i) => padL + (i / (closes.length - 1)) * (W - padL - padR), Y = (v) => hi === lo ? H / 2 : padY + (1 - (v - lo) / (hi - lo)) * (H - 2 * padY);
   const col = day === "down" ? PALETTE.bear : day === "up" ? PALETTE.bull : PALETTE.ink;
   drawVwap(ctx, vw, bars.length, X, Y);   /* W15: behind the line */
   ctx.save();
@@ -515,12 +526,12 @@ export function drawTight(ctx, W, H, bars, day, livePrice, vw) {
 export function drawBars(ctx, W, H, bars, livePrice, vw) {
   ctx.clearRect(0, 0, W, H);
   if (!bars.length) return null;
-  const n = bars.length, pad = 4, padR = 12;
+  const n = bars.length, padL = LENS_PAD.l, padR = LENS_PAD.r, padY = padYOf(H);   /* W15b: the margins */
   let lo = Infinity, hi = -Infinity; for (const b of bars) { if (b.l < lo) lo = b.l; if (b.h > hi) hi = b.h; } if (livePrice > 0) { lo = Math.min(lo, livePrice); hi = Math.max(hi, livePrice); }
   [lo, hi] = withVwap(lo, hi, vw, n);   /* W15: the VWAP and its band in the range */
   if (!(hi > lo)) { hi = lo * 1.001 + 0.01; lo = lo * 0.999 - 0.01; }
-  const slot = (W - pad - padR) / (n + (livePrice > 0 ? 1 : 0)), bw = Math.max(1, Math.min(6, Math.floor(slot * 0.6)));
-  const X = (i) => pad + slot * (i + 0.5), Y = (v) => pad + (1 - (v - lo) / (hi - lo)) * (H - 2 * pad);
+  const slot = (W - padL - padR) / (n + (livePrice > 0 ? 1 : 0)), bw = Math.max(1, Math.min(6, Math.floor(slot * 0.6)));
+  const X = (i) => padL + slot * (i + 0.5), Y = (v) => padY + (1 - (v - lo) / (hi - lo)) * (H - 2 * padY);
   drawVwap(ctx, vw, n, X, Y);   /* W15: behind the candles */
   ctx.save(); ctx.lineWidth = 1;
   for (let i = 0; i < n; i++) {
