@@ -258,7 +258,10 @@ test("the mounted video shells and /pane-video: saved-or-not is only claimed fro
     const v = { video_id: "vidX" };
     /* restated 26 Oct (coordinator): the shell draws the star on every feed (one shared Watch Later list; Alan "I don't think I even see the
        stars anymore" with the wall on PERSONAL); /pane-video keeps its scintilla-only lane */
-    if (name === "shell") assert.match(mk({ FEED: "personal", WATCH_READY: true, WATCH: new Set() })(v), /☆/, name + ": the star on the personal feed too");
+    /* restated 26 Oct ~20:30 (coordinator): the shell's star is one filled ★ in both states - cyan unsaved, gold saved (Alan: "Bigger and
+       cyan, and if I click it, it turns like gold"); the "on" class is the saved claim. /pane-video keeps ☆ / ★. */
+    const notSaved = name === "shell" ? /★/ : /☆/;
+    if (name === "shell") assert.match(mk({ FEED: "personal", WATCH_READY: true, WATCH: new Set() })(v), notSaved, name + ": the star on the personal feed too");
     else assert.equal(mk({ FEED: "personal" })(v), "", name + ": no star lane outside the scintilla feed");
     const unknownFailed = mk({ FEED: "scintilla", WATCH_READY: false, WATCH_ERROR: "x", WATCH: new Set() })(v);
     assert.match(unknownFailed, /star unk/, name);
@@ -268,7 +271,9 @@ test("the mounted video shells and /pane-video: saved-or-not is only claimed fro
     const savedHtml = mk({ FEED: "scintilla", WATCH_READY: true, WATCH: new Set(["vidX"]) })(v);
     assert.match(savedHtml, /★/, name); assert.match(savedHtml, /remove from/, name);
     const unsavedHtml = mk({ FEED: "scintilla", WATCH_READY: true, WATCH: new Set() })(v);
-    assert.match(unsavedHtml, /☆/, name); assert.match(unsavedHtml, /save to/, name);
+    assert.match(unsavedHtml, notSaved, name); assert.match(unsavedHtml, /save to/, name);
+    assert.ok(!/class="star on"/.test(unsavedHtml), name + ": an unsaved star never carries the saved class");
+    assert.match(savedHtml, /class="star on"/, name + ": the saved star carries the saved class");
 
     /* The old cause-naming lie is gone: a failed Supabase table read is not a YouTube
        auth state, and it may not paint as one. */
