@@ -976,18 +976,25 @@ function syncUrl() {
 function queueRows(rows, list, watch, keepId) {
   return list === "watch" ? rows.filter((v) => watch.has(v.video_id) || (!!keepId && v.video_id === keepId)) : rows.slice();
 }
-/* 26 Oct: Watch Later in the order it was saved, OLDEST first (YouTube's own order) - the order the list shows and the queue plays, so a
-   video starred while one plays joins the end of the run; an id with no saved time yet was starred just now and goes last */
+/* 26 Oct: Watch Later in the order it was saved, NEWEST first (Alan, 21:3x: "No. Watch later needs to be newest first, buddy") - the
+   order the list shows and the queue plays down; an id with no saved time yet was starred just now and goes first. A video starred
+   while one plays is therefore above the run: watchRunWrap picks it up when the run reaches the bottom. */
 function watchOrder(rows, at) {
   const when = at || new Map(), t = (id) => (when.has(id) ? when.get(id) : Infinity);
-  return (Array.isArray(rows) ? rows : []).slice().sort((a, b) => { const x = t(a.video_id), y = t(b.video_id); return x === y ? 0 : x < y ? -1 : 1; });
+  return (Array.isArray(rows) ? rows : []).slice().sort((a, b) => { const x = t(a.video_id), y = t(b.video_id); return x === y ? 0 : x > y ? -1 : 1; });
 }
 /* 26 Oct (coordinator): THE QUEUE KEEPS ITS LIST. Alan: "I was … watching a YouTube video from the Watch Later. Everything great. And I
    click the grid and it removes my video. I need to be able to scroll my grid while watching videos and add new stuff to the Watch Later."
    A video started from a list plays through THAT list, whatever the column shows while it plays: browsing the feed during a Watch Later
-   video leaves the Watch Later run going, and a video starred meanwhile joins its end. QUEUE is set by a play that is not a queue step,
-   refreshed when its list is read again, and cleared when the video is stopped. */
-let QUEUE = { list:"", rows:[] };
+   video leaves the Watch Later run going, and a video starred meanwhile is played when the run reaches the bottom (watchRunWrap: back to
+   the top for what this run has not played). QUEUE is set by a play that is not a queue step, refreshed when its list is read again,
+   and cleared when the video is stopped; played holds what this run has shown. */
+let QUEUE = { list:"", rows:[], played:new Set() };
+/* the bottom of a Watch Later run: the first video from the top this run has not played (a star added while watching), else nothing */
+function watchRunWrap(rows, list, played, skipped, unavailable) {
+  if (list !== "watch") return null;
+  return rows.find((v) => !played.has(v.video_id) && !skipped.has(v.video_id) && !unavailable.has(v.video_id)) || null;
+}
 function watchQueueRows(rows, watch, byId, at) {
   const have = new Set(rows.map((v) => v.video_id));
   const added = [...watch].filter((id) => !have.has(id) && byId[id]).map((id) => byId[id]);
@@ -1177,7 +1184,9 @@ function restoreQueueOrigin(originVideo, direction) {
 }
 function stepQueue(direction = 1, skipped = new Set(), originVideo = CUR) {
   if (!originVideo) return false;
-  const next = queuedVideo(visibleQueue(), originVideo.video_id, direction, skipped);
+  const rows = visibleQueue(), runList = CUR && QUEUE.list && QUEUE.list !== LIST ? QUEUE.list : LIST;
+  const next = queuedVideo(rows, originVideo.video_id, direction, skipped) ||
+    (direction > 0 ? watchRunWrap(rows, runList, QUEUE.played, skipped, UNAVAILABLE_VIDEO_IDS) : null);   /* 26 Oct: new stars, at the bottom */
   if (!next) {
     if (CUR?.video_id !== originVideo.video_id) restoreQueueOrigin(originVideo, direction);
     else { refreshTransport(); setTransportNotice(direction < 0 ? "start of queue" : "end of queue"); }
@@ -1215,7 +1224,8 @@ async function play(v, auto, queued = false, skipped = new Set(), direction = 1,
     : userGesture ? resumePositionFor(v.video_id) : await resumePositionBeforePlay(v.video_id);
   if (token !== PLAYER_TOKEN) return;
   CUR = v;
-  if (!queued) QUEUE = { list:LIST, rows:ROWS.slice() };   /* 26 Oct: this list is the run, whatever the column shows next */
+  if (!queued) QUEUE = { list:LIST, rows:ROWS.slice(), played:new Set() };   /* 26 Oct: this list is the run, whatever the column shows next */
+  QUEUE.played.add(v.video_id);
   PLAYER_POSITION = { time:0, duration:0, savedAt:0 };
   YT_PLAYER_REQUEST = { token, video:v, auto:!!auto, queued:!!queued, skipped:new Set(skipped),
     direction:direction < 0 ? -1 : 1, originVideo:originVideo || v, resumeAt };
@@ -1253,7 +1263,7 @@ function back() {
   clearPlayerFallback(); ++PLAYER_TOKEN; YT_PLAYER_REQUEST = null; PLAYER_ACCEPTED_TOKEN = 0;
   try { if (YT_PLAYER_READY) YT_PLAYER.stopVideo(); } catch (_) {}
   if (CUR) LAST_PLAYED = CUR.video_id;
-  CUR = null; QUEUE = { list:"", rows:[] };
+  CUR = null; QUEUE = { list:"", rows:[], played:new Set() };
   document.body.classList.remove("playing");
   if (BESIDE) relayout();   /* W1: the whole pane is the grid again */
   tellPlaying();
