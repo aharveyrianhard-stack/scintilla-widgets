@@ -128,6 +128,14 @@ body.tape #tf{ display:flex; flex-wrap:wrap; gap:2px; margin:4px 0 0; } body.tap
 body.tape .trackwin::before{ content:attr(data-set); position:absolute; left:0; top:0; z-index:2; font-size:7px; letter-spacing:.14em; text-transform:uppercase; color:var(--crk); background:rgba(10,10,15,.88); padding:1px 5px 1px 4px; pointer-events:none; }
 body.tape .trackwin[data-set="macro"]::before{ color:var(--warm); } body.tape .trackwin[data-set="mine"]::before{ color:var(--ink2); } body.tape .trackwin[data-set=""]::before{ display:none; }
 body.tape .lens .un{ right:6px; bottom:4px; font-size:7px; }
+/* W16 (26 Oct, Alan: "more like a rotation, like the trading view … half of the space and half of the space"): ?pages=1 - the rows stand still
+   and turn a page at a time; a 20 px strip over each row carries its set and a dot per page, the page shown filled */
+body.tape.pages .track{ right:0; top:20px; height:calc(100% - 20px); }
+body.tape.pages .lens[hidden]{ display:none; }
+body.tape.pages .track.turn{ animation:lens-page-in .7s ease-out; }
+@keyframes lens-page-in{ from{ opacity:0; } to{ opacity:1; } }
+@media (prefers-reduced-motion: reduce){ body.tape.pages .track.turn{ animation:none; } }
+body.tape.pages .trackwin::before{ content:attr(data-label); top:6px; font-size:10px; line-height:12px; padding:0 6px; background:transparent; }   /* clear of the deck's top edge */
 /* W12B: the phone's lens block is the tape (RADAR and MACRO as two running rows, the wall's look) with the chips on top, touch-sized cells */
 body.tape.touch{ flex-direction:column; }
 body.tape.touch #bar{ width:auto; flex-direction:row; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 8px; border-right:0; border-bottom:1px solid var(--line); }
@@ -203,6 +211,16 @@ export function onceAcrossSets(groups) {
   const claimed = new Set(groups.filter((g) => g.s !== "radar").flatMap((g) => g.names));
   return groups.map((g) => g.s === "radar" ? { s:g.s, names:g.names.filter((t) => !claimed.has(t)) } : g);
 }
+/* W16: the pages - as many whole lenses as the row holds at the asked width, the page a row shows from the clock (so a rebuild or a reload never
+   starts it over), the rows a step apart so one turns at a time; MACRO on top (the market first, then the names) */
+export function perPageOf(width, minCell, gap) { return Math.max(1, Math.floor(((Number(width) || 0) + gap) / (Math.max(1, minCell) + gap))); }
+export function pageAt(nowMs, row, rowCount, pageCount, pageMs) {
+  if (!(pageCount > 1)) return 0;
+  const offset = rowCount > 1 ? Math.round(row * pageMs / rowCount) : 0;
+  return Math.floor((nowMs + offset) / pageMs) % pageCount;
+}
+export function pagesOrder(groups) { const rank = { macro:0, radar:1, mine:2 }; return groups.slice().sort((a, b) => (rank[a.s] ?? 9) - (rank[b.s] ?? 9)); }
+export function pageLabel(set, page, pages) { return set + (pages > 1 ? "  " + Array.from({ length:pages }, (_, i) => i === page ? "●" : "○").join(" ") : ""); }
 export function rowsForSets(rows, counts) {
   const n = counts.length; if (!n) return [];
   if (rows < n) return null;
@@ -242,6 +260,8 @@ const SB = "https://wadinxqplrggagkvrdag.supabase.co";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
 const TAPE = QS.get("mode") === "tape";   /* W1C: the lens tape */
 if (TAPE) document.body.classList.add("tape");
+const PAGES = TAPE && QS.get("pages") === "1", PAGE_MS = 20000, PAGE_GAP_PX = 6;   /* W16: a page every 20 s */
+if (PAGES) document.body.classList.add("pages");
 /* the column's lens is the zoomed-out view the intraday ranges carry (LENS_BY_RANGE "1d:60"); the tape's is the last 120
    completed 5-minute bars (extended hours, ten hours), Alan's "make it 5 minute charts" */
 /* W4: the tape shows the LATEST 30 completed 5-minute bars (two and a half hours) as a tight line, the live price as its last point; the
@@ -420,7 +440,7 @@ function paintSet(force) {
   if (!list.length) { box.innerHTML = '<div class="msg">' + (!radarAt ? "reading the radar list…" : "nothing on these lists") + "</div>"; return; }
   const cells = [];   /* [name, set, host] */
   if (TAPE) {
-    const live = groups.filter((g) => g.names.length), per = rowsForSets(ROWS, live.map((g) => g.names.length));
+    const live = (PAGES ? pagesOrder(groups) : groups).filter((g) => g.names.length), per = rowsForSets(ROWS, live.map((g) => g.names.length));
     if (!per) { /* fewer rows than sets: one row holds the sets in sequence */
       const hosts = []; for (let r = 0; r < ROWS; r++) { const win = document.createElement("div"); win.className = "trackwin"; win.dataset.set = live.map((g) => g.s).join(" · "); const tr = document.createElement("div"); tr.className = "track"; win.appendChild(tr); box.appendChild(win); hosts.push(tr); }
       let i = 0; for (const g of live) for (const t of g.names) cells.push([t, g.s, hosts[(i++) % ROWS]]);
@@ -453,6 +473,7 @@ paintStyle();
 /* W1C: one length of lenses wider than the window → the track is doubled and runs at 45 px a second, whatever its length;
    a list that fits stands still (the deck's runTape rule) */
 function runTape() {
+  if (PAGES) return runPages();
   const box = el("set"); let any = false;
   for (const track of box.querySelectorAll(".track")) {
     const win = track.parentElement.clientWidth;
@@ -471,6 +492,25 @@ function runTape() {
   }
   if (any) drawAll();
 }
+/* W16: each row shows one page of whole lenses, widened to fill the row; the same page is never re-laid (no jump); a turn fades in */
+function runPages() {
+  const wins = [...el("set").querySelectorAll(".trackwin")], now = Date.now();
+  wins.forEach((win, r) => {
+    const track = win.querySelector(".track"); if (!track) return;
+    const cells = [...track.children].filter((d) => d.classList.contains("lens"));
+    const w = win.clientWidth, k = perPageOf(w, CELL_W || 170, PAGE_GAP_PX), n = Math.max(1, Math.ceil(cells.length / k));
+    const p = pageAt(now, r, wins.length, n, PAGE_MS), mark = cells.length + ":" + w + ":" + p;
+    if (win.dataset.page === mark) return;
+    const turned = !!win.dataset.page && win.dataset.page.split(":")[2] !== String(p);
+    win.dataset.page = mark; win.dataset.label = pageLabel(win.dataset.set || "", p, n);
+    const cellW = Math.max(1, Math.floor((w - PAGE_GAP_PX * (k - 1)) / k));
+    cells.forEach((d, i) => { d.style.width = cellW + "px"; d.hidden = Math.floor(i / k) !== p; });
+    if (turned) { track.classList.remove("turn"); void track.offsetWidth; track.classList.add("turn"); }
+    for (const d of cells) if (!d.hidden) drawOne(d);
+  });
+}
+/* W16: the clock turns the pages; the pointer over the lenses holds them */
+if (PAGES) setInterval(() => { if (!document.hidden && !el("set").matches(":hover")) runPages(); }, 1000);
 function paintCells(first) {
   for (const d of el("set").querySelectorAll(".lens")) {
     const q = S.quotes.get(d.dataset.t); if (!q) continue;
