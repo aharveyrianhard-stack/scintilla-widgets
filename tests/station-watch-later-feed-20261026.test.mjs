@@ -10,7 +10,7 @@ const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), "utf8");
 const shell = read("../station-shells/personal-video-v1/index.html");
 const twin = read("../station-shells/scintilla-video-v1/index.html");
 
-function fnFromSource(source, name, bindings = {}) {
+function fnText(source, name) {
   const start = source.indexOf(`function ${name}(`);
   assert.notEqual(start, -1, `${name} must exist`);
   let depth = 0, end = -1;
@@ -18,9 +18,19 @@ function fnFromSource(source, name, bindings = {}) {
     if (source[i] === "{") depth += 1;
     else if (source[i] === "}") { depth -= 1; if (depth === 0) { end = i + 1; break; } }
   }
-  return vm.runInNewContext(`(${source.slice(start, end)})`, bindings);
+  return source.slice(start, end);
 }
-const ids = (rows) => rows.map((v) => v.video_id);
+function fnFromSource(source, name, bindings = {}) {
+  return vm.runInNewContext(`(${fnText(source, name)})`, bindings);
+}
+/* 28 Oct: watchOrder places a saved stream with the grid's own helpers, lifted out together as they are */
+function orderCtx(source) {
+  const ctx = vm.createContext({ Intl, Date, isFinite, Array, Set });
+  for (const line of source.match(/^const (?:NY_DAY|DUE_BEFORE_MS|DUE_AFTER_MS|ON_AIR_PIN_HOURS|VIDEO_PUBLISHED_SHAPE)\s*=[^;]+;$/gm) || []) vm.runInContext(line, ctx);
+  for (const name of ["videoPublishedMs", "videoWhen", "onAirNow", "streamPlace", "watchOrder"]) vm.runInContext(fnText(source, name), ctx);
+  return ctx;
+}
+const ids = (rows) => Array.from(rows, (v) => v.video_id);   // a plain array of this realm, whatever realm built the list
 
 test("WATCH LATER: the twin shells stay byte-identical", () => {
   assert.equal(shell, twin);
@@ -49,37 +59,51 @@ test("WATCH LATER: lit tabs - the saved list lights only WATCH LATER", () => {
   assert.deepEqual(btns.map((b) => b.cls.has("on")), [false, true, false]);
 });
 
-test("WATCH LATER: newest star first, and the queue plays down that order", () => {
-  /* restated twice on 26 Oct: newest first (20:56), oldest first (21:23), newest first again - Alan, 21:3x: "No. Watch later needs to be
-     newest first, buddy." A video starred while one plays sits at the top; the run reaches it at the bottom (watchRunWrap). */
-  const at = new Map([["old", Date.parse("2026-10-26T20:22:00-04:00")], ["mid", Date.parse("2026-10-26T20:35:00-04:00")],
-    ["new", Date.parse("2026-10-26T20:41:00-04:00")]]);
-  const watchOrder = fnFromSource(shell, "watchOrder");
-  const rows = watchOrder([{ video_id:"mid" }, { video_id:"old" }, { video_id:"new" }], at);
-  assert.deepEqual(ids(rows), ["new", "mid", "old"]);
-  assert.deepEqual(ids(watchOrder([{ video_id:"new" }, { video_id:"just" }, { video_id:"old" }], at)), ["just", "new", "old"],
-    "an id with no saved time yet was starred just now: first");
+test("WATCH LATER: latest to oldest by the video's own time - the grid's order - and the queue plays down it", () => {
+  /* 28 Oct, Alan 04:3x: "I thought we said that the YouTube videos for my watch later would always be organized from latest to oldest."
+     26 Oct built "newest first" as the newest STAR first, so last night's run of stars, made down the grid newest video first, read
+     oldest on top. The rows are this morning's shape (ids made up); the clock is 04:40 ET, 28 Oct; no star time is passed at all. */
+  const NOW = Date.parse("2026-10-28T08:40:00Z");
+  const row = (id, at, live = "none", startsAt = null) => ({ video_id:id, feed_at:at, published_at:at, live_state:live, starts_at:startsAt });
+  const saved = [
+    row("oct26-starred-last", "2026-10-26T16:38:00Z"),
+    row("run-4-10pm", "2026-10-27T20:10:00Z"), row("run-7pm", "2026-10-27T23:00:00Z"), row("was-live-9pm", "2026-10-28T01:00:00Z", "was_live"),
+    row("today-5pm", "2026-10-28T21:00:00Z", "upcoming", "2026-10-28T21:00:00Z"),
+    row("today-2pm", "2026-10-28T18:00:00Z", "upcoming", "2026-10-28T18:00:00Z"),
+    row("tomorrow-8-15am", "2026-10-29T12:15:00Z", "upcoming", "2026-10-29T12:15:00Z"),
+    row("on-air", "2026-10-28T08:20:00Z", "live"),
+  ];
+  const { watchOrder } = orderCtx(shell);
+  const want = ["on-air", "today-2pm", "today-5pm", "tomorrow-8-15am", "was-live-9pm", "run-7pm", "run-4-10pm", "oct26-starred-last"];
+  assert.deepEqual(ids(watchOrder(saved, NOW)), want, "on air, today's streams soonest first, another day's, then newest to oldest");
+  assert.deepEqual(ids(watchOrder(saved.slice().reverse(), NOW)), want, "the read has no order; the list does");
+  const tie = [row("b", "2026-10-27T22:00:00Z"), row("a", "2026-10-27T22:00:00Z")];
+  assert.deepEqual(ids(watchOrder(tie, NOW)), ["a", "b"]);
+  assert.deepEqual(ids(watchOrder(tie.slice().reverse(), NOW)), ["a", "b"], "equal times keep one order from read to read");
+  for (const name of ["scintilla-video-v1", "personal-video-v1"]) assert.match(name === "personal-video-v1" ? shell : twin, /function watchOrder\(rows, nowMs\)/);
+  const rows = watchOrder(saved, NOW);
   const queueRows = fnFromSource(shell, "queueRows");
   const queuedVideo = fnFromSource(shell, "queuedVideo", { UNAVAILABLE_VIDEO_IDS: new Set() });
-  const watch = new Set(["new", "mid", "old"]);
-  assert.equal(queuedVideo(queueRows(rows, "watch", watch), "new", 1).video_id, "mid", "after the first saved video, the second");
+  const watch = new Set(want);
+  assert.equal(queuedVideo(queueRows(rows, "watch", watch), "was-live-9pm", 1).video_id, "run-7pm", "after a video, the next older one");
   /* un-starring the one playing takes it off the list, and the next saved one still follows it */
-  const without = new Set(["mid", "old"]);
-  assert.deepEqual(ids(queueRows(rows, "watch", without)), ["mid", "old"]);
-  assert.equal(queuedVideo(queueRows(rows, "watch", without, "new"), "new", 1).video_id, "mid");
+  const without = new Set(want.filter((id) => id !== "was-live-9pm"));
+  assert.ok(!ids(queueRows(rows, "watch", without)).includes("was-live-9pm"));
+  assert.equal(queuedVideo(queueRows(rows, "watch", without, "was-live-9pm"), "was-live-9pm", 1).video_id, "run-7pm");
 });
 
 test("WATCH LATER: the run keeps its list while the column shows the feed; at its bottom it plays what was starred meanwhile", () => {
-  const watchOrder = fnFromSource(shell, "watchOrder");
+  const { watchOrder } = orderCtx(shell);
   const watchQueueRows = fnFromSource(shell, "watchQueueRows", { watchOrder });
   const queueRows = fnFromSource(shell, "queueRows");
   const queuedVideo = fnFromSource(shell, "queuedVideo", { UNAVAILABLE_VIDEO_IDS: new Set() });
   const watchRunWrap = fnFromSource(shell, "watchRunWrap");
-  const w1 = { video_id:"w1" }, w2 = { video_id:"w2" }, f1 = { video_id:"f1" }, f2 = { video_id:"f2" };
+  const w1 = { video_id:"w1", feed_at:"2026-10-27T13:00:00Z" }, w2 = { video_id:"w2", feed_at:"2026-10-27T15:00:00Z" },
+    f1 = { video_id:"f1", feed_at:"2026-10-28T02:00:00Z" }, f2 = { video_id:"f2", feed_at:"2026-10-28T01:00:00Z" };
   const env = { CUR:w2, QUEUE:{ list:"watch", rows:[w2, w1], played:new Set(["w2"]) }, LIST:"default", ROWS:[f1, f2], BYID:{ f1, f2 },
-    WATCH:new Set(["w1", "w2", "f2"]), WATCH_AT:new Map([["w1", 1], ["w2", 2]]), queueRows, watchQueueRows, inMode:() => true };
+    WATCH:new Set(["w1", "w2", "f2"]), queueRows, watchQueueRows, inMode:() => true };
   const run = fnFromSource(shell, "visibleQueue", env)();
-  assert.deepEqual(ids(run), ["f2", "w2", "w1"], "the Watch Later run, newest first, the feed's new star on top");
+  assert.deepEqual(ids(run), ["f2", "w2", "w1"], "the Watch Later run, latest to oldest: the feed's new star, the newest video, on top");
   assert.equal(queuedVideo(run, "w2", 1).video_id, "w1", "down the list from where it started");
   assert.equal(queuedVideo(run, "w1", 1), null, "the bottom");
   assert.equal(watchRunWrap(run, "watch", new Set(["w2", "w1"]), new Set(), new Set()).video_id, "f2", "then what was starred while watching");
@@ -105,11 +129,12 @@ test("WATCH LATER: GRID never stops the video where the grid is on screen with i
 });
 
 test("WATCH LATER: the whole saved list in one read, shorts too, no ticker filter", () => {
-  assert.match(shell, /pg\("yt_watch_later\?select=video_id,updated_at"\)/);
+  assert.match(shell, /pg\("yt_watch_later\?select=video_id"\)/);
+  assert.doesNotMatch(shell, /WATCH_AT|updated_at/, "28 Oct: the star's time orders nothing now");
   assert.match(shell, /return "youtube_feed\?select=" \+ \(FEED_LIVE_OK \? FEED_SELECT_LIVE : FEED_SELECT\) \+ "&limit=200" \+/);
   assert.match(shell, /if \(LIST === "watch"\) return ROWS\.filter\(\(v\) => WATCH\.has\(v\.video_id\)\);/, "the grid: no grid·videos·shorts filter");
-  assert.match(shell, /if \(list === "watch"\) return queueRows\(watchQueueRows\(rows, WATCH, BYID, WATCH_AT\), list, WATCH, CUR && CUR\.video_id\);/, "the queue: the same list (the run's own, 26 Oct ~21:35)");
-  assert.match(shell, /const raw = LIST === "watch" \? watchOrder\(rows, WATCH_AT\) : Array\.isArray\(rows\) \? rows : \[\];/);
+  assert.match(shell, /if \(list === "watch"\) return queueRows\(watchQueueRows\(rows, WATCH, BYID\), list, WATCH, CUR && CUR\.video_id\);/, "the queue: the same list (the run's own, 26 Oct ~21:35)");
+  assert.match(shell, /const raw = LIST === "watch" \? watchOrder\(rows\) : Array\.isArray\(rows\) \? rows : \[\];/);
 });
 
 test("WATCH LATER: the empty list says how to fill it; missing rows are counted, never hidden", () => {
