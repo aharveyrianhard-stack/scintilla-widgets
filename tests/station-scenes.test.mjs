@@ -964,8 +964,8 @@ test("visible video feeds share one durable Personal YouTube action identity", (
   const ytAction = fs.readFileSync(new URL("../supabase/functions/yt-act/index.ts", import.meta.url), "utf8");
   assert.match(videoPane, /const YOUTUBE_ACCOUNT = "personal"/,
     "shared Watch Later keeps its one healthy Personal YouTube identity");
-  /* 26 Oct: + updated_at, the order WATCH LATER shows and plays (newest star first) */
-  assert.match(videoPane, /pg\("yt_watch_later\?select=video_id,updated_at"\)/,
+  /* 28 Oct: the saved ids only - WATCH LATER reads latest to oldest by the videos' own time (26 Oct also read updated_at, the star's) */
+  assert.match(videoPane, /pg\("yt_watch_later\?select=video_id"\)/,
     "Station reads the one shared saved-video state directly instead of waiting on Google");
   assert.match(videoPane, /syncWatch\(\)\.then\(\(\) => \{ refreshWatchButton\(\); if \(ROWS\.length\) paint\(\); \}\)\.catch\(/,
     "Station begins the local saved-set read alongside its normal feed, not only after Watch Later is clicked");

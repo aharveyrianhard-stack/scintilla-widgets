@@ -599,7 +599,7 @@ function postChrome() {
 el("kk").textContent = FEED_PROFILE.label;
 
 let ROWS = [], BYID = {}, CUR = null, WATCH = new Set(), WATCH_READY = false, WATCH_ERROR = "";
-let WATCH_AT = new Map(), WATCH_MISSING = 0;   /* 26 Oct: when each video was starred (the list's order), and saved ids the feed table no longer has */
+let WATCH_MISSING = 0;   /* saved ids the feed table no longer has (28 Oct: the star's time no longer orders the list - watchOrder) */
 /* S13: SEL is the thumbnail under the pointer (what + WATCH LATER adds from the grid); LAST_PLAYED is where
    NEXT picks the queue up again after a trip back to the grid. */
 let SEL = "", LAST_PLAYED = "";
@@ -730,10 +730,9 @@ async function ytAct(action, payload) {
 
 async function syncWatch(force) {
   if (WATCH_READY && !force) return WATCH;
-  const rows = await pg("yt_watch_later?select=video_id,updated_at");
+  const rows = await pg("yt_watch_later?select=video_id");
   const saved = (Array.isArray(rows) ? rows : []).filter((row) => row && row.video_id);
   WATCH = new Set(saved.map((row) => row.video_id));
-  WATCH_AT = new Map(saved.map((row) => [row.video_id, Date.parse(row.updated_at || "") || 0]));
   WATCH_READY = true;
   WATCH_ERROR = "";
   return WATCH;
@@ -982,12 +981,29 @@ function syncUrl() {
 function queueRows(rows, list, watch, keepId) {
   return list === "watch" ? rows.filter((v) => watch.has(v.video_id) || (!!keepId && v.video_id === keepId)) : rows.slice();
 }
-/* 26 Oct: Watch Later in the order it was saved, NEWEST first (Alan, 21:3x: "No. Watch later needs to be newest first, buddy") - the
-   order the list shows and the queue plays down; an id with no saved time yet was starred just now and goes first. A video starred
-   while one plays is therefore above the run: watchRunWrap picks it up when the run reaches the bottom. */
-function watchOrder(rows, at) {
-  const when = at || new Map(), t = (id) => (when.has(id) ? when.get(id) : Infinity);
-  return (Array.isArray(rows) ? rows : []).slice().sort((a, b) => { const x = t(a.video_id), y = t(b.video_id); return x === y ? 0 : x > y ? -1 : 1; });
+/* 28 Oct: WATCH LATER READS LATEST TO OLDEST, BY THE VIDEO'S OWN TIME - the grid's order. Alan, 04:3x: "I thought we said that the
+   YouTube videos for my watch later would always be organized from latest to oldest." 26 Oct's "No. Watch later needs to be newest
+   first, buddy" was built as the newest STAR first, so a run of stars made down the grid (newest video first) came out oldest on top:
+   measured 28 Oct 04:40 ET, the thirteen starred 22:05-22:07 read 12h ago down to 7h ago, 14 places with a newer video under an older
+   one. Now, as the grid reads: a saved stream on air first (newest start first); then one due or later today, soonest first ("LIVE at
+   2:00pm"); then one set for another day, soonest first (the grid leaves those off until their day - a saved one stays here); then
+   everything by the moment it became watchable (videoWhen, the time its age label counts from), newest first. Equal times keep one
+   order from read to read (the id decides). The queue plays down this order; a video starred while one plays takes its place by its
+   time, and watchRunWrap still reaches it when the run gets to the bottom. */
+function watchOrder(rows, nowMs) {
+  const now = isFinite(nowMs) ? nowMs : Date.now();
+  const time = (v) => { const t = videoPublishedMs(videoWhen(v)); return t == null ? -Infinity : t; };
+  const newest = (Array.isArray(rows) ? rows : []).slice().sort((a, b) => {
+    const x = time(a), y = time(b);
+    return x !== y ? (x > y ? -1 : 1) : a.video_id < b.video_id ? -1 : a.video_id > b.video_id ? 1 : 0;
+  });
+  const onAir = [], due = [], today = [], later = [], rest = [];
+  for (const v of newest) {
+    const place = onAirNow(v, now) ? "air" : streamPlace(v, now);
+    (place === "air" ? onAir : place === "due" ? due : place === "today" ? today : place === "later" ? later : rest).push(v);
+  }
+  const byStart = (a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at);
+  return onAir.concat(due.sort(byStart), today.sort(byStart), later.sort(byStart), rest);
 }
 /* 26 Oct (coordinator): THE QUEUE KEEPS ITS LIST. Alan: "I was … watching a YouTube video from the Watch Later. Everything great. And I
    click the grid and it removes my video. I need to be able to scroll my grid while watching videos and add new stuff to the Watch Later."
@@ -1001,10 +1017,10 @@ function watchRunWrap(rows, list, played, skipped, unavailable) {
   if (list !== "watch") return null;
   return rows.find((v) => !played.has(v.video_id) && !skipped.has(v.video_id) && !unavailable.has(v.video_id)) || null;
 }
-function watchQueueRows(rows, watch, byId, at) {
+function watchQueueRows(rows, watch, byId) {
   const have = new Set(rows.map((v) => v.video_id));
   const added = [...watch].filter((id) => !have.has(id) && byId[id]).map((id) => byId[id]);
-  return watchOrder(rows.concat(added), at);
+  return watchOrder(rows.concat(added));
 }
 const UNAVAILABLE_VIDEO_IDS = new Set();
 function queuedVideo(rows, currentId, direction, skipped = new Set()) {
@@ -1024,9 +1040,9 @@ function previousQueuedVideo(rows, currentId, skipped = new Set()) {
 }
 function visibleQueue() {
   /* 26 Oct: the queue is the list the playing video came from (QUEUE), not necessarily the one on screen; WATCH LATER is the whole saved
-     list - shorts too, whatever the grid · videos · shorts tab says - with anything starred since at its end */
+     list - shorts too, whatever the grid · videos · shorts tab says - with anything starred since in its place by time (28 Oct) */
   const own = !!CUR && !!QUEUE.list && QUEUE.list !== LIST, list = own ? QUEUE.list : LIST, rows = own ? QUEUE.rows : ROWS;
-  if (list === "watch") return queueRows(watchQueueRows(rows, WATCH, BYID, WATCH_AT), list, WATCH, CUR && CUR.video_id);
+  if (list === "watch") return queueRows(watchQueueRows(rows, WATCH, BYID), list, WATCH, CUR && CUR.video_id);
   return queueRows(rows, list, WATCH).filter((v) => inMode(v));
 }
 /* S13: NEXT pressed on the grid. After a trip back to the grid it carries on from the video that was playing;
@@ -1900,7 +1916,7 @@ function feedQuery(offset) {
           (offset ? "&offset=" + offset : "");
   const chosen = LISTS.find((l) => l.id === LIST);
   if (LIST === "watch") {
-    /* 26 Oct: the whole saved list in one read (up to 200), no mode or ticker filter; watchOrder puts it in saved order */
+    /* 26 Oct: the whole saved list in one read (up to 200), no mode or ticker filter; watchOrder puts it latest to oldest (28 Oct) */
     return "youtube_feed?select=" + (FEED_LIVE_OK ? FEED_SELECT_LIVE : FEED_SELECT) + "&limit=200" +
       "&video_id=in.(" + Array.from(WATCH).slice(0, 200).map(encodeURIComponent).join(",") + ")";
   } else q += chosen.q;
@@ -1978,7 +1994,7 @@ function liveFirst(rows, onAirRows, nowMs) {
        at its real start. A stream set for another day is not on the feed until its day (it used to sit at the hour
        its page was made); one whose hour passed without a start keeps that hour and says "set for 8:15am".
    Today's streams are always on the first page (the feed files them at their start time), so this costs no read of
-   its own. Watch Later is Alan's saved set and keeps its order. */
+   its own. Watch Later is Alan's saved set: it reads in this same order and keeps a saved stream for another day (watchOrder, 28 Oct). */
 const DUE_BEFORE_MS = 2 * 60000;
 const DUE_AFTER_MS = 60 * 60000;
 function streamPlace(video, nowMs) {
@@ -2074,8 +2090,8 @@ async function load(forceWatch, quiet) {
     if (!quiet || !ROWS.length) el("grid").innerHTML = '<div class="msg">feed unavailable</div>';
     return;
   }
-  /* 26 Oct: WATCH LATER in saved order, newest star first (the read itself has no order) - what the list shows and the queue plays */
-  const raw = LIST === "watch" ? watchOrder(rows, WATCH_AT) : Array.isArray(rows) ? rows : [];
+  /* 28 Oct: WATCH LATER latest to oldest, as the grid reads (the read itself has no order) - what the list shows and the queue plays */
+  const raw = LIST === "watch" ? watchOrder(rows) : Array.isArray(rows) ? rows : [];
   PAGE_AT = raw.length;
   PAGE_MORE = LIST !== "watch" && raw.length >= LIMIT && PAGE_AT < MAX_ROWS;
   ACCOUNT_EMPTY = false;
