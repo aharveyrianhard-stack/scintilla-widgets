@@ -111,7 +111,7 @@ test("a held refresh runs the moment the pointer leaves, and is not forgotten", 
 test("a repaint puts the same video back under the top edge, not the same pixel count", () => {
   assert.match(feed, /const grid = el\("grid"\), keep = scrollAnchor\(grid\);/);
   assert.match(feed, /restoreAnchor\(grid, keep\);/);
-  const anchor = fn(feed.match(/function scrollAnchor\(grid\) \{[\s\S]*?\n\}/)[0], "scrollAnchor");
+  const anchor = fn(feed.match(/^const GRID_TOP_SLACK_PX = \d+;$/m)[0] + "\n" + feed.match(/function scrollAnchor\(grid\) \{[\s\S]*?\n\}/)[0], "scrollAnchor");   /* 30 Oct: the top slack */
   const restore = fn(feed.match(/function restoreAnchor\(grid, anchor\) \{[\s\S]*?\n\}/)[0], "restoreAnchor");
   /* a hand-built grid: five 100px tiles, scrolled 20px into the third */
   const cards = (ids, h = 100) => ids.map((id, i) => ({ dataset:{ v:id }, offsetTop:i * h, offsetHeight:h }));

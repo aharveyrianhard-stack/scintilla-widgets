@@ -35,7 +35,7 @@ function source(src, name) {
 function pane(src) {
   const ctx = { Intl, Date, Math, Number, String, Array, Set, isFinite, esc: (s) => String(s == null ? "" : s) };
   vm.createContext(ctx);
-  for (const line of src.match(/^const (?:START_TIME_NY|START_DAY_NY|NY_DAY|DUE_BEFORE_MS|DUE_AFTER_MS|ON_AIR_PIN_HOURS)\s*=[^;]+;$/gm) || []) vm.runInContext(line, ctx);
+  for (const line of src.match(/^const (?:START_TIME_NY|START_DAY_NY|NY_DAY|DUE_BEFORE_MS|DUE_AFTER_MS|SOON_BEFORE_MS|ON_AIR_PIN_HOURS)\s*=[^;]+;$/gm) || []) vm.runInContext(line, ctx);
   vm.runInContext(src.match(/^const VIDEO_PUBLISHED_SHAPE = [^;]+;$/m)[0], ctx);
   vm.runInContext(src.match(/^const notOnTheFeedYet = [^;]+;$/m)[0] + "\nglobalThis.notOnTheFeedYet = notOnTheFeedYet;", ctx);
   for (const n of ["videoPublishedMs", "startLabel", "streamPlace", "scheduledInPlace", "onAirNow", "liveFirst", "videoBadgeHTML", "videoAgeHTML", "videoWhen", "videoAgeLabel"]) {
@@ -76,14 +76,19 @@ for (const name of SHELLS) {
     assert.equal(ctx.streamPlace(TOMORROW[0], now), "later");
     assert.match(ctx.videoBadgeHTML(STALE, now), />set for 8:15am</, "an hour long gone does not claim to be coming");
   });
-  test(`W9 · ${name}: in the morning the day's streams lead the page, soonest first, each "LIVE at …"`, () => {
-    const now = at("2026-10-23T11:30:00Z");   // Fri 07:30 ET
-    const rows = ctx.scheduledInPlace(PAGE, now);
-    assert.deepEqual(ids(rows).slice(0, 7), ["premkt0815", "gameplan900", "bitcoin0900", "daytrd0930", "crypto1330", "ai_1430", "wrapup1620"]);
-    assert.deepEqual(ids(rows).slice(7), ["upload2331", "upload2325", "upload2258", "premkt_thu"], "then the feed as before");
+  /* 30 Oct (Alan: "I'm cool with them appearing a little bit before the video"): a stream comes on the feed half an hour
+     before its start, no longer the whole day from midnight */
+  test(`W9 · ${name}: in the morning a stream comes on top half an hour before its start, "LIVE at …"`, () => {
+    let now = at("2026-10-23T11:30:00Z");     // Fri 07:30 ET: the 8:15 is 45 minutes out
+    let rows = ctx.scheduledInPlace(PAGE, now);
+    assert.deepEqual(ids(rows), ["upload2331", "upload2325", "upload2258", "premkt_thu"], "no stream is on the feed this early");
+    now = at("2026-10-23T11:46:00Z");         // 07:46 ET: 29 minutes before the 8:15
+    rows = ctx.scheduledInPlace(PAGE, now);
+    assert.equal(ctx.streamPlace(TOMORROW[6], now), "soon");
+    assert.deepEqual(ids(rows), ["premkt0815", "upload2331", "upload2325", "upload2258", "premkt_thu"], "the 8:15 on top; the 9:00s still wait");
     assert.match(ctx.videoBadgeHTML(rows[0], now), /<span class="dur soon">LIVE at 8:15am<\/span>/);
-    assert.match(ctx.videoBadgeHTML(rows[6], now), />LIVE at 4:20pm</);
     assert.equal(ctx.videoAgeHTML(rows[0]), "", "a stream still to come has no age; its corner says when");
+    assert.equal(ctx.notOnTheFeedYet(TOMORROW[0], now), true, "the 4:20pm waits for its half hour");
   });
   test(`W9 · ${name}: at its hour a stream is at the top, before YouTube calls it live and after`, () => {
     let now = at("2026-10-23T12:14:00Z");     // 08:14 ET, a minute before the pre-market show
@@ -104,8 +109,8 @@ for (const name of SHELLS) {
     const now = at("2026-10-23T13:20:00Z");   // 09:20 ET: 65 minutes after 8:15, still "upcoming" in the table
     assert.equal(ctx.streamPlace(TOMORROW[6], now), "past");
     const rows = ctx.scheduledInPlace(PAGE, now);
-    assert.deepEqual(ids(rows), ["gameplan900", "bitcoin0900", "daytrd0930", "crypto1330", "ai_1430", "wrapup1620",
-      "premkt0815", "upload2331", "upload2325", "upload2258", "premkt_thu"], "it leaves the top for the page's own place: its hour");
+    assert.deepEqual(ids(rows), ["gameplan900", "bitcoin0900", "daytrd0930",
+      "premkt0815", "upload2331", "upload2325", "upload2258", "premkt_thu"], "it leaves the top for the page's own place: its hour (30 Oct: the afternoon's streams wait for their half hour)");
     assert.match(ctx.videoBadgeHTML(TOMORROW[6], now), />set for 8:15am</);
     assert.equal(ctx.streamPlace({ ...TOMORROW[6], live_state: "was_live" }, now), null, "a stream that ran is an ordinary row at its real start");
     assert.equal(ctx.streamPlace({ ...TOMORROW[6], starts_at: null }, now), null, "no start time: an ordinary row, no invented badge");

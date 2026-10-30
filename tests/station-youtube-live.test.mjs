@@ -108,7 +108,7 @@ for (const name of SHELLS) {
   });
 
   test(`${name}: on air says LIVE, still to come says when`, () => {
-    const ctx = ctxWith(src, ["startLabel", "streamPlace", "videoBadgeHTML"], { DUE_BEFORE_MS: 2 * 60000, DUE_AFTER_MS: 60 * 60000 });
+    const ctx = ctxWith(src, ["startLabel", "streamPlace", "videoBadgeHTML"], { DUE_BEFORE_MS: 2 * 60000, DUE_AFTER_MS: 60 * 60000, SOON_BEFORE_MS: 30 * 60000 });
     const live = ctx.videoBadgeHTML({ live_state: "live", duration: "LIVE" });
     assert.match(live, /class="dur live">LIVE</, "a stream on air says LIVE");
 
