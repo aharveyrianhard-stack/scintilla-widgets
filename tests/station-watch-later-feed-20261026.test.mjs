@@ -26,7 +26,7 @@ function fnFromSource(source, name, bindings = {}) {
 /* 28 Oct: watchOrder places a saved stream with the grid's own helpers, lifted out together as they are */
 function orderCtx(source) {
   const ctx = vm.createContext({ Intl, Date, isFinite, Array, Set });
-  for (const line of source.match(/^const (?:NY_DAY|DUE_BEFORE_MS|DUE_AFTER_MS|ON_AIR_PIN_HOURS|VIDEO_PUBLISHED_SHAPE)\s*=[^;]+;$/gm) || []) vm.runInContext(line, ctx);
+  for (const line of source.match(/^const (?:NY_DAY|DUE_BEFORE_MS|DUE_AFTER_MS|SOON_BEFORE_MS|ON_AIR_PIN_HOURS|VIDEO_PUBLISHED_SHAPE)\s*=[^;]+;$/gm) || []) vm.runInContext(line, ctx);
   for (const name of ["videoPublishedMs", "videoWhen", "onAirNow", "streamPlace", "watchOrder"]) vm.runInContext(fnText(source, name), ctx);
   return ctx;
 }

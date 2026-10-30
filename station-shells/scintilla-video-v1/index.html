@@ -1003,7 +1003,8 @@ function watchOrder(rows, nowMs) {
   const onAir = [], due = [], today = [], later = [], rest = [];
   for (const v of newest) {
     const place = onAirNow(v, now) ? "air" : streamPlace(v, now);
-    (place === "air" ? onAir : place === "due" ? due : place === "today" ? today : place === "later" ? later : rest).push(v);
+    /* 30 Oct: a saved stream in its last half hour ("soon") reads with today's, soonest first */
+    (place === "air" ? onAir : place === "due" ? due : place === "today" || place === "soon" ? today : place === "later" ? later : rest).push(v);
   }
   const byStart = (a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at);
   return onAir.concat(due.sort(byStart), today.sort(byStart), later.sort(byStart), rest);
@@ -1761,8 +1762,13 @@ function visibleRows() {
    shrunk above the fold — the same number lands on a different video, which is
    what a refresh under Alan's hand feels like. The tile under the top edge is
    remembered by its id and put back exactly where it was. */
+/* 30 Oct: except at the very top. There the anchor held the old first tile in place, so whatever arrived above it - a
+   stream going live, a new upload - landed just over the edge of the grid, out of sight ("I don't see them"). A grid
+   at the top stays at the top and shows what arrives there; a grid scrolled down keeps its tile as before. */
+const GRID_TOP_SLACK_PX = 8;
 function scrollAnchor(grid) {
   const top = grid.scrollTop;
+  if (top <= GRID_TOP_SLACK_PX) return { id: null, delta: 0, top: 0, atTop: true };
   for (const card of grid.querySelectorAll(".card")) {
     if (card.offsetTop + card.offsetHeight > top) return { id: card.dataset.v || null, delta: card.offsetTop - top, top };
   }
@@ -1770,6 +1776,7 @@ function scrollAnchor(grid) {
 }
 function restoreAnchor(grid, anchor) {
   if (!anchor) return;
+  if (anchor.atTop) { grid.scrollTop = 0; return; }
   if (anchor.id) {
     const card = grid.querySelector('.card[data-v="' + anchor.id.replace(/"/g, '\\"') + '"]');
     if (card) { grid.scrollTop = Math.max(0, card.offsetTop - anchor.delta); return; }
@@ -1834,18 +1841,25 @@ function wireGrid() {
   }, { passive:true });
   el("grid").addEventListener("pointerleave", () => { POINTER_IN_LIST = false; runHeldRefresh(); }, { passive:true });
 }
-/* The whole decision in one place, so it can be tested without a browser. */
+/* The whole decision in one place, so it can be tested without a browser.
+   30 Oct: a playing video stopped the pass even on the wall, where the grid stays on screen beside the player - the
+   MacBook's grid read the feed last at 09:06 ET on 29 Oct and stood still all day, so no stream rose at its hour.
+   A video now stops it only where it covers the grid; and a grid paged down refreshes again once he is back at the
+   top, where page one is all he sees. */
 function videoRefreshPlan(state) {
   if (!state.visible) return { load:false, hold:false, why:"the pane is not on screen" };
-  if (state.playing) return { load:false, hold:false, why:"a video is playing" };
-  if (state.pagedPast) return { load:false, hold:false, why:"the grid is paged past the first page" };
+  if (state.playing && !state.gridShown) return { load:false, hold:false, why:"a video is playing over the grid" };
+  if (state.pagedPast && !state.atTop) return { load:false, hold:false, why:"the grid is paged past the first page" };
   if (state.pointerInList) return { load:false, hold:true, why:"Alan's pointer is in the list" };
   return { load:true, hold:false, why:"nothing is under his hand" };
 }
+function videoRefreshState() {
+  return { visible: document.visibilityState === "visible", playing: !!CUR, gridShown: FIXED || STACK || BESIDE,
+    pagedPast: PAGE_AT > LIMIT, atTop: el("grid").scrollTop <= GRID_TOP_SLACK_PX, pointerInList: POINTER_IN_LIST };
+}
 function runHeldRefresh() {
   if (!REFRESH_HELD) return;
-  const plan = videoRefreshPlan({ visible: document.visibilityState === "visible", playing: !!CUR,
-    pagedPast: PAGE_AT > LIMIT, pointerInList: POINTER_IN_LIST });
+  const plan = videoRefreshPlan(videoRefreshState());
   if (plan.hold) return;
   REFRESH_HELD = false;
   if (plan.load) load(false, true);
@@ -1930,11 +1944,14 @@ function feedQuery(offset) {
 /* The stream times arrive with a database change of their own. Before that
    change lands the columns do not exist and the read comes back 400, so the
    first refusal drops this session back to the publish time — one failed read,
-   never an empty grid, and no second failure after it. */
+   never an empty grid, and no second failure after it.
+   30 Oct: only that refusal (400). Any failure used to do it - a network blip as a Mac wakes would leave the session
+   ordering by publish time with no stream times until the page reloaded, every scheduled stream at the hour it was
+   announced. The columns have existed since 22 Oct. */
 async function readFeed(offset) {
   try { return await pg(feedQuery(offset)); }
   catch (e) {
-    if (!FEED_LIVE_OK) throw e;
+    if (!FEED_LIVE_OK || String(e && e.message) !== "pg 400") throw e;
     FEED_LIVE_OK = false;
     return pg(feedQuery(offset));
   }
@@ -1998,27 +2015,36 @@ function liveFirst(rows, onAirRows, nowMs) {
        its page was made); one whose hour passed without a start keeps that hour and says "set for 8:15am".
    Today's streams are always on the first page (the feed files them at their start time), so this costs no read of
    its own. Watch Later is Alan's saved set: it reads in this same order and keeps a saved stream for another day (watchOrder, 28 Oct). */
+/* ---- 30 OCT 2026: HALF AN HOUR BEFORE ITS START, NOT FROM MIDNIGHT ----
+   Alan, 30 Oct (asked once already, 22 Oct, above): "these live videos that are scheduled … I'm cool with them appearing a
+   little bit before the video, but … if they're already posted now, then when it's actually the time they're further down
+   the list, and I don't see them." On 29 Oct about thirty SCINTILLA streams stood at the top from midnight as LATER TODAY,
+   and the MacBook's grid - frozen under a playing video from 09:06 ET (videoRefreshPlan) - never moved one at its hour.
+   A stream now comes on the feed SOON_BEFORE_MS before its start, at the top under what is due, soonest first, "LIVE at
+   9:30am"; before that it waits, today's or another day's alike. Watch Later keeps its saved streams as before. */
 const DUE_BEFORE_MS = 2 * 60000;
 const DUE_AFTER_MS = 60 * 60000;
+const SOON_BEFORE_MS = 30 * 60000;
 function streamPlace(video, nowMs) {
   if (!video || video.live_state !== "upcoming") return null;
   const t = videoPublishedMs(video.starts_at);
   if (t == null) return null;   /* no start time: an ordinary row at its feed time */
   const now = isFinite(nowMs) ? nowMs : Date.now();
   if (t <= now + DUE_BEFORE_MS) return now - t <= DUE_AFTER_MS ? "due" : "past";
+  if (t <= now + SOON_BEFORE_MS) return "soon";
   return NY_DAY.format(new Date(t)) === NY_DAY.format(new Date(now)) ? "today" : "later";
 }
-const notOnTheFeedYet = (video, nowMs) => streamPlace(video, nowMs) === "later";
+const notOnTheFeedYet = (video, nowMs) => ["today", "later"].includes(streamPlace(video, nowMs));
 function scheduledInPlace(rows, nowMs) {
-  const due = [], today = [], rest = [];
+  const due = [], soon = [], rest = [];
   for (const video of Array.isArray(rows) ? rows : []) {
     const place = streamPlace(video, nowMs);
     if (place === "due") due.push(video);
-    else if (place === "today") today.push(video);
-    else if (place !== "later") rest.push(video);
+    else if (place === "soon") soon.push(video);
+    else if (place !== "today" && place !== "later") rest.push(video);
   }
   const byStart = (a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at);
-  return due.sort(byStart).concat(today.sort(byStart), rest);
+  return due.sort(byStart).concat(soon.sort(byStart), rest);
 }
 /* The SCINTILLA grid keeps the rows the SCINTILLA account carries and drops
    the rest - a row with no account (a search clip) is not SCINTILLA's (Y7;
@@ -2120,7 +2146,7 @@ async function load(forceWatch, quiet) {
   if (changed || !quiet) { paint(); relayout(); refreshTransport(); }
   fillViewport();
   /* the ONLY preselect: you asked for a video by id */
-  if (START && BYID[START]) play(BYID[START], AUTO);
+  if (START && BYID[START] && !quiet) play(BYID[START], AUTO);   /* 30 Oct: the two-minute pass now runs under a playing video - it never starts one */
 }
 
 function togglePaneFull() {
@@ -2180,9 +2206,9 @@ async function start() {
     /* Once Alan has paged down into the history, the two-minute pass must NOT
        reload page one: that would throw away everything he scrolled to and
        drop him back at the top. A paged grid gets fresh ages and nothing else;
-       the next list or feed change reloads it properly. */
-    const plan = videoRefreshPlan({ visible: document.visibilityState === "visible", playing: !!CUR,
-      pagedPast: PAGE_AT > LIMIT, pointerInList: POINTER_IN_LIST });
+       the next list or feed change reloads it properly - or, since 30 Oct, his
+       own scroll back to the top, where page one is all there is to see. */
+    const plan = videoRefreshPlan(videoRefreshState());
     if (plan.hold) REFRESH_HELD = true;
     if (plan.load) load(false, true);
   }, 120000);
