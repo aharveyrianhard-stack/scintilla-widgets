@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0F"><link rel="icon" href="/notify/icon-192.png">
+<title>SCINTILLA · read</title>
+<!-- 1 Nov 2026. What a card opens: ?v=<video> a transcript read by section, ?r=<id> an AI read, nothing = the newest AI read. Alan: "I don't have the time to read all that shit": the first line is the point. -->
+<style>
+:root{ --bg:#0A0A0F; --panel:#12121C; --line:#2C2C46; --ink:#E8EAF4; --dim:#9A9EB8; --crk:#00D4FF; --warm:#FAB219; --bull:#00FFA3; --bear:#FF456B; }
+*{ box-sizing:border-box; } html,body{ margin:0; background:var(--bg); color:var(--ink); font:16px/1.42 -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif; -webkit-text-size-adjust:100%; }
+main{ max-width:760px; margin:0 auto; padding:calc(16px + env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom)); }
+.who{ font:700 13px ui-monospace,"SF Mono",Menlo,monospace; letter-spacing:.08em; color:var(--crk); text-transform:uppercase; } .meta{ color:var(--dim); font-size:13px; margin-top:2px; }
+h1{ font-size:23px; line-height:1.24; margin:10px 0 0; text-wrap:balance; } .sub{ color:var(--dim); font-size:14px; margin-top:6px; }
+ul{ margin:10px 0 0; padding-left:20px; } li{ margin:7px 0; }
+h2{ font:700 12px ui-monospace,"SF Mono",Menlo,monospace; letter-spacing:.1em; color:var(--dim); text-transform:uppercase; margin:24px 0 8px; }
+.names{ display:grid; gap:8px; } .nm{ display:grid; grid-template-columns:62px 62px 1fr; gap:8px; align-items:baseline; font-size:15px; } .nm b{ font:700 14px ui-monospace,"SF Mono",Menlo,monospace; color:var(--crk); } .up{ color:var(--bull); } .dn{ color:var(--bear); } .flat{ color:var(--dim); } .pc{ font:600 13px ui-monospace,"SF Mono",Menlo,monospace; }
+.sec{ margin-top:18px; } .sec a.at{ font:600 13px ui-monospace,"SF Mono",Menlo,monospace; color:var(--crk); text-decoration:none; margin-right:8px; } .sec b{ font-size:16.5px; }
+.watch{ display:inline-block; margin-top:12px; color:var(--crk); text-decoration:none; font-weight:600; } .msg{ color:var(--dim); padding:24px 0; }
+</style>
+</head>
+<body><main id="m"><div class="msg">reading…</div></main>
+<script>
+const SB = "https://wadinxqplrggagkvrdag.supabase.co", ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g", PG = { apikey: ANON, Authorization: "Bearer " + ANON };
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const pg = (q) => fetch(SB + "/rest/v1/" + q, { headers: PG }).then((r) => { if (!r.ok) throw new Error("status " + r.status); return r.json(); });
+const secs = (at) => String(at || "").split(":").reduce((n, x) => n * 60 + (+x || 0), 0);
+const when = (iso) => new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const QS = new URLSearchParams(location.search), m = document.getElementById("m");
+function viewOf(v) { const s = String(v || "").toLowerCase(); return s === "bullish" ? "up" : s === "bearish" ? "dn" : "flat"; }
+async function video(id) {
+  const [x] = await pg("youtube_reads?select=*&video_id=eq." + encodeURIComponent(id)); if (!x) { m.innerHTML = '<div class="msg">This read is not ready yet.</div>'; return; }
+  document.title = (x.channel || "SCINTILLA") + " · read";
+  m.innerHTML = '<div class="who">' + esc(x.channel) + '</div><div class="meta">' + esc(when(x.published_at)) + (x.duration ? " · " + esc(x.duration) : "") + '</div><h1>' + esc(x.takeaway) + '</h1><div class="sub">' + esc(x.title) + '</div><a class="watch" href="https://youtu.be/' + esc(x.video_id) + '" target="_blank" rel="noopener">Watch on YouTube ↗</a>' +
+    ((x.tickers || []).length ? '<h2>Names</h2><div class="names">' + x.tickers.map((t) => '<div class="nm"><b>' + esc(t.t) + '</b><span class="pc ' + viewOf(t.view) + '">' + esc(t.view) + "</span><span>" + esc(t.why) + (t.levels ? ' <span class="flat">' + esc(t.levels) + "</span>" : "") + "</span></div>").join("") + "</div>" : "") +
+    ((x.calls || []).length ? "<h2>Calls</h2><ul>" + x.calls.map((c) => "<li>" + esc(c) + "</li>").join("") + "</ul>" : "") +
+    ((x.sections || []).length ? "<h2>Section by section</h2>" + x.sections.map((s) => '<div class="sec"><a class="at" href="https://youtu.be/' + esc(x.video_id) + "?t=" + secs(s.at) + '" target="_blank" rel="noopener">' + esc(s.at) + "</a><b>" + esc(s.title) + "</b><ul>" + (s.points || []).map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul></div>").join("") : "");
+}
+async function read(id) {
+  const rows = await pg("news_reads?select=*" + (id ? "&id=eq." + encodeURIComponent(id) : "") + "&order=id.desc&limit=1"); const x = rows[0]; if (!x) { m.innerHTML = '<div class="msg">No read yet.</div>'; return; }
+  document.title = "AI read · " + (x.title || "");
+  m.innerHTML = '<div class="who">AI read · ' + esc(x.kind === "test" ? "market" : x.kind) + '</div><div class="meta">' + esc(when(x.created_at)) + '</div><h1>' + esc(x.takeaway) + "</h1><ul>" + (x.points || []).map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul>" +
+    ((x.names || []).length ? '<h2>Your names</h2><div class="names">' + x.names.map((t) => '<div class="nm"><b>' + esc(t.t) + '</b><span class="pc ' + (t.pct > 0 ? "up" : t.pct < 0 ? "dn" : "flat") + '">' + (t.pct != null ? (t.pct > 0 ? "+" : "") + Number(t.pct).toFixed(1) + "%" : "") + "</span><span>" + esc(t.why) + "</span></div>").join("") + "</div>" : "") +
+    ((x.watch || []).length ? "<h2>Next</h2><ul>" + x.watch.map((c) => "<li>" + esc(c) + "</li>").join("") + "</ul>" : "");
+}
+(QS.get("v") ? video(QS.get("v")) : read(QS.get("r"))).catch((e) => { m.innerHTML = '<div class="msg">Could not read this (' + esc(e.message) + ").</div>"; });
+</script>
+</body>
+</html>
