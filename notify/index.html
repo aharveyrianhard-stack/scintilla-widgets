@@ -22,11 +22,14 @@ header img{ width:30px; height:30px; border-radius:7px; } header b{ font:700 15p
 #list{ padding:6px 0 calc(24px + env(safe-area-inset-bottom)); } .row{ display:block; padding:12px 16px; border-bottom:1px solid #1B1B2B; color:inherit; text-decoration:none; }
 .top{ display:flex; align-items:baseline; gap:8px; font-size:12.5px; color:var(--dim); } .tk{ font:700 14px ui-monospace,"SF Mono",Menlo,monospace; color:var(--crk); } .row[data-level="3"] .tk{ color:var(--warm); } .pc{ font:600 13px ui-monospace,"SF Mono",Menlo,monospace; } .pc.up{ color:var(--bull); } .pc.dn{ color:var(--bear); } .when{ margin-left:auto; white-space:nowrap; }
 .tt{ margin-top:4px; font-size:16.5px; line-height:1.32; font-weight:500; } .msg{ padding:24px 16px; color:var(--dim); }
+.row{ position:relative; padding-right:48px; } .star{ position:absolute; right:6px; top:8px; width:40px; height:40px; font-size:20px; color:var(--dim); background:none; border:0; } .star.on{ color:var(--warm); }
+#keep{ display:flex; gap:8px; margin:12px 16px 2px; } #keep input{ flex:1; min-width:0; font:15px -apple-system,BlinkMacSystemFont,sans-serif; color:var(--ink); background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:10px 12px; } #keep button{ font:600 15px -apple-system,BlinkMacSystemFont,sans-serif; color:#04121A; background:var(--crk); border:0; border-radius:9px; padding:10px 14px; white-space:nowrap; }
 </style>
 </head>
 <body>
 <header><img src="/notify/icon-192.png" alt=""><b>SCINTILLA</b><span id="tabs" role="group" aria-label="Which headlines"><button type="button" data-scope="mine">MY NAMES</button><button type="button" data-scope="all">ALL</button></span></header>
 <section id="setup" hidden></section>
+<form id="keep" autocomplete="off"><input id="keepUrl" type="url" inputmode="url" placeholder="Paste a link to keep" aria-label="Paste a link to keep"><button type="submit">★ Keep</button></form>
 <main id="list"><div class="msg">reading…</div></main>
 <script>
 const SB = "https://wadinxqplrggagkvrdag.supabase.co", ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g", FN = "https://wadinxqplrggagkvrdag.functions.supabase.co/notify-push";
@@ -42,9 +45,13 @@ async function paintList() {
     const q = "notify_stream?select=id,at,level,kind,ticker,title,source,url,pct&order=id.desc&limit=400&at=gte." + encodeURIComponent(new Date(Date.now() - 2 * 86400000).toISOString()) + (SCOPE === "mine" ? "&level=gte.2" : "");
     const r = await fetch(SB + "/rest/v1/" + q, { headers: PG }); if (!r.ok) throw new Error("status " + r.status);
     const rows = await r.json();
-    el("list").innerHTML = rows.length ? rows.map((x) => '<a class="row" data-level="' + x.level + '"' + (x.url ? ' href="' + esc(x.url) + '" target="_blank" rel="noopener"' : "") + '><div class="top"><span class="tk">' + esc(x.ticker || "MARKET") + "</span>" + (x.pct != null ? '<span class="pc ' + (x.pct >= 0 ? "up" : "dn") + '">' + (x.pct >= 0 ? "+" : "") + Number(x.pct).toFixed(1) + "%</span>" : "") + '<span>' + esc(x.source || "") + '</span><span class="when">' + ago(x.at) + '</span></div><div class="tt">' + esc(x.title) + "</div></a>").join("") : '<div class="msg">Nothing yet. New headlines land here as they arrive.</div>';
+    el("list").innerHTML = rows.length ? rows.map((x) => '<a class="row" data-level="' + x.level + '"' + (x.url ? ' href="' + esc(x.url) + '" target="_blank" rel="noopener"' : "") + '><div class="top"><span class="tk">' + esc(x.ticker || "MARKET") + "</span>" + (x.pct != null ? '<span class="pc ' + (x.pct >= 0 ? "up" : "dn") + '">' + (x.pct >= 0 ? "+" : "") + Number(x.pct).toFixed(1) + "%</span>" : "") + '<span>' + esc(x.source || "") + '</span><span class="when">' + ago(x.at) + '</span></div><div class="tt">' + esc(x.title) + '</div><button type="button" class="star" aria-label="Keep this story" data-keep="' + esc(x.url || "") + '" data-title="' + esc(x.title) + '">★</button></a>').join("") : '<div class="msg">Nothing yet. New headlines land here as they arrive.</div>';
   } catch (e) { el("list").innerHTML = '<div class="msg">Could not read the list (' + esc(e.message) + "). Trying again.</div>"; }
 }
+/* Alan: "I see a story and I push it to you guys or the system, and it's ingested": a star on a row, or any link pasted here */
+async function keep(url, title) { const r = await fetch(SB + "/rest/v1/rpc/brain_keep", { method: "POST", headers: { ...PG, "content-type": "application/json" }, body: JSON.stringify({ p_url: url, p_title: title || null, p_device: deviceName() }) }); if (!r.ok) throw new Error(r.status); }
+el("list").addEventListener("click", async (e) => { const b = e.target.closest(".star"); if (!b) return; e.preventDefault(); e.stopPropagation(); if (!b.dataset.keep) return; b.classList.add("on"); try { await keep(b.dataset.keep, b.dataset.title); } catch (_) { b.classList.remove("on"); } });
+el("keep").addEventListener("submit", async (e) => { e.preventDefault(); const i = el("keepUrl"), u = i.value.trim(); if (!/^https?:\/\//i.test(u)) { i.value = ""; i.placeholder = "That is not a link"; return; } try { await keep(u); i.value = ""; i.placeholder = "Kept. A note comes on the next pass."; } catch (_) { i.placeholder = "Not kept, try again"; } });
 el("tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; SCOPE = b.dataset.scope; remember("notify.scope", SCOPE); paintList(); });
 /* the logo on the phone: one tap, once, from the Home Screen */
 const STANDALONE = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches, IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
