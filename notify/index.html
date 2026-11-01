@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="SCINTILLA">
+<meta name="theme-color" content="#0A0A0F">
+<link rel="apple-touch-icon" href="/notify/apple-touch-icon.png"><link rel="manifest" href="/notify/manifest.webmanifest"><link rel="icon" href="/notify/icon-192.png">
+<title>SCINTILLA · notifications</title>
+<!-- 1 Nov 2026. Alan: "I need the notifications coming everywhere ... if we can make that have the Scintilla logo ... And then phone forwarding." On a Home Screen this page is what puts the
+     logo on the phone's alerts (Web Push through public.push_subscriptions); until a phone allows it the same messages reach it through the ntfy app. The list is the switchboard's public headlines. -->
+<style>
+:root{ --bg:#0A0A0F; --panel:#12121C; --line:#2C2C46; --ink:#E8EAF4; --dim:#9A9EB8; --crk:#00D4FF; --warm:#FAB219; --bull:#00FFA3; --bear:#FF456B; }
+*{ box-sizing:border-box; } html,body{ margin:0; background:var(--bg); color:var(--ink); font:16px -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif; -webkit-text-size-adjust:100%; }
+header{ position:sticky; top:0; z-index:2; display:flex; align-items:center; gap:10px; padding:calc(10px + env(safe-area-inset-top)) 16px 10px; background:var(--bg); border-bottom:1px solid var(--line); }
+header img{ width:30px; height:30px; border-radius:7px; } header b{ font:700 15px ui-monospace,"SF Mono",Menlo,monospace; letter-spacing:.14em; }
+#tabs{ margin-left:auto; display:flex; gap:4px; } #tabs button{ font:600 12px ui-monospace,"SF Mono",Menlo,monospace; letter-spacing:.08em; color:var(--dim); background:none; border:1px solid var(--line); padding:7px 10px; border-radius:6px; } #tabs button.on{ color:var(--crk); border-color:var(--crk); }
+#setup{ margin:14px 16px 4px; padding:16px; background:var(--panel); border:1px solid var(--crk); border-radius:12px; } #setup[hidden]{ display:none; }
+#setup h2{ margin:0 0 8px; font-size:19px; } #setup p{ margin:0 0 10px; color:var(--dim); line-height:1.4; font-size:15px; } #setup ol{ margin:0; padding-left:22px; line-height:1.6; font-size:16px; }
+#go{ width:100%; font:700 17px -apple-system,BlinkMacSystemFont,sans-serif; padding:15px; color:#04121A; background:var(--crk); border:0; border-radius:10px; } #go:disabled{ opacity:.5; }
+#list{ padding:6px 0 calc(24px + env(safe-area-inset-bottom)); } .row{ display:block; padding:12px 16px; border-bottom:1px solid #1B1B2B; color:inherit; text-decoration:none; }
+.top{ display:flex; align-items:baseline; gap:8px; font-size:12.5px; color:var(--dim); } .tk{ font:700 14px ui-monospace,"SF Mono",Menlo,monospace; color:var(--crk); } .row[data-level="3"] .tk{ color:var(--warm); } .pc{ font:600 13px ui-monospace,"SF Mono",Menlo,monospace; } .pc.up{ color:var(--bull); } .pc.dn{ color:var(--bear); } .when{ margin-left:auto; white-space:nowrap; }
+.tt{ margin-top:4px; font-size:16.5px; line-height:1.32; font-weight:500; } .msg{ padding:24px 16px; color:var(--dim); }
+</style>
+</head>
+<body>
+<header><img src="/notify/icon-192.png" alt=""><b>SCINTILLA</b><span id="tabs" role="group" aria-label="Which headlines"><button type="button" data-scope="mine">MY NAMES</button><button type="button" data-scope="all">ALL</button></span></header>
+<section id="setup" hidden></section>
+<main id="list"><div class="msg">reading…</div></main>
+<script>
+const SB = "https://wadinxqplrggagkvrdag.supabase.co", ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g", FN = "https://wadinxqplrggagkvrdag.functions.supabase.co/notify-push";
+const PG = { apikey: ANON, Authorization: "Bearer " + ANON };
+const el = (id) => document.getElementById(id), esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const remembered = (k) => { try { return localStorage.getItem(k) || ""; } catch (_) { return ""; } }, remember = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
+let SCOPE = remembered("notify.scope") === "all" ? "all" : "mine";
+const ago = (iso) => { const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000); return s < 60 ? "now" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d"; };
+async function paintList() {
+  for (const b of el("tabs").children) b.classList.toggle("on", b.dataset.scope === SCOPE);
+  try {
+    const q = "notify_stream?select=id,at,level,kind,ticker,title,source,url,pct&order=id.desc&limit=100" + (SCOPE === "mine" ? "&level=gte.2" : "");
+    const r = await fetch(SB + "/rest/v1/" + q, { headers: PG }); if (!r.ok) throw new Error("status " + r.status);
+    const rows = await r.json();
+    el("list").innerHTML = rows.length ? rows.map((x) => '<a class="row" data-level="' + x.level + '"' + (x.url ? ' href="' + esc(x.url) + '" target="_blank" rel="noopener"' : "") + '><div class="top"><span class="tk">' + esc(x.ticker || "MARKET") + "</span>" + (x.pct != null ? '<span class="pc ' + (x.pct >= 0 ? "up" : "dn") + '">' + (x.pct >= 0 ? "+" : "") + Number(x.pct).toFixed(1) + "%</span>" : "") + '<span>' + esc(x.source || "") + '</span><span class="when">' + ago(x.at) + '</span></div><div class="tt">' + esc(x.title) + "</div></a>").join("") : '<div class="msg">Nothing yet. New headlines land here as they arrive.</div>';
+  } catch (e) { el("list").innerHTML = '<div class="msg">Could not read the list (' + esc(e.message) + "). Trying again.</div>"; }
+}
+el("tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; SCOPE = b.dataset.scope; remember("notify.scope", SCOPE); paintList(); });
+/* the logo on the phone: one tap, once, from the Home Screen */
+const STANDALONE = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches, IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const deviceName = () => /iPhone/.test(navigator.userAgent) ? "iPhone" : /iPad/.test(navigator.userAgent) ? "iPad" : /Android/.test(navigator.userAgent) ? "Android" : "computer";
+function setup(html) { const s = el("setup"); s.hidden = !html; s.innerHTML = html || ""; const b = el("go"); if (b) b.addEventListener("click", turnOn); }
+async function paintSetup() {
+  if (IOS && !STANDALONE) return setup('<h2>Put the logo on your phone alerts</h2><ol><li>Tap <b>Share</b>, the square with the arrow, at the bottom of Safari</li><li>Tap <b>Add to Home Screen</b>, then <b>Add</b></li><li>Open <b>SCINTILLA</b> from your Home Screen and tap the blue button there</li></ol>');
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return setup("");
+  if (Notification.permission === "denied") return setup("<h2>Notifications are blocked here</h2><p>Settings, then Notifications, then SCINTILLA, then Allow Notifications.</p>");
+  const reg = await navigator.serviceWorker.getRegistration("/notify/").catch(() => null), sub = reg ? await reg.pushManager.getSubscription().catch(() => null) : null;
+  if (Notification.permission === "granted" && sub) return setup("");
+  if (!IOS) return setup("");   /* the Macs have the Scintilla app; this page is only a list there */
+  setup('<p>One tap and your alerts arrive with this logo.</p><button type="button" id="go">Turn on notifications</button>');
+}
+async function turnOn() {
+  const b = el("go"); b.disabled = true; b.textContent = "Asking…";
+  try {
+    const key = await fetch(FN + "?mode=vapid").then((r) => r.json()); if (!key.publicKey) throw new Error(key.error || "no key");
+    const reg = await navigator.serviceWorker.register("/notify/push-sw.js", { scope: "/notify/" }); await navigator.serviceWorker.ready;
+    const perm = await Notification.requestPermission(); if (perm !== "granted") throw new Error("not allowed");
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key.publicKey }), j = sub.toJSON();
+    const r = await fetch(SB + "/rest/v1/push_subscriptions", { method: "POST", headers: { ...PG, "content-type": "application/json", Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ endpoint: sub.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, device: deviceName(), ua: navigator.userAgent.slice(0, 200) }) });
+    if (!r.ok) throw new Error("not stored (" + r.status + ")");
+    await reg.showNotification("SCINTILLA", { body: "You're set. Alerts on this phone now carry this logo.", icon: "/notify/icon-192.png" });
+    setup("");
+  } catch (e) { b.disabled = false; b.textContent = "Try again · " + String(e.message || e).slice(0, 40); }
+}
+paintList(); paintSetup(); setInterval(paintList, 30000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { paintList(); paintSetup(); } });
+</script>
+</body>
+</html>
