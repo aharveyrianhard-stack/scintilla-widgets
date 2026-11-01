@@ -27,3 +27,11 @@ test("a read says where it sits against the report; a light read shows its one l
   assert.match(s, /x\.scenario \?/); assert.match(s, /x\.vs_report \?/); assert.match(s, /x\.note \?/);
   assert.match(s, /light \? \(x\.takeaway \?/);
 });
+test("a phone that already said yes is told to the database with no tap (the 401 left it signed up with Apple and unknown to us)", () => {
+  const s = read("index.html");
+  assert.match(s, /async function storeSub\(sub\)/);
+  assert.match(s, /Notification\.permission === "granted" && sub\) \{\n\s+if \(HEALED\) return setup\(""\);/);
+  assert.match(s, /if \(await storeSub\(sub\)\) await reg\.showNotification/, "a new row says so on the phone");
+  assert.match(s, /await storeSub\(sub\); HEALED = true;/, "the button uses the same door");
+  assert.doesNotMatch(s, /resolution=ignore-duplicates/);
+});
