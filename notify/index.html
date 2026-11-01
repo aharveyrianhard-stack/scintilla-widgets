@@ -57,12 +57,24 @@ el("tabs").addEventListener("click", (e) => { const b = e.target.closest("button
 const STANDALONE = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches, IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
 const deviceName = () => /iPhone/.test(navigator.userAgent) ? "iPhone" : /iPad/.test(navigator.userAgent) ? "iPad" : /Android/.test(navigator.userAgent) ? "Android" : "computer";
 function setup(html) { const s = el("setup"); s.hidden = !html; s.innerHTML = html || ""; const b = el("go"); if (b) b.addEventListener("click", turnOn); }
+/* tell the database about this phone. 201 = new, 409 = it already knows. Plain insert: "ignore duplicates" asks for read rights this table rightly refuses */
+async function storeSub(sub) {
+  const j = sub.toJSON(), r = await fetch(SB + "/rest/v1/push_subscriptions", { method: "POST", headers: { ...PG, "content-type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ endpoint: sub.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, device: deviceName(), ua: navigator.userAgent.slice(0, 200) }) });
+  if (!r.ok && r.status !== 409) throw new Error("not stored (" + r.status + ")");
+  return r.status !== 409;
+}
+let HEALED = false;
 async function paintSetup() {
   if (IOS && !STANDALONE) return setup('<h2>Put the logo on your phone alerts</h2><ol><li>Tap <b>Share</b>, the square with the arrow, at the bottom of Safari</li><li>Tap <b>Add to Home Screen</b>, then <b>Add</b></li><li>Open <b>Scintilla Notifications</b> from your Home Screen and tap the blue button there</li></ol>');
   if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return setup("");
   if (Notification.permission === "denied") return setup("<h2>Notifications are blocked here</h2><p>Settings, then Notifications, then SCINTILLA, then Allow Notifications.</p>");
   const reg = await navigator.serviceWorker.getRegistration("/notify/").catch(() => null), sub = reg ? await reg.pushManager.getSubscription().catch(() => null) : null;
-  if (Notification.permission === "granted" && sub) return setup("");
+  /* 1 Nov: the 401 Alan hit left his phone signed up with Apple and unknown to us, and this line then hid the button for good. So a phone that already said yes is simply told to the database, no tap */
+  if (Notification.permission === "granted" && sub) {
+    if (HEALED) return setup("");
+    try { HEALED = true; if (await storeSub(sub)) await reg.showNotification("SCINTILLA", { body: "You're set. Alerts on this phone now carry this logo.", icon: "/notify/icon-192.png" }); return setup(""); }
+    catch (e) { HEALED = false; }
+  }
   if (!IOS) return setup("");   /* the Macs have the Scintilla app; this page is only a list there */
   setup('<p>One tap and your alerts arrive with this logo.</p><button type="button" id="go">Turn on notifications</button>');
 }
@@ -72,9 +84,8 @@ async function turnOn() {
     const key = await fetch(FN + "?mode=vapid").then((r) => r.json()); if (!key.publicKey) throw new Error(key.error || "no key");
     const reg = await navigator.serviceWorker.register("/notify/push-sw.js", { scope: "/notify/" }); await navigator.serviceWorker.ready;
     const perm = await Notification.requestPermission(); if (perm !== "granted") throw new Error("not allowed");
-    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key.publicKey }), j = sub.toJSON();
-    const r = await fetch(SB + "/rest/v1/push_subscriptions", { method: "POST", headers: { ...PG, "content-type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ endpoint: sub.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, device: deviceName(), ua: navigator.userAgent.slice(0, 200) }) });
-    if (!r.ok && r.status !== 409) throw new Error("not stored (" + r.status + ")");   /* 409 = this phone is already signed up. Not "ignore duplicates": that asks the database for read rights this table rightly refuses, which is the 401 Alan hit on 1 Nov */
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key.publicKey });
+    await storeSub(sub); HEALED = true;
     await reg.showNotification("SCINTILLA", { body: "You're set. Alerts on this phone now carry this logo.", icon: "/notify/icon-192.png" });
     setup("");
   } catch (e) { b.disabled = false; b.textContent = "Try again · " + String(e.message || e).slice(0, 40); }
