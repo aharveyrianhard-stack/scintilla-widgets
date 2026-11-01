@@ -67,9 +67,9 @@ test("1 · the two mounted video shells are byte-identical", () => {
   assert.equal(shell["personal-video-v1"], shell["scintilla-video-v1"]);
 });
 
-test("2 · deck feeds and shell profiles are the same six account keys, one label each", () => {
+test("2 · deck feeds and shell profiles are the same account keys, one label each", () => {
   const deckAccounts = [...deckApi.VIDEO_FEEDS].map(([, , account]) => account);   // spread: the sandbox's arrays are another realm's
-  assert.deepEqual(deckAccounts, ["personal", "scintilla", "soundscapes", "golf", "ai_research", "fitness"]);
+  assert.deepEqual(deckAccounts, ["personal", "scintilla", "networks", "soundscapes", "golf", "ai_research", "fitness"]);
   const shellAccounts = FEED_PROFILES.filter((p) => p.account).map((p) => p.account);
   assert.deepEqual([...shellAccounts].sort(), [...deckAccounts].sort(), "the pane knows every feed the deck can put on the wall");
   for (const [key, label] of deckApi.VIDEO_FEEDS) assert.ok(key && label, "every feed has a pane key and a button label");
