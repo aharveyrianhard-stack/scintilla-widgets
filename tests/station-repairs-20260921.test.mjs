@@ -64,7 +64,10 @@ test('the dock loses no control, no id and no accessible name', () => {
      A · B arrangement button (Alan: "just two trading view, like, widget charts. With VWAP"). */
   assert.ok(after.has('widgetsBtn'), 'WIDGETS is the deliberate new wall-mode control (W1C: the A · B button went - Alan placed the pieces himself)')
   /* 22 Oct (W7): the WIDGETS wall's control row above both charts is built in a JS string - two more <button templates (the timeframes, CLOUDS) */
-  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 17)
+  /* 1 Nov (the dock remade): four more deliberate controls, moved up from the rail beside the lenses or new beside them - MINE, BARS, LINE, the X column's switch
+     (Alan: "relocate them to a remade doc style thing where we switch things around"). The six timeframe chips are built in wireLensDock. */
+  for (const id of ['lensMine', 'xColToggle']) assert.ok(after.has(id), `${id} is a deliberate new dock control`)
+  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 21)
 })
 
 test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {

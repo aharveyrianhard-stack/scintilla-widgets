@@ -62,8 +62,8 @@ test("W1 · WIDGETS is the default on both Macs; the stored choice and the URL w
   assert.match(fn(deck, "setSimple"), /if \(wasWidgets\) leaveWidgets\(\)/);
   /* the dock */
   assert.match(deck, /<button type="button" class="btn" id="widgetsBtn"[\s\S]{0,600}>widgets<\/button>/, "WIDGETS on the dock");
-  const station = grab(deck, /<span class="dsec" data-sec="station"[\s\S]*?<\/span>\n  <span class="dsec" data-sec="scenes"/, "the station section");
-  assert.ok(station.includes('id="wallBtn"') && station.includes('id="simpleBtn"') && station.includes('id="widgetsBtn"'), "WALL · SIMPLE · WIDGETS, in the one section the dock always shows");
+  const more = grab(deck, /<div id="moreGroup"[\s\S]*?<span class="dsec" data-sec="readout"/, "the three dots");   /* 1 Nov: the dock remade, the modes one click under the dots */
+  assert.ok(more.includes('id="wallBtn"') && more.includes('id="simpleBtn"') && more.includes('id="widgetsBtn"'), "WALL · SIMPLE · WIDGETS, under the three dots");
   const wire = fn(deck, "wireSimple");
   assert.match(wire, /widgetsBtn[\s\S]*setWidgets\(true\)/); assert.doesNotMatch(wire, /widgetsArrBtn/, "W1C: the A · B choice is gone - Alan placed the pieces");
   const paint = fn(deck, "paintSimple");

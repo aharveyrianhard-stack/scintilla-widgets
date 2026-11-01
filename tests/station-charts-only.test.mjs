@@ -14,7 +14,7 @@ test("one key and one dock button, and they do the same thing", () => {
   assert.match(deck, /event\.key === "w" \|\| event\.key === "W"[\s\S]{0,80}toggleChartsOnly\(\)/,
     "W toggles it");
   assert.match(deck, /b\.addEventListener\("click", toggleChartsOnly\)/, "the button toggles it");
-  assert.match(deck, /function toggleChartsOnly\(\) \{ setChartsOnly\(!chartsOnlyOn\(\)\); \}/,
+  assert.match(deck, /function toggleChartsOnly\(\) \{ if \(lensWallOn\(\)\) return; setChartsOnly\(!chartsOnlyOn\(\)\); \}/,
     "both go through one function, so the key and the button can never disagree");
 });
 

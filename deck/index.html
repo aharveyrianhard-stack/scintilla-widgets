@@ -640,6 +640,20 @@ body.widgets #tapes .tape.tall .cell.pulse{ animation:tape-unusual 1.1s ease-out
    display window, fullscreen, auto-hide, the tapes switch and the timeframe readout stay. The list is in the W12 RETURN. */
 body.widgets #dock #screenControls, body.widgets #dock #pageRail, body.widgets #dock .rotate-controls, body.widgets #dock #resetScene,
 body.widgets #dock .lens-controls, body.widgets #dock #screenIndicator{ display:none !important; }
+/* 1 Nov, THE DOCK REMADE FOR THE WIDGETS WALL. Alan, dictated: "there's not that many toggles now, and you put some toggles that take up a bunch of space. I think you need to
+   relocate them to a remade doc style thing where we switch things around ... what is up there is useless and what you put takes up a ton of space". This wall has no chart wall
+   under it, so the chart timeframes, CLOUDS, the scene list, the page arrows and the chart readouts stand down here (WALL and SIMPLE keep them; the three wall modes are one click
+   under the three dots). The rail beside the lenses moves up: MINE and the ticker box, the bars' timeframe, BARS or LINE, and the X column's switch. Fewer chips, so each is bigger. */
+#dock .dsec[data-sec="lenses"], #dock .dsec[data-sec="lenstf"], #dock .dsec[data-sec="lensstyle"], #dock .dsec[data-sec="xcol"]{ display:none; }
+body.widgets #dock .dsec[data-sec="lenses"], body.widgets #dock .dsec[data-sec="lenstf"], body.widgets #dock .dsec[data-sec="lensstyle"], body.widgets #dock .dsec[data-sec="xcol"]{ display:flex; order:2; }
+body.widgets #dock .dsec[data-sec="timeframe"], body.widgets #dock .dsec[data-sec="scenes"], body.widgets #dock #tfReadout, body.widgets #dock #marketStatus,
+body.widgets #edgePrev, body.widgets #edgeNext, body.lens-wall #dock #chartsOnlyBtn{ display:none !important; }
+body.widgets #dock .btn, body.widgets #dock #lensAdd{ font-size:11px; letter-spacing:.1em; padding:5px 10px; line-height:14px; }
+body.widgets #dock .k{ font-size:9.5px; }
+#dock #lensAdd{ width:86px; background:var(--bg); border:1px solid #2C2C46; color:var(--ink); font-family:var(--mono); text-transform:uppercase; outline:none; border-radius:0; }
+#dock #lensAdd::placeholder{ color:var(--ink3); }
+#dock #lensAdd:focus{ border-color:var(--crk); }
+#dock #lensTfChips, #dock #lensStyleChips{ display:flex; gap:3px; }
 /* S15: with the strip at the bottom the timeframe tag is back on the charts' top edge, where it was before S14 */
 .tape{ flex:none; height:22px; display:flex; align-items:stretch; background:var(--panel2); overflow:hidden; }
 .tape .lbl{ flex:none; min-width:104px; display:flex; align-items:center; padding:0 8px; color:var(--crk);
@@ -815,18 +829,25 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
          only the W key worked. It now sits beside HUB, in the one section the dock always shows. -->
     <button type="button" class="btn" id="chartsOnlyBtn" aria-pressed="false"
       title="hide the video and X panes and give the whole wall to the charts - the W key does the same; remembered in this browser">charts only</button>
-    <!-- Y9 (21 Oct): WALL · SIMPLE, the wall mode, remembered on this machine. SIMPLE: two charts set by hand on top,
-         YouTube across the bottom, X in its column; nothing moves by itself. On by itself on the MacBooks. -->
-    <span class="control-group" id="wallMode" role="group" aria-label="Wall mode">
-      <button type="button" class="btn" id="wallBtn" aria-pressed="false"
-        title="WALL: the chart grid, the YouTube pane in a block of it, rotation and pages as before; remembered on this machine">wall</button>
-      <button type="button" class="btn" id="simpleBtn" aria-pressed="false"
-        title="SIMPLE: two charts you set by hand on top, YouTube across the bottom, X in its column; nothing moves by itself; remembered on this machine">simple</button>
-      <!-- W1 (22 Oct): WIDGETS, the default on both Macs: two TradingView charts with VWAP, the volume meter, the lens set,
-           YouTube with its grid beside the player, one taller FAVORITES tape, X; no rotation. -->
-      <button type="button" class="btn" id="widgetsBtn" aria-pressed="false"
-        title="WIDGETS: two TradingView charts with VWAP that you set, the volume meter, a set of context lenses (RADAR · MACRO · MINE), YouTube with its grid beside the player, one taller FAVORITES tape, X in its column; no rotation; remembered on this machine">widgets</button>
+  </span>
+  <!-- 1 Nov: the lens controls, moved up from the rail beside the lenses. The frame keeps the state; these chips ask it (wireLensDock). -->
+  <span class="dsec" data-sec="lenses" role="group" aria-label="Your own lens list">
+    <span class="k">lenses</span>
+    <button type="button" class="btn" id="lensMine" aria-pressed="false" title="MINE: your own list, a third row of lenses; the same list on both Macs">mine</button>
+    <input id="lensAdd" placeholder="+ ticker" title="type a ticker and press Enter: it joins MINE" aria-label="Add a ticker to MINE" maxlength="12" autocomplete="off" spellcheck="false">
+  </span>
+  <span class="dsec" data-sec="lenstf" role="group" aria-label="Lens timeframe">
+    <span class="k">timeframe</span>
+    <span id="lensTfChips"></span>
+  </span>
+  <span class="dsec" data-sec="lensstyle" role="group" aria-label="Lens style">
+    <span id="lensStyleChips">
+      <button type="button" class="btn" data-style="bars" title="candles on every lens">bars</button>
+      <button type="button" class="btn" data-style="line" title="a line of the closes on every lens">line</button>
     </span>
+  </span>
+  <span class="dsec" data-sec="xcol" role="group" aria-label="X column">
+    <button type="button" class="btn" id="xColToggle" aria-pressed="true" title="the X column on or off, remembered on this machine; reloads the page">x column</button>
   </span>
   <span class="dsec" data-sec="scenes" role="group" aria-label="Scenes and screens">
     <span class="control-group scene-controls">
@@ -903,6 +924,18 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
     <!-- Alan, 22 Sep: "reset preset, I don't even know what it does" · "AUTO was a build-phase thing" ·
          "Screen 9 of 9 isn't clickable, so it can be separate." They are all still here, one click away. -->
     <div id="moreGroup" hidden role="group" aria-label="More Station controls">
+      <!-- Y9 (21 Oct): WALL · SIMPLE, the wall mode, remembered on this machine. SIMPLE: two charts set by hand on top,
+         YouTube across the bottom, X in its column; nothing moves by itself. On by itself on the MacBooks. -->
+    <span class="control-group" id="wallMode" role="group" aria-label="Wall mode">
+      <button type="button" class="btn" id="wallBtn" aria-pressed="false"
+        title="WALL: the chart grid, the YouTube pane in a block of it, rotation and pages as before; remembered on this machine">wall</button>
+      <button type="button" class="btn" id="simpleBtn" aria-pressed="false"
+        title="SIMPLE: two charts you set by hand on top, YouTube across the bottom, X in its column; nothing moves by itself; remembered on this machine">simple</button>
+      <!-- W1 (22 Oct): WIDGETS, the default on both Macs: two TradingView charts with VWAP, the volume meter, the lens set,
+           YouTube with its grid beside the player, one taller FAVORITES tape, X; no rotation. -->
+      <button type="button" class="btn" id="widgetsBtn" aria-pressed="false"
+        title="WIDGETS: two TradingView charts with VWAP that you set, the volume meter, a set of context lenses (RADAR · MACRO · MINE), YouTube with its grid beside the player, one taller FAVORITES tape, X in its column; no rotation; remembered on this machine">widgets</button>
+    </span>
       <span class="control-group presentation-controls">
         <span class="control-label">layout</span>
         <select class="view-mode" id="viewMode" title="remembered layout for this Station window" aria-label="Station layout">
@@ -3135,6 +3168,7 @@ window.addEventListener("message", (event) => {
   }
   /* W1: a tap on a lens opens that name in one of the two charts (the tape's own door) */
   if (event.data?.type === "SCINTILLA_LENS_OPEN") { openTapeTicker(event.data.ticker); return; }
+  if (event.data?.type === "SCINTILLA_LENS_STATE") { LENS_DOCK = event.data; paintLensDock(); return; }   /* 1 Nov: the dock's chips tell what the frame holds */
   if (event.data?.type === "SCINTILLA_X_LIVE") {
     /* The X pane's own heartbeat. The deck cannot see inside that frame, and it
        must not reload a pane that is showing Alan his feed. */
@@ -3525,7 +3559,8 @@ function chartsOnlyOn() {
   try { return localStorage.getItem(CHARTS_ONLY_KEY) === "1"; } catch (_) { return false; }
 }
 function paintChartsOnly() {
-  const on = chartsOnlyOn();
+  /* 1 Nov: the lens wall has no charts to widen; on it this emptied the wall (the lens band laid out at 0 x 0), so it stands down there */
+  const on = chartsOnlyOn() && !lensWallOn();
   document.body.classList.toggle("charts-only", on);
   const b = el("chartsOnlyBtn");
   if (b) {
@@ -3543,7 +3578,7 @@ function setChartsOnly(on) {
      The media panes get the same event and keep running - they were never unmounted. */
   try { dispatchEvent(new Event("resize")); } catch (_) {}
 }
-function toggleChartsOnly() { setChartsOnly(!chartsOnlyOn()); }
+function toggleChartsOnly() { if (lensWallOn()) return; setChartsOnly(!chartsOnlyOn()); }
 /* ---- WALL · SIMPLE (Y9, 21 Oct 2026): one pair of buttons, remembered per machine ---- */
 function paintSimple() {
   const on = simpleOn(), wg = widgetsOn();
@@ -3663,7 +3698,7 @@ function setWidgetsClouds(on) {
 function mountWidgets() {
   const v = el("wgVolume"), l = el("wgLensTape");
   if (v && !v.querySelector("iframe")) { const f = document.createElement("iframe"); f.src = WIDGETS_VOLUME_SHELL + "/?shell=v1&view=" + encodeURIComponent(VIEW); f.loading = "lazy"; f.title = "volume graph"; v.querySelector(".body").appendChild(f); }
-  if (l && !l.querySelector("iframe")) { const f = document.createElement("iframe"); const rows = WIDGETS_NOW && WIDGETS_NOW.slot && WIDGETS_NOW.slot.lensTape ? WIDGETS_NOW.slot.lensTape.rows : 1; f.src = WIDGETS_LENS_SHELL + "/?shell=v1&mode=tape&rows=" + rows + "&view=" + encodeURIComponent(VIEW) + (lensWallOn() ? "&cellw=" + LENSWALL_LENS_CELL_PX : ""); f.loading = "lazy"; f.title = "context lens tape"; l.querySelector(".body").appendChild(f); }
+  if (l && !l.querySelector("iframe")) { const f = document.createElement("iframe"); const rows = WIDGETS_NOW && WIDGETS_NOW.slot && WIDGETS_NOW.slot.lensTape ? WIDGETS_NOW.slot.lensTape.rows : 1; f.src = WIDGETS_LENS_SHELL + "/?shell=v1&mode=tape&dock=1&rows=" + rows + "&view=" + encodeURIComponent(VIEW) + (lensWallOn() ? "&cellw=" + LENSWALL_LENS_CELL_PX : ""); f.loading = "lazy"; f.title = "context lens tape"; l.querySelector(".body").appendChild(f); }
 }
 function placeWidgets(slot, plan) {
   const v = el("wgVolume"), l = el("wgLensTape");
@@ -3672,6 +3707,8 @@ function placeWidgets(slot, plan) {
   mountWidgets();
   const put = (n, b) => { n.style.left = (plan.col + FLOOR_SEAM_PX + b.left) + "px"; n.style.top = b.top + "px"; n.style.width = b.w + "px"; n.style.height = b.h + "px"; };
   put(v, slot.volume); put(l, slot.lensTape);
+  /* 1 Nov: with the X column off the lens wall starts at the screen's left edge, no empty corner where X was */
+  if (NO_X && slot.lensWall) { l.style.left = "0px"; l.style.width = (plan.col + FLOOR_SEAM_PX + slot.lensTape.w) + "px"; }
   /* W7: the lens grid's rows follow the band; the FAVORITES tape starts at YouTube's right edge; the control row sits over the charts */
   const lf = l.querySelector("iframe"); if (lf && slot.lensTape.rows) { try { lf.contentWindow.postMessage({ type:"SCINTILLA_LENS_ROWS", rows:slot.lensTape.rows }, location.origin); } catch (_) {} }   /* on every fit: the frame ignores a number it already has; a frame that has not loaded yet reads ?rows= */
   const grid = el("grid"); if (grid) grid.style.setProperty("--widgets-tape-left", (slot.tapeLeft != null ? slot.tapeLeft : plan.col + FLOOR_SEAM_PX) + "px");
@@ -3724,6 +3761,30 @@ function dockAutoHideOn() {
   let v = null;
   try { v = localStorage.getItem(DOCK_HIDE_KEY); } catch (_) {}
   return v == null ? true : v === "1";
+}
+/* ---- 1 Nov: the lens controls on the dock. The frame holds the state and says it after every change (SCINTILLA_LENS_STATE); these chips only ask. ---- */
+const LENS_TF_CHIPS = Object.freeze(["1m", "5m", "15m", "30m", "1h", "1D"]);
+let LENS_DOCK = { tf:"5m", style:"bars", mineOn:false, mine:null, note:"" };
+function tellLens(msg) { const f = document.querySelector("#wgLensTape iframe"); if (f && f.contentWindow) { try { f.contentWindow.postMessage(msg, location.origin); } catch (_) {} } }
+function paintLensDock() {
+  const pressed = (b, on) => { b.classList.toggle("on", !!on); b.setAttribute("aria-pressed", on ? "true" : "false"); };
+  const mine = el("lensMine"); if (!mine) return;
+  pressed(mine, LENS_DOCK.mineOn); mine.textContent = "mine" + (LENS_DOCK.mine ? " " + LENS_DOCK.mine : "");
+  for (const b of el("lensTfChips").children) pressed(b, b.dataset.tf === LENS_DOCK.tf);
+  for (const b of el("lensStyleChips").children) pressed(b, b.dataset.style === LENS_DOCK.style);
+  el("lensAdd").placeholder = LENS_DOCK.note || "+ ticker";
+}
+function wireLensDock() {
+  const mine = el("lensMine"), box = el("lensTfChips"); if (!mine || mine.__wired) return; mine.__wired = true;
+  for (const t of LENS_TF_CHIPS) { const b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.dataset.tf = t; b.textContent = t; b.title = t + " bars on every lens"; b.addEventListener("click", () => tellLens({ type:"SCINTILLA_LENS_TF", tf:t })); box.appendChild(b); }
+  mine.addEventListener("click", () => tellLens({ type:"SCINTILLA_LENS_MINE", on:!LENS_DOCK.mineOn }));
+  for (const b of el("lensStyleChips").children) b.addEventListener("click", () => tellLens({ type:"SCINTILLA_LENS_STYLE", style:b.dataset.style }));
+  el("lensAdd").addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key !== "Enter") return; tellLens({ type:"SCINTILLA_LENS_ADD", ticker:e.target.value }); e.target.value = ""; e.target.blur(); });
+  el("lensAdd").addEventListener("pointerleave", (e) => { if (!e.target.value) e.target.blur(); });   /* an empty box never holds the strip open */
+  /* the X column's switch: NO_X is read at load, so it goes through the same ?nox= door the iPad uses, remembered per machine */
+  const x = el("xColToggle"); x.classList.toggle("on", !NO_X); x.setAttribute("aria-pressed", NO_X ? "false" : "true");
+  x.addEventListener("click", () => { const u = new URL(location.href); u.searchParams.set("nox", NO_X ? "0" : "1"); location.assign(u.href); });
+  paintLensDock();
 }
 function wireChartsOnly() {
   const b = el("chartsOnlyBtn");
@@ -4660,6 +4721,7 @@ function floatVideoPane() {
 }
 wireChartsOnly();
 wireSimple();
+wireLensDock();
 async function stepScreen(direction) {
   if (SCREEN_BUSY) return;
   SCREEN_BUSY = true; paintScreenBusy();

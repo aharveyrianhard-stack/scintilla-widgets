@@ -56,8 +56,8 @@ test("Y9 · SIMPLE is chosen per machine: the stored choice wins, then the URL, 
 test("Y9 · the dock carries WALL · SIMPLE, and the switch remembers station.simple on this machine", () => {
   assert.match(deck, /<button type="button" class="btn" id="wallBtn"[\s\S]{0,400}>wall<\/button>/, "WALL on the dock");
   assert.match(deck, /<button type="button" class="btn" id="simpleBtn"[\s\S]{0,400}>simple<\/button>/, "SIMPLE on the dock");
-  const station = grab(deck, /<span class="dsec" data-sec="station"[\s\S]*?<\/span>\n  <span class="dsec" data-sec="scenes"/, "the station section");
-  assert.ok(station.includes('id="chartsOnlyBtn"') && station.includes('id="wallMode"'), "beside CHARTS ONLY, in the one section the dock always shows");
+  const more = grab(deck, /<div id="moreGroup"[\s\S]*?<span class="dsec" data-sec="readout"/, "the three dots");   /* 1 Nov: the dock remade, the modes one click under the dots */
+  assert.ok(more.includes('id="wallMode"'), "under the three dots");
   const set = fn(deck, "setSimple");
   assert.match(set, /localStorage\.setItem\(SIMPLE_KEY, on \? "1" : "0"\)/, "the choice is this machine's (localStorage), like CHARTS ONLY");
   assert.match(set, /if \(on\) placeSimpleSymbols\(\)/, "SIMPLE puts its two symbols back");

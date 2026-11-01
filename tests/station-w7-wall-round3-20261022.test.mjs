@@ -34,7 +34,7 @@ test("W7 · the lens tape: bars by default with a LINE · BARS switch remembered
   const bars = grab(lens, /export function drawBars\([\s\S]*?\n\}/, "drawBars");
   assert.match(bars, /const b = bars\[i\], col = b\.c >= b\.o \? PALETTE\.bull : PALETTE\.bear/, "green up, red down, never grey");
   assert.match(lens, /body\.tape \.lens \.tk, body\.tape \.lens \.px\{ font-size:12px; \}/, "the ticker and the price at 12 px");
-  assert.match(lens, /g\.names\.forEach\(\(t, i\) => cells\.push\(\[t, g\.s, hosts\[i % hosts\.length\]\]\)\)/   /* W12: each set's names dealt round its own rows */, "the names dealt round the rows"); assert.match(lens, /if \(e\.data\.type === "SCINTILLA_LENS_ROWS"\)/, "the deck says how many rows"); assert.match(deck, /mode=tape&rows=" \+ rows \+ "&view=/, "and on the address at mount");
+  assert.match(lens, /g\.names\.forEach\(\(t, i\) => cells\.push\(\[t, g\.s, hosts\[i % hosts\.length\]\]\)\)/   /* W12: each set's names dealt round its own rows */, "the names dealt round the rows"); assert.match(lens, /if \(e\.data\.type === "SCINTILLA_LENS_ROWS"\)/, "the deck says how many rows"); assert.match(deck, /mode=tape&dock=1&rows=" \+ rows \+ "&view=/, "and on the address at mount");
   assert.match(lens, /board_volume\?select=ticker,rvol_at_time&ticker=in\.\(/, "the Hub's RVol per name"); assert.match(lens, /const RVOL_MS = 60000;/);
   assert.match(lens, /const DAILY_ONLY = Object\.freeze\(\{ PCC: true \}\);/, "the put/call ratio is daily at the API"); assert.match(lens, /const NUMBER_LENS = Object\.freeze\(\{ ADVDEC: true \}\);/, "advance/decline is a number lens from the volume feed's breadth");
   assert.doesNotMatch(lens, /indexNowLeaders|ESUSD" : "SPY/, "SPY and QQQ are never swapped for their futures");

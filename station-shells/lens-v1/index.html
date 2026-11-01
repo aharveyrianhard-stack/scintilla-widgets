@@ -159,6 +159,7 @@ body.tape #bar .k{ font-size:7px; }
 .tfk{ display:none; } body.tape .tfk{ display:block; margin:7px 0 0; }
 body.tape #tf .chip{ font-size:9.5px; padding:3px 2px; }
 body.tape .msg{ padding:12px; }
+body.docked #bar{ display:none !important; }
 </style>
 </head>
 <body>
@@ -242,6 +243,10 @@ const SB = "https://wadinxqplrggagkvrdag.supabase.co";
 const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
 const TAPE = QS.get("mode") === "tape";   /* W1C: the lens tape */
 if (TAPE) document.body.classList.add("tape");
+/* 1 Nov (Alan: "you put some toggles that take up a bunch of space ... relocate them to a remade doc style thing"): on the wall the deck's dock holds
+   these controls (?dock=1), so the rail is gone and the lenses take its width. The phone and this page on its own keep their bar. */
+const DOCKED = QS.get("dock") === "1";
+if (DOCKED) document.body.classList.add("docked");
 /* the column's lens is the zoomed-out view the intraday ranges carry (LENS_BY_RANGE "1d:60"); the tape's is the last 120
    completed 5-minute bars (extended hours, ten hours), Alan's "make it 5 minute charts" */
 /* W4: the tape shows the LATEST 30 completed 5-minute bars (two and a half hours) as a tight line, the live price as its last point; the
@@ -392,18 +397,20 @@ function paintTf() {
   const box = el("tf"); if (!box) return;
   if (!box.firstChild) for (const t of TFS) { const b = document.createElement("button"); b.type = "button"; b.className = "chip"; b.dataset.tf = t; b.textContent = t; b.title = t + " bars on every lens - remembered on this machine"; b.addEventListener("click", () => setTf(t)); box.appendChild(b); }
   for (const b of box.querySelectorAll("button")) { b.classList.toggle("on", b.dataset.tf === TF); b.setAttribute("aria-pressed", b.dataset.tf === TF ? "true" : "false"); }
+  postLensState();
 }
+/* 1 Nov: the dock's copy of these controls stays true - every paint says the state to the deck */
+function postLensState() { if (!DOCKED || window.parent === window) return; try { parent.postMessage({ type:"SCINTILLA_LENS_STATE", tf:TF, style:STYLE, mineOn:MINE_ON, mine:MINE.length, note:el("note").textContent || "" }, location.origin); } catch (_) {} }
 function setTf(t) { if (!TFS.includes(t) || t === TF) return; TF = t; remember(TF_KEY, TF); S.bars.clear(); paintTf(); drawAll(); readBars(true); }
-el("add").addEventListener("keydown", async (e) => {
-  if (e.key !== "Enter") return;
-  const raw = el("add").value, next = mineAdd(MINE, raw); if (next.length === MINE.length) { el("add").value = ""; return; }
-  el("add").value = "";
+el("add").addEventListener("keydown", (e) => { if (e.key !== "Enter") return; const raw = el("add").value; el("add").value = ""; addToMine(raw); });
+async function addToMine(raw) {
+  const next = mineAdd(MINE, raw); if (next.length === MINE.length) return;
   /* W4: written to the database (both Macs see it); the local copy follows at once, the next read confirms */
   const prev = MINE; MINE = next; remember(MINE_KEY, JSON.stringify(MINE));
   if (!MINE_ON) { MINE_ON = true; remember(MINE_ON_KEY, "1"); }
   paintChips(); paintSet(); tick(true);
   try { await mineWrite(raw); await readMine(); paintChips(); paintSet(); } catch (err) { el("note").textContent = "not saved: " + String(err && err.message || err).slice(0, 40); MINE = prev; remember(MINE_KEY, JSON.stringify(MINE)); paintChips(); paintSet(); }
-});
+}
 /* ---- the set ---- */
 const price = (p) => p == null ? "—" : p >= 1000 ? Math.round(p).toLocaleString("en-US") : p >= 100 ? p.toFixed(2) : p.toFixed(2);
 const pct = (c) => c == null ? "" : (c >= 0 ? "+" : "") + c.toFixed(2) + "%";
@@ -445,8 +452,9 @@ function paintSet(force) {
   if (TAPE) runTape();
 }
 window.__lens12 = { tf: () => TF, sets: () => sets(), mineOn: () => MINE_ON, unusual: () => Object.fromEntries([...el("set").querySelectorAll(".lens.glow")].map((d) => [d.dataset.t, d.querySelector(".un").textContent])), usual: () => Object.fromEntries(S.usual) };
-function paintStyle() { const s = el("style"); if (!s) return; s.hidden = !TAPE; for (const b of s.querySelectorAll("button")) { b.classList.toggle("on", b.dataset.style === STYLE); b.setAttribute("aria-pressed", b.dataset.style === STYLE ? "true" : "false"); } }
-el("style").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b || b.dataset.style === STYLE) return; STYLE = styleOf(b.dataset.style); remember(STYLE_KEY, STYLE); paintStyle(); drawAll(); });
+function paintStyle() { const s = el("style"); if (!s) return; s.hidden = !TAPE; for (const b of s.querySelectorAll("button")) { b.classList.toggle("on", b.dataset.style === STYLE); b.setAttribute("aria-pressed", b.dataset.style === STYLE ? "true" : "false"); } postLensState(); }
+function setStyle(v) { const next = styleOf(v); if (next === STYLE) return; STYLE = next; remember(STYLE_KEY, STYLE); paintStyle(); drawAll(); }
+el("style").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setStyle(b.dataset.style); });
 /* for the harness: the tape's state */
 window.__tape = { setKey: () => SET_KEY, tracks: () => [...document.querySelectorAll(".track")].map((t) => ({ fit: t.dataset.fit, run: t.classList.contains("run"), duration: t.style.animationDuration })) };
 paintStyle();
@@ -706,6 +714,10 @@ addEventListener("message", (e) => {
   if (e.data.type === "SCINTILLA_LENS_ROWS") { const r = Math.max(1, Math.min(6, +e.data.rows || 1)); if (r !== ROWS) { ROWS = r; paintSet(true); } return; }
   if (e.data.type === "SCINTILLA_RVOL_WANT") { WANTED = Array.from(new Set((e.data.names || []).map(CLEAN).filter(Boolean))).slice(0, 200); S.rvolAt = 0; readRvol(); readUsual(); }
   if (e.data.type === "SCINTILLA_LENS_TF" && TFS.includes(e.data.tf)) setTf(e.data.tf);
+  /* 1 Nov: the dock's chips */
+  if (e.data.type === "SCINTILLA_LENS_MINE") setMineOn(!!e.data.on);
+  if (e.data.type === "SCINTILLA_LENS_STYLE") setStyle(e.data.style);
+  if (e.data.type === "SCINTILLA_LENS_ADD") addToMine(String(e.data.ticker || ""));
 });
 window.__lens = { style: () => STYLE, rows: () => ROWS, rvol: () => Object.fromEntries(S.rvol), breadth: () => S.breadth, newest: () => Object.fromEntries([...S.bars].map(([t, e]) => [t, e.bars && e.bars.length ? e.bars[e.bars.length - 1].t : null])), quotes: () => Object.fromEntries([...S.quotes].map(([t, q]) => [t, q.price])), at: () => ({ bars: S.barsAt, quotes: S.quotesAt, lastCloseRead }), list: () => LIST, names, tf: TF_API[TF], bars: LENS_BARS };
 /* the lenses re-fit to their box (the deck resizes the pane) */
