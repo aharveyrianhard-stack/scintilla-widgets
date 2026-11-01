@@ -17,6 +17,7 @@ h2{ font:700 12px ui-monospace,"SF Mono",Menlo,monospace; letter-spacing:.1em; c
 .names{ display:grid; gap:8px; } .nm{ display:grid; grid-template-columns:62px 62px 1fr; gap:8px; align-items:baseline; font-size:15px; } .nm b{ font:700 14px ui-monospace,"SF Mono",Menlo,monospace; color:var(--crk); } .up{ color:var(--bull); } .dn{ color:var(--bear); } .flat{ color:var(--dim); } .pc{ font:600 13px ui-monospace,"SF Mono",Menlo,monospace; }
 .sec{ margin-top:18px; } .sec a.at{ font:600 13px ui-monospace,"SF Mono",Menlo,monospace; color:var(--crk); text-decoration:none; margin-right:8px; } .sec b{ font-size:16.5px; }
 .watch{ display:inline-block; margin-top:12px; color:var(--crk); text-decoration:none; font-weight:600; } .msg{ color:var(--dim); padding:24px 0; }
+.btns{ display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; } .act{ font:600 15px -apple-system,BlinkMacSystemFont,sans-serif; color:#04121A; background:var(--crk); border:0; border-radius:9px; padding:11px 14px; } .act.quiet{ color:var(--ink); background:var(--panel); border:1px solid var(--line); } .act:disabled{ opacity:.55; }
 </style>
 </head>
 <body><main id="m"><div class="msg">reading…</div></main>
@@ -27,14 +28,26 @@ const pg = (q) => fetch(SB + "/rest/v1/" + q, { headers: PG }).then((r) => { if 
 const secs = (at) => String(at || "").split(":").reduce((n, x) => n * 60 + (+x || 0), 0);
 const when = (iso) => new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const QS = new URLSearchParams(location.search), m = document.getElementById("m");
+/* a star on any read: the link goes into the brain. Alan: "I see a story and I push it to you guys or the system, and it's ingested" */
+function keepBtn(url, title, label, done, quiet) { return '<button type="button" class="act' + (quiet ? " quiet" : "") + '" data-keep="' + esc(url) + '" data-title="' + esc(title || "") + '" data-done="' + esc(done) + '">' + esc(label) + "</button>"; }
+document.addEventListener("click", async (e) => { const b = e.target.closest("[data-keep]"); if (!b) return; b.disabled = true; const was = b.textContent; b.textContent = "Sending…";
+  try { const r = await fetch(SB + "/rest/v1/rpc/brain_keep", { method: "POST", headers: { ...PG, "content-type": "application/json" }, body: JSON.stringify({ p_url: b.dataset.keep, p_title: b.dataset.title, p_device: /iPhone|iPad/.test(navigator.userAgent) ? "iPhone or iPad" : "computer" }) }); if (!r.ok) throw new Error(r.status); b.textContent = b.dataset.done; } catch (err) { b.disabled = false; b.textContent = was + " · try again"; } });
+/* a story whose site is walled (WSJ, Barron's, FT...): FMP gives the headline and a short summary, not the article. Alan: "why do I have to sign into Wall Street Journal? I don't have Wall Street Journal." */
+async function story(key) {
+  const [x] = await pg("notify_stream?select=at,ticker,title,source,pct,summary,source_url&key=eq." + encodeURIComponent(key)); if (!x) { m.innerHTML = '<div class="msg">This story is not here any more.</div>'; return; }
+  document.title = (x.source || "SCINTILLA") + " · story";
+  m.innerHTML = '<div class="who">' + esc(x.ticker || "MARKET") + (x.pct != null ? ' <span class="pc ' + (x.pct > 0 ? "up" : x.pct < 0 ? "dn" : "flat") + '">' + (x.pct > 0 ? "+" : "") + Number(x.pct).toFixed(1) + "%</span>" : "") + '</div><div class="meta">' + esc(x.source || "") + " · " + esc(when(x.at)) + "</div><h1>" + esc(x.title) + '</h1><p style="margin-top:12px">' + esc(x.summary || "No summary came with this headline.") + '</p><div class="sub">Summary from the feed. The full article is behind this site\'s subscription.</div><div class="btns">' + keepBtn(x.source_url || location.href, x.title, "★ Keep", "★ Kept") + (x.source_url ? '<a class="act quiet" style="text-decoration:none" href="' + esc(x.source_url) + '" target="_blank" rel="noopener">Open the site ↗</a>' : "") + "</div>";
+}
 function viewOf(v) { const s = String(v || "").toLowerCase(); return s === "bullish" ? "up" : s === "bearish" ? "dn" : "flat"; }
 async function video(id) {
   const [x] = await pg("youtube_reads?select=*&video_id=eq." + encodeURIComponent(id)); if (!x) { m.innerHTML = '<div class="msg">This read is not ready yet.</div>'; return; }
   document.title = (x.channel || "SCINTILLA") + " · read";
-  m.innerHTML = '<div class="who">' + esc(x.channel) + '</div><div class="meta">' + esc(when(x.published_at)) + (x.duration ? " · " + esc(x.duration) : "") + '</div><h1>' + esc(x.takeaway) + '</h1><div class="sub">' + esc(x.title) + '</div><a class="watch" href="https://youtu.be/' + esc(x.video_id) + '" target="_blank" rel="noopener">Watch on YouTube ↗</a>' +
+  const light = x.tier === "light", full = "https://youtu.be/" + x.video_id;
+  m.innerHTML = '<div class="who">' + esc(x.channel) + '</div><div class="meta">' + esc(when(x.published_at)) + (x.duration ? " · " + esc(x.duration) : "") + '</div><h1>' + esc(light ? x.title : x.takeaway) + "</h1>" + (light ? "" : '<div class="sub">' + esc(x.title) + "</div>") + '<a class="watch" href="https://youtu.be/' + esc(x.video_id) + '" target="_blank" rel="noopener">Watch on YouTube ↗</a>' +
+    (light ? '<div class="btns">' + keepBtn(full, x.title, "Read this one in full", "Queued. A card comes when it is read.") + "</div>" : '<div class="btns">' + keepBtn(full, x.title, "★ Keep", "★ Kept", true) + "</div>") +
     ((x.tickers || []).length ? '<h2>Names</h2><div class="names">' + x.tickers.map((t) => '<div class="nm"><b>' + esc(t.t) + '</b><span class="pc ' + viewOf(t.view) + '">' + esc(t.view) + "</span><span>" + esc(t.why) + (t.levels ? ' <span class="flat">' + esc(t.levels) + "</span>" : "") + "</span></div>").join("") + "</div>" : "") +
     ((x.calls || []).length ? "<h2>Calls</h2><ul>" + x.calls.map((c) => "<li>" + esc(c) + "</li>").join("") + "</ul>" : "") +
-    ((x.sections || []).length ? "<h2>Section by section</h2>" + x.sections.map((s) => '<div class="sec"><a class="at" href="https://youtu.be/' + esc(x.video_id) + "?t=" + secs(s.at) + '" target="_blank" rel="noopener">' + esc(s.at) + "</a><b>" + esc(s.title) + "</b><ul>" + (s.points || []).map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul></div>").join("") : "");
+    (light && !(x.sections || []).length ? '<div class="sub" style="margin-top:16px">No chapters listed on this video.</div>' : "") + ((x.sections || []).length ? "<h2>" + (light ? "Chapters" : "Section by section") + "</h2>" + x.sections.map((s) => '<div class="sec"><a class="at" href="https://youtu.be/' + esc(x.video_id) + "?t=" + secs(s.at) + '" target="_blank" rel="noopener">' + esc(s.at) + "</a><b>" + esc(s.title) + "</b><ul>" + (s.points || []).map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul></div>").join("") : "");
 }
 async function read(id) {
   const rows = await pg("news_reads?select=*" + (id ? "&id=eq." + encodeURIComponent(id) : "") + "&order=id.desc&limit=1"); const x = rows[0]; if (!x) { m.innerHTML = '<div class="msg">No read yet.</div>'; return; }
@@ -43,7 +56,7 @@ async function read(id) {
     ((x.names || []).length ? '<h2>Your names</h2><div class="names">' + x.names.map((t) => '<div class="nm"><b>' + esc(t.t) + '</b><span class="pc ' + (t.pct > 0 ? "up" : t.pct < 0 ? "dn" : "flat") + '">' + (t.pct != null ? (t.pct > 0 ? "+" : "") + Number(t.pct).toFixed(1) + "%" : "") + "</span><span>" + esc(t.why) + "</span></div>").join("") + "</div>" : "") +
     ((x.watch || []).length ? "<h2>Next</h2><ul>" + x.watch.map((c) => "<li>" + esc(c) + "</li>").join("") + "</ul>" : "");
 }
-(QS.get("v") ? video(QS.get("v")) : read(QS.get("r"))).catch((e) => { m.innerHTML = '<div class="msg">Could not read this (' + esc(e.message) + ").</div>"; });
+(QS.get("k") ? story(QS.get("k")) : QS.get("v") ? video(QS.get("v")) : read(QS.get("r"))).catch((e) => { m.innerHTML = '<div class="msg">Could not read this (' + esc(e.message) + ").</div>"; });
 </script>
 </body>
 </html>
