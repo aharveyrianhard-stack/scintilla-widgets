@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="SCINTILLA">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Scintilla Notifications">
 <meta name="theme-color" content="#0A0A0F">
 <link rel="apple-touch-icon" href="/notify/apple-touch-icon.png"><link rel="manifest" href="/notify/manifest.webmanifest"><link rel="icon" href="/notify/icon-192.png">
 <title>SCINTILLA · notifications</title>
@@ -38,7 +38,8 @@ const ago = (iso) => { const s = Math.max(0, (Date.now() - Date.parse(iso)) / 10
 async function paintList() {
   for (const b of el("tabs").children) b.classList.toggle("on", b.dataset.scope === SCOPE);
   try {
-    const q = "notify_stream?select=id,at,level,kind,ticker,title,source,url,pct&order=id.desc&limit=100" + (SCOPE === "mine" ? "&level=gte.2" : "");
+    /* the last two days, newest first, scrollable (Alan: "keeping a scrollable thing of the last 2 days") */
+    const q = "notify_stream?select=id,at,level,kind,ticker,title,source,url,pct&order=id.desc&limit=400&at=gte." + encodeURIComponent(new Date(Date.now() - 2 * 86400000).toISOString()) + (SCOPE === "mine" ? "&level=gte.2" : "");
     const r = await fetch(SB + "/rest/v1/" + q, { headers: PG }); if (!r.ok) throw new Error("status " + r.status);
     const rows = await r.json();
     el("list").innerHTML = rows.length ? rows.map((x) => '<a class="row" data-level="' + x.level + '"' + (x.url ? ' href="' + esc(x.url) + '" target="_blank" rel="noopener"' : "") + '><div class="top"><span class="tk">' + esc(x.ticker || "MARKET") + "</span>" + (x.pct != null ? '<span class="pc ' + (x.pct >= 0 ? "up" : "dn") + '">' + (x.pct >= 0 ? "+" : "") + Number(x.pct).toFixed(1) + "%</span>" : "") + '<span>' + esc(x.source || "") + '</span><span class="when">' + ago(x.at) + '</span></div><div class="tt">' + esc(x.title) + "</div></a>").join("") : '<div class="msg">Nothing yet. New headlines land here as they arrive.</div>';
@@ -50,7 +51,7 @@ const STANDALONE = navigator.standalone === true || matchMedia("(display-mode: s
 const deviceName = () => /iPhone/.test(navigator.userAgent) ? "iPhone" : /iPad/.test(navigator.userAgent) ? "iPad" : /Android/.test(navigator.userAgent) ? "Android" : "computer";
 function setup(html) { const s = el("setup"); s.hidden = !html; s.innerHTML = html || ""; const b = el("go"); if (b) b.addEventListener("click", turnOn); }
 async function paintSetup() {
-  if (IOS && !STANDALONE) return setup('<h2>Put the logo on your phone alerts</h2><ol><li>Tap <b>Share</b>, the square with the arrow, at the bottom of Safari</li><li>Tap <b>Add to Home Screen</b>, then <b>Add</b></li><li>Open <b>SCINTILLA</b> from your Home Screen and tap the blue button there</li></ol>');
+  if (IOS && !STANDALONE) return setup('<h2>Put the logo on your phone alerts</h2><ol><li>Tap <b>Share</b>, the square with the arrow, at the bottom of Safari</li><li>Tap <b>Add to Home Screen</b>, then <b>Add</b></li><li>Open <b>Scintilla Notifications</b> from your Home Screen and tap the blue button there</li></ol>');
   if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return setup("");
   if (Notification.permission === "denied") return setup("<h2>Notifications are blocked here</h2><p>Settings, then Notifications, then SCINTILLA, then Allow Notifications.</p>");
   const reg = await navigator.serviceWorker.getRegistration("/notify/").catch(() => null), sub = reg ? await reg.pushManager.getSubscription().catch(() => null) : null;
@@ -65,8 +66,8 @@ async function turnOn() {
     const reg = await navigator.serviceWorker.register("/notify/push-sw.js", { scope: "/notify/" }); await navigator.serviceWorker.ready;
     const perm = await Notification.requestPermission(); if (perm !== "granted") throw new Error("not allowed");
     const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key.publicKey }), j = sub.toJSON();
-    const r = await fetch(SB + "/rest/v1/push_subscriptions", { method: "POST", headers: { ...PG, "content-type": "application/json", Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ endpoint: sub.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, device: deviceName(), ua: navigator.userAgent.slice(0, 200) }) });
-    if (!r.ok) throw new Error("not stored (" + r.status + ")");
+    const r = await fetch(SB + "/rest/v1/push_subscriptions", { method: "POST", headers: { ...PG, "content-type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ endpoint: sub.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, device: deviceName(), ua: navigator.userAgent.slice(0, 200) }) });
+    if (!r.ok && r.status !== 409) throw new Error("not stored (" + r.status + ")");   /* 409 = this phone is already signed up. Not "ignore duplicates": that asks the database for read rights this table rightly refuses, which is the 401 Alan hit on 1 Nov */
     await reg.showNotification("SCINTILLA", { body: "You're set. Alerts on this phone now carry this logo.", icon: "/notify/icon-192.png" });
     setup("");
   } catch (e) { b.disabled = false; b.textContent = "Try again · " + String(e.message || e).slice(0, 40); }
