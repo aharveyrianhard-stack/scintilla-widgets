@@ -367,7 +367,7 @@ async function readDaily() {
 function drawCloudLines(ctx, W, H, t, bars, geo) {
   const SC = window.SC_CLOUDS, entry = DAILY.get(t); if (!SC || !entry || !entry.rows.length || !geo.X || !geo.Y || !bars.length) return;
   const mapped = SC.mapBarsToDaily(bars.map((b) => b.t), entry.rows, TF === "1D" ? { periodMs: 86400000 } : { intraday: true });
-  const above = [], below = [], last = bars.length - 1, price = bars[last].c;
+  const above = [], below = [], tags = [], last = bars.length - 1, price = bars[last].c;
   ctx.save(); ctx.font = "9px ui-monospace,Menlo,monospace"; ctx.textBaseline = "middle";
   for (const spec of SC.activeSpecs({})) {
     const row = mapped[last], v = row && row[spec.key]; if (!(v > 0)) continue;
@@ -377,8 +377,11 @@ function drawCloudLines(ctx, W, H, t, bars, geo) {
     ctx.beginPath(); let on = false;
     for (let i = 0; i <= last; i++) { const r = mapped[i], y = r && r[spec.key]; if (!(y > 0) || y > geo.hi || y < geo.lo) { on = false; continue; } const px = geo.X(i), py = geo.Y(y); if (on) ctx.lineTo(px, py); else { ctx.moveTo(px, py); on = true; } }
     ctx.stroke(); ctx.globalAlpha = 1;
-    ctx.fillStyle = ink; ctx.textAlign = "right"; ctx.fillText(spec.label, W - 2, geo.Y(v));
+    tags.push([geo.Y(v), spec.label, ink]);
   }
+  /* close lines: their names stack instead of printing over each other */
+  tags.sort((a, b) => a[0] - b[0]); ctx.textAlign = "right"; let tagY = -99;
+  for (const [y, label, ink] of tags) { tagY = Math.max(y, tagY + 9); ctx.fillStyle = ink; ctx.fillText(label, W - 2, tagY); }
   /* the far lines: above at the top right, below at the bottom left (the bottom right holds the "usual day" tag); whole percents when the row would not fit */
   const edge = (list, y, arrow, fromLeft) => {
     if (!list.length) return;
