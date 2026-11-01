@@ -31,7 +31,7 @@
      button does that. Where the browser supports Document PiP and we are
      top-level, the button here does it directly.
 
-     Params: ?feed=personal|scintilla|soundscapes|golf|ai_research|fitness|market
+     Params: ?feed=personal|scintilla|networks|soundscapes|golf|ai_research|fitness|market
              · ?mode=grid|videos|shorts (GRID · VIDEOS · SHORTS tabs; ?list=shorts still works)
              · ?list=default|subscribed|watch · ?v=VIDEOID
              · ?autoplay=1 · ?limit=60 (10-200) · ?t=MU · ?cols=N (force)
@@ -449,6 +449,10 @@ const FEED_PROFILES = [
     waiting: "not connected yet", note: "waiting for its YouTube sign-in. Connect the AI RESEARCH channel once and the sweep collects its subscriptions within the hour" },
   { key: "fitness",     account: "fitness",     label: "FITNESS",
     waiting: "not connected yet", note: "waiting for its YouTube sign-in. Connect the FITNESS channel once and the sweep collects its subscriptions within the hour" },
+  /* 1 Nov, Alan: "I unsubscribed from the Bloomberg channels, the Yahoo Finance channels and the CNBC channels because they post too much like short shit. On my station, I would like to be
+     able to see a feed of those separately ... I should be able to add them to the watch later too, but I don't want to subscribe to them." Not a YouTube subscription: a list of ours
+     (app_config yt_sub_channels_networks) the sweep reads like any channel feed. Its own tab; Watch Later works as everywhere. */
+  { key: "networks",    account: "networks",    label: "NEWS TV" },
   { key: "market",      account: null,          label: "MARKET SEARCH" }
 ];
 /* The one step lives on one page: it shows every channel's live connection state and runs Google's
@@ -2261,8 +2265,9 @@ function showWatchLater(on) {
 (function feedSwitch() {
   const kk = el("kk"); if (!kk) return;
   const box = document.createElement("span"); box.id = "feedSwitch"; box.setAttribute("role", "group"); box.setAttribute("aria-label", "YouTube feed");
-  for (const [key, label] of [["scintilla", "SCINTILLA"], ["personal", "PERSONAL"]]) {
-    const b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.textContent = label; b.dataset.feed = key;
+  for (const [key, label, short] of [["scintilla", "SCINTILLA"], ["personal", "PERSONAL"], ["networks", "NEWS TV", "TV"]]) {
+    const b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.dataset.feed = key;
+    if (short) b.innerHTML = '<span class="wl-long">' + label + '</span><span class="wl-short">' + short + "</span>"; else b.textContent = label;
     b.title = FEED === key ? label + " is the feed here" : "switch to " + label;
     b.addEventListener("click", () => { if (key === FEED) showWatchLater(false); else { rememberWatchTab(false); switchFeed(key); } });
     box.appendChild(b);
@@ -2276,7 +2281,7 @@ function showWatchLater(on) {
   }
   kk.after(box);
   paintFeedSwitch();
-  if (FEED === "scintilla" || FEED === "personal") kk.style.display = "none";
+  if (FEED === "scintilla" || FEED === "personal" || FEED === "networks") kk.style.display = "none";
 })();
 /* the other feed's pane follows the tab (the same browser storage, a storage event in every other window of this site) */
 window.addEventListener("storage", (event) => {

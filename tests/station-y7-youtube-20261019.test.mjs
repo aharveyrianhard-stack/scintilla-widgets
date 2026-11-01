@@ -68,7 +68,7 @@ test("Y7 · the Station's scintilla feed carries no search rows and no market ch
   /* the deck: every mounted feed is a channel; the market profile is never on a Station page */
   const feeds = grab(deck, /const VIDEO_FEEDS = \[[\s\S]*?\n\];/, "VIDEO_FEEDS");
   const accounts = vm.runInNewContext(feeds + "\nVIDEO_FEEDS.map((f) => f[2])", {});
-  assert.deepEqual(plainArr(accounts), ["personal", "scintilla", "soundscapes", "golf", "ai_research", "fitness"]);
+  assert.deepEqual(plainArr(accounts), ["personal", "scintilla", "networks", "soundscapes", "golf", "ai_research", "fitness"]);
   assert.doesNotMatch(deck, /feed=market/, "the deck never mounts ?feed=market");
   assert.match(deck, /feed=scintilla&cols=2" \+ \(widgetsOn\(\) \? "&beside=1&fixed=1" : ""\) \+ "&view=/, "the SCINTILLA pane is mounted on its subscriptions, two tiles across (W10: restated, the WIDGETS wall adds beside=1&fixed=1)");
 });
