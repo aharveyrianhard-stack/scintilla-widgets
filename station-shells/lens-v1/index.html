@@ -166,6 +166,7 @@ body.docked #bar{ display:none !important; }
 <div id="bar"><span class="k">lenses</span><span id="chips" role="group" aria-label="Lens list"></span><input id="add" placeholder="+ ticker · Enter" title="type a ticker and press Enter: it joins MINE (the database list, both Macs)" aria-label="Add a ticker to MINE" maxlength="12"><span class="k tfk">timeframe</span><span id="tf" role="group" aria-label="Bars timeframe"></span><span id="style" role="group" aria-label="Lens style" hidden><button type="button" class="chip" data-style="bars" title="5-minute candles">bars</button><button type="button" class="chip" data-style="line" title="a line of the closes">line</button></span><span id="note"></span></div>
 <div id="set" role="list" aria-label="Context lenses"><div class="msg">loading…</div></div>
 <script src="/_provider/provider.js"></script>
+<script src="/_indicators/station-clouds.js"></script>
 <script type="module">
 import { ovalGeometry, insideOval, INK } from "/_indicators/station-lens.mjs";
 import { drawCandles, PALETTE, DIALS } from "/_indicators/lens-bars.mjs";
@@ -228,6 +229,8 @@ const NUMBER_LENS = Object.freeze({ ADVDEC: true });
 const BREADTH_FEED = "https://volume-pulse-pied.vercel.app/api/heartbeat";
 /* W7: LINE · BARS, remembered on this machine; bars by default (Alan: "it needs to be bars, please. 5-minute bars") */
 const STYLE_KEY = "station.lenses.style";
+/* 1 Nov (Alan: "include the moving average lines of the clouds that I use ... as a switch that I can put them on and off"): the same daily-locked 13D, 21D, 50D, 200D as his clouds */
+const CLOUDS_KEY = "station.lenses.clouds", DAILY_MS = 1800000;
 export const styleOf = (stored) => stored === "line" ? "line" : "bars";
 let STYLE = "bars";   /* read from the machine below, once `remembered` exists */
 /* W7: the rows the deck's band holds (SCINTILLA_LENS_ROWS); ?rows= stands alone */
@@ -345,6 +348,48 @@ function withVwap(lo, hi, vw, n) {
 }
 if (QS.get("touch") === "1") document.body.classList.add("touch");
 STYLE = styleOf(remembered(STYLE_KEY));
+let CLOUDS_ON = remembered(CLOUDS_KEY) === "1";
+const DAILY = new Map();
+function setClouds(on) { CLOUDS_ON = !!on; remember(CLOUDS_KEY, CLOUDS_ON ? "1" : "0"); postLensState(); drawAll(); if (CLOUDS_ON) readDaily(); }
+async function readDaily() {
+  const P = window.SC_PROVIDER, SC = window.SC_CLOUDS; if (!CLOUDS_ON || !P || !SC || document.hidden) return;
+  const want = names().filter((t) => !NUMBER_LENS[t] && !DAILY_ONLY[t] && (!DAILY.has(t) || Date.now() - DAILY.get(t).at > DAILY_MS));
+  for (let i = 0; i < want.length; i += 6) await Promise.all(want.slice(i, i + 6).map(async (t) => {
+    try {
+      const payload = await P.marketCandles(t, "1d", { limit: 400 });
+      const bars = (Array.isArray(payload) ? payload : (payload && payload.series) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.c > 0).sort((a, b) => a.t - b.t);
+      DAILY.set(t, { rows: SC.dailyRows(bars.map((b) => ({ d: new Date(b.t).toISOString(), p: b.c }))), at: Date.now() });
+    } catch (_) { DAILY.set(t, { rows: [], at: Date.now() }); }
+  }));
+  drawAll();
+}
+/* a line inside this lens's price range is drawn with its name at the right; one outside it is named at the top or bottom edge with how far away it is, so the candles keep their scale */
+function drawCloudLines(ctx, W, H, t, bars, geo) {
+  const SC = window.SC_CLOUDS, entry = DAILY.get(t); if (!SC || !entry || !entry.rows.length || !geo.X || !geo.Y || !bars.length) return;
+  const mapped = SC.mapBarsToDaily(bars.map((b) => b.t), entry.rows, TF === "1D" ? { periodMs: 86400000 } : { intraday: true });
+  const above = [], below = [], last = bars.length - 1, price = bars[last].c;
+  ctx.save(); ctx.font = "9px ui-monospace,Menlo,monospace"; ctx.textBaseline = "middle";
+  for (const spec of SC.activeSpecs({})) {
+    const row = mapped[last], v = row && row[spec.key]; if (!(v > 0)) continue;
+    const bull = SC.lineBullish(spec, row), ink = bull ? "#7E97FF" : "#FF4FC0";
+    if (v > geo.hi || v < geo.lo) { (v > geo.hi ? above : below).push([spec.label, (v / price - 1) * 100, bull]); continue; }
+    ctx.strokeStyle = ink; ctx.globalAlpha = 0.85; ctx.lineWidth = spec.width > 2 ? 1.5 : 1;
+    ctx.beginPath(); let on = false;
+    for (let i = 0; i <= last; i++) { const r = mapped[i], y = r && r[spec.key]; if (!(y > 0) || y > geo.hi || y < geo.lo) { on = false; continue; } const px = geo.X(i), py = geo.Y(y); if (on) ctx.lineTo(px, py); else { ctx.moveTo(px, py); on = true; } }
+    ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.fillStyle = ink; ctx.textAlign = "right"; ctx.fillText(spec.label, W - 2, geo.Y(v));
+  }
+  /* the far lines: above at the top right, below at the bottom left (the bottom right holds the "usual day" tag); whole percents when the row would not fit */
+  const edge = (list, y, arrow, fromLeft) => {
+    if (!list.length) return;
+    const text = (dp) => list.map(([label, pct]) => arrow + label + " " + (pct > 0 ? "+" : "") + pct.toFixed(dp) + "%");
+    let txt = text(1); if (txt.reduce((a, b) => a + ctx.measureText(b).width + 7, 0) > W - 4) txt = text(0);
+    ctx.textAlign = "left"; let x = fromLeft ? 2 : W - 2 - txt.reduce((a, b) => a + ctx.measureText(b).width + 7, -7);
+    for (let i = 0; i < txt.length; i++) { ctx.fillStyle = list[i][2] ? "#7E97FF" : "#FF4FC0"; ctx.fillText(txt[i], x, y); x += ctx.measureText(txt[i]).width + 7; }
+  };
+  edge(above, 6, "▲", false); edge(below, H - 6, "▼", true);
+  ctx.restore();
+}
 let MINE = mineOf(remembered(MINE_KEY)), mineAt = 0;   /* W4: a copy of the database list, read every five minutes; written through the same door */
 let RADAR = [], radarAt = 0;
 const S = { quotes: new Map(), bars: new Map(), rvol: new Map(), rvolPrev: new Map(), usual: new Map(), breadth: null, quotesAt: 0, barsAt: 0, rvolAt: 0, breadthAt: 0, usualAt: 0, busyQ: false, busyB: false, busyR: false, busyBr: false, busyU: false };
@@ -400,7 +445,7 @@ function paintTf() {
   postLensState();
 }
 /* 1 Nov: the dock's copy of these controls stays true - every paint says the state to the deck */
-function postLensState() { if (!DOCKED || window.parent === window) return; try { parent.postMessage({ type:"SCINTILLA_LENS_STATE", tf:TF, style:STYLE, mineOn:MINE_ON, mine:MINE.length, note:el("note").textContent || "" }, location.origin); } catch (_) {} }
+function postLensState() { if (!DOCKED || window.parent === window) return; try { parent.postMessage({ type:"SCINTILLA_LENS_STATE", tf:TF, style:STYLE, mineOn:MINE_ON, clouds:CLOUDS_ON, mine:MINE.length, note:el("note").textContent || "" }, location.origin); } catch (_) {} }
 function setTf(t) { if (!TFS.includes(t) || t === TF) return; TF = t; remember(TF_KEY, TF); S.bars.clear(); paintTf(); drawAll(); readBars(true); }
 el("add").addEventListener("keydown", (e) => { if (e.key !== "Enter") return; const raw = el("add").value; el("add").value = ""; addToMine(raw); });
 async function addToMine(raw) {
@@ -551,7 +596,7 @@ export function drawTight(ctx, W, H, bars, day, livePrice, vw) {
   if (livePrice > 0) { ctx.beginPath(); ctx.arc(X(n), Y(closes[n]), 2.6, 0, Math.PI * 2); ctx.fillStyle = "#0A0A0F"; ctx.fill(); ctx.stroke(); }
   else { ctx.beginPath(); ctx.arc(X(n), Y(closes[n]), 2, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill(); }
   ctx.restore();
-  return { lo, hi, points: closes.length };
+  return { lo, hi, points: closes.length, X, Y };
 }
 /* W7, the tape's BARS: the latest bars as candles - green when the bar closed at or above its open, red below (the Station's rule), the wick
    and the body, the live price a hollow ring at the end; pure drawing on a (W × H) canvas */
@@ -576,7 +621,7 @@ export function drawBars(ctx, W, H, bars, livePrice, vw) {
   }
   if (livePrice > 0) { const last = bars[n - 1], col = livePrice >= last.c ? PALETTE.bull : PALETTE.bear; ctx.strokeStyle = col; ctx.setLineDash([2, 2]); ctx.beginPath(); ctx.moveTo(X(n - 1), Y(last.c)); ctx.lineTo(X(n), Y(livePrice)); ctx.stroke(); ctx.setLineDash([]); ctx.beginPath(); ctx.arc(X(n), Y(livePrice), 2.6, 0, Math.PI * 2); ctx.fillStyle = "#0A0A0F"; ctx.fill(); ctx.stroke(); }
   ctx.restore();
-  return { lo, hi, bars: n };
+  return { lo, hi, bars: n, X, Y };
 }
 function drawOne(d) {
   const t = d.dataset.t, cv = d.querySelector("canvas"), why = d.querySelector(".why");
@@ -591,6 +636,7 @@ function drawOne(d) {
   if (TAPE || !QS.get("oval")) {   /* W12: the grid (the phone) draws the same bars as the tape; ?oval=1 keeps the column's oval */
     const q = S.quotes.get(t), live = q && q.price > 0 ? q.price : 0;
     const geo = STYLE === "bars" ? drawBars(ctx, W, H, bars, live, entry.vw) : drawTight(ctx, W, H, bars, day, live, entry.vw);
+    if (geo && CLOUDS_ON) drawCloudLines(ctx, W, H, t, bars, geo);
     why.textContent = geo ? "" : (DAILY_ONLY[t] ? "no daily bars" : "no 5-minute bars");
     cv.setAttribute("aria-label", t + ": the last " + bars.length + (DAILY_ONLY[t] ? " daily" : " " + TF) + (STYLE === "bars" ? " candles" : " closes as a line") + (day ? ", the day " + day : "") + (q ? ", the live price last" : ""));
     d.dataset.day = day || ""; d.dataset.bars = String(bars.length); d.dataset.last = bars.length ? String(bars[bars.length - 1].t) : "";
@@ -717,6 +763,7 @@ addEventListener("message", (e) => {
   /* 1 Nov: the dock's chips */
   if (e.data.type === "SCINTILLA_LENS_MINE") setMineOn(!!e.data.on);
   if (e.data.type === "SCINTILLA_LENS_STYLE") setStyle(e.data.style);
+  if (e.data.type === "SCINTILLA_LENS_CLOUDS") setClouds(!!e.data.on);
   if (e.data.type === "SCINTILLA_LENS_ADD") addToMine(String(e.data.ticker || ""));
 });
 window.__lens = { style: () => STYLE, rows: () => ROWS, rvol: () => Object.fromEntries(S.rvol), breadth: () => S.breadth, newest: () => Object.fromEntries([...S.bars].map(([t, e]) => [t, e.bars && e.bars.length ? e.bars[e.bars.length - 1].t : null])), quotes: () => Object.fromEntries([...S.quotes].map(([t, q]) => [t, q.price])), at: () => ({ bars: S.barsAt, quotes: S.quotesAt, lastCloseRead }), list: () => LIST, names, tf: TF_API[TF], bars: LENS_BARS };
@@ -726,7 +773,7 @@ if (window.ResizeObserver) new ResizeObserver(nudge).observe(document.documentEl
 addEventListener("resize", nudge);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) tick(true); });
 paintChips(); paintSet();
-(async () => { await Promise.all([readRadar(), readMine()]); paintChips(); paintSet(); tick(true); timer = setInterval(tick, 2000); })();
+(async () => { await Promise.all([readRadar(), readMine()]); paintChips(); paintSet(); tick(true); timer = setInterval(tick, 2000); readDaily(); setInterval(readDaily, DAILY_MS); })();
 </script>
 </body>
 </html>

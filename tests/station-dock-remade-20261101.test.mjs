@@ -22,7 +22,7 @@ test("the dock's chips: every control the rail had, and the frame's state comes 
   assert.match(deck, /const LENS_TF_CHIPS = Object\.freeze\(\["1m", "5m", "15m", "30m", "1h", "1D"\]\);/);
   assert.match(lens, /const TFS = Object\.freeze\(\["1m", "5m", "15m", "30m", "1h", "1D"\]\);/, "the same six the frame takes");
   for (const type of ["SCINTILLA_LENS_TF", "SCINTILLA_LENS_MINE", "SCINTILLA_LENS_STYLE", "SCINTILLA_LENS_ADD"]) { assert.match(deck, new RegExp('type:"' + type + '"'), "the deck asks: " + type); assert.match(lens, new RegExp('e\\.data\\.type === "' + type + '"'), "the frame hears: " + type); }
-  assert.match(lens, /parent\.postMessage\(\{ type:"SCINTILLA_LENS_STATE", tf:TF, style:STYLE, mineOn:MINE_ON, mine:MINE\.length, note:/);
+  assert.match(lens, /parent\.postMessage\(\{ type:"SCINTILLA_LENS_STATE", tf:TF, style:STYLE, mineOn:MINE_ON, clouds:CLOUDS_ON, mine:MINE\.length, note:/);
   assert.match(deck, /event\.data\?\.type === "SCINTILLA_LENS_STATE"\) \{ LENS_DOCK = event\.data; paintLensDock\(\); return; \}/);
   assert.match(deck, /e\.stopPropagation\(\); if \(e\.key !== "Enter"\) return;/, "typing in the box never reaches the wall's keys");
 });

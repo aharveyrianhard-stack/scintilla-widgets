@@ -67,7 +67,9 @@ test('the dock loses no control, no id and no accessible name', () => {
   /* 1 Nov (the dock remade): four more deliberate controls, moved up from the rail beside the lenses or new beside them - MINE, BARS, LINE, the X column's switch
      (Alan: "relocate them to a remade doc style thing where we switch things around"). The six timeframe chips are built in wireLensDock. */
   for (const id of ['lensMine', 'xColToggle']) assert.ok(after.has(id), `${id} is a deliberate new dock control`)
-  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 21)
+  /* 1 Nov: one more, the lenses' clouds switch (Alan: "as a switch that I can put them on and off") */
+  assert.ok(after.has('lensClouds'), 'lensClouds is a deliberate new dock control')
+  assert.equal((deck.match(/<button/g) || []).length, buttonsBefore + 22)
 })
 
 test('the rows became one sectioned strip, still in order (rebuilt 23 Sep after Alan\'s review)', () => {

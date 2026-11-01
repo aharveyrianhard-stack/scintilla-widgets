@@ -135,6 +135,13 @@ body:not(.can-float) #bPip{ display:none !important; }
 .card.on{ outline:1px solid var(--crk); outline-offset:-1px; }
 .thumb{ position:relative; width:100%; aspect-ratio:16/9; background:#12121c; overflow:hidden; }
 .thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+/* 1 Nov: hover a card for the title and what the video covers (Alan: "if I hover my mouse, I can view the title of the video ... just a little bit of more information"); never moves anything */
+.hov{ position:absolute; left:0; right:0; bottom:0; max-height:100%; overflow:hidden; padding:7px 9px; background:rgba(8,8,12,.94); color:var(--ink,#e8eaf4); font-size:13px; line-height:1.3; opacity:0; transition:opacity .1s; pointer-events:none; z-index:1; }
+.card:hover .hov{ opacity:1; } @media (hover:none){ .hov{ display:none; } }
+.thumb{ container-type:inline-size; }
+.hov b{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:3; overflow:hidden; font-weight:600; padding-right:18px; }
+.hov span{ display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; margin-top:4px; color:var(--ink2,#b9b9c6); font-size:12px; } .hov span:empty{ display:none; }
+@container (min-width:300px){ .hov span{ -webkit-line-clamp:6; } }
 /* 26 Oct (coordinator): bigger and cyan, gold once saved. Alan: "these stars are like tiny ... Bigger and cyan, and if I click it,
    it turns like gold". One filled star in both states; the colour is the state (the label still says which). */
 .star{ position:absolute; top:0; right:0; width:48px; height:48px; padding:0; z-index:2;
@@ -1749,6 +1756,7 @@ function cardHTML(v) {
         starHTML(v) +
         (v.tickers ? '<span class="tk">' + esc(String(v.tickers).split(",")[0]) + "</span>" : "") +
         videoBadgeHTML(v) +
+        '<div class="hov"><b>' + esc(v.title || "") + '</b><span class="hovx"></span></div>' +
       "</div>" +
       /* 29 Oct: the channel and its age, no title - "just the channel is more than sufficient" (Alan) */
       '<div class="cap"><div class="s"><span class="ch">' + esc(v.channel || "") + "</span>" + videoAgeHTML(v) + "</div></div>" +
@@ -1820,6 +1828,17 @@ function appendCards(rows) {
    arrives inside the user's own gesture, which is what lets the primed
    YouTube player start without asking the browser again. */
 function wireGrid() {
+  /* 1 Nov: the first hover reads what we know about the video (its one-line read, else its chapters) */
+  el("grid").addEventListener("mouseover", async (event) => {
+    const card = event.target.closest && event.target.closest(".card"); if (!card || card.dataset.hov) return;
+    card.dataset.hov = "1"; const x = card.querySelector(".hovx"); if (!x) return;
+    try {
+      const r = await fetch(SB + "/rest/v1/youtube_reads?select=takeaway,chapters&video_id=eq." + encodeURIComponent(card.dataset.v), { headers: { apikey: ANON, Authorization: "Bearer " + ANON } });
+      const row = r.ok ? (await r.json())[0] : null; if (!row) return;
+      const ch = Array.isArray(row.chapters) ? row.chapters.map((c) => c.title).filter(Boolean).slice(0, 5).join(" · ") : "";
+      x.textContent = row.takeaway || ch;
+    } catch (_) { card.dataset.hov = ""; }
+  });
   el("grid").addEventListener("click", (event) => {
     const star = event.target.closest(".star");
     if (star) { event.stopPropagation(); toggleWatch(BYID[star.dataset.star]); return; }
