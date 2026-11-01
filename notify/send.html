@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0F"><link rel="icon" href="/notify/icon-192.png"><link rel="apple-touch-icon" href="/notify/apple-touch-icon.png">
+<title>Send to Scintilla</title>
+<!-- 1 Nov 2026. Alan: "I see a story and I push it to you guys or the system"; "Send to Scintilla ... for the YouTube things, me having a way to manually send some video for a transcript analysis. Maybe with some notes of mine".
+     Any page opens this with ?u=<link>&t=<title>: the Mac's bookmark button and the iPhone's share button both land here. brain_keep queues it; the news brain on the MacBook reads it and a card comes back. -->
+<style>
+:root{ --bg:#0A0A0F; --panel:#12121C; --line:#2C2C46; --ink:#E8EAF4; --dim:#9A9EB8; --crk:#00D4FF; }
+*{ box-sizing:border-box; } html,body{ margin:0; background:var(--bg); color:var(--ink); font:16px/1.42 -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif; -webkit-text-size-adjust:100%; }
+main{ max-width:560px; margin:0 auto; padding:calc(14px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); display:grid; gap:10px; }
+header{ display:flex; align-items:center; gap:10px; font:700 13px ui-monospace,"SF Mono",Menlo,monospace; letter-spacing:.08em; color:var(--crk); } header img{ width:26px; height:26px; border-radius:6px; }
+#what{ font-weight:600; overflow-wrap:anywhere; } #what:empty{ display:none; }
+input,textarea{ width:100%; font:16px -apple-system,BlinkMacSystemFont,sans-serif; color:var(--ink); background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:10px 12px; }
+button{ font:600 16px -apple-system,BlinkMacSystemFont,sans-serif; color:#04121A; background:var(--crk); border:0; border-radius:9px; padding:12px 14px; }
+button:disabled{ opacity:.6; } #said{ color:var(--dim); min-height:20px; }
+h2{ font:700 12px ui-monospace,"SF Mono",Menlo,monospace; letter-spacing:.1em; color:var(--dim); text-transform:uppercase; margin:14px 0 0; }
+.tool{ display:inline-block; font-weight:600; color:var(--crk); border:1px solid var(--line); border-radius:9px; padding:9px 12px; text-decoration:none; } p{ margin:0; color:var(--dim); font-size:15px; }
+</style>
+</head>
+<body>
+<main>
+<header><img src="/notify/icon-192.png" alt="">SEND TO SCINTILLA</header>
+<div id="what"></div>
+<form id="f" autocomplete="off" style="display:grid;gap:10px">
+  <input id="u" type="url" inputmode="url" placeholder="Paste a story or YouTube link" aria-label="The link" required>
+  <textarea id="n" rows="3" placeholder="Your note (optional): what to look for" aria-label="Your note"></textarea>
+  <button id="go" type="submit">Send</button>
+</form>
+<div id="said" role="status"></div>
+<section id="tools">
+  <h2>Keep this one tap away</h2>
+  <p style="margin-top:8px">On a Mac: drag this button to your browser's bookmarks bar. Click it on any page.</p>
+  <p style="margin-top:8px"><a class="tool" id="mark" href="#">Send to Scintilla</a></p>
+  <p style="margin-top:12px">On iPhone or iPad: add this once, then it is in the Share menu of Safari, YouTube and everything else.</p>
+  <p style="margin-top:8px"><a class="tool" href="/notify/send-to-scintilla.shortcut">Add to the Share menu</a></p>
+</section>
+</main>
+<script>
+const SB = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+const el = (id) => document.getElementById(id), Q = new URLSearchParams(location.search);
+const firstLink = (s) => { const m = String(s || "").match(/https?:\/\/\S+/i); return m ? m[0] : ""; };
+const device = /iPhone/.test(navigator.userAgent) ? "iPhone" : /iPad/.test(navigator.userAgent) ? "iPad" : "Mac";
+const given = firstLink(Q.get("u")), title = Q.get("t") || "";
+el("u").value = given; el("what").textContent = title;
+if (given) { el("tools").hidden = true; el("n").focus(); }
+el("mark").href = "javascript:void(window.open('" + location.origin + "/notify/send.html?popup=1&u='+encodeURIComponent(location.href)+'&t='+encodeURIComponent(document.title),'scintilla','width=460,height=340'))";
+el("mark").addEventListener("click", (e) => { e.preventDefault(); el("said").textContent = "Drag this button up to the bookmarks bar."; });
+el("f").addEventListener("submit", async (e) => {
+  e.preventDefault(); const go = el("go"), url = firstLink(el("u").value); if (!url) { el("said").textContent = "That is not a link."; return; }
+  go.disabled = true; el("said").textContent = "Sending…";
+  try {
+    const r = await fetch(SB + "/rest/v1/rpc/brain_keep", { method: "POST", headers: { apikey: ANON, Authorization: "Bearer " + ANON, "content-type": "application/json" }, body: JSON.stringify({ p_url: url, p_title: title || null, p_note: el("n").value.trim() || null, p_device: device }) });
+    if (!r.ok) throw new Error(String(r.status));
+    el("said").textContent = "Sent. A card comes when it is read."; el("u").value = ""; el("n").value = ""; el("what").textContent = "";
+    if (Q.get("popup")) setTimeout(() => window.close(), 1200);
+  } catch (err) { el("said").textContent = "Not sent, try again (" + err.message + ")."; }
+  go.disabled = false;
+});
+</script>
+</body>
+</html>

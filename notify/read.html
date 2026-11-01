@@ -16,6 +16,7 @@ ul{ margin:10px 0 0; padding-left:20px; } li{ margin:7px 0; }
 h2{ font:700 12px ui-monospace,"SF Mono",Menlo,monospace; letter-spacing:.1em; color:var(--dim); text-transform:uppercase; margin:24px 0 8px; }
 .names{ display:grid; gap:8px; } .nm{ display:grid; grid-template-columns:62px 62px 1fr; gap:8px; align-items:baseline; font-size:15px; } .nm b{ font:700 14px ui-monospace,"SF Mono",Menlo,monospace; color:var(--crk); } .up{ color:var(--bull); } .dn{ color:var(--bear); } .flat{ color:var(--dim); } .pc{ font:600 13px ui-monospace,"SF Mono",Menlo,monospace; }
 .sec{ margin-top:18px; } .sec a.at{ font:600 13px ui-monospace,"SF Mono",Menlo,monospace; color:var(--crk); text-decoration:none; margin-right:8px; } .sec b{ font-size:16.5px; }
+.para{ margin:10px 0 0; line-height:1.45; } .para b{ color:var(--crk); font-weight:600; }
 .watch{ display:inline-block; margin-top:12px; color:var(--crk); text-decoration:none; font-weight:600; } .msg{ color:var(--dim); padding:24px 0; }
 .btns{ display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; } .act{ font:600 15px -apple-system,BlinkMacSystemFont,sans-serif; color:#04121A; background:var(--crk); border:0; border-radius:9px; padding:11px 14px; } .act.quiet{ color:var(--ink); background:var(--panel); border:1px solid var(--line); } .act:disabled{ opacity:.55; }
 </style>
@@ -43,8 +44,9 @@ async function video(id) {
   const [x] = await pg("youtube_reads?select=*&video_id=eq." + encodeURIComponent(id)); if (!x) { m.innerHTML = '<div class="msg">This read is not ready yet.</div>'; return; }
   document.title = (x.channel || "SCINTILLA") + " · read";
   const light = x.tier === "light", full = "https://youtu.be/" + x.video_id;
-  m.innerHTML = '<div class="who">' + esc(x.channel) + '</div><div class="meta">' + esc(when(x.published_at)) + (x.duration ? " · " + esc(x.duration) : "") + '</div><h1>' + esc(light ? x.title : x.takeaway) + "</h1>" + (light ? "" : '<div class="sub">' + esc(x.title) + "</div>") + '<a class="watch" href="https://youtu.be/' + esc(x.video_id) + '" target="_blank" rel="noopener">Watch on YouTube ↗</a>' +
+  m.innerHTML = '<div class="who">' + esc(x.channel) + '</div><div class="meta">' + esc(when(x.published_at)) + (x.duration ? " · " + esc(x.duration) : "") + '</div><h1>' + esc(light ? x.title : x.takeaway) + "</h1>" + (light ? (x.takeaway ? '<p class="para">' + esc(x.takeaway) + "</p>" : "") : '<div class="sub">' + esc(x.title) + "</div>") + (x.note ? '<p class="para"><b>Your note:</b> ' + esc(x.note) + "</p>" : "") + '<a class="watch" href="https://youtu.be/' + esc(x.video_id) + '" target="_blank" rel="noopener">Watch on YouTube ↗</a>' +
     (light ? '<div class="btns">' + keepBtn(full, x.title, "Read this one in full", "Queued. A card comes when it is read.") + "</div>" : '<div class="btns">' + keepBtn(full, x.title, "★ Keep", "★ Kept", true) + "</div>") +
+    (x.vs_report ? "<h2>Against our report</h2><p class=\"para\">" + esc(x.vs_report) + "</p>" : "") +
     ((x.tickers || []).length ? '<h2>Names</h2><div class="names">' + x.tickers.map((t) => '<div class="nm"><b>' + esc(t.t) + '</b><span class="pc ' + viewOf(t.view) + '">' + esc(t.view) + "</span><span>" + esc(t.why) + (t.levels ? ' <span class="flat">' + esc(t.levels) + "</span>" : "") + "</span></div>").join("") + "</div>" : "") +
     ((x.calls || []).length ? "<h2>Calls</h2><ul>" + x.calls.map((c) => "<li>" + esc(c) + "</li>").join("") + "</ul>" : "") +
     (light && !(x.sections || []).length ? '<div class="sub" style="margin-top:16px">No chapters listed on this video.</div>' : "") + ((x.sections || []).length ? "<h2>" + (light ? "Chapters" : "Section by section") + "</h2>" + x.sections.map((s) => '<div class="sec"><a class="at" href="https://youtu.be/' + esc(x.video_id) + "?t=" + secs(s.at) + '" target="_blank" rel="noopener">' + esc(s.at) + "</a><b>" + esc(s.title) + "</b><ul>" + (s.points || []).map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul></div>").join("") : "");
@@ -53,6 +55,7 @@ async function read(id) {
   const rows = await pg("news_reads?select=*" + (id ? "&id=eq." + encodeURIComponent(id) : "") + "&order=id.desc&limit=1"); const x = rows[0]; if (!x) { m.innerHTML = '<div class="msg">No read yet.</div>'; return; }
   document.title = "AI read · " + (x.title || "");
   m.innerHTML = '<div class="who">AI read · ' + esc(x.kind === "test" ? "market" : x.kind) + '</div><div class="meta">' + esc(when(x.created_at)) + '</div><h1>' + esc(x.takeaway) + "</h1><ul>" + (x.points || []).map((p) => "<li>" + esc(p) + "</li>").join("") + "</ul>" +
+    (x.scenario ? "<h2>The report's paths</h2><p class=\"para\">" + esc(x.scenario) + "</p>" : "") +
     ((x.names || []).length ? '<h2>Your names</h2><div class="names">' + x.names.map((t) => '<div class="nm"><b>' + esc(t.t) + '</b><span class="pc ' + (t.pct > 0 ? "up" : t.pct < 0 ? "dn" : "flat") + '">' + (t.pct != null ? (t.pct > 0 ? "+" : "") + Number(t.pct).toFixed(1) + "%" : "") + "</span><span>" + esc(t.why) + "</span></div>").join("") + "</div>" : "") +
     ((x.watch || []).length ? "<h2>Next</h2><ul>" + x.watch.map((c) => "<li>" + esc(c) + "</li>").join("") + "</ul>" : "");
 }
