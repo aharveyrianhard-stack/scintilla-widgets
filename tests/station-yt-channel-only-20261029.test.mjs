@@ -38,7 +38,10 @@ for (const [shell, src] of SRC) {
       videoAgeHTML: () => '<span class="age">2h ago</span>' };
     vm.runInNewContext(fnText(src, "cardHTML"), ctx);
     const html = ctx.cardHTML({ video_id: "abc", title: "No Spin News - October 29, 2026", channel: "Bill O'Reilly" });
-    assert.doesNotMatch(html, /No Spin News/, "the title is not on the card");
+    /* 1 Nov (Alan: "if I hover my mouse, I can view the title of the video"): the title lives in the hover layer only */
+    const hover = html.match(/<div class="hov">.*?<\/div>/)[0];
+    assert.match(hover, /No Spin News/, "the hover layer holds the title");
+    assert.doesNotMatch(html.replace(hover, ""), /No Spin News/, "the title is not on the card");
     assert.doesNotMatch(html, /class="t"/, "nor a title line waiting for it");
     assert.match(html, /<div class="cap"><div class="s"><span class="ch">Bill O'Reilly<\/span><span class="age">2h ago<\/span><\/div><\/div>/);
   });

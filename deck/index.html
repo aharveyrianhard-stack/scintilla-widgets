@@ -844,6 +844,7 @@ body[data-view="compact"] #rowTop.charts-8{ grid-template-columns:repeat(4,minma
     <span id="lensStyleChips">
       <button type="button" class="btn" data-style="bars" title="candles on every lens">bars</button>
       <button type="button" class="btn" data-style="line" title="a line of the closes on every lens">line</button>
+      <button type="button" class="btn" id="lensClouds" aria-pressed="false" title="your 13D, 21D, 50D and 200D lines on every lens">clouds</button>
     </span>
   </span>
   <span class="dsec" data-sec="xcol" role="group" aria-label="X column">
@@ -3772,14 +3773,16 @@ function paintLensDock() {
   const mine = el("lensMine"); if (!mine) return;
   pressed(mine, LENS_DOCK.mineOn); mine.textContent = "mine" + (LENS_DOCK.mine ? " " + LENS_DOCK.mine : "");
   for (const b of el("lensTfChips").children) pressed(b, b.dataset.tf === LENS_DOCK.tf);
-  for (const b of el("lensStyleChips").children) pressed(b, b.dataset.style === LENS_DOCK.style);
+  for (const b of el("lensStyleChips").querySelectorAll("[data-style]")) pressed(b, b.dataset.style === LENS_DOCK.style);
+  pressed(el("lensClouds"), LENS_DOCK.clouds);
   el("lensAdd").placeholder = LENS_DOCK.note || "+ ticker";
 }
 function wireLensDock() {
   const mine = el("lensMine"), box = el("lensTfChips"); if (!mine || mine.__wired) return; mine.__wired = true;
   for (const t of LENS_TF_CHIPS) { const b = document.createElement("button"); b.type = "button"; b.className = "btn"; b.dataset.tf = t; b.textContent = t; b.title = t + " bars on every lens"; b.addEventListener("click", () => tellLens({ type:"SCINTILLA_LENS_TF", tf:t })); box.appendChild(b); }
   mine.addEventListener("click", () => tellLens({ type:"SCINTILLA_LENS_MINE", on:!LENS_DOCK.mineOn }));
-  for (const b of el("lensStyleChips").children) b.addEventListener("click", () => tellLens({ type:"SCINTILLA_LENS_STYLE", style:b.dataset.style }));
+  for (const b of el("lensStyleChips").querySelectorAll("[data-style]")) b.addEventListener("click", () => tellLens({ type:"SCINTILLA_LENS_STYLE", style:b.dataset.style }));
+  el("lensClouds").addEventListener("click", () => tellLens({ type:"SCINTILLA_LENS_CLOUDS", on:!LENS_DOCK.clouds }));
   el("lensAdd").addEventListener("keydown", (e) => { e.stopPropagation(); if (e.key !== "Enter") return; tellLens({ type:"SCINTILLA_LENS_ADD", ticker:e.target.value }); e.target.value = ""; e.target.blur(); });
   el("lensAdd").addEventListener("pointerleave", (e) => { if (!e.target.value) e.target.blur(); });   /* an empty box never holds the strip open */
   /* the X column's switch: NO_X is read at load, so it goes through the same ?nox= door the iPad uses, remembered per machine */
