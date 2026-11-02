@@ -35,7 +35,14 @@ function paint(x) {
     const x = (await r.json())[0];
     if (!x) { el.innerHTML = '<p class="dim">That alert is no longer here.</p>' + LIST; return; }
     paint(x);
-    if (x.url) location.replace(x.url);   /* the card stays underneath if the story cannot open */
+    /* 2 Nov. Alan: "when I click the X, it doesn't take me back to the feed." An iPhone's X on a story goes back to the last page of ours, and with the app closed before the tap there was none (measured on an iOS 26.5 simulator: no X at all).
+       So this page's place in the history becomes the list's address, then the story opens on top of it. */
+    /* A jump made while the page is still loading replaces it in the history, so it waits until loading has finished. */
+    if (x.url) {
+      history.replaceState(null, "", "/notify/"); addEventListener("pageshow", (e) => { if (e.persisted) location.replace("/notify/"); });
+      const go = () => setTimeout(() => location.assign(x.url), 60);
+      if (document.readyState === "complete") go(); else addEventListener("load", go);
+    }
   } catch (e) { el.innerHTML = '<p class="dim">Could not read that alert (' + esc(e.message) + ").</p>" + LIST; }
 })();
 </script>
