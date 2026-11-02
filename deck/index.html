@@ -6148,7 +6148,9 @@ setInterval(selfUpdateCheck, SELF_UPDATE_MS);
       for (let yy = bottom + 1; yy < Math.min(bottom + 8, r.bottom); yy++) { if (!inP(cx, yy)) break; bottom = yy; }
       show = bottom - y > 120 && [.08, .92].every((a) => [y + 6, (y + bottom) / 2, bottom - 3].every((yy) => inP(r.x + r.width * a, yy)));   /* a video or charts-only over any of it: X steps away */
     }
-    const m = { show, x: r ? Math.round(r.x) : 0, y, w: r ? Math.round(r.width) : 0, h: Math.round(bottom - y), iw: innerWidth, ih: innerHeight };
+    /* in screen points, as the Mac app counts them: the iMac's Station runs at 75% browser zoom, so its page is 2232 wide in a window 1674 wide */
+    const k = outerWidth > 0 && innerWidth > 0 ? outerWidth / innerWidth : 1, pt = (v) => Math.round(v * k);
+    const m = { show, x: r ? pt(r.x) : 0, y: pt(y), w: r ? pt(r.width) : 0, h: pt(bottom - y), iw: pt(innerWidth), ih: pt(innerHeight) };
     const s = JSON.stringify(m), now = Date.now();
     if (s === last && now - lastAt < 20000) return;
     last = s; lastAt = now;
