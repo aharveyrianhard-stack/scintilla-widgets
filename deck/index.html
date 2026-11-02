@@ -6131,6 +6131,31 @@ async function selfUpdateCheck() {
 }
 setTimeout(selfUpdateCheck, 15000);
 setInterval(selfUpdateCheck, SELF_UPDATE_MS);
+
+/* 1 Nov — REAL X ON THIS COLUMN, from the Scintilla app on this Mac: its own window, signed in once, no extension. x.com refuses to load inside any page, so this page only says where the column is
+   and whether it can be seen right now (a playing video or charts-only covers it). A broadcast on the realtime channel station-x, about a tenth of a second; the app takes only what fits its own Station window.
+   Alan: "just like my X basically in Station", and of the old one, "instead of the one that auto-scrolled". The top strip stays clear so the dock can still be reached. */
+(function xColumnSignal() {
+  if (navigator.platform !== "MacIntel" || navigator.maxTouchPoints > 0) return;   /* the iPad and phone have the real X app */
+  let last = "", lastAt = 0;
+  function look() {
+    const p = document.querySelector('.pane[data-key="x"]'), r = p && p.getBoundingClientRect(), dock = el("dock"), top = dock ? Math.max(0, Math.round(dock.getBoundingClientRect().bottom)) : 0;
+    const inP = (x, y) => { const e = document.elementFromPoint(x, y); return !!e && p.contains(e); };
+    let show = !!r && !NO_X && document.visibilityState === "visible" && r.width > 60 && r.height > 60, y = r ? Math.max(Math.round(r.y), top) : 0, bottom = y;
+    if (show) {   /* the column's own height runs under the video list: X gets what can really be seen, top down */
+      const cx = r.x + r.width / 2;
+      for (let yy = y + 2; yy < r.bottom; yy += 8) { if (!inP(cx, yy)) break; bottom = yy; }
+      for (let yy = bottom + 1; yy < Math.min(bottom + 8, r.bottom); yy++) { if (!inP(cx, yy)) break; bottom = yy; }
+      show = bottom - y > 120 && [.08, .92].every((a) => [y + 6, (y + bottom) / 2, bottom - 3].every((yy) => inP(r.x + r.width * a, yy)));   /* a video or charts-only over any of it: X steps away */
+    }
+    const m = { show, x: r ? Math.round(r.x) : 0, y, w: r ? Math.round(r.width) : 0, h: Math.round(bottom - y), iw: innerWidth, ih: innerHeight };
+    const s = JSON.stringify(m), now = Date.now();
+    if (s === last && now - lastAt < 20000) return;
+    last = s; lastAt = now;
+    fetch(SB + "/realtime/v1/api/broadcast", { method:"POST", keepalive:true, headers:{ apikey:ANON, Authorization:"Bearer " + ANON, "content-type":"application/json" }, body:JSON.stringify({ messages:[{ topic:"station-x", event:"rect", payload:m, private:false }] }) }).catch(() => {});
+  }
+  setInterval(look, 500); document.addEventListener("visibilitychange", look);
+})();
 </script>
 </body>
 </html>
