@@ -54,8 +54,10 @@ el("list").addEventListener("click", async (e) => { const b = e.target.closest("
 el("keep").addEventListener("submit", async (e) => { e.preventDefault(); const i = el("keepUrl"), u = i.value.trim(); if (!/^https?:\/\//i.test(u)) { i.value = ""; i.placeholder = "That is not a link"; return; } const n = el("keepNote"); try { await keep(u, null, n.value.trim()); i.value = ""; n.value = ""; i.placeholder = "Sent. A card comes when it is read."; } catch (_) { i.placeholder = "Not kept, try again"; } });
 el("tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (!b) return; SCOPE = b.dataset.scope; remember("notify.scope", SCOPE); paintList(); });
 /* the logo on the phone: one tap, once, from the Home Screen */
-const STANDALONE = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches, IOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-const deviceName = () => /iPhone/.test(navigator.userAgent) ? "iPhone" : /iPad/.test(navigator.userAgent) ? "iPad" : /Android/.test(navigator.userAgent) ? "Android" : "computer";
+/* an iPad's Safari says it is a Mac; only its touch screen gives it away. Without this the iPad never got the button (1 Nov). */
+const IS_IPAD = /iPad/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const STANDALONE = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches, IOS = /iPhone|iPod/.test(navigator.userAgent) || IS_IPAD;
+const deviceName = () => /iPhone/.test(navigator.userAgent) ? "iPhone" : IS_IPAD ? "iPad" : /Android/.test(navigator.userAgent) ? "Android" : "computer";
 function setup(html) { const s = el("setup"); s.hidden = !html; s.innerHTML = html || ""; const b = el("go"); if (b) b.addEventListener("click", turnOn); }
 /* tell the database about this phone. 201 = new, 409 = it already knows. Plain insert: "ignore duplicates" asks for read rights this table rightly refuses */
 async function storeSub(sub) {
