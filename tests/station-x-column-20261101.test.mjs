@@ -13,6 +13,7 @@ test("the Station says where the X column is and whether it can be seen, and onl
   assert.match(deck, /!NO_X/, "the x column switch still rules");
   assert.match(deck, /Math\.max\(Math\.round\(r\.y\), top\)/, "the dock stays reachable above it");
   assert.match(deck, /bottom - y > 120/, "X gets only what can really be seen; the column runs under the video list");
+  assert.match(deck, /outerWidth \/ innerWidth/, "screen points, whatever the browser zoom: the iMac's Station runs at 75%");
 });
 test("the signal runs after everything it reads exists", () => {
   assert.ok(deck.indexOf("function xColumnSignal()") > deck.indexOf('const NO_X ='), "NO_X is declared first");
