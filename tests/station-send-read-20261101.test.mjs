@@ -35,3 +35,9 @@ test("a phone that already said yes is told to the database with no tap (the 401
   assert.match(s, /await storeSub\(sub\); HEALED = true;/, "the button uses the same door");
   assert.doesNotMatch(s, /resolution=ignore-duplicates/);
 });
+test("an iPad gets the alerts button: its Safari says it is a Mac, only the touch screen gives it away", () => {
+  const s = read("index.html");
+  assert.match(s, /navigator\.platform === "MacIntel" && navigator\.maxTouchPoints > 1/);
+  assert.match(s, /IOS = \/iPhone\|iPod\/\.test\(navigator\.userAgent\) \|\| IS_IPAD/);
+  assert.match(s, /IS_IPAD \? "iPad"/);
+});
