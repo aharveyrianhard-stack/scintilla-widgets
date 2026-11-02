@@ -41,3 +41,10 @@ test("an iPad gets the alerts button: its Safari says it is a Mac, only the touc
   assert.match(s, /IOS = \/iPhone\|iPod\/\.test\(navigator\.userAgent\) \|\| IS_IPAD/);
   assert.match(s, /IS_IPAD \? "iPad"/);
 });
+test("a tapped phone alert opens its own card and goes straight to the story; the list shows every card by default", () => {
+  const c = read("card.html"), sw = read("push-sw.js"), i = read("index.html");
+  assert.match(c, /rpc\/notify_card/); assert.match(c, /location\.replace\(x\.url\)/); assert.match(c, /Open the story/);
+  assert.match(sw, /c\.navigate\(url\)/); assert.match(sw, /clients\.openWindow\(url\)/);
+  assert.match(i, /remembered\("notify\.scope"\) === "mine" \? "mine" : "all"/);
+  const key = (s) => s.match(/ANON = "([^"]+)"/)[1]; assert.equal(key(c), key(read("read.html")));
+});
