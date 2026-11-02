@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0F"><link rel="icon" href="/notify/icon-192.png">
+<title>SCINTILLA · alert</title>
+<!-- 2 Nov 2026. What a tapped phone alert opens. Alan: "I clicked on it on the phone and it sends me to this feed ... The thing that I clicked on is not there." and "I think it should send me directly there."
+     An alert with a story goes straight to the story; one without shows itself, the same card as on the Macs. Same-origin on purpose: an iPhone Home Screen app will not reliably open another site directly from a notification tap. -->
+<style>
+:root{ --bg:#0A0A0F; --panel:#12121C; --line:#2C2C46; --ink:#E8EAF4; --dim:#9A9EB8; --crk:#00D4FF; --bull:#00FFA3; --bear:#FF456B; }
+*{ box-sizing:border-box; } html,body{ margin:0; background:var(--bg); color:var(--ink); font:16px/1.42 -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif; -webkit-text-size-adjust:100%; }
+main{ max-width:640px; margin:0 auto; padding:calc(20px + env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom)); }
+.top{ display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; font-size:13px; color:var(--dim); } .who{ font:700 15px ui-monospace,"SF Mono",Menlo,monospace; color:var(--crk); } .up{ color:var(--bull); } .dn{ color:var(--bear); }
+h1{ font-size:22px; line-height:1.26; margin:10px 0 0; text-wrap:balance; } p{ margin:12px 0 0; line-height:1.45; } .dim{ color:var(--dim); }
+.go{ display:inline-block; margin-top:18px; font-weight:600; color:#04121A; background:var(--crk); border-radius:9px; padding:10px 16px; text-decoration:none; } .all{ display:block; margin-top:22px; color:var(--dim); font-size:14px; }
+</style>
+</head>
+<body><main id="m"><p class="dim">opening…</p></main>
+<script>
+const SB = "https://wadinxqplrggagkvrdag.supabase.co", ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g", Q = new URLSearchParams(location.search), el = document.getElementById("m");
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const ago = (iso) => { const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000); return s < 60 ? "now" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d"; };
+const LIST = '<a class="all" href="/notify/">All alerts</a>';
+/* the same top line as the Mac card: name, the day's move, where it came from and how old */
+function who(x) { const volume = x.source === "Volume Pulse" || /^(scintilla\s*·\s*)?volume\b/i.test(x.title); return x.kind === "urth" ? "URTH" : x.kind === "system" ? "THIS MAC" : volume ? "VOLUME" : x.ticker || (x.level >= 3 ? "SCINTILLA" : "MARKET"); }
+function paint(x) {
+  const pct = x.pct != null ? '<span class="' + (x.pct >= 0 ? "up" : "dn") + '">' + (x.pct >= 0 ? "+" : "") + Number(x.pct).toFixed(1) + "%</span>" : "";
+  el.innerHTML = '<div class="top"><span class="who">' + esc(who(x)) + "</span>" + pct + "<span>" + esc([x.source, ago(x.at)].filter(Boolean).join(" · ")) + "</span></div><h1>" + esc(x.title) + "</h1>" + (x.body ? "<p>" + esc(x.body) + "</p>" : "") + (x.summary ? '<p class="dim">' + esc(x.summary) + "</p>" : "") + (x.url ? '<a class="go" href="' + esc(x.url) + '">Open the story</a>' : "") + LIST;
+}
+(async () => {
+  try {
+    const r = await fetch(SB + "/rest/v1/rpc/notify_card", { method: "POST", headers: { apikey: ANON, Authorization: "Bearer " + ANON, "content-type": "application/json" }, body: JSON.stringify({ p_id: Number(Q.get("id")), p_k: Q.get("k") || "" }) });
+    if (!r.ok) throw new Error("status " + r.status);
+    const x = (await r.json())[0];
+    if (!x) { el.innerHTML = '<p class="dim">That alert is no longer here.</p>' + LIST; return; }
+    paint(x);
+    if (x.url) location.replace(x.url);   /* the card stays underneath if the story cannot open */
+  } catch (e) { el.innerHTML = '<p class="dim">Could not read that alert (' + esc(e.message) + ").</p>" + LIST; }
+})();
+</script>
+</body>
+</html>
