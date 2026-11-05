@@ -211,7 +211,7 @@ test("5: Document PiP first, a small window where the browser lacks it, and the 
   const dpip = { window: null, requestWindow: async (o) => { dpip.size = o; return { document: doc }; } };
   const a = await run({ window: { documentPictureInPicture: dpip } });
   assert.equal(a.path, "document");
-  assert.deepEqual(JSON.parse(JSON.stringify(dpip.size)), { width: 480, height: 270 });
+  assert.deepEqual(JSON.parse(JSON.stringify(dpip.size)), { width: 480, height: 270, disallowReturnToOpener: true });
   assert.equal(made[0].src, "https://station.scintillahub.ai/station-shells/pip-v1/?v=u1sbtiTQk1s&start=24&title=t", "the same video, the same second");
   const b = await run({ window: {}, openReturns: {} });
   assert.equal(b.path, "window");
