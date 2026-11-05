@@ -25,7 +25,7 @@ const liftFrom = (src, name) => {
   return src.slice(start, i + 1);
 };
 const FLOAT_FNS = ["floatHost", "canFloat", "floatSize", "floatPageUrl", "floatSecond", "notePip", "paintFloat", "loadIntoFloat",
-  "floatVideo", "tickFloat", "bringBack", "floatClosed", "floatKey", "toggleFloat", "captureActiveVideoPosition"];
+  "floatBackButton", "floatVideo", "tickFloat", "bringBack", "floatClosed", "floatKey", "toggleFloat", "captureActiveVideoPosition"];
 
 /* The pane's float, lifted out of the pane and run against a fake Station: a top window with (or without) Document
    PiP, a PiP window that fires pagehide when it closes, the float page's SC_FLOAT, and the pane's YouTube player. */
@@ -43,7 +43,7 @@ function station({ api = true, crossOrigin = false, stored = null, loadedId = "u
   const makeWin = (o) => {
     const winListeners = {};
     const doc = { title: "", documentElement: { style: {} }, body: { style: {}, set textContent(v) { made.length = 0; }, appendChild: (n) => made.push(n) },
-      createElement: () => ({ style: {}, src: "", allow: "", contentWindow: { SC_FLOAT: {
+      createElement: () => ({ style: {}, src: "", allow: "", addEventListener(t, fn) { this.on = fn; }, contentWindow: { SC_FLOAT: {
         at: () => floatPage.t, ended: () => floatPage.ended, blocked: () => floatPage.blocked,
         sound: () => floatPage.sound, muted: () => !floatPage.sound,
         follow: (t, playing) => { floatPage.follows.push([t, playing]); return true; }, align: (t) => floatPage.aligns.push(t) } } }),
@@ -86,8 +86,9 @@ test("the two video shells are still byte for byte the same pane; S5's float pag
 test("1: the float opens at the second the pane is at - 16:9, 480 wide - and the pane pauses and says where the video is", async () => {
   const s = station();
   assert.equal(await s.api.floatVideo(), true);
-  assert.deepEqual(JSON.parse(JSON.stringify(s.dpip.requests)), [{ width: 480, height: 270 }], "16:9, 480 px wide the first time");
-  assert.equal(s.made.length, 1, "one player in the window");
+  assert.deepEqual(JSON.parse(JSON.stringify(s.dpip.requests)), [{ width: 480, height: 270, disallowReturnToOpener: true }], "16:9, 480 px wide the first time");
+  assert.equal(s.made.filter((n) => n.src).length, 1, "one player in the window");
+  assert.equal(s.made[1].id, "scFloatBack", "and the Station's own way back (4 Nov)");
   assert.equal(s.made[0].src, "https://station.scintillahub.ai/station-shells/pip-v2/?v=u1sbtiTQk1s&start=24&title=t", "the same video, the same second");
   assert.match(s.made[0].allow, /autoplay/);
   assert.ok(!s.calls.includes("pause"), "27 Oct: floating does not stop this pane - it keeps the sound until the window plays its own");
@@ -198,9 +199,9 @@ test("3: P (either case) toggles it from the pane, the deck or the window; never
 });
 
 test("3: the window opens at the width last given to it this session, always 16:9; a resize is remembered", async () => {
-  assert.deepEqual(JSON.parse(JSON.stringify(station({ stored: '{"width":640}' }).api.floatSize())), { width: 640, height: 360 });
-  assert.deepEqual(JSON.parse(JSON.stringify(station({ stored: '{"width":12}' }).api.floatSize())), { width: 480, height: 270 });
-  assert.deepEqual(JSON.parse(JSON.stringify(station({ stored: "garbage" }).api.floatSize())), { width: 480, height: 270 });
+  assert.deepEqual(JSON.parse(JSON.stringify(station({ stored: '{"width":640}' }).api.floatSize())), { width: 640, height: 360, disallowReturnToOpener: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(station({ stored: '{"width":12}' }).api.floatSize())), { width: 480, height: 270, disallowReturnToOpener: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(station({ stored: "garbage" }).api.floatSize())), { width: 480, height: 270, disallowReturnToOpener: true });
   const s = station();
   await s.api.floatVideo();
   s.win().innerWidth = 720; s.win().fire("resize");

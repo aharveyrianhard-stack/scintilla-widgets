@@ -1481,7 +1481,17 @@ function floatSize() {
     const w = Number(JSON.parse(sessionStorage.getItem(FLOAT_KEY) || "{}").width);
     if (w >= 240 && w <= 3840) width = Math.round(w);
   } catch (_) {}
-  return { width, height:Math.round(width * 9 / 16) };
+  /* 4 Nov, Alan: "when I ... click the thing to bring it like back to the station ... it kind of closes the entire station". The system log
+     at 22:55:15 shows the Station coming forward and Brave dropping its whole app 0.6 s later, with no call from this code. So the browser's own
+     back-to-tab button comes off the window, and the Station's own button (floatBackButton) does that job through bringBack(), which closes only the window. */
+  return { width, height:Math.round(width * 9 / 16), disallowReturnToOpener:true };
+}
+function floatBackButton(d) {
+  const b = d.createElement("button");
+  b.type = "button"; b.id = "scFloatBack"; b.textContent = "\u2190 Station"; b.title = "bring it back into the Station (P)";
+  b.style.cssText = "position:fixed;left:6px;top:6px;z-index:2;padding:3px 8px;border:1px solid rgba(255,255,255,.3);border-radius:4px;background:rgba(0,0,0,.65);color:#fff;font:600 11px/1.2 system-ui,sans-serif;cursor:pointer;opacity:.75";
+  b.addEventListener("click", bringBack);
+  d.body.appendChild(b);
 }
 /* the Station's own float page holds the player (a YouTube embed put straight into the blank PiP document
    is refused: Error 153) */
@@ -1531,6 +1541,7 @@ function loadIntoFloat(v, start) {
   f.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
   f.src = floatPageUrl(v, at);
   d.body.appendChild(f);
+  floatBackButton(d);
   Object.assign(FLOAT, { frame:f, id:v.video_id, at, ended:false });
 }
 async function floatVideo() {
