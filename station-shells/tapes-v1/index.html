@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SCINTILLA · tapes</title>
+<!-- TAPES (18 Nov 2026). Alan, dictated: "The tapes, the earnings tape, the scintilla tape, the economic tape, I need them on the
+     station ... the coolest method is the one with the economic, with the flashing and such, but that one I can barely see anything.
+     On the station, if we express more things like that with the flashing and the scintillation, we'll have more space."
+     Two rows, read from across the room:
+       1. TODAY - the economic releases (US, medium and high impact) and the earnings of the names we track, in time order, with a
+          NOW mark; the box on the left is the NEXT release, big, counting down; it flashes in its last 15 minutes and again when the
+          number prints (actual vs estimate, green above, red below).
+       2. SCINTILLAS - today's names moving N× their usual day, newest first; a new one flashes in the box on the left at once and
+          glows on the tape.
+     Same sources as the Hub: econ_calendar, earnings_events, scintillas (read only, public key). The tapes move at one steady pace
+     and only take new content at the end of a lap, so nothing jumps; the boxes on the left never change size.
+     ?rows=1 shows only TODAY. -->
+<style>
+:root{ --bg:#0A0A0F; --panel:#0D0D14; --line:#1A1A2A; --hair:#2A2A3C; --ink:#F2F2F8; --ink2:#C8C8D8; --ink3:#9A9AB6; --mute:#6E6E80; --dim:#55556A;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF2D55; --warm:#fab219; --hot:#ec835a; --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace; }
+html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); font-family:var(--mono); overflow:hidden; font-variant-numeric:tabular-nums; }
+#rows{ position:absolute; inset:0; display:flex; flex-direction:column; gap:1px; background:var(--line); }
+.row{ flex:1 1 0; min-height:0; display:flex; background:var(--bg); }
+.head{ flex:none; width:var(--head-w, 22%); box-sizing:border-box; display:flex; align-items:center; gap:.6em; padding:0 .8em; overflow:hidden;
+  border-right:1px solid var(--hair); background:var(--panel); white-space:nowrap; }
+.head .k{ font-size:.62em; letter-spacing:.16em; text-transform:uppercase; color:var(--crk); flex:none; }
+.head .big{ font-size:1em; color:var(--ink); overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.head .cd{ margin-left:auto; flex:none; font-size:.95em; color:var(--warm); }
+.head .sub{ color:var(--ink3); font-size:.8em; }
+.win{ flex:1 1 0; min-width:0; position:relative; overflow:hidden; }
+.track{ position:absolute; left:0; top:0; height:100%; display:flex; align-items:stretch; white-space:nowrap; }
+.track.run{ will-change:transform; animation:tape-move linear infinite; }
+@keyframes tape-move{ from{ transform:translateX(0); } to{ transform:translateX(-50%); } }
+@media (prefers-reduced-motion: reduce){ .track.run{ animation:none; } }
+.it{ display:flex; align-items:center; gap:.42em; padding:0 1em; border-right:1px solid var(--line); }
+.it .t{ color:var(--ink3); font-size:.8em; }
+.it .n{ color:var(--ink); }
+.it .tag{ font-size:.62em; letter-spacing:.12em; text-transform:uppercase; color:var(--ink3); border:1px solid var(--hair); padding:.05em .35em; }
+.it .v{ color:var(--ink2); }
+.it .up{ color:var(--bull); } .it .dn{ color:var(--bear); }
+.it.hi .n::before{ content:"●"; color:var(--warm); margin-right:.35em; font-size:.7em; vertical-align:.15em; }
+.it.past .n{ color:var(--ink2); }
+.it.lbl{ color:var(--crk); font-size:.68em; letter-spacing:.16em; text-transform:uppercase; }
+.it.now{ color:var(--bg); background:var(--crk); font-size:.68em; letter-spacing:.18em; font-weight:700; padding:0 .8em; }
+.it.day{ color:var(--warm); font-size:.68em; letter-spacing:.16em; text-transform:uppercase; }
+.it.fresh{ animation:glow 1.6s ease-out 1, glowhold 2.4s ease-in-out 1.6s infinite alternate; }
+/* the one look of a scintillation on the Station: one bright pulse, then a steady glow (the lens wall's W12 look) */
+@keyframes glow{ 0%{ box-shadow:inset 0 0 0 2px #fff, 0 0 28px rgba(0,212,255,1); background:#15223a; } 100%{ box-shadow:inset 0 0 0 1px var(--crk); background:#0f1a2c; } }
+@keyframes glowhold{ from{ box-shadow:inset 0 0 0 1px var(--crk); background:#0f1a2c; } to{ box-shadow:inset 0 0 0 1px rgba(0,212,255,.35); background:var(--bg); } }
+/* the NEXT box: in its last 15 minutes it pulses, in its last minute faster, at the print one bright flash then held */
+.head.soon{ animation:soon 1.6s ease-in-out infinite; }
+.head.last{ animation:soon .7s ease-in-out infinite; }
+.head.due{ background:#15223a; box-shadow:inset 0 0 0 2px var(--crk); }
+.head.printed{ animation:glow 1.6s ease-out 1; background:#0f1a2c; box-shadow:inset 0 0 0 1px var(--crk); }
+.head.flash{ animation:glow 1.6s ease-out 1; }
+@keyframes soon{ 0%,100%{ background:var(--panel); box-shadow:inset 0 0 0 1px var(--hair); } 50%{ background:#2a1d05; box-shadow:inset 0 0 0 2px var(--warm), 0 0 18px rgba(250,178,25,.55); } }
+.empty{ color:var(--dim); font-size:.72em; letter-spacing:.1em; padding:0 1em; display:flex; align-items:center; }
+</style>
+</head>
+<body>
+<div id="rows">
+  <div class="row" id="rowToday"><div class="head" id="next"><span class="k">next</span><span class="big">—</span></div><div class="win"><div class="track" id="trToday"></div></div></div>
+  <div class="row" id="rowScint"><div class="head" id="scHead"><span class="k">scintillas</span><span class="big">—</span></div><div class="win"><div class="track" id="trScint"></div></div></div>
+</div>
+<script>
+"use strict";
+const SB = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+const QS = new URLSearchParams(location.search);
+const ROWS = QS.get("rows") === "1" ? 1 : 2;
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+/* times in New York, whatever the Mac's own zone */
+const ET_HM = new Intl.DateTimeFormat("en-US", { timeZone:"America/New_York", hour:"2-digit", minute:"2-digit", hour12:false });
+const ET_DAY = new Intl.DateTimeFormat("en-CA", { timeZone:"America/New_York", year:"numeric", month:"2-digit", day:"2-digit" });
+const ET_WD = new Intl.DateTimeFormat("en-US", { timeZone:"America/New_York", weekday:"short" });
+const hm = (ms) => ET_HM.format(new Date(ms)).replace(/^24:/, "00:");
+const dayET = (ms) => ET_DAY.format(new Date(ms));
+/* the ET offset at a moment (minutes), so "today 00:00 ET" is exact across the clock change */
+function etOffsetMin(ms) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone:"America/New_York", hourCycle:"h23", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit" })
+    .formatToParts(new Date(ms)).filter((x) => x.type !== "literal").map((x) => [x.type, Number(x.value)]));
+  return Math.round((Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute, p.second) - Math.floor(ms / 1000) * 1000) / 60000);
+}
+function etAt(dayIso, h, m) { const base = Date.parse(dayIso + "T00:00:00Z"); const off = etOffsetMin(base + 12 * 3600000); return base + (h * 60 + m - off) * 60000; }
+const addDays = (iso, n) => { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+async function pg(path) {
+  const r = await fetch(SB + "/rest/v1/" + path, { headers:{ apikey:ANON, Authorization:"Bearer " + ANON }, cache:"no-store" });
+  if (!r.ok) throw new Error(path.split("?")[0] + " → " + r.status);
+  return r.json();
+}
+const num = (v) => (v == null || v === "" || !Number.isFinite(Number(v))) ? null : Number(v);
+const fmt = (v) => { const n = num(v); if (n == null) return "—"; const a = Math.abs(n); return a >= 1000 ? n.toLocaleString("en-US", { maximumFractionDigits:0 }) : a >= 100 ? n.toFixed(1) : a >= 10 ? n.toFixed(2).replace(/0$/, "") : String(+n.toFixed(3)); };
+const side = (a, e) => { const x = num(a), y = num(e); return x == null || y == null || x === y ? "" : x > y ? "up" : "dn"; };
+const eventMs = (v) => { const n = num(v); if (n != null) return n > 1e11 ? n : n * 1000; const t = Date.parse(v); return Number.isFinite(t) ? t : null; };
+const shortEvent = (s) => String(s || "").replace(/\s*\((?:[A-Z][a-z]{2}(?:\/\d{1,2})?|Q\d)\)\s*$/, "").replace(/\bChange\b/, "").replace(/\s+/g, " ").trim();
+
+/* ── sizes: everything is a share of the row, so the frame scales with the window and never reflows ── */
+function fit() {
+  const h = window.innerHeight / ROWS;
+  document.documentElement.style.fontSize = Math.max(10, Math.round(h * 0.40)) + "px";
+  document.body.style.fontSize = "1rem";
+  el("rowScint").hidden = ROWS === 1;
+  for (const t of document.querySelectorAll(".track")) delete t.dataset.fit;
+  run(true);
+}
+const SPEED = () => Math.max(30, Math.round((window.innerHeight / ROWS) * 1.05));   /* about one row-height a second: 48 px/s at 1440 */
+
+/* ── the tapes: a track runs as two copies sliding by half its width; new content waits for the end of a lap ── */
+const PENDING = new Map();
+function setTrack(id, html) {
+  const tr = el(id); if (!tr) return;
+  if (tr.dataset.html === html) return;
+  if (tr.classList.contains("run")) { PENDING.set(id, html); return; }   /* swapped at the seam (animationiteration) */
+  paintTrack(tr, html);
+}
+function paintTrack(tr, html) {
+  tr.dataset.html = html; tr.innerHTML = html; delete tr.dataset.fit; run(false);
+}
+function run(force) {
+  for (const tr of document.querySelectorAll(".track")) {
+    const win = tr.parentElement.clientWidth;
+    const one = tr.classList.contains("run") ? tr.scrollWidth / 2 : tr.scrollWidth;
+    const mark = tr.dataset.html.length + ":" + win + ":" + Math.round(one);
+    if (!force && tr.dataset.fit === mark) continue;
+    tr.dataset.fit = mark;
+    for (const c of tr.querySelectorAll('[aria-hidden="true"]')) c.remove();
+    tr.classList.remove("run"); tr.style.animationDuration = "";
+    const len = tr.scrollWidth;
+    if (!len || len <= win) continue;
+    for (const d of Array.from(tr.children)) { const c = d.cloneNode(true); c.setAttribute("aria-hidden", "true"); tr.appendChild(c); }
+    tr.style.animationDuration = (len / SPEED()).toFixed(2) + "s";
+    void tr.offsetWidth; tr.classList.add("run");
+  }
+}
+for (const id of ["trToday", "trScint"]) el(id).addEventListener("animationiteration", () => {
+  const html = PENDING.get(id); if (html == null) return; PENDING.delete(id);
+  const tr = el(id); tr.classList.remove("run"); paintTrack(tr, html);
+});
+
+/* ── TODAY: economic releases + earnings, in time order ── */
+const S = { econ:[], ern:[], scint:[], econAt:0, ernAt:0, scAt:0, seenPrint:new Set(), seenScint:new Set(), firstScint:true, firstEcon:true };
+async function readEcon() {
+  const now = Date.now(), today = dayET(now);
+  const from = Math.floor(etAt(today, 0, 0) / 1000), to = Math.floor(etAt(addDays(today, 2), 0, 0) / 1000);
+  /* event_ts is stored in seconds; ask for both readings of it so a change to milliseconds cannot empty the tape */
+  const rows = await pg("econ_calendar?select=event_ts,event,impact,actual,estimate,previous&country=eq.US&or=(and(event_ts.gte." + from + ",event_ts.lt." + to + "),and(event_ts.gte." + from * 1000 + ",event_ts.lt." + to * 1000 + "))&order=event_ts.asc&limit=400");
+  S.econ = rows.map((r) => ({ ms:eventMs(r.event_ts), name:shortEvent(r.event), full:r.event, impact:String(r.impact || ""), actual:num(r.actual), est:num(r.estimate), prev:num(r.previous) }))
+    .filter((r) => r.ms && /^(high|medium)$/i.test(r.impact));
+  S.econAt = Date.now();
+}
+async function readErn() {
+  const today = dayET(Date.now());
+  const rows = await pg("earnings_events?select=ticker,date,report_time,eps_estimate,eps_actual,revenue_estimate,revenue_actual&date=gte." + today + "&date=lte." + addDays(today, 3) + "&order=date.asc,ticker.asc&limit=200");
+  S.ern = rows.map((r) => ({ t:String(r.ticker || "").toUpperCase(), date:r.date, when:String(r.report_time || "").toUpperCase(), est:num(r.eps_estimate), actual:num(r.eps_actual) }));
+  S.ernAt = Date.now();
+}
+/* an earnings report's place in the day: before the open 08:00, after the close 16:05, time not given 16:10 */
+function ernMs(e) { const [h, m] = e.when === "BMO" ? [8, 0] : e.when === "AMC" ? [16, 5] : [16, 10]; return etAt(e.date, h, m); }
+const ernWhen = (e) => e.when === "BMO" ? "before the open" : e.when === "AMC" ? "after the close" : "time not given";
+function surprise(a, e) { const x = num(a), y = num(e); if (x == null || y == null || y === 0) return null; return (x - y) / Math.abs(y) * 100; }
+function todayHTML(now) {
+  const today = dayET(now), next = nextBusinessDay(today);
+  const items = [];
+  for (const e of S.econ) if (dayET(e.ms) === today) items.push({ ms:e.ms, k:"econ", e });
+  for (const r of S.ern) {
+    if (r.date !== today && r.date !== next) continue;
+    if (r.date === next && r.when !== "BMO") continue;   /* tomorrow: only before the open */
+    items.push({ ms:ernMs(r), k:"ern", r });
+  }
+  items.sort((a, b) => a.ms - b.ms || (a.k === b.k ? 0 : a.k === "econ" ? -1 : 1));
+  const wd = ET_WD.format(new Date(now)).toUpperCase();
+  let html = '<div class="it lbl">today · ' + esc(wd) + " · economic + earnings</div>";
+  let nowPut = false, nextPut = false;
+  for (const it of items) {
+    if (!nowPut && it.ms > now) { html += '<div class="it now">NOW ' + esc(hm(now)) + "</div>"; nowPut = true; }
+    if (!nextPut && it.k === "ern" && it.r.date === next) { html += '<div class="it day">' + esc(ET_WD.format(new Date(etAt(next, 12, 0))).toUpperCase()) + " · before the open</div>"; nextPut = true; }
+    html += it.k === "econ" ? econItem(it.e, now) : ernItem(it.r, now);
+  }
+  if (!nowPut) html += '<div class="it now">NOW ' + esc(hm(now)) + "</div>";
+  if (!items.length) html += '<div class="it lbl">nothing on the calendar</div>';
+  return html;
+}
+function nextBusinessDay(iso) { let d = addDays(iso, 1); for (let i = 0; i < 4; i++) { const wd = new Date(d + "T12:00:00Z").getUTCDay(); if (wd !== 0 && wd !== 6) return d; d = addDays(d, 1); } return d; }
+function econItem(e, now) {
+  const hi = /high/i.test(e.impact) ? " hi" : "", past = e.actual != null ? " past" : "";
+  const fresh = e.actual != null && S.seenPrint.has("e|" + e.full + "|" + e.ms) && now - (S.printAt.get("e|" + e.full + "|" + e.ms) || 0) < 10 * 60000 ? " fresh" : "";
+  let tail = "";
+  if (e.actual != null) tail = '<span class="v ' + side(e.actual, e.est) + '">' + esc(fmt(e.actual)) + "</span>" + (e.est != null ? '<span class="t">vs ' + esc(fmt(e.est)) + "</span>" : e.prev != null ? '<span class="t">prior ' + esc(fmt(e.prev)) + "</span>" : "");
+  else if (e.est != null) tail = '<span class="t">est ' + esc(fmt(e.est)) + "</span>";
+  return '<div class="it' + hi + past + fresh + '"><span class="t">' + esc(hm(e.ms)) + '</span><span class="n">' + esc(e.name) + "</span>" + tail + "</div>";
+}
+function ernItem(r, now) {
+  const key = "r|" + r.t + "|" + r.date;
+  const fresh = r.actual != null && S.printAt.has(key) && now - S.printAt.get(key) < 10 * 60000 ? " fresh" : "";
+  const sp = surprise(r.actual, r.est);
+  let tail = "";
+  if (r.actual != null) tail = '<span class="v ' + side(r.actual, r.est) + '">' + esc(fmt(r.actual)) + "</span>" + (r.est != null ? '<span class="t">vs ' + esc(fmt(r.est)) + "</span>" : "") + (sp != null ? (Math.abs(sp) < 0.05 ? '<span class="v">in line</span>' : '<span class="' + (sp >= 0 ? "up" : "dn") + '">' + (sp >= 0 ? "+" : "−") + Math.abs(sp).toFixed(1) + "%</span>") : "");
+  else if (r.est != null) tail = '<span class="t">est ' + esc(fmt(r.est)) + "</span>";
+  return '<div class="it' + (r.actual != null ? " past" : "") + fresh + '"><span class="tag">' + esc(r.when === "BMO" ? "bmo" : r.when === "AMC" ? "amc" : "earn") + '</span><span class="n">' + esc(r.t) + "</span>" + tail + "</div>";
+}
+S.printAt = new Map();
+function notePrints(now) {
+  /* the first read only learns what is already printed; after that a new number is "fresh" for ten minutes */
+  for (const e of S.econ) if (e.actual != null) { const k = "e|" + e.full + "|" + e.ms; if (!S.seenPrint.has(k)) { S.seenPrint.add(k); if (!S.firstEcon) S.printAt.set(k, now); } }
+  for (const r of S.ern) if (r.actual != null) { const k = "r|" + r.t + "|" + r.date; if (!S.seenPrint.has(k)) { S.seenPrint.add(k); if (!S.firstEcon) S.printAt.set(k, now); } }
+  S.firstEcon = false;
+}
+
+/* ── the NEXT box: the next medium/high release today; a number that printed in the last ten minutes holds the box ── */
+let NEXT_KEY = "";
+function paintNext(now) {
+  const box = el("next"); if (!box) return;
+  const today = dayET(now);
+  const printed = S.econ.filter((e) => e.actual != null && S.printAt.has("e|" + e.full + "|" + e.ms) && now - S.printAt.get("e|" + e.full + "|" + e.ms) < 10 * 60000)
+    .sort((a, b) => S.printAt.get("e|" + b.full + "|" + b.ms) - S.printAt.get("e|" + a.full + "|" + a.ms))[0];
+  const upcoming = S.econ.filter((e) => e.actual == null && dayET(e.ms) === today && e.ms > now - 20 * 60000).sort((a, b) => a.ms - b.ms || (/high/i.test(b.impact) ? 1 : 0) - (/high/i.test(a.impact) ? 1 : 0))[0];
+  let key, html, cls = "head";
+  if (printed) {
+    key = "p|" + printed.full + "|" + printed.ms;
+    html = '<span class="k">printed ' + esc(hm(printed.ms)) + '</span><span class="big">' + esc(printed.name) + '</span><span class="cd ' + side(printed.actual, printed.est) + '" style="color:' + (side(printed.actual, printed.est) === "up" ? "var(--bull)" : side(printed.actual, printed.est) === "dn" ? "var(--bear)" : "var(--ink)") + '">' + esc(fmt(printed.actual)) + (printed.est != null ? ' <span class="sub">vs ' + esc(fmt(printed.est)) + "</span>" : "") + "</span>";
+    cls += " printed";
+  } else if (upcoming) {
+    key = "u|" + upcoming.full + "|" + upcoming.ms;
+    const left = upcoming.ms - now, mins = Math.ceil(left / 60000);
+    const cd = left <= 0 ? "due" : mins >= 60 ? "in " + Math.floor(mins / 60) + "h " + String(mins % 60).padStart(2, "0") + "m" : left < 60000 ? "in " + Math.ceil(left / 1000) + "s" : "in " + mins + "m";
+    html = '<span class="k">' + (/high/i.test(upcoming.impact) ? "next · high" : "next") + " " + esc(hm(upcoming.ms)) + '</span><span class="big">' + esc(upcoming.name) + '</span><span class="cd">' + esc(cd) + "</span>";
+    cls += left <= 0 ? " due" : left <= 60000 ? " last" : left <= 15 * 60000 ? " soon" : "";
+  } else {
+    const later = S.ern.filter((r) => r.actual == null && ernMs(r) > now).sort((a, b) => ernMs(a) - ernMs(b));
+    const first = later[0];
+    if (first) {
+      const group = later.filter((r) => r.date === first.date && r.when === first.when).map((r) => r.t);
+      key = "g|" + first.date + "|" + first.when;
+      html = '<span class="k">earnings · ' + esc(first.date === today ? ernWhen(first) : ET_WD.format(new Date(etAt(first.date, 12, 0))).toLowerCase() + " " + ernWhen(first)) + '</span><span class="big">' + esc(group.slice(0, 5).join(" · ")) + (group.length > 5 ? " +" + (group.length - 5) : "") + "</span>";
+    } else { key = "none"; html = '<span class="k">next</span><span class="big" style="color:var(--dim)">nothing left today</span>'; }
+  }
+  if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; }
+  if (box.className !== cls || key !== NEXT_KEY) { box.className = cls; if (key !== NEXT_KEY && /printed/.test(cls)) { box.classList.remove("printed"); void box.offsetWidth; box.classList.add("printed"); } }
+  NEXT_KEY = key;
+}
+
+/* ── SCINTILLAS: today's outliers, one line per name (its latest), newest first ── */
+async function readScint() {
+  const today = dayET(Date.now());
+  const since = new Date(etAt(today, 0, 0)).toISOString();
+  const rows = await pg("scintillas?select=ts,subject,direction,magnitude,detail&kind=eq.price_outlier&ts=gte." + encodeURIComponent(since) + "&order=ts.desc&limit=400");
+  const by = new Map();
+  for (const r of rows) {
+    const s = String(r.subject || "").toUpperCase(); if (!s) continue;
+    const d = r.detail || {}, ms = Date.parse(r.ts);
+    const cur = by.get(s);
+    if (!cur) by.set(s, { s, ms, dir:Number(r.direction) || 0, x:num(d.x_usual) ?? num(r.magnitude), move:num(d.move_pct), px:num(d.price), n:1 });
+    else cur.n++;
+  }
+  S.scint = [...by.values()].sort((a, b) => b.ms - a.ms);
+  S.scAt = Date.now();
+  const now = Date.now();
+  for (const r of S.scint) { const k = r.s + "|" + r.ms; if (!S.seenScint.has(k)) { S.seenScint.add(k); if (!S.firstScint) S.printAt.set("s|" + k, now); } }
+  S.firstScint = false;
+}
+function scintHTML(now) {
+  if (!S.scint.length) return '<div class="it lbl">no scintillas yet today</div>';
+  return S.scint.map((r) => {
+    const k = "s|" + r.s + "|" + r.ms, fresh = S.printAt.has(k) && now - S.printAt.get(k) < 10 * 60000 ? " fresh" : "";
+    const cls = r.dir > 0 ? "up" : r.dir < 0 ? "dn" : "";
+    const mv = r.move != null ? (r.move >= 0 ? "+" : "−") + Math.abs(r.move).toFixed(1) + "%" : "";
+    return '<div class="it' + fresh + '"><span class="t">' + esc(hm(r.ms)) + '</span><span class="n ' + cls + '">' + esc(r.s) + '</span><span class="' + cls + '">' + (r.dir > 0 ? "▲" : r.dir < 0 ? "▼" : "") + " " + esc(mv) + "</span>" +
+      (r.x != null ? '<span class="v">' + esc(r.x.toFixed(1)) + "× its usual day</span>" : "") + "</div>";
+  }).join("");
+}
+function paintScintHead(now) {
+  const box = el("scHead"); if (!box) return;
+  const newest = S.scint[0];
+  const freshest = S.scint.find((r) => S.printAt.has("s|" + r.s + "|" + r.ms) && now - S.printAt.get("s|" + r.s + "|" + r.ms) < 10 * 60000);
+  const show = freshest || newest;
+  const html = '<span class="k">scintillas</span><span class="big">' + S.scint.length + ' <span class="sub">today</span></span>' +
+    (show ? '<span class="cd" style="color:' + (show.dir > 0 ? "var(--bull)" : "var(--bear)") + '">' + esc(show.s) + " " + (show.dir > 0 ? "▲" : "▼") + (show.x != null ? ' <span class="sub">' + esc(show.x.toFixed(1)) + "×</span>" : "") + "</span>" : "");
+  if (box.dataset.html !== html) {
+    box.dataset.html = html; box.innerHTML = html;
+    if (freshest && box.dataset.flashed !== freshest.s + freshest.ms) { box.dataset.flashed = freshest.s + freshest.ms; box.classList.remove("flash"); void box.offsetWidth; box.classList.add("flash"); }
+  }
+}
+
+/* ── the loop: reads on their own clocks, the boxes every second, the tapes when their content changes ── */
+async function tick() {
+  const now = Date.now();
+  const jobs = [];
+  if (now - S.econAt > 60000) jobs.push(readEcon().catch(() => { S.econAt = now - 30000; }));
+  if (now - S.ernAt > 120000) jobs.push(readErn().catch(() => { S.ernAt = now - 60000; }));
+  if (ROWS > 1 && now - S.scAt > 20000) jobs.push(readScint().catch(() => { S.scAt = now - 10000; }));
+  if (jobs.length) { await Promise.all(jobs); notePrints(Date.now()); }
+  paint();
+}
+let LAST_MIN = -1;
+function paint() {
+  const now = Date.now(), minute = Math.floor(now / 60000);
+  paintNext(now);
+  if (ROWS > 1) paintScintHead(now);
+  /* the tapes are rebuilt at most once a minute (the NOW mark moves with the clock) or when a read changed them */
+  const todayH = todayHTML(Math.floor(now / 60000) * 60000), scH = ROWS > 1 ? scintHTML(Math.floor(now / 60000) * 60000) : "";
+  if (minute !== LAST_MIN || el("trToday").dataset.want !== todayH || el("trScint").dataset.want !== scH) {
+    LAST_MIN = minute;
+    el("trToday").dataset.want = todayH; setTrack("trToday", todayH);
+    if (ROWS > 1) { el("trScint").dataset.want = scH; setTrack("trScint", scH); }
+  }
+}
+for (const t of document.querySelectorAll(".track")) t.dataset.html = "";
+window.addEventListener("resize", () => fit());
+fit(); tick(); setInterval(() => { paint(); }, 1000); setInterval(() => { tick(); }, 5000);
+/* the deck can say how many rows (SCINTILLA_TAPES_ROWS) — kept for later; today the frame's own ?rows= decides */
+window.SC_TAPES = { S, todayHTML, scintHTML, etAt, dayET };
+</script>
+</body>
+</html>

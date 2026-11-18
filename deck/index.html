@@ -593,16 +593,16 @@ body.widgets.video-slot:not(.stack):not(.media-theatre) #wgCtl{ display:flex; al
 #wgCtl button:hover{ color:var(--ink); border-color:var(--line); } #wgCtl button.on{ color:var(--crk); border-color:var(--crk); }
 #wgCtl .note{ margin-left:auto; color:var(--mute); font-size:8px; letter-spacing:.1em; text-transform:uppercase; }
 body.widgets.video-slot:not(.stack):not(.media-theatre) #grid > #rowTop{ margin-top:25px; }
-#wgVolume, #wgLensTape{ display:none; }
-body.widgets.video-slot:not(.stack):not(.media-theatre) #wgVolume, body.widgets.video-slot:not(.stack):not(.media-theatre) #wgLensTape{
+#wgVolume, #wgLensTape, #wgEvents{ display:none; }
+body.widgets.video-slot:not(.stack):not(.media-theatre) #wgVolume, body.widgets.video-slot:not(.stack):not(.media-theatre) #wgLensTape, body.widgets.video-slot:not(.stack):not(.media-theatre) #wgEvents{
   display:flex; flex-direction:column; position:absolute; z-index:3; background:var(--bg); overflow:hidden; }
 #wgVolume > .ph{ flex:none; display:flex; align-items:center; gap:6px; padding:3px 7px; background:var(--panel2); }
 #wgVolume > .ph .t{ color:var(--ink2); font-size:8.5px; letter-spacing:.16em; text-transform:uppercase; }
 #wgVolume > .ph .tag{ color:var(--mute); font-size:7.5px; letter-spacing:.1em; white-space:nowrap; margin-left:auto; overflow:hidden; text-overflow:ellipsis; }
 #wgVolume > .ph a{ color:var(--crk); text-decoration:none; font-size:7.5px; letter-spacing:.1em; text-transform:uppercase; }
-#wgVolume > .body, #wgLensTape > .body{ flex:1 1 0; min-height:0; position:relative; }
-#wgVolume iframe, #wgLensTape iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; background:var(--bg); }
-#wgVolume.off, #wgLensTape.off{ display:none !important; }   /* stood down where the playing video leaves no room */
+#wgVolume > .body, #wgLensTape > .body, #wgEvents > .body{ flex:1 1 0; min-height:0; position:relative; }
+#wgVolume iframe, #wgLensTape iframe, #wgEvents iframe{ position:absolute; inset:0; width:100%; height:100%; border:0; display:block; background:var(--bg); }
+#wgVolume.off, #wgLensTape.off, #wgEvents.off{ display:none !important; }   /* stood down where the playing video leaves no room */
 /* W1: the tape, taller and narrower - one row (FAVORITES), each cell two lines: the ticker and the price on the first,
    the day's percent under them, the line on the right across both; no Geiger bar in the tape. 48 px, type 12.5 px. */
 body.widgets #tapes .tape{ height:var(--tape-row-px, 22px); }
@@ -2000,7 +2000,23 @@ function lensWallChoice(stored, urlValue) {
   return stored !== "1";
 }
 function lensWallOn() { return widgetsOn() && lensWallChoice(remembered(LENSWALL_CHARTS_KEY), QS.get("charts")); }
-function floorLensWall(areaWidth, areaHeight, tapePx, colPx, count, chromePx) {
+/* ── TAPES (18 Nov 2026) — Alan: "The tapes, the earnings tape, the scintilla tape, the economic tape, I need them on the station ... the
+   coolest method is the one with the economic, with the flashing ... but that one I can barely see anything. On the station, if we express
+   more things like that with the flashing and the scintillation, we'll have more space." Two thin tapes at the bottom of the lens area
+   (station-shells/tapes-v1): TODAY (economic releases + earnings in time order, the NEXT release big on the left, flashing as it comes) and
+   SCINTILLAS (today's names moving N× their usual day). Each row is a share of the wall's height (3.3 %, 28-50 px); the lens rows give up
+   the height, nothing else moves. On by default; station.eventtapes = "0" on a machine, or ?eventtapes=0 for one load, takes them off. */
+const EVENT_TAPES_KEY = "station.eventtapes", EVENT_TAPES_SHELL = "/station-shells/tapes-v1", EVENT_TAPES_ROWS = 2;
+const eventTapesRowPx = (wallH) => Math.max(28, Math.min(50, Math.round((Number(wallH) || 0) * 0.033)));
+const eventTapesPx = (wallH, rows) => { const r = Math.max(0, Math.round(Number(rows) || 0)); return r ? r * eventTapesRowPx(wallH) + (r - 1) * FLOOR_SEAM_PX : 0; };
+function eventTapesChoice(stored, urlValue) {
+  if (urlValue === "1" || urlValue === "0") return urlValue === "1";
+  return stored !== "0";
+}
+function eventTapesOn() { return eventTapesChoice(remembered(EVENT_TAPES_KEY), QS.get("eventtapes")); }
+/* the strip's height on this machine for a wall this tall; 0 when it is off */
+function lensWallEventsPx(wallH) { return eventTapesOn() ? eventTapesPx(wallH, EVENT_TAPES_ROWS) : 0; }
+function floorLensWall(areaWidth, areaHeight, tapePx, colPx, count, chromePx, eventsPx) {
   const w = Math.max(0, Number(areaWidth) || 0), h = Math.max(0, Number(areaHeight) || 0), tapes = Math.max(0, Number(tapePx) || 0), col = Math.max(0, Number(colPx) || 0);
   const chrome = Number.isFinite(chromePx) && chromePx >= 0 ? chromePx : VIDEO_CHROME_FALLBACK_PX;
   const n = Math.max(0, Math.round(Number(count) || 0));
@@ -2012,10 +2028,16 @@ function floorLensWall(areaWidth, areaHeight, tapePx, colPx, count, chromePx) {
   const box = { left:-(col + FLOOR_SEAM_PX), top, w:paneW, h:bandH, feedCol:col };
   const volLeft = Math.min(w, pw + FLOOR_SEAM_PX), volW = Math.max(0, w - volLeft);
   const volume = { left:volLeft, top, w:volW, h:Math.max(0, bandH - tapes), on:volW >= WIDGETS_VOLUME_MIN_PX };
-  const lensH = Math.max(0, top - FLOOR_SEAM_PX);
+  const above = Math.max(0, top - FLOOR_SEAM_PX);
+  /* TAPES: the strip takes its height off the bottom of the lens area, one seam above it; never where it would leave the lenses under 120 px */
+  /* no 7th argument: this machine's choice (slotFor passes six); a number (the tests, the harness) wins */
+  const evWant = eventsPx === undefined ? (typeof lensWallEventsPx === "function" ? lensWallEventsPx(h) : 0) : eventsPx;
+  const ev = Math.max(0, Math.round(Number(evWant) || 0)), evH = ev && above - ev - FLOOR_SEAM_PX >= 120 ? ev : 0;
+  const lensH = Math.max(0, above - (evH ? evH + FLOOR_SEAM_PX : 0));
   const lensTape = { left:0, top:0, w, h:lensH, rows:lensWallRows(lensH), on:w >= WIDGETS_LENS_ROW_PX && lensH >= 120 };
+  const events = { left:0, top:evH ? lensH + FLOOR_SEAM_PX : 0, w, h:evH, on:evH > 0 };
   return { widgets:true, lensWall:true, cols:1, rows:1, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
-    cells:[], charts:0, hidden:n, chartsH:0, bandH, rowBelow:Math.max(0, bandH - tapes), volume, lensTape, tapeLeft:paneW + FLOOR_SEAM_PX, wall, col, playerW:pw };
+    cells:[], charts:0, hidden:n, chartsH:0, bandH, rowBelow:Math.max(0, bandH - tapes), volume, lensTape, events, tapeLeft:paneW + FLOOR_SEAM_PX, wall, col, playerW:pw };
 }
 /* ── W1B (22 Oct 2026) — THE PLAYING VIDEO KEEPS ITS SIZE. Alan, 14:10 ET: "I don't want YouTube to keep the grid next to it.
    It's going to make the video smaller. I want the YouTube the size that it is, shift it to the side, keep the grid to the side of
@@ -3668,6 +3690,7 @@ function wireWidgets(grid) {
   };
   make("wgVolume", "Volume", "volume-pulse · SPY QQQ DIA IWM · × a usual 5 minutes", WIDGETS_VOLUME_OPEN);
   make("wgLensTape", "", "", "");   /* the lens tape carries its own chips rail; no header, the height is the lenses' */
+  make("wgEvents", "", "", "");     /* TAPES (18 Nov): TODAY + SCINTILLAS, no header - the tapes carry their own labels */
   /* W7: the one control row above both charts */
   const c = document.createElement("div"); c.id = "wgCtl"; c.setAttribute("role", "toolbar"); c.setAttribute("aria-label", "Both charts");
   c.innerHTML = '<span class="k">both charts</span>' + WIDGETS_TFS.map((t) => '<button type="button" data-tf="' + t + '" title="' + WIDGETS_TF_LABEL[t] + ' bars on both charts - remembered on this machine">' + WIDGETS_TF_LABEL[t] + '</button>').join("") +
@@ -3704,6 +3727,8 @@ function setWidgetsClouds(on) {
 function mountWidgets() {
   const v = el("wgVolume"), l = el("wgLensTape");
   if (v && !v.querySelector("iframe")) { const f = document.createElement("iframe"); f.src = WIDGETS_VOLUME_SHELL + "/?shell=v1&view=" + encodeURIComponent(VIEW); f.loading = "lazy"; f.title = "volume graph"; v.querySelector(".body").appendChild(f); }
+  const ev = el("wgEvents");
+  if (ev && eventTapesOn() && !ev.querySelector("iframe")) { const f = document.createElement("iframe"); f.src = EVENT_TAPES_SHELL + "/?shell=v1&rows=" + EVENT_TAPES_ROWS + "&view=" + encodeURIComponent(VIEW); f.loading = "lazy"; f.title = "economic, earnings and scintillas tapes"; ev.querySelector(".body").appendChild(f); }
   if (l && !l.querySelector("iframe")) { const f = document.createElement("iframe"); const rows = WIDGETS_NOW && WIDGETS_NOW.slot && WIDGETS_NOW.slot.lensTape ? WIDGETS_NOW.slot.lensTape.rows : 1; f.src = WIDGETS_LENS_SHELL + "/?shell=v1&mode=tape&dock=1&rows=" + rows + "&view=" + encodeURIComponent(VIEW) + (lensWallOn() ? "&cellw=" + LENSWALL_LENS_CELL_PX : ""); f.loading = "lazy"; f.title = "context lens tape"; l.querySelector(".body").appendChild(f); }
 }
 function placeWidgets(slot, plan) {
@@ -3715,6 +3740,13 @@ function placeWidgets(slot, plan) {
   put(v, slot.volume); put(l, slot.lensTape);
   /* 1 Nov: with the X column off the lens wall starts at the screen's left edge, no empty corner where X was */
   if (NO_X && slot.lensWall) { l.style.left = "0px"; l.style.width = (plan.col + FLOOR_SEAM_PX + slot.lensTape.w) + "px"; }
+  /* TAPES (18 Nov): under the lenses, as wide as them; off where the slot has no strip */
+  const ev = el("wgEvents");
+  if (ev) {
+    const eb = slot.events && slot.events.on ? slot.events : null;
+    if (eb) { put(ev, eb); if (NO_X && slot.lensWall) { ev.style.left = "0px"; ev.style.width = (plan.col + FLOOR_SEAM_PX + eb.w) + "px"; } }
+    ev.classList.toggle("off", !eb);
+  }
   /* W7: the lens grid's rows follow the band; the FAVORITES tape starts at YouTube's right edge; the control row sits over the charts */
   const lf = l.querySelector("iframe"); if (lf && slot.lensTape.rows) { try { lf.contentWindow.postMessage({ type:"SCINTILLA_LENS_ROWS", rows:slot.lensTape.rows }, location.origin); } catch (_) {} }   /* on every fit: the frame ignores a number it already has; a frame that has not loaded yet reads ?rows= */
   const grid = el("grid"); if (grid) grid.style.setProperty("--widgets-tape-left", (slot.tapeLeft != null ? slot.tapeLeft : plan.col + FLOOR_SEAM_PX) + "px");
