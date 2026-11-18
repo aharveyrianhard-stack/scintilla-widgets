@@ -215,7 +215,13 @@ function paintNext(now) {
   const today = dayET(now);
   const printed = S.econ.filter((e) => e.actual != null && S.printAt.has("e|" + e.full + "|" + e.ms) && now - S.printAt.get("e|" + e.full + "|" + e.ms) < 10 * 60000)
     .sort((a, b) => S.printAt.get("e|" + b.full + "|" + b.ms) - S.printAt.get("e|" + a.full + "|" + a.ms))[0];
-  const upcoming = S.econ.filter((e) => e.actual == null && dayET(e.ms) === today && e.ms > now - 20 * 60000).sort((a, b) => a.ms - b.ms || (/high/i.test(b.impact) ? 1 : 0) - (/high/i.test(a.impact) ? 1 : 0))[0];
+  /* a release that prints a number (it has an estimate or a prior) stays "due" up to 20 minutes after its time; one that never
+     prints one (a speech, the minutes) is done at its time, so it never holds the box over the next release. A HIGH release
+     inside its last 15 minutes (or due) takes the box over an earlier medium one. */
+  const prints = (e) => e.est != null || e.prev != null;
+  const open = S.econ.filter((e) => e.actual == null && dayET(e.ms) === today && (e.ms > now || (prints(e) && e.ms > now - 20 * 60000))).sort((a, b) => a.ms - b.ms);
+  const hiSoon = open.find((e) => /high/i.test(e.impact) && e.ms - now <= 15 * 60000);
+  const upcoming = hiSoon || open[0];
   let key, html, cls = "head";
   if (printed) {
     key = "p|" + printed.full + "|" + printed.ms;
