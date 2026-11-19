@@ -56,18 +56,12 @@ html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); font-f
 .head.flash{ animation:glow 1.6s ease-out 1; }
 @keyframes soon{ 0%,100%{ background:var(--panel); box-shadow:inset 0 0 0 1px var(--hair); } 50%{ background:#2a1d05; box-shadow:inset 0 0 0 2px var(--warm), 0 0 18px rgba(250,178,25,.55); } }
 .empty{ color:var(--dim); font-size:.72em; letter-spacing:.1em; padding:0 1em; display:flex; align-items:center; }
-/* 19 Nov (Alan, relayed: "not always looking at the screen" - keep a short list of recent big candles): two flagged 5-minute candles of the
-   last hour - 3x and over first, then 2-3x, newest first within each (three did not fit at 1920 or 2560) - fixed at the right of the SCINTILLAS row; the lens wall decides them and keeps the day's list on this machine
-   (localStorage station.bigc.recent) - this box only reads it. A new one flashes the box once. */
-.head.bcbox{ width:var(--bc-w, 26%); border-right:0; border-left:1px solid var(--hair); }
-.bcbox .bci{ flex:none; white-space:nowrap; } .bcbox .bci.up{ color:var(--bull); } .bcbox .bci.dn{ color:var(--bear); }
-.bcbox .bci.old{ opacity:.6; }
 </style>
 </head>
 <body>
 <div id="rows">
   <div class="row" id="rowToday"><div class="head" id="next"><span class="k">next</span><span class="big">—</span></div><div class="win"><div class="track" id="trToday"></div></div></div>
-  <div class="row" id="rowScint"><div class="head" id="scHead"><span class="k">scintillas</span><span class="big">—</span></div><div class="win"><div class="track" id="trScint"></div></div><div class="head bcbox" id="bcBox"><span class="k">5-min candles</span></div></div>
+  <div class="row" id="rowScint"><div class="head" id="scHead"><span class="k">scintillas</span><span class="big">—</span></div><div class="win"><div class="track" id="trScint"></div></div></div>
 </div>
 <script>
 "use strict";
@@ -295,24 +289,6 @@ function paintScintHead(now) {
   }
 }
 
-/* ── 19 Nov: the "5-min candles" box - the lens wall's kept list, the last hour, two at most: 3x first, then 2-3x, newest first in each ── */
-const BC_RECENT_KEY = "station.bigc.recent", BC_BOX_MS = 60 * 60000;
-function bcRecent() { try { const c = JSON.parse(localStorage.getItem(BC_RECENT_KEY) || "null"); return c && c.date === dayET(Date.now()) && Array.isArray(c.list) ? c.list : []; } catch (_) { return []; } }
-function bcBoxHTML(list, now) {
-  const fresh = list.filter((e) => e && now - e.end < BC_BOX_MS && now >= e.end - 300000).sort((a, b) => b.end - a.end);
-  const recent = fresh.filter((e) => e.level === "big").concat(fresh.filter((e) => e.level !== "big")).slice(0, 2);
-  const hm5 = (m) => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
-  return '<span class="k">5-min candles</span>' + (recent.length ? recent.map((e) => '<span class="bci ' + (e.dir === "up" ? "up" : "dn") + (now - e.end > 30 * 60000 ? " old" : "") + '">' + esc(e.s) + " " + (e.dir === "up" ? "\u25B2" : "\u25BC") + esc(Number(e.mult).toFixed(1)) + '\u00D7 <span class="sub">' + esc(hm5(e.m)) + "</span></span>").join("") : '<span class="sub">none in the last hour</span>');
-}
-function paintBcBox(now) {
-  const box = el("bcBox"); if (!box) return;
-  const list = bcRecent(), html = bcBoxHTML(list, now);
-  if (box.dataset.html !== html) {
-    box.dataset.html = html; box.innerHTML = html;
-    const top = list[0], key = top ? top.s + "|" + top.m : "";
-    if (top && now - top.end < 180000 && box.dataset.flashed !== key) { box.dataset.flashed = key; box.classList.remove("flash"); void box.offsetWidth; box.classList.add("flash"); }
-  }
-}
 /* ── the loop: reads on their own clocks, the boxes every second, the tapes when their content changes ── */
 async function tick() {
   const now = Date.now();
@@ -327,7 +303,7 @@ let LAST_MIN = -1;
 function paint() {
   const now = Date.now(), minute = Math.floor(now / 60000);
   paintNext(now);
-  if (ROWS > 1) { paintScintHead(now); paintBcBox(now); }
+  if (ROWS > 1) paintScintHead(now);
   /* the tapes are rebuilt at most once a minute (the NOW mark moves with the clock) or when a read changed them */
   const todayH = todayHTML(Math.floor(now / 60000) * 60000), scH = ROWS > 1 ? scintHTML(Math.floor(now / 60000) * 60000) : "";
   if (minute !== LAST_MIN || el("trToday").dataset.want !== todayH || el("trScint").dataset.want !== scH) {
@@ -340,7 +316,7 @@ for (const t of document.querySelectorAll(".track")) t.dataset.html = "";
 window.addEventListener("resize", () => fit());
 fit(); tick(); setInterval(() => { paint(); }, 1000); setInterval(() => { tick(); }, 5000);
 /* the deck can say how many rows (SCINTILLA_TAPES_ROWS) — kept for later; today the frame's own ?rows= decides */
-window.SC_TAPES = { S, todayHTML, scintHTML, etAt, dayET, bcBoxHTML };
+window.SC_TAPES = { S, todayHTML, scintHTML, etAt, dayET };
 </script>
 </body>
 </html>

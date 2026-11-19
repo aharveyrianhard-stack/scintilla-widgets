@@ -44,7 +44,7 @@ html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); font:1
 .lens.glow .rv.hot i{ box-shadow:0 0 8px var(--hot); }
 /* 19 Nov - BIG CANDLES (Alan: "on our rotations, we highlight the volume tickers ... can we do that for stocks that have had a big move ... a big
    candle"): the volume box's shape - an inset ring and a glow - green when the candle closed up, red when it closed down; 3x its usual
-   5-minute range = strong, 2x-3x = faint; with the volume glow too, the volume's cyan line inside and the candle's colour outside it */
+   10-minute range (5-minute until 19 Nov 12:00) = strong, 2x-3x = faint; with the volume glow too, the volume's cyan line inside and the candle's colour outside it */
 .lens.bigc{ z-index:1; }
 /* 19 Nov, later (Alan: "not always looking at the screen"): a box stays 30 minutes after its candle and fades as it ages (--bcf, 1 to .25);
    the ring sits on ::before so it can fade on its own, inside the volume's cyan line when both are on */
@@ -254,15 +254,18 @@ const OFF_API = Object.freeze({ ANT: true });
 const OFF_TF = Object.freeze({ "1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min", "1h": "1hour" });
 /* 19 Nov 2026 - BIG CANDLES. Alan (relayed by the Dot-com session): "on our rotations, we highlight the volume tickers ... can we do that for
    stocks that have had a big move ... a big candle ... rapid-fire switching between the ones that do this." The research session's rule
-   (volume-pulse api/bigcandles.js, read 19 Nov), on the house's own bars from the chart API: the latest FINISHED regular-hours 5-minute candle,
-   its high-low range against the name's usual 5-minute range over the prior 10 sessions - the first 30 minutes against the same clock slot on
+   (volume-pulse api/bigcandles.js, read 19 Nov), on the house's own bars from the chart API: the latest FINISHED regular-hours candle (BC_MIN: 10 minutes since
+   19 Nov 12:00, 5 before), its high-low range against the name's usual range for that candle length over the prior 10 sessions - the first 30 minutes against the same clock slot on
    those days (opening candles are always bigger), the rest of the day against the day's average without the first 30 minutes. 3x and over =
    big (the strong box), 2x-3x = large (the faint box), green up, red down. It holds until the next candle finishes (at most 10 minutes after
    its own end), so the boxes move from name to name as the candles come in. US stocks and ETFs only: futures, crypto, rates, FX and the
    put/call and breadth lenses have no 09:30-16:00 day. The usual ranges are read once a day (10 sessions of 5-minute bars) and kept on this
    machine; the live read is the last three bars of every name in one request, once a minute and just after each 5-minute close. */
 const CHART_API = "https://scintilla-massive-chart-api.fly.dev";   /* the provider's own API (_provider/provider.js) */
-const BC_OPEN = 570, BC_OPEN_END = 600, BC_CLOSE = 960, BC_KEY = "station.lenses.bigc.usual", BC_MS = 60000;
+/* 19 Nov ~12:00 (Alan): "5 minute candles can be a little bit too crazy ... let's do it on 10." - 10-minute candles; the usual ranges and the
+   kept list moved to new keys so the morning's 5-minute numbers are never mixed in. "The objective of this is just for me to be aware. Just know
+   that it happened." - the boxes stay quiet awareness; the tapes' list box came off again (it took a place in the rotation). */
+const BC_MIN = 10, BC_OPEN = 570, BC_OPEN_END = 600, BC_CLOSE = 960, BC_KEY = "station.lenses.bigc10.usual", BC_MS = 60000;
 export function bcEligible(t) { return /^[A-Z]{1,5}$/.test(t) && !/USD$/.test(t) && !["VIX", "PCC", "ADVDEC", "US10Y"].includes(t); }
 const NY_FMT = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short" });
 export function nyParts(ms) { const p = NY_FMT.formatToParts(new Date(ms)); const g = (k) => (p.find((x) => x.type === k) || {}).value || ""; return { date: g("year") + "-" + g("month") + "-" + g("day"), m: (+g("hour") % 24) * 60 + +g("minute"), wd: g("weekday") }; }
@@ -270,24 +273,23 @@ export function bcUsual(bars, today) {
   const rth = []; for (const b of bars) { const p = nyParts(b.t); if (p.m >= BC_OPEN && p.m < BC_CLOSE && p.date < today && b.h >= b.l) rth.push({ d: p.date, m: p.m, r: b.h - b.l }); }
   const days = [...new Set(rth.map((b) => b.d))].sort().slice(-10), keep = new Set(days), k = rth.filter((b) => keep.has(b.d));
   const avg = (a) => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
-  const slot = {}; for (let m = BC_OPEN; m < BC_OPEN_END; m += 5) slot[m] = avg(k.filter((b) => b.m === m).map((b) => b.r));
+  const slot = {}; for (let m = BC_OPEN; m < BC_OPEN_END; m += BC_MIN) slot[m] = avg(k.filter((b) => b.m === m).map((b) => b.r));
   return { sessions: days.length, all: avg(k.filter((b) => b.m >= BC_OPEN_END).map((b) => b.r)), slot };
 }
 /* 19 Nov, later. Alan (relayed): "not always looking at the screen" - a flagged candle is kept: its box stays BC_HOLD_MS after the candle
-   finished and fades as it ages; the day's flagged candles (newest first, 20 at most) are kept on this machine under BC_RECENT_KEY, where the
-   tapes strip's "5-min candles" box reads its short list, and a reload keeps them. */
-const BC_HOLD_MS = 30 * 60000, BC_RECENT_KEY = "station.bigc.recent";
+   finished and fades as it ages; the day's flagged candles (newest first, 20 at most) are kept on this machine under BC_RECENT_KEY, so a reload keeps them. */
+const BC_HOLD_MS = 30 * 60000, BC_RECENT_KEY = "station.bigc10.recent";
 export function bcFade(ageMs) { return Math.round((1 - 0.75 * Math.min(1, Math.max(0, ageMs) / BC_HOLD_MS)) * 100) / 100; }
 export function bcAdd(list, s, v) {
   if (!v || !v.level || list.some((e) => e.s === s && e.m === v.m)) return list;
-  return [{ s, m: v.m, end: v.t + 300000, dir: v.dir, mult: v.mult, level: v.level }].concat(list).sort((a, b) => b.end - a.end).slice(0, 20);
+  return [{ s, m: v.m, end: v.t + BC_MIN * 60000, dir: v.dir, mult: v.mult, level: v.level }].concat(list).sort((a, b) => b.end - a.end).slice(0, 20);
 }
-export function bcShown(list, now) { const out = new Map(); for (const e of list) { if (now - e.end >= BC_HOLD_MS || now < e.end - 300000 || out.has(e.s)) continue; out.set(e.s, e); } return out; }
+export function bcShown(list, now) { const out = new Map(); for (const e of list) { if (now - e.end >= BC_HOLD_MS || now < e.end - BC_MIN * 60000 || out.has(e.s)) continue; out.set(e.s, e); } return out; }
 export function bcJudge(bars, u, today, nowM) {
   if (!u || !u.all) return null;
   let bar = null, bm = 0;
-  for (let i = bars.length - 1; i >= 0; i--) { const p = nyParts(bars[i].t); if (p.date !== today) break; if (p.m >= BC_OPEN && p.m < BC_CLOSE && p.m + 5 <= nowM) { bar = bars[i]; bm = p.m; break; } }
-  if (!bar || nowM - (bm + 5) > 10) return null;
+  for (let i = bars.length - 1; i >= 0; i--) { const p = nyParts(bars[i].t); if (p.date !== today) break; if (p.m >= BC_OPEN && p.m < BC_CLOSE && p.m + BC_MIN <= nowM) { bar = bars[i]; bm = p.m; break; } }
+  if (!bar || nowM - (bm + BC_MIN) > 10) return null;
   const base = bm < BC_OPEN_END && u.slot && u.slot[bm] ? u.slot[bm] : u.all;
   if (!(base > 0)) return null;
   const mult = (bar.h - bar.l) / base;
@@ -788,7 +790,7 @@ async function readBcUsual() {
   try {
     for (let i = 0; i < miss.length; i += 6) {
       const part = miss.slice(i, i + 6); for (const t of part) S.bcU.tried.set(t, Date.now());
-      const j = await (await fetch(CHART_API + "/candles-multi?symbols=" + part.map(encodeURIComponent).join(",") + "&tf=5m&limit=2400&authority=provider", { cache: "no-store" })).json();
+      const j = await (await fetch(CHART_API + "/candles-multi?symbols=" + part.map(encodeURIComponent).join(",") + "&tf=10m&limit=1200&authority=provider", { cache: "no-store" })).json();
       for (const t of part) { const u = bcUsual(bcBars(j && j.candles && j.candles[t]), now.date); if (u.all > 0) S.bcU.map.set(t, u); }
     }
     remember(BC_KEY, JSON.stringify({ date: now.date, u: Object.fromEntries(S.bcU.map) }));
@@ -803,7 +805,7 @@ async function readBc() {
   try {
     for (let i = 0; i < list.length; i += 40) {
       const part = list.slice(i, i + 40);
-      const j = await (await fetch(CHART_API + "/candles-multi?symbols=" + part.map(encodeURIComponent).join(",") + "&tf=5m&limit=3&authority=provider", { cache: "no-store" })).json();
+      const j = await (await fetch(CHART_API + "/candles-multi?symbols=" + part.map(encodeURIComponent).join(",") + "&tf=10m&limit=3&authority=provider", { cache: "no-store" })).json();
       bcLoadRecent(now.date);
       for (const t of part) { const v = bcJudge(bcBars(j && j.candles && j.candles[t]), S.bcU.map.get(t), now.date, now.m); if (v && v.level) S.bcRecent.list = bcAdd(S.bcRecent.list, t, v); }
       remember(BC_RECENT_KEY, JSON.stringify(S.bcRecent));
@@ -813,7 +815,7 @@ async function readBc() {
 }
 /* for the harness: the day's usual ranges, the flags, the last read */
 window.__bc = { usual: () => Object.fromEntries(S.bcU.map), flags: () => Object.fromEntries(S.bc), recent: () => S.bcRecent.list, at: () => S.bcAt, names: () => bcNames(), now: () => nyParts(Date.now()),
-  judge: async (t) => { const n = nyParts(Date.now()); const j = await (await fetch(CHART_API + "/candles-multi?symbols=" + encodeURIComponent(t) + "&tf=5m&limit=3&authority=provider", { cache: "no-store" })).json(); const bars = bcBars(j && j.candles && j.candles[t]); return { bars: bars.map((b) => [nyParts(b.t).date, nyParts(b.t).m, +(b.h - b.l).toFixed(3)]), v: bcJudge(bars, S.bcU.map.get(t), n.date, n.m) }; } };
+  judge: async (t) => { const n = nyParts(Date.now()); const j = await (await fetch(CHART_API + "/candles-multi?symbols=" + encodeURIComponent(t) + "&tf=10m&limit=3&authority=provider", { cache: "no-store" })).json(); const bars = bcBars(j && j.candles && j.candles[t]); return { bars: bars.map((b) => [nyParts(b.t).date, nyParts(b.t).m, +(b.h - b.l).toFixed(3)]), v: bcJudge(bars, S.bcU.map.get(t), n.date, n.m) }; } };
 /* the box and its words on every copy of the cell (the tape doubles its cells); one bright flash when a new candle is flagged */
 function paintBc() {
   const now = Date.now(); bcLoadRecent(nyParts(now).date); S.bc = bcShown(S.bcRecent.list, now);
@@ -827,7 +829,7 @@ function paintBc() {
     if (v) { const f = String(bcFade(now - v.end)); if (d.style.getPropertyValue("--bcf") !== f) d.style.setProperty("--bcf", f); } else if (d.style.getPropertyValue("--bcf")) d.style.removeProperty("--bcf");
     if (bc) {
       const hh = v ? String(Math.floor(v.m / 60)).padStart(2, "0") + ":" + String(v.m % 60).padStart(2, "0") : "";
-      const text = v ? (v.dir === "up" ? "\u25B2 " : "\u25BC ") + v.mult.toFixed(1) + "\u00D7 5-min \u00B7 " + hh : "";
+      const text = v ? (v.dir === "up" ? "\u25B2 " : "\u25BC ") + v.mult.toFixed(1) + "\u00D7 10-min \u00B7 " + hh : "";
       if (bc.textContent !== text) bc.textContent = text; const cls = "bc" + (v ? " bc-" + v.dir : ""); if (bc.className !== cls) bc.className = cls;
     }
   }
