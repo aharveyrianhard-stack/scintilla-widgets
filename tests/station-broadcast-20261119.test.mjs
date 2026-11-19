@@ -46,7 +46,8 @@ test("what he does not use is gone: no lens charts, no sliders, no FAVORITES str
 });
 
 test("each tape reads its own source, read-only, with the public key", () => {
-  for (const src of ["news_reads?", "econ_calendar?", "earnings_events?", "scintillas?", "rpc/\" + fn", "\"station_tape_alerts\"", "/api/heartbeat", "/api/ratios"]) assert.ok(page.includes(src), src);
+  for (const src of ["news_reads?", "econ_calendar?", "earnings_events?", "scintillas?", "rpc/\" + fn", "\"station_tape_alerts\"", "/api/heartbeat", "/api/ratios", "station_macro?", "prediction_market_latest?"]) assert.ok(page.includes(src), src);
+  assert.match(page, /when: "Polymarket"/, "the Fed odds say where they come from - never called FedWatch");
   assert.doesNotMatch(page, /service_role|SERVICE_ROLE/);
 });
 
