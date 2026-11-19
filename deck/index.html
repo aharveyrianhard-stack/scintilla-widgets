@@ -2011,7 +2011,10 @@ function lensWallOn() { return widgetsOn() && lensWallChoice(remembered(LENSWALL
 const EVENT_TAPES_KEY = "station.eventtapes", EVENT_TAPES_SHELL = "/station-shells/tapes-v1", EVENT_TAPES_ROWS = 2;
 /* 19 Nov ~12:00, Alan (relayed): "these tapes that he added are too small" - each row 5 % of the wall's height (40-64 px), about 1.5x;
    the lens rows give up that height and gain the X column's width (X off by default, same day) */
-const eventTapesRowPx = (wallH) => Math.max(40, Math.min(64, Math.round((Number(wallH) || 0) * 0.05)));
+/* 12:10, after the picture: "the relative volume thing is ginormous. I thought the objective was to make the ticker tapes bigger. I needed
+   to see the ticker tapes more." - the two tapes move into the band, on top of the volume panel's place, each row 9 % of the wall's
+   height (56-96 px); the volume panel keeps what is left under them; the lenses get the old strip's height back. */
+const eventTapesRowPx = (wallH) => Math.max(56, Math.min(96, Math.round((Number(wallH) || 0) * 0.09)));
 const eventTapesPx = (wallH, rows) => { const r = Math.max(0, Math.round(Number(rows) || 0)); return r ? r * eventTapesRowPx(wallH) + (r - 1) * FLOOR_SEAM_PX : 0; };
 function eventTapesChoice(stored, urlValue) {
   if (urlValue === "1" || urlValue === "0") return urlValue === "1";
@@ -2031,15 +2034,17 @@ function floorLensWall(areaWidth, areaHeight, tapePx, colPx, count, chromePx, ev
   const paneW = col + FLOOR_SEAM_PX + pw, top = h - bandH;
   const box = { left:-(col + FLOOR_SEAM_PX), top, w:paneW, h:bandH, feedCol:col };
   const volLeft = Math.min(w, pw + FLOOR_SEAM_PX), volW = Math.max(0, w - volLeft);
-  const volume = { left:volLeft, top, w:volW, h:Math.max(0, bandH - tapes), on:volW >= WIDGETS_VOLUME_MIN_PX };
-  const above = Math.max(0, top - FLOOR_SEAM_PX);
-  /* TAPES: the strip takes its height off the bottom of the lens area, one seam above it; never where it would leave the lenses under 120 px */
-  /* no 7th argument: this machine's choice (slotFor passes six); a number (the tests, the harness) wins */
+  const regionH = Math.max(0, bandH - tapes);   /* the band right of the player, over the FAVORITES tape */
+  /* TAPES (19 Nov 12:10): the strip sits at the top of that region, as wide as it; the volume panel keeps the rest and stands down under
+     100 px (the tapes come first: "I needed to see the ticker tapes more"); no 7th argument: this machine's choice; a number (tests) wins */
   const evWant = eventsPx === undefined ? (typeof lensWallEventsPx === "function" ? lensWallEventsPx(h) : 0) : eventsPx;
-  const ev = Math.max(0, Math.round(Number(evWant) || 0)), evH = ev && above - ev - FLOOR_SEAM_PX >= 120 ? ev : 0;
-  const lensH = Math.max(0, above - (evH ? evH + FLOOR_SEAM_PX : 0));
+  const ev = Math.max(0, Math.round(Number(evWant) || 0)), evH = ev && volW >= WIDGETS_VOLUME_MIN_PX && regionH >= ev ? ev : 0;
+  const volH = Math.max(0, regionH - (evH ? evH + FLOOR_SEAM_PX : 0));
+  const volume = { left:volLeft, top:top + (evH ? evH + FLOOR_SEAM_PX : 0), w:volW, h:volH, on:volW >= WIDGETS_VOLUME_MIN_PX && volH >= 100 };
+  const events = { left:volLeft, top, w:volW, h:evH, on:evH > 0 };
+  const above = Math.max(0, top - FLOOR_SEAM_PX);
+  const lensH = above;
   const lensTape = { left:0, top:0, w, h:lensH, rows:lensWallRows(lensH), on:w >= WIDGETS_LENS_ROW_PX && lensH >= 120 };
-  const events = { left:0, top:evH ? lensH + FLOOR_SEAM_PX : 0, w, h:evH, on:evH > 0 };
   return { widgets:true, lensWall:true, cols:1, rows:1, block:{ cols:0, rows:0 }, box, picture:{ w:pw, h:Math.round(pw * 9 / 16) },
     cells:[], charts:0, hidden:n, chartsH:0, bandH, rowBelow:Math.max(0, bandH - tapes), volume, lensTape, events, tapeLeft:paneW + FLOOR_SEAM_PX, wall, col, playerW:pw };
 }
@@ -3744,11 +3749,11 @@ function placeWidgets(slot, plan) {
   put(v, slot.volume); put(l, slot.lensTape);
   /* 1 Nov: with the X column off the lens wall starts at the screen's left edge, no empty corner where X was */
   if (NO_X && slot.lensWall) { l.style.left = "0px"; l.style.width = (plan.col + FLOOR_SEAM_PX + slot.lensTape.w) + "px"; }
-  /* TAPES (18 Nov): under the lenses, as wide as them; off where the slot has no strip */
+  /* TAPES (18 Nov; in the band since 19 Nov 12:10): on top of the volume panel, as wide as it; off where the slot has no strip */
   const ev = el("wgEvents");
   if (ev) {
     const eb = slot.events && slot.events.on ? slot.events : null;
-    if (eb) { put(ev, eb); if (NO_X && slot.lensWall) { ev.style.left = "0px"; ev.style.width = (plan.col + FLOOR_SEAM_PX + eb.w) + "px"; } }
+    if (eb) put(ev, eb);
     ev.classList.toggle("off", !eb);
   }
   /* W7: the lens grid's rows follow the band; the FAVORITES tape starts at YouTube's right edge; the control row sits over the charts */

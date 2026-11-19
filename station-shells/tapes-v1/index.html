@@ -28,6 +28,8 @@ html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); font-f
 .head .big{ font-size:1em; color:var(--ink); overflow:hidden; text-overflow:ellipsis; min-width:0; }
 .head .cd{ margin-left:auto; flex:none; font-size:.95em; color:var(--warm); }
 .head .sub{ color:var(--ink3); font-size:.8em; }
+html.narrow .head{ font-size:.74em; flex-wrap:wrap; align-content:center; row-gap:.08em; }   /* two lines: label, time and countdown on top; the name under them */
+html.narrow .head .big{ order:3; flex:1 0 100%; }
 .win{ flex:1 1 0; min-width:0; position:relative; overflow:hidden; }
 .track{ position:absolute; left:0; top:0; height:100%; display:flex; align-items:stretch; white-space:nowrap; }
 .track.run{ will-change:transform; animation:tape-move linear infinite; }
@@ -100,6 +102,11 @@ const shortEvent = (s) => String(s || "").replace(/\s*\((?:[A-Z][a-z]{2}(?:\/\d{
 function fit() {
   const h = window.innerHeight / ROWS;
   document.documentElement.style.fontSize = Math.max(10, Math.round(h * 0.40)) + "px";
+  /* 19 Nov 12:10: in the band the strip is narrow and tall (about 9 row-heights across instead of 40): the head boxes widen to a third
+     and their words step down, so "NEXT 12:35 ..." and "SCINTILLAS 59 today" read whole */
+  const narrow = window.innerWidth / Math.max(1, h) < 16;
+  document.documentElement.style.setProperty("--head-w", narrow ? "34%" : "22%");
+  document.documentElement.classList.toggle("narrow", narrow);
   document.body.style.fontSize = "1rem";
   el("rowScint").hidden = ROWS === 1;
   for (const t of document.querySelectorAll(".track")) delete t.dataset.fit;

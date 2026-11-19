@@ -38,7 +38,7 @@ const SCREENS = [[2560, 1440], [1920, 1080], [1280, 800]];
 const CHROME = 26;
 const colOf = (w) => Math.round(w * 0.18);
 
-test("TAPES · the strip comes off the bottom of the lens area; the lenses give up exactly that; the band never moves", () => {
+test("TAPES · (19 Nov 12:10) the strip sits at the top of the band right of the player; the volume panel gives up exactly that; lenses, player and FAVORITES never move", () => {
   const D = api();
   for (const [W, H] of SCREENS) {
     const col = colOf(W), areaW = W - col - D.FLOOR_SEAM_PX;
@@ -48,28 +48,31 @@ test("TAPES · the strip comes off the bottom of the lens area; the lenses give 
     assert.equal(before.events.on, false, W + ": no strip asked, none given");
     assert.equal(after.events.on, true, W + ": the strip is there");
     assert.equal(after.events.h, px);
-    assert.equal(after.events.left, 0); assert.equal(after.events.w, after.lensTape.w, "as wide as the lenses");
-    assert.equal(after.lensTape.h, before.lensTape.h - px - D.FLOOR_SEAM_PX, "the lenses give up the strip and one seam");
-    assert.equal(after.events.top, after.lensTape.h + D.FLOOR_SEAM_PX, "the strip sits one seam under the lenses");
-    assert.equal(after.events.top + after.events.h + D.FLOOR_SEAM_PX, before.lensTape.h + D.FLOOR_SEAM_PX, "and ends where the lenses used to end");
-    for (const k of ["box", "volume", "picture", "bandH", "rowBelow", "tapeLeft", "playerW", "wall", "col"]) assert.deepEqual(after[k], before[k], W + ": " + k + " does not move");
-    assert.ok(after.lensTape.h >= 120, W + ": the lenses keep at least 120 px");
+    assert.equal(after.events.left, before.volume.left, "where the volume panel starts"); assert.equal(after.events.w, before.volume.w, "as wide as it");
+    assert.equal(after.events.top, before.volume.top, "at the top of the band");
+    assert.equal(after.volume.top, before.volume.top + px + D.FLOOR_SEAM_PX, "the volume panel starts one seam under the strip");
+    assert.equal(after.volume.h, before.volume.h - px - D.FLOOR_SEAM_PX, "and gives up exactly the strip and one seam");
+    assert.equal(after.volume.on, after.volume.h >= 100, W + ": the volume panel stays while it keeps 100 px");
+    for (const k of ["lensTape", "box", "picture", "bandH", "rowBelow", "tapeLeft", "playerW", "wall", "col"]) assert.deepEqual(after[k], before[k], W + ": " + k + " does not move");
+    assert.ok(after.events.h >= 2 * 56, W + ": two rows of 56 px or more");
   }
 });
 
-test("TAPES · each row is 5 % of the wall's height, 40-64 px (3.3 %, 28-50 until 19 Nov); two rows and the seam between them", () => {
+test("TAPES · each row is 9 % of the wall's height, 56-96 px (5 %, 40-64 at 12:06; 3.3 %, 28-50 until 19 Nov); two rows and the seam between them", () => {
   const D = api();
-  assert.equal(D.eventTapesRowPx(1440), 64, "19 Nov: about 1.5x (5 %, capped at 64)"); assert.equal(D.eventTapesRowPx(1080), 54); assert.equal(D.eventTapesRowPx(970), 49); assert.equal(D.eventTapesRowPx(800), 40);
-  assert.equal(D.eventTapesRowPx(400), 40, "never under 40"); assert.equal(D.eventTapesRowPx(2160), 64, "never over 64");
-  assert.equal(D.eventTapesPx(1440, 2), 129); assert.equal(D.eventTapesPx(800, 2), 81); assert.equal(D.eventTapesPx(1440, 0), 0);
+  assert.equal(D.eventTapesRowPx(1440), 96, "capped at 96"); assert.equal(D.eventTapesRowPx(1080), 96); assert.equal(D.eventTapesRowPx(970), 87); assert.equal(D.eventTapesRowPx(800), 72);
+  assert.equal(D.eventTapesRowPx(400), 56, "never under 56"); assert.equal(D.eventTapesRowPx(2160), 96, "never over 96");
+  assert.equal(D.eventTapesPx(1440, 2), 193); assert.equal(D.eventTapesPx(800, 2), 145); assert.equal(D.eventTapesPx(1440, 0), 0);
 });
 
-test("TAPES · where the lenses would drop under 120 px the strip stands down and the slot is the old one", () => {
+test("TAPES · where the band cannot hold the strip it stands down and the slot is the old one; where the volume panel would drop under 100 px it stands down and the tapes stay", () => {
   const D = api();
   const short = plain(D.floorLensWall(1049, 420, 66, 231, 9, CHROME, 200));
   const none = plain(D.floorLensWall(1049, 420, 66, 231, 9, CHROME, 0));
   assert.equal(short.events.on, false);
   assert.deepEqual({ ...short, events:null }, { ...none, events:null });
+  const tight = plain(D.floorLensWall(1049, 800, 66, 231, 9, CHROME, 250));
+  assert.equal(tight.events.on, true, "the tapes come first"); assert.equal(tight.volume.on, false, "the volume panel stands down under 100 px");
 });
 
 test("TAPES · no 7th argument outside the page: no strip (the VM has no machine choice), the old slot", () => {
@@ -95,7 +98,7 @@ test("TAPES · the deck makes, mounts and places the frame; slotFor's W15 line i
   const place = fn(deck, "placeWidgets");
   assert.match(place, /const eb = slot\.events && slot\.events\.on \? slot\.events : null;/);
   assert.match(place, /ev\.classList\.toggle\("off", !eb\);/, "off where the slot has no strip");
-  assert.match(place, /if \(NO_X && slot\.lensWall\) \{ ev\.style\.left = "0px";/, "with X off it starts at the screen's edge, like the lenses");
+  assert.match(place, /if \(eb\) put\(ev, eb\);/, "placed in the band like the volume panel, never stretched to the screen's edge");
   assert.match(fn(deck, "slotFor"), /if \(widgetsOn\(\)\) return \(lensWallOn\(\) \? floorLensWall : floorWidgets\)\(plan\.charts\.w, plan\.charts\.h, tapePx, plan\.col, count, chromePx\);   \/\* W15 \*\//);
   assert.match(fn(deck, "floorLensWall"), /eventsPx === undefined \? \(typeof lensWallEventsPx === "function" \? lensWallEventsPx\(h\) : 0\) : eventsPx/);
   assert.match(deck, /#wgVolume\.off, #wgLensTape\.off, #wgEvents\.off\{ display:none !important; \}/);
