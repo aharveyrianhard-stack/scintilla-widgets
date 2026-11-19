@@ -205,7 +205,7 @@ test("W1 · the lens set: RADAR · MACRO · MINE, remembered; MINE adds and remo
     "globalThis.out = { LISTS, MACRO, listChoice, mineOf, mineAdd, mineRemove };"].join("\n");
   const ctx = {}; vm.runInNewContext(src, ctx); const L = ctx.out;
   assert.deepEqual(plain(L.LISTS), ["radar", "macro", "mine"]);
-  assert.deepEqual(plain(L.MACRO), ["SPY", "QQQ", "ESUSD", "NQUSD", "VIX", "PCC", "ADVDEC", "CLUSD", "US10Y", "BTCUSD", "GCUSD", "DXUSD"], "W7: SPY and QQQ, the futures beside them, VIX, put/call, advance/decline, oil, the 10-year, bitcoin, gold, the dollar");
+  assert.deepEqual(plain(L.MACRO), ["SPY", "QQQ", "ANT", "ESUSD", "NQUSD", "VIX", "PCC", "ADVDEC", "CLUSD", "US10Y", "BTCUSD", "GCUSD", "DXUSD"], "W7: SPY and QQQ, the futures beside them, VIX, put/call, advance/decline, oil, the 10-year, bitcoin, gold, the dollar");
   assert.equal(L.listChoice("", ""), "radar", "opens on RADAR"); assert.equal(L.listChoice("macro", ""), "macro", "the remembered list"); assert.equal(L.listChoice("macro", "mine"), "mine", "the URL wins for that load"); assert.equal(L.listChoice("junk", "junk"), "radar");
   assert.deepEqual(plain(L.mineOf('["nvda","AMD","nvda"," x!y "]')), ["NVDA", "AMD", "XY"], "cleaned, deduped"); assert.deepEqual(plain(L.mineOf("junk")), []); assert.deepEqual(plain(L.mineOf("")), []);
   assert.deepEqual(plain(L.mineAdd(["NVDA"], "amd")), ["NVDA", "AMD"]); assert.deepEqual(plain(L.mineAdd(["NVDA"], "nvda")), ["NVDA"], "never twice"); assert.deepEqual(plain(L.mineAdd(["NVDA"], "!!")), ["NVDA"]);

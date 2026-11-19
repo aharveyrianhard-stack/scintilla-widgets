@@ -222,10 +222,18 @@ export function rowsForSets(rows, counts) {
    QQQ at every hour, the futures beside them. NDX is not served by the chart API (asked 22 Oct 23:46 ET: no series) - left out, said. PUT/CALL is
    the CBOE daily ratio (PCC) - its daily bars, labelled. ADVANCE/DECLINE has no series the API serves; the volume feed's breadth (adv, dec, the
    ratio) is live - a number lens. */
-const MACRO = Object.freeze(["SPY", "QQQ", "ESUSD", "NQUSD", "VIX", "PCC", "ADVDEC", "CLUSD", "US10Y", "BTCUSD", "GCUSD", "DXUSD"]);
-const NAMES = Object.freeze({ SPY: "S&P 500 ETF", QQQ: "NASDAQ 100 ETF", ESUSD: "S&P FUT", NQUSD: "NASDAQ FUT", VIX: "VIX", PCC: "PUT/CALL · daily", ADVDEC: "ADVANCE / DECLINE", CLUSD: "OIL", US10Y: "10-YEAR", BTCUSD: "BITCOIN", GCUSD: "GOLD", DXUSD: "DOLLAR" });
+/* 19 Nov 2026, Alan (relayed by the Dot-com session): Anthropic listed today - "we should put it on the rotations ... maybe like with the indexes
+   so that it's more frequent ... we have to see it." ANT sits beside SPY and QQQ in MACRO, the shorter row that comes round about twice as often. */
+const MACRO = Object.freeze(["SPY", "QQQ", "ANT", "ESUSD", "NQUSD", "VIX", "PCC", "ADVDEC", "CLUSD", "US10Y", "BTCUSD", "GCUSD", "DXUSD"]);
+const NAMES = Object.freeze({ SPY: "S&P 500 ETF", QQQ: "NASDAQ 100 ETF", ANT: "ANTHROPIC · IPO 83", ESUSD: "S&P FUT", NQUSD: "NASDAQ FUT", VIX: "VIX", PCC: "PUT/CALL · daily", ADVDEC: "ADVANCE / DECLINE", CLUSD: "OIL", US10Y: "10-YEAR", BTCUSD: "BITCOIN", GCUSD: "GOLD", DXUSD: "DOLLAR" });
 const DAILY_ONLY = Object.freeze({ PCC: true });   /* the API serves the ratio daily only */
 const NUMBER_LENS = Object.freeze({ ADVDEC: true });
+/* 19 Nov 2026: a name the chart API does not track yet (a new listing: ANT) is priced by FMP through the station-offlist function - the quote
+   every 15 s in the trading hours (every 5 min overnight), its bars every minute - until it is admitted to the universe the normal way (that
+   changes the universe digest the evening tail pass hashes, so not on a listing day). On its first day the % is against the IPO price, which
+   FMP gives as a new listing's previous close. No RVol and no usual day yet: it has no history. */
+const OFF_API = Object.freeze({ ANT: true });
+const OFF_TF = Object.freeze({ "1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min", "1h": "1hour" });
 const BREADTH_FEED = "https://volume-pulse-pied.vercel.app/api/heartbeat";
 /* W7: LINE · BARS, remembered on this machine; bars by default (Alan: "it needs to be bars, please. 5-minute bars") */
 const STYLE_KEY = "station.lenses.style";
@@ -665,7 +673,7 @@ async function readRvol() {
    newest row of the last week, read for new names and every 30 minutes; a name with no current row (futures, rates, a name the Hub does not
    follow) gets the same spread computed from the chart API's daily bars (usualSpread) */
 async function readUsual() {
-  const list = Array.from(new Set(names().concat(WANTED))).filter((t) => !NUMBER_LENS[t] && !DAILY_ONLY[t] && (!S.usual.has(t) || Date.now() - S.usualAt > USUAL_MS)); if (!list.length || S.busyU || document.hidden) return; S.busyU = true;
+  const list = Array.from(new Set(names().concat(WANTED))).filter((t) => !NUMBER_LENS[t] && !DAILY_ONLY[t] && !OFF_API[t] && (!S.usual.has(t) || Date.now() - S.usualAt > USUAL_MS)); if (!list.length || S.busyU || document.hidden) return; S.busyU = true;
   try {
     const since = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10), best = new Map();
     for (let i = 0; i < list.length; i += 60) {
@@ -685,8 +693,30 @@ async function readBreadth() {
   try { const r = await fetch(BREADTH_FEED, { cache: "no-store" }); const j = await r.json(); S.breadthAt = Date.now(); S.breadthState = j && j.marketState || ""; if (j && j.breadth) S.breadth = j.breadth; else S.breadthNone = true; paintCells(false); }
   catch (_) {} finally { S.busyBr = false; }
 }
+/* 19 Nov 2026: the off-list names (OFF_API) from station-offlist (FMP): the quote each call, the bars at most once a minute or at a 5-minute close */
+function nyClock() { const p = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", weekday: "short", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date()); const g = (k) => (p.find((x) => x.type === k) || {}).value || ""; return { wd: g("weekday"), m: +g("hour") * 60 + +g("minute") }; }
+export function offEvery(wd, m) { return !["Sat", "Sun"].includes(wd) && m >= 240 && m < 1200 ? 15000 : 300000; }
+async function readOff(forceBars) {
+  const list = names().filter((t) => OFF_API[t]); if (!list.length || S.busyO || document.hidden) return; S.busyO = true;
+  try {
+    const ftf = OFF_TF[TF] || "", wantBars = !!ftf && (forceBars || Date.now() - (S.offBarsAt || 0) > BARS_MS);
+    const r = await fetch(SB + "/functions/v1/station-offlist?symbols=" + list.map(encodeURIComponent).join(",") + (wantBars ? "&tf=" + ftf : ""), { headers: { apikey: ANON, Authorization: "Bearer " + ANON }, cache: "no-store" });
+    const j = await r.json(); S.offAt = Date.now();
+    for (const t of list) {
+      const q = j && j.quotes && j.quotes[t];
+      if (q && q.price != null) S.quotes.set(t, { price: +q.price, pct: q.change_pct == null ? null : +q.change_pct });
+      if (wantBars) {
+        const rows = ((j && j.bars && j.bars[t]) || []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0).sort((a, b) => a.t - b.t).slice(-LENS_BARS);
+        S.bars.set(t, rows.length ? { bars: rows, vw: null, at: Date.now() } : { absence: "no bars yet", at: Date.now() });
+      } else if (!ftf) S.bars.set(t, { absence: "new listing: daily bars after its first close", at: Date.now() });
+      const d = el("set").querySelector('.lens[data-t="' + t + '"]'); if (d) drawOne(d);
+    }
+    if (wantBars) S.offBarsAt = Date.now();
+    paintCells(false);
+  } catch (_) { S.offAt = Date.now(); } finally { S.busyO = false; }
+}
 async function readQuotes() {
-  const P = window.SC_PROVIDER; const list = names().filter((t) => !NUMBER_LENS[t]); if (!P || !list.length || S.busyQ || document.hidden) return;
+  const P = window.SC_PROVIDER; const list = names().filter((t) => !NUMBER_LENS[t] && !OFF_API[t]); if (!P || !list.length || S.busyQ || document.hidden) return;
   S.busyQ = true;
   try {
     const rows = await P.marketQuotes(list, {});
@@ -706,7 +736,7 @@ async function readBars(force) {
   const P = window.SC_PROVIDER; const list = names(); if (!P || !list.length || S.busyB || document.hidden) return;
   S.busyB = true;
   try {
-    const want = list.filter((t) => force || !S.bars.has(t) || Date.now() - S.bars.get(t).at > BARS_MS);
+    const want = list.filter((t) => !OFF_API[t] && (force || !S.bars.has(t) || Date.now() - S.bars.get(t).at > BARS_MS));   /* 19 Nov: off-list names read in readOff */
     await Promise.all(want.map(async (t) => {
       try {
         /* W4: on the tape the read skips the provider client's shared store (forming:true, max-age 15), so a bar just closed is seen at once */
@@ -748,11 +778,12 @@ async function tick(now) {
   if (Date.now() - radarAt > LIST_MS) { await readRadar(); paintChips(); paintSet(); }
   if (MINE_ON && Date.now() - mineAt > LIST_MS) { await readMine(); paintChips(); paintSet(); }
   if (now || Date.now() - S.quotesAt > QUOTE_MS) readQuotes();
+  { const c = nyClock(); if (now || Date.now() - (S.offAt || 0) > offEvery(c.wd, c.m)) readOff(!!now); }   /* 19 Nov: the off-list names (ANT) */
   if (now || Date.now() - S.rvolAt > RVOL_MS) { readRvol(); readBreadth(); }
   if (now || Date.now() - S.usualAt > USUAL_MS) readUsual();
   if (TAPE) {
     const due = closeDue(Date.now(), lastCloseRead);
-    if (due && (due.at === "close" || barsStale(due.boundary))) { lastCloseRead = Date.now(); readBars(true); return; }
+    if (due && (due.at === "close" || barsStale(due.boundary))) { lastCloseRead = Date.now(); readBars(true); readOff(true); return; }
   }
   readBars(false);
 }
