@@ -52,7 +52,8 @@ so a bare `/deck` reopens the last scene/cohort/page.
 
 | Route | Title | Note |
 | --- | --- | --- |
-| `/` | SCINTILLA · scene widgets | scene-module directory |
+| `/` | SCINTILLA · scene widgets | the Station's start: a plain visit goes to `/broadcast` (19 Nov); a visit with a query, or in a frame, to `/deck` |
+| `/broadcast` | SCINTILLA · The Station | the broadcast layout (19 Nov): video + relative volume over six identical tapes, one 1920×1080 stage scaled to the window |
 | `/deck` | SCINTILLA · The Station | the Station wall; `station.scintillahub.ai/` rewrites here |
 | `/station` | SCINTILLA STATION | PWA identity (`manifest.json`, `icon.svg`) |
 | `/station-ipad` | SCINTILLA · Station iPad | iPad companion wrapper; frames `/deck` with the paired link |

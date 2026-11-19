@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="STATION">
+<link rel="manifest" href="/station/manifest.json">
+<title>SCINTILLA · The Station</title>
+<!-- ============================================================================================================================
+     THE STATION, BROADCAST LAYOUT (19 Nov 2026, coordinator)
+     Alan, 17:20 ET on his photo of the TV (relayed): "It's garbage... The proportions, these tapes, the relative volume, they stacked it...
+     cropped... the tapes are shit... we have to have earnings, economic, scintillas, sigma moves, these bar alerts, the volume alerts...
+     I don't use these charts... and these sliders", and a live AI read. 17:55 in his own words: "The proportions of the relative volume
+     don't make sense like that. Compressed and ugly. Like, the fonts are all inconsistent... Tapes in one place, other tapes in another.
+     Inconsistent tapes."
+     THE RULES THIS PAGE KEEPS (tests/station-broadcast-20261119.test.mjs holds them):
+       - ONE stage, 1920 x 1080, scaled as a whole to the window: the TV, the MacBook and the iMac show the same picture, bigger or
+         smaller - nothing re-flows, nothing is cropped.
+       - ONE typeface; FOUR sizes: 22 labels, 30 tape text, 36 values, 72 the one big number.
+       - EVERY tape in ONE stack, six identical rows: AI READ, ECONOMIC, EARNINGS, SCINTILLAS, BIG CANDLES, VOLUME ALERTS. Each row is a
+         name box (label + its count or countdown) and a crawl that fades in and out at the edges instead of cutting words.
+       - The relative volume is one real panel with its own chart (no second copy, no strip squeezed under the tapes).
+       - No lens charts, no sliders, no FAVORITES strip, no X.
+     Data (read-only, the public key): news_reads (AI read), econ_calendar, earnings_events, scintillas, rpc station_tape_alerts (big
+     candles + volume alerts), and the volume-pulse feed (heartbeat + ratios) like the old volume panel.
+     The old wall stays at /deck/?deck=1.
+     ============================================================================================================================ -->
+<style>
+:root{ --bg:#0A0A0F; --panel:#0F0F19; --box:#141424; --line:#24243A; --ink:#F2F2F8; --ink2:#C9CBE0; --dim:#8A8EAE;
+  --crk:#00D4FF; --bull:#00FFA3; --bear:#FF3B62; --amber:#FFB020;
+  --f:ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace; --s1:22px; --s2:30px; --s3:36px; --s4:72px; }
+*{ box-sizing:border-box; margin:0; }
+html,body{ height:100%; background:var(--bg); color:var(--ink); font-family:var(--f); overflow:hidden; -webkit-font-smoothing:antialiased; }
+body{ display:flex; align-items:center; justify-content:center; }
+#stage{ position:relative; width:1920px; height:1080px; flex:none; background:var(--bg); overflow:hidden; }
+.lab{ font-size:var(--s1); font-weight:700; letter-spacing:.12em; color:var(--crk); text-transform:uppercase; white-space:nowrap; }
+.dim{ color:var(--dim); } .up{ color:var(--bull); } .dn{ color:var(--bear); } .am{ color:var(--amber); }
+#top{ display:grid; grid-template-columns:1280px 636px; gap:4px; height:640px; }
+/* the video part (feed + player), the same shell the old wall mounts, drawn bigger so its type sits with ours */
+#video{ position:relative; overflow:hidden; background:#000; }
+#video iframe{ position:absolute; left:0; top:0; border:0; width:calc(1280px / 1.5); height:calc(640px / 1.5); zoom:1.5; }
+/* RELATIVE VOLUME */
+#vol{ background:var(--panel); padding:18px 22px; display:flex; flex-direction:column; }
+.head{ display:flex; justify-content:space-between; align-items:baseline; gap:16px; }
+.big{ display:flex; align-items:baseline; gap:18px; margin-top:10px; }
+.big b{ font-size:var(--s4); font-weight:800; line-height:1; }
+.big span{ font-size:var(--s1); color:var(--ink2); white-space:nowrap; }
+#chart{ display:block; margin-top:16px; }
+.stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:4px; margin-top:auto; }
+.stat{ background:var(--box); padding:10px 14px; min-width:0; }
+.stat .l{ display:block; font-size:var(--s1); letter-spacing:.1em; color:var(--dim); white-space:nowrap; }
+.stat .v{ display:block; font-size:var(--s2); font-weight:800; line-height:1.3; white-space:nowrap; }
+/* THE TAPES: one stack, six identical rows */
+#tapes{ position:absolute; left:0; right:0; bottom:0; height:436px; display:grid; grid-template-rows:repeat(6,70px); gap:3px; padding-top:1px; }
+.tape{ display:grid; grid-template-columns:360px 1fr; background:var(--panel); min-width:0; }
+.tape .name{ display:flex; justify-content:space-between; align-items:center; gap:12px; padding:0 18px; background:var(--box); white-space:nowrap; }
+.tape .name em{ font-style:normal; font-size:var(--s1); color:var(--ink2); letter-spacing:.04em; }
+.tape .name.soon em{ color:var(--amber); animation:soon 1.4s ease-in-out infinite; }
+.tape .name.flash{ animation:flash 1s ease-in-out 12; }
+@keyframes soon{ 50%{ opacity:.35; } }
+@keyframes flash{ 50%{ background:rgba(0,212,255,.28); box-shadow:inset 0 0 0 2px rgba(0,212,255,.8); } }
+.win{ position:relative; overflow:hidden; min-width:0;
+  -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 110px,#000 calc(100% - 180px),transparent 100%);
+          mask-image:linear-gradient(90deg,transparent 0,#000 110px,#000 calc(100% - 180px),transparent 100%); }
+.track{ position:absolute; left:0; top:0; height:100%; display:flex; align-items:center; white-space:nowrap; padding-left:26px;
+  font-size:var(--s2); font-weight:500; will-change:transform; }
+.track.run{ animation:crawl linear infinite; }
+@keyframes crawl{ from{ transform:translateX(0); } to{ transform:translateX(var(--lap)); } }
+.track .it{ display:inline-flex; align-items:baseline; gap:12px; }
+.track .sep{ color:var(--dim); padding:0 26px; }
+.track b{ font-weight:800; }
+.track .t{ color:var(--dim); }
+.track .new{ padding:3px 12px; margin:0 -12px; border-radius:6px; background:rgba(0,212,255,.12);
+  box-shadow:0 0 0 2px rgba(0,212,255,.6),0 0 20px rgba(0,212,255,.35); }
+.track .quiet{ color:var(--dim); }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="top">
+    <div id="video"><iframe id="videoFrame" title="Videos" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div>
+    <div id="vol">
+      <div class="head"><span class="lab">Relative volume</span><span class="lab am" id="volState">—</span></div>
+      <div class="big"><b id="volNow">—</b><span id="volSub">its usual</span></div>
+      <svg id="chart" width="592" height="262" viewBox="0 0 592 262" aria-label="relative volume today, 5-minute bars"></svg>
+      <div class="stats">
+        <div class="stat"><span class="l">BLOCK</span><span class="v" id="stBlock">—</span></div>
+        <div class="stat"><span class="l">2-MIN FLOW</span><span class="v" id="stFlow">—</span></div>
+        <div class="stat"><span class="l">BREADTH</span><span class="v" id="stBreadth">—</span></div>
+      </div>
+      <div class="stats" id="pairs" style="margin-top:4px"></div>
+    </div>
+  </div>
+  <div id="tapes"></div>
+</div>
+<script>
+"use strict";
+/* ---- the stage: one 1920 x 1080 picture, scaled whole to the window ---- */
+const STAGE_W = 1920, STAGE_H = 1080;
+function fitStage() {
+  const s = Math.min(innerWidth / STAGE_W, innerHeight / STAGE_H);
+  document.documentElement.style.zoom = String(Math.round(s * 10000) / 10000);
+}
+fitStage(); addEventListener("resize", fitStage);
+
+const SB = "https://wadinxqplrggagkvrdag.supabase.co";
+const ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g";
+const PG = { apikey: ANON, Authorization: "Bearer " + ANON };
+const VP = "https://volume-pulse-pied.vercel.app";
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const remembered = (k, d) => { try { return localStorage.getItem(k) || d; } catch (_) { return d; } };
+const remember = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
+const etParts = (d) => Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short", hour12: false }).formatToParts(d).map((p) => [p.type, p.value]));
+const etHM = (d) => { const p = etParts(d); return (p.hour === "24" ? "00" : p.hour) + ":" + p.minute; };
+const etDate = (d) => { const p = etParts(d); return p.year + "-" + p.month + "-" + p.day; };
+const etDay = (d) => etParts(d).weekday.toUpperCase();
+const pct = (v, dp = 1) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(dp) + "%";
+const arrow = (v) => (v > 0 ? "▲" : v < 0 ? "▼" : "");
+const cls = (v) => (v > 0 ? "up" : v < 0 ? "dn" : "");
+async function getJSON(url, opt) { const r = await fetch(url, Object.assign({ cache: "no-store" }, opt || {})); if (!r.ok) throw new Error(r.status); return r.json(); }
+const rest = (path) => getJSON(SB + "/rest/v1/" + path, { headers: PG });
+const rpc = (fn, body) => getJSON(SB + "/rest/v1/rpc/" + fn, { method: "POST", headers: Object.assign({ "content-type": "application/json" }, PG), body: JSON.stringify(body || {}) });
+/* midnight in New York, as an instant: 05:00 UTC in winter (EST), 04:00 UTC in summer (EDT) */
+const todayStartIso = () => { const now = new Date(), p = etParts(now);
+  const edt = /EDT/.test(now.toLocaleString("en-US", { timeZone: "America/New_York", timeZoneName: "short" }));
+  return p.year + "-" + p.month + "-" + p.day + "T0" + (edt ? 4 : 5) + ":00:00.000Z"; };
+
+/* ---- the video part: the Station's own feed + player shell, the feed tab remembered ---- */
+const SHELL = { personal: "/station-shells/personal-video-v1", scintilla: "/station-shells/scintilla-video-v1" };
+const FEED_KEY = "station.broadcast.feed";
+let VIDEO_ON = false;
+const videoSrc = (a, cue) => (SHELL[a] || SHELL.scintilla) + "/?shell=v1&feed=" + encodeURIComponent(a) + "&cols=1&beside=1&besideCol=154&fixed=1" + (cue ? "&v=" + cue : "");
+function mountVideo(account) {
+  const a = String(account || "scintilla").toLowerCase().replace(/[^a-z0-9_-]/g, "") || "scintilla";
+  remember(FEED_KEY, a);
+  el("videoFrame").src = videoSrc(a, "");
+  cueNewest(a);
+}
+/* never a black box: once the feed has drawn its cards, the newest one is CUED in the player (loaded, not played - he presses play).
+   Same-origin read of the feed's first card; one remount with ?v=; skipped if a video is already on. */
+let CUE_TRY = 0;
+function cueNewest(a) {
+  const my = ++CUE_TRY, t0 = Date.now();
+  const tick = () => {
+    if (my !== CUE_TRY || VIDEO_ON) return;
+    let id = "";
+    try { const d = el("videoFrame").contentDocument; id = (d && d.querySelector("[data-v]") && d.querySelector("[data-v]").dataset.v) || ""; } catch (_) {}
+    if (/^[A-Za-z0-9_-]{11}$/.test(id)) { el("videoFrame").src = videoSrc(a, id); return; }
+    if (Date.now() - t0 < 20000) setTimeout(tick, 700);
+  };
+  setTimeout(tick, 1200);
+}
+addEventListener("message", (e) => {
+  if (e.origin !== location.origin || !e.data) return;
+  if (e.data.sc === "video-feed") mountVideo(e.data.account);
+  if (e.data.sc === "video-playing") VIDEO_ON = !!e.data.on;
+});
+mountVideo(remembered(FEED_KEY, "scintilla"));
+
+/* ---- the tapes: six identical rows ---- */
+const SPEED = 80;   /* stage px a second, every tape the same */
+const TAPES = [
+  { key: "read", label: "AI read" }, { key: "econ", label: "Economic" }, { key: "earn", label: "Earnings" },
+  { key: "scint", label: "Scintillas" }, { key: "candle", label: "Big candles" }, { key: "volal", label: "Volume alerts" }];
+const T = {};
+for (const d of TAPES) {
+  const row = document.createElement("div"); row.className = "tape"; row.dataset.tape = d.key;
+  row.innerHTML = '<div class="name"><span class="lab">' + esc(d.label) + '</span><em></em></div><div class="win"><div class="track"></div></div>';
+  el("tapes").appendChild(row);
+  const t = { row, name: row.querySelector(".name"), meta: row.querySelector(".name em"), win: row.querySelector(".win"), track: row.querySelector(".track"), pending: null, html: "", seen: null };
+  t.track.addEventListener("animationiteration", () => { if (t.pending != null) { const h = t.pending; t.pending = null; paint(t, h); } });
+  T[d.key] = t;
+}
+function paint(t, html) {
+  t.html = html; t.track.classList.remove("run"); t.track.style.removeProperty("--lap");
+  t.track.innerHTML = '<span class="copy">' + html + "</span>";
+  const one = t.track.firstChild.getBoundingClientRect().width / (parseFloat(document.documentElement.style.zoom) || 1);
+  const room = t.win.getBoundingClientRect().width / (parseFloat(document.documentElement.style.zoom) || 1);
+  if (one + 26 <= room) return;   /* it fits: it stands still, whole */
+  t.track.innerHTML = '<span class="copy">' + html + '<span class="sep">·</span></span><span class="copy">' + html + '<span class="sep">·</span></span>';
+  const lap = t.track.firstChild.getBoundingClientRect().width / (parseFloat(document.documentElement.style.zoom) || 1);
+  t.track.style.setProperty("--lap", "-" + lap.toFixed(1) + "px");
+  t.track.style.animationDuration = (lap / SPEED).toFixed(2) + "s";
+  void t.track.offsetWidth; t.track.classList.add("run");
+}
+function setTape(key, items, meta, opts) {
+  const t = T[key]; if (!t) return;
+  t.meta.textContent = meta || "";
+  t.name.classList.toggle("soon", !!(opts && opts.soon));
+  const html = items.length ? items.join('<span class="sep">·</span>') : '<span class="quiet">' + esc((opts && opts.empty) || "nothing yet today") + "</span>";
+  const firstId = opts && opts.firstId;
+  if (t.seen != null && firstId != null && firstId !== t.seen) { t.name.classList.remove("flash"); void t.name.offsetWidth; t.name.classList.add("flash"); }
+  if (firstId != null) t.seen = firstId;
+  if (html === t.html && t.pending == null) return;
+  if (t.track.classList.contains("run")) t.pending = html; else paint(t, html);
+}
+const item = (parts, fresh) => '<span class="it' + (fresh ? " new" : "") + '">' + parts + "</span>";
+const isFresh = (iso, mins = 10) => Date.now() - Date.parse(iso) < mins * 60000;
+
+/* AI READ: the news brain's newest read (pre-market, midday, close) */
+const READ_KIND = { premarket: "PRE-MARKET", midday: "MIDDAY", close: "CLOSE" };
+async function loadRead() {
+  const r = (await rest("news_reads?select=id,kind,title,takeaway,created_at&order=id.desc&limit=1"))[0];
+  if (!r) return setTape("read", [], "", { empty: "the first read of the day lands about 08:45" });
+  const when = new Date(r.created_at);
+  setTape("read", [item("<b>" + esc(r.title) + '</b><span class="t">—</span>' + esc(r.takeaway || ""), isFresh(r.created_at, 20))],
+    (READ_KIND[r.kind] || String(r.kind || "").toUpperCase()) + " " + etHM(when), { firstId: r.id });
+}
+/* ECONOMIC: today's prints, then what is next; the name box counts down to the next one */
+async function loadEcon() {
+  const now = Math.floor(Date.now() / 1000);
+  const rows = await rest("econ_calendar?select=event_ts,event,impact,estimate,previous,actual&country=eq.US&impact=in.(High,Medium)&event_ts=gte." + (now - 8 * 3600) + "&event_ts=lte." + (now + 4 * 86400) + "&order=event_ts.asc&limit=40");
+  const today = etDate(new Date());
+  const items = [], num = (v) => (v == null ? "" : Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 }));
+  let next = null;
+  for (const e of rows) {
+    const d = new Date(e.event_ts * 1000), past = e.event_ts <= now;
+    if (past && e.actual == null) continue;
+    if (!past && !next) next = e;
+    const when = (etDate(d) === today ? "" : etDay(d) + " ") + etHM(d);
+    const dot = e.impact === "High" ? '<span class="dn">●</span>' : "";
+    const nums = e.actual != null && past ? "<b>" + num(e.actual) + '</b><span class="t">est</span>' + (num(e.estimate) || "—")
+      : (e.estimate != null ? '<span class="t">est</span>' + num(e.estimate) : "") + (e.previous != null ? '<span class="t">prev</span>' + num(e.previous) : "");
+    items.push(item('<span class="' + (past ? "t" : "am") + '">' + when + "</span>" + dot + esc(e.event) + nums, past && now - e.event_ts < 600));
+  }
+  let meta = "", soon = false;
+  if (next) { const s = next.event_ts - now, h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    meta = "NEXT " + (s >= 3600 ? h + "h" + String(m).padStart(2, "0") : s >= 60 ? m + "m" : s + "s"); soon = s <= 900; }
+  setTape("econ", items, meta, { soon, firstId: rows.filter((e) => e.actual != null).length });
+}
+/* EARNINGS: today's reports (actual vs estimate), then the next days */
+async function loadEarn() {
+  const now = new Date(), today = etDate(now), until = etDate(new Date(now.getTime() + 4 * 86400000));
+  const rows = await rest("earnings_events?select=ticker,date,report_time,eps_estimate,eps_actual,surprise_pct&superseded_at=is.null&date=gte." + today + "&date=lte." + until + "&order=date.asc,report_time.asc,ticker.asc&limit=80");
+  const items = [], f2 = (v) => (v == null ? "—" : Number(v).toFixed(2));
+  let todayN = 0;
+  for (const e of rows) {
+    const isToday = e.date === today; if (isToday) todayN++;
+    const when = (isToday ? "" : etDay(new Date(e.date + "T12:00:00Z")) + " ") + (e.report_time || "");
+    if (e.eps_actual != null) {
+      const s = e.surprise_pct;
+      items.push(item('<span class="t">' + esc(when) + "</span><b>" + esc(e.ticker) + "</b>" + f2(e.eps_actual) + '<span class="t">vs</span>' + f2(e.eps_estimate) +
+        (s != null ? '<span class="' + cls(s) + '">' + arrow(s) + " " + pct(s, 0) + "</span>" : "")));
+    } else items.push(item('<span class="am">' + esc(when) + "</span><b>" + esc(e.ticker) + '</b><span class="t">est</span>' + f2(e.eps_estimate)));
+  }
+  setTape("earn", items, todayN + " today", { firstId: rows.filter((e) => e.eps_actual != null).length, empty: "no reports in the next days" });
+}
+/* SCINTILLAS: today's stocks moving several times their usual day, newest first */
+async function loadScint() {
+  const rows = await rest("scintillas?select=id,ts,subject,direction,detail&kind=eq.price_outlier&ts=gte." + encodeURIComponent(todayStartIso()) + "&order=ts.desc&limit=200");
+  const items = rows.slice(0, 24).map((r, i) => { const d = r.detail || {}, mv = Number(d.move_pct), x = Number(d.x_usual), c = cls(mv || r.direction);
+    return item('<span class="t">' + etHM(new Date(r.ts)) + '</span><b class="' + c + '">' + esc(r.subject) + '</b><span class="' + c + '">' + arrow(mv || r.direction) + " " + (Number.isFinite(mv) ? pct(mv) : "") + "</span>" +
+      (Number.isFinite(x) ? x.toFixed(1) + "×" + (i === 0 ? " its usual day" : "") : ""), isFresh(r.ts)); });
+  setTape("scint", items, rows.length + " today", { firstId: rows[0] && rows[0].id });
+}
+/* BIG CANDLES + VOLUME ALERTS: the two alert kinds the public list does not carry, through station_tape_alerts */
+async function loadAlerts() {
+  const from = Date.parse(todayStartIso());
+  const rows = (await rpc("station_tape_alerts", { p_hours: 24 })).filter((r) => Date.parse(r.at) >= from);
+  const candles = rows.filter((r) => r.kind === "candle"), vols = rows.filter((r) => r.kind === "research");
+  const cItems = candles.map((r) => { const s = r.title, tm = (s.match(/\((\d\d:\d\d)\)/) || [])[1] || etHM(new Date(r.at));
+    const many = s.match(/on (\d+) Station names/), up = /▲|all up/.test(s), x = (s.match(/(\d+(?:\.\d+)?)×/) || [])[1], c = up ? "up" : "dn";
+    return item('<span class="t">' + tm + '</span><b class="' + c + '">' + esc(many ? many[1] + " names" : r.ticker || "") + '</b><span class="' + c + '">' + (up ? "▲" : "▼") + (many ? (up ? " all up" : " all down") : "") + "</span>" +
+      (x ? x + "×" + (r === candles[0] ? " its usual 10-min candle" : "") : ""), isFresh(r.at)); });
+  const vItems = vols.map((r) => { const s = r.title.replace(/\s*·\s*https?:\/\/\S+/g, "");
+    const tm = (s.match(/bar (\d\d:\d\d)/) || [])[1] || etHM(new Date(r.at));
+    const run = s.match(/(\d+) bars in a row at ([\d.]+)x\+/), one = s.match(/Volume ([\d.]+)x normal/);
+    const mv = s.match(/price (up|down) ([\d.]+)%/), blk = s.match(/blocks?: ([A-Z]{1,5}) (up|down)/);
+    const core = run ? run[1] + " bars in a row at " + run[2] + "×+" : one ? one[1] + "× usual" : esc(s.replace(/^Volume\s*/i, ""));
+    const m = mv ? (mv[1] === "up" ? 1 : -1) * Number(mv[2]) : 0;
+    return item('<span class="t">' + tm + "</span>" + core + (blk ? '<span class="t">·</span><b class="' + (blk[2] === "up" ? "up" : "dn") + '">' + blk[1] + "</b>block " + (blk[2] === "up" ? "buying" : "selling") : "") +
+      (mv ? '<span class="' + cls(m) + '">' + arrow(m) + " " + pct(m, 2) + "</span>" : ""), isFresh(r.at)); });
+  setTape("candle", cItems, candles.length + " today", { firstId: candles[0] && candles[0].id, empty: "no big candle yet today" });
+  setTape("volal", vItems, vols.length + " today", { firstId: vols[0] && vols[0].id, empty: "no volume alert yet today" });
+}
+
+/* ---- RELATIVE VOLUME: the volume-pulse feed, one panel ---- */
+const STATE = { "pre-market": "PRE-MARKET", open: "MARKET OPEN", regular: "MARKET OPEN", "after-hours": "AFTER HOURS", closed: "CLOSED" };
+function drawChart(slots) {
+  const W = 592, H = 262, T0 = 6, base = H - 30, max = 4, rth = slots.filter((s) => !s.ext && s.ratio != null);
+  const n = 78, bw = W / n, y = (v) => base - (Math.min(v, max) / max) * (base - T0), f = 'font-family="ui-monospace,SF Mono,Menlo,monospace"';
+  let s = "";
+  rth.forEach((v, i) => { s += '<rect x="' + (i * bw + 1).toFixed(1) + '" y="' + y(v.ratio).toFixed(1) + '" width="' + (bw - 2).toFixed(1) + '" height="' + (base - y(v.ratio)).toFixed(1) + '" fill="' + (v.ratio >= 1.5 ? "#FFB020" : v.ratio >= 1 ? "#00D4FF" : "#2B5F78") + '"/>'; });
+  s += '<line x1="0" x2="' + W + '" y1="' + y(1) + '" y2="' + y(1) + '" stroke="#C9CBE0" stroke-width="1.5" stroke-dasharray="6 6"/>';
+  s += '<text x="2" y="' + (y(1) - 8) + '" fill="#C9CBE0" font-size="22" ' + f + '>1×</text>';
+  if (rth.length) { const pk = rth.reduce((a, b) => (b.ratio > a.ratio ? b : a)), i = rth.indexOf(pk), right = i * bw > W - 200;
+    s += '<text x="' + (right ? i * bw - 8 : i * bw + bw + 8).toFixed(0) + '" y="' + (y(pk.ratio) + 20).toFixed(0) + '" text-anchor="' + (right ? "end" : "start") + '" fill="#FFB020" font-size="22" font-weight="700" ' + f + ">" + pk.ratio.toFixed(1) + "× " + esc(pk.t) + "</text>"; }
+  [["09:30", 0, "start"], ["12:00", 30, "middle"], ["14:00", 54, "middle"], ["16:00", 78, "end"]].forEach(([t, i, a]) => { s += '<text x="' + (i * bw).toFixed(0) + '" y="' + (H - 4) + '" text-anchor="' + a + '" fill="#8A8EAE" font-size="22" ' + f + ">" + t + "</text>"; });
+  el("chart").innerHTML = s;
+}
+async function loadVolume() {
+  const d = await getJSON(VP + "/api/heartbeat");
+  const live = d.forming && d.forming.pace != null && d.marketState !== "closed" ? d.forming.pace : d.latest && d.latest.ratio;
+  el("volNow").textContent = live != null ? Number(live).toFixed(1) + "×" : "—";
+  el("volSub").textContent = "its usual" + (d.dayRatio != null ? " · day " + Number(d.dayRatio).toFixed(2) + "×" : "");
+  el("volState").textContent = (STATE[d.marketState] || String(d.marketState || "").toUpperCase()) + " " + String(d.nyClock || "").slice(0, 5);
+  drawChart(d.slots || []);
+  const b = d.blocks && d.blocks.items && d.blocks.items[0];
+  el("stBlock").innerHTML = b ? '<span class="' + (b.dir === "up" ? "up" : "dn") + '">' + esc(b.sym) + " " + (b.dir === "up" ? "▲" : "▼") + Number(b.sizeX).toFixed(1) + "×</span>" : '<span class="dim">none</span>';
+  const fl = d.flow;
+  el("stFlow").innerHTML = fl ? (fl.buyPct >= fl.sellPct ? '<span class="up">BUY ' + fl.buyPct + "%</span>" : '<span class="dn">SELL ' + fl.sellPct + "%</span>") : "—";
+  const br = d.breadth;
+  el("stBreadth").innerHTML = br && br.adv && br.dec ? (br.adv >= br.dec ? '<span class="up">' + (br.adv / br.dec).toFixed(1) + " : 1</span>" : '<span class="dn">1 : ' + (br.dec / br.adv).toFixed(1) + "</span>") : "—";
+}
+async function loadPairs() {
+  const d = await getJSON(VP + "/api/ratios");
+  el("pairs").innerHTML = (d.pairs || []).slice(0, 3).map((p) => '<div class="stat"><span class="l">' + esc(p.a) + "/" + esc(p.b) + '</span><span class="v ' + cls(p.day) + '">' + arrow(p.day) + " " + pct(Number(p.day), 2) + "</span></div>").join("");
+}
+
+/* ---- the clock: every feed on its own cadence; a failed read keeps the last picture ---- */
+const guard = (fn) => () => fn().catch(() => {});
+const JOBS = [[loadVolume, 8000], [loadPairs, 30000], [loadRead, 60000], [loadEcon, 15000 /* the countdown stays fresh */], [loadEarn, 120000], [loadScint, 30000], [loadAlerts, 30000]];
+for (const [fn, ms] of JOBS) { const g = guard(fn); g(); setInterval(g, ms); }
+
+/* ---- self-update: a new release reloads the page once nobody is touching it and no video plays ---- */
+let LAST_INPUT = Date.now(), SEEN = null;
+for (const ev of ["pointerdown", "keydown", "wheel"]) addEventListener(ev, () => { LAST_INPUT = Date.now(); }, { passive: true, capture: true });
+setInterval(guard(async () => {
+  const r = await fetch(location.pathname, { method: "HEAD", cache: "no-store" });
+  const tag = r.headers.get("etag") || r.headers.get("last-modified");
+  if (!tag) return;
+  if (SEEN == null) { SEEN = tag; return; }
+  if (tag !== SEEN && Date.now() - LAST_INPUT > 120000 && !VIDEO_ON) location.reload();
+}), 180000);
+</script>
+</body>
+</html>
