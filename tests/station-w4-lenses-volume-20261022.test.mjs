@@ -60,7 +60,7 @@ test("W4 · MINE from the database (station_lists · mine), the tape opens on it
   assert.match(lens, /<input id="add" placeholder="\+ ticker · Enter"/, "the box says what it does");
   assert.match(lens, /body\.tape #add\{ display:block; width:100%;/, "visible on the tape, always");
   assert.match(lens, /if \(!MINE_ON\) \{ MINE_ON = true; remember\(MINE_ON_KEY, "1"\); \}/   /* W12: an add opens MINE beside RADAR and MACRO */, "an add goes to MINE");
-  assert.deepEqual(plain(L.MACRO), ["SPY", "QQQ", "ESUSD", "NQUSD", "VIX", "PCC", "ADVDEC", "CLUSD", "US10Y", "BTCUSD", "GCUSD", "DXUSD"], "W7: SPY and QQQ (never swapped for futures), the futures beside them, VIX, put/call, advance/decline, oil, the 10-year, bitcoin, gold, the dollar; NDX not served");
+  assert.deepEqual(plain(L.MACRO), ["SPY", "QQQ", "ANT", "ESUSD", "NQUSD", "VIX", "PCC", "ADVDEC", "CLUSD", "US10Y", "BTCUSD", "GCUSD", "DXUSD"], "W7: SPY and QQQ (never swapped for futures), the futures beside them, VIX, put/call, advance/decline, oil, the 10-year, bitcoin, gold, the dollar; NDX not served");
   assert.equal(L.NAMES.ESUSD, "S&P FUT"); assert.equal(L.NAMES.NQUSD, "NASDAQ FUT"); assert.equal(L.NAMES.CLUSD, "OIL"); assert.equal(L.NAMES.PCC, "PUT/CALL · daily"); assert.equal(L.NAMES.ADVDEC, "ADVANCE / DECLINE");
   assert.match(lens, /if \(NAMES\[t\]\) d\.querySelector\("\.nm"\)\.textContent = NAMES\[t\];/   /* W12: on the grid too */, "the plain name on the lens");
 });
