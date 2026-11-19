@@ -22,19 +22,22 @@ test("one stage, 1920 x 1080, scaled whole to the window - the TV, the MacBook a
 test("one typeface and four sizes - no font size anywhere but the four", () => {
   assert.match(css, /--f:ui-monospace/);
   assert.equal((css.match(/font-family:/g) || []).length, 1, "the typeface is set once, on the page");
-  assert.match(css, /--s1:22px; --s2:30px; --s3:36px; --s4:72px;/);
+  assert.match(css, /--s1:22px; --s2:30px; --s3:44px; --s4:72px;/);
   const sizes = [...css.matchAll(/font-size:([^;}]+)/g)].map((m) => m[1].trim());
   for (const s of sizes) assert.match(s, /^var\(--s[1-4]\)$/, "font-size " + s);
   for (const m of page.matchAll(/font-size="(\d+)"/g)) assert.equal(m[1], "22", "chart text is the label size");
 });
 
-test("every tape in one stack, six identical rows, in his order", () => {
-  assert.equal((page.match(/id="tapes"/g) || []).length, 1);
+test("the bottom reads from the couch: one spotlight for what just happened, over two big tapes", () => {
+  assert.match(page, /id="spot"/, "the spotlight");
   const labels = [...page.matchAll(/\{ key: "(\w+)", label: "([^"]+)" \}/g)].map((m) => m[2]);
-  assert.deepEqual(labels, ["AI read", "Economic", "Earnings", "Scintillas", "Big candles", "Volume alerts"]);
-  assert.match(css, /#tapes\{[^}]*grid-template-rows:repeat\(6,70px\)/);
-  assert.match(page, /const SPEED = 80;/, "every tape crawls at the same speed");
+  assert.deepEqual(labels, ["Economic + earnings", "Scintillas"], "two tapes: the two he called the better ones");
+  assert.match(css, /#bottom\{[^}]*grid-template-rows:196px 116px 116px/);
+  assert.match(css, /\.track\{[^}]*font-size:var\(--s3\)/, "tape text 44 px");
+  assert.match(css, /#spot \.a\{ font-size:var\(--s4\)/, "the spotlight line 72 px");
+  assert.match(page, /const SPEED = 90;/, "both tapes crawl at the same speed");
   assert.match(css, /mask-image:linear-gradient/, "words fade at the edges instead of being cut");
+  for (const src of ["read", "econ", "earn", "scint", "candle", "vol"]) assert.match(page, new RegExp('announce\\("' + src + '"'), src + " can take the spotlight");
 });
 
 test("what he does not use is gone: no lens charts, no sliders, no FAVORITES strip, no X", () => {
