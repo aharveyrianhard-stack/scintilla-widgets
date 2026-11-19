@@ -42,6 +42,24 @@ html,body{ margin:0; height:100%; background:var(--bg); color:var(--ink); font:1
 .lens.pulse{ animation:scint 1.1s ease-out 1; }
 @keyframes scint{ 0%{ box-shadow:inset 0 0 0 2px #fff, 0 0 34px rgba(0,212,255,1); background:#15223a; } 100%{ box-shadow:inset 0 0 0 1px var(--crk), 0 0 12px rgba(0,212,255,.45); } }
 .lens.glow .rv.hot i{ box-shadow:0 0 8px var(--hot); }
+/* 19 Nov - BIG CANDLES (Alan: "on our rotations, we highlight the volume tickers ... can we do that for stocks that have had a big move ... a big
+   candle"): the volume box's shape - an inset ring and a glow - green when the candle closed up, red when it closed down; 3x its usual
+   5-minute range = strong, 2x-3x = faint; with the volume glow too, the volume's cyan line inside and the candle's colour outside it */
+.lens.bigc{ z-index:1; }
+.lens.bigc.bc-big.bc-up{ box-shadow:inset 0 0 0 2px var(--bull), 0 0 14px rgba(0,255,163,.55); }
+.lens.bigc.bc-big.bc-down{ box-shadow:inset 0 0 0 2px var(--bear), 0 0 14px rgba(255,45,85,.55); }
+.lens.bigc.bc-large.bc-up{ box-shadow:inset 0 0 0 1px rgba(0,255,163,.65), 0 0 8px rgba(0,255,163,.2); }
+.lens.bigc.bc-large.bc-down{ box-shadow:inset 0 0 0 1px rgba(255,45,85,.65), 0 0 8px rgba(255,45,85,.2); }
+.lens.glow.bigc.bc-big.bc-up{ box-shadow:inset 0 0 0 1px var(--crk), inset 0 0 0 3px var(--bull), 0 0 14px rgba(0,255,163,.55); }
+.lens.glow.bigc.bc-big.bc-down{ box-shadow:inset 0 0 0 1px var(--crk), inset 0 0 0 3px var(--bear), 0 0 14px rgba(255,45,85,.55); }
+.lens.glow.bigc.bc-large.bc-up{ box-shadow:inset 0 0 0 1px var(--crk), inset 0 0 0 2px rgba(0,255,163,.65), 0 0 12px rgba(0,212,255,.45); }
+.lens.glow.bigc.bc-large.bc-down{ box-shadow:inset 0 0 0 1px var(--crk), inset 0 0 0 2px rgba(255,45,85,.65), 0 0 12px rgba(0,212,255,.45); }
+.lens.bcpulse.bc-up{ animation:bcup 1.1s ease-out 1; } .lens.bcpulse.bc-down{ animation:bcdown 1.1s ease-out 1; }
+@keyframes bcup{ 0%{ box-shadow:inset 0 0 0 3px #fff, 0 0 34px rgba(0,255,163,1); background:#0f2a1f; } }
+@keyframes bcdown{ 0%{ box-shadow:inset 0 0 0 3px #fff, 0 0 34px rgba(255,45,85,1); background:#2a0f17; } }
+.lens .bc{ position:absolute; left:9px; bottom:6px; font-size:8px; letter-spacing:.1em; text-transform:uppercase; background:rgba(10,10,15,.85); padding:1px 4px; white-space:nowrap; z-index:1; }
+.lens .bc:empty{ display:none; } .lens .bc.bc-up{ color:var(--bull); } .lens .bc.bc-down{ color:var(--bear); }
+@media (prefers-reduced-motion: reduce){ .lens.bcpulse{ animation:none; } }
 @media (prefers-reduced-motion: reduce){ .lens.pulse{ animation:none; } }
 body{ display:flex; flex-direction:column; }
 #bar{ flex:none; display:flex; align-items:center; gap:4px; padding:3px 6px; background:var(--panel2); border-bottom:1px solid var(--line); min-height:22px; }
@@ -127,7 +145,7 @@ body.tape #tf{ display:flex; flex-wrap:wrap; gap:2px; margin:4px 0 0; } body.tap
 /* W12: which set a row carries, at the row's left edge */
 body.tape .trackwin::before{ content:attr(data-set); position:absolute; left:0; top:0; z-index:2; font-size:7px; letter-spacing:.14em; text-transform:uppercase; color:var(--crk); background:rgba(10,10,15,.88); padding:1px 5px 1px 4px; pointer-events:none; }
 body.tape .trackwin[data-set="macro"]::before{ color:var(--warm); } body.tape .trackwin[data-set="mine"]::before{ color:var(--ink2); } body.tape .trackwin[data-set=""]::before{ display:none; }
-body.tape .lens .un{ right:6px; bottom:4px; font-size:7px; }
+body.tape .lens .un{ right:6px; bottom:4px; font-size:7px; } body.tape .lens .bc{ left:6px; bottom:4px; font-size:7px; }
 /* W12B: the phone's lens block is the tape (RADAR and MACRO as two running rows, the wall's look) with the chips on top, touch-sized cells */
 body.tape.touch{ flex-direction:column; }
 body.tape.touch #bar{ width:auto; flex-direction:row; flex-wrap:wrap; align-items:center; gap:6px; padding:6px 8px; border-right:0; border-bottom:1px solid var(--line); }
@@ -234,6 +252,37 @@ const NUMBER_LENS = Object.freeze({ ADVDEC: true });
    FMP gives as a new listing's previous close. No RVol and no usual day yet: it has no history. */
 const OFF_API = Object.freeze({ ANT: true });
 const OFF_TF = Object.freeze({ "1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min", "1h": "1hour" });
+/* 19 Nov 2026 - BIG CANDLES. Alan (relayed by the Dot-com session): "on our rotations, we highlight the volume tickers ... can we do that for
+   stocks that have had a big move ... a big candle ... rapid-fire switching between the ones that do this." The research session's rule
+   (volume-pulse api/bigcandles.js, read 19 Nov), on the house's own bars from the chart API: the latest FINISHED regular-hours 5-minute candle,
+   its high-low range against the name's usual 5-minute range over the prior 10 sessions - the first 30 minutes against the same clock slot on
+   those days (opening candles are always bigger), the rest of the day against the day's average without the first 30 minutes. 3x and over =
+   big (the strong box), 2x-3x = large (the faint box), green up, red down. It holds until the next candle finishes (at most 10 minutes after
+   its own end), so the boxes move from name to name as the candles come in. US stocks and ETFs only: futures, crypto, rates, FX and the
+   put/call and breadth lenses have no 09:30-16:00 day. The usual ranges are read once a day (10 sessions of 5-minute bars) and kept on this
+   machine; the live read is the last three bars of every name in one request, once a minute and just after each 5-minute close. */
+const CHART_API = "https://scintilla-massive-chart-api.fly.dev";   /* the provider's own API (_provider/provider.js) */
+const BC_OPEN = 570, BC_OPEN_END = 600, BC_CLOSE = 960, BC_KEY = "station.lenses.bigc.usual", BC_MS = 60000;
+export function bcEligible(t) { return /^[A-Z]{1,5}$/.test(t) && !/USD$/.test(t) && !["VIX", "PCC", "ADVDEC", "US10Y"].includes(t); }
+const NY_FMT = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", weekday: "short" });
+export function nyParts(ms) { const p = NY_FMT.formatToParts(new Date(ms)); const g = (k) => (p.find((x) => x.type === k) || {}).value || ""; return { date: g("year") + "-" + g("month") + "-" + g("day"), m: (+g("hour") % 24) * 60 + +g("minute"), wd: g("weekday") }; }
+export function bcUsual(bars, today) {
+  const rth = []; for (const b of bars) { const p = nyParts(b.t); if (p.m >= BC_OPEN && p.m < BC_CLOSE && p.date < today && b.h >= b.l) rth.push({ d: p.date, m: p.m, r: b.h - b.l }); }
+  const days = [...new Set(rth.map((b) => b.d))].sort().slice(-10), keep = new Set(days), k = rth.filter((b) => keep.has(b.d));
+  const avg = (a) => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+  const slot = {}; for (let m = BC_OPEN; m < BC_OPEN_END; m += 5) slot[m] = avg(k.filter((b) => b.m === m).map((b) => b.r));
+  return { sessions: days.length, all: avg(k.filter((b) => b.m >= BC_OPEN_END).map((b) => b.r)), slot };
+}
+export function bcJudge(bars, u, today, nowM) {
+  if (!u || !u.all) return null;
+  let bar = null, bm = 0;
+  for (let i = bars.length - 1; i >= 0; i--) { const p = nyParts(bars[i].t); if (p.date !== today) break; if (p.m >= BC_OPEN && p.m < BC_CLOSE && p.m + 5 <= nowM) { bar = bars[i]; bm = p.m; break; } }
+  if (!bar || nowM - (bm + 5) > 10) return null;
+  const base = bm < BC_OPEN_END && u.slot && u.slot[bm] ? u.slot[bm] : u.all;
+  if (!(base > 0)) return null;
+  const mult = (bar.h - bar.l) / base;
+  return { level: mult >= 3 ? "big" : mult >= 2 ? "large" : null, dir: bar.c >= bar.o ? "up" : "down", mult: Math.round(mult * 100) / 100, m: bm };
+}
 const BREADTH_FEED = "https://volume-pulse-pied.vercel.app/api/heartbeat";
 /* W7: LINE · BARS, remembered on this machine; bars by default (Alan: "it needs to be bars, please. 5-minute bars") */
 const STYLE_KEY = "station.lenses.style";
@@ -494,7 +543,7 @@ function paintSet(force) {
   cells.forEach(([t, setName, host]) => {
     if (seen.has(t + "|" + setName)) return; seen.add(t + "|" + setName);
     const d = document.createElement("div"); d.className = "lens"; d.dataset.t = t; d.dataset.set = setName; d.setAttribute("role", "listitem");
-    d.innerHTML = '<div class="head"><span class="tk"></span><span class="px">—</span><span class="pc"></span></div>' + ('<span class="nm"></span><span class="rv" title="relative volume: this name\'s pace against its usual day (the Hub\'s RVol) - the tube, 3× the end"><i></i><em>—</em></span>') + (NUMBER_LENS[t] ? '<div class="num"><b>—</b><span></span><small>advancers / decliners</small></div>' : '<canvas></canvas>') + '<span class="why"></span><span class="un"></span><button type="button" class="rm" title="remove from MINE">×</button>';
+    d.innerHTML = '<div class="head"><span class="tk"></span><span class="px">—</span><span class="pc"></span></div>' + ('<span class="nm"></span><span class="rv" title="relative volume: this name\'s pace against its usual day (the Hub\'s RVol) - the tube, 3× the end"><i></i><em>—</em></span>') + (NUMBER_LENS[t] ? '<div class="num"><b>—</b><span></span><small>advancers / decliners</small></div>' : '<canvas></canvas>') + '<span class="why"></span><span class="un"></span><span class="bc"></span><button type="button" class="rm" title="remove from MINE">×</button>';
     d.querySelector(".tk").textContent = t === "ADVDEC" ? "ADV/DEC" : t;
     if (NAMES[t]) d.querySelector(".nm").textContent = NAMES[t]; else if (TAPE && !rowsForSets(ROWS, sets().map(() => 1))) d.querySelector(".nm").textContent = setName;
     if (!seen.has("first|" + setName)) { seen.add("first|" + setName); d.classList.add("setfirst"); }   /* W12C: the set's first cell carries its name */
@@ -552,6 +601,7 @@ function paintCells(first) {
     if (now && !was) { d.classList.add("glow"); d.classList.remove("pulse"); void d.offsetWidth; d.classList.add("pulse"); d.dataset.unusualAt = String(Date.now()); }
     else if (!now && was) { d.classList.remove("glow", "pulse"); delete d.dataset.unusualAt; }
   }
+  if (S.bc) paintBc();   /* 19 Nov: the big-candle boxes on every copy */
   /* W7: the RVol battery and multiple on every lens (the tape) */
   for (const d of el("set").querySelectorAll(".lens .rv")) {
     const t = d.closest(".lens").dataset.t, r = S.rvol.get(t), up = rvolRising(r, S.rvolPrev.get(t));
@@ -715,6 +765,54 @@ async function readOff(forceBars) {
     paintCells(false);
   } catch (_) { S.offAt = Date.now(); } finally { S.busyO = false; }
 }
+/* 19 Nov - BIG CANDLES: the usual ranges once a day, the live judgement every minute and at each 5-minute close */
+S.bc = new Map(); S.bcU = { date: "", map: new Map(), tried: new Map(), busy: false }; S.bcAt = 0;
+const bcNames = () => names().filter((t) => bcEligible(t) && !OFF_API[t]);
+const bcBars = (c) => (c && Array.isArray(c.series) ? c.series : []).map(norm).filter((b) => Number.isFinite(b.t) && b.o > 0 && b.c > 0 && b.h >= b.l).sort((a, b) => a.t - b.t);
+async function readBcUsual() {
+  const now = nyParts(Date.now()); if (S.bcU.busy || document.hidden) return;
+  if (S.bcU.date !== now.date) { S.bcU.date = now.date; S.bcU.map = new Map(); S.bcU.tried = new Map(); try { const c = JSON.parse(remembered(BC_KEY) || "null"); if (c && c.date === now.date) for (const [t, u] of Object.entries(c.u || {})) S.bcU.map.set(t, u); } catch (_) {} }
+  const miss = bcNames().filter((t) => !S.bcU.map.has(t) && Date.now() - (S.bcU.tried.get(t) || 0) > 600000); if (!miss.length) return;   /* a name that gave no usual range: again in 10 minutes, never in a loop */
+  S.bcU.busy = true;
+  try {
+    for (let i = 0; i < miss.length; i += 6) {
+      const part = miss.slice(i, i + 6); for (const t of part) S.bcU.tried.set(t, Date.now());
+      const j = await (await fetch(CHART_API + "/candles-multi?symbols=" + part.map(encodeURIComponent).join(",") + "&tf=5m&limit=2400&authority=provider", { cache: "no-store" })).json();
+      for (const t of part) { const u = bcUsual(bcBars(j && j.candles && j.candles[t]), now.date); if (u.all > 0) S.bcU.map.set(t, u); }
+    }
+    remember(BC_KEY, JSON.stringify({ date: now.date, u: Object.fromEntries(S.bcU.map) }));
+  } catch (_) {} finally { S.bcU.busy = false; S.bcAt = 0; }   /* the live read follows at once, with every name's usual range in hand */
+}
+async function readBc() {
+  const now = nyParts(Date.now());
+  if (["Sat", "Sun"].includes(now.wd) || now.m < BC_OPEN + 5 || now.m > BC_CLOSE + 15) { S.bcAt = Date.now(); if (S.bc.size) { S.bc.clear(); paintBc(); } return; }
+  if (S.bcBusy || document.hidden) return;
+  const list = bcNames().filter((t) => S.bcU.map.has(t)); if (!list.length) return;
+  S.bcBusy = true;
+  try {
+    for (let i = 0; i < list.length; i += 40) {
+      const part = list.slice(i, i + 40);
+      const j = await (await fetch(CHART_API + "/candles-multi?symbols=" + part.map(encodeURIComponent).join(",") + "&tf=5m&limit=3&authority=provider", { cache: "no-store" })).json();
+      for (const t of part) { const v = bcJudge(bcBars(j && j.candles && j.candles[t]), S.bcU.map.get(t), now.date, now.m); if (v && v.level) S.bc.set(t, v); else S.bc.delete(t); }
+    }
+    S.bcAt = Date.now(); paintBc();
+  } catch (_) { S.bcAt = Date.now(); } finally { S.bcBusy = false; }
+}
+/* for the harness: the day's usual ranges, the flags, the last read */
+window.__bc = { usual: () => Object.fromEntries(S.bcU.map), flags: () => Object.fromEntries(S.bc), at: () => S.bcAt, names: () => bcNames(), now: () => nyParts(Date.now()),
+  judge: async (t) => { const n = nyParts(Date.now()); const j = await (await fetch(CHART_API + "/candles-multi?symbols=" + encodeURIComponent(t) + "&tf=5m&limit=3&authority=provider", { cache: "no-store" })).json(); const bars = bcBars(j && j.candles && j.candles[t]); return { bars: bars.map((b) => [nyParts(b.t).date, nyParts(b.t).m, +(b.h - b.l).toFixed(3)]), v: bcJudge(bars, S.bcU.map.get(t), n.date, n.m) }; } };
+/* the box and its words on every copy of the cell (the tape doubles its cells); one bright flash when a new candle is flagged */
+function paintBc() {
+  for (const d of el("set").querySelectorAll(".lens")) {
+    const v = S.bc.get(d.dataset.t), bc = d.querySelector(".bc"), want = v ? v.level + "|" + v.dir + "|" + v.m : "";
+    if ((d.dataset.bc || "") !== want) {
+      d.classList.remove("bigc", "bc-big", "bc-large", "bc-up", "bc-down", "bcpulse");
+      if (v) { d.classList.add("bigc", "bc-" + v.level, "bc-" + v.dir); void d.offsetWidth; d.classList.add("bcpulse"); }
+      d.dataset.bc = want;
+    }
+    if (bc) { const text = v ? (v.dir === "up" ? "\u25B2 " : "\u25BC ") + v.mult.toFixed(1) + "\u00D7 5-min" : ""; if (bc.textContent !== text) bc.textContent = text; const cls = "bc" + (v ? " bc-" + v.dir : ""); if (bc.className !== cls) bc.className = cls; }
+  }
+}
 async function readQuotes() {
   const P = window.SC_PROVIDER; const list = names().filter((t) => !NUMBER_LENS[t] && !OFF_API[t]); if (!P || !list.length || S.busyQ || document.hidden) return;
   S.busyQ = true;
@@ -779,11 +877,13 @@ async function tick(now) {
   if (MINE_ON && Date.now() - mineAt > LIST_MS) { await readMine(); paintChips(); paintSet(); }
   if (now || Date.now() - S.quotesAt > QUOTE_MS) readQuotes();
   { const c = nyClock(); if (now || Date.now() - (S.offAt || 0) > offEvery(c.wd, c.m)) readOff(!!now); }   /* 19 Nov: the off-list names (ANT) */
+  if (S.bcU.date !== nyParts(Date.now()).date || bcNames().some((t) => !S.bcU.map.has(t))) readBcUsual();   /* 19 Nov: big candles */
+  if (!S.bcU.busy && (now || Date.now() - S.bcAt > BC_MS)) readBc();   /* never on half the names while the usual ranges are still coming */
   if (now || Date.now() - S.rvolAt > RVOL_MS) { readRvol(); readBreadth(); }
   if (now || Date.now() - S.usualAt > USUAL_MS) readUsual();
   if (TAPE) {
     const due = closeDue(Date.now(), lastCloseRead);
-    if (due && (due.at === "close" || barsStale(due.boundary))) { lastCloseRead = Date.now(); readBars(true); readOff(true); return; }
+    if (due && (due.at === "close" || barsStale(due.boundary))) { lastCloseRead = Date.now(); readBars(true); readOff(true); readBc(); return; }
   }
   readBars(false);
 }
