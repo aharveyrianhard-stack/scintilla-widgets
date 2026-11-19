@@ -1141,7 +1141,9 @@ const QS = new URLSearchParams(location.search);
 /* iPad (23 Oct, Alan: "i need a version of the station with no x for ipad pls asap"): ?nox=1 mounts no X at all and gives its
    column's top to the two charts; the band below (the YouTube feed, the player, the lenses, the volume) keeps its places. */
 /* remembered on this device: the page tidies its address after loading, so a reload on the iPad keeps no X; ?nox=0 brings X back */
-const NO_X = (() => { const q = QS.get("nox"); try { if (q === "1") localStorage.setItem("station.nox", "1"); else if (q === "0") localStorage.removeItem("station.nox"); return q === "1" || (q !== "0" && localStorage.getItem("station.nox") === "1"); } catch (_) { return q === "1"; } })();
+/* 19 Nov ~12:00, Alan (relayed): "we should clear out the X space. I don't use it." - no X is the default on every machine now; the dock's
+   X switch (or ?nox=0) brings it back on one machine and that is remembered ("0"); ?nox=1 / "1" as before. */
+const NO_X = (() => { const q = QS.get("nox"); try { if (q === "1") localStorage.setItem("station.nox", "1"); else if (q === "0") localStorage.setItem("station.nox", "0"); return q === "1" || (q !== "0" && localStorage.getItem("station.nox") !== "0"); } catch (_) { return q !== "0"; } })();
 if (NO_X) document.documentElement.classList.add("nox");
 /* iPad Companion deliberately reuses this exact deck.  Its only substitution
    is the X pane: iPad receives the already-approved iMac capture instead of
@@ -2007,7 +2009,9 @@ function lensWallOn() { return widgetsOn() && lensWallChoice(remembered(LENSWALL
    SCINTILLAS (today's names moving N× their usual day). Each row is a share of the wall's height (3.3 %, 28-50 px); the lens rows give up
    the height, nothing else moves. On by default; station.eventtapes = "0" on a machine, or ?eventtapes=0 for one load, takes them off. */
 const EVENT_TAPES_KEY = "station.eventtapes", EVENT_TAPES_SHELL = "/station-shells/tapes-v1", EVENT_TAPES_ROWS = 2;
-const eventTapesRowPx = (wallH) => Math.max(28, Math.min(50, Math.round((Number(wallH) || 0) * 0.033)));
+/* 19 Nov ~12:00, Alan (relayed): "these tapes that he added are too small" - each row 5 % of the wall's height (40-64 px), about 1.5x;
+   the lens rows give up that height and gain the X column's width (X off by default, same day) */
+const eventTapesRowPx = (wallH) => Math.max(40, Math.min(64, Math.round((Number(wallH) || 0) * 0.05)));
 const eventTapesPx = (wallH, rows) => { const r = Math.max(0, Math.round(Number(rows) || 0)); return r ? r * eventTapesRowPx(wallH) + (r - 1) * FLOOR_SEAM_PX : 0; };
 function eventTapesChoice(stored, urlValue) {
   if (urlValue === "1" || urlValue === "0") return urlValue === "1";

@@ -57,11 +57,11 @@ test("TAPES · the strip comes off the bottom of the lens area; the lenses give 
   }
 });
 
-test("TAPES · each row is 3.3 % of the wall's height, 28-50 px; two rows and the seam between them", () => {
+test("TAPES · each row is 5 % of the wall's height, 40-64 px (3.3 %, 28-50 until 19 Nov); two rows and the seam between them", () => {
   const D = api();
-  assert.equal(D.eventTapesRowPx(1440), 48); assert.equal(D.eventTapesRowPx(1080), 36); assert.equal(D.eventTapesRowPx(800), 28);
-  assert.equal(D.eventTapesRowPx(400), 28, "never under 28"); assert.equal(D.eventTapesRowPx(2160), 50, "never over 50");
-  assert.equal(D.eventTapesPx(1440, 2), 97); assert.equal(D.eventTapesPx(800, 2), 57); assert.equal(D.eventTapesPx(1440, 0), 0);
+  assert.equal(D.eventTapesRowPx(1440), 64, "19 Nov: about 1.5x (5 %, capped at 64)"); assert.equal(D.eventTapesRowPx(1080), 54); assert.equal(D.eventTapesRowPx(970), 49); assert.equal(D.eventTapesRowPx(800), 40);
+  assert.equal(D.eventTapesRowPx(400), 40, "never under 40"); assert.equal(D.eventTapesRowPx(2160), 64, "never over 64");
+  assert.equal(D.eventTapesPx(1440, 2), 129); assert.equal(D.eventTapesPx(800, 2), 81); assert.equal(D.eventTapesPx(1440, 0), 0);
 });
 
 test("TAPES · where the lenses would drop under 120 px the strip stands down and the slot is the old one", () => {
