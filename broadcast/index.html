@@ -17,9 +17,10 @@
      THE RULES THIS PAGE KEEPS (tests/station-broadcast-20261119.test.mjs holds them):
        - ONE stage, 1920 x 1080, scaled as a whole to the window: the TV, the MacBook and the iMac show the same picture, bigger or
          smaller - nothing re-flows, nothing is cropped.
-       - ONE typeface; FOUR sizes: 22 labels, 30 tape text, 36 values, 72 the one big number.
-       - EVERY tape in ONE stack, six identical rows: AI READ, ECONOMIC, EARNINGS, SCINTILLAS, BIG CANDLES, VOLUME ALERTS. Each row is a
-         name box (label + its count or countdown) and a crawl that fades in and out at the edges instead of cutting words.
+       - ONE typeface; FOUR sizes: 22 labels, 30 details, 44 tape text, 72 the big lines.
+       - 19 Nov 18:30 ("impossible to read... too much text, too small"): ONE SPOTLIGHT line for whatever just became relevant, giant,
+         over TWO big tapes (ECONOMIC + EARNINGS, SCINTILLAS with the big candles and volume alerts), same size and speed, fading at
+         the edges instead of cutting words.
        - The relative volume is one real panel with its own chart (no second copy, no strip squeezed under the tapes).
        - No lens charts, no sliders, no FAVORITES strip, no X.
      Data (read-only, the public key): news_reads (AI read), econ_calendar, earnings_events, scintillas, rpc station_tape_alerts (big
@@ -29,7 +30,7 @@
 <style>
 :root{ --bg:#0A0A0F; --panel:#0F0F19; --box:#141424; --line:#24243A; --ink:#F2F2F8; --ink2:#C9CBE0; --dim:#8A8EAE;
   --crk:#00D4FF; --bull:#00FFA3; --bear:#FF3B62; --amber:#FFB020;
-  --f:ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace; --s1:22px; --s2:30px; --s3:36px; --s4:72px; }
+  --f:ui-monospace,"SF Mono","JetBrains Mono",Menlo,monospace; --s1:22px; --s2:30px; --s3:44px; --s4:72px; }
 *{ box-sizing:border-box; margin:0; }
 html,body{ height:100%; background:var(--bg); color:var(--ink); font-family:var(--f); overflow:hidden; -webkit-font-smoothing:antialiased; }
 body{ display:flex; align-items:center; justify-content:center; }
@@ -51,28 +52,31 @@ body{ display:flex; align-items:center; justify-content:center; }
 .stat{ background:var(--box); padding:10px 14px; min-width:0; }
 .stat .l{ display:block; font-size:var(--s1); letter-spacing:.1em; color:var(--dim); white-space:nowrap; }
 .stat .v{ display:block; font-size:var(--s2); font-weight:800; line-height:1.3; white-space:nowrap; }
-/* THE TAPES: one stack, six identical rows */
-#tapes{ position:absolute; left:0; right:0; bottom:0; height:436px; display:grid; grid-template-rows:repeat(6,70px); gap:3px; padding-top:1px; }
-.tape{ display:grid; grid-template-columns:360px 1fr; background:var(--panel); min-width:0; }
-.tape .name{ display:flex; justify-content:space-between; align-items:center; gap:12px; padding:0 18px; background:var(--box); white-space:nowrap; }
-.tape .name em{ font-style:normal; font-size:var(--s1); color:var(--ink2); letter-spacing:.04em; }
-.tape .name.soon em{ color:var(--amber); animation:soon 1.4s ease-in-out infinite; }
-.tape .name.flash{ animation:flash 1s ease-in-out 12; }
+/* THE BOTTOM (19 Nov 18:30, Alan from the couch): one SPOTLIGHT - whatever just became relevant, giant - over two big tapes */
+#bottom{ position:absolute; left:0; right:0; bottom:0; height:436px; display:grid; grid-template-rows:196px 116px 116px; gap:4px; }
+.row{ display:grid; grid-template-columns:360px 1fr; background:var(--panel); min-width:0; }
+.row .name{ display:flex; flex-direction:column; justify-content:center; gap:8px; padding:0 24px; background:var(--box); white-space:nowrap; }
+.row .name em{ font-style:normal; font-size:var(--s1); color:var(--ink2); letter-spacing:.04em; }
+.row .name.soon em{ color:var(--amber); animation:soon 1.4s ease-in-out infinite; }
+#spot .body{ display:flex; flex-direction:column; justify-content:center; gap:10px; padding:0 36px; min-width:0; overflow:hidden; }
+#spot .a{ font-size:var(--s4); font-weight:800; line-height:1.08; white-space:nowrap; }
+#spot .a.long{ font-size:var(--s3); white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+#spot .b{ font-size:var(--s2); font-weight:500; line-height:1.3; color:var(--ink2); display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+#spot.flash{ animation:flash 1s ease-in-out 6; }
+#spot.soon .a{ color:var(--amber); }
 @keyframes soon{ 50%{ opacity:.35; } }
-@keyframes flash{ 50%{ background:rgba(0,212,255,.28); box-shadow:inset 0 0 0 2px rgba(0,212,255,.8); } }
+@keyframes flash{ 50%{ background:rgba(0,212,255,.22); box-shadow:inset 0 0 0 3px rgba(0,212,255,.85); } }
 .win{ position:relative; overflow:hidden; min-width:0;
   -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 110px,#000 calc(100% - 180px),transparent 100%);
           mask-image:linear-gradient(90deg,transparent 0,#000 110px,#000 calc(100% - 180px),transparent 100%); }
-.track{ position:absolute; left:0; top:0; height:100%; display:flex; align-items:center; white-space:nowrap; padding-left:26px;
-  font-size:var(--s2); font-weight:500; will-change:transform; }
+.track{ position:absolute; left:0; top:0; height:100%; display:flex; align-items:center; white-space:nowrap; padding-left:30px;
+  font-size:var(--s3); font-weight:600; will-change:transform; }
 .track.run{ animation:crawl linear infinite; }
 @keyframes crawl{ from{ transform:translateX(0); } to{ transform:translateX(var(--lap)); } }
-.track .it{ display:inline-flex; align-items:baseline; gap:12px; }
-.track .sep{ color:var(--dim); padding:0 26px; }
+.track .it{ display:inline-flex; align-items:baseline; gap:16px; }
+.track .sep{ color:var(--dim); padding:0 34px; }
 .track b{ font-weight:800; }
-.track .t{ color:var(--dim); }
-.track .new{ padding:3px 12px; margin:0 -12px; border-radius:6px; background:rgba(0,212,255,.12);
-  box-shadow:0 0 0 2px rgba(0,212,255,.6),0 0 20px rgba(0,212,255,.35); }
+.track .t{ color:var(--dim); font-weight:500; }
 .track .quiet{ color:var(--dim); }
 </style>
 </head>
@@ -92,7 +96,9 @@ body{ display:flex; align-items:center; justify-content:center; }
       <div class="stats" id="pairs" style="margin-top:4px"></div>
     </div>
   </div>
-  <div id="tapes"></div>
+  <div id="bottom">
+    <div class="row" id="spot"><div class="name"><span class="lab" id="spotKind">—</span><em id="spotWhen"></em></div><div class="body"><div class="a" id="spotA"></div><div class="b" id="spotB"></div></div></div>
+  </div>
 </div>
 <script>
 "use strict";
@@ -159,122 +165,162 @@ addEventListener("message", (e) => {
 });
 mountVideo(remembered(FEED_KEY, "scintilla"));
 
-/* ---- the tapes: six identical rows ---- */
-const SPEED = 80;   /* stage px a second, every tape the same */
-const TAPES = [
-  { key: "read", label: "AI read" }, { key: "econ", label: "Economic" }, { key: "earn", label: "Earnings" },
-  { key: "scint", label: "Scintillas" }, { key: "candle", label: "Big candles" }, { key: "volal", label: "Volume alerts" }];
+/* ---- THE BOTTOM: one SPOTLIGHT + two big tapes ----
+   Alan, 19 Nov 18:30 (relayed), on the six-tape version: "impossible to read" from the couch - "too much text, too small"; "the
+   economic and scintillas tapes are the better ones"; he needs "a way to show info as it becomes relevant, bigger".
+   - SPOTLIGHT: anything NEW (a scintilla, a big candle, a volume alert, an economic print, an earnings result, the AI read) takes the
+     big line for 40 s (20 s when several wait), flashing as it lands; then it lives in its tape. With nothing new it shows what is next
+     (the next economic release, counting down, amber in its last 10 minutes) and the latest AI read, in turn.
+   - Two tapes, the same size and speed: ECONOMIC + EARNINGS (what happens today, in time order) and SCINTILLAS (the moves: scintillas,
+     big candles, volume alerts, newest first). Short items: the spotlight carries the detail. */
+const SPEED = 90;   /* stage px a second, both tapes */
+const TAPES = [{ key: "today", label: "Economic + earnings" }, { key: "moves", label: "Scintillas" }];
 const T = {};
 for (const d of TAPES) {
-  const row = document.createElement("div"); row.className = "tape"; row.dataset.tape = d.key;
+  const row = document.createElement("div"); row.className = "row tape"; row.dataset.tape = d.key;
   row.innerHTML = '<div class="name"><span class="lab">' + esc(d.label) + '</span><em></em></div><div class="win"><div class="track"></div></div>';
-  el("tapes").appendChild(row);
-  const t = { row, name: row.querySelector(".name"), meta: row.querySelector(".name em"), win: row.querySelector(".win"), track: row.querySelector(".track"), pending: null, html: "", seen: null };
+  el("bottom").appendChild(row);
+  const t = { row, name: row.querySelector(".name"), meta: row.querySelector(".name em"), win: row.querySelector(".win"), track: row.querySelector(".track"), pending: null, html: "" };
   t.track.addEventListener("animationiteration", () => { if (t.pending != null) { const h = t.pending; t.pending = null; paint(t, h); } });
   T[d.key] = t;
 }
+const zoomNow = () => parseFloat(document.documentElement.style.zoom) || 1;
 function paint(t, html) {
   t.html = html; t.track.classList.remove("run"); t.track.style.removeProperty("--lap");
   t.track.innerHTML = '<span class="copy">' + html + "</span>";
-  const one = t.track.firstChild.getBoundingClientRect().width / (parseFloat(document.documentElement.style.zoom) || 1);
-  const room = t.win.getBoundingClientRect().width / (parseFloat(document.documentElement.style.zoom) || 1);
-  if (one + 26 <= room) return;   /* it fits: it stands still, whole */
+  const one = t.track.firstChild.getBoundingClientRect().width / zoomNow(), room = t.win.getBoundingClientRect().width / zoomNow();
+  if (one + 30 <= room) return;   /* it fits: it stands still, whole */
   t.track.innerHTML = '<span class="copy">' + html + '<span class="sep">·</span></span><span class="copy">' + html + '<span class="sep">·</span></span>';
-  const lap = t.track.firstChild.getBoundingClientRect().width / (parseFloat(document.documentElement.style.zoom) || 1);
+  const lap = t.track.firstChild.getBoundingClientRect().width / zoomNow();
   t.track.style.setProperty("--lap", "-" + lap.toFixed(1) + "px");
   t.track.style.animationDuration = (lap / SPEED).toFixed(2) + "s";
   void t.track.offsetWidth; t.track.classList.add("run");
 }
-function setTape(key, items, meta, opts) {
+function setTape(key, items, meta, soon, empty) {
   const t = T[key]; if (!t) return;
-  t.meta.textContent = meta || "";
-  t.name.classList.toggle("soon", !!(opts && opts.soon));
-  const html = items.length ? items.join('<span class="sep">·</span>') : '<span class="quiet">' + esc((opts && opts.empty) || "nothing yet today") + "</span>";
-  const firstId = opts && opts.firstId;
-  if (t.seen != null && firstId != null && firstId !== t.seen) { t.name.classList.remove("flash"); void t.name.offsetWidth; t.name.classList.add("flash"); }
-  if (firstId != null) t.seen = firstId;
+  t.meta.textContent = meta || ""; t.name.classList.toggle("soon", !!soon);
+  const html = items.length ? items.join('<span class="sep">·</span>') : '<span class="quiet">' + esc(empty || "nothing yet today") + "</span>";
   if (html === t.html && t.pending == null) return;
-  if (t.track.classList.contains("run")) t.pending = html; else paint(t, html);
+  /* a running tape takes new content at the end of its lap (no jump mid-read); in the first 20 s after load the feeds are still
+     arriving one by one, so they go straight in */
+  if (t.track.classList.contains("run") && Date.now() - BOOT > 20000) t.pending = html; else paint(t, html);
 }
-const item = (parts, fresh) => '<span class="it' + (fresh ? " new" : "") + '">' + parts + "</span>";
-const isFresh = (iso, mins = 10) => Date.now() - Date.parse(iso) < mins * 60000;
+const BOOT = Date.now();
+const item = (parts) => '<span class="it">' + parts + "</span>";
+
+/* what each feed last said; `at` = when it happened (ms) so the tapes can be put in time order */
+const D = { read: null, econ: [], next: null, earn: [], scint: [], scintN: 0, candles: [], vols: [] };
+/* the spotlight's queue: an item is announced once; a feed's first read is the backlog and is never announced */
+const ANNOUNCED = new Set(), PRIMED = {}, QUEUE = [];
+function announce(src, id, ev) { const k = src + ":" + id; if (ANNOUNCED.has(k)) return; ANNOUNCED.add(k); if (PRIMED[src]) QUEUE.push(ev); }
+const econName = (s) => String(s || "").replace(/^Fed(?:'s)? ([A-Z][a-z]+) Speech$/, "$1 speaks").replace(/\s*\([^)]*\)\s*$/, "").replace(/\s+/g, " ").trim();
+const num = (v) => (v == null ? "" : Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 }));
+const when = (d) => (etDate(d) === etDate(new Date()) ? "" : etDay(d) + " ") + etHM(d);
+const untilTxt = (s) => (s >= 3600 ? Math.floor(s / 3600) + "h " + String(Math.floor((s % 3600) / 60)).padStart(2, "0") + "m" : s >= 60 ? Math.floor(s / 60) + "m" : s + "s");
 
 /* AI READ: the news brain's newest read (pre-market, midday, close) */
 const READ_KIND = { premarket: "PRE-MARKET", midday: "MIDDAY", close: "CLOSE" };
 async function loadRead() {
   const r = (await rest("news_reads?select=id,kind,title,takeaway,created_at&order=id.desc&limit=1"))[0];
-  if (!r) return setTape("read", [], "", { empty: "the first read of the day lands about 08:45" });
-  const when = new Date(r.created_at);
-  setTape("read", [item("<b>" + esc(r.title) + '</b><span class="t">—</span>' + esc(r.takeaway || ""), isFresh(r.created_at, 20))],
-    (READ_KIND[r.kind] || String(r.kind || "").toUpperCase()) + " " + etHM(when), { firstId: r.id });
+  D.read = r || null;
+  if (r) announce("read", r.id, { kind: "AI read", when: (READ_KIND[r.kind] || "") + " " + etHM(new Date(r.created_at)), a: r.title, b: r.takeaway || "" });
+  PRIMED.read = true;
 }
-/* ECONOMIC: today's prints, then what is next; the name box counts down to the next one */
+/* ECONOMIC: today's prints and what is next */
 async function loadEcon() {
   const now = Math.floor(Date.now() / 1000);
-  const rows = await rest("econ_calendar?select=event_ts,event,impact,estimate,previous,actual&country=eq.US&impact=in.(High,Medium)&event_ts=gte." + (now - 8 * 3600) + "&event_ts=lte." + (now + 4 * 86400) + "&order=event_ts.asc&limit=40");
-  const today = etDate(new Date());
-  const items = [], num = (v) => (v == null ? "" : Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 }));
-  let next = null;
+  const rows = await rest("econ_calendar?select=event_ts,event,impact,estimate,previous,actual&country=eq.US&impact=in.(High,Medium)&event_ts=gte." + (now - 10 * 3600) + "&event_ts=lte." + (now + 4 * 86400) + "&order=event_ts.asc&limit=40");
+  D.econ = []; D.next = null;
   for (const e of rows) {
-    const d = new Date(e.event_ts * 1000), past = e.event_ts <= now;
+    const d = new Date(e.event_ts * 1000), past = e.event_ts <= now, name = econName(e.event), hi = e.impact === "High" ? '<span class="dn">●</span>' : "";
     if (past && e.actual == null) continue;
-    if (!past && !next) next = e;
-    const when = (etDate(d) === today ? "" : etDay(d) + " ") + etHM(d);
-    const dot = e.impact === "High" ? '<span class="dn">●</span>' : "";
-    const nums = e.actual != null && past ? "<b>" + num(e.actual) + '</b><span class="t">est</span>' + (num(e.estimate) || "—")
-      : (e.estimate != null ? '<span class="t">est</span>' + num(e.estimate) : "") + (e.previous != null ? '<span class="t">prev</span>' + num(e.previous) : "");
-    items.push(item('<span class="' + (past ? "t" : "am") + '">' + when + "</span>" + dot + esc(e.event) + nums, past && now - e.event_ts < 600));
+    if (!past && !D.next) D.next = e;
+    if (past) {
+      D.econ.push({ at: d.getTime(), html: item('<span class="t">' + when(d) + "</span>" + hi + esc(name) + " <b>" + num(e.actual) + "</b>" + (e.estimate != null ? '<span class="t">est ' + num(e.estimate) + "</span>" : "")) });
+      announce("econ", e.event_ts + e.event, { kind: "Economic", when: etHM(d), a: name + " " + num(e.actual), b: [e.estimate != null ? "estimate " + num(e.estimate) : "", e.previous != null ? "previous " + num(e.previous) : ""].filter(Boolean).join(" · ") });
+    } else D.econ.push({ at: d.getTime(), html: item('<span class="am">' + when(d) + "</span>" + hi + esc(name) + (e.estimate != null ? '<span class="t">est ' + num(e.estimate) + "</span>" : "")) });
   }
-  let meta = "", soon = false;
-  if (next) { const s = next.event_ts - now, h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-    meta = "NEXT " + (s >= 3600 ? h + "h" + String(m).padStart(2, "0") : s >= 60 ? m + "m" : s + "s"); soon = s <= 900; }
-  setTape("econ", items, meta, { soon, firstId: rows.filter((e) => e.actual != null).length });
+  PRIMED.econ = true; composeToday();
 }
-/* EARNINGS: today's reports (actual vs estimate), then the next days */
+/* EARNINGS: today's results, then the next days (BMO = 08:00, AMC = 16:05 for the order) */
 async function loadEarn() {
   const now = new Date(), today = etDate(now), until = etDate(new Date(now.getTime() + 4 * 86400000));
   const rows = await rest("earnings_events?select=ticker,date,report_time,eps_estimate,eps_actual,surprise_pct&superseded_at=is.null&date=gte." + today + "&date=lte." + until + "&order=date.asc,report_time.asc,ticker.asc&limit=80");
-  const items = [], f2 = (v) => (v == null ? "—" : Number(v).toFixed(2));
-  let todayN = 0;
+  D.earn = [];
   for (const e of rows) {
-    const isToday = e.date === today; if (isToday) todayN++;
-    const when = (isToday ? "" : etDay(new Date(e.date + "T12:00:00Z")) + " ") + (e.report_time || "");
+    const at = Date.parse(e.date + "T" + (e.report_time === "BMO" ? "13:00" : "21:05") + ":00Z"), lab = (e.date === today ? "" : etDay(new Date(e.date + "T12:00:00Z")) + " ") + (e.report_time || "");
     if (e.eps_actual != null) {
-      const s = e.surprise_pct;
-      items.push(item('<span class="t">' + esc(when) + "</span><b>" + esc(e.ticker) + "</b>" + f2(e.eps_actual) + '<span class="t">vs</span>' + f2(e.eps_estimate) +
-        (s != null ? '<span class="' + cls(s) + '">' + arrow(s) + " " + pct(s, 0) + "</span>" : "")));
-    } else items.push(item('<span class="am">' + esc(when) + "</span><b>" + esc(e.ticker) + '</b><span class="t">est</span>' + f2(e.eps_estimate)));
+      const sp = e.surprise_pct, f2 = (v) => (v == null ? "—" : Number(v).toFixed(2));
+      D.earn.push({ at, html: item('<span class="t">' + esc(lab) + "</span><b>" + esc(e.ticker) + "</b>" + (sp != null ? '<span class="' + cls(sp) + '">' + arrow(sp) + " " + pct(sp, 0) + "</span>" : "")) });
+      announce("earn", e.ticker + e.date, { kind: "Earnings", when: e.report_time || "", a: e.ticker + " " + (sp == null ? "reported" : (sp >= 0 ? "beat " : "missed ") + pct(sp, 0)), b: "EPS " + f2(e.eps_actual) + " vs " + f2(e.eps_estimate) + " expected", cls: cls(sp) });
+    } else D.earn.push({ at, html: item('<span class="am">' + esc(lab) + "</span><b>" + esc(e.ticker) + "</b>") });
   }
-  setTape("earn", items, todayN + " today", { firstId: rows.filter((e) => e.eps_actual != null).length, empty: "no reports in the next days" });
+  PRIMED.earn = true; composeToday();
 }
-/* SCINTILLAS: today's stocks moving several times their usual day, newest first */
+function composeToday() {
+  const all = D.econ.concat(D.earn).sort((x, y) => x.at - y.at).map((x) => x.html);
+  const n = D.next, s = n ? n.event_ts - Math.floor(Date.now() / 1000) : 0;
+  setTape("today", all, n ? "NEXT in " + untilTxt(s) : "", n && s <= 600, "no releases or reports in the next days");
+}
+/* SCINTILLAS + BIG CANDLES + VOLUME ALERTS: the moves, newest first */
 async function loadScint() {
   const rows = await rest("scintillas?select=id,ts,subject,direction,detail&kind=eq.price_outlier&ts=gte." + encodeURIComponent(todayStartIso()) + "&order=ts.desc&limit=200");
-  const items = rows.slice(0, 24).map((r, i) => { const d = r.detail || {}, mv = Number(d.move_pct), x = Number(d.x_usual), c = cls(mv || r.direction);
-    return item('<span class="t">' + etHM(new Date(r.ts)) + '</span><b class="' + c + '">' + esc(r.subject) + '</b><span class="' + c + '">' + arrow(mv || r.direction) + " " + (Number.isFinite(mv) ? pct(mv) : "") + "</span>" +
-      (Number.isFinite(x) ? x.toFixed(1) + "×" + (i === 0 ? " its usual day" : "") : ""), isFresh(r.ts)); });
-  setTape("scint", items, rows.length + " today", { firstId: rows[0] && rows[0].id });
+  D.scintN = rows.length;
+  D.scint = rows.slice(0, 20).map((r) => { const d = r.detail || {}, mv = Number(d.move_pct), x = Number(d.x_usual), c = cls(mv || r.direction), t = new Date(r.ts);
+    announce("scint", r.id, { kind: "Scintilla", when: etHM(t), a: r.subject + " " + arrow(mv || r.direction) + " " + (Number.isFinite(mv) ? pct(mv) : ""), b: Number.isFinite(x) ? "moving " + x.toFixed(1) + "× its usual day" : "", cls: c });
+    return { at: t.getTime(), html: item('<span class="t">' + etHM(t) + '</span><b class="' + c + '">' + esc(r.subject) + '</b><span class="' + c + '">' + arrow(mv || r.direction) + " " + (Number.isFinite(mv) ? pct(mv) : "") + "</span>" + (Number.isFinite(x) ? x.toFixed(1) + "×" : "")) }; });
+  PRIMED.scint = true; composeMoves();
 }
-/* BIG CANDLES + VOLUME ALERTS: the two alert kinds the public list does not carry, through station_tape_alerts */
 async function loadAlerts() {
   const from = Date.parse(todayStartIso());
   const rows = (await rpc("station_tape_alerts", { p_hours: 24 })).filter((r) => Date.parse(r.at) >= from);
-  const candles = rows.filter((r) => r.kind === "candle"), vols = rows.filter((r) => r.kind === "research");
-  const cItems = candles.map((r) => { const s = r.title, tm = (s.match(/\((\d\d:\d\d)\)/) || [])[1] || etHM(new Date(r.at));
+  D.candles = rows.filter((r) => r.kind === "candle").map((r) => { const s = r.title, tm = (s.match(/\((\d\d:\d\d)\)/) || [])[1] || etHM(new Date(r.at));
     const many = s.match(/on (\d+) Station names/), up = /▲|all up/.test(s), x = (s.match(/(\d+(?:\.\d+)?)×/) || [])[1], c = up ? "up" : "dn";
-    return item('<span class="t">' + tm + '</span><b class="' + c + '">' + esc(many ? many[1] + " names" : r.ticker || "") + '</b><span class="' + c + '">' + (up ? "▲" : "▼") + (many ? (up ? " all up" : " all down") : "") + "</span>" +
-      (x ? x + "×" + (r === candles[0] ? " its usual 10-min candle" : "") : ""), isFresh(r.at)); });
-  const vItems = vols.map((r) => { const s = r.title.replace(/\s*·\s*https?:\/\/\S+/g, "");
+    const who = many ? many[1] + " names" : r.ticker || "";
+    announce("candle", r.id, { kind: "Big candle", when: tm, a: who + " " + (up ? "▲" : "▼") + (many ? (up ? " all up" : " all down") : " big candle"), b: many ? "big 10-minute candles at " + tm : (x ? "the 10-minute candle was " + x + "× its usual" : ""), cls: c });
+    return { at: Date.parse(r.at), html: item('<span class="t">' + tm + '</span><b class="' + c + '">' + esc(who) + '</b><span class="' + c + '">' + (up ? "▲" : "▼") + "</span>candle" + (x ? " " + x + "×" : "")) }; });
+  D.vols = rows.filter((r) => r.kind === "research").map((r) => { const s = r.title.replace(/\s*·\s*https?:\/\/\S+/g, "");
     const tm = (s.match(/bar (\d\d:\d\d)/) || [])[1] || etHM(new Date(r.at));
     const run = s.match(/(\d+) bars in a row at ([\d.]+)x\+/), one = s.match(/Volume ([\d.]+)x normal/);
-    const mv = s.match(/price (up|down) ([\d.]+)%/), blk = s.match(/blocks?: ([A-Z]{1,5}) (up|down)/);
-    const core = run ? run[1] + " bars in a row at " + run[2] + "×+" : one ? one[1] + "× usual" : esc(s.replace(/^Volume\s*/i, ""));
-    const m = mv ? (mv[1] === "up" ? 1 : -1) * Number(mv[2]) : 0;
-    return item('<span class="t">' + tm + "</span>" + core + (blk ? '<span class="t">·</span><b class="' + (blk[2] === "up" ? "up" : "dn") + '">' + blk[1] + "</b>block " + (blk[2] === "up" ? "buying" : "selling") : "") +
-      (mv ? '<span class="' + cls(m) + '">' + arrow(m) + " " + pct(m, 2) + "</span>" : ""), isFresh(r.at)); });
-  setTape("candle", cItems, candles.length + " today", { firstId: candles[0] && candles[0].id, empty: "no big candle yet today" });
-  setTape("volal", vItems, vols.length + " today", { firstId: vols[0] && vols[0].id, empty: "no volume alert yet today" });
+    const mv = s.match(/price (up|down) ([\d.]+)%/), blk = s.match(/blocks?: ([A-Z]{1,5}) (up|down)/), m = mv ? (mv[1] === "up" ? 1 : -1) * Number(mv[2]) : 0;
+    const core = run ? run[2] + "×+ for " + run[1] + " bars" : one ? one[1] + "× usual" : "";
+    announce("vol", r.id, { kind: "Volume", when: tm, a: "Volume " + core, b: [blk ? blk[1] + " block " + (blk[2] === "up" ? "buying" : "selling") : "", mv ? "price " + pct(m, 2) + " over 3 bars" : ""].filter(Boolean).join(" · ") });
+    return { at: Date.parse(r.at), html: item('<span class="t">' + tm + "</span>volume <b>" + esc(core) + "</b>" + (blk ? '<b class="' + (blk[2] === "up" ? "up" : "dn") + '">' + blk[1] + " block</b>" : "") + (mv ? '<span class="' + cls(m) + '">' + arrow(m) + "</span>" : "")) }; });
+  PRIMED.candle = PRIMED.vol = true; composeMoves();
 }
+function composeMoves() {
+  const all = D.scint.concat(D.candles, D.vols).sort((x, y) => y.at - x.at).slice(0, 30).map((x) => x.html);
+  setTape("moves", all, D.scintN + " today", false, "no moves yet today");
+}
+
+/* the spotlight: the newest relevant thing, giant; otherwise what is next and the latest read, in turn */
+let SHOWING = null, SHOW_UNTIL = 0, ROT = 0, ROT_AT = 0;
+function show(ev, flash) {
+  SHOWING = ev;
+  el("spotKind").textContent = ev.kind; el("spotWhen").textContent = ev.when || "";
+  const a = el("spotA"); a.textContent = ev.a || ""; a.className = "a" + ((ev.a || "").length > 32 ? " long" : "") + (ev.cls ? " " + ev.cls : "");
+  el("spotB").textContent = ev.b || "";
+  const spot = el("spot"); spot.classList.toggle("soon", !!ev.soon);
+  if (flash) { spot.classList.remove("flash"); void spot.offsetWidth; spot.classList.add("flash"); }
+}
+function standing() {
+  const out = [], n = D.next, now = Math.floor(Date.now() / 1000);
+  if (n) { const s = n.event_ts - now, nm = econName(n.event);
+    out.push({ kind: "Next", when: when(new Date(n.event_ts * 1000)), a: nm + " in " + untilTxt(s), b: (n.impact === "High" ? "high impact · " : "") + [n.estimate != null ? "estimate " + num(n.estimate) : "", n.previous != null ? "previous " + num(n.previous) : ""].filter(Boolean).join(" · "), soon: s <= 600 }); }
+  if (D.read) out.push({ kind: "AI read", when: (READ_KIND[D.read.kind] || "") + " " + etHM(new Date(D.read.created_at)), a: D.read.title, b: D.read.takeaway || "" });
+  return out;
+}
+setInterval(() => {
+  const t = Date.now();
+  if (SHOWING && SHOWING.queued && t < SHOW_UNTIL) return;
+  if (QUEUE.length) { const ev = QUEUE.shift(); ev.queued = true; SHOW_UNTIL = t + (QUEUE.length >= 2 ? 20000 : 40000); show(ev, true); return; }
+  const st = standing(); if (!st.length) return;
+  const urgent = st[0].soon;   /* a release in its last 10 minutes holds the spotlight */
+  if (urgent) { show(st[0], false); return; }
+  if (t - ROT_AT >= 20000 || !SHOWING || SHOWING.queued) { ROT = (ROT + 1) % st.length; ROT_AT = t; }
+  show(st[ROT % st.length], false);
+  composeToday();   /* keeps the NEXT countdown in the tape's name box current */
+}, 1000);
 
 /* ---- RELATIVE VOLUME: the volume-pulse feed, one panel ---- */
 const STATE = { "pre-market": "PRE-MARKET", open: "MARKET OPEN", regular: "MARKET OPEN", "after-hours": "AFTER HOURS", closed: "CLOSED" };
@@ -311,7 +357,7 @@ async function loadPairs() {
 
 /* ---- the clock: every feed on its own cadence; a failed read keeps the last picture ---- */
 const guard = (fn) => () => fn().catch(() => {});
-const JOBS = [[loadVolume, 8000], [loadPairs, 30000], [loadRead, 60000], [loadEcon, 15000 /* the countdown stays fresh */], [loadEarn, 120000], [loadScint, 30000], [loadAlerts, 30000]];
+const JOBS = [[loadVolume, 8000], [loadPairs, 30000], [loadRead, 60000], [loadEcon, 30000], [loadEarn, 120000], [loadScint, 20000], [loadAlerts, 20000]];
 for (const [fn, ms] of JOBS) { const g = guard(fn); g(); setInterval(g, ms); }
 
 /* ---- self-update: a new release reloads the page once nobody is touching it and no video plays ---- */
