@@ -209,7 +209,7 @@ const BOOT = Date.now();
 const item = (parts) => '<span class="it">' + parts + "</span>";
 
 /* what each feed last said; `at` = when it happened (ms) so the tapes can be put in time order */
-const D = { read: null, econ: [], next: null, earn: [], scint: [], scintN: 0, candles: [], vols: [] };
+const D = { read: null, econ: [], next: null, earn: [], scint: [], scintN: 0, candles: [], vols: [], fed: [], macro: {} };
 /* the spotlight's queue: an item is announced once; a feed's first read is the backlog and is never announced */
 const ANNOUNCED = new Set(), PRIMED = {}, QUEUE = [];
 function announce(src, id, ev) { const k = src + ":" + id; if (ANNOUNCED.has(k)) return; ANNOUNCED.add(k); if (PRIMED[src]) QUEUE.push(ev); }
@@ -258,7 +258,7 @@ async function loadEarn() {
   PRIMED.earn = true; composeToday();
 }
 function composeToday() {
-  const all = D.econ.concat(D.earn).sort((x, y) => x.at - y.at).map((x) => x.html);
+  const all = macroItems().concat(D.econ.concat(D.earn).sort((x, y) => x.at - y.at).map((x) => x.html));
   const n = D.next, s = n ? n.event_ts - Math.floor(Date.now() / 1000) : 0;
   setTape("today", all, n ? "NEXT in " + untilTxt(s) : "", n && s <= 600, "no releases or reports in the next days");
 }
@@ -293,6 +293,38 @@ function composeMoves() {
   setTape("moves", all, D.scintN + " today", false, "no moves yet today");
 }
 
+/* LIVE MACRO (19 Nov 18:30, Alan: "live data wired into the Station so we stop checking by hand"): the Fed odds for the next three
+   meetings (Polymarket's markets in prediction_market_latest - CME has no free FedWatch feed, so they are labelled Polymarket), the
+   Cleveland Fed inflation nowcast and the 5y/10y breakevens (station_macro, written by station-macro from FRED and the Cleveland Fed).
+   A meeting whose leading odds move 5 points or more takes the spotlight. */
+const MEET_OUT = { "25 bps increase": "hike", "50+ bps increase": "hike 50+", "No change": "hold", "25 bps decrease": "cut", "50+ bps decrease": "cut 50+" };
+const FED_LAST = {};
+async function loadMacro() {
+  const [rows, pm] = await Promise.all([
+    rest("station_macro?select=key,label,value,prev,as_of,detail,updated_at"),
+    rest("prediction_market_latest?select=question,outcome,probability,end_date&venue=eq.polymarket&question=ilike." + encodeURIComponent("*Fed*after the*meeting*") + "&end_date=gt." + encodeURIComponent(new Date().toISOString()) + "&order=end_date.asc&limit=60")]);
+  D.macro = Object.fromEntries((rows || []).map((r) => [r.key, r]));
+  const meets = {};
+  for (const r of pm || []) { const m = String(r.question).match(/after the ([A-Z][a-z]+) (\d{4}) meeting/); if (!m) continue;
+    const k = m[1] + " " + m[2]; (meets[k] = meets[k] || { mon: m[1].slice(0, 3), end: r.end_date, outs: {} }).outs[MEET_OUT[r.outcome] || r.outcome] = Number(r.probability); }
+  D.fed = Object.values(meets).sort((x, y) => String(x.end).localeCompare(String(y.end))).slice(0, 3).map((m) => {
+    const lead = Object.entries(m.outs).sort((x, y) => y[1] - x[1])[0] || ["?", 0];
+    return { mon: m.mon, lead: lead[0], p: Math.round(lead[1] * 100), hold: m.outs.hold != null ? Math.round(m.outs.hold * 100) : null }; });
+  for (const f of D.fed) { const last = FED_LAST[f.mon];
+    if (PRIMED.fed && last && (last.lead !== f.lead || Math.abs(last.p - f.p) >= 5))
+      QUEUE.push({ kind: "Fed odds", when: "Polymarket", a: f.mon + " " + f.lead + " " + f.p + "%", b: "was " + last.lead + " " + last.p + "% · the " + f.mon + " meeting, Polymarket" });
+    FED_LAST[f.mon] = { lead: f.lead, p: f.p }; }
+  PRIMED.fed = true; composeToday();
+}
+const fedLine = () => D.fed.map((f) => f.mon + " " + f.lead + " " + f.p + "%").join(" · ");
+function macroItems() {
+  const out = [], nc = D.macro.nowcast && D.macro.nowcast.detail, b5 = D.macro.t5yie, b10 = D.macro.t10yie, f1 = (v) => (v == null ? "—" : Number(v).toFixed(1));
+  if (D.fed.length) out.push(item('<span class="t">FED</span>' + D.fed.map((f) => "<b>" + f.mon + '</b><span class="' + (/hike/.test(f.lead) ? "dn" : /cut/.test(f.lead) ? "up" : "") + '">' + esc(f.lead) + " " + f.p + "%</span>").join(" ")));
+  if (nc) out.push(item('<span class="t">CPI NOWCAST</span><b>' + f1(nc.cpi_yoy) + '%</b><span class="t">core</span><b>' + f1(nc.core_cpi_yoy) + "%</b>"));
+  if (b5 || b10) out.push(item('<span class="t">BREAKEVENS</span>' + (b5 ? '<span class="t">5y</span><b>' + Number(b5.value).toFixed(2) + "</b>" : "") + (b10 ? '<span class="t">10y</span><b>' + Number(b10.value).toFixed(2) + "</b>" : "")));
+  return out;
+}
+
 /* the spotlight: the newest relevant thing, giant; otherwise what is next and the latest read, in turn */
 let SHOWING = null, SHOW_UNTIL = 0, ROT = 0, ROT_AT = 0;
 function show(ev, flash) {
@@ -308,6 +340,11 @@ function standing() {
   if (n) { const s = n.event_ts - now, nm = econName(n.event);
     out.push({ kind: "Next", when: when(new Date(n.event_ts * 1000)), a: nm + " in " + untilTxt(s), b: (n.impact === "High" ? "high impact · " : "") + [n.estimate != null ? "estimate " + num(n.estimate) : "", n.previous != null ? "previous " + num(n.previous) : ""].filter(Boolean).join(" · "), soon: s <= 600 }); }
   if (D.read) out.push({ kind: "AI read", when: (READ_KIND[D.read.kind] || "") + " " + etHM(new Date(D.read.created_at)), a: D.read.title, b: D.read.takeaway || "" });
+  if (D.fed.length) out.push({ kind: "Fed odds", when: "Polymarket", a: fedLine(), b: "the next three Fed meetings · chance of no change: " + D.fed.map((f) => f.mon + " " + (f.hold == null ? "—" : f.hold + "%")).join(" · ") });
+  const nc = D.macro.nowcast && D.macro.nowcast.detail, b5 = D.macro.t5yie, b10 = D.macro.t10yie;
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], mo = (m) => MON[(+String(m || "").slice(5, 7) || 0) - 1] || "";
+  if (nc) out.push({ kind: "Inflation", when: mo(nc.month) + " nowcast", a: "CPI " + Number(nc.cpi_yoy).toFixed(1) + "% · core " + Number(nc.core_cpi_yoy).toFixed(1) + "%",
+    b: "Cleveland Fed nowcast, year over year · PCE " + Number(nc.pce_yoy).toFixed(1) + "% · core PCE " + Number(nc.core_pce_yoy).toFixed(1) + "%" + (b5 && b10 ? " · breakevens 5-yr " + Number(b5.value).toFixed(2) + "% · 10-yr " + Number(b10.value).toFixed(2) + "% (FRED)" : "") });
   return out;
 }
 setInterval(() => {
@@ -357,7 +394,7 @@ async function loadPairs() {
 
 /* ---- the clock: every feed on its own cadence; a failed read keeps the last picture ---- */
 const guard = (fn) => () => fn().catch(() => {});
-const JOBS = [[loadVolume, 8000], [loadPairs, 30000], [loadRead, 60000], [loadEcon, 30000], [loadEarn, 120000], [loadScint, 20000], [loadAlerts, 20000]];
+const JOBS = [[loadVolume, 8000], [loadPairs, 30000], [loadRead, 60000], [loadEcon, 30000], [loadEarn, 120000], [loadScint, 20000], [loadAlerts, 20000], [loadMacro, 300000]];
 for (const [fn, ms] of JOBS) { const g = guard(fn); g(); setInterval(g, ms); }
 
 /* ---- self-update: a new release reloads the page once nobody is touching it and no video plays ---- */
