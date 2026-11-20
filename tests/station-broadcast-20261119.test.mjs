@@ -56,3 +56,19 @@ test("the video part is the Station's own feed + player, and its feed tabs still
   assert.match(page, /e\.data\.sc === "video-feed"/);
   assert.match(page, /querySelector\("\[data-v\]"\)/, "the newest video is cued, so the player is never a black box");
 });
+
+test("a release reaches an open Station: only a video he is using holds it - a cued one never does (19 Nov 21:55)", () => {
+  assert.match(page, /function videoBusy\(\)/);
+  assert.match(page, /b\.dataset\.scShell === "2"\) return b\.dataset\.scFloat === "1" \|\| \["1", "2", "3"\]\.includes\(b\.dataset\.scPlay \|\| ""\)/,
+    "busy = playing, paused or buffering, or floating");
+  assert.match(page, /\(idle > 120000 && !videoBusy\(\)\) \|\| \(nightNY\(\) && idle > 3600000\)\)\) location\.reload\(\)/, "the reload rule + the night valve");
+  assert.doesNotMatch(page, /&& !VIDEO_ON\) location\.reload/, "the old rule (any video in the player holds the release) is gone");
+  assert.match(page, /el\("videoFrame"\)\.addEventListener\("load", watchVideoInput\)/, "touching the video column counts as touching the Station");
+});
+
+test("both video shells mark what the player is really doing, and stay twins", () => {
+  const a = read("../station-shells/scintilla-video-v1/index.html"), b = read("../station-shells/personal-video-v1/index.html");
+  assert.equal(a, b, "the two shells are identical");
+  for (const m of ['document.body.dataset.scShell = "2";', "markPlayer(Number(event.data));", "markPlayer(null);",
+    'document.body.dataset.scFloat = "1";', "delete document.body.dataset.scFloat;"]) assert.ok(a.includes(m), m);
+});
