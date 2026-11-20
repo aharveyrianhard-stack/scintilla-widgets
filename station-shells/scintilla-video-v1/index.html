@@ -507,6 +507,11 @@ if (STACK) { const n = document.getElementById("idleNote"); if (n) n.textContent
 function paintBeside() { document.body.classList.toggle("stack", STACK); document.body.classList.toggle("beside", BESIDE && !FIXED && !STACK); document.body.classList.toggle("fixed", FIXED && !STACK); document.body.style.setProperty("--beside-col", BESIDE_COL + "px"); }
 /* W1B: the deck is told when a video starts and stops here, so the WIDGETS wall can give the playing picture its full size */
 function tellPlaying() { if (!EMBEDDED) return; try { parent.postMessage({ sc: "video-playing", on: document.body.classList.contains("playing"), feed: FEED }, location.origin); } catch (_) {} }
+/* 19 Nov 2026: "playing" above means a video is IN the player - a cued one too. The page around this player reads what the player is
+   really doing from two marks on this page's body: data-sc-play (the YouTube state: 1 playing, 2 paused, 3 buffering, 5 cued, 0 ended)
+   and data-sc-float (1 while the video plays in its own window), so it can update itself while a video only sits cued. */
+document.body.dataset.scShell = "2";
+function markPlayer(state) { if (state == null) delete document.body.dataset.scPlay; else document.body.dataset.scPlay = String(state); }
 const besideNow = () => FIXED || (BESIDE && document.body.classList.contains("playing"));
 
 /* Personal is its own subscribed feed.  SCINTILLA is its subscriptions too (Y7, 19 Oct 2026).
@@ -1144,6 +1149,7 @@ function clearPlayerFallback() {
 function handlePlayerStateChange(event) {
   const request = YT_PLAYER_REQUEST;
   if (!playerEventMatchesRequest(event, request)) return;
+  markPlayer(Number(event.data));
   PLAYER_ACCEPTED_TOKEN = request.token; clearPlayerFallback();
   captureActiveVideoPosition(event.target);
   if (Number(event.data) === 1) { setAutoplayBlockedState(false, request); soundOnPlaying(); }
@@ -1305,6 +1311,7 @@ function back() {
   if (CUR) LAST_PLAYED = CUR.video_id;
   CUR = null; QUEUE = { list:"", rows:[], played:new Set() };
   document.body.classList.remove("playing");
+  markPlayer(null);
   if (BESIDE) relayout();   /* W1: the whole pane is the grid again */
   tellPlaying();
   setMenuOpen(false); setAutoplayBlockedState(false); refreshWatchButton(); refreshTransport();
@@ -1555,6 +1562,7 @@ async function floatVideo() {
   try { win = await host.documentPictureInPicture.requestWindow(floatSize()); }
   catch (e) { notePip("refused"); return false; }
   FLOAT = { win, frame:null, id:"", at:start, ended:false, poll:0, sound:"station" };
+  document.body.dataset.scFloat = "1";
   const d = win.document;
   d.documentElement.style.cssText = "height:100%;background:#000";
   d.body.style.cssText = "margin:0;height:100%;background:#000;overflow:hidden";
@@ -1618,6 +1626,7 @@ function floatClosed(win) {
   const at = Math.floor(floatSecond()), id = FLOAT.id, kept = FLOAT.sound === "station";
   clearInterval(FLOAT.poll);
   FLOAT = null;
+  delete document.body.dataset.scFloat;
   paintFloat();
   if (kept) return;   /* 27 Oct: the sound never left - this pane's player is still playing, at its own second */
   if (!CUR || CUR.video_id !== id) return;   /* back on the grid meanwhile: nothing to resume here */

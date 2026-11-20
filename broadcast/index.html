@@ -163,6 +163,16 @@ addEventListener("message", (e) => {
   if (e.data.sc === "video-feed") mountVideo(e.data.account);
   if (e.data.sc === "video-playing") VIDEO_ON = !!e.data.on;
 });
+/* 19 Nov 21:55: the self-update (at the bottom) waited for "no video", and the shell calls a merely CUED video "playing", so this page -
+   which cues the newest video itself - never updated again: his TV sat on the 18:08 six-tape version all evening. Busy now means what he
+   would call busy: a video playing, buffering or paused, or floating in its own window. An older shell (no marks): its message, as before. */
+function videoBusy() {
+  try {
+    const b = el("videoFrame").contentDocument.body;
+    if (b && b.dataset.scShell === "2") return b.dataset.scFloat === "1" || ["1", "2", "3"].includes(b.dataset.scPlay || "");
+  } catch (_) {}
+  return VIDEO_ON;
+}
 mountVideo(remembered(FEED_KEY, "scintilla"));
 
 /* ---- THE BOTTOM: one SPOTLIGHT + two big tapes ----
@@ -397,15 +407,23 @@ const guard = (fn) => () => fn().catch(() => {});
 const JOBS = [[loadVolume, 8000], [loadPairs, 30000], [loadRead, 60000], [loadEcon, 30000], [loadEarn, 120000], [loadScint, 20000], [loadAlerts, 20000], [loadMacro, 300000]];
 for (const [fn, ms] of JOBS) { const g = guard(fn); g(); setInterval(g, ms); }
 
-/* ---- self-update: a new release reloads the page once nobody is touching it and no video plays ---- */
+/* ---- self-update: a new release reloads the page once nobody is touching it and no video is in use ----
+   Touching counts inside the video column too (the feed and the player's buttons live in their own page). Night valve: a video left
+   playing or paused must not hold a release forever - from 01:00 to 06:00 in New York, an hour untouched is enough. */
 let LAST_INPUT = Date.now(), SEEN = null;
-for (const ev of ["pointerdown", "keydown", "wheel"]) addEventListener(ev, () => { LAST_INPUT = Date.now(); }, { passive: true, capture: true });
+const touched = () => { LAST_INPUT = Date.now(); };
+const INPUTS = ["pointerdown", "keydown", "wheel"];
+for (const ev of INPUTS) addEventListener(ev, touched, { passive: true, capture: true });
+const watchVideoInput = () => { try { const d = el("videoFrame").contentDocument; for (const ev of INPUTS) d.addEventListener(ev, touched, { passive: true, capture: true }); } catch (_) {} };
+el("videoFrame").addEventListener("load", watchVideoInput); watchVideoInput();
+const nightNY = () => { const h = +etParts(new Date()).hour % 24; return h >= 1 && h < 6; };
 setInterval(guard(async () => {
   const r = await fetch(location.pathname, { method: "HEAD", cache: "no-store" });
   const tag = r.headers.get("etag") || r.headers.get("last-modified");
   if (!tag) return;
   if (SEEN == null) { SEEN = tag; return; }
-  if (tag !== SEEN && Date.now() - LAST_INPUT > 120000 && !VIDEO_ON) location.reload();
+  const idle = Date.now() - LAST_INPUT;
+  if (tag !== SEEN && ((idle > 120000 && !videoBusy()) || (nightNY() && idle > 3600000))) location.reload();
 }), 180000);
 </script>
 </body>
