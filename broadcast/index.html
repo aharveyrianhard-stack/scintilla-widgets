@@ -42,6 +42,11 @@
          dim 30 px type, the dots; on the right a box that says a day in dots (NEXT: "MON · 3 DUE · IN 9H"; EARNINGS: "TUE · 6").
          Releases are the Hub's own tape list (its noise filter, its composite grouping, its short names). The standing numbers (Fed
          odds, the nowcast, breakevens, the ratio pairs) left the tape and ride in the spotlight's rotation.
+     22 Nov 23:55, Alan on that version (relayed): "Volume at resistance looks better ... should it just be relative volume by name, and
+       then when it's at resistance, we make that apparent, highlight that somehow." So the lights became RELATIVE VOLUME BY NAME: each
+       name with its relative volume (the feed's vol, last 30 minutes against the usual for that time of day), the dot brighter the
+       heavier it trades; a ring when the name sits within 1% under a level (at resistance); the flash and a green or red ring when volume
+       decides it (pushing / broke, rejected / losing). The volume chart above gave up 50 px for it.
      ============================================================================================================================ -->
 <style>
 :root{ --bg:#0A0A0F; --panel:#0F0F19; --box:#141424; --line:#24243A; --ink:#F2F2F8; --ink2:#C9CBE0; --dim:#8A8EAE;
@@ -130,13 +135,17 @@ body{ display:flex; align-items:center; justify-content:center; }
 #walls > .head{ align-items:center; height:32px; }
 .wbtn{ font:inherit; font-size:var(--s1); font-weight:700; background:none; border:1px solid rgba(0,212,255,.34); padding:1px 12px; cursor:pointer; }
 .wbtn:hover{ border-color:var(--crk); }
-.lights{ display:grid; grid-template-columns:repeat(4,1fr); grid-template-rows:repeat(4,42px); gap:4px; margin-top:6px; }
-.lt{ --wc:var(--dim); display:flex; align-items:center; gap:12px; padding:0 14px; background:var(--box); min-width:0; cursor:pointer; color:var(--dim); }
-.lt b{ font-size:var(--s2); font-weight:800; letter-spacing:.04em; line-height:1; white-space:nowrap; }
-.lt .dot{ width:20px; height:20px; }
-.lt.on{ color:var(--wc); }
+/* RELATIVE VOLUME BY NAME (22 Nov 23:55): the number is each name's relative volume; the dot's brightness follows it (set inline); a ring
+   says "at resistance"; volume deciding it is a green or red ring and the pulse */
+.lights{ display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(5,43px); gap:4px; margin-top:6px; }
+.lt{ --wc:var(--dim); display:flex; align-items:center; gap:8px; padding:0 10px; background:var(--box); min-width:0; cursor:pointer; color:var(--ink2); }
+.lt b{ font-size:var(--s2); font-weight:800; letter-spacing:.02em; line-height:1; white-space:nowrap; }
+.lt .vx{ margin-left:auto; font-size:var(--s1); font-weight:800; white-space:nowrap; }
+.lt .dot{ width:18px; height:18px; color:var(--crk); }
+.lt.res{ box-shadow:inset 0 0 0 2px var(--amber); }
+.lt.loud{ box-shadow:inset 0 0 0 3px var(--wc); color:var(--wc); }
 .lt.flash{ animation:wflash 1s ease-in-out 6; }
-.lt.go{ grid-column:span 2; justify-content:center; color:var(--crk); font-size:var(--s1); font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+.lt.go{ justify-content:center; color:var(--crk); font-size:var(--s1); font-weight:700; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap;
   background:none; border:1px solid rgba(0,212,255,.34); }
 .lt.go:hover{ border-color:var(--crk); }
 @keyframes wflash{ 50%{ background:rgba(255,255,255,.08); box-shadow:inset 0 0 0 3px var(--wc); } }
@@ -167,14 +176,14 @@ body{ display:flex; align-items:center; justify-content:center; }
     <div id="vol">
       <div class="head"><span class="lab">Relative volume</span><span class="lab am" id="volState">—</span></div>
       <div class="big"><b id="volNow">—</b><span id="volSub">its usual</span></div>
-      <svg id="chart" width="592" height="168" viewBox="0 0 592 168" aria-label="relative volume today, 5-minute bars"></svg>
+      <svg id="chart" width="592" height="118" viewBox="0 0 592 118" aria-label="relative volume today, 5-minute bars"></svg>
       <div class="stats">
         <div class="stat"><span class="l">BLOCK</span><span class="v" id="stBlock">—</span></div>
         <div class="stat"><span class="l">2-MIN FLOW</span><span class="v" id="stFlow">—</span></div>
         <div class="stat"><span class="l">BREADTH</span><span class="v" id="stBreadth">—</span></div>
       </div>
       <div id="walls">
-        <div class="head"><span class="lab">Volume at resistance</span><button class="wbtn lab" id="wallsAllBtn">All names →</button></div>
+        <div class="head"><span class="lab">Relative volume by name</span><button class="wbtn lab" id="targetsBtn">Targets →</button></div>
         <div class="lights" id="lights"></div>
       </div>
     </div>
@@ -183,7 +192,7 @@ body{ display:flex; align-items:center; justify-content:center; }
     <div class="row" id="spot"><div class="name"><span class="lab" id="spotKind">—</span><em id="spotWhen"></em></div><div class="body"><div class="a" id="spotA"></div><div class="b" id="spotB"></div></div></div>
   </div>
   <div id="wallsAll" hidden>
-    <div class="head"><span class="lab">Volume at resistance · all names</span><span id="aclock"></span><button class="wbtn lab" id="wallsClose">✕ close</button></div>
+    <div class="head"><span class="lab">Relative volume by name · all names</span><span id="aclock"></span><button class="wbtn lab" id="wallsClose">✕ close</button></div>
     <div id="arows"></div>
   </div>
   <div id="targetsAll" hidden>
@@ -597,7 +606,7 @@ setInterval(() => {
 /* ---- RELATIVE VOLUME: the volume-pulse feed, one panel ---- */
 const STATE = { "pre-market": "PRE-MARKET", open: "MARKET OPEN", regular: "MARKET OPEN", "after-hours": "AFTER HOURS", closed: "CLOSED" };
 function drawChart(slots) {
-  const W = 592, H = 168, T0 = 6, base = H - 30, max = 4, rth = slots.filter((s) => !s.ext && s.ratio != null);
+  const W = 592, H = 118, T0 = 6, base = H - 30, max = 4, rth = slots.filter((s) => !s.ext && s.ratio != null);
   const n = 78, bw = W / n, y = (v) => base - (Math.min(v, max) / max) * (base - T0), f = 'font-family="ui-monospace,SF Mono,Menlo,monospace"';
   let s = "";
   rth.forEach((v, i) => { s += '<rect x="' + (i * bw + 1).toFixed(1) + '" y="' + y(v.ratio).toFixed(1) + '" width="' + (bw - 2).toFixed(1) + '" height="' + (base - y(v.ratio)).toFixed(1) + '" fill="' + (v.ratio >= 1.5 ? "#FFB020" : v.ratio >= 1 ? "#00D4FF" : "#2B5F78") + '"/>'; });
@@ -682,18 +691,29 @@ function paintLights() {
   const box = el("lights"), names = (WALLS.length ? WALLS.map((r) => r.s) : WALL_NAMES0).slice(0, 14);
   if (box.dataset.names !== names.join(",")) {
     box.dataset.names = names.join(","); box.textContent = ""; for (const k of Object.keys(LIGHTS)) delete LIGHTS[k];
-    for (const n of names) { const d = document.createElement("div"); d.className = "lt"; d.dataset.s = n; d.innerHTML = '<i class="dot s-still" data-s="s-still"></i><b></b>';
+    for (const n of names) { const d = document.createElement("div"); d.className = "lt"; d.dataset.s = n; d.innerHTML = '<i class="dot s-still" data-s="s-still"></i><b></b><span class="vx dim">–</span>';
       d.querySelector("b").textContent = n; box.appendChild(d); LIGHTS[n] = d; }
-    const go = document.createElement("div"); go.className = "lt go"; go.id = "targetsBtn"; go.textContent = "Bounce targets →"; box.appendChild(go);
+    const go = document.createElement("div"); go.className = "lt go"; go.id = "wallsAllBtn"; go.textContent = "All names →"; box.appendChild(go);
   }
   for (const r of WALLS) {
     const d = LIGHTS[r.s]; if (!d) continue;
-    const col = WALL_COL[r.state] || "var(--dim)", dot = d.querySelector(".dot"), ds = wallDot(r);
-    d.style.setProperty("--wc", col); d.classList.toggle("on", r.state !== "CLEAR"); dot.style.color = col;
+    const v = r.volX == null ? null : Number(r.volX), loud = !!WALL_LOUD[r.state], dot = d.querySelector(".dot"), ds = lightDot(r);
+    d.style.setProperty("--wc", WALL_COL[r.state] || "var(--dim)");
+    d.classList.toggle("loud", loud);
+    d.classList.toggle("res", !loud && atResistance(r));
     if (dot.dataset.s !== ds) { dot.className = "dot " + ds; dot.dataset.s = ds; }
-    d.title = r.s + " · " + r.state + (r.why ? " · " + r.why : "");
+    /* the brighter, the heavier it trades: from a faint dot at half its usual volume to full light with a wide glow at 2x and more */
+    const b = v == null ? 0.5 : Math.min(v, 3);
+    dot.style.opacity = String(Math.max(0.3, Math.min(1, 0.3 + 0.35 * b)).toFixed(2));
+    dot.style.boxShadow = "0 0 " + Math.round(4 + 5 * b) + "px " + Math.round(1 + b) + "px currentColor";
+    const vx = d.querySelector(".vx"); vx.textContent = v == null ? "–" : (v >= 10 ? Math.round(v) : f1x(v)) + "×"; vx.className = "vx " + volCls(v);   /* 10x and up without the decimal, so GOOGL 21× fits */
+    d.title = r.s + " · relative volume " + (v == null ? "–" : f1x(v) + "×") + " · " + r.state + (r.why ? " · " + r.why : "");
   }
 }
+/* at resistance = within 1% under the nearest level above (or the feed already calls it AT WALL / DRIFTING into one) */
+const atResistance = (r) => !!((r.wall && r.wall.pct != null && r.wall.pct <= 1) || r.state === "AT WALL" || r.state === "DRIFTING");
+/* a light's dot moves only when volume decided something: a hard pulse for ten minutes, then breathing; otherwise it is lit, not blinking */
+const lightDot = (r) => (WALL_LOUD[r.state] ? wallDot(r) : "s-lit");
 /* ALL NAMES: every name over the whole stage, in the markets session's order (the loud ones first, then the nearest walls) */
 function paintWallsAll() {
   const box = el("arows");
@@ -733,8 +753,8 @@ function openTargets() {
   o.hidden = false;
 }
 function closeTargets() { const o = el("targetsAll"); o.hidden = true; const f = o.querySelector("iframe"); if (f) f.remove(); }
-el("lights").addEventListener("click", (e) => { const t = e.target.closest(".lt"); if (!t) return; if (t.classList.contains("go")) openTargets(); else openWallsAll(); });
-el("wallsAllBtn").addEventListener("click", openWallsAll);
+el("lights").addEventListener("click", (e) => { if (e.target.closest(".lt")) openWallsAll(); });   /* any name, or ALL NAMES, opens every name */
+el("targetsBtn").addEventListener("click", openTargets);
 el("wallsClose").addEventListener("click", closeWallsAll);
 el("targetsClose").addEventListener("click", closeTargets);
 addEventListener("keydown", (e) => { if (e.key === "Escape") { closeWallsAll(); closeTargets(); } });
