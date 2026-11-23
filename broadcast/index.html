@@ -26,6 +26,13 @@
      Data (read-only, the public key): news_reads (AI read), econ_calendar, earnings_events, scintillas, rpc station_tape_alerts (big
      candles + volume alerts), and the volume-pulse feed (heartbeat + ratios) like the old volume panel.
      The old wall stays at /deck/?deck=1.
+     22 Nov 2026 (coordinator, Alan's ask relayed by the markets session, dispatch STATION-20261122-01):
+       - WALLS · VOLUME AT RESISTANCE under the relative volume: two rows he switches by name (tap a row), ALL opens every name over
+         the whole stage. Read-only from the markets session's volume-pulse /api/walls; its states and thresholds are theirs.
+         A name that turns PUSHING, BROKE, REJECTED or LOSING flashes its row, takes the spotlight and lands in the SCINTILLAS tape.
+         To make room the chart is shorter and the three ratio pairs ride in the ECONOMIC + EARNINGS tape (RATIOS).
+       - The tapes take the Hub's economic tape look (his favourite): a glowing dot per item, still while it is far off, breathing
+         inside the hour, a hard pulse at the minute (one at a time), still once it has landed; a NOW mark where the past ends.
      ============================================================================================================================ -->
 <style>
 :root{ --bg:#0A0A0F; --panel:#0F0F19; --box:#141424; --line:#24243A; --ink:#F2F2F8; --ink2:#C9CBE0; --dim:#8A8EAE;
@@ -47,8 +54,8 @@ body{ display:flex; align-items:center; justify-content:center; }
 .big{ display:flex; align-items:baseline; gap:18px; margin-top:10px; }
 .big b{ font-size:var(--s4); font-weight:800; line-height:1; }
 .big span{ font-size:var(--s1); color:var(--ink2); white-space:nowrap; }
-#chart{ display:block; margin-top:16px; }
-.stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:4px; margin-top:auto; }
+#chart{ display:block; margin-top:12px; }
+.stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:4px; margin-top:8px; }
 .stat{ background:var(--box); padding:10px 14px; min-width:0; }
 .stat .l{ display:block; font-size:var(--s1); letter-spacing:.1em; color:var(--dim); white-space:nowrap; }
 .stat .v{ display:block; font-size:var(--s2); font-weight:800; line-height:1.3; white-space:nowrap; }
@@ -78,6 +85,59 @@ body{ display:flex; align-items:center; justify-content:center; }
 .track b{ font-weight:800; }
 .track .t{ color:var(--dim); font-weight:500; }
 .track .quiet{ color:var(--dim); }
+.ck{ color:var(--crk); }
+/* THE SCINTILLATE LOOK (22 Nov, Alan's favourite tape - the Hub's economic one): every item carries a dot in its own colour with a
+   glow; the dot is still while the thing is far off, breathes inside the hour (2.4 s), tightens inside ten minutes (1.1 s), pulses
+   hard at its minute (one at a time) and goes still once it has landed. Only opacity moves, so no word ever shifts. */
+.dot{ display:inline-block; flex:none; align-self:center; width:18px; height:18px; border-radius:50%; background:currentColor;
+  box-shadow:0 0 14px 3px currentColor; }
+.s-still .dot, .s-up .dot, .dot.s-still{ opacity:.55; box-shadow:none; }
+.s-soon .dot, .dot.s-soon{ animation:breathe 2.4s ease-in-out infinite; }
+.s-near .dot, .dot.s-near{ animation:breathe 1.1s ease-in-out infinite; }
+.s-due .dot, .dot.s-due{ animation:hard .38s ease-in-out infinite; }
+.s-past .dot{ opacity:.9; box-shadow:none; }
+@keyframes breathe{ 0%,100%{ opacity:1; } 50%{ opacity:.22; } }
+@keyframes hard{ 0%,100%{ opacity:1; } 50%{ opacity:.12; } }
+.track .now{ color:var(--crk); font-size:var(--s1); font-weight:700; letter-spacing:.16em; align-items:center; transform:translateY(-5px); }
+.track .now i{ display:inline-block; width:44px; height:2px; background:var(--crk); opacity:.6; }
+/* WALLS · VOLUME AT RESISTANCE (22 Nov): two rows he picks, ALL for every name */
+#walls{ position:relative; margin-top:auto; }
+#walls > .head{ align-items:center; height:32px; }
+.wbtn{ font:inherit; font-size:var(--s1); font-weight:700; background:none; border:1px solid var(--line); padding:1px 12px; cursor:pointer; }
+.wbtn:hover{ border-color:var(--crk); }
+.wrows{ display:grid; grid-template-rows:88px 88px; gap:4px; margin-top:6px; }
+.wrow{ --wc:var(--dim); background:var(--box); padding:6px 14px; display:flex; flex-direction:column; justify-content:center; gap:2px;
+  min-width:0; cursor:pointer; }
+.wrow:hover{ box-shadow:inset 0 0 0 1px var(--line); }
+.wrow.flash{ animation:wflash 1s ease-in-out 6; }
+@keyframes wflash{ 50%{ background:rgba(255,255,255,.07); box-shadow:inset 0 0 0 3px var(--wc); } }
+.wl1{ display:flex; align-items:center; gap:14px; height:48px; min-width:0; }
+.wl2{ display:flex; align-items:baseline; gap:14px; font-size:var(--s1); color:var(--ink2); white-space:nowrap; min-width:0; }
+.wl2 .lv{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.wnm{ font-size:var(--s3); font-weight:800; line-height:1; white-space:nowrap; }
+.wst{ font-size:var(--s2); font-weight:800; letter-spacing:.04em; white-space:nowrap; color:var(--wc); }
+.wsp{ display:block; }
+.wl1 .sp{ margin-left:auto; flex:none; }
+.wl2 .vx{ flex:none; }
+.wl2 b, .arow b{ font-weight:800; }
+#wpick{ position:absolute; inset:0; z-index:5; background:var(--panel); display:flex; flex-direction:column; gap:10px; }
+#wpick .chips{ display:flex; flex-wrap:wrap; gap:6px; }
+.chip{ font:inherit; font-size:var(--s1); font-weight:700; letter-spacing:.06em; color:var(--ink2); background:var(--box);
+  border:1px solid var(--line); padding:3px 10px; cursor:pointer; }
+.chip.on{ color:var(--crk); border-color:var(--crk); }
+#wallsAll{ position:absolute; inset:0; z-index:20; background:var(--bg); padding:24px 40px; display:flex; flex-direction:column; gap:12px; }
+#wallsAll > .head{ align-items:center; justify-content:flex-start; height:40px; }
+#wallsAll > .head .wbtn{ margin-left:auto; }
+#aclock{ font-size:var(--s1); color:var(--dim); white-space:nowrap; }
+#arows{ flex:1 1 auto; min-height:0; display:grid; gap:4px; }
+.arow{ --wc:var(--dim); display:grid; grid-template-columns:200px 210px 1fr 280px 240px; gap:24px; align-items:center; background:var(--panel);
+  padding:0 18px; min-height:0; overflow:hidden; }
+.arow .c1{ display:flex; align-items:center; gap:14px; min-width:0; }
+.arow .c2, .arow .c3, .arow .c4{ display:flex; flex-direction:column; gap:2px; min-width:0; font-size:var(--s1); white-space:nowrap; }
+.arow .c3 span{ overflow:hidden; text-overflow:ellipsis; }
+.arow .c2 .wst{ font-size:var(--s2); }
+#arows.dense .c2 .px, #arows.dense .c3 .nx, #arows.dense .c4 .sz{ display:none; }
+#wallsAll[hidden], #wpick[hidden]{ display:none; }   /* their own display:flex would otherwise beat the hidden attribute */
 </style>
 </head>
 <body>
@@ -87,17 +147,28 @@ body{ display:flex; align-items:center; justify-content:center; }
     <div id="vol">
       <div class="head"><span class="lab">Relative volume</span><span class="lab am" id="volState">—</span></div>
       <div class="big"><b id="volNow">—</b><span id="volSub">its usual</span></div>
-      <svg id="chart" width="592" height="262" viewBox="0 0 592 262" aria-label="relative volume today, 5-minute bars"></svg>
+      <svg id="chart" width="592" height="168" viewBox="0 0 592 168" aria-label="relative volume today, 5-minute bars"></svg>
       <div class="stats">
         <div class="stat"><span class="l">BLOCK</span><span class="v" id="stBlock">—</span></div>
         <div class="stat"><span class="l">2-MIN FLOW</span><span class="v" id="stFlow">—</span></div>
         <div class="stat"><span class="l">BREADTH</span><span class="v" id="stBreadth">—</span></div>
       </div>
-      <div class="stats" id="pairs" style="margin-top:4px"></div>
+      <div id="walls">
+        <div class="head"><span class="lab">Walls · volume at resistance</span><button class="wbtn lab" id="wallsAllBtn" title="every name, over the whole Station">ALL ⛶</button></div>
+        <div class="wrows" id="wrows">
+          <div class="wrow" data-slot="0" title="tap to pick the name"></div>
+          <div class="wrow" data-slot="1" title="tap to pick the name"></div>
+        </div>
+        <div id="wpick" hidden></div>
+      </div>
     </div>
   </div>
   <div id="bottom">
     <div class="row" id="spot"><div class="name"><span class="lab" id="spotKind">—</span><em id="spotWhen"></em></div><div class="body"><div class="a" id="spotA"></div><div class="b" id="spotB"></div></div></div>
+  </div>
+  <div id="wallsAll" hidden>
+    <div class="head"><span class="lab">Walls · volume at resistance</span><span id="aclock"></span><button class="wbtn lab" id="wallsClose">✕ close</button></div>
+    <div id="arows"></div>
   </div>
 </div>
 <script>
@@ -195,7 +266,8 @@ for (const d of TAPES) {
   T[d.key] = t;
 }
 const zoomNow = () => parseFloat(document.documentElement.style.zoom) || 1;
-function paint(t, html) {
+function paint(t, html) { lay(t, html); refreshDots(); }
+function lay(t, html) {
   t.html = html; t.track.classList.remove("run"); t.track.style.removeProperty("--lap");
   t.track.innerHTML = '<span class="copy">' + html + "</span>";
   const one = t.track.firstChild.getBoundingClientRect().width / zoomNow(), room = t.win.getBoundingClientRect().width / zoomNow();
@@ -216,10 +288,63 @@ function setTape(key, items, meta, soon, empty) {
   if (t.track.classList.contains("run") && Date.now() - BOOT > 20000) t.pending = html; else paint(t, html);
 }
 const BOOT = Date.now();
-const item = (parts) => '<span class="it">' + parts + "</span>";
+/* an item carries what its dot needs: its kind (k), the moment it is about (at, ms), landed (l) and whether a number is expected (x).
+   The dot's state is never written into the tape's text - refreshDots sets it on the drawn items - so a tape is only re-laid when
+   its words change, never because a clock ticked. */
+const dotHTML = (col) => '<i class="dot" style="color:' + col + '"></i>';
+const item = (parts, o) => '<span class="it"' + (o ? ' data-k="' + o.k + '" data-at="' + Math.round(o.at || 0) + '"' + (o.l ? ' data-l="1"' : "") + (o.x ? ' data-x="1"' : "") : "") +
+  ">" + (o && o.col ? dotHTML(o.col) : "") + parts + "</span>";
+const NOW_MARK = '<span class="it now"><i></i>NOW<i></i></span>';
+/* the Hub's own timing (EC_NUDGE_*): an hour out it starts to breathe, ten minutes out it tightens, at the minute it pulses hard
+   while its number is due (an hour; 15 minutes for a speech or a meeting, which print none); a move pulses for its first ten minutes
+   and breathes for the rest of its hour */
+function dotState(k, at, landed, expects, now) {
+  const dt = (at - now) / 1000;
+  if (k === "econ" || k === "earn") {
+    if (landed) return "s-past";
+    if (dt >= 3600) return "s-up";
+    if (dt >= 600) return "s-soon";
+    if (dt > 0) return "s-near";
+    if (k === "earn") return -dt < 3600 ? "s-near" : "s-past";   /* a report has no minute: it breathes until it lands or the hour is out */
+    return -dt < (expects ? 3600 : 900) ? "s-due" : "s-past";
+  }
+  if (k === "move") return -dt < 600 ? "s-due" : -dt < 3600 ? "s-near" : "s-past";
+  return "s-still";
+}
+/* "only ever ONE item does this" (the Hub's rule): the first hard pulse on a tape keeps it, the rest tighten instead of hammering */
+function refreshDots() {
+  const now = Date.now();
+  for (const t of Object.values(T)) for (const copy of t.track.querySelectorAll(".copy")) {
+    let hard = false;
+    for (const it of copy.querySelectorAll(".it[data-k]")) {
+      let s = dotState(it.dataset.k, Number(it.dataset.at), it.dataset.l === "1", it.dataset.x === "1", now);
+      if (s === "s-due") { if (hard) s = "s-near"; else hard = true; }
+      if (it.dataset.s !== s) { if (it.dataset.s) it.classList.remove(it.dataset.s); it.classList.add(s); it.dataset.s = s; }
+    }
+  }
+}
+setInterval(refreshDots, 5000);
+/* the economic calendar's own legend (the Hub's EC_CATS / EC_CAT_COLOR): a release's dot is the colour of what kind it is */
+const EC_CATS = [
+  ["ENERGY", /(^eia |^api |baker hughes|crude oil|natural gas|gasoline|distillate|heating oil|refinery|cushing|opec)/i],
+  ["AUCTIONS", /(bill auction|note auction|bond auction|frn auction|floating rate note auction|tips auction)/i],
+  ["POSITIONING", /(^cftc |speculative net positions|commitment of traders)/i],
+  ["CENTRAL BANK", /(fed |fomc|money supply|\bm[123]\b|interest rate projection|interest rate decision|rate decision|monetary policy|central bank|press conference|beige book|speech|testimony|minutes|balance sheet)/i],
+  ["HOUSING", /(housing|home sales|home price|house price|building permits|mortgage|construction spending|nahb|case-shiller|pending home|residential|rent index|\bmba\b)/i],
+  ["LABOR", /(payroll|jobless|unemploy|employment|jolts|job cuts|job vacanc|wage|labou?r|participation rate|average hourly|average weekly|productivity|real earnings|\badp\b|challenger|hiring)/i],
+  ["INFLATION", /(inflation|\bcpi\b|\bppi\b|producer price|consumer price|\bpce\b|price index|import prices|export prices|deflator|wholesale prices|used car prices)/i],
+  ["TRADE", /(balance of trade|trade balance|^imports|^exports|current account|tic flows|foreign bond|foreign invest|capital flows|budget balance|budget statement)/i],
+  ["GROWTH", /(\bgdp\b|\bpmi\b|\bism\b|retail sales|redbook|industrial production|durable goods|goods orders|factory orders|consumer confidence|consumer sentiment|michigan|business confidence|business inventories|economic optimism|philly fed|empire state|richmond|chicago fed|dallas fed|kansas|personal income|personal spending)/i]];
+const EC_CAT_COLOR = { "CENTRAL BANK": "#FF3DBE", INFLATION: "#FF8A00", LABOR: "#2D9CFF", GROWTH: "#00D4FF", HOUSING: "#A24BFF", TRADE: "#C8FF00",
+  ENERGY: "#8B5CF6", AUCTIONS: "#6A6C86", POSITIONING: "#767690" };
+const econHue = (ev) => { const b = String(ev || "").replace(/\s*\([^)]*\)\s*$/, ""); for (const [n, re] of EC_CATS) if (re.test(b)) return EC_CAT_COLOR[n]; return "var(--dim)"; };
+/* green / red / amber for how it came - against the estimate, with the Hub's inverted list (a hotter price or more jobless is worse) */
+const EC_INVERT = /(inflation|\bcpi\b|\bppi\b|producer price|consumer price|\bpce\b|price index|deflator|unemploy|jobless|job cuts|initial claims|continuing claims)/i;
+const econCame = (e) => { if (e.actual == null || e.estimate == null) return ""; const d = e.actual - e.estimate;
+  return Math.abs(d) < 1e-9 ? "am" : (d > 0) === EC_INVERT.test(e.event) ? "dn" : "up"; };
 
 /* what each feed last said; `at` = when it happened (ms) so the tapes can be put in time order */
-const D = { read: null, econ: [], next: null, earn: [], scint: [], scintN: 0, candles: [], vols: [], fed: [], macro: {} };
+const D = { read: null, econ: [], next: null, earn: [], scint: [], scintN: 0, candles: [], vols: [], fed: [], macro: {}, pairs: [], wallEv: [] };
 /* the spotlight's queue: an item is announced once; a feed's first read is the backlog and is never announced */
 const ANNOUNCED = new Set(), PRIMED = {}, QUEUE = [];
 function announce(src, id, ev) { const k = src + ":" + id; if (ANNOUNCED.has(k)) return; ANNOUNCED.add(k); if (PRIMED[src]) QUEUE.push(ev); }
@@ -242,13 +367,17 @@ async function loadEcon() {
   const rows = await rest("econ_calendar?select=event_ts,event,impact,estimate,previous,actual&country=eq.US&impact=in.(High,Medium)&event_ts=gte." + (now - 10 * 3600) + "&event_ts=lte." + (now + 4 * 86400) + "&order=event_ts.asc&limit=40");
   D.econ = []; D.next = null;
   for (const e of rows) {
-    const d = new Date(e.event_ts * 1000), past = e.event_ts <= now, name = econName(e.event), hi = e.impact === "High" ? '<span class="dn">●</span>' : "";
-    if (past && e.actual == null) continue;
+    const d = new Date(e.event_ts * 1000), past = e.event_ts <= now, name = econName(e.event);
+    const expects = e.estimate != null || e.previous != null, nm = e.impact === "High" ? "<b>" + esc(name) + "</b>" : esc(name);   /* weight = how much it matters */
+    const o = { k: "econ", at: d.getTime(), col: econHue(e.event), l: e.actual != null, x: expects };
+    /* past its minute with no number yet: it stays on the tape, DUE, for the hour a number can take to arrive (15 minutes for a speech
+       or a meeting, which print none) - then it leaves, as before */
+    if (past && e.actual == null && now - e.event_ts > (expects ? 3600 : 900)) continue;
     if (!past && !D.next) D.next = e;
-    if (past) {
-      D.econ.push({ at: d.getTime(), html: item('<span class="t">' + when(d) + "</span>" + hi + esc(name) + " <b>" + num(e.actual) + "</b>" + (e.estimate != null ? '<span class="t">est ' + num(e.estimate) + "</span>" : "")) });
+    if (e.actual != null) {
+      D.econ.push({ at: o.at, html: item('<span class="t">' + when(d) + "</span>" + nm + ' <b class="' + econCame(e) + '">' + num(e.actual) + "</b>" + (e.estimate != null ? '<span class="t">est ' + num(e.estimate) + "</span>" : ""), o) });
       announce("econ", e.event_ts + e.event, { kind: "Economic", when: etHM(d), a: name + " " + num(e.actual), b: [e.estimate != null ? "estimate " + num(e.estimate) : "", e.previous != null ? "previous " + num(e.previous) : ""].filter(Boolean).join(" · ") });
-    } else D.econ.push({ at: d.getTime(), html: item('<span class="am">' + when(d) + "</span>" + hi + esc(name) + (e.estimate != null ? '<span class="t">est ' + num(e.estimate) + "</span>" : "")) });
+    } else D.econ.push({ at: o.at, html: item('<span class="am">' + when(d) + "</span>" + nm + (e.estimate != null ? '<span class="t">est ' + num(e.estimate) + "</span>" : ""), o) });
   }
   PRIMED.econ = true; composeToday();
 }
@@ -261,14 +390,18 @@ async function loadEarn() {
     const at = Date.parse(e.date + "T" + (e.report_time === "BMO" ? "13:00" : "21:05") + ":00Z"), lab = (e.date === today ? "" : etDay(new Date(e.date + "T12:00:00Z")) + " ") + (e.report_time || "");
     if (e.eps_actual != null) {
       const sp = e.surprise_pct, f2 = (v) => (v == null ? "—" : Number(v).toFixed(2));
-      D.earn.push({ at, html: item('<span class="t">' + esc(lab) + "</span><b>" + esc(e.ticker) + "</b>" + (sp != null ? '<span class="' + cls(sp) + '">' + arrow(sp) + " " + pct(sp, 0) + "</span>" : "")) });
+      const col = sp == null ? "var(--dim)" : sp >= 0 ? "var(--bull)" : "var(--bear)";
+      D.earn.push({ at, html: item('<span class="t">' + esc(lab) + "</span><b>" + esc(e.ticker) + "</b>" + (sp != null ? '<span class="' + cls(sp) + '">' + arrow(sp) + " " + pct(sp, 0) + "</span>" : ""), { k: "earn", at, col, l: true }) });
       announce("earn", e.ticker + e.date, { kind: "Earnings", when: e.report_time || "", a: e.ticker + " " + (sp == null ? "reported" : (sp >= 0 ? "beat " : "missed ") + pct(sp, 0)), b: "EPS " + f2(e.eps_actual) + " vs " + f2(e.eps_estimate) + " expected", cls: cls(sp) });
-    } else D.earn.push({ at, html: item('<span class="am">' + esc(lab) + "</span><b>" + esc(e.ticker) + "</b>") });
+    } else D.earn.push({ at, html: item('<span class="am">' + esc(lab) + "</span><b>" + esc(e.ticker) + "</b>", { k: "earn", at, col: "var(--amber)" }) });
   }
   PRIMED.earn = true; composeToday();
 }
 function composeToday() {
-  const all = macroItems().concat(D.econ.concat(D.earn).sort((x, y) => x.at - y.at).map((x) => x.html));
+  /* NOW sits where the past ends, as on the Hub's economic tape; it only moves when a release or report crosses it */
+  const t = Date.now(), ev = D.econ.concat(D.earn).sort((x, y) => x.at - y.at), cut = ev.findIndex((x) => x.at > t), at = cut < 0 ? ev.length : cut;
+  const timeline = ev.slice(0, at).map((x) => x.html).concat(ev.length ? [NOW_MARK] : [], ev.slice(at).map((x) => x.html));
+  const all = macroItems().concat(timeline);
   const n = D.next, s = n ? n.event_ts - Math.floor(Date.now() / 1000) : 0;
   setTape("today", all, n ? "NEXT in " + untilTxt(s) : "", n && s <= 600, "no releases or reports in the next days");
 }
@@ -278,7 +411,8 @@ async function loadScint() {
   D.scintN = rows.length;
   D.scint = rows.slice(0, 20).map((r) => { const d = r.detail || {}, mv = Number(d.move_pct), x = Number(d.x_usual), c = cls(mv || r.direction), t = new Date(r.ts);
     announce("scint", r.id, { kind: "Scintilla", when: etHM(t), a: r.subject + " " + arrow(mv || r.direction) + " " + (Number.isFinite(mv) ? pct(mv) : ""), b: Number.isFinite(x) ? "moving " + x.toFixed(1) + "× its usual day" : "", cls: c });
-    return { at: t.getTime(), html: item('<span class="t">' + etHM(t) + '</span><b class="' + c + '">' + esc(r.subject) + '</b><span class="' + c + '">' + arrow(mv || r.direction) + " " + (Number.isFinite(mv) ? pct(mv) : "") + "</span>" + (Number.isFinite(x) ? x.toFixed(1) + "×" : "")) }; });
+    return { at: t.getTime(), html: item('<span class="t">' + etHM(t) + '</span><b class="' + c + '">' + esc(r.subject) + '</b><span class="' + c + '">' + arrow(mv || r.direction) + " " + (Number.isFinite(mv) ? pct(mv) : "") + "</span>" + (Number.isFinite(x) ? x.toFixed(1) + "×" : ""),
+      { k: "move", at: t.getTime(), col: c === "up" ? "var(--bull)" : c === "dn" ? "var(--bear)" : "var(--dim)" }) }; });
   PRIMED.scint = true; composeMoves();
 }
 async function loadAlerts() {
@@ -288,18 +422,20 @@ async function loadAlerts() {
     const many = s.match(/on (\d+) Station names/), up = /▲|all up/.test(s), x = (s.match(/(\d+(?:\.\d+)?)×/) || [])[1], c = up ? "up" : "dn";
     const who = many ? many[1] + " names" : r.ticker || "";
     announce("candle", r.id, { kind: "Big candle", when: tm, a: who + " " + (up ? "▲" : "▼") + (many ? (up ? " all up" : " all down") : " big candle"), b: many ? "big 10-minute candles at " + tm : (x ? "the 10-minute candle was " + x + "× its usual" : ""), cls: c });
-    return { at: Date.parse(r.at), html: item('<span class="t">' + tm + '</span><b class="' + c + '">' + esc(who) + '</b><span class="' + c + '">' + (up ? "▲" : "▼") + "</span>candle" + (x ? " " + x + "×" : "")) }; });
+    return { at: Date.parse(r.at), html: item('<span class="t">' + tm + '</span><b class="' + c + '">' + esc(who) + '</b><span class="' + c + '">' + (up ? "▲" : "▼") + "</span>candle" + (x ? " " + x + "×" : ""),
+      { k: "move", at: Date.parse(r.at), col: up ? "var(--bull)" : "var(--bear)" }) }; });
   D.vols = rows.filter((r) => r.kind === "research").map((r) => { const s = r.title.replace(/\s*·\s*https?:\/\/\S+/g, "");
     const tm = (s.match(/bar (\d\d:\d\d)/) || [])[1] || etHM(new Date(r.at));
     const run = s.match(/(\d+) bars in a row at ([\d.]+)x\+/), one = s.match(/Volume ([\d.]+)x normal/);
     const mv = s.match(/price (up|down) ([\d.]+)%/), blk = s.match(/blocks?: ([A-Z]{1,5}) (up|down)/), m = mv ? (mv[1] === "up" ? 1 : -1) * Number(mv[2]) : 0;
     const core = run ? run[2] + "×+ for " + run[1] + " bars" : one ? one[1] + "× usual" : "";
     announce("vol", r.id, { kind: "Volume", when: tm, a: "Volume " + core, b: [blk ? blk[1] + " block " + (blk[2] === "up" ? "buying" : "selling") : "", mv ? "price " + pct(m, 2) + " over 3 bars" : ""].filter(Boolean).join(" · ") });
-    return { at: Date.parse(r.at), html: item('<span class="t">' + tm + "</span>volume <b>" + esc(core) + "</b>" + (blk ? '<b class="' + (blk[2] === "up" ? "up" : "dn") + '">' + blk[1] + " block</b>" : "") + (mv ? '<span class="' + cls(m) + '">' + arrow(m) + "</span>" : "")) }; });
+    return { at: Date.parse(r.at), html: item('<span class="t">' + tm + "</span>volume <b>" + esc(core) + "</b>" + (blk ? '<b class="' + (blk[2] === "up" ? "up" : "dn") + '">' + blk[1] + " block</b>" : "") + (mv ? '<span class="' + cls(m) + '">' + arrow(m) + "</span>" : ""),
+      { k: "move", at: Date.parse(r.at), col: "var(--amber)" }) }; });
   PRIMED.candle = PRIMED.vol = true; composeMoves();
 }
 function composeMoves() {
-  const all = D.scint.concat(D.candles, D.vols).sort((x, y) => y.at - x.at).slice(0, 30).map((x) => x.html);
+  const all = D.scint.concat(D.candles, D.vols, D.wallEv.map(wallMoveItem)).sort((x, y) => y.at - x.at).slice(0, 30).map((x) => x.html);
   setTape("moves", all, D.scintN + " today", false, "no moves yet today");
 }
 
@@ -329,9 +465,12 @@ async function loadMacro() {
 const fedLine = () => D.fed.map((f) => f.mon + " " + f.lead + " " + f.p + "%").join(" · ");
 function macroItems() {
   const out = [], nc = D.macro.nowcast && D.macro.nowcast.detail, b5 = D.macro.t5yie, b10 = D.macro.t10yie, f1 = (v) => (v == null ? "—" : Number(v).toFixed(1));
-  if (D.fed.length) out.push(item('<span class="t">FED</span>' + D.fed.map((f) => "<b>" + f.mon + '</b><span class="' + (/hike/.test(f.lead) ? "dn" : /cut/.test(f.lead) ? "up" : "") + '">' + esc(f.lead) + " " + f.p + "%</span>").join(" ")));
-  if (nc) out.push(item('<span class="t">CPI NOWCAST</span><b>' + f1(nc.cpi_yoy) + '%</b><span class="t">core</span><b>' + f1(nc.core_cpi_yoy) + "%</b>"));
-  if (b5 || b10) out.push(item('<span class="t">BREAKEVENS</span>' + (b5 ? '<span class="t">5y</span><b>' + Number(b5.value).toFixed(2) + "</b>" : "") + (b10 ? '<span class="t">10y</span><b>' + Number(b10.value).toFixed(2) + "</b>" : "")));
+  const still = { k: "macro", col: "var(--crk)" };   /* standing numbers: a still dot, no glow */
+  if (D.fed.length) out.push(item('<span class="t">FED</span>' + D.fed.map((f) => "<b>" + f.mon + '</b><span class="' + (/hike/.test(f.lead) ? "dn" : /cut/.test(f.lead) ? "up" : "") + '">' + esc(f.lead) + " " + f.p + "%</span>").join(" "), still));
+  if (nc) out.push(item('<span class="t">CPI NOWCAST</span><b>' + f1(nc.cpi_yoy) + '%</b><span class="t">core</span><b>' + f1(nc.core_cpi_yoy) + "%</b>", still));
+  if (b5 || b10) out.push(item('<span class="t">BREAKEVENS</span>' + (b5 ? '<span class="t">5y</span><b>' + Number(b5.value).toFixed(2) + "</b>" : "") + (b10 ? '<span class="t">10y</span><b>' + Number(b10.value).toFixed(2) + "</b>" : ""), still));
+  /* 22 Nov: the three ratio pairs left the volume panel to make room for WALLS; they ride here, with the other standing numbers */
+  if (D.pairs.length) out.push(item('<span class="t">RATIOS</span>' + D.pairs.map((p) => "<b>" + esc(p.a) + "/" + esc(p.b) + '</b><span class="' + cls(p.day) + '">' + arrow(p.day) + " " + pct(Number(p.day), 2) + "</span>").join(" "), still));
   return out;
 }
 
@@ -372,7 +511,7 @@ setInterval(() => {
 /* ---- RELATIVE VOLUME: the volume-pulse feed, one panel ---- */
 const STATE = { "pre-market": "PRE-MARKET", open: "MARKET OPEN", regular: "MARKET OPEN", "after-hours": "AFTER HOURS", closed: "CLOSED" };
 function drawChart(slots) {
-  const W = 592, H = 262, T0 = 6, base = H - 30, max = 4, rth = slots.filter((s) => !s.ext && s.ratio != null);
+  const W = 592, H = 168, T0 = 6, base = H - 30, max = 4, rth = slots.filter((s) => !s.ext && s.ratio != null);
   const n = 78, bw = W / n, y = (v) => base - (Math.min(v, max) / max) * (base - T0), f = 'font-family="ui-monospace,SF Mono,Menlo,monospace"';
   let s = "";
   rth.forEach((v, i) => { s += '<rect x="' + (i * bw + 1).toFixed(1) + '" y="' + y(v.ratio).toFixed(1) + '" width="' + (bw - 2).toFixed(1) + '" height="' + (base - y(v.ratio)).toFixed(1) + '" fill="' + (v.ratio >= 1.5 ? "#FFB020" : v.ratio >= 1 ? "#00D4FF" : "#2B5F78") + '"/>'; });
@@ -399,8 +538,180 @@ async function loadVolume() {
 }
 async function loadPairs() {
   const d = await getJSON(VP + "/api/ratios");
-  el("pairs").innerHTML = (d.pairs || []).slice(0, 3).map((p) => '<div class="stat"><span class="l">' + esc(p.a) + "/" + esc(p.b) + '</span><span class="v ' + cls(p.day) + '">' + arrow(p.day) + " " + pct(Number(p.day), 2) + "</span></div>").join("");
+  D.pairs = (d.pairs || []).slice(0, 3).filter((p) => p && p.a && p.b && Number.isFinite(Number(p.day)));
+  composeToday();
 }
+
+/* ---- WALLS · VOLUME AT RESISTANCE (22 Nov 2026) ----
+   Alan, relayed by the markets session (dispatch STATION-20261122-01): "a couple of these on Station that he can switch between target
+   names, with a button that opens the full screen of all names", in the Station's look. The feed is the markets session's volume-pulse
+   /api/walls (Massive 5-minute bars, all hours, CORS open, kept 20 s at its edge): per name the nearest chart walls (the 13/21/50/100/
+   200-day averages, the prior day's high, Friday's low, the pre-market high) and how the last 30 minutes meet them - vol (volume against
+   the usual for that time of day), buy (the share traded in up bars), size (the average trade against usual) - and a state. The states,
+   the walls and every threshold are the markets session's; this page only draws them. No sound: the Station is on the living-room TV. */
+const WALL_COL = { PUSHING: "var(--bull)", BROKE: "var(--bull)", RETEST: "var(--crk)", "AT WALL": "var(--amber)", DRIFTING: "var(--amber)",
+  "BROKE-LIGHT": "var(--amber)", REJECTED: "var(--bear)", LOSING: "var(--bear)", CLEAR: "var(--dim)" };
+const WALL_ORDER = ["REJECTED", "LOSING", "PUSHING", "BROKE", "BROKE-LIGHT", "DRIFTING", "AT WALL", "RETEST", "CLEAR"];
+const WALL_LOUD = { PUSHING: "up", BROKE: "up", REJECTED: "dn", LOSING: "dn" };   /* the four that flash, take the spotlight, land in the tape */
+const WALL_WATCH = { "AT WALL": 1, DRIFTING: 1, RETEST: 1, "BROKE-LIGHT": 1 };     /* at a wall, nothing decided yet: the dot breathes */
+const WALL_BELOW = { BROKE: 1, "BROKE-LIGHT": 1, RETEST: 1, LOSING: 1 };         /* these are about the level just under the price */
+const SLOTS_KEY = "station.walls.slots", WALLS_DAY_KEY = "station.walls.day", WALL_DEFAULT = ["SPY", "QQQ"];
+let WALLS = [], WALL_AT = 0, PICK = -1;
+const WPREV = {}, WSINCE = {}, WSEEN = {}, AROWS = {};
+const f1x = (v) => (v == null || !Number.isFinite(Number(v)) ? "–" : Number(v).toFixed(1));
+const wallPct = (p) => (p > 0 ? "+" : p < 0 ? "−" : "") + Math.abs(Number(p)).toFixed(1) + "%";
+const volCls = (v) => (v == null ? "dim" : v >= 1.5 ? "am" : v >= 1 ? "ck" : "dim");   /* the relative volume chart's own colours */
+try { const j = JSON.parse(localStorage.getItem(WALLS_DAY_KEY) || "null"); if (j && j.day === etDate(new Date()) && Array.isArray(j.ev)) D.wallEv = j.ev.slice(0, 30); } catch (_) {}
+function wallLevel(r) {
+  const L = WALL_BELOW[r.state] ? r.floor : r.wall;
+  if (!L) return r.state === "CLEAR" ? "no wall overhead" : "";
+  return (r.state === "CLEAR" ? "next " : "") + L.name + " " + num(L.v) + " " + wallPct(L.pct);
+}
+/* the dot: still when nothing is near, breathing at a wall or within 1% of one, a hard pulse for the first ten minutes of a loud state */
+function wallDot(r) {
+  if (!r) return "s-still";
+  if (WALL_LOUD[r.state]) return Date.now() - (WSINCE[r.s] || 0) < 600000 ? "s-due" : "s-near";
+  if (WALL_WATCH[r.state] || (r.state === "CLEAR" && r.wall && r.wall.pct <= 1)) return "s-soon";
+  return "s-still";
+}
+/* the last two hours: bars = volume against usual (up bars green, down bars red, bright from 1.3x, the dashed line = usual), line = price */
+function wallSpark(sp, w, h) {
+  if (!sp || !sp.length) return '<svg class="wsp" width="' + w + '" height="' + h + '"></svg>';
+  const ps = sp.map((x) => Number(x[0])), lo = Math.min(...ps), hi = Math.max(...ps), n = sp.length, bw = w / n, bh = h * 0.55, lh = h - bh - 3;
+  let s = "";
+  sp.forEach((x, i) => { const v = Number(x[1]) || 0, hg = Math.min(bh, (v / 2.8) * bh);
+    s += '<rect x="' + (i * bw + 0.5).toFixed(1) + '" y="' + (h - hg).toFixed(1) + '" width="' + Math.max(1, bw - 1.5).toFixed(1) + '" height="' + hg.toFixed(1) +
+      '" fill="' + (x[2] ? "#00FFA3" : "#FF3B62") + '" opacity="' + (v >= 1.3 ? 0.9 : 0.38) + '"/>'; });
+  const u = (h - bh / 2.8).toFixed(1);
+  s += '<line x1="0" x2="' + w + '" y1="' + u + '" y2="' + u + '" stroke="#8A8EAE" stroke-width="1" stroke-dasharray="3 3"/>';
+  const pts = ps.map((p, i) => (i * bw + bw / 2).toFixed(1) + "," + (hi > lo ? 1 + (1 - (p - lo) / (hi - lo)) * lh : lh / 2).toFixed(1)).join(" ");
+  return '<svg class="wsp" width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + " " + h + '">' + s + '<polyline points="' + pts + '" fill="none" stroke="#C9CBE0" stroke-width="2"/></svg>';
+}
+/* the two rows: the names he picked (kept in this browser), SPY and QQQ until he picks */
+function wallSlots() {
+  let s = []; try { s = JSON.parse(remembered(SLOTS_KEY, "[]")); } catch (_) {}
+  const names = WALLS.map((r) => r.s), ok = (n) => typeof n === "string" && n && (!names.length || names.includes(n)), out = [];
+  for (let i = 0; i < 2; i++) out.push(ok(s[i]) ? s[i] : null);
+  for (let i = 0; i < 2; i++) if (!out[i]) out[i] = WALL_DEFAULT.concat(names).find((n) => ok(n) && !out.includes(n)) || "";
+  return out;
+}
+/* every field is written in place, so a dot keeps its rhythm between reads and only restarts when its state changes */
+function paintWalls() {
+  const slots = wallSlots(), by = Object.fromEntries(WALLS.map((r) => [r.s, r]));
+  document.querySelectorAll("#wrows .wrow").forEach((row) => {
+    const name = slots[Number(row.dataset.slot)], r = by[name], col = r ? WALL_COL[r.state] || "var(--dim)" : "var(--dim)";
+    if (!row.firstChild) row.innerHTML = '<div class="wl1"><i class="dot"></i><span class="wnm"></span><span class="wst"></span><span class="sp"></span></div>' +
+      '<div class="wl2"><span class="lv"></span><span class="vx"></span></div>';
+    row.dataset.name = name || "";
+    row.style.setProperty("--wc", col);
+    const dot = row.querySelector(".dot"), ds = wallDot(r);
+    dot.style.color = col; if (dot.dataset.s !== ds) { dot.className = "dot " + ds; dot.dataset.s = ds; }
+    row.querySelector(".wnm").textContent = name || "—";
+    row.querySelector(".wst").textContent = r ? r.state : WALL_AT ? "no data" : "reading…";
+    row.querySelector(".sp").innerHTML = r ? wallSpark(r.spark, 150, 44) : "";
+    row.querySelector(".lv").textContent = r ? wallLevel(r) : "";
+    row.querySelector(".vx").innerHTML = r && r.volX != null ? 'vol <b class="' + volCls(r.volX) + '">' + f1x(r.volX) + "×</b>" : "";
+  });
+}
+/* ALL: every name over the whole stage, in the markets session's order (the loud ones first, then the nearest walls) */
+function paintWallsAll() {
+  const box = el("arows");
+  const R = WALLS.slice().sort((a, b) => WALL_ORDER.indexOf(a.state) - WALL_ORDER.indexOf(b.state) || ((a.wall ? a.wall.pct : 99) - (b.wall ? b.wall.pct : 99)));
+  box.classList.toggle("dense", R.length > 14);
+  box.style.gridTemplateRows = "repeat(" + Math.max(R.length, 14) + ", minmax(0, 1fr))";
+  const r0 = WALLS[0];
+  el("aclock").textContent = r0 ? "bar " + (r0.clock || "") + " New York" + (r0.ext ? " · extended hours, thin tape" : "") + (r0.session && r0.session !== etDate(new Date()) ? " · session of " + r0.session : "") : "";
+  if (!R.length) { box.innerHTML = '<div class="arow"><span class="wst">' + (WALL_AT ? "the walls feed is empty" : "reading the walls…") + "</span></div>"; return; }
+  for (const r of R) {
+    let row = AROWS[r.s];
+    if (!row) { row = document.createElement("div"); row.className = "arow";
+      row.innerHTML = '<div class="c1"><i class="dot"></i><span class="wnm"></span></div><div class="c2"><span class="wst"></span><span class="px dim"></span></div>' +
+        '<div class="c3"><span class="why"></span><span class="nx dim"></span></div><div class="c4"><span class="vb"></span><span class="sz"></span></div><span class="sp"></span>';
+      AROWS[r.s] = row; }
+    const col = WALL_COL[r.state] || "var(--dim)", dot = row.querySelector(".dot"), ds = wallDot(r), buy = r.upShare == null ? null : Math.round(r.upShare * 100);
+    row.style.setProperty("--wc", col); dot.style.color = col; if (dot.dataset.s !== ds) { dot.className = "dot " + ds; dot.dataset.s = ds; }
+    row.querySelector(".wnm").textContent = r.s;
+    row.querySelector(".wst").textContent = r.state;
+    row.querySelector(".px").textContent = num(r.px);
+    row.querySelector(".why").textContent = r.why || "";
+    row.querySelector(".nx").textContent = (r.walls || []).slice(r.state === "CLEAR" ? 1 : 0, 3).map((w) => w.name + " " + wallPct(w.pct)).join(" · ");
+    row.querySelector(".vb").innerHTML = 'vol <b class="' + volCls(r.volX) + '">' + f1x(r.volX) + '×</b> · buy <b class="' + (buy == null ? "" : buy >= 60 ? "up" : buy <= 40 ? "dn" : "") + '">' + (buy == null ? "–" : buy + "%") + "</b>";
+    row.querySelector(".sz").innerHTML = 'size <b class="' + (r.sizeX != null && r.sizeX >= 1.5 ? "am" : "") + '">' + f1x(r.sizeX) + "×</b>";
+    row.querySelector(".sp").innerHTML = wallSpark(r.spark, 240, 56);
+  }
+  const want = R.map((r) => AROWS[r.s]), have = [...box.children];   /* re-order only when the order changed: moving a row restarts its dot */
+  if (want.length !== have.length || want.some((x, i) => x !== have[i])) { box.textContent = ""; want.forEach((x) => box.appendChild(x)); }
+}
+function openWallsAll() { closePick(); el("wallsAll").hidden = false; paintWallsAll(); }
+function closeWallsAll() { el("wallsAll").hidden = true; }
+function openPick(i) {
+  PICK = i;
+  const names = WALLS.length ? WALLS.map((r) => r.s) : WALL_DEFAULT, cur = wallSlots();
+  el("wpick").innerHTML = '<div class="head"><span class="lab">Row ' + (i + 1) + ' · pick a name</span><button class="wbtn lab" data-pick="">✕</button></div><div class="chips">' +
+    names.map((n) => '<button class="chip' + (n === cur[i] ? " on" : "") + '" data-pick="' + esc(n) + '">' + esc(n) + "</button>").join("") + "</div>";
+  el("wpick").hidden = false;
+}
+function closePick() { el("wpick").hidden = true; PICK = -1; }
+el("wrows").addEventListener("click", (e) => { const row = e.target.closest(".wrow"); if (row) openPick(Number(row.dataset.slot)); });
+el("wpick").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-pick]"); if (!b) return;
+  const v = b.dataset.pick;
+  if (v && PICK >= 0) { const s = wallSlots(), j = 1 - PICK; if (s[j] === v) s[j] = s[PICK]; s[PICK] = v; remember(SLOTS_KEY, JSON.stringify(s)); paintWalls(); }
+  closePick();
+});
+el("wallsAllBtn").addEventListener("click", openWallsAll);
+el("wallsClose").addEventListener("click", closeWallsAll);
+addEventListener("keydown", (e) => { if (e.key === "Escape") { closeWallsAll(); closePick(); } });
+/* one tape item for a wall moment, in the SCINTILLAS tape with the day's other moves */
+function wallMoveItem(e) {
+  const c = WALL_LOUD[e.state] === "up" ? "up" : "dn";
+  return { at: e.at, html: item('<span class="t">' + etHM(new Date(e.at)) + '</span><b class="' + c + '">' + esc(e.s) + '</b><span class="' + c + '">' + esc(String(e.state).toLowerCase()) + "</span>" +
+    esc(e.lvl || "") + (e.volX != null ? '<span class="t">vol</span>' + f1x(e.volX) + "×" : ""), { k: "move", at: e.at, col: WALL_COL[e.state] || "var(--dim)" }) };
+}
+/* a name ENTERING PUSHING, BROKE, REJECTED or LOSING: its row flashes, the spotlight names it (three or more at once = one line), and the
+   SCINTILLAS tape keeps it. The first read is the backlog and says nothing; a name and a state at most once in 20 minutes. */
+function wallsAnnounce(fresh) {
+  const clock = fresh[0].clock || etHM(new Date()), ext = fresh[0].ext ? " ext" : "";
+  const vb = (r) => [r.volX != null ? "vol " + f1x(r.volX) + "×" : "", r.upShare != null ? "buy " + Math.round(r.upShare * 100) + "%" : ""].filter(Boolean).join(" · ");
+  if (fresh.length >= 3) {
+    const ups = fresh.filter((r) => WALL_LOUD[r.state] === "up").length;
+    announce("walls", "many" + clock + fresh.map((r) => r.s).join(""), { kind: "Walls", when: clock + ext, a: fresh.length + " names at their walls",
+      b: fresh.map((r) => r.s + " " + r.state.toLowerCase()).join(" · "), cls: ups * 2 >= fresh.length ? "up" : "dn" });
+  } else for (const r of fresh) announce("walls", r.s + r.state + clock, { kind: "Walls", when: clock + ext, a: r.s + " " + r.state, b: (r.why || "") + (vb(r) ? " · " + vb(r) : ""), cls: WALL_LOUD[r.state] });
+  for (const r of fresh) D.wallEv.unshift({ at: Date.now(), s: r.s, state: r.state, lvl: wallLevel(r), volX: r.volX });
+  D.wallEv = D.wallEv.slice(0, 30);
+  try { localStorage.setItem(WALLS_DAY_KEY, JSON.stringify({ day: etDate(new Date()), ev: D.wallEv })); } catch (_) {}
+  composeMoves();
+  document.querySelectorAll("#wrows .wrow").forEach((row) => { if (fresh.some((r) => r.s === row.dataset.name)) { row.classList.remove("flash"); void row.offsetWidth; row.classList.add("flash"); } });
+}
+async function loadWalls() {
+  const d = await getJSON(VP + "/api/walls");
+  const rows = (d.rows || []).filter((r) => r && !r.err && r.s && r.state), fresh = [];
+  WALL_AT = Date.now();
+  if (!rows.length) { paintWalls(); return; }
+  for (const r of rows) {
+    const was = WPREV[r.s]; WPREV[r.s] = r.state;
+    if (was === undefined || was === r.state) continue;
+    WSINCE[r.s] = Date.now();
+    const k = r.s + r.state;
+    if (!WALL_LOUD[r.state] || (WSEEN[k] && Date.now() - WSEEN[k] < 1200000)) continue;
+    WSEEN[k] = Date.now(); fresh.push(r);
+  }
+  WALLS = rows;
+  paintWalls(); if (!el("wallsAll").hidden) paintWallsAll();
+  if (fresh.length && PRIMED.walls) wallsAnnounce(fresh);
+  PRIMED.walls = true;
+}
+/* every 30 s from 03:55 to 20:10 New York on weekdays (the feed covers 04:00-20:00), every 5 minutes otherwise; the dots and the
+   full screen are kept current every 5 s; the full screen goes back to the Station after two minutes untouched (the TV has no hands) */
+const wallsHours = () => { const p = etParts(new Date()), m = (Number(p.hour) % 24) * 60 + Number(p.minute); return !/Sat|Sun/.test(p.weekday) && m >= 235 && m <= 1210; };
+let WALL_NEXT = 0;
+function wallsTick() {
+  if (Date.now() >= WALL_NEXT) { WALL_NEXT = Date.now() + (wallsHours() ? 30000 : 300000); loadWalls().catch(() => {}); }
+  else { paintWalls(); if (!el("wallsAll").hidden) paintWallsAll(); }
+  if (!el("wallsAll").hidden && Date.now() - LAST_INPUT > 120000) closeWallsAll();
+}
+setTimeout(() => { wallsTick(); setInterval(wallsTick, 5000); }, 0);
 
 /* ---- the clock: every feed on its own cadence; a failed read keeps the last picture ---- */
 const guard = (fn) => () => fn().catch(() => {});
