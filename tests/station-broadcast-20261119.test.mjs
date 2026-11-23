@@ -31,9 +31,10 @@ test("one typeface and four sizes - no font size anywhere but the four", () => {
 test("the bottom reads from the couch: one spotlight for what just happened, over two big tapes", () => {
   assert.match(page, /id="spot"/, "the spotlight");
   const labels = [...page.matchAll(/\{ key: "(\w+)", label: "([^"]+)" \}/g)].map((m) => m[2]);
-  assert.deepEqual(labels, ["Economic + earnings", "Scintillas"], "two tapes: the two he called the better ones");
+  /* 22 Nov 23:40, Alan: the tapes are to look like the Hub's economic tape ("That's the best one"): its label cell names them */
+  assert.deepEqual(labels, ["Economic →", "Scintillas →"], "two tapes: the two he called the better ones");
   assert.match(css, /#bottom\{[^}]*grid-template-rows:196px 116px 116px/);
-  assert.match(css, /\.track\{[^}]*font-size:var\(--s3\)/, "tape text 44 px");
+  assert.match(css, /\.track\{[^}]*font-size:var\(--s2\)/, "tape text 30 px, letter-spaced, as the Hub's tape (22 Nov: \"I read so much\")");
   assert.match(css, /#spot \.a\{ font-size:var\(--s4\)/, "the spotlight line 72 px");
   assert.match(page, /const SPEED = 90;/, "both tapes crawl at the same speed");
   assert.match(css, /mask-image:linear-gradient/, "words fade at the edges instead of being cut");
