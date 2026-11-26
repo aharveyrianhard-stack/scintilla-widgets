@@ -137,3 +137,10 @@ test("the classifier reads YouTube's own lists and only ever adds a Shorts flag"
   assert.match(classifier, /const DUE_AFTER_S = \[0, 300, 1200, 3600\];/);
   assert.match(classifier, /push_cron_key_ok/, "the same caller check as yt-push");
 });
+
+test("the TV page reloads for a video-pane release too, under its own rule", () => {
+  const page = read("broadcast/index.html");
+  assert.match(page, /const WATCH_FILES = \[location\.pathname, "\/station-shells\/scintilla-video-v1\/"\];/);
+  assert.match(page, /if \(tags\.some\(\(t\) => !t\)\) return;/, "a missing tag decides nothing");
+  assert.match(page, /\(idle > 120000 && !videoBusy\(\)\) \|\| \(nightNY\(\) && idle > 3600000\)\)\) location\.reload\(\)/, "the same reload rule");
+});
