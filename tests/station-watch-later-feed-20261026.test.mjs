@@ -128,12 +128,14 @@ test("WATCH LATER: GRID never stops the video where the grid is on screen with i
   go({ CUR:null, FIXED:true, STACK:false, BESIDE:false, LIST:"default" }); assert.deepEqual(calls.splice(0), ["top:0"], "nothing playing: the top");
 });
 
-test("WATCH LATER: the whole saved list in one read, shorts too, no ticker filter", () => {
+test("WATCH LATER: the whole saved list in one read, no ticker filter; no Shorts or members-only since 25 Nov", () => {
   assert.match(shell, /pg\("yt_watch_later\?select=video_id"\)/);
   assert.doesNotMatch(shell, /WATCH_AT|updated_at/, "28 Oct: the star's time orders nothing now");
   assert.match(shell, /return "youtube_feed\?select=" \+ \(FEED_LIVE_OK \? FEED_SELECT_LIVE : FEED_SELECT\) \+ "&limit=200" \+/);
-  assert.match(shell, /if \(LIST === "watch"\) return ROWS\.filter\(\(v\) => WATCH\.has\(v\.video_id\)\);/, "the grid: no grid·videos·shorts filter");
-  assert.match(shell, /if \(list === "watch"\) return queueRows\(watchQueueRows\(rows, WATCH, BYID\), list, WATCH, CUR && CUR\.video_id\);/, "the queue: the same list (the run's own, 26 Oct ~21:35)");
+  /* 25 Nov, Alan: "No more shorts" - and members-only videos stop playing. The saved list follows the same rule as every list. */
+  assert.match(shell, /"&video_id=in\.\(" \+ Array\.from\(WATCH\)\.slice\(0, 200\)\.map\(encodeURIComponent\)\.join\(","\) \+ "\)" \+ modeClause\(\);/, "the read: videos only (station_ok)");
+  assert.match(shell, /if \(LIST === "watch"\) return ROWS\.filter\(\(v\) => WATCH\.has\(v\.video_id\) && inMode\(v\)\);/, "the grid: the saved list, videos only");
+  assert.match(shell, /if \(list === "watch"\) return queueRows\(watchQueueRows\(rows, WATCH, BYID\), list, WATCH, CUR && CUR\.video_id\)\.filter\(\(v\) => inMode\(v\)\);/, "the queue: the same list (the run's own, 26 Oct ~21:35), videos only");
   assert.match(shell, /const raw = LIST === "watch" \? watchOrder\(rows\) : Array\.isArray\(rows\) \? rows : \[\];/);
 });
 

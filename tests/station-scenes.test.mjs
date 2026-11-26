@@ -925,10 +925,10 @@ test("Personal subscriptions and the shared Scintilla discovery feed stay correc
   const subscribed = functionFromSource(videoPane, "channelSubscribed", { SUBSCRIPTION_ACCOUNT:"personal", LOCAL_SUBSCRIBED_CHANNELS:new Set() });
   assert.equal(subscribed({ channel_id:"channel-a", subscription_accounts:[] }), false);
   assert.equal(subscribed({ channel_id:"channel-a", subscription_accounts:["personal"] }), true);
-  /* 22 Sep: shorts left the list axis for the SHORTS tab (platform flag OR sixty seconds or less), so the
-     SCINTILLA "all" list reaches the same global shorts through that tab. */
-  assert.match(videoPane, /const SHORT_CLAUSE = "&or=\(is_short\.eq\.true,duration\.like\.0:\*,duration\.eq\.1:00\)"/,
-    "SCINTILLA discovery reaches the same global shorts as Hub, through the SHORTS tab");
+  /* 25 Nov, Alan: "No more shorts" (and no members-only videos, which stop playing): the SHORTS tab of 22 Sep is gone;
+     every list asks the feed for station_ok. */
+  assert.match(videoPane, /const STATION_OK_CLAUSE = "&station_ok=is\.true"/,
+    "the Station asks the feed for videos only");
   /* Y7 (19 Oct 2026), Alan: "on the station, basically, I just want the subscribers feed. For the scintilla
      portion." The SCINTILLA list is its subscriptions (the default) and the shared Watch Later; the "all"
      list - subscriptions plus the search collector's ticker clips - is gone from the pane. */

@@ -110,24 +110,28 @@ for (const [shell, src] of SRC) {
   });
 
   test(`${shell}: only a refusal of the stream columns drops a session to publish-time order`, async () => {
-    const run = async (status) => {
+    const run = async (status, times = 1) => {
       const box = vm.createContext({ String, calls: [] });
-      vm.runInContext(`var FEED_LIVE_OK = true;
+      vm.runInContext(`var FEED_LIVE_OK = true; var STATION_OK = true;
         const feedQuery = () => (FEED_LIVE_OK ? "live" : "plain");
-        let first = true;
-        async function pg(q) { calls.push(q); if (first) { first = false; throw new Error(${JSON.stringify(status)}); } return [q]; }
+        let left = ${times};
+        async function pg(q) { calls.push(q); if (left > 0) { left--; throw new Error(${JSON.stringify(status)}); } return [q]; }
         ${fnText(src, "readFeed")}
-        globalThis.readFeed = readFeed; globalThis.state = () => FEED_LIVE_OK;`, box);
+        globalThis.readFeed = readFeed; globalThis.state = () => FEED_LIVE_OK; globalThis.okCol = () => STATION_OK;`, box);
       let result = null, error = null;
       try { result = await box.readFeed(0); } catch (e) { error = e.message; }
-      return { result, error, ok: box.state(), calls: Array.from(box.calls) };
+      return { result, error, ok: box.state(), stationOk: box.okCol(), calls: Array.from(box.calls) };
     };
     const blip = await run("pg 503");
     assert.deepEqual([blip.error, blip.ok, blip.calls], ["pg 503", true, ["live"]], "a blip is a failed read, never a downgrade");
     const offline = await run("Failed to fetch");
     assert.equal(offline.ok, true, "nor is a Mac waking with no network");
+    assert.equal(blip.stationOk, true, "a blip keeps the videos-only column too");
+    /* 25 Nov: the first 400 drops the newest column first (station_ok, no Shorts / no members-only), then the stream columns */
     const refused = await run("pg 400");
-    assert.deepEqual([Array.from(refused.result), refused.ok, refused.calls], [["plain"], false, ["live", "plain"]], "a 400 is the old database: the plain read");
+    assert.deepEqual([Array.from(refused.result), refused.ok, refused.stationOk, refused.calls], [["live"], true, false, ["live", "live"]], "a 400 first: the old videos test, the stream times kept");
+    const older = await run("pg 400", 2);
+    assert.deepEqual([Array.from(older.result), older.ok, older.stationOk, older.calls], [["plain"], false, false, ["live", "live", "plain"]], "a second 400 is the old database: the plain read");
   });
 
   test(`${shell}: the two-minute pass never starts a video`, () => {
