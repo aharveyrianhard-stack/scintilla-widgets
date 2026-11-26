@@ -49,10 +49,9 @@ function constFrom(src, name, terminator = ";\n") {
 
 /* the shell's mode helpers, run as they are written */
 const shellApi = vm.runInNewContext(
-  [constFrom(pane, "SHORT_CLAUSE"), constFrom(pane, "LONG_CLAUSE"),
+  [constFrom(pane, "STATION_OK_CLAUSE"), constFrom(pane, "LONG_CLAUSE"), "let STATION_OK = true;",
    fnFrom(pane, "modeClause"), fnFrom(pane, "durationSeconds"), fnFrom(pane, "isShortVideo"), fnFrom(pane, "inMode"),
-   "let MODE = 'grid';",
-   "({ SHORT_CLAUSE, LONG_CLAUSE, modeClause, durationSeconds, isShortVideo, inMode })"].join("\n"), {});
+   "({ STATION_OK_CLAUSE, LONG_CLAUSE, modeClause, durationSeconds, isShortVideo, inMode, setStationOk: (v) => { STATION_OK = v; } })"].join("\n"), {});
 const profilesSrc = pane.slice(pane.indexOf("const FEED_PROFILES = ["), pane.indexOf("const FEED_PROFILE_KEYS"));
 const { FEED_PROFILES } = vm.runInNewContext(profilesSrc + "\n({ FEED_PROFILES })", {});
 
@@ -96,8 +95,8 @@ test("2b · the deck builds one pane per feed from the registry and keeps the tw
   assert.match(fnFrom(pane, "load"), /subscription_accounts=cs\." \+\s*encodeURIComponent\("\{" \+ FEED_PROFILE\.account \+ "\}"\) \+ "&limit=1"/, "decided by one id read");
 });
 
-test("3 · a short is the platform's flag OR sixty seconds or less; the page and the query agree", () => {
-  const { durationSeconds, isShortVideo, inMode, modeClause, SHORT_CLAUSE, LONG_CLAUSE } = shellApi;
+test("3 · videos only since 25 Nov: no Shorts (flag OR sixty seconds or less), no members-only; the page and the query agree", () => {
+  const { durationSeconds, isShortVideo, inMode, modeClause, STATION_OK_CLAUSE, LONG_CLAUSE, setStationOk } = shellApi;
   assert.equal(durationSeconds("0:45"), 45);
   assert.equal(durationSeconds("1:00"), 60);
   assert.equal(durationSeconds("1:01"), 61);
@@ -112,30 +111,31 @@ test("3 · a short is the platform's flag OR sixty seconds or less; the page and
   assert.equal(isShortVideo({ is_short: false, duration: "1:01" }), false);
   assert.equal(isShortVideo({ is_short: false, duration: null }), false, "no length and no flag is not a short");
   const rows = [{ is_short: true, duration: "3:00" }, { is_short: false, duration: "0:30" }, { is_short: false, duration: "12:00" }];
-  assert.deepEqual(rows.map((v) => inMode(v, "grid")), [true, true, true], "GRID is everything");
-  assert.deepEqual(rows.map((v) => inMode(v, "videos")), [false, false, true], "VIDEOS has no shorts of either kind");
-  assert.deepEqual(rows.map((v) => inMode(v, "shorts")), [true, true, false], "SHORTS has both kinds");
-  assert.equal(modeClause("grid"), "");
-  assert.equal(modeClause("shorts"), SHORT_CLAUSE);
-  assert.equal(modeClause("videos"), LONG_CLAUSE);
-  for (const piece of ["is_short.eq.true", "duration.like.0:*", "duration.eq.1:00"]) assert.ok(SHORT_CLAUSE.includes(piece), `the SHORTS query asks for ${piece}`);
-  for (const piece of ["is_short=eq.false", "duration.not.like.0:*", "duration.neq.1:00"]) assert.ok(LONG_CLAUSE.includes(piece), `the VIDEOS query excludes ${piece}`);
-  /* 27 Oct: a stream not on air yet has no length - not a short, so the VIDEOS query keeps it, as the page does */
-  assert.equal(inMode({ is_short: false, duration: null }, "videos"), true, "a stream not on air yet is in VIDEOS");
+  /* 25 Nov, Alan: "No more shorts" - and members-only videos, which stop playing. One mode: videos. */
+  assert.deepEqual(rows.map((v) => inMode(v)), [false, false, true], "no shorts of either kind");
+  assert.equal(inMode({ is_short: false, duration: "12:00", members_only: true }), false, "no members-only video");
+  assert.equal(modeClause(), STATION_OK_CLAUSE, "the database decides: the feed's station_ok");
+  assert.equal(STATION_OK_CLAUSE, "&station_ok=is.true");
+  setStationOk(false);
+  assert.equal(modeClause(), LONG_CLAUSE, "a feed without station_ok: the old videos test, never an empty pane");
+  setStationOk(true);
+  for (const piece of ["is_short=eq.false", "duration.not.like.0:*", "duration.neq.1:00"]) assert.ok(LONG_CLAUSE.includes(piece), `the fallback query excludes ${piece}`);
+  /* 27 Oct: a stream not on air yet has no length - not a short, so the query keeps it, as the page does */
+  assert.equal(inMode({ is_short: false, duration: null }), true, "a stream not on air yet stays");
   assert.ok(LONG_CLAUSE.includes("or=(duration.is.null,and(duration.not.like.0:*,duration.neq.1:00))"), "the VIDEOS query keeps a row with no length");
 });
 
-test("3b · the tabs come first, every list keeps its chip, the old links still land", () => {
+test("3b · no tabs since 25 Nov (one mode, videos), every list keeps its chip, the old links land on videos", () => {
   const paint = fnFrom(pane, "paintChips");
-  assert.ok(paint.indexOf("for (const [id, label] of MODES)") < paint.indexOf("for (const l of LISTS)"), "GRID · VIDEOS · SHORTS before the list chips");
-  assert.match(paint, /aria-pressed/, "the active tab is announced");
-  assert.match(pane, /LEGACY_LIST === "shorts" \? "shorts"/, "?list=shorts opens the SHORTS tab");
-  assert.match(pane, /LEGACY_LIST === "all" \? "grid"/, "?list=all opens the market grid");
-  assert.match(pane, /const MODE_DEFAULT = FEED === "scintilla" \|\| FEED === "market" \? "grid" : "videos";/, "each feed opens on what it showed before the tabs existed");
-  assert.match(fnFrom(pane, "feedQuery"), /q \+= modeClause\(MODE\);/, "the database is asked the same question");
+  assert.match(paint, /for \(const \[id, label\] of MODES\.length > 1 \? MODES : \[\]\)/, "a single mode paints no tab");
+  assert.ok(paint.indexOf("MODES.length > 1 ? MODES") < paint.indexOf("for (const l of LISTS)"), "and the list chips still follow");
+  assert.match(pane, /const MODES = \[\["videos", "videos"\]\];/, "one mode: videos");
+  assert.match(pane, /const MODE = "videos";/, "?mode=shorts or ?list=shorts cannot bring Shorts back");
+  assert.doesNotMatch(pane, /SHORT_CLAUSE|MODE_DEFAULT|function setMode/, "the SHORTS tab and its query are gone");
+  assert.match(fnFrom(pane, "feedQuery"), /q \+= modeClause\(\);/, "the database is asked the same question");
   assert.match(fnFrom(pane, "visibleRows"), /inMode\(v\)/, "the id-based watch list is filtered on the page");
-  assert.match(fnFrom(pane, "visibleQueue"), /inMode\(v\)/, "prev / next stay inside the tab");
-  assert.match(fnFrom(pane, "syncUrl"), /p\.set\("mode", MODE\)/, "the URL carries the tab, so PiP and the deck lift the same view");
+  assert.match(fnFrom(pane, "visibleQueue"), /inMode\(v\)/, "prev / next stay videos only");
+  assert.match(fnFrom(pane, "syncUrl"), /p\.set\("mode", MODE\)/, "the URL still says the mode (videos), so PiP and the deck lift the same view");
   assert.match(pane, /\.dur\{/, "the duration badge Alan asked to keep is still styled");
   /* 23 Sep: the corner is painted by videoBadgeHTML, which says LIVE for a
      stream on air and its start time for one still to come. The length Alan

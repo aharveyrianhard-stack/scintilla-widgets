@@ -93,14 +93,16 @@ for (const name of SHELLS) {
   test(`${name}: one refused read drops back, it does not empty the grid`, async () => {
     let asked = [];
     const ctx = ctxWith(src, ["readFeed"], {
-      FEED_LIVE_OK: true,
+      FEED_LIVE_OK: true, STATION_OK: true,
       feedQuery: (offset) => (globalThis.__live ? "live" : "old") + ":" + offset,
       pg: async (path) => { asked.push(path); if (path.startsWith("live")) throw new Error("pg 400"); return [{ video_id: "ok" }]; },
     });
     vm.runInContext("feedQuery = (offset) => (FEED_LIVE_OK ? 'live' : 'old') + ':' + offset", ctx);
     const rows = await ctx.readFeed(0);
     assert.deepEqual(rows, [{ video_id: "ok" }], "the second read serves the grid");
-    assert.deepEqual(asked, ["live:0", "old:0"], "asked once with the new columns, once without");
+    /* 25 Nov: the first refusal drops station_ok (the old videos test stands in), the second the stream columns */
+    assert.deepEqual(asked, ["live:0", "live:0", "old:0"], "asked with every column, then without station_ok, then without the stream columns");
+    assert.equal(ctx.STATION_OK, false, "the session remembers the videos-only column is missing");
     assert.equal(ctx.FEED_LIVE_OK, false, "the session remembers, so it does not fail twice");
 
     ctx.pg = async () => { throw new Error("pg 503"); };

@@ -32,7 +32,7 @@
      top-level, the button here does it directly.
 
      Params: ?feed=personal|scintilla|networks|soundscapes|golf|ai_research|fitness|market
-             · ?mode=grid|videos|shorts (GRID · VIDEOS · SHORTS tabs; ?list=shorts still works)
+             · videos only since 25 Nov (no Shorts, no members-only; ?mode= and ?list=shorts are ignored)
              · ?list=default|subscribed|watch · ?v=VIDEOID
              · ?autoplay=1 · ?limit=60 (10-200) · ?t=MU · ?cols=N (force)
      DB reads only, never FMP · youtube_feed · scintilla-live.
@@ -556,34 +556,29 @@ function rememberWatchTab(on) { try { localStorage.setItem(WATCH_TAB_KEY, on ? "
 let LIST = LISTS.some((l) => l.id === LEGACY_LIST) ? LEGACY_LIST
   : watchTabRemembered() && LISTS.some((l) => l.id === "watch") ? "watch" : "default";
 
-/* ── GRID · VIDEOS · SHORTS ──────────────────────────────────────────────────────────────────
-   Alan, 22 Sep: "a lot of very short shorts contaminate the grid. A combined grid, one of only
-   shorts, one of only videos." Three tabs, one axis, applied to whichever list is open.
+/* ── VIDEOS ONLY: NO SHORTS, NO MEMBERS-ONLY (25 Nov 2026) ──────────────────────────────────────
+   Alan, 25 Nov: "can we get the YouTube shorts off of it? No more shorts. And then there's videos that are members only
+   content. Let's avoid that because then it stops playing because it's members only content." This replaces his 22 Sep
+   GRID · VIDEOS · SHORTS tabs ("a lot of very short shorts contaminate the grid"): every list shows videos only.
 
-   WHAT A SHORT IS. Two rules, either one is enough: the platform's own flag (is_short, set by the
-   sweep's probe of youtube.com/shorts/) OR a length of 60 seconds or less. Measured on the live
-   feed on 2026-09-23: 3,859 rows are flagged, 183 sub-minute videos are NOT flagged, and 1,283
-   flagged Shorts run over a minute — so neither rule alone matches what Alan sees as a short.
-   The length rule is asked of the database as text (the feed serves duration as m:ss, never with
-   a leading zero, so "0:*" is every sub-minute length and "1:00" the boundary) and re-checked on
-   every row that lands, including the id-based watch list.
-
-   The default keeps what each feed showed before the tabs existed: a channel feed opened on its
-   videos only, the SCINTILLA grid and market search on everything (videos and shorts together -
-   that is this axis; WHICH rows is the list's, and on the Station SCINTILLA's list is its
-   subscriptions). The choice is remembered per feed on this device. */
-const MODES = [["grid", "grid"], ["videos", "videos"], ["shorts", "shorts"]];
+   WHAT THE STATION SHOWS is the feed's own station_ok (the youtube_feed view, 25 Nov): not a Short - in the channel's own
+   Shorts list on YouTube (edge function yt-classify looks every minute), flagged by the old youtube.com/shorts/ test, or a
+   minute or less (the 22 Sep length rule) - not members-only (in the channel's members-only list), and not a brand-new
+   upload of 3 minutes or less that has not been looked at yet (held at most 15 minutes, so a stopped classifier never
+   empties the pane). MEASURED 25 Nov 23:15 ET, the newest 200 SCINTILLA rows: about 53 Shorts and 5 members-only videos on
+   GRID; the old VIDEOS test still let 5 Shorts (1-3 minutes, unflagged) and all 5 members-only through.
+   A feed without station_ok (a 400: the database change rolled back) falls back to the old videos test (flag or a minute
+   or less), never to an empty pane. Each row is re-checked here too (isShortVideo). */
+const MODES = [["videos", "videos"]];
 const MODE_KEYS = MODES.map(([key]) => key);
-const MODE_MEMORY = "station.video.mode." + FEED;
-const MODE_DEFAULT = FEED === "scintilla" || FEED === "market" ? "grid" : "videos";
-const SHORT_CLAUSE = "&or=(is_short.eq.true,duration.like.0:*,duration.eq.1:00)";
+const MODE = "videos";
+const STATION_OK_CLAUSE = "&station_ok=is.true";
 /* 27 Oct: a stream that has not gone on air has no length yet, and SQL drops a NULL from both length tests, so the
-   VIDEOS tab never showed a scheduled stream: 18 on the SCINTILLA feed at 08:30 ET, Arete Trading's late 8:15am one
-   among them. Alan: "I see this video from Arete Trading ... on the station for the MacBook Pro ... it's not even
-   available on the station for the iMac" (the iMac on VIDEOS, the MacBook on GRID). No length is not a short -
-   isShortVideo already says so - and now the query agrees: a row without a length stays in VIDEOS. */
+   VIDEOS tab never showed a scheduled stream. No length is not a short - isShortVideo already says so - and the
+   fallback query agrees: a row without a length stays. */
 const LONG_CLAUSE = "&is_short=eq.false&or=(duration.is.null,and(duration.not.like.0:*,duration.neq.1:00))";
-function modeClause(mode) { return mode === "shorts" ? SHORT_CLAUSE : mode === "videos" ? LONG_CLAUSE : ""; }
+let STATION_OK = true;   /* false after the feed refused station_ok once (400) */
+function modeClause() { return STATION_OK ? STATION_OK_CLAUSE : LONG_CLAUSE; }
 function durationSeconds(text) {
   const parts = String(text == null ? "" : text).trim().split(":");
   if (!parts.length || parts.some((part) => !/^\d+$/.test(part))) return null;
@@ -594,21 +589,7 @@ function isShortVideo(video) {
   const seconds = durationSeconds(video && video.duration);
   return seconds != null && seconds <= 60;
 }
-function inMode(video, mode) {
-  const m = mode || MODE;
-  return m === "grid" ? true : m === "shorts" ? isShortVideo(video) : !isShortVideo(video);
-}
-function rememberedMode() { try { return localStorage.getItem(MODE_MEMORY) || ""; } catch (_) { return ""; } }
-let MODE = MODE_KEYS.includes(QS.get("mode")) ? QS.get("mode")
-  : LEGACY_LIST === "shorts" ? "shorts"
-  : LEGACY_LIST === "all" ? "grid"
-  : MODE_KEYS.includes(rememberedMode()) ? rememberedMode() : MODE_DEFAULT;
-function setMode(next) {
-  if (!MODE_KEYS.includes(next) || next === MODE) return;
-  MODE = next;
-  try { localStorage.setItem(MODE_MEMORY, next); } catch (_) {}
-  paintChips(); load(LIST === "watch");
-}
+function inMode(video) { return !isShortVideo(video) && !(video && video.members_only === true); }
 /* Inside the deck this pane is one of several feeds behind one switch; the deck owns which one is
    on the wall, so the pane tells it about itself instead of navigating on its own. */
 const EMBEDDED = (() => { try { return window.parent !== window && QS.has("shell"); } catch (_) { return false; } })();
@@ -1061,9 +1042,9 @@ function previousQueuedVideo(rows, currentId, skipped = new Set()) {
 }
 function visibleQueue() {
   /* 26 Oct: the queue is the list the playing video came from (QUEUE), not necessarily the one on screen; WATCH LATER is the whole saved
-     list - shorts too, whatever the grid · videos · shorts tab says - with anything starred since in its place by time (28 Oct) */
+     list with anything starred since in its place by time (28 Oct) - videos only since 25 Nov, like every list */
   const own = !!CUR && !!QUEUE.list && QUEUE.list !== LIST, list = own ? QUEUE.list : LIST, rows = own ? QUEUE.rows : ROWS;
-  if (list === "watch") return queueRows(watchQueueRows(rows, WATCH, BYID), list, WATCH, CUR && CUR.video_id);
+  if (list === "watch") return queueRows(watchQueueRows(rows, WATCH, BYID), list, WATCH, CUR && CUR.video_id).filter((v) => inMode(v));
   return queueRows(rows, list, WATCH).filter((v) => inMode(v));
 }
 /* S13: NEXT pressed on the grid. After a trip back to the grid it carries on from the video that was playing;
@@ -1150,8 +1131,15 @@ function handlePlayerStateChange(event) {
   const request = YT_PLAYER_REQUEST;
   if (!playerEventMatchesRequest(event, request)) return;
   markPlayer(Number(event.data));
+  /* 25 Nov: YouTube's player raises no error on a members-only video. Measured headless: -1 (not started), 3 (loading)
+     for a moment, then -1 for good - and any state used to count as the video being accepted, so the 10-second fallback
+     never skipped it and the queue stopped there (Alan: "then it stops playing because it's members only content").
+     For a video the queue asked to PLAY, only playing (1), paused (2) or ended (0) is acceptance; the fallback judges
+     the rest (a video still loading at 10 s gets 10 s more). A cued video (he presses play) is as before. */
+  if (request.auto && [-1, 3, 5].includes(Number(event.data))) return;
   PLAYER_ACCEPTED_TOKEN = request.token; clearPlayerFallback();
   captureActiveVideoPosition(event.target);
+  if (Number(event.data) === 1) STALL_SKIPS = 0;
   if (Number(event.data) === 1) { setAutoplayBlockedState(false, request); soundOnPlaying(); }
   if (Number(event.data) !== 0 || PLAYER_ENDED_TOKEN === request.token) return;
   PLAYER_ENDED_TOKEN = request.token;
@@ -1241,10 +1229,17 @@ function stepQueue(direction = 1, skipped = new Set(), originVideo = CUR) {
 function advanceQueue(skipped = new Set()) {
   return stepQueue(1, skipped, CUR);
 }
-function armPlayerFallback(token, skipped) {
+/* 25 Nov: skips in a row with no video playing between them. Three, and the pane stops skipping (a browser that blocks
+   every start without saying so must not walk the whole list); a video that plays resets it. */
+let STALL_SKIPS = 0;
+function playerStateNow() { try { return YT_PLAYER ? Number(YT_PLAYER.getPlayerState()) : null; } catch (_) { return null; } }
+function armPlayerFallback(token, skipped, grace = 1) {
   clearPlayerFallback();
   PLAYER_FALLBACK = setTimeout(() => {
     if (token !== PLAYER_TOKEN || PLAYER_ACCEPTED_TOKEN === token || !CUR) return;
+    if (grace > 0 && playerStateNow() === 3) { armPlayerFallback(token, skipped, grace - 1); return; }   /* still loading: 10 s more */
+    if (STALL_SKIPS >= 3) { setTransportNotice("video did not start"); return; }
+    STALL_SKIPS++;
     const request = YT_PLAYER_REQUEST;
     UNAVAILABLE_VIDEO_IDS.add(CUR.video_id);
     const nextSkipped = new Set(skipped); nextSkipped.add(CUR.video_id);
@@ -1784,7 +1779,7 @@ function cardHTML(v) {
     "</div>";
 }
 function visibleRows() {
-  if (LIST === "watch") return ROWS.filter((v) => WATCH.has(v.video_id));   /* 26 Oct: the whole saved list, shorts too */
+  if (LIST === "watch") return ROWS.filter((v) => WATCH.has(v.video_id) && inMode(v));   /* 26 Oct: the whole saved list; 25 Nov: no Shorts */
   return ROWS.filter((v) => inMode(v));
 }
 /* A full repaint replaces every child of the scroller, which momentarily takes
@@ -1826,7 +1821,7 @@ function paint() {
         esc(FEED_PROFILE.note || "this channel is not connected yet") + '. <a class="step" href="' + CONNECT_PAGE +
         "?account=" + encodeURIComponent(FEED_PROFILE.account) + '" target="_blank" rel="noopener">connect ' +
         esc(FEED_PROFILE.label) + " \u2197</a></div>"
-      : '<div class="msg">' + (MODE === "shorts" ? "no shorts in this list" : MODE === "videos" ? "no videos in this list (shorts are under SHORTS)" : "no videos in this list") + "</div>";
+      : '<div class="msg">' + "no videos in this list" + "</div>";
     return;
   }
   grid.innerHTML = rows.map(cardHTML).join("");
@@ -1911,7 +1906,7 @@ function runHeldRefresh() {
 
 function paintChips() {
   const box = el("chips"); box.innerHTML = "";
-  for (const [id, label] of MODES) {
+  for (const [id, label] of MODES.length > 1 ? MODES : []) {   /* 25 Nov: one mode (videos only) - no tabs to show */
     const b = document.createElement("button");
     b.type = "button";
     b.className = "btn mode" + (id === MODE ? " on" : "");
@@ -1920,10 +1915,9 @@ function paintChips() {
     b.title = id === "grid" ? "everything in this list — videos and shorts together"
       : id === "videos" ? "videos only — no shorts (a short is flagged by YouTube, or 60 seconds or less)"
       : "shorts only — flagged by YouTube, or 60 seconds or less";
-    b.addEventListener("click", () => { setMode(id); setFiltersOpen(false); });
     box.appendChild(b);
   }
-  const sep = document.createElement("span"); sep.className = "sep"; box.appendChild(sep);
+  if (MODES.length > 1) { const sep = document.createElement("span"); sep.className = "sep"; box.appendChild(sep); }
   for (const l of LISTS) {
     if (l.id === "watch") continue;   /* 26 Oct: WATCH LATER is its own tab on the bar now, not a chip in here */
     const b = document.createElement("span");
@@ -1979,9 +1973,9 @@ function feedQuery(offset) {
   if (LIST === "watch") {
     /* 26 Oct: the whole saved list in one read (up to 200), no mode or ticker filter; watchOrder puts it latest to oldest (28 Oct) */
     return "youtube_feed?select=" + (FEED_LIVE_OK ? FEED_SELECT_LIVE : FEED_SELECT) + "&limit=200" +
-      "&video_id=in.(" + Array.from(WATCH).slice(0, 200).map(encodeURIComponent).join(",") + ")";
+      "&video_id=in.(" + Array.from(WATCH).slice(0, 200).map(encodeURIComponent).join(",") + ")" + modeClause();
   } else q += chosen.q;
-  q += modeClause(MODE);
+  q += modeClause();
   if (TICK) q += "&tickers=ilike.*" + encodeURIComponent(TICK) + "*";
   return q;
 }
@@ -1995,7 +1989,9 @@ function feedQuery(offset) {
 async function readFeed(offset) {
   try { return await pg(feedQuery(offset)); }
   catch (e) {
-    if (!FEED_LIVE_OK || String(e && e.message) !== "pg 400") throw e;
+    if (String(e && e.message) !== "pg 400") throw e;
+    if (STATION_OK) { STATION_OK = false; return readFeed(offset); }   /* 25 Nov: a feed without station_ok - the old videos test */
+    if (!FEED_LIVE_OK) throw e;
     FEED_LIVE_OK = false;
     return pg(feedQuery(offset));
   }
@@ -2017,7 +2013,7 @@ function onAirQuery() {
   if (!FEED_PROFILE.account) return "";
   let q = "youtube_feed?select=" + FEED_SELECT_LIVE + "&live_state=eq.live&order=feed_at.desc&limit=" + ON_AIR_MAX +
           "&subscription_accounts=cs." + encodeURIComponent("{" + FEED_PROFILE.account + "}");
-  q += modeClause(MODE);
+  q += modeClause();
   if (TICK) q += "&tickers=ilike.*" + encodeURIComponent(TICK) + "*";
   return q;
 }

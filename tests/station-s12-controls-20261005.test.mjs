@@ -42,7 +42,8 @@ test("S12 · the YouTube bar: ↻ on the bar; the filters one tap away, a choice
   assert.match(shell, /<div class="sec" id="filters" role="group" aria-label="grid filters">[\s\S]*?<span id="chips"><\/span>/, "the chips live in the panel, not on the bar");
   assert.match(shell, /#filters #chips\{ flex-wrap:wrap; overflow:visible; row-gap:4px; \}/, "in the panel the chips wrap instead of scrolling");
   assert.match(shell, /return mode \+ \(list \? " · " \+ list : ""\);/, "the filters in force are named");
-  assert.match(shell, /b\.addEventListener\("click", \(\) => \{ setMode\(id\); setFiltersOpen\(false\); \}\);/, "a choice folds the panel");
+  /* 25 Nov: no GRID · VIDEOS · SHORTS tabs any more (Alan: "No more shorts"); a list chip is the choice that folds the panel */
+  assert.match(shell, /LIST = l\.id; paintChips\(\); load\(LIST === "watch"\); setFiltersOpen\(false\); \}\);/, "a choice folds the panel");
   assert.match(shell, /function setFiltersOpen\(open\) \{ if \(!open\) setMenuOpen\(false\); \}/);
   assert.match(shell, /try \{ await load\(LIST === "watch"\); \} finally \{ b\.classList\.remove\("busy"\); \}/, "↻ reads the list again, now");
   assert.match(shell, /if \(!el\("more"\)\.hidden\) \{ setMenuOpen\(false\); return; \}/, "Esc folds the panel first");

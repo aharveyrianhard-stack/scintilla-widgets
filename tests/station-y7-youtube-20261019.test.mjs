@@ -62,7 +62,7 @@ test("Y7 · the Station's scintilla feed carries no search rows and no market ch
     assert.match(mk.LISTS[0].q, /tickers=not\.is\.null/, name + ": with the ticker clips");
     assert.ok(mk.FEED_PROFILES.some((p) => p.key === "market" && p.account === null), name + ": MARKET SEARCH is still declared");
     assert.match(src, /FEED_PROFILES\.filter\(\(profile\) => profile\.key !== "market"\)/, name + ": the channel switch never offers MARKET SEARCH");
-    assert.match(src, /const MODE_DEFAULT = FEED === "scintilla" \|\| FEED === "market" \? "grid" : "videos";/, name + ": GRID · VIDEOS · SHORTS are as they were");
+    assert.match(src, /const MODES = \[\["videos", "videos"\]\];/, name + ": videos only since 25 Nov (no GRID · VIDEOS · SHORTS tabs)");
     assert.match(src, /id="bFull" title="expand this pane">⛶</, name + ": the pane's ⛶ is untouched");
   }
   /* the deck: every mounted feed is a channel; the market profile is never on a Station page */
