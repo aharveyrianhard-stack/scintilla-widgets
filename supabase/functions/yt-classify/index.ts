@@ -30,6 +30,16 @@
 // COST. 2 units for each channel with something to look at; app_config yt_class_settings caps a run and a day
 // (default {"on":1,"per_run":40,"per_day":3000}; {"on":0} stops the minute job without a deploy). Status: app_config
 // yt_class_result. The daily quota is 10,000 units; the collectors use about 600 a day (yt_rss_result).
+//
+// 26 Nov 2026. Alan: "I don't want shorts at all ... Brand new short upload, 3 minutes or less, take a few minutes. I don't
+// want any of them." Until today a video of 3 minutes or less showed after its first look even when YouTube had not put it
+// in either list yet, so a Short that YouTube listed late could show for a while. Now such a video waits for YouTube's
+// POSITIVE word that it is a regular video: the channel's long-form list, UULF + the id without "UC" (checked 26 Nov on
+// CNBC Television: its ten 1-3 minute clips of two days were all in UULF, none in UUSH).
+//   long_form = true           the row is in its channel's long-form list (written only for a row that waits for it)
+// The view's station_ok shows a video of 185 s or less (YouTube-confirmed Shorts run to 181 s), or one with no length that
+// is not a stream, only once long_form = true; a minute or less never shows. Such a row is looked at 8 times (WAIT_DUE_S:
+// 0, 2, 5, 10, 20, 60 minutes, 3 and 12 hours); never confirmed means never shown. Its look costs 1 more unit a channel.
 
 const SB = Deno.env.get("SUPABASE_URL") || "", SERVICE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const H = { apikey: SERVICE, Authorization: "Bearer " + SERVICE, "content-type": "application/json" };
@@ -37,6 +47,8 @@ const J = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status
 const CHANNEL = /^UC[\w-]{22}$/;
 const DUE_AFTER_S = [0, 300, 1200, 3600];   // look k (0-3) is due this long after the row landed
 const FOUND = 9, DONE = 4;
+const WAIT_DUE_S = [0, 120, 300, 600, 1200, 3600, 10800, 43200];   // 26 Nov: a row that waits for the long-form list
+const WAIT_DONE = 8, SHORT_MAX_S = 185, MINUTE_S = 60;
 const DEFAULTS = { on: 1, per_run: 40, per_day: 3000 };
 
 async function pg(path: string, init: RequestInit = {}) {
@@ -55,11 +67,19 @@ async function authorized(req: Request) {
 const nyDay = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
 const inList = (ids: string[]) => "in.(" + ids.map((id) => '"' + id.replace(/"/g, "") + '"').join(",") + ")";
 
-type Row = { video_id: string; channel_id: string; is_short: boolean | null; members_only: boolean | null; class_tries: number; updated_ts: number | null; published_at: string | null };
+type Row = { video_id: string; channel_id: string; is_short: boolean | null; members_only: boolean | null; class_tries: number; updated_ts: number | null; published_at: string | null;
+  duration_sec: number | null; long_form: boolean | null; live_broadcast: string | null; live_started_at: string | null; live_scheduled_at: string | null };
+
+/** a video YouTube may still call a Short (61-185 s, or no length and not a stream): it shows only once UULF lists it */
+export function waitsForWord(r: Row) {
+  if (r.is_short === true || r.members_only === true || r.long_form === true) return false;
+  if (r.duration_sec != null) return Number(r.duration_sec) > MINUTE_S && Number(r.duration_sec) <= SHORT_MAX_S;
+  return r.live_broadcast === "none" && !r.live_started_at && !r.live_scheduled_at;
+}
 type ListRead = { ok: boolean; ids: Set<string>; oldest: number | null; truncated: boolean; units: number; error?: string };
 
 /** one official list of one channel, newest first, as deep as untilMs (or maxPages) */
-async function readList(key: string, prefix: "UUSH" | "UUMO", channelId: string, untilMs: number, maxPages: number): Promise<ListRead> {
+async function readList(key: string, prefix: "UUSH" | "UUMO" | "UULF", channelId: string, untilMs: number, maxPages: number): Promise<ListRead> {
   const out: ListRead = { ok: false, ids: new Set(), oldest: null, truncated: false, units: 0 };
   let token = "";
   for (let page = 0; page < maxPages; page++) {
@@ -114,7 +134,7 @@ async function run(opts: { backfillDays: number; members: boolean; cap: number }
   let unitsToday = last.day === day ? Number(last.units_today || 0) : 0;
   if (unitsToday >= perDay) return { capped: true, units_today: unitsToday };
 
-  const sel = "video_id,channel_id,is_short,members_only,class_tries,updated_ts,published_at";
+  const sel = "video_id,channel_id,is_short,members_only,class_tries,updated_ts,published_at,duration_sec,long_form,live_broadcast,live_started_at,live_scheduled_at";
   const followed = "&subscription_accounts=neq.%7B%7D";
   // what the members-only lists may give back: rows marked members-only within 60 days
   const membersRows: Row[] = await rowsPaged("youtube_videos?select=" + sel + "&members_only=is.true&published_at=gt." +
@@ -123,13 +143,16 @@ async function run(opts: { backfillDays: number; members: boolean; cap: number }
   for (const m of membersRows) { if (!membersBy.has(m.channel_id)) membersBy.set(m.channel_id, []); membersBy.get(m.channel_id)!.push(m); }
 
   let due: Row[] = [];
+  const doneAt = (r: Row) => (waitsForWord(r) ? WAIT_DONE : DONE);
   if (opts.backfillDays) {
-    due = await rowsPaged("youtube_videos?select=" + sel + "&class_tries=lt." + DONE + followed + "&published_at=gt." +
+    const rows = await rowsPaged("youtube_videos?select=" + sel + "&class_tries=lt." + WAIT_DONE + followed + "&published_at=gt." +
       new Date(t0 - opts.backfillDays * 86400e3).toISOString() + "&order=published_at.desc", 40000);
+    due = rows.filter((r) => r.class_tries >= 0 && r.class_tries < doneAt(r));
   } else if (!opts.members) {
-    const rows = await rowsPaged("youtube_videos?select=" + sel + "&class_tries=lt." + DONE + followed + "&updated_ts=gt." +
+    const rows = await rowsPaged("youtube_videos?select=" + sel + "&class_tries=lt." + WAIT_DONE + followed + "&updated_ts=gt." +
       (now - 172800) + "&order=updated_ts.desc", 10000);
-    due = rows.filter((r) => r.class_tries >= 0 && r.class_tries < DONE && now - Number(r.updated_ts || 0) >= DUE_AFTER_S[r.class_tries]);
+    due = rows.filter((r) => r.class_tries >= 0 && r.class_tries < doneAt(r) &&
+      now - Number(r.updated_ts || 0) >= (waitsForWord(r) ? WAIT_DUE_S : DUE_AFTER_S)[r.class_tries]);
   }
   const bad = due.filter((r) => !CHANNEL.test(String(r.channel_id || ""))).map((r) => r.video_id);
   const byChannel = new Map<string, Row[]>();
@@ -151,26 +174,42 @@ async function run(opts: { backfillDays: number; members: boolean; cap: number }
   let units = 0;
   const errors: string[] = [];
   const shortIds = new Set<string>(), membersIds = new Set<string>(), publicIds = new Set<string>(), foundIds = new Set<string>();
+  const longIds = new Set<string>();
   const triesBy = new Map<number, string[]>();
   const log: { video_id: string; channel_id: string; change: string; age_s: number | null }[] = [];
   const age = (r: Row) => (r.updated_ts ? now - Number(r.updated_ts) : null);
 
   await pool(channels, 8, async (ch) => {
-    if (unitsToday + units + 2 > perDay) return;
+    if (unitsToday + units + 3 > perDay) return;
+    const waiting = opts.members ? [] : (byChannel.get(ch) || []).filter(waitsForWord);
     const sh = opts.members ? null : await readList(key, "UUSH", ch, untilMs, maxPages);
     const mo = await readList(key, "UUMO", ch, opts.members ? t0 - 60 * 86400e3 : untilMs, opts.members ? 4 : maxPages);
-    units += (sh ? sh.units : 0) + mo.units;
+    // 26 Nov: the long-form list, read only for a channel with a row that waits for it, back to its oldest waiting row
+    const lfUntil = waiting.reduce((m, r) => Math.min(m, Date.parse(r.published_at || "") || m), t0) - 3600e3;
+    const lf = waiting.length ? await readList(key, "UULF", ch, lfUntil, opts.backfillDays ? 20 : 2) : null;
+    units += (sh ? sh.units : 0) + mo.units + (lf ? lf.units : 0);
     if (sh && !sh.ok && sh.error) errors.push(sh.error);
     if (!mo.ok && mo.error) errors.push(mo.error);
+    if (lf && !lf.ok && lf.error) errors.push(lf.error);
     for (const r of byChannel.get(ch) || []) {
       if (opts.members) break;
       const isS = !!(sh && sh.ok && sh.ids.has(r.video_id)), isM = mo.ok && mo.ids.has(r.video_id);
       if (isS) { foundIds.add(r.video_id); if (r.is_short !== true) { shortIds.add(r.video_id); log.push({ video_id: r.video_id, channel_id: ch, change: "short", age_s: age(r) }); } }
       if (isM) { foundIds.add(r.video_id); if (r.members_only !== true) { membersIds.add(r.video_id); log.push({ video_id: r.video_id, channel_id: ch, change: "members", age_s: age(r) }); } }
       if (isS || isM) continue;
+      const waits = waitsForWord(r);
+      if (waits && lf && lf.ok && lf.ids.has(r.video_id)) {   // YouTube itself lists it as a regular video
+        longIds.add(r.video_id); log.push({ video_id: r.video_id, channel_id: ch, change: "long_form", age_s: age(r) });
+        continue;
+      }
       if (!(sh && sh.ok) || !mo.ok) continue;   // a list did not answer: looked at again next minute
-      // in neither list: one more look on the schedule; in a backfill, a row that landed over two hours ago is done
-      const next = opts.backfillDays && age(r) != null && Number(age(r)) > 7200 ? DONE : Math.min(DONE, r.class_tries + 1);
+      if (waits && !(lf && lf.ok)) continue;
+      // the long-form list was not read back as far as this row: that is not a "no"
+      if (waits && lf && lf.truncated && lf.oldest != null && Date.parse(r.published_at || "") < lf.oldest) continue;
+      // in no list: one more look on the schedule; in a backfill, a row that landed long ago is done (a waiting row
+      // stays hidden: only YouTube's long-form list shows it)
+      const last = waits ? WAIT_DONE : DONE, settledAfter = waits ? 50400 : 7200;
+      const next = opts.backfillDays && age(r) != null && Number(age(r)) > settledAfter ? last : Math.min(last, r.class_tries + 1);
       if (!triesBy.has(next)) triesBy.set(next, []);
       triesBy.get(next)!.push(r.video_id);
     }
@@ -195,6 +234,7 @@ async function run(opts: { backfillDays: number; members: boolean; cap: number }
     await patch([...membersIds].filter((id) => !shortIds.has(id)), { members_only: true, class_tries: FOUND, class_checked_at: at });
     await patch(both, { is_short: true, members_only: true, class_tries: FOUND, class_checked_at: at });
     await patch([...foundIds].filter((id) => !shortIds.has(id) && !membersIds.has(id)), { class_tries: FOUND, class_checked_at: at });
+    await patch([...longIds], { long_form: true, class_tries: FOUND, class_checked_at: at });
     for (const [tries, ids] of triesBy) await patch(ids, { class_tries: tries, class_checked_at: at });
     await patch([...publicIds].filter((id) => !membersIds.has(id)), { members_only: false, class_checked_at: at });
     await patch(bad, { class_tries: DONE, class_checked_at: at });
@@ -207,7 +247,7 @@ async function run(opts: { backfillDays: number; members: boolean; cap: number }
   const summary = {
     mode: opts.backfillDays ? "backfill " + opts.backfillDays + "d" : opts.members ? "members" : "minute",
     due: due.length, channels: channels.length, channels_left: left, units,
-    shorts: shortIds.size, members: membersIds.size, members_public: publicIds.size,
+    shorts: shortIds.size, members: membersIds.size, members_public: publicIds.size, long_form: longIds.size,
     looked_not_found: [...triesBy.values()].reduce((n, ids) => n + ids.length, 0),
     errors: errors.length, first_error: errors[0] || null, write_error: writeError || null, ms: Date.now() - t0,
   };
