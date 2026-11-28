@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="PRESS">
+<meta name="theme-color" content="#0A0A0F">
+<link rel="apple-touch-icon" href="/notify/b/n-press/apple-touch-icon.png"><link rel="manifest" href="/notify/b/n-press/manifest.webmanifest"><link rel="icon" href="/notify/b/n-press/icon-192.png">
+<title>PRESS</title>
+<!-- 28 Nov 2026 (coordinator), built by notify/b/neon/build-neon.mjs from notify/b/neon/neon.template.html - edit the template, not this file.
+     Alan (relayed by the markets session, 09:25 ET): "the new notification split with the new icons" and "The Urth feed should be fully
+     separate ... Another icon on Home Screen all of it." One box = one Home Screen app, wearing the 26 Nov neon icon of its box (URTH its own).
+     This page signs the box up for Web Push (with its box, so notify-push sends it only this box's alerts), lists the box's last two days and
+     shows the last alert this very app received (kept on the phone by push-sw-n.js). -->
+<style>
+:root{ --bg:#0A0A0F; --panel:#12121C; --line:#2C2C46; --ink:#E8EAF4; --dim:#9A9EB8; --box:#767690; --bull:#00FFA3; --bear:#FF456B; }
+*{ box-sizing:border-box; } html,body{ margin:0; background:var(--bg); color:var(--ink); font:16px -apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif; -webkit-text-size-adjust:100%; }
+header{ position:sticky; top:0; z-index:2; display:flex; align-items:center; gap:10px; padding:calc(10px + env(safe-area-inset-top)) 16px 10px; background:var(--bg); border-bottom:1px solid var(--line); }
+header img{ width:34px; height:34px; border-radius:8px; } header b{ font:800 16px -apple-system,BlinkMacSystemFont,sans-serif; letter-spacing:.14em; color:var(--box); } header .k{ margin-left:auto; font-size:12px; color:var(--dim); }
+#setup{ margin:14px 16px 4px; padding:16px; background:var(--panel); border:1px solid var(--box); border-radius:12px; } #setup[hidden]{ display:none; }
+#setup h2{ margin:0 0 8px; font-size:19px; } #setup p{ margin:0 0 10px; color:var(--dim); line-height:1.4; font-size:15px; } #setup ol{ margin:0; padding-left:22px; line-height:1.6; font-size:16px; }
+#go{ width:100%; font:700 17px -apple-system,BlinkMacSystemFont,sans-serif; padding:15px; color:#05050A; background:var(--box); border:0; border-radius:10px; } #go:disabled{ opacity:.5; }
+#holds{ margin:10px 16px 0; color:var(--dim); font-size:14px; line-height:1.4; }
+#last{ margin:8px 16px 0; font-size:13px; color:var(--dim); } #last b{ color:var(--ink); font-weight:600; } #last[hidden]{ display:none; }
+#list{ padding:6px 0 calc(24px + env(safe-area-inset-bottom)); } .row{ display:block; padding:12px 16px; border-bottom:1px solid #1B1B2B; color:inherit; text-decoration:none; }
+.top{ display:flex; align-items:baseline; gap:8px; font-size:12.5px; color:var(--dim); } .tk{ font:700 14px ui-monospace,"SF Mono",Menlo,monospace; color:var(--box); } .up{ color:var(--bull); } .dn{ color:var(--bear); }
+.tt{ margin-top:4px; font-size:16.5px; line-height:1.32; font-weight:500; } .msg{ padding:24px 16px; color:var(--dim); line-height:1.4; }
+</style>
+</head>
+<body>
+<header><img src="/notify/b/n-press/icon-192.png" alt=""><b>PRESS</b><span class="k" id="state"></span></header>
+<section id="setup" hidden></section>
+<p id="holds">Company press releases from the wires - the biggest stream.</p>
+<p id="last" hidden></p>
+<main id="list"><div class="msg">reading…</div></main>
+<script>
+const BOX = "n-press", NAME = "Press", SHORT = "PRESS", SCOPE = "/notify/b/n-press/", PRIVATE = false;
+const SB = "https://wadinxqplrggagkvrdag.supabase.co", ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndhZGlueHFwbHJnZ2Fna3ZyZGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA1NDk0MTYsImV4cCI6MjA5NjEyNTQxNn0.1UKKUb_fY-xOy33vNUszDzxGECqQxdcwaxb9kN7KY-g", FN = "https://wadinxqplrggagkvrdag.functions.supabase.co/notify-push";
+const PG = { apikey: ANON, Authorization: "Bearer " + ANON };
+const el = (id) => document.getElementById(id), esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const remembered = (k) => { try { return localStorage.getItem(k) || ""; } catch (_) { return ""; } }, remember = (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} };
+const ago = (iso) => { const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000); return s < 60 ? "now" : s < 3600 ? Math.floor(s / 60) + "m" : s < 86400 ? Math.floor(s / 3600) + "h" : Math.floor(s / 86400) + "d"; };
+/* the box's last two days, newest first (public.notify_box_list keeps the public rules of the all-in-one list, so private boxes - Urth,
+   home and system notices - are never listed here: they only arrive as notifications) */
+async function paintList() {
+  if (PRIVATE) { el("list").innerHTML = '<div class="msg">' + esc(NAME) + " alerts are private: they arrive here as notifications and are not listed on this page.</div>"; return; }
+  try {
+    const r = await fetch(SB + "/rest/v1/rpc/notify_box_list", { method: "POST", headers: { ...PG, "content-type": "application/json" }, body: JSON.stringify({ p_box: BOX, p_hours: 48 }) });
+    if (!r.ok) throw new Error("status " + r.status);
+    const rows = await r.json();
+    el("list").innerHTML = rows.length ? rows.map((x) => '<a class="row"' + (x.url ? ' href="' + esc(x.url) + '" target="_blank" rel="noopener"' : "") + '><div class="top"><span class="tk">' + esc(x.ticker || SHORT) + "</span>" + (x.pct != null ? '<span class="' + (x.pct >= 0 ? "up" : "dn") + '">' + (x.pct >= 0 ? "+" : "") + Number(x.pct).toFixed(1) + "%</span>" : "") + "<span>" + esc([x.source, ago(x.at)].filter(Boolean).join(" · ")) + '</span></div><div class="tt">' + esc(x.title) + "</div></a>").join("") : '<div class="msg">Nothing in this box in the last two days.</div>';
+  } catch (e) { el("list").innerHTML = '<div class="msg">Could not read the list (' + esc(e.message) + "). Trying again.</div>"; }
+}
+/* the last alert this app itself received: push-sw-n.js keeps it on the phone, so this line proves the whole road reached THIS app */
+async function paintLast() {
+  try {
+    const c = await caches.open("neon-last"), r = await c.match(SCOPE + "__last"); if (!r) return;
+    const x = await r.json(), t = new Date(x.at);
+    el("last").innerHTML = "Last alert on this phone: <b>" + esc(t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })) + "</b> · " + esc(t.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" })) + " · " + esc(String(x.title || "").slice(0, 60));
+    el("last").hidden = false;
+  } catch (_) { /* nothing kept yet */ }
+}
+/* the phone: one tap, once, from the Home Screen */
+const IS_IPAD = /iPad/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const STANDALONE = navigator.standalone === true || matchMedia("(display-mode: standalone)").matches, IOS = /iPhone|iPod/.test(navigator.userAgent) || IS_IPAD;
+/* a test machine can name itself (?as=iPhone-sim, remembered), so it is never mistaken for Alan's own iPhone */
+const AS = (() => { const q = new URLSearchParams(location.search).get("as"); if (q) remember("notify.device", q.replace(/[^\w\- ]/g, "").slice(0, 24)); return remembered("notify.device"); })();
+const deviceName = () => AS || (/iPhone/.test(navigator.userAgent) ? "iPhone" : IS_IPAD ? "iPad" : /Android/.test(navigator.userAgent) ? "Android" : "computer");
+function setup(html) { const s = el("setup"); s.hidden = !html; s.innerHTML = html || ""; const b = el("go"); if (b) b.addEventListener("click", turnOn); }
+async function storeSub(sub) {
+  const j = sub.toJSON(), r = await fetch(SB + "/rest/v1/push_subscriptions", { method: "POST", headers: { ...PG, "content-type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify({ endpoint: sub.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth, device: deviceName(), ua: navigator.userAgent.slice(0, 200), box: BOX }) });
+  if (!r.ok && r.status !== 409) throw new Error("not stored (" + r.status + ")");
+  return r.status !== 409;
+}
+let HEALED = false;
+async function paintSetup() {
+  el("state").textContent = "";
+  if (IOS && !STANDALONE) return setup('<h2>Add ' + esc(SHORT) + ' to your phone</h2><ol><li>Tap <b>Share</b>, the square with the arrow, ' + (IS_IPAD ? "top right" : "at the bottom") + ' of Safari</li><li>Tap <b>Add to Home Screen</b>, then <b>Add</b></li><li>Open the new <b>' + esc(SHORT) + '</b> icon and tap the button there</li></ol>');
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return setup(IOS ? "" : "<p>This box is for the iPhone: open this page in Safari there.</p>");
+  if (Notification.permission === "denied") return setup("<h2>Notifications are blocked here</h2><p>Settings, then Notifications, then " + esc(SHORT) + ", then Allow Notifications.</p>");
+  const reg = await navigator.serviceWorker.getRegistration(SCOPE).catch(() => null), sub = reg ? await reg.pushManager.getSubscription().catch(() => null) : null;
+  if (Notification.permission === "granted" && sub) {
+    el("state").textContent = "on";
+    if (HEALED) return setup("");
+    try { HEALED = true; if (await storeSub(sub)) await reg.showNotification(SHORT, { body: "This box is on. Its alerts arrive here, in their own stack.", icon: SCOPE + "icon-192.png" }); return setup(""); }
+    catch (e) { HEALED = false; }
+  }
+  setup('<p>One tap and the ' + esc(SHORT) + ' alerts arrive in their own stack.</p><button type="button" id="go">Turn on ' + esc(SHORT) + '</button>');
+}
+async function turnOn() {
+  const b = el("go"); b.disabled = true; b.textContent = "Asking…";
+  try {
+    const key = await fetch(FN + "?mode=vapid").then((r) => r.json()); if (!key.publicKey) throw new Error(key.error || "no key");
+    const reg = await navigator.serviceWorker.register("/notify/b/push-sw-n.js", { scope: SCOPE }); await navigator.serviceWorker.ready;
+    const perm = await Notification.requestPermission(); if (perm !== "granted") throw new Error("not allowed");
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key.publicKey });
+    await storeSub(sub); HEALED = true;
+    await reg.showNotification(SHORT, { body: "This box is on. Its alerts arrive here, in their own stack.", icon: SCOPE + "icon-192.png" });
+    setup(""); el("state").textContent = "on";
+  } catch (e) { b.disabled = false; b.textContent = "Try again · " + String(e.message || e).slice(0, 40); }
+}
+paintList(); paintSetup(); paintLast(); setInterval(() => { paintList(); paintLast(); }, 30000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) { paintList(); paintSetup(); paintLast(); } });
+</script>
+</body>
+</html>
